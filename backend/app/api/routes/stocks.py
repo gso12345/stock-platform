@@ -27,24 +27,32 @@ async def _run(fn, *args):
 
 # ── 국내 주식 ──────────────────────────────────────────────
 async def get_kr_price(symbol: str) -> dict:
-    """KIS → FDR캐시 → yfinance 순으로 폴백"""
+    """KIS → Naver 실시간 → FDR캐시 → yfinance 순으로 폴백"""
+    from app.services.price_fetcher import fetch_naver_stock
     code6 = symbol.replace(".KS","").replace(".KQ","")
     # 1순위: KIS 실시간
     if settings.KIS_APP_KEY:
         result = await kis_service.get_price(code6)
         if result and result.get("price"):
             return result
-        try:
-            result = await _run(yf_service.get_stock_price, symbol, "KR")
-            if result and result.get("price"):
-                return result
-        except Exception:
-            pass
-    # 2순위: FDR 일일 종가 캐시 (전체 KRX 종목 커버)
+    # 2순위: Naver 실시간 (무료, 장중 실시간에 가까움)
+    try:
+        naver = await fetch_naver_stock(code6)
+        if naver and naver.get("price"):
+            return naver
+    except Exception:
+        pass
+    # 3순위: FDR 전일 종가 캐시
     fdr = get_fdr_price(symbol) or get_fdr_price(code6+".KS") or get_fdr_price(code6+".KQ")
     if fdr and fdr.get("price"):
         return fdr
-    # 3순위: 데모 가격 (기존 주요 종목 하드코딩)
+    # 4순위: yfinance
+    try:
+        result = await _run(yf_service.get_stock_price, symbol, "KR")
+        if result and result.get("price"):
+            return result
+    except Exception:
+        pass
     demo = get_demo_price(code6+".KS") or get_demo_price(code6+".KQ") or get_demo_price(symbol)
     return demo or {"symbol": symbol, "price": None, "change_rate": 0}
 

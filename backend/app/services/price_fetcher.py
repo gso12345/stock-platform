@@ -51,7 +51,7 @@ def _yf_base() -> str:
 
 # ── 네이버 모바일 — 한국 주식 ──────────────────────────────
 async def fetch_naver_stock(code6: str) -> dict | None:
-    """네이버 모바일 API로 한국 단일 종목 조회"""
+    """네이버 모바일 API로 한국 단일 종목 조회 (실시간 가격·거래량·시가총액·PER·PBR)"""
     url = f"https://m.stock.naver.com/api/stock/{code6}/basic"
     try:
         async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
@@ -60,21 +60,38 @@ async def fetch_naver_stock(code6: str) -> dict | None:
             return None
         d = r.json()
         curr = _safe(d.get("closePrice"))
-        prev = _safe(d.get("compareToPreviousClosePrice"))  # 전일대비 변동액
         if curr is None:
             return None
-        # prev는 전일대비 변동액 (±)이므로 전일종가 계산
-        prev_close = curr - (prev or 0)
+        chg  = _safe(d.get("compareToPreviousClosePrice")) or 0
         chgr = _safe(d.get("fluctuationsRatio")) or 0
+        vol  = int(str(d.get("accumulatedTradingVolume") or 0).replace(",","") or 0)
+        amt  = int(str(d.get("accumulatedTradingValue") or 0).replace(",","") or 0)
+        mcap = int(str(d.get("marketValue") or 0).replace(",","") or 0)
+        per  = _safe(d.get("per"))
+        pbr  = _safe(d.get("pbr"))
+        eps  = _safe(d.get("eps"))
+        high = _safe(d.get("highPrice"))
+        low  = _safe(d.get("lowPrice"))
+        open_ = _safe(d.get("openPrice"))
+        # 시장 구분
+        market_type = d.get("stockExchangeType", {})
+        suffix = ".KQ" if isinstance(market_type, dict) and "KOSDAQ" in market_type.get("code","") else ".KS"
         return {
-            "symbol":      f"{code6}.KS",
+            "symbol":      f"{code6}{suffix}",
             "name":        d.get("stockName",""),
             "price":       curr,
-            "prev_close":  prev_close,
-            "change":      round(prev or 0, 2),
+            "prev_close":  curr - chg,
+            "change":      round(chg, 2),
             "change_rate": round(chgr, 2),
-            "volume":      0,
-            "market_cap":  0,
+            "volume":      vol,
+            "amount":      amt,
+            "market_cap":  mcap,
+            "high":        high or 0,
+            "low":         low or 0,
+            "open":        open_ or 0,
+            "per":         per,
+            "pbr":         pbr,
+            "eps":         eps,
             "currency":    "KRW",
         }
     except Exception as e:
