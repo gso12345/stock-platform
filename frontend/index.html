@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- ── 기본 SEO ──────────────────────────────────────── -->
+    <title>StockPlatform — 한국·미국 주식 종목발굴 & 백테스트</title>
+    <meta name="description"
+          content="한국(KOSPI·KOSDAQ)·미국(S&P500·NASDAQ) 주식 및 ETF를 스크리닝하고 백테스트하는 전문 투자 분석 플랫폼. 실시간 지수, 종목 검색, 기술적 지표 백테스트를 무료로 사용하세요." />
+    <meta name="keywords"
+          content="주식 스크리닝, 백테스트, 종목발굴, 한국주식, 미국주식, ETF, KOSPI, KOSDAQ, 기술적분석, 퀀트투자, stock screener, backtest" />
+    <meta name="author" content="StockPlatform" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://stockplatform.vercel.app" />
+
+    <!-- ── Open Graph (카카오·페이스북 공유 미리보기) ──── -->
+    <meta property="og:type"        content="website" />
+    <meta property="og:url"         content="https://stockplatform.vercel.app" />
+    <meta property="og:title"       content="StockPlatform — 종목발굴 & 백테스트" />
+    <meta property="og:description" content="한국·미국 주식 스크리닝, 백테스트, 실시간 지수 분석 플랫폼" />
+    <meta property="og:image"       content="https://stockplatform.vercel.app/og-image.png" />
+    <meta property="og:locale"      content="ko_KR" />
+    <meta property="og:site_name"   content="StockPlatform" />
+
+    <!-- ── Twitter Card ─────────────────────────────────── -->
+    <meta name="twitter:card"        content="summary_large_image" />
+    <meta name="twitter:title"       content="StockPlatform — 종목발굴 & 백테스트" />
+    <meta name="twitter:description" content="한국·미국 주식 스크리닝, 백테스트, 실시간 지수 분석" />
+    <meta name="twitter:image"       content="https://stockplatform.vercel.app/og-image.png" />
+
+    <!-- ── 네이버 사이트 인증 (나중에 발급받은 코드로 교체) ── -->
+    <!-- <meta name="naver-site-verification" content="여기에_네이버_인증코드" /> -->
+
+    <!-- ── 구글 사이트 인증 (나중에 발급받은 코드로 교체) ── -->
+    <!-- <meta name="google-site-verification" content="여기에_구글_인증코드" /> -->
+
+    <!-- ── 파비콘 ─────────────────────────────────────────── -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- ── 폰트 ──────────────────────────────────────────── -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+    <!-- ── 구조화 데이터 (JSON-LD) ──────────────────────── -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "StockPlatform",
+      "url": "https://stockplatform.vercel.app",
+      "description": "한국·미국 주식 종목발굴 및 백테스트 플랫폼",
+      "applicationCategory": "FinanceApplication",
+      "operatingSystem": "Web",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "KRW"
+      },
+      "featureList": [
+        "주식 스크리닝 (PER, PBR, ROE 등 다중 필터)",
+        "기술적 지표 백테스트 (MA, RSI, MACD, 볼린저밴드)",
+        "실시간 지수 (KOSPI, KOSDAQ, S&P500, NASDAQ)",
+        "한국·미국·ETF 종목 검색",
+        "관심종목 관리"
+      ],
+      "inLanguage": "ko"
+    }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

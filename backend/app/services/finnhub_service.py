@@ -1,0 +1,167 @@
+"""
+Finnhub API — 미국 주식 실시간 데이터
+https://finnhub.io — 무료 60 req/min
+"""
+import httpx
+import time
+from datetime import datetime, timedelta
+from app.core.config import settings
+from app.core.cache import cache
+
+BASE = "https://finnhub.io/api/v1"
+
+PERIOD_TO_DAYS = {
+    "1m": 30, "3m": 90, "6m": 180, "1y": 365,
+    "2y": 730, "5y": 1825, "10y": 3650, "max": 3650,
+}
+
+RESOLUTION_MAP = {
+    "1m": "D", "3m": "D", "6m": "D", "1y": "D",
+    "2y": "W", "5y": "W", "10y": "M", "max": "M",
+}
+
+
+class FinnhubService:
+    @property
+    def _configured(self) -> bool:
+        return bool(settings.FINNHUB_API_KEY)
+
+    def _get(self, endpoint: str, params: dict = {}) -> dict | list:
+        params = {**params, "token": settings.FINNHUB_API_KEY}
+        try:
+            r = httpx.get(f"{BASE}{endpoint}", params=params, timeout=10)
+            return r.json()
+        except Exception:
+            return {}
+
+    # ── 실시간 시세 ────────────────────────────────────
+    def get_quote(self, symbol: str) -> dict | None:
+        if not self._configured:
+            return None
+        ck = f"fh:quote:{symbol}"
+        if c := cache.get(ck):
+            return c
+        d = self._get("/quote", {"symbol": symbol})
+        if not d or d.get("c") in (None, 0):
+            return cache.get_stale(ck)
+        pc = float(d.get("pc", 0))
+        curr = float(d.get("c", 0))
+        change = curr - pc
+        result = {
+            "symbol":      symbol,
+            "price":       round(curr, 2),
+            "prev_close":  round(pc, 2),
+            "open":        round(float(d.get("o", 0)), 2),
+            "high":        round(float(d.get("h", 0)), 2),
+            "low":         round(float(d.get("l", 0)), 2),
+            "change":      round(change, 2),
+            "change_rate": round(float(d.get("dp", 0)), 2),
+            "volume":      0,
+            "currency":    "USD",
+        }
+        cache.set(ck, result, 15)  # 15초 캐시 (실시간)
+        return result
+
+    # ── 회사 프로필 ────────────────────────────────────
+    def get_profile(self, symbol: str) -> dict:
+        if not self._configured:
+            return {}
+        ck = f"fh:profile:{symbol}"
+        if c := cache.get(ck):
+            return c
+        d = self._get("/stock/profile2", {"symbol": symbol})
+        result = {
+            "name":     d.get("name"),
+            "exchange": d.get("exchange"),
+            "industry": d.get("finnhubIndustry"),
+            "market_cap": d.get("marketCapitalization", 0),  # 백만 달러 단위
+            "logo":     d.get("logo"),
+            "website":  d.get("weburl"),
+            "currency": d.get("currency", "USD"),
+            "country":  d.get("country"),
+        }
+        cache.set(ck, result, 3600)
+        return result
+
+    # ── 기본 재무 지표 ─────────────────────────────────
+    def get_metrics(self, symbol: str) -> dict:
+        if not self._configured:
+            return {}
+        ck = f"fh:metrics:{symbol}"
+        if c := cache.get(ck):
+            return c
+        d = self._get("/stock/metric", {"symbol": symbol, "metric": "all"})
+        m = d.get("metric", {})
+        result = {
+            "per":         m.get("peBasicExclExtraTTM"),
+            "pbr":         m.get("pbAnnual"),
+            "roe":         m.get("roeRfy"),
+            "eps":         m.get("epsBasicExclExtraItemsTTM"),
+            "debt_ratio":  m.get("totalDebt/totalEquityAnnual"),
+            "week52_high": m.get("52WeekHigh"),
+            "week52_low":  m.get("52WeekLow"),
+            "dividend_yield": m.get("dividendYieldIndicatedAnnual"),
+            "beta":        m.get("beta"),
+        }
+        cache.set(ck, result, 3600)
+        return result
+
+    # ── OHLCV 차트 데이터 ───────────────────────────────
+    def get_candles(self, symbol: str, period: str = "1y", resolution: str = "") -> list:
+        if not self._configured:
+            return []
+        if not resolution:
+            resolution = RESOLUTION_MAP.get(period, "D")
+        ck = f"fh:candle:{symbol}:{period}:{resolution}"
+        if c := cache.get(ck):
+            return c
+        days = PERIOD_TO_DAYS.get(period, 365)
+        now = int(time.time())
+        start = now - days * 86400
+        d = self._get("/stock/candle", {
+            "symbol": symbol, "resolution": resolution,
+            "from": start, "to": now,
+        })
+        if d.get("s") != "ok":
+            return cache.get_stale(ck) or []
+        result = []
+        ts_list = d.get("t", [])
+        for i in range(len(ts_list)):
+            dt = datetime.fromtimestamp(ts_list[i]).strftime("%Y-%m-%d")
+            result.append({
+                "date":   dt,
+                "open":   round(float(d["o"][i]), 2),
+                "high":   round(float(d["h"][i]), 2),
+                "low":    round(float(d["l"][i]), 2),
+                "close":  round(float(d["c"][i]), 2),
+                "volume": int(d["v"][i]),
+            })
+        cache.set(ck, result, 300)
+        return result
+
+    # ── 미국 주식 상세 (통합) ──────────────────────────
+    def get_stock_detail(self, symbol: str) -> dict:
+        quote   = self.get_quote(symbol) or {}
+        profile = self.get_profile(symbol) or {}
+        metrics = self.get_metrics(symbol) or {}
+        mc_raw = profile.get("market_cap", 0) or 0
+        return {
+            **quote,
+            "name":           profile.get("name") or quote.get("name", symbol),
+            "exchange":       profile.get("exchange"),
+            "sector":         profile.get("industry"),
+            "market_cap":     int(mc_raw * 1_000_000),  # 백만 → 실제값
+            "per":            metrics.get("per"),
+            "pbr":            metrics.get("pbr"),
+            "roe":            metrics.get("roe"),
+            "eps":            metrics.get("eps"),
+            "debt_ratio":     metrics.get("debt_ratio"),
+            "week52_high":    metrics.get("week52_high"),
+            "week52_low":     metrics.get("week52_low"),
+            "dividend_yield": metrics.get("dividend_yield"),
+            "beta":           metrics.get("beta"),
+            "currency":       profile.get("currency", "USD"),
+        }
+
+
+finnhub_service = FinnhubService()

@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CSS 변수 (다크 기본) ─────────────────────────────── */
+:root {
+  --bg-base:      #0b0e17;
+  --bg-primary:   #0f1117;
+  --bg-secondary: #141824;
+  --bg-card:      #1a1f2e;
+  --bg-elevated:  #1e2438;
+  --bg-hover:     #232840;
+
+  --border-default: #232840;
+  --border-light:   #2d3352;
+  --border-subtle:  #1a1f2e;
+
+  --text-primary:   #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted:     #64748b;
+  --text-dim:       #475569;
+
+  --scrollbar-thumb: #1e2235;
+}
+
+/* ── 라이트 모드 ──────────────────────────────────────── */
+html.light {
+  --bg-base:      #f0f4f8;
+  --bg-primary:   #f8fafc;
+  --bg-secondary: #eef2f7;
+  --bg-card:      #ffffff;
+  --bg-elevated:  #f1f5f9;
+  --bg-hover:     #e2e8f0;
+
+  --border-default: #cbd5e1;
+  --border-light:   #e2e8f0;
+  --border-subtle:  #f1f5f9;
+
+  --text-primary:   #0f172a;
+  --text-secondary: #334155;
+  --text-muted:     #64748b;
+  --text-dim:       #94a3b8;
+
+  --scrollbar-thumb: #cbd5e1;
+}
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html {
+    font-family: "JetBrains Mono", "Pretendard Variable", "Pretendard", -apple-system, system-ui, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    overflow-x: hidden;
+  }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+  input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.4); }
+  select { -webkit-appearance: none; cursor: pointer; }
+}
+
+@layer components {
+  .glass {
+    background: rgba(30, 34, 53, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  html.light .glass {
+    background: rgba(255,255,255,0.8);
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+
+  .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  .pos { color: #10b981; }
+  .neg { color: #ef4444; }
+
+  .fade-in { animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .slide-up { animation: slideUp 0.3s ease; }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+}

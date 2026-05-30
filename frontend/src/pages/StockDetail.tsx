@@ -1,0 +1,960 @@
+import { useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { stocksApi, watchlistApi, financialsApi } from "@/api/stocks";
+import {
+  ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
+  RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
+  Newspaper, Users, ExternalLink,
+} from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import type { Market } from "@/types";
+import StockChart, { CANDLE_TYPES, PERIOD_BY_CANDLE, type ChartType } from "@/components/chart/StockChart";
+
+/* ── 포맷 유틸 ──────────────────────────────────────── */
+function fmtKRW(v: number | null | undefined): string {
+  if (v == null) return "—";
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(2)}조`;
+  if (abs >= 1e8)  return `${(v / 1e8).toFixed(0)}억`;
+  if (abs >= 1e4)  return `${(v / 1e4).toFixed(0)}만`;
+  return v.toLocaleString("ko-KR");
+}
+
+function fmtUSD(v: number | null | undefined): string {
+  if (v == null) return "—";
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+  if (abs >= 1e9)  return `$${(v / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6)  return `$${(v / 1e6).toFixed(2)}M`;
+  return `$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return "—";
+  return d.replace(/(\d{4})-?(\d{2})-?(\d{2})/, "$1년 $2월 $3일");
+}
+
+function fmtNum(v: number | null | undefined, digits = 1): string {
+  if (v == null) return "—";
+  return v.toFixed(digits);
+}
+
+/* ── 지표 셀 ────────────────────────────────────────── */
+function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 p-3 rounded-xl border border-border bg-bg-elevated">
+      <span className="text-2xs text-text-muted font-medium uppercase tracking-wide">{label}</span>
+      <span className={`text-sm font-mono font-semibold truncate ${color ?? "text-text-primary"}`}>{value ?? "—"}</span>
+      {sub && <span className="text-2xs text-text-muted font-mono">{sub}</span>}
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h3 className="text-xs font-bold text-text-muted uppercase tracking-widest mb-2">{children}</h3>;
+}
+
+function TabBtn({ active, onClick, icon: Icon, label }: any) {
+  return (
+    <button onClick={onClick} className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${active ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-secondary hover:bg-bg-elevated"}`}>
+      <Icon size={13} />{label}
+    </button>
+  );
+}
+
+/* ── 메인 ───────────────────────────────────────────── */
+export default function StockDetail() {
+  const { market, symbol: rawSymbol } = useParams<{ market: string; symbol: string }>();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+
+  const m   = (market?.toUpperCase() || "US") as Market;
+  const sym = decodeURIComponent(rawSymbol ?? "").toUpperCase();
+  const isKR = m === "KR";
+
+  const [candleType, setCandleType] = useState("1d");
+  const [chartType, setChartType]   = useState<ChartType>("candle");
+  const [logScale, setLogScale]     = useState(false);
+  const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "supply">("chart");
+  const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
+  const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health">("basic");
+  const [selectedMetric, setSelectedMetric] = useState("op_margin");
+  const [supplyDays, setSupplyDays]   = useState(30);
+  const [newsSort, setNewsSort]       = useState<"latest" | "popular">("latest");
+  const [inWatchlist, setInWatchlist] = useState(false);
+
+  const onCandleChange = (type: string) => {
+    setCandleType(type);
+  };
+
+  const fmt = (v: number | null | undefined) => isKR ? fmtKRW(v) : fmtUSD(v);
+
+  const { data: detail, isLoading: loadingDetail, error: detailError, refetch: refetchDetail } = useQuery({
+    queryKey: ["stock-detail", m, sym],
+    queryFn: () => stocksApi.getDetail(m, sym),
+    enabled: !!sym, retry: 2, retryDelay: 2000, staleTime: 15_000,
+    refetchInterval: isKR ? 10_000 : 30_000,
+  });
+
+  const intradayPeriod: Record<string,string> = { "1m":"5d","5m":"60d","15m":"60d","30m":"60d","60m":"60d" };
+  const chartPeriod = intradayPeriod[candleType] ?? "max";
+
+  const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
+    queryKey: ["stock-ohlcv", m, sym, candleType],
+    queryFn: () => stocksApi.getOHLCV(m, sym, chartPeriod, candleType),
+    enabled: !!sym, retry: 2, staleTime: 0,
+    placeholderData: (prev) => prev,
+    refetchInterval: candleType.includes("m") ? 60_000 : 300_000,
+  });
+
+  const { data: financials, isLoading: loadingFin } = useQuery({
+    queryKey: ["stock-financials", m, sym],
+    queryFn: () => financialsApi.get(m, sym),
+    enabled: !!sym && mainTab === "financial",
+    retry: 1, staleTime: 3_600_000,
+  });
+
+  const { data: metricsHistory } = useQuery({
+    queryKey: ["metrics-history", m, sym],
+    queryFn: () => stocksApi.getMetricsHistory(m, sym),
+    enabled: !!sym && mainTab === "financial",
+    retry: 1, staleTime: 3_600_000,
+  });
+
+  const { data: forecasts } = useQuery({
+    queryKey: ["forecasts", m, sym],
+    queryFn: () => stocksApi.getForecasts(m, sym),
+    enabled: !!sym && mainTab === "financial",
+    retry: 1, staleTime: 3_600_000,
+  });
+
+  const { data: stockNews, isLoading: loadingNews } = useQuery({
+    queryKey: ["stock-news", m, sym],
+    queryFn: () => stocksApi.getNews(m, sym),
+    enabled: !!sym && mainTab === "news",
+    staleTime: 300_000,
+  });
+
+  const { data: earningsData } = useQuery({
+    queryKey: ["earnings", m, sym],
+    queryFn: () => stocksApi.getEarnings(m, sym),
+    enabled: !!sym && mainTab === "news",
+    staleTime: 3_600_000,
+  });
+
+  const { data: supplyData, isLoading: loadingSupply } = useQuery({
+    queryKey: ["supply-demand", sym, supplyDays],
+    queryFn: () => stocksApi.getSupplyDemand(sym, supplyDays),
+    enabled: !!sym && mainTab === "supply" && isKR,
+    staleTime: 600_000,
+  });
+
+  const addMutation = useMutation({
+    mutationFn: () => watchlistApi.addItem({ symbol: sym, market: m, name: (detail as any)?.name ?? sym, watchlist_id: 1 }),
+    onSuccess: () => { setInWatchlist(true); qc.invalidateQueries({ queryKey: ["watchlist-items"] }); },
+  });
+
+  const d = detail as any;
+  const priceStr = d?.price != null
+    ? isKR ? `₩${d.price.toLocaleString("ko-KR")}` : `$${d.price.toFixed(2)}`
+    : "—";
+  const isUp = (d?.change_rate ?? 0) >= 0;
+
+  if (loadingDetail) {
+    return (
+      <div className="flex flex-col gap-4 animate-pulse">
+        <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-bg-elevated"/><div className="h-8 w-40 rounded-lg bg-bg-elevated"/></div>
+        <div className="h-28 rounded-xl bg-bg-elevated"/>
+        <div className="grid grid-cols-6 gap-2">{Array(6).fill(0).map((_,i)=><div key={i} className="h-16 rounded-lg bg-bg-elevated"/>)}</div>
+        <div className="h-[500px] rounded-xl bg-bg-elevated"/>
+      </div>
+    );
+  }
+
+  if (detailError && !detail) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <div className="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center"><TrendingDown size={20} className="text-accent-red"/></div>
+        <p className="text-text-primary font-semibold">데이터를 불러올 수 없습니다 ({sym})</p>
+        <div className="flex gap-2">
+          <button onClick={()=>refetchDetail()} className="flex items-center gap-1.5 px-4 py-2 bg-accent-blue text-white text-sm font-semibold rounded-lg"><RefreshCw size={13}/>다시 시도</button>
+          <button onClick={()=>navigate(-1)} className="px-4 py-2 text-text-muted text-sm rounded-lg border border-border">뒤로</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 fade-in">
+      {/* 헤더 */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <button onClick={()=>navigate(-1)} className="mt-1 p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors"><ArrowLeft size={16}/></button>
+          <div>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-2xl font-bold font-mono text-text-primary">{sym.replace(".KS","").replace(".KQ","")}</h1>
+              <span className={`text-2xs px-1.5 py-0.5 rounded border font-bold ${isKR?"border-blue-700/50 text-blue-400 bg-blue-900/20":m==="ETF"?"border-purple-700/50 text-purple-400 bg-purple-900/20":"border-green-700/50 text-green-400 bg-green-900/20"}`}>{m}</span>
+              {d?.sector && <span className="text-2xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted">{d.sector}</span>}
+            </div>
+            {d?.name && <p className="text-text-muted text-sm mt-0.5">{d.name}</p>}
+          </div>
+        </div>
+        <button onClick={()=>!inWatchlist&&addMutation.mutate()} disabled={addMutation.isPending}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-all flex-shrink-0 ${inWatchlist?"border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow":"border-border text-text-muted hover:border-accent-yellow/60 hover:text-accent-yellow"}`}
+        >
+          <Star size={14} fill={inWatchlist?"currentColor":"none"}/>{inWatchlist?"관심종목":"추가"}
+        </button>
+      </div>
+
+      {/* 가격 패널 */}
+      {d && (
+        <div className="rounded-xl p-5 border border-border bg-bg-card">
+          <div className="flex flex-wrap items-start gap-6">
+            <div className="flex-shrink-0">
+              <div className="text-3xl font-mono font-bold text-text-primary num">{priceStr}</div>
+              <div className="flex items-center gap-2 mt-1.5">
+                {isUp?<TrendingUp size={13} className="text-accent-green"/>:<TrendingDown size={13} className="text-accent-red"/>}
+                <span className={`text-sm font-mono font-semibold num ${isUp?"text-accent-green":"text-accent-red"}`}>
+                  {isUp?"+":""}{isKR?d.change?.toLocaleString("ko-KR"):d.change?.toFixed(2)}
+                </span>
+                <span className={`text-sm font-mono font-bold num ${isUp?"text-accent-green":"text-accent-red"}`}>
+                  ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
+                </span>
+                {d._demo && <span className="text-2xs px-1 py-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
+              </div>
+            </div>
+            <div className="w-px h-12 bg-border hidden sm:block"/>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-2 flex-1">
+              {[
+                { label:"전일종가", v: isKR?d.prev_close?.toLocaleString("ko-KR"):d.prev_close?.toFixed(2) },
+                { label:"시가",    v: isKR?d.open?.toLocaleString("ko-KR"):d.open?.toFixed(2) },
+                { label:"고가",    v: isKR?d.high?.toLocaleString("ko-KR"):d.high?.toFixed(2) },
+                { label:"저가",    v: isKR?d.low?.toLocaleString("ko-KR"):d.low?.toFixed(2) },
+                { label:"거래량",  v: d.volume?.toLocaleString("ko-KR") },
+                { label:"거래대금",v: fmt(d.price&&d.volume?d.price*d.volume:null) },
+                { label:"시가총액",v: fmt(d.market_cap) },
+                { label:"52주 고/저", v: d.week52_high?`${isKR?d.week52_high?.toFixed(0):d.week52_high?.toFixed(2)} / ${isKR?d.week52_low?.toFixed(0):d.week52_low?.toFixed(2)}`:null },
+              ].map(item=>(
+                <div key={item.label} className="flex flex-col gap-0.5">
+                  <span className="text-2xs text-text-muted">{item.label}</span>
+                  <span className="text-sm font-mono text-text-primary num">{item.v??"—"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 핵심 지표 (간략) */}
+      {d && (
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          <StatCell label="PER"      value={fmtNum(d.per)}     />
+          <StatCell label="PBR"      value={fmtNum(d.pbr, 2)}  />
+          <StatCell label="ROE"      value={d.roe!=null?`${d.roe.toFixed(1)}%`:null}
+            color={d.roe!=null?(d.roe>=15?"text-accent-green":d.roe<0?"text-accent-red":"text-text-primary"):undefined}/>
+          <StatCell label="EPS"      value={isKR?d.eps?.toLocaleString("ko-KR"):d.eps?.toFixed(2)}/>
+          <StatCell label="배당수익률" value={d.dividend_yield!=null?`${d.dividend_yield.toFixed(2)}%`:null} color="text-accent-green"/>
+          <StatCell label="부채비율"  value={d.debt_ratio!=null?`${d.debt_ratio.toFixed(0)}%`:null}
+            color={d.debt_ratio!=null?(d.debt_ratio>200?"text-accent-red":d.debt_ratio<100?"text-accent-green":"text-text-primary"):undefined}/>
+        </div>
+      )}
+
+      {/* 탭 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit flex-wrap">
+          <TabBtn active={mainTab==="chart"}     onClick={()=>setMainTab("chart")}     icon={BarChart2}    label="차트" />
+          <TabBtn active={mainTab==="financial"} onClick={()=>setMainTab("financial")} icon={DollarSign}   label="재무제표" />
+          <TabBtn active={mainTab==="news"}      onClick={()=>setMainTab("news")}      icon={Newspaper}    label="뉴스/공시" />
+          {isKR && <TabBtn active={mainTab==="supply"} onClick={()=>setMainTab("supply")} icon={Users} label="수급" />}
+        </div>
+        {/* 재무제표 서브탭 (메인탭 옆에 배치) */}
+        {mainTab==="financial" && (
+          <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit flex-wrap">
+            {([
+              { value:"basic",         label:"기본" },
+              { value:"income",        label:"손익계산서" },
+              { value:"valuation",     label:"밸류에이션" },
+              { value:"profitability", label:"수익성" },
+              { value:"health",        label:"재무건전성" },
+            ] as const).map(({ value, label })=>(
+              <button key={value} onClick={()=>setFinSubTab(value)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${finSubTab===value?"bg-accent-blue text-white shadow":"text-text-muted hover:text-text-secondary hover:bg-bg-elevated"}`}
+              >{label}</button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 차트 탭 */}
+      {mainTab==="chart" && (
+        <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+          {/* 봉 종류 */}
+          <div className="px-4 py-2.5 border-b border-border flex flex-wrap items-center gap-2">
+            <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
+              {CANDLE_TYPES.map(ct=>(
+                <button key={ct.value} onClick={()=>onCandleChange(ct.value)}
+                  className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                >{ct.label}</button>
+              ))}
+            </div>
+            <button onClick={()=>refetchChart()} className="ml-auto p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+              <RefreshCw size={13}/>
+            </button>
+          </div>
+          {/* 차트 설정 */}
+          <div className="px-4 py-2 border-b border-border bg-bg-secondary flex flex-wrap items-center gap-3">
+            <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">차트 설정</span>
+            <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
+              {([
+                { value:"candle", label:"캔들",  Icon: CandlestickChart },
+                { value:"line",   label:"라인",  Icon: LineChart },
+                { value:"area",   label:"영역",  Icon: AreaChart },
+              ] as const).map(({ value, label, Icon })=>(
+                <button key={value} onClick={()=>setChartType(value)}
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                >
+                  <Icon size={11}/>{label}
+                </button>
+              ))}
+            </div>
+            <button onClick={()=>setLogScale(v=>!v)}
+              className={`px-2.5 py-1 text-xs rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted hover:text-text-primary"}`}
+            >
+              LOG
+            </button>
+          </div>
+          {ohlcv?.length ? (
+            <div className="relative">
+              {fetchingChart && (
+                <div className="absolute top-2 right-2 z-10 w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
+              )}
+              <StockChart data={ohlcv} height={420} isKR={isKR} chartType={chartType} logScale={logScale}/>
+            </div>
+          ) : fetchingChart ? (
+            <div className="h-[500px] flex flex-col items-center justify-center gap-3">
+              <div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
+              <p className="text-text-muted text-sm">차트 로딩 중...</p>
+            </div>
+          ) : (
+            <div className="h-[420px] flex flex-col items-center justify-center gap-3">
+              <BarChart2 size={32} className="text-text-muted/40"/>
+              <p className="text-text-muted text-sm">차트 데이터 없음</p>
+              <button onClick={()=>refetchChart()} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue text-white text-xs rounded-lg"><RefreshCw size={12}/>재시도</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 재무제표 탭 */}
+      {mainTab==="financial" && (() => {
+        const mh: any[] = (metricsHistory as any)?.[finPeriod] ?? [];
+        const fcst: any[] = (forecasts ?? []).filter((r:any) => r.type === "forecast");
+
+        // metrics-history 최신값으로 detail의 None 보완
+        const mhLatest = [...mh].sort((a,b)=>b.period.localeCompare(a.period))[0] ?? {};
+        const dEnhanced = {
+          per: d?.per ?? mhLatest.per ?? null,
+          pbr: d?.pbr ?? mhLatest.pbr ?? null,
+          psr: d?.psr ?? mhLatest.psr ?? null,
+          eps: d?.eps ?? mhLatest.eps ?? null,
+          bps: d?.bps ?? mhLatest.bps ?? null,
+          roe: d?.roe ?? mhLatest.roe ?? null,
+          roa: d?.roa ?? null,
+          op_margin:    d?.op_margin    ?? mhLatest.op_margin    ?? null,
+          net_margin:   d?.net_margin   ?? mhLatest.net_margin   ?? null,
+          gross_margin: d?.gross_margin ?? mhLatest.gross_margin ?? null,
+          debt_ratio:   d?.debt_ratio   ?? mhLatest.debt_ratio   ?? null,
+          current_ratio:d?.current_ratio ?? mhLatest.current_ratio ?? null,
+          quick_ratio:  d?.quick_ratio  ?? mhLatest.quick_ratio  ?? null,
+        };
+
+        // 기간 레이블 (연간: YYYY, 분기: YYYY-QQ)
+        const periodLabel = (p: string) => finPeriod === "quarterly" ? p.slice(0,7) : p.slice(0,4);
+        const mhYears = [...new Set(mh.map((r:any) => periodLabel(r.period)))].sort() as string[];
+
+        // 예측 연도 제거 (컨센서스 표시 안 함)
+        const allYears = [...mhYears];
+
+        // 기간으로 데이터 조회
+        const getVal = (key: string, year: string): number | null => {
+          if (year.endsWith("E")) {
+            const y = year.slice(0,-1);
+            const row = fcst.find((r:any) => r.period.slice(0,4) === y);
+            return row?.[key] ?? null;
+          }
+          const row = mh.find((r:any) => periodLabel(r.period) === year);
+          return row?.[key] ?? null;
+        };
+
+        // 연간/분기 토글 컴포넌트
+        const PeriodToggle = () => (
+          <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary">
+            {(["annual","quarterly"] as const).map(k=>(
+              <button key={k} onClick={()=>setFinPeriod(k)}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${finPeriod===k?"bg-accent-blue text-white":"text-text-muted"}`}>
+                {k==="annual"?"연간":"분기"}
+              </button>
+            ))}
+          </div>
+        );
+
+        // 전치 테이블 렌더러
+        const TransTable = ({ rows }: { rows: { key:string; label:string; fmt:(v:number)=>string; color:string; boldLabel?:boolean }[] }) => {
+          const filteredRows = rows.filter(r => allYears.some(y => getVal(r.key, y) != null));
+          if (!filteredRows.length) return <p className="text-text-muted text-sm py-4 text-center">데이터 없음</p>;
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs min-w-[300px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card w-28">지표</th>
+                    {allYears.map(y=>(
+                      <th key={y} className={`text-right pb-2 font-mono font-medium min-w-[60px] ${y.endsWith("E")?"text-accent-yellow/80":"text-text-muted"}`}>
+                        {y}{y.endsWith("E")?"":""}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRows.map(({ key, label, fmt, color, boldLabel })=>(
+                    <tr key={key} className="border-b border-border/30 hover:bg-bg-hover">
+                      <td className={`py-1.5 text-text-muted sticky left-0 bg-bg-card ${boldLabel?"font-semibold":""}`}>{label}</td>
+                      {allYears.map(y=>{
+                        const v = getVal(key, y);
+                        const isEst = y.endsWith("E");
+                        return (
+                          <td key={y} className={`py-1.5 text-right font-mono ${color} ${isEst?"opacity-70 italic":""}`}>
+                            {v!=null ? fmt(v) : "—"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        };
+
+        // 공통 차트 옵션
+        const chartProps = {
+          margin: {top:4,right:16,left:0,bottom:4} as any,
+          cartesianGridProps: { strokeDasharray:"3 3", stroke:"#232840" },
+          xAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any,
+          yAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any,
+          tooltipProps: { contentStyle:{background:"#141824",border:"1px solid #232840",borderRadius:8,fontSize:11} } as any,
+        };
+
+        return (
+          <div className="flex flex-col gap-4">
+
+          {/* ── 손익계산서 ── */}
+          {finSubTab==="income" && (
+            <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <span className="text-sm font-semibold text-text-primary">손익계산서</span>
+                <PeriodToggle />
+              </div>
+              {loadingFin ? (
+                <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
+              ) : (
+                <div className="p-4 flex flex-col gap-4">
+                  {/* 차트 */}
+                  {financials&&(financials[finPeriod]?.length??0)>0 && (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={financials[finPeriod]} {...chartProps.margin}>
+                        <CartesianGrid {...chartProps.cartesianGridProps}/>
+                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={revenue:"매출",op_income:"영업이익",net_income:"당기순이익"};return[isKR?fmtKRW(v):fmtUSD(v),l[name]??name];}}/>
+                        <Legend formatter={v=>({revenue:"매출",op_income:"영업이익",net_income:"당기순이익"}[v as string]??v)}/>
+                        <Bar dataKey="revenue" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={35}/>
+                        <Bar dataKey="op_income" fill="#10b981" radius={[2,2,0,0]} maxBarSize={35}/>
+                        <Bar dataKey="net_income" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={35}/>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                  {/* 전치 테이블 */}
+                  <TransTable rows={[
+                    { key:"revenue",    label:"매출",       fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-blue" },
+                    { key:"op_income",  label:"영업이익",   fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-green" },
+                    { key:"net_income", label:"당기순이익", fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-purple-400" },
+                    { key:"op_margin",  label:"영업이익률", fmt:(v)=>`${v.toFixed(1)}%`,        color:"text-text-secondary" },
+                    { key:"net_margin", label:"순이익률",   fmt:(v)=>`${v.toFixed(1)}%`,        color:"text-text-secondary" },
+                    { key:"eps",        label:"EPS",        fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-cyan-400" },
+                  ]}/>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── 밸류에이션 ── */}
+          {finSubTab==="valuation" && (
+            <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <span className="text-sm font-semibold text-text-primary">밸류에이션</span>
+                <PeriodToggle />
+              </div>
+              <div className="p-4 flex flex-col gap-4">
+                {/* 현재 지표 — detail 없으면 metricsHistory 최신값 사용 */}
+                {d && (
+                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                    <StatCell label="PER"       value={fmtNum(dEnhanced.per)}          />
+                    <StatCell label="선행PER"   value={fmtNum(d.forward_per)}  />
+                    <StatCell label="PBR"       value={fmtNum(dEnhanced.pbr, 2)}       />
+                    <StatCell label="PSR"       value={fmtNum(dEnhanced.psr, 2)}       />
+                    <StatCell label="EV/EBITDA" value={fmtNum(d.ev_ebitda, 1)} />
+                    <StatCell label="시가총액"  value={fmt(d.market_cap)}      />
+                    <StatCell label="기업가치"  value={fmt(d.enterprise_value)} />
+                  </div>
+                )}
+                {/* PER/PBR 연도별 차트 — PER/PBR 없으면 EPS 차트 */}
+                {(() => {
+                  const hasMultiple = mh.some((r:any) => r.per != null || r.pbr != null);
+                  const hasEps = mh.some((r:any) => r.eps != null);
+                  if (!hasMultiple && !hasEps) return null;
+                  if (hasMultiple) {
+                    return (
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={mh} {...chartProps.margin}>
+                          <CartesianGrid {...chartProps.cartesianGridProps}/>
+                          <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                          <YAxis {...chartProps.yAxisProps}/>
+                          <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[Number(v).toFixed(2),{per:"PER",pbr:"PBR",psr:"PSR"}[n]??n]}/>
+                          <Legend formatter={v=>({per:"PER",pbr:"PBR",psr:"PSR"}[v as string]??v)}/>
+                          <Bar dataKey="per" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={25}/>
+                          <Bar dataKey="pbr" fill="#10b981" radius={[2,2,0,0]} maxBarSize={25}/>
+                          <Bar dataKey="psr" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={25}/>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    );
+                  }
+                  // EPS 차트 (PER/PBR 없을 때)
+                  return (
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={mh.filter((r:any)=>r.eps!=null)} {...chartProps.margin}>
+                        <CartesianGrid {...chartProps.cartesianGridProps}/>
+                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>isKR?fmtKRW(v):fmtUSD(v)}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[isKR?fmtKRW(v):fmtUSD(v),"EPS"]}/>
+                        <Bar dataKey="eps" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  );
+                })()}
+                {/* 전치 테이블 */}
+                <TransTable rows={[
+                  { key:"per",  label:"PER",  fmt:(v)=>v.toFixed(1), color:"text-accent-blue" },
+                  { key:"pbr",  label:"PBR",  fmt:(v)=>v.toFixed(2), color:"text-accent-green" },
+                  { key:"psr",  label:"PSR",  fmt:(v)=>v.toFixed(2), color:"text-purple-400" },
+                  { key:"eps",  label:"EPS",  fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-cyan-400" },
+                  { key:"bps",  label:"BPS",  fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-text-secondary" },
+                ]}/>
+              </div>
+            </div>
+          )}
+
+          {/* ── 기본 (수익성 + 종합 지표) ── */}
+          {finSubTab==="basic" && (
+            <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <span className="text-sm font-semibold text-text-primary">기본 지표</span>
+                <PeriodToggle />
+              </div>
+              <div className="p-4 flex flex-col gap-4">{(() => {
+                const BASIC_METRICS = [
+                  { key:"revenue",       label:"매출",         color:"#3b82f6", pct:false },
+                  { key:"op_income",     label:"영업이익",     color:"#10b981", pct:false },
+                  { key:"net_income",    label:"당기순이익",   color:"#8b5cf6", pct:false },
+                  { key:"op_margin",     label:"영업이익률",   color:"#10b981", pct:true  },
+                  { key:"net_margin",    label:"순이익률",     color:"#8b5cf6", pct:true  },
+                  { key:"gross_margin",  label:"매출총이익률", color:"#3b82f6", pct:true  },
+                  { key:"roe",           label:"ROE",          color:"#f59e0b", pct:true  },
+                  { key:"roa",           label:"ROA",          color:"#06b6d4", pct:true  },
+                  { key:"debt_ratio",    label:"부채비율",     color:"#ef4444", pct:true  },
+                  { key:"current_ratio", label:"유동비율",     color:"#10b981", pct:false },
+                  { key:"eps",           label:"EPS",          color:"#06b6d4", pct:false },
+                ];
+                const curr = BASIC_METRICS.find(m => m.key === selectedMetric) ?? BASIC_METRICS[0];
+                const chartData = mh.filter((r:any) => r[selectedMetric] != null);
+                return (<>
+                  {/* 지표 선택 버튼 */}
+                  <div className="flex flex-wrap gap-1">
+                    {BASIC_METRICS.map(m=>(
+                      <button key={m.key} onClick={()=>setSelectedMetric(m.key)}
+                        className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-all ${selectedMetric===m.key?"text-white border-transparent":"border-border text-text-muted hover:text-text-primary"}`}
+                        style={selectedMetric===m.key?{background:m.color+"cc",borderColor:m.color}:{}}
+                      >{m.label}</button>
+                    ))}
+                  </div>
+                  {/* 선택 지표 차트 */}
+                  {chartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={chartData} {...chartProps.margin}>
+                        <CartesianGrid {...chartProps.cartesianGridProps}/>
+                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>curr.pct?`${v}%`:isKR?fmtKRW(v):fmtUSD(v)}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[curr.pct?`${Number(v).toFixed(1)}%`:(isKR?fmtKRW(v):fmtUSD(v)), curr.label]}/>
+                        <Bar dataKey={selectedMetric} fill={curr.color} radius={[3,3,0,0]} maxBarSize={50}/>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : <p className="text-text-muted text-sm py-4 text-center">데이터 없음</p>}
+                  {/* 전치 테이블 */}
+                  <TransTable rows={BASIC_METRICS.map(m=>({
+                    key: m.key,
+                    label: m.label,
+                    fmt: (v:number) => m.pct ? `${v.toFixed(1)}%` : (m.key==="current_ratio"||m.key==="quick_ratio" ? v.toFixed(2) : (isKR?fmtKRW(v):fmtUSD(v))),
+                    color: "text-text-secondary",
+                  }))}/>
+                </>);
+              })()}
+              </div>
+            </div>
+          )}
+
+          {/* ── 수익성 ── */}
+          {finSubTab==="profitability" && (
+            <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <span className="text-sm font-semibold text-text-primary">수익성</span>
+                <PeriodToggle />
+              </div>
+              <div className="p-4 flex flex-col gap-4">
+                {d && (
+                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                    <StatCell label="ROE" value={dEnhanced.roe!=null?`${dEnhanced.roe.toFixed(1)}%`:null}
+                      color={dEnhanced.roe!=null?(dEnhanced.roe>=15?"text-accent-green":dEnhanced.roe<0?"text-accent-red":"text-text-primary"):undefined}/>
+                    <StatCell label="ROA" value={dEnhanced.roa!=null?`${dEnhanced.roa.toFixed(1)}%`:null}
+                      color={dEnhanced.roa!=null?(dEnhanced.roa>=5?"text-accent-green":dEnhanced.roa<0?"text-accent-red":"text-text-primary"):undefined}/>
+                    <StatCell label="매출총이익률" value={dEnhanced.gross_margin!=null?`${dEnhanced.gross_margin.toFixed(1)}%`:null}/>
+                    <StatCell label="영업이익률" value={dEnhanced.op_margin!=null?`${dEnhanced.op_margin.toFixed(1)}%`:null}
+                      color={dEnhanced.op_margin!=null?(dEnhanced.op_margin>=15?"text-accent-green":dEnhanced.op_margin<0?"text-accent-red":"text-text-primary"):undefined}/>
+                    <StatCell label="순이익률" value={dEnhanced.net_margin!=null?`${dEnhanced.net_margin.toFixed(1)}%`:null}/>
+                    <StatCell label="EPS" value={dEnhanced.eps!=null?(isKR?dEnhanced.eps.toLocaleString("ko-KR"):dEnhanced.eps.toFixed(2)):null}/>
+                    <StatCell label="선행EPS" value={isKR?d.forward_eps?.toLocaleString("ko-KR"):d.forward_eps?.toFixed(2)}/>
+                  </div>
+                )}
+                {mhYears.length > 0 && (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={mh.filter((r:any)=>r.op_margin||r.net_margin)} {...chartProps.margin}>
+                      <CartesianGrid {...chartProps.cartesianGridProps}/>
+                      <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                      <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
+                      <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[`${Number(v).toFixed(1)}%`,{gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률",roe:"ROE"}[n]??n]}/>
+                      <Legend formatter={v=>({gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률",roe:"ROE"}[v as string]??v)}/>
+                      <Bar dataKey="gross_margin" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={20}/>
+                      <Bar dataKey="op_margin"    fill="#10b981" radius={[2,2,0,0]} maxBarSize={20}/>
+                      <Bar dataKey="net_margin"   fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={20}/>
+                      <Bar dataKey="roe"          fill="#f59e0b" radius={[2,2,0,0]} maxBarSize={20}/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                <TransTable rows={[
+                  { key:"gross_margin", label:"매출총이익률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-blue" },
+                  { key:"op_margin",    label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-green" },
+                  { key:"net_margin",   label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
+                  { key:"roe",          label:"ROE",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-yellow" },
+                  { key:"roa",          label:"ROA",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
+                  { key:"eps",          label:"EPS",          fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-cyan-400" },
+                ]}/>
+              </div>
+            </div>
+          )}
+
+          {/* ── 재무건전성 ── */}
+          {finSubTab==="health" && (
+            <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <span className="text-sm font-semibold text-text-primary">재무건전성</span>
+                <PeriodToggle />
+              </div>
+              <div className="p-4 flex flex-col gap-4">
+                {/* 현재 지표 */}
+                {d && (
+                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                    <StatCell label="부채비율"  value={dEnhanced.debt_ratio!=null?`${dEnhanced.debt_ratio.toFixed(0)}%`:null}
+                      color={dEnhanced.debt_ratio!=null?(dEnhanced.debt_ratio>200?"text-accent-red":dEnhanced.debt_ratio<100?"text-accent-green":"text-text-primary"):undefined}/>
+                    <StatCell label="유동비율"  value={dEnhanced.current_ratio!=null?`${dEnhanced.current_ratio.toFixed(2)}`:null}
+                      color={dEnhanced.current_ratio!=null?(dEnhanced.current_ratio>=2?"text-accent-green":dEnhanced.current_ratio<1?"text-accent-red":"text-text-primary"):undefined}/>
+                    <StatCell label="당좌비율"  value={dEnhanced.quick_ratio!=null?`${dEnhanced.quick_ratio.toFixed(2)}`:null}/>
+                    <StatCell label="배당수익률" value={d.dividend_yield!=null?`${d.dividend_yield.toFixed(2)}%`:null} color="text-accent-green"/>
+                    <StatCell label="배당성향"  value={d.payout_ratio!=null?`${d.payout_ratio.toFixed(1)}%`:null}/>
+                    <StatCell label="BPS"       value={isKR?d.bps?.toLocaleString("ko-KR"):d.bps?.toFixed(2)}/>
+                    <StatCell label="베타"      value={d.beta!=null?d.beta.toFixed(2):null}
+                      color={d.beta!=null?(d.beta>1.5?"text-accent-red":d.beta<0.5?"text-accent-green":"text-text-primary"):undefined}/>
+                  </div>
+                )}
+                {/* 차트 */}
+                {mhYears.length > 0 && (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={mh.filter((r:any)=>r.debt_ratio||r.current_ratio)} {...chartProps.margin}>
+                      <CartesianGrid {...chartProps.cartesianGridProps}/>
+                      <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                      <YAxis yAxisId="ratio" {...chartProps.yAxisProps}/>
+                      <YAxis yAxisId="pct" orientation="right" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
+                      <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>{const l:Record<string,string>={current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"};return[n==="debt_ratio"?`${Number(v).toFixed(0)}%`:Number(v).toFixed(2),l[n]??n];}}/>
+                      <Legend formatter={v=>({current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"}[v as string]??v)}/>
+                      <Bar yAxisId="ratio" dataKey="current_ratio" fill="#10b981" radius={[2,2,0,0]} maxBarSize={20}/>
+                      <Bar yAxisId="ratio" dataKey="quick_ratio"   fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={20}/>
+                      <Bar yAxisId="pct"   dataKey="debt_ratio"    fill="#ef4444" radius={[2,2,0,0]} maxBarSize={20}/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                {/* 전치 테이블 */}
+                <TransTable rows={[
+                  { key:"debt_ratio",    label:"부채비율",   fmt:(v)=>`${v.toFixed(0)}%`,  color:"text-accent-red" },
+                  { key:"current_ratio", label:"유동비율",   fmt:(v)=>v.toFixed(2),         color:"text-accent-green" },
+                  { key:"quick_ratio",   label:"당좌비율",   fmt:(v)=>v.toFixed(2),         color:"text-accent-blue" },
+                  { key:"bps",           label:"BPS",        fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-text-secondary" },
+                ]}/>
+              </div>
+            </div>
+          )}
+
+          </div>
+        );
+      })()}
+
+      {/* 뉴스/공시 탭 */}
+      {mainTab==="news" && (
+        <div className="flex flex-col gap-4">
+          {/* 종목 뉴스 */}
+          <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <span className="text-sm font-semibold text-text-primary">관련 뉴스</span>
+              <div className="flex gap-1">
+                {(["latest","popular"] as const).map(s=>(
+                  <button key={s}
+                    onClick={()=>setNewsSort(s)}
+                    className={`px-2 py-0.5 text-2xs rounded font-semibold transition-all ${newsSort===s?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
+                    {s==="latest"?"최신순":"인기순"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {loadingNews ? (
+              <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
+            ) : (stockNews?.length ?? 0) > 0 ? (
+              <ul>
+                {([...(stockNews ?? [])].sort((a,b)=>
+                  newsSort==="popular"
+                    ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
+                    : String(b.published ?? "").localeCompare(String(a.published ?? ""))
+                )).map((item: any, i: number) => (
+                  <li key={i} className="border-b border-border/30 last:border-0">
+                    <a href={item.link} target="_blank" rel="noopener noreferrer"
+                      className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">{item.title}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          {item.source && <span className="text-2xs text-accent-blue/70 font-medium">{item.source}</span>}
+                          {item.published && <span className="text-2xs text-text-muted">{typeof item.published === "number" ? new Date(item.published*1000).toLocaleDateString("ko-KR") : item.published}</span>}
+                        </div>
+                        {item.summary && <p className="text-xs text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
+                      </div>
+                      <ExternalLink size={12} className="text-text-muted flex-shrink-0 mt-1"/>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-8 text-center text-text-muted text-sm">뉴스 데이터가 없습니다</p>
+            )}
+          </div>
+          {/* 실적발표 */}
+          {earningsData && (earningsData.upcoming?.length > 0 || earningsData.history?.length > 0) && (
+            <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                <span className="text-sm font-semibold text-text-primary">실적발표</span>
+                <DollarSign size={14} className="text-text-muted"/>
+              </div>
+              <div className="p-4 flex flex-col gap-4">
+                {/* 예정 실적 */}
+                {earningsData.upcoming?.length > 0 && (
+                  <div>
+                    <SectionTitle>예정 발표일</SectionTitle>
+                    <div className="flex flex-wrap gap-2">
+                      {earningsData.upcoming.filter(Boolean).map((dt: string, i: number) => (
+                        <span key={i} className="px-3 py-1.5 rounded-lg bg-accent-blue/10 border border-accent-blue/30 text-accent-blue text-xs font-mono font-semibold">
+                          {dt}
+                        </span>
+                      ))}
+                      {earningsData.eps_estimate != null && (
+                        <span className="px-3 py-1.5 rounded-lg bg-bg-elevated border border-border text-text-muted text-xs">
+                          EPS 예상: {isKR ? earningsData.eps_estimate?.toLocaleString("ko-KR") : `$${earningsData.eps_estimate?.toFixed(2)}`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {/* 과거 실적 */}
+                {earningsData.history?.length > 0 && (
+                  <div>
+                    <SectionTitle>과거 실적</SectionTitle>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-text-muted border-b border-border">
+                            <th className="text-left pb-2 font-medium">연도</th>
+                            <th className="text-right pb-2 font-medium text-accent-blue">매출</th>
+                            <th className="text-right pb-2 font-medium text-accent-green">순이익</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...earningsData.history].reverse().map((row: any) => (
+                            <tr key={row.period} className="border-b border-border/30 hover:bg-bg-hover">
+                              <td className="py-1.5 font-mono text-text-muted">{row.period}</td>
+                              <td className="py-1.5 text-right font-mono text-accent-blue num">{isKR?fmtKRW(row.revenue):fmtUSD(row.revenue)}</td>
+                              <td className={`py-1.5 text-right font-mono num ${(row.earnings??0)>=0?"text-accent-green":"text-accent-red"}`}>{isKR?fmtKRW(row.earnings):fmtUSD(row.earnings)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 공시 (KR만) */}
+          {isKR && <DisclosurePanel symbol={sym} />}
+        </div>
+      )}
+
+      {/* 수급 탭 */}
+      {mainTab==="supply" && isKR && (
+        <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <span className="text-sm font-semibold text-text-primary">투자자별 수급</span>
+            <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary">
+              {[10, 20, 30, 60].map(d=>(
+                <button key={d} onClick={()=>setSupplyDays(d)}
+                  className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${supplyDays===d?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                >{d}일</button>
+              ))}
+            </div>
+          </div>
+          {loadingSupply ? (
+            <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
+          ) : (supplyData?.length ?? 0) > 0 ? (
+            <div className="p-4 flex flex-col gap-4">
+              {/* 누적 수급 요약 */}
+              <div className="grid grid-cols-3 gap-3">
+                {(() => {
+                  const total = { foreign: 0, institution: 0, individual: 0 };
+                  (supplyData ?? []).forEach((r: any) => {
+                    total.foreign     += r.foreign || 0;
+                    total.institution += r.institution || 0;
+                    total.individual  += r.individual || 0;
+                  });
+                  return [
+                    { label:"외국인", key:"foreign",     color:"text-accent-blue",  v: total.foreign },
+                    { label:"기관",   key:"institution", color:"text-purple-400",   v: total.institution },
+                    { label:"개인",   key:"individual",  color:"text-accent-yellow", v: total.individual },
+                  ].map(({ label, v }) => (
+                    <div key={label} className="rounded-xl border border-border bg-bg-elevated p-3 text-center">
+                      <div className="text-2xs text-text-muted mb-1">{label} {supplyDays}일 순매수</div>
+                      <div className={`text-sm font-mono font-bold ${v >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                        {v >= 0 ? "+" : ""}{fmtKRW(v)}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+              {/* 차트 */}
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={supplyData} margin={{top:4,right:8,left:8,bottom:4}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#232840"/>
+                  <XAxis dataKey="date" tick={{fill:"#64748b",fontSize:9}} tickLine={false}
+                    tickFormatter={v => v.slice(5)}/>
+                  <YAxis tick={{fill:"#64748b",fontSize:9}} tickLine={false}
+                    tickFormatter={v=>{const a=Math.abs(v);return a>=1e8?(v/1e8).toFixed(0)+"억":a>=1e4?(v/1e4).toFixed(0)+"만":String(v);}}/>
+                  <Tooltip contentStyle={{background:"#141824",border:"1px solid #232840",borderRadius:8,fontSize:11}}
+                    formatter={(v:number,name:string)=>{
+                      const labels:Record<string,string>={foreign:"외국인",institution:"기관",individual:"개인"};
+                      return [fmtKRW(v), labels[name]??name];
+                    }}/>
+                  <Legend formatter={v=>({foreign:"외국인",institution:"기관",individual:"개인"}[v as string]??v)}/>
+                  <Bar dataKey="foreign"     fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={12}/>
+                  <Bar dataKey="institution" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={12}/>
+                  <Bar dataKey="individual"  fill="#f59e0b" radius={[2,2,0,0]} maxBarSize={12}/>
+                </BarChart>
+              </ResponsiveContainer>
+              {/* 테이블 */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-text-muted border-b border-border">
+                      <th className="text-left pb-2 font-medium">날짜</th>
+                      <th className="text-right pb-2 font-medium text-accent-blue">외국인</th>
+                      <th className="text-right pb-2 font-medium text-purple-400">기관</th>
+                      <th className="text-right pb-2 font-medium text-accent-yellow">개인</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...(supplyData ?? [])].reverse().slice(0,20).map((row:any)=>(
+                      <tr key={row.date} className="border-b border-border/30 hover:bg-bg-hover">
+                        <td className="py-1.5 font-mono text-text-muted">{row.date}</td>
+                        <td className={`py-1.5 text-right font-mono num ${row.foreign>=0?"text-accent-green":"text-accent-red"}`}>{fmtKRW(row.foreign)}</td>
+                        <td className={`py-1.5 text-right font-mono num ${row.institution>=0?"text-accent-green":"text-accent-red"}`}>{fmtKRW(row.institution)}</td>
+                        <td className={`py-1.5 text-right font-mono num ${row.individual>=0?"text-accent-green":"text-accent-red"}`}>{fmtKRW(row.individual)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Users size={32} className="text-text-muted/40"/>
+              <p className="text-text-muted text-sm">수급 데이터를 불러올 수 없습니다</p>
+              <p className="text-text-muted/60 text-xs">pykrx 데이터 조회 중 오류가 발생했습니다</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 기업 정보 */}
+      {d && (d.industry || d.description) && (
+        <div className="rounded-xl p-4 border border-border bg-bg-card">
+          {d.sector && <div className="flex flex-col gap-0.5 mb-3"><span className="text-2xs text-text-muted">섹터 · 산업</span><span className="text-sm text-text-primary">{d.sector}{d.industry?` > ${d.industry}`:""}</span></div>}
+          {d.description && <p className="text-xs text-text-muted leading-relaxed line-clamp-4">{d.description}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DisclosurePanel({ symbol }: { symbol: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["disclosures", symbol],
+    queryFn: () => fetch(`/api/v1/stocks/KR/${encodeURIComponent(symbol)}/disclosures`).then(r=>r.json()),
+    staleTime: 1_800_000,
+  });
+  if (isLoading) return <div className="rounded-xl border border-border bg-bg-card p-8 text-center text-text-muted text-sm">공시 로딩 중...</div>;
+  const items = Array.isArray(data) ? data : [];
+  return (
+    <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+        <span className="text-sm font-semibold text-text-primary">최근 공시</span>
+        <FileText size={14} className="text-text-muted"/>
+      </div>
+      {!items.length ? (
+        <p className="py-8 text-center text-text-muted text-sm">공시 데이터가 없습니다 (OpenDART API 키 필요)</p>
+      ) : (
+        <ul>{items.map((item: any, i: number) => (
+          <li key={i} className="border-b border-border/30 last:border-0">
+            <a href={item.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors">{item.title}</p>
+                <p className="text-2xs text-text-muted mt-0.5">{item.reporter} · {fmtDate(item.date?.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"))}</p>
+              </div>
+              <FileText size={13} className="text-text-muted flex-shrink-0"/>
+            </a>
+          </li>
+        ))}</ul>
+      )}
+    </div>
+  );
+}
