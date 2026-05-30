@@ -1,5 +1,9 @@
-from fastapi import FastAPI, WebSocket, Query
+from fastapi import FastAPI, WebSocket, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.db.database import Base, engine
 from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search
@@ -12,11 +16,15 @@ logging.basicConfig(level=logging.INFO)
 
 Base.metadata.create_all(bind=engine)
 
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+
 app = FastAPI(
     title="Stock Platform API",
     description="종목발굴 및 백테스트 플랫폼",
     version="1.0.0",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
