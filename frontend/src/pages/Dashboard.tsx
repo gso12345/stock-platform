@@ -249,14 +249,10 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
         </div>
       </section>
 
-      {/* 선물 / 환율 / 금리 */}
+      {/* 환율 / 금리 */}
       <section>
-        <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">선물 · 환율 · 금리</h2>
+        <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리</h2>
         <div className="flex flex-wrap gap-3">
-          {/* 선물 */}
-          {data?.futures?.map((f: any) => (
-            <ExtraCard key={f.name} {...f} />
-          ))}
           {/* 환율 */}
           {data?.exchange && (
             <ExtraCard
