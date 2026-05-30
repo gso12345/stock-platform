@@ -331,16 +331,25 @@ class YFinanceService:
         return result
 
     def get_index_ohlcv(self, index_name: str, period: str = "1y", interval: str = "1d") -> list:
-        """지수 OHLCV 데이터"""
+        """지수 OHLCV 데이터 (연봉은 월봉 데이터를 리샘플링)"""
         yf_sym = INDEX_SYMBOLS.get(index_name, index_name)
         ck = f"idx_ohlcv:{index_name}:{period}:{interval}"
         if cached := cache.get(ck):
             return cached
         try:
-            yf_period = PERIOD_MAP.get(period, "1y")
-            hist = yf.Ticker(yf_sym).history(period=yf_period, interval=interval)
+            # 연봉은 yfinance 미지원 → 월봉으로 받아서 연간 리샘플링
+            actual_interval = "1mo" if interval == "1y" else interval
+            yf_period = "max" if interval == "1y" else PERIOD_MAP.get(period, "1y")
+            hist = yf.Ticker(yf_sym).history(period=yf_period, interval=actual_interval)
             hist = hist.dropna(subset=["Close"])
             hist.index = hist.index.tz_localize(None)
+
+            if interval == "1y":
+                hist = hist.resample("YE").agg({
+                    "Open": "first", "High": "max", "Low": "min",
+                    "Close": "last", "Volume": "sum"
+                }).dropna()
+
             result = [
                 {
                     "date":   str(idx.date()),
