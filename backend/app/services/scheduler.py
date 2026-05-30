@@ -180,7 +180,8 @@ async def run_startup_prefetch():
 
 
 async def periodic_refresh():
-    """10초마다 지수, 60초마다 종목+환율"""
+    """10초마다 지수, 60초마다 종목+환율, 60초마다 순위"""
+    from app.services.ranking_service import refresh_kr_rankings_from_naver
     counter = 0
     while True:
         await asyncio.sleep(10)
@@ -204,6 +205,10 @@ async def periodic_refresh():
                 refresh_kr_stocks(),
                 return_exceptions=True,
             )
+
+        # 순위 (60초) - Naver 실시간
+        if counter % 6 == 0:
+            await refresh_kr_rankings_from_naver()
 
 
 def start_background_tasks(app):
