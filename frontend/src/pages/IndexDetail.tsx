@@ -6,12 +6,6 @@ import { Card, ChangeBadge } from "@/components/ui";
 import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
 import StockChart from "@/components/chart/StockChart";
 
-const PERIODS_BY_CANDLE: Record<string, { label: string; value: string }[]> = {
-  "1d":  [{ label:"1달",value:"1mo"},{ label:"3달",value:"3mo"},{ label:"6달",value:"6mo"},{ label:"1년",value:"1y"},{ label:"2년",value:"2y"},{ label:"3년",value:"3y"},{ label:"5년",value:"5y"},{ label:"10년",value:"10y"},{ label:"최대",value:"max"}],
-  "1wk": [{ label:"1년",value:"1y"},{ label:"2년",value:"2y"},{ label:"3년",value:"3y"},{ label:"5년",value:"5y"},{ label:"10년",value:"10y"},{ label:"최대",value:"max"}],
-  "1mo": [{ label:"2년",value:"2y"},{ label:"5년",value:"5y"},{ label:"10년",value:"10y"},{ label:"최대",value:"max"}],
-  "1y":  [{ label:"10년",value:"10y"},{ label:"최대",value:"max"}],
-};
 
 const CANDLE_TYPES = [
   { label:"일봉", value:"1d"  },
@@ -36,14 +30,7 @@ export default function IndexDetail() {
   const { name }  = useParams<{ name: string }>();
   const navigate  = useNavigate();
   const [candleType, setCandleType] = useState("1d");
-  const [period, setPeriod]         = useState("1y");
-
-  const handleCandleChange = (ct: string) => {
-    setCandleType(ct);
-    const periods = PERIODS_BY_CANDLE[ct];
-    const valid = periods.some(p => p.value === period);
-    if (!valid) setPeriod(periods[0].value);
-  };
+  const period = "max";
 
   const indexName = name?.toUpperCase() ?? "";
   const meta      = INDEX_INFO[indexName] ?? { region:"—", desc:"", isKR:false };
@@ -116,18 +103,9 @@ export default function IndexDetail() {
             {/* 봉 선택 */}
             <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
               {CANDLE_TYPES.map(ct=>(
-                <button key={ct.value} onClick={()=>handleCandleChange(ct.value)}
+                <button key={ct.value} onClick={()=>setCandleType(ct.value)}
                   className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
                 >{ct.label}</button>
-              ))}
-            </div>
-            <div className="w-px h-4 bg-border"/>
-            {/* 기간 */}
-            <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary flex-wrap">
-              {PERIODS_BY_CANDLE[candleType].map(p=>(
-                <button key={p.value} onClick={()=>setPeriod(p.value)}
-                  className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all ${period===p.value?"bg-accent-blue text-white shadow":"text-text-muted hover:text-text-primary"}`}
-                >{p.label}</button>
               ))}
             </div>
             <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
