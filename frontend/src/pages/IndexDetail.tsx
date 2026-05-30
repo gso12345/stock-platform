@@ -55,8 +55,8 @@ export default function IndexDetail() {
   });
 
   const { data: ohlcv, isLoading: loadingChart, refetch: refetchChart } = useQuery({
-    queryKey: ["index-ohlcv", indexName, period],
-    queryFn: () => dashboardApi.getIndexOHLCV(indexName, period),
+    queryKey: ["index-ohlcv", indexName, period, candleType],
+    queryFn: () => dashboardApi.getIndexOHLCV(indexName, period, candleType),
     enabled: !!indexName,
     staleTime: 300_000,
   });

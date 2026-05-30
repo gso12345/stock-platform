@@ -49,8 +49,8 @@ export const dashboardApi = {
   getIndexDetail: (name: string) =>
     api.get(`/dashboard/index/${name}`).then((r) => r.data),
 
-  getIndexOHLCV: (name: string, period = "1y") =>
-    api.get(`/dashboard/index/${name}/ohlcv`, { params: { period } }).then((r) => r.data),
+  getIndexOHLCV: (name: string, period = "1y", interval = "1d") =>
+    api.get(`/dashboard/index/${name}/ohlcv`, { params: { period, interval } }).then((r) => r.data),
 
   getKRExtras: () =>
     api.get("/dashboard/kr/extras").then((r) => r.data),

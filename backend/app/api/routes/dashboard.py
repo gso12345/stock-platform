@@ -224,12 +224,12 @@ async def get_index_detail(name: str):
 
 
 @router.get("/index/{name}/ohlcv")
-async def get_index_ohlcv(name: str, period: str = Query(default="1y")):
+async def get_index_ohlcv(name: str, period: str = Query(default="1y"), interval: str = Query(default="1d")):
     name_upper = name.upper()
     loop = asyncio.get_event_loop()
     try:
         result = await asyncio.wait_for(
-            loop.run_in_executor(None, yf_service.get_index_ohlcv, name_upper, period),
+            loop.run_in_executor(None, yf_service.get_index_ohlcv, name_upper, period, interval),
             timeout=20
         )
         if result:

@@ -330,15 +330,15 @@ class YFinanceService:
         cache.set(ck, result, INDEX_TTL)
         return result
 
-    def get_index_ohlcv(self, index_name: str, period: str = "1y") -> list:
+    def get_index_ohlcv(self, index_name: str, period: str = "1y", interval: str = "1d") -> list:
         """지수 OHLCV 데이터"""
         yf_sym = INDEX_SYMBOLS.get(index_name, index_name)
-        ck = f"idx_ohlcv:{index_name}:{period}"
+        ck = f"idx_ohlcv:{index_name}:{period}:{interval}"
         if cached := cache.get(ck):
             return cached
         try:
             yf_period = PERIOD_MAP.get(period, "1y")
-            hist = yf.Ticker(yf_sym).history(period=yf_period, interval="1d")
+            hist = yf.Ticker(yf_sym).history(period=yf_period, interval=interval)
             hist = hist.dropna(subset=["Close"])
             hist.index = hist.index.tz_localize(None)
             result = [
