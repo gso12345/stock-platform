@@ -82,64 +82,77 @@ function ExtraCard({ name, value, change, change_rate, unit, _demo, _static }: a
 function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
   items: any[]; isKR: boolean; onSymbolClick: (sym: string, mkt: string) => void; livePrices: Record<string, any>;
 }) {
+  const [showAll, setShowAll] = useState(false);
+
   if (!items?.length) return <div className="py-8 text-center text-text-muted text-sm">데이터 로딩 중...</div>;
 
   const dispSym = (s: string) => s.replace(".KS","").replace(".KQ","");
+  const visible = showAll ? items : items.slice(0, 10);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-text-muted border-b border-border">
-            <th className="text-left py-2 pl-3 w-7">#</th>
-            <th className="text-left py-2">종목</th>
-            <th className="text-right py-2">현재가</th>
-            <th className="text-right py-2">등락률</th>
-            <th className="text-right py-2">시가총액</th>
-            <th className="text-right py-2">거래대금</th>
-            <th className="text-right py-2 pr-3">거래량</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item: any) => {
-            const mkt   = isKR ? "KR" : "US";
-            const live  = livePrices[item.symbol];
-            const price = live?.price ?? item.price;
-            const chgr  = live?.change_rate ?? item.change_rate ?? 0;
-            const hasLive = !!live;
-            return (
-              <tr key={item.symbol}
-                className="border-b border-border/30 hover:bg-bg-hover cursor-pointer transition-colors"
-                onClick={() => onSymbolClick(item.symbol, mkt)}
-              >
-                <td className="py-2.5 pl-3 text-text-muted font-mono font-bold">{item.rank}</td>
-                <td className="py-2.5">
-                  <div className="flex items-center gap-1">
-                    <span className="font-mono font-bold text-text-primary">{dispSym(item.symbol)}</span>
-                    {hasLive && <span className="w-1 h-1 rounded-full bg-accent-green animate-pulse flex-shrink-0" />}
-                  </div>
-                  <div className="text-text-muted text-2xs truncate max-w-[100px]">{item.name}</div>
-                </td>
-                <td className="py-2.5 text-right font-mono text-text-primary num">
-                  {price ? (isKR ? `₩${price.toLocaleString("ko-KR")}` : `$${price.toFixed(2)}`) : "—"}
-                </td>
-                <td className="py-2.5 text-right">
-                  {price ? <ChangeBadge value={chgr} /> : <span className="text-text-muted">—</span>}
-                </td>
-                <td className="py-2.5 text-right font-mono text-text-muted text-[10px]">
-                  {item.market_cap ? (isKR ? formatNumber(item.market_cap) : fmtUSD(item.market_cap)) : "—"}
-                </td>
-                <td className="py-2.5 text-right font-mono text-text-muted text-[10px]">
-                  {item.amount ? (isKR ? formatNumber(item.amount) : fmtUSD(item.amount)) : "—"}
-                </td>
-                <td className="py-2.5 text-right font-mono text-text-muted pr-3">
-                  {formatNumber(live?.volume ?? item.volume)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-text-muted border-b border-border">
+              <th className="text-left py-2 pl-3 w-7">#</th>
+              <th className="text-left py-2">종목</th>
+              <th className="text-right py-2">현재가</th>
+              <th className="text-right py-2">등락률</th>
+              <th className="text-right py-2">시가총액</th>
+              <th className="text-right py-2">거래대금</th>
+              <th className="text-right py-2 pr-3">거래량</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((item: any) => {
+              const mkt   = isKR ? "KR" : "US";
+              const live  = livePrices[item.symbol];
+              const price = live?.price ?? item.price;
+              const chgr  = live?.change_rate ?? item.change_rate ?? 0;
+              const hasLive = !!live;
+              return (
+                <tr key={item.symbol}
+                  className="border-b border-border/30 hover:bg-bg-hover cursor-pointer transition-colors"
+                  onClick={() => onSymbolClick(item.symbol, mkt)}
+                >
+                  <td className="py-2.5 pl-3 text-text-muted font-mono font-bold">{item.rank}</td>
+                  <td className="py-2.5">
+                    <div className="flex items-center gap-1">
+                      <span className="font-mono font-bold text-text-primary">{dispSym(item.symbol)}</span>
+                      {hasLive && <span className="w-1 h-1 rounded-full bg-accent-green animate-pulse flex-shrink-0" />}
+                    </div>
+                    <div className="text-text-muted text-2xs truncate max-w-[100px]">{item.name}</div>
+                  </td>
+                  <td className="py-2.5 text-right font-mono text-text-primary num">
+                    {price ? (isKR ? `₩${price.toLocaleString("ko-KR")}` : `$${price.toFixed(2)}`) : "—"}
+                  </td>
+                  <td className="py-2.5 text-right">
+                    {price ? <ChangeBadge value={chgr} /> : <span className="text-text-muted">—</span>}
+                  </td>
+                  <td className="py-2.5 text-right font-mono text-text-muted text-[10px]">
+                    {item.market_cap ? (isKR ? formatNumber(item.market_cap) : fmtUSD(item.market_cap)) : "—"}
+                  </td>
+                  <td className="py-2.5 text-right font-mono text-text-muted text-[10px]">
+                    {item.amount ? (isKR ? formatNumber(item.amount) : fmtUSD(item.amount)) : "—"}
+                  </td>
+                  <td className="py-2.5 text-right font-mono text-text-muted pr-3">
+                    {formatNumber(live?.volume ?? item.volume)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {items.length > 10 && (
+        <button
+          onClick={() => setShowAll(v => !v)}
+          className="w-full py-2.5 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border"
+        >
+          {showAll ? "접기 ▲" : `더보기 (${items.length - 10}개 더) ▼`}
+        </button>
+      )}
     </div>
   );
 }
