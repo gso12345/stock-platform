@@ -6,9 +6,9 @@ import { useState, useEffect } from "react";
 
 const NAV = [
   { to: "/",          icon: LayoutDashboard, label: "대시보드",  end: true },
+  { to: "/watchlist", icon: Star,             label: "관심종목" },
   { to: "/screening", icon: Search,           label: "스크리닝" },
   { to: "/backtest",  icon: LineChart,        label: "백테스트" },
-  { to: "/watchlist", icon: Star,             label: "관심종목" },
   { to: "/strategies",icon: BookMarked,       label: "전략저장소"},
 ];
 

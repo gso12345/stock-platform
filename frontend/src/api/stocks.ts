@@ -141,4 +141,7 @@ export const watchlistApi = {
 
   removeItem: (itemId: number) =>
     api.delete(`/watchlist/items/${itemId}`).then((r) => r.data),
+
+  reorderItems: (order: number[]) =>
+    api.put("/watchlist/items/reorder", { order }).then((r) => r.data),
 };

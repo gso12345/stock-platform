@@ -32,6 +32,10 @@ class UpdateItemRequest(BaseModel):
     folder_id: Optional[int] = None
 
 
+class ReorderRequest(BaseModel):
+    order: list[int]  # item id 목록 (새 순서대로)
+
+
 # ── 헬퍼 ─────────────────────────────────────────────────────
 def _ensure_watchlist(db: Session) -> Watchlist:
     wl = db.query(Watchlist).first()
@@ -272,6 +276,15 @@ def add_item(req: AddItemRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(item)
     return _item_to_dict(item)
+
+
+@router.put("/items/reorder")
+def reorder_items(req: ReorderRequest, db: Session = Depends(get_db)):
+    """관심종목 순서 일괄 저장 (id 목록을 새 순서대로 전달)"""
+    for position, item_id in enumerate(req.order):
+        db.query(WatchlistItem).filter(WatchlistItem.id == item_id).update({"position": position})
+    db.commit()
+    return {"message": "순서 저장 완료"}
 
 
 @router.put("/items/{item_id}")

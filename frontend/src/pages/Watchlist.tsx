@@ -225,50 +225,117 @@ function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSave: (n:
 }
 
 /* ── 종목 행 (클릭 → 상세) ──────────────────────────────── */
-function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit }: {
-  item: any; livePrice: any; onRemove: () => void; onNavigate: () => void; onEdit: () => void;
+const SWIPE_REVEAL = 76;
+const SWIPE_THRESHOLD = 40;
+
+/* ── 종목 행: 드래그 재정렬 + 스와이프 우→ 수정/삭제 ─── */
+function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit,
+  isDragging, isDragOver, onDragStart, onDragOver, onDrop }: {
+  item: any; livePrice: any;
+  onRemove: () => void; onNavigate: () => void; onEdit: () => void;
+  isDragging?: boolean; isDragOver?: boolean;
+  onDragStart?: React.DragEventHandler;
+  onDragOver?: React.DragEventHandler;
+  onDrop?: React.DragEventHandler;
 }) {
-  const p    = livePrice ?? item;
-  const isKR = item.market === "KR";
+  const p       = livePrice ?? item;
+  const isKR    = item.market === "KR";
   const hasPrice = p.price != null && p.price > 0;
 
+  const [swipeX, setSwipeX] = useState(0);
+  const [isOpen, setIsOpen] = useState(false);
+  const touchStartX  = useRef(0);
+  const touchStartY  = useRef(0);
+  const isScrolling  = useRef<boolean | null>(null);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    isScrolling.current = null;
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = e.touches[0].clientY - touchStartY.current;
+    if (isScrolling.current === null) isScrolling.current = Math.abs(dy) > Math.abs(dx);
+    if (isScrolling.current) return;
+    const base = isOpen ? SWIPE_REVEAL : 0;
+    setSwipeX(Math.max(0, Math.min(SWIPE_REVEAL + 16, base + dx)));
+  };
+  const onTouchEnd = () => {
+    if (isScrolling.current) return;
+    if (swipeX > SWIPE_THRESHOLD) { setSwipeX(SWIPE_REVEAL); setIsOpen(true); }
+    else { setSwipeX(0); setIsOpen(false); }
+  };
+  const closeSwipe = () => { setSwipeX(0); setIsOpen(false); };
+
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/30 hover:bg-bg-hover transition-colors group">
-      {/* 종목 정보 — 클릭 영역 */}
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={onNavigate}>
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono font-bold text-sm text-text-primary">
-            {item.symbol?.replace(".KS", "").replace(".KQ", "")}
-          </span>
-          {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0" />}
-          <Badge variant={item.market === "KR" ? "blue" : item.market === "ETF" ? "purple" : "green"}>
-            {item.market}
-          </Badge>
-        </div>
-        <div className="text-[11px] text-text-muted truncate">{item.name || p.name}</div>
-        {item.memo && <div className="text-[10px] text-text-muted/60 italic mt-0.5">{item.memo}</div>}
+    <div
+      className={`relative overflow-hidden border-b border-border/30 group ${isDragOver ? "bg-accent-blue/5" : ""} ${isDragging ? "opacity-40" : ""}`}
+      onDragOver={onDragOver} onDrop={onDrop}
+    >
+      {/* 스와이프 액션 버튼 (왼쪽 고정) */}
+      <div className="absolute inset-y-0 left-0 flex" style={{ width: SWIPE_REVEAL }}>
+        <button onClick={() => { closeSwipe(); onEdit(); }}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-blue text-white text-[10px] font-semibold">
+          <Settings2 size={14}/><span>수정</span>
+        </button>
+        <button onClick={() => { closeSwipe(); onRemove(); }}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-red text-white text-[10px] font-semibold">
+          <Trash2 size={14}/><span>삭제</span>
+        </button>
       </div>
 
-      {/* 가격 — 클릭 영역 */}
-      <div className="text-right flex-shrink-0 cursor-pointer min-w-[80px]" onClick={onNavigate}>
-        <div className="text-sm font-mono font-semibold text-text-primary">
-          {hasPrice
-            ? isKR ? `₩${Number(p.price).toLocaleString("ko-KR")}` : `$${Number(p.price).toFixed(2)}`
-            : <span className="text-text-muted text-xs">조회 중</span>}
+      {/* 슬라이드 콘텐츠 */}
+      <div
+        className="flex items-center gap-2 px-3 py-2.5 bg-bg-card hover:bg-bg-hover"
+        style={{ transform: `translateX(${swipeX}px)`, transition: swipeX === 0 || swipeX === SWIPE_REVEAL ? "transform 0.2s ease" : "none" }}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+        onClick={swipeX > 0 ? closeSwipe : undefined}
+      >
+        {/* 드래그 핸들 */}
+        <div
+          draggable
+          onDragStart={onDragStart}
+          className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1 py-1"
+          title="드래그하여 순서 변경"
+        >
+          <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+            <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>
+            <circle cx="3" cy="7"   r="1.3"/><circle cx="7" cy="7"   r="1.3"/>
+            <circle cx="3" cy="11.5" r="1.3"/><circle cx="7" cy="11.5" r="1.3"/>
+          </svg>
         </div>
-        {hasPrice && p.change_rate != null && (
-          <ChangeBadge value={Number(p.change_rate)} className="text-xs" />
-        )}
-      </div>
 
-      {/* 편집/삭제 */}
-      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button onClick={onEdit} className="text-text-muted hover:text-accent-blue p-1 transition-colors">
-          <Settings2 size={13} />
-        </button>
-        <button onClick={onRemove} className="text-text-muted hover:text-accent-red p-1 transition-colors">
-          <Trash2 size={13} />
-        </button>
+        {/* 종목 정보 */}
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={onNavigate}>
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono font-bold text-sm text-text-primary">
+              {item.symbol?.replace(".KS","").replace(".KQ","")}
+            </span>
+            {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
+            <Badge variant={item.market==="KR"?"blue":item.market==="ETF"?"purple":"green"}>
+              {item.market}
+            </Badge>
+          </div>
+          <div className="text-[11px] text-text-muted truncate">{item.name || p.name}</div>
+          {item.memo && <div className="text-[10px] text-text-muted/60 italic mt-0.5">{item.memo}</div>}
+        </div>
+
+        {/* 가격 */}
+        <div className="text-right flex-shrink-0 cursor-pointer min-w-[80px]" onClick={onNavigate}>
+          <div className="text-sm font-mono font-semibold text-text-primary">
+            {hasPrice
+              ? isKR ? `₩${Number(p.price).toLocaleString("ko-KR")}` : `$${Number(p.price).toFixed(2)}`
+              : <span className="text-text-muted text-xs">조회 중</span>}
+          </div>
+          {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs"/>}
+        </div>
+
+        {/* 데스크탑 hover 버튼 */}
+        <div className="hidden md:flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1"><Settings2 size={13}/></button>
+          <button onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1"><Trash2 size={13}/></button>
+        </div>
       </div>
     </div>
   );
@@ -341,6 +408,43 @@ export default function Watchlist() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
   });
 
+  // 드래그 상태
+  const [dragId, setDragId]   = useState<number | null>(null);
+  const [dropId, setDropId]   = useState<number | null>(null);
+  const [localOrder, setLocalOrder] = useState<any[] | null>(null); // 드래그 중 낙관적 순서
+
+  const reorderMutation = useMutation({
+    mutationFn: (order: number[]) => watchlistApi.reorderItems(order),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
+  });
+
+  const handleDragStart = (item: any) => {
+    setDragId(item.id);
+    setLocalOrder(itemsList);
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetId: number) => {
+    e.preventDefault();
+    if (dragId === null || dragId === targetId) return;
+    setDropId(targetId);
+    // 낙관적 순서 재배치
+    const base = localOrder ?? itemsList;
+    const from = base.findIndex((i: any) => i.id === dragId);
+    const to   = base.findIndex((i: any) => i.id === targetId);
+    if (from === -1 || to === -1) return;
+    const next = [...base];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setLocalOrder(next);
+  };
+
+  const handleDrop = () => {
+    if (dragId !== null && localOrder) {
+      reorderMutation.mutate(localOrder.map((i: any) => i.id));
+    }
+    setDragId(null); setDropId(null); setLocalOrder(null);
+  };
+
   const createFolderMutation = useMutation({
     mutationFn: () => watchlistFolderApi.createFolder("새 폴더"),
     onSuccess: (data) => { qc.invalidateQueries({ queryKey: ["watchlist-folders"] }); setEditingFolder(data.id); },
@@ -359,9 +463,11 @@ export default function Watchlist() {
   const toggleCollapse = (key: string) =>
     setCollapsed((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
-  const itemsList  = items as any[];
-  const noFolder   = itemsList.filter((i: any) => !i.folder_id);
-  const byFolder   = (fid: number) => itemsList.filter((i: any) => i.folder_id === fid);
+  // 드래그 중에는 낙관적으로 정렬된 순서 사용
+  const displayList = localOrder ?? (items as any[]);
+  const itemsList   = items as any[];
+  const noFolder    = displayList.filter((i: any) => !i.folder_id);
+  const byFolder    = (fid: number) => displayList.filter((i: any) => i.folder_id === fid);
 
   const goToStock = (item: any) =>
     navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`);
@@ -375,6 +481,11 @@ export default function Watchlist() {
         onRemove={() => removeMutation.mutate(item.id)}
         onNavigate={() => goToStock(item)}
         onEdit={() => setEditingItem(item)}
+        isDragging={dragId === item.id}
+        isDragOver={dropId === item.id}
+        onDragStart={() => handleDragStart(item)}
+        onDragOver={(e) => handleDragOver(e, item.id)}
+        onDrop={handleDrop}
       />
     ));
 
