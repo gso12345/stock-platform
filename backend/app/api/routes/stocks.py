@@ -218,22 +218,30 @@ async def get_stock_ohlcv(
 @router.get("/{market}/{symbol}/detail")
 async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
     if market == "KR":
-        # Naver integration API가 이미 PER/PBR/EPS/시총/거래량 제공 → yfinance 불필요
+        # Naver integration API가 PER/PBR/EPS/시총/시가/고가/저가/52주/배당 제공
         price = await get_kr_price(symbol)
+        # KR은 Naver가 fundamentals도 포함 → 추가 fetch 불필요
         return price or {"symbol": symbol, "price": None, "currency": "KRW"}
     else:
-        # US: 캐시 우선 → yfinance 병렬 fetch
+        # US: stale 캐시 우선, fundamentals는 별도 캐시(fund:)에서 병합
+        fund_ck = f"fund:{symbol}"
+        fund_cached = cache.get(fund_ck) or cache.get_stale(fund_ck)  # 24h TTL
+
         cached = cache.get_stale(f"price:{symbol}")
         if cached and cached.get("price") and not cached.get("_demo"):
-            # 캐시된 가격이 있으면 fundamentals만 추가
+            if fund_cached:
+                # 둘 다 캐시 있으면 즉시 반환
+                return {**cached, **fund_cached}
+            # 가격 캐시만 있으면 fundamentals 비동기 fetch (타임아웃 15s)
             try:
                 fund = await asyncio.wait_for(
                     asyncio.get_event_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "US"),
-                    timeout=8
+                    timeout=15
                 )
                 return {**cached, **(fund or {})}
             except Exception:
-                return cached
+                return cached  # 타임아웃 시 가격만 반환 (52주/배당 없음)
+
         # 캐시 없으면 price + fundamentals 병렬 fetch
         try:
             price, fund = await asyncio.gather(
@@ -242,7 +250,7 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
                 return_exceptions=True,
             )
             p = price if isinstance(price, dict) else {}
-            f = fund if isinstance(fund, dict) else {}
+            f = fund  if isinstance(fund,  dict) else {}
             result = {**p, **f}
             if result.get("price"):
                 cache.set(f"price:{symbol}", result, 30)

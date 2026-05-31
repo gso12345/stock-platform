@@ -101,16 +101,18 @@ async def refresh_us_indices():
 
 
 async def refresh_us_stocks():
-    """YF v7 멀티쿼트로 미국 종목 갱신"""
-    data = await fetch_yf_quotes(POPULAR_US)
+    """YF v7 멀티쿼트로 미국 종목 갱신 — 순위용 SP500 + 인기종목 합산"""
+    from app.services.yf_service import SP500_SYMBOLS
+    all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))  # 중복 제거, 순서 유지
+    data = await fetch_yf_quotes(all_syms)
     ok = 0
-    for sym in POPULAR_US:
+    for sym in all_syms:
         q = data.get(sym)
         if q and q.get("price"):
             q["symbol"] = sym
             cache.set(f"price:{sym}", q, 60)
             ok += 1
-    log.info(f"미국 종목 {ok}/{len(POPULAR_US)}개 갱신")
+    log.info(f"미국 종목 {ok}/{len(all_syms)}개 갱신")
     return ok
 
 
