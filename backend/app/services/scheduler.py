@@ -10,7 +10,6 @@ from app.services.price_fetcher import (
     fetch_naver_indices, fetch_naver_stocks, fetch_naver_exchange,
     fetch_yf_quotes, fetch_yf_index_quotes, get_usdkrw,
 )
-from app.services.demo_data import get_demo_index, get_demo_price, DEMO_PRICES
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
@@ -37,18 +36,6 @@ POPULAR_KR_CODES = [
     "051910","066570","055550","068270","035720",
 ]
 
-
-async def _populate_demo():
-    """서버 시작 즉시 데모 데이터로 채우기 (빈 화면 방지)"""
-    for name in KR_INDICES + US_INDICES:
-        if not cache.get_stale(f"idx:{name}"):
-            d = get_demo_index(name)
-            if d:
-                cache.set(f"idx:{name}", {**d, "_demo": True}, 30)
-    for sym, data in DEMO_PRICES.items():
-        if not cache.get_stale(f"price:{sym}"):
-            cache.set(f"price:{sym}", {**data, "_demo": True}, 30)
-    log.info("데모 데이터 초기화 완료")
 
 
 async def refresh_kr_indices():
@@ -162,7 +149,6 @@ async def refresh_exchange():
 async def run_startup_prefetch():
     log.info("=== 초기 프리페치 시작 ===")
     await asyncio.sleep(0.3)
-    await _populate_demo()
 
     loop = asyncio.get_event_loop()
     # 지수 + 환율 + 뉴스 동시 갱신

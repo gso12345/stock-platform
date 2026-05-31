@@ -13,9 +13,6 @@ from app.services.news_service import get_kr_news, get_us_news
 from app.services.ranking_service import get_us_rankings
 from app.services.market_extras import get_kr_futures, get_kr_rates
 from app.services.price_fetcher import get_usdkrw
-from app.services.demo_data import (
-    get_demo_index, get_demo_rankings_kr, get_demo_rankings_us, DEMO_INDICES
-)
 from app.core.config import settings
 from app.core.cache import cache
 
@@ -52,12 +49,11 @@ async def _get_kr_index(name: str) -> dict:
     fresh = cache.get(f"idx:{name}")
     if fresh and fresh.get("value", 0) > 0:
         return fresh
-    # 3. stale (비데모 우선)
+    # 3. stale 캐시
     stale = cache.get_stale(f"idx:{name}")
-    if stale and stale.get("value", 0) > 0 and not stale.get("_demo"):
+    if stale and stale.get("value", 0) > 0:
         return stale
-    # 4. 데모
-    return get_demo_index(name) or {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
+    return {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
 
 
 # ── 해외 지수 조회 ─────────────────────────────────────────
@@ -66,12 +62,11 @@ async def _get_us_index(name: str) -> dict:
     fresh = cache.get(f"idx:{name}")
     if fresh and fresh.get("value", 0) > 0:
         return fresh
-    # 2. stale 캐시 (신선한 것 없을 때)
+    # 2. stale 캐시
     stale = cache.get_stale(f"idx:{name}")
-    if stale and stale.get("value", 0) > 0 and not stale.get("_demo"):
+    if stale and stale.get("value", 0) > 0:
         return stale
-    # 3. 데모 (stale도 없거나 데모인 경우)
-    return get_demo_index(name) or {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
+    return {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
 
 
 # ── 전체 지수 ──────────────────────────────────────────────
@@ -80,8 +75,8 @@ async def get_all_indices():
     all_names = KR_INDICES + US_INDICES
     tasks = [_get_kr_index(n) if n in KR_INDICES else _get_us_index(n) for n in all_names]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    kr = [r if not isinstance(r, Exception) else get_demo_index(n) for r, n in zip(results, all_names) if n in KR_INDICES]
-    us = [r if not isinstance(r, Exception) else get_demo_index(n) for r, n in zip(results, all_names) if n in US_INDICES]
+    kr = [r if not isinstance(r, Exception) else {"index": n, "value": 0, "change": 0, "change_rate": 0} for r, n in zip(results, all_names) if n in KR_INDICES]
+    us = [r if not isinstance(r, Exception) else {"index": n, "value": 0, "change": 0, "change_rate": 0} for r, n in zip(results, all_names) if n in US_INDICES]
     return {"kr": kr, "us": us}
 
 
@@ -261,10 +256,7 @@ async def get_index_ohlcv(name: str, period: str = Query(default="1y"), interval
             return result
     except Exception:
         pass
-    # 데모 데이터
-    from app.services.demo_data import get_demo_ohlcv, DEMO_INDICES
-    demo_idx = DEMO_INDICES.get(name_upper, {})
-    return get_demo_ohlcv(name_upper, period)
+    return []
 
 
 # ── top-movers (호환) ──────────────────────────────────────
@@ -277,4 +269,4 @@ async def get_top_movers():
         )
         if risers or fallers:
             return {"risers": risers, "fallers": fallers}
-    return {"risers": get_demo_rankings_kr()[:10], "fallers": []}
+    return {"risers": [], "fallers": []}

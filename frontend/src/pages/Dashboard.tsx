@@ -28,7 +28,6 @@ function IndexCard({ name, value, change, change_rate, _demo, onClick }: any) {
       <div className="flex items-center justify-between gap-1">
         <span className="text-2xs text-text-muted font-semibold uppercase tracking-wider truncate">{name}</span>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {_demo && <span className="text-[8px] px-1 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
           <ChevronRight size={11} className="text-text-dim group-hover:text-accent-blue transition-colors" />
         </div>
       </div>

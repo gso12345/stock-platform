@@ -302,7 +302,6 @@ export default function StockDetail() {
               <span className={`text-sm font-mono num ${isUp?"text-accent-green":"text-accent-red"}`}>
                 ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
               </span>
-              {d._demo && <span className="text-2xs px-1.5 py-0.5 rounded-full bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/30 font-semibold">DEMO</span>}
             </div>
           </div>
 
@@ -543,9 +542,9 @@ export default function StockDetail() {
               <X size={18}/>
             </button>
           </div>
-          {/* 전체 차트 (보조지표 스크롤 허용) */}
+          {/* 전체 차트 — 메인 차트 높이를 줄여 보조지표 패널이 화면 안에 보이도록 */}
           <div className="flex-1 overflow-y-auto">
-            <StockChart data={ohlcv} height={window.innerHeight - 96} isKR={isKR} chartType={chartType} logScale={logScale}/>
+            <StockChart data={ohlcv} height={Math.max(260, Math.floor((window.innerHeight - 100) * 0.55))} isKR={isKR} chartType={chartType} logScale={logScale}/>
           </div>
         </div>
       )}

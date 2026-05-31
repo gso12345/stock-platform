@@ -313,7 +313,7 @@ async def _fetch_open_er() -> dict | None:
 async def get_usdkrw() -> dict:
     ck = "extra:usdkrw"
     fresh = cache.get(ck)
-    if fresh and not fresh.get("_demo"):   # demo 값은 무시하고 실제 조회
+    if fresh:
         return fresh
 
     # 1차: 네이버 금융
@@ -325,7 +325,7 @@ async def get_usdkrw() -> dict:
     # 2차: open.er-api.com (무료 환율 API)
     r2 = await _fetch_open_er()
     if r2:
-        cache.set(ck, r2, 3600)   # 1시간 캐시 (일별 환율)
+        cache.set(ck, r2, 3600)
         return r2
 
     # 3차: Yahoo Finance
@@ -336,4 +336,4 @@ async def get_usdkrw() -> dict:
         return entry
 
     stale = cache.get_stale(ck)
-    return stale or {"symbol":"USDKRW","name":"원/달러 환율","value":1384.50,"change":-2.30,"change_rate":-0.17,"unit":"원","_demo":True}
+    return stale or {"symbol":"USDKRW","name":"원/달러 환율","value":0,"change":0,"change_rate":0,"unit":"원"}
