@@ -1,68 +1,43 @@
 import { useEffect, useRef, useState } from "react";
 import { createChart, ColorType, CrosshairMode, LineStyle, PriceScaleMode } from "lightweight-charts";
-import { calcMA, calcEMA, calcBB, calcRSI, calcMACD, calcStochastic, calcVolume, OHLCV } from "./indicators";
+import { Settings, Plus, X } from "lucide-react";
+import {
+  calcMA, calcEMA, calcBB, calcRSI, calcMACD, calcStochastic, calcVolume,
+  calcCCI, calcATR, calcOBV, calcWilliams, OHLCV,
+} from "./indicators";
 
+/* ── 내보내기 (StockDetail에서 사용) ────────────────────── */
 export const CANDLE_TYPES = [
-  { label: "1분",   value: "1m"  },
-  { label: "2분",   value: "2m"  },
-  { label: "5분",   value: "5m"  },
-  { label: "15분",  value: "15m" },
-  { label: "30분",  value: "30m" },
-  { label: "60분",  value: "60m" },
-  { label: "90분",  value: "90m" },
-  { label: "일봉",  value: "1d"  },
-  { label: "5일봉", value: "5d"  },
-  { label: "주봉",  value: "1wk" },
-  { label: "월봉",  value: "1mo" },
-  { label: "3월봉", value: "3mo" },
+  { label: "1분",   value: "1m"  }, { label: "2분",   value: "2m"  },
+  { label: "5분",   value: "5m"  }, { label: "15분",  value: "15m" },
+  { label: "30분",  value: "30m" }, { label: "60분",  value: "60m" },
+  { label: "90분",  value: "90m" }, { label: "일봉",  value: "1d"  },
+  { label: "5일봉", value: "5d"  }, { label: "주봉",  value: "1wk" },
+  { label: "월봉",  value: "1mo" }, { label: "3월봉", value: "3mo" },
   { label: "연봉",  value: "1y"  },
 ] as const;
 
-// 캔들 그룹 (틱/분/일/주/월/년) — 재클릭 시 세부 선택
 export const CANDLE_GROUPS = [
   { label: "틱", key: "tick", options: [
-    { label: "1틱",   value: "1m"  },   // yfinance 최소: 1분봉으로 근사
-    { label: "5틱",   value: "2m"  },
-    { label: "10틱",  value: "5m"  },
-    { label: "50틱",  value: "15m" },
+    { label: "1틱",   value: "1m"  }, { label: "5틱",  value: "2m"  },
+    { label: "10틱",  value: "5m"  }, { label: "50틱", value: "15m" },
     { label: "100틱", value: "30m" },
   ]},
   { label: "분", key: "min", options: [
-    { label: "1분",  value: "1m"  },
-    { label: "2분",  value: "2m"  },
-    { label: "5분",  value: "5m"  },
-    { label: "15분", value: "15m" },
-    { label: "30분", value: "30m" },
-    { label: "60분", value: "60m" },
+    { label: "1분",  value: "1m"  }, { label: "2분",  value: "2m"  },
+    { label: "5분",  value: "5m"  }, { label: "15분", value: "15m" },
+    { label: "30분", value: "30m" }, { label: "60분", value: "60m" },
     { label: "90분", value: "90m" },
   ]},
   { label: "일", key: "day", options: [
-    { label: "1일봉",  value: "1d"  },
-    { label: "3일봉",  value: "3d"  },
-    { label: "5일봉",  value: "5d"  },
-    { label: "10일봉", value: "10d" },
-    { label: "30일봉", value: "30d" },
-    { label: "60일봉", value: "60d" },
+    { label: "1일봉",  value: "1d"  }, { label: "3일봉",  value: "3d"  },
+    { label: "5일봉",  value: "5d"  }, { label: "10일봉", value: "10d" },
+    { label: "30일봉", value: "30d" }, { label: "60일봉", value: "60d" },
   ]},
-  { label: "주", key: "week", options: [
-    { label: "1주봉", value: "1wk" },
-  ]},
-  { label: "월", key: "month", options: [
-    { label: "1월봉", value: "1mo" },
-  ]},
-  { label: "년", key: "year", options: [
-    { label: "1년봉", value: "1y" },
-  ]},
+  { label: "주",  key: "week",  options: [{ label: "1주봉", value: "1wk" }] },
+  { label: "월",  key: "month", options: [{ label: "1월봉", value: "1mo" }, { label: "3월봉", value: "3mo" }] },
+  { label: "년",  key: "year",  options: [{ label: "1년봉", value: "1y"  }] },
 ] as const;
-
-// 캔들 타입별 최대 조회 가능 기간 (항상 최대로 fetch)
-export const CANDLE_MAX_PERIOD: Record<string, string> = {
-  "1m": "5d",   "2m": "60d",  "5m": "60d",
-  "15m": "60d", "30m": "60d", "60m": "2y",  "90m": "60d",
-  "1d": "max",  "3d": "max",  "5d": "max",
-  "10d": "max", "30d": "max", "60d": "max",
-  "1wk": "max", "1mo": "max", "1y": "max",
-};
 
 export const PERIOD_BY_CANDLE: Record<string, { label: string; value: string }[]> = {
   "1m":  [{ label:"1일",value:"1d" },{ label:"5일",value:"5d" }],
@@ -80,38 +55,65 @@ export const PERIOD_BY_CANDLE: Record<string, { label: string; value: string }[]
   "1y":  [{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
 };
 
-// 분/일/주봉 역대 전체 기간 조회 시 사용할 최대 period 매핑
-export const MAX_PERIOD_BY_CANDLE: Record<string, string> = {
-  "1m": "5d", "2m": "5d", "5m": "1mo",
-  "15m": "3mo", "30m": "6mo", "60m": "1y", "90m": "6mo",
-  "1d": "max", "5d": "max", "1wk": "max", "1mo": "max", "3mo": "max", "1y": "max",
+export const CANDLE_MAX_PERIOD: Record<string, string> = {
+  "1m":"5d","2m":"60d","5m":"60d","15m":"60d","30m":"60d","60m":"2y","90m":"60d",
+  "1d":"max","3d":"max","5d":"max","10d":"max","30d":"max","60d":"max",
+  "1wk":"max","1mo":"max","3mo":"max","1y":"max",
 };
 
-const INDICATORS_DEF = [
-  { key:"volume",  label:"거래량",      color:"#3b82f6", group:"overlay" },
-  { key:"ma5",     label:"MA 5",        color:"#f59e0b", group:"overlay" },
-  { key:"ma20",    label:"MA 20",       color:"#3b82f6", group:"overlay" },
-  { key:"ma60",    label:"MA 60",       color:"#8b5cf6", group:"overlay" },
-  { key:"ma120",   label:"MA 120",      color:"#10b981", group:"overlay" },
-  { key:"ma200",   label:"MA 200",      color:"#ef4444", group:"overlay" },
-  { key:"ema20",   label:"EMA 20",      color:"#06b6d4", group:"overlay" },
-  { key:"bb",      label:"볼린저밴드",  color:"#94a3b8", group:"overlay" },
-  { key:"rsi",     label:"RSI 14",      color:"#f59e0b", group:"sub" },
-  { key:"macd",    label:"MACD",        color:"#3b82f6", group:"sub" },
-  { key:"stoch",   label:"스토캐스틱",  color:"#10b981", group:"sub" },
-];
+export const MAX_PERIOD_BY_CANDLE = CANDLE_MAX_PERIOD;
 
-const MA_COLORS: Record<string, string> = {
-  ma5:"#f59e0b", ma20:"#3b82f6", ma60:"#8b5cf6", ma120:"#10b981", ma200:"#ef4444",
+/* ── 지표 설정 타입 ─────────────────────────────────────── */
+export interface ChartSettings {
+  volume:  boolean;
+  mas:     { period: number; color: string }[];
+  emas:    { period: number; color: string }[];
+  bb:      boolean; bbPeriod: number; bbMult: number;
+  rsi:     boolean; rsiPeriod: number;
+  macd:    boolean; macdFast: number; macdSlow: number; macdSignal: number;
+  stoch:   boolean; stochK: number; stochD: number;
+  cci:     boolean; cciPeriod: number;
+  atr:     boolean; atrPeriod: number;
+  obv:     boolean;
+  williams:boolean; williamsPeriod: number;
+}
+
+const MA_PALETTE = ["#f59e0b","#3b82f6","#8b5cf6","#10b981","#ef4444","#06b6d4","#ec4899","#14b8a6","#f97316","#6366f1"];
+
+const DEFAULT_SETTINGS: ChartSettings = {
+  volume: true,
+  mas: [{ period: 20, color: MA_PALETTE[1] }, { period: 60, color: MA_PALETTE[2] }],
+  emas: [],
+  bb: false, bbPeriod: 20, bbMult: 2,
+  rsi: false,  rsiPeriod: 14,
+  macd: false, macdFast: 12, macdSlow: 26, macdSignal: 9,
+  stoch: false, stochK: 14, stochD: 3,
+  cci: false,  cciPeriod: 20,
+  atr: false,  atrPeriod: 14,
+  obv: false,
+  williams: false, williamsPeriod: 14,
 };
 
+const STORAGE_KEY = "stkplt_chart_v2";
+
+function loadSettings(): ChartSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {}
+  return { ...DEFAULT_SETTINGS };
+}
+function saveSettings(s: ChartSettings) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
+}
+
+/* ── 차트 색상 ──────────────────────────────────────────── */
 function getThemeColors() {
   const isLight = typeof document !== "undefined" && document.documentElement.classList.contains("light");
   return {
     card:   isLight ? "#ffffff" : "#1a1f2e",
     border: isLight ? "#cbd5e1" : "#232840",
-    green:  "#10b981",
-    red:    "#ef4444",
+    green:  "#10b981", red: "#ef4444",
     text:   isLight ? "#475569" : "#94a3b8",
     blue:   "#3b82f6",
   };
@@ -128,330 +130,501 @@ interface Props {
 }
 
 function preprocessData(data: OHLCV[]) {
-  return data
-    .filter(d => d.close > 0)
-    .map(d => {
-      // 8자리 붙여쓰기 → YYYY-MM-DD 변환
-      const raw = d.date.replace(/^(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
-      const isIntraday = raw.length > 10; // "2024-01-01 09:30:00"
-      const time = isIntraday
-        ? Math.floor(new Date(raw.replace(" ", "T")).getTime() / 1000) // Unix 초
-        : raw.slice(0, 10); // "YYYY-MM-DD"
-      return { ...d, date: raw.slice(0, 10), time };
-    });
+  return data.filter(d => d.close > 0).map(d => {
+    const raw = d.date.replace(/^(\d{4})(\d{2})(\d{2})/, "$1-$2-$3");
+    const isIntraday = raw.length > 10;
+    const time = isIntraday
+      ? Math.floor(new Date(raw.replace(" ", "T")).getTime() / 1000)
+      : raw.slice(0, 10);
+    return { ...d, date: raw.slice(0, 10), time };
+  });
 }
 
+/* ── 설정 패널 컴포넌트 ──────────────────────────────────── */
+function SettingsPanel({ settings, onChange, onClose }: {
+  settings: ChartSettings;
+  onChange: (s: ChartSettings) => void;
+  onClose: () => void;
+}) {
+  const set = (patch: Partial<ChartSettings>) => onChange({ ...settings, ...patch });
+
+  const addMA = () => {
+    const usedColors = settings.mas.map(m => m.color);
+    const color = MA_PALETTE.find(c => !usedColors.includes(c)) ?? MA_PALETTE[0];
+    set({ mas: [...settings.mas, { period: 10, color }] });
+  };
+  const removeMA = (i: number) => set({ mas: settings.mas.filter((_, j) => j !== i) });
+  const updateMA = (i: number, period: number) =>
+    set({ mas: settings.mas.map((m, j) => j === i ? { ...m, period } : m) });
+
+  const addEMA = () => {
+    const usedColors = settings.emas.map(e => e.color);
+    const color = MA_PALETTE.find(c => !usedColors.includes(c)) ?? MA_PALETTE[5];
+    set({ emas: [...settings.emas, { period: 20, color }] });
+  };
+  const removeEMA = (i: number) => set({ emas: settings.emas.filter((_, j) => j !== i) });
+  const updateEMA = (i: number, period: number) =>
+    set({ emas: settings.emas.map((e, j) => j === i ? { ...e, period } : e) });
+
+  const NumInput = ({ label, value, onChange: oc, min = 1, max = 500 }: {
+    label: string; value: number; onChange: (v: number) => void; min?: number; max?: number;
+  }) => (
+    <label className="flex items-center gap-2 text-xs">
+      <span className="text-text-muted w-20 flex-shrink-0">{label}</span>
+      <input type="number" min={min} max={max} value={value}
+        onChange={e => oc(Math.max(min, Math.min(max, parseInt(e.target.value) || min)))}
+        className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center focus:outline-none focus:border-accent-blue"
+      />
+    </label>
+  );
+
+  const Toggle = ({ label, checked, onToggle, color }: { label: string; checked: boolean; onToggle: () => void; color?: string }) => (
+    <button onClick={onToggle}
+      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+        checked ? "text-white border-transparent" : "border-border text-text-muted hover:text-text-primary"
+      }`}
+      style={checked ? { background: (color ?? "#3b82f6") + "cc", borderColor: color ?? "#3b82f6" } : {}}
+    >{label}</button>
+  );
+
+  return (
+    <div className="border-t border-border bg-bg-secondary px-4 py-3 flex flex-col gap-4 max-h-[380px] overflow-y-auto">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold text-text-primary uppercase tracking-widest">지표 설정</span>
+        <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={14}/></button>
+      </div>
+
+      {/* 오버레이 지표 */}
+      <div className="flex flex-col gap-3">
+        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">오버레이</span>
+
+        {/* 거래량 */}
+        <Toggle label="거래량" checked={settings.volume} onToggle={() => set({ volume: !settings.volume })} color="#3b82f6"/>
+
+        {/* MA */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-muted">이동평균선 (MA)</span>
+            <button onClick={addMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-blue-400">
+              <Plus size={11}/>추가
+            </button>
+          </div>
+          {settings.mas.map((m, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: m.color }}/>
+              <input type="number" min={2} max={500} value={m.period}
+                onChange={e => updateMA(i, parseInt(e.target.value) || 2)}
+                className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
+              />
+              <span className="text-2xs text-text-muted">기간</span>
+              <button onClick={() => removeMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={12}/></button>
+            </div>
+          ))}
+        </div>
+
+        {/* EMA */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-muted">지수이동평균 (EMA)</span>
+            <button onClick={addEMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-blue-400">
+              <Plus size={11}/>추가
+            </button>
+          </div>
+          {settings.emas.map((e, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: e.color }}/>
+              <input type="number" min={2} max={500} value={e.period}
+                onChange={ev => updateEMA(i, parseInt(ev.target.value) || 2)}
+                className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
+              />
+              <span className="text-2xs text-text-muted">기간</span>
+              <button onClick={() => removeEMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={12}/></button>
+            </div>
+          ))}
+        </div>
+
+        {/* 볼린저밴드 */}
+        <div className="flex flex-col gap-1.5">
+          <Toggle label="볼린저밴드" checked={settings.bb} onToggle={() => set({ bb: !settings.bb })} color="#94a3b8"/>
+          {settings.bb && (
+            <div className="pl-2 flex flex-col gap-1">
+              <NumInput label="기간" value={settings.bbPeriod} onChange={v => set({ bbPeriod: v })}/>
+              <NumInput label="표준편차" value={settings.bbMult} onChange={v => set({ bbMult: v })} min={1} max={5}/>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 보조 지표 */}
+      <div className="flex flex-col gap-3 border-t border-border pt-3">
+        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">보조 지표 (하단 패널)</span>
+
+        {/* RSI */}
+        <div className="flex flex-col gap-1.5">
+          <Toggle label="RSI" checked={settings.rsi} onToggle={() => set({ rsi: !settings.rsi })} color="#f59e0b"/>
+          {settings.rsi && <div className="pl-2"><NumInput label="기간" value={settings.rsiPeriod} onChange={v => set({ rsiPeriod: v })}/></div>}
+        </div>
+
+        {/* MACD */}
+        <div className="flex flex-col gap-1.5">
+          <Toggle label="MACD" checked={settings.macd} onToggle={() => set({ macd: !settings.macd })} color="#3b82f6"/>
+          {settings.macd && (
+            <div className="pl-2 flex flex-col gap-1">
+              <NumInput label="단기(Fast)" value={settings.macdFast} onChange={v => set({ macdFast: v })}/>
+              <NumInput label="장기(Slow)" value={settings.macdSlow} onChange={v => set({ macdSlow: v })}/>
+              <NumInput label="시그널" value={settings.macdSignal} onChange={v => set({ macdSignal: v })}/>
+            </div>
+          )}
+        </div>
+
+        {/* 스토캐스틱 */}
+        <div className="flex flex-col gap-1.5">
+          <Toggle label="스토캐스틱" checked={settings.stoch} onToggle={() => set({ stoch: !settings.stoch })} color="#10b981"/>
+          {settings.stoch && (
+            <div className="pl-2 flex flex-col gap-1">
+              <NumInput label="%K 기간" value={settings.stochK} onChange={v => set({ stochK: v })}/>
+              <NumInput label="%D 기간" value={settings.stochD} onChange={v => set({ stochD: v })}/>
+            </div>
+          )}
+        </div>
+
+        {/* CCI */}
+        <div className="flex flex-col gap-1.5">
+          <Toggle label="CCI" checked={settings.cci} onToggle={() => set({ cci: !settings.cci })} color="#ec4899"/>
+          {settings.cci && <div className="pl-2"><NumInput label="기간" value={settings.cciPeriod} onChange={v => set({ cciPeriod: v })}/></div>}
+        </div>
+
+        {/* ATR */}
+        <div className="flex flex-col gap-1.5">
+          <Toggle label="ATR" checked={settings.atr} onToggle={() => set({ atr: !settings.atr })} color="#f97316"/>
+          {settings.atr && <div className="pl-2"><NumInput label="기간" value={settings.atrPeriod} onChange={v => set({ atrPeriod: v })}/></div>}
+        </div>
+
+        {/* OBV */}
+        <Toggle label="OBV" checked={settings.obv} onToggle={() => set({ obv: !settings.obv })} color="#6366f1"/>
+
+        {/* Williams %R */}
+        <div className="flex flex-col gap-1.5">
+          <Toggle label="Williams %R" checked={settings.williams} onToggle={() => set({ williams: !settings.williams })} color="#14b8a6"/>
+          {settings.williams && <div className="pl-2"><NumInput label="기간" value={settings.williamsPeriod} onChange={v => set({ williamsPeriod: v })}/></div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 메인 컴포넌트 ──────────────────────────────────────── */
 export default function StockChart({ data, height = 400, isKR = false, chartType = "candle", logScale = false }: Props) {
   const mainRef = useRef<HTMLDivElement>(null);
   const rsiRef  = useRef<HTMLDivElement>(null);
   const macdRef = useRef<HTMLDivElement>(null);
   const stRef   = useRef<HTMLDivElement>(null);
+  const cciRef  = useRef<HTMLDivElement>(null);
+  const atrRef  = useRef<HTMLDivElement>(null);
+  const obvRef  = useRef<HTMLDivElement>(null);
+  const wrRef   = useRef<HTMLDivElement>(null);
 
-  // 차트 인스턴스 refs
-  const chartRef      = useRef<ReturnType<typeof createChart> | null>(null);
-  const rsiChartRef   = useRef<ReturnType<typeof createChart> | null>(null);
-  const macdChartRef  = useRef<ReturnType<typeof createChart> | null>(null);
-  const stChartRef    = useRef<ReturnType<typeof createChart> | null>(null);
-
-  // 오버레이 시리즈 refs (MA/EMA/BB/Volume) — 재생성 없이 add/remove
-  const overlayRef = useRef<Map<string, any>>(new Map());
-
-  // 최신 처리된 OHLCV 데이터 ref (effect deps 없이 접근)
-  const ohlcvRef   = useRef<ReturnType<typeof preprocessData>>([]);
-  const logScaleRef = useRef(logScale);
+  const chartRef     = useRef<ReturnType<typeof createChart> | null>(null);
+  const subRefs      = useRef<Map<string, ReturnType<typeof createChart>>>(new Map());
+  const overlayRef   = useRef<Map<string, any>>(new Map());
+  const ohlcvRef     = useRef<ReturnType<typeof preprocessData>>([]);
+  const logScaleRef  = useRef(logScale);
   logScaleRef.current = logScale;
 
-  const [activeIndicators, setActiveIndicators] = useState<Set<string>>(new Set(["volume","ma20","ma60"]));
-  const activeRef = useRef(activeIndicators);
-  activeRef.current = activeIndicators;
+  const [settings, setSettingsState] = useState<ChartSettings>(() => loadSettings());
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
-  const toggle = (key: string) => {
-    setActiveIndicators(prev => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
+  const [showSettings, setShowSettings] = useState(false);
+
+  const updateSettings = (s: ChartSettings) => {
+    setSettingsState(s);
+    saveSettings(s);
   };
 
-  /* ── Effect 1: 메인 차트 생성 (data/chartType/height/isKR 변경 시만) ── */
+  /* ── 시간 범위 동기화 (논리 인덱스 아닌 시간 기반) ── */
+  function syncByTime(main: ReturnType<typeof createChart>, sub: ReturnType<typeof createChart>) {
+    const applyRange = () => {
+      const r = main.timeScale().getVisibleRange();
+      if (r) {
+        try { sub.timeScale().setVisibleRange(r as any); } catch {}
+      }
+    };
+    applyRange();
+    main.timeScale().subscribeVisibleTimeRangeChange(() => applyRange());
+    sub.timeScale().subscribeVisibleTimeRangeChange(() => {
+      const r = sub.timeScale().getVisibleRange();
+      if (r) try { main.timeScale().setVisibleRange(r as any); } catch {}
+    });
+  }
+
+  /* ── 차트 전체 재생성 ─────────────────────────────────── */
   useEffect(() => {
     if (!mainRef.current || !data.length) return;
-
     const C = getThemeColors();
     const ohlcv = preprocessData(data);
     ohlcvRef.current = ohlcv;
+    const s = settingsRef.current;
 
     const mkChart = (el: HTMLDivElement, h: number) => createChart(el, {
       layout: { background: { type: ColorType.Solid, color: C.card }, textColor: C.text },
       grid: { vertLines: { color: C.border }, horzLines: { color: C.border } },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: C.border, textColor: C.text },
-      timeScale: { borderColor: C.border, timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: C.border,
+        timeVisible: true,
+        secondsVisible: false,
+        // 가로축 날짜 레이블 포맷
+        tickMarkFormatter: (time: any) => {
+          try {
+            const d = typeof time === "number" ? new Date(time * 1000) : new Date(time as string);
+            return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
+          } catch { return ""; }
+        },
+      },
       width: el.clientWidth,
       height: h,
       localization: {
         priceFormatter: (p: number) => isKR ? `₩${p.toLocaleString("ko-KR")}` : `$${p.toFixed(2)}`,
-        timeFormatter: (t: number) => {
-          const d = new Date(t * 1000);
-          const date = `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
-          const hours = d.getHours(), mins = d.getMinutes();
-          if (hours === 0 && mins === 0) return date;
-          return `${date} ${String(hours).padStart(2,"0")}:${String(mins).padStart(2,"0")}`;
-        },
       },
     });
 
     // 기존 차트 제거
     try { chartRef.current?.remove(); } catch {}
+    subRefs.current.forEach(c => { try { c.remove(); } catch {} });
+    subRefs.current.clear();
     overlayRef.current.clear();
 
     mainRef.current.innerHTML = "";
     const main = mkChart(mainRef.current, height);
     chartRef.current = main;
-
     main.priceScale("right").applyOptions({
       mode: logScaleRef.current ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
     });
 
-    const ct = (d: { time?: string | number; date: string }) => (d.time !== undefined ? d.time : d.date) as any;
+    const ct = (d: any) => (d.time !== undefined ? d.time : d.date) as any;
 
     // 메인 시리즈
     if (chartType === "line") {
-      const s = main.addLineSeries({ color: C.blue, lineWidth: 2, priceLineVisible: true, lastValueVisible: true, crosshairMarkerVisible: true, crosshairMarkerRadius: 4 });
-      s.setData(ohlcv.map(d => ({ time: ct(d), value: d.close })));
+      main.addLineSeries({ color: C.blue, lineWidth: 2 }).setData(ohlcv.map(d => ({ time: ct(d), value: d.close })));
     } else if (chartType === "area") {
-      const s = main.addAreaSeries({ lineColor: C.blue, topColor: C.blue+"40", bottomColor: C.blue+"00", lineWidth: 2, priceLineVisible: true, lastValueVisible: true });
-      s.setData(ohlcv.map(d => ({ time: ct(d), value: d.close })));
+      main.addAreaSeries({ lineColor: C.blue, topColor: C.blue+"40", bottomColor: C.blue+"00", lineWidth: 2 }).setData(ohlcv.map(d => ({ time: ct(d), value: d.close })));
     } else {
-      const s = main.addCandlestickSeries({ upColor: C.green, downColor: C.red, borderUpColor: C.green, borderDownColor: C.red, wickUpColor: C.green, wickDownColor: C.red });
-      s.setData(ohlcv.map(d => ({ time: ct(d), open: d.open, high: d.high, low: d.low, close: d.close })));
+      main.addCandlestickSeries({ upColor: C.green, downColor: C.red, borderUpColor: C.green, borderDownColor: C.red, wickUpColor: C.green, wickDownColor: C.red })
+        .setData(ohlcv.map(d => ({ time: ct(d), open: d.open, high: d.high, low: d.low, close: d.close })));
     }
 
-    // 현재 활성화된 오버레이 지표 초기화
-    _addOverlayIndicators(main, ohlcv, activeRef.current, overlayRef.current);
+    // 거래량
+    if (s.volume) {
+      const vol = main.addHistogramSeries({ priceScaleId: "volume", color: "#3b82f620" });
+      main.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+      vol.setData(calcVolume(ohlcv).map(d => ({ time: d.time as any, value: d.value, color: d.color })));
+      overlayRef.current.set("volume", vol);
+    }
+
+    // MA 라인들
+    s.mas.forEach((m, i) => {
+      const line = main.addLineSeries({ color: m.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      line.setData(calcMA(ohlcv, m.period).map(d => ({ time: d.time as any, value: d.value })));
+      overlayRef.current.set(`ma_${i}`, line);
+    });
+
+    // EMA 라인들
+    s.emas.forEach((e, i) => {
+      const line = main.addLineSeries({ color: e.color, lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      line.setData(calcEMA(ohlcv, e.period).map(d => ({ time: d.time as any, value: d.value })));
+      overlayRef.current.set(`ema_${i}`, line);
+    });
+
+    // 볼린저밴드
+    if (s.bb) {
+      const { upper, middle, lower } = calcBB(ohlcv, s.bbPeriod, s.bbMult);
+      const bopt = { color: "#94a3b8", lineWidth: 1 as 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
+      main.addLineSeries(bopt).setData(upper.map(d => ({ time: d.time as any, value: d.value })));
+      main.addLineSeries({ ...bopt, lineStyle: LineStyle.Dashed }).setData(middle.map(d => ({ time: d.time as any, value: d.value })));
+      main.addLineSeries(bopt).setData(lower.map(d => ({ time: d.time as any, value: d.value })));
+    }
 
     main.timeScale().fitContent();
 
-    // 서브 패널 재생성
-    _rebuildSubPanels(ohlcv, main, activeRef.current, rsiRef, macdRef, stRef, rsiChartRef, macdChartRef, stChartRef, mkChart);
-
-    const resize = () => {
-      main.applyOptions({ width: mainRef.current?.clientWidth ?? 800 });
+    // ── 보조 지표 (하단 패널) — 시간 기반 동기화 ──────────
+    const addSub = (ref: React.RefObject<HTMLDivElement>, key: string, h: number, build: (c: ReturnType<typeof createChart>) => void) => {
+      if (!ref.current) return;
+      ref.current.innerHTML = "";
+      const c = mkChart(ref.current, h);
+      subRefs.current.set(key, c);
+      build(c);
+      syncByTime(main, c);
     };
-    window.addEventListener("resize", resize);
 
+    if (s.rsi) addSub(rsiRef, "rsi", 110, c => {
+      c.addLineSeries({ color: "#f59e0b", lineWidth: 1, priceLineVisible: false })
+        .setData(calcRSI(ohlcv, s.rsiPeriod).map(d => ({ time: d.time as any, value: d.value })));
+      const refData = calcRSI(ohlcv, s.rsiPeriod);
+      if (refData.length > 0) {
+        c.addLineSeries({ color: "#ef444460", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false })
+          .setData(refData.map(d => ({ time: d.time as any, value: 70 })));
+        c.addLineSeries({ color: "#10b98160", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false })
+          .setData(refData.map(d => ({ time: d.time as any, value: 30 })));
+      }
+    });
+
+    if (s.macd) addSub(macdRef, "macd", 90, c => {
+      const { macdLine, signalLine, histogram } = calcMACD(ohlcv, s.macdFast, s.macdSlow, s.macdSignal);
+      c.addHistogramSeries({ color: "#3b82f640", priceLineVisible: false })
+        .setData(histogram.map(d => ({ time: d.time as any, value: d.value, color: d.value >= 0 ? "#10b98160" : "#ef444460" })));
+      c.addLineSeries({ color: "#3b82f6", lineWidth: 1, priceLineVisible: false }).setData(macdLine.map(d => ({ time: d.time as any, value: d.value })));
+      c.addLineSeries({ color: "#f59e0b", lineWidth: 1, priceLineVisible: false }).setData(signalLine.map(d => ({ time: d.time as any, value: d.value })));
+    });
+
+    if (s.stoch) addSub(stRef, "stoch", 90, c => {
+      const { kLine, dLine } = calcStochastic(ohlcv, s.stochK, s.stochD);
+      c.addLineSeries({ color: "#10b981", lineWidth: 1, priceLineVisible: false }).setData(kLine.map(d => ({ time: d.time as any, value: d.value })));
+      c.addLineSeries({ color: "#f59e0b", lineWidth: 1, priceLineVisible: false }).setData(dLine.map(d => ({ time: d.time as any, value: d.value })));
+    });
+
+    if (s.cci) addSub(cciRef, "cci", 90, c => {
+      const data_ = calcCCI(ohlcv, s.cciPeriod);
+      c.addLineSeries({ color: "#ec4899", lineWidth: 1, priceLineVisible: false }).setData(data_.map(d => ({ time: d.time as any, value: d.value })));
+      if (data_.length > 0) {
+        const t100 = data_.map(d => ({ time: d.time as any, value: 100 }));
+        const t_100 = data_.map(d => ({ time: d.time as any, value: -100 }));
+        c.addLineSeries({ color: "#ef444450", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }).setData(t100);
+        c.addLineSeries({ color: "#10b98150", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }).setData(t_100);
+      }
+    });
+
+    if (s.atr) addSub(atrRef, "atr", 90, c => {
+      c.addLineSeries({ color: "#f97316", lineWidth: 1, priceLineVisible: false })
+        .setData(calcATR(ohlcv, s.atrPeriod).map(d => ({ time: d.time as any, value: d.value })));
+    });
+
+    if (s.obv) addSub(obvRef, "obv", 90, c => {
+      c.addLineSeries({ color: "#6366f1", lineWidth: 1, priceLineVisible: false })
+        .setData(calcOBV(ohlcv).map(d => ({ time: d.time as any, value: d.value })));
+    });
+
+    if (s.williams) addSub(wrRef, "williams", 90, c => {
+      const data_ = calcWilliams(ohlcv, s.williamsPeriod);
+      c.addLineSeries({ color: "#14b8a6", lineWidth: 1, priceLineVisible: false }).setData(data_.map(d => ({ time: d.time as any, value: d.value })));
+      if (data_.length > 0) {
+        c.addLineSeries({ color: "#ef444450", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }).setData(data_.map(d => ({ time: d.time as any, value: -20 })));
+        c.addLineSeries({ color: "#10b98150", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }).setData(data_.map(d => ({ time: d.time as any, value: -80 })));
+      }
+    });
+
+    const resize = () => { main.applyOptions({ width: mainRef.current?.clientWidth ?? 800 }); };
+    window.addEventListener("resize", resize);
     return () => {
       window.removeEventListener("resize", resize);
       try { main.remove(); } catch {}
-      try { rsiChartRef.current?.remove(); }  catch {}
-      try { macdChartRef.current?.remove(); } catch {}
-      try { stChartRef.current?.remove(); }   catch {}
+      subRefs.current.forEach(c => { try { c.remove(); } catch {} });
+      subRefs.current.clear();
     };
-  }, [data, chartType, height, isKR]); // logScale은 Effect 3에서
+  }, [data, chartType, height, isKR, settings]); // settings 변경 시 전체 재생성
 
-  /* ── Effect 2: 오버레이 지표 즉시 add/remove (차트 재생성 없음) ── */
-  useEffect(() => {
-    const main = chartRef.current;
-    const ohlcv = ohlcvRef.current;
-    if (!main || !ohlcv.length) return;
-
-    const overlayKeys = ["volume","ma5","ma20","ma60","ma120","ma200","ema20","bb"] as const;
-
-    // 제거: 비활성화된 오버레이 시리즈 삭제
-    for (const key of overlayKeys) {
-      if (!activeIndicators.has(key) && overlayRef.current.has(key)) {
-        const series = overlayRef.current.get(key);
-        if (Array.isArray(series)) {
-          series.forEach(s => { try { main.removeSeries(s); } catch {} });
-        } else {
-          try { main.removeSeries(series); } catch {}
-        }
-        overlayRef.current.delete(key);
-      }
-    }
-
-    // 추가: 신규 활성화된 오버레이 시리즈 생성
-    _addOverlayIndicators(main, ohlcv, activeIndicators, overlayRef.current);
-
-    // 서브 패널 (RSI/MACD/Stochastic) 재구성
-    const C2 = getThemeColors();
-    const mkChart = (el: HTMLDivElement, h: number) => createChart(el, {
-      layout: { background: { type: ColorType.Solid, color: C2.card }, textColor: C2.text },
-      grid: { vertLines: { color: C2.border }, horzLines: { color: C2.border } },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: C2.border, textColor: C2.text },
-      timeScale: { borderColor: C2.border, timeVisible: true, secondsVisible: false },
-      width: (rsiRef.current ?? macdRef.current ?? stRef.current ?? document.body).clientWidth,
-      height: h,
-    });
-    _rebuildSubPanels(ohlcv, main, activeIndicators, rsiRef, macdRef, stRef, rsiChartRef, macdChartRef, stChartRef, mkChart);
-  }, [activeIndicators]);
-
-  /* ── Effect 3: 로그 스케일 즉시 적용 ── */
+  /* ── 로그스케일 즉시 적용 ─────────────────────────────── */
   useEffect(() => {
     chartRef.current?.priceScale("right").applyOptions({
       mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
     });
   }, [logScale]);
 
+  const s = settings;
 
-  const showRSI  = activeIndicators.has("rsi");
-  const showMACD = activeIndicators.has("macd");
-  const showST   = activeIndicators.has("stoch");
+  // 활성 지표 요약 텍스트 (버튼 표시용)
+  const activeOverlay = [
+    s.volume && "거래량",
+    ...s.mas.map(m => `MA${m.period}`),
+    ...s.emas.map(e => `EMA${e.period}`),
+    s.bb && `BB(${s.bbPeriod})`,
+  ].filter(Boolean) as string[];
+  const activeSub = [
+    s.rsi && `RSI(${s.rsiPeriod})`,
+    s.macd && `MACD(${s.macdFast},${s.macdSlow},${s.macdSignal})`,
+    s.stoch && `Stoch(${s.stochK},${s.stochD})`,
+    s.cci && `CCI(${s.cciPeriod})`,
+    s.atr && `ATR(${s.atrPeriod})`,
+    s.obv && "OBV",
+    s.williams && `W%R(${s.williamsPeriod})`,
+  ].filter(Boolean) as string[];
 
   return (
     <div className="flex flex-col">
+      {/* 지표 바 */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-bg-secondary">
-        <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide mr-1">지표</span>
-        <div className="flex flex-wrap gap-1 flex-1">
-          {INDICATORS_DEF.map(({ key, label, color }) => {
-            const active = activeIndicators.has(key);
-            return (
-              <button key={key} onClick={() => toggle(key)}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border transition-all ${
-                  active ? "text-white border-transparent" : "border-border text-text-muted hover:text-text-primary"
-                }`}
-                style={active ? { background: color + "bb", borderColor: color } : {}}
-              >
-                {active && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />}
-                {label}
-              </button>
-            );
-          })}
+        <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide flex-shrink-0">지표</span>
+        <div className="flex flex-wrap gap-1 flex-1 overflow-hidden">
+          {[...activeOverlay, ...activeSub].map(label => (
+            <span key={label} className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-blue/20 text-accent-blue border border-accent-blue/30">
+              {label}
+            </span>
+          ))}
+          {activeOverlay.length + activeSub.length === 0 && (
+            <span className="text-2xs text-text-dim">지표 없음</span>
+          )}
         </div>
+        <button onClick={() => setShowSettings(v => !v)}
+          className={`p-1.5 rounded-lg border transition-all flex-shrink-0 ${showSettings ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue" : "border-border text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
+          title="지표 설정"
+        >
+          <Settings size={13}/>
+        </button>
       </div>
 
-      <div ref={mainRef} className="w-full" />
+      {/* 설정 패널 */}
+      {showSettings && (
+        <SettingsPanel settings={settings} onChange={updateSettings} onClose={() => setShowSettings(false)}/>
+      )}
 
-      {showRSI && (
-        <div className="relative">
-          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">RSI(14)</span>
-          <div ref={rsiRef} className="w-full" />
+      {/* 메인 차트 */}
+      <div ref={mainRef} className="w-full"/>
+
+      {/* 보조 지표 패널 */}
+      {s.rsi && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">RSI({s.rsiPeriod})</span>
+          <div ref={rsiRef} className="w-full"/>
         </div>
       )}
-      {showMACD && (
-        <div className="relative">
-          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">MACD(12,26,9)</span>
-          <div ref={macdRef} className="w-full" />
+      {s.macd && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">MACD({s.macdFast},{s.macdSlow},{s.macdSignal})</span>
+          <div ref={macdRef} className="w-full"/>
         </div>
       )}
-      {showST && (
-        <div className="relative">
-          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">Stochastic(14,3)</span>
-          <div ref={stRef} className="w-full" />
+      {s.stoch && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">Stoch(%K{s.stochK},%D{s.stochD})</span>
+          <div ref={stRef} className="w-full"/>
+        </div>
+      )}
+      {s.cci && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">CCI({s.cciPeriod})</span>
+          <div ref={cciRef} className="w-full"/>
+        </div>
+      )}
+      {s.atr && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">ATR({s.atrPeriod})</span>
+          <div ref={atrRef} className="w-full"/>
+        </div>
+      )}
+      {s.obv && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">OBV</span>
+          <div ref={obvRef} className="w-full"/>
+        </div>
+      )}
+      {s.williams && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">Williams%R({s.williamsPeriod})</span>
+          <div ref={wrRef} className="w-full"/>
         </div>
       )}
     </div>
   );
-}
-
-/* ── 오버레이 시리즈 추가 헬퍼 ── */
-function _addOverlayIndicators(
-  main: ReturnType<typeof createChart>,
-  ohlcv: ReturnType<typeof preprocessData>,
-  active: Set<string>,
-  overlayMap: Map<string, any>,
-) {
-  for (const [key, color] of Object.entries(MA_COLORS)) {
-    if (active.has(key) && !overlayMap.has(key)) {
-      const period = parseInt(key.slice(2));
-      const s = main.addLineSeries({ color, lineWidth: 1 as 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-      s.setData(calcMA(ohlcv, period).map(d => ({ time: d.time as any, value: d.value })));
-      overlayMap.set(key, s);
-    }
-  }
-  if (active.has("ema20") && !overlayMap.has("ema20")) {
-    const s = main.addLineSeries({ color:"#06b6d4", lineWidth: 1 as 1, lineStyle: LineStyle.Dotted, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
-    s.setData(calcEMA(ohlcv, 20).map(d => ({ time: d.time as any, value: d.value })));
-    overlayMap.set("ema20", s);
-  }
-  if (active.has("bb") && !overlayMap.has("bb")) {
-    const { upper, middle, lower } = calcBB(ohlcv);
-    const opt = { color:"#94a3b8", lineWidth: 1 as 1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false };
-    const s1 = main.addLineSeries(opt);
-    s1.setData(upper.map(d => ({ time: d.time as any, value: d.value })));
-    const s2 = main.addLineSeries({ ...opt, lineStyle: LineStyle.Dashed });
-    s2.setData(middle.map(d => ({ time: d.time as any, value: d.value })));
-    const s3 = main.addLineSeries(opt);
-    s3.setData(lower.map(d => ({ time: d.time as any, value: d.value })));
-    overlayMap.set("bb", [s1, s2, s3]);
-  }
-  if (active.has("volume") && !overlayMap.has("volume")) {
-    const vol = main.addHistogramSeries({ priceScaleId:"volume", color:"#3b82f620" });
-    main.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-    vol.setData(calcVolume(ohlcv).map(d => ({ time: d.time as any, value: d.value, color: d.color })));
-    overlayMap.set("volume", vol);
-  }
-}
-
-/* ── 서브 패널 재구성 헬퍼 ── */
-function _rebuildSubPanels(
-  ohlcv: any[],
-  main: ReturnType<typeof createChart>,
-  active: Set<string>,
-  rsiRef: React.RefObject<HTMLDivElement>,
-  macdRef: React.RefObject<HTMLDivElement>,
-  stRef: React.RefObject<HTMLDivElement>,
-  rsiChartRef: React.MutableRefObject<any>,
-  macdChartRef: React.MutableRefObject<any>,
-  stChartRef: React.MutableRefObject<any>,
-  mkChart: (el: HTMLDivElement, h: number) => ReturnType<typeof createChart>,
-) {
-  const t = (d: any) => (d.time !== undefined ? d.time : d.date) as any;
-
-  const syncSub = (sub: ReturnType<typeof mkChart>) => {
-    // 메인 차트의 현재 범위로 즉시 동기화
-    const range = main.timeScale().getVisibleLogicalRange();
-    if (range) sub.timeScale().setVisibleLogicalRange(range);
-    main.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) sub.timeScale().setVisibleLogicalRange(r); });
-    sub.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) main.timeScale().setVisibleLogicalRange(r); });
-  };
-
-  // RSI
-  try { rsiChartRef.current?.remove(); } catch {}
-  rsiChartRef.current = null;
-  if (active.has("rsi") && rsiRef.current) {
-    rsiRef.current.innerHTML = "";
-    const c = mkChart(rsiRef.current, 120);
-    rsiChartRef.current = c;
-    c.addLineSeries({ color:"#f59e0b", lineWidth:1, priceLineVisible:false })
-      .setData(calcRSI(ohlcv).map(d => ({ time: t(d), value: d.value })));
-    c.addLineSeries({ color:"#ef444460", lineWidth:1, lineStyle: LineStyle.Dashed, priceLineVisible:false })
-      .setData(ohlcv.slice(14).map((d:any) => ({ time: t(d), value: 70 })));
-    c.addLineSeries({ color:"#10b98160", lineWidth:1, lineStyle: LineStyle.Dashed, priceLineVisible:false })
-      .setData(ohlcv.slice(14).map((d:any) => ({ time: t(d), value: 30 })));
-    syncSub(c);
-  }
-
-  // MACD
-  try { macdChartRef.current?.remove(); } catch {}
-  macdChartRef.current = null;
-  if (active.has("macd") && macdRef.current) {
-    macdRef.current.innerHTML = "";
-    const c = mkChart(macdRef.current, 100);
-    macdChartRef.current = c;
-    const { macdLine, signalLine, histogram } = calcMACD(ohlcv);
-    c.addHistogramSeries({ color:"#3b82f640", priceLineVisible:false })
-      .setData(histogram.map(d => ({ time: t(d), value: d.value, color: d.value >= 0 ? "#10b98160" : "#ef444460" })));
-    c.addLineSeries({ color:"#3b82f6", lineWidth:1, priceLineVisible:false })
-      .setData(macdLine.map(d => ({ time: t(d), value: d.value })));
-    c.addLineSeries({ color:"#f59e0b", lineWidth:1, priceLineVisible:false })
-      .setData(signalLine.map(d => ({ time: t(d), value: d.value })));
-    syncSub(c);
-  }
-
-  // Stochastic
-  try { stChartRef.current?.remove(); } catch {}
-  stChartRef.current = null;
-  if (active.has("stoch") && stRef.current) {
-    stRef.current.innerHTML = "";
-    const c = mkChart(stRef.current, 100);
-    stChartRef.current = c;
-    const { kLine, dLine } = calcStochastic(ohlcv);
-    c.addLineSeries({ color:"#10b981", lineWidth:1, priceLineVisible:false })
-      .setData(kLine.map(d => ({ time: t(d), value: d.value })));
-    c.addLineSeries({ color:"#f59e0b", lineWidth:1, priceLineVisible:false })
-      .setData(dLine.map(d => ({ time: t(d), value: d.value })));
-    syncSub(c);
-  }
 }

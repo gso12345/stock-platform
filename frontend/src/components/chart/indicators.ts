@@ -123,6 +123,60 @@ function calcSMAFromLine(line: TimedValue[], period: number): TimedValue[] {
   return result;
 }
 
+/* ── CCI (Commodity Channel Index) ──────────────────── */
+export function calcCCI(data: OHLCV[], period = 20): TimedValue[] {
+  const result: TimedValue[] = [];
+  for (let i = period - 1; i < data.length; i++) {
+    const slice = data.slice(i - period + 1, i + 1);
+    const tps = slice.map(d => (d.high + d.low + d.close) / 3);
+    const mean = tps.reduce((a, b) => a + b, 0) / period;
+    const meanDev = tps.reduce((a, b) => a + Math.abs(b - mean), 0) / period;
+    result.push({ time: t(data[i]), value: meanDev === 0 ? 0 : (tps[period - 1] - mean) / (0.015 * meanDev) });
+  }
+  return result;
+}
+
+/* ── ATR (Average True Range) ───────────────────────── */
+export function calcATR(data: OHLCV[], period = 14): TimedValue[] {
+  if (data.length < 2) return [];
+  const trs = data.slice(1).map((d, i) => Math.max(
+    d.high - d.low,
+    Math.abs(d.high - data[i].close),
+    Math.abs(d.low  - data[i].close),
+  ));
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const result: TimedValue[] = [{ time: t(data[period]), value: atr }];
+  for (let i = period; i < trs.length; i++) {
+    atr = (atr * (period - 1) + trs[i]) / period;
+    result.push({ time: t(data[i + 1]), value: atr });
+  }
+  return result;
+}
+
+/* ── OBV (On Balance Volume) ────────────────────────── */
+export function calcOBV(data: OHLCV[]): TimedValue[] {
+  let obv = 0;
+  return data.map((d, i) => {
+    if (i > 0) {
+      if (d.close > data[i-1].close) obv += d.volume;
+      else if (d.close < data[i-1].close) obv -= d.volume;
+    }
+    return { time: t(d), value: obv };
+  });
+}
+
+/* ── Williams %R ────────────────────────────────────── */
+export function calcWilliams(data: OHLCV[], period = 14): TimedValue[] {
+  const result: TimedValue[] = [];
+  for (let i = period - 1; i < data.length; i++) {
+    const slice = data.slice(i - period + 1, i + 1);
+    const high = Math.max(...slice.map(d => d.high));
+    const low  = Math.min(...slice.map(d => d.low));
+    result.push({ time: t(data[i]), value: high === low ? -50 : ((high - data[i].close) / (high - low)) * -100 });
+  }
+  return result;
+}
+
 /* ── 거래량 ─────────────────────────────────────────── */
 export function calcVolume(data: OHLCV[]) {
   return data.map(d => ({
