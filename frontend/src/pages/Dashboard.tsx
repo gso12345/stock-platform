@@ -301,7 +301,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             <h3 className="text-sm font-semibold text-text-primary">국내 금융뉴스</h3>
             {data?.news && <span className="text-2xs text-text-muted ml-auto">{data.news.length}건</span>}
           </div>
-          <div className="px-3 py-1 max-h-[520px] overflow-y-auto">
+          <div className="px-3 py-1">
             {isLoading ? <LoadingSpinner /> : <NewsPanel news={data?.news ?? []} />}
           </div>
         </Card>
@@ -395,7 +395,7 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             <h3 className="text-sm font-semibold text-text-primary">해외 금융뉴스</h3>
             {data?.news && <span className="text-2xs text-text-muted ml-auto">{data.news.length}건</span>}
           </div>
-          <div className="px-3 py-1 max-h-[520px] overflow-y-auto">
+          <div className="px-3 py-1">
             {isLoading ? <LoadingSpinner /> : <NewsPanel news={data?.news ?? []} />}
           </div>
         </Card>
