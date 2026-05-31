@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { dashboardApi } from "@/api/stocks";
 import { Card, ChangeBadge } from "@/components/ui";
-import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw, Maximize2, X } from "lucide-react";
 import StockChart from "@/components/chart/StockChart";
 
 
@@ -34,6 +34,13 @@ export default function IndexDetail() {
 
   const indexName = name?.toUpperCase() ?? "";
   const meta      = INDEX_INFO[indexName] ?? { region:"—", desc:"", isKR:false };
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const { data: info, refetch: refetchInfo } = useQuery({
     queryKey: ["index-detail", indexName],
@@ -108,9 +115,14 @@ export default function IndexDetail() {
                 >{ct.label}</button>
               ))}
             </div>
-            <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-              <RefreshCw size={13}/>
-            </button>
+            <div className="flex items-center gap-1">
+              <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+                <RefreshCw size={13}/>
+              </button>
+              <button onClick={()=>setFullscreen(true)} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors" title="전체보기">
+                <Maximize2 size={13}/>
+              </button>
+            </div>
           </div>
         </div>
         <div>
@@ -127,6 +139,30 @@ export default function IndexDetail() {
           )}
         </div>
       </div>
+
+      {/* 전체보기 모달 */}
+      {fullscreen && ohlcv?.length && (
+        <div className="fixed inset-0 z-50 bg-bg-base flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg-card flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <span className="font-bold text-text-primary">{info?.display_name ?? indexName}</span>
+              <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
+                {CANDLE_TYPES.map(ct=>(
+                  <button key={ct.value} onClick={()=>setCandleType(ct.value)}
+                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                  >{ct.label}</button>
+                ))}
+              </div>
+            </div>
+            <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+              <X size={18}/>
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <StockChart data={ohlcv} height={window.innerHeight - 120} isKR={meta.isKR}/>
+          </div>
+        </div>
+      )}
 
       {/* 기간 요약 */}
       {ohlcv?.length > 1 && (

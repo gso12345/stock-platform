@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/api/client";
@@ -6,7 +6,7 @@ import { stocksApi, watchlistApi, financialsApi } from "@/api/stocks";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
-  Newspaper, Users, ExternalLink,
+  Newspaper, Users, ExternalLink, Maximize2, X,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
@@ -77,6 +77,13 @@ export default function StockDetail() {
   const [candleType, setCandleType] = useState("1d");
   const [chartType, setChartType]   = useState<ChartType>("candle");
   const [logScale, setLogScale]     = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "supply">("chart");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health">("basic");
@@ -302,9 +309,14 @@ export default function StockDetail() {
                 >{ct.label}</button>
               ))}
             </div>
-            <button onClick={()=>refetchChart()} className="ml-auto p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-              <RefreshCw size={13}/>
-            </button>
+            <div className="ml-auto flex items-center gap-1">
+              <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+                <RefreshCw size={13}/>
+              </button>
+              <button onClick={()=>setFullscreen(true)} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors" title="전체보기">
+                <Maximize2 size={13}/>
+              </button>
+            </div>
           </div>
           {/* 차트 설정 */}
           <div className="px-4 py-2 border-b border-border bg-bg-secondary flex flex-wrap items-center gap-3">
@@ -347,6 +359,42 @@ export default function StockDetail() {
               <button onClick={()=>refetchChart()} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue text-white text-xs rounded-lg"><RefreshCw size={12}/>재시도</button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* 전체보기 모달 */}
+      {fullscreen && ohlcv?.length && (
+        <div className="fixed inset-0 z-50 bg-bg-base flex flex-col">
+          {/* 모달 헤더 */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg-card flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <span className="font-bold text-text-primary">{d?.name ?? sym}</span>
+              <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
+                {CANDLE_TYPES.map(ct=>(
+                  <button key={ct.value} onClick={()=>onCandleChange(ct.value)}
+                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                  >{ct.label}</button>
+                ))}
+              </div>
+              <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
+                {([{value:"candle",label:"캔들"},{value:"line",label:"라인"},{value:"area",label:"영역"}] as const).map(({value,label})=>(
+                  <button key={value} onClick={()=>setChartType(value)}
+                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                  >{label}</button>
+                ))}
+              </div>
+              <button onClick={()=>setLogScale(v=>!v)}
+                className={`px-2.5 py-1 text-xs rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted"}`}
+              >LOG</button>
+            </div>
+            <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+              <X size={18}/>
+            </button>
+          </div>
+          {/* 전체 차트 */}
+          <div className="flex-1 overflow-hidden">
+            <StockChart data={ohlcv} height={window.innerHeight - 120} isKR={isKR} chartType={chartType} logScale={logScale}/>
+          </div>
         </div>
       )}
 
