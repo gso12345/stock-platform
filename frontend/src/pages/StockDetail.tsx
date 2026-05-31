@@ -86,7 +86,7 @@ export default function StockDetail() {
   }, []);
   const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "supply">("chart");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
-  const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health">("basic");
+  const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow">("basic");
   const [selectedMetric, setSelectedMetric] = useState("revenue");
   const [supplyDays, setSupplyDays]   = useState(30);
   const [newsSort, setNewsSort]         = useState<"latest" | "popular">("latest");
@@ -375,6 +375,7 @@ export default function StockDetail() {
               { value:"valuation",     label:"밸류에이션" },
               { value:"profitability", label:"수익성" },
               { value:"health",        label:"재무건전성" },
+              { value:"cashflow",      label:"현금흐름" },
             ] as const).map(({ value, label })=>(
               <button key={value} onClick={()=>setFinSubTab(value)}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-full whitespace-nowrap transition-all flex-shrink-0 ${
@@ -673,12 +674,15 @@ export default function StockDetail() {
                   )}
                   {/* 전치 테이블 */}
                   <TransTable rows={[
-                    { key:"revenue",    label:"매출",       fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-blue" },
-                    { key:"op_income",  label:"영업이익",   fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-green" },
-                    { key:"net_income", label:"당기순이익", fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-purple-400" },
-                    { key:"op_margin",  label:"영업이익률", fmt:(v)=>`${v.toFixed(1)}%`,        color:"text-text-secondary" },
-                    { key:"net_margin", label:"순이익률",   fmt:(v)=>`${v.toFixed(1)}%`,        color:"text-text-secondary" },
-                    { key:"eps",        label:"EPS",        fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-cyan-400" },
+                    { key:"revenue",          label:"매출",         fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-blue" },
+                    { key:"revenue_growth",   label:"매출성장률",   fmt:(v)=>`${v.toFixed(1)}%`, color: "text-accent-blue" },
+                    { key:"op_income",        label:"영업이익",     fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-green" },
+                    { key:"op_income_growth", label:"영업이익성장률",fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-green" },
+                    { key:"net_income",       label:"당기순이익",   fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-purple-400" },
+                    { key:"net_income_growth",label:"순이익성장률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
+                    { key:"op_margin",        label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
+                    { key:"net_margin",       label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
+                    { key:"eps",              label:"EPS",          fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-cyan-400" },
                   ]}/>
                 </div>
               )}
@@ -695,14 +699,15 @@ export default function StockDetail() {
               <div className="p-4 flex flex-col gap-4">
                 {/* 현재 지표 — detail 없으면 metricsHistory 최신값 사용 */}
                 {d && (
-                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-                    <StatCell label="PER"       value={fmtNum(dEnhanced.per)}          />
-                    <StatCell label="선행PER"   value={fmtNum(d.forward_per)}  />
-                    <StatCell label="PBR"       value={fmtNum(dEnhanced.pbr, 2)}       />
-                    <StatCell label="PSR"       value={fmtNum(dEnhanced.psr, 2)}       />
-                    <StatCell label="EV/EBITDA" value={fmtNum(d.ev_ebitda, 1)} />
-                    <StatCell label="시가총액"  value={fmt(d.market_cap)}      />
-                    <StatCell label="기업가치"  value={fmt(d.enterprise_value)} />
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    <StatCell label="PER(현재)"  value={dEnhanced.per  != null ? `${fmtNum(dEnhanced.per)}배` : null} />
+                    <StatCell label="PER(선행)"  value={d.forward_per  != null ? `${fmtNum(d.forward_per)}배` : null} />
+                    <StatCell label="PEG"        value={d.peg          != null ? fmtNum(d.peg, 2) : null} />
+                    <StatCell label="PBR"        value={dEnhanced.pbr  != null ? `${fmtNum(dEnhanced.pbr,2)}배` : null} />
+                    <StatCell label="PSR"        value={dEnhanced.psr  != null ? `${fmtNum(dEnhanced.psr,2)}배` : null} />
+                    <StatCell label="EV/EBITDA"  value={d.ev_ebitda    != null ? `${fmtNum(d.ev_ebitda,1)}배` : null} />
+                    <StatCell label="시가총액"   value={fmt(d.market_cap)} />
+                    <StatCell label="기업가치(EV)" value={fmt(d.enterprise_value)} />
                   </div>
                 )}
                 {/* PER/PBR 연도별 차트 — PER/PBR 없으면 EPS 차트 */}
@@ -741,11 +746,11 @@ export default function StockDetail() {
                 })()}
                 {/* 전치 테이블 */}
                 <TransTable rows={[
-                  { key:"per",  label:"PER",  fmt:(v)=>v.toFixed(1), color:"text-accent-blue" },
-                  { key:"pbr",  label:"PBR",  fmt:(v)=>v.toFixed(2), color:"text-accent-green" },
-                  { key:"psr",  label:"PSR",  fmt:(v)=>v.toFixed(2), color:"text-purple-400" },
-                  { key:"eps",  label:"EPS",  fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-cyan-400" },
-                  { key:"bps",  label:"BPS",  fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-text-secondary" },
+                  { key:"per",  label:"PER",        fmt:(v)=>`${v.toFixed(1)}배`, color:"text-accent-blue" },
+                  { key:"pbr",  label:"PBR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-accent-green" },
+                  { key:"psr",  label:"PSR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-purple-400" },
+                  { key:"eps",  label:"EPS",  fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:fmtUSD(v), color:"text-cyan-400" },
+                  { key:"bps",  label:"BPS",  fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:fmtUSD(v), color:"text-text-secondary" },
                 ]}/>
               </div>
             </div>
@@ -767,7 +772,6 @@ export default function StockDetail() {
                   { key:"net_margin",    label:"순이익률",     color:"#8b5cf6", pct:true  },
                   { key:"gross_margin",  label:"매출총이익률", color:"#3b82f6", pct:true  },
                   { key:"roe",           label:"ROE",          color:"#f59e0b", pct:true  },
-                  { key:"roa",           label:"ROA",          color:"#06b6d4", pct:true  },
                   { key:"debt_ratio",    label:"부채비율",     color:"#ef4444", pct:true  },
                   { key:"current_ratio", label:"유동비율",     color:"#10b981", pct:false },
                   { key:"eps",           label:"EPS",          color:"#06b6d4", pct:false },
@@ -818,17 +822,15 @@ export default function StockDetail() {
               </div>
               <div className="p-4 flex flex-col gap-4">
                 {d && (
-                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                     <StatCell label="ROE" value={dEnhanced.roe!=null?`${dEnhanced.roe.toFixed(1)}%`:null}
                       color={dEnhanced.roe!=null?(dEnhanced.roe>=15?"text-accent-green":dEnhanced.roe<0?"text-accent-red":"text-text-primary"):undefined}/>
-                    <StatCell label="ROA" value={dEnhanced.roa!=null?`${dEnhanced.roa.toFixed(1)}%`:null}
-                      color={dEnhanced.roa!=null?(dEnhanced.roa>=5?"text-accent-green":dEnhanced.roa<0?"text-accent-red":"text-text-primary"):undefined}/>
                     <StatCell label="매출총이익률" value={dEnhanced.gross_margin!=null?`${dEnhanced.gross_margin.toFixed(1)}%`:null}/>
                     <StatCell label="영업이익률" value={dEnhanced.op_margin!=null?`${dEnhanced.op_margin.toFixed(1)}%`:null}
                       color={dEnhanced.op_margin!=null?(dEnhanced.op_margin>=15?"text-accent-green":dEnhanced.op_margin<0?"text-accent-red":"text-text-primary"):undefined}/>
                     <StatCell label="순이익률" value={dEnhanced.net_margin!=null?`${dEnhanced.net_margin.toFixed(1)}%`:null}/>
-                    <StatCell label="EPS" value={dEnhanced.eps!=null?(isKR?dEnhanced.eps.toLocaleString("ko-KR"):dEnhanced.eps.toFixed(2)):null}/>
-                    <StatCell label="선행EPS" value={isKR?d.forward_eps?.toLocaleString("ko-KR"):d.forward_eps?.toFixed(2)}/>
+                    <StatCell label="EPS" value={dEnhanced.eps!=null?(isKR?`₩${Math.round(dEnhanced.eps).toLocaleString("ko-KR")}`:fmtUSD(dEnhanced.eps)):null}/>
+                    <StatCell label="선행EPS" value={d.forward_eps!=null?(isKR?`₩${Math.round(d.forward_eps).toLocaleString("ko-KR")}`:fmtUSD(d.forward_eps)):null}/>
                   </div>
                 )}
                 {mhYears.length > 0 && (
@@ -851,8 +853,7 @@ export default function StockDetail() {
                   { key:"op_margin",    label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-green" },
                   { key:"net_margin",   label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
                   { key:"roe",          label:"ROE",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-yellow" },
-                  { key:"roa",          label:"ROA",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
-                  { key:"eps",          label:"EPS",          fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-cyan-400" },
+                  { key:"eps",          label:"EPS",          fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:fmtUSD(v), color:"text-cyan-400" },
                 ]}/>
               </div>
             </div>
@@ -901,6 +902,63 @@ export default function StockDetail() {
                   { key:"debt_ratio",    label:"부채비율",   fmt:(v)=>`${v.toFixed(0)}%`,  color:"text-accent-red" },
                   { key:"current_ratio", label:"유동비율",   fmt:(v)=>v.toFixed(2),         color:"text-accent-green" },
                   { key:"quick_ratio",   label:"당좌비율",   fmt:(v)=>v.toFixed(2),         color:"text-accent-blue" },
+                ]}/>
+              </div>
+            </div>
+          )}
+
+          {/* ── 현금흐름 ── */}
+          {finSubTab==="cashflow" && (
+            <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <span className="text-sm font-semibold text-text-primary">현금흐름</span>
+                <PeriodToggle />
+              </div>
+              <div className="p-4 flex flex-col gap-4">
+                {/* 현금흐름 바 차트 */}
+                {mh.some((r:any) => r.operating_cf != null) && (
+                  <div>
+                    <p className="text-xs text-text-muted font-semibold mb-2">영업 / 투자 / 재무 현금흐름</p>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={mh.filter((r:any)=>r.operating_cf!=null)} {...chartProps.margin}>
+                        <CartesianGrid {...chartProps.cartesianGridProps}/>
+                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={operating_cf:"영업현금흐름",investing_cf:"투자현금흐름",financing_cf:"재무현금흐름"};return[isKR?fmtKRW(v):fmtUSD(v),l[name]??name];}}/>
+                        <Legend formatter={v=>({operating_cf:"영업현금흐름",investing_cf:"투자현금흐름",financing_cf:"재무현금흐름"}[v as string]??v)}/>
+                        <Bar dataKey="operating_cf" fill="#10b981" radius={[2,2,0,0]} maxBarSize={28}/>
+                        <Bar dataKey="investing_cf" fill="#ef4444" radius={[2,2,0,0]} maxBarSize={28}/>
+                        <Bar dataKey="financing_cf" fill="#f59e0b" radius={[2,2,0,0]} maxBarSize={28}/>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                {/* FCF 차트 */}
+                {mh.some((r:any) => r.free_cf != null) && (
+                  <div>
+                    <p className="text-xs text-text-muted font-semibold mb-2">잉여현금흐름 (FCF)</p>
+                    <ResponsiveContainer width="100%" height={150}>
+                      <BarChart data={mh.filter((r:any)=>r.free_cf!=null)} {...chartProps.margin}>
+                        <CartesianGrid {...chartProps.cartesianGridProps}/>
+                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[isKR?fmtKRW(v):fmtUSD(v),"FCF"]}/>
+                        <Bar dataKey="free_cf" radius={[2,2,0,0]} maxBarSize={35}
+                          fill="#3b82f6"
+                          label={false}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                {/* 전치 테이블 */}
+                <TransTable rows={[
+                  { key:"operating_cf", label:"영업현금흐름", fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-green" },
+                  { key:"investing_cf", label:"투자현금흐름", fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-red" },
+                  { key:"financing_cf", label:"재무현금흐름", fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-yellow" },
+                  { key:"free_cf",      label:"FCF",         fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-blue" },
+                  { key:"capex",        label:"CAPEX",        fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-text-secondary" },
+                  { key:"da",           label:"감가상각비",   fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-text-secondary" },
                 ]}/>
               </div>
             </div>

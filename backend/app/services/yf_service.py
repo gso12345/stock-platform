@@ -290,6 +290,7 @@ class YFinanceService:
         result = _clean({
             "per":          _safe(info.get("_pkrx_per") or info.get("trailingPE")),
             "forward_per":  _safe(info.get("forwardPE")),
+            "peg":          _safe(info.get("pegRatio")),
             "pbr":          _safe(info.get("_pkrx_pbr") or info.get("priceToBook")),
             "psr":          _safe(info.get("priceToSalesTrailing12Months")),
             "pcr":          _safe(info.get("priceToFreeCashflows")) or _safe(info.get("priceToOperatingCashflows")),
