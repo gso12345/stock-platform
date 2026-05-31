@@ -34,17 +34,14 @@ export default function Layout() {
     <div className="flex h-screen bg-bg-base overflow-hidden">
 
       {/* ── 데스크탑 사이드바 (md 이상) ─────────── */}
-      <aside
-        className="hidden md:flex w-52 flex-shrink-0 flex-col"
-        style={{ background: "linear-gradient(180deg,#111827 0%,#0f1117 100%)", borderRight: "1px solid #1e2438" }}
-      >
+      <aside className="hidden md:flex w-52 flex-shrink-0 flex-col bg-bg-card border-r border-border">
         <div className="px-5 pt-6 pb-5">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-accent-blue flex items-center justify-center flex-shrink-0">
               <Activity size={14} className="text-white" />
             </div>
             <div>
-              <div className="text-sm font-bold text-white tracking-tight leading-none">StockPlatform</div>
+              <div className="text-sm font-bold text-text-primary tracking-tight leading-none">StockPlatform</div>
               <div className="text-2xs text-text-dim mt-0.5">종목발굴 &amp; 백테스트</div>
             </div>
           </div>
@@ -85,7 +82,7 @@ export default function Layout() {
       <aside
         className={`fixed top-0 left-0 h-full z-50 w-64 flex flex-col md:hidden transition-transform duration-300 ${
           menuOpen ? "translate-x-0" : "-translate-x-full"}`}
-        style={{ background: "linear-gradient(180deg,#111827 0%,#0f1117 100%)", borderRight: "1px solid #1e2438" }}
+        className="bg-bg-card border-r border-border"
       >
         <div className="px-5 pt-6 pb-5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -93,7 +90,7 @@ export default function Layout() {
               <Activity size={14} className="text-white" />
             </div>
             <div>
-              <div className="text-sm font-bold text-white tracking-tight leading-none">StockPlatform</div>
+              <div className="text-sm font-bold text-text-primary tracking-tight leading-none">StockPlatform</div>
               <div className="text-2xs text-text-dim mt-0.5">종목발굴 &amp; 백테스트</div>
             </div>
           </div>
@@ -129,8 +126,7 @@ export default function Layout() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* 헤더 */}
-        <header className="flex-shrink-0 flex items-center px-3 md:px-6 gap-3"
-          style={{ background: "#0f1117", borderBottom: "1px solid #1e2438", height: "52px" }}>
+        <header className="flex-shrink-0 flex items-center px-3 md:px-6 gap-3 bg-bg-primary border-b border-border" style={{ height: "52px" }}>
 
           {/* 모바일 햄버거 버튼 */}
           <button

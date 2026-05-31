@@ -129,30 +129,27 @@ export default function SearchBar() {
       {/* 트리거 버튼 — 클릭 또는 Ctrl+K */}
       <button
         onClick={openModal}
-        className="flex items-center gap-2 px-3 py-2 rounded-xl border text-sm w-64 group transition-all cursor-pointer"
-        style={{background:"rgba(255,255,255,0.04)",borderColor:"rgba(255,255,255,0.08)"}}
+        className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-bg-elevated text-sm w-64 group transition-all cursor-pointer hover:border-accent-blue/40"
         type="button"
       >
         <Search size={13} className="text-text-muted group-hover:text-accent-blue transition-colors flex-shrink-0" />
         <span className="flex-1 text-left text-xs text-text-muted group-hover:text-text-secondary transition-colors">종목 검색 (국내·해외·ETF)...</span>
         <div className="flex gap-0.5 opacity-60">
-          <kbd className="text-2xs px-1 py-0.5 rounded font-mono" style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.08)"}}>Ctrl K</kbd>
+          <kbd className="text-2xs px-1 py-0.5 rounded font-mono bg-bg-hover border border-border">Ctrl K</kbd>
         </div>
       </button>
 
       {/* 검색 패널 오버레이 */}
       {open&&(
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-14 px-4"
-             style={{background:"rgba(0,0,0,0.7)",backdropFilter:"blur(6px)"}}>
-          <div ref={panelRef} className="w-full max-w-[580px] rounded-2xl overflow-hidden shadow-modal slide-up"
-               style={{background:"#131926",border:"1px solid rgba(255,255,255,0.07)"}}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-14 px-4 bg-black/60 backdrop-blur-sm">
+          <div ref={panelRef} className="w-full max-w-[580px] rounded-2xl overflow-hidden shadow-modal slide-up bg-bg-card border border-border">
 
             {/* 검색 입력 */}
-            <div className="flex items-center gap-3 px-4 py-3.5" style={{borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-border">
               <Search size={15} className="text-text-muted flex-shrink-0" />
               <input
                 ref={inputRef}
-                className="flex-1 bg-transparent text-[15px] text-white placeholder-slate-600 focus:outline-none"
+                className="flex-1 bg-transparent text-[15px] text-text-primary placeholder-text-dim focus:outline-none"
                 placeholder="종목명 또는 코드  ·  AAPL · 삼성전자 · 005930 · NVDA"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -168,13 +165,12 @@ export default function SearchBar() {
             </div>
 
             {/* 시장 필터 탭 */}
-            <div className="flex gap-1 px-4 py-2" style={{borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+            <div className="flex gap-1 px-4 py-2 border-b border-border">
               {["ALL","KR","US","ETF"].map(m=>(
                 <button key={m} onMouseDown={(e)=>{e.preventDefault();setMarketFilter(m);}}
                   className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
-                    marketFilter===m ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-secondary"
+                    marketFilter===m ? "bg-accent-blue text-white" : "bg-bg-elevated text-text-muted hover:text-text-secondary"
                   }`}
-                  style={marketFilter!==m?{background:"rgba(255,255,255,0.04)"}:{}}
                 >
                   {m==="ALL"?"전체":m==="KR"?"국내":m==="US"?"해외":m}
                 </button>
@@ -205,8 +201,8 @@ export default function SearchBar() {
                     const priceStr = fmtPrice(item);
                     return(
                       <li key={item.symbol}>
-                        <div className={`flex items-center gap-3 px-4 py-3 border-b border-white/[0.04] last:border-0 transition-colors cursor-pointer ${
-                          i===cursor?"bg-white/[0.06]":"hover:bg-white/[0.03]"
+                        <div className={`flex items-center gap-3 px-4 py-3 border-b border-border last:border-0 transition-colors cursor-pointer ${
+                          i===cursor?"bg-bg-elevated":"hover:bg-bg-hover"
                         }`}
                           onMouseDown={(e)=>{e.preventDefault();goTo(item);}}
                           onMouseEnter={()=>setCursor(i)}
@@ -219,7 +215,7 @@ export default function SearchBar() {
                           {/* 종목 정보 */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-sm text-white">{item.symbol.replace(".KS","").replace(".KQ","")}</span>
+                              <span className="font-mono font-bold text-sm text-text-primary">{item.symbol.replace(".KS","").replace(".KQ","")}</span>
                               {(item as any).ko_name && <span className="text-2xs text-text-muted">{(item as any).ko_name}</span>}
                               <span className="text-2xs text-text-dim">{item.exchange}</span>
                             </div>
@@ -273,7 +269,7 @@ export default function SearchBar() {
                       </div>
                       {recent.map((item,i)=>(
                         <div key={item.symbol}
-                          className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] cursor-pointer border-b border-white/[0.04] last:border-0 transition-colors"
+                          className="flex items-center gap-3 px-4 py-2.5 hover:bg-bg-hover cursor-pointer border-b border-border last:border-0 transition-colors"
                           onMouseDown={(e)=>{e.preventDefault();goTo(item);}}
                         >
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-2xs font-black border ${MARKET_STYLE[item.market]??MARKET_STYLE.US}`}>
@@ -301,7 +297,7 @@ export default function SearchBar() {
                     const isAdded=added.has(item.symbol);
                     return(
                       <div key={item.symbol}
-                        className={`flex items-center gap-3 px-4 py-3 border-b border-white/[0.04] last:border-0 cursor-pointer transition-colors ${i===cursor?"bg-white/[0.06]":"hover:bg-white/[0.03]"}`}
+                        className={`flex items-center gap-3 px-4 py-3 border-b border-border last:border-0 cursor-pointer transition-colors ${i===cursor?"bg-bg-elevated":"hover:bg-bg-hover"}`}
                         onMouseDown={(e)=>{e.preventDefault();goTo(item);}}
                         onMouseEnter={()=>setCursor(i)}
                       >
@@ -328,14 +324,14 @@ export default function SearchBar() {
                   })}
 
                   {/* 빠른 검색 태그 */}
-                  <div className="px-4 py-3" style={{borderTop:"1px solid rgba(255,255,255,0.04)"}}>
+                  <div className="px-4 py-3 border-t border-border">
                     <p className="text-2xs text-text-dim mb-2 uppercase tracking-widest font-semibold">빠른 검색</p>
                     <div className="flex flex-wrap gap-1.5">
                       {["META","AMD","NFLX","COST","GOOGL","JPM","005380.KS","035720.KQ","247540.KQ","SMCI","CRWD","ARM"].map(sym=>(
                         <button key={sym}
                           onMouseDown={(e)=>{e.preventDefault();setQuery(sym);setTimeout(()=>inputRef.current?.focus(),10);}}
                           className="px-2.5 py-1 text-xs font-mono text-text-muted rounded-lg transition-all hover:text-white"
-                          style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)"}}
+                          className="bg-bg-elevated border border-border"
                         >{sym.replace(".KS","").replace(".KQ","")}</button>
                       ))}
                     </div>
@@ -345,12 +341,11 @@ export default function SearchBar() {
             </div>
 
             {/* 하단 힌트 */}
-            <div className="flex items-center gap-4 px-4 py-2 text-2xs text-text-dim"
-                 style={{borderTop:"1px solid rgba(255,255,255,0.05)",background:"rgba(0,0,0,0.2)"}}>
-              <span><kbd className="px-1 rounded font-mono" style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)"}}>↑↓</kbd> 이동</span>
-              <span><kbd className="px-1 rounded font-mono" style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)"}}>Enter</kbd> 상세</span>
-              <span><kbd className="px-1 rounded font-mono" style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)"}}>+</kbd> 관심종목</span>
-              <span><kbd className="px-1 rounded font-mono" style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)"}}>Esc</kbd> 닫기</span>
+            <div className="flex items-center gap-4 px-4 py-2 text-2xs text-text-dim border-t border-border bg-bg-secondary">
+              <span><kbd className="px-1 rounded font-mono bg-bg-elevated border border-border">↑↓</kbd> 이동</span>
+              <span><kbd className="px-1 rounded font-mono bg-bg-elevated border border-border">Enter</kbd> 상세</span>
+              <span><kbd className="px-1 rounded font-mono bg-bg-elevated border border-border">+</kbd> 관심종목</span>
+              <span><kbd className="px-1 rounded font-mono bg-bg-elevated border border-border">Esc</kbd> 닫기</span>
               <span className="ml-auto">국내: <span className="font-mono text-text-muted">005930</span> or <span className="font-mono text-text-muted">삼성전자</span></span>
             </div>
           </div>
