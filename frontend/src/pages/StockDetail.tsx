@@ -911,7 +911,6 @@ export default function StockDetail() {
                   { key:"roe",           label:"ROE",          color:"#f59e0b", pct:true  },
                   { key:"debt_ratio",    label:"부채비율",     color:"#ef4444", pct:true  },
                   { key:"current_ratio", label:"유동비율",     color:"#10b981", pct:false },
-                  { key:"eps",           label:"EPS",          color:"#06b6d4", pct:false },
                 ];
                 const curr = BASIC_METRICS.find(m => m.key === selectedMetric) ?? BASIC_METRICS[0];
                 const chartData = mh.filter((r:any) => r[selectedMetric] != null);

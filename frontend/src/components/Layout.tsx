@@ -166,7 +166,7 @@ export default function Layout() {
             ) : (
               <Link
                 to="/login"
-                className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-all"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-all whitespace-nowrap"
               >
                 <LogIn size={13} />
                 <span className="text-xs">로그인</span>

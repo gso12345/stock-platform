@@ -113,45 +113,92 @@ class YFinanceService:
         if cached:
             return cached
 
+        ticker = yf.Ticker(symbol)
+        currency = "KRW" if market == "KR" else "USD"
+
+        # 1차: fast_info (가장 빠르고 IP 차단에 강함)
+        curr = prev = high = low = open_ = volume = market_cap = None
+        name = symbol
         try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
-            hist = ticker.history(period="5d")
+            fi = ticker.fast_info
+            curr     = _safe(getattr(fi, "last_price",       None))
+            prev     = _safe(getattr(fi, "previous_close",   None))
+            high     = _safe(getattr(fi, "day_high",         None))
+            low      = _safe(getattr(fi, "day_low",          None))
+            open_    = _safe(getattr(fi, "open",             None))
+            volume   = int(getattr(fi, "three_month_average_volume", 0) or 0)
+            market_cap = int(getattr(fi, "market_cap",       0) or 0)
+            w52h     = _safe(getattr(fi, "year_high",        None))
+            w52l     = _safe(getattr(fi, "year_low",         None))
+            currency = getattr(fi, "currency", currency) or currency
         except Exception:
+            w52h = w52l = None
+
+        # 2차: history (fast_info 실패 또는 curr=None 시)
+        if not curr:
+            try:
+                hist = ticker.history(period="5d")
+                closes = hist["Close"].dropna() if len(hist) > 0 else pd.Series(dtype=float)
+                if len(closes) >= 2:
+                    prev = float(closes.iloc[-2])
+                    curr = float(closes.iloc[-1])
+                elif len(closes) == 1:
+                    curr = float(closes.iloc[-1])
+                if len(hist) > 0:
+                    last = hist.iloc[-1]
+                    open_  = open_  or _safe(last.get("Open"))
+                    high   = high   or _safe(last.get("High"))
+                    low    = low    or _safe(last.get("Low"))
+                    volume = volume or int(last.get("Volume", 0) or 0)
+            except Exception:
+                pass
+
+        # 3차: info (느리지만 추가 필드 보완)
+        info: dict = {}
+        try:
+            info = ticker.info or {}
+            name = info.get("longName") or info.get("shortName") or symbol
+            curr     = curr     or _safe(info.get("regularMarketPrice") or info.get("currentPrice"))
+            prev     = prev     or _safe(info.get("regularMarketPreviousClose") or info.get("previousClose"))
+            high     = high     or _safe(info.get("regularMarketDayHigh"))
+            low      = low      or _safe(info.get("regularMarketDayLow"))
+            open_    = open_    or _safe(info.get("regularMarketOpen"))
+            volume   = volume   or int(info.get("regularMarketVolume") or info.get("volume") or 0)
+            market_cap = market_cap or int(info.get("marketCap") or 0)
+            w52h     = w52h     or _safe(info.get("fiftyTwoWeekHigh"))
+            w52l     = w52l     or _safe(info.get("fiftyTwoWeekLow"))
+            currency = info.get("currency", currency) or currency
+        except Exception:
+            pass
+
+        if not curr:
             stale = cache.get_stale(ck)
-            if stale:
-                return stale
-            return {"symbol": symbol, "price": None, "change": 0, "change_rate": 0, "volume": 0, "market_cap": 0}
+            return stale if stale else {"symbol": symbol, "price": None, "change": 0, "change_rate": 0, "currency": currency}
 
-        closes = hist["Close"].dropna() if len(hist) > 0 else pd.Series(dtype=float)
-
-        if len(closes) >= 2:
-            prev = float(closes.iloc[-2])
-            curr = float(closes.iloc[-1])
-            change = curr - prev
-            change_rate = (change / prev) * 100 if prev else 0
-        elif len(closes) == 1:
-            curr = float(closes.iloc[-1])
-            change = float(info.get("regularMarketChange", 0) or 0)
-            change_rate = float(info.get("regularMarketChangePercent", 0) or 0)
-        else:
-            curr = float(info.get("currentPrice") or info.get("regularMarketPrice") or 0)
-            change = float(info.get("regularMarketChange", 0) or 0)
-            change_rate = float(info.get("regularMarketChangePercent", 0) or 0)
+        curr = round(curr, 2)
+        change      = round(curr - prev, 2) if prev else 0
+        change_rate = round(change / prev * 100, 2) if prev else 0
 
         result = _clean({
-            "symbol": symbol,
-            "name": info.get("longName") or info.get("shortName") or symbol,
-            "price": round(curr, 2),
-            "change": round(change, 2),
-            "change_rate": round(change_rate, 2),
-            "volume": int(info.get("regularMarketVolume") or info.get("volume") or 0),
-            "market_cap": int(info.get("marketCap") or 0),
-            "currency": info.get("currency", "USD"),
-            "high":       round(float(info.get("regularMarketDayHigh") or 0), 2),
-            "low":        round(float(info.get("regularMarketDayLow") or 0), 2),
-            "open":       round(float(info.get("regularMarketOpen") or 0), 2),
-            "prev_close": round(float(info.get("regularMarketPreviousClose") or info.get("previousClose") or 0), 2) or None,
+            "symbol":      symbol,
+            "name":        name,
+            "price":       curr,
+            "prev_close":  round(prev, 2) if prev else None,
+            "change":      change,
+            "change_rate": change_rate,
+            "open":        round(open_, 2) if open_ else None,
+            "high":        round(high,  2) if high  else None,
+            "low":         round(low,   2) if low   else None,
+            "volume":      volume,
+            "market_cap":  market_cap,
+            "currency":    currency,
+            "week52_high": round(w52h, 2) if w52h else None,
+            "week52_low":  round(w52l, 2) if w52l else None,
+            "dividend_yield": _safe(info.get("dividendYield")),
+            "per":         _safe(info.get("trailingPE")),
+            "pbr":         _safe(info.get("priceToBook")),
+            "eps":         _safe(info.get("trailingEps")),
+            "beta":        _safe(info.get("beta")),
         })
         cache.set(ck, result, PRICE_TTL)
         return result

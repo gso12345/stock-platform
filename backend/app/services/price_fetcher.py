@@ -256,8 +256,8 @@ async def fetch_yf_quotes(symbols: list[str]) -> dict[str, dict]:
     fields = "regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,marketCap,shortName,longName,currency"
     url    = f"https://{base}.finance.yahoo.com/v7/finance/quote?symbols={syms}&fields={fields}"
     try:
-        cl = _get_yf_client()
-        r = await cl.get(url)
+        async with httpx.AsyncClient(timeout=12, headers=YF_HEADERS) as cl:
+            r = await cl.get(url)
         if r.status_code == 429:
             log.debug(f"YF {base} 429, 다음 시도")
             return {}

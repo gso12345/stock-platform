@@ -18,11 +18,6 @@ export const CANDLE_TYPES = [
 ] as const;
 
 export const CANDLE_GROUPS = [
-  { label: "틱", key: "tick", options: [
-    { label: "1틱",   value: "1m"  }, { label: "5틱",  value: "2m"  },
-    { label: "10틱",  value: "5m"  }, { label: "50틱", value: "15m" },
-    { label: "100틱", value: "30m" },
-  ]},
   { label: "분", key: "min", options: [
     { label: "1분",  value: "1m"  }, { label: "2분",  value: "2m"  },
     { label: "5분",  value: "5m"  }, { label: "15분", value: "15m" },
