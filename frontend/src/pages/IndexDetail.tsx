@@ -158,8 +158,8 @@ export default function IndexDetail() {
               <X size={18}/>
             </button>
           </div>
-          <div className="flex-1 overflow-hidden">
-            <StockChart data={ohlcv} height={window.innerHeight - 120} isKR={meta.isKR}/>
+          <div className="flex-1 overflow-y-auto">
+            <StockChart data={ohlcv} height={window.innerHeight - 96} isKR={meta.isKR}/>
           </div>
         </div>
       )}

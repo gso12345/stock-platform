@@ -437,9 +437,9 @@ export default function StockDetail() {
               <X size={18}/>
             </button>
           </div>
-          {/* 전체 차트 */}
-          <div className="flex-1 overflow-hidden">
-            <StockChart data={ohlcv} height={window.innerHeight - 120} isKR={isKR} chartType={chartType} logScale={logScale}/>
+          {/* 전체 차트 (보조지표 스크롤 허용) */}
+          <div className="flex-1 overflow-y-auto">
+            <StockChart data={ohlcv} height={window.innerHeight - 96} isKR={isKR} chartType={chartType} logScale={logScale}/>
           </div>
         </div>
       )}
