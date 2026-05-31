@@ -59,7 +59,7 @@ function ExtraCard({ name, value, change, change_rate, unit, _demo, _static }: a
       : "—";
 
   return (
-    <Card className="flex flex-col gap-1 min-w-[135px]">
+    <Card className="flex flex-col gap-1 min-w-[135px] flex-shrink-0">
       <div className="flex items-center gap-1 flex-wrap">
         <span className="text-2xs text-text-muted font-semibold truncate">{name}</span>
         {_demo && <span className="text-[8px] px-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
@@ -252,7 +252,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
       {/* 환율 / 금리 */}
       <section>
         <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리</h2>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
           {/* 환율 */}
           {data?.exchange && (
             <ExtraCard
