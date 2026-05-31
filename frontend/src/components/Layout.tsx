@@ -80,9 +80,8 @@ export default function Layout() {
 
       {/* ── 모바일 드로어 패널 ───────────────────── */}
       <aside
-        className={`fixed top-0 left-0 h-full z-50 w-64 flex flex-col md:hidden transition-transform duration-300 ${
-          menuOpen ? "translate-x-0" : "-translate-x-full"}`}
-        className="bg-bg-card border-r border-border"
+        className={`fixed top-0 left-0 h-full z-50 w-64 flex flex-col md:hidden bg-bg-card border-r border-border transition-transform duration-300 ${
+          menuOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"}`}
       >
         <div className="px-5 pt-6 pb-5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
