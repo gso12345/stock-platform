@@ -28,6 +28,9 @@ export const stocksApi = {
 
   getForecasts: (market: string, symbol: string) =>
     api.get<any[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/forecasts`).then((r) => r.data),
+
+  getAnalyst: (market: string, symbol: string) =>
+    api.get<any>(`/stocks/${market}/${encodeURIComponent(symbol)}/analyst`).then((r) => r.data),
 };
 
 export const dashboardApi = {

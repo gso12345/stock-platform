@@ -753,6 +753,101 @@ async def get_earnings(market: Literal["KR","US","ETF"], symbol: str):
     return result
 
 
+@router.get("/{market}/{symbol}/analyst")
+async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
+    """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트"""
+    from app.core.cache import cache
+    ck = f"analyst:{symbol}"
+    if c := cache.get(ck):
+        return c
+
+    import yfinance as yf
+    yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
+
+    def _fetch():
+        try:
+            t = yf.Ticker(yf_sym)
+            result: dict = {}
+
+            # 목표주가
+            try:
+                apt = t.analyst_price_targets
+                if apt and isinstance(apt, dict):
+                    result["price_targets"] = {
+                        "current": _safe(apt.get("current")),
+                        "mean":    _safe(apt.get("mean")),
+                        "median":  _safe(apt.get("median")),
+                        "high":    _safe(apt.get("high")),
+                        "low":     _safe(apt.get("low")),
+                    }
+            except Exception:
+                pass
+
+            # 투자의견 분포 (현재월)
+            try:
+                rs = t.recommendations_summary
+                if rs is not None and not rs.empty:
+                    row = rs[rs["period"] == "0m"]
+                    if row.empty:
+                        row = rs.iloc[[0]]
+                    r = row.iloc[0]
+                    result["consensus"] = {
+                        "strong_buy":  int(r.get("strongBuy", 0) or 0),
+                        "buy":         int(r.get("buy", 0) or 0),
+                        "hold":        int(r.get("hold", 0) or 0),
+                        "sell":        int(r.get("sell", 0) or 0),
+                        "strong_sell": int(r.get("strongSell", 0) or 0),
+                    }
+                    # 최근 3개월 추이
+                    history = []
+                    for _, hr in rs.iterrows():
+                        history.append({
+                            "period":      hr.get("period", ""),
+                            "strong_buy":  int(hr.get("strongBuy", 0) or 0),
+                            "buy":         int(hr.get("buy", 0) or 0),
+                            "hold":        int(hr.get("hold", 0) or 0),
+                            "sell":        int(hr.get("sell", 0) or 0),
+                            "strong_sell": int(hr.get("strongSell", 0) or 0),
+                        })
+                    result["consensus_history"] = history
+            except Exception:
+                pass
+
+            # 최근 애널리스트 리포트 (최대 30개)
+            try:
+                ud = t.upgrades_downgrades
+                if ud is not None and not ud.empty:
+                    reports = []
+                    for dt, row in ud.head(30).iterrows():
+                        reports.append({
+                            "date":         str(dt)[:10],
+                            "firm":         str(row.get("Firm", "") or ""),
+                            "to_grade":     str(row.get("ToGrade", "") or ""),
+                            "from_grade":   str(row.get("FromGrade", "") or ""),
+                            "action":       str(row.get("Action", "") or ""),
+                            "price_action": str(row.get("priceTargetAction", "") or ""),
+                            "target":       _safe(row.get("currentPriceTarget")),
+                            "prior_target": _safe(row.get("priorPriceTarget")),
+                        })
+                    result["reports"] = reports
+            except Exception:
+                pass
+
+            return result
+        except Exception:
+            return {}
+
+    try:
+        result = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(None, _fetch),
+            timeout=15
+        )
+    except Exception:
+        result = {}
+    cache.set(ck, result, 3600)
+    return result
+
+
 @router.get("/KR/{symbol}/supply-demand")
 async def get_supply_demand(symbol: str, days: int = Query(default=30)):
     """수급 데이터 (외국인/기관/개인) — pykrx"""

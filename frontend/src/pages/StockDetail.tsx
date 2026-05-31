@@ -84,7 +84,7 @@ export default function StockDetail() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "supply">("chart");
+  const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "analyst" | "supply">("chart");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow">("basic");
   const [selectedMetric, setSelectedMetric] = useState("revenue");
@@ -155,6 +155,13 @@ export default function StockDetail() {
     queryFn: () => stocksApi.getForecasts(m, sym),
     // 밸류에이션 탭 선택 시에만 로드 (불필요한 선제 fetch 방지)
     enabled: !!sym && mainTab === "financial" && finSubTab === "valuation",
+    retry: 1, staleTime: 3_600_000,
+  });
+
+  const { data: analystData, isLoading: loadingAnalyst } = useQuery({
+    queryKey: ["analyst", m, sym],
+    queryFn: () => stocksApi.getAnalyst(m, sym),
+    enabled: !!sym && mainTab === "analyst",
     retry: 1, staleTime: 3_600_000,
   });
 
@@ -350,6 +357,7 @@ export default function StockDetail() {
           {[
             { id:"chart",     Icon: BarChart2,  label:"차트" },
             { id:"financial", Icon: DollarSign, label:"재무제표" },
+            { id:"analyst",   Icon: TrendingUp,  label:"투자의견" },
             { id:"news",      Icon: Newspaper,  label:"뉴스/공시" },
             ...(isKR ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
           ].map(({ id, Icon, label }) => (
@@ -964,6 +972,226 @@ export default function StockDetail() {
             </div>
           )}
 
+          </div>
+        );
+      })()}
+
+      {/* 투자의견 탭 */}
+      {mainTab==="analyst" && (() => {
+        const ad = analystData as any;
+        const pt = ad?.price_targets;
+        const cs = ad?.consensus;
+        const reports: any[] = ad?.reports ?? [];
+        const history: any[] = ad?.consensus_history ?? [];
+
+        // 합의 등급 계산
+        const totalVotes = cs ? cs.strong_buy + cs.buy + cs.hold + cs.sell + cs.strong_sell : 0;
+        const scoreMap = { strong_buy: 5, buy: 4, hold: 3, sell: 2, strong_sell: 1 };
+        const avgScore = cs && totalVotes > 0
+          ? (cs.strong_buy*5 + cs.buy*4 + cs.hold*3 + cs.sell*2 + cs.strong_sell*1) / totalVotes
+          : null;
+        const ratingLabel = avgScore == null ? "—"
+          : avgScore >= 4.5 ? "강력매수"
+          : avgScore >= 3.5 ? "매수"
+          : avgScore >= 2.5 ? "보유"
+          : avgScore >= 1.5 ? "매도"
+          : "강력매도";
+        const ratingColor = avgScore == null ? "text-text-muted"
+          : avgScore >= 4 ? "text-accent-green"
+          : avgScore >= 3 ? "text-accent-yellow"
+          : "text-accent-red";
+
+        const upside = pt?.current && pt?.mean
+          ? ((pt.mean - pt.current) / pt.current * 100)
+          : null;
+
+        const gradeColor = (g: string) => {
+          const l = g.toLowerCase();
+          if (l.includes("strong buy") || l.includes("outperform") || l.includes("overweight")) return "text-accent-green";
+          if (l.includes("buy") || l.includes("positive") || l.includes("add")) return "text-accent-green";
+          if (l.includes("hold") || l.includes("neutral") || l.includes("equal")) return "text-accent-yellow";
+          if (l.includes("sell") || l.includes("underperform") || l.includes("reduce") || l.includes("underweight")) return "text-accent-red";
+          return "text-text-primary";
+        };
+
+        const actionLabel = (a: string, pa: string) => {
+          const al = a.toLowerCase();
+          const pal = (pa || "").toLowerCase();
+          if (al === "init") return { text: "신규", color: "text-accent-blue bg-accent-blue/10" };
+          if (pal === "raises") return { text: "↑상향", color: "text-accent-green bg-accent-green/10" };
+          if (pal === "lowers") return { text: "↓하향", color: "text-accent-red bg-accent-red/10" };
+          if (pal === "maintains") return { text: "유지", color: "text-text-muted bg-bg-elevated" };
+          return { text: a, color: "text-text-muted bg-bg-elevated" };
+        };
+
+        return (
+          <div className="flex flex-col gap-4">
+            {loadingAnalyst ? (
+              <div className="flex justify-center py-16"><div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
+            ) : !ad || (!pt && !cs && reports.length === 0) ? (
+              <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
+                <p className="text-text-muted text-sm">투자의견 데이터가 없습니다</p>
+              </div>
+            ) : (
+              <>
+                {/* ── 목표주가 & 합의 등급 ── */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* 목표주가 */}
+                  {pt && (
+                    <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-text-muted uppercase tracking-widest">목표주가</span>
+                        {upside != null && (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${upside >= 0 ? "bg-accent-green/10 text-accent-green" : "bg-accent-red/10 text-accent-red"}`}>
+                            {upside >= 0 ? "+" : ""}{upside.toFixed(1)}% 상승여력
+                          </span>
+                        )}
+                      </div>
+                      {/* 목표가 바 */}
+                      {pt.low != null && pt.high != null && pt.current != null && (
+                        <div className="flex flex-col gap-1">
+                          <div className="relative h-2 rounded-full bg-bg-elevated overflow-hidden">
+                            {(() => {
+                              const range = pt.high - pt.low;
+                              const curPct = range > 0 ? Math.min(100, Math.max(0, ((pt.current - pt.low) / range) * 100)) : 50;
+                              const meanPct = range > 0 ? Math.min(100, Math.max(0, ((pt.mean - pt.low) / range) * 100)) : 50;
+                              return (
+                                <>
+                                  <div className="absolute inset-0 bg-gradient-to-r from-accent-red/30 via-accent-yellow/30 to-accent-green/30"/>
+                                  <div className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white border-2 border-accent-blue shadow z-10"
+                                    style={{ left: `calc(${curPct}% - 5px)` }} title="현재가"/>
+                                  <div className="absolute top-1/2 -translate-y-1/2 w-2 h-4 rounded-sm bg-accent-green/80"
+                                    style={{ left: `calc(${meanPct}% - 1px)` }} title="평균목표가"/>
+                                </>
+                              );
+                            })()}
+                          </div>
+                          <div className="flex justify-between text-2xs text-text-muted font-mono">
+                            <span>저 {isKR ? `₩${Math.round(pt.low).toLocaleString("ko-KR")}` : `$${pt.low?.toFixed(0)}`}</span>
+                            <span>고 {isKR ? `₩${Math.round(pt.high).toLocaleString("ko-KR")}` : `$${pt.high?.toFixed(0)}`}</span>
+                          </div>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-3 gap-2 mt-1">
+                        {[
+                          { label:"평균", v: pt.mean, color:"text-accent-blue" },
+                          { label:"최고", v: pt.high, color:"text-accent-green" },
+                          { label:"최저", v: pt.low,  color:"text-accent-red" },
+                        ].map(item => (
+                          <div key={item.label} className="flex flex-col gap-0.5 items-center p-2 rounded-lg bg-bg-elevated">
+                            <span className="text-2xs text-text-muted">{item.label}</span>
+                            <span className={`text-sm font-mono font-bold ${item.color}`}>
+                              {item.v != null ? (isKR ? `₩${Math.round(item.v).toLocaleString("ko-KR")}` : `$${item.v.toFixed(0)}`) : "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="text-xs text-text-muted text-center">
+                        현재가 {isKR ? `₩${Math.round(pt.current ?? 0).toLocaleString("ko-KR")}` : `$${(pt.current ?? 0).toFixed(2)}`} 기준 · {totalVotes}명 애널리스트
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 합의 등급 */}
+                  {cs && (
+                    <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
+                      <span className="text-xs font-bold text-text-muted uppercase tracking-widest">투자의견 합의</span>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-2xl font-bold ${ratingColor}`}>{ratingLabel}</span>
+                        {avgScore != null && <span className="text-sm text-text-muted font-mono">{avgScore.toFixed(2)} / 5.0</span>}
+                      </div>
+                      {/* 분포 바 */}
+                      <div className="flex flex-col gap-1.5">
+                        {[
+                          { label:"강력매수", key:"strong_buy",  color:"#10b981" },
+                          { label:"매수",     key:"buy",         color:"#34d399" },
+                          { label:"보유",     key:"hold",        color:"#f59e0b" },
+                          { label:"매도",     key:"sell",        color:"#f87171" },
+                          { label:"강력매도", key:"strong_sell", color:"#ef4444" },
+                        ].map(({ label, key, color }) => {
+                          const cnt = cs[key] ?? 0;
+                          const pct = totalVotes > 0 ? (cnt / totalVotes) * 100 : 0;
+                          return (
+                            <div key={key} className="flex items-center gap-2">
+                              <span className="text-2xs text-text-muted w-14 flex-shrink-0">{label}</span>
+                              <div className="flex-1 h-2 rounded-full bg-bg-elevated overflow-hidden">
+                                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }}/>
+                              </div>
+                              <span className="text-2xs font-mono text-text-muted w-6 text-right">{cnt}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* 최근 3개월 추이 */}
+                      {history.length > 1 && (
+                        <div className="border-t border-border pt-2">
+                          <p className="text-2xs text-text-muted mb-1.5">최근 추이</p>
+                          <div className="flex gap-2">
+                            {history.slice(0, 4).map((h: any, i: number) => {
+                              const tot = h.strong_buy + h.buy + h.hold + h.sell + h.strong_sell;
+                              const bs = ((h.strong_buy + h.buy) / (tot || 1) * 100).toFixed(0);
+                              const label = ["이번달","1개월전","2개월전","3개월전"][i] ?? h.period;
+                              return (
+                                <div key={i} className="flex-1 flex flex-col items-center gap-0.5 p-1.5 rounded-lg bg-bg-elevated">
+                                  <span className="text-2xs text-text-muted">{label}</span>
+                                  <span className="text-xs font-bold text-accent-green">{bs}%</span>
+                                  <span className="text-2xs text-text-dim">매수</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* ── 최근 애널리스트 리포트 ── */}
+                {reports.length > 0 && (
+                  <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+                    <div className="px-4 py-3 border-b border-border">
+                      <span className="text-sm font-semibold text-text-primary">최근 애널리스트 리포트</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border text-text-muted">
+                            <th className="text-left px-4 py-2 font-medium">날짜</th>
+                            <th className="text-left px-4 py-2 font-medium">증권사</th>
+                            <th className="text-left px-4 py-2 font-medium">투자의견</th>
+                            <th className="text-right px-4 py-2 font-medium">목표가</th>
+                            <th className="text-center px-4 py-2 font-medium">액션</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reports.map((r: any, i: number) => {
+                            const act = actionLabel(r.action, r.price_action);
+                            return (
+                              <tr key={i} className="border-b border-border/30 hover:bg-bg-hover transition-colors">
+                                <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap">{r.date}</td>
+                                <td className="px-4 py-2.5 font-semibold text-text-primary whitespace-nowrap">{r.firm || "—"}</td>
+                                <td className={`px-4 py-2.5 font-semibold whitespace-nowrap ${gradeColor(r.to_grade)}`}>{r.to_grade || "—"}</td>
+                                <td className="px-4 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
+                                  {r.target != null ? (isKR ? `₩${Math.round(r.target).toLocaleString("ko-KR")}` : `$${r.target.toFixed(0)}`) : "—"}
+                                  {r.prior_target != null && r.target != null && r.prior_target !== r.target && (
+                                    <span className="text-text-muted ml-1 text-[10px]">
+                                      ({r.target > r.prior_target ? "↑" : "↓"}{isKR ? `₩${Math.round(r.prior_target).toLocaleString("ko-KR")}` : `$${r.prior_target.toFixed(0)}`})
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${act.color}`}>{act.text}</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         );
       })()}
