@@ -156,6 +156,29 @@ class YFinanceService:
         cache.set(ck, result, PRICE_TTL)
         return result
 
+    def _resample_nday(self, hist, n: int) -> list:
+        """1일봉 DataFrame을 N일봉으로 리샘플링"""
+        import pandas as pd
+        rule = f"{n}B"  # N 영업일 단위 (Business Day)
+        rs = hist.resample(rule).agg({
+            "Open":   "first",
+            "High":   "max",
+            "Low":    "min",
+            "Close":  "last",
+            "Volume": "sum",
+        }).dropna(subset=["Close"])
+        return [
+            {
+                "date":   str(idx.date()),
+                "open":   round(float(r["Open"]),   2),
+                "high":   round(float(r["High"]),   2),
+                "low":    round(float(r["Low"]),    2),
+                "close":  round(float(r["Close"]),  2),
+                "volume": int(r["Volume"]),
+            }
+            for idx, r in rs.iterrows()
+        ]
+
     def get_ohlcv(self, symbol: str, period: str = "1y", interval: str = "1d", market: str = "US") -> list:
         if market == "KR":
             symbol = _resolve_kr_symbol(symbol, "KS")
@@ -163,6 +186,19 @@ class YFinanceService:
         cached = cache.get(ck)
         if cached:
             return cached
+
+        # N일봉 (3d/10d/30d/60d) — 1d 데이터 fetch 후 리샘플링
+        NDAY_MAP = {"3d": 3, "10d": 10, "30d": 30, "60d": 60}
+        if interval in NDAY_MAP:
+            n = NDAY_MAP[interval]
+            hist = yf.Ticker(symbol).history(period="max", interval="1d")
+            hist = hist.dropna(subset=["Close"])
+            if hist.index.tz is not None:
+                hist.index = hist.index.tz_convert("Asia/Seoul").tz_localize(None) if market == "KR" else hist.index.tz_localize(None)
+            result = self._resample_nday(hist, n)
+            cache.set(ck, result, OHLCV_TTL)
+            return result
+
         is_intraday = interval in ("1m","2m","5m","15m","30m","60m","90m","1h")
         yf_period = PERIOD_MAP.get(period, "5d" if is_intraday else "1y")
         hist = yf.Ticker(symbol).history(period=yf_period, interval=interval)

@@ -37,15 +37,18 @@ export const CANDLE_GROUPS = [
     { label: "90분", value: "90m" },
   ]},
   { label: "일", key: "day", options: [
-    { label: "1일봉", value: "1d" },
-    { label: "5일봉", value: "5d" },
+    { label: "1일봉",  value: "1d"  },
+    { label: "3일봉",  value: "3d"  },
+    { label: "5일봉",  value: "5d"  },
+    { label: "10일봉", value: "10d" },
+    { label: "30일봉", value: "30d" },
+    { label: "60일봉", value: "60d" },
   ]},
   { label: "주", key: "week", options: [
     { label: "1주봉", value: "1wk" },
   ]},
   { label: "월", key: "month", options: [
     { label: "1월봉", value: "1mo" },
-    { label: "3월봉", value: "3mo" },
   ]},
   { label: "년", key: "year", options: [
     { label: "1년봉", value: "1y" },
@@ -56,8 +59,9 @@ export const CANDLE_GROUPS = [
 export const CANDLE_MAX_PERIOD: Record<string, string> = {
   "1m": "5d",   "2m": "60d",  "5m": "60d",
   "15m": "60d", "30m": "60d", "60m": "2y",  "90m": "60d",
-  "1d": "max",  "5d": "max",  "1wk": "max",
-  "1mo": "max", "3mo": "max", "1y": "max",
+  "1d": "max",  "3d": "max",  "5d": "max",
+  "10d": "max", "30d": "max", "60d": "max",
+  "1wk": "max", "1mo": "max", "1y": "max",
 };
 
 export const PERIOD_BY_CANDLE: Record<string, { label: string; value: string }[]> = {
