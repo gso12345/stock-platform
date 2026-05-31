@@ -84,13 +84,14 @@ export default function StockDetail() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "supply">("chart");
+  const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "supply">("chart");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health">("basic");
   const [selectedMetric, setSelectedMetric] = useState("revenue");
   const [supplyDays, setSupplyDays]   = useState(30);
-  const [newsSort, setNewsSort]       = useState<"latest" | "popular">("latest");
+  const [newsSort, setNewsSort]         = useState<"latest" | "popular">("latest");
   const [newsExpanded, setNewsExpanded] = useState(false);
+  const [newsSubTab, setNewsSubTab]     = useState<"news" | "disclosure">("news");
   const [inWatchlist, setInWatchlist] = useState(false);
   const [watchlistMsg, setWatchlistMsg] = useState("");
   const [openGroup, setOpenGroup]     = useState<string | null>(null);
@@ -159,14 +160,14 @@ export default function StockDetail() {
   const { data: stockNews, isLoading: loadingNews } = useQuery({
     queryKey: ["stock-news", m, sym],
     queryFn: () => stocksApi.getNews(m, sym),
-    enabled: !!sym && mainTab === "news",
+    enabled: !!sym && mainTab === "news" && newsSubTab === "news",
     staleTime: 300_000,
   });
 
   const { data: earningsData } = useQuery({
     queryKey: ["earnings", m, sym],
     queryFn: () => stocksApi.getEarnings(m, sym),
-    enabled: !!sym && mainTab === "news",
+    enabled: !!sym && mainTab === "news" && newsSubTab === "news",
     staleTime: 3_600_000,
   });
 
@@ -848,7 +849,7 @@ export default function StockDetail() {
               <div className="p-4 flex flex-col gap-4">
                 {/* 현재 지표 */}
                 {d && (
-                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                     <StatCell label="부채비율"  value={dEnhanced.debt_ratio!=null?`${dEnhanced.debt_ratio.toFixed(0)}%`:null}
                       color={dEnhanced.debt_ratio!=null?(dEnhanced.debt_ratio>200?"text-accent-red":dEnhanced.debt_ratio<100?"text-accent-green":"text-text-primary"):undefined}/>
                     <StatCell label="유동비율"  value={dEnhanced.current_ratio!=null?`${dEnhanced.current_ratio.toFixed(2)}`:null}
@@ -856,7 +857,6 @@ export default function StockDetail() {
                     <StatCell label="당좌비율"  value={dEnhanced.quick_ratio!=null?`${dEnhanced.quick_ratio.toFixed(2)}`:null}/>
                     <StatCell label="배당수익률" value={d.dividend_yield!=null?`${d.dividend_yield.toFixed(2)}%`:null} color="text-accent-green"/>
                     <StatCell label="배당성향"  value={d.payout_ratio!=null?`${d.payout_ratio.toFixed(1)}%`:null}/>
-                    <StatCell label="BPS"       value={isKR?d.bps?.toLocaleString("ko-KR"):d.bps?.toFixed(2)}/>
                     <StatCell label="베타"      value={d.beta!=null?d.beta.toFixed(2):null}
                       color={d.beta!=null?(d.beta>1.5?"text-accent-red":d.beta<0.5?"text-accent-green":"text-text-primary"):undefined}/>
                   </div>
@@ -882,7 +882,6 @@ export default function StockDetail() {
                   { key:"debt_ratio",    label:"부채비율",   fmt:(v)=>`${v.toFixed(0)}%`,  color:"text-accent-red" },
                   { key:"current_ratio", label:"유동비율",   fmt:(v)=>v.toFixed(2),         color:"text-accent-green" },
                   { key:"quick_ratio",   label:"당좌비율",   fmt:(v)=>v.toFixed(2),         color:"text-accent-blue" },
-                  { key:"bps",           label:"BPS",        fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-text-secondary" },
                 ]}/>
               </div>
             </div>
@@ -895,6 +894,25 @@ export default function StockDetail() {
       {/* 뉴스/공시 탭 */}
       {mainTab==="news" && (
         <div className="flex flex-col gap-4">
+          {/* 서브탭 선택 */}
+          <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
+            <button
+              onClick={() => { setNewsSubTab("news"); setNewsExpanded(false); }}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${newsSubTab==="news" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}
+            >
+              <Newspaper size={11}/>뉴스
+            </button>
+            <button
+              onClick={() => setNewsSubTab("disclosure")}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${newsSubTab==="disclosure" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}
+            >
+              <FileText size={11}/>공시
+            </button>
+          </div>
+
+          {/* ── 뉴스 서브탭 ── */}
+          {newsSubTab==="news" && (
+            <>
           {/* 종목 뉴스 */}
           <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -1007,8 +1025,19 @@ export default function StockDetail() {
             </div>
           )}
 
-          {/* 공시 (KR만) */}
-          {isKR && <DisclosurePanel symbol={sym} />}
+            </>
+          )}
+
+          {/* ── 공시 서브탭 ── */}
+          {newsSubTab==="disclosure" && (
+            isKR
+              ? <DisclosurePanel symbol={sym} />
+              : (
+                <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
+                  <p className="text-text-muted text-sm">공시 데이터는 국내 주식(KR)만 지원합니다</p>
+                </div>
+              )
+          )}
         </div>
       )}
 
