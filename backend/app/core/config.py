@@ -3,8 +3,8 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./stockplatform.db"
-    SECRET_KEY: str = "dev-secret-key"
-    FRONTEND_URL: str = "http://localhost:5173"
+    SECRET_KEY: str = "dev-secret-key-change-in-production"
+    FRONTEND_URL: str = "http://localhost:5173,https://stock-platform-one.vercel.app"
 
     # ── 한국투자증권 KIS API ─────────────────────────────
     KIS_APP_KEY:    str = ""

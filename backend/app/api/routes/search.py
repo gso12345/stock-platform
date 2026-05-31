@@ -83,7 +83,7 @@ async def search_route(
             r["change_rate"] = p.get("change_rate")
             r["currency"]    = p.get("currency", "KRW" if r.get("market") == "KR" else "USD")
 
-    cache.set(ck, results, 30)
+    cache.set(ck, results, 300)  # 5분 캐시
     return {"results": results, "total": len(results)}
 
 

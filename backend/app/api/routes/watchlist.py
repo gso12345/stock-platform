@@ -114,6 +114,8 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)):
 # ── 관심종목 조회 (가격 포함) ─────────────────────────────────
 @router.get("/items")
 def get_items(market: Optional[str] = None, folder_id: Optional[int] = None, db: Session = Depends(get_db)):
+    if market and market not in ("KR", "US", "ETF", "전체", None):
+        market = None  # 잘못된 market 값 무시
     """관심종목 목록 조회 (가격 없는 메타데이터만)"""
     wl = _ensure_watchlist(db)
     q = db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == wl.id)

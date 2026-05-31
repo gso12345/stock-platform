@@ -26,12 +26,17 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+_allowed_origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.strip()]
+if not _allowed_origins or _allowed_origins == ["http://localhost:5173"]:
+    # 개발 환경: 전체 허용
+    _allowed_origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 app.include_router(search.router,    prefix="/api/v1")
