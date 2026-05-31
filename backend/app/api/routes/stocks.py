@@ -20,6 +20,21 @@ from app.core.cache import cache
 router = APIRouter(prefix="/stocks", tags=["종목"])
 
 
+@router.get("/debug/naver/{code}")
+async def debug_naver_raw(code: str):
+    """Naver integration 원본 응답 확인용 (임시)"""
+    import httpx
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 Mobile Safari/537.36",
+        "Referer": "https://m.stock.naver.com/",
+    }
+    async with httpx.AsyncClient(timeout=10, headers=HEADERS) as cl:
+        r = await cl.get(f"https://m.stock.naver.com/api/stock/{code}/integration")
+    data = r.json()
+    infos = data.get("totalInfos", [])
+    return {"codes": [i.get("code") for i in infos], "raw": infos[:20]}
+
+
 async def _run(fn, *args):
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(loop.run_in_executor(None, fn, *args), timeout=15)
@@ -671,12 +686,19 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
             query = urllib.parse.quote(stock_name)
             google_rss = f"https://news.google.com/rss/search?q={query}+주식+주가&hl=ko&gl=KR&ceid=KR:ko"
             feed = feedparser.parse(google_rss)
-            for entry in (feed.entries or [])[:30]:
+            entries_sorted = sorted(
+                (e for e in (feed.entries or []) if e.get("published_parsed")),
+                key=lambda e: e.published_parsed,
+                reverse=True,
+            )[:30]
+            for entry in entries_sorted:
                 pub = ""
+                pub_ts = ""
                 try:
                     if entry.get("published_parsed"):
                         utc_dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-                        pub = utc_dt.astimezone(KST).strftime("%m/%d %H:%M")
+                        pub = utc_dt.astimezone(KST).strftime("%Y/%m/%d %H:%M")
+                        pub_ts = utc_dt.isoformat()
                 except Exception:
                     pass
                 title = entry.get("title", "").strip()
@@ -688,6 +710,7 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     "link": entry.get("link", ""),
                     "source": source,
                     "published": pub,
+                    "published_ts": pub_ts,
                     "summary": (entry.get("summary") or "")[:200],
                 })
             return items
