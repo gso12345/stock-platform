@@ -336,6 +336,16 @@ function _rebuildSubPanels(
   stChartRef: React.MutableRefObject<any>,
   mkChart: (el: HTMLDivElement, h: number) => ReturnType<typeof createChart>,
 ) {
+  const t = (d: any) => (d.time !== undefined ? d.time : d.date) as any;
+
+  const syncSub = (sub: ReturnType<typeof mkChart>) => {
+    // 메인 차트의 현재 범위로 즉시 동기화
+    const range = main.timeScale().getVisibleLogicalRange();
+    if (range) sub.timeScale().setVisibleLogicalRange(range);
+    main.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) sub.timeScale().setVisibleLogicalRange(r); });
+    sub.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) main.timeScale().setVisibleLogicalRange(r); });
+  };
+
   // RSI
   try { rsiChartRef.current?.remove(); } catch {}
   rsiChartRef.current = null;
@@ -344,14 +354,12 @@ function _rebuildSubPanels(
     const c = mkChart(rsiRef.current, 120);
     rsiChartRef.current = c;
     c.addLineSeries({ color:"#f59e0b", lineWidth:1, priceLineVisible:false })
-      .setData(calcRSI(ohlcv).map(d => ({ time: d.time as any, value: d.value })));
+      .setData(calcRSI(ohlcv).map(d => ({ time: t(d), value: d.value })));
     c.addLineSeries({ color:"#ef444460", lineWidth:1, lineStyle: LineStyle.Dashed, priceLineVisible:false })
-      .setData(ohlcv.slice(14).map((d:any) => ({ time: d.date, value: 70 })));
+      .setData(ohlcv.slice(14).map((d:any) => ({ time: t(d), value: 70 })));
     c.addLineSeries({ color:"#10b98160", lineWidth:1, lineStyle: LineStyle.Dashed, priceLineVisible:false })
-      .setData(ohlcv.slice(14).map((d:any) => ({ time: d.date, value: 30 })));
-    c.timeScale().fitContent();
-    main.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) c.timeScale().setVisibleLogicalRange(r); });
-    c.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) main.timeScale().setVisibleLogicalRange(r); });
+      .setData(ohlcv.slice(14).map((d:any) => ({ time: t(d), value: 30 })));
+    syncSub(c);
   }
 
   // MACD
@@ -363,14 +371,12 @@ function _rebuildSubPanels(
     macdChartRef.current = c;
     const { macdLine, signalLine, histogram } = calcMACD(ohlcv);
     c.addHistogramSeries({ color:"#3b82f640", priceLineVisible:false })
-      .setData(histogram.map(d => ({ time: d.time as any, value: d.value, color: d.value >= 0 ? "#10b98160" : "#ef444460" })));
+      .setData(histogram.map(d => ({ time: t(d), value: d.value, color: d.value >= 0 ? "#10b98160" : "#ef444460" })));
     c.addLineSeries({ color:"#3b82f6", lineWidth:1, priceLineVisible:false })
-      .setData(macdLine.map(d => ({ time: d.time as any, value: d.value })));
+      .setData(macdLine.map(d => ({ time: t(d), value: d.value })));
     c.addLineSeries({ color:"#f59e0b", lineWidth:1, priceLineVisible:false })
-      .setData(signalLine.map(d => ({ time: d.time as any, value: d.value })));
-    c.timeScale().fitContent();
-    main.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) c.timeScale().setVisibleLogicalRange(r); });
-    c.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) main.timeScale().setVisibleLogicalRange(r); });
+      .setData(signalLine.map(d => ({ time: t(d), value: d.value })));
+    syncSub(c);
   }
 
   // Stochastic
@@ -382,11 +388,9 @@ function _rebuildSubPanels(
     stChartRef.current = c;
     const { kLine, dLine } = calcStochastic(ohlcv);
     c.addLineSeries({ color:"#10b981", lineWidth:1, priceLineVisible:false })
-      .setData(kLine.map(d => ({ time: d.time as any, value: d.value })));
+      .setData(kLine.map(d => ({ time: t(d), value: d.value })));
     c.addLineSeries({ color:"#f59e0b", lineWidth:1, priceLineVisible:false })
-      .setData(dLine.map(d => ({ time: d.time as any, value: d.value })));
-    c.timeScale().fitContent();
-    main.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) c.timeScale().setVisibleLogicalRange(r); });
-    c.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) main.timeScale().setVisibleLogicalRange(r); });
+      .setData(dLine.map(d => ({ time: t(d), value: d.value })));
+    syncSub(c);
   }
 }
