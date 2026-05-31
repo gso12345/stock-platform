@@ -67,10 +67,13 @@ async def refresh_kr_indices():
 
 
 async def refresh_us_indices():
-    """YF v7으로 미국 지수 갱신"""
+    """미국 지수 갱신 — YF v7 → yfinance fast_info 폴백"""
+    import yfinance as yf
+
     yf_symbols = list(US_INDEX_YF.values())
     data = await fetch_yf_index_quotes(yf_symbols)
     ok = 0
+
     for name, yf_sym in US_INDEX_YF.items():
         q = data.get(yf_sym)
         if q and q.get("price", 0) > 0:
@@ -83,14 +86,70 @@ async def refresh_us_indices():
             }
             cache.set(f"idx:{name}", entry, 60)
             ok += 1
+            continue
+
+        # YF v7 실패 시 fast_info 시도 (다른 엔드포인트)
+        try:
+            loop = asyncio.get_running_loop()
+            def _fast(sym):
+                fi = yf.Ticker(sym).fast_info
+                price = float(getattr(fi, "last_price", 0) or 0)
+                prev  = float(getattr(fi, "previous_close", 0) or 0)
+                if price > 0:
+                    chg = round(price - prev, 2)
+                    chgr = round(chg / prev * 100, 2) if prev else 0
+                    return price, chg, chgr
+                return None, None, None
+
+            price, chg, chgr = await asyncio.wait_for(
+                loop.run_in_executor(None, _fast, yf_sym), timeout=8
+            )
+            if price:
+                entry = {
+                    "index": name,
+                    "name":  US_INDEX_DISPLAY.get(name, name),
+                    "value": round(price, 2),
+                    "change": chg,
+                    "change_rate": chgr,
+                }
+                cache.set(f"idx:{name}", entry, 60)
+                ok += 1
+        except Exception:
+            pass
+
     log.info(f"미국 지수 {ok}/{len(US_INDICES)}개 갱신")
     return ok
 
 
 async def refresh_us_stocks():
-    """YF v7 멀티쿼트로 미국 종목 갱신 — 순위용 SP500 + 인기종목 합산"""
+    """Finnhub → YF v7 순으로 미국 인기종목 갱신"""
+    from app.services.finnhub_service import finnhub_service
+    from app.core.config import settings
+
+    ok = 0
+    # Finnhub 우선 (인기 종목만 — rate limit 주의)
+    if settings.FINNHUB_API_KEY:
+        loop = asyncio.get_running_loop()
+        for sym in POPULAR_US:
+            try:
+                q = await asyncio.wait_for(
+                    loop.run_in_executor(None, finnhub_service.get_quote, sym),
+                    timeout=8
+                )
+                if q and q.get("price"):
+                    q["symbol"] = sym
+                    cache.set(f"price:{sym}", q, 60)
+                    ok += 1
+                await asyncio.sleep(0.5)  # rate limit: 60req/min
+            except Exception:
+                pass
+        log.info(f"미국 종목(Finnhub) {ok}/{len(POPULAR_US)}개 갱신")
+        if ok > 5:
+            return ok
+
+    # 폴백: Yahoo Finance
     from app.services.yf_service import SP500_SYMBOLS
-    all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))  # 중복 제거, 순서 유지
+    all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))
     data = await fetch_yf_quotes(all_syms)
     ok = 0
     for sym in all_syms:
@@ -99,7 +158,7 @@ async def refresh_us_stocks():
             q["symbol"] = sym
             cache.set(f"price:{sym}", q, 60)
             ok += 1
-    log.info(f"미국 종목 {ok}/{len(all_syms)}개 갱신")
+    log.info(f"미국 종목(YF) {ok}/{len(all_syms)}개 갱신")
     return ok
 
 

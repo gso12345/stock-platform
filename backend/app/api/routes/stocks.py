@@ -109,7 +109,7 @@ async def get_kr_price(symbol: str) -> dict:
 
 
 async def get_us_price(symbol: str) -> dict:
-    """Yahoo Finance v7 → 캐시 순서로 폴백 (항상 최신 데이터 우선)"""
+    """Finnhub → Yahoo Finance → yfinance 순으로 폴백"""
     from app.services.price_fetcher import fetch_yf_quotes
     ck = f"price:{symbol}"
 
@@ -118,7 +118,17 @@ async def get_us_price(symbol: str) -> dict:
     if fresh and fresh.get("price") and not fresh.get("_demo"):
         return fresh
 
-    # Yahoo Finance 직접 조회 (가장 최신)
+    # 1순위: Finnhub (실시간, IP 차단 없음)
+    if settings.FINNHUB_API_KEY:
+        try:
+            result = await _run(finnhub_service.get_quote, symbol)
+            if result and result.get("price"):
+                cache.set(ck, result, 15)
+                return result
+        except Exception:
+            pass
+
+    # 2순위: Yahoo Finance 직접 조회
     try:
         data = await fetch_yf_quotes([symbol])
         q = data.get(symbol)
@@ -133,7 +143,7 @@ async def get_us_price(symbol: str) -> dict:
     if stale and stale.get("price") and not stale.get("_demo"):
         return stale
 
-    # yfinance 직접 호출
+    # 3순위: yfinance 직접 호출
     try:
         result = await _run(yf_service.get_stock_price, symbol, "US")
         if result and result.get("price"):
@@ -256,16 +266,24 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
 
         return price
     else:
-        # US: stale 캐시 우선, fundamentals는 별도 캐시(fund:)에서 병합
+        # US: Finnhub 우선 → 캐시 → yfinance 폴백
+        # Finnhub으로 가격+재무 통합 조회
+        if settings.FINNHUB_API_KEY:
+            try:
+                detail = await _run(finnhub_service.get_stock_detail, symbol)
+                if detail and detail.get("price"):
+                    cache.set(f"price:{symbol}", detail, 15)
+                    return detail
+            except Exception:
+                pass
+
         fund_ck = f"fund:{symbol}"
-        fund_cached = cache.get(fund_ck) or cache.get_stale(fund_ck)  # 24h TTL
+        fund_cached = cache.get(fund_ck) or cache.get_stale(fund_ck)
 
         cached = cache.get_stale(f"price:{symbol}")
         if cached and cached.get("price") and not cached.get("_demo"):
             if fund_cached:
-                # 둘 다 캐시 있으면 즉시 반환
                 return {**cached, **fund_cached}
-            # 가격 캐시만 있으면 fundamentals 비동기 fetch (타임아웃 15s)
             try:
                 fund = await asyncio.wait_for(
                     asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "US"),
@@ -273,7 +291,7 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
                 )
                 return {**cached, **(fund or {})}
             except Exception:
-                return cached  # 타임아웃 시 가격만 반환 (52주/배당 없음)
+                return cached
 
         # 캐시 없으면 price + fundamentals 병렬 fetch
         try:
