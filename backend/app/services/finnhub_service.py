@@ -164,4 +164,36 @@ class FinnhubService:
         }
 
 
+    # ── 종목 검색 ──────────────────────────────────────
+    def search(self, query: str) -> list[dict]:
+        """Finnhub 심볼 검색 — 미국 전 종목 대상"""
+        if not self._configured:
+            return []
+        ck = f"fh:search:{query.lower()}"
+        if c := cache.get(ck):
+            return c
+        d = self._get("/search", {"q": query})
+        results = []
+        for item in (d.get("result") or [])[:20]:
+            sym = item.get("symbol", "")
+            desc = item.get("description", "")
+            typ = item.get("type", "")
+            # 미국 주식/ETF만 필터 (점 없는 심볼 = 미국)
+            if not sym or "." in sym:
+                continue
+            market = "ETF" if typ == "ETP" else "US"
+            results.append({
+                "symbol":   sym,
+                "name":     desc,
+                "market":   market,
+                "exchange": item.get("displaySymbol", sym),
+                "type":     typ,
+                "price":    None,
+                "change_rate": None,
+                "currency": "USD",
+            })
+        cache.set(ck, results, 300)
+        return results
+
+
 finnhub_service = FinnhubService()

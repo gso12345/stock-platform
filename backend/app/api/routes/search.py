@@ -1,13 +1,15 @@
 """
 종목 검색 API
 - 한국: Naver 자동완성 API (전체 KRX 종목)
-- 미국: 내장 DB
+- 미국: Finnhub 전 종목 검색 → 내장 DB 폴백
 """
 from fastapi import APIRouter, Query
 import httpx
 import asyncio
 from app.services.ticker_service import search_stocks
+from app.services.finnhub_service import finnhub_service
 from app.core.cache import cache
+from app.core.config import settings
 
 router = APIRouter(prefix="/search", tags=["검색"])
 
@@ -71,7 +73,15 @@ async def search_route(
             kr_results = [r for r in search_stocks(q, "KR") if r.get("market") == "KR"]
 
     if market in ("ALL", "US", "ETF"):
-        us_results = [r for r in search_stocks(q, "US") if r.get("market") in ("US", "ETF")]
+        # Finnhub으로 미국 전 종목 검색
+        if settings.FINNHUB_API_KEY:
+            loop = asyncio.get_running_loop()
+            fh_results = await loop.run_in_executor(None, finnhub_service.search, q)
+            if fh_results:
+                us_results = fh_results
+        # 폴백: 내장 DB
+        if not us_results:
+            us_results = [r for r in search_stocks(q, "US") if r.get("market") in ("US", "ETF")]
 
     results = (kr_results + us_results)[:30]
 
@@ -106,5 +116,10 @@ def batch_prices(symbols: str = Query(..., max_length=500)):
 async def suggest(q: str = Query(..., min_length=1, max_length=50)):
     """자동완성 — 상위 5개"""
     kr = await _naver_search(q)
-    us = search_stocks(q, "US")[:3]
+    if settings.FINNHUB_API_KEY:
+        loop = asyncio.get_running_loop()
+        us = await loop.run_in_executor(None, finnhub_service.search, q)
+        us = us[:3]
+    else:
+        us = search_stocks(q, "US")[:3]
     return {"results": (kr + us)[:5]}
