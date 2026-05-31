@@ -67,24 +67,39 @@ async def get_kr_price(symbol: str) -> dict:
 
 
 async def get_us_price(symbol: str) -> dict:
-    """Finnhub → FMP → yfinance → demo 순서로 폴백"""
-    if settings.FINNHUB_API_KEY:
-        result = await _run(finnhub_service.get_quote, symbol)
-        if result and result.get("price"):
-            return result
-    if settings.FMP_API_KEY:
-        result = await _run(fmp_service.get_quote, symbol)
-        if result and result.get("price"):
-            return result
-    cached = cache.get_stale(f"price:{symbol}")
-    if cached and cached.get("price"):
-        return cached
+    """Yahoo Finance v7 → 캐시 순서로 폴백 (항상 최신 데이터 우선)"""
+    from app.services.price_fetcher import fetch_yf_quotes
+    ck = f"price:{symbol}"
+
+    # 신선한 캐시 (30초 이내)
+    fresh = cache.get(ck)
+    if fresh and fresh.get("price") and not fresh.get("_demo"):
+        return fresh
+
+    # Yahoo Finance 직접 조회 (가장 최신)
+    try:
+        data = await fetch_yf_quotes([symbol])
+        q = data.get(symbol)
+        if q and q.get("price"):
+            cache.set(ck, q, 30)
+            return q
+    except Exception:
+        pass
+
+    # stale 캐시
+    stale = cache.get_stale(ck)
+    if stale and stale.get("price") and not stale.get("_demo"):
+        return stale
+
+    # yfinance 직접 호출
     try:
         result = await _run(yf_service.get_stock_price, symbol, "US")
         if result and result.get("price"):
+            cache.set(ck, result, 30)
             return result
     except Exception:
         pass
+
     return {"symbol": symbol, "price": None, "change_rate": 0, "currency": "USD"}
 
 
@@ -176,40 +191,70 @@ async def get_stock_ohlcv(
 @router.get("/{market}/{symbol}/detail")
 async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
     if market == "KR":
+        # Naver integration API가 이미 PER/PBR/EPS/시총/거래량 제공 → yfinance 불필요
         price = await get_kr_price(symbol)
-        # KIS 데이터에 재무지표가 포함된 경우 그대로 반환
-        if price and price.get("per"):
-            return price
-        # yfinance로 재무지표 보완 (None이 아닌 값만 덮어씀)
-        try:
-            fund = await _run(yf_service.get_fundamentals, symbol, "KR")
-            merged = {**(price or {})}
-            for k, v in fund.items():
-                if v is not None:
-                    merged[k] = v
-            return merged
-        except Exception:
-            pass
-        return price or {}
+        return price or {"symbol": symbol, "price": None, "currency": "KRW"}
     else:
-        if settings.FMP_API_KEY:
-            result = await _run(fmp_service.get_stock_detail, symbol)
-            if result and result.get("price"):
-                return result
-        if settings.FINNHUB_API_KEY:
-            result = await _run(finnhub_service.get_stock_detail, symbol)
-            if result and result.get("price"):
-                return result
-        # yfinance 폴백
+        # US: 캐시 우선 → yfinance 병렬 fetch
+        cached = cache.get_stale(f"price:{symbol}")
+        if cached and cached.get("price") and not cached.get("_demo"):
+            # 캐시된 가격이 있으면 fundamentals만 추가
+            try:
+                fund = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "US"),
+                    timeout=8
+                )
+                return {**cached, **(fund or {})}
+            except Exception:
+                return cached
+        # 캐시 없으면 price + fundamentals 병렬 fetch
         try:
             price, fund = await asyncio.gather(
                 _run(yf_service.get_stock_price, symbol, "US"),
                 _run(yf_service.get_fundamentals, symbol, "US"),
+                return_exceptions=True,
             )
-            return {**(price or {}), **(fund or {})}
+            p = price if isinstance(price, dict) else {}
+            f = fund if isinstance(fund, dict) else {}
+            result = {**p, **f}
+            if result.get("price"):
+                cache.set(f"price:{symbol}", result, 30)
+            return result or {"symbol": symbol, "price": None, "currency": "USD"}
+        except Exception:
+            return {"symbol": symbol, "price": None, "currency": "USD"}
+
+
+@router.get("/{market}/{symbol}/fundamentals")
+async def get_fundamentals(market: Literal["KR","US","ETF"], symbol: str):
+    """벨류에이션 지표 (PER, PBR, ROE 등)"""
+    ck = f"fund:{symbol}"
+    cached = cache.get(ck)
+    if cached:
+        return cached
+    if market == "KR":
+        # Naver integration에서 먼저 가져오기
+        from app.services.price_fetcher import fetch_naver_stock
+        code6 = symbol.replace(".KS","").replace(".KQ","")
+        try:
+            naver = await fetch_naver_stock(code6)
+            if naver:
+                fund = {k: naver.get(k) for k in ("per","pbr","eps","bps","dividend_yield","week52_high","week52_low","market_cap") if naver.get(k) is not None}
+                if fund:
+                    cache.set(ck, fund, 3600)
+                    return fund
         except Exception:
             pass
-        return get_demo_price(symbol) or {"symbol": symbol, "price": None}
+    # yfinance 폴백
+    try:
+        result = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, market),
+            timeout=10
+        )
+        if result:
+            cache.set(ck, result, 3600)
+        return result or {}
+    except Exception:
+        return {}
 
 
 @router.get("/{market}/{symbol}/financials")

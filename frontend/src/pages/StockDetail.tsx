@@ -99,7 +99,8 @@ export default function StockDetail() {
   });
 
   const intradayPeriod: Record<string,string> = { "1m":"5d","5m":"60d","15m":"60d","30m":"60d","60m":"60d" };
-  const chartPeriod = intradayPeriod[candleType] ?? "max";
+  const dailyPeriod: Record<string,string> = { "1d":"5y","1wk":"10y","1mo":"max","1y":"max" };
+  const chartPeriod = intradayPeriod[candleType] ?? dailyPeriod[candleType] ?? "5y";
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
     queryKey: ["stock-ohlcv", m, sym, candleType],

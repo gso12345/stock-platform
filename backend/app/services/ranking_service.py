@@ -26,11 +26,11 @@ NAVER_SISE_PAGES = {
     "시가총액": "https://finance.naver.com/sise/sise_market_sum.nhn",
     "상승률":   "https://finance.naver.com/sise/sise_rise.nhn",
     "하락률":   "https://finance.naver.com/sise/sise_fall.nhn",
-    "거래대금": "https://finance.naver.com/sise/sise_trading.nhn",
     "거래량":   "https://finance.naver.com/sise/sise_quant.nhn",
-    "신고가":   "https://finance.naver.com/sise/sise_new_high.nhn",
-    "신저가":   "https://finance.naver.com/sise/sise_new_low.nhn",
 }
+
+# 거래대금 / 신고가 / 신저가는 상승률/하락률/거래량 데이터에서 계산
+DERIVED_CATEGORIES = {"거래대금", "신고가", "신저가"}
 
 
 def _parse_num(s: str) -> float:
@@ -224,6 +224,34 @@ def get_kr_rankings(category: str = "시가총액") -> list[dict]:
     cached = cache.get(ck)
     if cached:
         return cached
+
+    # 거래대금/신고가/신저가는 거래량/상승률 캐시를 활용해 계산
+    if category == "거래대금":
+        vol_rows = cache.get_stale("rank:kr:거래량") or []
+        if vol_rows:
+            for r in vol_rows:
+                r["amount"] = (r.get("price") or 0) * (r.get("volume") or 0)
+            sorted_rows = sorted(vol_rows, key=lambda x: x.get("amount") or 0, reverse=True)
+            for i, r in enumerate(sorted_rows):
+                r["rank"] = i + 1
+            cache.set(ck, sorted_rows, RANK_TTL)
+            return sorted_rows
+    elif category == "신고가":
+        rise_rows = cache.get_stale("rank:kr:상승률") or []
+        result = [r for r in rise_rows if (r.get("change_rate") or 0) > 0][:100]
+        for i, r in enumerate(result):
+            r["rank"] = i + 1
+        if result:
+            cache.set(ck, result, RANK_TTL)
+        return result
+    elif category == "신저가":
+        fall_rows = cache.get_stale("rank:kr:하락률") or []
+        result = [r for r in fall_rows if (r.get("change_rate") or 0) < 0][:100]
+        for i, r in enumerate(result):
+            r["rank"] = i + 1
+        if result:
+            cache.set(ck, result, RANK_TTL)
+        return result
 
     rows = _build_all_kr_rows()
     result = _sort_kr(rows, category)
