@@ -513,10 +513,31 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
         try:
             t = yf.Ticker(yf_sym)
             shares = None
+
+            # 1차: fast_info (IP 차단에 강함)
             try:
-                shares = float(t.info.get("sharesOutstanding") or 0) or None
+                fi = t.fast_info
+                shares = float(getattr(fi, "shares", None) or 0) or None
             except Exception:
                 pass
+
+            # 2차: info (느리지만 fallback)
+            if not shares:
+                try:
+                    shares = float(t.info.get("sharesOutstanding") or 0) or None
+                except Exception:
+                    pass
+
+            # 3차: KR 종목은 market_cap / price 로 추정
+            if not shares and market == "KR":
+                try:
+                    fi2 = t.fast_info
+                    mc = getattr(fi2, "market_cap", None)
+                    lp = getattr(fi2, "last_price", None)
+                    if mc and lp and lp > 0:
+                        shares = mc / lp
+                except Exception:
+                    pass
 
             hist = None
             try:

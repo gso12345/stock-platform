@@ -80,53 +80,53 @@ async def fetch_naver_stock(code6: str) -> dict | None:
                 return_exceptions=True,
             )
 
-        # basic: 현재가·등락
-        if not isinstance(basic_r, Exception) and basic_r.status_code == 200:
-            b = basic_r.json()
-        else:
-            return None
-        curr = _safe(b.get("closePrice"))
-        if curr is None:
-            return None
-        chg  = _safe(b.get("compareToPreviousClosePrice")) or 0
-        chgr = _safe(b.get("fluctuationsRatio")) or 0
-        suffix = ".KQ" if "KOSDAQ" in str(b.get("stockExchangeType","")) else ".KS"
+            # basic: 현재가·등락 — 블록 안에서 처리
+            if not isinstance(basic_r, Exception) and basic_r.status_code == 200:
+                b = basic_r.json()
+            else:
+                return None
+            curr = _safe(b.get("closePrice"))
+            if curr is None:
+                return None
+            chg  = _safe(b.get("compareToPreviousClosePrice")) or 0
+            chgr = _safe(b.get("fluctuationsRatio")) or 0
+            suffix = ".KQ" if "KOSDAQ" in str(b.get("stockExchangeType","")) else ".KS"
 
-        # integration: totalInfos 배열에서 항목별 파싱 (대소문자 무관)
-        info: dict = {}
-        if not isinstance(intg_r, Exception) and intg_r.status_code == 200:
-            for item in (intg_r.json().get("totalInfos") or []):
-                code_key = str(item.get("code","")).lower()
-                info[code_key] = item.get("value","")
+            # integration: totalInfos 배열에서 항목별 파싱 (대소문자 무관)
+            info: dict = {}
+            if not isinstance(intg_r, Exception) and intg_r.status_code == 200:
+                for item in (intg_r.json().get("totalInfos") or []):
+                    code_key = str(item.get("code","")).lower()
+                    info[code_key] = item.get("value","")
 
-        def num(key): return _parse_kr_num(info.get(key.lower()))
-        def pct(key):
-            v = str(info.get(key.lower(),"")).replace("%","").replace("배","").replace(",","")
-            return _safe(v)
+            def num(key): return _parse_kr_num(info.get(key.lower()))
+            def pct(key):
+                v = str(info.get(key.lower(),"")).replace("%","").replace("배","").replace(",","")
+                return _safe(v)
 
-        return {
-            "symbol":          f"{code6}{suffix}",
-            "name":            b.get("stockName",""),
-            "price":           curr,
-            "prev_close":      _parse_kr_num(info.get("lastClosePrice")) or (curr - chg),
-            "change":          round(chg, 2),
-            "change_rate":     round(chgr, 2),
-            "open":            num("openPrice"),
-            "high":            num("highPrice"),
-            "low":             num("lowPrice"),
-            "volume":          int(num("accumulatedTradingVolume")),
-            "amount":          int(num("accumulatedTradingValue")),
-            "market_cap":      int(num("marketValue")),
-            "per":             pct("per"),
-            "pbr":             pct("pbr"),
-            "eps":             _parse_kr_num(info.get("eps")),
-            "bps":             _parse_kr_num(info.get("bps")),
-            "dividend_yield":  pct("dividendYieldRatio"),
-            "week52_high":     num("highPriceOf52Weeks"),
-            "week52_low":      num("lowPriceOf52Weeks"),
-            "foreign_rate":    pct("foreignRate"),
-            "currency":        "KRW",
-        }
+            return {
+                "symbol":         f"{code6}{suffix}",
+                "name":           b.get("stockName",""),
+                "price":          curr,
+                "prev_close":     _parse_kr_num(info.get("lastcloseprice")) or (curr - chg),
+                "change":         round(chg, 2),
+                "change_rate":    round(chgr, 2),
+                "open":           num("openPrice") or None,
+                "high":           num("highPrice") or None,
+                "low":            num("lowPrice") or None,
+                "volume":         int(num("accumulatedTradingVolume")),
+                "amount":         int(num("accumulatedTradingValue")),
+                "market_cap":     int(num("marketValue")),
+                "per":            pct("per"),
+                "pbr":            pct("pbr"),
+                "eps":            _parse_kr_num(info.get("eps")) or None,
+                "bps":            _parse_kr_num(info.get("bps")) or None,
+                "dividend_yield": pct("dividendYieldRatio"),
+                "week52_high":    num("highPriceOf52Weeks") or None,
+                "week52_low":     num("lowPriceOf52Weeks") or None,
+                "foreign_rate":   pct("foreignRate"),
+                "currency":       "KRW",
+            }
     except Exception as e:
         log.debug(f"네이버 주식 {code6} 실패: {e}")
         return None
