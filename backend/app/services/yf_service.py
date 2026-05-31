@@ -4,10 +4,10 @@ import math
 from typing import Optional
 from app.core.cache import cache
 
-PRICE_TTL  = 30    # 현재가 캐시 30초
-INDEX_TTL  = 60    # 지수 캐시 60초
-OHLCV_TTL  = 300   # OHLCV 캐시 5분
-FUND_TTL   = 3600  # 재무지표 캐시 1시간
+PRICE_TTL  = 30      # 현재가 캐시 30초
+INDEX_TTL  = 60      # 지수 캐시 60초
+OHLCV_TTL  = 21600   # OHLCV 캐시 6시간 (일봉 이상은 당일 변경 없음)
+FUND_TTL   = 86400   # 재무지표 캐시 24시간
 
 
 def _safe(v):

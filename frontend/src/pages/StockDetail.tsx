@@ -93,8 +93,9 @@ export default function StockDetail() {
   const { data: detail, isLoading: loadingDetail, error: detailError, refetch: refetchDetail } = useQuery({
     queryKey: ["stock-detail", m, sym],
     queryFn: () => stocksApi.getDetail(m, sym),
-    enabled: !!sym, retry: 2, retryDelay: 2000, staleTime: 15_000,
-    refetchInterval: isKR ? 10_000 : 30_000,
+    enabled: !!sym, retry: 1, retryDelay: 3000,
+    staleTime: 30_000,          // 30초 동안 캐시 사용 (재요청 안 함)
+    refetchInterval: 60_000,    // 60초마다 갱신
   });
 
   const intradayPeriod: Record<string,string> = { "1m":"5d","5m":"60d","15m":"60d","30m":"60d","60m":"60d" };
@@ -103,9 +104,10 @@ export default function StockDetail() {
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
     queryKey: ["stock-ohlcv", m, sym, candleType],
     queryFn: () => stocksApi.getOHLCV(m, sym, chartPeriod, candleType),
-    enabled: !!sym, retry: 2, staleTime: 0,
+    enabled: !!sym, retry: 1,
+    staleTime: candleType.includes("m") ? 60_000 : 21_600_000, // 분봉 1분, 나머지 6시간
     placeholderData: (prev) => prev,
-    refetchInterval: candleType.includes("m") ? 60_000 : 300_000,
+    refetchInterval: candleType.includes("m") ? 60_000 : false, // 분봉만 자동갱신
   });
 
   const { data: financials, isLoading: loadingFin } = useQuery({

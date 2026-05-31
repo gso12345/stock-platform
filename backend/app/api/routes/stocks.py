@@ -27,32 +27,42 @@ async def _run(fn, *args):
 
 # ── 국내 주식 ──────────────────────────────────────────────
 async def get_kr_price(symbol: str) -> dict:
-    """KIS → Naver 실시간 → FDR캐시 → yfinance 순으로 폴백"""
+    """KIS → 캐시 → Naver 실시간 → FDR캐시 순으로 폴백"""
     from app.services.price_fetcher import fetch_naver_stock
     code6 = symbol.replace(".KS","").replace(".KQ","")
+    ck = f"price:{symbol}"
+
+    # 0순위: 신선한 캐시 (15초 이내) - 반복 호출 시 빠른 응답
+    fresh = cache.get(ck)
+    if fresh and fresh.get("price") and not fresh.get("_demo"):
+        return fresh
+
     # 1순위: KIS 실시간
     if settings.KIS_APP_KEY:
         result = await kis_service.get_price(code6)
         if result and result.get("price"):
+            cache.set(ck, result, 15)
             return result
-    # 2순위: Naver 실시간 (무료, 장중 실시간에 가까움)
+
+    # 2순위: Naver 실시간
     try:
         naver = await fetch_naver_stock(code6)
         if naver and naver.get("price"):
+            cache.set(ck, naver, 15)
             return naver
     except Exception:
         pass
-    # 3순위: FDR 전일 종가 캐시
+
+    # 3순위: stale 캐시 (빠른 응답, 백그라운드 갱신)
+    stale = cache.get_stale(ck)
+    if stale and stale.get("price") and not stale.get("_demo"):
+        return stale
+
+    # 4순위: FDR 전일 종가
     fdr = get_fdr_price(symbol) or get_fdr_price(code6+".KS") or get_fdr_price(code6+".KQ")
     if fdr and fdr.get("price"):
         return fdr
-    # 4순위: yfinance
-    try:
-        result = await _run(yf_service.get_stock_price, symbol, "KR")
-        if result and result.get("price"):
-            return result
-    except Exception:
-        pass
+
     demo = get_demo_price(code6+".KS") or get_demo_price(code6+".KQ") or get_demo_price(symbol)
     return demo or {"symbol": symbol, "price": None, "change_rate": 0}
 
