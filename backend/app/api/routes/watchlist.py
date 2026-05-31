@@ -92,7 +92,11 @@ def get_folders(db: Session = Depends(get_db)):
 
 
 @router.post("/folders")
-def create_folder(req: FolderRequest, db: Session = Depends(get_db)):
+def create_folder(
+    req: FolderRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     max_pos = db.query(WatchlistFolder).count()
     folder = WatchlistFolder(name=req.name, position=max_pos)
     db.add(folder)
@@ -102,7 +106,12 @@ def create_folder(req: FolderRequest, db: Session = Depends(get_db)):
 
 
 @router.put("/folders/{folder_id}")
-def update_folder(folder_id: int, req: FolderRequest, db: Session = Depends(get_db)):
+def update_folder(
+    folder_id: int,
+    req: FolderRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
@@ -112,11 +121,14 @@ def update_folder(folder_id: int, req: FolderRequest, db: Session = Depends(get_
 
 
 @router.delete("/folders/{folder_id}")
-def delete_folder(folder_id: int, db: Session = Depends(get_db)):
+def delete_folder(
+    folder_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
-    # 폴더 삭제 시 종목은 폴더 없는 상태로 유지
     for item in folder.items:
         item.folder_id = None
     db.delete(folder)
@@ -318,7 +330,12 @@ def reorder_items(req: ReorderRequest, db: Session = Depends(get_db)):
 
 
 @router.put("/items/{item_id}")
-def update_item(item_id: int, req: UpdateItemRequest, db: Session = Depends(get_db)):
+def update_item(
+    item_id: int,
+    req: UpdateItemRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     item = db.query(WatchlistItem).filter(WatchlistItem.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="종목을 찾을 수 없습니다")
@@ -333,7 +350,11 @@ def update_item(item_id: int, req: UpdateItemRequest, db: Session = Depends(get_
 
 
 @router.delete("/items/{item_id}")
-def remove_item(item_id: int, db: Session = Depends(get_db)):
+def remove_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     item = db.query(WatchlistItem).filter(WatchlistItem.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="종목을 찾을 수 없습니다")

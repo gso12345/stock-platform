@@ -20,21 +20,6 @@ from app.core.cache import cache
 router = APIRouter(prefix="/stocks", tags=["종목"])
 
 
-@router.get("/debug/naver/{code}")
-async def debug_naver_raw(code: str):
-    """Naver integration 원본 응답 확인용 (임시)"""
-    import httpx
-    HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 Mobile Safari/537.36",
-        "Referer": "https://m.stock.naver.com/",
-    }
-    async with httpx.AsyncClient(timeout=10, headers=HEADERS) as cl:
-        r = await cl.get(f"https://m.stock.naver.com/api/stock/{code}/integration")
-    data = r.json()
-    infos = data.get("totalInfos", [])
-    return {"codes": [i.get("code") for i in infos], "raw": infos[:20]}
-
-
 async def _run(fn, *args):
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(loop.run_in_executor(None, fn, *args), timeout=15)

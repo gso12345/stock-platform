@@ -24,7 +24,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
 
   const usernameValid = /^[a-zA-Z0-9_]+$/.test(username) && username.length >= 3;
-  const pwValid = password.length >= 6;
+  const pwValid = password.length >= 8;
   const pwMatch = password === confirmPw;
 
   const handleSubmit = async (e: FormEvent) => {
@@ -36,7 +36,7 @@ export default function Register() {
       return;
     }
     if (!pwValid) {
-      setError("비밀번호는 최소 6자 이상이어야 합니다.");
+      setError("비밀번호는 최소 8자 이상이어야 합니다.");
       return;
     }
     if (!pwMatch) {
@@ -120,7 +120,7 @@ export default function Register() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="6자 이상 입력하세요"
+                  placeholder="8자 이상 입력하세요"
                   className="w-full px-3 py-2.5 pr-10 rounded-lg bg-bg-elevated border border-border text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue focus:ring-1 focus:ring-accent-blue/30 transition-all"
                 />
                 <button
@@ -133,7 +133,7 @@ export default function Register() {
                 </button>
               </div>
               {password.length > 0 && !pwValid && (
-                <p className="text-2xs text-accent-red">비밀번호는 최소 6자 이상이어야 합니다.</p>
+                <p className="text-2xs text-accent-red">비밀번호는 최소 8자 이상이어야 합니다.</p>
               )}
             </div>
 
