@@ -92,15 +92,16 @@ async def fetch_naver_stock(code6: str) -> dict | None:
         chgr = _safe(b.get("fluctuationsRatio")) or 0
         suffix = ".KQ" if "KOSDAQ" in str(b.get("stockExchangeType","")) else ".KS"
 
-        # integration: totalInfos 배열에서 항목별 파싱
+        # integration: totalInfos 배열에서 항목별 파싱 (대소문자 무관)
         info: dict = {}
         if not isinstance(intg_r, Exception) and intg_r.status_code == 200:
             for item in (intg_r.json().get("totalInfos") or []):
-                info[item["code"]] = item.get("value","")
+                code_key = str(item.get("code","")).lower()
+                info[code_key] = item.get("value","")
 
-        def num(key): return _parse_kr_num(info.get(key))
+        def num(key): return _parse_kr_num(info.get(key.lower()))
         def pct(key):
-            v = str(info.get(key,"")).replace("%","").replace("배","").replace(",","")
+            v = str(info.get(key.lower(),"")).replace("%","").replace("배","").replace(",","")
             return _safe(v)
 
         return {

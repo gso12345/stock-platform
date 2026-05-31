@@ -218,32 +218,27 @@ async def get_stock_ohlcv(
 @router.get("/{market}/{symbol}/detail")
 async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
     if market == "KR":
-        # Naver API: 시가/고가/저가/52주/배당 포함. yfinance 폴백 시 일부 누락 가능
-        price = await get_kr_price(symbol)
-        if not price:
+        from app.services.price_fetcher import fetch_naver_stock
+        code6 = symbol.replace(".KS","").replace(".KQ","")
+
+        # 항상 Naver에서 신선한 데이터 fetch (open/high/low/per/pbr 포함)
+        price = None
+        try:
+            price = await fetch_naver_stock(code6)
+        except Exception:
+            pass
+
+        # Naver 실패 시 캐시 → yfinance 폴백
+        if not price or not price.get("price"):
+            price = await get_kr_price(symbol)
+
+        if not price or not price.get("price"):
             return {"symbol": symbol, "price": None, "currency": "KRW"}
-        # 52주 고가/저가, 배당수익률 누락 시 fundamentals 캐시로 보완
-        FUND_KEYS = ("week52_high", "week52_low", "dividend_yield", "per", "pbr", "eps", "bps", "beta")
-        if any(not price.get(k) for k in FUND_KEYS):
-            fund_ck = f"fund:{symbol}"
-            fund_cached = cache.get(fund_ck) or cache.get_stale(fund_ck)
-            if fund_cached:
-                for k in FUND_KEYS:
-                    if not price.get(k) and fund_cached.get(k):
-                        price[k] = fund_cached[k]
-            else:
-                # 캐시 없으면 비동기 fetch (타임아웃 8초)
-                try:
-                    fund = await asyncio.wait_for(
-                        asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "KR"),
-                        timeout=8
-                    )
-                    if fund:
-                        for k in FUND_KEYS:
-                            if not price.get(k) and fund.get(k):
-                                price[k] = fund[k]
-                except Exception:
-                    pass
+
+        # 종목명이 없거나 코드와 같으면 보완
+        if not price.get("name") or price.get("name") == symbol:
+            price["name"] = price.get("name") or code6
+
         return price
     else:
         # US: stale 캐시 우선, fundamentals는 별도 캐시(fund:)에서 병합

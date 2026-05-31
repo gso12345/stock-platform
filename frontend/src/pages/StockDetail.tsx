@@ -278,12 +278,14 @@ export default function StockDetail() {
         <div className="flex items-start gap-3">
           <button onClick={()=>navigate(-1)} className="mt-1 p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors"><ArrowLeft size={16}/></button>
           <div>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-2xl font-bold font-mono text-text-primary">{sym.replace(".KS","").replace(".KQ","")}</h1>
+            <h1 className="text-2xl font-bold text-text-primary leading-tight">
+              {d?.name && d.name !== sym ? d.name : sym.replace(".KS","").replace(".KQ","")}
+            </h1>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <span className="text-sm font-mono text-text-muted">{sym.replace(".KS","").replace(".KQ","")}</span>
               <span className={`text-2xs px-1.5 py-0.5 rounded border font-bold ${isKR?"border-blue-700/50 text-blue-400 bg-blue-900/20":m==="ETF"?"border-purple-700/50 text-purple-400 bg-purple-900/20":"border-green-700/50 text-green-400 bg-green-900/20"}`}>{m}</span>
               {d?.sector && <span className="text-2xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted">{d.sector}</span>}
             </div>
-            <p className="text-text-muted text-sm mt-0.5">{d?.name || sym}</p>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
