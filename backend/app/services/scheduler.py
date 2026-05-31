@@ -88,21 +88,36 @@ async def refresh_us_indices():
             ok += 1
             continue
 
-        # YF v7 실패 시 fast_info 시도 (다른 엔드포인트)
+        # YF v7 실패 시 fast_info → history 순으로 시도
         try:
             loop = asyncio.get_running_loop()
             def _fast(sym):
-                fi = yf.Ticker(sym).fast_info
-                price = float(getattr(fi, "last_price", 0) or 0)
-                prev  = float(getattr(fi, "previous_close", 0) or 0)
-                if price > 0:
-                    chg = round(price - prev, 2)
-                    chgr = round(chg / prev * 100, 2) if prev else 0
-                    return price, chg, chgr
+                # 1차: fast_info
+                try:
+                    fi = yf.Ticker(sym).fast_info
+                    price = float(getattr(fi, "last_price", 0) or 0)
+                    prev  = float(getattr(fi, "previous_close", 0) or 0)
+                    if price > 0:
+                        chg = round(price - prev, 2)
+                        chgr = round(chg / prev * 100, 2) if prev else 0
+                        return price, chg, chgr
+                except Exception:
+                    pass
+                # 2차: history (fast_info 실패 시)
+                try:
+                    hist = yf.Ticker(sym).history(period="2d", interval="1d")
+                    if not hist.empty and len(hist) >= 1:
+                        price = float(hist["Close"].iloc[-1])
+                        prev  = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else price
+                        chg   = round(price - prev, 2)
+                        chgr  = round(chg / prev * 100, 2) if prev else 0
+                        return price, chg, chgr
+                except Exception:
+                    pass
                 return None, None, None
 
             price, chg, chgr = await asyncio.wait_for(
-                loop.run_in_executor(None, _fast, yf_sym), timeout=8
+                loop.run_in_executor(None, _fast, yf_sym), timeout=12
             )
             if price:
                 entry = {

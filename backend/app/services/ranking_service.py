@@ -177,8 +177,10 @@ def _sort_kr(rows: list[dict], category: str) -> list[dict]:
 
 
 def _build_us_rows() -> list[dict]:
+    from app.services.scheduler import POPULAR_US
+    all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))  # 인기종목 우선
     rows = []
-    for sym in SP500_SYMBOLS:
+    for sym in all_syms:
         p = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}")
         if not p:
             continue

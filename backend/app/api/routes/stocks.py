@@ -249,6 +249,23 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
         if not price.get("name") or price.get("name") == symbol:
             price["name"] = price.get("name") or code6
 
+        # 시가/고가/저가/전일종가 없으면 OHLCV에서 보완
+        if not price.get("open") or not price.get("prev_close"):
+            try:
+                ohlcv = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(None, yf_service.get_ohlcv, symbol, "5d", "1d", "KR"),
+                    timeout=10
+                )
+                if ohlcv and len(ohlcv) >= 2:
+                    latest = ohlcv[-1]
+                    prev   = ohlcv[-2]
+                    if not price.get("open"):       price["open"]       = latest.get("open")
+                    if not price.get("high"):       price["high"]       = latest.get("high")
+                    if not price.get("low"):        price["low"]        = latest.get("low")
+                    if not price.get("prev_close"): price["prev_close"] = prev.get("close")
+            except Exception:
+                pass
+
         return price
     else:
         # US: Finnhub 우선 → 캐시 → yfinance 폴백
