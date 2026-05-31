@@ -164,21 +164,21 @@ async def fetch_naver_index(name: str) -> dict | None:
     try:
         async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
             r = await cl.get(url)
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        curr = _safe(d.get("closePrice"))
-        chg  = _safe(d.get("compareToPreviousClosePrice"))
-        chgr = _safe(d.get("fluctuationsRatio"))
-        if curr is None:
-            return None
-        return {
-            "index":       name,
-            "name":        INDEX_DISPLAY.get(name, name),
-            "value":       round(curr, 2),
-            "change":      round(chg or 0, 2),
-            "change_rate": round(chgr or 0, 2),
-        }
+            if r.status_code != 200:
+                return None
+            d = r.json()
+            curr = _safe(d.get("closePrice"))
+            chg  = _safe(d.get("compareToPreviousClosePrice"))
+            chgr = _safe(d.get("fluctuationsRatio"))
+            if curr is None:
+                return None
+            return {
+                "index":       name,
+                "name":        INDEX_DISPLAY.get(name, name),
+                "value":       round(curr, 2),
+                "change":      round(chg or 0, 2),
+                "change_rate": round(chgr or 0, 2),
+            }
     except Exception as e:
         log.debug(f"네이버 지수 {name} 실패: {e}")
         return None
@@ -203,13 +203,13 @@ async def fetch_naver_exchange() -> dict | None:
     try:
         async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
             r = await cl.get(url)
-        if r.status_code == 200:
-            d = r.json()
-            curr = _safe(d.get("closePrice"))
-            chg  = _safe(d.get("compareToPreviousClosePrice"))
-            chgr = _safe(d.get("fluctuationsRatio"))
-            if curr and curr > 100:
-                return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":round(chg or 0,2),"change_rate":round(chgr or 0,4),"unit":"원"}
+            if r.status_code == 200:
+                d = r.json()
+                curr = _safe(d.get("closePrice"))
+                chg  = _safe(d.get("compareToPreviousClosePrice"))
+                chgr = _safe(d.get("fluctuationsRatio"))
+                if curr and curr > 100:
+                    return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":round(chg or 0,2),"change_rate":round(chgr or 0,4),"unit":"원"}
     except Exception:
         pass
     # 폴백: 네이버 외환 시장 정보
@@ -217,14 +217,14 @@ async def fetch_naver_exchange() -> dict | None:
     try:
         async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
             r = await cl.get(url2)
-        if r.status_code == 200:
-            items = r.json()
-            if items and len(items) >= 2:
-                curr = _safe(items[-1].get("closePrice") or items[-1].get("value"))
-                prev = _safe(items[-2].get("closePrice") or items[-2].get("value"))
-                if curr and curr > 100:
-                    chg = curr - (prev or curr)
-                    return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":round(chg,2),"change_rate":round(chg/(prev or 1)*100,4),"unit":"원"}
+            if r.status_code == 200:
+                items = r.json()
+                if items and len(items) >= 2:
+                    curr = _safe(items[-1].get("closePrice") or items[-1].get("value"))
+                    prev = _safe(items[-2].get("closePrice") or items[-2].get("value"))
+                    if curr and curr > 100:
+                        chg = curr - (prev or curr)
+                        return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":round(chg,2),"change_rate":round(chg/(prev or 1)*100,4),"unit":"원"}
     except Exception:
         pass
     return None
