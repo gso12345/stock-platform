@@ -18,34 +18,47 @@ export const CANDLE_TYPES = [
   { label: "연봉",  value: "1y"  },
 ] as const;
 
-// 캔들 그룹 (틱/분/일/주/월/년)
+// 캔들 그룹 (틱/분/일/주/월/년) — 재클릭 시 세부 선택
 export const CANDLE_GROUPS = [
   { label: "틱", key: "tick", options: [
-    { label: "1분", value: "1m" },
-    { label: "2분", value: "2m" },
-    { label: "5분", value: "5m" },
+    { label: "1틱",   value: "1m"  },   // yfinance 최소: 1분봉으로 근사
+    { label: "5틱",   value: "2m"  },
+    { label: "10틱",  value: "5m"  },
+    { label: "50틱",  value: "15m" },
+    { label: "100틱", value: "30m" },
   ]},
   { label: "분", key: "min", options: [
+    { label: "1분",  value: "1m"  },
+    { label: "2분",  value: "2m"  },
+    { label: "5분",  value: "5m"  },
     { label: "15분", value: "15m" },
     { label: "30분", value: "30m" },
     { label: "60분", value: "60m" },
     { label: "90분", value: "90m" },
   ]},
   { label: "일", key: "day", options: [
-    { label: "1일", value: "1d" },
-    { label: "5일", value: "5d" },
+    { label: "1일봉", value: "1d" },
+    { label: "5일봉", value: "5d" },
   ]},
   { label: "주", key: "week", options: [
-    { label: "1주", value: "1wk" },
+    { label: "1주봉", value: "1wk" },
   ]},
   { label: "월", key: "month", options: [
-    { label: "1월", value: "1mo" },
-    { label: "3월", value: "3mo" },
+    { label: "1월봉", value: "1mo" },
+    { label: "3월봉", value: "3mo" },
   ]},
   { label: "년", key: "year", options: [
-    { label: "1년", value: "1y" },
+    { label: "1년봉", value: "1y" },
   ]},
 ] as const;
+
+// 캔들 타입별 최대 조회 가능 기간 (항상 최대로 fetch)
+export const CANDLE_MAX_PERIOD: Record<string, string> = {
+  "1m": "5d",   "2m": "60d",  "5m": "60d",
+  "15m": "60d", "30m": "60d", "60m": "2y",  "90m": "60d",
+  "1d": "max",  "5d": "max",  "1wk": "max",
+  "1mo": "max", "3mo": "max", "1y": "max",
+};
 
 export const PERIOD_BY_CANDLE: Record<string, { label: string; value: string }[]> = {
   "1m":  [{ label:"1일",value:"1d" },{ label:"5일",value:"5d" }],

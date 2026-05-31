@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
-import StockChart, { CANDLE_GROUPS, PERIOD_BY_CANDLE, type ChartType } from "@/components/chart/StockChart";
+import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 
 /* ── 포맷 유틸 ──────────────────────────────────────── */
 function fmtKRW(v: number | null | undefined): string {
@@ -75,7 +75,6 @@ export default function StockDetail() {
   const isKR = m === "KR";
 
   const [candleType, setCandleType]   = useState("1d");
-  const [selectedPeriod, setSelectedPeriod] = useState("5y");
   const [chartType, setChartType]     = useState<ChartType>("candle");
   const [logScale, setLogScale]       = useState(false);
   const [fullscreen, setFullscreen]   = useState(false);
@@ -88,7 +87,7 @@ export default function StockDetail() {
   const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "supply">("chart");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health">("basic");
-  const [selectedMetric, setSelectedMetric] = useState("op_margin");
+  const [selectedMetric, setSelectedMetric] = useState("revenue");
   const [supplyDays, setSupplyDays]   = useState(30);
   const [newsSort, setNewsSort]       = useState<"latest" | "popular">("latest");
   const [newsExpanded, setNewsExpanded] = useState(false);
@@ -108,16 +107,7 @@ export default function StockDetail() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // 캔들 타입별 기본 기간
-  const DEFAULT_PERIOD: Record<string, string> = {
-    "1m":"5d","2m":"5d","5m":"1mo","15m":"3mo","30m":"6mo","60m":"1y","90m":"6mo",
-    "1d":"5y","5d":"5y","1wk":"10y","1mo":"max","3mo":"max","1y":"max",
-  };
-
-  const onCandleChange = (type: string) => {
-    setCandleType(type);
-    setSelectedPeriod(DEFAULT_PERIOD[type] ?? "5y");
-  };
+  const onCandleChange = (type: string) => { setCandleType(type); };
 
   // 현재 캔들 값이 속한 그룹 key 반환
   const activeGroupKey = CANDLE_GROUPS.find(g => g.options.some(o => o.value === candleType))?.key ?? "day";
@@ -133,10 +123,12 @@ export default function StockDetail() {
   });
 
   const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);
+  // 항상 최대 기간으로 조회
+  const chartPeriod = CANDLE_MAX_PERIOD[candleType] ?? "max";
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
-    queryKey: ["stock-ohlcv", m, sym, candleType, selectedPeriod],
-    queryFn: () => stocksApi.getOHLCV(m, sym, selectedPeriod, candleType),
+    queryKey: ["stock-ohlcv", m, sym, candleType],
+    queryFn: () => stocksApi.getOHLCV(m, sym, chartPeriod, candleType),
     enabled: !!sym, retry: 1,
     staleTime: isIntraday ? 60_000 : 21_600_000,
     placeholderData: (prev) => prev,
@@ -287,16 +279,17 @@ export default function StockDetail() {
         </div>
       </div>
 
-      {/* 가격 패널 */}
+      {/* 통합 지표 패널 */}
       {d && (
-        <div className="rounded-xl p-5 border border-border bg-bg-card">
-          <div className="flex flex-wrap items-start gap-6">
-            <div className="flex-shrink-0">
+        <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+          {/* 현재가 + 등락 */}
+          <div className="px-4 pt-4 pb-3 flex flex-wrap items-end gap-3 border-b border-border">
+            <div>
               <div className="text-3xl font-mono font-bold text-text-primary num">{priceStr}</div>
-              <div className="flex items-center gap-2 mt-1.5">
-                {isUp?<TrendingUp size={13} className="text-accent-green"/>:<TrendingDown size={13} className="text-accent-red"/>}
+              <div className="flex items-center gap-2 mt-1">
+                {isUp ? <TrendingUp size={13} className="text-accent-green"/> : <TrendingDown size={13} className="text-accent-red"/>}
                 <span className={`text-sm font-mono font-semibold num ${isUp?"text-accent-green":"text-accent-red"}`}>
-                  {isUp?"+":""}{isKR?d.change?.toLocaleString("ko-KR"):d.change?.toFixed(2)}
+                  {isUp?"+":""}{isKR ? d.change?.toLocaleString("ko-KR") : d.change?.toFixed(2)}
                 </span>
                 <span className={`text-sm font-mono font-bold num ${isUp?"text-accent-green":"text-accent-red"}`}>
                   ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
@@ -304,39 +297,50 @@ export default function StockDetail() {
                 {d._demo && <span className="text-2xs px-1 py-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
               </div>
             </div>
-            <div className="w-px h-12 bg-border hidden sm:block"/>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-2 flex-1">
+          </div>
+
+          {/* 가격/거래 지표 — 가로 스크롤 */}
+          <div className="overflow-x-auto scrollbar-hide border-b border-border">
+            <div className="flex min-w-max divide-x divide-border/60">
               {[
-                { label:"전일종가", v: isKR?d.prev_close?.toLocaleString("ko-KR"):d.prev_close?.toFixed(2) },
-                { label:"시가",    v: isKR?d.open?.toLocaleString("ko-KR"):d.open?.toFixed(2) },
-                { label:"고가",    v: isKR?d.high?.toLocaleString("ko-KR"):d.high?.toFixed(2) },
-                { label:"저가",    v: isKR?d.low?.toLocaleString("ko-KR"):d.low?.toFixed(2) },
-                { label:"거래량",  v: d.volume?.toLocaleString("ko-KR") },
-                { label:"거래대금",v: fmt(d.price&&d.volume?d.price*d.volume:null) },
-                { label:"시가총액",v: fmt(d.market_cap) },
-                { label:"52주 고/저", v: d.week52_high?`${isKR?d.week52_high?.toFixed(0):d.week52_high?.toFixed(2)} / ${isKR?d.week52_low?.toFixed(0):d.week52_low?.toFixed(2)}`:null },
-              ].map(item=>(
-                <div key={item.label} className="flex flex-col gap-0.5">
-                  <span className="text-2xs text-text-muted">{item.label}</span>
-                  <span className="text-sm font-mono text-text-primary num">{item.v??"—"}</span>
+                { label:"전일종가", v: isKR ? d.prev_close?.toLocaleString("ko-KR") : d.prev_close?.toFixed(2) },
+                { label:"시가",     v: isKR ? d.open?.toLocaleString("ko-KR")       : d.open?.toFixed(2) },
+                { label:"고가",     v: isKR ? d.high?.toLocaleString("ko-KR")       : d.high?.toFixed(2), color:"text-accent-red" },
+                { label:"저가",     v: isKR ? d.low?.toLocaleString("ko-KR")        : d.low?.toFixed(2),  color:"text-accent-blue" },
+                { label:"거래량",   v: d.volume?.toLocaleString("ko-KR") },
+                { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
+                { label:"시가총액", v: fmt(d.market_cap) },
+                { label:"52주 신고가", v: d.week52_high ? (isKR ? Math.round(d.week52_high).toLocaleString("ko-KR") : d.week52_high?.toFixed(2)) : null, color:"text-accent-red" },
+                { label:"52주 신저가", v: d.week52_low  ? (isKR ? Math.round(d.week52_low).toLocaleString("ko-KR")  : d.week52_low?.toFixed(2))  : null, color:"text-accent-blue" },
+              ].map(item => (
+                <div key={item.label} className="flex flex-col gap-0.5 px-4 py-2.5">
+                  <span className="text-2xs text-text-muted whitespace-nowrap">{item.label}</span>
+                  <span className={`text-sm font-mono whitespace-nowrap num ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
                 </div>
               ))}
             </div>
           </div>
-        </div>
-      )}
 
-      {/* 핵심 지표 (간략) */}
-      {d && (
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-          <StatCell label="PER"      value={fmtNum(d.per)}     />
-          <StatCell label="PBR"      value={fmtNum(d.pbr, 2)}  />
-          <StatCell label="ROE"      value={d.roe!=null?`${d.roe.toFixed(1)}%`:null}
-            color={d.roe!=null?(d.roe>=15?"text-accent-green":d.roe<0?"text-accent-red":"text-text-primary"):undefined}/>
-          <StatCell label="EPS"      value={isKR?d.eps?.toLocaleString("ko-KR"):d.eps?.toFixed(2)}/>
-          <StatCell label="배당수익률" value={d.dividend_yield!=null?`${d.dividend_yield.toFixed(2)}%`:null} color="text-accent-green"/>
-          <StatCell label="부채비율"  value={d.debt_ratio!=null?`${d.debt_ratio.toFixed(0)}%`:null}
-            color={d.debt_ratio!=null?(d.debt_ratio>200?"text-accent-red":d.debt_ratio<100?"text-accent-green":"text-text-primary"):undefined}/>
+          {/* 밸류에이션 지표 — 가로 스크롤 */}
+          <div className="overflow-x-auto scrollbar-hide">
+            <div className="flex min-w-max divide-x divide-border/60">
+              {[
+                { label:"PER",      v: d.per     != null ? `${fmtNum(d.per)}배`        : null },
+                { label:"PBR",      v: d.pbr     != null ? `${fmtNum(d.pbr,2)}배`      : null },
+                { label:"ROE",      v: d.roe     != null ? `${d.roe.toFixed(1)}%`       : null,
+                  color: d.roe != null ? (d.roe>=15?"text-accent-green":d.roe<0?"text-accent-red":"text-text-primary") : undefined },
+                { label:"EPS",      v: d.eps     != null ? (isKR ? d.eps.toLocaleString("ko-KR") : d.eps.toFixed(2)) : null },
+                { label:"배당수익률", v: d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : null, color:"text-accent-green" },
+                { label:"부채비율",  v: d.debt_ratio     != null ? `${d.debt_ratio.toFixed(0)}%`    : null,
+                  color: d.debt_ratio != null ? (d.debt_ratio>200?"text-accent-red":d.debt_ratio<100?"text-accent-green":"text-text-primary") : undefined },
+              ].map(item => (
+                <div key={item.label} className="flex flex-col gap-0.5 px-4 py-2.5">
+                  <span className="text-2xs text-text-muted whitespace-nowrap">{item.label}</span>
+                  <span className={`text-sm font-mono font-semibold whitespace-nowrap num ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -413,18 +417,6 @@ export default function StockDetail() {
               </button>
             </div>
           </div>
-          {/* 기간 선택 */}
-          {PERIOD_BY_CANDLE[candleType]?.length > 0 && (
-            <div className="px-4 py-1.5 border-b border-border bg-bg-secondary flex flex-wrap items-center gap-1.5">
-              <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide mr-1">기간</span>
-              {PERIOD_BY_CANDLE[candleType].map(({ label, value }) => (
-                <button key={value}
-                  onClick={() => setSelectedPeriod(value)}
-                  className={`px-2.5 py-0.5 text-xs rounded-md font-semibold transition-all ${selectedPeriod === value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
-                >{label}</button>
-              ))}
-            </div>
-          )}
           {/* 차트 설정 */}
           <div className="px-4 py-2 border-b border-border bg-bg-secondary flex flex-wrap items-center gap-3">
             <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">차트 설정</span>
@@ -519,17 +511,6 @@ export default function StockDetail() {
               <button onClick={()=>setLogScale(v=>!v)}
                 className={`px-2.5 py-1 text-xs rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted"}`}
               >LOG</button>
-              {/* 기간 선택 (전체화면) */}
-              {PERIOD_BY_CANDLE[candleType]?.length > 0 && (
-                <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
-                  {PERIOD_BY_CANDLE[candleType].map(({ label, value }) => (
-                    <button key={value}
-                      onClick={() => setSelectedPeriod(value)}
-                      className={`px-2 py-1 text-xs rounded-md font-semibold transition-all ${selectedPeriod === value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
-                    >{label}</button>
-                  ))}
-                </div>
-              )}
             </div>
             <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
               <X size={18}/>
@@ -936,8 +917,8 @@ export default function StockDetail() {
                   ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
                   : String(b.published ?? "").localeCompare(String(a.published ?? ""))
               );
-              const shown = newsExpanded ? sorted : sorted.slice(0, 8);
-              const remaining = sorted.length - 8;
+              const shown = newsExpanded ? sorted : sorted.slice(0, 5);
+              const remaining = sorted.length - 5;
               return (
                 <>
                   <ul>
