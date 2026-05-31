@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import api from "@/api/client";
 import { dashboardApi } from "@/api/stocks";
 import { Card, ChangeBadge, LoadingSpinner, formatNumber } from "@/components/ui";
 import { useIndicesStream } from "@/hooks/useWebSocket";
@@ -219,8 +220,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     // WebSocket 대신 30초마다 REST 폴링
     const refresh = async () => {
       try {
-        const res = await fetch(`/api/v1/dashboard/rankings/kr?category=${encodeURIComponent(category)}`);
-        const rows = await res.json();
+        const { data: rows } = await api.get(`/dashboard/rankings/kr`, { params: { category } });
         const map: Record<string, any> = {};
         rows.forEach((r: any) => { map[r.symbol] = r; });
         setRankLivePrices(map);
@@ -336,8 +336,7 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     if (!data?.rankings?.length) return;
     const refresh = async () => {
       try {
-        const res = await fetch(`/api/v1/dashboard/rankings/us?category=${encodeURIComponent(category)}`);
-        const rows = await res.json();
+        const { data: rows } = await api.get(`/dashboard/rankings/us`, { params: { category } });
         const map: Record<string, any> = {};
         rows.forEach((r: any) => { map[r.symbol] = r; });
         setRankLivePrices(map);

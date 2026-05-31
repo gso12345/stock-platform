@@ -112,16 +112,43 @@ async def get_kr_dashboard(category: str = Query(default="시가총액")):
 
 
 async def _get_kr_rankings(category: str) -> list:
+    from app.services.ranking_service import fetch_naver_rank, get_kr_rankings, RANK_TTL
+
     if settings.KIS_APP_KEY:
         result = await kis_service.get_rankings(category)
         if result:
             return result
-    # 캐시 폴백
-    cached = cache.get_stale(f"rank:kr:{category}")
+
+    # 신선한 캐시
+    cached = cache.get(f"rank:kr:{category}")
     if cached:
         return cached
-    # 실시간 순위 즉시 fetch
-    from app.services.ranking_service import get_kr_rankings
+
+    # 파생 카테고리: 기반 카테고리가 없으면 먼저 fetch
+    derived_base = {"거래대금": "거래량", "신고가": "상승률", "신저가": "하락률"}
+    if category in derived_base:
+        base = derived_base[category]
+        if not cache.get_stale(f"rank:kr:{base}"):
+            base_rows = await fetch_naver_rank(base)
+            if base_rows:
+                for i, r in enumerate(base_rows):
+                    r["rank"] = i + 1
+                cache.set(f"rank:kr:{base}", base_rows, RANK_TTL)
+        return get_kr_rankings(category)
+
+    # 직접 Naver fetch
+    rows = await fetch_naver_rank(category)
+    if rows:
+        for i, r in enumerate(rows):
+            r["rank"] = i + 1
+        cache.set(f"rank:kr:{category}", rows, RANK_TTL)
+        return rows
+
+    # stale 캐시 폴백
+    stale = cache.get_stale(f"rank:kr:{category}")
+    if stale:
+        return stale
+
     return get_kr_rankings(category)
 
 

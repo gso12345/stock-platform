@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import api from "@/api/client";
 import { stocksApi, watchlistApi, financialsApi } from "@/api/stocks";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
@@ -932,7 +933,7 @@ export default function StockDetail() {
 function DisclosurePanel({ symbol }: { symbol: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ["disclosures", symbol],
-    queryFn: () => fetch(`/api/v1/stocks/KR/${encodeURIComponent(symbol)}/disclosures`).then(r=>r.json()),
+    queryFn: () => api.get(`/stocks/KR/${encodeURIComponent(symbol)}/disclosures`).then(r=>r.data),
     staleTime: 1_800_000,
   });
   if (isLoading) return <div className="rounded-xl border border-border bg-bg-card p-8 text-center text-text-muted text-sm">공시 로딩 중...</div>;

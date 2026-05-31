@@ -295,11 +295,7 @@ export default function Watchlist() {
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["watchlist-items", marketTab],
-    queryFn: async () => {
-      const url = `/api/v1/watchlist/items${mkt ? `?market=${mkt}` : ""}`;
-      const r = await fetch(url);
-      return r.json();
-    },
+    queryFn: () => watchlistApi.getItems(mkt),
     refetchInterval: 120_000,
   });
 
