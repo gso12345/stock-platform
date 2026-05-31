@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/api/client";
@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
-import StockChart, { CANDLE_TYPES, PERIOD_BY_CANDLE, type ChartType } from "@/components/chart/StockChart";
+import StockChart, { CANDLE_GROUPS, PERIOD_BY_CANDLE, type ChartType } from "@/components/chart/StockChart";
 
 /* ── 포맷 유틸 ──────────────────────────────────────── */
 function fmtKRW(v: number | null | undefined): string {
@@ -74,10 +74,11 @@ export default function StockDetail() {
   const sym = decodeURIComponent(rawSymbol ?? "").toUpperCase();
   const isKR = m === "KR";
 
-  const [candleType, setCandleType] = useState("1d");
-  const [chartType, setChartType]   = useState<ChartType>("candle");
-  const [logScale, setLogScale]     = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
+  const [candleType, setCandleType]   = useState("1d");
+  const [selectedPeriod, setSelectedPeriod] = useState("5y");
+  const [chartType, setChartType]     = useState<ChartType>("candle");
+  const [logScale, setLogScale]       = useState(false);
+  const [fullscreen, setFullscreen]   = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
@@ -90,12 +91,36 @@ export default function StockDetail() {
   const [selectedMetric, setSelectedMetric] = useState("op_margin");
   const [supplyDays, setSupplyDays]   = useState(30);
   const [newsSort, setNewsSort]       = useState<"latest" | "popular">("latest");
+  const [newsExpanded, setNewsExpanded] = useState(false);
   const [inWatchlist, setInWatchlist] = useState(false);
   const [watchlistMsg, setWatchlistMsg] = useState("");
+  const [openGroup, setOpenGroup]     = useState<string | null>(null);
+  const candleDropdownRef             = useRef<HTMLDivElement>(null);
+
+  // 캔들 그룹 드롭다운 외부 클릭 시 닫기
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (candleDropdownRef.current && !candleDropdownRef.current.contains(e.target as Node)) {
+        setOpenGroup(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // 캔들 타입별 기본 기간
+  const DEFAULT_PERIOD: Record<string, string> = {
+    "1m":"5d","2m":"5d","5m":"1mo","15m":"3mo","30m":"6mo","60m":"1y","90m":"6mo",
+    "1d":"5y","5d":"5y","1wk":"10y","1mo":"max","3mo":"max","1y":"max",
+  };
 
   const onCandleChange = (type: string) => {
     setCandleType(type);
+    setSelectedPeriod(DEFAULT_PERIOD[type] ?? "5y");
   };
+
+  // 현재 캔들 값이 속한 그룹 key 반환
+  const activeGroupKey = CANDLE_GROUPS.find(g => g.options.some(o => o.value === candleType))?.key ?? "day";
 
   const fmt = (v: number | null | undefined) => isKR ? fmtKRW(v) : fmtUSD(v);
 
@@ -107,17 +132,15 @@ export default function StockDetail() {
     refetchInterval: 60_000,    // 60초마다 갱신
   });
 
-  const intradayPeriod: Record<string,string> = { "1m":"5d","5m":"60d","15m":"60d","30m":"60d","60m":"60d" };
-  const dailyPeriod: Record<string,string> = { "1d":"5y","1wk":"10y","1mo":"max","1y":"max" };
-  const chartPeriod = intradayPeriod[candleType] ?? dailyPeriod[candleType] ?? "5y";
+  const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
-    queryKey: ["stock-ohlcv", m, sym, candleType],
-    queryFn: () => stocksApi.getOHLCV(m, sym, chartPeriod, candleType),
+    queryKey: ["stock-ohlcv", m, sym, candleType, selectedPeriod],
+    queryFn: () => stocksApi.getOHLCV(m, sym, selectedPeriod, candleType),
     enabled: !!sym, retry: 1,
-    staleTime: candleType.includes("m") ? 60_000 : 21_600_000, // 분봉 1분, 나머지 6시간
+    staleTime: isIntraday ? 60_000 : 21_600_000,
     placeholderData: (prev) => prev,
-    refetchInterval: candleType.includes("m") ? 60_000 : false, // 분봉만 자동갱신
+    refetchInterval: isIntraday ? 60_000 : false,
   });
 
   const { data: financials, isLoading: loadingFin } = useQuery({
@@ -348,12 +371,38 @@ export default function StockDetail() {
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
           {/* 봉 종류 */}
           <div className="px-4 py-2.5 border-b border-border flex flex-wrap items-center gap-2">
-            <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
-              {CANDLE_TYPES.map(ct=>(
-                <button key={ct.value} onClick={()=>onCandleChange(ct.value)}
-                  className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
-                >{ct.label}</button>
-              ))}
+            <div ref={candleDropdownRef} className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary relative">
+              {CANDLE_GROUPS.map(group => {
+                const isActive = group.key === activeGroupKey;
+                const currentOpt = group.options.find(o => o.value === candleType);
+                return (
+                  <div key={group.key} className="relative">
+                    <button
+                      onClick={() => {
+                        if (isActive) {
+                          setOpenGroup(prev => prev === group.key ? null : group.key);
+                        } else {
+                          onCandleChange(group.options[0].value);
+                          setOpenGroup(null);
+                        }
+                      }}
+                      className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                    >
+                      {isActive ? (currentOpt?.label ?? group.label) : group.label}
+                    </button>
+                    {openGroup === group.key && (
+                      <div className="absolute top-full left-0 mt-1 z-50 flex flex-col gap-0.5 p-1 rounded-lg border border-border bg-bg-card shadow-xl min-w-[64px]">
+                        {group.options.map(opt => (
+                          <button key={opt.value}
+                            onClick={() => { onCandleChange(opt.value); setOpenGroup(null); }}
+                            className={`px-3 py-1.5 text-xs rounded-md font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
+                          >{opt.label}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="ml-auto flex items-center gap-1">
               <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
@@ -364,6 +413,18 @@ export default function StockDetail() {
               </button>
             </div>
           </div>
+          {/* 기간 선택 */}
+          {PERIOD_BY_CANDLE[candleType]?.length > 0 && (
+            <div className="px-4 py-1.5 border-b border-border bg-bg-secondary flex flex-wrap items-center gap-1.5">
+              <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide mr-1">기간</span>
+              {PERIOD_BY_CANDLE[candleType].map(({ label, value }) => (
+                <button key={value}
+                  onClick={() => setSelectedPeriod(value)}
+                  className={`px-2.5 py-0.5 text-xs rounded-md font-semibold transition-all ${selectedPeriod === value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
+                >{label}</button>
+              ))}
+            </div>
+          )}
           {/* 차트 설정 */}
           <div className="px-4 py-2 border-b border-border bg-bg-secondary flex flex-wrap items-center gap-3">
             <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">차트 설정</span>
@@ -413,14 +474,40 @@ export default function StockDetail() {
         <div className="fixed inset-0 z-50 bg-bg-base flex flex-col">
           {/* 모달 헤더 */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg-card flex-shrink-0">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <span className="font-bold text-text-primary">{d?.name ?? sym}</span>
-              <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
-                {CANDLE_TYPES.map(ct=>(
-                  <button key={ct.value} onClick={()=>onCandleChange(ct.value)}
-                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
-                  >{ct.label}</button>
-                ))}
+              <div ref={candleDropdownRef} className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary relative">
+                {CANDLE_GROUPS.map(group => {
+                  const isActive = group.key === activeGroupKey;
+                  const currentOpt = group.options.find(o => o.value === candleType);
+                  return (
+                    <div key={group.key} className="relative">
+                      <button
+                        onClick={() => {
+                          if (isActive) {
+                            setOpenGroup(prev => prev === group.key ? null : group.key);
+                          } else {
+                            onCandleChange(group.options[0].value);
+                            setOpenGroup(null);
+                          }
+                        }}
+                        className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                      >
+                        {isActive ? (currentOpt?.label ?? group.label) : group.label}
+                      </button>
+                      {openGroup === group.key && (
+                        <div className="absolute top-full left-0 mt-1 z-50 flex flex-col gap-0.5 p-1 rounded-lg border border-border bg-bg-card shadow-xl min-w-[64px]">
+                          {group.options.map(opt => (
+                            <button key={opt.value}
+                              onClick={() => { onCandleChange(opt.value); setOpenGroup(null); }}
+                              className={`px-3 py-1.5 text-xs rounded-md font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
+                            >{opt.label}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
                 {([{value:"candle",label:"캔들"},{value:"line",label:"라인"},{value:"area",label:"영역"}] as const).map(({value,label})=>(
@@ -432,6 +519,17 @@ export default function StockDetail() {
               <button onClick={()=>setLogScale(v=>!v)}
                 className={`px-2.5 py-1 text-xs rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted"}`}
               >LOG</button>
+              {/* 기간 선택 (전체화면) */}
+              {PERIOD_BY_CANDLE[candleType]?.length > 0 && (
+                <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
+                  {PERIOD_BY_CANDLE[candleType].map(({ label, value }) => (
+                    <button key={value}
+                      onClick={() => setSelectedPeriod(value)}
+                      className={`px-2 py-1 text-xs rounded-md font-semibold transition-all ${selectedPeriod === value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                    >{label}</button>
+                  ))}
+                </div>
+              )}
             </div>
             <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
               <X size={18}/>
@@ -502,26 +600,26 @@ export default function StockDetail() {
           const filteredRows = rows.filter(r => allYears.some(y => getVal(r.key, y) != null));
           if (!filteredRows.length) return <p className="text-text-muted text-sm py-4 text-center">데이터 없음</p>;
           return (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[300px]">
+            <div className="overflow-x-auto scrollbar-thin">
+              <table className="text-xs w-max min-w-full">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card w-28">지표</th>
+                    <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card w-28 min-w-[7rem] whitespace-nowrap">지표</th>
                     {allYears.map(y=>(
-                      <th key={y} className={`text-right pb-2 font-mono font-medium min-w-[60px] ${y.endsWith("E")?"text-accent-yellow/80":"text-text-muted"}`}>
-                        {y}{y.endsWith("E")?"":""}</th>
+                      <th key={y} className={`text-right pb-2 font-mono font-medium min-w-[72px] px-2 whitespace-nowrap ${y.endsWith("E")?"text-accent-yellow/80":"text-text-muted"}`}>
+                        {y.endsWith("E") ? y : (finPeriod === "quarterly" ? y.replace(/(\d{4})-?Q(\d)/, "$1 Q$2") : y)}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filteredRows.map(({ key, label, fmt, color, boldLabel })=>(
                     <tr key={key} className="border-b border-border/30 hover:bg-bg-hover">
-                      <td className={`py-1.5 text-text-muted sticky left-0 bg-bg-card ${boldLabel?"font-semibold":""}`}>{label}</td>
+                      <td className={`py-1.5 pr-3 text-text-muted sticky left-0 bg-bg-card whitespace-nowrap ${boldLabel?"font-semibold":""}`}>{label}</td>
                       {allYears.map(y=>{
                         const v = getVal(key, y);
                         const isEst = y.endsWith("E");
                         return (
-                          <td key={y} className={`py-1.5 text-right font-mono ${color} ${isEst?"opacity-70 italic":""}`}>
+                          <td key={y} className={`py-1.5 px-2 text-right font-mono ${color} ${isEst?"opacity-70 italic":""}`}>
                             {v!=null ? fmt(v) : "—"}
                           </td>
                         );
@@ -832,30 +930,43 @@ export default function StockDetail() {
             </div>
             {loadingNews ? (
               <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
-            ) : (stockNews?.length ?? 0) > 0 ? (
-              <ul>
-                {([...(stockNews ?? [])].sort((a,b)=>
-                  newsSort==="popular"
-                    ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
-                    : String(b.published ?? "").localeCompare(String(a.published ?? ""))
-                )).map((item: any, i: number) => (
-                  <li key={i} className="border-b border-border/30 last:border-0">
-                    <a href={item.link} target="_blank" rel="noopener noreferrer"
-                      className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">{item.title}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          {item.source && <span className="text-2xs text-accent-blue/70 font-medium">{item.source}</span>}
-                          {item.published && <span className="text-2xs text-text-muted">{typeof item.published === "number" ? new Date(item.published*1000).toLocaleDateString("ko-KR") : item.published}</span>}
-                        </div>
-                        {item.summary && <p className="text-xs text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
-                      </div>
-                      <ExternalLink size={12} className="text-text-muted flex-shrink-0 mt-1"/>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            ) : (
+            ) : (stockNews?.length ?? 0) > 0 ? (() => {
+              const sorted = [...(stockNews ?? [])].sort((a,b)=>
+                newsSort==="popular"
+                  ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
+                  : String(b.published ?? "").localeCompare(String(a.published ?? ""))
+              );
+              const shown = newsExpanded ? sorted : sorted.slice(0, 8);
+              const remaining = sorted.length - 8;
+              return (
+                <>
+                  <ul>
+                    {shown.map((item: any, i: number) => (
+                      <li key={i} className="border-b border-border/30 last:border-0">
+                        <a href={item.link} target="_blank" rel="noopener noreferrer"
+                          className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">{item.title}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              {item.source && <span className="text-2xs text-accent-blue/70 font-medium">{item.source}</span>}
+                              {item.published && <span className="text-2xs text-text-muted">{typeof item.published === "number" ? new Date(item.published*1000).toLocaleDateString("ko-KR") : item.published}</span>}
+                            </div>
+                            {item.summary && <p className="text-xs text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
+                          </div>
+                          <ExternalLink size={12} className="text-text-muted flex-shrink-0 mt-1"/>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                  {remaining > 0 && (
+                    <button onClick={() => setNewsExpanded(v => !v)}
+                      className="w-full py-2.5 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border">
+                      {newsExpanded ? "접기 ▲" : `더보기 (${remaining}건 더) ▼`}
+                    </button>
+                  )}
+                </>
+              );
+            })() : (
               <p className="py-8 text-center text-text-muted text-sm">뉴스 데이터가 없습니다</p>
             )}
           </div>

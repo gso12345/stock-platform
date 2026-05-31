@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -7,6 +7,7 @@ import asyncio
 from app.db.database import get_db
 from app.models.stock import Watchlist, WatchlistItem, WatchlistFolder
 from app.services.yf_service import yf_service
+from app.core.cache import cache
 
 router = APIRouter(prefix="/watchlist", tags=["관심종목"])
 
@@ -109,6 +110,74 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)):
     db.delete(folder)
     db.commit()
     return {"message": "삭제 완료"}
+
+
+# ── 관심종목 일괄 가격 조회 (빠른 배치 fetch + 캐시 저장) ────────
+@router.get("/prices")
+async def get_watchlist_prices_batch(
+    symbols: str = Query(...),
+    markets: str = Query(...),
+):
+    """심볼 목록을 받아 캐시 우선 조회, 미캐시 종목은 배치 fetch 후 캐시 저장"""
+    from app.services.price_fetcher import fetch_yf_quotes, fetch_naver_stocks
+
+    sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    mkt_list = [m.strip() for m in markets.split(",") if m.strip()]
+    if not sym_list:
+        return []
+    while len(mkt_list) < len(sym_list):
+        mkt_list.append("US")
+
+    sym_to_mkt = dict(zip(sym_list, mkt_list))
+    results: dict[str, dict] = {}
+    uncached_us: list[str] = []
+    uncached_kr: list[str] = []
+
+    # 1. 캐시 우선 조회
+    for sym, mkt in zip(sym_list, mkt_list):
+        cached = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}")
+        if cached and cached.get("price"):
+            results[sym] = {**cached, "market": mkt}
+        elif mkt == "KR":
+            uncached_kr.append(sym.replace(".KS", "").replace(".KQ", ""))
+        else:
+            uncached_us.append(sym)
+
+    # 2. 미캐시 종목 배치 fetch (멀티쿼트로 빠르게)
+    tasks = []
+    labels: list[str] = []
+    if uncached_us:
+        tasks.append(fetch_yf_quotes(uncached_us))
+        labels.append("us")
+    if uncached_kr:
+        tasks.append(fetch_naver_stocks(uncached_kr))
+        labels.append("kr")
+
+    if tasks:
+        fetch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for label, data in zip(labels, fetch_results):
+            if isinstance(data, Exception) or not isinstance(data, dict):
+                continue
+            if label == "us":
+                for sym, q in data.items():
+                    if q and q.get("price"):
+                        cache.set(f"price:{sym}", q, 60)
+                        results[sym] = {**q, "market": sym_to_mkt.get(sym, "US")}
+            else:  # kr
+                for code, q in data.items():
+                    if not q or not q.get("price"):
+                        continue
+                    cache.set(f"price:{code}", q, 60)
+                    cache.set(f"price:{code}.KS", q, 60)
+                    cache.set(f"price:{code}.KQ", q, 60)
+                    for s in sym_list:
+                        if s.replace(".KS", "").replace(".KQ", "") == code:
+                            results[s] = {**q, "market": "KR"}
+
+    return [
+        results.get(sym, {"symbol": sym, "market": sym_to_mkt.get(sym, "US"), "price": None, "change_rate": 0})
+        for sym in sym_list
+    ]
 
 
 # ── 관심종목 조회 (가격 포함) ─────────────────────────────────

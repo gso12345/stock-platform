@@ -162,11 +162,15 @@ async def run_startup_prefetch():
     await asyncio.sleep(0.3)
     await _populate_demo()
 
-    # 지수 + 환율 동시 갱신
+    loop = asyncio.get_event_loop()
+    # 지수 + 환율 + 뉴스 동시 갱신
+    from app.services.news_service import get_kr_news, get_us_news
     await asyncio.gather(
         refresh_kr_indices(),
         refresh_us_indices(),
         refresh_exchange(),
+        loop.run_in_executor(None, get_kr_news, 6, 100),
+        loop.run_in_executor(None, get_us_news, 6, 100),
         return_exceptions=True,
     )
     await asyncio.sleep(2)
@@ -198,11 +202,15 @@ async def periodic_refresh():
         if counter % 6 == 0:
             await refresh_exchange()
 
-        # 종목 (5분)
+        # 종목 + 뉴스 (5분)
         if counter % 30 == 0:
+            from app.services.news_service import get_kr_news, get_us_news
+            loop = asyncio.get_event_loop()
             await asyncio.gather(
                 refresh_us_stocks(),
                 refresh_kr_stocks(),
+                loop.run_in_executor(None, get_kr_news, 6, 100),
+                loop.run_in_executor(None, get_us_news, 6, 100),
                 return_exceptions=True,
             )
 

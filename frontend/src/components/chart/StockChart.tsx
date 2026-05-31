@@ -4,26 +4,70 @@ import { calcMA, calcEMA, calcBB, calcRSI, calcMACD, calcStochastic, calcVolume,
 
 export const CANDLE_TYPES = [
   { label: "1분",   value: "1m"  },
+  { label: "2분",   value: "2m"  },
   { label: "5분",   value: "5m"  },
   { label: "15분",  value: "15m" },
   { label: "30분",  value: "30m" },
-  { label: "1시간", value: "60m" },
+  { label: "60분",  value: "60m" },
+  { label: "90분",  value: "90m" },
   { label: "일봉",  value: "1d"  },
+  { label: "5일봉", value: "5d"  },
   { label: "주봉",  value: "1wk" },
   { label: "월봉",  value: "1mo" },
+  { label: "3월봉", value: "3mo" },
   { label: "연봉",  value: "1y"  },
+] as const;
+
+// 캔들 그룹 (틱/분/일/주/월/년)
+export const CANDLE_GROUPS = [
+  { label: "틱", key: "tick", options: [
+    { label: "1분", value: "1m" },
+    { label: "2분", value: "2m" },
+    { label: "5분", value: "5m" },
+  ]},
+  { label: "분", key: "min", options: [
+    { label: "15분", value: "15m" },
+    { label: "30분", value: "30m" },
+    { label: "60분", value: "60m" },
+    { label: "90분", value: "90m" },
+  ]},
+  { label: "일", key: "day", options: [
+    { label: "1일", value: "1d" },
+    { label: "5일", value: "5d" },
+  ]},
+  { label: "주", key: "week", options: [
+    { label: "1주", value: "1wk" },
+  ]},
+  { label: "월", key: "month", options: [
+    { label: "1월", value: "1mo" },
+    { label: "3월", value: "3mo" },
+  ]},
+  { label: "년", key: "year", options: [
+    { label: "1년", value: "1y" },
+  ]},
 ] as const;
 
 export const PERIOD_BY_CANDLE: Record<string, { label: string; value: string }[]> = {
   "1m":  [{ label:"1일",value:"1d" },{ label:"5일",value:"5d" }],
+  "2m":  [{ label:"1일",value:"1d" },{ label:"5일",value:"5d" }],
   "5m":  [{ label:"5일",value:"5d" },{ label:"1달",value:"1mo" }],
   "15m": [{ label:"5일",value:"5d" },{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" }],
   "30m": [{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" },{ label:"6달",value:"6mo" }],
   "60m": [{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" },{ label:"6달",value:"6mo" },{ label:"1년",value:"1y" }],
+  "90m": [{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" },{ label:"6달",value:"6mo" }],
   "1d":  [{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" },{ label:"6달",value:"6mo" },{ label:"1년",value:"1y" },{ label:"2년",value:"2y" },{ label:"3년",value:"3y" },{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
+  "5d":  [{ label:"1년",value:"1y" },{ label:"2년",value:"2y" },{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
   "1wk": [{ label:"1년",value:"1y" },{ label:"2년",value:"2y" },{ label:"3년",value:"3y" },{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
   "1mo": [{ label:"2년",value:"2y" },{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
+  "3mo": [{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
   "1y":  [{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
+};
+
+// 분/일/주봉 역대 전체 기간 조회 시 사용할 최대 period 매핑
+export const MAX_PERIOD_BY_CANDLE: Record<string, string> = {
+  "1m": "5d", "2m": "5d", "5m": "1mo",
+  "15m": "3mo", "30m": "6mo", "60m": "1y", "90m": "6mo",
+  "1d": "max", "5d": "max", "1wk": "max", "1mo": "max", "3mo": "max", "1y": "max",
 };
 
 const INDICATORS_DEF = [

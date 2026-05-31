@@ -1,7 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import api from "@/api/client";
 import { watchlistApi, watchlistFolderApi } from "@/api/stocks";
 import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
@@ -299,13 +298,32 @@ export default function Watchlist() {
     refetchInterval: 120_000,
   });
 
-  /* 실시간 가격 스트림 */
-  const symbols = (items as any[]).map((i: any) => i.symbol);
-  const markets = (items as any[]).map((i: any) => i.market === "KR" ? "KR" : "US");
+  const symbols = useMemo(() => (items as any[]).map((i: any) => i.symbol), [items]);
+  const markets  = useMemo(() => (items as any[]).map((i: any) => i.market === "KR" ? "KR" : "US"), [items]);
+
+  /* REST 배치 가격 조회 — 즉시 로드 + 30초 갱신 + 캐시 워밍 */
+  const { data: restPrices } = useQuery({
+    queryKey: ["watchlist-prices", symbols.join(",")],
+    queryFn: () => watchlistApi.getPrices(symbols, markets),
+    enabled: symbols.length > 0,
+    staleTime: 25_000,
+    refetchInterval: 30_000,
+  });
+
+  useEffect(() => {
+    if (!restPrices?.length) return;
+    const map: Record<string, any> = {};
+    (restPrices as any[]).forEach((p: any) => {
+      if (p?.symbol && p.price != null) map[p.symbol] = p;
+    });
+    if (Object.keys(map).length) setLivePrices(prev => ({ ...prev, ...map }));
+  }, [restPrices]);
+
+  /* WebSocket — 캐시에 있는 종목 실시간 업데이트 (보조) */
   usePricesStream(symbols, markets, useCallback((prices: any[]) => {
     const map: Record<string, any> = {};
-    prices.forEach((p) => { if (!p.error) map[p.symbol] = p; });
-    setLivePrices((prev) => ({ ...prev, ...map }));
+    prices.forEach((p) => { if (!p.error && p.price != null) map[p.symbol] = p; });
+    if (Object.keys(map).length) setLivePrices((prev) => ({ ...prev, ...map }));
   }, []), 30);
 
   const addMutation = useMutation({

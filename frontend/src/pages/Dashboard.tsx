@@ -1,7 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import api from "@/api/client";
 import { dashboardApi } from "@/api/stocks";
 import { Card, ChangeBadge, LoadingSpinner, formatNumber } from "@/components/ui";
 import { useIndicesStream } from "@/hooks/useWebSocket";
@@ -100,7 +99,6 @@ function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
               <th className="text-right py-2">현재가</th>
               <th className="text-right py-2">등락률</th>
               <th className="text-right py-2">시가총액</th>
-              <th className="text-right py-2">거래대금</th>
               <th className="text-right py-2 pr-3">거래량</th>
             </tr>
           </thead>
@@ -133,9 +131,6 @@ function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
                   <td className="py-2.5 text-right font-mono text-text-muted text-[10px]">
                     {item.market_cap ? (isKR ? formatNumber(item.market_cap) : fmtUSD(item.market_cap)) : "—"}
                   </td>
-                  <td className="py-2.5 text-right font-mono text-text-muted text-[10px]">
-                    {item.amount ? (isKR ? formatNumber(item.amount) : fmtUSD(item.amount)) : "—"}
-                  </td>
                   <td className="py-2.5 text-right font-mono text-text-muted pr-3">
                     {formatNumber(live?.volume ?? item.volume)}
                   </td>
@@ -158,6 +153,8 @@ function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
 }
 
 /* ── 뉴스 패널 ───────────────────────────────────────────── */
+const NEWS_INITIAL = 8;
+
 function NewsPanel({ news }: { news: any[] }) {
   const [expanded, setExpanded] = useState(false);
   const [sort, setSort]         = useState<"latest" | "popular">("latest");
@@ -166,7 +163,9 @@ function NewsPanel({ news }: { news: any[] }) {
     ? [...news].sort((a, b) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
     : [...news].sort((a, b) => (b.published ?? "").localeCompare(a.published ?? ""));
 
-  const shown = expanded ? sorted : sorted.slice(0, 10);
+  const shown = expanded ? sorted : sorted.slice(0, NEWS_INITIAL);
+  const remaining = sorted.length - NEWS_INITIAL;
+
   if (!news?.length) return <div className="py-6 text-center text-text-muted text-xs">뉴스 로딩 중...</div>;
   return (
     <div className="flex flex-col">
@@ -194,10 +193,10 @@ function NewsPanel({ news }: { news: any[] }) {
           </div>
         </a>
       ))}
-      {sorted.length > 15 && (
+      {remaining > 0 && (
         <button onClick={() => setExpanded(!expanded)}
           className="py-2 text-2xs text-accent-blue hover:text-blue-400 transition-colors text-center">
-          {expanded ? "접기 ▲" : `더보기 ${sorted.length - 15}건 ▼`}
+          {expanded ? "접기 ▲" : `더보기 ${remaining}건 ▼`}
         </button>
       )}
     </div>
@@ -207,13 +206,12 @@ function NewsPanel({ news }: { news: any[] }) {
 /* ── 국내 탭 ─────────────────────────────────────────────── */
 function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
   const [category, setCategory] = useState("시가총액");
-  const [rankLivePrices, setRankLivePrices] = useState<Record<string, any>>({});
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["dashboard-kr", category],
     queryFn: () => dashboardApi.getKR(category),
     staleTime: 60_000,
-    refetchInterval: 30_000,  // 30초 자동 갱신
+    refetchInterval: 30_000,
   });
 
   const KR_INDEX_KEYS = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"] as const;
@@ -226,23 +224,13 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
   };
 
-  // 순위 종목들의 가격 실시간 갱신
-  useEffect(() => {
-    if (!data?.rankings?.length) return;
-    const symbols = data.rankings.map((r: any) => r.symbol);
-    // WebSocket 대신 30초마다 REST 폴링
-    const refresh = async () => {
-      try {
-        const { data: rows } = await api.get(`/dashboard/rankings/kr`, { params: { category } });
-        const map: Record<string, any> = {};
-        rows.forEach((r: any) => { map[r.symbol] = r; });
-        setRankLivePrices(map);
-      } catch {}
-    };
-    refresh();
-    const interval = setInterval(refresh, 30_000);
-    return () => clearInterval(interval);
-  }, [data?.rankings, category]);
+  // useQuery가 30초마다 갱신하므로 별도 폴링 불필요 — rankings에서 직접 map 구성
+  const rankLivePrices = useMemo(() => {
+    if (!data?.rankings) return {};
+    const map: Record<string, any> = {};
+    data.rankings.forEach((r: any) => { map[r.symbol] = r; });
+    return map;
+  }, [data?.rankings]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -325,7 +313,6 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
 /* ── 해외 탭 ─────────────────────────────────────────────── */
 function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
   const [category, setCategory] = useState("시가총액");
-  const [rankLivePrices, setRankLivePrices] = useState<Record<string, any>>({});
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["dashboard-us", category],
@@ -344,21 +331,12 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
   };
 
-  // 순위 실시간 갱신
-  useEffect(() => {
-    if (!data?.rankings?.length) return;
-    const refresh = async () => {
-      try {
-        const { data: rows } = await api.get(`/dashboard/rankings/us`, { params: { category } });
-        const map: Record<string, any> = {};
-        rows.forEach((r: any) => { map[r.symbol] = r; });
-        setRankLivePrices(map);
-      } catch {}
-    };
-    refresh();
-    const interval = setInterval(refresh, 30_000);
-    return () => clearInterval(interval);
-  }, [data?.rankings, category]);
+  const rankLivePrices = useMemo(() => {
+    if (!data?.rankings) return {};
+    const map: Record<string, any> = {};
+    data.rankings.forEach((r: any) => { map[r.symbol] = r; });
+    return map;
+  }, [data?.rankings]);
 
   return (
     <div className="flex flex-col gap-5">
