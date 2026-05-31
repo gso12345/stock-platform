@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Optional
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.deps import get_current_user, require_user
 from app.core.security import create_access_token, hash_password, verify_password
@@ -9,6 +11,7 @@ from app.db.database import get_db
 from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["인증"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 # ── Pydantic 스키마 ──────────────────────────────────────────────
@@ -53,7 +56,8 @@ def _make_token_response(user: User) -> TokenResponse:
 
 # ── 엔드포인트 ────────────────────────────────────────────────────
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def register(request: Request, req: RegisterRequest, db: Session = Depends(get_db)):
     """username+비밀번호로 신규 회원가입 후 JWT 토큰 반환"""
     # username 중복 체크
     if db.query(User).filter(User.username == req.username).first():
@@ -80,7 +84,8 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
     """username+비밀번호 검증 후 JWT 토큰 반환"""
     user = db.query(User).filter(User.username == req.username).first()
     if not user or not verify_password(req.password, user.hashed_password):

@@ -83,7 +83,8 @@ async def get_kr_futures() -> list:
     # KIS 실패 또는 키 없으면 yfinance 근사 (코스피200 ETF 기반)
     if not futures:
         try:
-            loop = __import__("asyncio").get_event_loop()
+            import asyncio as _asyncio
+            loop = _asyncio.get_running_loop()
             r = await loop.run_in_executor(None, _fetch_futures_yf)
             futures = r
         except Exception:

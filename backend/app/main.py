@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -20,19 +21,37 @@ Base.metadata.create_all(bind=engine)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
+_is_prod = settings.APP_ENV == "production"
+
 app = FastAPI(
     title="Stock Platform API",
     description="종목발굴 및 백테스트 플랫폼",
     version="1.0.0",
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _allowed_origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.strip()]
-# 운영 환경(APP_ENV=production)이 아닌 경우에만 * 허용
 if settings.APP_ENV != "production":
     _allowed_origins = ["*"]
 
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if _is_prod:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
@@ -50,7 +69,7 @@ app.include_router(screening.router, prefix="/api/v1")
 app.include_router(backtest.router,  prefix="/api/v1")
 app.include_router(watchlist.router, prefix="/api/v1")
 
-# 종목 DB + 스케줄러 등록
+
 @app.on_event("startup")
 async def _startup():
     init_ticker_db()
