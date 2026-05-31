@@ -129,7 +129,7 @@ export default function StockDetail() {
   const chartPeriod = CANDLE_MAX_PERIOD[candleType] ?? "max";
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
-    queryKey: ["stock-ohlcv", m, sym, candleType],
+    queryKey: ["stock-ohlcv", m, sym, candleType, chartPeriod],
     queryFn: () => stocksApi.getOHLCV(m, sym, chartPeriod, candleType),
     enabled: !!sym, retry: 1,
     staleTime: isIntraday ? 60_000 : 21_600_000,
