@@ -55,6 +55,14 @@ def _item_to_dict(item: WatchlistItem) -> dict:
     }
 
 
+# ── 루트 ─────────────────────────────────────────────────────
+@router.get("/")
+def get_watchlist(db: Session = Depends(get_db)):
+    """기본 관심목록 정보"""
+    wl = _ensure_watchlist(db)
+    return {"id": wl.id, "name": wl.name, "count": len(wl.items)}
+
+
 # ── 폴더 CRUD ────────────────────────────────────────────────
 @router.get("/folders")
 def get_folders(db: Session = Depends(get_db)):
