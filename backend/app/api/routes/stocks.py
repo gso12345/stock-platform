@@ -415,53 +415,58 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
                 except Exception:
                     pass
 
-        # YoY 성장률 계산 (정렬된 rows 리스트에서)
-        def _add_growth(sorted_list: list):
-            for i, row in enumerate(sorted_list):
-                if i == 0:
-                    continue
-                prev = sorted_list[i - 1]
-                for key, gkey in [
-                    ("revenue",   "revenue_growth"),
-                    ("op_income", "op_income_growth"),
-                    ("net_income","net_income_growth"),
-                ]:
-                    cv, pv = row.get(key), prev.get(key)
-                    if cv and pv and pv != 0:
-                        row[gkey] = round((cv - pv) / abs(pv) * 100, 2)
-
-        # 현금흐름 처리
-        def _process_cf(cf_df) -> dict:
-            result: dict = {}
-            if cf_df is None or cf_df.empty:
-                return result
-            for col in cf_df.columns:
-                p = str(col)[:10]
-                result.setdefault(p, {"period": p})
-                def sv(name):
-                    try:
-                        v = cf_df.loc[name, col]
-                        return int(float(v)) if v == v and v is not None else None
-                    except Exception:
-                        return None
-                op    = sv("Operating Cash Flow") or sv("Cash From Operating Activities")
-                inv   = sv("Investing Cash Flow") or sv("Cash From Investing Activities")
-                fin   = sv("Financing Cash Flow") or sv("Cash From Financing Activities")
-                capex = sv("Capital Expenditure") or sv("Capital Expenditures")
-                da    = sv("Depreciation And Amortization") or sv("Depreciation Amortization Depletion")
-                fcf   = sv("Free Cash Flow")
-                if op    is not None: result[p]["operating_cf"] = op
-                if inv   is not None: result[p]["investing_cf"] = inv
-                if fin   is not None: result[p]["financing_cf"] = fin
-                if capex is not None: result[p]["capex"] = capex
-                if da    is not None: result[p]["da"] = da
-                if fcf   is not None:
-                    result[p]["free_cf"] = fcf
-                elif op is not None and capex is not None:
-                    result[p]["free_cf"] = op + capex  # FCF = 영업CF + CAPEX(음수)
-            return result
-
         return sorted(rows.values(), key=lambda x: x["period"])
+
+    # ── _process와 같은 레벨 (get_metrics_history 스코프) ──────────
+
+    def _add_growth(sorted_list: list):
+        """YoY 성장률 계산 — 이미 정렬된 rows 리스트에 in-place 추가"""
+        for i, row in enumerate(sorted_list):
+            if i == 0:
+                continue
+            prev = sorted_list[i - 1]
+            for key, gkey in [
+                ("revenue",    "revenue_growth"),
+                ("op_income",  "op_income_growth"),
+                ("net_income", "net_income_growth"),
+            ]:
+                cv, pv = row.get(key), prev.get(key)
+                if cv and pv and pv != 0:
+                    row[gkey] = round((cv - pv) / abs(pv) * 100, 2)
+
+    def _process_cf(cf_df) -> dict:
+        """현금흐름 DataFrame → {period: {operating_cf, ...}} dict"""
+        result: dict = {}
+        if cf_df is None or cf_df.empty:
+            return result
+        for col in cf_df.columns:
+            p = str(col)[:10]
+            result.setdefault(p, {"period": p})
+
+            def sv(name, _col=col, _df=cf_df):
+                try:
+                    v = _df.loc[name, _col]
+                    return int(float(v)) if v == v and v is not None else None
+                except Exception:
+                    return None
+
+            op    = sv("Operating Cash Flow")
+            inv   = sv("Investing Cash Flow")
+            fin   = sv("Financing Cash Flow")
+            capex = sv("Capital Expenditure")
+            da    = sv("Depreciation And Amortization") or sv("Depreciation Amortization Depletion")
+            fcf   = sv("Free Cash Flow")
+
+            if op    is not None: result[p]["operating_cf"] = op
+            if inv   is not None: result[p]["investing_cf"] = inv
+            if fin   is not None: result[p]["financing_cf"] = fin
+            if capex is not None: result[p]["capex"] = capex
+            if da    is not None: result[p]["da"] = da
+            if fcf   is not None:
+                result[p]["free_cf"] = fcf
+            elif op is not None and capex is not None:
+                result[p]["free_cf"] = op + capex
+        return result
 
     def _fetch():
         try:
