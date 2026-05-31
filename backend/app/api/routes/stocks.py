@@ -27,12 +27,12 @@ async def _run(fn, *args):
 
 # ── 국내 주식 ──────────────────────────────────────────────
 async def get_kr_price(symbol: str) -> dict:
-    """KIS → 캐시 → Naver 실시간 → FDR캐시 순으로 폴백"""
+    """KIS → 캐시 → Naver → 순위캐시 → yfinance 순으로 폴백"""
     from app.services.price_fetcher import fetch_naver_stock
     code6 = symbol.replace(".KS","").replace(".KQ","")
     ck = f"price:{symbol}"
 
-    # 0순위: 신선한 캐시 (15초 이내) - 반복 호출 시 빠른 응답
+    # 0순위: 신선한 캐시
     fresh = cache.get(ck)
     if fresh and fresh.get("price") and not fresh.get("_demo"):
         return fresh
@@ -44,7 +44,7 @@ async def get_kr_price(symbol: str) -> dict:
             cache.set(ck, result, 15)
             return result
 
-    # 2순위: Naver 실시간
+    # 2순위: Naver 모바일 API
     try:
         naver = await fetch_naver_stock(code6)
         if naver and naver.get("price"):
@@ -53,15 +53,42 @@ async def get_kr_price(symbol: str) -> dict:
     except Exception:
         pass
 
-    # 3순위: stale 캐시 (빠른 응답, 백그라운드 갱신)
+    # 3순위: stale 캐시
     stale = cache.get_stale(ck)
     if stale and stale.get("price") and not stale.get("_demo"):
         return stale
 
-    # 4순위: FDR 전일 종가
+    # 4순위: 순위 캐시에서 해당 종목 가격 추출
+    for cat in ("시가총액", "상승률", "거래량"):
+        rank_cache = cache.get_stale(f"rank:kr:{cat}") or []
+        for r in rank_cache:
+            if r.get("symbol") == symbol and r.get("price"):
+                result = {
+                    "symbol": symbol, "name": r.get("name", ""),
+                    "price": r["price"], "change": r.get("change", 0),
+                    "change_rate": r.get("change_rate", 0),
+                    "volume": r.get("volume", 0), "market_cap": r.get("market_cap", 0),
+                    "currency": "KRW",
+                }
+                cache.set(ck, result, 30)
+                return result
+
+    # 5순위: FDR 전일 종가
     fdr = get_fdr_price(symbol) or get_fdr_price(code6+".KS") or get_fdr_price(code6+".KQ")
     if fdr and fdr.get("price"):
         return fdr
+
+    # 6순위: yfinance (최후 수단)
+    try:
+        result = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(None, yf_service.get_stock_price, symbol, "KR"),
+            timeout=10
+        )
+        if result and result.get("price"):
+            cache.set(ck, result, 30)
+            return result
+    except Exception:
+        pass
 
     return {"symbol": symbol, "price": None, "change_rate": 0, "currency": "KRW"}
 

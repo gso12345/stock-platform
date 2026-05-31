@@ -7,7 +7,7 @@ import { Card, ChangeBadge, LoadingSpinner, formatNumber } from "@/components/ui
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
 
-const RANK_CATEGORIES = ["시가총액","상승률","하락률","거래대금","거래량","신고가","신저가"];
+const RANK_CATEGORIES = ["시가총액","상승률","하락률","거래대금","거래량"];
 
 function fmtUSD(v: number | null | undefined): string {
   if (v == null) return "—";
@@ -166,7 +166,7 @@ function NewsPanel({ news }: { news: any[] }) {
     ? [...news].sort((a, b) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
     : [...news].sort((a, b) => (b.published ?? "").localeCompare(a.published ?? ""));
 
-  const shown = expanded ? sorted : sorted.slice(0, 15);
+  const shown = expanded ? sorted : sorted.slice(0, 10);
   if (!news?.length) return <div className="py-6 text-center text-text-muted text-xs">뉴스 로딩 중...</div>;
   return (
     <div className="flex flex-col">
