@@ -72,6 +72,26 @@ app.include_router(watchlist.router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def _startup():
+    # 스키마 마이그레이션 — 새 컬럼 자동 추가 (Alembic 없이)
+    from sqlalchemy import inspect, text
+    try:
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+
+        def _add_col_if_missing(table: str, col: str, col_def: str):
+            if table in tables:
+                existing = [c["name"] for c in inspector.get_columns(table)]
+                if col not in existing:
+                    with engine.connect() as conn:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
+                        conn.commit()
+
+        _add_col_if_missing("watchlists",  "user_id", "INTEGER REFERENCES users(id)")
+        _add_col_if_missing("strategies",  "user_id", "INTEGER REFERENCES users(id)")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")
+
     init_ticker_db()
 
 start_background_tasks(app)

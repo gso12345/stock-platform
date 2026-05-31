@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuthStore } from "@/store/authStore";
 import api from "@/api/client";
 import { stocksApi, watchlistApi, financialsApi } from "@/api/stocks";
 import {
@@ -73,6 +74,7 @@ export default function StockDetail() {
   const m   = (market?.toUpperCase() || "US") as Market;
   const sym = decodeURIComponent(rawSymbol ?? "").toUpperCase();
   const isKR = m === "KR";
+  const { userId } = useAuthStore();
 
   const [candleType, setCandleType]   = useState("1d");
   const [chartType, setChartType]     = useState<ChartType>("candle");
@@ -205,7 +207,7 @@ export default function StockDetail() {
 
   // 이미 추가된 종목인지 확인
   const { data: watchlistItems } = useQuery({
-    queryKey: ["watchlist-items-check"],
+    queryKey: ["watchlist-items-check", userId],
     queryFn: () => watchlistApi.getItems(),
     staleTime: 30_000,
   });
