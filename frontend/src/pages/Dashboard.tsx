@@ -153,7 +153,7 @@ function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
 }
 
 /* ── 뉴스 패널 ───────────────────────────────────────────── */
-const NEWS_INITIAL = 5;
+const NEWS_INITIAL = 10;
 
 function NewsPanel({ news }: { news: any[] }) {
   const [expanded, setExpanded] = useState(false);

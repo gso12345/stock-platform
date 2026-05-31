@@ -284,87 +284,96 @@ export default function StockDetail() {
       {d && (
         <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
           {/* 현재가 + 등락 */}
-          <div className="px-4 pt-4 pb-3 flex flex-wrap items-end gap-3 border-b border-border">
-            <div>
-              <div className="text-3xl font-mono font-bold text-text-primary num">{priceStr}</div>
-              <div className="flex items-center gap-2 mt-1">
-                {isUp ? <TrendingUp size={13} className="text-accent-green"/> : <TrendingDown size={13} className="text-accent-red"/>}
-                <span className={`text-sm font-mono font-semibold num ${isUp?"text-accent-green":"text-accent-red"}`}>
-                  {isUp?"+":""}{isKR ? d.change?.toLocaleString("ko-KR") : d.change?.toFixed(2)}
-                </span>
-                <span className={`text-sm font-mono font-bold num ${isUp?"text-accent-green":"text-accent-red"}`}>
-                  ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
-                </span>
-                {d._demo && <span className="text-2xs px-1 py-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
+          <div className="px-4 py-3 flex items-center gap-4 flex-wrap border-b border-border">
+            <span className="text-3xl font-mono font-bold text-text-primary num">{priceStr}</span>
+            <div className="flex items-center gap-1.5">
+              {isUp ? <TrendingUp size={13} className="text-accent-green"/> : <TrendingDown size={13} className="text-accent-red"/>}
+              <span className={`text-sm font-mono font-semibold num ${isUp?"text-accent-green":"text-accent-red"}`}>
+                {isUp?"+":""}{isKR ? d.change?.toLocaleString("ko-KR") : d.change?.toFixed(2)}
+              </span>
+              <span className={`text-sm font-mono num ${isUp?"text-accent-green":"text-accent-red"}`}>
+                ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
+              </span>
+              {d._demo && <span className="text-2xs px-1.5 py-0.5 rounded-full bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/30 font-semibold">DEMO</span>}
+            </div>
+          </div>
+
+          {/* 시세 지표 — 2행 그리드 */}
+          {(() => {
+            const priceItems = [
+              { label:"시가",     v: isKR ? d.open?.toLocaleString("ko-KR")  : d.open?.toFixed(2) },
+              { label:"고가",     v: isKR ? d.high?.toLocaleString("ko-KR")  : d.high?.toFixed(2), color:"text-accent-red" },
+              { label:"저가",     v: isKR ? d.low?.toLocaleString("ko-KR")   : d.low?.toFixed(2),  color:"text-accent-blue" },
+              { label:"전일종가", v: isKR ? d.prev_close?.toLocaleString("ko-KR") : d.prev_close?.toFixed(2) },
+              { label:"거래량",   v: d.volume ? (d.volume >= 1e8 ? `${(d.volume/1e8).toFixed(1)}억주` : d.volume >= 1e4 ? `${(d.volume/1e4).toFixed(1)}만주` : d.volume.toLocaleString("ko-KR")) : null },
+              { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
+              { label:"시가총액", v: fmt(d.market_cap) },
+              { label:"52주 고가", v: d.week52_high ? (isKR ? Math.round(d.week52_high).toLocaleString("ko-KR") : d.week52_high?.toFixed(2)) : null, color:"text-accent-red" },
+              { label:"52주 저가", v: d.week52_low  ? (isKR ? Math.round(d.week52_low).toLocaleString("ko-KR")  : d.week52_low?.toFixed(2))  : null, color:"text-accent-blue" },
+            ];
+            return (
+              <div className="grid grid-cols-3 sm:grid-cols-5 border-b border-border">
+                {priceItems.map((item, i) => (
+                  <div key={item.label}
+                    className={`px-3 py-2.5 flex flex-col gap-0.5 ${i % 3 !== 2 ? "border-r border-border/50 sm:border-r-0" : ""} ${i < 6 ? "sm:border-r border-border/50" : ""} ${i >= 3 ? "border-t border-border/50 sm:border-t-0" : ""} ${i >= 5 ? "sm:border-t border-border/50" : ""}`}
+                  >
+                    <span className="text-[10px] font-medium text-text-muted tracking-wide">{item.label}</span>
+                    <span className={`text-sm font-mono font-semibold num ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
+                  </div>
+                ))}
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
-          {/* 가격/거래 지표 — 가로 스크롤 */}
-          <div className="overflow-x-auto scrollbar-hide border-b border-border">
-            <div className="flex min-w-max divide-x divide-border/60">
-              {[
-                { label:"전일종가", v: isKR ? d.prev_close?.toLocaleString("ko-KR") : d.prev_close?.toFixed(2) },
-                { label:"시가",     v: isKR ? d.open?.toLocaleString("ko-KR")       : d.open?.toFixed(2) },
-                { label:"고가",     v: isKR ? d.high?.toLocaleString("ko-KR")       : d.high?.toFixed(2), color:"text-accent-red" },
-                { label:"저가",     v: isKR ? d.low?.toLocaleString("ko-KR")        : d.low?.toFixed(2),  color:"text-accent-blue" },
-                { label:"거래량",   v: d.volume?.toLocaleString("ko-KR") },
-                { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
-                { label:"시가총액", v: fmt(d.market_cap) },
-                { label:"52주 신고가", v: d.week52_high ? (isKR ? Math.round(d.week52_high).toLocaleString("ko-KR") : d.week52_high?.toFixed(2)) : null, color:"text-accent-red" },
-                { label:"52주 신저가", v: d.week52_low  ? (isKR ? Math.round(d.week52_low).toLocaleString("ko-KR")  : d.week52_low?.toFixed(2))  : null, color:"text-accent-blue" },
-              ].map(item => (
-                <div key={item.label} className="flex flex-col gap-0.5 px-4 py-2.5">
-                  <span className="text-2xs text-text-muted whitespace-nowrap">{item.label}</span>
-                  <span className={`text-sm font-mono whitespace-nowrap num ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* 밸류에이션 지표 — 가로 스크롤 */}
-          <div className="overflow-x-auto scrollbar-hide">
-            <div className="flex min-w-max divide-x divide-border/60">
-              {[
-                { label:"PER",      v: d.per     != null ? `${fmtNum(d.per)}배`        : null },
-                { label:"PBR",      v: d.pbr     != null ? `${fmtNum(d.pbr,2)}배`      : null },
-                { label:"ROE",      v: d.roe     != null ? `${d.roe.toFixed(1)}%`       : null,
-                  color: d.roe != null ? (d.roe>=15?"text-accent-green":d.roe<0?"text-accent-red":"text-text-primary") : undefined },
-                { label:"EPS",      v: d.eps     != null ? (isKR ? d.eps.toLocaleString("ko-KR") : d.eps.toFixed(2)) : null },
-                { label:"배당수익률", v: d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : null, color:"text-accent-green" },
-                { label:"부채비율",  v: d.debt_ratio     != null ? `${d.debt_ratio.toFixed(0)}%`    : null,
-                  color: d.debt_ratio != null ? (d.debt_ratio>200?"text-accent-red":d.debt_ratio<100?"text-accent-green":"text-text-primary") : undefined },
-              ].map(item => (
-                <div key={item.label} className="flex flex-col gap-0.5 px-4 py-2.5">
-                  <span className="text-2xs text-text-muted whitespace-nowrap">{item.label}</span>
-                  <span className={`text-sm font-mono font-semibold whitespace-nowrap num ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
-                </div>
-              ))}
-            </div>
+          {/* 배당수익률 */}
+          <div className="px-4 py-2.5 flex items-center gap-3 bg-bg-secondary border-t border-border/50">
+            <span className="text-[10px] font-medium text-text-muted tracking-wide">배당수익률</span>
+            <span className="text-sm font-mono font-bold num text-accent-green">
+              {d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : "—"}
+            </span>
           </div>
         </div>
       )}
 
-      {/* 탭 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit flex-wrap">
-          <TabBtn active={mainTab==="chart"}     onClick={()=>setMainTab("chart")}     icon={BarChart2}    label="차트" />
-          <TabBtn active={mainTab==="financial"} onClick={()=>setMainTab("financial")} icon={DollarSign}   label="재무제표" />
-          <TabBtn active={mainTab==="news"}      onClick={()=>setMainTab("news")}      icon={Newspaper}    label="뉴스/공시" />
-          {isKR && <TabBtn active={mainTab==="supply"} onClick={()=>setMainTab("supply")} icon={Users} label="수급" />}
+      {/* 탭 네비게이션 */}
+      <div className="flex flex-col gap-2">
+        {/* 메인 탭 — 하단 border 방식의 깔끔한 탭바 */}
+        <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-hidden">
+          {[
+            { id:"chart",     Icon: BarChart2,  label:"차트" },
+            { id:"financial", Icon: DollarSign, label:"재무제표" },
+            { id:"news",      Icon: Newspaper,  label:"뉴스/공시" },
+            ...(isKR ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
+          ].map(({ id, Icon, label }) => (
+            <button key={id}
+              onClick={() => setMainTab(id as any)}
+              className={`flex items-center gap-1.5 px-4 py-3 text-xs font-semibold transition-all border-b-2 -mb-px ${
+                mainTab === id
+                  ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+                  : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+              }`}
+            >
+              <Icon size={13}/>{label}
+            </button>
+          ))}
         </div>
-        {/* 재무제표 서브탭 (메인탭 옆에 배치) */}
+
+        {/* 재무제표 서브탭 */}
         {mainTab==="financial" && (
-          <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit flex-wrap">
+          <div className="flex gap-1 overflow-x-auto scrollbar-hide">
             {([
-              { value:"basic",         label:"기본" },
+              { value:"basic",         label:"기본 지표" },
               { value:"income",        label:"손익계산서" },
               { value:"valuation",     label:"밸류에이션" },
               { value:"profitability", label:"수익성" },
               { value:"health",        label:"재무건전성" },
             ] as const).map(({ value, label })=>(
               <button key={value} onClick={()=>setFinSubTab(value)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${finSubTab===value?"bg-accent-blue text-white shadow":"text-text-muted hover:text-text-secondary hover:bg-bg-elevated"}`}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-full whitespace-nowrap transition-all flex-shrink-0 ${
+                  finSubTab===value
+                    ? "bg-accent-blue text-white"
+                    : "bg-bg-card border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+                }`}
               >{label}</button>
             ))}
           </div>
@@ -580,7 +589,7 @@ export default function StockDetail() {
         // 전치 테이블 렌더러
         const TransTable = ({ rows }: { rows: { key:string; label:string; fmt:(v:number)=>string; color:string; boldLabel?:boolean }[] }) => {
           const filteredRows = rows.filter(r => allYears.some(y => getVal(r.key, y) != null));
-          if (!filteredRows.length) return <p className="text-text-muted text-sm py-4 text-center">데이터 없음</p>;
+          if (!filteredRows.length) return <p className="text-text-muted text-sm py-4 text-center">연결 중...</p>;
           return (
             <div className="overflow-x-auto scrollbar-thin">
               <table className="text-xs w-max min-w-full">
@@ -776,7 +785,7 @@ export default function StockDetail() {
                         <Bar dataKey={selectedMetric} fill={curr.color} radius={[3,3,0,0]} maxBarSize={50}/>
                       </BarChart>
                     </ResponsiveContainer>
-                  ) : <p className="text-text-muted text-sm py-4 text-center">데이터 없음</p>}
+                  ) : <p className="text-text-muted text-sm py-4 text-center">연결 중...</p>}
                   {/* 전치 테이블 */}
                   <TransTable rows={BASIC_METRICS.map(m=>({
                     key: m.key,
@@ -935,8 +944,8 @@ export default function StockDetail() {
                   ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
                   : String(b.published ?? "").localeCompare(String(a.published ?? ""))
               );
-              const shown = newsExpanded ? sorted : sorted.slice(0, 5);
-              const remaining = sorted.length - 5;
+              const shown = newsExpanded ? sorted : sorted.slice(0, 10);
+              const remaining = sorted.length - 10;
               return (
                 <>
                   <ul>
