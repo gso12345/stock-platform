@@ -301,15 +301,16 @@ export default function StockDetail() {
           {/* 시세 지표 — 2행 그리드 */}
           {(() => {
             const priceItems = [
-              { label:"시가",     v: isKR ? d.open?.toLocaleString("ko-KR")  : d.open?.toFixed(2) },
-              { label:"고가",     v: isKR ? d.high?.toLocaleString("ko-KR")  : d.high?.toFixed(2), color:"text-accent-red" },
-              { label:"저가",     v: isKR ? d.low?.toLocaleString("ko-KR")   : d.low?.toFixed(2),  color:"text-accent-blue" },
-              { label:"전일종가", v: isKR ? d.prev_close?.toLocaleString("ko-KR") : d.prev_close?.toFixed(2) },
-              { label:"거래량",   v: d.volume ? (d.volume >= 1e8 ? `${(d.volume/1e8).toFixed(1)}억주` : d.volume >= 1e4 ? `${(d.volume/1e4).toFixed(1)}만주` : d.volume.toLocaleString("ko-KR")) : null },
-              { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
-              { label:"시가총액", v: fmt(d.market_cap) },
+              { label:"시가",      v: isKR ? d.open?.toLocaleString("ko-KR")  : d.open?.toFixed(2) },
+              { label:"고가",      v: isKR ? d.high?.toLocaleString("ko-KR")  : d.high?.toFixed(2), color:"text-accent-red" },
+              { label:"저가",      v: isKR ? d.low?.toLocaleString("ko-KR")   : d.low?.toFixed(2),  color:"text-accent-blue" },
+              { label:"전일종가",  v: isKR ? d.prev_close?.toLocaleString("ko-KR") : d.prev_close?.toFixed(2) },
+              { label:"거래량",    v: d.volume ? (d.volume >= 1e8 ? `${(d.volume/1e8).toFixed(1)}억주` : d.volume >= 1e4 ? `${(d.volume/1e4).toFixed(1)}만주` : d.volume.toLocaleString("ko-KR")) : null },
+              { label:"거래대금",  v: fmt(d.price && d.volume ? d.price * d.volume : null) },
+              { label:"시가총액",  v: fmt(d.market_cap) },
               { label:"52주 고가", v: d.week52_high ? (isKR ? Math.round(d.week52_high).toLocaleString("ko-KR") : d.week52_high?.toFixed(2)) : null, color:"text-accent-red" },
               { label:"52주 저가", v: d.week52_low  ? (isKR ? Math.round(d.week52_low).toLocaleString("ko-KR")  : d.week52_low?.toFixed(2))  : null, color:"text-accent-blue" },
+              { label:"배당수익률", v: d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : null, color:"text-accent-green" },
             ];
             return (
               <div className="grid grid-cols-3 sm:grid-cols-5 border-b border-border">
@@ -325,13 +326,6 @@ export default function StockDetail() {
             );
           })()}
 
-          {/* 배당수익률 */}
-          <div className="px-4 py-2.5 flex items-center gap-3 bg-bg-secondary border-t border-border/50">
-            <span className="text-[10px] font-medium text-text-muted tracking-wide">배당수익률</span>
-            <span className="text-sm font-mono font-bold num text-accent-green">
-              {d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : "—"}
-            </span>
-          </div>
         </div>
       )}
 
