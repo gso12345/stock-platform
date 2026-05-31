@@ -153,7 +153,8 @@ export default function StockDetail() {
   const { data: forecasts } = useQuery({
     queryKey: ["forecasts", m, sym],
     queryFn: () => stocksApi.getForecasts(m, sym),
-    enabled: !!sym && mainTab === "financial",
+    // 밸류에이션 탭 선택 시에만 로드 (불필요한 선제 fetch 방지)
+    enabled: !!sym && mainTab === "financial" && finSubTab === "valuation",
     retry: 1, staleTime: 3_600_000,
   });
 
@@ -595,8 +596,10 @@ export default function StockDetail() {
 
         // 전치 테이블 렌더러
         const TransTable = ({ rows }: { rows: { key:string; label:string; fmt:(v:number)=>string; color:string; boldLabel?:boolean }[] }) => {
-          const filteredRows = rows.filter(r => allYears.some(y => getVal(r.key, y) != null));
-          if (!filteredRows.length) return <p className="text-text-muted text-sm py-4 text-center">연결 중...</p>;
+          // allYears가 있으면 테이블은 표시 (값이 없는 셀은 — 으로)
+          // allYears 자체가 없으면(데이터 미도착) 연결 중 표시
+          if (!allYears.length) return <p className="text-text-muted text-sm py-4 text-center">연결 중...</p>;
+          const filteredRows = rows.filter(r => r.key); // 모든 row 표시 (빈 셀은 — 로)
           return (
             <div className="overflow-x-auto scrollbar-thin">
               <table className="text-xs w-max min-w-full">
