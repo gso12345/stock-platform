@@ -14,6 +14,10 @@ export function useWebSocket<T>(
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(true);
 
+  // onMessage를 ref로 저장 — deps 변경 없이 항상 최신 콜백 사용
+  const onMessageRef = useRef(onMessage);
+  useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
+
   const connect = useCallback(() => {
     if (!enabled || !isMounted.current) return;
 
@@ -28,7 +32,7 @@ export function useWebSocket<T>(
     ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data) as T;
-        if (isMounted.current) onMessage(data);
+        if (isMounted.current) onMessageRef.current(data);
       } catch {}
     };
 
@@ -41,7 +45,7 @@ export function useWebSocket<T>(
     ws.onerror = () => {
       ws.close();
     };
-  }, [url, enabled, reconnectDelay, onMessage]);
+  }, [url, enabled, reconnectDelay]); // onMessage 제거 — ref로 처리
 
   useEffect(() => {
     isMounted.current = true;

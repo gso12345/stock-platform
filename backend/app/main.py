@@ -27,8 +27,8 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _allowed_origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.strip()]
-if not _allowed_origins or _allowed_origins == ["http://localhost:5173"]:
-    # 개발 환경: 전체 허용
+# 운영 환경(APP_ENV=production)이 아닌 경우에만 * 허용
+if settings.APP_ENV != "production":
     _allowed_origins = ["*"]
 
 app.add_middleware(

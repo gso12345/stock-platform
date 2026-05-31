@@ -4,9 +4,13 @@ WebSocket — 캐시에서만 읽음 (네트워크 호출 없음)
 """
 import asyncio
 import json
+from collections import defaultdict
 from fastapi import WebSocket, WebSocketDisconnect
 from app.core.cache import cache
 from app.services.yf_service import INDEX_NAMES
+
+_ws_connections: dict[str, int] = defaultdict(int)
+MAX_WS_PER_IP = 10  # IP당 최대 WebSocket 연결 수
 
 KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150"]
 US_INDICES = ["SP500", "NASDAQ", "DOW", "SOX"]
@@ -32,6 +36,11 @@ def _cached_price(symbol: str, market: str) -> dict:
 
 
 async def stream_indices(ws: WebSocket, interval: int = 30):
+    client_ip = ws.client.host if ws.client else "unknown"
+    if _ws_connections[client_ip] >= MAX_WS_PER_IP:
+        await ws.close(code=1008)
+        return
+    _ws_connections[client_ip] += 1
     await ws.accept()
     try:
         while True:
@@ -44,9 +53,16 @@ async def stream_indices(ws: WebSocket, interval: int = 30):
             await asyncio.sleep(max(interval, 15))
     except WebSocketDisconnect:
         pass
+    finally:
+        _ws_connections[client_ip] = max(0, _ws_connections[client_ip] - 1)
 
 
 async def stream_prices(ws: WebSocket, symbols: list[str], markets: list[str], interval: int = 15):
+    client_ip = ws.client.host if ws.client else "unknown"
+    if _ws_connections[client_ip] >= MAX_WS_PER_IP:
+        await ws.close(code=1008)
+        return
+    _ws_connections[client_ip] += 1
     await ws.accept()
     try:
         while True:
@@ -58,3 +74,5 @@ async def stream_prices(ws: WebSocket, symbols: list[str], markets: list[str], i
             await asyncio.sleep(max(interval, 15))
     except WebSocketDisconnect:
         pass
+    finally:
+        _ws_connections[client_ip] = max(0, _ws_connections[client_ip] - 1)

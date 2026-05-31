@@ -16,4 +16,17 @@ export default defineConfig({
       "/ws":  { target: "http://localhost:8000", changeOrigin: true, ws: true },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react":    ["react", "react-dom", "react-router-dom"],
+          "vendor-query":    ["@tanstack/react-query"],
+          "chart-lw":        ["lightweight-charts"],
+          "chart-recharts":  ["recharts"],
+          "vendor-lucide":   ["lucide-react"],
+        },
+      },
+    },
+  },
 });

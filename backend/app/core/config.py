@@ -1,10 +1,12 @@
+import secrets
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./stockplatform.db"
-    SECRET_KEY: str = "dev-secret-key-change-in-production"
+    SECRET_KEY: str = secrets.token_hex(32)   # .env에 없으면 매 기동마다 랜덤 생성
     FRONTEND_URL: str = "http://localhost:5173,https://stock-platform-one.vercel.app"
+    APP_ENV: str = "development"   # "production"으로 설정하면 CORS strict 모드
 
     # ── 한국투자증권 KIS API ─────────────────────────────
     KIS_APP_KEY:    str = ""

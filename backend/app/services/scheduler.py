@@ -184,19 +184,20 @@ async def run_startup_prefetch():
 
 
 async def periodic_refresh():
-    """10초마다 지수, 60초마다 종목+환율, 60초마다 순위"""
+    """30초마다 국내 지수, 60초마다 미국 지수 + 환율 + 순위, 5분마다 종목 + 뉴스"""
     from app.services.ranking_service import refresh_kr_rankings_from_naver
     counter = 0
     while True:
         await asyncio.sleep(10)
         counter += 1
 
-        # 지수 (10초)
-        await asyncio.gather(
-            refresh_kr_indices(),
-            refresh_us_indices(),
-            return_exceptions=True,
-        )
+        # 국내 지수 (30초 — 캐시 TTL과 일치)
+        if counter % 3 == 0:
+            await refresh_kr_indices()
+
+        # 미국 지수 (60초 — 캐시 TTL 60초와 일치)
+        if counter % 6 == 0:
+            await refresh_us_indices()
 
         # 환율 (60초)
         if counter % 6 == 0:
@@ -222,8 +223,7 @@ async def periodic_refresh():
 def start_background_tasks(app):
     @app.on_event("startup")
     async def startup():
-        from app.services.ticker_service import init_ticker_db
-        init_ticker_db()
+        # init_ticker_db는 main.py _startup에서 이미 호출됨 — 여기서는 제거
         loop = asyncio.get_event_loop()
         loop.create_task(run_startup_prefetch())
         loop.create_task(periodic_refresh())
