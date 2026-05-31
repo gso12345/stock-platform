@@ -144,6 +144,14 @@ export default function StockDetail() {
     retry: 1, staleTime: 3_600_000,
   });
 
+  // KR 종목 벨류에이션 보완용 — 재무탭 진입 시 별도 fetch
+  const { data: fundamentalsData } = useQuery({
+    queryKey: ["stock-fundamentals", m, sym],
+    queryFn: () => stocksApi.getFundamentals(m, sym),
+    enabled: !!sym && mainTab === "financial",
+    retry: 1, staleTime: 3_600_000,
+  });
+
   const { data: metricsHistory } = useQuery({
     queryKey: ["metrics-history", m, sym],
     queryFn: () => stocksApi.getMetricsHistory(m, sym),
@@ -611,13 +619,14 @@ export default function StockDetail() {
 
         // metrics-history 최신값으로 detail의 None 보완
         const mhLatest = [...mh].sort((a,b)=>b.period.localeCompare(a.period))[0] ?? {};
+        const fd = (fundamentalsData as any) ?? {};
         const dEnhanced = {
-          per: d?.per ?? mhLatest.per ?? null,
-          pbr: d?.pbr ?? mhLatest.pbr ?? null,
-          psr: d?.psr ?? mhLatest.psr ?? null,
-          eps: d?.eps ?? mhLatest.eps ?? null,
-          bps: d?.bps ?? mhLatest.bps ?? null,
-          roe: d?.roe ?? mhLatest.roe ?? null,
+          per: d?.per ?? fd.per ?? mhLatest.per ?? null,
+          pbr: d?.pbr ?? fd.pbr ?? mhLatest.pbr ?? null,
+          psr: d?.psr ?? fd.psr ?? mhLatest.psr ?? null,
+          eps: d?.eps ?? fd.eps ?? mhLatest.eps ?? null,
+          bps: d?.bps ?? fd.bps ?? mhLatest.bps ?? null,
+          roe: d?.roe ?? fd.roe ?? mhLatest.roe ?? null,
           roa: d?.roa ?? null,
           op_margin:    d?.op_margin    ?? mhLatest.op_margin    ?? null,
           net_margin:   d?.net_margin   ?? mhLatest.net_margin   ?? null,

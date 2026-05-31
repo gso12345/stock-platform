@@ -422,7 +422,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
         mouseWheel: true,          // 마우스 휠로만 줌 허용
         pinch: true,               // 모바일 핀치 줌 활성화
         axisPressedMouseMove: {
-          time: true,              // 시간축 드래그 줌 활성화
+          time: false,             // 시간축 드래그 줌 비활성화 (우→좌 드래그 확대 제거)
           price: true,             // 가격축 드래그 줌 활성화
         },
         axisDoubleClickReset: true,
