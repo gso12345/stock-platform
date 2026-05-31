@@ -241,10 +241,10 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             <RefreshCw size={11} />
           </button>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
           {KR_INDEX_KEYS.map((key) => {
             const idx = getIdx(key);
-            return <IndexCard key={key} name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />;
+            return <div key={key} className="flex-shrink-0"><IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} /></div>;
           })}
         </div>
       </section>
@@ -357,10 +357,10 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             <RefreshCw size={11} />
           </button>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
           {US_INDEX_KEYS.map((key) => {
             const idx = getIdx(key);
-            return <IndexCard key={key} name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />;
+            return <div key={key} className="flex-shrink-0"><IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} /></div>;
           })}
           {data?.exchange && (
             <ExtraCard

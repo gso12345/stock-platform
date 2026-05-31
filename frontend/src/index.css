@@ -70,6 +70,16 @@ html.light {
   select { -webkit-appearance: none; cursor: pointer; }
 }
 
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @layer components {
   .glass {
     background: rgba(30, 34, 53, 0.6);
