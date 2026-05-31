@@ -120,8 +120,9 @@ async def _get_kr_rankings(category: str) -> list:
     cached = cache.get_stale(f"rank:kr:{category}")
     if cached:
         return cached
-    # 데모 폴백 — category 전달
-    return get_demo_rankings_kr(category)
+    # 실시간 순위 즉시 fetch
+    from app.services.ranking_service import get_kr_rankings
+    return get_kr_rankings(category)
 
 
 # ── 해외 대시보드 ──────────────────────────────────────────
@@ -154,10 +155,7 @@ async def _get_exchange_rate_async() -> dict:
 
 
 def _get_us_rankings_cached(category: str) -> list:
-    result = get_us_rankings(category)
-    if result:
-        return result
-    return get_demo_rankings_us(category)  # category 전달
+    return get_us_rankings(category) or []
 
 
 # ── 랭킹 ───────────────────────────────────────────────────

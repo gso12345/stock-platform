@@ -63,8 +63,7 @@ async def get_kr_price(symbol: str) -> dict:
     if fdr and fdr.get("price"):
         return fdr
 
-    demo = get_demo_price(code6+".KS") or get_demo_price(code6+".KQ") or get_demo_price(symbol)
-    return demo or {"symbol": symbol, "price": None, "change_rate": 0}
+    return {"symbol": symbol, "price": None, "change_rate": 0, "currency": "KRW"}
 
 
 async def get_us_price(symbol: str) -> dict:
@@ -86,8 +85,7 @@ async def get_us_price(symbol: str) -> dict:
             return result
     except Exception:
         pass
-    demo = get_demo_price(symbol)
-    return demo or {"symbol": symbol, "price": None, "change_rate": 0}
+    return {"symbol": symbol, "price": None, "change_rate": 0, "currency": "USD"}
 
 
 # ── 엔드포인트 ─────────────────────────────────────────────
