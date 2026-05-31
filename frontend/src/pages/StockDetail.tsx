@@ -298,30 +298,43 @@ export default function StockDetail() {
             </div>
           </div>
 
-          {/* 시세 지표 — 2행 그리드 */}
+          {/* 시세 지표 — 모바일 2열 / 데스크탑 5열 */}
           {(() => {
             const priceItems = [
-              { label:"시가",      v: isKR ? d.open?.toLocaleString("ko-KR")  : d.open?.toFixed(2) },
-              { label:"고가",      v: isKR ? d.high?.toLocaleString("ko-KR")  : d.high?.toFixed(2), color:"text-accent-red" },
-              { label:"저가",      v: isKR ? d.low?.toLocaleString("ko-KR")   : d.low?.toFixed(2),  color:"text-accent-blue" },
-              { label:"전일종가",  v: isKR ? d.prev_close?.toLocaleString("ko-KR") : d.prev_close?.toFixed(2) },
-              { label:"거래량",    v: d.volume ? (d.volume >= 1e8 ? `${(d.volume/1e8).toFixed(1)}억주` : d.volume >= 1e4 ? `${(d.volume/1e4).toFixed(1)}만주` : d.volume.toLocaleString("ko-KR")) : null },
-              { label:"거래대금",  v: fmt(d.price && d.volume ? d.price * d.volume : null) },
-              { label:"시가총액",  v: fmt(d.market_cap) },
-              { label:"52주 고가", v: d.week52_high ? (isKR ? Math.round(d.week52_high).toLocaleString("ko-KR") : d.week52_high?.toFixed(2)) : null, color:"text-accent-red" },
-              { label:"52주 저가", v: d.week52_low  ? (isKR ? Math.round(d.week52_low).toLocaleString("ko-KR")  : d.week52_low?.toFixed(2))  : null, color:"text-accent-blue" },
-              { label:"배당수익률", v: d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : null, color:"text-accent-green" },
+              { label:"시가",     v: isKR ? d.open?.toLocaleString("ko-KR")  : d.open?.toFixed(2) },
+              { label:"고가",     v: isKR ? d.high?.toLocaleString("ko-KR")  : d.high?.toFixed(2), color:"text-accent-red" },
+              { label:"저가",     v: isKR ? d.low?.toLocaleString("ko-KR")   : d.low?.toFixed(2),  color:"text-accent-blue" },
+              { label:"전일종가", v: isKR ? d.prev_close?.toLocaleString("ko-KR") : d.prev_close?.toFixed(2) },
+              { label:"거래량",   v: d.volume ? (d.volume >= 1e8 ? `${(d.volume/1e8).toFixed(1)}억주` : d.volume >= 1e4 ? `${(d.volume/1e4).toFixed(1)}만주` : d.volume.toLocaleString("ko-KR")) : null },
+              { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
+              { label:"시가총액", v: fmt(d.market_cap) },
+              { label:"52주 고가",v: d.week52_high ? (isKR ? Math.round(d.week52_high).toLocaleString("ko-KR") : d.week52_high?.toFixed(2)) : null, color:"text-accent-red" },
+              { label:"52주 저가",v: d.week52_low  ? (isKR ? Math.round(d.week52_low).toLocaleString("ko-KR")  : d.week52_low?.toFixed(2))  : null, color:"text-accent-blue" },
+              { label:"배당수익률",v: d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : null, color:"text-accent-green" },
             ];
+            const COLS_SM = 5; // 데스크탑 열 수
             return (
-              <div className="grid grid-cols-3 sm:grid-cols-5 border-b border-border">
-                {priceItems.map((item, i) => (
-                  <div key={item.label}
-                    className={`px-3 py-2.5 flex flex-col gap-0.5 ${i % 3 !== 2 ? "border-r border-border/50 sm:border-r-0" : ""} ${i < 6 ? "sm:border-r border-border/50" : ""} ${i >= 3 ? "border-t border-border/50 sm:border-t-0" : ""} ${i >= 5 ? "sm:border-t border-border/50" : ""}`}
-                  >
-                    <span className="text-[10px] font-medium text-text-muted tracking-wide">{item.label}</span>
-                    <span className={`text-sm font-mono font-semibold num ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
-                  </div>
-                ))}
+              <div className="grid grid-cols-2 sm:grid-cols-5">
+                {priceItems.map((item, i) => {
+                  const isLastCol2  = i % 2 === 1;               // 모바일 오른쪽 열
+                  const isLastCol5  = i % COLS_SM === COLS_SM-1; // 데스크탑 마지막 열
+                  const isFirstRow2 = i < 2;                     // 모바일 첫 행
+                  const isFirstRow5 = i < COLS_SM;               // 데스크탑 첫 행
+                  return (
+                    <div key={item.label} className={[
+                      "px-4 py-3 flex flex-col gap-1",
+                      !isLastCol2  ? "border-r border-border/40"        : "",
+                      !isFirstRow2 ? "border-t border-border/40"        : "",
+                      isLastCol2 && !isLastCol5 ? "sm:border-r border-border/40" : "",
+                      isLastCol5               ? "sm:border-r-0"        : "",
+                      !isFirstRow5             ? "sm:border-t border-border/40" : "",
+                      isFirstRow2 && !isFirstRow5 ? "sm:border-t-0"    : "",
+                    ].filter(Boolean).join(" ")}>
+                      <span className="text-[10px] font-medium text-text-muted whitespace-nowrap">{item.label}</span>
+                      <span className={`text-sm font-mono font-semibold num truncate ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
+                    </div>
+                  );
+                })}
               </div>
             );
           })()}
