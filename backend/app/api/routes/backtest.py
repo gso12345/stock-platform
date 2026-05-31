@@ -1,43 +1,66 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
+from datetime import datetime
 import asyncio
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.db.database import get_db
 from app.models.stock import Strategy, BacktestResult
 from app.services.backtest_engine import backtest_engine
 from app.services.yf_service import yf_service
 
+limiter = Limiter(key_func=get_remote_address)
+
 router = APIRouter(prefix="/backtest", tags=["백테스트"])
 
 
+def _parse_date(v: str) -> str:
+    try:
+        datetime.strptime(v, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("날짜 형식은 YYYY-MM-DD여야 합니다")
+    return v
+
+
 class BacktestRequest(BaseModel):
-    symbol: str
-    market: str = "US"  # KR, US
+    symbol: str = Field(..., min_length=1, max_length=20)
+    market: str = Field("US", pattern="^(KR|US|ETF)$")
     start_date: str
     end_date: str
-    initial_capital: float = 10_000_000
+    initial_capital: float = Field(10_000_000, ge=100_000, le=100_000_000_000)
     entry_conditions: dict
     exit_conditions: dict
-    stop_loss: Optional[float] = None    # 손절 % (예: 5.0 = -5%)
-    take_profit: Optional[float] = None  # 익절 % (예: 10.0 = +10%)
+    stop_loss: Optional[float] = Field(None, ge=0.1, le=99.0)
+    take_profit: Optional[float] = Field(None, ge=0.1, le=999.0)
     strategy_id: Optional[int] = None
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        return _parse_date(v)
 
 
 class UniverseBacktestRequest(BaseModel):
-    universe: str = "SP500"   # SP500, KOSPI, KOSDAQ, ETF, CUSTOM
-    custom_symbols: list[str] = []
-    market: str = "US"
+    universe: str = Field("SP500", pattern="^(SP500|KOSPI|KOSDAQ|ETF|CUSTOM)$")
+    custom_symbols: list[str] = Field(default=[], max_length=100)
+    market: str = Field("US", pattern="^(KR|US|ETF)$")
     start_date: str
     end_date: str
-    initial_capital: float = 10_000_000
+    initial_capital: float = Field(10_000_000, ge=100_000, le=100_000_000_000)
     entry_conditions: dict
     exit_conditions: dict
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
-    rank_by: str = "total_return"
-    top_n: int = 20
+    stop_loss: Optional[float] = Field(None, ge=0.1, le=99.0)
+    take_profit: Optional[float] = Field(None, ge=0.1, le=999.0)
+    rank_by: str = Field("total_return", pattern="^(total_return|annual_return|mdd|sharpe_ratio|win_rate|profit_factor)$")
+    top_n: int = Field(20, ge=1, le=50)
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        return _parse_date(v)
 
 
 class StrategySaveRequest(BaseModel):
@@ -51,17 +74,19 @@ class StrategySaveRequest(BaseModel):
 
 
 @router.post("/run")
-async def run_backtest(req: BacktestRequest, db: Session = Depends(get_db)):
+@limiter.limit("20/minute")
+async def run_backtest(request: Request, req: BacktestRequest, db: Session = Depends(get_db)):
     """백테스트 실행"""
-    from datetime import datetime
     start_dt = datetime.strptime(req.start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(req.end_date, "%Y-%m-%d")
+    if end_dt <= start_dt:
+        raise HTTPException(status_code=400, detail="종료일은 시작일보다 이후여야 합니다")
     days = (end_dt - start_dt).days
     period_map = [(3650, "10y"), (1825, "5y"), (730, "2y"), (365, "1y"), (180, "6mo"), (90, "3mo"), (30, "1mo")]
     period = next((p for d, p in period_map if days <= d), "max")
 
     mkt = "KR" if req.market == "KR" else "US"
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     ohlcv = await loop.run_in_executor(None, yf_service.get_ohlcv, req.symbol, period, "1d", mkt)
     ohlcv = [row for row in ohlcv if req.start_date <= row["date"] <= req.end_date]
 
@@ -102,10 +127,15 @@ async def run_backtest(req: BacktestRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/universe")
-async def run_universe_backtest(req: UniverseBacktestRequest):
+@limiter.limit("5/minute")
+async def run_universe_backtest(request: Request, req: UniverseBacktestRequest):
     """전체 종목 유니버스 백테스트"""
     from app.services.yf_service import SP500_SYMBOLS, KOSPI_SYMBOLS, KOSDAQ_SYMBOLS, ETF_SYMBOLS
-    from datetime import datetime
+
+    start_dt = datetime.strptime(req.start_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(req.end_date, "%Y-%m-%d")
+    if end_dt <= start_dt:
+        raise HTTPException(status_code=400, detail="종료일은 시작일보다 이후여야 합니다")
 
     universe_map = {
         "SP500": SP500_SYMBOLS,
@@ -124,7 +154,7 @@ async def run_universe_backtest(req: UniverseBacktestRequest):
     period_map = [(3650, "10y"), (1825, "5y"), (730, "2y"), (365, "1y"), (180, "6mo"), (90, "3mo"), (30, "1mo")]
     period = next((p for d, p in period_map if days <= d), "max")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     mkt = "KR" if req.market == "KR" else "US"
 
     sem = asyncio.Semaphore(5)  # 동시 5개 제한

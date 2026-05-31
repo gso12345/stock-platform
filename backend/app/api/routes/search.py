@@ -53,8 +53,8 @@ async def _naver_search(q: str) -> list[dict]:
 
 @router.get("")
 async def search_route(
-    q: str = Query(..., min_length=1),
-    market: str = Query(default="ALL"),
+    q: str = Query(..., min_length=1, max_length=50),
+    market: str = Query(default="ALL", pattern="^(ALL|KR|US|ETF)$"),
 ):
     """종목 검색 — 전체 상장 종목 대상"""
     ck = f"search:{market}:{q.strip().lower()}"
@@ -88,7 +88,7 @@ async def search_route(
 
 
 @router.get("/batch-prices")
-def batch_prices(symbols: str = Query(...)):
+def batch_prices(symbols: str = Query(..., max_length=500)):
     """여러 종목 캐시 가격 일괄 조회"""
     sym_list = [s.strip() for s in symbols.split(",") if s.strip()][:30]
     result = {}
@@ -103,7 +103,7 @@ def batch_prices(symbols: str = Query(...)):
 
 
 @router.get("/suggest")
-async def suggest(q: str = Query(..., min_length=1)):
+async def suggest(q: str = Query(..., min_length=1, max_length=50)):
     """자동완성 — 상위 5개"""
     kr = await _naver_search(q)
     us = search_stocks(q, "US")[:3]

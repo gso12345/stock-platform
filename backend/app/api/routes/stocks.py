@@ -21,7 +21,7 @@ router = APIRouter(prefix="/stocks", tags=["종목"])
 
 
 async def _run(fn, *args):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await asyncio.wait_for(loop.run_in_executor(None, fn, *args), timeout=15)
 
 
@@ -81,7 +81,7 @@ async def get_kr_price(symbol: str) -> dict:
     # 6순위: yfinance (최후 수단)
     try:
         result = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, yf_service.get_stock_price, symbol, "KR"),
+            asyncio.get_running_loop().run_in_executor(None, yf_service.get_stock_price, symbol, "KR"),
             timeout=10
         )
         if result and result.get("price"):
@@ -235,7 +235,7 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
                 # 캐시 없으면 비동기 fetch (타임아웃 8초)
                 try:
                     fund = await asyncio.wait_for(
-                        asyncio.get_event_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "KR"),
+                        asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "KR"),
                         timeout=8
                     )
                     if fund:
@@ -258,7 +258,7 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
             # 가격 캐시만 있으면 fundamentals 비동기 fetch (타임아웃 15s)
             try:
                 fund = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "US"),
+                    asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "US"),
                     timeout=15
                 )
                 return {**cached, **(fund or {})}
@@ -305,7 +305,7 @@ async def get_fundamentals(market: Literal["KR","US","ETF"], symbol: str):
     # yfinance 폴백
     try:
         result = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, market),
+            asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, market),
             timeout=10
         )
         if result:
@@ -362,7 +362,7 @@ async def _yf_financials(symbol: str, market: str) -> dict:
                 pass
         return result
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await asyncio.wait_for(loop.run_in_executor(None, _fetch), timeout=15)
     except Exception:
         return {"annual": [], "quarterly": []}
@@ -544,7 +544,7 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
 
     # 재무이력은 데이터가 많아 timeout을 60초로 늘림
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await asyncio.wait_for(loop.run_in_executor(None, _fetch), timeout=60)
     except asyncio.TimeoutError:
         result = {"annual": [], "quarterly": []}
@@ -862,7 +862,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
 
     try:
         result = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(None, _fetch),
+            asyncio.get_running_loop().run_in_executor(None, _fetch),
             timeout=15
         )
     except Exception:

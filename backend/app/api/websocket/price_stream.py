@@ -13,7 +13,7 @@ _ws_connections: dict[str, int] = defaultdict(int)
 MAX_WS_PER_IP = 10  # IP당 최대 WebSocket 연결 수
 
 KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150"]
-US_INDICES = ["SP500", "NASDAQ", "DOW", "SOX"]
+US_INDICES = ["SP500", "NASDAQ", "DOW", "SOX", "RUSSELL"]
 
 
 def _cached_index(name: str) -> dict:

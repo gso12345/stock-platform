@@ -29,6 +29,23 @@ YF_HEADERS = {
 
 _yf_base_counter = 0  # query1/query2 교차용
 
+_naver_client: httpx.AsyncClient | None = None
+_yf_client: httpx.AsyncClient | None = None
+
+
+def _get_naver_client() -> httpx.AsyncClient:
+    global _naver_client
+    if _naver_client is None or _naver_client.is_closed:
+        _naver_client = httpx.AsyncClient(timeout=10, headers=NAVER_HEADERS)
+    return _naver_client
+
+
+def _get_yf_client() -> httpx.AsyncClient:
+    global _yf_client
+    if _yf_client is None or _yf_client.is_closed:
+        _yf_client = httpx.AsyncClient(timeout=12, headers=YF_HEADERS)
+    return _yf_client
+
 
 def _safe(v) -> float | None:
     if v is None:
@@ -73,12 +90,12 @@ def _parse_kr_num(s) -> float:
 async def fetch_naver_stock(code6: str) -> dict | None:
     """네이버 모바일 API (basic + integration) 로 한국 종목 실시간 조회"""
     try:
-        async with httpx.AsyncClient(timeout=10, headers=NAVER_HEADERS) as cl:
-            basic_r, intg_r = await asyncio.gather(
-                cl.get(f"https://m.stock.naver.com/api/stock/{code6}/basic"),
-                cl.get(f"https://m.stock.naver.com/api/stock/{code6}/integration"),
-                return_exceptions=True,
-            )
+        cl = _get_naver_client()
+        basic_r, intg_r = await asyncio.gather(
+            cl.get(f"https://m.stock.naver.com/api/stock/{code6}/basic"),
+            cl.get(f"https://m.stock.naver.com/api/stock/{code6}/integration"),
+            return_exceptions=True,
+        )
 
         # basic: 현재가·등락
         if not isinstance(basic_r, Exception) and basic_r.status_code == 200:
@@ -161,8 +178,8 @@ async def fetch_naver_index(name: str) -> dict | None:
         return None
     url = f"https://m.stock.naver.com/api/index/{code}/basic"
     try:
-        async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
-            r = await cl.get(url)
+        cl = _get_naver_client()
+        r = await cl.get(url)
         if r.status_code != 200:
             return None
         d = r.json()
@@ -200,8 +217,8 @@ async def fetch_naver_exchange() -> dict | None:
     """네이버 환율 (USDKRW)"""
     url = "https://m.stock.naver.com/api/forex/basic?symbol=FX_USDKRW"
     try:
-        async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
-            r = await cl.get(url)
+        cl = _get_naver_client()
+        r = await cl.get(url)
         if r.status_code == 200:
             d = r.json()
             curr = _safe(d.get("closePrice"))
@@ -214,8 +231,8 @@ async def fetch_naver_exchange() -> dict | None:
     # 폴백: 네이버 외환 시장 정보
     url2 = "https://api.stock.naver.com/forex/close/history?stockEndType=index&code=FX_USDKRW&timeframe=day&count=2&requestType=0"
     try:
-        async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
-            r = await cl.get(url2)
+        cl = _get_naver_client()
+        r = await cl.get(url2)
         if r.status_code == 200:
             items = r.json()
             if items and len(items) >= 2:
@@ -239,8 +256,8 @@ async def fetch_yf_quotes(symbols: list[str]) -> dict[str, dict]:
     fields = "regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,marketCap,shortName,longName,currency"
     url    = f"https://{base}.finance.yahoo.com/v7/finance/quote?symbols={syms}&fields={fields}"
     try:
-        async with httpx.AsyncClient(timeout=12, headers=YF_HEADERS) as cl:
-            r = await cl.get(url)
+        cl = _get_yf_client()
+        r = await cl.get(url)
         if r.status_code == 429:
             log.debug(f"YF {base} 429, 다음 시도")
             return {}
@@ -293,8 +310,8 @@ async def get_index_price(yf_sym: str, name: str, display: str, ttl: int = 30) -
 async def _fetch_open_er() -> dict | None:
     """open.er-api.com — 무료 환율 API (키 불필요)"""
     try:
-        async with httpx.AsyncClient(timeout=8) as cl:
-            r = await cl.get("https://open.er-api.com/v6/latest/USD")
+        cl = _get_yf_client()
+        r = await cl.get("https://open.er-api.com/v6/latest/USD")
         if r.status_code != 200:
             return None
         d = r.json()

@@ -147,6 +147,7 @@ function SettingsPanel({ settings, onChange, onClose }: {
   onClose: () => void;
 }) {
   const set = (patch: Partial<ChartSettings>) => onChange({ ...settings, ...patch });
+  const [activeTab, setActiveTab] = useState<"trend" | "momentum" | "volatility" | "volume">("trend");
 
   const addMA = () => {
     const usedColors = settings.mas.map(m => m.color);
@@ -188,136 +189,160 @@ function SettingsPanel({ settings, onChange, onClose }: {
   );
 
   return (
-    <div className="border-t border-border bg-bg-secondary px-4 py-3 flex flex-col gap-4 max-h-[380px] overflow-y-auto">
+    <div className="border-t border-border bg-bg-secondary flex flex-col max-h-[70vh] overflow-y-auto">
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
         <span className="text-xs font-bold text-text-primary uppercase tracking-widest">지표 설정</span>
         <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={14}/></button>
       </div>
 
-      {/* ── 거래량 ── */}
-      <div className="flex flex-col gap-2">
-        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">거래량</span>
-        <Toggle label="거래량" checked={settings.volume} onToggle={() => set({ volume: !settings.volume })} color="#3b82f6"/>
+      {/* 탭 버튼 */}
+      <div className="w-full grid grid-cols-4 border-b border-border flex-shrink-0">
+        {([
+          { key: "trend",      label: "추세" },
+          { key: "momentum",   label: "모멘텀" },
+          { key: "volatility", label: "변동성" },
+          { key: "volume",     label: "거래량분석" },
+        ] as const).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`py-2 text-xs font-semibold transition-all border-b-2 -mb-px ${
+              activeTab === tab.key
+                ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+                : "border-transparent text-text-muted hover:text-text-primary"
+            }`}
+          >{tab.label}</button>
+        ))}
       </div>
 
-      {/* ── 추세 지표 ── */}
-      <div className="flex flex-col gap-3">
-        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">추세 지표 (Trend)</span>
+      {/* 탭 컨텐츠 */}
+      <div className="px-4 py-3 flex flex-col gap-3">
 
-        {/* MA */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-text-muted">이동평균선 (MA)</span>
-            <button onClick={addMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-blue-400">
-              <Plus size={11}/>추가
-            </button>
+        {/* ── 탭1: 추세 ── */}
+        {activeTab === "trend" && (
+          <>
+            {/* 거래량 */}
+            <div className="flex flex-col gap-2">
+              <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">거래량</span>
+              <Toggle label="거래량" checked={settings.volume} onToggle={() => set({ volume: !settings.volume })} color="#3b82f6"/>
+            </div>
+
+            {/* MA */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">이동평균선 (MA)</span>
+              <div className="flex items-center justify-end">
+                <button onClick={addMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-blue-400">
+                  <Plus size={11}/>추가
+                </button>
+              </div>
+              {settings.mas.map((m, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: m.color }}/>
+                  <input type="number" min={2} max={500} value={m.period}
+                    onChange={e => updateMA(i, parseInt(e.target.value) || 2)}
+                    className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
+                  />
+                  <span className="text-2xs text-text-muted">기간</span>
+                  <button onClick={() => removeMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={12}/></button>
+                </div>
+              ))}
+            </div>
+
+            {/* EMA */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">지수이동평균 (EMA)</span>
+              <div className="flex items-center justify-end">
+                <button onClick={addEMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-blue-400">
+                  <Plus size={11}/>추가
+                </button>
+              </div>
+              {settings.emas.map((e, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: e.color }}/>
+                  <input type="number" min={2} max={500} value={e.period}
+                    onChange={ev => updateEMA(i, parseInt(ev.target.value) || 2)}
+                    className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
+                  />
+                  <span className="text-2xs text-text-muted">기간</span>
+                  <button onClick={() => removeEMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={12}/></button>
+                </div>
+              ))}
+            </div>
+
+            {/* 볼린저밴드 */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">볼린저밴드</span>
+              <Toggle label="볼린저밴드" checked={settings.bb} onToggle={() => set({ bb: !settings.bb })} color="#94a3b8"/>
+              {settings.bb && (
+                <div className="pl-2 flex flex-col gap-1">
+                  <NumInput label="기간" value={settings.bbPeriod} onChange={v => set({ bbPeriod: v })}/>
+                  <NumInput label="표준편차" value={settings.bbMult} onChange={v => set({ bbMult: v })} min={1} max={5}/>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ── 탭2: 모멘텀 ── */}
+        {activeTab === "momentum" && (
+          <>
+            {/* RSI */}
+            <div className="flex flex-col gap-1.5">
+              <Toggle label="RSI" checked={settings.rsi} onToggle={() => set({ rsi: !settings.rsi })} color="#f59e0b"/>
+              {settings.rsi && <div className="pl-2"><NumInput label="기간" value={settings.rsiPeriod} onChange={v => set({ rsiPeriod: v })}/></div>}
+            </div>
+
+            {/* MACD */}
+            <div className="flex flex-col gap-1.5">
+              <Toggle label="MACD" checked={settings.macd} onToggle={() => set({ macd: !settings.macd })} color="#3b82f6"/>
+              {settings.macd && (
+                <div className="pl-2 flex flex-col gap-1">
+                  <NumInput label="단기(Fast)" value={settings.macdFast} onChange={v => set({ macdFast: v })}/>
+                  <NumInput label="장기(Slow)" value={settings.macdSlow} onChange={v => set({ macdSlow: v })}/>
+                  <NumInput label="시그널" value={settings.macdSignal} onChange={v => set({ macdSignal: v })}/>
+                </div>
+              )}
+            </div>
+
+            {/* 스토캐스틱 */}
+            <div className="flex flex-col gap-1.5">
+              <Toggle label="스토캐스틱" checked={settings.stoch} onToggle={() => set({ stoch: !settings.stoch })} color="#10b981"/>
+              {settings.stoch && (
+                <div className="pl-2 flex flex-col gap-1">
+                  <NumInput label="%K 기간" value={settings.stochK} onChange={v => set({ stochK: v })}/>
+                  <NumInput label="%D 기간" value={settings.stochD} onChange={v => set({ stochD: v })}/>
+                </div>
+              )}
+            </div>
+
+            {/* CCI */}
+            <div className="flex flex-col gap-1.5">
+              <Toggle label="CCI" checked={settings.cci} onToggle={() => set({ cci: !settings.cci })} color="#ec4899"/>
+              {settings.cci && <div className="pl-2"><NumInput label="기간" value={settings.cciPeriod} onChange={v => set({ cciPeriod: v })}/></div>}
+            </div>
+
+            {/* Williams %R */}
+            <div className="flex flex-col gap-1.5">
+              <Toggle label="Williams %R" checked={settings.williams} onToggle={() => set({ williams: !settings.williams })} color="#14b8a6"/>
+              {settings.williams && <div className="pl-2"><NumInput label="기간" value={settings.williamsPeriod} onChange={v => set({ williamsPeriod: v })}/></div>}
+            </div>
+          </>
+        )}
+
+        {/* ── 탭3: 변동성 ── */}
+        {activeTab === "volatility" && (
+          <div className="flex flex-col gap-1.5">
+            <Toggle label="ATR" checked={settings.atr} onToggle={() => set({ atr: !settings.atr })} color="#f97316"/>
+            {settings.atr && <div className="pl-2"><NumInput label="기간" value={settings.atrPeriod} onChange={v => set({ atrPeriod: v })}/></div>}
           </div>
-          {settings.mas.map((m, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: m.color }}/>
-              <input type="number" min={2} max={500} value={m.period}
-                onChange={e => updateMA(i, parseInt(e.target.value) || 2)}
-                className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
-              />
-              <span className="text-2xs text-text-muted">기간</span>
-              <button onClick={() => removeMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={12}/></button>
-            </div>
-          ))}
-        </div>
+        )}
 
-        {/* EMA */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-text-muted">지수이동평균 (EMA)</span>
-            <button onClick={addEMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-blue-400">
-              <Plus size={11}/>추가
-            </button>
-          </div>
-          {settings.emas.map((e, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: e.color }}/>
-              <input type="number" min={2} max={500} value={e.period}
-                onChange={ev => updateEMA(i, parseInt(ev.target.value) || 2)}
-                className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
-              />
-              <span className="text-2xs text-text-muted">기간</span>
-              <button onClick={() => removeEMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={12}/></button>
-            </div>
-          ))}
-        </div>
+        {/* ── 탭4: 거래량분석 ── */}
+        {activeTab === "volume" && (
+          <Toggle label="OBV (누적거래량)" checked={settings.obv} onToggle={() => set({ obv: !settings.obv })} color="#6366f1"/>
+        )}
 
-        {/* 볼린저밴드 */}
-        <div className="flex flex-col gap-1.5">
-          <Toggle label="볼린저밴드" checked={settings.bb} onToggle={() => set({ bb: !settings.bb })} color="#94a3b8"/>
-          {settings.bb && (
-            <div className="pl-2 flex flex-col gap-1">
-              <NumInput label="기간" value={settings.bbPeriod} onChange={v => set({ bbPeriod: v })}/>
-              <NumInput label="표준편차" value={settings.bbMult} onChange={v => set({ bbMult: v })} min={1} max={5}/>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── 모멘텀 지표 ── */}
-      <div className="flex flex-col gap-3 border-t border-border pt-3">
-        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">모멘텀 지표 (Momentum)</span>
-
-        {/* RSI */}
-        <div className="flex flex-col gap-1.5">
-          <Toggle label="RSI" checked={settings.rsi} onToggle={() => set({ rsi: !settings.rsi })} color="#f59e0b"/>
-          {settings.rsi && <div className="pl-2"><NumInput label="기간" value={settings.rsiPeriod} onChange={v => set({ rsiPeriod: v })}/></div>}
-        </div>
-
-        {/* MACD */}
-        <div className="flex flex-col gap-1.5">
-          <Toggle label="MACD" checked={settings.macd} onToggle={() => set({ macd: !settings.macd })} color="#3b82f6"/>
-          {settings.macd && (
-            <div className="pl-2 flex flex-col gap-1">
-              <NumInput label="단기(Fast)" value={settings.macdFast} onChange={v => set({ macdFast: v })}/>
-              <NumInput label="장기(Slow)" value={settings.macdSlow} onChange={v => set({ macdSlow: v })}/>
-              <NumInput label="시그널" value={settings.macdSignal} onChange={v => set({ macdSignal: v })}/>
-            </div>
-          )}
-        </div>
-
-        {/* 스토캐스틱 */}
-        <div className="flex flex-col gap-1.5">
-          <Toggle label="스토캐스틱" checked={settings.stoch} onToggle={() => set({ stoch: !settings.stoch })} color="#10b981"/>
-          {settings.stoch && (
-            <div className="pl-2 flex flex-col gap-1">
-              <NumInput label="%K 기간" value={settings.stochK} onChange={v => set({ stochK: v })}/>
-              <NumInput label="%D 기간" value={settings.stochD} onChange={v => set({ stochD: v })}/>
-            </div>
-          )}
-        </div>
-
-        {/* CCI */}
-        <div className="flex flex-col gap-1.5">
-          <Toggle label="CCI" checked={settings.cci} onToggle={() => set({ cci: !settings.cci })} color="#ec4899"/>
-          {settings.cci && <div className="pl-2"><NumInput label="기간" value={settings.cciPeriod} onChange={v => set({ cciPeriod: v })}/></div>}
-        </div>
-
-        {/* Williams %R */}
-        <div className="flex flex-col gap-1.5">
-          <Toggle label="Williams %R" checked={settings.williams} onToggle={() => set({ williams: !settings.williams })} color="#14b8a6"/>
-          {settings.williams && <div className="pl-2"><NumInput label="기간" value={settings.williamsPeriod} onChange={v => set({ williamsPeriod: v })}/></div>}
-        </div>
-      </div>
-
-      {/* ── 변동성 지표 ── */}
-      <div className="flex flex-col gap-3 border-t border-border pt-3">
-        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">변동성 지표 (Volatility)</span>
-        <div className="flex flex-col gap-1.5">
-          <Toggle label="ATR" checked={settings.atr} onToggle={() => set({ atr: !settings.atr })} color="#f97316"/>
-          {settings.atr && <div className="pl-2"><NumInput label="기간" value={settings.atrPeriod} onChange={v => set({ atrPeriod: v })}/></div>}
-        </div>
-      </div>
-
-      {/* ── 거래량 분석 지표 ── */}
-      <div className="flex flex-col gap-3 border-t border-border pt-3">
-        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">거래량 분석</span>
-        <Toggle label="OBV (누적거래량)" checked={settings.obv} onToggle={() => set({ obv: !settings.obv })} color="#6366f1"/>
       </div>
     </div>
   );
@@ -395,10 +420,10 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       // 스크롤 중 의도치 않은 확대 방지
       handleScale: {
         mouseWheel: true,          // 마우스 휠로만 줌 허용
-        pinch: false,              // 모바일 핀치 줌 비활성화
+        pinch: true,               // 모바일 핀치 줌 활성화
         axisPressedMouseMove: {
-          time: false,             // 시간축 드래그 시 줌 비활성화
-          price: false,            // 가격축 드래그 시 줌 비활성화
+          time: true,              // 시간축 드래그 줌 활성화
+          price: true,             // 가격축 드래그 줌 활성화
         },
         axisDoubleClickReset: true,
       },

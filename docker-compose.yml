@@ -11,12 +11,6 @@ services:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
-
   backend:
     build: ./backend
     ports:
@@ -25,7 +19,6 @@ services:
       - ./backend/.env
     depends_on:
       - postgres
-      - redis
     volumes:
       - ./backend:/app
     restart: unless-stopped

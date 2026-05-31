@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { dashboardApi } from "@/api/stocks";
@@ -18,7 +18,7 @@ function fmtUSD(v: number | null | undefined): string {
 }
 
 /* ── 지수 카드 ───────────────────────────────────────────── */
-function IndexCard({ name, value, change, change_rate, _demo, onClick }: any) {
+const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _demo, onClick }: any) {
   const pos = (change_rate ?? 0) >= 0;
   return (
     <Card
@@ -40,10 +40,10 @@ function IndexCard({ name, value, change, change_rate, _demo, onClick }: any) {
       </div>
     </Card>
   );
-}
+});
 
 /* ── 환율 / 금리 / 선물 카드 ─────────────────────────────── */
-function ExtraCard({ name, value, change, change_rate, unit, _demo, _static }: any) {
+const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, unit, _demo, _static }: any) {
   const isRate = unit === "%";
   const numVal = typeof value === "number" ? value : parseFloat(String(value).replace(/,/g,"")) || 0;
   const chgVal = typeof change === "number" ? change : 0;
@@ -74,10 +74,10 @@ function ExtraCard({ name, value, change, change_rate, unit, _demo, _static }: a
       )}
     </Card>
   );
-}
+});
 
 /* ── 순위 테이블 (실시간 가격 반영) ─────────────────────── */
-function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
+const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
   items: any[]; isKR: boolean; onSymbolClick: (sym: string, mkt: string) => void; livePrices: Record<string, any>;
 }) {
   const [showAll, setShowAll] = useState(false);
@@ -149,18 +149,21 @@ function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
       )}
     </div>
   );
-}
+});
 
 /* ── 뉴스 패널 ───────────────────────────────────────────── */
 const NEWS_INITIAL = 10;
 
-function NewsPanel({ news }: { news: any[] }) {
+const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
   const [expanded, setExpanded] = useState(false);
   const [sort, setSort]         = useState<"latest" | "popular">("latest");
 
-  const sorted = sort === "popular"
-    ? [...news].sort((a, b) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
-    : [...news].sort((a, b) => (b.published ?? "").localeCompare(a.published ?? ""));
+  const sorted = useMemo(() =>
+    sort === "popular"
+      ? [...news].sort((a, b) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
+      : [...news].sort((a, b) => (b.published ?? "").localeCompare(a.published ?? "")),
+    [news, sort]
+  );
 
   const shown = expanded ? sorted : sorted.slice(0, NEWS_INITIAL);
   const remaining = sorted.length - NEWS_INITIAL;
@@ -200,7 +203,7 @@ function NewsPanel({ news }: { news: any[] }) {
       )}
     </div>
   );
-}
+});
 
 /* ── 국내 탭 ─────────────────────────────────────────────── */
 function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {

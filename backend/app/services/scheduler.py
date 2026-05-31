@@ -150,7 +150,7 @@ async def run_startup_prefetch():
     log.info("=== 초기 프리페치 시작 ===")
     await asyncio.sleep(0.3)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     # 지수 + 환율 + 뉴스 동시 갱신
     from app.services.news_service import get_kr_news, get_us_news
     await asyncio.gather(
@@ -194,7 +194,7 @@ async def periodic_refresh():
         # 종목 + 뉴스 (5분)
         if counter % 30 == 0:
             from app.services.news_service import get_kr_news, get_us_news
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await asyncio.gather(
                 refresh_us_stocks(),
                 refresh_kr_stocks(),
@@ -212,7 +212,7 @@ def start_background_tasks(app):
     @app.on_event("startup")
     async def startup():
         # init_ticker_db는 main.py _startup에서 이미 호출됨 — 여기서는 제거
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         loop.create_task(run_startup_prefetch())
         loop.create_task(periodic_refresh())
         log.info("스케줄러 시작됨")

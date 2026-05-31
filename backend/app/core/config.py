@@ -1,10 +1,14 @@
-import secrets
+import logging
 from pydantic_settings import BaseSettings
+
+log = logging.getLogger(__name__)
+
+_PLACEHOLDER = "your-secret-key-change-this"
 
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./stockplatform.db"
-    SECRET_KEY: str = secrets.token_hex(32)   # .env에 없으면 매 기동마다 랜덤 생성
+    SECRET_KEY: str = _PLACEHOLDER
     FRONTEND_URL: str = "http://localhost:5173,https://stock-platform-one.vercel.app"
     APP_ENV: str = "development"   # "production"으로 설정하면 CORS strict 모드
 
@@ -28,3 +32,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.SECRET_KEY == _PLACEHOLDER:
+    log.warning("SECRET_KEY가 기본값입니다. .env 파일에 고정 키를 설정하세요.")

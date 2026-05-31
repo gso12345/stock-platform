@@ -19,6 +19,7 @@ class Watchlist(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, default="기본 관심목록")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     items = relationship("WatchlistItem", back_populates="watchlist", cascade="all, delete-orphan")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -47,6 +48,7 @@ class Strategy(Base):
     description = Column(Text)
     version = Column(Integer, default=1)
     market = Column(String(10))  # KR, US, ETF
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     entry_conditions = Column(JSON)
     exit_conditions = Column(JSON)
     stop_loss = Column(Float)

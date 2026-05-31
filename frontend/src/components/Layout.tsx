@@ -1,6 +1,7 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, Star, BookMarked, Activity, Sun, Moon, Menu, X } from "lucide-react";
+import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
+import { LayoutDashboard, Search, LineChart, Star, BookMarked, Activity, Sun, Moon, Menu, X, LogOut, LogIn } from "lucide-react";
 import { useWSStore } from "@/store/wsStore";
+import { useAuthStore } from "@/store/authStore";
 import SearchBar from "@/components/SearchBar";
 import { useState, useEffect } from "react";
 
@@ -14,8 +15,15 @@ const NAV = [
 
 export default function Layout() {
   const wsStatus = useWSStore((s) => s.indicesStatus);
+  const { isLoggedIn, username, logout } = useAuthStore();
+  const navigate = useNavigate();
   const [isLight, setIsLight] = useState(() => localStorage.getItem("theme") === "light");
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle("light", isLight);
@@ -141,6 +149,29 @@ export default function Layout() {
             <span className="font-mono hidden lg:block">
               {new Date().toLocaleDateString("ko-KR", { year:"numeric", month:"long", day:"numeric", weekday:"short" })}
             </span>
+            {isLoggedIn ? (
+              <div className="flex items-center gap-1.5">
+                <span className="hidden sm:block text-text-muted text-xs font-medium truncate max-w-[120px]" title={username ?? ""}>
+                  {username}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-red transition-all"
+                  title="로그아웃"
+                >
+                  <LogOut size={13} />
+                  <span className="hidden sm:block text-xs">로그아웃</span>
+                </button>
+              </div>
+            ) : (
+              <Link
+                to="/login"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-all"
+              >
+                <LogIn size={13} />
+                <span className="text-xs">로그인</span>
+              </Link>
+            )}
             <button
               onClick={() => setIsLight(v => !v)}
               className="p-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-all"

@@ -30,7 +30,7 @@ KIS_INDEX_CODES = {
 
 
 async def _run(fn, *args):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await asyncio.wait_for(loop.run_in_executor(None, fn, *args), timeout=15)
 
 
@@ -83,7 +83,7 @@ async def get_all_indices():
 # ── 국내 대시보드 ──────────────────────────────────────────
 @router.get("/kr")
 async def get_kr_dashboard(category: str = Query(default="시가총액")):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     idx_results, rankings, news, exchange, rates = await asyncio.gather(
         asyncio.gather(*[_get_kr_index(n) for n in KR_INDICES]),
         _get_kr_rankings(category),
@@ -150,7 +150,7 @@ async def _get_kr_rankings(category: str) -> list:
 # ── 해외 대시보드 ──────────────────────────────────────────
 @router.get("/us")
 async def get_us_dashboard(category: str = Query(default="시가총액")):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     idx_results, exchange, rankings, news = await asyncio.gather(
         asyncio.gather(*[_get_us_index(n) for n in US_INDICES]),
         _get_exchange_rate_async(),
@@ -188,20 +188,20 @@ async def kr_rankings(category: str = Query(default="시가총액")):
 
 @router.get("/rankings/us")
 async def us_rankings(category: str = Query(default="시가총액")):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _get_us_rankings_cached, category)
 
 
 # ── 뉴스 ───────────────────────────────────────────────────
 @router.get("/news/kr")
 async def kr_news():
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, get_kr_news)
 
 
 @router.get("/news/us")
 async def us_news():
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, get_us_news)
 
 
@@ -215,13 +215,13 @@ async def kr_futures():
 
 @router.get("/kr/rates")
 async def kr_rates():
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, get_kr_rates)
 
 @router.get("/kr/extras")
 async def kr_extras():
     """선물 + 환율 + 금리 통합"""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     exchange, rates, futures = await asyncio.gather(
         _get_exchange_rate_async(),
         loop.run_in_executor(None, get_kr_rates),
@@ -246,7 +246,7 @@ async def get_index_detail(name: str):
 @router.get("/index/{name}/ohlcv")
 async def get_index_ohlcv(name: str, period: str = Query(default="1y"), interval: str = Query(default="1d")):
     name_upper = name.upper()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         result = await asyncio.wait_for(
             loop.run_in_executor(None, yf_service.get_index_ohlcv, name_upper, period, interval),

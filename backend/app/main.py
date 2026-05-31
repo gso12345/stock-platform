@@ -1,12 +1,14 @@
 from fastapi import FastAPI, WebSocket, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.db.database import Base, engine
-from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search
+from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth
+from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.api.websocket.price_stream import stream_prices, stream_indices
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db
@@ -31,6 +33,7 @@ _allowed_origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.str
 if settings.APP_ENV != "production":
     _allowed_origins = ["*"]
 
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -39,6 +42,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 
+app.include_router(auth.router,      prefix="/api/v1")
 app.include_router(search.router,    prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(stocks.router,    prefix="/api/v1")

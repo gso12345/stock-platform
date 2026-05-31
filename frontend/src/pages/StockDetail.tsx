@@ -85,6 +85,7 @@ export default function StockDetail() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "analyst" | "supply">("chart");
+  const [showKRW, setShowKRW]           = useState(false);
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow">("basic");
   const [selectedMetric, setSelectedMetric] = useState("revenue");
@@ -146,7 +147,7 @@ export default function StockDetail() {
   const { data: metricsHistory } = useQuery({
     queryKey: ["metrics-history", m, sym],
     queryFn: () => stocksApi.getMetricsHistory(m, sym),
-    enabled: !!sym && mainTab === "financial",
+    enabled: !!sym,
     retry: 1, staleTime: 3_600_000,
   });
 
@@ -161,7 +162,7 @@ export default function StockDetail() {
   const { data: analystData, isLoading: loadingAnalyst } = useQuery({
     queryKey: ["analyst", m, sym],
     queryFn: () => stocksApi.getAnalyst(m, sym),
-    enabled: !!sym && mainTab === "analyst",
+    enabled: !!sym && !isKR,
     retry: 1, staleTime: 3_600_000,
   });
 
@@ -185,6 +186,14 @@ export default function StockDetail() {
     enabled: !!sym && mainTab === "supply" && isKR,
     staleTime: 600_000,
   });
+
+  const { data: exchangeRateData } = useQuery({
+    queryKey: ["exchange-rate"],
+    queryFn: () => api.get("/dashboard/exchange").then(r => r.data),
+    enabled: !isKR,
+    staleTime: 300_000,
+  });
+  const exchangeRate: number = (exchangeRateData as any)?.value ?? 1350;
 
   // 이미 추가된 종목인지 확인
   const { data: watchlistItems } = useQuery({
@@ -346,6 +355,52 @@ export default function StockDetail() {
             );
           })()}
 
+          {/* 투자의견 요약 행 (US 종목, 데이터 있을 때만) */}
+          {!isKR && (() => {
+            const ad = analystData as any;
+            const pt = ad?.price_targets;
+            const cs = ad?.consensus;
+            if (!pt && !cs) return null;
+            const totalVotes = cs ? cs.strong_buy + cs.buy + cs.hold + cs.sell + cs.strong_sell : 0;
+            const avgScore = cs && totalVotes > 0
+              ? (cs.strong_buy*5 + cs.buy*4 + cs.hold*3 + cs.sell*2 + cs.strong_sell*1) / totalVotes
+              : null;
+            const ratingLabel = avgScore == null ? null
+              : avgScore >= 4.5 ? "강력매수"
+              : avgScore >= 3.5 ? "매수"
+              : avgScore >= 2.5 ? "보유"
+              : avgScore >= 1.5 ? "매도"
+              : "강력매도";
+            const ratingColor = avgScore == null ? "text-text-muted"
+              : avgScore >= 4 ? "text-accent-green"
+              : avgScore >= 3 ? "text-accent-yellow"
+              : "text-accent-red";
+            const upside = pt?.current && pt?.mean
+              ? ((pt.mean - pt.current) / pt.current * 100)
+              : null;
+            if (!ratingLabel && !pt?.mean) return null;
+            return (
+              <div className="border-t border-border px-4 py-2.5 flex flex-wrap items-center gap-3 bg-bg-secondary/50">
+                <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide flex-shrink-0">투자의견</span>
+                {ratingLabel && (
+                  <span className={`text-xs font-bold ${ratingColor}`}>{ratingLabel}</span>
+                )}
+                {pt?.mean != null && (
+                  <span className="text-xs text-text-muted font-mono">
+                    목표가 <span className="text-text-primary font-semibold">${pt.mean.toFixed(0)}</span>
+                  </span>
+                )}
+                {upside != null && (
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${upside >= 0 ? "bg-accent-green/10 text-accent-green" : "bg-accent-red/10 text-accent-red"}`}>
+                    {upside >= 0 ? "+" : ""}{upside.toFixed(1)}%
+                  </span>
+                )}
+                {totalVotes > 0 && (
+                  <span className="text-2xs text-text-muted ml-auto">{totalVotes}명</span>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -641,6 +696,14 @@ export default function StockDetail() {
           );
         };
 
+        // 재무제표 통화 포맷 (showKRW 토글 반영)
+        const fmtFin = (v: number | null | undefined): string => {
+          if (v == null) return "—";
+          if (isKR) return fmtKRW(v);
+          if (showKRW) return fmtKRW(v * exchangeRate);
+          return fmtUSD(v);
+        };
+
         // 공통 차트 옵션
         const chartProps = {
           margin: {top:4,right:16,left:0,bottom:4} as any,
@@ -652,6 +715,23 @@ export default function StockDetail() {
 
         return (
           <div className="flex flex-col gap-4">
+
+          {/* 원화 환산 토글 (US 종목만) */}
+          {!isKR && (
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowKRW(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+                  showKRW
+                    ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue"
+                    : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+                }`}
+              >
+                ₩ 원화
+                {showKRW && <span className="text-[10px] text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
+              </button>
+            </div>
+          )}
 
           {/* ── 손익계산서 ── */}
           {finSubTab==="income" && (
@@ -671,7 +751,7 @@ export default function StockDetail() {
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                         <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={revenue:"매출",op_income:"영업이익",net_income:"당기순이익"};return[isKR?fmtKRW(v):fmtUSD(v),l[name]??name];}}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={revenue:"매출",op_income:"영업이익",net_income:"당기순이익"};return[fmtFin(v),l[name]??name];}}/>
                         <Legend formatter={v=>({revenue:"매출",op_income:"영업이익",net_income:"당기순이익"}[v as string]??v)}/>
                         <Bar dataKey="revenue" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={35}/>
                         <Bar dataKey="op_income" fill="#10b981" radius={[2,2,0,0]} maxBarSize={35}/>
@@ -681,15 +761,15 @@ export default function StockDetail() {
                   )}
                   {/* 전치 테이블 */}
                   <TransTable rows={[
-                    { key:"revenue",          label:"매출",         fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-blue" },
+                    { key:"revenue",          label:"매출",         fmt:(v)=>fmtFin(v), color:"text-accent-blue" },
                     { key:"revenue_growth",   label:"매출성장률",   fmt:(v)=>`${v.toFixed(1)}%`, color: "text-accent-blue" },
-                    { key:"op_income",        label:"영업이익",     fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-green" },
+                    { key:"op_income",        label:"영업이익",     fmt:(v)=>fmtFin(v), color:"text-accent-green" },
                     { key:"op_income_growth", label:"영업이익성장률",fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-green" },
-                    { key:"net_income",       label:"당기순이익",   fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-purple-400" },
+                    { key:"net_income",       label:"당기순이익",   fmt:(v)=>fmtFin(v), color:"text-purple-400" },
                     { key:"net_income_growth",label:"순이익성장률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
                     { key:"op_margin",        label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
                     { key:"net_margin",       label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
-                    { key:"eps",              label:"EPS",          fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-cyan-400" },
+                    { key:"eps",              label:"EPS",          fmt:(v)=>fmtFin(v), color:"text-cyan-400" },
                   ]}/>
                 </div>
               )}
@@ -717,11 +797,52 @@ export default function StockDetail() {
                     <StatCell label="기업가치(EV)" value={fmt(d.enterprise_value)} />
                   </div>
                 )}
-                {/* PER/PBR 연도별 차트 — PER/PBR 없으면 EPS 차트 */}
+                {/* PER/PBR 연도별 차트 — PER/PBR 없으면 EPS 차트, mh 비어있으면 dEnhanced로 단일 포인트 */}
                 {(() => {
                   const hasMultiple = mh.some((r:any) => r.per != null || r.pbr != null);
                   const hasEps = mh.some((r:any) => r.eps != null);
-                  if (!hasMultiple && !hasEps) return null;
+                  // mh가 비어있어도 dEnhanced에 값이 있으면 단일 포인트로 차트 표시
+                  if (!hasMultiple && !hasEps) {
+                    const hasDEnhancedValuation = dEnhanced.per != null || dEnhanced.pbr != null || dEnhanced.eps != null;
+                    if (!hasDEnhancedValuation) return null;
+                    const singlePoint = [{
+                      period: "현재",
+                      per: dEnhanced.per,
+                      pbr: dEnhanced.pbr,
+                      psr: dEnhanced.psr,
+                      eps: dEnhanced.eps,
+                    }];
+                    if (dEnhanced.per != null || dEnhanced.pbr != null) {
+                      return (
+                        <ResponsiveContainer width="100%" height={180}>
+                          <BarChart data={singlePoint} {...chartProps.margin}>
+                            <CartesianGrid {...chartProps.cartesianGridProps}/>
+                            <XAxis dataKey="period" {...chartProps.xAxisProps}/>
+                            <YAxis {...chartProps.yAxisProps}/>
+                            <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[Number(v).toFixed(2),{per:"PER",pbr:"PBR",psr:"PSR"}[n]??n]}/>
+                            <Legend formatter={v=>({per:"PER",pbr:"PBR",psr:"PSR"}[v as string]??v)}/>
+                            {dEnhanced.per!=null&&<Bar dataKey="per" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={25}/>}
+                            {dEnhanced.pbr!=null&&<Bar dataKey="pbr" fill="#10b981" radius={[2,2,0,0]} maxBarSize={25}/>}
+                            {dEnhanced.psr!=null&&<Bar dataKey="psr" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={25}/>}
+                          </BarChart>
+                        </ResponsiveContainer>
+                      );
+                    }
+                    if (dEnhanced.eps != null) {
+                      return (
+                        <ResponsiveContainer width="100%" height={180}>
+                          <BarChart data={singlePoint.filter(r=>r.eps!=null)} {...chartProps.margin}>
+                            <CartesianGrid {...chartProps.cartesianGridProps}/>
+                            <XAxis dataKey="period" {...chartProps.xAxisProps}/>
+                            <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtFin(v)}/>
+                            <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtFin(v),"EPS"]}/>
+                            <Bar dataKey="eps" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      );
+                    }
+                    return null;
+                  }
                   if (hasMultiple) {
                     return (
                       <ResponsiveContainer width="100%" height={180}>
@@ -744,8 +865,8 @@ export default function StockDetail() {
                       <BarChart data={mh.filter((r:any)=>r.eps!=null)} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>isKR?fmtKRW(v):fmtUSD(v)}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[isKR?fmtKRW(v):fmtUSD(v),"EPS"]}/>
+                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtFin(v)}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtFin(v),"EPS"]}/>
                         <Bar dataKey="eps" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
                       </BarChart>
                     </ResponsiveContainer>
@@ -756,8 +877,8 @@ export default function StockDetail() {
                   { key:"per",  label:"PER",        fmt:(v)=>`${v.toFixed(1)}배`, color:"text-accent-blue" },
                   { key:"pbr",  label:"PBR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-accent-green" },
                   { key:"psr",  label:"PSR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-purple-400" },
-                  { key:"eps",  label:"EPS",  fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:fmtUSD(v), color:"text-cyan-400" },
-                  { key:"bps",  label:"BPS",  fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:fmtUSD(v), color:"text-text-secondary" },
+                  { key:"eps",  label:"EPS",  fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:(showKRW?fmtKRW(Math.round(v*exchangeRate)):fmtUSD(v)), color:"text-cyan-400" },
+                  { key:"bps",  label:"BPS",  fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:(showKRW?fmtKRW(Math.round(v*exchangeRate)):fmtUSD(v)), color:"text-text-secondary" },
                 ]}/>
               </div>
             </div>
@@ -801,8 +922,8 @@ export default function StockDetail() {
                       <BarChart data={chartData} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>curr.pct?`${v}%`:isKR?fmtKRW(v):fmtUSD(v)}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[curr.pct?`${Number(v).toFixed(1)}%`:(isKR?fmtKRW(v):fmtUSD(v)), curr.label]}/>
+                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>curr.pct?`${v}%`:fmtFin(v)}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[curr.pct?`${Number(v).toFixed(1)}%`:(fmtFin(v)), curr.label]}/>
                         <Bar dataKey={selectedMetric} fill={curr.color} radius={[3,3,0,0]} maxBarSize={50}/>
                       </BarChart>
                     </ResponsiveContainer>
@@ -811,7 +932,7 @@ export default function StockDetail() {
                   <TransTable rows={BASIC_METRICS.map(m=>({
                     key: m.key,
                     label: m.label,
-                    fmt: (v:number) => m.pct ? `${v.toFixed(1)}%` : (m.key==="current_ratio"||m.key==="quick_ratio" ? v.toFixed(2) : (isKR?fmtKRW(v):fmtUSD(v))),
+                    fmt: (v:number) => m.pct ? `${v.toFixed(1)}%` : (m.key==="current_ratio"||m.key==="quick_ratio" ? `${(v*100).toFixed(0)}%` : (fmtFin(v))),
                     color: "text-text-secondary",
                   }))}/>
                 </>);
@@ -860,7 +981,7 @@ export default function StockDetail() {
                   { key:"op_margin",    label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-green" },
                   { key:"net_margin",   label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
                   { key:"roe",          label:"ROE",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-yellow" },
-                  { key:"eps",          label:"EPS",          fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:fmtUSD(v), color:"text-cyan-400" },
+                  { key:"eps",          label:"EPS",          fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:(showKRW?fmtKRW(Math.round(v*exchangeRate)):fmtUSD(v)), color:"text-cyan-400" },
                 ]}/>
               </div>
             </div>
@@ -879,9 +1000,9 @@ export default function StockDetail() {
                   <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                     <StatCell label="부채비율"  value={dEnhanced.debt_ratio!=null?`${dEnhanced.debt_ratio.toFixed(0)}%`:null}
                       color={dEnhanced.debt_ratio!=null?(dEnhanced.debt_ratio>200?"text-accent-red":dEnhanced.debt_ratio<100?"text-accent-green":"text-text-primary"):undefined}/>
-                    <StatCell label="유동비율"  value={dEnhanced.current_ratio!=null?`${dEnhanced.current_ratio.toFixed(2)}`:null}
+                    <StatCell label="유동비율"  value={dEnhanced.current_ratio!=null?`${(dEnhanced.current_ratio*100).toFixed(0)}%`:null}
                       color={dEnhanced.current_ratio!=null?(dEnhanced.current_ratio>=2?"text-accent-green":dEnhanced.current_ratio<1?"text-accent-red":"text-text-primary"):undefined}/>
-                    <StatCell label="당좌비율"  value={dEnhanced.quick_ratio!=null?`${dEnhanced.quick_ratio.toFixed(2)}`:null}/>
+                    <StatCell label="당좌비율"  value={dEnhanced.quick_ratio!=null?`${(dEnhanced.quick_ratio*100).toFixed(0)}%`:null}/>
                     <StatCell label="배당수익률" value={d.dividend_yield!=null?`${d.dividend_yield.toFixed(2)}%`:null} color="text-accent-green"/>
                     <StatCell label="배당성향"  value={d.payout_ratio!=null?`${d.payout_ratio.toFixed(1)}%`:null}/>
                     <StatCell label="베타"      value={d.beta!=null?d.beta.toFixed(2):null}
@@ -896,7 +1017,7 @@ export default function StockDetail() {
                       <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                       <YAxis yAxisId="ratio" {...chartProps.yAxisProps}/>
                       <YAxis yAxisId="pct" orientation="right" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
-                      <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>{const l:Record<string,string>={current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"};return[n==="debt_ratio"?`${Number(v).toFixed(0)}%`:Number(v).toFixed(2),l[n]??n];}}/>
+                      <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>{const l:Record<string,string>={current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"};return[n==="debt_ratio"?`${Number(v).toFixed(0)}%`:(n==="current_ratio"||n==="quick_ratio")?`${(Number(v)*100).toFixed(0)}%`:Number(v).toFixed(2),l[n]??n];}}/>
                       <Legend formatter={v=>({current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"}[v as string]??v)}/>
                       <Bar yAxisId="ratio" dataKey="current_ratio" fill="#10b981" radius={[2,2,0,0]} maxBarSize={20}/>
                       <Bar yAxisId="ratio" dataKey="quick_ratio"   fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={20}/>
@@ -906,9 +1027,9 @@ export default function StockDetail() {
                 )}
                 {/* 전치 테이블 */}
                 <TransTable rows={[
-                  { key:"debt_ratio",    label:"부채비율",   fmt:(v)=>`${v.toFixed(0)}%`,  color:"text-accent-red" },
-                  { key:"current_ratio", label:"유동비율",   fmt:(v)=>v.toFixed(2),         color:"text-accent-green" },
-                  { key:"quick_ratio",   label:"당좌비율",   fmt:(v)=>v.toFixed(2),         color:"text-accent-blue" },
+                  { key:"debt_ratio",    label:"부채비율",   fmt:(v)=>`${v.toFixed(0)}%`,        color:"text-accent-red" },
+                  { key:"current_ratio", label:"유동비율",   fmt:(v)=>`${(v*100).toFixed(0)}%`,  color:"text-accent-green" },
+                  { key:"quick_ratio",   label:"당좌비율",   fmt:(v)=>`${(v*100).toFixed(0)}%`,  color:"text-accent-blue" },
                 ]}/>
               </div>
             </div>
@@ -931,7 +1052,7 @@ export default function StockDetail() {
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                         <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={operating_cf:"영업현금흐름",investing_cf:"투자현금흐름",financing_cf:"재무현금흐름"};return[isKR?fmtKRW(v):fmtUSD(v),l[name]??name];}}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={operating_cf:"영업현금흐름",investing_cf:"투자현금흐름",financing_cf:"재무현금흐름"};return[fmtFin(v),l[name]??name];}}/>
                         <Legend formatter={v=>({operating_cf:"영업현금흐름",investing_cf:"투자현금흐름",financing_cf:"재무현금흐름"}[v as string]??v)}/>
                         <Bar dataKey="operating_cf" fill="#10b981" radius={[2,2,0,0]} maxBarSize={28}/>
                         <Bar dataKey="investing_cf" fill="#ef4444" radius={[2,2,0,0]} maxBarSize={28}/>
@@ -949,7 +1070,7 @@ export default function StockDetail() {
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                         <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[isKR?fmtKRW(v):fmtUSD(v),"FCF"]}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtFin(v),"FCF"]}/>
                         <Bar dataKey="free_cf" radius={[2,2,0,0]} maxBarSize={35}
                           fill="#3b82f6"
                           label={false}
@@ -960,12 +1081,12 @@ export default function StockDetail() {
                 )}
                 {/* 전치 테이블 */}
                 <TransTable rows={[
-                  { key:"operating_cf", label:"영업현금흐름", fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-green" },
-                  { key:"investing_cf", label:"투자현금흐름", fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-red" },
-                  { key:"financing_cf", label:"재무현금흐름", fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-yellow" },
-                  { key:"free_cf",      label:"FCF",         fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-accent-blue" },
-                  { key:"capex",        label:"CAPEX",        fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-text-secondary" },
-                  { key:"da",           label:"감가상각비",   fmt:(v)=>isKR?fmtKRW(v):fmtUSD(v), color:"text-text-secondary" },
+                  { key:"operating_cf", label:"영업현금흐름", fmt:(v)=>fmtFin(v), color:"text-accent-green" },
+                  { key:"investing_cf", label:"투자현금흐름", fmt:(v)=>fmtFin(v), color:"text-accent-red" },
+                  { key:"financing_cf", label:"재무현금흐름", fmt:(v)=>fmtFin(v), color:"text-accent-yellow" },
+                  { key:"free_cf",      label:"FCF",         fmt:(v)=>fmtFin(v), color:"text-accent-blue" },
+                  { key:"capex",        label:"CAPEX",        fmt:(v)=>fmtFin(v), color:"text-text-secondary" },
+                  { key:"da",           label:"감가상각비",   fmt:(v)=>fmtFin(v), color:"text-text-secondary" },
                 ]}/>
               </div>
             </div>

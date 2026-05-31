@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import asyncio
 
 from app.db.database import get_db
 from app.models.stock import Watchlist, WatchlistItem, WatchlistFolder
+from app.models.user import User
+from app.core.deps import get_current_user
 from app.services.yf_service import yf_service
 from app.core.cache import cache
 
@@ -14,33 +16,35 @@ router = APIRouter(prefix="/watchlist", tags=["관심종목"])
 
 # ── Pydantic 스키마 ──────────────────────────────────────────
 class AddItemRequest(BaseModel):
-    symbol: str
-    market: str
-    name: str = ""
-    memo: str = ""
-    watchlist_id: int = 1
-    folder_id: Optional[int] = None
+    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9.\-]+$")
+    market: str = Field(..., pattern="^(KR|US|ETF)$")
+    name: str = Field("", max_length=100)
+    memo: str = Field("", max_length=200)
+    watchlist_id: int = Field(1, ge=1)
+    folder_id: Optional[int] = Field(None, ge=1)
 
 
 class FolderRequest(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=50)
 
 
 class UpdateItemRequest(BaseModel):
-    name: Optional[str] = None
-    memo: Optional[str] = None
+    name: Optional[str] = Field(None, max_length=100)
+    memo: Optional[str] = Field(None, max_length=200)
     folder_id: Optional[int] = None
 
 
 class ReorderRequest(BaseModel):
-    order: list[int]  # item id 목록 (새 순서대로)
+    order: list[int] = Field(..., max_length=200)  # item id 목록 (새 순서대로)
 
 
 # ── 헬퍼 ─────────────────────────────────────────────────────
-def _ensure_watchlist(db: Session) -> Watchlist:
-    wl = db.query(Watchlist).first()
+def _ensure_watchlist(db: Session, user_id: Optional[int] = None) -> Watchlist:
+    """user_id가 있으면 해당 유저의 watchlist, 없으면 guest(user_id=None) watchlist 반환"""
+    q = db.query(Watchlist).filter(Watchlist.user_id == user_id)
+    wl = q.first()
     if not wl:
-        wl = Watchlist(name="기본 관심목록")
+        wl = Watchlist(name="기본 관심목록", user_id=user_id)
         db.add(wl)
         db.commit()
         db.refresh(wl)
@@ -62,9 +66,13 @@ def _item_to_dict(item: WatchlistItem) -> dict:
 
 # ── 루트 ─────────────────────────────────────────────────────
 @router.get("/")
-def get_watchlist(db: Session = Depends(get_db)):
+def get_watchlist(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     """기본 관심목록 정보"""
-    wl = _ensure_watchlist(db)
+    user_id = current_user.id if current_user else None
+    wl = _ensure_watchlist(db, user_id=user_id)
     return {"id": wl.id, "name": wl.name, "count": len(wl.items)}
 
 
@@ -119,8 +127,8 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)):
 # ── 관심종목 일괄 가격 조회 (빠른 배치 fetch + 캐시 저장) ────────
 @router.get("/prices")
 async def get_watchlist_prices_batch(
-    symbols: str = Query(...),
-    markets: str = Query(...),
+    symbols: str = Query(..., max_length=1000),
+    markets: str = Query(..., max_length=500),
 ):
     """심볼 목록을 받아 캐시 우선 조회, 미캐시 종목은 배치 fetch 후 캐시 저장"""
     from app.services.price_fetcher import fetch_yf_quotes, fetch_naver_stocks
@@ -186,11 +194,17 @@ async def get_watchlist_prices_batch(
 
 # ── 관심종목 조회 (가격 포함) ─────────────────────────────────
 @router.get("/items")
-def get_items(market: Optional[str] = None, folder_id: Optional[int] = None, db: Session = Depends(get_db)):
+def get_items(
+    market: Optional[str] = None,
+    folder_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     if market and market not in ("KR", "US", "ETF", "전체", None):
         market = None  # 잘못된 market 값 무시
     """관심종목 목록 조회 (가격 없는 메타데이터만)"""
-    wl = _ensure_watchlist(db)
+    user_id = current_user.id if current_user else None
+    wl = _ensure_watchlist(db, user_id=user_id)
     q = db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == wl.id)
     if market and market != "전체":
         q = q.filter(WatchlistItem.market == market)
@@ -201,9 +215,15 @@ def get_items(market: Optional[str] = None, folder_id: Optional[int] = None, db:
 
 
 @router.get("/items/prices")
-async def get_items_with_prices(market: Optional[str] = None, folder_id: Optional[int] = None, db: Session = Depends(get_db)):
+async def get_items_with_prices(
+    market: Optional[str] = None,
+    folder_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     """관심종목 + 실시간 가격"""
-    wl = _ensure_watchlist(db)
+    user_id = current_user.id if current_user else None
+    wl = _ensure_watchlist(db, user_id=user_id)
     q = db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == wl.id)
     if market and market != "전체":
         q = q.filter(WatchlistItem.market == market)
@@ -211,7 +231,7 @@ async def get_items_with_prices(market: Optional[str] = None, folder_id: Optiona
         q = q.filter(WatchlistItem.folder_id == folder_id)
     items = q.order_by(WatchlistItem.position, WatchlistItem.added_at).all()
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     async def fetch(item: WatchlistItem):
         meta = _item_to_dict(item)
@@ -230,12 +250,17 @@ async def get_items_with_prices(market: Optional[str] = None, folder_id: Optiona
 
 
 @router.get("/{watchlist_id}/prices")
-async def get_watchlist_with_prices(watchlist_id: int, db: Session = Depends(get_db)):
+async def get_watchlist_with_prices(
+    watchlist_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     """기존 호환용"""
     wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id).first()
     if not wl:
-        wl = _ensure_watchlist(db)
-    loop = asyncio.get_event_loop()
+        user_id = current_user.id if current_user else None
+        wl = _ensure_watchlist(db, user_id=user_id)
+    loop = asyncio.get_running_loop()
 
     async def fetch(item: WatchlistItem):
         try:
@@ -254,8 +279,13 @@ async def get_watchlist_with_prices(watchlist_id: int, db: Session = Depends(get
 
 # ── 종목 CRUD ─────────────────────────────────────────────────
 @router.post("/items")
-def add_item(req: AddItemRequest, db: Session = Depends(get_db)):
-    wl = _ensure_watchlist(db)
+def add_item(
+    req: AddItemRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    user_id = current_user.id if current_user else None
+    wl = _ensure_watchlist(db, user_id=user_id)
     existing = db.query(WatchlistItem).filter(
         WatchlistItem.watchlist_id == wl.id,
         WatchlistItem.symbol == req.symbol,
