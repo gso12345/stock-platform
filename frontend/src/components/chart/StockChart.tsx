@@ -195,12 +195,15 @@ function SettingsPanel({ settings, onChange, onClose }: {
         <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={14}/></button>
       </div>
 
-      {/* 오버레이 지표 */}
-      <div className="flex flex-col gap-3">
-        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">오버레이</span>
-
-        {/* 거래량 */}
+      {/* ── 거래량 ── */}
+      <div className="flex flex-col gap-2">
+        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">거래량</span>
         <Toggle label="거래량" checked={settings.volume} onToggle={() => set({ volume: !settings.volume })} color="#3b82f6"/>
+      </div>
+
+      {/* ── 추세 지표 ── */}
+      <div className="flex flex-col gap-3">
+        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">추세 지표 (Trend)</span>
 
         {/* MA */}
         <div className="flex flex-col gap-1.5">
@@ -256,9 +259,9 @@ function SettingsPanel({ settings, onChange, onClose }: {
         </div>
       </div>
 
-      {/* 보조 지표 */}
+      {/* ── 모멘텀 지표 ── */}
       <div className="flex flex-col gap-3 border-t border-border pt-3">
-        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">보조 지표 (하단 패널)</span>
+        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">모멘텀 지표 (Momentum)</span>
 
         {/* RSI */}
         <div className="flex flex-col gap-1.5">
@@ -295,20 +298,26 @@ function SettingsPanel({ settings, onChange, onClose }: {
           {settings.cci && <div className="pl-2"><NumInput label="기간" value={settings.cciPeriod} onChange={v => set({ cciPeriod: v })}/></div>}
         </div>
 
-        {/* ATR */}
-        <div className="flex flex-col gap-1.5">
-          <Toggle label="ATR" checked={settings.atr} onToggle={() => set({ atr: !settings.atr })} color="#f97316"/>
-          {settings.atr && <div className="pl-2"><NumInput label="기간" value={settings.atrPeriod} onChange={v => set({ atrPeriod: v })}/></div>}
-        </div>
-
-        {/* OBV */}
-        <Toggle label="OBV" checked={settings.obv} onToggle={() => set({ obv: !settings.obv })} color="#6366f1"/>
-
         {/* Williams %R */}
         <div className="flex flex-col gap-1.5">
           <Toggle label="Williams %R" checked={settings.williams} onToggle={() => set({ williams: !settings.williams })} color="#14b8a6"/>
           {settings.williams && <div className="pl-2"><NumInput label="기간" value={settings.williamsPeriod} onChange={v => set({ williamsPeriod: v })}/></div>}
         </div>
+      </div>
+
+      {/* ── 변동성 지표 ── */}
+      <div className="flex flex-col gap-3 border-t border-border pt-3">
+        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">변동성 지표 (Volatility)</span>
+        <div className="flex flex-col gap-1.5">
+          <Toggle label="ATR" checked={settings.atr} onToggle={() => set({ atr: !settings.atr })} color="#f97316"/>
+          {settings.atr && <div className="pl-2"><NumInput label="기간" value={settings.atrPeriod} onChange={v => set({ atrPeriod: v })}/></div>}
+        </div>
+      </div>
+
+      {/* ── 거래량 분석 지표 ── */}
+      <div className="flex flex-col gap-3 border-t border-border pt-3">
+        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">거래량 분석</span>
+        <Toggle label="OBV (누적거래량)" checked={settings.obv} onToggle={() => set({ obv: !settings.obv })} color="#6366f1"/>
       </div>
     </div>
   );
@@ -376,13 +385,28 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
         borderColor: C.border,
         timeVisible: true,
         secondsVisible: false,
-        // 가로축 날짜 레이블 포맷
         tickMarkFormatter: (time: any) => {
           try {
             const d = typeof time === "number" ? new Date(time * 1000) : new Date(time as string);
             return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
           } catch { return ""; }
         },
+      },
+      // 스크롤 중 의도치 않은 확대 방지
+      handleScale: {
+        mouseWheel: true,          // 마우스 휠로만 줌 허용
+        pinch: false,              // 모바일 핀치 줌 비활성화
+        axisPressedMouseMove: {
+          time: false,             // 시간축 드래그 시 줌 비활성화
+          price: false,            // 가격축 드래그 시 줌 비활성화
+        },
+        axisDoubleClickReset: true,
+      },
+      handleScroll: {
+        mouseWheel: false,         // 마우스 휠로 스크롤 대신 줌만 사용
+        pressedMouseMove: true,    // 마우스 드래그 스크롤
+        horzTouchDrag: true,       // 터치 수평 스크롤
+        vertTouchDrag: false,      // 터치 수직 스크롤 비활성화 (페이지 스크롤 우선)
       },
       width: el.clientWidth,
       height: h,

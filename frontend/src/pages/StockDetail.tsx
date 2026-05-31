@@ -352,8 +352,8 @@ export default function StockDetail() {
 
       {/* 탭 네비게이션 */}
       <div className="flex flex-col gap-2">
-        {/* 메인 탭 — 하단 border 방식의 깔끔한 탭바 */}
-        <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-hidden">
+        {/* 메인 탭 — 한 줄 + 가로 스크롤 */}
+        <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
           {[
             { id:"chart",     Icon: BarChart2,  label:"차트" },
             { id:"financial", Icon: DollarSign, label:"재무제표" },
@@ -363,7 +363,7 @@ export default function StockDetail() {
           ].map(({ id, Icon, label }) => (
             <button key={id}
               onClick={() => setMainTab(id as any)}
-              className={`flex items-center gap-1.5 px-4 py-3 text-xs font-semibold transition-all border-b-2 -mb-px ${
+              className={`flex items-center gap-1.5 px-4 py-3 text-xs font-semibold transition-all border-b-2 -mb-px whitespace-nowrap flex-shrink-0 ${
                 mainTab === id
                   ? "border-accent-blue text-accent-blue bg-accent-blue/5"
                   : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"

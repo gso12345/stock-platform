@@ -218,10 +218,33 @@ async def get_stock_ohlcv(
 @router.get("/{market}/{symbol}/detail")
 async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
     if market == "KR":
-        # Naver integration API가 PER/PBR/EPS/시총/시가/고가/저가/52주/배당 제공
+        # Naver API: 시가/고가/저가/52주/배당 포함. yfinance 폴백 시 일부 누락 가능
         price = await get_kr_price(symbol)
-        # KR은 Naver가 fundamentals도 포함 → 추가 fetch 불필요
-        return price or {"symbol": symbol, "price": None, "currency": "KRW"}
+        if not price:
+            return {"symbol": symbol, "price": None, "currency": "KRW"}
+        # 52주 고가/저가, 배당수익률 누락 시 fundamentals 캐시로 보완
+        FUND_KEYS = ("week52_high", "week52_low", "dividend_yield", "per", "pbr", "eps", "bps", "beta")
+        if any(not price.get(k) for k in FUND_KEYS):
+            fund_ck = f"fund:{symbol}"
+            fund_cached = cache.get(fund_ck) or cache.get_stale(fund_ck)
+            if fund_cached:
+                for k in FUND_KEYS:
+                    if not price.get(k) and fund_cached.get(k):
+                        price[k] = fund_cached[k]
+            else:
+                # 캐시 없으면 비동기 fetch (타임아웃 8초)
+                try:
+                    fund = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "KR"),
+                        timeout=8
+                    )
+                    if fund:
+                        for k in FUND_KEYS:
+                            if not price.get(k) and fund.get(k):
+                                price[k] = fund[k]
+                except Exception:
+                    pass
+        return price
     else:
         # US: stale 캐시 우선, fundamentals는 별도 캐시(fund:)에서 병합
         fund_ck = f"fund:{symbol}"
