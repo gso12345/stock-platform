@@ -91,6 +91,7 @@ export default function StockDetail() {
   const [supplyDays, setSupplyDays]   = useState(30);
   const [newsSort, setNewsSort]       = useState<"latest" | "popular">("latest");
   const [inWatchlist, setInWatchlist] = useState(false);
+  const [watchlistMsg, setWatchlistMsg] = useState("");
 
   const onCandleChange = (type: string) => {
     setCandleType(type);
@@ -161,9 +162,42 @@ export default function StockDetail() {
     staleTime: 600_000,
   });
 
+  // 이미 추가된 종목인지 확인
+  const { data: watchlistItems } = useQuery({
+    queryKey: ["watchlist-items-check"],
+    queryFn: () => watchlistApi.getItems(),
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    if (watchlistItems) {
+      setInWatchlist((watchlistItems as any[]).some((i: any) => i.symbol === sym));
+    }
+  }, [watchlistItems, sym]);
+
   const addMutation = useMutation({
-    mutationFn: () => watchlistApi.addItem({ symbol: sym, market: m, name: (detail as any)?.name ?? sym, watchlist_id: 1 }),
-    onSuccess: () => { setInWatchlist(true); qc.invalidateQueries({ queryKey: ["watchlist-items"] }); },
+    mutationFn: () => watchlistApi.addItem({
+      symbol: sym,
+      market: m,
+      name: (detail as any)?.name ?? sym,
+      watchlist_id: 1,
+    }),
+    onSuccess: () => {
+      setInWatchlist(true);
+      setWatchlistMsg("관심종목에 추가됐어요");
+      qc.invalidateQueries({ queryKey: ["watchlist-items"] });
+      qc.invalidateQueries({ queryKey: ["watchlist-items-check"] });
+      setTimeout(() => setWatchlistMsg(""), 2000);
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.detail ?? "추가 실패";
+      if (msg.includes("이미")) {
+        setInWatchlist(true);
+        setWatchlistMsg("이미 추가된 종목이에요");
+      } else {
+        setWatchlistMsg(msg);
+      }
+      setTimeout(() => setWatchlistMsg(""), 2000);
+    },
   });
 
   const d = detail as any;
@@ -208,14 +242,26 @@ export default function StockDetail() {
               <span className={`text-2xs px-1.5 py-0.5 rounded border font-bold ${isKR?"border-blue-700/50 text-blue-400 bg-blue-900/20":m==="ETF"?"border-purple-700/50 text-purple-400 bg-purple-900/20":"border-green-700/50 text-green-400 bg-green-900/20"}`}>{m}</span>
               {d?.sector && <span className="text-2xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted">{d.sector}</span>}
             </div>
-            {d?.name && <p className="text-text-muted text-sm mt-0.5">{d.name}</p>}
+            <p className="text-text-muted text-sm mt-0.5">{d?.name || sym}</p>
           </div>
         </div>
-        <button onClick={()=>!inWatchlist&&addMutation.mutate()} disabled={addMutation.isPending}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-all flex-shrink-0 ${inWatchlist?"border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow":"border-border text-text-muted hover:border-accent-yellow/60 hover:text-accent-yellow"}`}
-        >
-          <Star size={14} fill={inWatchlist?"currentColor":"none"}/>{inWatchlist?"관심종목":"추가"}
-        </button>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <button
+            onClick={() => !inWatchlist && !addMutation.isPending && addMutation.mutate()}
+            disabled={addMutation.isPending}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
+              inWatchlist
+                ? "border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow"
+                : "border-border text-text-muted hover:border-accent-yellow/60 hover:text-accent-yellow"
+            }`}
+          >
+            <Star size={14} fill={inWatchlist ? "currentColor" : "none"}/>
+            {addMutation.isPending ? "추가 중..." : inWatchlist ? "관심종목" : "추가"}
+          </button>
+          {watchlistMsg && (
+            <span className="text-2xs text-text-muted animate-fade-in">{watchlistMsg}</span>
+          )}
+        </div>
       </div>
 
       {/* 가격 패널 */}
