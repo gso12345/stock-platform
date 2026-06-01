@@ -1,9 +1,13 @@
+import logging
+import re
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 from typing import Optional
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+
+log = logging.getLogger(__name__)
 
 from app.core.deps import get_current_user, require_user
 from app.core.security import create_access_token, hash_password, verify_password
@@ -18,12 +22,19 @@ limiter = Limiter(key_func=get_remote_address)
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50, pattern=r"^[a-zA-Z0-9_]+$")
     password: str = Field(..., min_length=8, max_length=100)
-    email: Optional[str] = Field(None, max_length=200)  # 선택
+    email: Optional[str] = Field(None, max_length=200)
+
+    @field_validator("password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
+            raise ValueError("비밀번호는 영문자와 숫자를 모두 포함해야 합니다")
+        return v
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, max_length=50)
+    password: str = Field(..., min_length=1, max_length=100)
 
 
 class TokenResponse(BaseModel):
@@ -84,9 +95,10 @@ def register(request: Request, req: RegisterRequest, db: Session = Depends(get_d
     except Exception as e:
         db.rollback()
         err = str(e).lower()
+        log.error(f"회원가입 오류 (username={req.username}): {e}")
         if "unique" in err or "duplicate" in err:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 아이디 또는 이메일입니다")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"회원가입 실패: {str(e)[:100]}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="서버 오류가 발생했습니다")
     return _make_token_response(user)
 
 

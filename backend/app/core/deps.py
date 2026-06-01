@@ -23,6 +23,8 @@ def get_current_user(
     if not user_id:
         return None
     user = db.query(User).filter(User.id == int(user_id)).first()
+    if user and not user.is_active:
+        return None
     return user
 
 

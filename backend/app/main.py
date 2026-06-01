@@ -35,8 +35,8 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _allowed_origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.strip()]
-if settings.APP_ENV != "production":
-    _allowed_origins = ["*"]
+if settings.APP_ENV not in ("production", "staging"):
+    _allowed_origins = ["http://localhost:5173", "http://localhost:3000", *_allowed_origins]
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -78,7 +78,11 @@ async def _startup():
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
+        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users"}
+
         def _add_col_if_missing(table: str, col: str, col_def: str):
+            if table not in _ALLOWED_MIGRATE_TABLES:
+                return
             if table in tables:
                 existing = [c["name"] for c in inspector.get_columns(table)]
                 if col not in existing:
@@ -107,19 +111,29 @@ start_background_tasks(app)
 
 
 @app.websocket("/ws/indices")
-async def ws_indices(websocket: WebSocket, interval: int = Query(default=30)):
+async def ws_indices(
+    websocket: WebSocket,
+    interval: int = Query(default=30, ge=10, le=60),
+):
     await stream_indices(websocket, interval=interval)
 
 
 @app.websocket("/ws/prices")
 async def ws_prices(
     websocket: WebSocket,
-    symbols: str = Query(...),
-    markets: str = Query(...),
-    interval: int = Query(default=30),
+    symbols: str = Query(..., max_length=500),
+    markets: str = Query(..., max_length=200),
+    interval: int = Query(default=30, ge=10, le=60),
+    token: str = Query(default=""),
 ):
-    sym_list = symbols.split(",")
-    mkt_list = markets.split(",")
+    import re as _re
+    sym_list = [s.strip() for s in symbols.split(",") if s.strip()][:50]
+    mkt_list = [m.strip() for m in markets.split(",") if m.strip()]
+    # 심볼 형식 검증
+    bad = [s for s in sym_list if not _re.match(r"^[A-Za-z0-9.\-]{1,20}$", s)]
+    if bad:
+        await websocket.close(code=4000)
+        return
     await stream_prices(websocket, sym_list, mkt_list, interval=interval)
 
 

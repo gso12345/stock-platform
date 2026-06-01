@@ -7,7 +7,8 @@ import asyncio
 from app.db.database import get_db
 from app.models.stock import Watchlist, WatchlistItem, WatchlistFolder
 from app.models.user import User
-from app.core.deps import get_current_user
+import re
+from app.core.deps import get_current_user, require_user
 from app.services.yf_service import yf_service
 from app.core.cache import cache
 
@@ -137,6 +138,9 @@ def delete_folder(
 
 
 # ── 관심종목 일괄 가격 조회 (빠른 배치 fetch + 캐시 저장) ────────
+_SYMBOL_RE = re.compile(r"^[A-Za-z0-9.\-]{1,20}$")
+
+
 @router.get("/prices")
 async def get_watchlist_prices_batch(
     symbols: str = Query(..., max_length=1000),
@@ -149,6 +153,11 @@ async def get_watchlist_prices_batch(
     mkt_list = [m.strip() for m in markets.split(",") if m.strip()]
     if not sym_list:
         return []
+    if len(sym_list) > 50:
+        raise HTTPException(status_code=400, detail="한 번에 최대 50개 심볼만 조회 가능합니다")
+    for sym in sym_list:
+        if not _SYMBOL_RE.match(sym):
+            raise HTTPException(status_code=400, detail=f"잘못된 심볼 형식: {sym}")
     while len(mkt_list) < len(sym_list):
         mkt_list.append("US")
 
@@ -321,10 +330,19 @@ def add_item(
 
 
 @router.put("/items/reorder")
-def reorder_items(req: ReorderRequest, db: Session = Depends(get_db)):
-    """관심종목 순서 일괄 저장 (id 목록을 새 순서대로 전달)"""
+def reorder_items(
+    req: ReorderRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    """관심종목 순서 일괄 저장 (소유한 watchlist 아이템만 수정)"""
+    user_id = current_user.id if current_user else None
+    wl = _ensure_watchlist(db, user_id=user_id)
     for position, item_id in enumerate(req.order):
-        db.query(WatchlistItem).filter(WatchlistItem.id == item_id).update({"position": position})
+        db.query(WatchlistItem).filter(
+            WatchlistItem.id == item_id,
+            WatchlistItem.watchlist_id == wl.id,
+        ).update({"position": position})
     db.commit()
     return {"message": "순서 저장 완료"}
 
@@ -336,7 +354,12 @@ def update_item(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
-    item = db.query(WatchlistItem).filter(WatchlistItem.id == item_id).first()
+    user_id = current_user.id if current_user else None
+    wl = _ensure_watchlist(db, user_id=user_id)
+    item = db.query(WatchlistItem).filter(
+        WatchlistItem.id == item_id,
+        WatchlistItem.watchlist_id == wl.id,
+    ).first()
     if not item:
         raise HTTPException(status_code=404, detail="종목을 찾을 수 없습니다")
     if req.name is not None:
@@ -355,7 +378,12 @@ def remove_item(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
-    item = db.query(WatchlistItem).filter(WatchlistItem.id == item_id).first()
+    user_id = current_user.id if current_user else None
+    wl = _ensure_watchlist(db, user_id=user_id)
+    item = db.query(WatchlistItem).filter(
+        WatchlistItem.id == item_id,
+        WatchlistItem.watchlist_id == wl.id,
+    ).first()
     if not item:
         raise HTTPException(status_code=404, detail="종목을 찾을 수 없습니다")
     db.delete(item)
