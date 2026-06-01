@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import hashlib
+import hmac
+import secrets
 
-import bcrypt
 from jose import JWTError, jwt
 
 from app.core.config import settings
@@ -10,16 +12,26 @@ SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7일
 
+_ITERATIONS = 260_000
+_ALGO = "sha256"
+
 
 def hash_password(password: str) -> str:
-    """평문 비밀번호를 bcrypt 해시로 변환"""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    """PBKDF2-SHA256으로 비밀번호 해시 (표준 라이브러리, 외부 의존성 없음)"""
+    salt = secrets.token_hex(32)
+    key = hashlib.pbkdf2_hmac(_ALGO, password.encode("utf-8"), salt.encode(), _ITERATIONS)
+    return f"pbkdf2:{_ALGO}:{_ITERATIONS}:{salt}:{key.hex()}"
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """평문 비밀번호와 해시 비교"""
+    """해시 검증"""
     try:
-        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+        parts = hashed.split(":")
+        if len(parts) != 5 or parts[0] != "pbkdf2":
+            return False
+        _, algo, iterations, salt, stored = parts
+        key = hashlib.pbkdf2_hmac(algo, plain.encode("utf-8"), salt.encode(), int(iterations))
+        return hmac.compare_digest(key.hex(), stored)
     except Exception:
         return False
 
