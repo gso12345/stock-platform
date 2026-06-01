@@ -88,6 +88,15 @@ async def _startup():
 
         _add_col_if_missing("watchlists",  "user_id", "INTEGER REFERENCES users(id)")
         _add_col_if_missing("strategies",  "user_id", "INTEGER REFERENCES users(id)")
+
+        # users.email — NOT NULL → nullable 마이그레이션 (PostgreSQL only)
+        if "users" in tables and not settings.DATABASE_URL.startswith("sqlite"):
+            with engine.connect() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN email DROP NOT NULL"))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")

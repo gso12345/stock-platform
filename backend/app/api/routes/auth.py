@@ -72,14 +72,21 @@ def register(request: Request, req: RegisterRequest, db: Session = Depends(get_d
                 status_code=status.HTTP_409_CONFLICT,
                 detail="이미 사용 중인 이메일입니다",
             )
-    user = User(
-        username=req.username,
-        email=req.email or None,
-        hashed_password=hash_password(req.password),
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    try:
+        user = User(
+            username=req.username,
+            email=req.email or None,
+            hashed_password=hash_password(req.password),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    except Exception as e:
+        db.rollback()
+        err = str(e).lower()
+        if "unique" in err or "duplicate" in err:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 아이디 또는 이메일입니다")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"회원가입 실패: {str(e)[:100]}")
     return _make_token_response(user)
 
 
