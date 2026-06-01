@@ -1,7 +1,10 @@
 import feedparser
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from app.core.cache import cache
+
+_refreshing = {}  # 중복 갱신 방지 플래그
 
 KST = timezone(timedelta(hours=9))
 
@@ -140,33 +143,42 @@ def _add_trending_score(articles: list) -> list:
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     """피드 목록을 병렬로 fetch (ThreadPoolExecutor 사용)"""
     all_news = []
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    with ThreadPoolExecutor(max_workers=len(feeds)) as executor:
         futures = {
             executor.submit(_parse_feed, url, source, limit_per_source): source
             for source, url in feeds
         }
-        for future in as_completed(futures, timeout=15):
+        for future in as_completed(futures, timeout=10):
             try:
-                items = future.result(timeout=12)
+                items = future.result(timeout=5)
                 all_news.extend(items)
             except Exception:
                 pass
     return all_news
 
 
-def get_kr_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
-    ck = "news:kr"
-    if c := cache.get(ck):
-        return c
-    stale = cache.get_stale(ck)  # 갱신 중 반환할 stale 데이터
-    all_news = _fetch_all_feeds(KR_FEEDS, limit_per_source)
-    if not all_news and stale:
-        return stale
+def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
+    all_news = _fetch_all_feeds(feeds, limit_per_source)
+    if not all_news:
+        return []
     all_news.sort(key=lambda x: x["published"], reverse=True)
     _add_trending_score(all_news)
     result = all_news[:total_limit]
     cache.set(ck, result, 300)
+    _refreshing.pop(ck, None)
     return result
+
+
+def get_kr_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
+    ck = "news:kr"
+    if c := cache.get(ck):
+        return c
+    stale = cache.get_stale(ck)
+    if stale and not _refreshing.get(ck):
+        _refreshing[ck] = True
+        threading.Thread(target=_do_refresh_news, args=(ck, KR_FEEDS, limit_per_source, total_limit), daemon=True).start()
+        return stale
+    return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
 def get_us_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
@@ -174,11 +186,8 @@ def get_us_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]
     if c := cache.get(ck):
         return c
     stale = cache.get_stale(ck)
-    all_news = _fetch_all_feeds(US_FEEDS, limit_per_source)
-    if not all_news and stale:
+    if stale and not _refreshing.get(ck):
+        _refreshing[ck] = True
+        threading.Thread(target=_do_refresh_news, args=(ck, US_FEEDS, limit_per_source, total_limit), daemon=True).start()
         return stale
-    all_news.sort(key=lambda x: x["published"], reverse=True)
-    _add_trending_score(all_news)
-    result = all_news[:total_limit]
-    cache.set(ck, result, 300)
-    return result
+    return _do_refresh_news(ck, US_FEEDS, limit_per_source, total_limit)
