@@ -38,10 +38,10 @@ export const dashboardApi = {
     api.get<{ kr: any[]; us: any[] }>("/dashboard/indices").then((r) => r.data),
 
   getKR: (category = "시가총액") =>
-    api.get("/dashboard/kr", { params: { category } }).then((r) => r.data),
+    api.get("/dashboard/kr", { params: { category, include_news: false } }).then((r) => r.data),
 
   getUS: (category = "시가총액") =>
-    api.get("/dashboard/us", { params: { category } }).then((r) => r.data),
+    api.get("/dashboard/us", { params: { category, include_news: false } }).then((r) => r.data),
 
   getRankings: (market: "kr" | "us", category = "시가총액") =>
     api.get(`/dashboard/rankings/${market}`, { params: { category } }).then((r) => r.data),

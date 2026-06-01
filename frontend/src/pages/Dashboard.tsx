@@ -216,6 +216,13 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     refetchInterval: 30_000,
   });
 
+  const { data: newsData } = useQuery({
+    queryKey: ["dashboard-news-kr"],
+    queryFn: () => dashboardApi.getNews("kr"),
+    staleTime: 300_000,
+    refetchInterval: 300_000,
+  });
+
   const KR_INDEX_KEYS = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"] as const;
   const KR_DISPLAY: Record<string, string> = {
     KOSPI:"코스피",KOSDAQ:"코스닥",KOSPI200:"코스피 200",KOSDAQ150:"코스닥 150"
@@ -301,10 +308,10 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
             <Newspaper size={14} className="text-text-muted" />
             <h3 className="text-sm font-semibold text-text-primary">국내 금융뉴스</h3>
-            {data?.news && <span className="text-2xs text-text-muted ml-auto">{data.news.length}건</span>}
+            {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
           </div>
           <div className="px-3 py-1">
-            {isLoading ? <LoadingSpinner /> : <NewsPanel news={data?.news ?? []} />}
+            <NewsPanel news={newsData ?? []} />
           </div>
         </Card>
       </div>
@@ -321,6 +328,13 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     queryFn: () => dashboardApi.getUS(category),
     staleTime: 60_000,
     refetchInterval: 30_000,
+  });
+
+  const { data: newsData } = useQuery({
+    queryKey: ["dashboard-news-us"],
+    queryFn: () => dashboardApi.getNews("us"),
+    staleTime: 300_000,
+    refetchInterval: 300_000,
   });
 
   const US_INDEX_KEYS = ["SP500","NASDAQ","DOW","SOX","RUSSELL"] as const;
@@ -395,10 +409,10 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
             <Globe size={14} className="text-text-muted" />
             <h3 className="text-sm font-semibold text-text-primary">해외 금융뉴스</h3>
-            {data?.news && <span className="text-2xs text-text-muted ml-auto">{data.news.length}건</span>}
+            {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
           </div>
           <div className="px-3 py-1">
-            {isLoading ? <LoadingSpinner /> : <NewsPanel news={data?.news ?? []} />}
+            <NewsPanel news={newsData ?? []} />
           </div>
         </Card>
       </div>

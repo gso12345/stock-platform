@@ -82,22 +82,30 @@ async def get_all_indices():
 
 # ── 국내 대시보드 ──────────────────────────────────────────
 @router.get("/kr")
-async def get_kr_dashboard(category: str = Query(default="시가총액")):
+async def get_kr_dashboard(
+    category: str = Query(default="시가총액"),
+    include_news: bool = Query(default=False),
+):
     loop = asyncio.get_running_loop()
-    idx_results, rankings, news, exchange, rates = await asyncio.gather(
+    tasks = [
         asyncio.gather(*[_get_kr_index(n) for n in KR_INDICES]),
         _get_kr_rankings(category),
-        loop.run_in_executor(None, get_kr_news, 6, 100),
         _get_exchange_rate_async(),
         loop.run_in_executor(None, get_kr_rates),
-    )
+    ]
+    if include_news:
+        tasks.append(loop.run_in_executor(None, get_kr_news, 6, 100))
+        idx_results, rankings, exchange, rates, news = await asyncio.gather(*tasks)
+    else:
+        idx_results, rankings, exchange, rates = await asyncio.gather(*tasks)
+        news = cache.get("news:kr") or cache.get_stale("news:kr") or []
     futures = await get_kr_futures()
     return {
         "indices":  idx_results,
         "kospi":    idx_results[0],
         "kosdaq":   idx_results[1],
         "rankings": rankings,
-        "news":     news[:80],
+        "news":     news[:80] if news else [],
         "category": category,
         "exchange": exchange,
         "futures":  futures,
@@ -149,14 +157,22 @@ async def _get_kr_rankings(category: str) -> list:
 
 # ── 해외 대시보드 ──────────────────────────────────────────
 @router.get("/us")
-async def get_us_dashboard(category: str = Query(default="시가총액")):
+async def get_us_dashboard(
+    category: str = Query(default="시가총액"),
+    include_news: bool = Query(default=False),
+):
     loop = asyncio.get_running_loop()
-    idx_results, exchange, rankings, news = await asyncio.gather(
+    tasks = [
         asyncio.gather(*[_get_us_index(n) for n in US_INDICES]),
         _get_exchange_rate_async(),
         loop.run_in_executor(None, _get_us_rankings_cached, category),
-        loop.run_in_executor(None, get_us_news, 6, 100),
-    )
+    ]
+    if include_news:
+        tasks.append(loop.run_in_executor(None, get_us_news, 6, 100))
+        idx_results, exchange, rankings, news = await asyncio.gather(*tasks)
+    else:
+        idx_results, exchange, rankings = await asyncio.gather(*tasks)
+        news = cache.get("news:us") or cache.get_stale("news:us") or []
     idx_map = {r["index"]: r for r in idx_results if isinstance(r, dict)}
     return {
         "indices":  idx_results,
@@ -167,7 +183,7 @@ async def get_us_dashboard(category: str = Query(default="시가총액")):
         "russell":  idx_map.get("RUSSELL"),
         "exchange": exchange,
         "rankings": rankings,
-        "news":     news[:80],
+        "news":     news[:80] if news else [],
         "category": category,
     }
 

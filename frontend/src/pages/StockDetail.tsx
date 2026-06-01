@@ -157,7 +157,7 @@ export default function StockDetail() {
   const { data: metricsHistory } = useQuery({
     queryKey: ["metrics-history", m, sym],
     queryFn: () => stocksApi.getMetricsHistory(m, sym),
-    enabled: !!sym,
+    enabled: !!sym && mainTab === "financial",
     retry: 1, staleTime: 3_600_000,
   });
 
@@ -172,7 +172,7 @@ export default function StockDetail() {
   const { data: analystData, isLoading: loadingAnalyst } = useQuery({
     queryKey: ["analyst", m, sym],
     queryFn: () => stocksApi.getAnalyst(m, sym),
-    enabled: !!sym && !isKR,
+    enabled: !!sym && !isKR && mainTab === "analyst",
     retry: 1, staleTime: 3_600_000,
   });
 
