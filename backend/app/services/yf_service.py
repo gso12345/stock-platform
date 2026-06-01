@@ -65,11 +65,49 @@ INDEX_NAMES = {
 }
 
 SP500_SYMBOLS = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AVGO", "JPM", "V",
-    "MA", "UNH", "XOM", "WMT", "LLY", "JNJ", "COST", "HD", "BAC", "CVX",
-    "MRK", "ABBV", "AMD", "NFLX", "CRM", "ORCL", "ACN", "TMO", "ADBE", "KO",
-    "PEP", "DHR", "MCD", "NKE", "INTC", "QCOM", "IBM", "TXN", "PM", "GS",
-    "CAT", "HON", "BA", "AMGN", "LMT", "MDT", "GILD", "SPGI", "AXP", "BLK",
+    # S&P 500 + NASDAQ 100 주요 종목 (약 300개, 시총 기준 상위)
+    # 빅테크/성장주
+    "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AVGO","NFLX","CRM",
+    "ADBE","AMD","QCOM","TXN","ADI","AMAT","LRCX","KLAC","MU","MRVL",
+    "PANW","CRWD","FTNT","ZS","SNPS","CDNS","NOW","INTU","ANSS","TEAM",
+    # 금융
+    "JPM","BAC","WFC","C","GS","MS","BLK","SCHW","AXP","V","MA",
+    "USB","PNC","TFC","COF","DFS","AIG","MET","PRU","AFL","SPGI",
+    "MCO","ICE","CME","NDAQ","CBOE",
+    # 헬스케어/바이오
+    "UNH","JNJ","LLY","ABBV","MRK","PFE","ABT","TMO","DHR","BMY",
+    "AMGN","GILD","REGN","VRTX","BIIB","MRNA","BSX","SYK","MDT","EW",
+    "ISRG","IDXX","ILMN","DXCM","ZBH","BDX","BAX","HOLX","VEEV","ALGN",
+    # 소비재/유통
+    "WMT","COST","TGT","HD","LOW","MCD","SBUX","CMG","YUM","DRI",
+    "NKE","PG","KO","PEP","PM","MO","MDLZ","GIS","K","CPB",
+    "CL","CHD","EL","ULTA","LULU","TJX","ROST","BURL","M","GPS",
+    # 에너지
+    "XOM","CVX","COP","OXY","SLB","HAL","EOG","PXD","DVN","MPC",
+    "VLO","PSX","KMI","WMB","OKE","LNG","ET","EPD","PAA","TRGP",
+    # 통신/미디어
+    "T","VZ","TMUS","DIS","CMCSA","CHTR","NFLX","PARA","WBD","FOXA",
+    # 산업재
+    "CAT","DE","EMR","ETN","HON","GE","MMM","ITW","PH","DOV",
+    "BA","LMT","RTX","NOC","GD","TDG","HEI","HEICO","L3H","TXT",
+    "UPS","FDX","CSX","UNP","NSC","JBHT","CHRW","EXPD","XPO","ODFL",
+    # 부동산
+    "AMT","CCI","EQIX","DLR","PLD","PSA","EXR","SPG","O","WELL",
+    # 유틸리티
+    "NEE","DUK","SO","AEP","EXC","SRE","PCG","ED","XEL","WEC",
+    # 기타 대형주
+    "BRK-B","ORCL","IBM","ACN","CSCO","DELL","HPQ","HPE","NTAP","WDC",
+    "PYPL","SQ","FIS","FI","GPN","COIN","HOOD","SOFI","AFRM","UPST",
+    "UBER","LYFT","ABNB","BKNG","EXPE","TRIP","CTRIP","EBAY","ETSY","W",
+    "SHOP","AMZN","WISH","CHWY","CPNG","SE","GRAB","GOTO","BABA","JD",
+    "NIO","XPEV","LI","RIVN","LCID","GM","F","STLA","TM","HMC",
+    "PLTR","SNOW","DDOG","NET","MDB","OKTA","ZM","DOCU","BILL","HUBS",
+    "TTD","PUBM","MGNI","IAS","DV","APPS","IRONSRC","APPLOVIN","APP","IREN",
+    "WDAY","VEEV","COUP","SMAR","PCTY","PAYC","ADP","PAYX","BSY","GWRE",
+    "ZI","S","CFLT","ESTC","SUMO","PD","FIVN","NICE","NICE","CCCS",
+    "DKNG","CZR","MGM","WYNN","LVS","PENN","RSI","EVRI","AGS","SGMS",
+    "MRNA","BNTX","NVAX","ARCT","SGEN","EXEL","INCY","NKTR","ALNY","SRPT",
+    "TSM","ASML","ASMX","STM","IFNNY","SSNLF","TOELY","ARMH","ARM","MCHP",
 ]
 
 KOSPI_SYMBOLS = [

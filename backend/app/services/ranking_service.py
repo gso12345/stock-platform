@@ -83,15 +83,16 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
             else:
                 market_cap = 0
                 volume     = int(next((n for n in reversed(nums[5:]) if n and n > 100), 0))
+            change = round(price * change_rate / 100, 2) if price and change_rate else 0
             rows.append({
                 "symbol":      f"{code}{suffix}",
                 "name":        name,
                 "market":      mkt_name,
                 "price":       price,
-                "change":      0,
+                "change":      change,
                 "change_rate": change_rate,
                 "volume":      volume,
-                "amount":      0,
+                "amount":      price * volume if price and volume else 0,
                 "market_cap":  market_cap,
             })
             if len(rows) >= 100:
@@ -223,7 +224,7 @@ def _sort_us(rows: list[dict], category: str) -> list[dict]:
         sortable.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
     for i, r in enumerate(sortable):
         r["rank"] = i + 1
-    return sortable[:50]
+    return sortable[:100]
 
 
 # ── 공개 인터페이스 ────────────────────────────────────────
