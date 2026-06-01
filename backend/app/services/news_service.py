@@ -154,19 +154,27 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     return all_news
 
 
-def get_kr_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
-    ck = "news:kr"
-    if c := cache.get(ck):
-        return c
-    stale = cache.get_stale(ck)  # 갱신 중 반환할 stale 데이터
-    all_news = _fetch_all_feeds(KR_FEEDS, limit_per_source)
-    if not all_news and stale:
-        return stale
+def _refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
+    """실제 RSS fetch 후 캐시 갱신. 스케줄러 또는 캐시 미스 시 호출."""
+    all_news = _fetch_all_feeds(feeds, limit_per_source)
+    if not all_news:
+        return []
     all_news.sort(key=lambda x: x["published"], reverse=True)
     _add_trending_score(all_news)
     result = all_news[:total_limit]
     cache.set(ck, result, 300)
     return result
+
+
+def get_kr_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
+    ck = "news:kr"
+    if c := cache.get(ck):
+        return c
+    # stale 데이터가 있으면 즉시 반환 — 스케줄러가 백그라운드에서 갱신
+    stale = cache.get_stale(ck)
+    if stale:
+        return stale
+    return _refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
 def get_us_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
@@ -174,11 +182,16 @@ def get_us_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]
     if c := cache.get(ck):
         return c
     stale = cache.get_stale(ck)
-    all_news = _fetch_all_feeds(US_FEEDS, limit_per_source)
-    if not all_news and stale:
+    if stale:
         return stale
-    all_news.sort(key=lambda x: x["published"], reverse=True)
-    _add_trending_score(all_news)
-    result = all_news[:total_limit]
-    cache.set(ck, result, 300)
-    return result
+    return _refresh_news(ck, US_FEEDS, limit_per_source, total_limit)
+
+
+def refresh_kr_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
+    """스케줄러 전용 — 항상 새로 fetch하여 캐시 갱신"""
+    return _refresh_news("news:kr", KR_FEEDS, limit_per_source, total_limit)
+
+
+def refresh_us_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
+    """스케줄러 전용 — 항상 새로 fetch하여 캐시 갱신"""
+    return _refresh_news("news:us", US_FEEDS, limit_per_source, total_limit)
