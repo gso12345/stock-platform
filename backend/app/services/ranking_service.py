@@ -77,12 +77,13 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
             price       = next((n for n in nums[2:4] if n and n > 0), 0)
             change_rate = next((n for n in nums[4:7] if n is not None and abs(n) < 100), 0)
             if has_market_cap and len(nums) > 8:
-                # 시가총액 페이지: idx5=시가총액(억원), idx8=거래량
+                # 시가총액 페이지 컬럼: 순위|종목명|현재가|전일비|등락률|시가총액(억)|상장주식수|외국인비율|거래량|PER|ROE
                 market_cap = int((nums[5] or 0) * 1e8) if nums[5] else 0
-                volume     = int(nums[8]) if nums[8] else 0
+                volume     = int(nums[8]) if len(nums) > 8 and nums[8] else 0
             else:
+                # 상승률/하락률/거래량 페이지 컬럼: 순위|종목명|현재가|전일비|등락률|거래량|거래대금|시가총액(억)|PER
                 market_cap = 0
-                volume     = int(next((n for n in reversed(nums[5:]) if n and n > 100), 0))
+                volume     = int(nums[5]) if len(nums) > 5 and nums[5] and nums[5] > 0 else 0
             change = round(price * change_rate / 100, 2) if price and change_rate else 0
             rows.append({
                 "symbol":      f"{code}{suffix}",

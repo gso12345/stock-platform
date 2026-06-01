@@ -214,6 +214,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     queryFn: () => dashboardApi.getKR(category),
     staleTime: 15_000,
     refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
   });
 
   const { data: newsData } = useQuery({
@@ -221,6 +222,13 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     queryFn: () => dashboardApi.getNews("kr"),
     staleTime: 300_000,
     refetchInterval: 300_000,
+  });
+
+  const { data: extrasData } = useQuery({
+    queryKey: ["dashboard-kr-extras"],
+    queryFn: () => dashboardApi.getKRExtras(),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   });
 
   const KR_INDEX_KEYS = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"] as const;
@@ -259,25 +267,29 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
         </div>
       </section>
 
-      {/* 환율 / 금리 */}
+      {/* 환율 / 금리 — extrasData 먼저(빠름), 없으면 main data 폴백 */}
       <section>
         <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리</h2>
         <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
-          {/* 환율 */}
-          {data?.exchange && (
-            <ExtraCard
-              name="원/달러"
-              value={data.exchange.value ?? data.exchange.usdkrw ?? 0}
-              change={data.exchange.change ?? 0}
-              change_rate={data.exchange.change_rate ?? 0}
-              unit="원"
-              _demo={data.exchange._demo}
-            />
-          )}
-          {/* 금리 */}
-          {data?.rates?.map((r: any) => (
-            <ExtraCard key={r.name} {...r} />
-          ))}
+          {(() => {
+            const exchange = extrasData?.exchange ?? data?.exchange;
+            const rates    = extrasData?.rates    ?? data?.rates ?? [];
+            return (<>
+              {exchange && (
+                <ExtraCard
+                  name="원/달러"
+                  value={exchange.value ?? exchange.usdkrw ?? 0}
+                  change={exchange.change ?? 0}
+                  change_rate={exchange.change_rate ?? 0}
+                  unit="원"
+                  _demo={exchange._demo}
+                />
+              )}
+              {rates.map((r: any) => (
+                <ExtraCard key={r.name} {...r} />
+              ))}
+            </>);
+          })()}
         </div>
       </section>
 
@@ -328,6 +340,7 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     queryFn: () => dashboardApi.getUS(category),
     staleTime: 15_000,
     refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
   });
 
   const { data: newsData } = useQuery({
