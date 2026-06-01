@@ -177,14 +177,21 @@ async def get_stock_ohlcv(
     intraday_map = {"1m":2,"5m":5,"15m":10,"30m":20,"60m":30}
     is_intraday = interval in intraday_map
     is_annual = interval == "1y"
-    # yfinance는 1y interval을 지원하지 않으므로 1mo로 가져와서 리샘플링
     yf_interval_mapped = "1mo" if is_annual else interval
 
-    # yfinance 분봉 기간 제한: 1m=7일, 나머지=60일
     intraday_max_period = {"1m":"5d","5m":"60d","15m":"60d","30m":"60d","60m":"60d"}
     yf_period = intraday_max_period.get(interval, period) if is_intraday else period
 
     YF_VALID = {"1m","2m","5m","15m","30m","60m","90m","1h","1d","5d","1wk","1mo","3mo"}
+
+    # OHLCV 캐시 TTL: 분봉=60초, 일봉=120초, 주/월봉=600초, 연봉=3600초
+    ohlcv_ttl = 60 if is_intraday else (120 if interval == "1d" else (600 if interval in ("1wk","1mo") else 3600))
+    ck = f"ohlcv:{market}:{symbol}:{period}:{interval}"
+
+    cached = cache.get(ck)
+    if cached:
+        return cached
+    stale = cache.get_stale(ck)
 
     if market == "KR":
         code6 = symbol.replace(".KS","").replace(".KQ","")
@@ -193,6 +200,7 @@ async def get_stock_ohlcv(
         if settings.KIS_APP_KEY and interval == "1d":
             result = await kis_service.get_ohlcv(code6, period)
             if result:
+                cache.set(ck, result, ohlcv_ttl)
                 return result
 
         # yfinance 폴백 (분봉 포함)
@@ -200,9 +208,14 @@ async def get_stock_ohlcv(
             yf_iv = yf_interval_mapped if yf_interval_mapped in YF_VALID else "1d"
             result = await _run(yf_service.get_ohlcv, symbol, yf_period, yf_iv, "KR")
             if result:
-                return _resample_to_annual(result) if is_annual else result
+                final = _resample_to_annual(result) if is_annual else result
+                cache.set(ck, final, ohlcv_ttl)
+                return final
         except Exception:
             pass
+
+        if stale:
+            return stale
         return get_demo_ohlcv(symbol, period)
 
     else:
@@ -212,16 +225,23 @@ async def get_stock_ohlcv(
             resolution = finnhub_res_map.get(interval, "D")
             result = await _run(finnhub_service.get_candles, symbol, yf_period if is_intraday else period, resolution)
             if result:
-                return _resample_to_annual(result) if is_annual else result
+                final = _resample_to_annual(result) if is_annual else result
+                cache.set(ck, final, ohlcv_ttl)
+                return final
 
         # yfinance 폴백 (분봉 포함)
         try:
             yf_iv = yf_interval_mapped if yf_interval_mapped in YF_VALID else "1d"
             result = await _run(yf_service.get_ohlcv, symbol, yf_period, yf_iv, "US")
             if result:
-                return _resample_to_annual(result) if is_annual else result
+                final = _resample_to_annual(result) if is_annual else result
+                cache.set(ck, final, ohlcv_ttl)
+                return final
         except Exception:
             pass
+
+        if stale:
+            return stale
         return get_demo_ohlcv(symbol, period)
 
 
@@ -230,51 +250,76 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
     if market == "KR":
         from app.services.price_fetcher import fetch_naver_stock
         code6 = symbol.replace(".KS","").replace(".KQ","")
+        ck = f"detail:KR:{symbol}"
 
-        # 항상 Naver에서 신선한 데이터 fetch (open/high/low/per/pbr 포함)
+        # 신선한 캐시 (20초)
+        cached = cache.get(ck)
+        if cached and cached.get("price"):
+            return cached
+
+        # stale 캐시가 있으면 즉시 반환하고 백그라운드에서 갱신 예약
+        stale = cache.get_stale(ck)
+
         price = None
         try:
             price = await fetch_naver_stock(code6)
         except Exception:
             pass
 
-        # Naver 실패 시 캐시 → yfinance 폴백
         if not price or not price.get("price"):
+            if stale:
+                return stale
             price = await get_kr_price(symbol)
 
         if not price or not price.get("price"):
-            return {"symbol": symbol, "price": None, "currency": "KRW"}
+            return stale or {"symbol": symbol, "price": None, "currency": "KRW"}
 
-        # 종목명이 없거나 코드와 같으면 보완
         if not price.get("name") or price.get("name") == symbol:
             price["name"] = price.get("name") or code6
 
-        # 시가/고가/저가/전일종가 없으면 OHLCV에서 보완
+        # open/prev_close가 없을 때만 yfinance 보완 (Naver가 이미 반환하면 스킵)
         if not price.get("open") or not price.get("prev_close"):
-            try:
-                ohlcv = await asyncio.wait_for(
-                    asyncio.get_running_loop().run_in_executor(None, yf_service.get_ohlcv, symbol, "5d", "1d", "KR"),
-                    timeout=10
-                )
-                if ohlcv and len(ohlcv) >= 2:
-                    latest = ohlcv[-1]
-                    prev   = ohlcv[-2]
-                    if not price.get("open"):       price["open"]       = latest.get("open")
-                    if not price.get("high"):       price["high"]       = latest.get("high")
-                    if not price.get("low"):        price["low"]        = latest.get("low")
-                    if not price.get("prev_close"): price["prev_close"] = prev.get("close")
-            except Exception:
-                pass
+            ohlcv_ck = f"ohlcv:KR:{symbol}:5d:1d"
+            ohlcv_cached = cache.get(ohlcv_ck) or cache.get_stale(ohlcv_ck)
+            if ohlcv_cached and len(ohlcv_cached) >= 2:
+                latest = ohlcv_cached[-1]
+                prev   = ohlcv_cached[-2]
+                if not price.get("open"):       price["open"]       = latest.get("open")
+                if not price.get("high"):       price["high"]       = latest.get("high")
+                if not price.get("low"):        price["low"]        = latest.get("low")
+                if not price.get("prev_close"): price["prev_close"] = prev.get("close")
+            else:
+                try:
+                    ohlcv = await asyncio.wait_for(
+                        asyncio.get_running_loop().run_in_executor(None, yf_service.get_ohlcv, symbol, "5d", "1d", "KR"),
+                        timeout=8
+                    )
+                    if ohlcv and len(ohlcv) >= 2:
+                        latest = ohlcv[-1]
+                        prev   = ohlcv[-2]
+                        if not price.get("open"):       price["open"]       = latest.get("open")
+                        if not price.get("high"):       price["high"]       = latest.get("high")
+                        if not price.get("low"):        price["low"]        = latest.get("low")
+                        if not price.get("prev_close"): price["prev_close"] = prev.get("close")
+                        cache.set(ohlcv_ck, ohlcv, 60)
+                except Exception:
+                    pass
 
+        cache.set(ck, price, 20)
         return price
     else:
-        # US: Finnhub 우선 → 캐시 → yfinance 폴백
-        # Finnhub으로 가격+재무 통합 조회
+        # US: stale 캐시 먼저 확인 → Finnhub → yfinance
+        detail_ck = f"detail:US:{symbol}"
+        cached_detail = cache.get(detail_ck)
+        if cached_detail and cached_detail.get("price"):
+            return cached_detail
+
         if settings.FINNHUB_API_KEY:
             try:
                 detail = await _run(finnhub_service.get_stock_detail, symbol)
                 if detail and detail.get("price"):
                     cache.set(f"price:{symbol}", detail, 15)
+                    cache.set(detail_ck, detail, 20)
                     return detail
             except Exception:
                 pass
@@ -285,13 +330,17 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
         cached = cache.get_stale(f"price:{symbol}")
         if cached and cached.get("price") and not cached.get("_demo"):
             if fund_cached:
-                return {**cached, **fund_cached}
+                result = {**cached, **fund_cached}
+                cache.set(detail_ck, result, 20)
+                return result
             try:
                 fund = await asyncio.wait_for(
                     asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "US"),
-                    timeout=15
+                    timeout=12
                 )
-                return {**cached, **(fund or {})}
+                result = {**cached, **(fund or {})}
+                cache.set(detail_ck, result, 20)
+                return result
             except Exception:
                 return cached
 
@@ -307,6 +356,7 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
             result = {**p, **f}
             if result.get("price"):
                 cache.set(f"price:{symbol}", result, 30)
+                cache.set(detail_ck, result, 20)
             return result or {"symbol": symbol, "price": None, "currency": "USD"}
         except Exception:
             return {"symbol": symbol, "price": None, "currency": "USD"}
