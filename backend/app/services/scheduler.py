@@ -137,14 +137,28 @@ async def refresh_us_indices():
 
 
 async def refresh_us_stocks():
-    """Finnhub → YF v7 순으로 미국 인기종목 갱신"""
+    """Finnhub (가격) + YF (volume/market_cap/name 보완) → 미국 인기종목 갱신"""
     from app.services.finnhub_service import finnhub_service
+    from app.services.yf_service import SP500_SYMBOLS
     from app.core.config import settings
 
-    ok = 0
-    # Finnhub 우선 (인기 종목만 — rate limit 주의)
+    all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))
+
+    # YF 멀티쿼트: volume, market_cap, name 포함
+    yf_data = await fetch_yf_quotes(all_syms)
+    ok_yf = 0
+    for sym in all_syms:
+        q = yf_data.get(sym)
+        if q and q.get("price"):
+            q["symbol"] = sym
+            cache.set(f"price:{sym}", q, 60)
+            ok_yf += 1
+    log.info(f"미국 종목(YF) {ok_yf}/{len(all_syms)}개 갱신")
+
+    # Finnhub: 실시간 가격으로 POPULAR_US 캐시 보강 (volume/market_cap은 YF 값 유지)
     if settings.FINNHUB_API_KEY:
         loop = asyncio.get_running_loop()
+        ok_fh = 0
         for sym in POPULAR_US:
             try:
                 q = await asyncio.wait_for(
@@ -152,29 +166,20 @@ async def refresh_us_stocks():
                     timeout=8
                 )
                 if q and q.get("price"):
-                    q["symbol"] = sym
-                    cache.set(f"price:{sym}", q, 60)
-                    ok += 1
-                await asyncio.sleep(0.5)  # rate limit: 60req/min
+                    existing = cache.get(f"price:{sym}") or {}
+                    merged = {**existing, **q, "symbol": sym}
+                    # YF에서 가져온 volume/market_cap/name 유지
+                    for field in ("volume", "market_cap", "name"):
+                        if existing.get(field):
+                            merged[field] = existing[field]
+                    cache.set(f"price:{sym}", merged, 60)
+                    ok_fh += 1
+                await asyncio.sleep(0.5)
             except Exception:
                 pass
-        log.info(f"미국 종목(Finnhub) {ok}/{len(POPULAR_US)}개 갱신")
-        if ok > 5:
-            return ok
+        log.info(f"미국 종목(Finnhub 보강) {ok_fh}/{len(POPULAR_US)}개")
 
-    # 폴백: Yahoo Finance
-    from app.services.yf_service import SP500_SYMBOLS
-    all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))
-    data = await fetch_yf_quotes(all_syms)
-    ok = 0
-    for sym in all_syms:
-        q = data.get(sym)
-        if q and q.get("price"):
-            q["symbol"] = sym
-            cache.set(f"price:{sym}", q, 60)
-            ok += 1
-    log.info(f"미국 종목(YF) {ok}/{len(all_syms)}개 갱신")
-    return ok
+    return ok_yf
 
 
 async def refresh_kr_stocks():

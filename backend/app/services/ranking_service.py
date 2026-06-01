@@ -43,8 +43,10 @@ def _parse_num(s: str) -> float:
         return 0.0
 
 
-async def _fetch_naver_sise_page(url: str, market_code: int = 0) -> list[dict]:
-    """Naver Finance 시세 HTML 페이지 파싱 (KOSPI=0, KOSDAQ=1)"""
+async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap: bool = False) -> list[dict]:
+    """Naver Finance 시세 HTML 페이지 파싱 (KOSPI=0, KOSDAQ=1)
+    시가총액 페이지 컬럼: 순위|종목명|현재가|전일비|등락률|시가총액(억)|상장주식수|외국인비율|거래량|PER|ROE
+    """
     try:
         from bs4 import BeautifulSoup
         suffix = ".KS" if market_code == 0 else ".KQ"
@@ -55,7 +57,6 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0) -> list[dict]:
             return []
         soup = BeautifulSoup(r.text, "lxml")
         rows = []
-        # 실제 데이터는 /item/main.naver?code=XXXXXX 링크를 가진 tr에 있음
         for a_tag in soup.select('a[href*="/item/main.naver?code="]'):
             code_match = re.search(r"code=(\d{6})", a_tag.get("href",""))
             if not code_match:
@@ -73,11 +74,15 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0) -> list[dict]:
                     nums.append(float(txt))
                 except Exception:
                     nums.append(None)
-            # 컬럼: [순위, 종목명, 현재가, ?, 전일비, 등락률, 거래량, ...]
             price       = next((n for n in nums[2:4] if n and n > 0), 0)
             change_rate = next((n for n in nums[4:7] if n is not None and abs(n) < 100), 0)
-            volume      = next((n for n in reversed(nums[5:]) if n and n > 100), 0)
-            market_cap  = 0
+            if has_market_cap and len(nums) > 8:
+                # 시가총액 페이지: idx5=시가총액(억원), idx8=거래량
+                market_cap = int((nums[5] or 0) * 1e8) if nums[5] else 0
+                volume     = int(nums[8]) if nums[8] else 0
+            else:
+                market_cap = 0
+                volume     = int(next((n for n in reversed(nums[5:]) if n and n > 100), 0))
             rows.append({
                 "symbol":      f"{code}{suffix}",
                 "name":        name,
@@ -85,7 +90,7 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0) -> list[dict]:
                 "price":       price,
                 "change":      0,
                 "change_rate": change_rate,
-                "volume":      int(volume) if volume else 0,
+                "volume":      volume,
                 "amount":      0,
                 "market_cap":  market_cap,
             })
@@ -102,9 +107,10 @@ async def fetch_naver_rank(category: str) -> list[dict]:
     url = NAVER_SISE_PAGES.get(category)
     if not url:
         return []
+    has_mc = (category == "시가총액")
     results = await asyncio.gather(
-        _fetch_naver_sise_page(url, market_code=0),   # KOSPI
-        _fetch_naver_sise_page(url, market_code=1),   # KOSDAQ
+        _fetch_naver_sise_page(url, market_code=0, has_market_cap=has_mc),
+        _fetch_naver_sise_page(url, market_code=1, has_market_cap=has_mc),
         return_exceptions=True,
     )
     all_rows = []

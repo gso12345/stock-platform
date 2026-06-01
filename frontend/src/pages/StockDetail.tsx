@@ -118,25 +118,24 @@ export default function StockDetail() {
 
   const fmt = (v: number | null | undefined) => isKR ? fmtKRW(v) : fmtUSD(v);
 
-  const { data: detail, isLoading: loadingDetail, error: detailError, refetch: refetchDetail } = useQuery({
+  const { data: detail, isLoading: loadingDetail, error: detailError, refetch: refetchDetail, dataUpdatedAt } = useQuery({
     queryKey: ["stock-detail", m, sym],
     queryFn: () => stocksApi.getDetail(m, sym),
     enabled: !!sym, retry: 1, retryDelay: 3000,
-    staleTime: 30_000,          // 30초 동안 캐시 사용 (재요청 안 함)
-    refetchInterval: 60_000,    // 60초마다 갱신
+    staleTime: 15_000,
+    refetchInterval: 15_000,    // 15초마다 실시간 시세 갱신
   });
 
   const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);
-  // 항상 최대 기간으로 조회
   const chartPeriod = CANDLE_MAX_PERIOD[candleType] ?? "max";
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
     queryKey: ["stock-ohlcv", m, sym, candleType, chartPeriod],
     queryFn: () => stocksApi.getOHLCV(m, sym, chartPeriod, candleType),
     enabled: !!sym, retry: 1,
-    staleTime: isIntraday ? 60_000 : 21_600_000,
+    staleTime: isIntraday ? 15_000 : 21_600_000,
     placeholderData: (prev) => prev,
-    refetchInterval: isIntraday ? 60_000 : false,
+    refetchInterval: isIntraday ? 15_000 : false,
   });
 
   const { data: financials, isLoading: loadingFin } = useQuery({
@@ -317,11 +316,19 @@ export default function StockDetail() {
             <span className="text-3xl font-mono font-bold text-text-primary num">{priceStr}</span>
             <div className="flex items-center gap-1.5">
               {isUp ? <TrendingUp size={13} className="text-accent-green"/> : <TrendingDown size={13} className="text-accent-red"/>}
-              <span className={`text-sm font-mono font-semibold num ${isUp?"text-accent-green":"text-accent-red"}`}>
-                {isUp?"+":""}{isKR ? d.change?.toLocaleString("ko-KR") : d.change?.toFixed(2)}
-              </span>
+              {d.change != null && d.change !== 0 && (
+                <span className={`text-sm font-mono font-semibold num ${isUp?"text-accent-green":"text-accent-red"}`}>
+                  {isUp?"+":""}{isKR ? d.change.toLocaleString("ko-KR") : d.change.toFixed(2)}
+                </span>
+              )}
               <span className={`text-sm font-mono num ${isUp?"text-accent-green":"text-accent-red"}`}>
                 ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
+              </span>
+            </div>
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse"/>
+              <span className="text-2xs text-text-muted">
+                {dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("ko-KR", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}
               </span>
             </div>
           </div>
@@ -618,7 +625,11 @@ export default function StockDetail() {
 
       {/* 재무제표 탭 */}
       {mainTab==="financial" && (() => {
-        const mh: any[] = (metricsHistory as any)?.[finPeriod] ?? [];
+        const mhRaw: any[] = (metricsHistory as any)?.[finPeriod] ?? [];
+        const mh: any[] = mhRaw.filter((r: any) =>
+          r.revenue != null || r.op_income != null || r.net_income != null ||
+          r.per != null || r.pbr != null || r.roe != null
+        );
         const fcst: any[] = (forecasts ?? []).filter((r:any) => r.type === "forecast");
 
         // metrics-history 최신값으로 detail의 None 보완
@@ -758,9 +769,12 @@ export default function StockDetail() {
               ) : (
                 <div className="p-4 flex flex-col gap-4">
                   {/* 차트 */}
-                  {financials&&(financials[finPeriod]?.length??0)>0 && (
+                  {financials&&(financials[finPeriod]?.length??0)>0 && (() => {
+                    const finData = (financials[finPeriod] as any[]).filter((r:any) => r.revenue != null || r.op_income != null || r.net_income != null);
+                    if (!finData.length) return null;
+                    return (
                     <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={financials[finPeriod]} {...chartProps.margin}>
+                      <BarChart data={finData} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                         <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
@@ -771,7 +785,8 @@ export default function StockDetail() {
                         <Bar dataKey="net_income" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={35}/>
                       </BarChart>
                     </ResponsiveContainer>
-                  )}
+                    );
+                  })()}
                   {/* 전치 테이블 */}
                   <TransTable rows={[
                     { key:"revenue",          label:"매출",         fmt:(v)=>fmtFin(v), color:"text-accent-blue" },

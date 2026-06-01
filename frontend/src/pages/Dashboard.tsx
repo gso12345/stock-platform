@@ -212,8 +212,8 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["dashboard-kr", category],
     queryFn: () => dashboardApi.getKR(category),
-    staleTime: 60_000,
-    refetchInterval: 30_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 
   const { data: newsData } = useQuery({
@@ -326,8 +326,8 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["dashboard-us", category],
     queryFn: () => dashboardApi.getUS(category),
-    staleTime: 60_000,
-    refetchInterval: 30_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 
   const { data: newsData } = useQuery({
