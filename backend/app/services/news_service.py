@@ -143,17 +143,20 @@ def _add_trending_score(articles: list) -> list:
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     """피드 목록을 병렬로 fetch (ThreadPoolExecutor 사용)"""
     all_news = []
-    with ThreadPoolExecutor(max_workers=len(feeds)) as executor:
+    with ThreadPoolExecutor(max_workers=min(len(feeds), 16)) as executor:
         futures = {
             executor.submit(_parse_feed, url, source, limit_per_source): source
             for source, url in feeds
         }
-        for future in as_completed(futures, timeout=10):
-            try:
-                items = future.result(timeout=5)
-                all_news.extend(items)
-            except Exception:
-                pass
+        try:
+            for future in as_completed(futures, timeout=12):
+                try:
+                    items = future.result(timeout=8)
+                    all_news.extend(items)
+                except Exception:
+                    pass
+        except Exception:
+            pass
     return all_news
 
 
