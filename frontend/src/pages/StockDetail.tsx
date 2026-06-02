@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
@@ -1658,6 +1658,7 @@ export default function StockDetail() {
           {!dailyOhlcv?.length ? (
             <div className="py-12 text-center text-text-muted text-sm">{fetchingDaily ? "로딩 중..." : "데이터 없음"}</div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -1711,15 +1712,16 @@ export default function StockDetail() {
             {/* 더보기 버튼 — 1달씩 추가 */}
             {dailyMonths <= 12 && (
               <button
-                onClick={() => setDailyMonths(m => m + 1)}
+                onClick={() => setDailyMonths(prev => prev + 1)}
                 disabled={fetchingDaily}
                 className="w-full py-3 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border"
               >
                 {fetchingDaily ? "로딩 중..." : `더보기 (+1개월) ▼`}
               </button>
             )}
-          </div>
-        )}
+            </>
+          )}
+        </div>
       )}
 
       {/* 수급 탭 — 서비스 준비중 */}
