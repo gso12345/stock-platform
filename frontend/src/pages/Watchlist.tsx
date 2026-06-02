@@ -207,29 +207,47 @@ function EditItemModal({ item, folders, onClose, onSave }: {
   );
 }
 
+const FOLDER_PRESETS = ["국내", "해외", "ETF", "배당주", "성장주", "관심"];
+
 /* ── 폴더 이름 편집 ──────────────────────────────────────── */
 function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSave: (n: string) => void; onCancel: () => void }) {
   const [val, setVal] = useState(folder.name);
   return (
-    <div className="flex items-center gap-1 flex-1">
-      <input
-        className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-2 py-0.5 text-xs text-text-primary focus:outline-none"
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") onSave(val); if (e.key === "Escape") onCancel(); }}
-        autoFocus
-      />
-      <button onClick={() => onSave(val)} className="text-accent-green p-1"><Check size={13} /></button>
-      <button onClick={onCancel} className="text-text-muted p-1"><X size={13} /></button>
+    <div className="flex flex-col gap-1.5 flex-1">
+      {/* 프리셋 빠른 선택 */}
+      <div className="flex gap-1 flex-wrap">
+        {FOLDER_PRESETS.map(p => (
+          <button
+            key={p}
+            onClick={() => { setVal(p); }}
+            className={`px-2 py-0.5 text-[10px] rounded-full border font-semibold transition-all ${
+              val === p
+                ? "bg-accent-blue text-white border-accent-blue"
+                : "border-border text-text-muted hover:border-accent-blue hover:text-accent-blue"
+            }`}
+          >{p}</button>
+        ))}
+      </div>
+      <div className="flex items-center gap-1">
+        <input
+          className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-2 py-0.5 text-xs text-text-primary focus:outline-none"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") onSave(val); if (e.key === "Escape") onCancel(); }}
+          autoFocus
+        />
+        <button onClick={() => onSave(val)} className="text-accent-green p-1"><Check size={13} /></button>
+        <button onClick={onCancel} className="text-text-muted p-1"><X size={13} /></button>
+      </div>
     </div>
   );
 }
 
 /* ── 종목 행 (클릭 → 상세) ──────────────────────────────── */
-const SWIPE_REVEAL = 76;
-const SWIPE_THRESHOLD = 40;
+const SWIPE_REVEAL = 140; // 수정(70) + 삭제(70)
+const SWIPE_THRESHOLD = 50;
 
-/* ── 종목 행: 드래그 재정렬 + 스와이프 우→ 수정/삭제 ─── */
+/* ── 종목 행: 드래그 재정렬 + 왼쪽으로 스와이프 → 수정/삭제 ─── */
 function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
   isDragging, isDragOver, onDragStart, onDragOver, onDrop }: {
   item: any; livePrice: any;
@@ -240,15 +258,15 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
   onDragOver?: React.DragEventHandler;
   onDrop?: React.DragEventHandler;
 }) {
-  const p       = livePrice ?? item;
-  const isKR    = item.market === "KR";
+  const p        = livePrice ?? item;
+  const isKR     = item.market === "KR";
   const hasPrice = p.price != null && p.price > 0;
 
-  const [swipeX, setSwipeX] = useState(0);
+  const [swipeX, setSwipeX] = useState(0); // 음수 = 왼쪽으로 밀림
   const [isOpen, setIsOpen] = useState(false);
-  const touchStartX  = useRef(0);
-  const touchStartY  = useRef(0);
-  const isScrolling  = useRef<boolean | null>(null);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const isScrolling = useRef<boolean | null>(null);
 
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
@@ -260,12 +278,13 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
     const dy = e.touches[0].clientY - touchStartY.current;
     if (isScrolling.current === null) isScrolling.current = Math.abs(dy) > Math.abs(dx);
     if (isScrolling.current) return;
-    const base = isOpen ? SWIPE_REVEAL : 0;
-    setSwipeX(Math.max(0, Math.min(SWIPE_REVEAL + 16, base + dx)));
+    const base = isOpen ? -SWIPE_REVEAL : 0;
+    // 왼쪽(음수)으로만 허용
+    setSwipeX(Math.min(0, Math.max(-SWIPE_REVEAL - 16, base + dx)));
   };
   const onTouchEnd = () => {
     if (isScrolling.current) return;
-    if (swipeX > SWIPE_THRESHOLD) { setSwipeX(SWIPE_REVEAL); setIsOpen(true); }
+    if (swipeX < -SWIPE_THRESHOLD) { setSwipeX(-SWIPE_REVEAL); setIsOpen(true); }
     else { setSwipeX(0); setIsOpen(false); }
   };
   const closeSwipe = () => { setSwipeX(0); setIsOpen(false); };
@@ -276,8 +295,8 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
       onDragOver={onDragOver} onDrop={onDrop}
       onMouseEnter={onPrefetch}
     >
-      {/* 스와이프 액션 버튼 (왼쪽 고정) */}
-      <div className="absolute inset-y-0 left-0 flex" style={{ width: SWIPE_REVEAL }}>
+      {/* 스와이프 액션 버튼 (오른쪽 고정, 왼쪽으로 밀면 등장) */}
+      <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL }}>
         <button onClick={() => { closeSwipe(); onEdit(); }}
           className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-blue text-white text-[10px] font-semibold">
           <Settings2 size={14}/><span>수정</span>
@@ -291,9 +310,9 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
       {/* 슬라이드 콘텐츠 */}
       <div
         className="flex items-center gap-2 px-3 py-2.5 bg-bg-card hover:bg-bg-hover"
-        style={{ transform: `translateX(${swipeX}px)`, transition: swipeX === 0 || swipeX === SWIPE_REVEAL ? "transform 0.2s ease" : "none" }}
+        style={{ transform: `translateX(${swipeX}px)`, transition: swipeX === 0 || swipeX === -SWIPE_REVEAL ? "transform 0.2s ease" : "none" }}
         onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-        onClick={swipeX > 0 ? closeSwipe : undefined}
+        onClick={swipeX !== 0 ? closeSwipe : undefined}
       >
         {/* 드래그 핸들 */}
         <div
@@ -349,6 +368,7 @@ export default function Watchlist() {
   const qc       = useQueryClient();
   const navigate = useNavigate();
   const [marketTab, setMarketTab]   = useState("전체");
+  const [folderTab, setFolderTab]   = useState<number | "all" | "none">("all"); // 폴더 탭 필터
   const [showAdd, setShowAdd]           = useState(false);
   const [editingFolder, setEditingFolder] = useState<number | null>(null);
   const [editingItem, setEditingItem]   = useState<any>(null);
@@ -467,10 +487,18 @@ export default function Watchlist() {
     setCollapsed((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
   // 드래그 중에는 낙관적으로 정렬된 순서 사용
-  const displayList = localOrder ?? (items as any[]);
-  const itemsList   = items as any[];
-  const noFolder    = displayList.filter((i: any) => !i.folder_id);
-  const byFolder    = (fid: number) => displayList.filter((i: any) => i.folder_id === fid);
+  const baseList  = localOrder ?? (items as any[]);
+  const itemsList = items as any[];
+
+  // 폴더 탭 필터 적용
+  const displayList = folderTab === "all"
+    ? baseList
+    : folderTab === "none"
+      ? baseList.filter((i: any) => !i.folder_id)
+      : baseList.filter((i: any) => i.folder_id === folderTab);
+
+  const noFolder  = displayList.filter((i: any) => !i.folder_id);
+  const byFolder  = (fid: number) => displayList.filter((i: any) => i.folder_id === fid);
 
   const goToStock = (item: any) => {
     // 가격 조회 중이라면 취소하고 종목 상세로 이동 (상세 페이지 로딩 우선)
@@ -562,6 +590,48 @@ export default function Watchlist() {
           >{t.label}</button>
         ))}
       </div>
+
+      {/* 폴더 탭 */}
+      {(folders as any[]).length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+          <button
+            onClick={() => setFolderTab("all")}
+            className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+              folderTab === "all"
+                ? "bg-accent-blue text-white border-accent-blue shadow"
+                : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+            }`}
+          >
+            전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
+          </button>
+          {(folders as any[]).map((f: any) => {
+            const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
+            return (
+              <button
+                key={f.id}
+                onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)}
+                className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  folderTab === f.id
+                    ? "bg-accent-blue text-white border-accent-blue shadow"
+                    : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+                }`}
+              >
+                {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setFolderTab("none")}
+            className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+              folderTab === "none"
+                ? "bg-accent-blue text-white border-accent-blue shadow"
+                : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+            }`}
+          >
+            미분류 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
+          </button>
+        </div>
+      )}
 
       {/* 본문 */}
       {isLoading ? <LoadingSpinner /> : (

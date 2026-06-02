@@ -9,6 +9,58 @@ INDEX_TTL  = 60      # 지수 캐시 60초
 OHLCV_TTL  = 21600   # OHLCV 캐시 6시간 (일봉 이상은 당일 변경 없음)
 FUND_TTL   = 86400   # 재무지표 캐시 24시간
 
+# yfinance GICS 섹터 한국어 번역
+_SECTOR_KO: dict[str, str] = {
+    "Technology": "기술",
+    "Healthcare": "헬스케어",
+    "Financial Services": "금융서비스",
+    "Financials": "금융",
+    "Consumer Cyclical": "경기소비재",
+    "Consumer Defensive": "필수소비재",
+    "Industrials": "산업재",
+    "Communication Services": "통신서비스",
+    "Energy": "에너지",
+    "Basic Materials": "소재",
+    "Real Estate": "부동산",
+    "Utilities": "유틸리티",
+    "Services": "서비스",
+    "Manufacturing": "제조",
+}
+
+_INDUSTRY_KO: dict[str, str] = {
+    "Semiconductors": "반도체",
+    "Consumer Electronics": "소비자 가전",
+    "Electronic Components": "전자부품",
+    "Specialty Chemicals": "특수화학",
+    "Auto Manufacturers": "자동차 제조",
+    "Auto Parts": "자동차 부품",
+    "Banks—Regional": "지방은행",
+    "Banks—Diversified": "종합은행",
+    "Insurance—Life": "생명보험",
+    "Insurance—Property & Casualty": "손해보험",
+    "Software—Application": "소프트웨어",
+    "Software—Infrastructure": "인프라 소프트웨어",
+    "Internet Content & Information": "인터넷 컨텐츠",
+    "Telecom Services": "통신서비스",
+    "Steel": "철강",
+    "Oil & Gas Refining & Marketing": "정유",
+    "Biotechnology": "바이오테크",
+    "Drug Manufacturers—General": "제약",
+    "Aerospace & Defense": "항공우주·방산",
+    "Industrial Conglomerates": "복합기업",
+    "Shipping & Logistics": "물류·해운",
+    "Department Stores": "백화점",
+    "Discount Stores": "할인마트",
+    "Entertainment": "엔터테인먼트",
+    "Publishing": "출판·미디어",
+    "Construction": "건설",
+    "Real Estate—Diversified": "복합부동산",
+    "Utilities—Regulated Electric": "전력",
+    "Solar": "태양광",
+    "Medical Devices": "의료기기",
+    "Diagnostics & Research": "진단·연구",
+}
+
 
 def _safe(v):
     """nan/inf를 None으로 변환"""
@@ -411,8 +463,8 @@ class YFinanceService:
             "enterprise_value":  info.get("enterpriseValue"),
             "shares_outstanding":info.get("sharesOutstanding"),
             "float_shares":      info.get("floatShares"),
-            "sector":      info.get("sector"),
-            "industry":    info.get("industry"),
+            "sector":      _SECTOR_KO.get(info.get("sector",""), info.get("sector")),
+            "industry":    _INDUSTRY_KO.get(info.get("industry",""), info.get("industry")),
             "description": info.get("longBusinessSummary") or info.get("description") or "",
             # 컨센서스
             "target_price_mean": _safe(info.get("targetMeanPrice")),

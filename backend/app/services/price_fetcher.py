@@ -51,22 +51,29 @@ def _yf_base() -> str:
 
 # ── 네이버 모바일 — 한국 주식 ──────────────────────────────
 def _parse_kr_num(s) -> float:
-    """'1,853조 2,703억' 같은 한국식 숫자 파싱"""
+    """'1,853조 2,703억', '29,704,413백만' 같은 한국식 숫자 파싱"""
     if s is None:
         return 0
     s = str(s).replace(",", "").replace(" ", "")
     total = 0.0
-    if "조" in s:
-        parts = s.split("조")
-        total += float(parts[0] or 0) * 1e12
-        s = parts[1] if len(parts) > 1 else ""
-    if "억" in s:
-        parts = s.split("억")
-        total += float(parts[0] or 0) * 1e8
-        s = parts[1] if len(parts) > 1 else ""
-    if "만" in s:
-        parts = s.split("만")
-        total += float(parts[0] or 0) * 1e4
+    try:
+        if "조" in s:
+            parts = s.split("조")
+            total += float(parts[0] or 0) * 1e12
+            s = parts[1] if len(parts) > 1 else ""
+        if "억" in s:
+            parts = s.split("억")
+            total += float(parts[0] or 0) * 1e8
+            s = parts[1] if len(parts) > 1 else ""
+        if "백만" in s:  # "만" 전에 먼저 처리 (거래대금 단위)
+            parts = s.split("백만")
+            total += float(parts[0] or 0) * 1e6
+            s = parts[1] if len(parts) > 1 else ""
+        elif "만" in s:
+            parts = s.split("만")
+            total += float(parts[0] or 0) * 1e4
+    except (ValueError, TypeError):
+        pass
     return total or _safe(s) or 0
 
 
@@ -104,8 +111,11 @@ async def fetch_naver_stock(code6: str) -> dict | None:
                 v = str(info.get(key.lower(),"")).replace("%","").replace("배","").replace(",","")
                 return _safe(v)
 
+            exchange = str(b.get("stockExchangeType", {}).get("code", "KS"))
+            market_suffix = ".KQ" if "KQ" in exchange or "KOSDAQ" in exchange.upper() else ".KS"
+
             return {
-                "symbol":         f"{code6}{suffix}",
+                "symbol":         f"{code6}{market_suffix}",
                 "name":           b.get("stockName",""),
                 "price":          curr,
                 "prev_close":     _parse_kr_num(info.get("lastcloseprice")) or (curr - chg),
@@ -118,14 +128,17 @@ async def fetch_naver_stock(code6: str) -> dict | None:
                 "amount":         int(num("accumulatedTradingValue")),
                 "market_cap":     int(num("marketValue")),
                 "per":            pct("per"),
+                "forward_per":    pct("cnsPer"),   # 컨센서스 PER
                 "pbr":            pct("pbr"),
                 "eps":            _parse_kr_num(info.get("eps")) or None,
+                "forward_eps":    _parse_kr_num(info.get("cnsEps")) or None,  # 컨센서스 EPS
                 "bps":            _parse_kr_num(info.get("bps")) or None,
                 "dividend_yield": pct("dividendYieldRatio"),
                 "week52_high":    num("highPriceOf52Weeks") or None,
                 "week52_low":     num("lowPriceOf52Weeks") or None,
                 "foreign_rate":   pct("foreignRate"),
                 "currency":       "KRW",
+                "market":         "KOSDAQ" if "KQ" in exchange else "KOSPI",
             }
     except Exception as e:
         log.debug(f"네이버 주식 {code6} 실패: {e}")

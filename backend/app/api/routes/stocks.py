@@ -1215,6 +1215,35 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         )
     except Exception:
         result = {}
+
+    # KR 종목: Naver 컨센서스(cnsPer/cnsEps) + fund 캐시 목표주가 보완
+    if market == "KR":
+        fund_cached = cache.get(f"fund:{symbol}") or cache.get_stale(f"fund:{symbol}")
+        price_cached = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}")
+        for src in [fund_cached, price_cached]:
+            if not src:
+                continue
+            if not result.get("price_targets"):
+                tp_mean = src.get("target_price_mean")
+                tp_high = src.get("target_price_high")
+                tp_low  = src.get("target_price_low")
+                curr    = src.get("price")
+                if tp_mean:
+                    result["price_targets"] = {
+                        "current": curr,
+                        "mean": tp_mean,
+                        "high": tp_high,
+                        "low":  tp_low,
+                    }
+            # Naver 컨센서스 PER/EPS를 consensus 필드에 추가
+            if src.get("forward_per") and not result.get("naver_consensus"):
+                result["naver_consensus"] = {
+                    "cons_per": src.get("forward_per"),
+                    "cons_eps": src.get("forward_eps"),
+                    "recommendation": src.get("recommendation"),
+                    "analyst_count":  src.get("analyst_count"),
+                }
+
     cache.set(ck, result, 3600)
     return result
 

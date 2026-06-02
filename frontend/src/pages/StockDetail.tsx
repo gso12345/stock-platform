@@ -1210,6 +1210,7 @@ export default function StockDetail() {
         const ad = analystData as any;
         const pt = ad?.price_targets;
         const cs = ad?.consensus;
+        const nc = ad?.naver_consensus; // Naver 컨센서스 (국내 종목)
         const reports: any[] = ad?.reports ?? [];
         const history: any[] = ad?.consensus_history ?? [];
 
@@ -1269,12 +1270,33 @@ export default function StockDetail() {
 
             {analystSubTab==="opinion" && (loadingAnalyst ? (
               <div className="flex justify-center py-16"><div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
-            ) : !ad || (!pt && !cs && reports.length === 0) ? (
+            ) : !ad || (!pt && !cs && !nc && reports.length === 0) ? (
               <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
                 <p className="text-text-muted text-sm">투자의견 데이터가 없습니다</p>
               </div>
             ) : (
               <>
+                {/* ── 국내 Naver 컨센서스 ── */}
+                {nc && (
+                  <div className="rounded-xl border border-border bg-bg-card p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="col-span-2 sm:col-span-4">
+                      <span className="text-xs font-bold text-text-muted uppercase tracking-widest">Naver 컨센서스</span>
+                    </div>
+                    {nc.cons_per != null && (
+                      <StatCell label="컨센서스 PER" value={`${fmtNum(nc.cons_per)}배`} color="text-accent-blue" />
+                    )}
+                    {nc.cons_eps != null && (
+                      <StatCell label="컨센서스 EPS" value={isKR ? `₩${Math.round(nc.cons_eps).toLocaleString("ko-KR")}` : `$${nc.cons_eps.toFixed(2)}`} color="text-accent-green" />
+                    )}
+                    {nc.recommendation && (
+                      <StatCell label="투자의견" value={nc.recommendation} />
+                    )}
+                    {nc.analyst_count && (
+                      <StatCell label="애널리스트 수" value={`${nc.analyst_count}명`} />
+                    )}
+                  </div>
+                )}
+
                 {/* ── 목표주가 & 합의 등급 ── */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* 목표주가 */}
@@ -1672,10 +1694,9 @@ export default function StockDetail() {
               <span className="text-sm font-semibold text-text-primary">일별 시세</span>
               {fetchingDaily && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
             </div>
-            <span className="text-xs text-text-muted">
-              최근 {dailyMonths}개월
-              {dailyOhlcv?.length ? ` · ${(dailyOhlcv as any[]).length}일` : ""}
-            </span>
+            {dailyOhlcv?.length ? (
+              <span className="text-xs text-text-muted">{(dailyOhlcv as any[]).length}일</span>
+            ) : null}
           </div>
           {!dailyOhlcv?.length ? (
             <div className="py-12 text-center text-text-muted text-sm">{fetchingDaily ? "로딩 중..." : "데이터 없음"}</div>
