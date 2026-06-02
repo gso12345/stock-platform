@@ -257,6 +257,14 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     refetchIntervalInBackground: false,
   });
 
+  // 지수 전용 — 더 빠른 캐시 (30초)
+  const { data: indicesData } = useQuery({
+    queryKey: ["dashboard-indices"],
+    queryFn: () => dashboardApi.getIndices(),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
+
   const { data: newsData } = useQuery({
     queryKey: ["dashboard-news-kr"],
     queryFn: () => dashboardApi.getNews("kr"),
@@ -269,9 +277,11 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     KOSPI:"코스피",KOSDAQ:"코스닥",KOSPI200:"코스피 200",KOSDAQ150:"코스닥 150"
   };
   const getIdx = (key: string) => {
-    const live = liveIndices?.kr?.find((r: any) => r.index === key);
+    const live    = liveIndices?.kr?.find((r: any) => r.index === key);
     const fetched = data?.indices?.find((r: any) => r.index === key);
-    return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
+    const direct  = indicesData?.kr?.find((r: any) => r.index === key);
+    const result  = live ?? fetched ?? direct ?? { value: 0, change: 0, change_rate: 0 };
+    return result;
   };
 
   return (
@@ -351,18 +361,35 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     refetchInterval: 300_000,
   });
 
+  const { data: usIndicesData } = useQuery({
+    queryKey: ["dashboard-indices"],
+    queryFn: () => dashboardApi.getIndices(),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
+
   const US_INDEX_KEYS = ["SP500","NASDAQ","DOW","SOX","RUSSELL"] as const;
   const US_DISPLAY: Record<string, string> = {
     SP500:"S&P 500", NASDAQ:"나스닥", DOW:"다우 산업", SOX:"필라델피아 반도체", RUSSELL:"러셀 2000"
   };
   const getIdx = (key: string) => {
-    const live = liveIndices?.us?.find((r: any) => r.index === key);
+    const live   = liveIndices?.us?.find((r: any) => r.index === key);
     const fetched = data?.indices?.find((r: any) => r.index === key);
-    return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
+    const direct  = usIndicesData?.us?.find((r: any) => r.index === key);
+    return live ?? fetched ?? direct ?? { value: 0, change: 0, change_rate: 0 };
   };
 
-  // 캐시 rates: API rates 우선, fallback은 data.rates
-  const rates: any[] = (ratesData?.length ? ratesData : data?.rates) ?? [];
+  // rates: API /us/rates 우선 → data.rates → exchange 단독 fallback
+  const rates: any[] = useMemo(() => {
+    if (ratesData?.length) return ratesData;
+    if (data?.rates?.length) return data.rates;
+    // exchange만 있을 때 최소 표시
+    if (data?.exchange) {
+      const ex = data.exchange;
+      return [{ name: "원/달러", value: ex.value ?? ex.usdkrw ?? 0, change: ex.change ?? 0, change_rate: ex.change_rate ?? 0, unit: "원", _demo: ex._demo }];
+    }
+    return [];
+  }, [ratesData, data]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -389,17 +416,6 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
           {rates.map((r: any) => (
             <ExtraCard key={r.name} {...r} />
           ))}
-          {/* rates 없으면 exchange fallback */}
-          {!rates.length && data?.exchange && (
-            <ExtraCard
-              name="원/달러"
-              value={data.exchange.value ?? 0}
-              change={data.exchange.change ?? 0}
-              change_rate={data.exchange.change_rate ?? 0}
-              unit="원"
-              _demo={data.exchange._demo}
-            />
-          )}
         </div>
       </section>
 
