@@ -7,7 +7,7 @@ import { stocksApi, watchlistApi, financialsApi } from "@/api/stocks";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
-  Newspaper, Users, ExternalLink, Maximize2, X,
+  Newspaper, Users, ExternalLink, Maximize2, X, List,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
@@ -89,6 +89,7 @@ export default function StockDetail() {
   const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "analyst" | "supply">("chart");
   const [showKRW, setShowKRW]           = useState(false);
   const [analystSubTab, setAnalystSubTab] = useState<"opinion" | "consensus">("opinion");
+  const [consensusPeriod, setConsensusPeriod] = useState<"annual" | "quarterly">("annual");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow">("basic");
   const [selectedMetric, setSelectedMetric] = useState("revenue");
@@ -460,6 +461,7 @@ export default function StockDetail() {
             { id:"financial", Icon: DollarSign, label:"재무제표" },
             { id:"analyst",   Icon: TrendingUp,  label:"투자의견" },
             { id:"news",      Icon: Newspaper,  label:"뉴스/공시" },
+            { id:"daily",     Icon: List,        label:"일별" },
             ...(isKR ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
           ].map(({ id, Icon, label }) => (
             <button key={id}
@@ -868,7 +870,6 @@ export default function StockDetail() {
                     <StatCell label="EV/매출"      value={dEnhanced.ev_revenue   != null ? `${fmtNum(dEnhanced.ev_revenue,2)}배` : null} />
                     <StatCell label="시가총액"     value={fmtFinVal(d.market_cap)} />
                     <StatCell label="기업가치(EV)" value={fmtFinVal(dEnhanced.enterprise_value)} />
-                    <StatCell label="선행EPS"      value={dEnhanced.forward_eps  != null ? (isKR ? `₩${Math.round(dEnhanced.forward_eps).toLocaleString("ko-KR")}` : `$${dEnhanced.forward_eps.toFixed(2)}`) : null} />
                   </div>
                 )}
                 {/* PER/PBR 연도별 차트 — PER/PBR 없으면 EPS 차트, mh 비어있으면 dEnhanced로 단일 포인트 */}
@@ -1351,43 +1352,6 @@ export default function StockDetail() {
                   )}
                 </div>
 
-                {/* ── 애널리스트 추정치 ── */}
-                {(() => {
-                  const fcstRows: any[] = (forecasts ?? []).filter((r: any) => r.type === "forecast");
-                  if (!fcstRows.length) return null;
-                  return (
-                    <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-                      <div className="px-4 py-3 border-b border-border">
-                        <span className="text-sm font-semibold text-text-primary">애널리스트 추정치</span>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="border-b border-border text-text-muted">
-                              <th className="text-left px-4 py-2 font-medium">기간</th>
-                              <th className="text-right px-4 py-2 font-medium text-accent-blue">매출 추정</th>
-                              <th className="text-right px-4 py-2 font-medium text-accent-green">EPS 추정</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {fcstRows.map((r: any, i: number) => (
-                              <tr key={i} className="border-b border-border/30 hover:bg-bg-hover transition-colors">
-                                <td className="px-4 py-2.5 font-mono text-accent-yellow/80 font-semibold">{r.period?.slice(0,7) ?? "—"}E</td>
-                                <td className="px-4 py-2.5 text-right font-mono text-accent-blue">
-                                  {r.revenue_est != null ? (isKR ? fmtKRW(r.revenue_est) : fmtUSD(r.revenue_est)) : "—"}
-                                </td>
-                                <td className="px-4 py-2.5 text-right font-mono text-accent-green">
-                                  {r.eps_est != null ? (isKR ? `₩${Math.round(r.eps_est).toLocaleString("ko-KR")}` : `$${r.eps_est.toFixed(2)}`) : "—"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                })()}
-
                 {/* ── 최근 애널리스트 리포트 ── */}
                 {reports.length > 0 && (
                   <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
@@ -1436,54 +1400,77 @@ export default function StockDetail() {
             ))}
 
             {analystSubTab==="consensus" && (() => {
-              const fcstRows: any[] = (forecasts ?? []).filter((r: any) => r.type === "forecast");
-              if (!fcstRows.length) return (
+              const fcstData = (forecasts as any)?.[consensusPeriod] ?? [];
+              if (!fcstData.length) return (
                 <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
                   <p className="text-text-muted text-sm">컨센서스 데이터가 없습니다</p>
                 </div>
               );
-              const years = fcstRows.map((r: any) => r.period?.slice(0,4) ?? "").filter(Boolean);
+
+              // 기간 컬럼 생성
+              const periods = fcstData.map((r: any) => r.period);
+              const periodLabel = (p: string) => {
+                if (consensusPeriod === "annual") return p.slice(0,4);
+                // 분기: 2024-01-01 → 2024 Q1 식으로
+                const y = p.slice(0,4);
+                const mo = parseInt(p.slice(5,7));
+                const q = Math.ceil(mo/3);
+                return `${y} Q${q}`;
+              };
+
+              const indicators = [
+                { key: "revenue_est",  label: "매출 추정",        color: "text-accent-blue",    fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
+                { key: "revenue_low",  label: "매출 최저",         color: "text-accent-blue/60", fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
+                { key: "revenue_high", label: "매출 최고",         color: "text-accent-blue/60", fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
+                { key: "eps_est",      label: "EPS 추정",          color: "text-accent-green",   fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_low",      label: "EPS 최저",          color: "text-accent-green/60",fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_high",     label: "EPS 최고",          color: "text-accent-green/60",fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_current",  label: "EPS 현재 추정",     color: "text-cyan-400",       fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_30d_ago",  label: "EPS 30일 전",       color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_90d_ago",  label: "EPS 90일 전",       color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "growth_est",   label: "EPS 성장률 추정",   color: "text-accent-yellow",  fmt: (v: number) => `${(v*100).toFixed(1)}%` },
+              ].filter(ind => fcstData.some((r: any) => r[ind.key] != null));
+
               return (
-                <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-                  <div className="px-4 py-3 border-b border-border">
-                    <span className="text-sm font-semibold text-text-primary">애널리스트 컨센서스 추정치</span>
+                <div className="flex flex-col gap-3">
+                  {/* 연간/분기 토글 */}
+                  <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary w-fit">
+                    {(["annual","quarterly"] as const).map(k => (
+                      <button key={k} onClick={() => setConsensusPeriod(k)}
+                        className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${consensusPeriod===k?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
+                        {k==="annual" ? "연간" : "분기"}
+                      </button>
+                    ))}
                   </div>
-                  <div className="overflow-x-auto p-4">
-                    <table className="text-xs w-full">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card min-w-[100px]">지표</th>
-                          {years.map(y => (
-                            <th key={y} className="text-right pb-2 font-mono font-medium text-accent-yellow/80 px-3 min-w-[90px]">{y}E</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[
-                          {
-                            key: "revenue_est",
-                            label: "매출 추정",
-                            color: "text-accent-blue",
-                            fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v),
-                          },
-                          {
-                            key: "eps_est",
-                            label: "EPS 추정",
-                            color: "text-accent-green",
-                            fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}`,
-                          },
-                        ].map(row => (
-                          <tr key={row.key} className="border-b border-border/30 hover:bg-bg-hover">
-                            <td className={`py-2 pr-3 font-semibold sticky left-0 bg-bg-card ${row.color}`}>{row.label}</td>
-                            {fcstRows.map((r: any, i: number) => (
-                              <td key={i} className={`py-2 px-3 text-right font-mono ${row.color}`}>
-                                {r[row.key] != null ? row.fmt(r[row.key]) : "—"}
-                              </td>
+                  {/* 테이블 */}
+                  <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+                    <div className="px-4 py-3 border-b border-border">
+                      <span className="text-sm font-semibold text-text-primary">애널리스트 컨센서스 추정치</span>
+                    </div>
+                    <div className="overflow-x-auto p-4">
+                      <table className="text-xs w-max min-w-full">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card min-w-[120px] pr-4">지표</th>
+                            {periods.map((p: string) => (
+                              <th key={p} className="text-right pb-2 font-mono font-semibold text-accent-yellow/90 px-3 min-w-[90px] whitespace-nowrap">{periodLabel(p)}E</th>
                             ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {indicators.map(ind => (
+                            <tr key={ind.key} className="border-b border-border/30 hover:bg-bg-hover">
+                              <td className={`py-2 pr-4 font-medium sticky left-0 bg-bg-card whitespace-nowrap ${ind.color}`}>{ind.label}</td>
+                              {fcstData.map((r: any, i: number) => (
+                                <td key={i} className={`py-2 px-3 text-right font-mono ${ind.color}`}>
+                                  {r[ind.key] != null ? ind.fmt(r[ind.key]) : "—"}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               );
@@ -1638,6 +1625,70 @@ export default function StockDetail() {
                   <p className="text-text-muted text-sm">공시 데이터는 국내 주식(KR)만 지원합니다</p>
                 </div>
               )
+          )}
+        </div>
+      )}
+
+      {/* 일별 탭 */}
+      {mainTab==="daily" && (
+        <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <span className="text-sm font-semibold text-text-primary">일별 시세</span>
+            {fetchingChart && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
+          </div>
+          {!ohlcv?.length ? (
+            <div className="py-12 text-center text-text-muted text-sm">데이터 없음</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-text-muted border-b border-border bg-bg-secondary">
+                    <th className="text-left px-4 py-2.5 font-medium whitespace-nowrap sticky left-0 bg-bg-secondary">날짜</th>
+                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">종가</th>
+                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">등락률</th>
+                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">거래량</th>
+                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">거래대금</th>
+                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">시가</th>
+                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">고가</th>
+                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap pr-4">저가</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...(ohlcv as any[])].reverse().map((bar: any, i: number, arr: any[]) => {
+                    const prevClose = arr[i + 1]?.close;
+                    const chgRate = prevClose ? ((bar.close - prevClose) / prevClose * 100) : 0;
+                    const isPos = chgRate >= 0;
+                    const amount = bar.close * (bar.volume || 0);
+                    return (
+                      <tr key={bar.date} className="border-b border-border/30 hover:bg-bg-hover">
+                        <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap sticky left-0 bg-bg-card">{bar.date?.slice(0,10)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono font-semibold text-text-primary whitespace-nowrap">
+                          {isKR ? `₩${bar.close?.toLocaleString("ko-KR")}` : `$${bar.close?.toFixed(2)}`}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${prevClose ? (isPos ? "text-accent-green" : "text-accent-red") : "text-text-muted"}`}>
+                          {prevClose ? `${isPos?"+":""}${chgRate.toFixed(2)}%` : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-muted whitespace-nowrap">
+                          {bar.volume ? (bar.volume >= 1e8 ? `${(bar.volume/1e8).toFixed(1)}억` : bar.volume >= 1e4 ? `${(bar.volume/1e4).toFixed(1)}만` : bar.volume.toLocaleString()) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-muted whitespace-nowrap">
+                          {amount > 0 ? (isKR ? fmtKRW(amount) : fmtUSD(amount)) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-muted whitespace-nowrap">
+                          {isKR ? bar.open?.toLocaleString("ko-KR") : bar.open?.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-accent-red/80 whitespace-nowrap">
+                          {isKR ? bar.high?.toLocaleString("ko-KR") : bar.high?.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-accent-blue/80 whitespace-nowrap pr-4">
+                          {isKR ? bar.low?.toLocaleString("ko-KR") : bar.low?.toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

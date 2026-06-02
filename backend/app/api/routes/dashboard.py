@@ -165,7 +165,7 @@ async def get_us_dashboard(
     tasks = [
         asyncio.gather(*[_get_us_index(n) for n in US_INDICES]),
         _get_exchange_rate_async(),
-        loop.run_in_executor(None, _get_us_rankings_cached, category),
+        _get_us_rankings_cached(category),
     ]
     if include_news:
         tasks.append(loop.run_in_executor(None, get_us_news, 6, 100))
@@ -192,8 +192,27 @@ async def _get_exchange_rate_async() -> dict:
     return await get_usdkrw()
 
 
-def _get_us_rankings_cached(category: str) -> list:
-    return get_us_rankings(category) or []
+async def _get_us_rankings_cached(category: str) -> list:
+    result = get_us_rankings(category) or []
+    # 데이터가 너무 적으면 즉시 배치 fetch 후 재시도
+    if len(result) < 15:
+        try:
+            from app.services.price_fetcher import fetch_yf_quotes
+            from app.services.scheduler import POPULAR_US
+            from app.services.yf_service import SP500_SYMBOLS
+            # POPULAR_US + 주요 대형주 즉시 fetch
+            top_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS[:80]))
+            data = await fetch_yf_quotes(top_syms)
+            for sym, q in data.items():
+                if q.get("price"):
+                    q["symbol"] = sym
+                    cache.set(f"price:{sym}", q, 300)
+            # 랭킹 캐시 무효화 후 재생성
+            cache.delete(f"rank:us:{category}")
+            result = get_us_rankings(category) or []
+        except Exception:
+            pass
+    return result
 
 
 # ── 랭킹 ───────────────────────────────────────────────────
@@ -204,8 +223,7 @@ async def kr_rankings(category: str = Query(default="시가총액")):
 
 @router.get("/rankings/us")
 async def us_rankings(category: str = Query(default="시가총액")):
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _get_us_rankings_cached, category)
+    return await _get_us_rankings_cached(category)
 
 
 # ── 뉴스 ───────────────────────────────────────────────────

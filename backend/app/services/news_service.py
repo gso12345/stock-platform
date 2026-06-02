@@ -24,24 +24,41 @@ def _to_kst(parsed_time) -> str:
 # ── 국내 뉴스 RSS ──────────────────────────────────────────
 KR_FEEDS = [
     # 경제 전문지
-    ("한국경제",     "https://www.hankyung.com/feed/economy"),
-    ("한국경제TV",   "https://www.hankyungtv.com/rss/market"),
-    ("매일경제",     "https://www.mk.co.kr/rss/40300001/"),
-    ("서울경제",     "https://www.sedaily.com/RssData/"),
-    ("이데일리",     "https://www.edaily.co.kr/rss/"),
-    ("파이낸셜뉴스", "https://www.fnnews.com/rss/fn_economy_news.xml"),
-    ("헤럴드경제",   "https://biz.heraldcorp.com/common/rss.php?ct=102"),
-    ("아시아경제",   "https://www.asiae.co.kr/rss/economy.htm"),
-    ("머니투데이",   "https://news.mt.co.kr/mtview.php?type=2&rss=1"),
-    ("비즈니스포스트","https://www.businesspost.co.kr/BP?command=rss"),
+    ("한국경제",      "https://www.hankyung.com/feed/economy"),
+    ("한국경제TV",    "https://www.hankyungtv.com/rss/market"),
+    ("매일경제",      "https://www.mk.co.kr/rss/40300001/"),
+    ("매일경제 증권", "https://www.mk.co.kr/rss/50200011/"),
+    ("서울경제",      "https://www.sedaily.com/RssData/"),
+    ("이데일리",      "https://www.edaily.co.kr/rss/"),
+    ("이데일리 증권", "https://www.edaily.co.kr/rss/stockmarket"),
+    ("파이낸셜뉴스",  "https://www.fnnews.com/rss/fn_economy_news.xml"),
+    ("헤럴드경제",    "https://biz.heraldcorp.com/common/rss.php?ct=102"),
+    ("아시아경제",    "https://www.asiae.co.kr/rss/economy.htm"),
+    ("머니투데이",    "https://news.mt.co.kr/mtview.php?type=2&rss=1"),
+    ("머니투데이 증권","https://news.mt.co.kr/mtview.php?type=4&rss=1"),
+    ("비즈니스포스트", "https://www.businesspost.co.kr/BP?command=rss"),
+    ("더벨",          "https://www.thebell.co.kr/free/content/RssAllNews.asp"),
+    ("딜사이트",      "https://dealsite.co.kr/articles/rss"),
     # 종합지 경제섹션
-    ("조선비즈",     "https://biz.chosun.com/arc/outboundfeeds/rss/?outputType=xml"),
-    ("중앙일보",     "https://rss.joins.com/joins_economy_list.xml"),
-    ("연합뉴스",     "https://www.yna.co.kr/RSS/economy.xml"),
-    ("뉴스1",        "https://www.news1.kr/rss/economic.xml"),
+    ("조선비즈",      "https://biz.chosun.com/arc/outboundfeeds/rss/?outputType=xml"),
+    ("동아일보 경제", "https://rss.donga.com/economy.xml"),
+    ("중앙일보",      "https://rss.joins.com/joins_economy_list.xml"),
+    ("국민일보 경제", "https://rss.kmib.co.kr/data/kmibEcoRss.xml"),
+    ("한겨레 경제",   "https://www.hani.co.kr/rss/economy/"),
+    ("경향신문 경제", "https://www.khan.co.kr/rss/rssdata/economy_news.xml"),
+    ("연합뉴스",      "https://www.yna.co.kr/RSS/economy.xml"),
+    ("연합뉴스 증권", "https://www.yna.co.kr/RSS/stocks.xml"),
+    ("뉴스1",         "https://www.news1.kr/rss/economic.xml"),
+    ("뉴스1 증권",    "https://www.news1.kr/rss/stocks.xml"),
     # 통신/데이터
     ("연합인포맥스",  "https://news.einfomax.co.kr/rss/allNews.xml"),
-    ("뉴시스",       "https://www.newsis.com/RSS/economy.xml"),
+    ("뉴시스",        "https://www.newsis.com/RSS/economy.xml"),
+    ("뉴시스 증권",   "https://www.newsis.com/RSS/stock.xml"),
+    # 방송
+    ("KBS 경제",      "https://news.kbs.co.kr/rss/rss_economy.xml"),
+    ("MBC 경제",      "https://imnews.imbc.com/rss/economy/index.xml"),
+    ("SBS 경제",      "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=02&plink=RSSREADER"),
+    ("YTN 경제",      "https://www.ytn.co.kr/rss/0401.xml"),
 ]
 
 # ── 해외 뉴스 RSS ──────────────────────────────────────────
@@ -172,7 +189,7 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     return result
 
 
-def get_kr_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
+def get_kr_news(limit_per_source: int = 8, total_limit: int = 200) -> list[dict]:
     ck = "news:kr"
     if c := cache.get(ck):
         return c

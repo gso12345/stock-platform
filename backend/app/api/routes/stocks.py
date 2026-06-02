@@ -646,7 +646,7 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
 
 @router.get("/{market}/{symbol}/forecasts")
 async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
-    """컨센서스 추정치 (연간 Revenue/EPS/Net Income 예측)"""
+    """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률"""
     from app.core.cache import cache
     ck = f"forecasts:{symbol}"
     if c := cache.get(ck):
@@ -655,76 +655,93 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
 
+    def _safe_float(v):
+        try:
+            f = float(v)
+            import math
+            return None if (math.isnan(f) or math.isinf(f)) else f
+        except Exception:
+            return None
+
     def _fetch():
         try:
             t = yf.Ticker(yf_sym)
-            rows = []
+            annual: dict = {}
+            quarterly: dict = {}
 
-            # 1. earnings_forecasts (연간 EPS 추정)
+            def _upsert(store, period, **kwargs):
+                if period not in store:
+                    store[period] = {"period": period, "type": "forecast"}
+                for k, v in kwargs.items():
+                    if v is not None and store[period].get(k) is None:
+                        store[period][k] = v
+
+            # ── earnings_estimate (EPS 추정, 연간+분기) ──────────
             try:
-                ef = t.earnings_forecasts
-                if ef is not None and not ef.empty:
-                    for idx, row in ef.iterrows():
-                        period = str(idx)[:10]
-                        rows.append({
-                            "period":   period,
-                            "eps_est":  float(row.get("EPS Estimate", row.get("avg", 0)) or 0) or None,
-                            "type":     "forecast",
-                        })
+                ee = getattr(t, "earnings_estimate", None)
+                if ee is not None and not ee.empty:
+                    for idx, row in ee.iterrows():
+                        p = str(idx)[:10]
+                        store = quarterly if len(p) > 6 else annual
+                        _upsert(store, p,
+                            eps_est=_safe_float(row.get("avg") or row.get("Avg Estimate")),
+                            eps_low=_safe_float(row.get("low") or row.get("Low Estimate")),
+                            eps_high=_safe_float(row.get("high") or row.get("High Estimate")),
+                            eps_analysts=_safe_float(row.get("numberOfAnalysts") or row.get("No. of Analysts")),
+                        )
             except Exception:
                 pass
 
-            # 2. income_stmt 기반 미래 추정 (analyst_info)
-            try:
-                ae = t.analyst_price_targets
-                if ae is not None and isinstance(ae, dict):
-                    pass  # 가격 타겟은 이미 detail에 포함
-            except Exception:
-                pass
-
-            # 3. revenue_estimate, earnings_estimate (forward)
-            try:
-                fi = t.financials
-                # quarterly_earnings_estimate
-                pe = getattr(t, "earnings_estimate", None)
-                if pe is not None and not pe.empty:
-                    for idx, row in pe.iterrows():
-                        period = str(idx)[:10]
-                        existing = next((r for r in rows if r["period"] == period), None)
-                        if existing:
-                            existing["eps_est"] = float(row.get("avg", existing.get("eps_est", 0)) or 0) or existing.get("eps_est")
-                        else:
-                            rows.append({"period": period, "eps_est": float(row.get("avg",0) or 0) or None, "type": "forecast"})
-            except Exception:
-                pass
-
-            # 4. revenue_estimate
+            # ── revenue_estimate (매출 추정) ─────────────────────
             try:
                 re_ = getattr(t, "revenue_estimate", None)
                 if re_ is not None and not re_.empty:
                     for idx, row in re_.iterrows():
-                        period = str(idx)[:10]
-                        rev_est = float(row.get("avg", 0) or 0) or None
-                        existing = next((r for r in rows if r["period"] == period), None)
-                        if existing:
-                            existing["revenue_est"] = rev_est
-                        else:
-                            rows.append({"period": period, "revenue_est": rev_est, "type": "forecast"})
+                        p = str(idx)[:10]
+                        store = quarterly if len(p) > 6 else annual
+                        _upsert(store, p,
+                            revenue_est=_safe_float(row.get("avg") or row.get("Avg Estimate")),
+                            revenue_low=_safe_float(row.get("low") or row.get("Low Estimate")),
+                            revenue_high=_safe_float(row.get("high") or row.get("High Estimate")),
+                        )
             except Exception:
                 pass
 
-            # 중복 제거 및 정렬
-            seen = {}
-            for r in rows:
-                p = r["period"]
-                if p not in seen:
-                    seen[p] = r
-                else:
-                    seen[p].update({k: v for k, v in r.items() if v is not None})
+            # ── eps_trend (추정치 변화 추이) ─────────────────────
+            try:
+                et = getattr(t, "eps_trend", None)
+                if et is not None and not et.empty:
+                    for idx, row in et.iterrows():
+                        p = str(idx)[:10]
+                        store = quarterly if len(p) > 6 else annual
+                        _upsert(store, p,
+                            eps_current=_safe_float(row.get("current")),
+                            eps_7d_ago=_safe_float(row.get("7daysAgo")),
+                            eps_30d_ago=_safe_float(row.get("30daysAgo")),
+                            eps_90d_ago=_safe_float(row.get("90daysAgo")),
+                        )
+            except Exception:
+                pass
 
-            return sorted(seen.values(), key=lambda x: x["period"])
+            # ── growth_estimates (성장률 추정) ───────────────────
+            try:
+                ge = getattr(t, "growth_estimates", None)
+                if ge is not None and not ge.empty:
+                    for idx, row in ge.iterrows():
+                        p = str(idx)[:10]
+                        store = quarterly if len(p) > 6 else annual
+                        _upsert(store, p,
+                            growth_est=_safe_float(row.get(yf_sym) or row.get("stock")),
+                        )
+            except Exception:
+                pass
+
+            return {
+                "annual":    sorted(rows,   key=lambda x: x["period"]),
+                "quarterly": sorted(q_rows, key=lambda x: x["period"]),
+            }
         except Exception:
-            return []
+            return {"annual": [], "quarterly": []}
 
     result = await _run(_fetch)
     cache.set(ck, result, 3600)
