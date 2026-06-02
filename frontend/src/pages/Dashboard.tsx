@@ -2,11 +2,9 @@ import { useState, useCallback, useMemo, memo, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { dashboardApi, stocksApi } from "@/api/stocks";
-import { Card, ChangeBadge, LoadingSpinner, formatNumber } from "@/components/ui";
+import { Card, ChangeBadge, formatNumber } from "@/components/ui";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
-
-const RANK_CATEGORIES = ["시가총액","상승률","하락률","거래대금","거래량"];
 
 function fmtUSD(v: number | null | undefined): string {
   if (v == null) return "—";
@@ -251,11 +249,9 @@ const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
 
 /* ── 국내 탭 ─────────────────────────────────────────────── */
 function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
-  const [category, setCategory] = useState("시가총액");
-
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ["dashboard-kr", category],
-    queryFn: () => dashboardApi.getKR(category),
+  const { data, refetch } = useQuery({
+    queryKey: ["dashboard-kr", "시가총액"],
+    queryFn: () => dashboardApi.getKR("시가총액"),
     staleTime: 30_000,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
@@ -277,14 +273,6 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     const fetched = data?.indices?.find((r: any) => r.index === key);
     return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
   };
-
-  // useQuery가 30초마다 갱신하므로 별도 폴링 불필요 — rankings에서 직접 map 구성
-  const rankLivePrices = useMemo(() => {
-    if (!data?.rankings) return {};
-    const map: Record<string, any> = {};
-    data.rankings.forEach((r: any) => { map[r.symbol] = r; });
-    return map;
-  }, [data?.rankings]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -324,51 +312,26 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
         </div>
       </section>
 
-      {/* 순위 + 뉴스 */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card className="xl:col-span-2 p-0 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-wrap gap-2">
-            <h3 className="text-sm font-semibold text-text-primary">국내주식 순위</h3>
-            <div className="flex gap-0.5 bg-bg-primary border border-border rounded-lg p-0.5 flex-wrap">
-              {RANK_CATEGORIES.map((cat) => (
-                <button key={cat} onClick={() => setCategory(cat)}
-                  className={`px-2 py-1 text-2xs font-semibold rounded-md transition-all ${
-                    category === cat ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
-                  }`}
-                >{cat}</button>
-              ))}
-            </div>
-          </div>
-          <div>
-            {isLoading ? <LoadingSpinner /> : (
-              <RankingTable items={data?.rankings ?? []} isKR livePrices={rankLivePrices}
-                onSymbolClick={(sym, mkt) => navigate(`/stocks/${mkt}/${encodeURIComponent(sym)}`)} />
-            )}
-          </div>
-        </Card>
-
-        <Card className="p-0 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-            <Newspaper size={14} className="text-text-muted" />
-            <h3 className="text-sm font-semibold text-text-primary">국내 금융뉴스</h3>
-            {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
-          </div>
-          <div className="px-3 py-1">
-            <NewsPanel news={newsData ?? []} />
-          </div>
-        </Card>
-      </div>
+      {/* 뉴스 */}
+      <Card className="p-0 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+          <Newspaper size={14} className="text-text-muted" />
+          <h3 className="text-sm font-semibold text-text-primary">국내 금융뉴스</h3>
+          {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
+        </div>
+        <div className="px-3 py-1">
+          <NewsPanel news={newsData ?? []} />
+        </div>
+      </Card>
     </div>
   );
 }
 
 /* ── 해외 탭 ─────────────────────────────────────────────── */
 function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
-  const [category, setCategory] = useState("시가총액");
-
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ["dashboard-us", category],
-    queryFn: () => dashboardApi.getUS(category),
+  const { data, refetch } = useQuery({
+    queryKey: ["dashboard-us", "시가총액"],
+    queryFn: () => dashboardApi.getUS("시가총액"),
     staleTime: 30_000,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
@@ -390,13 +353,6 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     const fetched = data?.indices?.find((r: any) => r.index === key);
     return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
   };
-
-  const rankLivePrices = useMemo(() => {
-    if (!data?.rankings) return {};
-    const map: Record<string, any> = {};
-    data.rankings.forEach((r: any) => { map[r.symbol] = r; });
-    return map;
-  }, [data?.rankings]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -426,40 +382,17 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
         </div>
       </section>
 
-      {/* 순위 + 뉴스 */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card className="xl:col-span-2 p-0 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-wrap gap-2">
-            <h3 className="text-sm font-semibold text-text-primary">해외주식 순위</h3>
-            <div className="flex gap-0.5 bg-bg-primary border border-border rounded-lg p-0.5 flex-wrap">
-              {RANK_CATEGORIES.map((cat) => (
-                <button key={cat} onClick={() => setCategory(cat)}
-                  className={`px-2 py-1 text-2xs font-semibold rounded-md transition-all ${
-                    category === cat ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
-                  }`}
-                >{cat}</button>
-              ))}
-            </div>
-          </div>
-          <div>
-            {isLoading ? <LoadingSpinner /> : (
-              <RankingTable items={data?.rankings ?? []} isKR={false} livePrices={rankLivePrices}
-                onSymbolClick={(sym, mkt) => navigate(`/stocks/${mkt}/${encodeURIComponent(sym)}`)} />
-            )}
-          </div>
-        </Card>
-
-        <Card className="p-0 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-            <Globe size={14} className="text-text-muted" />
-            <h3 className="text-sm font-semibold text-text-primary">해외 금융뉴스</h3>
-            {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
-          </div>
-          <div className="px-3 py-1">
-            <NewsPanel news={newsData ?? []} />
-          </div>
-        </Card>
-      </div>
+      {/* 뉴스 */}
+      <Card className="p-0 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+          <Globe size={14} className="text-text-muted" />
+          <h3 className="text-sm font-semibold text-text-primary">해외 금융뉴스</h3>
+          {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
+        </div>
+        <div className="px-3 py-1">
+          <NewsPanel news={newsData ?? []} />
+        </div>
+      </Card>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { screeningApi } from "@/api/stocks";
 import {
-  Card, ChangeBadge, LoadingSpinner, formatNumber, RangeFilter, Tabs, Button, Badge, Section
+  Card, ChangeBadge, LoadingSpinner, formatNumber, RangeFilter, Tabs, Button, Badge
 } from "@/components/ui";
 import type { Market } from "@/types";
 import { Filter, Save, Trash2, ChevronUp, ChevronDown, ExternalLink } from "lucide-react";

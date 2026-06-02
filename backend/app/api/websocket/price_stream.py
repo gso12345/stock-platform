@@ -10,6 +10,7 @@ from app.core.cache import cache
 from app.services.yf_service import INDEX_NAMES
 
 _ws_connections: dict[str, int] = defaultdict(int)
+_ws_lock = asyncio.Lock()
 MAX_WS_PER_IP = 10  # IP당 최대 WebSocket 연결 수
 
 KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150"]
@@ -37,10 +38,11 @@ def _cached_price(symbol: str, market: str) -> dict:
 
 async def stream_indices(ws: WebSocket, interval: int = 30):
     client_ip = ws.client.host if ws.client else "unknown"
-    if _ws_connections[client_ip] >= MAX_WS_PER_IP:
-        await ws.close(code=1008)
-        return
-    _ws_connections[client_ip] += 1
+    async with _ws_lock:
+        if _ws_connections[client_ip] >= MAX_WS_PER_IP:
+            await ws.close(code=1008)
+            return
+        _ws_connections[client_ip] += 1
     await ws.accept()
     try:
         while True:
@@ -54,15 +56,17 @@ async def stream_indices(ws: WebSocket, interval: int = 30):
     except WebSocketDisconnect:
         pass
     finally:
-        _ws_connections[client_ip] = max(0, _ws_connections[client_ip] - 1)
+        async with _ws_lock:
+            _ws_connections[client_ip] = max(0, _ws_connections[client_ip] - 1)
 
 
 async def stream_prices(ws: WebSocket, symbols: list[str], markets: list[str], interval: int = 15):
     client_ip = ws.client.host if ws.client else "unknown"
-    if _ws_connections[client_ip] >= MAX_WS_PER_IP:
-        await ws.close(code=1008)
-        return
-    _ws_connections[client_ip] += 1
+    async with _ws_lock:
+        if _ws_connections[client_ip] >= MAX_WS_PER_IP:
+            await ws.close(code=1008)
+            return
+        _ws_connections[client_ip] += 1
     await ws.accept()
     try:
         while True:
@@ -75,4 +79,5 @@ async def stream_prices(ws: WebSocket, symbols: list[str], markets: list[str], i
     except WebSocketDisconnect:
         pass
     finally:
-        _ws_connections[client_ip] = max(0, _ws_connections[client_ip] - 1)
+        async with _ws_lock:
+            _ws_connections[client_ip] = max(0, _ws_connections[client_ip] - 1)

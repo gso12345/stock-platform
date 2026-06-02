@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
+import api from "@/api/client";
 import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import type { Market } from "@/types";
@@ -370,10 +371,10 @@ export default function Watchlist() {
   const symbols = useMemo(() => (items as any[]).map((i: any) => i.symbol), [items]);
   const markets  = useMemo(() => (items as any[]).map((i: any) => i.market === "KR" ? "KR" : "US"), [items]);
 
-  /* REST 배치 가격 조회 — 즉시 로드 + 30초 갱신 + 캐시 워밍 */
+  /* REST 배치 가격 조회 — signal을 받아 컴포넌트 언마운트/취소 시 HTTP 요청도 중단 */
   const { data: restPrices } = useQuery({
     queryKey: ["watchlist-prices", symbols.join(",")],
-    queryFn: () => watchlistApi.getPrices(symbols, markets),
+    queryFn: ({ signal }) => watchlistApi.getPrices(symbols, markets, signal),
     enabled: symbols.length > 0,
     staleTime: 25_000,
     refetchInterval: 30_000,
@@ -471,8 +472,11 @@ export default function Watchlist() {
   const noFolder    = displayList.filter((i: any) => !i.folder_id);
   const byFolder    = (fid: number) => displayList.filter((i: any) => i.folder_id === fid);
 
-  const goToStock = (item: any) =>
+  const goToStock = (item: any) => {
+    // 가격 조회 중이라면 취소하고 종목 상세로 이동 (상세 페이지 로딩 우선)
+    qc.cancelQueries({ queryKey: ["watchlist-prices"] });
     navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`);
+  };
 
   // 화면에 보이는 종목 자동 prefetch
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());

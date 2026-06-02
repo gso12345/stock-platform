@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { createChart, ColorType, CrosshairMode, LineStyle, PriceScaleMode } from "lightweight-charts";
 import { Settings, Plus, X } from "lucide-react";
 import {
@@ -164,15 +164,28 @@ function SettingsPanel({ settings, onChange, onClose }: {
 
   const NumInput = ({ label, value, onChange: oc, min = 1, max = 500 }: {
     label: string; value: number; onChange: (v: number) => void; min?: number; max?: number;
-  }) => (
-    <label className="flex items-center gap-2 text-xs">
-      <span className="text-text-muted w-20 flex-shrink-0">{label}</span>
-      <input type="number" min={min} max={max} value={value}
-        onChange={e => oc(Math.max(min, Math.min(max, parseInt(e.target.value) || min)))}
-        className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center focus:outline-none focus:border-accent-blue"
-      />
-    </label>
-  );
+  }) => {
+    const [localVal, setLocalVal] = useState(String(value));
+    useEffect(() => { setLocalVal(String(value)); }, [value]);
+    const commit = useCallback(() => {
+      const parsed = parseInt(localVal, 10);
+      const clamped = isNaN(parsed) ? min : Math.max(min, Math.min(max, parsed));
+      setLocalVal(String(clamped));
+      oc(clamped);
+    }, [localVal, min, max, oc]);
+    return (
+      <label className="flex items-center gap-2 text-xs">
+        <span className="text-text-muted w-20 flex-shrink-0">{label}</span>
+        <input
+          type="number" min={min} max={max} value={localVal}
+          onChange={e => setLocalVal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => { if (e.key === "Enter") commit(); }}
+          className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center focus:outline-none focus:border-accent-blue"
+        />
+      </label>
+    );
+  };
 
   const Toggle = ({ label, checked, onToggle, color }: { label: string; checked: boolean; onToggle: () => void; color?: string }) => (
     <button onClick={onToggle}

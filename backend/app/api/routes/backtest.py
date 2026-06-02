@@ -102,6 +102,7 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
         exit_conditions=req.exit_conditions,
         stop_loss=req.stop_loss,
         take_profit=req.take_profit,
+        initial_capital=req.initial_capital,
     )
 
     # 결과 저장
@@ -176,6 +177,7 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
                         exit_conditions=req.exit_conditions,
                         stop_loss=req.stop_loss,
                         take_profit=req.take_profit,
+                        initial_capital=req.initial_capital,
                     )
                 )
                 if not result:
@@ -210,10 +212,16 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
 
 
 @router.get("/results")
-def get_backtest_results(limit: int = 20, db: Session = Depends(get_db)):
-    """최근 백테스트 결과 목록"""
+def get_backtest_results(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """내 백테스트 결과 목록"""
     results = (
         db.query(BacktestResult)
+        .join(Strategy, BacktestResult.strategy_id == Strategy.id, isouter=True)
+        .filter((Strategy.user_id == current_user.id) | (BacktestResult.strategy_id == None))
         .order_by(BacktestResult.created_at.desc())
         .limit(limit)
         .all()
@@ -222,8 +230,12 @@ def get_backtest_results(limit: int = 20, db: Session = Depends(get_db)):
 
 
 @router.get("/results/{result_id}")
-def get_backtest_result(result_id: int, db: Session = Depends(get_db)):
-    """백테스트 결과 상세"""
+def get_backtest_result(
+    result_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """백테스트 결과 상세 (본인 것만)"""
     result = db.query(BacktestResult).filter(BacktestResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=404, detail="백테스트 결과를 찾을 수 없습니다")
@@ -232,9 +244,16 @@ def get_backtest_result(result_id: int, db: Session = Depends(get_db)):
 
 # 전략 관리
 @router.get("/strategies")
-def get_strategies(db: Session = Depends(get_db)):
-    """전략 목록"""
-    return db.query(Strategy).filter(Strategy.is_active == True).all()
+def get_strategies(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """내 전략 목록"""
+    return (
+        db.query(Strategy)
+        .filter(Strategy.is_active == True, Strategy.user_id == current_user.id)
+        .all()
+    )
 
 
 @router.post("/strategies")

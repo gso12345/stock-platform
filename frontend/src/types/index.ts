@@ -83,7 +83,7 @@ export interface ScreeningPreset {
 }
 
 export type IndicatorType = "MA" | "RSI" | "MACD" | "BB" | "PRICE" | "VOLUME";
-export type OperatorType = ">" | "<" | ">=" | "<=" | "cross_above" | "cross_below";
+export type OperatorType = ">" | "<" | ">=" | "<=" | "==" | "crosses_above" | "crosses_below";
 
 export interface Condition {
   indicator: IndicatorType;

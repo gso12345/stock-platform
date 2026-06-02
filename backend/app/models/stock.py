@@ -63,7 +63,7 @@ class BacktestResult(Base):
     __tablename__ = "backtest_results"
 
     id = Column(Integer, primary_key=True, index=True)
-    strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=False)
+    strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=True)
     symbol = Column(String(20), nullable=False)
     market = Column(String(10))
     start_date = Column(String(10))

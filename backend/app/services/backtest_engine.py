@@ -9,7 +9,7 @@ class BacktestEngine:
 
     def run(self, ohlcv: list, entry_conditions: dict, exit_conditions: dict,
             stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
-            position_size: float = 0.95) -> dict:
+            position_size: float = 0.95, initial_capital: Optional[float] = None) -> dict:
         if len(ohlcv) < 5:
             return {}
         df = pd.DataFrame(ohlcv)
@@ -17,7 +17,7 @@ class BacktestEngine:
         df = df.sort_values("date").reset_index(drop=True)
         df = self._add_all_indicators(df)
 
-        capital = self.initial_capital
+        capital = initial_capital if initial_capital is not None else self.initial_capital
         position = 0
         entry_price = 0.0
         entry_date = None
@@ -89,11 +89,13 @@ class BacktestEngine:
         df["macd_signal"] = df["macd"].ewm(span=9, adjust=False).mean()
         df["macd_hist"] = df["macd"] - df["macd_signal"]
 
-        # RSI
+        # RSI (Wilder's Smoothing Method)
         delta = c.diff()
-        gain = delta.where(delta > 0, 0.0).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
-        df["rsi"] = 100 - (100 / (1 + gain / loss.replace(0, np.nan)))
+        gain = delta.where(delta > 0, 0.0)
+        loss = (-delta.where(delta < 0, 0.0))
+        avg_gain = gain.ewm(com=13, adjust=False).mean()
+        avg_loss = loss.ewm(com=13, adjust=False).mean()
+        df["rsi"] = 100 - (100 / (1 + avg_gain / avg_loss.replace(0, np.nan)))
 
         # 볼린저 밴드
         ma20 = c.rolling(20).mean()
@@ -249,8 +251,10 @@ class BacktestEngine:
 
         win_rate = sum(1 for t in trades if t["pnl_rate"] > 0) / len(trades) * 100 if trades else 0
         avg_profit = np.mean([t["pnl_rate"] for t in trades if t["pnl_rate"] > 0]) if any(t["pnl_rate"] > 0 for t in trades) else 0
-        avg_loss = np.mean([t["pnl_rate"] for t in trades if t["pnl_rate"] <= 0]) if any(t["pnl_rate"] <= 0 for t in trades) else 0
-        profit_factor = abs(avg_profit / avg_loss) if avg_loss != 0 else 0
+        avg_loss = np.mean([t["pnl_rate"] for t in trades if t["pnl_rate"] < 0]) if any(t["pnl_rate"] < 0 for t in trades) else 0
+        total_profit = sum(t["pnl_rate"] for t in trades if t["pnl_rate"] > 0)
+        total_loss = sum(abs(t["pnl_rate"]) for t in trades if t["pnl_rate"] < 0)
+        profit_factor = total_profit / total_loss if total_loss != 0 else 0
 
         return {
             "total_return": round(total_return, 2),

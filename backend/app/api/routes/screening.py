@@ -19,10 +19,13 @@ _VALID_SORT = {"market_cap", "change_rate", "volume", "per", "pbr", "roe", "pric
 _VALID_MARKETS = {"KR", "US", "ETF"}
 
 
+_SORT_PATTERN = "^(market_cap|change_rate|volume|per|pbr|roe|price|amount|eps|debt_ratio|roe|roa|operating_margin|profit_margin|beta|dividend_yield)$"
+
+
 class ScreeningRequest(BaseModel):
     market: str = Field("US", pattern="^(KR|US|ETF)$")
     filters: dict = Field(default={}, max_length=20)
-    sort_by: str = Field("market_cap", pattern="^(market_cap|change_rate|volume|per|pbr|roe|price|amount)$")
+    sort_by: str = Field("market_cap", pattern=_SORT_PATTERN)
     sort_order: str = Field("desc", pattern="^(asc|desc)$")
     limit: int = Field(50, ge=1, le=100)
 
@@ -31,7 +34,7 @@ class PresetSaveRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     market: str = Field(..., pattern="^(KR|US|ETF)$")
     filters: dict = Field(default={}, max_length=20)
-    sort_by: str = Field(..., pattern="^(market_cap|change_rate|volume|per|pbr|roe|price|amount)$")
+    sort_by: str = Field(..., pattern=_SORT_PATTERN)
     sort_order: str = Field("desc", pattern="^(asc|desc)$")
 
 

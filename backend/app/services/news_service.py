@@ -24,41 +24,49 @@ def _to_kst(parsed_time) -> str:
 # ── 국내 뉴스 RSS ──────────────────────────────────────────
 KR_FEEDS = [
     # 경제 전문지
-    ("한국경제",      "https://www.hankyung.com/feed/economy"),
-    ("한국경제TV",    "https://www.hankyungtv.com/rss/market"),
-    ("매일경제",      "https://www.mk.co.kr/rss/40300001/"),
-    ("매일경제 증권", "https://www.mk.co.kr/rss/50200011/"),
-    ("서울경제",      "https://www.sedaily.com/RssData/"),
-    ("이데일리",      "https://www.edaily.co.kr/rss/"),
-    ("이데일리 증권", "https://www.edaily.co.kr/rss/stockmarket"),
-    ("파이낸셜뉴스",  "https://www.fnnews.com/rss/fn_economy_news.xml"),
-    ("헤럴드경제",    "https://biz.heraldcorp.com/common/rss.php?ct=102"),
-    ("아시아경제",    "https://www.asiae.co.kr/rss/economy.htm"),
-    ("머니투데이",    "https://news.mt.co.kr/mtview.php?type=2&rss=1"),
+    ("한국경제",       "https://www.hankyung.com/feed/economy"),
+    ("한국경제TV",     "https://www.hankyungtv.com/rss/market"),
+    ("매일경제",       "https://www.mk.co.kr/rss/40300001/"),
+    ("서울경제",       "https://www.sedaily.com/RssData/"),
+    ("이데일리",       "https://www.edaily.co.kr/rss/"),
+    ("이데일리 증권",  "https://www.edaily.co.kr/rss/stockmarket"),
+    ("파이낸셜뉴스",   "https://www.fnnews.com/rss/fn_economy_news.xml"),
+    ("헤럴드경제",     "https://biz.heraldcorp.com/common/rss.php?ct=102"),
+    ("아시아경제",     "https://www.asiae.co.kr/rss/economy.htm"),
+    ("머니투데이",     "https://news.mt.co.kr/mtview.php?type=2&rss=1"),
     ("머니투데이 증권","https://news.mt.co.kr/mtview.php?type=4&rss=1"),
     ("비즈니스포스트", "https://www.businesspost.co.kr/BP?command=rss"),
-    ("더벨",          "https://www.thebell.co.kr/free/content/RssAllNews.asp"),
-    ("딜사이트",      "https://dealsite.co.kr/articles/rss"),
+    ("더벨",           "https://www.thebell.co.kr/free/content/RssAllNews.asp"),
+    ("딜사이트",       "https://dealsite.co.kr/articles/rss"),
+    ("인베스트조선",   "https://www.investchosun.com/site/data/rss/rss.xml"),
     # 종합지 경제섹션
-    ("조선비즈",      "https://biz.chosun.com/arc/outboundfeeds/rss/?outputType=xml"),
-    ("동아일보 경제", "https://rss.donga.com/economy.xml"),
-    ("중앙일보",      "https://rss.joins.com/joins_economy_list.xml"),
-    ("국민일보 경제", "https://rss.kmib.co.kr/data/kmibEcoRss.xml"),
-    ("한겨레 경제",   "https://www.hani.co.kr/rss/economy/"),
-    ("경향신문 경제", "https://www.khan.co.kr/rss/rssdata/economy_news.xml"),
-    ("연합뉴스",      "https://www.yna.co.kr/RSS/economy.xml"),
-    ("연합뉴스 증권", "https://www.yna.co.kr/RSS/stocks.xml"),
-    ("뉴스1",         "https://www.news1.kr/rss/economic.xml"),
-    ("뉴스1 증권",    "https://www.news1.kr/rss/stocks.xml"),
-    # 통신/데이터
-    ("연합인포맥스",  "https://news.einfomax.co.kr/rss/allNews.xml"),
-    ("뉴시스",        "https://www.newsis.com/RSS/economy.xml"),
-    ("뉴시스 증권",   "https://www.newsis.com/RSS/stock.xml"),
+    ("조선비즈",       "https://biz.chosun.com/arc/outboundfeeds/rss/?outputType=xml"),
+    ("동아일보 경제",  "https://rss.donga.com/economy.xml"),
+    ("중앙일보",       "https://rss.joins.com/joins_economy_list.xml"),
+    ("국민일보 경제",  "https://rss.kmib.co.kr/data/kmibEcoRss.xml"),
+    ("경향신문 경제",  "https://www.khan.co.kr/rss/rssdata/economy_news.xml"),
+    ("한겨레21",       "https://h21.hani.co.kr/rss/"),
+    ("문화일보 경제",  "https://www.munhwa.com/rss/economy.xml"),
+    ("세계일보 경제",  "https://www.segye.com/newsList/RSS/economy.xml"),
+    # 통신사
+    ("연합뉴스",       "https://www.yna.co.kr/RSS/economy.xml"),
+    ("연합뉴스 증권",  "https://www.yna.co.kr/RSS/stocks.xml"),
+    ("뉴스1",          "https://www.news1.kr/rss/economic.xml"),
+    ("뉴스1 증권",     "https://www.news1.kr/rss/stocks.xml"),
+    ("연합인포맥스",   "https://news.einfomax.co.kr/rss/allNews.xml"),
+    ("뉴시스",         "https://www.newsis.com/RSS/economy.xml"),
+    ("뉴시스 증권",    "https://www.newsis.com/RSS/stock.xml"),
     # 방송
-    ("KBS 경제",      "https://news.kbs.co.kr/rss/rss_economy.xml"),
-    ("MBC 경제",      "https://imnews.imbc.com/rss/economy/index.xml"),
-    ("SBS 경제",      "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=02&plink=RSSREADER"),
-    ("YTN 경제",      "https://www.ytn.co.kr/rss/0401.xml"),
+    ("KBS 경제",       "https://news.kbs.co.kr/rss/rss_economy.xml"),
+    ("MBC 경제",       "https://imnews.imbc.com/rss/economy/index.xml"),
+    ("SBS 경제",       "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=02&plink=RSSREADER"),
+    ("YTN 경제",       "https://www.ytn.co.kr/rss/0401.xml"),
+    ("채널A 경제",     "https://www.ichannela.com/news/rss/newsprss_eco.xml"),
+    # IT·스타트업·산업
+    ("전자신문",       "https://www.etnews.com/etnews/sub.xml?rss=8"),
+    ("디지털타임스",   "https://www.dt.co.kr/rss/rss.xml"),
+    ("ZDNet Korea",    "https://zdnet.co.kr/rss/rss.html"),
+    ("테크M",          "https://www.techm.kr/rss/allArticle.xml"),
 ]
 
 # ── 해외 뉴스 RSS ──────────────────────────────────────────
@@ -177,19 +185,41 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     return all_news
 
 
+def _interleave_by_source(articles: list) -> list:
+    """소스별로 균등하게 섞어서 특정 언론사 독점 방지"""
+    from collections import defaultdict
+    by_src: dict = defaultdict(list)
+    for a in articles:
+        by_src[a["source"]].append(a)
+    # 각 소스 내부는 최신순 정렬
+    for src in by_src:
+        by_src[src].sort(key=lambda x: x["published"], reverse=True)
+    result = []
+    sources = list(by_src.keys())
+    while any(by_src[s] for s in sources):
+        for s in sources:
+            if by_src[s]:
+                result.append(by_src[s].pop(0))
+    return result
+
+
 def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
     all_news = _fetch_all_feeds(feeds, limit_per_source)
     if not all_news:
         return []
-    all_news.sort(key=lambda x: x["published"], reverse=True)
     _add_trending_score(all_news)
-    result = all_news[:total_limit]
+    # 소스별 인터리브 → 전체 최신순 재정렬 (최신 2시간은 최신순, 나머지는 인터리브)
+    recent   = [a for a in all_news if a["published"] >= ""]  # 전체
+    recent.sort(key=lambda x: x["published"], reverse=True)
+    top      = recent[:30]    # 최신 30개는 시간순
+    rest     = _interleave_by_source(recent[30:])  # 나머지는 언론사별 균등 배치
+    result   = (top + rest)[:total_limit]
     cache.set(ck, result, 300)
     _refreshing.pop(ck, None)
     return result
 
 
-def get_kr_news(limit_per_source: int = 8, total_limit: int = 200) -> list[dict]:
+def get_kr_news(limit_per_source: int = 4, total_limit: int = 200) -> list[dict]:
     ck = "news:kr"
     if c := cache.get(ck):
         return c

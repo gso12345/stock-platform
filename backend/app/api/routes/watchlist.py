@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel, Field
 from typing import Optional
 import asyncio
@@ -33,6 +33,7 @@ class UpdateItemRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
     memo: Optional[str] = Field(None, max_length=200)
     folder_id: Optional[int] = None
+    clear_folder: bool = False  # True이면 folder_id를 None으로 초기화
 
 
 class ReorderRequest(BaseModel):
@@ -79,7 +80,10 @@ def get_watchlist(
 
 # ── 폴더 CRUD ────────────────────────────────────────────────
 @router.get("/folders")
-def get_folders(db: Session = Depends(get_db)):
+def get_folders(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     folders = db.query(WatchlistFolder).order_by(WatchlistFolder.position).all()
     result = []
     for f in folders:
@@ -130,6 +134,11 @@ def delete_folder(
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
     if not folder:
         raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
+    # 내 관심목록에 속한 폴더인지 확인
+    user_wl = _ensure_watchlist(db, user_id=current_user.id)
+    folder_item_wl_ids = {item.watchlist_id for item in folder.items}
+    if folder_item_wl_ids and user_wl.id not in folder_item_wl_ids:
+        raise HTTPException(status_code=403, detail="삭제 권한이 없습니다")
     for item in folder.items:
         item.folder_id = None
     db.delete(folder)
@@ -231,7 +240,7 @@ def get_items(
         q = q.filter(WatchlistItem.market == market)
     if folder_id is not None:
         q = q.filter(WatchlistItem.folder_id == folder_id)
-    items = q.order_by(WatchlistItem.position, WatchlistItem.added_at).all()
+    items = q.options(joinedload(WatchlistItem.folder)).order_by(WatchlistItem.position, WatchlistItem.added_at).all()
     return [_item_to_dict(i) for i in items]
 
 
@@ -366,8 +375,10 @@ def update_item(
         item.name = req.name
     if req.memo is not None:
         item.memo = req.memo
-    if req.folder_id is not None:
-        item.folder_id = req.folder_id if req.folder_id != -1 else None
+    if req.clear_folder:
+        item.folder_id = None
+    elif req.folder_id is not None:
+        item.folder_id = req.folder_id
     db.commit()
     return _item_to_dict(item)
 

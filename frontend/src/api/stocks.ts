@@ -125,9 +125,10 @@ export const watchlistApi = {
   getItems: (market?: string, folderId?: number) =>
     api.get("/watchlist/items", { params: { market, folder_id: folderId } }).then((r) => r.data),
 
-  getPrices: (symbols: string[], markets: string[]) =>
+  getPrices: (symbols: string[], markets: string[], signal?: AbortSignal) =>
     api.get<any[]>("/watchlist/prices", {
       params: { symbols: symbols.join(","), markets: markets.join(",") },
+      signal,
     }).then((r) => r.data),
 
   getItemsWithPrices: (market?: string) =>

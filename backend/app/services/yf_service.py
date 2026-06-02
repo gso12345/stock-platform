@@ -293,7 +293,8 @@ class YFinanceService:
 
         is_intraday = interval in ("1m","2m","5m","15m","30m","60m","90m","1h")
         yf_period = PERIOD_MAP.get(period, "5d" if is_intraday else "1y")
-        hist = yf.Ticker(symbol).history(period=yf_period, interval=interval)
+        # 일봉 이상은 실제 종가(auto_adjust=False) 사용 — 조정 종가와의 불일치 방지
+        hist = yf.Ticker(symbol).history(period=yf_period, interval=interval, auto_adjust=not is_intraday)
         hist = hist.dropna(subset=["Close"])
         # 타임존 제거
         if hist.index.tz is not None:

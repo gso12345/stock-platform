@@ -24,7 +24,10 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
 
   const usernameValid = /^[a-zA-Z0-9_]+$/.test(username) && username.length >= 3;
-  const pwValid = password.length >= 8;
+  const pwLongEnough = password.length >= 8;
+  const pwHasLetter = /[A-Za-z]/.test(password);
+  const pwHasNumber = /\d/.test(password);
+  const pwValid = pwLongEnough && pwHasLetter && pwHasNumber;
   const pwMatch = password === confirmPw;
 
   const handleSubmit = async (e: FormEvent) => {
@@ -132,8 +135,11 @@ export default function Register() {
                   {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
-              {password.length > 0 && !pwValid && (
+              {password.length > 0 && !pwLongEnough && (
                 <p className="text-2xs text-accent-red">비밀번호는 최소 8자 이상이어야 합니다.</p>
+              )}
+              {password.length >= 8 && (!pwHasLetter || !pwHasNumber) && (
+                <p className="text-2xs text-accent-red">영문자와 숫자를 모두 포함해야 합니다.</p>
               )}
             </div>
 

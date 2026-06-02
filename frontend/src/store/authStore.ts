@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { AUTH_STORAGE_KEY } from "@/api/client";
 
 interface AuthState {
   token: string | null;
@@ -23,7 +24,7 @@ export const useAuthStore = create<AuthState>()(
         set({ token: null, userId: null, username: null, isLoggedIn: false }),
     }),
     {
-      name: "stkplt_auth",
+      name: AUTH_STORAGE_KEY,
     }
   )
 );

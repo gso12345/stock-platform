@@ -4,6 +4,8 @@ const BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api/v1`
   : "/api/v1";
 
+export const AUTH_STORAGE_KEY = "stkplt_auth";
+
 const api = axios.create({
   baseURL: BASE,
   timeout: 30000,
@@ -11,7 +13,7 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
   try {
-    const raw = localStorage.getItem("stkplt_auth");
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as { state?: { token?: string } };
       const token = parsed?.state?.token;
@@ -30,7 +32,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       try {
-        localStorage.removeItem("stkplt_auth");
+        localStorage.removeItem(AUTH_STORAGE_KEY);
       } catch {}
       // 로그인 페이지가 아닐 때만 리다이렉트
       if (!window.location.pathname.includes("login")) {

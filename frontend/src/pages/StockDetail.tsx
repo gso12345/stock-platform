@@ -98,6 +98,7 @@ export default function StockDetail() {
   const [newsExpanded, setNewsExpanded] = useState(false);
   const [newsSubTab, setNewsSubTab]     = useState<"news" | "disclosure">("news");
   const [inWatchlist, setInWatchlist] = useState(false);
+  const [watchlistItemId, setWatchlistItemId] = useState<number | null>(null);
   const [watchlistMsg, setWatchlistMsg] = useState("");
   const [openGroup, setOpenGroup]     = useState<string | null>(null);
   const candleDropdownRef             = useRef<HTMLDivElement>(null);
@@ -227,7 +228,7 @@ export default function StockDetail() {
   const { data: earningsData } = useQuery({
     queryKey: ["earnings", m, sym],
     queryFn: () => stocksApi.getEarnings(m, sym),
-    enabled: !!sym && mainTab === "news" && newsSubTab === "news",
+    enabled: !!sym && (mainTab === "news" || mainTab === "financial"),
     staleTime: 3_600_000,
   });
 
@@ -254,7 +255,9 @@ export default function StockDetail() {
   });
   useEffect(() => {
     if (watchlistItems) {
-      setInWatchlist((watchlistItems as any[]).some((i: any) => i.symbol === sym));
+      const found = (watchlistItems as any[]).find((i: any) => i.symbol === sym);
+      setInWatchlist(!!found);
+      setWatchlistItemId(found?.id ?? null);
     }
   }, [watchlistItems, sym]);
 
@@ -265,8 +268,9 @@ export default function StockDetail() {
       name: (detail as any)?.name ?? sym,
       watchlist_id: 1,
     }),
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       setInWatchlist(true);
+      setWatchlistItemId(data?.id ?? null);
       setWatchlistMsg("관심종목에 추가됐어요");
       qc.invalidateQueries({ queryKey: ["watchlist-items"] });
       qc.invalidateQueries({ queryKey: ["watchlist-items-check"] });
@@ -280,6 +284,18 @@ export default function StockDetail() {
       } else {
         setWatchlistMsg(msg);
       }
+      setTimeout(() => setWatchlistMsg(""), 2000);
+    },
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (id: number) => watchlistApi.removeItem(id),
+    onSuccess: () => {
+      setInWatchlist(false);
+      setWatchlistItemId(null);
+      setWatchlistMsg("관심종목에서 제거됐어요");
+      qc.invalidateQueries({ queryKey: ["watchlist-items"] });
+      qc.invalidateQueries({ queryKey: ["watchlist-items-check"] });
       setTimeout(() => setWatchlistMsg(""), 2000);
     },
   });
@@ -333,16 +349,22 @@ export default function StockDetail() {
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <button
-            onClick={() => !inWatchlist && !addMutation.isPending && addMutation.mutate()}
-            disabled={addMutation.isPending}
+            onClick={() => {
+              if (inWatchlist && watchlistItemId) {
+                removeMutation.mutate(watchlistItemId);
+              } else if (!inWatchlist && !addMutation.isPending) {
+                addMutation.mutate();
+              }
+            }}
+            disabled={addMutation.isPending || removeMutation.isPending}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
               inWatchlist
-                ? "border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow"
+                ? "border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow hover:bg-accent-red/10 hover:border-accent-red/50 hover:text-accent-red"
                 : "border-border text-text-muted hover:border-accent-yellow/60 hover:text-accent-yellow"
             }`}
           >
             <Star size={14} fill={inWatchlist ? "currentColor" : "none"}/>
-            {addMutation.isPending ? "추가 중..." : inWatchlist ? "관심종목" : "추가"}
+            {addMutation.isPending ? "추가 중..." : removeMutation.isPending ? "제거 중..." : inWatchlist ? "관심종목" : "추가"}
           </button>
           {watchlistMsg && (
             <span className="text-2xs text-text-muted animate-fade-in">{watchlistMsg}</span>
@@ -471,10 +493,10 @@ export default function StockDetail() {
         <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
           {[
             { id:"chart",     Icon: BarChart2,  label:"차트" },
+            { id:"daily",     Icon: List,        label:"일별" },
             { id:"financial", Icon: DollarSign, label:"재무제표" },
             { id:"analyst",   Icon: TrendingUp,  label:"투자의견" },
             { id:"news",      Icon: Newspaper,  label:"뉴스/공시" },
-            { id:"daily",     Icon: List,        label:"일별" },
             ...(isKR ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
           ].map(({ id, Icon, label }) => (
             <button key={id}
@@ -789,10 +811,10 @@ export default function StockDetail() {
 
         // 공통 차트 옵션
         const chartProps = {
-          margin: {top:4,right:16,left:0,bottom:4} as any,
+          margin: {top:4,right:16,left:4,bottom:4} as any,
           cartesianGridProps: { strokeDasharray:"3 3", stroke:"#232840" },
           xAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any,
-          yAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any,
+          yAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false, width:62 } as any,
           tooltipProps: { contentStyle:{background:"#141824",border:"1px solid #232840",borderRadius:8,fontSize:11} } as any,
         };
 

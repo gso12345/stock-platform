@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useWSStore } from "@/store/wsStore";
 
 type WSStatus = "connecting" | "connected" | "disconnected";
@@ -92,9 +92,12 @@ export function usePricesStream(
   interval = 5
 ) {
   const enabled = symbols.length > 0;
-  const wsUrl =
-    `${getWsBase()}/ws/prices` +
-    `?symbols=${symbols.join(",")}&markets=${markets.join(",")}&interval=${interval}`;
+  const symbolsKey = symbols.join(",");
+  const marketsKey = markets.join(",");
+  const wsUrl = useMemo(
+    () => `${getWsBase()}/ws/prices?symbols=${symbolsKey}&markets=${marketsKey}&interval=${interval}`,
+    [symbolsKey, marketsKey, interval]
+  );
 
   return useWebSocket<{ type: string; data: any[] }>(
     wsUrl,

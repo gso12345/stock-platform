@@ -4,9 +4,11 @@
 - 해외: Finnhub → FMP (재무)
 - 폴백: yfinance (API 키 없을 때)
 """
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Request
 from typing import Literal
 import asyncio
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from app.services.kis_service import kis_service
 from app.services.finnhub_service import finnhub_service
 from app.services.dart_service import dart_service
@@ -18,6 +20,7 @@ from app.core.config import settings
 from app.core.cache import cache
 
 router = APIRouter(prefix="/stocks", tags=["종목"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 async def _run(fn, *args):
@@ -142,7 +145,8 @@ async def get_us_price(symbol: str) -> dict:
 
 # ── 엔드포인트 ─────────────────────────────────────────────
 @router.get("/{market}/{symbol}/price")
-async def get_stock_price(market: Literal["KR","US","ETF"], symbol: str):
+@limiter.limit("60/minute")
+async def get_stock_price(request: Request, market: Literal["KR","US","ETF"], symbol: str):
     if market == "KR":
         return await get_kr_price(symbol)
     return await get_us_price(symbol)
@@ -245,7 +249,8 @@ async def get_stock_ohlcv(
 
 
 @router.get("/{market}/{symbol}/detail")
-async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
+@limiter.limit("30/minute")
+async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], symbol: str):
     if market == "KR":
         from app.services.price_fetcher import fetch_naver_stock
         code6 = symbol.replace(".KS","").replace(".KQ","")
@@ -253,13 +258,27 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
         # 신선한 캐시에 open/high/low까지 있으면 Naver 재요청 생략
         price = None
         fresh = cache.get(f"price:{symbol}")
+        fund_ck = f"fund:{symbol}"
+        fund_cached = cache.get(fund_ck) or cache.get_stale(fund_ck)
+
         if fresh and fresh.get("price") and fresh.get("open") and not fresh.get("_demo"):
             price = fresh
         else:
-            try:
-                price = await fetch_naver_stock(code6)
-            except Exception:
-                pass
+            # Naver 가격 + fundamentals(캐시 없을 때만) 병렬 fetch
+            yf_sym = symbol if symbol.endswith((".KS", ".KQ")) else f"{code6}.KS"
+            tasks: list = [fetch_naver_stock(code6)]
+            if not fund_cached:
+                tasks.append(asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        None, yf_service.get_fundamentals, yf_sym, "KR"
+                    ), timeout=8
+                ))
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            naver_res = results[0] if not isinstance(results[0], Exception) else None
+            if len(results) > 1 and not isinstance(results[1], Exception) and results[1]:
+                fund_cached = results[1]
+                cache.set(fund_ck, fund_cached, 86400)
+            price = naver_res if naver_res and naver_res.get("price") else None
 
         # Naver 실패 시 캐시 → yfinance 폴백
         if not price or not price.get("price"):
@@ -300,14 +319,35 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
                     pass
 
         # fundamentals 캐시에서 재무지표 보완 (forward_per, peg, ev_ebitda 등)
-        fund_data = cache.get(f"fund:{symbol}") or cache.get_stale(f"fund:{symbol}")
+        _KR_FUND_KEYS = (
+            "forward_per", "peg", "ev_ebitda", "ev_revenue", "enterprise_value",
+            "psr", "forward_eps", "roe", "roa", "gross_margin", "op_margin",
+            "net_margin", "debt_ratio", "current_ratio", "quick_ratio",
+            "beta", "sector", "industry", "description",
+        )
+        fund_ck = f"fund:{symbol}"
+        fund_data = cache.get(fund_ck) or cache.get_stale(fund_ck)
         if fund_data:
-            for key in ("forward_per", "peg", "ev_ebitda", "ev_revenue", "enterprise_value",
-                        "psr", "forward_eps", "roe", "roa", "gross_margin", "op_margin",
-                        "net_margin", "debt_ratio", "current_ratio", "quick_ratio",
-                        "beta", "sector", "industry", "description"):
+            for key in _KR_FUND_KEYS:
                 if not price.get(key) and fund_data.get(key) is not None:
                     price[key] = fund_data[key]
+        else:
+            # 캐시 없으면 yfinance에서 보완 (선행PER/PEG/EV 등 KR 종목도 일부 제공)
+            try:
+                yf_sym = symbol if symbol.endswith((".KS",".KQ")) else f"{symbol}.KS"
+                fund = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        None, yf_service.get_fundamentals, yf_sym, "KR"
+                    ),
+                    timeout=8,
+                )
+                if fund:
+                    cache.set(fund_ck, fund, 86400)
+                    for key in _KR_FUND_KEYS:
+                        if not price.get(key) and fund.get(key) is not None:
+                            price[key] = fund[key]
+            except Exception:
+                pass
 
         return price
     else:
@@ -325,6 +365,36 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
                     # 거래대금 계산
                     if detail.get("price") and detail.get("volume"):
                         detail["amount"] = detail["price"] * detail["volume"]
+                    # Finnhub이 제공하지 않는 밸류에이션 지표 보완
+                    # (fund 캐시 우선, 없으면 yfinance 비동기 보완)
+                    _VALUATION_FIELDS = (
+                        "forward_per", "peg", "ev_ebitda", "ev_revenue",
+                        "enterprise_value", "psr", "forward_eps",
+                        "gross_margin", "op_margin", "net_margin",
+                        "roa", "current_ratio", "quick_ratio",
+                        "description", "sector", "industry",
+                    )
+                    fund_ck = f"fund:{symbol}"
+                    fund_cached = cache.get(fund_ck) or cache.get_stale(fund_ck)
+                    if fund_cached:
+                        for f in _VALUATION_FIELDS:
+                            if detail.get(f) is None and fund_cached.get(f) is not None:
+                                detail[f] = fund_cached[f]
+                    else:
+                        try:
+                            fund = await asyncio.wait_for(
+                                asyncio.get_running_loop().run_in_executor(
+                                    None, yf_service.get_fundamentals, symbol, "US"
+                                ),
+                                timeout=8,
+                            )
+                            if fund:
+                                cache.set(fund_ck, fund, 86400)
+                                for f in _VALUATION_FIELDS:
+                                    if detail.get(f) is None and fund.get(f) is not None:
+                                        detail[f] = fund[f]
+                        except Exception:
+                            pass
                     cache.set(f"price:{symbol}", detail, 15)
                     return detail
             except Exception:
@@ -371,19 +441,30 @@ async def get_fundamentals(market: Literal["KR","US","ETF"], symbol: str):
     if cached:
         return cached
     if market == "KR":
-        # Naver integration에서 먼저 가져오기
+        # Naver: per/pbr/eps/bps/dividend_yield 등 기본 지표 먼저 가져오기
         from app.services.price_fetcher import fetch_naver_stock
         code6 = symbol.replace(".KS","").replace(".KQ","")
+        naver_fund: dict = {}
         try:
             naver = await fetch_naver_stock(code6)
             if naver:
-                fund = {k: naver.get(k) for k in ("per","pbr","eps","bps","dividend_yield","week52_high","week52_low","market_cap") if naver.get(k) is not None}
-                if fund:
-                    cache.set(ck, fund, 3600)
-                    return fund
+                naver_fund = {k: naver.get(k) for k in ("per","pbr","eps","bps","dividend_yield","week52_high","week52_low","market_cap") if naver.get(k) is not None}
         except Exception:
             pass
-    # yfinance 폴백
+        # yfinance: forward_per/peg/ev_ebitda 등 Naver에서 안 오는 지표 보완
+        try:
+            yf_sym = symbol if symbol.endswith((".KS",".KQ")) else f"{code6}.KS"
+            yf_fund = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, yf_sym, "KR"),
+                timeout=10,
+            )
+        except Exception:
+            yf_fund = {}
+        result = {**(yf_fund or {}), **(naver_fund)}  # Naver 우선
+        if result:
+            cache.set(ck, result, 3600)
+            return result
+    # yfinance 폴백 (US/ETF)
     try:
         result = await asyncio.wait_for(
             asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, market),

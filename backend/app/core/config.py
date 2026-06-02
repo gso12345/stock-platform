@@ -34,4 +34,6 @@ class Settings(BaseSettings):
 settings = Settings()
 
 if settings.SECRET_KEY == _PLACEHOLDER:
+    if settings.APP_ENV == "production":
+        raise RuntimeError("운영 환경에서 SECRET_KEY 기본값 사용 불가. .env에 고정 키를 설정하세요.")
     log.warning("SECRET_KEY가 기본값입니다. .env 파일에 고정 키를 설정하세요.")
