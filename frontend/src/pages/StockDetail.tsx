@@ -165,10 +165,10 @@ export default function StockDetail() {
     refetchInterval: isIntraday ? 15_000 : false,
   });
 
-  // 일별 탭 전용 — 차트 봉 단위와 무관하게 항상 1d 일봉 데이터
+  // 일별 탭 전용 — 1년 고정
   const { data: dailyOhlcv, isFetching: fetchingDaily } = useQuery({
-    queryKey: ["stock-ohlcv", m, sym, "1d", "max"],
-    queryFn: () => stocksApi.getOHLCV(m, sym, "max", "1d"),
+    queryKey: ["stock-ohlcv", m, sym, "1d", "1y"],
+    queryFn: () => stocksApi.getOHLCV(m, sym, "1y", "1d"),
     enabled: !!sym && mainTab === "daily",
     staleTime: 300_000,
   });
@@ -1637,10 +1637,10 @@ export default function StockDetail() {
         </div>
       )}
 
-      {/* 일별 탭 — 항상 1d 일봉 데이터 사용 */}
+      {/* 일별 탭 */}
       {mainTab==="daily" && (
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
             <span className="text-sm font-semibold text-text-primary">일별 시세</span>
             {fetchingDaily && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
           </div>
@@ -1701,96 +1701,14 @@ export default function StockDetail() {
         </div>
       )}
 
-      {/* 수급 탭 */}
+      {/* 수급 탭 — 서비스 준비중 */}
       {mainTab==="supply" && isKR && (
-        <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <span className="text-sm font-semibold text-text-primary">투자자별 수급</span>
-            <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary">
-              {[10, 20, 30, 60].map(d=>(
-                <button key={d} onClick={()=>setSupplyDays(d)}
-                  className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${supplyDays===d?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
-                >{d}일</button>
-              ))}
-            </div>
+        <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
+          <Users size={40} className="text-text-muted/30"/>
+          <div className="text-center">
+            <p className="text-text-primary font-semibold text-sm">서비스 준비중입니다</p>
+            <p className="text-text-muted text-xs mt-1">투자자별 수급 데이터는 곧 제공될 예정입니다</p>
           </div>
-          {loadingSupply ? (
-            <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
-          ) : (supplyData?.length ?? 0) > 0 ? (
-            <div className="p-4 flex flex-col gap-4">
-              {/* 누적 수급 요약 */}
-              <div className="grid grid-cols-3 gap-3">
-                {(() => {
-                  const total = { foreign: 0, institution: 0, individual: 0 };
-                  (supplyData ?? []).forEach((r: any) => {
-                    total.foreign     += r.foreign || 0;
-                    total.institution += r.institution || 0;
-                    total.individual  += r.individual || 0;
-                  });
-                  return [
-                    { label:"외국인", key:"foreign",     color:"text-accent-blue",  v: total.foreign },
-                    { label:"기관",   key:"institution", color:"text-purple-400",   v: total.institution },
-                    { label:"개인",   key:"individual",  color:"text-accent-yellow", v: total.individual },
-                  ].map(({ label, v }) => (
-                    <div key={label} className="rounded-xl border border-border bg-bg-elevated p-3 text-center">
-                      <div className="text-2xs text-text-muted mb-1">{label} {supplyDays}일 순매수</div>
-                      <div className={`text-sm font-mono font-bold ${v >= 0 ? "text-accent-green" : "text-accent-red"}`}>
-                        {v >= 0 ? "+" : ""}{fmtKRW(v)}
-                      </div>
-                    </div>
-                  ));
-                })()}
-              </div>
-              {/* 차트 */}
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={supplyData} margin={{top:4,right:8,left:8,bottom:4}}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#232840"/>
-                  <XAxis dataKey="date" tick={{fill:"#64748b",fontSize:9}} tickLine={false}
-                    tickFormatter={v => v.slice(5)}/>
-                  <YAxis tick={{fill:"#64748b",fontSize:9}} tickLine={false}
-                    tickFormatter={v=>{const a=Math.abs(v);return a>=1e8?(v/1e8).toFixed(0)+"억":a>=1e4?(v/1e4).toFixed(0)+"만":String(v);}}/>
-                  <Tooltip contentStyle={{background:"#141824",border:"1px solid #232840",borderRadius:8,fontSize:11}}
-                    formatter={(v:number,name:string)=>{
-                      const labels:Record<string,string>={foreign:"외국인",institution:"기관",individual:"개인"};
-                      return [fmtKRW(v), labels[name]??name];
-                    }}/>
-                  <Legend formatter={v=>({foreign:"외국인",institution:"기관",individual:"개인"}[v as string]??v)}/>
-                  <Bar dataKey="foreign"     fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={12}/>
-                  <Bar dataKey="institution" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={12}/>
-                  <Bar dataKey="individual"  fill="#f59e0b" radius={[2,2,0,0]} maxBarSize={12}/>
-                </BarChart>
-              </ResponsiveContainer>
-              {/* 테이블 */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-text-muted border-b border-border">
-                      <th className="text-left pb-2 font-medium">날짜</th>
-                      <th className="text-right pb-2 font-medium text-accent-blue">외국인</th>
-                      <th className="text-right pb-2 font-medium text-purple-400">기관</th>
-                      <th className="text-right pb-2 font-medium text-accent-yellow">개인</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...(supplyData ?? [])].reverse().slice(0,20).map((row:any)=>(
-                      <tr key={row.date} className="border-b border-border/30 hover:bg-bg-hover">
-                        <td className="py-1.5 font-mono text-text-muted">{row.date}</td>
-                        <td className={`py-1.5 text-right font-mono num ${row.foreign>=0?"text-accent-green":"text-accent-red"}`}>{fmtKRW(row.foreign)}</td>
-                        <td className={`py-1.5 text-right font-mono num ${row.institution>=0?"text-accent-green":"text-accent-red"}`}>{fmtKRW(row.institution)}</td>
-                        <td className={`py-1.5 text-right font-mono num ${row.individual>=0?"text-accent-green":"text-accent-red"}`}>{fmtKRW(row.individual)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-12 gap-3">
-              <Users size={32} className="text-text-muted/40"/>
-              <p className="text-text-muted text-sm">수급 데이터를 불러올 수 없습니다</p>
-              <p className="text-text-muted/60 text-xs">pykrx 데이터 조회 중 오류가 발생했습니다</p>
-            </div>
-          )}
         </div>
       )}
 

@@ -100,29 +100,28 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
     });
   }, [qc, mkt]);
 
-  // 모바일: 뷰포트에 보이는 종목 자동 prefetch (IntersectionObserver)
+  // 순위 데이터 로드 후 화면에 보이는 종목 즉시 prefetch
   useEffect(() => {
-    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
-    if (!isTouchDevice) return;
+    if (!items?.length) return; // 데이터 없으면 대기
     let queue: string[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
     const flush = () => {
-      const batch = queue.splice(0, 3);
-      batch.forEach(prefetchStock);
+      queue.splice(0, 3).forEach(prefetchStock);
       if (queue.length > 0) timer = setTimeout(flush, 600);
     };
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(e => {
         if (e.isIntersecting) {
           const sym = (e.target as HTMLElement).dataset.sym;
-          if (sym && !queue.includes(sym)) { queue.push(sym); }
+          if (sym && !queue.includes(sym)) queue.push(sym);
         }
       });
       if (queue.length > 0 && !timer) timer = setTimeout(flush, 200);
-    }, { threshold: 0.6 });
+    }, { threshold: 0.5 });
+    // 현재 화면에 있는 모든 rows 관찰 등록
     rowRefs.current.forEach(row => observer.observe(row));
     return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
-  }, [prefetchStock, showAll]);
+  }, [items, prefetchStock, showAll]); // items 변경 시(데이터 로드) 재설정
 
   if (!items?.length) return <div className="py-8 text-center text-text-muted text-sm">데이터 로딩 중...</div>;
 

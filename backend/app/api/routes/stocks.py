@@ -388,53 +388,103 @@ async def get_fundamentals(market: Literal["KR","US","ETF"], symbol: str):
 
 @router.get("/{market}/{symbol}/financials")
 async def get_financials(market: Literal["KR","US","ETF"], symbol: str):
+    ck = f"financials:{symbol}"
+    if cached := cache.get(ck):
+        return cached
+
+    result = None
     if market == "KR":
         if settings.DART_API_KEY:
-            result = await _run(dart_service.get_financials, symbol)
-            if result.get("annual") or result.get("quarterly"):
-                return result
-        # yfinance 폴백 (재무제표)
-        return await _yf_financials(symbol, market)
+            r = await _run(dart_service.get_financials, symbol)
+            if r.get("annual") or r.get("quarterly"):
+                result = r
+        if not result:
+            result = await _yf_financials(symbol, market)
     else:
         if settings.FMP_API_KEY:
-            result = await _run(fmp_service.get_financials, symbol)
-            if result.get("annual") or result.get("quarterly"):
-                return result
-        return await _yf_financials(symbol, market)
+            r = await _run(fmp_service.get_financials, symbol)
+            if r.get("annual") or r.get("quarterly"):
+                result = r
+        if not result:
+            result = await _yf_financials(symbol, market)
+
+    if result and (result.get("annual") or result.get("quarterly")):
+        cache.set(ck, result, 3600)
+    return result or {"annual": [], "quarterly": []}
 
 
 async def _yf_financials(symbol: str, market: str) -> dict:
-    """yfinance 재무제표 폴백"""
+    """yfinance 재무제표 — income statement + balance sheet 통합"""
     import yfinance as yf
-    if market == "KR":
-        symbol = _resolve_kr_symbol(symbol, "KS")
+    yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
+
     def _fetch():
-        t = yf.Ticker(symbol)
+        import math
+        t = yf.Ticker(yf_sym)
         result = {"annual": [], "quarterly": []}
-        for attr, key in [("financials", "annual"), ("quarterly_financials", "quarterly")]:
+
+        def sv(df, row, col):
             try:
-                df = getattr(t, attr)
-                if df is None or df.empty:
+                v = df.loc[row, col]
+                f = float(v)
+                return int(f) if not (math.isnan(f) or math.isinf(f)) else None
+            except Exception:
+                return None
+
+        for (fin_attr, cf_attr, bal_attr, key) in [
+            ("financials", "cashflow", "balance_sheet", "annual"),
+            ("quarterly_financials", "quarterly_cashflow", "quarterly_balance_sheet", "quarterly"),
+        ]:
+            try:
+                fin = getattr(t, fin_attr, None)
+                cf  = getattr(t, cf_attr, None)
+                bal = getattr(t, bal_attr, None)
+                if fin is None or fin.empty:
                     continue
                 rows = []
-                for col in df.columns:
+                for col in fin.columns:
                     period = str(col)[:10]
-                    def sv(rn):
-                        try:
-                            v = df.loc[rn, col]
-                            return int(v) if v == v else None
-                        except: return None
-                    revenue    = sv("Total Revenue")
-                    op_income  = sv("Operating Income") or sv("EBIT")
-                    net_income = sv("Net Income")
-                    rows.append({"period": period, "revenue": revenue, "op_income": op_income, "net_income": net_income})
+                    row_data = {
+                        "period":     period,
+                        "revenue":    sv(fin, "Total Revenue", col),
+                        "op_income":  sv(fin, "Operating Income", col) or sv(fin, "EBIT", col),
+                        "net_income": sv(fin, "Net Income", col),
+                        "gross_profit": sv(fin, "Gross Profit", col),
+                        "ebit":       sv(fin, "EBIT", col),
+                        "ebitda":     sv(fin, "EBITDA", col),
+                        "eps":        sv(fin, "Diluted EPS", col) or sv(fin, "Basic EPS", col),
+                    }
+                    # 현금흐름 추가
+                    if cf is not None and not cf.empty and col in cf.columns:
+                        row_data["operating_cf"] = sv(cf, "Operating Cash Flow", col) or sv(cf, "Total Cash From Operating Activities", col)
+                        row_data["investing_cf"] = sv(cf, "Investing Cash Flow", col) or sv(cf, "Total Cash From Investing Activities", col)
+                        row_data["financing_cf"] = sv(cf, "Financing Cash Flow", col) or sv(cf, "Total Cash From Financing Activities", col)
+                        row_data["capex"]        = sv(cf, "Capital Expenditure", col)
+                        fcf = row_data.get("operating_cf")
+                        cap = row_data.get("capex")
+                        row_data["free_cf"] = (fcf + cap) if fcf and cap else None
+                    # 재무상태 추가
+                    if bal is not None and not bal.empty and col in bal.columns:
+                        row_data["total_debt"]   = sv(bal, "Total Debt", col)
+                        row_data["total_equity"] = sv(bal, "Stockholders Equity", col) or sv(bal, "Common Stock Equity", col)
+                    # 마진 계산
+                    rev = row_data.get("revenue")
+                    if rev and rev != 0:
+                        if row_data.get("gross_profit"):
+                            row_data["gross_margin"] = round(row_data["gross_profit"] / rev * 100, 2)
+                        if row_data.get("op_income"):
+                            row_data["op_margin"] = round(row_data["op_income"] / rev * 100, 2)
+                        if row_data.get("net_income"):
+                            row_data["net_margin"] = round(row_data["net_income"] / rev * 100, 2)
+                    rows.append(row_data)
                 result[key] = sorted(rows, key=lambda x: x["period"])
             except Exception:
                 pass
         return result
+
     try:
         loop = asyncio.get_running_loop()
-        return await asyncio.wait_for(loop.run_in_executor(None, _fetch), timeout=15)
+        return await asyncio.wait_for(loop.run_in_executor(None, _fetch), timeout=30)
     except Exception:
         return {"annual": [], "quarterly": []}
 
