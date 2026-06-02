@@ -119,6 +119,22 @@ export default function StockDetail() {
 
   const fmt = (v: number | null | undefined) => isKR ? fmtKRW(v) : fmtUSD(v);
 
+  // 종목 진입 후 0.5초 뒤 나머지 탭 데이터 백그라운드 prefetch
+  // → 재무/투자의견/뉴스 탭 전환 시 즉시 표시
+  useEffect(() => {
+    if (!sym) return;
+    const t = setTimeout(() => {
+      qc.prefetchQuery({ queryKey: ["stock-financials",   m, sym], queryFn: () => financialsApi.get(m, sym),           staleTime: 3_600_000 });
+      qc.prefetchQuery({ queryKey: ["stock-fundamentals", m, sym], queryFn: () => stocksApi.getFundamentals(m, sym),   staleTime: 3_600_000 });
+      qc.prefetchQuery({ queryKey: ["metrics-history",    m, sym], queryFn: () => stocksApi.getMetricsHistory(m, sym), staleTime: 3_600_000 });
+      qc.prefetchQuery({ queryKey: ["analyst",            m, sym], queryFn: () => stocksApi.getAnalyst(m, sym),        staleTime: 3_600_000 });
+      qc.prefetchQuery({ queryKey: ["forecasts",          m, sym], queryFn: () => stocksApi.getForecasts(m, sym),      staleTime: 3_600_000 });
+      qc.prefetchQuery({ queryKey: ["stock-news",         m, sym], queryFn: () => stocksApi.getNews(m, sym),           staleTime: 300_000   });
+      qc.prefetchQuery({ queryKey: ["earnings",           m, sym], queryFn: () => stocksApi.getEarnings(m, sym),       staleTime: 3_600_000 });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [sym, m, qc]);
+
   const { data: detail, isLoading: loadingDetail, isPlaceholderData, error: detailError, refetch: refetchDetail, dataUpdatedAt } = useQuery({
     queryKey: ["stock-detail", m, sym],
     queryFn: () => stocksApi.getDetail(m, sym),
