@@ -96,7 +96,7 @@ def get_folders(db: Session = Depends(get_db)):
 def create_folder(
     req: FolderRequest,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(require_user),
 ):
     max_pos = db.query(WatchlistFolder).count()
     folder = WatchlistFolder(name=req.name, position=max_pos)
@@ -111,7 +111,7 @@ def update_folder(
     folder_id: int,
     req: FolderRequest,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(require_user),
 ):
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
     if not folder:
@@ -125,7 +125,7 @@ def update_folder(
 def delete_folder(
     folder_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(require_user),
 ):
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
     if not folder:

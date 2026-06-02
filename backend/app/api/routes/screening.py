@@ -7,6 +7,8 @@ from slowapi.util import get_remote_address
 
 from app.db.database import get_db
 from app.models.stock import ScreeningPreset
+from app.models.user import User
+from app.core.deps import require_user
 from app.services.yf_service import yf_service
 from app.core.cache import cache
 
@@ -20,7 +22,7 @@ _VALID_MARKETS = {"KR", "US", "ETF"}
 class ScreeningRequest(BaseModel):
     market: str = Field("US", pattern="^(KR|US|ETF)$")
     filters: dict = Field(default={}, max_length=20)
-    sort_by: str = Field("market_cap", max_length=30)
+    sort_by: str = Field("market_cap", pattern="^(market_cap|change_rate|volume|per|pbr|roe|price|amount)$")
     sort_order: str = Field("desc", pattern="^(asc|desc)$")
     limit: int = Field(50, ge=1, le=100)
 
@@ -29,7 +31,7 @@ class PresetSaveRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     market: str = Field(..., pattern="^(KR|US|ETF)$")
     filters: dict = Field(default={}, max_length=20)
-    sort_by: str = Field(..., max_length=30)
+    sort_by: str = Field(..., pattern="^(market_cap|change_rate|volume|per|pbr|roe|price|amount)$")
     sort_order: str = Field("desc", pattern="^(asc|desc)$")
 
 
@@ -53,7 +55,7 @@ def get_presets(db: Session = Depends(get_db)):
 
 
 @router.post("/presets")
-def save_preset(req: PresetSaveRequest, db: Session = Depends(get_db)):
+def save_preset(req: PresetSaveRequest, db: Session = Depends(get_db), current_user: User = Depends(require_user)):
     preset = ScreeningPreset(
         name=req.name, market=req.market, filters=req.filters,
         sort_by=req.sort_by, sort_order=req.sort_order,
@@ -65,7 +67,7 @@ def save_preset(req: PresetSaveRequest, db: Session = Depends(get_db)):
 
 
 @router.delete("/presets/{preset_id}")
-def delete_preset(preset_id: int, db: Session = Depends(get_db)):
+def delete_preset(preset_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_user)):
     preset = db.query(ScreeningPreset).filter(ScreeningPreset.id == preset_id).first()
     if not preset:
         raise HTTPException(status_code=404, detail="프리셋을 찾을 수 없습니다")

@@ -95,7 +95,7 @@ def register(request: Request, req: RegisterRequest, db: Session = Depends(get_d
     except Exception as e:
         db.rollback()
         err = str(e).lower()
-        log.error(f"회원가입 오류 (username={req.username}): {e}")
+        log.error(f"회원가입 오류: {type(e).__name__}")
         if "unique" in err or "duplicate" in err:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 아이디 또는 이메일입니다")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="서버 오류가 발생했습니다")

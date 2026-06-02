@@ -9,6 +9,8 @@ from slowapi.util import get_remote_address
 
 from app.db.database import get_db
 from app.models.stock import Strategy, BacktestResult
+from app.models.user import User
+from app.core.deps import require_user
 from app.services.backtest_engine import backtest_engine
 from app.services.yf_service import yf_service
 
@@ -75,7 +77,7 @@ class StrategySaveRequest(BaseModel):
 
 @router.post("/run")
 @limiter.limit("20/minute")
-async def run_backtest(request: Request, req: BacktestRequest, db: Session = Depends(get_db)):
+async def run_backtest(request: Request, req: BacktestRequest, db: Session = Depends(get_db), current_user: User = Depends(require_user)):
     """백테스트 실행"""
     start_dt = datetime.strptime(req.start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(req.end_date, "%Y-%m-%d")
@@ -128,7 +130,7 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
 
 @router.post("/universe")
 @limiter.limit("5/minute")
-async def run_universe_backtest(request: Request, req: UniverseBacktestRequest):
+async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, current_user: User = Depends(require_user)):
     """전체 종목 유니버스 백테스트"""
     from app.services.yf_service import SP500_SYMBOLS, KOSPI_SYMBOLS, KOSDAQ_SYMBOLS, ETF_SYMBOLS
 
@@ -236,7 +238,7 @@ def get_strategies(db: Session = Depends(get_db)):
 
 
 @router.post("/strategies")
-def save_strategy(req: StrategySaveRequest, db: Session = Depends(get_db)):
+def save_strategy(req: StrategySaveRequest, db: Session = Depends(get_db), current_user: User = Depends(require_user)):
     """전략 저장"""
     strategy = Strategy(
         name=req.name,
@@ -246,6 +248,7 @@ def save_strategy(req: StrategySaveRequest, db: Session = Depends(get_db)):
         exit_conditions=req.exit_conditions,
         stop_loss=req.stop_loss,
         take_profit=req.take_profit,
+        user_id=current_user.id,
     )
     db.add(strategy)
     db.commit()
@@ -254,9 +257,12 @@ def save_strategy(req: StrategySaveRequest, db: Session = Depends(get_db)):
 
 
 @router.put("/strategies/{strategy_id}")
-def update_strategy(strategy_id: int, req: StrategySaveRequest, db: Session = Depends(get_db)):
+def update_strategy(strategy_id: int, req: StrategySaveRequest, db: Session = Depends(get_db), current_user: User = Depends(require_user)):
     """전략 업데이트 (버전 관리)"""
-    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    strategy = db.query(Strategy).filter(
+        Strategy.id == strategy_id,
+        Strategy.user_id == current_user.id,
+    ).first()
     if not strategy:
         raise HTTPException(status_code=404, detail="전략을 찾을 수 없습니다")
 
@@ -274,9 +280,12 @@ def update_strategy(strategy_id: int, req: StrategySaveRequest, db: Session = De
 
 
 @router.delete("/strategies/{strategy_id}")
-def delete_strategy(strategy_id: int, db: Session = Depends(get_db)):
+def delete_strategy(strategy_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_user)):
     """전략 삭제 (비활성화)"""
-    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    strategy = db.query(Strategy).filter(
+        Strategy.id == strategy_id,
+        Strategy.user_id == current_user.id,
+    ).first()
     if not strategy:
         raise HTTPException(status_code=404, detail="전략을 찾을 수 없습니다")
     strategy.is_active = False

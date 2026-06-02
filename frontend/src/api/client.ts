@@ -25,4 +25,20 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      try {
+        localStorage.removeItem("stkplt_auth");
+      } catch {}
+      // 로그인 페이지가 아닐 때만 리다이렉트
+      if (!window.location.pathname.includes("login")) {
+        window.location.href = "/login";
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;
