@@ -187,9 +187,9 @@ def get_us_rates() -> list:
         return c
 
     specs = [
-        ("USDKRW=X",  "원/달러",           "원",  False),
-        ("EURUSD=X",  "유로/달러",          "$",   False),
-        ("USDJPY=X",  "달러/엔",            "¥",   False),
+        ("USDKRW=X",  "원/달러",    "원",  False),
+        ("EURKRW=X",  "원/유로",    "원",  False),
+        ("JPYKRW=X",  "원/100엔",   "원",  False),
         ("^IRX",      "미국 단기금리(3M)",  "%",   True),
         ("^FVX",      "미국 5년 국채",      "%",   True),
         ("^TNX",      "미국 10년 국채",     "%",   True),

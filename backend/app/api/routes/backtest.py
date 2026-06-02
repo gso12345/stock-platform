@@ -10,7 +10,7 @@ from slowapi.util import get_remote_address
 from app.db.database import get_db
 from app.models.stock import Strategy, BacktestResult
 from app.models.user import User
-from app.core.deps import require_user
+from app.core.deps import require_user, get_current_user
 from app.services.backtest_engine import backtest_engine
 from app.services.yf_service import yf_service
 
@@ -77,7 +77,7 @@ class StrategySaveRequest(BaseModel):
 
 @router.post("/run")
 @limiter.limit("20/minute")
-async def run_backtest(request: Request, req: BacktestRequest, db: Session = Depends(get_db), current_user: User = Depends(require_user)):
+async def run_backtest(request: Request, req: BacktestRequest, db: Session = Depends(get_db), current_user: Optional[User] = Depends(get_current_user)):
     """백테스트 실행"""
     start_dt = datetime.strptime(req.start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(req.end_date, "%Y-%m-%d")
@@ -105,33 +105,35 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
         initial_capital=req.initial_capital,
     )
 
-    # 결과 저장
-    bt_record = BacktestResult(
-        strategy_id=req.strategy_id,
-        symbol=req.symbol,
-        market=req.market,
-        start_date=req.start_date,
-        end_date=req.end_date,
-        initial_capital=req.initial_capital,
-        total_return=result.get("total_return"),
-        annual_return=result.get("annual_return"),
-        mdd=result.get("mdd"),
-        sharpe_ratio=result.get("sharpe_ratio"),
-        win_rate=result.get("win_rate"),
-        total_trades=result.get("total_trades"),
-        equity_curve=result.get("equity_curve"),
-        trades=result.get("trades"),
-    )
-    db.add(bt_record)
-    db.commit()
-    db.refresh(bt_record)
+    # 로그인 시에만 결과 DB 저장
+    if current_user:
+        bt_record = BacktestResult(
+            strategy_id=req.strategy_id,
+            symbol=req.symbol,
+            market=req.market,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            initial_capital=req.initial_capital,
+            total_return=result.get("total_return"),
+            annual_return=result.get("annual_return"),
+            mdd=result.get("mdd"),
+            sharpe_ratio=result.get("sharpe_ratio"),
+            win_rate=result.get("win_rate"),
+            total_trades=result.get("total_trades"),
+            equity_curve=result.get("equity_curve"),
+            trades=result.get("trades"),
+        )
+        db.add(bt_record)
+        db.commit()
+        db.refresh(bt_record)
+        return {"id": bt_record.id, **result}
 
-    return {"id": bt_record.id, **result}
+    return result
 
 
 @router.post("/universe")
 @limiter.limit("5/minute")
-async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, current_user: User = Depends(require_user)):
+async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, current_user: Optional[User] = Depends(get_current_user)):
     """전체 종목 유니버스 백테스트"""
     from app.services.yf_service import SP500_SYMBOLS, KOSPI_SYMBOLS, KOSDAQ_SYMBOLS, ETF_SYMBOLS
 
