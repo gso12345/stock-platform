@@ -163,34 +163,20 @@ async def refresh_us_stocks():
         await asyncio.sleep(0.5)  # 배치 간 간격
     log.info(f"미국 종목(YF) {ok_yf}/{len(all_syms)}개 갱신")
 
-    # market_cap=0인 인기종목은 fast_info로 보강 (YF v7 API가 marketCap 누락하는 경우 대비)
-    loop = asyncio.get_running_loop()
-    mc_fixed = 0
-    for sym in POPULAR_US:
-        existing = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}")
-        if existing and existing.get("price") and not existing.get("market_cap"):
-            try:
-                def _get_fast_info(s=sym):
-                    fi = yf.Ticker(s).fast_info
-                    mc = int(getattr(fi, "market_cap", 0) or 0)
-                    vol = int(getattr(fi, "three_month_average_volume", 0) or 0)
-                    name = getattr(fi, "shortName", None) or s
-                    return mc, vol, name
-                mc, vol, name = await asyncio.wait_for(
-                    loop.run_in_executor(None, _get_fast_info), timeout=8
-                )
-                if mc > 0:
-                    updated = {**existing, "market_cap": mc}
-                    if not existing.get("volume") and vol > 0:
-                        updated["volume"] = vol
-                    if not existing.get("name") or existing["name"] == sym:
-                        updated["name"] = name
-                    cache.set(f"price:{sym}", updated, 120)
-                    mc_fixed += 1
-            except Exception:
-                pass
-    if mc_fixed:
-        log.info(f"미국 인기종목 market_cap fast_info 보강 {mc_fixed}개")
+    # market_cap=0인 인기종목은 배치 재조회 (sequential fast_info보다 훨씬 빠름)
+    needs_mc = [s for s in POPULAR_US
+                if not (cache.get(f"price:{s}") or {}).get("market_cap")]
+    if needs_mc:
+        try:
+            retry_data = await fetch_yf_quotes(needs_mc)
+            for sym, q in retry_data.items():
+                existing = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}") or {}
+                if q.get("market_cap") or q.get("volume"):
+                    merged = {**existing, **{k: v for k, v in q.items() if v}}
+                    cache.set(f"price:{sym}", merged, 120)
+            log.info(f"미국 인기종목 market_cap 배치 재조회 {len(retry_data)}개")
+        except Exception:
+            pass
 
     # Finnhub: POPULAR_US만 실시간 가격 보강 (YF의 volume/market_cap/name은 유지)
     if settings.FINNHUB_API_KEY:

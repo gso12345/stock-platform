@@ -307,6 +307,14 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
             try:
                 detail = await _run(finnhub_service.get_stock_detail, symbol)
                 if detail and detail.get("price"):
+                    # Finnhub은 volume을 제공하지 않으므로 YF 캐시에서 보완
+                    prev = cache.get_stale(f"price:{symbol}") or {}
+                    for field in ("volume", "market_cap", "name"):
+                        if not detail.get(field) and prev.get(field):
+                            detail[field] = prev[field]
+                    # 거래대금 계산
+                    if detail.get("price") and detail.get("volume"):
+                        detail["amount"] = detail["price"] * detail["volume"]
                     cache.set(f"price:{symbol}", detail, 15)
                     return detail
             except Exception:

@@ -56,7 +56,6 @@ class FinnhubService:
             "low":         round(float(d.get("l", 0)), 2),
             "change":      round(change, 2),
             "change_rate": round(float(d.get("dp", 0)), 2),
-            "volume":      0,
             "currency":    "USD",
         }
         cache.set(ck, result, 15)  # 15초 캐시 (실시간)

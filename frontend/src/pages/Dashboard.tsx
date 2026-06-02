@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, memo } from "react";
+import { useState, useCallback, useMemo, memo, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { dashboardApi, stocksApi } from "@/api/stocks";
@@ -83,8 +83,11 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
   const [showAll, setShowAll] = useState(false);
   const qc = useQueryClient();
   const mkt = isKR ? "KR" : "US";
+  const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
 
   const prefetchStock = useCallback((sym: string) => {
+    // 이미 캐시에 있으면 요청하지 않음 (과도한 요청 방지)
+    if (qc.getQueryData(["stock-detail", mkt, sym])) return;
     qc.prefetchQuery({
       queryKey: ["stock-detail", mkt, sym],
       queryFn: () => stocksApi.getDetail(mkt as any, sym),
@@ -96,6 +99,30 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
       staleTime: 300_000,
     });
   }, [qc, mkt]);
+
+  // 모바일: 뷰포트에 보이는 종목 자동 prefetch (IntersectionObserver)
+  useEffect(() => {
+    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
+    if (!isTouchDevice) return;
+    let queue: string[] = [];
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      const batch = queue.splice(0, 3);
+      batch.forEach(prefetchStock);
+      if (queue.length > 0) timer = setTimeout(flush, 600);
+    };
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const sym = (e.target as HTMLElement).dataset.sym;
+          if (sym && !queue.includes(sym)) { queue.push(sym); }
+        }
+      });
+      if (queue.length > 0 && !timer) timer = setTimeout(flush, 200);
+    }, { threshold: 0.6 });
+    rowRefs.current.forEach(row => observer.observe(row));
+    return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
+  }, [prefetchStock, showAll]);
 
   if (!items?.length) return <div className="py-8 text-center text-text-muted text-sm">데이터 로딩 중...</div>;
 
@@ -125,6 +152,8 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
               const hasLive = !!live;
               return (
                 <tr key={item.symbol}
+                  ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }}
+                  data-sym={item.symbol}
                   className="border-b border-border/30 hover:bg-bg-hover cursor-pointer transition-colors"
                   onMouseEnter={() => prefetchStock(item.symbol)}
                   onClick={() => onSymbolClick(item.symbol, mkt)}

@@ -164,7 +164,11 @@ class YFinanceService:
             high     = _safe(getattr(fi, "day_high",         None))
             low      = _safe(getattr(fi, "day_low",          None))
             open_    = _safe(getattr(fi, "open",             None))
-            volume   = int(getattr(fi, "three_month_average_volume", 0) or 0)
+            # 일일 거래량 우선, 없으면 3개월 평균으로 폴백
+            volume   = int(
+                getattr(fi, "last_volume", None) or
+                getattr(fi, "three_month_average_volume", 0) or 0
+            )
             market_cap = int(getattr(fi, "market_cap",       0) or 0)
             w52h     = _safe(getattr(fi, "year_high",        None))
             w52l     = _safe(getattr(fi, "year_low",         None))
@@ -201,7 +205,9 @@ class YFinanceService:
             high     = high     or _safe(info.get("regularMarketDayHigh"))
             low      = low      or _safe(info.get("regularMarketDayLow"))
             open_    = open_    or _safe(info.get("regularMarketOpen"))
-            volume   = volume   or int(info.get("regularMarketVolume") or info.get("volume") or 0)
+            # regularMarketVolume이 실제 당일 거래량 — fast_info의 3개월 평균보다 우선
+            daily_vol = int(info.get("regularMarketVolume") or info.get("volume") or 0)
+            volume   = daily_vol if daily_vol > 0 else volume
             market_cap = market_cap or int(info.get("marketCap") or 0)
             w52h     = w52h     or _safe(info.get("fiftyTwoWeekHigh"))
             w52l     = w52l     or _safe(info.get("fiftyTwoWeekLow"))
@@ -228,6 +234,7 @@ class YFinanceService:
             "high":        round(high,  2) if high  else None,
             "low":         round(low,   2) if low   else None,
             "volume":      volume,
+            "amount":      int(curr * volume) if curr and volume else 0,
             "market_cap":  market_cap,
             "currency":    currency,
             "week52_high": round(w52h, 2) if w52h else None,

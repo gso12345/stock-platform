@@ -44,12 +44,15 @@ def _parse_num(s: str) -> float:
 
 
 async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap: bool = False) -> list[dict]:
-    """Naver Finance 시세 HTML 페이지 파싱 (KOSPI=0, KOSDAQ=1)
-    시가총액 페이지 컬럼: 순위|종목명|현재가|전일비|등락률|시가총액(억)|상장주식수|외국인비율|거래량|PER|ROE
+    """Naver Finance 시세 HTML 파싱 — name TD 기준 상대 인덱스 사용
+    체크박스 TD 등 앞쪽 TD 개수와 무관하게 정확한 컬럼 추출.
+
+    시가총액 페이지 (name 이후): 현재가|전일비|등락률|시총(억)|상장주식수|외인비율|거래량|PER|ROE
+    상승률/하락률/거래량 페이지 (name 이후): 현재가|전일비|등락률|거래량|거래대금(억)|시총(억)|PER
     """
     try:
         from bs4 import BeautifulSoup
-        suffix = ".KS" if market_code == 0 else ".KQ"
+        suffix   = ".KS" if market_code == 0 else ".KQ"
         mkt_name = "KOSPI" if market_code == 0 else "KOSDAQ"
         async with httpx.AsyncClient(timeout=15, headers=NAVER_PC_HEADERS) as cl:
             r = await cl.get(url, params={"sosok": market_code})
@@ -58,7 +61,7 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
         soup = BeautifulSoup(r.text, "lxml")
         rows = []
         for a_tag in soup.select('a[href*="/item/main.naver?code="]'):
-            code_match = re.search(r"code=(\d{6})", a_tag.get("href",""))
+            code_match = re.search(r"code=(\d{6})", a_tag.get("href", ""))
             if not code_match:
                 continue
             code = code_match.group(1)
@@ -67,24 +70,43 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
             if not tr:
                 continue
             tds = tr.find_all("td")
-            nums = []
-            for td in tds:
-                txt = td.get_text(strip=True).replace(",","").replace("+","").replace("%","")
+
+            # name TD 위치 찾기 (a 태그에 해당 code가 있는 td)
+            name_idx = None
+            for i, td in enumerate(tds):
+                if td.find("a", href=lambda h: h and f"code={code}" in h):
+                    name_idx = i
+                    break
+            if name_idx is None:
+                continue
+
+            # name TD 이후 데이터 TD만 숫자로 파싱
+            nums: list = []
+            for td in tds[name_idx + 1:]:
+                txt = td.get_text(strip=True).replace(",", "").replace("+", "").replace("%", "").strip()
                 try:
                     nums.append(float(txt))
                 except Exception:
                     nums.append(None)
-            price       = next((n for n in nums[2:4] if n and n > 0), 0)
-            change_rate = next((n for n in nums[4:7] if n is not None and abs(n) < 100), 0)
-            if has_market_cap and len(nums) > 8:
-                # 시가총액 페이지 컬럼: 순위|종목명|현재가|전일비|등락률|시가총액(억)|상장주식수|외국인비율|거래량|PER|ROE
-                market_cap = int((nums[5] or 0) * 1e8) if nums[5] else 0
-                volume     = int(nums[8]) if len(nums) > 8 and nums[8] else 0
+
+            if len(nums) < 4:
+                continue
+
+            # name 다음: [0]=현재가 [1]=전일비 [2]=등락률
+            price       = nums[0] if nums[0] and nums[0] > 0 else 0
+            change_raw  = nums[1] if nums[1] is not None else 0
+            change_rate = nums[2] if nums[2] is not None and abs(nums[2]) <= 100 else 0
+
+            if has_market_cap:
+                # [3]=시총(억) [4]=상장주식수 [5]=외인비율 [6]=거래량 [7]=PER [8]=ROE
+                market_cap = int((nums[3] or 0) * 1e8) if len(nums) > 3 and nums[3] and nums[3] > 0 else 0
+                volume     = int(nums[6]) if len(nums) > 6 and nums[6] and nums[6] > 0 else 0
             else:
-                # 상승률/하락률/거래량 페이지 컬럼: 순위|종목명|현재가|전일비|등락률|거래량|거래대금|시가총액(억)|PER
-                market_cap = int((nums[7] or 0) * 1e8) if len(nums) > 7 and nums[7] and nums[7] > 0 else 0
-                volume     = int(nums[5]) if len(nums) > 5 and nums[5] and nums[5] > 0 else 0
-            change = round(price * change_rate / 100, 2) if price and change_rate else 0
+                # [3]=거래량 [4]=거래대금(억) [5]=시총(억) [6]=PER
+                volume     = int(nums[3]) if len(nums) > 3 and nums[3] and nums[3] > 0 else 0
+                market_cap = int((nums[5] or 0) * 1e8) if len(nums) > 5 and nums[5] and nums[5] > 0 else 0
+
+            change = round(price * change_rate / 100, 2) if price and change_rate else round(change_raw, 2)
             rows.append({
                 "symbol":      f"{code}{suffix}",
                 "name":        name,

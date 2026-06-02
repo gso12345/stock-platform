@@ -88,6 +88,7 @@ export default function StockDetail() {
   }, []);
   const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "analyst" | "supply">("chart");
   const [showKRW, setShowKRW]           = useState(false);
+  const [analystSubTab, setAnalystSubTab] = useState<"opinion" | "consensus">("opinion");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow">("basic");
   const [selectedMetric, setSelectedMetric] = useState("revenue");
@@ -747,6 +748,14 @@ export default function StockDetail() {
           return fmtUSD(v);
         };
 
+        // stat cell용 금액 포맷 (showKRW 토글 반영, null 반환)
+        const fmtFinVal = (v: number | null | undefined): string | null => {
+          if (v == null) return null;
+          if (isKR) return fmtKRW(v);
+          if (showKRW) return fmtKRW(v * exchangeRate);
+          return fmtUSD(v);
+        };
+
         // 공통 차트 옵션
         const chartProps = {
           margin: {top:4,right:16,left:0,bottom:4} as any,
@@ -816,7 +825,7 @@ export default function StockDetail() {
                     { key:"net_income_growth",label:"순이익성장률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
                     { key:"op_margin",        label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
                     { key:"net_margin",       label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
-                    { key:"eps",              label:"EPS",          fmt:(v)=>fmtFin(v), color:"text-cyan-400" },
+                    { key:"eps",              label:"EPS",          fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:(showKRW?`₩${Math.round(v*exchangeRate).toLocaleString("ko-KR")}`:fmtUSD(v)), color:"text-cyan-400" },
                   ]}/>
                 </div>
               )}
@@ -841,8 +850,8 @@ export default function StockDetail() {
                     <StatCell label="PSR"          value={dEnhanced.psr          != null ? `${fmtNum(dEnhanced.psr,2)}배` : null} />
                     <StatCell label="EV/EBITDA"    value={dEnhanced.ev_ebitda    != null ? `${fmtNum(dEnhanced.ev_ebitda,1)}배` : null} />
                     <StatCell label="EV/매출"      value={dEnhanced.ev_revenue   != null ? `${fmtNum(dEnhanced.ev_revenue,2)}배` : null} />
-                    <StatCell label="시가총액"     value={fmt(d.market_cap)} />
-                    <StatCell label="기업가치(EV)" value={fmt(dEnhanced.enterprise_value)} />
+                    <StatCell label="시가총액"     value={fmtFinVal(d.market_cap)} />
+                    <StatCell label="기업가치(EV)" value={fmtFinVal(dEnhanced.enterprise_value)} />
                     <StatCell label="선행EPS"      value={dEnhanced.forward_eps  != null ? (isKR ? `₩${Math.round(dEnhanced.forward_eps).toLocaleString("ko-KR")}` : `$${dEnhanced.forward_eps.toFixed(2)}`) : null} />
                   </div>
                 )}
@@ -1194,7 +1203,19 @@ export default function StockDetail() {
 
         return (
           <div className="flex flex-col gap-4">
-            {loadingAnalyst ? (
+            {/* 서브탭 */}
+            <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
+              <button onClick={() => setAnalystSubTab("opinion")}
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${analystSubTab==="opinion" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
+                투자의견
+              </button>
+              <button onClick={() => setAnalystSubTab("consensus")}
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${analystSubTab==="consensus" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
+                컨센서스
+              </button>
+            </div>
+
+            {analystSubTab==="opinion" && (loadingAnalyst ? (
               <div className="flex justify-center py-16"><div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
             ) : !ad || (!pt && !cs && reports.length === 0) ? (
               <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
@@ -1396,7 +1417,61 @@ export default function StockDetail() {
                   </div>
                 )}
               </>
-            )}
+            ))}
+
+            {analystSubTab==="consensus" && (() => {
+              const fcstRows: any[] = (forecasts ?? []).filter((r: any) => r.type === "forecast");
+              if (!fcstRows.length) return (
+                <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
+                  <p className="text-text-muted text-sm">컨센서스 데이터가 없습니다</p>
+                </div>
+              );
+              const years = fcstRows.map((r: any) => r.period?.slice(0,4) ?? "").filter(Boolean);
+              return (
+                <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+                  <div className="px-4 py-3 border-b border-border">
+                    <span className="text-sm font-semibold text-text-primary">애널리스트 컨센서스 추정치</span>
+                  </div>
+                  <div className="overflow-x-auto p-4">
+                    <table className="text-xs w-full">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card min-w-[100px]">지표</th>
+                          {years.map(y => (
+                            <th key={y} className="text-right pb-2 font-mono font-medium text-accent-yellow/80 px-3 min-w-[90px]">{y}E</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          {
+                            key: "revenue_est",
+                            label: "매출 추정",
+                            color: "text-accent-blue",
+                            fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v),
+                          },
+                          {
+                            key: "eps_est",
+                            label: "EPS 추정",
+                            color: "text-accent-green",
+                            fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}`,
+                          },
+                        ].map(row => (
+                          <tr key={row.key} className="border-b border-border/30 hover:bg-bg-hover">
+                            <td className={`py-2 pr-3 font-semibold sticky left-0 bg-bg-card ${row.color}`}>{row.label}</td>
+                            {fcstRows.map((r: any, i: number) => (
+                              <td key={i} className={`py-2 px-3 text-right font-mono ${row.color}`}>
+                                {r[row.key] != null ? row.fmt(r[row.key]) : "—"}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
