@@ -140,9 +140,15 @@ class FinnhubService:
 
     # ── 미국 주식 상세 (통합) ──────────────────────────
     def get_stock_detail(self, symbol: str) -> dict:
-        quote   = self.get_quote(symbol) or {}
-        profile = self.get_profile(symbol) or {}
-        metrics = self.get_metrics(symbol) or {}
+        # 3개 요청 병렬 실행 (순차 900ms+ → 병렬 300ms)
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            fq = ex.submit(self.get_quote,   symbol)
+            fp = ex.submit(self.get_profile, symbol)
+            fm = ex.submit(self.get_metrics, symbol)
+            quote   = fq.result() or {}
+            profile = fp.result() or {}
+            metrics = fm.result() or {}
         mc_raw = profile.get("market_cap", 0) or 0
         return {
             **quote,
