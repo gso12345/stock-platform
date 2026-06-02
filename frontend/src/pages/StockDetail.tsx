@@ -167,12 +167,15 @@ export default function StockDetail() {
     prefetchSecondaryData();
   }, [fetchingChart, sym, prefetchSecondaryData]);
 
-  // 일별 탭 전용 — 1년 고정
+  // 일별 탭 — 기본 1개월, 더보기 클릭마다 1달씩 추가
+  const [dailyMonths, setDailyMonths] = useState(1);
+  const dailyPeriodStr = dailyMonths <= 1 ? "1mo" : dailyMonths <= 3 ? "3mo" : dailyMonths <= 6 ? "6mo" : "1y";
   const { data: dailyOhlcv, isFetching: fetchingDaily } = useQuery({
-    queryKey: ["stock-ohlcv", m, sym, "1d", "1y"],
-    queryFn: () => stocksApi.getOHLCV(m, sym, "1y", "1d"),
+    queryKey: ["stock-ohlcv", m, sym, "1d", dailyPeriodStr],
+    queryFn: () => stocksApi.getOHLCV(m, sym, dailyPeriodStr, "1d"),
     enabled: !!sym && mainTab === "daily",
     staleTime: 300_000,
+    placeholderData: (prev) => prev,
   });
 
   const { data: financials, isLoading: loadingFin } = useQuery({
@@ -670,7 +673,7 @@ export default function StockDetail() {
           r.revenue != null || r.op_income != null || r.net_income != null ||
           r.per != null || r.pbr != null || r.roe != null
         );
-        const fcst: any[] = (forecasts ?? []).filter((r:any) => r.type === "forecast");
+        const fcst: any[] = ((forecasts as any)?.annual ?? []).filter((r:any) => r.type === "forecast");
 
         // metrics-history 최신값으로 detail의 None 보완
         const mhLatest = [...mh].sort((a,b)=>b.period.localeCompare(a.period))[0] ?? {};
@@ -1642,9 +1645,15 @@ export default function StockDetail() {
       {/* 일별 탭 */}
       {mainTab==="daily" && (
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-            <span className="text-sm font-semibold text-text-primary">일별 시세</span>
-            {fetchingDaily && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-text-primary">일별 시세</span>
+              {fetchingDaily && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
+            </div>
+            <span className="text-xs text-text-muted">
+              최근 {dailyMonths}개월
+              {dailyOhlcv?.length ? ` · ${(dailyOhlcv as any[]).length}일` : ""}
+            </span>
           </div>
           {!dailyOhlcv?.length ? (
             <div className="py-12 text-center text-text-muted text-sm">{fetchingDaily ? "로딩 중..." : "데이터 없음"}</div>
@@ -1699,8 +1708,18 @@ export default function StockDetail() {
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
+            {/* 더보기 버튼 — 1달씩 추가 */}
+            {dailyMonths <= 12 && (
+              <button
+                onClick={() => setDailyMonths(m => m + 1)}
+                disabled={fetchingDaily}
+                className="w-full py-3 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border"
+              >
+                {fetchingDaily ? "로딩 중..." : `더보기 (+1개월) ▼`}
+              </button>
+            )}
+          </div>
+        )}
       )}
 
       {/* 수급 탭 — 서비스 준비중 */}

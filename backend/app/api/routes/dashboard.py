@@ -93,13 +93,13 @@ async def get_kr_dashboard(
         _get_exchange_rate_async(),
         loop.run_in_executor(None, get_kr_rates),
     ]
+    tasks.append(get_kr_futures())
     if include_news:
         tasks.append(loop.run_in_executor(None, get_kr_news, 6, 100))
-        idx_results, rankings, exchange, rates, news = await asyncio.gather(*tasks)
+        idx_results, rankings, exchange, rates, futures, news = await asyncio.gather(*tasks)
     else:
-        idx_results, rankings, exchange, rates = await asyncio.gather(*tasks)
+        idx_results, rankings, exchange, rates, futures = await asyncio.gather(*tasks)
         news = cache.get("news:kr") or cache.get_stale("news:kr") or []
-    futures = await get_kr_futures()
     return {
         "indices":  idx_results,
         "kospi":    idx_results[0],

@@ -272,22 +272,16 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
         if not price.get("name") or price.get("name") == symbol:
             price["name"] = price.get("name") or code6
 
-        # 시가/고가/저가/전일종가 없으면 OHLCV에서 보완
+        # 시가/고가/저가/전일종가 없으면 OHLCV 캐시에서만 보완 (yfinance 추가 호출 없음)
         if not price.get("open") or not price.get("prev_close"):
-            try:
-                ohlcv = await asyncio.wait_for(
-                    asyncio.get_running_loop().run_in_executor(None, yf_service.get_ohlcv, symbol, "5d", "1d", "KR"),
-                    timeout=10
-                )
-                if ohlcv and len(ohlcv) >= 2:
-                    latest = ohlcv[-1]
-                    prev   = ohlcv[-2]
-                    if not price.get("open"):       price["open"]       = latest.get("open")
-                    if not price.get("high"):       price["high"]       = latest.get("high")
-                    if not price.get("low"):        price["low"]        = latest.get("low")
-                    if not price.get("prev_close"): price["prev_close"] = prev.get("close")
-            except Exception:
-                pass
+            ohlcv_cached = cache.get_stale(f"ohlcv:KR:{symbol}:5d:1d") or cache.get_stale(f"ohlcv:KR:{symbol}:1y:1d")
+            if ohlcv_cached and len(ohlcv_cached) >= 2:
+                latest = ohlcv_cached[-1]
+                prev   = ohlcv_cached[-2]
+                if not price.get("open"):       price["open"]       = latest.get("open")
+                if not price.get("high"):       price["high"]       = latest.get("high")
+                if not price.get("low"):        price["low"]        = latest.get("low")
+                if not price.get("prev_close"): price["prev_close"] = prev.get("close")
 
         # fundamentals 캐시에서 재무지표 보완 (forward_per, peg, ev_ebitda 등)
         fund_data = cache.get(f"fund:{symbol}") or cache.get_stale(f"fund:{symbol}")

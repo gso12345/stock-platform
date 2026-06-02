@@ -178,15 +178,11 @@ async def refresh_us_stocks():
         except Exception:
             pass
 
-    # Finnhub: POPULAR_US만 실시간 가격 보강 (YF의 volume/market_cap/name은 유지)
+    # Finnhub: POPULAR_US 병렬 보강 (직렬 0.5초×20 → 병렬 1회)
     if settings.FINNHUB_API_KEY:
-        ok_fh = 0
-        for sym in POPULAR_US:
+        async def _fh_one(sym: str):
             try:
-                q = await asyncio.wait_for(
-                    loop.run_in_executor(None, finnhub_service.get_quote, sym),
-                    timeout=8
-                )
+                q = await asyncio.wait_for(loop.run_in_executor(None, finnhub_service.get_quote, sym), timeout=8)
                 if q and q.get("price"):
                     existing = cache.get(f"price:{sym}") or {}
                     merged = {**existing, **q, "symbol": sym}
@@ -194,11 +190,13 @@ async def refresh_us_stocks():
                         if existing.get(field):
                             merged[field] = existing[field]
                     cache.set(f"price:{sym}", merged, 60)
-                    ok_fh += 1
-                await asyncio.sleep(0.5)
+                    return True
             except Exception:
                 pass
-        log.info(f"미국 종목(Finnhub 보강) {ok_fh}/{len(POPULAR_US)}개")
+            return False
+        results = await asyncio.gather(*[_fh_one(s) for s in POPULAR_US], return_exceptions=True)
+        ok_fh = sum(1 for r in results if r is True)
+        log.info(f"미국 종목(Finnhub 병렬 보강) {ok_fh}/{len(POPULAR_US)}개")
 
     return ok_yf
 
