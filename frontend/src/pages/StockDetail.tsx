@@ -165,6 +165,14 @@ export default function StockDetail() {
     refetchInterval: isIntraday ? 15_000 : false,
   });
 
+  // 일별 탭 전용 — 차트 봉 단위와 무관하게 항상 1d 일봉 데이터
+  const { data: dailyOhlcv, isFetching: fetchingDaily } = useQuery({
+    queryKey: ["stock-ohlcv", m, sym, "1d", "max"],
+    queryFn: () => stocksApi.getOHLCV(m, sym, "max", "1d"),
+    enabled: !!sym && mainTab === "daily",
+    staleTime: 300_000,
+  });
+
   const { data: financials, isLoading: loadingFin } = useQuery({
     queryKey: ["stock-financials", m, sym],
     queryFn: () => financialsApi.get(m, sym),
@@ -1629,15 +1637,15 @@ export default function StockDetail() {
         </div>
       )}
 
-      {/* 일별 탭 */}
+      {/* 일별 탭 — 항상 1d 일봉 데이터 사용 */}
       {mainTab==="daily" && (
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <span className="text-sm font-semibold text-text-primary">일별 시세</span>
-            {fetchingChart && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
+            {fetchingDaily && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
           </div>
-          {!ohlcv?.length ? (
-            <div className="py-12 text-center text-text-muted text-sm">데이터 없음</div>
+          {!dailyOhlcv?.length ? (
+            <div className="py-12 text-center text-text-muted text-sm">{fetchingDaily ? "로딩 중..." : "데이터 없음"}</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -1654,7 +1662,7 @@ export default function StockDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...(ohlcv as any[])].reverse().map((bar: any, i: number, arr: any[]) => {
+                  {[...(dailyOhlcv as any[])].reverse().map((bar: any, i: number, arr: any[]) => {
                     const prevClose = arr[i + 1]?.close;
                     const chgRate = prevClose ? ((bar.close - prevClose) / prevClose * 100) : 0;
                     const isPos = chgRate >= 0;

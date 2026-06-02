@@ -655,6 +655,91 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
 
+    # 국내 종목: FnGuide 컨센서스 (네이버 모바일 API)
+    if market == "KR":
+        code6 = symbol.replace(".KS","").replace(".KQ","")
+        def _fetch_kr():
+            try:
+                import httpx, math
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/80.0 Mobile Safari/537.36",
+                    "Referer": "https://m.stock.naver.com/",
+                }
+                # 네이버 증권 컨센서스 API
+                url = f"https://m.stock.naver.com/api/stock/{code6}/consensus"
+                r = httpx.get(url, headers=headers, timeout=10)
+                if r.status_code != 200:
+                    return {"annual": [], "quarterly": []}
+                data = r.json()
+                annual, quarterly = [], []
+                for item in (data.get("annualList") or []):
+                    year = str(item.get("fiscalYear",""))
+                    if not year:
+                        continue
+                    def sf(k):
+                        v = item.get(k)
+                        try:
+                            f = float(str(v).replace(",",""))
+                            return None if (math.isnan(f) or math.isinf(f)) else f
+                        except Exception:
+                            return None
+                    annual.append({
+                        "period": f"{year}-12-31",
+                        "type": "forecast",
+                        "revenue_est":  sf("salesEstimate"),
+                        "revenue_high": sf("salesHigh"),
+                        "revenue_low":  sf("salesLow"),
+                        "eps_est":      sf("epsEstimate"),
+                        "eps_high":     sf("epsHigh"),
+                        "eps_low":      sf("epsLow"),
+                        "op_income_est":sf("operatingProfitEstimate"),
+                        "net_income_est":sf("netProfitEstimate"),
+                    })
+                for item in (data.get("quarterList") or []):
+                    period = str(item.get("fiscalQuarter",""))
+                    if not period:
+                        continue
+                    def sf(k):
+                        v = item.get(k)
+                        try:
+                            f = float(str(v).replace(",",""))
+                            return None if (math.isnan(f) or math.isinf(f)) else f
+                        except Exception:
+                            return None
+                    quarterly.append({
+                        "period": period,
+                        "type": "forecast",
+                        "revenue_est":   sf("salesEstimate"),
+                        "eps_est":       sf("epsEstimate"),
+                        "op_income_est": sf("operatingProfitEstimate"),
+                    })
+                if annual or quarterly:
+                    return {"annual": annual, "quarterly": quarterly}
+            except Exception:
+                pass
+            # yfinance 폴백
+            try:
+                t = yf.Ticker(yf_sym)
+                rows = []
+                pe = getattr(t, "earnings_estimate", None)
+                if pe is not None and not pe.empty:
+                    for idx, row in pe.iterrows():
+                        p = str(idx)[:10]
+                        try:
+                            eps = float(row.get("avg",0) or 0) or None
+                        except Exception:
+                            eps = None
+                        rows.append({"period": p, "type": "forecast", "eps_est": eps})
+                return {"annual": [r for r in rows if len(r["period"]) <= 7],
+                        "quarterly": [r for r in rows if len(r["period"]) > 7]}
+            except Exception:
+                return {"annual": [], "quarterly": []}
+
+        loop = asyncio.get_running_loop()
+        result = await asyncio.wait_for(loop.run_in_executor(None, _fetch_kr), timeout=15)
+        cache.set(ck, result, 3600)
+        return result
+
     def _safe_float(v):
         try:
             f = float(v)
