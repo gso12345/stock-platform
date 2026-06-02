@@ -296,6 +296,14 @@ def get_kr_rankings(category: str = "시가총액") -> list[dict]:
         return result
 
     rows = _build_all_kr_rows()
+
+    # 시가총액 순위: 모바일 API 캐시 market_cap 우선 사용
+    if category == "시가총액":
+        for r in rows:
+            p = cache.get(f"price:{r['symbol']}") or cache.get_stale(f"price:{r['symbol']}")
+            if p and p.get("market_cap") and p["market_cap"] > r.get("market_cap", 0):
+                r["market_cap"] = p["market_cap"]
+
     result = _sort_kr(rows, category)
 
     if result:
@@ -304,13 +312,27 @@ def get_kr_rankings(category: str = "시가총액") -> list[dict]:
 
 
 async def refresh_kr_rankings_from_naver():
-    """Naver Finance 순위 HTML 파싱으로 캐시 갱신"""
+    """Naver Finance 순위 HTML 파싱으로 캐시 갱신
+    시가총액 순위: HTML 파싱 후 모바일 API 캐시로 market_cap 교정 → 재정렬
+    """
     for cat in NAVER_SISE_PAGES.keys():
         rows = await fetch_naver_rank(cat)
-        if rows:
-            for i, r in enumerate(rows):
-                r["rank"] = i + 1
-            cache.set(f"rank:kr:{cat}", rows, RANK_TTL)
+        if not rows:
+            continue
+
+        # 시가총액 순위는 모바일 API 캐시 값으로 교정 후 재정렬
+        # (HTML 파싱 오류로 인한 순위 역전 방지)
+        if cat == "시가총액":
+            for r in rows:
+                sym = r["symbol"]
+                p = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}")
+                if p and p.get("market_cap") and p["market_cap"] > r.get("market_cap", 0):
+                    r["market_cap"] = p["market_cap"]
+            rows.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
+
+        for i, r in enumerate(rows):
+            r["rank"] = i + 1
+        cache.set(f"rank:kr:{cat}", rows, RANK_TTL)
     log.info("Naver 순위 갱신 완료")
 
 
