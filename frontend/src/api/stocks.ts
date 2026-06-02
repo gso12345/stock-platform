@@ -58,6 +58,9 @@ export const dashboardApi = {
   getKRExtras: () =>
     api.get("/dashboard/kr/extras").then((r) => r.data),
 
+  getUSRates: () =>
+    api.get("/dashboard/us/rates").then((r) => r.data),
+
   getTopMovers: () =>
     api.get<{ risers: any[]; fallers: any[] }>("/dashboard/top-movers").then((r) => r.data),
 };

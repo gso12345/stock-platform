@@ -180,6 +180,58 @@ def get_kr_rates() -> list:
     return rates or _demo_rates()
 
 
+def get_us_rates() -> list:
+    """미국 환율·금리·국채 — yfinance"""
+    ck = "extra:us_rates"
+    if c := cache.get(ck):
+        return c
+
+    specs = [
+        ("USDKRW=X",  "원/달러",           "원",  False),
+        ("EURUSD=X",  "유로/달러",          "$",   False),
+        ("USDJPY=X",  "달러/엔",            "¥",   False),
+        ("^IRX",      "미국 단기금리(3M)",  "%",   True),
+        ("^FVX",      "미국 5년 국채",      "%",   True),
+        ("^TNX",      "미국 10년 국채",     "%",   True),
+        ("^TYX",      "미국 30년 국채",     "%",   True),
+        ("^VIX",      "VIX 공포지수",       "pt",  False),
+    ]
+
+    results = []
+    for sym, name, unit, is_rate in specs:
+        try:
+            t = yf.Ticker(sym)
+            h = t.history(period="5d")
+            c2 = h["Close"].dropna()
+            if len(c2) < 1:
+                continue
+            curr = float(c2.iloc[-1])
+            prev = float(c2.iloc[-2]) if len(c2) >= 2 else curr
+            chg  = curr - prev
+            chgr = chg / prev * 100 if prev and not is_rate else chg
+            results.append({
+                "name":        name,
+                "value":       round(curr, 3 if is_rate else 2),
+                "change":      round(chg,  3 if is_rate else 2),
+                "change_rate": round(chgr, 3 if is_rate else 2),
+                "unit":        unit,
+                "is_rate":     is_rate,
+            })
+        except Exception:
+            continue
+
+    # 연방기준금리 (정적)
+    fed = cache.get_stale("extra:fed_rate") or {
+        "name": "연방기준금리", "value": 5.25,
+        "change": 0.0, "change_rate": 0.0, "unit": "%", "_static": True,
+    }
+    results.insert(3, fed)
+
+    if results:
+        cache.set(ck, results, 300)
+    return results
+
+
 def _demo_rates() -> list:
     return [
         {"name":"한국 기준금리","value":3.50,"change":0.0,"change_rate":0.0,"unit":"%","_static":True},

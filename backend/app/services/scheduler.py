@@ -290,6 +290,12 @@ async def periodic_refresh():
         if counter % 6 == 0:
             await refresh_exchange()
 
+        # 미국 환율·금리·국채 (5분)
+        if counter % 30 == 0:
+            from app.services.market_extras import get_us_rates
+            loop2 = asyncio.get_running_loop()
+            await loop2.run_in_executor(None, get_us_rates)
+
         # 종목 + 뉴스 (5분)
         if counter % 30 == 0:
             from app.services.news_service import get_kr_news, get_us_news

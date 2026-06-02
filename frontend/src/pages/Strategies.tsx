@@ -1,14 +1,20 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { backtestApi } from "@/api/stocks";
 import { Card, LoadingSpinner } from "@/components/ui";
+import { useAuthStore } from "@/store/authStore";
+import { LogIn } from "lucide-react";
 
 export default function Strategies() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { isLoggedIn } = useAuthStore();
 
-  const { data: strategies, isLoading } = useQuery({
+  const { data: strategies, isLoading, error } = useQuery({
     queryKey: ["strategies"],
     queryFn: backtestApi.getStrategies,
+    enabled: isLoggedIn,
   });
 
   const deleteMutation = useMutation({
@@ -28,15 +34,42 @@ export default function Strategies() {
         </a>
       </div>
 
-      {isLoading ? (
+      {/* 비로그인 안내 */}
+      {!isLoggedIn && (
+        <Card className="flex flex-col items-center justify-center py-14 gap-4">
+          <div className="w-14 h-14 rounded-full bg-accent-blue/10 flex items-center justify-center">
+            <LogIn size={24} className="text-accent-blue" />
+          </div>
+          <div className="text-center">
+            <p className="text-text-primary font-semibold">로그인이 필요합니다</p>
+            <p className="text-text-muted text-xs mt-1">전략 저장소는 로그인 후 이용할 수 있습니다</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => navigate("/login")}
+              className="px-5 py-2 bg-accent-blue hover:bg-blue-600 text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              로그인
+            </button>
+            <button
+              onClick={() => navigate("/register")}
+              className="px-5 py-2 border border-border text-text-secondary text-sm font-medium rounded-lg hover:border-accent-blue hover:text-accent-blue transition-colors"
+            >
+              회원가입
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {isLoggedIn && isLoading ? (
         <LoadingSpinner />
-      ) : !strategies?.length ? (
+      ) : isLoggedIn && !strategies?.length ? (
         <Card>
           <p className="text-text-muted text-sm py-8 text-center">
             저장된 전략이 없습니다. 백테스트에서 전략을 저장하세요.
           </p>
         </Card>
-      ) : (
+      ) : isLoggedIn && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {strategies.map((s: any) => (
             <Card key={s.id} className="flex flex-col gap-3">

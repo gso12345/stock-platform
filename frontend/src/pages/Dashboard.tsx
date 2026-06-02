@@ -337,6 +337,13 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     refetchIntervalInBackground: false,
   });
 
+  const { data: ratesData } = useQuery({
+    queryKey: ["dashboard-us-rates"],
+    queryFn: () => dashboardApi.getUSRates(),
+    staleTime: 60_000,
+    refetchInterval: 300_000,
+  });
+
   const { data: newsData } = useQuery({
     queryKey: ["dashboard-news-us"],
     queryFn: () => dashboardApi.getNews("us"),
@@ -354,12 +361,15 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
   };
 
+  // 캐시 rates: API rates 우선, fallback은 data.rates
+  const rates: any[] = (ratesData?.length ? ratesData : data?.rates) ?? [];
+
   return (
     <div className="flex flex-col gap-5">
-      {/* 지수 + 환율 */}
+      {/* 해외 지수 */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest">해외 지수 & 환율</h2>
+          <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest">해외 지수</h2>
           <button onClick={() => refetch()} className="text-text-muted hover:text-accent-blue transition-colors">
             <RefreshCw size={11} />
           </button>
@@ -369,10 +379,21 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             const idx = getIdx(key);
             return <div key={key} className="flex-shrink-0"><IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} /></div>;
           })}
-          {data?.exchange && (
+        </div>
+      </section>
+
+      {/* 환율 · 금리 · 국채 */}
+      <section>
+        <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리 · 국채</h2>
+        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+          {rates.map((r: any) => (
+            <ExtraCard key={r.name} {...r} />
+          ))}
+          {/* rates 없으면 exchange fallback */}
+          {!rates.length && data?.exchange && (
             <ExtraCard
               name="원/달러"
-              value={data.exchange.value ?? data.exchange.usdkrw ?? 0}
+              value={data.exchange.value ?? 0}
               change={data.exchange.change ?? 0}
               change_rate={data.exchange.change_rate ?? 0}
               unit="원"

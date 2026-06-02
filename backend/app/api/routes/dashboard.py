@@ -11,7 +11,7 @@ from app.services.fmp_service import fmp_service
 from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
 from app.services.news_service import get_kr_news, get_us_news
 from app.services.ranking_service import get_us_rankings
-from app.services.market_extras import get_kr_futures, get_kr_rates
+from app.services.market_extras import get_kr_futures, get_kr_rates, get_us_rates
 from app.services.price_fetcher import get_usdkrw
 from app.core.config import settings
 from app.core.cache import cache
@@ -58,7 +58,7 @@ async def _get_kr_index(name: str) -> dict:
 
 # ── 해외 지수 조회 ─────────────────────────────────────────
 async def _get_us_index(name: str) -> dict:
-    # 1. 신선한 캐시 (스케줄러가 갱신한 값)
+    # 1. 신선한 캐시
     fresh = cache.get(f"idx:{name}")
     if fresh and fresh.get("value", 0) > 0:
         return fresh
@@ -66,14 +66,43 @@ async def _get_us_index(name: str) -> dict:
     stale = cache.get_stale(f"idx:{name}")
     if stale and stale.get("value", 0) > 0:
         return stale
+    # 3. yfinance 직접 조회 (서버 재시작 직후 캐시 없을 때 fallback)
+    try:
+        result = await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, yf_service.get_market_index, name),
+            timeout=8
+        )
+        if result and result.get("value", 0) > 0:
+            cache.set(f"idx:{name}", result, 60)
+            return result
+    except Exception:
+        pass
     return {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
+
+
+async def _get_kr_index_with_fallback(name: str) -> dict:
+    result = await _get_kr_index(name)
+    if result.get("value", 0) > 0:
+        return result
+    # yfinance 직접 fallback
+    try:
+        yf_result = await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, yf_service.get_market_index, name),
+            timeout=8
+        )
+        if yf_result and yf_result.get("value", 0) > 0:
+            cache.set(f"idx:{name}", yf_result, 60)
+            return yf_result
+    except Exception:
+        pass
+    return result
 
 
 # ── 전체 지수 ──────────────────────────────────────────────
 @router.get("/indices")
 async def get_all_indices():
     all_names = KR_INDICES + US_INDICES
-    tasks = [_get_kr_index(n) if n in KR_INDICES else _get_us_index(n) for n in all_names]
+    tasks = [_get_kr_index_with_fallback(n) if n in KR_INDICES else _get_us_index(n) for n in all_names]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     kr = [r if not isinstance(r, Exception) else {"index": n, "value": 0, "change": 0, "change_rate": 0} for r, n in zip(results, all_names) if n in KR_INDICES]
     us = [r if not isinstance(r, Exception) else {"index": n, "value": 0, "change": 0, "change_rate": 0} for r, n in zip(results, all_names) if n in US_INDICES]
@@ -162,17 +191,27 @@ async def get_us_dashboard(
     include_news: bool = Query(default=False),
 ):
     loop = asyncio.get_running_loop()
+    us_rates_cached = cache.get("extra:us_rates") or cache.get_stale("extra:us_rates") or []
     tasks = [
         asyncio.gather(*[_get_us_index(n) for n in US_INDICES]),
         _get_exchange_rate_async(),
         _get_us_rankings_cached(category),
     ]
+    if not us_rates_cached:
+        tasks.append(loop.run_in_executor(None, get_us_rates))
     if include_news:
         tasks.append(loop.run_in_executor(None, get_us_news, 6, 100))
-        idx_results, exchange, rankings, news = await asyncio.gather(*tasks)
-    else:
-        idx_results, exchange, rankings = await asyncio.gather(*tasks)
-        news = cache.get("news:us") or cache.get_stale("news:us") or []
+
+    gathered = await asyncio.gather(*tasks)
+    idx_results = gathered[0]
+    exchange    = gathered[1]
+    rankings    = gathered[2]
+    next_idx    = 3
+    if not us_rates_cached:
+        us_rates_cached = gathered[next_idx] or []
+        next_idx += 1
+    news = gathered[next_idx] if include_news else (cache.get("news:us") or cache.get_stale("news:us") or [])
+
     idx_map = {r["index"]: r for r in idx_results if isinstance(r, dict)}
     return {
         "indices":  idx_results,
@@ -182,10 +221,22 @@ async def get_us_dashboard(
         "sox":      idx_map.get("SOX"),
         "russell":  idx_map.get("RUSSELL"),
         "exchange": exchange,
+        "rates":    us_rates_cached,
         "rankings": rankings,
         "news":     news[:80] if news else [],
         "category": category,
     }
+
+
+@router.get("/us/rates")
+async def us_rates():
+    """미국 환율·금리·국채 — 원/달러, 연방금리, 2Y/10Y/30Y 국채, VIX"""
+    loop = asyncio.get_running_loop()
+    cached = cache.get("extra:us_rates") or cache.get_stale("extra:us_rates")
+    if cached:
+        return cached
+    result = await loop.run_in_executor(None, get_us_rates)
+    return result or []
 
 
 async def _get_exchange_rate_async() -> dict:
