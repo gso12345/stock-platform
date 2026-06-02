@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { watchlistApi, watchlistFolderApi } from "@/api/stocks";
+import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
 import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import type { Market } from "@/types";
@@ -229,10 +229,11 @@ const SWIPE_REVEAL = 76;
 const SWIPE_THRESHOLD = 40;
 
 /* ── 종목 행: 드래그 재정렬 + 스와이프 우→ 수정/삭제 ─── */
-function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit,
+function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
   isDragging, isDragOver, onDragStart, onDragOver, onDrop }: {
   item: any; livePrice: any;
   onRemove: () => void; onNavigate: () => void; onEdit: () => void;
+  onPrefetch?: () => void;
   isDragging?: boolean; isDragOver?: boolean;
   onDragStart?: React.DragEventHandler;
   onDragOver?: React.DragEventHandler;
@@ -272,6 +273,7 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit,
     <div
       className={`relative overflow-hidden border-b border-border/30 group ${isDragOver ? "bg-accent-blue/5" : ""} ${isDragging ? "opacity-40" : ""}`}
       onDragOver={onDragOver} onDrop={onDrop}
+      onMouseEnter={onPrefetch}
     >
       {/* 스와이프 액션 버튼 (왼쪽 고정) */}
       <div className="absolute inset-y-0 left-0 flex" style={{ width: SWIPE_REVEAL }}>
@@ -472,21 +474,54 @@ export default function Watchlist() {
   const goToStock = (item: any) =>
     navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`);
 
+  // 화면에 보이는 종목 자동 prefetch
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const prefetchStock = useCallback((item: any) => {
+    const mkt = item.market as any;
+    const sym = item.symbol;
+    if (qc.getQueryData(["stock-detail", mkt, sym])) return;
+    qc.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 15_000 });
+    qc.prefetchQuery({ queryKey: ["stock-ohlcv", mkt, sym, "1d", "max"], queryFn: () => stocksApi.getOHLCV(mkt, sym, "max", "1d"), staleTime: 300_000 });
+  }, [qc]);
+
+  useEffect(() => {
+    let queue: any[] = [];
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      queue.splice(0, 3).forEach(prefetchStock);
+      if (queue.length > 0) timer = setTimeout(flush, 600);
+    };
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const sym = (e.target as HTMLElement).dataset.sym;
+          const item = displayList.find((i: any) => i.symbol === sym);
+          if (item && !queue.find((q: any) => q.symbol === sym)) queue.push(item);
+        }
+      });
+      if (queue.length > 0 && !timer) timer = setTimeout(flush, 200);
+    }, { threshold: 0.5 });
+    rowRefs.current.forEach(row => observer.observe(row));
+    return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
+  }, [displayList, prefetchStock]);
+
   const renderItems = (list: any[]) =>
     list.map((item: any) => (
-      <ItemRow
-        key={item.id}
-        item={item}
-        livePrice={livePrices[item.symbol]}
-        onRemove={() => removeMutation.mutate(item.id)}
-        onNavigate={() => goToStock(item)}
-        onEdit={() => setEditingItem(item)}
-        isDragging={dragId === item.id}
-        isDragOver={dropId === item.id}
-        onDragStart={() => handleDragStart(item)}
-        onDragOver={(e) => handleDragOver(e, item.id)}
-        onDrop={handleDrop}
-      />
+      <div key={item.id} ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol}>
+        <ItemRow
+          item={item}
+          livePrice={livePrices[item.symbol]}
+          onRemove={() => removeMutation.mutate(item.id)}
+          onNavigate={() => goToStock(item)}
+          onEdit={() => setEditingItem(item)}
+          onPrefetch={() => prefetchStock(item)}
+          isDragging={dragId === item.id}
+          isDragOver={dropId === item.id}
+          onDragStart={() => handleDragStart(item)}
+          onDragOver={(e) => handleDragOver(e, item.id)}
+          onDrop={handleDrop}
+        />
+      </div>
     ));
 
   return (
