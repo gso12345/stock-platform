@@ -82,7 +82,7 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
                 volume     = int(nums[8]) if len(nums) > 8 and nums[8] else 0
             else:
                 # 상승률/하락률/거래량 페이지 컬럼: 순위|종목명|현재가|전일비|등락률|거래량|거래대금|시가총액(억)|PER
-                market_cap = 0
+                market_cap = int((nums[7] or 0) * 1e8) if len(nums) > 7 and nums[7] and nums[7] > 0 else 0
                 volume     = int(nums[5]) if len(nums) > 5 and nums[5] and nums[5] > 0 else 0
             change = round(price * change_rate / 100, 2) if price and change_rate else 0
             rows.append({
@@ -105,7 +105,7 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
 
 
 async def fetch_naver_rank(category: str) -> list[dict]:
-    """Naver Finance 순위 HTML 파싱 (KOSPI + KOSDAQ 합산)"""
+    """Naver Finance 순위 HTML 파싱 (KOSPI + KOSDAQ 합산 후 재정렬)"""
     url = NAVER_SISE_PAGES.get(category)
     if not url:
         return []
@@ -119,7 +119,17 @@ async def fetch_naver_rank(category: str) -> list[dict]:
     for r in results:
         if isinstance(r, list):
             all_rows.extend(r)
+
+    # KOSPI+KOSDAQ 합산 후 카테고리별 재정렬 (101위가 100위보다 더 상승/하락인 문제 방지)
     if all_rows:
+        if category == "상승률":
+            all_rows.sort(key=lambda x: x.get("change_rate") or -9999, reverse=True)
+        elif category == "하락률":
+            all_rows.sort(key=lambda x: x.get("change_rate") or 9999)
+        elif category == "거래량":
+            all_rows.sort(key=lambda x: x.get("volume") or 0, reverse=True)
+        elif category == "시가총액":
+            all_rows.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
         log.info(f"Naver 순위: {category} {len(all_rows)}개")
     return all_rows
 

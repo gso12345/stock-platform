@@ -186,6 +186,22 @@ async def get_stock_ohlcv(
 
     YF_VALID = {"1m","2m","5m","15m","30m","60m","90m","1h","1d","5d","1wk","1mo","3mo"}
 
+    # OHLCV 캐시 (분봉 1m은 캐시 안 함, 나머지는 TTL별 캐시)
+    ohlcv_ttl = {
+        "5m": 60, "15m": 60, "30m": 120, "60m": 180,
+        "1d": 300, "1wk": 1800, "1mo": 3600, "1y": 3600,
+    }.get(interval, 0)
+    ohlcv_ck = f"ohlcv:{market}:{symbol}:{period}:{interval}" if ohlcv_ttl else None
+    if ohlcv_ck:
+        cached_ohlcv = cache.get(ohlcv_ck)
+        if cached_ohlcv is not None:
+            return cached_ohlcv
+
+    def _cache_and_return(result):
+        if ohlcv_ck and result:
+            cache.set(ohlcv_ck, result, ohlcv_ttl)
+        return result
+
     if market == "KR":
         code6 = symbol.replace(".KS","").replace(".KQ","")
 
@@ -193,14 +209,15 @@ async def get_stock_ohlcv(
         if settings.KIS_APP_KEY and interval == "1d":
             result = await kis_service.get_ohlcv(code6, period)
             if result:
-                return result
+                return _cache_and_return(result)
 
         # yfinance 폴백 (분봉 포함)
         try:
             yf_iv = yf_interval_mapped if yf_interval_mapped in YF_VALID else "1d"
             result = await _run(yf_service.get_ohlcv, symbol, yf_period, yf_iv, "KR")
             if result:
-                return _resample_to_annual(result) if is_annual else result
+                data = _resample_to_annual(result) if is_annual else result
+                return _cache_and_return(data)
         except Exception:
             pass
         return get_demo_ohlcv(symbol, period)
@@ -212,14 +229,16 @@ async def get_stock_ohlcv(
             resolution = finnhub_res_map.get(interval, "D")
             result = await _run(finnhub_service.get_candles, symbol, yf_period if is_intraday else period, resolution)
             if result:
-                return _resample_to_annual(result) if is_annual else result
+                data = _resample_to_annual(result) if is_annual else result
+                return _cache_and_return(data)
 
         # yfinance 폴백 (분봉 포함)
         try:
             yf_iv = yf_interval_mapped if yf_interval_mapped in YF_VALID else "1d"
             result = await _run(yf_service.get_ohlcv, symbol, yf_period, yf_iv, "US")
             if result:
-                return _resample_to_annual(result) if is_annual else result
+                data = _resample_to_annual(result) if is_annual else result
+                return _cache_and_return(data)
         except Exception:
             pass
         return get_demo_ohlcv(symbol, period)
@@ -231,12 +250,16 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
         from app.services.price_fetcher import fetch_naver_stock
         code6 = symbol.replace(".KS","").replace(".KQ","")
 
-        # 항상 Naver에서 신선한 데이터 fetch (open/high/low/per/pbr 포함)
+        # 신선한 캐시에 open/high/low까지 있으면 Naver 재요청 생략
         price = None
-        try:
-            price = await fetch_naver_stock(code6)
-        except Exception:
-            pass
+        fresh = cache.get(f"price:{symbol}")
+        if fresh and fresh.get("price") and fresh.get("open") and not fresh.get("_demo"):
+            price = fresh
+        else:
+            try:
+                price = await fetch_naver_stock(code6)
+            except Exception:
+                pass
 
         # Naver 실패 시 캐시 → yfinance 폴백
         if not price or not price.get("price"):
@@ -265,6 +288,16 @@ async def get_stock_detail(market: Literal["KR","US","ETF"], symbol: str):
                     if not price.get("prev_close"): price["prev_close"] = prev.get("close")
             except Exception:
                 pass
+
+        # fundamentals 캐시에서 재무지표 보완 (forward_per, peg, ev_ebitda 등)
+        fund_data = cache.get(f"fund:{symbol}") or cache.get_stale(f"fund:{symbol}")
+        if fund_data:
+            for key in ("forward_per", "peg", "ev_ebitda", "ev_revenue", "enterprise_value",
+                        "psr", "forward_eps", "roe", "roa", "gross_margin", "op_margin",
+                        "net_margin", "debt_ratio", "current_ratio", "quick_ratio",
+                        "beta", "sector", "industry", "description"):
+                if not price.get(key) and fund_data.get(key) is not None:
+                    price[key] = fund_data[key]
 
         return price
     else:
@@ -778,6 +811,11 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return []
         result = await _run(_fetch_us)
+
+    # 인기순 정렬에 필요한 trend_score 계산
+    if result:
+        from app.services.news_service import _add_trending_score
+        result = _add_trending_score(result)
 
     cache.set(ck, result, 300)
     return result

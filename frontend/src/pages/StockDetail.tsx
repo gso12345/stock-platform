@@ -118,12 +118,21 @@ export default function StockDetail() {
 
   const fmt = (v: number | null | undefined) => isKR ? fmtKRW(v) : fmtUSD(v);
 
-  const { data: detail, isLoading: loadingDetail, error: detailError, refetch: refetchDetail, dataUpdatedAt } = useQuery({
+  const { data: detail, isLoading: loadingDetail, isPlaceholderData, error: detailError, refetch: refetchDetail, dataUpdatedAt } = useQuery({
     queryKey: ["stock-detail", m, sym],
     queryFn: () => stocksApi.getDetail(m, sym),
     enabled: !!sym, retry: 1, retryDelay: 3000,
     staleTime: 15_000,
-    refetchInterval: 15_000,    // 15초마다 실시간 시세 갱신
+    refetchInterval: 15_000,
+    placeholderData: () => {
+      // 대시보드 랭킹 캐시에서 해당 종목 데이터 즉시 활용
+      for (const cat of ["시가총액", "상승률", "하락률", "거래량", "거래대금"]) {
+        const cached = qc.getQueryData<any>(isKR ? ["dashboard-kr", cat] : ["dashboard-us", cat]);
+        const item = cached?.rankings?.find((r: any) => r.symbol === sym);
+        if (item) return item;
+      }
+      return undefined;
+    },
   });
 
   const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);
@@ -163,15 +172,17 @@ export default function StockDetail() {
   const { data: forecasts } = useQuery({
     queryKey: ["forecasts", m, sym],
     queryFn: () => stocksApi.getForecasts(m, sym),
-    // 밸류에이션 탭 선택 시에만 로드 (불필요한 선제 fetch 방지)
-    enabled: !!sym && mainTab === "financial" && finSubTab === "valuation",
+    enabled: !!sym && (
+      (mainTab === "financial" && finSubTab === "valuation") ||
+      mainTab === "analyst"
+    ),
     retry: 1, staleTime: 3_600_000,
   });
 
   const { data: analystData, isLoading: loadingAnalyst } = useQuery({
     queryKey: ["analyst", m, sym],
     queryFn: () => stocksApi.getAnalyst(m, sym),
-    enabled: !!sym && !isKR && mainTab === "analyst",
+    enabled: !!sym && mainTab === "analyst",
     retry: 1, staleTime: 3_600_000,
   });
 
@@ -248,7 +259,7 @@ export default function StockDetail() {
     : "—";
   const isUp = (d?.change_rate ?? 0) >= 0;
 
-  if (loadingDetail) {
+  if (loadingDetail && !isPlaceholderData) {
     return (
       <div className="flex flex-col gap-4 animate-pulse">
         <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-bg-elevated"/><div className="h-8 w-40 rounded-lg bg-bg-elevated"/></div>
@@ -636,19 +647,27 @@ export default function StockDetail() {
         const mhLatest = [...mh].sort((a,b)=>b.period.localeCompare(a.period))[0] ?? {};
         const fd = (fundamentalsData as any) ?? {};
         const dEnhanced = {
-          per: d?.per ?? fd.per ?? mhLatest.per ?? null,
-          pbr: d?.pbr ?? fd.pbr ?? mhLatest.pbr ?? null,
-          psr: d?.psr ?? fd.psr ?? mhLatest.psr ?? null,
-          eps: d?.eps ?? fd.eps ?? mhLatest.eps ?? null,
-          bps: d?.bps ?? fd.bps ?? mhLatest.bps ?? null,
-          roe: d?.roe ?? fd.roe ?? mhLatest.roe ?? null,
-          roa: d?.roa ?? null,
-          op_margin:    d?.op_margin    ?? mhLatest.op_margin    ?? null,
-          net_margin:   d?.net_margin   ?? mhLatest.net_margin   ?? null,
-          gross_margin: d?.gross_margin ?? mhLatest.gross_margin ?? null,
-          debt_ratio:   d?.debt_ratio   ?? mhLatest.debt_ratio   ?? null,
-          current_ratio:d?.current_ratio ?? mhLatest.current_ratio ?? null,
-          quick_ratio:  d?.quick_ratio  ?? mhLatest.quick_ratio  ?? null,
+          per:          d?.per          ?? fd.per          ?? mhLatest.per          ?? null,
+          pbr:          d?.pbr          ?? fd.pbr          ?? mhLatest.pbr          ?? null,
+          psr:          d?.psr          ?? fd.psr          ?? mhLatest.psr          ?? null,
+          eps:          d?.eps          ?? fd.eps          ?? mhLatest.eps          ?? null,
+          bps:          d?.bps          ?? fd.bps          ?? mhLatest.bps          ?? null,
+          roe:          d?.roe          ?? fd.roe          ?? mhLatest.roe          ?? null,
+          roa:          d?.roa          ?? fd.roa          ?? null,
+          op_margin:    d?.op_margin    ?? fd.op_margin    ?? mhLatest.op_margin    ?? null,
+          net_margin:   d?.net_margin   ?? fd.net_margin   ?? mhLatest.net_margin   ?? null,
+          gross_margin: d?.gross_margin ?? fd.gross_margin ?? mhLatest.gross_margin ?? null,
+          debt_ratio:   d?.debt_ratio   ?? fd.debt_ratio   ?? mhLatest.debt_ratio   ?? null,
+          current_ratio:d?.current_ratio ?? fd.current_ratio ?? mhLatest.current_ratio ?? null,
+          quick_ratio:  d?.quick_ratio  ?? fd.quick_ratio  ?? mhLatest.quick_ratio  ?? null,
+          // 재무제표 탭에서 안 보이던 항목들 — fundamentals에서 fallback
+          forward_per:     d?.forward_per     ?? fd.forward_per     ?? null,
+          peg:             d?.peg             ?? fd.peg             ?? null,
+          ev_ebitda:       d?.ev_ebitda       ?? fd.ev_ebitda       ?? null,
+          ev_revenue:      d?.ev_revenue      ?? fd.ev_revenue      ?? null,
+          enterprise_value:d?.enterprise_value ?? fd.enterprise_value ?? null,
+          forward_eps:     d?.forward_eps     ?? fd.forward_eps     ?? null,
+          beta:            d?.beta            ?? fd.beta            ?? null,
         };
 
         // 기간 레이블 (연간: YYYY, 분기: YYYY-QQ)
@@ -815,14 +834,16 @@ export default function StockDetail() {
                 {/* 현재 지표 — detail 없으면 metricsHistory 최신값 사용 */}
                 {d && (
                   <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                    <StatCell label="PER(현재)"  value={dEnhanced.per  != null ? `${fmtNum(dEnhanced.per)}배` : null} />
-                    <StatCell label="PER(선행)"  value={d.forward_per  != null ? `${fmtNum(d.forward_per)}배` : null} />
-                    <StatCell label="PEG"        value={d.peg          != null ? fmtNum(d.peg, 2) : null} />
-                    <StatCell label="PBR"        value={dEnhanced.pbr  != null ? `${fmtNum(dEnhanced.pbr,2)}배` : null} />
-                    <StatCell label="PSR"        value={dEnhanced.psr  != null ? `${fmtNum(dEnhanced.psr,2)}배` : null} />
-                    <StatCell label="EV/EBITDA"  value={d.ev_ebitda    != null ? `${fmtNum(d.ev_ebitda,1)}배` : null} />
-                    <StatCell label="시가총액"   value={fmt(d.market_cap)} />
-                    <StatCell label="기업가치(EV)" value={fmt(d.enterprise_value)} />
+                    <StatCell label="PER(현재)"    value={dEnhanced.per          != null ? `${fmtNum(dEnhanced.per)}배` : null} />
+                    <StatCell label="PER(선행)"    value={dEnhanced.forward_per  != null ? `${fmtNum(dEnhanced.forward_per)}배` : null} />
+                    <StatCell label="PEG"          value={dEnhanced.peg          != null ? fmtNum(dEnhanced.peg, 2) : null} />
+                    <StatCell label="PBR"          value={dEnhanced.pbr          != null ? `${fmtNum(dEnhanced.pbr,2)}배` : null} />
+                    <StatCell label="PSR"          value={dEnhanced.psr          != null ? `${fmtNum(dEnhanced.psr,2)}배` : null} />
+                    <StatCell label="EV/EBITDA"    value={dEnhanced.ev_ebitda    != null ? `${fmtNum(dEnhanced.ev_ebitda,1)}배` : null} />
+                    <StatCell label="EV/매출"      value={dEnhanced.ev_revenue   != null ? `${fmtNum(dEnhanced.ev_revenue,2)}배` : null} />
+                    <StatCell label="시가총액"     value={fmt(d.market_cap)} />
+                    <StatCell label="기업가치(EV)" value={fmt(dEnhanced.enterprise_value)} />
+                    <StatCell label="선행EPS"      value={dEnhanced.forward_eps  != null ? (isKR ? `₩${Math.round(dEnhanced.forward_eps).toLocaleString("ko-KR")}` : `$${dEnhanced.forward_eps.toFixed(2)}`) : null} />
                   </div>
                 )}
                 {/* PER/PBR 연도별 차트 — PER/PBR 없으면 EPS 차트, mh 비어있으면 dEnhanced로 단일 포인트 */}
@@ -985,7 +1006,7 @@ export default function StockDetail() {
                       color={dEnhanced.op_margin!=null?(dEnhanced.op_margin>=15?"text-accent-green":dEnhanced.op_margin<0?"text-accent-red":"text-text-primary"):undefined}/>
                     <StatCell label="순이익률" value={dEnhanced.net_margin!=null?`${dEnhanced.net_margin.toFixed(1)}%`:null}/>
                     <StatCell label="EPS" value={dEnhanced.eps!=null?(isKR?`₩${Math.round(dEnhanced.eps).toLocaleString("ko-KR")}`:fmtUSD(dEnhanced.eps)):null}/>
-                    <StatCell label="선행EPS" value={d.forward_eps!=null?(isKR?`₩${Math.round(d.forward_eps).toLocaleString("ko-KR")}`:fmtUSD(d.forward_eps)):null}/>
+                    <StatCell label="선행EPS" value={dEnhanced.forward_eps!=null?(isKR?`₩${Math.round(dEnhanced.forward_eps).toLocaleString("ko-KR")}`:fmtUSD(dEnhanced.forward_eps)):null}/>
                   </div>
                 )}
                 {mhYears.length > 0 && (
@@ -1032,8 +1053,8 @@ export default function StockDetail() {
                     <StatCell label="당좌비율"  value={dEnhanced.quick_ratio!=null?`${(dEnhanced.quick_ratio*100).toFixed(0)}%`:null}/>
                     <StatCell label="배당수익률" value={d.dividend_yield!=null?`${d.dividend_yield.toFixed(2)}%`:null} color="text-accent-green"/>
                     <StatCell label="배당성향"  value={d.payout_ratio!=null?`${d.payout_ratio.toFixed(1)}%`:null}/>
-                    <StatCell label="베타"      value={d.beta!=null?d.beta.toFixed(2):null}
-                      color={d.beta!=null?(d.beta>1.5?"text-accent-red":d.beta<0.5?"text-accent-green":"text-text-primary"):undefined}/>
+                    <StatCell label="베타"      value={dEnhanced.beta!=null?dEnhanced.beta.toFixed(2):null}
+                      color={dEnhanced.beta!=null?(dEnhanced.beta>1.5?"text-accent-red":dEnhanced.beta<0.5?"text-accent-green":"text-text-primary"):undefined}/>
                   </div>
                 )}
                 {/* 차트 */}
@@ -1292,6 +1313,43 @@ export default function StockDetail() {
                     </div>
                   )}
                 </div>
+
+                {/* ── 애널리스트 추정치 ── */}
+                {(() => {
+                  const fcstRows: any[] = (forecasts ?? []).filter((r: any) => r.type === "forecast");
+                  if (!fcstRows.length) return null;
+                  return (
+                    <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+                      <div className="px-4 py-3 border-b border-border">
+                        <span className="text-sm font-semibold text-text-primary">애널리스트 추정치</span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-border text-text-muted">
+                              <th className="text-left px-4 py-2 font-medium">기간</th>
+                              <th className="text-right px-4 py-2 font-medium text-accent-blue">매출 추정</th>
+                              <th className="text-right px-4 py-2 font-medium text-accent-green">EPS 추정</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {fcstRows.map((r: any, i: number) => (
+                              <tr key={i} className="border-b border-border/30 hover:bg-bg-hover transition-colors">
+                                <td className="px-4 py-2.5 font-mono text-accent-yellow/80 font-semibold">{r.period?.slice(0,7) ?? "—"}E</td>
+                                <td className="px-4 py-2.5 text-right font-mono text-accent-blue">
+                                  {r.revenue_est != null ? (isKR ? fmtKRW(r.revenue_est) : fmtUSD(r.revenue_est)) : "—"}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono text-accent-green">
+                                  {r.eps_est != null ? (isKR ? `₩${Math.round(r.eps_est).toLocaleString("ko-KR")}` : `$${r.eps_est.toFixed(2)}`) : "—"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* ── 최근 애널리스트 리포트 ── */}
                 {reports.length > 0 && (

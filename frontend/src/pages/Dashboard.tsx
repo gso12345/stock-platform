@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, memo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { dashboardApi } from "@/api/stocks";
+import { dashboardApi, stocksApi } from "@/api/stocks";
 import { Card, ChangeBadge, LoadingSpinner, formatNumber } from "@/components/ui";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
@@ -81,6 +81,21 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
   items: any[]; isKR: boolean; onSymbolClick: (sym: string, mkt: string) => void; livePrices: Record<string, any>;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const qc = useQueryClient();
+  const mkt = isKR ? "KR" : "US";
+
+  const prefetchStock = useCallback((sym: string) => {
+    qc.prefetchQuery({
+      queryKey: ["stock-detail", mkt, sym],
+      queryFn: () => stocksApi.getDetail(mkt as any, sym),
+      staleTime: 15_000,
+    });
+    qc.prefetchQuery({
+      queryKey: ["stock-ohlcv", mkt, sym, "1d", "max"],
+      queryFn: () => stocksApi.getOHLCV(mkt as any, sym, "max", "1d"),
+      staleTime: 300_000,
+    });
+  }, [qc, mkt]);
 
   if (!items?.length) return <div className="py-8 text-center text-text-muted text-sm">데이터 로딩 중...</div>;
 
@@ -111,6 +126,7 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
               return (
                 <tr key={item.symbol}
                   className="border-b border-border/30 hover:bg-bg-hover cursor-pointer transition-colors"
+                  onMouseEnter={() => prefetchStock(item.symbol)}
                   onClick={() => onSymbolClick(item.symbol, mkt)}
                 >
                   <td className="py-2.5 pl-3 text-text-muted font-mono font-bold">{item.rank}</td>
@@ -212,8 +228,8 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["dashboard-kr", category],
     queryFn: () => dashboardApi.getKR(category),
-    staleTime: 15_000,
-    refetchInterval: 15_000,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
     refetchIntervalInBackground: false,
   });
 
@@ -222,13 +238,6 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     queryFn: () => dashboardApi.getNews("kr"),
     staleTime: 300_000,
     refetchInterval: 300_000,
-  });
-
-  const { data: extrasData } = useQuery({
-    queryKey: ["dashboard-kr-extras"],
-    queryFn: () => dashboardApi.getKRExtras(),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
   });
 
   const KR_INDEX_KEYS = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"] as const;
@@ -267,29 +276,23 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
         </div>
       </section>
 
-      {/* 환율 / 금리 — extrasData 먼저(빠름), 없으면 main data 폴백 */}
+      {/* 환율 / 금리 */}
       <section>
         <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리</h2>
         <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
-          {(() => {
-            const exchange = extrasData?.exchange ?? data?.exchange;
-            const rates    = extrasData?.rates    ?? data?.rates ?? [];
-            return (<>
-              {exchange && (
-                <ExtraCard
-                  name="원/달러"
-                  value={exchange.value ?? exchange.usdkrw ?? 0}
-                  change={exchange.change ?? 0}
-                  change_rate={exchange.change_rate ?? 0}
-                  unit="원"
-                  _demo={exchange._demo}
-                />
-              )}
-              {rates.map((r: any) => (
-                <ExtraCard key={r.name} {...r} />
-              ))}
-            </>);
-          })()}
+          {data?.exchange && (
+            <ExtraCard
+              name="원/달러"
+              value={data.exchange.value ?? data.exchange.usdkrw ?? 0}
+              change={data.exchange.change ?? 0}
+              change_rate={data.exchange.change_rate ?? 0}
+              unit="원"
+              _demo={data.exchange._demo}
+            />
+          )}
+          {(data?.rates ?? []).map((r: any) => (
+            <ExtraCard key={r.name} {...r} />
+          ))}
         </div>
       </section>
 
@@ -338,8 +341,8 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["dashboard-us", category],
     queryFn: () => dashboardApi.getUS(category),
-    staleTime: 15_000,
-    refetchInterval: 15_000,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
     refetchIntervalInBackground: false,
   });
 
