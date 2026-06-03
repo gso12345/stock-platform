@@ -34,19 +34,28 @@ async def lifespan(application: FastAPI):
         tables = inspector.get_table_names()
 
         _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users"}
+        _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 
-        def _add_col_if_missing(table: str, col: str, col_def: str):
+        def _add_col_if_missing(table: str, col: str, col_def: str, sqlite_def: str = ""):
             if table not in _ALLOWED_MIGRATE_TABLES:
                 return
-            if table in tables:
+            if table not in tables:
+                return
+            try:
                 existing = [c["name"] for c in inspector.get_columns(table)]
                 if col not in existing:
+                    effective_def = (sqlite_def or col_def) if _is_sqlite else col_def
                     with engine.connect() as conn:
-                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {effective_def}"))
                         conn.commit()
+            except Exception as me:
+                logging.getLogger(__name__).warning(f"컬럼 추가 실패 {table}.{col}: {me}")
 
-        _add_col_if_missing("watchlists",  "user_id", "INTEGER REFERENCES users(id)")
-        _add_col_if_missing("strategies",  "user_id", "INTEGER REFERENCES users(id)")
+        _add_col_if_missing("watchlists",  "user_id",   "INTEGER REFERENCES users(id)",  "INTEGER")
+        _add_col_if_missing("strategies",  "user_id",   "INTEGER REFERENCES users(id)",  "INTEGER")
+        _add_col_if_missing("watchlist_items", "folder_id", "INTEGER REFERENCES watchlist_folders(id)", "INTEGER")
+        _add_col_if_missing("watchlist_items", "position",  "INTEGER DEFAULT 0")
+        _add_col_if_missing("watchlist_items", "memo",      "VARCHAR(200)")
 
         if "users" in tables and not settings.DATABASE_URL.startswith("sqlite"):
             with engine.connect() as conn:

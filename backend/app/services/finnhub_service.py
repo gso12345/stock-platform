@@ -91,16 +91,39 @@ class FinnhubService:
             return c
         d = self._get("/stock/metric", {"symbol": symbol, "metric": "all"})
         m = d.get("metric", {})
+        def _sf(v):
+            if v is None: return None
+            try:
+                import math
+                f = float(v)
+                return None if (math.isnan(f) or math.isinf(f) or f == 0) else f
+            except Exception:
+                return None
+        mc_millions = _sf(m.get("marketCapitalization"))
+        ev_millions = _sf(m.get("enterpriseValue"))
         result = {
-            "per":         m.get("peBasicExclExtraTTM"),
-            "pbr":         m.get("pbAnnual"),
-            "roe":         m.get("roeRfy"),
-            "eps":         m.get("epsBasicExclExtraItemsTTM"),
-            "debt_ratio":  m.get("totalDebt/totalEquityAnnual"),
-            "week52_high": m.get("52WeekHigh"),
-            "week52_low":  m.get("52WeekLow"),
-            "dividend_yield": m.get("dividendYieldIndicatedAnnual"),
-            "beta":        m.get("beta"),
+            "per":            _sf(m.get("peBasicExclExtraTTM") or m.get("peTTM")),
+            "forward_per":    _sf(m.get("forwardPE")),
+            "peg":            _sf(m.get("pegNormalizedAnnual") or m.get("peg5YExpected")),
+            "pbr":            _sf(m.get("pbAnnual") or m.get("pbQuarterly")),
+            "psr":            _sf(m.get("psAnnual") or m.get("psTTM")),
+            "ev_ebitda":      _sf(m.get("evEbitdaAnnual") or m.get("evEbitdaTTM")),
+            "ev_revenue":     _sf(m.get("evRevenueAnnual") or m.get("evRevenueTTM")),
+            "market_cap":     int(mc_millions * 1_000_000) if mc_millions else None,
+            "enterprise_value": int(ev_millions * 1_000_000) if ev_millions else None,
+            "roe":            _sf(m.get("roeTTM") or m.get("roeRfy")),
+            "roa":            _sf(m.get("roaTTM") or m.get("roaRfy")),
+            "op_margin":      _sf(m.get("operatingMarginAnnual") or m.get("operatingMarginTTM")),
+            "net_margin":     _sf(m.get("netProfitMarginAnnual") or m.get("netProfitMarginTTM")),
+            "gross_margin":   _sf(m.get("grossMarginAnnual") or m.get("grossMarginTTM")),
+            "eps":            _sf(m.get("epsBasicExclExtraItemsTTM") or m.get("epsTTM")),
+            "current_ratio":  _sf(m.get("currentRatioAnnual") or m.get("currentRatioQuarterly")),
+            "quick_ratio":    _sf(m.get("quickRatioAnnual") or m.get("quickRatioQuarterly")),
+            "debt_ratio":     _sf(m.get("totalDebt/totalEquityAnnual") or m.get("longTermDebt/equityAnnual")),
+            "week52_high":    _sf(m.get("52WeekHigh")),
+            "week52_low":     _sf(m.get("52WeekLow")),
+            "dividend_yield": _sf(m.get("dividendYieldIndicatedAnnual")),
+            "beta":           _sf(m.get("beta")),
         }
         cache.set(ck, result, 3600)
         return result
@@ -158,8 +181,20 @@ class FinnhubService:
             "market_cap":     int(mc_raw * 1_000_000),  # 백만 → 실제값
             "per":            metrics.get("per"),
             "pbr":            metrics.get("pbr"),
+            "psr":            metrics.get("psr"),
+            "forward_per":    metrics.get("forward_per"),
+            "peg":            metrics.get("peg"),
+            "ev_ebitda":      metrics.get("ev_ebitda"),
+            "ev_revenue":     metrics.get("ev_revenue"),
+            "enterprise_value": metrics.get("enterprise_value"),
             "roe":            metrics.get("roe"),
+            "roa":            metrics.get("roa"),
+            "op_margin":      metrics.get("op_margin"),
+            "net_margin":     metrics.get("net_margin"),
+            "gross_margin":   metrics.get("gross_margin"),
             "eps":            metrics.get("eps"),
+            "current_ratio":  metrics.get("current_ratio"),
+            "quick_ratio":    metrics.get("quick_ratio"),
             "debt_ratio":     metrics.get("debt_ratio"),
             "week52_high":    metrics.get("week52_high"),
             "week52_low":     metrics.get("week52_low"),
