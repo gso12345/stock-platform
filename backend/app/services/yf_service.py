@@ -300,7 +300,7 @@ class YFinanceService:
         cache.set(ck, result, PRICE_TTL)
         return result
 
-    def _resample_nday(self, hist, n: int) -> list:
+    def _resample_nday(self, hist, n: int, is_kr: bool = False) -> list:
         """1일봉 DataFrame을 N일봉으로 리샘플링"""
         import pandas as pd
         rule = f"{n}B"  # N 영업일 단위 (Business Day)
@@ -311,13 +311,14 @@ class YFinanceService:
             "Close":  "last",
             "Volume": "sum",
         }).dropna(subset=["Close"])
+        def _rp(v): return int(round(float(v))) if is_kr else round(float(v), 2)
         return [
             {
                 "date":   str(idx.date()),
-                "open":   round(float(r["Open"]),   2),
-                "high":   round(float(r["High"]),   2),
-                "low":    round(float(r["Low"]),    2),
-                "close":  round(float(r["Close"]),  2),
+                "open":   _rp(r["Open"]),
+                "high":   _rp(r["High"]),
+                "low":    _rp(r["Low"]),
+                "close":  _rp(r["Close"]),
                 "volume": int(r["Volume"]),
             }
             for idx, r in rs.iterrows()
@@ -333,13 +334,14 @@ class YFinanceService:
 
         # N일봉 (3d/10d/30d/60d) — 1d 데이터 fetch 후 리샘플링
         NDAY_MAP = {"3d": 3, "10d": 10, "30d": 30, "60d": 60}
+        is_kr = market == "KR"
         if interval in NDAY_MAP:
             n = NDAY_MAP[interval]
             hist = yf.Ticker(symbol).history(period="max", interval="1d")
             hist = hist.dropna(subset=["Close"])
             if hist.index.tz is not None:
-                hist.index = hist.index.tz_convert("Asia/Seoul").tz_localize(None) if market == "KR" else hist.index.tz_localize(None)
-            result = self._resample_nday(hist, n)
+                hist.index = hist.index.tz_convert("Asia/Seoul").tz_localize(None) if is_kr else hist.index.tz_localize(None)
+            result = self._resample_nday(hist, n, is_kr=is_kr)
             cache.set(ck, result, OHLCV_TTL)
             return result
 
@@ -350,15 +352,16 @@ class YFinanceService:
         hist = hist.dropna(subset=["Close"])
         # 타임존 제거
         if hist.index.tz is not None:
-            hist.index = hist.index.tz_convert("Asia/Seoul").tz_localize(None) if market == "KR" else hist.index.tz_localize(None)
+            hist.index = hist.index.tz_convert("Asia/Seoul").tz_localize(None) if is_kr else hist.index.tz_localize(None)
+        def _rp(v): return int(round(float(v))) if is_kr else round(float(v), 2)
         result = [
             {
                 # 분봉은 datetime, 일봉 이상은 date만
                 "date": str(idx)[:19] if is_intraday else str(idx.date()),
-                "open": round(float(row["Open"]), 2),
-                "high": round(float(row["High"]), 2),
-                "low": round(float(row["Low"]), 2),
-                "close": round(float(row["Close"]), 2),
+                "open":   _rp(row["Open"]),
+                "high":   _rp(row["High"]),
+                "low":    _rp(row["Low"]),
+                "close":  _rp(row["Close"]),
                 "volume": int(row["Volume"]),
             }
             for idx, row in hist.iterrows()
