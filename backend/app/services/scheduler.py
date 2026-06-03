@@ -40,12 +40,29 @@ POPULAR_KR_CODES = [
 
 async def refresh_kr_indices():
     """네이버 금융으로 국내 지수 갱신"""
+    from app.services.yf_service import yf_service
     naver_data = await fetch_naver_indices()
     ok = 0
     for name in KR_INDICES:
         if name in naver_data:
             cache.set(f"idx:{name}", naver_data[name], 30)
             ok += 1
+
+    # Naver에서 가져오지 못한 지수는 yfinance로 보완
+    failed = [n for n in KR_INDICES if n not in naver_data]
+    for name in failed:
+        try:
+            loop = asyncio.get_running_loop()
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, yf_service.get_market_index, name),
+                timeout=8,
+            )
+            if result and result.get("value", 0) > 0:
+                cache.set(f"idx:{name}", result, 60)
+                ok += 1
+        except Exception:
+            pass
+
     # KIS API 보강
     if settings.KIS_APP_KEY:
         from app.services.kis_service import kis_service

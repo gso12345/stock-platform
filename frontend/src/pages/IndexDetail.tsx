@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { dashboardApi } from "@/api/stocks";
 import { Card, ChangeBadge } from "@/components/ui";
 import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw, Maximize2, X, ChevronDown } from "lucide-react";
@@ -42,6 +42,7 @@ const ROWS_PER_MONTH = 22; // 한 달 평균 거래일 수
 export default function IndexDetail() {
   const { name }  = useParams<{ name: string }>();
   const navigate  = useNavigate();
+  const qc        = useQueryClient();
   const [candleType, setCandleType] = useState("1d");
   const [mainTab, setMainTab] = useState<"chart" | "daily">("chart");
   const [dailyMonths, setDailyMonths] = useState(1);
@@ -68,6 +69,14 @@ export default function IndexDetail() {
     enabled: !!indexName,
     staleTime: 30_000,
     refetchInterval: 30_000,
+    placeholderData: () => {
+      // 대시보드 캐시에서 지수 기본 정보 즉시 활용
+      const kr = qc.getQueryData<any>(["dashboard-kr", "시가총액"]);
+      const idx = kr?.indices?.find((r: any) => r.index === indexName);
+      if (idx) return idx;
+      const us = qc.getQueryData<any>(["dashboard-us", "시가총액"]);
+      return us?.indices?.find((r: any) => r.index === indexName);
+    },
   });
 
   // 차트 전용: max 기간, 차트 탭이 활성화될 때만 fetch

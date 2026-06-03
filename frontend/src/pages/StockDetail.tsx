@@ -313,17 +313,6 @@ export default function StockDetail() {
     : "—";
   const isUp = (d?.change_rate ?? 0) >= 0;
 
-  if (loadingDetail && !isPlaceholderData) {
-    return (
-      <div className="flex flex-col gap-4 animate-pulse">
-        <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-bg-elevated"/><div className="h-8 w-40 rounded-lg bg-bg-elevated"/></div>
-        <div className="h-28 rounded-xl bg-bg-elevated"/>
-        <div className="grid grid-cols-6 gap-2">{Array(6).fill(0).map((_,i)=><div key={i} className="h-16 rounded-lg bg-bg-elevated"/>)}</div>
-        <div className="h-[500px] rounded-xl bg-bg-elevated"/>
-      </div>
-    );
-  }
-
   if (detailError && !detail) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
@@ -380,7 +369,7 @@ export default function StockDetail() {
       </div>
 
       {/* 통합 지표 패널 */}
-      {d && (
+      {d ? (
         <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
           {/* 현재가 + 등락 */}
           <div className="px-4 py-3 flex items-center gap-4 flex-wrap border-b border-border">
@@ -492,7 +481,22 @@ export default function StockDetail() {
             );
           })()}
         </div>
-      )}
+      ) : loadingDetail ? (
+        <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+          <div className="px-4 py-3 flex items-center gap-4 flex-wrap border-b border-border">
+            <span className="text-3xl font-mono font-bold text-text-muted">—</span>
+            <div className="ml-auto w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5">
+            {["시가","고가","저가","전일종가","거래량","거래대금","시가총액","52주 고가","52주 저가","배당수익률"].map((label) => (
+              <div key={label} className="px-4 py-3 flex flex-col gap-1 border-r border-border/40 border-b border-border/40">
+                <span className="text-[10px] font-medium text-text-muted whitespace-nowrap">{label}</span>
+                <span className="text-sm font-mono font-semibold text-text-muted">—</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* 탭 네비게이션 */}
       <div className="flex flex-col gap-2">
@@ -817,9 +821,9 @@ export default function StockDetail() {
           return fmtUSD(v);
         };
 
-        // 반응형 차트 높이
-        const chartH   = isMobile ? 160 : 230;
-        const chartHSm = isMobile ? 140 : 200;
+        // 반응형 차트 높이 (모바일 compact, PC 표준)
+        const chartH   = isMobile ? 160 : 210;
+        const chartHSm = isMobile ? 145 : 185;
 
         // 공통 차트 옵션
         const chartProps = {

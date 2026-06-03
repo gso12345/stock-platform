@@ -280,6 +280,7 @@ const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
 
 /* ── 국내 탭 ─────────────────────────────────────────────── */
 function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
+  const qc = useQueryClient();
   const { data, refetch } = useQuery({
     queryKey: ["dashboard-kr", "시가총액"],
     queryFn: () => dashboardApi.getKR("시가총액"),
@@ -287,6 +288,12 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
   });
+
+  const prefetchIndex = useCallback((key: string) => {
+    if (qc.getQueryData(["index-detail", key])) return;
+    qc.prefetchQuery({ queryKey: ["index-detail", key], queryFn: () => dashboardApi.getIndexDetail(key), staleTime: 30_000 });
+    qc.prefetchQuery({ queryKey: ["index-ohlcv", key, "max", "1d"], queryFn: () => dashboardApi.getIndexOHLCV(key, "max", "1d"), staleTime: 3_600_000 });
+  }, [qc]);
 
   const { data: newsData } = useQuery({
     queryKey: ["dashboard-news-kr"],
@@ -320,7 +327,11 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             ? KR_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
             : KR_INDEX_KEYS.map((key) => {
                 const idx = getIdx(key);
-                return <div key={key} className="flex-shrink-0"><IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} /></div>;
+                return (
+                  <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}>
+                    <IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />
+                  </div>
+                );
               })
           }
         </div>
@@ -363,6 +374,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
 
 /* ── 해외 탭 ─────────────────────────────────────────────── */
 function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
+  const qc = useQueryClient();
   const { data, refetch } = useQuery({
     queryKey: ["dashboard-us", "시가총액"],
     queryFn: () => dashboardApi.getUS("시가총액"),
@@ -389,6 +401,11 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const US_DISPLAY: Record<string, string> = {
     SP500:"S&P 500", NASDAQ:"나스닥", DOW:"다우 산업", SOX:"필라델피아 반도체", RUSSELL:"러셀 2000"
   };
+  const prefetchIndex = useCallback((key: string) => {
+    if (qc.getQueryData(["index-detail", key])) return;
+    qc.prefetchQuery({ queryKey: ["index-detail", key], queryFn: () => dashboardApi.getIndexDetail(key), staleTime: 30_000 });
+    qc.prefetchQuery({ queryKey: ["index-ohlcv", key, "max", "1d"], queryFn: () => dashboardApi.getIndexOHLCV(key, "max", "1d"), staleTime: 3_600_000 });
+  }, [qc]);
   const getIdx = (key: string) => {
     const live    = liveIndices?.us?.find((r: any) => r.index === key);
     const fetched = data?.indices?.find((r: any) => r.index === key);
@@ -422,7 +439,11 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             ? US_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
             : US_INDEX_KEYS.map((key) => {
                 const idx = getIdx(key);
-                return <div key={key} className="flex-shrink-0"><IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} /></div>;
+                return (
+                  <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}>
+                    <IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />
+                  </div>
+                );
               })
           }
         </div>
