@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { dashboardApi } from "@/api/stocks";
 import { Card, ChangeBadge } from "@/components/ui";
-import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw, Maximize2, X } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw, Maximize2, X, ChevronDown } from "lucide-react";
 import StockChart from "@/components/chart/StockChart";
 
 
@@ -26,22 +26,41 @@ const INDEX_INFO: Record<string, { region: string; desc: string; isKR: boolean }
   RUSSELL:   { region:"해외", desc:"미국 소형주 2000개 기업 러셀 2000 지수",       isKR:false },
 };
 
+// 개월 수 → yfinance period 매핑 (지원되는 최소 period 선택)
+function monthsToPeriod(months: number): string {
+  if (months <= 1)  return "1mo";
+  if (months <= 3)  return "3mo";
+  if (months <= 6)  return "6mo";
+  if (months <= 12) return "1y";
+  if (months <= 24) return "2y";
+  if (months <= 60) return "5y";
+  return "max";
+}
+
+const ROWS_PER_MONTH = 22; // 한 달 평균 거래일 수
+
 export default function IndexDetail() {
   const { name }  = useParams<{ name: string }>();
   const navigate  = useNavigate();
   const [candleType, setCandleType] = useState("1d");
   const [mainTab, setMainTab] = useState<"chart" | "daily">("chart");
-  const period = "max";
+  const [dailyMonths, setDailyMonths] = useState(1);
+  const [fullscreen, setFullscreen] = useState(false);
 
   const indexName = name?.toUpperCase() ?? "";
   const meta      = INDEX_INFO[indexName] ?? { region:"—", desc:"", isKR:false };
-  const [fullscreen, setFullscreen] = useState(false);
+
+  // 지수 변경 시 일별 개월 초기화
+  useEffect(() => { setDailyMonths(1); }, [indexName]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // 현재 dailyMonths에 필요한 yfinance period
+  const dailyPeriod = useMemo(() => monthsToPeriod(dailyMonths), [dailyMonths]);
 
   const { data: info, refetch: refetchInfo } = useQuery({
     queryKey: ["index-detail", indexName],
@@ -51,12 +70,30 @@ export default function IndexDetail() {
     refetchInterval: 30_000,
   });
 
+  // 차트 전용: max 기간, 차트 탭이 활성화될 때만 fetch
   const { data: ohlcv, isLoading: loadingChart, refetch: refetchChart } = useQuery({
-    queryKey: ["index-ohlcv", indexName, period, candleType],
-    queryFn: () => dashboardApi.getIndexOHLCV(indexName, period, candleType),
-    enabled: !!indexName,
+    queryKey: ["index-ohlcv", indexName, "max", candleType],
+    queryFn: () => dashboardApi.getIndexOHLCV(indexName, "max", candleType),
+    enabled: !!indexName && mainTab === "chart",
     staleTime: 300_000,
   });
+
+  // 일별 전용: 개월 수에 따라 점진적으로 fetch (탭 전환 시에만 fetch)
+  const { data: dailyRaw, isLoading: loadingDaily } = useQuery({
+    queryKey: ["index-daily", indexName, dailyPeriod],
+    queryFn: () => dashboardApi.getIndexOHLCV(indexName, dailyPeriod, "1d"),
+    enabled: !!indexName && mainTab === "daily",
+    staleTime: 300_000,
+  });
+
+  // 최신순으로 뒤집어 dailyMonths * 22행만 표시
+  const dailyRows = useMemo(() => {
+    if (!dailyRaw?.length) return [];
+    return [...dailyRaw].reverse().slice(0, dailyMonths * ROWS_PER_MONTH);
+  }, [dailyRaw, dailyMonths]);
+
+  // 더보기 가능 여부: 표시 중인 행이 가져온 데이터보다 적거나, 아직 전체 기간이 아닌 경우
+  const canLoadMore = !!dailyRaw && (dailyRows.length < dailyRaw.length || dailyPeriod !== "max");
 
   const isUp = (info?.change_rate ?? 0) >= 0;
 
@@ -97,7 +134,7 @@ export default function IndexDetail() {
               {(info as any)._demo && <span className="text-2xs px-1 py-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
             </div>
           </div>
-          <button onClick={()=>{refetchInfo();refetchChart();}} className="ml-auto p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+          <button onClick={()=>{refetchInfo();if(mainTab==="chart")refetchChart();}} className="ml-auto p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
             <RefreshCw size={14}/>
           </button>
         </Card>
@@ -166,55 +203,96 @@ export default function IndexDetail() {
       {mainTab==="daily" && (
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <span className="text-sm font-semibold text-text-primary">일별 시세</span>
-            {loadingChart && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-text-primary">일별 시세</span>
+              {dailyRows.length > 0 && (
+                <span className="text-2xs text-text-muted bg-bg-elevated px-1.5 py-0.5 rounded">
+                  최근 {dailyMonths}개월
+                </span>
+              )}
+            </div>
+            {loadingDaily && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
           </div>
-          {!ohlcv?.length ? (
+
+          {loadingDaily && !dailyRaw ? (
+            /* 초기 로딩 스켈레톤 */
+            <div className="animate-pulse">
+              {Array.from({ length: 10 }, (_, i) => (
+                <div key={i} className="flex gap-4 px-4 py-2.5 border-b border-border/30">
+                  <div className="h-3 bg-bg-elevated rounded w-20" />
+                  <div className="h-3 bg-bg-elevated rounded w-24 ml-auto" />
+                  <div className="h-3 bg-bg-elevated rounded w-14" />
+                  <div className="h-3 bg-bg-elevated rounded w-14" />
+                  <div className="h-3 bg-bg-elevated rounded w-14" />
+                </div>
+              ))}
+            </div>
+          ) : !dailyRows.length ? (
             <div className="py-12 text-center text-text-muted text-sm">데이터 없음</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-text-muted border-b border-border bg-bg-secondary">
-                    <th className="text-left px-4 py-2.5 font-medium whitespace-nowrap sticky left-0 bg-bg-secondary">날짜</th>
-                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">종가(포인트)</th>
-                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">등락률</th>
-                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">고가</th>
-                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap pr-4">저가</th>
-                    <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap pr-4">거래량</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...(ohlcv as any[])].reverse().map((bar: any, i: number, arr: any[]) => {
-                    const prevClose = arr[i + 1]?.close;
-                    const chgRate = prevClose ? ((bar.close - prevClose) / prevClose * 100) : 0;
-                    const isPos = chgRate >= 0;
-                    const fmtPt = (v: number | null | undefined) =>
-                      v == null ? "—" : v.toLocaleString(meta.isKR ? "ko-KR" : "en-US", { maximumFractionDigits: 2 });
-                    return (
-                      <tr key={bar.date} className="border-b border-border/30 hover:bg-bg-hover">
-                        <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap sticky left-0 bg-bg-card">{bar.date?.slice(0,10)}</td>
-                        <td className="px-3 py-2.5 text-right font-mono font-semibold text-text-primary whitespace-nowrap">
-                          {fmtPt(bar.close)}
-                        </td>
-                        <td className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${prevClose ? (isPos ? "text-accent-green" : "text-accent-red") : "text-text-muted"}`}>
-                          {prevClose ? `${isPos?"+":""}${chgRate.toFixed(2)}%` : "—"}
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-mono text-accent-red/80 whitespace-nowrap">
-                          {fmtPt(bar.high)}
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-mono text-accent-blue/80 whitespace-nowrap pr-4">
-                          {fmtPt(bar.low)}
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-mono text-text-muted whitespace-nowrap pr-4">
-                          {bar.volume ? (bar.volume >= 1e8 ? `${(bar.volume/1e8).toFixed(1)}억` : bar.volume >= 1e4 ? `${(bar.volume/1e4).toFixed(1)}만` : bar.volume.toLocaleString()) : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-text-muted border-b border-border bg-bg-secondary">
+                      <th className="text-left px-4 py-2.5 font-medium whitespace-nowrap sticky left-0 bg-bg-secondary">날짜</th>
+                      <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">종가(포인트)</th>
+                      <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">등락률</th>
+                      <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">고가</th>
+                      <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap pr-4">저가</th>
+                      <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap pr-4">거래량</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dailyRows.map((bar: any, i: number) => {
+                      const prevClose = dailyRows[i + 1]?.close;
+                      const chgRate = prevClose ? ((bar.close - prevClose) / prevClose * 100) : 0;
+                      const isPos = chgRate >= 0;
+                      const fmtPt = (v: number | null | undefined) =>
+                        v == null ? "—" : v.toLocaleString(meta.isKR ? "ko-KR" : "en-US", { maximumFractionDigits: 2 });
+                      return (
+                        <tr key={bar.date} className="border-b border-border/30 hover:bg-bg-hover">
+                          <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap sticky left-0 bg-bg-card">{bar.date?.slice(0,10)}</td>
+                          <td className="px-3 py-2.5 text-right font-mono font-semibold text-text-primary whitespace-nowrap">
+                            {fmtPt(bar.close)}
+                          </td>
+                          <td className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${prevClose ? (isPos ? "text-accent-green" : "text-accent-red") : "text-text-muted"}`}>
+                            {prevClose ? `${isPos?"+":""}${chgRate.toFixed(2)}%` : "—"}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-accent-red/80 whitespace-nowrap">
+                            {fmtPt(bar.high)}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-accent-blue/80 whitespace-nowrap pr-4">
+                            {fmtPt(bar.low)}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-text-muted whitespace-nowrap pr-4">
+                            {bar.volume ? (bar.volume >= 1e8 ? `${(bar.volume/1e8).toFixed(1)}억` : bar.volume >= 1e4 ? `${(bar.volume/1e4).toFixed(1)}만` : bar.volume.toLocaleString()) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 더보기 / 로딩 버튼 */}
+              {canLoadMore ? (
+                <button
+                  onClick={() => setDailyMonths(prev => prev + 1)}
+                  disabled={loadingDaily}
+                  className="w-full py-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border disabled:opacity-50"
+                >
+                  {loadingDaily
+                    ? <><div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" /><span>불러오는 중...</span></>
+                    : <><ChevronDown size={13} /><span>1개월 더 보기</span></>
+                  }
+                </button>
+              ) : (
+                <div className="py-2.5 text-center text-2xs text-text-dim border-t border-border">
+                  전체 {dailyRows.length}일 표시 중
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
