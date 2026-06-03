@@ -25,16 +25,16 @@ const queryClient = new QueryClient({
   },
 });
 
-// 대시보드 데이터를 컴포넌트 마운트 전에 미리 요청 (초기 로딩 단축)
+// 대시보드 핵심 데이터만 선제 요청 — 뉴스 등 부수 데이터는 탭 진입 시 로드
 queryClient.prefetchQuery({
   queryKey: ["dashboard-kr", "시가총액"],
   queryFn: () => dashboardApi.getKR("시가총액"),
   staleTime: 30_000,
 });
 queryClient.prefetchQuery({
-  queryKey: ["dashboard-news-kr"],
-  queryFn: () => dashboardApi.getNews("kr"),
-  staleTime: 300_000,
+  queryKey: ["dashboard-us", "시가총액"],
+  queryFn: () => dashboardApi.getUS("시가총액"),
+  staleTime: 30_000,
 });
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

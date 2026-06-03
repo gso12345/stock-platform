@@ -121,16 +121,9 @@ export default function StockDetail() {
 
   const fmt = (v: number | null | undefined) => isKR ? fmtKRW(v) : fmtUSD(v);
 
-  // 재무/뉴스/일별 prefetch 함수 (차트 완료 후 또는 탭 직접 클릭 시 공통 사용)
-  const prefetchSecondaryData = useCallback(() => {
-    qc.prefetchQuery({ queryKey: ["stock-financials",   m, sym], queryFn: () => financialsApi.get(m, sym),           staleTime: 3_600_000 });
-    qc.prefetchQuery({ queryKey: ["stock-fundamentals", m, sym], queryFn: () => stocksApi.getFundamentals(m, sym),   staleTime: 3_600_000 });
-    qc.prefetchQuery({ queryKey: ["metrics-history",    m, sym], queryFn: () => stocksApi.getMetricsHistory(m, sym), staleTime: 3_600_000 });
-    qc.prefetchQuery({ queryKey: ["analyst",            m, sym], queryFn: () => stocksApi.getAnalyst(m, sym),        staleTime: 3_600_000 });
-    qc.prefetchQuery({ queryKey: ["forecasts",          m, sym], queryFn: () => stocksApi.getForecasts(m, sym),      staleTime: 3_600_000 });
-    qc.prefetchQuery({ queryKey: ["stock-news",         m, sym], queryFn: () => stocksApi.getNews(m, sym),           staleTime: 300_000   });
-    qc.prefetchQuery({ queryKey: ["earnings",           m, sym], queryFn: () => stocksApi.getEarnings(m, sym),       staleTime: 3_600_000 });
-    qc.prefetchQuery({ queryKey: ["stock-ohlcv", m, sym, "1d", "1y"], queryFn: () => stocksApi.getOHLCV(m, sym, "1y", "1d"), staleTime: 300_000 });
+  // 일별 탭 OHLCV 선제 prefetch — 차트 로딩 완료 후 백그라운드로 실행
+  const prefetchDailyOhlcv = useCallback(() => {
+    qc.prefetchQuery({ queryKey: ["stock-ohlcv", m, sym, "1d", "1mo"], queryFn: () => stocksApi.getOHLCV(m, sym, "1mo", "1d"), staleTime: 300_000 });
   }, [m, sym, qc]);
 
   const { data: detail, isLoading: loadingDetail, isPlaceholderData, error: detailError, refetch: refetchDetail, dataUpdatedAt } = useQuery({
@@ -162,11 +155,11 @@ export default function StockDetail() {
     refetchInterval: isIntraday ? 15_000 : false,
   });
 
-  // 차트 로딩 완료 → 재무·뉴스·일별 자동 prefetch 시작
+  // 종목 진입 시 일별탭 OHLCV만 선제 prefetch (나머지는 탭 진입 시 자동 로드)
   useEffect(() => {
-    if (!sym || fetchingChart || !ohlcv?.length) return;
-    prefetchSecondaryData();
-  }, [fetchingChart, sym, prefetchSecondaryData]);
+    if (!sym) return;
+    prefetchDailyOhlcv();
+  }, [sym, prefetchDailyOhlcv]);
 
   // 일별 탭 — 기본 1개월, 더보기 클릭마다 1달씩 추가
   const [dailyMonths, setDailyMonths] = useState(1);

@@ -1219,59 +1219,105 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
     # KR 종목: Naver 컨센서스 목표주가 + 애널리스트 의견 직접 조회
     async def _fetch_kr_analyst() -> dict:
         """네이버 모바일 컨센서스 API에서 목표주가·추천의견 조회"""
-        try:
-            import httpx, math
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/80.0 Mobile Safari/537.36",
-                "Referer": "https://m.stock.naver.com/",
-            }
-            r = await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(
-                    None,
-                    lambda: __import__("httpx").get(
-                        f"https://m.stock.naver.com/api/stock/{code6}/consensusOpinion",
-                        headers=headers, timeout=8
-                    )
-                ), timeout=10
-            )
-            if r.status_code != 200:
-                return {}
-            d = r.json()
+        import httpx, math
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/80.0 Mobile Safari/537.36",
+            "Referer": "https://m.stock.naver.com/",
+        }
+
+        def _sf(v):
+            try:
+                f = float(str(v).replace(",",""))
+                return None if (math.isnan(f) or math.isinf(f)) else f
+            except Exception:
+                return None
+
+        def _parse_opinion(d: dict) -> dict:
             out: dict = {}
-
-            def _sf(v):
-                try:
-                    f = float(str(v).replace(",",""))
-                    return None if (math.isnan(f) or math.isinf(f)) else f
-                except Exception:
-                    return None
-
-            # 목표주가
-            tp = d.get("targetPrice") or {}
-            if isinstance(tp, dict) and tp.get("mean"):
+            # 목표주가 — 여러 가지 필드 이름 시도
+            tp = d.get("targetPrice") or d.get("target_price") or {}
+            if isinstance(tp, dict):
+                mean = _sf(tp.get("mean") or tp.get("avg") or tp.get("average"))
+                if mean:
+                    price_src = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
+                    out["price_targets"] = {
+                        "current": price_src.get("price"),
+                        "mean":   mean,
+                        "high":   _sf(tp.get("high") or tp.get("max")),
+                        "low":    _sf(tp.get("low") or tp.get("min")),
+                    }
+            # 목표주가가 최상위에 직접 있는 경우
+            elif _sf(d.get("mean") or d.get("targetPriceMean")):
                 price_src = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
                 out["price_targets"] = {
                     "current": price_src.get("price"),
-                    "mean":   _sf(tp.get("mean")),
-                    "high":   _sf(tp.get("high")),
-                    "low":    _sf(tp.get("low")),
+                    "mean":   _sf(d.get("mean") or d.get("targetPriceMean")),
+                    "high":   _sf(d.get("high") or d.get("targetPriceHigh")),
+                    "low":    _sf(d.get("low") or d.get("targetPriceLow")),
                 }
 
             # 투자의견 분포 (매수/보유/매도)
-            rec = d.get("recommendation") or {}
+            rec = d.get("recommendation") or d.get("opinion") or d.get("opinions") or {}
             if isinstance(rec, dict):
-                buy   = int(_sf(rec.get("buy",  rec.get("strongBuy",   0))) or 0)
-                hold  = int(_sf(rec.get("hold", rec.get("marketPerform", 0))) or 0)
-                sell  = int(_sf(rec.get("sell", rec.get("underperform",  0))) or 0)
-                if buy + hold + sell > 0:
+                buy   = int(_sf(rec.get("buy")  or rec.get("strongBuy")    or rec.get("매수", 0)) or 0)
+                hold  = int(_sf(rec.get("hold") or rec.get("marketPerform") or rec.get("보유", 0)) or 0)
+                sell  = int(_sf(rec.get("sell") or rec.get("underperform")  or rec.get("매도", 0)) or 0)
+                strong_buy  = int(_sf(rec.get("strongBuy",  0)) or 0)
+                strong_sell = int(_sf(rec.get("strongSell", 0)) or 0)
+                total = buy + hold + sell + strong_buy + strong_sell
+                if total > 0:
                     out["consensus"] = {
-                        "strong_buy": buy, "buy": 0,
+                        "strong_buy": strong_buy, "buy": buy,
                         "hold": hold,
-                        "sell": sell, "strong_sell": 0,
+                        "sell": sell, "strong_sell": strong_sell,
                     }
+                    # 컨센서스 평균 의견 (1=강매도 ~ 5=강매수)
+                    avg = (strong_buy*5 + buy*4 + hold*3 + sell*2 + strong_sell) / total
+                    out.setdefault("naver_consensus", {})
+                    out["naver_consensus"]["recommendation"] = (
+                        "강력매수" if avg >= 4.5 else
+                        "매수"   if avg >= 3.5 else
+                        "보유"   if avg >= 2.5 else
+                        "매도"
+                    )
+                    out["naver_consensus"]["analyst_count"] = total
+
             return out
+
+        loop = asyncio.get_running_loop()
+        # 1차: consensusOpinion 엔드포인트
+        try:
+            r = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: httpx.get(
+                    f"https://m.stock.naver.com/api/stock/{code6}/consensusOpinion",
+                    headers=headers, timeout=8,
+                )), timeout=10
+            )
+            if r.status_code == 200:
+                d = r.json()
+                parsed = _parse_opinion(d)
+                if parsed:
+                    return parsed
         except Exception:
-            return {}
+            pass
+
+        # 2차: opinion 엔드포인트 (폴백)
+        try:
+            r2 = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: httpx.get(
+                    f"https://m.stock.naver.com/api/stock/{code6}/opinion",
+                    headers=headers, timeout=8,
+                )), timeout=10
+            )
+            if r2.status_code == 200:
+                d2 = r2.json()
+                parsed2 = _parse_opinion(d2)
+                if parsed2:
+                    return parsed2
+        except Exception:
+            pass
+
+        return {}
 
     if market == "KR" and stale_analyst:
         # stale 캐시 즉시 반환, 백그라운드에서 갱신
