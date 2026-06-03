@@ -1141,6 +1141,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
 
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
+    code6 = symbol.replace(".KS","").replace(".KQ","") if market == "KR" else ""
 
     def _fetch():
         try:
@@ -1215,47 +1216,129 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         except Exception:
             return {}
 
+    # KR 종목: Naver 컨센서스 목표주가 + 애널리스트 의견 직접 조회
+    async def _fetch_kr_analyst() -> dict:
+        """네이버 모바일 컨센서스 API에서 목표주가·추천의견 조회"""
+        try:
+            import httpx, math
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/80.0 Mobile Safari/537.36",
+                "Referer": "https://m.stock.naver.com/",
+            }
+            r = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda: __import__("httpx").get(
+                        f"https://m.stock.naver.com/api/stock/{code6}/consensusOpinion",
+                        headers=headers, timeout=8
+                    )
+                ), timeout=10
+            )
+            if r.status_code != 200:
+                return {}
+            d = r.json()
+            out: dict = {}
+
+            def _sf(v):
+                try:
+                    f = float(str(v).replace(",",""))
+                    return None if (math.isnan(f) or math.isinf(f)) else f
+                except Exception:
+                    return None
+
+            # 목표주가
+            tp = d.get("targetPrice") or {}
+            if isinstance(tp, dict) and tp.get("mean"):
+                price_src = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
+                out["price_targets"] = {
+                    "current": price_src.get("price"),
+                    "mean":   _sf(tp.get("mean")),
+                    "high":   _sf(tp.get("high")),
+                    "low":    _sf(tp.get("low")),
+                }
+
+            # 투자의견 분포 (매수/보유/매도)
+            rec = d.get("recommendation") or {}
+            if isinstance(rec, dict):
+                buy   = int(_sf(rec.get("buy",  rec.get("strongBuy",   0))) or 0)
+                hold  = int(_sf(rec.get("hold", rec.get("marketPerform", 0))) or 0)
+                sell  = int(_sf(rec.get("sell", rec.get("underperform",  0))) or 0)
+                if buy + hold + sell > 0:
+                    out["consensus"] = {
+                        "strong_buy": buy, "buy": 0,
+                        "hold": hold,
+                        "sell": sell, "strong_sell": 0,
+                    }
+            return out
+        except Exception:
+            return {}
+
+    if market == "KR" and stale_analyst:
+        # stale 캐시 즉시 반환, 백그라운드에서 갱신
+        async def _bg_analyst():
+            try:
+                loop2 = asyncio.get_running_loop()
+                r2 = await asyncio.wait_for(loop2.run_in_executor(None, _fetch), timeout=20)
+                naver_r = await _fetch_kr_analyst()
+                r2 = {**naver_r, **r2}
+                _enrich_kr_analyst(r2, symbol, market)
+                if r2:
+                    cache.set(ck, r2, 86400)
+            except Exception:
+                pass
+        asyncio.get_running_loop().create_task(_bg_analyst())
+        return stale_analyst
+
     try:
         result = await asyncio.wait_for(
             asyncio.get_running_loop().run_in_executor(None, _fetch),
-            timeout=15
+            timeout=20
         )
     except Exception:
         result = {}
 
-    # KR 종목: Naver 컨센서스(cnsPer/cnsEps) + fund 캐시 목표주가 보완
+    # KR 종목: Naver 컨센서스 목표주가·의견 보완
     if market == "KR":
-        fund_cached = cache.get(f"fund:{symbol}") or cache.get_stale(f"fund:{symbol}")
-        price_cached = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}")
-        for src in [fund_cached, price_cached]:
-            if not src:
-                continue
-            if not result.get("price_targets"):
-                tp_mean = src.get("target_price_mean")
-                tp_high = src.get("target_price_high")
-                tp_low  = src.get("target_price_low")
-                curr    = src.get("price")
-                if tp_mean:
-                    result["price_targets"] = {
-                        "current": curr,
-                        "mean": tp_mean,
-                        "high": tp_high,
-                        "low":  tp_low,
-                    }
-            # Naver 컨센서스 PER/EPS를 consensus 필드에 추가
-            if src.get("forward_per") and not result.get("naver_consensus"):
-                result["naver_consensus"] = {
-                    "cons_per": src.get("forward_per"),
-                    "cons_eps": src.get("forward_eps"),
-                    "recommendation": src.get("recommendation"),
-                    "analyst_count":  src.get("analyst_count"),
-                }
+        naver_analyst = await _fetch_kr_analyst()
+        # Naver 데이터를 우선, yfinance로 보완
+        result = {**naver_analyst, **result}
+
+    _enrich_kr_analyst(result, symbol, market)
 
     if result:
         cache.set(ck, result, 86400)
     elif stale_analyst:
         return stale_analyst
     return result or {}
+
+
+def _enrich_kr_analyst(result: dict, symbol: str, market: str):
+    """price/fund 캐시에서 KR 종목 컨센서스 보완"""
+    from app.core.cache import cache
+    if market != "KR":
+        return
+    fund_cached  = cache.get(f"fund:{symbol}") or cache.get_stale(f"fund:{symbol}")
+    price_cached = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}")
+    for src in [fund_cached, price_cached]:
+        if not src:
+            continue
+        if not result.get("price_targets"):
+            tp_mean = src.get("target_price_mean")
+            curr    = src.get("price")
+            if tp_mean:
+                result["price_targets"] = {
+                    "current": curr,
+                    "mean":    tp_mean,
+                    "high":    src.get("target_price_high"),
+                    "low":     src.get("target_price_low"),
+                }
+        if src.get("forward_per") and not result.get("naver_consensus"):
+            result["naver_consensus"] = {
+                "cons_per":       src.get("forward_per"),
+                "cons_eps":       src.get("forward_eps"),
+                "recommendation": src.get("recommendation"),
+                "analyst_count":  src.get("analyst_count"),
+            }
 
 
 @router.get("/KR/{symbol}/supply-demand")
