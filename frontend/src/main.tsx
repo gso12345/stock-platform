@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Layout from "./components/Layout";
+import { dashboardApi } from "./api/stocks";
 import "./index.css";
 
 const Dashboard  = lazy(() => import("./pages/Dashboard"));
@@ -22,6 +23,18 @@ const queryClient = new QueryClient({
       retry: 1,
     },
   },
+});
+
+// 대시보드 데이터를 컴포넌트 마운트 전에 미리 요청 (초기 로딩 단축)
+queryClient.prefetchQuery({
+  queryKey: ["dashboard-kr", "시가총액"],
+  queryFn: () => dashboardApi.getKR("시가총액"),
+  staleTime: 30_000,
+});
+queryClient.prefetchQuery({
+  queryKey: ["dashboard-news-kr"],
+  queryFn: () => dashboardApi.getNews("kr"),
+  staleTime: 300_000,
 });
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

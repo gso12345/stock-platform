@@ -74,6 +74,37 @@ const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, un
   );
 });
 
+/* ── 스켈레톤 UI ─────────────────────────────────────────── */
+const IndexCardSkeleton = memo(function IndexCardSkeleton() {
+  return (
+    <div className="flex flex-col gap-1.5 min-w-[145px] p-3 rounded-xl bg-bg-secondary border border-border animate-pulse">
+      <div className="h-2 bg-bg-elevated rounded w-14" />
+      <div className="h-6 bg-bg-elevated rounded w-24 mt-0.5" />
+      <div className="h-2.5 bg-bg-elevated rounded w-12" />
+    </div>
+  );
+});
+
+const RankingTableSkeleton = memo(function RankingTableSkeleton() {
+  return (
+    <div className="animate-pulse">
+      {Array.from({ length: 10 }, (_, i) => (
+        <div key={i} className="flex items-center gap-3 py-2.5 px-3 border-b border-border/30">
+          <div className="w-4 h-3 bg-bg-elevated rounded flex-shrink-0" />
+          <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+            <div className="h-3 bg-bg-elevated rounded w-16" />
+            <div className="h-2 bg-bg-elevated rounded w-24" />
+          </div>
+          <div className="h-3 bg-bg-elevated rounded w-16" />
+          <div className="h-3 bg-bg-elevated rounded w-10" />
+          <div className="h-3 bg-bg-elevated rounded w-16 hidden sm:block" />
+          <div className="h-3 bg-bg-elevated rounded w-12 hidden sm:block" />
+        </div>
+      ))}
+    </div>
+  );
+});
+
 /* ── 순위 테이블 (실시간 가격 반영) ─────────────────────── */
 const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
   items: any[]; isKR: boolean; onSymbolClick: (sym: string, mkt: string) => void; livePrices: Record<string, any>;
@@ -121,7 +152,7 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
     return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
   }, [items, prefetchStock, showAll]); // items 변경 시(데이터 로드) 재설정
 
-  if (!items?.length) return <div className="py-8 text-center text-text-muted text-sm">데이터 로딩 중...</div>;
+  if (!items?.length) return <RankingTableSkeleton />;
 
   const dispSym = (s: string) => s.replace(".KS","").replace(".KQ","");
   const visible = showAll ? items : items.slice(0, 10);
@@ -257,14 +288,6 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     refetchIntervalInBackground: false,
   });
 
-  // 지수 전용 — 더 빠른 캐시 (30초)
-  const { data: indicesData } = useQuery({
-    queryKey: ["dashboard-indices"],
-    queryFn: () => dashboardApi.getIndices(),
-    staleTime: 30_000,
-    refetchInterval: 30_000,
-  });
-
   const { data: newsData } = useQuery({
     queryKey: ["dashboard-news-kr"],
     queryFn: () => dashboardApi.getNews("kr"),
@@ -279,9 +302,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const getIdx = (key: string) => {
     const live    = liveIndices?.kr?.find((r: any) => r.index === key);
     const fetched = data?.indices?.find((r: any) => r.index === key);
-    const direct  = indicesData?.kr?.find((r: any) => r.index === key);
-    const result  = live ?? fetched ?? direct ?? { value: 0, change: 0, change_rate: 0 };
-    return result;
+    return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
   };
 
   return (
@@ -295,10 +316,13 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
           </button>
         </div>
         <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
-          {KR_INDEX_KEYS.map((key) => {
-            const idx = getIdx(key);
-            return <div key={key} className="flex-shrink-0"><IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} /></div>;
-          })}
+          {!data
+            ? KR_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
+            : KR_INDEX_KEYS.map((key) => {
+                const idx = getIdx(key);
+                return <div key={key} className="flex-shrink-0"><IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} /></div>;
+              })
+          }
         </div>
       </section>
 
@@ -361,22 +385,14 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     refetchInterval: 300_000,
   });
 
-  const { data: usIndicesData } = useQuery({
-    queryKey: ["dashboard-indices"],
-    queryFn: () => dashboardApi.getIndices(),
-    staleTime: 30_000,
-    refetchInterval: 30_000,
-  });
-
   const US_INDEX_KEYS = ["SP500","NASDAQ","DOW","SOX","RUSSELL"] as const;
   const US_DISPLAY: Record<string, string> = {
     SP500:"S&P 500", NASDAQ:"나스닥", DOW:"다우 산업", SOX:"필라델피아 반도체", RUSSELL:"러셀 2000"
   };
   const getIdx = (key: string) => {
-    const live   = liveIndices?.us?.find((r: any) => r.index === key);
+    const live    = liveIndices?.us?.find((r: any) => r.index === key);
     const fetched = data?.indices?.find((r: any) => r.index === key);
-    const direct  = usIndicesData?.us?.find((r: any) => r.index === key);
-    return live ?? fetched ?? direct ?? { value: 0, change: 0, change_rate: 0 };
+    return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
   };
 
   // rates: API /us/rates 우선 → data.rates → exchange 단독 fallback
@@ -402,10 +418,13 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
           </button>
         </div>
         <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
-          {US_INDEX_KEYS.map((key) => {
-            const idx = getIdx(key);
-            return <div key={key} className="flex-shrink-0"><IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} /></div>;
-          })}
+          {!data
+            ? US_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
+            : US_INDEX_KEYS.map((key) => {
+                const idx = getIdx(key);
+                return <div key={key} className="flex-shrink-0"><IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} /></div>;
+              })
+          }
         </div>
       </section>
 
