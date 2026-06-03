@@ -1742,7 +1742,7 @@ export default function StockDetail() {
                       <tr key={bar.date} className="border-b border-border/30 hover:bg-bg-hover">
                         <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap sticky left-0 bg-bg-card">{bar.date?.slice(0,10)}</td>
                         <td className="px-3 py-2.5 text-right font-mono font-semibold text-text-primary whitespace-nowrap">
-                          {isKR ? `₩${bar.close?.toLocaleString("ko-KR")}` : `$${bar.close?.toFixed(2)}`}
+                          {isKR ? `₩${bar.close?.toLocaleString("ko-KR", {maximumFractionDigits:0})}` : `$${bar.close?.toFixed(2)}`}
                         </td>
                         <td className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${prevClose ? (isPos ? "text-accent-green" : "text-accent-red") : "text-text-muted"}`}>
                           {prevClose ? `${isPos?"+":""}${chgRate.toFixed(2)}%` : "—"}
@@ -1754,13 +1754,13 @@ export default function StockDetail() {
                           {amount > 0 ? (isKR ? fmtKRW(amount) : fmtUSD(amount)) : "—"}
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-muted whitespace-nowrap">
-                          {isKR ? bar.open?.toLocaleString("ko-KR") : bar.open?.toFixed(2)}
+                          {isKR ? bar.open?.toLocaleString("ko-KR", {maximumFractionDigits:0}) : bar.open?.toFixed(2)}
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono text-accent-red/80 whitespace-nowrap">
-                          {isKR ? bar.high?.toLocaleString("ko-KR") : bar.high?.toFixed(2)}
+                          {isKR ? bar.high?.toLocaleString("ko-KR", {maximumFractionDigits:0}) : bar.high?.toFixed(2)}
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono text-accent-blue/80 whitespace-nowrap pr-4">
-                          {isKR ? bar.low?.toLocaleString("ko-KR") : bar.low?.toFixed(2)}
+                          {isKR ? bar.low?.toLocaleString("ko-KR", {maximumFractionDigits:0}) : bar.low?.toFixed(2)}
                         </td>
                       </tr>
                     );

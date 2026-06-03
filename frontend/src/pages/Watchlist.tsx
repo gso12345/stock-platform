@@ -374,6 +374,7 @@ export default function Watchlist() {
   const [editingItem, setEditingItem]   = useState<any>(null);
   const [collapsed, setCollapsed]   = useState<Set<string>>(new Set());
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
+  const [addError, setAddError]     = useState("");
 
   const { data: folders = [] } = useQuery({
     queryKey: ["watchlist-folders"],
@@ -418,7 +419,14 @@ export default function Watchlist() {
 
   const addMutation = useMutation({
     mutationFn: (req: any) => watchlistApi.addItem({ ...req, watchlist_id: 1 }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
+    onSuccess: () => {
+      setAddError("");
+      qc.invalidateQueries({ queryKey: ["watchlist-items"] });
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.detail || "종목 추가에 실패했습니다";
+      setAddError(String(msg));
+    },
   });
 
   const removeMutation = useMutation({
@@ -558,6 +566,13 @@ export default function Watchlist() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* 추가 오류 토스트 */}
+      {addError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 px-4 py-2.5 bg-accent-red text-white text-xs font-semibold rounded-xl shadow-lg animate-fade-in">
+          <span>{addError}</span>
+          <button onClick={() => setAddError("")} className="ml-1 opacity-70 hover:opacity-100">✕</button>
+        </div>
+      )}
       {/* 헤더 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
