@@ -117,7 +117,7 @@ async def get_kr_dashboard(
 ):
     loop = asyncio.get_running_loop()
     tasks = [
-        asyncio.gather(*[_get_kr_index(n) for n in KR_INDICES]),
+        asyncio.gather(*[_get_kr_index_with_fallback(n) for n in KR_INDICES]),
         _get_kr_rankings(category),
         _get_exchange_rate_async(),
         loop.run_in_executor(None, get_kr_rates),

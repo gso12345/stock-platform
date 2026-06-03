@@ -488,6 +488,9 @@ async def get_financials(market: Literal["KR","US","ETF"], symbol: str):
     ck = f"financials:{symbol}"
     if cached := cache.get(ck):
         return cached
+    stale = cache.get_stale(ck)
+    if stale:
+        return stale
 
     result = None
     if market == "KR":
@@ -593,6 +596,7 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
     ck = f"metrics_hist2:{symbol}"
     if c := cache.get(ck):
         return c
+    _stale_mh = cache.get_stale(ck)
 
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
@@ -780,6 +784,18 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
             return {"annual": annual, "quarterly": quarterly}
         except Exception:
             return {"annual": [], "quarterly": []}
+
+    # stale-while-revalidate: return stale immediately, refresh in background
+    if _stale_mh:
+        async def _bg_refresh_mh():
+            try:
+                loop2 = asyncio.get_running_loop()
+                r = await asyncio.wait_for(loop2.run_in_executor(None, _fetch), timeout=60)
+                cache.set(ck, r, 3600)
+            except Exception:
+                pass
+        asyncio.get_running_loop().create_task(_bg_refresh_mh())
+        return _stale_mh
 
     # 재무이력은 데이터가 많아 timeout을 60초로 늘림
     try:

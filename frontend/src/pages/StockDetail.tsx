@@ -7,7 +7,7 @@ import { stocksApi, watchlistApi, financialsApi } from "@/api/stocks";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
-  Newspaper, Users, ExternalLink, Maximize2, X, List,
+  Newspaper, Users, ExternalLink, Maximize2, X, List, MessageSquare,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
@@ -86,7 +86,8 @@ export default function StockDetail() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "analyst" | "supply">("chart");
+  const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "analyst" | "supply" | "community">("chart");
+  const [isMobile, setIsMobile]     = useState(typeof window !== "undefined" && window.innerWidth < 640);
   const [showKRW, setShowKRW]           = useState(false);
   const [analystSubTab, setAnalystSubTab] = useState<"opinion" | "consensus">("opinion");
   const [consensusPeriod, setConsensusPeriod] = useState<"annual" | "quarterly">("annual");
@@ -112,6 +113,12 @@ export default function StockDetail() {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    const h = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
   }, []);
 
   const onCandleChange = (type: string) => { setCandleType(type); };
@@ -492,12 +499,13 @@ export default function StockDetail() {
         {/* 메인 탭 — 한 줄 + 가로 스크롤 */}
         <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
           {[
-            { id:"chart",     Icon: BarChart2,  label:"차트" },
-            { id:"daily",     Icon: List,        label:"일별" },
-            { id:"financial", Icon: DollarSign, label:"재무제표" },
-            { id:"analyst",   Icon: TrendingUp,  label:"투자의견" },
-            { id:"news",      Icon: Newspaper,  label:"뉴스/공시" },
+            { id:"chart",     Icon: BarChart2,      label:"차트" },
+            { id:"daily",     Icon: List,            label:"일별" },
+            { id:"financial", Icon: DollarSign,      label:"재무제표" },
+            { id:"analyst",   Icon: TrendingUp,      label:"투자의견" },
+            { id:"news",      Icon: Newspaper,       label:"뉴스/공시" },
             ...(isKR ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
+            { id:"community", Icon: MessageSquare,   label:"커뮤니티" },
           ].map(({ id, Icon, label }) => (
             <button key={id}
               onClick={() => { setMainTab(id as any); if (id !== "chart") prefetchSecondaryData(); }}
@@ -809,12 +817,16 @@ export default function StockDetail() {
           return fmtUSD(v);
         };
 
+        // 반응형 차트 높이
+        const chartH   = isMobile ? 160 : 230;
+        const chartHSm = isMobile ? 140 : 200;
+
         // 공통 차트 옵션
         const chartProps = {
-          margin: {top:4,right:16,left:4,bottom:4} as any,
+          margin: {top:8,right:8,left:0,bottom:4} as any,
           cartesianGridProps: { strokeDasharray:"3 3", stroke:"#232840" },
           xAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any,
-          yAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false, width:62 } as any,
+          yAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false, width:isMobile?46:58 } as any,
           tooltipProps: { contentStyle:{background:"#141824",border:"1px solid #232840",borderRadius:8,fontSize:11} } as any,
         };
 
@@ -854,7 +866,7 @@ export default function StockDetail() {
                     const finData = (financials[finPeriod] as any[]).filter((r:any) => r.revenue != null || r.op_income != null || r.net_income != null);
                     if (!finData.length) return null;
                     return (
-                    <ResponsiveContainer width="100%" height={200}>
+                    <ResponsiveContainer width="100%" height={chartH}>
                       <BarChart data={finData} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
@@ -924,7 +936,7 @@ export default function StockDetail() {
                     }];
                     if (dEnhanced.per != null || dEnhanced.pbr != null) {
                       return (
-                        <ResponsiveContainer width="100%" height={180}>
+                        <ResponsiveContainer width="100%" height={chartHSm}>
                           <BarChart data={singlePoint} {...chartProps.margin}>
                             <CartesianGrid {...chartProps.cartesianGridProps}/>
                             <XAxis dataKey="period" {...chartProps.xAxisProps}/>
@@ -940,7 +952,7 @@ export default function StockDetail() {
                     }
                     if (dEnhanced.eps != null) {
                       return (
-                        <ResponsiveContainer width="100%" height={180}>
+                        <ResponsiveContainer width="100%" height={chartHSm}>
                           <BarChart data={singlePoint.filter(r=>r.eps!=null)} {...chartProps.margin}>
                             <CartesianGrid {...chartProps.cartesianGridProps}/>
                             <XAxis dataKey="period" {...chartProps.xAxisProps}/>
@@ -955,7 +967,7 @@ export default function StockDetail() {
                   }
                   if (hasMultiple) {
                     return (
-                      <ResponsiveContainer width="100%" height={180}>
+                      <ResponsiveContainer width="100%" height={chartHSm}>
                         <BarChart data={mh} {...chartProps.margin}>
                           <CartesianGrid {...chartProps.cartesianGridProps}/>
                           <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
@@ -971,7 +983,7 @@ export default function StockDetail() {
                   }
                   // EPS 차트 (PER/PBR 없을 때)
                   return (
-                    <ResponsiveContainer width="100%" height={180}>
+                    <ResponsiveContainer width="100%" height={chartHSm}>
                       <BarChart data={mh.filter((r:any)=>r.eps!=null)} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
@@ -1027,7 +1039,7 @@ export default function StockDetail() {
                   </div>
                   {/* 선택 지표 차트 */}
                   {chartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={200}>
+                    <ResponsiveContainer width="100%" height={chartH}>
                       <BarChart data={chartData} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
@@ -1071,7 +1083,7 @@ export default function StockDetail() {
                   </div>
                 )}
                 {mhYears.length > 0 && (
-                  <ResponsiveContainer width="100%" height={180}>
+                  <ResponsiveContainer width="100%" height={chartHSm}>
                     <BarChart data={mh.filter((r:any)=>r.op_margin||r.net_margin)} {...chartProps.margin}>
                       <CartesianGrid {...chartProps.cartesianGridProps}/>
                       <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
@@ -1120,7 +1132,7 @@ export default function StockDetail() {
                 )}
                 {/* 차트 */}
                 {mhYears.length > 0 && (
-                  <ResponsiveContainer width="100%" height={180}>
+                  <ResponsiveContainer width="100%" height={chartHSm}>
                     <BarChart data={mh.filter((r:any)=>r.debt_ratio||r.current_ratio)} {...chartProps.margin}>
                       <CartesianGrid {...chartProps.cartesianGridProps}/>
                       <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
@@ -1156,7 +1168,7 @@ export default function StockDetail() {
                 {mh.some((r:any) => r.operating_cf != null) && (
                   <div>
                     <p className="text-xs text-text-muted font-semibold mb-2">영업 / 투자 / 재무 현금흐름</p>
-                    <ResponsiveContainer width="100%" height={200}>
+                    <ResponsiveContainer width="100%" height={chartH}>
                       <BarChart data={mh.filter((r:any)=>r.operating_cf!=null)} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
@@ -1174,7 +1186,7 @@ export default function StockDetail() {
                 {mh.some((r:any) => r.free_cf != null) && (
                   <div>
                     <p className="text-xs text-text-muted font-semibold mb-2">잉여현금흐름 (FCF)</p>
-                    <ResponsiveContainer width="100%" height={150}>
+                    <ResponsiveContainer width="100%" height={chartHSm}>
                       <BarChart data={mh.filter((r:any)=>r.free_cf!=null)} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
@@ -1774,6 +1786,17 @@ export default function StockDetail() {
           <div className="text-center">
             <p className="text-text-primary font-semibold text-sm">서비스 준비중입니다</p>
             <p className="text-text-muted text-xs mt-1">투자자별 수급 데이터는 곧 제공될 예정입니다</p>
+          </div>
+        </div>
+      )}
+
+      {/* 커뮤니티 탭 — 서비스 준비중 */}
+      {mainTab==="community" && (
+        <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
+          <MessageSquare size={40} className="text-text-muted/30"/>
+          <div className="text-center">
+            <p className="text-text-primary font-semibold text-sm">서비스 준비중입니다</p>
+            <p className="text-text-muted text-xs mt-1">종목 커뮤니티 기능은 곧 제공될 예정입니다</p>
           </div>
         </div>
       )}

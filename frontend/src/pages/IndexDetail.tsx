@@ -84,6 +84,7 @@ export default function IndexDetail() {
     queryFn: () => dashboardApi.getIndexOHLCV(indexName, dailyPeriod, "1d"),
     enabled: !!indexName && mainTab === "daily",
     staleTime: 300_000,
+    placeholderData: (prev) => prev,
   });
 
   // 최신순으로 뒤집어 dailyMonths * 22행만 표시
