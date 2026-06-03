@@ -162,11 +162,11 @@ export default function StockDetail() {
     refetchInterval: isIntraday ? 15_000 : false,
   });
 
-  // 차트 로딩 완료 → 재무·뉴스·일별 자동 prefetch 시작
+  // 종목 진입 즉시 보조 데이터 prefetch 시작 (차트 완료 대기 없이 병렬로)
   useEffect(() => {
-    if (!sym || fetchingChart || !ohlcv?.length) return;
+    if (!sym) return;
     prefetchSecondaryData();
-  }, [fetchingChart, sym, prefetchSecondaryData]);
+  }, [sym, prefetchSecondaryData]);
 
   // 일별 탭 — 기본 1개월, 더보기 클릭마다 1달씩 추가
   const [dailyMonths, setDailyMonths] = useState(1);

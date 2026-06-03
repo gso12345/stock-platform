@@ -896,84 +896,125 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
             return None
 
     def _fetch():
+        import concurrent.futures
+
+        # 4개 yfinance 속성을 병렬로 조회 (각각 별도 Ticker 인스턴스)
+        def _get_ee():
+            try:
+                return yf.Ticker(yf_sym).earnings_estimate
+            except Exception:
+                return None
+
+        def _get_re():
+            try:
+                return yf.Ticker(yf_sym).revenue_estimate
+            except Exception:
+                return None
+
+        def _get_et():
+            try:
+                return yf.Ticker(yf_sym).eps_trend
+            except Exception:
+                return None
+
+        def _get_ge():
+            try:
+                return yf.Ticker(yf_sym).growth_estimates
+            except Exception:
+                return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            f_ee = pool.submit(_get_ee)
+            f_re = pool.submit(_get_re)
+            f_et = pool.submit(_get_et)
+            f_ge = pool.submit(_get_ge)
+            try:
+                ee = f_ee.result(timeout=12)
+            except Exception:
+                ee = None
+            try:
+                re_ = f_re.result(timeout=12)
+            except Exception:
+                re_ = None
+            try:
+                et = f_et.result(timeout=12)
+            except Exception:
+                et = None
+            try:
+                ge = f_ge.result(timeout=12)
+            except Exception:
+                ge = None
+
+        annual: dict = {}
+        quarterly: dict = {}
+
+        def _upsert(store, period, **kwargs):
+            if period not in store:
+                store[period] = {"period": period, "type": "forecast"}
+            for k, v in kwargs.items():
+                if v is not None and store[period].get(k) is None:
+                    store[period][k] = v
+
+        # ── earnings_estimate (EPS 추정, 연간+분기) ──────────
         try:
-            t = yf.Ticker(yf_sym)
-            annual: dict = {}
-            quarterly: dict = {}
-
-            def _upsert(store, period, **kwargs):
-                if period not in store:
-                    store[period] = {"period": period, "type": "forecast"}
-                for k, v in kwargs.items():
-                    if v is not None and store[period].get(k) is None:
-                        store[period][k] = v
-
-            # ── earnings_estimate (EPS 추정, 연간+분기) ──────────
-            try:
-                ee = getattr(t, "earnings_estimate", None)
-                if ee is not None and not ee.empty:
-                    for idx, row in ee.iterrows():
-                        p = str(idx)[:10]
-                        store = quarterly if len(p) > 6 else annual
-                        _upsert(store, p,
-                            eps_est=_safe_float(row.get("avg") or row.get("Avg Estimate")),
-                            eps_low=_safe_float(row.get("low") or row.get("Low Estimate")),
-                            eps_high=_safe_float(row.get("high") or row.get("High Estimate")),
-                            eps_analysts=_safe_float(row.get("numberOfAnalysts") or row.get("No. of Analysts")),
-                        )
-            except Exception:
-                pass
-
-            # ── revenue_estimate (매출 추정) ─────────────────────
-            try:
-                re_ = getattr(t, "revenue_estimate", None)
-                if re_ is not None and not re_.empty:
-                    for idx, row in re_.iterrows():
-                        p = str(idx)[:10]
-                        store = quarterly if len(p) > 6 else annual
-                        _upsert(store, p,
-                            revenue_est=_safe_float(row.get("avg") or row.get("Avg Estimate")),
-                            revenue_low=_safe_float(row.get("low") or row.get("Low Estimate")),
-                            revenue_high=_safe_float(row.get("high") or row.get("High Estimate")),
-                        )
-            except Exception:
-                pass
-
-            # ── eps_trend (추정치 변화 추이) ─────────────────────
-            try:
-                et = getattr(t, "eps_trend", None)
-                if et is not None and not et.empty:
-                    for idx, row in et.iterrows():
-                        p = str(idx)[:10]
-                        store = quarterly if len(p) > 6 else annual
-                        _upsert(store, p,
-                            eps_current=_safe_float(row.get("current")),
-                            eps_7d_ago=_safe_float(row.get("7daysAgo")),
-                            eps_30d_ago=_safe_float(row.get("30daysAgo")),
-                            eps_90d_ago=_safe_float(row.get("90daysAgo")),
-                        )
-            except Exception:
-                pass
-
-            # ── growth_estimates (성장률 추정) ───────────────────
-            try:
-                ge = getattr(t, "growth_estimates", None)
-                if ge is not None and not ge.empty:
-                    for idx, row in ge.iterrows():
-                        p = str(idx)[:10]
-                        store = quarterly if len(p) > 6 else annual
-                        _upsert(store, p,
-                            growth_est=_safe_float(row.get(yf_sym) or row.get("stock")),
-                        )
-            except Exception:
-                pass
-
-            return {
-                "annual":    sorted(rows,   key=lambda x: x["period"]),
-                "quarterly": sorted(q_rows, key=lambda x: x["period"]),
-            }
+            if ee is not None and not ee.empty:
+                for idx, row in ee.iterrows():
+                    p = str(idx)[:10]
+                    store = quarterly if len(p) > 6 else annual
+                    _upsert(store, p,
+                        eps_est=_safe_float(row.get("avg") or row.get("Avg Estimate")),
+                        eps_low=_safe_float(row.get("low") or row.get("Low Estimate")),
+                        eps_high=_safe_float(row.get("high") or row.get("High Estimate")),
+                        eps_analysts=_safe_float(row.get("numberOfAnalysts") or row.get("No. of Analysts")),
+                    )
         except Exception:
-            return {"annual": [], "quarterly": []}
+            pass
+
+        # ── revenue_estimate (매출 추정) ─────────────────────
+        try:
+            if re_ is not None and not re_.empty:
+                for idx, row in re_.iterrows():
+                    p = str(idx)[:10]
+                    store = quarterly if len(p) > 6 else annual
+                    _upsert(store, p,
+                        revenue_est=_safe_float(row.get("avg") or row.get("Avg Estimate")),
+                        revenue_low=_safe_float(row.get("low") or row.get("Low Estimate")),
+                        revenue_high=_safe_float(row.get("high") or row.get("High Estimate")),
+                    )
+        except Exception:
+            pass
+
+        # ── eps_trend (추정치 변화 추이) ─────────────────────
+        try:
+            if et is not None and not et.empty:
+                for idx, row in et.iterrows():
+                    p = str(idx)[:10]
+                    store = quarterly if len(p) > 6 else annual
+                    _upsert(store, p,
+                        eps_current=_safe_float(row.get("current")),
+                        eps_7d_ago=_safe_float(row.get("7daysAgo")),
+                        eps_30d_ago=_safe_float(row.get("30daysAgo")),
+                        eps_90d_ago=_safe_float(row.get("90daysAgo")),
+                    )
+        except Exception:
+            pass
+
+        # ── growth_estimates (성장률 추정) ───────────────────
+        try:
+            if ge is not None and not ge.empty:
+                for idx, row in ge.iterrows():
+                    p = str(idx)[:10]
+                    store = quarterly if len(p) > 6 else annual
+                    _upsert(store, p,
+                        growth_est=_safe_float(row.get(yf_sym) or row.get("stock")),
+                    )
+        except Exception:
+            pass
+
+        return {
+            "annual":    sorted(annual.values(),    key=lambda x: x["period"]),
+            "quarterly": sorted(quarterly.values(), key=lambda x: x["period"]),
+        }
 
     result = await _run(_fetch)
     cache.set(ck, result, 3600)
@@ -1143,77 +1184,104 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
 
     def _fetch():
+        import concurrent.futures
+
+        # 3개 yfinance 속성을 병렬로 조회 (순차 실행 시 15s 타임아웃 → 병렬 시 ~4s)
+        def _get_apt():
+            try:
+                return yf.Ticker(yf_sym).analyst_price_targets
+            except Exception:
+                return None
+
+        def _get_rs():
+            try:
+                return yf.Ticker(yf_sym).recommendations_summary
+            except Exception:
+                return None
+
+        def _get_ud():
+            try:
+                return yf.Ticker(yf_sym).upgrades_downgrades
+            except Exception:
+                return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            f_apt = pool.submit(_get_apt)
+            f_rs  = pool.submit(_get_rs)
+            f_ud  = pool.submit(_get_ud)
+            try:
+                apt = f_apt.result(timeout=12)
+            except Exception:
+                apt = None
+            try:
+                rs = f_rs.result(timeout=12)
+            except Exception:
+                rs = None
+            try:
+                ud = f_ud.result(timeout=12)
+            except Exception:
+                ud = None
+
+        result: dict = {}
+
+        # 목표주가
+        if apt and isinstance(apt, dict):
+            result["price_targets"] = {
+                "current": _safe(apt.get("current")),
+                "mean":    _safe(apt.get("mean")),
+                "median":  _safe(apt.get("median")),
+                "high":    _safe(apt.get("high")),
+                "low":     _safe(apt.get("low")),
+            }
+
+        # 투자의견 분포 (현재월)
         try:
-            t = yf.Ticker(yf_sym)
-            result: dict = {}
-
-            # 목표주가
-            try:
-                apt = t.analyst_price_targets
-                if apt and isinstance(apt, dict):
-                    result["price_targets"] = {
-                        "current": _safe(apt.get("current")),
-                        "mean":    _safe(apt.get("mean")),
-                        "median":  _safe(apt.get("median")),
-                        "high":    _safe(apt.get("high")),
-                        "low":     _safe(apt.get("low")),
-                    }
-            except Exception:
-                pass
-
-            # 투자의견 분포 (현재월)
-            try:
-                rs = t.recommendations_summary
-                if rs is not None and not rs.empty:
-                    row = rs[rs["period"] == "0m"]
-                    if row.empty:
-                        row = rs.iloc[[0]]
-                    r = row.iloc[0]
-                    result["consensus"] = {
-                        "strong_buy":  int(r.get("strongBuy", 0) or 0),
-                        "buy":         int(r.get("buy", 0) or 0),
-                        "hold":        int(r.get("hold", 0) or 0),
-                        "sell":        int(r.get("sell", 0) or 0),
-                        "strong_sell": int(r.get("strongSell", 0) or 0),
-                    }
-                    # 최근 3개월 추이
-                    history = []
-                    for _, hr in rs.iterrows():
-                        history.append({
-                            "period":      hr.get("period", ""),
-                            "strong_buy":  int(hr.get("strongBuy", 0) or 0),
-                            "buy":         int(hr.get("buy", 0) or 0),
-                            "hold":        int(hr.get("hold", 0) or 0),
-                            "sell":        int(hr.get("sell", 0) or 0),
-                            "strong_sell": int(hr.get("strongSell", 0) or 0),
-                        })
-                    result["consensus_history"] = history
-            except Exception:
-                pass
-
-            # 최근 애널리스트 리포트 (최대 30개)
-            try:
-                ud = t.upgrades_downgrades
-                if ud is not None and not ud.empty:
-                    reports = []
-                    for dt, row in ud.head(30).iterrows():
-                        reports.append({
-                            "date":         str(dt)[:10],
-                            "firm":         str(row.get("Firm", "") or ""),
-                            "to_grade":     str(row.get("ToGrade", "") or ""),
-                            "from_grade":   str(row.get("FromGrade", "") or ""),
-                            "action":       str(row.get("Action", "") or ""),
-                            "price_action": str(row.get("priceTargetAction", "") or ""),
-                            "target":       _safe(row.get("currentPriceTarget")),
-                            "prior_target": _safe(row.get("priorPriceTarget")),
-                        })
-                    result["reports"] = reports
-            except Exception:
-                pass
-
-            return result
+            if rs is not None and not rs.empty:
+                row = rs[rs["period"] == "0m"]
+                if row.empty:
+                    row = rs.iloc[[0]]
+                r = row.iloc[0]
+                result["consensus"] = {
+                    "strong_buy":  int(r.get("strongBuy", 0) or 0),
+                    "buy":         int(r.get("buy", 0) or 0),
+                    "hold":        int(r.get("hold", 0) or 0),
+                    "sell":        int(r.get("sell", 0) or 0),
+                    "strong_sell": int(r.get("strongSell", 0) or 0),
+                }
+                history = []
+                for _, hr in rs.iterrows():
+                    history.append({
+                        "period":      hr.get("period", ""),
+                        "strong_buy":  int(hr.get("strongBuy", 0) or 0),
+                        "buy":         int(hr.get("buy", 0) or 0),
+                        "hold":        int(hr.get("hold", 0) or 0),
+                        "sell":        int(hr.get("sell", 0) or 0),
+                        "strong_sell": int(hr.get("strongSell", 0) or 0),
+                    })
+                result["consensus_history"] = history
         except Exception:
-            return {}
+            pass
+
+        # 최근 애널리스트 리포트 (최대 30개)
+        try:
+            if ud is not None and not ud.empty:
+                reports = []
+                for dt, row in ud.head(30).iterrows():
+                    reports.append({
+                        "date":         str(dt)[:10],
+                        "firm":         str(row.get("Firm", "") or ""),
+                        "to_grade":     str(row.get("ToGrade", "") or ""),
+                        "from_grade":   str(row.get("FromGrade", "") or ""),
+                        "action":       str(row.get("Action", "") or ""),
+                        "price_action": str(row.get("priceTargetAction", "") or ""),
+                        "target":       _safe(row.get("currentPriceTarget")),
+                        "prior_target": _safe(row.get("priorPriceTarget")),
+                    })
+                result["reports"] = reports
+        except Exception:
+            pass
+
+        return result
 
     try:
         result = await asyncio.wait_for(
