@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueries } from "@tanstack/react-query";
 import { stocksApi } from "@/api/stocks";
+import api from "@/api/client";
 import { Card } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft } from "lucide-react";
 import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
@@ -87,18 +88,17 @@ function MarketBadge({ market }: { market: Market }) {
   );
 }
 
-/* ── Empty form state ───────────────────────────────────── */
-const EMPTY_FORM = {
-  symbol: "",
-  market: "US" as Market,
-  name: "",
-  shares: "",
-  avgPrice: "",
-  purchaseDate: "",
-  note: "",
+interface SearchResult {
+  symbol: string; name: string; market: string; type: string; exchange: string;
+}
+
+const MKTCOLOR: Record<string, string> = {
+  KR:  "border-blue-700/50 text-blue-400 bg-blue-900/20",
+  US:  "border-green-700/50 text-green-400 bg-green-900/20",
+  ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
 };
 
-/* ── Add/Edit Modal ─────────────────────────────────────── */
+/* ── Add/Edit Modal (Step 1: 검색 → Step 2: 매수 정보) ─── */
 function PortfolioModal({
   item,
   onClose,
@@ -108,171 +108,210 @@ function PortfolioModal({
   onClose: () => void;
   onSave: (data: Omit<PortfolioItem, "id">) => void;
 }) {
-  const [form, setForm] = useState(() =>
-    item
-      ? {
-          symbol: item.symbol,
-          market: item.market,
-          name: item.name,
-          shares: String(item.shares),
-          avgPrice: String(item.avgPrice),
-          purchaseDate: item.purchaseDate ?? "",
-          note: item.note ?? "",
-        }
-      : EMPTY_FORM
+  const [step, setStep] = useState<1 | 2>(item ? 2 : 1);
+  const [selected, setSelected] = useState<{ symbol: string; market: Market; name: string } | null>(
+    item ? { symbol: item.symbol, market: item.market, name: item.name } : null
   );
 
-  const canSave =
-    form.symbol.trim() !== "" &&
-    form.name.trim() !== "" &&
-    Number(form.shares) > 0 &&
-    Number(form.avgPrice) >= 0;
+  const [query,     setQuery]     = useState("");
+  const [results,   setResults]   = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef    = useRef<HTMLInputElement>(null);
+  const sharesRef   = useRef<HTMLInputElement>(null);
+
+  const [shares,       setShares]       = useState(item ? String(item.shares)   : "");
+  const [avgPrice,     setAvgPrice]     = useState(item ? String(item.avgPrice) : "");
+  const [purchaseDate, setPurchaseDate] = useState(item?.purchaseDate ?? "");
+  const [note,         setNote]         = useState(item?.note ?? "");
+
+  useEffect(() => {
+    if (step === 1) setTimeout(() => inputRef.current?.focus(), 50);
+    if (step === 2) setTimeout(() => sharesRef.current?.focus(), 50);
+  }, [step]);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!query.trim()) { setResults([]); setSearching(false); return; }
+    setSearching(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const { data } = await api.get<{ results: SearchResult[] }>("/search", { params: { q: query } });
+        setResults(data.results ?? []);
+      } catch { setResults([]); }
+      finally { setSearching(false); }
+    }, 300);
+  }, [query]);
+
+  const handleSelect = (r: SearchResult) => {
+    setSelected({ symbol: r.symbol, market: r.market as Market, name: r.name });
+    setStep(2);
+  };
+
+  const canSave = Number(shares) > 0 && Number(avgPrice) >= 0 && selected != null;
 
   const handleSave = () => {
-    if (!canSave) return;
+    if (!canSave || !selected) return;
     onSave({
-      symbol: form.symbol.toUpperCase().trim(),
-      market: form.market,
-      name: form.name.trim(),
-      shares: Number(form.shares),
-      avgPrice: Number(form.avgPrice),
-      purchaseDate: form.purchaseDate || undefined,
-      note: form.note || undefined,
+      symbol: selected.symbol,
+      market: selected.market,
+      name: selected.name,
+      shares: Number(shares),
+      avgPrice: Number(avgPrice),
+      purchaseDate: purchaseDate || undefined,
+      note: note || undefined,
     });
   };
 
-  const inp =
-    "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
+  const inp = "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/70 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h3 className="text-sm font-bold text-text-primary">
-            {item ? "포지션 수정" : "종목 추가"}
+
+        {/* 헤더 */}
+        <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
+          {step === 2 && !item && (
+            <button onClick={() => setStep(1)} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+              <ArrowLeft size={15} />
+            </button>
+          )}
+          <h3 className="flex-1 text-sm font-bold text-text-primary">
+            {item ? "포지션 수정" : step === 1 ? "종목 검색" : "매수 정보 입력"}
           </h3>
           <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
             <X size={15} />
           </button>
         </div>
 
-        <div className="px-5 py-4 flex flex-col gap-3.5 max-h-[75vh] overflow-y-auto">
-          <div className="flex gap-3">
-            <div className="flex-1 flex flex-col gap-1.5">
-              <label className="text-2xs font-semibold text-text-muted">종목코드 *</label>
+        {/* Step 1: 검색 */}
+        {step === 1 && (
+          <>
+            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
+              <Search size={14} className="text-text-muted flex-shrink-0" />
               <input
-                className={inp}
-                placeholder="AAPL, 005930"
-                value={form.symbol}
-                onChange={(e) => setForm((f) => ({ ...f, symbol: e.target.value.toUpperCase() }))}
+                ref={inputRef}
+                className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
+                placeholder="종목명 또는 코드 검색 (예: AAPL, 005930, 삼성)"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                autoComplete="off"
               />
+              {searching && <div className="w-4 h-4 border border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-2xs font-semibold text-text-muted">시장 *</label>
-              <div className="flex gap-1">
-                {(["KR", "US", "ETF"] as Market[]).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setForm((f) => ({ ...f, market: m }))}
-                    className={`px-2.5 py-2 text-xs font-bold rounded-lg border transition-all ${
-                      form.market === m
-                        ? m === "KR"
-                          ? "bg-blue-900/40 border-blue-700/60 text-blue-400"
-                          : m === "ETF"
-                          ? "bg-yellow-900/40 border-yellow-700/60 text-yellow-400"
-                          : "bg-green-900/40 border-green-700/60 text-green-400"
-                        : "border-border text-text-muted hover:text-text-primary"
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))}
+            <div className="max-h-72 overflow-y-auto">
+              {!query && (
+                <div className="px-4 py-8 text-center text-text-muted text-xs">종목명·코드·한글로 검색하세요</div>
+              )}
+              {query && !searching && results.length === 0 && (
+                <div className="px-4 py-8 text-center text-text-muted text-sm">검색 결과 없음</div>
+              )}
+              {results.map((r) => (
+                <button
+                  key={r.symbol + r.market}
+                  className="w-full flex items-center gap-3 px-4 py-3 border-b border-border/30 hover:bg-bg-hover text-left transition-colors"
+                  onClick={() => handleSelect(r)}
+                >
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[r.market] ?? ""}`}>
+                    {r.market}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono font-bold text-sm text-text-primary">{r.symbol}</div>
+                    <div className="text-xs text-text-muted truncate">{r.name}</div>
+                  </div>
+                  <span className="text-xs text-text-muted flex-shrink-0">{r.exchange}</span>
+                  <Plus size={13} className="text-accent-blue flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Step 2: 매수 정보 */}
+        {step === 2 && selected && (
+          <>
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-bg-elevated/50">
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[selected.market] ?? ""}`}>
+                {selected.market}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="font-mono font-bold text-sm text-text-primary">{selected.symbol}</div>
+                <div className="text-xs text-text-muted truncate">{selected.name}</div>
               </div>
             </div>
-          </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">종목명 *</label>
-            <input
-              className={inp}
-              placeholder="Samsung Electronics, Apple Inc."
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            />
-          </div>
-
-          <div className="flex gap-3">
-            <div className="flex-1 flex flex-col gap-1.5">
-              <label className="text-2xs font-semibold text-text-muted">보유수량 *</label>
-              <input
-                className={inp}
-                type="number"
-                min="0.0001"
-                step="0.0001"
-                placeholder="0"
-                value={form.shares}
-                onChange={(e) => setForm((f) => ({ ...f, shares: e.target.value }))}
-              />
+            <div className="px-5 py-4 flex flex-col gap-3.5">
+              <div className="flex gap-3">
+                <div className="flex-1 flex flex-col gap-1.5">
+                  <label className="text-2xs font-semibold text-text-muted">보유수량 *</label>
+                  <input
+                    ref={sharesRef}
+                    className={inp}
+                    type="number"
+                    min="0.0001"
+                    step="0.0001"
+                    placeholder="0"
+                    value={shares}
+                    onChange={(e) => setShares(e.target.value)}
+                  />
+                </div>
+                <div className="flex-1 flex flex-col gap-1.5">
+                  <label className="text-2xs font-semibold text-text-muted">평균매수가 *</label>
+                  <input
+                    className={inp}
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="0"
+                    value={avgPrice}
+                    onChange={(e) => setAvgPrice(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-2xs font-semibold text-text-muted">매수일</label>
+                <input
+                  className={inp}
+                  type="date"
+                  value={purchaseDate}
+                  onChange={(e) => setPurchaseDate(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-2xs font-semibold text-text-muted">
+                  메모<span className="ml-1 text-text-dim font-normal">({note.length}/100)</span>
+                </label>
+                <textarea
+                  className={`${inp} resize-none`}
+                  rows={2}
+                  maxLength={100}
+                  placeholder="선택 사항"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="flex-1 flex flex-col gap-1.5">
-              <label className="text-2xs font-semibold text-text-muted">평균매수가 *</label>
-              <input
-                className={inp}
-                type="number"
-                min="0"
-                step="any"
-                placeholder="0"
-                value={form.avgPrice}
-                onChange={(e) => setForm((f) => ({ ...f, avgPrice: e.target.value }))}
-              />
+
+            <div className="flex gap-2 px-5 py-4 border-t border-border">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!canSave}
+                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                저장
+              </button>
             </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">매수일</label>
-            <input
-              className={inp}
-              type="date"
-              value={form.purchaseDate}
-              onChange={(e) => setForm((f) => ({ ...f, purchaseDate: e.target.value }))}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">
-              메모
-              <span className="ml-1 text-text-dim font-normal">({form.note.length}/100)</span>
-            </label>
-            <textarea
-              className={`${inp} resize-none`}
-              rows={2}
-              maxLength={100}
-              placeholder="선택 사항"
-              value={form.note}
-              onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-            />
-          </div>
-        </div>
-
-        <div className="flex gap-2 px-5 py-4 border-t border-border">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors"
-          >
-            취소
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!canSave}
-            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            저장
-          </button>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
