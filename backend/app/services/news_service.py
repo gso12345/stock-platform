@@ -91,7 +91,7 @@ US_FEEDS = [
 ]
 
 
-# 경제/금융 관련 키워드 (이 중 하나라도 포함되거나, 비경제 키워드가 없으면 통과)
+# 경제/금융 관련 키워드
 _FINANCE_KW = {
     "주식","증시","코스피","코스닥","주가","상장","배당","실적","매출","영업이익","순이익","PER","PBR",
     "금리","기준금리","채권","환율","달러","원화","엔화","위안","물가","인플레","금융","은행","증권","펀드",
@@ -99,24 +99,39 @@ _FINANCE_KW = {
     "경제","GDP","성장률","수출","수입","무역","반도체","IT","기업","산업","제조","에너지","원자재",
     "부동산","리츠","부채","자본","M&A","IPO","공모","공시","재무","회계","연준","Fed","FOMC",
     "나스닥","다우","S&P","닛케이","상하이","항셍","ECB","BOJ","IMF","WB",
+    # 기업 활동
+    "수주","계약","출시","발표","인수","합병","분기","연간","전망","목표주가","리포트","흑자","적자",
+    "증가","감소","상승","하락","급등","급락","신고가","신저가","강세","약세","랠리","조정",
+    "인상","인하","동결","긴축","완화","부양","정책","규제","승인","허가","상폐","재상장",
+    "삼성","SK","LG","현대","롯데","포스코","카카오","네이버","셀트리온","한화","두산",
 }
 _NONFINANCE_KW = {
     "야구","축구","농구","배구","골프","스포츠","연예","드라마","영화","음악","아이돌","배우",
     "요리","레시피","맛집","여행","패션","뷰티","헬스","운동","건강","날씨","사건","사고","범죄",
 }
 
-def _is_finance_news(title: str) -> bool:
+# 경제 전문 매체 — 필터 없이 전량 수집
+_FINANCE_ONLY_SOURCES = {
+    "한국경제","한국경제TV","매일경제","서울경제","이데일리","이데일리 증권",
+    "파이낸셜뉴스","아시아경제","머니투데이","머니투데이 증권","연합인포맥스",
+    "더벨","딜사이트","인베스트조선","뉴스1 증권","뉴시스 증권","연합뉴스 증권",
+}
+
+def _is_finance_news(title: str, source: str = "") -> bool:
     """제목이 경제/금융 관련인지 판단"""
     import re
-    # 비금융 키워드가 있으면 제외
+    if source in _FINANCE_ONLY_SOURCES:
+        # 비금융 키워드가 명확히 있을 때만 제외
+        for kw in _NONFINANCE_KW:
+            if kw in title:
+                return False
+        return True
     for kw in _NONFINANCE_KW:
         if kw in title:
             return False
-    # 금융 키워드가 하나라도 있으면 포함
     for kw in _FINANCE_KW:
         if kw in title:
             return True
-    # 영어 금융 패턴 (숫자+%, $, ₩ 포함 기사)
     if re.search(r'\d+\.?\d*%|[$₩€¥]|\bIPO\b|\bGDP\b|\bESG\b', title):
         return True
     return False
@@ -126,12 +141,13 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
     try:
         feed  = feedparser.parse(url)
         items = []
-        for entry in feed.entries[:limit*3]:  # 더 많이 가져와서 필터 후 limit 맞춤
+        # 최대 50개까지 스캔 — 필터 통과율이 낮아도 충분히 수집
+        for entry in feed.entries[:max(limit * 5, 50)]:
             pub = _to_kst(entry.get("published_parsed")) or _to_kst(entry.get("updated_parsed")) or ""
             title = entry.get("title", "").strip()
             if not title:
                 continue
-            if not _is_finance_news(title):
+            if not _is_finance_news(title, source):
                 continue
             items.append({
                 "title":     title,
@@ -219,7 +235,7 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     return result
 
 
-def get_kr_news(limit_per_source: int = 4, total_limit: int = 200) -> list[dict]:
+def get_kr_news(limit_per_source: int = 8, total_limit: int = 200) -> list[dict]:
     ck = "news:kr"
     if c := cache.get(ck):
         return c

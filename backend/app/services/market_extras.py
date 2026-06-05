@@ -132,14 +132,9 @@ def _demo_futures() -> list:
 
 
 # ── 금리 ──────────────────────────────────────────────────
-def get_kr_rates() -> list:
+def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
-    if c := cache.get(ck):
-        return c
-
     rates = []
-
-    # yfinance로 조회 가능한 금리
     rate_specs = [
         ("^IRX",  "미국 단기 금리(13W)",  "%"),
         ("^TNX",  "미국 10년 국채",        "%"),
@@ -158,20 +153,17 @@ def get_kr_rates() -> list:
                 "name":        name,
                 "value":       round(curr, 3),
                 "change":      round(curr - prev, 3),
-                "change_rate": round(curr - prev, 3),  # 금리는 절대값 변화
+                "change_rate": round(curr - prev, 3),
                 "unit":        unit,
             })
         except Exception:
             continue
 
-    # 한국 기준금리는 API 없으면 데모
     kr_base = cache.get_stale("extra:kr_base_rate")
     if not kr_base:
         kr_base = {"name":"한국 기준금리","value":3.50,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
         cache.set("extra:kr_base_rate", kr_base, 86400)
     rates.insert(0, kr_base)
-
-    # CD 91일물 (근사)
     cd_rate = {"name":"CD금리(91일)","value":3.62,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
     rates.insert(1, cd_rate)
 
@@ -180,12 +172,20 @@ def get_kr_rates() -> list:
     return rates or _demo_rates()
 
 
-def get_us_rates() -> list:
-    """미국 환율·금리·국채 — yfinance"""
-    ck = "extra:us_rates"
+def get_kr_rates() -> list:
+    import threading
+    ck = "extra:kr_rates"
     if c := cache.get(ck):
         return c
+    stale = cache.get_stale(ck)
+    if stale:
+        threading.Thread(target=_do_fetch_kr_rates, daemon=True).start()
+        return stale
+    return _do_fetch_kr_rates()
 
+
+def _do_fetch_us_rates() -> list:
+    ck = "extra:us_rates"
     specs = [
         ("USDKRW=X",  "원/달러",    "원",  False),
         ("EURKRW=X",  "원/유로",    "원",  False),
@@ -220,7 +220,6 @@ def get_us_rates() -> list:
         except Exception:
             continue
 
-    # 연방기준금리 (정적)
     fed = cache.get_stale("extra:fed_rate") or {
         "name": "연방기준금리", "value": 5.25,
         "change": 0.0, "change_rate": 0.0, "unit": "%", "_static": True,
@@ -230,6 +229,18 @@ def get_us_rates() -> list:
     if results:
         cache.set(ck, results, 300)
     return results
+
+
+def get_us_rates() -> list:
+    import threading
+    ck = "extra:us_rates"
+    if c := cache.get(ck):
+        return c
+    stale = cache.get_stale(ck)
+    if stale:
+        threading.Thread(target=_do_fetch_us_rates, daemon=True).start()
+        return stale
+    return _do_fetch_us_rates()
 
 
 def _demo_rates() -> list:
