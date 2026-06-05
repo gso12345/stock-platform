@@ -261,6 +261,45 @@ async def refresh_exchange():
         log.debug(f"환율 갱신 실패: {e}")
 
 
+async def _prefetch_ohlcv_popular():
+    """인기 종목 5년 일봉 선제 캐싱 (startup 후 백그라운드)"""
+    from app.services.yf_service import yf_service
+    loop = asyncio.get_running_loop()
+    ok = 0
+    for sym in POPULAR_US[:8]:
+        ck = f"ohlcv:US:{sym}:5y:1d"
+        if cache.get(ck):
+            continue
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, yf_service.get_ohlcv, sym, "5y", "1d", "US"),
+                timeout=15
+            )
+            if result:
+                cache.set(ck, result, 300)
+                ok += 1
+        except Exception:
+            pass
+        await asyncio.sleep(0.3)
+    for code6 in POPULAR_KR_CODES[:5]:
+        sym = f"{code6}.KS"
+        ck = f"ohlcv:KR:{sym}:5y:1d"
+        if cache.get(ck):
+            continue
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, yf_service.get_ohlcv, sym, "5y", "1d", "KR"),
+                timeout=15
+            )
+            if result:
+                cache.set(ck, result, 300)
+                ok += 1
+        except Exception:
+            pass
+        await asyncio.sleep(0.3)
+    log.info(f"인기 종목 OHLCV 선제 캐싱 {ok}개")
+
+
 async def run_startup_prefetch():
     log.info("=== 초기 프리페치 시작 ===")
 
@@ -287,6 +326,8 @@ async def run_startup_prefetch():
         refresh_kr_stocks(),
         return_exceptions=True,
     )
+    # OHLCV 선제 캐싱 (후후순위 — 백그라운드)
+    asyncio.create_task(_prefetch_ohlcv_popular())
     log.info("=== 초기 프리페치 완료 ===")
 
 
