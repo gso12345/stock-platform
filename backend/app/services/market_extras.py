@@ -132,39 +132,48 @@ def _demo_futures() -> list:
 
 
 # ── 금리 ──────────────────────────────────────────────────
+def _batch_close(symbols: list) -> "pd.DataFrame | None":
+    """여러 심볼을 yf.download 1회로 배치 조회 — 순차 N회 → 1회"""
+    try:
+        import pandas as pd
+        raw = yf.download(symbols, period="5d", progress=False, auto_adjust=True)
+        if raw.empty:
+            return None
+        if hasattr(raw.columns, "levels"):
+            return raw["Close"]          # MultiIndex: (metric, ticker) → DataFrame
+        else:
+            return raw[["Close"]].rename(columns={"Close": symbols[0]})  # 단일 ticker
+    except Exception:
+        return None
+
+
 def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
-    rates = []
     rate_specs = [
         ("^IRX",  "미국 단기 금리(13W)",  "%"),
         ("^TNX",  "미국 10년 국채",        "%"),
         ("^TYX",  "미국 30년 국채",        "%"),
     ]
+    close_data = _batch_close([s[0] for s in rate_specs])
+
+    rates = []
     for sym, name, unit in rate_specs:
         try:
-            t = yf.Ticker(sym)
-            h = t.history(period="5d")
-            c = h["Close"].dropna()
+            c = close_data[sym].dropna() if (close_data is not None and sym in close_data.columns) \
+                else yf.Ticker(sym).history(period="5d")["Close"].dropna()
             if len(c) < 1:
                 continue
-            curr = float(c.iloc[-1])
-            prev = float(c.iloc[-2]) if len(c) >= 2 else curr
-            rates.append({
-                "name":        name,
-                "value":       round(curr, 3),
-                "change":      round(curr - prev, 3),
-                "change_rate": round(curr - prev, 3),
-                "unit":        unit,
-            })
+            curr, prev = float(c.iloc[-1]), float(c.iloc[-2]) if len(c) >= 2 else float(c.iloc[-1])
+            rates.append({"name": name, "value": round(curr, 3),
+                          "change": round(curr - prev, 3), "change_rate": round(curr - prev, 3), "unit": unit})
         except Exception:
             continue
 
-    kr_base = cache.get_stale("extra:kr_base_rate")
-    if not kr_base:
-        kr_base = {"name":"한국 기준금리","value":3.50,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
-        cache.set("extra:kr_base_rate", kr_base, 86400)
-    rates.insert(0, kr_base)
+    kr_base = cache.get_stale("extra:kr_base_rate") or \
+        {"name":"한국 기준금리","value":3.50,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
+    cache.set("extra:kr_base_rate", kr_base, 86400)
     cd_rate = {"name":"CD금리(91일)","value":3.62,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
+    rates.insert(0, kr_base)
     rates.insert(1, cd_rate)
 
     if rates:
@@ -187,35 +196,32 @@ def get_kr_rates() -> list:
 def _do_fetch_us_rates() -> list:
     ck = "extra:us_rates"
     specs = [
-        ("USDKRW=X",  "원/달러",    "원",  False),
-        ("EURKRW=X",  "원/유로",    "원",  False),
-        ("JPYKRW=X",  "원/100엔",   "원",  False),
-        ("^IRX",      "미국 단기금리(3M)",  "%",   True),
-        ("^FVX",      "미국 5년 국채",      "%",   True),
-        ("^TNX",      "미국 10년 국채",     "%",   True),
-        ("^TYX",      "미국 30년 국채",     "%",   True),
-        ("^VIX",      "VIX 공포지수",       "pt",  False),
+        ("USDKRW=X",  "원/달러",          "원",  False),
+        ("EURKRW=X",  "원/유로",          "원",  False),
+        ("JPYKRW=X",  "원/100엔",         "원",  False),
+        ("^IRX",      "미국 단기금리(3M)", "%",   True),
+        ("^FVX",      "미국 5년 국채",     "%",   True),
+        ("^TNX",      "미국 10년 국채",    "%",   True),
+        ("^TYX",      "미국 30년 국채",    "%",   True),
+        ("^VIX",      "VIX 공포지수",      "pt",  False),
     ]
+    close_data = _batch_close([s[0] for s in specs])  # 8회 → 1회 배치
 
     results = []
     for sym, name, unit, is_rate in specs:
         try:
-            t = yf.Ticker(sym)
-            h = t.history(period="5d")
-            c2 = h["Close"].dropna()
+            c2 = close_data[sym].dropna() if (close_data is not None and sym in close_data.columns) \
+                 else yf.Ticker(sym).history(period="5d")["Close"].dropna()
             if len(c2) < 1:
                 continue
-            curr = float(c2.iloc[-1])
-            prev = float(c2.iloc[-2]) if len(c2) >= 2 else curr
+            curr, prev = float(c2.iloc[-1]), float(c2.iloc[-2]) if len(c2) >= 2 else float(c2.iloc[-1])
             chg  = curr - prev
             chgr = chg / prev * 100 if prev and not is_rate else chg
             results.append({
-                "name":        name,
-                "value":       round(curr, 3 if is_rate else 2),
-                "change":      round(chg,  3 if is_rate else 2),
+                "name": name, "value": round(curr, 3 if is_rate else 2),
+                "change": round(chg, 3 if is_rate else 2),
                 "change_rate": round(chgr, 3 if is_rate else 2),
-                "unit":        unit,
-                "is_rate":     is_rate,
+                "unit": unit, "is_rate": is_rate,
             })
         except Exception:
             continue

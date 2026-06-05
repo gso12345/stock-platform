@@ -135,8 +135,8 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
     let queue: string[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
     const flush = () => {
-      queue.splice(0, 3).forEach(prefetchStock);
-      if (queue.length > 0) timer = setTimeout(flush, 600);
+      queue.splice(0, 6).forEach(prefetchStock);
+      if (queue.length > 0) timer = setTimeout(flush, 250);
     };
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(e => {

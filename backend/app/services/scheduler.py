@@ -268,7 +268,8 @@ async def run_startup_prefetch():
     from app.services.news_service import get_kr_news, get_us_news
     from app.services.ranking_service import refresh_kr_rankings_from_naver
 
-    # 지수 + 환율 + 뉴스 + 랭킹 동시 갱신
+    from app.services.market_extras import get_kr_rates, get_us_rates
+    # 지수 + 환율 + 금리 + 뉴스 + 랭킹 동시 갱신
     await asyncio.gather(
         refresh_kr_indices(),
         refresh_us_indices(),
@@ -276,6 +277,8 @@ async def run_startup_prefetch():
         refresh_kr_rankings_from_naver(),
         loop.run_in_executor(None, get_kr_news, 6, 100),
         loop.run_in_executor(None, get_us_news, 6, 100),
+        loop.run_in_executor(None, get_kr_rates),
+        loop.run_in_executor(None, get_us_rates),
         return_exceptions=True,
     )
     # 종목 갱신 (후순위)
