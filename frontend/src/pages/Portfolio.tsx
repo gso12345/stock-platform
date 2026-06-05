@@ -388,16 +388,19 @@ export default function Portfolio() {
   const { colorScheme } = useSettingsStore();
   const { pnlColor } = usePnlColors(colorScheme);
 
-  /* ── 환율 조회 ── */
-  const { data: krData } = useQuery({
-    queryKey: ["dashboard-kr", "시가총액"],
-    queryFn:  () => dashboardApi.getKR("시가총액"),
+  /* ── 환율 조회 (해외 대시보드 기준 — yfinance USDKRW=X) ── */
+  const { data: usRatesData } = useQuery({
+    queryKey: ["dashboard-us-rates"],
+    queryFn:  () => dashboardApi.getUSRates(),
     staleTime: 300_000,
   });
   const exchangeRate: number = useMemo(() => {
-    const raw = (krData as any)?.exchange;
-    return raw?.value ?? raw?.usdkrw ?? DEFAULT_FX;
-  }, [krData]);
+    if (Array.isArray(usRatesData)) {
+      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
+      if (row?.value) return row.value;
+    }
+    return DEFAULT_FX;
+  }, [usRatesData]);
 
   const handleTabChange = (tab: "portfolio" | "watchlist") => {
     if (tab === "watchlist") { navigate("/watchlist"); return; }
