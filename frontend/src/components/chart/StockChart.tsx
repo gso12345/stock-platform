@@ -60,8 +60,8 @@ export const MAX_PERIOD_BY_CANDLE = CANDLE_MAX_PERIOD;
 
 export const CANDLE_DEFAULT_PERIOD: Record<string, string> = {
   "1m":"1d","2m":"1d","5m":"5d","15m":"1mo","30m":"1mo","60m":"3mo","90m":"1mo",
-  "1d":"5y","3d":"2y","5d":"2y","10d":"2y","30d":"2y","60d":"2y",
-  "1wk":"5y","1mo":"10y","3mo":"10y","1y":"max",
+  "1d":"max","3d":"max","5d":"max","10d":"max","30d":"max","60d":"max",
+  "1wk":"max","1mo":"max","3mo":"max","1y":"max",
 };
 
 /* ── 지표 설정 타입 ─────────────────────────────────────── */
