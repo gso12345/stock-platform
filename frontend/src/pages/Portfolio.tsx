@@ -4,13 +4,13 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { stocksApi, dashboardApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, Settings } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { useSettingsStore } from "@/store/settingsStore";
 
 /* ── Types ─────────────────────────────────────────────── */
 type Market = "KR" | "US" | "ETF";
 type Currency = "KRW" | "USD";
-type ColorScheme = "green-red" | "red-blue";
 type ChartMode = "stock" | "market";
 
 interface PortfolioItem {
@@ -26,10 +26,6 @@ interface PortfolioItem {
   note?: string;
 }
 
-interface PortfolioSettings {
-  colorScheme: ColorScheme;
-}
-
 interface EnrichedItem extends PortfolioItem {
   currentPriceNative: number;
   currentValueKRW: number;
@@ -40,10 +36,9 @@ interface EnrichedItem extends PortfolioItem {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const STORAGE_KEY   = "portfolio_items";
-const SETTINGS_KEY  = "portfolio_settings";
-const PIE_COLORS    = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16"];
-const DEFAULT_FX    = 1350;
+const STORAGE_KEY = "portfolio_items";
+const PIE_COLORS  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16"];
+const DEFAULT_FX  = 1350;
 
 /* ── useLocalStorage ────────────────────────────────────── */
 function useLocalStorage<T>(key: string, initial: T): [T, (v: T | ((prev: T) => T)) => void] {
@@ -108,65 +103,6 @@ const MKTCOLOR: Record<string, string> = {
   US:  "border-green-700/50 text-green-400 bg-green-900/20",
   ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
 };
-
-/* ── Settings Modal ─────────────────────────────────────── */
-function SettingsModal({ settings, onClose, onChange }: {
-  settings: PortfolioSettings;
-  onClose: () => void;
-  onChange: (s: PortfolioSettings) => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h3 className="text-sm font-bold text-text-primary">포트폴리오 설정</h3>
-          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
-            <X size={15} />
-          </button>
-        </div>
-        <div className="px-5 py-5 flex flex-col gap-4">
-          <div>
-            <p className="text-xs font-semibold text-text-muted mb-2">등락 색상</p>
-            <div className="flex gap-2">
-              {([
-                { value: "green-red", label: "초록 / 빨강", desc: "상승=초록, 하락=빨강 (글로벌 기준)" },
-                { value: "red-blue",  label: "빨강 / 파랑",  desc: "상승=빨강, 하락=파랑 (한국 기준)" },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => onChange({ ...settings, colorScheme: opt.value })}
-                  className={`flex-1 flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${
-                    settings.colorScheme === opt.value
-                      ? "border-accent-blue bg-accent-blue/10"
-                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
-                  }`}
-                >
-                  <div className="flex gap-1.5">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${opt.value === "green-red" ? "text-accent-green bg-accent-green/10" : "text-accent-red bg-accent-red/10"}`}>▲</span>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${opt.value === "green-red" ? "text-accent-red bg-accent-red/10" : "text-accent-blue bg-accent-blue/10"}`}>▼</span>
-                  </div>
-                  <span className="text-xs font-semibold text-text-primary">{opt.label}</span>
-                  <span className="text-[10px] text-text-muted text-center leading-tight">{opt.desc}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="px-5 pb-5">
-          <button
-            onClick={onClose}
-            className="w-full py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors"
-          >
-            확인
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ── Add/Edit Modal (Step 1: 검색 → Step 2: 매수 정보) ─── */
 function PortfolioModal({
@@ -444,14 +380,13 @@ export default function Portfolio() {
   const navigate = useNavigate();
   const [activeTab,       setActiveTab]       = useState<"portfolio" | "watchlist">("portfolio");
   const [items,           setItems]           = useLocalStorage<PortfolioItem[]>(STORAGE_KEY, []);
-  const [settings,        setSettings]        = useLocalStorage<PortfolioSettings>(SETTINGS_KEY, { colorScheme: "green-red" });
   const [modalOpen,       setModalOpen]       = useState(false);
-  const [settingsOpen,    setSettingsOpen]    = useState(false);
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
 
-  const { pnlColor } = usePnlColors(settings.colorScheme);
+  const { colorScheme } = useSettingsStore();
+  const { pnlColor } = usePnlColors(colorScheme);
 
   /* ── 환율 조회 ── */
   const { data: krData } = useQuery({
@@ -665,21 +600,12 @@ export default function Portfolio() {
             )}
             {isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
-              title="설정"
-            >
-              <Settings size={14} />
-            </button>
-            <button
-              onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
-            >
-              <Plus size={13} /> 추가
-            </button>
-          </div>
+          <button
+            onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
+          >
+            <Plus size={13} /> 추가
+          </button>
         </div>
 
         {items.length === 0 ? (
@@ -734,10 +660,14 @@ export default function Portfolio() {
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-text-primary">
-                        {hasPrice
-                          ? fmtNative(item.market, item.currency, item.currentPriceNative)
-                          : <span className="text-text-muted">—</span>
-                        }
+                        {hasPrice ? (
+                          item.currency === "USD" ? (
+                            <div>
+                              <div>{fmtKRW(item.currentPriceNative * exchangeRate)}</div>
+                              <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>
+                            </div>
+                          ) : fmtNative(item.market, item.currency, item.currentPriceNative)
+                        ) : <span className="text-text-muted">—</span>}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-text-primary">
                         {fmtKRW(item.currentValueKRW)}
@@ -812,14 +742,6 @@ export default function Portfolio() {
         />
       )}
 
-      {/* ── 설정 모달 ── */}
-      {settingsOpen && (
-        <SettingsModal
-          settings={settings}
-          onClose={() => setSettingsOpen(false)}
-          onChange={setSettings}
-        />
-      )}
     </div>
   );
 }
