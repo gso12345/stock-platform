@@ -772,7 +772,7 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
             hist = None
             try:
                 # PER/PBR/PSR 계산용 주가 이력 — max 대신 10y로 제한 (속도 개선)
-                hist = t.history(period="10y", interval="1mo")
+                hist = t.history(period="3y", interval="1mo")
                 if hist.index.tz is not None:
                     hist.index = hist.index.tz_localize(None)
             except Exception:
