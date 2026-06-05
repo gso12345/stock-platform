@@ -261,43 +261,66 @@ async def refresh_exchange():
         log.debug(f"환율 갱신 실패: {e}")
 
 
+PREFETCH_INDEX_OHLCV = ["SP500", "NASDAQ", "DOW", "KOSPI", "KOSDAQ"]
+
+
 async def _prefetch_ohlcv_popular():
-    """인기 종목 5년 일봉 선제 캐싱 (startup 후 백그라운드)"""
+    """인기 지수 + 종목 OHLCV 선제 캐싱 (startup 후 백그라운드)"""
     from app.services.yf_service import yf_service
     loop = asyncio.get_running_loop()
     ok = 0
+
+    # 1) 인기 지수 OHLCV (max 기간)
+    for name in PREFETCH_INDEX_OHLCV:
+        for period in ("max", "5y"):
+            ck = f"idx_ohlcv:{name}:{period}:1d"
+            if cache.get(ck):
+                continue
+            try:
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(None, yf_service.get_index_ohlcv, name, period, "1d"),
+                    timeout=30
+                )
+                if result:
+                    ok += 1
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+
+    # 2) 인기 미국 종목 OHLCV (5년)
     for sym in POPULAR_US[:8]:
-        ck = f"ohlcv:US:{sym}:5y:1d"
-        if cache.get(ck):
+        ck = f"ohlcv:US:{sym}:max:1d"
+        if cache.get(ck) or cache.get(f"ohlcv:US:{sym}:5y:1d"):
             continue
         try:
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, yf_service.get_ohlcv, sym, "5y", "1d", "US"),
-                timeout=15
+                loop.run_in_executor(None, yf_service.get_ohlcv, sym, "max", "1d", "US"),
+                timeout=20
             )
             if result:
-                cache.set(ck, result, 300)
                 ok += 1
         except Exception:
             pass
         await asyncio.sleep(0.3)
+
+    # 3) 인기 국내 종목 OHLCV
     for code6 in POPULAR_KR_CODES[:5]:
         sym = f"{code6}.KS"
-        ck = f"ohlcv:KR:{sym}:5y:1d"
-        if cache.get(ck):
+        ck = f"ohlcv:KR:{sym}:max:1d"
+        if cache.get(ck) or cache.get(f"ohlcv:KR:{sym}:5y:1d"):
             continue
         try:
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, yf_service.get_ohlcv, sym, "5y", "1d", "KR"),
-                timeout=15
+                loop.run_in_executor(None, yf_service.get_ohlcv, sym, "max", "1d", "KR"),
+                timeout=20
             )
             if result:
-                cache.set(ck, result, 300)
                 ok += 1
         except Exception:
             pass
         await asyncio.sleep(0.3)
-    log.info(f"인기 종목 OHLCV 선제 캐싱 {ok}개")
+
+    log.info(f"OHLCV 선제 캐싱 {ok}개")
 
 
 async def run_startup_prefetch():

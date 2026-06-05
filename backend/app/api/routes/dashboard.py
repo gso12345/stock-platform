@@ -56,45 +56,32 @@ async def _get_kr_index(name: str) -> dict:
     return {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
 
 
+async def _refresh_indices_bg():
+    """백그라운드 지수 전체 갱신 (non-blocking)"""
+    from app.services.scheduler import refresh_kr_indices, refresh_us_indices
+    try:
+        await asyncio.gather(refresh_kr_indices(), refresh_us_indices(), return_exceptions=True)
+    except Exception:
+        pass
+
+
 # ── 해외 지수 조회 ─────────────────────────────────────────
 async def _get_us_index(name: str) -> dict:
-    # 1. 신선한 캐시
     fresh = cache.get(f"idx:{name}")
     if fresh and fresh.get("value", 0) > 0:
         return fresh
-    # 2. stale 캐시
     stale = cache.get_stale(f"idx:{name}")
+    asyncio.get_running_loop().create_task(_refresh_indices_bg())
     if stale and stale.get("value", 0) > 0:
         return stale
-    # 3. yfinance 직접 조회 (서버 재시작 직후 캐시 없을 때 fallback)
-    try:
-        result = await asyncio.wait_for(
-            asyncio.get_running_loop().run_in_executor(None, yf_service.get_market_index, name),
-            timeout=8
-        )
-        if result and result.get("value", 0) > 0:
-            cache.set(f"idx:{name}", result, 60)
-            return result
-    except Exception:
-        pass
     return {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
 
 
 async def _get_kr_index_with_fallback(name: str) -> dict:
-    result = await _get_kr_index(name)
+    result = await _get_kr_index(name)  # KIS + fresh + stale 캐시 확인
     if result.get("value", 0) > 0:
         return result
-    # yfinance 직접 fallback
-    try:
-        yf_result = await asyncio.wait_for(
-            asyncio.get_running_loop().run_in_executor(None, yf_service.get_market_index, name),
-            timeout=8
-        )
-        if yf_result and yf_result.get("value", 0) > 0:
-            cache.set(f"idx:{name}", yf_result, 60)
-            return yf_result
-    except Exception:
-        pass
+    asyncio.get_running_loop().create_task(_refresh_indices_bg())
     return result
 
 
@@ -324,16 +311,28 @@ async def get_index_detail(name: str):
 @router.get("/index/{name}/ohlcv")
 async def get_index_ohlcv(name: str, period: str = Query(default="1y"), interval: str = Query(default="1d")):
     name_upper = name.upper()
+    ck = f"idx_ohlcv:{name_upper}:{period}:{interval}"
+
+    fresh = cache.get(ck)
+    if fresh:
+        return fresh
+
+    stale = cache.get_stale(ck)
     loop = asyncio.get_running_loop()
-    try:
-        result = await asyncio.wait_for(
-            loop.run_in_executor(None, yf_service.get_index_ohlcv, name_upper, period, interval),
-            timeout=20
-        )
-        if result:
-            return result
-    except Exception:
-        pass
+
+    async def _bg():
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(None, yf_service.get_index_ohlcv, name_upper, period, interval),
+                timeout=25,
+            )
+        except Exception:
+            pass
+
+    asyncio.get_running_loop().create_task(_bg())
+
+    if stale:
+        return stale
     return []
 
 

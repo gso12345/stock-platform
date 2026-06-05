@@ -293,7 +293,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const prefetchIndex = useCallback((key: string) => {
     if (qc.getQueryData(["index-detail", key])) return;
     qc.prefetchQuery({ queryKey: ["index-detail", key], queryFn: () => dashboardApi.getIndexDetail(key), staleTime: 30_000 });
-    qc.prefetchQuery({ queryKey: ["index-ohlcv", key, "max", "1d"], queryFn: () => dashboardApi.getIndexOHLCV(key, "max", "1d"), staleTime: 3_600_000 });
+    // OHLCV는 실제 지수 상세 페이지 진입 시 로드 (대시보드 호버 프리페치 제거)
   }, [qc]);
 
   const { data: newsData } = useQuery({
@@ -406,7 +406,6 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const prefetchIndex = useCallback((key: string) => {
     if (qc.getQueryData(["index-detail", key])) return;
     qc.prefetchQuery({ queryKey: ["index-detail", key], queryFn: () => dashboardApi.getIndexDetail(key), staleTime: 30_000 });
-    qc.prefetchQuery({ queryKey: ["index-ohlcv", key, "max", "1d"], queryFn: () => dashboardApi.getIndexOHLCV(key, "max", "1d"), staleTime: 3_600_000 });
   }, [qc]);
   const getIdx = (key: string) => {
     const live    = liveIndices?.us?.find((r: any) => r.index === key);

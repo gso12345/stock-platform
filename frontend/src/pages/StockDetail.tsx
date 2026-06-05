@@ -176,7 +176,9 @@ export default function StockDetail() {
     enabled: !!sym, retry: 1,
     staleTime: isIntraday ? 15_000 : 21_600_000,
     placeholderData: (prev) => prev,
-    refetchInterval: isIntraday ? 15_000 : false,
+    refetchInterval: isIntraday
+      ? 15_000
+      : (query) => (query.state.data?.length ?? 0) === 0 ? 4_000 : false,
   });
 
   // 종목 진입 1초 후 일별탭 데이터만 선제 prefetch (차트 로딩과 경합 방지)

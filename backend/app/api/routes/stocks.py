@@ -200,6 +200,20 @@ async def get_stock_ohlcv(
         cached_ohlcv = cache.get(ohlcv_ck)
         if cached_ohlcv is not None:
             return cached_ohlcv
+        # Stale → 즉시 반환 + 백그라운드 갱신
+        stale_ohlcv = cache.get_stale(ohlcv_ck)
+        if stale_ohlcv:
+            async def _bg_ohlcv():
+                try:
+                    await asyncio.wait_for(
+                        asyncio.get_running_loop().run_in_executor(
+                            None, yf_service.get_ohlcv, symbol, period, interval, market
+                        ), timeout=20
+                    )
+                except Exception:
+                    pass
+            asyncio.create_task(_bg_ohlcv())
+            return stale_ohlcv
 
     def _cache_and_return(result):
         if ohlcv_ck and result:

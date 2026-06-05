@@ -85,6 +85,8 @@ export default function IndexDetail() {
     queryFn: () => dashboardApi.getIndexOHLCV(indexName, "max", candleType),
     enabled: !!indexName && mainTab === "chart",
     staleTime: 300_000,
+    refetchInterval: (query) =>
+      (query.state.data?.length ?? 0) === 0 ? 4_000 : false,
   });
 
   // 일별 전용: 개월 수에 따라 점진적으로 fetch (탭 전환 시에만 fetch)
