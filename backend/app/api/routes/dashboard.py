@@ -120,15 +120,20 @@ async def get_kr_dashboard(
         asyncio.gather(*[_get_kr_index(n) for n in KR_INDICES]),
         _get_kr_rankings(category),
         _get_exchange_rate_async(),
-        loop.run_in_executor(None, get_kr_rates),
+        asyncio.wait_for(loop.run_in_executor(None, get_kr_rates), timeout=5),
+        asyncio.wait_for(get_kr_futures(), timeout=5),
     ]
-    tasks.append(get_kr_futures())
     if include_news:
         tasks.append(loop.run_in_executor(None, get_kr_news, 6, 100))
-        idx_results, rankings, exchange, rates, futures, news = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        idx_results, rankings, exchange, rates, futures, news = results
     else:
-        idx_results, rankings, exchange, rates, futures = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        idx_results, rankings, exchange, rates, futures = results
         news = cache.get("news:kr") or cache.get_stale("news:kr") or []
+    # 타임아웃 등 오류 시 stale/빈 값으로 대체
+    if isinstance(rates,   Exception): rates   = cache.get_stale("extra:kr_rates") or []
+    if isinstance(futures, Exception): futures = cache.get_stale("extra:kr_futures") or []
     return {
         "indices":  idx_results,
         "kospi":    idx_results[0],
@@ -211,26 +216,21 @@ async def get_us_dashboard(
     include_news: bool = Query(default=False),
 ):
     loop = asyncio.get_running_loop()
-    us_rates_cached = cache.get("extra:us_rates") or cache.get_stale("extra:us_rates") or []
     tasks = [
         asyncio.gather(*[_get_us_index(n) for n in US_INDICES]),
         _get_exchange_rate_async(),
         _get_us_rankings_cached(category),
+        asyncio.wait_for(loop.run_in_executor(None, get_us_rates), timeout=5),
     ]
-    if not us_rates_cached:
-        tasks.append(loop.run_in_executor(None, get_us_rates))
     if include_news:
         tasks.append(loop.run_in_executor(None, get_us_news, 6, 100))
 
-    gathered = await asyncio.gather(*tasks)
-    idx_results = gathered[0]
-    exchange    = gathered[1]
-    rankings    = gathered[2]
-    next_idx    = 3
-    if not us_rates_cached:
-        us_rates_cached = gathered[next_idx] or []
-        next_idx += 1
-    news = gathered[next_idx] if include_news else (cache.get("news:us") or cache.get_stale("news:us") or [])
+    gathered = await asyncio.gather(*tasks, return_exceptions=True)
+    idx_results     = gathered[0] if not isinstance(gathered[0], Exception) else []
+    exchange        = gathered[1] if not isinstance(gathered[1], Exception) else {}
+    rankings        = gathered[2] if not isinstance(gathered[2], Exception) else []
+    us_rates_cached = gathered[3] if not isinstance(gathered[3], Exception) else (cache.get_stale("extra:us_rates") or [])
+    news = gathered[4] if include_news and not isinstance(gathered[4], Exception) else (cache.get("news:us") or cache.get_stale("news:us") or [])
 
     idx_map = {r["index"]: r for r in idx_results if isinstance(r, dict)}
     return {
