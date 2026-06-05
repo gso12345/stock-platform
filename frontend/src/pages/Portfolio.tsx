@@ -433,18 +433,18 @@ export default function Portfolio() {
         ...raw,
         currency: raw.currency ?? (raw.market === "KR" ? "KRW" : "USD"),
       };
-      const isForex = item.market === "US" || item.market === "ETF";
+      // US/ETF API는 항상 USD로 반환 → 저장된 currency 무관하게 항상 환율 곱셈
+      const isUSDStock = item.market === "US" || item.market === "ETF";
       const currentPriceNative = priceMap[item.id] ?? item.avgPrice;
 
-      // current value in KRW
-      const currentValueKRW = isForex && item.currency === "USD"
+      const currentValueKRW = isUSDStock
         ? currentPriceNative * exchangeRate * item.shares
         : currentPriceNative * item.shares;
 
-      // cost in KRW
+      // 매입가는 저장된 통화 기준
       const fxForCost = item.currency === "USD"
         ? (item.inputExchangeRate ?? exchangeRate)
-        : 1;
+        : isUSDStock ? exchangeRate : 1; // KRW로 저장됐어도 US 종목이면 환율 적용
       const costKRW = item.avgPrice * fxForCost * item.shares;
 
       const pnlKRW = currentValueKRW - costKRW;
@@ -664,7 +664,7 @@ export default function Portfolio() {
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-text-primary">
                         {hasPrice ? (
-                          item.currency === "USD" ? (
+                          (item.market === "US" || item.market === "ETF") ? (
                             <div>
                               <div>{fmtKRW(item.currentPriceNative * exchangeRate)}</div>
                               <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>

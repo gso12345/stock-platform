@@ -300,6 +300,19 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     refetchIntervalInBackground: false,
   });
 
+  // 해외 탭과 동일한 소스(yfinance USDKRW=X)로 원/달러 환율 표시
+  const { data: usRatesData } = useQuery({
+    queryKey: ["dashboard-us-rates"],
+    queryFn: () => dashboardApi.getUSRates(),
+    staleTime: 300_000,
+  });
+  const usdkrwRate = useMemo(() => {
+    if (Array.isArray(usRatesData)) {
+      return (usRatesData as any[]).find((r: any) => r.name === "원/달러");
+    }
+    return null;
+  }, [usRatesData]);
+
   const prefetchIndex = useCallback((key: string) => {
     if (qc.getQueryData(["index-detail", key])) return;
     qc.prefetchQuery({ queryKey: ["index-detail", key], queryFn: () => dashboardApi.getIndexDetail(key), staleTime: 30_000 });
@@ -356,14 +369,14 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             [1,2,3,4].map(i => <ExtraCardSkeleton key={i} />)
           ) : (
             <>
-              {data?.exchange && (
+              {(usdkrwRate ?? data?.exchange) && (
                 <ExtraCard
                   name="원/달러"
-                  value={data.exchange.value ?? data.exchange.usdkrw ?? 0}
-                  change={data.exchange.change ?? 0}
-                  change_rate={data.exchange.change_rate ?? 0}
+                  value={usdkrwRate?.value ?? data?.exchange?.value ?? data?.exchange?.usdkrw ?? 0}
+                  change={usdkrwRate?.change ?? data?.exchange?.change ?? 0}
+                  change_rate={usdkrwRate?.change_rate ?? data?.exchange?.change_rate ?? 0}
                   unit="원"
-                  _demo={data.exchange._demo}
+                  _demo={usdkrwRate ? undefined : data?.exchange?._demo}
                 />
               )}
               {(data?.rates ?? []).map((r: any) => (
