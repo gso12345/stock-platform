@@ -520,8 +520,7 @@ export default function Watchlist() {
     const mkt = item.market as any;
     const sym = item.symbol;
     if (qc.getQueryData(["stock-detail", mkt, sym])) return;
-    qc.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 15_000 });
-    qc.prefetchQuery({ queryKey: ["stock-ohlcv", mkt, sym, "1d", "max"], queryFn: () => stocksApi.getOHLCV(mkt, sym, "max", "1d"), staleTime: 300_000 });
+    qc.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 60_000 });
   }, [qc]);
 
   useEffect(() => {
