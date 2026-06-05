@@ -150,21 +150,12 @@ export default function StockDetail() {
     }
   }, [m, sym, qc]);
 
-  const { data: detail, isLoading: loadingDetail, isPlaceholderData, error: detailError, refetch: refetchDetail, dataUpdatedAt } = useQuery({
+  const { data: detail, isLoading: loadingDetail, error: detailError, refetch: refetchDetail, dataUpdatedAt } = useQuery({
     queryKey: ["stock-detail", m, sym],
     queryFn: () => stocksApi.getDetail(m, sym),
     enabled: !!sym, retry: 1, retryDelay: 3000,
     staleTime: 15_000,
     refetchInterval: 15_000,
-    placeholderData: () => {
-      // 대시보드 랭킹 캐시에서 해당 종목 데이터 즉시 활용
-      for (const cat of ["시가총액", "상승률", "하락률", "거래량", "거래대금"]) {
-        const cached = qc.getQueryData<any>(isKR ? ["dashboard-kr", cat] : ["dashboard-us", cat]);
-        const item = cached?.rankings?.find((r: any) => r.symbol === sym);
-        if (item) return item;
-      }
-      return undefined;
-    },
   });
 
   const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);

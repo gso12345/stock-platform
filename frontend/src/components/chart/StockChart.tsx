@@ -511,6 +511,13 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     }
 
     main.timeScale().fitContent();
+    // 기본 100봉 표시 (마우스 휠/드래그로 확대·축소 가능)
+    if (ohlcv.length > 100) {
+      main.timeScale().setVisibleLogicalRange({
+        from: ohlcv.length - 100,
+        to: ohlcv.length - 1,
+      });
+    }
 
     // ── 보조 지표 (하단 패널) — 시간 기반 동기화 ──────────
     const addSub = (ref: React.RefObject<HTMLDivElement>, key: string, h: number, build: (c: ReturnType<typeof createChart>) => void) => {

@@ -248,9 +248,11 @@ def get_backtest_result(
 @router.get("/strategies")
 def get_strategies(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user),
+    current_user: Optional[User] = Depends(get_current_user),
 ):
-    """내 전략 목록"""
+    """내 전략 목록 (비로그인 시 빈 배열)"""
+    if not current_user:
+        return []
     return (
         db.query(Strategy)
         .filter(Strategy.is_active == True, Strategy.user_id == current_user.id)

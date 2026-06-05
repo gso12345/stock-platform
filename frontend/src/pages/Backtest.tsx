@@ -7,7 +7,8 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import type { ConditionGroup, Market } from "@/types";
-import { Save, Play, Globe, TrendingUp, BarChart2, Award } from "lucide-react";
+import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn } from "lucide-react";
+import { useAuthStore } from "@/store/authStore";
 
 const DEFAULT_ENTRY: ConditionGroup = {
   logic: "AND",
@@ -46,6 +47,7 @@ function MetricCard({ label, value, sub, color }: { label: string; value: React.
 
 export default function Backtest() {
   const qc = useQueryClient();
+  const { isLoggedIn } = useAuthStore();
   const [pageTab, setPageTab] = useState("single");
 
   // 단일종목
@@ -252,13 +254,15 @@ export default function Backtest() {
                 {universeMutation.isPending ? "분석 중... (수분 소요)" : "유니버스 백테스트"}
               </Button>
             )}
-            <Button variant="secondary" onClick={() => setShowSave(!showSave)}>
-              <Save size={14} />
-            </Button>
+            {isLoggedIn && (
+              <Button variant="secondary" onClick={() => setShowSave(!showSave)}>
+                <Save size={14} />
+              </Button>
+            )}
           </div>
 
           {/* 전략 저장 */}
-          {showSave && (
+          {isLoggedIn && showSave && (
             <Card className="flex flex-col gap-2 p-3">
               <p className="text-[11px] font-semibold text-text-secondary">전략 저장</p>
               <div className="flex gap-1.5">
@@ -449,7 +453,13 @@ export default function Backtest() {
           {/* 전략 저장소 탭 */}
           {pageTab === "strategies" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {!strategies?.length ? (
+              {!isLoggedIn ? (
+                <Card className="col-span-2 flex flex-col items-center gap-3 py-10">
+                  <LogIn size={28} className="text-text-muted" />
+                  <p className="text-text-muted text-sm">전략을 저장하려면 로그인이 필요합니다</p>
+                  <a href="/login" className="text-xs text-accent-blue hover:underline">로그인하기</a>
+                </Card>
+              ) : !strategies?.length ? (
                 <Card className="col-span-2">
                   <p className="text-center text-text-muted text-sm py-8">저장된 전략이 없습니다</p>
                 </Card>
