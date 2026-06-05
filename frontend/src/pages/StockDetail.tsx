@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
-import StockChart, { CANDLE_GROUPS, PERIOD_BY_CANDLE, CANDLE_DEFAULT_PERIOD, type ChartType } from "@/components/chart/StockChart";
+import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 
 /* ── 포맷 유틸 ──────────────────────────────────────── */
 function fmtKRW(v: number | null | undefined): string {
@@ -80,7 +80,6 @@ export default function StockDetail() {
   const [chartType, setChartType]     = useState<ChartType>("candle");
   const [logScale, setLogScale]       = useState(false);
   const [fullscreen, setFullscreen]   = useState(false);
-  const [chartPeriod, setChartPeriod] = useState(() => CANDLE_DEFAULT_PERIOD["1d"]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
@@ -122,7 +121,7 @@ export default function StockDetail() {
     return () => window.removeEventListener("resize", h);
   }, []);
 
-  const onCandleChange = (type: string) => { setCandleType(type); setChartPeriod(CANDLE_DEFAULT_PERIOD[type] ?? "max"); };
+  const onCandleChange = (type: string) => { setCandleType(type); };
 
   // 현재 캔들 값이 속한 그룹 key 반환
   const activeGroupKey = CANDLE_GROUPS.find(g => g.options.some(o => o.value === candleType))?.key ?? "day";
@@ -169,6 +168,7 @@ export default function StockDetail() {
   });
 
   const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);
+  const chartPeriod = CANDLE_MAX_PERIOD[candleType] ?? "max";
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
     queryKey: ["stock-ohlcv", m, sym, candleType, chartPeriod],
@@ -596,20 +596,6 @@ export default function StockDetail() {
                 );
               })}
             </div>
-            {/* 기간 선택 */}
-            {(PERIOD_BY_CANDLE[candleType] ?? []).length > 0 && (
-              <div className="flex gap-0.5 flex-wrap">
-                {(PERIOD_BY_CANDLE[candleType] ?? []).map(({ label, value }) => (
-                  <button key={value} onClick={() => setChartPeriod(value)}
-                    className={`px-2 py-1 text-xs rounded-md font-semibold transition-all ${
-                      chartPeriod === value
-                        ? "bg-accent-blue/20 text-accent-blue"
-                        : "text-text-muted hover:text-text-primary"
-                    }`}
-                  >{label}</button>
-                ))}
-              </div>
-            )}
             <div className="ml-auto flex items-center gap-1">
               <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
                 <RefreshCw size={13}/>
@@ -703,19 +689,6 @@ export default function StockDetail() {
                   );
                 })}
               </div>
-              {(PERIOD_BY_CANDLE[candleType] ?? []).length > 0 && (
-                <div className="flex gap-0.5 flex-wrap">
-                  {(PERIOD_BY_CANDLE[candleType] ?? []).map(({ label, value }) => (
-                    <button key={value} onClick={() => setChartPeriod(value)}
-                      className={`px-2 py-1 text-xs rounded-md font-semibold transition-all ${
-                        chartPeriod === value
-                          ? "bg-accent-blue/20 text-accent-blue"
-                          : "text-text-muted hover:text-text-primary"
-                      }`}
-                    >{label}</button>
-                  ))}
-                </div>
-              )}
               <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
                 {([{value:"candle",label:"캔들"},{value:"line",label:"라인"},{value:"area",label:"영역"}] as const).map(({value,label})=>(
                   <button key={value} onClick={()=>setChartType(value)}
