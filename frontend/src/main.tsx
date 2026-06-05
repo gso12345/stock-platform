@@ -13,6 +13,7 @@ const IndexDetail = lazy(() => import("./pages/IndexDetail"));
 const Backtest   = lazy(() => import("./pages/Backtest"));
 const Watchlist  = lazy(() => import("./pages/Watchlist"));
 const Strategies = lazy(() => import("./pages/Strategies"));
+const Portfolio  = lazy(() => import("./pages/Portfolio"));
 const Login      = lazy(() => import("./pages/Login"));
 const Register   = lazy(() => import("./pages/Register"));
 
@@ -54,6 +55,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <Route path="backtest" element={<Backtest />} />
               <Route path="watchlist" element={<Watchlist />} />
               <Route path="strategies" element={<Strategies />} />
+              <Route path="portfolio" element={<Portfolio />} />
             </Route>
           </Routes>
         </Suspense>

@@ -85,6 +85,16 @@ const IndexCardSkeleton = memo(function IndexCardSkeleton() {
   );
 });
 
+const ExtraCardSkeleton = memo(function ExtraCardSkeleton() {
+  return (
+    <div className="flex flex-col gap-1.5 min-w-[135px] flex-shrink-0 p-3 rounded-xl bg-bg-secondary border border-border animate-pulse">
+      <div className="h-2 bg-bg-elevated rounded w-20" />
+      <div className="h-5 bg-bg-elevated rounded w-24 mt-0.5" />
+      <div className="h-2 bg-bg-elevated rounded w-12" />
+    </div>
+  );
+});
+
 const RankingTableSkeleton = memo(function RankingTableSkeleton() {
   return (
     <div className="animate-pulse">
@@ -342,19 +352,25 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
       <section>
         <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리</h2>
         <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
-          {data?.exchange && (
-            <ExtraCard
-              name="원/달러"
-              value={data.exchange.value ?? data.exchange.usdkrw ?? 0}
-              change={data.exchange.change ?? 0}
-              change_rate={data.exchange.change_rate ?? 0}
-              unit="원"
-              _demo={data.exchange._demo}
-            />
+          {!data ? (
+            [1,2,3,4].map(i => <ExtraCardSkeleton key={i} />)
+          ) : (
+            <>
+              {data?.exchange && (
+                <ExtraCard
+                  name="원/달러"
+                  value={data.exchange.value ?? data.exchange.usdkrw ?? 0}
+                  change={data.exchange.change ?? 0}
+                  change_rate={data.exchange.change_rate ?? 0}
+                  unit="원"
+                  _demo={data.exchange._demo}
+                />
+              )}
+              {(data?.rates ?? []).map((r: any) => (
+                <ExtraCard key={r.name} {...r} />
+              ))}
+            </>
           )}
-          {(data?.rates ?? []).map((r: any) => (
-            <ExtraCard key={r.name} {...r} />
-          ))}
         </div>
       </section>
 
@@ -454,9 +470,11 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
       <section>
         <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리 · 국채</h2>
         <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
-          {rates.map((r: any) => (
-            <ExtraCard key={r.name} {...r} />
-          ))}
+          {!ratesData && !data ? (
+            [1,2,3,4,5].map(i => <ExtraCardSkeleton key={i} />)
+          ) : (
+            rates.map((r: any) => <ExtraCard key={r.name} {...r} />)
+          )}
         </div>
       </section>
 

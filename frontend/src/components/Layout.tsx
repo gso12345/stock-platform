@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, Star, BookMarked, Activity, Sun, Moon, Menu, X, LogOut, LogIn } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, Star, BookMarked, Activity, Sun, Moon, Menu, X, LogOut, LogIn, Wallet } from "lucide-react";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
 import SearchBar from "@/components/SearchBar";
@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 
 const NAV = [
   { to: "/",          icon: LayoutDashboard, label: "대시보드",  end: true },
+  { to: "/portfolio", icon: Wallet,           label: "내 자산"  },
   { to: "/watchlist", icon: Star,             label: "관심종목" },
   { to: "/screening", icon: Search,           label: "스크리닝" },
   { to: "/backtest",  icon: LineChart,        label: "백테스트" },
