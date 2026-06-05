@@ -4,7 +4,7 @@ import math
 from typing import Optional
 from app.core.cache import cache
 
-PRICE_TTL  = 30      # 현재가 캐시 30초
+PRICE_TTL  = 120     # 현재가 캐시 120초 (30→120: 외부 API 호출 빈도 75% 감소)
 INDEX_TTL  = 60      # 지수 캐시 60초
 OHLCV_TTL  = 21600   # OHLCV 캐시 6시간 (일봉 이상은 당일 변경 없음)
 FUND_TTL   = 86400   # 재무지표 캐시 24시간
@@ -247,25 +247,26 @@ class YFinanceService:
             except Exception:
                 pass
 
-        # 3차: info (느리지만 추가 필드 보완)
+        # 3차: info — price 없을 때만 (속도 최적화: fast_info/history로 price 확보 시 스킵)
         info: dict = {}
-        try:
-            info = ticker.info or {}
-            name = info.get("longName") or info.get("shortName") or symbol
-            curr     = curr     or _safe(info.get("regularMarketPrice") or info.get("currentPrice"))
-            prev     = prev     or _safe(info.get("regularMarketPreviousClose") or info.get("previousClose"))
-            high     = high     or _safe(info.get("regularMarketDayHigh"))
-            low      = low      or _safe(info.get("regularMarketDayLow"))
-            open_    = open_    or _safe(info.get("regularMarketOpen"))
-            # regularMarketVolume이 실제 당일 거래량 — fast_info의 3개월 평균보다 우선
-            daily_vol = int(info.get("regularMarketVolume") or info.get("volume") or 0)
-            volume   = daily_vol if daily_vol > 0 else volume
-            market_cap = market_cap or int(info.get("marketCap") or 0)
-            w52h     = w52h     or _safe(info.get("fiftyTwoWeekHigh"))
-            w52l     = w52l     or _safe(info.get("fiftyTwoWeekLow"))
-            currency = info.get("currency", currency) or currency
-        except Exception:
-            pass
+        if not curr:
+            try:
+                info = ticker.info or {}
+                curr     = _safe(info.get("regularMarketPrice") or info.get("currentPrice"))
+                prev     = prev     or _safe(info.get("regularMarketPreviousClose") or info.get("previousClose"))
+                high     = high     or _safe(info.get("regularMarketDayHigh"))
+                low      = low      or _safe(info.get("regularMarketDayLow"))
+                open_    = open_    or _safe(info.get("regularMarketOpen"))
+                daily_vol = int(info.get("regularMarketVolume") or info.get("volume") or 0)
+                volume   = daily_vol if daily_vol > 0 else volume
+                market_cap = market_cap or int(info.get("marketCap") or 0)
+                w52h     = w52h     or _safe(info.get("fiftyTwoWeekHigh"))
+                w52l     = w52l     or _safe(info.get("fiftyTwoWeekLow"))
+                currency = info.get("currency", currency) or currency
+            except Exception:
+                pass
+        # name: .info 결과 또는 stale 캐시에서 보완
+        name = info.get("longName") or info.get("shortName") or (cache.get_stale(ck) or {}).get("name") or symbol
 
         if not curr:
             stale = cache.get_stale(ck)

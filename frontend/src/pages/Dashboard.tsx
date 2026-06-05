@@ -284,8 +284,8 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const { data, refetch } = useQuery({
     queryKey: ["dashboard-kr", "시가총액"],
     queryFn: () => dashboardApi.getKR("시가총액"),
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
 
@@ -298,8 +298,8 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const { data: newsData } = useQuery({
     queryKey: ["dashboard-news-kr"],
     queryFn: () => dashboardApi.getNews("kr"),
-    staleTime: 300_000,
-    refetchInterval: 300_000,
+    staleTime: 600_000,
+    refetchInterval: false,
   });
 
   const KR_INDEX_KEYS = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"] as const;
@@ -378,23 +378,23 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
   const { data, refetch } = useQuery({
     queryKey: ["dashboard-us", "시가총액"],
     queryFn: () => dashboardApi.getUS("시가총액"),
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
 
   const { data: ratesData } = useQuery({
     queryKey: ["dashboard-us-rates"],
     queryFn: () => dashboardApi.getUSRates(),
-    staleTime: 60_000,
-    refetchInterval: 300_000,
+    staleTime: 300_000,
+    refetchInterval: false,
   });
 
   const { data: newsData } = useQuery({
     queryKey: ["dashboard-news-us"],
     queryFn: () => dashboardApi.getNews("us"),
-    staleTime: 300_000,
-    refetchInterval: 300_000,
+    staleTime: 600_000,
+    refetchInterval: false,
   });
 
   const US_INDEX_KEYS = ["SP500","NASDAQ","DOW","SOX","RUSSELL"] as const;

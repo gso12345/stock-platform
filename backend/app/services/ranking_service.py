@@ -54,7 +54,7 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
         from bs4 import BeautifulSoup
         suffix   = ".KS" if market_code == 0 else ".KQ"
         mkt_name = "KOSPI" if market_code == 0 else "KOSDAQ"
-        async with httpx.AsyncClient(timeout=15, headers=NAVER_PC_HEADERS) as cl:
+        async with httpx.AsyncClient(timeout=8, headers=NAVER_PC_HEADERS) as cl:
             r = await cl.get(url, params={"sosok": market_code})
         if r.status_code != 200:
             return []

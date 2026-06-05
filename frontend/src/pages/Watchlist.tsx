@@ -397,8 +397,8 @@ export default function Watchlist() {
     queryKey: ["watchlist-prices", symbols.join(",")],
     queryFn: ({ signal }) => watchlistApi.getPrices(symbols, markets, signal),
     enabled: symbols.length > 0,
-    staleTime: 25_000,
-    refetchInterval: 30_000,
+    staleTime: 55_000,
+    refetchInterval: 60_000,
   });
 
   useEffect(() => {
