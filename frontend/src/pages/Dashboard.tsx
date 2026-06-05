@@ -285,7 +285,8 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     queryKey: ["dashboard-kr", "시가총액"],
     queryFn: () => dashboardApi.getKR("시가총액"),
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    refetchInterval: (query) =>
+      (query.state.data?.rankings?.length ?? 0) === 0 ? 5_000 : 60_000,
     refetchIntervalInBackground: false,
   });
 
@@ -379,7 +380,8 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
     queryKey: ["dashboard-us", "시가총액"],
     queryFn: () => dashboardApi.getUS("시가총액"),
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    refetchInterval: (query) =>
+      (query.state.data?.rankings?.length ?? 0) === 0 ? 5_000 : 60_000,
     refetchIntervalInBackground: false,
   });
 

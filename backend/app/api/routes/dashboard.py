@@ -162,7 +162,7 @@ async def _refresh_kr_ranking_bg(category: str):
 
 
 async def _get_kr_rankings(category: str) -> list:
-    from app.services.ranking_service import fetch_naver_rank, get_kr_rankings, RANK_TTL
+    from app.services.ranking_service import get_kr_rankings
 
     if settings.KIS_APP_KEY:
         result = await kis_service.get_rankings(category)
@@ -174,39 +174,15 @@ async def _get_kr_rankings(category: str) -> list:
     if cached:
         return cached
 
-    # stale 캐시 → 즉시 반환 + 백그라운드 갱신 (stale-while-revalidate)
+    # stale 캐시 → 즉시 반환 + 백그라운드 갱신
     stale = cache.get_stale(f"rank:kr:{category}")
+    asyncio.get_running_loop().create_task(_refresh_kr_ranking_bg(category))
     if stale:
-        asyncio.get_running_loop().create_task(_refresh_kr_ranking_bg(category))
         return stale
 
-    # 파생 카테고리: 기반 카테고리가 없으면 먼저 fetch
-    derived_base = {"거래대금": "거래량", "신고가": "상승률", "신저가": "하락률"}
-    if category in derived_base:
-        base = derived_base[category]
-        if not cache.get_stale(f"rank:kr:{base}"):
-            base_rows = await fetch_naver_rank(base)
-            if base_rows:
-                for i, r in enumerate(base_rows):
-                    r["rank"] = i + 1
-                cache.set(f"rank:kr:{base}", base_rows, RANK_TTL)
-        return get_kr_rankings(category)
-
-    # FDR 기반 랭킹 활용 (충분한 데이터 있으면 즉시 반환 + 백그라운드 Naver 갱신)
-    fdr_result = get_kr_rankings(category)
-    if len(fdr_result) >= 15:
-        asyncio.get_running_loop().create_task(_refresh_kr_ranking_bg(category))
-        return fdr_result
-
-    # FDR 데이터 없을 때만 직접 Naver fetch (최초 기동 직후)
-    rows = await fetch_naver_rank(category)
-    if rows:
-        for i, r in enumerate(rows):
-            r["rank"] = i + 1
-        cache.set(f"rank:kr:{category}", rows, RANK_TTL)
-        return rows
-
-    return fdr_result or []
+    # FDR 기반 랭킹 (즉시 반환, 블로킹 없음)
+    # 외부 API 직접 호출 제거 — 스케줄러 백그라운드가 캐시를 채움
+    return get_kr_rankings(category) or []
 
 
 # ── 해외 대시보드 ──────────────────────────────────────────
@@ -265,20 +241,21 @@ async def _get_exchange_rate_async() -> dict:
 
 async def _get_us_rankings_cached(category: str) -> list:
     result = get_us_rankings(category) or []
-    # 인기 종목(20개)만 빠르게 fetch — 스타트업 프리페치 전 cold start 대응
     if len(result) < 15:
-        try:
-            from app.services.price_fetcher import fetch_yf_quotes
-            from app.services.scheduler import POPULAR_US
-            data = await asyncio.wait_for(fetch_yf_quotes(POPULAR_US), timeout=4)
-            for sym, q in data.items():
-                if q.get("price"):
-                    q["symbol"] = sym
-                    cache.set(f"price:{sym}", q, 300)
-            cache.delete(f"rank:us:{category}")
-            result = get_us_rankings(category) or []
-        except Exception:
-            pass
+        # 블로킹 없이 백그라운드에서 갱신 — cold start 시 즉시 반환
+        async def _bg_us_refresh():
+            try:
+                from app.services.price_fetcher import fetch_yf_quotes
+                from app.services.scheduler import POPULAR_US
+                data = await asyncio.wait_for(fetch_yf_quotes(POPULAR_US), timeout=10)
+                for sym, q in data.items():
+                    if q.get("price"):
+                        q["symbol"] = sym
+                        cache.set(f"price:{sym}", q, 300)
+                cache.delete(f"rank:us:{category}")
+            except Exception:
+                pass
+        asyncio.get_running_loop().create_task(_bg_us_refresh())
     return result
 
 
