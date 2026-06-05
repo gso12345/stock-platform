@@ -337,7 +337,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
             "forward_per", "peg", "ev_ebitda", "ev_revenue", "enterprise_value",
             "psr", "forward_eps", "roe", "roa", "gross_margin", "op_margin",
             "net_margin", "debt_ratio", "current_ratio", "quick_ratio",
-            "beta", "sector", "industry", "description",
+            "beta", "payout_ratio", "sector", "industry", "description",
         )
         fund_ck = f"fund:{symbol}"
         fund_data = cache.get(fund_ck) or cache.get_stale(fund_ck)
@@ -385,7 +385,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                         "enterprise_value", "psr", "forward_eps",
                         "gross_margin", "op_margin", "net_margin",
                         "roa", "current_ratio", "quick_ratio",
-                        "description", "sector", "industry",
+                        "payout_ratio", "description", "sector", "industry",
                     )
                     fund_ck = f"fund:{symbol}"
                     fund_cached = cache.get(fund_ck) or cache.get_stale(fund_ck)

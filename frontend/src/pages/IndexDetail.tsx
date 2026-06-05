@@ -96,6 +96,7 @@ export default function IndexDetail() {
     enabled: !!indexName && mainTab === "daily",
     staleTime: 300_000,
     placeholderData: (prev) => prev,
+    refetchInterval: (query) => (query.state.data?.length ?? 0) === 0 ? 4_000 : false,
   });
 
   // 최신순으로 뒤집어 dailyMonths * 22행만 표시

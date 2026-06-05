@@ -738,6 +738,7 @@ export default function StockDetail() {
           enterprise_value:d?.enterprise_value ?? fd.enterprise_value ?? null,
           forward_eps:     d?.forward_eps     ?? fd.forward_eps     ?? null,
           beta:            d?.beta            ?? fd.beta            ?? null,
+          payout_ratio:    d?.payout_ratio    ?? fd.payout_ratio    ?? null,
         };
 
         // 기간 레이블 (연간: YYYY, 분기: YYYY-QQ)
@@ -1133,7 +1134,7 @@ export default function StockDetail() {
                       color={dEnhanced.current_ratio!=null?(dEnhanced.current_ratio>=2?"text-accent-green":dEnhanced.current_ratio<1?"text-accent-red":"text-text-primary"):undefined}/>
                     <StatCell label="당좌비율"  value={dEnhanced.quick_ratio!=null?`${(dEnhanced.quick_ratio*100).toFixed(0)}%`:null}/>
                     <StatCell label="배당수익률" value={d.dividend_yield!=null?`${d.dividend_yield.toFixed(2)}%`:null} color="text-accent-green"/>
-                    <StatCell label="배당성향"  value={d.payout_ratio!=null?`${d.payout_ratio.toFixed(1)}%`:null}/>
+                    <StatCell label="배당성향"  value={dEnhanced.payout_ratio!=null?`${dEnhanced.payout_ratio.toFixed(1)}%`:null}/>
                     <StatCell label="베타"      value={dEnhanced.beta!=null?dEnhanced.beta.toFixed(2):null}
                       color={dEnhanced.beta!=null?(dEnhanced.beta>1.5?"text-accent-red":dEnhanced.beta<0.5?"text-accent-green":"text-text-primary"):undefined}/>
                   </div>
@@ -1496,16 +1497,20 @@ export default function StockDetail() {
               };
 
               const indicators = [
-                { key: "revenue_est",  label: "매출 추정",        color: "text-accent-blue",    fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
-                { key: "revenue_low",  label: "매출 최저",         color: "text-accent-blue/60", fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
-                { key: "revenue_high", label: "매출 최고",         color: "text-accent-blue/60", fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
-                { key: "eps_est",      label: "EPS 추정",          color: "text-accent-green",   fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_low",      label: "EPS 최저",          color: "text-accent-green/60",fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_high",     label: "EPS 최고",          color: "text-accent-green/60",fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_current",  label: "EPS 현재 추정",     color: "text-cyan-400",       fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_30d_ago",  label: "EPS 30일 전",       color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_90d_ago",  label: "EPS 90일 전",       color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "growth_est",   label: "EPS 성장률 추정",   color: "text-accent-yellow",  fmt: (v: number) => `${(v*100).toFixed(1)}%` },
+                { key: "revenue_est",    label: "매출 추정",        color: "text-accent-blue",    fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
+                { key: "revenue_low",    label: "매출 최저",         color: "text-accent-blue/60", fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
+                { key: "revenue_high",   label: "매출 최고",         color: "text-accent-blue/60", fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
+                { key: "op_income_est",  label: "영업이익 추정",     color: "text-accent-green",   fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
+                { key: "net_income_est", label: "순이익 추정",       color: "text-purple-400",     fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
+                { key: "eps_est",        label: "EPS 추정",          color: "text-accent-green",   fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_low",        label: "EPS 최저",          color: "text-accent-green/60",fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_high",       label: "EPS 최고",          color: "text-accent-green/60",fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_analysts",   label: "EPS 애널리스트 수", color: "text-text-muted",     fmt: (v: number) => `${Math.round(v)}명` },
+                { key: "eps_current",    label: "EPS 현재 추정",     color: "text-cyan-400",       fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_7d_ago",     label: "EPS 7일 전",        color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_30d_ago",    label: "EPS 30일 전",       color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_90d_ago",    label: "EPS 90일 전",       color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "growth_est",     label: "EPS 성장률 추정",   color: "text-accent-yellow",  fmt: (v: number) => `${(v*100).toFixed(1)}%` },
               ].filter(ind => fcstData.some((r: any) => r[ind.key] != null));
 
               return (
