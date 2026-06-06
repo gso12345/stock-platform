@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional
+import logging
 
 from app.db.database import get_db
 from app.models.stock import PortfolioItem
 from app.models.user import User
 from app.core.deps import require_user
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/portfolio", tags=["포트폴리오"])
 
@@ -14,7 +17,7 @@ router = APIRouter(prefix="/portfolio", tags=["포트폴리오"])
 class PortfolioItemRequest(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=20)
     market: str = Field(..., pattern="^(KR|US|ETF)$")
-    name: str = Field("", max_length=100)
+    name: Optional[str] = Field("", max_length=100)
     shares: float = Field(..., gt=0)
     avg_price: float = Field(..., ge=0)
     currency: str = Field("KRW", pattern="^(KRW|USD)$")
@@ -58,22 +61,27 @@ def create_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
-    item = PortfolioItem(
-        user_id=current_user.id,
-        symbol=req.symbol,
-        market=req.market,
-        name=req.name,
-        shares=req.shares,
-        avg_price=req.avg_price,
-        currency=req.currency,
-        input_exchange_rate=req.input_exchange_rate,
-        purchase_date=req.purchase_date,
-        note=req.note,
-    )
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    return _to_dict(item)
+    try:
+        item = PortfolioItem(
+            user_id=current_user.id,
+            symbol=req.symbol,
+            market=req.market,
+            name=req.name or "",
+            shares=req.shares,
+            avg_price=req.avg_price,
+            currency=req.currency,
+            input_exchange_rate=req.input_exchange_rate,
+            purchase_date=req.purchase_date,
+            note=req.note,
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        return _to_dict(item)
+    except Exception as e:
+        db.rollback()
+        log.error(f"포트폴리오 추가 실패 user={current_user.id} symbol={req.symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"저장 중 오류: {str(e)}")
 
 
 @router.put("/items/{item_id}")
@@ -92,7 +100,7 @@ def update_item(
         raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다")
     item.symbol = req.symbol
     item.market = req.market
-    item.name = req.name
+    item.name = req.name or ""
     item.shares = req.shares
     item.avg_price = req.avg_price
     item.currency = req.currency

@@ -145,11 +145,15 @@ function PortfolioModal({
   defaultFx,
   onClose,
   onSave,
+  isSaving,
+  saveError,
 }: {
   item?: PortfolioItem;
   defaultFx: number;
   onClose: () => void;
   onSave: (data: Omit<PortfolioItem, "id">) => void;
+  isSaving?: boolean;
+  saveError?: string | null;
 }) {
   const [step, setStep] = useState<1 | 2>(item ? 2 : 1);
   const [selected, setSelected] = useState<{ symbol: string; market: Market; name: string } | null>(
@@ -393,14 +397,19 @@ function PortfolioModal({
               </div>
             </div>
 
+            {saveError && (
+              <p className="mx-5 mb-2 text-xs text-red-400 bg-red-900/20 rounded-lg px-3 py-2">
+                오류: {saveError}
+              </p>
+            )}
             <div className="flex gap-2 px-5 py-4 border-t border-border">
-              <button onClick={onClose}
-                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors">
+              <button onClick={onClose} disabled={isSaving}
+                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 취소
               </button>
-              <button onClick={handleSave} disabled={!canSave}
+              <button onClick={handleSave} disabled={!canSave || isSaving}
                 className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                저장
+                {isSaving ? "저장 중..." : "저장"}
               </button>
             </div>
           </>
@@ -419,6 +428,7 @@ export default function Portfolio() {
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
+  const [modalError,      setModalError]      = useState<string | null>(null);
 
   const { isLoggedIn } = useAuthStore();
   const { colorScheme } = useSettingsStore();
@@ -439,6 +449,17 @@ export default function Portfolio() {
     staleTime: 60_000,
   });
 
+  const _extractErrMsg = (err: unknown): string => {
+    const e = err as any;
+    if (e?.response?.data?.detail) {
+      const d = e.response.data.detail;
+      if (typeof d === "string") return d;
+      if (Array.isArray(d)) return d.map((x: any) => x?.msg ?? JSON.stringify(x)).join(", ");
+    }
+    if (e?.message) return e.message;
+    return "알 수 없는 오류가 발생했습니다";
+  };
+
   const addMutation = useMutation({
     mutationFn: (data: Omit<PortfolioItem, "id">) =>
       portfolioApi.addItem({
@@ -448,7 +469,11 @@ export default function Portfolio() {
         purchase_date: data.purchaseDate ?? null,
         note: data.note ?? null,
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolio-items"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      setModalError(null);
+    },
+    onError: (err) => setModalError(_extractErrMsg(err)),
   });
 
   const editMutation = useMutation({
@@ -460,7 +485,11 @@ export default function Portfolio() {
         purchase_date: data.purchaseDate ?? null,
         note: data.note ?? null,
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolio-items"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      setModalError(null);
+    },
+    onError: (err) => setModalError(_extractErrMsg(err)),
   });
 
   const deleteMutation = useMutation({
@@ -605,11 +634,13 @@ export default function Portfolio() {
 
   /* ── CRUD ── */
   const handleAdd = (data: Omit<PortfolioItem, "id">) => {
-    addMutation.mutate(data, { onSuccess: () => setModalOpen(false) });
+    setModalError(null);
+    addMutation.mutate(data, { onSuccess: () => { setModalOpen(false); setModalError(null); } });
   };
   const handleEdit = (data: Omit<PortfolioItem, "id">) => {
     if (!editItem) return;
-    editMutation.mutate({ id: editItem.id, data }, { onSuccess: () => setEditItem(undefined) });
+    setModalError(null);
+    editMutation.mutate({ id: editItem.id, data }, { onSuccess: () => { setEditItem(undefined); setModalError(null); } });
   };
   const handleDelete = (id: number) => {
     if (confirmDeleteId === id) {
@@ -947,8 +978,10 @@ export default function Portfolio() {
         <PortfolioModal
           item={editItem}
           defaultFx={exchangeRate}
-          onClose={() => { setModalOpen(false); setEditItem(undefined); }}
+          onClose={() => { setModalOpen(false); setEditItem(undefined); setModalError(null); }}
           onSave={editItem ? handleEdit : handleAdd}
+          isSaving={addMutation.isPending || editMutation.isPending}
+          saveError={modalError}
         />
       )}
 
