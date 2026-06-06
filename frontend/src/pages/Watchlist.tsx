@@ -6,7 +6,7 @@ import api from "@/api/client";
 import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import type { Market } from "@/types";
-import { Plus, FolderPlus, Pencil, Trash2, Star, ChevronDown, ChevronRight, X, Check, Search, Settings2 } from "lucide-react";
+import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2 } from "lucide-react";
 
 const MARKET_TABS = [
   { id: "전체", label: "전체" },
@@ -572,6 +572,26 @@ export default function Watchlist() {
           <button onClick={() => setAddError("")} className="ml-1 opacity-70 hover:opacity-100">✕</button>
         </div>
       )}
+
+      {/* 페이지 탭 */}
+      <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-hidden">
+        {[
+          { id: "portfolio", label: "내 자산",   icon: Wallet },
+          { id: "watchlist", label: "관심종목", icon: Star   },
+        ].map(({ id, label, icon: Icon }) => (
+          <button key={id}
+            onClick={() => id === "portfolio" ? navigate("/portfolio") : undefined}
+            className={`flex items-center gap-1.5 px-5 py-3 text-xs font-semibold transition-all border-b-2 -mb-px whitespace-nowrap ${
+              id === "watchlist"
+                ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+                : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+            }`}
+          >
+            <Icon size={13} />{label}
+          </button>
+        ))}
+      </div>
+
       {/* 헤더 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>

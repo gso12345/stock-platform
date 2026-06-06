@@ -20,22 +20,34 @@ const DEFAULT_EXIT: ConditionGroup = {
 };
 
 const UNIVERSE_OPTIONS = [
-  { value: "SP500", label: "S&P 500 (미국 대형주)", market: "US" },
-  { value: "KOSPI", label: "KOSPI (국내 대형주)", market: "KR" },
-  { value: "KOSDAQ", label: "KOSDAQ (국내 중소형)", market: "KR" },
-  { value: "ETF", label: "글로벌 ETF", market: "US" },
+  { value: "SP500",  label: "S&P 500 (미국 대형주)", market: "US" },
+  { value: "KOSPI",  label: "KOSPI (국내 대형주)",   market: "KR" },
+  { value: "KOSDAQ", label: "KOSDAQ (국내 중소형)",  market: "KR" },
+  { value: "ETF",    label: "글로벌 ETF",            market: "US" },
 ];
 
 const RANK_OPTIONS = [
-  { value: "total_return", label: "총수익률" },
+  { value: "total_return",  label: "총수익률" },
   { value: "annual_return", label: "연환산 수익률" },
-  { value: "sharpe_ratio", label: "샤프 비율" },
-  { value: "win_rate", label: "승률" },
+  { value: "sharpe_ratio",  label: "샤프 비율" },
+  { value: "win_rate",      label: "승률" },
   { value: "profit_factor", label: "수익비율" },
-  { value: "mdd", label: "MDD (낮은순)" },
+  { value: "mdd",           label: "MDD (낮은순)" },
 ];
 
-function MetricCard({ label, value, sub, color }: { label: string; value: React.ReactNode; sub?: string; color?: string }) {
+// Date presets relative to today 2026-06-06
+const TODAY = "2026-06-06";
+const DATE_PRESETS = [
+  { label: "YTD",  start: "2026-01-01", end: TODAY },
+  { label: "1Y",   start: "2025-06-06", end: TODAY },
+  { label: "3Y",   start: "2023-06-06", end: TODAY },
+  { label: "5Y",   start: "2021-06-06", end: TODAY },
+  { label: "10Y",  start: "2016-06-06", end: TODAY },
+];
+
+function MetricCard({ label, value, sub, color }: {
+  label: string; value: React.ReactNode; sub?: string; color?: string;
+}) {
   return (
     <Card className="flex flex-col gap-1 py-3 text-center">
       <div className="text-[11px] text-text-muted font-medium uppercase tracking-wide">{label}</div>
@@ -73,6 +85,9 @@ export default function Backtest() {
   const [strategyName, setStrategyName] = useState("");
   const [showSave, setShowSave] = useState(false);
 
+  // active date preset label for highlight
+  const [activeDatePreset, setActiveDatePreset] = useState<string | null>(null);
+
   const { data: strategies } = useQuery({ queryKey: ["strategies"], queryFn: backtestApi.getStrategies });
 
   const universeMarket = UNIVERSE_OPTIONS.find((o) => o.value === universe)?.market ?? "US";
@@ -101,9 +116,14 @@ export default function Backtest() {
   const saveStrategyMutation = useMutation({
     mutationFn: () => backtestApi.saveStrategy({
       name: strategyName, market, entry_conditions: entryConditions,
-      exit_conditions: exitConditions, stop_loss: stopLoss || undefined, take_profit: takeProfit || undefined,
+      exit_conditions: exitConditions, stop_loss: stopLoss || undefined,
+      take_profit: takeProfit || undefined,
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["strategies"] }); setStrategyName(""); setShowSave(false); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["strategies"] });
+      setStrategyName("");
+      setShowSave(false);
+    },
   });
 
   const loadStrategy = (s: any) => {
@@ -113,9 +133,15 @@ export default function Backtest() {
     if (s.take_profit) setTakeProfit(s.take_profit);
   };
 
+  const applyDatePreset = (preset: typeof DATE_PRESETS[number]) => {
+    setStartDate(preset.start);
+    setEndDate(preset.end);
+    setActiveDatePreset(preset.label);
+  };
+
   const PAGE_TABS = [
-    { id: "single", label: "단일 종목" },
-    { id: "universe", label: "유니버스 전체" },
+    { id: "single",     label: "단일 종목" },
+    { id: "universe",   label: "유니버스 전체" },
     { id: "strategies", label: "전략 저장소" },
   ];
 
@@ -129,7 +155,7 @@ export default function Backtest() {
         <Tabs tabs={PAGE_TABS} active={pageTab} onChange={setPageTab} />
       </div>
 
-      {/* ─── 공통 설정 패널 ─────────────────────────────── */}
+      {/* ── 공통 설정 패널 ──────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-1 flex flex-col gap-3">
           {/* 기본 설정 */}
@@ -142,8 +168,14 @@ export default function Backtest() {
                   <label className="text-[11px] font-medium text-text-secondary">시장</label>
                   <div className="flex gap-1">
                     {(["US", "KR"] as Market[]).map((m) => (
-                      <button key={m} onClick={() => setMarket(m)}
-                        className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${market === m ? "bg-accent-blue text-white" : "bg-bg-primary border border-border text-text-muted"}`}
+                      <button
+                        key={m}
+                        onClick={() => setMarket(m)}
+                        className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                          market === m
+                            ? "bg-accent-blue text-white"
+                            : "bg-bg-primary border border-border text-text-muted"
+                        }`}
                       >{m}</button>
                     ))}
                   </div>
@@ -165,9 +197,13 @@ export default function Backtest() {
                 <label className="text-[11px] font-medium text-text-secondary">유니버스 선택</label>
                 <div className="grid grid-cols-1 gap-1.5">
                   {UNIVERSE_OPTIONS.map((u) => (
-                    <button key={u.value} onClick={() => setUniverse(u.value)}
+                    <button
+                      key={u.value}
+                      onClick={() => setUniverse(u.value)}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-all ${
-                        universe === u.value ? "border-accent-blue bg-accent-blue/10 text-text-primary" : "border-border text-text-secondary hover:border-accent-blue/50"
+                        universe === u.value
+                          ? "border-accent-blue bg-accent-blue/10 text-text-primary"
+                          : "border-border text-text-secondary hover:border-accent-blue/50"
                       }`}
                     >
                       <Globe size={13} className={universe === u.value ? "text-accent-blue" : "text-text-muted"} />
@@ -178,40 +214,88 @@ export default function Backtest() {
               </div>
             )}
 
+            {/* 날짜 프리셋 */}
+            <div className="flex flex-col gap-2">
+              <label className="text-[11px] font-medium text-text-secondary">기간 프리셋</label>
+              <div className="flex gap-1">
+                {DATE_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    onClick={() => applyDatePreset(p)}
+                    className={`flex-1 py-1 text-[11px] font-semibold rounded-lg border transition-all ${
+                      activeDatePreset === p.label
+                        ? "bg-accent-blue text-white border-accent-blue"
+                        : "bg-bg-primary border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-medium text-text-secondary">시작일</label>
-                <input type="date" className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
-                  value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                <input
+                  type="date"
+                  className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
+                  value={startDate}
+                  onChange={(e) => { setStartDate(e.target.value); setActiveDatePreset(null); }}
+                />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-medium text-text-secondary">종료일</label>
-                <input type="date" className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
-                  value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                <input
+                  type="date"
+                  className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
+                  value={endDate}
+                  onChange={(e) => { setEndDate(e.target.value); setActiveDatePreset(null); }}
+                />
               </div>
             </div>
 
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-text-secondary">초기 자본 (원)</label>
-              <input type="number" className="bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
-                value={capital} onChange={(e) => setCapital(Number(e.target.value))} />
+              <input
+                type="number"
+                className="bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+                value={capital}
+                onChange={(e) => setCapital(Number(e.target.value))}
+              />
             </div>
 
             <div className="grid grid-cols-3 gap-2">
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-medium text-text-secondary">손절 (%)</label>
-                <input type="number" placeholder="없음" className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
-                  value={stopLoss} onChange={(e) => setStopLoss(e.target.value ? Number(e.target.value) : "")} />
+                <input
+                  type="number"
+                  placeholder="없음"
+                  className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
+                  value={stopLoss}
+                  onChange={(e) => setStopLoss(e.target.value ? Number(e.target.value) : "")}
+                />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-medium text-text-secondary">익절 (%)</label>
-                <input type="number" placeholder="없음" className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
-                  value={takeProfit} onChange={(e) => setTakeProfit(e.target.value ? Number(e.target.value) : "")} />
+                <input
+                  type="number"
+                  placeholder="없음"
+                  className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
+                  value={takeProfit}
+                  onChange={(e) => setTakeProfit(e.target.value ? Number(e.target.value) : "")}
+                />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-medium text-text-secondary">투자비중 (%)</label>
-                <input type="number" min={10} max={100} className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
-                  value={positionSize} onChange={(e) => setPositionSize(Number(e.target.value))} />
+                <input
+                  type="number"
+                  min={10}
+                  max={100}
+                  className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
+                  value={positionSize}
+                  onChange={(e) => setPositionSize(Number(e.target.value))}
+                />
               </div>
             </div>
 
@@ -219,15 +303,24 @@ export default function Backtest() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-medium text-text-secondary">순위 기준</label>
-                  <select className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none"
-                    value={rankBy} onChange={(e) => setRankBy(e.target.value)}>
+                  <select
+                    className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none"
+                    value={rankBy}
+                    onChange={(e) => setRankBy(e.target.value)}
+                  >
                     {RANK_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-medium text-text-secondary">상위 N개</label>
-                  <input type="number" min={5} max={50} className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none"
-                    value={topN} onChange={(e) => setTopN(Number(e.target.value))} />
+                  <input
+                    type="number"
+                    min={5}
+                    max={50}
+                    className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none"
+                    value={topN}
+                    onChange={(e) => setTopN(Number(e.target.value))}
+                  />
                 </div>
               </div>
             )}
@@ -266,15 +359,19 @@ export default function Backtest() {
             <Card className="flex flex-col gap-2 p-3">
               <p className="text-[11px] font-semibold text-text-secondary">전략 저장</p>
               <div className="flex gap-1.5">
-                <input className="flex-1 bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
-                  placeholder="전략 이름" value={strategyName} onChange={(e) => setStrategyName(e.target.value)} />
+                <input
+                  className="flex-1 bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
+                  placeholder="전략 이름"
+                  value={strategyName}
+                  onChange={(e) => setStrategyName(e.target.value)}
+                />
                 <Button size="sm" onClick={() => strategyName && saveStrategyMutation.mutate()}>저장</Button>
               </div>
             </Card>
           )}
         </div>
 
-        {/* ─── 결과 패널 ────────────────────────────────── */}
+        {/* ── 결과 패널 ────────────────────────────────────── */}
         <div className="xl:col-span-2 flex flex-col gap-4">
           {/* 단일 종목 결과 */}
           {pageTab === "single" && (
@@ -287,11 +384,24 @@ export default function Backtest() {
                   <MetricCard label="총 수익률" value={<ChangeBadge value={result.total_return} className="text-xl" />} />
                   <MetricCard label="연환산" value={<ChangeBadge value={result.annual_return} className="text-xl" />} />
                   <MetricCard label="MDD" value={`-${result.mdd?.toFixed(1)}%`} color="text-accent-red" />
-                  <MetricCard label="샤프 비율" value={result.sharpe_ratio?.toFixed(2)} color={result.sharpe_ratio > 1 ? "text-accent-green" : "text-text-primary"} />
-                  <MetricCard label="승률" value={`${result.win_rate?.toFixed(1)}%`} color={result.win_rate >= 50 ? "text-accent-green" : "text-accent-red"} />
+                  <MetricCard
+                    label="샤프 비율"
+                    value={result.sharpe_ratio?.toFixed(2)}
+                    color={result.sharpe_ratio > 1 ? "text-accent-green" : "text-text-primary"}
+                  />
+                  <MetricCard
+                    label="승률"
+                    value={`${result.win_rate?.toFixed(1)}%`}
+                    color={result.win_rate >= 50 ? "text-accent-green" : "text-accent-red"}
+                  />
                   <MetricCard label="총 거래수" value={result.total_trades} />
                   <MetricCard label="평균 수익" value={`+${result.avg_profit?.toFixed(1)}%`} color="text-accent-green" />
-                  <MetricCard label="수익비율 (PF)" value={result.profit_factor?.toFixed(2)} color={result.profit_factor > 1.5 ? "text-accent-green" : "text-text-primary"} sub="PF > 1.5 우수" />
+                  <MetricCard
+                    label="수익비율 (PF)"
+                    value={result.profit_factor?.toFixed(2)}
+                    color={result.profit_factor > 1.5 ? "text-accent-green" : "text-text-primary"}
+                    sub="PF > 1.5 우수"
+                  />
                 </div>
 
                 {/* 수익 곡선 */}
@@ -305,7 +415,7 @@ export default function Backtest() {
                       <AreaChart data={result.equity_curve}>
                         <defs>
                           <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25} />
+                            <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.25} />
                             <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                           </linearGradient>
                         </defs>
@@ -474,7 +584,7 @@ export default function Backtest() {
                   </div>
                   {s.description && <p className="text-xs text-text-secondary">{s.description}</p>}
                   <div className="flex gap-1.5 flex-wrap">
-                    {s.stop_loss && <Badge variant="red">손절 {s.stop_loss}%</Badge>}
+                    {s.stop_loss   && <Badge variant="red">손절 {s.stop_loss}%</Badge>}
                     {s.take_profit && <Badge variant="green">익절 {s.take_profit}%</Badge>}
                     <Badge>진입 {s.entry_conditions?.conditions?.length ?? 0}조건</Badge>
                     <Badge>청산 {s.exit_conditions?.conditions?.length ?? 0}조건</Badge>

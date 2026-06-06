@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { screeningApi } from "@/api/stocks";
+import { screeningApi, watchlistApi } from "@/api/stocks";
 import {
-  Card, ChangeBadge, LoadingSpinner, formatNumber, RangeFilter, Tabs, Button, Badge
+  Card, ChangeBadge, LoadingSpinner, formatNumber, RangeFilter, Tabs, Button, Badge,
 } from "@/components/ui";
 import type { Market } from "@/types";
-import { Filter, Save, Trash2, ChevronUp, ChevronDown, ExternalLink } from "lucide-react";
+import {
+  Filter, Save, Trash2, ChevronUp, ChevronDown, ExternalLink,
+  Star, Download, Settings2, Check,
+} from "lucide-react";
 
 const MARKET_TABS = [
   { id: "US", label: "미국" },
@@ -39,6 +42,54 @@ const SECTORS = [
   "Basic Materials", "Real Estate", "Utilities",
 ];
 
+type ColumnKey = "price" | "change_rate" | "per" | "pbr" | "roe" | "eps" | "debt_ratio" | "market_cap";
+
+const ALL_COLUMNS: { key: ColumnKey; label: string }[] = [
+  { key: "price",       label: "현재가" },
+  { key: "change_rate", label: "등락률" },
+  { key: "per",         label: "PER" },
+  { key: "pbr",         label: "PBR" },
+  { key: "roe",         label: "ROE" },
+  { key: "eps",         label: "EPS" },
+  { key: "debt_ratio",  label: "부채비율" },
+  { key: "market_cap",  label: "시가총액" },
+];
+
+/* ── CSV export helper ─────────────────────────────────────── */
+function downloadCSV(rows: any[], visibleCols: Set<ColumnKey>) {
+  const headers = ["순위", "종목코드", "종목명", "시장", ...ALL_COLUMNS.filter((c) => visibleCols.has(c.key)).map((c) => c.label)];
+  const lines = rows.map((s, i) => {
+    const base = [i + 1, s.symbol, s.name ?? "", s.market ?? ""];
+    const extra = ALL_COLUMNS.filter((c) => visibleCols.has(c.key)).map((c) => {
+      const v = s[c.key];
+      return v == null ? "" : v;
+    });
+    return [...base, ...extra].join(",");
+  });
+  const csv = [headers.join(","), ...lines].join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `screening_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ── Toast component ───────────────────────────────────────── */
+function Toast({ message, onDone }: { message: string; onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2200);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-accent-green/20 border border-accent-green/40 text-accent-green text-sm font-medium rounded-xl shadow-lg animate-fade-in">
+      <Check size={14} />
+      {message}
+    </div>
+  );
+}
+
 export default function Screening() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -52,6 +103,28 @@ export default function Screening() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [presetName, setPresetName] = useState("");
   const [showPresets, setShowPresets] = useState(false);
+
+  // column visibility
+  const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(
+    new Set(ALL_COLUMNS.map((c) => c.key))
+  );
+  const [showColMenu, setShowColMenu] = useState(false);
+  const colMenuRef = useRef<HTMLDivElement>(null);
+
+  // watchlist star states
+  const [starredSymbols, setStarredSymbols] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<string | null>(null);
+
+  // close column menu on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
+        setShowColMenu(false);
+      }
+    }
+    if (showColMenu) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showColMenu]);
 
   const { data: presets } = useQuery({ queryKey: ["screening-presets"], queryFn: screeningApi.getPresets });
 
@@ -68,6 +141,15 @@ export default function Screening() {
   const deletePresetMutation = useMutation({
     mutationFn: (id: number) => screeningApi.deletePreset(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["screening-presets"] }),
+  });
+
+  const addToWatchlistMutation = useMutation({
+    mutationFn: (stock: any) =>
+      watchlistApi.addItem({ symbol: stock.symbol, market: stock.market, name: stock.name ?? stock.symbol, watchlist_id: 1 }),
+    onSuccess: (_data, stock: any) => {
+      setStarredSymbols((prev) => new Set([...prev, stock.symbol]));
+      setToast(`${stock.symbol} 관심종목에 추가됨`);
+    },
   });
 
   const setFilter = (key: string, val: { min?: number; max?: number }) => {
@@ -97,12 +179,20 @@ export default function Screening() {
     });
   };
 
-  const sortedResults = [...results].filter((s) => sector === "전체" || s.sector === sector);
+  const toggleColumn = (key: ColumnKey) => {
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
 
+  const sortedResults = [...results].filter((s) => sector === "전체" || s.sector === sector);
   const activeFilterCount = Object.keys(filters).length;
 
   return (
     <div className="flex flex-col gap-5 h-full">
+      {/* ── 페이지 헤더 ──────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">종목 스크리닝</h1>
@@ -125,7 +215,7 @@ export default function Screening() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4 flex-1 min-h-0">
-        {/* 필터 패널 */}
+        {/* ── 필터 패널 ─────────────────────────────────────── */}
         <div className="xl:col-span-1 flex flex-col gap-3 overflow-y-auto pr-1">
           {/* 시장 선택 */}
           <Card className="p-3">
@@ -136,7 +226,9 @@ export default function Screening() {
                   key={m.id}
                   onClick={() => setMarket(m.id)}
                   className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                    market === m.id ? "bg-accent-blue text-white" : "bg-bg-primary text-text-muted border border-border hover:text-text-primary"
+                    market === m.id
+                      ? "bg-accent-blue text-white"
+                      : "bg-bg-primary text-text-muted border border-border hover:text-text-primary"
                   }`}
                 >
                   {m.label}
@@ -233,7 +325,9 @@ export default function Screening() {
                     key={o}
                     onClick={() => setSortOrder(o)}
                     className={`flex-1 py-1 text-xs rounded-lg flex items-center justify-center gap-1 transition-all ${
-                      sortOrder === o ? "bg-accent-blue text-white" : "bg-bg-primary border border-border text-text-muted"
+                      sortOrder === o
+                        ? "bg-accent-blue text-white"
+                        : "bg-bg-primary border border-border text-text-muted"
                     }`}
                   >
                     {o === "desc" ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
@@ -270,7 +364,10 @@ export default function Screening() {
                       {p.name}
                       <span className="text-text-muted ml-1">· {p.market}</span>
                     </button>
-                    <button onClick={() => deletePresetMutation.mutate(p.id)} className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent-red p-1">
+                    <button
+                      onClick={() => deletePresetMutation.mutate(p.id)}
+                      className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent-red p-1"
+                    >
                       <Trash2 size={11} />
                     </button>
                   </div>
@@ -280,7 +377,7 @@ export default function Screening() {
           )}
         </div>
 
-        {/* 결과 패널 */}
+        {/* ── 결과 패널 ─────────────────────────────────────── */}
         <div className="xl:col-span-3 flex flex-col gap-3">
           {/* 결과 헤더 */}
           {results.length > 0 && (
@@ -288,7 +385,9 @@ export default function Screening() {
               <div className="flex items-center gap-3">
                 <span className="text-sm text-text-secondary">
                   <span className="text-text-primary font-semibold">{sortedResults.length}</span>개 발굴
-                  {results.length !== sortedResults.length && <span className="text-text-muted ml-1">/ 전체 {results.length}개</span>}
+                  {results.length !== sortedResults.length && (
+                    <span className="text-text-muted ml-1">/ 전체 {results.length}개</span>
+                  )}
                 </span>
                 {selected.size > 0 && (
                   <span className="text-xs px-2 py-0.5 bg-accent-blue/20 text-accent-blue rounded-full border border-accent-blue/30">
@@ -296,9 +395,56 @@ export default function Screening() {
                   </span>
                 )}
               </div>
-              {selected.size > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>선택 해제</Button>
-              )}
+              <div className="flex items-center gap-2">
+                {selected.size > 0 && (
+                  <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>선택 해제</Button>
+                )}
+                {/* Export CSV */}
+                <button
+                  onClick={() => downloadCSV(sortedResults, visibleCols)}
+                  title="CSV 다운로드"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary bg-bg-elevated border border-border rounded-lg hover:border-accent-blue/50 transition-colors"
+                >
+                  <Download size={12} />
+                  CSV
+                </button>
+                {/* Column visibility toggle */}
+                <div className="relative" ref={colMenuRef}>
+                  <button
+                    onClick={() => setShowColMenu((v) => !v)}
+                    title="컬럼 표시 설정"
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs border rounded-lg transition-colors ${
+                      showColMenu
+                        ? "bg-accent-blue/10 border-accent-blue/50 text-accent-blue"
+                        : "text-text-secondary hover:text-text-primary bg-bg-elevated border-border hover:border-accent-blue/50"
+                    }`}
+                  >
+                    <Settings2 size={12} />
+                    컬럼
+                  </button>
+                  {showColMenu && (
+                    <div className="absolute right-0 top-full mt-1.5 z-30 bg-bg-card border border-border rounded-xl shadow-xl p-2 min-w-[140px]">
+                      <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider px-2 pb-1.5">표시 컬럼</p>
+                      {ALL_COLUMNS.map((col) => (
+                        <button
+                          key={col.key}
+                          onClick={() => toggleColumn(col.key)}
+                          className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-bg-hover text-xs text-text-secondary hover:text-text-primary transition-colors"
+                        >
+                          {col.label}
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                            visibleCols.has(col.key)
+                              ? "bg-accent-blue border-accent-blue text-white"
+                              : "border-border"
+                          }`}>
+                            {visibleCols.has(col.key) && <Check size={10} />}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -323,20 +469,21 @@ export default function Screening() {
                     <tr className="text-text-muted text-[11px]">
                       <th className="w-8 px-3 py-3"></th>
                       <th className="text-left px-3 py-3">종목</th>
-                      <th className="text-right px-3 py-3">현재가</th>
-                      <th className="text-right px-3 py-3">등락률</th>
-                      <th className="text-right px-3 py-3">PER</th>
-                      <th className="text-right px-3 py-3">PBR</th>
-                      <th className="text-right px-3 py-3">ROE</th>
-                      <th className="text-right px-3 py-3">EPS</th>
-                      <th className="text-right px-3 py-3">부채비율</th>
-                      <th className="text-right px-3 py-3">시가총액</th>
-                      <th className="px-3 py-3"></th>
+                      {visibleCols.has("price")       && <th className="text-right px-3 py-3">현재가</th>}
+                      {visibleCols.has("change_rate") && <th className="text-right px-3 py-3">등락률</th>}
+                      {visibleCols.has("per")         && <th className="text-right px-3 py-3">PER</th>}
+                      {visibleCols.has("pbr")         && <th className="text-right px-3 py-3">PBR</th>}
+                      {visibleCols.has("roe")         && <th className="text-right px-3 py-3">ROE</th>}
+                      {visibleCols.has("eps")         && <th className="text-right px-3 py-3">EPS</th>}
+                      {visibleCols.has("debt_ratio")  && <th className="text-right px-3 py-3">부채비율</th>}
+                      {visibleCols.has("market_cap")  && <th className="text-right px-3 py-3">시가총액</th>}
+                      <th className="px-3 py-3 w-16"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {sortedResults.map((stock: any, i: number) => {
                       const isSelected = selected.has(stock.symbol);
+                      const isStarred = starredSymbols.has(stock.symbol);
                       return (
                         <tr
                           key={stock.symbol}
@@ -364,45 +511,79 @@ export default function Screening() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-text-primary">
-                            {stock.market === "KR" ? `₩${stock.price?.toLocaleString("ko-KR")}` : `$${stock.price?.toFixed(2)}`}
-                          </td>
-                          <td className="px-3 py-2.5 text-right">
-                            <ChangeBadge value={stock.change_rate ?? 0} />
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
-                            {stock.per?.toFixed(1) ?? "-"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
-                            {stock.pbr?.toFixed(2) ?? "-"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-xs">
-                            {stock.roe != null ? (
-                              <span className={stock.roe >= 15 ? "text-accent-green" : stock.roe >= 0 ? "text-text-secondary" : "text-accent-red"}>
-                                {stock.roe.toFixed(1)}%
-                              </span>
-                            ) : "-"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
-                            {stock.eps?.toFixed(2) ?? "-"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-xs">
-                            {stock.debt_ratio != null ? (
-                              <span className={stock.debt_ratio > 200 ? "text-accent-red" : stock.debt_ratio > 100 ? "text-accent-yellow" : "text-accent-green"}>
-                                {stock.debt_ratio.toFixed(0)}%
-                              </span>
-                            ) : "-"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
-                            {formatNumber(stock.market_cap)}
-                          </td>
+                          {visibleCols.has("price") && (
+                            <td className="px-3 py-2.5 text-right font-mono text-text-primary">
+                              {stock.market === "KR"
+                                ? `₩${stock.price?.toLocaleString("ko-KR")}`
+                                : `$${stock.price?.toFixed(2)}`}
+                            </td>
+                          )}
+                          {visibleCols.has("change_rate") && (
+                            <td className="px-3 py-2.5 text-right">
+                              <ChangeBadge value={stock.change_rate ?? 0} />
+                            </td>
+                          )}
+                          {visibleCols.has("per") && (
+                            <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
+                              {stock.per?.toFixed(1) ?? "-"}
+                            </td>
+                          )}
+                          {visibleCols.has("pbr") && (
+                            <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
+                              {stock.pbr?.toFixed(2) ?? "-"}
+                            </td>
+                          )}
+                          {visibleCols.has("roe") && (
+                            <td className="px-3 py-2.5 text-right font-mono text-xs">
+                              {stock.roe != null ? (
+                                <span className={stock.roe >= 15 ? "text-accent-green" : stock.roe >= 0 ? "text-text-secondary" : "text-accent-red"}>
+                                  {stock.roe.toFixed(1)}%
+                                </span>
+                              ) : "-"}
+                            </td>
+                          )}
+                          {visibleCols.has("eps") && (
+                            <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
+                              {stock.eps?.toFixed(2) ?? "-"}
+                            </td>
+                          )}
+                          {visibleCols.has("debt_ratio") && (
+                            <td className="px-3 py-2.5 text-right font-mono text-xs">
+                              {stock.debt_ratio != null ? (
+                                <span className={stock.debt_ratio > 200 ? "text-accent-red" : stock.debt_ratio > 100 ? "text-accent-yellow" : "text-accent-green"}>
+                                  {stock.debt_ratio.toFixed(0)}%
+                                </span>
+                              ) : "-"}
+                            </td>
+                          )}
+                          {visibleCols.has("market_cap") && (
+                            <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
+                              {formatNumber(stock.market_cap)}
+                            </td>
+                          )}
+                          {/* Actions */}
                           <td className="px-3 py-2.5">
-                            <button
-                              onClick={() => navigate(`/stocks/${stock.market}/${stock.symbol}`)}
-                              className="text-text-muted hover:text-accent-blue transition-colors"
-                            >
-                              <ExternalLink size={13} />
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => !isStarred && addToWatchlistMutation.mutate(stock)}
+                                disabled={isStarred || addToWatchlistMutation.isPending}
+                                title="관심종목 추가"
+                                className={`transition-colors ${
+                                  isStarred
+                                    ? "text-accent-yellow cursor-default"
+                                    : "text-text-muted hover:text-accent-yellow"
+                                }`}
+                              >
+                                <Star size={13} fill={isStarred ? "currentColor" : "none"} />
+                              </button>
+                              <button
+                                onClick={() => navigate(`/stocks/${stock.market}/${stock.symbol}`)}
+                                className="text-text-muted hover:text-accent-blue transition-colors"
+                                title="상세 보기"
+                              >
+                                <ExternalLink size={13} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -414,6 +595,9 @@ export default function Screening() {
           </Card>
         </div>
       </div>
+
+      {/* Toast notification */}
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   );
 }

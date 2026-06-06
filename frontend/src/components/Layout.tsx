@@ -1,23 +1,22 @@
 import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, Star, BookMarked, Activity, Sun, Moon, Menu, X, LogOut, LogIn, Wallet, Settings } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Activity, Sun, Moon, Menu, X, LogOut, LogIn, Wallet, Settings } from "lucide-react";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import type { ColorScheme } from "@/store/settingsStore";
+import type { ColorScheme, FontSize } from "@/store/settingsStore";
 import SearchBar from "@/components/SearchBar";
 import { useState, useEffect } from "react";
 
 const NAV = [
   { to: "/",          icon: LayoutDashboard, label: "대시보드",  end: true },
   { to: "/portfolio", icon: Wallet,           label: "내 자산"  },
-  { to: "/watchlist", icon: Star,             label: "관심종목" },
   { to: "/screening", icon: Search,           label: "스크리닝" },
   { to: "/backtest",  icon: LineChart,        label: "백테스트" },
   { to: "/strategies",icon: BookMarked,       label: "전략저장소"},
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
-  const { colorScheme, setColorScheme } = useSettingsStore();
+  const { colorScheme, setColorScheme, fontSize, setFontSize } = useSettingsStore();
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm"
@@ -30,13 +29,15 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             <X size={15} />
           </button>
         </div>
-        <div className="px-5 py-5 flex flex-col gap-4">
+        <div className="px-5 py-5 flex flex-col gap-5">
+
+          {/* 등락 색상 */}
           <div>
             <p className="text-xs font-semibold text-text-muted mb-2">등락 색상</p>
             <div className="flex gap-2">
               {([
-                { value: "green-red", label: "초록 / 빨강", desc: "상승=초록, 하락=빨강 (글로벌 기준)" },
-                { value: "red-blue",  label: "빨강 / 파랑",  desc: "상승=빨강, 하락=파랑 (한국 기준)" },
+                { value: "green-red", label: "초록 / 빨강", desc: "상승=초록, 하락=빨강" },
+                { value: "red-blue",  label: "빨강 / 파랑",  desc: "상승=빨강, 하락=파랑" },
               ] as const).map((opt) => (
                 <button
                   key={opt.value}
@@ -57,6 +58,32 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           </div>
+
+          {/* 글씨 크기 */}
+          <div>
+            <p className="text-xs font-semibold text-text-muted mb-2">글씨 크기</p>
+            <div className="flex gap-2">
+              {([
+                { value: "normal", label: "기본",   size: "text-xs"  },
+                { value: "large",  label: "크게",   size: "text-sm"  },
+                { value: "xl",     label: "아주 크게", size: "text-base" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setFontSize(opt.value as FontSize)}
+                  className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
+                    fontSize === opt.value
+                      ? "border-accent-blue bg-accent-blue/10"
+                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
+                  }`}
+                >
+                  <span className={`font-bold text-text-primary ${opt.size}`}>Aa</span>
+                  <span className="text-[10px] text-text-muted">{opt.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
         </div>
         <div className="px-5 pb-5">
           <button
@@ -74,6 +101,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 export default function Layout() {
   const wsStatus = useWSStore((s) => s.indicesStatus);
   const { isLoggedIn, username, logout } = useAuthStore();
+  const { fontSize } = useSettingsStore();
   const navigate = useNavigate();
   const [isLight, setIsLight] = useState(() => localStorage.getItem("theme") === "light");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -88,6 +116,14 @@ export default function Layout() {
     document.documentElement.classList.toggle("light", isLight);
     localStorage.setItem("theme", isLight ? "light" : "dark");
   }, [isLight]);
+
+  /* 글씨 크기 클래스 적용 */
+  useEffect(() => {
+    const html = document.documentElement;
+    html.classList.remove("font-large", "font-xl");
+    if (fontSize === "large") html.classList.add("font-large");
+    else if (fontSize === "xl") html.classList.add("font-xl");
+  }, [fontSize]);
 
   useEffect(() => {
     document.body.style.overflow = menuOpen ? "hidden" : "";
@@ -104,7 +140,7 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-bg-base overflow-hidden">
 
-      {/* ── 데스크탑 사이드바 (md 이상) ─────────── */}
+      {/* ── 데스크탑 사이드바 ─────────────────────────────── */}
       <aside className="hidden md:flex w-52 flex-shrink-0 flex-col bg-bg-card border-r border-border">
         <div className="px-5 pt-6 pb-5">
           <div className="flex items-center gap-2.5">
@@ -147,14 +183,14 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ── 모바일 드로어 오버레이 ───────────────── */}
+      {/* ── 모바일 드로어 오버레이 ───────────────────────── */}
       {menuOpen && (
         <div className="fixed inset-0 z-40 md:hidden" onClick={closeMenu}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
         </div>
       )}
 
-      {/* ── 모바일 드로어 패널 ───────────────────── */}
+      {/* ── 모바일 드로어 ───────────────────────────────── */}
       <aside
         className={`fixed top-0 left-0 h-full z-50 w-64 flex flex-col md:hidden bg-bg-card border-r border-border transition-transform duration-300 ${
           menuOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"}`}
@@ -203,13 +239,11 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ── 메인 영역 ──────────────────────────── */}
+      {/* ── 메인 영역 ──────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* 헤더 */}
         <header className="flex-shrink-0 flex items-center px-3 md:px-6 gap-3 bg-bg-primary border-b border-border" style={{ height: "52px" }}>
-
-          {/* 모바일 햄버거 버튼 */}
           <button
             onClick={() => setMenuOpen(v => !v)}
             className="md:hidden p-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-all"

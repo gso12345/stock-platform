@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api/client";
 import { stocksApi, watchlistApi, financialsApi } from "@/api/stocks";
 import {
@@ -316,6 +317,9 @@ export default function StockDetail() {
     ? isKR ? `₩${d.price.toLocaleString("ko-KR")}` : `$${d.price.toFixed(2)}`
     : "—";
   const isUp = (d?.change_rate ?? 0) >= 0;
+  const { colorScheme } = useSettingsStore();
+  const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
+  const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
 
   if (detailError && !detail) {
     return (
@@ -379,13 +383,13 @@ export default function StockDetail() {
           <div className="px-4 py-3 flex items-center gap-4 flex-wrap border-b border-border">
             <span className="text-3xl font-mono font-bold text-text-primary num">{priceStr}</span>
             <div className="flex items-center gap-1.5">
-              {isUp ? <TrendingUp size={13} className="text-accent-green"/> : <TrendingDown size={13} className="text-accent-red"/>}
+              {isUp ? <TrendingUp size={13} className={upColor}/> : <TrendingDown size={13} className={downColor}/>}
               {d.change != null && d.change !== 0 && (
-                <span className={`text-sm font-mono font-semibold num ${isUp?"text-accent-green":"text-accent-red"}`}>
+                <span className={`text-sm font-mono font-semibold num ${isUp?upColor:downColor}`}>
                   {isUp?"+":""}{isKR ? d.change.toLocaleString("ko-KR") : d.change.toFixed(2)}
                 </span>
               )}
-              <span className={`text-sm font-mono num ${isUp?"text-accent-green":"text-accent-red"}`}>
+              <span className={`text-sm font-mono num ${isUp?upColor:downColor}`}>
                 ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
               </span>
             </div>

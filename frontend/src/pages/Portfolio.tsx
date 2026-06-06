@@ -4,9 +4,10 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { stocksApi, dashboardApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
+import type { ColorScheme } from "@/store/settingsStore";
 
 /* ── Types ─────────────────────────────────────────────── */
 type Market = "KR" | "US" | "ETF";
@@ -92,6 +93,34 @@ function usePnlColors(scheme: ColorScheme) {
       ? (scheme === "red-blue" ? "text-accent-red"  : "text-accent-green")
       : (scheme === "red-blue" ? "text-accent-blue" : "text-accent-red"),
   };
+}
+
+/* ── Sort ──────────────────────────────────────────────── */
+type SortField = "name" | "shares" | "value" | "pnl" | "pnlRate" | "weight";
+
+function SortHead({ field, label, sortField, sortDir, onClick, align = "right" }: {
+  field: SortField; label: string; sortField: SortField | null; sortDir: "asc" | "desc";
+  onClick: (f: SortField) => void; align?: "left" | "right";
+}) {
+  const active = sortField === field;
+  return (
+    <th
+      onClick={() => onClick(field)}
+      className={`px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap cursor-pointer select-none hover:text-text-primary transition-colors ${
+        align === "left" ? "text-left" : "text-right"
+      }`}
+    >
+      <span className={`inline-flex items-center gap-0.5 ${align === "right" ? "flex-row-reverse" : ""}`}>
+        {label}
+        {active
+          ? sortDir === "desc"
+            ? <ChevronDown size={10} className="text-accent-blue" />
+            : <ChevronUp size={10} className="text-accent-blue" />
+          : <ChevronsUpDown size={10} className="opacity-25" />
+        }
+      </span>
+    </th>
+  );
 }
 
 /* ── Search types ───────────────────────────────────────── */
@@ -387,6 +416,13 @@ export default function Portfolio() {
 
   const { colorScheme } = useSettingsStore();
   const { pnlColor } = usePnlColors(colorScheme);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDir,   setSortDir]   = useState<"asc" | "desc">("desc");
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) setSortDir((d) => d === "desc" ? "asc" : "desc");
+    else { setSortField(field); setSortDir("desc"); }
+  };
 
   /* ── 환율 조회 (해외 대시보드 기준 — yfinance USDKRW=X) ── */
   const { data: usRatesData } = useQuery({
@@ -469,12 +505,33 @@ export default function Portfolio() {
     return { totalValue, totalCost, totalPnl, totalRate };
   }, [enriched]);
 
+  /* ── 정렬된 enriched ── */
+  const sortedEnriched = useMemo(() => {
+    if (!sortField) return enriched;
+    return [...enriched].sort((a, b) => {
+      if (sortField === "name") {
+        const av = a.name || a.symbol, bv = b.name || b.symbol;
+        return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+      }
+      const map: Record<SortField, number> = {
+        name: 0, shares: a.shares, value: a.currentValueKRW, pnl: a.pnlKRW, pnlRate: a.pnlRate, weight: a.weight,
+      };
+      const bmap: Record<SortField, number> = {
+        name: 0, shares: b.shares, value: b.currentValueKRW, pnl: b.pnlKRW, pnlRate: b.pnlRate, weight: b.weight,
+      };
+      return sortDir === "asc" ? map[sortField] - bmap[sortField] : bmap[sortField] - map[sortField];
+    });
+  }, [enriched, sortField, sortDir]);
+
   /* ── 차트 데이터 ── */
   const stockPieData = useMemo(() => {
     const sorted = [...enriched].sort((a, b) => b.currentValueKRW - a.currentValueKRW);
     const top  = sorted.slice(0, 8);
     const rest = sorted.slice(8);
-    const data = top.map((e) => ({ name: e.name || e.symbol, value: Math.round(e.currentValueKRW) }));
+    const data = top.map((e) => ({
+      name: (e.market === "US" || e.market === "ETF") ? e.symbol : (e.name || e.symbol),
+      value: Math.round(e.currentValueKRW),
+    }));
     if (rest.length > 0) {
       data.push({ name: "기타", value: Math.round(rest.reduce((s, e) => s + e.currentValueKRW, 0)) });
     }
@@ -632,15 +689,20 @@ export default function Portfolio() {
             <table className="w-full text-xs min-w-[820px]">
               <thead>
                 <tr className="border-b border-border bg-bg-primary/50">
-                  {["종목명","시장","보유수량","평단가","현재가","평가금액(₩)","평가손익(₩)","수익률","비중","액션"].map((h) => (
-                    <th key={h} className={`px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap ${
-                      h === "액션" || h === "비중" ? "text-right" : h === "종목명" ? "text-left" : "text-right"
-                    }`}>{h}</th>
-                  ))}
+                  <SortHead field="name"    label="종목명"      sortField={sortField} sortDir={sortDir} onClick={toggleSort} align="left" />
+                  <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">시장</th>
+                  <SortHead field="shares"  label="보유수량"    sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">평단가</th>
+                  <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">현재가</th>
+                  <SortHead field="value"   label="평가금액(₩)" sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <SortHead field="pnl"     label="평가손익(₩)" sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <SortHead field="pnlRate" label="수익률"      sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <SortHead field="weight"  label="비중"        sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">액션</th>
                 </tr>
               </thead>
               <tbody>
-                {enriched.map((item) => {
+                {sortedEnriched.map((item) => {
                   const pc    = pnlColor(item.pnlKRW);
                   const isDel = confirmDeleteId === item.id;
                   const hasPrice = priceMap[item.id] != null;

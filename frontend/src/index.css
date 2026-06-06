@@ -52,6 +52,8 @@ html.light {
     font-size: 14px;
     -webkit-font-smoothing: antialiased;
   }
+  html.font-large { font-size: 16px; }
+  html.font-xl    { font-size: 18px; }
 
   body {
     background: var(--bg-base);

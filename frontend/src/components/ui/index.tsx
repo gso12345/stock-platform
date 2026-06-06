@@ -1,6 +1,7 @@
 import React from "react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { useSettingsStore } from "@/store/settingsStore";
 
 export function cn(...i: ClassValue[]) { return twMerge(clsx(i)); }
 
@@ -21,13 +22,17 @@ export function Card({ children, className, onClick }: {
   );
 }
 
-/* ── 등락 배지 ─────────────────────────────────────────── */
+/* ── 등락 배지 (설정의 색상 테마 적용) ───────────────────── */
 export function ChangeBadge({ value, suffix = "%", className }: {
   value: number; suffix?: string; className?: string;
 }) {
+  const { colorScheme } = useSettingsStore();
   const pos = value >= 0;
+  const color = pos
+    ? (colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green")
+    : (colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red");
   return (
-    <span className={cn("font-mono font-semibold num", pos ? "text-accent-green" : "text-accent-red", className)}>
+    <span className={cn("font-mono font-semibold num", color, className)}>
       {pos ? "+" : ""}{value.toFixed(2)}{suffix}
     </span>
   );
