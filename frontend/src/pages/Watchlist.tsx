@@ -16,6 +16,64 @@ const MARKET_TABS = [
   { id: "ETF",  label: "ETF"  },
 ];
 
+/* ── 미리보기 예시 데이터 (비로그인 시 표시) ── */
+interface PreviewItem {
+  id: number; symbol: string; market: string; name: string;
+  price: number; change_rate: number; memo?: string;
+}
+const PREVIEW_WATCHLIST: PreviewItem[] = [
+  { id: -1, symbol: "005930", market: "KR", name: "삼성전자",         price: 72400,  change_rate: 0.58  },
+  { id: -2, symbol: "000660", market: "KR", name: "SK하이닉스",       price: 198500, change_rate: 1.33  },
+  { id: -3, symbol: "035720", market: "KR", name: "카카오",            price: 42150,  change_rate: -1.17 },
+  { id: -4, symbol: "NVDA",   market: "US", name: "엔비디아",         price: 875.43, change_rate: 2.14  },
+  { id: -5, symbol: "AAPL",   market: "US", name: "애플",              price: 221.85, change_rate: 0.73  },
+  { id: -6, symbol: "TSLA",   market: "US", name: "테슬라",            price: 247.15, change_rate: -0.94 },
+  { id: -7, symbol: "SPY",    market: "ETF", name: "SPDR S&P 500 ETF", price: 534.21, change_rate: 0.41  },
+  { id: -8, symbol: "QQQ",    market: "ETF", name: "Invesco QQQ Trust", price: 461.83, change_rate: 0.89  },
+];
+
+function PreviewItemRow({ item }: { item: PreviewItem }) {
+  const isKR = item.market === "KR";
+  const up   = item.change_rate >= 0;
+  const MKTCOLOR: Record<string, string> = {
+    KR:  "border-blue-700/50 text-blue-400 bg-blue-900/20",
+    US:  "border-green-700/50 text-green-400 bg-green-900/20",
+    ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
+  };
+  return (
+    <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card">
+      {/* 드래그 핸들 placeholder */}
+      <div className="w-5 flex-shrink-0 text-text-dim opacity-30">
+        <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+          <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>
+          <circle cx="3" cy="7"   r="1.3"/><circle cx="7" cy="7"   r="1.3"/>
+          <circle cx="3" cy="11.5" r="1.3"/><circle cx="7" cy="11.5" r="1.3"/>
+        </svg>
+      </div>
+      {/* 마켓 배지 */}
+      <div className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[item.market] ?? ""}`}>
+        {item.market}
+      </div>
+      {/* 종목 정보 */}
+      <div className="flex-1 min-w-0">
+        <div className="font-mono font-bold text-sm text-text-primary">
+          {item.symbol.replace(".KS","").replace(".KQ","")}
+        </div>
+        <div className="text-[11px] text-text-muted truncate">{item.name}</div>
+      </div>
+      {/* 가격 */}
+      <div className="text-right flex-shrink-0 min-w-[80px]">
+        <div className="text-sm font-mono font-semibold text-text-primary">
+          {isKR ? `₩${item.price.toLocaleString("ko-KR")}` : `$${item.price.toFixed(2)}`}
+        </div>
+        <div className={`text-xs font-semibold ${up ? "text-green-400" : "text-red-400"}`}>
+          {up ? "+" : ""}{item.change_rate.toFixed(2)}%
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── 검색 기반 종목 추가 모달 ─────────────────────────────── */
 interface SearchResult {
   symbol: string; name: string; market: string; type: string; exchange: string;
@@ -369,6 +427,7 @@ export default function Watchlist() {
   const qc       = useQueryClient();
   const navigate = useNavigate();
   const { isLoggedIn } = useAuthStore();
+  const isPreview = !isLoggedIn;
   const [marketTab, setMarketTab]   = useState("전체");
   const [folderTab, setFolderTab]   = useState<number | "all" | "none">("all"); // 폴더 탭 필터
   const [showAdd, setShowAdd]           = useState(false);
@@ -598,12 +657,12 @@ export default function Watchlist() {
       {!isLoggedIn && (
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-accent-blue/10 border border-accent-blue/20">
           <LogIn size={14} className="text-accent-blue flex-shrink-0" />
-          <span className="text-xs text-text-muted flex-1">
-            로그인하면 종목 추가·수정·삭제가 가능합니다. 현재는{" "}
-            <span className="text-accent-blue font-semibold">미리보기 모드</span>입니다.
-          </span>
-          <Link to="/login" className="text-xs font-semibold text-accent-blue hover:underline whitespace-nowrap">
-            로그인 →
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-text-primary">미리보기 모드</p>
+            <p className="text-xs text-text-muted mt-0.5">아래는 예시 데이터입니다. 로그인하면 내 관심종목을 추가·관리할 수 있어요.</p>
+          </div>
+          <Link to="/login" className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors">
+            <LogIn size={12} /> 로그인
           </Link>
         </div>
       )}
@@ -684,7 +743,18 @@ export default function Watchlist() {
       </div>
 
       {/* 본문 */}
-      {isLoading ? <LoadingSpinner /> : (
+      {isPreview ? (
+        <div className="flex flex-col gap-3">
+          <Card className="p-0 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border">
+              <Star size={13} className="text-accent-yellow" />
+              <span className="flex-1 text-sm font-semibold text-text-primary">기본 관심목록</span>
+              <span className="text-xs text-text-muted">{PREVIEW_WATCHLIST.length}개 예시</span>
+            </div>
+            {PREVIEW_WATCHLIST.map((item) => <PreviewItemRow key={item.id} item={item} />)}
+          </Card>
+        </div>
+      ) : isLoading ? <LoadingSpinner /> : (
         <div className="flex flex-col gap-3">
           {/* 폴더 그룹 */}
           {(folders as any[]).map((folder: any) => {

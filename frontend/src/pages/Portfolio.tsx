@@ -4,7 +4,7 @@ import { useQueries, useQuery, useMutation, useQueryClient } from "@tanstack/rea
 import { stocksApi, dashboardApi, portfolioApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Lock } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -809,11 +809,9 @@ export default function Portfolio() {
               <Plus size={13} /> 추가
             </button>
           ) : (
-            <Link to="/login"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-accent-blue/40 text-accent-blue text-xs font-semibold hover:bg-accent-blue/10 transition-colors"
-            >
-              <LogIn size={12} /> 로그인하고 시작하기
-            </Link>
+            <span className="px-2.5 py-1 rounded-lg bg-bg-elevated border border-border text-xs text-text-muted font-semibold">
+              예시 데이터
+            </span>
           )}
         </div>
 
@@ -836,25 +834,6 @@ export default function Portfolio() {
           </div>
         ) : (
           <div className="relative overflow-x-auto scrollbar-thin">
-            {/* 미리보기 오버레이 */}
-            {!isLoggedIn && (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-bg-card/60 backdrop-blur-[2px]">
-                <div className="bg-bg-card border border-border rounded-2xl px-6 py-5 flex flex-col items-center gap-3 shadow-xl">
-                  <div className="w-10 h-10 rounded-xl bg-accent-blue/15 flex items-center justify-center">
-                    <Lock size={18} className="text-accent-blue" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm font-bold text-text-primary">로그인하면 이용 가능</p>
-                    <p className="text-xs text-text-muted mt-1">종목 추가·수정·삭제, 실시간 손익 계산,<br/>수익률 정렬 등 모든 기능을 사용할 수 있어요</p>
-                  </div>
-                  <Link to="/login"
-                    className="flex items-center gap-2 px-5 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
-                  >
-                    <LogIn size={14} /> 로그인하기
-                  </Link>
-                </div>
-              </div>
-            )}
             <table className="w-full text-xs min-w-[820px]">
               <thead>
                 <tr className="border-b border-border bg-bg-primary/50">
