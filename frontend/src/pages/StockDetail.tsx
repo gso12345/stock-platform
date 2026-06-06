@@ -1757,7 +1757,7 @@ export default function StockDetail() {
                         <td className="px-3 py-2.5 text-right font-mono font-semibold text-text-primary whitespace-nowrap">
                           {isKR ? `₩${bar.close?.toLocaleString("ko-KR", {maximumFractionDigits:0})}` : `$${bar.close?.toFixed(2)}`}
                         </td>
-                        <td className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${prevClose ? (isPos ? "text-accent-green" : "text-accent-red") : "text-text-muted"}`}>
+                        <td className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${prevClose ? (isPos ? upColor : downColor) : "text-text-muted"}`}>
                           {prevClose ? `${isPos?"+":""}${chgRate.toFixed(2)}%` : "—"}
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-muted whitespace-nowrap">

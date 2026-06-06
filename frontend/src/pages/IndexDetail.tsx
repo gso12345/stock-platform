@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { dashboardApi } from "@/api/stocks";
 import { Card, ChangeBadge } from "@/components/ui";
+import { useSettingsStore } from "@/store/settingsStore";
 import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw, Maximize2, X, ChevronDown } from "lucide-react";
 import StockChart from "@/components/chart/StockChart";
 
@@ -109,6 +110,9 @@ export default function IndexDetail() {
   const canLoadMore = !!dailyRaw && (dailyRows.length < dailyRaw.length || dailyPeriod !== "max");
 
   const isUp = (info?.change_rate ?? 0) >= 0;
+  const { colorScheme } = useSettingsStore();
+  const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
+  const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
 
   const fmt = (v: number | null | undefined) => {
     if (v == null) return "—";
@@ -141,7 +145,7 @@ export default function IndexDetail() {
           <div>
             <div className="text-4xl font-mono font-bold text-text-primary num">{fmt(info.value)}</div>
             <div className="flex items-center gap-2 mt-1.5">
-              {isUp?<TrendingUp size={14} className="text-accent-green"/>:<TrendingDown size={14} className="text-accent-red"/>}
+              {isUp?<TrendingUp size={14} className={upColor}/>:<TrendingDown size={14} className={downColor}/>}
               <ChangeBadge value={info.change ?? 0} suffix="" />
               <ChangeBadge value={info.change_rate ?? 0} />
               {(info as any)._demo && <span className="text-2xs px-1 py-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
@@ -269,7 +273,7 @@ export default function IndexDetail() {
                           <td className="px-3 py-2.5 text-right font-mono font-semibold text-text-primary whitespace-nowrap">
                             {fmtPt(bar.close)}
                           </td>
-                          <td className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${prevClose ? (isPos ? "text-accent-green" : "text-accent-red") : "text-text-muted"}`}>
+                          <td className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${prevClose ? (isPos ? upColor : downColor) : "text-text-muted"}`}>
                             {prevClose ? `${isPos?"+":""}${chgRate.toFixed(2)}%` : "—"}
                           </td>
                           <td className="px-3 py-2.5 text-right font-mono text-accent-red/80 whitespace-nowrap">

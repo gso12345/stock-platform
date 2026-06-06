@@ -740,7 +740,10 @@ export default function Portfolio() {
                   const isDel = confirmDeleteId === item.id;
                   const hasPrice = priceMap[item.id] != null;
                   return (
-                    <tr key={item.id} className="border-b border-border/40 hover:bg-bg-hover transition-colors">
+                    <tr key={item.id}
+                      className="border-b border-border/40 hover:bg-bg-hover transition-colors cursor-pointer"
+                      onClick={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
+                    >
                       <td className="px-3 py-2.5">
                         <div className="flex flex-col gap-0.5">
                           <span className="font-semibold text-text-primary">{item.name || item.symbol}</span>
@@ -783,7 +786,7 @@ export default function Portfolio() {
                         </div>
                       </td>
                       <td className="px-3 py-2.5">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                           <button onClick={() => setEditItem(item)}
                             className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
                             <Pencil size={13} />
