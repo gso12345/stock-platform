@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { stocksApi, dashboardApi } from "@/api/stocks";
+import { useQueries, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { stocksApi, dashboardApi, portfolioApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card } from "@/components/ui";
 import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Lock } from "lucide-react";
@@ -16,7 +16,7 @@ type Currency = "KRW" | "USD";
 type ChartMode = "stock" | "market";
 
 interface PortfolioItem {
-  id: string;
+  id: number;
   symbol: string;
   market: Market;
   name: string;
@@ -38,23 +38,8 @@ interface EnrichedItem extends PortfolioItem {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const STORAGE_KEY = "portfolio_items";
 const PIE_COLORS  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16"];
 const DEFAULT_FX  = 1350;
-
-/* ── useLocalStorage ────────────────────────────────────── */
-function useLocalStorage<T>(key: string, initial: T): [T, (v: T | ((prev: T) => T)) => void] {
-  const [state, setState] = useState<T>(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? (JSON.parse(raw) as T) : initial;
-    } catch { return initial; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(key, JSON.stringify(state)); } catch {}
-  }, [key, state]);
-  return [state, setState];
-}
 
 /* ── Format utils ───────────────────────────────────────── */
 function fmtKRW(v: number): string {
@@ -408,11 +393,11 @@ function PortfolioModal({
 /* ── Main Page ──────────────────────────────────────────── */
 export default function Portfolio() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [activeTab,       setActiveTab]       = useState<"portfolio" | "watchlist">("portfolio");
-  const [items,           setItems]           = useLocalStorage<PortfolioItem[]>(STORAGE_KEY, []);
   const [modalOpen,       setModalOpen]       = useState(false);
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
 
   const { isLoggedIn } = useAuthStore();
@@ -425,6 +410,46 @@ export default function Portfolio() {
     if (sortField === field) setSortDir((d) => d === "desc" ? "asc" : "desc");
     else { setSortField(field); setSortDir("desc"); }
   };
+
+  /* ── 서버 데이터 ── */
+  const { data: items = [], isLoading: itemsLoading } = useQuery<PortfolioItem[]>({
+    queryKey: ["portfolio-items"],
+    queryFn:  portfolioApi.getItems,
+    enabled:  isLoggedIn,
+    staleTime: 60_000,
+  });
+
+  const addMutation = useMutation({
+    mutationFn: (data: Omit<PortfolioItem, "id">) =>
+      portfolioApi.addItem({
+        symbol: data.symbol, market: data.market, name: data.name,
+        shares: data.shares, avg_price: data.avgPrice, currency: data.currency,
+        input_exchange_rate: data.inputExchangeRate ?? null,
+        purchase_date: data.purchaseDate ?? null,
+        note: data.note ?? null,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolio-items"] }),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Omit<PortfolioItem, "id"> }) =>
+      portfolioApi.updateItem(id, {
+        symbol: data.symbol, market: data.market, name: data.name,
+        shares: data.shares, avg_price: data.avgPrice, currency: data.currency,
+        input_exchange_rate: data.inputExchangeRate ?? null,
+        purchase_date: data.purchaseDate ?? null,
+        note: data.note ?? null,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolio-items"] }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => portfolioApi.deleteItem(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      setConfirmDeleteId(null);
+    },
+  });
 
   /* ── 환율 조회 (해외 대시보드 기준 — yfinance USDKRW=X) ── */
   const { data: usRatesData } = useQuery({
@@ -456,7 +481,7 @@ export default function Portfolio() {
   });
 
   const priceMap = useMemo(() => {
-    const map: Record<string, number> = {};
+    const map: Record<number, number> = {};
     items.forEach((item, i) => {
       const d = priceQueries[i]?.data as any;
       if (d?.price != null) map[item.id] = d.price;
@@ -550,25 +575,22 @@ export default function Portfolio() {
 
   /* ── CRUD ── */
   const handleAdd = (data: Omit<PortfolioItem, "id">) => {
-    setItems((prev) => [...prev, { id: Date.now().toString(), ...data }]);
-    setModalOpen(false);
+    addMutation.mutate(data, { onSuccess: () => setModalOpen(false) });
   };
   const handleEdit = (data: Omit<PortfolioItem, "id">) => {
     if (!editItem) return;
-    setItems((prev) => prev.map((p) => p.id === editItem.id ? { ...p, ...data } : p));
-    setEditItem(undefined);
+    editMutation.mutate({ id: editItem.id, data }, { onSuccess: () => setEditItem(undefined) });
   };
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: number) => {
     if (confirmDeleteId === id) {
-      setItems((prev) => prev.filter((p) => p.id !== id));
-      setConfirmDeleteId(null);
+      deleteMutation.mutate(id);
     } else {
       setConfirmDeleteId(id);
       setTimeout(() => setConfirmDeleteId((c) => c === id ? null : c), 2500);
     }
   };
 
-  const isLoading = priceQueries.some((q) => q.isLoading);
+  const isLoading = itemsLoading || priceQueries.some((q) => q.isLoading);
 
   return (
     <div className="flex flex-col gap-4 fade-in pb-20">
@@ -598,8 +620,7 @@ export default function Portfolio() {
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-accent-blue/10 border border-accent-blue/20">
           <LogIn size={14} className="text-accent-blue flex-shrink-0" />
           <span className="text-xs text-text-muted flex-1">
-            로그인하면 종목 추가·수정·삭제가 가능합니다. 현재는{" "}
-            <span className="text-accent-blue font-semibold">미리보기 모드</span>입니다.
+            포트폴리오 데이터는 로그인 계정에 저장됩니다. 로그인하여 종목을 관리하세요.
           </span>
           <Link to="/login" className="text-xs font-semibold text-accent-blue hover:underline whitespace-nowrap">
             로그인 →

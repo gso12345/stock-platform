@@ -86,6 +86,24 @@ class BacktestResult(Base):
     strategy = relationship("Strategy", back_populates="backtests")
 
 
+class PortfolioItem(Base):
+    __tablename__ = "portfolio_items"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    user_id             = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    symbol              = Column(String(20), nullable=False)
+    market              = Column(String(10), nullable=False)   # KR, US, ETF
+    name                = Column(String(100))
+    shares              = Column(Float, nullable=False)
+    avg_price           = Column(Float, nullable=False)
+    currency            = Column(String(3), nullable=False, default="KRW")
+    input_exchange_rate = Column(Float, nullable=True)
+    purchase_date       = Column(String(10), nullable=True)
+    note                = Column(String(200), nullable=True)
+    created_at          = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at          = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class ScreeningPreset(Base):
     __tablename__ = "screening_presets"
 

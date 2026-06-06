@@ -121,6 +121,32 @@ export const backtestApi = {
     api.delete(`/backtest/strategies/${id}`).then((r) => r.data),
 };
 
+export const portfolioApi = {
+  getItems: () =>
+    api.get("/portfolio/items").then((r) => r.data),
+
+  addItem: (payload: {
+    symbol: string; market: string; name: string;
+    shares: number; avg_price: number; currency: string;
+    input_exchange_rate?: number | null;
+    purchase_date?: string | null;
+    note?: string | null;
+  }) =>
+    api.post("/portfolio/items", payload).then((r) => r.data),
+
+  updateItem: (id: number, payload: {
+    symbol: string; market: string; name: string;
+    shares: number; avg_price: number; currency: string;
+    input_exchange_rate?: number | null;
+    purchase_date?: string | null;
+    note?: string | null;
+  }) =>
+    api.put(`/portfolio/items/${id}`, payload).then((r) => r.data),
+
+  deleteItem: (id: number) =>
+    api.delete(`/portfolio/items/${id}`).then((r) => r.data),
+};
+
 export const watchlistApi = {
   getAll: () =>
     api.get("/watchlist/").then((r) => r.data),
