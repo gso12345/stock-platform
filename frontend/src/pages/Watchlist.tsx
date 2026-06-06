@@ -5,7 +5,6 @@ import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
-import type { Market } from "@/types";
 import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 
@@ -91,7 +90,6 @@ function AddModal({ folders, onClose, onAdd }: {
   const [memo, setMemo]         = useState("");
   const debounce  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
-  const composing = useRef(false); // IME 조합 중 여부
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
 
