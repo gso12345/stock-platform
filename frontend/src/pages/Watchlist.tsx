@@ -18,37 +18,40 @@ const MARKET_TABS = [
 /* ── 미리보기 예시 데이터 (비로그인 시 표시) ── */
 interface PreviewItem {
   id: number; symbol: string; market: string; name: string;
-  price: number; change_rate: number; memo?: string;
+  folderId: number; price: number; change_rate: number;
 }
+interface PreviewFolder { id: number; name: string; }
+
+const PREVIEW_FOLDERS: PreviewFolder[] = [
+  { id: -1, name: "국내 우량주" },
+  { id: -2, name: "해외 성장주" },
+  { id: -3, name: "ETF" },
+];
 const PREVIEW_WATCHLIST: PreviewItem[] = [
-  { id: -1, symbol: "005930", market: "KR", name: "삼성전자",         price: 72400,  change_rate: 0.58  },
-  { id: -2, symbol: "000660", market: "KR", name: "SK하이닉스",       price: 198500, change_rate: 1.33  },
-  { id: -3, symbol: "035720", market: "KR", name: "카카오",            price: 42150,  change_rate: -1.17 },
-  { id: -4, symbol: "NVDA",   market: "US", name: "엔비디아",         price: 875.43, change_rate: 2.14  },
-  { id: -5, symbol: "AAPL",   market: "US", name: "애플",              price: 221.85, change_rate: 0.73  },
-  { id: -6, symbol: "TSLA",   market: "US", name: "테슬라",            price: 247.15, change_rate: -0.94 },
-  { id: -7, symbol: "SPY",    market: "ETF", name: "SPDR S&P 500 ETF", price: 534.21, change_rate: 0.41  },
-  { id: -8, symbol: "QQQ",    market: "ETF", name: "Invesco QQQ Trust", price: 461.83, change_rate: 0.89  },
+  { id: -1, symbol: "005930", market: "KR",  name: "삼성전자",          folderId: -1, price: 72400,  change_rate:  0.58 },
+  { id: -2, symbol: "000660", market: "KR",  name: "SK하이닉스",        folderId: -1, price: 198500, change_rate:  1.33 },
+  { id: -3, symbol: "035720", market: "KR",  name: "카카오",             folderId: -1, price: 42150,  change_rate: -1.17 },
+  { id: -4, symbol: "NVDA",   market: "US",  name: "엔비디아",           folderId: -2, price: 875.43, change_rate:  2.14 },
+  { id: -5, symbol: "AAPL",   market: "US",  name: "애플",               folderId: -2, price: 221.85, change_rate:  0.73 },
+  { id: -6, symbol: "TSLA",   market: "US",  name: "테슬라",             folderId: -2, price: 247.15, change_rate: -0.94 },
+  { id: -7, symbol: "SPY",    market: "ETF", name: "SPDR S&P 500 ETF",  folderId: -3, price: 534.21, change_rate:  0.41 },
+  { id: -8, symbol: "QQQ",    market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
 ];
 
-function PreviewItemRow({ item }: { item: PreviewItem }) {
+const MKTCOLOR: Record<string, string> = {
+  KR:  "border-blue-700/50 text-blue-400 bg-blue-900/20",
+  US:  "border-green-700/50 text-green-400 bg-green-900/20",
+  ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
+};
+
+function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {
   const isKR = item.market === "KR";
   const up   = item.change_rate >= 0;
-  const MKTCOLOR: Record<string, string> = {
-    KR:  "border-blue-700/50 text-blue-400 bg-blue-900/20",
-    US:  "border-green-700/50 text-green-400 bg-green-900/20",
-    ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
-  };
   return (
-    <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card">
-      {/* 드래그 핸들 placeholder */}
-      <div className="w-5 flex-shrink-0 text-text-dim opacity-30">
-        <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-          <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>
-          <circle cx="3" cy="7"   r="1.3"/><circle cx="7" cy="7"   r="1.3"/>
-          <circle cx="3" cy="11.5" r="1.3"/><circle cx="7" cy="11.5" r="1.3"/>
-        </svg>
-      </div>
+    <div
+      className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
+      onClick={onNavigate}
+    >
       {/* 마켓 배지 */}
       <div className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[item.market] ?? ""}`}>
         {item.market}
@@ -264,38 +267,20 @@ function EditItemModal({ item, folders, onClose, onSave }: {
   );
 }
 
-const FOLDER_PRESETS = ["국내", "해외", "ETF", "배당주", "성장주", "관심"];
-
 /* ── 폴더 이름 편집 ──────────────────────────────────────── */
 function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSave: (n: string) => void; onCancel: () => void }) {
   const [val, setVal] = useState(folder.name);
   return (
-    <div className="flex flex-col gap-1.5 flex-1">
-      {/* 프리셋 빠른 선택 */}
-      <div className="flex gap-1 flex-wrap">
-        {FOLDER_PRESETS.map(p => (
-          <button
-            key={p}
-            onClick={() => { setVal(p); }}
-            className={`px-2 py-0.5 text-[10px] rounded-full border font-semibold transition-all ${
-              val === p
-                ? "bg-accent-blue text-white border-accent-blue"
-                : "border-border text-text-muted hover:border-accent-blue hover:text-accent-blue"
-            }`}
-          >{p}</button>
-        ))}
-      </div>
-      <div className="flex items-center gap-1">
-        <input
-          className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-2 py-0.5 text-xs text-text-primary focus:outline-none"
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") onSave(val); if (e.key === "Escape") onCancel(); }}
-          autoFocus
-        />
-        <button onClick={() => onSave(val)} className="text-accent-green p-1"><Check size={13} /></button>
-        <button onClick={onCancel} className="text-text-muted p-1"><X size={13} /></button>
-      </div>
+    <div className="flex items-center gap-1 flex-1">
+      <input
+        className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-2 py-0.5 text-xs text-text-primary focus:outline-none"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") onSave(val); if (e.key === "Escape") onCancel(); }}
+        autoFocus
+      />
+      <button onClick={() => onSave(val)} className="text-accent-green p-1"><Check size={13} /></button>
+      <button onClick={onCancel} className="text-text-muted p-1"><X size={13} /></button>
     </div>
   );
 }
@@ -669,7 +654,9 @@ export default function Watchlist() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">관심종목</h1>
-          <p className="text-text-muted text-xs mt-0.5">{itemsList.length}개 종목 · 클릭하면 상세로 이동</p>
+          <p className="text-text-muted text-xs mt-0.5">
+            {isPreview ? `${PREVIEW_WATCHLIST.length}개 예시 종목 · 클릭하면 상세로 이동` : `${itemsList.length}개 종목 · 클릭하면 상세로 이동`}
+          </p>
         </div>
         {isLoggedIn && (
           <div className="flex items-center gap-2">
@@ -689,10 +676,10 @@ export default function Watchlist() {
         )}
       </div>
 
-      {/* 시장 탭 */}
+      {/* 시장 탭 — 미리보기·로그인 모두 동작 */}
       <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
         {MARKET_TABS.map((t) => (
-          <button key={t.id} onClick={() => setMarketTab(t.id)}
+          <button key={t.id} onClick={() => { setMarketTab(t.id); setFolderTab("all"); }}
             className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
             }`}
@@ -700,59 +687,101 @@ export default function Watchlist() {
         ))}
       </div>
 
-      {/* 폴더 탭 — 항상 표시: 전체 / 기본 / 사용자 폴더 */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-        <button
-          onClick={() => setFolderTab("all")}
-          className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-            folderTab === "all"
-              ? "bg-accent-blue text-white border-accent-blue shadow"
-              : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
-          }`}
-        >
-          전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
-        </button>
-        <button
-          onClick={() => setFolderTab("none")}
-          className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-            folderTab === "none"
-              ? "bg-accent-blue text-white border-accent-blue shadow"
-              : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
-          }`}
-        >
-          기본 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
-        </button>
-        {(folders as any[]).map((f: any) => {
-          const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
-          return (
-            <button
-              key={f.id}
-              onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)}
-              className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                folderTab === f.id
-                  ? "bg-accent-blue text-white border-accent-blue shadow"
-                  : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
-              }`}
-            >
-              {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
+      {/* 폴더 탭 */}
+      {isPreview ? (() => {
+        const mktFiltered = marketTab === "전체" ? PREVIEW_WATCHLIST : PREVIEW_WATCHLIST.filter(i => i.market === marketTab);
+        const tabBtnCls = (active: boolean) =>
+          `flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+            active ? "bg-accent-blue text-white border-accent-blue shadow"
+                   : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+          }`;
+        return (
+          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+            <button onClick={() => setFolderTab("all")} className={tabBtnCls(folderTab === "all")}>
+              전체 <span className="text-[10px] opacity-70">{mktFiltered.length}</span>
             </button>
-          );
-        })}
-      </div>
+            {PREVIEW_FOLDERS.map(f => {
+              const cnt = mktFiltered.filter(i => i.folderId === f.id).length;
+              if (cnt === 0) return null;
+              return (
+                <button key={f.id} onClick={() => setFolderTab(f.id)} className={tabBtnCls(folderTab === f.id)}>
+                  {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })() : (
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+          <button
+            onClick={() => setFolderTab("all")}
+            className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+              folderTab === "all"
+                ? "bg-accent-blue text-white border-accent-blue shadow"
+                : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+            }`}
+          >
+            전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
+          </button>
+          <button
+            onClick={() => setFolderTab("none")}
+            className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+              folderTab === "none"
+                ? "bg-accent-blue text-white border-accent-blue shadow"
+                : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+            }`}
+          >
+            기본 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
+          </button>
+          {(folders as any[]).map((f: any) => {
+            const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
+            return (
+              <button
+                key={f.id}
+                onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)}
+                className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  folderTab === f.id
+                    ? "bg-accent-blue text-white border-accent-blue shadow"
+                    : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+                }`}
+              >
+                {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* 본문 */}
-      {isPreview ? (
-        <div className="flex flex-col gap-3">
-          <Card className="p-0 overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border">
-              <Star size={13} className="text-accent-yellow" />
-              <span className="flex-1 text-sm font-semibold text-text-primary">기본 관심목록</span>
-              <span className="text-xs text-text-muted">{PREVIEW_WATCHLIST.length}개 예시</span>
-            </div>
-            {PREVIEW_WATCHLIST.map((item) => <PreviewItemRow key={item.id} item={item} />)}
-          </Card>
-        </div>
-      ) : isLoading ? <LoadingSpinner /> : (
+      {isPreview ? (() => {
+        const mktFiltered = marketTab === "전체" ? PREVIEW_WATCHLIST : PREVIEW_WATCHLIST.filter(i => i.market === marketTab);
+        const shown = folderTab === "all" ? mktFiltered : mktFiltered.filter(i => i.folderId === folderTab);
+        const visibleFolders = PREVIEW_FOLDERS.filter(f => shown.some(i => i.folderId === f.id));
+        return (
+          <div className="flex flex-col gap-3">
+            {visibleFolders.map(folder => (
+              <Card key={folder.id} className="p-0 overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border">
+                  <ChevronDown size={14} className="text-text-muted" />
+                  <span className="flex-1 text-sm font-semibold text-text-primary">{folder.name}</span>
+                  <span className="text-xs text-text-muted">{shown.filter(i => i.folderId === folder.id).length}개</span>
+                </div>
+                {shown.filter(i => i.folderId === folder.id).map(item => (
+                  <PreviewItemRow key={item.id} item={item} onNavigate={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)} />
+                ))}
+              </Card>
+            ))}
+            {shown.length === 0 && (
+              <Card>
+                <div className="flex flex-col items-center justify-center py-10 gap-2">
+                  <Star size={28} className="text-text-muted/40" />
+                  <p className="text-text-muted text-sm">해당 시장의 예시 종목이 없습니다</p>
+                </div>
+              </Card>
+            )}
+          </div>
+        );
+      })() : isLoading ? <LoadingSpinner /> : (
         <div className="flex flex-col gap-3">
           {/* 폴더 그룹 */}
           {(folders as any[]).map((folder: any) => {
