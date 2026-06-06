@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import type { Market } from "@/types";
-import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2 } from "lucide-react";
+import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn } from "lucide-react";
+import { useAuthStore } from "@/store/authStore";
 
 const MARKET_TABS = [
   { id: "전체", label: "전체" },
@@ -367,6 +368,7 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
 export default function Watchlist() {
   const qc       = useQueryClient();
   const navigate = useNavigate();
+  const { isLoggedIn } = useAuthStore();
   const [marketTab, setMarketTab]   = useState("전체");
   const [folderTab, setFolderTab]   = useState<number | "all" | "none">("all"); // 폴더 탭 필터
   const [showAdd, setShowAdd]           = useState(false);
@@ -592,26 +594,42 @@ export default function Watchlist() {
         ))}
       </div>
 
+      {/* 로그인 배너 */}
+      {!isLoggedIn && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-accent-blue/10 border border-accent-blue/20">
+          <LogIn size={14} className="text-accent-blue flex-shrink-0" />
+          <span className="text-xs text-text-muted flex-1">
+            로그인하면 종목 추가·수정·삭제가 가능합니다. 현재는{" "}
+            <span className="text-accent-blue font-semibold">미리보기 모드</span>입니다.
+          </span>
+          <Link to="/login" className="text-xs font-semibold text-accent-blue hover:underline whitespace-nowrap">
+            로그인 →
+          </Link>
+        </div>
+      )}
+
       {/* 헤더 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">관심종목</h1>
           <p className="text-text-muted text-xs mt-0.5">{itemsList.length}개 종목 · 클릭하면 상세로 이동</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => createFolderMutation.mutate()}
-            className="flex items-center gap-1.5 px-3 py-2 bg-bg-card border border-border rounded-xl text-xs text-text-secondary hover:border-accent-blue hover:text-accent-blue transition-all"
-          >
-            <FolderPlus size={13} />폴더
-          </button>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-accent-blue hover:bg-blue-600 rounded-xl text-xs text-white font-semibold transition-all"
-          >
-            <Plus size={13} />종목 추가
-          </button>
-        </div>
+        {isLoggedIn && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => createFolderMutation.mutate()}
+              className="flex items-center gap-1.5 px-3 py-2 bg-bg-card border border-border rounded-xl text-xs text-text-secondary hover:border-accent-blue hover:text-accent-blue transition-all"
+            >
+              <FolderPlus size={13} />폴더
+            </button>
+            <button
+              onClick={() => setShowAdd(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-accent-blue hover:bg-blue-600 rounded-xl text-xs text-white font-semibold transition-all"
+            >
+              <Plus size={13} />종목 추가
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 시장 탭 */}
@@ -738,7 +756,7 @@ export default function Watchlist() {
         </div>
       )}
 
-      {showAdd && (
+      {isLoggedIn && showAdd && (
         <AddModal
           folders={folders}
           onClose={() => setShowAdd(false)}

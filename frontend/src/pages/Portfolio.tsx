@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { stocksApi, dashboardApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Lock } from "lucide-react";
+import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { ColorScheme } from "@/store/settingsStore";
@@ -414,6 +415,7 @@ export default function Portfolio() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
 
+  const { isLoggedIn } = useAuthStore();
   const { colorScheme } = useSettingsStore();
   const { pnlColor } = usePnlColors(colorScheme);
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -591,6 +593,20 @@ export default function Portfolio() {
         ))}
       </div>
 
+      {/* ── 로그인 배너 ── */}
+      {!isLoggedIn && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-accent-blue/10 border border-accent-blue/20">
+          <LogIn size={14} className="text-accent-blue flex-shrink-0" />
+          <span className="text-xs text-text-muted flex-1">
+            로그인하면 종목 추가·수정·삭제가 가능합니다. 현재는{" "}
+            <span className="text-accent-blue font-semibold">미리보기 모드</span>입니다.
+          </span>
+          <Link to="/login" className="text-xs font-semibold text-accent-blue hover:underline whitespace-nowrap">
+            로그인 →
+          </Link>
+        </div>
+      )}
+
       {/* ── 요약 카드 ── */}
       {items.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -693,12 +709,18 @@ export default function Portfolio() {
             )}
             {isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />}
           </div>
-          <button
-            onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
-          >
-            <Plus size={13} /> 추가
-          </button>
+          {isLoggedIn ? (
+            <button
+              onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
+            >
+              <Plus size={13} /> 추가
+            </button>
+          ) : (
+            <span className="flex items-center gap-1 text-xs text-text-muted">
+              <Lock size={11} />미리보기
+            </span>
+          )}
         </div>
 
         {items.length === 0 ? (
@@ -710,12 +732,14 @@ export default function Portfolio() {
               <p className="text-text-primary font-semibold text-sm">보유 종목 없음</p>
               <p className="text-text-muted text-xs mt-1">+ 추가 버튼으로 종목을 등록하세요</p>
             </div>
-            <button
-              onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
-            >
-              <Plus size={14} /> 첫 종목 추가
-            </button>
+            {isLoggedIn && (
+              <button
+                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+              >
+                <Plus size={14} /> 첫 종목 추가
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto scrollbar-thin">
@@ -786,21 +810,23 @@ export default function Portfolio() {
                         </div>
                       </td>
                       <td className="px-3 py-2.5">
-                        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                          <button onClick={() => setEditItem(item)}
-                            className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
-                            <Pencil size={13} />
-                          </button>
-                          <button onClick={() => handleDelete(item.id)}
-                            className={`p-1.5 rounded-lg transition-colors text-xs font-semibold ${
-                              isDel
-                                ? "bg-accent-red/20 text-accent-red border border-accent-red/40 px-2"
-                                : "text-text-muted hover:text-accent-red hover:bg-accent-red/10"
-                            }`}
-                            title={isDel ? "한 번 더 클릭하면 삭제됩니다" : "삭제"}>
-                            {isDel ? "확인" : <Trash2 size={13} />}
-                          </button>
-                        </div>
+                        {isLoggedIn && (
+                          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                            <button onClick={() => setEditItem(item)}
+                              className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
+                              <Pencil size={13} />
+                            </button>
+                            <button onClick={() => handleDelete(item.id)}
+                              className={`p-1.5 rounded-lg transition-colors text-xs font-semibold ${
+                                isDel
+                                  ? "bg-accent-red/20 text-accent-red border border-accent-red/40 px-2"
+                                  : "text-text-muted hover:text-accent-red hover:bg-accent-red/10"
+                              }`}
+                              title={isDel ? "한 번 더 클릭하면 삭제됩니다" : "삭제"}>
+                              {isDel ? "확인" : <Trash2 size={13} />}
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -825,16 +851,18 @@ export default function Portfolio() {
       </div>
 
       {/* ── FAB ── */}
-      <button
-        onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-        className="fixed bottom-6 right-6 z-40 w-12 h-12 rounded-full bg-accent-blue text-white shadow-lg shadow-accent-blue/30 hover:bg-blue-600 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
-        title="종목 추가"
-      >
-        <Plus size={20} />
-      </button>
+      {isLoggedIn && (
+        <button
+          onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+          className="fixed bottom-6 right-6 z-40 w-12 h-12 rounded-full bg-accent-blue text-white shadow-lg shadow-accent-blue/30 hover:bg-blue-600 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+          title="종목 추가"
+        >
+          <Plus size={20} />
+        </button>
+      )}
 
       {/* ── 종목 추가/수정 모달 ── */}
-      {(modalOpen || editItem) && (
+      {isLoggedIn && (modalOpen || editItem) && (
         <PortfolioModal
           item={editItem}
           defaultFx={exchangeRate}

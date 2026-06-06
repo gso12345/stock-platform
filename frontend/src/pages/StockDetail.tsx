@@ -831,12 +831,12 @@ export default function StockDetail() {
         };
 
         // 반응형 차트 높이 (모바일 compact, PC 표준)
-        const chartH   = isMobile ? 160 : 210;
-        const chartHSm = isMobile ? 145 : 185;
+        const chartH   = isMobile ? 220 : 300;
+        const chartHSm = isMobile ? 185 : 240;
 
         // 공통 차트 옵션
         const chartProps = {
-          margin: {top:8,right:8,left:0,bottom:4} as any,
+          margin: {top:8,right:12,left:4,bottom:4} as any,
           cartesianGridProps: { strokeDasharray:"3 3", stroke:"#232840" },
           xAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any,
           yAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false, width:isMobile?46:58 } as any,

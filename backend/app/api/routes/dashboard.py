@@ -317,23 +317,16 @@ async def get_index_ohlcv(name: str, period: str = Query(default="1y"), interval
     if fresh:
         return fresh
 
-    stale = cache.get_stale(ck)
     loop = asyncio.get_running_loop()
-
-    async def _bg():
-        try:
-            await asyncio.wait_for(
-                loop.run_in_executor(None, yf_service.get_index_ohlcv, name_upper, period, interval),
-                timeout=25,
-            )
-        except Exception:
-            pass
-
-    asyncio.get_running_loop().create_task(_bg())
-
-    if stale:
-        return stale
-    return []
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, yf_service.get_index_ohlcv, name_upper, period, interval),
+            timeout=25,
+        )
+        return result or []
+    except Exception:
+        stale = cache.get_stale(ck)
+        return stale or []
 
 
 # ── top-movers (호환) ──────────────────────────────────────
