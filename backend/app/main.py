@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.db.database import Base, engine
 from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth, portfolio
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
-from app.models.stock import PortfolioItem  # noqa: F401  — portfolio_items 테이블 생성 보장
+from app.models.stock import PortfolioItem, FundamentalsCache, FinancialsCache  # noqa: F401  — 테이블 생성 보장
 from app.api.websocket.price_stream import stream_prices, stream_indices
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db

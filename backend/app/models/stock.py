@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.database import Base
@@ -102,6 +102,30 @@ class PortfolioItem(Base):
     note                = Column(String(200), nullable=True)
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
     updated_at          = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class FundamentalsCache(Base):
+    """PER/PBR/ROE 등 밸류에이션 지표 DB 캐시"""
+    __tablename__ = "fundamentals_cache"
+    __table_args__ = (UniqueConstraint("symbol", "market", name="uq_fund_sym_mkt"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    symbol     = Column(String(20), nullable=False, index=True)
+    market     = Column(String(10), nullable=False)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FinancialsCache(Base):
+    """재무제표 (손익계산서·현금흐름·재무상태) DB 캐시"""
+    __tablename__ = "financials_cache"
+    __table_args__ = (UniqueConstraint("symbol", "market", name="uq_fin_sym_mkt"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    symbol     = Column(String(20), nullable=False, index=True)
+    market     = Column(String(10), nullable=False)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class ScreeningPreset(Base):

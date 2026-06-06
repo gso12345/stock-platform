@@ -467,82 +467,16 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
 
 @router.get("/{market}/{symbol}/fundamentals")
 async def get_fundamentals(market: Literal["KR","US","ETF"], symbol: str):
-    """벨류에이션 지표 (PER, PBR, ROE 등)"""
-    ck = f"fund:{symbol}"
-    # 신선한 캐시 우선, 없으면 stale 캐시 즉시 반환 후 백그라운드 갱신
-    fresh = cache.get(ck)
-    if fresh:
-        return fresh
-    stale = cache.get_stale(ck)
-
-    if market == "KR":
-        from app.services.price_fetcher import fetch_naver_stock
-        code6 = symbol.replace(".KS","").replace(".KQ","")
-        naver_fund: dict = {}
-        try:
-            naver = await fetch_naver_stock(code6)
-            if naver:
-                naver_fund = {k: naver.get(k) for k in ("per","pbr","eps","bps","dividend_yield","week52_high","week52_low","market_cap") if naver.get(k) is not None}
-        except Exception:
-            pass
-        try:
-            yf_sym = symbol if symbol.endswith((".KS",".KQ")) else f"{code6}.KS"
-            yf_fund = await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, yf_sym, "KR"),
-                timeout=15,
-            )
-        except Exception:
-            yf_fund = {}
-        result = {**(yf_fund or {}), **(naver_fund)}
-        if result:
-            cache.set(ck, result, 86400)
-            return result
-        if stale:
-            return stale
-
-    # yfinance fallback (US/ETF)
-    try:
-        result = await asyncio.wait_for(
-            asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, market),
-            timeout=20  # yfinance 첫 호출은 느릴 수 있어 여유 있게
-        )
-        if result:
-            cache.set(ck, result, 86400)
-            return result
-    except Exception:
-        pass
-    # stale 캐시 fallback — 재요청 실패해도 이전 데이터 표시
-    return stale or {}
+    """벨류에이션 지표 (PER, PBR, ROE 등) — DB 캐시 우선"""
+    from app.services.fundamentals_service import get_fundamentals as _svc
+    return await _svc(symbol, market)
 
 
 @router.get("/{market}/{symbol}/financials")
 async def get_financials(market: Literal["KR","US","ETF"], symbol: str):
-    ck = f"financials:{symbol}"
-    if cached := cache.get(ck):
-        return cached
-    stale = cache.get_stale(ck)
-    if stale:
-        return stale
-
-    result = None
-    if market == "KR":
-        if settings.DART_API_KEY:
-            r = await _run(dart_service.get_financials, symbol)
-            if r.get("annual") or r.get("quarterly"):
-                result = r
-        if not result:
-            result = await _yf_financials(symbol, market)
-    else:
-        if settings.FMP_API_KEY:
-            r = await _run(fmp_service.get_financials, symbol)
-            if r.get("annual") or r.get("quarterly"):
-                result = r
-        if not result:
-            result = await _yf_financials(symbol, market)
-
-    if result and (result.get("annual") or result.get("quarterly")):
-        cache.set(ck, result, 3600)
-    return result or {"annual": [], "quarterly": []}
+    """재무제표 (손익·현금흐름·재무상태) — DB 캐시 우선"""
+    from app.services.fundamentals_service import get_financials as _svc
+    return await _svc(symbol, market)
 
 
 async def _yf_financials(symbol: str, market: str) -> dict:

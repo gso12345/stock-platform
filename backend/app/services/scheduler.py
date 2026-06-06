@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+from datetime import datetime
 from app.core.cache import cache
 from app.services.price_fetcher import (
     fetch_naver_indices, fetch_naver_stocks, fetch_naver_exchange,
@@ -323,6 +324,51 @@ async def _prefetch_ohlcv_popular():
     log.info(f"OHLCV 선제 캐싱 {ok}개")
 
 
+async def _prefetch_fundamentals_popular():
+    """서버 시작 시 인기 종목 펀더멘털·재무제표 DB 선제 갱신 (DB에 없는 종목만)"""
+    from app.services.fundamentals_service import batch_refresh, get_all_fund_symbols
+    popular = [(sym, "US") for sym in POPULAR_US] + [(f"{code}.KS", "KR") for code in POPULAR_KR_CODES]
+    cached = set(get_all_fund_symbols())
+    missing = [(s, m) for s, m in popular if (s, m) not in cached]
+    if missing:
+        log.info(f"인기 종목 초기 펀더멘털 갱신: {len(missing)}개")
+        await batch_refresh(missing)
+
+
+async def refresh_fundamentals_daily():
+    """포트폴리오·관심종목·인기종목 펀더멘털 & 재무제표 일괄 갱신"""
+    from app.services.fundamentals_service import batch_refresh, get_all_fund_symbols
+    from app.db.database import SessionLocal
+    from app.models.stock import PortfolioItem, WatchlistItem
+
+    symbols_set: set[tuple[str, str]] = set()
+
+    # 1) 이미 DB에 캐시된 종목 (이전에 조회됐던 모든 종목)
+    for sym, mkt in get_all_fund_symbols():
+        symbols_set.add((sym, mkt))
+
+    # 2) 포트폴리오·관심종목 (로그인 사용자 데이터)
+    db = SessionLocal()
+    try:
+        for item in db.query(PortfolioItem).all():
+            symbols_set.add((item.symbol, item.market))
+        for item in db.query(WatchlistItem).all():
+            symbols_set.add((item.symbol, item.market))
+    except Exception:
+        pass
+    finally:
+        db.close()
+
+    # 3) 인기 종목 (항상 최신 유지)
+    for sym in POPULAR_US:
+        symbols_set.add((sym, "US"))
+    for code in POPULAR_KR_CODES:
+        symbols_set.add((f"{code}.KS", "KR"))
+
+    log.info(f"일일 펀더멘털·재무제표 갱신 시작 — {len(symbols_set)}개 종목")
+    await batch_refresh(list(symbols_set))
+
+
 async def run_startup_prefetch():
     log.info("=== 초기 프리페치 시작 ===")
 
@@ -351,13 +397,17 @@ async def run_startup_prefetch():
     )
     # OHLCV 선제 캐싱 (후후순위 — 백그라운드)
     asyncio.create_task(_prefetch_ohlcv_popular())
+    # 인기 종목 펀더멘털·재무제표 초기 갱신 (후후순위 — 백그라운드)
+    asyncio.create_task(_prefetch_fundamentals_popular())
     log.info("=== 초기 프리페치 완료 ===")
 
 
 async def periodic_refresh():
-    """30초마다 국내 지수, 60초마다 미국 지수 + 환율 + 순위, 5분마다 종목 + 뉴스"""
+    """30초마다 국내 지수, 60초마다 미국 지수 + 환율 + 순위, 5분마다 종목 + 뉴스, 24시간마다 펀더멘털 DB 갱신"""
     from app.services.ranking_service import refresh_kr_rankings_from_naver
     counter = 0
+    _last_fund_refresh = datetime.utcnow()
+
     while True:
         await asyncio.sleep(10)
         counter += 1
@@ -395,6 +445,13 @@ async def periodic_refresh():
         # 순위 (60초) - Naver 실시간
         if counter % 6 == 0:
             await refresh_kr_rankings_from_naver()
+
+        # 펀더멘털·재무제표 DB 갱신 (24시간 주기, 백그라운드)
+        now = datetime.utcnow()
+        if (now - _last_fund_refresh).total_seconds() >= 86400:
+            _last_fund_refresh = now
+            asyncio.create_task(refresh_fundamentals_daily())
+            log.info("일일 펀더멘털·재무제표 DB 갱신 작업 시작")
 
 
 def start_background_tasks(app):
