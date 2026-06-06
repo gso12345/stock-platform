@@ -6,7 +6,7 @@ import api from "@/api/client";
 import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import type { Market } from "@/types";
-import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2 } from "lucide-react";
+import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronUp, ChevronDown, ChevronRight, ChevronsUpDown, X, Check, Search, Settings2 } from "lucide-react";
 
 const MARKET_TABS = [
   { id: "전체", label: "전체" },
@@ -375,6 +375,8 @@ export default function Watchlist() {
   const [collapsed, setCollapsed]   = useState<Set<string>>(new Set());
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [addError, setAddError]     = useState("");
+  const [sortWl,    setSortWl]      = useState<"default" | "name" | "change" | "price">("default");
+  const [sortWlDir, setSortWlDir]   = useState<"asc" | "desc">("desc");
 
   const { data: folders = [] } = useQuery({
     queryKey: ["watchlist-folders"],
@@ -505,8 +507,30 @@ export default function Watchlist() {
       ? baseList.filter((i: any) => !i.folder_id)
       : baseList.filter((i: any) => i.folder_id === folderTab);
 
-  const noFolder  = displayList.filter((i: any) => !i.folder_id);
-  const byFolder  = (fid: number) => displayList.filter((i: any) => i.folder_id === fid);
+  // 정렬 적용
+  const sortedDisplayList = useMemo(() => {
+    if (sortWl === "default") return displayList;
+    return [...displayList].sort((a: any, b: any) => {
+      const la = livePrices[a.symbol], lb = livePrices[b.symbol];
+      if (sortWl === "name") {
+        const na = a.name || a.symbol, nb = b.name || b.symbol;
+        return sortWlDir === "asc" ? na.localeCompare(nb) : nb.localeCompare(na);
+      }
+      if (sortWl === "change") {
+        const ca = la?.change_rate ?? a.change_rate ?? 0;
+        const cb = lb?.change_rate ?? b.change_rate ?? 0;
+        return sortWlDir === "asc" ? ca - cb : cb - ca;
+      }
+      if (sortWl === "price") {
+        const pa = la?.price ?? 0, pb = lb?.price ?? 0;
+        return sortWlDir === "asc" ? pa - pb : pb - pa;
+      }
+      return 0;
+    });
+  }, [displayList, sortWl, sortWlDir, livePrices]);
+
+  const noFolder  = sortedDisplayList.filter((i: any) => !i.folder_id);
+  const byFolder  = (fid: number) => sortedDisplayList.filter((i: any) => i.folder_id === fid);
 
   const goToStock = (item: any) => {
     // 가격 조회 중이라면 취소하고 종목 상세로 이동 (상세 페이지 로딩 우선)
@@ -614,46 +638,77 @@ export default function Watchlist() {
         </div>
       </div>
 
-      {/* 시장 탭 */}
-      <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
-        {MARKET_TABS.map((t) => (
-          <button key={t.id} onClick={() => setMarketTab(t.id)}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-            }`}
-          >{t.label}</button>
-        ))}
+      {/* 시장 탭 + 정렬 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1">
+          {MARKET_TABS.map((t) => (
+            <button key={t.id} onClick={() => setMarketTab(t.id)}
+              className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+              }`}
+            >{t.label}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 ml-auto">
+          <span className="text-2xs text-text-muted hidden sm:block">정렬</span>
+          {([
+            { id: "default", label: "기본" },
+            { id: "name",    label: "이름" },
+            { id: "change",  label: "등락률" },
+            { id: "price",   label: "현재가" },
+          ] as const).map((opt) => (
+            <button key={opt.id}
+              onClick={() => {
+                if (sortWl === opt.id) setSortWlDir(d => d === "asc" ? "desc" : "asc");
+                else { setSortWl(opt.id); setSortWlDir("desc"); }
+              }}
+              className={`flex items-center gap-0.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                sortWl === opt.id
+                  ? "bg-accent-blue/10 border-accent-blue/40 text-accent-blue"
+                  : "border-border text-text-muted hover:text-text-primary bg-bg-card"
+              }`}
+            >
+              {opt.label}
+              {sortWl === opt.id && (
+                sortWlDir === "desc"
+                  ? <ChevronDown size={10} />
+                  : <ChevronUp size={10} />
+              )}
+              {sortWl !== opt.id && opt.id !== "default" && <ChevronsUpDown size={10} className="opacity-30" />}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* 폴더 탭 */}
-      {(folders as any[]).length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-          <button
-            onClick={() => setFolderTab("all")}
-            className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-              folderTab === "all"
-                ? "bg-accent-blue text-white border-accent-blue shadow"
-                : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
-            }`}
-          >
-            전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
-          </button>
-          {(folders as any[]).map((f: any) => {
-            const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
-            return (
-              <button
-                key={f.id}
-                onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)}
-                className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                  folderTab === f.id
-                    ? "bg-accent-blue text-white border-accent-blue shadow"
-                    : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
-                }`}
-              >
-                {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
-              </button>
-            );
-          })}
+      {/* 폴더 탭 — 항상 표시 */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+        <button
+          onClick={() => setFolderTab("all")}
+          className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+            folderTab === "all"
+              ? "bg-accent-blue text-white border-accent-blue shadow"
+              : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+          }`}
+        >
+          기본 <span className="text-[10px] opacity-70">{itemsList.length}</span>
+        </button>
+        {(folders as any[]).map((f: any) => {
+          const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
+          return (
+            <button
+              key={f.id}
+              onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)}
+              className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                folderTab === f.id
+                  ? "bg-accent-blue text-white border-accent-blue shadow"
+                  : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+              }`}
+            >
+              {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
+            </button>
+          );
+        })}
+        {itemsList.filter((i: any) => !i.folder_id).length > 0 && (folders as any[]).length > 0 && (
           <button
             onClick={() => setFolderTab("none")}
             className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
@@ -664,8 +719,8 @@ export default function Watchlist() {
           >
             미분류 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* 본문 */}
       {isLoading ? <LoadingSpinner /> : (

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { dashboardApi, stocksApi } from "@/api/stocks";
 import { Card, ChangeBadge, formatNumber } from "@/components/ui";
+import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
 
@@ -18,6 +19,9 @@ function fmtUSD(v: number | null | undefined): string {
 /* ── 지수 카드 ───────────────────────────────────────────── */
 const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _demo, onClick }: any) {
   const pos = (change_rate ?? 0) >= 0;
+  const { colorScheme } = useSettingsStore();
+  const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
+  const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
   return (
     <Card
       className="flex flex-col gap-1 min-w-[145px] cursor-pointer group"
@@ -33,7 +37,7 @@ const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _d
         {value > 0 ? value.toLocaleString("ko-KR", {maximumFractionDigits:2}) : "—"}
       </span>
       <div className="flex items-center gap-1">
-        {pos ? <TrendingUp size={10} className="text-accent-green flex-shrink-0" /> : <TrendingDown size={10} className="text-accent-red flex-shrink-0" />}
+        {pos ? <TrendingUp size={10} className={`${upColor} flex-shrink-0`} /> : <TrendingDown size={10} className={`${downColor} flex-shrink-0`} />}
         <ChangeBadge value={change_rate ?? 0} className="text-xs" />
       </div>
     </Card>
@@ -42,11 +46,14 @@ const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _d
 
 /* ── 환율 / 금리 / 선물 카드 ─────────────────────────────── */
 const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, unit, _demo, _static }: any) {
+  const { colorScheme } = useSettingsStore();
   const isRate = unit === "%";
   const numVal = typeof value === "number" ? value : parseFloat(String(value).replace(/,/g,"")) || 0;
   const chgVal = typeof change === "number" ? change : 0;
   const chgrVal = typeof change_rate === "number" ? change_rate : 0;
   const pos = chgVal >= 0;
+  const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
+  const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
 
   const formatted = isRate
     ? numVal.toFixed(2) + "%"
@@ -64,8 +71,8 @@ const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, un
       <span className="text-base font-mono font-bold text-text-primary num">{formatted}</span>
       {(chgVal !== 0 || chgrVal !== 0) && (
         <div className="flex items-center gap-1">
-          {pos ? <TrendingUp size={10} className="text-accent-green" /> : <TrendingDown size={10} className="text-accent-red" />}
-          <span className={`text-2xs font-mono ${pos ? "text-accent-green" : "text-accent-red"}`}>
+          {pos ? <TrendingUp size={10} className={upColor} /> : <TrendingDown size={10} className={downColor} />}
+          <span className={`text-2xs font-mono ${pos ? upColor : downColor}`}>
             {pos ? "+" : ""}{isRate ? chgVal.toFixed(2) + "bp" : chgVal !== 0 ? chgVal.toFixed(2) : (chgrVal.toFixed(2) + "%")}
           </span>
         </div>

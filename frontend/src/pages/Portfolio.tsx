@@ -5,7 +5,7 @@ import { stocksApi, dashboardApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card } from "@/components/ui";
 import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { ColorScheme } from "@/store/settingsStore";
 
@@ -629,23 +629,56 @@ export default function Portfolio() {
             </div>
           </div>
           {activePieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={activePieData} dataKey="value" nameKey="name"
-                  cx="50%" cy="46%" outerRadius={75} innerRadius={35}>
-                  {activePieData.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ background: "#141824", border: "1px solid #232840", borderRadius: 8, fontSize: 11 }}
-                  formatter={(v: any) => [fmtKRW(Number(v)), ""]}
-                />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-center sm:items-start">
+              {/* 파이 차트 */}
+              <div className="flex-shrink-0 w-full sm:w-44">
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart key={chartMode}>
+                    <Pie
+                      data={activePieData} dataKey="value" nameKey="name"
+                      cx="50%" cy="50%" outerRadius={72} innerRadius={30}
+                      isAnimationActive animationBegin={0} animationDuration={700} animationEasing="ease-out"
+                    >
+                      {activePieData.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ background: "#141824", border: "1px solid #232840", borderRadius: 8, fontSize: 11 }}
+                      formatter={(v: any) => [fmtKRW(Number(v)), ""]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              {/* 우측 목록 */}
+              <div className="flex-1 min-w-0 w-full self-center flex flex-col gap-0.5 py-1">
+                {(() => {
+                  const total = activePieData.reduce((s, e) => s + e.value, 0);
+                  return activePieData.map((entry, i) => {
+                    const pct = total > 0 ? (entry.value / total) * 100 : 0;
+                    return (
+                      <div key={entry.name} className="flex items-center gap-2 py-1">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                        <span className="flex-1 text-xs text-text-secondary truncate min-w-0">{entry.name}</span>
+                        <div className="flex-shrink-0 w-16 h-1.5 bg-bg-elevated rounded-full overflow-hidden hidden sm:block">
+                          <div className="h-full rounded-full transition-all duration-700"
+                            style={{ width: `${Math.min(100, pct)}%`, background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                        </div>
+                        <span className="text-xs font-mono font-semibold text-text-primary w-10 text-right flex-shrink-0">
+                          {pct.toFixed(1)}%
+                        </span>
+                        <span className="text-xs font-mono text-text-muted text-right flex-shrink-0 w-20 hidden sm:block">
+                          {fmtKRW(entry.value)}
+                        </span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
           ) : (
-            <div className="h-[220px] flex items-center justify-center text-text-muted text-sm">데이터 없음</div>
+            <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">데이터 없음</div>
           )}
         </Card>
       )}
