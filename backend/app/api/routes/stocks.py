@@ -559,7 +559,7 @@ async def _yf_financials(symbol: str, market: str) -> dict:
 async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
     """재무지표 연간/분기별 추이 (yfinance)"""
     from app.core.cache import cache
-    ck = f"metrics_hist2:{symbol}"
+    ck = f"metrics_hist3:{symbol}"  # v3: 6y history for 2022+ coverage
     if c := cache.get(ck):
         return c
     _stale_mh = cache.get_stale(ck)
@@ -719,8 +719,8 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
 
             hist = None
             try:
-                # PER/PBR/PSR 계산용 주가 이력 — max 대신 10y로 제한 (속도 개선)
-                hist = t.history(period="3y", interval="1mo")
+                # PER/PBR/PSR 계산용 주가 이력 — 6년으로 2020년부터 커버
+                hist = t.history(period="6y", interval="1mo")
                 if hist.index.tz is not None:
                     hist.index = hist.index.tz_localize(None)
             except Exception:

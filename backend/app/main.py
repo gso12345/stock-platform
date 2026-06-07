@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 from fastapi import FastAPI, WebSocket, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -70,6 +71,22 @@ async def lifespan(application: FastAPI):
 
     init_ticker_db()
     start_background_tasks(application)
+
+    # 서버 첫 요청 전에 지수·환율 캐시를 채워 대시보드 초기 속도 개선
+    from app.services.scheduler import refresh_kr_indices, refresh_us_indices, refresh_exchange
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(
+                refresh_kr_indices(),
+                refresh_us_indices(),
+                refresh_exchange(),
+                return_exceptions=True,
+            ),
+            timeout=20,
+        )
+    except Exception:
+        pass
+
     yield
 
 
