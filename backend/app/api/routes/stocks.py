@@ -12,12 +12,12 @@ from slowapi.util import get_remote_address
 from app.services.kis_service import kis_service
 from app.services.finnhub_service import finnhub_service
 from app.services.dart_service import dart_service
-from app.services.fmp_service import fmp_service
 from app.services.yf_service import yf_service, _resolve_kr_symbol
 from app.services.demo_data import get_demo_price, get_demo_ohlcv, DEMO_PRICES
 from app.services.ticker_service import get_fdr_price
 from app.core.config import settings
 from app.core.cache import cache
+from app.core.utils import safe_float as _safe_float
 
 router = APIRouter(prefix="/stocks", tags=["종목"])
 limiter = Limiter(key_func=get_remote_address)
@@ -544,83 +544,6 @@ async def get_financials(market: Literal["KR","US","ETF"], symbol: str):
         cache.set(ck, result, 3600)
     return result or {"annual": [], "quarterly": []}
 
-
-async def _yf_financials(symbol: str, market: str) -> dict:
-    """yfinance 재무제표 — income statement + balance sheet 통합"""
-    import yfinance as yf
-    yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
-
-    def _fetch():
-        import math
-        t = yf.Ticker(yf_sym)
-        result = {"annual": [], "quarterly": []}
-
-        def sv(df, row, col):
-            try:
-                v = df.loc[row, col]
-                f = float(v)
-                return int(f) if not (math.isnan(f) or math.isinf(f)) else None
-            except Exception:
-                return None
-
-        for (fin_attr, cf_attr, bal_attr, key) in [
-            ("financials", "cashflow", "balance_sheet", "annual"),
-            ("quarterly_financials", "quarterly_cashflow", "quarterly_balance_sheet", "quarterly"),
-        ]:
-            try:
-                fin = getattr(t, fin_attr, None)
-                cf  = getattr(t, cf_attr, None)
-                bal = getattr(t, bal_attr, None)
-                if fin is None or fin.empty:
-                    continue
-                rows = []
-                for col in fin.columns:
-                    period = str(col)[:10]
-                    row_data = {
-                        "period":     period,
-                        "revenue":    sv(fin, "Total Revenue", col),
-                        "op_income":  sv(fin, "Operating Income", col) or sv(fin, "EBIT", col),
-                        "net_income": sv(fin, "Net Income", col),
-                        "gross_profit": sv(fin, "Gross Profit", col),
-                        "ebit":       sv(fin, "EBIT", col),
-                        "ebitda":     sv(fin, "EBITDA", col),
-                        "eps":        sv(fin, "Diluted EPS", col) or sv(fin, "Basic EPS", col),
-                    }
-                    # 현금흐름 추가
-                    if cf is not None and not cf.empty and col in cf.columns:
-                        row_data["operating_cf"] = sv(cf, "Operating Cash Flow", col) or sv(cf, "Total Cash From Operating Activities", col)
-                        row_data["investing_cf"] = sv(cf, "Investing Cash Flow", col) or sv(cf, "Total Cash From Investing Activities", col)
-                        row_data["financing_cf"] = sv(cf, "Financing Cash Flow", col) or sv(cf, "Total Cash From Financing Activities", col)
-                        row_data["capex"]        = sv(cf, "Capital Expenditure", col)
-                        fcf = row_data.get("operating_cf")
-                        cap = row_data.get("capex")
-                        row_data["free_cf"] = (fcf + cap) if fcf and cap else None
-                    # 재무상태 추가
-                    if bal is not None and not bal.empty and col in bal.columns:
-                        row_data["total_debt"]   = sv(bal, "Total Debt", col)
-                        row_data["total_equity"] = sv(bal, "Stockholders Equity", col) or sv(bal, "Common Stock Equity", col)
-                    # 마진 계산
-                    rev = row_data.get("revenue")
-                    if rev and rev != 0:
-                        if row_data.get("gross_profit"):
-                            row_data["gross_margin"] = round(row_data["gross_profit"] / rev * 100, 2)
-                        if row_data.get("op_income"):
-                            row_data["op_margin"] = round(row_data["op_income"] / rev * 100, 2)
-                        if row_data.get("net_income"):
-                            row_data["net_margin"] = round(row_data["net_income"] / rev * 100, 2)
-                    rows.append(row_data)
-                result[key] = sorted(rows, key=lambda x: x["period"])
-            except Exception:
-                pass
-        return result
-
-    try:
-        loop = asyncio.get_running_loop()
-        return await asyncio.wait_for(loop.run_in_executor(None, _fetch), timeout=30)
-    except Exception:
-        return {"annual": [], "quarterly": []}
-
-
 @router.get("/{market}/{symbol}/metrics-history")
 async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
     """재무지표 연간/분기별 추이 (yfinance)"""
@@ -934,14 +857,6 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
         result = await asyncio.wait_for(loop.run_in_executor(None, _fetch_kr), timeout=15)
         cache.set(ck, result, 3600)
         return result
-
-    def _safe_float(v):
-        try:
-            f = float(v)
-            import math
-            return None if (math.isnan(f) or math.isinf(f)) else f
-        except Exception:
-            return None
 
     def _fetch():
         import concurrent.futures
@@ -1276,11 +1191,11 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         # 목표주가
         if apt and isinstance(apt, dict):
             result["price_targets"] = {
-                "current": _safe(apt.get("current")),
-                "mean":    _safe(apt.get("mean")),
-                "median":  _safe(apt.get("median")),
-                "high":    _safe(apt.get("high")),
-                "low":     _safe(apt.get("low")),
+                "current": _safe_float(apt.get("current")),
+                "mean":    _safe_float(apt.get("mean")),
+                "median":  _safe_float(apt.get("median")),
+                "high":    _safe_float(apt.get("high")),
+                "low":     _safe_float(apt.get("low")),
             }
 
         # 투자의견 분포 (현재월)

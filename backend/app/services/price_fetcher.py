@@ -6,10 +6,10 @@
 """
 import httpx
 import asyncio
-import math
 import re
 import logging
 from app.core.cache import cache
+from app.core.utils import safe_float as _safe
 
 log = logging.getLogger(__name__)
 
@@ -28,19 +28,6 @@ YF_HEADERS = {
 }
 
 _yf_base_counter = 0  # query1/query2 교차용
-
-
-def _safe(v) -> float | None:
-    if v is None:
-        return None
-    try:
-        # 콤마 제거 후 float 변환
-        if isinstance(v, str):
-            v = v.replace(",", "")
-        f = float(v)
-        return None if (math.isnan(f) or math.isinf(f)) else f
-    except Exception:
-        return None
 
 
 def _yf_base() -> str:

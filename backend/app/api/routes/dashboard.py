@@ -7,7 +7,6 @@ from fastapi import APIRouter, Query, HTTPException
 import asyncio
 from app.services.kis_service import kis_service
 from app.services.finnhub_service import finnhub_service
-from app.services.fmp_service import fmp_service
 from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
 from app.services.news_service import get_kr_news, get_us_news
 from app.services.ranking_service import get_us_rankings

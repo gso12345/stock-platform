@@ -3,6 +3,7 @@ import pandas as pd
 import math
 from typing import Optional
 from app.core.cache import cache
+from app.core.utils import safe_float as _safe
 
 PRICE_TTL  = 120     # 현재가 캐시 120초 (30→120: 외부 API 호출 빈도 75% 감소)
 INDEX_TTL  = 60      # 지수 캐시 60초
@@ -60,17 +61,6 @@ _INDUSTRY_KO: dict[str, str] = {
     "Medical Devices": "의료기기",
     "Diagnostics & Research": "진단·연구",
 }
-
-
-def _safe(v):
-    """nan/inf를 None으로 변환"""
-    if v is None:
-        return None
-    try:
-        f = float(v)
-        return None if (math.isnan(f) or math.isinf(f)) else f
-    except (TypeError, ValueError):
-        return v
 
 
 def _clean(d: dict) -> dict:

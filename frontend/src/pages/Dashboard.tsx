@@ -6,15 +6,7 @@ import { Card, ChangeBadge, formatNumber } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
-
-function fmtUSD(v: number | null | undefined): string {
-  if (v == null) return "—";
-  const abs = Math.abs(v);
-  if (abs >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
-  if (abs >= 1e9)  return `$${(v / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6)  return `$${(v / 1e6).toFixed(2)}M`;
-  return `$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-}
+import { fmtUSD } from "@/utils/formatters";
 
 /* ── 지수 카드 ───────────────────────────────────────────── */
 const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _demo, onClick }: any) {
