@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
+from typing import Optional
 import asyncio
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -8,7 +9,7 @@ from slowapi.util import get_remote_address
 from app.db.database import get_db
 from app.models.stock import ScreeningPreset
 from app.models.user import User
-from app.core.deps import require_user
+from app.core.deps import require_user, get_current_user
 from app.services.yf_service import yf_service
 from app.core.cache import cache
 
@@ -53,8 +54,10 @@ async def run_screening(request: Request, req: ScreeningRequest):
 
 
 @router.get("/presets")
-def get_presets(db: Session = Depends(get_db)):
-    return db.query(ScreeningPreset).all()
+def get_presets(db: Session = Depends(get_db), current_user: Optional[User] = Depends(get_current_user)):
+    if not current_user:
+        return []
+    return db.query(ScreeningPreset).filter(ScreeningPreset.user_id == current_user.id).all()
 
 
 @router.post("/presets")
@@ -62,6 +65,7 @@ def save_preset(req: PresetSaveRequest, db: Session = Depends(get_db), current_u
     preset = ScreeningPreset(
         name=req.name, market=req.market, filters=req.filters,
         sort_by=req.sort_by, sort_order=req.sort_order,
+        user_id=current_user.id,
     )
     db.add(preset)
     db.commit()
@@ -71,7 +75,9 @@ def save_preset(req: PresetSaveRequest, db: Session = Depends(get_db), current_u
 
 @router.delete("/presets/{preset_id}")
 def delete_preset(preset_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_user)):
-    preset = db.query(ScreeningPreset).filter(ScreeningPreset.id == preset_id).first()
+    preset = db.query(ScreeningPreset).filter(
+        ScreeningPreset.id == preset_id, ScreeningPreset.user_id == current_user.id
+    ).first()
     if not preset:
         raise HTTPException(status_code=404, detail="프리셋을 찾을 수 없습니다")
     db.delete(preset)

@@ -524,8 +524,8 @@ export default function Portfolio() {
     queries: items.map((item) => ({
       queryKey:       ["price", item.market, item.symbol],
       queryFn:        () => stocksApi.getPrice(item.market, item.symbol),
-      staleTime:      60_000,
-      refetchInterval:60_000,
+      staleTime:      120_000,
+      refetchInterval:120_000,
     })),
   });
 

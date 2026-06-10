@@ -238,7 +238,15 @@ def get_backtest_result(
     current_user: User = Depends(require_user),
 ):
     """백테스트 결과 상세 (본인 것만)"""
-    result = db.query(BacktestResult).filter(BacktestResult.id == result_id).first()
+    result = (
+        db.query(BacktestResult)
+        .join(Strategy, BacktestResult.strategy_id == Strategy.id, isouter=True)
+        .filter(
+            BacktestResult.id == result_id,
+            (Strategy.user_id == current_user.id) | (BacktestResult.strategy_id == None),
+        )
+        .first()
+    )
     if not result:
         raise HTTPException(status_code=404, detail="백테스트 결과를 찾을 수 없습니다")
     return result

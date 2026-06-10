@@ -1,4 +1,5 @@
 import time
+import threading
 from typing import Any, Optional
 from collections import OrderedDict
 
@@ -13,47 +14,53 @@ class TTLCache:
         self._store: OrderedDict[str, tuple[Any, float]] = OrderedDict()
         self._stale: OrderedDict[str, Any] = OrderedDict()
         self._maxsize = maxsize
+        self._lock = threading.Lock()
 
     def get(self, key: str) -> Optional[Any]:
-        entry = self._store.get(key)
-        if entry is None:
-            return None
-        value, expires_at = entry
-        if time.time() > expires_at:
-            del self._store[key]
-            return None
-        # 최근 접근 항목을 뒤로 이동 (LRU)
-        self._store.move_to_end(key)
-        return value
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            value, expires_at = entry
+            if time.time() > expires_at:
+                del self._store[key]
+                return None
+            # 최근 접근 항목을 뒤로 이동 (LRU)
+            self._store.move_to_end(key)
+            return value
 
     def get_stale(self, key: str) -> Optional[Any]:
         """만료됐더라도 마지막 값 반환 (rate limit 대비 폴백)"""
         fresh = self.get(key)
         if fresh is not None:
             return fresh
-        return self._stale.get(key)
+        with self._lock:
+            return self._stale.get(key)
 
     def set(self, key: str, value: Any, ttl: int = 60):
-        # 크기 초과 시 가장 오래된 항목 제거
-        if key not in self._store and len(self._store) >= self._maxsize:
-            oldest_key, _ = self._store.popitem(last=False)
-            self._stale.pop(oldest_key, None)
+        with self._lock:
+            # 크기 초과 시 가장 오래된 항목 제거
+            if key not in self._store and len(self._store) >= self._maxsize:
+                oldest_key, _ = self._store.popitem(last=False)
+                self._stale.pop(oldest_key, None)
 
-        self._store[key] = (value, time.time() + ttl)
-        self._store.move_to_end(key)
-        self._stale[key] = value
+            self._store[key] = (value, time.time() + ttl)
+            self._store.move_to_end(key)
+            self._stale[key] = value
 
-        # stale도 크기 제한
-        if len(self._stale) > self._maxsize:
-            self._stale.popitem(last=False)
+            # stale도 크기 제한
+            if len(self._stale) > self._maxsize:
+                self._stale.popitem(last=False)
 
     def delete(self, key: str):
-        self._store.pop(key, None)
-        self._stale.pop(key, None)
+        with self._lock:
+            self._store.pop(key, None)
+            self._stale.pop(key, None)
 
     def clear(self):
-        self._store.clear()
-        self._stale.clear()
+        with self._lock:
+            self._store.clear()
+            self._stale.clear()
 
     def size(self) -> int:
         return len(self._store)

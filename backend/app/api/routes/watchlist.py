@@ -287,6 +287,9 @@ async def get_watchlist_with_prices(
 ):
     """기존 호환용"""
     wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id).first()
+    if wl and wl.user_id is not None:
+        if not current_user or wl.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="관심목록을 찾을 수 없습니다")
     if not wl:
         user_id = current_user.id if current_user else None
         wl = _ensure_watchlist(db, user_id=user_id)

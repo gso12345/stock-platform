@@ -19,7 +19,7 @@ class Watchlist(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, default="기본 관심목록")
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     items = relationship("WatchlistItem", back_populates="watchlist", cascade="all, delete-orphan")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -28,9 +28,9 @@ class WatchlistItem(Base):
     __tablename__ = "watchlist_items"
 
     id           = Column(Integer, primary_key=True, index=True)
-    watchlist_id = Column(Integer, ForeignKey("watchlists.id"), nullable=False)
-    folder_id    = Column(Integer, ForeignKey("watchlist_folders.id"), nullable=True)
-    symbol       = Column(String(20), nullable=False)
+    watchlist_id = Column(Integer, ForeignKey("watchlists.id"), nullable=False, index=True)
+    folder_id    = Column(Integer, ForeignKey("watchlist_folders.id"), nullable=True, index=True)
+    symbol       = Column(String(20), nullable=False, index=True)
     market       = Column(String(10), nullable=False)   # KR, US, ETF
     name         = Column(String(100))
     memo         = Column(String(200))
@@ -48,7 +48,7 @@ class Strategy(Base):
     description = Column(Text)
     version = Column(Integer, default=1)
     market = Column(String(10))  # KR, US, ETF
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     entry_conditions = Column(JSON)
     exit_conditions = Column(JSON)
     stop_loss = Column(Float)
@@ -63,7 +63,7 @@ class BacktestResult(Base):
     __tablename__ = "backtest_results"
 
     id = Column(Integer, primary_key=True, index=True)
-    strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=True)
+    strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=True, index=True)
     symbol = Column(String(20), nullable=False)
     market = Column(String(10))
     start_date = Column(String(10))
@@ -137,4 +137,5 @@ class ScreeningPreset(Base):
     filters = Column(JSON)
     sort_by = Column(String(50))
     sort_order = Column(String(4), default="desc")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -35,7 +35,7 @@ async def lifespan(application: FastAPI):
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
-        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users"}
+        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets"}
         _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 
         def _add_col_if_missing(table: str, col: str, col_def: str, sqlite_def: str = ""):
@@ -58,6 +58,28 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("watchlist_items", "folder_id", "INTEGER REFERENCES watchlist_folders(id)", "INTEGER")
         _add_col_if_missing("watchlist_items", "position",  "INTEGER DEFAULT 0")
         _add_col_if_missing("watchlist_items", "memo",      "VARCHAR(200)")
+        _add_col_if_missing("screening_presets", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
+
+        def _add_index_if_missing(table: str, col: str):
+            if table not in tables:
+                return
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_{col} ON {table} ({col})"))
+                    conn.commit()
+            except Exception as me:
+                logging.getLogger(__name__).warning(f"인덱스 생성 실패 {table}.{col}: {me}")
+
+        for _table, _col in [
+            ("watchlists", "user_id"),
+            ("watchlist_items", "watchlist_id"),
+            ("watchlist_items", "folder_id"),
+            ("watchlist_items", "symbol"),
+            ("strategies", "user_id"),
+            ("backtest_results", "strategy_id"),
+            ("screening_presets", "user_id"),
+        ]:
+            _add_index_if_missing(_table, _col)
 
         if "users" in tables and not settings.DATABASE_URL.startswith("sqlite"):
             with engine.connect() as conn:
