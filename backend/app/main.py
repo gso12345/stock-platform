@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 from fastapi import FastAPI, WebSocket, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -9,8 +10,9 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.db.database import Base, engine
-from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth
+from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth, portfolio
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
+from app.models.stock import PortfolioItem, FundamentalsCache, FinancialsCache  # noqa: F401  — 테이블 생성 보장
 from app.api.websocket.price_stream import stream_prices, stream_indices
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db
@@ -69,6 +71,22 @@ async def lifespan(application: FastAPI):
 
     init_ticker_db()
     start_background_tasks(application)
+
+    # 서버 첫 요청 전에 지수·환율 캐시를 채워 대시보드 초기 속도 개선
+    from app.services.scheduler import refresh_kr_indices, refresh_us_indices, refresh_exchange
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(
+                refresh_kr_indices(),
+                refresh_us_indices(),
+                refresh_exchange(),
+                return_exceptions=True,
+            ),
+            timeout=20,
+        )
+    except Exception:
+        pass
+
     yield
 
 
@@ -125,7 +143,8 @@ app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(stocks.router,    prefix="/api/v1")
 app.include_router(screening.router, prefix="/api/v1")
 app.include_router(backtest.router,  prefix="/api/v1")
-app.include_router(watchlist.router, prefix="/api/v1")
+app.include_router(watchlist.router,  prefix="/api/v1")
+app.include_router(portfolio.router, prefix="/api/v1")
 
 
 @app.websocket("/ws/indices")

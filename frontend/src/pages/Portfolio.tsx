@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { stocksApi, dashboardApi } from "@/api/stocks";
+import { useQueries, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { stocksApi, dashboardApi, portfolioApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Lock } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -16,7 +16,7 @@ type Currency = "KRW" | "USD";
 type ChartMode = "stock" | "market";
 
 interface PortfolioItem {
-  id: string;
+  id: number;
   symbol: string;
   market: Market;
   name: string;
@@ -38,23 +38,28 @@ interface EnrichedItem extends PortfolioItem {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const STORAGE_KEY = "portfolio_items";
 const PIE_COLORS  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16"];
 const DEFAULT_FX  = 1350;
 
-/* ── useLocalStorage ────────────────────────────────────── */
-function useLocalStorage<T>(key: string, initial: T): [T, (v: T | ((prev: T) => T)) => void] {
-  const [state, setState] = useState<T>(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? (JSON.parse(raw) as T) : initial;
-    } catch { return initial; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(key, JSON.stringify(state)); } catch {}
-  }, [key, state]);
-  return [state, setState];
-}
+/* ── 미리보기 예시 데이터 (비로그인 시 표시) ────────────────── */
+const PREVIEW_ENRICHED: EnrichedItem[] = [
+  { id: -1, symbol: "005930", market: "KR", name: "삼성전자",   shares: 50,  avgPrice: 68000, currency: "KRW",
+    currentPriceNative: 72400,  currentValueKRW: 3_620_000,  costKRW: 3_400_000,  pnlKRW:  220_000, pnlRate:  6.47, weight: 12.1 },
+  { id: -2, symbol: "NVDA",   market: "US", name: "엔비디아",   shares: 10,  avgPrice: 485,   currency: "USD", inputExchangeRate: 1320,
+    currentPriceNative: 875,    currentValueKRW: 11_812_500, costKRW: 6_402_000,  pnlKRW: 5_410_500, pnlRate: 84.51, weight: 39.6 },
+  { id: -3, symbol: "AAPL",   market: "US", name: "애플",       shares: 20,  avgPrice: 172,   currency: "USD", inputExchangeRate: 1310,
+    currentPriceNative: 195,    currentValueKRW: 5_265_000,  costKRW: 4_508_800,  pnlKRW:  756_200, pnlRate: 16.77, weight: 17.6 },
+  { id: -4, symbol: "000660", market: "KR", name: "SK하이닉스", shares: 30,  avgPrice: 130000, currency: "KRW",
+    currentPriceNative: 185000, currentValueKRW: 5_550_000,  costKRW: 3_900_000,  pnlKRW: 1_650_000, pnlRate: 42.31, weight: 18.6 },
+  { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 5, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
+    currentPriceNative: 535,    currentValueKRW: 3_611_250,  costKRW: 2_730_000,  pnlKRW:  881_250, pnlRate: 32.28, weight: 12.1 },
+];
+const PREVIEW_SUMMARY = {
+  totalValue: 29_858_750,
+  totalCost:  20_940_800,
+  totalPnl:    8_917_950,
+  totalRate:      42.58,
+};
 
 /* ── Format utils ───────────────────────────────────────── */
 function fmtKRW(v: number): string {
@@ -140,11 +145,15 @@ function PortfolioModal({
   defaultFx,
   onClose,
   onSave,
+  isSaving,
+  saveError,
 }: {
   item?: PortfolioItem;
   defaultFx: number;
   onClose: () => void;
   onSave: (data: Omit<PortfolioItem, "id">) => void;
+  isSaving?: boolean;
+  saveError?: string | null;
 }) {
   const [step, setStep] = useState<1 | 2>(item ? 2 : 1);
   const [selected, setSelected] = useState<{ symbol: string; market: Market; name: string } | null>(
@@ -388,14 +397,19 @@ function PortfolioModal({
               </div>
             </div>
 
+            {saveError && (
+              <p className="mx-5 mb-2 text-xs text-red-400 bg-red-900/20 rounded-lg px-3 py-2">
+                오류: {saveError}
+              </p>
+            )}
             <div className="flex gap-2 px-5 py-4 border-t border-border">
-              <button onClick={onClose}
-                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors">
+              <button onClick={onClose} disabled={isSaving}
+                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 취소
               </button>
-              <button onClick={handleSave} disabled={!canSave}
+              <button onClick={handleSave} disabled={!canSave || isSaving}
                 className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                저장
+                {isSaving ? "저장 중..." : "저장"}
               </button>
             </div>
           </>
@@ -408,12 +422,13 @@ function PortfolioModal({
 /* ── Main Page ──────────────────────────────────────────── */
 export default function Portfolio() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [activeTab,       setActiveTab]       = useState<"portfolio" | "watchlist">("portfolio");
-  const [items,           setItems]           = useLocalStorage<PortfolioItem[]>(STORAGE_KEY, []);
   const [modalOpen,       setModalOpen]       = useState(false);
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
+  const [modalError,      setModalError]      = useState<string | null>(null);
 
   const { isLoggedIn } = useAuthStore();
   const { colorScheme } = useSettingsStore();
@@ -425,6 +440,65 @@ export default function Portfolio() {
     if (sortField === field) setSortDir((d) => d === "desc" ? "asc" : "desc");
     else { setSortField(field); setSortDir("desc"); }
   };
+
+  /* ── 서버 데이터 ── */
+  const { data: items = [], isLoading: itemsLoading } = useQuery<PortfolioItem[]>({
+    queryKey: ["portfolio-items"],
+    queryFn:  portfolioApi.getItems,
+    enabled:  isLoggedIn,
+    staleTime: 60_000,
+  });
+
+  const _extractErrMsg = (err: unknown): string => {
+    const e = err as any;
+    if (e?.response?.data?.detail) {
+      const d = e.response.data.detail;
+      if (typeof d === "string") return d;
+      if (Array.isArray(d)) return d.map((x: any) => x?.msg ?? JSON.stringify(x)).join(", ");
+    }
+    if (e?.message) return e.message;
+    return "알 수 없는 오류가 발생했습니다";
+  };
+
+  const addMutation = useMutation({
+    mutationFn: (data: Omit<PortfolioItem, "id">) =>
+      portfolioApi.addItem({
+        symbol: data.symbol, market: data.market, name: data.name,
+        shares: data.shares, avg_price: data.avgPrice, currency: data.currency,
+        input_exchange_rate: data.inputExchangeRate ?? null,
+        purchase_date: data.purchaseDate ?? null,
+        note: data.note ?? null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      setModalError(null);
+    },
+    onError: (err) => setModalError(_extractErrMsg(err)),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Omit<PortfolioItem, "id"> }) =>
+      portfolioApi.updateItem(id, {
+        symbol: data.symbol, market: data.market, name: data.name,
+        shares: data.shares, avg_price: data.avgPrice, currency: data.currency,
+        input_exchange_rate: data.inputExchangeRate ?? null,
+        purchase_date: data.purchaseDate ?? null,
+        note: data.note ?? null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      setModalError(null);
+    },
+    onError: (err) => setModalError(_extractErrMsg(err)),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => portfolioApi.deleteItem(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      setConfirmDeleteId(null);
+    },
+  });
 
   /* ── 환율 조회 (해외 대시보드 기준 — yfinance USDKRW=X) ── */
   const { data: usRatesData } = useQuery({
@@ -456,7 +530,7 @@ export default function Portfolio() {
   });
 
   const priceMap = useMemo(() => {
-    const map: Record<string, number> = {};
+    const map: Record<number, number> = {};
     items.forEach((item, i) => {
       const d = priceQueries[i]?.data as any;
       if (d?.price != null) map[item.id] = d.price;
@@ -546,29 +620,43 @@ export default function Portfolio() {
     return Object.entries(map).map(([name, value]) => ({ name, value: Math.round(value) }));
   }, [enriched]);
 
-  const activePieData = chartMode === "stock" ? stockPieData : marketPieData;
+  const previewStockPie = PREVIEW_ENRICHED.map((e) => ({
+    name: e.market === "US" || e.market === "ETF" ? e.symbol : e.name,
+    value: e.currentValueKRW,
+  }));
+  const previewMarketPie = Object.entries(
+    PREVIEW_ENRICHED.reduce((acc, e) => { acc[e.market] = (acc[e.market] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
+  ).map(([name, value]) => ({ name, value }));
+
+  const activePieData = isLoggedIn
+    ? (chartMode === "stock" ? stockPieData : marketPieData)
+    : (chartMode === "stock" ? previewStockPie : previewMarketPie);
 
   /* ── CRUD ── */
   const handleAdd = (data: Omit<PortfolioItem, "id">) => {
-    setItems((prev) => [...prev, { id: Date.now().toString(), ...data }]);
-    setModalOpen(false);
+    setModalError(null);
+    addMutation.mutate(data, { onSuccess: () => { setModalOpen(false); setModalError(null); } });
   };
   const handleEdit = (data: Omit<PortfolioItem, "id">) => {
     if (!editItem) return;
-    setItems((prev) => prev.map((p) => p.id === editItem.id ? { ...p, ...data } : p));
-    setEditItem(undefined);
+    setModalError(null);
+    editMutation.mutate({ id: editItem.id, data }, { onSuccess: () => { setEditItem(undefined); setModalError(null); } });
   };
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: number) => {
     if (confirmDeleteId === id) {
-      setItems((prev) => prev.filter((p) => p.id !== id));
-      setConfirmDeleteId(null);
+      deleteMutation.mutate(id);
     } else {
       setConfirmDeleteId(id);
       setTimeout(() => setConfirmDeleteId((c) => c === id ? null : c), 2500);
     }
   };
 
-  const isLoading = priceQueries.some((q) => q.isLoading);
+  const isLoading = itemsLoading || priceQueries.some((q) => q.isLoading);
+
+  /* ── 미리보기 vs 실데이터 ── */
+  const displayEnriched = isLoggedIn ? sortedEnriched : PREVIEW_ENRICHED;
+  const displaySummary  = isLoggedIn ? summary : PREVIEW_SUMMARY;
+  const hasDisplay      = displayEnriched.length > 0;
 
   return (
     <div className="flex flex-col gap-4 fade-in pb-20">
@@ -576,7 +664,7 @@ export default function Portfolio() {
       {/* ── 상단 탭 ── */}
       <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-hidden">
         {[
-          { id: "portfolio", label: "포트폴리오" },
+          { id: "portfolio", label: "내 자산" },
           { id: "watchlist", label: "관심종목" },
         ].map(({ id, label }) => (
           <button key={id}
@@ -593,34 +681,38 @@ export default function Portfolio() {
         ))}
       </div>
 
-      {/* ── 로그인 배너 ── */}
+      {/* ── 로그인 배너 (미리보기 모드) ── */}
       {!isLoggedIn && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-accent-blue/10 border border-accent-blue/20">
-          <LogIn size={14} className="text-accent-blue flex-shrink-0" />
-          <span className="text-xs text-text-muted flex-1">
-            로그인하면 종목 추가·수정·삭제가 가능합니다. 현재는{" "}
-            <span className="text-accent-blue font-semibold">미리보기 모드</span>입니다.
-          </span>
-          <Link to="/login" className="text-xs font-semibold text-accent-blue hover:underline whitespace-nowrap">
-            로그인 →
+        <div className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-gradient-to-r from-accent-blue/15 to-purple-500/10 border border-accent-blue/30">
+          <div className="w-8 h-8 rounded-lg bg-accent-blue/20 flex items-center justify-center flex-shrink-0">
+            <LogIn size={15} className="text-accent-blue" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-text-primary">미리보기 모드</p>
+            <p className="text-xs text-text-muted mt-0.5">아래는 예시 데이터입니다. 로그인하면 내 종목을 직접 추가·관리할 수 있어요.</p>
+          </div>
+          <Link to="/login"
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
+          >
+            <LogIn size={12} /> 로그인
           </Link>
         </div>
       )}
 
       {/* ── 요약 카드 ── */}
-      {items.length > 0 && (
+      {hasDisplay && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "총 평가금액", value: fmtKRW(summary.totalValue),    color: "text-text-primary" },
-            { label: "총 매입금액", value: fmtKRW(summary.totalCost),     color: "text-text-primary" },
-            { label: "평가손익",   value: fmtKRWSign(summary.totalPnl),  color: pnlColor(summary.totalPnl) },
-            { label: "수익률",     value: `${summary.totalRate >= 0 ? "+" : ""}${summary.totalRate.toFixed(2)}%`, color: pnlColor(summary.totalRate) },
+            { label: "총 평가금액", value: fmtKRW(displaySummary.totalValue),    color: "text-text-primary" },
+            { label: "총 매입금액", value: fmtKRW(displaySummary.totalCost),     color: "text-text-primary" },
+            { label: "평가손익",   value: fmtKRWSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl) },
+            { label: "수익률",     value: `${displaySummary.totalRate >= 0 ? "+" : ""}${displaySummary.totalRate.toFixed(2)}%`, color: pnlColor(displaySummary.totalRate) },
           ].map((c) => (
-            <Card key={c.label} className="flex flex-col gap-1">
+            <Card key={c.label} className={`flex flex-col gap-1 ${!isLoggedIn ? "opacity-80" : ""}`}>
               <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{c.label}</span>
               <span className={`text-base font-mono font-bold ${c.color}`}>{c.value}</span>
               {c.label === "총 평가금액" && (
-                <span className="text-[10px] text-text-dim">환율 {Math.round(exchangeRate).toLocaleString("ko-KR")}원</span>
+                <span className="text-[10px] text-text-dim">환율 {Math.round(isLoggedIn ? exchangeRate : DEFAULT_FX).toLocaleString("ko-KR")}원</span>
               )}
             </Card>
           ))}
@@ -628,7 +720,7 @@ export default function Portfolio() {
       )}
 
       {/* ── 구성 차트 ── */}
-      {items.length > 0 && (
+      {hasDisplay && (
         <Card className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary">
@@ -704,10 +796,10 @@ export default function Portfolio() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-text-primary">보유 종목</span>
-            {items.length > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted font-semibold">{items.length}</span>
-            )}
-            {isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />}
+            <span className="text-xs px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted font-semibold">
+              {isLoggedIn ? items.length : "예시"}
+            </span>
+            {isLoggedIn && isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />}
           </div>
           {isLoggedIn ? (
             <button
@@ -717,13 +809,14 @@ export default function Portfolio() {
               <Plus size={13} /> 추가
             </button>
           ) : (
-            <span className="flex items-center gap-1 text-xs text-text-muted">
-              <Lock size={11} />미리보기
+            <span className="px-2.5 py-1 rounded-lg bg-bg-elevated border border-border text-xs text-text-muted font-semibold">
+              예시 데이터
             </span>
           )}
         </div>
 
-        {items.length === 0 ? (
+        {/* 로그인 상태이고 종목 없을 때 */}
+        {isLoggedIn && items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-4">
             <div className="w-14 h-14 rounded-2xl bg-bg-elevated border border-border flex items-center justify-center">
               <Wallet size={24} className="text-text-muted" />
@@ -732,41 +825,39 @@ export default function Portfolio() {
               <p className="text-text-primary font-semibold text-sm">보유 종목 없음</p>
               <p className="text-text-muted text-xs mt-1">+ 추가 버튼으로 종목을 등록하세요</p>
             </div>
-            {isLoggedIn && (
-              <button
-                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
-              >
-                <Plus size={14} /> 첫 종목 추가
-              </button>
-            )}
+            <button
+              onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+            >
+              <Plus size={14} /> 첫 종목 추가
+            </button>
           </div>
         ) : (
-          <div className="overflow-x-auto scrollbar-thin">
+          <div className="relative overflow-x-auto scrollbar-thin">
             <table className="w-full text-xs min-w-[820px]">
               <thead>
                 <tr className="border-b border-border bg-bg-primary/50">
-                  <SortHead field="name"    label="종목명"      sortField={sortField} sortDir={sortDir} onClick={toggleSort} align="left" />
+                  <SortHead field="name"    label="종목명"      sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} align="left" />
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">시장</th>
-                  <SortHead field="shares"  label="보유수량"    sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <SortHead field="shares"  label="보유수량"    sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">평단가</th>
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">현재가</th>
-                  <SortHead field="value"   label="평가금액(₩)" sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
-                  <SortHead field="pnl"     label="평가손익(₩)" sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
-                  <SortHead field="pnlRate" label="수익률"      sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
-                  <SortHead field="weight"  label="비중"        sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <SortHead field="value"   label="평가금액(₩)" sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
+                  <SortHead field="pnl"     label="평가손익(₩)" sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
+                  <SortHead field="pnlRate" label="수익률"      sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
+                  <SortHead field="weight"  label="비중"        sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">액션</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedEnriched.map((item) => {
+                {displayEnriched.map((item) => {
                   const pc    = pnlColor(item.pnlKRW);
                   const isDel = confirmDeleteId === item.id;
-                  const hasPrice = priceMap[item.id] != null;
+                  const hasPrice = isLoggedIn ? priceMap[item.id] != null : true;
                   return (
                     <tr key={item.id}
-                      className="border-b border-border/40 hover:bg-bg-hover transition-colors cursor-pointer"
-                      onClick={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
+                      className={`border-b border-border/40 transition-colors ${isLoggedIn ? "hover:bg-bg-hover cursor-pointer" : "cursor-default"}`}
+                      onClick={() => isLoggedIn && navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
                     >
                       <td className="px-3 py-2.5">
                         <div className="flex flex-col gap-0.5">
@@ -788,7 +879,7 @@ export default function Portfolio() {
                         {hasPrice ? (
                           (item.market === "US" || item.market === "ETF") ? (
                             <div>
-                              <div>{fmtKRW(item.currentPriceNative * exchangeRate)}</div>
+                              <div>{fmtKRW(item.currentPriceNative * (isLoggedIn ? exchangeRate : DEFAULT_FX))}</div>
                               <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>
                             </div>
                           ) : fmtNative(item.market, item.currency, item.currentPriceNative)
@@ -836,10 +927,10 @@ export default function Portfolio() {
                 <tr className="border-t border-border bg-bg-primary/50">
                   <td className="px-3 py-2.5 font-semibold text-text-muted" colSpan={4}>합계</td>
                   <td />
-                  <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary">{fmtKRW(summary.totalValue)}</td>
-                  <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(summary.totalPnl)}`}>{fmtKRWSign(summary.totalPnl)}</td>
-                  <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(summary.totalRate)}`}>
-                    {summary.totalRate >= 0 ? "+" : ""}{summary.totalRate.toFixed(2)}%
+                  <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary">{fmtKRW(displaySummary.totalValue)}</td>
+                  <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalPnl)}`}>{fmtKRWSign(displaySummary.totalPnl)}</td>
+                  <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalRate)}`}>
+                    {displaySummary.totalRate >= 0 ? "+" : ""}{displaySummary.totalRate.toFixed(2)}%
                   </td>
                   <td className="px-3 py-2.5 text-right font-mono text-text-muted">100%</td>
                   <td />
@@ -866,8 +957,10 @@ export default function Portfolio() {
         <PortfolioModal
           item={editItem}
           defaultFx={exchangeRate}
-          onClose={() => { setModalOpen(false); setEditItem(undefined); }}
+          onClose={() => { setModalOpen(false); setEditItem(undefined); setModalError(null); }}
           onSave={editItem ? handleEdit : handleAdd}
+          isSaving={addMutation.isPending || editMutation.isPending}
+          saveError={modalError}
         />
       )}
 
