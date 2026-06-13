@@ -1223,8 +1223,8 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         def _parse_opinion(d: dict) -> dict:
             out: dict = {}
             # 목표주가 — 여러 가지 필드 이름 시도
-            tp = d.get("targetPrice") or d.get("target_price") or {}
-            if isinstance(tp, dict):
+            tp = d.get("targetPrice") or d.get("target_price")
+            if isinstance(tp, dict) and tp:
                 mean = _sf(tp.get("mean") or tp.get("avg") or tp.get("average"))
                 if mean:
                     price_src = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
@@ -1247,7 +1247,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
             # 투자의견 분포 (매수/보유/매도)
             rec = d.get("recommendation") or d.get("opinion") or d.get("opinions") or {}
             if isinstance(rec, dict):
-                buy   = int(_sf(rec.get("buy")  or rec.get("strongBuy")    or rec.get("매수", 0)) or 0)
+                buy   = int(_sf(rec.get("buy")  or rec.get("매수", 0)) or 0)
                 hold  = int(_sf(rec.get("hold") or rec.get("marketPerform") or rec.get("보유", 0)) or 0)
                 sell  = int(_sf(rec.get("sell") or rec.get("underperform")  or rec.get("매도", 0)) or 0)
                 strong_buy  = int(_sf(rec.get("strongBuy",  0)) or 0)
@@ -1302,6 +1302,21 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 parsed2 = _parse_opinion(d2)
                 if parsed2:
                     return parsed2
+        except Exception:
+            pass
+
+        # 3차: consensus 엔드포인트 (목표주가/투자의견이 함께 포함된 경우)
+        try:
+            r3 = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: httpx.get(
+                    f"https://m.stock.naver.com/api/stock/{code6}/consensus",
+                    headers=headers, timeout=8,
+                )), timeout=10
+            )
+            if r3.status_code == 200:
+                parsed3 = _parse_opinion(r3.json())
+                if parsed3:
+                    return parsed3
         except Exception:
             pass
 
@@ -1366,13 +1381,13 @@ def _enrich_kr_analyst(result: dict, symbol: str, market: str):
                     "high":    src.get("target_price_high"),
                     "low":     src.get("target_price_low"),
                 }
-        if src.get("forward_per") and not result.get("naver_consensus"):
-            result["naver_consensus"] = {
-                "cons_per":       src.get("forward_per"),
-                "cons_eps":       src.get("forward_eps"),
-                "recommendation": src.get("recommendation"),
-                "analyst_count":  src.get("analyst_count"),
-            }
+        if src.get("forward_per"):
+            nc = result.setdefault("naver_consensus", {})
+            if nc.get("cons_per") is None:
+                nc["cons_per"] = src.get("forward_per")
+                nc["cons_eps"] = src.get("forward_eps")
+            nc.setdefault("recommendation", src.get("recommendation"))
+            nc.setdefault("analyst_count", src.get("analyst_count"))
 
 
 @router.get("/KR/{symbol}/supply-demand")
