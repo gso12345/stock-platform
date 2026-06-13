@@ -181,19 +181,28 @@ async def get_stock_ohlcv(
     intraday_map = {"1m":2,"5m":5,"15m":10,"30m":20,"60m":30}
     is_intraday = interval in intraday_map
     is_annual = interval == "1y"
-    # yfinance는 1y interval을 지원하지 않으므로 1mo로 가져와서 리샘플링
+    YF_VALID = {"1m","2m","5m","15m","30m","60m","90m","1h","1d","5d","1wk","1mo","3mo"}
+    # 3일봉/10일봉/30일봉/60일봉 — yfinance에 직접 인터벌은 없지만 yf_service.get_ohlcv가
+    # 일봉을 받아 N일 단위로 자체 리샘플링해서 반환함 (NDAY_MAP)
+    NDAY_SET = {"3d","10d","30d","60d"}
+
+    # yfinance는 1y interval을 지원하지 않으므로 1mo로 가져와서 연봉으로 리샘플링
     yf_interval_mapped = "1mo" if is_annual else interval
+
+    def _resample(bars: list) -> list:
+        if is_annual:
+            return _resample_to_annual(bars)
+        return bars
 
     # yfinance 분봉 기간 제한: 1m=7일, 나머지=60일
     intraday_max_period = {"1m":"5d","5m":"60d","15m":"60d","30m":"60d","60m":"60d"}
     yf_period = intraday_max_period.get(interval, period) if is_intraday else period
 
-    YF_VALID = {"1m","2m","5m","15m","30m","60m","90m","1h","1d","5d","1wk","1mo","3mo"}
-
     # OHLCV 캐시 (분봉 1m은 캐시 안 함, 나머지는 TTL별 캐시)
     ohlcv_ttl = {
         "5m": 60, "15m": 60, "30m": 120, "60m": 180,
         "1d": 300, "1wk": 1800, "1mo": 3600, "1y": 3600,
+        "3d": 3600, "10d": 3600, "30d": 3600, "60d": 3600,
     }.get(interval, 0)
     ohlcv_ck = f"ohlcv:{market}:{symbol}:{period}:{interval}" if ohlcv_ttl else None
     if ohlcv_ck:
@@ -229,33 +238,33 @@ async def get_stock_ohlcv(
             if result:
                 return _cache_and_return(result)
 
-        # yfinance 폴백 (분봉 포함)
+        # yfinance 폴백 (분봉/N일봉 포함)
         try:
-            yf_iv = yf_interval_mapped if yf_interval_mapped in YF_VALID else "1d"
+            yf_iv = yf_interval_mapped if (yf_interval_mapped in YF_VALID or yf_interval_mapped in NDAY_SET) else "1d"
             result = await _run(yf_service.get_ohlcv, symbol, yf_period, yf_iv, "KR")
             if result:
-                data = _resample_to_annual(result) if is_annual else result
+                data = _resample(result)
                 return _cache_and_return(data)
         except Exception:
             pass
         return get_demo_ohlcv(symbol, period)
 
     else:
-        # Finnhub — 분봉 지원
-        if settings.FINNHUB_API_KEY:
+        # Finnhub — 분봉 지원 (N일봉은 yfinance가 자체 리샘플링하므로 그쪽으로)
+        if settings.FINNHUB_API_KEY and interval not in NDAY_SET:
             finnhub_res_map = {"1m":"1","5m":"5","15m":"15","30m":"30","60m":"60","1d":"D","1wk":"W","1mo":"M","1y":"M"}
             resolution = finnhub_res_map.get(interval, "D")
             result = await _run(finnhub_service.get_candles, symbol, yf_period if is_intraday else period, resolution)
             if result:
-                data = _resample_to_annual(result) if is_annual else result
+                data = _resample(result)
                 return _cache_and_return(data)
 
-        # yfinance 폴백 (분봉 포함)
+        # yfinance 폴백 (분봉/N일봉 포함)
         try:
-            yf_iv = yf_interval_mapped if yf_interval_mapped in YF_VALID else "1d"
+            yf_iv = yf_interval_mapped if (yf_interval_mapped in YF_VALID or yf_interval_mapped in NDAY_SET) else "1d"
             result = await _run(yf_service.get_ohlcv, symbol, yf_period, yf_iv, "US")
             if result:
-                data = _resample_to_annual(result) if is_annual else result
+                data = _resample(result)
                 return _cache_and_return(data)
         except Exception:
             pass
@@ -1223,8 +1232,8 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         def _parse_opinion(d: dict) -> dict:
             out: dict = {}
             # 목표주가 — 여러 가지 필드 이름 시도
-            tp = d.get("targetPrice") or d.get("target_price") or {}
-            if isinstance(tp, dict):
+            tp = d.get("targetPrice") or d.get("target_price")
+            if isinstance(tp, dict) and tp:
                 mean = _sf(tp.get("mean") or tp.get("avg") or tp.get("average"))
                 if mean:
                     price_src = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
@@ -1247,7 +1256,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
             # 투자의견 분포 (매수/보유/매도)
             rec = d.get("recommendation") or d.get("opinion") or d.get("opinions") or {}
             if isinstance(rec, dict):
-                buy   = int(_sf(rec.get("buy")  or rec.get("strongBuy")    or rec.get("매수", 0)) or 0)
+                buy   = int(_sf(rec.get("buy")  or rec.get("매수", 0)) or 0)
                 hold  = int(_sf(rec.get("hold") or rec.get("marketPerform") or rec.get("보유", 0)) or 0)
                 sell  = int(_sf(rec.get("sell") or rec.get("underperform")  or rec.get("매도", 0)) or 0)
                 strong_buy  = int(_sf(rec.get("strongBuy",  0)) or 0)
@@ -1302,6 +1311,21 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 parsed2 = _parse_opinion(d2)
                 if parsed2:
                     return parsed2
+        except Exception:
+            pass
+
+        # 3차: consensus 엔드포인트 (목표주가/투자의견이 함께 포함된 경우)
+        try:
+            r3 = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: httpx.get(
+                    f"https://m.stock.naver.com/api/stock/{code6}/consensus",
+                    headers=headers, timeout=8,
+                )), timeout=10
+            )
+            if r3.status_code == 200:
+                parsed3 = _parse_opinion(r3.json())
+                if parsed3:
+                    return parsed3
         except Exception:
             pass
 
@@ -1366,13 +1390,13 @@ def _enrich_kr_analyst(result: dict, symbol: str, market: str):
                     "high":    src.get("target_price_high"),
                     "low":     src.get("target_price_low"),
                 }
-        if src.get("forward_per") and not result.get("naver_consensus"):
-            result["naver_consensus"] = {
-                "cons_per":       src.get("forward_per"),
-                "cons_eps":       src.get("forward_eps"),
-                "recommendation": src.get("recommendation"),
-                "analyst_count":  src.get("analyst_count"),
-            }
+        if src.get("forward_per"):
+            nc = result.setdefault("naver_consensus", {})
+            if nc.get("cons_per") is None:
+                nc["cons_per"] = src.get("forward_per")
+                nc["cons_eps"] = src.get("forward_eps")
+            nc.setdefault("recommendation", src.get("recommendation"))
+            nc.setdefault("analyst_count", src.get("analyst_count"))
 
 
 @router.get("/KR/{symbol}/supply-demand")

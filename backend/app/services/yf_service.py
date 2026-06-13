@@ -66,6 +66,17 @@ _INDUSTRY_KO: dict[str, str] = {
 def _clean(d: dict) -> dict:
     return {k: _safe(v) if isinstance(v, float) else v for k, v in d.items()}
 
+
+def _dividend_pct(raw, max_val: float = 30) -> Optional[float]:
+    """yfinance dividendYield를 퍼센트 단위로 정규화 (0.02 → 2.0, 2.0 → 2.0)"""
+    v = _safe(raw)
+    if not v:
+        return None
+    pct = round(v, 2) if v > 1 else round(v * 100, 2)
+    if pct > max_val:
+        return None
+    return pct
+
 PERIOD_MAP = {
     "1d": "1d", "5d": "5d",
     "1m": "1mo", "1mo": "1mo", "3m": "3mo", "3mo": "3mo",
@@ -282,7 +293,7 @@ class YFinanceService:
             "currency":    currency,
             "week52_high": round(w52h, 2) if w52h else None,
             "week52_low":  round(w52l, 2) if w52l else None,
-            "dividend_yield": _safe(info.get("dividendYield")),
+            "dividend_yield": _dividend_pct(info.get("dividendYield")),
             "per":         _safe(info.get("trailingPE")),
             "pbr":         _safe(info.get("priceToBook")),
             "eps":         _safe(info.get("trailingEps")),

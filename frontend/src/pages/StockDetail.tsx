@@ -67,7 +67,6 @@ export default function StockDetail() {
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow">("basic");
   const [selectedMetric, setSelectedMetric] = useState("revenue");
-  const [supplyDays, setSupplyDays]   = useState(30);
   const [newsSort, setNewsSort]         = useState<"latest" | "popular">("latest");
   const [newsExpanded, setNewsExpanded] = useState(false);
   const [newsSubTab, setNewsSubTab]     = useState<"news" | "disclosure">("news");
@@ -214,13 +213,6 @@ export default function StockDetail() {
     queryFn: () => stocksApi.getEarnings(m, sym),
     enabled: !!sym && (mainTab === "news" || mainTab === "financial"),
     staleTime: 900_000,
-  });
-
-  const { data: supplyData, isLoading: loadingSupply } = useQuery({
-    queryKey: ["supply-demand", sym, supplyDays],
-    queryFn: () => stocksApi.getSupplyDemand(sym, supplyDays),
-    enabled: !!sym && mainTab === "supply" && isKR,
-    staleTime: 600_000,
   });
 
   const { data: exchangeRateData } = useQuery({
@@ -1783,7 +1775,7 @@ export default function StockDetail() {
                     const amount = bar.close * (bar.volume || 0);
                     return (
                       <tr key={bar.date} className="border-b border-border/30 hover:bg-bg-hover">
-                        <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap sticky left-0 bg-bg-card">{bar.date?.slice(0,10)}</td>
+                        <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap sticky left-0 bg-bg-card">{bar.date?.replace(/^(\d{4})(\d{2})(\d{2})/, "$1-$2-$3").slice(0,10)}</td>
                         <td className="px-3 py-2.5 text-right font-mono font-semibold text-text-primary whitespace-nowrap">
                           {isKR ? `₩${bar.close?.toLocaleString("ko-KR", {maximumFractionDigits:0})}` : `$${bar.close?.toFixed(2)}`}
                         </td>
