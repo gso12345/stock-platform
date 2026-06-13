@@ -27,8 +27,8 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def password_complexity(cls, v: str) -> str:
-        if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
-            raise ValueError("비밀번호는 영문자와 숫자를 모두 포함해야 합니다")
+        if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v) or not re.search(r"[^A-Za-z0-9]", v):
+            raise ValueError("비밀번호는 영문자, 숫자, 특수문자를 모두 포함해야 합니다")
         return v
 
 

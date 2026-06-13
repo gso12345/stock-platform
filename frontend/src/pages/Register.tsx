@@ -27,7 +27,8 @@ export default function Register() {
   const pwLongEnough = password.length >= 8;
   const pwHasLetter = /[A-Za-z]/.test(password);
   const pwHasNumber = /\d/.test(password);
-  const pwValid = pwLongEnough && pwHasLetter && pwHasNumber;
+  const pwHasSpecial = /[^A-Za-z0-9]/.test(password);
+  const pwValid = pwLongEnough && pwHasLetter && pwHasNumber && pwHasSpecial;
   const pwMatch = password === confirmPw;
 
   const handleSubmit = async (e: FormEvent) => {
@@ -39,7 +40,7 @@ export default function Register() {
       return;
     }
     if (!pwValid) {
-      setError("비밀번호는 최소 8자 이상이어야 합니다.");
+      setError("비밀번호는 영문자, 숫자, 특수문자를 모두 포함하여 8자 이상이어야 합니다.");
       return;
     }
     if (!pwMatch) {
@@ -123,7 +124,7 @@ export default function Register() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="8자 이상 입력하세요"
+                  placeholder="영문, 숫자, 특수문자 포함 8자 이상"
                   className="w-full px-3 py-2.5 pr-10 rounded-lg bg-bg-elevated border border-border text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue focus:ring-1 focus:ring-accent-blue/30 transition-all"
                 />
                 <button
@@ -138,8 +139,8 @@ export default function Register() {
               {password.length > 0 && !pwLongEnough && (
                 <p className="text-2xs text-accent-red">비밀번호는 최소 8자 이상이어야 합니다.</p>
               )}
-              {password.length >= 8 && (!pwHasLetter || !pwHasNumber) && (
-                <p className="text-2xs text-accent-red">영문자와 숫자를 모두 포함해야 합니다.</p>
+              {password.length >= 8 && (!pwHasLetter || !pwHasNumber || !pwHasSpecial) && (
+                <p className="text-2xs text-accent-red">영문자, 숫자, 특수문자를 모두 포함해야 합니다.</p>
               )}
             </div>
 
