@@ -19,3 +19,4 @@ beautifulsoup4==4.12.3
 lxml==5.3.0
 PyJWT==2.9.0
 pykrx==1.0.45
+anthropic>=0.40.0

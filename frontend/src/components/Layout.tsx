@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Activity, Sun, Moon, Menu, X, LogOut, LogIn, Wallet, Settings } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Activity, Sun, Moon, Menu, X, LogOut, LogIn, Wallet, Settings, Newspaper } from "lucide-react";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -13,6 +13,7 @@ const NAV = [
   { to: "/screening", icon: Search,           label: "스크리닝" },
   { to: "/backtest",  icon: LineChart,        label: "백테스트" },
   { to: "/strategies",icon: BookMarked,       label: "전략저장소"},
+  { to: "/news",      icon: Newspaper,        label: "뉴스"     },
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {

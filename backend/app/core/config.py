@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # ── FMP - Financial Modeling Prep (해외 재무) ───────
     FMP_API_KEY: str = ""
 
+    # ── Anthropic (뉴스 AI 요약) ─────────────────────────
+    ANTHROPIC_API_KEY: str = ""
+
     class Config:
         env_file = ".env"
 

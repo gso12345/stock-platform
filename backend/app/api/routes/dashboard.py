@@ -269,6 +269,46 @@ async def us_news():
     return await loop.run_in_executor(None, get_us_news)
 
 
+@router.get("/news/summary")
+async def news_summary(market: str = Query(default="kr", pattern="^(kr|us)$")):
+    """뉴스 헤드라인 AI 요약 (Anthropic API 키 설정 시에만 동작)"""
+    if not settings.ANTHROPIC_API_KEY:
+        return {"available": False, "summary": None}
+
+    ck = f"news:summary:{market}"
+    if c := cache.get(ck):
+        return c
+
+    loop = asyncio.get_running_loop()
+    news = await loop.run_in_executor(None, get_kr_news if market == "kr" else get_us_news)
+    if not news:
+        return cache.get_stale(ck) or {"available": False, "summary": None}
+
+    market_label = "국내" if market == "kr" else "미국"
+    headlines = "\n".join(f"- {n['title']}" for n in news[:15] if n.get("title"))
+    prompt = (
+        f"다음은 오늘의 주요 {market_label} 증시 뉴스 헤드라인입니다. "
+        "투자자가 주목할 만한 핵심 트렌드와 이슈를 3~5개의 간결한 한국어 불릿포인트로 요약해 주세요. "
+        "불릿포인트(- 로 시작)만 출력하고 다른 설명은 추가하지 마세요.\n\n"
+        f"{headlines}"
+    )
+
+    try:
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        resp = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        summary = "".join(b.text for b in resp.content if b.type == "text").strip()
+        result = {"available": True, "summary": summary}
+        cache.set(ck, result, 1800)
+        return result
+    except Exception:
+        return cache.get_stale(ck) or {"available": False, "summary": None}
+
+
 @router.get("/exchange")
 async def exchange_rate():
     return await get_usdkrw()

@@ -49,6 +49,9 @@ export const dashboardApi = {
   getNews: (market: "kr" | "us") =>
     api.get(`/dashboard/news/${market}`).then((r) => r.data),
 
+  getNewsSummary: (market: "kr" | "us") =>
+    api.get<{ available: boolean; summary: string | null }>("/dashboard/news/summary", { params: { market } }).then((r) => r.data),
+
   getIndexDetail: (name: string) =>
     api.get(`/dashboard/index/${name}`).then((r) => r.data),
 
