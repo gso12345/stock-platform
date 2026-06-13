@@ -147,6 +147,40 @@ def _batch_close(symbols: list) -> "pd.DataFrame | None":
         return None
 
 
+def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
+    """네이버 금융 국내금리 페이지에서 한국 기준금리 · CD(91일) 실시간 조회 (API 키 불필요)"""
+    try:
+        from bs4 import BeautifulSoup
+        r = httpx.get(
+            "https://finance.naver.com/marketindex/interestList.naver",
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://finance.naver.com/",
+            },
+            timeout=8,
+        )
+        if r.status_code != 200:
+            return None, None
+        soup = BeautifulSoup(r.text, "lxml")
+        base_rate = cd_rate = None
+        for row in soup.select("table tbody tr"):
+            cells = [c.get_text(strip=True) for c in row.find_all("td")]
+            if len(cells) < 2:
+                continue
+            name = cells[0]
+            try:
+                val = float(cells[1].replace(",", ""))
+            except (ValueError, IndexError):
+                continue
+            if base_rate is None and "기준금리" in name:
+                base_rate = {"name": "한국 기준금리", "value": val, "change": 0.0, "change_rate": 0.0, "unit": "%"}
+            elif cd_rate is None and "CD" in name and "91" in name:
+                cd_rate = {"name": "CD금리(91일)", "value": val, "change": 0.0, "change_rate": 0.0, "unit": "%"}
+        return base_rate, cd_rate
+    except Exception:
+        return None, None
+
+
 def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
     rate_specs = [
@@ -169,10 +203,16 @@ def _do_fetch_kr_rates() -> list:
         except Exception:
             continue
 
-    kr_base = cache.get_stale("extra:kr_base_rate") or \
+    naver_base, naver_cd = _fetch_kr_base_cd()
+
+    kr_base = naver_base or cache.get_stale("extra:kr_base_rate") or \
         {"name":"한국 기준금리","value":3.50,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
     cache.set("extra:kr_base_rate", kr_base, 86400)
-    cd_rate = {"name":"CD금리(91일)","value":3.62,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
+
+    cd_rate = naver_cd or cache.get_stale("extra:cd_rate") or \
+        {"name":"CD금리(91일)","value":3.62,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
+    cache.set("extra:cd_rate", cd_rate, 86400)
+
     rates.insert(0, kr_base)
     rates.insert(1, cd_rate)
 
@@ -191,6 +231,32 @@ def get_kr_rates() -> list:
         threading.Thread(target=_do_fetch_kr_rates, daemon=True).start()
         return stale
     return _do_fetch_kr_rates()
+
+
+def _fetch_fed_rate() -> "dict | None":
+    """FRED 공개 CSV에서 美 연방기금목표금리 상단(DFEDTARU) 실시간 조회 (API 키 불필요)"""
+    try:
+        r = httpx.get(
+            "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=8,
+        )
+        if r.status_code != 200:
+            return None
+        lines = [l for l in r.text.strip().splitlines() if l]
+        # 최신 행부터 역순으로 유효한 값 탐색 (휴일 등은 "." 로 표시될 수 있음)
+        for line in reversed(lines[1:]):
+            parts = line.split(",")
+            if len(parts) != 2:
+                continue
+            try:
+                val = float(parts[1])
+            except ValueError:
+                continue
+            return {"name": "연방기준금리", "value": round(val, 2), "change": 0.0, "change_rate": 0.0, "unit": "%"}
+    except Exception:
+        pass
+    return None
 
 
 def _do_fetch_us_rates() -> list:
@@ -226,10 +292,11 @@ def _do_fetch_us_rates() -> list:
         except Exception:
             continue
 
-    fed = cache.get_stale("extra:fed_rate") or {
+    fed = _fetch_fed_rate() or cache.get_stale("extra:fed_rate") or {
         "name": "연방기준금리", "value": 5.25,
         "change": 0.0, "change_rate": 0.0, "unit": "%", "_static": True,
     }
+    cache.set("extra:fed_rate", fed, 86400)
     results.insert(3, fed)
 
     if results:

@@ -916,7 +916,6 @@ export default function StockDetail() {
                     <StatCell label="PBR"          value={dEnhanced.pbr          != null ? `${fmtNum(dEnhanced.pbr,2)}배` : null} />
                     <StatCell label="PSR"          value={dEnhanced.psr          != null ? `${fmtNum(dEnhanced.psr,2)}배` : null} />
                     <StatCell label="EV/EBITDA"    value={dEnhanced.ev_ebitda    != null ? `${fmtNum(dEnhanced.ev_ebitda,1)}배` : null} />
-                    <StatCell label="EV/매출"      value={dEnhanced.ev_revenue   != null ? `${fmtNum(dEnhanced.ev_revenue,2)}배` : null} />
                     <StatCell label="시가총액"     value={fmtFinVal(d.market_cap)} />
                     <StatCell label="기업가치(EV)" value={fmtFinVal(dEnhanced.enterprise_value)} />
                   </div>
