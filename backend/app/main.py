@@ -94,20 +94,24 @@ async def lifespan(application: FastAPI):
     init_ticker_db()
     start_background_tasks(application)
 
-    # 서버 첫 요청 전에 지수·환율 캐시를 채워 대시보드 초기 속도 개선
+    # 지수·환율 캐시 워밍업은 백그라운드로 — 서버가 즉시 요청을 받을 수 있도록 yield를 막지 않음
     from app.services.scheduler import refresh_kr_indices, refresh_us_indices, refresh_exchange
-    try:
-        await asyncio.wait_for(
-            asyncio.gather(
-                refresh_kr_indices(),
-                refresh_us_indices(),
-                refresh_exchange(),
-                return_exceptions=True,
-            ),
-            timeout=20,
-        )
-    except Exception:
-        pass
+
+    async def _warm_dashboard_cache():
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    refresh_kr_indices(),
+                    refresh_us_indices(),
+                    refresh_exchange(),
+                    return_exceptions=True,
+                ),
+                timeout=20,
+            )
+        except Exception:
+            pass
+
+    asyncio.create_task(_warm_dashboard_cache())
 
     yield
 
