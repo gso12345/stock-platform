@@ -17,9 +17,6 @@ export const stocksApi = {
   getNews: (market: string, symbol: string) =>
     api.get<any[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/news`).then((r) => r.data),
 
-  getSupplyDemand: (symbol: string, days = 30) =>
-    api.get<any[]>(`/stocks/KR/${encodeURIComponent(symbol)}/supply-demand`, { params: { days } }).then((r) => r.data),
-
   getMetricsHistory: (market: string, symbol: string) =>
     api.get<{annual: any[], quarterly: any[]}>(`/stocks/${market}/${encodeURIComponent(symbol)}/metrics-history`).then((r) => r.data),
 
