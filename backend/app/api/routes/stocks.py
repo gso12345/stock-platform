@@ -375,6 +375,29 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                     for field in ("volume", "market_cap", "name"):
                         if not detail.get(field) and prev.get(field):
                             detail[field] = prev[field]
+                    # 여전히 volume이 없으면 별도 캐시(YF 기반)로 보완, 없으면 백그라운드 갱신
+                    if not detail.get("volume"):
+                        vol_ck = f"vol:{symbol}"
+                        vol_cached = cache.get(vol_ck) or cache.get_stale(vol_ck)
+                        if vol_cached:
+                            if vol_cached.get("volume"):
+                                detail["volume"] = vol_cached["volume"]
+                            if not detail.get("market_cap") and vol_cached.get("market_cap"):
+                                detail["market_cap"] = vol_cached["market_cap"]
+                        else:
+                            _sym_vol = symbol
+                            async def _bg_vol_us():
+                                try:
+                                    p = await asyncio.wait_for(
+                                        asyncio.get_running_loop().run_in_executor(
+                                            None, yf_service.get_stock_price, _sym_vol, "US"
+                                        ), timeout=10
+                                    )
+                                    if p and p.get("volume"):
+                                        cache.set(vol_ck, {"volume": p.get("volume"), "market_cap": p.get("market_cap")}, 1800)
+                                except Exception:
+                                    pass
+                            asyncio.create_task(_bg_vol_us())
                     # 거래대금 계산
                     if detail.get("price") and detail.get("volume"):
                         detail["amount"] = detail["price"] * detail["volume"]

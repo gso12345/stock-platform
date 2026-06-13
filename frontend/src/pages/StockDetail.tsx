@@ -895,6 +895,7 @@ export default function StockDetail() {
                   <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                     <StatCell label="PER(현재)"    value={dEnhanced.per          != null ? `${fmtNum(dEnhanced.per)}배` : null} />
                     <StatCell label="PER(선행)"    value={dEnhanced.forward_per  != null ? `${fmtNum(dEnhanced.forward_per)}배` : null} />
+                    <StatCell label="EPS(선행)"    value={dEnhanced.forward_eps  != null ? (isKR?`₩${Math.round(dEnhanced.forward_eps).toLocaleString("ko-KR")}`:(showKRW?fmtKRW(Math.round(dEnhanced.forward_eps*exchangeRate)):fmtUSD(dEnhanced.forward_eps))) : null} />
                     <StatCell label="PEG"          value={dEnhanced.peg          != null ? fmtNum(dEnhanced.peg, 2) : null} />
                     <StatCell label="PBR"          value={dEnhanced.pbr          != null ? `${fmtNum(dEnhanced.pbr,2)}배` : null} />
                     <StatCell label="PSR"          value={dEnhanced.psr          != null ? `${fmtNum(dEnhanced.psr,2)}배` : null} />
@@ -1489,6 +1490,21 @@ export default function StockDetail() {
                 { key: "growth_est",     label: "EPS 성장률 추정",   color: "text-accent-yellow",  fmt: (v: number) => `${(v*100).toFixed(1)}%` },
               ].filter(ind => fcstData.some((r: any) => r[ind.key] != null));
 
+              // 컨센서스 차트용 데이터/포맷
+              const chartData = fcstData.map((r: any) => ({ ...r, periodLabel: periodLabel(r.period) }));
+              const hasRevenueChart = fcstData.some((r: any) => r.revenue_est != null);
+              const hasOpIncome  = fcstData.some((r: any) => r.op_income_est != null);
+              const hasNetIncome = fcstData.some((r: any) => r.net_income_est != null);
+              const hasEpsChart  = fcstData.some((r: any) => r.eps_est != null);
+              const chartHSm = isMobile ? 185 : 240;
+              const cMargin  = {top:8,right:12,left:4,bottom:4} as any;
+              const cGrid    = { strokeDasharray:"3 3", stroke:"#232840" };
+              const cXAxis   = { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any;
+              const cYAxis   = { tick:{fill:"#64748b",fontSize:10}, tickLine:false, width:isMobile?46:58 } as any;
+              const cTooltip = { contentStyle:{background:"#141824",border:"1px solid #232840",borderRadius:8,fontSize:11} } as any;
+              const fmtAmt = (v:number) => isKR ? fmtKRW(v) : fmtUSD(v);
+              const fmtEpsV = (v:number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}`;
+
               return (
                 <div className="flex flex-col gap-3">
                   {/* 연간/분기 토글 */}
@@ -1500,6 +1516,33 @@ export default function StockDetail() {
                       </button>
                     ))}
                   </div>
+                  {/* 컨센서스 추정치 그래프 */}
+                  {(hasRevenueChart || hasEpsChart) && (
+                    <div className="rounded-xl overflow-hidden border border-border bg-bg-card p-4">
+                      <ResponsiveContainer width="100%" height={chartHSm}>
+                        {hasRevenueChart ? (
+                          <BarChart data={chartData} {...cMargin}>
+                            <CartesianGrid {...cGrid}/>
+                            <XAxis dataKey="periodLabel" {...cXAxis}/>
+                            <YAxis {...cYAxis} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
+                            <Tooltip {...cTooltip} formatter={(v:number,name:string)=>{const l:Record<string,string>={revenue_est:"매출 추정",op_income_est:"영업이익 추정",net_income_est:"순이익 추정"};return[fmtAmt(v),l[name]??name];}}/>
+                            <Legend formatter={v=>({revenue_est:"매출",op_income_est:"영업이익",net_income_est:"순이익"}[v as string]??v)}/>
+                            <Bar dataKey="revenue_est" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={35}/>
+                            {hasOpIncome && <Bar dataKey="op_income_est" fill="#10b981" radius={[2,2,0,0]} maxBarSize={35}/>}
+                            {hasNetIncome && <Bar dataKey="net_income_est" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={35}/>}
+                          </BarChart>
+                        ) : (
+                          <BarChart data={chartData} {...cMargin}>
+                            <CartesianGrid {...cGrid}/>
+                            <XAxis dataKey="periodLabel" {...cXAxis}/>
+                            <YAxis {...cYAxis} tickFormatter={(v:number)=>fmtEpsV(v)}/>
+                            <Tooltip {...cTooltip} formatter={(v:number)=>[fmtEpsV(v),"EPS 추정"]}/>
+                            <Bar dataKey="eps_est" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
+                          </BarChart>
+                        )}
+                      </ResponsiveContainer>
+                    </div>
+                  )}
                   {/* 테이블 */}
                   <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
                     <div className="px-4 py-3 border-b border-border">

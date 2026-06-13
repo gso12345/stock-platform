@@ -100,7 +100,8 @@ async def _fetch_fund(symbol: str, market: str) -> dict:
             if naver:
                 naver_fund = {
                     k: naver[k] for k in
-                    ("per", "pbr", "eps", "bps", "dividend_yield", "week52_high", "week52_low", "market_cap")
+                    ("per", "pbr", "eps", "bps", "dividend_yield", "week52_high", "week52_low", "market_cap",
+                     "forward_per", "forward_eps")
                     if naver.get(k) is not None
                 }
         except Exception:

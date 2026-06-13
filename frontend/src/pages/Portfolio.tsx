@@ -376,7 +376,7 @@ function PortfolioModal({
 
               <div className="flex gap-3">
                 <div className="flex-1 flex flex-col gap-1.5">
-                  <label className="text-2xs font-semibold text-text-muted">매수일</label>
+                  <label className="text-2xs font-semibold text-text-muted">매수일 (선택)</label>
                   <input className={inp} type="date" value={purchaseDate}
                     onChange={(e) => setPurchaseDate(e.target.value)} />
                 </div>

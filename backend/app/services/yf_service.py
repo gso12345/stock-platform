@@ -426,15 +426,45 @@ class YFinanceService:
 
         roe = info.get("returnOnEquity")
         div = info.get("dividendYield")
+
+        # yfinance가 EV/PEG 계열을 직접 제공하지 않는 경우(국내 종목 등)
+        # 시가총액·부채·현금·EBITDA·매출·EPS성장률로 자체 계산해 보완
+        per_val = _safe(info.get("_pkrx_per") or info.get("trailingPE"))
+        ev = _safe(info.get("enterpriseValue"))
+        if ev is None:
+            mc = _safe(info.get("marketCap"))
+            debt = _safe(info.get("totalDebt"))
+            cash = _safe(info.get("totalCash"))
+            if mc is not None and (debt is not None or cash is not None):
+                ev = mc + (debt or 0) - (cash or 0)
+
+        ev_ebitda = _safe(info.get("enterpriseToEbitda"))
+        if ev_ebitda is None:
+            ebitda = _safe(info.get("ebitda"))
+            if ev and ebitda:
+                ev_ebitda = round(ev / ebitda, 2)
+
+        ev_revenue = _safe(info.get("enterpriseToRevenue"))
+        if ev_revenue is None:
+            total_revenue = _safe(info.get("totalRevenue"))
+            if ev and total_revenue:
+                ev_revenue = round(ev / total_revenue, 2)
+
+        peg = _safe(info.get("pegRatio"))
+        if peg is None:
+            growth = _safe(info.get("earningsGrowth"))
+            if per_val and growth and growth > 0:
+                peg = round(per_val / (growth * 100), 2)
+
         result = _clean({
-            "per":          _safe(info.get("_pkrx_per") or info.get("trailingPE")),
+            "per":          per_val,
             "forward_per":  _safe(info.get("forwardPE")),
-            "peg":          _safe(info.get("pegRatio")),
+            "peg":          peg,
             "pbr":          _safe(info.get("_pkrx_pbr") or info.get("priceToBook")),
             "psr":          _safe(info.get("priceToSalesTrailing12Months")),
             "pcr":          _safe(info.get("priceToFreeCashflows")) or _safe(info.get("priceToOperatingCashflows")),
-            "ev_ebitda":    _safe(info.get("enterpriseToEbitda")),
-            "ev_revenue":   _safe(info.get("enterpriseToRevenue")),
+            "ev_ebitda":    ev_ebitda,
+            "ev_revenue":   ev_revenue,
             "roe":          _pct("returnOnEquity", max_abs=200),  # 200% 초과는 이상치
             "roa":          _pct("returnOnAssets", max_abs=100),
             "gross_margin": _pct("grossMargins", max_abs=100),
@@ -454,7 +484,7 @@ class YFinanceService:
             "ma50":         _safe(info.get("fiftyDayAverage")),
             "ma200":        _safe(info.get("twoHundredDayAverage")),
             "market_cap":        info.get("marketCap"),
-            "enterprise_value":  info.get("enterpriseValue"),
+            "enterprise_value":  ev,
             "shares_outstanding":info.get("sharesOutstanding"),
             "float_shares":      info.get("floatShares"),
             "sector":      _SECTOR_KO.get(info.get("sector",""), info.get("sector")),
