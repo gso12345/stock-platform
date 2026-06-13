@@ -231,13 +231,13 @@ def _add_trending_score(articles: list) -> list:
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     """피드 목록을 병렬로 fetch (ThreadPoolExecutor 사용)"""
     all_news = []
-    with ThreadPoolExecutor(max_workers=min(len(feeds), 16)) as executor:
+    with ThreadPoolExecutor(max_workers=min(len(feeds), 24)) as executor:
         futures = {
             executor.submit(_parse_feed, url, source, limit_per_source): source
             for source, url in feeds
         }
         try:
-            for future in as_completed(futures, timeout=12):
+            for future in as_completed(futures, timeout=20):
                 try:
                     items = future.result(timeout=8)
                     all_news.extend(items)
@@ -271,11 +271,11 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     if not all_news:
         return []
     _add_trending_score(all_news)
-    # 소스별 인터리브 → 전체 최신순 재정렬 (최신 2시간은 최신순, 나머지는 인터리브)
+    # 소스별 인터리브 → 전체 최신순 재정렬 (최신 일부는 시간순, 나머지는 언론사 다양성 확보를 위해 인터리브)
     recent   = [a for a in all_news if a["published"] >= ""]  # 전체
     recent.sort(key=lambda x: x["published"], reverse=True)
-    top      = recent[:30]    # 최신 30개는 시간순
-    rest     = _interleave_by_source(recent[30:])  # 나머지는 언론사별 균등 배치
+    top      = recent[:10]    # 최신 10개는 시간순
+    rest     = _interleave_by_source(recent[10:])  # 나머지는 언론사별 균등 배치
     result   = (top + rest)[:total_limit]
     cache.set(ck, result, 300)
     _refreshing.pop(ck, None)

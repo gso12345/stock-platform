@@ -50,7 +50,7 @@ function dateGroupLabel(published: string): string {
   return `${kst.getUTCMonth() + 1}월 ${kst.getUTCDate()}일`;
 }
 
-function NewsItem({ item }: { item: any }) {
+function NewsItem({ item, showImage }: { item: any; showImage: boolean }) {
   return (
     <li className="border-b border-border/30 last:border-0">
       <a
@@ -59,7 +59,7 @@ function NewsItem({ item }: { item: any }) {
         rel="noopener noreferrer"
         className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group"
       >
-        {item.image && (
+        {showImage && item.image && (
           <img
             src={item.image}
             alt=""
@@ -95,11 +95,11 @@ export default function News() {
     refetchInterval: 120_000,
   });
 
-  const sorted = [...(news ?? [])].sort((a: any, b: any) =>
-    sort === "popular"
-      ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
-      : String(b.published ?? "").localeCompare(String(a.published ?? ""))
-  );
+  // 최신순: 백엔드가 제공하는 순서(최신 일부 + 언론사별 인터리브)를 그대로 사용해 다양성 유지
+  // 인기순: 트렌드 점수 기준 정렬
+  const sorted = sort === "popular"
+    ? [...(news ?? [])].sort((a: any, b: any) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
+    : (news ?? []);
 
   // 최신순일 때 날짜별 그룹화 ("오늘" / "어제" / "M월 D일")
   const groups: { label: string; items: any[] }[] = [];
@@ -177,7 +177,7 @@ export default function News() {
                 )}
                 <ul>
                   {group.items.map((item: any, i: number) => (
-                    <NewsItem key={i} item={item} />
+                    <NewsItem key={i} item={item} showImage={market === "kr"} />
                   ))}
                 </ul>
               </div>
@@ -185,7 +185,7 @@ export default function News() {
           ) : (
             <ul>
               {sorted.map((item: any, i: number) => (
-                <NewsItem key={i} item={item} />
+                <NewsItem key={i} item={item} showImage={market === "kr"} />
               ))}
             </ul>
           )
