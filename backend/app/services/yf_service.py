@@ -328,7 +328,7 @@ class YFinanceService:
         is_kr = market == "KR"
         if interval in NDAY_MAP:
             n = NDAY_MAP[interval]
-            hist = yf.Ticker(symbol).history(period="max", interval="1d")
+            hist = yf.Ticker(symbol).history(period="max", interval="1d", auto_adjust=False)
             hist = hist.dropna(subset=["Close"])
             if hist.index.tz is not None:
                 hist.index = hist.index.tz_convert("Asia/Seoul").tz_localize(None) if is_kr else hist.index.tz_localize(None)
@@ -338,8 +338,10 @@ class YFinanceService:
 
         is_intraday = interval in ("1m","2m","5m","15m","30m","60m","90m","1h")
         yf_period = PERIOD_MAP.get(period, "5d" if is_intraday else "1y")
-        # 일봉 이상은 실제 종가(auto_adjust=False) 사용 — 조정 종가와의 불일치 방지
-        hist = yf.Ticker(symbol).history(period=yf_period, interval=interval, auto_adjust=not is_intraday)
+        # 실제 종가(auto_adjust=False) 사용 — 배당 조정 종가와의 불일치 방지
+        # (yfinance 기본값 auto_adjust=True는 배당을 반영해 과거 종가를 깎아내려
+        #  실제 거래된 가격과 달라짐 — 오래된 데이터일수록 오차가 커짐)
+        hist = yf.Ticker(symbol).history(period=yf_period, interval=interval, auto_adjust=False)
         hist = hist.dropna(subset=["Close"])
         # 타임존 제거
         if hist.index.tz is not None:
