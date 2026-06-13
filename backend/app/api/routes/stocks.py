@@ -1195,8 +1195,8 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                         "from_grade":   str(row.get("FromGrade", "") or ""),
                         "action":       str(row.get("Action", "") or ""),
                         "price_action": str(row.get("priceTargetAction", "") or ""),
-                        "target":       _safe(row.get("currentPriceTarget")),
-                        "prior_target": _safe(row.get("priorPriceTarget")),
+                        "target":       _safe_float(row.get("currentPriceTarget")),
+                        "prior_target": _safe_float(row.get("priorPriceTarget")),
                     })
                 result["reports"] = reports
         except Exception:
@@ -1314,7 +1314,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 loop2 = asyncio.get_running_loop()
                 r2 = await asyncio.wait_for(loop2.run_in_executor(None, _fetch), timeout=20)
                 naver_r = await _fetch_kr_analyst()
-                r2 = {**naver_r, **r2}
+                r2 = {**r2, **naver_r}
                 _enrich_kr_analyst(r2, symbol, market)
                 if r2:
                     cache.set(ck, r2, 86400)
@@ -1335,7 +1335,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
     if market == "KR":
         naver_analyst = await _fetch_kr_analyst()
         # Naver 데이터를 우선, yfinance로 보완
-        result = {**naver_analyst, **result}
+        result = {**result, **naver_analyst}
 
     _enrich_kr_analyst(result, symbol, market)
 
