@@ -85,7 +85,7 @@ function fmtNative(market: Market, currency: Currency, price: number): string {
 function MarketBadge({ market }: { market: Market }) {
   const cls =
     market === "KR"  ? "border-blue-700/50 text-blue-400 bg-blue-900/20" :
-    market === "ETF" ? "border-yellow-700/50 text-yellow-400 bg-yellow-900/20" :
+    market === "ETF" ? "border-purple-700/50 text-purple-400 bg-purple-900/20" :
                        "border-green-700/50 text-green-400 bg-green-900/20";
   return <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${cls}`}>{market}</span>;
 }
@@ -683,7 +683,7 @@ export default function Portfolio() {
 
       {/* ── 로그인 배너 (미리보기 모드) ── */}
       {!isLoggedIn && (
-        <div className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-gradient-to-r from-accent-blue/15 to-purple-500/10 border border-accent-blue/30">
+        <div className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-accent-blue/10 border border-accent-blue/20">
           <div className="w-8 h-8 rounded-lg bg-accent-blue/20 flex items-center justify-center flex-shrink-0">
             <LogIn size={15} className="text-accent-blue" />
           </div>
@@ -698,6 +698,14 @@ export default function Portfolio() {
           </Link>
         </div>
       )}
+
+      {/* ── 헤더 ── */}
+      <div>
+        <h1 className="text-2xl font-bold text-text-primary">내 자산</h1>
+        <p className="text-text-muted text-xs mt-0.5">
+          {displayEnriched.length}개 종목 · 클릭하면 상세로 이동
+        </p>
+      </div>
 
       {/* ── 요약 카드 ── */}
       {hasDisplay && (

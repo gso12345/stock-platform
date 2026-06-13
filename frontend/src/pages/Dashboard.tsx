@@ -20,7 +20,7 @@ const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _d
       onClick={onClick}
     >
       <div className="flex items-center justify-between gap-1">
-        <span className="text-2xs text-text-muted font-semibold uppercase tracking-wider truncate">{name}</span>
+        <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide truncate">{name}</span>
         <div className="flex items-center gap-1 flex-shrink-0">
           <ChevronRight size={11} className="text-text-dim group-hover:text-accent-blue transition-colors" />
         </div>
@@ -56,7 +56,7 @@ const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, un
   return (
     <Card className="flex flex-col gap-1 min-w-[135px] flex-shrink-0">
       <div className="flex items-center gap-1 flex-wrap">
-        <span className="text-2xs text-text-muted font-semibold truncate">{name}</span>
+        <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide truncate">{name}</span>
         {_demo && <span className="text-[8px] px-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
         {_static && <span className="text-[8px] px-0.5 rounded bg-blue-900/20 text-blue-400 border border-blue-700/20">고정</span>}
       </div>
