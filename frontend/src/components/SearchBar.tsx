@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Search, X, Clock, TrendingUp, Plus, Check } from "lucide-react";
 import api from "@/api/client";
 import { watchlistApi } from "@/api/stocks";
+import { useAuthStore } from "@/store/authStore";
 
 interface SR {
   symbol: string;
@@ -38,6 +39,7 @@ const saveRecent = (i: SR)  => { const p=[i,...getRecent().filter(r=>r.symbol!==
 
 export default function SearchBar() {
   const navigate = useNavigate();
+  const { isLoggedIn } = useAuthStore();
   const [open, setOpen]       = useState(false);
   const [query, setQuery]     = useState("");
   const [results, setResults] = useState<SR[]>([]);
@@ -105,12 +107,17 @@ export default function SearchBar() {
 
   const addToWatchlist = useCallback(async (e: React.MouseEvent, item: SR) => {
     e.stopPropagation();
+    if (!isLoggedIn) {
+      closeSearch();
+      navigate("/login");
+      return;
+    }
     try {
       await watchlistApi.addItem({ symbol: item.symbol, market: item.market as any, name: item.name, watchlist_id: 1 });
       setAdded(prev => new Set([...prev, item.symbol]));
       setTimeout(() => setAdded(prev => { const n = new Set(prev); n.delete(item.symbol); return n; }), 3000);
     } catch {}
-  }, []);
+  }, [isLoggedIn, navigate]);
 
   const activeList = query ? results : POPULAR;
 

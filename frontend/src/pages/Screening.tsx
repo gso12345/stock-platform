@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { screeningApi, watchlistApi } from "@/api/stocks";
+import { useAuthStore } from "@/store/authStore";
 import {
   Card, ChangeBadge, LoadingSpinner, formatNumber, RangeFilter, Tabs, Button, Badge,
 } from "@/components/ui";
@@ -93,6 +94,7 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 export default function Screening() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { isLoggedIn } = useAuthStore();
   const [market, setMarket] = useState<string>("US");
   const [filterTab, setFilterTab] = useState("basic");
   const [filters, setFilters] = useState<Record<string, any>>({});
@@ -149,6 +151,14 @@ export default function Screening() {
     onSuccess: (_data, stock: any) => {
       setStarredSymbols((prev) => new Set([...prev, stock.symbol]));
       setToast(`${stock.symbol} 관심종목에 추가됨`);
+    },
+    onError: (err: any) => {
+      if (err?.response?.status === 401) {
+        setToast("로그인이 필요해요");
+        navigate("/login");
+        return;
+      }
+      setToast(err?.response?.data?.detail ?? "추가 실패");
     },
   });
 
@@ -565,7 +575,10 @@ export default function Screening() {
                           <td className="px-3 py-2.5">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
-                                onClick={() => !isStarred && addToWatchlistMutation.mutate(stock)}
+                                onClick={() => {
+                                  if (!isLoggedIn) { navigate("/login"); return; }
+                                  if (!isStarred) addToWatchlistMutation.mutate(stock);
+                                }}
                                 disabled={isStarred || addToWatchlistMutation.isPending}
                                 title="관심종목 추가"
                                 className={`transition-colors ${

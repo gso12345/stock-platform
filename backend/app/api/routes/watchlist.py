@@ -315,10 +315,9 @@ async def get_watchlist_with_prices(
 def add_item(
     req: AddItemRequest,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(require_user),
 ):
-    user_id = current_user.id if current_user else None
-    wl = _ensure_watchlist(db, user_id=user_id)
+    wl = _ensure_watchlist(db, user_id=current_user.id)
     existing = db.query(WatchlistItem).filter(
         WatchlistItem.watchlist_id == wl.id,
         WatchlistItem.symbol == req.symbol,
@@ -345,11 +344,10 @@ def add_item(
 def reorder_items(
     req: ReorderRequest,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(require_user),
 ):
     """관심종목 순서 일괄 저장 (소유한 watchlist 아이템만 수정)"""
-    user_id = current_user.id if current_user else None
-    wl = _ensure_watchlist(db, user_id=user_id)
+    wl = _ensure_watchlist(db, user_id=current_user.id)
     for position, item_id in enumerate(req.order):
         db.query(WatchlistItem).filter(
             WatchlistItem.id == item_id,
@@ -364,10 +362,9 @@ def update_item(
     item_id: int,
     req: UpdateItemRequest,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(require_user),
 ):
-    user_id = current_user.id if current_user else None
-    wl = _ensure_watchlist(db, user_id=user_id)
+    wl = _ensure_watchlist(db, user_id=current_user.id)
     item = db.query(WatchlistItem).filter(
         WatchlistItem.id == item_id,
         WatchlistItem.watchlist_id == wl.id,
@@ -390,10 +387,9 @@ def update_item(
 def remove_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User = Depends(require_user),
 ):
-    user_id = current_user.id if current_user else None
-    wl = _ensure_watchlist(db, user_id=user_id)
+    wl = _ensure_watchlist(db, user_id=current_user.id)
     item = db.query(WatchlistItem).filter(
         WatchlistItem.id == item_id,
         WatchlistItem.watchlist_id == wl.id,

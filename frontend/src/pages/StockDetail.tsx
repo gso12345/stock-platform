@@ -47,7 +47,7 @@ export default function StockDetail() {
   const m   = (market?.toUpperCase() || "US") as Market;
   const sym = decodeURIComponent(rawSymbol ?? "").toUpperCase();
   const isKR = m === "KR";
-  const { userId } = useAuthStore();
+  const { userId, isLoggedIn } = useAuthStore();
 
   const [candleType, setCandleType]   = useState("1d");
   const [chartType, setChartType]     = useState<ChartType>("candle");
@@ -231,19 +231,25 @@ export default function StockDetail() {
   });
   const exchangeRate: number = (exchangeRateData as any)?.value ?? 1350;
 
-  // 이미 추가된 종목인지 확인
+  // 이미 추가된 종목인지 확인 (로그인 사용자만)
   const { data: watchlistItems } = useQuery({
     queryKey: ["watchlist-items-check", userId],
     queryFn: () => watchlistApi.getItems(),
+    enabled: isLoggedIn,
     staleTime: 30_000,
   });
   useEffect(() => {
+    if (!isLoggedIn) {
+      setInWatchlist(false);
+      setWatchlistItemId(null);
+      return;
+    }
     if (watchlistItems) {
       const found = (watchlistItems as any[]).find((i: any) => i.symbol === sym);
       setInWatchlist(!!found);
       setWatchlistItemId(found?.id ?? null);
     }
-  }, [watchlistItems, sym]);
+  }, [watchlistItems, sym, isLoggedIn]);
 
   const addMutation = useMutation({
     mutationFn: () => watchlistApi.addItem({
@@ -261,6 +267,12 @@ export default function StockDetail() {
       setTimeout(() => setWatchlistMsg(""), 2000);
     },
     onError: (err: any) => {
+      if (err?.response?.status === 401) {
+        setWatchlistMsg("로그인이 필요해요");
+        setTimeout(() => setWatchlistMsg(""), 2000);
+        navigate("/login");
+        return;
+      }
       const msg = err?.response?.data?.detail ?? "추가 실패";
       if (msg.includes("이미")) {
         setInWatchlist(true);
@@ -326,6 +338,10 @@ export default function StockDetail() {
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <button
             onClick={() => {
+              if (!isLoggedIn) {
+                navigate("/login");
+                return;
+              }
               if (inWatchlist && watchlistItemId) {
                 removeMutation.mutate(watchlistItemId);
               } else if (!inWatchlist && !addMutation.isPending) {
