@@ -452,7 +452,7 @@ class YFinanceService:
             if ev and total_revenue:
                 ev_revenue = round(ev / total_revenue, 2)
 
-        peg = _safe(info.get("pegRatio"))
+        peg = _safe(info.get("trailingPegRatio")) or _safe(info.get("pegRatio"))
         if peg is None:
             growth = _safe(info.get("earningsGrowth"))
             if per_val and growth and growth > 0:

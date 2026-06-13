@@ -383,8 +383,8 @@ async def run_startup_prefetch():
         refresh_us_indices(),
         refresh_exchange(),
         refresh_kr_rankings_from_naver(),
-        loop.run_in_executor(None, get_kr_news, 6, 100),
-        loop.run_in_executor(None, get_us_news, 6, 100),
+        loop.run_in_executor(None, get_kr_news),
+        loop.run_in_executor(None, get_us_news),
         loop.run_in_executor(None, get_kr_rates),
         loop.run_in_executor(None, get_us_rates),
         return_exceptions=True,
@@ -437,8 +437,8 @@ async def periodic_refresh():
             await asyncio.gather(
                 refresh_us_stocks(),
                 refresh_kr_stocks(),
-                loop.run_in_executor(None, get_kr_news, 6, 100),
-                loop.run_in_executor(None, get_us_news, 6, 100),
+                loop.run_in_executor(None, get_kr_news),
+                loop.run_in_executor(None, get_us_news),
                 return_exceptions=True,
             )
 

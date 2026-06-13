@@ -110,7 +110,7 @@ async def get_kr_dashboard(
         asyncio.wait_for(get_kr_futures(), timeout=5),
     ]
     if include_news:
-        tasks.append(loop.run_in_executor(None, get_kr_news, 6, 100))
+        tasks.append(loop.run_in_executor(None, get_kr_news))
         results = await asyncio.gather(*tasks, return_exceptions=True)
         idx_results, rankings, exchange, rates, futures, news = results
     else:
@@ -185,7 +185,7 @@ async def get_us_dashboard(
         asyncio.wait_for(loop.run_in_executor(None, get_us_rates), timeout=5),
     ]
     if include_news:
-        tasks.append(loop.run_in_executor(None, get_us_news, 6, 100))
+        tasks.append(loop.run_in_executor(None, get_us_news))
 
     gathered = await asyncio.gather(*tasks, return_exceptions=True)
     idx_results     = gathered[0] if not isinstance(gathered[0], Exception) else []

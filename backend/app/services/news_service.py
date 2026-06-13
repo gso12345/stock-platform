@@ -1,5 +1,7 @@
 import feedparser
 import threading
+import re
+import html as _html
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from app.core.cache import cache
@@ -137,6 +139,50 @@ def _is_finance_news(title: str, source: str = "") -> bool:
     return False
 
 
+def _clean_text(raw: str) -> str:
+    """HTML 태그 제거 + 엔티티 디코딩 + 공백 정리"""
+    if not raw:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", raw)
+    text = _html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:150]
+
+
+def _extract_thumbnail(entry) -> str | None:
+    """RSS 항목에서 썸네일 이미지 URL 추출 (없으면 None)"""
+    try:
+        media_thumb = entry.get("media_thumbnail")
+        if media_thumb:
+            url = media_thumb[0].get("url")
+            if url:
+                return url
+
+        media_content = entry.get("media_content")
+        if media_content:
+            for m in media_content:
+                mtype = m.get("type") or m.get("medium") or ""
+                if m.get("url") and "image" in mtype:
+                    return m["url"]
+            if media_content[0].get("url"):
+                return media_content[0]["url"]
+
+        for link in entry.get("links", []):
+            if link.get("rel") == "enclosure" and "image" in (link.get("type") or ""):
+                if link.get("href"):
+                    return link["href"]
+
+        html_blob = entry.get("summary", "") or ""
+        for c in entry.get("content", []):
+            html_blob += c.get("value", "") or ""
+        m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', html_blob)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
 def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
     try:
         feed  = feedparser.parse(url)
@@ -154,7 +200,8 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
                 "link":      entry.get("link", ""),
                 "source":    source,
                 "published": pub,
-                "summary":   (entry.get("summary") or "")[:150],
+                "summary":   _clean_text(entry.get("summary") or ""),
+                "image":     _extract_thumbnail(entry),
             })
             if len(items) >= limit:
                 break
@@ -235,7 +282,7 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     return result
 
 
-def get_kr_news(limit_per_source: int = 8, total_limit: int = 200) -> list[dict]:
+def get_kr_news(limit_per_source: int = 12, total_limit: int = 300) -> list[dict]:
     ck = "news:kr"
     if c := cache.get(ck):
         return c
@@ -247,7 +294,7 @@ def get_kr_news(limit_per_source: int = 8, total_limit: int = 200) -> list[dict]
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
-def get_us_news(limit_per_source: int = 6, total_limit: int = 100) -> list[dict]:
+def get_us_news(limit_per_source: int = 10, total_limit: int = 200) -> list[dict]:
     ck = "news:us"
     if c := cache.get(ck):
         return c
