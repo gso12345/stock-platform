@@ -522,6 +522,42 @@ export default function Watchlist() {
     setDragId(null); setDropId(null); setLocalOrder(null);
   };
 
+  // 폴더 드래그 상태
+  const [dragFolderId, setDragFolderId] = useState<number | null>(null);
+  const [dropFolderId, setDropFolderId] = useState<number | null>(null);
+  const [localFolderOrder, setLocalFolderOrder] = useState<any[] | null>(null);
+
+  const reorderFoldersMutation = useMutation({
+    mutationFn: (order: number[]) => watchlistFolderApi.reorderFolders(order),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-folders"] }),
+  });
+
+  const handleFolderDragStart = (folder: any) => {
+    setDragFolderId(folder.id);
+    setLocalFolderOrder(folders as any[]);
+  };
+
+  const handleFolderDragOver = (e: React.DragEvent, targetId: number) => {
+    e.preventDefault();
+    if (dragFolderId === null || dragFolderId === targetId) return;
+    setDropFolderId(targetId);
+    const base = localFolderOrder ?? (folders as any[]);
+    const from = base.findIndex((f: any) => f.id === dragFolderId);
+    const to   = base.findIndex((f: any) => f.id === targetId);
+    if (from === -1 || to === -1) return;
+    const next = [...base];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setLocalFolderOrder(next);
+  };
+
+  const handleFolderDrop = () => {
+    if (dragFolderId !== null && localFolderOrder) {
+      reorderFoldersMutation.mutate(localFolderOrder.map((f: any) => f.id));
+    }
+    setDragFolderId(null); setDropFolderId(null); setLocalFolderOrder(null);
+  };
+
   const createFolderMutation = useMutation({
     mutationFn: () => watchlistFolderApi.createFolder("새 폴더"),
     onSuccess: (data) => { qc.invalidateQueries({ queryKey: ["watchlist-folders"] }); setEditingFolder(data.id); },
@@ -774,14 +810,32 @@ export default function Watchlist() {
       })() : isLoading ? <LoadingSpinner /> : (
         <div className="flex flex-col gap-3">
           {/* 폴더 그룹 — 폴더 탭이 "전체"이거나 해당 폴더가 선택된 경우에만 표시 */}
-          {(folders as any[])
+          {(localFolderOrder ?? (folders as any[]))
             .filter((folder: any) => folderTab === "all" || folderTab === folder.id)
             .map((folder: any) => {
             const folderItems = byFolder(folder.id);
             const isCollapsed = collapsed.has(`f-${folder.id}`);
             return (
               <Card key={folder.id} className="p-0 overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border group">
+                <div
+                  className={`flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border group ${dropFolderId === folder.id ? "bg-accent-blue/5" : ""} ${dragFolderId === folder.id ? "opacity-40" : ""}`}
+                  onDragOver={(e) => handleFolderDragOver(e, folder.id)}
+                  onDrop={handleFolderDrop}
+                >
+                  {(folders as any[]).length > 1 && (
+                    <div
+                      draggable
+                      onDragStart={() => handleFolderDragStart(folder)}
+                      className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1 py-1"
+                      title="드래그하여 폴더 순서 변경"
+                    >
+                      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                        <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>
+                        <circle cx="3" cy="7"   r="1.3"/><circle cx="7" cy="7"   r="1.3"/>
+                        <circle cx="3" cy="11.5" r="1.3"/><circle cx="7" cy="11.5" r="1.3"/>
+                      </svg>
+                    </div>
+                  )}
                   <button onClick={() => toggleCollapse(`f-${folder.id}`)} className="text-text-muted">
                     {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                   </button>

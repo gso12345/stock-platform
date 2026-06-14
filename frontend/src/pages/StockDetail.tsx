@@ -1281,11 +1281,11 @@ export default function StockDetail() {
               </div>
             ) : (
               <>
-                {/* ── 국내 Naver 컨센서스 ── */}
+                {/* ── 컨센서스 보조 정보 (국내: Naver, 해외: 펀더멘털 기반) ── */}
                 {nc && (
                   <div className="rounded-xl border border-border bg-bg-card p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="col-span-2 sm:col-span-4">
-                      <span className="text-xs font-bold text-text-muted uppercase tracking-widest">Naver 컨센서스</span>
+                      <span className="text-xs font-bold text-text-muted uppercase tracking-widest">{isKR ? "Naver 컨센서스" : "컨센서스 정보"}</span>
                     </div>
                     {nc.cons_per != null && (
                       <StatCell label="컨센서스 PER" value={`${fmtNum(nc.cons_per)}배`} color="text-accent-blue" />
@@ -1472,12 +1472,9 @@ export default function StockDetail() {
               // 기간 컬럼 생성
               const periods = fcstData.map((r: any) => r.period);
               const periodLabel = (p: string) => {
-                if (consensusPeriod === "annual") return p.slice(0,4);
-                // 분기: 2024-01-01 → 2024 Q1 식으로
-                const y = p.slice(0,4);
-                const mo = parseInt(p.slice(5,7));
-                const q = Math.ceil(mo/3);
-                return `${y} Q${q}`;
+                if (consensusPeriod === "annual") return p;
+                // 분기: "2026-Q1" → "2026 Q1"
+                return p.replace("-", " ");
               };
 
               const indicators = [
