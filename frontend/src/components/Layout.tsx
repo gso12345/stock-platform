@@ -7,6 +7,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import type { ColorScheme, FontSize, Theme } from "@/store/settingsStore";
 import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
+import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
 import { useState, useEffect } from "react";
 
 const NAV = [
@@ -204,13 +205,19 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-bg-base overflow-hidden">
 
+      {/* ── 진입 시 데이터 로딩 진행률 ────────────────────── */}
+      <LoadingProgressOverlay />
+
       {/* ── 데스크탑 사이드바 ─────────────────────────────── */}
       <aside className="hidden lg:flex w-52 flex-shrink-0 flex-col bg-bg-card border-r border-border">
         <div className="px-5 pt-6 pb-5">
           <div className="flex items-center gap-2.5">
             <Logo size={28} />
             <div>
-              <div className="text-sm font-bold text-text-primary tracking-tight leading-none">StockPlatform</div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-bold text-text-primary tracking-tight leading-none">StockPlatform</span>
+                <span className="text-2xs font-bold px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue leading-none">BETA</span>
+              </div>
               <div className="text-2xs text-text-dim mt-0.5">종목발굴 &amp; 백테스트</div>
             </div>
           </div>
