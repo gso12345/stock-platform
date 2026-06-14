@@ -968,7 +968,7 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
 
     if market == "KR":
         # 종목명으로 국내 뉴스 RSS 검색
-        from app.services.news_service import KR_FEEDS, _parse_feed
+        from app.services.news_service import KR_FEEDS, _parse_feed, _extract_thumbnail
         code6 = symbol.replace(".KS","").replace(".KQ","")
         # 데모/KIS에서 종목명 조회
         from app.services.demo_data import DEMO_PRICES
@@ -1013,6 +1013,7 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     "published": pub,
                     "published_ts": pub_ts,
                     "summary": (entry.get("summary") or "")[:200],
+                    "image": _extract_thumbnail(entry),
                 })
             return items
 
@@ -1033,7 +1034,10 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     provider = (ct.get("provider") or {}).get("displayName") or n.get("publisher", "")
                     if not title:
                         continue
-                    items.append({"title": title, "link": link, "source": provider, "published": pub, "summary": (ct.get("summary") or "")[:200]})
+                    thumb = ct.get("thumbnail") or n.get("thumbnail") or {}
+                    resolutions = thumb.get("resolutions") or []
+                    image = resolutions[0].get("url") if resolutions else thumb.get("originalUrl")
+                    items.append({"title": title, "link": link, "source": provider, "published": pub, "summary": (ct.get("summary") or "")[:200], "image": image})
                 return items
             except Exception:
                 return []

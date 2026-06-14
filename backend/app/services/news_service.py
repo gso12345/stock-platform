@@ -10,19 +10,6 @@ _refreshing = {}  # 중복 갱신 방지 플래그
 
 KST = timezone(timedelta(hours=9))
 
-
-def _to_kst(parsed_time) -> str:
-    """parsed_time(struct_time) → 한국 시간 문자열"""
-    if not parsed_time:
-        return ""
-    try:
-        # struct_time → UTC datetime → KST
-        utc_dt = datetime(*parsed_time[:6], tzinfo=timezone.utc)
-        kst_dt = utc_dt.astimezone(KST)
-        return kst_dt.strftime("%m/%d %H:%M")
-    except Exception:
-        return ""
-
 # ── 국내 뉴스 RSS ──────────────────────────────────────────
 KR_FEEDS = [
     # 경제 전문지
@@ -150,21 +137,37 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
     try:
         feed  = feedparser.parse(url)
         items = []
-        # 최대 50개까지 스캔 — 필터 통과율이 낮아도 충분히 수집
-        for entry in feed.entries[:max(limit * 5, 50)]:
-            pub = _to_kst(entry.get("published_parsed")) or _to_kst(entry.get("updated_parsed")) or ""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=3)
+        # 필터(경제 키워드/기간/이미지) 통과율이 낮을 수 있으므로 넉넉히 스캔
+        for entry in feed.entries[:max(limit * 6, 60)]:
             title = entry.get("title", "").strip()
             if not title:
                 continue
             if not _is_finance_news(title):
                 continue
+
+            parsed = entry.get("published_parsed") or entry.get("updated_parsed")
+            if not parsed:
+                continue
+            try:
+                dt = datetime(*parsed[:6], tzinfo=timezone.utc)
+            except Exception:
+                continue
+            if dt < cutoff:
+                continue
+
+            image = _extract_thumbnail(entry)
+            if not image:
+                continue
+
             items.append({
                 "title":     title,
                 "link":      entry.get("link", ""),
                 "source":    source,
-                "published": pub,
+                "published": dt.astimezone(KST).strftime("%m/%d %H:%M"),
                 "summary":   _clean_text(entry.get("summary") or ""),
-                "image":     _extract_thumbnail(entry),
+                "image":     image,
+                "_ts":       dt.timestamp(),
             })
             if len(items) >= limit:
                 break
@@ -219,7 +222,7 @@ def _interleave_by_source(articles: list) -> list:
         by_src[a["source"]].append(a)
     # 각 소스 내부는 최신순 정렬
     for src in by_src:
-        by_src[src].sort(key=lambda x: x["published"], reverse=True)
+        by_src[src].sort(key=lambda x: x.get("_ts", 0), reverse=True)
     result = []
     sources = list(by_src.keys())
     while any(by_src[s] for s in sources):
@@ -234,18 +237,19 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     if not all_news:
         return []
     _add_trending_score(all_news)
-    # 소스별 인터리브 → 전체 최신순 재정렬 (최신 일부는 시간순, 나머지는 언론사 다양성 확보를 위해 인터리브)
-    recent   = [a for a in all_news if a["published"] >= ""]  # 전체
-    recent.sort(key=lambda x: x["published"], reverse=True)
-    top      = recent[:10]    # 최신 10개는 시간순
-    rest     = _interleave_by_source(recent[10:])  # 나머지는 언론사별 균등 배치
+    # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순, 나머지는 언론사 다양성 확보를 위해 인터리브
+    all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
+    top      = all_news[:10]    # 최신 10개는 시간순
+    rest     = _interleave_by_source(all_news[10:])  # 나머지는 언론사별 균등 배치
     result   = (top + rest)[:total_limit]
+    for a in result:
+        a.pop("_ts", None)
     cache.set(ck, result, 300)
     _refreshing.pop(ck, None)
     return result
 
 
-def get_kr_news(limit_per_source: int = 12, total_limit: int = 300) -> list[dict]:
+def get_kr_news(limit_per_source: int = 20, total_limit: int = 400) -> list[dict]:
     ck = "news:kr"
     if c := cache.get(ck):
         return c
@@ -257,7 +261,7 @@ def get_kr_news(limit_per_source: int = 12, total_limit: int = 300) -> list[dict
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
-def get_us_news(limit_per_source: int = 10, total_limit: int = 200) -> list[dict]:
+def get_us_news(limit_per_source: int = 16, total_limit: int = 250) -> list[dict]:
     ck = "news:us"
     if c := cache.get(ck):
         return c
