@@ -71,6 +71,8 @@ export const watchlistFolderApi = {
     api.put(`/watchlist/folders/${id}`, { name }).then((r) => r.data),
   deleteFolder: (id: number) =>
     api.delete(`/watchlist/folders/${id}`).then((r) => r.data),
+  reorderFolders: (order: number[]) =>
+    api.put("/watchlist/folders/reorder", { order }).then((r) => r.data),
 };
 
 export const financialsApi = {

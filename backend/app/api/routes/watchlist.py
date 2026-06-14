@@ -154,6 +154,22 @@ def delete_folder(
     return {"message": "삭제 완료"}
 
 
+@router.put("/folders/reorder")
+def reorder_folders(
+    req: ReorderRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """관심종목 폴더 순서 일괄 저장 (소유했거나 공유된 폴더만 수정)"""
+    for position, folder_id in enumerate(req.order):
+        db.query(WatchlistFolder).filter(
+            WatchlistFolder.id == folder_id,
+            (WatchlistFolder.user_id == current_user.id) | (WatchlistFolder.user_id == None),
+        ).update({"position": position})
+    db.commit()
+    return {"message": "순서 저장 완료"}
+
+
 # ── 관심종목 일괄 가격 조회 (빠른 배치 fetch + 캐시 저장) ────────
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9.\-]{1,20}$")
 

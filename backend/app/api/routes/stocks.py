@@ -729,11 +729,31 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
     return result
 
 
+def _period_to_label(code: str) -> tuple[str, str] | None:
+    """yfinance 상대 기간 코드(0q/+1q/-1y 등)를 실제 연도·분기 라벨로 변환
+    반환: (라벨, "annual"|"quarterly") — 변환 불가/장기(±5y) 코드는 None
+    """
+    from datetime import datetime
+    m = re.match(r"^([+-]?\d+)([qy])$", code)
+    if not m:
+        return None
+    offset = int(m.group(1))
+    unit = m.group(2)
+    today = datetime.now()
+    if unit == "y":
+        if abs(offset) >= 5:
+            return None
+        return (str(today.year + offset), "annual")
+    cur_q = (today.month - 1) // 3 + 1
+    global_idx = today.year * 4 + (cur_q - 1) + offset
+    return (f"{global_idx // 4}-Q{global_idx % 4 + 1}", "quarterly")
+
+
 @router.get("/{market}/{symbol}/forecasts")
 async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률"""
     from app.core.cache import cache
-    ck = f"forecasts:v2:{symbol}"
+    ck = f"forecasts:v3:{symbol}"
     if c := cache.get(ck):
         return c
 
@@ -804,8 +824,11 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
         try:
             if ee is not None and not ee.empty:
                 for idx, row in ee.iterrows():
-                    p = str(idx)[:10]
-                    store = quarterly if len(p) > 6 else annual
+                    conv = _period_to_label(str(idx))
+                    if conv is None:
+                        continue
+                    p, bucket = conv
+                    store = quarterly if bucket == "quarterly" else annual
                     _upsert(store, p,
                         eps_est=_safe_float(row.get("avg") or row.get("Avg Estimate")),
                         eps_low=_safe_float(row.get("low") or row.get("Low Estimate")),
@@ -819,8 +842,11 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
         try:
             if re_ is not None and not re_.empty:
                 for idx, row in re_.iterrows():
-                    p = str(idx)[:10]
-                    store = quarterly if len(p) > 6 else annual
+                    conv = _period_to_label(str(idx))
+                    if conv is None:
+                        continue
+                    p, bucket = conv
+                    store = quarterly if bucket == "quarterly" else annual
                     _upsert(store, p,
                         revenue_est=_safe_float(row.get("avg") or row.get("Avg Estimate")),
                         revenue_low=_safe_float(row.get("low") or row.get("Low Estimate")),
@@ -833,8 +859,11 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
         try:
             if et is not None and not et.empty:
                 for idx, row in et.iterrows():
-                    p = str(idx)[:10]
-                    store = quarterly if len(p) > 6 else annual
+                    conv = _period_to_label(str(idx))
+                    if conv is None:
+                        continue
+                    p, bucket = conv
+                    store = quarterly if bucket == "quarterly" else annual
                     _upsert(store, p,
                         eps_current=_safe_float(row.get("current")),
                         eps_7d_ago=_safe_float(row.get("7daysAgo")),
@@ -848,8 +877,11 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
         try:
             if ge is not None and not ge.empty:
                 for idx, row in ge.iterrows():
-                    p = str(idx)[:10]
-                    store = quarterly if len(p) > 6 else annual
+                    conv = _period_to_label(str(idx))
+                    if conv is None:
+                        continue
+                    p, bucket = conv
+                    store = quarterly if bucket == "quarterly" else annual
                     _upsert(store, p,
                         growth_est=_safe_float(row.get(yf_sym) or row.get("stock")),
                     )
@@ -923,7 +955,7 @@ def _to_kst_published(value, short_mmdd: bool = False) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _merge_news(primary: list, secondary: list, limit: int = 40) -> list:
+def _merge_news(primary: list, secondary: list, limit: int = 60) -> list:
     """종합피드(이미지 보장, 다양한 언론사) 결과를 우선 배치하고 종목별 검색 결과로 보강, 링크 기준 중복 제거"""
     seen, result = set(), []
     for item in (*primary, *secondary):
@@ -949,9 +981,14 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
     code6 = symbol.replace(".KS","").replace(".KQ","")
 
     if market == "KR":
-        # 데모/KIS에서 종목명 조회
+        # 종목명 조회 — 데모 데이터 → 가격 캐시(실제 한글명) → 코드 순
         demo = DEMO_PRICES.get(symbol) or DEMO_PRICES.get(code6+".KS")
-        stock_name = demo.get("name", code6) if demo else code6
+        stock_name = demo.get("name") if demo else None
+        if not stock_name:
+            cached_price = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}")
+            stock_name = (cached_price or {}).get("name")
+        if not stock_name or stock_name == symbol:
+            stock_name = code6
 
         def _fetch_kr():
             import feedparser
@@ -966,7 +1003,7 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 (e for e in (feed.entries or []) if e.get("published_parsed")),
                 key=lambda e: e.published_parsed,
                 reverse=True,
-            )[:30]
+            )[:50]
             for entry in entries_sorted:
                 pub = ""
                 pub_ts = ""
@@ -1002,9 +1039,13 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
         result = _merge_news(feed_items, google_items)
 
     else:
-        # 해외 종합피드에서 이 종목 관련 기사 매칭
+        # 해외 종합피드에서 이 종목 관련 기사 매칭 (ETF 포함)
         demo = DEMO_PRICES.get(symbol)
-        search_terms = _us_search_terms(symbol, demo.get("name") if demo else None)
+        name = demo.get("name") if demo else None
+        if not name:
+            cached_price = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}")
+            name = (cached_price or {}).get("name")
+        search_terms = _us_search_terms(symbol, name)
         patterns = [re.compile(rf"\b{re.escape(t)}\b", re.I) for t in search_terms]
 
         def _match_feed_us():
@@ -1024,7 +1065,7 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
             try:
                 ticker = yf.Ticker(symbol)
                 items = []
-                for n in (ticker.news or [])[:30]:
+                for n in (ticker.news or [])[:50]:
                     ct = n.get("content", {})
                     title = ct.get("title") or n.get("title", "")
                     link  = (ct.get("canonicalUrl") or {}).get("url") or n.get("link", "")
@@ -1116,7 +1157,7 @@ _REC_KEY_LABEL = {
 async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
     """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트"""
     from app.core.cache import cache
-    ck = f"analyst:v2:{symbol}"
+    ck = f"analyst:v3:{symbol}"
     if c := cache.get(ck):
         return c
     stale_analyst = cache.get_stale(ck)
@@ -1427,7 +1468,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 r2 = await asyncio.wait_for(loop2.run_in_executor(None, _fetch), timeout=20)
                 naver_r = await _fetch_kr_analyst()
                 r2 = {**r2, **naver_r}
-                _enrich_kr_analyst(r2, symbol, market)
+                _enrich_analyst_fallback(r2, symbol, market)
                 if r2:
                     cache.set(ck, r2, 86400)
             except Exception:
@@ -1449,7 +1490,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         # Naver 데이터를 우선, yfinance로 보완
         result = {**result, **naver_analyst}
 
-    _enrich_kr_analyst(result, symbol, market)
+    _enrich_analyst_fallback(result, symbol, market)
 
     if result:
         cache.set(ck, result, 86400)
@@ -1458,11 +1499,9 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
     return result or {}
 
 
-def _enrich_kr_analyst(result: dict, symbol: str, market: str):
-    """price/fund 캐시에서 KR 종목 컨센서스 보완"""
+def _enrich_analyst_fallback(result: dict, symbol: str, market: str):
+    """price/fund 캐시로 투자의견·목표주가 보완 — 1차 조회가 비어있을 때 모든 시장 공통 폴백"""
     from app.core.cache import cache
-    if market != "KR":
-        return
     fund_cached  = cache.get(f"fund:{symbol}") or cache.get_stale(f"fund:{symbol}")
     price_cached = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}")
     for src in [fund_cached, price_cached]:
@@ -1478,13 +1517,17 @@ def _enrich_kr_analyst(result: dict, symbol: str, market: str):
                     "high":    src.get("target_price_high"),
                     "low":     src.get("target_price_low"),
                 }
-        if src.get("forward_per"):
+        if src.get("forward_per") or src.get("recommendation"):
             nc = result.setdefault("naver_consensus", {})
-            if nc.get("cons_per") is None:
+            if nc.get("cons_per") is None and src.get("forward_per"):
                 nc["cons_per"] = src.get("forward_per")
                 nc["cons_eps"] = src.get("forward_eps")
-            nc.setdefault("recommendation", src.get("recommendation"))
-            nc.setdefault("analyst_count", src.get("analyst_count"))
+            if nc.get("recommendation") is None:
+                rec_label = _REC_KEY_LABEL.get(str(src.get("recommendation","")).lower())
+                if rec_label:
+                    nc["recommendation"] = rec_label
+            if src.get("analyst_count"):
+                nc.setdefault("analyst_count", src.get("analyst_count"))
 
 
 @router.get("/KR/{symbol}/supply-demand")

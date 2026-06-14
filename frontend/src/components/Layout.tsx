@@ -1,10 +1,10 @@
 import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Menu, X, LogOut, LogIn, Wallet, Settings, Newspaper } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, Menu, X, LogOut, LogIn, Wallet, Settings, Newspaper } from "lucide-react";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import type { ColorScheme, FontSize } from "@/store/settingsStore";
+import type { ColorScheme, FontSize, Theme } from "@/store/settingsStore";
 import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
 import { useState, useEffect } from "react";
@@ -19,7 +19,7 @@ const NAV = [
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
-  const { colorScheme, setColorScheme, fontSize, setFontSize } = useSettingsStore();
+  const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme } = useSettingsStore();
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm"
@@ -33,6 +33,31 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className="px-5 py-5 flex flex-col gap-5">
+
+          {/* 테마 */}
+          <div>
+            <p className="text-xs font-semibold text-text-muted mb-2">테마</p>
+            <div className="flex gap-2">
+              {([
+                { value: "light",  label: "라이트", icon: Sun },
+                { value: "dark",   label: "다크",   icon: Moon },
+                { value: "system", label: "시스템", icon: Monitor },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setTheme(opt.value as Theme)}
+                  className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
+                    theme === opt.value
+                      ? "border-accent-blue bg-accent-blue/10"
+                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
+                  }`}
+                >
+                  <opt.icon size={16} className="text-text-primary" />
+                  <span className="text-[10px] text-text-muted">{opt.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* 등락 색상 */}
           <div>
@@ -104,20 +129,31 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 export default function Layout() {
   const wsStatus = useWSStore((s) => s.indicesStatus);
   const { isLoggedIn, username, logout } = useAuthStore();
-  const { fontSize } = useSettingsStore();
+  const { fontSize, theme, setTheme } = useSettingsStore();
   const navigate = useNavigate();
-  const [isLight, setIsLight] = useState(() => localStorage.getItem("theme") === "light");
+  const [systemPrefersLight, setSystemPrefersLight] = useState(
+    () => window.matchMedia?.("(prefers-color-scheme: light)").matches ?? false
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const isLight = theme === "system" ? systemPrefersLight : theme === "light";
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
 
+  /* 시스템 다크/라이트 모드 변경 감지 */
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const handler = (e: MediaQueryListEvent) => setSystemPrefersLight(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
   useEffect(() => {
     document.documentElement.classList.toggle("light", isLight);
-    localStorage.setItem("theme", isLight ? "light" : "dark");
   }, [isLight]);
 
   /* 글씨 크기 클래스 적용 */
@@ -286,7 +322,7 @@ export default function Layout() {
               </Link>
             )}
             <button
-              onClick={() => setIsLight(v => !v)}
+              onClick={() => setTheme(isLight ? "dark" : "light")}
               className="p-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-all"
               title={isLight ? "다크 모드" : "라이트 모드"}
             >
