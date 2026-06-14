@@ -258,7 +258,7 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     return result
 
 
-def get_kr_news(limit_per_source: int = 24, total_limit: int = 500) -> list[dict]:
+def get_kr_news(limit_per_source: int = 40, total_limit: int = 800) -> list[dict]:
     ck = "news:kr"
     if c := cache.get(ck):
         return c
@@ -270,7 +270,7 @@ def get_kr_news(limit_per_source: int = 24, total_limit: int = 500) -> list[dict
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
-def get_us_news(limit_per_source: int = 20, total_limit: int = 300) -> list[dict]:
+def get_us_news(limit_per_source: int = 35, total_limit: int = 500) -> list[dict]:
     ck = "news:us"
     if c := cache.get(ck):
         return c
