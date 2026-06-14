@@ -1,5 +1,5 @@
-import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, Menu, X, LogOut, LogIn, Wallet, Settings, Newspaper } from "lucide-react";
+import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star } from "lucide-react";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
@@ -16,6 +16,21 @@ const NAV = [
   { to: "/backtest",  icon: LineChart,        label: "백테스트" },
   { to: "/strategies",icon: BookMarked,       label: "전략저장소"},
   { to: "/news",      icon: Newspaper,        label: "뉴스"     },
+];
+
+/* ── 모바일 하단 탭바 ─────────────────────────────────── */
+const BOTTOM_NAV = [
+  { to: "/",          icon: LayoutDashboard, label: "대시보드", end: true },
+  { to: "/portfolio", icon: Wallet,          label: "내 자산"  },
+  { to: "/news",      icon: Newspaper,       label: "뉴스"     },
+];
+
+/* ── "더보기" 시트에 들어가는 나머지 메뉴 ─────────────── */
+const MORE_NAV = [
+  { to: "/watchlist",  icon: Star,      label: "관심종목"   },
+  { to: "/screening",  icon: Search,    label: "스크리닝"   },
+  { to: "/backtest",   icon: LineChart, label: "백테스트"   },
+  { to: "/strategies", icon: BookMarked,label: "전략저장소" },
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
@@ -131,10 +146,11 @@ export default function Layout() {
   const { isLoggedIn, username, logout } = useAuthStore();
   const { fontSize, theme, setTheme } = useSettingsStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const [systemPrefersLight, setSystemPrefersLight] = useState(
     () => window.matchMedia?.("(prefers-color-scheme: light)").matches ?? false
   );
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isLight = theme === "system" ? systemPrefersLight : theme === "light";
@@ -165,11 +181,20 @@ export default function Layout() {
   }, [fontSize]);
 
   useEffect(() => {
-    document.body.style.overflow = menuOpen ? "hidden" : "";
+    document.body.style.overflow = moreOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
-  }, [menuOpen]);
+  }, [moreOpen]);
 
-  const closeMenu = () => setMenuOpen(false);
+  /* 라우트 이동 시 "더보기" 시트 자동 닫힘 */
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [location.pathname]);
+
+  const closeMore = () => setMoreOpen(false);
+
+  const isMoreActive = MORE_NAV.some(
+    (item) => location.pathname === item.to || location.pathname.startsWith(item.to + "/")
+  );
 
   const navItemCls = (isActive: boolean) =>
     `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
@@ -221,55 +246,49 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ── 모바일 드로어 오버레이 ───────────────────────── */}
-      {menuOpen && (
-        <div className="fixed inset-0 z-40 md:hidden" onClick={closeMenu}>
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      {/* ── 모바일 "더보기" 시트 오버레이 ───────────────── */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-40 md:hidden" onClick={closeMore}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm fade-in" />
         </div>
       )}
 
-      {/* ── 모바일 드로어 ───────────────────────────────── */}
-      <aside
-        className={`fixed top-0 left-0 h-full z-50 w-64 flex flex-col md:hidden bg-bg-card border-r border-border transition-transform duration-300 ${
-          menuOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"}`}
+      {/* ── 모바일 "더보기" 바텀시트 ─────────────────────── */}
+      <div
+        className={`fixed bottom-0 left-0 right-0 z-50 md:hidden bg-bg-card border-t border-border rounded-t-2xl shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+          moreOpen ? "translate-y-0" : "translate-y-full pointer-events-none"}`}
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
       >
-        <div className="px-5 pt-6 pb-5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Logo size={28} />
-            <div>
-              <div className="text-sm font-bold text-text-primary tracking-tight leading-none">StockPlatform</div>
-              <div className="text-2xs text-text-dim mt-0.5">종목발굴 &amp; 백테스트</div>
-            </div>
-          </div>
-          <button onClick={closeMenu} className="text-text-muted hover:text-text-primary p-1">
-            <X size={18} />
-          </button>
+        <div className="flex justify-center pt-2.5 pb-1">
+          <div className="w-9 h-1 rounded-full bg-border-light" />
         </div>
-        <div className="mx-4 h-px bg-border-subtle mb-3" />
-        <nav className="flex-1 px-3 flex flex-col gap-0.5">
-          {NAV.map(({ to, icon: Icon, label, end }) => (
-            <NavLink key={to} to={to} end={end} onClick={closeMenu}
+        <div className="px-4 pt-1 pb-2 grid grid-cols-4 gap-2">
+          {MORE_NAV.map(({ to, icon: Icon, label }) => (
+            <NavLink key={to} to={to} onClick={closeMore}
               className={({ isActive }) =>
-                `flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm font-medium transition-all duration-150 ${
-                  isActive ? "bg-accent-blue/15 text-accent-blue border border-accent-blue/20 shadow-sm"
-                           : "text-text-muted hover:text-text-secondary hover:bg-bg-elevated"}`}
+                `flex flex-col items-center gap-1.5 py-3 rounded-xl text-2xs font-medium transition-all duration-150 active:scale-95 ${
+                  isActive ? "bg-accent-blue/15 text-accent-blue" : "text-text-muted hover:bg-bg-elevated hover:text-text-secondary"}`}
             >
-              <Icon size={16} className="flex-shrink-0" />{label}
+              <Icon size={20} className="flex-shrink-0" />
+              {label}
             </NavLink>
           ))}
+        </div>
+        <div className="mx-4 h-px bg-border-subtle" />
+        <div className="px-3 py-2 flex flex-col gap-0.5">
           <InstallAppButton
             iconSize={16}
-            onAfterClick={closeMenu}
+            onAfterClick={closeMore}
             className="flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
           />
           <button
-            onClick={() => { closeMenu(); setSettingsOpen(true); }}
+            onClick={() => { closeMore(); setSettingsOpen(true); }}
             className="flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
           >
             <Settings size={16} className="flex-shrink-0" />설정
           </button>
-        </nav>
-        <div className="px-5 py-4 border-t border-border-subtle">
+        </div>
+        <div className="px-5 py-3 border-t border-border-subtle">
           <div className="flex items-center gap-2">
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
               wsStatus === "connected" ? "bg-accent-green animate-pulse" : "bg-text-dim"}`} />
@@ -278,20 +297,13 @@ export default function Layout() {
             </span>
           </div>
         </div>
-      </aside>
+      </div>
 
       {/* ── 메인 영역 ──────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* 헤더 */}
         <header className="flex-shrink-0 flex items-center px-3 md:px-6 gap-3 bg-bg-primary border-b border-border" style={{ height: "52px" }}>
-          <button
-            onClick={() => setMenuOpen(v => !v)}
-            className="md:hidden p-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-all"
-          >
-            <Menu size={16} />
-          </button>
-
           <SearchBar />
           <div className="flex-1" />
           <div className="flex items-center gap-2 text-2xs text-text-dim">
@@ -332,12 +344,39 @@ export default function Layout() {
         </header>
 
         {/* 콘텐츠 */}
-        <main className="flex-1 overflow-y-auto bg-bg-primary">
+        <main className="flex-1 overflow-y-auto bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] md:pb-0">
           <div className="p-3 md:p-5 max-w-[1600px] mx-auto">
             <Outlet />
           </div>
         </main>
       </div>
+
+      {/* ── 모바일 하단 탭바 ─────────────────────────────── */}
+      <nav
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch bg-bg-card border-t border-border"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        {BOTTOM_NAV.map(({ to, icon: Icon, label, end }) => (
+          <NavLink key={to} to={to} end={end} className="flex-1 active:scale-95 transition-transform">
+            {({ isActive }) => (
+              <div className={`relative flex flex-col items-center justify-center gap-0.5 h-14 text-2xs font-medium transition-colors duration-200 ${
+                isActive ? "text-accent-blue" : "text-text-muted"}`}>
+                {isActive && <span className="absolute top-1.5 w-1 h-1 rounded-full bg-accent-blue fade-in" />}
+                <Icon size={20} className={`transition-transform duration-200 ${isActive ? "scale-110" : "scale-100"}`} />
+                {label}
+              </div>
+            )}
+          </NavLink>
+        ))}
+        <button onClick={() => setMoreOpen((v) => !v)} className="flex-1 active:scale-95 transition-transform">
+          <div className={`relative flex flex-col items-center justify-center gap-0.5 h-14 text-2xs font-medium transition-colors duration-200 ${
+            moreOpen || isMoreActive ? "text-accent-blue" : "text-text-muted"}`}>
+            {(moreOpen || isMoreActive) && <span className="absolute top-1.5 w-1 h-1 rounded-full bg-accent-blue fade-in" />}
+            <MoreHorizontal size={20} className={`transition-transform duration-200 ${moreOpen ? "scale-110 rotate-90" : "scale-100"}`} />
+            더보기
+          </div>
+        </button>
+      </nav>
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </div>
