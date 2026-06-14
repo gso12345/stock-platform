@@ -84,7 +84,7 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
     return () => clearTimeout(t);
   }, [onDone]);
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-accent-green/20 border border-accent-green/40 text-accent-green text-sm font-medium rounded-xl shadow-lg animate-fade-in">
+    <div className="fixed bottom-[calc(4.5rem_+_env(safe-area-inset-bottom))] right-4 md:bottom-6 md:right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-accent-green/20 border border-accent-green/40 text-accent-green text-sm font-medium rounded-xl shadow-lg animate-fade-in">
       <Check size={14} />
       {message}
     </div>
