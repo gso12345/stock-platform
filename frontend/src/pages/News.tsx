@@ -38,6 +38,9 @@ function formatRelative(published: string): string {
 }
 
 function NewsItem({ item }: { item: any }) {
+  const [imgError, setImgError] = useState(false);
+  if (!item.image || imgError) return null;
+
   return (
     <li className="border-b border-border/30 last:border-0">
       <a
@@ -46,15 +49,13 @@ function NewsItem({ item }: { item: any }) {
         rel="noopener noreferrer"
         className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group"
       >
-        {item.image && (
-          <img
-            src={item.image}
-            alt=""
-            loading="lazy"
-            className="w-20 h-20 rounded-lg object-cover flex-shrink-0 bg-bg-elevated"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-          />
-        )}
+        <img
+          src={item.image}
+          alt=""
+          loading="lazy"
+          className="w-20 h-20 rounded-lg object-cover flex-shrink-0 bg-bg-elevated"
+          onError={() => setImgError(true)}
+        />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">
             {item.title}

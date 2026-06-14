@@ -35,7 +35,7 @@ async def lifespan(application: FastAPI):
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
-        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets"}
+        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders"}
         _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 
         def _add_col_if_missing(table: str, col: str, col_def: str, sqlite_def: str = ""):
@@ -59,6 +59,7 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("watchlist_items", "position",  "INTEGER DEFAULT 0")
         _add_col_if_missing("watchlist_items", "memo",      "VARCHAR(200)")
         _add_col_if_missing("screening_presets", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
+        _add_col_if_missing("watchlist_folders", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
         _add_col_if_missing("users", "oauth_provider", "VARCHAR(20)")
         _add_col_if_missing("users", "oauth_id", "VARCHAR(100)")
 
@@ -80,6 +81,7 @@ async def lifespan(application: FastAPI):
             ("strategies", "user_id"),
             ("backtest_results", "strategy_id"),
             ("screening_presets", "user_id"),
+            ("watchlist_folders", "user_id"),
             ("users", "oauth_provider"),
             ("users", "oauth_id"),
         ]:

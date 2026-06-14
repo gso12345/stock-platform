@@ -10,6 +10,7 @@ class WatchlistFolder(Base):
     id       = Column(Integer, primary_key=True, index=True)
     name     = Column(String(100), nullable=False)
     position = Column(Integer, default=0)
+    user_id  = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     items    = relationship("WatchlistItem", back_populates="folder", cascade="all, delete-orphan")
 

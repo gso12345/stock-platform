@@ -30,16 +30,19 @@ class KISService:
             return None
         if self._token and self._token_exp and datetime.now() < self._token_exp:
             return self._token
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.post(f"{self.base}/oauth2/tokenP", json={
-                "grant_type": "client_credentials",
-                "appkey": settings.KIS_APP_KEY,
-                "appsecret": settings.KIS_APP_SECRET,
-            })
-            d = r.json()
-            self._token = d.get("access_token")
-            self._token_exp = datetime.now() + timedelta(hours=23)
-            return self._token
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.post(f"{self.base}/oauth2/tokenP", json={
+                    "grant_type": "client_credentials",
+                    "appkey": settings.KIS_APP_KEY,
+                    "appsecret": settings.KIS_APP_SECRET,
+                })
+                d = r.json()
+                self._token = d.get("access_token")
+                self._token_exp = datetime.now() + timedelta(hours=23)
+                return self._token
+        except Exception:
+            return None
 
     def _headers(self, token: str, tr_id: str) -> dict:
         return {
