@@ -7,6 +7,7 @@
 from fastapi import APIRouter, Query, HTTPException, Request
 from typing import Literal
 import asyncio
+import re
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.services.kis_service import kis_service
@@ -958,20 +959,82 @@ async def get_disclosures(market: Literal["KR","US","ETF"], symbol: str):
     return await _run(dart_service.get_disclosures, symbol)
 
 
+# 법인 접미사 (종목명 끝부분) — 해외 종합피드 매칭용 검색어 추출 시 제거
+_CORP_SUFFIX_RE = re.compile(r"\s+(Inc\.?|Corporation|Corp\.?|Co\.?|Company|Platforms|Holdings|Group|plc|Trust|ETF|N\.V\.|Ltd\.?|\.com)\s*$", re.I)
+# 종목명만으로는 검색어가 모호한 해외 종목 — 직접 지정
+_US_NAME_OVERRIDES = {
+    "AMD": "AMD", "V": "Visa", "JPM": "JPMorgan", "AMZN": "Amazon",
+    "GOOGL": "Alphabet", "GOOG": "Alphabet",
+}
+
+
+def _us_search_terms(symbol: str, name: str | None) -> list[str]:
+    """해외 종합피드에서 이 종목을 언급한 기사를 찾기 위한 검색어 목록"""
+    terms = []
+    override = _US_NAME_OVERRIDES.get(symbol)
+    if override:
+        terms.append(override)
+    elif name:
+        base = _CORP_SUFFIX_RE.sub("", name).strip()
+        first = base.split()[0] if base.split() else ""
+        if len(first) >= 3:
+            terms.append(first)
+    if len(symbol) >= 3:
+        terms.append(symbol)
+    return list(dict.fromkeys(terms))
+
+
+def _to_kst_published(value, short_mmdd: bool = False) -> str:
+    """다양한 형식의 발행시각을 'YYYY/MM/DD HH:MM' (KST) 문자열로 정규화"""
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    try:
+        if short_mmdd:
+            # 종합피드의 'MM/DD HH:MM' (연도 없음) → 현재 연도 기준 보완
+            now_kst = datetime.now(KST)
+            month = int(str(value)[:2])
+            year = now_kst.year if month <= now_kst.month else now_kst.year - 1
+            return f"{year}/{value}"
+        if isinstance(value, (int, float)) and value:
+            dt = datetime.fromtimestamp(value, tz=timezone.utc)
+            return dt.astimezone(KST).strftime("%Y/%m/%d %H:%M")
+        if isinstance(value, str) and value:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(KST).strftime("%Y/%m/%d %H:%M")
+    except Exception:
+        pass
+    return value if isinstance(value, str) else ""
+
+
+def _merge_news(primary: list, secondary: list, limit: int = 40) -> list:
+    """종합피드(이미지 보장, 다양한 언론사) 결과를 우선 배치하고 종목별 검색 결과로 보강, 링크 기준 중복 제거"""
+    seen, result = set(), []
+    for item in (*primary, *secondary):
+        link = item.get("link")
+        if not link or link in seen:
+            continue
+        seen.add(link)
+        result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
 @router.get("/{market}/{symbol}/news")
 async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
-    """종목 관련 뉴스 — KR: RSS 검색, US: yfinance"""
+    """종목 관련 뉴스 — 종합 RSS 피드(다양한 언론사 + 이미지 보장) + 종목별 검색(KR: 구글뉴스, US: yfinance) 병합"""
     from app.core.cache import cache
     ck = f"stock_news:{market}:{symbol}"
     if c := cache.get(ck):
         return c
 
+    from app.services.news_service import _extract_thumbnail, _add_trending_score, get_kr_news, get_us_news
+    code6 = symbol.replace(".KS","").replace(".KQ","")
+
     if market == "KR":
-        # 종목명으로 국내 뉴스 RSS 검색
-        from app.services.news_service import KR_FEEDS, _parse_feed, _extract_thumbnail
-        code6 = symbol.replace(".KS","").replace(".KQ","")
         # 데모/KIS에서 종목명 조회
-        from app.services.demo_data import DEMO_PRICES
         demo = DEMO_PRICES.get(symbol) or DEMO_PRICES.get(code6+".KS")
         stock_name = demo.get("name", code6) if demo else code6
 
@@ -980,9 +1043,6 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
             from datetime import timezone, timedelta, datetime
             KST = timezone(timedelta(hours=9))
             items = []
-            # Naver 금융 뉴스 RSS (종목 코드)
-            naver_url = f"https://finance.naver.com/item/news_news.nhn?code={code6}&page=1&sm=title_entity_id.basic&clusterId="
-            # 대신 구글 뉴스 한국어 RSS 사용
             import urllib.parse
             query = urllib.parse.quote(stock_name)
             google_rss = f"https://news.google.com/rss/search?q={query}+주식+주가&hl=ko&gl=KR&ceid=KR:ko"
@@ -1017,9 +1077,32 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 })
             return items
 
-        result = await _run(_fetch_kr)
+        def _match_feed_kr():
+            matched = [dict(a) for a in get_kr_news() if stock_name in a.get("title", "")]
+            for a in matched:
+                a["published"] = _to_kst_published(a.get("published", ""), short_mmdd=True)
+            return matched
+
+        google_items, feed_items = await asyncio.gather(_run(_fetch_kr), _run(_match_feed_kr))
+        result = _merge_news(feed_items, google_items)
 
     else:
+        # 해외 종합피드에서 이 종목 관련 기사 매칭
+        demo = DEMO_PRICES.get(symbol)
+        search_terms = _us_search_terms(symbol, demo.get("name") if demo else None)
+        patterns = [re.compile(rf"\b{re.escape(t)}\b", re.I) for t in search_terms]
+
+        def _match_feed_us():
+            if not patterns:
+                return []
+            matched = [
+                dict(a) for a in get_us_news()
+                if any(p.search(a.get("title", "")) for p in patterns)
+            ]
+            for a in matched:
+                a["published"] = _to_kst_published(a.get("published", ""), short_mmdd=True)
+            return matched
+
         # US: yfinance 뉴스
         import yfinance as yf
         def _fetch_us():
@@ -1037,15 +1120,16 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     thumb = ct.get("thumbnail") or n.get("thumbnail") or {}
                     resolutions = thumb.get("resolutions") or []
                     image = resolutions[0].get("url") if resolutions else thumb.get("originalUrl")
-                    items.append({"title": title, "link": link, "source": provider, "published": pub, "summary": (ct.get("summary") or "")[:200], "image": image})
+                    items.append({"title": title, "link": link, "source": provider, "published": _to_kst_published(pub), "summary": (ct.get("summary") or "")[:200], "image": image})
                 return items
             except Exception:
                 return []
-        result = await _run(_fetch_us)
+
+        yf_items, feed_items = await asyncio.gather(_run(_fetch_us), _run(_match_feed_us))
+        result = _merge_news(feed_items, yf_items)
 
     # 인기순 정렬에 필요한 trend_score 계산
     if result:
-        from app.services.news_service import _add_trending_score
         result = _add_trending_score(result)
 
     cache.set(ck, result, 300)
