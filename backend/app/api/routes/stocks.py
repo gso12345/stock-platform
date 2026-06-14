@@ -1038,7 +1038,11 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 a["published"] = _to_kst_published(a.get("published", ""), short_mmdd=True)
             return matched
 
-        google_items, feed_items = await asyncio.gather(_run(_fetch_kr), _run(_match_feed_kr))
+        google_items, feed_items = await asyncio.gather(_run(_fetch_kr), _run(_match_feed_kr), return_exceptions=True)
+        if isinstance(google_items, Exception):
+            google_items = []
+        if isinstance(feed_items, Exception):
+            feed_items = []
         result = _merge_news(feed_items, google_items)
 
     else:
@@ -1084,7 +1088,11 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return []
 
-        yf_items, feed_items = await asyncio.gather(_run(_fetch_us), _run(_match_feed_us))
+        yf_items, feed_items = await asyncio.gather(_run(_fetch_us), _run(_match_feed_us), return_exceptions=True)
+        if isinstance(yf_items, Exception):
+            yf_items = []
+        if isinstance(feed_items, Exception):
+            feed_items = []
         result = _merge_news(feed_items, yf_items)
 
     # 인기순 정렬에 필요한 trend_score 계산

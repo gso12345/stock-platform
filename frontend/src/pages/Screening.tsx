@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { screeningApi, watchlistApi } from "@/api/stocks";
+import { screeningApi, watchlistApi, stocksApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import {
   Card, ChangeBadge, LoadingSpinner, formatNumber, RangeFilter, Tabs, Button, Badge,
@@ -94,6 +94,14 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 export default function Screening() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+
+  // 행에 마우스를 올리면 상세 페이지 데이터 선제 prefetch (클릭 시 즉시 표시)
+  const prefetchStock = (stock: any) => {
+    const mkt = stock.market as Market;
+    const sym = stock.symbol;
+    if (qc.getQueryData(["stock-detail", mkt, sym])) return;
+    qc.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 60_000 });
+  };
   const { isLoggedIn } = useAuthStore();
   const [market, setMarket] = useState<string>("US");
   const [filterTab, setFilterTab] = useState("basic");
@@ -497,6 +505,7 @@ export default function Screening() {
                       return (
                         <tr
                           key={stock.symbol}
+                          onMouseEnter={() => prefetchStock(stock)}
                           className={`border-b border-border/30 hover:bg-bg-hover/50 transition-colors ${isSelected ? "bg-accent-blue/5" : ""}`}
                         >
                           <td className="px-3 py-2.5">

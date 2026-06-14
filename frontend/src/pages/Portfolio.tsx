@@ -432,6 +432,14 @@ export default function Portfolio() {
 
   const { isLoggedIn } = useAuthStore();
   const { colorScheme } = useSettingsStore();
+
+  // 행에 마우스를 올리면 상세 페이지 데이터 선제 prefetch (클릭 시 즉시 표시)
+  const prefetchStock = (item: any) => {
+    const mkt = item.market as Market;
+    const sym = item.symbol;
+    if (queryClient.getQueryData(["stock-detail", mkt, sym])) return;
+    queryClient.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 60_000 });
+  };
   const { pnlColor } = usePnlColors(colorScheme);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir,   setSortDir]   = useState<"asc" | "desc">("desc");
@@ -866,6 +874,7 @@ export default function Portfolio() {
                     <tr key={item.id}
                       className={`border-b border-border/40 transition-colors ${isLoggedIn ? "hover:bg-bg-hover cursor-pointer" : "cursor-default"}`}
                       onClick={() => isLoggedIn && navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
+                      onMouseEnter={() => isLoggedIn && prefetchStock(item)}
                     >
                       <td className="px-3 py-2.5">
                         <div className="flex flex-col gap-0.5">
