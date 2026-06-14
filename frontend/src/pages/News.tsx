@@ -71,9 +71,12 @@ function NewsItem({ item }: { item: any }) {
   );
 }
 
+const PAGE_SIZE = 20;
+
 export default function News() {
   const [market, setMarket] = useState<MarketTab>("kr");
   const [sort, setSort] = useState<SortTab>("latest");
+  const [shownCount, setShownCount] = useState(PAGE_SIZE);
 
   const { data: news, isLoading: loadingNews } = useQuery({
     queryKey: ["news", market],
@@ -88,6 +91,9 @@ export default function News() {
     ? [...(news ?? [])].sort((a: any, b: any) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
     : (news ?? []);
 
+  const shown = sorted.slice(0, shownCount);
+  const remaining = sorted.length - shown.length;
+
   return (
     <div className="flex flex-col gap-5 max-w-3xl mx-auto">
       {/* 헤더 */}
@@ -100,7 +106,7 @@ export default function News() {
           {(["kr", "us"] as const).map((m) => (
             <button
               key={m}
-              onClick={() => setMarket(m)}
+              onClick={() => { setMarket(m); setShownCount(PAGE_SIZE); }}
               className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 market === m ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
               }`}
@@ -124,7 +130,7 @@ export default function News() {
             {(["latest", "popular"] as const).map((s) => (
               <button
                 key={s}
-                onClick={() => setSort(s)}
+                onClick={() => { setSort(s); setShownCount(PAGE_SIZE); }}
                 className={`px-2 py-0.5 text-2xs rounded font-semibold transition-all ${
                   sort === s ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
                 }`}
@@ -140,11 +146,21 @@ export default function News() {
             <div className="w-6 h-6 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
           </div>
         ) : sorted.length > 0 ? (
-          <ul>
-            {sorted.map((item: any, i: number) => (
-              <NewsItem key={i} item={item} />
-            ))}
-          </ul>
+          <>
+            <ul>
+              {shown.map((item: any, i: number) => (
+                <NewsItem key={i} item={item} />
+              ))}
+            </ul>
+            {remaining > 0 && (
+              <button
+                onClick={() => setShownCount((c) => c + PAGE_SIZE)}
+                className="w-full py-2.5 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border"
+              >
+                {`더보기 (${remaining}건 더) ▼`}
+              </button>
+            )}
+          </>
         ) : (
           <p className="py-8 text-center text-text-muted text-sm">뉴스 데이터가 없습니다</p>
         )}
