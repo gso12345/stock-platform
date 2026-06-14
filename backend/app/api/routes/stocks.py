@@ -1017,6 +1017,9 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 title = entry.get("title", "").strip()
                 if not title:
                     continue
+                image = _extract_thumbnail(entry)
+                if not image:
+                    continue
                 source = (entry.get("source") or {}).get("title", "")
                 items.append({
                     "title": title,
@@ -1025,7 +1028,7 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     "published": pub,
                     "published_ts": pub_ts,
                     "summary": (entry.get("summary") or "")[:200],
-                    "image": _extract_thumbnail(entry),
+                    "image": image,
                 })
             return items
 

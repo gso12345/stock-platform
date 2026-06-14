@@ -953,7 +953,7 @@ export default function Portfolio() {
       {isLoggedIn && (
         <button
           onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-          className="fixed bottom-[calc(4.5rem_+_env(safe-area-inset-bottom))] right-4 md:bottom-6 md:right-6 z-40 w-12 h-12 rounded-full bg-accent-blue text-white shadow-lg shadow-accent-blue/30 hover:bg-blue-600 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+          className="fixed bottom-[calc(4.5rem_+_env(safe-area-inset-bottom))] right-4 lg:bottom-6 lg:right-6 z-40 w-12 h-12 rounded-full bg-accent-blue text-white shadow-lg shadow-accent-blue/30 hover:bg-blue-600 flex items-center justify-center transition-all hover:scale-105 active:scale-95"
           title="종목 추가"
         >
           <Plus size={20} />

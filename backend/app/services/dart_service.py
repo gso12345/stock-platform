@@ -6,6 +6,7 @@ import httpx
 import zipfile
 import io
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from app.core.config import settings
 from app.core.cache import cache
 
@@ -104,7 +105,7 @@ class DARTService:
         if not corp_code:
             return {"annual": [], "quarterly": []}
 
-        current_year = 2024
+        current_year = datetime.now().year
         annual_rows, quarterly_rows = [], []
 
         # 최근 5개년 연간
