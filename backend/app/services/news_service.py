@@ -10,19 +10,6 @@ _refreshing = {}  # 중복 갱신 방지 플래그
 
 KST = timezone(timedelta(hours=9))
 
-
-def _to_kst(parsed_time) -> str:
-    """parsed_time(struct_time) → 한국 시간 문자열"""
-    if not parsed_time:
-        return ""
-    try:
-        # struct_time → UTC datetime → KST
-        utc_dt = datetime(*parsed_time[:6], tzinfo=timezone.utc)
-        kst_dt = utc_dt.astimezone(KST)
-        return kst_dt.strftime("%m/%d %H:%M")
-    except Exception:
-        return ""
-
 # ── 국내 뉴스 RSS ──────────────────────────────────────────
 KR_FEEDS = [
     # 경제 전문지
@@ -47,7 +34,7 @@ KR_FEEDS = [
     ("중앙일보",       "https://rss.joins.com/joins_economy_list.xml"),
     ("국민일보 경제",  "https://rss.kmib.co.kr/data/kmibEcoRss.xml"),
     ("경향신문 경제",  "https://www.khan.co.kr/rss/rssdata/economy_news.xml"),
-    ("한겨레21",       "https://h21.hani.co.kr/rss/"),
+    ("한겨레 경제",    "https://www.hani.co.kr/rss/economy/"),
     ("문화일보 경제",  "https://www.munhwa.com/rss/economy.xml"),
     ("세계일보 경제",  "https://www.segye.com/newsList/RSS/economy.xml"),
     # 통신사
@@ -64,11 +51,6 @@ KR_FEEDS = [
     ("SBS 경제",       "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=02&plink=RSSREADER"),
     ("YTN 경제",       "https://www.ytn.co.kr/rss/0401.xml"),
     ("채널A 경제",     "https://www.ichannela.com/news/rss/newsprss_eco.xml"),
-    # IT·스타트업·산업
-    ("전자신문",       "https://www.etnews.com/etnews/sub.xml?rss=8"),
-    ("디지털타임스",   "https://www.dt.co.kr/rss/rss.xml"),
-    ("ZDNet Korea",    "https://zdnet.co.kr/rss/rss.html"),
-    ("테크M",          "https://www.techm.kr/rss/allArticle.xml"),
 ]
 
 # ── 해외 뉴스 RSS ──────────────────────────────────────────
@@ -93,50 +75,18 @@ US_FEEDS = [
 ]
 
 
-# 경제/금융 관련 키워드
-_FINANCE_KW = {
-    "주식","증시","코스피","코스닥","주가","상장","배당","실적","매출","영업이익","순이익","PER","PBR",
-    "금리","기준금리","채권","환율","달러","원화","엔화","위안","물가","인플레","금융","은행","증권","펀드",
-    "투자","외국인","기관","수급","ETF","선물","옵션","파생","자산","포트폴리오","매수","매도",
-    "경제","GDP","성장률","수출","수입","무역","반도체","IT","기업","산업","제조","에너지","원자재",
-    "부동산","리츠","부채","자본","M&A","IPO","공모","공시","재무","회계","연준","Fed","FOMC",
-    "나스닥","다우","S&P","닛케이","상하이","항셍","ECB","BOJ","IMF","WB",
-    # 기업 활동
-    "수주","계약","출시","발표","인수","합병","분기","연간","전망","목표주가","리포트","흑자","적자",
-    "증가","감소","상승","하락","급등","급락","신고가","신저가","강세","약세","랠리","조정",
-    "인상","인하","동결","긴축","완화","부양","정책","규제","승인","허가","상폐","재상장",
-    "삼성","SK","LG","현대","롯데","포스코","카카오","네이버","셀트리온","한화","두산",
-}
+# 경제/금융 뉴스 피드에서도 섞여 들어올 수 있는 비경제 키워드 — 포함 시 제외
 _NONFINANCE_KW = {
     "야구","축구","농구","배구","골프","스포츠","연예","드라마","영화","음악","아이돌","배우",
     "요리","레시피","맛집","여행","패션","뷰티","헬스","운동","건강","날씨","사건","사고","범죄",
 }
 
-# 경제 전문 매체 — 필터 없이 전량 수집
-_FINANCE_ONLY_SOURCES = {
-    "한국경제","한국경제TV","매일경제","서울경제","이데일리","이데일리 증권",
-    "파이낸셜뉴스","아시아경제","머니투데이","머니투데이 증권","연합인포맥스",
-    "더벨","딜사이트","인베스트조선","뉴스1 증권","뉴시스 증권","연합뉴스 증권",
-}
-
-def _is_finance_news(title: str, source: str = "") -> bool:
-    """제목이 경제/금융 관련인지 판단"""
-    import re
-    if source in _FINANCE_ONLY_SOURCES:
-        # 비금융 키워드가 명확히 있을 때만 제외
-        for kw in _NONFINANCE_KW:
-            if kw in title:
-                return False
-        return True
+def _is_finance_news(title: str) -> bool:
+    """제목이 경제/금융 관련인지 판단 (모든 피드가 경제 섹션이므로 비경제 키워드만 제외)"""
     for kw in _NONFINANCE_KW:
         if kw in title:
             return False
-    for kw in _FINANCE_KW:
-        if kw in title:
-            return True
-    if re.search(r'\d+\.?\d*%|[$₩€¥]|\bIPO\b|\bGDP\b|\bESG\b', title):
-        return True
-    return False
+    return True
 
 
 def _clean_text(raw: str) -> str:
@@ -187,21 +137,37 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
     try:
         feed  = feedparser.parse(url)
         items = []
-        # 최대 50개까지 스캔 — 필터 통과율이 낮아도 충분히 수집
-        for entry in feed.entries[:max(limit * 5, 50)]:
-            pub = _to_kst(entry.get("published_parsed")) or _to_kst(entry.get("updated_parsed")) or ""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=3)
+        # 필터(경제 키워드/기간/이미지) 통과율이 낮을 수 있으므로 넉넉히 스캔
+        for entry in feed.entries[:max(limit * 6, 60)]:
             title = entry.get("title", "").strip()
             if not title:
                 continue
-            if not _is_finance_news(title, source):
+            if not _is_finance_news(title):
                 continue
+
+            parsed = entry.get("published_parsed") or entry.get("updated_parsed")
+            if not parsed:
+                continue
+            try:
+                dt = datetime(*parsed[:6], tzinfo=timezone.utc)
+            except Exception:
+                continue
+            if dt < cutoff:
+                continue
+
+            image = _extract_thumbnail(entry)
+            if not image:
+                continue
+
             items.append({
                 "title":     title,
                 "link":      entry.get("link", ""),
                 "source":    source,
-                "published": pub,
+                "published": dt.astimezone(KST).strftime("%m/%d %H:%M"),
                 "summary":   _clean_text(entry.get("summary") or ""),
-                "image":     _extract_thumbnail(entry),
+                "image":     image,
+                "_ts":       dt.timestamp(),
             })
             if len(items) >= limit:
                 break
@@ -256,7 +222,7 @@ def _interleave_by_source(articles: list) -> list:
         by_src[a["source"]].append(a)
     # 각 소스 내부는 최신순 정렬
     for src in by_src:
-        by_src[src].sort(key=lambda x: x["published"], reverse=True)
+        by_src[src].sort(key=lambda x: x.get("_ts", 0), reverse=True)
     result = []
     sources = list(by_src.keys())
     while any(by_src[s] for s in sources):
@@ -271,18 +237,19 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     if not all_news:
         return []
     _add_trending_score(all_news)
-    # 소스별 인터리브 → 전체 최신순 재정렬 (최신 일부는 시간순, 나머지는 언론사 다양성 확보를 위해 인터리브)
-    recent   = [a for a in all_news if a["published"] >= ""]  # 전체
-    recent.sort(key=lambda x: x["published"], reverse=True)
-    top      = recent[:10]    # 최신 10개는 시간순
-    rest     = _interleave_by_source(recent[10:])  # 나머지는 언론사별 균등 배치
+    # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순, 나머지는 언론사 다양성 확보를 위해 인터리브
+    all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
+    top      = all_news[:10]    # 최신 10개는 시간순
+    rest     = _interleave_by_source(all_news[10:])  # 나머지는 언론사별 균등 배치
     result   = (top + rest)[:total_limit]
+    for a in result:
+        a.pop("_ts", None)
     cache.set(ck, result, 300)
     _refreshing.pop(ck, None)
     return result
 
 
-def get_kr_news(limit_per_source: int = 12, total_limit: int = 300) -> list[dict]:
+def get_kr_news(limit_per_source: int = 20, total_limit: int = 400) -> list[dict]:
     ck = "news:kr"
     if c := cache.get(ck):
         return c
@@ -294,7 +261,7 @@ def get_kr_news(limit_per_source: int = 12, total_limit: int = 300) -> list[dict
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
-def get_us_news(limit_per_source: int = 10, total_limit: int = 200) -> list[dict]:
+def get_us_news(limit_per_source: int = 16, total_limit: int = 250) -> list[dict]:
     ck = "news:us"
     if c := cache.get(ck):
         return c

@@ -5,6 +5,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { ColorScheme, FontSize } from "@/store/settingsStore";
 import SearchBar from "@/components/SearchBar";
+import InstallAppButton from "@/components/InstallAppButton";
 import { useState, useEffect } from "react";
 
 const NAV = [
@@ -164,7 +165,8 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="px-3 pb-2">
+        <div className="px-3 pb-2 flex flex-col gap-0.5">
+          <InstallAppButton className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150" />
           <button
             onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
@@ -222,6 +224,11 @@ export default function Layout() {
               <Icon size={16} className="flex-shrink-0" />{label}
             </NavLink>
           ))}
+          <InstallAppButton
+            iconSize={16}
+            onAfterClick={closeMenu}
+            className="flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
+          />
           <button
             onClick={() => { closeMenu(); setSettingsOpen(true); }}
             className="flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"

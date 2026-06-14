@@ -81,15 +81,16 @@ interface SearchResult {
   symbol: string; name: string; market: string; type: string; exchange: string;
 }
 
-function AddModal({ folders, onClose, onAdd }: {
+function AddModal({ folders, defaultFolderId = null, onClose, onAdd }: {
   folders: any[];
+  defaultFolderId?: number | null;
   onClose: () => void;
   onAdd: (req: any) => void;
 }) {
   const [query, setQuery]       = useState("");
   const [results, setResults]   = useState<SearchResult[]>([]);
   const [loading, setLoading]   = useState(false);
-  const [folderId, setFolderId] = useState<number | null>(null);
+  const [folderId, setFolderId] = useState<number | null>(defaultFolderId);
   const [memo, setMemo]         = useState("");
   const debounce  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
@@ -414,6 +415,7 @@ export default function Watchlist() {
   const [marketTab, setMarketTab]   = useState("전체");
   const [folderTab, setFolderTab]   = useState<number | "all" | "none">("all"); // 폴더 탭 필터
   const [showAdd, setShowAdd]           = useState(false);
+  const [addFolderId, setAddFolderId]   = useState<number | null>(null); // 추가 모달에서 기본 선택될 폴더
   const [editingFolder, setEditingFolder] = useState<number | null>(null);
   const [editingItem, setEditingItem]   = useState<any>(null);
   const [collapsed, setCollapsed]   = useState<Set<string>>(new Set());
@@ -552,6 +554,11 @@ export default function Watchlist() {
   const noFolder  = displayList.filter((i: any) => !i.folder_id);
   const byFolder  = (fid: number) => displayList.filter((i: any) => i.folder_id === fid);
 
+  const openAddModal = (folderId: number | null) => {
+    setAddFolderId(folderId);
+    setShowAdd(true);
+  };
+
   const goToStock = (item: any) => {
     // 가격 조회 중이라면 취소하고 종목 상세로 이동 (상세 페이지 로딩 우선)
     qc.cancelQueries({ queryKey: ["watchlist-prices"] });
@@ -667,7 +674,7 @@ export default function Watchlist() {
               <FolderPlus size={13} />폴더
             </button>
             <button
-              onClick={() => setShowAdd(true)}
+              onClick={() => openAddModal(typeof folderTab === "number" ? folderTab : null)}
               className="flex items-center gap-1.5 px-3 py-2 bg-accent-blue hover:bg-blue-600 rounded-xl text-xs text-white font-semibold transition-all"
             >
               <Plus size={13} />종목 추가
@@ -783,8 +790,10 @@ export default function Watchlist() {
         );
       })() : isLoading ? <LoadingSpinner /> : (
         <div className="flex flex-col gap-3">
-          {/* 폴더 그룹 */}
-          {(folders as any[]).map((folder: any) => {
+          {/* 폴더 그룹 — 폴더 탭이 "전체"이거나 해당 폴더가 선택된 경우에만 표시 */}
+          {(folders as any[])
+            .filter((folder: any) => folderTab === "all" || folderTab === folder.id)
+            .map((folder: any) => {
             const folderItems = byFolder(folder.id);
             const isCollapsed = collapsed.has(`f-${folder.id}`);
             return (
@@ -803,6 +812,9 @@ export default function Watchlist() {
                     <>
                       <span className="flex-1 text-sm font-semibold text-text-primary">{folder.name}</span>
                       <span className="text-xs text-text-muted">{folderItems.length}개</span>
+                      <button onClick={() => openAddModal(folder.id)} className="text-text-muted hover:text-accent-blue p-1" title="이 폴더에 종목 추가">
+                        <Plus size={13} />
+                      </button>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => setEditingFolder(folder.id)} className="text-text-muted hover:text-accent-blue p-1"><Pencil size={12} /></button>
                         <button onClick={() => deleteFolderMutation.mutate(folder.id)} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={12} /></button>
@@ -819,8 +831,8 @@ export default function Watchlist() {
             );
           })}
 
-          {/* 폴더 없는 종목 */}
-          {noFolder.length > 0 && (
+          {/* 폴더 없는 종목 — 폴더 탭이 "전체"이거나 "기본"이 선택된 경우에만 표시 */}
+          {(folderTab === "none" || (folderTab === "all" && noFolder.length > 0)) && (
             <Card className="p-0 overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border">
                 <button onClick={() => toggleCollapse("no-folder")} className="text-text-muted">
@@ -829,8 +841,15 @@ export default function Watchlist() {
                 <Star size={13} className="text-accent-yellow" />
                 <span className="flex-1 text-sm font-semibold text-text-primary">기본 관심목록</span>
                 <span className="text-xs text-text-muted">{noFolder.length}개</span>
+                <button onClick={() => openAddModal(null)} className="text-text-muted hover:text-accent-blue p-1" title="기본 관심목록에 종목 추가">
+                  <Plus size={13} />
+                </button>
               </div>
-              {!collapsed.has("no-folder") && renderItems(noFolder)}
+              {!collapsed.has("no-folder") && (
+                noFolder.length === 0
+                  ? <div className="px-4 py-4 text-text-muted text-xs text-center">종목이 없습니다</div>
+                  : renderItems(noFolder)
+              )}
             </Card>
           )}
 
@@ -842,7 +861,7 @@ export default function Watchlist() {
                 <p className="text-text-secondary font-medium">관심종목이 없습니다</p>
                 <p className="text-text-muted text-xs">종목명이나 티커를 검색해서 추가하세요</p>
                 <button
-                  onClick={() => setShowAdd(true)}
+                  onClick={() => openAddModal(null)}
                   className="mt-2 flex items-center gap-1.5 px-4 py-2 bg-accent-blue text-white text-sm font-semibold rounded-xl"
                 >
                   <Plus size={14} />종목 추가
@@ -856,6 +875,7 @@ export default function Watchlist() {
       {isLoggedIn && showAdd && (
         <AddModal
           folders={folders}
+          defaultFolderId={addFolderId}
           onClose={() => setShowAdd(false)}
           onAdd={(req) => addMutation.mutate(req)}
         />

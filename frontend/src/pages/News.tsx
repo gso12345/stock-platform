@@ -37,20 +37,7 @@ function formatRelative(published: string): string {
   return published;
 }
 
-/** 날짜 그룹 헤더 ("오늘" / "어제" / "M월 D일") */
-function dateGroupLabel(published: string): string {
-  const date = parseKstDate(published);
-  if (!date) return "";
-  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-  const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  const key = (d: Date) => `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
-  if (key(kst) === key(nowKst)) return "오늘";
-  const yesterday = new Date(nowKst.getTime() - 24 * 60 * 60 * 1000);
-  if (key(kst) === key(yesterday)) return "어제";
-  return `${kst.getUTCMonth() + 1}월 ${kst.getUTCDate()}일`;
-}
-
-function NewsItem({ item, showImage }: { item: any; showImage: boolean }) {
+function NewsItem({ item }: { item: any }) {
   return (
     <li className="border-b border-border/30 last:border-0">
       <a
@@ -59,7 +46,7 @@ function NewsItem({ item, showImage }: { item: any; showImage: boolean }) {
         rel="noopener noreferrer"
         className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group"
       >
-        {showImage && item.image && (
+        {item.image && (
           <img
             src={item.image}
             alt=""
@@ -100,20 +87,6 @@ export default function News() {
   const sorted = sort === "popular"
     ? [...(news ?? [])].sort((a: any, b: any) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
     : (news ?? []);
-
-  // 최신순일 때 날짜별 그룹화 ("오늘" / "어제" / "M월 D일")
-  const groups: { label: string; items: any[] }[] = [];
-  if (sort === "latest") {
-    for (const item of sorted) {
-      const label = item.published ? dateGroupLabel(item.published) : "";
-      const last = groups[groups.length - 1];
-      if (last && last.label === label) {
-        last.items.push(item);
-      } else {
-        groups.push({ label, items: [item] });
-      }
-    }
-  }
 
   return (
     <div className="flex flex-col gap-5 max-w-3xl mx-auto">
@@ -167,28 +140,11 @@ export default function News() {
             <div className="w-6 h-6 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
           </div>
         ) : sorted.length > 0 ? (
-          sort === "latest" ? (
-            groups.map((group, gi) => (
-              <div key={gi}>
-                {group.label && (
-                  <div className="px-4 py-2 bg-bg-elevated/50 text-2xs font-semibold text-text-muted">
-                    {group.label}
-                  </div>
-                )}
-                <ul>
-                  {group.items.map((item: any, i: number) => (
-                    <NewsItem key={i} item={item} showImage={market === "kr"} />
-                  ))}
-                </ul>
-              </div>
-            ))
-          ) : (
-            <ul>
-              {sorted.map((item: any, i: number) => (
-                <NewsItem key={i} item={item} showImage={market === "kr"} />
-              ))}
-            </ul>
-          )
+          <ul>
+            {sorted.map((item: any, i: number) => (
+              <NewsItem key={i} item={item} />
+            ))}
+          </ul>
         ) : (
           <p className="py-8 text-center text-text-muted text-sm">뉴스 데이터가 없습니다</p>
         )}
