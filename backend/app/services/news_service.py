@@ -83,12 +83,19 @@ _NONFINANCE_KW = {
     "부고","동정","인사발령","지진","화재","테러","참사","유튜브","웹툰",
 }
 
+# 비경제 키워드가 포함돼 있어도 아래 경제·증시 키워드가 함께 있으면 예외적으로 포함
+# (예: "OOO 후보자, 청문회서 증시 부양책 언급" → "청문회"는 있지만 "증시"·"부양"이 있어 포함)
+_FINANCE_OVERRIDE_KW = {
+    "증시","주가","코스피","코스닥","나스닥","다우","증권","주식","금리","환율","채권",
+    "부양","투자","펀드","상장","공시","실적","매출","영업이익","적자","흑자",
+    "경제","금융","원화","달러","수출","수입","무역","관세","기준금리","한은","연준",
+}
+
 def _is_finance_news(title: str) -> bool:
     """제목이 경제/금융 관련인지 판단 (모든 피드가 경제 섹션이므로 비경제 키워드만 제외)"""
-    for kw in _NONFINANCE_KW:
-        if kw in title:
-            return False
-    return True
+    if not any(kw in title for kw in _NONFINANCE_KW):
+        return True
+    return any(kw in title for kw in _FINANCE_OVERRIDE_KW)
 
 
 def _clean_text(raw: str) -> str:
