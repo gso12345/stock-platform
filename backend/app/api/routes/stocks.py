@@ -733,7 +733,7 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
 async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률"""
     from app.core.cache import cache
-    ck = f"forecasts:{symbol}"
+    ck = f"forecasts:v2:{symbol}"
     if c := cache.get(ck):
         return c
 
@@ -1116,7 +1116,7 @@ _REC_KEY_LABEL = {
 async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
     """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트"""
     from app.core.cache import cache
-    ck = f"analyst:{symbol}"
+    ck = f"analyst:v2:{symbol}"
     if c := cache.get(ck):
         return c
     stale_analyst = cache.get_stale(ck)
