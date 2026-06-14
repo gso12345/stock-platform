@@ -21,7 +21,8 @@ export default function SplashScreen() {
     const fadeTimer = setTimeout(() => setStage("fading"), VISIBLE_MS);
     const hideTimer = setTimeout(() => setStage("hidden"), VISIBLE_MS + FADE_MS);
     return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
-  }, [stage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (stage === "hidden") return null;
 
@@ -30,6 +31,7 @@ export default function SplashScreen() {
       className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 bg-bg-base"
       style={{
         opacity: stage === "fading" ? 0 : 1,
+        pointerEvents: stage === "fading" ? "none" : "auto",
         transition: `opacity ${FADE_MS}ms ease`,
       }}
     >

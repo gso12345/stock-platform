@@ -1,5 +1,6 @@
 import { NavLink, Outlet, Link, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, BarChart3, Sun, Moon, Menu, X, LogOut, LogIn, Wallet, Settings, Newspaper } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Menu, X, LogOut, LogIn, Wallet, Settings, Newspaper } from "lucide-react";
+import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -146,9 +147,7 @@ export default function Layout() {
       <aside className="hidden md:flex w-52 flex-shrink-0 flex-col bg-bg-card border-r border-border">
         <div className="px-5 pt-6 pb-5">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center flex-shrink-0">
-              <BarChart3 size={14} className="text-white" />
-            </div>
+            <Logo size={28} />
             <div>
               <div className="text-sm font-bold text-text-primary tracking-tight leading-none">StockPlatform</div>
               <div className="text-2xs text-text-dim mt-0.5">종목발굴 &amp; 백테스트</div>
@@ -200,9 +199,7 @@ export default function Layout() {
       >
         <div className="px-5 pt-6 pb-5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center flex-shrink-0">
-              <BarChart3 size={14} className="text-white" />
-            </div>
+            <Logo size={28} />
             <div>
               <div className="text-sm font-bold text-text-primary tracking-tight leading-none">StockPlatform</div>
               <div className="text-2xs text-text-dim mt-0.5">종목발굴 &amp; 백테스트</div>
