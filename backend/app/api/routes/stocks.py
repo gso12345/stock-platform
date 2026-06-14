@@ -7,6 +7,7 @@
 from fastapi import APIRouter, Query, HTTPException, Request
 from typing import Literal
 import asyncio
+import re
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.services.kis_service import kis_service
@@ -739,91 +740,6 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
 
-    # 국내 종목: FnGuide 컨센서스 (네이버 모바일 API)
-    if market == "KR":
-        code6 = symbol.replace(".KS","").replace(".KQ","")
-        def _fetch_kr():
-            try:
-                import httpx, math
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/80.0 Mobile Safari/537.36",
-                    "Referer": "https://m.stock.naver.com/",
-                }
-                # 네이버 증권 컨센서스 API
-                url = f"https://m.stock.naver.com/api/stock/{code6}/consensus"
-                r = httpx.get(url, headers=headers, timeout=10)
-                if r.status_code != 200:
-                    return {"annual": [], "quarterly": []}
-                data = r.json()
-                annual, quarterly = [], []
-                for item in (data.get("annualList") or []):
-                    year = str(item.get("fiscalYear",""))
-                    if not year:
-                        continue
-                    def sf(k):
-                        v = item.get(k)
-                        try:
-                            f = float(str(v).replace(",",""))
-                            return None if (math.isnan(f) or math.isinf(f)) else f
-                        except Exception:
-                            return None
-                    annual.append({
-                        "period": f"{year}-12-31",
-                        "type": "forecast",
-                        "revenue_est":  sf("salesEstimate"),
-                        "revenue_high": sf("salesHigh"),
-                        "revenue_low":  sf("salesLow"),
-                        "eps_est":      sf("epsEstimate"),
-                        "eps_high":     sf("epsHigh"),
-                        "eps_low":      sf("epsLow"),
-                        "op_income_est":sf("operatingProfitEstimate"),
-                        "net_income_est":sf("netProfitEstimate"),
-                    })
-                for item in (data.get("quarterList") or []):
-                    period = str(item.get("fiscalQuarter",""))
-                    if not period:
-                        continue
-                    def sf(k):
-                        v = item.get(k)
-                        try:
-                            f = float(str(v).replace(",",""))
-                            return None if (math.isnan(f) or math.isinf(f)) else f
-                        except Exception:
-                            return None
-                    quarterly.append({
-                        "period": period,
-                        "type": "forecast",
-                        "revenue_est":   sf("salesEstimate"),
-                        "eps_est":       sf("epsEstimate"),
-                        "op_income_est": sf("operatingProfitEstimate"),
-                    })
-                if annual or quarterly:
-                    return {"annual": annual, "quarterly": quarterly}
-            except Exception:
-                pass
-            # yfinance 폴백
-            try:
-                t = yf.Ticker(yf_sym)
-                rows = []
-                pe = getattr(t, "earnings_estimate", None)
-                if pe is not None and not pe.empty:
-                    for idx, row in pe.iterrows():
-                        p = str(idx)[:10]
-                        try:
-                            eps = float(row.get("avg",0) or 0) or None
-                        except Exception:
-                            eps = None
-                        rows.append({"period": p, "type": "forecast", "eps_est": eps})
-                return {"annual": [r for r in rows if len(r["period"]) <= 7],
-                        "quarterly": [r for r in rows if len(r["period"]) > 7]}
-            except Exception:
-                return {"annual": [], "quarterly": []}
-
-        loop = asyncio.get_running_loop()
-        result = await asyncio.wait_for(loop.run_in_executor(None, _fetch_kr), timeout=15)
-        cache.set(ck, result, 3600)
-        return result
-
     def _fetch():
         import concurrent.futures
 
@@ -958,20 +874,82 @@ async def get_disclosures(market: Literal["KR","US","ETF"], symbol: str):
     return await _run(dart_service.get_disclosures, symbol)
 
 
+# 법인 접미사 (종목명 끝부분) — 해외 종합피드 매칭용 검색어 추출 시 제거
+_CORP_SUFFIX_RE = re.compile(r"\s+(Inc\.?|Corporation|Corp\.?|Co\.?|Company|Platforms|Holdings|Group|plc|Trust|ETF|N\.V\.|Ltd\.?|\.com)\s*$", re.I)
+# 종목명만으로는 검색어가 모호한 해외 종목 — 직접 지정
+_US_NAME_OVERRIDES = {
+    "AMD": "AMD", "V": "Visa", "JPM": "JPMorgan", "AMZN": "Amazon",
+    "GOOGL": "Alphabet", "GOOG": "Alphabet",
+}
+
+
+def _us_search_terms(symbol: str, name: str | None) -> list[str]:
+    """해외 종합피드에서 이 종목을 언급한 기사를 찾기 위한 검색어 목록"""
+    terms = []
+    override = _US_NAME_OVERRIDES.get(symbol)
+    if override:
+        terms.append(override)
+    elif name:
+        base = _CORP_SUFFIX_RE.sub("", name).strip()
+        first = base.split()[0] if base.split() else ""
+        if len(first) >= 3:
+            terms.append(first)
+    if len(symbol) >= 3:
+        terms.append(symbol)
+    return list(dict.fromkeys(terms))
+
+
+def _to_kst_published(value, short_mmdd: bool = False) -> str:
+    """다양한 형식의 발행시각을 'YYYY/MM/DD HH:MM' (KST) 문자열로 정규화"""
+    from datetime import datetime, timezone, timedelta
+    KST = timezone(timedelta(hours=9))
+    try:
+        if short_mmdd:
+            # 종합피드의 'MM/DD HH:MM' (연도 없음) → 현재 연도 기준 보완
+            now_kst = datetime.now(KST)
+            month = int(str(value)[:2])
+            year = now_kst.year if month <= now_kst.month else now_kst.year - 1
+            return f"{year}/{value}"
+        if isinstance(value, (int, float)) and value:
+            dt = datetime.fromtimestamp(value, tz=timezone.utc)
+            return dt.astimezone(KST).strftime("%Y/%m/%d %H:%M")
+        if isinstance(value, str) and value:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(KST).strftime("%Y/%m/%d %H:%M")
+    except Exception:
+        pass
+    return value if isinstance(value, str) else ""
+
+
+def _merge_news(primary: list, secondary: list, limit: int = 40) -> list:
+    """종합피드(이미지 보장, 다양한 언론사) 결과를 우선 배치하고 종목별 검색 결과로 보강, 링크 기준 중복 제거"""
+    seen, result = set(), []
+    for item in (*primary, *secondary):
+        link = item.get("link")
+        if not link or link in seen:
+            continue
+        seen.add(link)
+        result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
 @router.get("/{market}/{symbol}/news")
 async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
-    """종목 관련 뉴스 — KR: RSS 검색, US: yfinance"""
+    """종목 관련 뉴스 — 종합 RSS 피드(다양한 언론사 + 이미지 보장) + 종목별 검색(KR: 구글뉴스, US: yfinance) 병합"""
     from app.core.cache import cache
     ck = f"stock_news:{market}:{symbol}"
     if c := cache.get(ck):
         return c
 
+    from app.services.news_service import _extract_thumbnail, _add_trending_score, get_kr_news, get_us_news
+    code6 = symbol.replace(".KS","").replace(".KQ","")
+
     if market == "KR":
-        # 종목명으로 국내 뉴스 RSS 검색
-        from app.services.news_service import KR_FEEDS, _parse_feed, _extract_thumbnail
-        code6 = symbol.replace(".KS","").replace(".KQ","")
         # 데모/KIS에서 종목명 조회
-        from app.services.demo_data import DEMO_PRICES
         demo = DEMO_PRICES.get(symbol) or DEMO_PRICES.get(code6+".KS")
         stock_name = demo.get("name", code6) if demo else code6
 
@@ -980,9 +958,6 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
             from datetime import timezone, timedelta, datetime
             KST = timezone(timedelta(hours=9))
             items = []
-            # Naver 금융 뉴스 RSS (종목 코드)
-            naver_url = f"https://finance.naver.com/item/news_news.nhn?code={code6}&page=1&sm=title_entity_id.basic&clusterId="
-            # 대신 구글 뉴스 한국어 RSS 사용
             import urllib.parse
             query = urllib.parse.quote(stock_name)
             google_rss = f"https://news.google.com/rss/search?q={query}+주식+주가&hl=ko&gl=KR&ceid=KR:ko"
@@ -1017,9 +992,32 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 })
             return items
 
-        result = await _run(_fetch_kr)
+        def _match_feed_kr():
+            matched = [dict(a) for a in get_kr_news() if stock_name in a.get("title", "")]
+            for a in matched:
+                a["published"] = _to_kst_published(a.get("published", ""), short_mmdd=True)
+            return matched
+
+        google_items, feed_items = await asyncio.gather(_run(_fetch_kr), _run(_match_feed_kr))
+        result = _merge_news(feed_items, google_items)
 
     else:
+        # 해외 종합피드에서 이 종목 관련 기사 매칭
+        demo = DEMO_PRICES.get(symbol)
+        search_terms = _us_search_terms(symbol, demo.get("name") if demo else None)
+        patterns = [re.compile(rf"\b{re.escape(t)}\b", re.I) for t in search_terms]
+
+        def _match_feed_us():
+            if not patterns:
+                return []
+            matched = [
+                dict(a) for a in get_us_news()
+                if any(p.search(a.get("title", "")) for p in patterns)
+            ]
+            for a in matched:
+                a["published"] = _to_kst_published(a.get("published", ""), short_mmdd=True)
+            return matched
+
         # US: yfinance 뉴스
         import yfinance as yf
         def _fetch_us():
@@ -1037,15 +1035,16 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     thumb = ct.get("thumbnail") or n.get("thumbnail") or {}
                     resolutions = thumb.get("resolutions") or []
                     image = resolutions[0].get("url") if resolutions else thumb.get("originalUrl")
-                    items.append({"title": title, "link": link, "source": provider, "published": pub, "summary": (ct.get("summary") or "")[:200], "image": image})
+                    items.append({"title": title, "link": link, "source": provider, "published": _to_kst_published(pub), "summary": (ct.get("summary") or "")[:200], "image": image})
                 return items
             except Exception:
                 return []
-        result = await _run(_fetch_us)
+
+        yf_items, feed_items = await asyncio.gather(_run(_fetch_us), _run(_match_feed_us))
+        result = _merge_news(feed_items, yf_items)
 
     # 인기순 정렬에 필요한 trend_score 계산
     if result:
-        from app.services.news_service import _add_trending_score
         result = _add_trending_score(result)
 
     cache.set(ck, result, 300)
@@ -1104,6 +1103,15 @@ async def get_earnings(market: Literal["KR","US","ETF"], symbol: str):
     return result
 
 
+# yfinance recommendationKey → 한글 라벨 (전용 컨센서스 모듈이 비어있을 때 보조 소스로 사용)
+_REC_KEY_LABEL = {
+    "strong_buy": "강력매수", "buy": "매수", "outperform": "매수", "overweight": "매수",
+    "hold": "보유", "neutral": "보유", "market_perform": "보유", "equal_weight": "보유",
+    "sell": "매도", "underperform": "매도", "underweight": "매도",
+    "strong_sell": "강력매도",
+}
+
+
 @router.get("/{market}/{symbol}/analyst")
 async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
     """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트"""
@@ -1139,10 +1147,17 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            f_apt = pool.submit(_get_apt)
-            f_rs  = pool.submit(_get_rs)
-            f_ud  = pool.submit(_get_ud)
+        def _get_fund():
+            try:
+                return yf_service.get_fundamentals(yf_sym, market)
+            except Exception:
+                return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            f_apt  = pool.submit(_get_apt)
+            f_rs   = pool.submit(_get_rs)
+            f_ud   = pool.submit(_get_ud)
+            f_fund = pool.submit(_get_fund)
             try:
                 apt = f_apt.result(timeout=12)
             except Exception:
@@ -1155,6 +1170,10 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 ud = f_ud.result(timeout=12)
             except Exception:
                 ud = None
+            try:
+                fund = f_fund.result(timeout=12)
+            except Exception:
+                fund = None
 
         result: dict = {}
 
@@ -1214,6 +1233,25 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 result["reports"] = reports
         except Exception:
             pass
+
+        # 목표주가/투자의견 보완 — 전용 컨센서스 모듈(apt/rs)이 비어있을 때
+        # 펀더멘털(yfinance info)에 들어있는 컨센서스 값으로 대체 (국내 종목 등에서 자주 발생)
+        if fund:
+            if not result.get("price_targets") and fund.get("target_price_mean"):
+                price_cached = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
+                result["price_targets"] = {
+                    "current": price_cached.get("price"),
+                    "mean":    fund.get("target_price_mean"),
+                    "high":    fund.get("target_price_high"),
+                    "low":     fund.get("target_price_low"),
+                }
+            if not result.get("consensus") and fund.get("recommendation"):
+                rec_label = _REC_KEY_LABEL.get(str(fund.get("recommendation","")).lower())
+                if rec_label:
+                    nc = result.setdefault("naver_consensus", {})
+                    nc.setdefault("recommendation", rec_label)
+                    if fund.get("analyst_count"):
+                        nc.setdefault("analyst_count", int(fund["analyst_count"]))
 
         return result
 

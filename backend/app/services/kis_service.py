@@ -133,6 +133,7 @@ class KISService:
                         "low":    float(item.get("stck_lwpr", 0)),
                         "close":  float(item.get("stck_clpr", 0)),
                         "volume": int(item.get("acml_vol", 0)),
+                        "amount": int(item.get("acml_tr_pbmn", 0)),   # 실제 거래대금 (close*volume 근사값 대체)
                     }
                     for item in data if item.get("stck_bsop_date")
                 ]

@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     # ── Anthropic (뉴스 AI 요약) ─────────────────────────
     ANTHROPIC_API_KEY: str = ""
 
+    # ── 소셜 로그인 (OAuth) ───────────────────────────────
+    OAUTH_REDIRECT_BASE: str = "http://localhost:8000"  # 백엔드 콜백 base URL (프로덕션은 실제 백엔드 도메인)
+    GOOGLE_CLIENT_ID:     str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    NAVER_CLIENT_ID:      str = ""
+    NAVER_CLIENT_SECRET:  str = ""
+    KAKAO_CLIENT_ID:      str = ""
+    KAKAO_CLIENT_SECRET:  str = ""
+
     class Config:
         env_file = ".env"
 

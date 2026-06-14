@@ -321,6 +321,7 @@ def add_item(
     existing = db.query(WatchlistItem).filter(
         WatchlistItem.watchlist_id == wl.id,
         WatchlistItem.symbol == req.symbol,
+        WatchlistItem.folder_id == req.folder_id,
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="이미 추가된 종목입니다")

@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Activity, Eye, EyeOff } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { BarChart3, Eye, EyeOff } from "lucide-react";
 import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
+import SocialLoginButtons from "@/components/SocialLoginButtons";
 import type { AxiosError } from "axios";
 
 interface LoginResponse {
@@ -11,14 +12,30 @@ interface LoginResponse {
   username: string;
 }
 
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  denied: "로그인이 취소되었습니다.",
+  invalid_state: "요청이 만료되었습니다. 다시 시도해 주세요.",
+  provider_error: "소셜 로그인 서비스에 연결할 수 없습니다.",
+  no_user_info: "사용자 정보를 가져오지 못했습니다.",
+  email_exists: "이미 가입된 이메일입니다. 아이디/비밀번호로 로그인해 주세요.",
+  signup_failed: "회원가입 처리 중 오류가 발생했습니다.",
+  inactive: "비활성화된 계정입니다.",
+  unsupported: "지원하지 않는 로그인 방식입니다.",
+  invalid_response: "로그인 처리 중 오류가 발생했습니다.",
+};
+
 export default function Login() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
+  const [searchParams] = useSearchParams();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const oauthError = searchParams.get("oauth_error");
+  const [error, setError] = useState<string | null>(
+    oauthError ? OAUTH_ERROR_MESSAGES[oauthError] ?? "소셜 로그인에 실패했습니다." : null
+  );
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -47,8 +64,8 @@ export default function Login() {
       <div className="w-full max-w-sm">
         {/* 로고 */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
-          <div className="w-9 h-9 rounded-xl bg-accent-blue flex items-center justify-center flex-shrink-0">
-            <Activity size={18} className="text-white" />
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center flex-shrink-0">
+            <BarChart3 size={18} className="text-white" />
           </div>
           <div>
             <div className="text-base font-bold text-text-primary tracking-tight leading-none">
@@ -124,6 +141,8 @@ export default function Login() {
               {loading ? "로그인 중..." : "로그인"}
             </button>
           </form>
+
+          <SocialLoginButtons />
 
           <div className="mt-5 text-center text-xs text-text-muted">
             계정이 없으신가요?{" "}

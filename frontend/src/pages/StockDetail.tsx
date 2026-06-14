@@ -1447,8 +1447,8 @@ export default function StockDetail() {
                                     </span>
                                   )}
                                 </td>
-                                <td className="px-4 py-2.5 text-center">
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${act.color}`}>{act.text}</span>
+                                <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${act.color}`}>{act.text}</span>
                                 </td>
                               </tr>
                             );
@@ -1781,7 +1781,7 @@ export default function StockDetail() {
                     const prevClose = arr[i + 1]?.close;
                     const chgRate = prevClose ? ((bar.close - prevClose) / prevClose * 100) : 0;
                     const isPos = chgRate >= 0;
-                    const amount = bar.close * (bar.volume || 0);
+                    const amount = bar.amount > 0 ? bar.amount : bar.close * (bar.volume || 0);
                     return (
                       <tr key={bar.date} className="border-b border-border/30 hover:bg-bg-hover">
                         <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap sticky left-0 bg-bg-card">{bar.date?.replace(/^(\d{4})(\d{2})(\d{2})/, "$1-$2-$3").slice(0,10)}</td>
