@@ -272,6 +272,17 @@ async def get_stock_ohlcv(
         return get_demo_ohlcv(symbol, period)
 
 
+@router.get("/{market}/{symbol}/nxt")
+@limiter.limit("30/minute")
+async def get_stock_nxt(request: Request, market: Literal["KR","US","ETF"], symbol: str):
+    """대체거래소(넥스트레이드/NXT) 시세 — KR 종목 중 NXT 거래 가능 종목만 시세 반환"""
+    if market != "KR" or not settings.KIS_APP_KEY:
+        return {"available": False}
+    code6 = symbol.replace(".KS","").replace(".KQ","")
+    result = await kis_service.get_nxt_price(code6)
+    return result or {"available": False}
+
+
 @router.get("/{market}/{symbol}/detail")
 @limiter.limit("30/minute")
 async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], symbol: str):

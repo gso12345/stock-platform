@@ -96,6 +96,48 @@ class KISService:
         except Exception:
             return cache.get_stale(ck)
 
+    # ── 대체거래소(NXT/넥스트레이드) 현재가 ──────────────
+    async def get_nxt_price(self, symbol: str) -> Optional[dict]:
+        """NXT 시세 — NXT 거래 가능 종목만 값이 반환되며, 그 외에는 None"""
+        if not self._configured:
+            return None
+        ck = f"kis:nxt:{symbol}"
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached if cached.get("available") else None
+        token = await self._get_token()
+        if not token:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                r = await client.get(
+                    f"{self.base}/uapi/domestic-stock/v1/quotations/inquire-price",
+                    headers=self._headers(token, "FHKST01010100"),
+                    params={"FID_COND_MRKT_DIV_CODE": "NX", "FID_INPUT_ISCD": symbol},
+                )
+                o = r.json().get("output", {})
+                price = float(o.get("stck_prpr", 0) or 0)
+                if not price:
+                    cache.set(ck, {"available": False}, 60)
+                    return None
+                result = {
+                    "available": True,
+                    "symbol": symbol,
+                    "price": price,
+                    "change": float(o.get("prdy_vrss", 0) or 0),
+                    "change_rate": float(o.get("prdy_ctrt", 0) or 0),
+                    "open": float(o.get("stck_oprc", 0) or 0),
+                    "high": float(o.get("stck_hgpr", 0) or 0),
+                    "low": float(o.get("stck_lwpr", 0) or 0),
+                    "volume": int(o.get("acml_vol", 0) or 0),
+                    "currency": "KRW",
+                }
+                cache.set(ck, result, 10)
+                return result
+        except Exception:
+            stale = cache.get_stale(ck)
+            return stale if stale and stale.get("available") else None
+
     # ── OHLCV ──────────────────────────────────────────
     async def get_ohlcv(self, symbol: str, period: str = "1y") -> list:
         if not self._configured:

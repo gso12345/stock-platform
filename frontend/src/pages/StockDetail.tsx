@@ -130,6 +130,16 @@ export default function StockDetail() {
     refetchInterval: 15_000,
   });
 
+  // 대체거래소(NXT/넥스트레이드) 시세 — KR 종목만 조회
+  const { data: nxtData } = useQuery({
+    queryKey: ["stock-nxt", m, sym],
+    queryFn: () => stocksApi.getNXT(m, sym),
+    enabled: !!sym && m === "KR",
+    retry: 1,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
+  });
+
   const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);
   const chartPeriod = CANDLE_MAX_PERIOD[candleType] ?? "max";
 
@@ -297,6 +307,10 @@ export default function StockDetail() {
   const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
   const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
 
+  const nxt = nxtData as any;
+  const showNxt = isKR && nxt?.available && nxt?.price != null;
+  const nxtIsUp = (nxt?.change_rate ?? 0) >= 0;
+
   if (detailError && !detail) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
@@ -373,6 +387,15 @@ export default function StockDetail() {
                 ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
               </span>
             </div>
+            {showNxt && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-border bg-bg-elevated" title="대체거래소(넥스트레이드) 시세">
+                <span className="text-2xs font-bold px-1 py-0.5 rounded bg-accent-purple/15 text-accent-purple leading-none">NXT</span>
+                <span className="text-sm font-mono font-semibold text-text-primary num">₩{nxt.price.toLocaleString("ko-KR")}</span>
+                <span className={`text-2xs font-mono num ${nxtIsUp?upColor:downColor}`}>
+                  ({nxtIsUp?"+":""}{(nxt.change_rate??0).toFixed(2)}%)
+                </span>
+              </div>
+            )}
             <div className="ml-auto flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse"/>
               <span className="text-2xs text-text-muted">

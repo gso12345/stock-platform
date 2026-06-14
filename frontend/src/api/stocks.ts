@@ -14,6 +14,9 @@ export const stocksApi = {
   getDetail: (market: Market, symbol: string) =>
     api.get<StockDetail>(`/stocks/${market}/${symbol}/detail`).then((r) => r.data),
 
+  getNXT: (market: Market, symbol: string) =>
+    api.get<any>(`/stocks/${market}/${symbol}/nxt`).then((r) => r.data),
+
   getNews: (market: string, symbol: string) =>
     api.get<any[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/news`).then((r) => r.data),
 
