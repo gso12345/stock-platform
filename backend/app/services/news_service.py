@@ -220,7 +220,7 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
             for source, url in feeds
         }
         try:
-            for future in as_completed(futures, timeout=20):
+            for future in as_completed(futures, timeout=10):
                 try:
                     items = future.result(timeout=8)
                     all_news.extend(items)

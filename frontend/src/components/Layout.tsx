@@ -7,6 +7,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import type { ColorScheme, FontSize, Theme } from "@/store/settingsStore";
 import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
+import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
 import { useState, useEffect } from "react";
 
 const NAV = [
@@ -204,13 +205,19 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-bg-base overflow-hidden">
 
+      {/* ── 진입 시 데이터 로딩 진행률 ────────────────────── */}
+      <LoadingProgressOverlay />
+
       {/* ── 데스크탑 사이드바 ─────────────────────────────── */}
-      <aside className="hidden md:flex w-52 flex-shrink-0 flex-col bg-bg-card border-r border-border">
+      <aside className="hidden lg:flex w-52 flex-shrink-0 flex-col bg-bg-card border-r border-border">
         <div className="px-5 pt-6 pb-5">
           <div className="flex items-center gap-2.5">
             <Logo size={28} />
             <div>
-              <div className="text-sm font-bold text-text-primary tracking-tight leading-none">StockPlatform</div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-bold text-text-primary tracking-tight leading-none">StockPlatform</span>
+                <span className="text-2xs font-bold px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue leading-none">BETA</span>
+              </div>
               <div className="text-2xs text-text-dim mt-0.5">종목발굴 &amp; 백테스트</div>
             </div>
           </div>
@@ -248,14 +255,14 @@ export default function Layout() {
 
       {/* ── 모바일 "더보기" 시트 오버레이 ───────────────── */}
       {moreOpen && (
-        <div className="fixed inset-0 z-40 md:hidden" onClick={closeMore}>
+        <div className="fixed inset-0 z-40 lg:hidden" onClick={closeMore}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm fade-in" />
         </div>
       )}
 
       {/* ── 모바일 "더보기" 바텀시트 ─────────────────────── */}
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 md:hidden bg-bg-card border-t border-border rounded-t-2xl shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+        className={`fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-bg-card border-t border-border rounded-t-2xl shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
           moreOpen ? "translate-y-0" : "translate-y-full pointer-events-none"}`}
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
       >
@@ -344,7 +351,7 @@ export default function Layout() {
         </header>
 
         {/* 콘텐츠 */}
-        <main className="flex-1 overflow-y-auto bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] md:pb-0">
+        <main className="flex-1 overflow-y-auto bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
           <div className="p-3 md:p-5 max-w-[1600px] mx-auto">
             <Outlet />
           </div>
@@ -353,7 +360,7 @@ export default function Layout() {
 
       {/* ── 모바일 하단 탭바 ─────────────────────────────── */}
       <nav
-        className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch bg-bg-card border-t border-border"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch bg-bg-card border-t border-border"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         {BOTTOM_NAV.map(({ to, icon: Icon, label, end }) => (

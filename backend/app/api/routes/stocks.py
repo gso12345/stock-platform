@@ -272,6 +272,17 @@ async def get_stock_ohlcv(
         return get_demo_ohlcv(symbol, period)
 
 
+@router.get("/{market}/{symbol}/nxt")
+@limiter.limit("30/minute")
+async def get_stock_nxt(request: Request, market: Literal["KR","US","ETF"], symbol: str):
+    """대체거래소(넥스트레이드/NXT) 시세 — KR 종목 중 NXT 거래 가능 종목만 시세 반환"""
+    if market != "KR" or not settings.KIS_APP_KEY:
+        return {"available": False}
+    code6 = symbol.replace(".KS","").replace(".KQ","")
+    result = await kis_service.get_nxt_price(code6)
+    return result or {"available": False}
+
+
 @router.get("/{market}/{symbol}/detail")
 @limiter.limit("30/minute")
 async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], symbol: str):
@@ -1017,6 +1028,9 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 title = entry.get("title", "").strip()
                 if not title:
                     continue
+                image = _extract_thumbnail(entry)
+                if not image:
+                    continue
                 source = (entry.get("source") or {}).get("title", "")
                 items.append({
                     "title": title,
@@ -1025,7 +1039,7 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     "published": pub,
                     "published_ts": pub_ts,
                     "summary": (entry.get("summary") or "")[:200],
-                    "image": _extract_thumbnail(entry),
+                    "image": image,
                 })
             return items
 
@@ -1035,7 +1049,11 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 a["published"] = _to_kst_published(a.get("published", ""), short_mmdd=True)
             return matched
 
-        google_items, feed_items = await asyncio.gather(_run(_fetch_kr), _run(_match_feed_kr))
+        google_items, feed_items = await asyncio.gather(_run(_fetch_kr), _run(_match_feed_kr), return_exceptions=True)
+        if isinstance(google_items, Exception):
+            google_items = []
+        if isinstance(feed_items, Exception):
+            feed_items = []
         result = _merge_news(feed_items, google_items)
 
     else:
@@ -1081,7 +1099,11 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return []
 
-        yf_items, feed_items = await asyncio.gather(_run(_fetch_us), _run(_match_feed_us))
+        yf_items, feed_items = await asyncio.gather(_run(_fetch_us), _run(_match_feed_us), return_exceptions=True)
+        if isinstance(yf_items, Exception):
+            yf_items = []
+        if isinstance(feed_items, Exception):
+            feed_items = []
         result = _merge_news(feed_items, yf_items)
 
     # 인기순 정렬에 필요한 trend_score 계산
