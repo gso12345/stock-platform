@@ -1153,11 +1153,30 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        # Finnhub 목표주가/추천동향 — 국내 종목은 미지원이라 KR 제외
+        def _get_fh_pt():
+            if market == "KR":
+                return None
+            try:
+                return finnhub_service.get_price_target(yf_sym)
+            except Exception:
+                return None
+
+        def _get_fh_rec():
+            if market == "KR":
+                return None
+            try:
+                return finnhub_service.get_recommendation_trends(yf_sym)
+            except Exception:
+                return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
             f_apt  = pool.submit(_get_apt)
             f_rs   = pool.submit(_get_rs)
             f_ud   = pool.submit(_get_ud)
             f_fund = pool.submit(_get_fund)
+            f_fhpt = pool.submit(_get_fh_pt)
+            f_fhrec= pool.submit(_get_fh_rec)
             try:
                 apt = f_apt.result(timeout=12)
             except Exception:
@@ -1174,6 +1193,14 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 fund = f_fund.result(timeout=12)
             except Exception:
                 fund = None
+            try:
+                fh_pt = f_fhpt.result(timeout=12)
+            except Exception:
+                fh_pt = None
+            try:
+                fh_rec = f_fhrec.result(timeout=12)
+            except Exception:
+                fh_rec = None
 
         result: dict = {}
 
@@ -1252,6 +1279,25 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                     nc.setdefault("recommendation", rec_label)
                     if fund.get("analyst_count"):
                         nc.setdefault("analyst_count", int(fund["analyst_count"]))
+
+        # 목표주가/투자의견 추가 보완 — yfinance에서 아무것도 못 얻었을 때 Finnhub로 대체
+        if not result.get("price_targets") and fh_pt:
+            price_cached = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
+            result["price_targets"] = {
+                "current": price_cached.get("price"),
+                "mean":    fh_pt.get("mean"),
+                "high":    fh_pt.get("high"),
+                "low":     fh_pt.get("low"),
+                "median":  fh_pt.get("median"),
+            }
+        if not result.get("consensus") and fh_rec:
+            result["consensus"] = {
+                "strong_buy":  fh_rec.get("strong_buy", 0),
+                "buy":         fh_rec.get("buy", 0),
+                "hold":        fh_rec.get("hold", 0),
+                "sell":        fh_rec.get("sell", 0),
+                "strong_sell": fh_rec.get("strong_sell", 0),
+            }
 
         return result
 

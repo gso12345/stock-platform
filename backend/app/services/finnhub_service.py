@@ -128,6 +128,47 @@ class FinnhubService:
         cache.set(ck, result, 3600)
         return result
 
+    # ── 애널리스트 목표가 ───────────────────────────────
+    def get_price_target(self, symbol: str) -> dict:
+        if not self._configured:
+            return {}
+        ck = f"fh:pt:{symbol}"
+        if c := cache.get(ck):
+            return c
+        d = self._get("/stock/price-target", {"symbol": symbol})
+        if not isinstance(d, dict) or not d.get("targetMean"):
+            return {}
+        result = {
+            "mean":   d.get("targetMean"),
+            "high":   d.get("targetHigh"),
+            "low":    d.get("targetLow"),
+            "median": d.get("targetMedian"),
+        }
+        cache.set(ck, result, 21600)  # 6시간
+        return result
+
+    # ── 애널리스트 추천 동향 (최신월) ────────────────────
+    def get_recommendation_trends(self, symbol: str) -> dict:
+        if not self._configured:
+            return {}
+        ck = f"fh:rec:{symbol}"
+        if c := cache.get(ck):
+            return c
+        d = self._get("/stock/recommendation", {"symbol": symbol})
+        if not isinstance(d, list) or not d:
+            return {}
+        row = d[0]
+        result = {
+            "strong_buy":  int(row.get("strongBuy", 0) or 0),
+            "buy":         int(row.get("buy", 0) or 0),
+            "hold":        int(row.get("hold", 0) or 0),
+            "sell":        int(row.get("sell", 0) or 0),
+            "strong_sell": int(row.get("strongSell", 0) or 0),
+            "period":      row.get("period", ""),
+        }
+        cache.set(ck, result, 21600)  # 6시간
+        return result
+
     # ── OHLCV 차트 데이터 ───────────────────────────────
     def get_candles(self, symbol: str, period: str = "1y", resolution: str = "") -> list:
         if not self._configured:
