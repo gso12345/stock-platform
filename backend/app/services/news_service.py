@@ -51,6 +51,9 @@ KR_FEEDS = [
     ("SBS 경제",       "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=02&plink=RSSREADER"),
     ("YTN 경제",       "https://www.ytn.co.kr/rss/0401.xml"),
     ("채널A 경제",     "https://www.ichannela.com/news/rss/newsprss_eco.xml"),
+    # IT/산업 (반도체·전자 등 기술주 관련 보도 보강)
+    ("전자신문",       "https://rss.etnews.com/Section901.xml"),
+    ("디지털타임스",   "https://www.dt.co.kr/rss/economy.xml"),
 ]
 
 # ── 해외 뉴스 RSS ──────────────────────────────────────────
@@ -72,6 +75,11 @@ US_FEEDS = [
     ("Forbes Business",    "https://www.forbes.com/feeds/news.rss"),
     ("FT Markets",         "https://www.ft.com/rss/home/us"),
     ("Barron's",           "https://www.barrons.com/xml/rss/3_7028.xml"),
+    # 추가 매체 (다양성 보강)
+    ("CNBC Top News",      "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
+    ("Fortune",            "https://fortune.com/feed/"),
+    ("Business Insider",   "https://markets.businessinsider.com/rss/news"),
+    ("TechCrunch",         "https://techcrunch.com/feed/"),
 ]
 
 
