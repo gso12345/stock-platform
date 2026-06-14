@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { BarChart3, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
+import Logo from "@/components/Logo";
 import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
 import SocialLoginButtons from "@/components/SocialLoginButtons";
@@ -72,9 +73,7 @@ export default function Register() {
       <div className="w-full max-w-sm">
         {/* 로고 */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center flex-shrink-0">
-            <BarChart3 size={18} className="text-white" />
-          </div>
+          <Logo size={36} />
           <div>
             <div className="text-base font-bold text-text-primary tracking-tight leading-none">
               StockPlatform
