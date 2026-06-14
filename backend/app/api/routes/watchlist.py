@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -84,16 +85,26 @@ def get_folders(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
-    folders = db.query(WatchlistFolder).order_by(WatchlistFolder.position).all()
-    result = []
-    for f in folders:
-        result.append({
-            "id":       f.id,
-            "name":     f.name,
-            "position": f.position,
-            "count":    len(f.items),
-        })
-    return result
+    user_id = current_user.id if current_user else None
+    folders = (
+        db.query(WatchlistFolder)
+        .filter((WatchlistFolder.user_id == user_id) | (WatchlistFolder.user_id == None))
+        .order_by(WatchlistFolder.position)
+        .all()
+    )
+    counts: dict[int, int] = {}
+    if folders:
+        rows = (
+            db.query(WatchlistItem.folder_id, func.count(WatchlistItem.id))
+            .filter(WatchlistItem.folder_id.in_([f.id for f in folders]))
+            .group_by(WatchlistItem.folder_id)
+            .all()
+        )
+        counts = dict(rows)
+    return [
+        {"id": f.id, "name": f.name, "position": f.position, "count": counts.get(f.id, 0)}
+        for f in folders
+    ]
 
 
 @router.post("/folders")
@@ -102,8 +113,10 @@ def create_folder(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
-    max_pos = db.query(WatchlistFolder).count()
-    folder = WatchlistFolder(name=req.name, position=max_pos)
+    max_pos = db.query(WatchlistFolder).filter(
+        (WatchlistFolder.user_id == current_user.id) | (WatchlistFolder.user_id == None)
+    ).count()
+    folder = WatchlistFolder(name=req.name, position=max_pos, user_id=current_user.id)
     db.add(folder)
     db.commit()
     db.refresh(folder)
@@ -118,7 +131,7 @@ def update_folder(
     current_user: User = Depends(require_user),
 ):
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
-    if not folder:
+    if not folder or (folder.user_id is not None and folder.user_id != current_user.id):
         raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
     folder.name = req.name
     db.commit()
@@ -132,13 +145,8 @@ def delete_folder(
     current_user: User = Depends(require_user),
 ):
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
-    if not folder:
+    if not folder or (folder.user_id is not None and folder.user_id != current_user.id):
         raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
-    # 내 관심목록에 속한 폴더인지 확인
-    user_wl = _ensure_watchlist(db, user_id=current_user.id)
-    folder_item_wl_ids = {item.watchlist_id for item in folder.items}
-    if folder_item_wl_ids and user_wl.id not in folder_item_wl_ids:
-        raise HTTPException(status_code=403, detail="삭제 권한이 없습니다")
     for item in folder.items:
         item.folder_id = None
     db.delete(folder)
