@@ -1447,8 +1447,8 @@ export default function StockDetail() {
                                     </span>
                                   )}
                                 </td>
-                                <td className="px-4 py-2.5 text-center">
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${act.color}`}>{act.text}</span>
+                                <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${act.color}`}>{act.text}</span>
                                 </td>
                               </tr>
                             );

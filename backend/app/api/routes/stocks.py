@@ -740,91 +740,6 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
 
-    # 국내 종목: FnGuide 컨센서스 (네이버 모바일 API)
-    if market == "KR":
-        code6 = symbol.replace(".KS","").replace(".KQ","")
-        def _fetch_kr():
-            try:
-                import httpx, math
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/80.0 Mobile Safari/537.36",
-                    "Referer": "https://m.stock.naver.com/",
-                }
-                # 네이버 증권 컨센서스 API
-                url = f"https://m.stock.naver.com/api/stock/{code6}/consensus"
-                r = httpx.get(url, headers=headers, timeout=10)
-                if r.status_code != 200:
-                    return {"annual": [], "quarterly": []}
-                data = r.json()
-                annual, quarterly = [], []
-                for item in (data.get("annualList") or []):
-                    year = str(item.get("fiscalYear",""))
-                    if not year:
-                        continue
-                    def sf(k):
-                        v = item.get(k)
-                        try:
-                            f = float(str(v).replace(",",""))
-                            return None if (math.isnan(f) or math.isinf(f)) else f
-                        except Exception:
-                            return None
-                    annual.append({
-                        "period": f"{year}-12-31",
-                        "type": "forecast",
-                        "revenue_est":  sf("salesEstimate"),
-                        "revenue_high": sf("salesHigh"),
-                        "revenue_low":  sf("salesLow"),
-                        "eps_est":      sf("epsEstimate"),
-                        "eps_high":     sf("epsHigh"),
-                        "eps_low":      sf("epsLow"),
-                        "op_income_est":sf("operatingProfitEstimate"),
-                        "net_income_est":sf("netProfitEstimate"),
-                    })
-                for item in (data.get("quarterList") or []):
-                    period = str(item.get("fiscalQuarter",""))
-                    if not period:
-                        continue
-                    def sf(k):
-                        v = item.get(k)
-                        try:
-                            f = float(str(v).replace(",",""))
-                            return None if (math.isnan(f) or math.isinf(f)) else f
-                        except Exception:
-                            return None
-                    quarterly.append({
-                        "period": period,
-                        "type": "forecast",
-                        "revenue_est":   sf("salesEstimate"),
-                        "eps_est":       sf("epsEstimate"),
-                        "op_income_est": sf("operatingProfitEstimate"),
-                    })
-                if annual or quarterly:
-                    return {"annual": annual, "quarterly": quarterly}
-            except Exception:
-                pass
-            # yfinance 폴백
-            try:
-                t = yf.Ticker(yf_sym)
-                rows = []
-                pe = getattr(t, "earnings_estimate", None)
-                if pe is not None and not pe.empty:
-                    for idx, row in pe.iterrows():
-                        p = str(idx)[:10]
-                        try:
-                            eps = float(row.get("avg",0) or 0) or None
-                        except Exception:
-                            eps = None
-                        rows.append({"period": p, "type": "forecast", "eps_est": eps})
-                return {"annual": [r for r in rows if len(r["period"]) <= 7],
-                        "quarterly": [r for r in rows if len(r["period"]) > 7]}
-            except Exception:
-                return {"annual": [], "quarterly": []}
-
-        loop = asyncio.get_running_loop()
-        result = await asyncio.wait_for(loop.run_in_executor(None, _fetch_kr), timeout=15)
-        cache.set(ck, result, 3600)
-        return result
-
     def _fetch():
         import concurrent.futures
 
@@ -1188,6 +1103,15 @@ async def get_earnings(market: Literal["KR","US","ETF"], symbol: str):
     return result
 
 
+# yfinance recommendationKey → 한글 라벨 (전용 컨센서스 모듈이 비어있을 때 보조 소스로 사용)
+_REC_KEY_LABEL = {
+    "strong_buy": "강력매수", "buy": "매수", "outperform": "매수", "overweight": "매수",
+    "hold": "보유", "neutral": "보유", "market_perform": "보유", "equal_weight": "보유",
+    "sell": "매도", "underperform": "매도", "underweight": "매도",
+    "strong_sell": "강력매도",
+}
+
+
 @router.get("/{market}/{symbol}/analyst")
 async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
     """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트"""
@@ -1223,10 +1147,17 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            f_apt = pool.submit(_get_apt)
-            f_rs  = pool.submit(_get_rs)
-            f_ud  = pool.submit(_get_ud)
+        def _get_fund():
+            try:
+                return yf_service.get_fundamentals(yf_sym, market)
+            except Exception:
+                return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            f_apt  = pool.submit(_get_apt)
+            f_rs   = pool.submit(_get_rs)
+            f_ud   = pool.submit(_get_ud)
+            f_fund = pool.submit(_get_fund)
             try:
                 apt = f_apt.result(timeout=12)
             except Exception:
@@ -1239,6 +1170,10 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 ud = f_ud.result(timeout=12)
             except Exception:
                 ud = None
+            try:
+                fund = f_fund.result(timeout=12)
+            except Exception:
+                fund = None
 
         result: dict = {}
 
@@ -1298,6 +1233,25 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 result["reports"] = reports
         except Exception:
             pass
+
+        # 목표주가/투자의견 보완 — 전용 컨센서스 모듈(apt/rs)이 비어있을 때
+        # 펀더멘털(yfinance info)에 들어있는 컨센서스 값으로 대체 (국내 종목 등에서 자주 발생)
+        if fund:
+            if not result.get("price_targets") and fund.get("target_price_mean"):
+                price_cached = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
+                result["price_targets"] = {
+                    "current": price_cached.get("price"),
+                    "mean":    fund.get("target_price_mean"),
+                    "high":    fund.get("target_price_high"),
+                    "low":     fund.get("target_price_low"),
+                }
+            if not result.get("consensus") and fund.get("recommendation"):
+                rec_label = _REC_KEY_LABEL.get(str(fund.get("recommendation","")).lower())
+                if rec_label:
+                    nc = result.setdefault("naver_consensus", {})
+                    nc.setdefault("recommendation", rec_label)
+                    if fund.get("analyst_count"):
+                        nc.setdefault("analyst_count", int(fund["analyst_count"]))
 
         return result
 
