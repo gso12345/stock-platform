@@ -17,6 +17,7 @@ const Portfolio  = lazy(() => import("./pages/Portfolio"));
 const News       = lazy(() => import("./pages/News"));
 const Login      = lazy(() => import("./pages/Login"));
 const Register   = lazy(() => import("./pages/Register"));
+const OAuthCallback = lazy(() => import("./pages/OAuthCallback"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,6 +56,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/oauth/callback" element={<OAuthCallback />} />
             <Route path="/" element={<Layout />}>
               <Route index element={<Dashboard />} />
               <Route path="screening" element={<Screening />} />

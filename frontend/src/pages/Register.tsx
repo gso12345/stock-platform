@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Activity, Eye, EyeOff } from "lucide-react";
+import { BarChart3, Eye, EyeOff } from "lucide-react";
 import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
+import SocialLoginButtons from "@/components/SocialLoginButtons";
 import type { AxiosError } from "axios";
 
 interface RegisterResponse {
@@ -71,8 +72,8 @@ export default function Register() {
       <div className="w-full max-w-sm">
         {/* 로고 */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
-          <div className="w-9 h-9 rounded-xl bg-accent-blue flex items-center justify-center flex-shrink-0">
-            <Activity size={18} className="text-white" />
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center flex-shrink-0">
+            <BarChart3 size={18} className="text-white" />
           </div>
           <div>
             <div className="text-base font-bold text-text-primary tracking-tight leading-none">
@@ -193,6 +194,8 @@ export default function Register() {
               {loading ? "가입 중..." : "회원가입"}
             </button>
           </form>
+
+          <SocialLoginButtons />
 
           <div className="mt-5 text-center text-xs text-text-muted">
             이미 계정이 있으신가요?{" "}

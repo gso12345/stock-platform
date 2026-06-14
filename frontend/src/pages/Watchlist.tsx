@@ -698,12 +698,11 @@ export default function Watchlist() {
       {isPreview ? (() => {
         const mktFiltered = marketTab === "전체" ? PREVIEW_WATCHLIST : PREVIEW_WATCHLIST.filter(i => i.market === marketTab);
         const tabBtnCls = (active: boolean) =>
-          `flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-            active ? "bg-accent-blue text-white border-accent-blue shadow"
-                   : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
+          `flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
+            active ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
           }`;
         return (
-          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+          <div className="flex overflow-x-auto scrollbar-hide rounded-lg border border-border w-fit max-w-full">
             <button onClick={() => setFolderTab("all")} className={tabBtnCls(folderTab === "all")}>
               전체 <span className="text-[10px] opacity-70">{mktFiltered.length}</span>
             </button>
@@ -718,46 +717,30 @@ export default function Watchlist() {
             })}
           </div>
         );
-      })() : (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-          <button
-            onClick={() => setFolderTab("all")}
-            className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-              folderTab === "all"
-                ? "bg-accent-blue text-white border-accent-blue shadow"
-                : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
-            }`}
-          >
-            전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
-          </button>
-          <button
-            onClick={() => setFolderTab("none")}
-            className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-              folderTab === "none"
-                ? "bg-accent-blue text-white border-accent-blue shadow"
-                : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
-            }`}
-          >
-            기본 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
-          </button>
-          {(folders as any[]).map((f: any) => {
-            const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
-            return (
-              <button
-                key={f.id}
-                onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)}
-                className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                  folderTab === f.id
-                    ? "bg-accent-blue text-white border-accent-blue shadow"
-                    : "border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary bg-bg-card"
-                }`}
-              >
-                {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      })() : (() => {
+        const tabBtnCls = (active: boolean) =>
+          `flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
+            active ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
+          }`;
+        return (
+          <div className="flex overflow-x-auto scrollbar-hide rounded-lg border border-border w-fit max-w-full">
+            <button onClick={() => setFolderTab("all")} className={tabBtnCls(folderTab === "all")}>
+              전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
+            </button>
+            <button onClick={() => setFolderTab("none")} className={tabBtnCls(folderTab === "none")}>
+              기본 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
+            </button>
+            {(folders as any[]).map((f: any) => {
+              const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
+              return (
+                <button key={f.id} onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)} className={tabBtnCls(folderTab === f.id)}>
+                  {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* 본문 */}
       {isPreview ? (() => {

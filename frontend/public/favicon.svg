@@ -1,7 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#0f1117"/>
-  <polyline points="8,48 20,32 30,38 44,18 56,24"
-            fill="none" stroke="#3b82f6" stroke-width="4"
-            stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="44" cy="18" r="4" fill="#10b981"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="54" x2="0" y2="16" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <rect x="7"  y="40" width="8" height="14" rx="2.5" fill="rgba(255,255,255,0.30)"/>
+  <rect x="19" y="32" width="8" height="22" rx="2.5" fill="rgba(255,255,255,0.55)"/>
+  <rect x="31" y="24" width="8" height="30" rx="2.5" fill="rgba(255,255,255,0.80)"/>
+  <rect x="43" y="16" width="8" height="38" rx="2.5" fill="url(#accent)"/>
+  <circle cx="47" cy="11" r="3.5" fill="#22d3ee"/>
 </svg>

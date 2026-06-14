@@ -239,8 +239,8 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     _add_trending_score(all_news)
     # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순, 나머지는 언론사 다양성 확보를 위해 인터리브
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    top      = all_news[:10]    # 최신 10개는 시간순
-    rest     = _interleave_by_source(all_news[10:])  # 나머지는 언론사별 균등 배치
+    top      = all_news[:6]     # 최신 6개는 시간순
+    rest     = _interleave_by_source(all_news[6:])  # 나머지는 언론사별 균등 배치
     result   = (top + rest)[:total_limit]
     for a in result:
         a.pop("_ts", None)
@@ -249,7 +249,7 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     return result
 
 
-def get_kr_news(limit_per_source: int = 20, total_limit: int = 400) -> list[dict]:
+def get_kr_news(limit_per_source: int = 24, total_limit: int = 500) -> list[dict]:
     ck = "news:kr"
     if c := cache.get(ck):
         return c
@@ -261,7 +261,7 @@ def get_kr_news(limit_per_source: int = 20, total_limit: int = 400) -> list[dict
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
-def get_us_news(limit_per_source: int = 16, total_limit: int = 250) -> list[dict]:
+def get_us_news(limit_per_source: int = 20, total_limit: int = 300) -> list[dict]:
     ck = "news:us"
     if c := cache.get(ck):
         return c

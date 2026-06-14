@@ -1,6 +1,12 @@
 import logging
 import re
+import secrets
+from datetime import timedelta
+from urllib.parse import urlencode
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -9,8 +15,10 @@ from slowapi.util import get_remote_address
 
 log = logging.getLogger(__name__)
 
+from app.core.config import settings
 from app.core.deps import get_current_user, require_user
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.oauth import PROVIDERS, make_username, parse_userinfo
+from app.core.security import create_access_token, decode_token, hash_password, verify_password
 from app.db.database import get_db
 from app.models.user import User
 
@@ -124,3 +132,115 @@ def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
 def me(current_user: User = Depends(require_user)):
     """Bearer 토큰으로 현재 로그인된 유저 정보 반환"""
     return current_user
+
+
+# ── 소셜 로그인 (OAuth 2.0) ────────────────────────────────────────
+def _frontend_url() -> str:
+    return settings.FRONTEND_URL.split(",")[0].strip()
+
+
+def _redirect_uri(provider: str) -> str:
+    return f"{settings.OAUTH_REDIRECT_BASE}/api/v1/auth/oauth/{provider}/callback"
+
+
+@router.get("/oauth/{provider}/login")
+@limiter.limit("20/minute")
+def oauth_login(request: Request, provider: str):
+    """소셜 로그인 시작 — 공급자 인증 페이지로 리다이렉트"""
+    cfg = PROVIDERS.get(provider)
+    if not cfg or not cfg["client_id"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="지원하지 않는 로그인 방식입니다")
+
+    state = create_access_token(data={"oauth_provider": provider}, expires_delta=timedelta(minutes=10))
+    params = {
+        "client_id": cfg["client_id"],
+        "redirect_uri": _redirect_uri(provider),
+        "response_type": "code",
+        "state": state,
+    }
+    if cfg["scope"]:
+        params["scope"] = cfg["scope"]
+    return RedirectResponse(f"{cfg['authorize_url']}?{urlencode(params)}")
+
+
+@router.get("/oauth/{provider}/callback")
+@limiter.limit("20/minute")
+def oauth_callback(
+    request: Request,
+    provider: str,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: Session = Depends(get_db),
+):
+    """소셜 로그인 콜백 — 코드 교환 후 사용자 조회/생성하고 프론트엔드로 토큰과 함께 리다이렉트"""
+    frontend = _frontend_url()
+    cfg = PROVIDERS.get(provider)
+    if not cfg or not cfg["client_id"]:
+        return RedirectResponse(f"{frontend}/login?oauth_error=unsupported")
+    if error or not code:
+        return RedirectResponse(f"{frontend}/login?oauth_error=denied")
+
+    payload = decode_token(state)
+    if not payload or payload.get("oauth_provider") != provider:
+        return RedirectResponse(f"{frontend}/login?oauth_error=invalid_state")
+
+    token_data = {
+        "grant_type": "authorization_code",
+        "client_id": cfg["client_id"],
+        "client_secret": cfg["client_secret"],
+        "redirect_uri": _redirect_uri(provider),
+        "code": code,
+    }
+    if provider == "naver":
+        token_data["state"] = state
+
+    try:
+        with httpx.Client(timeout=10) as client:
+            token_resp = client.post(cfg["token_url"], data=token_data, headers={"Accept": "application/json"})
+            token_resp.raise_for_status()
+            access_token = token_resp.json().get("access_token")
+            if not access_token:
+                raise ValueError("토큰 발급 실패")
+
+            userinfo_resp = client.get(cfg["userinfo_url"], headers={"Authorization": f"Bearer {access_token}"})
+            userinfo_resp.raise_for_status()
+            info = userinfo_resp.json()
+    except Exception as e:
+        log.error(f"OAuth 콜백 오류 ({provider}): {type(e).__name__}")
+        return RedirectResponse(f"{frontend}/login?oauth_error=provider_error")
+
+    oauth_id, email, display_name = parse_userinfo(provider, info)
+    if not oauth_id:
+        return RedirectResponse(f"{frontend}/login?oauth_error=no_user_info")
+
+    user = db.query(User).filter(User.oauth_provider == provider, User.oauth_id == oauth_id).first()
+    if not user:
+        if email and db.query(User).filter(User.email == email).first():
+            return RedirectResponse(f"{frontend}/login?oauth_error=email_exists")
+        try:
+            user = User(
+                username=make_username(db, provider, display_name),
+                email=email,
+                hashed_password=hash_password(secrets.token_urlsafe(32)),
+                oauth_provider=provider,
+                oauth_id=oauth_id,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        except Exception as e:
+            db.rollback()
+            log.error(f"OAuth 회원가입 오류 ({provider}): {type(e).__name__}")
+            return RedirectResponse(f"{frontend}/login?oauth_error=signup_failed")
+
+    if not user.is_active:
+        return RedirectResponse(f"{frontend}/login?oauth_error=inactive")
+
+    token_resp = _make_token_response(user)
+    params = urlencode({
+        "token": token_resp.access_token,
+        "user_id": token_resp.user_id,
+        "username": token_resp.username,
+    })
+    return RedirectResponse(f"{frontend}/oauth/callback?{params}")

@@ -59,6 +59,8 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("watchlist_items", "position",  "INTEGER DEFAULT 0")
         _add_col_if_missing("watchlist_items", "memo",      "VARCHAR(200)")
         _add_col_if_missing("screening_presets", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
+        _add_col_if_missing("users", "oauth_provider", "VARCHAR(20)")
+        _add_col_if_missing("users", "oauth_id", "VARCHAR(100)")
 
         def _add_index_if_missing(table: str, col: str):
             if table not in tables:
@@ -78,6 +80,8 @@ async def lifespan(application: FastAPI):
             ("strategies", "user_id"),
             ("backtest_results", "strategy_id"),
             ("screening_presets", "user_id"),
+            ("users", "oauth_provider"),
+            ("users", "oauth_id"),
         ]:
             _add_index_if_missing(_table, _col)
 
