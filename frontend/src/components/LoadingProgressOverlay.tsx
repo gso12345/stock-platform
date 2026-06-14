@@ -1,16 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2, X } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import Logo from "./Logo";
 
-const MAX_VISIBLE_MS = 8000; // 일부 항목이 지연돼도 최대 이 시간 후엔 닫힘
-
 /** 앱 진입 시 핵심 데이터(대시보드/뉴스/보유종목/관심종목) 로딩 진행률 표시 */
 export default function LoadingProgressOverlay() {
   const { isLoggedIn, userId } = useAuthStore();
-  const [visible, setVisible] = useState(true);
+  const [closed, setClosed] = useState(false);
 
   const dashKR = useQuery({ queryKey: ["dashboard-kr", "시가총액"], queryFn: () => dashboardApi.getKR("시가총액"), staleTime: 60_000 });
   const dashUS = useQuery({ queryKey: ["dashboard-us", "시가총액"], queryFn: () => dashboardApi.getUS("시가총액"), staleTime: 60_000 });
@@ -32,26 +30,21 @@ export default function LoadingProgressOverlay() {
   const total = allQueries.length;
   const done = allQueries.filter((q) => q.isSuccess || q.isError).length;
   const percent = total > 0 ? Math.round((done / total) * 100) : 100;
+  const allDone = percent >= 100;
 
-  // 모든 항목 로딩 완료 시 잠시 후 닫기
-  useEffect(() => {
-    if (percent >= 100) {
-      const t = setTimeout(() => setVisible(false), 400);
-      return () => clearTimeout(t);
-    }
-  }, [percent]);
-
-  // 안전장치: 일부 항목이 계속 지연돼도 최대 시간 후 자동 닫기
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(false), MAX_VISIBLE_MS);
-    return () => clearTimeout(t);
-  }, []);
-
-  if (!visible) return null;
+  if (closed) return null;
 
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 fade-in">
-      <div className="w-full max-w-xs bg-bg-card border border-border rounded-2xl shadow-2xl p-6 flex flex-col items-center gap-4">
+      <div className="relative w-full max-w-xs bg-bg-card border border-border rounded-2xl shadow-2xl p-6 flex flex-col items-center gap-4">
+        <button
+          onClick={() => setClosed(true)}
+          aria-label="닫기"
+          className="absolute top-3 right-3 p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
+        >
+          <X size={15} />
+        </button>
+
         <div className="flex items-center gap-2">
           <Logo size={28} />
           <div className="flex items-center gap-1.5">
@@ -59,7 +52,9 @@ export default function LoadingProgressOverlay() {
             <span className="text-2xs font-bold px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue leading-none">BETA</span>
           </div>
         </div>
-        <p className="text-xs text-text-muted -mt-1">데이터를 불러오고 있어요</p>
+        <p className="text-xs text-text-muted -mt-1">
+          {allDone ? "모든 데이터를 불러왔어요" : "데이터를 불러오고 있어요"}
+        </p>
 
         <div className="w-full">
           <div className="w-full h-2 rounded-full bg-bg-elevated overflow-hidden">
