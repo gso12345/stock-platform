@@ -42,6 +42,12 @@ queryClient.prefetchQuery({
   queryFn: () => dashboardApi.getUS("시가총액"),
   staleTime: 60_000,
 });
+// 환율/금리 — 대시보드 KR/US 탭 + 포트폴리오에서 공통 사용
+queryClient.prefetchQuery({
+  queryKey: ["dashboard-us-rates"],
+  queryFn: () => dashboardApi.getUSRates(),
+  staleTime: 300_000,
+});
 // 뉴스 탭 선제 프리페치 — 진입 시 즉시 표시되도록
 queryClient.prefetchQuery({
   queryKey: ["news", "kr"],
