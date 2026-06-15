@@ -214,7 +214,8 @@ def _add_trending_score(articles: list) -> list:
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     """피드 목록을 병렬로 fetch (ThreadPoolExecutor 사용)"""
     all_news = []
-    with ThreadPoolExecutor(max_workers=min(len(feeds), 24)) as executor:
+    executor = ThreadPoolExecutor(max_workers=min(len(feeds), 24))
+    try:
         futures = {
             executor.submit(_parse_feed, url, source, limit_per_source): source
             for source, url in feeds
@@ -228,6 +229,10 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
                     pass
         except Exception:
             pass
+    finally:
+        # wait=False: 응답 시한(10s)을 넘긴 느린 피드 스레드는 백그라운드에서
+        # 마무리되도록 두고 즉시 반환 (with 블록은 모든 스레드 종료까지 대기해 타임아웃을 무력화함)
+        executor.shutdown(wait=False)
     return all_news
 
 

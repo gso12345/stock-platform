@@ -799,27 +799,30 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            f_ee = pool.submit(_get_ee)
-            f_re = pool.submit(_get_re)
-            f_et = pool.submit(_get_et)
-            f_ge = pool.submit(_get_ge)
-            try:
-                ee = f_ee.result(timeout=12)
-            except Exception:
-                ee = None
-            try:
-                re_ = f_re.result(timeout=12)
-            except Exception:
-                re_ = None
-            try:
-                et = f_et.result(timeout=12)
-            except Exception:
-                et = None
-            try:
-                ge = f_ge.result(timeout=12)
-            except Exception:
-                ge = None
+        # with 블록은 종료 시 모든 작업 완료까지 대기해 result(timeout=) 효과를 무력화하므로
+        # shutdown(wait=False)로 응답 시한을 넘긴 작업은 백그라운드에 두고 즉시 반환
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+        f_ee = pool.submit(_get_ee)
+        f_re = pool.submit(_get_re)
+        f_et = pool.submit(_get_et)
+        f_ge = pool.submit(_get_ge)
+        try:
+            ee = f_ee.result(timeout=12)
+        except Exception:
+            ee = None
+        try:
+            re_ = f_re.result(timeout=12)
+        except Exception:
+            re_ = None
+        try:
+            et = f_et.result(timeout=12)
+        except Exception:
+            et = None
+        try:
+            ge = f_ge.result(timeout=12)
+        except Exception:
+            ge = None
+        pool.shutdown(wait=False)
 
         annual: dict = {}
         quarterly: dict = {}
@@ -1231,37 +1234,40 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-            f_apt  = pool.submit(_get_apt)
-            f_rs   = pool.submit(_get_rs)
-            f_ud   = pool.submit(_get_ud)
-            f_fund = pool.submit(_get_fund)
-            f_fhpt = pool.submit(_get_fh_pt)
-            f_fhrec= pool.submit(_get_fh_rec)
-            try:
-                apt = f_apt.result(timeout=12)
-            except Exception:
-                apt = None
-            try:
-                rs = f_rs.result(timeout=12)
-            except Exception:
-                rs = None
-            try:
-                ud = f_ud.result(timeout=12)
-            except Exception:
-                ud = None
-            try:
-                fund = f_fund.result(timeout=12)
-            except Exception:
-                fund = None
-            try:
-                fh_pt = f_fhpt.result(timeout=12)
-            except Exception:
-                fh_pt = None
-            try:
-                fh_rec = f_fhrec.result(timeout=12)
-            except Exception:
-                fh_rec = None
+        # with 블록은 종료 시 모든 작업 완료까지 대기해 result(timeout=) 효과를 무력화하므로
+        # shutdown(wait=False)로 응답 시한을 넘긴 작업은 백그라운드에 두고 즉시 반환
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+        f_apt  = pool.submit(_get_apt)
+        f_rs   = pool.submit(_get_rs)
+        f_ud   = pool.submit(_get_ud)
+        f_fund = pool.submit(_get_fund)
+        f_fhpt = pool.submit(_get_fh_pt)
+        f_fhrec= pool.submit(_get_fh_rec)
+        try:
+            apt = f_apt.result(timeout=12)
+        except Exception:
+            apt = None
+        try:
+            rs = f_rs.result(timeout=12)
+        except Exception:
+            rs = None
+        try:
+            ud = f_ud.result(timeout=12)
+        except Exception:
+            ud = None
+        try:
+            fund = f_fund.result(timeout=12)
+        except Exception:
+            fund = None
+        try:
+            fh_pt = f_fhpt.result(timeout=12)
+        except Exception:
+            fh_pt = None
+        try:
+            fh_rec = f_fhrec.result(timeout=12)
+        except Exception:
+            fh_rec = None
+        pool.shutdown(wait=False)
 
         result: dict = {}
 
