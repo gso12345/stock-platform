@@ -1029,8 +1029,6 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 if not title:
                     continue
                 image = _extract_thumbnail(entry)
-                if not image:
-                    continue
                 source = (entry.get("source") or {}).get("title", "")
                 items.append({
                     "title": title,
