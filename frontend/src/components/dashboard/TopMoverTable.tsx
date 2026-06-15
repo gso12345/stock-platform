@@ -30,7 +30,7 @@ export function TopMoverTable({ title, items, type }: Props) {
         </thead>
         <tbody>
           {items.map((item, i) => (
-            <tr key={i} className="border-b border-border/40 hover:bg-bg-hover transition-colors">
+            <tr key={item.mksc_shrn_iscd || i} className="border-b border-border/40 hover:bg-bg-hover transition-colors">
               <td className="py-1.5 text-text-primary font-medium">
                 {item.hts_kor_isnm || item.mksc_shrn_iscd}
               </td>

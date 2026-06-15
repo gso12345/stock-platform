@@ -3,15 +3,18 @@
 - 한국: Naver 자동완성 API (전체 KRX 종목)
 - 미국: Finnhub 전 종목 검색 → 내장 DB 폴백
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 import httpx
 import asyncio
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from app.services.ticker_service import search_stocks
 from app.services.finnhub_service import finnhub_service
 from app.core.cache import cache
 from app.core.config import settings
 
 router = APIRouter(prefix="/search", tags=["검색"])
+limiter = Limiter(key_func=get_remote_address)
 
 NAVER_AC_URL = "https://ac.stock.naver.com/ac"
 NAVER_HEADERS = {
@@ -54,7 +57,9 @@ async def _naver_search(q: str) -> list[dict]:
 
 
 @router.get("")
+@limiter.limit("30/minute")
 async def search_route(
+    request: Request,
     q: str = Query(..., min_length=1, max_length=50),
     market: str = Query(default="ALL", pattern="^(ALL|KR|US|ETF)$"),
 ):
@@ -98,7 +103,8 @@ async def search_route(
 
 
 @router.get("/batch-prices")
-def batch_prices(symbols: str = Query(..., max_length=500)):
+@limiter.limit("60/minute")
+def batch_prices(request: Request, symbols: str = Query(..., max_length=500)):
     """여러 종목 캐시 가격 일괄 조회"""
     sym_list = [s.strip() for s in symbols.split(",") if s.strip()][:30]
     result = {}
@@ -113,7 +119,8 @@ def batch_prices(symbols: str = Query(..., max_length=500)):
 
 
 @router.get("/suggest")
-async def suggest(q: str = Query(..., min_length=1, max_length=50)):
+@limiter.limit("30/minute")
+async def suggest(request: Request, q: str = Query(..., min_length=1, max_length=50)):
     """자동완성 — 상위 5개"""
     kr = await _naver_search(q)
     if settings.FINNHUB_API_KEY:

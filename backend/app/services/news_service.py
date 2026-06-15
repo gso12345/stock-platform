@@ -256,8 +256,11 @@ def _interleave_by_source(articles: list) -> list:
 
 def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
     all_news = _fetch_all_feeds(feeds, limit_per_source)
+    stale = cache.get_stale(ck)
     if not all_news:
-        return []
+        # 전체 피드 실패 시에도 _refreshing을 해제해야 다음 요청에서 재시도 가능
+        _refreshing.pop(ck, None)
+        return stale or []
     _add_trending_score(all_news)
     # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순, 나머지는 언론사 다양성 확보를 위해 인터리브
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
@@ -266,6 +269,15 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     result   = (top + rest)[:total_limit]
     for a in result:
         a.pop("_ts", None)
+    # 일부 피드 타임아웃으로 기사 수가 부족하면 이전 캐시 기사로 보충 (링크 기준 중복 제거, 최신 우선)
+    if stale and len(result) < total_limit:
+        seen = {a.get("link") for a in result if a.get("link")}
+        for a in stale:
+            if a.get("link") not in seen:
+                result.append(a)
+                seen.add(a.get("link"))
+                if len(result) >= total_limit:
+                    break
     cache.set(ck, result, 300)
     _refreshing.pop(ck, None)
     return result

@@ -54,6 +54,14 @@ def _ensure_watchlist(db: Session, user_id: Optional[int] = None) -> Watchlist:
     return wl
 
 
+def _valid_folder_id(db: Session, folder_id: int, user_id: int) -> bool:
+    """folder_id가 현재 유저 소유(또는 공유 폴더)인지 확인 — 타 유저 폴더로의 IDOR 방지"""
+    return db.query(WatchlistFolder).filter(
+        WatchlistFolder.id == folder_id,
+        (WatchlistFolder.user_id == user_id) | (WatchlistFolder.user_id == None),
+    ).first() is not None
+
+
 def _item_to_dict(item: WatchlistItem) -> dict:
     return {
         "id":          item.id,
@@ -341,6 +349,8 @@ def add_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
+    if req.folder_id is not None and not _valid_folder_id(db, req.folder_id, current_user.id):
+        raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
     wl = _ensure_watchlist(db, user_id=current_user.id)
     existing = db.query(WatchlistItem).filter(
         WatchlistItem.watchlist_id == wl.id,
@@ -403,6 +413,8 @@ def update_item(
     if req.clear_folder:
         item.folder_id = None
     elif req.folder_id is not None:
+        if not _valid_folder_id(db, req.folder_id, current_user.id):
+            raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
         item.folder_id = req.folder_id
     db.commit()
     return _item_to_dict(item)

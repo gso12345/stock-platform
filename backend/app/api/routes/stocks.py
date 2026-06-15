@@ -724,6 +724,11 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
             try:
                 loop2 = asyncio.get_running_loop()
                 r = await asyncio.wait_for(loop2.run_in_executor(None, _fetch), timeout=60)
+                # 이번에 일부 기간/필드가 비어오면 이전 캐시값으로 보강 (정확도 유지)
+                r = {
+                    "annual":    _merge_forecast_lists(r.get("annual", []),    _stale_mh.get("annual", [])),
+                    "quarterly": _merge_forecast_lists(r.get("quarterly", []), _stale_mh.get("quarterly", [])),
+                }
                 cache.set(ck, r, 3600)
             except Exception:
                 pass
@@ -736,7 +741,10 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
         result = await asyncio.wait_for(loop.run_in_executor(None, _fetch), timeout=60)
     except asyncio.TimeoutError:
         result = {"annual": [], "quarterly": []}
-    cache.set(ck, result, 3600)
+    if result.get("annual") or result.get("quarterly"):
+        cache.set(ck, result, 3600)
+    else:
+        cache.set(ck, result, 60)  # 완전 실패 시 짧게 캐시해 빠른 재시도 허용
     return result
 
 
