@@ -760,6 +760,26 @@ def _period_to_label(code: str) -> tuple[str, str] | None:
     return (f"{global_idx // 4}-Q{global_idx % 4 + 1}", "quarterly")
 
 
+def _merge_forecast_lists(new_list: list, stale_list: list) -> list:
+    """기간(period)별로 병합 — 새로 받아온 값을 우선하고, 이번에 타임아웃 등으로
+    빠진 항목/필드는 이전 캐시 값으로 채워 정확도를 유지"""
+    if not stale_list:
+        return new_list
+    stale_map = {item.get("period"): item for item in stale_list}
+    seen = set()
+    merged = []
+    for item in new_list:
+        period = item.get("period")
+        seen.add(period)
+        base = dict(stale_map.get(period, {}))
+        base.update({k: v for k, v in item.items() if v is not None})
+        merged.append(base)
+    for period, item in stale_map.items():
+        if period not in seen:
+            merged.append(item)
+    return sorted(merged, key=lambda x: x.get("period", ""))
+
+
 @router.get("/{market}/{symbol}/forecasts")
 async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률"""
@@ -767,6 +787,7 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     ck = f"forecasts:v3:{symbol}"
     if c := cache.get(ck):
         return c
+    stale = cache.get_stale(ck)
 
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
@@ -908,6 +929,11 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
         }
 
     result = await _run(_fetch)
+    if stale:
+        result = {
+            "annual":    _merge_forecast_lists(result.get("annual", []),    stale.get("annual", [])),
+            "quarterly": _merge_forecast_lists(result.get("quarterly", []), stale.get("quarterly", [])),
+        }
     cache.set(ck, result, 3600)
     return result
 
@@ -1495,6 +1521,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 naver_r = await _fetch_kr_analyst()
                 r2 = {**r2, **naver_r}
                 _enrich_analyst_fallback(r2, symbol, market)
+                _fill_analyst_gaps(r2, stale_analyst)
                 if r2:
                     cache.set(ck, r2, 86400)
             except Exception:
@@ -1517,12 +1544,22 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         result = {**result, **naver_analyst}
 
     _enrich_analyst_fallback(result, symbol, market)
+    _fill_analyst_gaps(result, stale_analyst)
 
     if result:
         cache.set(ck, result, 86400)
     elif stale_analyst:
         return stale_analyst
     return result or {}
+
+
+def _fill_analyst_gaps(result: dict, stale: dict | None):
+    """이번 조회에서 타임아웃 등으로 빠진 항목을 이전 캐시 값으로 채워 정확도 유지 (새 값이 우선)"""
+    if not stale:
+        return
+    for k, v in stale.items():
+        if not result.get(k) and v:
+            result[k] = v
 
 
 def _enrich_analyst_fallback(result: dict, symbol: str, market: str):
