@@ -178,10 +178,10 @@ export function calcWilliams(data: OHLCV[], period = 14): TimedValue[] {
 }
 
 /* ── 거래량 ─────────────────────────────────────────── */
-export function calcVolume(data: OHLCV[]) {
+export function calcVolume(data: OHLCV[], upColor = "rgba(16,185,129,0.5)", downColor = "rgba(239,68,68,0.5)") {
   return data.map(d => ({
     time:  t(d),
     value: d.volume,
-    color: d.close >= d.open ? "rgba(16,185,129,0.5)" : "rgba(239,68,68,0.5)",
+    color: d.close >= d.open ? upColor : downColor,
   }));
 }

@@ -263,7 +263,7 @@ const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
         ))}
       </div>
       {shown.map((item: any, i: number) => (
-        <a key={i} href={item.link} target="_blank" rel="noopener noreferrer"
+        <a key={item.link || i} href={item.link} target="_blank" rel="noopener noreferrer"
           className="flex flex-col gap-0.5 py-2.5 px-1 border-b border-border/40 hover:bg-bg-hover transition-colors group">
           <div className="flex items-start gap-2">
             <span className="flex-1 text-xs text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2 leading-relaxed">

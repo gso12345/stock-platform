@@ -724,6 +724,11 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
             try:
                 loop2 = asyncio.get_running_loop()
                 r = await asyncio.wait_for(loop2.run_in_executor(None, _fetch), timeout=60)
+                # 이번에 일부 기간/필드가 비어오면 이전 캐시값으로 보강 (정확도 유지)
+                r = {
+                    "annual":    _merge_forecast_lists(r.get("annual", []),    _stale_mh.get("annual", [])),
+                    "quarterly": _merge_forecast_lists(r.get("quarterly", []), _stale_mh.get("quarterly", [])),
+                }
                 cache.set(ck, r, 3600)
             except Exception:
                 pass
@@ -736,7 +741,10 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
         result = await asyncio.wait_for(loop.run_in_executor(None, _fetch), timeout=60)
     except asyncio.TimeoutError:
         result = {"annual": [], "quarterly": []}
-    cache.set(ck, result, 3600)
+    if result.get("annual") or result.get("quarterly"):
+        cache.set(ck, result, 3600)
+    else:
+        cache.set(ck, result, 60)  # 완전 실패 시 짧게 캐시해 빠른 재시도 허용
     return result
 
 
@@ -760,6 +768,26 @@ def _period_to_label(code: str) -> tuple[str, str] | None:
     return (f"{global_idx // 4}-Q{global_idx % 4 + 1}", "quarterly")
 
 
+def _merge_forecast_lists(new_list: list, stale_list: list) -> list:
+    """기간(period)별로 병합 — 새로 받아온 값을 우선하고, 이번에 타임아웃 등으로
+    빠진 항목/필드는 이전 캐시 값으로 채워 정확도를 유지"""
+    if not stale_list:
+        return new_list
+    stale_map = {item.get("period"): item for item in stale_list}
+    seen = set()
+    merged = []
+    for item in new_list:
+        period = item.get("period")
+        seen.add(period)
+        base = dict(stale_map.get(period, {}))
+        base.update({k: v for k, v in item.items() if v is not None})
+        merged.append(base)
+    for period, item in stale_map.items():
+        if period not in seen:
+            merged.append(item)
+    return sorted(merged, key=lambda x: x.get("period", ""))
+
+
 @router.get("/{market}/{symbol}/forecasts")
 async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률"""
@@ -767,6 +795,7 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
     ck = f"forecasts:v3:{symbol}"
     if c := cache.get(ck):
         return c
+    stale = cache.get_stale(ck)
 
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
@@ -799,27 +828,30 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            f_ee = pool.submit(_get_ee)
-            f_re = pool.submit(_get_re)
-            f_et = pool.submit(_get_et)
-            f_ge = pool.submit(_get_ge)
-            try:
-                ee = f_ee.result(timeout=12)
-            except Exception:
-                ee = None
-            try:
-                re_ = f_re.result(timeout=12)
-            except Exception:
-                re_ = None
-            try:
-                et = f_et.result(timeout=12)
-            except Exception:
-                et = None
-            try:
-                ge = f_ge.result(timeout=12)
-            except Exception:
-                ge = None
+        # with 블록은 종료 시 모든 작업 완료까지 대기해 result(timeout=) 효과를 무력화하므로
+        # shutdown(wait=False)로 응답 시한을 넘긴 작업은 백그라운드에 두고 즉시 반환
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+        f_ee = pool.submit(_get_ee)
+        f_re = pool.submit(_get_re)
+        f_et = pool.submit(_get_et)
+        f_ge = pool.submit(_get_ge)
+        try:
+            ee = f_ee.result(timeout=12)
+        except Exception:
+            ee = None
+        try:
+            re_ = f_re.result(timeout=12)
+        except Exception:
+            re_ = None
+        try:
+            et = f_et.result(timeout=12)
+        except Exception:
+            et = None
+        try:
+            ge = f_ge.result(timeout=12)
+        except Exception:
+            ge = None
+        pool.shutdown(wait=False)
 
         annual: dict = {}
         quarterly: dict = {}
@@ -905,6 +937,11 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
         }
 
     result = await _run(_fetch)
+    if stale:
+        result = {
+            "annual":    _merge_forecast_lists(result.get("annual", []),    stale.get("annual", [])),
+            "quarterly": _merge_forecast_lists(result.get("quarterly", []), stale.get("quarterly", [])),
+        }
     cache.set(ck, result, 3600)
     return result
 
@@ -1029,8 +1066,6 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 if not title:
                     continue
                 image = _extract_thumbnail(entry)
-                if not image:
-                    continue
                 source = (entry.get("source") or {}).get("title", "")
                 items.append({
                     "title": title,
@@ -1233,37 +1268,40 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-            f_apt  = pool.submit(_get_apt)
-            f_rs   = pool.submit(_get_rs)
-            f_ud   = pool.submit(_get_ud)
-            f_fund = pool.submit(_get_fund)
-            f_fhpt = pool.submit(_get_fh_pt)
-            f_fhrec= pool.submit(_get_fh_rec)
-            try:
-                apt = f_apt.result(timeout=12)
-            except Exception:
-                apt = None
-            try:
-                rs = f_rs.result(timeout=12)
-            except Exception:
-                rs = None
-            try:
-                ud = f_ud.result(timeout=12)
-            except Exception:
-                ud = None
-            try:
-                fund = f_fund.result(timeout=12)
-            except Exception:
-                fund = None
-            try:
-                fh_pt = f_fhpt.result(timeout=12)
-            except Exception:
-                fh_pt = None
-            try:
-                fh_rec = f_fhrec.result(timeout=12)
-            except Exception:
-                fh_rec = None
+        # with 블록은 종료 시 모든 작업 완료까지 대기해 result(timeout=) 효과를 무력화하므로
+        # shutdown(wait=False)로 응답 시한을 넘긴 작업은 백그라운드에 두고 즉시 반환
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+        f_apt  = pool.submit(_get_apt)
+        f_rs   = pool.submit(_get_rs)
+        f_ud   = pool.submit(_get_ud)
+        f_fund = pool.submit(_get_fund)
+        f_fhpt = pool.submit(_get_fh_pt)
+        f_fhrec= pool.submit(_get_fh_rec)
+        try:
+            apt = f_apt.result(timeout=12)
+        except Exception:
+            apt = None
+        try:
+            rs = f_rs.result(timeout=12)
+        except Exception:
+            rs = None
+        try:
+            ud = f_ud.result(timeout=12)
+        except Exception:
+            ud = None
+        try:
+            fund = f_fund.result(timeout=12)
+        except Exception:
+            fund = None
+        try:
+            fh_pt = f_fhpt.result(timeout=12)
+        except Exception:
+            fh_pt = None
+        try:
+            fh_rec = f_fhrec.result(timeout=12)
+        except Exception:
+            fh_rec = None
+        pool.shutdown(wait=False)
 
         result: dict = {}
 
@@ -1491,6 +1529,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 naver_r = await _fetch_kr_analyst()
                 r2 = {**r2, **naver_r}
                 _enrich_analyst_fallback(r2, symbol, market)
+                _fill_analyst_gaps(r2, stale_analyst)
                 if r2:
                     cache.set(ck, r2, 86400)
             except Exception:
@@ -1513,12 +1552,22 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         result = {**result, **naver_analyst}
 
     _enrich_analyst_fallback(result, symbol, market)
+    _fill_analyst_gaps(result, stale_analyst)
 
     if result:
         cache.set(ck, result, 86400)
     elif stale_analyst:
         return stale_analyst
     return result or {}
+
+
+def _fill_analyst_gaps(result: dict, stale: dict | None):
+    """이번 조회에서 타임아웃 등으로 빠진 항목을 이전 캐시 값으로 채워 정확도 유지 (새 값이 우선)"""
+    if not stale:
+        return
+    for k, v in stale.items():
+        if not result.get(k) and v:
+            result[k] = v
 
 
 def _enrich_analyst_fallback(result: dict, symbol: str, market: str):

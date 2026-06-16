@@ -6,6 +6,7 @@
 """
 import httpx
 import yfinance as yf
+from concurrent.futures import ThreadPoolExecutor
 from app.core.config import settings
 from app.core.cache import cache
 
@@ -188,7 +189,21 @@ def _do_fetch_kr_rates() -> list:
         ("^TNX",  "미국 10년 국채",        "%"),
         ("^TYX",  "미국 30년 국채",        "%"),
     ]
-    close_data = _batch_close([s[0] for s in rate_specs])
+    # yfinance 배치 조회와 네이버 기준금리 조회를 병렬화 — 순차 대비 응답 시간 단축
+    ex = ThreadPoolExecutor(max_workers=2)
+    try:
+        f_close = ex.submit(_batch_close, [s[0] for s in rate_specs])
+        f_naver = ex.submit(_fetch_kr_base_cd)
+        try:
+            close_data = f_close.result(timeout=15)
+        except Exception:
+            close_data = None
+        try:
+            naver_base, naver_cd = f_naver.result(timeout=10)
+        except Exception:
+            naver_base, naver_cd = None, None
+    finally:
+        ex.shutdown(wait=False)
 
     rates = []
     for sym, name, unit in rate_specs:
@@ -202,8 +217,6 @@ def _do_fetch_kr_rates() -> list:
                           "change": round(curr - prev, 3), "change_rate": round(curr - prev, 3), "unit": unit})
         except Exception:
             continue
-
-    naver_base, naver_cd = _fetch_kr_base_cd()
 
     kr_base = naver_base or cache.get_stale("extra:kr_base_rate") or \
         {"name":"한국 기준금리","value":3.50,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
@@ -271,7 +284,21 @@ def _do_fetch_us_rates() -> list:
         ("^TYX",      "미국 30년 국채",    "%",   True),
         ("^VIX",      "VIX 공포지수",      "pt",  False),
     ]
-    close_data = _batch_close([s[0] for s in specs])  # 8회 → 1회 배치
+    # yfinance 배치 조회와 연준 기준금리 조회를 병렬화 — 순차 대비 응답 시간 단축
+    ex = ThreadPoolExecutor(max_workers=2)
+    try:
+        f_close = ex.submit(_batch_close, [s[0] for s in specs])  # 8회 → 1회 배치
+        f_fed = ex.submit(_fetch_fed_rate)
+        try:
+            close_data = f_close.result(timeout=15)
+        except Exception:
+            close_data = None
+        try:
+            fed_fetched = f_fed.result(timeout=10)
+        except Exception:
+            fed_fetched = None
+    finally:
+        ex.shutdown(wait=False)
 
     results = []
     for sym, name, unit, is_rate in specs:
@@ -292,7 +319,7 @@ def _do_fetch_us_rates() -> list:
         except Exception:
             continue
 
-    fed = _fetch_fed_rate() or cache.get_stale("extra:fed_rate") or {
+    fed = fed_fetched or cache.get_stale("extra:fed_rate") or {
         "name": "연방기준금리", "value": 5.25,
         "change": 0.0, "change_rate": 0.0, "unit": "%", "_static": True,
     }

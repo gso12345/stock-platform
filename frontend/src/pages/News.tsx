@@ -150,7 +150,7 @@ export default function News() {
           <>
             <ul>
               {shown.map((item: any, i: number) => (
-                <NewsItem key={i} item={item} />
+                <NewsItem key={item.link || i} item={item} />
               ))}
             </ul>
             {remaining > 0 && (

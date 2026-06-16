@@ -69,6 +69,9 @@ class FinnhubService:
         if c := cache.get(ck):
             return c
         d = self._get("/stock/profile2", {"symbol": symbol})
+        if not d:
+            # API 오류/타임아웃 시 빈 데이터로 캐시하지 않고 이전 값 유지 (정확도 보존)
+            return cache.get_stale(ck) or {}
         result = {
             "name":     d.get("name"),
             "exchange": d.get("exchange"),
@@ -90,7 +93,10 @@ class FinnhubService:
         if c := cache.get(ck):
             return c
         d = self._get("/stock/metric", {"symbol": symbol, "metric": "all"})
-        m = d.get("metric", {})
+        m = d.get("metric") or {}
+        if not m:
+            # API 오류/타임아웃 시 빈 데이터로 캐시하지 않고 이전 값 유지 (정확도 보존)
+            return cache.get_stale(ck) or {}
         def _sf(v):
             if v is None: return None
             try:

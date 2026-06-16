@@ -5,6 +5,7 @@ import {
   calcMA, calcEMA, calcBB, calcRSI, calcMACD, calcStochastic, calcVolume,
   calcCCI, calcATR, calcOBV, calcWilliams, OHLCV,
 } from "./indicators";
+import { useSettingsStore, type ColorScheme } from "@/store/settingsStore";
 
 /* ── 내보내기 (StockDetail에서 사용) ────────────────────── */
 export const CANDLE_TYPES = [
@@ -109,12 +110,22 @@ function saveSettings(s: ChartSettings) {
 }
 
 /* ── 차트 색상 ──────────────────────────────────────────── */
-function getThemeColors() {
+function hexToRgba(hex: string, alpha: number) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function getThemeColors(colorScheme: ColorScheme) {
   const isLight = typeof document !== "undefined" && document.documentElement.classList.contains("light");
+  // 상승/하락 색상 — 설정의 색상 테마(빨강/파랑 vs 초록/빨강)를 차트에도 동일하게 적용
+  const up   = colorScheme === "red-blue" ? "#ef4444" : "#10b981";
+  const down = colorScheme === "red-blue" ? "#3b82f6" : "#ef4444";
   return {
     card:   isLight ? "#ffffff" : "#1a1f2e",
     border: isLight ? "#cbd5e1" : "#232840",
-    green:  "#10b981", red: "#ef4444",
+    up, down,
     text:   isLight ? "#475569" : "#94a3b8",
     blue:   "#3b82f6",
   };
@@ -364,6 +375,7 @@ function SettingsPanel({ settings, onChange, onClose }: {
 
 /* ── 메인 컴포넌트 ──────────────────────────────────────── */
 export default function StockChart({ data, height = 400, isKR = false, chartType = "candle", logScale = false }: Props) {
+  const { colorScheme } = useSettingsStore();
   const mainRef = useRef<HTMLDivElement>(null);
   const rsiRef  = useRef<HTMLDivElement>(null);
   const macdRef = useRef<HTMLDivElement>(null);
@@ -410,7 +422,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
   /* ── 차트 전체 재생성 ─────────────────────────────────── */
   useEffect(() => {
     if (!mainRef.current || !data.length) return;
-    const C = getThemeColors();
+    const C = getThemeColors(colorScheme);
     const ohlcv = preprocessData(data);
     ohlcvRef.current = ohlcv;
     const s = settingsRef.current;
@@ -475,7 +487,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     } else if (chartType === "area") {
       main.addAreaSeries({ lineColor: C.blue, topColor: C.blue+"40", bottomColor: C.blue+"00", lineWidth: 2 }).setData(ohlcv.map(d => ({ time: ct(d), value: d.close })));
     } else {
-      main.addCandlestickSeries({ upColor: C.green, downColor: C.red, borderUpColor: C.green, borderDownColor: C.red, wickUpColor: C.green, wickDownColor: C.red })
+      main.addCandlestickSeries({ upColor: C.up, downColor: C.down, borderUpColor: C.up, borderDownColor: C.down, wickUpColor: C.up, wickDownColor: C.down })
         .setData(ohlcv.map(d => ({ time: ct(d), open: d.open, high: d.high, low: d.low, close: d.close })));
     }
 
@@ -483,7 +495,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     if (s.volume) {
       const vol = main.addHistogramSeries({ priceScaleId: "volume", color: "#3b82f620" });
       main.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-      vol.setData(calcVolume(ohlcv).map(d => ({ time: d.time as any, value: d.value, color: d.color })));
+      vol.setData(calcVolume(ohlcv, hexToRgba(C.up, 0.5), hexToRgba(C.down, 0.5)).map(d => ({ time: d.time as any, value: d.value, color: d.color })));
       overlayRef.current.set("volume", vol);
     }
 
@@ -593,7 +605,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       subRefs.current.forEach(c => { try { c.remove(); } catch {} });
       subRefs.current.clear();
     };
-  }, [data, chartType, height, isKR, settings]); // settings 변경 시 전체 재생성
+  }, [data, chartType, height, isKR, settings, colorScheme]); // settings/색상 테마 변경 시 전체 재생성
 
   /* ── 로그스케일 즉시 적용 ─────────────────────────────── */
   useEffect(() => {
