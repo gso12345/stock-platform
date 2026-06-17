@@ -7,8 +7,8 @@ function isStandaloneMode() {
   );
 }
 
-const VISIBLE_MS = 1100;
-const FADE_MS = 350;
+const VISIBLE_MS = 500;
+const FADE_MS = 200;
 
 /** 설치된 앱(PWA standalone)으로 실행했을 때만 보여주는 시작 인트로 화면 */
 export default function SplashScreen() {
