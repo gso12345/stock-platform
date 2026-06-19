@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useQueries, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { stocksApi, dashboardApi, portfolioApi } from "@/api/stocks";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { stocksApi, dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card } from "@/components/ui";
 import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn } from "lucide-react";
@@ -527,24 +527,23 @@ export default function Portfolio() {
     setActiveTab(tab);
   };
 
-  /* ── 현재가 조회 ── */
-  const priceQueries = useQueries({
-    queries: items.map((item) => ({
-      queryKey:       ["price", item.market, item.symbol],
-      queryFn:        () => stocksApi.getPrice(item.market, item.symbol),
-      staleTime:      120_000,
-      refetchInterval:120_000,
-    })),
+  /* ── 현재가 조회 (배치 1회 요청 — 종목별 개별 요청 대신) ── */
+  const { data: batchPrices, isLoading: pricesLoading } = useQuery({
+    queryKey:       ["portfolio-prices", items.map((i) => `${i.market}:${i.symbol}`).join(",")],
+    queryFn:        () => watchlistApi.getPrices(items.map((i) => i.symbol), items.map((i) => i.market)),
+    enabled:        items.length > 0,
+    staleTime:      120_000,
+    refetchInterval:120_000,
   });
 
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
     items.forEach((item, i) => {
-      const d = priceQueries[i]?.data as any;
+      const d = batchPrices?.[i] as any;
       if (d?.price != null) map[item.id] = d.price;
     });
     return map;
-  }, [items, priceQueries]);
+  }, [items, batchPrices]);
 
   /* ── KRW 환산 enriched items ── */
   const enriched = useMemo<EnrichedItem[]>(() => {
@@ -659,7 +658,7 @@ export default function Portfolio() {
     }
   };
 
-  const isLoading = itemsLoading || priceQueries.some((q) => q.isLoading);
+  const isLoading = itemsLoading || pricesLoading;
 
   /* ── 미리보기 vs 실데이터 ── */
   const displayEnriched = isLoggedIn ? sortedEnriched : PREVIEW_ENRICHED;
