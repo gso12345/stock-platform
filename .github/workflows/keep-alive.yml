@@ -13,8 +13,8 @@ jobs:
         run: |
           curl -f https://stock-platform-ksmu.onrender.com/health
           echo "Backend is alive"
-          curl -s "https://stock-platform-ksmu.onrender.com/dashboard/kr" -o /dev/null
-          curl -s "https://stock-platform-ksmu.onrender.com/dashboard/us" -o /dev/null
-          curl -s "https://stock-platform-ksmu.onrender.com/dashboard/news/kr" -o /dev/null
-          curl -s "https://stock-platform-ksmu.onrender.com/dashboard/news/us" -o /dev/null
+          curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/kr" -o /dev/null
+          curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/us" -o /dev/null
+          curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/news/kr" -o /dev/null
+          curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/news/us" -o /dev/null
           echo "Cache warmed up"
