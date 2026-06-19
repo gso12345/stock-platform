@@ -174,8 +174,6 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
                 continue
 
             image = _extract_thumbnail(entry)
-            if not image:
-                continue
 
             items.append({
                 "title":     title,
@@ -279,7 +277,7 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     _add_trending_score(all_news)
     # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순(단, 언론사별 상한 적용), 나머지는 다양성 확보를 위해 인터리브
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    top, leftover = _pick_diverse_top(all_news, count=6, per_source_cap=2)
+    top, leftover = _pick_diverse_top(all_news, count=6, per_source_cap=1)
     rest     = _interleave_by_source(leftover)  # 나머지는 언론사별 균등 배치
     result   = (top + rest)[:total_limit]
     for a in result:
