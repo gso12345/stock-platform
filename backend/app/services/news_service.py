@@ -174,8 +174,6 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
                 continue
 
             image = _extract_thumbnail(entry)
-            if not image:
-                continue
 
             items.append({
                 "title":     title,
@@ -254,6 +252,21 @@ def _interleave_by_source(articles: list) -> list:
     return result
 
 
+def _pick_diverse_top(sorted_news: list, count: int, per_source_cap: int) -> "tuple[list, list]":
+    """시간순으로 상위 count개를 뽑되, 한 언론사가 너무 많이 차지하지 않도록 소스별 상한을 둠
+    (특정 언론사가 발행 빈도가 높아 최신순 상단을 독점하는 것 방지)"""
+    from collections import Counter
+    top, remaining, used = [], [], Counter()
+    for a in sorted_news:
+        src = a["source"]
+        if len(top) < count and used[src] < per_source_cap:
+            top.append(a)
+            used[src] += 1
+        else:
+            remaining.append(a)
+    return top, remaining
+
+
 def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
     all_news = _fetch_all_feeds(feeds, limit_per_source)
     stale = cache.get_stale(ck)
@@ -262,10 +275,10 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
         _refreshing.pop(ck, None)
         return stale or []
     _add_trending_score(all_news)
-    # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순, 나머지는 언론사 다양성 확보를 위해 인터리브
+    # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순(단, 언론사별 상한 적용), 나머지는 다양성 확보를 위해 인터리브
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    top      = all_news[:6]     # 최신 6개는 시간순
-    rest     = _interleave_by_source(all_news[6:])  # 나머지는 언론사별 균등 배치
+    top, leftover = _pick_diverse_top(all_news, count=6, per_source_cap=1)
+    rest     = _interleave_by_source(leftover)  # 나머지는 언론사별 균등 배치
     result   = (top + rest)[:total_limit]
     for a in result:
         a.pop("_ts", None)

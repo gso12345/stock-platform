@@ -2,19 +2,30 @@ name: Keep Render Alive
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # 5분마다 실행
+    - cron: '*/5 * * * *'  # 5분마다 실행 시도 (GitHub가 실제로는 더 뜸하게 발동시킴)
   workflow_dispatch:        # 수동 실행 가능
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false  # 이미 도는 루프는 끝까지 유지, 중복 트리거만 큐잉 없이 무시
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    # GitHub의 schedule 트리거는 5분 간격을 그대로 지켜주지 않고 활동이 적은 저장소는
+    # 몇 시간씩 늦게 발동시킨다 (cron 자체의 한계, 워크플로우 코드로는 해결 불가).
+    # 대신 트리거가 한 번 발동하면 그 안에서 최대 340분(약 5시간40분, 6시간 한도 내)
+    # 동안 5분마다 직접 핑을 반복해, 다음 트리거가 늦게 와도 그 사이 슬립을 최대한 방지한다.
+    timeout-minutes: 350
     steps:
-      - name: Ping backend and warm cache
+      - name: Ping backend and warm cache every 5 minutes for up to ~340 minutes
         run: |
-          curl -f https://stock-platform-ksmu.onrender.com/health
-          echo "Backend is alive"
-          curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/kr" -o /dev/null
-          curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/us" -o /dev/null
-          curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/news/kr" -o /dev/null
-          curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/news/us" -o /dev/null
-          echo "Cache warmed up"
+          END=$((SECONDS + 340 * 60))
+          while [ "$SECONDS" -lt "$END" ]; do
+            curl -sf https://stock-platform-ksmu.onrender.com/health && echo "Backend is alive" || echo "Ping failed, will retry"
+            curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/kr" -o /dev/null
+            curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/us" -o /dev/null
+            curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/news/kr" -o /dev/null
+            curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/news/us" -o /dev/null
+            sleep 300
+          done
