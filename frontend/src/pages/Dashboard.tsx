@@ -6,7 +6,7 @@ import { Card, ChangeBadge, formatNumber } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
-import { fmtUSD } from "@/utils/formatters";
+import { fmtUSD, fmtNewsDateTime } from "@/utils/formatters";
 
 /* ── 지수 카드 ───────────────────────────────────────────── */
 const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _demo, onClick }: any) {
@@ -287,7 +287,7 @@ const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
             </div>
             <div className="flex items-center gap-2 text-2xs text-text-muted">
               <span className="font-medium text-text-dim">{item.source}</span>
-              {item.published && <><span>·</span><span>{item.published}</span></>}
+              {item.published && <><span>·</span><span>{fmtNewsDateTime(item.published)}</span></>}
             </div>
           </div>
         </a>

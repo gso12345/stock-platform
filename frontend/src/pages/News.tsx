@@ -2,40 +2,10 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Newspaper } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
+import { fmtNewsDateTime } from "@/utils/formatters";
 
 type MarketTab = "kr" | "us";
 type SortTab = "latest" | "popular";
-
-/** "MM/DD HH:MM" (KST) 문자열 → Date */
-function parseKstDate(published: string): Date | null {
-  const m = published.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{1,2})$/);
-  if (!m) return null;
-  const month = parseInt(m[1], 10);
-  const day = parseInt(m[2], 10);
-  const hour = parseInt(m[3], 10);
-  const minute = parseInt(m[4], 10);
-
-  const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  let year = nowKst.getUTCFullYear();
-  // 12월 기사인데 현재가 1월이면 작년 기사
-  if (month === 12 && nowKst.getUTCMonth() === 0) year -= 1;
-
-  return new Date(Date.UTC(year, month - 1, day, hour, minute) - 9 * 60 * 60 * 1000);
-}
-
-/** 상대 시간 표시 ("N분 전" / "N시간 전" / "N일 전") */
-function formatRelative(published: string): string {
-  const date = parseKstDate(published);
-  if (!date) return published;
-  const diffMin = Math.floor((Date.now() - date.getTime()) / 60000);
-  if (diffMin < 1) return "방금 전";
-  if (diffMin < 60) return `${diffMin}분 전`;
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour}시간 전`;
-  const diffDay = Math.floor(diffHour / 24);
-  if (diffDay < 7) return `${diffDay}일 전`;
-  return published;
-}
 
 function NewsItem({ item }: { item: any }) {
   const [imgError, setImgError] = useState(false);
@@ -68,7 +38,7 @@ function NewsItem({ item }: { item: any }) {
           </p>
           {item.summary && <p className="text-xs text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
           <div className="flex items-center gap-1.5 mt-1.5 text-2xs text-text-muted">
-            {item.published && <span>{formatRelative(item.published)}</span>}
+            {item.published && <span>{fmtNewsDateTime(item.published)}</span>}
             {item.published && item.source && <span>·</span>}
             {item.source && <span>{item.source}</span>}
           </div>
