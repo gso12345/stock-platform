@@ -69,8 +69,25 @@ KR_FEEDS = [
     ("비즈워치",       "https://news.bizwatch.co.kr/rss/total_news.xml"),
 ]
 
-# 해외(미국 등) 증시·경제 관련 뉴스는 더 이상 해외 언론사 RSS를 직접 수집하지 않고,
-# 국내 언론사가 작성한 해외 관련 기사를 KR_FEEDS 결과에서 골라 사용한다 (get_us_news 참고).
+# ── 해외 뉴스 RSS ──────────────────────────────────────────
+US_FEEDS = [
+    # 주요 경제·시장
+    ("Yahoo Finance",      "https://finance.yahoo.com/news/rssindex"),
+    ("MarketWatch",        "https://feeds.content.dowjones.io/public/rss/mw_marketpulse"),
+    ("CNBC Economy",       "https://www.cnbc.com/id/20910258/device/rss/rss.html"),
+    ("CNBC Finance",       "https://www.cnbc.com/id/10000664/device/rss/rss.html"),
+    ("CNBC Top News",      "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
+    ("WSJ Markets",        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"),
+    ("WSJ Economy",        "https://feeds.a.dj.com/rss/RSSWorldNews.xml"),
+    # 투자·분석
+    ("Seeking Alpha",      "https://seekingalpha.com/feed.xml"),
+    ("Investing.com",      "https://www.investing.com/rss/news.rss"),
+    ("The Street",         "https://www.thestreet.com/feeds/headline-stories.rss"),
+    ("Forbes Business",    "https://www.forbes.com/feeds/news.rss"),
+    ("Barron's",           "https://www.barrons.com/xml/rss/3_7028.xml"),
+    ("Fortune",            "https://fortune.com/feed/"),
+    ("Business Insider",   "https://markets.businessinsider.com/rss/news"),
+]
 
 
 # 경제/금융 뉴스 피드에서도 섞여 들어올 수 있는 비경제 키워드 — 포함 시 제외
@@ -131,27 +148,6 @@ def _is_finance_news(title: str) -> bool:
     if any(kw in title for kw in _NONFINANCE_KW):
         return False
     return True
-
-
-# 해외(미국 등) 증시·경제 관련 키워드 — 국내 언론사 기사 중 해외 뉴스만 골라내기 위한 화이트리스트
-_OVERSEAS_KW = {
-    "나스닥", "다우", "다우존스", "S&P", "S&P500", "뉴욕증시", "뉴욕증권거래소", "미국증시", "미 증시",
-    "유럽증시", "일본증시", "중국증시", "글로벌증시", "해외증시", "아시아증시",
-    "연준", "Fed", "FOMC", "파월", "월가", "ECB", "BOJ", "유럽중앙은행", "옐런",
-    "FTSE", "니케이", "항셍", "상하이종합", "엔비디아", "테슬라", "애플", "마이크로소프트",
-    "아마존", "구글", "알파벳", "메타", "페이스북", "넷플릭스", "인텔", "퀄컴", "TSMC", "ARM",
-    "국제유가", "WTI", "브렌트유", "국제금값", "글로벌", "해외", "미국 연준", "미 연준",
-    "관세전쟁", "미중", "미국", "중국", "일본", "유럽", "美", "中", "日", "유로존",
-    # 더 넓은 범위(조금만 관련 있어도 노출) — 국제기구·주요국·국제 이슈
-    "세계", "국제", "WTO", "IMF", "OECD", "G7", "G20", "브렉시트", "우크라이나", "러시아",
-    "인도", "대만", "베트남", "홍콩", "싱가포르", "사우디", "OPEC", "산유국", "신흥국",
-    "G2", "브릭스", "BRICS", "동남아", "중동", "아세안", "신흥시장",
-}
-
-
-def _is_overseas_news(title: str) -> bool:
-    """국내 언론사 기사 중 해외(미국 등) 증시·경제 관련 기사인지 판단"""
-    return any(kw in title for kw in _OVERSEAS_KW)
 
 
 def _clean_text(raw: str) -> str:
@@ -369,8 +365,14 @@ def get_kr_news(limit_per_source: int = 40, total_limit: int = 800) -> list[dict
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
-def get_us_news(total_limit: int = 500) -> list[dict]:
-    """해외(미국 등) 증시·경제 뉴스 — 해외 언론사 RSS 대신, 국내 언론사가 작성한
-    해외 관련 기사를 KR 뉴스 결과에서 골라 사용 (다양한 국내 언론사가 고르게 노출됨)"""
-    overseas = [a for a in get_kr_news() if _is_overseas_news(a.get("title", ""))]
-    return overseas[:total_limit]
+def get_us_news(limit_per_source: int = 35, total_limit: int = 500) -> list[dict]:
+    """해외(미국 등) 증시·경제 뉴스 — 해외 언론사 RSS(Yahoo Finance/CNBC/WSJ 등)에서 직접 수집"""
+    ck = "news:us"
+    if c := cache.get(ck):
+        return c
+    stale = cache.get_stale(ck)
+    if stale and not _refreshing.get(ck):
+        _refreshing[ck] = True
+        background_executor.submit(_do_refresh_news, ck, US_FEEDS, limit_per_source, total_limit)
+        return stale
+    return _do_refresh_news(ck, US_FEEDS, limit_per_source, total_limit)
