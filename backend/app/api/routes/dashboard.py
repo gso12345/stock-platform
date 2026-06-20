@@ -11,7 +11,7 @@ from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
 from app.services.news_service import get_kr_news, get_us_news, pick_top_image_first
 from app.services.ranking_service import get_us_rankings
 from app.services.market_extras import get_kr_futures, get_kr_rates, get_us_rates
-from app.services.price_fetcher import get_usdkrw
+from app.services.price_fetcher import get_usdkrw, fetch_pykrx_index_ohlcv
 from app.core.config import settings
 from app.core.cache import cache
 
@@ -364,15 +364,31 @@ async def get_index_ohlcv(name: str, period: str = Query(default="1y"), interval
         return fresh
 
     loop = asyncio.get_running_loop()
+    result = []
     try:
         result = await asyncio.wait_for(
             loop.run_in_executor(None, yf_service.get_index_ohlcv, name_upper, period, interval),
             timeout=25,
         )
-        return result or []
     except Exception:
-        stale = cache.get_stale(ck)
-        return stale or []
+        result = []
+
+    # 야후 심볼이 해당 지수를 지원하지 않는 경우(예: KOSDAQ150) pykrx(KRX 공식 데이터)로 보완
+    if not result and name_upper in KR_INDICES and interval == "1d":
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, fetch_pykrx_index_ohlcv, name_upper, period),
+                timeout=20,
+            )
+            if result:
+                cache.set(ck, result, 21600)
+        except Exception:
+            result = []
+
+    if result:
+        return result
+    stale = cache.get_stale(ck)
+    return stale or []
 
 
 # ── top-movers (호환) ──────────────────────────────────────
