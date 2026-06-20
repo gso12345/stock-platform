@@ -5,7 +5,7 @@ import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
-import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn } from "lucide-react";
+import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 
 const MARKET_TABS = [
@@ -286,6 +286,42 @@ function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSave: (n:
   );
 }
 
+/* ── 폴더 삭제 확인 모달 ──────────────────────────────────── */
+function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
+  folder: any; itemCount: number; onClose: () => void; onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+        <div className="p-5 flex flex-col gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
+              <AlertTriangle size={18} className="text-accent-red" />
+            </div>
+            <h3 className="text-sm font-bold text-text-primary">폴더를 삭제할까요?</h3>
+          </div>
+          <p className="text-xs text-text-muted leading-relaxed">
+            <span className="font-semibold text-text-primary">"{folder.name}"</span> 폴더를 삭제합니다.
+            {itemCount > 0 && (
+              <> 폴더에 담긴 종목 <span className="font-semibold text-text-primary">{itemCount}개</span>는 관심종목에서 제거되지 않고 "폴더 없음"으로 이동합니다.</>
+            )}
+          </p>
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all"
+            >취소</button>
+            <button
+              onClick={() => { onConfirm(); onClose(); }}
+              className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors"
+            >삭제</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── 종목 행 (클릭 → 상세) ──────────────────────────────── */
 const SWIPE_REVEAL = 140; // 수정(70) + 삭제(70)
 const SWIPE_THRESHOLD = 50;
@@ -425,6 +461,7 @@ export default function Watchlist() {
   const [addFolderId, setAddFolderId]   = useState<number | null>(null); // 추가 모달에서 기본 선택될 폴더
   const [editingFolder, setEditingFolder] = useState<number | null>(null);
   const [editingItem, setEditingItem]   = useState<any>(null);
+  const [deletingFolder, setDeletingFolder] = useState<any>(null);
   const [collapsed, setCollapsed]   = useState<Set<string>>(new Set());
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [addError, setAddError]     = useState("");
@@ -894,7 +931,7 @@ export default function Watchlist() {
                       </button>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => setEditingFolder(folder.id)} className="text-text-muted hover:text-accent-blue p-1"><Pencil size={12} /></button>
-                        <button onClick={() => deleteFolderMutation.mutate(folder.id)} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={12} /></button>
+                        <button onClick={() => setDeletingFolder({ ...folder, _itemCount: folderItems.length })} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={12} /></button>
                       </div>
                     </>
                   )}
@@ -964,6 +1001,15 @@ export default function Watchlist() {
           folders={folders}
           onClose={() => setEditingItem(null)}
           onSave={(patch) => updateItemMutation.mutate({ id: editingItem.id, patch })}
+        />
+      )}
+
+      {deletingFolder && (
+        <DeleteFolderModal
+          folder={deletingFolder}
+          itemCount={deletingFolder._itemCount ?? 0}
+          onClose={() => setDeletingFolder(null)}
+          onConfirm={() => deleteFolderMutation.mutate(deletingFolder.id)}
         />
       )}
     </div>
