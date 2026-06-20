@@ -88,6 +88,8 @@ export default function Backtest() {
   // active date preset label for highlight
   const [activeDatePreset, setActiveDatePreset] = useState<string | null>(null);
 
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   const { data: strategies } = useQuery({ queryKey: ["strategies"], queryFn: backtestApi.getStrategies });
 
   const universeMarket = UNIVERSE_OPTIONS.find((o) => o.value === universe)?.market ?? "US";
@@ -99,7 +101,8 @@ export default function Backtest() {
       exit_conditions: exitConditions,
       stop_loss: stopLoss || undefined, take_profit: takeProfit || undefined,
     }),
-    onSuccess: (data) => setResult(data),
+    onSuccess: (data) => { setResult(data); setErrorMsg(null); },
+    onError: (err: any) => setErrorMsg(err?.response?.data?.detail ?? "백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요"),
   });
 
   const universeMutation = useMutation({
@@ -110,7 +113,8 @@ export default function Backtest() {
       exit_conditions: exitConditions, stop_loss: stopLoss || null,
       take_profit: takeProfit || null, rank_by: rankBy, top_n: topN,
     }),
-    onSuccess: (data) => setUniverseResult(data),
+    onSuccess: (data) => { setUniverseResult(data); setErrorMsg(null); },
+    onError: (err: any) => setErrorMsg(err?.response?.data?.detail ?? "유니버스 백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요"),
   });
 
   const saveStrategyMutation = useMutation({
@@ -353,6 +357,12 @@ export default function Backtest() {
               </Button>
             )}
           </div>
+
+          {errorMsg && (
+            <p className="text-xs text-accent-red bg-accent-red/10 border border-accent-red/30 rounded-lg px-3 py-2">
+              {errorMsg}
+            </p>
+          )}
 
           {/* 전략 저장 */}
           {isLoggedIn && showSave && (

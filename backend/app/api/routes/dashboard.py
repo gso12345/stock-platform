@@ -166,9 +166,9 @@ async def _get_kr_rankings(category: str) -> list:
     if stale:
         return stale
 
-    # FDR 기반 랭킹 (즉시 반환, 블로킹 없음)
-    # 외부 API 직접 호출 제거 — 스케줄러 백그라운드가 캐시를 채움
-    return get_kr_rankings(category) or []
+    # FDR 기반 랭킹 — 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, get_kr_rankings, category) or []
 
 
 # ── 해외 대시보드 ──────────────────────────────────────────
@@ -192,7 +192,7 @@ async def get_us_dashboard(
     exchange        = gathered[1] if not isinstance(gathered[1], Exception) else {}
     rankings        = gathered[2] if not isinstance(gathered[2], Exception) else []
     us_rates_cached = gathered[3] if not isinstance(gathered[3], Exception) else (cache.get_stale("extra:us_rates") or [])
-    news = gathered[4] if include_news and not isinstance(gathered[4], Exception) else (cache.get("news:us") or cache.get_stale("news:us") or [])
+    news = gathered[4] if include_news and not isinstance(gathered[4], Exception) else (get_us_news() or [])
 
     idx_map = {r["index"]: r for r in idx_results if isinstance(r, dict)}
     return {
@@ -226,7 +226,9 @@ async def _get_exchange_rate_async() -> dict:
 
 
 async def _get_us_rankings_cached(category: str) -> list:
-    result = get_us_rankings(category) or []
+    # 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, get_us_rankings, category) or []
     if len(result) < 15:
         # 블로킹 없이 백그라운드에서 갱신 — cold start 시 즉시 반환
         async def _bg_us_refresh():

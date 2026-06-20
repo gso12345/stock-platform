@@ -291,7 +291,7 @@ async def get_items_with_prices(
         q = q.filter(WatchlistItem.market == market)
     if folder_id is not None:
         q = q.filter(WatchlistItem.folder_id == folder_id)
-    items = q.order_by(WatchlistItem.position, WatchlistItem.added_at).all()
+    items = q.options(joinedload(WatchlistItem.folder)).order_by(WatchlistItem.position, WatchlistItem.added_at).all()
 
     loop = asyncio.get_running_loop()
 

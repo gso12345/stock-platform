@@ -1,10 +1,10 @@
 import feedparser
-import threading
 import re
 import html as _html
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from app.core.cache import cache
+from app.core.executor import background_executor
 
 _refreshing = {}  # 중복 갱신 방지 플래그
 
@@ -56,31 +56,8 @@ KR_FEEDS = [
     ("디지털타임스",   "https://www.dt.co.kr/rss/economy.xml"),
 ]
 
-# ── 해외 뉴스 RSS ──────────────────────────────────────────
-US_FEEDS = [
-    # 주요 경제·시장
-    ("Reuters Business",   "https://feeds.reuters.com/reuters/businessNews"),
-    ("Reuters Markets",    "https://feeds.reuters.com/reuters/companyNews"),
-    ("Yahoo Finance",      "https://finance.yahoo.com/news/rssindex"),
-    ("MarketWatch",        "https://feeds.content.dowjones.io/public/rss/mw_marketpulse"),
-    ("CNBC Economy",       "https://www.cnbc.com/id/20910258/device/rss/rss.html"),
-    ("CNBC Finance",       "https://www.cnbc.com/id/10000664/device/rss/rss.html"),
-    ("Bloomberg Markets",  "https://feeds.bloomberg.com/markets/news.rss"),
-    ("WSJ Markets",        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"),
-    ("WSJ Economy",        "https://feeds.a.dj.com/rss/RSSWorldNews.xml"),
-    # 투자·분석
-    ("Seeking Alpha",      "https://seekingalpha.com/feed.xml"),
-    ("Investing.com",      "https://www.investing.com/rss/news.rss"),
-    ("The Street",         "https://www.thestreet.com/feeds/headline-stories.rss"),
-    ("Forbes Business",    "https://www.forbes.com/feeds/news.rss"),
-    ("FT Markets",         "https://www.ft.com/rss/home/us"),
-    ("Barron's",           "https://www.barrons.com/xml/rss/3_7028.xml"),
-    # 추가 매체 (다양성 보강)
-    ("CNBC Top News",      "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
-    ("Fortune",            "https://fortune.com/feed/"),
-    ("Business Insider",   "https://markets.businessinsider.com/rss/news"),
-    ("TechCrunch",         "https://techcrunch.com/feed/"),
-]
+# 해외(미국 등) 증시·경제 관련 뉴스는 더 이상 해외 언론사 RSS를 직접 수집하지 않고,
+# 국내 언론사가 작성한 해외 관련 기사를 KR_FEEDS 결과에서 골라 사용한다 (get_us_news 참고).
 
 
 # 경제/금융 뉴스 피드에서도 섞여 들어올 수 있는 비경제 키워드 — 포함 시 제외
@@ -91,19 +68,64 @@ _NONFINANCE_KW = {
     "부고","동정","인사발령","지진","화재","테러","참사","유튜브","웹툰",
 }
 
-# 비경제 키워드가 포함돼 있어도 아래 경제·증시 키워드가 함께 있으면 예외적으로 포함
-# (예: "OOO 후보자, 청문회서 증시 부양책 언급" → "청문회"는 있지만 "증시"·"부양"이 있어 포함)
-_FINANCE_OVERRIDE_KW = {
-    "증시","주가","코스피","코스닥","나스닥","다우","증권","주식","금리","환율","채권",
-    "부양","투자","펀드","상장","공시","실적","매출","영업이익","적자","흑자",
-    "경제","금융","원화","달러","수출","수입","무역","관세","기준금리","한은","연준",
+# 경제·증권·금융 관련 키워드 — 화이트리스트(제목에 하나라도 있어야 노출)
+# "경제" 섹션 RSS라도 사회/문화성 기사가 섞여 들어오는 경우가 많아,
+# 비경제 키워드 제외만으로는 걸러지지 않는 기사가 통과하는 문제를 막기 위해
+# 경제/증권/금융 신호 키워드가 실제로 있는지 직접 확인한다.
+_FINANCE_KW = {
+    # 증시·종목
+    "증시","주가","코스피","코스닥","나스닥","다우","증권","주식","상장","공모주","IPO",
+    "상장폐지","액면분할","유상증자","무상증자","배당","합병","인수","M&A","ETF","공시",
+    "실적","매출","영업이익","순이익","적자","흑자","목표가","리포트","애널리스트","주총",
+    # 금리·통화·채권
+    "금리","기준금리","환율","달러","원화","엔화","유로","채권","국채","한은","연준","Fed","FOMC","금통위",
+    # 경제 지표·정책
+    "경제","경기","성장률","GDP","물가","인플레이션","고용","실업","일자리","수출","수입","무역",
+    "무역수지","관세","예산","세금","법인세","소득세","재정","경상수지","투자","펀드","부양",
+    # 부동산·금융업
+    "부동산","집값","아파트","전세","월세","대출","은행","증권사","보험사","카드사","핀테크","금융",
+    # 산업·원자재
+    "반도체","수주","공급망","유가","금값","원자재",
+}
+
+# 해외(영문) 피드용 화이트리스트 — 소문자로 비교
+_FINANCE_KW_EN = {
+    "stock","stocks","share","shares","market","markets","earnings","revenue","profit","profits",
+    "ipo","merger","acquisition","dividend","nasdaq","dow jones","s&p","nyse","fed","fomc",
+    "inflation","rate cut","rate hike","interest rate","gdp","economy","economic","recession",
+    "bond","bonds","treasury","currency","dollar","tariff","export","import","trade",
+    "investor","investors","trading","etf","valuation","quarterly","guidance","outlook",
+    "buyback","ceo","layoff","layoffs","ai chip","semiconductor","oil price","crude oil",
+    "wall street","bull market","bear market","rally","selloff","sell-off","yield","forecast",
+    "m&a","ratings","downgrade","upgrade","ipo",
 }
 
 def _is_finance_news(title: str) -> bool:
-    """제목이 경제/금융 관련인지 판단 (모든 피드가 경제 섹션이므로 비경제 키워드만 제외)"""
-    if not any(kw in title for kw in _NONFINANCE_KW):
-        return True
-    return any(kw in title for kw in _FINANCE_OVERRIDE_KW)
+    """제목이 경제/증권/금융 관련인지 판단 (화이트리스트 키워드가 있어야 통과)"""
+    lower = title.lower()
+    has_finance = any(kw in title for kw in _FINANCE_KW) or any(kw in lower for kw in _FINANCE_KW_EN)
+    if not has_finance:
+        return False
+    if any(kw in title for kw in _NONFINANCE_KW):
+        return False
+    return True
+
+
+# 해외(미국 등) 증시·경제 관련 키워드 — 국내 언론사 기사 중 해외 뉴스만 골라내기 위한 화이트리스트
+_OVERSEAS_KW = {
+    "나스닥", "다우", "다우존스", "S&P", "S&P500", "뉴욕증시", "뉴욕증권거래소", "미국증시", "미 증시",
+    "유럽증시", "일본증시", "중국증시", "글로벌증시", "해외증시", "아시아증시",
+    "연준", "Fed", "FOMC", "파월", "월가", "ECB", "BOJ", "유럽중앙은행", "옐런",
+    "FTSE", "니케이", "항셍", "상하이종합", "엔비디아", "테슬라", "애플", "마이크로소프트",
+    "아마존", "구글", "알파벳", "메타", "페이스북", "넷플릭스", "인텔", "퀄컴", "TSMC", "ARM",
+    "국제유가", "WTI", "브렌트유", "국제금값", "글로벌", "해외", "미국 연준", "미 연준",
+    "관세전쟁", "미중", "미국", "중국", "일본", "유럽", "美", "中", "日", "유로존",
+}
+
+
+def _is_overseas_news(title: str) -> bool:
+    """국내 언론사 기사 중 해외(미국 등) 증시·경제 관련 기사인지 판단"""
+    return any(kw in title for kw in _OVERSEAS_KW)
 
 
 def _clean_text(raw: str) -> str:
@@ -156,7 +178,7 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
         items = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=3)
         # 필터(경제 키워드/기간/이미지) 통과율이 낮을 수 있으므로 넉넉히 스캔
-        for entry in feed.entries[:max(limit * 6, 60)]:
+        for entry in feed.entries[:max(limit * 10, 100)]:
             title = entry.get("title", "").strip()
             if not title:
                 continue
@@ -174,6 +196,8 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
                 continue
 
             image = _extract_thumbnail(entry)
+            if not image:
+                continue
 
             items.append({
                 "title":     title,
@@ -303,18 +327,13 @@ def get_kr_news(limit_per_source: int = 40, total_limit: int = 800) -> list[dict
     stale = cache.get_stale(ck)
     if stale and not _refreshing.get(ck):
         _refreshing[ck] = True
-        threading.Thread(target=_do_refresh_news, args=(ck, KR_FEEDS, limit_per_source, total_limit), daemon=True).start()
+        background_executor.submit(_do_refresh_news, ck, KR_FEEDS, limit_per_source, total_limit)
         return stale
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
-def get_us_news(limit_per_source: int = 35, total_limit: int = 500) -> list[dict]:
-    ck = "news:us"
-    if c := cache.get(ck):
-        return c
-    stale = cache.get_stale(ck)
-    if stale and not _refreshing.get(ck):
-        _refreshing[ck] = True
-        threading.Thread(target=_do_refresh_news, args=(ck, US_FEEDS, limit_per_source, total_limit), daemon=True).start()
-        return stale
-    return _do_refresh_news(ck, US_FEEDS, limit_per_source, total_limit)
+def get_us_news(total_limit: int = 500) -> list[dict]:
+    """해외(미국 등) 증시·경제 뉴스 — 해외 언론사 RSS 대신, 국내 언론사가 작성한
+    해외 관련 기사를 KR 뉴스 결과에서 골라 사용 (다양한 국내 언론사가 고르게 노출됨)"""
+    overseas = [a for a in get_kr_news() if _is_overseas_news(a.get("title", ""))]
+    return overseas[:total_limit]

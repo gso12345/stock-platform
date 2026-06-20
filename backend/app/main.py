@@ -31,17 +31,23 @@ _is_prod = settings.APP_ENV == "production"
 async def lifespan(application: FastAPI):
     # startup
     from sqlalchemy import inspect, text
+    import re as _re
     try:
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
-        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders"}
+        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results"}
         _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+        # 테이블/컬럼명이 항상 이 파일 내 하드코딩된 값이지만, 방어적으로 식별자 형식을 강제
+        _IDENTIFIER_RE = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
         def _add_col_if_missing(table: str, col: str, col_def: str, sqlite_def: str = ""):
             if table not in _ALLOWED_MIGRATE_TABLES:
                 return
             if table not in tables:
+                return
+            if not (_IDENTIFIER_RE.match(table) and _IDENTIFIER_RE.match(col)):
+                logging.getLogger(__name__).warning(f"잘못된 식별자 형식 {table}.{col}")
                 return
             try:
                 existing = [c["name"] for c in inspector.get_columns(table)]
@@ -60,11 +66,15 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("watchlist_items", "memo",      "VARCHAR(200)")
         _add_col_if_missing("screening_presets", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
         _add_col_if_missing("watchlist_folders", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
+        _add_col_if_missing("backtest_results", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
         _add_col_if_missing("users", "oauth_provider", "VARCHAR(20)")
         _add_col_if_missing("users", "oauth_id", "VARCHAR(100)")
 
         def _add_index_if_missing(table: str, col: str):
             if table not in tables:
+                return
+            if not (_IDENTIFIER_RE.match(table) and _IDENTIFIER_RE.match(col)):
+                logging.getLogger(__name__).warning(f"잘못된 식별자 형식 {table}.{col}")
                 return
             try:
                 with engine.connect() as conn:
@@ -82,6 +92,7 @@ async def lifespan(application: FastAPI):
             ("backtest_results", "strategy_id"),
             ("screening_presets", "user_id"),
             ("watchlist_folders", "user_id"),
+            ("backtest_results", "user_id"),
             ("users", "oauth_provider"),
             ("users", "oauth_id"),
         ]:

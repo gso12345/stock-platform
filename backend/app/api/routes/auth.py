@@ -15,12 +15,15 @@ from slowapi.util import get_remote_address
 
 log = logging.getLogger(__name__)
 
+from app.core.cache import cache
 from app.core.config import settings
 from app.core.deps import get_current_user, require_user
 from app.core.oauth import PROVIDERS, make_username, parse_userinfo
 from app.core.security import create_access_token, decode_token, hash_password, verify_password
 from app.db.database import get_db
 from app.models.user import User
+
+OAUTH_EXCHANGE_TTL = 60  # 교환 코드 유효 시간(초)
 
 router = APIRouter(prefix="/auth", tags=["인증"])
 limiter = Limiter(key_func=get_remote_address)
@@ -51,6 +54,10 @@ class TokenResponse(BaseModel):
     user_id: int
     username: str
     email: Optional[str] = None
+
+
+class OAuthExchangeRequest(BaseModel):
+    code: str = Field(..., min_length=1, max_length=200)
 
 
 class UserResponse(BaseModel):
@@ -238,9 +245,18 @@ def oauth_callback(
         return RedirectResponse(f"{frontend}/login?oauth_error=inactive")
 
     token_resp = _make_token_response(user)
-    params = urlencode({
-        "token": token_resp.access_token,
-        "user_id": token_resp.user_id,
-        "username": token_resp.username,
-    })
-    return RedirectResponse(f"{frontend}/oauth/callback?{params}")
+    exchange_code = secrets.token_urlsafe(32)
+    cache.set(f"oauth_exchange:{exchange_code}", token_resp.model_dump(), OAUTH_EXCHANGE_TTL)
+    return RedirectResponse(f"{frontend}/oauth/callback?{urlencode({'code': exchange_code})}")
+
+
+@router.post("/oauth/exchange", response_model=TokenResponse)
+@limiter.limit("20/minute")
+def oauth_exchange(request: Request, body: OAuthExchangeRequest):
+    """소셜 로그인 1회용 교환 코드를 실제 토큰으로 교환 (URL에 토큰 노출 방지)"""
+    ck = f"oauth_exchange:{body.code}"
+    data = cache.get(ck)
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="유효하지 않거나 만료된 코드입니다")
+    cache.delete(ck)
+    return TokenResponse(**data)

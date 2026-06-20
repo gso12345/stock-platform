@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
@@ -109,6 +110,7 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
     if current_user:
         bt_record = BacktestResult(
             strategy_id=req.strategy_id,
+            user_id=current_user.id,
             symbol=req.symbol,
             market=req.market,
             start_date=req.start_date,
@@ -223,7 +225,12 @@ def get_backtest_results(
     results = (
         db.query(BacktestResult)
         .join(Strategy, BacktestResult.strategy_id == Strategy.id, isouter=True)
-        .filter((Strategy.user_id == current_user.id) | (BacktestResult.strategy_id == None))
+        .filter(
+            or_(
+                BacktestResult.user_id == current_user.id,
+                and_(BacktestResult.user_id == None, Strategy.user_id == current_user.id),
+            )
+        )
         .order_by(BacktestResult.created_at.desc())
         .limit(limit)
         .all()
@@ -243,7 +250,10 @@ def get_backtest_result(
         .join(Strategy, BacktestResult.strategy_id == Strategy.id, isouter=True)
         .filter(
             BacktestResult.id == result_id,
-            (Strategy.user_id == current_user.id) | (BacktestResult.strategy_id == None),
+            or_(
+                BacktestResult.user_id == current_user.id,
+                and_(BacktestResult.user_id == None, Strategy.user_id == current_user.id),
+            ),
         )
         .first()
     )

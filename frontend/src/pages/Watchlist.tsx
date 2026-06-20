@@ -5,7 +5,7 @@ import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
-import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn } from "lucide-react";
+import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 
 const MARKET_TABS = [
@@ -38,10 +38,10 @@ const PREVIEW_WATCHLIST: PreviewItem[] = [
   { id: -8, symbol: "QQQ",    market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
 ];
 
-const MKTCOLOR: Record<string, string> = {
-  KR:  "border-blue-700/50 text-blue-400 bg-blue-900/20",
-  US:  "border-green-700/50 text-green-400 bg-green-900/20",
-  ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
+const MKT_BADGE_VARIANT: Record<string, "blue" | "green" | "purple"> = {
+  KR:  "blue",
+  US:  "green",
+  ETF: "purple",
 };
 
 function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {
@@ -53,9 +53,7 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
       onClick={onNavigate}
     >
       {/* 마켓 배지 */}
-      <div className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[item.market] ?? ""}`}>
-        {item.market}
-      </div>
+      <Badge variant={MKT_BADGE_VARIANT[item.market] ?? "default"}>{item.market}</Badge>
       {/* 종목 정보 */}
       <div className="flex-1 min-w-0">
         <div className="font-mono font-bold text-sm text-text-primary">
@@ -115,12 +113,6 @@ function AddModal({ folders, defaultFolderId = null, onClose, onAdd }: {
     onClose();
   };
 
-  const MKTCOLOR: Record<string, string> = {
-    KR: "border-blue-700/50 text-blue-400 bg-blue-900/20",
-    US: "border-green-700/50 text-green-400 bg-green-900/20",
-    ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/60 backdrop-blur-sm">
       <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
@@ -160,9 +152,7 @@ function AddModal({ folders, defaultFolderId = null, onClose, onAdd }: {
               className="w-full flex items-center gap-3 px-4 py-3 border-b border-border/30 hover:bg-bg-hover text-left transition-colors"
               onClick={() => handleSelect(item)}
             >
-              <div className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[item.market] ?? ""}`}>
-                {item.market}
-              </div>
+              <Badge variant={MKT_BADGE_VARIANT[item.market] ?? "default"}>{item.market}</Badge>
               <div className="flex-1 min-w-0">
                 <div className="font-mono font-bold text-sm text-text-primary">{item.symbol}</div>
                 <div className="text-xs text-text-muted truncate">{item.name}</div>
@@ -286,13 +276,50 @@ function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSave: (n:
   );
 }
 
+/* ── 폴더 삭제 확인 모달 ──────────────────────────────────── */
+function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
+  folder: any; itemCount: number; onClose: () => void; onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+        <div className="p-5 flex flex-col gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
+              <AlertTriangle size={18} className="text-accent-red" />
+            </div>
+            <h3 className="text-sm font-bold text-text-primary">폴더를 삭제할까요?</h3>
+          </div>
+          <p className="text-xs text-text-muted leading-relaxed">
+            <span className="font-semibold text-text-primary">"{folder.name}"</span> 폴더를 삭제합니다.
+            {itemCount > 0 && (
+              <> 폴더에 담긴 종목 <span className="font-semibold text-text-primary">{itemCount}개</span>는 관심종목에서 제거되지 않고 "폴더 없음"으로 이동합니다.</>
+            )}
+          </p>
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all"
+            >취소</button>
+            <button
+              onClick={() => { onConfirm(); onClose(); }}
+              className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors"
+            >삭제</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── 종목 행 (클릭 → 상세) ──────────────────────────────── */
 const SWIPE_REVEAL = 140; // 수정(70) + 삭제(70)
 const SWIPE_THRESHOLD = 50;
 
 /* ── 종목 행: 드래그 재정렬 + 왼쪽으로 스와이프 → 수정/삭제 ─── */
 function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
-  isDragging, isDragOver, onDragStart, onDragOver, onDrop }: {
+  isDragging, isDragOver, onDragStart, onDragOver, onDrop,
+  onTouchDragStart, onTouchDragMove, onTouchDragEnd }: {
   item: any; livePrice: any;
   onRemove: () => void; onNavigate: () => void; onEdit: () => void;
   onPrefetch?: () => void;
@@ -300,6 +327,9 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
   onDragStart?: React.DragEventHandler;
   onDragOver?: React.DragEventHandler;
   onDrop?: React.DragEventHandler;
+  onTouchDragStart?: () => void;
+  onTouchDragMove?: (clientX: number, clientY: number) => void;
+  onTouchDragEnd?: () => void;
 }) {
   const p        = livePrice ?? item;
   const isKR     = item.market === "KR";
@@ -340,11 +370,11 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
     >
       {/* 스와이프 액션 버튼 (오른쪽 고정, 왼쪽으로 밀면 등장) */}
       <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL }}>
-        <button onClick={() => { closeSwipe(); onEdit(); }}
+        <button onClick={() => { closeSwipe(); onEdit(); }} aria-label="종목 수정"
           className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-blue text-white text-[10px] font-semibold">
           <Settings2 size={14}/><span>수정</span>
         </button>
-        <button onClick={() => { closeSwipe(); onRemove(); }}
+        <button onClick={() => { closeSwipe(); onRemove(); }} aria-label="종목 삭제"
           className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-red text-white text-[10px] font-semibold">
           <Trash2 size={14}/><span>삭제</span>
         </button>
@@ -361,6 +391,9 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
         <div
           draggable
           onDragStart={onDragStart}
+          onTouchStart={onTouchDragStart}
+          onTouchMove={(e) => onTouchDragMove?.(e.touches[0].clientX, e.touches[0].clientY)}
+          onTouchEnd={onTouchDragEnd}
           className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1 py-1"
           title="드래그하여 순서 변경"
         >
@@ -418,6 +451,7 @@ export default function Watchlist() {
   const [addFolderId, setAddFolderId]   = useState<number | null>(null); // 추가 모달에서 기본 선택될 폴더
   const [editingFolder, setEditingFolder] = useState<number | null>(null);
   const [editingItem, setEditingItem]   = useState<any>(null);
+  const [deletingFolder, setDeletingFolder] = useState<any>(null);
   const [collapsed, setCollapsed]   = useState<Set<string>>(new Set());
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [addError, setAddError]     = useState("");
@@ -500,8 +534,7 @@ export default function Watchlist() {
     setLocalOrder(itemsList);
   };
 
-  const handleDragOver = (e: React.DragEvent, targetId: number) => {
-    e.preventDefault();
+  const moveItemTo = (targetId: number) => {
     if (dragId === null || dragId === targetId) return;
     setDropId(targetId);
     // 낙관적 순서 재배치
@@ -515,11 +548,25 @@ export default function Watchlist() {
     setLocalOrder(next);
   };
 
+  const handleDragOver = (e: React.DragEvent, targetId: number) => {
+    e.preventDefault();
+    moveItemTo(targetId);
+  };
+
   const handleDrop = () => {
     if (dragId !== null && localOrder) {
       reorderMutation.mutate(localOrder.map((i: any) => i.id));
     }
     setDragId(null); setDropId(null); setLocalOrder(null);
+  };
+
+  // 모바일 터치 드래그 (HTML5 draggable은 터치 환경에서 동작하지 않으므로 직접 구현)
+  const handleItemTouchMove = (clientX: number, clientY: number) => {
+    if (dragId === null) return;
+    const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest("[data-item-id]") as HTMLElement | null;
+    if (!el) return;
+    const targetId = Number(el.dataset.itemId);
+    if (targetId) moveItemTo(targetId);
   };
 
   // 폴더 드래그 상태
@@ -537,8 +584,7 @@ export default function Watchlist() {
     setLocalFolderOrder(folders as any[]);
   };
 
-  const handleFolderDragOver = (e: React.DragEvent, targetId: number) => {
-    e.preventDefault();
+  const moveFolderTo = (targetId: number) => {
     if (dragFolderId === null || dragFolderId === targetId) return;
     setDropFolderId(targetId);
     const base = localFolderOrder ?? (folders as any[]);
@@ -549,6 +595,20 @@ export default function Watchlist() {
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     setLocalFolderOrder(next);
+  };
+
+  const handleFolderDragOver = (e: React.DragEvent, targetId: number) => {
+    e.preventDefault();
+    moveFolderTo(targetId);
+  };
+
+  // 모바일 터치 드래그 (폴더 순서 변경)
+  const handleFolderTouchMove = (clientX: number, clientY: number) => {
+    if (dragFolderId === null) return;
+    const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest("[data-folder-id]") as HTMLElement | null;
+    if (!el) return;
+    const targetId = Number(el.dataset.folderId);
+    if (targetId) moveFolderTo(targetId);
   };
 
   const handleFolderDrop = () => {
@@ -633,7 +693,7 @@ export default function Watchlist() {
 
   const renderItems = (list: any[]) =>
     list.map((item: any) => (
-      <div key={item.id} ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol}>
+      <div key={item.id} ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol} data-item-id={item.id}>
         <ItemRow
           item={item}
           livePrice={livePrices[item.symbol]}
@@ -646,6 +706,9 @@ export default function Watchlist() {
           onDragStart={() => handleDragStart(item)}
           onDragOver={(e) => handleDragOver(e, item.id)}
           onDrop={handleDrop}
+          onTouchDragStart={() => handleDragStart(item)}
+          onTouchDragMove={handleItemTouchMove}
+          onTouchDragEnd={handleDrop}
         />
       </div>
     ));
@@ -819,6 +882,7 @@ export default function Watchlist() {
               <Card key={folder.id} className="p-0 overflow-hidden">
                 <div
                   className={`flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border group ${dropFolderId === folder.id ? "bg-accent-blue/5" : ""} ${dragFolderId === folder.id ? "opacity-40" : ""}`}
+                  data-folder-id={folder.id}
                   onDragOver={(e) => handleFolderDragOver(e, folder.id)}
                   onDrop={handleFolderDrop}
                 >
@@ -826,6 +890,9 @@ export default function Watchlist() {
                     <div
                       draggable
                       onDragStart={() => handleFolderDragStart(folder)}
+                      onTouchStart={() => handleFolderDragStart(folder)}
+                      onTouchMove={(e) => handleFolderTouchMove(e.touches[0].clientX, e.touches[0].clientY)}
+                      onTouchEnd={handleFolderDrop}
                       className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1 py-1"
                       title="드래그하여 폴더 순서 변경"
                     >
@@ -854,14 +921,24 @@ export default function Watchlist() {
                       </button>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => setEditingFolder(folder.id)} className="text-text-muted hover:text-accent-blue p-1"><Pencil size={12} /></button>
-                        <button onClick={() => deleteFolderMutation.mutate(folder.id)} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={12} /></button>
+                        <button onClick={() => setDeletingFolder({ ...folder, _itemCount: folderItems.length })} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={12} /></button>
                       </div>
                     </>
                   )}
                 </div>
                 {!isCollapsed && (
                   folderItems.length === 0
-                    ? <div className="px-4 py-4 text-text-muted text-xs text-center">종목이 없습니다</div>
+                    ? (
+                      <div className="flex flex-col items-center justify-center gap-2 px-4 py-6">
+                        <p className="text-text-muted text-xs">이 폴더에 종목이 없습니다</p>
+                        <button
+                          onClick={() => openAddModal(folder.id)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
+                        >
+                          <Plus size={12} /> 종목 추가
+                        </button>
+                      </div>
+                    )
                     : renderItems(folderItems)
                 )}
               </Card>
@@ -884,7 +961,17 @@ export default function Watchlist() {
               </div>
               {!collapsed.has("no-folder") && (
                 noFolder.length === 0
-                  ? <div className="px-4 py-4 text-text-muted text-xs text-center">종목이 없습니다</div>
+                  ? (
+                    <div className="flex flex-col items-center justify-center gap-2 px-4 py-6">
+                      <p className="text-text-muted text-xs">종목이 없습니다</p>
+                      <button
+                        onClick={() => openAddModal(null)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
+                      >
+                        <Plus size={12} /> 종목 추가
+                      </button>
+                    </div>
+                  )
                   : renderItems(noFolder)
               )}
             </Card>
@@ -924,6 +1011,15 @@ export default function Watchlist() {
           folders={folders}
           onClose={() => setEditingItem(null)}
           onSave={(patch) => updateItemMutation.mutate({ id: editingItem.id, patch })}
+        />
+      )}
+
+      {deletingFolder && (
+        <DeleteFolderModal
+          folder={deletingFolder}
+          itemCount={deletingFolder._itemCount ?? 0}
+          onClose={() => setDeletingFolder(null)}
+          onConfirm={() => deleteFolderMutation.mutate(deletingFolder.id)}
         />
       )}
     </div>

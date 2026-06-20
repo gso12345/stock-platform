@@ -9,6 +9,7 @@ import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor
 from app.core.config import settings
 from app.core.cache import cache
+from app.core.executor import background_executor
 
 
 # ── 환율 ──────────────────────────────────────────────────
@@ -189,7 +190,7 @@ def _do_fetch_kr_rates() -> list:
         ("^TNX",  "미국 10년 국채",        "%"),
         ("^TYX",  "미국 30년 국채",        "%"),
     ]
-    # yfinance 배치 조회와 네이버 기준금리 조회를 병렬화 — 순차 대비 응답 시간 단축
+    # yfinance 배치 조회와 네이버 CD금리 조회를 병렬화 — 순차 대비 응답 시간 단축
     ex = ThreadPoolExecutor(max_workers=2)
     try:
         f_close = ex.submit(_batch_close, [s[0] for s in rate_specs])
@@ -199,9 +200,9 @@ def _do_fetch_kr_rates() -> list:
         except Exception:
             close_data = None
         try:
-            naver_base, naver_cd = f_naver.result(timeout=10)
+            _naver_base, naver_cd = f_naver.result(timeout=10)
         except Exception:
-            naver_base, naver_cd = None, None
+            naver_cd = None
     finally:
         ex.shutdown(wait=False)
 
@@ -218,16 +219,11 @@ def _do_fetch_kr_rates() -> list:
         except Exception:
             continue
 
-    kr_base = naver_base or cache.get_stale("extra:kr_base_rate") or \
-        {"name":"한국 기준금리","value":3.50,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
-    cache.set("extra:kr_base_rate", kr_base, 86400)
-
     cd_rate = naver_cd or cache.get_stale("extra:cd_rate") or \
         {"name":"CD금리(91일)","value":3.62,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
     cache.set("extra:cd_rate", cd_rate, 86400)
 
-    rates.insert(0, kr_base)
-    rates.insert(1, cd_rate)
+    rates.insert(0, cd_rate)
 
     if rates:
         cache.set(ck, rates, 300)
@@ -235,41 +231,14 @@ def _do_fetch_kr_rates() -> list:
 
 
 def get_kr_rates() -> list:
-    import threading
     ck = "extra:kr_rates"
     if c := cache.get(ck):
         return c
     stale = cache.get_stale(ck)
     if stale:
-        threading.Thread(target=_do_fetch_kr_rates, daemon=True).start()
+        background_executor.submit(_do_fetch_kr_rates)
         return stale
     return _do_fetch_kr_rates()
-
-
-def _fetch_fed_rate() -> "dict | None":
-    """FRED 공개 CSV에서 美 연방기금목표금리 상단(DFEDTARU) 실시간 조회 (API 키 불필요)"""
-    try:
-        r = httpx.get(
-            "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=8,
-        )
-        if r.status_code != 200:
-            return None
-        lines = [l for l in r.text.strip().splitlines() if l]
-        # 최신 행부터 역순으로 유효한 값 탐색 (휴일 등은 "." 로 표시될 수 있음)
-        for line in reversed(lines[1:]):
-            parts = line.split(",")
-            if len(parts) != 2:
-                continue
-            try:
-                val = float(parts[1])
-            except ValueError:
-                continue
-            return {"name": "연방기준금리", "value": round(val, 2), "change": 0.0, "change_rate": 0.0, "unit": "%"}
-    except Exception:
-        pass
-    return None
 
 
 def _do_fetch_us_rates() -> list:
@@ -284,21 +253,7 @@ def _do_fetch_us_rates() -> list:
         ("^TYX",      "미국 30년 국채",    "%",   True),
         ("^VIX",      "VIX 공포지수",      "pt",  False),
     ]
-    # yfinance 배치 조회와 연준 기준금리 조회를 병렬화 — 순차 대비 응답 시간 단축
-    ex = ThreadPoolExecutor(max_workers=2)
-    try:
-        f_close = ex.submit(_batch_close, [s[0] for s in specs])  # 8회 → 1회 배치
-        f_fed = ex.submit(_fetch_fed_rate)
-        try:
-            close_data = f_close.result(timeout=15)
-        except Exception:
-            close_data = None
-        try:
-            fed_fetched = f_fed.result(timeout=10)
-        except Exception:
-            fed_fetched = None
-    finally:
-        ex.shutdown(wait=False)
+    close_data = _batch_close([s[0] for s in specs])  # 8회 → 1회 배치
 
     results = []
     for sym, name, unit, is_rate in specs:
@@ -319,33 +274,24 @@ def _do_fetch_us_rates() -> list:
         except Exception:
             continue
 
-    fed = fed_fetched or cache.get_stale("extra:fed_rate") or {
-        "name": "연방기준금리", "value": 5.25,
-        "change": 0.0, "change_rate": 0.0, "unit": "%", "_static": True,
-    }
-    cache.set("extra:fed_rate", fed, 86400)
-    results.insert(3, fed)
-
     if results:
         cache.set(ck, results, 300)
     return results
 
 
 def get_us_rates() -> list:
-    import threading
     ck = "extra:us_rates"
     if c := cache.get(ck):
         return c
     stale = cache.get_stale(ck)
     if stale:
-        threading.Thread(target=_do_fetch_us_rates, daemon=True).start()
+        background_executor.submit(_do_fetch_us_rates)
         return stale
     return _do_fetch_us_rates()
 
 
 def _demo_rates() -> list:
     return [
-        {"name":"한국 기준금리","value":3.50,"change":0.0,"change_rate":0.0,"unit":"%","_static":True},
         {"name":"CD금리(91일)","value":3.62,"change":0.01,"change_rate":0.0,"unit":"%","_static":True},
         {"name":"국채 3년","value":3.45,"change":-0.02,"change_rate":0.0,"unit":"%","_demo":True},
         {"name":"국채 10년","value":3.78,"change":0.01,"change_rate":0.0,"unit":"%","_demo":True},

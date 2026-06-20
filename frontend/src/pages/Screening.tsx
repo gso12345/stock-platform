@@ -110,6 +110,7 @@ export default function Screening() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [sector, setSector] = useState("전체");
   const [results, setResults] = useState<any[]>([]);
+  const [visibleCount, setVisibleCount] = useState(30);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [presetName, setPresetName] = useState("");
   const [showPresets, setShowPresets] = useState(false);
@@ -140,7 +141,8 @@ export default function Screening() {
 
   const runMutation = useMutation({
     mutationFn: () => screeningApi.run({ market, filters, sort_by: sortBy, sort_order: sortOrder, limit: 100 }),
-    onSuccess: (data) => setResults(data.results ?? []),
+    onSuccess: (data) => { setResults(data.results ?? []); setVisibleCount(30); },
+    onError: (err: any) => setToast(err?.response?.data?.detail ?? "스크리닝 실행에 실패했어요. 잠시 후 다시 시도해주세요"),
   });
 
   const savePresetMutation = useMutation({
@@ -499,7 +501,7 @@ export default function Screening() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedResults.map((stock: any, i: number) => {
+                    {sortedResults.slice(0, visibleCount).map((stock: any, i: number) => {
                       const isSelected = selected.has(stock.symbol);
                       const isStarred = starredSymbols.has(stock.symbol);
                       return (
@@ -612,6 +614,16 @@ export default function Screening() {
                     })}
                   </tbody>
                 </table>
+                {sortedResults.length > visibleCount && (
+                  <div className="flex justify-center py-3 border-t border-border/30">
+                    <button
+                      onClick={() => setVisibleCount((c) => c + 30)}
+                      className="text-xs text-accent-blue hover:underline"
+                    >
+                      더 보기 ({sortedResults.length - visibleCount}개 더 있음)
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </Card>

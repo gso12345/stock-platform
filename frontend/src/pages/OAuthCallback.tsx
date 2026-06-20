@@ -1,6 +1,13 @@
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
+
+interface ExchangeResponse {
+  access_token: string;
+  user_id: number;
+  username: string;
+}
 
 export default function OAuthCallback() {
   const navigate = useNavigate();
@@ -8,15 +15,20 @@ export default function OAuthCallback() {
   const login = useAuthStore((s) => s.login);
 
   useEffect(() => {
-    const token = params.get("token");
-    const userId = params.get("user_id");
-    const username = params.get("username");
-    if (token && userId && username) {
-      login(token, Number(userId), username);
-      navigate("/", { replace: true });
-    } else {
+    const code = params.get("code");
+    if (!code) {
       navigate("/login?oauth_error=invalid_response", { replace: true });
+      return;
     }
+    api
+      .post<ExchangeResponse>("/auth/oauth/exchange", { code })
+      .then(({ data }) => {
+        login(data.access_token, data.user_id, data.username);
+        navigate("/", { replace: true });
+      })
+      .catch(() => {
+        navigate("/login?oauth_error=invalid_response", { replace: true });
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
