@@ -715,7 +715,8 @@ export default function Portfolio() {
       </div>
 
       {/* ── 요약 카드 ── */}
-      {hasDisplay && (
+      {/* 보유종목이 실제로 연동(로그인 + 종목 추가)되기 전에는 미리보기 수치를 보여주지 않음 */}
+      {isLoggedIn && items.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "총 평가금액", value: fmtKRW(displaySummary.totalValue),    color: "text-text-primary" },
