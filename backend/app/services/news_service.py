@@ -68,47 +68,13 @@ _NONFINANCE_KW = {
     "부고","동정","인사발령","지진","화재","테러","참사","유튜브","웹툰",
 }
 
-# 경제·증권·금융 관련 키워드 — 화이트리스트(제목에 하나라도 있어야 노출)
-# "경제" 섹션 RSS라도 사회/문화성 기사가 섞여 들어오는 경우가 많아,
-# 비경제 키워드 제외만으로는 걸러지지 않는 기사가 통과하는 문제를 막기 위해
-# 경제/증권/금융 신호 키워드가 실제로 있는지 직접 확인한다.
-_FINANCE_KW = {
-    # 증시·종목
-    "증시","주가","코스피","코스닥","나스닥","다우","증권","주식","상장","공모주","IPO",
-    "상장폐지","액면분할","유상증자","무상증자","배당","합병","인수","M&A","ETF","공시",
-    "실적","매출","영업이익","순이익","적자","흑자","목표가","리포트","애널리스트","주총",
-    # 금리·통화·채권
-    "금리","기준금리","환율","달러","원화","엔화","유로","채권","국채","한은","연준","Fed","FOMC","금통위",
-    # 경제 지표·정책
-    "경제","경기","성장률","GDP","물가","인플레이션","고용","실업","일자리","수출","수입","무역",
-    "무역수지","관세","예산","세금","법인세","소득세","재정","경상수지","투자","펀드","부양",
-    # 부동산·금융업
-    "부동산","집값","아파트","전세","월세","대출","은행","증권사","보험사","카드사","핀테크","금융",
-    # 산업·원자재
-    "반도체","수주","공급망","유가","금값","원자재",
-}
-
-# 해외(영문) 피드용 화이트리스트 — 소문자로 비교
-_FINANCE_KW_EN = {
-    "stock","stocks","share","shares","market","markets","earnings","revenue","profit","profits",
-    "ipo","merger","acquisition","dividend","nasdaq","dow jones","s&p","nyse","fed","fomc",
-    "inflation","rate cut","rate hike","interest rate","gdp","economy","economic","recession",
-    "bond","bonds","treasury","currency","dollar","tariff","export","import","trade",
-    "investor","investors","trading","etf","valuation","quarterly","guidance","outlook",
-    "buyback","ceo","layoff","layoffs","ai chip","semiconductor","oil price","crude oil",
-    "wall street","bull market","bear market","rally","selloff","sell-off","yield","forecast",
-    "m&a","ratings","downgrade","upgrade","ipo",
-}
-
 def _is_finance_news(title: str) -> bool:
-    """제목이 경제/증권/금융 관련인지 판단 (화이트리스트 키워드가 있어야 통과)"""
-    lower = title.lower()
-    has_finance = any(kw in title for kw in _FINANCE_KW) or any(kw in lower for kw in _FINANCE_KW_EN)
-    if not has_finance:
-        return False
-    if any(kw in title for kw in _NONFINANCE_KW):
-        return False
-    return True
+    """제목이 경제/증권/금융 관련인지 판단.
+    피드 자체가 이미 경제/증권 섹션으로 큐레이션되어 있으므로, 화이트리스트
+    매칭을 강제하지 않고 비경제 키워드(스포츠/연예/정치 등)만 걸러낸다.
+    (화이트리스트를 강제하면 키워드와 무관한 정상 경제 기사까지 누락되는 문제가 있었음)
+    """
+    return not any(kw in title for kw in _NONFINANCE_KW)
 
 
 # 해외(미국 등) 증시·경제 관련 키워드 — 국내 언론사 기사 중 해외 뉴스만 골라내기 위한 화이트리스트
