@@ -833,6 +833,15 @@ export default function StockDetail() {
           return fmtUSD(v);
         };
 
+        // EPS/BPS 등 주당 지표 포맷 — fmtKRW("3만"처럼 만 단위로 축약)를 쓰지 않고
+        // 원 단위까지 정확하게 표기 (예: 34,292원)
+        const fmtEpsBps = (v: number | null | undefined): string | null => {
+          if (v == null) return null;
+          if (isKR) return `₩${Math.round(v).toLocaleString("ko-KR")}`;
+          if (showKRW) return `₩${Math.round(v * exchangeRate).toLocaleString("ko-KR")}`;
+          return fmtUSD(v);
+        };
+
         // 반응형 차트 높이 (모바일 compact, PC 표준)
         const chartH   = isMobile ? 220 : 300;
         const chartHSm = isMobile ? 185 : 240;
@@ -906,7 +915,7 @@ export default function StockDetail() {
                     { key:"net_income_growth",label:"순이익성장률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
                     { key:"op_margin",        label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
                     { key:"net_margin",       label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
-                    { key:"eps",              label:"EPS",          fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:(showKRW?`₩${Math.round(v*exchangeRate).toLocaleString("ko-KR")}`:fmtUSD(v)), color:"text-cyan-400" },
+                    { key:"eps",              label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-cyan-400" },
                   ]}/>
                 </div>
               )}
@@ -926,7 +935,7 @@ export default function StockDetail() {
                   <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                     <StatCell label="PER(현재)"    value={dEnhanced.per          != null ? `${fmtNum(dEnhanced.per)}배` : null} />
                     <StatCell label="PER(선행)"    value={dEnhanced.forward_per  != null ? `${fmtNum(dEnhanced.forward_per)}배` : null} />
-                    <StatCell label="EPS(선행)"    value={dEnhanced.forward_eps  != null ? (isKR?`₩${Math.round(dEnhanced.forward_eps).toLocaleString("ko-KR")}`:(showKRW?fmtKRW(Math.round(dEnhanced.forward_eps*exchangeRate)):fmtUSD(dEnhanced.forward_eps))) : null} />
+                    <StatCell label="EPS(선행)"    value={fmtEpsBps(dEnhanced.forward_eps)} />
                     <StatCell label="PEG"          value={dEnhanced.peg          != null ? fmtNum(dEnhanced.peg, 2) : null} />
                     <StatCell label="PBR"          value={dEnhanced.pbr          != null ? `${fmtNum(dEnhanced.pbr,2)}배` : null} />
                     <StatCell label="PSR"          value={dEnhanced.psr          != null ? `${fmtNum(dEnhanced.psr,2)}배` : null} />
@@ -972,8 +981,8 @@ export default function StockDetail() {
                           <BarChart data={singlePoint.filter(r=>r.eps!=null)} {...chartProps.margin}>
                             <CartesianGrid {...chartProps.cartesianGridProps}/>
                             <XAxis dataKey="period" {...chartProps.xAxisProps}/>
-                            <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtFin(v)}/>
-                            <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtFin(v),"EPS"]}/>
+                            <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtEpsBps(v)!}/>
+                            <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtEpsBps(v)!,"EPS"]}/>
                             <Bar dataKey="eps" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
                           </BarChart>
                         </ResponsiveContainer>
@@ -1003,8 +1012,8 @@ export default function StockDetail() {
                       <BarChart data={mh.filter((r:any)=>r.eps!=null)} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtFin(v)}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtFin(v),"EPS"]}/>
+                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtEpsBps(v)!}/>
+                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtEpsBps(v)!,"EPS"]}/>
                         <Bar dataKey="eps" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
                       </BarChart>
                     </ResponsiveContainer>
@@ -1015,8 +1024,8 @@ export default function StockDetail() {
                   { key:"per",  label:"PER",        fmt:(v)=>`${v.toFixed(1)}배`, color:"text-accent-blue" },
                   { key:"pbr",  label:"PBR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-accent-green" },
                   { key:"psr",  label:"PSR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-purple-400" },
-                  { key:"eps",  label:"EPS",  fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:(showKRW?fmtKRW(Math.round(v*exchangeRate)):fmtUSD(v)), color:"text-cyan-400" },
-                  { key:"bps",  label:"BPS",  fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:(showKRW?fmtKRW(Math.round(v*exchangeRate)):fmtUSD(v)), color:"text-text-secondary" },
+                  { key:"eps",  label:"EPS",  fmt:(v)=>fmtEpsBps(v)!, color:"text-cyan-400" },
+                  { key:"bps",  label:"BPS",  fmt:(v)=>fmtEpsBps(v)!, color:"text-text-secondary" },
                 ]}/>
               </div>
             </div>
@@ -1094,8 +1103,8 @@ export default function StockDetail() {
                     <StatCell label="영업이익률" value={dEnhanced.op_margin!=null?`${dEnhanced.op_margin.toFixed(1)}%`:null}
                       color={dEnhanced.op_margin!=null?(dEnhanced.op_margin>=15?"text-accent-green":dEnhanced.op_margin<0?"text-accent-red":"text-text-primary"):undefined}/>
                     <StatCell label="순이익률" value={dEnhanced.net_margin!=null?`${dEnhanced.net_margin.toFixed(1)}%`:null}/>
-                    <StatCell label="EPS" value={dEnhanced.eps!=null?(isKR?`₩${Math.round(dEnhanced.eps).toLocaleString("ko-KR")}`:fmtUSD(dEnhanced.eps)):null}/>
-                    <StatCell label="선행EPS" value={dEnhanced.forward_eps!=null?(isKR?`₩${Math.round(dEnhanced.forward_eps).toLocaleString("ko-KR")}`:fmtUSD(dEnhanced.forward_eps)):null}/>
+                    <StatCell label="EPS" value={fmtEpsBps(dEnhanced.eps)}/>
+                    <StatCell label="선행EPS" value={fmtEpsBps(dEnhanced.forward_eps)}/>
                   </div>
                 )}
                 {mhYears.length > 0 && (
@@ -1118,7 +1127,7 @@ export default function StockDetail() {
                   { key:"op_margin",    label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-green" },
                   { key:"net_margin",   label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
                   { key:"roe",          label:"ROE",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-yellow" },
-                  { key:"eps",          label:"EPS",          fmt:(v)=>isKR?`₩${Math.round(v).toLocaleString("ko-KR")}`:(showKRW?fmtKRW(Math.round(v*exchangeRate)):fmtUSD(v)), color:"text-cyan-400" },
+                  { key:"eps",          label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-cyan-400" },
                 ]}/>
               </div>
             </div>
