@@ -91,19 +91,47 @@ _NONFINANCE_KW = {
     "부고","동정","인사발령","지진","화재","테러","참사","유튜브","웹툰",
 }
 
-# 비경제 키워드가 포함돼 있어도 아래 경제·증시 키워드가 함께 있으면 예외적으로 포함
-# (예: "OOO 후보자, 청문회서 증시 부양책 언급" → "청문회"는 있지만 "증시"·"부양"이 있어 포함)
-_FINANCE_OVERRIDE_KW = {
-    "증시","주가","코스피","코스닥","나스닥","다우","증권","주식","금리","환율","채권",
-    "부양","투자","펀드","상장","공시","실적","매출","영업이익","적자","흑자",
-    "경제","금융","원화","달러","수출","수입","무역","관세","기준금리","한은","연준",
+# 경제·증권·금융 관련 키워드 — 화이트리스트(제목에 하나라도 있어야 노출)
+# "경제" 섹션 RSS라도 사회/문화성 기사가 섞여 들어오는 경우가 많아,
+# 비경제 키워드 제외만으로는 걸러지지 않는 기사가 통과하는 문제를 막기 위해
+# 경제/증권/금융 신호 키워드가 실제로 있는지 직접 확인한다.
+_FINANCE_KW = {
+    # 증시·종목
+    "증시","주가","코스피","코스닥","나스닥","다우","증권","주식","상장","공모주","IPO",
+    "상장폐지","액면분할","유상증자","무상증자","배당","합병","인수","M&A","ETF","공시",
+    "실적","매출","영업이익","순이익","적자","흑자","목표가","리포트","애널리스트","주총",
+    # 금리·통화·채권
+    "금리","기준금리","환율","달러","원화","엔화","유로","채권","국채","한은","연준","Fed","FOMC","금통위",
+    # 경제 지표·정책
+    "경제","경기","성장률","GDP","물가","인플레이션","고용","실업","일자리","수출","수입","무역",
+    "무역수지","관세","예산","세금","법인세","소득세","재정","경상수지","투자","펀드","부양",
+    # 부동산·금융업
+    "부동산","집값","아파트","전세","월세","대출","은행","증권사","보험사","카드사","핀테크","금융",
+    # 산업·원자재
+    "반도체","수주","공급망","유가","금값","원자재",
+}
+
+# 해외(영문) 피드용 화이트리스트 — 소문자로 비교
+_FINANCE_KW_EN = {
+    "stock","stocks","share","shares","market","markets","earnings","revenue","profit","profits",
+    "ipo","merger","acquisition","dividend","nasdaq","dow jones","s&p","nyse","fed","fomc",
+    "inflation","rate cut","rate hike","interest rate","gdp","economy","economic","recession",
+    "bond","bonds","treasury","currency","dollar","tariff","export","import","trade",
+    "investor","investors","trading","etf","valuation","quarterly","guidance","outlook",
+    "buyback","ceo","layoff","layoffs","ai chip","semiconductor","oil price","crude oil",
+    "wall street","bull market","bear market","rally","selloff","sell-off","yield","forecast",
+    "m&a","ratings","downgrade","upgrade","ipo",
 }
 
 def _is_finance_news(title: str) -> bool:
-    """제목이 경제/금융 관련인지 판단 (모든 피드가 경제 섹션이므로 비경제 키워드만 제외)"""
-    if not any(kw in title for kw in _NONFINANCE_KW):
-        return True
-    return any(kw in title for kw in _FINANCE_OVERRIDE_KW)
+    """제목이 경제/증권/금융 관련인지 판단 (화이트리스트 키워드가 있어야 통과)"""
+    lower = title.lower()
+    has_finance = any(kw in title for kw in _FINANCE_KW) or any(kw in lower for kw in _FINANCE_KW_EN)
+    if not has_finance:
+        return False
+    if any(kw in title for kw in _NONFINANCE_KW):
+        return False
+    return True
 
 
 def _clean_text(raw: str) -> str:
