@@ -9,6 +9,7 @@ import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor
 from app.core.config import settings
 from app.core.cache import cache
+from app.core.executor import background_executor
 
 
 # ── 환율 ──────────────────────────────────────────────────
@@ -230,13 +231,12 @@ def _do_fetch_kr_rates() -> list:
 
 
 def get_kr_rates() -> list:
-    import threading
     ck = "extra:kr_rates"
     if c := cache.get(ck):
         return c
     stale = cache.get_stale(ck)
     if stale:
-        threading.Thread(target=_do_fetch_kr_rates, daemon=True).start()
+        background_executor.submit(_do_fetch_kr_rates)
         return stale
     return _do_fetch_kr_rates()
 
@@ -280,13 +280,12 @@ def _do_fetch_us_rates() -> list:
 
 
 def get_us_rates() -> list:
-    import threading
     ck = "extra:us_rates"
     if c := cache.get(ck):
         return c
     stale = cache.get_stale(ck)
     if stale:
-        threading.Thread(target=_do_fetch_us_rates, daemon=True).start()
+        background_executor.submit(_do_fetch_us_rates)
         return stale
     return _do_fetch_us_rates()
 

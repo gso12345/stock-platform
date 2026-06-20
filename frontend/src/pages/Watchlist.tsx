@@ -38,10 +38,10 @@ const PREVIEW_WATCHLIST: PreviewItem[] = [
   { id: -8, symbol: "QQQ",    market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
 ];
 
-const MKTCOLOR: Record<string, string> = {
-  KR:  "border-blue-700/50 text-blue-400 bg-blue-900/20",
-  US:  "border-green-700/50 text-green-400 bg-green-900/20",
-  ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
+const MKT_BADGE_VARIANT: Record<string, "blue" | "green" | "purple"> = {
+  KR:  "blue",
+  US:  "green",
+  ETF: "purple",
 };
 
 function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {
@@ -53,9 +53,7 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
       onClick={onNavigate}
     >
       {/* 마켓 배지 */}
-      <div className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[item.market] ?? ""}`}>
-        {item.market}
-      </div>
+      <Badge variant={MKT_BADGE_VARIANT[item.market] ?? "default"}>{item.market}</Badge>
       {/* 종목 정보 */}
       <div className="flex-1 min-w-0">
         <div className="font-mono font-bold text-sm text-text-primary">
@@ -115,12 +113,6 @@ function AddModal({ folders, defaultFolderId = null, onClose, onAdd }: {
     onClose();
   };
 
-  const MKTCOLOR: Record<string, string> = {
-    KR: "border-blue-700/50 text-blue-400 bg-blue-900/20",
-    US: "border-green-700/50 text-green-400 bg-green-900/20",
-    ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/60 backdrop-blur-sm">
       <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
@@ -160,9 +152,7 @@ function AddModal({ folders, defaultFolderId = null, onClose, onAdd }: {
               className="w-full flex items-center gap-3 px-4 py-3 border-b border-border/30 hover:bg-bg-hover text-left transition-colors"
               onClick={() => handleSelect(item)}
             >
-              <div className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[item.market] ?? ""}`}>
-                {item.market}
-              </div>
+              <Badge variant={MKT_BADGE_VARIANT[item.market] ?? "default"}>{item.market}</Badge>
               <div className="flex-1 min-w-0">
                 <div className="font-mono font-bold text-sm text-text-primary">{item.symbol}</div>
                 <div className="text-xs text-text-muted truncate">{item.name}</div>
@@ -380,11 +370,11 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
     >
       {/* 스와이프 액션 버튼 (오른쪽 고정, 왼쪽으로 밀면 등장) */}
       <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL }}>
-        <button onClick={() => { closeSwipe(); onEdit(); }}
+        <button onClick={() => { closeSwipe(); onEdit(); }} aria-label="종목 수정"
           className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-blue text-white text-[10px] font-semibold">
           <Settings2 size={14}/><span>수정</span>
         </button>
-        <button onClick={() => { closeSwipe(); onRemove(); }}
+        <button onClick={() => { closeSwipe(); onRemove(); }} aria-label="종목 삭제"
           className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-red text-white text-[10px] font-semibold">
           <Trash2 size={14}/><span>삭제</span>
         </button>
@@ -938,7 +928,17 @@ export default function Watchlist() {
                 </div>
                 {!isCollapsed && (
                   folderItems.length === 0
-                    ? <div className="px-4 py-4 text-text-muted text-xs text-center">종목이 없습니다</div>
+                    ? (
+                      <div className="flex flex-col items-center justify-center gap-2 px-4 py-6">
+                        <p className="text-text-muted text-xs">이 폴더에 종목이 없습니다</p>
+                        <button
+                          onClick={() => openAddModal(folder.id)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
+                        >
+                          <Plus size={12} /> 종목 추가
+                        </button>
+                      </div>
+                    )
                     : renderItems(folderItems)
                 )}
               </Card>
@@ -961,7 +961,17 @@ export default function Watchlist() {
               </div>
               {!collapsed.has("no-folder") && (
                 noFolder.length === 0
-                  ? <div className="px-4 py-4 text-text-muted text-xs text-center">종목이 없습니다</div>
+                  ? (
+                    <div className="flex flex-col items-center justify-center gap-2 px-4 py-6">
+                      <p className="text-text-muted text-xs">종목이 없습니다</p>
+                      <button
+                        onClick={() => openAddModal(null)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
+                      >
+                        <Plus size={12} /> 종목 추가
+                      </button>
+                    </div>
+                  )
                   : renderItems(noFolder)
               )}
             </Card>

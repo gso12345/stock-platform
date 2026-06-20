@@ -81,7 +81,7 @@ def create_item(
     except Exception as e:
         db.rollback()
         log.error(f"포트폴리오 추가 실패 user={current_user.id} symbol={req.symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"저장 중 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail="저장 중 오류가 발생했습니다")
 
 
 @router.put("/items/{item_id}")

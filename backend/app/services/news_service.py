@@ -1,10 +1,10 @@
 import feedparser
-import threading
 import re
 import html as _html
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from app.core.cache import cache
+from app.core.executor import background_executor
 
 _refreshing = {}  # 중복 갱신 방지 플래그
 
@@ -327,7 +327,7 @@ def get_kr_news(limit_per_source: int = 40, total_limit: int = 800) -> list[dict
     stale = cache.get_stale(ck)
     if stale and not _refreshing.get(ck):
         _refreshing[ck] = True
-        threading.Thread(target=_do_refresh_news, args=(ck, KR_FEEDS, limit_per_source, total_limit), daemon=True).start()
+        background_executor.submit(_do_refresh_news, ck, KR_FEEDS, limit_per_source, total_limit)
         return stale
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
