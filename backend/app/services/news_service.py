@@ -288,42 +288,51 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     return all_news
 
 
+def _strip_ts(articles: list[dict]) -> list[dict]:
+    return [{k: v for k, v in a.items() if k != "_ts"} for a in articles]
+
+
 def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
     all_news = _fetch_all_feeds(feeds, limit_per_source)
     stale = cache.get_stale(ck)
     if not all_news:
         # 전체 피드 실패 시에도 _refreshing을 해제해야 다음 요청에서 재시도 가능
         _refreshing.pop(ck, None)
-        return stale or []
+        return _strip_ts(stale) if stale else []
     _add_trending_score(all_news)
+
+    # 일부 언론사 피드가 이번 회차에 타임아웃/실패해도 그 언론사의 최근 기사가
+    # 화면에서 사라지지 않도록, 새로 가져온 기사와 이전 캐시 기사를 먼저 합친
+    # 뒤에 전체를 다시 시간순으로 정렬한다. (정렬 후 자르기만 하면 "이번 회차
+    # 결과만으로 total_limit을 채우는지"에 따라 stale 보충 여부가 갈려, 최신
+    # 기사가 들어왔다 빠졌다 하는 비일관성이 생긴다 — 항상 합친 뒤 정렬해야
+    # 실제로 가장 최신인 기사들이 always 살아남는다)
+    seen = {a.get("link") for a in all_news if a.get("link")}
+    if stale:
+        for a in stale:
+            link = a.get("link")
+            if link and link not in seen and "_ts" in a:
+                all_news.append(a)
+                seen.add(link)
+
     # 실제 발행 시각(_ts) 기준 정렬 — 언론사별 상한 없이 순수 시간순으로 정렬
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
     result = all_news[:total_limit]
-    for a in result:
-        a.pop("_ts", None)
-    # 일부 피드 타임아웃으로 기사 수가 부족하면 이전 캐시 기사로 보충 (링크 기준 중복 제거, 최신 우선)
-    if stale and len(result) < total_limit:
-        seen = {a.get("link") for a in result if a.get("link")}
-        for a in stale:
-            if a.get("link") not in seen:
-                result.append(a)
-                seen.add(a.get("link"))
-                if len(result) >= total_limit:
-                    break
     cache.set(ck, result, 300)
     _refreshing.pop(ck, None)
-    return result
+    return _strip_ts(result)
 
 
 def get_kr_news(limit_per_source: int = 40, total_limit: int = 800) -> list[dict]:
     ck = "news:kr"
     if c := cache.get(ck):
-        return c
+        return _strip_ts(c)
     stale = cache.get_stale(ck)
-    if stale and not _refreshing.get(ck):
-        _refreshing[ck] = True
-        background_executor.submit(_do_refresh_news, ck, KR_FEEDS, limit_per_source, total_limit)
-        return stale
+    if stale:
+        if not _refreshing.get(ck):
+            _refreshing[ck] = True
+            background_executor.submit(_do_refresh_news, ck, KR_FEEDS, limit_per_source, total_limit)
+        return _strip_ts(stale)
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
@@ -331,12 +340,13 @@ def get_us_news(limit_per_source: int = 35, total_limit: int = 500) -> list[dict
     """해외(미국 등) 증시·경제 뉴스 — 해외 언론사 RSS(Yahoo Finance/CNBC/WSJ 등)에서 직접 수집"""
     ck = "news:us"
     if c := cache.get(ck):
-        return c
+        return _strip_ts(c)
     stale = cache.get_stale(ck)
-    if stale and not _refreshing.get(ck):
-        _refreshing[ck] = True
-        background_executor.submit(_do_refresh_news, ck, US_FEEDS, limit_per_source, total_limit)
-        return stale
+    if stale:
+        if not _refreshing.get(ck):
+            _refreshing[ck] = True
+            background_executor.submit(_do_refresh_news, ck, US_FEEDS, limit_per_source, total_limit)
+        return _strip_ts(stale)
     return _do_refresh_news(ck, US_FEEDS, limit_per_source, total_limit)
 
 
