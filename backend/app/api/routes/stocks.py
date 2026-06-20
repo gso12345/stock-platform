@@ -1453,7 +1453,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
             if isinstance(tp, dict) and tp:
                 mean = _sf(tp.get("mean") or tp.get("avg") or tp.get("average"))
                 if mean:
-                    price_src = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
+                    price_src = cache.get(f"price:{yf_sym}") or cache.get_stale(f"price:{yf_sym}") or {}
                     out["price_targets"] = {
                         "current": price_src.get("price"),
                         "mean":   mean,
@@ -1462,7 +1462,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                     }
             # 목표주가가 최상위에 직접 있는 경우
             elif _sf(d.get("mean") or d.get("targetPriceMean")):
-                price_src = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}") or {}
+                price_src = cache.get(f"price:{yf_sym}") or cache.get_stale(f"price:{yf_sym}") or {}
                 out["price_targets"] = {
                     "current": price_src.get("price"),
                     "mean":   _sf(d.get("mean") or d.get("targetPriceMean")),
@@ -1556,7 +1556,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
                 r2 = await asyncio.wait_for(loop2.run_in_executor(None, _fetch), timeout=20)
                 naver_r = await _fetch_kr_analyst()
                 r2 = {**r2, **naver_r}
-                _enrich_analyst_fallback(r2, symbol, market)
+                _enrich_analyst_fallback(r2, yf_sym, market)
                 _fill_analyst_gaps(r2, stale_analyst)
                 if r2:
                     cache.set(ck, r2, 86400)
@@ -1579,7 +1579,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         # Naver 데이터를 우선, yfinance로 보완
         result = {**result, **naver_analyst}
 
-    _enrich_analyst_fallback(result, symbol, market)
+    _enrich_analyst_fallback(result, yf_sym, market)
     _fill_analyst_gaps(result, stale_analyst)
 
     if result:

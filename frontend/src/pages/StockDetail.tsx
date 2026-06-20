@@ -1282,18 +1282,52 @@ export default function StockDetail() {
           return { text: a, color: "text-text-muted bg-bg-elevated" };
         };
 
+        // 투자의견/컨센서스 통화 포맷 (showKRW 토글 반영)
+        const fmtPrice = (v: number | null | undefined): string => {
+          if (v == null) return "—";
+          if (isKR) return `₩${Math.round(v).toLocaleString("ko-KR")}`;
+          if (showKRW) return `₩${Math.round(v * exchangeRate).toLocaleString("ko-KR")}`;
+          return `$${v.toFixed(2)}`;
+        };
+        const fmtPrice0 = (v: number | null | undefined): string => {
+          if (v == null) return "—";
+          if (isKR) return `₩${Math.round(v).toLocaleString("ko-KR")}`;
+          if (showKRW) return `₩${Math.round(v * exchangeRate).toLocaleString("ko-KR")}`;
+          return `$${v.toFixed(0)}`;
+        };
+        const fmtAmtKRW = (v: number): string => {
+          if (isKR) return fmtKRW(v);
+          if (showKRW) return fmtKRW(v * exchangeRate);
+          return fmtUSD(v);
+        };
+
         return (
           <div className="flex flex-col gap-4">
-            {/* 서브탭 */}
-            <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
-              <button onClick={() => setAnalystSubTab("opinion")}
-                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${analystSubTab==="opinion" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
-                투자의견
-              </button>
-              <button onClick={() => setAnalystSubTab("consensus")}
-                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${analystSubTab==="consensus" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
-                컨센서스
-              </button>
+            {/* 서브탭 + 원화 환산 토글 */}
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
+                <button onClick={() => setAnalystSubTab("opinion")}
+                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${analystSubTab==="opinion" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
+                  투자의견
+                </button>
+                <button onClick={() => setAnalystSubTab("consensus")}
+                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${analystSubTab==="consensus" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
+                  컨센서스
+                </button>
+              </div>
+              {!isKR && (
+                <button
+                  onClick={() => setShowKRW(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+                    showKRW
+                      ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue"
+                      : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+                  }`}
+                >
+                  ₩ 원화
+                  {showKRW && <span className="text-[10px] text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
+                </button>
+              )}
             </div>
 
             {analystSubTab==="opinion" && (loadingAnalyst ? (
@@ -1314,7 +1348,7 @@ export default function StockDetail() {
                       <StatCell label="컨센서스 PER" value={`${fmtNum(nc.cons_per)}배`} color="text-accent-blue" />
                     )}
                     {nc.cons_eps != null && (
-                      <StatCell label="컨센서스 EPS" value={isKR ? `₩${Math.round(nc.cons_eps).toLocaleString("ko-KR")}` : `$${nc.cons_eps.toFixed(2)}`} color="text-accent-green" />
+                      <StatCell label="컨센서스 EPS" value={fmtPrice(nc.cons_eps)} color="text-accent-green" />
                     )}
                     {nc.recommendation && (
                       <StatCell label="투자의견" value={nc.recommendation} />
@@ -1358,8 +1392,8 @@ export default function StockDetail() {
                             })()}
                           </div>
                           <div className="flex justify-between text-2xs text-text-muted font-mono">
-                            <span>저 {isKR ? `₩${Math.round(pt.low).toLocaleString("ko-KR")}` : `$${pt.low?.toFixed(0)}`}</span>
-                            <span>고 {isKR ? `₩${Math.round(pt.high).toLocaleString("ko-KR")}` : `$${pt.high?.toFixed(0)}`}</span>
+                            <span>저 {fmtPrice0(pt.low)}</span>
+                            <span>고 {fmtPrice0(pt.high)}</span>
                           </div>
                         </div>
                       )}
@@ -1372,13 +1406,13 @@ export default function StockDetail() {
                           <div key={item.label} className="flex flex-col gap-0.5 items-center p-2 rounded-lg bg-bg-elevated">
                             <span className="text-2xs text-text-muted">{item.label}</span>
                             <span className={`text-sm font-mono font-bold ${item.color}`}>
-                              {item.v != null ? (isKR ? `₩${Math.round(item.v).toLocaleString("ko-KR")}` : `$${item.v.toFixed(0)}`) : "—"}
+                              {fmtPrice0(item.v)}
                             </span>
                           </div>
                         ))}
                       </div>
                       <div className="text-xs text-text-muted text-center">
-                        현재가 {isKR ? `₩${Math.round(pt.current ?? 0).toLocaleString("ko-KR")}` : `$${(pt.current ?? 0).toFixed(2)}`} 기준 · {totalVotes}명 애널리스트
+                        현재가 {fmtPrice(pt.current ?? 0)} 기준 · {totalVotes}명 애널리스트
                       </div>
                     </div>
                   )}
@@ -1463,10 +1497,10 @@ export default function StockDetail() {
                                 <td className="px-4 py-2.5 font-semibold text-text-primary whitespace-nowrap">{r.firm || "—"}</td>
                                 <td className={`px-4 py-2.5 font-semibold whitespace-nowrap ${gradeColor(r.to_grade)}`}>{r.to_grade || "—"}</td>
                                 <td className="px-4 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
-                                  {r.target != null ? (isKR ? `₩${Math.round(r.target).toLocaleString("ko-KR")}` : `$${r.target.toFixed(0)}`) : "—"}
+                                  {fmtPrice0(r.target)}
                                   {r.prior_target != null && r.target != null && r.prior_target !== r.target && (
                                     <span className="text-text-muted ml-1 text-[10px]">
-                                      ({r.target > r.prior_target ? "↑" : "↓"}{isKR ? `₩${Math.round(r.prior_target).toLocaleString("ko-KR")}` : `$${r.prior_target.toFixed(0)}`})
+                                      ({r.target > r.prior_target ? "↑" : "↓"}{fmtPrice0(r.prior_target)})
                                     </span>
                                   )}
                                 </td>
@@ -1501,24 +1535,34 @@ export default function StockDetail() {
               };
 
               const indicators = [
-                { key: "revenue_est",    label: "매출 추정",        color: "text-accent-blue",    fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
-                { key: "revenue_low",    label: "매출 최저",         color: "text-accent-blue/60", fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
-                { key: "revenue_high",   label: "매출 최고",         color: "text-accent-blue/60", fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
-                { key: "op_income_est",  label: "영업이익 추정",     color: "text-accent-green",   fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
-                { key: "net_income_est", label: "순이익 추정",       color: "text-purple-400",     fmt: (v: number) => isKR ? fmtKRW(v) : fmtUSD(v) },
-                { key: "eps_est",        label: "EPS 추정",          color: "text-accent-green",   fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_low",        label: "EPS 최저",          color: "text-accent-green/60",fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_high",       label: "EPS 최고",          color: "text-accent-green/60",fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "revenue_est",    label: "매출 추정",        color: "text-accent-blue",    fmt: fmtAmtKRW },
+                { key: "revenue_low",    label: "매출 최저",         color: "text-accent-blue/60", fmt: fmtAmtKRW },
+                { key: "revenue_high",   label: "매출 최고",         color: "text-accent-blue/60", fmt: fmtAmtKRW },
+                { key: "op_income_est",  label: "영업이익 추정",     color: "text-accent-green",   fmt: fmtAmtKRW },
+                { key: "net_income_est", label: "순이익 추정",       color: "text-purple-400",     fmt: fmtAmtKRW },
+                { key: "eps_est",        label: "EPS 추정",          color: "text-accent-green",   fmt: fmtPrice },
+                { key: "eps_low",        label: "EPS 최저",          color: "text-accent-green/60",fmt: fmtPrice },
+                { key: "eps_high",       label: "EPS 최고",          color: "text-accent-green/60",fmt: fmtPrice },
                 { key: "eps_analysts",   label: "EPS 애널리스트 수", color: "text-text-muted",     fmt: (v: number) => `${Math.round(v)}명` },
-                { key: "eps_current",    label: "EPS 현재 추정",     color: "text-cyan-400",       fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_7d_ago",     label: "EPS 7일 전",        color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_30d_ago",    label: "EPS 30일 전",       color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
-                { key: "eps_90d_ago",    label: "EPS 90일 전",       color: "text-text-muted",     fmt: (v: number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}` },
+                { key: "eps_current",    label: "EPS 현재 추정",     color: "text-cyan-400",       fmt: fmtPrice },
+                { key: "eps_7d_ago",     label: "EPS 7일 전",        color: "text-text-muted",     fmt: fmtPrice },
+                { key: "eps_30d_ago",    label: "EPS 30일 전",       color: "text-text-muted",     fmt: fmtPrice },
+                { key: "eps_90d_ago",    label: "EPS 90일 전",       color: "text-text-muted",     fmt: fmtPrice },
                 { key: "growth_est",     label: "EPS 성장률 추정",   color: "text-accent-yellow",  fmt: (v: number) => `${(v*100).toFixed(1)}%` },
               ].filter(ind => fcstData.some((r: any) => r[ind.key] != null));
 
-              // 컨센서스 차트용 데이터/포맷
-              const chartData = fcstData.map((r: any) => ({ ...r, periodLabel: periodLabel(r.period) }));
+              // 컨센서스 차트용 데이터/포맷 (showKRW 토글 시 차트 값도 원화로 환산)
+              const inKRW = isKR || showKRW;
+              const convFactor = (!isKR && showKRW) ? exchangeRate : 1;
+              const chartData = fcstData.map((r: any) => {
+                const conv: any = { ...r, periodLabel: periodLabel(r.period) };
+                if (convFactor !== 1) {
+                  ["revenue_est","revenue_low","revenue_high","op_income_est","net_income_est","eps_est"].forEach(k => {
+                    if (conv[k] != null) conv[k] = conv[k] * convFactor;
+                  });
+                }
+                return conv;
+              });
               const hasRevenueChart = fcstData.some((r: any) => r.revenue_est != null);
               const hasOpIncome  = fcstData.some((r: any) => r.op_income_est != null);
               const hasNetIncome = fcstData.some((r: any) => r.net_income_est != null);
@@ -1529,8 +1573,8 @@ export default function StockDetail() {
               const cXAxis   = { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any;
               const cYAxis   = { tick:{fill:"#64748b",fontSize:10}, tickLine:false, width:isMobile?46:58 } as any;
               const cTooltip = { contentStyle:{background:"#141824",border:"1px solid #232840",borderRadius:8,fontSize:11} } as any;
-              const fmtAmt = (v:number) => isKR ? fmtKRW(v) : fmtUSD(v);
-              const fmtEpsV = (v:number) => isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}`;
+              const fmtAmt = (v:number) => inKRW ? fmtKRW(v) : fmtUSD(v);
+              const fmtEpsV = (v:number) => inKRW ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}`;
 
               return (
                 <div className="flex flex-col gap-3">
@@ -1551,7 +1595,7 @@ export default function StockDetail() {
                           <BarChart data={chartData} {...cMargin}>
                             <CartesianGrid {...cGrid}/>
                             <XAxis dataKey="periodLabel" {...cXAxis}/>
-                            <YAxis {...cYAxis} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
+                            <YAxis {...cYAxis} tickFormatter={(v:number)=>{const a=Math.abs(v);return inKRW?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
                             <Tooltip {...cTooltip} formatter={(v:number,name:string)=>{const l:Record<string,string>={revenue_est:"매출 추정",op_income_est:"영업이익 추정",net_income_est:"순이익 추정"};return[fmtAmt(v),l[name]??name];}}/>
                             <Legend formatter={v=>({revenue_est:"매출",op_income_est:"영업이익",net_income_est:"순이익"}[v as string]??v)}/>
                             <Bar dataKey="revenue_est" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={35}/>
