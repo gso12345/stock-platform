@@ -1094,7 +1094,10 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
             return items
 
         def _match_feed_kr():
-            matched = [dict(a) for a in get_kr_news() if stock_name in a.get("title", "")]
+            matched = [
+                dict(a) for a in get_kr_news()
+                if stock_name in a.get("title", "") or stock_name in a.get("summary", "")
+            ]
             for a in matched:
                 a["published"] = _to_kst_published(a.get("published", ""), short_mmdd=True)
             return matched
@@ -1133,7 +1136,10 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     elif matcher.search(title):
                         return True
                 return False
-            matched = [dict(a) for a in get_us_news() if _hit(a.get("title", ""))]
+            matched = [
+                dict(a) for a in get_us_news()
+                if _hit(a.get("title", "")) or _hit(a.get("summary", ""))
+            ]
             for a in matched:
                 a["published"] = _to_kst_published(a.get("published", ""), short_mmdd=True)
             return matched
