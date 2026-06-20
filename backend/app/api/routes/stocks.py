@@ -1438,8 +1438,10 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
 
     # KR 종목: Naver 컨센서스 목표주가 + 애널리스트 의견 직접 조회
     async def _fetch_kr_analyst() -> dict:
-        """네이버 모바일 컨센서스 API에서 목표주가·추천의견 조회"""
-        import httpx, math
+        """네이버 통합(integration) API의 totalInfos에서 목표주가·투자의견 항목을 값의
+        패턴으로 탐지해 조회한다 (전용 consensusOpinion/opinion/consensus 엔드포인트는
+        더 이상 응답하지 않아 제거됨 — 가격 조회에도 쓰이는 integration 엔드포인트를 재사용)"""
+        import httpx, math, re
         headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/80.0 Mobile Safari/537.36",
             "Referer": "https://m.stock.naver.com/",
@@ -1452,107 +1454,63 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
             except Exception:
                 return None
 
-        def _parse_opinion(d: dict) -> dict:
+        # "4.04매수" / "3.50중립" 같은 투자의견 점수+등급 패턴
+        _opinion_re = re.compile(r"^(\d(?:\.\d{1,2})?)\s*(적극매수|매수|중립|보유|매도|적극매도)$")
+        _grade_to_label = {
+            "적극매수": "강력매수", "매수": "매수", "중립": "보유", "보유": "보유",
+            "매도": "매도", "적극매도": "강력매도",
+        }
+
+        try:
+            loop = asyncio.get_running_loop()
+            r = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: httpx.get(
+                    f"https://m.stock.naver.com/api/stock/{code6}/integration",
+                    headers=headers, timeout=8,
+                )), timeout=10
+            )
+            if r.status_code != 200:
+                return {}
+            infos = r.json().get("totalInfos") or []
+
             out: dict = {}
-            # 목표주가 — 여러 가지 필드 이름 시도
-            tp = d.get("targetPrice") or d.get("target_price")
-            if isinstance(tp, dict) and tp:
-                mean = _sf(tp.get("mean") or tp.get("avg") or tp.get("average"))
-                if mean:
-                    price_src = cache.get(f"price:{yf_sym}") or cache.get_stale(f"price:{yf_sym}") or {}
-                    out["price_targets"] = {
-                        "current": price_src.get("price"),
-                        "mean":   mean,
-                        "high":   _sf(tp.get("high") or tp.get("max")),
-                        "low":    _sf(tp.get("low") or tp.get("min")),
-                    }
-            # 목표주가가 최상위에 직접 있는 경우
-            elif _sf(d.get("mean") or d.get("targetPriceMean")):
+            opinion_score = opinion_grade = None
+            target_price = None
+
+            for item in infos:
+                name = str(item.get("name") or "")
+                code = str(item.get("code") or "")
+                value = str(item.get("value") or "").strip()
+                if not value:
+                    continue
+
+                m = _opinion_re.match(value.replace(" ", ""))
+                if m:
+                    opinion_score = _sf(m.group(1))
+                    opinion_grade = m.group(2)
+                    continue
+
+                if ("목표" in name and "주가" in name) or "target" in code.lower() or "goal" in code.lower():
+                    tv = _sf(value)
+                    if tv:
+                        target_price = tv
+
+            if target_price:
                 price_src = cache.get(f"price:{yf_sym}") or cache.get_stale(f"price:{yf_sym}") or {}
                 out["price_targets"] = {
                     "current": price_src.get("price"),
-                    "mean":   _sf(d.get("mean") or d.get("targetPriceMean")),
-                    "high":   _sf(d.get("high") or d.get("targetPriceHigh")),
-                    "low":    _sf(d.get("low") or d.get("targetPriceLow")),
+                    "mean":    target_price,
                 }
 
-            # 투자의견 분포 (매수/보유/매도)
-            rec = d.get("recommendation") or d.get("opinion") or d.get("opinions") or {}
-            if isinstance(rec, dict):
-                buy   = int(_sf(rec.get("buy")  or rec.get("매수", 0)) or 0)
-                hold  = int(_sf(rec.get("hold") or rec.get("marketPerform") or rec.get("보유", 0)) or 0)
-                sell  = int(_sf(rec.get("sell") or rec.get("underperform")  or rec.get("매도", 0)) or 0)
-                strong_buy  = int(_sf(rec.get("strongBuy",  0)) or 0)
-                strong_sell = int(_sf(rec.get("strongSell", 0)) or 0)
-                total = buy + hold + sell + strong_buy + strong_sell
-                if total > 0:
-                    out["consensus"] = {
-                        "strong_buy": strong_buy, "buy": buy,
-                        "hold": hold,
-                        "sell": sell, "strong_sell": strong_sell,
-                    }
-                    # 컨센서스 평균 의견 (1=강매도 ~ 5=강매수)
-                    avg = (strong_buy*5 + buy*4 + hold*3 + sell*2 + strong_sell) / total
-                    out.setdefault("naver_consensus", {})
-                    out["naver_consensus"]["recommendation"] = (
-                        "강력매수" if avg >= 4.5 else
-                        "매수"   if avg >= 3.5 else
-                        "보유"   if avg >= 2.5 else
-                        "매도"
-                    )
-                    out["naver_consensus"]["analyst_count"] = total
+            if opinion_grade:
+                nc = out.setdefault("naver_consensus", {})
+                nc["recommendation"] = _grade_to_label.get(opinion_grade, opinion_grade)
+                if opinion_score is not None:
+                    nc["score"] = opinion_score
 
             return out
-
-        loop = asyncio.get_running_loop()
-        # 1차: consensusOpinion 엔드포인트
-        try:
-            r = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: httpx.get(
-                    f"https://m.stock.naver.com/api/stock/{code6}/consensusOpinion",
-                    headers=headers, timeout=8,
-                )), timeout=10
-            )
-            if r.status_code == 200:
-                d = r.json()
-                parsed = _parse_opinion(d)
-                if parsed:
-                    return parsed
         except Exception:
-            pass
-
-        # 2차: opinion 엔드포인트 (폴백)
-        try:
-            r2 = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: httpx.get(
-                    f"https://m.stock.naver.com/api/stock/{code6}/opinion",
-                    headers=headers, timeout=8,
-                )), timeout=10
-            )
-            if r2.status_code == 200:
-                d2 = r2.json()
-                parsed2 = _parse_opinion(d2)
-                if parsed2:
-                    return parsed2
-        except Exception:
-            pass
-
-        # 3차: consensus 엔드포인트 (목표주가/투자의견이 함께 포함된 경우)
-        try:
-            r3 = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: httpx.get(
-                    f"https://m.stock.naver.com/api/stock/{code6}/consensus",
-                    headers=headers, timeout=8,
-                )), timeout=10
-            )
-            if r3.status_code == 200:
-                parsed3 = _parse_opinion(r3.json())
-                if parsed3:
-                    return parsed3
-        except Exception:
-            pass
-
-        return {}
+            return {}
 
     if market == "KR" and stale_analyst:
         # stale 캐시 즉시 반환, 백그라운드에서 갱신
