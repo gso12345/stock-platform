@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Newspaper } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
-import { fmtNewsDateTime } from "@/utils/formatters";
+import { fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
 
 type MarketTab = "kr" | "us";
 type SortTab = "latest" | "popular";
@@ -62,11 +62,11 @@ export default function News() {
     refetchInterval: 120_000,
   });
 
-  // 최신순: 백엔드가 제공하는 순서(최신 일부 + 언론사별 인터리브)를 그대로 사용해 다양성 유지
+  // 최신순: 실제 발행 시각 기준으로 정렬 (백엔드 순서에 의존하지 않음)
   // 인기순: 트렌드 점수 기준 정렬
   const sorted = sort === "popular"
     ? [...(news ?? [])].sort((a: any, b: any) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
-    : (news ?? []);
+    : [...(news ?? [])].sort((a: any, b: any) => newsTimestampMs(b.published) - newsTimestampMs(a.published));
 
   const shown = sorted.slice(0, shownCount);
   const remaining = sorted.length - shown.length;

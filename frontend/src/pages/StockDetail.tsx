@@ -13,7 +13,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
-import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime } from "@/utils/formatters";
+import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
 
 /* ── 지표 셀 ────────────────────────────────────────── */
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
@@ -1701,7 +1701,7 @@ export default function StockDetail() {
               const sorted = [...(stockNews ?? [])].sort((a,b)=>
                 newsSort==="popular"
                   ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
-                  : String(b.published ?? "").localeCompare(String(a.published ?? ""))
+                  : newsTimestampMs(b.published) - newsTimestampMs(a.published)
               );
               return (
                 <>
