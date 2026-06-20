@@ -181,9 +181,20 @@ def _extract_thumbnail(entry) -> str | None:
     return None
 
 
+_FEED_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+}
+
+
 def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
     try:
-        feed  = feedparser.parse(url)
+        # feedparser.parse(url)는 자체 타임아웃이 없어, 응답이 느리거나 멈춘
+        # 피드 하나가 스레드를 오래 점유해 다른 피드까지 10초 예산 안에 못 끝나는
+        # 문제가 있었음 — httpx로 명시적 타임아웃을 두고 받아온 바이트를 파싱
+        import httpx
+        resp = httpx.get(url, headers=_FEED_HEADERS, timeout=5, follow_redirects=True)
+        feed = feedparser.parse(resp.content)
         items = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=3)
         # 필터(경제 키워드/기간/이미지) 통과율이 낮을 수 있으므로 넉넉히 스캔
@@ -252,16 +263,16 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
             for source, url in feeds
         }
         try:
-            for future in as_completed(futures, timeout=10):
+            for future in as_completed(futures, timeout=13):
                 try:
-                    items = future.result(timeout=8)
+                    items = future.result(timeout=6)
                     all_news.extend(items)
                 except Exception:
                     pass
         except Exception:
             pass
     finally:
-        # wait=False: 응답 시한(10s)을 넘긴 느린 피드 스레드는 백그라운드에서
+        # wait=False: 응답 시한(13s)을 넘긴 느린 피드 스레드는 백그라운드에서
         # 마무리되도록 두고 즉시 반환 (with 블록은 모든 스레드 종료까지 대기해 타임아웃을 무력화함)
         executor.shutdown(wait=False)
     return all_news
