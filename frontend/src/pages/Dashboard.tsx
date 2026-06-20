@@ -265,7 +265,7 @@ const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
       {shown.map((item: any, i: number) => (
         <a key={item.link || i} href={item.link} target="_blank" rel="noopener noreferrer"
           className="flex items-start gap-2.5 py-2.5 px-1 border-b border-border/40 hover:bg-bg-hover transition-colors group">
-          {item.image && (
+          {item.image ? (
             <img
               src={item.image}
               alt=""
@@ -273,6 +273,10 @@ const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
               className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-bg-elevated"
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
             />
+          ) : (
+            <div className="w-14 h-14 rounded-lg flex-shrink-0 bg-bg-elevated flex items-center justify-center">
+              <Newspaper size={18} className="text-text-muted" />
+            </div>
           )}
           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
             <div className="flex items-start gap-2">

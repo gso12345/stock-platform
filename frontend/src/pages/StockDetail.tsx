@@ -1704,7 +1704,7 @@ export default function StockDetail() {
                       <li key={i} className="border-b border-border/30 last:border-0">
                         <a href={item.link} target="_blank" rel="noopener noreferrer"
                           className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
-                          {item.image && (
+                          {item.image ? (
                             <img
                               src={item.image}
                               alt=""
@@ -1712,6 +1712,10 @@ export default function StockDetail() {
                               className="w-20 h-20 rounded-lg object-cover flex-shrink-0 bg-bg-elevated"
                               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                             />
+                          ) : (
+                            <div className="w-20 h-20 rounded-lg flex-shrink-0 bg-bg-elevated flex items-center justify-center">
+                              <Newspaper size={20} className="text-text-muted" />
+                            </div>
                           )}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">{item.title}</p>

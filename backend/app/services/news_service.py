@@ -216,8 +216,6 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
                 continue
 
             image = _extract_thumbnail(entry)
-            if not image:
-                continue
 
             items.append({
                 "title":     title,
