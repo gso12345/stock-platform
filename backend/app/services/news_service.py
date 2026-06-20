@@ -264,30 +264,29 @@ def _add_trending_score(articles: list) -> list:
     return articles
 
 
+# 피드 fetch 전용 공유 스레드풀 — 호출마다 새 ThreadPoolExecutor를 만들면
+# 피드 수(50개+)만큼 OS 스레드가 한꺼번에 생성/TLS 핸드셰이크를 동시 수행해
+# 호스트 CPU가 제한된 환경(Render 등)에서 전체 응답 지연을 유발할 수 있음 —
+# 동시 처리량을 적절히 제한하는 공유 풀을 재사용한다.
+_feed_executor = ThreadPoolExecutor(max_workers=12, thread_name_prefix="feed-fetch")
+
+
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
-    """피드 목록을 병렬로 fetch (ThreadPoolExecutor 사용)"""
+    """피드 목록을 공유 스레드풀로 fetch (동시 처리량 제한으로 CPU 버스트 방지)"""
     all_news = []
-    # 피드 수가 늘어나도(50개+) 한 배치에서 모두 동시 처리되도록 워커 수를 피드 수만큼 둠
-    # (httpx I/O 대기가 대부분이라 스레드 수가 늘어도 부담이 크지 않음)
-    executor = ThreadPoolExecutor(max_workers=len(feeds))
+    futures = {
+        _feed_executor.submit(_parse_feed, url, source, limit_per_source): source
+        for source, url in feeds
+    }
     try:
-        futures = {
-            executor.submit(_parse_feed, url, source, limit_per_source): source
-            for source, url in feeds
-        }
-        try:
-            for future in as_completed(futures, timeout=10):
-                try:
-                    items = future.result(timeout=6)
-                    all_news.extend(items)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-    finally:
-        # wait=False: 응답 시한(13s)을 넘긴 느린 피드 스레드는 백그라운드에서
-        # 마무리되도록 두고 즉시 반환 (with 블록은 모든 스레드 종료까지 대기해 타임아웃을 무력화함)
-        executor.shutdown(wait=False)
+        for future in as_completed(futures, timeout=20):
+            try:
+                items = future.result(timeout=6)
+                all_news.extend(items)
+            except Exception:
+                pass
+    except Exception:
+        pass
     return all_news
 
 
