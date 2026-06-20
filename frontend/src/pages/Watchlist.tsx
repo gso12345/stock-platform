@@ -292,7 +292,8 @@ const SWIPE_THRESHOLD = 50;
 
 /* ── 종목 행: 드래그 재정렬 + 왼쪽으로 스와이프 → 수정/삭제 ─── */
 function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
-  isDragging, isDragOver, onDragStart, onDragOver, onDrop }: {
+  isDragging, isDragOver, onDragStart, onDragOver, onDrop,
+  onTouchDragStart, onTouchDragMove, onTouchDragEnd }: {
   item: any; livePrice: any;
   onRemove: () => void; onNavigate: () => void; onEdit: () => void;
   onPrefetch?: () => void;
@@ -300,6 +301,9 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
   onDragStart?: React.DragEventHandler;
   onDragOver?: React.DragEventHandler;
   onDrop?: React.DragEventHandler;
+  onTouchDragStart?: () => void;
+  onTouchDragMove?: (clientX: number, clientY: number) => void;
+  onTouchDragEnd?: () => void;
 }) {
   const p        = livePrice ?? item;
   const isKR     = item.market === "KR";
@@ -361,6 +365,9 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
         <div
           draggable
           onDragStart={onDragStart}
+          onTouchStart={onTouchDragStart}
+          onTouchMove={(e) => onTouchDragMove?.(e.touches[0].clientX, e.touches[0].clientY)}
+          onTouchEnd={onTouchDragEnd}
           className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1 py-1"
           title="드래그하여 순서 변경"
         >
@@ -500,8 +507,7 @@ export default function Watchlist() {
     setLocalOrder(itemsList);
   };
 
-  const handleDragOver = (e: React.DragEvent, targetId: number) => {
-    e.preventDefault();
+  const moveItemTo = (targetId: number) => {
     if (dragId === null || dragId === targetId) return;
     setDropId(targetId);
     // 낙관적 순서 재배치
@@ -515,11 +521,25 @@ export default function Watchlist() {
     setLocalOrder(next);
   };
 
+  const handleDragOver = (e: React.DragEvent, targetId: number) => {
+    e.preventDefault();
+    moveItemTo(targetId);
+  };
+
   const handleDrop = () => {
     if (dragId !== null && localOrder) {
       reorderMutation.mutate(localOrder.map((i: any) => i.id));
     }
     setDragId(null); setDropId(null); setLocalOrder(null);
+  };
+
+  // 모바일 터치 드래그 (HTML5 draggable은 터치 환경에서 동작하지 않으므로 직접 구현)
+  const handleItemTouchMove = (clientX: number, clientY: number) => {
+    if (dragId === null) return;
+    const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest("[data-item-id]") as HTMLElement | null;
+    if (!el) return;
+    const targetId = Number(el.dataset.itemId);
+    if (targetId) moveItemTo(targetId);
   };
 
   // 폴더 드래그 상태
@@ -537,8 +557,7 @@ export default function Watchlist() {
     setLocalFolderOrder(folders as any[]);
   };
 
-  const handleFolderDragOver = (e: React.DragEvent, targetId: number) => {
-    e.preventDefault();
+  const moveFolderTo = (targetId: number) => {
     if (dragFolderId === null || dragFolderId === targetId) return;
     setDropFolderId(targetId);
     const base = localFolderOrder ?? (folders as any[]);
@@ -549,6 +568,20 @@ export default function Watchlist() {
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     setLocalFolderOrder(next);
+  };
+
+  const handleFolderDragOver = (e: React.DragEvent, targetId: number) => {
+    e.preventDefault();
+    moveFolderTo(targetId);
+  };
+
+  // 모바일 터치 드래그 (폴더 순서 변경)
+  const handleFolderTouchMove = (clientX: number, clientY: number) => {
+    if (dragFolderId === null) return;
+    const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest("[data-folder-id]") as HTMLElement | null;
+    if (!el) return;
+    const targetId = Number(el.dataset.folderId);
+    if (targetId) moveFolderTo(targetId);
   };
 
   const handleFolderDrop = () => {
@@ -633,7 +666,7 @@ export default function Watchlist() {
 
   const renderItems = (list: any[]) =>
     list.map((item: any) => (
-      <div key={item.id} ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol}>
+      <div key={item.id} ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol} data-item-id={item.id}>
         <ItemRow
           item={item}
           livePrice={livePrices[item.symbol]}
@@ -646,6 +679,9 @@ export default function Watchlist() {
           onDragStart={() => handleDragStart(item)}
           onDragOver={(e) => handleDragOver(e, item.id)}
           onDrop={handleDrop}
+          onTouchDragStart={() => handleDragStart(item)}
+          onTouchDragMove={handleItemTouchMove}
+          onTouchDragEnd={handleDrop}
         />
       </div>
     ));
@@ -819,6 +855,7 @@ export default function Watchlist() {
               <Card key={folder.id} className="p-0 overflow-hidden">
                 <div
                   className={`flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border group ${dropFolderId === folder.id ? "bg-accent-blue/5" : ""} ${dragFolderId === folder.id ? "opacity-40" : ""}`}
+                  data-folder-id={folder.id}
                   onDragOver={(e) => handleFolderDragOver(e, folder.id)}
                   onDrop={handleFolderDrop}
                 >
@@ -826,6 +863,9 @@ export default function Watchlist() {
                     <div
                       draggable
                       onDragStart={() => handleFolderDragStart(folder)}
+                      onTouchStart={() => handleFolderDragStart(folder)}
+                      onTouchMove={(e) => handleFolderTouchMove(e.touches[0].clientX, e.touches[0].clientY)}
+                      onTouchEnd={handleFolderDrop}
                       className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1 py-1"
                       title="드래그하여 폴더 순서 변경"
                     >
