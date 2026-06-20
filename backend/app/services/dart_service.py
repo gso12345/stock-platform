@@ -6,7 +6,7 @@ import httpx
 import zipfile
 import io
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.core.config import settings
 from app.core.cache import cache
 
@@ -192,8 +192,11 @@ class DARTService:
         corp_code = self.get_corp_code(code6)
         if not corp_code:
             return []
+        end_de = datetime.now().strftime("%Y%m%d")
+        bgn_de = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
         d = self._get("list.json", {
             "corp_code": corp_code, "page_count": page_count,
+            "bgn_de": bgn_de, "end_de": end_de,
         })
         items = d.get("list", [])
         result = [

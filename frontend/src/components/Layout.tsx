@@ -171,6 +171,7 @@ export default function Layout() {
 
   useEffect(() => {
     document.documentElement.classList.toggle("light", isLight);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", isLight ? "#f0f4f8" : "#0b0e17");
   }, [isLight]);
 
   /* 글씨 크기 클래스 적용 */
