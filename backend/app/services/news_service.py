@@ -54,6 +54,19 @@ KR_FEEDS = [
     # IT/산업 (반도체·전자 등 기술주 관련 보도 보강)
     ("전자신문",       "https://rss.etnews.com/Section901.xml"),
     ("디지털타임스",   "https://www.dt.co.kr/rss/economy.xml"),
+    ("블로터",         "https://www.bloter.net/rss/allArticle.xml"),
+    ("디지털데일리",   "https://www.ddaily.co.kr/rss/allArticle.xml"),
+    # 중소형 경제 전문지/매체 (언론사 다양성 보강)
+    ("데일리안 경제",  "https://www.dailian.co.kr/rss/economy.xml"),
+    ("프라임경제",     "http://www.newsprime.co.kr/rss/allArticle.xml"),
+    ("브릿지경제",     "http://www.viva100.com/rss/allArticle.xml"),
+    ("메트로신문",     "http://www.metroseoul.co.kr/rss/allArticle.xml"),
+    ("이뉴스투데이",   "http://www.enewstoday.co.kr/rss/allArticle.xml"),
+    ("한스경제",       "http://www.sporbiz.co.kr/rss/allArticle.xml"),
+    ("시사저널e",      "http://www.sisajournal-e.com/rss/allArticle.xml"),
+    ("글로벌이코노믹", "https://www.g-enews.com/rss/allArticle.xml"),
+    ("이코노미스트",   "https://economist.co.kr/rss/allArticle.xml"),
+    ("비즈워치",       "https://news.bizwatch.co.kr/rss/total_news.xml"),
 ]
 
 # 해외(미국 등) 증시·경제 관련 뉴스는 더 이상 해외 언론사 RSS를 직접 수집하지 않고,
@@ -129,6 +142,10 @@ _OVERSEAS_KW = {
     "아마존", "구글", "알파벳", "메타", "페이스북", "넷플릭스", "인텔", "퀄컴", "TSMC", "ARM",
     "국제유가", "WTI", "브렌트유", "국제금값", "글로벌", "해외", "미국 연준", "미 연준",
     "관세전쟁", "미중", "미국", "중국", "일본", "유럽", "美", "中", "日", "유로존",
+    # 더 넓은 범위(조금만 관련 있어도 노출) — 국제기구·주요국·국제 이슈
+    "세계", "국제", "WTO", "IMF", "OECD", "G7", "G20", "브렉시트", "우크라이나", "러시아",
+    "인도", "대만", "베트남", "홍콩", "싱가포르", "사우디", "OPEC", "산유국", "신흥국",
+    "G2", "브릭스", "BRICS", "동남아", "중동", "아세안", "신흥시장",
 }
 
 
@@ -216,8 +233,6 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
                 continue
 
             image = _extract_thumbnail(entry)
-            if not image:
-                continue
 
             items.append({
                 "title":     title,
@@ -256,14 +271,16 @@ def _add_trending_score(articles: list) -> list:
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     """피드 목록을 병렬로 fetch (ThreadPoolExecutor 사용)"""
     all_news = []
-    executor = ThreadPoolExecutor(max_workers=min(len(feeds), 24))
+    # 피드 수가 늘어나도(50개+) 한 배치에서 모두 동시 처리되도록 워커 수를 피드 수만큼 둠
+    # (httpx I/O 대기가 대부분이라 스레드 수가 늘어도 부담이 크지 않음)
+    executor = ThreadPoolExecutor(max_workers=len(feeds))
     try:
         futures = {
             executor.submit(_parse_feed, url, source, limit_per_source): source
             for source, url in feeds
         }
         try:
-            for future in as_completed(futures, timeout=13):
+            for future in as_completed(futures, timeout=10):
                 try:
                     items = future.result(timeout=6)
                     all_news.extend(items)
@@ -321,7 +338,7 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     _add_trending_score(all_news)
     # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순(단, 언론사별 상한 적용), 나머지는 다양성 확보를 위해 인터리브
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    top, leftover = _pick_diverse_top(all_news, count=6, per_source_cap=1)
+    top, leftover = _pick_diverse_top(all_news, count=12, per_source_cap=1)
     rest     = _interleave_by_source(leftover)  # 나머지는 언론사별 균등 배치
     result   = (top + rest)[:total_limit]
     for a in result:
