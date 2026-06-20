@@ -56,31 +56,8 @@ KR_FEEDS = [
     ("디지털타임스",   "https://www.dt.co.kr/rss/economy.xml"),
 ]
 
-# ── 해외 뉴스 RSS ──────────────────────────────────────────
-US_FEEDS = [
-    # 주요 경제·시장
-    ("Reuters Business",   "https://feeds.reuters.com/reuters/businessNews"),
-    ("Reuters Markets",    "https://feeds.reuters.com/reuters/companyNews"),
-    ("Yahoo Finance",      "https://finance.yahoo.com/news/rssindex"),
-    ("MarketWatch",        "https://feeds.content.dowjones.io/public/rss/mw_marketpulse"),
-    ("CNBC Economy",       "https://www.cnbc.com/id/20910258/device/rss/rss.html"),
-    ("CNBC Finance",       "https://www.cnbc.com/id/10000664/device/rss/rss.html"),
-    ("Bloomberg Markets",  "https://feeds.bloomberg.com/markets/news.rss"),
-    ("WSJ Markets",        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"),
-    ("WSJ Economy",        "https://feeds.a.dj.com/rss/RSSWorldNews.xml"),
-    # 투자·분석
-    ("Seeking Alpha",      "https://seekingalpha.com/feed.xml"),
-    ("Investing.com",      "https://www.investing.com/rss/news.rss"),
-    ("The Street",         "https://www.thestreet.com/feeds/headline-stories.rss"),
-    ("Forbes Business",    "https://www.forbes.com/feeds/news.rss"),
-    ("FT Markets",         "https://www.ft.com/rss/home/us"),
-    ("Barron's",           "https://www.barrons.com/xml/rss/3_7028.xml"),
-    # 추가 매체 (다양성 보강)
-    ("CNBC Top News",      "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
-    ("Fortune",            "https://fortune.com/feed/"),
-    ("Business Insider",   "https://markets.businessinsider.com/rss/news"),
-    ("TechCrunch",         "https://techcrunch.com/feed/"),
-]
+# 해외(미국 등) 증시·경제 관련 뉴스는 더 이상 해외 언론사 RSS를 직접 수집하지 않고,
+# 국내 언론사가 작성한 해외 관련 기사를 KR_FEEDS 결과에서 골라 사용한다 (get_us_news 참고).
 
 
 # 경제/금융 뉴스 피드에서도 섞여 들어올 수 있는 비경제 키워드 — 포함 시 제외
@@ -134,6 +111,23 @@ def _is_finance_news(title: str) -> bool:
     return True
 
 
+# 해외(미국 등) 증시·경제 관련 키워드 — 국내 언론사 기사 중 해외 뉴스만 골라내기 위한 화이트리스트
+_OVERSEAS_KW = {
+    "나스닥", "다우", "다우존스", "S&P", "S&P500", "뉴욕증시", "뉴욕증권거래소", "미국증시", "미 증시",
+    "유럽증시", "일본증시", "중국증시", "글로벌증시", "해외증시", "아시아증시",
+    "연준", "Fed", "FOMC", "파월", "월가", "ECB", "BOJ", "유럽중앙은행", "옐런",
+    "FTSE", "니케이", "항셍", "상하이종합", "엔비디아", "테슬라", "애플", "마이크로소프트",
+    "아마존", "구글", "알파벳", "메타", "페이스북", "넷플릭스", "인텔", "퀄컴", "TSMC", "ARM",
+    "국제유가", "WTI", "브렌트유", "국제금값", "글로벌", "해외", "미국 연준", "미 연준",
+    "관세전쟁", "미중", "미국", "중국", "일본", "유럽", "美", "中", "日", "유로존",
+}
+
+
+def _is_overseas_news(title: str) -> bool:
+    """국내 언론사 기사 중 해외(미국 등) 증시·경제 관련 기사인지 판단"""
+    return any(kw in title for kw in _OVERSEAS_KW)
+
+
 def _clean_text(raw: str) -> str:
     """HTML 태그 제거 + 엔티티 디코딩 + 공백 정리"""
     if not raw:
@@ -184,7 +178,7 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
         items = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=3)
         # 필터(경제 키워드/기간/이미지) 통과율이 낮을 수 있으므로 넉넉히 스캔
-        for entry in feed.entries[:max(limit * 6, 60)]:
+        for entry in feed.entries[:max(limit * 10, 100)]:
             title = entry.get("title", "").strip()
             if not title:
                 continue
@@ -202,6 +196,8 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
                 continue
 
             image = _extract_thumbnail(entry)
+            if not image:
+                continue
 
             items.append({
                 "title":     title,
@@ -336,13 +332,8 @@ def get_kr_news(limit_per_source: int = 40, total_limit: int = 800) -> list[dict
     return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
-def get_us_news(limit_per_source: int = 35, total_limit: int = 500) -> list[dict]:
-    ck = "news:us"
-    if c := cache.get(ck):
-        return c
-    stale = cache.get_stale(ck)
-    if stale and not _refreshing.get(ck):
-        _refreshing[ck] = True
-        threading.Thread(target=_do_refresh_news, args=(ck, US_FEEDS, limit_per_source, total_limit), daemon=True).start()
-        return stale
-    return _do_refresh_news(ck, US_FEEDS, limit_per_source, total_limit)
+def get_us_news(total_limit: int = 500) -> list[dict]:
+    """해외(미국 등) 증시·경제 뉴스 — 해외 언론사 RSS 대신, 국내 언론사가 작성한
+    해외 관련 기사를 KR 뉴스 결과에서 골라 사용 (다양한 국내 언론사가 고르게 노출됨)"""
+    overseas = [a for a in get_kr_news() if _is_overseas_news(a.get("title", ""))]
+    return overseas[:total_limit]

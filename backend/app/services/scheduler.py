@@ -377,18 +377,18 @@ async def run_startup_prefetch():
     from app.services.ranking_service import refresh_kr_rankings_from_naver
 
     from app.services.market_extras import get_kr_rates, get_us_rates
-    # 지수 + 환율 + 금리 + 뉴스 + 랭킹 동시 갱신
+    # 지수 + 환율 + 금리 + 랭킹 동시 갱신 (해외 뉴스는 국내 뉴스 캐시에서 골라내므로 국내 뉴스 갱신 후 실행)
     await asyncio.gather(
         refresh_kr_indices(),
         refresh_us_indices(),
         refresh_exchange(),
         refresh_kr_rankings_from_naver(),
         loop.run_in_executor(None, get_kr_news),
-        loop.run_in_executor(None, get_us_news),
         loop.run_in_executor(None, get_kr_rates),
         loop.run_in_executor(None, get_us_rates),
         return_exceptions=True,
     )
+    await loop.run_in_executor(None, get_us_news)
     # 종목 갱신 (후순위)
     await asyncio.gather(
         refresh_us_stocks(),
@@ -430,7 +430,7 @@ async def periodic_refresh():
             loop2 = asyncio.get_running_loop()
             await loop2.run_in_executor(None, get_us_rates)
 
-        # 종목 + 뉴스 (5분)
+        # 종목 + 뉴스 (5분) — 해외 뉴스는 국내 뉴스 캐시에서 골라내므로 국내 뉴스 갱신 후 실행
         if counter % 30 == 0:
             from app.services.news_service import get_kr_news, get_us_news
             loop = asyncio.get_running_loop()
@@ -438,9 +438,9 @@ async def periodic_refresh():
                 refresh_us_stocks(),
                 refresh_kr_stocks(),
                 loop.run_in_executor(None, get_kr_news),
-                loop.run_in_executor(None, get_us_news),
                 return_exceptions=True,
             )
+            await loop.run_in_executor(None, get_us_news)
 
         # 순위 (60초) - Naver 실시간
         if counter % 6 == 0:

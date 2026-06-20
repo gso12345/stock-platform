@@ -264,16 +264,27 @@ const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
       </div>
       {shown.map((item: any, i: number) => (
         <a key={item.link || i} href={item.link} target="_blank" rel="noopener noreferrer"
-          className="flex flex-col gap-0.5 py-2.5 px-1 border-b border-border/40 hover:bg-bg-hover transition-colors group">
-          <div className="flex items-start gap-2">
-            <span className="flex-1 text-xs text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2 leading-relaxed">
-              {item.title}
-            </span>
-            <ExternalLink size={10} className="text-text-muted mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
-          <div className="flex items-center gap-2 text-2xs text-text-muted">
-            <span className="font-medium text-text-dim">{item.source}</span>
-            {item.published && <><span>·</span><span>{item.published}</span></>}
+          className="flex items-start gap-2.5 py-2.5 px-1 border-b border-border/40 hover:bg-bg-hover transition-colors group">
+          {item.image && (
+            <img
+              src={item.image}
+              alt=""
+              loading="lazy"
+              className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-bg-elevated"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            />
+          )}
+          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+            <div className="flex items-start gap-2">
+              <span className="flex-1 text-xs text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2 leading-relaxed">
+                {item.title}
+              </span>
+              <ExternalLink size={10} className="text-text-muted mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <div className="flex items-center gap-2 text-2xs text-text-muted">
+              <span className="font-medium text-text-dim">{item.source}</span>
+              {item.published && <><span>·</span><span>{item.published}</span></>}
+            </div>
           </div>
         </a>
       ))}

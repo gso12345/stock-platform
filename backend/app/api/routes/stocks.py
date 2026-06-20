@@ -961,11 +961,24 @@ _US_NAME_OVERRIDES = {
     "AMD": "AMD", "V": "Visa", "JPM": "JPMorgan", "AMZN": "Amazon",
     "GOOGL": "Alphabet", "GOOG": "Alphabet",
 }
+# 해외 뉴스가 국내 언론사 기사(한글)로 대체됨에 따라, 한글 기사 제목 매칭을 위한 주요 종목 한글명
+_US_NAME_KO = {
+    "AAPL": "애플", "TSLA": "테슬라", "MSFT": "마이크로소프트", "GOOGL": "알파벳", "GOOG": "알파벳",
+    "AMZN": "아마존", "NVDA": "엔비디아", "META": "메타", "NFLX": "넷플릭스", "INTC": "인텔",
+    "QCOM": "퀄컴", "BA": "보잉", "DIS": "디즈니", "JPM": "JP모건", "V": "비자", "MA": "마스터카드",
+    "PYPL": "페이팔", "ORCL": "오라클", "CRM": "세일즈포스", "ADBE": "어도비", "PFE": "화이자",
+    "JNJ": "존슨앤드존슨", "KO": "코카콜라", "PEP": "펩시코", "WMT": "월마트", "XOM": "엑손모빌",
+    "CVX": "셰브론", "BAC": "뱅크오브아메리카", "GS": "골드만삭스", "UBER": "우버", "SBUX": "스타벅스",
+    "NKE": "나이키", "MCD": "맥도날드",
+}
 
 
 def _us_search_terms(symbol: str, name: str | None) -> list[str]:
     """해외 종합피드에서 이 종목을 언급한 기사를 찾기 위한 검색어 목록"""
     terms = []
+    ko = _US_NAME_KO.get(symbol)
+    if ko:
+        terms.append(ko)
     override = _US_NAME_OVERRIDES.get(symbol)
     if override:
         terms.append(override)
@@ -1066,6 +1079,8 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 if not title:
                     continue
                 image = _extract_thumbnail(entry)
+                if not image:
+                    continue
                 source = (entry.get("source") or {}).get("title", "")
                 items.append({
                     "title": title,
@@ -1099,15 +1114,26 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
             cached_price = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}")
             name = (cached_price or {}).get("name")
         search_terms = _us_search_terms(symbol, name)
-        patterns = [re.compile(rf"\b{re.escape(t)}\b", re.I) for t in search_terms]
+        # 해외 뉴스가 이제 국내 언론사 한글 기사이므로, 한글 검색어는 단순 포함 여부로,
+        # 영문 심볼/회사명은 단어 경계 매칭으로 판별
+        _korean_re = re.compile(r"[가-힣]")
+        patterns = [
+            (t, True) if _korean_re.search(t) else (re.compile(rf"\b{re.escape(t)}\b", re.I), False)
+            for t in search_terms
+        ]
 
         def _match_feed_us():
             if not patterns:
                 return []
-            matched = [
-                dict(a) for a in get_us_news()
-                if any(p.search(a.get("title", "")) for p in patterns)
-            ]
+            def _hit(title: str) -> bool:
+                for matcher, is_korean in patterns:
+                    if is_korean:
+                        if matcher in title:
+                            return True
+                    elif matcher.search(title):
+                        return True
+                return False
+            matched = [dict(a) for a in get_us_news() if _hit(a.get("title", ""))]
             for a in matched:
                 a["published"] = _to_kst_published(a.get("published", ""), short_mmdd=True)
             return matched
@@ -1129,6 +1155,8 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     thumb = ct.get("thumbnail") or n.get("thumbnail") or {}
                     resolutions = thumb.get("resolutions") or []
                     image = resolutions[0].get("url") if resolutions else thumb.get("originalUrl")
+                    if not image:
+                        continue
                     items.append({"title": title, "link": link, "source": provider, "published": _to_kst_published(pub), "summary": (ct.get("summary") or "")[:200], "image": image})
                 return items
             except Exception:
