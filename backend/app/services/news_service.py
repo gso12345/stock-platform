@@ -90,14 +90,6 @@ US_FEEDS = [
 ]
 
 
-# 경제/금융 뉴스 피드에서도 섞여 들어올 수 있는 비경제 키워드 — 포함 시 제외
-_NONFINANCE_KW = {
-    "야구","축구","농구","배구","골프","스포츠","연예","드라마","영화","음악","아이돌","배우",
-    "요리","레시피","맛집","여행","패션","뷰티","헬스","운동","건강","날씨","사건","사고","범죄",
-    "정치","국회","탄핵","선거","총선","대선","여야","원내대표","청문회",
-    "부고","동정","인사발령","지진","화재","테러","참사","유튜브","웹툰",
-}
-
 # 경제·증권·금융 관련 키워드 — 화이트리스트(제목에 하나라도 있어야 노출)
 # "경제" 섹션 RSS라도 사회/문화성 기사가 섞여 들어오는 경우가 많아,
 # 비경제 키워드 제외만으로는 걸러지지 않는 기사가 통과하는 문제를 막기 위해
@@ -140,14 +132,11 @@ _FINANCE_KW_EN = {
 }
 
 def _is_finance_news(title: str) -> bool:
-    """제목이 경제/증권/금융 관련인지 판단 (화이트리스트 키워드가 있어야 통과)"""
+    """제목이 경제/증권/금융 관련인지 판단 (화이트리스트 키워드가 있어야 통과)
+    경제 키워드가 있으면 비경제 키워드가 섞여 있어도 통과시킨다
+    (예: "정치 테마주 급등" 처럼 비경제 키워드가 있어도 경제와 관련된 기사일 수 있음)"""
     lower = title.lower()
-    has_finance = any(kw in title for kw in _FINANCE_KW) or any(kw in lower for kw in _FINANCE_KW_EN)
-    if not has_finance:
-        return False
-    if any(kw in title for kw in _NONFINANCE_KW):
-        return False
-    return True
+    return any(kw in title for kw in _FINANCE_KW) or any(kw in lower for kw in _FINANCE_KW_EN)
 
 
 def _clean_text(raw: str) -> str:
