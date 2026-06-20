@@ -68,7 +68,6 @@ export default function StockDetail() {
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow">("basic");
   const [selectedMetric, setSelectedMetric] = useState("revenue");
   const [newsSort, setNewsSort]         = useState<"latest" | "popular">("latest");
-  const [newsExpanded, setNewsExpanded] = useState(false);
   const [newsSubTab, setNewsSubTab]     = useState<"news" | "disclosure">("news");
   const [inWatchlist, setInWatchlist] = useState(false);
   const [watchlistItemId, setWatchlistItemId] = useState<number | null>(null);
@@ -1704,12 +1703,10 @@ export default function StockDetail() {
                   ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
                   : String(b.published ?? "").localeCompare(String(a.published ?? ""))
               );
-              const shown = newsExpanded ? sorted : sorted.slice(0, 10);
-              const remaining = sorted.length - 10;
               return (
                 <>
                   <ul>
-                    {shown.map((item: any, i: number) => (
+                    {sorted.map((item: any, i: number) => (
                       <li key={i} className="border-b border-border/30 last:border-0">
                         <a href={item.link} target="_blank" rel="noopener noreferrer"
                           className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
@@ -1739,12 +1736,6 @@ export default function StockDetail() {
                       </li>
                     ))}
                   </ul>
-                  {remaining > 0 && (
-                    <button onClick={() => setNewsExpanded(v => !v)}
-                      className="w-full py-2.5 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border">
-                      {newsExpanded ? "접기 ▲" : `더보기 (${remaining}건 더) ▼`}
-                    </button>
-                  )}
                 </>
               );
             })() : (
