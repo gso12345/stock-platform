@@ -257,7 +257,7 @@ def _add_trending_score(articles: list) -> list:
 # 피드 수(50개+)만큼 OS 스레드가 한꺼번에 생성/TLS 핸드셰이크를 동시 수행해
 # 호스트 CPU가 제한된 환경(Render 등)에서 전체 응답 지연을 유발할 수 있음 —
 # 동시 처리량을 적절히 제한하는 공유 풀을 재사용한다.
-_feed_executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="feed-fetch")
+_feed_executor = ThreadPoolExecutor(max_workers=32, thread_name_prefix="feed-fetch")
 
 
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
@@ -288,21 +288,6 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     return all_news
 
 
-def _pick_diverse_top(sorted_news: list, count: int, per_source_cap: int) -> "tuple[list, list]":
-    """시간순으로 상위 count개를 뽑되, 한 언론사가 너무 많이 차지하지 않도록 소스별 상한을 둠
-    (특정 언론사가 발행 빈도가 높아 최신순 상단을 독점하는 것 방지)"""
-    from collections import Counter
-    top, remaining, used = [], [], Counter()
-    for a in sorted_news:
-        src = a["source"]
-        if len(top) < count and used[src] < per_source_cap:
-            top.append(a)
-            used[src] += 1
-        else:
-            remaining.append(a)
-    return top, remaining
-
-
 def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
     all_news = _fetch_all_feeds(feeds, limit_per_source)
     stale = cache.get_stale(ck)
@@ -311,10 +296,9 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
         _refreshing.pop(ck, None)
         return stale or []
     _add_trending_score(all_news)
-    # 실제 발행 시각(_ts) 기준 정렬 — 언론사별 상한만 적용해 한 언론사가 도배하는 것은
-    # 막되, 순서 자체는 끝까지 시간순을 유지한다("최신순" 탭이 실제로 최신순이어야 함)
+    # 실제 발행 시각(_ts) 기준 정렬 — 언론사별 상한 없이 순수 시간순으로 정렬
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    result, _ = _pick_diverse_top(all_news, count=total_limit, per_source_cap=10)
+    result = all_news[:total_limit]
     for a in result:
         a.pop("_ts", None)
     # 일부 피드 타임아웃으로 기사 수가 부족하면 이전 캐시 기사로 보충 (링크 기준 중복 제거, 최신 우선)

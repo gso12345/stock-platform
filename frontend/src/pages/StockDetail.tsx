@@ -13,7 +13,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
-import { fmtKRW, fmtUSD, fmtNum, fmtDate } from "@/utils/formatters";
+import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
 
 /* ── 지표 셀 ────────────────────────────────────────── */
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
@@ -68,7 +68,6 @@ export default function StockDetail() {
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow">("basic");
   const [selectedMetric, setSelectedMetric] = useState("revenue");
   const [newsSort, setNewsSort]         = useState<"latest" | "popular">("latest");
-  const [newsExpanded, setNewsExpanded] = useState(false);
   const [newsSubTab, setNewsSubTab]     = useState<"news" | "disclosure">("news");
   const [inWatchlist, setInWatchlist] = useState(false);
   const [watchlistItemId, setWatchlistItemId] = useState<number | null>(null);
@@ -1702,14 +1701,12 @@ export default function StockDetail() {
               const sorted = [...(stockNews ?? [])].sort((a,b)=>
                 newsSort==="popular"
                   ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
-                  : String(b.published ?? "").localeCompare(String(a.published ?? ""))
+                  : newsTimestampMs(b.published) - newsTimestampMs(a.published)
               );
-              const shown = newsExpanded ? sorted : sorted.slice(0, 10);
-              const remaining = sorted.length - 10;
               return (
                 <>
                   <ul>
-                    {shown.map((item: any, i: number) => (
+                    {sorted.map((item: any, i: number) => (
                       <li key={i} className="border-b border-border/30 last:border-0">
                         <a href={item.link} target="_blank" rel="noopener noreferrer"
                           className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
@@ -1730,7 +1727,13 @@ export default function StockDetail() {
                             <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">{item.title}</p>
                             <div className="flex items-center gap-2 mt-1">
                               {item.source && <span className="text-2xs text-accent-blue/70 font-medium">{item.source}</span>}
-                              {item.published && <span className="text-2xs text-text-muted">{typeof item.published === "number" ? new Date(item.published*1000).toLocaleDateString("ko-KR") : item.published}</span>}
+                              {item.published && (
+                                <span className="text-2xs text-text-muted">
+                                  {typeof item.published === "number"
+                                    ? new Date(item.published*1000).toLocaleDateString("ko-KR")
+                                    : fmtNewsDateTime(item.published)}
+                                </span>
+                              )}
                             </div>
                             {item.summary && <p className="text-xs text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
                           </div>
@@ -1739,12 +1742,6 @@ export default function StockDetail() {
                       </li>
                     ))}
                   </ul>
-                  {remaining > 0 && (
-                    <button onClick={() => setNewsExpanded(v => !v)}
-                      className="w-full py-2.5 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border">
-                      {newsExpanded ? "접기 ▲" : `더보기 (${remaining}건 더) ▼`}
-                    </button>
-                  )}
                 </>
               );
             })() : (
