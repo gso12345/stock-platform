@@ -206,7 +206,7 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
         # 피드 하나가 스레드를 오래 점유해 다른 피드까지 10초 예산 안에 못 끝나는
         # 문제가 있었음 — httpx로 명시적 타임아웃을 두고 받아온 바이트를 파싱
         import httpx
-        resp = httpx.get(url, headers=_FEED_HEADERS, timeout=5, follow_redirects=True)
+        resp = httpx.get(url, headers=_FEED_HEADERS, timeout=4, follow_redirects=True)
         feed = feedparser.parse(resp.content)
         items = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=3)
@@ -268,15 +268,24 @@ def _add_trending_score(articles: list) -> list:
 # 피드 수(50개+)만큼 OS 스레드가 한꺼번에 생성/TLS 핸드셰이크를 동시 수행해
 # 호스트 CPU가 제한된 환경(Render 등)에서 전체 응답 지연을 유발할 수 있음 —
 # 동시 처리량을 적절히 제한하는 공유 풀을 재사용한다.
-_feed_executor = ThreadPoolExecutor(max_workers=12, thread_name_prefix="feed-fetch")
+_feed_executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="feed-fetch")
 
 
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
-    """피드 목록을 공유 스레드풀로 fetch (동시 처리량 제한으로 CPU 버스트 방지)"""
+    """피드 목록을 공유 스레드풀로 fetch (동시 처리량 제한으로 CPU 버스트 방지)
+
+    워커 수보다 피드가 많으면 뒤에 제출된 피드는 앞쪽 피드가 끝나야 실행되는데,
+    KR_FEEDS가 카테고리별로 묶여 있어 매번 같은 순서로 제출하면 항상 뒤쪽
+    카테고리(통신사/방송/IT 등)만 시간 예산 안에 못 끝나는 편향이 생긴다 —
+    매 호출마다 순서를 섞어 모든 언론사가 번갈아 우선권을 갖도록 한다.
+    """
+    import random
+    shuffled = list(feeds)
+    random.shuffle(shuffled)
     all_news = []
     futures = {
         _feed_executor.submit(_parse_feed, url, source, limit_per_source): source
-        for source, url in feeds
+        for source, url in shuffled
     }
     try:
         for future in as_completed(futures, timeout=20):
