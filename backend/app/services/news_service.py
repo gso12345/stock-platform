@@ -257,7 +257,7 @@ def _add_trending_score(articles: list) -> list:
 # 피드 수(50개+)만큼 OS 스레드가 한꺼번에 생성/TLS 핸드셰이크를 동시 수행해
 # 호스트 CPU가 제한된 환경(Render 등)에서 전체 응답 지연을 유발할 수 있음 —
 # 동시 처리량을 적절히 제한하는 공유 풀을 재사용한다.
-_feed_executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="feed-fetch")
+_feed_executor = ThreadPoolExecutor(max_workers=32, thread_name_prefix="feed-fetch")
 
 
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
