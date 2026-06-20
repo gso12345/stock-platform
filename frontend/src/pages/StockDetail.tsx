@@ -1743,7 +1743,13 @@ export default function StockDetail() {
                             <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">{item.title}</p>
                             <div className="flex items-center gap-2 mt-1">
                               {item.source && <span className="text-2xs text-accent-blue/70 font-medium">{item.source}</span>}
-                              {item.published && <span className="text-2xs text-text-muted">{typeof item.published === "number" ? new Date(item.published*1000).toLocaleDateString("ko-KR") : formatNewsRelative(item.published)}</span>}
+                              {item.published && (
+                                <span className="text-2xs text-text-muted">
+                                  {typeof item.published === "number"
+                                    ? new Date(item.published*1000).toLocaleDateString("ko-KR")
+                                    : `${formatNewsRelative(item.published)} · ${item.published.split(" ")[0]}`}
+                                </span>
+                              )}
                             </div>
                             {item.summary && <p className="text-xs text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
                           </div>
