@@ -139,31 +139,6 @@ def _is_finance_news(title: str) -> bool:
     return any(kw in title for kw in _FINANCE_KW) or any(kw in lower for kw in _FINANCE_KW_EN)
 
 
-# 국내(KR_FEEDS) 기사 중 "해외 증시" 단독 기사를 걸러내기 위한 키워드.
-# 국내 언론사도 "나스닥","Fed" 같은 키워드가 들어간 해외 시황 기사를 많이 내는데,
-# _FINANCE_KW에 해당 단어들이 포함돼 있어 그대로 두면 "국내" 탭에 해외 기사가
-# 섞여 보인다 — 제목에 해외 시그널만 있고 국내 시그널이 전혀 없으면 제외한다.
-_FOREIGN_ONLY_KW = {
-    "뉴욕증시", "뉴욕 증시", "나스닥", "다우존스", "다우 지수", "S&P", "S&P500",
-    "월스트리트", "월가", "유럽증시", "유럽 증시", "일본증시", "일본 증시",
-    "중국증시", "중국 증시", "상하이증시", "홍콩증시", "도쿄증시", "닛케이",
-    "미국증시", "미국 증시", "美증시", "美 증시", "해외증시", "글로벌 증시",
-    "뉴욕 증권거래소", "NYSE", "나스닥지수", "다우지수",
-}
-_DOMESTIC_KW = {
-    "코스피", "코스닥", "코스피200", "코스닥150", "국내", "한국", "원화",
-    "원/달러", "한은", "금통위", "우리나라", "K-방산", "코넥스",
-}
-
-
-def _is_foreign_only_news(title: str) -> bool:
-    """국내 언론사 기사인데 제목이 해외 증시 시황만 다루는 경우 True
-    (국내 관련 키워드가 함께 있으면 False — 비교/연계 기사는 통과시킴)"""
-    if not any(kw in title for kw in _FOREIGN_ONLY_KW):
-        return False
-    return not any(kw in title for kw in _DOMESTIC_KW)
-
-
 def _clean_text(raw: str) -> str:
     """HTML 태그 제거 + 엔티티 디코딩 + 공백 정리"""
     if not raw:
@@ -214,7 +189,7 @@ _FEED_HEADERS = {
 }
 
 
-def _parse_feed(url: str, source: str, limit: int = 8, exclude_foreign: bool = False) -> list[dict]:
+def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
     try:
         # feedparser.parse(url)는 자체 타임아웃이 없어, 응답이 느리거나 멈춘
         # 피드 하나가 스레드를 오래 점유해 다른 피드까지 10초 예산 안에 못 끝나는
@@ -230,8 +205,6 @@ def _parse_feed(url: str, source: str, limit: int = 8, exclude_foreign: bool = F
             if not title:
                 continue
             if not _is_finance_news(title):
-                continue
-            if exclude_foreign and _is_foreign_only_news(title):
                 continue
 
             parsed = entry.get("published_parsed") or entry.get("updated_parsed")
@@ -287,7 +260,7 @@ def _add_trending_score(articles: list) -> list:
 _feed_executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="feed-fetch")
 
 
-def _fetch_all_feeds(feeds: list, limit_per_source: int, exclude_foreign: bool = False) -> list[dict]:
+def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     """피드 목록을 공유 스레드풀로 fetch (동시 처리량 제한으로 CPU 버스트 방지)
 
     워커 수보다 피드가 많으면 뒤에 제출된 피드는 앞쪽 피드가 끝나야 실행되는데,
@@ -300,7 +273,7 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, exclude_foreign: bool =
     random.shuffle(shuffled)
     all_news = []
     futures = {
-        _feed_executor.submit(_parse_feed, url, source, limit_per_source, exclude_foreign): source
+        _feed_executor.submit(_parse_feed, url, source, limit_per_source): source
         for source, url in shuffled
     }
     try:
@@ -330,8 +303,8 @@ def _pick_diverse_top(sorted_news: list, count: int, per_source_cap: int) -> "tu
     return top, remaining
 
 
-def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int, exclude_foreign: bool = False) -> list[dict]:
-    all_news = _fetch_all_feeds(feeds, limit_per_source, exclude_foreign)
+def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
+    all_news = _fetch_all_feeds(feeds, limit_per_source)
     stale = cache.get_stale(ck)
     if not all_news:
         # 전체 피드 실패 시에도 _refreshing을 해제해야 다음 요청에서 재시도 가능
@@ -365,9 +338,9 @@ def get_kr_news(limit_per_source: int = 40, total_limit: int = 800) -> list[dict
     stale = cache.get_stale(ck)
     if stale and not _refreshing.get(ck):
         _refreshing[ck] = True
-        background_executor.submit(_do_refresh_news, ck, KR_FEEDS, limit_per_source, total_limit, True)
+        background_executor.submit(_do_refresh_news, ck, KR_FEEDS, limit_per_source, total_limit)
         return stale
-    return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit, True)
+    return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
 
 
 def get_us_news(limit_per_source: int = 35, total_limit: int = 500) -> list[dict]:
