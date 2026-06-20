@@ -948,10 +948,19 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
 
 @router.get("/{market}/{symbol}/disclosures")
 async def get_disclosures(market: Literal["KR","US","ETF"], symbol: str):
-    """국내 공시 목록 (OpenDART)"""
+    """국내 공시 목록 (OpenDART)
+    최초 호출 시 전체 기업코드 매핑 파일(corpCode.xml, 수 MB)을 내려받아야 해서
+    일반 API보다 오래 걸릴 수 있다 — 공용 _run(15초)이 아닌 넉넉한 타임아웃 사용.
+    """
     if market != "KR" or not settings.DART_API_KEY:
         return []
-    return await _run(dart_service.get_disclosures, symbol)
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, dart_service.get_disclosures, symbol), timeout=45
+        )
+    except Exception:
+        return []
 
 
 # 법인 접미사 (종목명 끝부분) — 해외 종합피드 매칭용 검색어 추출 시 제거
@@ -1016,7 +1025,7 @@ def _to_kst_published(value, short_mmdd: bool = False) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _merge_news(primary: list, secondary: list, limit: int = 60) -> list:
+def _merge_news(primary: list, secondary: list, limit: int = 120) -> list:
     """종합피드(이미지 보장, 다양한 언론사) 결과를 우선 배치하고 종목별 검색 결과로 보강, 링크 기준 중복 제거"""
     seen, result = set(), []
     for item in (*primary, *secondary):
@@ -1064,7 +1073,7 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 (e for e in (feed.entries or []) if e.get("published_parsed")),
                 key=lambda e: e.published_parsed,
                 reverse=True,
-            )[:50]
+            )[:120]
             for entry in entries_sorted:
                 pub = ""
                 pub_ts = ""
