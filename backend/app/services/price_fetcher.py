@@ -196,6 +196,110 @@ async def fetch_naver_indices() -> dict[str, dict]:
     return out
 
 
+# ── pykrx(KRX 공식 데이터) — 네이버/야후 모두 실패한 지수용 최종 폴백 ──
+PYKRX_INDEX_MARKET = {
+    "KOSPI": "KOSPI", "KOSPI200": "KOSPI",
+    "KOSDAQ": "KOSDAQ", "KOSDAQ150": "KOSDAQ",
+}
+PYKRX_INDEX_NAME = {
+    "KOSPI": "코스피", "KOSPI200": "코스피200",
+    "KOSDAQ": "코스닥지수", "KOSDAQ150": "코스닥150",
+}
+
+
+def fetch_pykrx_index(name: str) -> dict | None:
+    """KRX 공식 데이터(pykrx)로 지수 조회 — 네이버 내부 코드/야후 심볼이 안 맞을 때 보강용.
+    동기 함수이므로 호출 측에서 run_in_executor로 실행해야 함."""
+    market = PYKRX_INDEX_MARKET.get(name)
+    target_name = PYKRX_INDEX_NAME.get(name)
+    if not market or not target_name:
+        return None
+    try:
+        from pykrx import stock as pkrx
+        import datetime as dt
+
+        ticker = None
+        for t in pkrx.get_index_ticker_list(market=market):
+            if pkrx.get_index_ticker_name(t) == target_name:
+                ticker = t
+                break
+        if not ticker:
+            return None
+
+        today = dt.date.today()
+        fromdate = (today - dt.timedelta(days=10)).strftime("%Y%m%d")
+        todate = today.strftime("%Y%m%d")
+        df = pkrx.get_index_ohlcv_by_date(fromdate, todate, ticker)
+        df = df[df["종가"] > 0]
+        if len(df) < 1:
+            return None
+
+        curr = float(df["종가"].iloc[-1])
+        if len(df) >= 2:
+            prev = float(df["종가"].iloc[-2])
+            change = curr - prev
+            change_rate = (change / prev) * 100 if prev else 0.0
+        else:
+            change = change_rate = 0.0
+
+        return {
+            "index":       name,
+            "name":        INDEX_DISPLAY.get(name, name),
+            "value":       round(curr, 2),
+            "change":      round(change, 2),
+            "change_rate": round(change_rate, 2),
+        }
+    except Exception as e:
+        log.debug(f"pykrx 지수 {name} 실패: {e}")
+        return None
+
+
+def fetch_pykrx_index_ohlcv(name: str, period: str = "1y") -> list:
+    """KRX 공식 데이터(pykrx)로 지수 일봉 OHLCV 조회 — 야후 심볼이 안 맞을 때 보강용.
+    동기 함수이므로 호출 측에서 run_in_executor로 실행해야 함."""
+    market = PYKRX_INDEX_MARKET.get(name)
+    target_name = PYKRX_INDEX_NAME.get(name)
+    if not market or not target_name:
+        return []
+    try:
+        from pykrx import stock as pkrx
+        import datetime as dt
+
+        ticker = None
+        for t in pkrx.get_index_ticker_list(market=market):
+            if pkrx.get_index_ticker_name(t) == target_name:
+                ticker = t
+                break
+        if not ticker:
+            return []
+
+        days_map = {
+            "1d": 5, "5d": 9,
+            "1mo": 31, "3mo": 92, "6mo": 183,
+            "1y": 366, "2y": 731, "3y": 1100, "5y": 1830, "10y": 3660, "max": 3660,
+        }
+        days = days_map.get(period, 366)
+        today = dt.date.today()
+        fromdate = (today - dt.timedelta(days=days)).strftime("%Y%m%d")
+        todate = today.strftime("%Y%m%d")
+        df = pkrx.get_index_ohlcv_by_date(fromdate, todate, ticker)
+        df = df[df["종가"] > 0]
+        return [
+            {
+                "date":   idx.strftime("%Y-%m-%d"),
+                "open":   round(float(row["시가"]), 2),
+                "high":   round(float(row["고가"]), 2),
+                "low":    round(float(row["저가"]), 2),
+                "close":  round(float(row["종가"]), 2),
+                "volume": int(row.get("거래량", 0)),
+            }
+            for idx, row in df.iterrows()
+        ]
+    except Exception as e:
+        log.debug(f"pykrx 지수 OHLCV {name} 실패: {e}")
+        return []
+
+
 # ── 네이버 — 환율 ──────────────────────────────────────────
 async def fetch_naver_exchange() -> dict | None:
     """네이버 환율 (USDKRW)"""

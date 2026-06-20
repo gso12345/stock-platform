@@ -9,7 +9,7 @@ from datetime import datetime
 from app.core.cache import cache
 from app.services.price_fetcher import (
     fetch_naver_indices, fetch_naver_stocks, fetch_naver_exchange,
-    fetch_yf_quotes, fetch_yf_index_quotes, get_usdkrw,
+    fetch_yf_quotes, fetch_yf_index_quotes, get_usdkrw, fetch_pykrx_index,
 )
 from app.core.config import settings
 
@@ -44,13 +44,15 @@ async def refresh_kr_indices():
     from app.services.yf_service import yf_service
     naver_data = await fetch_naver_indices()
     ok = 0
+    resolved = set()
     for name in KR_INDICES:
         if name in naver_data:
             cache.set(f"idx:{name}", naver_data[name], 30)
             ok += 1
+            resolved.add(name)
 
     # Naver에서 가져오지 못한 지수는 yfinance로 보완
-    failed = [n for n in KR_INDICES if n not in naver_data]
+    failed = [n for n in KR_INDICES if n not in resolved]
     for name in failed:
         try:
             loop = asyncio.get_running_loop()
@@ -61,6 +63,24 @@ async def refresh_kr_indices():
             if result and result.get("value", 0) > 0:
                 cache.set(f"idx:{name}", result, 60)
                 ok += 1
+                resolved.add(name)
+        except Exception:
+            pass
+
+    # Naver/yfinance 모두 실패한 지수는 pykrx(KRX 공식 데이터)로 보완
+    # (네이버 내부 코드 추정이나 야후 심볼이 실제와 다를 때 — 예: KOSDAQ150)
+    still_failed = [n for n in KR_INDICES if n not in resolved]
+    for name in still_failed:
+        try:
+            loop = asyncio.get_running_loop()
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, fetch_pykrx_index, name),
+                timeout=10,
+            )
+            if result and result.get("value", 0) > 0:
+                cache.set(f"idx:{name}", result, 60)
+                ok += 1
+                resolved.add(name)
         except Exception:
             pass
 
@@ -69,8 +89,8 @@ async def refresh_kr_indices():
         from app.services.kis_service import kis_service
         KIS_MAP = {"KOSPI":"0001","KOSDAQ":"1001","KOSPI200":"2001","KOSDAQ150":"2203"}
         for name, code in KIS_MAP.items():
-            if name in naver_data:
-                continue  # 이미 네이버로 갱신됨
+            if name in resolved:
+                continue  # 이미 다른 소스로 갱신됨
             try:
                 r = await asyncio.wait_for(
                     kis_service.get_index(code, name, KR_INDEX_DISPLAY[name]), timeout=8
@@ -78,6 +98,7 @@ async def refresh_kr_indices():
                 if r and r.get("value", 0) > 0:
                     cache.set(f"idx:{name}", r, 30)
                     ok += 1
+                    resolved.add(name)
             except Exception:
                 pass
     log.info(f"국내 지수 {ok}/{len(KR_INDICES)}개 갱신")
