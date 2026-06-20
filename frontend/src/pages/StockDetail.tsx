@@ -15,6 +15,22 @@ import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 import { fmtKRW, fmtUSD, fmtNum, fmtDate } from "@/utils/formatters";
 
+/** "YYYY/MM/DD HH:MM" (KST) 문자열 → 상대 시간 ("N분 전" / "N시간 전" / "N일 전") */
+function formatNewsRelative(published: string): string {
+  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{1,2})$/.exec(published);
+  if (!m) return published;
+  const [, y, mo, d, h, mi] = m;
+  const date = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi) - 9 * 60 * 60 * 1000);
+  const diffMin = Math.floor((Date.now() - date.getTime()) / 60000);
+  if (diffMin < 0 || diffMin < 1) return "방금 전";
+  if (diffMin < 60) return `${diffMin}분 전`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}시간 전`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 7) return `${diffDay}일 전`;
+  return published;
+}
+
 /* ── 지표 셀 ────────────────────────────────────────── */
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
   return (
@@ -1727,7 +1743,7 @@ export default function StockDetail() {
                             <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">{item.title}</p>
                             <div className="flex items-center gap-2 mt-1">
                               {item.source && <span className="text-2xs text-accent-blue/70 font-medium">{item.source}</span>}
-                              {item.published && <span className="text-2xs text-text-muted">{typeof item.published === "number" ? new Date(item.published*1000).toLocaleDateString("ko-KR") : item.published}</span>}
+                              {item.published && <span className="text-2xs text-text-muted">{typeof item.published === "number" ? new Date(item.published*1000).toLocaleDateString("ko-KR") : formatNewsRelative(item.published)}</span>}
                             </div>
                             {item.summary && <p className="text-xs text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
                           </div>
