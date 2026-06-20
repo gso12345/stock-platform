@@ -367,21 +367,22 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                 if not price.get(key) and fund_data.get(key) is not None:
                     price[key] = fund_data[key]
         else:
-            # 캐시 없으면 백그라운드에서 fundamentals 갱신 (응답은 즉시 반환)
+            # 캐시 없으면 짧은 타임아웃으로 동기 대기 — 첫 조회에서도 PEG/선행EPS 등이
+            # 바로 보이도록 함 (백그라운드 fire-and-forget이면 이번 응답엔 못 반영됨)
             _yf_sym_bg = symbol if symbol.endswith((".KS",".KQ")) else f"{symbol}.KS"
-            _fund_ck_bg = fund_ck
-            async def _bg_fund_kr():
-                try:
-                    f = await asyncio.wait_for(
-                        asyncio.get_running_loop().run_in_executor(
-                            None, yf_service.get_fundamentals, _yf_sym_bg, "KR"
-                        ), timeout=15
-                    )
-                    if f:
-                        cache.set(_fund_ck_bg, f, 86400)
-                except Exception:
-                    pass
-            asyncio.create_task(_bg_fund_kr())
+            try:
+                f = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        None, yf_service.get_fundamentals, _yf_sym_bg, "KR"
+                    ), timeout=4
+                )
+                if f:
+                    cache.set(fund_ck, f, 86400)
+                    for key in _KR_FUND_KEYS:
+                        if not price.get(key) and f.get(key) is not None:
+                            price[key] = f[key]
+            except Exception:
+                pass
 
         return price
     else:
@@ -438,22 +439,22 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                             if detail.get(f) is None and fund_cached.get(f) is not None:
                                 detail[f] = fund_cached[f]
                     else:
-                        # 백그라운드에서 fundamentals 갱신 (응답은 즉시 반환)
-                        _sym_bg = symbol
-                        _fck_bg = fund_ck
-                        _vf_bg  = _VALUATION_FIELDS
-                        async def _bg_fund_us():
-                            try:
-                                f = await asyncio.wait_for(
-                                    asyncio.get_running_loop().run_in_executor(
-                                        None, yf_service.get_fundamentals, _sym_bg, "US"
-                                    ), timeout=15
-                                )
-                                if f:
-                                    cache.set(_fck_bg, f, 86400)
-                            except Exception:
-                                pass
-                        asyncio.create_task(_bg_fund_us())
+                        # 캐시 없으면 짧은 타임아웃으로 동기 대기 — 첫 조회에서도
+                        # PEG/선행EPS 등이 바로 보이도록 함 (fire-and-forget이면
+                        # 이번 응답엔 못 반영되고 다음 조회에서야 나타남)
+                        try:
+                            f = await asyncio.wait_for(
+                                asyncio.get_running_loop().run_in_executor(
+                                    None, yf_service.get_fundamentals, symbol, "US"
+                                ), timeout=4
+                            )
+                            if f:
+                                cache.set(fund_ck, f, 86400)
+                                for key in _VALUATION_FIELDS:
+                                    if detail.get(key) is None and f.get(key) is not None:
+                                        detail[key] = f[key]
+                        except Exception:
+                            pass
                     cache.set(f"price:{symbol}", detail, 15)
                     return detail
             except Exception:
@@ -466,44 +467,36 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
         if cached and cached.get("price") and not cached.get("_demo"):
             if fund_cached:
                 return {**cached, **fund_cached}
-            # 백그라운드에서 fundamentals 갱신 후 즉시 캐시 반환
-            _sym_bg2 = symbol
-            _fck_bg2 = fund_ck
-            async def _bg_fund_us2():
-                try:
-                    f = await asyncio.wait_for(
-                        asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, _sym_bg2, "US"),
-                        timeout=15
-                    )
-                    if f:
-                        cache.set(_fck_bg2, f, 86400)
-                except Exception:
-                    pass
-            asyncio.create_task(_bg_fund_us2())
+            # 캐시 없으면 짧은 타임아웃으로 동기 대기 후 반환
+            try:
+                f = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "US"),
+                    timeout=4
+                )
+                if f:
+                    cache.set(fund_ck, f, 86400)
+                    return {**cached, **f}
+            except Exception:
+                pass
             return cached
 
-        # 캐시 없으면 price만 우선 fetch, fundamentals는 백그라운드
+        # 캐시 없으면 price + fundamentals 병렬 fetch (짧은 타임아웃)
         try:
-            price_result = await asyncio.wait_for(
+            price_task = asyncio.wait_for(
                 asyncio.get_running_loop().run_in_executor(None, yf_service.get_stock_price, symbol, "US"),
                 timeout=10
             )
+            fund_task = asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "US"),
+                timeout=4
+            )
+            price_result, fund_result = await asyncio.gather(price_task, fund_task, return_exceptions=True)
             p = price_result if isinstance(price_result, dict) else {}
             if p.get("price"):
                 cache.set(f"price:{symbol}", p, 30)
-            _sym_bg3 = symbol
-            _fck_bg3 = fund_ck
-            async def _bg_fund_us3():
-                try:
-                    f = await asyncio.wait_for(
-                        asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, _sym_bg3, "US"),
-                        timeout=15
-                    )
-                    if f:
-                        cache.set(_fck_bg3, f, 86400)
-                except Exception:
-                    pass
-            asyncio.create_task(_bg_fund_us3())
+            if isinstance(fund_result, dict) and fund_result:
+                cache.set(fund_ck, fund_result, 86400)
+                p = {**p, **fund_result} if p else p
             return p or {"symbol": symbol, "price": None, "currency": "USD"}
         except Exception:
             return {"symbol": symbol, "price": None, "currency": "USD"}
