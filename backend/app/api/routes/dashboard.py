@@ -166,9 +166,9 @@ async def _get_kr_rankings(category: str) -> list:
     if stale:
         return stale
 
-    # FDR 기반 랭킹 (즉시 반환, 블로킹 없음)
-    # 외부 API 직접 호출 제거 — 스케줄러 백그라운드가 캐시를 채움
-    return get_kr_rankings(category) or []
+    # FDR 기반 랭킹 — 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, get_kr_rankings, category) or []
 
 
 # ── 해외 대시보드 ──────────────────────────────────────────
@@ -226,7 +226,9 @@ async def _get_exchange_rate_async() -> dict:
 
 
 async def _get_us_rankings_cached(category: str) -> list:
-    result = get_us_rankings(category) or []
+    # 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, get_us_rankings, category) or []
     if len(result) < 15:
         # 블로킹 없이 백그라운드에서 갱신 — cold start 시 즉시 반환
         async def _bg_us_refresh():
