@@ -130,6 +130,52 @@ class FinancialsCache(Base):
     fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class AnalystCache(Base):
+    """투자의견/목표주가/컨센서스 분포 DB 캐시 — Render 재시작으로 메모리 캐시가
+    비워져도 직전 데이터를 바로 복구할 수 있도록 영속 저장"""
+    __tablename__ = "analyst_cache"
+    __table_args__ = (UniqueConstraint("symbol", "market", name="uq_analyst_sym_mkt"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    symbol     = Column(String(20), nullable=False, index=True)
+    market     = Column(String(10), nullable=False)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ForecastsCache(Base):
+    """컨센서스 추정치(매출/EPS 등 연간·분기) DB 캐시"""
+    __tablename__ = "forecasts_cache"
+    __table_args__ = (UniqueConstraint("symbol", "market", name="uq_fcst_sym_mkt"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    symbol     = Column(String(20), nullable=False, index=True)
+    market     = Column(String(10), nullable=False)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class DisclosuresCache(Base):
+    """국내 공시 목록 DB 캐시 (OpenDART)"""
+    __tablename__ = "disclosures_cache"
+    __table_args__ = (UniqueConstraint("symbol", name="uq_disc_sym"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    symbol     = Column(String(20), nullable=False, index=True)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class DartCorpMapCache(Base):
+    """DART 전체 기업코드(corp_code) 매핑 DB 캐시 — 매번 수 MB ZIP을 재다운로드하지
+    않도록 영속 저장 (재시작 후에도 즉시 사용 가능)"""
+    __tablename__ = "dart_corp_map_cache"
+
+    id         = Column(Integer, primary_key=True)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class ScreeningPreset(Base):
     __tablename__ = "screening_presets"
 

@@ -90,14 +90,6 @@ US_FEEDS = [
 ]
 
 
-# 경제/금융 뉴스 피드에서도 섞여 들어올 수 있는 비경제 키워드 — 포함 시 제외
-_NONFINANCE_KW = {
-    "야구","축구","농구","배구","골프","스포츠","연예","드라마","영화","음악","아이돌","배우",
-    "요리","레시피","맛집","여행","패션","뷰티","헬스","운동","건강","날씨","사건","사고","범죄",
-    "정치","국회","탄핵","선거","총선","대선","여야","원내대표","청문회",
-    "부고","동정","인사발령","지진","화재","테러","참사","유튜브","웹툰",
-}
-
 # 경제·증권·금융 관련 키워드 — 화이트리스트(제목에 하나라도 있어야 노출)
 # "경제" 섹션 RSS라도 사회/문화성 기사가 섞여 들어오는 경우가 많아,
 # 비경제 키워드 제외만으로는 걸러지지 않는 기사가 통과하는 문제를 막기 위해
@@ -140,14 +132,11 @@ _FINANCE_KW_EN = {
 }
 
 def _is_finance_news(title: str) -> bool:
-    """제목이 경제/증권/금융 관련인지 판단 (화이트리스트 키워드가 있어야 통과)"""
+    """제목이 경제/증권/금융 관련인지 판단 (화이트리스트 키워드가 있어야 통과)
+    경제 키워드가 있으면 비경제 키워드가 섞여 있어도 통과시킨다
+    (예: "정치 테마주 급등" 처럼 비경제 키워드가 있어도 경제와 관련된 기사일 수 있음)"""
     lower = title.lower()
-    has_finance = any(kw in title for kw in _FINANCE_KW) or any(kw in lower for kw in _FINANCE_KW_EN)
-    if not has_finance:
-        return False
-    if any(kw in title for kw in _NONFINANCE_KW):
-        return False
-    return True
+    return any(kw in title for kw in _FINANCE_KW) or any(kw in lower for kw in _FINANCE_KW_EN)
 
 
 def _clean_text(raw: str) -> str:
@@ -206,7 +195,7 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
         # 피드 하나가 스레드를 오래 점유해 다른 피드까지 10초 예산 안에 못 끝나는
         # 문제가 있었음 — httpx로 명시적 타임아웃을 두고 받아온 바이트를 파싱
         import httpx
-        resp = httpx.get(url, headers=_FEED_HEADERS, timeout=5, follow_redirects=True)
+        resp = httpx.get(url, headers=_FEED_HEADERS, timeout=4, follow_redirects=True)
         feed = feedparser.parse(resp.content)
         items = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=3)
@@ -264,49 +253,39 @@ def _add_trending_score(articles: list) -> list:
     return articles
 
 
+# 피드 fetch 전용 공유 스레드풀 — 호출마다 새 ThreadPoolExecutor를 만들면
+# 피드 수(50개+)만큼 OS 스레드가 한꺼번에 생성/TLS 핸드셰이크를 동시 수행해
+# 호스트 CPU가 제한된 환경(Render 등)에서 전체 응답 지연을 유발할 수 있음 —
+# 동시 처리량을 적절히 제한하는 공유 풀을 재사용한다.
+_feed_executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="feed-fetch")
+
+
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
-    """피드 목록을 병렬로 fetch (ThreadPoolExecutor 사용)"""
+    """피드 목록을 공유 스레드풀로 fetch (동시 처리량 제한으로 CPU 버스트 방지)
+
+    워커 수보다 피드가 많으면 뒤에 제출된 피드는 앞쪽 피드가 끝나야 실행되는데,
+    KR_FEEDS가 카테고리별로 묶여 있어 매번 같은 순서로 제출하면 항상 뒤쪽
+    카테고리(통신사/방송/IT 등)만 시간 예산 안에 못 끝나는 편향이 생긴다 —
+    매 호출마다 순서를 섞어 모든 언론사가 번갈아 우선권을 갖도록 한다.
+    """
+    import random
+    shuffled = list(feeds)
+    random.shuffle(shuffled)
     all_news = []
-    # 피드 수가 늘어나도(50개+) 한 배치에서 모두 동시 처리되도록 워커 수를 피드 수만큼 둠
-    # (httpx I/O 대기가 대부분이라 스레드 수가 늘어도 부담이 크지 않음)
-    executor = ThreadPoolExecutor(max_workers=len(feeds))
+    futures = {
+        _feed_executor.submit(_parse_feed, url, source, limit_per_source): source
+        for source, url in shuffled
+    }
     try:
-        futures = {
-            executor.submit(_parse_feed, url, source, limit_per_source): source
-            for source, url in feeds
-        }
-        try:
-            for future in as_completed(futures, timeout=10):
-                try:
-                    items = future.result(timeout=6)
-                    all_news.extend(items)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-    finally:
-        # wait=False: 응답 시한(13s)을 넘긴 느린 피드 스레드는 백그라운드에서
-        # 마무리되도록 두고 즉시 반환 (with 블록은 모든 스레드 종료까지 대기해 타임아웃을 무력화함)
-        executor.shutdown(wait=False)
+        for future in as_completed(futures, timeout=20):
+            try:
+                items = future.result(timeout=6)
+                all_news.extend(items)
+            except Exception:
+                pass
+    except Exception:
+        pass
     return all_news
-
-
-def _interleave_by_source(articles: list) -> list:
-    """소스별로 균등하게 섞어서 특정 언론사 독점 방지"""
-    from collections import defaultdict
-    by_src: dict = defaultdict(list)
-    for a in articles:
-        by_src[a["source"]].append(a)
-    # 각 소스 내부는 최신순 정렬
-    for src in by_src:
-        by_src[src].sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    result = []
-    sources = list(by_src.keys())
-    while any(by_src[s] for s in sources):
-        for s in sources:
-            if by_src[s]:
-                result.append(by_src[s].pop(0))
-    return result
 
 
 def _pick_diverse_top(sorted_news: list, count: int, per_source_cap: int) -> "tuple[list, list]":
@@ -332,11 +311,10 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
         _refreshing.pop(ck, None)
         return stale or []
     _add_trending_score(all_news)
-    # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순(단, 언론사별 상한 적용), 나머지는 다양성 확보를 위해 인터리브
+    # 실제 발행 시각(_ts) 기준 정렬 — 언론사별 상한만 적용해 한 언론사가 도배하는 것은
+    # 막되, 순서 자체는 끝까지 시간순을 유지한다("최신순" 탭이 실제로 최신순이어야 함)
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    top, leftover = _pick_diverse_top(all_news, count=12, per_source_cap=1)
-    rest     = _interleave_by_source(leftover)  # 나머지는 언론사별 균등 배치
-    result   = (top + rest)[:total_limit]
+    result, _ = _pick_diverse_top(all_news, count=total_limit, per_source_cap=10)
     for a in result:
         a.pop("_ts", None)
     # 일부 피드 타임아웃으로 기사 수가 부족하면 이전 캐시 기사로 보충 (링크 기준 중복 제거, 최신 우선)
@@ -376,3 +354,11 @@ def get_us_news(limit_per_source: int = 35, total_limit: int = 500) -> list[dict
         background_executor.submit(_do_refresh_news, ck, US_FEEDS, limit_per_source, total_limit)
         return stale
     return _do_refresh_news(ck, US_FEEDS, limit_per_source, total_limit)
+
+
+def pick_top_image_first(articles: list, limit: int) -> list:
+    """이미지가 있는 기사를 우선 배치해 상위 limit개를 뽑는다.
+    (각 그룹 내부의 기존 순서(최신순/언론사 다양성)는 그대로 유지)"""
+    with_image    = [a for a in articles if a.get("image")]
+    without_image = [a for a in articles if not a.get("image")]
+    return (with_image + without_image)[:limit]
