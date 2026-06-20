@@ -299,24 +299,6 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     return all_news
 
 
-def _interleave_by_source(articles: list) -> list:
-    """소스별로 균등하게 섞어서 특정 언론사 독점 방지"""
-    from collections import defaultdict
-    by_src: dict = defaultdict(list)
-    for a in articles:
-        by_src[a["source"]].append(a)
-    # 각 소스 내부는 최신순 정렬
-    for src in by_src:
-        by_src[src].sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    result = []
-    sources = list(by_src.keys())
-    while any(by_src[s] for s in sources):
-        for s in sources:
-            if by_src[s]:
-                result.append(by_src[s].pop(0))
-    return result
-
-
 def _pick_diverse_top(sorted_news: list, count: int, per_source_cap: int) -> "tuple[list, list]":
     """시간순으로 상위 count개를 뽑되, 한 언론사가 너무 많이 차지하지 않도록 소스별 상한을 둠
     (특정 언론사가 발행 빈도가 높아 최신순 상단을 독점하는 것 방지)"""
@@ -340,11 +322,10 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
         _refreshing.pop(ck, None)
         return stale or []
     _add_trending_score(all_news)
-    # 실제 발행 시각(_ts) 기준 정렬 → 최신 일부는 시간순(단, 언론사별 상한 적용), 나머지는 다양성 확보를 위해 인터리브
+    # 실제 발행 시각(_ts) 기준 정렬 — 언론사별 상한만 적용해 한 언론사가 도배하는 것은
+    # 막되, 순서 자체는 끝까지 시간순을 유지한다("최신순" 탭이 실제로 최신순이어야 함)
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
-    top, leftover = _pick_diverse_top(all_news, count=12, per_source_cap=1)
-    rest     = _interleave_by_source(leftover)  # 나머지는 언론사별 균등 배치
-    result   = (top + rest)[:total_limit]
+    result, _ = _pick_diverse_top(all_news, count=total_limit, per_source_cap=10)
     for a in result:
         a.pop("_ts", None)
     # 일부 피드 타임아웃으로 기사 수가 부족하면 이전 캐시 기사로 보충 (링크 기준 중복 제거, 최신 우선)
