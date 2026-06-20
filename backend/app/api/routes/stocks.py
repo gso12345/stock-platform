@@ -790,12 +790,23 @@ def _merge_forecast_lists(new_list: list, stale_list: list) -> list:
 
 @router.get("/{market}/{symbol}/forecasts")
 async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
-    """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률"""
+    """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률
+    in-memory → DB fresh(24h) → DB stale(30일) → 외부 API 순으로 조회해
+    Render 재시작으로 메모리 캐시가 비워져도 데이터가 바로 사라지지 않게 한다."""
     from app.core.cache import cache
+    from app.models.stock import ForecastsCache
+    from app.services.fundamentals_service import _db_get, _db_set
     ck = f"forecasts:v3:{symbol}"
     if c := cache.get(ck):
         return c
-    stale = cache.get_stale(ck)
+
+    db_fresh = _db_get(ForecastsCache, symbol, market, 24)
+    if db_fresh:
+        cache.set(ck, db_fresh, 3600)
+        return db_fresh
+
+    db_stale = _db_get(ForecastsCache, symbol, market, 720)  # 30일까지는 stale로 사용
+    stale = db_stale or cache.get_stale(ck)
 
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
@@ -936,14 +947,20 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
             "quarterly": sorted(quarterly.values(), key=lambda x: x["period"]),
         }
 
-    result = await _run(_fetch)
+    try:
+        result = await _run(_fetch)
+    except Exception:
+        result = {"annual": [], "quarterly": []}
     if stale:
         result = {
             "annual":    _merge_forecast_lists(result.get("annual", []),    stale.get("annual", [])),
             "quarterly": _merge_forecast_lists(result.get("quarterly", []), stale.get("quarterly", [])),
         }
-    cache.set(ck, result, 3600)
-    return result
+    if result.get("annual") or result.get("quarterly"):
+        cache.set(ck, result, 3600)
+        _db_set(ForecastsCache, symbol, market, result)
+        return result
+    return stale or result
 
 
 @router.get("/{market}/{symbol}/disclosures")
@@ -1251,12 +1268,25 @@ _REC_KEY_LABEL = {
 
 @router.get("/{market}/{symbol}/analyst")
 async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
-    """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트"""
+    """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트
+    in-memory → DB fresh(24h) → DB stale(30일, +백그라운드 갱신) → 외부 API 순으로 조회.
+    DB에 영속 저장해 Render 재시작으로 메모리 캐시가 비워져도 데이터가 사라지지 않게 한다."""
     from app.core.cache import cache
+    from app.models.stock import AnalystCache
+    from app.services.fundamentals_service import _db_get, _db_set
     ck = f"analyst:v3:{symbol}"
     if c := cache.get(ck):
         return c
-    stale_analyst = cache.get_stale(ck)
+
+    db_fresh = _db_get(AnalystCache, symbol, market, 24)
+    if db_fresh:
+        cache.set(ck, db_fresh, 86400)
+        return db_fresh
+
+    db_stale = _db_get(AnalystCache, symbol, market, 720)  # 30일까지는 stale로 사용
+    stale_analyst = db_stale or cache.get_stale(ck)
+    if db_stale:
+        cache.set(ck, db_stale, 3600)
 
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
@@ -1517,18 +1547,20 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
         except Exception:
             return {}
 
-    if market == "KR" and stale_analyst:
-        # stale 캐시 즉시 반환, 백그라운드에서 갱신
+    if stale_analyst:
+        # stale 캐시(메모리 또는 DB) 즉시 반환, 백그라운드에서 갱신 + DB 영속 저장
         async def _bg_analyst():
             try:
                 loop2 = asyncio.get_running_loop()
                 r2 = await asyncio.wait_for(loop2.run_in_executor(None, _fetch), timeout=20)
-                naver_r = await _fetch_kr_analyst()
-                r2 = {**r2, **naver_r}
+                if market == "KR":
+                    naver_r = await _fetch_kr_analyst()
+                    r2 = {**r2, **naver_r}
                 _enrich_analyst_fallback(r2, yf_sym, market)
                 _fill_analyst_gaps(r2, stale_analyst)
                 if r2:
                     cache.set(ck, r2, 86400)
+                    _db_set(AnalystCache, symbol, market, r2)
             except Exception:
                 pass
         asyncio.get_running_loop().create_task(_bg_analyst())
@@ -1553,6 +1585,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
 
     if result:
         cache.set(ck, result, 86400)
+        _db_set(AnalystCache, symbol, market, result)
     elif stale_analyst:
         return stale_analyst
     return result or {}
