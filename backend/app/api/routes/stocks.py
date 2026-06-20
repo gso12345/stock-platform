@@ -1079,6 +1079,8 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                 if not title:
                     continue
                 image = _extract_thumbnail(entry)
+                if not image:
+                    continue
                 source = (entry.get("source") or {}).get("title", "")
                 items.append({
                     "title": title,
@@ -1153,6 +1155,8 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
                     thumb = ct.get("thumbnail") or n.get("thumbnail") or {}
                     resolutions = thumb.get("resolutions") or []
                     image = resolutions[0].get("url") if resolutions else thumb.get("originalUrl")
+                    if not image:
+                        continue
                     items.append({"title": title, "link": link, "source": provider, "published": _to_kst_published(pub), "summary": (ct.get("summary") or "")[:200], "image": image})
                 return items
             except Exception:
