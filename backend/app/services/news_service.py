@@ -375,3 +375,11 @@ def get_us_news(limit_per_source: int = 35, total_limit: int = 500) -> list[dict
         background_executor.submit(_do_refresh_news, ck, US_FEEDS, limit_per_source, total_limit)
         return stale
     return _do_refresh_news(ck, US_FEEDS, limit_per_source, total_limit)
+
+
+def pick_top_image_first(articles: list, limit: int) -> list:
+    """이미지가 있는 기사를 우선 배치해 상위 limit개를 뽑는다.
+    (각 그룹 내부의 기존 순서(최신순/언론사 다양성)는 그대로 유지)"""
+    with_image    = [a for a in articles if a.get("image")]
+    without_image = [a for a in articles if not a.get("image")]
+    return (with_image + without_image)[:limit]

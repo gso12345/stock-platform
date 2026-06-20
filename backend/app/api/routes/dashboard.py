@@ -8,7 +8,7 @@ import asyncio
 from app.services.kis_service import kis_service
 from app.services.finnhub_service import finnhub_service
 from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
-from app.services.news_service import get_kr_news, get_us_news
+from app.services.news_service import get_kr_news, get_us_news, pick_top_image_first
 from app.services.ranking_service import get_us_rankings
 from app.services.market_extras import get_kr_futures, get_kr_rates, get_us_rates
 from app.services.price_fetcher import get_usdkrw
@@ -259,16 +259,21 @@ async def us_rankings(category: str = Query(default="시가총액")):
 
 
 # ── 뉴스 ───────────────────────────────────────────────────
+NEWS_TAB_LIMIT = 100
+
+
 @router.get("/news/kr")
 async def kr_news():
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, get_kr_news)
+    news = await loop.run_in_executor(None, get_kr_news)
+    return pick_top_image_first(news, NEWS_TAB_LIMIT)
 
 
 @router.get("/news/us")
 async def us_news():
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, get_us_news)
+    news = await loop.run_in_executor(None, get_us_news)
+    return pick_top_image_first(news, NEWS_TAB_LIMIT)
 
 
 @router.get("/news/summary")
