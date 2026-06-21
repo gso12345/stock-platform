@@ -142,7 +142,16 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
               ] as const).map((opt) => (
                 <button
                   key={opt.value}
-                  onClick={() => setOrientation(opt.value as Orientation)}
+                  onClick={() => {
+                    setOrientation(opt.value as Orientation);
+                    /* 화면 회전 고정 API는 사용자 클릭(transient activation) 직후
+                       동기적으로 호출해야 동작하는 브라우저가 있어 useEffect가 아닌
+                       클릭 핸들러에서 직접 호출 */
+                    const so = screen.orientation as (ScreenOrientation & { lock?: (o: string) => Promise<void> }) | undefined;
+                    if (!so) return;
+                    if (opt.value === "system") so.unlock?.();
+                    else so.lock?.(opt.value)?.catch(() => {});
+                  }}
                   className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
                     orientation === opt.value
                       ? "border-accent-blue bg-accent-blue/10"
