@@ -262,6 +262,30 @@ async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = Tr
                 cv, pv = cur.get(key), prev.get(key)
                 if cv is not None and pv:
                     metrics[gkey] = round((cv - pv) / abs(pv) * 100, 2)
+
+        if annual:
+            latest = annual[-1]
+            # yfinance .info에 debtToEquity/returnOnAssets/마진이 없는 종목
+            # (특히 국내 종목)은 재무제표에서 직접 계산한 값으로 보완
+            for mkey in ("debt_ratio", "roa", "op_margin", "net_margin"):
+                if metrics.get(mkey) is None and latest.get(mkey) is not None:
+                    metrics[mkey] = latest[mkey]
+
+            # EV/EBITDA 보완 — market_cap(펀더멘털) + 최근 부채 - 현금, EBITDA(재무제표)
+            if metrics.get("ev_ebitda") is None and latest.get("ebitda"):
+                mc = fund.get("market_cap")
+                if mc:
+                    ev = mc + (latest.get("total_debt") or 0) - (latest.get("cash") or 0)
+                    if ev:
+                        metrics["ev_ebitda"] = round(ev / latest["ebitda"], 2)
+
+            # PEG 보완 — PER ÷ EPS 성장률(전년 대비, %)
+            if metrics.get("peg") is None and metrics.get("per") and len(annual) >= 2:
+                cur_eps, prev_eps = annual[-1].get("eps"), annual[-2].get("eps")
+                if cur_eps is not None and prev_eps:
+                    eps_growth = (cur_eps - prev_eps) / abs(prev_eps) * 100
+                    if eps_growth > 0:
+                        metrics["peg"] = round(metrics["per"] / eps_growth, 2)
     except Exception:
         pass
 
