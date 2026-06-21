@@ -225,13 +225,31 @@ export default function StockDetail() {
   const quantSettings = useQuantSettings(quantSyncSource.weights, quantSyncSource.enabled_metrics);
   const { weights: quantWeights, metrics: quantMetrics, showSettings: showQuantSettings, setShowSettings: setShowQuantSettings } = quantSettings;
 
+  // 일부 지표(특히 신규/저빈도 종목)는 백엔드 캐시가 아직 채워지지 않아
+  // 첫 응답에 누락된 값이 섞여 올 수 있음 — 누락이 있으면 백그라운드 갱신이
+  // 끝날 시간을 두고 몇 차례 재조회해서, 지표가 다 채워진 뒤에 점수를 보여준다.
+  const quantPollCount = useRef(0);
+  useEffect(() => { quantPollCount.current = 0; }, [m, sym]);
+
   const { data: quantScore, isLoading: loadingQuant } = useQuery({
     queryKey: ["quant-score", m, sym, quantWeights, quantMetrics],
     queryFn: () => stocksApi.getQuantScore(m, sym, quantWeights ?? undefined, quantMetrics ?? undefined),
     enabled: !!sym && mainTab === "quant",
     retry: 1,
     staleTime: (quantWeights || quantMetrics) ? 0 : 60_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      const hasMissing = data.factors.some((f) => f.metrics.some((mt) => mt.value == null));
+      if (hasMissing && quantPollCount.current < 4) {
+        quantPollCount.current += 1;
+        return 3000;
+      }
+      return false;
+    },
   });
+
+  const quantMetricsIncomplete = !!quantScore && quantScore.factors.some((f) => f.metrics.some((mt) => mt.value == null)) && quantPollCount.current < 4;
 
   useEffect(() => {
     if (quantScore && !quantSynced.current) {
@@ -1304,12 +1322,13 @@ export default function StockDetail() {
           <div className="flex flex-col gap-3">
             <Card className="flex flex-col gap-4">
               <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex flex-col gap-1">
                 <div className="flex items-baseline gap-3">
                   <span className="text-4xl font-mono font-bold text-text-primary">
-                    {quantScore?.total_score ?? (loadingQuant ? "···" : "—")}
+                    {quantMetricsIncomplete ? "···" : quantScore?.total_score ?? (loadingQuant ? "···" : "—")}
                   </span>
                   <span className="text-base text-text-muted">/ 100</span>
-                  {quantScore?.grade && (
+                  {!quantMetricsIncomplete && quantScore?.grade && (
                     <span className={`text-2xl font-bold ${gradeColor(quantScore.grade)}`}>{quantScore.grade}</span>
                   )}
                   <div className="relative">
@@ -1334,6 +1353,10 @@ export default function StockDetail() {
                       </div>
                     )}
                   </div>
+                </div>
+                {quantMetricsIncomplete && (
+                  <span className="text-xs text-text-muted">일부 지표 데이터를 수집하는 중입니다…</span>
+                )}
                 </div>
                 <button
                   onClick={() => setShowQuantSettings((s) => !s)}
@@ -1366,9 +1389,9 @@ export default function StockDetail() {
                       <span className="text-sm font-semibold text-text-secondary">{f.label}</span>
                       <span className="text-xs text-text-muted">{f.weight}%</span>
                     </div>
-                    <span className={`text-lg font-mono font-bold ${scoreColor(f.score)}`}>{f.score ?? "—"}</span>
+                    <span className={`text-lg font-mono font-bold ${scoreColor(f.score)}`}>{quantMetricsIncomplete ? "···" : f.score ?? "—"}</span>
                     <div className="h-1.5 rounded-full bg-bg-primary overflow-hidden">
-                      <div className="h-full bg-accent-blue rounded-full" style={{ width: `${Math.max(0, Math.min(100, f.score ?? 0))}%` }} />
+                      <div className="h-full bg-accent-blue rounded-full" style={{ width: `${quantMetricsIncomplete ? 0 : Math.max(0, Math.min(100, f.score ?? 0))}%` }} />
                     </div>
                   </div>
                 ))}
