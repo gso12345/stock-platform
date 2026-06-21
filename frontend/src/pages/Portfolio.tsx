@@ -54,13 +54,6 @@ const PREVIEW_ENRICHED: EnrichedItem[] = [
   { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 5, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
     currentPriceNative: 535,    currentValueKRW: 3_611_250,  costKRW: 2_730_000,  pnlKRW:  881_250, pnlRate: 32.28, weight: 12.1 },
 ];
-const PREVIEW_SUMMARY = {
-  totalValue: 29_858_750,
-  totalCost:  20_940_800,
-  totalPnl:    8_917_950,
-  totalRate:      42.58,
-};
-
 /* ── Format utils ───────────────────────────────────────── */
 function fmtKRW(v: number): string {
   const abs = Math.abs(v);
@@ -536,6 +529,43 @@ export default function Portfolio() {
     refetchInterval:120_000,
   });
 
+  /* ── 비로그인 미리보기용 실시간 현재가 (예시 보유종목도 실제 시세로 표시) ── */
+  const { data: previewBatchPrices } = useQuery({
+    queryKey:       ["portfolio-preview-prices"],
+    queryFn:        () => watchlistApi.getPrices(PREVIEW_ENRICHED.map((i) => i.symbol), PREVIEW_ENRICHED.map((i) => i.market)),
+    enabled:        !isLoggedIn,
+    staleTime:      120_000,
+    refetchInterval:120_000,
+  });
+
+  const previewEnrichedLive = useMemo<EnrichedItem[]>(() => {
+    const list = PREVIEW_ENRICHED.map((base, i) => {
+      const d = previewBatchPrices?.[i] as any;
+      const currentPriceNative = d?.price ?? base.currentPriceNative;
+      const isUSDStock = base.market === "US" || base.market === "ETF";
+      const currentValueKRW = isUSDStock
+        ? currentPriceNative * exchangeRate * base.shares
+        : currentPriceNative * base.shares;
+      const fxForCost = base.currency === "USD"
+        ? (base.inputExchangeRate ?? exchangeRate)
+        : isUSDStock ? exchangeRate : 1;
+      const costKRW = base.avgPrice * fxForCost * base.shares;
+      const pnlKRW = currentValueKRW - costKRW;
+      const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;
+      return { ...base, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0 };
+    });
+    const totalKRW = list.reduce((s, e) => s + e.currentValueKRW, 0);
+    return list.map((e) => ({ ...e, weight: totalKRW > 0 ? (e.currentValueKRW / totalKRW) * 100 : 0 }));
+  }, [previewBatchPrices, exchangeRate]);
+
+  const previewSummaryLive = useMemo(() => {
+    const totalValue = previewEnrichedLive.reduce((s, e) => s + e.currentValueKRW, 0);
+    const totalCost  = previewEnrichedLive.reduce((s, e) => s + e.costKRW, 0);
+    const totalPnl   = totalValue - totalCost;
+    const totalRate  = totalCost !== 0 ? (totalPnl / totalCost) * 100 : 0;
+    return { totalValue, totalCost, totalPnl, totalRate };
+  }, [previewEnrichedLive]);
+
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
     items.forEach((item, i) => {
@@ -627,12 +657,12 @@ export default function Portfolio() {
     return Object.entries(map).map(([name, value]) => ({ name, value: Math.round(value) }));
   }, [enriched]);
 
-  const previewStockPie = PREVIEW_ENRICHED.map((e) => ({
+  const previewStockPie = previewEnrichedLive.map((e) => ({
     name: e.market === "US" || e.market === "ETF" ? e.symbol : e.name,
     value: e.currentValueKRW,
   }));
   const previewMarketPie = Object.entries(
-    PREVIEW_ENRICHED.reduce((acc, e) => { acc[e.market] = (acc[e.market] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
+    previewEnrichedLive.reduce((acc, e) => { acc[e.market] = (acc[e.market] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
   ).map(([name, value]) => ({ name, value }));
 
   const activePieData = isLoggedIn
@@ -661,8 +691,8 @@ export default function Portfolio() {
   const isLoading = itemsLoading || pricesLoading;
 
   /* ── 미리보기 vs 실데이터 ── */
-  const displayEnriched = isLoggedIn ? sortedEnriched : PREVIEW_ENRICHED;
-  const displaySummary  = isLoggedIn ? summary : PREVIEW_SUMMARY;
+  const displayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
+  const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
   const hasDisplay      = displayEnriched.length > 0;
 
   return (
@@ -728,7 +758,7 @@ export default function Portfolio() {
               <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{c.label}</span>
               <span className={`text-base font-mono font-bold ${c.color}`}>{c.value}</span>
               {c.label === "총 평가금액" && (
-                <span className="text-[10px] text-text-dim">환율 {Math.round(isLoggedIn ? exchangeRate : DEFAULT_FX).toLocaleString("ko-KR")}원</span>
+                <span className="text-[10px] text-text-dim">환율 {Math.round(exchangeRate).toLocaleString("ko-KR")}원</span>
               )}
             </Card>
           ))}
@@ -872,9 +902,9 @@ export default function Portfolio() {
                   const hasPrice = isLoggedIn ? priceMap[item.id] != null : true;
                   return (
                     <tr key={item.id}
-                      className={`border-b border-border/40 transition-colors ${isLoggedIn ? "hover:bg-bg-hover cursor-pointer" : "cursor-default"}`}
-                      onClick={() => isLoggedIn && navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
-                      onMouseEnter={() => isLoggedIn && prefetchStock(item)}
+                      className="border-b border-border/40 transition-colors hover:bg-bg-hover cursor-pointer"
+                      onClick={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
+                      onMouseEnter={() => prefetchStock(item)}
                     >
                       <td className="px-3 py-2.5">
                         <div className="flex flex-col gap-0.5">
@@ -896,7 +926,7 @@ export default function Portfolio() {
                         {hasPrice ? (
                           (item.market === "US" || item.market === "ETF") ? (
                             <div>
-                              <div>{fmtKRW(item.currentPriceNative * (isLoggedIn ? exchangeRate : DEFAULT_FX))}</div>
+                              <div>{fmtKRW(item.currentPriceNative * exchangeRate)}</div>
                               <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>
                             </div>
                           ) : fmtNative(item.market, item.currency, item.currentPriceNative)

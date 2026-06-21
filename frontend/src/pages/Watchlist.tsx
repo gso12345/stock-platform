@@ -481,6 +481,26 @@ export default function Watchlist() {
     refetchInterval: 60_000,
   });
 
+  /* 비로그인 미리보기용 실시간 현재가 (예시 관심종목도 실제 시세로 표시) */
+  const { data: previewPrices } = useQuery({
+    queryKey: ["watchlist-preview-prices"],
+    queryFn: () => watchlistApi.getPrices(PREVIEW_WATCHLIST.map((i) => i.symbol), PREVIEW_WATCHLIST.map((i) => i.market)),
+    enabled: isPreview,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+  const previewWatchlistLive: PreviewItem[] = useMemo(() => {
+    if (!previewPrices) return PREVIEW_WATCHLIST;
+    return PREVIEW_WATCHLIST.map((base, i) => {
+      const d = previewPrices[i] as any;
+      return {
+        ...base,
+        price: d?.price ?? base.price,
+        change_rate: d?.change_rate ?? base.change_rate,
+      };
+    });
+  }, [previewPrices]);
+
   useEffect(() => {
     if (!restPrices?.length) return;
     const map: Record<string, any> = {};
@@ -843,7 +863,7 @@ export default function Watchlist() {
 
       {/* 본문 */}
       {isPreview ? (() => {
-        const mktFiltered = marketTab === "전체" ? PREVIEW_WATCHLIST : PREVIEW_WATCHLIST.filter(i => i.market === marketTab);
+        const mktFiltered = marketTab === "전체" ? previewWatchlistLive : previewWatchlistLive.filter(i => i.market === marketTab);
         const shown = folderTab === "all" ? mktFiltered : mktFiltered.filter(i => i.folderId === folderTab);
         const visibleFolders = PREVIEW_FOLDERS.filter(f => shown.some(i => i.folderId === f.id));
         return (
