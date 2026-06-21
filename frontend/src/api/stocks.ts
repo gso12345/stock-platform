@@ -122,23 +122,18 @@ export interface QuantScoreResult {
   enabled_metrics: QuantEnabledMetrics;
 }
 
-export type QuantRankingFactor = "total" | QuantFactorKey;
-
-export interface QuantRankingItem {
+export interface QuantCompareItem {
   symbol: string;
   market: string;
-  name: string;
-  score: number;
+  total_score: number | null;
   grade: string | null;
-  rank: number;
+  factors: QuantFactor[];
 }
 
-export interface QuantRankingResult {
-  market: string;
-  factor: QuantRankingFactor;
+export interface QuantCompareResult {
   weights: QuantWeights;
   enabled_metrics: QuantEnabledMetrics;
-  items: QuantRankingItem[];
+  items: QuantCompareItem[];
 }
 
 export const quantScoreApi = {
@@ -148,18 +143,15 @@ export const quantScoreApi = {
   saveWeights: (weights: QuantWeights, enabledMetrics?: QuantEnabledMetrics) =>
     api.put<{ weights: QuantWeights; enabled_metrics: QuantEnabledMetrics }>("/stocks/quant-score/weights", { weights, enabled_metrics: enabledMetrics ?? {} }).then((r) => r.data),
 
-  getRanking: (
-    market: "KR" | "US" | "ETF",
-    factor: QuantRankingFactor = "total",
-    limit = 50,
+  compare: (
+    items: { symbol: string; market: string }[],
     weightOverride?: Partial<QuantWeights>,
     enabledMetricsOverride?: QuantEnabledMetrics,
   ) =>
-    api.get<QuantRankingResult>("/stocks/quant-score/ranking", {
+    api.get<QuantCompareResult>("/stocks/quant-score/compare", {
       params: {
-        market,
-        factor,
-        limit,
+        symbols: items.map((i) => i.symbol).join(","),
+        markets: items.map((i) => i.market).join(","),
         ...(weightOverride
           ? {
               w_value: weightOverride.value,
