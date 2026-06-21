@@ -355,6 +355,13 @@ async def _prefetch_fundamentals_popular():
         log.info(f"인기 종목 초기 펀더멘털 갱신: {len(missing)}개")
         await batch_refresh(missing)
 
+    # 서버 재시작 직후에도 퀀트 점수 상대평가가 바로 동작하도록 초기 분포 구축
+    from app.services.quant_percentile_service import rebuild_all_distributions
+    try:
+        await rebuild_all_distributions()
+    except Exception as e:
+        log.warning(f"퀀트 percentile 초기 분포 구축 실패: {e}")
+
 
 async def refresh_fundamentals_daily():
     """포트폴리오·관심종목·인기종목 펀더멘털 & 재무제표 일괄 갱신"""
@@ -388,6 +395,13 @@ async def refresh_fundamentals_daily():
 
     log.info(f"일일 펀더멘털·재무제표 갱신 시작 — {len(symbols_set)}개 종목")
     await batch_refresh(list(symbols_set))
+
+    # 펀더멘털이 최신화된 직후 — 퀀트 점수 상대평가용 시장별 백분위 분포도 함께 재계산
+    from app.services.quant_percentile_service import rebuild_all_distributions
+    try:
+        await rebuild_all_distributions()
+    except Exception as e:
+        log.warning(f"퀀트 percentile 분포 갱신 실패: {e}")
 
 
 async def run_startup_prefetch():

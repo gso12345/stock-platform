@@ -206,6 +206,9 @@ async def _yf_financials(symbol: str, market: str) -> dict:
                     if bal is not None and not bal.empty and col in bal.columns:
                         rd["total_debt"]   = sv(bal, "Total Debt", col)
                         rd["total_equity"] = sv(bal, "Stockholders Equity", col) or sv(bal, "Common Stock Equity", col)
+                        rd["total_assets"] = sv(bal, "Total Assets", col)
+                        rd["cash"]         = sv(bal, "Cash And Cash Equivalents", col) or \
+                                              sv(bal, "Cash Cash Equivalents And Short Term Investments", col)
                     rev = rd.get("revenue")
                     if rev:
                         if rd.get("gross_profit"):
@@ -214,6 +217,12 @@ async def _yf_financials(symbol: str, market: str) -> dict:
                             rd["op_margin"] = round(rd["op_income"] / rev * 100, 2)
                         if rd.get("net_income"):
                             rd["net_margin"] = round(rd["net_income"] / rev * 100, 2)
+                    # 펀더멘털 API(yfinance .info)에 debtToEquity/returnOnAssets가
+                    # 없는 종목(특히 국내 종목)을 위한 재무제표 기반 자체 계산
+                    if rd.get("total_debt") is not None and rd.get("total_equity"):
+                        rd["debt_ratio"] = round(rd["total_debt"] / rd["total_equity"] * 100, 2)
+                    if rd.get("net_income") is not None and rd.get("total_assets"):
+                        rd["roa"] = round(rd["net_income"] / rd["total_assets"] * 100, 2)
                     rows.append(rd)
                 result[key] = sorted(rows, key=lambda x: x["period"])
             except Exception:
