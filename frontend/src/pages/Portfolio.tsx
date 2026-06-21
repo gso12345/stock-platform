@@ -43,16 +43,16 @@ const DEFAULT_FX  = 1350;
 
 /* ── 미리보기 예시 데이터 (비로그인 시 표시) ────────────────── */
 const PREVIEW_ENRICHED: EnrichedItem[] = [
-  { id: -1, symbol: "005930", market: "KR", name: "삼성전자",   shares: 50,  avgPrice: 68000, currency: "KRW",
-    currentPriceNative: 72400,  currentValueKRW: 3_620_000,  costKRW: 3_400_000,  pnlKRW:  220_000, pnlRate:  6.47, weight: 12.1 },
-  { id: -2, symbol: "NVDA",   market: "US", name: "엔비디아",   shares: 10,  avgPrice: 485,   currency: "USD", inputExchangeRate: 1320,
-    currentPriceNative: 875,    currentValueKRW: 11_812_500, costKRW: 6_402_000,  pnlKRW: 5_410_500, pnlRate: 84.51, weight: 39.6 },
-  { id: -3, symbol: "AAPL",   market: "US", name: "애플",       shares: 20,  avgPrice: 172,   currency: "USD", inputExchangeRate: 1310,
-    currentPriceNative: 195,    currentValueKRW: 5_265_000,  costKRW: 4_508_800,  pnlKRW:  756_200, pnlRate: 16.77, weight: 17.6 },
-  { id: -4, symbol: "000660", market: "KR", name: "SK하이닉스", shares: 30,  avgPrice: 130000, currency: "KRW",
-    currentPriceNative: 185000, currentValueKRW: 5_550_000,  costKRW: 3_900_000,  pnlKRW: 1_650_000, pnlRate: 42.31, weight: 18.6 },
-  { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 5, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
-    currentPriceNative: 535,    currentValueKRW: 3_611_250,  costKRW: 2_730_000,  pnlKRW:  881_250, pnlRate: 32.28, weight: 12.1 },
+  { id: -1, symbol: "005930", market: "KR", name: "삼성전자",   shares: 50,  avgPrice: 100000, currency: "KRW",
+    currentPriceNative: 72400,  currentValueKRW: 3_620_000,  costKRW: 5_000_000,  pnlKRW: -1_380_000, pnlRate: -27.60, weight:  4.4 },
+  { id: -2, symbol: "NVDA",   market: "US", name: "엔비디아",   shares: 50,  avgPrice: 110,   currency: "USD", inputExchangeRate: 1320,
+    currentPriceNative: 875,    currentValueKRW: 57_750_000, costKRW: 7_260_000,  pnlKRW: 50_490_000, pnlRate: 695.45, weight: 70.8 },
+  { id: -3, symbol: "AAPL",   market: "US", name: "애플",       shares: 30,  avgPrice: 172,   currency: "USD", inputExchangeRate: 1310,
+    currentPriceNative: 195,    currentValueKRW: 7_663_500,  costKRW: 6_759_600,  pnlKRW:  903_900, pnlRate: 13.37, weight:  9.4 },
+  { id: -4, symbol: "000660", market: "KR", name: "SK하이닉스", shares: 30,  avgPrice: 300000, currency: "KRW",
+    currentPriceNative: 185000, currentValueKRW: 5_550_000,  costKRW: 9_000_000,  pnlKRW: -3_450_000, pnlRate: -38.33, weight:  6.8 },
+  { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 10, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
+    currentPriceNative: 535,    currentValueKRW: 6_955_000,  costKRW: 5_460_000,  pnlKRW: 1_495_000, pnlRate: 27.38, weight:  8.5 },
 ];
 /* ── Format utils ───────────────────────────────────────── */
 function fmtKRW(v: number): string {
