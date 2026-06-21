@@ -176,6 +176,17 @@ class DartCorpMapCache(Base):
     fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class QuantScoreWeight(Base):
+    """사용자별 퀀트 점수 팩터 가중치 설정 (value/quality/momentum/growth/risk)"""
+    __tablename__ = "quant_score_weights"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    weights    = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class ScreeningPreset(Base):
     __tablename__ = "screening_presets"
 
