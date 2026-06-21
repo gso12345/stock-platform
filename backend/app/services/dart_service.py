@@ -238,9 +238,12 @@ class DARTService:
                     return acc_map[k]
             return None
 
-        revenue    = find_value(ACCOUNT_CODES["revenue"])
-        op_income  = find_value(ACCOUNT_CODES["op_income"])
-        net_income = find_value(ACCOUNT_CODES["net_income"])
+        revenue     = find_value(ACCOUNT_CODES["revenue"])
+        op_income   = find_value(ACCOUNT_CODES["op_income"])
+        net_income  = find_value(ACCOUNT_CODES["net_income"])
+        assets      = find_value(ACCOUNT_CODES["assets"])
+        equity      = find_value(ACCOUNT_CODES["equity"])
+        liabilities = find_value(ACCOUNT_CODES["liabilities"])
 
         if revenue is None and op_income is None:
             return None
@@ -249,12 +252,27 @@ class DARTService:
             "11011": f"{year}", "11012": f"{year}H1",
             "11013": f"{year}Q1", "11014": f"{year}Q3",
         }
-        return {
-            "period":     label_map.get(report_type, year),
-            "revenue":    revenue,
-            "op_income":  op_income,
-            "net_income": net_income,
+        row = {
+            "period":       label_map.get(report_type, year),
+            "revenue":      revenue,
+            "op_income":    op_income,
+            "net_income":   net_income,
+            "total_assets": assets,
+            "total_equity": equity,
         }
+        if revenue:
+            if op_income is not None:
+                row["op_margin"] = round(op_income / revenue * 100, 2)
+            if net_income is not None:
+                row["net_margin"] = round(net_income / revenue * 100, 2)
+        if equity:
+            if liabilities is not None:
+                row["debt_ratio"] = round(liabilities / equity * 100, 2)
+            if net_income is not None:
+                row["roe"] = round(net_income / equity * 100, 2)
+        if assets and net_income is not None:
+            row["roa"] = round(net_income / assets * 100, 2)
+        return row
 
     # ── 공시 목록 ──────────────────────────────────────
     def get_disclosures(self, stock_code: str, page_count: int = 10) -> list:

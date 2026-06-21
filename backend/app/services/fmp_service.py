@@ -136,10 +136,45 @@ class FMPService:
     def get_financials(self, symbol: str) -> dict:
         annual_inc = self.get_income_statement(symbol, "annual", 5)
         qtr_inc    = self.get_income_statement(symbol, "quarter", 8)
+        annual_bs  = self.get_balance_sheet(symbol, "annual", 5)
+        qtr_bs     = self.get_balance_sheet(symbol, "quarter", 8)
         return {
-            "annual":    annual_inc,
-            "quarterly": qtr_inc,
+            "annual":    self._merge_bs(annual_inc, annual_bs),
+            "quarterly": self._merge_bs(qtr_inc, qtr_bs),
         }
+
+    @staticmethod
+    def _merge_bs(income_rows: list, bs_rows: list) -> list:
+        """손익계산서 행에 대차대조표(같은 period)를 병합해 ROA/부채비율/마진을
+        quant_score의 collect_quant_metrics 폴백 로직이 그대로 사용할 수 있게 한다."""
+        bs_by_period = {r["period"]: r for r in bs_rows}
+        merged = []
+        for row in income_rows:
+            row = {**row}
+            bs = bs_by_period.get(row["period"])
+            if bs:
+                row.update({
+                    "total_assets":      bs.get("total_assets"),
+                    "total_equity":      bs.get("total_equity"),
+                    "total_liabilities": bs.get("total_liabilities"),
+                    "total_debt":        bs.get("total_debt"),
+                    "cash":              bs.get("cash"),
+                })
+                if bs.get("total_equity"):
+                    if bs.get("total_liabilities") is not None:
+                        row["debt_ratio"] = round(bs["total_liabilities"] / bs["total_equity"] * 100, 2)
+                    if row.get("net_income") is not None:
+                        row["roe"] = round(row["net_income"] / bs["total_equity"] * 100, 2)
+                if bs.get("total_assets") and row.get("net_income") is not None:
+                    row["roa"] = round(row["net_income"] / bs["total_assets"] * 100, 2)
+            revenue = row.get("revenue")
+            if revenue:
+                if row.get("op_income") is not None:
+                    row["op_margin"] = round(row["op_income"] / revenue * 100, 2)
+                if row.get("net_income") is not None:
+                    row["net_margin"] = round(row["net_income"] / revenue * 100, 2)
+            merged.append(row)
+        return merged
 
     # ── 핵심 재무 지표 ─────────────────────────────────
     def get_key_metrics(self, symbol: str) -> dict:

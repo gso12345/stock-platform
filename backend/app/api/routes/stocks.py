@@ -586,7 +586,7 @@ async def get_quant_score(
     지표 점수는 같은 시장(KR/US/ETF) 내 백분위 상대평가(분포는 일배치로 미리 캐시되어
     조회 시점에는 이분 탐색만 수행) — 표본이 부족한 지표는 절대평가로 폴백"""
     from app.services.quant_score import collect_quant_metrics
-    from app.services.quant_percentile_service import get_percentile_distributions
+    from app.services.quant_percentile_service import get_percentile_distributions, get_sector_distribution
 
     override = {"value": w_value, "quality": w_quality, "momentum": w_momentum, "growth": w_growth, "risk": w_risk}
     if any(v is not None for v in override.values()):
@@ -599,9 +599,11 @@ async def get_quant_score(
                 weights = row.weights
 
     metrics = await collect_quant_metrics(symbol, market)
+    sector = metrics.pop("_sector", None)
     percentile_dist = get_percentile_distributions(market)
+    sector_dist = get_sector_distribution(market, sector)
 
-    result = compute_quant_score(metrics, weights, percentile_dist)
+    result = compute_quant_score(metrics, weights, percentile_dist, sector_dist)
     result["weights"] = weights
     return result
 
