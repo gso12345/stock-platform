@@ -4,13 +4,15 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api/client";
-import { stocksApi, watchlistApi, financialsApi, quantScoreApi, VALUE_METRIC_DEFS, QUALITY_METRIC_DEFS, MOMENTUM_METRIC_DEFS, GROWTH_METRIC_DEFS, RISK_METRIC_DEFS, type QuantWeights, type QuantFactorKey, type QuantEnabledMetrics } from "@/api/stocks";
-import { Card, Badge, Button } from "@/components/ui";
+import { stocksApi, watchlistApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
+import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
+import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
+import { Card, Badge } from "@/components/ui";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
   Newspaper, Users, ExternalLink, Maximize2, X, List, MessageSquare,
-  Gauge, Settings2, RotateCcw, HelpCircle,
+  Gauge, Settings2, HelpCircle,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
@@ -216,14 +218,12 @@ export default function StockDetail() {
   });
 
   // 퀀트점수 — 가중치를 바꾸면 즉시 미리보기로 재계산(저장 전에는 서버에 반영 안 됨)
-  const [quantWeights, setQuantWeights] = useState<QuantWeights | null>(null);
-  const [quantWeightsDraft, setQuantWeightsDraft] = useState<QuantWeights | null>(null);
-  const [quantMetrics, setQuantMetrics] = useState<QuantEnabledMetrics | null>(null);
-  const [quantMetricsDraft, setQuantMetricsDraft] = useState<QuantEnabledMetrics | null>(null);
-  const [showQuantSettings, setShowQuantSettings] = useState(false);
   const [showGradeHelp, setShowGradeHelp] = useState(false);
-  const [quantSaveMsg, setQuantSaveMsg] = useState("");
-  const quantDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 초기 draft 동기화는 quantScore가 로드된 이후 한 번만 일어나도록 ref로 가드
+  const quantSynced = useRef(false);
+  const [quantSyncSource, setQuantSyncSource] = useState<{ weights?: QuantWeights; enabled_metrics?: QuantEnabledMetrics }>({});
+  const quantSettings = useQuantSettings(quantSyncSource.weights, quantSyncSource.enabled_metrics);
+  const { weights: quantWeights, metrics: quantMetrics, showSettings: showQuantSettings, setShowSettings: setShowQuantSettings } = quantSettings;
 
   const { data: quantScore, isLoading: loadingQuant } = useQuery({
     queryKey: ["quant-score", m, sym, quantWeights, quantMetrics],
@@ -234,52 +234,11 @@ export default function StockDetail() {
   });
 
   useEffect(() => {
-    if (quantScore?.weights && quantWeightsDraft === null) {
-      setQuantWeightsDraft(quantScore.weights);
+    if (quantScore && !quantSynced.current) {
+      quantSynced.current = true;
+      setQuantSyncSource({ weights: quantScore.weights, enabled_metrics: quantScore.enabled_metrics });
     }
-    if (quantScore?.enabled_metrics && quantMetricsDraft === null) {
-      setQuantMetricsDraft(quantScore.enabled_metrics);
-    }
-  }, [quantScore, quantWeightsDraft, quantMetricsDraft]);
-
-  const saveQuantWeightsMutation = useMutation({
-    mutationFn: ({ weights, metrics }: { weights: QuantWeights; metrics: QuantEnabledMetrics }) =>
-      quantScoreApi.saveWeights(weights, metrics),
-    onSuccess: () => {
-      setQuantSaveMsg("저장됨");
-      setTimeout(() => setQuantSaveMsg(""), 2000);
-      qc.invalidateQueries({ queryKey: ["quant-score"] });
-    },
-    onError: () => setQuantSaveMsg("저장 실패"),
-  });
-
-  const QUANT_DEFAULT_WEIGHTS: QuantWeights = { value: 25, quality: 25, momentum: 25, growth: 15, risk: 10 };
-
-  const updateQuantDraft = (key: keyof QuantWeights, value: number) => {
-    setQuantWeightsDraft((prev) => {
-      const next = { ...(prev ?? QUANT_DEFAULT_WEIGHTS), [key]: value };
-      if (quantDebounceRef.current) clearTimeout(quantDebounceRef.current);
-      quantDebounceRef.current = setTimeout(() => setQuantWeights(next), 400);
-      return next;
-    });
-  };
-
-  const toggleQuantMetric = (factor: QuantFactorKey, key: string, allKeys: string[]) => {
-    setQuantMetricsDraft((prev) => {
-      const base = prev ?? {};
-      const current = base[factor] ?? allKeys;
-      const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-      const nextDraft: QuantEnabledMetrics = { ...base, [factor]: next.length === allKeys.length ? undefined : next };
-      const cleaned: QuantEnabledMetrics = {};
-      (Object.keys(nextDraft) as QuantFactorKey[]).forEach((fkey) => {
-        const v = nextDraft[fkey];
-        if (v) cleaned[fkey] = v;
-      });
-      if (quantDebounceRef.current) clearTimeout(quantDebounceRef.current);
-      quantDebounceRef.current = setTimeout(() => setQuantMetrics(cleaned), 400);
-      return cleaned;
-    });
-  };
+  }, [quantScore]);
 
   const { data: stockNews, isLoading: loadingNews } = useQuery({
     queryKey: ["stock-news", m, sym],
@@ -1322,9 +1281,6 @@ export default function StockDetail() {
 
       {/* 퀀트점수 탭 */}
       {mainTab==="quant" && (() => {
-        const FACTOR_LABEL_KO: Record<keyof QuantWeights, string> = {
-          value: "가치", quality: "품질", momentum: "모멘텀", growth: "성장", risk: "안정성",
-        };
         const gradeColor = (g: string | null | undefined) => {
           if (!g) return "text-text-muted";
           if (g.startsWith("S")) return "text-purple-400";
@@ -1335,8 +1291,6 @@ export default function StockDetail() {
         };
         const scoreColor = (s: number | null) =>
           s == null ? "text-text-muted" : s >= 60 ? "text-accent-green" : s >= 40 ? "text-accent-yellow" : "text-accent-red";
-        const draft = quantWeightsDraft ?? QUANT_DEFAULT_WEIGHTS;
-        const draftSum = (Object.values(draft) as number[]).reduce((a, b) => a + b, 0);
         const GRADE_BANDS: { grade: string; range: string }[] = [
           { grade: "S", range: "90 ~ 100점" },
           { grade: "A", range: "80 ~ 90점" },
@@ -1392,82 +1346,17 @@ export default function StockDetail() {
               </div>
 
               {showQuantSettings && (
-                <div className="rounded-xl border border-border bg-bg-elevated p-4 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-base font-semibold text-text-secondary">팩터별 가중치 (합계 {draftSum.toFixed(0)})</span>
-                    <button
-                      onClick={() => {
-                        setQuantWeightsDraft(QUANT_DEFAULT_WEIGHTS); setQuantWeights(QUANT_DEFAULT_WEIGHTS);
-                        setQuantMetricsDraft({}); setQuantMetrics({});
-                      }}
-                      className="flex items-center gap-1 text-sm text-text-muted hover:text-text-primary"
-                    >
-                      <RotateCcw size={11}/>기본값
-                    </button>
-                  </div>
-                  {(Object.keys(FACTOR_LABEL_KO) as (keyof QuantWeights)[]).map((k) => (
-                    <div key={k} className="flex items-center gap-3">
-                      <span className="w-12 text-base text-text-muted flex-shrink-0">{FACTOR_LABEL_KO[k]}</span>
-                      <input
-                        type="range" min={0} max={100} step={1} value={draft[k]}
-                        onChange={(e) => updateQuantDraft(k, Number(e.target.value))}
-                        className="flex-1 accent-accent-blue"
-                      />
-                      <input
-                        type="number" min={0} max={100} step={1} value={draft[k]}
-                        onChange={(e) => {
-                          const v = Number(e.target.value);
-                          if (!Number.isNaN(v)) updateQuantDraft(k, Math.max(0, Math.min(100, v)));
-                        }}
-                        className="w-14 text-right text-base font-mono text-text-primary flex-shrink-0 rounded-md border border-border bg-bg-primary px-1.5 py-0.5 focus:outline-none focus:border-accent-blue"
-                      />
-                    </div>
-                  ))}
-                  <p className="text-sm text-text-muted">가중치 합이 100이 아니어도 자동으로 비율에 맞춰 정규화됩니다.</p>
-
-                  <div className="border-t border-border pt-3 flex flex-col gap-3">
-                    <span className="text-base font-semibold text-text-secondary">팩터별 사용 지표 선택</span>
-                    {([
-                      ["value", "가치", VALUE_METRIC_DEFS],
-                      ["quality", "품질", QUALITY_METRIC_DEFS],
-                      ["momentum", "모멘텀", MOMENTUM_METRIC_DEFS],
-                      ["growth", "성장", GROWTH_METRIC_DEFS],
-                      ["risk", "안정성", RISK_METRIC_DEFS],
-                    ] as const).map(([fkey, flabel, defs]) => {
-                      const allKeys = defs.map((d) => d.key);
-                      const selected = quantMetricsDraft?.[fkey] ?? allKeys;
-                      return (
-                        <div key={fkey} className="flex flex-col gap-1.5">
-                          <span className="text-sm text-text-muted">{flabel}</span>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                            {defs.map((d) => (
-                              <label key={d.key} className="flex items-center gap-1.5 text-base text-text-primary cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={selected.includes(d.key)}
-                                  onChange={() => toggleQuantMetric(fkey, d.key, allKeys)}
-                                  className="accent-accent-blue"
-                                />
-                                {d.label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-1">
-                    {quantSaveMsg && <span className="text-sm text-text-muted">{quantSaveMsg}</span>}
-                    <Button
-                      size="sm" variant="primary"
-                      disabled={!isLoggedIn || saveQuantWeightsMutation.isPending}
-                      onClick={() => saveQuantWeightsMutation.mutate({ weights: draft, metrics: quantMetricsDraft ?? {} })}
-                    >
-                      {isLoggedIn ? "내 기준으로 저장" : "로그인 후 저장 가능"}
-                    </Button>
-                  </div>
-                </div>
+                <QuantSettingsPanel
+                  weightsDraft={quantSettings.weightsDraft}
+                  metricsDraft={quantSettings.metricsDraft}
+                  onUpdateWeight={quantSettings.updateWeight}
+                  onToggleMetric={quantSettings.toggleMetric}
+                  onReset={quantSettings.resetToDefault}
+                  onSave={() => quantSettings.save.mutate({ weights: quantSettings.weightsDraft ?? QUANT_DEFAULT_WEIGHTS, metrics: quantSettings.metricsDraft ?? {} })}
+                  isSaving={quantSettings.save.isPending}
+                  isLoggedIn={isLoggedIn}
+                  saveMsg={quantSettings.saveMsg}
+                />
               )}
 
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
