@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/authStore";
 import {
   Card, ChangeBadge, LoadingSpinner, formatNumber, RangeFilter, Tabs, Button, Badge,
 } from "@/components/ui";
+import ComingSoon from "@/components/ComingSoon";
 import type { Market } from "@/types";
 import {
   Filter, Save, Trash2, ChevronUp, ChevronDown, ExternalLink,
@@ -94,6 +95,7 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 export default function Screening() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  return <ComingSoon title="스크리닝" />;
 
   // 행에 마우스를 올리면 상세 페이지 데이터 선제 prefetch (클릭 시 즉시 표시)
   const prefetchStock = (stock: any) => {
@@ -631,7 +633,7 @@ export default function Screening() {
       </div>
 
       {/* Toast notification */}
-      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+      {toast && <Toast message={toast ?? ""} onDone={() => setToast(null)} />}
     </div>
   );
 }

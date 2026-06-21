@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backtestApi } from "@/api/stocks";
 import { Card, ChangeBadge, LoadingSpinner, formatNumber, Tabs, Button, Badge } from "@/components/ui";
+import ComingSoon from "@/components/ComingSoon";
 import { ConditionBuilder } from "@/components/backtest/ConditionBuilder";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
@@ -61,6 +62,7 @@ export default function Backtest() {
   const qc = useQueryClient();
   const { isLoggedIn } = useAuthStore();
   const [pageTab, setPageTab] = useState("single");
+  return <ComingSoon title="백테스트" />;
 
   // 단일종목
   const [symbol, setSymbol] = useState("AAPL");

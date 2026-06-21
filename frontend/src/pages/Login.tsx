@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
 import Logo from "@/components/Logo";
@@ -63,6 +63,13 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-base px-4">
       <div className="w-full max-w-sm">
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors mb-4"
+        >
+          <ArrowLeft size={14} />뒤로가기
+        </button>
         {/* 로고 */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
           <Logo size={36} />

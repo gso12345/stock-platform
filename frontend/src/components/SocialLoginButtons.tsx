@@ -1,4 +1,4 @@
-import { API_BASE } from "@/api/client";
+import { useState } from "react";
 
 function GoogleIcon() {
   return (
@@ -49,6 +49,8 @@ const PROVIDERS = [
 ] as const;
 
 export default function SocialLoginButtons() {
+  const [notice, setNotice] = useState(false);
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3 my-1">
@@ -57,15 +59,19 @@ export default function SocialLoginButtons() {
         <div className="flex-1 h-px bg-border" />
       </div>
       {PROVIDERS.map((p) => (
-        <a
+        <button
           key={p.id}
-          href={`${API_BASE}/auth/oauth/${p.id}/login`}
+          type="button"
+          onClick={() => setNotice(true)}
           className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-semibold transition-all ${p.className}`}
         >
           {p.icon}
           {p.label}
-        </a>
+        </button>
       ))}
+      {notice && (
+        <p className="text-2xs text-text-muted text-center mt-1">SNS 로그인은 서비스 준비중입니다.</p>
+      )}
     </div>
   );
 }
