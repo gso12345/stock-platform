@@ -17,6 +17,12 @@ import statistics
 
 # 백분위 분포 표본이 이보다 적으면 상대평가를 적용하지 않고 절대평가로 폴백
 MIN_PERCENTILE_SAMPLES = 15
+# 업종별 분포 표본 최소 기준 (시장 전체보다 표본이 적으므로 기준을 낮춤)
+MIN_SECTOR_SAMPLES = 8
+
+# 같은 시장이라도 업종별로 정상 범위가 크게 다른 지표 — 시장 전체 비교보다
+# 업종(sector) 내 비교를 우선 적용 (예: 반도체 PER vs 금융 PER은 비교 의미가 약함)
+SECTOR_RELATIVE_METRICS = {"per", "forward_per", "pbr", "ev_ebitda"}
 
 DEFAULT_WEIGHTS = {
     "value": 25.0,
@@ -118,16 +124,24 @@ def _percentile_score(value: float, sorted_values: list[float], direction: str) 
     return rank / n * 100
 
 
-def compute_quant_score(metrics: dict, weights: dict | None = None, percentile_dist: dict | None = None) -> dict:
+def compute_quant_score(
+    metrics: dict,
+    weights: dict | None = None,
+    percentile_dist: dict | None = None,
+    sector_dist: dict | None = None,
+) -> dict:
     """
     metrics: {metric_key: raw_value, ...} — 누락/None은 해당 지표 제외
     weights: {"value":25,"quality":25,"momentum":25,"growth":15,"risk":10} (합 100 아니어도 자동 정규화)
     percentile_dist: {metric_key: [sorted_value, ...]} — 같은 시장 내 해당 지표의 정렬된 분포
-        (quant_percentile_service에서 일배치로 미리 계산). 표본이 MIN_PERCENTILE_SAMPLES
-        이상이면 상대평가, 아니면 절대평가(lo~hi)로 폴백.
+    sector_dist: {metric_key: [sorted_value, ...]} — 같은 시장+업종 내 분포. PER/PBR/EV·EBITDA처럼
+        업종별로 정상 범위가 크게 다른 지표(SECTOR_RELATIVE_METRICS)는 업종 내 비교를 우선 적용.
+    둘 다(quant_percentile_service에서 일배치로 미리 계산) 표본이 충분하면 상대평가,
+    부족하면 시장 전체 → 절대평가(lo~hi) 순으로 폴백.
     """
     weights = {**DEFAULT_WEIGHTS, **(weights or {})}
     percentile_dist = percentile_dist or {}
+    sector_dist = sector_dist or {}
 
     factors = []
     for fkey, metric_defs in METRIC_DEFS.items():
@@ -138,8 +152,16 @@ def compute_quant_score(metrics: dict, weights: dict | None = None, percentile_d
             if raw is not None:
                 try:
                     raw = float(raw)
-                    dist = percentile_dist.get(mkey)
-                    if dist and len(dist) >= MIN_PERCENTILE_SAMPLES:
+                    dist = None
+                    if mkey in SECTOR_RELATIVE_METRICS:
+                        sd = sector_dist.get(mkey)
+                        if sd and len(sd) >= MIN_SECTOR_SAMPLES:
+                            dist = sd
+                    if dist is None:
+                        md = percentile_dist.get(mkey)
+                        if md and len(md) >= MIN_PERCENTILE_SAMPLES:
+                            dist = md
+                    if dist is not None:
                         score = round(_percentile_score(raw, dist, direction), 1)
                     else:
                         score = round(_score_metric(raw, direction, lo, hi), 1)
@@ -245,6 +267,7 @@ async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = Tr
 
     metrics: dict = {}
     fund = await get_fundamentals(symbol, market) or {}
+    metrics["_sector"] = fund.get("sector")
     for k in _FUND_KEYS:
         if fund.get(k) is not None:
             metrics[k] = fund[k]
@@ -267,7 +290,7 @@ async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = Tr
             latest = annual[-1]
             # yfinance .info에 debtToEquity/returnOnAssets/마진이 없는 종목
             # (특히 국내 종목)은 재무제표에서 직접 계산한 값으로 보완
-            for mkey in ("debt_ratio", "roa", "op_margin", "net_margin"):
+            for mkey in ("debt_ratio", "roe", "roa", "op_margin", "net_margin"):
                 if metrics.get(mkey) is None and latest.get(mkey) is not None:
                     metrics[mkey] = latest[mkey]
 
