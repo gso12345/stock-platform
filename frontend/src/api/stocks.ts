@@ -52,6 +52,9 @@ export const stocksApi = {
           ? {
               metrics_value: enabledMetricsOverride.value?.join(","),
               metrics_quality: enabledMetricsOverride.quality?.join(","),
+              metrics_momentum: enabledMetricsOverride.momentum?.join(","),
+              metrics_growth: enabledMetricsOverride.growth?.join(","),
+              metrics_risk: enabledMetricsOverride.risk?.join(","),
             }
           : {}),
       },
@@ -60,7 +63,7 @@ export const stocksApi = {
 
 export type QuantFactorKey = "value" | "quality" | "momentum" | "growth" | "risk";
 export type QuantWeights = Record<QuantFactorKey, number>;
-export type QuantEnabledMetrics = Partial<Record<"value" | "quality", string[]>>;
+export type QuantEnabledMetrics = Partial<Record<QuantFactorKey, string[]>>;
 
 // METRIC_DEFS(backend quant_score.py)와 동일 — 사용자가 팩터별로 사용할 지표를 고를 때 표시
 export const VALUE_METRIC_DEFS: { key: string; label: string }[] = [
@@ -75,6 +78,23 @@ export const QUALITY_METRIC_DEFS: { key: string; label: string }[] = [
   { key: "roa", label: "ROA" },
   { key: "op_margin", label: "영업이익률" },
   { key: "net_margin", label: "순이익률" },
+];
+export const MOMENTUM_METRIC_DEFS: { key: string; label: string }[] = [
+  { key: "mom_1m", label: "1개월 수익률" },
+  { key: "mom_3m", label: "3개월 수익률" },
+  { key: "mom_6m", label: "6개월 수익률" },
+  { key: "mom_12m", label: "12개월 수익률" },
+  { key: "ma60_dev", label: "60일 이평 이격도" },
+  { key: "ma200_dev", label: "200일 이평 이격도" },
+];
+export const GROWTH_METRIC_DEFS: { key: string; label: string }[] = [
+  { key: "revenue_growth", label: "매출성장률(YoY)" },
+  { key: "net_income_growth", label: "순이익성장률(YoY)" },
+  { key: "op_income_growth", label: "영업이익성장률(YoY)" },
+];
+export const RISK_METRIC_DEFS: { key: string; label: string }[] = [
+  { key: "debt_ratio", label: "부채비율" },
+  { key: "volatility", label: "연환산 변동성" },
 ];
 
 export interface QuantMetric {

@@ -600,12 +600,15 @@ async def get_quant_score(
     w_risk: float | None = Query(None, ge=0, le=100),
     metrics_value: str | None = Query(None, description="쉼표로 구분된 가치 팩터 사용 지표 키 (미지정 시 저장된 설정/전체 지표)"),
     metrics_quality: str | None = Query(None, description="쉼표로 구분된 품질 팩터 사용 지표 키 (미지정 시 저장된 설정/전체 지표)"),
+    metrics_momentum: str | None = Query(None, description="쉼표로 구분된 모멘텀 팩터 사용 지표 키 (미지정 시 저장된 설정/전체 지표)"),
+    metrics_growth: str | None = Query(None, description="쉼표로 구분된 성장 팩터 사용 지표 키 (미지정 시 저장된 설정/전체 지표)"),
+    metrics_risk: str | None = Query(None, description="쉼표로 구분된 안정성 팩터 사용 지표 키 (미지정 시 저장된 설정/전체 지표)"),
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """가치/품질/모멘텀/성장/안정성 5팩터 기반 퀀트 종합 점수 + 등급(S~F)
     w_* 쿼리 파라미터가 하나라도 오면 저장된 가중치 대신 즉시 미리보기로 사용(저장 안 함)
-    metrics_value/metrics_quality가 오면 해당 팩터에서 지정한 지표만 즉시 미리보기로 사용(저장 안 함)
+    metrics_* 쿼리 파라미터가 오면 해당 팩터에서 지정한 지표만 즉시 미리보기로 사용(저장 안 함)
     지표 점수는 같은 시장(KR/US/ETF) 내 백분위 상대평가(분포는 일배치로 미리 캐시되어
     조회 시점에는 이분 탐색만 수행) — 표본이 부족한 지표는 절대평가로 폴백"""
     from app.services.quant_score import collect_quant_metrics
@@ -621,7 +624,10 @@ async def get_quant_score(
     else:
         weights = saved_row.weights if (saved_row and saved_row.weights) else DEFAULT_WEIGHTS
 
-    metrics_override = {"value": metrics_value, "quality": metrics_quality}
+    metrics_override = {
+        "value": metrics_value, "quality": metrics_quality,
+        "momentum": metrics_momentum, "growth": metrics_growth, "risk": metrics_risk,
+    }
     if any(v is not None for v in metrics_override.values()):
         enabled_metrics = _clean_enabled_metrics({
             k: v.split(",") for k, v in metrics_override.items() if v is not None

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api/client";
-import { stocksApi, watchlistApi, financialsApi, quantScoreApi, VALUE_METRIC_DEFS, QUALITY_METRIC_DEFS, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
+import { stocksApi, watchlistApi, financialsApi, quantScoreApi, VALUE_METRIC_DEFS, QUALITY_METRIC_DEFS, MOMENTUM_METRIC_DEFS, GROWTH_METRIC_DEFS, RISK_METRIC_DEFS, type QuantWeights, type QuantFactorKey, type QuantEnabledMetrics } from "@/api/stocks";
 import { Card, Badge, Button } from "@/components/ui";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
@@ -264,15 +264,17 @@ export default function StockDetail() {
     });
   };
 
-  const toggleQuantMetric = (factor: "value" | "quality", key: string, allKeys: string[]) => {
+  const toggleQuantMetric = (factor: QuantFactorKey, key: string, allKeys: string[]) => {
     setQuantMetricsDraft((prev) => {
       const base = prev ?? {};
       const current = base[factor] ?? allKeys;
       const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-      const nextDraft = { ...base, [factor]: next.length === allKeys.length ? undefined : next };
+      const nextDraft: QuantEnabledMetrics = { ...base, [factor]: next.length === allKeys.length ? undefined : next };
       const cleaned: QuantEnabledMetrics = {};
-      if (nextDraft.value) cleaned.value = nextDraft.value;
-      if (nextDraft.quality) cleaned.quality = nextDraft.quality;
+      (Object.keys(nextDraft) as QuantFactorKey[]).forEach((fkey) => {
+        const v = nextDraft[fkey];
+        if (v) cleaned[fkey] = v;
+      });
       if (quantDebounceRef.current) clearTimeout(quantDebounceRef.current);
       quantDebounceRef.current = setTimeout(() => setQuantMetrics(cleaned), 400);
       return cleaned;
@@ -1418,7 +1420,13 @@ export default function StockDetail() {
 
                   <div className="border-t border-border pt-3 flex flex-col gap-3">
                     <span className="text-base font-semibold text-text-secondary">팩터별 사용 지표 선택</span>
-                    {([["value", "가치", VALUE_METRIC_DEFS], ["quality", "품질", QUALITY_METRIC_DEFS]] as const).map(([fkey, flabel, defs]) => {
+                    {([
+                      ["value", "가치", VALUE_METRIC_DEFS],
+                      ["quality", "품질", QUALITY_METRIC_DEFS],
+                      ["momentum", "모멘텀", MOMENTUM_METRIC_DEFS],
+                      ["growth", "성장", GROWTH_METRIC_DEFS],
+                      ["risk", "안정성", RISK_METRIC_DEFS],
+                    ] as const).map(([fkey, flabel, defs]) => {
                       const allKeys = defs.map((d) => d.key);
                       const selected = quantMetricsDraft?.[fkey] ?? allKeys;
                       return (
