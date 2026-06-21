@@ -4,21 +4,26 @@
 - 해외: Finnhub → FMP (재무)
 - 폴백: yfinance (API 키 없을 때)
 """
-from fastapi import APIRouter, Query, HTTPException, Request
+from fastapi import APIRouter, Query, HTTPException, Request, Depends
 from typing import Literal
 import asyncio
 import re
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy.orm import Session
 from app.services.kis_service import kis_service
 from app.services.finnhub_service import finnhub_service
 from app.services.dart_service import dart_service
 from app.services.yf_service import yf_service, _resolve_kr_symbol
 from app.services.demo_data import get_demo_price, get_demo_ohlcv, DEMO_PRICES
 from app.services.ticker_service import get_fdr_price
+from app.services.quant_score import compute_quant_score, compute_momentum_volatility, DEFAULT_WEIGHTS
 from app.core.config import settings
 from app.core.cache import cache
 from app.core.utils import safe_float as _safe_float
+from app.core.deps import get_current_user, require_user
+from app.db.database import get_db
+from app.models.stock import QuantScoreWeight
 
 router = APIRouter(prefix="/stocks", tags=["종목"])
 limiter = Limiter(key_func=get_remote_address)
@@ -514,6 +519,119 @@ async def get_financials(market: Literal["KR","US","ETF"], symbol: str):
     """재무제표 (손익·현금흐름·재무상태) — DB 캐시 우선"""
     from app.services.fundamentals_service import get_financials as _svc
     return await _svc(symbol, market)
+
+
+@router.get("/quant-score/weights")
+async def get_quant_score_weights(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """로그인한 사용자가 저장한 퀀트 점수 팩터 가중치 (없으면 기본값 반환)"""
+    if current_user:
+        row = db.query(QuantScoreWeight).filter(QuantScoreWeight.user_id == current_user.id).first()
+        if row and row.weights:
+            return {"weights": row.weights, "is_default": False}
+    return {"weights": DEFAULT_WEIGHTS, "is_default": True}
+
+
+@router.put("/quant-score/weights")
+async def save_quant_score_weights(
+    payload: dict,
+    current_user=Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """퀀트 점수 팩터 가중치 저장 (로그인 필요) — value/quality/momentum/growth/risk, 0~100"""
+    weights = payload.get("weights")
+    if not isinstance(weights, dict):
+        raise HTTPException(400, "weights 형식이 올바르지 않습니다")
+
+    cleaned = {}
+    for key in DEFAULT_WEIGHTS:
+        v = weights.get(key, DEFAULT_WEIGHTS[key])
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"{key} 가중치가 올바르지 않습니다")
+        if v < 0 or v > 100:
+            raise HTTPException(400, f"{key} 가중치는 0~100 사이여야 합니다")
+        cleaned[key] = v
+    if sum(cleaned.values()) <= 0:
+        raise HTTPException(400, "가중치 합이 0보다 커야 합니다")
+
+    row = db.query(QuantScoreWeight).filter(QuantScoreWeight.user_id == current_user.id).first()
+    if row:
+        row.weights = cleaned
+    else:
+        row = QuantScoreWeight(user_id=current_user.id, weights=cleaned)
+        db.add(row)
+    db.commit()
+    return {"weights": cleaned}
+
+
+@router.get("/{market}/{symbol}/quant-score")
+@limiter.limit("30/minute")
+async def get_quant_score(
+    request: Request,
+    market: Literal["KR","US","ETF"], symbol: str,
+    w_value: float | None = Query(None, ge=0, le=100),
+    w_quality: float | None = Query(None, ge=0, le=100),
+    w_momentum: float | None = Query(None, ge=0, le=100),
+    w_growth: float | None = Query(None, ge=0, le=100),
+    w_risk: float | None = Query(None, ge=0, le=100),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """가치/품질/모멘텀/성장/안정성 5팩터 기반 퀀트 종합 점수 + 등급(S+~D)
+    w_* 쿼리 파라미터가 하나라도 오면 저장된 가중치 대신 즉시 미리보기로 사용(저장 안 함)"""
+    from app.services.fundamentals_service import get_fundamentals as _get_fund, get_financials as _get_fin
+
+    override = {"value": w_value, "quality": w_quality, "momentum": w_momentum, "growth": w_growth, "risk": w_risk}
+    if any(v is not None for v in override.values()):
+        weights = {k: (v if v is not None else DEFAULT_WEIGHTS[k]) for k, v in override.items()}
+    else:
+        weights = DEFAULT_WEIGHTS
+        if current_user:
+            row = db.query(QuantScoreWeight).filter(QuantScoreWeight.user_id == current_user.id).first()
+            if row and row.weights:
+                weights = row.weights
+
+    fund = await _get_fund(symbol, market) or {}
+    metrics: dict = {}
+    for k in ("per", "forward_per", "pbr", "ev_ebitda", "peg",
+              "roe", "roa", "op_margin", "net_margin", "debt_ratio"):
+        if fund.get(k) is not None:
+            metrics[k] = fund[k]
+
+    # 성장률 — 가장 최근 연간 실적 2개 구간으로 YoY 계산
+    try:
+        fin = await _get_fin(symbol, market)
+        annual = fin.get("annual") or []
+        if len(annual) >= 2:
+            cur, prev = annual[-1], annual[-2]
+            for key, gkey in (
+                ("revenue", "revenue_growth"),
+                ("net_income", "net_income_growth"),
+                ("op_income", "op_income_growth"),
+            ):
+                cv, pv = cur.get(key), prev.get(key)
+                if cv is not None and pv:
+                    metrics[gkey] = round((cv - pv) / abs(pv) * 100, 2)
+    except Exception:
+        pass
+
+    # 모멘텀/변동성/이동평균 이격도 — 12개월 수익률 + 200일 이평까지 계산하려면
+    # 최소 1년+200거래일 분량이 필요하므로 2년치 일봉을 사용
+    try:
+        ohlcv = await _run(yf_service.get_ohlcv, symbol, "2y", "1d", market)
+        closes = [b["close"] for b in ohlcv if b.get("close")]
+        metrics.update(compute_momentum_volatility(closes))
+    except Exception:
+        pass
+
+    result = compute_quant_score(metrics, weights)
+    result["weights"] = weights
+    return result
+
 
 @router.get("/{market}/{symbol}/metrics-history")
 async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):

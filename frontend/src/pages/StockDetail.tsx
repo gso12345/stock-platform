@@ -4,11 +4,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api/client";
-import { stocksApi, watchlistApi, financialsApi } from "@/api/stocks";
+import { stocksApi, watchlistApi, financialsApi, quantScoreApi, type QuantWeights } from "@/api/stocks";
+import { Card, Badge, Button } from "@/components/ui";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
   Newspaper, Users, ExternalLink, Maximize2, X, List, MessageSquare,
+  Gauge, Settings2, RotateCcw,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
@@ -59,7 +61,7 @@ export default function StockDetail() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const [mainTab, setMainTab]       = useState<"chart" | "financial" | "news" | "daily" | "analyst" | "supply" | "community">("chart");
+  const [mainTab, setMainTab]       = useState<"chart" | "financial" | "quant" | "news" | "daily" | "analyst" | "supply" | "community">("chart");
   const [isMobile, setIsMobile]     = useState(typeof window !== "undefined" && window.innerWidth < 640);
   const [showKRW, setShowKRW]           = useState(false);
   const [analystSubTab, setAnalystSubTab] = useState<"opinion" | "consensus">("opinion");
@@ -118,6 +120,9 @@ export default function StockDetail() {
     }
     if (tab === "daily" || tab === "") {
       qc.prefetchQuery({ queryKey: ["stock-ohlcv", m, sym, "1d", "1mo"], queryFn: () => stocksApi.getOHLCV(m, sym, "1mo", "1d"), staleTime: 300_000 });
+    }
+    if (tab === "quant") {
+      qc.prefetchQuery({ queryKey: ["quant-score", m, sym, null], queryFn: () => stocksApi.getQuantScore(m, sym), staleTime: 60_000 });
     }
   }, [m, sym, qc]);
 
@@ -209,6 +214,48 @@ export default function StockDetail() {
     enabled: !!sym && mainTab === "analyst",
     retry: 1, staleTime: 900_000,
   });
+
+  // 퀀트점수 — 가중치를 바꾸면 즉시 미리보기로 재계산(저장 전에는 서버에 반영 안 됨)
+  const [quantWeights, setQuantWeights] = useState<QuantWeights | null>(null);
+  const [quantWeightsDraft, setQuantWeightsDraft] = useState<QuantWeights | null>(null);
+  const [showQuantSettings, setShowQuantSettings] = useState(false);
+  const [quantSaveMsg, setQuantSaveMsg] = useState("");
+  const quantDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { data: quantScore, isLoading: loadingQuant } = useQuery({
+    queryKey: ["quant-score", m, sym, quantWeights],
+    queryFn: () => stocksApi.getQuantScore(m, sym, quantWeights ?? undefined),
+    enabled: !!sym && mainTab === "quant",
+    retry: 1,
+    staleTime: quantWeights ? 0 : 60_000,
+  });
+
+  useEffect(() => {
+    if (quantScore?.weights && quantWeightsDraft === null) {
+      setQuantWeightsDraft(quantScore.weights);
+    }
+  }, [quantScore, quantWeightsDraft]);
+
+  const saveQuantWeightsMutation = useMutation({
+    mutationFn: (w: QuantWeights) => quantScoreApi.saveWeights(w),
+    onSuccess: () => {
+      setQuantSaveMsg("저장됨");
+      setTimeout(() => setQuantSaveMsg(""), 2000);
+      qc.invalidateQueries({ queryKey: ["quant-score"] });
+    },
+    onError: () => setQuantSaveMsg("저장 실패"),
+  });
+
+  const QUANT_DEFAULT_WEIGHTS: QuantWeights = { value: 25, quality: 25, momentum: 25, growth: 15, risk: 10 };
+
+  const updateQuantDraft = (key: keyof QuantWeights, value: number) => {
+    setQuantWeightsDraft((prev) => {
+      const next = { ...(prev ?? QUANT_DEFAULT_WEIGHTS), [key]: value };
+      if (quantDebounceRef.current) clearTimeout(quantDebounceRef.current);
+      quantDebounceRef.current = setTimeout(() => setQuantWeights(next), 400);
+      return next;
+    });
+  };
 
   const { data: stockNews, isLoading: loadingNews } = useQuery({
     queryKey: ["stock-news", m, sym],
@@ -516,6 +563,7 @@ export default function StockDetail() {
             { id:"chart",     Icon: BarChart2,      label:"차트" },
             { id:"daily",     Icon: List,            label:"일별" },
             { id:"financial", Icon: DollarSign,      label:"재무제표" },
+            { id:"quant",     Icon: Gauge,           label:"퀀트점수" },
             { id:"analyst",   Icon: TrendingUp,      label:"투자의견" },
             { id:"news",      Icon: Newspaper,       label:"뉴스/공시" },
             ...(isKR ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
@@ -1237,6 +1285,126 @@ export default function StockDetail() {
             </div>
           )}
 
+          </div>
+        );
+      })()}
+
+      {/* 퀀트점수 탭 */}
+      {mainTab==="quant" && (() => {
+        const FACTOR_LABEL_KO: Record<keyof QuantWeights, string> = {
+          value: "가치", quality: "품질", momentum: "모멘텀", growth: "성장", risk: "안정성",
+        };
+        const gradeColor = (g: string | null | undefined) => {
+          if (!g) return "text-text-muted";
+          if (g.startsWith("S")) return "text-purple-400";
+          if (g.startsWith("A")) return "text-accent-green";
+          if (g.startsWith("B")) return "text-accent-blue";
+          if (g.startsWith("C")) return "text-accent-yellow";
+          return "text-accent-red";
+        };
+        const scoreColor = (s: number | null) =>
+          s == null ? "text-text-muted" : s >= 60 ? "text-accent-green" : s >= 40 ? "text-accent-yellow" : "text-accent-red";
+        const draft = quantWeightsDraft ?? QUANT_DEFAULT_WEIGHTS;
+        const draftSum = (Object.values(draft) as number[]).reduce((a, b) => a + b, 0);
+
+        return (
+          <div className="flex flex-col gap-3">
+            <Card className="flex flex-col gap-4">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-baseline gap-3">
+                  <span className="text-4xl font-mono font-bold text-text-primary">
+                    {quantScore?.total_score ?? (loadingQuant ? "···" : "—")}
+                  </span>
+                  <span className="text-sm text-text-muted">/ 100</span>
+                  {quantScore?.grade && (
+                    <span className={`text-2xl font-bold ${gradeColor(quantScore.grade)}`}>{quantScore.grade}</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setShowQuantSettings((s) => !s)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                    showQuantSettings ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+                  }`}
+                >
+                  <Settings2 size={14}/>기준 수정
+                </button>
+              </div>
+
+              {showQuantSettings && (
+                <div className="rounded-xl border border-border bg-bg-elevated p-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-text-secondary">팩터별 가중치 (합계 {draftSum.toFixed(0)})</span>
+                    <button
+                      onClick={() => { setQuantWeightsDraft(QUANT_DEFAULT_WEIGHTS); setQuantWeights(QUANT_DEFAULT_WEIGHTS); }}
+                      className="flex items-center gap-1 text-2xs text-text-muted hover:text-text-primary"
+                    >
+                      <RotateCcw size={11}/>기본값
+                    </button>
+                  </div>
+                  {(Object.keys(FACTOR_LABEL_KO) as (keyof QuantWeights)[]).map((k) => (
+                    <div key={k} className="flex items-center gap-3">
+                      <span className="w-12 text-xs text-text-muted flex-shrink-0">{FACTOR_LABEL_KO[k]}</span>
+                      <input
+                        type="range" min={0} max={100} step={1} value={draft[k]}
+                        onChange={(e) => updateQuantDraft(k, Number(e.target.value))}
+                        className="flex-1 accent-accent-blue"
+                      />
+                      <span className="w-10 text-right text-xs font-mono text-text-primary flex-shrink-0">{draft[k]}</span>
+                    </div>
+                  ))}
+                  <p className="text-2xs text-text-muted">가중치 합이 100이 아니어도 자동으로 비율에 맞춰 정규화됩니다.</p>
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    {quantSaveMsg && <span className="text-2xs text-text-muted">{quantSaveMsg}</span>}
+                    <Button
+                      size="sm" variant="primary"
+                      disabled={!isLoggedIn || saveQuantWeightsMutation.isPending}
+                      onClick={() => saveQuantWeightsMutation.mutate(draft)}
+                    >
+                      {isLoggedIn ? "내 기준으로 저장" : "로그인 후 저장 가능"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {(quantScore?.factors ?? []).map((f) => (
+                  <div key={f.key} className="flex flex-col gap-1.5 p-3 rounded-xl border border-border bg-bg-elevated">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-text-secondary">{f.label}</span>
+                      <span className="text-2xs text-text-muted">{f.weight}%</span>
+                    </div>
+                    <span className={`text-lg font-mono font-bold ${scoreColor(f.score)}`}>{f.score ?? "—"}</span>
+                    <div className="h-1.5 rounded-full bg-bg-primary overflow-hidden">
+                      <div className="h-full bg-accent-blue rounded-full" style={{ width: `${Math.max(0, Math.min(100, f.score ?? 0))}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card className="flex flex-col gap-4">
+              <SectionTitle>세부 지표</SectionTitle>
+              {(quantScore?.factors ?? []).map((f) => (
+                <div key={f.key} className="flex flex-col gap-1.5">
+                  <span className="text-xs font-bold text-text-muted">{f.label}</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {f.metrics.map((mt) => (
+                      <div key={mt.key} className="flex flex-col gap-0.5 p-2.5 rounded-lg border border-border/60 bg-bg-primary">
+                        <span className="text-2xs text-text-muted truncate">{mt.label}</span>
+                        <span className="text-sm font-mono text-text-primary">{mt.value != null ? `${mt.value}${mt.unit}` : "—"}</span>
+                        <span className={`text-2xs font-mono ${scoreColor(mt.score)}`}>
+                          {mt.score != null ? `${mt.score}점` : "데이터 없음"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <p className="text-2xs text-text-muted leading-relaxed pt-1">
+                업종 구분 없는 일반적인 기준 구간을 0~100점으로 환산한 참고용 점수이며 투자 조언이 아닙니다.
+                일부 지표는 데이터가 없으면 제외되고, 해당 팩터·종합 점수의 가중치가 나머지 항목으로 재분배됩니다.
+              </p>
+            </Card>
           </div>
         );
       })()}

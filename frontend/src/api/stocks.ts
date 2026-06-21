@@ -31,6 +31,54 @@ export const stocksApi = {
 
   getAnalyst: (market: string, symbol: string) =>
     api.get<any>(`/stocks/${market}/${encodeURIComponent(symbol)}/analyst`).then((r) => r.data),
+
+  getQuantScore: (market: string, symbol: string, weightOverride?: Partial<QuantWeights>) =>
+    api.get<QuantScoreResult>(`/stocks/${market}/${encodeURIComponent(symbol)}/quant-score`, {
+      params: weightOverride
+        ? {
+            w_value: weightOverride.value,
+            w_quality: weightOverride.quality,
+            w_momentum: weightOverride.momentum,
+            w_growth: weightOverride.growth,
+            w_risk: weightOverride.risk,
+          }
+        : undefined,
+    }).then((r) => r.data),
+};
+
+export type QuantFactorKey = "value" | "quality" | "momentum" | "growth" | "risk";
+export type QuantWeights = Record<QuantFactorKey, number>;
+
+export interface QuantMetric {
+  key: string;
+  label: string;
+  value: number | null;
+  score: number | null;
+  unit: string;
+  direction: "low" | "high";
+}
+
+export interface QuantFactor {
+  key: QuantFactorKey;
+  label: string;
+  weight: number;
+  score: number | null;
+  metrics: QuantMetric[];
+}
+
+export interface QuantScoreResult {
+  total_score: number | null;
+  grade: string | null;
+  factors: QuantFactor[];
+  weights: QuantWeights;
+}
+
+export const quantScoreApi = {
+  getWeights: () =>
+    api.get<{ weights: QuantWeights; is_default: boolean }>("/stocks/quant-score/weights").then((r) => r.data),
+
+  saveWeights: (weights: QuantWeights) =>
+    api.put<{ weights: QuantWeights }>("/stocks/quant-score/weights", { weights }).then((r) => r.data),
 };
 
 export const dashboardApi = {
