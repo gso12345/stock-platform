@@ -619,9 +619,10 @@ async def get_quant_score(
     except Exception:
         pass
 
-    # 모멘텀/변동성 — 최근 1년 일봉 종가
+    # 모멘텀/변동성/이동평균 이격도 — 12개월 수익률 + 200일 이평까지 계산하려면
+    # 최소 1년+200거래일 분량이 필요하므로 2년치 일봉을 사용
     try:
-        ohlcv = await _run(yf_service.get_ohlcv, symbol, "1y", "1d", market)
+        ohlcv = await _run(yf_service.get_ohlcv, symbol, "2y", "1d", market)
         closes = [b["close"] for b in ohlcv if b.get("close")]
         metrics.update(compute_momentum_volatility(closes))
     except Exception:

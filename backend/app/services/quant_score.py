@@ -44,9 +44,12 @@ METRIC_DEFS: dict[str, list[tuple]] = {
         ("net_margin", "순이익률",   "high", 0, 20, "%"),
     ],
     "momentum": [
-        ("mom_1m", "1개월 수익률", "high", -15, 15, "%"),
-        ("mom_3m", "3개월 수익률", "high", -25, 25, "%"),
-        ("mom_6m", "6개월 수익률", "high", -35, 35, "%"),
+        ("mom_1m",    "1개월 수익률",      "high", -15, 15, "%"),
+        ("mom_3m",    "3개월 수익률",      "high", -25, 25, "%"),
+        ("mom_6m",    "6개월 수익률",      "high", -35, 35, "%"),
+        ("mom_12m",   "12개월 수익률",     "high", -40, 40, "%"),
+        ("ma60_dev",  "60일 이평 이격도",  "high", -15, 15, "%"),
+        ("ma200_dev", "200일 이평 이격도", "high", -25, 25, "%"),
     ],
     "growth": [
         ("revenue_growth",    "매출성장률(YoY)",     "high", -10, 30, "%"),
@@ -149,7 +152,8 @@ def compute_quant_score(metrics: dict, weights: dict | None = None) -> dict:
 
 
 def compute_momentum_volatility(closes: list[float]) -> dict:
-    """일별 종가 리스트(오름차순, 최근값이 마지막)로 1/3/6개월 수익률 + 연환산 변동성 계산"""
+    """일별 종가 리스트(오름차순, 최근값이 마지막)로 1/3/6/12개월 수익률 +
+    60일/200일 이동평균선 이격도 + 연환산 변동성 계산"""
     if not closes or len(closes) < 5:
         return {}
     n = len(closes)
@@ -165,10 +169,26 @@ def compute_momentum_volatility(closes: list[float]) -> dict:
         return round((last - base) / base * 100, 2)
 
     result: dict = {}
-    for days, key in ((21, "mom_1m"), (63, "mom_3m"), (126, "mom_6m")):
+    for days, key in ((21, "mom_1m"), (63, "mom_3m"), (126, "mom_6m"), (252, "mom_12m")):
         r = _ret(days)
         if r is not None:
             result[key] = r
+
+    # 이동평균선 이격도 — 현재가가 N일 이동평균선 대비 몇 % 위/아래인지
+    def _ma_dev(window: int) -> float | None:
+        if n < window:
+            return None
+        ma = sum(closes[-window:]) / window
+        if not ma:
+            return None
+        return round((last - ma) / ma * 100, 2)
+
+    d60 = _ma_dev(60)
+    if d60 is not None:
+        result["ma60_dev"] = d60
+    d200 = _ma_dev(200)
+    if d200 is not None:
+        result["ma200_dev"] = d200
 
     # 최근 최대 126영업일(약 6개월) 일별 수익률의 표준편차 → 연환산(252거래일) 변동성(%)
     window = closes[-126:] if n > 126 else closes
