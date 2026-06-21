@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import api from "@/api/client";
-import { Card } from "@/components/ui";
+import { Card, RowSkeleton } from "@/components/ui";
 import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
@@ -548,7 +548,7 @@ export default function Portfolio() {
         : currentPriceNative * base.shares;
       const fxForCost = base.currency === "USD"
         ? (base.inputExchangeRate ?? exchangeRate)
-        : isUSDStock ? exchangeRate : 1;
+        : 1; // 평단가를 원화로 입력했으면 이미 원화 금액이므로 환율을 다시 곱하지 않음
       const costKRW = base.avgPrice * fxForCost * base.shares;
       const pnlKRW = currentValueKRW - costKRW;
       const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;
@@ -593,7 +593,7 @@ export default function Portfolio() {
       // 매입가는 저장된 통화 기준
       const fxForCost = item.currency === "USD"
         ? (item.inputExchangeRate ?? exchangeRate)
-        : isUSDStock ? exchangeRate : 1; // KRW로 저장됐어도 US 종목이면 환율 적용
+        : 1; // 평단가를 원화로 입력했으면 이미 원화 금액이므로 환율을 다시 곱하지 않음
       const costKRW = item.avgPrice * fxForCost * item.shares;
 
       const pnlKRW = currentValueKRW - costKRW;
@@ -740,7 +740,7 @@ export default function Portfolio() {
       <div>
         <h1 className="text-2xl font-bold text-text-primary">내 자산</h1>
         <p className="text-text-muted text-xs mt-0.5">
-          {displayEnriched.length}개 종목 · 클릭하면 상세로 이동
+          {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : `${displayEnriched.length}개 종목 · 클릭하면 상세로 이동`}
         </p>
       </div>
 
@@ -861,8 +861,10 @@ export default function Portfolio() {
           )}
         </div>
 
-        {/* 로그인 상태이고 종목 없을 때 */}
-        {isLoggedIn && items.length === 0 ? (
+        {/* 로그인 상태에서 보유종목 불러오는 중 — 빈 상태로 단정하지 않고 스켈레톤만 표시 */}
+        {isLoggedIn && itemsLoading ? (
+          <div className="p-3"><RowSkeleton rows={3} /></div>
+        ) : isLoggedIn && items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-4">
             <div className="w-14 h-14 rounded-2xl bg-bg-elevated border border-border flex items-center justify-center">
               <Wallet size={24} className="text-text-muted" />

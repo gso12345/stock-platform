@@ -849,10 +849,25 @@ export default function Watchlist() {
             <button onClick={() => setFolderTab("none")} className={tabBtnCls(folderTab === "none")}>
               기본 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
             </button>
-            {(folders as any[]).map((f: any) => {
+            {(localFolderOrder ?? (folders as any[])).map((f: any) => {
               const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
               return (
-                <button key={f.id} onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)} className={tabBtnCls(folderTab === f.id)}>
+                <button
+                  key={f.id}
+                  data-folder-id={f.id}
+                  draggable={(folders as any[]).length > 1}
+                  onDragStart={() => handleFolderDragStart(f)}
+                  onDragOver={(e) => handleFolderDragOver(e, f.id)}
+                  onDrop={handleFolderDrop}
+                  onTouchStart={() => handleFolderDragStart(f)}
+                  onTouchMove={(e) => handleFolderTouchMove(e.touches[0].clientX, e.touches[0].clientY)}
+                  onTouchEnd={handleFolderDrop}
+                  onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)}
+                  title="드래그하여 폴더 순서 변경"
+                  className={`touch-none cursor-grab active:cursor-grabbing ${tabBtnCls(folderTab === f.id)} ${
+                    dragFolderId === f.id ? "opacity-40" : ""
+                  } ${dropFolderId === f.id ? "ring-1 ring-accent-blue ring-inset" : ""}`}
+                >
                   {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
                 </button>
               );
