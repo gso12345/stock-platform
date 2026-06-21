@@ -44,15 +44,15 @@ const DEFAULT_FX  = 1350;
 /* ── 미리보기 예시 데이터 (비로그인 시 표시) ────────────────── */
 const PREVIEW_ENRICHED: EnrichedItem[] = [
   { id: -1, symbol: "005930", market: "KR", name: "삼성전자",   shares: 50,  avgPrice: 100000, currency: "KRW",
-    currentPriceNative: 72400,  currentValueKRW: 3_620_000,  costKRW: 5_000_000,  pnlKRW: -1_380_000, pnlRate: -27.60, weight:  4.4 },
+    currentPriceNative: 72400,  currentValueKRW: 3_620_000,  costKRW: 5_000_000,  pnlKRW: -1_380_000, pnlRate: -27.60, weight:  4.5 },
   { id: -2, symbol: "NVDA",   market: "US", name: "엔비디아",   shares: 50,  avgPrice: 110,   currency: "USD", inputExchangeRate: 1320,
-    currentPriceNative: 875,    currentValueKRW: 57_750_000, costKRW: 7_260_000,  pnlKRW: 50_490_000, pnlRate: 695.45, weight: 70.8 },
+    currentPriceNative: 875,    currentValueKRW: 57_750_000, costKRW: 7_260_000,  pnlKRW: 50_490_000, pnlRate: 695.45, weight: 72.5 },
   { id: -3, symbol: "AAPL",   market: "US", name: "애플",       shares: 30,  avgPrice: 172,   currency: "USD", inputExchangeRate: 1310,
-    currentPriceNative: 195,    currentValueKRW: 7_663_500,  costKRW: 6_759_600,  pnlKRW:  903_900, pnlRate: 13.37, weight:  9.4 },
-  { id: -4, symbol: "000660", market: "KR", name: "SK하이닉스", shares: 30,  avgPrice: 300000, currency: "KRW",
-    currentPriceNative: 185000, currentValueKRW: 5_550_000,  costKRW: 9_000_000,  pnlKRW: -3_450_000, pnlRate: -38.33, weight:  6.8 },
+    currentPriceNative: 195,    currentValueKRW: 7_663_500,  costKRW: 6_759_600,  pnlKRW:  903_900, pnlRate: 13.37, weight:  9.6 },
+  { id: -4, symbol: "000660", market: "KR", name: "SK하이닉스", shares: 20,  avgPrice: 300000, currency: "KRW",
+    currentPriceNative: 185000, currentValueKRW: 3_700_000,  costKRW: 6_000_000,  pnlKRW: -2_300_000, pnlRate: -38.33, weight:  4.6 },
   { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 10, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
-    currentPriceNative: 535,    currentValueKRW: 6_955_000,  costKRW: 5_460_000,  pnlKRW: 1_495_000, pnlRate: 27.38, weight:  8.5 },
+    currentPriceNative: 535,    currentValueKRW: 6_955_000,  costKRW: 5_460_000,  pnlKRW: 1_495_000, pnlRate: 27.38, weight:  8.7 },
 ];
 /* ── Format utils ───────────────────────────────────────── */
 function fmtKRW(v: number): string {
