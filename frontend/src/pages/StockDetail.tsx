@@ -10,7 +10,7 @@ import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
   Newspaper, Users, ExternalLink, Maximize2, X, List, MessageSquare,
-  Gauge, Settings2, RotateCcw,
+  Gauge, Settings2, RotateCcw, HelpCircle,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
@@ -219,6 +219,7 @@ export default function StockDetail() {
   const [quantWeights, setQuantWeights] = useState<QuantWeights | null>(null);
   const [quantWeightsDraft, setQuantWeightsDraft] = useState<QuantWeights | null>(null);
   const [showQuantSettings, setShowQuantSettings] = useState(false);
+  const [showGradeHelp, setShowGradeHelp] = useState(false);
   const [quantSaveMsg, setQuantSaveMsg] = useState("");
   const quantDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1306,6 +1307,14 @@ export default function StockDetail() {
           s == null ? "text-text-muted" : s >= 60 ? "text-accent-green" : s >= 40 ? "text-accent-yellow" : "text-accent-red";
         const draft = quantWeightsDraft ?? QUANT_DEFAULT_WEIGHTS;
         const draftSum = (Object.values(draft) as number[]).reduce((a, b) => a + b, 0);
+        const GRADE_BANDS: { grade: string; range: string }[] = [
+          { grade: "S", range: "90 ~ 100점" },
+          { grade: "A", range: "80 ~ 90점" },
+          { grade: "B", range: "60 ~ 80점" },
+          { grade: "C", range: "40 ~ 60점" },
+          { grade: "D", range: "20 ~ 40점" },
+          { grade: "F", range: "0 ~ 20점" },
+        ];
 
         return (
           <div className="flex flex-col gap-3">
@@ -1319,6 +1328,28 @@ export default function StockDetail() {
                   {quantScore?.grade && (
                     <span className={`text-2xl font-bold ${gradeColor(quantScore.grade)}`}>{quantScore.grade}</span>
                   )}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowGradeHelp((s) => !s)}
+                      className={`flex items-center justify-center w-5 h-5 rounded-full border transition-colors ${
+                        showGradeHelp ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+                      }`}
+                      title="등급 기준 보기"
+                    >
+                      <HelpCircle size={13}/>
+                    </button>
+                    {showGradeHelp && (
+                      <div className="absolute left-0 top-7 z-20 w-48 rounded-xl border border-border bg-bg-elevated shadow-lg p-3 flex flex-col gap-1.5">
+                        <span className="text-2xs font-semibold text-text-secondary pb-1">종합 점수 → 등급 기준</span>
+                        {GRADE_BANDS.map((b) => (
+                          <div key={b.grade} className="flex items-center justify-between text-xs">
+                            <span className={`font-bold ${gradeColor(b.grade)}`}>{b.grade}</span>
+                            <span className="text-text-muted font-mono">{b.range}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <button
                   onClick={() => setShowQuantSettings((s) => !s)}
@@ -1349,7 +1380,14 @@ export default function StockDetail() {
                         onChange={(e) => updateQuantDraft(k, Number(e.target.value))}
                         className="flex-1 accent-accent-blue"
                       />
-                      <span className="w-10 text-right text-xs font-mono text-text-primary flex-shrink-0">{draft[k]}</span>
+                      <input
+                        type="number" min={0} max={100} step={1} value={draft[k]}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          if (!Number.isNaN(v)) updateQuantDraft(k, Math.max(0, Math.min(100, v)));
+                        }}
+                        className="w-14 text-right text-xs font-mono text-text-primary flex-shrink-0 rounded-md border border-border bg-bg-primary px-1.5 py-0.5 focus:outline-none focus:border-accent-blue"
+                      />
                     </div>
                   ))}
                   <p className="text-2xs text-text-muted">가중치 합이 100이 아니어도 자동으로 비율에 맞춰 정규화됩니다.</p>
