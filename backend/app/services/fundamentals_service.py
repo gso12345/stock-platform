@@ -223,6 +223,8 @@ async def _yf_financials(symbol: str, market: str) -> dict:
                         rd["debt_ratio"] = round(rd["total_debt"] / rd["total_equity"] * 100, 2)
                     if rd.get("net_income") is not None and rd.get("total_assets"):
                         rd["roa"] = round(rd["net_income"] / rd["total_assets"] * 100, 2)
+                    if rd.get("net_income") is not None and rd.get("total_equity"):
+                        rd["roe"] = round(rd["net_income"] / rd["total_equity"] * 100, 2)
                     rows.append(rd)
                 result[key] = sorted(rows, key=lambda x: x["period"])
             except Exception:

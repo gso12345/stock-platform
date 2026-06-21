@@ -108,9 +108,9 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             <p className="text-xs font-semibold text-text-muted mb-2">글씨 크기</p>
             <div className="flex gap-2">
               {([
-                { value: "normal", label: "기본",   size: "text-xs"  },
-                { value: "large",  label: "크게",   size: "text-sm"  },
-                { value: "xl",     label: "아주 크게", size: "text-base" },
+                { value: "normal", label: "작게",   size: "text-xs"  },
+                { value: "large",  label: "기본",   size: "text-sm"  },
+                { value: "xl",     label: "크게", size: "text-base" },
               ] as const).map((opt) => (
                 <button
                   key={opt.value}
