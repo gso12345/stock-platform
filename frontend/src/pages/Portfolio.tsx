@@ -63,8 +63,12 @@ function fmtKRW(v: number): string {
   if (abs >= 1e4)  return `${sign}₩${(abs / 1e4).toFixed(1)}만`;
   return `${sign}₩${Math.round(abs).toLocaleString("ko-KR")}`;
 }
-function fmtKRWSign(v: number): string {
-  return `${v >= 0 ? "+" : ""}${fmtKRW(v)}`;
+function fmtKRWFull(v: number): string {
+  const sign = v < 0 ? "-" : "";
+  return `${sign}₩${Math.round(Math.abs(v)).toLocaleString("ko-KR")}`;
+}
+function fmtKRWFullSign(v: number): string {
+  return `${v >= 0 ? "+" : ""}${fmtKRWFull(v)}`;
 }
 function fmtUSD(v: number): string {
   return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -639,8 +643,8 @@ export default function Portfolio() {
   /* ── 차트 데이터 ── */
   const stockPieData = useMemo(() => {
     const sorted = [...enriched].sort((a, b) => b.currentValueKRW - a.currentValueKRW);
-    const top  = sorted.slice(0, 8);
-    const rest = sorted.slice(8);
+    const top  = sorted.slice(0, 10);
+    const rest = sorted.slice(10);
     const data = top.map((e) => ({
       name: (e.market === "US" || e.market === "ETF") ? e.symbol : (e.name || e.symbol),
       value: Math.round(e.currentValueKRW),
@@ -749,9 +753,9 @@ export default function Portfolio() {
       {isLoggedIn && items.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "총 평가금액", value: fmtKRW(displaySummary.totalValue),    color: "text-text-primary" },
-            { label: "총 매입금액", value: fmtKRW(displaySummary.totalCost),     color: "text-text-primary" },
-            { label: "평가손익",   value: fmtKRWSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl) },
+            { label: "총 평가금액", value: fmtKRWFull(displaySummary.totalValue),    color: "text-text-primary" },
+            { label: "총 매입금액", value: fmtKRWFull(displaySummary.totalCost),     color: "text-text-primary" },
+            { label: "평가손익",   value: fmtKRWFullSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl) },
             { label: "수익률",     value: `${displaySummary.totalRate >= 0 ? "+" : ""}${displaySummary.totalRate.toFixed(2)}%`, color: pnlColor(displaySummary.totalRate) },
           ].map((c) => (
             <Card key={c.label} className={`flex flex-col gap-1 ${!isLoggedIn ? "opacity-80" : ""}`}>
@@ -935,10 +939,10 @@ export default function Portfolio() {
                         ) : <span className="text-text-muted">—</span>}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-text-primary">
-                        {fmtKRW(item.currentValueKRW)}
+                        {fmtKRWFull(item.currentValueKRW)}
                       </td>
                       <td className={`px-3 py-2.5 text-right font-mono font-semibold ${pc}`}>
-                        {fmtKRWSign(item.pnlKRW)}
+                        {fmtKRWFullSign(item.pnlKRW)}
                       </td>
                       <td className={`px-3 py-2.5 text-right font-mono font-semibold ${pc}`}>
                         {item.pnlRate >= 0 ? "+" : ""}{item.pnlRate.toFixed(2)}%
@@ -976,8 +980,8 @@ export default function Portfolio() {
                 <tr className="border-t border-border bg-bg-primary/50">
                   <td className="px-3 py-2.5 font-semibold text-text-muted" colSpan={4}>합계</td>
                   <td />
-                  <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary">{fmtKRW(displaySummary.totalValue)}</td>
-                  <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalPnl)}`}>{fmtKRWSign(displaySummary.totalPnl)}</td>
+                  <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary">{fmtKRWFull(displaySummary.totalValue)}</td>
+                  <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalPnl)}`}>{fmtKRWFullSign(displaySummary.totalPnl)}</td>
                   <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalRate)}`}>
                     {displaySummary.totalRate >= 0 ? "+" : ""}{displaySummary.totalRate.toFixed(2)}%
                   </td>

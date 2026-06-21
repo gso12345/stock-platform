@@ -521,6 +521,13 @@ async def get_financials(market: Literal["KR","US","ETF"], symbol: str):
     return await _svc(symbol, market)
 
 
+@router.get("/{market}/{symbol}/etf-holdings")
+async def get_etf_holdings(market: Literal["KR","US","ETF"], symbol: str):
+    """ETF 보유종목/비중 — 재무제표 대신 ETF에서 보여줄 정보"""
+    from app.services.fundamentals_service import get_etf_holdings as _svc
+    return await _svc(symbol, market)
+
+
 def _clean_enabled_metrics(raw: dict) -> dict:
     """{factor_key: [metric_key, ...]} — 알 수 없는 factor/metric 키는 제거.
     유효한 항목이 하나도 없는 factor는 결과에서 제외(= 전체 지표 사용으로 간주)."""
