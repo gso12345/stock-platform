@@ -10,6 +10,7 @@ import re
 import logging
 from app.core.cache import cache
 from app.core.utils import safe_float as _safe
+from app.core.yf_limiter import yf_semaphore
 
 log = logging.getLogger(__name__)
 
@@ -413,19 +414,25 @@ def _fetch_yf_quote_single_sync(symbol: str) -> dict | None:
 
 
 async def fetch_yf_quotes_with_fallback(symbols: list[str]) -> dict[str, dict]:
-    """배치 멀티쿼트 우선 시도 → 빠진 종목만 yfinance 단건 폴백으로 보강"""
+    """배치 멀티쿼트 우선 시도 → 빠진 종목만 yfinance 단건 폴백으로 보강
+    (실패한 심볼은 짧게 음성 캐싱 — 영구 미인식 종목이 매 폴링마다 yfinance를 다시 때리는 것을 방지,
+     동시 실행 수도 전역 세마포어로 제한해 트래픽 급증 시 메모리/스레드 폭증을 막음)"""
     out = await fetch_yf_quotes(symbols)
-    missing = [s for s in symbols if s not in out]
+    missing = [s for s in symbols if s not in out and not cache.get(f"yf-fallback-fail:{s}")]
     if not missing:
         return out
     loop = asyncio.get_running_loop()
-    results = await asyncio.gather(
-        *(loop.run_in_executor(None, _fetch_yf_quote_single_sync, s) for s in missing),
-        return_exceptions=True,
-    )
+
+    async def _one(sym: str):
+        async with yf_semaphore:
+            return await loop.run_in_executor(None, _fetch_yf_quote_single_sync, sym)
+
+    results = await asyncio.gather(*(_one(s) for s in missing), return_exceptions=True)
     for sym, r in zip(missing, results):
         if isinstance(r, dict):
             out[sym] = r
+        else:
+            cache.set(f"yf-fallback-fail:{sym}", True, 300)
     return out
 
 

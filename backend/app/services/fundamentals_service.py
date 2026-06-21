@@ -13,6 +13,7 @@ from app.db.database import SessionLocal
 from app.models.stock import FundamentalsCache, FinancialsCache
 from app.core.cache import cache
 from app.core.config import settings
+from app.core.yf_limiter import yf_semaphore
 
 log = logging.getLogger(__name__)
 
@@ -295,16 +296,23 @@ def _yf_etf_holdings_sync(symbol: str) -> dict:
 
 
 async def get_etf_holdings(symbol: str, market: str) -> dict:
-    """ETF 보유종목/비중 — in-memory 캐시(24시간) 우선, 실패 시 stale 캐시로 폴백"""
+    """ETF 보유종목/비중 — in-memory 캐시(24시간) 우선, 실패 시 stale 캐시로 폴백
+    (동시 yfinance 호출은 전역 세마포어로 제한, 실패는 짧게 음성 캐싱해 재요청 폭주 방지)"""
     ck = f"etf-holdings:{symbol}"
     if cached := cache.get(ck):
         return cached
 
+    fail_ck = f"etf-holdings-fail:{symbol}"
+    if cache.get(fail_ck):
+        stale = cache.get_stale(ck)
+        return stale or {"holdings": [], "sectors": []}
+
     loop = asyncio.get_running_loop()
     try:
-        result = await asyncio.wait_for(
-            loop.run_in_executor(None, _yf_etf_holdings_sync, symbol), timeout=20,
-        )
+        async with yf_semaphore:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, _yf_etf_holdings_sync, symbol), timeout=20,
+            )
     except Exception as e:
         log.debug(f"ETF holdings 조회 실패 {symbol}: {e}")
         result = {}
@@ -313,6 +321,7 @@ async def get_etf_holdings(symbol: str, market: str) -> dict:
         cache.set(ck, result, 86400)
         return result
 
+    cache.set(fail_ck, True, 600)
     stale = cache.get_stale(ck)
     return stale or {"holdings": [], "sectors": []}
 
