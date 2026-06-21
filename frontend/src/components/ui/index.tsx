@@ -48,6 +48,24 @@ export function LoadingSpinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
   );
 }
 
+/* ── 행 스켈레톤 (목록/테이블 로딩 공통) ──────────────── */
+export function RowSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-bg-card border border-border animate-pulse">
+          <div className="w-8 h-8 rounded-full bg-bg-elevated flex-shrink-0" />
+          <div className="flex-1 flex flex-col gap-1.5">
+            <div className="h-3 w-1/3 rounded bg-bg-elevated" />
+            <div className="h-2.5 w-1/4 rounded bg-bg-elevated" />
+          </div>
+          <div className="h-3 w-14 rounded bg-bg-elevated" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ── 배지 ──────────────────────────────────────────────── */
 export function Badge({ children, variant = "default" }: {
   children: React.ReactNode;

@@ -556,10 +556,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {tab === "kr"
-        ? <KRTab liveIndices={liveIndices} navigate={navigate} />
-        : <USTab liveIndices={liveIndices} navigate={navigate} />
-      }
+      <div key={tab} className="tab-fade">
+        {tab === "kr"
+          ? <KRTab liveIndices={liveIndices} navigate={navigate} />
+          : <USTab liveIndices={liveIndices} navigate={navigate} />
+        }
+      </div>
     </div>
   );
 }

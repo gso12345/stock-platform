@@ -215,10 +215,10 @@ function PortfolioModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
 
         {/* 헤더 */}
         <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">

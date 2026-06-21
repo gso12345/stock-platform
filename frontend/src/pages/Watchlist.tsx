@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
 import api from "@/api/client";
-import { Card, ChangeBadge, LoadingSpinner, Badge } from "@/components/ui";
+import { Card, ChangeBadge, RowSkeleton, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
@@ -114,8 +114,8 @@ function AddModal({ folders, defaultFolderId = null, onClose, onAdd }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/60 backdrop-blur-sm modal-backdrop">
+      <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
         {/* 헤더 */}
         <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
           <h3 className="text-sm font-bold text-text-primary">관심종목 추가</h3>
@@ -199,8 +199,8 @@ function EditItemModal({ item, folders, onClose, onSave }: {
   const [folderId, setFolderId] = useState<number | null>(item.folder_id ?? null);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm modal-backdrop">
+      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
         <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
           <div>
             <h3 className="text-sm font-bold text-text-primary">종목 편집</h3>
@@ -281,8 +281,8 @@ function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
   folder: any; itemCount: number; onClose: () => void; onConfirm: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 modal-backdrop">
+      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
         <div className="p-5 flex flex-col gap-3">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
@@ -713,7 +713,7 @@ export default function Watchlist() {
 
   const renderItems = (list: any[]) =>
     list.map((item: any) => (
-      <div key={item.id} ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol} data-item-id={item.id}>
+      <div key={item.id} className="list-item-in" ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol} data-item-id={item.id}>
         <ItemRow
           item={item}
           livePrice={livePrices[item.symbol]}
@@ -890,8 +890,8 @@ export default function Watchlist() {
             )}
           </div>
         );
-      })() : isLoading ? <LoadingSpinner /> : (
-        <div className="flex flex-col gap-3">
+      })() : isLoading ? <RowSkeleton rows={5} /> : (
+        <div key={`${marketTab}-${folderTab}`} className="flex flex-col gap-3 tab-fade">
           {/* 폴더 그룹 — 폴더 탭이 "전체"이거나 해당 폴더가 선택된 경우에만 표시 */}
           {(localFolderOrder ?? (folders as any[]))
             .filter((folder: any) => folderTab === "all" || folderTab === folder.id)

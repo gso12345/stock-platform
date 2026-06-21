@@ -37,31 +37,33 @@ export default function QuantSettingsPanel({
   const draftSum = (Object.values(draft) as number[]).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="rounded-xl border border-border bg-bg-elevated p-4 flex flex-col gap-3">
+    <div className="rounded-xl border border-border bg-bg-elevated p-4 flex flex-col gap-3 tab-fade">
       <div className="flex items-center justify-between">
         <span className="text-base font-semibold text-text-secondary">팩터별 가중치 (합계 {draftSum.toFixed(0)})</span>
         <button onClick={onReset} className="flex items-center gap-1 text-sm text-text-muted hover:text-text-primary">
           <RotateCcw size={11}/>기본값
         </button>
       </div>
-      {(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => (
-        <div key={k} className="flex items-center gap-3">
-          <span className="w-12 text-sm text-text-muted flex-shrink-0">{FACTOR_LABEL_KO[k]}</span>
-          <input
-            type="range" min={0} max={100} step={1} value={draft[k]}
-            onChange={(e) => onUpdateWeight(k, Number(e.target.value))}
-            className="flex-1 accent-accent-blue"
-          />
-          <input
-            type="number" min={0} max={100} step={1} value={draft[k]}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              if (!Number.isNaN(v)) onUpdateWeight(k, Math.max(0, Math.min(100, v)));
-            }}
-            className="w-14 text-right text-sm font-mono text-text-primary flex-shrink-0 rounded-md border border-border bg-bg-primary px-1.5 py-0.5 focus:outline-none focus:border-accent-blue"
-          />
-        </div>
-      ))}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => (
+          <div key={k} className="flex items-center gap-1.5">
+            <span className="text-sm text-text-muted flex-shrink-0">{FACTOR_LABEL_KO[k]}</span>
+            <input
+              type="range" min={0} max={100} step={1} value={draft[k]}
+              onChange={(e) => onUpdateWeight(k, Number(e.target.value))}
+              className="w-16 accent-accent-blue"
+            />
+            <input
+              type="number" min={0} max={100} step={1} value={draft[k]}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (!Number.isNaN(v)) onUpdateWeight(k, Math.max(0, Math.min(100, v)));
+              }}
+              className="w-12 text-right text-sm font-mono text-text-primary flex-shrink-0 rounded-md border border-border bg-bg-primary px-1.5 py-0.5 focus:outline-none focus:border-accent-blue"
+            />
+          </div>
+        ))}
+      </div>
       <p className="text-sm text-text-muted">가중치 합이 100이 아니어도 자동으로 비율에 맞춰 정규화됩니다.</p>
 
       <div className="border-t border-border pt-3 flex flex-col gap-3">

@@ -5,7 +5,7 @@ import { quantScoreApi, watchlistApi, watchlistFolderApi, type QuantFactorKey } 
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { useAuthStore } from "@/store/authStore";
-import { Card, Badge, LoadingSpinner, Button } from "@/components/ui";
+import { Card, Badge, RowSkeleton, Button } from "@/components/ui";
 import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp } from "lucide-react";
 
 const FACTOR_LABEL_KO: Record<QuantFactorKey, string> = {
@@ -223,8 +223,8 @@ export default function Quant() {
 
           <Card className="p-0 overflow-hidden">
             {itemsLoading || scoreLoading ? (
-              <div className="flex items-center justify-center h-64">
-                <LoadingSpinner />
+              <div className="p-3">
+                <RowSkeleton rows={5} />
               </div>
             ) : compareItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
@@ -238,7 +238,7 @@ export default function Quant() {
                 <p className="text-text-secondary text-sm">퀀트 점수를 불러오지 못했어요. 잠시 후 다시 시도해주세요</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div key={`${marketTab}-${folderTab}`} className="overflow-x-auto tab-fade">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-bg-secondary border-b border-border z-10">
                     <tr className="text-text-muted text-[11px]">
@@ -252,8 +252,8 @@ export default function Quant() {
                           {sortKey === "total" && (sortDir === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
                         </button>
                       </th>
-                      <th className="text-right px-3 py-3">
-                        <div className="flex items-center justify-end gap-1.5 relative">
+                      <th className="text-right px-3 py-3 whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5 relative whitespace-nowrap">
                           등급
                           <button
                             onClick={() => setShowGradeHelp((s) => !s)}
@@ -313,7 +313,7 @@ export default function Quant() {
                           <td className={`px-3 py-2.5 text-right font-mono font-bold ${scoreColor(row.total_score)}`}>
                             {row.total_score != null ? row.total_score.toFixed(1) : "—"}
                           </td>
-                          <td className={`px-3 py-2.5 text-right font-mono font-bold ${gradeColor(row.grade)}`}>
+                          <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${gradeColor(row.grade)}`}>
                             {row.grade ?? "—"}
                           </td>
                           {(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => {

@@ -104,6 +104,27 @@ html.light {
   .slide-up { animation: slideUp 0.3s ease; }
   @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 
+  /* ── 모달/팝오버 진입 애니메이션 ───────────────────── */
+  .modal-backdrop { animation: modalBackdropIn 0.18s ease; }
+  @keyframes modalBackdropIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal-pop { animation: modalPopIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  @keyframes modalPopIn {
+    from { opacity: 0; transform: scale(0.95) translateY(6px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  .sheet-up { animation: sheetUpIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @keyframes sheetUpIn { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── 탭 콘텐츠 전환 ────────────────────────────────── */
+  .tab-fade { animation: tabFadeIn 0.18s ease both; }
+  @keyframes tabFadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── 리스트 아이템 추가 ────────────────────────────── */
+  .list-item-in { animation: listItemIn 0.2s ease both; }
+  @keyframes listItemIn { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
   /* ── 앱 실행 인트로(스플래시) ───────────────────────── */
   .splash-glow { animation: splashGlowPulse 2.4s ease-in-out infinite; }
   @keyframes splashGlowPulse {
