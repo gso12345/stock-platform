@@ -17,7 +17,7 @@ from app.services.dart_service import dart_service
 from app.services.yf_service import yf_service, _resolve_kr_symbol
 from app.services.demo_data import get_demo_price, get_demo_ohlcv, DEMO_PRICES
 from app.services.ticker_service import get_fdr_price
-from app.services.quant_score import compute_quant_score, compute_momentum_volatility, DEFAULT_WEIGHTS
+from app.services.quant_score import compute_quant_score, DEFAULT_WEIGHTS
 from app.core.config import settings
 from app.core.cache import cache
 from app.core.utils import safe_float as _safe_float
@@ -581,9 +581,12 @@ async def get_quant_score(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """가치/품질/모멘텀/성장/안정성 5팩터 기반 퀀트 종합 점수 + 등급(S+~D)
-    w_* 쿼리 파라미터가 하나라도 오면 저장된 가중치 대신 즉시 미리보기로 사용(저장 안 함)"""
-    from app.services.fundamentals_service import get_fundamentals as _get_fund, get_financials as _get_fin
+    """가치/품질/모멘텀/성장/안정성 5팩터 기반 퀀트 종합 점수 + 등급(S~F)
+    w_* 쿼리 파라미터가 하나라도 오면 저장된 가중치 대신 즉시 미리보기로 사용(저장 안 함)
+    지표 점수는 같은 시장(KR/US/ETF) 내 백분위 상대평가(분포는 일배치로 미리 캐시되어
+    조회 시점에는 이분 탐색만 수행) — 표본이 부족한 지표는 절대평가로 폴백"""
+    from app.services.quant_score import collect_quant_metrics
+    from app.services.quant_percentile_service import get_percentile_distributions
 
     override = {"value": w_value, "quality": w_quality, "momentum": w_momentum, "growth": w_growth, "risk": w_risk}
     if any(v is not None for v in override.values()):
@@ -595,40 +598,10 @@ async def get_quant_score(
             if row and row.weights:
                 weights = row.weights
 
-    fund = await _get_fund(symbol, market) or {}
-    metrics: dict = {}
-    for k in ("per", "forward_per", "pbr", "ev_ebitda", "peg",
-              "roe", "roa", "op_margin", "net_margin", "debt_ratio"):
-        if fund.get(k) is not None:
-            metrics[k] = fund[k]
+    metrics = await collect_quant_metrics(symbol, market)
+    percentile_dist = get_percentile_distributions(market)
 
-    # 성장률 — 가장 최근 연간 실적 2개 구간으로 YoY 계산
-    try:
-        fin = await _get_fin(symbol, market)
-        annual = fin.get("annual") or []
-        if len(annual) >= 2:
-            cur, prev = annual[-1], annual[-2]
-            for key, gkey in (
-                ("revenue", "revenue_growth"),
-                ("net_income", "net_income_growth"),
-                ("op_income", "op_income_growth"),
-            ):
-                cv, pv = cur.get(key), prev.get(key)
-                if cv is not None and pv:
-                    metrics[gkey] = round((cv - pv) / abs(pv) * 100, 2)
-    except Exception:
-        pass
-
-    # 모멘텀/변동성/이동평균 이격도 — 12개월 수익률 + 200일 이평까지 계산하려면
-    # 최소 1년+200거래일 분량이 필요하므로 2년치 일봉을 사용
-    try:
-        ohlcv = await _run(yf_service.get_ohlcv, symbol, "2y", "1d", market)
-        closes = [b["close"] for b in ohlcv if b.get("close")]
-        metrics.update(compute_momentum_volatility(closes))
-    except Exception:
-        pass
-
-    result = compute_quant_score(metrics, weights)
+    result = compute_quant_score(metrics, weights, percentile_dist)
     result["weights"] = weights
     return result
 

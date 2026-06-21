@@ -2,13 +2,21 @@
 퀀트 점수 계산 — 가치/품질/모멘텀/성장/안정성 5개 팩터를 0~100점으로 정규화해
 가중합한 종합 점수와 등급(S+~D)을 산출한다.
 
-각 팩터는 여러 지표로 구성되며, 지표별 0~100점은 업종 구분 없이 일반적인
-"좋다/나쁘다" 경험적 기준 구간(lo~hi)을 선형 보간해 계산한다. 데이터가 없는
-지표는 건너뛰고 나머지 지표만으로 팩터 점수를 계산하며, 모든 지표가 없는
-팩터는 종합 점수 계산에서 제외(가중치 재정규화)한다.
+각 팩터는 여러 지표로 구성되며, 지표별 0~100점은 같은 시장(KR/US/ETF) 내
+동일 지표 분포에서의 백분위 순위로 환산한다(상대평가) — 백분위 분포는
+일배치로 미리 계산해 DB/메모리에 캐시해두므로(quant_percentile_service)
+요청 시점에는 정렬된 리스트에 대한 이분 탐색(O(log n))만 수행해 비교 비용이
+거의 들지 않는다. 분포 표본이 부족한 지표/시장은 업종 구분 없는 일반적인
+"좋다/나쁘다" 경험적 기준 구간(lo~hi) 선형 보간으로 대체(절대평가 폴백)한다.
+데이터가 없는 지표는 건너뛰고 나머지 지표만으로 팩터 점수를 계산하며, 모든
+지표가 없는 팩터는 종합 점수 계산에서 제외(가중치 재정규화)한다.
 """
 from __future__ import annotations
+import bisect
 import statistics
+
+# 백분위 분포 표본이 이보다 적으면 상대평가를 적용하지 않고 절대평가로 폴백
+MIN_PERCENTILE_SAMPLES = 15
 
 DEFAULT_WEIGHTS = {
     "value": 25.0,
@@ -98,12 +106,28 @@ def _score_metric(value: float, direction: str, lo: float, hi: float) -> float:
         return (value - lo) / (hi - lo) * 100
 
 
-def compute_quant_score(metrics: dict, weights: dict | None = None) -> dict:
+def _percentile_score(value: float, sorted_values: list[float], direction: str) -> float:
+    """value가 sorted_values(오름차순) 내에서 차지하는 백분위를 0~100점으로 환산.
+    direction="high"면 값이 클수록(=상위 percentile일수록) 높은 점수,
+    "low"면 값이 작을수록 높은 점수."""
+    n = len(sorted_values)
+    if direction == "high":
+        rank = bisect.bisect_right(sorted_values, value)
+    else:
+        rank = n - bisect.bisect_left(sorted_values, value)
+    return rank / n * 100
+
+
+def compute_quant_score(metrics: dict, weights: dict | None = None, percentile_dist: dict | None = None) -> dict:
     """
     metrics: {metric_key: raw_value, ...} — 누락/None은 해당 지표 제외
     weights: {"value":25,"quality":25,"momentum":25,"growth":15,"risk":10} (합 100 아니어도 자동 정규화)
+    percentile_dist: {metric_key: [sorted_value, ...]} — 같은 시장 내 해당 지표의 정렬된 분포
+        (quant_percentile_service에서 일배치로 미리 계산). 표본이 MIN_PERCENTILE_SAMPLES
+        이상이면 상대평가, 아니면 절대평가(lo~hi)로 폴백.
     """
     weights = {**DEFAULT_WEIGHTS, **(weights or {})}
+    percentile_dist = percentile_dist or {}
 
     factors = []
     for fkey, metric_defs in METRIC_DEFS.items():
@@ -114,7 +138,11 @@ def compute_quant_score(metrics: dict, weights: dict | None = None) -> dict:
             if raw is not None:
                 try:
                     raw = float(raw)
-                    score = round(_score_metric(raw, direction, lo, hi), 1)
+                    dist = percentile_dist.get(mkey)
+                    if dist and len(dist) >= MIN_PERCENTILE_SAMPLES:
+                        score = round(_percentile_score(raw, dist, direction), 1)
+                    else:
+                        score = round(_score_metric(raw, direction, lo, hi), 1)
                 except (TypeError, ValueError):
                     raw = None
             metric_results.append({
@@ -202,3 +230,52 @@ def compute_momentum_volatility(closes: list[float]) -> dict:
             result["volatility"] = round(stdev * (252 ** 0.5) * 100, 2)
 
     return result
+
+
+_FUND_KEYS = ("per", "forward_per", "pbr", "ev_ebitda", "peg",
+              "roe", "roa", "op_margin", "net_margin", "debt_ratio")
+
+
+async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = True) -> dict:
+    """퀀트 점수용 원시 지표 수집 — 종목상세 엔드포인트와 percentile 분포 배치 작업이
+    동일한 정의를 공유하도록 한곳에 모음. 캐시 우선 조회(fundamentals_service/yf_service)라
+    이미 캐시된 종목이면 추가 외부 호출 없이 즉시 반환된다."""
+    from app.services.fundamentals_service import get_fundamentals, get_financials
+    from app.services.yf_service import yf_service
+
+    metrics: dict = {}
+    fund = await get_fundamentals(symbol, market) or {}
+    for k in _FUND_KEYS:
+        if fund.get(k) is not None:
+            metrics[k] = fund[k]
+
+    try:
+        fin = await get_financials(symbol, market)
+        annual = fin.get("annual") or []
+        if len(annual) >= 2:
+            cur, prev = annual[-1], annual[-2]
+            for key, gkey in (
+                ("revenue", "revenue_growth"),
+                ("net_income", "net_income_growth"),
+                ("op_income", "op_income_growth"),
+            ):
+                cv, pv = cur.get(key), prev.get(key)
+                if cv is not None and pv:
+                    metrics[gkey] = round((cv - pv) / abs(pv) * 100, 2)
+    except Exception:
+        pass
+
+    if fetch_ohlcv:
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            ohlcv = await asyncio.wait_for(
+                loop.run_in_executor(None, yf_service.get_ohlcv, symbol, "2y", "1d", market),
+                timeout=15,
+            )
+            closes = [b["close"] for b in ohlcv if b.get("close")]
+            metrics.update(compute_momentum_volatility(closes))
+        except Exception:
+            pass
+
+    return metrics

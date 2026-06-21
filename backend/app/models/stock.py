@@ -187,6 +187,18 @@ class QuantScoreWeight(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class QuantPercentileCache(Base):
+    """시장별(KR/US/ETF) 퀀트 지표 백분위 분포 캐시 — 상대평가 점수 계산용.
+    일배치로 갱신되며, 요청 시점에는 이 캐시를 조회(이분 탐색)만 한다."""
+    __tablename__ = "quant_percentile_cache"
+    __table_args__ = (UniqueConstraint("market", name="uq_quant_pct_market"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    market     = Column(String(10), nullable=False)
+    data       = Column(JSON, nullable=False)  # {metric_key: [sorted_value, ...]}
+    fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class ScreeningPreset(Base):
     __tablename__ = "screening_presets"
 
