@@ -149,8 +149,13 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                        클릭 핸들러에서 직접 호출 */
                     const so = screen.orientation as (ScreenOrientation & { lock?: (o: string) => Promise<void> }) | undefined;
                     if (!so) return;
-                    if (opt.value === "system") so.unlock?.();
-                    else so.lock?.(opt.value)?.catch(() => {});
+                    /* lock()/unlock()은 풀스크린/PWA가 아닌 일반 브라우저 탭에서
+                       Promise reject가 아니라 동기적으로 예외를 던지는 환경이 있어
+                       try/catch로 감싸야 함 (안 그러면 앱 전체가 흰/검은 화면으로 죽음) */
+                    try {
+                      if (opt.value === "system") so.unlock?.();
+                      else so.lock?.(opt.value)?.catch(() => {});
+                    } catch {}
                   }}
                   className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
                     orientation === opt.value
@@ -219,12 +224,17 @@ export default function Layout() {
     else if (fontSize === "xl") html.classList.add("font-xl");
   }, [fontSize]);
 
-  /* 화면 방향 고정 적용 (설치된 PWA 등 지원 환경에서만 동작) */
+  /* 화면 방향 고정 적용 (설치된 PWA 등 지원 환경에서만 동작)
+     일반 브라우저 탭(풀스크린/PWA 아님)에서는 lock()/unlock()이 Promise reject가 아니라
+     동기적으로 예외를 던질 수 있어 try/catch 필수 — 안 그러면 페이지 첫 진입 시
+     이 effect가 매번 실행되며 앱 전체가 흰/검은 화면으로 죽음 */
   useEffect(() => {
-    const so = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-    if (!so) return;
-    if (orientation === "system") so.unlock?.();
-    else so.lock?.(orientation)?.catch(() => {});
+    try {
+      const so = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+      if (!so) return;
+      if (orientation === "system") so.unlock?.();
+      else so.lock?.(orientation)?.catch(() => {});
+    } catch {}
   }, [orientation]);
 
   useEffect(() => {
