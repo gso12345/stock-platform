@@ -270,53 +270,6 @@ async def get_fundamentals(symbol: str, market: str) -> dict:
     return mem_stale or {}
 
 
-def _yf_etf_holdings_sync(symbol: str) -> dict:
-    """ETF 보유종목/비중 — yfinance funds_data (top_holdings, sector_weightings)"""
-    import yfinance as yf
-    fd = yf.Ticker(symbol).funds_data
-
-    holdings = []
-    th = fd.top_holdings
-    if th is not None and not th.empty:
-        for sym, row in th.iterrows():
-            holdings.append({
-                "symbol": sym,
-                "name":   row.get("Name") or sym,
-                "weight": round(float(row.get("Holding Percent") or 0) * 100, 2),
-            })
-
-    sectors = []
-    sw = fd.sector_weightings or {}
-    for sector, weight in sw.items():
-        sectors.append({"sector": sector, "weight": round(float(weight or 0) * 100, 2)})
-    sectors.sort(key=lambda x: -x["weight"])
-
-    return {"holdings": holdings, "sectors": sectors}
-
-
-async def get_etf_holdings(symbol: str, market: str) -> dict:
-    """ETF 보유종목/비중 — in-memory 캐시(24시간) 우선, 실패 시 stale 캐시로 폴백"""
-    ck = f"etf-holdings:{symbol}"
-    if cached := cache.get(ck):
-        return cached
-
-    loop = asyncio.get_running_loop()
-    try:
-        result = await asyncio.wait_for(
-            loop.run_in_executor(None, _yf_etf_holdings_sync, symbol), timeout=20,
-        )
-    except Exception as e:
-        log.debug(f"ETF holdings 조회 실패 {symbol}: {e}")
-        result = {}
-
-    if result.get("holdings"):
-        cache.set(ck, result, 86400)
-        return result
-
-    stale = cache.get_stale(ck)
-    return stale or {"holdings": [], "sectors": []}
-
-
 async def get_financials(symbol: str, market: str) -> dict:
     """in-memory → DB fresh → DB stale(+bg갱신) → 외부 API fetch"""
     ck = f"financials:{symbol}"
