@@ -383,6 +383,52 @@ async def fetch_yf_index_quotes(symbols: list[str]) -> dict[str, dict]:
     return await fetch_yf_quotes(symbols)
 
 
+def _fetch_yf_quote_single_sync(symbol: str) -> dict | None:
+    """YF v7 멀티쿼트가 인식하지 못하는(상장 직후/희귀 ETF 등) 종목 대비 폴백 —
+    yfinance 패키지(fast_info → history 순)로 단건 조회"""
+    import yfinance as yf
+    try:
+        fi = yf.Ticker(symbol).fast_info
+        price = float(getattr(fi, "last_price", 0) or 0)
+        prev  = float(getattr(fi, "previous_close", 0) or 0)
+        if price > 0:
+            chg  = round(price - prev, 4) if prev else 0
+            chgr = round(chg / prev * 100, 4) if prev else 0
+            return {"symbol": symbol, "name": symbol, "price": price, "prev_close": prev,
+                    "change": chg, "change_rate": chgr, "volume": 0, "market_cap": 0, "currency": "USD"}
+    except Exception:
+        pass
+    try:
+        hist = yf.Ticker(symbol).history(period="2d", interval="1d")
+        if not hist.empty:
+            price = float(hist["Close"].iloc[-1])
+            prev  = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else price
+            chg   = round(price - prev, 4)
+            chgr  = round(chg / prev * 100, 4) if prev else 0
+            return {"symbol": symbol, "name": symbol, "price": price, "prev_close": prev,
+                    "change": chg, "change_rate": chgr, "volume": 0, "market_cap": 0, "currency": "USD"}
+    except Exception:
+        pass
+    return None
+
+
+async def fetch_yf_quotes_with_fallback(symbols: list[str]) -> dict[str, dict]:
+    """배치 멀티쿼트 우선 시도 → 빠진 종목만 yfinance 단건 폴백으로 보강"""
+    out = await fetch_yf_quotes(symbols)
+    missing = [s for s in symbols if s not in out]
+    if not missing:
+        return out
+    loop = asyncio.get_running_loop()
+    results = await asyncio.gather(
+        *(loop.run_in_executor(None, _fetch_yf_quote_single_sync, s) for s in missing),
+        return_exceptions=True,
+    )
+    for sym, r in zip(missing, results):
+        if isinstance(r, dict):
+            out[sym] = r
+    return out
+
+
 # ── 통합 단일 조회 ─────────────────────────────────────────
 async def get_price(symbol: str, ttl: int = 30) -> dict | None:
     """캐시 우선 반환 — 실제 fetch는 스케줄러가 처리"""

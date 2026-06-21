@@ -72,10 +72,17 @@ export default function Quant() {
     return list;
   }, [items, marketTab, folderTab]);
 
-  const allCompareItems = useMemo(
-    () => filteredItems.map((it: any) => ({ symbol: it.symbol, market: it.market, name: it.name })),
-    [filteredItems],
-  );
+  const allCompareItems = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { symbol: string; market: string; name: string }[] = [];
+    for (const it of filteredItems as any[]) {
+      const key = `${it.market}:${it.symbol}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ symbol: it.symbol, market: it.market, name: it.name });
+    }
+    return out;
+  }, [filteredItems]);
   const compareItems = useMemo(() => allCompareItems.slice(0, 30), [allCompareItems]);
   const truncated = allCompareItems.length > compareItems.length;
 

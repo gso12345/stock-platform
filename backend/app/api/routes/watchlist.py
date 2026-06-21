@@ -188,7 +188,7 @@ async def get_watchlist_prices_batch(
     markets: str = Query(..., max_length=500),
 ):
     """심볼 목록을 받아 캐시 우선 조회, 미캐시 종목은 배치 fetch 후 캐시 저장"""
-    from app.services.price_fetcher import fetch_yf_quotes, fetch_naver_stocks
+    from app.services.price_fetcher import fetch_yf_quotes_with_fallback, fetch_naver_stocks
 
     sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
     mkt_list = [m.strip() for m in markets.split(",") if m.strip()]
@@ -221,7 +221,7 @@ async def get_watchlist_prices_batch(
     tasks = []
     labels: list[str] = []
     if uncached_us:
-        tasks.append(fetch_yf_quotes(uncached_us))
+        tasks.append(fetch_yf_quotes_with_fallback(uncached_us))
         labels.append("us")
     if uncached_kr:
         tasks.append(fetch_naver_stocks(uncached_kr))
