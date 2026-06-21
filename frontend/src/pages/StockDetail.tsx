@@ -106,7 +106,9 @@ export default function StockDetail() {
   // 탭별 데이터 선제 prefetch
   const prefetchSecondaryData = useCallback((tabId?: string) => {
     const tab = tabId ?? "";
-    if (tab === "financial" || tab === "") {
+    if ((tab === "financial" || tab === "") && m === "ETF") {
+      qc.prefetchQuery({ queryKey: ["etf-holdings", m, sym], queryFn: () => stocksApi.getEtfHoldings(m, sym), staleTime: 3_600_000 });
+    } else if (tab === "financial" || tab === "") {
       qc.prefetchQuery({ queryKey: ["stock-financials",   m, sym], queryFn: () => financialsApi.get(m, sym),           staleTime: 900_000 });
       qc.prefetchQuery({ queryKey: ["stock-fundamentals", m, sym], queryFn: () => stocksApi.getFundamentals(m, sym),   staleTime: 900_000 });
       qc.prefetchQuery({ queryKey: ["metrics-history",    m, sym], queryFn: () => stocksApi.getMetricsHistory(m, sym), staleTime: 900_000 });
@@ -178,10 +180,12 @@ export default function StockDetail() {
     placeholderData: (prev) => prev,
   });
 
+  const isETF = m === "ETF";
+
   const { data: financials, isLoading: loadingFin } = useQuery({
     queryKey: ["stock-financials", m, sym],
     queryFn: () => financialsApi.get(m, sym),
-    enabled: !!sym && mainTab === "financial",
+    enabled: !!sym && mainTab === "financial" && !isETF,
     retry: 1, staleTime: 900_000,
   });
 
@@ -189,15 +193,23 @@ export default function StockDetail() {
   const { data: fundamentalsData } = useQuery({
     queryKey: ["stock-fundamentals", m, sym],
     queryFn: () => stocksApi.getFundamentals(m, sym),
-    enabled: !!sym && mainTab === "financial",
+    enabled: !!sym && mainTab === "financial" && !isETF,
     retry: 1, staleTime: 900_000,
   });
 
   const { data: metricsHistory } = useQuery({
     queryKey: ["metrics-history", m, sym],
     queryFn: () => stocksApi.getMetricsHistory(m, sym),
-    enabled: !!sym && mainTab === "financial",
+    enabled: !!sym && mainTab === "financial" && !isETF,
     retry: 1, staleTime: 900_000,
+  });
+
+  // ETF는 재무제표 대신 보유종목/비중을 보여줌
+  const { data: etfHoldings, isLoading: loadingEtfHoldings } = useQuery({
+    queryKey: ["etf-holdings", m, sym],
+    queryFn: () => stocksApi.getEtfHoldings(m, sym),
+    enabled: !!sym && mainTab === "financial" && isETF,
+    retry: 1, staleTime: 3_600_000,
   });
 
   const { data: forecasts } = useQuery({
@@ -583,8 +595,8 @@ export default function StockDetail() {
           ))}
         </div>
 
-        {/* 재무제표 서브탭 */}
-        {mainTab==="financial" && (
+        {/* 재무제표 서브탭 — ETF는 재무제표 대신 보유종목/비중을 보여주므로 숨김 */}
+        {mainTab==="financial" && !isETF && (
           <div className="flex gap-1 overflow-x-auto scrollbar-hide">
             {([
               { value:"basic",         label:"기본 지표" },
@@ -759,8 +771,66 @@ export default function StockDetail() {
         </div>
       )}
 
+      {/* ETF 보유종목/비중 — 재무제표 대신 표시 */}
+      {mainTab==="financial" && isETF && (
+        <div className="flex flex-col gap-4">
+          {loadingEtfHoldings ? (
+            <div className="rounded-xl border border-border bg-bg-card p-6 text-center text-text-muted text-sm">불러오는 중...</div>
+          ) : (etfHoldings?.holdings?.length ?? 0) === 0 ? (
+            <div className="rounded-xl border border-border bg-bg-card p-6 text-center text-text-muted text-sm">보유종목 정보를 가져올 수 없습니다.</div>
+          ) : (
+            <>
+              <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-border">
+                  <h3 className="text-sm font-bold text-text-primary">상위 보유종목</h3>
+                </div>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {etfHoldings.holdings.map((h: any) => (
+                      <tr key={h.symbol} className="border-b border-border/40 last:border-0">
+                        <td className="px-4 py-2.5 text-text-primary font-mono font-semibold">{h.symbol}</td>
+                        <td className="px-4 py-2.5 text-text-muted truncate max-w-[220px]">{h.name}</td>
+                        <td className="px-4 py-2.5 text-right font-mono text-text-primary w-24">{h.weight.toFixed(2)}%</td>
+                        <td className="px-4 py-2.5 w-28">
+                          <div className="w-full h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                            <div className="h-full bg-accent-blue/60 rounded-full" style={{ width: `${Math.min(100, h.weight * 4)}%` }} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {(etfHoldings.sectors?.length ?? 0) > 0 && (
+                <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-border">
+                    <h3 className="text-sm font-bold text-text-primary">섹터 비중</h3>
+                  </div>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {etfHoldings.sectors.map((s: any) => (
+                        <tr key={s.sector} className="border-b border-border/40 last:border-0">
+                          <td className="px-4 py-2.5 text-text-secondary">{s.sector}</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-text-primary w-24">{s.weight.toFixed(2)}%</td>
+                          <td className="px-4 py-2.5 w-28">
+                            <div className="w-full h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                              <div className="h-full bg-accent-green/60 rounded-full" style={{ width: `${Math.min(100, s.weight * 2)}%` }} />
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {/* 재무제표 탭 */}
-      {mainTab==="financial" && (() => {
+      {mainTab==="financial" && !isETF && (() => {
         const mhRaw: any[] = (metricsHistory as any)?.[finPeriod] ?? [];
         const mh: any[] = mhRaw.filter((r: any) =>
           r.revenue != null || r.op_income != null || r.net_income != null ||

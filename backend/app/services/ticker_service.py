@@ -44,6 +44,10 @@ KO_NAME_MAP: dict[str, list[str]] = {
     "IWM":   ["러셀2000 ETF"],    "GLD":   ["금 ETF"],          "TQQQ":  ["나스닥 3배 레버리지"],
     "SQQQ":  ["나스닥 인버스 3배"], "ARKK": ["아크 이노베이션"],
     "SPCX":  ["스페이스X","스페이스엑스"],
+    "MU":    ["마이크론","마이크론테크놀로지"], "SNDK": ["샌디스크"],
+    "WDC":   ["웨스턴디지털"],                 "STX":  ["시게이트"],
+    "ON":    ["온세미","온세미컨덕터"],          "MRVL": ["마벨테크놀로지"],
+    "NXPI":  ["NXP반도체"],                     "MCHP": ["마이크로칩테크놀로지"],
 }
 
 # 미국 주요 상장 종목 (S&P500 + NASDAQ100 + 기타 인기)
@@ -147,6 +151,14 @@ US_TICKERS: list[dict] = [
     {"s":"ASML","n":"ASML Holding N.V.","x":"NASDAQ","m":"US"},
     {"s":"SMCI","n":"Super Micro Computer Inc.","x":"NASDAQ","m":"US"},
     {"s":"MSTR","n":"MicroStrategy Inc.","x":"NASDAQ","m":"US"},
+    {"s":"MU","n":"Micron Technology Inc.","x":"NASDAQ","m":"US"},
+    {"s":"SNDK","n":"SanDisk Corporation","x":"NASDAQ","m":"US"},
+    {"s":"WDC","n":"Western Digital Corporation","x":"NASDAQ","m":"US"},
+    {"s":"STX","n":"Seagate Technology Holdings plc","x":"NASDAQ","m":"US"},
+    {"s":"ON","n":"ON Semiconductor Corporation","x":"NASDAQ","m":"US"},
+    {"s":"MRVL","n":"Marvell Technology Inc.","x":"NASDAQ","m":"US"},
+    {"s":"NXPI","n":"NXP Semiconductors N.V.","x":"NASDAQ","m":"US"},
+    {"s":"MCHP","n":"Microchip Technology Inc.","x":"NASDAQ","m":"US"},
     # ── ETF ──
     {"s":"SPY","n":"SPDR S&P 500 ETF Trust","x":"NYSE","m":"ETF"},
     {"s":"QQQ","n":"Invesco QQQ Trust (NASDAQ 100)","x":"NASDAQ","m":"ETF"},

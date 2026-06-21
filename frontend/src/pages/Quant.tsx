@@ -135,8 +135,8 @@ export default function Quant() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-text-primary flex items-center gap-2">
             <Award size={22} className="text-accent-blue" />
             퀀트점수 비교
@@ -148,11 +148,11 @@ export default function Quant() {
         {isLoggedIn && (
           <button
             onClick={() => setShowSettings((s) => !s)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors whitespace-nowrap flex-shrink-0 ${
               showSettings ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
             }`}
           >
-            <Settings2 size={14} />기준 수정
+            <Settings2 size={14} className="flex-shrink-0" />기준 수정
           </button>
         )}
       </div>
