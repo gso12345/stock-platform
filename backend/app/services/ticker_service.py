@@ -43,11 +43,13 @@ KO_NAME_MAP: dict[str, list[str]] = {
     "SPY":   ["S&P500 ETF","스파이"], "QQQ": ["나스닥 ETF","큐큐큐"],
     "IWM":   ["러셀2000 ETF"],    "GLD":   ["금 ETF"],          "TQQQ":  ["나스닥 3배 레버리지"],
     "SQQQ":  ["나스닥 인버스 3배"], "ARKK": ["아크 이노베이션"],
+    "SPCX":  ["스페이스X","스페이스엑스"],
 }
 
 # 미국 주요 상장 종목 (S&P500 + NASDAQ100 + 기타 인기)
 US_TICKERS: list[dict] = [
     # ── S&P 500 대형주 ──
+    {"s":"SPCX","n":"Space Exploration Technologies Corp.","x":"NASDAQ","m":"US"},
     {"s":"AAPL","n":"Apple Inc.","x":"NASDAQ","m":"US"},
     {"s":"MSFT","n":"Microsoft Corporation","x":"NASDAQ","m":"US"},
     {"s":"NVDA","n":"NVIDIA Corporation","x":"NASDAQ","m":"US"},
