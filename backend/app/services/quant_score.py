@@ -76,6 +76,11 @@ METRIC_DEFS: dict[str, list[tuple]] = {
     ],
 }
 
+# 팩터별 사용 가능한 지표 키 목록 — enabled_metrics 유효성 검사용
+FACTOR_METRIC_KEYS: dict[str, list[str]] = {
+    fkey: [mkey for (mkey, *_rest) in defs] for fkey, defs in METRIC_DEFS.items()
+}
+
 # 점수 임계값(이상) → 등급, 내림차순으로 검사
 GRADE_BANDS = [
     (90, "S"),
@@ -129,6 +134,7 @@ def compute_quant_score(
     weights: dict | None = None,
     percentile_dist: dict | None = None,
     sector_dist: dict | None = None,
+    enabled_metrics: dict | None = None,
 ) -> dict:
     """
     metrics: {metric_key: raw_value, ...} — 누락/None은 해당 지표 제외
@@ -138,15 +144,21 @@ def compute_quant_score(
         업종별로 정상 범위가 크게 다른 지표(SECTOR_RELATIVE_METRICS)는 업종 내 비교를 우선 적용.
     둘 다(quant_percentile_service에서 일배치로 미리 계산) 표본이 충분하면 상대평가,
     부족하면 시장 전체 → 절대평가(lo~hi) 순으로 폴백.
+    enabled_metrics: {factor_key: [metric_key, ...]} — 지정된 팩터는 목록에 있는 지표만 사용.
+        팩터가 키에 없으면 해당 팩터는 전체 지표 사용(기본값).
     """
     weights = {**DEFAULT_WEIGHTS, **(weights or {})}
     percentile_dist = percentile_dist or {}
     sector_dist = sector_dist or {}
+    enabled_metrics = enabled_metrics or {}
 
     factors = []
     for fkey, metric_defs in METRIC_DEFS.items():
+        allowed = enabled_metrics.get(fkey)
         metric_results = []
         for mkey, label, direction, lo, hi, unit in metric_defs:
+            if allowed is not None and mkey not in allowed:
+                continue
             raw = metrics.get(mkey)
             score = None
             if raw is not None:

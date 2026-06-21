@@ -32,22 +32,50 @@ export const stocksApi = {
   getAnalyst: (market: string, symbol: string) =>
     api.get<any>(`/stocks/${market}/${encodeURIComponent(symbol)}/analyst`).then((r) => r.data),
 
-  getQuantScore: (market: string, symbol: string, weightOverride?: Partial<QuantWeights>) =>
+  getQuantScore: (
+    market: string, symbol: string,
+    weightOverride?: Partial<QuantWeights>,
+    enabledMetricsOverride?: QuantEnabledMetrics,
+  ) =>
     api.get<QuantScoreResult>(`/stocks/${market}/${encodeURIComponent(symbol)}/quant-score`, {
-      params: weightOverride
-        ? {
-            w_value: weightOverride.value,
-            w_quality: weightOverride.quality,
-            w_momentum: weightOverride.momentum,
-            w_growth: weightOverride.growth,
-            w_risk: weightOverride.risk,
-          }
-        : undefined,
+      params: {
+        ...(weightOverride
+          ? {
+              w_value: weightOverride.value,
+              w_quality: weightOverride.quality,
+              w_momentum: weightOverride.momentum,
+              w_growth: weightOverride.growth,
+              w_risk: weightOverride.risk,
+            }
+          : {}),
+        ...(enabledMetricsOverride
+          ? {
+              metrics_value: enabledMetricsOverride.value?.join(","),
+              metrics_quality: enabledMetricsOverride.quality?.join(","),
+            }
+          : {}),
+      },
     }).then((r) => r.data),
 };
 
 export type QuantFactorKey = "value" | "quality" | "momentum" | "growth" | "risk";
 export type QuantWeights = Record<QuantFactorKey, number>;
+export type QuantEnabledMetrics = Partial<Record<"value" | "quality", string[]>>;
+
+// METRIC_DEFS(backend quant_score.py)와 동일 — 사용자가 팩터별로 사용할 지표를 고를 때 표시
+export const VALUE_METRIC_DEFS: { key: string; label: string }[] = [
+  { key: "per", label: "PER" },
+  { key: "forward_per", label: "선행PER" },
+  { key: "pbr", label: "PBR" },
+  { key: "ev_ebitda", label: "EV/EBITDA" },
+  { key: "peg", label: "PEG" },
+];
+export const QUALITY_METRIC_DEFS: { key: string; label: string }[] = [
+  { key: "roe", label: "ROE" },
+  { key: "roa", label: "ROA" },
+  { key: "op_margin", label: "영업이익률" },
+  { key: "net_margin", label: "순이익률" },
+];
 
 export interface QuantMetric {
   key: string;
@@ -71,14 +99,15 @@ export interface QuantScoreResult {
   grade: string | null;
   factors: QuantFactor[];
   weights: QuantWeights;
+  enabled_metrics: QuantEnabledMetrics;
 }
 
 export const quantScoreApi = {
   getWeights: () =>
-    api.get<{ weights: QuantWeights; is_default: boolean }>("/stocks/quant-score/weights").then((r) => r.data),
+    api.get<{ weights: QuantWeights; enabled_metrics: QuantEnabledMetrics; is_default: boolean }>("/stocks/quant-score/weights").then((r) => r.data),
 
-  saveWeights: (weights: QuantWeights) =>
-    api.put<{ weights: QuantWeights }>("/stocks/quant-score/weights", { weights }).then((r) => r.data),
+  saveWeights: (weights: QuantWeights, enabledMetrics?: QuantEnabledMetrics) =>
+    api.put<{ weights: QuantWeights; enabled_metrics: QuantEnabledMetrics }>("/stocks/quant-score/weights", { weights, enabled_metrics: enabledMetrics ?? {} }).then((r) => r.data),
 };
 
 export const dashboardApi = {

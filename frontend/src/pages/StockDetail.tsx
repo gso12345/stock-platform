@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api/client";
-import { stocksApi, watchlistApi, financialsApi, quantScoreApi, type QuantWeights } from "@/api/stocks";
+import { stocksApi, watchlistApi, financialsApi, quantScoreApi, VALUE_METRIC_DEFS, QUALITY_METRIC_DEFS, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
 import { Card, Badge, Button } from "@/components/ui";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
@@ -21,20 +21,20 @@ import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs } fro
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
   return (
     <div className="flex flex-col gap-0.5 p-3 rounded-xl border border-border bg-bg-elevated">
-      <span className="text-2xs text-text-muted font-medium uppercase tracking-wide">{label}</span>
-      <span className={`text-sm font-mono font-semibold truncate ${color ?? "text-text-primary"}`}>{value ?? "—"}</span>
-      {sub && <span className="text-2xs text-text-muted font-mono">{sub}</span>}
+      <span className="text-xs text-text-muted font-medium uppercase tracking-wide">{label}</span>
+      <span className={`text-base font-mono font-semibold truncate ${color ?? "text-text-primary"}`}>{value ?? "—"}</span>
+      {sub && <span className="text-xs text-text-muted font-mono">{sub}</span>}
     </div>
   );
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h3 className="text-xs font-bold text-text-muted uppercase tracking-widest mb-2">{children}</h3>;
+  return <h3 className="text-sm font-bold text-text-muted uppercase tracking-widest mb-2">{children}</h3>;
 }
 
 function TabBtn({ active, onClick, icon: Icon, label }: any) {
   return (
-    <button onClick={onClick} className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${active ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-secondary hover:bg-bg-elevated"}`}>
+    <button onClick={onClick} className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-base font-semibold transition-all ${active ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-secondary hover:bg-bg-elevated"}`}>
       <Icon size={13} />{label}
     </button>
   );
@@ -218,27 +218,33 @@ export default function StockDetail() {
   // 퀀트점수 — 가중치를 바꾸면 즉시 미리보기로 재계산(저장 전에는 서버에 반영 안 됨)
   const [quantWeights, setQuantWeights] = useState<QuantWeights | null>(null);
   const [quantWeightsDraft, setQuantWeightsDraft] = useState<QuantWeights | null>(null);
+  const [quantMetrics, setQuantMetrics] = useState<QuantEnabledMetrics | null>(null);
+  const [quantMetricsDraft, setQuantMetricsDraft] = useState<QuantEnabledMetrics | null>(null);
   const [showQuantSettings, setShowQuantSettings] = useState(false);
   const [showGradeHelp, setShowGradeHelp] = useState(false);
   const [quantSaveMsg, setQuantSaveMsg] = useState("");
   const quantDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: quantScore, isLoading: loadingQuant } = useQuery({
-    queryKey: ["quant-score", m, sym, quantWeights],
-    queryFn: () => stocksApi.getQuantScore(m, sym, quantWeights ?? undefined),
+    queryKey: ["quant-score", m, sym, quantWeights, quantMetrics],
+    queryFn: () => stocksApi.getQuantScore(m, sym, quantWeights ?? undefined, quantMetrics ?? undefined),
     enabled: !!sym && mainTab === "quant",
     retry: 1,
-    staleTime: quantWeights ? 0 : 60_000,
+    staleTime: (quantWeights || quantMetrics) ? 0 : 60_000,
   });
 
   useEffect(() => {
     if (quantScore?.weights && quantWeightsDraft === null) {
       setQuantWeightsDraft(quantScore.weights);
     }
-  }, [quantScore, quantWeightsDraft]);
+    if (quantScore?.enabled_metrics && quantMetricsDraft === null) {
+      setQuantMetricsDraft(quantScore.enabled_metrics);
+    }
+  }, [quantScore, quantWeightsDraft, quantMetricsDraft]);
 
   const saveQuantWeightsMutation = useMutation({
-    mutationFn: (w: QuantWeights) => quantScoreApi.saveWeights(w),
+    mutationFn: ({ weights, metrics }: { weights: QuantWeights; metrics: QuantEnabledMetrics }) =>
+      quantScoreApi.saveWeights(weights, metrics),
     onSuccess: () => {
       setQuantSaveMsg("저장됨");
       setTimeout(() => setQuantSaveMsg(""), 2000);
@@ -255,6 +261,21 @@ export default function StockDetail() {
       if (quantDebounceRef.current) clearTimeout(quantDebounceRef.current);
       quantDebounceRef.current = setTimeout(() => setQuantWeights(next), 400);
       return next;
+    });
+  };
+
+  const toggleQuantMetric = (factor: "value" | "quality", key: string, allKeys: string[]) => {
+    setQuantMetricsDraft((prev) => {
+      const base = prev ?? {};
+      const current = base[factor] ?? allKeys;
+      const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+      const nextDraft = { ...base, [factor]: next.length === allKeys.length ? undefined : next };
+      const cleaned: QuantEnabledMetrics = {};
+      if (nextDraft.value) cleaned.value = nextDraft.value;
+      if (nextDraft.quality) cleaned.quality = nextDraft.quality;
+      if (quantDebounceRef.current) clearTimeout(quantDebounceRef.current);
+      quantDebounceRef.current = setTimeout(() => setQuantMetrics(cleaned), 400);
+      return cleaned;
     });
   };
 
@@ -364,8 +385,8 @@ export default function StockDetail() {
         <div className="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center"><TrendingDown size={20} className="text-accent-red"/></div>
         <p className="text-text-primary font-semibold">데이터를 불러올 수 없습니다 ({sym})</p>
         <div className="flex gap-2">
-          <button onClick={()=>refetchDetail()} className="flex items-center gap-1.5 px-4 py-2 bg-accent-blue text-white text-sm font-semibold rounded-lg"><RefreshCw size={13}/>다시 시도</button>
-          <button onClick={()=>navigate(-1)} className="px-4 py-2 text-text-muted text-sm rounded-lg border border-border">뒤로</button>
+          <button onClick={()=>refetchDetail()} className="flex items-center gap-1.5 px-4 py-2 bg-accent-blue text-white text-base font-semibold rounded-lg"><RefreshCw size={13}/>다시 시도</button>
+          <button onClick={()=>navigate(-1)} className="px-4 py-2 text-text-muted text-base rounded-lg border border-border">뒤로</button>
         </div>
       </div>
     );
@@ -382,9 +403,9 @@ export default function StockDetail() {
               {d?.name && d.name !== sym ? d.name : sym.replace(".KS","").replace(".KQ","")}
             </h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="text-sm font-mono text-text-muted">{sym.replace(".KS","").replace(".KQ","")}</span>
-              <span className={`text-2xs px-1.5 py-0.5 rounded border font-bold ${isKR?"border-blue-700/50 text-blue-400 bg-blue-900/20":m==="ETF"?"border-purple-700/50 text-purple-400 bg-purple-900/20":"border-green-700/50 text-green-400 bg-green-900/20"}`}>{m}</span>
-              {d?.sector && <span className="text-2xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted">{d.sector}</span>}
+              <span className="text-base font-mono text-text-muted">{sym.replace(".KS","").replace(".KQ","")}</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${isKR?"border-blue-700/50 text-blue-400 bg-blue-900/20":m==="ETF"?"border-purple-700/50 text-purple-400 bg-purple-900/20":"border-green-700/50 text-green-400 bg-green-900/20"}`}>{m}</span>
+              {d?.sector && <span className="text-xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted">{d.sector}</span>}
             </div>
           </div>
         </div>
@@ -402,7 +423,7 @@ export default function StockDetail() {
               }
             }}
             disabled={addMutation.isPending || removeMutation.isPending}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-base font-medium transition-all ${
               inWatchlist
                 ? "border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow hover:bg-accent-red/10 hover:border-accent-red/50 hover:text-accent-red"
                 : "border-border text-text-muted hover:border-accent-yellow/60 hover:text-accent-yellow"
@@ -412,7 +433,7 @@ export default function StockDetail() {
             {addMutation.isPending ? "추가 중..." : removeMutation.isPending ? "제거 중..." : inWatchlist ? "관심종목" : "추가"}
           </button>
           {watchlistMsg && (
-            <span className="text-2xs text-text-muted animate-fade-in">{watchlistMsg}</span>
+            <span className="text-xs text-text-muted animate-fade-in">{watchlistMsg}</span>
           )}
         </div>
       </div>
@@ -426,26 +447,26 @@ export default function StockDetail() {
             <div className="flex items-center gap-1.5">
               {isUp ? <TrendingUp size={13} className={upColor}/> : <TrendingDown size={13} className={downColor}/>}
               {d.change != null && d.change !== 0 && (
-                <span className={`text-sm font-mono font-semibold num ${isUp?upColor:downColor}`}>
+                <span className={`text-base font-mono font-semibold num ${isUp?upColor:downColor}`}>
                   {isUp?"+":""}{isKR ? d.change.toLocaleString("ko-KR") : d.change.toFixed(2)}
                 </span>
               )}
-              <span className={`text-sm font-mono num ${isUp?upColor:downColor}`}>
+              <span className={`text-base font-mono num ${isUp?upColor:downColor}`}>
                 ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
               </span>
             </div>
             {showNxt && (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-border bg-bg-elevated" title="대체거래소(넥스트레이드) 시세">
-                <span className="text-2xs font-bold px-1 py-0.5 rounded bg-accent-purple/15 text-accent-purple leading-none">NXT</span>
-                <span className="text-sm font-mono font-semibold text-text-primary num">₩{nxt.price.toLocaleString("ko-KR")}</span>
-                <span className={`text-2xs font-mono num ${nxtIsUp?upColor:downColor}`}>
+                <span className="text-xs font-bold px-1 py-0.5 rounded bg-accent-purple/15 text-accent-purple leading-none">NXT</span>
+                <span className="text-base font-mono font-semibold text-text-primary num">₩{nxt.price.toLocaleString("ko-KR")}</span>
+                <span className={`text-xs font-mono num ${nxtIsUp?upColor:downColor}`}>
                   ({nxtIsUp?"+":""}{(nxt.change_rate??0).toFixed(2)}%)
                 </span>
               </div>
             )}
             <div className="ml-auto flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse"/>
-              <span className="text-2xs text-text-muted">
+              <span className="text-xs text-text-muted">
                 {dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("ko-KR", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}
               </span>
             </div>
@@ -484,7 +505,7 @@ export default function StockDetail() {
                       isFirstRow2 && !isFirstRow5 ? "sm:border-t-0"    : "",
                     ].filter(Boolean).join(" ")}>
                       <span className="text-[10px] font-medium text-text-muted whitespace-nowrap">{item.label}</span>
-                      <span className={`text-sm font-mono font-semibold num truncate ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
+                      <span className={`text-base font-mono font-semibold num truncate ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
                     </div>
                   );
                 })}
@@ -518,22 +539,22 @@ export default function StockDetail() {
             if (!ratingLabel && !pt?.mean) return null;
             return (
               <div className="border-t border-border px-4 py-2.5 flex flex-wrap items-center gap-3 bg-bg-secondary/50">
-                <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide flex-shrink-0">투자의견</span>
+                <span className="text-xs text-text-muted font-semibold uppercase tracking-wide flex-shrink-0">투자의견</span>
                 {ratingLabel && (
-                  <span className={`text-xs font-bold ${ratingColor}`}>{ratingLabel}</span>
+                  <span className={`text-sm font-bold ${ratingColor}`}>{ratingLabel}</span>
                 )}
                 {pt?.mean != null && (
-                  <span className="text-xs text-text-muted font-mono">
+                  <span className="text-sm text-text-muted font-mono">
                     목표가 <span className="text-text-primary font-semibold">${pt.mean.toFixed(0)}</span>
                   </span>
                 )}
                 {upside != null && (
-                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${upside >= 0 ? "bg-accent-green/10 text-accent-green" : "bg-accent-red/10 text-accent-red"}`}>
+                  <span className={`text-sm font-bold px-1.5 py-0.5 rounded ${upside >= 0 ? "bg-accent-green/10 text-accent-green" : "bg-accent-red/10 text-accent-red"}`}>
                     {upside >= 0 ? "+" : ""}{upside.toFixed(1)}%
                   </span>
                 )}
                 {totalVotes > 0 && (
-                  <span className="text-2xs text-text-muted ml-auto">{totalVotes}명</span>
+                  <span className="text-xs text-text-muted ml-auto">{totalVotes}명</span>
                 )}
               </div>
             );
@@ -549,7 +570,7 @@ export default function StockDetail() {
             {["시가","고가","저가","전일종가","거래량","거래대금","시가총액","52주 고가","52주 저가","배당수익률"].map((label) => (
               <div key={label} className="px-4 py-3 flex flex-col gap-1 border-r border-border/40 border-b border-border/40">
                 <span className="text-[10px] font-medium text-text-muted whitespace-nowrap">{label}</span>
-                <span className="text-sm font-mono font-semibold text-text-muted">—</span>
+                <span className="text-base font-mono font-semibold text-text-muted">—</span>
               </div>
             ))}
           </div>
@@ -572,7 +593,7 @@ export default function StockDetail() {
           ].map(({ id, Icon, label }) => (
             <button key={id}
               onClick={() => { setMainTab(id as any); prefetchSecondaryData(id); }}
-              className={`flex items-center gap-1.5 px-4 py-3 text-xs font-semibold transition-all border-b-2 -mb-px whitespace-nowrap flex-shrink-0 ${
+              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold transition-all border-b-2 -mb-px whitespace-nowrap flex-shrink-0 ${
                 mainTab === id
                   ? "border-accent-blue text-accent-blue bg-accent-blue/5"
                   : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
@@ -595,7 +616,7 @@ export default function StockDetail() {
               { value:"cashflow",      label:"현금흐름" },
             ] as const).map(({ value, label })=>(
               <button key={value} onClick={()=>setFinSubTab(value)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-full whitespace-nowrap transition-all flex-shrink-0 ${
+                className={`px-3 py-1.5 text-sm font-semibold rounded-full whitespace-nowrap transition-all flex-shrink-0 ${
                   finSubTab===value
                     ? "bg-accent-blue text-white"
                     : "bg-bg-card border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
@@ -626,7 +647,7 @@ export default function StockDetail() {
                           setOpenGroup(null);
                         }
                       }}
-                      className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                      className={`px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
                     >
                       {isActive ? (currentOpt?.label ?? group.label) : group.label}
                     </button>
@@ -635,7 +656,7 @@ export default function StockDetail() {
                         {group.options.map(opt => (
                           <button key={opt.value}
                             onClick={() => { onCandleChange(opt.value); setOpenGroup(null); }}
-                            className={`px-3 py-1.5 text-xs rounded-md font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
+                            className={`px-3 py-1.5 text-sm rounded-md font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
                           >{opt.label}</button>
                         ))}
                       </div>
@@ -655,7 +676,7 @@ export default function StockDetail() {
           </div>
           {/* 차트 설정 */}
           <div className="px-4 py-2 border-b border-border bg-bg-secondary flex flex-wrap items-center gap-3">
-            <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">차트 설정</span>
+            <span className="text-xs text-text-muted font-semibold uppercase tracking-wide">차트 설정</span>
             <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
               {([
                 { value:"candle", label:"캔들",  Icon: CandlestickChart },
@@ -663,14 +684,14 @@ export default function StockDetail() {
                 { value:"area",   label:"영역",  Icon: AreaChart },
               ] as const).map(({ value, label, Icon })=>(
                 <button key={value} onClick={()=>setChartType(value)}
-                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                  className={`flex items-center gap-1 px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
                 >
                   <Icon size={11}/>{label}
                 </button>
               ))}
             </div>
             <button onClick={()=>setLogScale(v=>!v)}
-              className={`px-2.5 py-1 text-xs rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted hover:text-text-primary"}`}
+              className={`px-2.5 py-1 text-sm rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted hover:text-text-primary"}`}
             >
               LOG
             </button>
@@ -685,13 +706,13 @@ export default function StockDetail() {
           ) : fetchingChart ? (
             <div className="h-[500px] flex flex-col items-center justify-center gap-3">
               <div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
-              <p className="text-text-muted text-sm">차트 로딩 중...</p>
+              <p className="text-text-muted text-base">차트 로딩 중...</p>
             </div>
           ) : (
             <div className="h-[420px] flex flex-col items-center justify-center gap-3">
               <BarChart2 size={32} className="text-text-muted/40"/>
-              <p className="text-text-muted text-sm">차트 데이터 없음</p>
-              <button onClick={()=>refetchChart()} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue text-white text-xs rounded-lg"><RefreshCw size={12}/>재시도</button>
+              <p className="text-text-muted text-base">차트 데이터 없음</p>
+              <button onClick={()=>refetchChart()} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue text-white text-sm rounded-lg"><RefreshCw size={12}/>재시도</button>
             </div>
           )}
         </div>
@@ -719,7 +740,7 @@ export default function StockDetail() {
                             setOpenGroup(null);
                           }
                         }}
-                        className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                        className={`px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
                       >
                         {isActive ? (currentOpt?.label ?? group.label) : group.label}
                       </button>
@@ -728,7 +749,7 @@ export default function StockDetail() {
                           {group.options.map(opt => (
                             <button key={opt.value}
                               onClick={() => { onCandleChange(opt.value); setOpenGroup(null); }}
-                              className={`px-3 py-1.5 text-xs rounded-md font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
+                              className={`px-3 py-1.5 text-sm rounded-md font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
                             >{opt.label}</button>
                           ))}
                         </div>
@@ -740,12 +761,12 @@ export default function StockDetail() {
               <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
                 {([{value:"candle",label:"캔들"},{value:"line",label:"라인"},{value:"area",label:"영역"}] as const).map(({value,label})=>(
                   <button key={value} onClick={()=>setChartType(value)}
-                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                    className={`px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
                   >{label}</button>
                 ))}
               </div>
               <button onClick={()=>setLogScale(v=>!v)}
-                className={`px-2.5 py-1 text-xs rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted"}`}
+                className={`px-2.5 py-1 text-sm rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted"}`}
               >LOG</button>
             </div>
             <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
@@ -819,7 +840,7 @@ export default function StockDetail() {
           <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary">
             {(["annual","quarterly"] as const).map(k=>(
               <button key={k} onClick={()=>setFinPeriod(k)}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${finPeriod===k?"bg-accent-blue text-white":"text-text-muted"}`}>
+                className={`px-2.5 py-1 text-sm font-semibold rounded-md transition-all ${finPeriod===k?"bg-accent-blue text-white":"text-text-muted"}`}>
                 {k==="annual"?"연간":"분기"}
               </button>
             ))}
@@ -830,11 +851,11 @@ export default function StockDetail() {
         const TransTable = ({ rows }: { rows: { key:string; label:string; fmt:(v:number)=>string; color:string; boldLabel?:boolean }[] }) => {
           // allYears가 있으면 테이블은 표시 (값이 없는 셀은 — 으로)
           // allYears 자체가 없으면(데이터 미도착) 연결 중 표시
-          if (!allYears.length) return <p className="text-text-muted text-sm py-4 text-center">연결 중...</p>;
+          if (!allYears.length) return <p className="text-text-muted text-base py-4 text-center">연결 중...</p>;
           const filteredRows = rows.filter(r => r.key); // 모든 row 표시 (빈 셀은 — 로)
           return (
             <div className="overflow-x-auto scrollbar-thin">
-              <table className="text-xs w-max min-w-full">
+              <table className="text-sm w-max min-w-full">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card w-28 min-w-[7rem] whitespace-nowrap">지표</th>
@@ -911,7 +932,7 @@ export default function StockDetail() {
             <div className="flex justify-end">
               <button
                 onClick={() => setShowKRW(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg border transition-all ${
                   showKRW
                     ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue"
                     : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
@@ -927,7 +948,7 @@ export default function StockDetail() {
           {finSubTab==="income" && (
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <span className="text-sm font-semibold text-text-primary">손익계산서</span>
+                <span className="text-base font-semibold text-text-primary">손익계산서</span>
                 <PeriodToggle />
               </div>
               {loadingFin ? (
@@ -974,7 +995,7 @@ export default function StockDetail() {
           {finSubTab==="valuation" && (
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <span className="text-sm font-semibold text-text-primary">밸류에이션</span>
+                <span className="text-base font-semibold text-text-primary">밸류에이션</span>
                 <PeriodToggle />
               </div>
               <div className="p-4 flex flex-col gap-4">
@@ -1083,7 +1104,7 @@ export default function StockDetail() {
           {finSubTab==="basic" && (
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <span className="text-sm font-semibold text-text-primary">기본 지표</span>
+                <span className="text-base font-semibold text-text-primary">기본 지표</span>
                 <PeriodToggle />
               </div>
               <div className="p-4 flex flex-col gap-4">{(() => {
@@ -1105,7 +1126,7 @@ export default function StockDetail() {
                   <div className="flex flex-wrap gap-1">
                     {BASIC_METRICS.map(m=>(
                       <button key={m.key} onClick={()=>setSelectedMetric(m.key)}
-                        className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-all ${selectedMetric===m.key?"text-white border-transparent":"border-border text-text-muted hover:text-text-primary"}`}
+                        className={`px-2.5 py-1 text-sm rounded-lg font-semibold border transition-all ${selectedMetric===m.key?"text-white border-transparent":"border-border text-text-muted hover:text-text-primary"}`}
                         style={selectedMetric===m.key?{background:m.color+"cc",borderColor:m.color}:{}}
                       >{m.label}</button>
                     ))}
@@ -1121,7 +1142,7 @@ export default function StockDetail() {
                         <Bar dataKey={selectedMetric} fill={curr.color} radius={[3,3,0,0]} maxBarSize={50}/>
                       </BarChart>
                     </ResponsiveContainer>
-                  ) : <p className="text-text-muted text-sm py-4 text-center">연결 중...</p>}
+                  ) : <p className="text-text-muted text-base py-4 text-center">연결 중...</p>}
                   {/* 전치 테이블 */}
                   <TransTable rows={BASIC_METRICS.map(m=>({
                     key: m.key,
@@ -1139,7 +1160,7 @@ export default function StockDetail() {
           {finSubTab==="profitability" && (
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <span className="text-sm font-semibold text-text-primary">수익성</span>
+                <span className="text-base font-semibold text-text-primary">수익성</span>
                 <PeriodToggle />
               </div>
               <div className="p-4 flex flex-col gap-4">
@@ -1185,7 +1206,7 @@ export default function StockDetail() {
           {finSubTab==="health" && (
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <span className="text-sm font-semibold text-text-primary">재무건전성</span>
+                <span className="text-base font-semibold text-text-primary">재무건전성</span>
                 <PeriodToggle />
               </div>
               <div className="p-4 flex flex-col gap-4">
@@ -1233,14 +1254,14 @@ export default function StockDetail() {
           {finSubTab==="cashflow" && (
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <span className="text-sm font-semibold text-text-primary">현금흐름</span>
+                <span className="text-base font-semibold text-text-primary">현금흐름</span>
                 <PeriodToggle />
               </div>
               <div className="p-4 flex flex-col gap-4">
                 {/* 현금흐름 바 차트 */}
                 {mh.some((r:any) => r.operating_cf != null) && (
                   <div>
-                    <p className="text-xs text-text-muted font-semibold mb-2">영업 / 투자 / 재무 현금흐름</p>
+                    <p className="text-sm text-text-muted font-semibold mb-2">영업 / 투자 / 재무 현금흐름</p>
                     <ResponsiveContainer width="100%" height={chartH}>
                       <BarChart data={mh.filter((r:any)=>r.operating_cf!=null)} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
@@ -1258,7 +1279,7 @@ export default function StockDetail() {
                 {/* FCF 차트 */}
                 {mh.some((r:any) => r.free_cf != null) && (
                   <div>
-                    <p className="text-xs text-text-muted font-semibold mb-2">잉여현금흐름 (FCF)</p>
+                    <p className="text-sm text-text-muted font-semibold mb-2">잉여현금흐름 (FCF)</p>
                     <ResponsiveContainer width="100%" height={chartHSm}>
                       <BarChart data={mh.filter((r:any)=>r.free_cf!=null)} {...chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
@@ -1324,7 +1345,7 @@ export default function StockDetail() {
                   <span className="text-4xl font-mono font-bold text-text-primary">
                     {quantScore?.total_score ?? (loadingQuant ? "···" : "—")}
                   </span>
-                  <span className="text-sm text-text-muted">/ 100</span>
+                  <span className="text-base text-text-muted">/ 100</span>
                   {quantScore?.grade && (
                     <span className={`text-2xl font-bold ${gradeColor(quantScore.grade)}`}>{quantScore.grade}</span>
                   )}
@@ -1339,12 +1360,12 @@ export default function StockDetail() {
                       <HelpCircle size={13}/>
                     </button>
                     {showGradeHelp && (
-                      <div className="absolute left-0 top-7 z-20 w-48 rounded-xl border border-border bg-bg-elevated shadow-lg p-3 flex flex-col gap-1.5">
-                        <span className="text-2xs font-semibold text-text-secondary pb-1">종합 점수 → 등급 기준</span>
+                      <div className="absolute left-0 top-7 z-20 w-56 rounded-xl border border-border bg-bg-elevated shadow-lg p-3 flex flex-col gap-1.5">
+                        <span className="text-base font-semibold text-text-secondary pb-1">종합 점수 → 등급 기준</span>
                         {GRADE_BANDS.map((b) => (
-                          <div key={b.grade} className="flex items-center justify-between text-xs">
+                          <div key={b.grade} className="flex items-center justify-between text-base">
                             <span className={`font-bold ${gradeColor(b.grade)}`}>{b.grade}</span>
-                            <span className="text-text-muted font-mono">{b.range}</span>
+                            <span className="text-text-secondary font-mono">{b.range}</span>
                           </div>
                         ))}
                       </div>
@@ -1353,7 +1374,7 @@ export default function StockDetail() {
                 </div>
                 <button
                   onClick={() => setShowQuantSettings((s) => !s)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
                     showQuantSettings ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
                   }`}
                 >
@@ -1364,17 +1385,20 @@ export default function StockDetail() {
               {showQuantSettings && (
                 <div className="rounded-xl border border-border bg-bg-elevated p-4 flex flex-col gap-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-text-secondary">팩터별 가중치 (합계 {draftSum.toFixed(0)})</span>
+                    <span className="text-base font-semibold text-text-secondary">팩터별 가중치 (합계 {draftSum.toFixed(0)})</span>
                     <button
-                      onClick={() => { setQuantWeightsDraft(QUANT_DEFAULT_WEIGHTS); setQuantWeights(QUANT_DEFAULT_WEIGHTS); }}
-                      className="flex items-center gap-1 text-2xs text-text-muted hover:text-text-primary"
+                      onClick={() => {
+                        setQuantWeightsDraft(QUANT_DEFAULT_WEIGHTS); setQuantWeights(QUANT_DEFAULT_WEIGHTS);
+                        setQuantMetricsDraft({}); setQuantMetrics({});
+                      }}
+                      className="flex items-center gap-1 text-sm text-text-muted hover:text-text-primary"
                     >
                       <RotateCcw size={11}/>기본값
                     </button>
                   </div>
                   {(Object.keys(FACTOR_LABEL_KO) as (keyof QuantWeights)[]).map((k) => (
                     <div key={k} className="flex items-center gap-3">
-                      <span className="w-12 text-xs text-text-muted flex-shrink-0">{FACTOR_LABEL_KO[k]}</span>
+                      <span className="w-12 text-base text-text-muted flex-shrink-0">{FACTOR_LABEL_KO[k]}</span>
                       <input
                         type="range" min={0} max={100} step={1} value={draft[k]}
                         onChange={(e) => updateQuantDraft(k, Number(e.target.value))}
@@ -1386,17 +1410,44 @@ export default function StockDetail() {
                           const v = Number(e.target.value);
                           if (!Number.isNaN(v)) updateQuantDraft(k, Math.max(0, Math.min(100, v)));
                         }}
-                        className="w-14 text-right text-xs font-mono text-text-primary flex-shrink-0 rounded-md border border-border bg-bg-primary px-1.5 py-0.5 focus:outline-none focus:border-accent-blue"
+                        className="w-14 text-right text-base font-mono text-text-primary flex-shrink-0 rounded-md border border-border bg-bg-primary px-1.5 py-0.5 focus:outline-none focus:border-accent-blue"
                       />
                     </div>
                   ))}
-                  <p className="text-2xs text-text-muted">가중치 합이 100이 아니어도 자동으로 비율에 맞춰 정규화됩니다.</p>
+                  <p className="text-sm text-text-muted">가중치 합이 100이 아니어도 자동으로 비율에 맞춰 정규화됩니다.</p>
+
+                  <div className="border-t border-border pt-3 flex flex-col gap-3">
+                    <span className="text-base font-semibold text-text-secondary">팩터별 사용 지표 선택</span>
+                    {([["value", "가치", VALUE_METRIC_DEFS], ["quality", "품질", QUALITY_METRIC_DEFS]] as const).map(([fkey, flabel, defs]) => {
+                      const allKeys = defs.map((d) => d.key);
+                      const selected = quantMetricsDraft?.[fkey] ?? allKeys;
+                      return (
+                        <div key={fkey} className="flex flex-col gap-1.5">
+                          <span className="text-sm text-text-muted">{flabel}</span>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                            {defs.map((d) => (
+                              <label key={d.key} className="flex items-center gap-1.5 text-base text-text-primary cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={selected.includes(d.key)}
+                                  onChange={() => toggleQuantMetric(fkey, d.key, allKeys)}
+                                  className="accent-accent-blue"
+                                />
+                                {d.label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   <div className="flex items-center justify-end gap-2 pt-1">
-                    {quantSaveMsg && <span className="text-2xs text-text-muted">{quantSaveMsg}</span>}
+                    {quantSaveMsg && <span className="text-sm text-text-muted">{quantSaveMsg}</span>}
                     <Button
                       size="sm" variant="primary"
                       disabled={!isLoggedIn || saveQuantWeightsMutation.isPending}
-                      onClick={() => saveQuantWeightsMutation.mutate(draft)}
+                      onClick={() => saveQuantWeightsMutation.mutate({ weights: draft, metrics: quantMetricsDraft ?? {} })}
                     >
                       {isLoggedIn ? "내 기준으로 저장" : "로그인 후 저장 가능"}
                     </Button>
@@ -1408,8 +1459,8 @@ export default function StockDetail() {
                 {(quantScore?.factors ?? []).map((f) => (
                   <div key={f.key} className="flex flex-col gap-1.5 p-3 rounded-xl border border-border bg-bg-elevated">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-text-secondary">{f.label}</span>
-                      <span className="text-2xs text-text-muted">{f.weight}%</span>
+                      <span className="text-sm font-semibold text-text-secondary">{f.label}</span>
+                      <span className="text-xs text-text-muted">{f.weight}%</span>
                     </div>
                     <span className={`text-lg font-mono font-bold ${scoreColor(f.score)}`}>{f.score ?? "—"}</span>
                     <div className="h-1.5 rounded-full bg-bg-primary overflow-hidden">
@@ -1424,13 +1475,13 @@ export default function StockDetail() {
               <SectionTitle>세부 지표</SectionTitle>
               {(quantScore?.factors ?? []).map((f) => (
                 <div key={f.key} className="flex flex-col gap-1.5">
-                  <span className="text-xs font-bold text-text-muted">{f.label}</span>
+                  <span className="text-sm font-bold text-text-muted">{f.label}</span>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {f.metrics.map((mt) => (
                       <div key={mt.key} className="flex flex-col gap-0.5 p-2.5 rounded-lg border border-border/60 bg-bg-primary">
-                        <span className="text-2xs text-text-muted truncate">{mt.label}</span>
-                        <span className="text-sm font-mono text-text-primary">{mt.value != null ? `${mt.value}${mt.unit}` : "—"}</span>
-                        <span className={`text-2xs font-mono ${scoreColor(mt.score)}`}>
+                        <span className="text-xs text-text-muted truncate">{mt.label}</span>
+                        <span className="text-base font-mono text-text-primary">{mt.value != null ? `${mt.value}${mt.unit}` : "—"}</span>
+                        <span className={`text-xs font-mono ${scoreColor(mt.score)}`}>
                           {mt.score != null ? `${mt.score}점` : "데이터 없음"}
                         </span>
                       </div>
@@ -1438,7 +1489,7 @@ export default function StockDetail() {
                   </div>
                 </div>
               ))}
-              <p className="text-2xs text-text-muted leading-relaxed pt-1">
+              <p className="text-xs text-text-muted leading-relaxed pt-1">
                 업종 구분 없는 일반적인 기준 구간을 0~100점으로 환산한 참고용 점수이며 투자 조언이 아닙니다.
                 일부 지표는 데이터가 없으면 제외되고, 해당 팩터·종합 점수의 가중치가 나머지 항목으로 재분배됩니다.
               </p>
@@ -1521,18 +1572,18 @@ export default function StockDetail() {
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
                 <button onClick={() => setAnalystSubTab("opinion")}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${analystSubTab==="opinion" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
+                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${analystSubTab==="opinion" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
                   투자의견
                 </button>
                 <button onClick={() => setAnalystSubTab("consensus")}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${analystSubTab==="consensus" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
+                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${analystSubTab==="consensus" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
                   컨센서스
                 </button>
               </div>
               {!isKR && (
                 <button
                   onClick={() => setShowKRW(v => !v)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg border transition-all ${
                     showKRW
                       ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue"
                       : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
@@ -1548,7 +1599,7 @@ export default function StockDetail() {
               <div className="flex justify-center py-16"><div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
             ) : !ad || (!pt && !cs && !nc && reports.length === 0) ? (
               <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
-                <p className="text-text-muted text-sm">투자의견 데이터가 없습니다</p>
+                <p className="text-text-muted text-base">투자의견 데이터가 없습니다</p>
               </div>
             ) : (
               <>
@@ -1556,7 +1607,7 @@ export default function StockDetail() {
                 {nc && (
                   <div className="rounded-xl border border-border bg-bg-card p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="col-span-2 sm:col-span-4">
-                      <span className="text-xs font-bold text-text-muted uppercase tracking-widest">{isKR ? "Naver 컨센서스" : "컨센서스 정보"}</span>
+                      <span className="text-sm font-bold text-text-muted uppercase tracking-widest">{isKR ? "Naver 컨센서스" : "컨센서스 정보"}</span>
                     </div>
                     {nc.cons_per != null && (
                       <StatCell label="컨센서스 PER" value={`${fmtNum(nc.cons_per)}배`} color="text-accent-blue" />
@@ -1579,9 +1630,9 @@ export default function StockDetail() {
                   {pt && (
                     <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-text-muted uppercase tracking-widest">목표주가</span>
+                        <span className="text-sm font-bold text-text-muted uppercase tracking-widest">목표주가</span>
                         {upside != null && (
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${upside >= 0 ? "bg-accent-green/10 text-accent-green" : "bg-accent-red/10 text-accent-red"}`}>
+                          <span className={`text-sm font-bold px-2 py-0.5 rounded-full ${upside >= 0 ? "bg-accent-green/10 text-accent-green" : "bg-accent-red/10 text-accent-red"}`}>
                             {upside >= 0 ? "+" : ""}{upside.toFixed(1)}% 상승여력
                           </span>
                         )}
@@ -1605,7 +1656,7 @@ export default function StockDetail() {
                               );
                             })()}
                           </div>
-                          <div className="flex justify-between text-2xs text-text-muted font-mono">
+                          <div className="flex justify-between text-xs text-text-muted font-mono">
                             <span>저 {fmtPrice0(pt.low)}</span>
                             <span>고 {fmtPrice0(pt.high)}</span>
                           </div>
@@ -1618,14 +1669,14 @@ export default function StockDetail() {
                           { label:"최저", v: pt.low,  color:"text-accent-red" },
                         ].map(item => (
                           <div key={item.label} className="flex flex-col gap-0.5 items-center p-2 rounded-lg bg-bg-elevated">
-                            <span className="text-2xs text-text-muted">{item.label}</span>
-                            <span className={`text-sm font-mono font-bold ${item.color}`}>
+                            <span className="text-xs text-text-muted">{item.label}</span>
+                            <span className={`text-base font-mono font-bold ${item.color}`}>
                               {fmtPrice0(item.v)}
                             </span>
                           </div>
                         ))}
                       </div>
-                      <div className="text-xs text-text-muted text-center">
+                      <div className="text-sm text-text-muted text-center">
                         현재가 {fmtPrice(pt.current ?? 0)} 기준 · {totalVotes}명 애널리스트
                       </div>
                     </div>
@@ -1634,10 +1685,10 @@ export default function StockDetail() {
                   {/* 합의 등급 */}
                   {cs && (
                     <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
-                      <span className="text-xs font-bold text-text-muted uppercase tracking-widest">투자의견 합의</span>
+                      <span className="text-sm font-bold text-text-muted uppercase tracking-widest">투자의견 합의</span>
                       <div className="flex items-center gap-3">
                         <span className={`text-2xl font-bold ${ratingColor}`}>{ratingLabel}</span>
-                        {avgScore != null && <span className="text-sm text-text-muted font-mono">{avgScore.toFixed(2)} / 5.0</span>}
+                        {avgScore != null && <span className="text-base text-text-muted font-mono">{avgScore.toFixed(2)} / 5.0</span>}
                       </div>
                       {/* 분포 바 */}
                       <div className="flex flex-col gap-1.5">
@@ -1652,11 +1703,11 @@ export default function StockDetail() {
                           const pct = totalVotes > 0 ? (cnt / totalVotes) * 100 : 0;
                           return (
                             <div key={key} className="flex items-center gap-2">
-                              <span className="text-2xs text-text-muted w-14 flex-shrink-0">{label}</span>
+                              <span className="text-xs text-text-muted w-14 flex-shrink-0">{label}</span>
                               <div className="flex-1 h-2 rounded-full bg-bg-elevated overflow-hidden">
                                 <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }}/>
                               </div>
-                              <span className="text-2xs font-mono text-text-muted w-6 text-right">{cnt}</span>
+                              <span className="text-xs font-mono text-text-muted w-6 text-right">{cnt}</span>
                             </div>
                           );
                         })}
@@ -1664,7 +1715,7 @@ export default function StockDetail() {
                       {/* 최근 3개월 추이 */}
                       {history.length > 1 && (
                         <div className="border-t border-border pt-2">
-                          <p className="text-2xs text-text-muted mb-1.5">최근 추이</p>
+                          <p className="text-xs text-text-muted mb-1.5">최근 추이</p>
                           <div className="flex gap-2">
                             {history.slice(0, 4).map((h: any, i: number) => {
                               const tot = h.strong_buy + h.buy + h.hold + h.sell + h.strong_sell;
@@ -1672,9 +1723,9 @@ export default function StockDetail() {
                               const label = ["이번달","1개월전","2개월전","3개월전"][i] ?? h.period;
                               return (
                                 <div key={i} className="flex-1 flex flex-col items-center gap-0.5 p-1.5 rounded-lg bg-bg-elevated">
-                                  <span className="text-2xs text-text-muted">{label}</span>
-                                  <span className="text-xs font-bold text-accent-green">{bs}%</span>
-                                  <span className="text-2xs text-text-dim">매수</span>
+                                  <span className="text-xs text-text-muted">{label}</span>
+                                  <span className="text-sm font-bold text-accent-green">{bs}%</span>
+                                  <span className="text-xs text-text-dim">매수</span>
                                 </div>
                               );
                             })}
@@ -1689,10 +1740,10 @@ export default function StockDetail() {
                 {reports.length > 0 && (
                   <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
                     <div className="px-4 py-3 border-b border-border">
-                      <span className="text-sm font-semibold text-text-primary">최근 애널리스트 리포트</span>
+                      <span className="text-base font-semibold text-text-primary">최근 애널리스트 리포트</span>
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
+                      <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-border text-text-muted">
                             <th className="text-left px-4 py-2 font-medium">날짜</th>
@@ -1736,7 +1787,7 @@ export default function StockDetail() {
               const fcstData = (forecasts as any)?.[consensusPeriod] ?? [];
               if (!fcstData.length) return (
                 <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
-                  <p className="text-text-muted text-sm">컨센서스 데이터가 없습니다</p>
+                  <p className="text-text-muted text-base">컨센서스 데이터가 없습니다</p>
                 </div>
               );
 
@@ -1796,7 +1847,7 @@ export default function StockDetail() {
                   <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary w-fit">
                     {(["annual","quarterly"] as const).map(k => (
                       <button key={k} onClick={() => setConsensusPeriod(k)}
-                        className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${consensusPeriod===k?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
+                        className={`px-3 py-1 text-sm font-semibold rounded-md transition-all ${consensusPeriod===k?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
                         {k==="annual" ? "연간" : "분기"}
                       </button>
                     ))}
@@ -1831,10 +1882,10 @@ export default function StockDetail() {
                   {/* 테이블 */}
                   <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
                     <div className="px-4 py-3 border-b border-border">
-                      <span className="text-sm font-semibold text-text-primary">애널리스트 컨센서스 추정치</span>
+                      <span className="text-base font-semibold text-text-primary">애널리스트 컨센서스 추정치</span>
                     </div>
                     <div className="overflow-x-auto p-4">
-                      <table className="text-xs w-max min-w-full">
+                      <table className="text-sm w-max min-w-full">
                         <thead>
                           <tr className="border-b border-border">
                             <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card min-w-[120px] pr-4">지표</th>
@@ -1872,13 +1923,13 @@ export default function StockDetail() {
           <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
             <button
               onClick={() => { setNewsSubTab("news"); setNewsExpanded(false); }}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${newsSubTab==="news" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${newsSubTab==="news" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}
             >
               <Newspaper size={11}/>뉴스
             </button>
             <button
               onClick={() => setNewsSubTab("disclosure")}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${newsSubTab==="disclosure" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${newsSubTab==="disclosure" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}
             >
               <FileText size={11}/>공시
             </button>
@@ -1890,12 +1941,12 @@ export default function StockDetail() {
           {/* 종목 뉴스 */}
           <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-              <span className="text-sm font-semibold text-text-primary">관련 뉴스</span>
+              <span className="text-base font-semibold text-text-primary">관련 뉴스</span>
               <div className="flex gap-1">
                 {(["latest","popular"] as const).map(s=>(
                   <button key={s}
                     onClick={()=>setNewsSort(s)}
-                    className={`px-2 py-0.5 text-2xs rounded font-semibold transition-all ${newsSort===s?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
+                    className={`px-2 py-0.5 text-xs rounded font-semibold transition-all ${newsSort===s?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
                     {s==="latest"?"최신순":"인기순"}
                   </button>
                 ))}
@@ -1930,18 +1981,18 @@ export default function StockDetail() {
                             </div>
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">{item.title}</p>
+                            <p className="text-base text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2">{item.title}</p>
                             <div className="flex items-center gap-2 mt-1">
-                              {item.source && <span className="text-2xs text-accent-blue/70 font-medium">{item.source}</span>}
+                              {item.source && <span className="text-xs text-accent-blue/70 font-medium">{item.source}</span>}
                               {item.published && (
-                                <span className="text-2xs text-text-muted">
+                                <span className="text-xs text-text-muted">
                                   {typeof item.published === "number"
                                     ? new Date(item.published*1000).toLocaleDateString("ko-KR")
                                     : fmtNewsDateTime(item.published)}
                                 </span>
                               )}
                             </div>
-                            {item.summary && <p className="text-xs text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
+                            {item.summary && <p className="text-sm text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
                           </div>
                           <ExternalLink size={12} className="text-text-muted flex-shrink-0 mt-1"/>
                         </a>
@@ -1951,14 +2002,14 @@ export default function StockDetail() {
                 </>
               );
             })() : (
-              <p className="py-8 text-center text-text-muted text-sm">뉴스 데이터가 없습니다</p>
+              <p className="py-8 text-center text-text-muted text-base">뉴스 데이터가 없습니다</p>
             )}
           </div>
           {/* 실적발표 */}
           {earningsData && (earningsData.upcoming?.length > 0 || earningsData.history?.length > 0) && (
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <span className="text-sm font-semibold text-text-primary">실적발표</span>
+                <span className="text-base font-semibold text-text-primary">실적발표</span>
                 <DollarSign size={14} className="text-text-muted"/>
               </div>
               <div className="p-4 flex flex-col gap-4">
@@ -1968,12 +2019,12 @@ export default function StockDetail() {
                     <SectionTitle>예정 발표일</SectionTitle>
                     <div className="flex flex-wrap gap-2">
                       {earningsData.upcoming.filter(Boolean).map((dt: string, i: number) => (
-                        <span key={i} className="px-3 py-1.5 rounded-lg bg-accent-blue/10 border border-accent-blue/30 text-accent-blue text-xs font-mono font-semibold">
+                        <span key={i} className="px-3 py-1.5 rounded-lg bg-accent-blue/10 border border-accent-blue/30 text-accent-blue text-sm font-mono font-semibold">
                           {dt}
                         </span>
                       ))}
                       {earningsData.eps_estimate != null && (
-                        <span className="px-3 py-1.5 rounded-lg bg-bg-elevated border border-border text-text-muted text-xs">
+                        <span className="px-3 py-1.5 rounded-lg bg-bg-elevated border border-border text-text-muted text-sm">
                           EPS 예상: {isKR ? earningsData.eps_estimate?.toLocaleString("ko-KR") : `$${earningsData.eps_estimate?.toFixed(2)}`}
                         </span>
                       )}
@@ -1985,7 +2036,7 @@ export default function StockDetail() {
                   <div>
                     <SectionTitle>과거 실적</SectionTitle>
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
+                      <table className="w-full text-sm">
                         <thead>
                           <tr className="text-text-muted border-b border-border">
                             <th className="text-left pb-2 font-medium">연도</th>
@@ -2019,7 +2070,7 @@ export default function StockDetail() {
               ? <DisclosurePanel symbol={sym} />
               : (
                 <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
-                  <p className="text-text-muted text-sm">공시 데이터는 국내 주식(KR)만 지원합니다</p>
+                  <p className="text-text-muted text-base">공시 데이터는 국내 주식(KR)만 지원합니다</p>
                 </div>
               )
           )}
@@ -2031,19 +2082,19 @@ export default function StockDetail() {
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-text-primary">일별 시세</span>
+              <span className="text-base font-semibold text-text-primary">일별 시세</span>
               {fetchingDaily && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
             </div>
             {dailyOhlcv?.length ? (
-              <span className="text-xs text-text-muted">{(dailyOhlcv as any[]).length}일</span>
+              <span className="text-sm text-text-muted">{(dailyOhlcv as any[]).length}일</span>
             ) : null}
           </div>
           {!dailyOhlcv?.length ? (
-            <div className="py-12 text-center text-text-muted text-sm">{fetchingDaily ? "로딩 중..." : "데이터 없음"}</div>
+            <div className="py-12 text-center text-text-muted text-base">{fetchingDaily ? "로딩 중..." : "데이터 없음"}</div>
           ) : (
             <>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="text-text-muted border-b border-border bg-bg-secondary">
                     <th className="text-left px-4 py-2.5 font-medium whitespace-nowrap sticky left-0 bg-bg-secondary">날짜</th>
@@ -2097,7 +2148,7 @@ export default function StockDetail() {
               <button
                 onClick={() => setDailyMonths(prev => prev + 1)}
                 disabled={fetchingDaily}
-                className="w-full py-3 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border"
+                className="w-full py-3 text-sm font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border"
               >
                 {fetchingDaily ? "로딩 중..." : `더보기 (+1개월) ▼`}
               </button>
@@ -2112,8 +2163,8 @@ export default function StockDetail() {
         <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
           <Users size={40} className="text-text-muted/30"/>
           <div className="text-center">
-            <p className="text-text-primary font-semibold text-sm">서비스 준비중입니다</p>
-            <p className="text-text-muted text-xs mt-1">투자자별 수급 데이터는 곧 제공될 예정입니다</p>
+            <p className="text-text-primary font-semibold text-base">서비스 준비중입니다</p>
+            <p className="text-text-muted text-sm mt-1">투자자별 수급 데이터는 곧 제공될 예정입니다</p>
           </div>
         </div>
       )}
@@ -2123,8 +2174,8 @@ export default function StockDetail() {
         <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
           <MessageSquare size={40} className="text-text-muted/30"/>
           <div className="text-center">
-            <p className="text-text-primary font-semibold text-sm">서비스 준비중입니다</p>
-            <p className="text-text-muted text-xs mt-1">종목 커뮤니티 기능은 곧 제공될 예정입니다</p>
+            <p className="text-text-primary font-semibold text-base">서비스 준비중입니다</p>
+            <p className="text-text-muted text-sm mt-1">종목 커뮤니티 기능은 곧 제공될 예정입니다</p>
           </div>
         </div>
       )}
@@ -2132,8 +2183,8 @@ export default function StockDetail() {
       {/* 기업 정보 */}
       {d && (d.industry || d.description) && (
         <div className="rounded-xl p-4 border border-border bg-bg-card">
-          {d.sector && <div className="flex flex-col gap-0.5 mb-3"><span className="text-2xs text-text-muted">섹터 · 산업</span><span className="text-sm text-text-primary">{d.sector}{d.industry?` > ${d.industry}`:""}</span></div>}
-          {d.description && <p className="text-xs text-text-muted leading-relaxed line-clamp-4">{d.description}</p>}
+          {d.sector && <div className="flex flex-col gap-0.5 mb-3"><span className="text-xs text-text-muted">섹터 · 산업</span><span className="text-base text-text-primary">{d.sector}{d.industry?` > ${d.industry}`:""}</span></div>}
+          {d.description && <p className="text-sm text-text-muted leading-relaxed line-clamp-4">{d.description}</p>}
         </div>
       )}
     </div>
@@ -2146,23 +2197,23 @@ function DisclosurePanel({ symbol }: { symbol: string }) {
     queryFn: () => api.get(`/stocks/KR/${encodeURIComponent(symbol)}/disclosures`).then(r=>r.data),
     staleTime: 1_800_000,
   });
-  if (isLoading) return <div className="rounded-xl border border-border bg-bg-card p-8 text-center text-text-muted text-sm">공시 로딩 중...</div>;
+  if (isLoading) return <div className="rounded-xl border border-border bg-bg-card p-8 text-center text-text-muted text-base">공시 로딩 중...</div>;
   const items = Array.isArray(data) ? data : [];
   return (
     <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <span className="text-sm font-semibold text-text-primary">최근 공시</span>
+        <span className="text-base font-semibold text-text-primary">최근 공시</span>
         <FileText size={14} className="text-text-muted"/>
       </div>
       {!items.length ? (
-        <p className="py-8 text-center text-text-muted text-sm">공시 데이터가 없습니다 (OpenDART API 키 필요)</p>
+        <p className="py-8 text-center text-text-muted text-base">공시 데이터가 없습니다 (OpenDART API 키 필요)</p>
       ) : (
         <ul>{items.map((item: any, i: number) => (
           <li key={i} className="border-b border-border/30 last:border-0">
             <a href={item.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-text-primary group-hover:text-accent-blue transition-colors">{item.title}</p>
-                <p className="text-2xs text-text-muted mt-0.5">{item.reporter} · {fmtDate(item.date?.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"))}</p>
+                <p className="text-base text-text-primary group-hover:text-accent-blue transition-colors">{item.title}</p>
+                <p className="text-xs text-text-muted mt-0.5">{item.reporter} · {fmtDate(item.date?.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"))}</p>
               </div>
               <FileText size={13} className="text-text-muted flex-shrink-0"/>
             </a>

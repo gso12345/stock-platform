@@ -521,17 +521,31 @@ async def get_financials(market: Literal["KR","US","ETF"], symbol: str):
     return await _svc(symbol, market)
 
 
+def _clean_enabled_metrics(raw: dict) -> dict:
+    """{factor_key: [metric_key, ...]} — 알 수 없는 factor/metric 키는 제거.
+    유효한 항목이 하나도 없는 factor는 결과에서 제외(= 전체 지표 사용으로 간주)."""
+    from app.services.quant_score import FACTOR_METRIC_KEYS
+    cleaned = {}
+    for fkey, allowed_keys in raw.items():
+        if fkey not in FACTOR_METRIC_KEYS or not isinstance(allowed_keys, list):
+            continue
+        valid = [k for k in allowed_keys if k in FACTOR_METRIC_KEYS[fkey]]
+        if valid:
+            cleaned[fkey] = valid
+    return cleaned
+
+
 @router.get("/quant-score/weights")
 async def get_quant_score_weights(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """로그인한 사용자가 저장한 퀀트 점수 팩터 가중치 (없으면 기본값 반환)"""
+    """로그인한 사용자가 저장한 퀀트 점수 팩터 가중치/사용 지표 (없으면 기본값 반환)"""
     if current_user:
         row = db.query(QuantScoreWeight).filter(QuantScoreWeight.user_id == current_user.id).first()
         if row and row.weights:
-            return {"weights": row.weights, "is_default": False}
-    return {"weights": DEFAULT_WEIGHTS, "is_default": True}
+            return {"weights": row.weights, "enabled_metrics": row.enabled_metrics or {}, "is_default": False}
+    return {"weights": DEFAULT_WEIGHTS, "enabled_metrics": {}, "is_default": True}
 
 
 @router.put("/quant-score/weights")
@@ -540,7 +554,9 @@ async def save_quant_score_weights(
     current_user=Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """퀀트 점수 팩터 가중치 저장 (로그인 필요) — value/quality/momentum/growth/risk, 0~100"""
+    """퀀트 점수 팩터 가중치 + 팩터별 사용 지표 저장 (로그인 필요)
+    weights: value/quality/momentum/growth/risk, 0~100
+    enabled_metrics: {"value": ["per","pbr"], "quality": [...]} — 팩터를 생략하면 해당 팩터는 전체 지표 사용"""
     weights = payload.get("weights")
     if not isinstance(weights, dict):
         raise HTTPException(400, "weights 형식이 올바르지 않습니다")
@@ -558,14 +574,18 @@ async def save_quant_score_weights(
     if sum(cleaned.values()) <= 0:
         raise HTTPException(400, "가중치 합이 0보다 커야 합니다")
 
+    enabled_metrics_raw = payload.get("enabled_metrics")
+    enabled_metrics = _clean_enabled_metrics(enabled_metrics_raw) if isinstance(enabled_metrics_raw, dict) else {}
+
     row = db.query(QuantScoreWeight).filter(QuantScoreWeight.user_id == current_user.id).first()
     if row:
         row.weights = cleaned
+        row.enabled_metrics = enabled_metrics
     else:
-        row = QuantScoreWeight(user_id=current_user.id, weights=cleaned)
+        row = QuantScoreWeight(user_id=current_user.id, weights=cleaned, enabled_metrics=enabled_metrics)
         db.add(row)
     db.commit()
-    return {"weights": cleaned}
+    return {"weights": cleaned, "enabled_metrics": enabled_metrics}
 
 
 @router.get("/{market}/{symbol}/quant-score")
@@ -578,33 +598,45 @@ async def get_quant_score(
     w_momentum: float | None = Query(None, ge=0, le=100),
     w_growth: float | None = Query(None, ge=0, le=100),
     w_risk: float | None = Query(None, ge=0, le=100),
+    metrics_value: str | None = Query(None, description="쉼표로 구분된 가치 팩터 사용 지표 키 (미지정 시 저장된 설정/전체 지표)"),
+    metrics_quality: str | None = Query(None, description="쉼표로 구분된 품질 팩터 사용 지표 키 (미지정 시 저장된 설정/전체 지표)"),
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """가치/품질/모멘텀/성장/안정성 5팩터 기반 퀀트 종합 점수 + 등급(S~F)
     w_* 쿼리 파라미터가 하나라도 오면 저장된 가중치 대신 즉시 미리보기로 사용(저장 안 함)
+    metrics_value/metrics_quality가 오면 해당 팩터에서 지정한 지표만 즉시 미리보기로 사용(저장 안 함)
     지표 점수는 같은 시장(KR/US/ETF) 내 백분위 상대평가(분포는 일배치로 미리 캐시되어
     조회 시점에는 이분 탐색만 수행) — 표본이 부족한 지표는 절대평가로 폴백"""
     from app.services.quant_score import collect_quant_metrics
     from app.services.quant_percentile_service import get_percentile_distributions, get_sector_distribution
 
     override = {"value": w_value, "quality": w_quality, "momentum": w_momentum, "growth": w_growth, "risk": w_risk}
+    saved_row = None
+    if current_user:
+        saved_row = db.query(QuantScoreWeight).filter(QuantScoreWeight.user_id == current_user.id).first()
+
     if any(v is not None for v in override.values()):
         weights = {k: (v if v is not None else DEFAULT_WEIGHTS[k]) for k, v in override.items()}
     else:
-        weights = DEFAULT_WEIGHTS
-        if current_user:
-            row = db.query(QuantScoreWeight).filter(QuantScoreWeight.user_id == current_user.id).first()
-            if row and row.weights:
-                weights = row.weights
+        weights = saved_row.weights if (saved_row and saved_row.weights) else DEFAULT_WEIGHTS
+
+    metrics_override = {"value": metrics_value, "quality": metrics_quality}
+    if any(v is not None for v in metrics_override.values()):
+        enabled_metrics = _clean_enabled_metrics({
+            k: v.split(",") for k, v in metrics_override.items() if v is not None
+        })
+    else:
+        enabled_metrics = (saved_row.enabled_metrics if (saved_row and saved_row.enabled_metrics) else {})
 
     metrics = await collect_quant_metrics(symbol, market)
     sector = metrics.pop("_sector", None)
     percentile_dist = get_percentile_distributions(market)
     sector_dist = get_sector_distribution(market, sector)
 
-    result = compute_quant_score(metrics, weights, percentile_dist, sector_dist)
+    result = compute_quant_score(metrics, weights, percentile_dist, sector_dist, enabled_metrics)
     result["weights"] = weights
+    result["enabled_metrics"] = enabled_metrics
     return result
 
 
