@@ -794,6 +794,13 @@ export default function StockDetail() {
         // metrics-history 최신값으로 detail의 None 보완
         const mhLatest = [...mh].sort((a,b)=>b.period.localeCompare(a.period))[0] ?? {};
         const fd = (fundamentalsData as any) ?? {};
+
+        // 선행PER 보완 — 가장 가까운 연간 컨센서스 EPS 추정치 ÷ 현재가
+        const nextFcstEps = [...fcst].sort((a,b)=>a.period.localeCompare(b.period))[0]?.eps_est;
+        const fallbackForwardPer = (d?.price && nextFcstEps && nextFcstEps > 0)
+          ? Math.round((d.price / nextFcstEps) * 100) / 100
+          : null;
+
         const dEnhanced = {
           per:          d?.per          ?? fd.per          ?? mhLatest.per          ?? null,
           pbr:          d?.pbr          ?? fd.pbr          ?? mhLatest.pbr          ?? null,
@@ -808,9 +815,9 @@ export default function StockDetail() {
           debt_ratio:   d?.debt_ratio   ?? fd.debt_ratio   ?? mhLatest.debt_ratio   ?? null,
           current_ratio:d?.current_ratio ?? fd.current_ratio ?? mhLatest.current_ratio ?? null,
           quick_ratio:  d?.quick_ratio  ?? fd.quick_ratio  ?? mhLatest.quick_ratio  ?? null,
-          // 재무제표 탭에서 안 보이던 항목들 — fundamentals에서 fallback
-          forward_per:     d?.forward_per     ?? fd.forward_per     ?? null,
-          peg:             d?.peg             ?? fd.peg             ?? null,
+          // 재무제표 탭에서 안 보이던 항목들 — fundamentals → 재무제표 기반 계산값 순으로 fallback
+          forward_per:     d?.forward_per     ?? fd.forward_per     ?? fallbackForwardPer ?? null,
+          peg:             d?.peg             ?? fd.peg             ?? mhLatest.peg       ?? null,
           ev_ebitda:       d?.ev_ebitda       ?? fd.ev_ebitda       ?? null,
           ev_revenue:      d?.ev_revenue      ?? fd.ev_revenue      ?? null,
           enterprise_value:d?.enterprise_value ?? fd.enterprise_value ?? null,

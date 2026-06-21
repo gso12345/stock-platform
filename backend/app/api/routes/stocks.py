@@ -650,7 +650,7 @@ async def get_quant_score(
 async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
     """재무지표 연간/분기별 추이 (yfinance)"""
     from app.core.cache import cache
-    ck = f"metrics_hist3:{symbol}"  # v3: 6y history for 2022+ coverage
+    ck = f"metrics_hist4:{symbol}"  # v4: eps_growth/peg 추가
     if c := cache.get(ck):
         return c
     _stale_mh = cache.get_stale(ck)
@@ -739,10 +739,15 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
                 ("revenue",    "revenue_growth"),
                 ("op_income",  "op_income_growth"),
                 ("net_income", "net_income_growth"),
+                ("eps",        "eps_growth"),
             ]:
                 cv, pv = row.get(key), prev.get(key)
                 if cv and pv and pv != 0:
                     row[gkey] = round((cv - pv) / abs(pv) * 100, 2)
+            # PEG 보완 — PER ÷ EPS 성장률(%) (quant_score.py의 PEG 계산과 동일한 정의)
+            if row.get("peg") is None and row.get("per") and row.get("eps_growth"):
+                if row["eps_growth"] > 0:
+                    row["peg"] = round(row["per"] / row["eps_growth"], 2)
 
     def _process_cf(cf_df) -> dict:
         """현금흐름 DataFrame → {period: {operating_cf, ...}} dict"""
