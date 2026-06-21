@@ -1,10 +1,10 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone } from "lucide-react";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import type { ColorScheme, FontSize, Theme } from "@/store/settingsStore";
+import type { ColorScheme, FontSize, Theme, Orientation } from "@/store/settingsStore";
 import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
 import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
@@ -25,19 +25,19 @@ const BOTTOM_NAV = [
   { to: "/",          icon: LayoutDashboard, label: "대시보드", end: true },
   { to: "/portfolio", icon: Wallet,          label: "내 자산"  },
   { to: "/news",      icon: Newspaper,       label: "뉴스"     },
+  { to: "/quant",     icon: Award,           label: "퀀트"     },
 ];
 
 /* ── "더보기" 시트에 들어가는 나머지 메뉴 ─────────────── */
 const MORE_NAV = [
   { to: "/watchlist",  icon: Star,      label: "관심종목"   },
-  { to: "/quant",      icon: Award,     label: "퀀트"       },
   { to: "/screening",  icon: Search,    label: "스크리닝"   },
   { to: "/backtest",   icon: LineChart, label: "백테스트"   },
   { to: "/strategies", icon: BookMarked,label: "전략저장소" },
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
-  const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme } = useSettingsStore();
+  const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation } = useSettingsStore();
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
@@ -130,6 +130,32 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
+          {/* 화면 방향 */}
+          <div>
+            <p className="text-xs font-semibold text-text-muted mb-2">화면 방향</p>
+            <p className="text-2xs text-text-dim mb-2">설치된 앱(PWA) 등 일부 환경에서만 적용돼요</p>
+            <div className="flex gap-2">
+              {([
+                { value: "landscape", label: "가로",     icon: RectangleHorizontal },
+                { value: "portrait",  label: "세로",     icon: RectangleVertical   },
+                { value: "system",    label: "시스템설정", icon: Smartphone          },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setOrientation(opt.value as Orientation)}
+                  className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
+                    orientation === opt.value
+                      ? "border-accent-blue bg-accent-blue/10"
+                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
+                  }`}
+                >
+                  <opt.icon size={16} className="text-text-primary" />
+                  <span className="text-[10px] text-text-muted">{opt.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
         </div>
         <div className="px-5 pb-5">
           <button
@@ -147,7 +173,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 export default function Layout() {
   const wsStatus = useWSStore((s) => s.indicesStatus);
   const { isLoggedIn, username, logout } = useAuthStore();
-  const { fontSize, theme, setTheme } = useSettingsStore();
+  const { fontSize, theme, setTheme, orientation } = useSettingsStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [systemPrefersLight, setSystemPrefersLight] = useState(
@@ -183,6 +209,14 @@ export default function Layout() {
     if (fontSize === "large") html.classList.add("font-large");
     else if (fontSize === "xl") html.classList.add("font-xl");
   }, [fontSize]);
+
+  /* 화면 방향 고정 적용 (설치된 PWA 등 지원 환경에서만 동작) */
+  useEffect(() => {
+    const so = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+    if (!so) return;
+    if (orientation === "system") so.unlock?.();
+    else so.lock?.(orientation)?.catch(() => {});
+  }, [orientation]);
 
   useEffect(() => {
     document.body.style.overflow = moreOpen ? "hidden" : "";
