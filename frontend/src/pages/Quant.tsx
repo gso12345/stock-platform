@@ -6,11 +6,20 @@ import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSetting
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { useAuthStore } from "@/store/authStore";
 import { Card, Badge, LoadingSpinner, Button } from "@/components/ui";
-import { Award, AlertCircle, Settings2, LogIn } from "lucide-react";
+import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp } from "lucide-react";
 
 const FACTOR_LABEL_KO: Record<QuantFactorKey, string> = {
   value: "가치", quality: "품질", momentum: "모멘텀", growth: "성장", risk: "안정성",
 };
+
+const MARKET_TABS = [
+  { id: "전체", label: "전체" },
+  { id: "KR",   label: "국내" },
+  { id: "US",   label: "해외" },
+  { id: "ETF",  label: "ETF"  },
+];
+
+type SortKey = "total" | QuantFactorKey;
 
 const GRADE_BANDS: { grade: string; range: string }[] = [
   { grade: "S", range: "90 ~ 100점" },
@@ -37,8 +46,11 @@ function scoreColor(s: number | null) {
 export default function Quant() {
   const navigate = useNavigate();
   const { isLoggedIn } = useAuthStore();
-  const [folderId, setFolderId] = useState<number | "all">("all");
+  const [marketTab, setMarketTab] = useState("전체");
+  const [folderTab, setFolderTab] = useState<number | "all" | "none">("all");
   const [showGradeHelp, setShowGradeHelp] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("total");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
 
   const { data: folders } = useQuery({
     queryKey: ["watchlist-folders"],
@@ -47,14 +59,22 @@ export default function Quant() {
   });
 
   const { data: items, isLoading: itemsLoading } = useQuery({
-    queryKey: ["watchlist-items", folderId],
-    queryFn: () => watchlistApi.getItems(undefined, folderId === "all" ? undefined : folderId),
+    queryKey: ["watchlist-items"],
+    queryFn: () => watchlistApi.getItems(),
     enabled: isLoggedIn,
   });
 
+  const filteredItems = useMemo(() => {
+    let list = (items ?? []) as any[];
+    if (marketTab !== "전체") list = list.filter((it) => it.market === marketTab);
+    if (folderTab === "none") list = list.filter((it) => !it.folder_id);
+    else if (folderTab !== "all") list = list.filter((it) => it.folder_id === folderTab);
+    return list;
+  }, [items, marketTab, folderTab]);
+
   const allCompareItems = useMemo(
-    () => (items ?? []).map((it: any) => ({ symbol: it.symbol, market: it.market, name: it.name })),
-    [items],
+    () => filteredItems.map((it: any) => ({ symbol: it.symbol, market: it.market, name: it.name })),
+    [filteredItems],
   );
   const compareItems = useMemo(() => allCompareItems.slice(0, 30), [allCompareItems]);
   const truncated = allCompareItems.length > compareItems.length;
@@ -86,16 +106,25 @@ export default function Quant() {
     return m;
   }, [compareItems]);
 
+  const scoreOf = (row: { total_score: number | null; factors: { key: QuantFactorKey; score: number | null }[] }, key: SortKey) =>
+    key === "total" ? row.total_score : row.factors.find((f) => f.key === key)?.score ?? null;
+
   const rows = useMemo(() => {
     const list = compareData?.items ?? [];
-    return [...list].sort((a, b) => (b.total_score ?? -1) - (a.total_score ?? -1));
-  }, [compareData]);
+    const dir = sortDir === "desc" ? -1 : 1;
+    return [...list].sort((a, b) => dir * ((scoreOf(a, sortKey) ?? -1) - (scoreOf(b, sortKey) ?? -1)));
+  }, [compareData, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setSortKey(key); setSortDir("desc"); }
+  };
 
   useEffect(() => {
-    if (folderId !== "all" && folders && !folders.some((f: any) => f.id === folderId)) {
-      setFolderId("all");
+    if (typeof folderTab === "number" && folders && !folders.some((f: any) => f.id === folderTab)) {
+      setFolderTab("all");
     }
-  }, [folders, folderId]);
+  }, [folders, folderTab]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -143,29 +172,54 @@ export default function Quant() {
             />
           )}
 
-          {folders && folders.length > 0 && (
-            <div className="flex gap-1 bg-bg-elevated border border-border rounded-lg p-0.5 w-fit overflow-x-auto">
+          <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
+            {MARKET_TABS.map((t) => (
               <button
-                onClick={() => setFolderId("all")}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap ${
-                  folderId === "all" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
+                key={t.id}
+                onClick={() => { setMarketTab(t.id); setFolderTab("all"); }}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                  marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
                 }`}
               >
-                전체
+                {t.label}
               </button>
-              {folders.map((f: any) => (
+            ))}
+          </div>
+
+          <div className="flex overflow-x-auto scrollbar-hide rounded-lg border border-border w-fit max-w-full">
+            <button
+              onClick={() => setFolderTab("all")}
+              className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
+                folderTab === "all" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
+              }`}
+            >
+              전체 <span className="text-[10px] opacity-70">{allCompareItems.length}</span>
+            </button>
+            <button
+              onClick={() => setFolderTab("none")}
+              className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
+                folderTab === "none" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
+              }`}
+            >
+              기본 <span className="text-[10px] opacity-70">{filteredItems.filter((i: any) => !i.folder_id).length}</span>
+            </button>
+            {(folders ?? []).map((f: any) => {
+              const cnt = ((items ?? []) as any[]).filter(
+                (i) => i.folder_id === f.id && (marketTab === "전체" || i.market === marketTab),
+              ).length;
+              return (
                 <button
                   key={f.id}
-                  onClick={() => setFolderId(f.id)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap ${
-                    folderId === f.id ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
+                  onClick={() => setFolderTab(f.id)}
+                  className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
+                    folderTab === f.id ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
                   }`}
                 >
-                  {f.name}
+                  {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
                 </button>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
 
           <Card className="p-0 overflow-hidden">
             {itemsLoading || scoreLoading ? (
@@ -189,7 +243,15 @@ export default function Quant() {
                   <thead className="sticky top-0 bg-bg-secondary border-b border-border z-10">
                     <tr className="text-text-muted text-[11px]">
                       <th className="text-left px-3 py-3 sticky left-0 bg-bg-secondary z-20">종목</th>
-                      <th className="text-right px-3 py-3">종합점수</th>
+                      <th className="text-right px-3 py-3">
+                        <button
+                          onClick={() => toggleSort("total")}
+                          className={`flex items-center justify-end gap-1 ml-auto whitespace-nowrap ${sortKey === "total" ? "text-accent-blue" : "hover:text-text-primary"}`}
+                        >
+                          종합점수
+                          {sortKey === "total" && (sortDir === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+                        </button>
+                      </th>
                       <th className="text-right px-3 py-3">
                         <div className="flex items-center justify-end gap-1.5 relative">
                           등급
@@ -213,7 +275,15 @@ export default function Quant() {
                         </div>
                       </th>
                       {(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => (
-                        <th key={k} className="text-right px-3 py-3 whitespace-nowrap">{FACTOR_LABEL_KO[k]}</th>
+                        <th key={k} className="text-right px-3 py-3 whitespace-nowrap">
+                          <button
+                            onClick={() => toggleSort(k)}
+                            className={`flex items-center justify-end gap-1 ml-auto whitespace-nowrap ${sortKey === k ? "text-accent-blue" : "hover:text-text-primary"}`}
+                          >
+                            {FACTOR_LABEL_KO[k]}
+                            {sortKey === k && (sortDir === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+                          </button>
+                        </th>
                       ))}
                     </tr>
                   </thead>

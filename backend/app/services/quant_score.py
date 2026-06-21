@@ -274,18 +274,31 @@ async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = Tr
     """퀀트 점수용 원시 지표 수집 — 종목상세 엔드포인트와 percentile 분포 배치 작업이
     동일한 정의를 공유하도록 한곳에 모음. 캐시 우선 조회(fundamentals_service/yf_service)라
     이미 캐시된 종목이면 추가 외부 호출 없이 즉시 반환된다."""
+    import asyncio
     from app.services.fundamentals_service import get_fundamentals, get_financials
     from app.services.yf_service import yf_service
 
+    loop = asyncio.get_running_loop()
+    tasks = [get_fundamentals(symbol, market), get_financials(symbol, market)]
+    if fetch_ohlcv:
+        tasks.append(asyncio.wait_for(
+            loop.run_in_executor(None, yf_service.get_ohlcv, symbol, "2y", "1d", market),
+            timeout=15,
+        ))
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    fund = results[0] if not isinstance(results[0], Exception) else None
+    fund = fund or {}
+    fin_raw = results[1] if not isinstance(results[1], Exception) else None
+    ohlcv_raw = results[2] if fetch_ohlcv and not isinstance(results[2], Exception) else None
+
     metrics: dict = {}
-    fund = await get_fundamentals(symbol, market) or {}
     metrics["_sector"] = fund.get("sector")
     for k in _FUND_KEYS:
         if fund.get(k) is not None:
             metrics[k] = fund[k]
 
     try:
-        fin = await get_financials(symbol, market)
+        fin = fin_raw or {}
         annual = fin.get("annual") or []
         if len(annual) >= 2:
             cur, prev = annual[-1], annual[-2]
@@ -324,15 +337,9 @@ async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = Tr
     except Exception:
         pass
 
-    if fetch_ohlcv:
+    if fetch_ohlcv and ohlcv_raw:
         try:
-            import asyncio
-            loop = asyncio.get_running_loop()
-            ohlcv = await asyncio.wait_for(
-                loop.run_in_executor(None, yf_service.get_ohlcv, symbol, "2y", "1d", market),
-                timeout=15,
-            )
-            closes = [b["close"] for b in ohlcv if b.get("close")]
+            closes = [b["close"] for b in ohlcv_raw if b.get("close")]
             metrics.update(compute_momentum_volatility(closes))
         except Exception:
             pass
