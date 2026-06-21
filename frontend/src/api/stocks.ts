@@ -122,12 +122,64 @@ export interface QuantScoreResult {
   enabled_metrics: QuantEnabledMetrics;
 }
 
+export type QuantRankingFactor = "total" | QuantFactorKey;
+
+export interface QuantRankingItem {
+  symbol: string;
+  market: string;
+  name: string;
+  score: number;
+  grade: string | null;
+  rank: number;
+}
+
+export interface QuantRankingResult {
+  market: string;
+  factor: QuantRankingFactor;
+  weights: QuantWeights;
+  enabled_metrics: QuantEnabledMetrics;
+  items: QuantRankingItem[];
+}
+
 export const quantScoreApi = {
   getWeights: () =>
     api.get<{ weights: QuantWeights; enabled_metrics: QuantEnabledMetrics; is_default: boolean }>("/stocks/quant-score/weights").then((r) => r.data),
 
   saveWeights: (weights: QuantWeights, enabledMetrics?: QuantEnabledMetrics) =>
     api.put<{ weights: QuantWeights; enabled_metrics: QuantEnabledMetrics }>("/stocks/quant-score/weights", { weights, enabled_metrics: enabledMetrics ?? {} }).then((r) => r.data),
+
+  getRanking: (
+    market: "KR" | "US" | "ETF",
+    factor: QuantRankingFactor = "total",
+    limit = 50,
+    weightOverride?: Partial<QuantWeights>,
+    enabledMetricsOverride?: QuantEnabledMetrics,
+  ) =>
+    api.get<QuantRankingResult>("/stocks/quant-score/ranking", {
+      params: {
+        market,
+        factor,
+        limit,
+        ...(weightOverride
+          ? {
+              w_value: weightOverride.value,
+              w_quality: weightOverride.quality,
+              w_momentum: weightOverride.momentum,
+              w_growth: weightOverride.growth,
+              w_risk: weightOverride.risk,
+            }
+          : {}),
+        ...(enabledMetricsOverride
+          ? {
+              metrics_value: enabledMetricsOverride.value?.join(","),
+              metrics_quality: enabledMetricsOverride.quality?.join(","),
+              metrics_momentum: enabledMetricsOverride.momentum?.join(","),
+              metrics_growth: enabledMetricsOverride.growth?.join(","),
+              metrics_risk: enabledMetricsOverride.risk?.join(","),
+            }
+          : {}),
+      },
+    }).then((r) => r.data),
 };
 
 export const dashboardApi = {

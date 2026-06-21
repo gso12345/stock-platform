@@ -588,6 +588,99 @@ async def save_quant_score_weights(
     return {"weights": cleaned, "enabled_metrics": enabled_metrics}
 
 
+@router.get("/quant-score/ranking")
+@limiter.limit("10/minute")
+async def get_quant_score_ranking(
+    request: Request,
+    market: Literal["KR","US","ETF"] = Query("KR"),
+    factor: Literal["total","value","quality","momentum","growth","risk"] = Query("total"),
+    limit: int = Query(50, ge=1, le=100),
+    w_value: float | None = Query(None, ge=0, le=100),
+    w_quality: float | None = Query(None, ge=0, le=100),
+    w_momentum: float | None = Query(None, ge=0, le=100),
+    w_growth: float | None = Query(None, ge=0, le=100),
+    w_risk: float | None = Query(None, ge=0, le=100),
+    metrics_value: str | None = Query(None),
+    metrics_quality: str | None = Query(None),
+    metrics_momentum: str | None = Query(None),
+    metrics_growth: str | None = Query(None),
+    metrics_risk: str | None = Query(None),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """시장 내 종목들을 퀀트 점수(또는 단일 팩터)로 순위화.
+    한 번이라도 조회되어 펀더멘털 캐시에 들어간 종목들만 대상으로 하므로
+    추가 외부 API 호출 없이 빠르게 응답한다(미캐시 종목은 자연스럽게 제외)."""
+    from app.services.quant_score import collect_quant_metrics
+    from app.services.quant_percentile_service import get_percentile_distributions, get_sector_distribution
+    from app.services.fundamentals_service import get_all_fund_symbols
+    from app.services.ticker_service import get_kr_db, get_us_db
+
+    override = {"value": w_value, "quality": w_quality, "momentum": w_momentum, "growth": w_growth, "risk": w_risk}
+    saved_row = None
+    if current_user:
+        saved_row = db.query(QuantScoreWeight).filter(QuantScoreWeight.user_id == current_user.id).first()
+
+    if any(v is not None for v in override.values()):
+        weights = {k: (v if v is not None else DEFAULT_WEIGHTS[k]) for k, v in override.items()}
+    else:
+        weights = saved_row.weights if (saved_row and saved_row.weights) else DEFAULT_WEIGHTS
+
+    metrics_override = {
+        "value": metrics_value, "quality": metrics_quality,
+        "momentum": metrics_momentum, "growth": metrics_growth, "risk": metrics_risk,
+    }
+    if any(v is not None for v in metrics_override.values()):
+        enabled_metrics = _clean_enabled_metrics({
+            k: v.split(",") for k, v in metrics_override.items() if v is not None
+        })
+    else:
+        enabled_metrics = (saved_row.enabled_metrics if (saved_row and saved_row.enabled_metrics) else {})
+
+    name_map: dict[str, str] = {}
+    if market == "KR":
+        for item in get_kr_db():
+            name_map[item.get("c") or item["s"]] = item["n"]
+    else:
+        for item in get_us_db():
+            if item.get("m") != market:
+                continue
+            name_map[item["s"]] = item["n"]
+
+    symbols = [sym for sym, mkt in get_all_fund_symbols() if mkt == market][:300]
+    percentile_dist = get_percentile_distributions(market)
+
+    sem = asyncio.Semaphore(16)
+
+    async def _score_one(sym: str) -> dict | None:
+        async with sem:
+            try:
+                metrics = await collect_quant_metrics(sym, market, fetch_ohlcv=(factor in ("total", "momentum")))
+            except Exception:
+                return None
+        sector = metrics.pop("_sector", None)
+        sector_dist = get_sector_distribution(market, sector)
+        result = compute_quant_score(metrics, weights, percentile_dist, sector_dist, enabled_metrics)
+        score = result["total_score"] if factor == "total" else next(
+            (f["score"] for f in result["factors"] if f["key"] == factor), None
+        )
+        if score is None:
+            return None
+        return {
+            "symbol": sym, "market": market, "name": name_map.get(sym, sym),
+            "score": score, "grade": result["grade"] if factor == "total" else None,
+        }
+
+    scored = await asyncio.gather(*[_score_one(s) for s in symbols])
+    rows = [r for r in scored if r]
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    rows = rows[:limit]
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+
+    return {"market": market, "factor": factor, "weights": weights, "enabled_metrics": enabled_metrics, "items": rows}
+
+
 @router.get("/{market}/{symbol}/quant-score")
 @limiter.limit("30/minute")
 async def get_quant_score(

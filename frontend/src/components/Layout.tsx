@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award } from "lucide-react";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
@@ -13,6 +13,7 @@ import { useState, useEffect } from "react";
 const NAV = [
   { to: "/",          icon: LayoutDashboard, label: "대시보드",  end: true },
   { to: "/portfolio", icon: Wallet,           label: "내 자산"  },
+  { to: "/quant",     icon: Award,            label: "퀀트"     },
   { to: "/screening", icon: Search,           label: "스크리닝" },
   { to: "/backtest",  icon: LineChart,        label: "백테스트" },
   { to: "/strategies",icon: BookMarked,       label: "전략저장소"},
@@ -29,6 +30,7 @@ const BOTTOM_NAV = [
 /* ── "더보기" 시트에 들어가는 나머지 메뉴 ─────────────── */
 const MORE_NAV = [
   { to: "/watchlist",  icon: Star,      label: "관심종목"   },
+  { to: "/quant",      icon: Award,     label: "퀀트"       },
   { to: "/screening",  icon: Search,    label: "스크리닝"   },
   { to: "/backtest",   icon: LineChart, label: "백테스트"   },
   { to: "/strategies", icon: BookMarked,label: "전략저장소" },
@@ -270,7 +272,7 @@ export default function Layout() {
         <div className="flex justify-center pt-2.5 pb-1">
           <div className="w-9 h-1 rounded-full bg-border-light" />
         </div>
-        <div className="px-4 pt-1 pb-2 grid grid-cols-4 gap-2">
+        <div className="px-4 pt-1 pb-2 grid grid-cols-5 gap-2">
           {MORE_NAV.map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} onClick={closeMore}
               className={({ isActive }) =>
