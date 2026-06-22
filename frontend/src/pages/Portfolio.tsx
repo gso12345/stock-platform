@@ -1176,7 +1176,7 @@ export default function Portfolio() {
             {/* 카드 정렬 */}
             {isLoggedIn && (
               <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border overflow-x-auto scrollbar-hide">
-                <span className="text-[10px] text-text-dim flex-shrink-0">정렬</span>
+                <span className="text-xs text-text-dim flex-shrink-0">정렬</span>
                 {([
                   { field: "name",    label: "이름" },
                   { field: "shares",  label: "수량" },
@@ -1190,7 +1190,7 @@ export default function Portfolio() {
                     <button
                       key={field}
                       onClick={() => toggleSort(field)}
-                      className={`flex items-center gap-0.5 px-2 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap flex-shrink-0 transition-colors ${
+                      className={`flex items-center gap-0.5 px-2 py-1 rounded-md text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-colors ${
                         active ? "bg-accent-blue/15 text-accent-blue" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
                       }`}
                     >
@@ -1219,7 +1219,7 @@ export default function Portfolio() {
                         <MarketBadge market={item.market} />
                         <div className="min-w-0">
                           <div className="font-semibold text-text-primary text-sm truncate">{item.name || item.symbol}</div>
-                          <div className="text-text-dim font-mono text-[10px] truncate">
+                          <div className="text-text-dim font-mono text-xs truncate">
                             {item.symbol}{isAllView && item.portfolioName ? ` · ${item.portfolioName}` : ""}
                           </div>
                         </div>
@@ -1238,27 +1238,22 @@ export default function Portfolio() {
                       )}
                     </div>
 
-                    <div className="flex items-end justify-between gap-3 pt-2 border-t border-border/40">
+                    <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/40">
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] text-text-dim">평가금액</span>
-                        <span className="font-mono font-bold text-text-primary text-sm">
+                        <span className="text-xs text-text-dim">평가금액</span>
+                        <span className="font-mono font-bold text-text-primary text-base">
                           {hasPrice ? fmtKRWFull(item.currentValueKRW) : "—"}
                         </span>
                       </div>
                       <div className="flex flex-col gap-0.5 items-end">
-                        <span className="text-[10px] text-text-dim">평가손익</span>
-                        <span className={`font-mono font-bold text-sm ${hasPrice ? pc : "text-text-muted"}`}>
-                          {hasPrice ? fmtKRWFullSign(item.pnlKRW) : "—"}
+                        <span className="text-xs text-text-dim">평가손익</span>
+                        <span className={`font-mono font-bold text-base whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
+                          {hasPrice ? `${fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)` : "—"}
                         </span>
-                        {hasPrice && (
-                          <span className={`text-[10px] font-mono ${pc}`}>
-                            {item.pnlRate >= 0 ? "+" : ""}{item.pnlRate.toFixed(2)}%
-                          </span>
-                        )}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 text-[11px]">
+                    <div className="grid grid-cols-3 gap-2 text-xs">
                       <div className="flex flex-col gap-0.5">
                         <span className="text-text-dim">보유수량</span>
                         <span className="font-mono text-text-secondary">{item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}</span>
@@ -1277,7 +1272,7 @@ export default function Portfolio() {
                       <div className="flex-1 h-1 bg-bg-elevated rounded-full overflow-hidden">
                         <div className="h-full bg-accent-blue/60 rounded-full" style={{ width: `${Math.min(100, item.weight)}%` }} />
                       </div>
-                      <span className="text-[10px] font-mono text-text-muted flex-shrink-0">비중 {item.weight.toFixed(1)}%</span>
+                      <span className="text-xs font-mono text-text-muted flex-shrink-0">비중 {item.weight.toFixed(1)}%</span>
                     </div>
                   </div>
                 );

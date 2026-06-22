@@ -611,6 +611,9 @@ export default function Watchlist() {
   const [dragFolderId, setDragFolderId] = useState<number | null>(null);
   const [dropFolderId, setDropFolderId] = useState<number | null>(null);
   const [localFolderOrder, setLocalFolderOrder] = useState<any[] | null>(null);
+  const folderLongPressTimer = useRef<number | null>(null);
+  const folderTouchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const folderJustDragged = useRef(false);
 
   const reorderFoldersMutation = useMutation({
     mutationFn: (order: number[]) => watchlistFolderApi.reorderFolders(order),
@@ -620,6 +623,62 @@ export default function Watchlist() {
   const handleFolderDragStart = (folder: any) => {
     setDragFolderId(folder.id);
     setLocalFolderOrder(folders as any[]);
+  };
+
+  // 길게 누르기(롱프레스) 후에만 드래그가 시작되도록 — 일반 탭/스크롤과 구분
+  const LONG_PRESS_MS = 350;
+  const LONG_PRESS_MOVE_TOLERANCE = 8;
+
+  const clearFolderLongPressTimer = () => {
+    if (folderLongPressTimer.current !== null) {
+      window.clearTimeout(folderLongPressTimer.current);
+      folderLongPressTimer.current = null;
+    }
+  };
+
+  const handleFolderTouchStart = (folder: any, e: React.TouchEvent) => {
+    const t = e.touches[0];
+    folderTouchStartPos.current = { x: t.clientX, y: t.clientY };
+    clearFolderLongPressTimer();
+    folderLongPressTimer.current = window.setTimeout(() => {
+      handleFolderDragStart(folder);
+    }, LONG_PRESS_MS);
+  };
+
+  const handleFolderTouchMoveGated = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (dragFolderId !== null) {
+      // 드래그 활성화된 상태 — 기본 스크롤 동작 막고 순서 변경 처리
+      e.preventDefault();
+      handleFolderTouchMove(t.clientX, t.clientY);
+      return;
+    }
+    // 롱프레스가 발동하기 전, 손가락이 일정 거리 이상 움직이면 스크롤로 간주하고 취소
+    const start = folderTouchStartPos.current;
+    if (start) {
+      const dx = Math.abs(t.clientX - start.x);
+      const dy = Math.abs(t.clientY - start.y);
+      if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE) {
+        clearFolderLongPressTimer();
+      }
+    }
+  };
+
+  const handleFolderTouchEnd = () => {
+    clearFolderLongPressTimer();
+    if (dragFolderId !== null) {
+      folderJustDragged.current = true;
+      handleFolderDrop();
+    }
+    folderTouchStartPos.current = null;
+  };
+
+  const handleFolderTabClick = (folderId: number) => {
+    if (folderJustDragged.current) {
+      folderJustDragged.current = false;
+      return;
+    }
+    setFolderTab(folderTab === folderId ? "all" : folderId);
   };
 
   const moveFolderTo = (targetId: number) => {
@@ -883,12 +942,13 @@ export default function Watchlist() {
                   onDragStart={() => handleFolderDragStart(f)}
                   onDragOver={(e) => handleFolderDragOver(e, f.id)}
                   onDrop={handleFolderDrop}
-                  onTouchStart={() => handleFolderDragStart(f)}
-                  onTouchMove={(e) => handleFolderTouchMove(e.touches[0].clientX, e.touches[0].clientY)}
-                  onTouchEnd={handleFolderDrop}
-                  onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)}
-                  title="드래그하여 폴더 순서 변경"
-                  className={`touch-none cursor-grab active:cursor-grabbing ${tabBtnCls(folderTab === f.id)} ${
+                  onTouchStart={(e) => handleFolderTouchStart(f, e)}
+                  onTouchMove={handleFolderTouchMoveGated}
+                  onTouchEnd={handleFolderTouchEnd}
+                  onClick={() => handleFolderTabClick(f.id)}
+                  title="길게 눌러서 드래그하면 폴더 순서를 바꿀 수 있어요"
+                  style={{ touchAction: dragFolderId === f.id ? "none" : "auto" }}
+                  className={`cursor-grab active:cursor-grabbing ${tabBtnCls(folderTab === f.id)} ${
                     dragFolderId === f.id ? "opacity-40" : ""
                   } ${dropFolderId === f.id ? "ring-1 ring-accent-blue ring-inset" : ""}`}
                 >
