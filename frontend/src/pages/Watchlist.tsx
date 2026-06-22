@@ -835,7 +835,7 @@ export default function Watchlist() {
       {isPreview ? (() => {
         const mktFiltered = marketTab === "전체" ? PREVIEW_WATCHLIST : PREVIEW_WATCHLIST.filter(i => i.market === marketTab);
         const tabBtnCls = (active: boolean) =>
-          `flex-shrink-0 whitespace-nowrap px-3.5 py-2 text-xs font-semibold border-b-2 -mb-px transition-all ${
+          `flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
             active ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
           }`;
         return (
@@ -844,7 +844,7 @@ export default function Watchlist() {
               전체 <span className="text-[10px] opacity-70">{mktFiltered.length}</span>
             </button>
             <button onClick={() => setFolderTab("recent")} className={`${tabBtnCls(folderTab === "recent")} flex items-center gap-1`}>
-              <Clock size={11} /> 최근조회
+              <Clock size={13} /> 최근조회
             </button>
             {PREVIEW_FOLDERS.map(f => {
               const cnt = mktFiltered.filter(i => i.folderId === f.id).length;
@@ -859,7 +859,7 @@ export default function Watchlist() {
         );
       })() : (() => {
         const tabBtnCls = (active: boolean) =>
-          `flex-shrink-0 whitespace-nowrap px-3.5 py-2 text-xs font-semibold border-b-2 -mb-px transition-all ${
+          `flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
             active ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
           }`;
         return (
@@ -868,7 +868,7 @@ export default function Watchlist() {
               전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
             </button>
             <button onClick={() => setFolderTab("recent")} className={`${tabBtnCls(folderTab === "recent")} flex items-center gap-1`}>
-              <Clock size={11} /> 최근조회
+              <Clock size={13} /> 최근조회
             </button>
             <button onClick={() => setFolderTab("none")} className={tabBtnCls(folderTab === "none")}>
               기본 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
