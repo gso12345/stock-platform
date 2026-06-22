@@ -481,10 +481,10 @@ function PortfolioPill({
       <span className="text-[10px] opacity-60">({portfolio.count})</span>
       <button
         onClick={(e) => { e.stopPropagation(); setEditing(true); }}
-        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-accent-blue transition-opacity"
+        className="p-1.5 -m-0.5 rounded text-text-muted/70 hover:text-accent-blue active:text-accent-blue transition-colors"
         title="이름 변경"
       >
-        <Pencil size={10} />
+        <Pencil size={11} />
       </button>
       {canDelete && (
         <button
@@ -495,12 +495,12 @@ function PortfolioPill({
               setTimeout(() => setConfirmDel(false), 2500);
             }
           }}
-          className={`p-0.5 rounded transition-opacity ${
-            confirmDel ? "text-accent-red opacity-100" : "opacity-0 group-hover:opacity-100 hover:text-accent-red"
+          className={`p-1.5 -m-0.5 rounded transition-colors ${
+            confirmDel ? "text-accent-red" : "text-text-muted/70 hover:text-accent-red active:text-accent-red"
           }`}
           title={confirmDel ? "한 번 더 클릭하면 삭제됩니다" : "삭제"}
         >
-          <X size={11} />
+          <X size={12} />
         </button>
       )}
     </div>
@@ -1119,7 +1119,84 @@ export default function Portfolio() {
             )}
           </div>
         ) : (
-          <div className="relative overflow-x-auto scrollbar-thin">
+          <>
+            {/* 모바일: 카드형 리스트 (좁은 화면에서 가로 스크롤 없이 수정·삭제 가능) */}
+            <div className="sm:hidden divide-y divide-border/40">
+              {displayEnriched.map((item) => {
+                const pc = pnlColor(item.pnlKRW);
+                const isDel = confirmDeleteId === item.id;
+                const hasPrice = isLoggedIn ? priceMap[item.id] != null : true;
+                return (
+                  <div
+                    key={item.id}
+                    className="p-3 flex flex-col gap-2.5 active:bg-bg-hover transition-colors"
+                    onClick={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MarketBadge market={item.market} />
+                        <div className="min-w-0">
+                          <div className="font-semibold text-text-primary text-sm truncate">{item.name || item.symbol}</div>
+                          <div className="text-text-dim font-mono text-[10px] truncate">
+                            {item.symbol}{isAllView && item.portfolioName ? ` · ${item.portfolioName}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                      {isLoggedIn && (
+                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => setEditItem(item)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-text-muted border border-border hover:text-accent-blue hover:border-accent-blue/40 active:bg-accent-blue/10 transition-colors"
+                          >
+                            <Pencil size={12} /> 수정
+                          </button>
+                          <button
+                            onClick={() => handleDelete(item.id)}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                              isDel
+                                ? "bg-accent-red/20 text-accent-red border-accent-red/40"
+                                : "text-text-muted border-border hover:text-accent-red hover:border-accent-red/40 active:bg-accent-red/10"
+                            }`}
+                          >
+                            {isDel ? "확인" : (<><Trash2 size={12} /> 삭제</>)}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-y-1 gap-x-3 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">보유수량</span>
+                        <span className="font-mono text-text-primary">{item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">비중</span>
+                        <span className="font-mono text-text-primary">{item.weight.toFixed(1)}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">평단가</span>
+                        <span className="font-mono text-text-secondary">{fmtNative(item.market, item.currency, item.avgPrice)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">현재가</span>
+                        <span className="font-mono text-text-primary">{hasPrice ? fmtNative(item.market, item.currency, item.currentPriceNative) : "—"}</span>
+                      </div>
+                      <div className="flex justify-between col-span-2">
+                        <span className="text-text-muted">평가금액</span>
+                        <span className="font-mono text-text-primary">{hasPrice ? fmtKRWFull(item.currentValueKRW) : "—"}</span>
+                      </div>
+                      <div className="flex justify-between col-span-2">
+                        <span className="text-text-muted">평가손익</span>
+                        <span className={`font-mono font-semibold ${hasPrice ? pc : "text-text-muted"}`}>
+                          {hasPrice ? `${fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)` : "—"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* 데스크톱: 표 */}
+            <div className="hidden sm:block relative overflow-x-auto scrollbar-thin">
             <table className="w-full text-xs min-w-[820px]">
               <thead>
                 <tr className="border-b border-border bg-bg-primary/50">
@@ -1238,7 +1315,8 @@ export default function Portfolio() {
                 </tr>
               </tfoot>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
 
