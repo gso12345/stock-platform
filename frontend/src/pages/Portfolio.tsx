@@ -17,6 +17,8 @@ type ChartMode = "stock" | "market";
 
 interface PortfolioItem {
   id: number;
+  portfolioId?: number;
+  portfolioName?: string;
   symbol: string;
   market: Market;
   name: string;
@@ -27,6 +29,8 @@ interface PortfolioItem {
   purchaseDate?: string;
   note?: string;
 }
+
+type SelectedPortfolio = number | "all";
 
 interface PortfolioMeta {
   id: number;
@@ -578,7 +582,7 @@ export default function Portfolio() {
   };
 
   /* ── 포트폴리오 목록 ── */
-  const [selectedPortfolioId, setSelectedPortfolioId] = useState<number | null>(null);
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState<SelectedPortfolio | null>(null);
 
   const { data: portfolios = [] } = useQuery<PortfolioMeta[]>({
     queryKey: ["portfolios"],
@@ -589,10 +593,14 @@ export default function Portfolio() {
 
   useEffect(() => {
     if (!isLoggedIn || portfolios.length === 0) return;
-    if (selectedPortfolioId == null || !portfolios.some((p) => p.id === selectedPortfolioId)) {
-      setSelectedPortfolioId(portfolios[0].id);
+    if (selectedPortfolioId == null) { setSelectedPortfolioId("all"); return; }
+    if (selectedPortfolioId !== "all" && !portfolios.some((p) => p.id === selectedPortfolioId)) {
+      setSelectedPortfolioId("all");
     }
   }, [isLoggedIn, portfolios, selectedPortfolioId]);
+
+  const isAllView = selectedPortfolioId === "all";
+  const totalItemCount = portfolios.reduce((s, p) => s + p.count, 0);
 
   const createPortfolioMutation = useMutation({
     mutationFn: (name: string) => portfolioApi.createPortfolio(name),
@@ -618,7 +626,9 @@ export default function Portfolio() {
   /* ── 서버 데이터 ── */
   const { data: items = [], isLoading: itemsLoading } = useQuery<PortfolioItem[]>({
     queryKey: ["portfolio-items", selectedPortfolioId],
-    queryFn:  () => portfolioApi.getItems(selectedPortfolioId ?? undefined),
+    queryFn:  () => isAllView
+      ? portfolioApi.getItems(undefined, true)
+      : portfolioApi.getItems(selectedPortfolioId ?? undefined),
     enabled:  isLoggedIn && selectedPortfolioId != null,
     staleTime: 60_000,
   });
@@ -637,7 +647,7 @@ export default function Portfolio() {
   const addMutation = useMutation({
     mutationFn: (data: Omit<PortfolioItem, "id">) =>
       portfolioApi.addItem({
-        portfolio_id: selectedPortfolioId ?? undefined,
+        portfolio_id: isAllView ? undefined : (selectedPortfolioId ?? undefined),
         symbol: data.symbol, market: data.market, name: data.name,
         shares: data.shares, avg_price: data.avgPrice, currency: data.currency,
         input_exchange_rate: data.inputExchangeRate ?? null,
@@ -645,7 +655,7 @@ export default function Portfolio() {
         note: data.note ?? null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items", selectedPortfolioId] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
       queryClient.invalidateQueries({ queryKey: ["portfolios"] });
       setModalError(null);
     },
@@ -662,7 +672,7 @@ export default function Portfolio() {
         note: data.note ?? null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items", selectedPortfolioId] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
       setModalError(null);
     },
     onError: (err) => setModalError(_extractErrMsg(err)),
@@ -671,7 +681,7 @@ export default function Portfolio() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => portfolioApi.deleteItem(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items", selectedPortfolioId] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
       queryClient.invalidateQueries({ queryKey: ["portfolios"] });
       setConfirmDeleteId(null);
     },
@@ -898,6 +908,17 @@ export default function Portfolio() {
       {/* ── 포트폴리오 선택 탭 ── */}
       {isLoggedIn && portfolios.length > 0 && (
         <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
+          <button
+            onClick={() => setSelectedPortfolioId("all")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
+              isAllView
+                ? "border-accent-blue bg-accent-blue/10 text-accent-blue"
+                : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+            }`}
+          >
+            <span>전체</span>
+            <span className="text-[10px] opacity-60">({totalItemCount})</span>
+          </button>
           {portfolios.map((pf) => (
             <PortfolioPill
               key={pf.id}
@@ -1059,12 +1080,16 @@ export default function Portfolio() {
             {isLoggedIn && isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />}
           </div>
           {isLoggedIn ? (
-            <button
-              onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
-            >
-              <Plus size={13} /> 추가
-            </button>
+            isAllView ? (
+              <span className="text-xs text-text-muted">개별 포트폴리오를 선택하면 종목을 추가할 수 있어요</span>
+            ) : (
+              <button
+                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
+              >
+                <Plus size={13} /> 추가
+              </button>
+            )
           ) : (
             <span className="px-2.5 py-1 rounded-lg bg-bg-elevated border border-border text-xs text-text-muted font-semibold">
               예시 데이터
@@ -1082,14 +1107,16 @@ export default function Portfolio() {
             </div>
             <div className="text-center">
               <p className="text-text-primary font-semibold text-sm">보유 종목 없음</p>
-              <p className="text-text-muted text-xs mt-1">+ 추가 버튼으로 종목을 등록하세요</p>
+              {!isAllView && <p className="text-text-muted text-xs mt-1">+ 추가 버튼으로 종목을 등록하세요</p>}
             </div>
-            <button
-              onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
-            >
-              <Plus size={14} /> 첫 종목 추가
-            </button>
+            {!isAllView && (
+              <button
+                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+              >
+                <Plus size={14} /> 첫 종목 추가
+              </button>
+            )}
           </div>
         ) : (
           <div className="relative overflow-x-auto scrollbar-thin">
@@ -1097,6 +1124,7 @@ export default function Portfolio() {
               <thead>
                 <tr className="border-b border-border bg-bg-primary/50">
                   <SortHead field="name"    label="종목명"      sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} align="left" />
+                  {isAllView && <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-left">포트폴리오</th>}
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">시장</th>
                   <SortHead field="shares"  label="보유수량"    sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">평단가</th>
@@ -1125,6 +1153,9 @@ export default function Portfolio() {
                           <span className="text-text-dim font-mono">{item.symbol}</span>
                         </div>
                       </td>
+                      {isAllView && (
+                        <td className="px-3 py-2.5 text-text-muted whitespace-nowrap">{item.portfolioName || "-"}</td>
+                      )}
                       <td className="px-3 py-2.5 text-right whitespace-nowrap"><MarketBadge market={item.market} /></td>
                       <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
                         {item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}
@@ -1185,7 +1216,7 @@ export default function Portfolio() {
               </tbody>
               <tfoot>
                 <tr className="border-t border-border bg-bg-primary/50">
-                  <td className="px-3 py-2.5 font-semibold text-text-muted" colSpan={4}>합계</td>
+                  <td className="px-3 py-2.5 font-semibold text-text-muted" colSpan={isAllView ? 5 : 4}>합계</td>
                   <td />
                   {isLoggedIn && pricesLoading ? (
                     <>

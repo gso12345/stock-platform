@@ -164,10 +164,25 @@ def delete_portfolio(
 @router.get("/items")
 def get_items(
     portfolio_id: Optional[int] = None,
+    view_all: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
     _repair_orphan_items(db, current_user.id)
+
+    if view_all:
+        items = (
+            db.query(PortfolioItem)
+            .filter(PortfolioItem.user_id == current_user.id)
+            .order_by(PortfolioItem.created_at)
+            .all()
+        )
+        pf_names = {
+            p.id: p.name
+            for p in db.query(Portfolio).filter(Portfolio.user_id == current_user.id).all()
+        }
+        return [{**_to_dict(i), "portfolioName": pf_names.get(i.portfolio_id, "")} for i in items]
+
     if portfolio_id is not None:
         if not _valid_portfolio_id(db, portfolio_id, current_user.id):
             raise HTTPException(status_code=404, detail="포트폴리오를 찾을 수 없습니다")
