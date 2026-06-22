@@ -74,7 +74,7 @@ function fmtUSD(v: number): string {
   return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 function fmtNative(market: Market, currency: Currency, price: number): string {
-  if (market === "KR" || currency === "KRW") return fmtKRW(price);
+  if (market === "KR" || currency === "KRW") return fmtKRWFull(price);
   return fmtUSD(price);
 }
 
@@ -935,42 +935,42 @@ export default function Portfolio() {
                           <span className="text-text-dim font-mono">{item.symbol}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 text-right"><MarketBadge market={item.market} /></td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-primary">
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap"><MarketBadge market={item.market} /></td>
+                      <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
                         {item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-secondary">
+                      <td className="px-3 py-2.5 text-right font-mono text-text-secondary whitespace-nowrap">
                         <div>{fmtNative(item.market, item.currency, item.avgPrice)}</div>
                         {item.currency === "USD" && item.inputExchangeRate && (
                           <div className="text-[10px] text-text-dim">@{Math.round(item.inputExchangeRate).toLocaleString()}원</div>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-primary">
+                      <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
                         {hasPrice ? (
                           (item.market === "US" || item.market === "ETF") ? (
                             <div>
-                              <div>{fmtKRW(item.currentPriceNative * exchangeRate)}</div>
+                              <div>{fmtKRWFull(item.currentPriceNative * exchangeRate)}</div>
                               <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>
                             </div>
                           ) : fmtNative(item.market, item.currency, item.currentPriceNative)
                         ) : <span className="text-text-muted">—</span>}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-primary">
+                      <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
                         {hasPrice ? fmtKRWFull(item.currentValueKRW) : <span className="text-text-muted">—</span>}
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-mono font-semibold ${hasPrice ? pc : "text-text-muted"}`}>
+                      <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
                         {hasPrice ? fmtKRWFullSign(item.pnlKRW) : "—"}
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-mono font-semibold ${hasPrice ? pc : "text-text-muted"}`}>
+                      <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
                         {hasPrice ? `${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%` : "—"}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-muted">
+                      <td className="px-3 py-2.5 text-right font-mono text-text-muted whitespace-nowrap">
                         <div>{item.weight.toFixed(1)}%</div>
                         <div className="w-12 h-1 bg-bg-elevated rounded-full overflow-hidden ml-auto mt-0.5">
                           <div className="h-full bg-accent-blue/60 rounded-full" style={{ width: `${Math.min(100, item.weight)}%` }} />
                         </div>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
                         {isLoggedIn && (
                           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                             <button onClick={() => setEditItem(item)}
@@ -999,20 +999,20 @@ export default function Portfolio() {
                   <td />
                   {isLoggedIn && pricesLoading ? (
                     <>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted">—</td>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted">—</td>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted">—</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted whitespace-nowrap">—</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted whitespace-nowrap">—</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted whitespace-nowrap">—</td>
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary">{fmtKRWFull(displaySummary.totalValue)}</td>
-                      <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalPnl)}`}>{fmtKRWFullSign(displaySummary.totalPnl)}</td>
-                      <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalRate)}`}>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary whitespace-nowrap">{fmtKRWFull(displaySummary.totalValue)}</td>
+                      <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${pnlColor(displaySummary.totalPnl)}`}>{fmtKRWFullSign(displaySummary.totalPnl)}</td>
+                      <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${pnlColor(displaySummary.totalRate)}`}>
                         {displaySummary.totalRate >= 0 ? "+" : ""}{displaySummary.totalRate.toFixed(2)}%
                       </td>
                     </>
                   )}
-                  <td className="px-3 py-2.5 text-right font-mono text-text-muted">100%</td>
+                  <td className="px-3 py-2.5 text-right font-mono text-text-muted whitespace-nowrap">100%</td>
                   <td />
                 </tr>
               </tfoot>

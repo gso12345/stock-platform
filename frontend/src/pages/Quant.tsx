@@ -269,7 +269,7 @@ export default function Quant() {
                             ?
                           </button>
                           {showGradeHelp && (
-                            <div className="absolute right-0 top-6 z-30 w-48 rounded-xl border border-border bg-bg-elevated shadow-lg p-3 flex flex-col gap-1.5 text-left">
+                            <div className="absolute left-0 top-6 z-50 w-48 rounded-xl border border-border bg-bg-elevated shadow-lg p-3 flex flex-col gap-1.5 text-left">
                               <span className="text-[11px] font-semibold text-text-secondary pb-1">등급 기준</span>
                               {GRADE_BANDS.map((b) => (
                                 <div key={b.grade} className="flex items-center justify-between text-xs">
@@ -317,7 +317,7 @@ export default function Quant() {
                               <span className="text-text-muted text-[11px] font-mono">{row.symbol}</span>
                             </div>
                           </td>
-                          <td className={`px-3 py-2.5 text-right font-mono font-bold ${scoreColor(row.total_score)}`}>
+                          <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${scoreColor(row.total_score)}`}>
                             {row.total_score != null ? row.total_score.toFixed(1) : "—"}
                           </td>
                           <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${gradeColor(row.grade)}`}>
@@ -326,7 +326,7 @@ export default function Quant() {
                           {(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => {
                             const s = factorScore(k);
                             return (
-                              <td key={k} className={`px-3 py-2.5 text-right font-mono text-xs ${scoreColor(s)}`}>
+                              <td key={k} className={`px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap ${scoreColor(s)}`}>
                                 {s != null ? s.toFixed(1) : "—"}
                               </td>
                             );
