@@ -50,6 +50,15 @@ KO_NAME_MAP: dict[str, list[str]] = {
     "NXPI":  ["NXP반도체"],                     "MCHP": ["마이크로칩테크놀로지"],
 }
 
+def get_display_name(symbol: str, market: str, fallback: str = "") -> str:
+    """해외(US/ETF) 종목은 한국어 별칭이 있으면 그걸로 표시, 없으면 기존 이름 사용"""
+    if market in ("US", "ETF") and symbol:
+        aliases = KO_NAME_MAP.get(symbol.upper())
+        if aliases:
+            return aliases[0]
+    return fallback or symbol
+
+
 # 미국 주요 상장 종목 (S&P500 + NASDAQ100 + 기타 인기)
 US_TICKERS: list[dict] = [
     # ── S&P 500 대형주 ──

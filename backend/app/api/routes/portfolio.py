@@ -9,6 +9,7 @@ from app.db.database import get_db
 from app.models.stock import Portfolio, PortfolioItem
 from app.models.user import User
 from app.core.deps import require_user
+from app.services.ticker_service import get_display_name
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def _to_dict(item: PortfolioItem) -> dict:
         "portfolioId":       item.portfolio_id,
         "symbol":            item.symbol,
         "market":            item.market,
-        "name":              item.name or item.symbol,
+        "name":              get_display_name(item.symbol, item.market, item.name or item.symbol),
         "shares":            item.shares,
         "avgPrice":          item.avg_price,
         "currency":          item.currency,

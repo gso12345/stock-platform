@@ -11,6 +11,7 @@ from app.models.user import User
 import re
 from app.core.deps import get_current_user, require_user
 from app.services.yf_service import yf_service
+from app.services.ticker_service import get_display_name
 from app.core.cache import cache
 
 router = APIRouter(prefix="/watchlist", tags=["관심종목"])
@@ -67,7 +68,7 @@ def _item_to_dict(item: WatchlistItem) -> dict:
         "id":          item.id,
         "symbol":      item.symbol,
         "market":      item.market,
-        "name":        item.name or item.symbol,
+        "name":        get_display_name(item.symbol, item.market, item.name or item.symbol),
         "memo":        item.memo or "",
         "folder_id":   item.folder_id,
         "folder_name": item.folder.name if item.folder else None,
