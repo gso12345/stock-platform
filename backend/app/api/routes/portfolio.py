@@ -43,6 +43,21 @@ def _ensure_portfolio(db: Session, user_id: int) -> Portfolio:
     return pf
 
 
+def _repair_orphan_items(db: Session, user_id: int) -> None:
+    """startup 마이그레이션이 실패했거나 아직 실행되지 않은 경우를 대비한 안전장치.
+    portfolio_id가 비어있는(다중 포트폴리오 도입 이전) 보유 종목을 기본 포트폴리오로 편입한다."""
+    has_orphan = db.query(PortfolioItem).filter(
+        PortfolioItem.user_id == user_id, PortfolioItem.portfolio_id.is_(None)
+    ).first()
+    if not has_orphan:
+        return
+    pf = _ensure_portfolio(db, user_id)
+    db.query(PortfolioItem).filter(
+        PortfolioItem.user_id == user_id, PortfolioItem.portfolio_id.is_(None)
+    ).update({"portfolio_id": pf.id})
+    db.commit()
+
+
 def _valid_portfolio_id(db: Session, portfolio_id: int, user_id: int) -> bool:
     return db.query(Portfolio).filter(
         Portfolio.id == portfolio_id, Portfolio.user_id == user_id,
@@ -75,6 +90,7 @@ def get_portfolios(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
+    _repair_orphan_items(db, current_user.id)
     portfolios = (
         db.query(Portfolio)
         .filter(Portfolio.user_id == current_user.id)
@@ -151,6 +167,7 @@ def get_items(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
+    _repair_orphan_items(db, current_user.id)
     if portfolio_id is not None:
         if not _valid_portfolio_id(db, portfolio_id, current_user.id):
             raise HTTPException(status_code=404, detail="포트폴리오를 찾을 수 없습니다")
