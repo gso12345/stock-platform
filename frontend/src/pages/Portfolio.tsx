@@ -52,19 +52,6 @@ interface EnrichedItem extends PortfolioItem {
 const PIE_COLORS  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
 const DEFAULT_FX  = 1350;
 
-/* ── 미리보기 예시 데이터 (비로그인 시 표시) ────────────────── */
-const PREVIEW_ENRICHED: EnrichedItem[] = [
-  { id: -1, symbol: "005930", market: "KR", name: "삼성전자",   shares: 50,  avgPrice: 100000, currency: "KRW",
-    currentPriceNative: 72400,  currentValueKRW: 3_620_000,  costKRW: 5_000_000,  pnlKRW: -1_380_000, pnlRate: -27.60, weight:  4.7 },
-  { id: -2, symbol: "NVDA",   market: "US", name: "엔비디아",   shares: 50,  avgPrice: 110,   currency: "USD", inputExchangeRate: 1320,
-    currentPriceNative: 875,    currentValueKRW: 57_750_000, costKRW: 7_260_000,  pnlKRW: 50_490_000, pnlRate: 695.45, weight: 74.2 },
-  { id: -3, symbol: "AAPL",   market: "US", name: "애플",       shares: 30,  avgPrice: 172,   currency: "USD", inputExchangeRate: 1310,
-    currentPriceNative: 195,    currentValueKRW: 7_663_500,  costKRW: 6_759_600,  pnlKRW:  903_900, pnlRate: 13.37, weight:  9.8 },
-  { id: -4, symbol: "000660", market: "KR", name: "SK하이닉스", shares: 10,  avgPrice: 300000, currency: "KRW",
-    currentPriceNative: 185000, currentValueKRW: 1_850_000,  costKRW: 3_000_000,  pnlKRW: -1_150_000, pnlRate: -38.33, weight:  2.4 },
-  { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 10, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
-    currentPriceNative: 535,    currentValueKRW: 6_955_000,  costKRW: 5_460_000,  pnlKRW: 1_495_000, pnlRate: 27.38, weight:  8.9 },
-];
 /* ── Format utils ───────────────────────────────────────── */
 function fmtKRW(v: number): string {
   const abs = Math.abs(v);
@@ -756,43 +743,6 @@ export default function Portfolio() {
     refetchInterval:120_000,
   });
 
-  /* ── 비로그인 미리보기용 실시간 현재가 (예시 보유종목도 실제 시세로 표시) ── */
-  const { data: previewBatchPrices } = useQuery({
-    queryKey:       ["portfolio-preview-prices"],
-    queryFn:        () => watchlistApi.getPrices(PREVIEW_ENRICHED.map((i) => i.symbol), PREVIEW_ENRICHED.map((i) => i.market)),
-    enabled:        !isLoggedIn,
-    staleTime:      120_000,
-    refetchInterval:120_000,
-  });
-
-  const previewEnrichedLive = useMemo<EnrichedItem[]>(() => {
-    const list = PREVIEW_ENRICHED.map((base, i) => {
-      const d = previewBatchPrices?.[i] as any;
-      const currentPriceNative = d?.price ?? base.currentPriceNative;
-      const isUSDStock = base.market === "US" || base.market === "ETF";
-      const currentValueKRW = isUSDStock
-        ? currentPriceNative * exchangeRate * base.shares
-        : currentPriceNative * base.shares;
-      const fxForCost = base.currency === "USD"
-        ? (base.inputExchangeRate ?? exchangeRate)
-        : 1; // 평단가를 원화로 입력했으면 이미 원화 금액이므로 환율을 다시 곱하지 않음
-      const costKRW = base.avgPrice * fxForCost * base.shares;
-      const pnlKRW = currentValueKRW - costKRW;
-      const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;
-      return { ...base, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0 };
-    });
-    const totalKRW = list.reduce((s, e) => s + e.currentValueKRW, 0);
-    return list.map((e) => ({ ...e, weight: totalKRW > 0 ? (e.currentValueKRW / totalKRW) * 100 : 0 }));
-  }, [previewBatchPrices, exchangeRate]);
-
-  const previewSummaryLive = useMemo(() => {
-    const totalValue = previewEnrichedLive.reduce((s, e) => s + e.currentValueKRW, 0);
-    const totalCost  = previewEnrichedLive.reduce((s, e) => s + e.costKRW, 0);
-    const totalPnl   = totalValue - totalCost;
-    const totalRate  = totalCost !== 0 ? (totalPnl / totalCost) * 100 : 0;
-    return { totalValue, totalCost, totalPnl, totalRate };
-  }, [previewEnrichedLive]);
-
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
     items.forEach((item, i) => {
@@ -884,17 +834,7 @@ export default function Portfolio() {
     return Object.entries(map).map(([name, value]) => ({ name, value: Math.round(value) }));
   }, [enriched]);
 
-  const previewStockPie = previewEnrichedLive.map((e) => ({
-    name: e.market === "US" || e.market === "ETF" ? e.symbol : e.name,
-    value: e.currentValueKRW,
-  }));
-  const previewMarketPie = Object.entries(
-    previewEnrichedLive.reduce((acc, e) => { acc[e.market] = (acc[e.market] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
-  ).map(([name, value]) => ({ name, value }));
-
-  const activePieData = isLoggedIn
-    ? (chartMode === "stock" ? stockPieData : marketPieData)
-    : (chartMode === "stock" ? previewStockPie : previewMarketPie);
+  const activePieData = isLoggedIn ? (chartMode === "stock" ? stockPieData : marketPieData) : [];
 
   /* ── CRUD ── */
   const handleAdd = (data: Omit<PortfolioItem, "id">) => {
@@ -912,11 +852,11 @@ export default function Portfolio() {
 
   const isLoading = itemsLoading || pricesLoading;
 
-  /* ── 미리보기 vs 실데이터 ── */
-  const displayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
-  const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
+  /* ── 실제 데이터만 표시 (비로그인/미연동 시 예시 데이터 노출 금지) ── */
+  const displayEnriched = isLoggedIn ? sortedEnriched : [];
+  const displaySummary  = isLoggedIn ? summary : { totalValue: 0, totalCost: 0, totalPnl: 0, totalRate: 0 };
   // 로그인 상태에서는 현재가를 다 불러오기 전까지 매입가 기반 추정치를 보여주지 않음
-  const hasDisplay      = displayEnriched.length > 0 && (!isLoggedIn || !isLoading);
+  const hasDisplay      = isLoggedIn && displayEnriched.length > 0 && !isLoading;
 
   return (
     <div className="flex flex-col gap-4 fade-in pb-20">
@@ -970,15 +910,15 @@ export default function Portfolio() {
         </div>
       )}
 
-      {/* ── 로그인 배너 (미리보기 모드) ── */}
+      {/* ── 로그인 배너 (비로그인 시 — 실제 데이터 없이는 정보 미표시) ── */}
       {!isLoggedIn && (
         <div className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-accent-blue/10 border border-accent-blue/20">
           <div className="w-8 h-8 rounded-lg bg-accent-blue/20 flex items-center justify-center flex-shrink-0">
             <LogIn size={15} className="text-accent-blue" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-text-primary">미리보기 모드</p>
-            <p className="text-xs text-text-muted mt-0.5">아래는 예시 데이터입니다. 로그인하면 내 종목을 직접 추가·관리할 수 있어요.</p>
+            <p className="text-xs font-semibold text-text-primary">로그인이 필요합니다</p>
+            <p className="text-xs text-text-muted mt-0.5">로그인하면 내 종목을 추가하고 실제 자산 현황을 확인할 수 있어요.</p>
           </div>
           <Link to="/login"
             className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
@@ -992,7 +932,9 @@ export default function Portfolio() {
       <div>
         <h1 className="text-2xl font-bold text-text-primary">내 자산</h1>
         <p className="text-text-muted text-xs mt-0.5">
-          {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : `${displayEnriched.length}개 종목 · 클릭하면 상세로 이동`}
+          {!isLoggedIn
+            ? "로그인 후 실제 보유 종목을 확인하세요"
+            : itemsLoading ? "보유 종목 불러오는 중..." : `${displayEnriched.length}개 종목 · 클릭하면 상세로 이동`}
         </p>
       </div>
 
@@ -1111,7 +1053,7 @@ export default function Portfolio() {
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-sm font-semibold text-text-primary whitespace-nowrap">보유 종목</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted font-semibold whitespace-nowrap">
-              {isLoggedIn ? items.length : "예시"}
+              {isLoggedIn ? items.length : 0}
             </span>
             {isLoggedIn && isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
           </div>
@@ -1142,18 +1084,29 @@ export default function Portfolio() {
                   <Plus size={13} /> 추가
                 </button>
               )
-            ) : (
-              <span className="px-2.5 py-1 rounded-lg bg-bg-elevated border border-border text-xs text-text-muted font-semibold whitespace-nowrap flex-shrink-0">
-                예시 데이터
-              </span>
-            )}
+            ) : null}
           </div>
         </div>
 
-        {/* 로그인 상태에서 보유종목 불러오는 중 — 빈 상태로 단정하지 않고 스켈레톤만 표시 */}
-        {isLoggedIn && itemsLoading ? (
+        {/* 비로그인 시 실제 데이터가 없으므로 예시 데이터 대신 로그인 안내만 표시 */}
+        {!isLoggedIn ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-bg-elevated border border-border flex items-center justify-center">
+              <LogIn size={24} className="text-text-muted" />
+            </div>
+            <div className="text-center">
+              <p className="text-text-primary font-semibold text-sm">로그인이 필요합니다</p>
+              <p className="text-text-muted text-xs mt-1">실제 보유 종목 정보는 로그인 후 확인할 수 있어요</p>
+            </div>
+            <Link to="/login"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+            >
+              <LogIn size={14} /> 로그인
+            </Link>
+          </div>
+        ) : itemsLoading ? (
           <div className="p-3"><RowSkeleton rows={3} /></div>
-        ) : isLoggedIn && items.length === 0 ? (
+        ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-4">
             <div className="w-14 h-14 rounded-2xl bg-bg-elevated border border-border flex items-center justify-center">
               <Wallet size={24} className="text-text-muted" />
