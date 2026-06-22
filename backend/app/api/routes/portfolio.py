@@ -20,6 +20,10 @@ class PortfolioRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
 
 
+class ReorderRequest(BaseModel):
+    order: list[int]
+
+
 class PortfolioItemRequest(BaseModel):
     portfolio_id: Optional[int] = Field(None, ge=1)
     symbol: str = Field(..., min_length=1, max_length=20)
@@ -123,6 +127,23 @@ def create_portfolio(
     db.commit()
     db.refresh(pf)
     return _portfolio_to_dict(pf, 0)
+
+
+@router.put("/portfolios/reorder")
+def reorder_portfolios(
+    req: ReorderRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """포트폴리오 순서 일괄 저장 (본인 소유 포트폴리오만 수정)"""
+    # "/portfolios/{portfolio_id}"보다 먼저 등록해야 함 — 그렇지 않으면 "reorder"가
+    # portfolio_id로 파싱되어 422 에러가 나고 이 라우트에 도달하지 못함
+    for position, portfolio_id in enumerate(req.order):
+        db.query(Portfolio).filter(
+            Portfolio.id == portfolio_id, Portfolio.user_id == current_user.id,
+        ).update({"position": position})
+    db.commit()
+    return {"message": "순서 저장 완료"}
 
 
 @router.put("/portfolios/{portfolio_id}")

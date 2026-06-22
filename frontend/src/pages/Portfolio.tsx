@@ -468,9 +468,14 @@ function DeleteItemModal({
 /* ── 포트폴리오 선택 탭 ──────────────────────────────────── */
 function PortfolioPill({
   portfolio, active, canDelete, onSelect, onRename, onDelete,
+  draggable, isDragging, isDropTarget,
+  onDragStart, onDragOver, onDrop, onTouchStart, onTouchMove, onTouchEnd,
 }: {
   portfolio: PortfolioMeta; active: boolean; canDelete: boolean;
   onSelect: () => void; onRename: (name: string) => void; onDelete: () => void;
+  draggable?: boolean; isDragging?: boolean; isDropTarget?: boolean;
+  onDragStart?: () => void; onDragOver?: (e: React.DragEvent) => void; onDrop?: () => void;
+  onTouchStart?: (e: React.TouchEvent) => void; onTouchMove?: (e: React.TouchEvent) => void; onTouchEnd?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(portfolio.name);
@@ -509,20 +514,30 @@ function PortfolioPill({
   return (
     <div
       onClick={onSelect}
-      className={`group flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
+      data-portfolio-id={portfolio.id}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      title={draggable ? "길게 눌러서 드래그하면 포트폴리오 순서를 바꿀 수 있어요" : undefined}
+      style={{ touchAction: isDragging ? "none" : "auto" }}
+      className={`group flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 -mb-px cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
         active
-          ? "border-accent-blue bg-accent-blue/10 text-accent-blue"
-          : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
-      }`}
+          ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+          : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+      } ${isDragging ? "opacity-40" : ""} ${isDropTarget ? "ring-1 ring-accent-blue ring-inset" : ""}`}
     >
       <span>{portfolio.name}</span>
-      <span className="text-[10px] opacity-60">({portfolio.count})</span>
+      <span className="text-xs opacity-60">({portfolio.count})</span>
       <button
         onClick={(e) => { e.stopPropagation(); setEditing(true); }}
         className="p-1.5 -m-0.5 rounded text-text-muted/70 hover:text-accent-blue active:text-accent-blue transition-colors"
         title="이름 변경"
       >
-        <Pencil size={11} />
+        <Pencil size={12} />
       </button>
       {canDelete && (
         <button
@@ -538,7 +553,7 @@ function PortfolioPill({
           }`}
           title={confirmDel ? "한 번 더 클릭하면 삭제됩니다" : "삭제"}
         >
-          <X size={12} />
+          <X size={13} />
         </button>
       )}
     </div>
@@ -663,6 +678,106 @@ export default function Portfolio() {
       if (selectedPortfolioId === id) setSelectedPortfolioId(null);
     },
   });
+
+  /* ── 포트폴리오 탭 길게 눌러 드래그 정렬 (관심종목 폴더탭과 동일 패턴) ── */
+  const [dragPortfolioId,  setDragPortfolioId]  = useState<number | null>(null);
+  const [dropPortfolioId,  setDropPortfolioId]  = useState<number | null>(null);
+  const [localPortfolioOrder, setLocalPortfolioOrder] = useState<PortfolioMeta[] | null>(null);
+  const portfolioLongPressTimer  = useRef<number | null>(null);
+  const portfolioTouchStartPos   = useRef<{ x: number; y: number } | null>(null);
+  const portfolioJustDragged     = useRef(false);
+
+  const reorderPortfoliosMutation = useMutation({
+    mutationFn: (order: number[]) => portfolioApi.reorderPortfolios(order),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolios"] }),
+  });
+
+  const handlePortfolioDragStart = (pf: PortfolioMeta) => {
+    setDragPortfolioId(pf.id);
+    setLocalPortfolioOrder(portfolios);
+  };
+
+  const movePortfolioTo = (targetId: number) => {
+    if (dragPortfolioId === null || dragPortfolioId === targetId) return;
+    setDropPortfolioId(targetId);
+    const base = localPortfolioOrder ?? portfolios;
+    const from = base.findIndex((p) => p.id === dragPortfolioId);
+    const to   = base.findIndex((p) => p.id === targetId);
+    if (from === -1 || to === -1) return;
+    const next = [...base];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setLocalPortfolioOrder(next);
+  };
+
+  const handlePortfolioDragOver = (e: React.DragEvent, targetId: number) => {
+    e.preventDefault();
+    movePortfolioTo(targetId);
+  };
+
+  const handlePortfolioDrop = () => {
+    if (dragPortfolioId !== null && localPortfolioOrder) {
+      reorderPortfoliosMutation.mutate(localPortfolioOrder.map((p) => p.id));
+    }
+    setDragPortfolioId(null); setDropPortfolioId(null); setLocalPortfolioOrder(null);
+  };
+
+  const PORTFOLIO_LONG_PRESS_MS = 350;
+  const PORTFOLIO_LONG_PRESS_MOVE_TOLERANCE = 8;
+
+  const clearPortfolioLongPressTimer = () => {
+    if (portfolioLongPressTimer.current !== null) {
+      window.clearTimeout(portfolioLongPressTimer.current);
+      portfolioLongPressTimer.current = null;
+    }
+  };
+
+  const handlePortfolioTouchStart = (pf: PortfolioMeta, e: React.TouchEvent) => {
+    const t = e.touches[0];
+    portfolioTouchStartPos.current = { x: t.clientX, y: t.clientY };
+    clearPortfolioLongPressTimer();
+    portfolioLongPressTimer.current = window.setTimeout(() => {
+      handlePortfolioDragStart(pf);
+    }, PORTFOLIO_LONG_PRESS_MS);
+  };
+
+  const handlePortfolioTouchMoveGated = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (dragPortfolioId !== null) {
+      e.preventDefault();
+      const el = (document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null)?.closest("[data-portfolio-id]") as HTMLElement | null;
+      if (el) {
+        const targetId = Number(el.dataset.portfolioId);
+        if (targetId) movePortfolioTo(targetId);
+      }
+      return;
+    }
+    const start = portfolioTouchStartPos.current;
+    if (start) {
+      const dx = Math.abs(t.clientX - start.x);
+      const dy = Math.abs(t.clientY - start.y);
+      if (dx > PORTFOLIO_LONG_PRESS_MOVE_TOLERANCE || dy > PORTFOLIO_LONG_PRESS_MOVE_TOLERANCE) {
+        clearPortfolioLongPressTimer();
+      }
+    }
+  };
+
+  const handlePortfolioTouchEnd = () => {
+    clearPortfolioLongPressTimer();
+    if (dragPortfolioId !== null) {
+      portfolioJustDragged.current = true;
+      handlePortfolioDrop();
+    }
+    portfolioTouchStartPos.current = null;
+  };
+
+  const handlePortfolioTabClick = (pf: PortfolioMeta) => {
+    if (portfolioJustDragged.current) {
+      portfolioJustDragged.current = false;
+      return;
+    }
+    setSelectedPortfolioId(pf.id);
+  };
 
   /* ── 서버 데이터 ── */
   const { data: items = [], isLoading: itemsLoading } = useQuery<PortfolioItem[]>({
@@ -943,27 +1058,36 @@ export default function Portfolio() {
 
       {/* ── 포트폴리오 선택 탭 ── */}
       {isLoggedIn && portfolios.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
+        <div className="flex items-center border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
           <button
             onClick={() => setSelectedPortfolioId("all")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all flex-shrink-0 whitespace-nowrap ${
               isAllView
-                ? "border-accent-blue bg-accent-blue/10 text-accent-blue"
-                : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+                ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+                : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
             }`}
           >
             <span>전체</span>
-            <span className="text-[10px] opacity-60">({totalItemCount})</span>
+            <span className="text-xs opacity-60">({totalItemCount})</span>
           </button>
-          {portfolios.map((pf) => (
+          {(localPortfolioOrder ?? portfolios).map((pf) => (
             <PortfolioPill
               key={pf.id}
               portfolio={pf}
               active={pf.id === selectedPortfolioId}
               canDelete={portfolios.length > 1}
-              onSelect={() => setSelectedPortfolioId(pf.id)}
+              onSelect={() => handlePortfolioTabClick(pf)}
               onRename={(name) => renamePortfolioMutation.mutate({ id: pf.id, name })}
               onDelete={() => deletePortfolioMutation.mutate(pf.id)}
+              draggable={portfolios.length > 1}
+              isDragging={dragPortfolioId === pf.id}
+              isDropTarget={dropPortfolioId === pf.id}
+              onDragStart={() => handlePortfolioDragStart(pf)}
+              onDragOver={(e) => handlePortfolioDragOver(e, pf.id)}
+              onDrop={handlePortfolioDrop}
+              onTouchStart={(e) => handlePortfolioTouchStart(pf, e)}
+              onTouchMove={handlePortfolioTouchMoveGated}
+              onTouchEnd={handlePortfolioTouchEnd}
             />
           ))}
           <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />

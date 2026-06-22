@@ -132,6 +132,24 @@ def create_folder(
     return {"id": folder.id, "name": folder.name, "position": folder.position, "count": 0}
 
 
+@router.put("/folders/reorder")
+def reorder_folders(
+    req: ReorderRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """관심종목 폴더 순서 일괄 저장 (소유했거나 공유된 폴더만 수정)"""
+    # "/folders/{folder_id}"보다 먼저 등록해야 함 — 그렇지 않으면 "reorder"가
+    # folder_id로 파싱되어 422 에러가 나고 이 라우트에 도달하지 못함
+    for position, folder_id in enumerate(req.order):
+        db.query(WatchlistFolder).filter(
+            WatchlistFolder.id == folder_id,
+            (WatchlistFolder.user_id == current_user.id) | (WatchlistFolder.user_id == None),
+        ).update({"position": position})
+    db.commit()
+    return {"message": "순서 저장 완료"}
+
+
 @router.put("/folders/{folder_id}")
 def update_folder(
     folder_id: int,
@@ -161,22 +179,6 @@ def delete_folder(
     db.delete(folder)
     db.commit()
     return {"message": "삭제 완료"}
-
-
-@router.put("/folders/reorder")
-def reorder_folders(
-    req: ReorderRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_user),
-):
-    """관심종목 폴더 순서 일괄 저장 (소유했거나 공유된 폴더만 수정)"""
-    for position, folder_id in enumerate(req.order):
-        db.query(WatchlistFolder).filter(
-            WatchlistFolder.id == folder_id,
-            (WatchlistFolder.user_id == current_user.id) | (WatchlistFolder.user_id == None),
-        ).update({"position": position})
-    db.commit()
-    return {"message": "순서 저장 완료"}
 
 
 # ── 관심종목 일괄 가격 조회 (빠른 배치 fetch + 캐시 저장) ────────
