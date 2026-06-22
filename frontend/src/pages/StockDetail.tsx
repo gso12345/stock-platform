@@ -1849,7 +1849,7 @@ export default function StockDetail() {
           {/* 서브탭 선택 */}
           <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
             <button
-              onClick={() => { setNewsSubTab("news"); setNewsExpanded(false); }}
+              onClick={() => setNewsSubTab("news")}
               className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${newsSubTab==="news" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}
             >
               <Newspaper size={11}/>뉴스

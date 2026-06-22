@@ -63,8 +63,12 @@ function fmtKRW(v: number): string {
   if (abs >= 1e4)  return `${sign}₩${(abs / 1e4).toFixed(1)}만`;
   return `${sign}₩${Math.round(abs).toLocaleString("ko-KR")}`;
 }
-function fmtKRWSign(v: number): string {
-  return `${v >= 0 ? "+" : ""}${fmtKRW(v)}`;
+function fmtKRWFull(v: number): string {
+  const sign = v < 0 ? "-" : "";
+  return `${sign}₩${Math.round(Math.abs(v)).toLocaleString("ko-KR")}`;
+}
+function fmtKRWFullSign(v: number): string {
+  return `${v >= 0 ? "+" : ""}${fmtKRWFull(v)}`;
 }
 function fmtUSD(v: number): string {
   return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -639,8 +643,8 @@ export default function Portfolio() {
   /* ── 차트 데이터 ── */
   const stockPieData = useMemo(() => {
     const sorted = [...enriched].sort((a, b) => b.currentValueKRW - a.currentValueKRW);
-    const top  = sorted.slice(0, 8);
-    const rest = sorted.slice(8);
+    const top  = sorted.slice(0, 10);
+    const rest = sorted.slice(10);
     const data = top.map((e) => ({
       name: (e.market === "US" || e.market === "ETF") ? e.symbol : (e.name || e.symbol),
       value: Math.round(e.currentValueKRW),
@@ -693,7 +697,8 @@ export default function Portfolio() {
   /* ── 미리보기 vs 실데이터 ── */
   const displayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
   const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
-  const hasDisplay      = displayEnriched.length > 0;
+  // 로그인 상태에서는 현재가를 다 불러오기 전까지 매입가 기반 추정치를 보여주지 않음
+  const hasDisplay      = displayEnriched.length > 0 && (!isLoggedIn || !isLoading);
 
   return (
     <div className="flex flex-col gap-4 fade-in pb-20">
@@ -746,12 +751,23 @@ export default function Portfolio() {
 
       {/* ── 요약 카드 ── */}
       {/* 보유종목이 실제로 연동(로그인 + 종목 추가)되기 전에는 미리보기 수치를 보여주지 않음 */}
-      {isLoggedIn && items.length > 0 && (
+      {/* 로그인 상태에서는 현재가를 다 불러오기 전까지 매입가 기반 추정치를 보여주지 않고 로딩 표시만 함 */}
+      {isLoggedIn && items.length > 0 && pricesLoading && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {["총 평가금액", "총 매입금액", "평가손익", "수익률"].map((label) => (
+            <Card key={label} className="flex flex-col gap-1">
+              <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{label}</span>
+              <div className="h-4 w-20 rounded bg-bg-elevated animate-pulse mt-0.5" />
+            </Card>
+          ))}
+        </div>
+      )}
+      {isLoggedIn && items.length > 0 && !pricesLoading && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "총 평가금액", value: fmtKRW(displaySummary.totalValue),    color: "text-text-primary" },
-            { label: "총 매입금액", value: fmtKRW(displaySummary.totalCost),     color: "text-text-primary" },
-            { label: "평가손익",   value: fmtKRWSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl) },
+            { label: "총 평가금액", value: fmtKRWFull(displaySummary.totalValue),    color: "text-text-primary" },
+            { label: "총 매입금액", value: fmtKRWFull(displaySummary.totalCost),     color: "text-text-primary" },
+            { label: "평가손익",   value: fmtKRWFullSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl) },
             { label: "수익률",     value: `${displaySummary.totalRate >= 0 ? "+" : ""}${displaySummary.totalRate.toFixed(2)}%`, color: pnlColor(displaySummary.totalRate) },
           ].map((c) => (
             <Card key={c.label} className={`flex flex-col gap-1 ${!isLoggedIn ? "opacity-80" : ""}`}>
@@ -766,6 +782,11 @@ export default function Portfolio() {
       )}
 
       {/* ── 구성 차트 ── */}
+      {isLoggedIn && items.length > 0 && isLoading && (
+        <Card className="flex items-center justify-center h-[180px] text-text-muted text-sm">
+          가격 불러오는 중...
+        </Card>
+      )}
       {hasDisplay && (
         <Card className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
@@ -935,13 +956,13 @@ export default function Portfolio() {
                         ) : <span className="text-text-muted">—</span>}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-text-primary">
-                        {fmtKRW(item.currentValueKRW)}
+                        {hasPrice ? fmtKRWFull(item.currentValueKRW) : <span className="text-text-muted">—</span>}
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-mono font-semibold ${pc}`}>
-                        {fmtKRWSign(item.pnlKRW)}
+                      <td className={`px-3 py-2.5 text-right font-mono font-semibold ${hasPrice ? pc : "text-text-muted"}`}>
+                        {hasPrice ? fmtKRWFullSign(item.pnlKRW) : "—"}
                       </td>
-                      <td className={`px-3 py-2.5 text-right font-mono font-semibold ${pc}`}>
-                        {item.pnlRate >= 0 ? "+" : ""}{item.pnlRate.toFixed(2)}%
+                      <td className={`px-3 py-2.5 text-right font-mono font-semibold ${hasPrice ? pc : "text-text-muted"}`}>
+                        {hasPrice ? `${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%` : "—"}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-text-muted">
                         <div>{item.weight.toFixed(1)}%</div>
@@ -976,11 +997,21 @@ export default function Portfolio() {
                 <tr className="border-t border-border bg-bg-primary/50">
                   <td className="px-3 py-2.5 font-semibold text-text-muted" colSpan={4}>합계</td>
                   <td />
-                  <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary">{fmtKRW(displaySummary.totalValue)}</td>
-                  <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalPnl)}`}>{fmtKRWSign(displaySummary.totalPnl)}</td>
-                  <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalRate)}`}>
-                    {displaySummary.totalRate >= 0 ? "+" : ""}{displaySummary.totalRate.toFixed(2)}%
-                  </td>
+                  {isLoggedIn && pricesLoading ? (
+                    <>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted">—</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted">—</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted">—</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary">{fmtKRWFull(displaySummary.totalValue)}</td>
+                      <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalPnl)}`}>{fmtKRWFullSign(displaySummary.totalPnl)}</td>
+                      <td className={`px-3 py-2.5 text-right font-mono font-bold ${pnlColor(displaySummary.totalRate)}`}>
+                        {displaySummary.totalRate >= 0 ? "+" : ""}{displaySummary.totalRate.toFixed(2)}%
+                      </td>
+                    </>
+                  )}
                   <td className="px-3 py-2.5 text-right font-mono text-text-muted">100%</td>
                   <td />
                 </tr>
