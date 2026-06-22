@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api/client";
-import { stocksApi, watchlistApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
+import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { Card, Badge } from "@/components/ui";
@@ -18,6 +18,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
+import { addRecentlyViewed } from "@/utils/recentlyViewed";
 
 /* ── 지표 셀 ────────────────────────────────────────── */
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
@@ -101,7 +102,7 @@ export default function StockDetail() {
   // 현재 캔들 값이 속한 그룹 key 반환
   const activeGroupKey = CANDLE_GROUPS.find(g => g.options.some(o => o.value === candleType))?.key ?? "day";
 
-  const fmt = (v: number | null | undefined) => isKR ? fmtKRW(v) : fmtUSD(v);
+  const fmt = (v: number | null | undefined) => isKR ? fmtKRW(v) : showKRW && v != null ? fmtKRW(v * exchangeRate) : fmtUSD(v);
 
   // 탭별 데이터 선제 prefetch
   const prefetchSecondaryData = useCallback((tabId?: string) => {
@@ -300,12 +301,31 @@ export default function StockDetail() {
     }
   }, [watchlistItems, sym, isLoggedIn]);
 
+  const { data: watchlistFolders = [] } = useQuery({
+    queryKey: ["watchlist-folders"],
+    queryFn: () => watchlistFolderApi.getFolders(),
+    enabled: isLoggedIn,
+    staleTime: 60_000,
+  });
+  const [folderMenuOpen, setFolderMenuOpen] = useState(false);
+  const folderMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (folderMenuRef.current && !folderMenuRef.current.contains(e.target as Node)) {
+        setFolderMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   const addMutation = useMutation({
-    mutationFn: () => watchlistApi.addItem({
+    mutationFn: (folderId?: number | null) => watchlistApi.addItem({
       symbol: sym,
       market: m,
       name: (detail as any)?.name ?? sym,
       watchlist_id: 1,
+      folder_id: folderId ?? null,
     }),
     onSuccess: (data: any) => {
       setInWatchlist(true);
@@ -346,8 +366,21 @@ export default function StockDetail() {
   });
 
   const d = detail as any;
+
+  useEffect(() => {
+    if (d?.name) addRecentlyViewed(sym, m, d.name);
+  }, [sym, m, d?.name]);
+
+  const fmtPx = (v: number | null | undefined) => {
+    if (v == null) return null;
+    if (isKR) return v.toLocaleString("ko-KR");
+    if (showKRW) return Math.round(v * exchangeRate).toLocaleString("ko-KR");
+    return v.toFixed(2);
+  };
   const priceStr = d?.price != null
-    ? isKR ? `₩${d.price.toLocaleString("ko-KR")}` : `$${d.price.toFixed(2)}`
+    ? isKR ? `₩${d.price.toLocaleString("ko-KR")}`
+      : showKRW ? `₩${Math.round(d.price * exchangeRate).toLocaleString("ko-KR")}`
+      : `$${d.price.toFixed(2)}`
     : "—";
   const isUp = (d?.change_rate ?? 0) >= 0;
   const { colorScheme } = useSettingsStore();
@@ -388,7 +421,7 @@ export default function StockDetail() {
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <div className="flex flex-col items-end gap-1 flex-shrink-0 relative" ref={folderMenuRef}>
           <button
             onClick={() => {
               if (!isLoggedIn) {
@@ -398,7 +431,7 @@ export default function StockDetail() {
               if (inWatchlist && watchlistItemId) {
                 removeMutation.mutate(watchlistItemId);
               } else if (!inWatchlist && !addMutation.isPending) {
-                addMutation.mutate();
+                setFolderMenuOpen(v => !v);
               }
             }}
             disabled={addMutation.isPending || removeMutation.isPending}
@@ -414,6 +447,25 @@ export default function StockDetail() {
           {watchlistMsg && (
             <span className="text-xs text-text-muted animate-fade-in">{watchlistMsg}</span>
           )}
+          {folderMenuOpen && !inWatchlist && (
+            <div className="absolute top-full mt-1 right-0 z-20 w-44 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
+              <button
+                onClick={() => { addMutation.mutate(null); setFolderMenuOpen(false); }}
+                className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
+              >
+                기본 (폴더 없음)
+              </button>
+              {(watchlistFolders as any[]).map((f: any) => (
+                <button
+                  key={f.id}
+                  onClick={() => { addMutation.mutate(f.id); setFolderMenuOpen(false); }}
+                  className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors border-t border-border truncate"
+                >
+                  {f.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -427,13 +479,26 @@ export default function StockDetail() {
               {isUp ? <TrendingUp size={13} className={upColor}/> : <TrendingDown size={13} className={downColor}/>}
               {d.change != null && d.change !== 0 && (
                 <span className={`text-base font-mono font-semibold num ${isUp?upColor:downColor}`}>
-                  {isUp?"+":""}{isKR ? d.change.toLocaleString("ko-KR") : d.change.toFixed(2)}
+                  {isUp?"+":""}{fmtPx(d.change)}
                 </span>
               )}
               <span className={`text-base font-mono num ${isUp?upColor:downColor}`}>
                 ({isUp?"+":""}{(d.change_rate??0).toFixed(2)}%)
               </span>
             </div>
+            {!isKR && (
+              <button
+                onClick={() => setShowKRW(v => !v)}
+                className={`flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all whitespace-nowrap ${
+                  showKRW
+                    ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue"
+                    : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+                }`}
+                title={`1USD≈${exchangeRate.toLocaleString("ko-KR")}₩`}
+              >
+                ₩ 원화환산
+              </button>
+            )}
             {showNxt && (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-border bg-bg-elevated" title="대체거래소(넥스트레이드) 시세">
                 <span className="text-xs font-bold px-1 py-0.5 rounded bg-accent-purple/15 text-accent-purple leading-none">NXT</span>
@@ -454,15 +519,15 @@ export default function StockDetail() {
           {/* 시세 지표 — 모바일 2열 / 데스크탑 5열 */}
           {(() => {
             const priceItems = [
-              { label:"시가",     v: isKR ? d.open?.toLocaleString("ko-KR")  : d.open?.toFixed(2) },
-              { label:"고가",     v: isKR ? d.high?.toLocaleString("ko-KR")  : d.high?.toFixed(2), color:"text-accent-red" },
-              { label:"저가",     v: isKR ? d.low?.toLocaleString("ko-KR")   : d.low?.toFixed(2),  color:"text-accent-blue" },
-              { label:"전일종가", v: isKR ? d.prev_close?.toLocaleString("ko-KR") : d.prev_close?.toFixed(2) },
+              { label:"시가",     v: fmtPx(d.open) },
+              { label:"고가",     v: fmtPx(d.high), color:"text-accent-red" },
+              { label:"저가",     v: fmtPx(d.low),  color:"text-accent-blue" },
+              { label:"전일종가", v: fmtPx(d.prev_close) },
               { label:"거래량",   v: d.volume ? (d.volume >= 1e8 ? `${(d.volume/1e8).toFixed(1)}억주` : d.volume >= 1e4 ? `${(d.volume/1e4).toFixed(1)}만주` : d.volume.toLocaleString("ko-KR")) : null },
               { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
               { label:"시가총액", v: fmt(d.market_cap) },
-              { label:"52주 고가",v: d.week52_high ? (isKR ? Math.round(d.week52_high).toLocaleString("ko-KR") : d.week52_high?.toFixed(2)) : null, color:"text-accent-red" },
-              { label:"52주 저가",v: d.week52_low  ? (isKR ? Math.round(d.week52_low).toLocaleString("ko-KR")  : d.week52_low?.toFixed(2))  : null, color:"text-accent-blue" },
+              { label:"52주 고가",v: fmtPx(d.week52_high), color:"text-accent-red" },
+              { label:"52주 저가",v: fmtPx(d.week52_low),  color:"text-accent-blue" },
               { label:"배당수익률",v: d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : null, color:"text-accent-green" },
             ];
             const COLS_SM = 5; // 데스크탑 열 수
