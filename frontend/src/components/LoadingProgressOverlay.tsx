@@ -14,7 +14,7 @@ export default function LoadingProgressOverlay() {
   const dashUS = useQuery({ queryKey: ["dashboard-us", "시가총액"], queryFn: () => dashboardApi.getUS("시가총액"), staleTime: 60_000 });
   const newsKR = useQuery({ queryKey: ["news", "kr"], queryFn: () => dashboardApi.getNews("kr"), staleTime: 60_000 });
   const newsUS = useQuery({ queryKey: ["news", "us"], queryFn: () => dashboardApi.getNews("us"), staleTime: 60_000 });
-  const holdings = useQuery({ queryKey: ["portfolio-items"], queryFn: portfolioApi.getItems, enabled: isLoggedIn, staleTime: 60_000 });
+  const holdings = useQuery({ queryKey: ["portfolio-items-check", userId], queryFn: () => portfolioApi.getItems(), enabled: isLoggedIn, staleTime: 60_000 });
   const watch = useQuery({ queryKey: ["watchlist-items-check", userId], queryFn: () => watchlistApi.getItems(), enabled: isLoggedIn, staleTime: 30_000 });
 
   const allQueries = [dashKR, dashUS, newsKR, newsUS, ...(isLoggedIn ? [holdings, watch] : [])];

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, RowSkeleton } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -26,6 +26,13 @@ interface PortfolioItem {
   inputExchangeRate?: number;
   purchaseDate?: string;
   note?: string;
+}
+
+interface PortfolioMeta {
+  id: number;
+  name: string;
+  position: number;
+  count: number;
 }
 
 interface EnrichedItem extends PortfolioItem {
@@ -416,6 +423,130 @@ function PortfolioModal({
   );
 }
 
+/* ── 포트폴리오 선택 탭 ──────────────────────────────────── */
+function PortfolioPill({
+  portfolio, active, canDelete, onSelect, onRename, onDelete,
+}: {
+  portfolio: PortfolioMeta; active: boolean; canDelete: boolean;
+  onSelect: () => void; onRename: (name: string) => void; onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(portfolio.name);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setName(portfolio.name); }, [portfolio.name]);
+  useEffect(() => { if (editing) setTimeout(() => inputRef.current?.focus(), 30); }, [editing]);
+
+  const commitRename = () => {
+    const trimmed = name.trim();
+    if (trimmed && trimmed !== portfolio.name) onRename(trimmed);
+    else setName(portfolio.name);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-accent-blue bg-bg-elevated flex-shrink-0">
+        <input
+          ref={inputRef}
+          className="bg-transparent text-xs font-semibold text-text-primary focus:outline-none w-24"
+          value={name}
+          maxLength={100}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitRename();
+            if (e.key === "Escape") { setName(portfolio.name); setEditing(false); }
+          }}
+        />
+        <button onClick={commitRename} className="p-0.5 text-accent-blue hover:text-blue-400"><Check size={12} /></button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onClick={onSelect}
+      className={`group flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
+        active
+          ? "border-accent-blue bg-accent-blue/10 text-accent-blue"
+          : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+      }`}
+    >
+      <span>{portfolio.name}</span>
+      <span className="text-[10px] opacity-60">({portfolio.count})</span>
+      <button
+        onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-accent-blue transition-opacity"
+        title="이름 변경"
+      >
+        <Pencil size={10} />
+      </button>
+      {canDelete && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (confirmDel) { onDelete(); } else {
+              setConfirmDel(true);
+              setTimeout(() => setConfirmDel(false), 2500);
+            }
+          }}
+          className={`p-0.5 rounded transition-opacity ${
+            confirmDel ? "text-accent-red opacity-100" : "opacity-0 group-hover:opacity-100 hover:text-accent-red"
+          }`}
+          title={confirmDel ? "한 번 더 클릭하면 삭제됩니다" : "삭제"}
+        >
+          <X size={11} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (adding) setTimeout(() => inputRef.current?.focus(), 30); }, [adding]);
+
+  const commit = () => {
+    const trimmed = name.trim();
+    if (trimmed) onAdd(trimmed);
+    setName("");
+    setAdding(false);
+  };
+
+  if (adding) {
+    return (
+      <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-accent-blue bg-bg-elevated flex-shrink-0">
+        <input
+          ref={inputRef}
+          className="bg-transparent text-xs font-semibold text-text-primary focus:outline-none w-28"
+          placeholder="포트폴리오 이름"
+          value={name}
+          maxLength={100}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") { setName(""); setAdding(false); }
+          }}
+        />
+        <button onClick={commit} className="p-0.5 text-accent-blue hover:text-blue-400"><Check size={12} /></button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setAdding(true)}
+      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 text-xs font-semibold transition-colors flex-shrink-0"
+    >
+      <Plus size={12} /> 포트폴리오
+    </button>
+  );
+}
+
 /* ── Main Page ──────────────────────────────────────────── */
 export default function Portfolio() {
   const navigate = useNavigate();
@@ -446,11 +577,49 @@ export default function Portfolio() {
     else { setSortField(field); setSortDir("desc"); }
   };
 
+  /* ── 포트폴리오 목록 ── */
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState<number | null>(null);
+
+  const { data: portfolios = [] } = useQuery<PortfolioMeta[]>({
+    queryKey: ["portfolios"],
+    queryFn:  portfolioApi.getPortfolios,
+    enabled:  isLoggedIn,
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (!isLoggedIn || portfolios.length === 0) return;
+    if (selectedPortfolioId == null || !portfolios.some((p) => p.id === selectedPortfolioId)) {
+      setSelectedPortfolioId(portfolios[0].id);
+    }
+  }, [isLoggedIn, portfolios, selectedPortfolioId]);
+
+  const createPortfolioMutation = useMutation({
+    mutationFn: (name: string) => portfolioApi.createPortfolio(name),
+    onSuccess: (pf) => {
+      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
+      setSelectedPortfolioId(pf.id);
+    },
+  });
+
+  const renamePortfolioMutation = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) => portfolioApi.renamePortfolio(id, name),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolios"] }),
+  });
+
+  const deletePortfolioMutation = useMutation({
+    mutationFn: (id: number) => portfolioApi.deletePortfolio(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
+      if (selectedPortfolioId === id) setSelectedPortfolioId(null);
+    },
+  });
+
   /* ── 서버 데이터 ── */
   const { data: items = [], isLoading: itemsLoading } = useQuery<PortfolioItem[]>({
-    queryKey: ["portfolio-items"],
-    queryFn:  portfolioApi.getItems,
-    enabled:  isLoggedIn,
+    queryKey: ["portfolio-items", selectedPortfolioId],
+    queryFn:  () => portfolioApi.getItems(selectedPortfolioId ?? undefined),
+    enabled:  isLoggedIn && selectedPortfolioId != null,
     staleTime: 60_000,
   });
 
@@ -468,6 +637,7 @@ export default function Portfolio() {
   const addMutation = useMutation({
     mutationFn: (data: Omit<PortfolioItem, "id">) =>
       portfolioApi.addItem({
+        portfolio_id: selectedPortfolioId ?? undefined,
         symbol: data.symbol, market: data.market, name: data.name,
         shares: data.shares, avg_price: data.avgPrice, currency: data.currency,
         input_exchange_rate: data.inputExchangeRate ?? null,
@@ -475,7 +645,8 @@ export default function Portfolio() {
         note: data.note ?? null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items", selectedPortfolioId] });
+      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
       setModalError(null);
     },
     onError: (err) => setModalError(_extractErrMsg(err)),
@@ -491,7 +662,7 @@ export default function Portfolio() {
         note: data.note ?? null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items", selectedPortfolioId] });
       setModalError(null);
     },
     onError: (err) => setModalError(_extractErrMsg(err)),
@@ -500,7 +671,8 @@ export default function Portfolio() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => portfolioApi.deleteItem(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items", selectedPortfolioId] });
+      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
       setConfirmDeleteId(null);
     },
   });
@@ -722,6 +894,24 @@ export default function Portfolio() {
           </button>
         ))}
       </div>
+
+      {/* ── 포트폴리오 선택 탭 ── */}
+      {isLoggedIn && portfolios.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
+          {portfolios.map((pf) => (
+            <PortfolioPill
+              key={pf.id}
+              portfolio={pf}
+              active={pf.id === selectedPortfolioId}
+              canDelete={portfolios.length > 1}
+              onSelect={() => setSelectedPortfolioId(pf.id)}
+              onRename={(name) => renamePortfolioMutation.mutate({ id: pf.id, name })}
+              onDelete={() => deletePortfolioMutation.mutate(pf.id)}
+            />
+          ))}
+          <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
+        </div>
+      )}
 
       {/* ── 로그인 배너 (미리보기 모드) ── */}
       {!isLoggedIn && (

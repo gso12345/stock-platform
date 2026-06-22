@@ -265,10 +265,23 @@ export const backtestApi = {
 };
 
 export const portfolioApi = {
-  getItems: () =>
-    api.get("/portfolio/items").then((r) => r.data),
+  getPortfolios: () =>
+    api.get("/portfolio/portfolios").then((r) => r.data),
+
+  createPortfolio: (name: string) =>
+    api.post("/portfolio/portfolios", { name }).then((r) => r.data),
+
+  renamePortfolio: (id: number, name: string) =>
+    api.put(`/portfolio/portfolios/${id}`, { name }).then((r) => r.data),
+
+  deletePortfolio: (id: number) =>
+    api.delete(`/portfolio/portfolios/${id}`).then((r) => r.data),
+
+  getItems: (portfolioId?: number) =>
+    api.get("/portfolio/items", { params: portfolioId ? { portfolio_id: portfolioId } : {} }).then((r) => r.data),
 
   addItem: (payload: {
+    portfolio_id?: number | null;
     symbol: string; market: string; name: string;
     shares: number; avg_price: number; currency: string;
     input_exchange_rate?: number | null;
@@ -278,6 +291,7 @@ export const portfolioApi = {
     api.post("/portfolio/items", payload).then((r) => r.data),
 
   updateItem: (id: number, payload: {
+    portfolio_id?: number | null;
     symbol: string; market: string; name: string;
     shares: number; avg_price: number; currency: string;
     input_exchange_rate?: number | null;

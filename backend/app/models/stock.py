@@ -88,11 +88,23 @@ class BacktestResult(Base):
     strategy = relationship("Strategy", back_populates="backtests")
 
 
+class Portfolio(Base):
+    __tablename__ = "portfolios"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String(100), nullable=False, default="기본 포트폴리오")
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    position   = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    items      = relationship("PortfolioItem", back_populates="portfolio", cascade="all, delete-orphan")
+
+
 class PortfolioItem(Base):
     __tablename__ = "portfolio_items"
 
     id                  = Column(Integer, primary_key=True, index=True)
     user_id             = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    portfolio_id        = Column(Integer, ForeignKey("portfolios.id"), nullable=True, index=True)
     symbol              = Column(String(20), nullable=False)
     market              = Column(String(10), nullable=False)   # KR, US, ETF
     name                = Column(String(100))
@@ -104,6 +116,7 @@ class PortfolioItem(Base):
     note                = Column(String(200), nullable=True)
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
     updated_at          = Column(DateTime(timezone=True), onupdate=func.now())
+    portfolio           = relationship("Portfolio", back_populates="items")
 
 
 class FundamentalsCache(Base):
