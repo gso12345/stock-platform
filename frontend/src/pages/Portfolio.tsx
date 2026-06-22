@@ -1081,7 +1081,7 @@ export default function Portfolio() {
           </div>
           {isLoggedIn ? (
             isAllView ? (
-              <span className="text-xs text-text-muted">개별 포트폴리오를 선택하면 종목을 추가할 수 있어요</span>
+              <span className="text-xs text-text-muted whitespace-nowrap">개별 포트폴리오를 선택하면 종목을 추가할 수 있어요</span>
             ) : (
               <button
                 onClick={() => { setEditItem(undefined); setModalOpen(true); }}

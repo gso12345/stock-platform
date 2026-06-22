@@ -650,7 +650,7 @@ async def get_quant_score_compare(
             dist_cache[mkt] = get_percentile_distributions(mkt)
         return dist_cache[mkt]
 
-    sem = asyncio.Semaphore(8)
+    sem = asyncio.Semaphore(16)
 
     async def _score_one(sym: str, mkt: str) -> dict:
         async with sem:

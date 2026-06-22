@@ -5,8 +5,9 @@ import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, ChangeBadge, RowSkeleton, Badge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
-import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle } from "lucide-react";
+import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle, Clock } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
+import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 
 const MARKET_TABS = [
   { id: "전체", label: "전체" },
@@ -446,7 +447,24 @@ export default function Watchlist() {
   const { isLoggedIn } = useAuthStore();
   const isPreview = !isLoggedIn;
   const [marketTab, setMarketTab]   = useState("전체");
-  const [folderTab, setFolderTab]   = useState<number | "all" | "none">("all"); // 폴더 탭 필터
+  const [folderTab, setFolderTab]   = useState<number | "all" | "none" | "recent">("all"); // 폴더 탭 필터
+  const [recentStocks, setRecentStocks] = useState<RecentStock[]>([]);
+  useEffect(() => {
+    if (folderTab === "recent") setRecentStocks(getRecentlyViewed());
+  }, [folderTab]);
+  const recentSymbols = useMemo(() => recentStocks.map((r) => r.symbol), [recentStocks]);
+  const recentMarkets = useMemo(() => recentStocks.map((r) => r.market === "KR" ? "KR" : "US"), [recentStocks]);
+  const { data: recentPrices } = useQuery({
+    queryKey: ["recent-viewed-prices", recentSymbols.join(",")],
+    queryFn: ({ signal }) => watchlistApi.getPrices(recentSymbols, recentMarkets, signal),
+    enabled: folderTab === "recent" && recentSymbols.length > 0,
+    staleTime: 30_000,
+  });
+  const recentPriceMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    (recentPrices as any[] ?? []).forEach((p: any, i: number) => { map[recentSymbols[i]] = p; });
+    return map;
+  }, [recentPrices, recentSymbols]);
   const [showAdd, setShowAdd]           = useState(false);
   const [addFolderId, setAddFolderId]   = useState<number | null>(null); // 추가 모달에서 기본 선택될 폴더
   const [editingFolder, setEditingFolder] = useState<number | null>(null);
@@ -817,13 +835,16 @@ export default function Watchlist() {
       {isPreview ? (() => {
         const mktFiltered = marketTab === "전체" ? PREVIEW_WATCHLIST : PREVIEW_WATCHLIST.filter(i => i.market === marketTab);
         const tabBtnCls = (active: boolean) =>
-          `flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
-            active ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
+          `flex-shrink-0 whitespace-nowrap px-3.5 py-2 text-xs font-semibold border-b-2 -mb-px transition-all ${
+            active ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
           }`;
         return (
-          <div className="flex overflow-x-auto scrollbar-hide rounded-lg border border-border w-fit max-w-full">
+          <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
             <button onClick={() => setFolderTab("all")} className={tabBtnCls(folderTab === "all")}>
               전체 <span className="text-[10px] opacity-70">{mktFiltered.length}</span>
+            </button>
+            <button onClick={() => setFolderTab("recent")} className={`${tabBtnCls(folderTab === "recent")} flex items-center gap-1`}>
+              <Clock size={11} /> 최근조회
             </button>
             {PREVIEW_FOLDERS.map(f => {
               const cnt = mktFiltered.filter(i => i.folderId === f.id).length;
@@ -838,13 +859,16 @@ export default function Watchlist() {
         );
       })() : (() => {
         const tabBtnCls = (active: boolean) =>
-          `flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
-            active ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
+          `flex-shrink-0 whitespace-nowrap px-3.5 py-2 text-xs font-semibold border-b-2 -mb-px transition-all ${
+            active ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
           }`;
         return (
-          <div className="flex overflow-x-auto scrollbar-hide rounded-lg border border-border w-fit max-w-full">
+          <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
             <button onClick={() => setFolderTab("all")} className={tabBtnCls(folderTab === "all")}>
               전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
+            </button>
+            <button onClick={() => setFolderTab("recent")} className={`${tabBtnCls(folderTab === "recent")} flex items-center gap-1`}>
+              <Clock size={11} /> 최근조회
             </button>
             <button onClick={() => setFolderTab("none")} className={tabBtnCls(folderTab === "none")}>
               기본 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
@@ -877,7 +901,47 @@ export default function Watchlist() {
       })()}
 
       {/* 본문 */}
-      {isPreview ? (() => {
+      {folderTab === "recent" ? (
+        <Card className="p-0 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border">
+            <Clock size={13} className="text-accent-blue" />
+            <span className="flex-1 text-sm font-semibold text-text-primary">최근 조회한 종목</span>
+            <span className="text-xs text-text-muted">{recentStocks.length}개</span>
+          </div>
+          {recentStocks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-6">
+              <p className="text-text-muted text-xs">최근 조회한 종목이 없습니다</p>
+            </div>
+          ) : (
+            recentStocks.map((r) => {
+              const p = recentPriceMap[r.symbol];
+              const isKRItem = r.market === "KR";
+              const hasPrice = p?.price != null;
+              return (
+                <div
+                  key={`${r.market}-${r.symbol}`}
+                  className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
+                  onClick={() => navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`)}
+                >
+                  <Badge variant={r.market === "KR" ? "blue" : r.market === "ETF" ? "purple" : "green"}>{r.market}</Badge>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono font-bold text-sm text-text-primary">{r.symbol.replace(".KS", "").replace(".KQ", "")}</div>
+                    <div className="text-[11px] text-text-muted truncate">{r.name}</div>
+                  </div>
+                  <div className="text-right flex-shrink-0 min-w-[80px]">
+                    <div className="text-sm font-mono font-semibold text-text-primary">
+                      {hasPrice
+                        ? isKRItem ? `₩${Number(p.price).toLocaleString("ko-KR")}` : `$${Number(p.price).toFixed(2)}`
+                        : <span className="text-text-muted text-xs">조회 중</span>}
+                    </div>
+                    {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs" />}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </Card>
+      ) : isPreview ? (() => {
         const mktFiltered = marketTab === "전체" ? previewWatchlistLive : previewWatchlistLive.filter(i => i.market === marketTab);
         const shown = folderTab === "all" ? mktFiltered : mktFiltered.filter(i => i.folderId === folderTab);
         const visibleFolders = PREVIEW_FOLDERS.filter(f => shown.some(i => i.folderId === f.id));
