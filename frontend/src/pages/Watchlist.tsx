@@ -80,16 +80,16 @@ interface SearchResult {
   symbol: string; name: string; market: string; type: string; exchange: string;
 }
 
-function AddModal({ folders, defaultFolderId = null, onClose, onAdd }: {
+function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
   folders: any[];
-  defaultFolderId?: number | null;
+  defaultFolderId: number;
   onClose: () => void;
   onAdd: (req: any) => void;
 }) {
   const [query, setQuery]       = useState("");
   const [results, setResults]   = useState<SearchResult[]>([]);
   const [loading, setLoading]   = useState(false);
-  const [folderId, setFolderId] = useState<number | null>(defaultFolderId);
+  const [folderId, setFolderId] = useState<number>(defaultFolderId);
   const [memo, setMemo]         = useState("");
   const debounce  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
@@ -166,16 +166,13 @@ function AddModal({ folders, defaultFolderId = null, onClose, onAdd }: {
 
         {/* 옵션 */}
         <div className="px-4 py-3 border-t border-border flex flex-col gap-2">
-          {folders.length > 0 && (
-            <select
-              className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none"
-              value={folderId ?? ""}
-              onChange={(e) => setFolderId(e.target.value ? Number(e.target.value) : null)}
-            >
-              <option value="">폴더 없음</option>
-              {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
-          )}
+          <select
+            className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none"
+            value={folderId}
+            onChange={(e) => setFolderId(Number(e.target.value))}
+          >
+            {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
           <input
             className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none placeholder:text-text-muted"
             placeholder="메모 (선택)"
@@ -193,11 +190,11 @@ function EditItemModal({ item, folders, onClose, onSave }: {
   item: any;
   folders: any[];
   onClose: () => void;
-  onSave: (patch: { name?: string; memo?: string; folder_id?: number | null }) => void;
+  onSave: (patch: { name?: string; memo?: string; folder_id?: number }) => void;
 }) {
   const [name, setName]     = useState(item.name || "");
   const [memo, setMemo]     = useState(item.memo || "");
-  const [folderId, setFolderId] = useState<number | null>(item.folder_id ?? null);
+  const [folderId, setFolderId] = useState<number>(item.folder_id ?? folders[0]?.id);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm modal-backdrop">
@@ -235,10 +232,9 @@ function EditItemModal({ item, folders, onClose, onSave }: {
               <label className="text-2xs font-semibold text-text-muted">폴더</label>
               <select
                 className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none"
-                value={folderId ?? ""}
-                onChange={(e) => setFolderId(e.target.value ? Number(e.target.value) : null)}
+                value={folderId}
+                onChange={(e) => setFolderId(Number(e.target.value))}
               >
-                <option value="">폴더 없음</option>
                 {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
             </div>
@@ -294,7 +290,7 @@ function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
           <p className="text-xs text-text-muted leading-relaxed">
             <span className="font-semibold text-text-primary">"{folder.name}"</span> 폴더를 삭제합니다.
             {itemCount > 0 && (
-              <> 폴더에 담긴 종목 <span className="font-semibold text-text-primary">{itemCount}개</span>는 관심종목에서 제거되지 않고 "폴더 없음"으로 이동합니다.</>
+              <> 폴더에 담긴 종목 <span className="font-semibold text-text-primary">{itemCount}개</span>는 관심종목에서 제거되지 않고 "기본 관심목록" 폴더로 이동합니다.</>
             )}
           </p>
           <div className="flex gap-2 pt-1">
@@ -447,7 +443,7 @@ export default function Watchlist() {
   const { isLoggedIn } = useAuthStore();
   const isPreview = !isLoggedIn;
   const [marketTab, setMarketTab]   = useState("전체");
-  const [folderTab, setFolderTab]   = useState<number | "all" | "none" | "recent">("all"); // 폴더 탭 필터
+  const [folderTab, setFolderTab]   = useState<number | "all" | "recent">("all"); // 폴더 탭 필터
   const [recentStocks, setRecentStocks] = useState<RecentStock[]>([]);
   useEffect(() => {
     if (folderTab === "recent") setRecentStocks(getRecentlyViewed());
@@ -743,15 +739,27 @@ export default function Watchlist() {
   // 폴더 탭 필터 적용
   const displayList = folderTab === "all"
     ? baseList
-    : folderTab === "none"
-      ? baseList.filter((i: any) => !i.folder_id)
-      : baseList.filter((i: any) => i.folder_id === folderTab);
+    : baseList.filter((i: any) => i.folder_id === folderTab);
 
-  const noFolder  = displayList.filter((i: any) => !i.folder_id);
   const byFolder  = (fid: number) => displayList.filter((i: any) => i.folder_id === fid);
 
-  const openAddModal = (folderId: number | null) => {
-    setAddFolderId(folderId);
+  const createDefaultFolderMutation = useMutation({
+    mutationFn: () => watchlistFolderApi.createFolder("기본 관심목록"),
+  });
+
+  // 종목은 항상 폴더에 담아야 하므로, 대상 폴더가 없으면 폴더를 먼저 만들고 그 폴더로 추가 모달을 연다
+  const openAddModal = async (folderId: number | null) => {
+    let fid = folderId;
+    if (fid == null) {
+      const list = folders as any[];
+      if (list.length > 0) fid = list[0].id;
+      else {
+        const created = await createDefaultFolderMutation.mutateAsync();
+        qc.invalidateQueries({ queryKey: ["watchlist-folders"] });
+        fid = created.id;
+      }
+    }
+    setAddFolderId(fid);
     setShowAdd(true);
   };
 
@@ -932,9 +940,6 @@ export default function Watchlist() {
             <button onClick={() => setFolderTab("recent")} className={`${tabBtnCls(folderTab === "recent")} flex items-center gap-1`}>
               <Clock size={13} /> 최근조회
             </button>
-            <button onClick={() => setFolderTab("none")} className={tabBtnCls(folderTab === "none")}>
-              기본 <span className="text-[10px] opacity-70">{itemsList.filter((i: any) => !i.folder_id).length}</span>
-            </button>
             {(localFolderOrder ?? (folders as any[])).map((f: any) => {
               const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
               return (
@@ -1081,7 +1086,7 @@ export default function Watchlist() {
                       <button onClick={() => openAddModal(folder.id)} className="text-text-muted hover:text-accent-blue p-1" title="이 폴더에 종목 추가">
                         <Plus size={13} />
                       </button>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex gap-1">
                         <button onClick={() => setEditingFolder(folder.id)} className="text-text-muted hover:text-accent-blue p-1"><Pencil size={12} /></button>
                         <button onClick={() => setDeletingFolder({ ...folder, _itemCount: folderItems.length })} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={12} /></button>
                       </div>
@@ -1107,38 +1112,6 @@ export default function Watchlist() {
             );
           })}
 
-          {/* 폴더 없는 종목 — 폴더 탭이 "전체"이거나 "기본"이 선택된 경우에만 표시 */}
-          {(folderTab === "none" || (folderTab === "all" && noFolder.length > 0)) && (
-            <Card className="p-0 overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border">
-                <button onClick={() => toggleCollapse("no-folder")} className="text-text-muted">
-                  {collapsed.has("no-folder") ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                </button>
-                <Star size={13} className="text-accent-yellow" />
-                <span className="flex-1 text-sm font-semibold text-text-primary">기본 관심목록</span>
-                <span className="text-xs text-text-muted">{noFolder.length}개</span>
-                <button onClick={() => openAddModal(null)} className="text-text-muted hover:text-accent-blue p-1" title="기본 관심목록에 종목 추가">
-                  <Plus size={13} />
-                </button>
-              </div>
-              {!collapsed.has("no-folder") && (
-                noFolder.length === 0
-                  ? (
-                    <div className="flex flex-col items-center justify-center gap-2 px-4 py-6">
-                      <p className="text-text-muted text-xs">종목이 없습니다</p>
-                      <button
-                        onClick={() => openAddModal(null)}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
-                      >
-                        <Plus size={12} /> 종목 추가
-                      </button>
-                    </div>
-                  )
-                  : renderItems(noFolder)
-              )}
-            </Card>
-          )}
-
           {/* 비어있음 */}
           {itemsList.length === 0 && (
             <Card>
@@ -1158,7 +1131,7 @@ export default function Watchlist() {
         </div>
       )}
 
-      {isLoggedIn && showAdd && (
+      {isLoggedIn && showAdd && addFolderId != null && (
         <AddModal
           folders={folders}
           defaultFolderId={addFolderId}
