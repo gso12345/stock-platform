@@ -468,9 +468,14 @@ function DeleteItemModal({
 /* ── 포트폴리오 선택 탭 ──────────────────────────────────── */
 function PortfolioPill({
   portfolio, active, canDelete, onSelect, onRename, onDelete,
+  draggable, isDragging, isDropTarget,
+  onDragStart, onDragOver, onDrop, onTouchStart, onTouchMove, onTouchEnd,
 }: {
   portfolio: PortfolioMeta; active: boolean; canDelete: boolean;
   onSelect: () => void; onRename: (name: string) => void; onDelete: () => void;
+  draggable?: boolean; isDragging?: boolean; isDropTarget?: boolean;
+  onDragStart?: () => void; onDragOver?: (e: React.DragEvent) => void; onDrop?: () => void;
+  onTouchStart?: (e: React.TouchEvent) => void; onTouchMove?: (e: React.TouchEvent) => void; onTouchEnd?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(portfolio.name);
@@ -509,20 +514,30 @@ function PortfolioPill({
   return (
     <div
       onClick={onSelect}
-      className={`group flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
+      data-portfolio-id={portfolio.id}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      title={draggable ? "길게 눌러서 드래그하면 포트폴리오 순서를 바꿀 수 있어요" : undefined}
+      style={{ touchAction: isDragging ? "none" : "auto" }}
+      className={`group flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 -mb-px cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
         active
-          ? "border-accent-blue bg-accent-blue/10 text-accent-blue"
-          : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
-      }`}
+          ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+          : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+      } ${isDragging ? "opacity-40" : ""} ${isDropTarget ? "ring-1 ring-accent-blue ring-inset" : ""}`}
     >
       <span>{portfolio.name}</span>
-      <span className="text-[10px] opacity-60">({portfolio.count})</span>
+      <span className="text-xs opacity-60">({portfolio.count})</span>
       <button
         onClick={(e) => { e.stopPropagation(); setEditing(true); }}
         className="p-1.5 -m-0.5 rounded text-text-muted/70 hover:text-accent-blue active:text-accent-blue transition-colors"
         title="이름 변경"
       >
-        <Pencil size={11} />
+        <Pencil size={12} />
       </button>
       {canDelete && (
         <button
@@ -538,7 +553,7 @@ function PortfolioPill({
           }`}
           title={confirmDel ? "한 번 더 클릭하면 삭제됩니다" : "삭제"}
         >
-          <X size={12} />
+          <X size={13} />
         </button>
       )}
     </div>
@@ -664,6 +679,106 @@ export default function Portfolio() {
     },
   });
 
+  /* ── 포트폴리오 탭 길게 눌러 드래그 정렬 (관심종목 폴더탭과 동일 패턴) ── */
+  const [dragPortfolioId,  setDragPortfolioId]  = useState<number | null>(null);
+  const [dropPortfolioId,  setDropPortfolioId]  = useState<number | null>(null);
+  const [localPortfolioOrder, setLocalPortfolioOrder] = useState<PortfolioMeta[] | null>(null);
+  const portfolioLongPressTimer  = useRef<number | null>(null);
+  const portfolioTouchStartPos   = useRef<{ x: number; y: number } | null>(null);
+  const portfolioJustDragged     = useRef(false);
+
+  const reorderPortfoliosMutation = useMutation({
+    mutationFn: (order: number[]) => portfolioApi.reorderPortfolios(order),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolios"] }),
+  });
+
+  const handlePortfolioDragStart = (pf: PortfolioMeta) => {
+    setDragPortfolioId(pf.id);
+    setLocalPortfolioOrder(portfolios);
+  };
+
+  const movePortfolioTo = (targetId: number) => {
+    if (dragPortfolioId === null || dragPortfolioId === targetId) return;
+    setDropPortfolioId(targetId);
+    const base = localPortfolioOrder ?? portfolios;
+    const from = base.findIndex((p) => p.id === dragPortfolioId);
+    const to   = base.findIndex((p) => p.id === targetId);
+    if (from === -1 || to === -1) return;
+    const next = [...base];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setLocalPortfolioOrder(next);
+  };
+
+  const handlePortfolioDragOver = (e: React.DragEvent, targetId: number) => {
+    e.preventDefault();
+    movePortfolioTo(targetId);
+  };
+
+  const handlePortfolioDrop = () => {
+    if (dragPortfolioId !== null && localPortfolioOrder) {
+      reorderPortfoliosMutation.mutate(localPortfolioOrder.map((p) => p.id));
+    }
+    setDragPortfolioId(null); setDropPortfolioId(null); setLocalPortfolioOrder(null);
+  };
+
+  const PORTFOLIO_LONG_PRESS_MS = 350;
+  const PORTFOLIO_LONG_PRESS_MOVE_TOLERANCE = 8;
+
+  const clearPortfolioLongPressTimer = () => {
+    if (portfolioLongPressTimer.current !== null) {
+      window.clearTimeout(portfolioLongPressTimer.current);
+      portfolioLongPressTimer.current = null;
+    }
+  };
+
+  const handlePortfolioTouchStart = (pf: PortfolioMeta, e: React.TouchEvent) => {
+    const t = e.touches[0];
+    portfolioTouchStartPos.current = { x: t.clientX, y: t.clientY };
+    clearPortfolioLongPressTimer();
+    portfolioLongPressTimer.current = window.setTimeout(() => {
+      handlePortfolioDragStart(pf);
+    }, PORTFOLIO_LONG_PRESS_MS);
+  };
+
+  const handlePortfolioTouchMoveGated = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (dragPortfolioId !== null) {
+      e.preventDefault();
+      const el = (document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null)?.closest("[data-portfolio-id]") as HTMLElement | null;
+      if (el) {
+        const targetId = Number(el.dataset.portfolioId);
+        if (targetId) movePortfolioTo(targetId);
+      }
+      return;
+    }
+    const start = portfolioTouchStartPos.current;
+    if (start) {
+      const dx = Math.abs(t.clientX - start.x);
+      const dy = Math.abs(t.clientY - start.y);
+      if (dx > PORTFOLIO_LONG_PRESS_MOVE_TOLERANCE || dy > PORTFOLIO_LONG_PRESS_MOVE_TOLERANCE) {
+        clearPortfolioLongPressTimer();
+      }
+    }
+  };
+
+  const handlePortfolioTouchEnd = () => {
+    clearPortfolioLongPressTimer();
+    if (dragPortfolioId !== null) {
+      portfolioJustDragged.current = true;
+      handlePortfolioDrop();
+    }
+    portfolioTouchStartPos.current = null;
+  };
+
+  const handlePortfolioTabClick = (pf: PortfolioMeta) => {
+    if (portfolioJustDragged.current) {
+      portfolioJustDragged.current = false;
+      return;
+    }
+    setSelectedPortfolioId(pf.id);
+  };
+
   /* ── 서버 데이터 ── */
   const { data: items = [], isLoading: itemsLoading } = useQuery<PortfolioItem[]>({
     queryKey: ["portfolio-items", selectedPortfolioId],
@@ -764,6 +879,8 @@ export default function Portfolio() {
     staleTime:      120_000,
     refetchInterval:120_000,
   });
+  // 실시간 현재가를 아직 못 불러왔으면(=null) 정적 예시가를 절대 보여주지 않음 — 실데이터 도착 후에만 표시
+  const previewLoaded = previewBatchPrices != null;
 
   const previewEnrichedLive = useMemo<EnrichedItem[]>(() => {
     const list = PREVIEW_ENRICHED.map((base, i) => {
@@ -915,8 +1032,8 @@ export default function Portfolio() {
   /* ── 미리보기 vs 실데이터 ── */
   const displayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
   const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
-  // 로그인 상태에서는 현재가를 다 불러오기 전까지 매입가 기반 추정치를 보여주지 않음
-  const hasDisplay      = displayEnriched.length > 0 && (!isLoggedIn || !isLoading);
+  // 로그인/비로그인 모두 현재가를 다 불러오기 전까지 추정치를 보여주지 않음
+  const hasDisplay      = displayEnriched.length > 0 && (isLoggedIn ? !isLoading : previewLoaded);
 
   return (
     <div className="flex flex-col gap-4 fade-in pb-20">
@@ -943,27 +1060,36 @@ export default function Portfolio() {
 
       {/* ── 포트폴리오 선택 탭 ── */}
       {isLoggedIn && portfolios.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
+        <div className="flex items-center border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
           <button
             onClick={() => setSelectedPortfolioId("all")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all flex-shrink-0 whitespace-nowrap ${
               isAllView
-                ? "border-accent-blue bg-accent-blue/10 text-accent-blue"
-                : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+                ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+                : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
             }`}
           >
             <span>전체</span>
-            <span className="text-[10px] opacity-60">({totalItemCount})</span>
+            <span className="text-xs opacity-60">({totalItemCount})</span>
           </button>
-          {portfolios.map((pf) => (
+          {(localPortfolioOrder ?? portfolios).map((pf) => (
             <PortfolioPill
               key={pf.id}
               portfolio={pf}
               active={pf.id === selectedPortfolioId}
               canDelete={portfolios.length > 1}
-              onSelect={() => setSelectedPortfolioId(pf.id)}
+              onSelect={() => handlePortfolioTabClick(pf)}
               onRename={(name) => renamePortfolioMutation.mutate({ id: pf.id, name })}
               onDelete={() => deletePortfolioMutation.mutate(pf.id)}
+              draggable={portfolios.length > 1}
+              isDragging={dragPortfolioId === pf.id}
+              isDropTarget={dropPortfolioId === pf.id}
+              onDragStart={() => handlePortfolioDragStart(pf)}
+              onDragOver={(e) => handlePortfolioDragOver(e, pf.id)}
+              onDrop={handlePortfolioDrop}
+              onTouchStart={(e) => handlePortfolioTouchStart(pf, e)}
+              onTouchMove={handlePortfolioTouchMoveGated}
+              onTouchEnd={handlePortfolioTouchEnd}
             />
           ))}
           <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
@@ -999,7 +1125,7 @@ export default function Portfolio() {
       {/* ── 요약 카드 ── */}
       {/* 보유종목이 실제로 연동(로그인 + 종목 추가)되기 전에는 미리보기 수치를 보여주지 않음 */}
       {/* 로그인 상태에서는 현재가를 다 불러오기 전까지 매입가 기반 추정치를 보여주지 않고 로딩 표시만 함 */}
-      {isLoggedIn && items.length > 0 && pricesLoading && (
+      {((isLoggedIn && items.length > 0 && pricesLoading) || (!isLoggedIn && !previewLoaded)) && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {["총 평가금액", "총 매입금액", "평가손익", "수익률"].map((label) => (
             <Card key={label} className="flex flex-col gap-1">
@@ -1009,7 +1135,7 @@ export default function Portfolio() {
           ))}
         </div>
       )}
-      {isLoggedIn && items.length > 0 && !pricesLoading && (
+      {((isLoggedIn && items.length > 0 && !pricesLoading) || (!isLoggedIn && previewLoaded)) && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "총 평가금액", value: fmtKRWFull(displaySummary.totalValue),    color: "text-text-primary" },
@@ -1029,7 +1155,7 @@ export default function Portfolio() {
       )}
 
       {/* ── 구성 차트 ── */}
-      {isLoggedIn && items.length > 0 && isLoading && (
+      {((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (
         <Card className="flex items-center justify-center h-[180px] text-text-muted text-sm">
           가격 불러오는 중...
         </Card>
@@ -1176,7 +1302,7 @@ export default function Portfolio() {
             {/* 카드 정렬 */}
             {isLoggedIn && (
               <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border overflow-x-auto scrollbar-hide">
-                <span className="text-[10px] text-text-dim flex-shrink-0">정렬</span>
+                <span className="text-xs text-text-dim flex-shrink-0">정렬</span>
                 {([
                   { field: "name",    label: "이름" },
                   { field: "shares",  label: "수량" },
@@ -1190,7 +1316,7 @@ export default function Portfolio() {
                     <button
                       key={field}
                       onClick={() => toggleSort(field)}
-                      className={`flex items-center gap-0.5 px-2 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap flex-shrink-0 transition-colors ${
+                      className={`flex items-center gap-0.5 px-2 py-1 rounded-md text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-colors ${
                         active ? "bg-accent-blue/15 text-accent-blue" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
                       }`}
                     >
@@ -1207,7 +1333,7 @@ export default function Portfolio() {
             <div className="flex flex-col gap-2.5 p-3">
               {displayEnriched.map((item) => {
                 const pc = pnlColor(item.pnlKRW);
-                const hasPrice = isLoggedIn ? priceMap[item.id] != null : true;
+                const hasPrice = isLoggedIn ? priceMap[item.id] != null : previewLoaded;
                 return (
                   <div
                     key={item.id}
@@ -1219,7 +1345,7 @@ export default function Portfolio() {
                         <MarketBadge market={item.market} />
                         <div className="min-w-0">
                           <div className="font-semibold text-text-primary text-sm truncate">{item.name || item.symbol}</div>
-                          <div className="text-text-dim font-mono text-[10px] truncate">
+                          <div className="text-text-dim font-mono text-xs truncate">
                             {item.symbol}{isAllView && item.portfolioName ? ` · ${item.portfolioName}` : ""}
                           </div>
                         </div>
@@ -1238,27 +1364,22 @@ export default function Portfolio() {
                       )}
                     </div>
 
-                    <div className="flex items-end justify-between gap-3 pt-2 border-t border-border/40">
+                    <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/40">
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] text-text-dim">평가금액</span>
-                        <span className="font-mono font-bold text-text-primary text-sm">
+                        <span className="text-xs text-text-dim">평가금액</span>
+                        <span className="font-mono font-bold text-text-primary text-base">
                           {hasPrice ? fmtKRWFull(item.currentValueKRW) : "—"}
                         </span>
                       </div>
                       <div className="flex flex-col gap-0.5 items-end">
-                        <span className="text-[10px] text-text-dim">평가손익</span>
-                        <span className={`font-mono font-bold text-sm ${hasPrice ? pc : "text-text-muted"}`}>
-                          {hasPrice ? fmtKRWFullSign(item.pnlKRW) : "—"}
+                        <span className="text-xs text-text-dim">평가손익</span>
+                        <span className={`font-mono font-bold text-base whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
+                          {hasPrice ? `${fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)` : "—"}
                         </span>
-                        {hasPrice && (
-                          <span className={`text-[10px] font-mono ${pc}`}>
-                            {item.pnlRate >= 0 ? "+" : ""}{item.pnlRate.toFixed(2)}%
-                          </span>
-                        )}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 text-[11px]">
+                    <div className="grid grid-cols-3 gap-2 text-xs">
                       <div className="flex flex-col gap-0.5">
                         <span className="text-text-dim">보유수량</span>
                         <span className="font-mono text-text-secondary">{item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}</span>
@@ -1277,7 +1398,7 @@ export default function Portfolio() {
                       <div className="flex-1 h-1 bg-bg-elevated rounded-full overflow-hidden">
                         <div className="h-full bg-accent-blue/60 rounded-full" style={{ width: `${Math.min(100, item.weight)}%` }} />
                       </div>
-                      <span className="text-[10px] font-mono text-text-muted flex-shrink-0">비중 {item.weight.toFixed(1)}%</span>
+                      <span className="text-xs font-mono text-text-muted flex-shrink-0">비중 {item.weight.toFixed(1)}%</span>
                     </div>
                   </div>
                 );
@@ -1305,7 +1426,7 @@ export default function Portfolio() {
               <tbody>
                 {displayEnriched.map((item) => {
                   const pc    = pnlColor(item.pnlKRW);
-                  const hasPrice = isLoggedIn ? priceMap[item.id] != null : true;
+                  const hasPrice = isLoggedIn ? priceMap[item.id] != null : previewLoaded;
                   return (
                     <tr key={item.id}
                       className="border-b border-border/40 transition-colors hover:bg-bg-hover cursor-pointer"
@@ -1379,7 +1500,7 @@ export default function Portfolio() {
                 <tr className="border-t border-border bg-bg-primary/50">
                   <td className="px-3 py-2.5 font-semibold text-text-muted" colSpan={isAllView ? 5 : 4}>합계</td>
                   <td />
-                  {isLoggedIn && pricesLoading ? (
+                  {(isLoggedIn ? pricesLoading : !previewLoaded) ? (
                     <>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted whitespace-nowrap">—</td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted whitespace-nowrap">—</td>

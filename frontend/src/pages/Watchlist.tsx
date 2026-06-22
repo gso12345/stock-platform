@@ -19,7 +19,7 @@ const MARKET_TABS = [
 /* ── 미리보기 예시 데이터 (비로그인 시 표시) ── */
 interface PreviewItem {
   id: number; symbol: string; market: string; name: string;
-  folderId: number; price: number; change_rate: number;
+  folderId: number; price: number; change_rate: number; hasPrice?: boolean;
 }
 interface PreviewFolder { id: number; name: string; }
 
@@ -47,7 +47,7 @@ const MKT_BADGE_VARIANT: Record<string, "blue" | "green" | "purple"> = {
 
 function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {
   const isKR = item.market === "KR";
-  const up   = item.change_rate >= 0;
+  const hasPrice = item.hasPrice !== false;
   return (
     <div
       className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
@@ -65,11 +65,11 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
       {/* 가격 */}
       <div className="text-right flex-shrink-0 min-w-[80px]">
         <div className="text-sm font-mono font-semibold text-text-primary">
-          {isKR ? `₩${item.price.toLocaleString("ko-KR")}` : `$${item.price.toFixed(2)}`}
+          {hasPrice
+            ? (isKR ? `₩${item.price.toLocaleString("ko-KR")}` : `$${item.price.toFixed(2)}`)
+            : <span className="text-text-muted text-xs">조회 중</span>}
         </div>
-        <div className={`text-xs font-semibold ${up ? "text-green-400" : "text-red-400"}`}>
-          {up ? "+" : ""}{item.change_rate.toFixed(2)}%
-        </div>
+        {hasPrice && <ChangeBadge value={item.change_rate} className="text-xs" />}
       </div>
     </div>
   );
@@ -508,13 +508,16 @@ export default function Watchlist() {
     refetchInterval: 60_000,
   });
   const previewWatchlistLive: PreviewItem[] = useMemo(() => {
-    if (!previewPrices) return PREVIEW_WATCHLIST;
+    // 실시간 현재가를 아직 못 불러왔으면 정적 예시가를 보여주지 않고 로딩 상태로 표시
+    if (!previewPrices) return PREVIEW_WATCHLIST.map((base) => ({ ...base, hasPrice: false }));
     return PREVIEW_WATCHLIST.map((base, i) => {
       const d = previewPrices[i] as any;
+      const hasPrice = d?.price != null;
       return {
         ...base,
-        price: d?.price ?? base.price,
-        change_rate: d?.change_rate ?? base.change_rate,
+        price: hasPrice ? d.price : base.price,
+        change_rate: hasPrice ? (d.change_rate ?? base.change_rate) : base.change_rate,
+        hasPrice,
       };
     });
   }, [previewPrices]);
@@ -611,6 +614,9 @@ export default function Watchlist() {
   const [dragFolderId, setDragFolderId] = useState<number | null>(null);
   const [dropFolderId, setDropFolderId] = useState<number | null>(null);
   const [localFolderOrder, setLocalFolderOrder] = useState<any[] | null>(null);
+  const folderLongPressTimer = useRef<number | null>(null);
+  const folderTouchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const folderJustDragged = useRef(false);
 
   const reorderFoldersMutation = useMutation({
     mutationFn: (order: number[]) => watchlistFolderApi.reorderFolders(order),
@@ -620,6 +626,62 @@ export default function Watchlist() {
   const handleFolderDragStart = (folder: any) => {
     setDragFolderId(folder.id);
     setLocalFolderOrder(folders as any[]);
+  };
+
+  // 길게 누르기(롱프레스) 후에만 드래그가 시작되도록 — 일반 탭/스크롤과 구분
+  const LONG_PRESS_MS = 350;
+  const LONG_PRESS_MOVE_TOLERANCE = 8;
+
+  const clearFolderLongPressTimer = () => {
+    if (folderLongPressTimer.current !== null) {
+      window.clearTimeout(folderLongPressTimer.current);
+      folderLongPressTimer.current = null;
+    }
+  };
+
+  const handleFolderTouchStart = (folder: any, e: React.TouchEvent) => {
+    const t = e.touches[0];
+    folderTouchStartPos.current = { x: t.clientX, y: t.clientY };
+    clearFolderLongPressTimer();
+    folderLongPressTimer.current = window.setTimeout(() => {
+      handleFolderDragStart(folder);
+    }, LONG_PRESS_MS);
+  };
+
+  const handleFolderTouchMoveGated = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (dragFolderId !== null) {
+      // 드래그 활성화된 상태 — 기본 스크롤 동작 막고 순서 변경 처리
+      e.preventDefault();
+      handleFolderTouchMove(t.clientX, t.clientY);
+      return;
+    }
+    // 롱프레스가 발동하기 전, 손가락이 일정 거리 이상 움직이면 스크롤로 간주하고 취소
+    const start = folderTouchStartPos.current;
+    if (start) {
+      const dx = Math.abs(t.clientX - start.x);
+      const dy = Math.abs(t.clientY - start.y);
+      if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE) {
+        clearFolderLongPressTimer();
+      }
+    }
+  };
+
+  const handleFolderTouchEnd = () => {
+    clearFolderLongPressTimer();
+    if (dragFolderId !== null) {
+      folderJustDragged.current = true;
+      handleFolderDrop();
+    }
+    folderTouchStartPos.current = null;
+  };
+
+  const handleFolderTabClick = (folderId: number) => {
+    if (folderJustDragged.current) {
+      folderJustDragged.current = false;
+      return;
+    }
+    setFolderTab(folderTab === folderId ? "all" : folderId);
   };
 
   const moveFolderTo = (targetId: number) => {
@@ -883,12 +945,13 @@ export default function Watchlist() {
                   onDragStart={() => handleFolderDragStart(f)}
                   onDragOver={(e) => handleFolderDragOver(e, f.id)}
                   onDrop={handleFolderDrop}
-                  onTouchStart={() => handleFolderDragStart(f)}
-                  onTouchMove={(e) => handleFolderTouchMove(e.touches[0].clientX, e.touches[0].clientY)}
-                  onTouchEnd={handleFolderDrop}
-                  onClick={() => setFolderTab(folderTab === f.id ? "all" : f.id)}
-                  title="드래그하여 폴더 순서 변경"
-                  className={`touch-none cursor-grab active:cursor-grabbing ${tabBtnCls(folderTab === f.id)} ${
+                  onTouchStart={(e) => handleFolderTouchStart(f, e)}
+                  onTouchMove={handleFolderTouchMoveGated}
+                  onTouchEnd={handleFolderTouchEnd}
+                  onClick={() => handleFolderTabClick(f.id)}
+                  title="길게 눌러서 드래그하면 폴더 순서를 바꿀 수 있어요"
+                  style={{ touchAction: dragFolderId === f.id ? "none" : "auto" }}
+                  className={`cursor-grab active:cursor-grabbing ${tabBtnCls(folderTab === f.id)} ${
                     dragFolderId === f.id ? "opacity-40" : ""
                   } ${dropFolderId === f.id ? "ring-1 ring-accent-blue ring-inset" : ""}`}
                 >
