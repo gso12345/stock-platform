@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, RowSkeleton } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check, AlertTriangle, LayoutGrid, Table2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -427,6 +427,44 @@ function PortfolioModal({
   );
 }
 
+/* ── 종목 삭제 확인 모달 ──────────────────────────────────── */
+function DeleteItemModal({
+  item, onClose, onConfirm, isDeleting,
+}: {
+  item: PortfolioItem; onClose: () => void; onConfirm: () => void; isDeleting?: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 modal-backdrop">
+      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
+        <div className="p-5 flex flex-col gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
+              <AlertTriangle size={18} className="text-accent-red" />
+            </div>
+            <h3 className="text-sm font-bold text-text-primary">종목을 삭제할까요?</h3>
+          </div>
+          <p className="text-xs text-text-muted leading-relaxed">
+            <span className="font-semibold text-text-primary">{item.name || item.symbol}</span>
+            <span className="font-mono text-text-dim"> ({item.symbol})</span> 보유 내역을 삭제합니다. 이 작업은 되돌릴 수 없어요.
+          </p>
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={onClose}
+              disabled={isDeleting}
+              className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all disabled:opacity-40"
+            >취소</button>
+            <button
+              onClick={onConfirm}
+              disabled={isDeleting}
+              className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-40"
+            >{isDeleting ? "삭제 중..." : "삭제"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── 포트폴리오 선택 탭 ──────────────────────────────────── */
 function PortfolioPill({
   portfolio, active, canDelete, onSelect, onRename, onDelete,
@@ -558,9 +596,12 @@ export default function Portfolio() {
   const [activeTab,       setActiveTab]       = useState<"portfolio" | "watchlist">("portfolio");
   const [modalOpen,       setModalOpen]       = useState(false);
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [deleteTarget,    setDeleteTarget]    = useState<PortfolioItem | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
   const [modalError,      setModalError]      = useState<string | null>(null);
+  const [viewMode,        setViewMode]        = useState<"table" | "card">(
+    () => (typeof window !== "undefined" && window.innerWidth < 640) ? "card" : "table"
+  );
 
   const { isLoggedIn } = useAuthStore();
   const { colorScheme } = useSettingsStore();
@@ -683,7 +724,7 @@ export default function Portfolio() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
       queryClient.invalidateQueries({ queryKey: ["portfolios"] });
-      setConfirmDeleteId(null);
+      setDeleteTarget(null);
     },
   });
 
@@ -865,13 +906,8 @@ export default function Portfolio() {
     setModalError(null);
     editMutation.mutate({ id: editItem.id, data }, { onSuccess: () => { setEditItem(undefined); setModalError(null); } });
   };
-  const handleDelete = (id: number) => {
-    if (confirmDeleteId === id) {
-      deleteMutation.mutate(id);
-    } else {
-      setConfirmDeleteId(id);
-      setTimeout(() => setConfirmDeleteId((c) => c === id ? null : c), 2500);
-    }
+  const handleConfirmDelete = () => {
+    if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
   };
 
   const isLoading = itemsLoading || pricesLoading;
@@ -1069,32 +1105,49 @@ export default function Portfolio() {
         </Card>
       )}
 
-      {/* ── 보유 종목 테이블 ── */}
+      {/* ── 보유 종목 ── */}
       <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-text-primary">보유 종목</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted font-semibold">
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="text-sm font-semibold text-text-primary whitespace-nowrap">보유 종목</span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted font-semibold whitespace-nowrap">
               {isLoggedIn ? items.length : "예시"}
             </span>
-            {isLoggedIn && isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />}
+            {isLoggedIn && isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
           </div>
-          {isLoggedIn ? (
-            isAllView ? (
-              <span className="text-xs text-text-muted whitespace-nowrap">개별 포트폴리오를 선택하면 종목을 추가할 수 있어요</span>
-            ) : (
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* 표/카드 보기 토글 */}
+            <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary flex-shrink-0">
               <button
-                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
+                onClick={() => setViewMode("table")}
+                className={`p-1.5 rounded-md transition-all ${viewMode === "table" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                title="표로 보기"
               >
-                <Plus size={13} /> 추가
+                <Table2 size={13} />
               </button>
-            )
-          ) : (
-            <span className="px-2.5 py-1 rounded-lg bg-bg-elevated border border-border text-xs text-text-muted font-semibold">
-              예시 데이터
-            </span>
-          )}
+              <button
+                onClick={() => setViewMode("card")}
+                className={`p-1.5 rounded-md transition-all ${viewMode === "card" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                title="카드로 보기"
+              >
+                <LayoutGrid size={13} />
+              </button>
+            </div>
+            {isLoggedIn ? (
+              !isAllView && (
+                <button
+                  onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors whitespace-nowrap flex-shrink-0"
+                >
+                  <Plus size={13} /> 추가
+                </button>
+              )
+            ) : (
+              <span className="px-2.5 py-1 rounded-lg bg-bg-elevated border border-border text-xs text-text-muted font-semibold whitespace-nowrap flex-shrink-0">
+                예시 데이터
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 로그인 상태에서 보유종목 불러오는 중 — 빈 상태로 단정하지 않고 스켈레톤만 표시 */}
@@ -1118,21 +1171,50 @@ export default function Portfolio() {
               </button>
             )}
           </div>
-        ) : (
+        ) : viewMode === "card" ? (
           <>
-            {/* 모바일: 카드형 리스트 (좁은 화면에서 가로 스크롤 없이 수정·삭제 가능) */}
-            <div className="sm:hidden divide-y divide-border/40">
+            {/* 카드 정렬 */}
+            {isLoggedIn && (
+              <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border overflow-x-auto scrollbar-hide">
+                <span className="text-[10px] text-text-dim flex-shrink-0">정렬</span>
+                {([
+                  { field: "name",    label: "이름" },
+                  { field: "shares",  label: "수량" },
+                  { field: "value",   label: "평가금액" },
+                  { field: "pnl",     label: "손익" },
+                  { field: "pnlRate", label: "수익률" },
+                  { field: "weight",  label: "비중" },
+                ] as { field: SortField; label: string }[]).map(({ field, label }) => {
+                  const active = sortField === field;
+                  return (
+                    <button
+                      key={field}
+                      onClick={() => toggleSort(field)}
+                      className={`flex items-center gap-0.5 px-2 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap flex-shrink-0 transition-colors ${
+                        active ? "bg-accent-blue/15 text-accent-blue" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+                      }`}
+                    >
+                      {label}
+                      {active
+                        ? (sortDir === "desc" ? <ChevronDown size={10} /> : <ChevronUp size={10} />)
+                        : <ChevronsUpDown size={10} className="opacity-30" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {/* 카드형 리스트 */}
+            <div className="flex flex-col gap-2.5 p-3">
               {displayEnriched.map((item) => {
                 const pc = pnlColor(item.pnlKRW);
-                const isDel = confirmDeleteId === item.id;
                 const hasPrice = isLoggedIn ? priceMap[item.id] != null : true;
                 return (
                   <div
                     key={item.id}
-                    className="p-3 flex flex-col gap-2.5 active:bg-bg-hover transition-colors"
+                    className="rounded-xl border border-border/70 bg-bg-elevated/30 hover:border-accent-blue/30 hover:bg-bg-elevated/50 transition-colors p-3.5 flex flex-col gap-3 cursor-pointer"
                     onClick={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
                   >
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <MarketBadge market={item.market} />
                         <div className="min-w-0">
@@ -1143,60 +1225,67 @@ export default function Portfolio() {
                         </div>
                       </div>
                       {isLoggedIn && (
-                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => setEditItem(item)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-text-muted border border-border hover:text-accent-blue hover:border-accent-blue/40 active:bg-accent-blue/10 transition-colors"
-                          >
-                            <Pencil size={12} /> 수정
+                        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => setEditItem(item)}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
+                            <Pencil size={13} />
                           </button>
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                              isDel
-                                ? "bg-accent-red/20 text-accent-red border-accent-red/40"
-                                : "text-text-muted border-border hover:text-accent-red hover:border-accent-red/40 active:bg-accent-red/10"
-                            }`}
-                          >
-                            {isDel ? "확인" : (<><Trash2 size={12} /> 삭제</>)}
+                          <button onClick={() => setDeleteTarget(item)}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-accent-red hover:bg-accent-red/10 transition-colors" title="삭제">
+                            <Trash2 size={13} />
                           </button>
                         </div>
                       )}
                     </div>
-                    <div className="grid grid-cols-2 gap-y-1 gap-x-3 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-text-muted">보유수량</span>
-                        <span className="font-mono text-text-primary">{item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-text-muted">비중</span>
-                        <span className="font-mono text-text-primary">{item.weight.toFixed(1)}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-text-muted">평단가</span>
-                        <span className="font-mono text-text-secondary">{fmtNative(item.market, item.currency, item.avgPrice)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-text-muted">현재가</span>
-                        <span className="font-mono text-text-primary">{hasPrice ? fmtNative(item.market, item.currency, item.currentPriceNative) : "—"}</span>
-                      </div>
-                      <div className="flex justify-between col-span-2">
-                        <span className="text-text-muted">평가금액</span>
-                        <span className="font-mono text-text-primary">{hasPrice ? fmtKRWFull(item.currentValueKRW) : "—"}</span>
-                      </div>
-                      <div className="flex justify-between col-span-2">
-                        <span className="text-text-muted">평가손익</span>
-                        <span className={`font-mono font-semibold ${hasPrice ? pc : "text-text-muted"}`}>
-                          {hasPrice ? `${fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)` : "—"}
+
+                    <div className="flex items-end justify-between gap-3 pt-2 border-t border-border/40">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] text-text-dim">평가금액</span>
+                        <span className="font-mono font-bold text-text-primary text-sm">
+                          {hasPrice ? fmtKRWFull(item.currentValueKRW) : "—"}
                         </span>
                       </div>
+                      <div className="flex flex-col gap-0.5 items-end">
+                        <span className="text-[10px] text-text-dim">평가손익</span>
+                        <span className={`font-mono font-bold text-sm ${hasPrice ? pc : "text-text-muted"}`}>
+                          {hasPrice ? fmtKRWFullSign(item.pnlKRW) : "—"}
+                        </span>
+                        {hasPrice && (
+                          <span className={`text-[10px] font-mono ${pc}`}>
+                            {item.pnlRate >= 0 ? "+" : ""}{item.pnlRate.toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-[11px]">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-text-dim">보유수량</span>
+                        <span className="font-mono text-text-secondary">{item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}</span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-text-dim">평단가</span>
+                        <span className="font-mono text-text-secondary">{fmtNative(item.market, item.currency, item.avgPrice)}</span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-text-dim">현재가</span>
+                        <span className="font-mono text-text-secondary">{hasPrice ? fmtNative(item.market, item.currency, item.currentPriceNative) : "—"}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1 bg-bg-elevated rounded-full overflow-hidden">
+                        <div className="h-full bg-accent-blue/60 rounded-full" style={{ width: `${Math.min(100, item.weight)}%` }} />
+                      </div>
+                      <span className="text-[10px] font-mono text-text-muted flex-shrink-0">비중 {item.weight.toFixed(1)}%</span>
                     </div>
                   </div>
                 );
               })}
             </div>
-            {/* 데스크톱: 표 */}
-            <div className="hidden sm:block relative overflow-x-auto scrollbar-thin">
+          </>
+        ) : (
+          <div className="relative overflow-x-auto scrollbar-thin">
             <table className="w-full text-xs min-w-[820px]">
               <thead>
                 <tr className="border-b border-border bg-bg-primary/50">
@@ -1216,7 +1305,6 @@ export default function Portfolio() {
               <tbody>
                 {displayEnriched.map((item) => {
                   const pc    = pnlColor(item.pnlKRW);
-                  const isDel = confirmDeleteId === item.id;
                   const hasPrice = isLoggedIn ? priceMap[item.id] != null : true;
                   return (
                     <tr key={item.id}
@@ -1275,14 +1363,10 @@ export default function Portfolio() {
                               className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
                               <Pencil size={13} />
                             </button>
-                            <button onClick={() => handleDelete(item.id)}
-                              className={`p-1.5 rounded-lg transition-colors text-xs font-semibold ${
-                                isDel
-                                  ? "bg-accent-red/20 text-accent-red border border-accent-red/40 px-2"
-                                  : "text-text-muted hover:text-accent-red hover:bg-accent-red/10"
-                              }`}
-                              title={isDel ? "한 번 더 클릭하면 삭제됩니다" : "삭제"}>
-                              {isDel ? "확인" : <Trash2 size={13} />}
+                            <button onClick={() => setDeleteTarget(item)}
+                              className="p-1.5 rounded-lg text-text-muted hover:text-accent-red hover:bg-accent-red/10 transition-colors"
+                              title="삭제">
+                              <Trash2 size={13} />
                             </button>
                           </div>
                         )}
@@ -1315,8 +1399,7 @@ export default function Portfolio() {
                 </tr>
               </tfoot>
             </table>
-            </div>
-          </>
+          </div>
         )}
       </div>
 
@@ -1329,6 +1412,16 @@ export default function Portfolio() {
           onSave={editItem ? handleEdit : handleAdd}
           isSaving={addMutation.isPending || editMutation.isPending}
           saveError={modalError}
+        />
+      )}
+
+      {/* ── 종목 삭제 확인 모달 ── */}
+      {deleteTarget && (
+        <DeleteItemModal
+          item={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleConfirmDelete}
+          isDeleting={deleteMutation.isPending}
         />
       )}
 

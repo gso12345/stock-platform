@@ -193,19 +193,19 @@ export default function Quant() {
             ))}
           </div>
 
-          <div className="flex overflow-x-auto scrollbar-hide rounded-lg border border-border w-fit max-w-full">
+          <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
             <button
               onClick={() => setFolderTab("all")}
-              className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
-                folderTab === "all" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
+              className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
+                folderTab === "all" ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
               }`}
             >
               전체 <span className="text-[10px] opacity-70">{allCompareItems.length}</span>
             </button>
             <button
               onClick={() => setFolderTab("none")}
-              className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
-                folderTab === "none" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
+              className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
+                folderTab === "none" ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
               }`}
             >
               기본 <span className="text-[10px] opacity-70">{filteredItems.filter((i: any) => !i.folder_id).length}</span>
@@ -218,8 +218,8 @@ export default function Quant() {
                 <button
                   key={f.id}
                   onClick={() => setFolderTab(f.id)}
-                  className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-semibold border-r border-border last:border-r-0 transition-all ${
-                    folderTab === f.id ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-hover bg-bg-card"
+                  className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
+                    folderTab === f.id ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
                   }`}
                 >
                   {f.name} <span className="text-[10px] opacity-70">{cnt}</span>

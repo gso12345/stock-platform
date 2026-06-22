@@ -497,6 +497,7 @@ export default function StockDetail() {
                 title={`1USD≈${exchangeRate.toLocaleString("ko-KR")}₩`}
               >
                 ₩ 원화환산
+                {showKRW && <span className="text-[10px] text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
               </button>
             )}
             {showNxt && (
