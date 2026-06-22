@@ -879,6 +879,8 @@ export default function Portfolio() {
     staleTime:      120_000,
     refetchInterval:120_000,
   });
+  // 실시간 현재가를 아직 못 불러왔으면(=null) 정적 예시가를 절대 보여주지 않음 — 실데이터 도착 후에만 표시
+  const previewLoaded = previewBatchPrices != null;
 
   const previewEnrichedLive = useMemo<EnrichedItem[]>(() => {
     const list = PREVIEW_ENRICHED.map((base, i) => {
@@ -1030,8 +1032,8 @@ export default function Portfolio() {
   /* ── 미리보기 vs 실데이터 ── */
   const displayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
   const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
-  // 로그인 상태에서는 현재가를 다 불러오기 전까지 매입가 기반 추정치를 보여주지 않음
-  const hasDisplay      = displayEnriched.length > 0 && (!isLoggedIn || !isLoading);
+  // 로그인/비로그인 모두 현재가를 다 불러오기 전까지 추정치를 보여주지 않음
+  const hasDisplay      = displayEnriched.length > 0 && (isLoggedIn ? !isLoading : previewLoaded);
 
   return (
     <div className="flex flex-col gap-4 fade-in pb-20">
@@ -1123,7 +1125,7 @@ export default function Portfolio() {
       {/* ── 요약 카드 ── */}
       {/* 보유종목이 실제로 연동(로그인 + 종목 추가)되기 전에는 미리보기 수치를 보여주지 않음 */}
       {/* 로그인 상태에서는 현재가를 다 불러오기 전까지 매입가 기반 추정치를 보여주지 않고 로딩 표시만 함 */}
-      {isLoggedIn && items.length > 0 && pricesLoading && (
+      {((isLoggedIn && items.length > 0 && pricesLoading) || (!isLoggedIn && !previewLoaded)) && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {["총 평가금액", "총 매입금액", "평가손익", "수익률"].map((label) => (
             <Card key={label} className="flex flex-col gap-1">
@@ -1133,7 +1135,7 @@ export default function Portfolio() {
           ))}
         </div>
       )}
-      {isLoggedIn && items.length > 0 && !pricesLoading && (
+      {((isLoggedIn && items.length > 0 && !pricesLoading) || (!isLoggedIn && previewLoaded)) && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "총 평가금액", value: fmtKRWFull(displaySummary.totalValue),    color: "text-text-primary" },
@@ -1153,7 +1155,7 @@ export default function Portfolio() {
       )}
 
       {/* ── 구성 차트 ── */}
-      {isLoggedIn && items.length > 0 && isLoading && (
+      {((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (
         <Card className="flex items-center justify-center h-[180px] text-text-muted text-sm">
           가격 불러오는 중...
         </Card>
@@ -1331,7 +1333,7 @@ export default function Portfolio() {
             <div className="flex flex-col gap-2.5 p-3">
               {displayEnriched.map((item) => {
                 const pc = pnlColor(item.pnlKRW);
-                const hasPrice = isLoggedIn ? priceMap[item.id] != null : true;
+                const hasPrice = isLoggedIn ? priceMap[item.id] != null : previewLoaded;
                 return (
                   <div
                     key={item.id}
@@ -1424,7 +1426,7 @@ export default function Portfolio() {
               <tbody>
                 {displayEnriched.map((item) => {
                   const pc    = pnlColor(item.pnlKRW);
-                  const hasPrice = isLoggedIn ? priceMap[item.id] != null : true;
+                  const hasPrice = isLoggedIn ? priceMap[item.id] != null : previewLoaded;
                   return (
                     <tr key={item.id}
                       className="border-b border-border/40 transition-colors hover:bg-bg-hover cursor-pointer"
@@ -1498,7 +1500,7 @@ export default function Portfolio() {
                 <tr className="border-t border-border bg-bg-primary/50">
                   <td className="px-3 py-2.5 font-semibold text-text-muted" colSpan={isAllView ? 5 : 4}>합계</td>
                   <td />
-                  {isLoggedIn && pricesLoading ? (
+                  {(isLoggedIn ? pricesLoading : !previewLoaded) ? (
                     <>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted whitespace-nowrap">—</td>
                       <td className="px-3 py-2.5 text-right font-mono font-bold text-text-muted whitespace-nowrap">—</td>

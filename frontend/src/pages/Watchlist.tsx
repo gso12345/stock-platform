@@ -19,7 +19,7 @@ const MARKET_TABS = [
 /* ── 미리보기 예시 데이터 (비로그인 시 표시) ── */
 interface PreviewItem {
   id: number; symbol: string; market: string; name: string;
-  folderId: number; price: number; change_rate: number;
+  folderId: number; price: number; change_rate: number; hasPrice?: boolean;
 }
 interface PreviewFolder { id: number; name: string; }
 
@@ -47,7 +47,7 @@ const MKT_BADGE_VARIANT: Record<string, "blue" | "green" | "purple"> = {
 
 function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {
   const isKR = item.market === "KR";
-  const up   = item.change_rate >= 0;
+  const hasPrice = item.hasPrice !== false;
   return (
     <div
       className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
@@ -65,11 +65,11 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
       {/* 가격 */}
       <div className="text-right flex-shrink-0 min-w-[80px]">
         <div className="text-sm font-mono font-semibold text-text-primary">
-          {isKR ? `₩${item.price.toLocaleString("ko-KR")}` : `$${item.price.toFixed(2)}`}
+          {hasPrice
+            ? (isKR ? `₩${item.price.toLocaleString("ko-KR")}` : `$${item.price.toFixed(2)}`)
+            : <span className="text-text-muted text-xs">조회 중</span>}
         </div>
-        <div className={`text-xs font-semibold ${up ? "text-green-400" : "text-red-400"}`}>
-          {up ? "+" : ""}{item.change_rate.toFixed(2)}%
-        </div>
+        {hasPrice && <ChangeBadge value={item.change_rate} className="text-xs" />}
       </div>
     </div>
   );
@@ -508,13 +508,16 @@ export default function Watchlist() {
     refetchInterval: 60_000,
   });
   const previewWatchlistLive: PreviewItem[] = useMemo(() => {
-    if (!previewPrices) return PREVIEW_WATCHLIST;
+    // 실시간 현재가를 아직 못 불러왔으면 정적 예시가를 보여주지 않고 로딩 상태로 표시
+    if (!previewPrices) return PREVIEW_WATCHLIST.map((base) => ({ ...base, hasPrice: false }));
     return PREVIEW_WATCHLIST.map((base, i) => {
       const d = previewPrices[i] as any;
+      const hasPrice = d?.price != null;
       return {
         ...base,
-        price: d?.price ?? base.price,
-        change_rate: d?.change_rate ?? base.change_rate,
+        price: hasPrice ? d.price : base.price,
+        change_rate: hasPrice ? (d.change_rate ?? base.change_rate) : base.change_rate,
+        hasPrice,
       };
     });
   }, [previewPrices]);
