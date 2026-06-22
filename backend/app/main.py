@@ -13,7 +13,7 @@ from app.db.database import Base, engine
 from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth, portfolio
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
-    PortfolioItem, FundamentalsCache, FinancialsCache,
+    Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
     QuantScoreWeight, QuantPercentileCache,
 )
@@ -40,7 +40,7 @@ async def lifespan(application: FastAPI):
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
-        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights"}
+        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights", "portfolio_items"}
         _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
         # 테이블/컬럼명이 항상 이 파일 내 하드코딩된 값이지만, 방어적으로 식별자 형식을 강제
         _IDENTIFIER_RE = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -74,6 +74,7 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("users", "oauth_provider", "VARCHAR(20)")
         _add_col_if_missing("users", "oauth_id", "VARCHAR(100)")
         _add_col_if_missing("quant_score_weights", "enabled_metrics", "JSON")
+        _add_col_if_missing("portfolio_items", "portfolio_id", "INTEGER REFERENCES portfolios(id)", "INTEGER")
 
         def _add_index_if_missing(table: str, col: str):
             if table not in tables:
@@ -100,8 +101,39 @@ async def lifespan(application: FastAPI):
             ("backtest_results", "user_id"),
             ("users", "oauth_provider"),
             ("users", "oauth_id"),
+            ("portfolio_items", "portfolio_id"),
         ]:
             _add_index_if_missing(_table, _col)
+
+        # 기존 portfolio_items 중 portfolio_id가 없는(=다중 포트폴리오 도입 이전) 항목을
+        # 사용자별 "기본 포트폴리오"로 일괄 편입
+        if "portfolio_items" in tables and "portfolios" in inspector.get_table_names():
+            from app.db.database import SessionLocal
+            from app.models.stock import Portfolio as _Portfolio, PortfolioItem as _PortfolioItem
+
+            mdb = SessionLocal()
+            try:
+                orphan_user_ids = [
+                    r[0] for r in mdb.query(_PortfolioItem.user_id)
+                    .filter(_PortfolioItem.portfolio_id.is_(None))
+                    .distinct().all()
+                ]
+                for uid in orphan_user_ids:
+                    default_pf = mdb.query(_Portfolio).filter(_Portfolio.user_id == uid).first()
+                    if not default_pf:
+                        default_pf = _Portfolio(name="기본 포트폴리오", user_id=uid)
+                        mdb.add(default_pf)
+                        mdb.commit()
+                        mdb.refresh(default_pf)
+                    mdb.query(_PortfolioItem).filter(
+                        _PortfolioItem.user_id == uid, _PortfolioItem.portfolio_id.is_(None)
+                    ).update({"portfolio_id": default_pf.id})
+                mdb.commit()
+            except Exception as pe:
+                mdb.rollback()
+                logging.getLogger(__name__).warning(f"기본 포트폴리오 백필 실패: {pe}")
+            finally:
+                mdb.close()
 
         if "users" in tables and not settings.DATABASE_URL.startswith("sqlite"):
             with engine.connect() as conn:
