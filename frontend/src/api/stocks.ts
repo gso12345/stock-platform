@@ -277,8 +277,10 @@ export const portfolioApi = {
   deletePortfolio: (id: number) =>
     api.delete(`/portfolio/portfolios/${id}`).then((r) => r.data),
 
-  getItems: (portfolioId?: number) =>
-    api.get("/portfolio/items", { params: portfolioId ? { portfolio_id: portfolioId } : {} }).then((r) => r.data),
+  getItems: (portfolioId?: number, viewAll?: boolean) =>
+    api.get("/portfolio/items", {
+      params: viewAll ? { view_all: true } : (portfolioId ? { portfolio_id: portfolioId } : {}),
+    }).then((r) => r.data),
 
   addItem: (payload: {
     portfolio_id?: number | null;
