@@ -49,7 +49,7 @@ interface EnrichedItem extends PortfolioItem {
 }
 
 /* ── Constants ─────────────────────────────────────────── */
-const PIE_COLORS  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16"];
+const PIE_COLORS  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
 const DEFAULT_FX  = 1350;
 
 /* ── 미리보기 예시 데이터 (비로그인 시 표시) ────────────────── */
