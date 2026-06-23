@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
-import { dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
+import { dashboardApi, portfolioApi, watchlistApi, quantScoreApi } from "@/api/stocks";
 import Logo from "./Logo";
 
-/** 앱 진입 시 핵심 데이터(대시보드/뉴스/보유종목/관심종목) 로딩 진행률을 화면을 가리지 않는 작은 위젯으로 표시 */
+/** 앱 진입 시 핵심 데이터(대시보드/뉴스/보유종목/관심종목/퀀트점수비교) 로딩 진행률을 화면을 가리지 않는 작은 위젯으로 표시 */
 export default function LoadingProgressOverlay() {
   const { isLoggedIn, userId } = useAuthStore();
   const [closed, setClosed] = useState(false);
@@ -17,7 +17,21 @@ export default function LoadingProgressOverlay() {
   const holdings = useQuery({ queryKey: ["portfolio-items-check", userId], queryFn: () => portfolioApi.getItems(), enabled: isLoggedIn, staleTime: 60_000 });
   const watch = useQuery({ queryKey: ["watchlist-items-check", userId], queryFn: () => watchlistApi.getItems(), enabled: isLoggedIn, staleTime: 30_000 });
 
-  const allQueries = [dashKR, dashUS, newsKR, newsUS, ...(isLoggedIn ? [holdings, watch] : [])];
+  const compareItems = ((watch.data ?? []) as { symbol: string; market: string }[])
+    .filter((it, i, arr) => arr.findIndex((o) => o.symbol === it.symbol && o.market === it.market) === i)
+    .slice(0, 30);
+  const quantCompare = useQuery({
+    queryKey: ["quant-compare-check", userId, compareItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
+    queryFn: () => quantScoreApi.compare(compareItems),
+    enabled: isLoggedIn && watch.isSuccess && compareItems.length > 0,
+    staleTime: 60_000,
+  });
+
+  const allQueries = [
+    dashKR, dashUS, newsKR, newsUS,
+    ...(isLoggedIn ? [holdings, watch] : []),
+    ...(isLoggedIn && watch.isSuccess && compareItems.length > 0 ? [quantCompare] : []),
+  ];
   const total = allQueries.length;
   const done = allQueries.filter((q) => q.isSuccess || q.isError).length;
   const percent = total > 0 ? Math.round((done / total) * 100) : 100;
