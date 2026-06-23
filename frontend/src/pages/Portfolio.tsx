@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, RowSkeleton } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check, AlertTriangle, LayoutGrid, Table2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check, AlertTriangle, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -13,7 +13,7 @@ import type { ColorScheme } from "@/store/settingsStore";
 /* ── Types ─────────────────────────────────────────────── */
 type Market = "KR" | "US" | "ETF";
 type Currency = "KRW" | "USD";
-type ChartMode = "stock" | "market";
+type ChartMode = "stock" | "market" | "portfolio";
 
 interface PortfolioItem {
   id: number;
@@ -715,6 +715,7 @@ export default function Portfolio() {
   const [viewMode,        setViewMode]        = useState<"table" | "card">(
     () => (typeof window !== "undefined" && window.innerWidth < 640) ? "card" : "table"
   );
+  const [showNative,      setShowNative]       = useState(true); // 해외종목 원화/외화 동시 표시 여부
 
   const { isLoggedIn } = useAuthStore();
   const { colorScheme } = useSettingsStore();
@@ -1149,9 +1150,19 @@ export default function Portfolio() {
     previewEnrichedLive.reduce((acc, e) => { const cls = resolveAssetClass(e); acc[cls] = (acc[cls] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
   ).map(([name, value]) => ({ name, value }));
 
+  const portfolioPieData = useMemo(
+    () => portfolioBreakdown.map((p) => ({ name: p.name, value: Math.round(p.value) })),
+    [portfolioBreakdown],
+  );
+
   const activePieData = isLoggedIn
-    ? (chartMode === "stock" ? stockPieData : marketPieData)
+    ? (chartMode === "portfolio" ? portfolioPieData : chartMode === "stock" ? stockPieData : marketPieData)
     : (chartMode === "stock" ? previewStockPie : previewMarketPie);
+
+  /* ── 전체 보기를 벗어나면 포트폴리오별 비중 탭에 머물러 있지 않도록 ── */
+  useEffect(() => {
+    if (!isAllView && chartMode === "portfolio") setChartMode("stock");
+  }, [isAllView, chartMode]);
 
   /* ── CRUD ── */
   const handleAdd = (data: Omit<PortfolioItem, "id">) => {
@@ -1171,6 +1182,7 @@ export default function Portfolio() {
 
   /* ── 미리보기 vs 실데이터 ── */
   const displayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
+  const hasForexHoldings = displayEnriched.some((e) => e.market === "US" || e.market === "ETF");
   const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
   // 로그인/비로그인 모두 현재가를 다 불러오기 전까지 추정치를 보여주지 않음
   const hasDisplay      = displayEnriched.length > 0 && (isLoggedIn ? !isLoading : previewLoaded);
@@ -1233,15 +1245,6 @@ export default function Portfolio() {
             />
           ))}
           <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
-          {isAllView && portfolios.length > 1 && (
-            <div className="ml-auto pl-2 flex-shrink-0">
-              <PortfolioFilterDropdown
-                portfolios={portfolios}
-                excludedIds={excludedPortfolioIds}
-                onToggle={toggleExcludedPortfolio}
-              />
-            </div>
-          )}
         </div>
       )}
 
@@ -1264,11 +1267,22 @@ export default function Portfolio() {
       )}
 
       {/* ── 헤더 ── */}
-      <div>
-        <h1 className="text-2xl font-bold text-text-primary">내 자산</h1>
-        <p className="text-text-muted text-xs mt-0.5">
-          {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : `${displayEnriched.length}개 종목 · 클릭하면 상세로 이동`}
-        </p>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold text-text-primary">내 자산</h1>
+          <p className="text-text-muted text-xs mt-0.5">
+            {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : `${displayEnriched.length}개 종목 · 클릭하면 상세로 이동`}
+          </p>
+        </div>
+        {isAllView && portfolios.length > 1 && (
+          <div className="flex-shrink-0">
+            <PortfolioFilterDropdown
+              portfolios={portfolios}
+              excludedIds={excludedPortfolioIds}
+              onToggle={toggleExcludedPortfolio}
+            />
+          </div>
+        )}
       </div>
 
       {/* ── 요약 카드 ── */}
@@ -1287,14 +1301,21 @@ export default function Portfolio() {
       {((isLoggedIn && items.length > 0 && !pricesLoading) || (!isLoggedIn && previewLoaded)) && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "총 평가금액", value: fmtKRWFull(displaySummary.totalValue),    color: "text-text-primary" },
-            { label: "총 매입금액", value: fmtKRWFull(displaySummary.totalCost),     color: "text-text-primary" },
-            { label: "평가손익",   value: fmtKRWFullSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl) },
-            { label: "수익률",     value: `${displaySummary.totalRate >= 0 ? "+" : ""}${displaySummary.totalRate.toFixed(2)}%`, color: pnlColor(displaySummary.totalRate) },
+            { label: "총 평가금액", value: fmtKRWFull(displaySummary.totalValue),    color: "text-text-primary", icon: Landmark,  tint: "" },
+            { label: "총 매입금액", value: fmtKRWFull(displaySummary.totalCost),     color: "text-text-primary", icon: Receipt,   tint: "" },
+            { label: "평가손익",   value: fmtKRWFullSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl),
+              icon: displaySummary.totalPnl >= 0 ? TrendingUp : TrendingDown,
+              tint: displaySummary.totalPnl >= 0 ? "bg-accent-red/5 border-accent-red/20" : "bg-accent-blue/5 border-accent-blue/20" },
+            { label: "수익률",     value: `${displaySummary.totalRate >= 0 ? "+" : ""}${displaySummary.totalRate.toFixed(2)}%`, color: pnlColor(displaySummary.totalRate),
+              icon: Percent,
+              tint: displaySummary.totalRate >= 0 ? "bg-accent-red/5 border-accent-red/20" : "bg-accent-blue/5 border-accent-blue/20" },
           ].map((c) => (
-            <Card key={c.label} className={`flex flex-col gap-1 ${!isLoggedIn ? "opacity-80" : ""}`}>
-              <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{c.label}</span>
-              <span className={`text-base font-mono font-bold ${c.color}`}>{c.value}</span>
+            <Card key={c.label} className={`flex flex-col gap-1 ${c.tint} ${!isLoggedIn ? "opacity-80" : ""}`}>
+              <div className="flex items-center gap-1.5">
+                <c.icon size={12} className={c.color === "text-text-primary" ? "text-text-dim" : c.color} />
+                <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{c.label}</span>
+              </div>
+              <span className={`text-lg font-mono font-bold ${c.color}`}>{c.value}</span>
               {c.label === "총 평가금액" && (
                 <span className="text-[10px] text-text-dim">환율 {Math.round(exchangeRate).toLocaleString("ko-KR")}원</span>
               )}
@@ -1316,7 +1337,8 @@ export default function Portfolio() {
               {([
                 { id: "stock",  label: "종목별 구성" },
                 { id: "market", label: "자산유형별 구성" },
-              ] as const).map(({ id, label }) => (
+                ...(isAllView && portfolios.length > 1 ? [{ id: "portfolio", label: "포트폴리오별 비중" }] : []),
+              ] as { id: ChartMode; label: string }[]).map(({ id, label }) => (
                 <button key={id} onClick={() => setChartMode(id)}
                   className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
                     chartMode === id ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
@@ -1380,30 +1402,9 @@ export default function Portfolio() {
         </Card>
       )}
 
-      {/* ── 전체 보기: 포트폴리오별 비중 ── */}
-      {isAllView && hasDisplay && portfolioBreakdown.length > 1 && (
-        <Card className="flex flex-col gap-2.5">
-          <span className="text-sm font-semibold text-text-primary">포트폴리오별 비중</span>
-          <div className="flex flex-col gap-2">
-            {portfolioBreakdown.map((p, i) => (
-              <div key={p.id ?? p.name} className="flex items-center gap-2.5">
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                <span className="flex-1 text-xs text-text-secondary truncate min-w-0">{p.name}</span>
-                <div className="flex-1 max-w-[120px] h-1.5 bg-bg-elevated rounded-full overflow-hidden hidden sm:block">
-                  <div className="h-full rounded-full transition-all duration-700"
-                    style={{ width: `${Math.min(100, p.weight)}%`, background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                </div>
-                <span className="text-xs font-mono font-semibold text-text-primary w-12 text-right flex-shrink-0">{p.weight.toFixed(1)}%</span>
-                <span className="text-xs font-mono text-text-muted text-right flex-shrink-0 w-24">{fmtKRW(p.value)}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
       {/* ── 보유 종목 ── */}
       <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
-        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border flex-wrap">
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-sm font-semibold text-text-primary whitespace-nowrap">보유 종목</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted font-semibold whitespace-nowrap">
@@ -1411,7 +1412,19 @@ export default function Portfolio() {
             </span>
             {isLoggedIn && isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* 원화/외화 동시 표시 토글 (해외 보유종목이 있을 때만) */}
+            {hasForexHoldings && (
+              <button
+                onClick={() => setShowNative((v) => !v)}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg border text-2xs font-semibold transition-colors flex-shrink-0 whitespace-nowrap ${
+                  showNative ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-border text-text-muted hover:text-text-primary"
+                }`}
+                title="해외 보유종목의 원화/외화 동시 표시"
+              >
+                <DollarSign size={12} className="flex-shrink-0" />원화·외화
+              </button>
+            )}
             {/* 표/카드 보기 토글 */}
             <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary flex-shrink-0">
               <button
@@ -1548,14 +1561,14 @@ export default function Portfolio() {
                               <span className="font-mono font-bold text-text-primary text-base">
                                 {hasPrice ? fmtKRWFull(item.currentValueKRW) : "—"}
                               </span>
-                              {hasPrice && isForexItem && <span className="text-2xs text-text-dim font-mono">{fmtUSD(nativeValue)}</span>}
+                              {hasPrice && isForexItem && showNative && <span className="text-2xs text-text-dim font-mono">{fmtUSD(nativeValue)}</span>}
                             </div>
                             <div className="flex flex-col gap-0.5 items-end">
                               <span className="text-xs text-text-dim">평가손익</span>
                               <span className={`font-mono font-bold text-base whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
                                 {hasPrice ? `${fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)` : "—"}
                               </span>
-                              {hasPrice && isForexItem && (
+                              {hasPrice && isForexItem && showNative && (
                                 <span className="text-2xs text-text-dim font-mono">{nativePnl >= 0 ? "+" : ""}{fmtUSD(nativePnl)}</span>
                               )}
                             </div>
@@ -1569,12 +1582,12 @@ export default function Portfolio() {
                             <div className="flex flex-col gap-0.5">
                               <span className="text-text-dim">평단가</span>
                               <span className="font-mono text-text-secondary">{fmtNative(item.market, item.currency, item.avgPrice)}</span>
-                              {isForexItem && <span className="text-2xs text-text-dim font-mono">{fmtKRWFull(nativeAvgPrice * exchangeRate)}</span>}
+                              {isForexItem && showNative && <span className="text-2xs text-text-dim font-mono">{fmtKRWFull(nativeAvgPrice * exchangeRate)}</span>}
                             </div>
                             <div className="flex flex-col gap-0.5">
                               <span className="text-text-dim">현재가</span>
                               <span className="font-mono text-text-secondary">{hasPrice ? fmtNative(item.market, item.currency, item.currentPriceNative) : "—"}</span>
-                              {hasPrice && isForexItem && <span className="text-2xs text-text-dim font-mono">{fmtKRWFull(item.currentPriceNative * exchangeRate)}</span>}
+                              {hasPrice && isForexItem && showNative && <span className="text-2xs text-text-dim font-mono">{fmtKRWFull(item.currentPriceNative * exchangeRate)}</span>}
                             </div>
                           </div>
                         </>
@@ -1643,7 +1656,7 @@ export default function Portfolio() {
                           <>
                             <td className="px-3 py-2.5 text-right font-mono text-text-secondary whitespace-nowrap">
                               <div>{fmtNative(item.market, item.currency, item.avgPrice)}</div>
-                              {isForexItem && (
+                              {isForexItem && showNative && (
                                 <div className="text-[10px] text-text-dim">{fmtKRWFull(nativeAvgPrice * exchangeRate)}</div>
                               )}
                               {item.currency === "USD" && item.inputExchangeRate && (
@@ -1655,7 +1668,7 @@ export default function Portfolio() {
                                 isForexItem ? (
                                   <div>
                                     <div>{fmtKRWFull(item.currentPriceNative * exchangeRate)}</div>
-                                    <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>
+                                    {showNative && <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>}
                                   </div>
                                 ) : fmtNative(item.market, item.currency, item.currentPriceNative)
                               ) : <span className="text-text-muted">—</span>}
@@ -1664,7 +1677,7 @@ export default function Portfolio() {
                               {hasPrice ? (
                                 <div>
                                   <div>{fmtKRWFull(item.currentValueKRW)}</div>
-                                  {isForexItem && <div className="text-[10px] text-text-dim">{fmtUSD(nativeValue)}</div>}
+                                  {isForexItem && showNative && <div className="text-[10px] text-text-dim">{fmtUSD(nativeValue)}</div>}
                                 </div>
                               ) : <span className="text-text-muted">—</span>}
                             </td>
@@ -1672,7 +1685,7 @@ export default function Portfolio() {
                               {hasPrice ? (
                                 <div>
                                   <div>{fmtKRWFullSign(item.pnlKRW)}</div>
-                                  {isForexItem && <div className="text-[10px] opacity-80">{nativePnl >= 0 ? "+" : ""}{fmtUSD(nativePnl)}</div>}
+                                  {isForexItem && showNative && <div className="text-[10px] opacity-80">{nativePnl >= 0 ? "+" : ""}{fmtUSD(nativePnl)}</div>}
                                 </div>
                               ) : "—"}
                             </td>
