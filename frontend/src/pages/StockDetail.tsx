@@ -391,6 +391,14 @@ export default function StockDetail() {
   const showNxt = isKR && nxt?.available && nxt?.price != null;
   const nxtIsUp = (nxt?.change_rate ?? 0) >= 0;
 
+  // 미국 프리마켓/애프터마켓 시세 (정규장 외 시간대에 marketState로 구분됨)
+  const extHoursPrice = d?.market_state === "PRE" ? d?.pre_market_price : d?.market_state === "POST" ? d?.post_market_price : null;
+  const extHoursChangeRate = d?.market_state === "PRE" ? d?.pre_market_change_rate : d?.post_market_change_rate;
+  const showExtHours = !isKR && extHoursPrice != null;
+  const extHoursLabel = d?.market_state === "PRE" ? "프리마켓" : "애프터마켓";
+  const extHoursUp = (extHoursChangeRate ?? 0) >= 0;
+  const extHoursPriceStr = showKRW ? `₩${Math.round(extHoursPrice * exchangeRate).toLocaleString("ko-KR")}` : `$${extHoursPrice?.toFixed(2)}`;
+
   if (detailError && !detail) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
@@ -506,6 +514,15 @@ export default function StockDetail() {
                 <span className="text-base font-mono font-semibold text-text-primary num">₩{nxt.price.toLocaleString("ko-KR")}</span>
                 <span className={`text-xs font-mono num ${nxtIsUp?upColor:downColor}`}>
                   ({nxtIsUp?"+":""}{(nxt.change_rate??0).toFixed(2)}%)
+                </span>
+              </div>
+            )}
+            {showExtHours && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-border bg-bg-elevated" title={`${extHoursLabel} 시세`}>
+                <span className="text-xs font-bold px-1 py-0.5 rounded bg-accent-purple/15 text-accent-purple leading-none">{extHoursLabel}</span>
+                <span className="text-base font-mono font-semibold text-text-primary num">{extHoursPriceStr}</span>
+                <span className={`text-xs font-mono num ${extHoursUp?upColor:downColor}`}>
+                  ({extHoursUp?"+":""}{(extHoursChangeRate??0).toFixed(2)}%)
                 </span>
               </div>
             )}

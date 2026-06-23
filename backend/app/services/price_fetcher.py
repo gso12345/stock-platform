@@ -336,12 +336,19 @@ async def fetch_naver_exchange() -> dict | None:
 
 # ── Yahoo Finance — 미국 주식 ──────────────────────────────
 async def fetch_yf_quotes(symbols: list[str]) -> dict[str, dict]:
-    """Yahoo Finance v7 멀티쿼트 (query1/query2 교차로 rate limit 완화)"""
+    """Yahoo Finance v7 멀티쿼트 (query1/query2 교차로 rate limit 완화)
+    프리마켓/애프터마켓 시세(marketState=PRE/POST)도 함께 내려받는다."""
     if not symbols:
         return {}
     base   = _yf_base()
     syms   = ",".join(symbols)
-    fields = "regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,marketCap,shortName,longName,currency"
+    fields = (
+        "regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,"
+        "regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,marketCap,"
+        "shortName,longName,currency,marketState,"
+        "preMarketPrice,preMarketChange,preMarketChangePercent,"
+        "postMarketPrice,postMarketChange,postMarketChangePercent"
+    )
     url    = f"https://{base}.finance.yahoo.com/v7/finance/quote?symbols={syms}&fields={fields}"
     try:
         async with httpx.AsyncClient(timeout=12, headers=YF_HEADERS) as cl:
@@ -359,6 +366,9 @@ async def fetch_yf_quotes(symbols: list[str]) -> dict[str, dict]:
             curr = _safe(q.get("regularMarketPrice"))
             if not curr:
                 continue
+            market_state = q.get("marketState")
+            pre_price  = _safe(q.get("preMarketPrice"))
+            post_price = _safe(q.get("postMarketPrice"))
             out[sym] = {
                 "symbol":      sym,
                 "name":        q.get("longName") or q.get("shortName") or sym,
@@ -372,6 +382,14 @@ async def fetch_yf_quotes(symbols: list[str]) -> dict[str, dict]:
                 "open":        _safe(q.get("regularMarketOpen")),
                 "high":        _safe(q.get("regularMarketDayHigh")),
                 "low":         _safe(q.get("regularMarketDayLow")),
+                "market_state":      market_state,
+                # PRE(프리마켓)/POST(애프터마켓)일 때만 의미 있는 값 — 그 외엔 None
+                "pre_market_price":        pre_price if market_state == "PRE" else None,
+                "pre_market_change":       round(_safe(q.get("preMarketChange")) or 0, 4) if market_state == "PRE" and pre_price else None,
+                "pre_market_change_rate":  round(_safe(q.get("preMarketChangePercent")) or 0, 4) if market_state == "PRE" and pre_price else None,
+                "post_market_price":       post_price if market_state == "POST" else None,
+                "post_market_change":      round(_safe(q.get("postMarketChange")) or 0, 4) if market_state == "POST" and post_price else None,
+                "post_market_change_rate": round(_safe(q.get("postMarketChangePercent")) or 0, 4) if market_state == "POST" and post_price else None,
             }
         return out
     except Exception as e:
