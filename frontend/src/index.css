@@ -49,11 +49,11 @@ html.light {
 
   html {
     font-family: "JetBrains Mono", "Pretendard Variable", "Pretendard", -apple-system, system-ui, sans-serif;
-    font-size: 16px;
+    font-size: 14px;
     -webkit-font-smoothing: antialiased;
   }
-  html.font-large { font-size: 18px; }
-  html.font-xl    { font-size: 20px; }
+  html.font-large { font-size: 16px; }
+  html.font-xl    { font-size: 18px; }
 
   body {
     background: var(--bg-base);
