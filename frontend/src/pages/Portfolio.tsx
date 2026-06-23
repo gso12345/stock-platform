@@ -28,6 +28,7 @@ interface PortfolioItem {
   inputExchangeRate?: number;
   purchaseDate?: string;
   note?: string;
+  assetClass?: AssetClass | null;
 }
 
 type SelectedPortfolio = number | "all";
@@ -65,6 +66,41 @@ const PREVIEW_ENRICHED: EnrichedItem[] = [
   { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 10, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
     currentPriceNative: 535,    currentValueKRW: 6_955_000,  costKRW: 5_460_000,  pnlKRW: 1_495_000, pnlRate: 27.38, weight:  8.9 },
 ];
+/* ── 자산유형 분류 (국내주식/해외주식/채권/금) ──────────────────── */
+type AssetClass = "국내주식" | "해외주식" | "채권" | "금";
+
+const BOND_KEYWORDS = [
+  "채권", "국고채", "회사채", "단기채", "장기채", "본드",
+  "TLT", "BND", "AGG", "SHY", "IEF", "TIP", "LQD", "HYG", "BNDX", "TIGER 미국채", "KODEX 국고채",
+];
+const GOLD_KEYWORDS = ["금현물", "골드", "GLD", "IAU", "GLDM", "SGOL", "KRX금"];
+const OVERSEAS_KEYWORDS = [
+  "미국", "나스닥", "S&P", "SP500", "차이나", "중국", "일본", "글로벌", "선진국",
+  "유로", "베트남", "인도", "신흥국", "해외",
+];
+
+function classifyAsset(item: { market: Market; name?: string; symbol: string }): AssetClass {
+  const haystack = `${item.name ?? ""} ${item.symbol}`.toUpperCase();
+  if (BOND_KEYWORDS.some((k) => haystack.includes(k.toUpperCase()))) return "채권";
+  if (GOLD_KEYWORDS.some((k) => haystack.includes(k.toUpperCase()))) return "금";
+
+  if (item.market === "KR") return "국내주식";
+  if (item.market === "US") return "해외주식";
+
+  // ETF: 종목코드가 6자리 숫자면 국내 상장 ETF, 그 외엔 해외 상장 ETF
+  const isKRListed = /^\d{6}/.test(item.symbol);
+  if (!isKRListed) return "해외주식";
+  if (OVERSEAS_KEYWORDS.some((k) => (item.name ?? "").includes(k))) return "해외주식";
+  return "국내주식";
+}
+
+const ASSET_CLASS_OPTIONS: AssetClass[] = ["국내주식", "해외주식", "채권", "금"];
+
+// 사용자가 직접 지정한 자산유형이 있으면 그걸 쓰고, 없으면 자동 분류
+function resolveAssetClass(item: { market: Market; name?: string; symbol: string; assetClass?: AssetClass | null }): AssetClass {
+  return item.assetClass ?? classifyAsset(item);
+}
+
 /* ── Format utils ───────────────────────────────────────── */
 function fmtKRW(v: number): string {
   const abs = Math.abs(v);
@@ -183,6 +219,7 @@ function PortfolioModal({
   const [inputFx,      setInputFx]      = useState(item?.inputExchangeRate ? String(item.inputExchangeRate) : "");
   const [purchaseDate, setPurchaseDate] = useState(item?.purchaseDate ?? "");
   const [note,         setNote]         = useState(item?.note ?? "");
+  const [assetClass,   setAssetClass]   = useState<AssetClass | "">(item?.assetClass ?? "");
 
   useEffect(() => {
     if (step === 1) setTimeout(() => inputRef.current?.focus(), 50);
@@ -223,6 +260,7 @@ function PortfolioModal({
       inputExchangeRate: currency === "USD" && inputFx ? Number(inputFx) : undefined,
       purchaseDate: purchaseDate || undefined,
       note: note || undefined,
+      assetClass: assetClass || null,
     });
   };
 
@@ -387,6 +425,16 @@ function PortfolioModal({
                   <label className="text-2xs font-semibold text-text-muted">매수일 (선택)</label>
                   <input className={inp} type="date" value={purchaseDate}
                     onChange={(e) => setPurchaseDate(e.target.value)} />
+                </div>
+                <div className="flex-1 flex flex-col gap-1.5">
+                  <label className="text-2xs font-semibold text-text-muted">자산유형</label>
+                  <select className={inp} value={assetClass}
+                    onChange={(e) => setAssetClass(e.target.value as AssetClass | "")}>
+                    <option value="">자동 분류</option>
+                    {ASSET_CLASS_OPTIONS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -560,6 +608,56 @@ function PortfolioPill({
   );
 }
 
+/* ── 전체 보기에서 포함/제외할 포트폴리오 선택 (포트폴리오 모아보기) ── */
+function PortfolioFilterDropdown({ portfolios, excludedIds, onToggle }: {
+  portfolios: PortfolioMeta[]; excludedIds: Set<number>; onToggle: (id: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const includedCount = portfolios.length - excludedIds.size;
+
+  return (
+    <div ref={ref} className="relative flex-shrink-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 text-xs font-semibold transition-colors whitespace-nowrap"
+        title="전체 보기에 포함할 포트폴리오 선택"
+      >
+        <Check size={12} /> 포트폴리오 선택 ({includedCount}/{portfolios.length})
+      </button>
+      {open && (
+        <div className="absolute z-30 top-full mt-1 left-0 w-56 max-h-64 overflow-y-auto bg-bg-card border border-border rounded-xl shadow-2xl p-1.5 flex flex-col gap-0.5">
+          {portfolios.map((pf) => {
+            const checked = !excludedIds.has(pf.id);
+            return (
+              <label key={pf.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-bg-elevated cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggle(pf.id)}
+                  className="accent-accent-blue"
+                />
+                <span className="flex-1 truncate text-text-primary">{pf.name}</span>
+                <span className="text-text-dim">({pf.count})</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -639,6 +737,15 @@ export default function Portfolio() {
 
   /* ── 포트폴리오 목록 ── */
   const [selectedPortfolioId, setSelectedPortfolioId] = useState<SelectedPortfolio | null>(null);
+  /* 전체 보기(포트폴리오 모아보기)에서 제외할 포트폴리오 — 비어있으면 전부 포함 */
+  const [excludedPortfolioIds, setExcludedPortfolioIds] = useState<Set<number>>(new Set());
+  const toggleExcludedPortfolio = (id: number) => {
+    setExcludedPortfolioIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   const { data: portfolios = [] } = useQuery<PortfolioMeta[]>({
     queryKey: ["portfolios"],
@@ -809,6 +916,7 @@ export default function Portfolio() {
         input_exchange_rate: data.inputExchangeRate ?? null,
         purchase_date: data.purchaseDate ?? null,
         note: data.note ?? null,
+        asset_class: data.assetClass ?? null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
@@ -826,6 +934,7 @@ export default function Portfolio() {
         input_exchange_rate: data.inputExchangeRate ?? null,
         purchase_date: data.purchaseDate ?? null,
         note: data.note ?? null,
+        asset_class: data.assetClass ?? null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
@@ -919,9 +1028,15 @@ export default function Portfolio() {
     return map;
   }, [items, batchPrices]);
 
+  /* ── 전체 보기에서 제외된 포트폴리오의 종목은 집계에서 빼기 ── */
+  const filteredItems = useMemo(() => {
+    if (!isAllView || excludedPortfolioIds.size === 0) return items;
+    return items.filter((i) => i.portfolioId == null || !excludedPortfolioIds.has(i.portfolioId));
+  }, [items, isAllView, excludedPortfolioIds]);
+
   /* ── KRW 환산 enriched items ── */
   const enriched = useMemo<EnrichedItem[]>(() => {
-    const list = items.map((raw) => {
+    const list = filteredItems.map((raw) => {
       const item: PortfolioItem = {
         ...raw,
         currency: raw.currency ?? (raw.market === "KR" ? "KRW" : "USD"),
@@ -951,7 +1066,22 @@ export default function Portfolio() {
       ...e,
       weight: totalKRW > 0 ? (e.currentValueKRW / totalKRW) * 100 : 0,
     }));
-  }, [items, priceMap, exchangeRate]);
+  }, [filteredItems, priceMap, exchangeRate]);
+
+  /* ── 전체 보기 — 포트폴리오별 비중 ── */
+  const portfolioBreakdown = useMemo(() => {
+    if (!isAllView) return [];
+    const map: Record<string, { id: number | null; name: string; value: number }> = {};
+    enriched.forEach((e) => {
+      const key = String(e.portfolioId ?? "unknown");
+      if (!map[key]) map[key] = { id: e.portfolioId ?? null, name: e.portfolioName || "기타", value: 0 };
+      map[key].value += e.currentValueKRW;
+    });
+    const total = Object.values(map).reduce((s, v) => s + v.value, 0);
+    return Object.values(map)
+      .map((v) => ({ ...v, weight: total > 0 ? (v.value / total) * 100 : 0 }))
+      .sort((a, b) => b.value - a.value);
+  }, [enriched, isAllView]);
 
   /* ── 요약 ── */
   const summary = useMemo(() => {
@@ -997,7 +1127,10 @@ export default function Portfolio() {
 
   const marketPieData = useMemo(() => {
     const map: Record<string, number> = {};
-    enriched.forEach((e) => { map[e.market] = (map[e.market] ?? 0) + e.currentValueKRW; });
+    enriched.forEach((e) => {
+      const cls = resolveAssetClass(e);
+      map[cls] = (map[cls] ?? 0) + e.currentValueKRW;
+    });
     return Object.entries(map).map(([name, value]) => ({ name, value: Math.round(value) }));
   }, [enriched]);
 
@@ -1006,7 +1139,7 @@ export default function Portfolio() {
     value: e.currentValueKRW,
   }));
   const previewMarketPie = Object.entries(
-    previewEnrichedLive.reduce((acc, e) => { acc[e.market] = (acc[e.market] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
+    previewEnrichedLive.reduce((acc, e) => { const cls = resolveAssetClass(e); acc[cls] = (acc[cls] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
   ).map(([name, value]) => ({ name, value }));
 
   const activePieData = isLoggedIn
@@ -1093,6 +1226,15 @@ export default function Portfolio() {
             />
           ))}
           <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
+          {isAllView && portfolios.length > 1 && (
+            <div className="ml-auto pl-2 flex-shrink-0">
+              <PortfolioFilterDropdown
+                portfolios={portfolios}
+                excludedIds={excludedPortfolioIds}
+                onToggle={toggleExcludedPortfolio}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -1231,6 +1373,27 @@ export default function Portfolio() {
         </Card>
       )}
 
+      {/* ── 전체 보기: 포트폴리오별 비중 ── */}
+      {isAllView && hasDisplay && portfolioBreakdown.length > 1 && (
+        <Card className="flex flex-col gap-2.5">
+          <span className="text-sm font-semibold text-text-primary">포트폴리오별 비중</span>
+          <div className="flex flex-col gap-2">
+            {portfolioBreakdown.map((p, i) => (
+              <div key={p.id ?? p.name} className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                <span className="flex-1 text-xs text-text-secondary truncate min-w-0">{p.name}</span>
+                <div className="flex-1 max-w-[120px] h-1.5 bg-bg-elevated rounded-full overflow-hidden hidden sm:block">
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${Math.min(100, p.weight)}%`, background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                </div>
+                <span className="text-xs font-mono font-semibold text-text-primary w-12 text-right flex-shrink-0">{p.weight.toFixed(1)}%</span>
+                <span className="text-xs font-mono text-text-muted text-right flex-shrink-0 w-24">{fmtKRW(p.value)}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* ── 보유 종목 ── */}
       <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border">
@@ -1364,35 +1527,52 @@ export default function Portfolio() {
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/40">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-xs text-text-dim">평가금액</span>
-                        <span className="font-mono font-bold text-text-primary text-base">
-                          {hasPrice ? fmtKRWFull(item.currentValueKRW) : "—"}
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-0.5 items-end">
-                        <span className="text-xs text-text-dim">평가손익</span>
-                        <span className={`font-mono font-bold text-base whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
-                          {hasPrice ? `${fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)` : "—"}
-                        </span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const isForexItem = item.market === "US" || item.market === "ETF";
+                      const nativeAvgPrice = !isForexItem ? item.avgPrice
+                        : item.currency === "USD" ? item.avgPrice : (item.costKRW / item.shares) / exchangeRate;
+                      const nativeValue = isForexItem ? item.currentPriceNative * item.shares : item.currentValueKRW;
+                      const nativePnl = isForexItem ? nativeValue - nativeAvgPrice * item.shares : item.pnlKRW;
+                      return (
+                        <>
+                          <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/40">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-xs text-text-dim">평가금액</span>
+                              <span className="font-mono font-bold text-text-primary text-base">
+                                {hasPrice ? fmtKRWFull(item.currentValueKRW) : "—"}
+                              </span>
+                              {hasPrice && isForexItem && <span className="text-2xs text-text-dim font-mono">{fmtUSD(nativeValue)}</span>}
+                            </div>
+                            <div className="flex flex-col gap-0.5 items-end">
+                              <span className="text-xs text-text-dim">평가손익</span>
+                              <span className={`font-mono font-bold text-base whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
+                                {hasPrice ? `${fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)` : "—"}
+                              </span>
+                              {hasPrice && isForexItem && (
+                                <span className="text-2xs text-text-dim font-mono">{nativePnl >= 0 ? "+" : ""}{fmtUSD(nativePnl)}</span>
+                              )}
+                            </div>
+                          </div>
 
-                    <div className="grid grid-cols-3 gap-2 text-xs">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-text-dim">보유수량</span>
-                        <span className="font-mono text-text-secondary">{item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}</span>
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-text-dim">평단가</span>
-                        <span className="font-mono text-text-secondary">{fmtNative(item.market, item.currency, item.avgPrice)}</span>
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-text-dim">현재가</span>
-                        <span className="font-mono text-text-secondary">{hasPrice ? fmtNative(item.market, item.currency, item.currentPriceNative) : "—"}</span>
-                      </div>
-                    </div>
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-text-dim">보유수량</span>
+                              <span className="font-mono text-text-secondary">{item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}</span>
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-text-dim">평단가</span>
+                              <span className="font-mono text-text-secondary">{fmtNative(item.market, item.currency, item.avgPrice)}</span>
+                              {isForexItem && <span className="text-2xs text-text-dim font-mono">{fmtKRWFull(nativeAvgPrice * exchangeRate)}</span>}
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-text-dim">현재가</span>
+                              <span className="font-mono text-text-secondary">{hasPrice ? fmtNative(item.market, item.currency, item.currentPriceNative) : "—"}</span>
+                              {hasPrice && isForexItem && <span className="text-2xs text-text-dim font-mono">{fmtKRWFull(item.currentPriceNative * exchangeRate)}</span>}
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
 
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-1 bg-bg-elevated rounded-full overflow-hidden">
@@ -1446,28 +1626,52 @@ export default function Portfolio() {
                       <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
                         {item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-secondary whitespace-nowrap">
-                        <div>{fmtNative(item.market, item.currency, item.avgPrice)}</div>
-                        {item.currency === "USD" && item.inputExchangeRate && (
-                          <div className="text-[10px] text-text-dim">@{Math.round(item.inputExchangeRate).toLocaleString()}원</div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
-                        {hasPrice ? (
-                          (item.market === "US" || item.market === "ETF") ? (
-                            <div>
-                              <div>{fmtKRWFull(item.currentPriceNative * exchangeRate)}</div>
-                              <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>
-                            </div>
-                          ) : fmtNative(item.market, item.currency, item.currentPriceNative)
-                        ) : <span className="text-text-muted">—</span>}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
-                        {hasPrice ? fmtKRWFull(item.currentValueKRW) : <span className="text-text-muted">—</span>}
-                      </td>
-                      <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
-                        {hasPrice ? fmtKRWFullSign(item.pnlKRW) : "—"}
-                      </td>
+                      {(() => {
+                        const isForexItem = item.market === "US" || item.market === "ETF";
+                        const nativeAvgPrice = !isForexItem ? item.avgPrice
+                          : item.currency === "USD" ? item.avgPrice : (item.costKRW / item.shares) / exchangeRate;
+                        const nativeValue = isForexItem ? item.currentPriceNative * item.shares : item.currentValueKRW;
+                        const nativePnl = isForexItem ? nativeValue - nativeAvgPrice * item.shares : item.pnlKRW;
+                        return (
+                          <>
+                            <td className="px-3 py-2.5 text-right font-mono text-text-secondary whitespace-nowrap">
+                              <div>{fmtNative(item.market, item.currency, item.avgPrice)}</div>
+                              {isForexItem && (
+                                <div className="text-[10px] text-text-dim">{fmtKRWFull(nativeAvgPrice * exchangeRate)}</div>
+                              )}
+                              {item.currency === "USD" && item.inputExchangeRate && (
+                                <div className="text-[10px] text-text-dim">@{Math.round(item.inputExchangeRate).toLocaleString()}원</div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
+                              {hasPrice ? (
+                                isForexItem ? (
+                                  <div>
+                                    <div>{fmtKRWFull(item.currentPriceNative * exchangeRate)}</div>
+                                    <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>
+                                  </div>
+                                ) : fmtNative(item.market, item.currency, item.currentPriceNative)
+                              ) : <span className="text-text-muted">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
+                              {hasPrice ? (
+                                <div>
+                                  <div>{fmtKRWFull(item.currentValueKRW)}</div>
+                                  {isForexItem && <div className="text-[10px] text-text-dim">{fmtUSD(nativeValue)}</div>}
+                                </div>
+                              ) : <span className="text-text-muted">—</span>}
+                            </td>
+                            <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
+                              {hasPrice ? (
+                                <div>
+                                  <div>{fmtKRWFullSign(item.pnlKRW)}</div>
+                                  {isForexItem && <div className="text-[10px] opacity-80">{nativePnl >= 0 ? "+" : ""}{fmtUSD(nativePnl)}</div>}
+                                </div>
+                              ) : "—"}
+                            </td>
+                          </>
+                        );
+                      })()}
                       <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
                         {hasPrice ? `${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%` : "—"}
                       </td>

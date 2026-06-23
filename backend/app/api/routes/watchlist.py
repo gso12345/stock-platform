@@ -24,7 +24,7 @@ class AddItemRequest(BaseModel):
     name: str = Field("", max_length=100)
     memo: str = Field("", max_length=200)
     watchlist_id: int = Field(1, ge=1)
-    folder_id: Optional[int] = Field(None, ge=1)
+    folder_id: Optional[int] = Field(None, ge=1)  # 비어있으면 "기본 관심목록" 폴더로 자동 편입
 
 
 class FolderRequest(BaseModel):
@@ -34,8 +34,7 @@ class FolderRequest(BaseModel):
 class UpdateItemRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
     memo: Optional[str] = Field(None, max_length=200)
-    folder_id: Optional[int] = None
-    clear_folder: bool = False  # True이면 folder_id를 None으로 초기화
+    folder_id: Optional[int] = Field(None, ge=1)
 
 
 class ReorderRequest(BaseModel):
@@ -61,6 +60,37 @@ def _valid_folder_id(db: Session, folder_id: int, user_id: int) -> bool:
         WatchlistFolder.id == folder_id,
         (WatchlistFolder.user_id == user_id) | (WatchlistFolder.user_id == None),
     ).first() is not None
+
+
+def _ensure_default_folder(db: Session, user_id: int) -> WatchlistFolder:
+    """"기본 관심목록" 폴더를 반환, 없으면 생성 — 폴더 없는 종목을 위한 더미 그룹 대신
+    실제 폴더로 편입시켜 "폴더 없음" 상태를 없앤다"""
+    folder = db.query(WatchlistFolder).filter(
+        WatchlistFolder.user_id == user_id, WatchlistFolder.name == "기본 관심목록",
+    ).first()
+    if not folder:
+        max_pos = db.query(WatchlistFolder).filter(
+            (WatchlistFolder.user_id == user_id) | (WatchlistFolder.user_id == None)
+        ).count()
+        folder = WatchlistFolder(name="기본 관심목록", position=max_pos, user_id=user_id)
+        db.add(folder)
+        db.commit()
+        db.refresh(folder)
+    return folder
+
+
+def _migrate_orphan_items(db: Session, wl: Watchlist, user_id: int) -> None:
+    """folder_id가 비어있는(폴더 도입 이전) 관심종목을 "기본 관심목록" 폴더로 편입한다"""
+    has_orphan = db.query(WatchlistItem).filter(
+        WatchlistItem.watchlist_id == wl.id, WatchlistItem.folder_id.is_(None),
+    ).first()
+    if not has_orphan:
+        return
+    folder = _ensure_default_folder(db, user_id)
+    db.query(WatchlistItem).filter(
+        WatchlistItem.watchlist_id == wl.id, WatchlistItem.folder_id.is_(None),
+    ).update({"folder_id": folder.id})
+    db.commit()
 
 
 def _item_to_dict(item: WatchlistItem) -> dict:
@@ -95,6 +125,8 @@ def get_folders(
     current_user: Optional[User] = Depends(get_current_user),
 ):
     user_id = current_user.id if current_user else None
+    if user_id is not None:
+        _migrate_orphan_items(db, _ensure_watchlist(db, user_id=user_id), user_id)
     folders = (
         db.query(WatchlistFolder)
         .filter((WatchlistFolder.user_id == user_id) | (WatchlistFolder.user_id == None))
@@ -174,8 +206,12 @@ def delete_folder(
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
     if not folder or (folder.user_id is not None and folder.user_id != current_user.id):
         raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
-    for item in folder.items:
-        item.folder_id = None
+    if folder.items:
+        if folder.name == "기본 관심목록":
+            raise HTTPException(status_code=400, detail="기본 관심목록 폴더는 종목을 모두 비운 뒤에만 삭제할 수 있습니다")
+        default_folder = _ensure_default_folder(db, current_user.id)
+        for item in folder.items:
+            item.folder_id = default_folder.id
     db.delete(folder)
     db.commit()
     return {"message": "삭제 완료"}
@@ -270,6 +306,8 @@ def get_items(
     """관심종목 목록 조회 (가격 없는 메타데이터만)"""
     user_id = current_user.id if current_user else None
     wl = _ensure_watchlist(db, user_id=user_id)
+    if user_id is not None:
+        _migrate_orphan_items(db, wl, user_id)
     q = db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == wl.id)
     if market and market != "전체":
         q = q.filter(WatchlistItem.market == market)
@@ -289,6 +327,8 @@ async def get_items_with_prices(
     """관심종목 + 실시간 가격"""
     user_id = current_user.id if current_user else None
     wl = _ensure_watchlist(db, user_id=user_id)
+    if user_id is not None:
+        _migrate_orphan_items(db, wl, user_id)
     q = db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == wl.id)
     if market and market != "전체":
         q = q.filter(WatchlistItem.market == market)
@@ -354,11 +394,13 @@ def add_item(
 ):
     if req.folder_id is not None and not _valid_folder_id(db, req.folder_id, current_user.id):
         raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
+    # 폴더 미지정 시 "기본 관심목록" 폴더로 자동 편입 — 폴더 없는 항목이 생기지 않도록 함
+    folder_id = req.folder_id if req.folder_id is not None else _ensure_default_folder(db, current_user.id).id
     wl = _ensure_watchlist(db, user_id=current_user.id)
     existing = db.query(WatchlistItem).filter(
         WatchlistItem.watchlist_id == wl.id,
         WatchlistItem.symbol == req.symbol,
-        WatchlistItem.folder_id == req.folder_id,
+        WatchlistItem.folder_id == folder_id,
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="이미 추가된 종목입니다")
@@ -369,7 +411,7 @@ def add_item(
         market=req.market,
         name=req.name,
         memo=req.memo,
-        folder_id=req.folder_id,
+        folder_id=folder_id,
         position=count,
     )
     db.add(item)
@@ -413,9 +455,7 @@ def update_item(
         item.name = req.name
     if req.memo is not None:
         item.memo = req.memo
-    if req.clear_folder:
-        item.folder_id = None
-    elif req.folder_id is not None:
+    if req.folder_id is not None:
         if not _valid_folder_id(db, req.folder_id, current_user.id):
             raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
         item.folder_id = req.folder_id

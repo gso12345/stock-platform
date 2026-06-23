@@ -114,6 +114,7 @@ class PortfolioItem(Base):
     input_exchange_rate = Column(Float, nullable=True)
     purchase_date       = Column(String(10), nullable=True)
     note                = Column(String(200), nullable=True)
+    asset_class         = Column(String(10), nullable=True)  # 국내주식/해외주식/채권/금 — 비어있으면 자동 분류
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
     updated_at          = Column(DateTime(timezone=True), onupdate=func.now())
     portfolio           = relationship("Portfolio", back_populates="items")

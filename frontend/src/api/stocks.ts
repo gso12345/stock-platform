@@ -292,6 +292,7 @@ export const portfolioApi = {
     input_exchange_rate?: number | null;
     purchase_date?: string | null;
     note?: string | null;
+    asset_class?: string | null;
   }) =>
     api.post("/portfolio/items", payload).then((r) => r.data),
 
@@ -302,6 +303,7 @@ export const portfolioApi = {
     input_exchange_rate?: number | null;
     purchase_date?: string | null;
     note?: string | null;
+    asset_class?: string | null;
   }) =>
     api.put(`/portfolio/items/${id}`, payload).then((r) => r.data),
 
@@ -328,10 +330,10 @@ export const watchlistApi = {
   getWithPrices: (id: number) =>
     api.get(`/watchlist/${id}/prices`).then((r) => r.data),
 
-  addItem: (payload: { symbol: string; market: string; name: string; watchlist_id: number; memo?: string; folder_id?: number | null }) =>
+  addItem: (payload: { symbol: string; market: string; name: string; watchlist_id: number; memo?: string; folder_id?: number }) =>
     api.post("/watchlist/items", payload).then((r) => r.data),
 
-  updateItem: (id: number, payload: { name?: string; memo?: string; folder_id?: number | null }) =>
+  updateItem: (id: number, payload: { name?: string; memo?: string; folder_id?: number }) =>
     api.put(`/watchlist/items/${id}`, payload).then((r) => r.data),
 
   removeItem: (itemId: number) =>
