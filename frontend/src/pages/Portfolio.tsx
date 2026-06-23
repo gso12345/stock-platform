@@ -1192,17 +1192,24 @@ export default function Portfolio() {
       };
       // US/ETF API는 항상 USD로 반환 → 저장된 currency 무관하게 항상 환율 곱셈
       const isUSDStock = item.market === "US" || item.market === "ETF";
-      const currentPriceNative = priceMap[item.id] ?? item.avgPrice;
-
-      const currentValueKRW = isUSDStock
-        ? currentPriceNative * exchangeRate * item.shares
-        : currentPriceNative * item.shares;
+      const hasLivePrice = priceMap[item.id] != null;
 
       // 매입가는 저장된 통화 기준
       const fxForCost = item.currency === "USD"
         ? (item.inputExchangeRate ?? exchangeRate)
         : 1; // 평단가를 원화로 입력했으면 이미 원화 금액이므로 환율을 다시 곱하지 않음
       const costKRW = item.avgPrice * fxForCost * item.shares;
+
+      // 현재가를 아직 못 불러왔으면 avgPrice를 그대로 "현지가"로 쓰면 안 됨 —
+      // 원화로 입력한 해외종목의 경우 avgPrice가 이미 원화 금액이라 환율을 또 곱하는
+      // 사고가 나므로, 가격 미수신 시엔 매입금액을 그대로 평가금액으로 폴백(손익 0)
+      const currentPriceNative = hasLivePrice
+        ? priceMap[item.id]
+        : (isUSDStock ? item.avgPrice / fxForCost : item.avgPrice);
+
+      const currentValueKRW = hasLivePrice
+        ? (isUSDStock ? currentPriceNative * exchangeRate * item.shares : currentPriceNative * item.shares)
+        : costKRW;
 
       const pnlKRW = currentValueKRW - costKRW;
       const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;

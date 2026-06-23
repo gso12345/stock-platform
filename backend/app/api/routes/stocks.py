@@ -391,19 +391,28 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
 
         return price
     else:
+        from app.services.price_fetcher import fetch_yf_quote_extended
+
+        # 프리마켓/애프터마켓 시세 — 단건 전용 조회(배치 조회와 분리, 짧게 캐시)
+        async def _with_ext_hours(result: dict) -> dict:
+            if not result:
+                return result
+            ext_ck = f"ext:{symbol}"
+            ext = cache.get(ext_ck)
+            if ext is None:
+                ext = await fetch_yf_quote_extended(symbol) or {}
+                cache.set(ext_ck, ext, 30)
+            return {**result, **{k: v for k, v in ext.items() if v is not None}}
+
         # US: Finnhub 우선 → 캐시 → yfinance 폴백
         # Finnhub으로 가격+재무 통합 조회
         if settings.FINNHUB_API_KEY:
             try:
                 detail = await _run(finnhub_service.get_stock_detail, symbol)
                 if detail and detail.get("price"):
-                    # Finnhub은 volume/프리·애프터마켓 시세를 제공하지 않으므로 YF 캐시에서 보완
+                    # Finnhub은 volume을 제공하지 않으므로 YF 캐시에서 보완
                     prev = cache.get_stale(f"price:{symbol}") or {}
-                    for field in (
-                        "volume", "market_cap", "name", "market_state",
-                        "pre_market_price", "pre_market_change", "pre_market_change_rate",
-                        "post_market_price", "post_market_change", "post_market_change_rate",
-                    ):
+                    for field in ("volume", "market_cap", "name"):
                         if not detail.get(field) and prev.get(field):
                             detail[field] = prev[field]
                     # 여전히 volume이 없으면 별도 캐시(YF 기반)로 보완, 없으면 백그라운드 갱신
@@ -465,7 +474,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                         except Exception:
                             pass
                     cache.set(f"price:{symbol}", detail, 15)
-                    return detail
+                    return await _with_ext_hours(detail)
             except Exception:
                 pass
 
@@ -475,7 +484,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
         cached = cache.get_stale(f"price:{symbol}")
         if cached and cached.get("price") and not cached.get("_demo"):
             if fund_cached:
-                return {**cached, **fund_cached}
+                return await _with_ext_hours({**cached, **fund_cached})
             # 캐시 없으면 짧은 타임아웃으로 동기 대기 후 반환
             try:
                 f = await asyncio.wait_for(
@@ -484,10 +493,10 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                 )
                 if f:
                     cache.set(fund_ck, f, 86400)
-                    return {**cached, **f}
+                    return await _with_ext_hours({**cached, **f})
             except Exception:
                 pass
-            return cached
+            return await _with_ext_hours(cached)
 
         # 캐시 없으면 price + fundamentals 병렬 fetch (짧은 타임아웃)
         try:
@@ -506,7 +515,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
             if isinstance(fund_result, dict) and fund_result:
                 cache.set(fund_ck, fund_result, 86400)
                 p = {**p, **fund_result} if p else p
-            return p or {"symbol": symbol, "price": None, "currency": "USD"}
+            return await _with_ext_hours(p) if p else {"symbol": symbol, "price": None, "currency": "USD"}
         except Exception:
             return {"symbol": symbol, "price": None, "currency": "USD"}
 
