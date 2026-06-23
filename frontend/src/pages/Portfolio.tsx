@@ -886,15 +886,21 @@ export default function Portfolio() {
     setSelectedPortfolioId(pf.id);
   };
 
-  /* ── 서버 데이터 ── */
-  const { data: items = [], isLoading: itemsLoading } = useQuery<PortfolioItem[]>({
-    queryKey: ["portfolio-items", selectedPortfolioId],
-    queryFn:  () => isAllView
-      ? portfolioApi.getItems(undefined, true)
-      : portfolioApi.getItems(selectedPortfolioId ?? undefined),
-    enabled:  isLoggedIn && selectedPortfolioId != null,
+  /* ── 서버 데이터 ──
+     전체(view_all) 한 번만 불러와서 캐시해두고, 특정 포트폴리오 탭은 그 결과를
+     클라이언트에서 필터링만 한다 — 탭마다 매번 새로 불러오면 전환할 때마다
+     로딩이 보여서 느리게 느껴지는 문제를 없앤다 */
+  const { data: allItems = [], isLoading: itemsLoading } = useQuery<PortfolioItem[]>({
+    queryKey: ["portfolio-items-all"],
+    queryFn:  () => portfolioApi.getItems(undefined, true),
+    enabled:  isLoggedIn,
     staleTime: 60_000,
   });
+
+  const items = useMemo(() => {
+    if (isAllView || selectedPortfolioId == null) return allItems;
+    return allItems.filter((i) => i.portfolioId === selectedPortfolioId);
+  }, [allItems, isAllView, selectedPortfolioId]);
 
   const _extractErrMsg = (err: unknown): string => {
     const e = err as any;
@@ -971,11 +977,12 @@ export default function Portfolio() {
     setActiveTab(tab);
   };
 
-  /* ── 현재가 조회 (배치 1회 요청 — 종목별 개별 요청 대신) ── */
+  /* ── 현재가 조회 (배치 1회 요청 — 종목별 개별 요청 대신, 전체 종목 기준으로
+     한 번만 캐시해서 탭을 바꿔도 다시 불러오지 않도록 함) ── */
   const { data: batchPrices, isLoading: pricesLoading } = useQuery({
-    queryKey:       ["portfolio-prices", items.map((i) => `${i.market}:${i.symbol}`).join(",")],
-    queryFn:        () => watchlistApi.getPrices(items.map((i) => i.symbol), items.map((i) => i.market)),
-    enabled:        items.length > 0,
+    queryKey:       ["portfolio-prices", allItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
+    queryFn:        () => watchlistApi.getPrices(allItems.map((i) => i.symbol), allItems.map((i) => i.market)),
+    enabled:        allItems.length > 0,
     staleTime:      120_000,
     refetchInterval:120_000,
   });
@@ -1021,12 +1028,12 @@ export default function Portfolio() {
 
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
-    items.forEach((item, i) => {
+    allItems.forEach((item, i) => {
       const d = batchPrices?.[i] as any;
       if (d?.price != null) map[item.id] = d.price;
     });
     return map;
-  }, [items, batchPrices]);
+  }, [allItems, batchPrices]);
 
   /* ── 전체 보기에서 제외된 포트폴리오의 종목은 집계에서 빼기 ── */
   const filteredItems = useMemo(() => {
