@@ -608,11 +608,11 @@ function CashModal({
   );
 }
 
-/* ── 종목 삭제 확인 모달 ──────────────────────────────────── */
-function DeleteItemModal({
-  item, onClose, onConfirm, isDeleting,
+/* ── 삭제 확인 모달 (종목/포트폴리오 공용 — 디자인 통일) ──────────── */
+function ConfirmDeleteModal({
+  title, description, onClose, onConfirm, isDeleting,
 }: {
-  item: PortfolioItem; onClose: () => void; onConfirm: () => void; isDeleting?: boolean;
+  title: string; description: React.ReactNode; onClose: () => void; onConfirm: () => void; isDeleting?: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 modal-backdrop">
@@ -622,12 +622,9 @@ function DeleteItemModal({
             <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
               <AlertTriangle size={18} className="text-accent-red" />
             </div>
-            <h3 className="text-sm font-bold text-text-primary">종목을 삭제할까요?</h3>
+            <h3 className="text-sm font-bold text-text-primary">{title}</h3>
           </div>
-          <p className="text-xs text-text-muted leading-relaxed">
-            <span className="font-semibold text-text-primary">{item.name || item.symbol}</span>
-            <span className="font-mono text-text-dim"> ({item.symbol})</span> 보유 내역을 삭제합니다. 이 작업은 되돌릴 수 없어요.
-          </p>
+          <p className="text-xs text-text-muted leading-relaxed">{description}</p>
           <div className="flex gap-2 pt-1">
             <button
               onClick={onClose}
@@ -648,19 +645,18 @@ function DeleteItemModal({
 
 /* ── 포트폴리오 선택 탭 ──────────────────────────────────── */
 function PortfolioPill({
-  portfolio, active, canDelete, onSelect, onRename, onDelete,
+  portfolio, active, canDelete, onSelect, onRename, onDeleteClick,
   draggable, isDragging, isDropTarget,
   onDragStart, onDragOver, onDrop, onTouchStart, onTouchMove, onTouchEnd,
 }: {
   portfolio: PortfolioMeta; active: boolean; canDelete: boolean;
-  onSelect: () => void; onRename: (name: string) => void; onDelete: () => void;
+  onSelect: () => void; onRename: (name: string) => void; onDeleteClick: () => void;
   draggable?: boolean; isDragging?: boolean; isDropTarget?: boolean;
   onDragStart?: () => void; onDragOver?: (e: React.DragEvent) => void; onDrop?: () => void;
   onTouchStart?: (e: React.TouchEvent) => void; onTouchMove?: (e: React.TouchEvent) => void; onTouchEnd?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(portfolio.name);
-  const [confirmDel, setConfirmDel] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setName(portfolio.name); }, [portfolio.name]);
@@ -722,17 +718,9 @@ function PortfolioPill({
       </button>
       {canDelete && (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (confirmDel) { onDelete(); } else {
-              setConfirmDel(true);
-              setTimeout(() => setConfirmDel(false), 2500);
-            }
-          }}
-          className={`p-1.5 -m-0.5 rounded transition-colors ${
-            confirmDel ? "text-accent-red" : "text-text-muted/70 hover:text-accent-red active:text-accent-red"
-          }`}
-          title={confirmDel ? "한 번 더 클릭하면 삭제됩니다" : "삭제"}
+          onClick={(e) => { e.stopPropagation(); onDeleteClick(); }}
+          className="p-1.5 -m-0.5 rounded text-text-muted/70 hover:text-accent-red active:text-accent-red transition-colors"
+          title="삭제"
         >
           <X size={13} />
         </button>
@@ -915,13 +903,18 @@ export default function Portfolio() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolios"] }),
   });
 
+  const [deletePortfolioTarget, setDeletePortfolioTarget] = useState<PortfolioMeta | null>(null);
   const deletePortfolioMutation = useMutation({
     mutationFn: (id: number) => portfolioApi.deletePortfolio(id),
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ["portfolios"] });
       if (selectedPortfolioId === id) setSelectedPortfolioId(null);
+      setDeletePortfolioTarget(null);
     },
   });
+  const handleConfirmDeletePortfolio = () => {
+    if (deletePortfolioTarget) deletePortfolioMutation.mutate(deletePortfolioTarget.id);
+  };
 
   /* ── 포트폴리오 탭 길게 눌러 드래그 정렬 (관심종목 폴더탭과 동일 패턴) ── */
   const [dragPortfolioId,  setDragPortfolioId]  = useState<number | null>(null);
@@ -1406,7 +1399,7 @@ export default function Portfolio() {
               canDelete={portfolios.length > 1}
               onSelect={() => handlePortfolioTabClick(pf)}
               onRename={(name) => renamePortfolioMutation.mutate({ id: pf.id, name })}
-              onDelete={() => deletePortfolioMutation.mutate(pf.id)}
+              onDeleteClick={() => setDeletePortfolioTarget(pf)}
               draggable={portfolios.length > 1}
               isDragging={dragPortfolioId === pf.id}
               isDropTarget={dropPortfolioId === pf.id}
@@ -1993,11 +1986,33 @@ export default function Portfolio() {
 
       {/* ── 종목 삭제 확인 모달 ── */}
       {deleteTarget && (
-        <DeleteItemModal
-          item={deleteTarget}
+        <ConfirmDeleteModal
+          title="종목을 삭제할까요?"
+          description={
+            <>
+              <span className="font-semibold text-text-primary">{deleteTarget.name || deleteTarget.symbol}</span>
+              <span className="font-mono text-text-dim"> ({deleteTarget.symbol})</span> 보유 내역을 삭제합니다. 이 작업은 되돌릴 수 없어요.
+            </>
+          }
           onClose={() => setDeleteTarget(null)}
           onConfirm={handleConfirmDelete}
           isDeleting={deleteMutation.isPending}
+        />
+      )}
+
+      {/* ── 포트폴리오 삭제 확인 모달 ── */}
+      {deletePortfolioTarget && (
+        <ConfirmDeleteModal
+          title="포트폴리오를 삭제할까요?"
+          description={
+            <>
+              <span className="font-semibold text-text-primary">{deletePortfolioTarget.name}</span>
+              <span className="text-text-dim"> ({deletePortfolioTarget.count}개 종목)</span> 포트폴리오를 삭제합니다. 포함된 보유 종목도 함께 삭제되며, 이 작업은 되돌릴 수 없어요.
+            </>
+          }
+          onClose={() => setDeletePortfolioTarget(null)}
+          onConfirm={handleConfirmDeletePortfolio}
+          isDeleting={deletePortfolioMutation.isPending}
         />
       )}
 
