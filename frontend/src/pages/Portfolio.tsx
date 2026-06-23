@@ -28,6 +28,7 @@ interface PortfolioItem {
   inputExchangeRate?: number;
   purchaseDate?: string;
   note?: string;
+  assetClass?: AssetClass | null;
 }
 
 type SelectedPortfolio = number | "all";
@@ -91,6 +92,13 @@ function classifyAsset(item: { market: Market; name?: string; symbol: string }):
   if (!isKRListed) return "해외주식";
   if (OVERSEAS_KEYWORDS.some((k) => (item.name ?? "").includes(k))) return "해외주식";
   return "국내주식";
+}
+
+const ASSET_CLASS_OPTIONS: AssetClass[] = ["국내주식", "해외주식", "채권", "금"];
+
+// 사용자가 직접 지정한 자산유형이 있으면 그걸 쓰고, 없으면 자동 분류
+function resolveAssetClass(item: { market: Market; name?: string; symbol: string; assetClass?: AssetClass | null }): AssetClass {
+  return item.assetClass ?? classifyAsset(item);
 }
 
 /* ── Format utils ───────────────────────────────────────── */
@@ -211,6 +219,7 @@ function PortfolioModal({
   const [inputFx,      setInputFx]      = useState(item?.inputExchangeRate ? String(item.inputExchangeRate) : "");
   const [purchaseDate, setPurchaseDate] = useState(item?.purchaseDate ?? "");
   const [note,         setNote]         = useState(item?.note ?? "");
+  const [assetClass,   setAssetClass]   = useState<AssetClass | "">(item?.assetClass ?? "");
 
   useEffect(() => {
     if (step === 1) setTimeout(() => inputRef.current?.focus(), 50);
@@ -251,6 +260,7 @@ function PortfolioModal({
       inputExchangeRate: currency === "USD" && inputFx ? Number(inputFx) : undefined,
       purchaseDate: purchaseDate || undefined,
       note: note || undefined,
+      assetClass: assetClass || null,
     });
   };
 
@@ -415,6 +425,16 @@ function PortfolioModal({
                   <label className="text-2xs font-semibold text-text-muted">매수일 (선택)</label>
                   <input className={inp} type="date" value={purchaseDate}
                     onChange={(e) => setPurchaseDate(e.target.value)} />
+                </div>
+                <div className="flex-1 flex flex-col gap-1.5">
+                  <label className="text-2xs font-semibold text-text-muted">자산유형</label>
+                  <select className={inp} value={assetClass}
+                    onChange={(e) => setAssetClass(e.target.value as AssetClass | "")}>
+                    <option value="">자동 분류</option>
+                    {ASSET_CLASS_OPTIONS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -896,6 +916,7 @@ export default function Portfolio() {
         input_exchange_rate: data.inputExchangeRate ?? null,
         purchase_date: data.purchaseDate ?? null,
         note: data.note ?? null,
+        asset_class: data.assetClass ?? null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
@@ -913,6 +934,7 @@ export default function Portfolio() {
         input_exchange_rate: data.inputExchangeRate ?? null,
         purchase_date: data.purchaseDate ?? null,
         note: data.note ?? null,
+        asset_class: data.assetClass ?? null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
@@ -1106,7 +1128,7 @@ export default function Portfolio() {
   const marketPieData = useMemo(() => {
     const map: Record<string, number> = {};
     enriched.forEach((e) => {
-      const cls = classifyAsset(e);
+      const cls = resolveAssetClass(e);
       map[cls] = (map[cls] ?? 0) + e.currentValueKRW;
     });
     return Object.entries(map).map(([name, value]) => ({ name, value: Math.round(value) }));
@@ -1117,7 +1139,7 @@ export default function Portfolio() {
     value: e.currentValueKRW,
   }));
   const previewMarketPie = Object.entries(
-    previewEnrichedLive.reduce((acc, e) => { const cls = classifyAsset(e); acc[cls] = (acc[cls] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
+    previewEnrichedLive.reduce((acc, e) => { const cls = resolveAssetClass(e); acc[cls] = (acc[cls] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
   ).map(([name, value]) => ({ name, value }));
 
   const activePieData = isLoggedIn

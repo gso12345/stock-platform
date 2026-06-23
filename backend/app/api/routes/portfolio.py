@@ -35,6 +35,7 @@ class PortfolioItemRequest(BaseModel):
     input_exchange_rate: Optional[float] = Field(None, ge=0)
     purchase_date: Optional[str] = Field(None, max_length=10)
     note: Optional[str] = Field(None, max_length=200)
+    asset_class: Optional[str] = Field(None, pattern="^(국내주식|해외주식|채권|금)$")
 
 
 def _ensure_portfolio(db: Session, user_id: int) -> Portfolio:
@@ -82,6 +83,7 @@ def _to_dict(item: PortfolioItem) -> dict:
         "inputExchangeRate": item.input_exchange_rate,
         "purchaseDate":      item.purchase_date,
         "note":              item.note,
+        "assetClass":        item.asset_class,
     }
 
 
@@ -247,6 +249,7 @@ def create_item(
             input_exchange_rate=req.input_exchange_rate,
             purchase_date=req.purchase_date,
             note=req.note,
+            asset_class=req.asset_class,
         )
         db.add(item)
         db.commit()
@@ -285,6 +288,7 @@ def update_item(
     item.input_exchange_rate = req.input_exchange_rate
     item.purchase_date = req.purchase_date
     item.note = req.note
+    item.asset_class = req.asset_class
     db.commit()
     return _to_dict(item)
 

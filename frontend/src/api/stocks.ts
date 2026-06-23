@@ -292,6 +292,7 @@ export const portfolioApi = {
     input_exchange_rate?: number | null;
     purchase_date?: string | null;
     note?: string | null;
+    asset_class?: string | null;
   }) =>
     api.post("/portfolio/items", payload).then((r) => r.data),
 
@@ -302,6 +303,7 @@ export const portfolioApi = {
     input_exchange_rate?: number | null;
     purchase_date?: string | null;
     note?: string | null;
+    asset_class?: string | null;
   }) =>
     api.put(`/portfolio/items/${id}`, payload).then((r) => r.data),
 
