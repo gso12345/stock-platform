@@ -35,7 +35,7 @@ class PortfolioItemRequest(BaseModel):
     input_exchange_rate: Optional[float] = Field(None, ge=0)
     purchase_date: Optional[str] = Field(None, max_length=10)
     note: Optional[str] = Field(None, max_length=200)
-    asset_class: Optional[str] = Field(None, pattern="^(국내주식|해외주식|채권|금)$")
+    asset_class: Optional[str] = Field(None, pattern="^(국내주식|해외주식|채권|금|현금)$")
 
 
 def _ensure_portfolio(db: Session, user_id: int) -> Portfolio:

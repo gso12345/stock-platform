@@ -47,6 +47,7 @@ interface EnrichedItem extends PortfolioItem {
   pnlKRW: number;
   pnlRate: number;
   weight: number;
+  dailyChangeKRW?: number;
 }
 
 /* ── Constants ─────────────────────────────────────────── */
@@ -66,8 +67,8 @@ const PREVIEW_ENRICHED: EnrichedItem[] = [
   { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 10, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
     currentPriceNative: 535,    currentValueKRW: 6_955_000,  costKRW: 5_460_000,  pnlKRW: 1_495_000, pnlRate: 27.38, weight:  8.9 },
 ];
-/* ── 자산유형 분류 (국내주식/해외주식/채권/금) ──────────────────── */
-type AssetClass = "국내주식" | "해외주식" | "채권" | "금";
+/* ── 자산유형 분류 (국내주식/해외주식/채권/금/현금) ──────────────────── */
+type AssetClass = "국내주식" | "해외주식" | "채권" | "금" | "현금";
 
 const BOND_KEYWORDS = [
   "채권", "국고채", "회사채", "단기채", "장기채", "본드",
@@ -95,6 +96,14 @@ function classifyAsset(item: { market: Market; name?: string; symbol: string }):
 }
 
 const ASSET_CLASS_OPTIONS: AssetClass[] = ["국내주식", "해외주식", "채권", "금"];
+const ASSET_FILTER_TABS: { id: AssetClass | "전체"; label: string }[] = [
+  { id: "전체",     label: "전체" },
+  { id: "국내주식", label: "국내주식" },
+  { id: "해외주식", label: "해외주식" },
+  { id: "채권",     label: "채권" },
+  { id: "금",       label: "금" },
+  { id: "현금",     label: "현금" },
+];
 
 // 사용자가 직접 지정한 자산유형이 있으면 그걸 쓰고, 없으면 자동 분류
 function resolveAssetClass(item: { market: Market; name?: string; symbol: string; assetClass?: AssetClass | null }): AssetClass {
@@ -475,6 +484,130 @@ function PortfolioModal({
   );
 }
 
+/* ── 현금 추가/수정 모달 ──────────────────────────────────── */
+function CashModal({
+  item,
+  onClose,
+  onSave,
+  isSaving,
+  saveError,
+}: {
+  item?: PortfolioItem;
+  onClose: () => void;
+  onSave: (data: Omit<PortfolioItem, "id">) => void;
+  isSaving?: boolean;
+  saveError?: string | null;
+}) {
+  const [currency, setCurrency] = useState<Currency>(item?.currency ?? "KRW");
+  const [amount,   setAmount]   = useState(item ? String(item.avgPrice) : "");
+  const [note,     setNote]     = useState(item?.note ?? "");
+  const amountRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setTimeout(() => amountRef.current?.focus(), 50); }, []);
+
+  const canSave = Number(amount) > 0;
+
+  const handleSave = () => {
+    if (!canSave) return;
+    onSave({
+      symbol: "현금",
+      market: currency === "USD" ? "US" : "KR",
+      name: currency === "USD" ? "달러 현금" : "원화 현금",
+      shares: 1,
+      avgPrice: Number(amount),
+      currency,
+      note: note || undefined,
+      assetClass: "현금",
+    });
+  };
+
+  const inp = "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
+        <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
+          <h3 className="flex-1 text-sm font-bold text-text-primary">{item ? "현금 수정" : "현금 추가"}</h3>
+          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 flex flex-col gap-3.5">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">통화 *</label>
+            <div className="flex gap-2">
+              {(["KRW", "USD"] as Currency[]).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCurrency(c)}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
+                    currency === c
+                      ? c === "USD"
+                        ? "bg-green-900/40 border-green-700/60 text-green-400"
+                        : "bg-blue-900/40 border-blue-700/60 text-blue-400"
+                      : "border-border text-text-muted hover:text-text-primary"
+                  }`}
+                >
+                  {c === "USD" ? "달러 ($)" : "원화 (₩)"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">금액 * {currency === "USD" ? "($)" : "(₩)"}</label>
+            <input
+              ref={amountRef}
+              className={inp}
+              type="number"
+              min="0"
+              step="any"
+              placeholder="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">
+              메모<span className="ml-1 text-text-dim font-normal">({note.length}/100)</span>
+            </label>
+            <textarea
+              className={`${inp} resize-none`}
+              rows={2}
+              maxLength={100}
+              placeholder="선택 사항"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {saveError && (
+          <p className="mx-5 mb-2 text-xs text-red-400 bg-red-900/20 rounded-lg px-3 py-2">
+            오류: {saveError}
+          </p>
+        )}
+        <div className="flex gap-2 px-5 py-4 border-t border-border">
+          <button onClick={onClose} disabled={isSaving}
+            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            취소
+          </button>
+          <button onClick={handleSave} disabled={!canSave || isSaving}
+            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            {isSaving ? "저장 중..." : "저장"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── 종목 삭제 확인 모달 ──────────────────────────────────── */
 function DeleteItemModal({
   item, onClose, onConfirm, isDeleting,
@@ -709,13 +842,16 @@ export default function Portfolio() {
   const [activeTab,       setActiveTab]       = useState<"portfolio" | "watchlist">("portfolio");
   const [modalOpen,       setModalOpen]       = useState(false);
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
+  const [cashModalOpen,   setCashModalOpen]   = useState(false);
+  const [cashEditItem,    setCashEditItem]    = useState<PortfolioItem | undefined>(undefined);
   const [deleteTarget,    setDeleteTarget]    = useState<PortfolioItem | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
   const [modalError,      setModalError]      = useState<string | null>(null);
   const [viewMode,        setViewMode]        = useState<"table" | "card">(
     () => (typeof window !== "undefined" && window.innerWidth < 640) ? "card" : "table"
   );
-  const [showNative,      setShowNative]       = useState(true); // 해외종목 원화/외화 동시 표시 여부
+  const [currencyMode,    setCurrencyMode]    = useState<"krw" | "native">("krw"); // 해외종목 원화/외화 표시 모드
+  const [assetFilterTab,  setAssetFilterTab]  = useState<AssetClass | "전체">("전체");
 
   const { isLoggedIn } = useAuthStore();
   const { colorScheme } = useSettingsStore();
@@ -926,7 +1062,7 @@ export default function Portfolio() {
         asset_class: data.assetClass ?? null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] });
       queryClient.invalidateQueries({ queryKey: ["portfolios"] });
       setModalError(null);
     },
@@ -944,7 +1080,7 @@ export default function Portfolio() {
         asset_class: data.assetClass ?? null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] });
       setModalError(null);
     },
     onError: (err) => setModalError(_extractErrMsg(err)),
@@ -953,7 +1089,7 @@ export default function Portfolio() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => portfolioApi.deleteItem(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items"] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] });
       queryClient.invalidateQueries({ queryKey: ["portfolios"] });
       setDeleteTarget(null);
     },
@@ -979,11 +1115,13 @@ export default function Portfolio() {
   };
 
   /* ── 현재가 조회 (배치 1회 요청 — 종목별 개별 요청 대신, 전체 종목 기준으로
-     한 번만 캐시해서 탭을 바꿔도 다시 불러오지 않도록 함) ── */
+     한 번만 캐시해서 탭을 바꿔도 다시 불러오지 않도록 함) ──
+     현금 항목은 시세가 없으므로 가격 조회 대상에서 제외 (인덱스 정합성 유지) ── */
+  const priceableItems = useMemo(() => allItems.filter((i) => i.assetClass !== "현금"), [allItems]);
   const { data: batchPrices, isLoading: pricesLoading } = useQuery({
-    queryKey:       ["portfolio-prices", allItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
-    queryFn:        () => watchlistApi.getPrices(allItems.map((i) => i.symbol), allItems.map((i) => i.market)),
-    enabled:        allItems.length > 0,
+    queryKey:       ["portfolio-prices", priceableItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
+    queryFn:        () => watchlistApi.getPrices(priceableItems.map((i) => i.symbol), priceableItems.map((i) => i.market)),
+    enabled:        priceableItems.length > 0,
     staleTime:      120_000,
     refetchInterval:120_000,
   });
@@ -1024,17 +1162,27 @@ export default function Portfolio() {
     const totalCost  = previewEnrichedLive.reduce((s, e) => s + e.costKRW, 0);
     const totalPnl   = totalValue - totalCost;
     const totalRate  = totalCost !== 0 ? (totalPnl / totalCost) * 100 : 0;
-    return { totalValue, totalCost, totalPnl, totalRate };
+    return { totalValue, totalCost, totalPnl, totalRate, totalDailyChangeKRW: 0, totalDailyChangeRate: 0 };
   }, [previewEnrichedLive]);
 
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
-    allItems.forEach((item, i) => {
+    priceableItems.forEach((item, i) => {
       const d = batchPrices?.[i] as any;
       if (d?.price != null) map[item.id] = d.price;
     });
     return map;
-  }, [allItems, batchPrices]);
+  }, [priceableItems, batchPrices]);
+
+  /* ── 일일 등락률 맵 (현재가 조회 결과의 change_rate, % 단위) ── */
+  const changeRateMap = useMemo(() => {
+    const map: Record<number, number> = {};
+    priceableItems.forEach((item, i) => {
+      const d = batchPrices?.[i] as any;
+      if (d?.change_rate != null) map[item.id] = d.change_rate;
+    });
+    return map;
+  }, [priceableItems, batchPrices]);
 
   /* ── 전체 보기에서 제외된 포트폴리오의 종목은 집계에서 빼기 ── */
   const filteredItems = useMemo(() => {
@@ -1066,7 +1214,13 @@ export default function Portfolio() {
       const pnlKRW = currentValueKRW - costKRW;
       const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;
 
-      return { ...item, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0 };
+      // 일일 등락(원화 기준) — change_rate(%)로 전일 평가금액을 역산
+      const changeRate = changeRateMap[item.id];
+      const dailyChangeKRW = changeRate != null
+        ? currentValueKRW - currentValueKRW / (1 + changeRate / 100)
+        : 0;
+
+      return { ...item, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0, dailyChangeKRW };
     });
 
     const totalKRW = list.reduce((s, e) => s + e.currentValueKRW, 0);
@@ -1074,7 +1228,7 @@ export default function Portfolio() {
       ...e,
       weight: totalKRW > 0 ? (e.currentValueKRW / totalKRW) * 100 : 0,
     }));
-  }, [filteredItems, priceMap, exchangeRate]);
+  }, [filteredItems, priceMap, changeRateMap, exchangeRate]);
 
   /* ── 전체 보기 — 포트폴리오별 비중 ── */
   const portfolioBreakdown = useMemo(() => {
@@ -1097,7 +1251,10 @@ export default function Portfolio() {
     const totalCost  = enriched.reduce((s, e) => s + e.costKRW, 0);
     const totalPnl   = totalValue - totalCost;
     const totalRate  = totalCost !== 0 ? (totalPnl / totalCost) * 100 : 0;
-    return { totalValue, totalCost, totalPnl, totalRate };
+    const totalDailyChangeKRW = enriched.reduce((s, e) => s + (e.dailyChangeKRW ?? 0), 0);
+    const prevTotalValue = totalValue - totalDailyChangeKRW;
+    const totalDailyChangeRate = prevTotalValue !== 0 ? (totalDailyChangeKRW / prevTotalValue) * 100 : 0;
+    return { totalValue, totalCost, totalPnl, totalRate, totalDailyChangeKRW, totalDailyChangeRate };
   }, [enriched]);
 
   /* ── 정렬된 enriched ── */
@@ -1174,6 +1331,19 @@ export default function Portfolio() {
     setModalError(null);
     editMutation.mutate({ id: editItem.id, data }, { onSuccess: () => { setEditItem(undefined); setModalError(null); } });
   };
+  const handleCashAdd = (data: Omit<PortfolioItem, "id">) => {
+    setModalError(null);
+    addMutation.mutate(data, { onSuccess: () => { setCashModalOpen(false); setModalError(null); } });
+  };
+  const handleCashEdit = (data: Omit<PortfolioItem, "id">) => {
+    if (!cashEditItem) return;
+    setModalError(null);
+    editMutation.mutate({ id: cashEditItem.id, data }, { onSuccess: () => { setCashEditItem(undefined); setModalError(null); } });
+  };
+  const openEditModal = (item: PortfolioItem) => {
+    if (item.assetClass === "현금") setCashEditItem(item);
+    else setEditItem(item);
+  };
   const handleConfirmDelete = () => {
     if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
   };
@@ -1181,7 +1351,10 @@ export default function Portfolio() {
   const isLoading = itemsLoading || pricesLoading;
 
   /* ── 미리보기 vs 실데이터 ── */
-  const displayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
+  const allDisplayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
+  const displayEnriched = assetFilterTab === "전체"
+    ? allDisplayEnriched
+    : allDisplayEnriched.filter((e) => resolveAssetClass(e) === assetFilterTab);
   const hasForexHoldings = displayEnriched.some((e) => e.market === "US" || e.market === "ETF");
   const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
   // 로그인/비로그인 모두 현재가를 다 불러오기 전까지 추정치를 보여주지 않음
@@ -1319,6 +1492,16 @@ export default function Portfolio() {
               {c.label === "총 평가금액" && (
                 <span className="text-[10px] text-text-dim">환율 {Math.round(exchangeRate).toLocaleString("ko-KR")}원</span>
               )}
+              {c.label === "평가손익" && (
+                <span className={`text-[10px] font-mono ${pnlColor(displaySummary.totalDailyChangeKRW)}`}>
+                  오늘 {fmtKRWFullSign(displaySummary.totalDailyChangeKRW)}
+                </span>
+              )}
+              {c.label === "수익률" && (
+                <span className={`text-[10px] font-mono ${pnlColor(displaySummary.totalDailyChangeRate)}`}>
+                  오늘 {displaySummary.totalDailyChangeRate >= 0 ? "+" : ""}{displaySummary.totalDailyChangeRate.toFixed(2)}%
+                </span>
+              )}
             </Card>
           ))}
         </div>
@@ -1413,17 +1596,26 @@ export default function Portfolio() {
             {isLoggedIn && isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* 원화/외화 동시 표시 토글 (해외 보유종목이 있을 때만) */}
+            {/* 원화/외화 표시 모드 토글 (해외 보유종목이 있을 때만) — 둘 중 하나만 표시 */}
             {hasForexHoldings && (
-              <button
-                onClick={() => setShowNative((v) => !v)}
-                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg border text-2xs font-semibold transition-colors flex-shrink-0 whitespace-nowrap ${
-                  showNative ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-border text-text-muted hover:text-text-primary"
-                }`}
-                title="해외 보유종목의 원화/외화 동시 표시"
-              >
-                <DollarSign size={12} className="flex-shrink-0" />원화·외화
-              </button>
+              <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary flex-shrink-0" title="해외 보유종목의 가격 표시 기준 통화">
+                <button
+                  onClick={() => setCurrencyMode("krw")}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-semibold transition-all whitespace-nowrap ${
+                    currencyMode === "krw" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
+                  }`}
+                >
+                  <DollarSign size={11} className="flex-shrink-0" />원화
+                </button>
+                <button
+                  onClick={() => setCurrencyMode("native")}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-semibold transition-all whitespace-nowrap ${
+                    currencyMode === "native" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
+                  }`}
+                >
+                  <DollarSign size={11} className="flex-shrink-0" />외화
+                </button>
+              </div>
             )}
             {/* 표/카드 보기 토글 */}
             <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary flex-shrink-0">
@@ -1444,12 +1636,20 @@ export default function Portfolio() {
             </div>
             {isLoggedIn ? (
               !isAllView && (
-                <button
-                  onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors whitespace-nowrap flex-shrink-0"
-                >
-                  <Plus size={13} /> 추가
-                </button>
+                <>
+                  <button
+                    onClick={() => { setCashEditItem(undefined); setCashModalOpen(true); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-secondary text-xs font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors whitespace-nowrap flex-shrink-0"
+                  >
+                    <DollarSign size={13} /> 현금
+                  </button>
+                  <button
+                    onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors whitespace-nowrap flex-shrink-0"
+                  >
+                    <Plus size={13} /> 추가
+                  </button>
+                </>
               )
             ) : (
               <span className="px-2.5 py-1 rounded-lg bg-bg-elevated border border-border text-xs text-text-muted font-semibold whitespace-nowrap flex-shrink-0">
@@ -1458,6 +1658,21 @@ export default function Portfolio() {
             )}
           </div>
         </div>
+
+        {/* ── 자산유형 필터 탭 ── */}
+        {((isLoggedIn && items.length > 0) || !isLoggedIn) && (
+          <div className="flex gap-1 px-3 pt-2.5 pb-1 overflow-x-auto scrollbar-hide">
+            {ASSET_FILTER_TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setAssetFilterTab(t.id)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap flex-shrink-0 ${
+                  assetFilterTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+                }`}
+              >{t.label}</button>
+            ))}
+          </div>
+        )}
 
         {/* 로그인 상태에서 보유종목 불러오는 중 — 빈 상태로 단정하지 않고 스켈레톤만 표시 */}
         {isLoggedIn && itemsLoading ? (
@@ -1472,12 +1687,20 @@ export default function Portfolio() {
               {!isAllView && <p className="text-text-muted text-xs mt-1">+ 추가 버튼으로 종목을 등록하세요</p>}
             </div>
             {!isAllView && (
-              <button
-                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
-              >
-                <Plus size={14} /> 첫 종목 추가
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setCashEditItem(undefined); setCashModalOpen(true); }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-text-secondary text-sm font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors"
+                >
+                  <DollarSign size={14} /> 현금 추가
+                </button>
+                <button
+                  onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+                >
+                  <Plus size={14} /> 첫 종목 추가
+                </button>
+              </div>
             )}
           </div>
         ) : viewMode === "card" ? (
@@ -1516,7 +1739,7 @@ export default function Portfolio() {
             <div className="flex flex-col gap-2.5 p-3">
               {displayEnriched.map((item) => {
                 const pc = pnlColor(item.pnlKRW);
-                const hasPrice = isLoggedIn ? priceMap[item.id] != null : previewLoaded;
+                const hasPrice = item.assetClass === "현금" ? true : (isLoggedIn ? priceMap[item.id] != null : previewLoaded);
                 return (
                   <div
                     key={item.id}
@@ -1535,7 +1758,7 @@ export default function Portfolio() {
                       </div>
                       {isLoggedIn && (
                         <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button onClick={() => setEditItem(item)}
+                          <button onClick={() => openEditModal(item)}
                             className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
                             <Pencil size={13} />
                           </button>
@@ -1549,6 +1772,7 @@ export default function Portfolio() {
 
                     {(() => {
                       const isForexItem = item.market === "US" || item.market === "ETF";
+                      const showAsNative = isForexItem && currencyMode === "native";
                       const nativeAvgPrice = !isForexItem ? item.avgPrice
                         : item.currency === "USD" ? item.avgPrice : (item.costKRW / item.shares) / exchangeRate;
                       const nativeValue = isForexItem ? item.currentPriceNative * item.shares : item.currentValueKRW;
@@ -1559,18 +1783,16 @@ export default function Portfolio() {
                             <div className="flex flex-col gap-0.5">
                               <span className="text-xs text-text-dim">평가금액</span>
                               <span className="font-mono font-bold text-text-primary text-base">
-                                {hasPrice ? fmtKRWFull(item.currentValueKRW) : "—"}
+                                {hasPrice ? (showAsNative ? fmtUSD(nativeValue) : fmtKRWFull(item.currentValueKRW)) : "—"}
                               </span>
-                              {hasPrice && isForexItem && showNative && <span className="text-2xs text-text-dim font-mono">{fmtUSD(nativeValue)}</span>}
                             </div>
                             <div className="flex flex-col gap-0.5 items-end">
                               <span className="text-xs text-text-dim">평가손익</span>
                               <span className={`font-mono font-bold text-base whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
-                                {hasPrice ? `${fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)` : "—"}
+                                {hasPrice
+                                  ? `${showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSD(nativePnl)}` : fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)`
+                                  : "—"}
                               </span>
-                              {hasPrice && isForexItem && showNative && (
-                                <span className="text-2xs text-text-dim font-mono">{nativePnl >= 0 ? "+" : ""}{fmtUSD(nativePnl)}</span>
-                              )}
                             </div>
                           </div>
 
@@ -1581,13 +1803,18 @@ export default function Portfolio() {
                             </div>
                             <div className="flex flex-col gap-0.5">
                               <span className="text-text-dim">평단가</span>
-                              <span className="font-mono text-text-secondary">{fmtNative(item.market, item.currency, item.avgPrice)}</span>
-                              {isForexItem && showNative && <span className="text-2xs text-text-dim font-mono">{fmtKRWFull(nativeAvgPrice * exchangeRate)}</span>}
+                              <span className="font-mono text-text-secondary">
+                                {!isForexItem ? fmtNative(item.market, item.currency, item.avgPrice)
+                                  : showAsNative ? fmtUSD(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
+                              </span>
                             </div>
                             <div className="flex flex-col gap-0.5">
                               <span className="text-text-dim">현재가</span>
-                              <span className="font-mono text-text-secondary">{hasPrice ? fmtNative(item.market, item.currency, item.currentPriceNative) : "—"}</span>
-                              {hasPrice && isForexItem && showNative && <span className="text-2xs text-text-dim font-mono">{fmtKRWFull(item.currentPriceNative * exchangeRate)}</span>}
+                              <span className="font-mono text-text-secondary">
+                                {!hasPrice ? "—"
+                                  : !isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
+                                  : showAsNative ? fmtUSD(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
+                              </span>
                             </div>
                           </div>
                         </>
@@ -1626,7 +1853,7 @@ export default function Portfolio() {
               <tbody>
                 {displayEnriched.map((item) => {
                   const pc    = pnlColor(item.pnlKRW);
-                  const hasPrice = isLoggedIn ? priceMap[item.id] != null : previewLoaded;
+                  const hasPrice = item.assetClass === "현금" ? true : (isLoggedIn ? priceMap[item.id] != null : previewLoaded);
                   return (
                     <tr key={item.id}
                       className="border-b border-border/40 transition-colors hover:bg-bg-hover cursor-pointer"
@@ -1648,6 +1875,7 @@ export default function Portfolio() {
                       </td>
                       {(() => {
                         const isForexItem = item.market === "US" || item.market === "ETF";
+                        const showAsNative = isForexItem && currencyMode === "native";
                         const nativeAvgPrice = !isForexItem ? item.avgPrice
                           : item.currency === "USD" ? item.avgPrice : (item.costKRW / item.shares) / exchangeRate;
                         const nativeValue = isForexItem ? item.currentPriceNative * item.shares : item.currentValueKRW;
@@ -1655,39 +1883,28 @@ export default function Portfolio() {
                         return (
                           <>
                             <td className="px-3 py-2.5 text-right font-mono text-text-secondary whitespace-nowrap">
-                              <div>{fmtNative(item.market, item.currency, item.avgPrice)}</div>
-                              {isForexItem && showNative && (
-                                <div className="text-[10px] text-text-dim">{fmtKRWFull(nativeAvgPrice * exchangeRate)}</div>
-                              )}
+                              <div>
+                                {!isForexItem ? fmtNative(item.market, item.currency, item.avgPrice)
+                                  : showAsNative ? fmtUSD(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
+                              </div>
                               {item.currency === "USD" && item.inputExchangeRate && (
                                 <div className="text-[10px] text-text-dim">@{Math.round(item.inputExchangeRate).toLocaleString()}원</div>
                               )}
                             </td>
                             <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
-                              {hasPrice ? (
-                                isForexItem ? (
-                                  <div>
-                                    <div>{fmtKRWFull(item.currentPriceNative * exchangeRate)}</div>
-                                    {showNative && <div className="text-[10px] text-text-dim">{fmtUSD(item.currentPriceNative)}</div>}
-                                  </div>
-                                ) : fmtNative(item.market, item.currency, item.currentPriceNative)
-                              ) : <span className="text-text-muted">—</span>}
+                              {!hasPrice ? <span className="text-text-muted">—</span>
+                                : !isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
+                                : showAsNative ? fmtUSD(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
                             </td>
                             <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
-                              {hasPrice ? (
-                                <div>
-                                  <div>{fmtKRWFull(item.currentValueKRW)}</div>
-                                  {isForexItem && showNative && <div className="text-[10px] text-text-dim">{fmtUSD(nativeValue)}</div>}
-                                </div>
-                              ) : <span className="text-text-muted">—</span>}
+                              {hasPrice
+                                ? (showAsNative ? fmtUSD(nativeValue) : fmtKRWFull(item.currentValueKRW))
+                                : <span className="text-text-muted">—</span>}
                             </td>
                             <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
-                              {hasPrice ? (
-                                <div>
-                                  <div>{fmtKRWFullSign(item.pnlKRW)}</div>
-                                  {isForexItem && showNative && <div className="text-[10px] opacity-80">{nativePnl >= 0 ? "+" : ""}{fmtUSD(nativePnl)}</div>}
-                                </div>
-                              ) : "—"}
+                              {hasPrice
+                                ? (showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSD(nativePnl)}` : fmtKRWFullSign(item.pnlKRW))
+                                : "—"}
                             </td>
                           </>
                         );
@@ -1704,7 +1921,7 @@ export default function Portfolio() {
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         {isLoggedIn && (
                           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                            <button onClick={() => setEditItem(item)}
+                            <button onClick={() => openEditModal(item)}
                               className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
                               <Pencil size={13} />
                             </button>
@@ -1755,6 +1972,17 @@ export default function Portfolio() {
           defaultFx={exchangeRate}
           onClose={() => { setModalOpen(false); setEditItem(undefined); setModalError(null); }}
           onSave={editItem ? handleEdit : handleAdd}
+          isSaving={addMutation.isPending || editMutation.isPending}
+          saveError={modalError}
+        />
+      )}
+
+      {/* ── 현금 추가/수정 모달 ── */}
+      {isLoggedIn && (cashModalOpen || cashEditItem) && (
+        <CashModal
+          item={cashEditItem}
+          onClose={() => { setCashModalOpen(false); setCashEditItem(undefined); setModalError(null); }}
+          onSave={cashEditItem ? handleCashEdit : handleCashAdd}
           isSaving={addMutation.isPending || editMutation.isPending}
           saveError={modalError}
         />
