@@ -1358,7 +1358,8 @@ export default function Portfolio() {
   const hasForexHoldings = displayEnriched.some((e) => e.market === "US" || e.market === "ETF");
   const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
   // 로그인/비로그인 모두 현재가를 다 불러오기 전까지 추정치를 보여주지 않음
-  const hasDisplay      = displayEnriched.length > 0 && (isLoggedIn ? !isLoading : previewLoaded);
+  // 구성 차트는 자산유형 필터와 무관하게 전체 보유종목 기준으로 항상 표시
+  const hasDisplay      = allDisplayEnriched.length > 0 && (isLoggedIn ? !isLoading : previewLoaded);
 
   return (
     <div className="flex flex-col gap-4 fade-in pb-20">
@@ -1659,18 +1660,20 @@ export default function Portfolio() {
           </div>
         </div>
 
-        {/* ── 자산유형 필터 탭 ── */}
+        {/* ── 자산유형 필터 탭 (관심종목 시장 탭과 동일한 디자인) ── */}
         {((isLoggedIn && items.length > 0) || !isLoggedIn) && (
-          <div className="flex gap-1 px-3 pt-2.5 pb-1 overflow-x-auto scrollbar-hide">
-            {ASSET_FILTER_TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setAssetFilterTab(t.id)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap flex-shrink-0 ${
-                  assetFilterTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-                }`}
-              >{t.label}</button>
-            ))}
+          <div className="px-3 pt-2.5 pb-1 overflow-x-auto scrollbar-hide">
+            <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
+              {ASSET_FILTER_TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setAssetFilterTab(t.id)}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap ${
+                    assetFilterTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+                  }`}
+                >{t.label}</button>
+              ))}
+            </div>
           </div>
         )}
 
