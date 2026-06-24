@@ -360,7 +360,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             <RefreshCw size={11} />
           </button>
         </div>
-        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
           {!data
             ? KR_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
             : KR_INDEX_KEYS.map((key) => {
@@ -378,7 +378,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
       {/* 환율 / 금리 */}
       <section>
         <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리</h2>
-        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
           {!data ? (
             [1,2,3,4].map(i => <ExtraCardSkeleton key={i} />)
           ) : (
@@ -478,7 +478,7 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
             <RefreshCw size={11} />
           </button>
         </div>
-        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
           {!data
             ? US_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
             : US_INDEX_KEYS.map((key) => {
@@ -496,7 +496,7 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
       {/* 환율 · 금리 · 국채 */}
       <section>
         <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리 · 국채</h2>
-        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
           {!ratesData && !data ? (
             [1,2,3,4,5].map(i => <ExtraCardSkeleton key={i} />)
           ) : (
