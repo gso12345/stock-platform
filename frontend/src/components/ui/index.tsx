@@ -13,7 +13,7 @@ export function Card({ children, className, onClick }: {
     <div
       onClick={onClick}
       className={cn(
-        "bg-bg-card border border-border rounded-xl",
+        "bg-bg-card border border-border rounded-xl shadow-card",
         !className?.includes("p-0") && "p-4",
         onClick && "cursor-pointer hover:border-accent-blue/40 transition-colors",
         className,
@@ -53,7 +53,7 @@ export function RowSkeleton({ rows = 4 }: { rows?: number }) {
   return (
     <div className="flex flex-col gap-2">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-bg-card border border-border animate-pulse">
+        <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-bg-secondary border border-border/40 animate-pulse">
           <div className="w-8 h-8 rounded-full bg-bg-elevated flex-shrink-0" />
           <div className="flex-1 flex flex-col gap-1.5">
             <div className="h-3 w-1/3 rounded bg-bg-elevated" />

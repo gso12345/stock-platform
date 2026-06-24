@@ -70,6 +70,9 @@ html.light {
   input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
   input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.4); }
   select { -webkit-appearance: none; cursor: pointer; }
+
+  /* 표 헤더 기본 굵기/색 — 개별 th에 font-weight나 text-color 유틸리티가 있으면 그게 우선 적용됨 */
+  th { font-weight: 600; color: var(--text-secondary); }
 }
 
 @layer utilities {
