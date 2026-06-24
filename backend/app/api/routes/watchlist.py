@@ -10,7 +10,6 @@ from app.models.stock import Watchlist, WatchlistItem, WatchlistFolder
 from app.models.user import User
 import re
 from app.core.deps import get_current_user, require_user
-from app.services.yf_service import yf_service
 from app.services.ticker_service import get_display_name
 from app.core.cache import cache
 
@@ -293,6 +292,57 @@ async def get_watchlist_prices_batch(
     ]
 
 
+async def _batch_fetch_prices(items: list[WatchlistItem]) -> dict[str, dict]:
+    """관심종목 리스트를 심볼별 순차 호출 대신 배치 멀티쿼트로 가격 조회 (캐시 우선)"""
+    from app.services.price_fetcher import fetch_yf_quotes_with_fallback, fetch_naver_stocks
+
+    results: dict[str, dict] = {}
+    uncached_us: list[str] = []
+    uncached_kr: list[str] = []
+    kr_symbol_map: dict[str, list[str]] = {}
+
+    for item in items:
+        sym = item.symbol
+        mkt = "KR" if item.market == "KR" else "US"
+        cached = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}")
+        if cached and cached.get("price"):
+            results[sym] = cached
+        elif mkt == "KR":
+            bare = sym.replace(".KS", "").replace(".KQ", "")
+            uncached_kr.append(bare)
+            kr_symbol_map.setdefault(bare, []).append(sym)
+        else:
+            uncached_us.append(sym)
+
+    tasks = []
+    labels: list[str] = []
+    if uncached_us:
+        tasks.append(fetch_yf_quotes_with_fallback(uncached_us))
+        labels.append("us")
+    if uncached_kr:
+        tasks.append(fetch_naver_stocks(uncached_kr))
+        labels.append("kr")
+
+    if tasks:
+        fetch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for label, data in zip(labels, fetch_results):
+            if isinstance(data, Exception) or not isinstance(data, dict):
+                continue
+            if label == "us":
+                for sym, q in data.items():
+                    if q and q.get("price"):
+                        cache.set(f"price:{sym}", q, 60)
+                        results[sym] = q
+            else:
+                for code, q in data.items():
+                    if not q or not q.get("price"):
+                        continue
+                    cache.set(f"price:{code}", q, 60)
+                    for orig_sym in kr_symbol_map.get(code, [code]):
+                        results[orig_sym] = q
+    return results
+
+
 # ── 관심종목 조회 (가격 포함) ─────────────────────────────────
 @router.get("/items")
 def get_items(
@@ -336,22 +386,12 @@ async def get_items_with_prices(
         q = q.filter(WatchlistItem.folder_id == folder_id)
     items = q.options(joinedload(WatchlistItem.folder)).order_by(WatchlistItem.position, WatchlistItem.added_at).all()
 
-    loop = asyncio.get_running_loop()
-
-    async def fetch(item: WatchlistItem):
-        meta = _item_to_dict(item)
-        try:
-            mkt = "KR" if item.market == "KR" else "US"
-            price = await asyncio.wait_for(
-                loop.run_in_executor(None, yf_service.get_stock_price, item.symbol, mkt),
-                timeout=10,
-            )
-            return {**meta, **price}
-        except Exception:
-            return {**meta, "price": None, "change_rate": None}
-
-    results = await asyncio.gather(*[fetch(i) for i in items])
-    return list(results)
+    price_map = await _batch_fetch_prices(items)
+    return [
+        {**_item_to_dict(item), **price_map[item.symbol]} if item.symbol in price_map
+        else {**_item_to_dict(item), "price": None, "change_rate": None}
+        for item in items
+    ]
 
 
 @router.get("/{watchlist_id}/prices")
@@ -368,21 +408,14 @@ async def get_watchlist_with_prices(
     if not wl:
         user_id = current_user.id if current_user else None
         wl = _ensure_watchlist(db, user_id=user_id)
-    loop = asyncio.get_running_loop()
 
-    async def fetch(item: WatchlistItem):
-        try:
-            mkt = "KR" if item.market == "KR" else "US"
-            price = await asyncio.wait_for(
-                loop.run_in_executor(None, yf_service.get_stock_price, item.symbol, mkt),
-                timeout=10,
-            )
-            return {**_item_to_dict(item), **price}
-        except Exception:
-            return {**_item_to_dict(item), "price": None, "change_rate": None}
-
-    results = await asyncio.gather(*[fetch(i) for i in wl.items])
-    return {"id": wl.id, "name": wl.name, "items": list(results)}
+    price_map = await _batch_fetch_prices(wl.items)
+    results = [
+        {**_item_to_dict(item), **price_map[item.symbol]} if item.symbol in price_map
+        else {**_item_to_dict(item), "price": None, "change_rate": None}
+        for item in wl.items
+    ]
+    return {"id": wl.id, "name": wl.name, "items": results}
 
 
 # ── 종목 CRUD ─────────────────────────────────────────────────
