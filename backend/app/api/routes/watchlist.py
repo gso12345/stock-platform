@@ -172,11 +172,18 @@ def reorder_folders(
     """관심종목 폴더 순서 일괄 저장 (소유했거나 공유된 폴더만 수정)"""
     # "/folders/{folder_id}"보다 먼저 등록해야 함 — 그렇지 않으면 "reorder"가
     # folder_id로 파싱되어 422 에러가 나고 이 라우트에 도달하지 못함
-    for position, folder_id in enumerate(req.order):
-        db.query(WatchlistFolder).filter(
-            WatchlistFolder.id == folder_id,
+    owned_ids = {
+        fid for (fid,) in db.query(WatchlistFolder.id)
+        .filter(
+            WatchlistFolder.id.in_(req.order),
             (WatchlistFolder.user_id == current_user.id) | (WatchlistFolder.user_id == None),
-        ).update({"position": position})
+        ).all()
+    }
+    db.bulk_update_mappings(WatchlistFolder, [
+        {"id": folder_id, "position": position}
+        for position, folder_id in enumerate(req.order)
+        if folder_id in owned_ids
+    ])
     db.commit()
     return {"message": "순서 저장 완료"}
 
@@ -409,11 +416,18 @@ async def get_watchlist_with_prices(
         user_id = current_user.id if current_user else None
         wl = _ensure_watchlist(db, user_id=user_id)
 
-    price_map = await _batch_fetch_prices(wl.items)
+    items = (
+        db.query(WatchlistItem)
+        .filter(WatchlistItem.watchlist_id == wl.id)
+        .options(joinedload(WatchlistItem.folder))
+        .order_by(WatchlistItem.position, WatchlistItem.added_at)
+        .all()
+    )
+    price_map = await _batch_fetch_prices(items)
     results = [
         {**_item_to_dict(item), **price_map[item.symbol]} if item.symbol in price_map
         else {**_item_to_dict(item), "price": None, "change_rate": None}
-        for item in wl.items
+        for item in items
     ]
     return {"id": wl.id, "name": wl.name, "items": results}
 
@@ -461,11 +475,16 @@ def reorder_items(
 ):
     """관심종목 순서 일괄 저장 (소유한 watchlist 아이템만 수정)"""
     wl = _ensure_watchlist(db, user_id=current_user.id)
-    for position, item_id in enumerate(req.order):
-        db.query(WatchlistItem).filter(
-            WatchlistItem.id == item_id,
-            WatchlistItem.watchlist_id == wl.id,
-        ).update({"position": position})
+    owned_ids = {
+        iid for (iid,) in db.query(WatchlistItem.id)
+        .filter(WatchlistItem.id.in_(req.order), WatchlistItem.watchlist_id == wl.id)
+        .all()
+    }
+    db.bulk_update_mappings(WatchlistItem, [
+        {"id": item_id, "position": position}
+        for position, item_id in enumerate(req.order)
+        if item_id in owned_ids
+    ])
     db.commit()
     return {"message": "순서 저장 완료"}
 

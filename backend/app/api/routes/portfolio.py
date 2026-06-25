@@ -140,10 +140,16 @@ def reorder_portfolios(
     """포트폴리오 순서 일괄 저장 (본인 소유 포트폴리오만 수정)"""
     # "/portfolios/{portfolio_id}"보다 먼저 등록해야 함 — 그렇지 않으면 "reorder"가
     # portfolio_id로 파싱되어 422 에러가 나고 이 라우트에 도달하지 못함
-    for position, portfolio_id in enumerate(req.order):
-        db.query(Portfolio).filter(
-            Portfolio.id == portfolio_id, Portfolio.user_id == current_user.id,
-        ).update({"position": position})
+    owned_ids = {
+        pid for (pid,) in db.query(Portfolio.id)
+        .filter(Portfolio.id.in_(req.order), Portfolio.user_id == current_user.id)
+        .all()
+    }
+    db.bulk_update_mappings(Portfolio, [
+        {"id": portfolio_id, "position": position}
+        for position, portfolio_id in enumerate(req.order)
+        if portfolio_id in owned_ids
+    ])
     db.commit()
     return {"message": "순서 저장 완료"}
 

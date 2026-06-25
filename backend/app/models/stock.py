@@ -32,7 +32,7 @@ class WatchlistItem(Base):
     watchlist_id = Column(Integer, ForeignKey("watchlists.id"), nullable=False, index=True)
     folder_id    = Column(Integer, ForeignKey("watchlist_folders.id"), nullable=True, index=True)
     symbol       = Column(String(20), nullable=False, index=True)
-    market       = Column(String(10), nullable=False)   # KR, US, ETF
+    market       = Column(String(10), nullable=False, index=True)   # KR, US, ETF
     name         = Column(String(100))
     memo         = Column(String(200))
     position     = Column(Integer, default=0)

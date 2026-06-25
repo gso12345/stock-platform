@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Newspaper } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
@@ -64,9 +64,11 @@ export default function News() {
 
   // 최신순: 실제 발행 시각 기준으로 정렬 (백엔드 순서에 의존하지 않음)
   // 인기순: 트렌드 점수 기준 정렬
-  const sorted = sort === "popular"
-    ? [...(news ?? [])].sort((a: any, b: any) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
-    : [...(news ?? [])].sort((a: any, b: any) => newsTimestampMs(b.published) - newsTimestampMs(a.published));
+  const sorted = useMemo(() => (
+    sort === "popular"
+      ? [...(news ?? [])].sort((a: any, b: any) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
+      : [...(news ?? [])].sort((a: any, b: any) => newsTimestampMs(b.published) - newsTimestampMs(a.published))
+  ), [news, sort]);
 
   const shown = sorted.slice(0, shownCount);
   const remaining = sorted.length - shown.length;
