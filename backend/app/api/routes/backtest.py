@@ -14,6 +14,7 @@ from app.models.user import User
 from app.core.deps import require_user, get_current_user
 from app.services.backtest_engine import backtest_engine
 from app.services.yf_service import yf_service
+from app.core.cache import cache
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -139,6 +140,10 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
     """전체 종목 유니버스 백테스트"""
     from app.services.yf_service import SP500_SYMBOLS, KOSPI_SYMBOLS, KOSDAQ_SYMBOLS, ETF_SYMBOLS
 
+    ck = f"universe_bt:{sorted(req.model_dump().items())}"
+    if cached := cache.get(ck):
+        return cached
+
     start_dt = datetime.strptime(req.start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(req.end_date, "%Y-%m-%d")
     if end_dt <= start_dt:
@@ -207,12 +212,14 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
     reverse = req.rank_by not in ("mdd",)
     results.sort(key=lambda x: (x.get(req.rank_by) or 0), reverse=reverse)
 
-    return {
+    payload = {
         "universe": req.universe,
         "total_symbols": len(symbols),
         "tested": len(results),
         "results": results[:req.top_n],
     }
+    cache.set(ck, payload, 300)
+    return payload
 
 
 @router.get("/results")

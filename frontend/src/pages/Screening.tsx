@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { screeningApi, watchlistApi, stocksApi } from "@/api/stocks";
@@ -209,7 +209,10 @@ export default function Screening() {
     });
   };
 
-  const sortedResults = [...results].filter((s) => sector === "전체" || s.sector === sector);
+  const sortedResults = useMemo(
+    () => results.filter((s) => sector === "전체" || s.sector === sector),
+    [results, sector]
+  );
   const activeFilterCount = Object.keys(filters).length;
 
   return (

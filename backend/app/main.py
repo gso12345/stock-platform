@@ -95,6 +95,7 @@ async def lifespan(application: FastAPI):
             ("watchlist_items", "watchlist_id"),
             ("watchlist_items", "folder_id"),
             ("watchlist_items", "symbol"),
+            ("watchlist_items", "market"),
             ("strategies", "user_id"),
             ("backtest_results", "strategy_id"),
             ("screening_presets", "user_id"),

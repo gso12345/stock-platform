@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import math
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from app.core.cache import cache
 from app.core.utils import safe_float as _safe
@@ -585,6 +586,37 @@ class YFinanceService:
         except Exception:
             return cache.get_stale(ck) or []
 
+    def _screen_one(self, symbol: str, market: str) -> dict | None:
+        try:
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
+            hist = ticker.history(period="2d")
+            if len(hist) >= 2:
+                prev = float(hist["Close"].iloc[-2])
+                curr = float(hist["Close"].iloc[-1])
+                change_rate = (curr - prev) / prev * 100 if prev else 0
+            else:
+                curr = float(info.get("currentPrice") or info.get("regularMarketPrice") or 0)
+                change_rate = float(info.get("regularMarketChangePercent") or 0)
+
+            roe = _safe(info.get("returnOnEquity"))
+            return _clean({
+                "symbol": symbol,
+                "name": info.get("longName") or info.get("shortName") or symbol,
+                "market": market,
+                "price": round(curr, 2),
+                "change_rate": round(change_rate, 2),
+                "per": _safe(info.get("trailingPE")),
+                "pbr": _safe(info.get("priceToBook")),
+                "roe": round(roe * 100, 2) if roe else None,
+                "eps": _safe(info.get("trailingEps")),
+                "debt_ratio": _safe(info.get("debtToEquity")),
+                "market_cap": info.get("marketCap"),
+                "currency": info.get("currency", "USD"),
+            })
+        except Exception:
+            return None
+
     def screen_stocks(self, market: str, filters: dict) -> list:
         if market == "KR":
             symbols = KOSPI_SYMBOLS + KOSDAQ_SYMBOLS
@@ -593,38 +625,13 @@ class YFinanceService:
         else:
             symbols = SP500_SYMBOLS
 
+        # 종목별 순차 호출(네트워크 I/O 대기)이 전체 응답 시간을 좌우하므로
+        # 스레드풀로 동시에 fetch — yfinance가 스레드 안전한 블로킹 I/O이므로 안전함
         results = []
-        for symbol in symbols:
-            try:
-                info = yf.Ticker(symbol).info
-                hist = yf.Ticker(symbol).history(period="2d")
-                if len(hist) >= 2:
-                    prev = float(hist["Close"].iloc[-2])
-                    curr = float(hist["Close"].iloc[-1])
-                    change_rate = (curr - prev) / prev * 100 if prev else 0
-                else:
-                    curr = float(info.get("currentPrice") or info.get("regularMarketPrice") or 0)
-                    change_rate = float(info.get("regularMarketChangePercent") or 0)
-
-                roe = _safe(info.get("returnOnEquity"))
-                row = _clean({
-                    "symbol": symbol,
-                    "name": info.get("longName") or info.get("shortName") or symbol,
-                    "market": market,
-                    "price": round(curr, 2),
-                    "change_rate": round(change_rate, 2),
-                    "per": _safe(info.get("trailingPE")),
-                    "pbr": _safe(info.get("priceToBook")),
-                    "roe": round(roe * 100, 2) if roe else None,
-                    "eps": _safe(info.get("trailingEps")),
-                    "debt_ratio": _safe(info.get("debtToEquity")),
-                    "market_cap": info.get("marketCap"),
-                    "currency": info.get("currency", "USD"),
-                })
-                if self._apply_filters(row, filters):
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            for row in pool.map(lambda s: self._screen_one(s, market), symbols):
+                if row and self._apply_filters(row, filters):
                     results.append(row)
-            except Exception:
-                continue
         return results
 
     def _apply_filters(self, stock: dict, filters: dict) -> bool:
