@@ -327,13 +327,17 @@ async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = Tr
                     if ev:
                         metrics["ev_ebitda"] = round(ev / latest["ebitda"], 2)
 
-            # PEG 보완 — PER ÷ EPS 성장률(전년 대비, %)
+            # PEG 보완 — PER ÷ EPS 5년 CAGR(%). annual은 오래된→최신 순이며 최대 5년치이므로
+            # 가장 오래된 연도와 최신 연도 사이의 연평균 성장률(CAGR)을 사용 — 야후가 제공하는
+            # PEG(5년 기준)와 같은 기준 연수로 통일해, 종목마다 기준이 1년/5년으로 섞이지 않게 함.
+            # 둘 다 양수 EPS가 있어야 CAGR이 의미를 가짐(적자→흑자 전환 등은 계산하지 않음).
             if metrics.get("peg") is None and metrics.get("per") and len(annual) >= 2:
-                cur_eps, prev_eps = annual[-1].get("eps"), annual[-2].get("eps")
-                if cur_eps is not None and prev_eps:
-                    eps_growth = (cur_eps - prev_eps) / abs(prev_eps) * 100
-                    if eps_growth > 0:
-                        metrics["peg"] = round(metrics["per"] / eps_growth, 2)
+                oldest_eps, latest_eps = annual[0].get("eps"), annual[-1].get("eps")
+                years = len(annual) - 1
+                if oldest_eps is not None and oldest_eps > 0 and latest_eps is not None and latest_eps > 0:
+                    eps_cagr = ((latest_eps / oldest_eps) ** (1 / years) - 1) * 100
+                    if eps_cagr > 0:
+                        metrics["peg"] = round(metrics["per"] / eps_cagr, 2)
     except Exception:
         pass
 
