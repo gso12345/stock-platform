@@ -11,6 +11,7 @@ PER/PBR/EV-EBITDA처럼 업종별로 정상 범위가 크게 다른 지표(SECTO
 업종 내 분포를 별도로 모아두고, quant_score.compute_quant_score가 업종 표본이
 충분하면 우선 사용하도록 한다.
 """
+import asyncio
 import logging
 from app.db.database import SessionLocal
 from app.models.stock import QuantPercentileCache
@@ -82,10 +83,19 @@ async def rebuild_market_distribution(market: str, symbols: list[str]) -> dict:
     samples: dict[str, list[float]] = {k: [] for k in ALL_METRIC_KEYS}
     sector_samples: dict[str, dict[str, list[float]]] = {}
 
-    for symbol in symbols:
-        try:
-            metrics = await collect_quant_metrics(symbol, market, fetch_ohlcv=True)
-        except Exception:
+    sem = asyncio.Semaphore(16)
+
+    async def _one(symbol: str):
+        async with sem:
+            try:
+                return await collect_quant_metrics(symbol, market, fetch_ohlcv=True)
+            except Exception:
+                return None
+
+    results = await asyncio.gather(*[_one(s) for s in symbols])
+
+    for metrics in results:
+        if not metrics:
             continue
         sector = metrics.pop("_sector", None)
         for k, v in metrics.items():

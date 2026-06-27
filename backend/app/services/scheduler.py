@@ -219,6 +219,8 @@ async def refresh_us_stocks():
 
     # Finnhub: POPULAR_US 병렬 보강 (직렬 0.5초×20 → 병렬 1회)
     if settings.FINNHUB_API_KEY:
+        loop = asyncio.get_running_loop()
+
         async def _fh_one(sym: str):
             try:
                 q = await asyncio.wait_for(loop.run_in_executor(None, finnhub_service.get_quote, sym), timeout=8)
@@ -271,6 +273,49 @@ async def refresh_kr_stocks():
         ok += 1
     log.info(f"국내 종목(네이버) {ok}/{len(POPULAR_KR_CODES)}개 갱신")
     return ok
+
+
+async def refresh_held_symbols():
+    """포트폴리오·관심종목으로 등록된 모든 보유종목 시세 선제 캐싱.
+    POPULAR_US/POPULAR_KR_CODES 목록 밖의 종목(특히 비인기 코스피/코스닥 종목)은
+    이 함수 없이는 페이지 진입 시 캐시 미스로 매번 외부 API를 직접 호출해야 했다."""
+    from app.db.database import SessionLocal
+    from app.models.stock import PortfolioItem, WatchlistItem
+
+    db = SessionLocal()
+    try:
+        rows = set(db.query(PortfolioItem.symbol, PortfolioItem.market).all())
+        rows |= set(db.query(WatchlistItem.symbol, WatchlistItem.market).all())
+    finally:
+        db.close()
+
+    kr_codes = {sym.replace(".KS", "").replace(".KQ", "") for sym, mkt in rows if mkt == "KR"}
+    us_syms = {sym for sym, mkt in rows if mkt != "KR"}
+
+    if kr_codes:
+        naver_data = await fetch_naver_stocks(list(kr_codes))
+        for code6, q in naver_data.items():
+            cache.set(f"price:{code6}", q, 60)
+            cache.set(f"price:{code6}.KS", q, 60)
+            cache.set(f"price:{code6}.KQ", q, 60)
+        log.info(f"보유 국내종목 시세 선제 캐싱: {len(naver_data)}/{len(kr_codes)}개")
+
+    if us_syms:
+        us_list = list(us_syms)
+        BATCH = 100
+        ok = 0
+        for i in range(0, len(us_list), BATCH):
+            batch = us_list[i:i + BATCH]
+            try:
+                data = await fetch_yf_quotes(batch)
+                for sym, q in data.items():
+                    if q.get("price"):
+                        cache.set(f"price:{sym}", q, 120)
+                        ok += 1
+            except Exception:
+                pass
+            await asyncio.sleep(0.3)
+        log.info(f"보유 미국/ETF 종목 시세 선제 캐싱: {ok}/{len(us_list)}개")
 
 
 async def refresh_exchange():
@@ -378,10 +423,10 @@ async def refresh_fundamentals_daily():
     # 2) 포트폴리오·관심종목 (로그인 사용자 데이터)
     db = SessionLocal()
     try:
-        for item in db.query(PortfolioItem).all():
-            symbols_set.add((item.symbol, item.market))
-        for item in db.query(WatchlistItem).all():
-            symbols_set.add((item.symbol, item.market))
+        for sym, mkt in db.query(PortfolioItem.symbol, PortfolioItem.market).all():
+            symbols_set.add((sym, mkt))
+        for sym, mkt in db.query(WatchlistItem.symbol, WatchlistItem.market).all():
+            symbols_set.add((sym, mkt))
     except Exception:
         pass
     finally:
@@ -428,6 +473,7 @@ async def run_startup_prefetch():
     await asyncio.gather(
         refresh_us_stocks(),
         refresh_kr_stocks(),
+        refresh_held_symbols(),
         return_exceptions=True,
     )
     # OHLCV 선제 캐싱 (후후순위 — 백그라운드)
@@ -472,6 +518,7 @@ async def periodic_refresh():
             await asyncio.gather(
                 refresh_us_stocks(),
                 refresh_kr_stocks(),
+                refresh_held_symbols(),
                 loop.run_in_executor(None, get_kr_news),
                 loop.run_in_executor(None, get_us_news),
                 return_exceptions=True,

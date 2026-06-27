@@ -192,7 +192,7 @@ async def get_us_dashboard(
     exchange        = gathered[1] if not isinstance(gathered[1], Exception) else {}
     rankings        = gathered[2] if not isinstance(gathered[2], Exception) else []
     us_rates_cached = gathered[3] if not isinstance(gathered[3], Exception) else (cache.get_stale("extra:us_rates") or [])
-    news = gathered[4] if include_news and not isinstance(gathered[4], Exception) else (get_us_news() or [])
+    news = gathered[4] if include_news and not isinstance(gathered[4], Exception) else (cache.get("news:us") or cache.get_stale("news:us") or [])
 
     idx_map = {r["index"]: r for r in idx_results if isinstance(r, dict)}
     return {

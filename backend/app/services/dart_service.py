@@ -6,6 +6,7 @@ import httpx
 import zipfile
 import io
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from app.core.config import settings
 from app.core.cache import cache
@@ -181,22 +182,21 @@ class DARTService:
             return {"annual": [], "quarterly": []}
 
         current_year = datetime.now().year
-        annual_rows, quarterly_rows = [], []
+        annual_jobs = [(str(y), "11011") for y in range(current_year, current_year - years, -1)]
+        quarterly_jobs = [
+            (str(y), rt)
+            for y in [current_year, current_year - 1]
+            for rt, label in [("11012", f"{y}H1"), ("11013", f"{y}Q1"), ("11014", f"{y}Q3")]
+        ]
 
-        # 최근 5개년 연간
-        for y in range(current_year, current_year - years, -1):
-            row = self._fetch_single(corp_code, str(y), "11011")
-            if row:
-                annual_rows.append(row)
-
-        # 최근 4개 분기
-        for y in [current_year, current_year - 1]:
-            for rt, label in [("11012", f"{y}H1"), ("11013", f"{y}Q1"), ("11014", f"{y}Q3")]:
-                row = self._fetch_single(corp_code, str(y), rt)
-                if row:
-                    quarterly_rows.append(row)
-                if len(quarterly_rows) >= 8:
-                    break
+        # 연간/분기 조회를 동시 실행 (순차 13회 → 병렬)
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            annual_futs = [ex.submit(self._fetch_single, corp_code, y, rt) for y, rt in annual_jobs]
+            quarterly_futs = [ex.submit(self._fetch_single, corp_code, y, rt) for y, rt in quarterly_jobs]
+            annual_rows = [f.result() for f in annual_futs]
+            quarterly_rows = [f.result() for f in quarterly_futs]
+        annual_rows = [r for r in annual_rows if r]
+        quarterly_rows = [r for r in quarterly_rows if r]
 
         result = {
             "annual":    sorted(annual_rows,    key=lambda x: x["period"])[-5:],

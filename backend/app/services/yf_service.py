@@ -464,11 +464,10 @@ class YFinanceService:
             if ev and total_revenue:
                 ev_revenue = round(ev / total_revenue, 2)
 
+        # 야후 제공값(5년 기준 EPS 성장률 기반)만 사용 — 1년 성장률(earningsGrowth) 기반
+        # 자체 추정은 기준 연수가 달라 일관성이 깨지므로 제거. 야후 값이 없으면
+        # quant_score.collect_quant_metrics가 재무제표 다년치 EPS로 5년 기준으로 보완한다.
         peg = _safe(info.get("trailingPegRatio")) or _safe(info.get("pegRatio"))
-        if peg is None:
-            growth = _safe(info.get("earningsGrowth"))
-            if per_val and growth and growth > 0:
-                peg = round(per_val / (growth * 100), 2)
 
         result = _clean({
             "per":          per_val,

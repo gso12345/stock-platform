@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
@@ -370,6 +370,80 @@ export default function StockDetail() {
   useEffect(() => {
     if (d?.name) addRecentlyViewed(sym, m, d.name);
   }, [sym, m, d?.name]);
+
+  // 재무제표 탭 데이터 가공 — detail은 15초마다 새 객체 참조로 갱신되므로
+  // d 자체가 아닌 실제 사용하는 스칼라 값에 메모이제이션을 걸어, 값이 그대로면
+  // 재무탭(긴 IIFE)이 매 polling마다 다시 계산되지 않도록 한다.
+  const finTabData = useMemo(() => {
+    const mhRaw: any[] = (metricsHistory as any)?.[finPeriod] ?? [];
+    const mh: any[] = mhRaw.filter((r: any) =>
+      r.revenue != null || r.op_income != null || r.net_income != null ||
+      r.per != null || r.pbr != null || r.roe != null
+    );
+    const fcst: any[] = ((forecasts as any)?.annual ?? []).filter((r:any) => r.type === "forecast");
+
+    // metrics-history 최신값으로 detail의 None 보완
+    const mhLatest = [...mh].sort((a,b)=>b.period.localeCompare(a.period))[0] ?? {};
+    const fd = (fundamentalsData as any) ?? {};
+
+    // 선행PER 보완 — 가장 가까운 연간 컨센서스 EPS 추정치 ÷ 현재가
+    const nextFcstEps = [...fcst].sort((a,b)=>a.period.localeCompare(b.period))[0]?.eps_est;
+    const fallbackForwardPer = (d?.price && nextFcstEps && nextFcstEps > 0)
+      ? Math.round((d.price / nextFcstEps) * 100) / 100
+      : null;
+
+    const dEnhanced = {
+      per:          d?.per          ?? fd.per          ?? mhLatest.per          ?? null,
+      pbr:          d?.pbr          ?? fd.pbr          ?? mhLatest.pbr          ?? null,
+      psr:          d?.psr          ?? fd.psr          ?? mhLatest.psr          ?? null,
+      eps:          d?.eps          ?? fd.eps          ?? mhLatest.eps          ?? null,
+      bps:          d?.bps          ?? fd.bps          ?? mhLatest.bps          ?? null,
+      roe:          d?.roe          ?? fd.roe          ?? mhLatest.roe          ?? null,
+      roa:          d?.roa          ?? fd.roa          ?? null,
+      op_margin:    d?.op_margin    ?? fd.op_margin    ?? mhLatest.op_margin    ?? null,
+      net_margin:   d?.net_margin   ?? fd.net_margin   ?? mhLatest.net_margin   ?? null,
+      gross_margin: d?.gross_margin ?? fd.gross_margin ?? mhLatest.gross_margin ?? null,
+      debt_ratio:   d?.debt_ratio   ?? fd.debt_ratio   ?? mhLatest.debt_ratio   ?? null,
+      current_ratio:d?.current_ratio ?? fd.current_ratio ?? mhLatest.current_ratio ?? null,
+      quick_ratio:  d?.quick_ratio  ?? fd.quick_ratio  ?? mhLatest.quick_ratio  ?? null,
+      // 재무제표 탭에서 안 보이던 항목들 — fundamentals → 재무제표 기반 계산값 순으로 fallback
+      forward_per:     d?.forward_per     ?? fd.forward_per     ?? fallbackForwardPer ?? null,
+      peg:             d?.peg             ?? fd.peg             ?? mhLatest.peg       ?? null,
+      ev_ebitda:       d?.ev_ebitda       ?? fd.ev_ebitda       ?? null,
+      ev_revenue:      d?.ev_revenue      ?? fd.ev_revenue      ?? null,
+      enterprise_value:d?.enterprise_value ?? fd.enterprise_value ?? null,
+      forward_eps:     d?.forward_eps     ?? fd.forward_eps     ?? null,
+      beta:            d?.beta            ?? fd.beta            ?? null,
+      payout_ratio:    d?.payout_ratio    ?? fd.payout_ratio    ?? null,
+    };
+
+    // 기간 레이블 (연간: YYYY, 분기: YYYY-QQ)
+    const periodLabel = (p: string) => finPeriod === "quarterly" ? p.slice(0,7) : p.slice(0,4);
+    const mhYears = [...new Set(mh.map((r:any) => periodLabel(r.period)))].sort() as string[];
+
+    // 예측 연도 제거 (컨센서스 표시 안 함)
+    const allYears = [...mhYears];
+
+    // 기간으로 데이터 조회
+    const getVal = (key: string, year: string): number | null => {
+      if (year.endsWith("E")) {
+        const y = year.slice(0,-1);
+        const row = fcst.find((r:any) => r.period.slice(0,4) === y);
+        return row?.[key] ?? null;
+      }
+      const row = mh.find((r:any) => periodLabel(r.period) === year);
+      return row?.[key] ?? null;
+    };
+
+    return { mh, fcst, dEnhanced, periodLabel, mhYears, allYears, getVal };
+  }, [
+    metricsHistory, forecasts, fundamentalsData, finPeriod,
+    d?.price, d?.per, d?.pbr, d?.psr, d?.eps, d?.bps, d?.roe, d?.roa,
+    d?.op_margin, d?.net_margin, d?.gross_margin, d?.debt_ratio,
+    d?.current_ratio, d?.quick_ratio, d?.forward_per, d?.peg,
+    d?.ev_ebitda, d?.ev_revenue, d?.enterprise_value, d?.forward_eps,
+    d?.beta, d?.payout_ratio,
+  ]);
 
   const fmtPx = (v: number | null | undefined) => {
     if (v == null) return null;
@@ -844,65 +918,7 @@ export default function StockDetail() {
 
       {/* 재무제표 탭 */}
       {mainTab==="financial" && (() => {
-        const mhRaw: any[] = (metricsHistory as any)?.[finPeriod] ?? [];
-        const mh: any[] = mhRaw.filter((r: any) =>
-          r.revenue != null || r.op_income != null || r.net_income != null ||
-          r.per != null || r.pbr != null || r.roe != null
-        );
-        const fcst: any[] = ((forecasts as any)?.annual ?? []).filter((r:any) => r.type === "forecast");
-
-        // metrics-history 최신값으로 detail의 None 보완
-        const mhLatest = [...mh].sort((a,b)=>b.period.localeCompare(a.period))[0] ?? {};
-        const fd = (fundamentalsData as any) ?? {};
-
-        // 선행PER 보완 — 가장 가까운 연간 컨센서스 EPS 추정치 ÷ 현재가
-        const nextFcstEps = [...fcst].sort((a,b)=>a.period.localeCompare(b.period))[0]?.eps_est;
-        const fallbackForwardPer = (d?.price && nextFcstEps && nextFcstEps > 0)
-          ? Math.round((d.price / nextFcstEps) * 100) / 100
-          : null;
-
-        const dEnhanced = {
-          per:          d?.per          ?? fd.per          ?? mhLatest.per          ?? null,
-          pbr:          d?.pbr          ?? fd.pbr          ?? mhLatest.pbr          ?? null,
-          psr:          d?.psr          ?? fd.psr          ?? mhLatest.psr          ?? null,
-          eps:          d?.eps          ?? fd.eps          ?? mhLatest.eps          ?? null,
-          bps:          d?.bps          ?? fd.bps          ?? mhLatest.bps          ?? null,
-          roe:          d?.roe          ?? fd.roe          ?? mhLatest.roe          ?? null,
-          roa:          d?.roa          ?? fd.roa          ?? null,
-          op_margin:    d?.op_margin    ?? fd.op_margin    ?? mhLatest.op_margin    ?? null,
-          net_margin:   d?.net_margin   ?? fd.net_margin   ?? mhLatest.net_margin   ?? null,
-          gross_margin: d?.gross_margin ?? fd.gross_margin ?? mhLatest.gross_margin ?? null,
-          debt_ratio:   d?.debt_ratio   ?? fd.debt_ratio   ?? mhLatest.debt_ratio   ?? null,
-          current_ratio:d?.current_ratio ?? fd.current_ratio ?? mhLatest.current_ratio ?? null,
-          quick_ratio:  d?.quick_ratio  ?? fd.quick_ratio  ?? mhLatest.quick_ratio  ?? null,
-          // 재무제표 탭에서 안 보이던 항목들 — fundamentals → 재무제표 기반 계산값 순으로 fallback
-          forward_per:     d?.forward_per     ?? fd.forward_per     ?? fallbackForwardPer ?? null,
-          peg:             d?.peg             ?? fd.peg             ?? mhLatest.peg       ?? null,
-          ev_ebitda:       d?.ev_ebitda       ?? fd.ev_ebitda       ?? null,
-          ev_revenue:      d?.ev_revenue      ?? fd.ev_revenue      ?? null,
-          enterprise_value:d?.enterprise_value ?? fd.enterprise_value ?? null,
-          forward_eps:     d?.forward_eps     ?? fd.forward_eps     ?? null,
-          beta:            d?.beta            ?? fd.beta            ?? null,
-          payout_ratio:    d?.payout_ratio    ?? fd.payout_ratio    ?? null,
-        };
-
-        // 기간 레이블 (연간: YYYY, 분기: YYYY-QQ)
-        const periodLabel = (p: string) => finPeriod === "quarterly" ? p.slice(0,7) : p.slice(0,4);
-        const mhYears = [...new Set(mh.map((r:any) => periodLabel(r.period)))].sort() as string[];
-
-        // 예측 연도 제거 (컨센서스 표시 안 함)
-        const allYears = [...mhYears];
-
-        // 기간으로 데이터 조회
-        const getVal = (key: string, year: string): number | null => {
-          if (year.endsWith("E")) {
-            const y = year.slice(0,-1);
-            const row = fcst.find((r:any) => r.period.slice(0,4) === y);
-            return row?.[key] ?? null;
-          }
-          const row = mh.find((r:any) => periodLabel(r.period) === year);
-          return row?.[key] ?? null;
-        };
+        const { mh, dEnhanced, mhYears, allYears, getVal } = finTabData;
 
         // 연간/분기 토글 컴포넌트
         const PeriodToggle = () => (
