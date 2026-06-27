@@ -3,6 +3,7 @@ FMP (Financial Modeling Prep) — 해외 재무제표
 https://financialmodelingprep.com — 무료 250 req/day
 """
 import httpx
+from concurrent.futures import ThreadPoolExecutor
 from app.core.config import settings
 from app.core.cache import cache
 
@@ -134,10 +135,16 @@ class FMPService:
 
     # ── 통합 재무 (프론트에서 바로 사용) ──────────────
     def get_financials(self, symbol: str) -> dict:
-        annual_inc = self.get_income_statement(symbol, "annual", 5)
-        qtr_inc    = self.get_income_statement(symbol, "quarter", 8)
-        annual_bs  = self.get_balance_sheet(symbol, "annual", 5)
-        qtr_bs     = self.get_balance_sheet(symbol, "quarter", 8)
+        # 4개 독립 요청 동시 실행 (순차 4회 → 병렬)
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            f_annual_inc = ex.submit(self.get_income_statement, symbol, "annual", 5)
+            f_qtr_inc    = ex.submit(self.get_income_statement, symbol, "quarter", 8)
+            f_annual_bs  = ex.submit(self.get_balance_sheet, symbol, "annual", 5)
+            f_qtr_bs     = ex.submit(self.get_balance_sheet, symbol, "quarter", 8)
+            annual_inc = f_annual_inc.result()
+            qtr_inc    = f_qtr_inc.result()
+            annual_bs  = f_annual_bs.result()
+            qtr_bs     = f_qtr_bs.result()
         return {
             "annual":    self._merge_bs(annual_inc, annual_bs),
             "quarterly": self._merge_bs(qtr_inc, qtr_bs),

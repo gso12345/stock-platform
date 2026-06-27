@@ -11,7 +11,7 @@ import { fmtUSD, fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
 /* ── 지수 카드 ───────────────────────────────────────────── */
 const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _demo, onClick }: any) {
   const pos = (change_rate ?? 0) >= 0;
-  const { colorScheme } = useSettingsStore();
+  const colorScheme = useSettingsStore((s) => s.colorScheme);
   const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
   const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
   return (
@@ -38,7 +38,7 @@ const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _d
 
 /* ── 환율 / 금리 / 선물 카드 ─────────────────────────────── */
 const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, unit, _demo, _static }: any) {
-  const { colorScheme } = useSettingsStore();
+  const colorScheme = useSettingsStore((s) => s.colorScheme);
   const isRate = unit === "%";
   const numVal = typeof value === "number" ? value : parseFloat(String(value).replace(/,/g,"")) || 0;
   const chgVal = typeof change === "number" ? change : 0;

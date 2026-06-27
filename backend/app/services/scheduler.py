@@ -219,6 +219,8 @@ async def refresh_us_stocks():
 
     # Finnhub: POPULAR_US 병렬 보강 (직렬 0.5초×20 → 병렬 1회)
     if settings.FINNHUB_API_KEY:
+        loop = asyncio.get_running_loop()
+
         async def _fh_one(sym: str):
             try:
                 q = await asyncio.wait_for(loop.run_in_executor(None, finnhub_service.get_quote, sym), timeout=8)
@@ -421,10 +423,10 @@ async def refresh_fundamentals_daily():
     # 2) 포트폴리오·관심종목 (로그인 사용자 데이터)
     db = SessionLocal()
     try:
-        for item in db.query(PortfolioItem).all():
-            symbols_set.add((item.symbol, item.market))
-        for item in db.query(WatchlistItem).all():
-            symbols_set.add((item.symbol, item.market))
+        for sym, mkt in db.query(PortfolioItem.symbol, PortfolioItem.market).all():
+            symbols_set.add((sym, mkt))
+        for sym, mkt in db.query(WatchlistItem.symbol, WatchlistItem.market).all():
+            symbols_set.add((sym, mkt))
     except Exception:
         pass
     finally:
