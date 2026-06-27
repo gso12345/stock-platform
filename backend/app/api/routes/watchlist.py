@@ -196,7 +196,7 @@ def update_folder(
     current_user: User = Depends(require_user),
 ):
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
-    if not folder or (folder.user_id is not None and folder.user_id != current_user.id):
+    if not folder or folder.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
     folder.name = req.name
     db.commit()
@@ -210,7 +210,7 @@ def delete_folder(
     current_user: User = Depends(require_user),
 ):
     folder = db.query(WatchlistFolder).filter(WatchlistFolder.id == folder_id).first()
-    if not folder or (folder.user_id is not None and folder.user_id != current_user.id):
+    if not folder or folder.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="폴더를 찾을 수 없습니다")
     if folder.items:
         if folder.name == "기본 관심목록":

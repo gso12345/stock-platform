@@ -4,7 +4,7 @@
 - 해외: Finnhub → FMP (재무)
 - 폴백: yfinance (API 키 없을 때)
 """
-from fastapi import APIRouter, Query, HTTPException, Request, Depends
+from fastapi import APIRouter, Path, Query, HTTPException, Request, Depends
 from typing import Literal
 import asyncio
 import re
@@ -27,6 +27,7 @@ from app.models.stock import QuantScoreWeight
 
 router = APIRouter(prefix="/stocks", tags=["종목"])
 limiter = Limiter(key_func=get_remote_address)
+_SYMBOL_PATTERN = r"^[A-Za-z0-9.\-]{1,20}$"
 
 
 async def _run(fn, *args):
@@ -152,7 +153,7 @@ async def get_us_price(symbol: str) -> dict:
 # ── 엔드포인트 ─────────────────────────────────────────────
 @router.get("/{market}/{symbol}/price")
 @limiter.limit("60/minute")
-async def get_stock_price(request: Request, market: Literal["KR","US","ETF"], symbol: str):
+async def get_stock_price(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     if market == "KR":
         return await get_kr_price(symbol)
     return await get_us_price(symbol)
@@ -175,7 +176,7 @@ def _resample_to_annual(daily_or_monthly: list) -> list:
 
 @router.get("/{market}/{symbol}/ohlcv")
 async def get_stock_ohlcv(
-    market: Literal["KR","US","ETF"], symbol: str,
+    market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN),
     period: str = Query("1y"),
     interval: str = Query("1d"),   # 1m,5m,15m,30m,60m,1d,1wk,1mo,1y
 ):
@@ -279,7 +280,7 @@ async def get_stock_ohlcv(
 
 @router.get("/{market}/{symbol}/nxt")
 @limiter.limit("30/minute")
-async def get_stock_nxt(request: Request, market: Literal["KR","US","ETF"], symbol: str):
+async def get_stock_nxt(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """대체거래소(넥스트레이드/NXT) 시세 — KR 종목 중 NXT 거래 가능 종목만 시세 반환"""
     if market != "KR" or not settings.KIS_APP_KEY:
         return {"available": False}
@@ -290,7 +291,7 @@ async def get_stock_nxt(request: Request, market: Literal["KR","US","ETF"], symb
 
 @router.get("/{market}/{symbol}/detail")
 @limiter.limit("30/minute")
-async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], symbol: str):
+async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     if market == "KR":
         from app.services.price_fetcher import fetch_naver_stock
         code6 = symbol.replace(".KS","").replace(".KQ","")
@@ -521,14 +522,14 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
 
 
 @router.get("/{market}/{symbol}/fundamentals")
-async def get_fundamentals(market: Literal["KR","US","ETF"], symbol: str):
+async def get_fundamentals(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """벨류에이션 지표 (PER, PBR, ROE 등) — DB 캐시 우선"""
     from app.services.fundamentals_service import get_fundamentals as _svc
     return await _svc(symbol, market)
 
 
 @router.get("/{market}/{symbol}/financials")
-async def get_financials(market: Literal["KR","US","ETF"], symbol: str):
+async def get_financials(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """재무제표 (손익·현금흐름·재무상태) — DB 캐시 우선"""
     from app.services.fundamentals_service import get_financials as _svc
     return await _svc(symbol, market)
@@ -685,7 +686,7 @@ async def get_quant_score_compare(
 @limiter.limit("30/minute")
 async def get_quant_score(
     request: Request,
-    market: Literal["KR","US","ETF"], symbol: str,
+    market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN),
     w_value: float | None = Query(None, ge=0, le=100),
     w_quality: float | None = Query(None, ge=0, le=100),
     w_momentum: float | None = Query(None, ge=0, le=100),
@@ -740,7 +741,7 @@ async def get_quant_score(
 
 
 @router.get("/{market}/{symbol}/metrics-history")
-async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str):
+async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """재무지표 연간/분기별 추이 (yfinance)"""
     from app.core.cache import cache
     ck = f"metrics_hist4:{symbol}"  # v4: eps_growth/peg 추가
@@ -1011,7 +1012,7 @@ def _merge_forecast_lists(new_list: list, stale_list: list) -> list:
 
 
 @router.get("/{market}/{symbol}/forecasts")
-async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
+async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률
     in-memory → DB fresh(24h) → DB stale(30일) → 외부 API 순으로 조회해
     Render 재시작으로 메모리 캐시가 비워져도 데이터가 바로 사라지지 않게 한다."""
@@ -1186,7 +1187,7 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str):
 
 
 @router.get("/{market}/{symbol}/disclosures")
-async def get_disclosures(market: Literal["KR","US","ETF"], symbol: str):
+async def get_disclosures(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """국내 공시 목록 (OpenDART)
     최초 호출 시 전체 기업코드 매핑 파일(corpCode.xml, 수 MB)을 내려받아야 해서
     일반 API보다 오래 걸릴 수 있다 — 공용 _run(15초)이 아닌 넉넉한 타임아웃 사용.
@@ -1279,7 +1280,7 @@ def _merge_news(primary: list, secondary: list, limit: int = 120) -> list:
 
 
 @router.get("/{market}/{symbol}/news")
-async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
+async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """종목 관련 뉴스 — 종합 RSS 피드(다양한 언론사 + 이미지 보장) + 종목별 검색(KR: 구글뉴스, US: yfinance) 병합"""
     from app.core.cache import cache
     ck = f"stock_news:{market}:{symbol}"
@@ -1428,7 +1429,7 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str):
 
 
 @router.get("/{market}/{symbol}/earnings")
-async def get_earnings(market: Literal["KR","US","ETF"], symbol: str):
+async def get_earnings(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """실적발표 일정 및 과거 실적 (yfinance)"""
     from app.core.cache import cache
     ck = f"earnings:{symbol}"
@@ -1489,7 +1490,7 @@ _REC_KEY_LABEL = {
 
 
 @router.get("/{market}/{symbol}/analyst")
-async def get_analyst(market: Literal["KR","US","ETF"], symbol: str):
+async def get_analyst(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트
     in-memory → DB fresh(24h) → DB stale(30일, +백그라운드 갱신) → 외부 API 순으로 조회.
     DB에 영속 저장해 Render 재시작으로 메모리 캐시가 비워져도 데이터가 사라지지 않게 한다."""
@@ -1854,7 +1855,7 @@ def _enrich_analyst_fallback(result: dict, symbol: str, market: str):
 
 
 @router.get("/KR/{symbol}/supply-demand")
-async def get_supply_demand(symbol: str, days: int = Query(default=30)):
+async def get_supply_demand(symbol: str = Path(..., pattern=_SYMBOL_PATTERN), days: int = Query(default=30)):
     """수급 데이터 (외국인/기관/개인) — pykrx"""
     from app.core.cache import cache
     from datetime import datetime, timedelta
