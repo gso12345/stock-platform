@@ -736,12 +736,22 @@ export default function Watchlist() {
   const baseList  = localOrder ?? (items as any[]);
   const itemsList = items as any[];
 
-  // 폴더 탭 필터 적용
-  const displayList = folderTab === "all"
-    ? baseList
-    : baseList.filter((i: any) => i.folder_id === folderTab);
+  // 폴더 탭 필터 적용 — 실시간 시세 갱신마다 재계산되지 않도록 메모이제이션
+  const displayList = useMemo(
+    () => folderTab === "all" ? baseList : baseList.filter((i: any) => i.folder_id === folderTab),
+    [baseList, folderTab]
+  );
 
-  const byFolder  = (fid: number) => displayList.filter((i: any) => i.folder_id === fid);
+  // 폴더별로 한 번에 그룹화 — byFolder를 폴더 개수만큼 반복 필터링하던 것을 단일 패스로 변경
+  const itemsByFolder = useMemo(() => {
+    const map = new Map<number, any[]>();
+    for (const item of displayList) {
+      const arr = map.get(item.folder_id);
+      if (arr) arr.push(item); else map.set(item.folder_id, [item]);
+    }
+    return map;
+  }, [displayList]);
+  const byFolder = (fid: number) => itemsByFolder.get(fid) ?? [];
 
   const createDefaultFolderMutation = useMutation({
     mutationFn: () => watchlistFolderApi.createFolder("기본 관심목록"),

@@ -1299,13 +1299,13 @@ export default function Portfolio() {
     return Object.entries(map).map(([name, value]) => ({ name, value: Math.round(value) }));
   }, [enriched]);
 
-  const previewStockPie = previewEnrichedLive.map((e) => ({
+  const previewStockPie = useMemo(() => previewEnrichedLive.map((e) => ({
     name: e.market === "US" || e.market === "ETF" ? e.symbol : e.name,
     value: e.currentValueKRW,
-  }));
-  const previewMarketPie = Object.entries(
+  })), [previewEnrichedLive]);
+  const previewMarketPie = useMemo(() => Object.entries(
     previewEnrichedLive.reduce((acc, e) => { const cls = resolveAssetClass(e); acc[cls] = (acc[cls] ?? 0) + e.currentValueKRW; return acc; }, {} as Record<string, number>)
-  ).map(([name, value]) => ({ name, value }));
+  ).map(([name, value]) => ({ name, value })), [previewEnrichedLive]);
 
   const portfolioPieData = useMemo(
     () => portfolioBreakdown.map((p) => ({ name: p.name, value: Math.round(p.value) })),
@@ -1352,10 +1352,16 @@ export default function Portfolio() {
 
   /* ── 미리보기 vs 실데이터 ── */
   const allDisplayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
-  const displayEnriched = assetFilterTab === "전체"
-    ? allDisplayEnriched
-    : allDisplayEnriched.filter((e) => resolveAssetClass(e) === assetFilterTab);
-  const hasForexHoldings = displayEnriched.some((e) => e.market === "US" || e.market === "ETF");
+  const displayEnriched = useMemo(
+    () => assetFilterTab === "전체"
+      ? allDisplayEnriched
+      : allDisplayEnriched.filter((e) => resolveAssetClass(e) === assetFilterTab),
+    [allDisplayEnriched, assetFilterTab],
+  );
+  const hasForexHoldings = useMemo(
+    () => displayEnriched.some((e) => e.market === "US" || e.market === "ETF"),
+    [displayEnriched],
+  );
   const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
   // 로그인/비로그인 모두 현재가를 다 불러오기 전까지 추정치를 보여주지 않음
   // 구성 차트는 자산유형 필터와 무관하게 전체 보유종목 기준으로 항상 표시
