@@ -1023,12 +1023,12 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str = Path(...
     if c := cache.get(ck):
         return c
 
-    db_fresh = _db_get(ForecastsCache, symbol, market, 24)
+    db_fresh = await _run(_db_get, ForecastsCache, symbol, market, 24)
     if db_fresh:
         cache.set(ck, db_fresh, 3600)
         return db_fresh
 
-    db_stale = _db_get(ForecastsCache, symbol, market, 720)  # 30일까지는 stale로 사용
+    db_stale = await _run(_db_get, ForecastsCache, symbol, market, 720)  # 30일까지는 stale로 사용
     stale = db_stale or cache.get_stale(ck)
 
     import yfinance as yf
@@ -1181,7 +1181,7 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str = Path(...
         }
     if result.get("annual") or result.get("quarterly"):
         cache.set(ck, result, 3600)
-        _db_set(ForecastsCache, symbol, market, result)
+        await _run(_db_set, ForecastsCache, symbol, market, result)
         return result
     return stale or result
 
@@ -1501,12 +1501,12 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str = Path(..., 
     if c := cache.get(ck):
         return c
 
-    db_fresh = _db_get(AnalystCache, symbol, market, 24)
+    db_fresh = await _run(_db_get, AnalystCache, symbol, market, 24)
     if db_fresh:
         cache.set(ck, db_fresh, 86400)
         return db_fresh
 
-    db_stale = _db_get(AnalystCache, symbol, market, 720)  # 30일까지는 stale로 사용
+    db_stale = await _run(_db_get, AnalystCache, symbol, market, 720)  # 30일까지는 stale로 사용
     stale_analyst = db_stale or cache.get_stale(ck)
     if db_stale:
         cache.set(ck, db_stale, 3600)
@@ -1783,7 +1783,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str = Path(..., 
                 _fill_analyst_gaps(r2, stale_analyst)
                 if r2:
                     cache.set(ck, r2, 86400)
-                    _db_set(AnalystCache, symbol, market, r2)
+                    await _run(_db_set, AnalystCache, symbol, market, r2)
             except Exception:
                 pass
         asyncio.get_running_loop().create_task(_bg_analyst())
@@ -1808,7 +1808,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str = Path(..., 
 
     if result:
         cache.set(ck, result, 86400)
-        _db_set(AnalystCache, symbol, market, result)
+        await _run(_db_set, AnalystCache, symbol, market, result)
     elif stale_analyst:
         return stale_analyst
     return result or {}
