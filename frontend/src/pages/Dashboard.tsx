@@ -204,7 +204,7 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
                     <div className="text-text-muted text-2xs truncate max-w-[100px]">{item.name}</div>
                   </td>
                   <td className="py-2.5 text-right font-mono text-text-primary num">
-                    {price ? (isKR ? `₩${price.toLocaleString("ko-KR")}` : `$${price.toFixed(2)}`) : "—"}
+                    {price ? (isKR ? `₩${price.toLocaleString("ko-KR")}` : fmtUSD(price)) : "—"}
                   </td>
                   <td className="py-2.5 text-right">
                     {price ? <ChangeBadge value={chgr} /> : <span className="text-text-muted">—</span>}

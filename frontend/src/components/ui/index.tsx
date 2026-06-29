@@ -66,6 +66,32 @@ export function RowSkeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
+/* ── 모달 (백드롭 + 패널 공용 마크업) ──────────────────── */
+export function Modal({ children, maxWidth = "max-w-md", align = "center", padTop = "pt-16", backdropOpacity = 60, onClose, className }: {
+  children: React.ReactNode;
+  maxWidth?: string;
+  align?: "start" | "center";
+  padTop?: string;
+  backdropOpacity?: 60 | 70;
+  onClose?: () => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "fixed inset-0 z-50 flex justify-center px-4 backdrop-blur-sm modal-backdrop",
+        align === "start" ? `items-start ${padTop}` : "items-center",
+        backdropOpacity === 70 ? "bg-black/70" : "bg-black/60",
+      )}
+      onClick={onClose ? (e) => { if (e.target === e.currentTarget) onClose(); } : undefined}
+    >
+      <div className={cn("w-full bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop", maxWidth, className)}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /* ── 배지 ──────────────────────────────────────────────── */
 export function Badge({ children, variant = "default" }: {
   children: React.ReactNode;

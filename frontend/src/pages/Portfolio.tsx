@@ -3,12 +3,13 @@ import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import api from "@/api/client";
-import { Card, RowSkeleton } from "@/components/ui";
+import { Card, RowSkeleton, Modal } from "@/components/ui";
 import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check, AlertTriangle, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { ColorScheme } from "@/store/settingsStore";
+import { fmtKRWCompact, fmtKRWFull, fmtKRWFullSign, fmtUSDFull, fmtNative } from "@/utils/formatters";
 
 /* ── Types ─────────────────────────────────────────────── */
 type Market = "KR" | "US" | "ETF";
@@ -108,30 +109,6 @@ const ASSET_FILTER_TABS: { id: AssetClass | "전체"; label: string }[] = [
 // 사용자가 직접 지정한 자산유형이 있으면 그걸 쓰고, 없으면 자동 분류
 function resolveAssetClass(item: { market: Market; name?: string; symbol: string; assetClass?: AssetClass | null }): AssetClass {
   return item.assetClass ?? classifyAsset(item);
-}
-
-/* ── Format utils ───────────────────────────────────────── */
-function fmtKRW(v: number): string {
-  const abs = Math.abs(v);
-  const sign = v < 0 ? "-" : "";
-  if (abs >= 1e12) return `${sign}₩${(abs / 1e12).toFixed(2)}조`;
-  if (abs >= 1e8)  return `${sign}₩${(abs / 1e8).toFixed(2)}억`;
-  if (abs >= 1e4)  return `${sign}₩${(abs / 1e4).toFixed(1)}만`;
-  return `${sign}₩${Math.round(abs).toLocaleString("ko-KR")}`;
-}
-function fmtKRWFull(v: number): string {
-  const sign = v < 0 ? "-" : "";
-  return `${sign}₩${Math.round(Math.abs(v)).toLocaleString("ko-KR")}`;
-}
-function fmtKRWFullSign(v: number): string {
-  return `${v >= 0 ? "+" : ""}${fmtKRWFull(v)}`;
-}
-function fmtUSD(v: number): string {
-  return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-function fmtNative(market: Market, currency: Currency, price: number): string {
-  if (market === "KR" || currency === "KRW") return fmtKRWFull(price);
-  return fmtUSD(price);
 }
 
 /* ── Market badge ───────────────────────────────────────── */
@@ -276,28 +253,24 @@ function PortfolioModal({
   const inp = "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
+    <Modal align="start" padTop="pt-16" backdropOpacity={70} maxWidth="max-w-md" onClose={onClose}>
 
-        {/* 헤더 */}
-        <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
-          {step === 2 && !item && (
-            <button onClick={() => setStep(1)} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-              <ArrowLeft size={15} />
-            </button>
-          )}
-          <h3 className="flex-1 text-sm font-bold text-text-primary">
-            {item ? "포지션 수정" : step === 1 ? "종목 검색" : "매수 정보 입력"}
-          </h3>
-          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-            <X size={15} />
+      {/* 헤더 */}
+      <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
+        {step === 2 && !item && (
+          <button onClick={() => setStep(1)} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+            <ArrowLeft size={15} />
           </button>
-        </div>
+        )}
+        <h3 className="flex-1 text-sm font-bold text-text-primary">
+          {item ? "포지션 수정" : step === 1 ? "종목 검색" : "매수 정보 입력"}
+        </h3>
+        <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+          <X size={15} />
+        </button>
+      </div>
 
-        {/* Step 1: 검색 */}
+      {/* Step 1: 검색 */}
         {step === 1 && (
           <>
             <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
@@ -479,8 +452,7 @@ function PortfolioModal({
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -524,11 +496,7 @@ function CashModal({
   const inp = "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
+    <Modal align="start" padTop="pt-16" backdropOpacity={70} maxWidth="max-w-md" onClose={onClose}>
         <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
           <h3 className="flex-1 text-sm font-bold text-text-primary">{item ? "현금 수정" : "현금 추가"}</h3>
           <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
@@ -603,8 +571,7 @@ function CashModal({
             {isSaving ? "저장 중..." : "저장"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -615,31 +582,29 @@ function ConfirmDeleteModal({
   title: string; description: React.ReactNode; onClose: () => void; onConfirm: () => void; isDeleting?: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 modal-backdrop">
-      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
-        <div className="p-5 flex flex-col gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
-              <AlertTriangle size={18} className="text-accent-red" />
-            </div>
-            <h3 className="text-sm font-bold text-text-primary">{title}</h3>
+    <Modal maxWidth="max-w-sm">
+      <div className="p-5 flex flex-col gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle size={18} className="text-accent-red" />
           </div>
-          <p className="text-xs text-text-muted leading-relaxed">{description}</p>
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={onClose}
-              disabled={isDeleting}
-              className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all disabled:opacity-40"
-            >취소</button>
-            <button
-              onClick={onConfirm}
-              disabled={isDeleting}
-              className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-40"
-            >{isDeleting ? "삭제 중..." : "삭제"}</button>
-          </div>
+          <h3 className="text-sm font-bold text-text-primary">{title}</h3>
+        </div>
+        <p className="text-xs text-text-muted leading-relaxed">{description}</p>
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={onClose}
+            disabled={isDeleting}
+            className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all disabled:opacity-40"
+          >취소</button>
+          <button
+            onClick={onConfirm}
+            disabled={isDeleting}
+            className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-40"
+          >{isDeleting ? "삭제 중..." : "삭제"}</button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1554,7 +1519,7 @@ export default function Portfolio() {
                     </Pie>
                     <Tooltip
                       contentStyle={{ background: "#141824", border: "1px solid #232840", borderRadius: 8, fontSize: 11 }}
-                      formatter={(v: any) => [fmtKRW(Number(v)), ""]}
+                      formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -1578,7 +1543,7 @@ export default function Portfolio() {
                           {pct.toFixed(1)}%
                         </span>
                         <span className="text-xs font-mono text-text-muted text-right flex-shrink-0 w-20 hidden sm:block">
-                          {fmtKRW(entry.value)}
+                          {fmtKRWCompact(entry.value)}
                         </span>
                       </div>
                     );
@@ -1792,14 +1757,14 @@ export default function Portfolio() {
                             <div className="flex flex-col gap-0.5">
                               <span className="text-xs text-text-dim">평가금액</span>
                               <span className="font-mono font-bold text-text-primary text-base">
-                                {hasPrice ? (showAsNative ? fmtUSD(nativeValue) : fmtKRWFull(item.currentValueKRW)) : "—"}
+                                {hasPrice ? (showAsNative ? fmtUSDFull(nativeValue) : fmtKRWFull(item.currentValueKRW)) : "—"}
                               </span>
                             </div>
                             <div className="flex flex-col gap-0.5 items-end">
                               <span className="text-xs text-text-dim">평가손익</span>
                               <span className={`font-mono font-bold text-base whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
                                 {hasPrice
-                                  ? `${showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSD(nativePnl)}` : fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)`
+                                  ? `${showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSDFull(nativePnl)}` : fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)`
                                   : "—"}
                               </span>
                             </div>
@@ -1814,7 +1779,7 @@ export default function Portfolio() {
                               <span className="text-text-dim">평단가</span>
                               <span className="font-mono text-text-secondary">
                                 {!isForexItem ? fmtNative(item.market, item.currency, item.avgPrice)
-                                  : showAsNative ? fmtUSD(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
+                                  : showAsNative ? fmtUSDFull(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
                               </span>
                             </div>
                             <div className="flex flex-col gap-0.5">
@@ -1822,7 +1787,7 @@ export default function Portfolio() {
                               <span className="font-mono text-text-secondary">
                                 {!hasPrice ? "—"
                                   : !isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
-                                  : showAsNative ? fmtUSD(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
+                                  : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
                               </span>
                             </div>
                           </div>
@@ -1894,7 +1859,7 @@ export default function Portfolio() {
                             <td className="px-3 py-2.5 text-right font-mono text-text-secondary whitespace-nowrap">
                               <div>
                                 {!isForexItem ? fmtNative(item.market, item.currency, item.avgPrice)
-                                  : showAsNative ? fmtUSD(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
+                                  : showAsNative ? fmtUSDFull(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
                               </div>
                               {item.currency === "USD" && item.inputExchangeRate && (
                                 <div className="text-[10px] text-text-dim">@{Math.round(item.inputExchangeRate).toLocaleString()}원</div>
@@ -1903,16 +1868,16 @@ export default function Portfolio() {
                             <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
                               {!hasPrice ? <span className="text-text-muted">—</span>
                                 : !isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
-                                : showAsNative ? fmtUSD(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
+                                : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
                             </td>
                             <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
                               {hasPrice
-                                ? (showAsNative ? fmtUSD(nativeValue) : fmtKRWFull(item.currentValueKRW))
+                                ? (showAsNative ? fmtUSDFull(nativeValue) : fmtKRWFull(item.currentValueKRW))
                                 : <span className="text-text-muted">—</span>}
                             </td>
                             <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${hasPrice ? pc : "text-text-muted"}`}>
                               {hasPrice
-                                ? (showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSD(nativePnl)}` : fmtKRWFullSign(item.pnlKRW))
+                                ? (showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSDFull(nativePnl)}` : fmtKRWFullSign(item.pnlKRW))
                                 : "—"}
                             </td>
                           </>
