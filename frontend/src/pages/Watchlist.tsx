@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
 import api from "@/api/client";
-import { Card, ChangeBadge, RowSkeleton, Badge } from "@/components/ui";
+import { Card, ChangeBadge, RowSkeleton, Badge, Modal } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle, Clock } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
@@ -50,8 +50,11 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
   const hasPrice = item.hasPrice !== false;
   return (
     <div
+      role="button"
+      tabIndex={0}
       className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
       onClick={onNavigate}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
     >
       {/* 마켓 배지 */}
       <Badge variant={MKT_BADGE_VARIANT[item.market] ?? "default"}>{item.market}</Badge>
@@ -115,73 +118,71 @@ function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-black/60 backdrop-blur-sm modal-backdrop">
-      <div className="w-full max-w-md bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
-        {/* 헤더 */}
-        <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
-          <h3 className="text-sm font-bold text-text-primary">관심종목 추가</h3>
-          <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
-        </div>
-
-        {/* 검색 입력 */}
-        <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
-          <Search size={14} className="text-text-muted flex-shrink-0" />
-          <input
-            ref={inputRef}
-            className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
-            placeholder="종목명 또는 코드 검색 (예: AAPL, 005930, 삼성)"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoComplete="off"
-          />
-          {loading && <div className="w-4 h-4 border border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
-        </div>
-
-        {/* 검색 결과 */}
-        <div className="max-h-64 overflow-y-auto">
-          {!query && (
-            <div className="px-4 py-6 text-center text-text-muted text-xs">
-              종목명·코드·한글로 검색하세요
-            </div>
-          )}
-          {query && !loading && results.length === 0 && (
-            <div className="px-4 py-6 text-center text-text-muted text-sm">검색 결과 없음</div>
-          )}
-          {results.map((item) => (
-            <button
-              key={item.symbol}
-              className="w-full flex items-center gap-3 px-4 py-3 border-b border-border/30 hover:bg-bg-hover text-left transition-colors"
-              onClick={() => handleSelect(item)}
-            >
-              <Badge variant={MKT_BADGE_VARIANT[item.market] ?? "default"}>{item.market}</Badge>
-              <div className="flex-1 min-w-0">
-                <div className="font-mono font-bold text-sm text-text-primary">{item.symbol}</div>
-                <div className="text-xs text-text-muted truncate">{item.name}</div>
-              </div>
-              <div className="text-xs text-text-muted flex-shrink-0">{item.exchange}</div>
-              <Plus size={13} className="text-accent-blue flex-shrink-0" />
-            </button>
-          ))}
-        </div>
-
-        {/* 옵션 */}
-        <div className="px-4 py-3 border-t border-border flex flex-col gap-2">
-          <select
-            className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none"
-            value={folderId}
-            onChange={(e) => setFolderId(Number(e.target.value))}
-          >
-            {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
-          </select>
-          <input
-            className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none placeholder:text-text-muted"
-            placeholder="메모 (선택)"
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-          />
-        </div>
+    <Modal align="start" padTop="pt-20" maxWidth="max-w-md">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
+        <h3 className="text-sm font-bold text-text-primary">관심종목 추가</h3>
+        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
       </div>
-    </div>
+
+      {/* 검색 입력 */}
+      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
+        <Search size={14} className="text-text-muted flex-shrink-0" />
+        <input
+          ref={inputRef}
+          className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
+          placeholder="종목명 또는 코드 검색 (예: AAPL, 005930, 삼성)"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          autoComplete="off"
+        />
+        {loading && <div className="w-4 h-4 border border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
+      </div>
+
+      {/* 검색 결과 */}
+      <div className="max-h-64 overflow-y-auto">
+        {!query && (
+          <div className="px-4 py-6 text-center text-text-muted text-xs">
+            종목명·코드·한글로 검색하세요
+          </div>
+        )}
+        {query && !loading && results.length === 0 && (
+          <div className="px-4 py-6 text-center text-text-muted text-sm">검색 결과 없음</div>
+        )}
+        {results.map((item) => (
+          <button
+            key={item.symbol}
+            className="w-full flex items-center gap-3 px-4 py-3 border-b border-border/30 hover:bg-bg-hover text-left transition-colors"
+            onClick={() => handleSelect(item)}
+          >
+            <Badge variant={MKT_BADGE_VARIANT[item.market] ?? "default"}>{item.market}</Badge>
+            <div className="flex-1 min-w-0">
+              <div className="font-mono font-bold text-sm text-text-primary">{item.symbol}</div>
+              <div className="text-xs text-text-muted truncate">{item.name}</div>
+            </div>
+            <div className="text-xs text-text-muted flex-shrink-0">{item.exchange}</div>
+            <Plus size={13} className="text-accent-blue flex-shrink-0" />
+          </button>
+        ))}
+      </div>
+
+      {/* 옵션 */}
+      <div className="px-4 py-3 border-t border-border flex flex-col gap-2">
+        <select
+          className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none"
+          value={folderId}
+          onChange={(e) => setFolderId(Number(e.target.value))}
+        >
+          {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+        <input
+          className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none placeholder:text-text-muted"
+          placeholder="메모 (선택)"
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+        />
+      </div>
+    </Modal>
   );
 }
 
@@ -197,61 +198,59 @@ function EditItemModal({ item, folders, onClose, onSave }: {
   const [folderId, setFolderId] = useState<number>(item.folder_id ?? folders[0]?.id);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm modal-backdrop">
-      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
-        <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
-          <div>
-            <h3 className="text-sm font-bold text-text-primary">종목 편집</h3>
-            <p className="text-2xs text-text-muted mt-0.5">{item.symbol}</p>
-          </div>
-          <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+    <Modal maxWidth="max-w-sm">
+      <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
+        <div>
+          <h3 className="text-sm font-bold text-text-primary">종목 편집</h3>
+          <p className="text-2xs text-text-muted mt-0.5">{item.symbol}</p>
         </div>
-        <div className="p-4 flex flex-col gap-3">
+        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+      </div>
+      <div className="p-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-2xs font-semibold text-text-muted">표시 이름</label>
+          <input
+            className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+            placeholder={item.symbol}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-2xs font-semibold text-text-muted">메모</label>
+          <textarea
+            rows={3}
+            className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue resize-none"
+            placeholder="메모 입력..."
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+          />
+        </div>
+        {folders.length > 0 && (
           <div className="flex flex-col gap-1">
-            <label className="text-2xs font-semibold text-text-muted">표시 이름</label>
-            <input
-              className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
-              placeholder={item.symbol}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-            />
+            <label className="text-2xs font-semibold text-text-muted">폴더</label>
+            <select
+              className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none"
+              value={folderId}
+              onChange={(e) => setFolderId(Number(e.target.value))}
+            >
+              {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-2xs font-semibold text-text-muted">메모</label>
-            <textarea
-              rows={3}
-              className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue resize-none"
-              placeholder="메모 입력..."
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-            />
-          </div>
-          {folders.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <label className="text-2xs font-semibold text-text-muted">폴더</label>
-              <select
-                className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none"
-                value={folderId}
-                onChange={(e) => setFolderId(Number(e.target.value))}
-              >
-                {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
-            </div>
-          )}
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={onClose}
-              className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all"
-            >취소</button>
-            <button
-              onClick={() => { onSave({ name, memo, folder_id: folderId }); onClose(); }}
-              className="flex-1 py-2 rounded-xl bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
-            >저장</button>
-          </div>
+        )}
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all"
+          >취소</button>
+          <button
+            onClick={() => { onSave({ name, memo, folder_id: folderId }); onClose(); }}
+            className="flex-1 py-2 rounded-xl bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+          >저장</button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -278,34 +277,32 @@ function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
   folder: any; itemCount: number; onClose: () => void; onConfirm: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 modal-backdrop">
-      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
-        <div className="p-5 flex flex-col gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
-              <AlertTriangle size={18} className="text-accent-red" />
-            </div>
-            <h3 className="text-sm font-bold text-text-primary">폴더를 삭제할까요?</h3>
+    <Modal maxWidth="max-w-sm">
+      <div className="p-5 flex flex-col gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle size={18} className="text-accent-red" />
           </div>
-          <p className="text-xs text-text-muted leading-relaxed">
-            <span className="font-semibold text-text-primary">"{folder.name}"</span> 폴더를 삭제합니다.
-            {itemCount > 0 && (
-              <> 폴더에 담긴 종목 <span className="font-semibold text-text-primary">{itemCount}개</span>는 관심종목에서 제거되지 않고 "기본 관심목록" 폴더로 이동합니다.</>
-            )}
-          </p>
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={onClose}
-              className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all"
-            >취소</button>
-            <button
-              onClick={() => { onConfirm(); onClose(); }}
-              className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors"
-            >삭제</button>
-          </div>
+          <h3 className="text-sm font-bold text-text-primary">폴더를 삭제할까요?</h3>
+        </div>
+        <p className="text-xs text-text-muted leading-relaxed">
+          <span className="font-semibold text-text-primary">"{folder.name}"</span> 폴더를 삭제합니다.
+          {itemCount > 0 && (
+            <> 폴더에 담긴 종목 <span className="font-semibold text-text-primary">{itemCount}개</span>는 관심종목에서 제거되지 않고 "기본 관심목록" 폴더로 이동합니다.</>
+          )}
+        </p>
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all"
+          >취소</button>
+          <button
+            onClick={() => { onConfirm(); onClose(); }}
+            className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors"
+          >삭제</button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -402,7 +399,13 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
         </div>
 
         {/* 종목 정보 */}
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={onNavigate}>
+        <div
+          role="button"
+          tabIndex={0}
+          className="flex-1 min-w-0 cursor-pointer"
+          onClick={onNavigate}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
+        >
           <div className="flex items-center gap-1.5">
             <span className="font-mono font-bold text-sm text-text-primary">
               {item.symbol?.replace(".KS","").replace(".KQ","")}
@@ -417,7 +420,13 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
         </div>
 
         {/* 가격 */}
-        <div className="text-right flex-shrink-0 cursor-pointer min-w-[80px]" onClick={onNavigate}>
+        <div
+          role="button"
+          tabIndex={0}
+          className="text-right flex-shrink-0 cursor-pointer min-w-[80px]"
+          onClick={onNavigate}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
+        >
           <div className="text-sm font-mono font-semibold text-text-primary">
             {hasPrice
               ? isKR ? `₩${Number(p.price).toLocaleString("ko-KR")}` : `$${Number(p.price).toFixed(2)}`
@@ -998,8 +1007,11 @@ export default function Watchlist() {
               return (
                 <div
                   key={`${r.market}-${r.symbol}`}
+                  role="button"
+                  tabIndex={0}
                   className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
                   onClick={() => navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`); } }}
                 >
                   <Badge variant={r.market === "KR" ? "blue" : r.market === "ETF" ? "purple" : "green"}>{r.market}</Badge>
                   <div className="flex-1 min-w-0">

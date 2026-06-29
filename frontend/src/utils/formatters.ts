@@ -16,6 +16,38 @@ export function fmtUSD(v: number | null | undefined): string {
   return `$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
+/** 원화 축약 표시 (₩ 기호 포함, 차트 툴팁 등 공간이 좁은 곳에 사용) */
+export function fmtKRWCompact(v: number): string {
+  const abs = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  if (abs >= 1e12) return `${sign}₩${(abs / 1e12).toFixed(2)}조`;
+  if (abs >= 1e8)  return `${sign}₩${(abs / 1e8).toFixed(2)}억`;
+  if (abs >= 1e4)  return `${sign}₩${(abs / 1e4).toFixed(1)}만`;
+  return `${sign}₩${Math.round(abs).toLocaleString("ko-KR")}`;
+}
+
+/** 원화 일의 자리까지 표시(축약 없음) */
+export function fmtKRWFull(v: number): string {
+  const sign = v < 0 ? "-" : "";
+  return `${sign}₩${Math.round(Math.abs(v)).toLocaleString("ko-KR")}`;
+}
+
+/** 원화 일의 자리까지 표시 + 양수 부호(+) */
+export function fmtKRWFullSign(v: number): string {
+  return `${v >= 0 ? "+" : ""}${fmtKRWFull(v)}`;
+}
+
+/** 달러 일의 자리까지 표시(축약 없음) */
+export function fmtUSDFull(v: number): string {
+  return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** 종목의 원화/달러 표시 통화에 맞춰 일의 자리까지 표시 */
+export function fmtNative(market: string, currency: string, price: number): string {
+  if (market === "KR" || currency === "KRW") return fmtKRWFull(price);
+  return fmtUSDFull(price);
+}
+
 export function fmtNum(v: number | null | undefined, digits = 1): string {
   if (v == null) return "—";
   return v.toFixed(digits);

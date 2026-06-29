@@ -19,6 +19,7 @@ import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
+import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 
 /* ── 지표 셀 ────────────────────────────────────────── */
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
@@ -1398,25 +1399,6 @@ export default function StockDetail() {
 
       {/* 퀀트점수 탭 */}
       {mainTab==="quant" && (() => {
-        const gradeColor = (g: string | null | undefined) => {
-          if (!g) return "text-text-muted";
-          if (g.startsWith("S")) return "text-purple-400";
-          if (g.startsWith("A")) return "text-accent-green";
-          if (g.startsWith("B")) return "text-accent-blue";
-          if (g.startsWith("C")) return "text-accent-yellow";
-          return "text-accent-red";
-        };
-        const scoreColor = (s: number | null) =>
-          s == null ? "text-text-muted" : s >= 60 ? "text-accent-green" : s >= 40 ? "text-accent-yellow" : "text-accent-red";
-        const GRADE_BANDS: { grade: string; range: string }[] = [
-          { grade: "S", range: "90 ~ 100점" },
-          { grade: "A", range: "80 ~ 90점" },
-          { grade: "B", range: "60 ~ 80점" },
-          { grade: "C", range: "40 ~ 60점" },
-          { grade: "D", range: "20 ~ 40점" },
-          { grade: "F", range: "0 ~ 20점" },
-        ];
-
         return (
           <div className="flex flex-col gap-3">
             <Card className="flex flex-col gap-4">

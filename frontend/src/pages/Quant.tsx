@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { quantScoreApi, watchlistApi, watchlistFolderApi, type QuantFactorKey } from "@/api/stocks";
@@ -7,6 +7,7 @@ import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { useAuthStore } from "@/store/authStore";
 import { Card, Badge, RowSkeleton, Button } from "@/components/ui";
 import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp } from "lucide-react";
+import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 
 const FACTOR_LABEL_KO: Record<QuantFactorKey, string> = {
   value: "가치", quality: "품질", momentum: "모멘텀", growth: "성장", risk: "안정성",
@@ -21,36 +22,26 @@ const MARKET_TABS = [
 
 type SortKey = "total" | QuantFactorKey;
 
-const GRADE_BANDS: { grade: string; range: string }[] = [
-  { grade: "S", range: "90 ~ 100점" },
-  { grade: "A", range: "80 ~ 90점" },
-  { grade: "B", range: "60 ~ 80점" },
-  { grade: "C", range: "40 ~ 60점" },
-  { grade: "D", range: "20 ~ 40점" },
-  { grade: "F", range: "0 ~ 20점" },
-];
-
-function gradeColor(grade: string | null | undefined) {
-  if (!grade) return "text-text-muted";
-  if (grade.startsWith("S")) return "text-purple-400";
-  if (grade.startsWith("A")) return "text-accent-green";
-  if (grade.startsWith("B")) return "text-accent-blue";
-  if (grade.startsWith("C")) return "text-accent-yellow";
-  return "text-accent-red";
-}
-
-function scoreColor(s: number | null) {
-  return s == null ? "text-text-muted" : s >= 60 ? "text-accent-green" : s >= 40 ? "text-accent-yellow" : "text-accent-red";
-}
-
 export default function Quant() {
   const navigate = useNavigate();
   const { isLoggedIn } = useAuthStore();
   const [marketTab, setMarketTab] = useState("전체");
   const [folderTab, setFolderTab] = useState<number | "all" | "none">("all");
   const [showGradeHelp, setShowGradeHelp] = useState(false);
+  const gradeHelpRef = useRef<HTMLDivElement>(null);
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+
+  // 등급 도움말 팝업 외부 클릭 시 닫기
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (gradeHelpRef.current && !gradeHelpRef.current.contains(e.target as Node)) {
+        setShowGradeHelp(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const { data: folders } = useQuery({
     queryKey: ["watchlist-folders"],
@@ -260,7 +251,7 @@ export default function Quant() {
                         </button>
                       </th>
                       <th className="text-right px-3 py-3 whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5 relative whitespace-nowrap">
+                        <div ref={gradeHelpRef} className="flex items-center justify-end gap-1.5 relative whitespace-nowrap">
                           등급
                           <button
                             onClick={() => setShowGradeHelp((s) => !s)}
@@ -303,8 +294,10 @@ export default function Quant() {
                       return (
                         <tr
                           key={key}
+                          tabIndex={0}
                           onClick={() => navigate(`/stocks/${row.market}/${row.symbol}`)}
-                          className="border-b border-border/30 hover:bg-bg-hover/50 transition-colors cursor-pointer"
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/stocks/${row.market}/${row.symbol}`); } }}
+                          className="border-b border-border/30 hover:bg-bg-hover/50 transition-colors cursor-pointer focus:outline-none focus:bg-bg-hover/50"
                         >
                           <td className="px-3 py-2.5 sticky left-0 bg-bg-card z-10">
                             <div className="flex flex-col">
