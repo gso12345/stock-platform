@@ -440,11 +440,12 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
           {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs"/>}
         </div>
 
-        {/* 데스크탑 hover 버튼 */}
+        {/* 포트폴리오 추가 버튼 (항상 표시) */}
+        {onAddToPortfolio && (
+          <button onClick={(e) => { e.stopPropagation(); onAddToPortfolio(); }} className="text-text-muted hover:text-accent-green p-1 flex-shrink-0" title="포트폴리오에 추가"><Wallet size={14}/></button>
+        )}
+        {/* 편집/삭제 버튼 (데스크탑 hover) */}
         <div className="hidden md:flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {onAddToPortfolio && (
-            <button onClick={(e) => { e.stopPropagation(); onAddToPortfolio(); }} className="text-text-muted hover:text-accent-green p-1" title="포트폴리오에 추가"><Wallet size={13}/></button>
-          )}
           <button onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1"><Settings2 size={13}/></button>
           <button onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1"><Trash2 size={13}/></button>
         </div>

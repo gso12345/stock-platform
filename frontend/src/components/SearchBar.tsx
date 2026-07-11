@@ -251,17 +251,11 @@ export default function SearchBar() {
                         </button>
                         {folderDropdown === item.symbol && (
                           <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
-                            <button
-                              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); doAdd(item, null); }}
-                              className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
-                            >
-                              폴더 없이 추가
-                            </button>
-                            {(folders as any[]).map((f: any) => (
+                            {(folders as any[]).map((f: any, idx: number) => (
                               <button
                                 key={f.id}
                                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); doAdd(item, f.id); }}
-                                className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors border-t border-border truncate"
+                                className={`w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors truncate ${idx > 0 ? "border-t border-border" : ""}`}
                               >
                                 {f.name}
                               </button>
@@ -343,17 +337,11 @@ export default function SearchBar() {
                       </button>
                       {folderDropdown === item.symbol && (
                         <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
-                          <button
-                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); doAdd(item, null); }}
-                            className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
-                          >
-                            폴더 없이 추가
-                          </button>
-                          {(folders as any[]).map((f: any) => (
+                          {(folders as any[]).map((f: any, idx: number) => (
                             <button
                               key={f.id}
                               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); doAdd(item, f.id); }}
-                              className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors border-t border-border truncate"
+                              className={`w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors truncate ${idx > 0 ? "border-t border-border" : ""}`}
                             >
                               {f.name}
                             </button>
