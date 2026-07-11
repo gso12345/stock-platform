@@ -150,6 +150,31 @@ async def lifespan(application: FastAPI):
     except Exception as e:
         logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")
 
+    # JWT 시크릿 키를 DB에서 로드 (없으면 생성 후 저장) — 배포해도 키가 유지됨
+    try:
+        import secrets as _secrets
+        from app.core import security as _security
+        from sqlalchemy import text as _text
+        with engine.connect() as _conn:
+            _conn.execute(_text("""
+                CREATE TABLE IF NOT EXISTS system_settings (
+                    key VARCHAR(100) PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """))
+            _conn.commit()
+            _row = _conn.execute(_text("SELECT value FROM system_settings WHERE key = 'jwt_secret'")).fetchone()
+            if _row:
+                _security.SECRET_KEY = _row[0]
+            else:
+                _new_key = "sp-" + _secrets.token_hex(32)
+                _conn.execute(_text("INSERT INTO system_settings (key, value) VALUES ('jwt_secret', :v)"), {"v": _new_key})
+                _conn.commit()
+                _security.SECRET_KEY = _new_key
+        logging.getLogger(__name__).info("JWT 시크릿 키 DB에서 로드 완료")
+    except Exception as _key_err:
+        logging.getLogger(__name__).warning(f"JWT 시크릿 키 DB 로드 실패, 기존 키 사용: {_key_err}")
+
     init_ticker_db()
     start_background_tasks(application)
 

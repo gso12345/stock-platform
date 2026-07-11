@@ -85,7 +85,7 @@ def _make_token_response(user: User) -> TokenResponse:
 
 # ── 엔드포인트 ────────────────────────────────────────────────────
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit("10/minute")
+@limiter.limit("5/hour")
 def register(request: Request, req: RegisterRequest, db: Session = Depends(get_db)):
     """username+비밀번호로 신규 회원가입 후 JWT 토큰 반환"""
     # username 중복 체크
