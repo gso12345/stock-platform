@@ -344,8 +344,8 @@ export default function IndexDetail() {
           {[
             { label:"기간 시작", value: ohlcv[0]?.close },
             { label:"현재",     value: ohlcv[ohlcv.length-1]?.close },
-            { label:"기간 최고",value: Math.max(...ohlcv.map((d:any)=>d.high)) },
-            { label:"기간 최저",value: Math.min(...ohlcv.map((d:any)=>d.low)) },
+            { label:"기간 최고", value: ohlcv.reduce((acc: number, d: any) => Math.max(acc, d.high), -Infinity) },
+            { label:"기간 최저", value: ohlcv.reduce((acc: number, d: any) => Math.min(acc, d.low), Infinity) },
           ].map(item=>{
             const pct = item.label==="현재"&&ohlcv[0]?.close
               ? ((item.value-ohlcv[0].close)/ohlcv[0].close*100) : null;

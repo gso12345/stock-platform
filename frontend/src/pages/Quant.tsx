@@ -52,17 +52,6 @@ export default function Quant() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // 등급 도움말 팝업 외부 클릭 시 닫기
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (gradeHelpRef.current && !gradeHelpRef.current.contains(e.target as Node)) {
-        setShowGradeHelp(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
   const { data: folders } = useQuery({
     queryKey: ["watchlist-folders"],
     queryFn: watchlistFolderApi.getFolders,

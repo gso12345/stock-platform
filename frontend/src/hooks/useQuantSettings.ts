@@ -14,7 +14,8 @@ export function useQuantSettings(serverWeights?: QuantWeights | null, serverEnab
   const [metricsDraft, setMetricsDraft] = useState<QuantEnabledMetrics | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const weightDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const metricsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (serverWeights && weightsDraft === null) setWeightsDraft(serverWeights);
@@ -36,8 +37,8 @@ export function useQuantSettings(serverWeights?: QuantWeights | null, serverEnab
   const updateWeight = (key: keyof QuantWeights, value: number) => {
     setWeightsDraft((prev) => {
       const next = { ...(prev ?? QUANT_DEFAULT_WEIGHTS), [key]: value };
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => setWeights(next), 400);
+      if (weightDebounceRef.current) clearTimeout(weightDebounceRef.current);
+      weightDebounceRef.current = setTimeout(() => setWeights(next), 400);
       return next;
     });
   };
@@ -53,8 +54,8 @@ export function useQuantSettings(serverWeights?: QuantWeights | null, serverEnab
         const v = nextDraft[fkey];
         if (v) cleaned[fkey] = v;
       });
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => setMetrics(cleaned), 400);
+      if (metricsDebounceRef.current) clearTimeout(metricsDebounceRef.current);
+      metricsDebounceRef.current = setTimeout(() => setMetrics(cleaned), 400);
       return cleaned;
     });
   };
