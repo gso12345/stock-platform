@@ -453,6 +453,171 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
   );
 }
 
+/* ── 관심종목 → 포트폴리오 추가 미니 모달 ─────────────────── */
+function AddToPortfolioModal({
+  item,
+  currentPrice,
+  onClose,
+}: {
+  item: any;
+  currentPrice?: number | null;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [shares,    setShares]    = useState("");
+  const [avgPrice,  setAvgPrice]  = useState(currentPrice != null && currentPrice > 0 ? String(currentPrice) : "");
+  const [priceLoading, setPriceLoading] = useState(currentPrice == null || currentPrice <= 0);
+  const [portfolioId, setPortfolioId] = useState<number | null>(null);
+  const [saving,    setSaving]    = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  const currency = item.market === "KR" ? "KRW" : "USD";
+  const isKR     = item.market === "KR";
+
+  const { data: portfolios = [] } = useQuery<any[]>({
+    queryKey: ["portfolios"],
+    queryFn:  portfolioApi.getPortfolios,
+    staleTime: 300_000,
+  });
+
+  useEffect(() => {
+    if (portfolios.length > 0 && portfolioId === null) {
+      setPortfolioId((portfolios as any[])[0].id);
+    }
+  }, [portfolios, portfolioId]);
+
+  // 현재가를 외부에서 못 받았으면 API로 직접 조회
+  useEffect(() => {
+    if (currentPrice != null && currentPrice > 0) return;
+    setPriceLoading(true);
+    stocksApi.getPrice(item.market, item.symbol)
+      .then((data) => {
+        if (data?.price != null) {
+          setAvgPrice((prev) => (prev === "" ? String(data.price) : prev));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setPriceLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const canSave = Number(shares) > 0 && Number(avgPrice) >= 0;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await portfolioApi.addItem({
+        portfolio_id: portfolioId,
+        symbol: item.symbol,
+        market: item.market,
+        name: item.name,
+        shares: Number(shares),
+        avg_price: Number(avgPrice),
+        currency,
+      });
+      qc.invalidateQueries({ queryKey: ["portfolio-items-all"] });
+      qc.invalidateQueries({ queryKey: ["portfolios"] });
+      onClose();
+    } catch (err: any) {
+      const d = err?.response?.data?.detail;
+      setSaveError(typeof d === "string" ? d : Array.isArray(d) ? d.map((x: any) => x?.msg ?? JSON.stringify(x)).join(", ") : (err?.message ?? "추가에 실패했습니다"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inp = "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
+
+  return (
+    <Modal align="start" padTop="pt-16" backdropOpacity={70} maxWidth="max-w-sm" onClose={onClose}>
+      {/* 헤더 */}
+      <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
+        <Wallet size={14} className="text-accent-blue" />
+        <h3 className="flex-1 text-sm font-bold text-text-primary">포트폴리오에 추가</h3>
+        <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+          <X size={15} />
+        </button>
+      </div>
+
+      {/* 종목 정보 */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-bg-elevated/50">
+        <Badge variant={isKR ? "blue" : item.market === "ETF" ? "purple" : "green"}>{item.market}</Badge>
+        <div className="flex-1 min-w-0">
+          <div className="font-mono font-bold text-sm text-text-primary">{item.symbol?.replace(".KS","").replace(".KQ","")}</div>
+          <div className="text-xs text-text-muted truncate">{item.name}</div>
+        </div>
+      </div>
+
+      <div className="px-5 py-4 flex flex-col gap-3">
+        {/* 포트폴리오 선택 (여러 개인 경우에만 표시) */}
+        {(portfolios as any[]).length > 1 && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">포트폴리오</label>
+            <select
+              className={inp}
+              value={portfolioId ?? ""}
+              onChange={(e) => setPortfolioId(Number(e.target.value))}
+            >
+              {(portfolios as any[]).map((pf: any) => (
+                <option key={pf.id} value={pf.id}>{pf.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <div className="flex-1 flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">수량 *</label>
+            <input
+              className={inp}
+              type="number"
+              min="0.0001"
+              step="0.0001"
+              placeholder="0"
+              value={shares}
+              onChange={(e) => setShares(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="flex-1 flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">
+              평균매수가 * {isKR ? "(₩)" : "($)"}
+            </label>
+            <input
+              className={inp}
+              type="number"
+              min="0"
+              step="any"
+              placeholder={priceLoading ? "로딩 중..." : "0"}
+              value={avgPrice}
+              onChange={(e) => setAvgPrice(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {saveError && (
+        <p className="mx-5 mb-2 text-xs text-red-400 bg-red-900/20 rounded-lg px-3 py-2">
+          오류: {saveError}
+        </p>
+      )}
+
+      <div className="flex gap-2 px-5 py-4 border-t border-border">
+        <button onClick={onClose} disabled={saving}
+          className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          취소
+        </button>
+        <button onClick={handleSave} disabled={!canSave || saving}
+          className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          {saving ? "추가 중..." : "추가"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 /* ── 메인 ────────────────────────────────────────────────── */
 export default function Watchlist() {
   const qc       = useQueryClient();
@@ -483,6 +648,7 @@ export default function Watchlist() {
   const [editingFolder, setEditingFolder] = useState<number | null>(null);
   const [editingItem, setEditingItem]   = useState<any>(null);
   const [deletingFolder, setDeletingFolder] = useState<any>(null);
+  const [addToPortfolioItem, setAddToPortfolioItem] = useState<any | null>(null);
   const [collapsed, setCollapsed]   = useState<Set<string>>(new Set());
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [addError, setAddError]     = useState("");
@@ -840,6 +1006,7 @@ export default function Watchlist() {
           onNavigate={() => goToStock(item)}
           onEdit={() => setEditingItem(item)}
           onPrefetch={() => prefetchStock(item)}
+          onAddToPortfolio={() => setAddToPortfolioItem(item)}
           isDragging={dragId === item.id}
           isDragOver={dropId === item.id}
           onDragStart={() => handleDragStart(item)}
@@ -1189,6 +1356,14 @@ export default function Watchlist() {
           itemCount={deletingFolder._itemCount ?? 0}
           onClose={() => setDeletingFolder(null)}
           onConfirm={() => deleteFolderMutation.mutate(deletingFolder.id)}
+        />
+      )}
+
+      {addToPortfolioItem && (
+        <AddToPortfolioModal
+          item={addToPortfolioItem}
+          currentPrice={livePrices[addToPortfolioItem.symbol]?.price ?? null}
+          onClose={() => setAddToPortfolioItem(null)}
         />
       )}
     </div>
