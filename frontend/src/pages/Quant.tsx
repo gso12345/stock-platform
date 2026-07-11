@@ -218,6 +218,14 @@ export default function Quant() {
             >
               전체 <span className="text-[10px] opacity-70">{allCompareItems.length}</span>
             </button>
+            <button
+              onClick={() => setFolderTab("recent")}
+              className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
+                folderTab === "recent" ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+              }`}
+            >
+              🕐 최근조회 <span className="text-[10px] opacity-70">{recentlyViewed.filter((s) => marketTab === "전체" || s.market === marketTab).length}</span>
+            </button>
             {(folders ?? []).map((f: any) => {
               const cnt = ((items ?? []) as any[]).filter(
                 (i) => i.folder_id === f.id && (marketTab === "전체" || i.market === marketTab),
@@ -234,14 +242,6 @@ export default function Quant() {
                 </button>
               );
             })}
-            <button
-              onClick={() => setFolderTab("recent")}
-              className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
-                folderTab === "recent" ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-              }`}
-            >
-              최근조회 <span className="text-[10px] opacity-70">{recentlyViewed.filter((s) => marketTab === "전체" || s.market === marketTab).length}</span>
-            </button>
           </div>
 
           <Card className="p-0 overflow-hidden">
