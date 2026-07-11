@@ -51,19 +51,6 @@ queryClient.prefetchQuery({
   queryFn: () => dashboardApi.getUSRates(),
   staleTime: 300_000,
 });
-// 뉴스 탭 선제 프리페치 — 진입 시 즉시 표시되도록
-// staleTime을 Dashboard.tsx의 600_000ms와 동일하게 맞춰 불필요한 재요청 방지
-queryClient.prefetchQuery({
-  queryKey: ["news", "kr"],
-  queryFn: () => dashboardApi.getNews("kr"),
-  staleTime: 600_000,
-});
-queryClient.prefetchQuery({
-  queryKey: ["news", "us"],
-  queryFn: () => dashboardApi.getNews("us"),
-  staleTime: 600_000,
-});
-
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
