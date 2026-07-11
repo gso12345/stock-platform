@@ -4,7 +4,7 @@ import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import type { ColorScheme, FontSize, Theme, Orientation } from "@/store/settingsStore";
+import type { ColorScheme, FontSize, Theme, Orientation, CardShadow } from "@/store/settingsStore";
 import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
 import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
@@ -37,7 +37,7 @@ const MORE_NAV = [
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
-  const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation } = useSettingsStore();
+  const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation, cardShadow, setCardShadow } = useSettingsStore();
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
@@ -170,6 +170,30 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
+          {/* 카드 그림자 */}
+          <div>
+            <p className="text-xs font-semibold text-text-muted mb-2">카드 그림자</p>
+            <div className="flex gap-2">
+              {([
+                { value: "on",  label: "켜기" },
+                { value: "off", label: "끄기" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setCardShadow(opt.value as CardShadow)}
+                  className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
+                    cardShadow === opt.value
+                      ? "border-accent-blue bg-accent-blue/10"
+                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
+                  }`}
+                >
+                  <div className={`w-8 h-5 rounded-md bg-bg-elevated border border-border ${opt.value === "on" ? "shadow-card" : ""}`} />
+                  <span className="text-[10px] text-text-muted">{opt.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
         </div>
         <div className="px-5 pb-5">
           <button
@@ -193,6 +217,7 @@ export default function Layout() {
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
   const orientation = useSettingsStore((s) => s.orientation);
+  const cardShadow = useSettingsStore((s) => s.cardShadow);
   const navigate = useNavigate();
   const location = useLocation();
   const [systemPrefersLight, setSystemPrefersLight] = useState(
@@ -228,6 +253,11 @@ export default function Layout() {
     if (fontSize === "large") html.classList.add("font-large");
     else if (fontSize === "xl") html.classList.add("font-xl");
   }, [fontSize]);
+
+  /* 카드 그림자 설정 적용 */
+  useEffect(() => {
+    document.documentElement.classList.toggle("shadow-off", cardShadow === "off");
+  }, [cardShadow]);
 
   /* 화면 방향 고정 적용 (설치된 PWA 등 지원 환경에서만 동작)
      일반 브라우저 탭(풀스크린/PWA 아님)에서는 lock()/unlock()이 Promise reject가 아니라
