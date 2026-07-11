@@ -11,7 +11,7 @@ from app.core.config import settings
 
 SECRET_KEY = settings.stable_secret_key()
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24시간
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30일
 
 _ITERATIONS = 260_000
 _ALGO = "sha256"

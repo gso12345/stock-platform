@@ -36,8 +36,9 @@ api.interceptors.response.use(
       try {
         localStorage.removeItem(AUTH_STORAGE_KEY);
       } catch {}
-      // 로그인 페이지가 아닐 때만 리다이렉트
-      if (!window.location.pathname.includes("login")) {
+      // 로그인/회원가입 페이지가 아닐 때만 리다이렉트
+      const path = window.location.pathname;
+      if (!path.includes("/login") && !path.includes("/register")) {
         window.location.href = "/login";
       }
     }
