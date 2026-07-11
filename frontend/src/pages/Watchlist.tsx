@@ -31,12 +31,16 @@ const PREVIEW_FOLDERS: PreviewFolder[] = [
 const PREVIEW_WATCHLIST: PreviewItem[] = [
   { id: -1, symbol: "005930", market: "KR",  name: "삼성전자",          folderId: -1, price: 72400,  change_rate:  0.58 },
   { id: -2, symbol: "000660", market: "KR",  name: "SK하이닉스",        folderId: -1, price: 198500, change_rate:  1.33 },
-  { id: -3, symbol: "035720", market: "KR",  name: "카카오",             folderId: -1, price: 42150,  change_rate: -1.17 },
-  { id: -4, symbol: "NVDA",   market: "US",  name: "엔비디아",           folderId: -2, price: 875.43, change_rate:  2.14 },
+  { id: -3, symbol: "005380", market: "KR",  name: "현대차",             folderId: -1, price: 218000, change_rate:  0.93 },
+  { id: -4, symbol: "NVDA",   market: "US",  name: "엔비디아",           folderId: -2, price: 135.58, change_rate:  2.14 },
   { id: -5, symbol: "AAPL",   market: "US",  name: "애플",               folderId: -2, price: 221.85, change_rate:  0.73 },
-  { id: -6, symbol: "TSLA",   market: "US",  name: "테슬라",             folderId: -2, price: 247.15, change_rate: -0.94 },
-  { id: -7, symbol: "SPY",    market: "ETF", name: "SPDR S&P 500 ETF",  folderId: -3, price: 534.21, change_rate:  0.41 },
-  { id: -8, symbol: "QQQ",    market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
+  { id: -6, symbol: "MSFT",   market: "US",  name: "마이크로소프트",      folderId: -2, price: 510.32, change_rate:  0.47 },
+  { id: -7, symbol: "GOOGL",  market: "US",  name: "알파벳A",            folderId: -2, price: 197.45, change_rate:  0.61 },
+  { id: -8, symbol: "AMZN",   market: "US",  name: "아마존",             folderId: -2, price: 225.10, change_rate:  1.02 },
+  { id: -9, symbol: "META",   market: "US",  name: "메타",               folderId: -2, price: 636.20, change_rate:  1.38 },
+  { id: -10, symbol: "TSLA",  market: "US",  name: "테슬라",             folderId: -2, price: 247.15, change_rate: -0.94 },
+  { id: -11, symbol: "SPY",   market: "ETF", name: "SPDR S&P 500 ETF",  folderId: -3, price: 534.21, change_rate:  0.41 },
+  { id: -12, symbol: "QQQ",   market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
 ];
 
 const MKT_BADGE_VARIANT: Record<string, "blue" | "green" | "purple"> = {
