@@ -206,6 +206,7 @@ function PortfolioModal({
   const [purchaseDate, setPurchaseDate] = useState(item?.purchaseDate ?? "");
   const [note,         setNote]         = useState(item?.note ?? "");
   const [assetClass,   setAssetClass]   = useState<AssetClass | "">(item?.assetClass ?? "");
+  const [priceLoading, setPriceLoading] = useState(false);
 
   useEffect(() => {
     if (step === 1) setTimeout(() => inputRef.current?.focus(), 50);

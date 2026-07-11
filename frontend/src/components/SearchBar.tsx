@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, X, Clock, TrendingUp, Plus, Check } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import api from "@/api/client";
-import { watchlistApi } from "@/api/stocks";
+import { watchlistApi, watchlistFolderApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 
 interface SR {
@@ -47,10 +48,31 @@ export default function SearchBar() {
   const [cursor, setCursor]   = useState(0);
   const [recent, setRecent]   = useState<SR[]>([]);
   const [added, setAdded]     = useState<Set<string>>(new Set());
+  const [folderDropdown, setFolderDropdown] = useState<string | null>(null);
 
-  const inputRef    = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const debounce    = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const inputRef          = useRef<HTMLInputElement>(null);
+  const containerRef      = useRef<HTMLDivElement>(null);
+  const folderDropdownRef = useRef<HTMLDivElement>(null);
+  const debounce          = useRef<ReturnType<typeof setTimeout>|null>(null);
+
+  const { data: folders = [] } = useQuery({
+    queryKey: ["watchlist-folders"],
+    queryFn: () => watchlistFolderApi.getFolders(),
+    enabled: isLoggedIn,
+    staleTime: 60_000,
+  });
+
+  /* 폴더 드롭다운 외부 클릭 닫기 */
+  useEffect(() => {
+    if (!folderDropdown) return;
+    const h = (e: MouseEvent) => {
+      if (folderDropdownRef.current && !folderDropdownRef.current.contains(e.target as Node)) {
+        setFolderDropdown(null);
+      }
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [folderDropdown]);
 
   const openSearch = () => {
     setRecent(getRecent());
@@ -62,6 +84,7 @@ export default function SearchBar() {
     setOpen(false);
     setQuery("");
     setResults([]);
+    setFolderDropdown(null);
     inputRef.current?.blur();
   }, []);
 
@@ -105,19 +128,29 @@ export default function SearchBar() {
     navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`);
   }, [navigate]);
 
-  const addToWatchlist = useCallback(async (e: React.MouseEvent, item: SR) => {
+  const doAdd = useCallback(async (item: SR, folderId?: number | null) => {
+    setFolderDropdown(null);
+    try {
+      await watchlistApi.addItem({ symbol: item.symbol, market: item.market as any, name: item.name, watchlist_id: 1, folder_id: folderId ?? undefined });
+      setAdded(prev => new Set([...prev, item.symbol]));
+      setTimeout(() => setAdded(prev => { const n = new Set(prev); n.delete(item.symbol); return n; }), 3000);
+    } catch {}
+  }, []);
+
+  const handlePlusClick = useCallback((e: React.MouseEvent, item: SR) => {
     e.stopPropagation();
     if (!isLoggedIn) {
       closeSearch();
       navigate("/login");
       return;
     }
-    try {
-      await watchlistApi.addItem({ symbol: item.symbol, market: item.market as any, name: item.name, watchlist_id: 1 });
-      setAdded(prev => new Set([...prev, item.symbol]));
-      setTimeout(() => setAdded(prev => { const n = new Set(prev); n.delete(item.symbol); return n; }), 3000);
-    } catch {}
-  }, [isLoggedIn, navigate]);
+    const folderList = folders as any[];
+    if (folderList.length > 0) {
+      setFolderDropdown(prev => prev === item.symbol ? null : item.symbol);
+      return;
+    }
+    doAdd(item, null);
+  }, [isLoggedIn, navigate, folders, doAdd, closeSearch]);
 
   const activeList = query ? results : POPULAR;
 
@@ -209,12 +242,33 @@ export default function SearchBar() {
                           )}
                         </div>
                       )}
-                      <button onMouseDown={(e) => addToWatchlist(e, item)}
-                        className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
-                          isAdded ? "bg-accent-green/20 text-accent-green" : "bg-bg-elevated text-text-muted hover:bg-accent-blue/20 hover:text-accent-blue"
-                        }`} title={isAdded ? "추가됨" : "관심종목 추가"}>
-                        {isAdded ? <Check size={11}/> : <Plus size={11}/>}
-                      </button>
+                      <div className="relative flex-shrink-0" ref={folderDropdown === item.symbol ? folderDropdownRef : null}>
+                        <button onMouseDown={(e) => { e.preventDefault(); handlePlusClick(e, item); }}
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
+                            isAdded ? "bg-accent-green/20 text-accent-green" : "bg-bg-elevated text-text-muted hover:bg-accent-blue/20 hover:text-accent-blue"
+                          }`} title={isAdded ? "추가됨" : "관심종목 추가"}>
+                          {isAdded ? <Check size={11}/> : <Plus size={11}/>}
+                        </button>
+                        {folderDropdown === item.symbol && (
+                          <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
+                            <button
+                              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); doAdd(item, null); }}
+                              className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
+                            >
+                              폴더 없이 추가
+                            </button>
+                            {(folders as any[]).map((f: any) => (
+                              <button
+                                key={f.id}
+                                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); doAdd(item, f.id); }}
+                                className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors border-t border-border truncate"
+                              >
+                                {f.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </li>
                 );
@@ -280,12 +334,33 @@ export default function SearchBar() {
                       </div>
                       <p className="text-xs text-text-muted truncate">{item.name}</p>
                     </div>
-                    <button onMouseDown={(e) => addToWatchlist(e, item)}
-                      className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
-                        isAdded ? "bg-accent-green/20 text-accent-green" : "bg-bg-elevated text-text-muted hover:bg-accent-blue/20 hover:text-accent-blue"
-                      }`}>
-                      {isAdded ? <Check size={11}/> : <Plus size={11}/>}
-                    </button>
+                    <div className="relative flex-shrink-0" ref={folderDropdown === item.symbol ? folderDropdownRef : null}>
+                      <button onMouseDown={(e) => { e.preventDefault(); handlePlusClick(e, item); }}
+                        className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
+                          isAdded ? "bg-accent-green/20 text-accent-green" : "bg-bg-elevated text-text-muted hover:bg-accent-blue/20 hover:text-accent-blue"
+                        }`} title={isAdded ? "추가됨" : "관심종목 추가"}>
+                        {isAdded ? <Check size={11}/> : <Plus size={11}/>}
+                      </button>
+                      {folderDropdown === item.symbol && (
+                        <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
+                          <button
+                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); doAdd(item, null); }}
+                            className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
+                          >
+                            폴더 없이 추가
+                          </button>
+                          {(folders as any[]).map((f: any) => (
+                            <button
+                              key={f.id}
+                              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); doAdd(item, f.id); }}
+                              className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors border-t border-border truncate"
+                            >
+                              {f.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
