@@ -904,15 +904,15 @@ export default function StockDetail() {
               {fetchingChart && (
                 <div className="absolute top-2 right-2 z-10 w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
               )}
-              <StockChart data={ohlcv} height={420} isKR={isKR} chartType={chartType} logScale={logScale}/>
+              <StockChart data={ohlcv} height={isMobile ? 300 : 420} isKR={isKR} chartType={chartType} logScale={logScale}/>
             </div>
           ) : fetchingChart ? (
-            <div className="h-[500px] flex flex-col items-center justify-center gap-3">
+            <div className="h-[300px] sm:h-[500px] flex flex-col items-center justify-center gap-3">
               <div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
               <p className="text-text-muted text-base">차트 로딩 중...</p>
             </div>
           ) : (
-            <div className="h-[420px] flex flex-col items-center justify-center gap-3">
+            <div className="h-[300px] sm:h-[420px] flex flex-col items-center justify-center gap-3">
               <BarChart2 size={32} className="text-text-muted/40"/>
               <p className="text-text-muted text-base">차트 데이터 없음</p>
               <button onClick={()=>refetchChart()} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue text-white text-sm rounded-lg"><RefreshCw size={12}/>재시도</button>

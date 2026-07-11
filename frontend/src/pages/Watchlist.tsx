@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
-import { watchlistApi, watchlistFolderApi, stocksApi } from "@/api/stocks";
+import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, ChangeBadge, RowSkeleton, Badge, Modal } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
@@ -315,12 +315,13 @@ const SWIPE_REVEAL = 140; // 수정(70) + 삭제(70)
 const SWIPE_THRESHOLD = 50;
 
 /* ── 종목 행: 드래그 재정렬 + 왼쪽으로 스와이프 → 수정/삭제 ─── */
-function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
+function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, onAddToPortfolio,
   isDragging, isDragOver, onDragStart, onDragOver, onDrop,
   onTouchDragStart, onTouchDragMove, onTouchDragEnd }: {
   item: any; livePrice: any;
   onRemove: () => void; onNavigate: () => void; onEdit: () => void;
   onPrefetch?: () => void;
+  onAddToPortfolio?: () => void;
   isDragging?: boolean; isDragOver?: boolean;
   onDragStart?: React.DragEventHandler;
   onDragOver?: React.DragEventHandler;
@@ -441,6 +442,9 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch,
 
         {/* 데스크탑 hover 버튼 */}
         <div className="hidden md:flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onAddToPortfolio && (
+            <button onClick={(e) => { e.stopPropagation(); onAddToPortfolio(); }} className="text-text-muted hover:text-accent-green p-1" title="포트폴리오에 추가"><Wallet size={13}/></button>
+          )}
           <button onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1"><Settings2 size={13}/></button>
           <button onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1"><Trash2 size={13}/></button>
         </div>

@@ -226,6 +226,21 @@ function PortfolioModal({
     }, 300);
   }, [query]);
 
+  // 현재가 자동 입력: 신규 추가 시에만 (수정 모드 아님) 현재가 조회하여 평균매수가 초기값 설정
+  useEffect(() => {
+    if (!selected || item) return;
+    setPriceLoading(true);
+    stocksApi.getPrice(selected.market as Market, selected.symbol)
+      .then((data) => {
+        if (data?.price != null) {
+          setAvgPrice((prev) => (prev === "" ? String(data.price) : prev));
+        }
+      })
+      .catch(() => { /* 조회 실패 시 빈칸 유지 */ })
+      .finally(() => setPriceLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.symbol, selected?.market]);
+
   const handleSelect = (r: SearchResult) => {
     const mkt = r.market as Market;
     setSelected({ symbol: r.symbol, market: mkt, name: r.name });
@@ -377,7 +392,7 @@ function PortfolioModal({
                     type="number"
                     min="0"
                     step="any"
-                    placeholder="0"
+                    placeholder={priceLoading ? "로딩 중..." : "0"}
                     value={avgPrice}
                     onChange={(e) => setAvgPrice(e.target.value)}
                   />
