@@ -14,7 +14,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEY
-        generateValue: true
+        sync: false
       - key: FINNHUB_API_KEY
         sync: false
       - key: FRONTEND_URL
