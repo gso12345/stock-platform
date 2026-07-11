@@ -48,6 +48,20 @@ export function fmtNative(market: string, currency: string, price: number): stri
   return fmtUSDFull(price);
 }
 
+/** 거래량 표시: KR은 만주/억주 단위, US/ETF는 K/M/B 단위 */
+export function fmtVolume(v: number | null | undefined, isKR: boolean): string {
+  if (v == null) return "—";
+  if (isKR) {
+    if (v >= 1e8) return `${(v / 1e8).toFixed(1)}억주`;
+    if (v >= 1e4) return `${(v / 1e4).toFixed(1)}만주`;
+    return v.toLocaleString("ko-KR");
+  }
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return v.toLocaleString("en-US");
+}
+
 export function fmtNum(v: number | null | undefined, digits = 1): string {
   if (v == null) return "—";
   return v.toFixed(digits);

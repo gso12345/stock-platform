@@ -6,7 +6,7 @@ import { Card, ChangeBadge, formatNumber } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
-import { fmtUSD, fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
+import { fmtUSD, fmtNewsDateTime, newsTimestampMs, fmtVolume } from "@/utils/formatters";
 
 /* ── 지수 카드 ───────────────────────────────────────────── */
 const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _demo, onClick, colorScheme }: any) {
@@ -211,7 +211,7 @@ const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, li
                     {item.market_cap ? (isKR ? formatNumber(item.market_cap) : fmtUSD(item.market_cap)) : "—"}
                   </td>
                   <td className="py-2.5 text-right font-mono text-text-muted pr-3">
-                    {formatNumber(live?.volume ?? item.volume)}
+                    {fmtVolume(live?.volume ?? item.volume, isKR)}
                   </td>
                 </tr>
               );

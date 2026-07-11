@@ -17,7 +17,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
-import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
+import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs, fmtVolume } from "@/utils/formatters";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 
@@ -519,7 +519,7 @@ export default function StockDetail() {
       { label:"고가",     v: fmtPx(d.high), color:"text-accent-red" },
       { label:"저가",     v: fmtPx(d.low),  color:"text-accent-blue" },
       { label:"전일종가", v: fmtPx(d.prev_close) },
-      { label:"거래량",   v: d.volume ? (d.volume >= 1e8 ? `${(d.volume/1e8).toFixed(1)}억주` : d.volume >= 1e4 ? `${(d.volume/1e4).toFixed(1)}만주` : d.volume.toLocaleString("ko-KR")) : null },
+      { label:"거래량",   v: d.volume ? fmtVolume(d.volume, isKR) : null },
       { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
       { label:"시가총액", v: fmt(d.market_cap) },
       { label:"52주 고가",v: fmtPx(d.week52_high), color:"text-accent-red" },
