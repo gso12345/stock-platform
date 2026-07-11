@@ -59,7 +59,11 @@ def make_username(db: Session, provider: str, display_name: Optional[str]) -> st
     candidate = f"{base}_{provider}"[:46]
     final = candidate
     suffix = 0
-    while db.query(User).filter(User.username == final).first():
+    MAX_TRIES = 50
+    while suffix <= MAX_TRIES and db.query(User).filter(User.username == final).first():
         suffix += 1
         final = f"{candidate}{suffix}"[:50]
+    if suffix > MAX_TRIES:
+        import uuid
+        final = f"user_{uuid.uuid4().hex[:8]}"
     return final

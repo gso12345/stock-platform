@@ -17,6 +17,8 @@ from app.core.cache import cache
 
 router = APIRouter(prefix="/dashboard", tags=["대시보드"])
 
+_bg_refresh_in_flight: set[str] = set()
+
 KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150"]
 US_INDICES = ["SP500", "NASDAQ", "DOW", "SOX", "RUSSELL"]
 
@@ -70,7 +72,14 @@ async def _get_us_index(name: str) -> dict:
     if fresh and fresh.get("value", 0) > 0:
         return fresh
     stale = cache.get_stale(f"idx:{name}")
-    asyncio.get_running_loop().create_task(_refresh_indices_bg())
+    if "us_index" not in _bg_refresh_in_flight:
+        _bg_refresh_in_flight.add("us_index")
+        async def _guarded_us_refresh():
+            try:
+                await _refresh_indices_bg()
+            finally:
+                _bg_refresh_in_flight.discard("us_index")
+        asyncio.get_running_loop().create_task(_guarded_us_refresh())
     if stale and stale.get("value", 0) > 0:
         return stale
     return {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
@@ -80,7 +89,14 @@ async def _get_kr_index_with_fallback(name: str) -> dict:
     result = await _get_kr_index(name)  # KIS + fresh + stale 캐시 확인
     if result.get("value", 0) > 0:
         return result
-    asyncio.get_running_loop().create_task(_refresh_indices_bg())
+    if "kr_index" not in _bg_refresh_in_flight:
+        _bg_refresh_in_flight.add("kr_index")
+        async def _guarded_kr_refresh():
+            try:
+                await _refresh_indices_bg()
+            finally:
+                _bg_refresh_in_flight.discard("kr_index")
+        asyncio.get_running_loop().create_task(_guarded_kr_refresh())
     return result
 
 
@@ -162,7 +178,15 @@ async def _get_kr_rankings(category: str) -> list:
 
     # stale 캐시 → 즉시 반환 + 백그라운드 갱신
     stale = cache.get_stale(f"rank:kr:{category}")
-    asyncio.get_running_loop().create_task(_refresh_kr_ranking_bg(category))
+    _rank_key = f"kr_rankings:{category}"
+    if _rank_key not in _bg_refresh_in_flight:
+        _bg_refresh_in_flight.add(_rank_key)
+        async def _guarded_kr_ranking_bg():
+            try:
+                await _refresh_kr_ranking_bg(category)
+            finally:
+                _bg_refresh_in_flight.discard(_rank_key)
+        asyncio.get_running_loop().create_task(_guarded_kr_ranking_bg())
     if stale:
         return stale
 

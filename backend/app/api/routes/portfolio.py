@@ -18,6 +18,7 @@ router = APIRouter(prefix="/portfolio", tags=["포트폴리오"])
 
 # 프로세스 내에서 이미 repair를 수행한 user_id를 기억해 중복 실행 방지
 _repaired_users: set[int] = set()
+_MAX_REPAIRED = 10000
 
 
 class PortfolioRequest(BaseModel):
@@ -30,7 +31,7 @@ class ReorderRequest(BaseModel):
 
 class PortfolioItemRequest(BaseModel):
     portfolio_id: Optional[int] = Field(None, ge=1)
-    symbol: str = Field(..., min_length=1, max_length=20)
+    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9.\-]+$")
     market: str = Field(..., pattern="^(KR|US|ETF)$")
     name: Optional[str] = Field("", max_length=100)
     shares: float = Field(..., gt=0)
@@ -47,9 +48,13 @@ def _ensure_portfolio(db: Session, user_id: int) -> Portfolio:
     pf = db.query(Portfolio).filter(Portfolio.user_id == user_id).order_by(Portfolio.position).first()
     if not pf:
         pf = Portfolio(name="기본 포트폴리오", user_id=user_id)
-        db.add(pf)
-        db.commit()
-        db.refresh(pf)
+        try:
+            db.add(pf)
+            db.commit()
+            db.refresh(pf)
+        except IntegrityError:
+            db.rollback()
+            pf = db.query(Portfolio).filter(Portfolio.user_id == user_id).order_by(Portfolio.position).first()
     return pf
 
 
@@ -59,6 +64,8 @@ def _repair_orphan_items(db: Session, user_id: int) -> None:
     같은 프로세스 내에서는 user_id당 최초 1회만 실행한다."""
     if user_id in _repaired_users:
         return
+    if len(_repaired_users) > _MAX_REPAIRED:
+        _repaired_users.clear()
     _repaired_users.add(user_id)
     has_orphan = db.query(PortfolioItem).filter(
         PortfolioItem.user_id == user_id, PortfolioItem.portfolio_id.is_(None)

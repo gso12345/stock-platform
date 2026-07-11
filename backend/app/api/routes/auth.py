@@ -25,6 +25,9 @@ from app.models.user import User
 
 OAUTH_EXCHANGE_TTL = 60  # 교환 코드 유효 시간(초)
 
+# 타이밍 사이드채널 방지용 더미 해시 — 사용자 미존재 시에도 verify_password를 항상 실행
+_DUMMY_HASH = "pbkdf2:sha256:260000:dummy:0000000000000000000000000000000000000000000000000000000000000000"
+
 router = APIRouter(prefix="/auth", tags=["인증"])
 limiter = Limiter(key_func=get_remote_address)
 
@@ -122,7 +125,8 @@ def register(request: Request, req: RegisterRequest, db: Session = Depends(get_d
 def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
     """username+비밀번호 검증 후 JWT 토큰 반환"""
     user = db.query(User).filter(User.username == req.username).first()
-    if not user or not verify_password(req.password, user.hashed_password):
+    pwd_hash = user.hashed_password if user else _DUMMY_HASH
+    if not user or not verify_password(req.password, pwd_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="아이디 또는 비밀번호가 올바르지 않습니다",
