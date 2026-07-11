@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, Field
 from typing import Optional
 import asyncio
@@ -47,9 +48,13 @@ def _ensure_watchlist(db: Session, user_id: Optional[int] = None) -> Watchlist:
     wl = q.first()
     if not wl:
         wl = Watchlist(name="기본 관심목록", user_id=user_id)
-        db.add(wl)
-        db.commit()
-        db.refresh(wl)
+        try:
+            db.add(wl)
+            db.commit()
+            db.refresh(wl)
+        except IntegrityError:
+            db.rollback()
+            wl = db.query(Watchlist).filter(Watchlist.user_id == user_id).first()
     return wl
 
 
@@ -72,9 +77,15 @@ def _ensure_default_folder(db: Session, user_id: int) -> WatchlistFolder:
             (WatchlistFolder.user_id == user_id) | (WatchlistFolder.user_id == None)
         ).count()
         folder = WatchlistFolder(name="기본 관심목록", position=max_pos, user_id=user_id)
-        db.add(folder)
-        db.commit()
-        db.refresh(folder)
+        try:
+            db.add(folder)
+            db.commit()
+            db.refresh(folder)
+        except IntegrityError:
+            db.rollback()
+            folder = db.query(WatchlistFolder).filter(
+                WatchlistFolder.user_id == user_id, WatchlistFolder.name == "기본 관심목록",
+            ).first()
     return folder
 
 

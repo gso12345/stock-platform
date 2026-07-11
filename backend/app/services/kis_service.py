@@ -39,7 +39,8 @@ class KISService:
                 })
                 d = r.json()
                 self._token = d.get("access_token")
-                self._token_exp = datetime.now() + timedelta(hours=23)
+                if self._token:
+                    self._token_exp = datetime.now() + timedelta(hours=23)
                 return self._token
         except Exception:
             return None
