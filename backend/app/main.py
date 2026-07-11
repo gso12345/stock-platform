@@ -24,7 +24,10 @@ from app.services.ticker_service import init_ticker_db
 import logging
 logging.basicConfig(level=logging.INFO)
 
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as _db_init_err:
+    logging.warning(f"DB 초기화 실패 (서버는 계속 실행): {_db_init_err}")
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
