@@ -1657,7 +1657,7 @@ export default function Portfolio() {
                 <button
                   key={t.id}
                   onClick={() => setAssetFilterTab(t.id)}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap ${
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap ${
                     assetFilterTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
                   }`}
                 >{t.label}</button>
