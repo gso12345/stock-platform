@@ -550,7 +550,7 @@ def _clean_enabled_metrics(raw: dict) -> dict:
 
 
 @router.get("/quant-score/weights")
-async def get_quant_score_weights(
+def get_quant_score_weights(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -563,7 +563,7 @@ async def get_quant_score_weights(
 
 
 @router.put("/quant-score/weights")
-async def save_quant_score_weights(
+def save_quant_score_weights(
     payload: dict,
     current_user=Depends(require_user),
     db: Session = Depends(get_db),
@@ -731,8 +731,8 @@ async def get_quant_score(
 
     metrics = await collect_quant_metrics(symbol, market)
     sector = metrics.pop("_sector", None)
-    percentile_dist = get_percentile_distributions(market)
-    sector_dist = get_sector_distribution(market, sector)
+    percentile_dist = await asyncio.get_running_loop().run_in_executor(None, get_percentile_distributions, market)
+    sector_dist = await asyncio.get_running_loop().run_in_executor(None, get_sector_distribution, market, sector)
 
     result = compute_quant_score(metrics, weights, percentile_dist, sector_dist, enabled_metrics)
     result["weights"] = weights
@@ -916,8 +916,31 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str = Pa
             except Exception:
                 pass
 
-            annual    = _process(t.financials,          t.balance_sheet,          shares, hist)
-            quarterly = _process(t.quarterly_financials, t.quarterly_balance_sheet, shares, hist)
+            # 재무 DataFrame 6종을 ThreadPoolExecutor로 병렬 조회
+            import concurrent.futures
+
+            def _get(attr):
+                try:
+                    return getattr(yf.Ticker(yf_sym), attr)
+                except Exception:
+                    return None
+
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+            _futures = {attr: pool.submit(_get, attr) for attr in (
+                "financials", "balance_sheet",
+                "quarterly_financials", "quarterly_balance_sheet",
+                "cashflow", "quarterly_cashflow",
+            )}
+            dfs = {}
+            for attr, fut in _futures.items():
+                try:
+                    dfs[attr] = fut.result(timeout=20)
+                except Exception:
+                    dfs[attr] = None
+            pool.shutdown(wait=False)
+
+            annual    = _process(dfs["financials"],          dfs["balance_sheet"],          shares, hist)
+            quarterly = _process(dfs["quarterly_financials"], dfs["quarterly_balance_sheet"], shares, hist)
 
             # YoY 성장률 추가
             _add_growth(annual)
@@ -925,13 +948,13 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str = Pa
 
             # 현금흐름 병합
             try:
-                cf_a = _process_cf(t.cashflow)
+                cf_a = _process_cf(dfs["cashflow"])
                 for row in annual:
                     row.update({k: v for k, v in cf_a.get(row["period"], {}).items() if k != "period"})
             except Exception:
                 pass
             try:
-                cf_q = _process_cf(t.quarterly_cashflow)
+                cf_q = _process_cf(dfs["quarterly_cashflow"])
                 for row in quarterly:
                     row.update({k: v for k, v in cf_q.get(row["period"], {}).items() if k != "period"})
             except Exception:

@@ -264,6 +264,9 @@ NEWS_TAB_LIMIT = 100
 
 @router.get("/news/kr")
 async def kr_news():
+    cached = cache.get("news:kr") or cache.get_stale("news:kr")
+    if cached:
+        return pick_top_image_first(cached, NEWS_TAB_LIMIT)
     loop = asyncio.get_running_loop()
     news = await loop.run_in_executor(None, get_kr_news)
     return pick_top_image_first(news, NEWS_TAB_LIMIT)
@@ -271,6 +274,9 @@ async def kr_news():
 
 @router.get("/news/us")
 async def us_news():
+    cached = cache.get("news:us") or cache.get_stale("news:us")
+    if cached:
+        return pick_top_image_first(cached, NEWS_TAB_LIMIT)
     loop = asyncio.get_running_loop()
     news = await loop.run_in_executor(None, get_us_news)
     return pick_top_image_first(news, NEWS_TAB_LIMIT)
