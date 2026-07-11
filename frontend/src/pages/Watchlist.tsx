@@ -482,6 +482,8 @@ export default function Watchlist() {
   const { data: folders = [] } = useQuery({
     queryKey: ["watchlist-folders"],
     queryFn: watchlistFolderApi.getFolders,
+    // 폴더 구조는 자주 바뀌지 않으므로 5분 캐시 — mutation onSuccess에서 invalidate함
+    staleTime: 300_000,
   });
 
   const mkt = marketTab === "전체" ? undefined : marketTab;
@@ -489,6 +491,8 @@ export default function Watchlist() {
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["watchlist-items", marketTab],
     queryFn: () => watchlistApi.getItems(mkt),
+    // 종목 목록 자체는 mutation으로 invalidate되므로 refetchInterval과 맞춤
+    staleTime: 120_000,
     refetchInterval: 120_000,
   });
 

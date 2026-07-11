@@ -238,7 +238,8 @@ export default function StockDetail() {
     queryFn: () => stocksApi.getQuantScore(m, sym, quantWeights ?? undefined, quantMetrics ?? undefined),
     enabled: !!sym && mainTab === "quant",
     retry: 1,
-    staleTime: (quantWeights || quantMetrics) ? 0 : 60_000,
+    // 사용자 가중치/지표 커스터마이징 중이면 즉시 재계산, 그 외엔 5분 캐시
+    staleTime: (quantWeights || quantMetrics) ? 0 : 300_000,
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return false;
