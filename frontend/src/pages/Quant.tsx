@@ -224,7 +224,7 @@ export default function Quant() {
                 folderTab === "recent" ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
               }`}
             >
-              <Clock size={13} /> 최근조회 <span className="text-[10px] opacity-70">{recentlyViewed.filter((s) => marketTab === "전체" || s.market === marketTab).length}</span>
+              <span className="flex items-center gap-1 whitespace-nowrap"><Clock size={13} /> 최근조회 <span className="text-[10px] opacity-70">{recentlyViewed.filter((s) => marketTab === "전체" || s.market === marketTab).length}</span></span>
             </button>
             {(folders ?? []).map((f: any) => {
               const cnt = ((items ?? []) as any[]).filter(
