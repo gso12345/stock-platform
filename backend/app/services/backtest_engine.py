@@ -127,17 +127,12 @@ class BacktestEngine:
         # Williams %R
         df["willr"] = (high14 - c) / (high14 - low14).replace(0, np.nan) * -100
 
-        # OBV (On-Balance Volume)
-        obv = [0]
-        for i in range(1, len(df)):
-            if c.iloc[i] > c.iloc[i - 1]:
-                obv.append(obv[-1] + v.iloc[i])
-            elif c.iloc[i] < c.iloc[i - 1]:
-                obv.append(obv[-1] - v.iloc[i])
-            else:
-                obv.append(obv[-1])
+        # OBV (On-Balance Volume) — 부호화된 거래량의 누적합으로 벡터화
+        obv_step = np.sign(c.diff().fillna(0)) * v
+        obv = obv_step.cumsum()
+        obv.iloc[0] = 0
         df["obv"] = obv
-        df["obv_ma"] = pd.Series(obv).rolling(20).mean().values
+        df["obv_ma"] = obv.rolling(20).mean().values
 
         # 거래량 이동평균
         df["vol_ma20"] = v.rolling(20).mean()

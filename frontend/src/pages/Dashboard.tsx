@@ -9,9 +9,8 @@ import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, Chevron
 import { fmtUSD, fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
 
 /* ── 지수 카드 ───────────────────────────────────────────── */
-const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _demo, onClick }: any) {
+const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _demo, onClick, colorScheme }: any) {
   const pos = (change_rate ?? 0) >= 0;
-  const colorScheme = useSettingsStore((s) => s.colorScheme);
   const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
   const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
   return (
@@ -37,8 +36,7 @@ const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _d
 });
 
 /* ── 환율 / 금리 / 선물 카드 ─────────────────────────────── */
-const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, unit, _demo, _static }: any) {
-  const colorScheme = useSettingsStore((s) => s.colorScheme);
+const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, unit, _demo, _static, colorScheme }: any) {
   const isRate = unit === "%";
   const numVal = typeof value === "number" ? value : parseFloat(String(value).replace(/,/g,"")) || 0;
   const chgVal = typeof change === "number" ? change : 0;
@@ -303,7 +301,7 @@ const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
 });
 
 /* ── 국내 탭 ─────────────────────────────────────────────── */
-function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
+const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { liveIndices: any; navigate: (p: string) => void; colorScheme: string }) {
   const qc = useQueryClient();
   const { data, refetch } = useQuery({
     queryKey: ["dashboard-kr", "시가총액"],
@@ -367,7 +365,7 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
                 const idx = getIdx(key);
                 return (
                   <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}>
-                    <IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />
+                    <IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} colorScheme={colorScheme} />
                   </div>
                 );
               })
@@ -391,10 +389,11 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
                   change_rate={usdkrwRate?.change_rate ?? data?.exchange?.change_rate ?? 0}
                   unit="원"
                   _demo={usdkrwRate ? undefined : data?.exchange?._demo}
+                  colorScheme={colorScheme}
                 />
               )}
               {(data?.rates ?? []).map((r: any) => (
-                <ExtraCard key={r.name} {...r} />
+                <ExtraCard key={r.name} {...r} colorScheme={colorScheme} />
               ))}
             </>
           )}
@@ -414,10 +413,10 @@ function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
       </Card>
     </div>
   );
-}
+});
 
 /* ── 해외 탭 ─────────────────────────────────────────────── */
-function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
+const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { liveIndices: any; navigate: (p: string) => void; colorScheme: string }) {
   const qc = useQueryClient();
   const { data, refetch } = useQuery({
     queryKey: ["dashboard-us", "시가총액"],
@@ -485,7 +484,7 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
                 const idx = getIdx(key);
                 return (
                   <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}>
-                    <IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />
+                    <IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} colorScheme={colorScheme} />
                   </div>
                 );
               })
@@ -500,7 +499,7 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
           {!ratesData && !data ? (
             [1,2,3,4,5].map(i => <ExtraCardSkeleton key={i} />)
           ) : (
-            rates.map((r: any) => <ExtraCard key={r.name} {...r} />)
+            rates.map((r: any) => <ExtraCard key={r.name} {...r} colorScheme={colorScheme} />)
           )}
         </div>
       </section>
@@ -518,13 +517,14 @@ function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: stri
       </Card>
     </div>
   );
-}
+});
 
 /* ── 메인 ────────────────────────────────────────────────── */
 export default function Dashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"kr" | "us">("kr");
   const [liveIndices, setLiveIndices] = useState<any>(null);
+  const colorScheme = useSettingsStore((s) => s.colorScheme);
 
   const { status: wsStatus } = useIndicesStream(
     useCallback((data: any) => setLiveIndices(data), []),
@@ -558,8 +558,8 @@ export default function Dashboard() {
 
       <div key={tab} className="tab-fade">
         {tab === "kr"
-          ? <KRTab liveIndices={liveIndices} navigate={navigate} />
-          : <USTab liveIndices={liveIndices} navigate={navigate} />
+          ? <KRTab liveIndices={liveIndices} navigate={navigate} colorScheme={colorScheme} />
+          : <USTab liveIndices={liveIndices} navigate={navigate} colorScheme={colorScheme} />
         }
       </div>
     </div>

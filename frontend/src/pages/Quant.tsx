@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { quantScoreApi, watchlistApi, watchlistFolderApi, type QuantFactorKey } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
+import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { useAuthStore } from "@/store/authStore";
 import { Card, Badge, RowSkeleton, Button } from "@/components/ui";
@@ -26,11 +27,30 @@ export default function Quant() {
   const navigate = useNavigate();
   const { isLoggedIn } = useAuthStore();
   const [marketTab, setMarketTab] = useState("전체");
-  const [folderTab, setFolderTab] = useState<number | "all" | "none">("all");
+  const [folderTab, setFolderTab] = useState<number | "all" | "none" | "recent">("all");
   const [showGradeHelp, setShowGradeHelp] = useState(false);
   const gradeHelpRef = useRef<HTMLDivElement>(null);
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [recentlyViewed, setRecentlyViewed] = useState<RecentStock[]>(() => getRecentlyViewed());
+
+  // 최근조회 탭 선택 시 localStorage에서 새로 불러오기
+  useEffect(() => {
+    if (folderTab === "recent") {
+      setRecentlyViewed(getRecentlyViewed());
+    }
+  }, [folderTab]);
+
+  // 등급 도움말 팝업 외부 클릭 시 닫기
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (gradeHelpRef.current && !gradeHelpRef.current.contains(e.target as Node)) {
+        setShowGradeHelp(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // 등급 도움말 팝업 외부 클릭 시 닫기
   useEffect(() => {
@@ -64,6 +84,11 @@ export default function Quant() {
   }, [items, marketTab, folderTab]);
 
   const allCompareItems = useMemo(() => {
+    if (folderTab === "recent") {
+      let recentList = recentlyViewed;
+      if (marketTab !== "전체") recentList = recentList.filter((s) => s.market === marketTab);
+      return recentList.slice(0, 10).map((s) => ({ symbol: s.symbol, market: s.market, name: s.name }));
+    }
     const seen = new Set<string>();
     const out: { symbol: string; market: string; name: string }[] = [];
     for (const it of filteredItems as any[]) {
@@ -73,7 +98,7 @@ export default function Quant() {
       out.push({ symbol: it.symbol, market: it.market, name: it.name });
     }
     return out;
-  }, [filteredItems]);
+  }, [filteredItems, folderTab, recentlyViewed, marketTab]);
   const compareItems = useMemo(() => allCompareItems.slice(0, 30), [allCompareItems]);
   const truncated = allCompareItems.length > compareItems.length;
 
@@ -193,14 +218,6 @@ export default function Quant() {
             >
               전체 <span className="text-[10px] opacity-70">{allCompareItems.length}</span>
             </button>
-            <button
-              onClick={() => setFolderTab("none")}
-              className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
-                folderTab === "none" ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-              }`}
-            >
-              기본 <span className="text-[10px] opacity-70">{filteredItems.filter((i: any) => !i.folder_id).length}</span>
-            </button>
             {(folders ?? []).map((f: any) => {
               const cnt = ((items ?? []) as any[]).filter(
                 (i) => i.folder_id === f.id && (marketTab === "전체" || i.market === marketTab),
@@ -217,6 +234,14 @@ export default function Quant() {
                 </button>
               );
             })}
+            <button
+              onClick={() => setFolderTab("recent")}
+              className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
+                folderTab === "recent" ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+              }`}
+            >
+              최근조회 <span className="text-[10px] opacity-70">{recentlyViewed.filter((s) => marketTab === "전체" || s.market === marketTab).length}</span>
+            </button>
           </div>
 
           <Card className="p-0 overflow-hidden">
@@ -227,8 +252,17 @@ export default function Quant() {
             ) : compareItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
                 <Award size={32} className="text-text-muted/40" />
-                <p className="text-text-secondary text-sm">비교할 관심종목이 없어요</p>
-                <p className="text-text-muted text-xs">관심종목 메뉴에서 종목을 추가하면 여기서 비교할 수 있어요</p>
+                {folderTab === "recent" ? (
+                  <>
+                    <p className="text-text-secondary text-sm">최근 조회한 종목이 없어요</p>
+                    <p className="text-text-muted text-xs">종목 상세 페이지를 방문하면 여기서 바로 비교할 수 있어요</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-text-secondary text-sm">비교할 관심종목이 없어요</p>
+                    <p className="text-text-muted text-xs">관심종목 메뉴에서 종목을 추가하면 여기서 비교할 수 있어요</p>
+                  </>
+                )}
               </div>
             ) : isError ? (
               <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">

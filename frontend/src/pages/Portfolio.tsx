@@ -841,7 +841,8 @@ export default function Portfolio() {
     queryKey: ["portfolios"],
     queryFn:  portfolioApi.getPortfolios,
     enabled:  isLoggedIn,
-    staleTime: 60_000,
+    // 포트폴리오 메타(이름·개수)는 mutation onSuccess에서 invalidate되므로 5분 캐시
+    staleTime: 300_000,
   });
 
   useEffect(() => {
@@ -989,7 +990,8 @@ export default function Portfolio() {
     queryKey: ["portfolio-items-all"],
     queryFn:  () => portfolioApi.getItems(undefined, true),
     enabled:  isLoggedIn,
-    staleTime: 60_000,
+    // 종목 목록은 mutation onSuccess에서 invalidate되므로 5분 캐시 (가격은 별도 쿼리로 갱신)
+    staleTime: 300_000,
   });
 
   const items = useMemo(() => {

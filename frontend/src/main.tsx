@@ -24,7 +24,9 @@ const OAuthCallback = lazy(() => import("./pages/OAuthCallback"));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60_000,
+      // 자주 바뀌지 않는 데이터(폴더 목록, 관심종목 목록 등)는 5분간 캐시
+      // 가격 등 실시간 데이터는 각 useQuery에서 낮은 staleTime을 명시적으로 재정의
+      staleTime: 300_000,
       gcTime: 1_800_000,
       refetchOnWindowFocus: false,
       retry: 1,
@@ -49,18 +51,6 @@ queryClient.prefetchQuery({
   queryFn: () => dashboardApi.getUSRates(),
   staleTime: 300_000,
 });
-// 뉴스 탭 선제 프리페치 — 진입 시 즉시 표시되도록
-queryClient.prefetchQuery({
-  queryKey: ["news", "kr"],
-  queryFn: () => dashboardApi.getNews("kr"),
-  staleTime: 60_000,
-});
-queryClient.prefetchQuery({
-  queryKey: ["news", "us"],
-  queryFn: () => dashboardApi.getNews("us"),
-  staleTime: 60_000,
-});
-
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});

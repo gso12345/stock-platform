@@ -9,8 +9,8 @@ engine_kwargs = {"connect_args": connect_args}
 
 if not is_sqlite:
     engine_kwargs.update({
-        "pool_size": 5,
-        "max_overflow": 5,
+        "pool_size": 10,
+        "max_overflow": 10,
         "pool_pre_ping": True,  # 연결 유효성 자동 확인
         "pool_recycle": 1800,   # 30분마다 연결 재생성
     })

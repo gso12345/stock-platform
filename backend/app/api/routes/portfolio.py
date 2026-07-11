@@ -15,6 +15,9 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/portfolio", tags=["포트폴리오"])
 
+# 프로세스 내에서 이미 repair를 수행한 user_id를 기억해 중복 실행 방지
+_repaired_users: set[int] = set()
+
 
 class PortfolioRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
@@ -51,7 +54,11 @@ def _ensure_portfolio(db: Session, user_id: int) -> Portfolio:
 
 def _repair_orphan_items(db: Session, user_id: int) -> None:
     """startup 마이그레이션이 실패했거나 아직 실행되지 않은 경우를 대비한 안전장치.
-    portfolio_id가 비어있는(다중 포트폴리오 도입 이전) 보유 종목을 기본 포트폴리오로 편입한다."""
+    portfolio_id가 비어있는(다중 포트폴리오 도입 이전) 보유 종목을 기본 포트폴리오로 편입한다.
+    같은 프로세스 내에서는 user_id당 최초 1회만 실행한다."""
+    if user_id in _repaired_users:
+        return
+    _repaired_users.add(user_id)
     has_orphan = db.query(PortfolioItem).filter(
         PortfolioItem.user_id == user_id, PortfolioItem.portfolio_id.is_(None)
     ).first()

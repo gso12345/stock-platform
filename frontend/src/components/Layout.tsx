@@ -210,8 +210,14 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
 export default function Layout() {
   const wsStatus = useWSStore((s) => s.indicesStatus);
-  const { isLoggedIn, username, logout } = useAuthStore();
-  const { fontSize, theme, setTheme, orientation, cardShadow } = useSettingsStore();
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const username = useAuthStore((s) => s.username);
+  const logout = useAuthStore((s) => s.logout);
+  const fontSize = useSettingsStore((s) => s.fontSize);
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
+  const orientation = useSettingsStore((s) => s.orientation);
+  const cardShadow = useSettingsStore((s) => s.cardShadow);
   const navigate = useNavigate();
   const location = useLocation();
   const [systemPrefersLight, setSystemPrefersLight] = useState(

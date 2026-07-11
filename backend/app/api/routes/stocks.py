@@ -550,7 +550,7 @@ def _clean_enabled_metrics(raw: dict) -> dict:
 
 
 @router.get("/quant-score/weights")
-async def get_quant_score_weights(
+def get_quant_score_weights(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -563,7 +563,7 @@ async def get_quant_score_weights(
 
 
 @router.put("/quant-score/weights")
-async def save_quant_score_weights(
+def save_quant_score_weights(
     payload: dict,
     current_user=Depends(require_user),
     db: Session = Depends(get_db),
@@ -731,8 +731,8 @@ async def get_quant_score(
 
     metrics = await collect_quant_metrics(symbol, market)
     sector = metrics.pop("_sector", None)
-    percentile_dist = get_percentile_distributions(market)
-    sector_dist = get_sector_distribution(market, sector)
+    percentile_dist = await asyncio.get_running_loop().run_in_executor(None, get_percentile_distributions, market)
+    sector_dist = await asyncio.get_running_loop().run_in_executor(None, get_sector_distribution, market, sector)
 
     result = compute_quant_score(metrics, weights, percentile_dist, sector_dist, enabled_metrics)
     result["weights"] = weights
@@ -916,8 +916,31 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str = Pa
             except Exception:
                 pass
 
-            annual    = _process(t.financials,          t.balance_sheet,          shares, hist)
-            quarterly = _process(t.quarterly_financials, t.quarterly_balance_sheet, shares, hist)
+            # 재무 DataFrame 6종을 ThreadPoolExecutor로 병렬 조회
+            import concurrent.futures
+
+            def _get(attr):
+                try:
+                    return getattr(yf.Ticker(yf_sym), attr)
+                except Exception:
+                    return None
+
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+            _futures = {attr: pool.submit(_get, attr) for attr in (
+                "financials", "balance_sheet",
+                "quarterly_financials", "quarterly_balance_sheet",
+                "cashflow", "quarterly_cashflow",
+            )}
+            dfs = {}
+            for attr, fut in _futures.items():
+                try:
+                    dfs[attr] = fut.result(timeout=20)
+                except Exception:
+                    dfs[attr] = None
+            pool.shutdown(wait=False)
+
+            annual    = _process(dfs["financials"],          dfs["balance_sheet"],          shares, hist)
+            quarterly = _process(dfs["quarterly_financials"], dfs["quarterly_balance_sheet"], shares, hist)
 
             # YoY 성장률 추가
             _add_growth(annual)
@@ -925,13 +948,13 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str = Pa
 
             # 현금흐름 병합
             try:
-                cf_a = _process_cf(t.cashflow)
+                cf_a = _process_cf(dfs["cashflow"])
                 for row in annual:
                     row.update({k: v for k, v in cf_a.get(row["period"], {}).items() if k != "period"})
             except Exception:
                 pass
             try:
-                cf_q = _process_cf(t.quarterly_cashflow)
+                cf_q = _process_cf(dfs["quarterly_cashflow"])
                 for row in quarterly:
                     row.update({k: v for k, v in cf_q.get(row["period"], {}).items() if k != "period"})
             except Exception:
@@ -1023,12 +1046,12 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str = Path(...
     if c := cache.get(ck):
         return c
 
-    db_fresh = _db_get(ForecastsCache, symbol, market, 24)
+    db_fresh = await _run(_db_get, ForecastsCache, symbol, market, 24)
     if db_fresh:
         cache.set(ck, db_fresh, 3600)
         return db_fresh
 
-    db_stale = _db_get(ForecastsCache, symbol, market, 720)  # 30일까지는 stale로 사용
+    db_stale = await _run(_db_get, ForecastsCache, symbol, market, 720)  # 30일까지는 stale로 사용
     stale = db_stale or cache.get_stale(ck)
 
     import yfinance as yf
@@ -1181,7 +1204,7 @@ async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str = Path(...
         }
     if result.get("annual") or result.get("quarterly"):
         cache.set(ck, result, 3600)
-        _db_set(ForecastsCache, symbol, market, result)
+        await _run(_db_set, ForecastsCache, symbol, market, result)
         return result
     return stale or result
 
@@ -1501,12 +1524,12 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str = Path(..., 
     if c := cache.get(ck):
         return c
 
-    db_fresh = _db_get(AnalystCache, symbol, market, 24)
+    db_fresh = await _run(_db_get, AnalystCache, symbol, market, 24)
     if db_fresh:
         cache.set(ck, db_fresh, 86400)
         return db_fresh
 
-    db_stale = _db_get(AnalystCache, symbol, market, 720)  # 30일까지는 stale로 사용
+    db_stale = await _run(_db_get, AnalystCache, symbol, market, 720)  # 30일까지는 stale로 사용
     stale_analyst = db_stale or cache.get_stale(ck)
     if db_stale:
         cache.set(ck, db_stale, 3600)
@@ -1783,7 +1806,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str = Path(..., 
                 _fill_analyst_gaps(r2, stale_analyst)
                 if r2:
                     cache.set(ck, r2, 86400)
-                    _db_set(AnalystCache, symbol, market, r2)
+                    await _run(_db_set, AnalystCache, symbol, market, r2)
             except Exception:
                 pass
         asyncio.get_running_loop().create_task(_bg_analyst())
@@ -1808,7 +1831,7 @@ async def get_analyst(market: Literal["KR","US","ETF"], symbol: str = Path(..., 
 
     if result:
         cache.set(ck, result, 86400)
-        _db_set(AnalystCache, symbol, market, result)
+        await _run(_db_set, AnalystCache, symbol, market, result)
     elif stale_analyst:
         return stale_analyst
     return result or {}

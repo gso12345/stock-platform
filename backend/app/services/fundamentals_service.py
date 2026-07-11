@@ -28,6 +28,11 @@ def _now():
     return datetime.utcnow()
 
 
+async def _run(fn, *args):
+    """블로킹 DB 호출을 이벤트 루프 밖 스레드풀에서 실행"""
+    return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+
+
 def _db_get(model, symbol: str, market: str, max_age_h: float) -> dict | None:
     db = SessionLocal()
     try:
@@ -248,12 +253,12 @@ async def get_fundamentals(symbol: str, market: str) -> dict:
     if fresh := cache.get(ck):
         return fresh
 
-    db_fresh = _db_get(FundamentalsCache, symbol, market, FUND_FRESH_H)
+    db_fresh = await _run(_db_get, FundamentalsCache, symbol, market, FUND_FRESH_H)
     if db_fresh:
         cache.set(ck, db_fresh, 86400)
         return db_fresh
 
-    db_stale = _db_get(FundamentalsCache, symbol, market, FUND_STALE_H)
+    db_stale = await _run(_db_get, FundamentalsCache, symbol, market, FUND_STALE_H)
     if db_stale:
         cache.set(ck, db_stale, 3600)
         asyncio.create_task(_bg_fund(symbol, market))
@@ -264,7 +269,7 @@ async def get_fundamentals(symbol: str, market: str) -> dict:
     result = await _fetch_fund(symbol, market)
     if result:
         cache.set(ck, result, 86400)
-        _db_set(FundamentalsCache, symbol, market, result)
+        await _run(_db_set, FundamentalsCache, symbol, market, result)
         return result
 
     return mem_stale or {}
@@ -277,12 +282,12 @@ async def get_financials(symbol: str, market: str) -> dict:
     if fresh := cache.get(ck):
         return fresh
 
-    db_fresh = _db_get(FinancialsCache, symbol, market, FIN_FRESH_H)
+    db_fresh = await _run(_db_get, FinancialsCache, symbol, market, FIN_FRESH_H)
     if db_fresh:
         cache.set(ck, db_fresh, 3600)
         return db_fresh
 
-    db_stale = _db_get(FinancialsCache, symbol, market, FIN_STALE_H)
+    db_stale = await _run(_db_get, FinancialsCache, symbol, market, FIN_STALE_H)
     if db_stale:
         cache.set(ck, db_stale, 1800)
         asyncio.create_task(_bg_fin(symbol, market))
@@ -293,7 +298,7 @@ async def get_financials(symbol: str, market: str) -> dict:
     result = await _fetch_fin(symbol, market)
     if result and (result.get("annual") or result.get("quarterly")):
         cache.set(ck, result, 3600)
-        _db_set(FinancialsCache, symbol, market, result)
+        await _run(_db_set, FinancialsCache, symbol, market, result)
         return result
 
     return mem_stale or {"annual": [], "quarterly": []}
@@ -304,7 +309,7 @@ async def _bg_fund(symbol: str, market: str):
         r = await _fetch_fund(symbol, market)
         if r:
             cache.set(f"fund:{symbol}", r, 86400)
-            _db_set(FundamentalsCache, symbol, market, r)
+            await _run(_db_set, FundamentalsCache, symbol, market, r)
     except Exception:
         pass
 
@@ -314,7 +319,7 @@ async def _bg_fin(symbol: str, market: str):
         r = await _fetch_fin(symbol, market)
         if r and (r.get("annual") or r.get("quarterly")):
             cache.set(f"financials:{symbol}", r, 3600)
-            _db_set(FinancialsCache, symbol, market, r)
+            await _run(_db_set, FinancialsCache, symbol, market, r)
     except Exception:
         pass
 
@@ -329,7 +334,7 @@ async def batch_refresh(symbols: list[tuple[str, str]]):
         try:
             r = await _fetch_fund(symbol, market)
             if r:
-                _db_set(FundamentalsCache, symbol, market, r)
+                await _run(_db_set, FundamentalsCache, symbol, market, r)
                 cache.set(f"fund:{symbol}", r, 86400)
                 ok_fund += 1
         except Exception as e:
@@ -340,7 +345,7 @@ async def batch_refresh(symbols: list[tuple[str, str]]):
         try:
             r = await _fetch_fin(symbol, market)
             if r and (r.get("annual") or r.get("quarterly")):
-                _db_set(FinancialsCache, symbol, market, r)
+                await _run(_db_set, FinancialsCache, symbol, market, r)
                 cache.set(f"financials:{symbol}", r, 3600)
                 ok_fin += 1
         except Exception as e:

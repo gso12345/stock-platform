@@ -44,6 +44,65 @@ function TabBtn({ active, onClick, icon: Icon, label }: any) {
   );
 }
 
+/* ── 재무제표 탭 — 기간 토글 ─────────────────────────────── */
+function PeriodToggle({ finPeriod, setFinPeriod }: {
+  finPeriod: "annual" | "quarterly";
+  setFinPeriod: (v: "annual" | "quarterly") => void;
+}) {
+  return (
+    <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary">
+      {(["annual","quarterly"] as const).map(k=>(
+        <button key={k} onClick={()=>setFinPeriod(k)}
+          className={`px-2.5 py-1 text-sm font-semibold rounded-md transition-all ${finPeriod===k?"bg-accent-blue text-white":"text-text-muted"}`}>
+          {k==="annual"?"연간":"분기"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ── 재무제표 탭 — 전치 테이블 ──────────────────────────── */
+function TransTable({ rows, allYears, getVal, finPeriod }: {
+  rows: { key: string; label: string; fmt: (v: number) => string; color: string; boldLabel?: boolean }[];
+  allYears: string[];
+  getVal: (key: string, year: string) => number | null;
+  finPeriod: "annual" | "quarterly";
+}) {
+  if (!allYears.length) return <p className="text-text-muted text-base py-4 text-center">연결 중...</p>;
+  const filteredRows = rows.filter(r => r.key);
+  return (
+    <div className="overflow-x-auto scrollbar-thin">
+      <table className="text-sm w-max min-w-full">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card w-28 min-w-[7rem] whitespace-nowrap">지표</th>
+            {allYears.map(y=>(
+              <th key={y} className={`text-right pb-2 font-mono font-medium min-w-[72px] px-2 whitespace-nowrap ${y.endsWith("E")?"text-accent-yellow/80":"text-text-muted"}`}>
+                {y.endsWith("E") ? y : (finPeriod === "quarterly" ? y.replace(/(\d{4})-?Q(\d)/, "$1 Q$2") : y)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filteredRows.map(({ key, label, fmt, color, boldLabel })=>(
+            <tr key={key} className="border-b border-border/30 hover:bg-bg-hover">
+              <td className={`py-1.5 pr-3 text-text-muted sticky left-0 bg-bg-card whitespace-nowrap ${boldLabel?"font-semibold":""}`}>{label}</td>
+              {allYears.map(y=>{
+                const v = getVal(key, y);
+                const isEst = y.endsWith("E");
+                return (
+                  <td key={y} className={`py-1.5 px-2 text-right font-mono ${color} ${isEst?"opacity-70 italic":""}`}>
+                    {v!=null ? fmt(v) : "—"}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* ── 메인 ───────────────────────────────────────────── */
 export default function StockDetail() {
   const { market, symbol: rawSymbol } = useParams<{ market: string; symbol: string }>();
@@ -98,12 +157,12 @@ export default function StockDetail() {
     return () => window.removeEventListener("resize", h);
   }, []);
 
-  const onCandleChange = (type: string) => { setCandleType(type); };
+  const onCandleChange = useCallback((type: string) => { setCandleType(type); }, []);
 
   // 현재 캔들 값이 속한 그룹 key 반환
   const activeGroupKey = CANDLE_GROUPS.find(g => g.options.some(o => o.value === candleType))?.key ?? "day";
 
-  const fmt = (v: number | null | undefined) => isKR ? fmtKRW(v) : showKRW && v != null ? fmtKRW(v * exchangeRate) : fmtUSD(v);
+  const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);
 
   // 탭별 데이터 선제 prefetch
   const prefetchSecondaryData = useCallback((tabId?: string) => {
@@ -135,7 +194,7 @@ export default function StockDetail() {
     queryFn: () => stocksApi.getDetail(m, sym),
     enabled: !!sym, retry: 1, retryDelay: 3000,
     staleTime: 15_000,
-    refetchInterval: 15_000,
+    refetchInterval: isIntraday ? false : 15_000,
   });
 
   // 대체거래소(NXT/넥스트레이드) 시세 — KR 종목만 조회
@@ -148,7 +207,6 @@ export default function StockDetail() {
     refetchInterval: 15_000,
   });
 
-  const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);
   const chartPeriod = CANDLE_MAX_PERIOD[candleType] ?? "max";
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
@@ -238,7 +296,8 @@ export default function StockDetail() {
     queryFn: () => stocksApi.getQuantScore(m, sym, quantWeights ?? undefined, quantMetrics ?? undefined),
     enabled: !!sym && mainTab === "quant",
     retry: 1,
-    staleTime: (quantWeights || quantMetrics) ? 0 : 60_000,
+    // 사용자 가중치/지표 커스터마이징 중이면 즉시 재계산, 그 외엔 5분 캐시
+    staleTime: (quantWeights || quantMetrics) ? 0 : 300_000,
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return false;
@@ -281,6 +340,7 @@ export default function StockDetail() {
     staleTime: 300_000,
   });
   const exchangeRate: number = (exchangeRateData as any)?.value ?? 1350;
+  const fmt = useCallback((v: number | null | undefined) => isKR ? fmtKRW(v) : showKRW && v != null ? fmtKRW(v * exchangeRate) : fmtUSD(v), [isKR, showKRW, exchangeRate]);
 
   // 이미 추가된 종목인지 확인 (로그인 사용자만)
   const { data: watchlistItems } = useQuery({
@@ -452,6 +512,22 @@ export default function StockDetail() {
     if (showKRW) return Math.round(v * exchangeRate).toLocaleString("ko-KR");
     return v.toFixed(2);
   };
+  const priceItems = useMemo(() => {
+    if (!d) return [] as { label: string; v: string | null; color?: string }[];
+    return [
+      { label:"시가",     v: fmtPx(d.open) },
+      { label:"고가",     v: fmtPx(d.high), color:"text-accent-red" },
+      { label:"저가",     v: fmtPx(d.low),  color:"text-accent-blue" },
+      { label:"전일종가", v: fmtPx(d.prev_close) },
+      { label:"거래량",   v: d.volume ? (d.volume >= 1e8 ? `${(d.volume/1e8).toFixed(1)}억주` : d.volume >= 1e4 ? `${(d.volume/1e4).toFixed(1)}만주` : d.volume.toLocaleString("ko-KR")) : null },
+      { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
+      { label:"시가총액", v: fmt(d.market_cap) },
+      { label:"52주 고가",v: fmtPx(d.week52_high), color:"text-accent-red" },
+      { label:"52주 저가",v: fmtPx(d.week52_low),  color:"text-accent-blue" },
+      { label:"배당수익률",v: d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : null, color:"text-accent-green" },
+    ] as { label: string; v: string | null; color?: string }[];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d?.open, d?.high, d?.low, d?.prev_close, d?.volume, d?.price, d?.market_cap, d?.week52_high, d?.week52_low, d?.dividend_yield, isKR, showKRW, exchangeRate, fmt]);
   const priceStr = d?.price != null
     ? isKR ? `₩${d.price.toLocaleString("ko-KR")}`
       : showKRW ? `₩${Math.round(d.price * exchangeRate).toLocaleString("ko-KR")}`
@@ -611,18 +687,6 @@ export default function StockDetail() {
 
           {/* 시세 지표 — 모바일 2열 / 데스크탑 5열 */}
           {(() => {
-            const priceItems = [
-              { label:"시가",     v: fmtPx(d.open) },
-              { label:"고가",     v: fmtPx(d.high), color:"text-accent-red" },
-              { label:"저가",     v: fmtPx(d.low),  color:"text-accent-blue" },
-              { label:"전일종가", v: fmtPx(d.prev_close) },
-              { label:"거래량",   v: d.volume ? (d.volume >= 1e8 ? `${(d.volume/1e8).toFixed(1)}억주` : d.volume >= 1e4 ? `${(d.volume/1e4).toFixed(1)}만주` : d.volume.toLocaleString("ko-KR")) : null },
-              { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
-              { label:"시가총액", v: fmt(d.market_cap) },
-              { label:"52주 고가",v: fmtPx(d.week52_high), color:"text-accent-red" },
-              { label:"52주 저가",v: fmtPx(d.week52_low),  color:"text-accent-blue" },
-              { label:"배당수익률",v: d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : null, color:"text-accent-green" },
-            ];
             const COLS_SM = 5; // 데스크탑 열 수
             return (
               <div className="grid grid-cols-2 sm:grid-cols-5">
@@ -921,57 +985,6 @@ export default function StockDetail() {
       {mainTab==="financial" && (() => {
         const { mh, dEnhanced, mhYears, allYears, getVal } = finTabData;
 
-        // 연간/분기 토글 컴포넌트
-        const PeriodToggle = () => (
-          <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary">
-            {(["annual","quarterly"] as const).map(k=>(
-              <button key={k} onClick={()=>setFinPeriod(k)}
-                className={`px-2.5 py-1 text-sm font-semibold rounded-md transition-all ${finPeriod===k?"bg-accent-blue text-white":"text-text-muted"}`}>
-                {k==="annual"?"연간":"분기"}
-              </button>
-            ))}
-          </div>
-        );
-
-        // 전치 테이블 렌더러
-        const TransTable = ({ rows }: { rows: { key:string; label:string; fmt:(v:number)=>string; color:string; boldLabel?:boolean }[] }) => {
-          // allYears가 있으면 테이블은 표시 (값이 없는 셀은 — 으로)
-          // allYears 자체가 없으면(데이터 미도착) 연결 중 표시
-          if (!allYears.length) return <p className="text-text-muted text-base py-4 text-center">연결 중...</p>;
-          const filteredRows = rows.filter(r => r.key); // 모든 row 표시 (빈 셀은 — 로)
-          return (
-            <div className="overflow-x-auto scrollbar-thin">
-              <table className="text-sm w-max min-w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left pb-2 font-medium text-text-muted sticky left-0 bg-bg-card w-28 min-w-[7rem] whitespace-nowrap">지표</th>
-                    {allYears.map(y=>(
-                      <th key={y} className={`text-right pb-2 font-mono font-medium min-w-[72px] px-2 whitespace-nowrap ${y.endsWith("E")?"text-accent-yellow/80":"text-text-muted"}`}>
-                        {y.endsWith("E") ? y : (finPeriod === "quarterly" ? y.replace(/(\d{4})-?Q(\d)/, "$1 Q$2") : y)}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRows.map(({ key, label, fmt, color, boldLabel })=>(
-                    <tr key={key} className="border-b border-border/30 hover:bg-bg-hover">
-                      <td className={`py-1.5 pr-3 text-text-muted sticky left-0 bg-bg-card whitespace-nowrap ${boldLabel?"font-semibold":""}`}>{label}</td>
-                      {allYears.map(y=>{
-                        const v = getVal(key, y);
-                        const isEst = y.endsWith("E");
-                        return (
-                          <td key={y} className={`py-1.5 px-2 text-right font-mono ${color} ${isEst?"opacity-70 italic":""}`}>
-                            {v!=null ? fmt(v) : "—"}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          );
-        };
-
         // 재무제표 통화 포맷 (showKRW 토글 반영)
         const fmtFin = (v: number | null | undefined): string => {
           if (v == null) return "—";
@@ -1035,7 +1048,7 @@ export default function StockDetail() {
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-base font-semibold text-text-primary">손익계산서</span>
-                <PeriodToggle />
+                <PeriodToggle finPeriod={finPeriod} setFinPeriod={setFinPeriod} />
               </div>
               {loadingFin ? (
                 <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
@@ -1071,7 +1084,7 @@ export default function StockDetail() {
                     { key:"op_margin",        label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
                     { key:"net_margin",       label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
                     { key:"eps",              label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-cyan-400" },
-                  ]}/>
+                  ]} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
                 </div>
               )}
             </div>
@@ -1082,7 +1095,7 @@ export default function StockDetail() {
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-base font-semibold text-text-primary">밸류에이션</span>
-                <PeriodToggle />
+                <PeriodToggle finPeriod={finPeriod} setFinPeriod={setFinPeriod} />
               </div>
               <div className="p-4 flex flex-col gap-4">
                 {/* 현재 지표 — detail 없으면 metricsHistory 최신값 사용 */}
@@ -1181,7 +1194,7 @@ export default function StockDetail() {
                   { key:"psr",  label:"PSR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-purple-400" },
                   { key:"eps",  label:"EPS",  fmt:(v)=>fmtEpsBps(v)!, color:"text-cyan-400" },
                   { key:"bps",  label:"BPS",  fmt:(v)=>fmtEpsBps(v)!, color:"text-text-secondary" },
-                ]}/>
+                ]} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
               </div>
             </div>
           )}
@@ -1191,7 +1204,7 @@ export default function StockDetail() {
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-base font-semibold text-text-primary">기본 지표</span>
-                <PeriodToggle />
+                <PeriodToggle finPeriod={finPeriod} setFinPeriod={setFinPeriod} />
               </div>
               <div className="p-4 flex flex-col gap-4">{(() => {
                 const BASIC_METRICS = [
@@ -1235,7 +1248,7 @@ export default function StockDetail() {
                     label: m.label,
                     fmt: (v:number) => m.pct ? `${v.toFixed(1)}%` : (m.key==="current_ratio"||m.key==="quick_ratio" ? `${(v*100).toFixed(0)}%` : (fmtFin(v))),
                     color: "text-text-secondary",
-                  }))}/>
+                  }))} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
                 </>);
               })()}
               </div>
@@ -1247,7 +1260,7 @@ export default function StockDetail() {
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-base font-semibold text-text-primary">수익성</span>
-                <PeriodToggle />
+                <PeriodToggle finPeriod={finPeriod} setFinPeriod={setFinPeriod} />
               </div>
               <div className="p-4 flex flex-col gap-4">
                 {d && (
@@ -1283,7 +1296,7 @@ export default function StockDetail() {
                   { key:"net_margin",   label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
                   { key:"roe",          label:"ROE",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-yellow" },
                   { key:"eps",          label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-cyan-400" },
-                ]}/>
+                ]} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
               </div>
             </div>
           )}
@@ -1293,7 +1306,7 @@ export default function StockDetail() {
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-base font-semibold text-text-primary">재무건전성</span>
-                <PeriodToggle />
+                <PeriodToggle finPeriod={finPeriod} setFinPeriod={setFinPeriod} />
               </div>
               <div className="p-4 flex flex-col gap-4">
                 {/* 현재 지표 */}
@@ -1331,7 +1344,7 @@ export default function StockDetail() {
                   { key:"debt_ratio",    label:"부채비율",   fmt:(v)=>`${v.toFixed(0)}%`,        color:"text-accent-red" },
                   { key:"current_ratio", label:"유동비율",   fmt:(v)=>`${(v*100).toFixed(0)}%`,  color:"text-accent-green" },
                   { key:"quick_ratio",   label:"당좌비율",   fmt:(v)=>`${(v*100).toFixed(0)}%`,  color:"text-accent-blue" },
-                ]}/>
+                ]} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
               </div>
             </div>
           )}
@@ -1341,7 +1354,7 @@ export default function StockDetail() {
             <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-base font-semibold text-text-primary">현금흐름</span>
-                <PeriodToggle />
+                <PeriodToggle finPeriod={finPeriod} setFinPeriod={setFinPeriod} />
               </div>
               <div className="p-4 flex flex-col gap-4">
                 {/* 현금흐름 바 차트 */}
@@ -1388,7 +1401,7 @@ export default function StockDetail() {
                   { key:"free_cf",      label:"FCF",         fmt:(v)=>fmtFin(v), color:"text-accent-blue" },
                   { key:"capex",        label:"CAPEX",        fmt:(v)=>fmtFin(v), color:"text-text-secondary" },
                   { key:"da",           label:"감가상각비",   fmt:(v)=>fmtFin(v), color:"text-text-secondary" },
-                ]}/>
+                ]} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
               </div>
             </div>
           )}

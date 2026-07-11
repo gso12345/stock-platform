@@ -26,7 +26,7 @@ export function Card({ children, className, onClick }: {
 export function ChangeBadge({ value, suffix = "%", className }: {
   value: number; suffix?: string; className?: string;
 }) {
-  const { colorScheme } = useSettingsStore();
+  const colorScheme = useSettingsStore((s) => s.colorScheme);
   const pos = value >= 0;
   const color = pos
     ? (colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green")
