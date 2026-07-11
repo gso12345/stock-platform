@@ -58,12 +58,12 @@ export default function SearchBar() {
     setTimeout(() => inputRef.current?.focus(), 10);
   };
 
-  const closeSearch = () => {
+  const closeSearch = useCallback(() => {
     setOpen(false);
     setQuery("");
     setResults([]);
     inputRef.current?.blur();
-  };
+  }, []);
 
   /* Esc 닫기 */
   useEffect(() => {
@@ -72,7 +72,7 @@ export default function SearchBar() {
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [open]);
+  }, [open, closeSearch]);
 
   /* 외부 클릭 닫기 */
   useEffect(() => {
@@ -82,7 +82,7 @@ export default function SearchBar() {
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
-  }, [open]);
+  }, [open, closeSearch]);
 
   /* 검색 */
   useEffect(() => {

@@ -21,6 +21,8 @@ export function useWebSocket<T>(
   const connect = useCallback(() => {
     if (!enabled || !isMounted.current) return;
 
+    let alive = true;
+
     const ws = new WebSocket(url);
     wsRef.current = ws;
     setStatus("connecting");
@@ -37,7 +39,7 @@ export function useWebSocket<T>(
     };
 
     ws.onclose = () => {
-      if (!isMounted.current) return;
+      if (!alive || !isMounted.current) return;
       setStatus("disconnected");
       reconnectTimer.current = setTimeout(connect, reconnectDelay);
     };
@@ -45,6 +47,8 @@ export function useWebSocket<T>(
     ws.onerror = () => {
       ws.close();
     };
+
+    return () => { alive = false; };
   }, [url, enabled, reconnectDelay]); // onMessage 제거 — ref로 처리
 
   useEffect(() => {

@@ -22,7 +22,10 @@ def get_current_user(
     user_id = data.get("sub")
     if not user_id:
         return None
-    user = db.query(User).filter(User.id == int(user_id)).first()
+    try:
+        user = db.query(User).filter(User.id == int(user_id)).first()
+    except (ValueError, TypeError):
+        return None
     if user and not user.is_active:
         return None
     return user

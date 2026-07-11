@@ -68,9 +68,9 @@ class UniverseBacktestRequest(BaseModel):
 
 
 class StrategySaveRequest(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = None
-    market: str
+    market: str = Field(..., pattern="^(KR|US|ETF)$")
     entry_conditions: dict
     exit_conditions: dict
     stop_loss: Optional[float] = None
@@ -86,7 +86,7 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
     if end_dt <= start_dt:
         raise HTTPException(status_code=400, detail="종료일은 시작일보다 이후여야 합니다")
     days = (end_dt - start_dt).days
-    period_map = [(3650, "10y"), (1825, "5y"), (730, "2y"), (365, "1y"), (180, "6mo"), (90, "3mo"), (30, "1mo")]
+    period_map = [(30, "1mo"), (90, "3mo"), (180, "6mo"), (365, "1y"), (730, "2y"), (1825, "5y"), (3650, "10y")]
     period = next((p for d, p in period_map if days <= d), "max")
 
     mkt = "KR" if req.market == "KR" else "US"
@@ -163,7 +163,7 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
     start_dt = datetime.strptime(req.start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(req.end_date, "%Y-%m-%d")
     days = (end_dt - start_dt).days
-    period_map = [(3650, "10y"), (1825, "5y"), (730, "2y"), (365, "1y"), (180, "6mo"), (90, "3mo"), (30, "1mo")]
+    period_map = [(30, "1mo"), (90, "3mo"), (180, "6mo"), (365, "1y"), (730, "2y"), (1825, "5y"), (3650, "10y")]
     period = next((p for d, p in period_map if days <= d), "max")
 
     loop = asyncio.get_running_loop()

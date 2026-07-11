@@ -185,7 +185,7 @@ export default function StockDetail() {
       qc.prefetchQuery({ queryKey: ["stock-ohlcv", m, sym, "1d", "1mo"], queryFn: () => stocksApi.getOHLCV(m, sym, "1mo", "1d"), staleTime: 300_000 });
     }
     if (tab === "quant") {
-      qc.prefetchQuery({ queryKey: ["quant-score", m, sym, null], queryFn: () => stocksApi.getQuantScore(m, sym), staleTime: 60_000 });
+      qc.prefetchQuery({ queryKey: ["quant-score", m, sym, null, null], queryFn: () => stocksApi.getQuantScore(m, sym), staleTime: 60_000 });
     }
   }, [m, sym, qc]);
 
@@ -548,7 +548,9 @@ export default function StockDetail() {
   const showExtHours = !isKR && extHoursPrice != null;
   const extHoursLabel = d?.market_state === "PRE" ? "프리마켓" : "애프터마켓";
   const extHoursUp = (extHoursChangeRate ?? 0) >= 0;
-  const extHoursPriceStr = showKRW ? `₩${Math.round(extHoursPrice * exchangeRate).toLocaleString("ko-KR")}` : `$${extHoursPrice?.toFixed(2)}`;
+  const extHoursPriceStr = extHoursPrice != null
+    ? (showKRW ? `₩${Math.round(extHoursPrice * exchangeRate).toLocaleString("ko-KR")}` : `$${extHoursPrice.toFixed(2)}`)
+    : "—";
 
   if (detailError && !detail) {
     return (
