@@ -1432,7 +1432,7 @@ export default function Portfolio() {
       {/* ── 헤더 ── */}
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">내 자산</h1>
+          <h1 className="text-xl font-bold text-text-primary">내 자산</h1>
           <p className="text-text-muted text-xs mt-0.5">
             {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : `${displayEnriched.length}개 종목 · 클릭하면 상세로 이동`}
           </p>
@@ -1505,16 +1505,16 @@ export default function Portfolio() {
       )}
       {hasDisplay && (
         <Card className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary">
+          <div className="flex items-center justify-between border-b border-border -mx-4 px-4 pb-0">
+            <div className="flex">
               {([
-                { id: "stock",  label: "종목별 구성" },
-                { id: "market", label: "자산유형별 구성" },
-                ...(isAllView && portfolios.length > 1 ? [{ id: "portfolio", label: "포트폴리오별 비중" }] : []),
+                { id: "stock",  label: "종목별" },
+                { id: "market", label: "자산유형별" },
+                ...(isAllView && portfolios.length > 1 ? [{ id: "portfolio", label: "포트폴리오별" }] : []),
               ] as { id: ChartMode; label: string }[]).map(({ id, label }) => (
                 <button key={id} onClick={() => setChartMode(id)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-                    chartMode === id ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
+                  className={`px-4 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all ${
+                    chartMode === id ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
                   }`}
                 >{label}</button>
               ))}
@@ -1580,7 +1580,7 @@ export default function Portfolio() {
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border flex-wrap">
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-sm font-semibold text-text-primary whitespace-nowrap">보유 종목</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted font-semibold whitespace-nowrap">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-bg-secondary text-text-muted font-semibold whitespace-nowrap">
               {isLoggedIn ? items.length : "예시"}
             </span>
             {isLoggedIn && isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
@@ -1649,20 +1649,18 @@ export default function Portfolio() {
           </div>
         </div>
 
-        {/* ── 자산유형 필터 탭 (관심종목 시장 탭과 동일한 디자인) ── */}
+        {/* ── 자산유형 필터 탭 ── */}
         {((isLoggedIn && items.length > 0) || !isLoggedIn) && (
-          <div className="px-3 pt-2.5 pb-1 overflow-x-auto scrollbar-hide">
-            <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
-              {ASSET_FILTER_TABS.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setAssetFilterTab(t.id)}
-                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap ${
-                    assetFilterTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-                  }`}
-                >{t.label}</button>
-              ))}
-            </div>
+          <div className="flex overflow-x-auto scrollbar-hide border-b border-border px-1">
+            {ASSET_FILTER_TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setAssetFilterTab(t.id)}
+                className={`px-4 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all whitespace-nowrap ${
+                  assetFilterTab === t.id ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
+                }`}
+              >{t.label}</button>
+            ))}
           </div>
         )}
 
@@ -1735,7 +1733,7 @@ export default function Portfolio() {
                 return (
                   <div
                     key={item.id}
-                    className="rounded-xl border border-border/70 bg-bg-elevated/30 hover:border-accent-blue/30 hover:bg-bg-elevated/50 transition-colors p-3.5 flex flex-col gap-3 cursor-pointer"
+                    className="rounded-xl border border-border bg-bg-card hover:border-accent-blue/30 hover:bg-bg-hover transition-all p-4 flex flex-col gap-3 cursor-pointer"
                     onClick={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -1828,10 +1826,10 @@ export default function Portfolio() {
           <div className="relative overflow-x-auto scrollbar-thin">
             <table className="w-full text-xs min-w-[820px]">
               <thead>
-                <tr className="border-b border-border bg-bg-primary/50">
+                <tr className="border-b border-border text-text-muted">
                   <SortHead field="name"    label="종목명"      sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} align="left" />
-                  {isAllView && <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-left">포트폴리오</th>}
-                  <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">시장</th>
+                  {isAllView && <th className="px-3 py-2.5 font-medium text-text-muted whitespace-nowrap text-left text-xs">포트폴리오</th>}
+                  <th className="px-3 py-2.5 font-medium text-text-muted whitespace-nowrap text-right text-xs">시장</th>
                   <SortHead field="shares"  label="보유수량"    sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">평단가</th>
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">현재가</th>
@@ -1930,8 +1928,8 @@ export default function Portfolio() {
                 })}
               </tbody>
               <tfoot>
-                <tr className="border-t border-border bg-bg-primary/50">
-                  <td className="px-3 py-2.5 font-semibold text-text-muted" colSpan={isAllView ? 5 : 4}>합계</td>
+                <tr className="border-t-2 border-border">
+                  <td className="px-3 py-2.5 font-semibold text-text-muted text-xs" colSpan={isAllView ? 5 : 4}>합계</td>
                   <td />
                   {(isLoggedIn ? pricesLoading : !previewLoaded) ? (
                     <>

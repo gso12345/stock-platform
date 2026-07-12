@@ -381,7 +381,7 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
 
       {/* 슬라이드 콘텐츠 */}
       <div
-        className="flex items-center gap-2 px-3 py-2.5 bg-bg-card hover:bg-bg-hover"
+        className="flex items-center gap-2 px-3 py-3 bg-bg-card hover:bg-bg-hover transition-colors"
         style={{ transform: `translateX(${swipeX}px)`, transition: swipeX === 0 || swipeX === -SWIPE_REVEAL ? "transform 0.2s ease" : "none" }}
         onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
         onClick={swipeX !== 0 ? closeSwipe : undefined}
@@ -393,7 +393,7 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
           onTouchStart={onTouchDragStart}
           onTouchMove={(e) => onTouchDragMove?.(e.touches[0].clientX, e.touches[0].clientY)}
           onTouchEnd={onTouchDragEnd}
-          className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1 py-1"
+          className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1"
           title="드래그하여 순서 변경"
         >
           <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
@@ -412,16 +412,15 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
         >
           <div className="flex items-center gap-1.5">
-            <span className="font-mono font-bold text-sm text-text-primary">
-              {item.symbol?.replace(".KS","").replace(".KQ","")}
-            </span>
-            {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
             <Badge variant={item.market==="KR"?"blue":item.market==="ETF"?"purple":"green"}>
               {item.market}
             </Badge>
+            <span className="font-semibold text-sm text-text-primary truncate">
+              {item.name || p.name || item.symbol?.replace(".KS","").replace(".KQ","")}
+            </span>
+            {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
           </div>
-          <div className="text-[11px] text-text-muted truncate">{item.name || p.name}</div>
-          {item.memo && <div className="text-[10px] text-text-muted/60 italic mt-0.5">{item.memo}</div>}
+          <div className="text-[11px] text-text-muted font-mono mt-0.5">{item.symbol?.replace(".KS","").replace(".KQ","")}{item.memo ? ` · ${item.memo}` : ""}</div>
         </div>
 
         {/* 가격 */}
@@ -435,19 +434,19 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
           <div className="text-sm font-mono font-semibold text-text-primary">
             {hasPrice
               ? isKR ? `₩${Number(p.price).toLocaleString("ko-KR")}` : `$${Number(p.price).toFixed(2)}`
-              : <span className="text-text-muted text-xs">조회 중</span>}
+              : <span className="text-text-muted text-xs">—</span>}
           </div>
           {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs"/>}
         </div>
 
-        {/* 포트폴리오 추가 버튼 (항상 표시) */}
+        {/* 포트폴리오 추가 버튼 */}
         {onAddToPortfolio && (
-          <button onClick={(e) => { e.stopPropagation(); onAddToPortfolio(); }} className="text-text-muted hover:text-accent-green p-1 flex-shrink-0" title="포트폴리오에 추가"><Wallet size={14}/></button>
+          <button onClick={(e) => { e.stopPropagation(); onAddToPortfolio(); }} className="text-text-muted hover:text-accent-green p-1.5 rounded-lg hover:bg-accent-green/10 transition-colors flex-shrink-0" title="포트폴리오에 추가"><Wallet size={14}/></button>
         )}
         {/* 편집/삭제 버튼 (데스크탑 hover) */}
         <div className="hidden md:flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1"><Settings2 size={13}/></button>
-          <button onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1"><Trash2 size={13}/></button>
+          <button onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1.5 rounded-lg hover:bg-accent-blue/10 transition-colors"><Settings2 size={13}/></button>
+          <button onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1.5 rounded-lg hover:bg-accent-red/10  transition-colors"><Trash2 size={13}/></button>
         </div>
       </div>
     </div>
@@ -1066,7 +1065,7 @@ export default function Watchlist() {
       {/* 헤더 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">관심종목</h1>
+          <h1 className="text-xl font-bold text-text-primary">관심종목</h1>
           <p className="text-text-muted text-xs mt-0.5">
             {isPreview ? `${PREVIEW_WATCHLIST.length}개 예시 종목 · 클릭하면 상세로 이동` : `${itemsList.length}개 종목 · 클릭하면 상세로 이동`}
           </p>
@@ -1075,13 +1074,13 @@ export default function Watchlist() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => createFolderMutation.mutate()}
-              className="flex items-center gap-1.5 px-3 py-2 bg-bg-card border border-border rounded-xl text-xs text-text-secondary hover:border-accent-blue hover:text-accent-blue transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
             >
               <FolderPlus size={13} />폴더
             </button>
             <button
               onClick={() => openAddModal(typeof folderTab === "number" ? folderTab : null)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-accent-blue hover:bg-blue-600 rounded-xl text-xs text-white font-semibold transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all"
             >
               <Plus size={13} />종목 추가
             </button>
@@ -1090,11 +1089,11 @@ export default function Watchlist() {
       </div>
 
       {/* 시장 탭 — 미리보기·로그인 모두 동작 */}
-      <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
+      <div className="flex border-b border-border overflow-x-auto scrollbar-hide">
         {MARKET_TABS.map((t) => (
           <button key={t.id} onClick={() => { setMarketTab(t.id); setFolderTab("all"); }}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+            className={`px-5 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all whitespace-nowrap ${
+              marketTab === t.id ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
             }`}
           >{t.label}</button>
         ))}
@@ -1170,10 +1169,10 @@ export default function Watchlist() {
       {/* 본문 */}
       {folderTab === "recent" ? (
         <Card className="p-0 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
             <Clock size={13} className="text-accent-blue" />
             <span className="flex-1 text-sm font-semibold text-text-primary">최근 조회한 종목</span>
-            <span className="text-xs text-text-muted">{recentStocks.length}개</span>
+            <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{recentStocks.length}</span>
           </div>
           {recentStocks.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-4 py-6">
@@ -1219,10 +1218,10 @@ export default function Watchlist() {
           <div className="flex flex-col gap-3">
             {visibleFolders.map(folder => (
               <Card key={folder.id} className="p-0 overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
                   <ChevronDown size={14} className="text-text-muted" />
                   <span className="flex-1 text-sm font-semibold text-text-primary">{folder.name}</span>
-                  <span className="text-xs text-text-muted">{shown.filter(i => i.folderId === folder.id).length}개</span>
+                  <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{shown.filter(i => i.folderId === folder.id).length}</span>
                 </div>
                 {shown.filter(i => i.folderId === folder.id).map(item => (
                   <PreviewItemRow key={item.id} item={item} onNavigate={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)} />
@@ -1250,7 +1249,7 @@ export default function Watchlist() {
             return (
               <Card key={folder.id} className="p-0 overflow-hidden">
                 <div
-                  className={`flex items-center gap-2 px-4 py-2.5 bg-bg-secondary border-b border-border group ${dropFolderId === folder.id ? "bg-accent-blue/5" : ""} ${dragFolderId === folder.id ? "opacity-40" : ""}`}
+                  className={`flex items-center gap-2 px-4 py-3 border-b border-border group ${dropFolderId === folder.id ? "bg-accent-blue/5" : "bg-bg-card"} ${dragFolderId === folder.id ? "opacity-40" : ""}`}
                   data-folder-id={folder.id}
                   onDragOver={(e) => handleFolderDragOver(e, folder.id)}
                   onDrop={handleFolderDrop}
@@ -1284,8 +1283,8 @@ export default function Watchlist() {
                   ) : (
                     <>
                       <span className="flex-1 text-sm font-semibold text-text-primary">{folder.name}</span>
-                      <span className="text-xs text-text-muted">{folderItems.length}개</span>
-                      <button onClick={() => openAddModal(folder.id)} className="text-text-muted hover:text-accent-blue p-1" title="이 폴더에 종목 추가">
+                      <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{folderItems.length}</span>
+                      <button onClick={() => openAddModal(folder.id)} className="text-text-muted hover:text-accent-blue p-1.5 rounded-lg hover:bg-accent-blue/10 transition-colors" title="이 폴더에 종목 추가">
                         <Plus size={13} />
                       </button>
                       <div className="flex gap-1">
