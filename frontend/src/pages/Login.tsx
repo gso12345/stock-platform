@@ -48,7 +48,7 @@ export default function Login() {
         username,
         password,
       });
-      login(data.access_token, data.user_id, data.username);
+      login(data.access_token, data.user_id, data.username, data.is_admin ?? false);
       navigate("/");
     } catch (err) {
       const axiosErr = err as AxiosError<{ detail?: string }>;

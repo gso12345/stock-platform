@@ -57,6 +57,7 @@ class TokenResponse(BaseModel):
     user_id: int
     username: str
     email: Optional[str] = None
+    is_admin: bool = False
 
 
 class OAuthExchangeRequest(BaseModel):
@@ -68,18 +69,28 @@ class UserResponse(BaseModel):
     username: str
     email: Optional[str] = None
     is_active: bool
+    is_admin: bool = False
 
     model_config = {"from_attributes": True}
 
 
 # ── 헬퍼 ─────────────────────────────────────────────────────────
-def _make_token_response(user: User) -> TokenResponse:
+def _is_admin_username(username: str) -> bool:
+    admins = [a.strip() for a in settings.ADMIN_USERNAME.split(",") if a.strip()]
+    return username in admins
+
+
+def _make_token_response(user: User, db=None) -> TokenResponse:
+    if db and _is_admin_username(user.username) and not user.is_admin:
+        user.is_admin = True
+        db.commit()
     token = create_access_token(data={"sub": str(user.id)})
     return TokenResponse(
         access_token=token,
         user_id=user.id,
         username=user.username,
         email=user.email,
+        is_admin=user.is_admin or _is_admin_username(user.username),
     )
 
 
@@ -117,7 +128,7 @@ def register(request: Request, req: RegisterRequest, db: Session = Depends(get_d
         if "unique" in err or "duplicate" in err:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 아이디 또는 이메일입니다")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="서버 오류가 발생했습니다")
-    return _make_token_response(user)
+    return _make_token_response(user, db)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -138,7 +149,7 @@ def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="비활성화된 계정입니다",
         )
-    return _make_token_response(user)
+    return _make_token_response(user, db)
 
 
 @router.get("/me", response_model=UserResponse)

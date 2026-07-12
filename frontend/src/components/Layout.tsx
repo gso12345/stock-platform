@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone, ShieldCheck, Megaphone } from "lucide-react";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
@@ -9,6 +9,8 @@ import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
 import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import api from "@/api/client";
 
 const NAV = [
   { to: "/",          icon: LayoutDashboard, label: "대시보드",  end: true },
@@ -188,6 +190,7 @@ export default function Layout() {
   const wsStatus = useWSStore((s) => s.indicesStatus);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const username = useAuthStore((s) => s.username);
+  const isAdmin = useAuthStore((s) => s.isAdmin);
   const logout = useAuthStore((s) => s.logout);
   const fontSize = useSettingsStore((s) => s.fontSize);
   const theme = useSettingsStore((s) => s.theme);
@@ -383,6 +386,12 @@ export default function Layout() {
                 <span className="hidden sm:block text-text-muted text-xs font-medium truncate max-w-[120px]" title={username ?? ""}>
                   {username}
                 </span>
+                {isAdmin && (
+                  <Link to="/admin" className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-accent-blue/40 hover:bg-accent-blue/10 text-accent-blue transition-all" title="관리자 페이지">
+                    <ShieldCheck size={13} />
+                    <span className="hidden sm:block text-xs">관리자</span>
+                  </Link>
+                )}
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-red transition-all"
@@ -410,6 +419,9 @@ export default function Layout() {
             </button>
           </div>
         </header>
+
+        {/* 공지사항 배너 */}
+        <AnnouncementBanner />
 
         {/* 콘텐츠 */}
         <main className="flex-1 overflow-y-auto bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
@@ -447,6 +459,27 @@ export default function Layout() {
       </nav>
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+    </div>
+  );
+}
+
+/* ── 공지사항 배너 ─────────────────────────────────────── */
+function AnnouncementBanner() {
+  const [dismissed, setDismissed] = useState(false);
+  const { data } = useQuery({
+    queryKey: ["announcement"],
+    queryFn: () => api.get("/admin/announcement").then(r => r.data),
+    staleTime: 300_000,
+  });
+  const text = data?.text || "";
+  if (!text || dismissed) return null;
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 bg-accent-blue/10 border-b border-accent-blue/20 text-accent-blue text-sm">
+      <Megaphone size={14} className="flex-shrink-0" />
+      <span className="flex-1">{text}</span>
+      <button onClick={() => setDismissed(true)} className="flex-shrink-0 hover:text-accent-blue/60 transition-colors">
+        <X size={14} />
+      </button>
     </div>
   );
 }

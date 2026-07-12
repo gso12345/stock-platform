@@ -7,7 +7,8 @@ interface AuthState {
   userId: number | null;
   username: string | null;
   isLoggedIn: boolean;
-  login: (token: string, userId: number, username: string) => void;
+  isAdmin: boolean;
+  login: (token: string, userId: number, username: string, isAdmin?: boolean) => void;
   logout: () => void;
 }
 
@@ -18,10 +19,11 @@ export const useAuthStore = create<AuthState>()(
       userId: null,
       username: null,
       isLoggedIn: false,
-      login: (token, userId, username) =>
-        set({ token, userId, username, isLoggedIn: true }),
+      isAdmin: false,
+      login: (token, userId, username, isAdmin = false) =>
+        set({ token, userId, username, isLoggedIn: true, isAdmin }),
       logout: () =>
-        set({ token: null, userId: null, username: null, isLoggedIn: false }),
+        set({ token: null, userId: null, username: null, isLoggedIn: false, isAdmin: false }),
     }),
     {
       name: AUTH_STORAGE_KEY,

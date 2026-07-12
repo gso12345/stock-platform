@@ -10,7 +10,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.db.database import Base, engine
-from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth, portfolio
+from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth, portfolio, admin as admin_routes
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
@@ -88,6 +88,7 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("backtest_results", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
         _add_col_if_missing("users", "oauth_provider", "VARCHAR(20)")
         _add_col_if_missing("users", "oauth_id", "VARCHAR(100)")
+        _add_col_if_missing("users", "is_admin", "BOOLEAN DEFAULT FALSE")
         _add_col_if_missing("quant_score_weights", "enabled_metrics", "JSON")
         _add_col_if_missing("portfolio_items", "portfolio_id", "INTEGER REFERENCES portfolios(id)", "INTEGER")
         _add_col_if_missing("portfolio_items", "asset_class", "VARCHAR(10)")
@@ -267,6 +268,7 @@ app.include_router(screening.router, prefix="/api/v1")
 app.include_router(backtest.router,  prefix="/api/v1")
 app.include_router(watchlist.router,  prefix="/api/v1")
 app.include_router(portfolio.router, prefix="/api/v1")
+app.include_router(admin_routes.router, prefix="/api/v1")
 
 
 @app.websocket("/ws/indices")

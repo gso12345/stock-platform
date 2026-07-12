@@ -20,6 +20,7 @@ const Quant      = lazy(() => import("./pages/Quant"));
 const Login      = lazy(() => import("./pages/Login"));
 const Register   = lazy(() => import("./pages/Register"));
 const OAuthCallback = lazy(() => import("./pages/OAuthCallback"));
+const Admin = lazy(() => import("./pages/Admin"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,6 +80,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <Route path="portfolio" element={<Portfolio />} />
               <Route path="news" element={<News />} />
               <Route path="quant" element={<Quant />} />
+              <Route path="admin" element={<Admin />} />
             </Route>
           </Routes>
         </Suspense>
