@@ -24,34 +24,65 @@ def require_admin(current_user: User = Depends(require_user)):
 
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    total_users   = db.query(func.count(User.id)).scalar() or 0
-    active_users  = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
-    watchlist_cnt = db.query(func.count(WatchlistItem.id)).scalar() or 0
-    portfolio_cnt = db.query(func.count(PortfolioItem.id)).scalar() or 0
+    from app.models.stock import Portfolio, WatchlistFolder
+    from app.core.activity import online_count, today_visitor_count
+    total_users       = db.query(func.count(User.id)).scalar() or 0
+    active_users      = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+    watchlist_cnt     = db.query(func.count(WatchlistItem.id)).scalar() or 0
+    portfolio_cnt     = db.query(func.count(Portfolio.id)).scalar() or 0
+    folder_cnt        = db.query(func.count(WatchlistFolder.id)).scalar() or 0
     return {
-        "total_users":     total_users,
-        "active_users":    active_users,
-        "watchlist_items": watchlist_cnt,
-        "portfolio_items": portfolio_cnt,
+        "total_users":       total_users,
+        "active_users":      active_users,
+        "watchlist_items":   watchlist_cnt,
+        "portfolio_items":   portfolio_cnt,
+        "watchlist_folders": folder_cnt,
+        "online_users":      online_count(),
+        "today_visitors":    today_visitor_count(),
     }
 
 
 @router.get("/popular-stocks")
-def get_popular_stocks(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    """관심종목에 가장 많이 등록된 종목 TOP 10"""
-    rows = (
-        db.query(
-            WatchlistItem.symbol,
-            WatchlistItem.name,
-            WatchlistItem.market,
-            func.count(WatchlistItem.id).label("cnt"),
+def get_popular_stocks(
+    basis: str = "watchlist",
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """인기 종목 TOP 10 — basis: watchlist(관심종목) | portfolio(보유종목)"""
+    if basis == "portfolio":
+        rows = (
+            db.query(
+                PortfolioItem.symbol,
+                PortfolioItem.name,
+                PortfolioItem.market,
+                func.count(PortfolioItem.id).label("cnt"),
+            )
+            .group_by(PortfolioItem.symbol, PortfolioItem.name, PortfolioItem.market)
+            .order_by(func.count(PortfolioItem.id).desc())
+            .limit(10)
+            .all()
         )
-        .group_by(WatchlistItem.symbol, WatchlistItem.name, WatchlistItem.market)
-        .order_by(func.count(WatchlistItem.id).desc())
-        .limit(10)
-        .all()
-    )
+    else:
+        rows = (
+            db.query(
+                WatchlistItem.symbol,
+                WatchlistItem.name,
+                WatchlistItem.market,
+                func.count(WatchlistItem.id).label("cnt"),
+            )
+            .group_by(WatchlistItem.symbol, WatchlistItem.name, WatchlistItem.market)
+            .order_by(func.count(WatchlistItem.id).desc())
+            .limit(10)
+            .all()
+        )
     return [{"symbol": r.symbol, "name": r.name or r.symbol, "market": r.market, "count": r.cnt} for r in rows]
+
+
+@router.get("/visitor-trend")
+def get_visitor_trend(_: User = Depends(require_admin)):
+    """최근 30일 일별 방문자 수"""
+    from app.core.activity import get_visitor_trend
+    return get_visitor_trend(30)
 
 
 @router.get("/signups")

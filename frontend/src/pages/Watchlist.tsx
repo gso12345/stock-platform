@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
-import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
+import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi, dashboardApi } from "@/api/stocks";
 import api from "@/api/client";
 import { Card, ChangeBadge, RowSkeleton, Badge, Modal } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
@@ -461,6 +461,8 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
 }
 
 /* ── 관심종목 → 포트폴리오 추가 미니 모달 ─────────────────── */
+const ASSET_CLASS_OPTIONS = ["국내주식", "해외주식", "채권", "금", "커버드콜"] as const;
+
 function AddToPortfolioModal({
   item,
   currentPrice,
@@ -471,15 +473,20 @@ function AddToPortfolioModal({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [shares,    setShares]    = useState("");
-  const [avgPrice,  setAvgPrice]  = useState(currentPrice != null && currentPrice > 0 ? String(currentPrice) : "");
-  const [priceLoading, setPriceLoading] = useState(currentPrice == null || currentPrice <= 0);
-  const [portfolioId, setPortfolioId] = useState<number | null>(null);
-  const [saving,    setSaving]    = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const isKR    = item.market === "KR";
+  const isForex = item.market === "US" || item.market === "ETF";
 
-  const currency = item.market === "KR" ? "KRW" : "USD";
-  const isKR     = item.market === "KR";
+  const [portfolioId,  setPortfolioId]  = useState<number | null>(null);
+  const [currency,     setCurrency]     = useState<"KRW" | "USD">(isKR ? "KRW" : "USD");
+  const [shares,       setShares]       = useState("");
+  const [avgPrice,     setAvgPrice]     = useState(currentPrice != null && currentPrice > 0 ? String(currentPrice) : "");
+  const [priceLoading, setPriceLoading] = useState(currentPrice == null || currentPrice <= 0);
+  const [inputFx,      setInputFx]      = useState("");
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [note,         setNote]         = useState("");
+  const [assetClass,   setAssetClass]   = useState("");
+  const [saving,       setSaving]       = useState(false);
+  const [saveError,    setSaveError]    = useState("");
 
   const { data: portfolios = [] } = useQuery<any[]>({
     queryKey: ["portfolios"],
@@ -487,21 +494,32 @@ function AddToPortfolioModal({
     staleTime: 300_000,
   });
 
+  const { data: usRatesData } = useQuery({
+    queryKey: ["dashboard-us-rates"],
+    queryFn:  () => dashboardApi.getUSRates(),
+    staleTime: 300_000,
+  });
+
+  const defaultFx = useMemo(() => {
+    if (Array.isArray(usRatesData)) {
+      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
+      if (row?.value) return row.value as number;
+    }
+    return 1350;
+  }, [usRatesData]);
+
   useEffect(() => {
-    if (portfolios.length > 0 && portfolioId === null) {
+    if ((portfolios as any[]).length > 0 && portfolioId === null) {
       setPortfolioId((portfolios as any[])[0].id);
     }
   }, [portfolios, portfolioId]);
 
-  // 현재가를 외부에서 못 받았으면 API로 직접 조회
   useEffect(() => {
     if (currentPrice != null && currentPrice > 0) return;
     setPriceLoading(true);
     stocksApi.getPrice(item.market, item.symbol)
       .then((data) => {
-        if (data?.price != null) {
-          setAvgPrice((prev) => (prev === "" ? String(data.price) : prev));
-        }
+        if (data?.price != null) setAvgPrice((prev) => (prev === "" ? String(data.price) : prev));
       })
       .catch(() => {})
       .finally(() => setPriceLoading(false));
@@ -516,13 +534,17 @@ function AddToPortfolioModal({
     setSaveError("");
     try {
       await portfolioApi.addItem({
-        portfolio_id: portfolioId,
-        symbol: item.symbol,
-        market: item.market,
-        name: item.name,
-        shares: Number(shares),
-        avg_price: Number(avgPrice),
+        portfolio_id:       portfolioId,
+        symbol:             item.symbol,
+        market:             item.market,
+        name:               item.name,
+        shares:             Number(shares),
+        avg_price:          Number(avgPrice),
         currency,
+        input_exchange_rate: currency === "USD" && inputFx ? Number(inputFx) : null,
+        purchase_date:      purchaseDate || null,
+        note:               note || null,
+        asset_class:        assetClass || null,
       });
       qc.invalidateQueries({ queryKey: ["portfolio-items-all"] });
       qc.invalidateQueries({ queryKey: ["portfolios"] });
@@ -538,11 +560,11 @@ function AddToPortfolioModal({
   const inp = "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
 
   return (
-    <Modal align="start" padTop="pt-16" backdropOpacity={70} maxWidth="max-w-sm" onClose={onClose}>
+    <Modal align="start" padTop="pt-16" backdropOpacity={70} maxWidth="max-w-md" onClose={onClose}>
       {/* 헤더 */}
       <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
         <Wallet size={14} className="text-accent-blue" />
-        <h3 className="flex-1 text-sm font-bold text-text-primary">포트폴리오에 추가</h3>
+        <h3 className="flex-1 text-sm font-bold text-text-primary">매수 정보 입력</h3>
         <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
           <X size={15} />
         </button>
@@ -557,16 +579,12 @@ function AddToPortfolioModal({
         </div>
       </div>
 
-      <div className="px-5 py-4 flex flex-col gap-3">
-        {/* 포트폴리오 선택 (여러 개인 경우에만 표시) */}
+      <div className="px-5 py-4 flex flex-col gap-3.5">
+        {/* 포트폴리오 선택 */}
         {(portfolios as any[]).length > 1 && (
           <div className="flex flex-col gap-1.5">
             <label className="text-2xs font-semibold text-text-muted">포트폴리오</label>
-            <select
-              className={inp}
-              value={portfolioId ?? ""}
-              onChange={(e) => setPortfolioId(Number(e.target.value))}
-            >
+            <select className={inp} value={portfolioId ?? ""} onChange={(e) => setPortfolioId(Number(e.target.value))}>
               {(portfolios as any[]).map((pf: any) => (
                 <option key={pf.id} value={pf.id}>{pf.name}</option>
               ))}
@@ -574,9 +592,34 @@ function AddToPortfolioModal({
           </div>
         )}
 
+        {/* 해외 종목: 통화 선택 */}
+        {isForex && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">입력 통화 *</label>
+            <div className="flex gap-2">
+              {(["USD", "KRW"] as const).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCurrency(c)}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
+                    currency === c
+                      ? c === "USD"
+                        ? "bg-green-900/40 border-green-700/60 text-green-400"
+                        : "bg-blue-900/40 border-blue-700/60 text-blue-400"
+                      : "border-border text-text-muted hover:text-text-primary"
+                  }`}
+                >
+                  {c === "USD" ? "달러 ($)" : "원화 (₩)"}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-3">
           <div className="flex-1 flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">수량 *</label>
+            <label className="text-2xs font-semibold text-text-muted">보유수량 *</label>
             <input
               className={inp}
               type="number"
@@ -590,7 +633,7 @@ function AddToPortfolioModal({
           </div>
           <div className="flex-1 flex flex-col gap-1.5">
             <label className="text-2xs font-semibold text-text-muted">
-              평균매수가 * {isKR ? "(₩)" : "($)"}
+              평균매수가 * {isForex ? (currency === "USD" ? "($)" : "(₩)") : "(₩)"}
             </label>
             <input
               className={inp}
@@ -602,6 +645,55 @@ function AddToPortfolioModal({
               onChange={(e) => setAvgPrice(e.target.value)}
             />
           </div>
+        </div>
+
+        {/* 달러 입력 시 환율 */}
+        {isForex && currency === "USD" && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">
+              매수 당시 환율 (₩/$ · 선택)
+              <span className="ml-1 text-text-dim font-normal">공란 시 현재 환율 사용</span>
+            </label>
+            <input
+              className={inp}
+              type="number"
+              min="0"
+              step="1"
+              placeholder={`예: ${Math.round(defaultFx)}`}
+              value={inputFx}
+              onChange={(e) => setInputFx(e.target.value)}
+            />
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <div className="flex-1 flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">매수일 (선택)</label>
+            <input className={inp} type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+          </div>
+          <div className="flex-1 flex flex-col gap-1.5">
+            <label className="text-2xs font-semibold text-text-muted">자산유형</label>
+            <select className={inp} value={assetClass} onChange={(e) => setAssetClass(e.target.value)}>
+              <option value="">자동 분류</option>
+              {ASSET_CLASS_OPTIONS.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-2xs font-semibold text-text-muted">
+            메모<span className="ml-1 text-text-dim font-normal">({note.length}/100)</span>
+          </label>
+          <textarea
+            className={`${inp} resize-none`}
+            rows={2}
+            maxLength={100}
+            placeholder="선택 사항"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
         </div>
       </div>
 
