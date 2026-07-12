@@ -13,7 +13,7 @@ export function Card({ children, className, onClick }: {
     <div
       onClick={onClick}
       className={cn(
-        "bg-bg-card border border-border rounded-xl shadow-card",
+        "bg-bg-card border border-border rounded-xl",
         !className?.includes("p-0") && "p-4",
         onClick && "cursor-pointer hover:border-accent-blue/40 transition-colors",
         className,

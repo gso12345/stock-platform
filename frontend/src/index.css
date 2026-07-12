@@ -97,8 +97,6 @@ html.light {
     border: 1px solid rgba(0,0,0,0.08);
   }
 
-  html.shadow-off .shadow-card { box-shadow: none !important; }
-
   .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
   .pos { color: #10b981; }
   .neg { color: #ef4444; }
