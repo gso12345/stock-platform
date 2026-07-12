@@ -230,6 +230,21 @@ if settings.APP_ENV not in ("production", "staging"):
     _allowed_origins = ["http://localhost:5173", "http://localhost:3000", *_allowed_origins]
 
 
+class ActivityMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            try:
+                from app.core.security import decode_token
+                from app.core.activity import mark_active
+                payload = decode_token(auth[7:])
+                if payload and "sub" in payload:
+                    mark_active(int(payload["sub"]))
+            except Exception:
+                pass
+        return await call_next(request)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -250,6 +265,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+app.add_middleware(ActivityMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(

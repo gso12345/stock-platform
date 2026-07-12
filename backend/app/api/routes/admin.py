@@ -24,16 +24,21 @@ def require_admin(current_user: User = Depends(require_user)):
 
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    from app.models.stock import Portfolio
-    total_users    = db.query(func.count(User.id)).scalar() or 0
-    active_users   = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
-    watchlist_cnt  = db.query(func.count(WatchlistItem.id)).scalar() or 0
-    portfolio_cnt  = db.query(func.count(Portfolio.id)).scalar() or 0
+    from app.models.stock import Portfolio, WatchlistFolder
+    from app.core.activity import online_count, today_visitor_count
+    total_users       = db.query(func.count(User.id)).scalar() or 0
+    active_users      = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+    watchlist_cnt     = db.query(func.count(WatchlistItem.id)).scalar() or 0
+    portfolio_cnt     = db.query(func.count(Portfolio.id)).scalar() or 0
+    folder_cnt        = db.query(func.count(WatchlistFolder.id)).scalar() or 0
     return {
-        "total_users":     total_users,
-        "active_users":    active_users,
-        "watchlist_items": watchlist_cnt,
-        "portfolio_items": portfolio_cnt,
+        "total_users":       total_users,
+        "active_users":      active_users,
+        "watchlist_items":   watchlist_cnt,
+        "portfolio_items":   portfolio_cnt,
+        "watchlist_folders": folder_cnt,
+        "online_users":      online_count(),
+        "today_visitors":    today_visitor_count(),
     }
 
 

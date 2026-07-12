@@ -6,7 +6,7 @@ import api from "@/api/client";
 import {
   Users, BarChart2, Megaphone, Trash2, ToggleLeft, ToggleRight,
   ShieldCheck, RefreshCw, Activity, Database, Star, CheckCircle,
-  TrendingUp, Zap, Clock,
+  TrendingUp, Zap, Clock, Folder, Wifi, Eye,
 } from "lucide-react";
 
 const adminApi = {
@@ -104,10 +104,13 @@ function DashboardTab({ qc }: { qc: any }) {
   });
 
   const METRIC_CARDS = [
-    { label: "전체 회원",   value: stats?.total_users    ?? 0, color: "text-accent-blue",   bg: "bg-accent-blue/8",   Icon: Users },
-    { label: "활성 계정",   value: stats?.active_users   ?? 0, color: "text-accent-green",  bg: "bg-accent-green/8",  Icon: CheckCircle },
-    { label: "관심종목 수", value: stats?.watchlist_items ?? 0, color: "text-accent-yellow", bg: "bg-accent-yellow/8", Icon: Star },
-    { label: "포트폴리오 수", value: stats?.portfolio_items ?? 0, color: "text-purple-400",    bg: "bg-purple-400/8",    Icon: TrendingUp },
+    { label: "전체 회원",    value: stats?.total_users       ?? 0, color: "text-accent-blue",   bg: "bg-accent-blue/8",   Icon: Users },
+    { label: "활성 계정",    value: stats?.active_users      ?? 0, color: "text-accent-green",  bg: "bg-accent-green/8",  Icon: CheckCircle },
+    { label: "현재 접속",    value: stats?.online_users      ?? 0, color: "text-cyan-400",      bg: "bg-cyan-400/8",      Icon: Wifi },
+    { label: "오늘 방문자",  value: stats?.today_visitors    ?? 0, color: "text-orange-400",    bg: "bg-orange-400/8",    Icon: Eye },
+    { label: "관심종목 수",  value: stats?.watchlist_items   ?? 0, color: "text-accent-yellow", bg: "bg-accent-yellow/8", Icon: Star },
+    { label: "관심종목 폴더", value: stats?.watchlist_folders ?? 0, color: "text-amber-400",    bg: "bg-amber-400/8",     Icon: Folder },
+    { label: "포트폴리오 수", value: stats?.portfolio_items  ?? 0, color: "text-purple-400",    bg: "bg-purple-400/8",    Icon: TrendingUp },
   ];
 
   const signupData: { date: string; count: number }[] = signups ?? [];
