@@ -1914,3 +1914,82 @@ async def get_supply_demand(symbol: str = Path(..., pattern=_SYMBOL_PATTERN), da
     result = await _run(_fetch)
     cache.set(ck, result, 600)
     return result
+
+
+@router.get("/ETF/{symbol}/holdings")
+async def get_etf_holdings(symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
+    """ETF 보유비중 — yfinance funds_data (상위 25종목 + 섹터 비중)"""
+    ck = f"etf_holdings:{symbol}"
+    if c := cache.get(ck):
+        return c
+
+    def _fetch():
+        try:
+            import yfinance as yf
+            ticker = yf.Ticker(symbol)
+            result: dict = {"holdings": [], "sector_weights": []}
+
+            def _to_pct(v) -> float:
+                """fraction(0-1) 또는 이미 퍼센트(>1)인 값을 % 단위로 통일"""
+                f = float(v or 0)
+                return f * 100 if abs(f) <= 1.5 else f
+
+            # 신규 API: funds_data.portfolio_holdings
+            try:
+                fd = ticker.funds_data
+                if fd is not None:
+                    ph = getattr(fd, "portfolio_holdings", None)
+                    if ph is not None and not ph.empty:
+                        rows = []
+                        for idx, row in ph.iterrows():
+                            rows.append({
+                                "symbol": str(idx) if idx else "",
+                                "name": str(row.get("Name", idx) or idx),
+                                "pct": _to_pct(row.get("Holding Percent", 0)),
+                                "value": float(row.get("Market Value", 0) or 0),
+                            })
+                        result["holdings"] = sorted(rows, key=lambda x: x["pct"], reverse=True)[:25]
+
+                    sw = getattr(fd, "sector_weightings", None)
+                    if sw is not None and not sw.empty:
+                        sectors = []
+                        for idx, row in sw.iterrows():
+                            sectors.append({
+                                "sector": str(idx),
+                                "pct": _to_pct(row.iloc[0] if len(row) > 0 else 0),
+                            })
+                        result["sector_weights"] = sorted(sectors, key=lambda x: x["pct"], reverse=True)
+            except Exception:
+                pass
+
+            # 폴백: info dict
+            if not result["holdings"]:
+                try:
+                    info = ticker.info
+                    raw = info.get("holdings") or []
+                    if raw:
+                        result["holdings"] = sorted([
+                            {
+                                "symbol": h.get("symbol", ""),
+                                "name": h.get("holdingName", ""),
+                                "pct": _to_pct(h.get("holdingPercent", 0)),
+                                "value": 0,
+                            }
+                            for h in raw
+                        ], key=lambda x: x["pct"], reverse=True)
+
+                    if not result["sector_weights"]:
+                        for d in (info.get("sectorWeightings") or []):
+                            for k, v in d.items():
+                                result["sector_weights"].append({"sector": k, "pct": _to_pct(v)})
+                        result["sector_weights"].sort(key=lambda x: x["pct"], reverse=True)
+                except Exception:
+                    pass
+
+            return result
+        except Exception:
+            return {"holdings": [], "sector_weights": []}
+
+    result = await _run(_fetch)
+    cache.set(ck, result, 3600)
+    return result

@@ -32,6 +32,9 @@ export const stocksApi = {
   getAnalyst: (market: string, symbol: string) =>
     api.get<any>(`/stocks/${market}/${encodeURIComponent(symbol)}/analyst`).then((r) => r.data),
 
+  getEtfHoldings: (symbol: string) =>
+    api.get<{ holdings: { symbol: string; name: string; pct: number; value: number }[]; sector_weights: { sector: string; pct: number }[] }>(`/stocks/ETF/${encodeURIComponent(symbol)}/holdings`).then((r) => r.data),
+
   getQuantScore: (
     market: string, symbol: string,
     weightOverride?: Partial<QuantWeights>,
