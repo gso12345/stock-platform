@@ -78,6 +78,13 @@ def get_popular_stocks(
     return [{"symbol": r.symbol, "name": r.name or r.symbol, "market": r.market, "count": r.cnt} for r in rows]
 
 
+@router.get("/visitor-trend")
+def get_visitor_trend(_: User = Depends(require_admin)):
+    """최근 30일 일별 방문자 수"""
+    from app.core.activity import get_visitor_trend
+    return get_visitor_trend(30)
+
+
 @router.get("/signups")
 def get_signups(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """최근 30일 일별 가입자 수"""

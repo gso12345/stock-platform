@@ -13,7 +13,8 @@ const adminApi = {
   getStats:        () => api.get("/admin/stats").then(r => r.data),
   getUsers:        () => api.get("/admin/users").then(r => r.data),
   getPopular:      (basis: string) => api.get(`/admin/popular-stocks?basis=${basis}`).then(r => r.data),
-  getSignups:      () => api.get("/admin/signups").then(r => r.data),
+  getSignups:        () => api.get("/admin/signups").then(r => r.data),
+  getVisitorTrend:   () => api.get("/admin/visitor-trend").then(r => r.data),
   getSystem:       () => api.get("/admin/system").then(r => r.data),
   clearCache:      () => api.post("/admin/cache/clear").then(r => r.data),
   toggleActive:    (id: number) => api.patch(`/admin/users/${id}/active`).then(r => r.data),
@@ -95,7 +96,8 @@ function DashboardTab({ qc }: { qc: any }) {
   const [popularBasis, setPopularBasis] = useState<"watchlist" | "portfolio">("watchlist");
   const { data: stats }   = useQuery({ queryKey: ["admin-stats"],   queryFn: adminApi.getStats,   staleTime: 30_000 });
   const { data: popular } = useQuery({ queryKey: ["admin-popular", popularBasis], queryFn: () => adminApi.getPopular(popularBasis), staleTime: 60_000 });
-  const { data: signups } = useQuery({ queryKey: ["admin-signups"], queryFn: adminApi.getSignups, staleTime: 60_000 });
+  const { data: signups }      = useQuery({ queryKey: ["admin-signups"],       queryFn: adminApi.getSignups,      staleTime: 60_000 });
+  const { data: visitorTrend } = useQuery({ queryKey: ["admin-visitor-trend"], queryFn: adminApi.getVisitorTrend, staleTime: 60_000 });
   const { data: system, refetch: refetchSystem } = useQuery({ queryKey: ["admin-system"], queryFn: adminApi.getSystem, staleTime: 30_000 });
 
   const clearMut = useMutation({
@@ -114,9 +116,14 @@ function DashboardTab({ qc }: { qc: any }) {
   ];
 
   const signupData: { date: string; count: number }[] = signups ?? [];
-  const maxSignup  = Math.max(...signupData.map(d => d.count), 1);
-  const totalMonth = signupData.reduce((s, d) => s + d.count, 0);
-  const todayCount = signupData[signupData.length - 1]?.count ?? 0;
+  const maxSignup    = Math.max(...signupData.map(d => d.count), 1);
+  const totalMonth   = signupData.reduce((s, d) => s + d.count, 0);
+  const todaySignups = signupData[signupData.length - 1]?.count ?? 0;
+
+  const visitorData: { date: string; count: number }[] = visitorTrend ?? [];
+  const maxVisitor     = Math.max(...visitorData.map(d => d.count), 1);
+  const totalVisitors  = visitorData.reduce((s, d) => s + d.count, 0);
+  const todayVisitors  = visitorData[visitorData.length - 1]?.count ?? 0;
 
   const popularList: { symbol: string; name: string; market: string; count: number }[] = popular ?? [];
   const maxPop = Math.max(...popularList.map(d => d.count), 1);
@@ -249,12 +256,59 @@ function DashboardTab({ qc }: { qc: any }) {
           <div className="flex gap-5 pt-1 border-t border-border">
             <div>
               <p className="text-[10px] text-text-muted mb-0.5">오늘</p>
-              <p className="text-xl font-bold font-mono text-text-primary">{todayCount}</p>
+              <p className="text-xl font-bold font-mono text-text-primary">{todaySignups}</p>
             </div>
             <div>
               <p className="text-[10px] text-text-muted mb-0.5">30일 누적</p>
               <p className="text-xl font-bold font-mono text-accent-blue">{totalMonth}</p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 방문자 추이 */}
+      <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
+            <Eye size={14} className="text-orange-400" />방문자 추이
+          </span>
+          <span className="text-xs text-text-muted">최근 30일 · UTC 기준</span>
+        </div>
+
+        {visitorData.length === 0 ? (
+          <div className="h-20 flex items-center justify-center text-xs text-text-muted">데이터 없음</div>
+        ) : (
+          <div className="flex items-end gap-px h-20 w-full">
+            {visitorData.map((d, i) => {
+              const pct = (d.count / maxVisitor) * 100;
+              const isToday = i === visitorData.length - 1;
+              return (
+                <div key={d.date} className="flex-1 flex flex-col justify-end group relative" style={{ height: "100%" }}>
+                  <div
+                    className={`w-full rounded-sm transition-colors ${
+                      isToday ? "bg-orange-400" : "bg-orange-400/30 group-hover:bg-orange-400/60"
+                    }`}
+                    style={{ height: `${Math.max(pct, d.count > 0 ? 8 : 2)}%` }}
+                  />
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:flex pointer-events-none z-10">
+                    <div className="bg-bg-elevated border border-border text-text-primary text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg">
+                      {d.date.slice(5)} · {d.count}명
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex gap-5 pt-1 border-t border-border">
+          <div>
+            <p className="text-[10px] text-text-muted mb-0.5">오늘</p>
+            <p className="text-xl font-bold font-mono text-text-primary">{todayVisitors}</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-text-muted mb-0.5">30일 누적</p>
+            <p className="text-xl font-bold font-mono text-orange-400">{totalVisitors.toLocaleString()}</p>
           </div>
         </div>
       </div>
