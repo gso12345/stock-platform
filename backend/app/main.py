@@ -23,6 +23,18 @@ from app.services.ticker_service import init_ticker_db
 
 import logging
 logging.basicConfig(level=logging.INFO)
+_startup_log = logging.getLogger(__name__)
+
+# ── DB 종류 명시 로그 ────────────────────────────────────────
+_db_url = settings.DATABASE_URL
+if _db_url.startswith("sqlite"):
+    _startup_log.warning(
+        "⚠️  SQLite 사용 중 — 배포 시 데이터가 초기화됩니다. "
+        "Render 환경변수에 DATABASE_URL(Supabase PostgreSQL)을 설정하세요."
+    )
+else:
+    _masked = _db_url.split("@")[-1] if "@" in _db_url else _db_url
+    _startup_log.info(f"✅ PostgreSQL 사용 중: ...@{_masked}")
 
 try:
     Base.metadata.create_all(bind=engine)

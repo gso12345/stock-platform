@@ -125,6 +125,8 @@ def register(request: Request, req: RegisterRequest, db: Session = Depends(get_d
 def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
     """username+비밀번호 검증 후 JWT 토큰 반환"""
     user = db.query(User).filter(User.username == req.username).first()
+    if not user:
+        log.warning(f"로그인 실패: 존재하지 않는 username='{req.username}' — DB가 SQLite(ephemeral)이면 배포 후 계정이 사라집니다")
     pwd_hash = user.hashed_password if user else _DUMMY_HASH
     if not user or not verify_password(req.password, pwd_hash):
         raise HTTPException(
