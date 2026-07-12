@@ -12,7 +12,7 @@ import {
 const adminApi = {
   getStats:        () => api.get("/admin/stats").then(r => r.data),
   getUsers:        () => api.get("/admin/users").then(r => r.data),
-  getPopular:      () => api.get("/admin/popular-stocks").then(r => r.data),
+  getPopular:      (basis: string) => api.get(`/admin/popular-stocks?basis=${basis}`).then(r => r.data),
   getSignups:      () => api.get("/admin/signups").then(r => r.data),
   getSystem:       () => api.get("/admin/system").then(r => r.data),
   clearCache:      () => api.post("/admin/cache/clear").then(r => r.data),
@@ -92,8 +92,9 @@ export default function Admin() {
 
 /* ─────────────────────────── 대시보드 탭 ─────────────────────────── */
 function DashboardTab({ qc }: { qc: any }) {
+  const [popularBasis, setPopularBasis] = useState<"watchlist" | "portfolio">("watchlist");
   const { data: stats }   = useQuery({ queryKey: ["admin-stats"],   queryFn: adminApi.getStats,   staleTime: 30_000 });
-  const { data: popular } = useQuery({ queryKey: ["admin-popular"], queryFn: adminApi.getPopular, staleTime: 60_000 });
+  const { data: popular } = useQuery({ queryKey: ["admin-popular", popularBasis], queryFn: () => adminApi.getPopular(popularBasis), staleTime: 60_000 });
   const { data: signups } = useQuery({ queryKey: ["admin-signups"], queryFn: adminApi.getSignups, staleTime: 60_000 });
   const { data: system, refetch: refetchSystem } = useQuery({ queryKey: ["admin-system"], queryFn: adminApi.getSystem, staleTime: 30_000 });
 
@@ -106,7 +107,7 @@ function DashboardTab({ qc }: { qc: any }) {
     { label: "전체 회원",   value: stats?.total_users    ?? 0, color: "text-accent-blue",   bg: "bg-accent-blue/8",   Icon: Users },
     { label: "활성 계정",   value: stats?.active_users   ?? 0, color: "text-accent-green",  bg: "bg-accent-green/8",  Icon: CheckCircle },
     { label: "관심종목 수", value: stats?.watchlist_items ?? 0, color: "text-accent-yellow", bg: "bg-accent-yellow/8", Icon: Star },
-    { label: "포트폴리오",  value: stats?.portfolio_items ?? 0, color: "text-purple-400",    bg: "bg-purple-400/8",    Icon: TrendingUp },
+    { label: "포트폴리오 수", value: stats?.portfolio_items ?? 0, color: "text-purple-400",    bg: "bg-purple-400/8",    Icon: TrendingUp },
   ];
 
   const signupData: { date: string; count: number }[] = signups ?? [];
@@ -261,7 +262,21 @@ function DashboardTab({ qc }: { qc: any }) {
           <span className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
             <Star size={14} className="text-accent-yellow" />인기 종목 TOP 10
           </span>
-          <span className="text-xs text-text-muted">관심종목 등록 기준</span>
+          <div className="flex items-center gap-0.5 bg-bg-secondary border border-border rounded-lg p-0.5">
+            {(["watchlist", "portfolio"] as const).map((b) => (
+              <button
+                key={b}
+                onClick={() => setPopularBasis(b)}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                  popularBasis === b
+                    ? "bg-bg-card text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-primary"
+                }`}
+              >
+                {b === "watchlist" ? "관심종목" : "보유종목"}
+              </button>
+            ))}
+          </div>
         </div>
         {popularList.length === 0 ? (
           <div className="py-12 text-center text-text-muted text-sm">데이터가 없습니다</div>

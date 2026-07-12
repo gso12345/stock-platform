@@ -68,14 +68,15 @@ const PREVIEW_ENRICHED: EnrichedItem[] = [
   { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 10, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
     currentPriceNative: 535,    currentValueKRW: 6_955_000,  costKRW: 5_460_000,  pnlKRW: 1_495_000, pnlRate: 27.38, weight:  8.9 },
 ];
-/* ── 자산유형 분류 (국내주식/해외주식/채권/금/현금) ──────────────────── */
-type AssetClass = "국내주식" | "해외주식" | "채권" | "금" | "현금";
+/* ── 자산유형 분류 (국내주식/해외주식/채권/금/현금/커버드콜) ──────────────────── */
+type AssetClass = "국내주식" | "해외주식" | "채권" | "금" | "현금" | "커버드콜";
 
 const BOND_KEYWORDS = [
   "채권", "국고채", "회사채", "단기채", "장기채", "본드",
   "TLT", "BND", "AGG", "SHY", "IEF", "TIP", "LQD", "HYG", "BNDX", "TIGER 미국채", "KODEX 국고채",
 ];
 const GOLD_KEYWORDS = ["금현물", "골드", "GLD", "IAU", "GLDM", "SGOL", "KRX금"];
+const COVERED_CALL_KEYWORDS = ["커버드콜", "COVERED CALL", "COVEREDCALL", "BUYWRITE", "BUY WRITE", "JEPI", "JEPQ", "QYLD", "XYLD", "RYLD", "DIVO"];
 const OVERSEAS_KEYWORDS = [
   "미국", "나스닥", "S&P", "SP500", "차이나", "중국", "일본", "글로벌", "선진국",
   "유로", "베트남", "인도", "신흥국", "해외",
@@ -83,6 +84,7 @@ const OVERSEAS_KEYWORDS = [
 
 function classifyAsset(item: { market: Market; name?: string; symbol: string }): AssetClass {
   const haystack = `${item.name ?? ""} ${item.symbol}`.toUpperCase();
+  if (COVERED_CALL_KEYWORDS.some((k) => haystack.includes(k.toUpperCase()))) return "커버드콜";
   if (BOND_KEYWORDS.some((k) => haystack.includes(k.toUpperCase()))) return "채권";
   if (GOLD_KEYWORDS.some((k) => haystack.includes(k.toUpperCase()))) return "금";
 
@@ -96,13 +98,14 @@ function classifyAsset(item: { market: Market; name?: string; symbol: string }):
   return "국내주식";
 }
 
-const ASSET_CLASS_OPTIONS: AssetClass[] = ["국내주식", "해외주식", "채권", "금"];
+const ASSET_CLASS_OPTIONS: AssetClass[] = ["국내주식", "해외주식", "채권", "금", "커버드콜"];
 const ASSET_FILTER_TABS: { id: AssetClass | "전체"; label: string }[] = [
   { id: "전체",     label: "전체" },
   { id: "국내주식", label: "국내주식" },
   { id: "해외주식", label: "해외주식" },
   { id: "채권",     label: "채권" },
   { id: "금",       label: "금" },
+  { id: "커버드콜", label: "커버드콜" },
   { id: "현금",     label: "현금" },
 ];
 
