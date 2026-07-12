@@ -1651,16 +1651,18 @@ export default function Portfolio() {
 
         {/* ── 자산유형 필터 탭 ── */}
         {((isLoggedIn && items.length > 0) || !isLoggedIn) && (
-          <div className="flex overflow-x-auto scrollbar-hide border-b border-border px-1">
-            {ASSET_FILTER_TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setAssetFilterTab(t.id)}
-                className={`px-4 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all whitespace-nowrap ${
-                  assetFilterTab === t.id ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
-                }`}
-              >{t.label}</button>
-            ))}
+          <div className="px-3 pt-2.5 pb-1 overflow-x-auto scrollbar-hide">
+            <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
+              {ASSET_FILTER_TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setAssetFilterTab(t.id)}
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap ${
+                    assetFilterTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+                  }`}
+                >{t.label}</button>
+              ))}
+            </div>
           </div>
         )}
 

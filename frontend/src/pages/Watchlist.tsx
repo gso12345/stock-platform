@@ -311,7 +311,7 @@ function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
 }
 
 /* ── 종목 행 (클릭 → 상세) ──────────────────────────────── */
-const SWIPE_REVEAL = 140; // 수정(70) + 삭제(70)
+const SWIPE_REVEAL = 210; // 수정(70) + 보유종목추가(70) + 삭제(70)
 const SWIPE_THRESHOLD = 50;
 
 /* ── 종목 행: 드래그 재정렬 + 왼쪽으로 스와이프 → 수정/삭제 ─── */
@@ -373,6 +373,12 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
           className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-blue text-white text-[10px] font-semibold">
           <Settings2 size={14}/><span>수정</span>
         </button>
+        {onAddToPortfolio && (
+          <button onClick={() => { closeSwipe(); onAddToPortfolio(); }} aria-label="보유종목 추가"
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-green text-white text-[10px] font-semibold">
+            <Wallet size={14}/><span>보유추가</span>
+          </button>
+        )}
         <button onClick={() => { closeSwipe(); onRemove(); }} aria-label="종목 삭제"
           className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-red text-white text-[10px] font-semibold">
           <Trash2 size={14}/><span>삭제</span>
@@ -412,15 +418,16 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
         >
           <div className="flex items-center gap-1.5">
+            <span className="font-mono font-bold text-sm text-text-primary">
+              {item.symbol?.replace(".KS","").replace(".KQ","")}
+            </span>
+            {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
             <Badge variant={item.market==="KR"?"blue":item.market==="ETF"?"purple":"green"}>
               {item.market}
             </Badge>
-            <span className="font-semibold text-sm text-text-primary truncate">
-              {item.name || p.name || item.symbol?.replace(".KS","").replace(".KQ","")}
-            </span>
-            {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
           </div>
-          <div className="text-[11px] text-text-muted font-mono mt-0.5">{item.symbol?.replace(".KS","").replace(".KQ","")}{item.memo ? ` · ${item.memo}` : ""}</div>
+          <div className="text-[11px] text-text-muted truncate">{item.name || p.name}</div>
+          {item.memo && <div className="text-[10px] text-text-muted/60 italic mt-0.5">{item.memo}</div>}
         </div>
 
         {/* 가격 */}
@@ -1089,11 +1096,11 @@ export default function Watchlist() {
       </div>
 
       {/* 시장 탭 — 미리보기·로그인 모두 동작 */}
-      <div className="flex border-b border-border overflow-x-auto scrollbar-hide">
+      <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
         {MARKET_TABS.map((t) => (
           <button key={t.id} onClick={() => { setMarketTab(t.id); setFolderTab("all"); }}
-            className={`px-5 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all whitespace-nowrap ${
-              marketTab === t.id ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
+            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
             }`}
           >{t.label}</button>
         ))}
