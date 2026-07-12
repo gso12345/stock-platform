@@ -31,7 +31,7 @@ class ReorderRequest(BaseModel):
 
 class PortfolioItemRequest(BaseModel):
     portfolio_id: Optional[int] = Field(None, ge=1)
-    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9.\-]+$")
+    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9.\-가-힣]+$")
     market: str = Field(..., pattern="^(KR|US|ETF)$")
     name: Optional[str] = Field("", max_length=100)
     shares: float = Field(..., gt=0)
