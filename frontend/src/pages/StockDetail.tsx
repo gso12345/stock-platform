@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
-import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, PERIOD_BY_CANDLE, type ChartType } from "@/components/chart/StockChart";
+import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs, fmtVolume } from "@/utils/formatters";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
@@ -105,22 +105,43 @@ function TransTable({ rows, allYears, getVal, finPeriod }: {
 
 /* ── 사용자설정 재무지표 옵션 ───────────────────────────── */
 const FIN_CUSTOM_OPTS = [
-  { key: "revenue",       label: "매출",         group: "손익",    fmt: "fin",    color: "#3b82f6" },
-  { key: "op_income",     label: "영업이익",     group: "손익",    fmt: "fin",    color: "#10b981" },
-  { key: "net_income",    label: "당기순이익",   group: "손익",    fmt: "fin",    color: "#8b5cf6" },
-  { key: "eps",           label: "EPS",          group: "손익",    fmt: "epsbps", color: "#22d3ee" },
-  { key: "gross_margin",  label: "총이익률",     group: "마진",    fmt: "pct",    color: "#94a3b8" },
-  { key: "op_margin",     label: "영업이익률",   group: "마진",    fmt: "pct",    color: "#10b981" },
-  { key: "net_margin",    label: "순이익률",     group: "마진",    fmt: "pct",    color: "#8b5cf6" },
-  { key: "roe",           label: "ROE",          group: "수익성",  fmt: "pct",    color: "#06b6d4" },
-  { key: "roa",           label: "ROA",          group: "수익성",  fmt: "pct",    color: "#0ea5e9" },
-  { key: "per",           label: "PER",          group: "밸류에이션", fmt: "x",   color: "#f59e0b" },
-  { key: "pbr",           label: "PBR",          group: "밸류에이션", fmt: "x",   color: "#f97316" },
-  { key: "psr",           label: "PSR",          group: "밸류에이션", fmt: "x",   color: "#eab308" },
-  { key: "debt_ratio",    label: "부채비율",     group: "건전성",  fmt: "pct",    color: "#ef4444" },
-  { key: "current_ratio", label: "유동비율",     group: "건전성",  fmt: "pct",    color: "#22c55e" },
-  { key: "operating_cf",  label: "영업현금흐름", group: "현금흐름", fmt: "fin",   color: "#10b981" },
-  { key: "free_cf",       label: "잉여현금흐름", group: "현금흐름", fmt: "fin",   color: "#3b82f6" },
+  // 손익계산서
+  { key: "revenue",           label: "매출",           group: "손익계산서",   fmt: "fin",    color: "#3b82f6" },
+  { key: "op_income",         label: "영업이익",       group: "손익계산서",   fmt: "fin",    color: "#10b981" },
+  { key: "net_income",        label: "당기순이익",     group: "손익계산서",   fmt: "fin",    color: "#8b5cf6" },
+  { key: "eps",               label: "EPS",            group: "손익계산서",   fmt: "epsbps", color: "#22d3ee" },
+  { key: "revenue_growth",    label: "매출성장률",     group: "손익계산서",   fmt: "pct",    color: "#60a5fa" },
+  { key: "op_income_growth",  label: "영업이익성장률", group: "손익계산서",   fmt: "pct",    color: "#34d399" },
+  { key: "net_income_growth", label: "순이익성장률",   group: "손익계산서",   fmt: "pct",    color: "#a78bfa" },
+  // 마진
+  { key: "gross_margin",      label: "총이익률",       group: "마진",         fmt: "pct",    color: "#94a3b8" },
+  { key: "op_margin",         label: "영업이익률",     group: "마진",         fmt: "pct",    color: "#10b981" },
+  { key: "net_margin",        label: "순이익률",       group: "마진",         fmt: "pct",    color: "#8b5cf6" },
+  // 수익성
+  { key: "roe",               label: "ROE",            group: "수익성",       fmt: "pct",    color: "#06b6d4" },
+  { key: "roa",               label: "ROA",            group: "수익성",       fmt: "pct",    color: "#0ea5e9" },
+  { key: "roce",              label: "ROCE",           group: "수익성",       fmt: "pct",    color: "#38bdf8" },
+  // 밸류에이션
+  { key: "per",               label: "PER",            group: "밸류에이션",   fmt: "x",      color: "#f59e0b" },
+  { key: "forward_per",       label: "선행PER",        group: "밸류에이션",   fmt: "x",      color: "#fbbf24" },
+  { key: "pbr",               label: "PBR",            group: "밸류에이션",   fmt: "x",      color: "#f97316" },
+  { key: "psr",               label: "PSR",            group: "밸류에이션",   fmt: "x",      color: "#eab308" },
+  { key: "peg",               label: "PEG",            group: "밸류에이션",   fmt: "x",      color: "#84cc16" },
+  { key: "ev_ebitda",         label: "EV/EBITDA",      group: "밸류에이션",   fmt: "x",      color: "#a3e635" },
+  // 재무건전성
+  { key: "debt_ratio",        label: "부채비율",       group: "재무건전성",   fmt: "pct",    color: "#ef4444" },
+  { key: "current_ratio",     label: "유동비율",       group: "재무건전성",   fmt: "pct",    color: "#22c55e" },
+  { key: "interest_coverage", label: "이자보상비율",   group: "재무건전성",   fmt: "x",      color: "#16a34a" },
+  { key: "net_debt",          label: "순부채",         group: "재무건전성",   fmt: "fin",    color: "#dc2626" },
+  { key: "total_assets",      label: "총자산",         group: "재무건전성",   fmt: "fin",    color: "#6b7280" },
+  { key: "equity",            label: "자기자본",       group: "재무건전성",   fmt: "fin",    color: "#4b5563" },
+  // 현금흐름
+  { key: "operating_cf",      label: "영업현금흐름",   group: "현금흐름",     fmt: "fin",    color: "#10b981" },
+  { key: "investing_cf",      label: "투자현금흐름",   group: "현금흐름",     fmt: "fin",    color: "#ef4444" },
+  { key: "financing_cf",      label: "재무현금흐름",   group: "현금흐름",     fmt: "fin",    color: "#f59e0b" },
+  { key: "free_cf",           label: "잉여현금흐름",   group: "현금흐름",     fmt: "fin",    color: "#3b82f6" },
+  { key: "capex",             label: "CAPEX",          group: "현금흐름",     fmt: "fin",    color: "#8b5cf6" },
+  { key: "da",                label: "감가상각비",     group: "현금흐름",     fmt: "fin",    color: "#64748b" },
 ] as const;
 
 const FIN_CUSTOM_KEY = "stkplt_fin_custom_v1";
@@ -162,7 +183,7 @@ export default function StockDetail() {
   const [consensusPeriod, setConsensusPeriod] = useState<"annual" | "quarterly">("annual");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow" | "custom">("basic");
-  const [chartSelectedPeriod, setChartSelectedPeriod] = useState<string>(() => CANDLE_MAX_PERIOD["1d"] ?? "max");
+  const [showCustomSelector, setShowCustomSelector] = useState(true);
   const [customMetricKeys, setCustomMetricKeys] = useState<string[]>(() => {
     try { const r = localStorage.getItem(FIN_CUSTOM_KEY); if (r) return JSON.parse(r); } catch {}
     return ["revenue", "op_income", "net_income"];
@@ -197,10 +218,7 @@ export default function StockDetail() {
     return () => window.removeEventListener("resize", h);
   }, []);
 
-  const onCandleChange = useCallback((type: string) => {
-    setCandleType(type);
-    setChartSelectedPeriod(CANDLE_MAX_PERIOD[type] ?? "max");
-  }, []);
+  const onCandleChange = useCallback((type: string) => { setCandleType(type); }, []);
 
   // 현재 캔들 값이 속한 그룹 key 반환
   const activeGroupKey = CANDLE_GROUPS.find(g => g.options.some(o => o.value === candleType))?.key ?? "day";
@@ -250,7 +268,7 @@ export default function StockDetail() {
     refetchInterval: 15_000,
   });
 
-  const chartPeriod = chartSelectedPeriod;
+  const chartPeriod = CANDLE_MAX_PERIOD[candleType] ?? "max";
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
     queryKey: ["stock-ohlcv", m, sym, candleType, chartPeriod],
@@ -943,20 +961,6 @@ export default function StockDetail() {
             >
               LOG
             </button>
-            {/* 기간 빠른 선택 */}
-            {PERIOD_BY_CANDLE[candleType] && (
-              <div className="flex items-center gap-0.5 ml-auto">
-                {PERIOD_BY_CANDLE[candleType].map(p => (
-                  <button key={p.value} onClick={() => setChartSelectedPeriod(p.value)}
-                    className={`px-2 py-0.5 text-xs rounded font-semibold transition-all ${
-                      chartSelectedPeriod === p.value
-                        ? "bg-accent-blue text-white"
-                        : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-                    }`}
-                  >{p.label}</button>
-                ))}
-              </div>
-            )}
           </div>
           {ohlcv?.length ? (
             <div className="relative">
@@ -1030,19 +1034,6 @@ export default function StockDetail() {
               <button onClick={()=>setLogScale(v=>!v)}
                 className={`px-2.5 py-1 text-sm rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted"}`}
               >LOG</button>
-              {PERIOD_BY_CANDLE[candleType] && (
-                <div className="flex items-center gap-0.5 ml-1">
-                  {PERIOD_BY_CANDLE[candleType].map(p => (
-                    <button key={p.value} onClick={() => setChartSelectedPeriod(p.value)}
-                      className={`px-2 py-0.5 text-xs rounded font-semibold transition-all ${
-                        chartSelectedPeriod === p.value
-                          ? "bg-accent-blue text-white"
-                          : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-                      }`}
-                    >{p.label}</button>
-                  ))}
-                </div>
-              )}
             </div>
             <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
               <X size={18}/>
@@ -1501,11 +1492,15 @@ export default function StockDetail() {
 
                 {/* 지표 선택기 */}
                 <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-                  <div className="px-4 py-3 border-b border-border">
-                    <span className="text-base font-semibold text-text-primary">지표 선택</span>
-                    <span className="text-xs text-text-muted ml-2">(최대 6개)</span>
+                  <div className="px-4 py-3 border-b border-border flex items-center justify-between cursor-pointer select-none"
+                       onClick={() => setShowCustomSelector(v => !v)}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-semibold text-text-primary">지표 선택</span>
+                      <span className="text-xs text-text-muted">(최대 6개 · {customMetricKeys.length}개 선택됨)</span>
+                    </div>
+                    <span className="text-text-muted text-xs">{showCustomSelector ? "▲ 접기" : "▼ 펼치기"}</span>
                   </div>
-                  <div className="p-4 flex flex-col gap-4">
+                  {showCustomSelector && <div className="p-4 flex flex-col gap-4">
                     {groups.map(group => (
                       <div key={group}>
                         <span className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2 block">{group}</span>
@@ -1533,7 +1528,7 @@ export default function StockDetail() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </div>}
                 </div>
 
                 {/* 선택된 지표 없을 때 */}

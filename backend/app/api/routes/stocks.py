@@ -1931,38 +1931,39 @@ async def get_etf_holdings(symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
             if symbol.replace("-", "").isdigit():
                 yf_symbol = symbol + ".KS"
             ticker = yf.Ticker(yf_symbol)
-            result: dict = {"holdings": [], "sector_weights": [], "is_kr": yf_symbol != symbol}
+            result: dict = {"holdings": [], "sector_weights": []}
 
             def _to_pct(v) -> float:
                 """fraction(0-1) 또는 이미 퍼센트(>1)인 값을 % 단위로 통일"""
-                f = float(v or 0)
-                return f * 100 if abs(f) <= 1.5 else f
+                try:
+                    f = float(v or 0)
+                    return f * 100 if abs(f) <= 1.5 else f
+                except Exception:
+                    return 0.0
 
-            # 신규 API: funds_data.portfolio_holdings
+            # funds_data.top_holdings (올바른 속성명)
+            # sector_weightings는 Dict[str, float] — DataFrame 아님
             try:
                 fd = ticker.funds_data
                 if fd is not None:
-                    ph = getattr(fd, "portfolio_holdings", None)
-                    if ph is not None and not ph.empty:
+                    th = getattr(fd, "top_holdings", None)
+                    if th is not None and hasattr(th, "iterrows") and not th.empty:
                         rows = []
-                        for idx, row in ph.iterrows():
+                        for sym_idx, row in th.iterrows():
                             rows.append({
-                                "symbol": str(idx) if idx else "",
-                                "name": str(row.get("Name", idx) or idx),
+                                "symbol": str(sym_idx) if sym_idx else "",
+                                "name": str(row.get("Name", sym_idx) or sym_idx),
                                 "pct": _to_pct(row.get("Holding Percent", 0)),
-                                "value": float(row.get("Market Value", 0) or 0),
+                                "value": 0.0,
                             })
                         result["holdings"] = sorted(rows, key=lambda x: x["pct"], reverse=True)[:25]
 
                     sw = getattr(fd, "sector_weightings", None)
-                    if sw is not None and not sw.empty:
-                        sectors = []
-                        for idx, row in sw.iterrows():
-                            sectors.append({
-                                "sector": str(idx),
-                                "pct": _to_pct(row.iloc[0] if len(row) > 0 else 0),
-                            })
-                        result["sector_weights"] = sorted(sectors, key=lambda x: x["pct"], reverse=True)
+                    if sw and isinstance(sw, dict):
+                        result["sector_weights"] = sorted(
+                            [{"sector": k, "pct": _to_pct(v)} for k, v in sw.items()],
+                            key=lambda x: x["pct"], reverse=True
+                        )
             except Exception:
                 pass
 
@@ -1977,7 +1978,7 @@ async def get_etf_holdings(symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
                                 "symbol": h.get("symbol", ""),
                                 "name": h.get("holdingName", ""),
                                 "pct": _to_pct(h.get("holdingPercent", 0)),
-                                "value": 0,
+                                "value": 0.0,
                             }
                             for h in raw
                         ], key=lambda x: x["pct"], reverse=True)
@@ -1995,5 +1996,6 @@ async def get_etf_holdings(symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
             return {"holdings": [], "sector_weights": []}
 
     result = await _run(_fetch)
-    cache.set(ck, result, 3600)
+    # 데이터가 있으면 1시간, 없으면 5분 캐시 (재시도 빠르게)
+    cache.set(ck, result, 3600 if (result["holdings"] or result["sector_weights"]) else 300)
     return result
