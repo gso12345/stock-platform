@@ -1926,8 +1926,12 @@ async def get_etf_holdings(symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     def _fetch():
         try:
             import yfinance as yf
-            ticker = yf.Ticker(symbol)
-            result: dict = {"holdings": [], "sector_weights": []}
+            # 숫자로만 이루어진 심볼 → 한국 ETF (예: 069500 → 069500.KS)
+            yf_symbol = symbol
+            if symbol.replace("-", "").isdigit():
+                yf_symbol = symbol + ".KS"
+            ticker = yf.Ticker(yf_symbol)
+            result: dict = {"holdings": [], "sector_weights": [], "is_kr": yf_symbol != symbol}
 
             def _to_pct(v) -> float:
                 """fraction(0-1) 또는 이미 퍼센트(>1)인 값을 % 단위로 통일"""

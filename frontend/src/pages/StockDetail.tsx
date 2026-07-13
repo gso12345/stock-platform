@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
-import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
+import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, PERIOD_BY_CANDLE, type ChartType } from "@/components/chart/StockChart";
 import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs, fmtVolume } from "@/utils/formatters";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
@@ -103,6 +103,28 @@ function TransTable({ rows, allYears, getVal, finPeriod }: {
   );
 }
 
+/* ── 사용자설정 재무지표 옵션 ───────────────────────────── */
+const FIN_CUSTOM_OPTS = [
+  { key: "revenue",       label: "매출",         group: "손익",    fmt: "fin",    color: "#3b82f6" },
+  { key: "op_income",     label: "영업이익",     group: "손익",    fmt: "fin",    color: "#10b981" },
+  { key: "net_income",    label: "당기순이익",   group: "손익",    fmt: "fin",    color: "#8b5cf6" },
+  { key: "eps",           label: "EPS",          group: "손익",    fmt: "epsbps", color: "#22d3ee" },
+  { key: "gross_margin",  label: "총이익률",     group: "마진",    fmt: "pct",    color: "#94a3b8" },
+  { key: "op_margin",     label: "영업이익률",   group: "마진",    fmt: "pct",    color: "#10b981" },
+  { key: "net_margin",    label: "순이익률",     group: "마진",    fmt: "pct",    color: "#8b5cf6" },
+  { key: "roe",           label: "ROE",          group: "수익성",  fmt: "pct",    color: "#06b6d4" },
+  { key: "roa",           label: "ROA",          group: "수익성",  fmt: "pct",    color: "#0ea5e9" },
+  { key: "per",           label: "PER",          group: "밸류에이션", fmt: "x",   color: "#f59e0b" },
+  { key: "pbr",           label: "PBR",          group: "밸류에이션", fmt: "x",   color: "#f97316" },
+  { key: "psr",           label: "PSR",          group: "밸류에이션", fmt: "x",   color: "#eab308" },
+  { key: "debt_ratio",    label: "부채비율",     group: "건전성",  fmt: "pct",    color: "#ef4444" },
+  { key: "current_ratio", label: "유동비율",     group: "건전성",  fmt: "pct",    color: "#22c55e" },
+  { key: "operating_cf",  label: "영업현금흐름", group: "현금흐름", fmt: "fin",   color: "#10b981" },
+  { key: "free_cf",       label: "잉여현금흐름", group: "현금흐름", fmt: "fin",   color: "#3b82f6" },
+] as const;
+
+const FIN_CUSTOM_KEY = "stkplt_fin_custom_v1";
+
 /* ── 메인 ───────────────────────────────────────────── */
 export default function StockDetail() {
   const { market, symbol: rawSymbol } = useParams<{ market: string; symbol: string }>();
@@ -120,7 +142,16 @@ export default function StockDetail() {
   const [fullscreen, setFullscreen]   = useState(false);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
+    const TABS: Array<"chart" | "daily" | "financial" | "quant" | "analyst" | "news" | "community"> = ["chart","daily","financial","quant","analyst","news","community"];
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setFullscreen(false); return; }
+      // 입력 필드 포커스 중이면 단축키 무시
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const idx = parseInt(e.key, 10) - 1;
+      if (idx >= 0 && idx < TABS.length && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        setMainTab(TABS[idx]);
+      }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -130,7 +161,16 @@ export default function StockDetail() {
   const [analystSubTab, setAnalystSubTab] = useState<"opinion" | "consensus">("opinion");
   const [consensusPeriod, setConsensusPeriod] = useState<"annual" | "quarterly">("annual");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
-  const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow">("basic");
+  const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow" | "custom">("basic");
+  const [chartSelectedPeriod, setChartSelectedPeriod] = useState<string>(() => CANDLE_MAX_PERIOD["1d"] ?? "max");
+  const [customMetricKeys, setCustomMetricKeys] = useState<string[]>(() => {
+    try { const r = localStorage.getItem(FIN_CUSTOM_KEY); if (r) return JSON.parse(r); } catch {}
+    return ["revenue", "op_income", "net_income"];
+  });
+  const updateCustomMetricKeys = (keys: string[]) => {
+    setCustomMetricKeys(keys);
+    try { localStorage.setItem(FIN_CUSTOM_KEY, JSON.stringify(keys)); } catch {}
+  };
   const [selectedMetric, setSelectedMetric] = useState("revenue");
   const [newsSort, setNewsSort]         = useState<"latest" | "popular">("latest");
   const [newsSubTab, setNewsSubTab]     = useState<"news" | "disclosure">("news");
@@ -157,7 +197,10 @@ export default function StockDetail() {
     return () => window.removeEventListener("resize", h);
   }, []);
 
-  const onCandleChange = useCallback((type: string) => { setCandleType(type); }, []);
+  const onCandleChange = useCallback((type: string) => {
+    setCandleType(type);
+    setChartSelectedPeriod(CANDLE_MAX_PERIOD[type] ?? "max");
+  }, []);
 
   // 현재 캔들 값이 속한 그룹 key 반환
   const activeGroupKey = CANDLE_GROUPS.find(g => g.options.some(o => o.value === candleType))?.key ?? "day";
@@ -207,7 +250,7 @@ export default function StockDetail() {
     refetchInterval: 15_000,
   });
 
-  const chartPeriod = CANDLE_MAX_PERIOD[candleType] ?? "max";
+  const chartPeriod = chartSelectedPeriod;
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
     queryKey: ["stock-ohlcv", m, sym, candleType, chartPeriod],
@@ -818,6 +861,7 @@ export default function StockDetail() {
               { value:"profitability", label:"수익성" },
               { value:"health",        label:"재무건전성" },
               { value:"cashflow",      label:"현금흐름" },
+              { value:"custom",        label:"사용자설정" },
             ] as const).map(({ value, label })=>(
               <button key={value} onClick={()=>setFinSubTab(value)}
                 className={`px-3 py-1.5 text-sm font-semibold rounded-full whitespace-nowrap transition-all flex-shrink-0 ${
@@ -899,6 +943,20 @@ export default function StockDetail() {
             >
               LOG
             </button>
+            {/* 기간 빠른 선택 */}
+            {PERIOD_BY_CANDLE[candleType] && (
+              <div className="flex items-center gap-0.5 ml-auto">
+                {PERIOD_BY_CANDLE[candleType].map(p => (
+                  <button key={p.value} onClick={() => setChartSelectedPeriod(p.value)}
+                    className={`px-2 py-0.5 text-xs rounded font-semibold transition-all ${
+                      chartSelectedPeriod === p.value
+                        ? "bg-accent-blue text-white"
+                        : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+                    }`}
+                  >{p.label}</button>
+                ))}
+              </div>
+            )}
           </div>
           {ohlcv?.length ? (
             <div className="relative">
@@ -972,6 +1030,19 @@ export default function StockDetail() {
               <button onClick={()=>setLogScale(v=>!v)}
                 className={`px-2.5 py-1 text-sm rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted"}`}
               >LOG</button>
+              {PERIOD_BY_CANDLE[candleType] && (
+                <div className="flex items-center gap-0.5 ml-1">
+                  {PERIOD_BY_CANDLE[candleType].map(p => (
+                    <button key={p.value} onClick={() => setChartSelectedPeriod(p.value)}
+                      className={`px-2 py-0.5 text-xs rounded font-semibold transition-all ${
+                        chartSelectedPeriod === p.value
+                          ? "bg-accent-blue text-white"
+                          : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+                      }`}
+                    >{p.label}</button>
+                  ))}
+                </div>
+              )}
             </div>
             <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
               <X size={18}/>
@@ -1408,6 +1479,125 @@ export default function StockDetail() {
               </div>
             </div>
           )}
+
+          {/* ── 사용자설정 ── */}
+          {finSubTab==="custom" && (() => {
+            const groups = [...new Set(FIN_CUSTOM_OPTS.map(o => o.group))];
+            const selectedOpts = FIN_CUSTOM_OPTS.filter(o => customMetricKeys.includes(o.key));
+            const fmtVal = (opt: typeof FIN_CUSTOM_OPTS[number], v: number) => {
+              if (opt.fmt === "fin") return fmtFin(v);
+              if (opt.fmt === "pct") return `${v.toFixed(1)}%`;
+              if (opt.fmt === "epsbps") return fmtEpsBps(v)!;
+              return `${v.toFixed(2)}x`;
+            };
+            const COLORS = ["#3b82f6","#10b981","#8b5cf6","#f59e0b","#ef4444","#06b6d4","#f97316","#22c55e","#ec4899","#14b8a6"];
+            return (
+              <div className="flex flex-col gap-4">
+                {/* 기간 토글 */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-text-muted">지표 선택 후 차트·표로 확인</span>
+                  <PeriodToggle finPeriod={finPeriod} setFinPeriod={setFinPeriod}/>
+                </div>
+
+                {/* 지표 선택기 */}
+                <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+                  <div className="px-4 py-3 border-b border-border">
+                    <span className="text-base font-semibold text-text-primary">지표 선택</span>
+                    <span className="text-xs text-text-muted ml-2">(최대 6개)</span>
+                  </div>
+                  <div className="p-4 flex flex-col gap-4">
+                    {groups.map(group => (
+                      <div key={group}>
+                        <span className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2 block">{group}</span>
+                        <div className="flex flex-wrap gap-2">
+                          {FIN_CUSTOM_OPTS.filter(o => o.group === group).map(opt => {
+                            const checked = customMetricKeys.includes(opt.key);
+                            return (
+                              <button key={opt.key}
+                                onClick={() => {
+                                  if (checked) {
+                                    updateCustomMetricKeys(customMetricKeys.filter(k => k !== opt.key));
+                                  } else if (customMetricKeys.length < 6) {
+                                    updateCustomMetricKeys([...customMetricKeys, opt.key]);
+                                  }
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${
+                                  checked
+                                    ? "text-white border-transparent"
+                                    : "border-border text-text-muted hover:text-text-primary"
+                                }`}
+                                style={checked ? { background: opt.color + "cc", borderColor: opt.color } : {}}
+                              >{opt.label}</button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 선택된 지표 없을 때 */}
+                {selectedOpts.length === 0 && (
+                  <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-12">
+                    <p className="text-text-muted text-base">위에서 지표를 선택하세요</p>
+                  </div>
+                )}
+
+                {/* 차트 */}
+                {selectedOpts.length > 0 && allYears.length > 0 && (() => {
+                  const chartData = allYears.map(year => {
+                    const row: any = { year };
+                    selectedOpts.forEach(opt => { row[opt.key] = getVal(opt.key, year); });
+                    return row;
+                  });
+                  return (
+                    <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+                      <div className="px-4 py-3 border-b border-border">
+                        <span className="text-base font-semibold text-text-primary">추이 차트</span>
+                      </div>
+                      <div className="p-4">
+                        <ResponsiveContainer width="100%" height={chartH}>
+                          <BarChart data={chartData} {...chartProps.margin}>
+                            <CartesianGrid {...chartProps.cartesianGridProps}/>
+                            <XAxis dataKey="year" {...chartProps.xAxisProps}
+                              tickFormatter={(v:string) => finPeriod === "quarterly" ? v.replace(/(\d{4})-?Q(\d)/, "$1 Q$2") : v}/>
+                            <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":v.toFixed(1));}}/>
+                            <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const opt=FIN_CUSTOM_OPTS.find(o=>o.key===name);return[opt?fmtVal(opt,v):v,opt?.label??name];}}/>
+                            <Legend formatter={(v:string)=>FIN_CUSTOM_OPTS.find(o=>o.key===v)?.label??v}/>
+                            {selectedOpts.map((opt, i) => (
+                              <Bar key={opt.key} dataKey={opt.key} fill={COLORS[i % COLORS.length]} radius={[2,2,0,0]} maxBarSize={35}/>
+                            ))}
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 테이블 */}
+                {selectedOpts.length > 0 && (
+                  <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+                    <div className="px-4 py-3 border-b border-border">
+                      <span className="text-base font-semibold text-text-primary">데이터 표</span>
+                    </div>
+                    <div className="p-4">
+                      <TransTable
+                        rows={selectedOpts.map(opt => ({
+                          key: opt.key,
+                          label: opt.label,
+                          fmt: (v: number) => fmtVal(opt, v),
+                          color: "text-text-primary",
+                        }))}
+                        allYears={allYears}
+                        getVal={getVal}
+                        finPeriod={finPeriod}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           </div>
         );
@@ -2251,10 +2441,16 @@ function EtfHoldingsTab({ symbol }: { symbol: string }) {
   const holdings = data?.holdings ?? [];
   const sectors = data?.sector_weights ?? [];
 
+  const isKrEtf = symbol.replace("-","").match(/^\d+$/);
   if (!holdings.length && !sectors.length) return (
-    <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-3">
+    <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
       <BarChart2 size={40} className="text-text-muted/30" />
-      <p className="text-text-muted text-base">보유비중 데이터가 없습니다</p>
+      <div className="text-center">
+        <p className="text-text-muted text-base">보유비중 데이터가 없습니다</p>
+        {isKrEtf && (
+          <p className="text-text-dim text-sm mt-1">국내 ETF는 yfinance에서 보유비중을 제공하지 않을 수 있습니다</p>
+        )}
+      </div>
     </div>
   );
 
