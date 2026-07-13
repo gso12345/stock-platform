@@ -1496,7 +1496,7 @@ export default function StockDetail() {
                        onClick={() => setShowCustomSelector(v => !v)}>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-semibold text-text-primary">지표 선택</span>
-                      <span className="text-xs text-text-muted">(최대 6개 · {customMetricKeys.length}개 선택됨)</span>
+                      <span className="text-xs text-text-muted">(최대 10개 · {customMetricKeys.length}개 선택됨)</span>
                     </div>
                     <span className="text-text-muted text-xs">{showCustomSelector ? "▲ 접기" : "▼ 펼치기"}</span>
                   </div>
@@ -1512,7 +1512,7 @@ export default function StockDetail() {
                                 onClick={() => {
                                   if (checked) {
                                     updateCustomMetricKeys(customMetricKeys.filter(k => k !== opt.key));
-                                  } else if (customMetricKeys.length < 6) {
+                                  } else if (customMetricKeys.length < 10) {
                                     updateCustomMetricKeys([...customMetricKeys, opt.key]);
                                   }
                                 }}
