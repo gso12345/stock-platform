@@ -185,3 +185,108 @@ export function calcVolume(data: OHLCV[], upColor = "rgba(16,185,129,0.5)", down
     color: d.close >= d.open ? upColor : downColor,
   }));
 }
+
+/* ── VWAP (Volume Weighted Average Price) ──────────── */
+export function calcVWAP(data: OHLCV[]): TimedValue[] {
+  let cumVol = 0, cumTPV = 0;
+  return data.map(d => {
+    const tp = (d.high + d.low + d.close) / 3;
+    cumVol += d.volume;
+    cumTPV += tp * d.volume;
+    return { time: t(d), value: cumVol === 0 ? d.close : cumTPV / cumVol };
+  });
+}
+
+/* ── Parabolic SAR ─────────────────────────────────── */
+export function calcSAR(data: OHLCV[], step = 0.02, max = 0.2): TimedValue[] {
+  if (data.length < 2) return [];
+  const result: TimedValue[] = [];
+  let bull = data.length > 1 && data[1].close >= data[0].close;
+  let sar = bull ? data[0].low : data[0].high;
+  let ep = bull ? data[0].high : data[0].low;
+  let af = step;
+  for (let i = 1; i < data.length; i++) {
+    const curr = data[i];
+    sar = sar + af * (ep - sar);
+    if (bull) {
+      if (i >= 2) sar = Math.min(sar, data[i-1].low, data[i-2].low);
+      else sar = Math.min(sar, data[i-1].low);
+      if (curr.low < sar) {
+        bull = false; sar = ep; ep = curr.low; af = step;
+      } else if (curr.high > ep) {
+        ep = curr.high; af = Math.min(af + step, max);
+      }
+    } else {
+      if (i >= 2) sar = Math.max(sar, data[i-1].high, data[i-2].high);
+      else sar = Math.max(sar, data[i-1].high);
+      if (curr.high > sar) {
+        bull = true; sar = ep; ep = curr.high; af = step;
+      } else if (curr.low < ep) {
+        ep = curr.low; af = Math.min(af + step, max);
+      }
+    }
+    result.push({ time: t(curr), value: sar });
+  }
+  return result;
+}
+
+/* ── ADX (Average Directional Index) ──────────────── */
+export function calcADX(data: OHLCV[], period = 14): { adx: TimedValue[]; plusDI: TimedValue[]; minusDI: TimedValue[] } {
+  if (data.length < period + 2) return { adx: [], plusDI: [], minusDI: [] };
+  const trs: number[] = [], pDMs: number[] = [], mDMs: number[] = [];
+  for (let i = 1; i < data.length; i++) {
+    const h = data[i].high - data[i-1].high;
+    const l = data[i-1].low - data[i].low;
+    pDMs.push(h > 0 && h > l ? h : 0);
+    mDMs.push(l > 0 && l > h ? l : 0);
+    trs.push(Math.max(data[i].high - data[i].low, Math.abs(data[i].high - data[i-1].close), Math.abs(data[i].low - data[i-1].close)));
+  }
+  let avgTR = trs.slice(0, period).reduce((a, b) => a + b, 0);
+  let avgPDM = pDMs.slice(0, period).reduce((a, b) => a + b, 0);
+  let avgMDM = mDMs.slice(0, period).reduce((a, b) => a + b, 0);
+  const adxArr: TimedValue[] = [], pDIArr: TimedValue[] = [], mDIArr: TimedValue[] = [];
+  const dxBuf: number[] = [];
+  for (let i = period; i < trs.length; i++) {
+    avgTR  = avgTR  - avgTR / period + trs[i];
+    avgPDM = avgPDM - avgPDM / period + pDMs[i];
+    avgMDM = avgMDM - avgMDM / period + mDMs[i];
+    const pdi = avgTR === 0 ? 0 : 100 * avgPDM / avgTR;
+    const mdi = avgTR === 0 ? 0 : 100 * avgMDM / avgTR;
+    const dx  = (pdi + mdi) === 0 ? 0 : 100 * Math.abs(pdi - mdi) / (pdi + mdi);
+    dxBuf.push(dx);
+    pDIArr.push({ time: t(data[i + 1]), value: pdi });
+    mDIArr.push({ time: t(data[i + 1]), value: mdi });
+    if (dxBuf.length === period) {
+      adxArr.push({ time: t(data[i + 1]), value: dxBuf.reduce((a, b) => a + b, 0) / period });
+    } else if (dxBuf.length > period) {
+      adxArr.push({ time: t(data[i + 1]), value: (adxArr[adxArr.length - 1].value * (period - 1) + dx) / period });
+    }
+  }
+  return { adx: adxArr, plusDI: pDIArr, minusDI: mDIArr };
+}
+
+/* ── ROC (Rate of Change) ───────────────────────────── */
+export function calcROC(data: OHLCV[], period = 12): TimedValue[] {
+  const result: TimedValue[] = [];
+  for (let i = period; i < data.length; i++) {
+    const prev = data[i - period].close;
+    result.push({ time: t(data[i]), value: prev === 0 ? 0 : (data[i].close - prev) / prev * 100 });
+  }
+  return result;
+}
+
+/* ── MFI (Money Flow Index) ─────────────────────────── */
+export function calcMFI(data: OHLCV[], period = 14): TimedValue[] {
+  if (data.length < period + 1) return [];
+  const tps = data.map(d => (d.high + d.low + d.close) / 3);
+  const result: TimedValue[] = [];
+  for (let i = period; i < data.length; i++) {
+    let posMF = 0, negMF = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      const mf = tps[j] * data[j].volume;
+      if (tps[j] >= tps[j - 1]) posMF += mf; else negMF += mf;
+    }
+    result.push({ time: t(data[i]), value: negMF === 0 ? 100 : 100 - 100 / (1 + posMF / negMF) });
+  }
+  return result;
+}

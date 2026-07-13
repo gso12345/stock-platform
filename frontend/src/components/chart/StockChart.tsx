@@ -3,7 +3,7 @@ import { createChart, ColorType, CrosshairMode, LineStyle, PriceScaleMode } from
 import { Settings, Plus, X } from "lucide-react";
 import {
   calcMA, calcEMA, calcBB, calcRSI, calcMACD, calcStochastic, calcVolume,
-  calcCCI, calcATR, calcOBV, calcWilliams, OHLCV,
+  calcCCI, calcATR, calcOBV, calcWilliams, calcVWAP, calcSAR, calcADX, calcROC, calcMFI, OHLCV,
 } from "./indicators";
 import { useSettingsStore, type ColorScheme } from "@/store/settingsStore";
 
@@ -78,6 +78,11 @@ export interface ChartSettings {
   atr:     boolean; atrPeriod: number;
   obv:     boolean;
   williams:boolean; williamsPeriod: number;
+  vwap:    boolean;
+  sar:     boolean; sarStep: number; sarMax: number;
+  adx:     boolean; adxPeriod: number;
+  roc:     boolean; rocPeriod: number;
+  mfi:     boolean; mfiPeriod: number;
 }
 
 const MA_PALETTE = ["#f59e0b","#3b82f6","#8b5cf6","#10b981","#ef4444","#06b6d4","#ec4899","#14b8a6","#f97316","#6366f1"];
@@ -94,6 +99,11 @@ const DEFAULT_SETTINGS: ChartSettings = {
   atr: false,  atrPeriod: 14,
   obv: false,
   williams: false, williamsPeriod: 14,
+  vwap: false,
+  sar: false, sarStep: 0.02, sarMax: 0.2,
+  adx: false, adxPeriod: 14,
+  roc: false, rocPeriod: 12,
+  mfi: false, mfiPeriod: 14,
 };
 
 const STORAGE_KEY = "stkplt_chart_v2";
@@ -306,6 +316,24 @@ function SettingsPanel({ settings, onChange, onClose }: {
                 </div>
               )}
             </div>
+
+            {/* VWAP */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">VWAP</span>
+              <Toggle label="VWAP" checked={settings.vwap} onToggle={() => set({ vwap: !settings.vwap })} color="#a78bfa"/>
+            </div>
+
+            {/* Parabolic SAR */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">Parabolic SAR</span>
+              <Toggle label="SAR" checked={settings.sar} onToggle={() => set({ sar: !settings.sar })} color="#f43f5e"/>
+              {settings.sar && (
+                <div className="pl-2 flex flex-col gap-1">
+                  <NumInput label="가속계수" value={Math.round(settings.sarStep * 100)} onChange={v => set({ sarStep: v / 100 })} min={1} max={20}/>
+                  <NumInput label="최대값" value={Math.round(settings.sarMax * 10)} onChange={v => set({ sarMax: v / 10 })} min={1} max={10}/>
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -352,6 +380,18 @@ function SettingsPanel({ settings, onChange, onClose }: {
               <Toggle label="Williams %R" checked={settings.williams} onToggle={() => set({ williams: !settings.williams })} color="#14b8a6"/>
               {settings.williams && <div className="pl-2"><NumInput label="기간" value={settings.williamsPeriod} onChange={v => set({ williamsPeriod: v })}/></div>}
             </div>
+
+            {/* ADX */}
+            <div className="flex flex-col gap-1.5">
+              <Toggle label="ADX" checked={settings.adx} onToggle={() => set({ adx: !settings.adx })} color="#fb923c"/>
+              {settings.adx && <div className="pl-2"><NumInput label="기간" value={settings.adxPeriod} onChange={v => set({ adxPeriod: v })}/></div>}
+            </div>
+
+            {/* ROC */}
+            <div className="flex flex-col gap-1.5">
+              <Toggle label="ROC" checked={settings.roc} onToggle={() => set({ roc: !settings.roc })} color="#34d399"/>
+              {settings.roc && <div className="pl-2"><NumInput label="기간" value={settings.rocPeriod} onChange={v => set({ rocPeriod: v })}/></div>}
+            </div>
           </>
         )}
 
@@ -365,7 +405,13 @@ function SettingsPanel({ settings, onChange, onClose }: {
 
         {/* ── 탭4: 거래량분석 ── */}
         {activeTab === "volume" && (
-          <Toggle label="OBV (누적거래량)" checked={settings.obv} onToggle={() => set({ obv: !settings.obv })} color="#6366f1"/>
+          <div className="flex flex-col gap-3">
+            <Toggle label="OBV (누적거래량)" checked={settings.obv} onToggle={() => set({ obv: !settings.obv })} color="#6366f1"/>
+            <div className="flex flex-col gap-1.5">
+              <Toggle label="MFI (자금흐름지수)" checked={settings.mfi} onToggle={() => set({ mfi: !settings.mfi })} color="#22d3ee"/>
+              {settings.mfi && <div className="pl-2"><NumInput label="기간" value={settings.mfiPeriod} onChange={v => set({ mfiPeriod: v })}/></div>}
+            </div>
+          </div>
         )}
 
       </div>
@@ -384,6 +430,9 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
   const atrRef  = useRef<HTMLDivElement>(null);
   const obvRef  = useRef<HTMLDivElement>(null);
   const wrRef   = useRef<HTMLDivElement>(null);
+  const adxRef  = useRef<HTMLDivElement>(null);
+  const rocRef  = useRef<HTMLDivElement>(null);
+  const mfiRef  = useRef<HTMLDivElement>(null);
 
   const chartRef     = useRef<ReturnType<typeof createChart> | null>(null);
   const subRefs      = useRef<Map<string, ReturnType<typeof createChart>>>(new Map());
@@ -597,6 +646,48 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       }
     });
 
+    // VWAP — 메인 차트 오버레이
+    if (s.vwap) {
+      const line = main.addLineSeries({ color: "#a78bfa", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      line.setData(calcVWAP(ohlcv).map(d => ({ time: d.time as any, value: d.value })));
+      overlayRef.current.set("vwap", line);
+    }
+
+    // Parabolic SAR — 메인 차트 오버레이 (점선 시리즈)
+    if (s.sar) {
+      const sarData = calcSAR(ohlcv, s.sarStep, s.sarMax);
+      const sarSeries = main.addLineSeries({ color: "#f43f5e", lineWidth: 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true, pointMarkersVisible: true } as any);
+      sarSeries.setData(sarData.map(d => ({ time: d.time as any, value: d.value })));
+      overlayRef.current.set("sar", sarSeries);
+    }
+
+    if (s.adx) addSub(adxRef, "adx", 100, c => {
+      const { adx, plusDI, minusDI } = calcADX(ohlcv, s.adxPeriod);
+      c.addLineSeries({ color: "#fb923c", lineWidth: 2, priceLineVisible: false }).setData(adx.map(d => ({ time: d.time as any, value: d.value })));
+      c.addLineSeries({ color: "#22c55e", lineWidth: 1, priceLineVisible: false }).setData(plusDI.map(d => ({ time: d.time as any, value: d.value })));
+      c.addLineSeries({ color: "#ef4444", lineWidth: 1, priceLineVisible: false }).setData(minusDI.map(d => ({ time: d.time as any, value: d.value })));
+      if (adx.length > 0) {
+        c.addLineSeries({ color: "#fb923c40", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }).setData(adx.map(d => ({ time: d.time as any, value: 25 })));
+      }
+    });
+
+    if (s.roc) addSub(rocRef, "roc", 90, c => {
+      const data_ = calcROC(ohlcv, s.rocPeriod);
+      c.addLineSeries({ color: "#34d399", lineWidth: 1, priceLineVisible: false }).setData(data_.map(d => ({ time: d.time as any, value: d.value })));
+      if (data_.length > 0) {
+        c.addLineSeries({ color: "#94a3b840", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }).setData(data_.map(d => ({ time: d.time as any, value: 0 })));
+      }
+    });
+
+    if (s.mfi) addSub(mfiRef, "mfi", 90, c => {
+      const data_ = calcMFI(ohlcv, s.mfiPeriod);
+      c.addLineSeries({ color: "#22d3ee", lineWidth: 1, priceLineVisible: false }).setData(data_.map(d => ({ time: d.time as any, value: d.value })));
+      if (data_.length > 0) {
+        c.addLineSeries({ color: "#ef444450", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }).setData(data_.map(d => ({ time: d.time as any, value: 80 })));
+        c.addLineSeries({ color: "#10b98150", lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false }).setData(data_.map(d => ({ time: d.time as any, value: 20 })));
+      }
+    });
+
     const resize = () => { main.applyOptions({ width: mainRef.current?.clientWidth ?? 800 }); };
     window.addEventListener("resize", resize);
     return () => {
@@ -622,6 +713,8 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     ...s.mas.map(m => `MA${m.period}`),
     ...s.emas.map(e => `EMA${e.period}`),
     s.bb && `BB(${s.bbPeriod})`,
+    s.vwap && "VWAP",
+    s.sar && "SAR",
   ].filter(Boolean) as string[];
   const activeSub = [
     s.rsi && `RSI(${s.rsiPeriod})`,
@@ -631,6 +724,9 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     s.atr && `ATR(${s.atrPeriod})`,
     s.obv && "OBV",
     s.williams && `W%R(${s.williamsPeriod})`,
+    s.adx && `ADX(${s.adxPeriod})`,
+    s.roc && `ROC(${s.rocPeriod})`,
+    s.mfi && `MFI(${s.mfiPeriod})`,
   ].filter(Boolean) as string[];
 
   return (
@@ -705,6 +801,24 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
         <div className="relative border-t border-border">
           <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">Williams%R({s.williamsPeriod})</span>
           <div ref={wrRef} className="w-full"/>
+        </div>
+      )}
+      {s.adx && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">ADX({s.adxPeriod}) <span className="text-green-400">+DI</span> <span className="text-red-400">−DI</span></span>
+          <div ref={adxRef} className="w-full"/>
+        </div>
+      )}
+      {s.roc && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">ROC({s.rocPeriod})</span>
+          <div ref={rocRef} className="w-full"/>
+        </div>
+      )}
+      {s.mfi && (
+        <div className="relative border-t border-border">
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">MFI({s.mfiPeriod})</span>
+          <div ref={mfiRef} className="w-full"/>
         </div>
       )}
     </div>
