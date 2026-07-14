@@ -130,7 +130,7 @@ const FIN_CUSTOM_OPTS = [
   { key: "ev_ebitda",         label: "EV/EBITDA",      group: "밸류에이션",   fmt: "x",      color: "#a3e635" },
   // 재무건전성
   { key: "debt_ratio",        label: "부채비율",       group: "재무건전성",   fmt: "pct",    color: "#ef4444" },
-  { key: "current_ratio",     label: "유동비율",       group: "재무건전성",   fmt: "pct",    color: "#22c55e" },
+  { key: "current_ratio",     label: "유동비율",       group: "재무건전성",   fmt: "ratio_pct", color: "#22c55e" },
   { key: "interest_coverage", label: "이자보상비율",   group: "재무건전성",   fmt: "x",      color: "#16a34a" },
   { key: "net_debt",          label: "순부채",         group: "재무건전성",   fmt: "fin",    color: "#dc2626" },
   { key: "total_assets",      label: "총자산",         group: "재무건전성",   fmt: "fin",    color: "#6b7280" },
@@ -1360,7 +1360,8 @@ export default function StockDetail() {
                   { key:"op_margin",    label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-green" },
                   { key:"net_margin",   label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
                   { key:"roe",          label:"ROE",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-yellow" },
-                  { key:"eps",          label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-cyan-400" },
+                  { key:"roa",          label:"ROA",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-cyan-400" },
+                  { key:"eps",          label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-sky-400" },
                 ]} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
               </div>
             </div>
@@ -1394,7 +1395,7 @@ export default function StockDetail() {
                     <BarChart data={mh.filter((r:any)=>r.debt_ratio||r.current_ratio)} {...chartProps.margin}>
                       <CartesianGrid {...chartProps.cartesianGridProps}/>
                       <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                      <YAxis yAxisId="ratio" {...chartProps.yAxisProps}/>
+                      <YAxis yAxisId="ratio" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${(v*100).toFixed(0)}%`}/>
                       <YAxis yAxisId="pct" orientation="right" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
                       <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>{const l:Record<string,string>={current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"};return[n==="debt_ratio"?`${Number(v).toFixed(0)}%`:(n==="current_ratio"||n==="quick_ratio")?`${(Number(v)*100).toFixed(0)}%`:Number(v).toFixed(2),l[n]??n];}}/>
                       <Legend formatter={v=>({current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"}[v as string]??v)}/>
@@ -1478,6 +1479,7 @@ export default function StockDetail() {
             const fmtVal = (opt: typeof FIN_CUSTOM_OPTS[number], v: number) => {
               if (opt.fmt === "fin") return fmtFin(v);
               if (opt.fmt === "pct") return `${v.toFixed(1)}%`;
+              if (opt.fmt === "ratio_pct") return `${(v * 100).toFixed(0)}%`;
               if (opt.fmt === "epsbps") return fmtEpsBps(v)!;
               return `${v.toFixed(2)}x`;
             };

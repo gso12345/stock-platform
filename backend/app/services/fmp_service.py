@@ -168,8 +168,10 @@ class FMPService:
                     "cash":              bs.get("cash"),
                 })
                 if bs.get("total_equity"):
-                    if bs.get("total_liabilities") is not None:
-                        row["debt_ratio"] = round(bs["total_liabilities"] / bs["total_equity"] * 100, 2)
+                    # total_debt(금융부채) 우선, 없으면 total_liabilities(영업부채 포함) 폴백
+                    _debt_base = bs.get("total_debt") if bs.get("total_debt") is not None else bs.get("total_liabilities")
+                    if _debt_base is not None:
+                        row["debt_ratio"] = round(_debt_base / bs["total_equity"] * 100, 2)
                     if row.get("net_income") is not None:
                         row["roe"] = round(row["net_income"] / bs["total_equity"] * 100, 2)
                 if bs.get("total_assets") and row.get("net_income") is not None:
