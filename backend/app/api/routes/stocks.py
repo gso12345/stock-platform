@@ -771,32 +771,50 @@ async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str = Pa
             for col in fin_df.columns:
                 p = str(col)[:10]
                 rows.setdefault(p, {"period": p})
-                rev   = sv(fin_df, "Total Revenue", col)
-                op    = sv(fin_df, "Operating Income", col) or sv(fin_df, "EBIT", col)
-                net   = sv(fin_df, "Net Income", col)
-                gross = sv(fin_df, "Gross Profit", col)
+                rev          = sv(fin_df, "Total Revenue", col)
+                op           = sv(fin_df, "Operating Income", col) or sv(fin_df, "EBIT", col)
+                net          = sv(fin_df, "Net Income", col)
+                gross        = sv(fin_df, "Gross Profit", col)
+                ebit         = sv(fin_df, "EBIT", col) or op
+                interest_exp = sv(fin_df, "Interest Expense", col)
+                # EPS: DataFrame 직접 읽기 (현재 주식수보다 정확, 주식분할·자사주 영향 없음)
+                eps_df       = sv(fin_df, "Diluted EPS", col) or sv(fin_df, "Basic EPS", col)
                 rows[p]["revenue"]    = int(rev) if rev else None
                 rows[p]["op_income"]  = int(op)  if op  else None
                 rows[p]["net_income"] = int(net) if net else None
-                if rev and op:   rows[p]["op_margin"]    = round(op / rev * 100, 2)
-                if rev and net:  rows[p]["net_margin"]   = round(net / rev * 100, 2)
-                if rev and gross:rows[p]["gross_margin"] = round(gross / rev * 100, 2)
-                if net and shares: rows[p]["eps"] = round(net / shares, 2)
+                if rev and op:    rows[p]["op_margin"]    = round(op / rev * 100, 2)
+                if rev and net:   rows[p]["net_margin"]   = round(net / rev * 100, 2)
+                if rev and gross: rows[p]["gross_margin"] = round(gross / rev * 100, 2)
+                if eps_df is not None:
+                    rows[p]["eps"] = round(eps_df, 2)
+                elif net and shares:
+                    rows[p]["eps"] = round(net / shares, 2)
+                if ebit and interest_exp and interest_exp != 0:
+                    rows[p]["interest_coverage"] = round(ebit / abs(interest_exp), 2)
 
         if bal_df is not None and not bal_df.empty:
             for col in bal_df.columns:
                 p = str(col)[:10]
                 rows.setdefault(p, {"period": p})
-                equity  = sv(bal_df, "Stockholders Equity", col) or sv(bal_df, "Total Stockholder Equity", col)
-                debt    = sv(bal_df, "Total Debt", col)
+                equity       = sv(bal_df, "Stockholders Equity", col) or sv(bal_df, "Common Stock Equity", col)
+                debt         = sv(bal_df, "Total Debt", col)
+                total_assets = sv(bal_df, "Total Assets", col)
+                cash         = sv(bal_df, "Cash And Cash Equivalents", col) or \
+                               sv(bal_df, "Cash Cash Equivalents And Short Term Investments", col)
                 cur_a   = sv(bal_df, "Current Assets", col)
                 cur_l   = sv(bal_df, "Current Liabilities", col)
                 inv     = sv(bal_df, "Inventory", col)
                 net     = rows[p].get("net_income")
                 if equity and equity != 0:
-                    if net:   rows[p]["roe"]        = round(net / equity * 100, 2)
-                    if debt:  rows[p]["debt_ratio"]  = round(debt / equity * 100, 2)
-                    if shares:rows[p]["bps"]         = round(equity / shares, 2)
+                    rows[p]["equity"]    = int(equity)
+                    if net:   rows[p]["roe"]       = round(net / equity * 100, 2)
+                    if debt:  rows[p]["debt_ratio"] = round(debt / equity * 100, 2)
+                    if shares:rows[p]["bps"]        = round(equity / shares, 2)
+                if total_assets:
+                    rows[p]["total_assets"] = int(total_assets)
+                    if net is not None: rows[p]["roa"] = round(net / total_assets * 100, 2)
+                if debt and cash:
+                    rows[p]["net_debt"] = int(debt - cash)
                 if cur_a and cur_l and cur_l != 0:
                     rows[p]["current_ratio"] = round(cur_a / cur_l, 2)
                     if inv: rows[p]["quick_ratio"] = round((cur_a - inv) / cur_l, 2)
