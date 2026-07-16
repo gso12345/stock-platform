@@ -194,8 +194,30 @@ def create_post(
     )
     db.add(post)
     db.commit()
-    db.refresh(post)
-    return _ser_post(post, current_user.id, db)
+    post_id = post.id
+    # Return minimal response — frontend calls invalidate() to refetch the list.
+    # Avoid calling _ser_post() here because profile lazy-loading after rollback
+    # can raise unexpected errors.
+    parsed = decode_content(post.content)
+    try:
+        created_at = post.created_at.isoformat() if post.created_at else ""
+    except Exception:
+        created_at = ""
+    return {
+        "id":            post_id,
+        "symbol":        symbol.upper(),
+        "market":        market,
+        "user_id":       current_user.id,
+        "username":      current_user.username,
+        "avatar_color":  0,
+        "title":         parsed["title"],
+        "body":          parsed["body"],
+        "like_count":    0,
+        "comment_count": 0,
+        "liked":         False,
+        "created_at":    created_at,
+        "is_mine":       True,
+    }
 
 
 # ── 게시글 삭제 ────────────────────────────────────────────────
