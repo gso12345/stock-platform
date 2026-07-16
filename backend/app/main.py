@@ -11,12 +11,14 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.db.database import Base, engine
 from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth, portfolio, admin as admin_routes
+from app.api.routes import community
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
     QuantScoreWeight, QuantPercentileCache,
 )
+from app.models.community import StockPost, StockPostLike  # noqa: F401
 from app.api.websocket.price_stream import stream_prices, stream_indices
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db
@@ -285,6 +287,7 @@ app.include_router(backtest.router,  prefix="/api/v1")
 app.include_router(watchlist.router,  prefix="/api/v1")
 app.include_router(portfolio.router, prefix="/api/v1")
 app.include_router(admin_routes.router, prefix="/api/v1")
+app.include_router(community.router,    prefix="/api/v1")
 
 
 @app.websocket("/ws/indices")

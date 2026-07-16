@@ -20,6 +20,7 @@ import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/
 import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs, fmtVolume } from "@/utils/formatters";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
+import CommunityTab from "@/components/community/CommunityTab";
 
 /* ── 지표 셀 ────────────────────────────────────────── */
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
@@ -2434,15 +2435,9 @@ export default function StockDetail() {
         <EtfHoldingsTab symbol={sym} />
       )}
 
-      {/* 커뮤니티 탭 — 서비스 준비중 */}
+      {/* 커뮤니티 탭 */}
       {mainTab==="community" && (
-        <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
-          <MessageSquare size={40} className="text-text-muted/30"/>
-          <div className="text-center">
-            <p className="text-text-primary font-semibold text-base">서비스 준비중입니다</p>
-            <p className="text-text-muted text-sm mt-1">종목 커뮤니티 기능은 곧 제공될 예정입니다</p>
-          </div>
-        </div>
+        <CommunityTab market={m} symbol={sym} />
       )}
 
       {/* 기업 정보 */}

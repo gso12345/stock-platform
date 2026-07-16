@@ -345,3 +345,14 @@ export const watchlistApi = {
   reorderItems: (order: number[]) =>
     api.put("/watchlist/items/reorder", { order }).then((r) => r.data),
 };
+
+export const communityApi = {
+  getPosts: (market: string, symbol: string, page = 1) =>
+    api.get(`/community/${market}/${symbol}/posts`, { params: { page } }).then((r) => r.data),
+  createPost: (market: string, symbol: string, content: string) =>
+    api.post(`/community/${market}/${symbol}/posts`, { content }).then((r) => r.data),
+  deletePost: (market: string, symbol: string, postId: number) =>
+    api.delete(`/community/${market}/${symbol}/posts/${postId}`).then((r) => r.data),
+  toggleLike: (postId: number) =>
+    api.post(`/community/posts/${postId}/like`).then((r) => r.data),
+};
