@@ -1765,14 +1765,14 @@ export default function Portfolio() {
                         </div>
                       </div>
                       {isLoggedIn && (
-                        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button onClick={() => openEditModal(item)}
-                            className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
-                            <Pencil size={13} />
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-accent-blue bg-accent-blue/10 hover:bg-accent-blue/20 transition-colors">
+                            <Pencil size={11} /><span>수정</span>
                           </button>
                           <button onClick={() => setDeleteTarget(item)}
-                            className="p-1.5 rounded-lg text-text-muted hover:text-accent-red hover:bg-accent-red/10 transition-colors" title="삭제">
-                            <Trash2 size={13} />
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-accent-red bg-accent-red/10 hover:bg-accent-red/20 transition-colors">
+                            <Trash2 size={11} /><span>삭제</span>
                           </button>
                         </div>
                       )}
@@ -1928,15 +1928,14 @@ export default function Portfolio() {
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         {isLoggedIn && (
-                          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                             <button onClick={() => openEditModal(item)}
-                              className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
-                              <Pencil size={13} />
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-accent-blue bg-accent-blue/10 hover:bg-accent-blue/20 transition-colors">
+                              <Pencil size={11} /><span>수정</span>
                             </button>
                             <button onClick={() => setDeleteTarget(item)}
-                              className="p-1.5 rounded-lg text-text-muted hover:text-accent-red hover:bg-accent-red/10 transition-colors"
-                              title="삭제">
-                              <Trash2 size={13} />
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-accent-red bg-accent-red/10 hover:bg-accent-red/20 transition-colors">
+                              <Trash2 size={11} /><span>삭제</span>
                             </button>
                           </div>
                         )}

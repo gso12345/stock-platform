@@ -183,7 +183,7 @@ export default function StockDetail() {
   const [consensusPeriod, setConsensusPeriod] = useState<"annual" | "quarterly">("annual");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow" | "custom">("basic");
-  const [showCustomSelector, setShowCustomSelector] = useState(true);
+  const [showCustomSelector, setShowCustomSelector] = useState(false);
   const [customMetricKeys, setCustomMetricKeys] = useState<string[]>(() => {
     try { const r = localStorage.getItem(FIN_CUSTOM_KEY); if (r) return JSON.parse(r); } catch {}
     return ["revenue", "op_income", "net_income"];
@@ -200,7 +200,6 @@ export default function StockDetail() {
   const [watchlistMsg, setWatchlistMsg] = useState("");
   const [openGroup, setOpenGroup]     = useState<string | null>(null);
   const candleDropdownRef             = useRef<HTMLDivElement>(null);
-  const dragMetricIdxRef              = useRef<number>(-1);
 
   // 캔들 그룹 드롭다운 외부 클릭 시 닫기
   useEffect(() => {
@@ -1534,42 +1533,41 @@ export default function StockDetail() {
                   </div>}
                 </div>
 
-                {/* 순서 조정 — 선택된 지표를 드래그로 재배열 */}
+                {/* 순서 조정 — 버튼으로 재배열 */}
                 {customMetricKeys.length > 1 && (
                   <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
                     <div className="px-4 py-3 border-b border-border flex items-center gap-2">
                       <span className="text-base font-semibold text-text-primary">순서 조정</span>
-                      <span className="text-xs text-text-muted">드래그하여 차트·표 순서 변경</span>
+                      <span className="text-xs text-text-muted">← → 버튼으로 차트·표 순서 변경</span>
                     </div>
                     <div className="p-3 flex flex-wrap gap-2">
                       {customMetricKeys.map((key, i) => {
                         const opt = FIN_CUSTOM_OPTS.find(o => o.key === key);
                         if (!opt) return null;
+                        const moveMetric = (dir: -1 | 1) => {
+                          const j = i + dir;
+                          if (j < 0 || j >= customMetricKeys.length) return;
+                          const next = [...customMetricKeys];
+                          [next[i], next[j]] = [next[j], next[i]];
+                          updateCustomMetricKeys(next);
+                        };
                         return (
                           <div
                             key={key}
-                            draggable
-                            onDragStart={(e) => {
-                              dragMetricIdxRef.current = i;
-                              e.dataTransfer.effectAllowed = "move";
-                            }}
-                            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              const from = dragMetricIdxRef.current;
-                              if (from < 0 || from === i) return;
-                              const next = [...customMetricKeys];
-                              const [moved] = next.splice(from, 1);
-                              next.splice(i, 0, moved);
-                              updateCustomMetricKeys(next);
-                              dragMetricIdxRef.current = -1;
-                            }}
-                            onDragEnd={() => { dragMetricIdxRef.current = -1; }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-semibold cursor-grab active:cursor-grabbing select-none text-white border-transparent"
+                            className="flex items-center rounded-lg border text-sm font-semibold select-none text-white border-transparent overflow-hidden"
                             style={{ background: opt.color + "bb", borderColor: opt.color }}
                           >
-                            <span className="opacity-60 text-base leading-none">⠿</span>
-                            {opt.label}
+                            <button
+                              onClick={() => moveMetric(-1)}
+                              disabled={i === 0}
+                              className="px-1.5 py-1.5 text-white/70 hover:text-white hover:bg-black/20 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none"
+                            >◀</button>
+                            <span className="px-2 py-1.5">{opt.label}</span>
+                            <button
+                              onClick={() => moveMetric(1)}
+                              disabled={i === customMetricKeys.length - 1}
+                              className="px-1.5 py-1.5 text-white/70 hover:text-white hover:bg-black/20 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none"
+                            >▶</button>
                           </div>
                         );
                       })}
