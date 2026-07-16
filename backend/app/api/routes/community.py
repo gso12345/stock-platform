@@ -2,7 +2,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from typing import Literal, Optional
 from app.db.database import get_db
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile
@@ -98,7 +98,17 @@ def _ser_comment(c: StockComment, uid: Optional[int], db: Session) -> dict:
 # ── Pydantic ──────────────────────────────────────────────────
 class PostCreate(BaseModel):
     title:   str = ""
-    body:    str
+    body:    str = ""
+    content: str = ""  # backwards compat: old frontend sends {content}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compat_content(cls, data):
+        if isinstance(data, dict) and not data.get("body", "").strip() and data.get("content", "").strip():
+            data = dict(data)
+            data["body"] = data["content"]
+        return data
+
     @field_validator("body")
     @classmethod
     def body_not_empty(cls, v: str) -> str:
@@ -108,6 +118,7 @@ class PostCreate(BaseModel):
         if len(v) > 2000:
             raise ValueError("내용은 2000자 이내로 입력해 주세요")
         return v
+
     @field_validator("title")
     @classmethod
     def title_max(cls, v: str) -> str:
