@@ -18,11 +18,9 @@ US_INDICES = ["SP500", "NASDAQ", "DOW", "SOX", "RUSSELL"]
 
 
 def _cached_index(name: str) -> dict:
-    # fresh 캐시 우선 (스케줄러가 갱신한 실제 데이터)
     fresh = cache.get(f"idx:{name}")
     if fresh and fresh.get("value", 0) > 0:
         return fresh
-    # stale 캐시 (신선하지 않지만 데모보다 낫다면)
     stale = cache.get_stale(f"idx:{name}")
     if stale and stale.get("value", 0) > 0:
         return stale
@@ -34,6 +32,21 @@ def _cached_price(symbol: str, market: str) -> dict:
     if data:
         return {**data, "market": market}
     return {"symbol": symbol, "market": market, "price": None, "change_rate": 0}
+
+
+def _cached_forex() -> dict:
+    """환율·금리 캐시 반환 (WebSocket 실시간 스트림용)"""
+    usdkrw = cache.get_stale("extra:usdkrw")
+    result: dict = {}
+    if usdkrw:
+        result["usdkrw"] = usdkrw
+    us_rates = cache.get_stale("extra:us_rates")
+    if us_rates and isinstance(us_rates, list):
+        # 금(Gold) 항목 추출
+        gold = next((r for r in us_rates if "금" in r.get("name", "") or "Gold" in r.get("name", "")), None)
+        if gold:
+            result["gold"] = gold
+    return result
 
 
 async def stream_indices(ws: WebSocket, interval: int = 30):
@@ -48,8 +61,12 @@ async def stream_indices(ws: WebSocket, interval: int = 30):
         while True:
             kr = [_cached_index(n) for n in KR_INDICES]
             us = [_cached_index(n) for n in US_INDICES]
+            forex = _cached_forex()
+            payload = {"kr": kr, "us": us}
+            if forex:
+                payload["forex"] = forex
             try:
-                await ws.send_text(json.dumps({"type": "indices", "data": {"kr": kr, "us": us}}))
+                await ws.send_text(json.dumps({"type": "indices", "data": payload}))
             except Exception:
                 break
             await asyncio.sleep(max(interval, 15))

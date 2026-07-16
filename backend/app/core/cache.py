@@ -65,5 +65,27 @@ class TTLCache:
     def size(self) -> int:
         return len(self._store)
 
+    def keys_with_ttl(self) -> list[dict]:
+        """현재 캐시된 모든 키와 남은 TTL(초) 반환 (관리자 전용)"""
+        now = time.time()
+        with self._lock:
+            return sorted([
+                {
+                    "key": k,
+                    "ttl_remaining": max(0, round(exp - now)),
+                    "has_stale": k in self._stale,
+                }
+                for k, (_, exp) in list(self._store.items())
+            ], key=lambda x: x["key"])
+
+    def delete_pattern(self, prefix: str) -> int:
+        """특정 접두사로 시작하는 모든 키 삭제 후 삭제 개수 반환"""
+        with self._lock:
+            to_delete = [k for k in self._store if k.startswith(prefix)]
+            for k in to_delete:
+                self._store.pop(k, None)
+                self._stale.pop(k, None)
+            return len(to_delete)
+
 
 cache = TTLCache()

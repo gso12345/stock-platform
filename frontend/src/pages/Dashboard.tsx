@@ -312,18 +312,21 @@ const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { live
     refetchIntervalInBackground: false,
   });
 
-  // 해외 탭과 동일한 소스(yfinance USDKRW=X)로 원/달러 환율 표시
+  // 환율: WebSocket 실시간 우선 → HTTP 폴백
   const { data: usRatesData } = useQuery({
     queryKey: ["dashboard-us-rates"],
     queryFn: () => dashboardApi.getUSRates(),
     staleTime: 300_000,
+    refetchInterval: 300_000,
   });
+  const liveUsdkrw = liveIndices?.forex?.usdkrw ?? null;
   const usdkrwRate = useMemo(() => {
+    if (liveUsdkrw) return liveUsdkrw;
     if (Array.isArray(usRatesData)) {
       return (usRatesData as any[]).find((r: any) => r.name === "원/달러");
     }
     return null;
-  }, [usRatesData]);
+  }, [liveUsdkrw, usRatesData]);
 
   const prefetchIndex = useCallback((key: string) => {
     if (qc.getQueryData(["index-detail", key])) return;
@@ -334,8 +337,9 @@ const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { live
   const { data: newsData } = useQuery({
     queryKey: ["news", "kr"],
     queryFn: () => dashboardApi.getNews("kr"),
-    staleTime: 600_000,
-    refetchInterval: false,
+    staleTime: 300_000,
+    refetchInterval: 300_000,
+    refetchIntervalInBackground: false,
   });
 
   const KR_INDEX_KEYS = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"] as const;
@@ -431,14 +435,15 @@ const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { live
     queryKey: ["dashboard-us-rates"],
     queryFn: () => dashboardApi.getUSRates(),
     staleTime: 300_000,
-    refetchInterval: false,
+    refetchInterval: 300_000,
   });
 
   const { data: newsData } = useQuery({
     queryKey: ["news", "us"],
     queryFn: () => dashboardApi.getNews("us"),
-    staleTime: 600_000,
-    refetchInterval: false,
+    staleTime: 300_000,
+    refetchInterval: 300_000,
+    refetchIntervalInBackground: false,
   });
 
   const US_INDEX_KEYS = ["SP500","NASDAQ","DOW","SOX","RUSSELL"] as const;
@@ -455,17 +460,19 @@ const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { live
     return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
   };
 
-  // rates: API /us/rates 우선 → data.rates → exchange 단독 fallback
+  // rates: WebSocket 실시간 환율 반영 후 목록 구성
+  const liveUsdkrwUS = liveIndices?.forex?.usdkrw ?? null;
   const rates: any[] = useMemo(() => {
-    if (ratesData?.length) return ratesData;
-    if (data?.rates?.length) return data.rates;
-    // exchange만 있을 때 최소 표시
-    if (data?.exchange) {
-      const ex = data.exchange;
-      return [{ name: "원/달러", value: ex.value ?? ex.usdkrw ?? 0, change: ex.change ?? 0, change_rate: ex.change_rate ?? 0, unit: "원", _demo: ex._demo }];
+    const base: any[] = ratesData?.length ? [...ratesData] : data?.rates?.length ? [...data.rates] :
+      data?.exchange ? [{ name: "원/달러", value: data.exchange.value ?? data.exchange.usdkrw ?? 0, change: data.exchange.change ?? 0, change_rate: data.exchange.change_rate ?? 0, unit: "원" }] : [];
+    // WebSocket으로 실시간 환율 덮어쓰기
+    if (liveUsdkrwUS) {
+      const idx = base.findIndex((r) => r.name === "원/달러");
+      const live = { ...liveUsdkrwUS, name: "원/달러" };
+      if (idx >= 0) base[idx] = live; else base.unshift(live);
     }
-    return [];
-  }, [ratesData, data]);
+    return base;
+  }, [ratesData, data, liveUsdkrwUS]);
 
   return (
     <div className="flex flex-col gap-5">
