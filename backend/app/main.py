@@ -18,7 +18,7 @@ from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
     QuantScoreWeight, QuantPercentileCache,
 )
-from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile  # noqa: F401
+from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow  # noqa: F401
 from app.api.websocket.price_stream import stream_prices, stream_indices
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db
@@ -57,7 +57,7 @@ async def lifespan(application: FastAPI):
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
-        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights", "portfolio_items"}
+        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights", "portfolio_items", "portfolios"}
         _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
         # 테이블/컬럼명이 항상 이 파일 내 하드코딩된 값이지만, 방어적으로 식별자 형식을 강제
         _IDENTIFIER_RE = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -94,6 +94,7 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("quant_score_weights", "enabled_metrics", "JSON")
         _add_col_if_missing("portfolio_items", "portfolio_id", "INTEGER REFERENCES portfolios(id)", "INTEGER")
         _add_col_if_missing("portfolio_items", "asset_class", "VARCHAR(10)")
+        _add_col_if_missing("portfolios", "is_public", "BOOLEAN DEFAULT FALSE")
 
         def _add_index_if_missing(table: str, col: str):
             if table not in tables:
@@ -164,7 +165,7 @@ async def lifespan(application: FastAPI):
                     conn.rollback()
 
         # 커뮤니티 테이블이 없으면 재생성 (이전 배포에서 create_all이 실패했을 경우 대비)
-        community_tables = {"stock_posts", "stock_post_likes", "stock_comments", "stock_comment_likes", "user_profiles"}
+        community_tables = {"stock_posts", "stock_post_likes", "stock_comments", "stock_comment_likes", "user_profiles", "user_follows"}
         if not community_tables.issubset(set(tables)):
             try:
                 Base.metadata.create_all(bind=engine)

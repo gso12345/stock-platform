@@ -5,7 +5,8 @@ from sqlalchemy import func
 from pydantic import BaseModel, field_validator, model_validator
 from typing import Literal, Optional
 from app.db.database import get_db
-from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile
+from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow
+from app.models.user import User
 from app.core.deps import get_current_user, require_user
 
 router = APIRouter(prefix="/community", tags=["community"])
@@ -364,15 +365,27 @@ def toggle_comment_like(
 # ── 전체 피드 ─────────────────────────────────────────────────
 @router.get("/feed")
 def get_feed(
-    page:   int = Query(1, ge=1),
-    limit:  int = Query(20, ge=1, le=50),
-    sort:   Literal["latest", "likes"] = Query("latest"),
-    market: Optional[str] = Query(None),
-    db:     Session = Depends(get_db),
+    page:      int = Query(1, ge=1),
+    limit:     int = Query(20, ge=1, le=50),
+    sort:      Literal["latest", "likes"] = Query("latest"),
+    market:    Optional[str] = Query(None),
+    following: bool = Query(False),
+    db:        Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     uid = current_user.id if current_user else None
     q = db.query(StockPost).filter(StockPost.is_deleted == False)
+
+    if following and uid:
+        followed_ids = [
+            f.following_id
+            for f in db.query(UserFollow).filter(UserFollow.follower_id == uid).all()
+        ]
+        if followed_ids:
+            q = q.filter(StockPost.user_id.in_(followed_ids))
+        else:
+            return {"total": 0, "page": page, "items": []}
+
     if market and market in ("KR", "US", "ETF"):
         q = q.filter(StockPost.market == market)
     total = q.count()

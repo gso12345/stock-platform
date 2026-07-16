@@ -95,6 +95,7 @@ class Portfolio(Base):
     name       = Column(String(100), nullable=False, default="기본 포트폴리오")
     user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     position   = Column(Integer, default=0)
+    is_public  = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     items      = relationship("PortfolioItem", back_populates="portfolio", cascade="all, delete-orphan")
 

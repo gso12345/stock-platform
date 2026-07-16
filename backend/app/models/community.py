@@ -76,3 +76,13 @@ class UserProfile(Base):
     updated_at   = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User")
+
+
+class UserFollow(Base):
+    __tablename__ = "user_follows"
+    __table_args__ = (UniqueConstraint("follower_id", "following_id"),)
+
+    id           = Column(Integer, primary_key=True, index=True)
+    follower_id  = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    following_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
