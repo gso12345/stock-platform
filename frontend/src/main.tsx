@@ -23,6 +23,7 @@ const OAuthCallback = lazy(() => import("./pages/OAuthCallback"));
 const Admin = lazy(() => import("./pages/Admin"));
 const Terms = lazy(() => import("./pages/Terms"));
 const Privacy = lazy(() => import("./pages/Privacy"));
+const MyPage = lazy(() => import("./pages/MyPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -85,6 +86,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <Route path="news" element={<News />} />
               <Route path="quant" element={<Quant />} />
               <Route path="admin" element={<Admin />} />
+              <Route path="mypage" element={<MyPage />} />
             </Route>
           </Routes>
         </Suspense>

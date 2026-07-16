@@ -18,7 +18,7 @@ from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
     QuantScoreWeight, QuantPercentileCache,
 )
-from app.models.community import StockPost, StockPostLike  # noqa: F401
+from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile  # noqa: F401
 from app.api.websocket.price_stream import stream_prices, stream_indices
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db

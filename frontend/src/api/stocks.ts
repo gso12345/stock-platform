@@ -347,12 +347,26 @@ export const watchlistApi = {
 };
 
 export const communityApi = {
-  getPosts: (market: string, symbol: string, page = 1) =>
-    api.get(`/community/${market}/${symbol}/posts`, { params: { page } }).then((r) => r.data),
-  createPost: (market: string, symbol: string, content: string) =>
-    api.post(`/community/${market}/${symbol}/posts`, { content }).then((r) => r.data),
+  getPosts: (market: string, symbol: string, page = 1, sort: "latest" | "likes" = "latest") =>
+    api.get(`/community/${market}/${symbol}/posts`, { params: { page, sort } }).then((r) => r.data),
+  createPost: (market: string, symbol: string, title: string, body: string) =>
+    api.post(`/community/${market}/${symbol}/posts`, { title, body }).then((r) => r.data),
   deletePost: (market: string, symbol: string, postId: number) =>
     api.delete(`/community/${market}/${symbol}/posts/${postId}`).then((r) => r.data),
-  toggleLike: (postId: number) =>
+  togglePostLike: (postId: number) =>
     api.post(`/community/posts/${postId}/like`).then((r) => r.data),
+  getComments: (postId: number) =>
+    api.get(`/community/posts/${postId}/comments`).then((r) => r.data),
+  createComment: (postId: number, content: string, parentId?: number) =>
+    api.post(`/community/posts/${postId}/comments`, { content, parent_id: parentId ?? null }).then((r) => r.data),
+  deleteComment: (commentId: number) =>
+    api.delete(`/community/comments/${commentId}`).then((r) => r.data),
+  toggleCommentLike: (commentId: number) =>
+    api.post(`/community/comments/${commentId}/like`).then((r) => r.data),
+  getMyProfile: () =>
+    api.get("/community/profile/me").then((r) => r.data),
+  updateMyProfile: (payload: { nickname?: string; avatar_color?: number; bio?: string }) =>
+    api.put("/community/profile/me", payload).then((r) => r.data),
+  getUserProfile: (userId: number) =>
+    api.get(`/community/profile/${userId}`).then((r) => r.data),
 };

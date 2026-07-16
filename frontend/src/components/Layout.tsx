@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone, ShieldCheck, Megaphone } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone, ShieldCheck, Megaphone, User } from "lucide-react";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
@@ -36,6 +36,7 @@ const MORE_NAV = [
   { to: "/screening",  icon: Search,    label: "스크리닝"   },
   { to: "/backtest",   icon: LineChart, label: "백테스트"   },
   { to: "/strategies", icon: BookMarked,label: "전략저장소" },
+  { to: "/mypage",     icon: User,      label: "마이페이지" },
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
@@ -297,6 +298,13 @@ export default function Layout() {
           ))}
         </nav>
         <div className="px-3 pb-2 flex flex-col gap-0.5">
+          {isLoggedIn && (
+            <NavLink to="/mypage"
+              className={({ isActive }) => navItemCls(isActive)}
+            >
+              <User size={15} className="flex-shrink-0" />마이페이지
+            </NavLink>
+          )}
           <InstallAppButton className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150" />
           <button
             onClick={() => setSettingsOpen(true)}
@@ -383,9 +391,9 @@ export default function Layout() {
             </span>
             {isLoggedIn ? (
               <div className="flex items-center gap-1.5">
-                <span className="hidden sm:block text-text-muted text-xs font-medium truncate max-w-[120px]" title={username ?? ""}>
+                <Link to="/mypage" className="hidden sm:block text-text-muted text-xs font-medium truncate max-w-[120px] hover:text-accent-blue transition-colors" title={username ?? ""}>
                   {username}
-                </span>
+                </Link>
                 {isAdmin && (
                   <Link to="/admin" className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-accent-blue/40 hover:bg-accent-blue/10 text-accent-blue transition-all" title="관리자 페이지">
                     <ShieldCheck size={13} />
