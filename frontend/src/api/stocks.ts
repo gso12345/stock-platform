@@ -350,7 +350,7 @@ export const communityApi = {
   getPosts: (market: string, symbol: string, page = 1, sort: "latest" | "likes" = "latest") =>
     api.get(`/community/${market}/${symbol}/posts`, { params: { page, sort } }).then((r) => r.data),
   createPost: (market: string, symbol: string, title: string, body: string) =>
-    api.post(`/community/${market}/${symbol}/posts`, { title, body }).then((r) => r.data),
+    api.post(`/community/${market}/${symbol}/posts`, { title, body, content: body }).then((r) => r.data),
   deletePost: (market: string, symbol: string, postId: number) =>
     api.delete(`/community/${market}/${symbol}/posts/${postId}`).then((r) => r.data),
   togglePostLike: (postId: number) =>
