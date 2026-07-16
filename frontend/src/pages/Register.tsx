@@ -22,6 +22,7 @@ export default function Register() {
   const [confirmPw, setConfirmPw] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -47,6 +48,10 @@ export default function Register() {
     }
     if (!pwMatch) {
       setError("비밀번호가 일치하지 않습니다.");
+      return;
+    }
+    if (!agreeTerms) {
+      setError("이용약관 및 개인정보처리방침에 동의해 주세요.");
       return;
     }
 
@@ -176,6 +181,22 @@ export default function Register() {
                 <p className="text-2xs text-accent-green">비밀번호가 일치합니다.</p>
               )}
             </div>
+
+            {/* 약관 동의 */}
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agreeTerms}
+                onChange={(e) => setAgreeTerms(e.target.checked)}
+                className="mt-0.5 w-3.5 h-3.5 accent-accent-blue shrink-0"
+              />
+              <span className="text-xs text-text-muted leading-relaxed">
+                <Link to="/terms" target="_blank" className="text-accent-blue hover:underline">이용약관</Link>
+                {" "}및{" "}
+                <Link to="/privacy" target="_blank" className="text-accent-blue hover:underline">개인정보처리방침</Link>
+                에 동의합니다. <span className="text-accent-red">(필수)</span>
+              </span>
+            </label>
 
             {/* 에러 메시지 */}
             {error && (

@@ -159,6 +159,12 @@ export default function Login() {
               회원가입
             </Link>
           </div>
+
+          <div className="mt-4 text-center text-2xs text-text-dim">
+            <Link to="/terms" className="hover:text-text-muted transition-colors">이용약관</Link>
+            <span className="mx-1.5">·</span>
+            <Link to="/privacy" className="hover:text-text-muted transition-colors">개인정보처리방침</Link>
+          </div>
         </div>
       </div>
     </div>
