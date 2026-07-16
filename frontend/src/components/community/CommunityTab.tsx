@@ -846,8 +846,21 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
       ? { question: pollQuestion.trim(), options: pollOptions.filter((o) => o.trim()) }
       : null;
 
+    // Retry once on network error (Render free-tier sleep causes CORS-less 502)
+    const attempt = async () =>
+      communityApi.createPost(market, symbol, title.trim(), b, image, pollData, tags);
+
     try {
-      await communityApi.createPost(market, symbol, title.trim(), b, image, pollData, tags);
+      try {
+        await attempt();
+      } catch (firstErr: any) {
+        if (firstErr?.response) throw firstErr; // real HTTP error, don't retry
+        // Network error (no response) — wait 3s and retry once
+        setPostError("서버 연결 중... 잠시 후 재시도합니다.");
+        await new Promise((r) => setTimeout(r, 3000));
+        setPostError(null);
+        await attempt();
+      }
       resetForm();
       setPage(1);
       invalidate();
@@ -858,11 +871,13 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
       if (e?.response?.status === 401) {
         setPostError("로그인이 필요합니다. 다시 로그인해 주세요.");
       } else if (e?.response?.status === 422) {
-        setPostError("내용을 입력해 주세요.");
+        const detail = e?.response?.data?.detail;
+        const txt = Array.isArray(detail) ? detail[0]?.msg : detail;
+        setPostError(typeof txt === "string" ? txt : "내용을 입력해 주세요.");
       } else if (msg) {
         setPostError(typeof msg === "string" ? msg : "오류가 발생했습니다.");
       } else {
-        setPostError("등록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+        setPostError("서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
       }
     } finally {
       setSubmitting(false);
