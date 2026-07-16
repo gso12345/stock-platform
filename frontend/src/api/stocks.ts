@@ -369,4 +369,6 @@ export const communityApi = {
     api.put("/community/profile/me", payload).then((r) => r.data),
   getUserProfile: (userId: number) =>
     api.get(`/community/profile/${userId}`).then((r) => r.data),
+  getFeed: (page = 1, sort: "latest" | "likes" = "latest", market?: string) =>
+    api.get("/community/feed", { params: { page, sort, ...(market ? { market } : {}) } }).then((r) => r.data),
 };

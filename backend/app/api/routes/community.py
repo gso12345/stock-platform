@@ -46,6 +46,8 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session) -> dict:
     profile = get_profile(db, post.user_id) if post.user else None
     return {
         "id":            post.id,
+        "symbol":        post.symbol,
+        "market":        post.market,
         "user_id":       post.user_id,
         "username":      display_name(post.user, profile),
         "avatar_color":  profile.avatar_color if profile else 0,
@@ -317,6 +319,29 @@ def toggle_comment_like(
         liked = True
     db.commit()
     return {"liked": liked, "like_count": c.like_count}
+
+
+# ── 전체 피드 ─────────────────────────────────────────────────
+@router.get("/feed")
+def get_feed(
+    page:   int = Query(1, ge=1),
+    limit:  int = Query(20, ge=1, le=50),
+    sort:   Literal["latest", "likes"] = Query("latest"),
+    market: Optional[str] = Query(None),
+    db:     Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    uid = current_user.id if current_user else None
+    q = db.query(StockPost).filter(StockPost.is_deleted == False)
+    if market and market in ("KR", "US", "ETF"):
+        q = q.filter(StockPost.market == market)
+    total = q.count()
+    if sort == "likes":
+        q = q.order_by(StockPost.like_count.desc(), StockPost.created_at.desc())
+    else:
+        q = q.order_by(StockPost.created_at.desc())
+    posts = q.offset((page - 1) * limit).limit(limit).all()
+    return {"total": total, "page": page, "items": [_ser_post(p, uid, db) for p in posts]}
 
 
 # ── 프로필 조회 ────────────────────────────────────────────────

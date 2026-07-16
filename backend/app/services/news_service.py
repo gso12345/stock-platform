@@ -223,10 +223,11 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
                 "title":     title,
                 "link":      entry.get("link", ""),
                 "source":    source,
-                "published": dt.astimezone(KST).strftime("%m/%d %H:%M"),
-                "summary":   _clean_text(entry.get("summary") or ""),
-                "image":     image,
-                "_ts":       dt.timestamp(),
+                "published":    dt.astimezone(KST).strftime("%m/%d %H:%M"),
+                "published_ts": dt.timestamp(),
+                "summary":      _clean_text(entry.get("summary") or ""),
+                "image":        image,
+                "_ts":          dt.timestamp(),
             })
             if len(items) >= limit:
                 break
@@ -289,6 +290,7 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
 
 
 def _strip_ts(articles: list[dict]) -> list[dict]:
+    # _ts is internal; published_ts is kept for frontend sort
     return [{k: v for k, v in a.items() if k != "_ts"} for a in articles]
 
 

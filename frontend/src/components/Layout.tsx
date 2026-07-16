@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone, ShieldCheck, Megaphone, User } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone, ShieldCheck, Megaphone, User, Rss } from "lucide-react";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
@@ -20,6 +20,7 @@ const NAV = [
   { to: "/backtest",  icon: LineChart,        label: "백테스트" },
   { to: "/strategies",icon: BookMarked,       label: "전략저장소"},
   { to: "/news",      icon: Newspaper,        label: "뉴스"     },
+  { to: "/feed",      icon: Rss,              label: "피드"     },
 ];
 
 /* ── 모바일 하단 탭바 ─────────────────────────────────── */
@@ -37,6 +38,7 @@ const MORE_NAV = [
   { to: "/backtest",   icon: LineChart, label: "백테스트"   },
   { to: "/strategies", icon: BookMarked,label: "전략저장소" },
   { to: "/mypage",     icon: User,      label: "마이페이지" },
+  { to: "/feed",       icon: Rss,       label: "피드"       },
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {

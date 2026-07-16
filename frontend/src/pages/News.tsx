@@ -62,12 +62,15 @@ export default function News() {
     refetchInterval: 120_000,
   });
 
-  // 최신순: 실제 발행 시각 기준으로 정렬 (백엔드 순서에 의존하지 않음)
+  // 최신순: published_ts(unix seconds) 우선, 없으면 문자열 파싱
   // 인기순: 트렌드 점수 기준 정렬
+  const getTs = (item: any): number =>
+    item.published_ts != null ? item.published_ts : newsTimestampMs(item.published) / 1000;
+
   const sorted = useMemo(() => (
     sort === "popular"
       ? [...(news ?? [])].sort((a: any, b: any) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
-      : [...(news ?? [])].sort((a: any, b: any) => newsTimestampMs(b.published) - newsTimestampMs(a.published))
+      : [...(news ?? [])].sort((a: any, b: any) => getTs(b) - getTs(a))
   ), [news, sort]);
 
   const shown = sorted.slice(0, shownCount);
