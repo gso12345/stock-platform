@@ -42,14 +42,6 @@ const PREVIEW_WATCHLIST: PreviewItem[] = [
   { id: -11, symbol: "SPY",   market: "ETF", name: "SPDR S&P 500 ETF",  folderId: -3, price: 534.21, change_rate:  0.41 },
   { id: -12, symbol: "QQQ",   market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
 ];
-const PREVIEW_PORTFOLIOS: PreviewFolder[] = [
-  { id: -101, name: "성장주" },
-  { id: -102, name: "배당&ETF" },
-];
-const PREVIEW_PORTFOLIO_ITEMS: Record<number, PreviewItem[]> = {
-  [-101]: PREVIEW_WATCHLIST.filter(i => ["NVDA","AAPL","MSFT","GOOGL","AMZN","META","TSLA"].includes(i.symbol)),
-  [-102]: PREVIEW_WATCHLIST.filter(i => ["005930","000660","005380","SPY","QQQ"].includes(i.symbol)),
-};
 
 const MKT_BADGE_VARIANT: Record<string, "blue" | "green" | "purple"> = {
   KR:  "blue",
@@ -1370,14 +1362,6 @@ export default function Watchlist() {
                 </button>
               );
             })}
-            {PREVIEW_PORTFOLIOS.map(pf => (
-              <button key={`pf-${pf.id}`}
-                onClick={() => { setPortfolioTab(pf.id); setFolderTab("all"); }}
-                className={`${tabBtnCls(portfolioTab === pf.id)} flex items-center gap-1`}
-              >
-                <Wallet size={11} />{pf.name}
-              </button>
-            ))}
           </div>
         );
       })() : (() => {
@@ -1476,29 +1460,7 @@ export default function Watchlist() {
             })
           )}
         </Card>
-      ) : portfolioTab !== null && isPreview ? (() => {
-        const pf = PREVIEW_PORTFOLIOS.find(p => p.id === portfolioTab);
-        const items = (PREVIEW_PORTFOLIO_ITEMS[portfolioTab] ?? []).filter(i => marketTab === "전체" || i.market === marketTab);
-        return (
-          <Card className="p-0 overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
-              <Wallet size={13} className="text-accent-blue" />
-              <span className="flex-1 text-sm font-semibold text-text-primary">{pf?.name ?? "포트폴리오"}</span>
-              <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{items.length}</span>
-            </div>
-            {items.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 px-4 py-8">
-                <Wallet size={24} className="text-text-muted/40" />
-                <p className="text-text-muted text-xs">해당 시장의 예시 종목이 없습니다</p>
-              </div>
-            ) : (
-              items.map(item => (
-                <PreviewItemRow key={item.id} item={item} onNavigate={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)} />
-              ))
-            )}
-          </Card>
-        );
-      })() : portfolioTab !== null ? (
+      ) : portfolioTab !== null ? (
         <Card className="p-0 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
             <Wallet size={13} className="text-accent-blue" />
