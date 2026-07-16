@@ -1346,12 +1346,11 @@ export default function StockDetail() {
                       <CartesianGrid {...chartProps.cartesianGridProps}/>
                       <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                       <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
-                      <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[`${Number(v).toFixed(1)}%`,{gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률",roe:"ROE"}[n]??n]}/>
-                      <Legend formatter={v=>({gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률",roe:"ROE"}[v as string]??v)}/>
+                      <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[`${Number(v).toFixed(1)}%`,{gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률"}[n]??n]}/>
+                      <Legend formatter={v=>({gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률"}[v as string]??v)}/>
                       <Bar dataKey="gross_margin" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={20}/>
                       <Bar dataKey="op_margin"    fill="#10b981" radius={[2,2,0,0]} maxBarSize={20}/>
                       <Bar dataKey="net_margin"   fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={20}/>
-                      <Bar dataKey="roe"          fill="#f59e0b" radius={[2,2,0,0]} maxBarSize={20}/>
                     </BarChart>
                   </ResponsiveContainer>
                 )}
