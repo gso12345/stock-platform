@@ -480,7 +480,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       layout: { background: { type: ColorType.Solid, color: C.card }, textColor: C.text },
       grid: { vertLines: { color: C.border }, horzLines: { color: C.border } },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: C.border, textColor: C.text },
+      rightPriceScale: { borderColor: C.border, textColor: C.text, minimumWidth: 72 },
       timeScale: {
         borderColor: C.border,
         timeVisible: true,
@@ -543,7 +543,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     // 거래량
     if (s.volume) {
       const vol = main.addHistogramSeries({ priceScaleId: "volume", color: "#3b82f620" });
-      main.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+      main.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
       vol.setData(calcVolume(ohlcv, hexToRgba(C.up, 0.5), hexToRgba(C.down, 0.5)).map(d => ({ time: d.time as any, value: d.value, color: d.color })));
       overlayRef.current.set("volume", vol);
     }
