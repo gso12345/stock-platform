@@ -1032,6 +1032,8 @@ export default function Watchlist() {
   const [dragFolderId, setDragFolderId] = useState<number | null>(null);
   const [dropFolderId, setDropFolderId] = useState<number | null>(null);
   const [localFolderOrder, setLocalFolderOrder] = useState<any[] | null>(null);
+  const dragFolderIdRef      = useRef<number | null>(null); // onDragOver 즉시 접근용
+  const localFolderOrderRef  = useRef<any[] | null>(null);
   const folderLongPressTimer = useRef<number | null>(null);
   const folderTouchStartPos = useRef<{ x: number; y: number } | null>(null);
   const folderJustDragged = useRef(false);
@@ -1042,6 +1044,8 @@ export default function Watchlist() {
   });
 
   const handleFolderDragStart = (folder: any) => {
+    dragFolderIdRef.current = folder.id;
+    localFolderOrderRef.current = folders as any[];
     setDragFolderId(folder.id);
     setLocalFolderOrder(folders as any[]);
   };
@@ -1068,7 +1072,7 @@ export default function Watchlist() {
 
   const handleFolderTouchMoveGated = (e: React.TouchEvent) => {
     const t = e.touches[0];
-    if (dragFolderId !== null) {
+    if (dragFolderIdRef.current !== null) {
       // 드래그 활성화된 상태 — 기본 스크롤 동작 막고 순서 변경 처리
       e.preventDefault();
       handleFolderTouchMove(t.clientX, t.clientY);
@@ -1087,7 +1091,7 @@ export default function Watchlist() {
 
   const handleFolderTouchEnd = () => {
     clearFolderLongPressTimer();
-    if (dragFolderId !== null) {
+    if (dragFolderIdRef.current !== null) {
       folderJustDragged.current = true;
       handleFolderDrop();
     }
@@ -1103,15 +1107,17 @@ export default function Watchlist() {
   };
 
   const moveFolderTo = (targetId: number) => {
-    if (dragFolderId === null || dragFolderId === targetId) return;
+    const fromId = dragFolderIdRef.current;
+    if (fromId === null || fromId === targetId) return;
     setDropFolderId(targetId);
-    const base = localFolderOrder ?? (folders as any[]);
-    const from = base.findIndex((f: any) => f.id === dragFolderId);
+    const base = localFolderOrderRef.current ?? (folders as any[]);
+    const from = base.findIndex((f: any) => f.id === fromId);
     const to   = base.findIndex((f: any) => f.id === targetId);
     if (from === -1 || to === -1) return;
     const next = [...base];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
+    localFolderOrderRef.current = next;
     setLocalFolderOrder(next);
   };
 
@@ -1122,7 +1128,7 @@ export default function Watchlist() {
 
   // 모바일 터치 드래그 (폴더 순서 변경)
   const handleFolderTouchMove = (clientX: number, clientY: number) => {
-    if (dragFolderId === null) return;
+    if (dragFolderIdRef.current === null) return;
     const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest("[data-folder-id]") as HTMLElement | null;
     if (!el) return;
     const targetId = Number(el.dataset.folderId);
@@ -1130,9 +1136,12 @@ export default function Watchlist() {
   };
 
   const handleFolderDrop = () => {
-    if (dragFolderId !== null && localFolderOrder) {
-      reorderFoldersMutation.mutate(localFolderOrder.map((f: any) => f.id));
+    const order = localFolderOrderRef.current;
+    if (dragFolderIdRef.current !== null && order) {
+      reorderFoldersMutation.mutate(order.map((f: any) => f.id));
     }
+    dragFolderIdRef.current = null;
+    localFolderOrderRef.current = null;
     setDragFolderId(null); setDropFolderId(null); setLocalFolderOrder(null);
   };
 

@@ -975,6 +975,8 @@ export default function Portfolio() {
   const [dragPortfolioId,  setDragPortfolioId]  = useState<number | null>(null);
   const [dropPortfolioId,  setDropPortfolioId]  = useState<number | null>(null);
   const [localPortfolioOrder, setLocalPortfolioOrder] = useState<PortfolioMeta[] | null>(null);
+  const dragPortfolioIdRef       = useRef<number | null>(null); // onDragOver 즉시 접근용
+  const localPortfolioOrderRef   = useRef<PortfolioMeta[] | null>(null);
   const portfolioLongPressTimer  = useRef<number | null>(null);
   const portfolioTouchStartPos   = useRef<{ x: number; y: number } | null>(null);
   const portfolioJustDragged     = useRef(false);
@@ -985,20 +987,24 @@ export default function Portfolio() {
   });
 
   const handlePortfolioDragStart = (pf: PortfolioMeta) => {
+    dragPortfolioIdRef.current = pf.id;
+    localPortfolioOrderRef.current = portfolios;
     setDragPortfolioId(pf.id);
     setLocalPortfolioOrder(portfolios);
   };
 
   const movePortfolioTo = (targetId: number) => {
-    if (dragPortfolioId === null || dragPortfolioId === targetId) return;
+    const fromId = dragPortfolioIdRef.current;
+    if (fromId === null || fromId === targetId) return;
     setDropPortfolioId(targetId);
-    const base = localPortfolioOrder ?? portfolios;
-    const from = base.findIndex((p) => p.id === dragPortfolioId);
+    const base = localPortfolioOrderRef.current ?? portfolios;
+    const from = base.findIndex((p) => p.id === fromId);
     const to   = base.findIndex((p) => p.id === targetId);
     if (from === -1 || to === -1) return;
     const next = [...base];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
+    localPortfolioOrderRef.current = next;
     setLocalPortfolioOrder(next);
   };
 
@@ -1008,9 +1014,12 @@ export default function Portfolio() {
   };
 
   const handlePortfolioDrop = () => {
-    if (dragPortfolioId !== null && localPortfolioOrder) {
-      reorderPortfoliosMutation.mutate(localPortfolioOrder.map((p) => p.id));
+    const order = localPortfolioOrderRef.current;
+    if (dragPortfolioIdRef.current !== null && order) {
+      reorderPortfoliosMutation.mutate(order.map((p) => p.id));
     }
+    dragPortfolioIdRef.current = null;
+    localPortfolioOrderRef.current = null;
     setDragPortfolioId(null); setDropPortfolioId(null); setLocalPortfolioOrder(null);
   };
 
@@ -1035,7 +1044,7 @@ export default function Portfolio() {
 
   const handlePortfolioTouchMoveGated = (e: React.TouchEvent) => {
     const t = e.touches[0];
-    if (dragPortfolioId !== null) {
+    if (dragPortfolioIdRef.current !== null) {
       e.preventDefault();
       const el = (document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null)?.closest("[data-portfolio-id]") as HTMLElement | null;
       if (el) {
@@ -1056,7 +1065,7 @@ export default function Portfolio() {
 
   const handlePortfolioTouchEnd = () => {
     clearPortfolioLongPressTimer();
-    if (dragPortfolioId !== null) {
+    if (dragPortfolioIdRef.current !== null) {
       portfolioJustDragged.current = true;
       handlePortfolioDrop();
     }
