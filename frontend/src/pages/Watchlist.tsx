@@ -803,7 +803,8 @@ export default function Watchlist() {
   const { isLoggedIn } = useAuthStore();
   const isPreview = !isLoggedIn;
   const [marketTab, setMarketTab]   = useState("전체");
-  const [folderTab, setFolderTab]   = useState<number | "all" | "recent" | "portfolio">("all"); // 폴더 탭 필터
+  const [folderTab, setFolderTab]   = useState<number | "all" | "recent">("all"); // 관심종목 폴더 탭
+  const [portfolioTab, setPortfolioTab] = useState<number | null>(null); // 포트폴리오 탭 (폴더 탭과 상호배타)
   const [showFolderManager, setShowFolderManager] = useState(false);
   const [recentStocks, setRecentStocks] = useState<RecentStock[]>([]);
   useEffect(() => {
@@ -823,35 +824,42 @@ export default function Watchlist() {
     return map;
   }, [recentPrices, recentSymbols]);
 
-  // 내 포트폴리오 보유종목 탭
-  const { data: rawPortfolioItems = [] } = useQuery({
-    queryKey: ["portfolio-items-watchlist"],
-    queryFn: () => portfolioApi.getItems(undefined, true),
-    enabled: isLoggedIn && folderTab === "portfolio",
+  // 포트폴리오 목록 (탭 표시용)
+  const { data: pfList = [] } = useQuery<any[]>({
+    queryKey: ["portfolios"],
+    queryFn: portfolioApi.getPortfolios,
+    enabled: isLoggedIn,
+    staleTime: 300_000,
+  });
+
+  // 선택된 포트폴리오 탭의 보유종목
+  const { data: pfTabItems = [] } = useQuery({
+    queryKey: ["portfolio-tab-items", portfolioTab],
+    queryFn: () => portfolioApi.getItems(portfolioTab ?? undefined),
+    enabled: isLoggedIn && portfolioTab !== null,
     staleTime: 60_000,
   });
-  // 중복 심볼 제거 (같은 종목을 여러 포트폴리오에 보유한 경우)
-  const portfolioWatchItems = useMemo(() => {
+  const pfTabDeduped = useMemo(() => {
     const seen = new Set<string>();
-    return (rawPortfolioItems as any[]).filter((i: any) => {
+    return (pfTabItems as any[]).filter((i: any) => {
       if (seen.has(i.symbol)) return false;
       seen.add(i.symbol);
       return true;
     });
-  }, [rawPortfolioItems]);
-  const pfSymbols = useMemo(() => portfolioWatchItems.map((i: any) => i.symbol), [portfolioWatchItems]);
-  const pfMarkets = useMemo(() => portfolioWatchItems.map((i: any) => i.market === "KR" ? "KR" : "US"), [portfolioWatchItems]);
-  const { data: pfPrices } = useQuery({
-    queryKey: ["portfolio-watchlist-prices", pfSymbols.join(",")],
-    queryFn: ({ signal }) => watchlistApi.getPrices(pfSymbols, pfMarkets, signal),
-    enabled: folderTab === "portfolio" && pfSymbols.length > 0,
+  }, [pfTabItems]);
+  const pfTabSymbols = useMemo(() => pfTabDeduped.map((i: any) => i.symbol), [pfTabDeduped]);
+  const pfTabMarkets = useMemo(() => pfTabDeduped.map((i: any) => i.market === "KR" ? "KR" : "US"), [pfTabDeduped]);
+  const { data: pfTabPrices } = useQuery({
+    queryKey: ["pf-tab-prices", pfTabSymbols.join(",")],
+    queryFn: ({ signal }) => watchlistApi.getPrices(pfTabSymbols, pfTabMarkets, signal),
+    enabled: portfolioTab !== null && pfTabSymbols.length > 0,
     staleTime: 60_000,
   });
-  const pfPriceMap = useMemo(() => {
+  const pfTabPriceMap = useMemo(() => {
     const map: Record<string, any> = {};
-    (pfPrices as any[] ?? []).forEach((p: any, i: number) => { if (pfSymbols[i]) map[pfSymbols[i]] = p; });
+    (pfTabPrices as any[] ?? []).forEach((p: any, i: number) => { if (pfTabSymbols[i]) map[pfTabSymbols[i]] = p; });
     return map;
-  }, [pfPrices, pfSymbols]);
+  }, [pfTabPrices, pfTabSymbols]);
 
   const [showAdd, setShowAdd]           = useState(false);
   const [addFolderId, setAddFolderId]   = useState<number | null>(null); // 추가 모달에서 기본 선택될 폴더
@@ -1135,7 +1143,7 @@ export default function Watchlist() {
 
   // 폴더 탭 필터 적용 — 실시간 시세 갱신마다 재계산되지 않도록 메모이제이션
   const displayList = useMemo(
-    () => (folderTab === "all" || folderTab === "recent" || folderTab === "portfolio")
+    () => (folderTab === "all" || folderTab === "recent")
       ? baseList
       : baseList.filter((i: any) => i.folder_id === folderTab),
     [baseList, folderTab]
@@ -1345,14 +1353,11 @@ export default function Watchlist() {
           }`;
         return (
           <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
-            <button onClick={() => setFolderTab("all")} className={tabBtnCls(folderTab === "all")}>
+            <button onClick={() => { setFolderTab("all"); setPortfolioTab(null); }} className={tabBtnCls(folderTab === "all" && portfolioTab === null)}>
               전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
             </button>
-            <button onClick={() => setFolderTab("recent")} className={`${tabBtnCls(folderTab === "recent")} flex items-center gap-1`}>
+            <button onClick={() => { setFolderTab("recent"); setPortfolioTab(null); }} className={`${tabBtnCls(folderTab === "recent" && portfolioTab === null)} flex items-center gap-1`}>
               <Clock size={13} /> 최근조회
-            </button>
-            <button onClick={() => setFolderTab("portfolio")} className={`${tabBtnCls(folderTab === "portfolio")} flex items-center gap-1`}>
-              <Wallet size={13} /> 내 포트폴리오
             </button>
             {(localFolderOrder ?? (folders as any[])).map((f: any) => {
               const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
@@ -1367,10 +1372,10 @@ export default function Watchlist() {
                   onTouchStart={(e) => handleFolderTouchStart(f, e)}
                   onTouchMove={handleFolderTouchMoveGated}
                   onTouchEnd={handleFolderTouchEnd}
-                  onClick={() => handleFolderTabClick(f.id)}
+                  onClick={() => { setPortfolioTab(null); handleFolderTabClick(f.id); }}
                   title="길게 눌러서 드래그하면 폴더 순서를 바꿀 수 있어요"
                   style={{ touchAction: dragFolderId === f.id ? "none" : "auto" }}
-                  className={`cursor-grab active:cursor-grabbing ${tabBtnCls(folderTab === f.id)} ${
+                  className={`cursor-grab active:cursor-grabbing ${tabBtnCls(folderTab === f.id && portfolioTab === null)} ${
                     dragFolderId === f.id ? "opacity-40" : ""
                   } ${dropFolderId === f.id ? "ring-1 ring-accent-blue ring-inset" : ""}`}
                 >
@@ -1378,12 +1383,23 @@ export default function Watchlist() {
                 </button>
               );
             })}
+            {/* 포트폴리오 탭 — 관심종목 폴더처럼 나란히 표시 */}
+            {pfList.map((pf: any) => (
+              <button
+                key={`pf-${pf.id}`}
+                onClick={() => { setPortfolioTab(pf.id); setFolderTab("all"); }}
+                className={`${tabBtnCls(portfolioTab === pf.id)} flex items-center gap-1`}
+              >
+                <Wallet size={11} />
+                {pf.name}
+              </button>
+            ))}
           </div>
         );
       })()}
 
       {/* 본문 */}
-      {folderTab === "recent" ? (
+      {folderTab === "recent" && portfolioTab === null ? (
         <Card className="p-0 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
             <Clock size={13} className="text-accent-blue" />
@@ -1426,23 +1442,25 @@ export default function Watchlist() {
             })
           )}
         </Card>
-      ) : folderTab === "portfolio" ? (
+      ) : portfolioTab !== null ? (
         <Card className="p-0 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
             <Wallet size={13} className="text-accent-blue" />
-            <span className="flex-1 text-sm font-semibold text-text-primary">내 포트폴리오 보유종목</span>
-            <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{portfolioWatchItems.length}</span>
+            <span className="flex-1 text-sm font-semibold text-text-primary">
+              {pfList.find((p: any) => p.id === portfolioTab)?.name ?? "포트폴리오"}
+            </span>
+            <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{pfTabDeduped.length}</span>
           </div>
-          {portfolioWatchItems.length === 0 ? (
+          {pfTabDeduped.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-4 py-8">
               <Wallet size={24} className="text-text-muted/40" />
-              <p className="text-text-muted text-xs">보유종목이 없습니다</p>
+              <p className="text-text-muted text-xs">이 포트폴리오에 보유종목이 없습니다</p>
             </div>
           ) : (
-            portfolioWatchItems
+            pfTabDeduped
               .filter((i: any) => marketTab === "전체" || i.market === marketTab)
               .map((item: any) => {
-                const p = pfPriceMap[item.symbol];
+                const p = pfTabPriceMap[item.symbol];
                 const isKRItem = item.market === "KR";
                 const hasPrice = p?.price != null;
                 return (
