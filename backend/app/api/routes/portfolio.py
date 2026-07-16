@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path, Body
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -103,7 +103,7 @@ def _to_dict(item: PortfolioItem) -> dict:
 
 
 def _portfolio_to_dict(pf: Portfolio, count: int) -> dict:
-    return {"id": pf.id, "name": pf.name, "position": pf.position, "count": count}
+    return {"id": pf.id, "name": pf.name, "position": pf.position, "count": count, "is_public": pf.is_public or False}
 
 
 # ── 포트폴리오 CRUD ─────────────────────────────────────────────
@@ -312,6 +312,21 @@ def update_item(
     item.asset_class = req.asset_class
     db.commit()
     return _to_dict(item)
+
+
+@router.put("/{portfolio_id}/visibility")
+def set_portfolio_visibility(
+    portfolio_id: int = Path(...),
+    is_public: bool = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    pf = db.query(Portfolio).filter(Portfolio.id == portfolio_id, Portfolio.user_id == current_user.id).first()
+    if not pf:
+        raise HTTPException(404, "포트폴리오를 찾을 수 없습니다")
+    pf.is_public = is_public
+    db.commit()
+    return {"id": pf.id, "is_public": pf.is_public}
 
 
 @router.delete("/items/{item_id}")

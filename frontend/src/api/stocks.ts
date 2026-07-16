@@ -349,8 +349,8 @@ export const watchlistApi = {
 export const communityApi = {
   getPosts: (market: string, symbol: string, page = 1, sort: "latest" | "likes" = "latest") =>
     api.get(`/community/${market}/${symbol}/posts`, { params: { page, sort } }).then((r) => r.data),
-  createPost: (market: string, symbol: string, title: string, body: string) =>
-    api.post(`/community/${market}/${symbol}/posts`, { title, body, content: body }).then((r) => r.data),
+  createPost: (market: string, symbol: string, title: string, body: string, image = "", poll: any = null, tags: any[] = []) =>
+    api.post(`/community/${market}/${symbol}/posts`, { title, body, content: body, image, poll, tags }).then((r) => r.data),
   deletePost: (market: string, symbol: string, postId: number) =>
     api.delete(`/community/${market}/${symbol}/posts/${postId}`).then((r) => r.data),
   togglePostLike: (postId: number) =>
@@ -369,6 +369,20 @@ export const communityApi = {
     api.put("/community/profile/me", payload).then((r) => r.data),
   getUserProfile: (userId: number) =>
     api.get(`/community/profile/${userId}`).then((r) => r.data),
-  getFeed: (page = 1, sort: "latest" | "likes" = "latest", market?: string) =>
-    api.get("/community/feed", { params: { page, sort, ...(market ? { market } : {}) } }).then((r) => r.data),
+  getFeed: (page = 1, sort: "latest" | "likes" = "latest", market?: string, following = false) =>
+    api.get("/community/feed", { params: { page, sort, ...(market ? { market } : {}), ...(following ? { following: true } : {}) } }).then((r) => r.data),
+  getUserPublicProfile: (userId: number) =>
+    api.get(`/community/users/${userId}/profile`).then((r) => r.data),
+  getUserActivity: (userId: number) =>
+    api.get(`/community/users/${userId}/activity`).then((r) => r.data),
+  getFollowers: (userId: number) =>
+    api.get(`/community/users/${userId}/followers`).then((r) => r.data),
+  getFollowing: (userId: number) =>
+    api.get(`/community/users/${userId}/following`).then((r) => r.data),
+  toggleFollow: (userId: number) =>
+    api.post(`/community/users/${userId}/follow`).then((r) => r.data),
+  votePoll: (postId: number, optionIndex: number) =>
+    api.post(`/community/posts/${postId}/poll/vote`, { option_index: optionIndex }).then((r) => r.data),
+  setPortfolioVisibility: (portfolioId: number, isPublic: boolean) =>
+    api.put(`/portfolio/${portfolioId}/visibility`, { is_public: isPublic }).then((r) => r.data),
 };

@@ -3,12 +3,22 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Heart, Trash2, Send, LogIn, MessageSquare, AlertCircle,
   RefreshCw, ChevronDown, ChevronUp, Share2, ArrowUpDown,
+  Image as ImageIcon, BarChart2, Hash, X as XIcon,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
+import api from "@/api/client";
 
 // ── 타입 ──────────────────────────────────────────────────────────
+interface PollData {
+  question: string;
+  options: string[];
+  counts: number[];
+  total: number;
+  my_vote: number | null;
+}
+
 interface Post {
   id: number;
   user_id: number;
@@ -16,6 +26,9 @@ interface Post {
   avatar_color: number;
   title: string;
   body: string;
+  image: string;
+  poll: PollData | null;
+  tags: { symbol: string; market: string }[];
   like_count: number;
   comment_count: number;
   liked: boolean;
@@ -37,6 +50,12 @@ interface Comment {
   replies: Comment[];
 }
 
+interface StockTag {
+  symbol: string;
+  market: string;
+  name?: string;
+}
+
 // ── 유틸 ──────────────────────────────────────────────────────────
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -48,6 +67,29 @@ function timeAgo(iso: string) {
   const d = Math.floor(h / 24);
   if (d < 30) return `${d}일 전`;
   return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+}
+
+async function compressImage(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const maxSize = 800;
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.7));
+    };
+    img.src = url;
+  });
 }
 
 // ── 아바타 ────────────────────────────────────────────────────────
@@ -66,19 +108,29 @@ function Avatar({
   username,
   colorIndex,
   size = "sm",
+  userId,
+  isMine,
 }: {
   username: string;
   colorIndex: number;
   size?: "sm" | "md";
+  userId?: number;
+  isMine?: boolean;
 }) {
   const cls = AVATAR_COLORS[colorIndex % AVATAR_COLORS.length];
   const sz = size === "md" ? "w-8 h-8 text-sm" : "w-6 h-6 text-xs";
-  return (
+  const avatar = (
     <div
       className={`${sz} rounded-full border flex items-center justify-center font-bold shrink-0 ${cls}`}
     >
       {username[0]?.toUpperCase()}
     </div>
+  );
+  if (userId == null) return avatar;
+  return (
+    <Link to={isMine ? "/mypage" : `/profile/${userId}`}>
+      {avatar}
+    </Link>
   );
 }
 
@@ -137,10 +189,20 @@ function CommentItem({
 
   return (
     <div className="flex gap-2.5">
-      <Avatar username={comment.username} colorIndex={comment.avatar_color} />
+      <Avatar
+        username={comment.username}
+        colorIndex={comment.avatar_color}
+        userId={comment.user_id}
+        isMine={uid != null && comment.user_id === uid}
+      />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 mb-0.5">
-          <span className="text-xs font-semibold text-text-primary">{comment.username}</span>
+          <Link
+            to={uid != null && comment.user_id === uid ? "/mypage" : `/profile/${comment.user_id}`}
+            className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
+          >
+            {comment.username}
+          </Link>
           <span className="text-2xs text-text-dim">·</span>
           <span className="text-2xs text-text-dim">{timeAgo(comment.created_at)}</span>
         </div>
@@ -208,17 +270,27 @@ function CommentItem({
           <div className="mt-2 flex flex-col gap-2 pl-3 border-l-2 border-border/50">
             {comment.replies.map((r) => (
               <div key={r.id} className="flex gap-2">
-                <Avatar username={r.username} colorIndex={r.avatar_color} />
+                <Avatar
+                  username={r.username}
+                  colorIndex={r.avatar_color}
+                  userId={r.user_id}
+                  isMine={uid != null && r.user_id === uid}
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className="text-xs font-semibold text-text-primary">{r.username}</span>
+                    <Link
+                      to={uid != null && r.user_id === uid ? "/mypage" : `/profile/${r.user_id}`}
+                      className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
+                    >
+                      {r.username}
+                    </Link>
                     <span className="text-2xs text-text-dim">·</span>
                     <span className="text-2xs text-text-dim">{timeAgo(r.created_at)}</span>
                   </div>
                   <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words mb-1">
                     {r.content}
                   </p>
-                  <ReplyLikeDelete reply={r} postId={postId} isLoggedIn={isLoggedIn} />
+                  <ReplyLikeDelete reply={r} postId={postId} isLoggedIn={isLoggedIn} uid={uid} />
                 </div>
               </div>
             ))}
@@ -233,10 +305,12 @@ function ReplyLikeDelete({
   reply,
   postId,
   isLoggedIn,
+  uid,
 }: {
   reply: Comment;
   postId: number;
   isLoggedIn: boolean;
+  uid?: number;
 }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -298,6 +372,7 @@ function PostCard({
   symbol,
   onDelete,
   onLike,
+  onVote,
 }: {
   post: Post;
   uid?: number;
@@ -306,6 +381,7 @@ function PostCard({
   symbol: string;
   onDelete: (id: number) => void;
   onLike: (id: number) => void;
+  onVote: (postId: number, optionIndex: number) => void;
 }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -314,6 +390,8 @@ function PostCard({
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
 
   const commentsKey = ["comments", post.id];
   const { data: comments, refetch: refetchComments } = useQuery<Comment[]>({
@@ -331,6 +409,20 @@ function PostCard({
       setTimeout(() => setCopied(false), 2000);
     } catch {
       /* ignore */
+    }
+  };
+
+  const handleFollow = async () => {
+    if (!isLoggedIn) { navigate("/login"); return; }
+    if (followPending) return;
+    setFollowPending(true);
+    try {
+      const result = await communityApi.toggleFollow(post.user_id);
+      setFollowing(result.followed);
+    } catch {
+      /* ignore */
+    } finally {
+      setFollowPending(false);
     }
   };
 
@@ -355,26 +447,51 @@ function PostCard({
   return (
     <div className="bg-bg-card border border-border rounded-2xl p-4 hover:border-border/80 transition-colors">
       <div className="flex gap-3">
-        <Avatar username={post.username} colorIndex={post.avatar_color} />
+        <Avatar
+          username={post.username}
+          colorIndex={post.avatar_color}
+          userId={post.user_id}
+          isMine={post.is_mine}
+        />
         <div className="flex-1 min-w-0">
           {/* 헤더 */}
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold text-text-primary">{post.username}</span>
+              <Link
+                to={post.is_mine ? "/mypage" : `/profile/${post.user_id}`}
+                className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
+              >
+                {post.username}
+              </Link>
               <span className="text-2xs text-text-dim">·</span>
               <span className="text-2xs text-text-dim">{timeAgo(post.created_at)}</span>
             </div>
-            {post.is_mine && (
-              <button
-                onClick={() => {
-                  if (confirm("게시글을 삭제할까요?")) onDelete(post.id);
-                }}
-                className="p-1 rounded-lg text-text-dim hover:text-accent-red hover:bg-accent-red/10 transition-all"
-                title="삭제"
-              >
-                <Trash2 size={11} />
-              </button>
-            )}
+            <div className="flex items-center gap-1.5">
+              {!post.is_mine && (
+                <button
+                  onClick={handleFollow}
+                  disabled={followPending}
+                  className={`text-2xs px-2 py-0.5 rounded-lg border transition-all disabled:opacity-50 ${
+                    following
+                      ? "border-border text-text-dim"
+                      : "bg-accent-blue/10 border-accent-blue/30 text-accent-blue hover:bg-accent-blue hover:text-white"
+                  }`}
+                >
+                  {following ? "팔로잉" : "팔로우"}
+                </button>
+              )}
+              {post.is_mine && (
+                <button
+                  onClick={() => {
+                    if (confirm("게시글을 삭제할까요?")) onDelete(post.id);
+                  }}
+                  className="p-1 rounded-lg text-text-dim hover:text-accent-red hover:bg-accent-red/10 transition-all"
+                  title="삭제"
+                >
+                  <Trash2 size={11} />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 제목 */}
@@ -397,17 +514,84 @@ function PostCard({
                 className="mt-0.5 flex items-center gap-0.5 text-xs text-accent-blue hover:underline"
               >
                 {expanded ? (
-                  <>
-                    <ChevronUp size={11} /> 접기
-                  </>
+                  <><ChevronUp size={11} /> 접기</>
                 ) : (
-                  <>
-                    <ChevronDown size={11} /> 더 보기
-                  </>
+                  <><ChevronDown size={11} /> 더 보기</>
                 )}
               </button>
             )}
           </div>
+
+          {/* 첨부 이미지 */}
+          {post.image && (
+            <img
+              src={post.image}
+              alt="첨부 이미지"
+              className="w-full max-h-64 object-cover rounded-xl mb-2"
+            />
+          )}
+
+          {/* 투표 */}
+          {post.poll && (
+            <div className="mb-2 p-3 bg-bg-elevated rounded-xl space-y-2">
+              <p className="text-xs font-semibold text-text-primary">{post.poll.question}</p>
+              {post.poll.options.map((opt, i) => {
+                const voted = post.poll!.my_vote !== null;
+                const pct =
+                  post.poll!.total > 0
+                    ? Math.round((post.poll!.counts[i] / post.poll!.total) * 100)
+                    : 0;
+                const isChosen = post.poll!.my_vote === i;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => !voted && onVote(post.id, i)}
+                    disabled={voted}
+                    className={`relative w-full text-left px-3 py-1.5 rounded-lg border text-xs overflow-hidden transition-all ${
+                      isChosen
+                        ? "border-accent-blue/50"
+                        : "border-border hover:border-accent-blue/30"
+                    }`}
+                  >
+                    {voted && (
+                      <div
+                        className={`absolute inset-0 rounded-lg transition-all ${
+                          isChosen ? "bg-accent-blue/25" : "bg-accent-blue/10"
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    )}
+                    <span className="relative z-10 flex justify-between">
+                      <span className={isChosen ? "font-semibold text-accent-blue" : "text-text-secondary"}>
+                        {opt}
+                      </span>
+                      {voted && (
+                        <span className={isChosen ? "text-accent-blue font-semibold" : "text-text-dim"}>
+                          {pct}%
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+              <p className="text-2xs text-text-dim text-right">총 {post.poll.total}표</p>
+            </div>
+          )}
+
+          {/* 종목 태그 */}
+          {post.tags && post.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {post.tags.map((t) => (
+                <Link
+                  key={t.symbol}
+                  to={`/stocks/${t.market}/${t.symbol}`}
+                  className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 transition-colors"
+                >
+                  #{t.symbol}
+                </Link>
+              ))}
+            </div>
+          )}
 
           {/* 액션 버튼 */}
           <div className="flex items-center gap-3">
@@ -426,9 +610,7 @@ function PostCard({
             </button>
 
             <button
-              onClick={() => {
-                setShowComments((v) => !v);
-              }}
+              onClick={() => setShowComments((v) => !v)}
               className={`flex items-center gap-1.5 text-xs transition-all ${
                 showComments ? "text-accent-blue" : "text-text-dim hover:text-accent-blue"
               }`}
@@ -453,7 +635,6 @@ function PostCard({
           {/* 댓글 영역 */}
           {showComments && (
             <div className="mt-3 pt-3 border-t border-border/50 flex flex-col gap-3">
-              {/* 댓글 목록 */}
               {comments && comments.length > 0 ? (
                 comments.map((c) => (
                   <CommentItem
@@ -469,12 +650,9 @@ function PostCard({
                   />
                 ))
               ) : (
-                <p className="text-xs text-text-dim text-center py-2">
-                  첫 댓글을 남겨보세요
-                </p>
+                <p className="text-xs text-text-dim text-center py-2">첫 댓글을 남겨보세요</p>
               )}
 
-              {/* 댓글 입력 */}
               {isLoggedIn ? (
                 <div className="flex gap-2 mt-1">
                   <input
@@ -511,7 +689,7 @@ function PostCard({
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────
 export default function CommunityTab({ market, symbol }: { market: string; symbol: string }) {
-  const { isLoggedIn, username } = useAuthStore();
+  const { isLoggedIn, username, userId } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -523,6 +701,18 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   const [postError, setPostError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 사진/투표/태그 상태
+  const [image, setImage] = useState("");
+  const [showPoll, setShowPoll] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [showTagSearch, setShowTagSearch] = useState(false);
+  const [tagQuery, setTagQuery] = useState("");
+  const [tagResults, setTagResults] = useState<StockTag[]>([]);
+  const [tags, setTags] = useState<StockTag[]>([]);
+  const [tagSearchTimeout, setTagSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setPage(1);
@@ -553,11 +743,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
           ...prev,
           items: prev.items.map((p: Post) =>
             p.id === postId
-              ? {
-                  ...p,
-                  liked: !p.liked,
-                  like_count: p.liked ? p.like_count - 1 : p.like_count + 1,
-                }
+              ? { ...p, liked: !p.liked, like_count: p.liked ? p.like_count - 1 : p.like_count + 1 }
               : p
           ),
         });
@@ -566,6 +752,24 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(key, ctx.prev);
+    },
+  });
+
+  const voteMutation = useMutation({
+    mutationFn: ({ postId, optionIndex }: { postId: number; optionIndex: number }) =>
+      communityApi.votePoll(postId, optionIndex),
+    onSuccess: (data, { postId }) => {
+      qc.setQueryData(key, (prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: prev.items.map((p: Post) =>
+            p.id === postId && p.poll
+              ? { ...p, poll: { ...p.poll, counts: data.counts, total: data.total, my_vote: data.my_vote } }
+              : p
+          ),
+        };
+      });
     },
   });
 
@@ -581,16 +785,70 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   };
 
+  const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImage(file);
+      setImage(compressed);
+    } catch {
+      /* ignore */
+    }
+    e.target.value = "";
+  };
+
+  const handleTagSearch = (q: string) => {
+    setTagQuery(q);
+    if (tagSearchTimeout) clearTimeout(tagSearchTimeout);
+    if (!q.trim()) { setTagResults([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get("/search", { params: { q: q.trim(), limit: 10 } });
+        setTagResults(res.data?.results ?? res.data ?? []);
+      } catch {
+        setTagResults([]);
+      }
+    }, 300);
+    setTagSearchTimeout(t);
+  };
+
+  const addTag = (tag: StockTag) => {
+    if (tags.length >= 5) return;
+    if (!tags.find((t) => t.symbol === tag.symbol && t.market === tag.market)) {
+      setTags((prev) => [...prev, { symbol: tag.symbol, market: tag.market }]);
+    }
+    setTagQuery("");
+    setTagResults([]);
+  };
+
+  const removeTag = (symbol: string) => setTags((prev) => prev.filter((t) => t.symbol !== symbol));
+
+  const resetForm = () => {
+    setTitle("");
+    setBody("");
+    setImage("");
+    setShowPoll(false);
+    setPollQuestion("");
+    setPollOptions(["", ""]);
+    setShowTagSearch(false);
+    setTagQuery("");
+    setTags([]);
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+  };
+
   const handleSubmit = async () => {
     const b = body.trim();
     if (!b || submitting) return;
     setPostError(null);
     setSubmitting(true);
+
+    const pollData = showPoll && pollQuestion.trim() && pollOptions.filter((o) => o.trim()).length >= 2
+      ? { question: pollQuestion.trim(), options: pollOptions.filter((o) => o.trim()) }
+      : null;
+
     try {
-      await communityApi.createPost(market, symbol, title.trim(), b);
-      setTitle("");
-      setBody("");
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      await communityApi.createPost(market, symbol, title.trim(), b, image, pollData, tags);
+      resetForm();
       setPage(1);
       invalidate();
       setSuccessMsg(true);
@@ -611,7 +869,6 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
     }
   };
 
-  // derive avatar_color from username via hash (fallback before profile loads)
   const myColorIndex = (() => {
     const u = username ?? "";
     let h = 0;
@@ -633,7 +890,6 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
           )}
         </div>
         <div className="flex items-center gap-1">
-          {/* 정렬 */}
           <button
             onClick={() => setSort((s) => (s === "latest" ? "likes" : "latest"))}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-text-dim border border-border hover:border-accent-blue/40 hover:text-accent-blue transition-all"
@@ -656,7 +912,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
         {isLoggedIn ? (
           <div className="p-4 flex flex-col gap-2.5">
             <div className="flex gap-3">
-              <Avatar username={username ?? "?"} colorIndex={myColorIndex} size="md" />
+              <Avatar username={username ?? "?"} colorIndex={myColorIndex} size="md" userId={userId ?? undefined} isMine />
               <div className="flex-1 flex flex-col gap-2">
                 <input
                   value={title}
@@ -683,6 +939,118 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                   className="w-full px-0 py-0 bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
                   style={{ minHeight: "2.5rem" }}
                 />
+
+                {/* 사진 미리보기 */}
+                {image && (
+                  <div className="relative w-full">
+                    <img src={image} alt="미리보기" className="w-full max-h-40 object-cover rounded-xl" />
+                    <button
+                      onClick={() => setImage("")}
+                      className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+                    >
+                      <XIcon size={12} />
+                    </button>
+                  </div>
+                )}
+
+                {/* 투표 UI */}
+                {showPoll && (
+                  <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-text-primary">투표 만들기</span>
+                      <button onClick={() => setShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors">
+                        <XIcon size={13} />
+                      </button>
+                    </div>
+                    <input
+                      value={pollQuestion}
+                      onChange={(e) => setPollQuestion(e.target.value)}
+                      placeholder="투표 질문을 입력하세요"
+                      maxLength={100}
+                      className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+                    />
+                    {pollOptions.map((opt, i) => (
+                      <div key={i} className="flex gap-1.5">
+                        <input
+                          value={opt}
+                          onChange={(e) => {
+                            const next = [...pollOptions];
+                            next[i] = e.target.value;
+                            setPollOptions(next);
+                          }}
+                          placeholder={`선택지 ${i + 1}`}
+                          maxLength={50}
+                          className="flex-1 px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+                        />
+                        {pollOptions.length > 2 && (
+                          <button
+                            onClick={() => setPollOptions((prev) => prev.filter((_, j) => j !== i))}
+                            className="text-text-dim hover:text-accent-red transition-colors"
+                          >
+                            <XIcon size={12} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {pollOptions.length < 4 && (
+                      <button
+                        onClick={() => setPollOptions((prev) => [...prev, ""])}
+                        className="text-xs text-accent-blue hover:underline text-left"
+                      >
+                        + 옵션 추가
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* 태그 검색 UI */}
+                {showTagSearch && (
+                  <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-text-primary">종목 태그</span>
+                      <button onClick={() => { setShowTagSearch(false); setTagQuery(""); setTagResults([]); }} className="text-text-dim hover:text-accent-red transition-colors">
+                        <XIcon size={13} />
+                      </button>
+                    </div>
+                    {tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {tags.map((t) => (
+                          <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
+                            #{t.symbol}
+                            <button onClick={() => removeTag(t.symbol)}>
+                              <XIcon size={10} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {tags.length < 5 && (
+                      <div className="relative">
+                        <input
+                          value={tagQuery}
+                          onChange={(e) => handleTagSearch(e.target.value)}
+                          placeholder="종목명 또는 심볼 검색..."
+                          className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+                        />
+                        {tagResults.length > 0 && (
+                          <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-lg max-h-36 overflow-y-auto">
+                            {tagResults.map((r: any, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => addTag({ symbol: r.symbol, market: r.market })}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-bg-elevated transition-colors text-left"
+                              >
+                                <span className="font-semibold text-text-primary">{r.symbol}</span>
+                                <span className="text-text-dim">{r.name || r.market}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {postError && (
                   <div className="flex items-center gap-1.5 text-xs text-accent-red">
                     <AlertCircle size={12} />
@@ -694,8 +1062,37 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                 )}
               </div>
             </div>
+
+            {/* 툴바 + 제출 */}
             <div className="flex items-center justify-between pt-1 border-t border-border/50">
-              <span className="text-2xs text-text-dim">{body.length}/2000 · Ctrl+Enter로 제출</span>
+              <div className="flex items-center gap-1">
+                {/* 사진 버튼 */}
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  title="사진 첨부"
+                  className={`p-1.5 rounded-lg transition-all ${image ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+                >
+                  <ImageIcon size={14} />
+                </button>
+                {/* 투표 버튼 */}
+                <button
+                  onClick={() => setShowPoll((v) => !v)}
+                  title="투표 만들기"
+                  className={`p-1.5 rounded-lg transition-all ${showPoll ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+                >
+                  <BarChart2 size={14} />
+                </button>
+                {/* 태그 버튼 */}
+                <button
+                  onClick={() => setShowTagSearch((v) => !v)}
+                  title="종목 태그"
+                  className={`p-1.5 rounded-lg transition-all ${(showTagSearch || tags.length > 0) ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+                >
+                  <Hash size={14} />
+                </button>
+                <span className="text-2xs text-text-dim ml-1">{body.length}/2000</span>
+              </div>
               <button
                 onClick={handleSubmit}
                 disabled={!body.trim() || submitting}
@@ -766,12 +1163,13 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
             <PostCard
               key={post.id}
               post={post}
-              uid={undefined}
+              uid={userId ?? undefined}
               isLoggedIn={isLoggedIn}
               market={market}
               symbol={symbol}
               onDelete={(id) => deleteMutation.mutate(id)}
               onLike={(id) => likeMutation.mutate(id)}
+              onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
             />
           ))}
         </div>

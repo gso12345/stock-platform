@@ -86,3 +86,14 @@ class UserFollow(Base):
     follower_id  = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     following_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class StockPostPollVote(Base):
+    __tablename__ = "stock_post_poll_votes"
+    __table_args__ = (UniqueConstraint("post_id", "user_id"),)
+
+    id           = Column(Integer, primary_key=True, index=True)
+    post_id      = Column(Integer, ForeignKey("stock_posts.id"), nullable=False, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    option_index = Column(Integer, nullable=False)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())

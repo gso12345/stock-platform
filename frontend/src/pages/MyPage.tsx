@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
-import { communityApi } from "@/api/stocks";
+import { communityApi, portfolioApi } from "@/api/stocks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { User, Save, Palette } from "lucide-react";
+import { User, Save, Palette, Globe, Lock, FileText, Users } from "lucide-react";
 
 const AVATAR_COLORS_DISPLAY = [
   { label: "파랑",   dot: "bg-blue-500",    ring: "bg-blue-500/20 text-blue-400 border-blue-500/30"    },
@@ -16,8 +16,20 @@ const AVATAR_COLORS_DISPLAY = [
   { label: "오렌지", dot: "bg-orange-500",  ring: "bg-orange-500/20 text-orange-400 border-orange-500/30"  },
 ];
 
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "방금 전";
+  if (m < 60) return `${m}분 전`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 전`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}일 전`;
+  return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+}
+
 export default function MyPage() {
-  const { isLoggedIn, username } = useAuthStore();
+  const { isLoggedIn, username, userId } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -31,11 +43,30 @@ export default function MyPage() {
     enabled: isLoggedIn,
   });
 
+  const { data: publicProfile } = useQuery({
+    queryKey: ["userPublicProfile", userId],
+    queryFn: () => communityApi.getUserPublicProfile(userId!),
+    enabled: isLoggedIn && !!userId,
+  });
+
+  const { data: portfolios } = useQuery({
+    queryKey: ["portfolios"],
+    queryFn: portfolioApi.getPortfolios,
+    enabled: isLoggedIn,
+  });
+
+  const { data: activity } = useQuery({
+    queryKey: ["userActivity", userId],
+    queryFn: () => communityApi.getUserActivity(userId!),
+    enabled: isLoggedIn && !!userId,
+  });
+
   const [nickname, setNickname] = useState("");
   const [avatarColor, setAvatarColor] = useState(0);
   const [bio, setBio] = useState("");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visibilityMap, setVisibilityMap] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     if (profile) {
@@ -44,6 +75,16 @@ export default function MyPage() {
       setBio(profile.bio ?? "");
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (portfolios) {
+      const map: Record<number, boolean> = {};
+      portfolios.forEach((pf: any) => {
+        map[pf.id] = pf.is_public ?? false;
+      });
+      setVisibilityMap(map);
+    }
+  }, [portfolios]);
 
   const updateMutation = useMutation({
     mutationFn: () =>
@@ -60,6 +101,15 @@ export default function MyPage() {
     },
   });
 
+  const visibilityMutation = useMutation({
+    mutationFn: ({ portfolioId, isPublic }: { portfolioId: number; isPublic: boolean }) =>
+      communityApi.setPortfolioVisibility(portfolioId, isPublic),
+    onSuccess: (_data, vars) => {
+      setVisibilityMap((prev) => ({ ...prev, [vars.portfolioId]: vars.isPublic }));
+      qc.invalidateQueries({ queryKey: ["portfolios"] });
+    },
+  });
+
   if (!isLoggedIn) return null;
 
   const displayName = nickname.trim() || username || "?";
@@ -73,7 +123,7 @@ export default function MyPage() {
           <User size={20} className="text-accent-blue" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-text-primary">마이페이지</h1>
+          <h1 className="text-lg font-bold text-text-primary">내 프로필</h1>
           <p className="text-xs text-text-dim">프로필을 설정하세요</p>
         </div>
       </div>
@@ -88,17 +138,38 @@ export default function MyPage() {
       ) : (
         <div className="bg-bg-card border border-border rounded-2xl p-6 flex flex-col gap-5">
 
-          {/* 아바타 미리보기 */}
+          {/* 아바타 미리보기 + 팔로워/팔로잉 통계 */}
           <div className="flex items-center gap-3 pb-1">
             <div
               className={`w-14 h-14 rounded-full border-2 flex items-center justify-center font-bold text-xl shrink-0 ${colorCls.ring}`}
             >
               {displayName[0]?.toUpperCase()}
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-text-primary">{displayName}</p>
               <p className="text-xs text-text-dim">@{username}</p>
+              {publicProfile && (
+                <div className="flex items-center gap-3 mt-1.5">
+                  <span className="flex items-center gap-1 text-xs text-text-dim">
+                    <Users size={11} />
+                    <span className="font-semibold text-text-secondary">{publicProfile.follower_count}</span>
+                    {" "}팔로워
+                  </span>
+                  <span className="flex items-center gap-1 text-xs text-text-dim">
+                    <span className="font-semibold text-text-secondary">{publicProfile.following_count}</span>
+                    {" "}팔로잉
+                  </span>
+                </div>
+              )}
             </div>
+            {userId && (
+              <Link
+                to={`/profile/${userId}`}
+                className="text-xs text-accent-blue hover:underline shrink-0"
+              >
+                공개 프로필
+              </Link>
+            )}
           </div>
 
           <div className="h-px bg-border" />
@@ -164,9 +235,7 @@ export default function MyPage() {
           </div>
 
           {/* 오류 */}
-          {error && (
-            <p className="text-xs text-accent-red">{error}</p>
-          )}
+          {error && <p className="text-xs text-accent-red">{error}</p>}
 
           {/* 저장 버튼 */}
           <button
@@ -177,6 +246,87 @@ export default function MyPage() {
             <Save size={14} />
             {updateMutation.isPending ? "저장 중..." : saved ? "저장됐습니다!" : "저장하기"}
           </button>
+        </div>
+      )}
+
+      {/* 포트폴리오 공개 설정 */}
+      {portfolios && portfolios.length > 0 && (
+        <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Globe size={15} className="text-accent-blue" />
+            <h2 className="text-sm font-bold text-text-primary">포트폴리오 공개 설정</h2>
+          </div>
+          <p className="text-xs text-text-dim">공개된 포트폴리오는 다른 사용자가 내 프로필에서 볼 수 있습니다</p>
+          <div className="flex flex-col gap-2">
+            {portfolios.map((pf: any) => {
+              const isPublic = visibilityMap[pf.id] ?? false;
+              return (
+                <div
+                  key={pf.id}
+                  className="flex items-center justify-between py-2.5 px-3 bg-bg-elevated rounded-xl"
+                >
+                  <div className="flex items-center gap-2">
+                    {isPublic ? (
+                      <Globe size={13} className="text-accent-green" />
+                    ) : (
+                      <Lock size={13} className="text-text-dim" />
+                    )}
+                    <span className="text-sm text-text-primary">{pf.name}</span>
+                  </div>
+                  <button
+                    onClick={() =>
+                      visibilityMutation.mutate({ portfolioId: pf.id, isPublic: !isPublic })
+                    }
+                    disabled={visibilityMutation.isPending}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      isPublic ? "bg-accent-blue" : "bg-bg-card border border-border"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                        isPublic ? "left-5" : "left-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 최근 활동 */}
+      {activity && (
+        <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <FileText size={15} className="text-accent-blue" />
+            <h2 className="text-sm font-bold text-text-primary">최근 활동</h2>
+          </div>
+          {!activity.items || activity.items.length === 0 ? (
+            <p className="text-xs text-text-dim text-center py-4">활동 내역이 없습니다</p>
+          ) : (
+            <div className="flex flex-col divide-y divide-border/50">
+              {activity.items.map((item: any, idx: number) => (
+                <div key={idx} className="flex gap-3 py-2.5">
+                  <span
+                    className={`text-2xs font-bold px-1.5 py-0.5 rounded shrink-0 h-fit mt-0.5 ${
+                      item.type === "post"
+                        ? "bg-accent-blue/15 text-accent-blue"
+                        : "bg-purple-500/15 text-purple-400"
+                    }`}
+                  >
+                    {item.type === "post" ? "게시글" : "댓글"}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text-secondary line-clamp-2 break-words">
+                      {item.type === "post" ? item.title || item.body : item.content}
+                    </p>
+                    <p className="text-2xs text-text-dim mt-0.5">{timeAgo(item.created_at)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

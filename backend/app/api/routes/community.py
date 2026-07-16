@@ -5,7 +5,8 @@ from sqlalchemy import func
 from pydantic import BaseModel, field_validator, model_validator
 from typing import Literal, Optional
 from app.db.database import get_db
-from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow
+from fastapi import Body
+from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote
 from app.models.user import User
 from app.core.deps import get_current_user, require_user
 
@@ -14,17 +15,30 @@ router = APIRouter(prefix="/community", tags=["community"])
 _SYMBOL_RE = r"^[A-Za-z0-9.\-]{1,20}$"
 
 # ── 컨텐츠 인코딩/디코딩 ──────────────────────────────────────
-def encode_content(title: str, body: str) -> str:
-    return json.dumps({"v": 1, "title": title.strip(), "body": body.strip()}, ensure_ascii=False)
+def encode_content(title: str, body: str, image: str = "", poll: Optional[dict] = None, tags: Optional[list] = None) -> str:
+    return json.dumps({
+        "v":     1,
+        "title": title.strip(),
+        "body":  body.strip(),
+        "image": image,
+        "poll":  poll or None,
+        "tags":  tags or [],
+    }, ensure_ascii=False)
 
 def decode_content(raw: str) -> dict:
     try:
         d = json.loads(raw)
         if d.get("v") == 1:
-            return {"title": d.get("title", ""), "body": d.get("body", raw)}
+            return {
+                "title": d.get("title", ""),
+                "body":  d.get("body", raw),
+                "image": d.get("image", ""),
+                "poll":  d.get("poll"),
+                "tags":  d.get("tags", []),
+            }
     except Exception:
         pass
-    return {"title": "", "body": raw}
+    return {"title": "", "body": raw, "image": "", "poll": None, "tags": []}
 
 # ── 프로필 헬퍼 ───────────────────────────────────────────────
 def get_profile(db: Session, user_id: int) -> Optional[UserProfile]:
@@ -52,6 +66,25 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session) -> dict:
     liked  = any(lk.user_id == uid for lk in post.likes) if uid else False
     parsed = decode_content(post.content)
     profile = get_profile(db, post.user_id) if post.user else None
+
+    # 투표 집계
+    poll_data = None
+    if parsed.get("poll"):
+        votes = db.query(StockPostPollVote).filter(StockPostPollVote.post_id == post.id).all()
+        options = parsed["poll"].get("options", [])
+        counts = [0] * len(options)
+        for v in votes:
+            if 0 <= v.option_index < len(counts):
+                counts[v.option_index] += 1
+        my_vote = next((v.option_index for v in votes if uid and v.user_id == uid), None)
+        poll_data = {
+            "question": parsed["poll"].get("question", ""),
+            "options":  options,
+            "counts":   counts,
+            "total":    len(votes),
+            "my_vote":  my_vote,
+        }
+
     return {
         "id":            post.id,
         "symbol":        post.symbol,
@@ -61,6 +94,9 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session) -> dict:
         "avatar_color":  profile.avatar_color if profile else 0,
         "title":         parsed["title"],
         "body":          parsed["body"],
+        "image":         parsed.get("image", ""),
+        "poll":          poll_data,
+        "tags":          parsed.get("tags", []),
         "like_count":    post.like_count,
         "comment_count": post.comment_count,
         "liked":         liked,
@@ -108,6 +144,9 @@ class PostCreate(BaseModel):
     title:   str = ""
     body:    str = ""
     content: str = ""  # backwards compat: old frontend sends {content}
+    image:   str = ""
+    poll:    Optional[dict] = None
+    tags:    list = []
 
     @model_validator(mode="before")
     @classmethod
@@ -191,7 +230,7 @@ def create_post(
 ):
     post = StockPost(
         symbol=symbol.upper(), market=market, user_id=current_user.id,
-        content=encode_content(body.title, body.body),
+        content=encode_content(body.title, body.body, body.image, body.poll, body.tags),
     )
     db.add(post)
     db.commit()
@@ -213,6 +252,9 @@ def create_post(
         "avatar_color":  0,
         "title":         parsed["title"],
         "body":          parsed["body"],
+        "image":         parsed.get("image", ""),
+        "poll":          None,
+        "tags":          parsed.get("tags", []),
         "like_count":    0,
         "comment_count": 0,
         "liked":         False,
@@ -450,7 +492,6 @@ def get_user_profile(
     user_id: int = Path(...),
     db:      Session = Depends(get_db),
 ):
-    from app.models.user import User
     user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if not user:
         raise HTTPException(404, "사용자를 찾을 수 없습니다")
@@ -462,3 +503,168 @@ def get_user_profile(
         "avatar_color": p.avatar_color if p else 0,
         "bio":          p.bio if p else None,
     }
+
+
+# ── 투표 ─────────────────────────────────────────────────────
+@router.post("/posts/{post_id}/poll/vote")
+def vote_poll(
+    post_id: int = Path(...),
+    option_index: int = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    post = db.query(StockPost).filter(StockPost.id == post_id, StockPost.is_deleted == False).first()
+    if not post:
+        raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    parsed = decode_content(post.content)
+    if not parsed.get("poll"):
+        raise HTTPException(400, "투표가 없는 게시글입니다")
+    options = parsed["poll"].get("options", [])
+    if option_index < 0 or option_index >= len(options):
+        raise HTTPException(400, "유효하지 않은 선택지입니다")
+    existing = db.query(StockPostPollVote).filter(
+        StockPostPollVote.post_id == post_id,
+        StockPostPollVote.user_id == current_user.id,
+    ).first()
+    if existing:
+        existing.option_index = option_index
+    else:
+        db.add(StockPostPollVote(post_id=post_id, user_id=current_user.id, option_index=option_index))
+    db.commit()
+    votes = db.query(StockPostPollVote).filter(StockPostPollVote.post_id == post_id).all()
+    counts = [0] * len(options)
+    for v in votes:
+        if 0 <= v.option_index < len(counts):
+            counts[v.option_index] += 1
+    return {"total": len(votes), "counts": counts, "my_vote": option_index}
+
+
+# ── 팔로우 토글 ───────────────────────────────────────────────
+@router.post("/users/{user_id}/follow")
+def toggle_follow(
+    user_id: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    if user_id == current_user.id:
+        raise HTTPException(400, "자기 자신을 팔로우할 수 없습니다")
+    existing = db.query(UserFollow).filter(
+        UserFollow.follower_id == current_user.id,
+        UserFollow.following_id == user_id,
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        return {"followed": False}
+    else:
+        db.add(UserFollow(follower_id=current_user.id, following_id=user_id))
+        db.commit()
+        return {"followed": True}
+
+
+# ── 유저 공개 프로필 ──────────────────────────────────────────
+@router.get("/users/{user_id}/profile")
+def get_user_public_profile(
+    user_id: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not user:
+        raise HTTPException(404, "사용자를 찾을 수 없습니다")
+    p = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+    follower_count = db.query(UserFollow).filter(UserFollow.following_id == user_id).count()
+    following_count = db.query(UserFollow).filter(UserFollow.follower_id == user_id).count()
+    post_count = db.query(StockPost).filter(
+        StockPost.user_id == user_id, StockPost.is_deleted == False
+    ).count()
+    is_following = False
+    if current_user:
+        is_following = db.query(UserFollow).filter(
+            UserFollow.follower_id == current_user.id,
+            UserFollow.following_id == user_id,
+        ).first() is not None
+    is_me = current_user.id == user_id if current_user else False
+    return {
+        "user_id":        user.id,
+        "username":       user.username,
+        "nickname":       p.nickname if p else None,
+        "avatar_color":   p.avatar_color if p else 0,
+        "bio":            p.bio if p else None,
+        "follower_count": follower_count,
+        "following_count": following_count,
+        "post_count":     post_count,
+        "is_following":   is_following,
+        "is_me":          is_me,
+    }
+
+
+# ── 유저 최근 활동 ────────────────────────────────────────────
+@router.get("/users/{user_id}/activity")
+def get_user_activity(
+    user_id: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    posts = db.query(StockPost).filter(
+        StockPost.user_id == user_id, StockPost.is_deleted == False
+    ).order_by(StockPost.created_at.desc()).limit(10).all()
+    comments = db.query(StockComment).filter(
+        StockComment.user_id == user_id, StockComment.is_deleted == False
+    ).order_by(StockComment.created_at.desc()).limit(10).all()
+    post_items = [{
+        "type": "post",
+        "id": p.id,
+        "symbol": p.symbol,
+        "market": p.market,
+        "title": decode_content(p.content)["title"],
+        "body": decode_content(p.content)["body"],
+        "like_count": p.like_count,
+        "comment_count": p.comment_count,
+        "created_at": p.created_at.isoformat(),
+    } for p in posts]
+    comment_items = [{
+        "type": "comment",
+        "id": c.id,
+        "post_id": c.post_id,
+        "content": c.content,
+        "like_count": c.like_count,
+        "created_at": c.created_at.isoformat(),
+    } for c in comments]
+    activity = sorted(post_items + comment_items, key=lambda x: x["created_at"], reverse=True)[:15]
+    return {"items": activity}
+
+
+# ── 팔로워/팔로잉 목록 ────────────────────────────────────────
+@router.get("/users/{user_id}/followers")
+def get_followers(user_id: int = Path(...), db: Session = Depends(get_db)):
+    follows = db.query(UserFollow).filter(UserFollow.following_id == user_id).all()
+    result = []
+    for f in follows:
+        u = db.query(User).filter(User.id == f.follower_id).first()
+        if u:
+            p = db.query(UserProfile).filter(UserProfile.user_id == u.id).first()
+            result.append({
+                "user_id": u.id,
+                "username": u.username,
+                "nickname": p.nickname if p else None,
+                "avatar_color": p.avatar_color if p else 0,
+            })
+    return result
+
+
+@router.get("/users/{user_id}/following")
+def get_following(user_id: int = Path(...), db: Session = Depends(get_db)):
+    follows = db.query(UserFollow).filter(UserFollow.follower_id == user_id).all()
+    result = []
+    for f in follows:
+        u = db.query(User).filter(User.id == f.following_id).first()
+        if u:
+            p = db.query(UserProfile).filter(UserProfile.user_id == u.id).first()
+            result.append({
+                "user_id": u.id,
+                "username": u.username,
+                "nickname": p.nickname if p else None,
+                "avatar_color": p.avatar_color if p else 0,
+            })
+    return result

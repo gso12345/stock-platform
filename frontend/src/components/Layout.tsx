@@ -37,7 +37,7 @@ const MORE_NAV = [
   { to: "/screening",  icon: Search,    label: "스크리닝"   },
   { to: "/backtest",   icon: LineChart, label: "백테스트"   },
   { to: "/strategies", icon: BookMarked,label: "전략저장소" },
-  { to: "/mypage",     icon: User,      label: "마이페이지" },
+  { to: "/mypage",     icon: User,      label: "내 프로필"  },
   { to: "/feed",       icon: Rss,       label: "피드"       },
 ];
 
@@ -304,7 +304,7 @@ export default function Layout() {
             <NavLink to="/mypage"
               className={({ isActive }) => navItemCls(isActive)}
             >
-              <User size={15} className="flex-shrink-0" />마이페이지
+              <User size={15} className="flex-shrink-0" />내 프로필
             </NavLink>
           )}
           <InstallAppButton className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150" />

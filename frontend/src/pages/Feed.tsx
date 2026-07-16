@@ -2,13 +2,14 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
-  Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle,
+  Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 
 type SortType = "latest" | "likes";
 type MarketFilter = "ALL" | "KR" | "US" | "ETF";
+type FeedType = "all" | "following";
 
 const AVATAR_COLORS = [
   "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -39,6 +40,14 @@ function timeAgo(iso: string) {
   return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
 }
 
+interface PollData {
+  question: string;
+  options: string[];
+  counts: number[];
+  total: number;
+  my_vote: number | null;
+}
+
 interface FeedPost {
   id: number;
   symbol: string;
@@ -48,6 +57,9 @@ interface FeedPost {
   avatar_color: number;
   title: string;
   body: string;
+  image: string;
+  poll: PollData | null;
+  tags: { symbol: string; market: string }[];
   like_count: number;
   comment_count: number;
   liked: boolean;
@@ -55,7 +67,19 @@ interface FeedPost {
   is_mine: boolean;
 }
 
-function FeedCard({ post, onLike }: { post: FeedPost; onLike: (id: number) => void }) {
+function FeedCard({
+  post,
+  onLike,
+  onVote,
+  queryKey,
+  qc,
+}: {
+  post: FeedPost;
+  onLike: (id: number) => void;
+  onVote: (postId: number, optionIndex: number) => void;
+  queryKey: any[];
+  qc: ReturnType<typeof useQueryClient>;
+}) {
   const { isLoggedIn } = useAuthStore();
   const navigate = useNavigate();
   const badgeCls = MARKET_BADGE[post.market] ?? MARKET_BADGE.KR;
@@ -65,16 +89,23 @@ function FeedCard({ post, onLike }: { post: FeedPost; onLike: (id: number) => vo
     <div className="bg-bg-card border border-border rounded-2xl p-4 hover:border-border/80 transition-colors">
       <div className="flex gap-3">
         {/* 아바타 */}
-        <div
-          className={`w-7 h-7 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 ${avatarCls}`}
-        >
-          {post.username[0]?.toUpperCase()}
-        </div>
+        <Link to={post.is_mine ? "/mypage" : `/profile/${post.user_id}`}>
+          <div
+            className={`w-7 h-7 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 ${avatarCls}`}
+          >
+            {post.username[0]?.toUpperCase()}
+          </div>
+        </Link>
 
         <div className="flex-1 min-w-0">
           {/* 헤더: 유저·시간·종목 */}
           <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-            <span className="text-xs font-semibold text-text-primary">{post.username}</span>
+            <Link
+              to={post.is_mine ? "/mypage" : `/profile/${post.user_id}`}
+              className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
+            >
+              {post.username}
+            </Link>
             <span className="text-2xs text-text-dim">·</span>
             <span className="text-2xs text-text-dim">{timeAgo(post.created_at)}</span>
             <span className="ml-auto flex items-center gap-1">
@@ -99,6 +130,73 @@ function FeedCard({ post, onLike }: { post: FeedPost; onLike: (id: number) => vo
           <p className="text-sm text-text-secondary leading-relaxed line-clamp-3 break-words mb-2">
             {post.body}
           </p>
+
+          {/* 첨부 이미지 */}
+          {post.image && (
+            <img
+              src={post.image}
+              alt="첨부 이미지"
+              className="w-full max-h-48 object-cover rounded-xl mb-2"
+            />
+          )}
+
+          {/* 투표 */}
+          {post.poll && (
+            <div className="mb-2 p-3 bg-bg-elevated rounded-xl space-y-2">
+              <p className="text-xs font-semibold text-text-primary">{post.poll.question}</p>
+              {post.poll.options.map((opt, i) => {
+                const voted = post.poll!.my_vote !== null;
+                const pct =
+                  post.poll!.total > 0
+                    ? Math.round((post.poll!.counts[i] / post.poll!.total) * 100)
+                    : 0;
+                const isChosen = post.poll!.my_vote === i;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => !voted && onVote(post.id, i)}
+                    disabled={voted || !isLoggedIn}
+                    className={`relative w-full text-left px-3 py-1.5 rounded-lg border text-xs overflow-hidden transition-all ${
+                      isChosen ? "border-accent-blue/50" : "border-border hover:border-accent-blue/30"
+                    }`}
+                  >
+                    {voted && (
+                      <div
+                        className={`absolute inset-0 rounded-lg ${isChosen ? "bg-accent-blue/25" : "bg-accent-blue/10"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    )}
+                    <span className="relative z-10 flex justify-between">
+                      <span className={isChosen ? "font-semibold text-accent-blue" : "text-text-secondary"}>
+                        {opt}
+                      </span>
+                      {voted && (
+                        <span className={isChosen ? "text-accent-blue font-semibold" : "text-text-dim"}>
+                          {pct}%
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+              <p className="text-2xs text-text-dim text-right">총 {post.poll.total}표</p>
+            </div>
+          )}
+
+          {/* 종목 태그 */}
+          {post.tags && post.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {post.tags.map((t) => (
+                <Link
+                  key={t.symbol}
+                  to={`/stocks/${t.market}/${t.symbol}`}
+                  className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 transition-colors"
+                >
+                  #{t.symbol}
+                </Link>
+              ))}
+            </div>
+          )}
 
           {/* 하단 액션 */}
           <div className="flex items-center gap-3">
@@ -145,16 +243,25 @@ const PAGE_SIZE = 20;
 
 export default function Feed() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { isLoggedIn } = useAuthStore();
+  const [feedType, setFeedType] = useState<FeedType>("all");
   const [sort, setSort] = useState<SortType>("latest");
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("ALL");
   const [page, setPage] = useState(1);
 
-  const queryKey = ["feed", sort, marketFilter, page];
+  const isFollowing = feedType === "following";
+  const queryKey = ["feed", sort, marketFilter, page, feedType];
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey,
     queryFn: () =>
-      communityApi.getFeed(page, sort, marketFilter === "ALL" ? undefined : marketFilter),
+      communityApi.getFeed(
+        page,
+        sort,
+        marketFilter === "ALL" ? undefined : marketFilter,
+        isFollowing
+      ),
     staleTime: 30_000,
   });
 
@@ -184,8 +291,34 @@ export default function Feed() {
     },
   });
 
+  const voteMutation = useMutation({
+    mutationFn: ({ postId, optionIndex }: { postId: number; optionIndex: number }) =>
+      communityApi.votePoll(postId, optionIndex),
+    onSuccess: (data, { postId }) => {
+      qc.setQueryData(queryKey, (prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: prev.items.map((p: FeedPost) =>
+            p.id === postId && p.poll
+              ? { ...p, poll: { ...p.poll, counts: data.counts, total: data.total, my_vote: data.my_vote } }
+              : p
+          ),
+        };
+      });
+    },
+  });
+
   const changeSort = (s: SortType) => { setSort(s); setPage(1); };
   const changeMarket = (m: MarketFilter) => { setMarketFilter(m); setPage(1); };
+  const changeFeedType = (t: FeedType) => {
+    if (t === "following" && !isLoggedIn) {
+      navigate("/login");
+      return;
+    }
+    setFeedType(t);
+    setPage(1);
+  };
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-5">
@@ -206,6 +339,28 @@ export default function Feed() {
           title="새로고침"
         >
           <RefreshCw size={14} />
+        </button>
+      </div>
+
+      {/* 피드 타입 탭 */}
+      <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
+        <button
+          onClick={() => changeFeedType("all")}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            feedType === "all" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+          }`}
+        >
+          <Rss size={11} />
+          전체 피드
+        </button>
+        <button
+          onClick={() => changeFeedType("following")}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            feedType === "following" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+          }`}
+        >
+          <Users size={11} />
+          팔로잉
         </button>
       </div>
 
@@ -271,11 +426,24 @@ export default function Feed() {
       {!isLoading && !isError && posts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <div className="w-16 h-16 rounded-2xl bg-bg-elevated flex items-center justify-center">
-            <Rss size={28} className="text-text-dim opacity-40" />
+            {feedType === "following" ? (
+              <Users size={28} className="text-text-dim opacity-40" />
+            ) : (
+              <Rss size={28} className="text-text-dim opacity-40" />
+            )}
           </div>
           <div className="text-center">
-            <p className="text-sm font-medium text-text-secondary">아직 게시글이 없어요</p>
-            <p className="text-xs text-text-dim mt-0.5">종목 상세 페이지에서 의견을 남겨보세요!</p>
+            {feedType === "following" ? (
+              <>
+                <p className="text-sm font-medium text-text-secondary">아직 팔로우한 사람이 없어요</p>
+                <p className="text-xs text-text-dim mt-0.5">다른 투자자를 팔로우하고 피드를 채워보세요!</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-text-secondary">아직 게시글이 없어요</p>
+                <p className="text-xs text-text-dim mt-0.5">종목 상세 페이지에서 의견을 남겨보세요!</p>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -289,6 +457,9 @@ export default function Feed() {
                 key={post.id}
                 post={post}
                 onLike={(id) => likeMutation.mutate(id)}
+                onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
+                queryKey={queryKey}
+                qc={qc}
               />
             ))}
           </div>

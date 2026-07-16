@@ -18,7 +18,7 @@ from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
     QuantScoreWeight, QuantPercentileCache,
 )
-from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow  # noqa: F401
+from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote  # noqa: F401
 from app.api.websocket.price_stream import stream_prices, stream_indices
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db
@@ -165,7 +165,7 @@ async def lifespan(application: FastAPI):
                     conn.rollback()
 
         # 커뮤니티 테이블이 없으면 재생성 (이전 배포에서 create_all이 실패했을 경우 대비)
-        community_tables = {"stock_posts", "stock_post_likes", "stock_comments", "stock_comment_likes", "user_profiles", "user_follows"}
+        community_tables = {"stock_posts", "stock_post_likes", "stock_comments", "stock_comment_likes", "user_profiles", "user_follows", "stock_post_poll_votes"}
         if not community_tables.issubset(set(tables)):
             try:
                 Base.metadata.create_all(bind=engine)
