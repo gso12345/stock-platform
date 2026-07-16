@@ -72,7 +72,7 @@ export default function Admin() {
       </div>
 
       {/* 탭 */}
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-hide">
         {TABS.map(({ id, Icon, label }) => (
           <button
             key={id}

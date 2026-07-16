@@ -811,18 +811,16 @@ function PortfolioManagerModal({
         {local.map((pf, i) => (
           <div
             key={pf.id}
+            draggable
+            onDragStart={() => { dragIdx.current = i; }}
+            onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
             onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
             onDrop={() => { handleDrop(i); setDragOver(null); }}
-            onDragLeave={() => setDragOver(null)}
-            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors ${dragOver === i ? "bg-accent-blue/10" : ""}`}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null); }}
+            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors cursor-grab active:cursor-grabbing select-none ${dragOver === i ? "bg-accent-blue/10 ring-2 ring-accent-blue/30 ring-inset" : ""}`}
           >
-            {/* 드래그 핸들 */}
-            <div
-              draggable
-              onDragStart={() => { dragIdx.current = i; }}
-              onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
-              className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted flex-shrink-0 px-2 py-2 -mx-1 rounded hover:bg-bg-secondary"
-            >
+            {/* 드래그 핸들 — 시각적 표시 */}
+            <div className="text-text-dim flex-shrink-0 px-1 pointer-events-none">
               <svg width="12" height="18" viewBox="0 0 10 14" fill="currentColor">
                 <circle cx="3" cy="2.5" r="1.4"/><circle cx="7" cy="2.5" r="1.4"/>
                 <circle cx="3" cy="7" r="1.4"/><circle cx="7" cy="7" r="1.4"/>
@@ -831,7 +829,8 @@ function PortfolioManagerModal({
             </div>
             {editingId === pf.id ? (
               <input
-                className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none"
+                draggable={false}
+                className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none cursor-text select-text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") commitRename(pf.id); if (e.key === "Escape") setEditingId(null); }}
@@ -842,12 +841,12 @@ function PortfolioManagerModal({
             )}
             <span className="text-xs text-text-muted flex-shrink-0">{pf.count}개</span>
             {editingId === pf.id ? (
-              <button onClick={() => commitRename(pf.id)} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={15} /></button>
+              <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(pf.id); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={15} /></button>
             ) : (
-              <button onClick={() => { setEditingId(pf.id); setEditName(pf.name); }}
+              <button draggable={false} onClick={(e) => { e.stopPropagation(); setEditingId(pf.id); setEditName(pf.name); }}
                 className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={15} /></button>
             )}
-            <button onClick={() => onDelete(pf)}
+            <button draggable={false} onClick={(e) => { e.stopPropagation(); onDelete(pf); }}
               className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={15} /></button>
           </div>
         ))}

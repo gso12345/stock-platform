@@ -2424,7 +2424,7 @@ export default function StockDetail() {
 
       {/* 보유비중 탭 — ETF 전용 */}
       {mainTab==="holdings" && m === "ETF" && (
-        <EtfHoldingsTab symbol={symbol} />
+        <EtfHoldingsTab symbol={sym} />
       )}
 
       {/* 커뮤니티 탭 — 서비스 준비중 */}
@@ -2465,15 +2465,23 @@ const SECTOR_KO: Record<string, string> = {
 };
 
 function EtfHoldingsTab({ symbol }: { symbol: string }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["etf_holdings", symbol],
     queryFn: () => stocksApi.getEtfHoldings(symbol),
     staleTime: 3_600_000,
+    retry: 1,
   });
 
   if (isLoading) return (
     <div className="rounded-xl border border-border bg-bg-card p-8 text-center text-text-muted text-base">
       보유비중 로딩 중...
+    </div>
+  );
+
+  if (isError) return (
+    <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
+      <BarChart2 size={40} className="text-text-muted/30" />
+      <p className="text-text-muted text-base">보유비중 데이터를 불러올 수 없습니다</p>
     </div>
   );
 
