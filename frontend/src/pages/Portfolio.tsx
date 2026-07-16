@@ -807,48 +807,48 @@ function PortfolioManagerModal({
         <h3 className="text-sm font-bold text-text-primary">포트폴리오 관리</h3>
         <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
       </div>
-      <div className="flex flex-col max-h-72 overflow-y-auto">
+      <div className="flex flex-col max-h-96 overflow-y-auto">
         {local.map((pf, i) => (
           <div
             key={pf.id}
             onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
             onDrop={() => { handleDrop(i); setDragOver(null); }}
             onDragLeave={() => setDragOver(null)}
-            className={`flex items-center gap-2 px-4 py-2.5 border-b border-border/40 transition-colors ${dragOver === i ? "bg-accent-blue/10" : ""}`}
+            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors ${dragOver === i ? "bg-accent-blue/10" : ""}`}
           >
             {/* 드래그 핸들 */}
             <div
               draggable
               onDragStart={() => { dragIdx.current = i; }}
               onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
-              className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted flex-shrink-0 px-0.5 py-1"
+              className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted flex-shrink-0 px-2 py-2 -mx-1 rounded hover:bg-bg-secondary"
             >
-              <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-                <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>
-                <circle cx="3" cy="7" r="1.3"/><circle cx="7" cy="7" r="1.3"/>
-                <circle cx="3" cy="11.5" r="1.3"/><circle cx="7" cy="11.5" r="1.3"/>
+              <svg width="12" height="18" viewBox="0 0 10 14" fill="currentColor">
+                <circle cx="3" cy="2.5" r="1.4"/><circle cx="7" cy="2.5" r="1.4"/>
+                <circle cx="3" cy="7" r="1.4"/><circle cx="7" cy="7" r="1.4"/>
+                <circle cx="3" cy="11.5" r="1.4"/><circle cx="7" cy="11.5" r="1.4"/>
               </svg>
             </div>
             {editingId === pf.id ? (
               <input
-                className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-2 py-1 text-sm text-text-primary focus:outline-none"
+                className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") commitRename(pf.id); if (e.key === "Escape") setEditingId(null); }}
                 autoFocus
               />
             ) : (
-              <span className="flex-1 text-sm text-text-primary truncate">{pf.name}</span>
+              <span className="flex-1 text-sm font-medium text-text-primary truncate">{pf.name}</span>
             )}
             <span className="text-xs text-text-muted flex-shrink-0">{pf.count}개</span>
             {editingId === pf.id ? (
-              <button onClick={() => commitRename(pf.id)} className="p-1 text-accent-blue"><Check size={12} /></button>
+              <button onClick={() => commitRename(pf.id)} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={15} /></button>
             ) : (
               <button onClick={() => { setEditingId(pf.id); setEditName(pf.name); }}
-                className="p-1 text-text-muted hover:text-accent-blue transition-colors"><Pencil size={12} /></button>
+                className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={15} /></button>
             )}
             <button onClick={() => onDelete(pf)}
-              className="p-1 text-text-muted hover:text-accent-red transition-colors"><Trash2 size={12} /></button>
+              className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={15} /></button>
           </div>
         ))}
       </div>

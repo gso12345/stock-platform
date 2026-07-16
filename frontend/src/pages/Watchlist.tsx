@@ -42,6 +42,14 @@ const PREVIEW_WATCHLIST: PreviewItem[] = [
   { id: -11, symbol: "SPY",   market: "ETF", name: "SPDR S&P 500 ETF",  folderId: -3, price: 534.21, change_rate:  0.41 },
   { id: -12, symbol: "QQQ",   market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
 ];
+const PREVIEW_PORTFOLIOS: PreviewFolder[] = [
+  { id: -101, name: "성장주" },
+  { id: -102, name: "배당&ETF" },
+];
+const PREVIEW_PORTFOLIO_ITEMS: Record<number, PreviewItem[]> = {
+  [-101]: PREVIEW_WATCHLIST.filter(i => ["NVDA","AAPL","MSFT","GOOGL","AMZN","META","TSLA"].includes(i.symbol)),
+  [-102]: PREVIEW_WATCHLIST.filter(i => ["005930","000660","005380","SPY","QQQ"].includes(i.symbol)),
+};
 
 const MKT_BADGE_VARIANT: Record<string, "blue" | "green" | "purple"> = {
   KR:  "blue",
@@ -758,54 +766,54 @@ function FolderManagerModal({
         <h3 className="text-sm font-bold text-text-primary">폴더 관리</h3>
         <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
       </div>
-      <div className="flex flex-col max-h-72 overflow-y-auto">
+      <div className="flex flex-col max-h-96 overflow-y-auto">
         {local.map((f: any, i: number) => (
           <div
             key={f.id}
             onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
             onDrop={() => { handleDrop(i); setDragOver(null); }}
             onDragLeave={() => setDragOver(null)}
-            className={`flex items-center gap-2 px-4 py-2.5 border-b border-border/40 transition-colors ${dragOver === i ? "bg-accent-blue/10" : ""}`}
+            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors ${dragOver === i ? "bg-accent-blue/10" : ""}`}
           >
             {/* 드래그 핸들 */}
             <div
               draggable
               onDragStart={() => { dragIdx.current = i; }}
               onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
-              className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted flex-shrink-0 px-0.5 py-1"
+              className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted flex-shrink-0 px-2 py-2 -mx-1 rounded hover:bg-bg-secondary"
             >
-              <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-                <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>
-                <circle cx="3" cy="7" r="1.3"/><circle cx="7" cy="7" r="1.3"/>
-                <circle cx="3" cy="11.5" r="1.3"/><circle cx="7" cy="11.5" r="1.3"/>
+              <svg width="12" height="18" viewBox="0 0 10 14" fill="currentColor">
+                <circle cx="3" cy="2.5" r="1.4"/><circle cx="7" cy="2.5" r="1.4"/>
+                <circle cx="3" cy="7" r="1.4"/><circle cx="7" cy="7" r="1.4"/>
+                <circle cx="3" cy="11.5" r="1.4"/><circle cx="7" cy="11.5" r="1.4"/>
               </svg>
             </div>
             {editingId === f.id ? (
               <input
-                className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-2 py-1 text-sm text-text-primary focus:outline-none"
+                className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") commitRename(f.id); if (e.key === "Escape") setEditingId(null); }}
                 autoFocus
               />
             ) : (
-              <span className="flex-1 text-sm text-text-primary truncate">{f.name}</span>
+              <span className="flex-1 text-sm font-medium text-text-primary truncate">{f.name}</span>
             )}
             {editingId === f.id ? (
-              <button onClick={() => commitRename(f.id)} className="p-1 text-accent-blue"><Check size={12} /></button>
+              <button onClick={() => commitRename(f.id)} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={15} /></button>
             ) : (
               <button onClick={() => { setEditingId(f.id); setEditName(f.name); }}
-                className="p-1 text-text-muted hover:text-accent-blue transition-colors"><Pencil size={12} /></button>
+                className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={15} /></button>
             )}
             <button onClick={() => onDelete(f)}
-              className="p-1 text-text-muted hover:text-accent-red transition-colors"><Trash2 size={12} /></button>
+              className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={15} /></button>
           </div>
         ))}
       </div>
       <div className="p-4 border-t border-border">
         <button onClick={onCreate}
-          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue transition-colors text-sm">
-          <Plus size={13} />새 폴더 만들기
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue transition-colors text-sm">
+          <Plus size={14} />새 폴더 만들기
         </button>
       </div>
     </Modal>
@@ -852,7 +860,7 @@ export default function Watchlist() {
   const { data: pfTabItems = [] } = useQuery({
     queryKey: ["portfolio-tab-items", portfolioTab],
     queryFn: () => portfolioApi.getItems(portfolioTab ?? undefined),
-    enabled: isLoggedIn && portfolioTab !== null,
+    enabled: isLoggedIn && portfolioTab !== null && portfolioTab > 0,
     staleTime: 60_000,
   });
   const pfTabDeduped = pfTabItems as any[];
@@ -861,7 +869,7 @@ export default function Watchlist() {
   const { data: pfTabPrices } = useQuery({
     queryKey: ["pf-tab-prices", pfTabSymbols.join(",")],
     queryFn: ({ signal }) => watchlistApi.getPrices(pfTabSymbols, pfTabMarkets, signal),
-    enabled: portfolioTab !== null && pfTabSymbols.length > 0,
+    enabled: portfolioTab !== null && portfolioTab > 0 && pfTabSymbols.length > 0,
     staleTime: 60_000,
   });
   const pfTabPriceMap = useMemo(() => {
@@ -1339,21 +1347,29 @@ export default function Watchlist() {
           }`;
         return (
           <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
-            <button onClick={() => setFolderTab("all")} className={tabBtnCls(folderTab === "all")}>
+            <button onClick={() => { setFolderTab("all"); setPortfolioTab(null); }} className={tabBtnCls(folderTab === "all" && portfolioTab === null)}>
               전체 <span className="text-[10px] opacity-70">{mktFiltered.length}</span>
             </button>
-            <button onClick={() => setFolderTab("recent")} className={`${tabBtnCls(folderTab === "recent")} flex items-center gap-1`}>
+            <button onClick={() => { setFolderTab("recent"); setPortfolioTab(null); }} className={`${tabBtnCls(folderTab === "recent" && portfolioTab === null)} flex items-center gap-1`}>
               <Clock size={13} /> 최근조회
             </button>
             {PREVIEW_FOLDERS.map(f => {
               const cnt = mktFiltered.filter(i => i.folderId === f.id).length;
               if (cnt === 0) return null;
               return (
-                <button key={f.id} onClick={() => setFolderTab(f.id)} className={tabBtnCls(folderTab === f.id)}>
+                <button key={f.id} onClick={() => { setFolderTab(f.id); setPortfolioTab(null); }} className={tabBtnCls(folderTab === f.id && portfolioTab === null)}>
                   {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
                 </button>
               );
             })}
+            {PREVIEW_PORTFOLIOS.map(pf => (
+              <button key={`pf-${pf.id}`}
+                onClick={() => { setPortfolioTab(pf.id); setFolderTab("all"); }}
+                className={`${tabBtnCls(portfolioTab === pf.id)} flex items-center gap-1`}
+              >
+                <Wallet size={11} />{pf.name}
+              </button>
+            ))}
           </div>
         );
       })() : (() => {
@@ -1452,7 +1468,29 @@ export default function Watchlist() {
             })
           )}
         </Card>
-      ) : portfolioTab !== null ? (
+      ) : portfolioTab !== null && isPreview ? (() => {
+        const pf = PREVIEW_PORTFOLIOS.find(p => p.id === portfolioTab);
+        const items = (PREVIEW_PORTFOLIO_ITEMS[portfolioTab] ?? []).filter(i => marketTab === "전체" || i.market === marketTab);
+        return (
+          <Card className="p-0 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
+              <Wallet size={13} className="text-accent-blue" />
+              <span className="flex-1 text-sm font-semibold text-text-primary">{pf?.name ?? "포트폴리오"}</span>
+              <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{items.length}</span>
+            </div>
+            {items.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 px-4 py-8">
+                <Wallet size={24} className="text-text-muted/40" />
+                <p className="text-text-muted text-xs">해당 시장의 예시 종목이 없습니다</p>
+              </div>
+            ) : (
+              items.map(item => (
+                <PreviewItemRow key={item.id} item={item} onNavigate={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)} />
+              ))
+            )}
+          </Card>
+        );
+      })() : portfolioTab !== null ? (
         <Card className="p-0 overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
             <Wallet size={13} className="text-accent-blue" />
