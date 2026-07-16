@@ -494,6 +494,10 @@ export default function StockDetail() {
 
   const d = detail as any;
 
+  // 한국 ETF 감지: 종목명에 "ETF" 포함 여부
+  const isKRETF = isKR && /\bETF\b/i.test(d?.name ?? "");
+  const isETF = m === "ETF" || isKRETF;
+
   useEffect(() => {
     if (d?.name) addRecentlyViewed(sym, m, d.name);
   }, [sym, m, d?.name]);
@@ -643,7 +647,7 @@ export default function StockDetail() {
             </h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-base font-mono text-text-muted">{sym.replace(".KS","").replace(".KQ","")}</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${isKR?"border-blue-700/50 text-blue-400 bg-blue-900/20":m==="ETF"?"border-purple-700/50 text-purple-400 bg-purple-900/20":"border-green-700/50 text-green-400 bg-green-900/20"}`}>{m}</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${isETF?"border-purple-700/50 text-purple-400 bg-purple-900/20":isKR?"border-blue-700/50 text-blue-400 bg-blue-900/20":"border-green-700/50 text-green-400 bg-green-900/20"}`}>{isETF ? "ETF" : m}</span>
               {d?.sector && <span className="text-xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted">{d.sector}</span>}
             </div>
           </div>
@@ -853,12 +857,12 @@ export default function StockDetail() {
           {[
             { id:"chart",     Icon: BarChart2,      label:"차트" },
             { id:"daily",     Icon: List,            label:"일별" },
-            { id:"financial", Icon: DollarSign,      label:"재무제표" },
+            ...(!isETF ? [{ id:"financial", Icon: DollarSign, label:"재무제표" }] : []),
             { id:"quant",     Icon: Gauge,           label:"퀀트점수" },
-            { id:"analyst",   Icon: TrendingUp,      label:"투자의견" },
+            ...(!isETF ? [{ id:"analyst", Icon: TrendingUp, label:"투자의견" }] : []),
             { id:"news",      Icon: Newspaper,       label:"뉴스/공시" },
-            ...(isKR ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
-            ...(m === "ETF" ? [{ id:"holdings", Icon: BarChart2, label:"보유비중" }] : []),
+            ...(isKR && !isKRETF ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
+            ...(isETF ? [{ id:"holdings", Icon: BarChart2, label:"보유비중" }] : []),
             { id:"community", Icon: MessageSquare,   label:"커뮤니티" },
           ].map(({ id, Icon, label }) => (
             <button key={id}
@@ -2426,7 +2430,7 @@ export default function StockDetail() {
       )}
 
       {/* 보유비중 탭 — ETF 전용 */}
-      {mainTab==="holdings" && m === "ETF" && (
+      {mainTab==="holdings" && isETF && (
         <EtfHoldingsTab symbol={sym} />
       )}
 
