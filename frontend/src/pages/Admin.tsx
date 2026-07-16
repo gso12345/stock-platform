@@ -77,7 +77,7 @@ export default function Admin() {
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all border-b-2 -mb-px ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all border-b-2 -mb-px whitespace-nowrap ${
               tab === id
                 ? "border-accent-blue text-accent-blue"
                 : "border-transparent text-text-muted hover:text-text-primary"

@@ -5,7 +5,7 @@ import { stocksApi, dashboardApi, portfolioApi, watchlistApi } from "@/api/stock
 import { usePricesStream } from "@/hooks/useWebSocket";
 import api from "@/api/client";
 import { Card, RowSkeleton, Modal } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check, AlertTriangle, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check, AlertTriangle, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -808,6 +808,108 @@ function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void }) {
   );
 }
 
+/* ── 포트폴리오 관리 팝업 ── */
+function PortfolioManagerModal({
+  portfolios, onClose, onRename, onDelete, onReorder, onAdd,
+}: {
+  portfolios: PortfolioMeta[];
+  onClose: () => void;
+  onRename: (id: number, name: string) => void;
+  onDelete: (pf: PortfolioMeta) => void;
+  onReorder: (order: number[]) => void;
+  onAdd: (name: string) => void;
+}) {
+  const [local, setLocal] = useState(portfolios);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [addingNew, setAddingNew] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  useEffect(() => { setLocal(portfolios); }, [portfolios]);
+
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= local.length) return;
+    const next = [...local];
+    [next[i], next[j]] = [next[j], next[i]];
+    setLocal(next);
+    onReorder(next.map((p) => p.id));
+  };
+
+  const commitRename = (id: number) => {
+    const trimmed = editName.trim();
+    if (trimmed) onRename(id, trimmed);
+    setEditingId(null);
+  };
+
+  const commitAdd = () => {
+    const trimmed = newName.trim();
+    if (trimmed) { onAdd(trimmed); setNewName(""); setAddingNew(false); }
+  };
+
+  return (
+    <Modal maxWidth="max-w-sm" onClose={onClose}>
+      <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
+        <h3 className="text-sm font-bold text-text-primary">포트폴리오 관리</h3>
+        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+      </div>
+      <div className="flex flex-col max-h-72 overflow-y-auto">
+        {local.map((pf, i) => (
+          <div key={pf.id} className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40">
+            <div className="flex flex-col gap-0 flex-shrink-0">
+              <button disabled={i === 0} onClick={() => move(i, -1)}
+                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none px-0.5">▲</button>
+              <button disabled={i === local.length - 1} onClick={() => move(i, 1)}
+                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none px-0.5">▼</button>
+            </div>
+            {editingId === pf.id ? (
+              <input
+                className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-2 py-1 text-sm text-text-primary focus:outline-none"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") commitRename(pf.id); if (e.key === "Escape") setEditingId(null); }}
+                autoFocus
+              />
+            ) : (
+              <span className="flex-1 text-sm text-text-primary truncate">{pf.name}</span>
+            )}
+            <span className="text-xs text-text-muted flex-shrink-0">{pf.count}개</span>
+            {editingId === pf.id ? (
+              <button onClick={() => commitRename(pf.id)} className="p-1 text-accent-blue"><Check size={12} /></button>
+            ) : (
+              <button onClick={() => { setEditingId(pf.id); setEditName(pf.name); }}
+                className="p-1 text-text-muted hover:text-accent-blue transition-colors"><Pencil size={12} /></button>
+            )}
+            <button onClick={() => onDelete(pf)}
+              className="p-1 text-text-muted hover:text-accent-red transition-colors"><Trash2 size={12} /></button>
+          </div>
+        ))}
+      </div>
+      <div className="p-4 border-t border-border">
+        {addingNew ? (
+          <div className="flex items-center gap-2">
+            <input
+              className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none"
+              placeholder="포트폴리오 이름"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitAdd(); if (e.key === "Escape") { setAddingNew(false); setNewName(""); } }}
+              autoFocus
+            />
+            <button onClick={commitAdd} className="p-1.5 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
+            <button onClick={() => { setAddingNew(false); setNewName(""); }} className="p-1.5 text-text-muted hover:text-text-primary rounded-lg"><X size={14} /></button>
+          </div>
+        ) : (
+          <button onClick={() => setAddingNew(true)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue transition-colors text-sm">
+            <Plus size={13} />새 포트폴리오 만들기
+          </button>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 /* ── Main Page ──────────────────────────────────────────── */
 export default function Portfolio() {
   const navigate = useNavigate();
@@ -890,6 +992,7 @@ export default function Portfolio() {
   });
 
   const [deletePortfolioTarget, setDeletePortfolioTarget] = useState<PortfolioMeta | null>(null);
+  const [showPortfolioManager, setShowPortfolioManager] = useState(false);
   const deletePortfolioMutation = useMutation({
     mutationFn: (id: number) => portfolioApi.deletePortfolio(id),
     onSuccess: (_data, id) => {
@@ -1424,6 +1527,13 @@ export default function Portfolio() {
             />
           ))}
           <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
+          <button
+            onClick={() => setShowPortfolioManager(true)}
+            className="p-2 flex-shrink-0 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors rounded-lg mx-1"
+            title="포트폴리오 관리"
+          >
+            <Settings2 size={14} />
+          </button>
         </div>
       )}
 
@@ -1765,14 +1875,14 @@ export default function Portfolio() {
                         </div>
                       </div>
                       {isLoggedIn && (
-                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button onClick={() => openEditModal(item)}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-accent-blue bg-accent-blue/10 hover:bg-accent-blue/20 transition-colors">
-                            <Pencil size={11} /><span>수정</span>
+                            className="p-1.5 rounded-lg text-accent-blue bg-accent-blue/15 hover:bg-accent-blue/25 transition-colors" title="수정">
+                            <Pencil size={13} />
                           </button>
                           <button onClick={() => setDeleteTarget(item)}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-accent-red bg-accent-red/10 hover:bg-accent-red/20 transition-colors">
-                            <Trash2 size={11} /><span>삭제</span>
+                            className="p-1.5 rounded-lg text-accent-red bg-accent-red/15 hover:bg-accent-red/25 transition-colors" title="삭제">
+                            <Trash2 size={13} />
                           </button>
                         </div>
                       )}
@@ -1928,14 +2038,14 @@ export default function Portfolio() {
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         {isLoggedIn && (
-                          <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                             <button onClick={() => openEditModal(item)}
-                              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-accent-blue bg-accent-blue/10 hover:bg-accent-blue/20 transition-colors">
-                              <Pencil size={11} /><span>수정</span>
+                              className="p-1.5 rounded-lg text-accent-blue bg-accent-blue/15 hover:bg-accent-blue/25 transition-colors" title="수정">
+                              <Pencil size={13} />
                             </button>
                             <button onClick={() => setDeleteTarget(item)}
-                              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-accent-red bg-accent-red/10 hover:bg-accent-red/20 transition-colors">
-                              <Trash2 size={11} /><span>삭제</span>
+                              className="p-1.5 rounded-lg text-accent-red bg-accent-red/15 hover:bg-accent-red/25 transition-colors" title="삭제">
+                              <Trash2 size={13} />
                             </button>
                           </div>
                         )}
@@ -2024,6 +2134,18 @@ export default function Portfolio() {
           onClose={() => setDeletePortfolioTarget(null)}
           onConfirm={handleConfirmDeletePortfolio}
           isDeleting={deletePortfolioMutation.isPending}
+        />
+      )}
+
+      {/* ── 포트폴리오 관리 모달 ── */}
+      {showPortfolioManager && (
+        <PortfolioManagerModal
+          portfolios={portfolios}
+          onClose={() => setShowPortfolioManager(false)}
+          onRename={(id, name) => renamePortfolioMutation.mutate({ id, name })}
+          onDelete={(pf) => { setDeletePortfolioTarget(pf); setShowPortfolioManager(false); }}
+          onReorder={(order) => reorderPortfoliosMutation.mutate(order)}
+          onAdd={(name) => createPortfolioMutation.mutate(name)}
         />
       )}
 

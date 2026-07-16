@@ -717,6 +717,85 @@ function AddToPortfolioModal({
   );
 }
 
+/* ── 폴더 관리 팝업 ────────────────────────────────────────── */
+function FolderManagerModal({
+  folders, onClose, onCreate, onRename, onDelete, onReorder,
+}: {
+  folders: any[];
+  onClose: () => void;
+  onCreate: () => void;
+  onRename: (id: number, name: string) => void;
+  onDelete: (folder: any) => void;
+  onReorder: (order: number[]) => void;
+}) {
+  const [local, setLocal] = useState<any[]>(folders);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+
+  useEffect(() => { setLocal(folders); }, [folders]);
+
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= local.length) return;
+    const next = [...local];
+    [next[i], next[j]] = [next[j], next[i]];
+    setLocal(next);
+    onReorder(next.map((f: any) => f.id));
+  };
+
+  const commitRename = (id: number) => {
+    const trimmed = editName.trim();
+    if (trimmed) onRename(id, trimmed);
+    setEditingId(null);
+  };
+
+  return (
+    <Modal maxWidth="max-w-sm" onClose={onClose}>
+      <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
+        <h3 className="text-sm font-bold text-text-primary">폴더 관리</h3>
+        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+      </div>
+      <div className="flex flex-col max-h-72 overflow-y-auto">
+        {local.map((f: any, i: number) => (
+          <div key={f.id} className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40">
+            <div className="flex flex-col gap-0 flex-shrink-0">
+              <button disabled={i === 0} onClick={() => move(i, -1)}
+                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none px-0.5">▲</button>
+              <button disabled={i === local.length - 1} onClick={() => move(i, 1)}
+                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none px-0.5">▼</button>
+            </div>
+            {editingId === f.id ? (
+              <input
+                className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-2 py-1 text-sm text-text-primary focus:outline-none"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") commitRename(f.id); if (e.key === "Escape") setEditingId(null); }}
+                autoFocus
+              />
+            ) : (
+              <span className="flex-1 text-sm text-text-primary truncate">{f.name}</span>
+            )}
+            {editingId === f.id ? (
+              <button onClick={() => commitRename(f.id)} className="p-1 text-accent-blue"><Check size={12} /></button>
+            ) : (
+              <button onClick={() => { setEditingId(f.id); setEditName(f.name); }}
+                className="p-1 text-text-muted hover:text-accent-blue transition-colors"><Pencil size={12} /></button>
+            )}
+            <button onClick={() => onDelete(f)}
+              className="p-1 text-text-muted hover:text-accent-red transition-colors"><Trash2 size={12} /></button>
+          </div>
+        ))}
+      </div>
+      <div className="p-4 border-t border-border">
+        <button onClick={onCreate}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue transition-colors text-sm">
+          <Plus size={13} />새 폴더 만들기
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 /* ── 메인 ────────────────────────────────────────────────── */
 export default function Watchlist() {
   const qc       = useQueryClient();
@@ -724,7 +803,8 @@ export default function Watchlist() {
   const { isLoggedIn } = useAuthStore();
   const isPreview = !isLoggedIn;
   const [marketTab, setMarketTab]   = useState("전체");
-  const [folderTab, setFolderTab]   = useState<number | "all" | "recent">("all"); // 폴더 탭 필터
+  const [folderTab, setFolderTab]   = useState<number | "all" | "recent" | "portfolio">("all"); // 폴더 탭 필터
+  const [showFolderManager, setShowFolderManager] = useState(false);
   const [recentStocks, setRecentStocks] = useState<RecentStock[]>([]);
   useEffect(() => {
     if (folderTab === "recent") setRecentStocks(getRecentlyViewed());
@@ -742,6 +822,37 @@ export default function Watchlist() {
     (recentPrices as any[] ?? []).forEach((p: any, i: number) => { map[recentSymbols[i]] = p; });
     return map;
   }, [recentPrices, recentSymbols]);
+
+  // 내 포트폴리오 보유종목 탭
+  const { data: rawPortfolioItems = [] } = useQuery({
+    queryKey: ["portfolio-items-watchlist"],
+    queryFn: () => portfolioApi.getItems(undefined, true),
+    enabled: isLoggedIn && folderTab === "portfolio",
+    staleTime: 60_000,
+  });
+  // 중복 심볼 제거 (같은 종목을 여러 포트폴리오에 보유한 경우)
+  const portfolioWatchItems = useMemo(() => {
+    const seen = new Set<string>();
+    return (rawPortfolioItems as any[]).filter((i: any) => {
+      if (seen.has(i.symbol)) return false;
+      seen.add(i.symbol);
+      return true;
+    });
+  }, [rawPortfolioItems]);
+  const pfSymbols = useMemo(() => portfolioWatchItems.map((i: any) => i.symbol), [portfolioWatchItems]);
+  const pfMarkets = useMemo(() => portfolioWatchItems.map((i: any) => i.market === "KR" ? "KR" : "US"), [portfolioWatchItems]);
+  const { data: pfPrices } = useQuery({
+    queryKey: ["portfolio-watchlist-prices", pfSymbols.join(",")],
+    queryFn: ({ signal }) => watchlistApi.getPrices(pfSymbols, pfMarkets, signal),
+    enabled: folderTab === "portfolio" && pfSymbols.length > 0,
+    staleTime: 60_000,
+  });
+  const pfPriceMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    (pfPrices as any[] ?? []).forEach((p: any, i: number) => { if (pfSymbols[i]) map[pfSymbols[i]] = p; });
+    return map;
+  }, [pfPrices, pfSymbols]);
+
   const [showAdd, setShowAdd]           = useState(false);
   const [addFolderId, setAddFolderId]   = useState<number | null>(null); // 추가 모달에서 기본 선택될 폴더
   const [editingFolder, setEditingFolder] = useState<number | null>(null);
@@ -1024,7 +1135,9 @@ export default function Watchlist() {
 
   // 폴더 탭 필터 적용 — 실시간 시세 갱신마다 재계산되지 않도록 메모이제이션
   const displayList = useMemo(
-    () => folderTab === "all" ? baseList : baseList.filter((i: any) => i.folder_id === folderTab),
+    () => (folderTab === "all" || folderTab === "recent" || folderTab === "portfolio")
+      ? baseList
+      : baseList.filter((i: any) => i.folder_id === folderTab),
     [baseList, folderTab]
   );
 
@@ -1172,10 +1285,11 @@ export default function Watchlist() {
         {isLoggedIn && (
           <div className="flex items-center gap-2">
             <button
-              onClick={() => createFolderMutation.mutate()}
+              onClick={() => setShowFolderManager(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+              title="폴더 추가/편집"
             >
-              <FolderPlus size={13} />폴더
+              <Settings2 size={13} />폴더 관리
             </button>
             <button
               onClick={() => openAddModal(typeof folderTab === "number" ? folderTab : null)}
@@ -1236,6 +1350,9 @@ export default function Watchlist() {
             </button>
             <button onClick={() => setFolderTab("recent")} className={`${tabBtnCls(folderTab === "recent")} flex items-center gap-1`}>
               <Clock size={13} /> 최근조회
+            </button>
+            <button onClick={() => setFolderTab("portfolio")} className={`${tabBtnCls(folderTab === "portfolio")} flex items-center gap-1`}>
+              <Wallet size={13} /> 내 포트폴리오
             </button>
             {(localFolderOrder ?? (folders as any[])).map((f: any) => {
               const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
@@ -1307,6 +1424,52 @@ export default function Watchlist() {
                 </div>
               );
             })
+          )}
+        </Card>
+      ) : folderTab === "portfolio" ? (
+        <Card className="p-0 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
+            <Wallet size={13} className="text-accent-blue" />
+            <span className="flex-1 text-sm font-semibold text-text-primary">내 포트폴리오 보유종목</span>
+            <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{portfolioWatchItems.length}</span>
+          </div>
+          {portfolioWatchItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-8">
+              <Wallet size={24} className="text-text-muted/40" />
+              <p className="text-text-muted text-xs">보유종목이 없습니다</p>
+            </div>
+          ) : (
+            portfolioWatchItems
+              .filter((i: any) => marketTab === "전체" || i.market === marketTab)
+              .map((item: any) => {
+                const p = pfPriceMap[item.symbol];
+                const isKRItem = item.market === "KR";
+                const hasPrice = p?.price != null;
+                return (
+                  <div
+                    key={item.symbol}
+                    role="button"
+                    tabIndex={0}
+                    className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
+                    onClick={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`); } }}
+                  >
+                    <Badge variant={item.market === "KR" ? "blue" : item.market === "ETF" ? "purple" : "green"}>{item.market}</Badge>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono font-bold text-sm text-text-primary">{item.symbol.replace(".KS", "").replace(".KQ", "")}</div>
+                      <div className="text-[11px] text-text-muted truncate">{item.name}</div>
+                    </div>
+                    <div className="text-right flex-shrink-0 min-w-[80px]">
+                      <div className="text-sm font-mono font-semibold text-text-primary">
+                        {hasPrice
+                          ? isKRItem ? `₩${Number(p.price).toLocaleString("ko-KR")}` : `$${Number(p.price).toFixed(2)}`
+                          : <span className="text-text-muted text-xs">조회 중</span>}
+                      </div>
+                      {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs" />}
+                    </div>
+                  </div>
+                );
+              })
           )}
         </Card>
       ) : isPreview ? (() => {
@@ -1463,6 +1626,21 @@ export default function Watchlist() {
           item={addToPortfolioItem}
           currentPrice={livePrices[addToPortfolioItem.symbol]?.price ?? null}
           onClose={() => setAddToPortfolioItem(null)}
+        />
+      )}
+
+      {showFolderManager && (
+        <FolderManagerModal
+          folders={localFolderOrder ?? (folders as any[])}
+          onClose={() => setShowFolderManager(false)}
+          onCreate={() => { createFolderMutation.mutate(); setShowFolderManager(false); }}
+          onRename={(id, name) => updateFolderMutation.mutate({ id, name })}
+          onDelete={(folder) => {
+            const count = (items as any[]).filter((i: any) => i.folder_id === folder.id).length;
+            setDeletingFolder({ ...folder, _itemCount: count });
+            setShowFolderManager(false);
+          }}
+          onReorder={(order) => reorderFoldersMutation.mutate(order)}
         />
       )}
     </div>

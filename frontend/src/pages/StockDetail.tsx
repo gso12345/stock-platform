@@ -1475,7 +1475,7 @@ export default function StockDetail() {
           {/* ── 사용자설정 ── */}
           {finSubTab==="custom" && (() => {
             const groups = [...new Set(FIN_CUSTOM_OPTS.map(o => o.group))];
-            const selectedOpts = FIN_CUSTOM_OPTS.filter(o => customMetricKeys.includes(o.key));
+            const selectedOpts = customMetricKeys.map(k => FIN_CUSTOM_OPTS.find(o => o.key === k)).filter((o): o is typeof FIN_CUSTOM_OPTS[number] => !!o);
             const fmtVal = (opt: typeof FIN_CUSTOM_OPTS[number], v: number) => {
               if (opt.fmt === "fin") return fmtFin(v);
               if (opt.fmt === "pct") return `${v.toFixed(1)}%`;
