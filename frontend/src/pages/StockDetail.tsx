@@ -290,6 +290,7 @@ export default function StockDetail() {
 
   // 일별 탭 — 기본 1개월, 더보기 클릭마다 1달씩 추가
   const [dailyMonths, setDailyMonths] = useState(1);
+  useEffect(() => { setDailyMonths(1); }, [sym, m]);
   const dailyPeriodStr = dailyMonths <= 1 ? "1mo" : dailyMonths <= 3 ? "3mo" : dailyMonths <= 6 ? "6mo" : "1y";
   const { data: dailyOhlcv, isFetching: fetchingDaily } = useQuery({
     queryKey: ["stock-ohlcv", m, sym, "1d", dailyPeriodStr],
@@ -483,6 +484,10 @@ export default function StockDetail() {
       setWatchlistMsg("관심종목에서 제거됐어요");
       qc.invalidateQueries({ queryKey: ["watchlist-items"] });
       qc.invalidateQueries({ queryKey: ["watchlist-items-check"] });
+      setTimeout(() => setWatchlistMsg(""), 2000);
+    },
+    onError: () => {
+      setWatchlistMsg("제거 중 오류가 발생했어요");
       setTimeout(() => setWatchlistMsg(""), 2000);
     },
   });
@@ -1761,7 +1766,6 @@ export default function StockDetail() {
 
         // 합의 등급 계산
         const totalVotes = cs ? cs.strong_buy + cs.buy + cs.hold + cs.sell + cs.strong_sell : 0;
-        const scoreMap = { strong_buy: 5, buy: 4, hold: 3, sell: 2, strong_sell: 1 };
         const avgScore = cs && totalVotes > 0
           ? (cs.strong_buy*5 + cs.buy*4 + cs.hold*3 + cs.sell*2 + cs.strong_sell*1) / totalVotes
           : null;
@@ -1780,7 +1784,7 @@ export default function StockDetail() {
           ? ((pt.mean - pt.current) / pt.current * 100)
           : null;
 
-        const gradeColor = (g: string) => {
+        const analystGradeColor = (g: string) => {
           const l = g.toLowerCase();
           if (l.includes("strong buy") || l.includes("outperform") || l.includes("overweight")) return "text-accent-green";
           if (l.includes("buy") || l.includes("positive") || l.includes("add")) return "text-accent-green";
@@ -2012,7 +2016,7 @@ export default function StockDetail() {
                               <tr key={i} className="border-b border-border/30 hover:bg-bg-hover transition-colors">
                                 <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap">{r.date}</td>
                                 <td className="px-4 py-2.5 font-semibold text-text-primary whitespace-nowrap">{r.firm || "—"}</td>
-                                <td className={`px-4 py-2.5 font-semibold whitespace-nowrap ${gradeColor(r.to_grade)}`}>{r.to_grade || "—"}</td>
+                                <td className={`px-4 py-2.5 font-semibold whitespace-nowrap ${analystGradeColor(r.to_grade)}`}>{r.to_grade || "—"}</td>
                                 <td className="px-4 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
                                   {fmtPrice0(r.target)}
                                   {r.prior_target != null && r.target != null && r.prior_target !== r.target && (
@@ -2396,7 +2400,7 @@ export default function StockDetail() {
               </table>
             </div>
             {/* 더보기 버튼 — 1달씩 추가 */}
-            {dailyMonths <= 12 && (
+            {dailyMonths <= 6 && (
               <button
                 onClick={() => setDailyMonths(prev => prev + 1)}
                 disabled={fetchingDaily}
@@ -2500,7 +2504,7 @@ function EtfHoldingsTab({ symbol }: { symbol: string }) {
     </div>
   );
 
-  const maxPct = holdings.length ? Math.max(...holdings.map(h => h.pct)) : 1;
+  const maxPct = holdings.length ? Math.max(...holdings.map(h => h.pct ?? 0)) || 1 : 1;
 
   return (
     <div className="flex flex-col gap-4">
@@ -2533,13 +2537,13 @@ function EtfHoldingsTab({ symbol }: { symbol: string }) {
                         <div className="mt-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden w-full max-w-[200px]">
                           <div
                             className="h-full bg-accent-blue rounded-full transition-all"
-                            style={{ width: `${Math.min((h.pct / maxPct) * 100, 100)}%` }}
+                            style={{ width: `${Math.min(((h.pct ?? 0) / maxPct) * 100, 100)}%` }}
                           />
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-semibold text-accent-blue whitespace-nowrap">
-                      {h.pct.toFixed(2)}%
+                      {(h.pct ?? 0).toFixed(2)}%
                     </td>
                   </tr>
                 ))}
