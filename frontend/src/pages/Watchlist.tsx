@@ -731,22 +731,25 @@ function FolderManagerModal({
   const [local, setLocal] = useState<any[]>(folders);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const dragIdx = useRef(-1);
 
   useEffect(() => { setLocal(folders); }, [folders]);
-
-  const move = (i: number, dir: -1 | 1) => {
-    const j = i + dir;
-    if (j < 0 || j >= local.length) return;
-    const next = [...local];
-    [next[i], next[j]] = [next[j], next[i]];
-    setLocal(next);
-    onReorder(next.map((f: any) => f.id));
-  };
 
   const commitRename = (id: number) => {
     const trimmed = editName.trim();
     if (trimmed) onRename(id, trimmed);
     setEditingId(null);
+  };
+
+  const handleDrop = (toIdx: number) => {
+    const from = dragIdx.current;
+    if (from < 0 || from === toIdx) return;
+    const next = [...local];
+    const [moved] = next.splice(from, 1);
+    next.splice(toIdx, 0, moved);
+    setLocal(next);
+    onReorder(next.map((f: any) => f.id));
   };
 
   return (
@@ -757,12 +760,25 @@ function FolderManagerModal({
       </div>
       <div className="flex flex-col max-h-72 overflow-y-auto">
         {local.map((f: any, i: number) => (
-          <div key={f.id} className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40">
-            <div className="flex flex-col gap-0 flex-shrink-0">
-              <button disabled={i === 0} onClick={() => move(i, -1)}
-                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none px-0.5">▲</button>
-              <button disabled={i === local.length - 1} onClick={() => move(i, 1)}
-                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none px-0.5">▼</button>
+          <div
+            key={f.id}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
+            onDrop={() => { handleDrop(i); setDragOver(null); }}
+            onDragLeave={() => setDragOver(null)}
+            className={`flex items-center gap-2 px-4 py-2.5 border-b border-border/40 transition-colors ${dragOver === i ? "bg-accent-blue/10" : ""}`}
+          >
+            {/* 드래그 핸들 */}
+            <div
+              draggable
+              onDragStart={() => { dragIdx.current = i; }}
+              onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
+              className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted flex-shrink-0 px-0.5 py-1"
+            >
+              <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>
+                <circle cx="3" cy="7" r="1.3"/><circle cx="7" cy="7" r="1.3"/>
+                <circle cx="3" cy="11.5" r="1.3"/><circle cx="7" cy="11.5" r="1.3"/>
+              </svg>
             </div>
             {editingId === f.id ? (
               <input

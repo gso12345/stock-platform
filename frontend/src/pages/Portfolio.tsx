@@ -630,49 +630,16 @@ function ConfirmDeleteModal({
 
 /* ── 포트폴리오 선택 탭 ──────────────────────────────────── */
 function PortfolioPill({
-  portfolio, active, canDelete, onSelect, onRename, onDeleteClick,
+  portfolio, active, onSelect,
   draggable, isDragging, isDropTarget,
   onDragStart, onDragOver, onDrop, onTouchStart, onTouchMove, onTouchEnd,
 }: {
-  portfolio: PortfolioMeta; active: boolean; canDelete: boolean;
-  onSelect: () => void; onRename: (name: string) => void; onDeleteClick: () => void;
+  portfolio: PortfolioMeta; active: boolean;
+  onSelect: () => void;
   draggable?: boolean; isDragging?: boolean; isDropTarget?: boolean;
   onDragStart?: () => void; onDragOver?: (e: React.DragEvent) => void; onDrop?: () => void;
   onTouchStart?: (e: React.TouchEvent) => void; onTouchMove?: (e: React.TouchEvent) => void; onTouchEnd?: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(portfolio.name);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { setName(portfolio.name); }, [portfolio.name]);
-  useEffect(() => { if (editing) setTimeout(() => inputRef.current?.focus(), 30); }, [editing]);
-
-  const commitRename = () => {
-    const trimmed = name.trim();
-    if (trimmed && trimmed !== portfolio.name) onRename(trimmed);
-    else setName(portfolio.name);
-    setEditing(false);
-  };
-
-  if (editing) {
-    return (
-      <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-accent-blue bg-bg-elevated flex-shrink-0">
-        <input
-          ref={inputRef}
-          className="bg-transparent text-xs font-semibold text-text-primary focus:outline-none w-24"
-          value={name}
-          maxLength={100}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitRename();
-            if (e.key === "Escape") { setName(portfolio.name); setEditing(false); }
-          }}
-        />
-        <button onClick={commitRename} className="p-0.5 text-accent-blue hover:text-blue-400"><Check size={12} /></button>
-      </div>
-    );
-  }
-
   return (
     <div
       onClick={onSelect}
@@ -694,22 +661,6 @@ function PortfolioPill({
     >
       <span>{portfolio.name}</span>
       <span className="text-xs opacity-60">({portfolio.count})</span>
-      <button
-        onClick={(e) => { e.stopPropagation(); setEditing(true); }}
-        className="p-1.5 -m-0.5 rounded text-text-muted/70 hover:text-accent-blue active:text-accent-blue transition-colors"
-        title="이름 변경"
-      >
-        <Pencil size={12} />
-      </button>
-      {canDelete && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onDeleteClick(); }}
-          className="p-1.5 -m-0.5 rounded text-text-muted/70 hover:text-accent-red active:text-accent-red transition-colors"
-          title="삭제"
-        >
-          <X size={13} />
-        </button>
-      )}
     </div>
   );
 }
@@ -824,17 +775,10 @@ function PortfolioManagerModal({
   const [editName, setEditName] = useState("");
   const [addingNew, setAddingNew] = useState(false);
   const [newName, setNewName] = useState("");
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const dragIdx = useRef(-1);
 
   useEffect(() => { setLocal(portfolios); }, [portfolios]);
-
-  const move = (i: number, dir: -1 | 1) => {
-    const j = i + dir;
-    if (j < 0 || j >= local.length) return;
-    const next = [...local];
-    [next[i], next[j]] = [next[j], next[i]];
-    setLocal(next);
-    onReorder(next.map((p) => p.id));
-  };
 
   const commitRename = (id: number) => {
     const trimmed = editName.trim();
@@ -847,6 +791,16 @@ function PortfolioManagerModal({
     if (trimmed) { onAdd(trimmed); setNewName(""); setAddingNew(false); }
   };
 
+  const handleDrop = (toIdx: number) => {
+    const from = dragIdx.current;
+    if (from < 0 || from === toIdx) return;
+    const next = [...local];
+    const [moved] = next.splice(from, 1);
+    next.splice(toIdx, 0, moved);
+    setLocal(next);
+    onReorder(next.map((p) => p.id));
+  };
+
   return (
     <Modal maxWidth="max-w-sm" onClose={onClose}>
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
@@ -855,12 +809,25 @@ function PortfolioManagerModal({
       </div>
       <div className="flex flex-col max-h-72 overflow-y-auto">
         {local.map((pf, i) => (
-          <div key={pf.id} className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40">
-            <div className="flex flex-col gap-0 flex-shrink-0">
-              <button disabled={i === 0} onClick={() => move(i, -1)}
-                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none px-0.5">▲</button>
-              <button disabled={i === local.length - 1} onClick={() => move(i, 1)}
-                className="text-text-muted hover:text-text-primary disabled:opacity-20 text-[10px] leading-none px-0.5">▼</button>
+          <div
+            key={pf.id}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
+            onDrop={() => { handleDrop(i); setDragOver(null); }}
+            onDragLeave={() => setDragOver(null)}
+            className={`flex items-center gap-2 px-4 py-2.5 border-b border-border/40 transition-colors ${dragOver === i ? "bg-accent-blue/10" : ""}`}
+          >
+            {/* 드래그 핸들 */}
+            <div
+              draggable
+              onDragStart={() => { dragIdx.current = i; }}
+              onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
+              className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted flex-shrink-0 px-0.5 py-1"
+            >
+              <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>
+                <circle cx="3" cy="7" r="1.3"/><circle cx="7" cy="7" r="1.3"/>
+                <circle cx="3" cy="11.5" r="1.3"/><circle cx="7" cy="11.5" r="1.3"/>
+              </svg>
             </div>
             {editingId === pf.id ? (
               <input
@@ -1511,10 +1478,7 @@ export default function Portfolio() {
               key={pf.id}
               portfolio={pf}
               active={pf.id === selectedPortfolioId}
-              canDelete={portfolios.length > 1}
               onSelect={() => handlePortfolioTabClick(pf)}
-              onRename={(name) => renamePortfolioMutation.mutate({ id: pf.id, name })}
-              onDeleteClick={() => setDeletePortfolioTarget(pf)}
               draggable={portfolios.length > 1}
               isDragging={dragPortfolioId === pf.id}
               isDropTarget={dropPortfolioId === pf.id}
