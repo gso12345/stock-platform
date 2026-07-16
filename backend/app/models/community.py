@@ -49,7 +49,7 @@ class StockComment(Base):
     user    = relationship("User")
     likes   = relationship("StockCommentLike", back_populates="comment", cascade="all, delete-orphan")
     replies = relationship("StockComment", foreign_keys=[parent_id],
-                           backref=backref("parent", remote_side="StockComment.id"),
+                           backref=backref("parent", remote_side=[id]),
                            cascade="all, delete-orphan")
     post    = relationship("StockPost", back_populates="comments")
 

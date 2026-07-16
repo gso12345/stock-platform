@@ -162,6 +162,15 @@ async def lifespan(application: FastAPI):
                     conn.commit()
                 except Exception:
                     conn.rollback()
+
+        # 커뮤니티 테이블이 없으면 재생성 (이전 배포에서 create_all이 실패했을 경우 대비)
+        community_tables = {"stock_posts", "stock_post_likes", "stock_comments", "stock_comment_likes", "user_profiles"}
+        if not community_tables.issubset(set(tables)):
+            try:
+                Base.metadata.create_all(bind=engine)
+                _startup_log.info("커뮤니티 테이블 생성 완료")
+            except Exception as _ct_err:
+                _startup_log.warning(f"커뮤니티 테이블 생성 실패: {_ct_err}")
     except Exception as e:
         logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")
 

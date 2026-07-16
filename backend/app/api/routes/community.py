@@ -26,13 +26,20 @@ def decode_content(raw: str) -> dict:
     return {"title": "", "body": raw}
 
 # ── 프로필 헬퍼 ───────────────────────────────────────────────
-def get_profile(db: Session, user_id: int) -> UserProfile:
-    p = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
-    if not p:
-        p = UserProfile(user_id=user_id)
-        db.add(p)
-        db.flush()
-    return p
+def get_profile(db: Session, user_id: int) -> Optional[UserProfile]:
+    try:
+        p = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+        if not p:
+            p = UserProfile(user_id=user_id)
+            db.add(p)
+            db.flush()
+        return p
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
 
 def display_name(user, profile: Optional[UserProfile]) -> str:
     if profile and profile.nickname:
