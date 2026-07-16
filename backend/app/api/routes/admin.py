@@ -141,6 +141,34 @@ def clear_cache(_: User = Depends(require_admin)):
     return {"cleared": size_before}
 
 
+@router.get("/cache")
+def list_cache(prefix: str = "", _: User = Depends(require_admin)):
+    """인메모리 캐시 키 전체 목록 (prefix로 필터링 가능)"""
+    from app.core.cache import cache
+    items = cache.keys_with_ttl()
+    if prefix:
+        items = [i for i in items if i["key"].startswith(prefix)]
+    return {"count": len(items), "items": items}
+
+
+@router.delete("/cache/{key:path}")
+def delete_cache_key(key: str, _: User = Depends(require_admin)):
+    """특정 캐시 키 삭제"""
+    from app.core.cache import cache
+    cache.delete(key)
+    log.info(f"관리자가 캐시 키 삭제: {key}")
+    return {"deleted": key}
+
+
+@router.delete("/cache")
+def delete_cache_prefix(prefix: str, _: User = Depends(require_admin)):
+    """prefix로 시작하는 캐시 키 일괄 삭제"""
+    from app.core.cache import cache
+    count = cache.delete_pattern(prefix)
+    log.info(f"관리자가 캐시 prefix 삭제: {prefix} → {count}건")
+    return {"deleted_count": count, "prefix": prefix}
+
+
 # ── 유저 관리 ────────────────────────────────────────────────────────────────
 
 @router.get("/users")

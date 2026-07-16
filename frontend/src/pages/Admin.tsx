@@ -6,7 +6,7 @@ import api from "@/api/client";
 import {
   Users, BarChart2, Megaphone, Trash2, ToggleLeft, ToggleRight,
   ShieldCheck, RefreshCw, Activity, Database, Star, CheckCircle,
-  TrendingUp, Zap, Clock, Folder, Wifi, Eye,
+  TrendingUp, Zap, Clock, Folder, Wifi, Eye, Search, X as XIcon,
 } from "lucide-react";
 
 const adminApi = {
@@ -17,13 +17,16 @@ const adminApi = {
   getVisitorTrend:   () => api.get("/admin/visitor-trend").then(r => r.data),
   getSystem:       () => api.get("/admin/system").then(r => r.data),
   clearCache:      () => api.post("/admin/cache/clear").then(r => r.data),
+  listCache:       (prefix?: string) => api.get("/admin/cache", { params: prefix ? { prefix } : {} }).then(r => r.data),
+  deleteCache:     (key: string) => api.delete(`/admin/cache/${encodeURIComponent(key)}`).then(r => r.data),
+  deleteCachePrefix: (prefix: string) => api.delete("/admin/cache", { params: { prefix } }).then(r => r.data),
   toggleActive:    (id: number) => api.patch(`/admin/users/${id}/active`).then(r => r.data),
   deleteUser:      (id: number) => api.delete(`/admin/users/${id}`).then(r => r.data),
   getAnnouncement: () => api.get("/admin/announcement").then(r => r.data),
   setAnnouncement: (text: string) => api.post("/admin/announcement", { text }).then(r => r.data),
 };
 
-type Tab = "dashboard" | "users" | "announcement";
+type Tab = "dashboard" | "users" | "announcement" | "cache";
 
 export default function Admin() {
   const { isAdmin, username } = useAuthStore();
@@ -47,6 +50,7 @@ export default function Admin() {
   const TABS: { id: Tab; Icon: any; label: string }[] = [
     { id: "dashboard",    Icon: BarChart2, label: "대시보드" },
     { id: "users",        Icon: Users,     label: "유저 관리" },
+    { id: "cache",        Icon: Database,  label: "캐시" },
     { id: "announcement", Icon: Megaphone, label: "공지사항" },
   ];
 
@@ -86,6 +90,7 @@ export default function Admin() {
 
       {tab === "dashboard"    && <DashboardTab qc={qc} />}
       {tab === "users"        && <UsersTab qc={qc} />}
+      {tab === "cache"        && <CacheTab qc={qc} />}
       {tab === "announcement" && <AnnouncementTab annoText={annoText} setAnnoText={setAnnoText} qc={qc} />}
     </div>
   );
@@ -536,6 +541,126 @@ function AnnouncementTab({ annoText, setAnnoText, qc }: { annoText: string; setA
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── 캐시 탭 ─────────────────────────── */
+function CacheTab({ qc }: { qc: any }) {
+  const [search, setSearch] = useState("");
+  const [confirmed, setConfirmed] = useState<string | null>(null);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["admin-cache"],
+    queryFn: () => adminApi.listCache(),
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (key: string) => adminApi.deleteCache(key),
+    onSuccess: () => { setConfirmed(null); qc.invalidateQueries({ queryKey: ["admin-cache"] }); refetch(); },
+  });
+
+  const clearMut = useMutation({
+    mutationFn: () => adminApi.clearCache(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-cache"] }); refetch(); },
+  });
+
+  const items: { key: string; ttl_remaining: number; has_stale: boolean }[] = data?.items ?? [];
+  const filtered = search ? items.filter((i) => i.key.includes(search)) : items;
+
+  const TTL_COLOR = (ttl: number) =>
+    ttl > 300 ? "text-accent-green" : ttl > 60 ? "text-accent-yellow" : "text-accent-red";
+
+  const PREFIXES = ["price:", "idx:", "news:", "ohlcv:", "fund:", "extra:", "metrics_hist", "forecasts:", "rank:"];
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <span className="text-base font-bold text-text-primary">인메모리 캐시</span>
+          <span className="text-xs text-text-muted ml-2">{data?.count ?? 0}개 항목</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => refetch()} className="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-colors">
+            <RefreshCw size={14} />
+          </button>
+          <button
+            onClick={() => { if (window.confirm("캐시 전체를 초기화할까요?")) clearMut.mutate(); }}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent-red/10 text-accent-red hover:bg-accent-red/20 transition-colors"
+          >
+            전체 초기화
+          </button>
+        </div>
+      </div>
+
+      {/* 빠른 필터 */}
+      <div className="flex flex-wrap gap-1.5">
+        <button onClick={() => setSearch("")}
+          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${search === "" ? "bg-accent-blue text-white border-transparent" : "border-border text-text-muted hover:text-text-primary"}`}>
+          전체
+        </button>
+        {PREFIXES.map((p) => (
+          <button key={p} onClick={() => setSearch(p)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${search === p ? "bg-accent-blue text-white border-transparent" : "border-border text-text-muted hover:text-text-primary"}`}>
+            {p}
+          </button>
+        ))}
+      </div>
+
+      {/* 검색 */}
+      <div className="relative">
+        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+        <input
+          type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder="캐시 키 검색..."
+          className="w-full pl-8 pr-8 py-2 text-sm bg-bg-elevated border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue"
+        />
+        {search && (
+          <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
+            <XIcon size={13} />
+          </button>
+        )}
+      </div>
+
+      {/* 목록 */}
+      <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+        <div className="grid grid-cols-[1fr_80px_40px] text-xs font-semibold text-text-muted px-4 py-2.5 border-b border-border bg-bg-elevated">
+          <span>키</span><span className="text-right">남은 TTL</span><span />
+        </div>
+        <div className="divide-y divide-border/40 max-h-[480px] overflow-y-auto">
+          {isLoading && (
+            <div className="py-8 text-center text-text-muted text-sm">불러오는 중...</div>
+          )}
+          {!isLoading && filtered.length === 0 && (
+            <div className="py-8 text-center text-text-muted text-sm">캐시 항목 없음</div>
+          )}
+          {filtered.map((item) => (
+            <div key={item.key} className="grid grid-cols-[1fr_80px_40px] items-center px-4 py-2 hover:bg-bg-hover text-xs">
+              <span className="font-mono text-text-secondary truncate pr-2">{item.key}</span>
+              <span className={`font-mono text-right ${TTL_COLOR(item.ttl_remaining)}`}>{item.ttl_remaining}s</span>
+              <div className="flex justify-end">
+                {confirmed === item.key ? (
+                  <button onClick={() => deleteMut.mutate(item.key)}
+                    className="text-accent-red hover:text-accent-red/70 text-xs font-semibold">삭제</button>
+                ) : (
+                  <button onClick={() => setConfirmed(item.key)}
+                    className="text-text-muted hover:text-accent-red transition-colors">
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        {filtered.length > 0 && (
+          <div className="px-4 py-2 border-t border-border text-xs text-text-muted">
+            {filtered.length}개 표시 / 전체 {items.length}개
+          </div>
+        )}
+      </div>
     </div>
   );
 }

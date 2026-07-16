@@ -1,7 +1,8 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
+import { usePricesStream } from "@/hooks/useWebSocket";
 import api from "@/api/client";
 import { Card, RowSkeleton, Modal } from "@/components/ui";
 import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check, AlertTriangle, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent } from "lucide-react";
@@ -1097,13 +1098,25 @@ export default function Portfolio() {
      한 번만 캐시해서 탭을 바꿔도 다시 불러오지 않도록 함) ──
      현금 항목은 시세가 없으므로 가격 조회 대상에서 제외 (인덱스 정합성 유지) ── */
   const priceableItems = useMemo(() => allItems.filter((i) => i.assetClass !== "현금"), [allItems]);
+
+  /* ── 실시간 WebSocket 가격 (기존 120초 폴링 대체) ── */
+  const [wsPrices, setWsPrices] = useState<any[] | null>(null);
+  const priceSymbols = useMemo(() => priceableItems.map((i) => i.symbol), [priceableItems]);
+  const priceMarkets = useMemo(() => priceableItems.map((i) => i.market), [priceableItems]);
+  usePricesStream(priceSymbols, priceMarkets, useCallback((prices: any[]) => {
+    setWsPrices(prices);
+  }, []));
+
   const { data: batchPrices, isLoading: pricesLoading } = useQuery({
     queryKey:       ["portfolio-prices", priceableItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
     queryFn:        () => watchlistApi.getPrices(priceableItems.map((i) => i.symbol), priceableItems.map((i) => i.market)),
     enabled:        priceableItems.length > 0,
     staleTime:      120_000,
-    refetchInterval:120_000,
+    refetchInterval: false,
   });
+
+  /* WebSocket 우선, 없으면 HTTP 조회값 사용 */
+  const effectivePrices = wsPrices ?? batchPrices;
 
   /* ── 비로그인 미리보기용 실시간 현재가 (예시 보유종목도 실제 시세로 표시) ── */
   const { data: previewBatchPrices } = useQuery({
@@ -1147,21 +1160,21 @@ export default function Portfolio() {
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
     priceableItems.forEach((item, i) => {
-      const d = batchPrices?.[i] as any;
+      const d = effectivePrices?.[i] as any;
       if (d?.price != null) map[item.id] = d.price;
     });
     return map;
-  }, [priceableItems, batchPrices]);
+  }, [priceableItems, effectivePrices]);
 
   /* ── 일일 등락률 맵 (현재가 조회 결과의 change_rate, % 단위) ── */
   const changeRateMap = useMemo(() => {
     const map: Record<number, number> = {};
     priceableItems.forEach((item, i) => {
-      const d = batchPrices?.[i] as any;
+      const d = effectivePrices?.[i] as any;
       if (d?.change_rate != null) map[item.id] = d.change_rate;
     });
     return map;
-  }, [priceableItems, batchPrices]);
+  }, [priceableItems, effectivePrices]);
 
   /* ── 전체 보기에서 제외된 포트폴리오의 종목은 집계에서 빼기 ── */
   const filteredItems = useMemo(() => {
