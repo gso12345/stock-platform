@@ -839,14 +839,7 @@ export default function Watchlist() {
     enabled: isLoggedIn && portfolioTab !== null,
     staleTime: 60_000,
   });
-  const pfTabDeduped = useMemo(() => {
-    const seen = new Set<string>();
-    return (pfTabItems as any[]).filter((i: any) => {
-      if (seen.has(i.symbol)) return false;
-      seen.add(i.symbol);
-      return true;
-    });
-  }, [pfTabItems]);
+  const pfTabDeduped = pfTabItems as any[];
   const pfTabSymbols = useMemo(() => pfTabDeduped.map((i: any) => i.symbol), [pfTabDeduped]);
   const pfTabMarkets = useMemo(() => pfTabDeduped.map((i: any) => i.market === "KR" ? "KR" : "US"), [pfTabDeduped]);
   const { data: pfTabPrices } = useQuery({
@@ -860,6 +853,7 @@ export default function Watchlist() {
     (pfTabPrices as any[] ?? []).forEach((p: any, i: number) => { if (pfTabSymbols[i]) map[pfTabSymbols[i]] = p; });
     return map;
   }, [pfTabPrices, pfTabSymbols]);
+  // 중복 종목도 각각 표시하므로 symbol 기준 가격 공유는 그대로 사용
 
   const [showAdd, setShowAdd]           = useState(false);
   const [addFolderId, setAddFolderId]   = useState<number | null>(null); // 추가 모달에서 기본 선택될 폴더
