@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { quantScoreApi, watchlistApi, watchlistFolderApi, type QuantFactorKey } from "@/api/stocks";
+import { quantScoreApi, watchlistApi, watchlistFolderApi, portfolioApi, type QuantFactorKey } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { useAuthStore } from "@/store/authStore";
 import { Card, Badge, RowSkeleton, Button } from "@/components/ui";
-import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp, Clock } from "lucide-react";
+import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp, Clock, Wallet } from "lucide-react";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 
 const FACTOR_LABEL_KO: Record<QuantFactorKey, string> = {
@@ -28,6 +28,7 @@ export default function Quant() {
   const { isLoggedIn } = useAuthStore();
   const [marketTab, setMarketTab] = useState("전체");
   const [folderTab, setFolderTab] = useState<number | "all" | "none" | "recent">("all");
+  const [portfolioTab, setPortfolioTab] = useState<number | null>(null);
   const [showGradeHelp, setShowGradeHelp] = useState(false);
   const gradeHelpRef = useRef<HTMLDivElement>(null);
   const [sortKey, setSortKey] = useState<SortKey>("total");
@@ -64,6 +65,20 @@ export default function Quant() {
     enabled: isLoggedIn,
   });
 
+  const { data: pfList = [] } = useQuery<any[]>({
+    queryKey: ["portfolios"],
+    queryFn: portfolioApi.getPortfolios,
+    enabled: isLoggedIn,
+    staleTime: 300_000,
+  });
+
+  const { data: pfItems = [] } = useQuery({
+    queryKey: ["portfolio-tab-items", portfolioTab],
+    queryFn: () => portfolioApi.getItems(portfolioTab ?? undefined),
+    enabled: isLoggedIn && portfolioTab !== null,
+    staleTime: 60_000,
+  });
+
   const filteredItems = useMemo(() => {
     let list = (items ?? []) as any[];
     if (marketTab !== "전체") list = list.filter((it) => it.market === marketTab);
@@ -73,6 +88,19 @@ export default function Quant() {
   }, [items, marketTab, folderTab]);
 
   const allCompareItems = useMemo(() => {
+    if (portfolioTab !== null) {
+      let list = (pfItems as any[]);
+      if (marketTab !== "전체") list = list.filter((i) => i.market === marketTab);
+      const seen = new Set<string>();
+      const out: { symbol: string; market: string; name: string }[] = [];
+      for (const it of list) {
+        const key = `${it.market}:${it.symbol}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ symbol: it.symbol, market: it.market, name: it.name });
+      }
+      return out;
+    }
     if (folderTab === "recent") {
       let recentList = recentlyViewed;
       if (marketTab !== "전체") recentList = recentList.filter((s) => s.market === marketTab);
@@ -87,7 +115,7 @@ export default function Quant() {
       out.push({ symbol: it.symbol, market: it.market, name: it.name });
     }
     return out;
-  }, [filteredItems, folderTab, recentlyViewed, marketTab]);
+  }, [filteredItems, folderTab, recentlyViewed, marketTab, portfolioTab, pfItems]);
   const compareItems = useMemo(() => allCompareItems.slice(0, 30), [allCompareItems]);
   const truncated = allCompareItems.length > compareItems.length;
 
@@ -199,38 +227,51 @@ export default function Quant() {
           </div>
 
           <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
-            <button
-              onClick={() => setFolderTab("all")}
-              className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
-                folderTab === "all" ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-              }`}
-            >
-              전체 <span className="text-[10px] opacity-70">{allCompareItems.length}</span>
-            </button>
-            <button
-              onClick={() => setFolderTab("recent")}
-              className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
-                folderTab === "recent" ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-              }`}
-            >
-              <span className="flex items-center gap-1 whitespace-nowrap"><Clock size={13} /> 최근조회 <span className="text-[10px] opacity-70">{recentlyViewed.filter((s) => marketTab === "전체" || s.market === marketTab).length}</span></span>
-            </button>
-            {(folders ?? []).map((f: any) => {
-              const cnt = ((items ?? []) as any[]).filter(
-                (i) => i.folder_id === f.id && (marketTab === "전체" || i.market === marketTab),
-              ).length;
+            {(() => {
+              const tabCls = (active: boolean) =>
+                `flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
+                  active ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+                }`;
               return (
-                <button
-                  key={f.id}
-                  onClick={() => setFolderTab(f.id)}
-                  className={`flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
-                    folderTab === f.id ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-                  }`}
-                >
-                  {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
-                </button>
+                <>
+                  <button
+                    onClick={() => { setFolderTab("all"); setPortfolioTab(null); }}
+                    className={tabCls(folderTab === "all" && portfolioTab === null)}
+                  >
+                    전체 <span className="text-[10px] opacity-70">{portfolioTab === null && folderTab === "all" ? allCompareItems.length : ((items ?? []) as any[]).filter((i) => marketTab === "전체" || i.market === marketTab).length}</span>
+                  </button>
+                  <button
+                    onClick={() => { setFolderTab("recent"); setPortfolioTab(null); }}
+                    className={tabCls(folderTab === "recent" && portfolioTab === null)}
+                  >
+                    <span className="flex items-center gap-1"><Clock size={13} /> 최근조회 <span className="text-[10px] opacity-70">{recentlyViewed.filter((s) => marketTab === "전체" || s.market === marketTab).length}</span></span>
+                  </button>
+                  {(folders ?? []).map((f: any) => {
+                    const cnt = ((items ?? []) as any[]).filter(
+                      (i) => i.folder_id === f.id && (marketTab === "전체" || i.market === marketTab),
+                    ).length;
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => { setFolderTab(f.id); setPortfolioTab(null); }}
+                        className={tabCls(folderTab === f.id && portfolioTab === null)}
+                      >
+                        {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
+                      </button>
+                    );
+                  })}
+                  {pfList.map((pf: any) => (
+                    <button
+                      key={`pf-${pf.id}`}
+                      onClick={() => { setPortfolioTab(pf.id); setFolderTab("all"); }}
+                      className={`${tabCls(portfolioTab === pf.id)} flex items-center gap-1`}
+                    >
+                      <Wallet size={11} />{pf.name}
+                    </button>
+                  ))}
+                </>
               );
-            })}
+            })()}
           </div>
 
           <Card className="p-0 overflow-hidden">
@@ -241,7 +282,12 @@ export default function Quant() {
             ) : compareItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
                 <Award size={32} className="text-text-muted/40" />
-                {folderTab === "recent" ? (
+                {portfolioTab !== null ? (
+                  <>
+                    <p className="text-text-secondary text-sm">이 포트폴리오에 종목이 없어요</p>
+                    <p className="text-text-muted text-xs">내 자산 메뉴에서 종목을 추가해보세요</p>
+                  </>
+                ) : folderTab === "recent" ? (
                   <>
                     <p className="text-text-secondary text-sm">최근 조회한 종목이 없어요</p>
                     <p className="text-text-muted text-xs">종목 상세 페이지를 방문하면 여기서 바로 비교할 수 있어요</p>
