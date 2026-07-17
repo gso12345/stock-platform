@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Newspaper } from "lucide-react";
+import { Newspaper, RefreshCw } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
 import { fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
 
@@ -55,7 +55,7 @@ export default function News() {
   const [sort, setSort] = useState<SortTab>("latest");
   const [shownCount, setShownCount] = useState(PAGE_SIZE);
 
-  const { data: news, isLoading: loadingNews } = useQuery({
+  const { data: news, isLoading: loadingNews, refetch: refetchNews, isFetching: fetchingNews } = useQuery({
     queryKey: ["news", market],
     queryFn: () => dashboardApi.getNews(market),
     staleTime: 60_000,
@@ -84,18 +84,28 @@ export default function News() {
           <h1 className="text-2xl font-bold text-text-primary">뉴스</h1>
           <p className="text-text-muted text-xs mt-0.5">국내·미국 증시 주요 뉴스</p>
         </div>
-        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card">
-          {(["kr", "us"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => { setMarket(m); setShownCount(PAGE_SIZE); }}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                market === m ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-              }`}
-            >
-              {m === "kr" ? "국내" : "미국"}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card">
+            {(["kr", "us"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => { setMarket(m); setShownCount(PAGE_SIZE); }}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  market === m ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+                }`}
+              >
+                {m === "kr" ? "국내" : "미국"}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => refetchNews()}
+            disabled={fetchingNews}
+            className="p-2 rounded-xl border border-border bg-bg-card text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all disabled:opacity-50"
+            title="뉴스 업데이트"
+          >
+            <RefreshCw size={14} className={fetchingNews ? "animate-spin" : ""} />
+          </button>
         </div>
       </div>
 
