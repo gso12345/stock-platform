@@ -5,7 +5,7 @@ import { stocksApi, dashboardApi, portfolioApi, watchlistApi } from "@/api/stock
 import { usePricesStream } from "@/hooks/useWebSocket";
 import api from "@/api/client";
 import { Card, RowSkeleton, Modal } from "@/components/ui";
-import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check, AlertTriangle, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, X, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown, LogIn, Check, AlertTriangle, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -778,6 +778,46 @@ function PortfolioManagerModal({
   const [dragOver, setDragOver] = useState<number | null>(null);
   const dragIdx = useRef(-1);
 
+  // 터치 드래그 상태
+  const touchDragIdxRef = useRef(-1);
+  const touchOverIdxRef = useRef(-1);
+  const [touchOver, setTouchOver] = useState<number | null>(null);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearLPTimer = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
+
+  const handleRowTouchStart = (i: number, e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStartPos.current = { x: t.clientX, y: t.clientY };
+    clearLPTimer();
+    lpTimer.current = setTimeout(() => { touchDragIdxRef.current = i; }, 350);
+  };
+
+  const handleRowTouchMove = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (touchDragIdxRef.current < 0) {
+      const s = touchStartPos.current;
+      if (s && (Math.abs(t.clientX - s.x) > 8 || Math.abs(t.clientY - s.y) > 8)) clearLPTimer();
+      return;
+    }
+    const el = (document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null)?.closest('[data-drag-idx]') as HTMLElement | null;
+    if (el) {
+      const toIdx = parseInt(el.dataset.dragIdx ?? '-1', 10);
+      if (toIdx >= 0) { touchOverIdxRef.current = toIdx; setTouchOver(toIdx); }
+    }
+  };
+
+  const handleRowTouchEnd = () => {
+    clearLPTimer();
+    if (touchDragIdxRef.current >= 0 && touchOverIdxRef.current >= 0 && touchOverIdxRef.current !== touchDragIdxRef.current) {
+      handleDrop(touchOverIdxRef.current);
+    }
+    touchDragIdxRef.current = -1;
+    touchOverIdxRef.current = -1;
+    setTouchOver(null);
+  };
+
   useEffect(() => { setLocal(portfolios); }, [portfolios]);
 
   const commitRename = (id: number) => {
@@ -792,7 +832,7 @@ function PortfolioManagerModal({
   };
 
   const handleDrop = (toIdx: number) => {
-    const from = dragIdx.current;
+    const from = dragIdx.current >= 0 ? dragIdx.current : touchDragIdxRef.current;
     if (from < 0 || from === toIdx) return;
     const next = [...local];
     const [moved] = next.splice(from, 1);
@@ -811,13 +851,17 @@ function PortfolioManagerModal({
         {local.map((pf, i) => (
           <div
             key={pf.id}
+            data-drag-idx={i}
             draggable
             onDragStart={() => { dragIdx.current = i; }}
             onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
             onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
             onDrop={() => { handleDrop(i); setDragOver(null); }}
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null); }}
-            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors cursor-grab active:cursor-grabbing select-none ${dragOver === i ? "bg-accent-blue/10 ring-2 ring-accent-blue/30 ring-inset" : ""}`}
+            onTouchStart={(e) => handleRowTouchStart(i, e)}
+            onTouchMove={handleRowTouchMove}
+            onTouchEnd={handleRowTouchEnd}
+            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors cursor-grab active:cursor-grabbing select-none ${dragOver === i || touchOver === i ? "bg-accent-blue/10 ring-2 ring-accent-blue/30 ring-inset" : ""}`}
           >
             {/* 드래그 핸들 — 시각적 표시 */}
             <div className="text-text-dim flex-shrink-0 px-1 pointer-events-none">
@@ -1545,15 +1589,22 @@ export default function Portfolio() {
             {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : `${displayEnriched.length}개 종목 · 클릭하면 상세로 이동`}
           </p>
         </div>
-        {isAllView && portfolios.length > 1 && (
-          <div className="flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => { queryClient.invalidateQueries({ queryKey: ["portfolios"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-prices"] }); }}
+            className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+            title="내 자산 업데이트"
+          >
+            <RefreshCw size={13} />
+          </button>
+          {isAllView && portfolios.length > 1 && (
             <PortfolioFilterDropdown
               portfolios={portfolios}
               excludedIds={excludedPortfolioIds}
               onToggle={toggleExcludedPortfolio}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ── 요약 카드 ── */}

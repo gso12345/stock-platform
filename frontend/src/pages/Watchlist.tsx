@@ -5,7 +5,7 @@ import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi, dashboardApi
 import api from "@/api/client";
 import { Card, ChangeBadge, RowSkeleton, Badge, Modal } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
-import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle, Clock } from "lucide-react";
+import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle, Clock, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 
@@ -734,6 +734,46 @@ function FolderManagerModal({
   const [dragOver, setDragOver] = useState<number | null>(null);
   const dragIdx = useRef(-1);
 
+  // 터치 드래그 상태
+  const touchDragIdxRef = useRef(-1);
+  const touchOverIdxRef = useRef(-1);
+  const [touchOver, setTouchOver] = useState<number | null>(null);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearLPTimer = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
+
+  const handleRowTouchStart = (i: number, e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStartPos.current = { x: t.clientX, y: t.clientY };
+    clearLPTimer();
+    lpTimer.current = setTimeout(() => { touchDragIdxRef.current = i; }, 350);
+  };
+
+  const handleRowTouchMove = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (touchDragIdxRef.current < 0) {
+      const s = touchStartPos.current;
+      if (s && (Math.abs(t.clientX - s.x) > 8 || Math.abs(t.clientY - s.y) > 8)) clearLPTimer();
+      return;
+    }
+    const el = (document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null)?.closest('[data-drag-idx]') as HTMLElement | null;
+    if (el) {
+      const toIdx = parseInt(el.dataset.dragIdx ?? '-1', 10);
+      if (toIdx >= 0) { touchOverIdxRef.current = toIdx; setTouchOver(toIdx); }
+    }
+  };
+
+  const handleRowTouchEnd = () => {
+    clearLPTimer();
+    if (touchDragIdxRef.current >= 0 && touchOverIdxRef.current >= 0 && touchOverIdxRef.current !== touchDragIdxRef.current) {
+      handleDrop(touchOverIdxRef.current);
+    }
+    touchDragIdxRef.current = -1;
+    touchOverIdxRef.current = -1;
+    setTouchOver(null);
+  };
+
   useEffect(() => { setLocal(folders); }, [folders]);
 
   const commitRename = (id: number) => {
@@ -743,7 +783,7 @@ function FolderManagerModal({
   };
 
   const handleDrop = (toIdx: number) => {
-    const from = dragIdx.current;
+    const from = dragIdx.current >= 0 ? dragIdx.current : touchDragIdxRef.current;
     if (from < 0 || from === toIdx) return;
     const next = [...local];
     const [moved] = next.splice(from, 1);
@@ -762,13 +802,17 @@ function FolderManagerModal({
         {local.map((f: any, i: number) => (
           <div
             key={f.id}
+            data-drag-idx={i}
             draggable
             onDragStart={() => { dragIdx.current = i; }}
             onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
             onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
             onDrop={() => { handleDrop(i); setDragOver(null); }}
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null); }}
-            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors cursor-grab active:cursor-grabbing select-none ${dragOver === i ? "bg-accent-blue/10 ring-2 ring-accent-blue/30 ring-inset" : ""}`}
+            onTouchStart={(e) => handleRowTouchStart(i, e)}
+            onTouchMove={handleRowTouchMove}
+            onTouchEnd={handleRowTouchEnd}
+            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors cursor-grab active:cursor-grabbing select-none ${dragOver === i || touchOver === i ? "bg-accent-blue/10 ring-2 ring-accent-blue/30 ring-inset" : ""}`}
           >
             {/* 드래그 핸들 — 시각적 표시 */}
             <div className="text-text-dim flex-shrink-0 px-1 pointer-events-none">
@@ -1321,23 +1365,32 @@ export default function Watchlist() {
             {isPreview ? `${PREVIEW_WATCHLIST.length}개 예시 종목 · 클릭하면 상세로 이동` : `${itemsList.length}개 종목 · 클릭하면 상세로 이동`}
           </p>
         </div>
-        {isLoggedIn && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowFolderManager(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
-              title="폴더 추가/편집"
-            >
-              <Settings2 size={13} />폴더 관리
-            </button>
-            <button
-              onClick={() => openAddModal(typeof folderTab === "number" ? folderTab : null)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all"
-            >
-              <Plus size={13} />종목 추가
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { qc.invalidateQueries({ queryKey: ["watchlist-items"] }); qc.invalidateQueries({ queryKey: ["watchlist-prices"] }); qc.invalidateQueries({ queryKey: ["watchlist-folders"] }); }}
+            className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+            title="관심종목 업데이트"
+          >
+            <RefreshCw size={13} />
+          </button>
+          {isLoggedIn && (
+            <>
+              <button
+                onClick={() => setShowFolderManager(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+                title="폴더 추가/편집"
+              >
+                <Settings2 size={13} />폴더 관리
+              </button>
+              <button
+                onClick={() => openAddModal(typeof folderTab === "number" ? folderTab : null)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all"
+              >
+                <Plus size={13} />종목 추가
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* 시장 탭 — 미리보기·로그인 모두 동작 */}

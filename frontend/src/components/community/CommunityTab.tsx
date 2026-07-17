@@ -8,7 +8,7 @@ import {
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
-import api from "@/api/client";
+import api, { AUTH_STORAGE_KEY, API_BASE } from "@/api/client";
 
 // ── 타입 ──────────────────────────────────────────────────────────
 interface PollData {
@@ -847,8 +847,39 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
       ? { question: pollQuestion.trim(), options: pollOptions.filter((o) => o.trim()) }
       : null;
 
-    const doPost = () =>
-      communityApi.createPost(market, symbol, title.trim(), b, image, pollData, tags);
+    const doPost = async () => {
+      console.log("[community post] POST", market, symbol, { title: title.trim(), body: b, image: image ? "(image)" : "", tags });
+      // axios 401 인터셉터는 401 응답 시 토큰 삭제 + 로그인 리다이렉트를 실행해
+      // catch 블록이 실행되기 전에 페이지가 이동됨 → 에러 메시지가 표시되지 않음.
+      // native fetch를 사용해 이 동작을 우회하고 실제 오류를 표시함.
+      let token = "";
+      try {
+        const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { state?: { token?: string } };
+          token = parsed?.state?.token ?? "";
+        }
+      } catch {}
+      console.log("[community post] token present:", !!token);
+      const res = await fetch(`${API_BASE}/community/${market}/${symbol}/posts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ title: title.trim(), body: b, content: b, image, poll: pollData, tags }),
+      });
+      console.log("[community post] response status:", res.status);
+      if (!res.ok) {
+        let data: any = {};
+        try { data = await res.json(); } catch {}
+        console.error("[community post] error response:", res.status, data);
+        const err: any = new Error(`HTTP ${res.status}`);
+        err.response = { status: res.status, data };
+        throw err;
+      }
+      return res.json();
+    };
 
     // Render 무료 플랜은 15분 비활성 후 슬립 → POST가 502/CORS 오류로 실패함.
     // 전략: GET ping으로 먼저 서버를 깨우고, 충분히 기다린 뒤 POST 재시도.
@@ -898,16 +929,22 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
       setSuccessMsg(true);
       setTimeout(() => setSuccessMsg(false), 2500);
     } catch (e: any) {
+      console.error("[community post error]", e?.response?.status, e?.response?.data, e?.message, e);
+      const status = e?.response?.status;
       const detail = e?.response?.data?.detail;
-      if (e?.response?.status === 401) {
+      if (status === 401) {
         setPostError("로그인이 필요합니다. 다시 로그인해 주세요.");
-      } else if (e?.response?.status === 422) {
+      } else if (status === 422) {
         const txt = Array.isArray(detail) ? detail[0]?.msg : detail;
         setPostError(typeof txt === "string" ? txt : "내용을 입력해 주세요.");
-      } else if (detail) {
-        setPostError(typeof detail === "string" ? detail : "오류가 발생했습니다.");
+      } else if (status === 429) {
+        setPostError("잠시 후 다시 시도해 주세요. (요청 제한)");
+      } else if (status && detail) {
+        setPostError(typeof detail === "string" ? detail : `오류 ${status}: 잠시 후 다시 시도해 주세요.`);
+      } else if (status) {
+        setPostError(`서버 오류 (${status}). 잠시 후 다시 시도해 주세요.`);
       } else {
-        setPostError("서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        setPostError(`서버에 연결할 수 없습니다. (${e?.message || "네트워크 오류"}) — 잠시 후 다시 시도해 주세요.`);
       }
     } finally {
       setSubmitting(false);
@@ -976,8 +1013,9 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                     setPostError(null);
                   }}
                   onFocus={() => {
-                    // 사용자가 타이핑 시작 시 서버 미리 깨움 (Render 슬립 대응)
-                    communityApi.getPosts(market, symbol, 1).catch(() => {});
+                    // 사용자가 타이핑 시작 시 서버 미리 깨움 — 인증 헤더 없는 단순 GET으로 preflight 없이 바로 도달
+                    const apiRoot = import.meta.env.VITE_API_URL || "";
+                    fetch(`${apiRoot}/api/v1/dashboard/indices`).catch(() => {});
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleSubmit();
