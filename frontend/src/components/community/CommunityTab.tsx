@@ -846,36 +846,55 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
       ? { question: pollQuestion.trim(), options: pollOptions.filter((o) => o.trim()) }
       : null;
 
-    // Retry once on network error (Render free-tier sleep causes CORS-less 502)
-    const attempt = async () =>
+    const doPost = () =>
       communityApi.createPost(market, symbol, title.trim(), b, image, pollData, tags);
 
-    try {
+    // Wake up Render (free-tier sleeps after 15 min inactivity) before POSTing.
+    // GET requests are cached, so the server may be asleep even when posts appear to load.
+    const wakeAndPost = async (): Promise<void> => {
       try {
-        await attempt();
+        await doPost();
+        return;
       } catch (firstErr: any) {
-        if (firstErr?.response) throw firstErr; // real HTTP error, don't retry
-        // Network error (no response) — wait 3s and retry once
-        setPostError("서버 연결 중... 잠시 후 재시도합니다.");
-        await new Promise((r) => setTimeout(r, 3000));
-        setPostError(null);
-        await attempt();
+        if (firstErr?.response) throw firstErr; // real HTTP error — don't retry
       }
+
+      // Network error → server is likely sleeping. Ping with a GET to trigger wakeup.
+      const intervals = [5, 10, 15, 20]; // seconds between each retry
+      for (let i = 0; i < intervals.length; i++) {
+        const wait = intervals[i];
+        setPostError(`서버 연결 중... ${wait}초 후 재시도 (${i + 1}/${intervals.length})`);
+        await new Promise((r) => setTimeout(r, wait * 1000));
+        // Ping: a lightweight GET to nudge the server awake
+        try { await communityApi.getPosts(market, symbol, 1); } catch { /* ignore */ }
+        setPostError(null);
+        try {
+          await doPost();
+          return; // success
+        } catch (retryErr: any) {
+          if (retryErr?.response) throw retryErr; // real HTTP error
+          // still sleeping → next interval
+        }
+      }
+      throw new Error("network"); // exhausted all retries
+    };
+
+    try {
+      await wakeAndPost();
       resetForm();
       setPage(1);
       invalidate();
       setSuccessMsg(true);
       setTimeout(() => setSuccessMsg(false), 2500);
     } catch (e: any) {
-      const msg = e?.response?.data?.detail;
+      const detail = e?.response?.data?.detail;
       if (e?.response?.status === 401) {
         setPostError("로그인이 필요합니다. 다시 로그인해 주세요.");
       } else if (e?.response?.status === 422) {
-        const detail = e?.response?.data?.detail;
         const txt = Array.isArray(detail) ? detail[0]?.msg : detail;
         setPostError(typeof txt === "string" ? txt : "내용을 입력해 주세요.");
-      } else if (msg) {
-        setPostError(typeof msg === "string" ? msg : "오류가 발생했습니다.");
+      } else if (detail) {
+        setPostError(typeof detail === "string" ? detail : "오류가 발생했습니다.");
       } else {
         setPostError("서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
       }
