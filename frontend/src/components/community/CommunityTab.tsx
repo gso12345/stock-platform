@@ -8,7 +8,7 @@ import {
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
-import api from "@/api/client";
+import api, { AUTH_STORAGE_KEY, API_BASE } from "@/api/client";
 
 // ── 타입 ──────────────────────────────────────────────────────────
 interface PollData {
@@ -847,9 +847,38 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
       ? { question: pollQuestion.trim(), options: pollOptions.filter((o) => o.trim()) }
       : null;
 
-    const doPost = () => {
+    const doPost = async () => {
       console.log("[community post] POST", market, symbol, { title: title.trim(), body: b, image: image ? "(image)" : "", tags });
-      return communityApi.createPost(market, symbol, title.trim(), b, image, pollData, tags);
+      // axios 401 인터셉터는 401 응답 시 토큰 삭제 + 로그인 리다이렉트를 실행해
+      // catch 블록이 실행되기 전에 페이지가 이동됨 → 에러 메시지가 표시되지 않음.
+      // native fetch를 사용해 이 동작을 우회하고 실제 오류를 표시함.
+      let token = "";
+      try {
+        const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { state?: { token?: string } };
+          token = parsed?.state?.token ?? "";
+        }
+      } catch {}
+      console.log("[community post] token present:", !!token);
+      const res = await fetch(`${API_BASE}/community/${market}/${symbol}/posts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ title: title.trim(), body: b, content: b, image, poll: pollData, tags }),
+      });
+      console.log("[community post] response status:", res.status);
+      if (!res.ok) {
+        let data: any = {};
+        try { data = await res.json(); } catch {}
+        console.error("[community post] error response:", res.status, data);
+        const err: any = new Error(`HTTP ${res.status}`);
+        err.response = { status: res.status, data };
+        throw err;
+      }
+      return res.json();
     };
 
     // Render 무료 플랜은 15분 비활성 후 슬립 → POST가 502/CORS 오류로 실패함.
