@@ -237,16 +237,11 @@ def create_post(
         content=encode_content(body.title, body.body, body.image, body.poll, body.tags),
     )
     db.add(post)
-    db.commit()
+    db.flush()   # INSERT 실행 → PK 확보 (commit 전에 읽어야 expire 없음)
     post_id = post.id
-    # Return minimal response — frontend calls invalidate() to refetch the list.
-    # Avoid calling _ser_post() here because profile lazy-loading after rollback
-    # can raise unexpected errors.
-    parsed = decode_content(post.content)
-    try:
-        created_at = post.created_at.isoformat() if post.created_at else ""
-    except Exception:
-        created_at = ""
+    db.commit()
+    # commit 후 post.* 속성은 expire → lazy-load 시 Render 커넥션 풀 고갈로 500 발생.
+    # 검증된 입력(body.*)에서 직접 응답을 조립해 lazy-load를 완전히 회피.
     return {
         "id":            post_id,
         "symbol":        symbol.upper(),
@@ -254,15 +249,15 @@ def create_post(
         "user_id":       current_user.id,
         "username":      current_user.username,
         "avatar_color":  0,
-        "title":         parsed["title"],
-        "body":          parsed["body"],
-        "image":         parsed.get("image", ""),
+        "title":         body.title.strip() if body.title else "",
+        "body":          body.body,
+        "image":         body.image or "",
         "poll":          None,
-        "tags":          parsed.get("tags", []),
+        "tags":          [t for t in (body.tags or []) if isinstance(t, dict) and "symbol" in t],
         "like_count":    0,
         "comment_count": 0,
         "liked":         False,
-        "created_at":    created_at,
+        "created_at":    "",
         "is_mine":       True,
     }
 
