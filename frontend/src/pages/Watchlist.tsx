@@ -887,22 +887,27 @@ export default function Watchlist() {
     staleTime: 300_000,
   });
 
-  const mkt = marketTab === "전체" ? undefined : marketTab;
-
-  const { data: items = [], isLoading } = useQuery({
-    queryKey: ["watchlist-items", marketTab],
-    queryFn: () => watchlistApi.getItems(mkt),
-    // 종목 목록 자체는 mutation으로 invalidate되므로 refetchInterval과 맞춤
+  const { data: allItems = [], isLoading } = useQuery({
+    queryKey: ["watchlist-items"],
+    queryFn: () => watchlistApi.getItems(),
     staleTime: 120_000,
     refetchInterval: 120_000,
   });
 
-  const symbols = useMemo(() => (items as any[]).map((i: any) => i.symbol), [items]);
-  const markets  = useMemo(() => (items as any[]).map((i: any) => i.market === "KR" ? "KR" : "US"), [items]);
+  // 탭 전환 시 API 재호출 없이 클라이언트 필터링
+  const items = useMemo(() => {
+    if (marketTab === "전체") return allItems as any[];
+    return (allItems as any[]).filter((i: any) => i.market === marketTab);
+  }, [allItems, marketTab]);
+
+  // 가격 조회는 전체 항목 기준 — 탭 전환해도 캐시 유지
+  const symbols = useMemo(() => (allItems as any[]).map((i: any) => i.symbol), [allItems]);
+  const markets  = useMemo(() => (allItems as any[]).map((i: any) => i.market === "KR" ? "KR" : "US"), [allItems]);
 
   /* REST 배치 가격 조회 — signal을 받아 컴포넌트 언마운트/취소 시 HTTP 요청도 중단 */
+  const priceKey = useMemo(() => [...symbols].sort().join(","), [symbols]);
   const { data: restPrices } = useQuery({
-    queryKey: ["watchlist-prices", symbols.join(",")],
+    queryKey: ["watchlist-prices", priceKey],
     queryFn: ({ signal }) => watchlistApi.getPrices(symbols, markets, signal),
     enabled: symbols.length > 0,
     staleTime: 55_000,
@@ -1155,7 +1160,7 @@ export default function Watchlist() {
   const toggleCollapse = (key: string) =>
     setCollapsed((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
-  // 드래그 중에는 낙관적으로 정렬된 순서 사용
+  // 드래그 중에는 낙관적으로 정렬된 순서 사용 (탭 필터 적용된 items 기준)
   const baseList  = localOrder ?? (items as any[]);
   const itemsList = items as any[];
 

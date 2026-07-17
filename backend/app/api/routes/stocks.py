@@ -671,11 +671,17 @@ async def get_quant_score_compare(
     sem = asyncio.Semaphore(16)
 
     async def _score_one(sym: str, mkt: str) -> dict:
-        async with sem:
-            try:
-                metrics = await collect_quant_metrics(sym, mkt, fetch_ohlcv=True)
-            except Exception:
-                return {"symbol": sym, "market": mkt, "total_score": None, "grade": None, "factors": []}
+        metrics_ck = f"qmetrics:{mkt}:{sym}"
+        cached_metrics = cache.get(metrics_ck)
+        if cached_metrics is None:
+            async with sem:
+                try:
+                    metrics = await collect_quant_metrics(sym, mkt, fetch_ohlcv=True)
+                except Exception:
+                    return {"symbol": sym, "market": mkt, "total_score": None, "grade": None, "factors": []}
+            cache.set(metrics_ck, metrics, 300)
+        else:
+            metrics = dict(cached_metrics)
         sector = metrics.pop("_sector", None)
         sector_dist = get_sector_distribution(mkt, sector)
         result = compute_quant_score(metrics, weights, _dist(mkt), sector_dist, enabled_metrics)

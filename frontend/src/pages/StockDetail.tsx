@@ -405,12 +405,12 @@ export default function StockDetail() {
   const exchangeRate: number = (exchangeRateData as any)?.value ?? 1350;
   const fmt = useCallback((v: number | null | undefined) => isKR ? fmtKRW(v) : showKRW && v != null ? fmtKRW(v * exchangeRate) : fmtUSD(v), [isKR, showKRW, exchangeRate]);
 
-  // 이미 추가된 종목인지 확인 (로그인 사용자만)
+  // 이미 추가된 종목인지 확인 — Watchlist/Quant와 동일 캐시 공유
   const { data: watchlistItems } = useQuery({
-    queryKey: ["watchlist-items-check", userId],
+    queryKey: ["watchlist-items"],
     queryFn: () => watchlistApi.getItems(),
     enabled: isLoggedIn,
-    staleTime: 30_000,
+    staleTime: 120_000,
   });
   useEffect(() => {
     if (!isLoggedIn) {
