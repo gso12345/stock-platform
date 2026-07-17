@@ -863,12 +863,12 @@ function PortfolioManagerModal({
             onTouchEnd={handleRowTouchEnd}
             className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors cursor-grab active:cursor-grabbing select-none ${dragOver === i || touchOver === i ? "bg-accent-blue/10 ring-2 ring-accent-blue/30 ring-inset" : ""}`}
           >
-            {/* 드래그 핸들 — 시각적 표시 */}
-            <div className="text-text-dim flex-shrink-0 px-1 pointer-events-none">
-              <svg width="12" height="18" viewBox="0 0 10 14" fill="currentColor">
-                <circle cx="3" cy="2.5" r="1.4"/><circle cx="7" cy="2.5" r="1.4"/>
-                <circle cx="3" cy="7" r="1.4"/><circle cx="7" cy="7" r="1.4"/>
-                <circle cx="3" cy="11.5" r="1.4"/><circle cx="7" cy="11.5" r="1.4"/>
+            {/* 드래그 핸들 */}
+            <div className="text-text-muted flex-shrink-0 px-2 pointer-events-none">
+              <svg width="18" height="28" viewBox="0 0 10 16" fill="currentColor">
+                <circle cx="3" cy="2" r="1.8"/><circle cx="7" cy="2" r="1.8"/>
+                <circle cx="3" cy="8" r="1.8"/><circle cx="7" cy="8" r="1.8"/>
+                <circle cx="3" cy="14" r="1.8"/><circle cx="7" cy="14" r="1.8"/>
               </svg>
             </div>
             {editingId === pf.id ? (
