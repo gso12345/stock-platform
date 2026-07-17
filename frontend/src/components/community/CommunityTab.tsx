@@ -849,34 +849,38 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
     const doPost = () =>
       communityApi.createPost(market, symbol, title.trim(), b, image, pollData, tags);
 
-    // Wake up Render (free-tier sleeps after 15 min inactivity) before POSTing.
-    // GET requests are cached, so the server may be asleep even when posts appear to load.
+    // Render 무료 플랜은 15분 비활성 후 슬립 → POST가 502/CORS 오류로 실패함.
+    // 전략: GET ping으로 먼저 서버를 깨우고, 충분히 기다린 뒤 POST 재시도.
     const wakeAndPost = async (): Promise<void> => {
       try {
         await doPost();
         return;
       } catch (firstErr: any) {
-        if (firstErr?.response) throw firstErr; // real HTTP error — don't retry
+        if (firstErr?.response) throw firstErr; // 실제 HTTP 오류(401/422/500)는 재시도 안 함
       }
 
-      // Network error → server is likely sleeping. Ping with a GET to trigger wakeup.
-      const intervals = [5, 10, 15, 20]; // seconds between each retry
-      for (let i = 0; i < intervals.length; i++) {
-        const wait = intervals[i];
-        setPostError(`서버 연결 중... ${wait}초 후 재시도 (${i + 1}/${intervals.length})`);
+      // 네트워크 오류 → 서버 슬립 가능성. GET ping으로 즉시 깨우기 시작.
+      setPostError("서버를 깨우는 중...");
+      try { await communityApi.getPosts(market, symbol, 1); } catch { /* ignore */ }
+
+      // Render가 깨어나는 데 보통 15~45초 소요. 3단계로 재시도.
+      const waits = [20, 20, 20]; // 각 대기 초
+      for (let i = 0; i < waits.length; i++) {
+        const wait = waits[i];
+        const elapsed = waits.slice(0, i).reduce((a, b) => a + b, 0) + wait;
+        setPostError(`서버 연결 중... (${elapsed}초 후 재시도)`);
         await new Promise((r) => setTimeout(r, wait * 1000));
-        // Ping: a lightweight GET to nudge the server awake
-        try { await communityApi.getPosts(market, symbol, 1); } catch { /* ignore */ }
         setPostError(null);
         try {
           await doPost();
-          return; // success
+          return;
         } catch (retryErr: any) {
-          if (retryErr?.response) throw retryErr; // real HTTP error
-          // still sleeping → next interval
+          if (retryErr?.response) throw retryErr;
+          // 아직 슬립 중 → 추가 대기
+          try { await communityApi.getPosts(market, symbol, 1); } catch { /* ignore */ }
         }
       }
-      throw new Error("network"); // exhausted all retries
+      throw new Error("network");
     };
 
     try {
@@ -963,6 +967,10 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                     setBody(e.target.value);
                     autoResize();
                     setPostError(null);
+                  }}
+                  onFocus={() => {
+                    // 사용자가 타이핑 시작 시 서버 미리 깨움 (Render 슬립 대응)
+                    communityApi.getPosts(market, symbol, 1).catch(() => {});
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleSubmit();
