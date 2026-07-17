@@ -45,10 +45,11 @@ export default function UserProfile() {
   const { isLoggedIn } = useAuthStore();
   const [followModal, setFollowModal] = useState<FollowModalType>(null);
 
-  const { data: profile, isLoading, isError } = useQuery({
+  const { data: profile, isLoading, isError, isFetching } = useQuery({
     queryKey: ["userPublicProfile", userId],
     queryFn: () => communityApi.getUserPublicProfile(userId),
     enabled: !!userId,
+    staleTime: 120_000,
   });
 
   const { data: activity } = useQuery({
@@ -76,7 +77,7 @@ export default function UserProfile() {
     },
   });
 
-  if (isLoading) {
+  if (isLoading || (isFetching && !profile)) {
     return (
       <div className="max-w-2xl mx-auto py-6 flex flex-col gap-4">
         <div className="bg-bg-card border border-border rounded-2xl p-6 animate-pulse flex flex-col gap-4">
@@ -89,6 +90,7 @@ export default function UserProfile() {
             </div>
           </div>
         </div>
+        <p className="text-xs text-text-dim text-center">서버 연결 중... (재시도 중)</p>
       </div>
     );
   }
@@ -97,8 +99,9 @@ export default function UserProfile() {
     return (
       <div className="max-w-2xl mx-auto py-10 flex flex-col items-center gap-3 text-text-dim">
         <AlertCircle size={32} className="opacity-30" />
-        <p className="text-sm">사용자를 찾을 수 없습니다</p>
-        <button onClick={() => navigate(-1)} className="text-xs text-accent-blue hover:underline">
+        <p className="text-sm">프로필을 불러올 수 없습니다</p>
+        <p className="text-xs text-text-dim">서버가 응답하지 않거나 존재하지 않는 사용자입니다</p>
+        <button onClick={() => navigate(-1)} className="text-xs text-accent-blue hover:underline mt-1">
           돌아가기
         </button>
       </div>

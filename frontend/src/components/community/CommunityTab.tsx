@@ -724,6 +724,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
     queryKey: key,
     queryFn: () => communityApi.getPosts(market, symbol, page, sort),
     staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 
   const posts: Post[] = data?.items ?? [];
@@ -859,9 +860,13 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
         if (firstErr?.response) throw firstErr; // 실제 HTTP 오류(401/422/500)는 재시도 안 함
       }
 
-      // 네트워크 오류 → 서버 슬립 가능성. GET ping으로 즉시 깨우기 시작.
+      // 네트워크 오류 → 서버 슬립 가능성.
+      // Authorization 헤더 없는 단순 GET → CORS preflight 없이 슬립 서버에 바로 전달됨.
       setPostError("서버를 깨우는 중...");
-      try { await communityApi.getPosts(market, symbol, 1); } catch { /* ignore */ }
+      {
+        const apiRoot = import.meta.env.VITE_API_URL || "";
+        fetch(`${apiRoot}/api/v1/dashboard/indices`).catch(() => {});
+      }
 
       // Render가 깨어나는 데 보통 15~45초 소요. 3단계로 재시도.
       const waits = [20, 20, 20]; // 각 대기 초
@@ -876,8 +881,10 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
           return;
         } catch (retryErr: any) {
           if (retryErr?.response) throw retryErr;
-          // 아직 슬립 중 → 추가 대기
-          try { await communityApi.getPosts(market, symbol, 1); } catch { /* ignore */ }
+          {
+            const apiRoot = import.meta.env.VITE_API_URL || "";
+            fetch(`${apiRoot}/api/v1/dashboard/indices`).catch(() => {});
+          }
         }
       }
       throw new Error("network");

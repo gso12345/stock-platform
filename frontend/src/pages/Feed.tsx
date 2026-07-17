@@ -263,6 +263,7 @@ export default function Feed() {
         isFollowing
       ),
     staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 
   const posts: FeedPost[] = data?.items ?? [];

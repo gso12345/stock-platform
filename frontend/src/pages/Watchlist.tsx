@@ -983,6 +983,10 @@ export default function Watchlist() {
   const reorderMutation = useMutation({
     mutationFn: (order: number[]) => watchlistApi.reorderItems(order),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
+    onError: () => {
+      qc.invalidateQueries({ queryKey: ["watchlist-items"] });
+      setLocalOrder(null);
+    },
   });
 
   const handleDragStart = (item: any) => {
@@ -1038,6 +1042,10 @@ export default function Watchlist() {
   const reorderFoldersMutation = useMutation({
     mutationFn: (order: number[]) => watchlistFolderApi.reorderFolders(order),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-folders"] }),
+    onError: () => {
+      qc.invalidateQueries({ queryKey: ["watchlist-folders"] });
+      setLocalFolderOrder(null);
+    },
   });
 
   const handleFolderDragStart = (folder: any) => {

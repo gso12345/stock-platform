@@ -62,10 +62,12 @@ def display_name(user, profile: Optional[UserProfile]) -> str:
     return user.username if user else "알 수 없음"
 
 # ── 직렬화 ────────────────────────────────────────────────────
-def _ser_post(post: StockPost, uid: Optional[int], db: Session) -> dict:
+def _ser_post(post: StockPost, uid: Optional[int], db: Session, profiles_map: Optional[dict] = None) -> dict:
     liked  = any(lk.user_id == uid for lk in post.likes) if uid else False
     parsed = decode_content(post.content)
-    profile = get_profile(db, post.user_id) if post.user else None
+    profile = profiles_map.get(post.user_id) if profiles_map is not None else (
+        get_profile(db, post.user_id) if post.user else None
+    )
 
     # 투표 집계
     poll_data = None
@@ -216,7 +218,9 @@ def list_posts(
         q = q.order_by(StockPost.created_at.desc())
 
     posts = q.offset((page - 1) * limit).limit(limit).all()
-    return {"total": total, "page": page, "items": [_ser_post(p, uid, db) for p in posts]}
+    user_ids = list({p.user_id for p in posts})
+    profiles_map = {up.user_id: up for up in db.query(UserProfile).filter(UserProfile.user_id.in_(user_ids)).all()} if user_ids else {}
+    return {"total": total, "page": page, "items": [_ser_post(p, uid, db, profiles_map) for p in posts]}
 
 
 # ── 게시글 작성 ────────────────────────────────────────────────
@@ -436,7 +440,9 @@ def get_feed(
     else:
         q = q.order_by(StockPost.created_at.desc())
     posts = q.offset((page - 1) * limit).limit(limit).all()
-    return {"total": total, "page": page, "items": [_ser_post(p, uid, db) for p in posts]}
+    user_ids = list({p.user_id for p in posts})
+    profiles_map = {up.user_id: up for up in db.query(UserProfile).filter(UserProfile.user_id.in_(user_ids)).all()} if user_ids else {}
+    return {"total": total, "page": page, "items": [_ser_post(p, uid, db, profiles_map) for p in posts]}
 
 
 # ── 프로필 조회 ────────────────────────────────────────────────

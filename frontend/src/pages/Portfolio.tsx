@@ -984,6 +984,10 @@ export default function Portfolio() {
   const reorderPortfoliosMutation = useMutation({
     mutationFn: (order: number[]) => portfolioApi.reorderPortfolios(order),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolios"] }),
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
+      setLocalPortfolioOrder(null);
+    },
   });
 
   const handlePortfolioDragStart = (pf: PortfolioMeta) => {
@@ -1468,44 +1472,50 @@ export default function Portfolio() {
       </div>
 
       {/* ── 포트폴리오 선택 탭 ── */}
-      {isLoggedIn && portfolios.length > 0 && (
+      {isLoggedIn && (
         <div className="flex items-center border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
-          <button
-            onClick={() => setSelectedPortfolioId("all")}
-            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all flex-shrink-0 whitespace-nowrap ${
-              isAllView
-                ? "border-accent-blue text-accent-blue bg-accent-blue/5"
-                : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-            }`}
-          >
-            <span>전체</span>
-            <span className="text-xs opacity-60">({totalItemCount})</span>
-          </button>
-          {(localPortfolioOrder ?? portfolios).map((pf) => (
-            <PortfolioPill
-              key={pf.id}
-              portfolio={pf}
-              active={pf.id === selectedPortfolioId}
-              onSelect={() => handlePortfolioTabClick(pf)}
-              draggable={portfolios.length > 1}
-              isDragging={dragPortfolioId === pf.id}
-              isDropTarget={dropPortfolioId === pf.id}
-              onDragStart={() => handlePortfolioDragStart(pf)}
-              onDragOver={(e) => handlePortfolioDragOver(e, pf.id)}
-              onDrop={handlePortfolioDrop}
-              onTouchStart={(e) => handlePortfolioTouchStart(pf, e)}
-              onTouchMove={handlePortfolioTouchMoveGated}
-              onTouchEnd={handlePortfolioTouchEnd}
-            />
-          ))}
+          {portfolios.length > 0 && (
+            <>
+              <button
+                onClick={() => setSelectedPortfolioId("all")}
+                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all flex-shrink-0 whitespace-nowrap ${
+                  isAllView
+                    ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+                    : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+                }`}
+              >
+                <span>전체</span>
+                <span className="text-xs opacity-60">({totalItemCount})</span>
+              </button>
+              {(localPortfolioOrder ?? portfolios).map((pf) => (
+                <PortfolioPill
+                  key={pf.id}
+                  portfolio={pf}
+                  active={pf.id === selectedPortfolioId}
+                  onSelect={() => handlePortfolioTabClick(pf)}
+                  draggable={portfolios.length > 1}
+                  isDragging={dragPortfolioId === pf.id}
+                  isDropTarget={dropPortfolioId === pf.id}
+                  onDragStart={() => handlePortfolioDragStart(pf)}
+                  onDragOver={(e) => handlePortfolioDragOver(e, pf.id)}
+                  onDrop={handlePortfolioDrop}
+                  onTouchStart={(e) => handlePortfolioTouchStart(pf, e)}
+                  onTouchMove={handlePortfolioTouchMoveGated}
+                  onTouchEnd={handlePortfolioTouchEnd}
+                />
+              ))}
+            </>
+          )}
           <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
-          <button
-            onClick={() => setShowPortfolioManager(true)}
-            className="p-2 flex-shrink-0 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors rounded-lg mx-1"
-            title="포트폴리오 관리"
-          >
-            <Settings2 size={14} />
-          </button>
+          {portfolios.length > 0 && (
+            <button
+              onClick={() => setShowPortfolioManager(true)}
+              className="p-2 flex-shrink-0 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors rounded-lg mx-1"
+              title="포트폴리오 관리"
+            >
+              <Settings2 size={14} />
+            </button>
+          )}
         </div>
       )}
 

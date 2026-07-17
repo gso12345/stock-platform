@@ -30,12 +30,12 @@ const UserProfile = lazy(() => import("./pages/UserProfile"));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // 자주 바뀌지 않는 데이터(폴더 목록, 관심종목 목록 등)는 5분간 캐시
-      // 가격 등 실시간 데이터는 각 useQuery에서 낮은 staleTime을 명시적으로 재정의
       staleTime: 300_000,
       gcTime: 1_800_000,
       refetchOnWindowFocus: false,
-      retry: 1,
+      // Render 무료 플랜 슬립(20~45s) 대응: 3회 재시도, 지수 백오프(2s→6s→18s)
+      retry: 3,
+      retryDelay: (attempt) => Math.min(2_000 * 3 ** attempt, 20_000),
     },
   },
 });
@@ -57,6 +57,14 @@ queryClient.prefetchQuery({
   queryFn: () => dashboardApi.getUSRates(),
   staleTime: 300_000,
 });
+// Render 무료 플랜 슬립 대응: 앱 시작 시 Authorization 없이 단순 GET 전송.
+// 단순 요청(커스텀 헤더 없음)은 CORS preflight 없이 바로 전달되므로
+// 서버가 슬립 상태여도 요청이 도달해 웨이크업을 트리거한다.
+{
+  const apiRoot = import.meta.env.VITE_API_URL || "";
+  fetch(`${apiRoot}/api/v1/dashboard/indices`).catch(() => {});
+}
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
