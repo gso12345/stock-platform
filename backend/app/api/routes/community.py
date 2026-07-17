@@ -232,22 +232,26 @@ def create_post(
     db:     Session = Depends(get_db),
     current_user=Depends(require_user),
 ):
+    # commit 전에 current_user 값을 캡처 — commit 후 세션 내 모든 ORM 객체가
+    # expire되어 lazy-load가 발생하므로, 필요한 값을 미리 읽어둠.
+    uid_val      = current_user.id
+    uname_val    = current_user.username
+    sym_upper    = symbol.upper()
+
     post = StockPost(
-        symbol=symbol.upper(), market=market, user_id=current_user.id,
+        symbol=sym_upper, market=market, user_id=uid_val,
         content=encode_content(body.title, body.body, body.image, body.poll, body.tags),
     )
     db.add(post)
-    db.flush()   # INSERT 실행 → PK 확보 (commit 전에 읽어야 expire 없음)
+    db.flush()   # INSERT 실행 → PK 확보
     post_id = post.id
     db.commit()
-    # commit 후 post.* 속성은 expire → lazy-load 시 Render 커넥션 풀 고갈로 500 발생.
-    # 검증된 입력(body.*)에서 직접 응답을 조립해 lazy-load를 완전히 회피.
     return {
         "id":            post_id,
-        "symbol":        symbol.upper(),
+        "symbol":        sym_upper,
         "market":        market,
-        "user_id":       current_user.id,
-        "username":      current_user.username,
+        "user_id":       uid_val,
+        "username":      uname_val,
         "avatar_color":  0,
         "title":         body.title.strip() if body.title else "",
         "body":          body.body,
