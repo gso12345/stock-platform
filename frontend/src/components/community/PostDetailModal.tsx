@@ -4,10 +4,7 @@ import { X, Heart, MessageSquare, Share2, Send, Trash2, Eye } from "lucide-react
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
-import { fmtKRWCompact } from "@/utils/formatters";
-
-const PIE_COLORS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
+import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 
 // ── 공용 타입 ─────────────────────────────────────────────────────
 export interface ModalPost {
@@ -454,58 +451,9 @@ export default function PostDetailModal({
             </p>
           </div>
 
-          {post.portfolio && post.portfolio.length > 0 && (() => {
-            const pieData = post.portfolio.map((item) => {
-              const fx = item.currency === "USD" ? (item.input_exchange_rate ?? 1350) : 1;
-              return { symbol: item.symbol, name: item.name || item.symbol, market: item.market, value: (item.avg_price ?? 0) * fx * item.shares };
-            }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
-            const total = pieData.reduce((s, d) => s + d.value, 0);
-            return (
-              <div className="p-4 bg-bg-elevated rounded-xl flex flex-col gap-3">
-                <p className="text-xs font-semibold text-text-muted">포트폴리오 구성</p>
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={62}
-                      innerRadius={26}
-                      isAnimationActive
-                      animationBegin={0}
-                      animationDuration={600}
-                      animationEasing="ease-out"
-                    >
-                      {pieData.map((_, i) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
-                      itemStyle={{ color: "#e2e8f0" }}
-                      labelStyle={{ color: "#94a3b8", display: "none" }}
-                      formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex flex-col gap-1">
-                  {pieData.map((entry, i) => {
-                    const pct = total > 0 ? (entry.value / total) * 100 : 0;
-                    return (
-                      <div key={entry.symbol} className="flex items-center gap-2 py-0.5">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                        <Link to={`/stocks/${entry.market}/${entry.symbol}`} onClick={onClose} className="flex-1 text-xs text-text-secondary hover:text-accent-blue truncate transition-colors">{entry.name}</Link>
-                        <span className="text-xs font-mono font-semibold text-text-primary w-10 text-right">{pct.toFixed(1)}%</span>
-                        <span className="text-xs font-mono text-text-muted text-right w-20 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
+          {post.portfolio && post.portfolio.length > 0 && (
+            <PortfolioSnapshot items={post.portfolio} />
+          )}
 
           {post.image && (
             <img src={post.image} alt="첨부 이미지" className="w-full rounded-xl object-cover max-h-72" />
@@ -577,12 +525,10 @@ export default function PostDetailModal({
               <span>{commentCount > 0 ? `댓글 ${commentCount}` : "댓글"}</span>
             </button>
 
-            {(post.view_count ?? 0) > 0 && (
-              <span className="flex items-center gap-1 text-sm text-text-dim">
-                <Eye size={13} />
-                <span>{post.view_count}</span>
-              </span>
-            )}
+            <span className="flex items-center gap-1 text-sm text-text-dim">
+              <Eye size={13} />
+              <span>{post.view_count ?? 0}</span>
+            </span>
 
             <button
               onClick={handleShare}

@@ -372,6 +372,19 @@ def get_post(
     current_user=Depends(get_current_user),
 ):
     uid = current_user.id if current_user else None
+    # 존재 확인
+    exists = db.execute(
+        text("SELECT 1 FROM stock_posts WHERE id = :id AND is_deleted IS NOT TRUE LIMIT 1"),
+        {"id": post_id},
+    ).fetchone()
+    if not exists:
+        raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    # 조회수 먼저 증가 (fetch 전에 커밋해야 반환값에 반영됨)
+    try:
+        db.execute(text("UPDATE stock_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :id"), {"id": post_id})
+        db.commit()
+    except Exception:
+        db.rollback()
     post = (
         db.query(StockPost)
         .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
@@ -385,12 +398,6 @@ def get_post(
     )
     if not post:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
-    # 조회수 증가
-    try:
-        db.execute(text("UPDATE stock_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :id"), {"id": post_id})
-        db.commit()
-    except Exception:
-        db.rollback()
     profile = get_profile(db, post.user_id) if post.user else None
     count_row = db.execute(
         text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted = false"),

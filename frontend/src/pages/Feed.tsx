@@ -9,10 +9,8 @@ import { communityApi, portfolioApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import PostDetailModal from "@/components/community/PostDetailModal";
 import api from "@/api/client";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
-import { fmtKRWCompact } from "@/utils/formatters";
-
-const PIE_COLORS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
+import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
+import PortfolioChart, { type PfPortfolioForChart } from "@/components/portfolio/PortfolioChart";
 
 type SortType = "latest" | "likes";
 type MarketFilter = "ALL" | "KR" | "US" | "ETF";
@@ -259,45 +257,12 @@ function FeedCard({
             </div>
           )}
 
-          {/* 포트폴리오 원그래프 */}
-          {post.portfolio && post.portfolio.length > 0 && (() => {
-            const pieData = post.portfolio.map((item) => {
-              const fx = item.currency === "USD" ? (item.input_exchange_rate ?? 1350) : 1;
-              return { symbol: item.symbol, name: item.name || item.symbol, market: item.market, value: (item.avg_price ?? 0) * fx * item.shares };
-            }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
-            const total = pieData.reduce((s, d) => s + d.value, 0);
-            return (
-              <div className="mb-2 p-3 bg-bg-elevated rounded-xl flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
-                <ResponsiveContainer width="100%" height={130}>
-                  <PieChart>
-                    <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={52} innerRadius={22}
-                      isAnimationActive animationBegin={0} animationDuration={600} animationEasing="ease-out">
-                      {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
-                      itemStyle={{ color: "#e2e8f0" }}
-                      labelStyle={{ color: "#94a3b8", display: "none" }}
-                      formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex flex-col gap-0.5">
-                  {pieData.map((entry, i) => {
-                    const pct = total > 0 ? (entry.value / total) * 100 : 0;
-                    return (
-                      <div key={entry.symbol} className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                        <Link to={`/stocks/${entry.market}/${entry.symbol}`} onClick={(e) => e.stopPropagation()} className="flex-1 text-2xs text-text-secondary hover:text-accent-blue truncate transition-colors">{entry.name}</Link>
-                        <span className="text-2xs font-mono font-semibold text-text-primary w-10 text-right">{pct.toFixed(1)}%</span>
-                        <span className="text-2xs font-mono text-text-muted text-right w-16 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
+          {/* 포트폴리오 차트 */}
+          {post.portfolio && post.portfolio.length > 0 && (
+            <div className="mb-2" onClick={(e) => e.stopPropagation()}>
+              <PortfolioSnapshot items={post.portfolio} />
+            </div>
+          )}
 
           {/* 하단 액션 */}
           <div className="flex items-center gap-3">
@@ -335,12 +300,10 @@ function FeedCard({
               <span className="opacity-60">{copied ? "복사됨!" : "공유"}</span>
             </button>
 
-            {(post.view_count ?? 0) > 0 && (
-              <span className="flex items-center gap-1 text-xs text-text-dim">
-                <Eye size={11} />
-                <span>{post.view_count}</span>
-              </span>
-            )}
+            <span className="flex items-center gap-1 text-xs text-text-dim">
+              <Eye size={11} />
+              <span>{post.view_count ?? 0}</span>
+            </span>
 
             <Link
               to={`/stocks/${post.market}/${post.symbol}`}
@@ -494,11 +457,20 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     setTagResults([]);
   };
 
-  // Portfolio chart preview data — sorted by value (same as 내 자산)
-  const pfPieData = pfItems.map((item: any) => {
-    const fx = item.currency === "USD" ? (item.inputExchangeRate ?? 1350) : 1;
-    return { name: item.name || item.symbol, symbol: item.symbol, value: (item.avgPrice ?? 0) * fx * item.shares };
-  }).filter((d: any) => d.value > 0).sort((a: any, b: any) => b.value - a.value);
+  // Portfolio chart for write panel preview
+  const pfForChart: PfPortfolioForChart[] = pfItems.length > 0 ? [{
+    id: selectedPfId ?? 0,
+    name: "포트폴리오",
+    items: pfItems.map((item: any) => ({
+      symbol: item.symbol,
+      market: item.market,
+      name: item.name || item.symbol,
+      avgPrice: item.avgPrice ?? 0,
+      shares: item.shares,
+      currency: item.currency,
+      inputExchangeRate: item.inputExchangeRate ?? null,
+    })),
+  }] : [];
 
   // Avatar color from username (same algorithm as CommunityTab)
   const myColorIndex = (() => {
@@ -690,40 +662,8 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
                     <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
                   ))}
                 </select>
-                {pfPieData.length > 0 && (
-                  <div className="rounded-xl bg-bg-elevated p-3 flex flex-col gap-2">
-                    <ResponsiveContainer width="100%" height={130}>
-                      <PieChart>
-                        <Pie data={pfPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={52} innerRadius={22}
-                          isAnimationActive animationBegin={0} animationDuration={600} animationEasing="ease-out">
-                          {pfPieData.map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
-                          itemStyle={{ color: "#e2e8f0" }}
-                          labelStyle={{ color: "#94a3b8", display: "none" }}
-                          formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    {(() => {
-                      const total = pfPieData.reduce((s: number, d: any) => s + d.value, 0);
-                      return (
-                        <div className="flex flex-col gap-0.5">
-                          {pfPieData.map((entry: any, i: number) => {
-                            const pct = total > 0 ? (entry.value / total) * 100 : 0;
-                            return (
-                              <div key={entry.symbol} className="flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                                <span className="flex-1 text-2xs text-text-secondary truncate">{entry.name}</span>
-                                <span className="text-2xs font-mono font-semibold text-text-primary w-10 text-right">{pct.toFixed(1)}%</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </div>
+                {pfForChart.length > 0 && (
+                  <PortfolioChart portfolios={pfForChart} exchangeRate={1350} />
                 )}
               </>
             )}
