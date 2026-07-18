@@ -21,6 +21,7 @@ const adminApi = {
   getSignups:        () => api.get("/admin/signups").then(r => r.data),
   getVisitorTrend:   () => api.get("/admin/visitor-trend").then(r => r.data),
   getSystem:       () => api.get("/admin/system").then(r => r.data),
+  getDbStats:      () => api.get("/admin/db-stats").then(r => r.data),
   clearCache:      () => api.post("/admin/cache/clear").then(r => r.data),
   listCache:       (prefix?: string) => api.get("/admin/cache", { params: prefix ? { prefix } : {} }).then(r => r.data),
   deleteCache:     (key: string) => api.delete(`/admin/cache/${encodeURIComponent(key)}`).then(r => r.data),
@@ -111,6 +112,7 @@ function DashboardTab({ qc }: { qc: any }) {
   const { data: signups }      = useQuery({ queryKey: ["admin-signups"],       queryFn: adminApi.getSignups,      staleTime: 60_000 });
   const { data: visitorTrend } = useQuery({ queryKey: ["admin-visitor-trend"], queryFn: adminApi.getVisitorTrend, staleTime: 60_000 });
   const { data: system, refetch: refetchSystem } = useQuery({ queryKey: ["admin-system"], queryFn: adminApi.getSystem, staleTime: 30_000 });
+  const { data: dbStats, refetch: refetchDbStats } = useQuery({ queryKey: ["admin-db-stats"], queryFn: adminApi.getDbStats, staleTime: 60_000 });
 
   const clearMut = useMutation({
     mutationFn: adminApi.clearCache,
@@ -164,6 +166,66 @@ function DashboardTab({ qc }: { qc: any }) {
           </div>
         ))}
       </div>
+
+      {/* DB 용량 */}
+      {(() => {
+        const LIMIT_GB = 1; // Render free tier 1 GB
+        const LIMIT_BYTES = LIMIT_GB * 1024 * 1024 * 1024;
+        const usedBytes: number = dbStats?.total_bytes ?? 0;
+        const pct = LIMIT_BYTES > 0 ? Math.min((usedBytes / LIMIT_BYTES) * 100, 100) : 0;
+        const barColor = pct >= 90 ? "bg-accent-red" : pct >= 70 ? "bg-amber-400" : "bg-accent-green";
+        return (
+          <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
+                <Database size={14} className="text-accent-blue" />DB 용량
+              </span>
+              <button onClick={() => refetchDbStats()} className="text-text-muted hover:text-text-primary transition-colors p-1 rounded">
+                <RefreshCw size={13} />
+              </button>
+            </div>
+
+            {dbStats ? (
+              <>
+                {/* 사용량 바 */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-lg font-bold text-text-primary font-mono">{dbStats.total_pretty}</span>
+                    <span className="text-xs text-text-muted">/ {LIMIT_GB} GB (Render 무료)</span>
+                  </div>
+                  <div className="w-full h-2.5 bg-bg-elevated rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-xs text-text-muted text-right">{pct.toFixed(1)}% 사용</span>
+                </div>
+
+                {/* 테이블별 용량 */}
+                {dbStats.tables && dbStats.tables.length > 0 && (
+                  <div className="flex flex-col gap-1 mt-1">
+                    <p className="text-2xs text-text-muted font-semibold uppercase tracking-wide mb-0.5">테이블별</p>
+                    {dbStats.tables.map((t: any) => {
+                      const tPct = usedBytes > 0 ? Math.min((t.bytes / usedBytes) * 100, 100) : 0;
+                      return (
+                        <div key={t.name} className="flex items-center gap-2">
+                          <span className="text-xs text-text-muted font-mono w-40 truncate shrink-0">{t.name}</span>
+                          <div className="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                            <div className="h-full bg-accent-blue/50 rounded-full" style={{ width: `${tPct}%` }} />
+                          </div>
+                          <span className="text-xs font-mono text-text-secondary w-14 text-right shrink-0">{t.pretty}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center justify-center py-4">
+                <div className="w-4 h-4 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 시스템 상태 + 가입 추이 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

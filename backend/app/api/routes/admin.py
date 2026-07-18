@@ -114,6 +114,36 @@ def get_signups(db: Session = Depends(get_db), _: User = Depends(require_admin))
     return result
 
 
+@router.get("/db-stats")
+def get_db_stats(_: User = Depends(require_admin)):
+    """PostgreSQL DB 용량 현황"""
+    try:
+        with engine.connect() as conn:
+            size_row = conn.execute(text(
+                "SELECT pg_database_size(current_database()), "
+                "pg_size_pretty(pg_database_size(current_database()))"
+            )).fetchone()
+
+            table_rows = conn.execute(text("""
+                SELECT
+                    tablename,
+                    pg_total_relation_size(quote_ident(tablename)) AS bytes,
+                    pg_size_pretty(pg_total_relation_size(quote_ident(tablename))) AS pretty
+                FROM pg_tables
+                WHERE schemaname = 'public'
+                ORDER BY pg_total_relation_size(quote_ident(tablename)) DESC
+                LIMIT 8
+            """)).fetchall()
+
+        return {
+            "total_bytes":  size_row[0],
+            "total_pretty": size_row[1],
+            "tables": [{"name": r[0], "bytes": r[1], "pretty": r[2]} for r in table_rows],
+        }
+    except Exception as e:
+        raise HTTPException(500, f"DB 통계 조회 실패: {str(e)[:200]}")
+
+
 @router.get("/system")
 def get_system(_: User = Depends(require_admin)):
     """시스템 상태"""
