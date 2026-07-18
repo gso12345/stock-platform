@@ -760,20 +760,22 @@ def get_user_activity(
     post_meta: dict = {}
     if comment_post_ids:
         meta_rows = db.query(StockPost.id, StockPost.symbol, StockPost.market).filter(
-            StockPost.id.in_(comment_post_ids)
+            StockPost.id.in_(comment_post_ids),
+            StockPost.is_deleted.isnot(True),
         ).all()
         post_meta = {r[0]: (r[1], r[2]) for r in meta_rows}
 
+    # 부모 글이 삭제됐거나 존재하지 않는 댓글은 제외
     comment_items = [{
         "type": "comment",
         "id": c.id,
         "post_id": c.post_id,
-        "symbol": post_meta.get(c.post_id, (None, None))[0],
-        "market": post_meta.get(c.post_id, (None, None))[1],
+        "symbol": post_meta[c.post_id][0],
+        "market": post_meta[c.post_id][1],
         "content": c.content,
         "like_count": c.like_count,
         "created_at": c.created_at.isoformat(),
-    } for c in comments]
+    } for c in comments if c.post_id in post_meta]
     activity = sorted(post_items + comment_items, key=lambda x: x["created_at"], reverse=True)[:15]
     return {"items": activity}
 
