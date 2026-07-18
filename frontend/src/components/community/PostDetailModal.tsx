@@ -228,6 +228,20 @@ function CommentItem({
                   <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">
                     {r.content}
                   </p>
+                  {r.is_mine && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm("대댓글을 삭제할까요?")) return;
+                        try {
+                          await communityApi.deleteComment(r.id);
+                          qc.invalidateQueries({ queryKey: ["modal-comments", postId] });
+                        } catch {}
+                      }}
+                      className="mt-1 text-xs text-text-dim hover:text-accent-red transition-colors"
+                    >
+                      삭제
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

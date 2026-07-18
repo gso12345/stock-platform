@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users, Share2,
-  PenSquare, Hash, BarChart2, X, Trash2, Image as ImageIcon, Send,
+  PenSquare, Hash, BarChart2, X, Trash2, Image as ImageIcon, Send, LogIn,
 } from "lucide-react";
 import { communityApi, portfolioApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
@@ -348,10 +348,11 @@ function FeedCard({
 }
 
 function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
-  const { isLoggedIn } = useAuthStore();
+  const { isLoggedIn, username, userId } = useAuthStore();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"stock" | "portfolio">("stock");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // stock mode
   const [searchQ, setSearchQ] = useState("");
@@ -400,10 +401,6 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     if (selectedPfId == null) return;
     portfolioApi.getItems(selectedPfId).then((items: any[]) => {
       setPfItems(items);
-      if (items.length > 0) {
-        const lines = items.map((i: any) => `${i.name || i.symbol} (${i.market}) — ${i.shares}주`).join("\n");
-        setBody(`📊 포트폴리오 공유\n\n${lines}`);
-      }
     });
   }, [selectedPfId]);
 
@@ -430,6 +427,13 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  const autoResize = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  };
+
   const reset = () => {
     setOpen(false);
     setMode("stock");
@@ -450,6 +454,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     setTagQuery("");
     setTagResults([]);
     setCustomTags([]);
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
   const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -481,19 +486,34 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     setTagResults([]);
   };
 
+  // Portfolio chart preview data (camelCase from API)
+  const pfPieData = pfItems.map((item: any) => {
+    const fx = item.currency === "USD" ? (item.inputExchangeRate ?? 1350) : 1;
+    return { name: item.name || item.symbol, symbol: item.symbol, value: (item.avgPrice ?? 0) * fx * item.shares };
+  }).filter(d => d.value > 0);
+
+  // Avatar color from username (same algorithm as CommunityTab)
+  const myColorIndex = (() => {
+    const u = username ?? "";
+    let h = 0;
+    for (let i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) % AVATAR_COLORS.length;
+    return h;
+  })();
+
   const handleSubmit = async () => {
     if (submitting) return;
     setError("");
-    const bodyTrim = body.trim();
-    if (!bodyTrim) { setError("본문을 입력해주세요"); return; }
 
-    let market: string, symbol: string, allTags: { symbol: string; market: string }[];
+    let market: string, symbol: string, allTags: { symbol: string; market: string }[], bodyToSubmit: string;
 
     if (mode === "stock") {
       if (!selectedStock) { setError("종목을 선택해주세요"); return; }
+      const bodyTrim = body.trim();
+      if (!bodyTrim) { setError("본문을 입력해주세요"); return; }
       market = selectedStock.market;
       symbol = selectedStock.symbol;
       allTags = customTags;
+      bodyToSubmit = bodyTrim;
     } else {
       if (pfItems.length === 0) { setError("포트폴리오에 종목이 없습니다"); return; }
       market = pfItems[0].market;
@@ -502,6 +522,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
         ...pfItems.map((i: any) => ({ symbol: i.symbol, market: i.market })),
         ...customTags.filter((ct) => !pfItems.find((i: any) => i.symbol === ct.symbol)),
       ];
+      bodyToSubmit = body.trim() || "📊 포트폴리오 공유";
     }
 
     const pollData = showPoll && pollQuestion.trim() && pollOptions.filter((o) => o.trim()).length >= 2
@@ -521,7 +542,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             input_exchange_rate: i.inputExchangeRate ?? null,
           }))
         : null;
-      await communityApi.createPost(market, symbol, title.trim(), bodyTrim, image, pollData, allTags, portfolioSnapshot);
+      await communityApi.createPost(market, symbol, title.trim(), bodyToSubmit, image, pollData, allTags, portfolioSnapshot);
       reset();
       onSubmitted();
     } catch {
@@ -533,9 +554,10 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
 
   if (!isLoggedIn) {
     return (
-      <div className="bg-bg-card border border-border rounded-2xl p-4 text-center">
-        <button onClick={() => navigate("/login")} className="text-sm text-accent-blue hover:underline">
-          로그인하고 의견 남기기 →
+      <div className="bg-bg-card border border-border rounded-2xl overflow-hidden">
+        <button onClick={() => navigate("/login")} className="w-full flex items-center justify-center gap-2.5 py-5 text-sm text-text-muted hover:text-accent-blue hover:bg-accent-blue/5 transition-all">
+          <LogIn size={15} />
+          로그인하고 의견 남기기
         </button>
       </div>
     );
@@ -543,273 +565,313 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full bg-bg-card border border-border rounded-2xl p-3.5 text-left hover:border-accent-blue/40 transition-all group"
-      >
-        <div className="flex items-center gap-2">
-          <PenSquare size={14} className="text-text-dim group-hover:text-accent-blue transition-colors" />
-          <span className="text-sm text-text-dim group-hover:text-text-secondary transition-colors">
+      <div className="bg-bg-card border border-border rounded-2xl overflow-hidden">
+        <button
+          onClick={() => setOpen(true)}
+          className="w-full flex items-center gap-3 px-4 py-4 text-left hover:bg-bg-elevated transition-all group"
+        >
+          <div className={`w-7 h-7 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 ${AVATAR_COLORS[myColorIndex]}`}>
+            {(username ?? "?")[0]?.toUpperCase()}
+          </div>
+          <span className="flex-1 text-sm text-text-dim group-hover:text-text-secondary transition-colors">
             종목 의견이나 포트폴리오를 공유해보세요...
           </span>
-        </div>
-      </button>
+          <PenSquare size={14} className="text-text-dim group-hover:text-accent-blue transition-colors shrink-0" />
+        </button>
+      </div>
     );
   }
 
-  const canSubmit = mode === "stock" ? !!(selectedStock && body.trim()) : !!(pfItems.length > 0 && body.trim());
+  const canSubmit = mode === "stock" ? !!(selectedStock && body.trim()) : pfItems.length > 0;
 
   return (
-    <div className="bg-bg-card border border-accent-blue/30 rounded-2xl p-4 flex flex-col gap-3">
-      {/* 모드 탭 */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-elevated">
+    <div className="bg-bg-card border border-border rounded-2xl overflow-hidden">
+      {/* 모드 탭 + 닫기 */}
+      <div className="flex items-center justify-between border-b border-border px-3 pt-2 pb-0">
+        <div className="flex">
           <button
             onClick={() => { setMode("stock"); setBody(""); setSelectedStock(null); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              mode === "stock" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all ${
+              mode === "stock" ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
             }`}
           >
             <Hash size={11} />종목 의견
           </button>
           <button
             onClick={() => { setMode("portfolio"); setBody(""); setSelectedStock(null); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              mode === "portfolio" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all ${
+              mode === "portfolio" ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
             }`}
           >
             <BarChart2 size={11} />포트폴리오 공유
           </button>
         </div>
-        <button onClick={reset} className="p-1 text-text-dim hover:text-text-primary transition-colors">
+        <button onClick={reset} className="p-1.5 text-text-dim hover:text-text-primary transition-colors mb-1">
           <X size={14} />
         </button>
       </div>
 
-      {/* 종목 선택 */}
-      {mode === "stock" && (
-        <div className="relative" ref={searchRef}>
-          {selectedStock ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent-blue/15 border border-accent-blue/30 text-xs font-semibold text-accent-blue">
-                <span className="text-text-dim">[{selectedStock.market}]</span>
-                {selectedStock.symbol}
-                {selectedStock.name && selectedStock.name !== selectedStock.symbol && (
-                  <span className="text-accent-blue/70 font-normal">{selectedStock.name}</span>
-                )}
-                <button onClick={() => setSelectedStock(null)} className="ml-0.5 hover:text-accent-red transition-colors">
-                  <X size={10} />
-                </button>
-              </span>
-              <span className="text-xs text-text-dim">에 대한 의견</span>
-            </div>
-          ) : (
-            <>
-              <input
-                autoFocus
-                value={searchQ}
-                onChange={(e) => setSearchQ(e.target.value)}
-                placeholder="종목 검색 (예: 삼성전자, AAPL)"
-                className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
-              />
-              {(searchResults.length > 0 || searching) && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-bg-card border border-border rounded-xl shadow-lg z-20 overflow-hidden">
-                  {searching && searchResults.length === 0 && <div className="px-3 py-2 text-xs text-text-dim">검색 중...</div>}
-                  {searchResults.map((r: any, i: number) => (
-                    <button
-                      key={i}
-                      onClick={() => { setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol }); setSearchQ(""); setSearchResults([]); }}
-                      className="w-full text-left px-3 py-2 hover:bg-bg-elevated transition-colors flex items-center gap-2"
-                    >
-                      <span className="text-2xs font-bold text-text-dim w-8">{r.market}</span>
-                      <span className="text-sm font-semibold text-text-primary">{r.symbol}</span>
-                      <span className="text-xs text-text-dim truncate flex-1">{r.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* 포트폴리오 선택 */}
-      {mode === "portfolio" && (
-        <div className="flex flex-col gap-2">
-          {loadingPf ? (
-            <p className="text-xs text-text-dim">포트폴리오 불러오는 중...</p>
-          ) : portfolios.length === 0 ? (
-            <p className="text-xs text-text-dim">등록된 포트폴리오가 없습니다</p>
-          ) : (
-            <>
-              <select
-                value={selectedPfId ?? ""}
-                onChange={(e) => { const id = Number(e.target.value); setSelectedPfId(id); setPfItems([]); setBody(""); }}
-                className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
-              >
-                {portfolios.map((pf: any) => (
-                  <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
-                ))}
-              </select>
-              {pfItems.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  <span className="text-2xs text-text-dim self-center">자동 태그:</span>
-                  {pfItems.map((item: any) => (
-                    <span key={item.id} className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue">#{item.symbol}</span>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* 제목 */}
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="제목 (선택사항)"
-        maxLength={100}
-        className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
-      />
-
-      {/* 본문 */}
-      <textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        placeholder={mode === "portfolio" ? "포트폴리오에 대한 설명을 입력하세요..." : "의견을 입력하세요..."}
-        maxLength={5000}
-        rows={4}
-        className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50 resize-none"
-      />
-
-      {/* 사진 미리보기 */}
-      {image && (
-        <div className="relative w-full">
-          <img src={image} alt="미리보기" className="w-full max-h-40 object-cover rounded-xl" />
-          <button onClick={() => setImage("")} className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors">
-            <X size={12} />
-          </button>
-        </div>
-      )}
-
-      {/* 투표 UI */}
-      {showPoll && (
-        <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-text-primary">투표 만들기</span>
-            <button onClick={() => setShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
-          </div>
-          <input
-            value={pollQuestion}
-            onChange={(e) => setPollQuestion(e.target.value)}
-            placeholder="투표 질문을 입력하세요"
-            maxLength={100}
-            className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
-          />
-          {pollOptions.map((opt, i) => (
-            <div key={i} className="flex gap-1.5">
-              <input
-                value={opt}
-                onChange={(e) => { const next = [...pollOptions]; next[i] = e.target.value; setPollOptions(next); }}
-                placeholder={`선택지 ${i + 1}`}
-                maxLength={50}
-                className="flex-1 px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
-              />
-              {pollOptions.length > 2 && (
-                <button onClick={() => setPollOptions((prev) => prev.filter((_, j) => j !== i))} className="text-text-dim hover:text-accent-red transition-colors">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-          ))}
-          {pollOptions.length < 4 && (
-            <button onClick={() => setPollOptions((prev) => [...prev, ""])} className="text-xs text-accent-blue hover:underline text-left">+ 옵션 추가</button>
-          )}
-        </div>
-      )}
-
-      {/* 태그 UI */}
-      {showTagSearch && (
-        <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-text-primary">종목 태그</span>
-            <button onClick={() => { setShowTagSearch(false); setTagQuery(""); setTagResults([]); }} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
-          </div>
-          {customTags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {customTags.map((t) => (
-                <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
-                  #{t.symbol}
-                  <button onClick={() => setCustomTags((prev) => prev.filter((x) => x.symbol !== t.symbol))}><X size={10} /></button>
+      <div className="p-4 flex flex-col gap-2.5">
+        {/* 종목 선택 */}
+        {mode === "stock" && (
+          <div className="relative" ref={searchRef}>
+            {selectedStock ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent-blue/15 border border-accent-blue/30 text-xs font-semibold text-accent-blue">
+                  <span className="text-text-dim">[{selectedStock.market}]</span>
+                  {selectedStock.symbol}
+                  {selectedStock.name && selectedStock.name !== selectedStock.symbol && (
+                    <span className="text-accent-blue/70 font-normal">{selectedStock.name}</span>
+                  )}
+                  <button onClick={() => setSelectedStock(null)} className="ml-0.5 hover:text-accent-red transition-colors">
+                    <X size={10} />
+                  </button>
                 </span>
-              ))}
-            </div>
-          )}
-          {customTags.length < 5 && (
-            <div className="relative">
-              <input
-                value={tagQuery}
-                onChange={(e) => handleTagSearch(e.target.value)}
-                placeholder="종목명 또는 심볼 검색..."
-                className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
-              />
-              {tagResults.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-lg max-h-36 overflow-y-auto">
-                  {tagResults.map((r: any, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => addCustomTag({ symbol: r.symbol, market: r.market })}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-bg-elevated transition-colors text-left"
-                    >
-                      <span className="font-semibold text-text-primary">{r.symbol}</span>
-                      <span className="text-text-dim">{r.name || r.market}</span>
-                    </button>
+                <span className="text-xs text-text-dim">에 대한 의견</span>
+              </div>
+            ) : (
+              <>
+                <input
+                  autoFocus
+                  value={searchQ}
+                  onChange={(e) => setSearchQ(e.target.value)}
+                  placeholder="종목 검색 (예: 삼성전자, AAPL)"
+                  className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+                />
+                {(searchResults.length > 0 || searching) && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-bg-card border border-border rounded-xl shadow-lg z-20 overflow-hidden">
+                    {searching && searchResults.length === 0 && <div className="px-3 py-2 text-xs text-text-dim">검색 중...</div>}
+                    {searchResults.map((r: any, i: number) => (
+                      <button
+                        key={i}
+                        onClick={() => { setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol }); setSearchQ(""); setSearchResults([]); }}
+                        className="w-full text-left px-3 py-2 hover:bg-bg-elevated transition-colors flex items-center gap-2"
+                      >
+                        <span className="text-2xs font-bold text-text-dim w-8">{r.market}</span>
+                        <span className="text-sm font-semibold text-text-primary">{r.symbol}</span>
+                        <span className="text-xs text-text-dim truncate flex-1">{r.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* 포트폴리오 선택 + 파이차트 미리보기 */}
+        {mode === "portfolio" && (
+          <div className="flex flex-col gap-2">
+            {loadingPf ? (
+              <p className="text-xs text-text-dim">포트폴리오 불러오는 중...</p>
+            ) : portfolios.length === 0 ? (
+              <p className="text-xs text-text-dim">등록된 포트폴리오가 없습니다</p>
+            ) : (
+              <>
+                <select
+                  value={selectedPfId ?? ""}
+                  onChange={(e) => { const id = Number(e.target.value); setSelectedPfId(id); setPfItems([]); }}
+                  className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
+                >
+                  {portfolios.map((pf: any) => (
+                    <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
                   ))}
-                </div>
-              )}
+                </select>
+                {pfPieData.length > 0 && (
+                  <div className="rounded-xl bg-bg-elevated p-3 flex flex-col gap-2">
+                    <ResponsiveContainer width="100%" height={130}>
+                      <PieChart>
+                        <Pie data={pfPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={52} innerRadius={22}
+                          isAnimationActive animationBegin={0} animationDuration={600} animationEasing="ease-out">
+                          {pfPieData.map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
+                          itemStyle={{ color: "#e2e8f0" }}
+                          labelStyle={{ color: "#94a3b8", display: "none" }}
+                          formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    {(() => {
+                      const total = pfPieData.reduce((s: number, d: any) => s + d.value, 0);
+                      return (
+                        <div className="flex flex-col gap-0.5">
+                          {pfPieData.map((entry: any, i: number) => {
+                            const pct = total > 0 ? (entry.value / total) * 100 : 0;
+                            return (
+                              <div key={entry.symbol} className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                                <span className="flex-1 text-2xs text-text-secondary truncate">{entry.name}</span>
+                                <span className="text-2xs font-mono font-semibold text-text-primary w-10 text-right">{pct.toFixed(1)}%</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* 아바타 + 입력 */}
+        <div className="flex gap-3">
+          <div className={`w-7 h-7 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${AVATAR_COLORS[myColorIndex]}`}>
+            {(username ?? "?")[0]?.toUpperCase()}
+          </div>
+          <div className="flex-1 flex flex-col gap-2">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="제목 (선택사항)"
+              maxLength={100}
+              className="w-full px-0 py-0 bg-transparent border-none text-sm font-semibold text-text-primary placeholder:text-text-dim focus:outline-none"
+            />
+            <div className="h-px bg-border/50" />
+            <textarea
+              ref={textareaRef}
+              value={body}
+              onChange={(e) => { setBody(e.target.value); autoResize(); }}
+              onFocus={() => { fetch(`${import.meta.env.VITE_API_URL || ""}/api/v1/dashboard/indices`).catch(() => {}); }}
+              placeholder={mode === "portfolio" ? "포트폴리오에 대한 설명을 입력하세요... (선택사항)" : "의견을 입력하세요..."}
+              maxLength={5000}
+              className="w-full px-0 py-0 bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
+              style={{ minHeight: "2.5rem" }}
+            />
+          </div>
+        </div>
+
+        {/* 사진 미리보기 */}
+        {image && (
+          <div className="relative w-full">
+            <img src={image} alt="미리보기" className="w-full max-h-40 object-cover rounded-xl" />
+            <button onClick={() => setImage("")} className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors">
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
+        {/* 투표 UI */}
+        {showPoll && (
+          <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-text-primary">투표 만들기</span>
+              <button onClick={() => setShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
             </div>
-          )}
-        </div>
-      )}
+            <input
+              value={pollQuestion}
+              onChange={(e) => setPollQuestion(e.target.value)}
+              placeholder="투표 질문을 입력하세요"
+              maxLength={100}
+              className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+            />
+            {pollOptions.map((opt, i) => (
+              <div key={i} className="flex gap-1.5">
+                <input
+                  value={opt}
+                  onChange={(e) => { const next = [...pollOptions]; next[i] = e.target.value; setPollOptions(next); }}
+                  placeholder={`선택지 ${i + 1}`}
+                  maxLength={50}
+                  className="flex-1 px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+                />
+                {pollOptions.length > 2 && (
+                  <button onClick={() => setPollOptions((prev) => prev.filter((_, j) => j !== i))} className="text-text-dim hover:text-accent-red transition-colors">
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {pollOptions.length < 4 && (
+              <button onClick={() => setPollOptions((prev) => [...prev, ""])} className="text-xs text-accent-blue hover:underline text-left">+ 옵션 추가</button>
+            )}
+          </div>
+        )}
 
-      {error && <p className="text-xs text-accent-red">{error}</p>}
+        {/* 태그 UI */}
+        {showTagSearch && (
+          <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-text-primary">종목 태그</span>
+              <button onClick={() => { setShowTagSearch(false); setTagQuery(""); setTagResults([]); }} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
+            </div>
+            {customTags.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {customTags.map((t) => (
+                  <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
+                    #{t.symbol}
+                    <button onClick={() => setCustomTags((prev) => prev.filter((x) => x.symbol !== t.symbol))}><X size={10} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {customTags.length < 5 && (
+              <div className="relative">
+                <input
+                  value={tagQuery}
+                  onChange={(e) => handleTagSearch(e.target.value)}
+                  placeholder="종목명 또는 심볼 검색..."
+                  className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+                />
+                {tagResults.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-lg max-h-36 overflow-y-auto">
+                    {tagResults.map((r: any, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => addCustomTag({ symbol: r.symbol, market: r.market })}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-bg-elevated transition-colors text-left"
+                      >
+                        <span className="font-semibold text-text-primary">{r.symbol}</span>
+                        <span className="text-text-dim">{r.name || r.market}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
-      {/* 툴바 + 제출 */}
-      <div className="flex items-center justify-between pt-1 border-t border-border/50">
-        <div className="flex items-center gap-1">
-          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
+        {error && <p className="text-xs text-accent-red">{error}</p>}
+
+        {/* 툴바 + 제출 */}
+        <div className="flex items-center justify-between pt-1 border-t border-border/50">
+          <div className="flex items-center gap-1">
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="사진 첨부"
+              className={`p-1.5 rounded-lg transition-all ${image ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+            >
+              <ImageIcon size={14} />
+            </button>
+            <button
+              onClick={() => setShowPoll((v) => !v)}
+              title="투표 만들기"
+              className={`p-1.5 rounded-lg transition-all ${showPoll ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+            >
+              <BarChart2 size={14} />
+            </button>
+            <button
+              onClick={() => setShowTagSearch((v) => !v)}
+              title="종목 태그"
+              className={`p-1.5 rounded-lg transition-all ${(showTagSearch || customTags.length > 0) ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+            >
+              <Hash size={14} />
+            </button>
+            <span className="text-2xs text-text-dim ml-1">{body.length}/5000</span>
+          </div>
           <button
-            onClick={() => fileInputRef.current?.click()}
-            title="사진 첨부"
-            className={`p-1.5 rounded-lg transition-all ${image ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+            onClick={handleSubmit}
+            disabled={!canSubmit || submitting}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
-            <ImageIcon size={14} />
+            <Send size={12} />
+            {submitting ? "등록 중..." : "의견 남기기"}
           </button>
-          <button
-            onClick={() => setShowPoll((v) => !v)}
-            title="투표 만들기"
-            className={`p-1.5 rounded-lg transition-all ${showPoll ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
-          >
-            <BarChart2 size={14} />
-          </button>
-          <button
-            onClick={() => setShowTagSearch((v) => !v)}
-            title="종목 태그"
-            className={`p-1.5 rounded-lg transition-all ${(showTagSearch || customTags.length > 0) ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
-          >
-            <Hash size={14} />
-          </button>
-          <span className="text-2xs text-text-dim ml-1">{body.length}/5000</span>
         </div>
-        <button
-          onClick={handleSubmit}
-          disabled={!canSubmit || submitting}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-        >
-          <Send size={12} />
-          {submitting ? "등록 중..." : "등록"}
-        </button>
       </div>
     </div>
   );
