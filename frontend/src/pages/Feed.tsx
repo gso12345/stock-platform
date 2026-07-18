@@ -2,10 +2,11 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
-  Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users,
+  Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users, Share2,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
+import PostDetailModal from "@/components/community/PostDetailModal";
 
 type SortType = "latest" | "likes";
 type MarketFilter = "ALL" | "KR" | "US" | "ETF";
@@ -71,12 +72,14 @@ function FeedCard({
   post,
   onLike,
   onVote,
+  onOpen,
   queryKey,
   qc,
 }: {
   post: FeedPost;
   onLike: (id: number) => void;
   onVote: (postId: number, optionIndex: number) => void;
+  onOpen: (post: FeedPost) => void;
   queryKey: any[];
   qc: ReturnType<typeof useQueryClient>;
 }) {
@@ -84,9 +87,26 @@ function FeedCard({
   const navigate = useNavigate();
   const badgeCls = MARKET_BADGE[post.market] ?? MARKET_BADGE.KR;
   const avatarCls = AVATAR_COLORS[post.avatar_color % AVATAR_COLORS.length];
+  const [copied, setCopied] = useState(false);
+
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}/stocks/${post.market}/${post.symbol}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
 
   return (
-    <div className="bg-bg-card border border-border rounded-2xl p-4 hover:border-border/80 transition-colors">
+    <div
+      className="bg-bg-card border border-border rounded-2xl p-4 hover:border-accent-blue/30 transition-colors cursor-pointer"
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
+        onOpen(post);
+      }}
+    >
       <div className="flex gap-3">
         {/* 아바타 */}
         <Link to={post.is_mine ? "/mypage" : `/profile/${post.user_id}`}>
@@ -214,8 +234,8 @@ function FeedCard({
               )}
             </button>
 
-            <Link
-              to={`/stocks/${post.market}/${post.symbol}`}
+            <button
+              onClick={() => onOpen(post)}
               className="flex items-center gap-1.5 text-xs text-text-dim hover:text-accent-blue transition-colors"
             >
               <MessageSquare size={12} />
@@ -224,7 +244,15 @@ function FeedCard({
               ) : (
                 <span className="opacity-60">댓글</span>
               )}
-            </Link>
+            </button>
+
+            <button
+              onClick={handleShare}
+              className="flex items-center gap-1.5 text-xs text-text-dim hover:text-text-primary transition-colors"
+            >
+              <Share2 size={12} />
+              <span className="opacity-60">{copied ? "복사됨!" : "공유"}</span>
+            </button>
 
             <Link
               to={`/stocks/${post.market}/${post.symbol}`}
@@ -247,6 +275,7 @@ export default function Feed() {
   const { isLoggedIn } = useAuthStore();
   const [feedType, setFeedType] = useState<FeedType>("all");
   const [sort, setSort] = useState<SortType>("latest");
+  const [selectedPost, setSelectedPost] = useState<FeedPost | null>(null);
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("ALL");
   const [page, setPage] = useState(1);
 
@@ -459,6 +488,7 @@ export default function Feed() {
                 post={post}
                 onLike={(id) => likeMutation.mutate(id)}
                 onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
+                onOpen={(p) => setSelectedPost(p)}
                 queryKey={queryKey}
                 qc={qc}
               />
@@ -513,6 +543,29 @@ export default function Feed() {
             총 {total.toLocaleString()}개의 게시글
           </p>
         </>
+      )}
+
+      {/* 게시글 상세 모달 */}
+      {selectedPost && (
+        <PostDetailModal
+          post={selectedPost}
+          onClose={() => { setSelectedPost(null); qc.invalidateQueries({ queryKey }); }}
+          onLikeToggled={(postId, liked, likeCount) => {
+            qc.setQueryData<any>(queryKey, (prev) =>
+              prev ? { ...prev, items: prev.items.map((p: FeedPost) =>
+                p.id === postId ? { ...p, liked, like_count: likeCount } : p
+              )} : prev
+            );
+            setSelectedPost((p) => p ? { ...p, liked, like_count: likeCount } : p);
+          }}
+          onVoteUpdated={(postId, counts, total, myVote) => {
+            qc.setQueryData<any>(queryKey, (prev) =>
+              prev ? { ...prev, items: prev.items.map((p: FeedPost) =>
+                p.id === postId && p.poll ? { ...p, poll: { ...p.poll, counts, total, my_vote: myVote } } : p
+              )} : prev
+            );
+          }}
+        />
       )}
     </div>
   );

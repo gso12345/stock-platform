@@ -9,6 +9,7 @@ import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
 import api from "@/api/client";
+import PostDetailModal from "./PostDetailModal";
 
 // ── 타입 ──────────────────────────────────────────────────────────
 interface PollData {
@@ -373,6 +374,7 @@ function PostCard({
   onDelete,
   onLike,
   onVote,
+  onOpen,
 }: {
   post: Post;
   uid?: number;
@@ -382,6 +384,7 @@ function PostCard({
   onDelete: (id: number) => void;
   onLike: (id: number) => void;
   onVote: (postId: number, optionIndex: number) => void;
+  onOpen: (post: Post) => void;
 }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -445,7 +448,13 @@ function PostCard({
   const truncated = isLong && !expanded;
 
   return (
-    <div className="bg-bg-card border border-border rounded-2xl p-4 hover:border-border/80 transition-colors">
+    <div
+      className="bg-bg-card border border-border rounded-2xl p-4 hover:border-accent-blue/30 transition-colors cursor-pointer"
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
+        onOpen(post);
+      }}
+    >
       <div className="flex gap-3">
         <Avatar
           username={post.username}
@@ -610,10 +619,8 @@ function PostCard({
             </button>
 
             <button
-              onClick={() => setShowComments((v) => !v)}
-              className={`flex items-center gap-1.5 text-xs transition-all ${
-                showComments ? "text-accent-blue" : "text-text-dim hover:text-accent-blue"
-              }`}
+              onClick={() => onOpen(post)}
+              className="flex items-center gap-1.5 text-xs text-text-dim hover:text-accent-blue transition-all"
             >
               <MessageSquare size={12} />
               {post.comment_count > 0 ? (
@@ -695,6 +702,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
 
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<"latest" | "likes">("latest");
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -1227,6 +1235,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
               onDelete={(id) => deleteMutation.mutate(id)}
               onLike={(id) => likeMutation.mutate(id)}
               onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
+              onOpen={(p) => setSelectedPost(p)}
             />
           ))}
         </div>
@@ -1274,6 +1283,29 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
             다음
           </button>
         </div>
+      )}
+
+      {/* 게시글 상세 모달 */}
+      {selectedPost && (
+        <PostDetailModal
+          post={selectedPost}
+          onClose={() => { setSelectedPost(null); invalidate(); }}
+          onLikeToggled={(postId, liked, likeCount) => {
+            qc.setQueryData<any>(key, (prev) =>
+              prev ? { ...prev, items: prev.items.map((p: Post) =>
+                p.id === postId ? { ...p, liked, like_count: likeCount } : p
+              )} : prev
+            );
+            setSelectedPost((p) => p ? { ...p, liked, like_count: likeCount } : p);
+          }}
+          onVoteUpdated={(postId, counts, total, myVote) => {
+            qc.setQueryData<any>(key, (prev) =>
+              prev ? { ...prev, items: prev.items.map((p: Post) =>
+                p.id === postId && p.poll ? { ...p, poll: { ...p.poll, counts, total, my_vote: myVote } } : p
+              )} : prev
+            );
+          }}
+        />
       )}
     </div>
   );
