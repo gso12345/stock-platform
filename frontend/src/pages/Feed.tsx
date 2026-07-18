@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users, Share2,
-  PenSquare, Hash, BarChart2, X,
+  PenSquare, Hash, BarChart2, X, Trash2, Image as ImageIcon, Send,
 } from "lucide-react";
 import { communityApi, portfolioApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
@@ -34,6 +34,29 @@ const MARKET_BADGE: Record<string, string> = {
   US:  "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
   ETF: "bg-purple-500/15 text-purple-400 border-purple-500/20",
 };
+
+async function compressImage(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const maxSize = 800;
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.7));
+    };
+    img.src = url;
+  });
+}
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -67,7 +90,7 @@ interface FeedPost {
   image: string;
   poll: PollData | null;
   tags: { symbol: string; market: string }[];
-  portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number }[] | null;
+  portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null }[] | null;
   like_count: number;
   comment_count: number;
   liked: boolean;
@@ -80,6 +103,7 @@ function FeedCard({
   onLike,
   onVote,
   onOpen,
+  onDelete,
   queryKey,
   qc,
 }: {
@@ -87,6 +111,7 @@ function FeedCard({
   onLike: (id: number) => void;
   onVote: (postId: number, optionIndex: number) => void;
   onOpen: (post: FeedPost) => void;
+  onDelete: (id: number) => void;
   queryKey: any[];
   qc: ReturnType<typeof useQueryClient>;
 }) {
@@ -135,7 +160,7 @@ function FeedCard({
             </Link>
             <span className="text-2xs text-text-dim">·</span>
             <span className="text-2xs text-text-dim">{timeAgo(post.created_at)}</span>
-            <span className="ml-auto flex items-center gap-1">
+            <span className="ml-auto flex items-center gap-1.5">
               <span className={`text-2xs font-bold px-1.5 py-0.5 rounded border ${badgeCls}`}>
                 {post.market}
               </span>
@@ -145,6 +170,14 @@ function FeedCard({
               >
                 {post.symbol}
               </Link>
+              {post.is_mine && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (confirm("게시글을 삭제할까요?")) onDelete(post.id); }}
+                  className="p-0.5 rounded text-text-dim hover:text-accent-red transition-colors"
+                >
+                  <Trash2 size={11} />
+                </button>
+              )}
             </span>
           </div>
 
@@ -227,7 +260,10 @@ function FeedCard({
 
           {/* 포트폴리오 원그래프 */}
           {post.portfolio && post.portfolio.length > 0 && (() => {
-            const pieData = post.portfolio.map((item) => ({ name: item.symbol, value: item.avg_price * item.shares }));
+            const pieData = post.portfolio.map((item) => {
+              const fx = item.currency === "USD" ? (item.input_exchange_rate ?? 1350) : 1;
+              return { symbol: item.symbol, name: item.name || item.symbol, market: item.market, value: (item.avg_price ?? 0) * fx * item.shares };
+            });
             const total = pieData.reduce((s, d) => s + d.value, 0);
             return (
               <div className="mb-2 p-3 bg-bg-elevated rounded-xl flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
@@ -249,9 +285,9 @@ function FeedCard({
                   {pieData.map((entry, i) => {
                     const pct = total > 0 ? (entry.value / total) * 100 : 0;
                     return (
-                      <div key={entry.name} className="flex items-center gap-1.5">
+                      <div key={entry.symbol} className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                        <span className="flex-1 text-2xs text-text-secondary truncate">{entry.name}</span>
+                        <Link to={`/stocks/${entry.market}/${entry.symbol}`} onClick={(e) => e.stopPropagation()} className="flex-1 text-2xs text-text-secondary hover:text-accent-blue truncate transition-colors">{entry.name}</Link>
                         <span className="text-2xs font-mono font-semibold text-text-primary w-10 text-right">{pct.toFixed(1)}%</span>
                         <span className="text-2xs font-mono text-text-muted text-right w-16 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
                       </div>
@@ -336,6 +372,18 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  // 사진/투표/태그
+  const [image, setImage] = useState("");
+  const [showPoll, setShowPoll] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [showTagSearch, setShowTagSearch] = useState(false);
+  const [tagQuery, setTagQuery] = useState("");
+  const [tagResults, setTagResults] = useState<any[]>([]);
+  const [customTags, setCustomTags] = useState<{ symbol: string; market: string }[]>([]);
+  const [tagSearchTimeout, setTagSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (mode === "portfolio" && portfolios.length === 0 && open) {
       setLoadingPf(true);
@@ -353,7 +401,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     portfolioApi.getItems(selectedPfId).then((items: any[]) => {
       setPfItems(items);
       if (items.length > 0) {
-        const lines = items.map((i: any) => `${i.symbol} (${i.market}) — ${i.shares}주`).join("\n");
+        const lines = items.map((i: any) => `${i.name || i.symbol} (${i.market}) — ${i.shares}주`).join("\n");
         setBody(`📊 포트폴리오 공유\n\n${lines}`);
       }
     });
@@ -394,6 +442,43 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     setTitle("");
     setBody("");
     setError("");
+    setImage("");
+    setShowPoll(false);
+    setPollQuestion("");
+    setPollOptions(["", ""]);
+    setShowTagSearch(false);
+    setTagQuery("");
+    setTagResults([]);
+    setCustomTags([]);
+  };
+
+  const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try { setImage(await compressImage(file)); } catch {}
+    e.target.value = "";
+  };
+
+  const handleTagSearch = (q: string) => {
+    setTagQuery(q);
+    if (tagSearchTimeout) clearTimeout(tagSearchTimeout);
+    if (!q.trim()) { setTagResults([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get("/search", { params: { q: q.trim(), limit: 10 } });
+        setTagResults(res.data?.results ?? res.data ?? []);
+      } catch { setTagResults([]); }
+    }, 300);
+    setTagSearchTimeout(t);
+  };
+
+  const addCustomTag = (tag: { symbol: string; market: string }) => {
+    if (customTags.length >= 5) return;
+    if (!customTags.find((t) => t.symbol === tag.symbol && t.market === tag.market)) {
+      setCustomTags((prev) => [...prev, { symbol: tag.symbol, market: tag.market }]);
+    }
+    setTagQuery("");
+    setTagResults([]);
   };
 
   const handleSubmit = async () => {
@@ -402,26 +487,41 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     const bodyTrim = body.trim();
     if (!bodyTrim) { setError("본문을 입력해주세요"); return; }
 
-    let market: string, symbol: string, tags: { symbol: string; market: string }[];
+    let market: string, symbol: string, allTags: { symbol: string; market: string }[];
 
     if (mode === "stock") {
       if (!selectedStock) { setError("종목을 선택해주세요"); return; }
       market = selectedStock.market;
       symbol = selectedStock.symbol;
-      tags = [];
+      allTags = customTags;
     } else {
       if (pfItems.length === 0) { setError("포트폴리오에 종목이 없습니다"); return; }
       market = pfItems[0].market;
       symbol = pfItems[0].symbol;
-      tags = pfItems.map((i: any) => ({ symbol: i.symbol, market: i.market }));
+      allTags = [
+        ...pfItems.map((i: any) => ({ symbol: i.symbol, market: i.market })),
+        ...customTags.filter((ct) => !pfItems.find((i: any) => i.symbol === ct.symbol)),
+      ];
     }
+
+    const pollData = showPoll && pollQuestion.trim() && pollOptions.filter((o) => o.trim()).length >= 2
+      ? { question: pollQuestion.trim(), options: pollOptions.filter((o) => o.trim()) }
+      : null;
 
     setSubmitting(true);
     try {
       const portfolioSnapshot = mode === "portfolio"
-        ? pfItems.map((i: any) => ({ symbol: i.symbol, market: i.market, name: i.name || i.symbol, shares: i.shares, avg_price: i.avg_price ?? 0 }))
+        ? pfItems.map((i: any) => ({
+            symbol: i.symbol,
+            market: i.market,
+            name: i.name || i.symbol,
+            shares: i.shares,
+            avg_price: i.avgPrice ?? i.avg_price ?? 0,
+            currency: i.currency ?? "KRW",
+            input_exchange_rate: i.inputExchangeRate ?? null,
+          }))
         : null;
-      await communityApi.createPost(market, symbol, title.trim(), bodyTrim, "", null, tags, portfolioSnapshot);
+      await communityApi.createPost(market, symbol, title.trim(), bodyTrim, image, pollData, allTags, portfolioSnapshot);
       reset();
       onSubmitted();
     } catch {
@@ -434,10 +534,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   if (!isLoggedIn) {
     return (
       <div className="bg-bg-card border border-border rounded-2xl p-4 text-center">
-        <button
-          onClick={() => navigate("/login")}
-          className="text-sm text-accent-blue hover:underline"
-        >
+        <button onClick={() => navigate("/login")} className="text-sm text-accent-blue hover:underline">
           로그인하고 의견 남기기 →
         </button>
       </div>
@@ -500,10 +597,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
                 {selectedStock.name && selectedStock.name !== selectedStock.symbol && (
                   <span className="text-accent-blue/70 font-normal">{selectedStock.name}</span>
                 )}
-                <button
-                  onClick={() => setSelectedStock(null)}
-                  className="ml-0.5 hover:text-accent-red transition-colors"
-                >
+                <button onClick={() => setSelectedStock(null)} className="ml-0.5 hover:text-accent-red transition-colors">
                   <X size={10} />
                 </button>
               </span>
@@ -520,17 +614,11 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
               />
               {(searchResults.length > 0 || searching) && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-bg-card border border-border rounded-xl shadow-lg z-20 overflow-hidden">
-                  {searching && searchResults.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-text-dim">검색 중...</div>
-                  )}
+                  {searching && searchResults.length === 0 && <div className="px-3 py-2 text-xs text-text-dim">검색 중...</div>}
                   {searchResults.map((r: any, i: number) => (
                     <button
                       key={i}
-                      onClick={() => {
-                        setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol });
-                        setSearchQ("");
-                        setSearchResults([]);
-                      }}
+                      onClick={() => { setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol }); setSearchQ(""); setSearchResults([]); }}
                       className="w-full text-left px-3 py-2 hover:bg-bg-elevated transition-colors flex items-center gap-2"
                     >
                       <span className="text-2xs font-bold text-text-dim w-8">{r.market}</span>
@@ -556,12 +644,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             <>
               <select
                 value={selectedPfId ?? ""}
-                onChange={(e) => {
-                  const id = Number(e.target.value);
-                  setSelectedPfId(id);
-                  setPfItems([]);
-                  setBody("");
-                }}
+                onChange={(e) => { const id = Number(e.target.value); setSelectedPfId(id); setPfItems([]); setBody(""); }}
                 className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
               >
                 {portfolios.map((pf: any) => (
@@ -572,9 +655,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
                 <div className="flex flex-wrap gap-1">
                   <span className="text-2xs text-text-dim self-center">자동 태그:</span>
                   {pfItems.map((item: any) => (
-                    <span key={item.id} className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue">
-                      #{item.symbol}
-                    </span>
+                    <span key={item.id} className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue">#{item.symbol}</span>
                   ))}
                 </div>
               )}
@@ -602,16 +683,131 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
         className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50 resize-none"
       />
 
+      {/* 사진 미리보기 */}
+      {image && (
+        <div className="relative w-full">
+          <img src={image} alt="미리보기" className="w-full max-h-40 object-cover rounded-xl" />
+          <button onClick={() => setImage("")} className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors">
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {/* 투표 UI */}
+      {showPoll && (
+        <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-text-primary">투표 만들기</span>
+            <button onClick={() => setShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
+          </div>
+          <input
+            value={pollQuestion}
+            onChange={(e) => setPollQuestion(e.target.value)}
+            placeholder="투표 질문을 입력하세요"
+            maxLength={100}
+            className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+          />
+          {pollOptions.map((opt, i) => (
+            <div key={i} className="flex gap-1.5">
+              <input
+                value={opt}
+                onChange={(e) => { const next = [...pollOptions]; next[i] = e.target.value; setPollOptions(next); }}
+                placeholder={`선택지 ${i + 1}`}
+                maxLength={50}
+                className="flex-1 px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+              />
+              {pollOptions.length > 2 && (
+                <button onClick={() => setPollOptions((prev) => prev.filter((_, j) => j !== i))} className="text-text-dim hover:text-accent-red transition-colors">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          ))}
+          {pollOptions.length < 4 && (
+            <button onClick={() => setPollOptions((prev) => [...prev, ""])} className="text-xs text-accent-blue hover:underline text-left">+ 옵션 추가</button>
+          )}
+        </div>
+      )}
+
+      {/* 태그 UI */}
+      {showTagSearch && (
+        <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-text-primary">종목 태그</span>
+            <button onClick={() => { setShowTagSearch(false); setTagQuery(""); setTagResults([]); }} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
+          </div>
+          {customTags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {customTags.map((t) => (
+                <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
+                  #{t.symbol}
+                  <button onClick={() => setCustomTags((prev) => prev.filter((x) => x.symbol !== t.symbol))}><X size={10} /></button>
+                </span>
+              ))}
+            </div>
+          )}
+          {customTags.length < 5 && (
+            <div className="relative">
+              <input
+                value={tagQuery}
+                onChange={(e) => handleTagSearch(e.target.value)}
+                placeholder="종목명 또는 심볼 검색..."
+                className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+              />
+              {tagResults.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-lg max-h-36 overflow-y-auto">
+                  {tagResults.map((r: any, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => addCustomTag({ symbol: r.symbol, market: r.market })}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-bg-elevated transition-colors text-left"
+                    >
+                      <span className="font-semibold text-text-primary">{r.symbol}</span>
+                      <span className="text-text-dim">{r.name || r.market}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {error && <p className="text-xs text-accent-red">{error}</p>}
 
-      {/* 액션 */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-text-dim">{body.length}/5000</span>
+      {/* 툴바 + 제출 */}
+      <div className="flex items-center justify-between pt-1 border-t border-border/50">
+        <div className="flex items-center gap-1">
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            title="사진 첨부"
+            className={`p-1.5 rounded-lg transition-all ${image ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+          >
+            <ImageIcon size={14} />
+          </button>
+          <button
+            onClick={() => setShowPoll((v) => !v)}
+            title="투표 만들기"
+            className={`p-1.5 rounded-lg transition-all ${showPoll ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+          >
+            <BarChart2 size={14} />
+          </button>
+          <button
+            onClick={() => setShowTagSearch((v) => !v)}
+            title="종목 태그"
+            className={`p-1.5 rounded-lg transition-all ${(showTagSearch || customTags.length > 0) ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+          >
+            <Hash size={14} />
+          </button>
+          <span className="text-2xs text-text-dim ml-1">{body.length}/5000</span>
+        </div>
         <button
           onClick={handleSubmit}
           disabled={!canSubmit || submitting}
-          className="px-5 py-1.5 text-xs bg-accent-blue text-white rounded-xl disabled:opacity-40 hover:bg-accent-blue/90 transition-colors font-semibold"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
+          <Send size={12} />
           {submitting ? "등록 중..." : "등록"}
         </button>
       </div>
@@ -689,6 +885,11 @@ export default function Feed() {
         };
       });
     },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (post: FeedPost) => communityApi.deletePost(post.market, post.symbol, post.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["feed"] }),
   });
 
   const changeSort = (s: SortType) => { setSort(s); setPage(1); };
@@ -844,6 +1045,7 @@ export default function Feed() {
                 onLike={(id) => likeMutation.mutate(id)}
                 onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
                 onOpen={(p) => setSelectedPost(p)}
+                onDelete={(id) => { const p = posts.find((x) => x.id === id); if (p) deleteMutation.mutate(p); }}
                 queryKey={queryKey}
                 qc={qc}
               />

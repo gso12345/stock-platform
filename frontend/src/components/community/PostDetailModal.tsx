@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, Heart, MessageSquare, Share2, Send } from "lucide-react";
+import { X, Heart, MessageSquare, Share2, Send, Trash2 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
@@ -28,7 +28,7 @@ export interface ModalPost {
     my_vote: number | null;
   } | null;
   tags: { symbol: string; market: string }[];
-  portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number }[] | null;
+  portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null }[] | null;
   like_count: number;
   comment_count: number;
   liked: boolean;
@@ -55,6 +55,7 @@ export interface PostDetailModalProps {
   onClose: () => void;
   onLikeToggled?: (postId: number, liked: boolean, likeCount: number) => void;
   onVoteUpdated?: (postId: number, counts: number[], total: number, myVote: number) => void;
+  onDeleted?: (postId: number) => void;
 }
 
 // ── 유틸 ──────────────────────────────────────────────────────────
@@ -239,7 +240,7 @@ function CommentItem({
 
 // ── 메인 모달 ─────────────────────────────────────────────────────
 export default function PostDetailModal({
-  post: initialPost, onClose, onLikeToggled, onVoteUpdated,
+  post: initialPost, onClose, onLikeToggled, onVoteUpdated, onDeleted,
 }: PostDetailModalProps) {
   const { isLoggedIn, userId } = useAuthStore();
   const navigate = useNavigate();
@@ -300,6 +301,15 @@ export default function PostDetailModal({
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("게시글을 삭제할까요?")) return;
+    try {
+      await communityApi.deletePost(post.market, post.symbol, post.id);
+      onDeleted?.(post.id);
+      onClose();
     } catch {}
   };
 
@@ -365,9 +375,18 @@ export default function PostDetailModal({
             >
               {post.symbol}
             </Link>
+            {post.is_mine && (
+              <button
+                onClick={handleDelete}
+                className="p-2 rounded-xl text-text-dim hover:text-accent-red hover:bg-accent-red/10 transition-all"
+                title="삭제"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
             <button
               onClick={onClose}
-              className="ml-2 p-2 rounded-xl text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all"
+              className="p-2 rounded-xl text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all"
             >
               <X size={16} />
             </button>
@@ -387,10 +406,10 @@ export default function PostDetailModal({
           </div>
 
           {post.portfolio && post.portfolio.length > 0 && (() => {
-            const pieData = post.portfolio.map((item) => ({
-              name: item.symbol,
-              value: item.avg_price * item.shares,
-            }));
+            const pieData = post.portfolio.map((item) => {
+              const fx = item.currency === "USD" ? (item.input_exchange_rate ?? 1350) : 1;
+              return { symbol: item.symbol, name: item.name || item.symbol, market: item.market, value: (item.avg_price ?? 0) * fx * item.shares };
+            });
             const total = pieData.reduce((s, d) => s + d.value, 0);
             return (
               <div className="p-4 bg-bg-elevated rounded-xl flex flex-col gap-3">
@@ -426,11 +445,11 @@ export default function PostDetailModal({
                   {pieData.map((entry, i) => {
                     const pct = total > 0 ? (entry.value / total) * 100 : 0;
                     return (
-                      <div key={entry.name} className="flex items-center gap-2 py-0.5">
+                      <div key={entry.symbol} className="flex items-center gap-2 py-0.5">
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                        <span className="flex-1 text-xs text-text-secondary truncate">{entry.name}</span>
+                        <Link to={`/stocks/${entry.market}/${entry.symbol}`} onClick={onClose} className="flex-1 text-xs text-text-secondary hover:text-accent-blue truncate transition-colors">{entry.name}</Link>
                         <span className="text-xs font-mono font-semibold text-text-primary w-10 text-right">{pct.toFixed(1)}%</span>
-                        <span className="text-xs font-mono text-text-muted text-right w-18 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
+                        <span className="text-xs font-mono text-text-muted text-right w-20 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
                       </div>
                     );
                   })}
