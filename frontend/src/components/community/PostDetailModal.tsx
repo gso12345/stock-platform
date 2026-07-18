@@ -525,12 +525,10 @@ export default function PostDetailModal({
               <span>{commentCount > 0 ? `댓글 ${commentCount}` : "댓글"}</span>
             </button>
 
-            {(post.view_count ?? 0) > 0 && (
-              <span className="flex items-center gap-1 text-sm text-text-dim">
-                <Eye size={13} />
-                <span>{post.view_count}</span>
-              </span>
-            )}
+            <span className="flex items-center gap-1 text-sm text-text-dim">
+              <Eye size={13} />
+              <span>{post.view_count ?? 0}</span>
+            </span>
 
             <button
               onClick={handleShare}

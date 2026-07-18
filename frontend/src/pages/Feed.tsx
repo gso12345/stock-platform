@@ -300,12 +300,10 @@ function FeedCard({
               <span className="opacity-60">{copied ? "복사됨!" : "공유"}</span>
             </button>
 
-            {(post.view_count ?? 0) > 0 && (
-              <span className="flex items-center gap-1 text-xs text-text-dim">
-                <Eye size={11} />
-                <span>{post.view_count}</span>
-              </span>
-            )}
+            <span className="flex items-center gap-1 text-xs text-text-dim">
+              <Eye size={11} />
+              <span>{post.view_count ?? 0}</span>
+            </span>
 
             <Link
               to={`/stocks/${post.market}/${post.symbol}`}
