@@ -1,10 +1,10 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from pydantic import BaseModel, field_validator, model_validator
 from typing import Literal, Optional
-from app.db.database import get_db
+from app.db.database import get_db, engine
 from fastapi import Body
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote
 from app.models.user import User
@@ -226,26 +226,34 @@ def list_posts(
 # ── 게시글 작성 ────────────────────────────────────────────────
 @router.post("/{market}/{symbol}/posts", status_code=201)
 def create_post(
-    body:   PostCreate,
-    market: Literal["KR", "US", "ETF"],
-    symbol: str = Path(..., pattern=_SYMBOL_RE),
-    db:     Session = Depends(get_db),
+    body:         PostCreate,
+    market:       Literal["KR", "US", "ETF"],
+    symbol:       str = Path(..., pattern=_SYMBOL_RE),
     current_user=Depends(require_user),
 ):
-    # commit 전에 current_user 값을 캡처 — commit 후 세션 내 모든 ORM 객체가
-    # expire되어 lazy-load가 발생하므로, 필요한 값을 미리 읽어둠.
-    uid_val      = current_user.id
-    uname_val    = current_user.username
-    sym_upper    = symbol.upper()
+    # admin/announcement과 동일하게 engine.connect() + raw SQL 사용.
+    # ORM 세션을 쓰면 commit 후 lazy-load가 발생해 Render 커넥션 풀 고갈로 500.
+    uid_val   = current_user.id
+    uname_val = current_user.username
+    sym_upper = symbol.upper()
+    content_val = encode_content(body.title, body.body, body.image, body.poll, body.tags)
 
-    post = StockPost(
-        symbol=sym_upper, market=market, user_id=uid_val,
-        content=encode_content(body.title, body.body, body.image, body.poll, body.tags),
-    )
-    db.add(post)
-    db.flush()   # INSERT 실행 → PK 확보
-    post_id = post.id
-    db.commit()
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    INSERT INTO stock_posts (symbol, market, user_id, content, like_count, comment_count, is_deleted)
+                    VALUES (:symbol, :market, :user_id, :content, 0, 0, false)
+                    RETURNING id
+                """),
+                {"symbol": sym_upper, "market": market, "user_id": uid_val, "content": content_val},
+            )
+            conn.commit()
+            row = result.fetchone()
+            post_id = row[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"글 등록 실패: {type(e).__name__}: {str(e)[:300]}")
+
     return {
         "id":            post_id,
         "symbol":        sym_upper,
