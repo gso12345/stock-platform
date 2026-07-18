@@ -328,7 +328,8 @@ def delete_post(
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     if post.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(403, "삭제 권한이 없습니다")
-    post.is_deleted = True
+    db.execute(text("DELETE FROM stock_post_poll_votes WHERE post_id = :pid"), {"pid": post_id})
+    db.delete(post)
     db.commit()
 
 
@@ -465,7 +466,7 @@ def delete_comment(
         raise HTTPException(404, "댓글을 찾을 수 없습니다")
     if c.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(403, "삭제 권한이 없습니다")
-    c.is_deleted = True
+    db.delete(c)
     db.commit()
 
 

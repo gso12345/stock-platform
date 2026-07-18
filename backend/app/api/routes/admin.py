@@ -312,7 +312,8 @@ def admin_delete_post(
     )
     if not post:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
-    post.is_deleted = True
+    db.execute(text("DELETE FROM stock_post_poll_votes WHERE post_id = :pid"), {"pid": post_id})
+    db.delete(post)
     db.commit()
     log.info(f"관리자가 게시글 삭제: post_id={post_id}")
 
