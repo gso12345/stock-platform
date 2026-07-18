@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
-import { communityApi, portfolioApi } from "@/api/stocks";
+import { communityApi, portfolioApi, dashboardApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { fmtKRWCompact } from "@/utils/formatters";
@@ -32,6 +32,204 @@ function timeAgo(iso: string) {
   const d = Math.floor(h / 24);
   if (d < 30) return `${d}일 전`;
   return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+}
+
+type PfViewMode = "account" | "type" | "all";
+
+function assetType(market: string, name?: string): string {
+  if (market === "ETF" || (name || "").toLowerCase().includes("etf")) return "ETF";
+  if (market === "KR") return "국내주식";
+  return "해외주식";
+}
+
+function DonutChart({ data, height = 160 }: { data: { name: string; value: number }[]; height?: number }) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <PieChart>
+        <Pie
+          data={data}
+          dataKey="value"
+          nameKey="name"
+          cx="50%"
+          cy="50%"
+          outerRadius={height / 2 - 12}
+          innerRadius={height / 2 - 36}
+          isAnimationActive
+          animationBegin={0}
+          animationDuration={600}
+          animationEasing="ease-out"
+        >
+          {data.map((_: any, i: number) => (
+            <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+          ))}
+        </Pie>
+        <Tooltip
+          contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
+          itemStyle={{ color: "#e2e8f0" }}
+          labelStyle={{ color: "#94a3b8", display: "none" }}
+          formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
+        />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+}
+
+function ItemLegend({ items, total }: { items: { symbol: string; name: string; market: string; value: number }[]; total: number }) {
+  return (
+    <div className="flex flex-col gap-1">
+      {items.map((entry, i) => {
+        const pct = total > 0 ? (entry.value / total) * 100 : 0;
+        return (
+          <div key={entry.symbol} className="flex items-center gap-2 py-0.5">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+            <Link to={`/stocks/${entry.market}/${entry.symbol}`} className="flex-1 text-xs text-text-secondary hover:text-accent-blue transition-colors truncate">
+              {entry.name}
+            </Link>
+            <span className="text-xs font-mono font-semibold text-text-primary w-12 text-right">{pct.toFixed(1)}%</span>
+            <span className="text-xs font-mono text-text-muted text-right w-20 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TypeLegend({ groups, total }: { groups: { label: string; value: number }[]; total: number }) {
+  return (
+    <div className="flex flex-col gap-1">
+      {groups.map((g, i) => {
+        const pct = total > 0 ? (g.value / total) * 100 : 0;
+        return (
+          <div key={g.label} className="flex items-center gap-2 py-0.5">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+            <span className="flex-1 text-xs text-text-secondary">{g.label}</span>
+            <span className="text-xs font-mono font-semibold text-text-primary w-12 text-right">{pct.toFixed(1)}%</span>
+            <span className="text-xs font-mono text-text-muted text-right w-20 hidden sm:block">{fmtKRWCompact(g.value)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PublicPortfolioSection({ portfolios, exchangeRate }: { portfolios: any[]; exchangeRate: number }) {
+  const [viewMode, setViewMode] = useState<PfViewMode>("account");
+  const [selectedPfId, setSelectedPfId] = useState<number>(portfolios[0]?.id ?? 0);
+
+  const pfItemsWithKRW = useMemo(() => {
+    return portfolios.map((pf: any) => ({
+      ...pf,
+      enriched: (pf.items || []).map((item: any) => {
+        const fx = item.currency === "USD" ? (item.inputExchangeRate ?? exchangeRate) : 1;
+        return {
+          symbol: item.symbol,
+          name: item.name || item.symbol,
+          market: item.market,
+          assetType: assetType(item.market, item.name),
+          value: (item.avgPrice ?? 0) * fx * item.shares,
+        };
+      }).sort((a: any, b: any) => b.value - a.value),
+    }));
+  }, [portfolios, exchangeRate]);
+
+  const allItems = useMemo(() => {
+    const combined: Record<string, { symbol: string; name: string; market: string; assetType: string; value: number }> = {};
+    pfItemsWithKRW.forEach((pf) => {
+      pf.enriched.forEach((item: any) => {
+        if (combined[item.symbol]) combined[item.symbol].value += item.value;
+        else combined[item.symbol] = { ...item };
+      });
+    });
+    return Object.values(combined).sort((a, b) => b.value - a.value);
+  }, [pfItemsWithKRW]);
+
+  const typeGroups = useMemo(() => {
+    const map: Record<string, number> = {};
+    allItems.forEach((item) => { map[item.assetType] = (map[item.assetType] ?? 0) + item.value; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+  }, [allItems]);
+
+  const selectedPf = pfItemsWithKRW.find((pf) => pf.id === selectedPfId) ?? pfItemsWithKRW[0];
+
+  const VIEW_TABS: { key: PfViewMode; label: string }[] = [
+    { key: "account", label: "계좌별" },
+    { key: "type", label: "자산유형별" },
+    { key: "all", label: "전체" },
+  ];
+
+  return (
+    <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-bold text-text-primary">공개 포트폴리오</h2>
+        <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-elevated">
+          {VIEW_TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setViewMode(t.key)}
+              className={`px-2.5 py-1 rounded-md text-2xs font-semibold transition-all ${viewMode === t.key ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 계좌별 */}
+      {viewMode === "account" && (
+        <div className="flex flex-col gap-4">
+          {portfolios.length > 1 && (
+            <div className="flex gap-1 flex-wrap">
+              {pfItemsWithKRW.map((pf) => (
+                <button
+                  key={pf.id}
+                  onClick={() => setSelectedPfId(pf.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${selectedPfId === pf.id ? "bg-accent-blue text-white" : "border border-border text-text-muted hover:text-text-primary"}`}
+                >
+                  {pf.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedPf?.enriched.length === 0 ? (
+            <p className="text-xs text-text-dim text-center py-4">종목 없음</p>
+          ) : (
+            <>
+              <DonutChart data={selectedPf?.enriched ?? []} />
+              <ItemLegend items={selectedPf?.enriched ?? []} total={(selectedPf?.enriched ?? []).reduce((s: number, d: any) => s + d.value, 0)} />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 자산유형별 */}
+      {viewMode === "type" && (
+        <div className="flex flex-col gap-3">
+          {typeGroups.length === 0 ? (
+            <p className="text-xs text-text-dim text-center py-4">종목 없음</p>
+          ) : (
+            <>
+              <DonutChart data={typeGroups} />
+              <TypeLegend groups={typeGroups} total={typeGroups.reduce((s, g) => s + g.value, 0)} />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 전체 */}
+      {viewMode === "all" && (
+        <div className="flex flex-col gap-3">
+          {allItems.length === 0 ? (
+            <p className="text-xs text-text-dim text-center py-4">종목 없음</p>
+          ) : (
+            <>
+              <DonutChart data={allItems} />
+              <ItemLegend items={allItems} total={allItems.reduce((s, d) => s + d.value, 0)} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 type FollowModalType = "followers" | "following" | null;
@@ -109,6 +307,19 @@ export default function UserProfile() {
     enabled: !!userId,
     staleTime: 120_000,
   });
+
+  const { data: usRatesData } = useQuery({
+    queryKey: ["dashboard-us-rates"],
+    queryFn: () => dashboardApi.getUSRates(),
+    staleTime: 300_000,
+  });
+  const exchangeRate: number = useMemo(() => {
+    if (Array.isArray(usRatesData)) {
+      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
+      if (row?.value) return row.value;
+    }
+    return 1350;
+  }, [usRatesData]);
 
   const followMutation = useMutation({
     mutationFn: () => communityApi.toggleFollow(userId),
@@ -240,77 +451,7 @@ export default function UserProfile() {
 
       {/* 공개 포트폴리오 */}
       {publicPortfolios && publicPortfolios.length > 0 && (
-        <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-4">
-          <h2 className="text-sm font-bold text-text-primary">공개 포트폴리오</h2>
-          {publicPortfolios.map((pf: any) => {
-            if (!pf.items || pf.items.length === 0) return (
-              <div key={pf.id}>
-                <p className="text-xs font-semibold text-text-secondary mb-1">{pf.name}</p>
-                <p className="text-xs text-text-dim">종목 없음</p>
-              </div>
-            );
-            const pieData = pf.items.map((item: any) => {
-              const fx = item.currency === "USD" ? (item.inputExchangeRate ?? 1350) : 1;
-              return {
-                symbol: item.symbol,
-                name: item.name || item.symbol,
-                market: item.market,
-                value: (item.avgPrice ?? 0) * fx * item.shares,
-              };
-            });
-            const total = pieData.reduce((s: number, d: any) => s + d.value, 0);
-            return (
-              <div key={pf.id} className="flex flex-col gap-3">
-                <p className="text-xs font-semibold text-text-secondary">{pf.name}</p>
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={62}
-                      innerRadius={26}
-                      isAnimationActive
-                      animationBegin={0}
-                      animationDuration={600}
-                      animationEasing="ease-out"
-                    >
-                      {pieData.map((_: any, i: number) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
-                      itemStyle={{ color: "#e2e8f0" }}
-                      labelStyle={{ color: "#94a3b8", display: "none" }}
-                      formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex flex-col gap-1">
-                  {pieData.map((entry: any, i: number) => {
-                    const pct = total > 0 ? (entry.value / total) * 100 : 0;
-                    return (
-                      <div key={entry.symbol} className="flex items-center gap-2 py-0.5">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                        <Link
-                          to={`/stocks/${entry.market}/${entry.symbol}`}
-                          className="flex-1 text-xs text-text-secondary hover:text-accent-blue transition-colors truncate"
-                        >
-                          {entry.name}
-                        </Link>
-                        <span className="text-xs font-mono font-semibold text-text-primary w-12 text-right">{pct.toFixed(1)}%</span>
-                        <span className="text-xs font-mono text-text-muted text-right w-20 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <PublicPortfolioSection portfolios={publicPortfolios} exchangeRate={exchangeRate} />
       )}
 
       {/* 최근 활동 */}

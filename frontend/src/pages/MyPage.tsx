@@ -1,11 +1,23 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
-import { communityApi, portfolioApi } from "@/api/stocks";
+import { communityApi, portfolioApi, dashboardApi } from "@/api/stocks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { User, Save, Palette, Globe, Lock, FileText, Users } from "lucide-react";
+import { User, Save, Palette, Globe, Lock, FileText, Users, BarChart2 } from "lucide-react";
 import PostDetailModal from "@/components/community/PostDetailModal";
 import type { ModalPost } from "@/components/community/PostDetailModal";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { fmtKRWCompact } from "@/utils/formatters";
+
+const PIE_COLORS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
+
+type MyPfViewMode = "account" | "type" | "all";
+
+function assetTypeMy(market: string, name?: string): string {
+  if (market === "ETF" || (name || "").toLowerCase().includes("etf")) return "ETF";
+  if (market === "KR") return "국내주식";
+  return "해외주식";
+}
 
 const AVATAR_COLORS_DISPLAY = [
   { label: "파랑", dot: "bg-blue-500",    ring: "bg-blue-500/20 text-blue-400 border-blue-500/30"    },
@@ -15,6 +27,197 @@ const AVATAR_COLORS_DISPLAY = [
   { label: "빨강", dot: "bg-rose-500",    ring: "bg-rose-500/20 text-rose-400 border-rose-500/30"    },
   { label: "하늘", dot: "bg-cyan-500",    ring: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"    },
 ];
+
+function MyPortfolioSection({
+  portfolios,
+  allItems,
+  exchangeRate,
+}: {
+  portfolios: any[];
+  allItems: any[];
+  exchangeRate: number;
+}) {
+  const [viewMode, setViewMode] = useState<MyPfViewMode>("account");
+  const [selectedPfId, setSelectedPfId] = useState<number>(portfolios[0]?.id ?? 0);
+
+  const pfItemsWithKRW = useMemo(() => {
+    return portfolios.map((pf: any) => {
+      const items = allItems.filter((i: any) => i.portfolioId === pf.id);
+      const enriched = items.map((item: any) => {
+        const fx = item.currency === "USD" ? (item.inputExchangeRate ?? exchangeRate) : 1;
+        return {
+          symbol: item.symbol,
+          name: item.name || item.symbol,
+          market: item.market,
+          assetType: assetTypeMy(item.market, item.name),
+          value: (item.avgPrice ?? 0) * fx * item.shares,
+        };
+      }).sort((a: any, b: any) => b.value - a.value);
+      return { ...pf, enriched };
+    });
+  }, [portfolios, allItems, exchangeRate]);
+
+  const allEnriched = useMemo(() => {
+    const combined: Record<string, { symbol: string; name: string; market: string; assetType: string; value: number }> = {};
+    pfItemsWithKRW.forEach((pf) => {
+      pf.enriched.forEach((item: any) => {
+        if (combined[item.symbol]) combined[item.symbol].value += item.value;
+        else combined[item.symbol] = { ...item };
+      });
+    });
+    return Object.values(combined).sort((a, b) => b.value - a.value);
+  }, [pfItemsWithKRW]);
+
+  const typeGroups = useMemo(() => {
+    const map: Record<string, number> = {};
+    allEnriched.forEach((item) => { map[item.assetType] = (map[item.assetType] ?? 0) + item.value; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+  }, [allEnriched]);
+
+  const selectedPf = pfItemsWithKRW.find((pf) => pf.id === selectedPfId) ?? pfItemsWithKRW[0];
+  const VIEW_TABS: { key: MyPfViewMode; label: string }[] = [
+    { key: "account", label: "계좌별" },
+    { key: "type", label: "자산유형별" },
+    { key: "all", label: "전체" },
+  ];
+
+  return (
+    <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <BarChart2 size={15} className="text-accent-blue" />
+          <h2 className="text-sm font-bold text-text-primary">내 포트폴리오</h2>
+        </div>
+        <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-elevated">
+          {VIEW_TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setViewMode(t.key)}
+              className={`px-2.5 py-1 rounded-md text-2xs font-semibold transition-all ${viewMode === t.key ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 계좌별 */}
+      {viewMode === "account" && (
+        <div className="flex flex-col gap-3">
+          {portfolios.length > 1 && (
+            <div className="flex gap-1 flex-wrap">
+              {pfItemsWithKRW.map((pf) => (
+                <button
+                  key={pf.id}
+                  onClick={() => setSelectedPfId(pf.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${selectedPfId === pf.id ? "bg-accent-blue text-white" : "border border-border text-text-muted hover:text-text-primary"}`}
+                >
+                  {pf.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedPf?.enriched.length === 0 ? (
+            <p className="text-xs text-text-dim text-center py-4">종목 없음</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={selectedPf?.enriched ?? []} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={68} innerRadius={28} isAnimationActive animationBegin={0} animationDuration={600} animationEasing="ease-out">
+                    {(selectedPf?.enriched ?? []).map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }} itemStyle={{ color: "#e2e8f0" }} labelStyle={{ display: "none" }} formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-1">
+                {(selectedPf?.enriched ?? []).map((entry: any, i: number) => {
+                  const total = (selectedPf?.enriched ?? []).reduce((s: number, d: any) => s + d.value, 0);
+                  const pct = total > 0 ? (entry.value / total) * 100 : 0;
+                  return (
+                    <div key={entry.symbol} className="flex items-center gap-2 py-0.5">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      <span className="flex-1 text-xs text-text-secondary truncate">{entry.name}</span>
+                      <span className="text-xs font-mono font-semibold text-text-primary w-12 text-right">{pct.toFixed(1)}%</span>
+                      <span className="text-xs font-mono text-text-muted text-right w-20 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 자산유형별 */}
+      {viewMode === "type" && (
+        <div className="flex flex-col gap-3">
+          {typeGroups.length === 0 ? (
+            <p className="text-xs text-text-dim text-center py-4">종목 없음</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={typeGroups} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={68} innerRadius={28} isAnimationActive animationBegin={0} animationDuration={600} animationEasing="ease-out">
+                    {typeGroups.map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }} itemStyle={{ color: "#e2e8f0" }} labelStyle={{ display: "none" }} formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-1">
+                {typeGroups.map((g, i) => {
+                  const total = typeGroups.reduce((s, x) => s + x.value, 0);
+                  const pct = total > 0 ? (g.value / total) * 100 : 0;
+                  return (
+                    <div key={g.label} className="flex items-center gap-2 py-0.5">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      <span className="flex-1 text-xs text-text-secondary">{g.label}</span>
+                      <span className="text-xs font-mono font-semibold text-text-primary w-12 text-right">{pct.toFixed(1)}%</span>
+                      <span className="text-xs font-mono text-text-muted text-right w-20 hidden sm:block">{fmtKRWCompact(g.value)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 전체 */}
+      {viewMode === "all" && (
+        <div className="flex flex-col gap-3">
+          {allEnriched.length === 0 ? (
+            <p className="text-xs text-text-dim text-center py-4">종목 없음</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={allEnriched} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={68} innerRadius={28} isAnimationActive animationBegin={0} animationDuration={600} animationEasing="ease-out">
+                    {allEnriched.map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }} itemStyle={{ color: "#e2e8f0" }} labelStyle={{ display: "none" }} formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-1">
+                {allEnriched.map((entry: any, i: number) => {
+                  const total = allEnriched.reduce((s, d) => s + d.value, 0);
+                  const pct = total > 0 ? (entry.value / total) * 100 : 0;
+                  return (
+                    <div key={entry.symbol} className="flex items-center gap-2 py-0.5">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      <span className="flex-1 text-xs text-text-secondary truncate">{entry.name}</span>
+                      <span className="text-xs font-mono font-semibold text-text-primary w-12 text-right">{pct.toFixed(1)}%</span>
+                      <span className="text-xs font-mono text-text-muted text-right w-20 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -54,6 +257,25 @@ export default function MyPage() {
     queryFn: portfolioApi.getPortfolios,
     enabled: isLoggedIn,
   });
+
+  const { data: allPortfolioItems } = useQuery({
+    queryKey: ["allPortfolioItems"],
+    queryFn: () => portfolioApi.getItems(undefined, true),
+    enabled: isLoggedIn,
+  });
+
+  const { data: usRatesData } = useQuery({
+    queryKey: ["dashboard-us-rates"],
+    queryFn: () => dashboardApi.getUSRates(),
+    staleTime: 300_000,
+  });
+  const exchangeRate: number = useMemo(() => {
+    if (Array.isArray(usRatesData)) {
+      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
+      if (row?.value) return row.value;
+    }
+    return 1350;
+  }, [usRatesData]);
 
   const { data: activity } = useQuery({
     queryKey: ["userActivity", userId],
@@ -274,6 +496,11 @@ export default function MyPage() {
             {updateMutation.isPending ? "저장 중..." : saved ? "저장됐습니다!" : "저장하기"}
           </button>
         </div>
+      )}
+
+      {/* 내 포트폴리오 차트 */}
+      {allPortfolioItems && allPortfolioItems.length > 0 && portfolios && portfolios.length > 0 && (
+        <MyPortfolioSection portfolios={portfolios} allItems={allPortfolioItems} exchangeRate={exchangeRate} />
       )}
 
       {/* 포트폴리오 공개 설정 */}
