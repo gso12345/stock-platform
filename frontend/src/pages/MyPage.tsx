@@ -93,11 +93,13 @@ export default function MyPage() {
 
   const pfForChart = useMemo(() => {
     if (!portfolios || !allPortfolioItems) return [];
-    return (portfolios as any[]).map((pf: any) => ({
-      id: pf.id,
-      name: pf.name,
-      items: (allPortfolioItems as any[]).filter((i: any) => i.portfolioId === pf.id),
-    }));
+    return (portfolios as any[])
+      .filter((pf: any) => pf.is_public)
+      .map((pf: any) => ({
+        id: pf.id,
+        name: pf.name,
+        items: (allPortfolioItems as any[]).filter((i: any) => i.portfolioId === pf.id),
+      }));
   }, [portfolios, allPortfolioItems]);
 
   useEffect(() => {

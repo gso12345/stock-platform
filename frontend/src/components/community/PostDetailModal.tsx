@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, Heart, MessageSquare, Share2, Send, Trash2 } from "lucide-react";
+import { X, Heart, MessageSquare, Share2, Send, Trash2, Eye } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
@@ -31,6 +31,7 @@ export interface ModalPost {
   portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null }[] | null;
   like_count: number;
   comment_count: number;
+  view_count?: number;
   liked: boolean;
   created_at: string;
   is_mine: boolean;
@@ -99,6 +100,71 @@ function Avatar({
     <Link to={isMine ? "/mypage" : `/profile/${userId}`} onClick={onNavigate}>
       {inner}
     </Link>
+  );
+}
+
+// ── 대댓글 아이템 ─────────────────────────────────────────────────
+function ReplyItem({ reply, postId, uid }: { reply: Comment; postId: number; uid?: number }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [liked, setLiked] = useState(reply.liked);
+  const [likeCount, setLikeCount] = useState(reply.like_count);
+  const { isLoggedIn } = useAuthStore();
+
+  const handleLike = async () => {
+    if (!isLoggedIn) { navigate("/login"); return; }
+    const prev = liked;
+    setLiked(v => !v);
+    setLikeCount(n => (liked ? n - 1 : n + 1));
+    try {
+      await communityApi.toggleCommentLike(reply.id);
+    } catch {
+      setLiked(prev);
+      setLikeCount(reply.like_count);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("대댓글을 삭제할까요?")) return;
+    try {
+      await communityApi.deleteComment(reply.id);
+      qc.invalidateQueries({ queryKey: ["modal-comments", postId] });
+    } catch {}
+  };
+
+  return (
+    <div className="flex gap-2">
+      <Avatar username={reply.username} colorIndex={reply.avatar_color} userId={reply.user_id} isMine={uid != null && reply.user_id === uid} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <Link
+            to={uid != null && reply.user_id === uid ? "/mypage" : `/profile/${reply.user_id}`}
+            className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
+          >
+            {reply.username}
+          </Link>
+          <span className="text-2xs text-text-dim">·</span>
+          <span className="text-2xs text-text-dim">{timeAgo(reply.created_at)}</span>
+        </div>
+        <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">
+          {reply.content}
+        </p>
+        <div className="flex items-center gap-3 mt-1">
+          <button
+            onClick={handleLike}
+            className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}
+          >
+            <Heart size={10} className={liked ? "fill-accent-red" : ""} />
+            {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
+          </button>
+          {reply.is_mine && (
+            <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">
+              삭제
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -212,38 +278,7 @@ function CommentItem({
         {comment.replies.length > 0 && (
           <div className="mt-2 flex flex-col gap-3 pl-3 border-l-2 border-border/50">
             {comment.replies.map((r) => (
-              <div key={r.id} className="flex gap-2">
-                <Avatar username={r.username} colorIndex={r.avatar_color} userId={r.user_id} isMine={uid != null && r.user_id === uid} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <Link
-                      to={uid != null && r.user_id === uid ? "/mypage" : `/profile/${r.user_id}`}
-                      className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
-                    >
-                      {r.username}
-                    </Link>
-                    <span className="text-2xs text-text-dim">·</span>
-                    <span className="text-2xs text-text-dim">{timeAgo(r.created_at)}</span>
-                  </div>
-                  <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">
-                    {r.content}
-                  </p>
-                  {r.is_mine && (
-                    <button
-                      onClick={async () => {
-                        if (!confirm("대댓글을 삭제할까요?")) return;
-                        try {
-                          await communityApi.deleteComment(r.id);
-                          qc.invalidateQueries({ queryKey: ["modal-comments", postId] });
-                        } catch {}
-                      }}
-                      className="mt-1 text-xs text-text-dim hover:text-accent-red transition-colors"
-                    >
-                      삭제
-                    </button>
-                  )}
-                </div>
-              </div>
+              <ReplyItem key={r.id} reply={r} postId={postId} uid={uid} />
             ))}
           </div>
         )}
@@ -423,7 +458,7 @@ export default function PostDetailModal({
             const pieData = post.portfolio.map((item) => {
               const fx = item.currency === "USD" ? (item.input_exchange_rate ?? 1350) : 1;
               return { symbol: item.symbol, name: item.name || item.symbol, market: item.market, value: (item.avg_price ?? 0) * fx * item.shares };
-            });
+            }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
             const total = pieData.reduce((s, d) => s + d.value, 0);
             return (
               <div className="p-4 bg-bg-elevated rounded-xl flex flex-col gap-3">
@@ -541,6 +576,13 @@ export default function PostDetailModal({
               <MessageSquare size={15} />
               <span>{commentCount > 0 ? `댓글 ${commentCount}` : "댓글"}</span>
             </button>
+
+            {(post.view_count ?? 0) > 0 && (
+              <span className="flex items-center gap-1 text-sm text-text-dim">
+                <Eye size={13} />
+                <span>{post.view_count}</span>
+              </span>
+            )}
 
             <button
               onClick={handleShare}

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users, Share2,
-  PenSquare, Hash, BarChart2, X, Trash2, Image as ImageIcon, Send, LogIn,
+  PenSquare, Hash, BarChart2, X, Trash2, Image as ImageIcon, Send, LogIn, Eye,
 } from "lucide-react";
 import { communityApi, portfolioApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
@@ -93,6 +93,7 @@ interface FeedPost {
   portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null }[] | null;
   like_count: number;
   comment_count: number;
+  view_count?: number;
   liked: boolean;
   created_at: string;
   is_mine: boolean;
@@ -263,7 +264,7 @@ function FeedCard({
             const pieData = post.portfolio.map((item) => {
               const fx = item.currency === "USD" ? (item.input_exchange_rate ?? 1350) : 1;
               return { symbol: item.symbol, name: item.name || item.symbol, market: item.market, value: (item.avg_price ?? 0) * fx * item.shares };
-            });
+            }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
             const total = pieData.reduce((s, d) => s + d.value, 0);
             return (
               <div className="mb-2 p-3 bg-bg-elevated rounded-xl flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
@@ -333,6 +334,13 @@ function FeedCard({
               <Share2 size={12} />
               <span className="opacity-60">{copied ? "복사됨!" : "공유"}</span>
             </button>
+
+            {(post.view_count ?? 0) > 0 && (
+              <span className="flex items-center gap-1 text-xs text-text-dim">
+                <Eye size={11} />
+                <span>{post.view_count}</span>
+              </span>
+            )}
 
             <Link
               to={`/stocks/${post.market}/${post.symbol}`}
@@ -486,11 +494,11 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     setTagResults([]);
   };
 
-  // Portfolio chart preview data (camelCase from API)
+  // Portfolio chart preview data — sorted by value (same as 내 자산)
   const pfPieData = pfItems.map((item: any) => {
     const fx = item.currency === "USD" ? (item.inputExchangeRate ?? 1350) : 1;
     return { name: item.name || item.symbol, symbol: item.symbol, value: (item.avgPrice ?? 0) * fx * item.shares };
-  }).filter(d => d.value > 0);
+  }).filter((d: any) => d.value > 0).sort((a: any, b: any) => b.value - a.value);
 
   // Avatar color from username (same algorithm as CommunityTab)
   const myColorIndex = (() => {
@@ -644,7 +652,12 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
                     {searchResults.map((r: any, i: number) => (
                       <button
                         key={i}
-                        onClick={() => { setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol }); setSearchQ(""); setSearchResults([]); }}
+                        onClick={() => {
+                          setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol });
+                          setSearchQ("");
+                          setSearchResults([]);
+                          setCustomTags(prev => prev.find(t => t.symbol === r.symbol && t.market === r.market) ? prev : [{ symbol: r.symbol, market: r.market }, ...prev]);
+                        }}
                         className="w-full text-left px-3 py-2 hover:bg-bg-elevated transition-colors flex items-center gap-2"
                       >
                         <span className="text-2xs font-bold text-text-dim w-8">{r.market}</span>

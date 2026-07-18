@@ -178,6 +178,7 @@ async def lifespan(application: FastAPI):
             with engine.connect() as _mc:
                 _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS like_count INTEGER NOT NULL DEFAULT 0"))
                 _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS comment_count INTEGER NOT NULL DEFAULT 0"))
+                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0"))
                 _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false"))
                 _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
                 _mc.commit()

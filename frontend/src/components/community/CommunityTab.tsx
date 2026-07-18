@@ -10,6 +10,10 @@ import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
 import api from "@/api/client";
 import PostDetailModal from "./PostDetailModal";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { fmtKRWCompact } from "@/utils/formatters";
+
+const PIE_COLORS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
 
 // ── 타입 ──────────────────────────────────────────────────────────
 interface PollData {
@@ -30,8 +34,10 @@ interface Post {
   image: string;
   poll: PollData | null;
   tags: { symbol: string; market: string }[];
+  portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null }[] | null;
   like_count: number;
   comment_count: number;
+  view_count?: number;
   liked: boolean;
   created_at: string;
   is_mine: boolean;
@@ -602,6 +608,46 @@ function PostCard({
             </div>
           )}
 
+          {/* 포트폴리오 차트 */}
+          {post.portfolio && post.portfolio.length > 0 && (() => {
+            const pieData = post.portfolio.map((item) => {
+              const fx = item.currency === "USD" ? (item.input_exchange_rate ?? 1350) : 1;
+              return { symbol: item.symbol, name: item.name || item.symbol, market: item.market, value: (item.avg_price ?? 0) * fx * item.shares };
+            }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
+            const total = pieData.reduce((s, d) => s + d.value, 0);
+            return (
+              <div className="mb-2 p-3 bg-bg-elevated rounded-xl flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                <ResponsiveContainer width="100%" height={130}>
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={52} innerRadius={22}
+                      isAnimationActive animationBegin={0} animationDuration={600} animationEasing="ease-out">
+                      {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
+                      itemStyle={{ color: "#e2e8f0" }}
+                      labelStyle={{ color: "#94a3b8", display: "none" }}
+                      formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex flex-col gap-0.5">
+                  {pieData.map((entry, i) => {
+                    const pct = total > 0 ? (entry.value / total) * 100 : 0;
+                    return (
+                      <div key={entry.symbol} className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                        <Link to={`/stocks/${entry.market}/${entry.symbol}`} onClick={(e) => e.stopPropagation()} className="flex-1 text-2xs text-text-secondary hover:text-accent-blue truncate transition-colors">{entry.name}</Link>
+                        <span className="text-2xs font-mono font-semibold text-text-primary w-10 text-right">{pct.toFixed(1)}%</span>
+                        <span className="text-2xs font-mono text-text-muted text-right w-16 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* 액션 버튼 */}
           <div className="flex items-center gap-3">
             <button
@@ -719,12 +765,13 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   const [showTagSearch, setShowTagSearch] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const [tagResults, setTagResults] = useState<StockTag[]>([]);
-  const [tags, setTags] = useState<StockTag[]>([]);
+  const [tags, setTags] = useState<StockTag[]>([{ symbol, market }]);
   const [tagSearchTimeout, setTagSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setPage(1);
-  }, [symbol]);
+    setTags([{ symbol, market }]);
+  }, [symbol, market]);
 
   const key = ["community", market, symbol, page, sort];
 
@@ -841,7 +888,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
     setPollOptions(["", ""]);
     setShowTagSearch(false);
     setTagQuery("");
-    setTags([]);
+    setTags([{ symbol, market }]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 

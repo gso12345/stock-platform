@@ -106,6 +106,7 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "portfolio":     parsed.get("portfolio"),
         "like_count":    getattr(post, "like_count", 0) or 0,
         "comment_count": comment_counts.get(post.id, 0) if comment_counts is not None else 0,
+        "view_count":    getattr(post, "view_count", 0) or 0,
         "liked":         liked,
         "created_at":    post.created_at.isoformat(),
         "is_mine":       post.user_id == uid if uid else False,
@@ -384,6 +385,12 @@ def get_post(
     )
     if not post:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    # 조회수 증가
+    try:
+        db.execute(text("UPDATE stock_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :id"), {"id": post_id})
+        db.commit()
+    except Exception:
+        db.rollback()
     profile = get_profile(db, post.user_id) if post.user else None
     count_row = db.execute(
         text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted = false"),
