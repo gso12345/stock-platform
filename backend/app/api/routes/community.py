@@ -1,6 +1,6 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, defer
 from sqlalchemy import func, text
 from pydantic import BaseModel, field_validator, model_validator
 from typing import Literal, Optional
@@ -62,7 +62,9 @@ def display_name(user, profile: Optional[UserProfile]) -> str:
     return user.username if user else "알 수 없음"
 
 # ── 직렬화 ────────────────────────────────────────────────────
-def _ser_post(post: StockPost, uid: Optional[int], db: Session, profiles_map: Optional[dict] = None) -> dict:
+def _ser_post(post: StockPost, uid: Optional[int], db: Session,
+              profiles_map: Optional[dict] = None,
+              comment_counts: Optional[dict] = None) -> dict:
     liked  = any(lk.user_id == uid for lk in post.likes) if uid else False
     parsed = decode_content(post.content)
     profile = profiles_map.get(post.user_id) if profiles_map is not None else (
@@ -99,8 +101,8 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session, profiles_map: Op
         "image":         parsed.get("image", ""),
         "poll":          poll_data,
         "tags":          parsed.get("tags", []),
-        "like_count":    post.like_count,
-        "comment_count": post.comment_count,
+        "like_count":    getattr(post, "like_count", 0) or 0,
+        "comment_count": comment_counts.get(post.id, 0) if comment_counts is not None else 0,
         "liked":         liked,
         "created_at":    post.created_at.isoformat(),
         "is_mine":       post.user_id == uid if uid else False,
@@ -217,16 +219,38 @@ def list_posts(
     else:
         q = q.order_by(StockPost.created_at.desc())
 
-    # selectinload로 likes/user를 한 번에 일괄 조회 → N+1 방지
+    # defer: DB에 없는 컬럼은 SELECT 제외 → 쿼리 실패 방지
+    # selectinload: likes/user 일괄 조회 → N+1 제거
     posts = (
-        q.options(selectinload(StockPost.likes), selectinload(StockPost.user))
+        q.options(
+            defer(StockPost.comment_count),
+            defer(StockPost.updated_at),
+            selectinload(StockPost.likes),
+            selectinload(StockPost.user),
+        )
         .offset((page - 1) * limit)
         .limit(limit)
         .all()
     )
+    post_ids = [p.id for p in posts]
     user_ids = list({p.user_id for p in posts})
-    profiles_map = {up.user_id: up for up in db.query(UserProfile).filter(UserProfile.user_id.in_(user_ids)).all()} if user_ids else {}
-    return {"total": total, "page": page, "items": [_ser_post(p, uid, db, profiles_map) for p in posts]}
+
+    profiles_map = (
+        {up.user_id: up for up in db.query(UserProfile).filter(UserProfile.user_id.in_(user_ids)).all()}
+        if user_ids else {}
+    )
+    # 댓글 수 일괄 집계 (comment_count 컬럼 불사용)
+    comment_counts: dict = {}
+    if post_ids:
+        rows = db.execute(
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted = false GROUP BY post_id"),
+            {"ids": post_ids},
+        ).fetchall()
+        comment_counts = {r[0]: r[1] for r in rows}
+
+    return {"total": total, "page": page, "items": [
+        _ser_post(p, uid, db, profiles_map, comment_counts) for p in posts
+    ]}
 
 
 # ── 게시글 작성 ────────────────────────────────────────────────
