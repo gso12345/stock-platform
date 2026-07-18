@@ -249,10 +249,15 @@ export default function UserProfile() {
                 <p className="text-xs text-text-dim">종목 없음</p>
               </div>
             );
-            const pieData = pf.items.map((item: any) => ({
-              name: item.symbol,
-              value: (item.avgPrice ?? item.avg_price ?? 0) * item.shares,
-            }));
+            const pieData = pf.items.map((item: any) => {
+              const fx = item.currency === "USD" ? (item.inputExchangeRate ?? 1350) : 1;
+              return {
+                symbol: item.symbol,
+                name: item.name || item.symbol,
+                market: item.market,
+                value: (item.avgPrice ?? 0) * fx * item.shares,
+              };
+            });
             const total = pieData.reduce((s: number, d: any) => s + d.value, 0);
             return (
               <div key={pf.id} className="flex flex-col gap-3">
@@ -288,10 +293,10 @@ export default function UserProfile() {
                   {pieData.map((entry: any, i: number) => {
                     const pct = total > 0 ? (entry.value / total) * 100 : 0;
                     return (
-                      <div key={entry.name} className="flex items-center gap-2 py-0.5">
+                      <div key={entry.symbol} className="flex items-center gap-2 py-0.5">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
                         <Link
-                          to={`/stocks/${pf.items[i].market}/${entry.name}`}
+                          to={`/stocks/${entry.market}/${entry.symbol}`}
                           className="flex-1 text-xs text-text-secondary hover:text-accent-blue transition-colors truncate"
                         >
                           {entry.name}
