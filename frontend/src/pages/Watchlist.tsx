@@ -892,7 +892,7 @@ export default function Watchlist() {
   });
 
   // 선택된 포트폴리오 탭의 보유종목
-  const { data: pfTabItems = [] } = useQuery({
+  const { data: pfTabItems = [], isLoading: pfTabLoading } = useQuery({
     queryKey: ["portfolio-tab-items", portfolioTab],
     queryFn: () => portfolioApi.getItems(portfolioTab ?? undefined),
     enabled: isLoggedIn && portfolioTab !== null && portfolioTab > 0,
@@ -1535,7 +1535,11 @@ export default function Watchlist() {
             </span>
             <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{pfTabDeduped.length}</span>
           </div>
-          {pfTabDeduped.length === 0 ? (
+          {pfTabLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+            </div>
+          ) : pfTabDeduped.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-4 py-8">
               <Wallet size={24} className="text-text-muted/40" />
               <p className="text-text-muted text-xs">이 포트폴리오에 보유종목이 없습니다</p>

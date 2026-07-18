@@ -264,7 +264,7 @@ export default function PostDetailModal({
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const { data: comments, refetch: refetchComments } = useQuery<Comment[]>({
+  const { data: comments, isLoading: commentsLoading, refetch: refetchComments } = useQuery<Comment[]>({
     queryKey: ["modal-comments", post.id],
     queryFn: () => communityApi.getComments(post.id),
     staleTime: 30_000,
@@ -520,7 +520,11 @@ export default function PostDetailModal({
 
           {/* 댓글 목록 */}
           <div className="flex flex-col gap-4 pb-2">
-            {comments && comments.length > 0 ? (
+            {commentsLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+              </div>
+            ) : comments && comments.length > 0 ? (
               comments.map((c) => (
                 <CommentItem
                   key={c.id}
