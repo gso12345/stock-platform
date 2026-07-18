@@ -203,7 +203,10 @@ PYKRX_INDEX_MARKET = {
 }
 PYKRX_INDEX_NAME = {
     "KOSPI": "코스피", "KOSPI200": "코스피200",
-    "KOSDAQ": "코스닥지수", "KOSDAQ150": "코스닥150",
+    "KOSDAQ": "코스닥지수", "KOSDAQ150": "코스닥 150",
+}
+PYKRX_INDEX_NAME_ALIASES = {
+    "KOSDAQ150": ["코스닥 150", "코스닥150", "코스닥 150 지수"],
 }
 
 
@@ -218,9 +221,11 @@ def fetch_pykrx_index(name: str) -> dict | None:
         from pykrx import stock as pkrx
         import datetime as dt
 
+        aliases = [target_name] + PYKRX_INDEX_NAME_ALIASES.get(name, [])
         ticker = None
         for t in pkrx.get_index_ticker_list(market=market):
-            if pkrx.get_index_ticker_name(t) == target_name:
+            t_name = pkrx.get_index_ticker_name(t)
+            if t_name in aliases:
                 ticker = t
                 break
         if not ticker:
@@ -265,9 +270,11 @@ def fetch_pykrx_index_ohlcv(name: str, period: str = "1y") -> list:
         from pykrx import stock as pkrx
         import datetime as dt
 
+        aliases = [target_name] + PYKRX_INDEX_NAME_ALIASES.get(name, [])
         ticker = None
         for t in pkrx.get_index_ticker_list(market=market):
-            if pkrx.get_index_ticker_name(t) == target_name:
+            t_name = pkrx.get_index_ticker_name(t)
+            if t_name in aliases:
                 ticker = t
                 break
         if not ticker:
