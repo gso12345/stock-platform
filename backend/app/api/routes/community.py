@@ -242,8 +242,8 @@ def create_post(
         with engine.connect() as conn:
             result = conn.execute(
                 text("""
-                    INSERT INTO stock_posts (symbol, market, user_id, content, like_count, comment_count, is_deleted)
-                    VALUES (:symbol, :market, :user_id, :content, 0, 0, false)
+                    INSERT INTO stock_posts (symbol, market, user_id, content)
+                    VALUES (:symbol, :market, :user_id, :content)
                     RETURNING id
                 """),
                 {"symbol": sym_upper, "market": market, "user_id": uid_val, "content": content_val},
