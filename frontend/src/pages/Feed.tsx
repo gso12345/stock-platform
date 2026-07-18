@@ -305,12 +305,14 @@ function FeedCard({
               <span>{post.view_count ?? 0}</span>
             </span>
 
-            <Link
-              to={`/stocks/${post.market}/${post.symbol}`}
-              className="ml-auto text-2xs text-text-dim hover:text-accent-blue transition-colors"
-            >
-              종목 보기 →
-            </Link>
+            {!(post.portfolio && post.portfolio.length > 0) && (
+              <Link
+                to={`/stocks/${post.market}/${post.symbol}`}
+                className="ml-auto text-2xs text-text-dim hover:text-accent-blue transition-colors"
+              >
+                종목 보기 →
+              </Link>
+            )}
           </div>
         </div>
       </div>
@@ -806,15 +808,13 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             >
               <BarChart2 size={14} />
             </button>
-            {mode !== "portfolio" && (
-              <button
-                onClick={() => setShowTagSearch((v) => !v)}
-                title="종목 태그"
-                className={`p-1.5 rounded-lg transition-all ${(showTagSearch || customTags.length > 0) ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
-              >
-                <Hash size={14} />
-              </button>
-            )}
+            <button
+              onClick={() => setShowTagSearch((v) => !v)}
+              title="종목 태그"
+              className={`p-1.5 rounded-lg transition-all ${(showTagSearch || customTags.length > 0) ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
+            >
+              <Hash size={14} />
+            </button>
             <span className="text-2xs text-text-dim ml-1">{body.length}/5000</span>
           </div>
           <button
