@@ -7,11 +7,16 @@ import {
   Users, BarChart2, Megaphone, Trash2, ToggleLeft, ToggleRight,
   ShieldCheck, RefreshCw, Activity, Database, Star, CheckCircle,
   TrendingUp, Zap, Clock, Folder, Wifi, Eye, Search, X as XIcon,
+  MessageSquare, Heart,
 } from "lucide-react";
 
 const adminApi = {
   getStats:        () => api.get("/admin/stats").then(r => r.data),
   getUsers:        () => api.get("/admin/users").then(r => r.data),
+  getCommunityPosts: (page = 1, market?: string) =>
+    api.get("/admin/community/posts", { params: { page, limit: 20, ...(market && market !== "ALL" ? { market } : {}) } }).then(r => r.data),
+  deleteCommunityPost: (id: number) =>
+    api.delete(`/admin/community/posts/${id}`).then(r => r.data),
   getPopular:      (basis: string) => api.get(`/admin/popular-stocks?basis=${basis}`).then(r => r.data),
   getSignups:        () => api.get("/admin/signups").then(r => r.data),
   getVisitorTrend:   () => api.get("/admin/visitor-trend").then(r => r.data),
@@ -26,7 +31,7 @@ const adminApi = {
   setAnnouncement: (text: string) => api.post("/admin/announcement", { text }).then(r => r.data),
 };
 
-type Tab = "dashboard" | "users" | "announcement" | "cache";
+type Tab = "dashboard" | "users" | "community" | "announcement" | "cache";
 
 export default function Admin() {
   const { isAdmin, username } = useAuthStore();
@@ -48,10 +53,11 @@ export default function Admin() {
   }
 
   const TABS: { id: Tab; Icon: any; label: string }[] = [
-    { id: "dashboard",    Icon: BarChart2, label: "대시보드" },
-    { id: "users",        Icon: Users,     label: "유저 관리" },
-    { id: "cache",        Icon: Database,  label: "캐시" },
-    { id: "announcement", Icon: Megaphone, label: "공지사항" },
+    { id: "dashboard",    Icon: BarChart2,     label: "대시보드" },
+    { id: "users",        Icon: Users,         label: "유저 관리" },
+    { id: "community",    Icon: MessageSquare, label: "커뮤니티" },
+    { id: "cache",        Icon: Database,      label: "캐시" },
+    { id: "announcement", Icon: Megaphone,     label: "공지사항" },
   ];
 
   return (
@@ -90,6 +96,7 @@ export default function Admin() {
 
       {tab === "dashboard"    && <DashboardTab qc={qc} />}
       {tab === "users"        && <UsersTab qc={qc} />}
+      {tab === "community"    && <CommunityAdminTab qc={qc} />}
       {tab === "cache"        && <CacheTab qc={qc} />}
       {tab === "announcement" && <AnnouncementTab annoText={annoText} setAnnoText={setAnnoText} qc={qc} />}
     </div>
@@ -118,6 +125,8 @@ function DashboardTab({ qc }: { qc: any }) {
     { label: "관심종목 수",  value: stats?.watchlist_items   ?? 0, color: "text-accent-yellow", bg: "bg-accent-yellow/8", Icon: Star },
     { label: "관심종목 폴더", value: stats?.watchlist_folders ?? 0, color: "text-amber-400",    bg: "bg-amber-400/8",     Icon: Folder },
     { label: "포트폴리오 수", value: stats?.portfolio_items  ?? 0, color: "text-purple-400",    bg: "bg-purple-400/8",    Icon: TrendingUp },
+    { label: "커뮤니티 글",  value: stats?.total_posts       ?? 0, color: "text-rose-400",      bg: "bg-rose-400/8",      Icon: MessageSquare },
+    { label: "커뮤니티 댓글", value: stats?.total_comments   ?? 0, color: "text-pink-400",      bg: "bg-pink-400/8",      Icon: Heart },
   ];
 
   const signupData: { date: string; count: number }[] = signups ?? [];
@@ -372,6 +381,174 @@ function DashboardTab({ qc }: { qc: any }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── 커뮤니티 관리 탭 ─────────────────────────── */
+const MARKET_COLOR_MAP: Record<string, string> = {
+  KR:  "bg-accent-blue/15 text-accent-blue",
+  US:  "bg-accent-green/15 text-accent-green",
+  ETF: "bg-purple-400/15 text-purple-400",
+};
+
+function CommunityAdminTab({ qc }: { qc: any }) {
+  const [page, setPage] = useState(1);
+  const [marketFilter, setMarketFilter] = useState("ALL");
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["admin-community-posts", page, marketFilter],
+    queryFn: () => adminApi.getCommunityPosts(page, marketFilter),
+    staleTime: 30_000,
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => adminApi.deleteCommunityPost(id),
+    onSuccess: () => {
+      setConfirmDelete(null);
+      qc.invalidateQueries({ queryKey: ["admin-community-posts"] });
+      qc.invalidateQueries({ queryKey: ["admin-stats"] });
+      refetch();
+    },
+  });
+
+  const posts: any[] = data?.items ?? [];
+  const total: number = data?.total ?? 0;
+  const totalPages = Math.ceil(total / 20);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* 필터 헤더 */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card">
+          {(["ALL", "KR", "US", "ETF"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => { setMarketFilter(m); setPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                marketFilter === m ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              {m === "ALL" ? "전체" : m}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-text-dim ml-auto">총 {total.toLocaleString()}개</span>
+        <button onClick={() => refetch()} className="p-1 text-text-muted hover:text-text-primary transition-colors">
+          <RefreshCw size={13} />
+        </button>
+      </div>
+
+      {/* 테이블 */}
+      <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-text-muted text-xs">
+                  <th className="text-left px-4 py-3 font-medium">ID</th>
+                  <th className="text-left px-3 py-3 font-medium">작성자</th>
+                  <th className="text-left px-3 py-3 font-medium hidden md:table-cell">종목</th>
+                  <th className="text-left px-3 py-3 font-medium">내용</th>
+                  <th className="text-center px-3 py-3 font-medium hidden sm:table-cell">좋아요</th>
+                  <th className="text-center px-3 py-3 font-medium hidden lg:table-cell">작성일</th>
+                  <th className="text-center px-3 py-3 font-medium">삭제</th>
+                </tr>
+              </thead>
+              <tbody>
+                {posts.map((p) => (
+                  <tr key={p.id} className="border-b border-border/30 hover:bg-bg-hover transition-colors">
+                    <td className="px-4 py-3 font-mono text-text-muted text-xs">{p.id}</td>
+                    <td className="px-3 py-3">
+                      <Link
+                        to={`/profile/${p.user_id}`}
+                        className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
+                      >
+                        {p.username}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-3 hidden md:table-cell">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[10px] font-bold px-1.5 py-px rounded ${MARKET_COLOR_MAP[p.market] ?? "bg-bg-secondary text-text-muted"}`}>
+                          {p.market}
+                        </span>
+                        <span className="text-xs font-mono text-text-muted">{p.symbol}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 max-w-[200px] lg:max-w-xs">
+                      <p className="text-xs text-text-secondary truncate">{p.title || p.body || "—"}</p>
+                    </td>
+                    <td className="px-3 py-3 text-center hidden sm:table-cell">
+                      <div className="flex items-center justify-center gap-1 text-text-muted">
+                        <Heart size={11} />
+                        <span className="text-xs font-mono">{p.like_count}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-center hidden lg:table-cell">
+                      <span className="text-xs text-text-muted font-mono">{p.created_at.slice(0, 10)}</span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {confirmDelete === p.id ? (
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => deleteMut.mutate(p.id)}
+                            disabled={deleteMut.isPending}
+                            className="text-[11px] text-accent-red font-semibold hover:underline"
+                          >
+                            {deleteMut.isPending ? "..." : "삭제"}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            className="text-[11px] text-text-muted hover:underline"
+                          >
+                            취소
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDelete(p.id)}
+                          className="text-text-muted hover:text-accent-red transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {posts.length === 0 && (
+              <div className="py-12 text-center text-text-muted text-sm">게시글이 없습니다</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 페이지네이션 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all"
+          >
+            이전
+          </button>
+          <span className="text-xs text-text-muted px-2">{page} / {totalPages}</span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page === totalPages}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all"
+          >
+            다음
+          </button>
+        </div>
+      )}
     </div>
   );
 }

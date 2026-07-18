@@ -6,14 +6,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { User, Save, Palette, Globe, Lock, FileText, Users } from "lucide-react";
 
 const AVATAR_COLORS_DISPLAY = [
-  { label: "파랑",   dot: "bg-blue-500",    ring: "bg-blue-500/20 text-blue-400 border-blue-500/30"    },
-  { label: "보라",   dot: "bg-purple-500",  ring: "bg-purple-500/20 text-purple-400 border-purple-500/30"  },
-  { label: "초록",   dot: "bg-emerald-500", ring: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
-  { label: "황금",   dot: "bg-amber-500",   ring: "bg-amber-500/20 text-amber-400 border-amber-500/30"   },
-  { label: "빨강",   dot: "bg-rose-500",    ring: "bg-rose-500/20 text-rose-400 border-rose-500/30"    },
-  { label: "하늘",   dot: "bg-cyan-500",    ring: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"    },
-  { label: "남색",   dot: "bg-indigo-500",  ring: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30"  },
-  { label: "오렌지", dot: "bg-orange-500",  ring: "bg-orange-500/20 text-orange-400 border-orange-500/30"  },
+  { label: "파랑", dot: "bg-blue-500",    ring: "bg-blue-500/20 text-blue-400 border-blue-500/30"    },
+  { label: "보라", dot: "bg-purple-500",  ring: "bg-purple-500/20 text-purple-400 border-purple-500/30"  },
+  { label: "초록", dot: "bg-emerald-500", ring: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
+  { label: "황금", dot: "bg-amber-500",   ring: "bg-amber-500/20 text-amber-400 border-amber-500/30"   },
+  { label: "빨강", dot: "bg-rose-500",    ring: "bg-rose-500/20 text-rose-400 border-rose-500/30"    },
+  { label: "하늘", dot: "bg-cyan-500",    ring: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"    },
 ];
 
 function timeAgo(iso: string) {

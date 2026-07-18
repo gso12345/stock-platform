@@ -243,34 +243,44 @@ export default function UserProfile() {
           <p className="text-xs text-text-dim text-center py-4">활동 내역이 없습니다</p>
         ) : (
           <div className="flex flex-col divide-y divide-border/50">
-            {activity.items.map((item: any, idx: number) => (
-              <div key={idx} className="flex gap-3 py-2.5">
-                <span
-                  className={`text-2xs font-bold px-1.5 py-0.5 rounded shrink-0 h-fit mt-0.5 ${
-                    item.type === "post"
-                      ? "bg-accent-blue/15 text-accent-blue"
-                      : "bg-purple-500/15 text-purple-400"
-                  }`}
-                >
-                  {item.type === "post" ? "게시글" : "댓글"}
-                </span>
-                <div className="flex-1 min-w-0">
-                  {item.type === "post" ? (
-                    <Link
-                      to={`/stocks/${item.market}/${item.symbol}`}
-                      className="text-sm text-text-secondary hover:text-accent-blue transition-colors line-clamp-2 break-words block"
-                    >
-                      {item.title || item.body}
-                    </Link>
-                  ) : (
-                    <p className="text-sm text-text-secondary line-clamp-2 break-words">
-                      {item.content}
-                    </p>
-                  )}
-                  <p className="text-2xs text-text-dim mt-0.5">{timeAgo(item.created_at)}</p>
+            {activity.items.map((item: any, idx: number) => {
+              const stockPath = item.market && item.symbol
+                ? `/stocks/${item.market}/${item.symbol}`
+                : null;
+              return (
+                <div key={idx} className="flex gap-3 py-2.5">
+                  <span
+                    className={`text-2xs font-bold px-1.5 py-0.5 rounded shrink-0 h-fit mt-0.5 ${
+                      item.type === "post"
+                        ? "bg-accent-blue/15 text-accent-blue"
+                        : "bg-purple-500/15 text-purple-400"
+                    }`}
+                  >
+                    {item.type === "post" ? "게시글" : "댓글"}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    {stockPath ? (
+                      <Link
+                        to={stockPath}
+                        className="text-sm text-text-secondary hover:text-accent-blue transition-colors line-clamp-2 break-words block"
+                      >
+                        {item.type === "post" ? (item.title || item.body) : item.content}
+                      </Link>
+                    ) : (
+                      <p className="text-sm text-text-secondary line-clamp-2 break-words">
+                        {item.type === "post" ? (item.title || item.body) : item.content}
+                      </p>
+                    )}
+                    {item.market && item.symbol && (
+                      <span className="text-2xs text-text-dim">
+                        {item.market} · {item.symbol}
+                      </span>
+                    )}
+                    <p className="text-2xs text-text-dim mt-0.5">{timeAgo(item.created_at)}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

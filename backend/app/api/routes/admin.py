@@ -1,9 +1,11 @@
 """관리자 전용 API"""
+import json
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from sqlalchemy.orm import Session, defer, selectinload
 from sqlalchemy import text, func
 from app.core.deps import require_user
 from app.db.database import get_db, engine
@@ -25,12 +27,15 @@ def require_admin(current_user: User = Depends(require_user)):
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     from app.models.stock import Portfolio, WatchlistFolder
+    from app.models.community import StockPost, StockComment
     from app.core.activity import online_count, today_visitor_count
     total_users       = db.query(func.count(User.id)).scalar() or 0
     active_users      = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
     watchlist_cnt     = db.query(func.count(WatchlistItem.id)).scalar() or 0
     portfolio_cnt     = db.query(func.count(Portfolio.id)).scalar() or 0
     folder_cnt        = db.query(func.count(WatchlistFolder.id)).scalar() or 0
+    post_cnt          = db.query(func.count(StockPost.id)).filter(StockPost.is_deleted.isnot(True)).scalar() or 0
+    comment_cnt       = db.query(func.count(StockComment.id)).filter(StockComment.is_deleted.isnot(True)).scalar() or 0
     return {
         "total_users":       total_users,
         "active_users":      active_users,
@@ -39,6 +44,8 @@ def get_stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
         "watchlist_folders": folder_cnt,
         "online_users":      online_count(),
         "today_visitors":    today_visitor_count(),
+        "total_posts":       post_cnt,
+        "total_comments":    comment_cnt,
     }
 
 
@@ -209,6 +216,75 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current: User = Dep
     db.delete(user)
     db.commit()
     return {"message": "삭제 완료"}
+
+
+# ── 커뮤니티 관리 ────────────────────────────────────────────────────────────
+
+@router.get("/community/posts")
+def admin_list_posts(
+    page:   int           = Query(1, ge=1),
+    limit:  int           = Query(20, ge=1, le=50),
+    market: Optional[str] = Query(None),
+    db:     Session       = Depends(get_db),
+    _:      User          = Depends(require_admin),
+):
+    from app.models.community import StockPost
+    q = db.query(StockPost).filter(StockPost.is_deleted.isnot(True))
+    if market and market in ("KR", "US", "ETF"):
+        q = q.filter(StockPost.market == market)
+    total = q.count()
+    posts = (
+        q.options(
+            defer(StockPost.comment_count),
+            defer(StockPost.updated_at),
+            selectinload(StockPost.user),
+        )
+        .order_by(StockPost.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    result = []
+    for p in posts:
+        try:
+            cd = json.loads(p.content)
+            title = cd.get("title", "")[:200]
+            body  = cd.get("body",  "")[:200]
+        except Exception:
+            title = ""
+            body  = str(p.content)[:200]
+        result.append({
+            "id":         p.id,
+            "symbol":     p.symbol,
+            "market":     p.market,
+            "user_id":    p.user_id,
+            "username":   p.user.username if p.user else "—",
+            "title":      title,
+            "body":       body,
+            "like_count": getattr(p, "like_count", 0) or 0,
+            "created_at": p.created_at.isoformat(),
+        })
+    return {"total": total, "items": result}
+
+
+@router.delete("/community/posts/{post_id}", status_code=204)
+def admin_delete_post(
+    post_id: int     = Path(...),
+    db:      Session = Depends(get_db),
+    _:       User    = Depends(require_admin),
+):
+    from app.models.community import StockPost
+    post = (
+        db.query(StockPost)
+        .filter(StockPost.id == post_id)
+        .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
+        .first()
+    )
+    if not post:
+        raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    post.is_deleted = True
+    db.commit()
+    log.info(f"관리자가 게시글 삭제: post_id={post_id}")
 
 
 # ── 공지사항 ──────────────────────────────────────────────────────────────────
