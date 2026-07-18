@@ -6,7 +6,7 @@ import api from "@/api/client";
 import {
   Users, BarChart2, Megaphone, Trash2, ToggleLeft, ToggleRight,
   ShieldCheck, RefreshCw, Activity, Database, Star, CheckCircle,
-  TrendingUp, Zap, Clock, Wifi, Eye, Search, X as XIcon,
+  TrendingUp, Zap, Clock, Folder, Wifi, Eye, Search, X as XIcon,
   MessageSquare, Heart,
 } from "lucide-react";
 
@@ -122,6 +122,7 @@ function DashboardTab({ qc }: { qc: any }) {
     { label: "활성 계정",    value: stats?.active_users      ?? 0, color: "text-accent-green",  bg: "bg-accent-green/8",  Icon: CheckCircle },
     { label: "현재 접속",    value: stats?.online_users      ?? 0, color: "text-cyan-400",      bg: "bg-cyan-400/8",      Icon: Wifi },
     { label: "오늘 방문자",  value: stats?.today_visitors    ?? 0, color: "text-orange-400",    bg: "bg-orange-400/8",    Icon: Eye },
+    { label: "관심종목 폴더", value: stats?.watchlist_folders ?? 0, color: "text-amber-400",    bg: "bg-amber-400/8",     Icon: Folder },
     { label: "포트폴리오 수", value: stats?.portfolio_items  ?? 0, color: "text-purple-400",    bg: "bg-purple-400/8",    Icon: TrendingUp },
     { label: "커뮤니티 글",  value: stats?.total_posts       ?? 0, color: "text-rose-400",      bg: "bg-rose-400/8",      Icon: MessageSquare },
     { label: "커뮤니티 댓글", value: stats?.total_comments   ?? 0, color: "text-pink-400",      bg: "bg-pink-400/8",      Icon: Heart },

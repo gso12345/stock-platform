@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
@@ -53,11 +53,26 @@ export default function UserProfile() {
   const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
   const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
 
+  useEffect(() => {
+    if (!activity?.items) return;
+    activity.items.forEach((item: any) => {
+      const postId = item.type === "post" ? item.id : item.post_id;
+      qc.prefetchQuery({
+        queryKey: ["post", postId],
+        queryFn: () => communityApi.getPost(postId),
+        staleTime: 120_000,
+      });
+    });
+  }, [activity, qc]);
+
   const openActivityPost = async (postId: number) => {
     if (loadingPostId === postId) return;
+    const cached = qc.getQueryData<ModalPost>(["post", postId]);
+    if (cached) { setSelectedPost(cached); return; }
     setLoadingPostId(postId);
     try {
       const post = await communityApi.getPost(postId);
+      qc.setQueryData(["post", postId], post);
       setSelectedPost(post);
     } catch {}
     finally { setLoadingPostId(null); }
@@ -236,7 +251,7 @@ export default function UserProfile() {
             );
             const pieData = pf.items.map((item: any) => ({
               name: item.symbol,
-              value: (item.avg_price ?? 0) * item.shares,
+              value: (item.avgPrice ?? item.avg_price ?? 0) * item.shares,
             }));
             const total = pieData.reduce((s: number, d: any) => s + d.value, 0);
             return (
