@@ -313,7 +313,12 @@ def delete_post(
     db:      Session = Depends(get_db),
     current_user=Depends(require_user),
 ):
-    post = db.query(StockPost).filter(StockPost.id == post_id).first()
+    post = (
+        db.query(StockPost)
+        .filter(StockPost.id == post_id)
+        .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
+        .first()
+    )
     if not post or post.is_deleted:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     if post.user_id != current_user.id and not current_user.is_admin:
@@ -329,7 +334,12 @@ def toggle_post_like(
     db:      Session = Depends(get_db),
     current_user=Depends(require_user),
 ):
-    post = db.query(StockPost).filter(StockPost.id == post_id, StockPost.is_deleted == False).first()
+    post = (
+        db.query(StockPost)
+        .filter(StockPost.id == post_id, StockPost.is_deleted == False)
+        .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
+        .first()
+    )
     if not post:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     existing = db.query(StockPostLike).filter(
@@ -354,8 +364,11 @@ def list_comments(
     db:      Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    post = db.query(StockPost).filter(StockPost.id == post_id, StockPost.is_deleted == False).first()
-    if not post:
+    exists = db.execute(
+        text("SELECT 1 FROM stock_posts WHERE id = :pid AND is_deleted = false LIMIT 1"),
+        {"pid": post_id},
+    ).fetchone()
+    if not exists:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     uid = current_user.id if current_user else None
     # 루트 댓글만 (replies는 _ser_comment 내부에서 처리)
@@ -375,7 +388,12 @@ def create_comment(
     db:      Session = Depends(get_db),
     current_user=Depends(require_user),
 ):
-    post = db.query(StockPost).filter(StockPost.id == post_id, StockPost.is_deleted == False).first()
+    post = (
+        db.query(StockPost)
+        .filter(StockPost.id == post_id, StockPost.is_deleted == False)
+        .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
+        .first()
+    )
     if not post:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     if body.parent_id:
@@ -387,7 +405,6 @@ def create_comment(
     c = StockComment(post_id=post_id, parent_id=body.parent_id,
                      user_id=current_user.id, content=body.content.strip())
     db.add(c)
-    post.comment_count += 1
     db.commit()
     db.refresh(c)
     uid = current_user.id
@@ -414,9 +431,6 @@ def delete_comment(
     if c.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(403, "삭제 권한이 없습니다")
     c.is_deleted = True
-    post = db.query(StockPost).filter(StockPost.id == c.post_id).first()
-    if post:
-        post.comment_count = max(0, post.comment_count - 1)
     db.commit()
 
 
@@ -476,10 +490,33 @@ def get_feed(
         q = q.order_by(StockPost.like_count.desc(), StockPost.created_at.desc())
     else:
         q = q.order_by(StockPost.created_at.desc())
-    posts = q.offset((page - 1) * limit).limit(limit).all()
+    posts = (
+        q.options(
+            defer(StockPost.comment_count),
+            defer(StockPost.updated_at),
+            selectinload(StockPost.likes),
+            selectinload(StockPost.user),
+        )
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    post_ids = [p.id for p in posts]
     user_ids = list({p.user_id for p in posts})
-    profiles_map = {up.user_id: up for up in db.query(UserProfile).filter(UserProfile.user_id.in_(user_ids)).all()} if user_ids else {}
-    return {"total": total, "page": page, "items": [_ser_post(p, uid, db, profiles_map) for p in posts]}
+    profiles_map = (
+        {up.user_id: up for up in db.query(UserProfile).filter(UserProfile.user_id.in_(user_ids)).all()}
+        if user_ids else {}
+    )
+    feed_comment_counts: dict = {}
+    if post_ids:
+        rows = db.execute(
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted = false GROUP BY post_id"),
+            {"ids": post_ids},
+        ).fetchall()
+        feed_comment_counts = {r[0]: r[1] for r in rows}
+    return {"total": total, "page": page, "items": [
+        _ser_post(p, uid, db, profiles_map, feed_comment_counts) for p in posts
+    ]}
 
 
 # ── 프로필 조회 ────────────────────────────────────────────────
@@ -556,7 +593,12 @@ def vote_poll(
     db: Session = Depends(get_db),
     current_user=Depends(require_user),
 ):
-    post = db.query(StockPost).filter(StockPost.id == post_id, StockPost.is_deleted == False).first()
+    post = (
+        db.query(StockPost)
+        .filter(StockPost.id == post_id, StockPost.is_deleted == False)
+        .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
+        .first()
+    )
     if not post:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     parsed = decode_content(post.content)
@@ -649,12 +691,25 @@ def get_user_activity(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    posts = db.query(StockPost).filter(
-        StockPost.user_id == user_id, StockPost.is_deleted == False
-    ).order_by(StockPost.created_at.desc()).limit(10).all()
+    posts = (
+        db.query(StockPost)
+        .filter(StockPost.user_id == user_id, StockPost.is_deleted == False)
+        .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
+        .order_by(StockPost.created_at.desc())
+        .limit(10)
+        .all()
+    )
     comments = db.query(StockComment).filter(
         StockComment.user_id == user_id, StockComment.is_deleted == False
     ).order_by(StockComment.created_at.desc()).limit(10).all()
+    act_post_ids = [p.id for p in posts]
+    act_comment_counts: dict = {}
+    if act_post_ids:
+        rows = db.execute(
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted = false GROUP BY post_id"),
+            {"ids": act_post_ids},
+        ).fetchall()
+        act_comment_counts = {r[0]: r[1] for r in rows}
     post_items = [{
         "type": "post",
         "id": p.id,
@@ -662,8 +717,8 @@ def get_user_activity(
         "market": p.market,
         "title": decode_content(p.content)["title"],
         "body": decode_content(p.content)["body"],
-        "like_count": p.like_count,
-        "comment_count": p.comment_count,
+        "like_count": getattr(p, "like_count", 0) or 0,
+        "comment_count": act_comment_counts.get(p.id, 0),
         "created_at": p.created_at.isoformat(),
     } for p in posts]
     comment_items = [{
