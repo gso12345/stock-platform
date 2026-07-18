@@ -115,7 +115,6 @@ export default function MyPage() {
       (livePrices as any[]).forEach((p: any) => { priceMap[p.symbol] = p; });
     }
     return (portfolios as any[])
-      .filter((pf: any) => pf.is_public)
       .map((pf: any) => ({
         id: pf.id,
         name: pf.name,

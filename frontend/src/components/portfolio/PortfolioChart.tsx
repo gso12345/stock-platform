@@ -57,13 +57,13 @@ export default function PortfolioChart({
     const map: Record<string, { symbol: string; name: string; market: string; assetType: string; value: number }> = {};
     portfolios.forEach(pf => {
       pf.items.forEach(item => {
-        if ((item.shares ?? 0) <= 0) return;
+        if (!item.symbol) return;
         let value: number;
         if (item.currentValueKRW != null) {
           value = item.currentValueKRW;
         } else {
           const fx = item.currency === "USD" ? (item.inputExchangeRate ?? exchangeRate) : 1;
-          value = (item.avgPrice ?? 0) * fx * item.shares;
+          value = (item.avgPrice ?? 0) * fx * (item.shares ?? 0);
         }
         if (map[item.symbol]) map[item.symbol].value += value;
         else map[item.symbol] = {
