@@ -172,6 +172,18 @@ async def lifespan(application: FastAPI):
                 _startup_log.info("커뮤니티 테이블 생성 완료")
             except Exception as _ct_err:
                 _startup_log.warning(f"커뮤니티 테이블 생성 실패: {_ct_err}")
+
+        # 누락 컬럼 추가 (스키마 변경 시 자동 마이그레이션)
+        try:
+            with engine.connect() as _mc:
+                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS like_count INTEGER NOT NULL DEFAULT 0"))
+                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS comment_count INTEGER NOT NULL DEFAULT 0"))
+                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false"))
+                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
+                _mc.commit()
+                _startup_log.info("stock_posts 컬럼 마이그레이션 완료")
+        except Exception as _mc_err:
+            _startup_log.warning(f"컬럼 마이그레이션 스킵: {_mc_err}")
     except Exception as e:
         logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")
 

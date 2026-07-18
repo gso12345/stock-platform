@@ -1,6 +1,6 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, text
 from pydantic import BaseModel, field_validator, model_validator
 from typing import Literal, Optional
@@ -217,7 +217,13 @@ def list_posts(
     else:
         q = q.order_by(StockPost.created_at.desc())
 
-    posts = q.offset((page - 1) * limit).limit(limit).all()
+    # selectinload로 likes/user를 한 번에 일괄 조회 → N+1 방지
+    posts = (
+        q.options(selectinload(StockPost.likes), selectinload(StockPost.user))
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
     user_ids = list({p.user_id for p in posts})
     profiles_map = {up.user_id: up for up in db.query(UserProfile).filter(UserProfile.user_id.in_(user_ids)).all()} if user_ids else {}
     return {"total": total, "page": page, "items": [_ser_post(p, uid, db, profiles_map) for p in posts]}
