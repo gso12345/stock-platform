@@ -422,7 +422,12 @@ function UsersTab({ qc }: { qc: any }) {
                 <td className="px-4 py-3 font-mono text-text-muted text-xs">{u.id}</td>
                 <td className="px-3 py-3">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-text-primary">{u.username}</span>
+                    <Link
+                      to={`/profile/${u.id}`}
+                      className="font-semibold text-text-primary hover:text-accent-blue transition-colors"
+                    >
+                      {u.username}
+                    </Link>
                     {u.is_admin && (
                       <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold">관리자</span>
                     )}

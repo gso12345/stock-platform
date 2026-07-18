@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users, Share2,
+  PenSquare, Hash, BarChart2, X,
 } from "lucide-react";
-import { communityApi } from "@/api/stocks";
+import { communityApi, portfolioApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import PostDetailModal from "@/components/community/PostDetailModal";
+import api from "@/api/client";
 
 type SortType = "latest" | "likes";
 type MarketFilter = "ALL" | "KR" | "US" | "ETF";
@@ -267,6 +269,311 @@ function FeedCard({
   );
 }
 
+function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
+  const { isLoggedIn } = useAuthStore();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"stock" | "portfolio">("stock");
+
+  // stock mode
+  const [searchQ, setSearchQ] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedStock, setSelectedStock] = useState<{ symbol: string; market: string; name: string } | null>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  // portfolio mode
+  const [portfolios, setPortfolios] = useState<any[]>([]);
+  const [selectedPfId, setSelectedPfId] = useState<number | null>(null);
+  const [pfItems, setPfItems] = useState<any[]>([]);
+  const [loadingPf, setLoadingPf] = useState(false);
+
+  // common
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (mode === "portfolio" && portfolios.length === 0 && open) {
+      setLoadingPf(true);
+      portfolioApi.getPortfolios()
+        .then((pfs: any[]) => {
+          setPortfolios(pfs);
+          if (pfs.length > 0) setSelectedPfId(pfs[0].id);
+        })
+        .finally(() => setLoadingPf(false));
+    }
+  }, [mode, open]);
+
+  useEffect(() => {
+    if (selectedPfId == null) return;
+    portfolioApi.getItems(selectedPfId).then((items: any[]) => {
+      setPfItems(items);
+      if (items.length > 0) {
+        const lines = items.map((i: any) => `${i.symbol} (${i.market}) — ${i.shares}주`).join("\n");
+        setBody(`📊 포트폴리오 공유\n\n${lines}`);
+      }
+    });
+  }, [selectedPfId]);
+
+  useEffect(() => {
+    if (!searchQ.trim()) { setSearchResults([]); return; }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const { data } = await api.get<{ results: any[] }>("/search", { params: { q: searchQ } });
+        setSearchResults((data.results || []).slice(0, 6));
+      } catch { setSearchResults([]); }
+      finally { setSearching(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQ]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchResults([]);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const reset = () => {
+    setOpen(false);
+    setMode("stock");
+    setSearchQ("");
+    setSearchResults([]);
+    setSelectedStock(null);
+    setSelectedPfId(null);
+    setPfItems([]);
+    setPortfolios([]);
+    setTitle("");
+    setBody("");
+    setError("");
+  };
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    setError("");
+    const bodyTrim = body.trim();
+    if (!bodyTrim) { setError("본문을 입력해주세요"); return; }
+
+    let market: string, symbol: string, tags: { symbol: string; market: string }[];
+
+    if (mode === "stock") {
+      if (!selectedStock) { setError("종목을 선택해주세요"); return; }
+      market = selectedStock.market;
+      symbol = selectedStock.symbol;
+      tags = [];
+    } else {
+      if (pfItems.length === 0) { setError("포트폴리오에 종목이 없습니다"); return; }
+      market = pfItems[0].market;
+      symbol = pfItems[0].symbol;
+      tags = pfItems.map((i: any) => ({ symbol: i.symbol, market: i.market }));
+    }
+
+    setSubmitting(true);
+    try {
+      await communityApi.createPost(market, symbol, title.trim(), bodyTrim, "", null, tags);
+      reset();
+      onSubmitted();
+    } catch {
+      setError("게시글 작성에 실패했습니다. 다시 시도해주세요.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="bg-bg-card border border-border rounded-2xl p-4 text-center">
+        <button
+          onClick={() => navigate("/login")}
+          className="text-sm text-accent-blue hover:underline"
+        >
+          로그인하고 의견 남기기 →
+        </button>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full bg-bg-card border border-border rounded-2xl p-3.5 text-left hover:border-accent-blue/40 transition-all group"
+      >
+        <div className="flex items-center gap-2">
+          <PenSquare size={14} className="text-text-dim group-hover:text-accent-blue transition-colors" />
+          <span className="text-sm text-text-dim group-hover:text-text-secondary transition-colors">
+            종목 의견이나 포트폴리오를 공유해보세요...
+          </span>
+        </div>
+      </button>
+    );
+  }
+
+  const canSubmit = mode === "stock" ? !!(selectedStock && body.trim()) : !!(pfItems.length > 0 && body.trim());
+
+  return (
+    <div className="bg-bg-card border border-accent-blue/30 rounded-2xl p-4 flex flex-col gap-3">
+      {/* 모드 탭 */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-elevated">
+          <button
+            onClick={() => { setMode("stock"); setBody(""); setSelectedStock(null); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              mode === "stock" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+            }`}
+          >
+            <Hash size={11} />종목 의견
+          </button>
+          <button
+            onClick={() => { setMode("portfolio"); setBody(""); setSelectedStock(null); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              mode === "portfolio" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+            }`}
+          >
+            <BarChart2 size={11} />포트폴리오 공유
+          </button>
+        </div>
+        <button onClick={reset} className="p-1 text-text-dim hover:text-text-primary transition-colors">
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* 종목 선택 */}
+      {mode === "stock" && (
+        <div className="relative" ref={searchRef}>
+          {selectedStock ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent-blue/15 border border-accent-blue/30 text-xs font-semibold text-accent-blue">
+                <span className="text-text-dim">[{selectedStock.market}]</span>
+                {selectedStock.symbol}
+                {selectedStock.name && selectedStock.name !== selectedStock.symbol && (
+                  <span className="text-accent-blue/70 font-normal">{selectedStock.name}</span>
+                )}
+                <button
+                  onClick={() => setSelectedStock(null)}
+                  className="ml-0.5 hover:text-accent-red transition-colors"
+                >
+                  <X size={10} />
+                </button>
+              </span>
+              <span className="text-xs text-text-dim">에 대한 의견</span>
+            </div>
+          ) : (
+            <>
+              <input
+                autoFocus
+                value={searchQ}
+                onChange={(e) => setSearchQ(e.target.value)}
+                placeholder="종목 검색 (예: 삼성전자, AAPL)"
+                className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+              />
+              {(searchResults.length > 0 || searching) && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-bg-card border border-border rounded-xl shadow-lg z-20 overflow-hidden">
+                  {searching && searchResults.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-text-dim">검색 중...</div>
+                  )}
+                  {searchResults.map((r: any, i: number) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol });
+                        setSearchQ("");
+                        setSearchResults([]);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-bg-elevated transition-colors flex items-center gap-2"
+                    >
+                      <span className="text-2xs font-bold text-text-dim w-8">{r.market}</span>
+                      <span className="text-sm font-semibold text-text-primary">{r.symbol}</span>
+                      <span className="text-xs text-text-dim truncate flex-1">{r.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 포트폴리오 선택 */}
+      {mode === "portfolio" && (
+        <div className="flex flex-col gap-2">
+          {loadingPf ? (
+            <p className="text-xs text-text-dim">포트폴리오 불러오는 중...</p>
+          ) : portfolios.length === 0 ? (
+            <p className="text-xs text-text-dim">등록된 포트폴리오가 없습니다</p>
+          ) : (
+            <>
+              <select
+                value={selectedPfId ?? ""}
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  setSelectedPfId(id);
+                  setPfItems([]);
+                  setBody("");
+                }}
+                className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
+              >
+                {portfolios.map((pf: any) => (
+                  <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
+                ))}
+              </select>
+              {pfItems.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  <span className="text-2xs text-text-dim self-center">자동 태그:</span>
+                  {pfItems.map((item: any) => (
+                    <span key={item.id} className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue">
+                      #{item.symbol}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 제목 */}
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="제목 (선택사항)"
+        maxLength={100}
+        className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+      />
+
+      {/* 본문 */}
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder={mode === "portfolio" ? "포트폴리오에 대한 설명을 입력하세요..." : "의견을 입력하세요..."}
+        maxLength={5000}
+        rows={4}
+        className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50 resize-none"
+      />
+
+      {error && <p className="text-xs text-accent-red">{error}</p>}
+
+      {/* 액션 */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-text-dim">{body.length}/5000</span>
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit || submitting}
+          className="px-5 py-1.5 text-xs bg-accent-blue text-white rounded-xl disabled:opacity-40 hover:bg-accent-blue/90 transition-colors font-semibold"
+        >
+          {submitting ? "등록 중..." : "등록"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const PAGE_SIZE = 20;
 
 export default function Feed() {
@@ -422,6 +729,9 @@ export default function Feed() {
           {sort === "latest" ? "최신순" : "좋아요순"}
         </button>
       </div>
+
+      {/* 글쓰기 패널 */}
+      <FeedWritePanel onSubmitted={() => { setPage(1); qc.invalidateQueries({ queryKey: ["feed"] }); }} />
 
       {/* 에러 */}
       {isError && (

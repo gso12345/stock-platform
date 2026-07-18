@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
-import { communityApi } from "@/api/stocks";
+import { communityApi, portfolioApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 
 const AVATAR_COLORS = [
@@ -68,6 +68,13 @@ export default function UserProfile() {
     queryKey: ["userFollowing", userId],
     queryFn: () => communityApi.getFollowing(userId),
     enabled: followModal === "following",
+  });
+
+  const { data: publicPortfolios } = useQuery({
+    queryKey: ["publicPortfolios", userId],
+    queryFn: () => portfolioApi.getPublicPortfolios(userId),
+    enabled: !!userId,
+    staleTime: 120_000,
   });
 
   const followMutation = useMutation({
@@ -197,6 +204,37 @@ export default function UserProfile() {
           </div>
         </div>
       </div>
+
+      {/* 공개 포트폴리오 */}
+      {publicPortfolios && publicPortfolios.length > 0 && (
+        <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3">
+          <h2 className="text-sm font-bold text-text-primary">공개 포트폴리오</h2>
+          <div className="flex flex-col gap-4">
+            {publicPortfolios.map((pf: any) => (
+              <div key={pf.id}>
+                <p className="text-xs font-semibold text-text-secondary mb-2">{pf.name}</p>
+                {pf.items.length === 0 ? (
+                  <p className="text-xs text-text-dim">종목 없음</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {pf.items.map((item: any) => (
+                      <Link
+                        key={item.id}
+                        to={`/stocks/${item.market}/${item.symbol}`}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-border text-xs hover:border-accent-blue/50 hover:bg-accent-blue/5 hover:text-accent-blue transition-all group"
+                      >
+                        <span className="text-2xs font-bold text-text-dim group-hover:text-accent-blue/70">{item.market}</span>
+                        <span className="font-semibold text-text-primary group-hover:text-accent-blue">{item.symbol}</span>
+                        <span className="text-text-dim">{item.shares}주</span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 최근 활동 */}
       <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3">

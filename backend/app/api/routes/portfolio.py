@@ -314,6 +314,33 @@ def update_item(
     return _to_dict(item)
 
 
+@router.get("/public/{user_id}")
+def get_public_portfolios(
+    user_id: int,
+    db: Session = Depends(get_db),
+):
+    portfolios = (
+        db.query(Portfolio)
+        .filter(Portfolio.user_id == user_id, Portfolio.is_public.is_(True))
+        .order_by(Portfolio.position, Portfolio.id)
+        .all()
+    )
+    result = []
+    for pf in portfolios:
+        items = (
+            db.query(PortfolioItem)
+            .filter(PortfolioItem.portfolio_id == pf.id)
+            .order_by(PortfolioItem.created_at)
+            .all()
+        )
+        result.append({
+            "id": pf.id,
+            "name": pf.name,
+            "items": [_to_dict(i) for i in items],
+        })
+    return result
+
+
 @router.put("/{portfolio_id}/visibility")
 def set_portfolio_visibility(
     portfolio_id: int = Path(...),

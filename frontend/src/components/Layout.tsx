@@ -27,6 +27,7 @@ const NAV = [
 const BOTTOM_NAV = [
   { to: "/",          icon: LayoutDashboard, label: "대시보드", end: true },
   { to: "/portfolio", icon: Wallet,          label: "내 자산"  },
+  { to: "/feed",      icon: Rss,             label: "피드"     },
   { to: "/news",      icon: Newspaper,       label: "뉴스"     },
   { to: "/quant",     icon: Award,           label: "퀀트"     },
 ];
@@ -38,7 +39,6 @@ const MORE_NAV = [
   { to: "/backtest",   icon: LineChart, label: "백테스트"   },
   { to: "/strategies", icon: BookMarked,label: "전략저장소" },
   { to: "/mypage",     icon: User,      label: "내 프로필"  },
-  { to: "/feed",       icon: Rss,       label: "피드"       },
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {

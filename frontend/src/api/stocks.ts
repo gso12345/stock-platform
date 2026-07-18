@@ -312,6 +312,9 @@ export const portfolioApi = {
 
   deleteItem: (id: number) =>
     api.delete(`/portfolio/items/${id}`).then((r) => r.data),
+
+  getPublicPortfolios: (userId: number) =>
+    api.get(`/portfolio/public/${userId}`).then((r) => r.data),
 };
 
 export const watchlistApi = {
