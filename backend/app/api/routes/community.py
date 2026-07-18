@@ -330,6 +330,9 @@ def delete_post(
     if post.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(403, "삭제 권한이 없습니다")
     db.execute(text("DELETE FROM stock_post_poll_votes WHERE post_id = :pid"), {"pid": post_id})
+    db.execute(text("DELETE FROM stock_comment_likes WHERE comment_id IN (SELECT id FROM stock_comments WHERE post_id = :pid)"), {"pid": post_id})
+    db.execute(text("DELETE FROM stock_comments WHERE post_id = :pid"), {"pid": post_id})
+    db.execute(text("DELETE FROM stock_post_likes WHERE post_id = :pid"), {"pid": post_id})
     db.delete(post)
     db.commit()
 
@@ -480,6 +483,10 @@ def delete_comment(
         raise HTTPException(404, "댓글을 찾을 수 없습니다")
     if c.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(403, "삭제 권한이 없습니다")
+    # 대댓글 좋아요 → 대댓글 → 댓글 좋아요 순으로 명시적 삭제
+    db.execute(text("DELETE FROM stock_comment_likes WHERE comment_id IN (SELECT id FROM stock_comments WHERE parent_id = :cid)"), {"cid": comment_id})
+    db.execute(text("DELETE FROM stock_comments WHERE parent_id = :cid"), {"cid": comment_id})
+    db.execute(text("DELETE FROM stock_comment_likes WHERE comment_id = :cid"), {"cid": comment_id})
     db.delete(c)
     db.commit()
 

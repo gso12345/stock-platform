@@ -305,12 +305,14 @@ function FeedCard({
               <span>{post.view_count ?? 0}</span>
             </span>
 
-            <Link
-              to={`/stocks/${post.market}/${post.symbol}`}
-              className="ml-auto text-2xs text-text-dim hover:text-accent-blue transition-colors"
-            >
-              종목 보기 →
-            </Link>
+            {!(post.portfolio && post.portfolio.length > 0) && (
+              <Link
+                to={`/stocks/${post.market}/${post.symbol}`}
+                className="ml-auto text-2xs text-text-dim hover:text-accent-blue transition-colors"
+              >
+                종목 보기 →
+              </Link>
+            )}
           </div>
         </div>
       </div>
@@ -644,7 +646,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
           </div>
         )}
 
-        {/* 포트폴리오 선택 + 파이차트 미리보기 */}
+        {/* 포트폴리오 선택 */}
         {mode === "portfolio" && (
           <div className="flex flex-col gap-2">
             {loadingPf ? (
@@ -652,20 +654,15 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             ) : portfolios.length === 0 ? (
               <p className="text-xs text-text-dim">등록된 포트폴리오가 없습니다</p>
             ) : (
-              <>
-                <select
-                  value={selectedPfId ?? ""}
-                  onChange={(e) => { const id = Number(e.target.value); setSelectedPfId(id); setPfItems([]); }}
-                  className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
-                >
-                  {portfolios.map((pf: any) => (
-                    <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
-                  ))}
-                </select>
-                {pfForChart.length > 0 && (
-                  <PortfolioChart portfolios={pfForChart} exchangeRate={1350} />
-                )}
-              </>
+              <select
+                value={selectedPfId ?? ""}
+                onChange={(e) => { const id = Number(e.target.value); setSelectedPfId(id); setPfItems([]); }}
+                className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
+              >
+                {portfolios.map((pf: any) => (
+                  <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
+                ))}
+              </select>
             )}
           </div>
         )}
@@ -694,6 +691,10 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
               className="w-full px-0 py-0 bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
               style={{ minHeight: "2.5rem" }}
             />
+            {/* 포트폴리오 차트 미리보기 — 본문 아래 */}
+            {mode === "portfolio" && pfForChart.length > 0 && (
+              <PortfolioChart portfolios={pfForChart} exchangeRate={1350} />
+            )}
           </div>
         </div>
 
@@ -1122,6 +1123,7 @@ export default function Feed() {
         <PostDetailModal
           post={selectedPost}
           onClose={() => { setSelectedPost(null); qc.invalidateQueries({ queryKey }); }}
+          onDeleted={() => { setSelectedPost(null); qc.invalidateQueries({ queryKey: ["feed"] }); }}
           onLikeToggled={(postId, liked, likeCount) => {
             qc.setQueryData<any>(queryKey, (prev) =>
               prev ? { ...prev, items: prev.items.map((p: FeedPost) =>

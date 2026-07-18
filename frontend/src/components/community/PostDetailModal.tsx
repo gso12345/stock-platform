@@ -409,18 +409,22 @@ export default function PostDetailModal({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-2xs font-bold px-2 py-0.5 rounded border ${
-              post.market === "KR" ? "bg-blue-500/15 text-blue-400 border-blue-500/20" :
-              post.market === "US" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" :
-              "bg-purple-500/15 text-purple-400 border-purple-500/20"
-            }`}>{post.market}</span>
-            <Link
-              to={`/stocks/${post.market}/${post.symbol}`}
-              onClick={onClose}
-              className="text-2xs font-semibold text-accent-blue hover:underline"
-            >
-              {post.symbol}
-            </Link>
+            {!(post.portfolio && post.portfolio.length > 0) && (
+              <>
+                <span className={`text-2xs font-bold px-2 py-0.5 rounded border ${
+                  post.market === "KR" ? "bg-blue-500/15 text-blue-400 border-blue-500/20" :
+                  post.market === "US" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" :
+                  "bg-purple-500/15 text-purple-400 border-purple-500/20"
+                }`}>{post.market}</span>
+                <Link
+                  to={`/stocks/${post.market}/${post.symbol}`}
+                  onClick={onClose}
+                  className="text-2xs font-semibold text-accent-blue hover:underline"
+                >
+                  {post.symbol}
+                </Link>
+              </>
+            )}
             {post.is_mine && (
               <button
                 onClick={handleDelete}

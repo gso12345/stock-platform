@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
-import { communityApi, portfolioApi, dashboardApi } from "@/api/stocks";
+import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/stocks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, Palette, Globe, Lock, FileText } from "lucide-react";
 import PostDetailModal from "@/components/community/PostDetailModal";
@@ -91,16 +91,47 @@ export default function MyPage() {
   const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
   const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
 
+  const allSymbols = useMemo(() => {
+    if (!allPortfolioItems) return [];
+    return [...new Set((allPortfolioItems as any[]).map((i: any) => i.symbol))];
+  }, [allPortfolioItems]);
+
+  const allMarkets = useMemo(() => {
+    if (!allPortfolioItems) return [];
+    return [...new Set((allPortfolioItems as any[]).map((i: any) => i.market))];
+  }, [allPortfolioItems]);
+
+  const { data: livePrices } = useQuery({
+    queryKey: ["portfolioLivePrices", allSymbols],
+    queryFn: () => watchlistApi.getPrices(allSymbols, allMarkets),
+    enabled: allSymbols.length > 0,
+    staleTime: 60_000,
+  });
+
   const pfForChart = useMemo(() => {
     if (!portfolios || !allPortfolioItems) return [];
+    const priceMap: Record<string, any> = {};
+    if (livePrices) {
+      (livePrices as any[]).forEach((p: any) => { priceMap[p.symbol] = p; });
+    }
     return (portfolios as any[])
       .filter((pf: any) => pf.is_public)
       .map((pf: any) => ({
         id: pf.id,
         name: pf.name,
-        items: (allPortfolioItems as any[]).filter((i: any) => i.portfolioId === pf.id),
+        items: (allPortfolioItems as any[])
+          .filter((i: any) => i.portfolioId === pf.id)
+          .map((i: any) => {
+            const lp = priceMap[i.symbol];
+            const currentPriceNative = lp?.price ?? 0;
+            const fx = i.currency === "USD" ? exchangeRate : 1;
+            const currentValueKRW = currentPriceNative > 0
+              ? currentPriceNative * fx * i.shares
+              : undefined;
+            return { ...i, currentValueKRW };
+          }),
       }));
-  }, [portfolios, allPortfolioItems]);
+  }, [portfolios, allPortfolioItems, livePrices, exchangeRate]);
 
   useEffect(() => {
     if (!activity?.items) return;
@@ -405,6 +436,10 @@ export default function MyPage() {
         <PostDetailModal
           post={selectedPost}
           onClose={() => setSelectedPost(null)}
+          onDeleted={() => {
+            setSelectedPost(null);
+            qc.invalidateQueries({ queryKey: ["userActivity", userId] });
+          }}
         />
       )}
     </div>

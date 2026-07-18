@@ -30,6 +30,7 @@ export interface PfItemForChart {
   shares: number;
   currency?: string;
   inputExchangeRate?: number | null;
+  currentValueKRW?: number;
 }
 
 export interface PfPortfolioForChart {
@@ -56,9 +57,14 @@ export default function PortfolioChart({
     const map: Record<string, { symbol: string; name: string; market: string; assetType: string; value: number }> = {};
     portfolios.forEach(pf => {
       pf.items.forEach(item => {
-        const fx = item.currency === "USD" ? (item.inputExchangeRate ?? exchangeRate) : 1;
-        const value = (item.avgPrice ?? 0) * fx * item.shares;
-        if (value <= 0) return;
+        if ((item.shares ?? 0) <= 0) return;
+        let value: number;
+        if (item.currentValueKRW != null) {
+          value = item.currentValueKRW;
+        } else {
+          const fx = item.currency === "USD" ? (item.inputExchangeRate ?? exchangeRate) : 1;
+          value = (item.avgPrice ?? 0) * fx * item.shares;
+        }
         if (map[item.symbol]) map[item.symbol].value += value;
         else map[item.symbol] = {
           symbol: item.symbol,
@@ -73,13 +79,13 @@ export default function PortfolioChart({
   }, [portfolios, exchangeRate]);
 
   const stockPieData = useMemo(() =>
-    allEnriched.map(e => ({ name: e.name, symbol: e.symbol, market: e.market, value: Math.round(e.value) })),
+    allEnriched.filter(e => e.value > 0).map(e => ({ name: e.name, symbol: e.symbol, market: e.market, value: Math.round(e.value) })),
     [allEnriched]
   );
 
   const typePieData = useMemo(() => {
     const map: Record<string, number> = {};
-    allEnriched.forEach(e => { map[e.assetType] = (map[e.assetType] ?? 0) + e.value; });
+    allEnriched.filter(e => e.value > 0).forEach(e => { map[e.assetType] = (map[e.assetType] ?? 0) + e.value; });
     return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value: Math.round(value) }));
   }, [allEnriched]);
 
@@ -87,6 +93,7 @@ export default function PortfolioChart({
     portfolios.map(pf => ({
       name: pf.name,
       value: Math.round(pf.items.reduce((s, item) => {
+        if (item.currentValueKRW != null) return s + item.currentValueKRW;
         const fx = item.currency === "USD" ? (item.inputExchangeRate ?? exchangeRate) : 1;
         return s + (item.avgPrice ?? 0) * fx * item.shares;
       }, 0)),
@@ -95,6 +102,7 @@ export default function PortfolioChart({
   );
 
   const activePieData = mode === "stock" ? stockPieData : mode === "type" ? typePieData : portfolioPieData;
+  const legendData = mode === "stock" ? allEnriched : activePieData.map(e => ({ ...e, symbol: (e as any).symbol, market: (e as any).market }));
 
   const TABS: { id: ChartMode; label: string }[] = [
     { id: "stock", label: "종목별" },
@@ -118,7 +126,7 @@ export default function PortfolioChart({
       </div>
 
       <div className="p-4">
-        {activePieData.length === 0 ? (
+        {legendData.length === 0 ? (
           <div className="h-[160px] flex items-center justify-center text-text-muted text-sm">데이터 없음</div>
         ) : (
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-center sm:items-start">
@@ -144,12 +152,14 @@ export default function PortfolioChart({
             <div className="flex-1 min-w-0 w-full self-center flex flex-col gap-0.5 py-1">
               {(() => {
                 const total = activePieData.reduce((s, e) => s + e.value, 0);
-                return activePieData.map((entry, i) => {
+                return legendData.map((entry, i) => {
                   const pct = total > 0 ? (entry.value / total) * 100 : 0;
                   const e = entry as any;
+                  const colorIdx = activePieData.findIndex(d => d.name === entry.name);
+                  const color = PIE_COLORS[(colorIdx >= 0 ? colorIdx : i) % PIE_COLORS.length];
                   return (
                     <div key={entry.name} className="flex items-center gap-2 py-1">
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
                       {mode === "stock" && e.symbol && e.market ? (
                         <Link to={`/stocks/${e.market}/${e.symbol}`} className="flex-1 text-xs text-text-secondary hover:text-accent-blue truncate min-w-0 transition-colors">
                           {entry.name}
@@ -158,13 +168,13 @@ export default function PortfolioChart({
                         <span className="flex-1 text-xs text-text-secondary truncate min-w-0">{entry.name}</span>
                       )}
                       <div className="flex-shrink-0 w-16 h-1.5 bg-bg-elevated rounded-full overflow-hidden hidden sm:block">
-                        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(100, pct)}%`, background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
                       </div>
                       <span className="text-xs font-mono font-semibold text-text-primary w-10 text-right flex-shrink-0">
-                        {pct.toFixed(1)}%
+                        {entry.value > 0 ? `${pct.toFixed(1)}%` : "—"}
                       </span>
                       <span className="text-xs font-mono text-text-muted text-right flex-shrink-0 w-20 hidden sm:block">
-                        {fmtKRWCompact(entry.value)}
+                        {entry.value > 0 ? fmtKRWCompact(entry.value) : "매입가 미설정"}
                       </span>
                     </div>
                   );

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Heart, Trash2, Send, LogIn, MessageSquare, AlertCircle,
   RefreshCw, ChevronDown, ChevronUp, Share2, ArrowUpDown,
-  Image as ImageIcon, BarChart2, Hash, X as XIcon,
+  Image as ImageIcon, BarChart2, Hash, X as XIcon, Eye,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
@@ -647,6 +647,11 @@ function PostCard({
               <Share2 size={12} />
               <span className="opacity-60">{copied ? "복사됨!" : "공유"}</span>
             </button>
+
+            <span className="flex items-center gap-1 text-xs text-text-dim">
+              <Eye size={11} />
+              <span>{post.view_count ?? 0}</span>
+            </span>
           </div>
 
           {/* 댓글 영역 */}
