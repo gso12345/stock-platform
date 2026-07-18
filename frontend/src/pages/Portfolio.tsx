@@ -1695,7 +1695,9 @@ export default function Portfolio() {
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ background: "#141824", border: "1px solid #232840", borderRadius: 8, fontSize: 11 }}
+                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
+                      itemStyle={{ color: "#e2e8f0" }}
+                      labelStyle={{ color: "#94a3b8", display: "none" }}
                       formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
                     />
                   </PieChart>

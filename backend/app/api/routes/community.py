@@ -211,7 +211,7 @@ def list_posts(
     uid = current_user.id if current_user else None
 
     q = db.query(StockPost).filter(
-        StockPost.symbol == sym, StockPost.market == market, StockPost.is_deleted == False
+        StockPost.symbol == sym, StockPost.market == market, StockPost.is_deleted.isnot(True)
     )
     total = q.count()
     if sort == "likes":
@@ -272,8 +272,8 @@ def create_post(
         with engine.connect() as conn:
             result = conn.execute(
                 text("""
-                    INSERT INTO stock_posts (symbol, market, user_id, content)
-                    VALUES (:symbol, :market, :user_id, :content)
+                    INSERT INTO stock_posts (symbol, market, user_id, content, is_deleted, like_count)
+                    VALUES (:symbol, :market, :user_id, :content, false, 0)
                     RETURNING id
                 """),
                 {"symbol": sym_upper, "market": market, "user_id": uid_val, "content": content_val},
@@ -336,7 +336,7 @@ def toggle_post_like(
 ):
     post = (
         db.query(StockPost)
-        .filter(StockPost.id == post_id, StockPost.is_deleted == False)
+        .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
         .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
         .first()
     )
@@ -365,7 +365,7 @@ def list_comments(
     current_user=Depends(get_current_user),
 ):
     exists = db.execute(
-        text("SELECT 1 FROM stock_posts WHERE id = :pid AND is_deleted = false LIMIT 1"),
+        text("SELECT 1 FROM stock_posts WHERE id = :pid AND is_deleted IS NOT TRUE LIMIT 1"),
         {"pid": post_id},
     ).fetchone()
     if not exists:
@@ -375,7 +375,7 @@ def list_comments(
     root = db.query(StockComment).filter(
         StockComment.post_id == post_id,
         StockComment.parent_id == None,
-        StockComment.is_deleted == False,
+        StockComment.is_deleted.isnot(True),
     ).order_by(StockComment.created_at.asc()).all()
     return [_ser_comment(c, uid, db) for c in root]
 
@@ -390,7 +390,7 @@ def create_comment(
 ):
     post = (
         db.query(StockPost)
-        .filter(StockPost.id == post_id, StockPost.is_deleted == False)
+        .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
         .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
         .first()
     )
@@ -441,7 +441,7 @@ def toggle_comment_like(
     db:         Session = Depends(get_db),
     current_user=Depends(require_user),
 ):
-    c = db.query(StockComment).filter(StockComment.id == comment_id, StockComment.is_deleted == False).first()
+    c = db.query(StockComment).filter(StockComment.id == comment_id, StockComment.is_deleted.isnot(True)).first()
     if not c:
         raise HTTPException(404, "댓글을 찾을 수 없습니다")
     existing = db.query(StockCommentLike).filter(
@@ -471,7 +471,7 @@ def get_feed(
     current_user=Depends(get_current_user),
 ):
     uid = current_user.id if current_user else None
-    q = db.query(StockPost).filter(StockPost.is_deleted == False)
+    q = db.query(StockPost).filter(StockPost.is_deleted.isnot(True))
 
     if following and uid:
         followed_ids = [
@@ -595,7 +595,7 @@ def vote_poll(
 ):
     post = (
         db.query(StockPost)
-        .filter(StockPost.id == post_id, StockPost.is_deleted == False)
+        .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
         .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
         .first()
     )
@@ -661,7 +661,7 @@ def get_user_public_profile(
     follower_count = db.query(UserFollow).filter(UserFollow.following_id == user_id).count()
     following_count = db.query(UserFollow).filter(UserFollow.follower_id == user_id).count()
     post_count = db.query(StockPost).filter(
-        StockPost.user_id == user_id, StockPost.is_deleted == False
+        StockPost.user_id == user_id, StockPost.is_deleted.isnot(True)
     ).count()
     is_following = False
     if current_user:
@@ -693,14 +693,14 @@ def get_user_activity(
 ):
     posts = (
         db.query(StockPost)
-        .filter(StockPost.user_id == user_id, StockPost.is_deleted == False)
+        .filter(StockPost.user_id == user_id, StockPost.is_deleted.isnot(True))
         .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
         .order_by(StockPost.created_at.desc())
         .limit(10)
         .all()
     )
     comments = db.query(StockComment).filter(
-        StockComment.user_id == user_id, StockComment.is_deleted == False
+        StockComment.user_id == user_id, StockComment.is_deleted.isnot(True)
     ).order_by(StockComment.created_at.desc()).limit(10).all()
     act_post_ids = [p.id for p in posts]
     act_comment_counts: dict = {}
