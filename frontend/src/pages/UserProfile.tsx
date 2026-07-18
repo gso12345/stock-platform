@@ -53,6 +53,19 @@ export default function UserProfile() {
   const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
   const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
 
+  const { data: profile, isLoading, isError, isFetching } = useQuery({
+    queryKey: ["userPublicProfile", userId],
+    queryFn: () => communityApi.getUserPublicProfile(userId),
+    enabled: !!userId,
+    staleTime: 120_000,
+  });
+
+  const { data: activity } = useQuery({
+    queryKey: ["userActivity", userId],
+    queryFn: () => communityApi.getUserActivity(userId),
+    enabled: !!userId,
+  });
+
   useEffect(() => {
     if (!activity?.items) return;
     activity.items.forEach((item: any) => {
@@ -77,19 +90,6 @@ export default function UserProfile() {
     } catch {}
     finally { setLoadingPostId(null); }
   };
-
-  const { data: profile, isLoading, isError, isFetching } = useQuery({
-    queryKey: ["userPublicProfile", userId],
-    queryFn: () => communityApi.getUserPublicProfile(userId),
-    enabled: !!userId,
-    staleTime: 120_000,
-  });
-
-  const { data: activity } = useQuery({
-    queryKey: ["userActivity", userId],
-    queryFn: () => communityApi.getUserActivity(userId),
-    enabled: !!userId,
-  });
 
   const { data: followersData } = useQuery({
     queryKey: ["userFollowers", userId],
