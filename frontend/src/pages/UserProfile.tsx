@@ -4,6 +4,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 import { communityApi, portfolioApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { fmtKRWCompact } from "@/utils/formatters";
+import PostDetailModal from "@/components/community/PostDetailModal";
+import type { ModalPost } from "@/components/community/PostDetailModal";
+
+const PIE_COLORS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
 
 const AVATAR_COLORS = [
   "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -44,6 +50,18 @@ export default function UserProfile() {
   const qc = useQueryClient();
   const { isLoggedIn } = useAuthStore();
   const [followModal, setFollowModal] = useState<FollowModalType>(null);
+  const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
+  const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
+
+  const openActivityPost = async (postId: number) => {
+    if (loadingPostId === postId) return;
+    setLoadingPostId(postId);
+    try {
+      const post = await communityApi.getPost(postId);
+      setSelectedPost(post);
+    } catch {}
+    finally { setLoadingPostId(null); }
+  };
 
   const { data: profile, isLoading, isError, isFetching } = useQuery({
     queryKey: ["userPublicProfile", userId],
@@ -207,32 +225,71 @@ export default function UserProfile() {
 
       {/* 공개 포트폴리오 */}
       {publicPortfolios && publicPortfolios.length > 0 && (
-        <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3">
+        <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-4">
           <h2 className="text-sm font-bold text-text-primary">공개 포트폴리오</h2>
-          <div className="flex flex-col gap-4">
-            {publicPortfolios.map((pf: any) => (
+          {publicPortfolios.map((pf: any) => {
+            if (!pf.items || pf.items.length === 0) return (
               <div key={pf.id}>
-                <p className="text-xs font-semibold text-text-secondary mb-2">{pf.name}</p>
-                {pf.items.length === 0 ? (
-                  <p className="text-xs text-text-dim">종목 없음</p>
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {pf.items.map((item: any) => (
-                      <Link
-                        key={item.id}
-                        to={`/stocks/${item.market}/${item.symbol}`}
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-border text-xs hover:border-accent-blue/50 hover:bg-accent-blue/5 hover:text-accent-blue transition-all group"
-                      >
-                        <span className="text-2xs font-bold text-text-dim group-hover:text-accent-blue/70">{item.market}</span>
-                        <span className="font-semibold text-text-primary group-hover:text-accent-blue">{item.symbol}</span>
-                        <span className="text-text-dim">{item.shares}주</span>
-                      </Link>
-                    ))}
-                  </div>
-                )}
+                <p className="text-xs font-semibold text-text-secondary mb-1">{pf.name}</p>
+                <p className="text-xs text-text-dim">종목 없음</p>
               </div>
-            ))}
-          </div>
+            );
+            const pieData = pf.items.map((item: any) => ({
+              name: item.symbol,
+              value: (item.avg_price ?? 0) * item.shares,
+            }));
+            const total = pieData.reduce((s: number, d: any) => s + d.value, 0);
+            return (
+              <div key={pf.id} className="flex flex-col gap-3">
+                <p className="text-xs font-semibold text-text-secondary">{pf.name}</p>
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={62}
+                      innerRadius={26}
+                      isAnimationActive
+                      animationBegin={0}
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                    >
+                      {pieData.map((_: any, i: number) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
+                      itemStyle={{ color: "#e2e8f0" }}
+                      labelStyle={{ color: "#94a3b8", display: "none" }}
+                      formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex flex-col gap-1">
+                  {pieData.map((entry: any, i: number) => {
+                    const pct = total > 0 ? (entry.value / total) * 100 : 0;
+                    return (
+                      <div key={entry.name} className="flex items-center gap-2 py-0.5">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                        <Link
+                          to={`/stocks/${pf.items[i].market}/${entry.name}`}
+                          className="flex-1 text-xs text-text-secondary hover:text-accent-blue transition-colors truncate"
+                        >
+                          {entry.name}
+                        </Link>
+                        <span className="text-xs font-mono font-semibold text-text-primary w-12 text-right">{pct.toFixed(1)}%</span>
+                        <span className="text-xs font-mono text-text-muted text-right w-20 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -244,9 +301,8 @@ export default function UserProfile() {
         ) : (
           <div className="flex flex-col divide-y divide-border/50">
             {activity.items.map((item: any, idx: number) => {
-              const stockPath = item.market && item.symbol
-                ? `/stocks/${item.market}/${item.symbol}`
-                : null;
+              const postId = item.type === "post" ? item.id : item.post_id;
+              const isLoading = loadingPostId === postId;
               return (
                 <div key={idx} className="flex gap-3 py-2.5">
                   <span
@@ -259,18 +315,13 @@ export default function UserProfile() {
                     {item.type === "post" ? "게시글" : "댓글"}
                   </span>
                   <div className="flex-1 min-w-0">
-                    {stockPath ? (
-                      <Link
-                        to={stockPath}
-                        className="text-sm text-text-secondary hover:text-accent-blue transition-colors line-clamp-2 break-words block"
-                      >
-                        {item.type === "post" ? (item.title || item.body) : item.content}
-                      </Link>
-                    ) : (
-                      <p className="text-sm text-text-secondary line-clamp-2 break-words">
-                        {item.type === "post" ? (item.title || item.body) : item.content}
-                      </p>
-                    )}
+                    <button
+                      onClick={() => openActivityPost(postId)}
+                      disabled={isLoading}
+                      className="text-sm text-text-secondary hover:text-accent-blue transition-colors line-clamp-2 break-words text-left w-full disabled:opacity-60"
+                    >
+                      {isLoading ? "불러오는 중..." : (item.type === "post" ? (item.title || item.body) : item.content)}
+                    </button>
                     {item.market && item.symbol && (
                       <span className="text-2xs text-text-dim">
                         {item.market} · {item.symbol}
@@ -284,6 +335,14 @@ export default function UserProfile() {
           </div>
         )}
       </div>
+
+      {/* 게시글 상세 모달 */}
+      {selectedPost && (
+        <PostDetailModal
+          post={selectedPost}
+          onClose={() => setSelectedPost(null)}
+        />
+      )}
 
       {/* 팔로워/팔로잉 모달 */}
       {followModal && (

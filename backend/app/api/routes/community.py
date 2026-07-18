@@ -15,14 +15,15 @@ router = APIRouter(prefix="/community", tags=["community"])
 _SYMBOL_RE = r"^[A-Za-z0-9.\-]{1,20}$"
 
 # ── 컨텐츠 인코딩/디코딩 ──────────────────────────────────────
-def encode_content(title: str, body: str, image: str = "", poll: Optional[dict] = None, tags: Optional[list] = None) -> str:
+def encode_content(title: str, body: str, image: str = "", poll: Optional[dict] = None, tags: Optional[list] = None, portfolio: Optional[list] = None) -> str:
     return json.dumps({
-        "v":     1,
-        "title": title.strip(),
-        "body":  body.strip(),
-        "image": image,
-        "poll":  poll or None,
-        "tags":  tags or [],
+        "v":         1,
+        "title":     title.strip(),
+        "body":      body.strip(),
+        "image":     image,
+        "poll":      poll or None,
+        "tags":      tags or [],
+        "portfolio": portfolio or None,
     }, ensure_ascii=False)
 
 def decode_content(raw: str) -> dict:
@@ -30,15 +31,16 @@ def decode_content(raw: str) -> dict:
         d = json.loads(raw)
         if d.get("v") == 1:
             return {
-                "title": d.get("title", ""),
-                "body":  d.get("body", raw),
-                "image": d.get("image", ""),
-                "poll":  d.get("poll"),
-                "tags":  d.get("tags", []),
+                "title":     d.get("title", ""),
+                "body":      d.get("body", raw),
+                "image":     d.get("image", ""),
+                "poll":      d.get("poll"),
+                "tags":      d.get("tags", []),
+                "portfolio": d.get("portfolio"),
             }
     except Exception:
         pass
-    return {"title": "", "body": raw, "image": "", "poll": None, "tags": []}
+    return {"title": "", "body": raw, "image": "", "poll": None, "tags": [], "portfolio": None}
 
 # ── 프로필 헬퍼 ───────────────────────────────────────────────
 def get_profile(db: Session, user_id: int) -> Optional[UserProfile]:
@@ -101,6 +103,7 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "image":         parsed.get("image", ""),
         "poll":          poll_data,
         "tags":          parsed.get("tags", []),
+        "portfolio":     parsed.get("portfolio"),
         "like_count":    getattr(post, "like_count", 0) or 0,
         "comment_count": comment_counts.get(post.id, 0) if comment_counts is not None else 0,
         "liked":         liked,
@@ -145,12 +148,13 @@ def _ser_comment(c: StockComment, uid: Optional[int], db: Session) -> dict:
 
 # ── Pydantic ──────────────────────────────────────────────────
 class PostCreate(BaseModel):
-    title:   str = ""
-    body:    str = ""
-    content: str = ""  # backwards compat: old frontend sends {content}
-    image:   str = ""
-    poll:    Optional[dict] = None
-    tags:    list = []
+    title:     str = ""
+    body:      str = ""
+    content:   str = ""  # backwards compat: old frontend sends {content}
+    image:     str = ""
+    poll:      Optional[dict] = None
+    tags:      list = []
+    portfolio: Optional[list] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -266,7 +270,7 @@ def create_post(
     uid_val   = current_user.id
     uname_val = current_user.username
     sym_upper = symbol.upper()
-    content_val = encode_content(body.title, body.body, body.image, body.poll, body.tags)
+    content_val = encode_content(body.title, body.body, body.image, body.poll, body.tags, body.portfolio)
 
     try:
         with engine.connect() as conn:
@@ -296,6 +300,7 @@ def create_post(
         "image":         body.image or "",
         "poll":          None,
         "tags":          [t for t in (body.tags or []) if isinstance(t, dict) and "symbol" in t],
+        "portfolio":     body.portfolio or None,
         "like_count":    0,
         "comment_count": 0,
         "liked":         False,
@@ -355,6 +360,36 @@ def toggle_post_like(
         liked = True
     db.commit()
     return {"liked": liked, "like_count": post.like_count}
+
+
+# ── 게시글 단건 조회 ──────────────────────────────────────────
+@router.get("/posts/{post_id}")
+def get_post(
+    post_id: int = Path(...),
+    db:      Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    uid = current_user.id if current_user else None
+    post = (
+        db.query(StockPost)
+        .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
+        .options(
+            defer(StockPost.comment_count),
+            defer(StockPost.updated_at),
+            selectinload(StockPost.likes),
+            selectinload(StockPost.user),
+        )
+        .first()
+    )
+    if not post:
+        raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    profile = get_profile(db, post.user_id) if post.user else None
+    count_row = db.execute(
+        text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted = false"),
+        {"pid": post_id},
+    ).fetchone()
+    comment_count = count_row[0] if count_row else 0
+    return _ser_post(post, uid, db, {post.user_id: profile} if profile else None, {post_id: comment_count})
 
 
 # ── 댓글 목록 ─────────────────────────────────────────────────

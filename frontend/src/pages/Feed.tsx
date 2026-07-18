@@ -9,6 +9,10 @@ import { communityApi, portfolioApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import PostDetailModal from "@/components/community/PostDetailModal";
 import api from "@/api/client";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { fmtKRWCompact } from "@/utils/formatters";
+
+const PIE_COLORS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
 
 type SortType = "latest" | "likes";
 type MarketFilter = "ALL" | "KR" | "US" | "ETF";
@@ -63,6 +67,7 @@ interface FeedPost {
   image: string;
   poll: PollData | null;
   tags: { symbol: string; market: string }[];
+  portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number }[] | null;
   like_count: number;
   comment_count: number;
   liked: boolean;
@@ -220,6 +225,43 @@ function FeedCard({
             </div>
           )}
 
+          {/* 포트폴리오 원그래프 */}
+          {post.portfolio && post.portfolio.length > 0 && (() => {
+            const pieData = post.portfolio.map((item) => ({ name: item.symbol, value: item.avg_price * item.shares }));
+            const total = pieData.reduce((s, d) => s + d.value, 0);
+            return (
+              <div className="mb-2 p-3 bg-bg-elevated rounded-xl flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                <ResponsiveContainer width="100%" height={130}>
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={52} innerRadius={22}
+                      isAnimationActive animationBegin={0} animationDuration={600} animationEasing="ease-out">
+                      {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
+                      itemStyle={{ color: "#e2e8f0" }}
+                      labelStyle={{ color: "#94a3b8", display: "none" }}
+                      formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex flex-col gap-0.5">
+                  {pieData.map((entry, i) => {
+                    const pct = total > 0 ? (entry.value / total) * 100 : 0;
+                    return (
+                      <div key={entry.name} className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                        <span className="flex-1 text-2xs text-text-secondary truncate">{entry.name}</span>
+                        <span className="text-2xs font-mono font-semibold text-text-primary w-10 text-right">{pct.toFixed(1)}%</span>
+                        <span className="text-2xs font-mono text-text-muted text-right w-16 hidden sm:block">{fmtKRWCompact(entry.value)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* 하단 액션 */}
           <div className="flex items-center gap-3">
             <button
@@ -376,7 +418,10 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
 
     setSubmitting(true);
     try {
-      await communityApi.createPost(market, symbol, title.trim(), bodyTrim, "", null, tags);
+      const portfolioSnapshot = mode === "portfolio"
+        ? pfItems.map((i: any) => ({ symbol: i.symbol, market: i.market, name: i.name || i.symbol, shares: i.shares, avg_price: i.avg_price ?? 0 }))
+        : null;
+      await communityApi.createPost(market, symbol, title.trim(), bodyTrim, "", null, tags, portfolioSnapshot);
       reset();
       onSubmitted();
     } catch {

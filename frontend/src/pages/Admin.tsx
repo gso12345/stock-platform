@@ -6,7 +6,7 @@ import api from "@/api/client";
 import {
   Users, BarChart2, Megaphone, Trash2, ToggleLeft, ToggleRight,
   ShieldCheck, RefreshCw, Activity, Database, Star, CheckCircle,
-  TrendingUp, Zap, Clock, Folder, Wifi, Eye, Search, X as XIcon,
+  TrendingUp, Zap, Clock, Wifi, Eye, Search, X as XIcon,
   MessageSquare, Heart,
 } from "lucide-react";
 
@@ -122,8 +122,6 @@ function DashboardTab({ qc }: { qc: any }) {
     { label: "활성 계정",    value: stats?.active_users      ?? 0, color: "text-accent-green",  bg: "bg-accent-green/8",  Icon: CheckCircle },
     { label: "현재 접속",    value: stats?.online_users      ?? 0, color: "text-cyan-400",      bg: "bg-cyan-400/8",      Icon: Wifi },
     { label: "오늘 방문자",  value: stats?.today_visitors    ?? 0, color: "text-orange-400",    bg: "bg-orange-400/8",    Icon: Eye },
-    { label: "관심종목 수",  value: stats?.watchlist_items   ?? 0, color: "text-accent-yellow", bg: "bg-accent-yellow/8", Icon: Star },
-    { label: "관심종목 폴더", value: stats?.watchlist_folders ?? 0, color: "text-amber-400",    bg: "bg-amber-400/8",     Icon: Folder },
     { label: "포트폴리오 수", value: stats?.portfolio_items  ?? 0, color: "text-purple-400",    bg: "bg-purple-400/8",    Icon: TrendingUp },
     { label: "커뮤니티 글",  value: stats?.total_posts       ?? 0, color: "text-rose-400",      bg: "bg-rose-400/8",      Icon: MessageSquare },
     { label: "커뮤니티 댓글", value: stats?.total_comments   ?? 0, color: "text-pink-400",      bg: "bg-pink-400/8",      Icon: Heart },
@@ -493,30 +491,12 @@ function CommunityAdminTab({ qc }: { qc: any }) {
                       <span className="text-xs text-text-muted font-mono">{p.created_at.slice(0, 10)}</span>
                     </td>
                     <td className="px-3 py-3 text-center">
-                      {confirmDelete === p.id ? (
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => deleteMut.mutate(p.id)}
-                            disabled={deleteMut.isPending}
-                            className="text-[11px] text-accent-red font-semibold hover:underline"
-                          >
-                            {deleteMut.isPending ? "..." : "삭제"}
-                          </button>
-                          <button
-                            onClick={() => setConfirmDelete(null)}
-                            className="text-[11px] text-text-muted hover:underline"
-                          >
-                            취소
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmDelete(p.id)}
-                          className="text-text-muted hover:text-accent-red transition-colors"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setConfirmDelete(p.id)}
+                        className="text-text-muted hover:text-accent-red transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -547,6 +527,40 @@ function CommunityAdminTab({ qc }: { qc: any }) {
           >
             다음
           </button>
+        </div>
+      )}
+
+      {/* 삭제 확인 팝업 */}
+      {confirmDelete !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => { if (!deleteMut.isPending) setConfirmDelete(null); }}
+        >
+          <div
+            className="bg-bg-card border border-border rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-bold text-text-primary">글을 삭제하시겠습니까?</p>
+              <p className="text-xs text-text-dim">삭제된 게시글은 복구할 수 없습니다.</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleteMut.isPending}
+                className="flex-1 py-2 rounded-xl border border-border text-sm text-text-secondary hover:border-accent-blue/50 transition-all disabled:opacity-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => deleteMut.mutate(confirmDelete)}
+                disabled={deleteMut.isPending}
+                className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-accent-red/90 transition-all disabled:opacity-50"
+              >
+                {deleteMut.isPending ? "삭제 중..." : "삭제"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

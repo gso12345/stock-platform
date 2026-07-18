@@ -352,8 +352,10 @@ export const watchlistApi = {
 export const communityApi = {
   getPosts: (market: string, symbol: string, page = 1, sort: "latest" | "likes" = "latest") =>
     api.get(`/community/${market}/${symbol}/posts`, { params: { page, sort } }).then((r) => r.data),
-  createPost: (market: string, symbol: string, title: string, body: string, image = "", poll: any = null, tags: any[] = []) =>
-    api.post(`/community/${market}/${symbol}/posts`, { title, body, content: body, image, poll, tags }).then((r) => r.data),
+  createPost: (market: string, symbol: string, title: string, body: string, image = "", poll: any = null, tags: any[] = [], portfolio: any[] | null = null) =>
+    api.post(`/community/${market}/${symbol}/posts`, { title, body, content: body, image, poll, tags, portfolio }).then((r) => r.data),
+  getPost: (postId: number) =>
+    api.get(`/community/posts/${postId}`).then((r) => r.data),
   deletePost: (market: string, symbol: string, postId: number) =>
     api.delete(`/community/${market}/${symbol}/posts/${postId}`).then((r) => r.data),
   togglePostLike: (postId: number) =>

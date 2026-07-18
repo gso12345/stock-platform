@@ -4,6 +4,8 @@ import { useAuthStore } from "@/store/authStore";
 import { communityApi, portfolioApi } from "@/api/stocks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { User, Save, Palette, Globe, Lock, FileText, Users } from "lucide-react";
+import PostDetailModal from "@/components/community/PostDetailModal";
+import type { ModalPost } from "@/components/community/PostDetailModal";
 
 const AVATAR_COLORS_DISPLAY = [
   { label: "파랑", dot: "bg-blue-500",    ring: "bg-blue-500/20 text-blue-400 border-blue-500/30"    },
@@ -65,6 +67,18 @@ export default function MyPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visibilityMap, setVisibilityMap] = useState<Record<number, boolean>>({});
+  const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
+  const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
+
+  const openActivityPost = async (postId: number) => {
+    if (loadingPostId === postId) return;
+    setLoadingPostId(postId);
+    try {
+      const post = await communityApi.getPost(postId);
+      setSelectedPost(post);
+    } catch {}
+    finally { setLoadingPostId(null); }
+  };
 
   useEffect(() => {
     if (profile) {
@@ -304,28 +318,43 @@ export default function MyPage() {
             <p className="text-xs text-text-dim text-center py-4">활동 내역이 없습니다</p>
           ) : (
             <div className="flex flex-col divide-y divide-border/50">
-              {activity.items.map((item: any, idx: number) => (
-                <div key={idx} className="flex gap-3 py-2.5">
-                  <span
-                    className={`text-2xs font-bold px-1.5 py-0.5 rounded shrink-0 h-fit mt-0.5 ${
-                      item.type === "post"
-                        ? "bg-accent-blue/15 text-accent-blue"
-                        : "bg-purple-500/15 text-purple-400"
-                    }`}
-                  >
-                    {item.type === "post" ? "게시글" : "댓글"}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-text-secondary line-clamp-2 break-words">
-                      {item.type === "post" ? item.title || item.body : item.content}
-                    </p>
-                    <p className="text-2xs text-text-dim mt-0.5">{timeAgo(item.created_at)}</p>
+              {activity.items.map((item: any, idx: number) => {
+                const postId = item.type === "post" ? item.id : item.post_id;
+                const isLoading = loadingPostId === postId;
+                return (
+                  <div key={idx} className="flex gap-3 py-2.5">
+                    <span
+                      className={`text-2xs font-bold px-1.5 py-0.5 rounded shrink-0 h-fit mt-0.5 ${
+                        item.type === "post"
+                          ? "bg-accent-blue/15 text-accent-blue"
+                          : "bg-purple-500/15 text-purple-400"
+                      }`}
+                    >
+                      {item.type === "post" ? "게시글" : "댓글"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <button
+                        onClick={() => openActivityPost(postId)}
+                        disabled={isLoading}
+                        className="text-sm text-text-secondary hover:text-accent-blue transition-colors line-clamp-2 break-words text-left w-full disabled:opacity-60"
+                      >
+                        {isLoading ? "불러오는 중..." : (item.type === "post" ? (item.title || item.body) : item.content)}
+                      </button>
+                      <p className="text-2xs text-text-dim mt-0.5">{timeAgo(item.created_at)}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
+      )}
+
+      {selectedPost && (
+        <PostDetailModal
+          post={selectedPost}
+          onClose={() => setSelectedPost(null)}
+        />
       )}
     </div>
   );
