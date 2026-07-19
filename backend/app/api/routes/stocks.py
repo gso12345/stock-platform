@@ -757,7 +757,7 @@ async def get_quant_score(
 async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """재무지표 연간/분기별 추이 (yfinance)"""
     from app.core.cache import cache
-    ck = f"metrics_hist4:{symbol}"  # v4: eps_growth/peg 추가
+    ck = f"metrics_hist5:{symbol}"  # v5: DART 첫 연도 성장률 보완
     if c := cache.get(ck):
         return c
     _stale_mh = cache.get_stale(ck)
@@ -976,6 +976,31 @@ async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"]
             # YoY 성장률 추가
             _add_growth(annual)
             _add_growth(quarterly)
+
+            # KR 종목: DART로 연간 첫 해 성장률 보완
+            # yfinance가 최신 4년만 반환하면 가장 오래된 해(예: 2022)에 이전 연도 데이터가 없어
+            # 성장률을 계산할 수 없음 — DART 5년 데이터로 전년도 수치를 가져와 보완
+            if market == "KR" and annual:
+                first = annual[0]
+                has_growth = any(first.get(k) for k in ["revenue_growth", "op_income_growth", "net_income_growth"])
+                has_data = any(first.get(k) for k in ["revenue", "op_income", "net_income"])
+                if not has_growth and has_data:
+                    first_year = first.get("period", "")[:4]
+                    try:
+                        dart_annual = dart_service.get_financials(symbol).get("annual", [])
+                        prev_year = str(int(first_year) - 1)
+                        prev = next((r for r in dart_annual if str(r.get("period", ""))[:4] == prev_year), None)
+                        if prev:
+                            for key, gkey in [
+                                ("revenue",    "revenue_growth"),
+                                ("op_income",  "op_income_growth"),
+                                ("net_income", "net_income_growth"),
+                            ]:
+                                cv, pv = first.get(key), prev.get(key)
+                                if cv and pv and pv != 0:
+                                    first[gkey] = round((cv - pv) / abs(pv) * 100, 2)
+                    except Exception:
+                        pass
 
             # 현금흐름 병합
             try:
