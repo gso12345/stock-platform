@@ -4,8 +4,6 @@ import { useAuthStore } from "@/store/authStore";
 import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/stocks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, Palette, Globe, Lock, FileText } from "lucide-react";
-import PostDetailModal from "@/components/community/PostDetailModal";
-import type { ModalPost } from "@/components/community/PostDetailModal";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 
 const AVATAR_COLORS_DISPLAY = [
@@ -88,8 +86,6 @@ export default function MyPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visibilityMap, setVisibilityMap] = useState<Record<number, boolean>>({});
-  const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
-  const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
 
   const allSymbols = useMemo(() => {
     if (!allPortfolioItems) return [];
@@ -144,17 +140,8 @@ export default function MyPage() {
     });
   }, [activity, qc]);
 
-  const openActivityPost = async (postId: number) => {
-    if (loadingPostId === postId) return;
-    const cached = qc.getQueryData<ModalPost>(["post", postId]);
-    if (cached) { setSelectedPost(cached); return; }
-    setLoadingPostId(postId);
-    try {
-      const post = await communityApi.getPost(postId);
-      qc.setQueryData(["post", postId], post);
-      setSelectedPost(post);
-    } catch {}
-    finally { setLoadingPostId(null); }
+  const openActivityPost = (postId: number) => {
+    navigate(`/post/${postId}`);
   };
 
   useEffect(() => {
@@ -431,16 +418,6 @@ export default function MyPage() {
         </div>
       )}
 
-      {selectedPost && (
-        <PostDetailModal
-          post={selectedPost}
-          onClose={() => setSelectedPost(null)}
-          onDeleted={() => {
-            setSelectedPost(null);
-            qc.invalidateQueries({ queryKey: ["userActivity", userId] });
-          }}
-        />
-      )}
     </div>
   );
 }

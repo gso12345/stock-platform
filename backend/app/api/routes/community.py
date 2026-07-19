@@ -66,7 +66,8 @@ def display_name(user, profile: Optional[UserProfile]) -> str:
 # ── 직렬화 ────────────────────────────────────────────────────
 def _ser_post(post: StockPost, uid: Optional[int], db: Session,
               profiles_map: Optional[dict] = None,
-              comment_counts: Optional[dict] = None) -> dict:
+              comment_counts: Optional[dict] = None,
+              following_ids: Optional[set] = None) -> dict:
     liked  = any(lk.user_id == uid for lk in post.likes) if uid else False
     parsed = decode_content(post.content)
     profile = profiles_map.get(post.user_id) if profiles_map is not None else (
@@ -110,6 +111,7 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "liked":         liked,
         "created_at":    post.created_at.isoformat(),
         "is_mine":       post.user_id == uid if uid else False,
+        "is_following":  (post.user_id in following_ids) if following_ids is not None and uid and post.user_id != uid else False,
     }
 
 def _ser_comment(c: StockComment, uid: Optional[int], db: Session) -> dict:
@@ -252,9 +254,16 @@ def list_posts(
             {"ids": post_ids},
         ).fetchall()
         comment_counts = {r[0]: r[1] for r in rows}
-
+    lp_following_ids: set = set()
+    if uid and user_ids:
+        others = [uid2 for uid2 in user_ids if uid2 != uid]
+        if others:
+            fol_rows = db.query(UserFollow.following_id).filter(
+                UserFollow.follower_id == uid, UserFollow.following_id.in_(others)
+            ).all()
+            lp_following_ids = {r[0] for r in fol_rows}
     return {"total": total, "page": page, "items": [
-        _ser_post(p, uid, db, profiles_map, comment_counts) for p in posts
+        _ser_post(p, uid, db, profiles_map, comment_counts, lp_following_ids) for p in posts
     ]}
 
 
@@ -407,7 +416,14 @@ def get_post(
         {"pid": post_id},
     ).fetchone()
     comment_count = count_row[0] if count_row else 0
-    return _ser_post(post, uid, db, {post.user_id: profile} if profile else None, {post_id: comment_count})
+    following_ids: set = set()
+    if uid and post.user_id != uid:
+        is_fol = db.query(UserFollow).filter(
+            UserFollow.follower_id == uid, UserFollow.following_id == post.user_id
+        ).first()
+        if is_fol:
+            following_ids.add(post.user_id)
+    return _ser_post(post, uid, db, {post.user_id: profile} if profile else None, {post_id: comment_count}, following_ids)
 
 
 # ── 댓글 목록 ─────────────────────────────────────────────────
@@ -571,8 +587,16 @@ def get_feed(
             {"ids": post_ids},
         ).fetchall()
         feed_comment_counts = {r[0]: r[1] for r in rows}
+    feed_following_ids: set = set()
+    if uid and user_ids:
+        others = [uid2 for uid2 in user_ids if uid2 != uid]
+        if others:
+            fol_rows = db.query(UserFollow.following_id).filter(
+                UserFollow.follower_id == uid, UserFollow.following_id.in_(others)
+            ).all()
+            feed_following_ids = {r[0] for r in fol_rows}
     return {"total": total, "page": page, "items": [
-        _ser_post(p, uid, db, profiles_map, feed_comment_counts) for p in posts
+        _ser_post(p, uid, db, profiles_map, feed_comment_counts, feed_following_ids) for p in posts
     ]}
 
 
