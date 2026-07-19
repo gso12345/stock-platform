@@ -205,10 +205,15 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
         </div>
         {showReply && (
           <div className="mt-2 flex gap-2">
-            <input autoFocus value={replyText} onChange={e => setReplyText(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && !e.shiftKey && submitReply()}
+            <textarea autoFocus value={replyText} rows={1}
+              onChange={e => {
+                setReplyText(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = Math.min(e.target.scrollHeight, 80) + "px";
+              }}
+              onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submitReply())}
               placeholder="답글 입력..." maxLength={500}
-              className="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
+              className="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50 resize-none overflow-hidden leading-relaxed" />
             <button onClick={submitReply} disabled={!replyText.trim() || submitting}
               className="px-3 py-2 bg-accent-blue text-white text-xs rounded-xl disabled:opacity-40 hover:bg-accent-blue/90 transition-colors">
               {submitting ? "..." : "등록"}
@@ -239,7 +244,13 @@ export default function PostDetail() {
   const [submittingComment, setSubmittingComment] = useState(false);
   const [copied, setCopied] = useState(false);
   const [following, setFollowing] = useState<boolean | null>(null);
-  const commentInputRef = useRef<HTMLInputElement>(null);
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const autoResize = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }, []);
 
   const { data: post, isLoading: postLoading } = useQuery<any>({
     queryKey: ["post", postId],
@@ -324,6 +335,7 @@ export default function PostDetail() {
     if (!txt || submittingComment || !activePost) return;
     setSubmittingComment(true);
     setCommentText("");
+    if (commentInputRef.current) { commentInputRef.current.style.height = "auto"; }
     const tempId = -Date.now();
     qc.setQueryData<Comment[]>(commentsKey, (prev) => [
       ...(prev ?? []),
@@ -561,12 +573,13 @@ export default function PostDetail() {
               <div className={`w-7 h-7 rounded-full border flex items-center justify-center text-xs font-bold shrink-0 ${AVATAR_COLORS[0]}`}>
                 {(myUsername ?? "?")[0]?.toUpperCase()}
               </div>
-              <input ref={commentInputRef} value={commentText}
-                onChange={e => setCommentText(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && !e.shiftKey && submitComment()}
+              <textarea ref={commentInputRef} value={commentText}
+                rows={1}
+                onChange={e => { setCommentText(e.target.value); autoResize(e.target); }}
+                onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submitComment())}
                 placeholder="댓글을 입력하세요..."
                 maxLength={5000}
-                className="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
+                className="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50 resize-none overflow-hidden leading-relaxed" />
               <button onClick={submitComment} disabled={!commentText.trim() || submittingComment}
                 className="px-3 py-2 bg-accent-blue text-white text-sm rounded-xl disabled:opacity-40 hover:bg-accent-blue/90 transition-colors shrink-0">
                 {submittingComment ? "..." : <Send size={14} />}
