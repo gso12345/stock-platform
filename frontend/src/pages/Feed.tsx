@@ -5,7 +5,7 @@ import {
   Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users, Share2,
   PenSquare, Hash, BarChart2, X, Trash2, Image as ImageIcon, Send, LogIn, Eye,
 } from "lucide-react";
-import { communityApi, portfolioApi } from "@/api/stocks";
+import { communityApi, portfolioApi, watchlistApi, dashboardApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import PostDetailModal from "@/components/community/PostDetailModal";
 import api from "@/api/client";
@@ -339,6 +339,8 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const [selectedPfId, setSelectedPfId] = useState<number | null>(null);
   const [pfItems, setPfItems] = useState<any[]>([]);
   const [loadingPf, setLoadingPf] = useState(false);
+  const [livePriceMap, setLivePriceMap] = useState<Record<string, number>>({});
+  const [liveExchangeRate, setLiveExchangeRate] = useState<number>(1350);
 
   // common
   const [title, setTitle] = useState("");
@@ -366,6 +368,12 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
           setPortfolios(pfs);
         })
         .finally(() => setLoadingPf(false));
+      dashboardApi.getUSRates().then((rates: any) => {
+        if (Array.isArray(rates)) {
+          const row = (rates as any[]).find((r: any) => r.name === "원/달러");
+          if (row?.value) setLiveExchangeRate(row.value);
+        }
+      }).catch(() => {});
     }
   }, [mode, open]);
 
@@ -377,6 +385,17 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
       portfolioApi.getItems(selectedPfId).then((items: any[]) => setPfItems(items));
     }
   }, [selectedPfId, portfolios.length, mode]);
+
+  useEffect(() => {
+    if (pfItems.length === 0) { setLivePriceMap({}); return; }
+    const symbols = [...new Set(pfItems.map((i: any) => i.symbol as string))];
+    const markets = [...new Set(pfItems.map((i: any) => i.market as string))];
+    watchlistApi.getPrices(symbols, markets).then((prices: any[]) => {
+      const map: Record<string, number> = {};
+      (prices as any[]).forEach((p: any) => { if (p.price > 0) map[p.symbol] = p.price; });
+      setLivePriceMap(map);
+    }).catch(() => {});
+  }, [pfItems]);
 
   useEffect(() => {
     if (!searchQ.trim()) { setSearchResults([]); return; }
@@ -460,19 +479,25 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     setTagResults([]);
   };
 
-  // Portfolio chart for write panel preview
+  // Portfolio chart for write panel preview — with live prices
   const pfForChart: PfPortfolioForChart[] = pfItems.length > 0 ? [{
     id: selectedPfId ?? 0,
     name: selectedPfId === null ? "전체 포트폴리오" : (portfolios.find((p: any) => p.id === selectedPfId)?.name ?? "포트폴리오"),
-    items: pfItems.map((item: any) => ({
-      symbol: item.symbol,
-      market: item.market,
-      name: item.name || item.symbol,
-      avgPrice: item.avgPrice ?? 0,
-      shares: item.shares,
-      currency: item.currency,
-      inputExchangeRate: item.inputExchangeRate ?? null,
-    })),
+    items: pfItems.map((item: any) => {
+      const currentPrice = livePriceMap[item.symbol];
+      const fx = item.currency === "USD" ? liveExchangeRate : 1;
+      const currentValueKRW = currentPrice > 0 ? currentPrice * fx * item.shares : undefined;
+      return {
+        symbol: item.symbol,
+        market: item.market,
+        name: item.name || item.symbol,
+        avgPrice: item.avgPrice ?? 0,
+        shares: item.shares,
+        currency: item.currency,
+        inputExchangeRate: item.inputExchangeRate ?? null,
+        currentValueKRW,
+      };
+    }),
   }] : [];
 
   // Avatar color from username (same algorithm as CommunityTab)
@@ -695,7 +720,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             />
             {/* 포트폴리오 차트 미리보기 — 본문 아래 */}
             {mode === "portfolio" && pfForChart.length > 0 && (
-              <PortfolioChart portfolios={pfForChart} exchangeRate={1350} />
+              <PortfolioChart portfolios={pfForChart} exchangeRate={liveExchangeRate} />
             )}
             {/* 자동 태그 미리보기 */}
             {mode === "portfolio" && pfItems.length > 0 && (
