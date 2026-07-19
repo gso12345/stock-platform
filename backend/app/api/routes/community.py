@@ -9,10 +9,36 @@ from fastapi import Body
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote
 from app.models.user import User
 from app.core.deps import get_current_user, require_user
+from app.services.ticker_service import get_kr_db
 
 router = APIRouter(prefix="/community", tags=["community"])
 
 _SYMBOL_RE = r"^[A-Za-z0-9.\-]{1,20}$"
+
+_kr_name_cache: dict[str, str] = {}
+
+def _kr_name(symbol: str) -> str | None:
+    if symbol in _kr_name_cache:
+        return _kr_name_cache[symbol]
+    try:
+        for t in get_kr_db():
+            if t.get("s") == symbol or t.get("symbol") == symbol:
+                name = t.get("n") or t.get("name")
+                if name:
+                    _kr_name_cache[symbol] = name
+                    return name
+    except Exception:
+        pass
+    return None
+
+def _enrich_tags(tags: list) -> list:
+    result = []
+    for t in tags:
+        if isinstance(t, dict) and t.get("market") == "KR" and not t.get("name"):
+            name = _kr_name(t.get("symbol", ""))
+            t = {**t, "name": name} if name else t
+        result.append(t)
+    return result
 
 # ── 컨텐츠 인코딩/디코딩 ──────────────────────────────────────
 def encode_content(title: str, body: str, image: str = "", poll: Optional[dict] = None, tags: Optional[list] = None, portfolio: Optional[list] = None) -> str:
@@ -104,7 +130,7 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "body":          parsed["body"],
         "image":         parsed.get("image", ""),
         "poll":          poll_data,
-        "tags":          parsed.get("tags", []),
+        "tags":          _enrich_tags(parsed.get("tags", [])),
         "portfolio":     parsed.get("portfolio"),
         "like_count":    getattr(post, "like_count", 0) or 0,
         "comment_count": comment_counts.get(post.id, 0) if comment_counts is not None else 0,
@@ -330,28 +356,35 @@ class PostUpdate(BaseModel):
 
 @router.put("/{market}/{symbol}/posts/{post_id}")
 def update_post(
-    market:  Literal["KR", "US", "ETF"],
-    symbol:  str = Path(..., pattern=_SYMBOL_RE),
-    post_id: int = Path(...),
-    body:    PostUpdate = ...,
-    db:      Session = Depends(get_db),
+    market:   Literal["KR", "US", "ETF"],
+    symbol:   str = Path(..., pattern=_SYMBOL_RE),
+    post_id:  int = Path(...),
+    payload:  PostUpdate = Body(...),
     current_user=Depends(require_user),
 ):
-    post = db.query(StockPost).filter(StockPost.id == post_id).first()
-    if not post or post.is_deleted:
-        raise HTTPException(404, "게시글을 찾을 수 없습니다")
-    if post.user_id != current_user.id and not current_user.is_admin:
-        raise HTTPException(403, "수정 권한이 없습니다")
-    parsed = decode_content(post.content)
-    parsed["title"] = body.title.strip()
-    parsed["body"]  = body.body.strip()
-    post.content = encode_content(
-        parsed["title"], parsed["body"],
-        parsed.get("image", ""), parsed.get("poll"),
-        parsed.get("tags"), parsed.get("portfolio"),
-    )
-    db.commit()
-    return {"id": post_id, "title": parsed["title"], "body": parsed["body"]}
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT user_id, content, is_deleted FROM stock_posts WHERE id = :id"),
+            {"id": post_id},
+        ).fetchone()
+        if not row or row[2]:
+            raise HTTPException(404, "게시글을 찾을 수 없습니다")
+        if row[0] != current_user.id and not current_user.is_admin:
+            raise HTTPException(403, "수정 권한이 없습니다")
+        parsed = decode_content(row[1])
+        new_title = payload.title.strip()
+        new_body  = payload.body.strip()
+        new_content = encode_content(
+            new_title, new_body,
+            parsed.get("image", ""), parsed.get("poll"),
+            parsed.get("tags"), parsed.get("portfolio"),
+        )
+        conn.execute(
+            text("UPDATE stock_posts SET content = :content WHERE id = :id"),
+            {"content": new_content, "id": post_id},
+        )
+        conn.commit()
+    return {"id": post_id, "title": new_title, "body": new_body}
 
 
 # ── 게시글 삭제 ────────────────────────────────────────────────
@@ -520,6 +553,27 @@ def create_comment(
         "content": c.content, "like_count": 0, "liked": False,
         "created_at": c.created_at.isoformat(), "is_mine": True, "replies": [],
     }
+
+
+# ── 댓글 수정 ─────────────────────────────────────────────────
+class CommentUpdate(BaseModel):
+    content: str
+
+@router.put("/comments/{comment_id}")
+def update_comment(
+    comment_id: int = Path(...),
+    payload:    CommentUpdate = Body(...),
+    db:         Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    c = db.query(StockComment).filter(StockComment.id == comment_id).first()
+    if not c or c.is_deleted:
+        raise HTTPException(404, "댓글을 찾을 수 없습니다")
+    if c.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(403, "수정 권한이 없습니다")
+    c.content = payload.content.strip()
+    db.commit()
+    return {"id": comment_id, "content": c.content}
 
 
 # ── 댓글 삭제 ─────────────────────────────────────────────────

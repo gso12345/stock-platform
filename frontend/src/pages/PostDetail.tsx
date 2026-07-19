@@ -41,6 +41,9 @@ function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
   const qc = useQueryClient();
   const [liked, setLiked] = useState(reply.liked);
   const [likeCount, setLikeCount] = useState(reply.like_count);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const handleLike = async () => {
     if (!isLoggedIn) { navigate("/login"); return; }
@@ -59,6 +62,24 @@ function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
     } catch {}
   };
 
+  const startEdit = () => { setEditText(reply.content); setIsEditing(true); };
+
+  const saveEdit = async () => {
+    const txt = editText.trim();
+    if (!txt || saving) return;
+    setSaving(true);
+    try {
+      await communityApi.updateComment(reply.id, txt);
+      qc.setQueryData<Comment[]>(queryKey, (prev) =>
+        (prev ?? []).map(c => ({
+          ...c,
+          replies: c.replies.map(r => r.id === reply.id ? { ...r, content: txt } : r),
+        }))
+      );
+      setIsEditing(false);
+    } catch {} finally { setSaving(false); }
+  };
+
   return (
     <div className="flex gap-2">
       <AvatarComponent username={reply.username} colorIndex={reply.avatar_color} avatarUrl={reply.avatar_url}
@@ -72,17 +93,33 @@ function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
           <span className="text-2xs text-text-dim">·</span>
           <span className="text-2xs text-text-dim">{timeAgo(reply.created_at)}</span>
         </div>
-        <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">{reply.content}</p>
-        <div className="flex items-center gap-3 mt-1.5">
-          <button onClick={handleLike}
-            className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-            <Heart size={10} className={liked ? "fill-accent-red" : ""} />
-            {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
-          </button>
-          {reply.is_mine && (
-            <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
-          )}
-        </div>
+        {isEditing ? (
+          <div className="flex flex-col gap-1.5 mt-1">
+            <textarea autoFocus value={editText} rows={2}
+              onChange={e => setEditText(e.target.value)}
+              className="w-full bg-bg-elevated border border-accent-blue/50 rounded-xl px-3 py-2 text-sm text-text-secondary focus:outline-none resize-none" />
+            <div className="flex gap-2">
+              <button onClick={saveEdit} disabled={saving}
+                className="text-xs px-2.5 py-1 bg-accent-blue text-white rounded-lg disabled:opacity-50">{saving ? "저장 중" : "저장"}</button>
+              <button onClick={() => setIsEditing(false)} className="text-xs px-2.5 py-1 text-text-dim hover:text-text-primary border border-border rounded-lg">취소</button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">{reply.content}</p>
+        )}
+        {!isEditing && (
+          <div className="flex items-center gap-3 mt-1.5">
+            <button onClick={handleLike}
+              className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
+              <Heart size={10} className={liked ? "fill-accent-red" : ""} />
+              {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
+            </button>
+            {reply.is_mine && (<>
+              <button onClick={startEdit} className="text-xs text-text-dim hover:text-accent-blue transition-colors">수정</button>
+              <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
+            </>)}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -98,6 +135,9 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const handleLike = async () => {
     if (!isLoggedIn) { navigate("/login"); return; }
@@ -114,6 +154,21 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
       await communityApi.deleteComment(comment.id);
       qc.invalidateQueries({ queryKey });
     } catch {}
+  };
+
+  const startEdit = () => { setEditText(comment.content); setIsEditing(true); };
+
+  const saveEdit = async () => {
+    const txt = editText.trim();
+    if (!txt || savingEdit) return;
+    setSavingEdit(true);
+    try {
+      await communityApi.updateComment(comment.id, txt);
+      qc.setQueryData<Comment[]>(queryKey, (prev) =>
+        (prev ?? []).map(c => c.id === comment.id ? { ...c, content: txt } : c)
+      );
+      setIsEditing(false);
+    } catch {} finally { setSavingEdit(false); }
   };
 
   const submitReply = async () => {
@@ -164,21 +219,37 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
           <span className="text-2xs text-text-dim">·</span>
           <span className="text-2xs text-text-dim">{timeAgo(comment.created_at)}</span>
         </div>
-        <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words mb-2">{comment.content}</p>
-        <div className="flex items-center gap-4">
-          <button onClick={handleLike}
-            className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-            <Heart size={11} className={liked ? "fill-accent-red" : ""} />
-            {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
-          </button>
-          {isLoggedIn && (
-            <button onClick={() => setShowReply(v => !v)}
-              className="text-xs text-text-dim hover:text-accent-blue transition-colors">답글</button>
-          )}
-          {comment.is_mine && (
-            <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
-          )}
-        </div>
+        {isEditing ? (
+          <div className="flex flex-col gap-1.5 mt-1 mb-2">
+            <textarea autoFocus value={editText} rows={3}
+              onChange={e => setEditText(e.target.value)}
+              className="w-full bg-bg-elevated border border-accent-blue/50 rounded-xl px-3 py-2 text-sm text-text-secondary focus:outline-none resize-none" />
+            <div className="flex gap-2">
+              <button onClick={saveEdit} disabled={savingEdit}
+                className="text-xs px-2.5 py-1 bg-accent-blue text-white rounded-lg disabled:opacity-50">{savingEdit ? "저장 중" : "저장"}</button>
+              <button onClick={() => setIsEditing(false)} className="text-xs px-2.5 py-1 text-text-dim hover:text-text-primary border border-border rounded-lg">취소</button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words mb-2">{comment.content}</p>
+        )}
+        {!isEditing && (
+          <div className="flex items-center gap-4">
+            <button onClick={handleLike}
+              className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
+              <Heart size={11} className={liked ? "fill-accent-red" : ""} />
+              {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
+            </button>
+            {isLoggedIn && (
+              <button onClick={() => setShowReply(v => !v)}
+                className="text-xs text-text-dim hover:text-accent-blue transition-colors">답글</button>
+            )}
+            {comment.is_mine && (<>
+              <button onClick={startEdit} className="text-xs text-text-dim hover:text-accent-blue transition-colors">수정</button>
+              <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
+            </>)}
+          </div>
+        )}
         {showReply && (
           <div className="mt-2 flex items-end gap-2">
             <div className="flex-1 flex items-end gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2 focus-within:border-accent-blue/50 transition-colors">
