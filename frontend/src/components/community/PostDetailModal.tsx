@@ -288,8 +288,9 @@ function CommentItem({
 export default function PostDetailModal({
   post: initialPost, onClose, onLikeToggled, onVoteUpdated, onDeleted,
 }: PostDetailModalProps) {
-  const { isLoggedIn, userId } = useAuthStore();
+  const { isLoggedIn, userId, username: myUsername } = useAuthStore();
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   const [post, setPost] = useState(initialPost);
   const [commentText, setCommentText] = useState("");
@@ -363,10 +364,23 @@ export default function PostDetailModal({
     const txt = commentText.trim();
     if (!txt || submittingComment) return;
     setSubmittingComment(true);
+    setCommentText("");
+    const tempId = -Date.now();
+    const tempComment = {
+      id: tempId, post_id: post.id, user_id: uid ?? 0,
+      username: myUsername ?? "나", avatar_color: 0,
+      content: txt, like_count: 0, liked: false, is_mine: true,
+      created_at: new Date().toISOString(), replies: [],
+    };
+    qc.setQueryData<any[]>(["modal-comments", post.id], (prev) => [...(prev ?? []), tempComment]);
     try {
       await communityApi.createComment(post.id, txt);
-      setCommentText("");
       refetchComments();
+    } catch {
+      qc.setQueryData<any[]>(["modal-comments", post.id], (prev) =>
+        (prev ?? []).filter((c) => c.id !== tempId)
+      );
+      setCommentText(txt);
     } finally {
       setSubmittingComment(false);
     }
@@ -384,7 +398,7 @@ export default function PostDetailModal({
 
       {/* 모달 패널 */}
       <div
-        className="relative z-10 w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[85vh] bg-bg-card border border-border rounded-t-3xl sm:rounded-3xl flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200"
+        className="relative z-10 w-full sm:max-w-2xl max-h-[92dvh] sm:max-h-[85dvh] bg-bg-card border border-border rounded-t-3xl sm:rounded-3xl flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
@@ -567,7 +581,7 @@ export default function PostDetailModal({
         </div>
 
         {/* 댓글 입력 */}
-        <div className="shrink-0 px-5 py-3 border-t border-border">
+        <div className="shrink-0 px-5 py-3 border-t border-border pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           {isLoggedIn ? (
             <div className="flex gap-2">
               <input

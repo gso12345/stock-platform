@@ -1025,7 +1025,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleSubmit();
                   }}
                   placeholder="이 종목에 대한 의견을 자유롭게 남겨보세요"
-                  maxLength={2000}
+                  maxLength={5000}
                   rows={2}
                   className="w-full px-0 py-0 bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
                   style={{ minHeight: "2.5rem" }}
@@ -1182,7 +1182,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                 >
                   <Hash size={14} />
                 </button>
-                <span className="text-2xs text-text-dim ml-1">{body.length}/2000</span>
+                <span className="text-2xs text-text-dim ml-1">{body.length}/5000</span>
               </div>
               <button
                 onClick={handleSubmit}

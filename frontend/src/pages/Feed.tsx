@@ -123,6 +123,7 @@ function FeedCard({
   const badgeCls = MARKET_BADGE[post.market] ?? MARKET_BADGE.KR;
   const avatarCls = AVATAR_COLORS[post.avatar_color % AVATAR_COLORS.length];
   const [copied, setCopied] = useState(false);
+  const [showFull, setShowFull] = useState(false);
 
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -189,10 +190,22 @@ function FeedCard({
             <p className="text-sm font-semibold text-text-primary mb-0.5">{post.title}</p>
           )}
 
-          {/* 본문 (최대 3줄) */}
-          <p className="text-sm text-text-secondary leading-relaxed line-clamp-3 break-words mb-2">
-            {post.body}
-          </p>
+          {/* 본문 */}
+          {post.body && (
+            <div className="mb-2">
+              <p className={`text-sm text-text-secondary leading-relaxed break-words ${showFull ? "" : "line-clamp-3"}`}>
+                {post.body}
+              </p>
+              {post.body.length > 120 && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowFull((v) => !v); }}
+                  className="text-xs text-accent-blue hover:underline mt-0.5"
+                >
+                  {showFull ? "접기" : "더 보기"}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* 첨부 이미지 */}
           {post.image && (

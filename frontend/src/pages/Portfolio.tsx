@@ -1287,7 +1287,7 @@ export default function Portfolio() {
     const map: Record<number, number> = {};
     priceableItems.forEach((item, i) => {
       const d = effectivePrices?.[i] as any;
-      if (d?.price != null) map[item.id] = d.price;
+      if (d?.price != null && d.price > 0) map[item.id] = d.price;
     });
     return map;
   }, [priceableItems, effectivePrices]);
