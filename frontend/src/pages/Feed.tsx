@@ -364,18 +364,24 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
       portfolioApi.getPortfolios()
         .then((pfs: any[]) => {
           setPortfolios(pfs);
-          if (pfs.length > 0) setSelectedPfId(pfs[0].id);
+          // selectedPfId remains null = "전체 포트폴리오"
         })
         .finally(() => setLoadingPf(false));
     }
   }, [mode, open]);
 
   useEffect(() => {
-    if (selectedPfId == null) return;
-    portfolioApi.getItems(selectedPfId).then((items: any[]) => {
-      setPfItems(items);
-    });
-  }, [selectedPfId]);
+    if (mode !== "portfolio") return;
+    if (selectedPfId == null) {
+      portfolioApi.getItems(undefined, true).then((items: any[]) => {
+        setPfItems(items);
+      });
+    } else {
+      portfolioApi.getItems(selectedPfId).then((items: any[]) => {
+        setPfItems(items);
+      });
+    }
+  }, [selectedPfId, mode]);
 
   useEffect(() => {
     if (!searchQ.trim()) { setSearchResults([]); return; }
@@ -656,9 +662,10 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             ) : (
               <select
                 value={selectedPfId ?? ""}
-                onChange={(e) => { const id = Number(e.target.value); setSelectedPfId(id); setPfItems([]); }}
+                onChange={(e) => { const val = e.target.value; setSelectedPfId(val === "" ? null : Number(val)); setPfItems([]); }}
                 className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
               >
+                <option value="">전체 포트폴리오</option>
                 {portfolios.map((pf: any) => (
                   <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
                 ))}
@@ -694,6 +701,17 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             {/* 포트폴리오 차트 미리보기 — 본문 아래 */}
             {mode === "portfolio" && pfForChart.length > 0 && (
               <PortfolioChart portfolios={pfForChart} exchangeRate={1350} />
+            )}
+            {/* 자동 태그 미리보기 */}
+            {mode === "portfolio" && pfItems.length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-1">
+                <span className="text-2xs text-text-dim self-center">자동태그:</span>
+                {pfItems.map((item: any) => (
+                  <span key={item.symbol} className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue">
+                    #{item.symbol}
+                  </span>
+                ))}
+              </div>
             )}
           </div>
         </div>
