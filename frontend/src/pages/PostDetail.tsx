@@ -473,7 +473,7 @@ export default function PostDetail() {
               {activePost.tags.map((t: any) => (
                 <Link key={`${t.market}-${t.symbol}`} to={`/stocks/${t.market}/${t.symbol}`}
                   className="text-xs px-2.5 py-1 bg-accent-blue/10 text-accent-blue rounded-lg font-semibold hover:bg-accent-blue/20 transition-colors">
-                  #{t.symbol}
+                  #{(t as any).market === "KR" && (t as any).name ? (t as any).name : t.symbol}
                 </Link>
               ))}
             </div>

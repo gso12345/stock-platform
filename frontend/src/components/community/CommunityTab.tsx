@@ -556,7 +556,7 @@ function PostCard({
                   to={`/stocks/${t.market}/${t.symbol}`}
                   className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 transition-colors"
                 >
-                  #{t.symbol}
+                  #{t.market === "KR" && t.name ? t.name : t.symbol}
                 </Link>
               ))}
             </div>
@@ -755,7 +755,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   const addTag = (tag: StockTag) => {
     if (tags.length >= 5) return;
     if (!tags.find((t) => t.symbol === tag.symbol && t.market === tag.market)) {
-      setTags((prev) => [...prev, { symbol: tag.symbol, market: tag.market }]);
+      setTags((prev) => [...prev, { symbol: tag.symbol, market: tag.market, name: tag.name }]);
     }
     setTagQuery("");
     setTagResults([]);
@@ -1016,7 +1016,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                       <div className="flex flex-wrap gap-1">
                         {tags.map((t) => (
                           <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
-                            #{t.symbol}
+                            #{t.market === "KR" && t.name ? t.name : t.symbol}
                             <button onClick={() => removeTag(t.symbol)}>
                               <XIcon size={10} />
                             </button>

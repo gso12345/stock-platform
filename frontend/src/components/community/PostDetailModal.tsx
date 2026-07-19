@@ -519,7 +519,7 @@ export default function PostDetailModal({
                   onClick={onClose}
                   className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 transition-colors"
                 >
-                  #{t.symbol}
+                  #{(t as any).market === "KR" && (t as any).name ? (t as any).name : t.symbol}
                 </Link>
               ))}
             </div>

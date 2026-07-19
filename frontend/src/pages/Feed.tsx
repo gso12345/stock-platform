@@ -91,8 +91,8 @@ interface FeedPost {
   body: string;
   image: string;
   poll: PollData | null;
-  tags: { symbol: string; market: string }[];
-  portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null }[] | null;
+  tags: { symbol: string; market: string; name?: string }[];
+  portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null; current_price?: number | null }[] | null;
   like_count: number;
   comment_count: number;
   view_count?: number;
@@ -273,7 +273,7 @@ function FeedCard({
                   to={`/stocks/${t.market}/${t.symbol}`}
                   className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 transition-colors"
                 >
-                  #{t.symbol}
+                  #{t.market === "KR" && t.name ? t.name : t.symbol}
                 </Link>
               ))}
             </div>
@@ -373,7 +373,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const [showTagSearch, setShowTagSearch] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const [tagResults, setTagResults] = useState<any[]>([]);
-  const [customTags, setCustomTags] = useState<{ symbol: string; market: string }[]>([]);
+  const [customTags, setCustomTags] = useState<{ symbol: string; market: string; name?: string }[]>([]);
   const tagSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -523,7 +523,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const addCustomTag = (tag: { symbol: string; market: string }) => {
     if (customTags.length >= 5) return;
     if (!customTags.find((t) => t.symbol === tag.symbol && t.market === tag.market)) {
-      setCustomTags((prev) => [...prev, { symbol: tag.symbol, market: tag.market }]);
+      setCustomTags((prev) => [...prev, { symbol: tag.symbol, market: tag.market, name: tag.name }]);
     }
     setTagQuery("");
     setTagResults([]);
@@ -590,15 +590,19 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     setSubmitting(true);
     try {
       const portfolioSnapshot = mode === "portfolio"
-        ? pfItems.map((i: any) => ({
-            symbol: i.symbol,
-            market: i.market,
-            name: i.name || i.symbol,
-            shares: i.shares,
-            avg_price: i.avgPrice ?? i.avg_price ?? 0,
-            currency: i.currency ?? "KRW",
-            input_exchange_rate: i.inputExchangeRate ?? null,
-          }))
+        ? pfItems.map((i: any) => {
+            const currentPrice = feedPriceMap[i.id];
+            return {
+              symbol: i.symbol,
+              market: i.market,
+              name: i.name || i.symbol,
+              shares: i.shares,
+              avg_price: i.avgPrice ?? i.avg_price ?? 0,
+              currency: i.currency ?? "KRW",
+              input_exchange_rate: i.inputExchangeRate ?? null,
+              current_price: currentPrice ?? null,
+            };
+          })
         : null;
       await communityApi.createPost(market, symbol, title.trim(), bodyToSubmit, image, pollData, allTags, portfolioSnapshot);
       reset();
@@ -706,7 +710,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
                           setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol });
                           setSearchQ("");
                           setSearchResults([]);
-                          setCustomTags(prev => prev.find(t => t.symbol === r.symbol && t.market === r.market) ? prev : [{ symbol: r.symbol, market: r.market }, ...prev]);
+                          setCustomTags(prev => prev.find(t => t.symbol === r.symbol && t.market === r.market) ? prev : [{ symbol: r.symbol, market: r.market, name: r.name }, ...prev]);
                         }}
                         className="w-full text-left px-3 py-2 hover:bg-bg-elevated transition-colors flex items-center gap-2"
                       >
@@ -846,7 +850,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
               <div className="flex flex-wrap gap-1">
                 {customTags.map((t) => (
                   <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
-                    #{t.symbol}
+                    #{t.market === "KR" && t.name ? t.name : t.symbol}
                     <button onClick={() => setCustomTags((prev) => prev.filter((x) => x.symbol !== t.symbol))}><X size={10} /></button>
                   </span>
                 ))}
