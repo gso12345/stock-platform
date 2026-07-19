@@ -543,9 +543,21 @@ export default function PostDetail() {
 
       {/* 고정 댓글 입력 */}
       <div className="fixed bottom-0 left-0 right-0 z-20 bg-bg-card/95 backdrop-blur-md border-t border-border">
-        <div className="max-w-2xl mx-auto px-3 sm:px-4 py-2.5" style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}>
+        <div className="max-w-2xl mx-auto px-3 sm:px-4 pt-2" style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}>
+          {/* 댓글 대상 글 컨텍스트 */}
+          {activePost && (
+            <div className="flex items-center gap-1.5 mb-1.5 px-1">
+              <span className="text-2xs text-text-dim shrink-0">댓글 작성:</span>
+              <span className="text-2xs text-text-muted truncate">
+                <span className="font-semibold text-accent-blue">{activePost.username}</span>
+                {" · "}
+                {(activePost.title || activePost.body || "").slice(0, 60) || "게시글"}
+                {(activePost.title || activePost.body || "").length > 60 ? "…" : ""}
+              </span>
+            </div>
+          )}
           {isLoggedIn ? (
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center pb-0.5">
               <div className={`w-7 h-7 rounded-full border flex items-center justify-center text-xs font-bold shrink-0 ${AVATAR_COLORS[0]}`}>
                 {(myUsername ?? "?")[0]?.toUpperCase()}
               </div>
@@ -562,7 +574,7 @@ export default function PostDetail() {
             </div>
           ) : (
             <button onClick={() => navigate("/login")}
-              className="w-full py-2.5 text-sm text-text-dim bg-bg-elevated rounded-xl border border-border hover:border-accent-blue/50 transition-colors text-center">
+              className="w-full py-2.5 text-sm text-text-dim bg-bg-elevated rounded-xl border border-border hover:border-accent-blue/50 transition-colors text-center mb-0.5">
               로그인 후 댓글 작성
             </button>
           )}
