@@ -516,6 +516,37 @@ export default function PostDetail() {
             <p className="text-sm font-semibold text-text-primary">
               댓글 {comments.length > 0 ? comments.length : ""}
             </p>
+
+            {/* 댓글 입력 pill — 댓글 숫자 바로 아래 */}
+            {isLoggedIn ? (
+              <div className="flex items-end gap-2.5">
+                <div className="w-6 h-6 rounded-full bg-accent-blue/20 border border-accent-blue/30 flex items-center justify-center text-xs font-bold text-accent-blue shrink-0">
+                  {(myUsername ?? "?")[0]?.toUpperCase()}
+                </div>
+                <div className="flex-1 flex items-end gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2 focus-within:border-accent-blue/50 transition-colors">
+                  <textarea ref={commentInputRef} value={commentText}
+                    rows={1}
+                    onChange={e => { setCommentText(e.target.value); autoResize(e.target); }}
+                    onKeyDown={e => (e.ctrlKey || e.metaKey) && e.key === "Enter" && (e.preventDefault(), submitComment())}
+                    placeholder="댓글을 입력하세요..."
+                    maxLength={5000}
+                    className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
+                  <button onClick={submitComment} disabled={submittingComment}
+                    className="shrink-0 mb-0.5 transition-all active:scale-90">
+                    {commentText.trim()
+                      ? <Send size={16} className={`text-accent-blue ${submittingComment ? "opacity-40" : ""}`} />
+                      : <PenLine size={16} className="text-text-dim" />}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => navigate("/login")}
+                className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors">
+                <PenLine size={13} className="text-text-dim shrink-0" />
+                <span className="text-sm text-text-dim">로그인 후 댓글 작성</span>
+              </button>
+            )}
+
             {commentsLoading ? (
               <div className="flex justify-center py-6">
                 <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
@@ -529,36 +560,6 @@ export default function PostDetail() {
               <p className="text-sm text-text-dim text-center py-6">첫 댓글을 남겨보세요</p>
             )}
           </div>
-
-          {/* 댓글 입력 pill — 댓글 목록 아래 */}
-          {isLoggedIn ? (
-            <div className="flex items-end gap-2.5 pt-2">
-              <div className="w-6 h-6 rounded-full bg-accent-blue/20 border border-accent-blue/30 flex items-center justify-center text-xs font-bold text-accent-blue shrink-0">
-                {(myUsername ?? "?")[0]?.toUpperCase()}
-              </div>
-              <div className="flex-1 flex items-end gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2 focus-within:border-accent-blue/50 transition-colors">
-                <textarea ref={commentInputRef} value={commentText}
-                  rows={1}
-                  onChange={e => { setCommentText(e.target.value); autoResize(e.target); }}
-                  onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submitComment())}
-                  placeholder="댓글을 입력하세요..."
-                  maxLength={5000}
-                  className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
-                <button onClick={submitComment} disabled={submittingComment}
-                  className="shrink-0 mb-0.5 transition-all active:scale-90">
-                  {commentText.trim()
-                    ? <Send size={16} className={`text-accent-blue ${submittingComment ? "opacity-40" : ""}`} />
-                    : <PenLine size={16} className="text-text-dim" />}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={() => navigate("/login")}
-              className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors mt-2">
-              <PenLine size={13} className="text-text-dim shrink-0" />
-              <span className="text-sm text-text-dim">로그인 후 댓글 작성</span>
-            </button>
-          )}
         </div>
       </div>
     </div>
