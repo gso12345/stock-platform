@@ -391,9 +391,17 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
 
   useEffect(() => {
     if (pfItems.length === 0) { setLivePriceMap({}); return; }
-    const symbols = [...new Set(pfItems.map((i: any) => i.symbol as string))];
-    const markets = [...new Set(pfItems.map((i: any) => i.market as string))];
-    watchlistApi.getPrices(symbols, markets).then((prices: any) => {
+    const seen = new Set<string>();
+    const symbolsArr: string[] = [];
+    const marketsArr: string[] = [];
+    (pfItems as any[]).forEach((i: any) => {
+      if (!seen.has(i.symbol)) {
+        seen.add(i.symbol);
+        symbolsArr.push(i.symbol);
+        marketsArr.push(i.market);
+      }
+    });
+    watchlistApi.getPrices(symbolsArr, marketsArr).then((prices: any) => {
       if (!Array.isArray(prices)) return;
       const map: Record<string, number> = {};
       prices.forEach((p: any) => { if (p?.price > 0) map[p.symbol] = p.price; });

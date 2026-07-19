@@ -91,14 +91,19 @@ export default function MyPage() {
   const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
   const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
 
-  const allSymbols = useMemo(() => {
-    if (!allPortfolioItems) return [];
-    return [...new Set((allPortfolioItems as any[]).map((i: any) => i.symbol))];
-  }, [allPortfolioItems]);
-
-  const allMarkets = useMemo(() => {
-    if (!allPortfolioItems) return [];
-    return [...new Set((allPortfolioItems as any[]).map((i: any) => i.market))];
+  const { allSymbols, allMarkets } = useMemo(() => {
+    if (!allPortfolioItems) return { allSymbols: [], allMarkets: [] };
+    const seen = new Set<string>();
+    const syms: string[] = [];
+    const mkts: string[] = [];
+    (allPortfolioItems as any[]).forEach((i: any) => {
+      if (!seen.has(i.symbol)) {
+        seen.add(i.symbol);
+        syms.push(i.symbol);
+        mkts.push(i.market);
+      }
+    });
+    return { allSymbols: syms, allMarkets: mkts };
   }, [allPortfolioItems]);
 
   const { data: livePrices } = useQuery({
