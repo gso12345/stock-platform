@@ -74,6 +74,7 @@ class UserProfile(Base):
     nickname     = Column(String(50), nullable=True)
     avatar_color = Column(Integer, default=0)   # 0~7 preset index
     bio          = Column(String(200), nullable=True)
+    avatar_url   = Column(Text, nullable=True)  # base64 data URL 프로필 사진
     updated_at   = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User")

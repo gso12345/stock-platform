@@ -167,11 +167,14 @@ export default function UserProfile() {
       <div className="bg-bg-card border border-border rounded-2xl p-6 flex flex-col gap-4">
         <div className="flex gap-4 items-start">
           {/* 아바타 */}
-          <div
-            className={`w-20 h-20 rounded-full border-2 flex items-center justify-center font-bold text-3xl shrink-0 ${avatarCls}`}
-          >
-            {displayName[0]?.toUpperCase()}
-          </div>
+          {profile.avatar_url ? (
+            <img src={profile.avatar_url} alt={displayName}
+              className="w-20 h-20 rounded-full object-cover border-2 border-border shrink-0" />
+          ) : (
+            <div className={`w-20 h-20 rounded-full border-2 flex items-center justify-center font-bold text-3xl shrink-0 ${avatarCls}`}>
+              {displayName[0]?.toUpperCase()}
+            </div>
+          )}
 
           {/* 정보 */}
           <div className="flex-1 min-w-0">

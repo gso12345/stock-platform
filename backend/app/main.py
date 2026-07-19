@@ -185,6 +185,13 @@ async def lifespan(application: FastAPI):
                 _startup_log.info("stock_posts 컬럼 마이그레이션 완료")
         except Exception as _mc_err:
             _startup_log.warning(f"컬럼 마이그레이션 스킵: {_mc_err}")
+        try:
+            with engine.connect() as _mc2:
+                _mc2.execute(text("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT"))
+                _mc2.commit()
+                _startup_log.info("user_profiles.avatar_url 컬럼 추가 완료")
+        except Exception as _mc2_err:
+            _startup_log.warning(f"user_profiles 마이그레이션 스킵: {_mc2_err}")
     except Exception as e:
         logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")
 

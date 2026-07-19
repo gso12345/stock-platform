@@ -86,6 +86,7 @@ interface FeedPost {
   user_id: number;
   username: string;
   avatar_color: number;
+  avatar_url?: string | null;
   title: string;
   body: string;
   image: string;
@@ -146,11 +147,14 @@ function FeedCard({
       <div className="flex gap-3">
         {/* 아바타 */}
         <Link to={post.is_mine ? "/mypage" : `/profile/${post.user_id}`}>
-          <div
-            className={`w-7 h-7 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 ${avatarCls}`}
-          >
-            {post.username[0]?.toUpperCase()}
-          </div>
+          {post.avatar_url ? (
+            <img src={post.avatar_url} alt={post.username}
+              className="w-7 h-7 rounded-full object-cover border border-border shrink-0" />
+          ) : (
+            <div className={`w-7 h-7 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 ${avatarCls}`}>
+              {post.username[0]?.toUpperCase()}
+            </div>
+          )}
         </Link>
 
         <div className="flex-1 min-w-0">

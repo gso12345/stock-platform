@@ -107,34 +107,15 @@ const AVATAR_COLORS = [
   "bg-orange-500/20 text-orange-400 border-orange-500/30",
 ];
 
+import AvatarComponent from "@/components/community/Avatar";
 function Avatar({
-  username,
-  colorIndex,
-  size = "sm",
-  userId,
-  isMine,
+  username, colorIndex, avatarUrl, size = "sm", userId, isMine,
 }: {
-  username: string;
-  colorIndex: number;
-  size?: "sm" | "md";
-  userId?: number;
-  isMine?: boolean;
+  username: string; colorIndex: number; avatarUrl?: string | null;
+  size?: "sm" | "md"; userId?: number; isMine?: boolean;
 }) {
-  const cls = AVATAR_COLORS[colorIndex % AVATAR_COLORS.length];
-  const sz = size === "md" ? "w-8 h-8 text-sm" : "w-6 h-6 text-xs";
-  const avatar = (
-    <div
-      className={`${sz} rounded-full border flex items-center justify-center font-bold shrink-0 ${cls}`}
-    >
-      {username[0]?.toUpperCase()}
-    </div>
-  );
-  if (userId == null) return avatar;
-  return (
-    <Link to={isMine ? "/mypage" : `/profile/${userId}`}>
-      {avatar}
-    </Link>
-  );
+  return <AvatarComponent username={username} colorIndex={colorIndex} avatarUrl={avatarUrl}
+    size={size} userId={userId} isMine={isMine} />;
 }
 
 // ── 댓글 컴포넌트 ─────────────────────────────────────────────────
@@ -436,6 +417,7 @@ function PostCard({
         <Avatar
           username={post.username}
           colorIndex={post.avatar_color}
+          avatarUrl={post.avatar_url}
           userId={post.user_id}
           isMine={post.is_mine}
         />

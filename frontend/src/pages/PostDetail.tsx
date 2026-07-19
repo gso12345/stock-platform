@@ -2,22 +2,12 @@ import { useState, useRef, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Heart, MessageSquare, Share2, Send, Trash2, Eye,
+  ArrowLeft, Heart, MessageSquare, Share2, Send, Trash2, Eye, PenLine,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
-
-const AVATAR_COLORS = [
-  "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  "bg-rose-500/20 text-rose-400 border-rose-500/30",
-  "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-  "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
-  "bg-orange-500/20 text-orange-400 border-orange-500/30",
-];
+import AvatarComponent from "@/components/community/Avatar";
 
 const MARKET_BADGE: Record<string, string> = {
   KR:  "border-blue-500/40 text-blue-400 bg-blue-500/10",
@@ -38,24 +28,10 @@ function timeAgo(iso: string) {
   return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
 }
 
-function Avatar({ username, colorIndex, userId, isMine, size = "md" }: {
-  username: string; colorIndex: number; userId?: number; isMine?: boolean; size?: "sm" | "md" | "lg";
-}) {
-  const cls = AVATAR_COLORS[colorIndex % AVATAR_COLORS.length];
-  const sz = size === "lg" ? "w-10 h-10 text-sm border-2" : size === "sm" ? "w-6 h-6 text-xs border" : "w-8 h-8 text-xs border-2";
-  const inner = (
-    <div className={`rounded-full flex items-center justify-center font-bold shrink-0 ${sz} ${cls}`}>
-      {username[0]?.toUpperCase()}
-    </div>
-  );
-  if (userId == null) return inner;
-  return <Link to={isMine ? "/mypage" : `/profile/${userId}`}>{inner}</Link>;
-}
-
 interface Comment {
   id: number; parent_id: number | null; user_id: number; username: string;
-  avatar_color: number; content: string; like_count: number; liked: boolean;
-  created_at: string; is_mine: boolean; replies: Comment[];
+  avatar_color: number; avatar_url?: string | null; content: string;
+  like_count: number; liked: boolean; created_at: string; is_mine: boolean; replies: Comment[];
 }
 
 function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
@@ -85,8 +61,8 @@ function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
 
   return (
     <div className="flex gap-2">
-      <Avatar username={reply.username} colorIndex={reply.avatar_color} userId={reply.user_id}
-        isMine={uid != null && reply.user_id === uid} size="sm" />
+      <AvatarComponent username={reply.username} colorIndex={reply.avatar_color} avatarUrl={reply.avatar_url}
+        userId={reply.user_id} isMine={uid != null && reply.user_id === uid} size="sm" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
           <Link to={uid != null && reply.user_id === uid ? "/mypage" : `/profile/${reply.user_id}`}
@@ -177,8 +153,8 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
 
   return (
     <div className="flex gap-3">
-      <Avatar username={comment.username} colorIndex={comment.avatar_color} userId={comment.user_id}
-        isMine={uid != null && comment.user_id === uid} />
+      <AvatarComponent username={comment.username} colorIndex={comment.avatar_color} avatarUrl={comment.avatar_url}
+        userId={comment.user_id} isMine={uid != null && comment.user_id === uid} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
           <Link to={uid != null && comment.user_id === uid ? "/mypage" : `/profile/${comment.user_id}`}
@@ -400,8 +376,8 @@ export default function PostDetail() {
 
           {/* 작성자 + 액션 */}
           <div className="flex items-start gap-3">
-            <Avatar username={activePost.username} colorIndex={activePost.avatar_color}
-              userId={activePost.user_id} isMine={activePost.is_mine} size="lg" />
+            <AvatarComponent username={activePost.username} colorIndex={activePost.avatar_color}
+              avatarUrl={activePost.avatar_url} userId={activePost.user_id} isMine={activePost.is_mine} size="lg" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <Link to={activePost.is_mine ? "/mypage" : `/profile/${activePost.user_id}`}
@@ -553,42 +529,35 @@ export default function PostDetail() {
         </div>
       </div>
 
-      {/* 고정 댓글 입력 */}
+      {/* 고정 댓글 입력 — pill 디자인 */}
       <div className="fixed bottom-0 left-0 right-0 z-20 bg-bg-card/95 backdrop-blur-md border-t border-border">
-        <div className="max-w-2xl mx-auto px-3 sm:px-4 pt-2" style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}>
-          {/* 댓글 대상 글 컨텍스트 */}
-          {activePost && (
-            <div className="flex items-center gap-1.5 mb-1.5 px-1">
-              <span className="text-2xs text-text-dim shrink-0">댓글 작성:</span>
-              <span className="text-2xs text-text-muted truncate">
-                <span className="font-semibold text-accent-blue">{activePost.username}</span>
-                {" · "}
-                {(activePost.title || activePost.body || "").slice(0, 60) || "게시글"}
-                {(activePost.title || activePost.body || "").length > 60 ? "…" : ""}
-              </span>
-            </div>
-          )}
+        <div className="max-w-2xl mx-auto px-3 sm:px-4 py-2.5" style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}>
           {isLoggedIn ? (
-            <div className="flex gap-2 items-center pb-0.5">
-              <div className={`w-7 h-7 rounded-full border flex items-center justify-center text-xs font-bold shrink-0 ${AVATAR_COLORS[0]}`}>
-                {(myUsername ?? "?")[0]?.toUpperCase()}
+            <div className="flex items-end gap-2.5">
+              <AvatarComponent username={myUsername ?? "?"} colorIndex={0} size="sm" />
+              <div className="flex-1 flex items-end gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2 focus-within:border-accent-blue/50 transition-colors">
+                <textarea ref={commentInputRef} value={commentText}
+                  rows={1}
+                  onChange={e => { setCommentText(e.target.value); autoResize(e.target); }}
+                  onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submitComment())}
+                  placeholder="댓글을 입력하세요..."
+                  maxLength={5000}
+                  className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
+                <button onClick={submitComment} disabled={submittingComment}
+                  className="shrink-0 mb-0.5 transition-all active:scale-90">
+                  {commentText.trim()
+                    ? <Send size={16} className={`text-accent-blue ${submittingComment ? "opacity-40" : ""}`} />
+                    : <PenLine size={16} className="text-text-dim" />}
+                </button>
               </div>
-              <textarea ref={commentInputRef} value={commentText}
-                rows={1}
-                onChange={e => { setCommentText(e.target.value); autoResize(e.target); }}
-                onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submitComment())}
-                placeholder="댓글을 입력하세요..."
-                maxLength={5000}
-                className="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50 resize-none overflow-hidden leading-relaxed" />
-              <button onClick={submitComment} disabled={!commentText.trim() || submittingComment}
-                className="px-3 py-2 bg-accent-blue text-white text-sm rounded-xl disabled:opacity-40 hover:bg-accent-blue/90 transition-colors shrink-0">
-                {submittingComment ? "..." : <Send size={14} />}
-              </button>
             </div>
           ) : (
             <button onClick={() => navigate("/login")}
-              className="w-full py-2.5 text-sm text-text-dim bg-bg-elevated rounded-xl border border-border hover:border-accent-blue/50 transition-colors text-center mb-0.5">
-              로그인 후 댓글 작성
+              className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors">
+              <div className="w-6 h-6 rounded-full bg-bg-card border border-border flex items-center justify-center text-text-dim shrink-0">
+                <PenLine size={12} />
+              </div>
+              <span className="text-sm text-text-dim flex-1 text-left">로그인 후 댓글 작성</span>
             </button>
           )}
         </div>

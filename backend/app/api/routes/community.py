@@ -99,6 +99,7 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "user_id":       post.user_id,
         "username":      display_name(post.user, profile),
         "avatar_color":  profile.avatar_color if profile else 0,
+        "avatar_url":    profile.avatar_url if profile else None,
         "title":         parsed["title"],
         "body":          parsed["body"],
         "image":         parsed.get("image", ""),
@@ -128,6 +129,7 @@ def _ser_comment(c: StockComment, uid: Optional[int], db: Session) -> dict:
                 "user_id":      r.user_id,
                 "username":     display_name(r.user, rp),
                 "avatar_color": rp.avatar_color if rp else 0,
+                "avatar_url":   rp.avatar_url if rp else None,
                 "content":      r.content,
                 "like_count":   r.like_count,
                 "liked":        r_liked,
@@ -141,6 +143,7 @@ def _ser_comment(c: StockComment, uid: Optional[int], db: Session) -> dict:
         "user_id":      c.user_id,
         "username":     display_name(c.user, profile),
         "avatar_color": profile.avatar_color if profile else 0,
+        "avatar_url":   profile.avatar_url if profile else None,
         "content":      c.content,
         "like_count":   c.like_count,
         "liked":        liked,
@@ -202,6 +205,7 @@ class ProfileUpdate(BaseModel):
     nickname:     Optional[str] = None
     avatar_color: Optional[int] = None
     bio:          Optional[str] = None
+    avatar_url:   Optional[str] = None  # base64 data URL or empty string to remove
 
 # ── 게시글 목록 ────────────────────────────────────────────────
 @router.get("/{market}/{symbol}/posts")
@@ -614,6 +618,7 @@ def get_my_profile(
         "nickname":     p.nickname,
         "avatar_color": p.avatar_color,
         "bio":          p.bio,
+        "avatar_url":   p.avatar_url,
     }
 
 
@@ -638,6 +643,12 @@ def update_my_profile(
         if len(bio) > 200:
             raise HTTPException(422, "소개는 200자 이내로 입력해 주세요")
         p.bio = bio or None
+    if body.avatar_url is not None:
+        if body.avatar_url and not body.avatar_url.startswith("data:image/"):
+            raise HTTPException(422, "유효하지 않은 이미지 형식입니다")
+        if len(body.avatar_url) > 2_000_000:
+            raise HTTPException(422, "이미지 크기가 너무 큽니다 (최대 1.5MB)")
+        p.avatar_url = body.avatar_url or None
     db.commit()
     return {
         "user_id":      current_user.id,
@@ -645,6 +656,7 @@ def update_my_profile(
         "nickname":     p.nickname,
         "avatar_color": p.avatar_color,
         "bio":          p.bio,
+        "avatar_url":   p.avatar_url,
     }
 
 
@@ -663,6 +675,7 @@ def get_user_profile(
         "nickname":     p.nickname if p else None,
         "avatar_color": p.avatar_color if p else 0,
         "bio":          p.bio if p else None,
+        "avatar_url":   p.avatar_url if p else None,
     }
 
 
@@ -756,6 +769,7 @@ def get_user_public_profile(
         "username":       user.username,
         "nickname":       p.nickname if p else None,
         "avatar_color":   p.avatar_color if p else 0,
+        "avatar_url":     p.avatar_url if p else None,
         "bio":            p.bio if p else None,
         "follower_count": follower_count,
         "following_count": following_count,

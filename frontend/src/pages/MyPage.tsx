@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/stocks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePricesStream } from "@/hooks/useWebSocket";
-import { Save, Palette, Globe, Lock, FileText } from "lucide-react";
+import { Save, Palette, Globe, Lock, FileText, Camera, X } from "lucide-react";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 
 const AVATAR_COLORS_DISPLAY = [
@@ -86,8 +86,10 @@ export default function MyPage() {
   const [nickname, setNickname] = useState("");
   const [avatarColor, setAvatarColor] = useState(0);
   const [bio, setBio] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [visibilityMap, setVisibilityMap] = useState<Record<number, boolean>>({});
 
   // Portfolio.tsx와 동일: 현금 제외
@@ -169,8 +171,33 @@ export default function MyPage() {
       setNickname(profile.nickname ?? "");
       setAvatarColor(profile.avatar_color ?? 0);
       setBio(profile.bio ?? "");
+      setAvatarUrl(profile.avatar_url ?? null);
     }
   }, [profile]);
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const size = 200;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d")!;
+        const min = Math.min(img.width, img.height);
+        const sx = (img.width - min) / 2;
+        const sy = (img.height - min) / 2;
+        ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+        setAvatarUrl(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = ev.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   useEffect(() => {
     if (Array.isArray(portfolios)) {
@@ -184,7 +211,7 @@ export default function MyPage() {
 
   const updateMutation = useMutation({
     mutationFn: () =>
-      communityApi.updateMyProfile({ nickname: nickname.trim(), avatar_color: avatarColor, bio: bio.trim() }),
+      communityApi.updateMyProfile({ nickname: nickname.trim(), avatar_color: avatarColor, bio: bio.trim(), avatar_url: avatarUrl ?? "" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["myProfile"] });
       setError(null);
@@ -228,9 +255,23 @@ export default function MyPage() {
       ) : (
         <div className="bg-bg-card border border-border rounded-2xl p-6 flex flex-col gap-4">
           <div className="flex gap-4 items-start">
-            <div className={`w-20 h-20 rounded-full border-2 flex items-center justify-center font-bold text-3xl shrink-0 ${colorCls.ring}`}>
-              {displayName[0]?.toUpperCase()}
+            <div className="relative shrink-0">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={displayName}
+                  className="w-20 h-20 rounded-full object-cover border-2 border-border" />
+              ) : (
+                <div className={`w-20 h-20 rounded-full border-2 flex items-center justify-center font-bold text-3xl ${colorCls.ring}`}>
+                  {displayName[0]?.toUpperCase()}
+                </div>
+              )}
+              {editMode && (
+                <button onClick={() => photoInputRef.current?.click()}
+                  className="absolute bottom-0 right-0 w-7 h-7 bg-accent-blue rounded-full flex items-center justify-center border-2 border-bg-card hover:bg-accent-blue/90 transition-colors">
+                  <Camera size={13} className="text-white" />
+                </button>
+              )}
             </div>
+            <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2 flex-wrap">
                 <div>
@@ -298,10 +339,34 @@ export default function MyPage() {
           <div>
             <label className="block text-xs font-semibold text-text-muted mb-2">
               <span className="flex items-center gap-1.5">
-                <Palette size={11} /> 아바타 색상
+                <Camera size={11} /> 프로필 사진
               </span>
             </label>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex items-center gap-3">
+              <button onClick={() => photoInputRef.current?.click()}
+                className="flex items-center gap-2 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-xs text-text-secondary hover:border-accent-blue/50 hover:text-accent-blue transition-all">
+                <Camera size={13} /> 사진 선택
+              </button>
+              {avatarUrl && (
+                <button onClick={() => setAvatarUrl(null)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-xs text-accent-red hover:border-accent-red/50 transition-all">
+                  <X size={12} /> 사진 삭제
+                </button>
+              )}
+              {avatarUrl && (
+                <img src={avatarUrl} alt="미리보기" className="w-10 h-10 rounded-full object-cover border border-border" />
+              )}
+            </div>
+          </div>
+
+          {/* 아바타 색상 (사진 없을 때 적용) */}
+          <div>
+            <label className="block text-xs font-semibold text-text-muted mb-2">
+              <span className="flex items-center gap-1.5">
+                <Palette size={11} /> 아바타 색상 {avatarUrl && <span className="text-text-dim font-normal">(사진 사용 중)</span>}
+              </span>
+            </label>
+            <div className={`flex gap-2 flex-wrap ${avatarUrl ? "opacity-40 pointer-events-none" : ""}`}>
               {AVATAR_COLORS_DISPLAY.map((c, idx) => (
                 <button
                   key={idx}
