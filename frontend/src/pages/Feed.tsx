@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users, Share2,
@@ -933,7 +933,7 @@ export default function Feed() {
   const isFollowing = feedType === "following";
   const queryKey = ["feed", sort, marketFilter, page, feedType];
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey,
     queryFn: () =>
       communityApi.getFeed(
@@ -944,6 +944,7 @@ export default function Feed() {
       ),
     staleTime: 30_000,
     refetchInterval: 60_000,
+    placeholderData: keepPreviousData,
   });
 
   const posts: FeedPost[] = data?.items ?? [];
@@ -995,6 +996,18 @@ export default function Feed() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["feed"] }),
   });
 
+  const prefetchFeed = (overrides: { sort?: SortType; market?: MarketFilter; type?: FeedType }) => {
+    const s = overrides.sort ?? sort;
+    const m = overrides.market ?? marketFilter;
+    const t = overrides.type ?? feedType;
+    const key = ["feed", s, m, 1, t];
+    qc.prefetchQuery({
+      queryKey: key,
+      queryFn: () => communityApi.getFeed(1, s, m === "ALL" ? undefined : m, t === "following"),
+      staleTime: 30_000,
+    });
+  };
+
   const changeSort = (s: SortType) => { setSort(s); setPage(1); };
   const changeMarket = (m: MarketFilter) => { setMarketFilter(m); setPage(1); };
   const changeFeedType = (t: FeedType) => {
@@ -1032,6 +1045,7 @@ export default function Feed() {
       <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
         <button
           onClick={() => changeFeedType("all")}
+          onMouseEnter={() => prefetchFeed({ type: "all" })}
           className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
             feedType === "all" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
           }`}
@@ -1041,6 +1055,7 @@ export default function Feed() {
         </button>
         <button
           onClick={() => changeFeedType("following")}
+          onMouseEnter={() => prefetchFeed({ type: "following" })}
           className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
             feedType === "following" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
           }`}
@@ -1058,6 +1073,7 @@ export default function Feed() {
             <button
               key={m}
               onClick={() => changeMarket(m)}
+              onMouseEnter={() => prefetchFeed({ market: m })}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 marketFilter === m
                   ? "bg-accent-blue text-white shadow"
@@ -1072,6 +1088,7 @@ export default function Feed() {
         {/* 정렬 */}
         <button
           onClick={() => changeSort(sort === "latest" ? "likes" : "latest")}
+          onMouseEnter={() => prefetchFeed({ sort: sort === "latest" ? "likes" : "latest" })}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-text-dim border border-border hover:border-accent-blue/40 hover:text-accent-blue transition-all ml-auto"
         >
           <ArrowUpDown size={11} />
@@ -1112,7 +1129,7 @@ export default function Feed() {
       )}
 
       {/* 빈 상태 */}
-      {!isLoading && !isError && posts.length === 0 && (
+      {!isLoading && !isFetching && !isError && posts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <div className="w-16 h-16 rounded-2xl bg-bg-elevated flex items-center justify-center">
             {feedType === "following" ? (
@@ -1140,7 +1157,7 @@ export default function Feed() {
       {/* 피드 목록 */}
       {!isLoading && !isError && posts.length > 0 && (
         <>
-          <div className="flex flex-col gap-2">
+          <div className={`flex flex-col gap-2 transition-opacity duration-150 ${isFetching ? "opacity-60" : "opacity-100"}`}>
             {posts.map((post) => (
               <FeedCard
                 key={post.id}
