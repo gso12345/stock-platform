@@ -635,6 +635,8 @@ async def get_quant_score_compare(
     mkt_list = [m.strip().upper() for m in markets.split(",") if m.strip()]
     if not sym_list or len(sym_list) != len(mkt_list):
         raise HTTPException(400, "symbols와 markets 개수가 일치해야 합니다")
+    if any(not re.match(_SYMBOL_PATTERN, s) for s in sym_list):
+        raise HTTPException(400, "유효하지 않은 심볼이 포함돼 있습니다")
     if len(sym_list) > 30:
         raise HTTPException(400, "한 번에 최대 30개까지 비교할 수 있습니다")
     if any(m not in ("KR", "US", "ETF") for m in mkt_list):
@@ -751,7 +753,8 @@ async def get_quant_score(
 
 
 @router.get("/{market}/{symbol}/metrics-history")
-async def get_metrics_history(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
+@limiter.limit("6/minute")
+async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """재무지표 연간/분기별 추이 (yfinance)"""
     from app.core.cache import cache
     ck = f"metrics_hist4:{symbol}"  # v4: eps_growth/peg 추가
@@ -1063,7 +1066,8 @@ def _merge_forecast_lists(new_list: list, stale_list: list) -> list:
 
 
 @router.get("/{market}/{symbol}/forecasts")
-async def get_forecasts(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
+@limiter.limit("10/minute")
+async def get_forecasts(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률
     in-memory → DB fresh(24h) → DB stale(30일) → 외부 API 순으로 조회해
     Render 재시작으로 메모리 캐시가 비워져도 데이터가 바로 사라지지 않게 한다."""
@@ -1331,7 +1335,8 @@ def _merge_news(primary: list, secondary: list, limit: int = 120) -> list:
 
 
 @router.get("/{market}/{symbol}/news")
-async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
+@limiter.limit("10/minute")
+async def get_stock_news(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """종목 관련 뉴스 — 종합 RSS 피드(다양한 언론사 + 이미지 보장) + 종목별 검색(KR: 구글뉴스, US: yfinance) 병합"""
     from app.core.cache import cache
     ck = f"stock_news:{market}:{symbol}"
@@ -1480,7 +1485,8 @@ async def get_stock_news(market: Literal["KR","US","ETF"], symbol: str = Path(..
 
 
 @router.get("/{market}/{symbol}/earnings")
-async def get_earnings(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
+@limiter.limit("20/minute")
+async def get_earnings(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """실적발표 일정 및 과거 실적 (yfinance)"""
     from app.core.cache import cache
     ck = f"earnings:{symbol}"
@@ -1541,7 +1547,8 @@ _REC_KEY_LABEL = {
 
 
 @router.get("/{market}/{symbol}/analyst")
-async def get_analyst(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
+@limiter.limit("10/minute")
+async def get_analyst(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트
     in-memory → DB fresh(24h) → DB stale(30일, +백그라운드 갱신) → 외부 API 순으로 조회.
     DB에 영속 저장해 Render 재시작으로 메모리 캐시가 비워져도 데이터가 사라지지 않게 한다."""
@@ -1906,7 +1913,8 @@ def _enrich_analyst_fallback(result: dict, symbol: str, market: str):
 
 
 @router.get("/KR/{symbol}/supply-demand")
-async def get_supply_demand(symbol: str = Path(..., pattern=_SYMBOL_PATTERN), days: int = Query(default=30)):
+@limiter.limit("10/minute")
+async def get_supply_demand(request: Request, symbol: str = Path(..., pattern=_SYMBOL_PATTERN), days: int = Query(default=30, ge=1, le=365)):
     """수급 데이터 (외국인/기관/개인) — pykrx"""
     from app.core.cache import cache
     from datetime import datetime, timedelta
@@ -1941,7 +1949,8 @@ async def get_supply_demand(symbol: str = Path(..., pattern=_SYMBOL_PATTERN), da
 
 
 @router.get("/ETF/{symbol}/holdings")
-async def get_etf_holdings(symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
+@limiter.limit("10/minute")
+async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """ETF 보유비중 — yfinance funds_data (상위 25종목 + 섹터 비중)"""
     ck = f"etf_holdings:{symbol}"
     if c := cache.get(ck):
