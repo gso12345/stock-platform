@@ -3,13 +3,38 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Heart, MessageSquare, Share2, Send, Trash2, Eye, PenLine, Pencil, X,
-  Hash, BarChart2,
+  Hash, BarChart2, Image as ImageIcon,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import AvatarComponent from "@/components/community/Avatar";
+
+async function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const maxSize = 800;
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { URL.revokeObjectURL(url); reject(new Error("canvas unavailable")); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.7));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image load failed")); };
+    img.src = url;
+  });
+}
 
 const MARKET_BADGE: Record<string, string> = {
   KR:  "border-blue-500/40 text-blue-400 bg-blue-500/10",
@@ -386,14 +411,17 @@ export default function PostDetail() {
   const [editShowPoll, setEditShowPoll] = useState(false);
   const [editPollQuestion, setEditPollQuestion] = useState("");
   const [editPollOptions, setEditPollOptions] = useState(["", ""]);
+  const [editImage, setEditImage] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const editBodyRef = useRef<HTMLTextAreaElement>(null);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
   const editTagSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startEdit = () => {
     if (!activePost) return;
     setEditTitle(activePost.title ?? "");
     setEditBody(activePost.body ?? "");
+    setEditImage(activePost.image ?? "");
     setEditTags(activePost.tags ?? []);
     setEditTagQuery("");
     setEditTagResults([]);
@@ -440,12 +468,12 @@ export default function PostDetail() {
       const newPoll = !activePost.poll && editShowPoll && editPollQuestion.trim() && editPollOptions.filter(o => o.trim()).length >= 2
         ? { question: editPollQuestion.trim(), options: editPollOptions.filter(o => o.trim()) }
         : undefined;
-      await communityApi.updatePost(activePost.market, activePost.symbol, activePost.id, editTitle, editBody, editTags, newPoll);
+      await communityApi.updatePost(activePost.market, activePost.symbol, activePost.id, editTitle, editBody, editTags, newPoll, editImage);
       const updatedPoll = newPoll
         ? { question: newPoll.question, options: newPoll.options, counts: newPoll.options.map(() => 0), total: 0, my_vote: null }
         : activePost.poll;
-      setLocalPost((p: any) => ({ ...(p ?? activePost), title: editTitle, body: editBody, tags: editTags, poll: updatedPoll }));
-      qc.setQueryData(["post", activePost.id], (old: any) => old ? { ...old, title: editTitle, body: editBody, tags: editTags, poll: updatedPoll } : old);
+      setLocalPost((p: any) => ({ ...(p ?? activePost), title: editTitle, body: editBody, image: editImage, tags: editTags, poll: updatedPoll }));
+      qc.setQueryData(["post", activePost.id], (old: any) => old ? { ...old, title: editTitle, body: editBody, image: editImage, tags: editTags, poll: updatedPoll } : old);
       setIsEditing(false);
     } catch {
     } finally {
@@ -576,6 +604,13 @@ export default function PostDetail() {
           {/* 수정 패널 — 글쓰기와 동일한 UI */}
           {isEditing ? (
             <div className="bg-bg-elevated border border-accent-blue/30 rounded-2xl p-4 flex flex-col gap-3">
+              <input ref={editFileInputRef} type="file" accept="image/*" className="hidden"
+                onChange={async e => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try { setEditImage(await compressImage(file)); } catch {}
+                  e.target.value = "";
+                }} />
               {/* 제목 + 본문 */}
               <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
                 placeholder="제목 (선택사항)" maxLength={100}
@@ -586,6 +621,17 @@ export default function PostDetail() {
                 placeholder="의견을 입력하세요..." maxLength={5000}
                 className="w-full bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
                 style={{ minHeight: "5rem" }} />
+
+              {/* 이미지 미리보기 */}
+              {editImage && (
+                <div className="relative w-full">
+                  <img src={editImage} alt="미리보기" className="w-full max-h-48 object-cover rounded-xl" />
+                  <button onClick={() => setEditImage("")}
+                    className="absolute top-1.5 right-1.5 p-1 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors">
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
 
               {/* 투표 — 기존 있으면 읽기전용, 없으면 추가 가능 */}
               {activePost.poll ? (
@@ -665,6 +711,10 @@ export default function PostDetail() {
               {/* 툴바 */}
               <div className="flex items-center justify-between pt-1 border-t border-border/50">
                 <div className="flex items-center gap-1">
+                  <button onClick={() => editFileInputRef.current?.click()} title="사진 첨부"
+                    className={`p-1.5 rounded-lg transition-all ${editImage ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}>
+                    <ImageIcon size={14} />
+                  </button>
                   {!activePost.poll && (
                     <button onClick={() => setEditShowPoll(v => !v)} title="투표 만들기"
                       className={`p-1.5 rounded-lg transition-all ${editShowPoll ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}>
