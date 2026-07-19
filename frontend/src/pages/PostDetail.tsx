@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Heart, MessageSquare, Share2, Send, Trash2, Eye, PenLine,
+  ArrowLeft, Heart, MessageSquare, Share2, Send, Trash2, Eye, PenLine, Pencil, Check, X,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
@@ -302,6 +302,34 @@ export default function PostDetail() {
     try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
   };
 
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const startEdit = () => {
+    if (!activePost) return;
+    setEditTitle(activePost.title ?? "");
+    setEditBody(activePost.body ?? "");
+    setIsEditing(true);
+  };
+
+  const cancelEdit = () => setIsEditing(false);
+
+  const saveEdit = async () => {
+    if (!activePost || savingEdit) return;
+    setSavingEdit(true);
+    try {
+      await communityApi.updatePost(activePost.market, activePost.symbol, activePost.id, editTitle, editBody);
+      setLocalPost((p: any) => ({ ...(p ?? activePost), title: editTitle, body: editBody }));
+      qc.setQueryData(["post", activePost.id], (old: any) => old ? { ...old, title: editTitle, body: editBody } : old);
+      setIsEditing(false);
+    } catch {
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!activePost || !confirm("게시글을 삭제할까요?")) return;
     try {
@@ -411,12 +439,46 @@ export default function PostDetail() {
               </div>
             </div>
             {activePost.is_mine && (
-              <button onClick={handleDelete} className="p-1.5 text-text-dim hover:text-accent-red transition-colors rounded-lg hover:bg-bg-elevated">
-                <Trash2 size={15} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button onClick={startEdit} className="p-1.5 text-text-dim hover:text-accent-blue transition-colors rounded-lg hover:bg-bg-elevated">
+                  <Pencil size={15} />
+                </button>
+                <button onClick={handleDelete} className="p-1.5 text-text-dim hover:text-accent-red transition-colors rounded-lg hover:bg-bg-elevated">
+                  <Trash2 size={15} />
+                </button>
+              </div>
             )}
           </div>
 
+          {/* 제목 / 본문 — 수정 모드 */}
+          {isEditing ? (
+            <div className="flex flex-col gap-3">
+              <input
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+                placeholder="제목 (선택)"
+                className="w-full bg-bg-elevated border border-accent-blue/50 rounded-xl px-3 py-2 text-base font-bold text-text-primary placeholder:text-text-dim focus:outline-none"
+              />
+              <textarea
+                value={editBody}
+                onChange={e => setEditBody(e.target.value)}
+                placeholder="내용을 입력하세요..."
+                rows={6}
+                className="w-full bg-bg-elevated border border-accent-blue/50 rounded-xl px-3 py-2 text-sm text-text-secondary leading-relaxed placeholder:text-text-dim focus:outline-none resize-none"
+              />
+              <div className="flex justify-end gap-2">
+                <button onClick={cancelEdit}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-text-dim hover:text-text-primary border border-border hover:bg-bg-elevated transition-colors">
+                  <X size={14} /> 취소
+                </button>
+                <button onClick={saveEdit} disabled={savingEdit}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-accent-blue text-white hover:bg-accent-blue/90 disabled:opacity-50 transition-colors">
+                  <Check size={14} /> {savingEdit ? "저장 중..." : "저장"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
           {/* 제목 */}
           {activePost.title && (
             <h1 className="text-lg sm:text-xl font-bold text-text-primary leading-snug">{activePost.title}</h1>
@@ -482,6 +544,8 @@ export default function PostDetail() {
           {/* 포트폴리오 */}
           {activePost.portfolio?.length > 0 && (
             <PortfolioSnapshot items={activePost.portfolio} />
+          )}
+            </>
           )}
 
           {/* 액션 바 */}

@@ -323,6 +323,37 @@ def create_post(
     }
 
 
+# ── 게시글 수정 ────────────────────────────────────────────────
+class PostUpdate(BaseModel):
+    title: str = ""
+    body:  str = ""
+
+@router.put("/{market}/{symbol}/posts/{post_id}")
+def update_post(
+    market:  Literal["KR", "US", "ETF"],
+    symbol:  str = Path(..., pattern=_SYMBOL_RE),
+    post_id: int = Path(...),
+    body:    PostUpdate = ...,
+    db:      Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    post = db.query(StockPost).filter(StockPost.id == post_id).first()
+    if not post or post.is_deleted:
+        raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    if post.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(403, "수정 권한이 없습니다")
+    parsed = decode_content(post.content)
+    parsed["title"] = body.title.strip()
+    parsed["body"]  = body.body.strip()
+    post.content = encode_content(
+        parsed["title"], parsed["body"],
+        parsed.get("image", ""), parsed.get("poll"),
+        parsed.get("tags"), parsed.get("portfolio"),
+    )
+    db.commit()
+    return {"id": post_id, "title": parsed["title"], "body": parsed["body"]}
+
+
 # ── 게시글 삭제 ────────────────────────────────────────────────
 @router.delete("/{market}/{symbol}/posts/{post_id}", status_code=204)
 def delete_post(
