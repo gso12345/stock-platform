@@ -1402,15 +1402,18 @@ export default function Portfolio() {
 
   /* ── 차트 데이터 ── */
   const stockPieData = useMemo(() => {
-    const sorted = [...enriched].sort((a, b) => b.currentValueKRW - a.currentValueKRW);
+    const merged: Record<string, { name: string; value: number }> = {};
+    enriched.forEach((e) => {
+      const name = (e.market === "US" || e.market === "ETF") ? e.symbol : (e.name || e.symbol);
+      if (merged[e.symbol]) merged[e.symbol].value += e.currentValueKRW;
+      else merged[e.symbol] = { name, value: e.currentValueKRW };
+    });
+    const sorted = Object.values(merged).sort((a, b) => b.value - a.value);
     const top  = sorted.slice(0, 10);
     const rest = sorted.slice(10);
-    const data = top.map((e) => ({
-      name: (e.market === "US" || e.market === "ETF") ? e.symbol : (e.name || e.symbol),
-      value: Math.round(e.currentValueKRW),
-    }));
+    const data = top.map((e) => ({ name: e.name, value: Math.round(e.value) }));
     if (rest.length > 0) {
-      data.push({ name: "기타", value: Math.round(rest.reduce((s, e) => s + e.currentValueKRW, 0)) });
+      data.push({ name: "기타", value: Math.round(rest.reduce((s, e) => s + e.value, 0)) });
     }
     return data;
   }, [enriched]);
