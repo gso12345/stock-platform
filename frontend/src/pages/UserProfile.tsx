@@ -249,7 +249,6 @@ export default function UserProfile() {
           <div className="flex flex-col divide-y divide-border/50">
             {activity.items.map((item: any, idx: number) => {
               const postId = item.type === "post" ? item.id : item.post_id;
-              const isLoading = loadingPostId === postId;
               return (
                 <div key={idx} className="flex gap-3 py-2.5">
                   <span
@@ -264,10 +263,9 @@ export default function UserProfile() {
                   <div className="flex-1 min-w-0">
                     <button
                       onClick={() => openActivityPost(postId)}
-                      disabled={isLoading}
-                      className="text-sm text-text-secondary hover:text-accent-blue transition-colors line-clamp-2 break-words text-left w-full disabled:opacity-60"
+                      className="text-sm text-text-secondary hover:text-accent-blue transition-colors line-clamp-2 break-words text-left w-full"
                     >
-                      {isLoading ? "불러오는 중..." : (item.type === "post" ? (item.title || item.body) : item.content)}
+                      {item.type === "post" ? (item.title || item.body) : item.content}
                     </button>
                     {item.market && item.symbol && (
                       <span className="text-2xs text-text-dim">
