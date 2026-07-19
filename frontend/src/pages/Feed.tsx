@@ -364,18 +364,19 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
       portfolioApi.getPortfolios()
         .then((pfs: any[]) => {
           setPortfolios(pfs);
-          if (pfs.length > 0) setSelectedPfId(pfs[0].id);
         })
         .finally(() => setLoadingPf(false));
     }
   }, [mode, open]);
 
   useEffect(() => {
-    if (selectedPfId == null) return;
-    portfolioApi.getItems(selectedPfId).then((items: any[]) => {
-      setPfItems(items);
-    });
-  }, [selectedPfId]);
+    if (mode !== "portfolio" || portfolios.length === 0) return;
+    if (selectedPfId === null) {
+      portfolioApi.getItems(undefined, true).then((items: any[]) => setPfItems(items));
+    } else {
+      portfolioApi.getItems(selectedPfId).then((items: any[]) => setPfItems(items));
+    }
+  }, [selectedPfId, portfolios.length, mode]);
 
   useEffect(() => {
     if (!searchQ.trim()) { setSearchResults([]); return; }
@@ -462,7 +463,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   // Portfolio chart for write panel preview
   const pfForChart: PfPortfolioForChart[] = pfItems.length > 0 ? [{
     id: selectedPfId ?? 0,
-    name: "포트폴리오",
+    name: selectedPfId === null ? "전체 포트폴리오" : (portfolios.find((p: any) => p.id === selectedPfId)?.name ?? "포트폴리오"),
     items: pfItems.map((item: any) => ({
       symbol: item.symbol,
       market: item.market,
@@ -656,9 +657,10 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             ) : (
               <select
                 value={selectedPfId ?? ""}
-                onChange={(e) => { const id = Number(e.target.value); setSelectedPfId(id); setPfItems([]); }}
+                onChange={(e) => { const val = e.target.value; setSelectedPfId(val === "" ? null : Number(val)); setPfItems([]); }}
                 className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
               >
+                <option value="">전체 포트폴리오</option>
                 {portfolios.map((pf: any) => (
                   <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
                 ))}
@@ -694,6 +696,20 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             {/* 포트폴리오 차트 미리보기 — 본문 아래 */}
             {mode === "portfolio" && pfForChart.length > 0 && (
               <PortfolioChart portfolios={pfForChart} exchangeRate={1350} />
+            )}
+            {/* 자동 태그 미리보기 */}
+            {mode === "portfolio" && pfItems.length > 0 && (
+              <div className="flex flex-wrap gap-1 items-center mt-1">
+                <span className="text-2xs text-text-dim shrink-0">자동 태그:</span>
+                {pfItems.slice(0, 8).map((i: any) => (
+                  <span key={i.symbol} className="text-2xs px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue font-semibold">
+                    #{i.symbol}
+                  </span>
+                ))}
+                {pfItems.length > 8 && (
+                  <span className="text-2xs text-text-dim">외 {pfItems.length - 8}개</span>
+                )}
+              </div>
             )}
           </div>
         </div>
