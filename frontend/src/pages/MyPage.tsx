@@ -102,7 +102,7 @@ export default function MyPage() {
   }, [allPortfolioItems]);
 
   const { data: livePrices } = useQuery({
-    queryKey: ["portfolioLivePrices", allSymbols],
+    queryKey: ["portfolioLivePrices", allSymbols, allMarkets],
     queryFn: () => watchlistApi.getPrices(allSymbols, allMarkets),
     enabled: allSymbols.length > 0,
     staleTime: 60_000,
@@ -167,7 +167,7 @@ export default function MyPage() {
   }, [profile]);
 
   useEffect(() => {
-    if (portfolios) {
+    if (Array.isArray(portfolios)) {
       const map: Record<number, boolean> = {};
       portfolios.forEach((pf: any) => {
         map[pf.id] = pf.is_public ?? false;
@@ -402,7 +402,7 @@ export default function MyPage() {
             <div className="flex flex-col divide-y divide-border/50">
               {activity.items.map((item: any, idx: number) => {
                 const postId = item.type === "post" ? item.id : item.post_id;
-                const isLoading = loadingPostId === postId;
+                const isPostLoading = loadingPostId === postId;
                 return (
                   <div key={idx} className="flex gap-3 py-2.5">
                     <span
@@ -417,10 +417,10 @@ export default function MyPage() {
                     <div className="flex-1 min-w-0">
                       <button
                         onClick={() => openActivityPost(postId)}
-                        disabled={isLoading}
+                        disabled={isPostLoading}
                         className="text-sm text-text-secondary hover:text-accent-blue transition-colors line-clamp-2 break-words text-left w-full disabled:opacity-60"
                       >
-                        {isLoading ? "불러오는 중..." : (item.type === "post" ? (item.title || item.body) : item.content)}
+                        {isPostLoading ? "불러오는 중..." : (item.type === "post" ? (item.title || item.body) : item.content)}
                       </button>
                       <p className="text-2xs text-text-dim mt-0.5">{timeAgo(item.created_at)}</p>
                     </div>

@@ -34,7 +34,7 @@ const MARKET_BADGE: Record<string, string> = {
 };
 
 async function compressImage(file: File): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
@@ -48,10 +48,13 @@ async function compressImage(file: File): Promise<string> {
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
-      canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { URL.revokeObjectURL(url); reject(new Error("canvas unavailable")); return; }
+      ctx.drawImage(img, 0, 0, width, height);
       URL.revokeObjectURL(url);
       resolve(canvas.toDataURL("image/jpeg", 0.7));
     };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image load failed")); };
     img.src = url;
   });
 }
@@ -247,7 +250,7 @@ function FeedCard({
             <div className="flex flex-wrap gap-1 mb-2">
               {post.tags.map((t) => (
                 <Link
-                  key={t.symbol}
+                  key={`${t.symbol}-${t.market}`}
                   to={`/stocks/${t.market}/${t.symbol}`}
                   className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 transition-colors"
                 >
@@ -390,9 +393,10 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     if (pfItems.length === 0) { setLivePriceMap({}); return; }
     const symbols = [...new Set(pfItems.map((i: any) => i.symbol as string))];
     const markets = [...new Set(pfItems.map((i: any) => i.market as string))];
-    watchlistApi.getPrices(symbols, markets).then((prices: any[]) => {
+    watchlistApi.getPrices(symbols, markets).then((prices: any) => {
+      if (!Array.isArray(prices)) return;
       const map: Record<string, number> = {};
-      (prices as any[]).forEach((p: any) => { if (p.price > 0) map[p.symbol] = p.price; });
+      prices.forEach((p: any) => { if (p?.price > 0) map[p.symbol] = p.price; });
       setLivePriceMap(map);
     }).catch(() => {});
   }, [pfItems]);
@@ -909,7 +913,7 @@ export default function Feed() {
     onMutate: async (postId) => {
       await qc.cancelQueries({ queryKey });
       const prev = qc.getQueryData<any>(queryKey);
-      if (prev) {
+      if (prev?.items) {
         qc.setQueryData(queryKey, {
           ...prev,
           items: prev.items.map((p: FeedPost) =>
@@ -931,7 +935,7 @@ export default function Feed() {
       communityApi.votePoll(postId, optionIndex),
     onSuccess: (data, { postId }) => {
       qc.setQueryData(queryKey, (prev: any) => {
-        if (!prev) return prev;
+        if (!prev?.items) return prev;
         return {
           ...prev,
           items: prev.items.map((p: FeedPost) =>
