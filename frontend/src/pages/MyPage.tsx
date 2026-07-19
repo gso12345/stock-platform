@@ -91,37 +91,33 @@ export default function MyPage() {
   const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
   const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
 
-  const { allSymbols, allMarkets } = useMemo(() => {
-    if (!allPortfolioItems) return { allSymbols: [], allMarkets: [] };
-    const seen = new Set<string>();
-    const syms: string[] = [];
-    const mkts: string[] = [];
-    (allPortfolioItems as any[]).forEach((i: any) => {
-      if (!seen.has(i.symbol)) {
-        seen.add(i.symbol);
-        syms.push(i.symbol);
-        mkts.push(i.market);
-      }
-    });
-    return { allSymbols: syms, allMarkets: mkts };
-  }, [allPortfolioItems]);
+  // Portfolio.tsx와 동일한 방식: 현금 제외 아이템 목록
+  const priceableItems = useMemo(() =>
+    Array.isArray(allPortfolioItems)
+      ? (allPortfolioItems as any[]).filter((i: any) => i.assetClass !== "현금")
+      : [],
+    [allPortfolioItems]
+  );
 
-  const { data: livePrices } = useQuery({
-    queryKey: ["portfolioLivePrices", allSymbols, allMarkets],
-    queryFn: () => watchlistApi.getPrices(allSymbols, allMarkets),
-    enabled: allSymbols.length > 0,
-    staleTime: 60_000,
+  // Portfolio.tsx와 동일한 queryKey → 캐시 공유
+  const { data: batchPrices } = useQuery({
+    queryKey: ["portfolio-prices", priceableItems.map((i: any) => `${i.market}:${i.symbol}`).join(",")],
+    queryFn: () => watchlistApi.getPrices(
+      priceableItems.map((i: any) => i.symbol),
+      priceableItems.map((i: any) => i.market)
+    ),
+    enabled: priceableItems.length > 0,
+    staleTime: 120_000,
   });
 
   const pfForChart = useMemo(() => {
     if (!portfolios || !allPortfolioItems) return [];
-    // 인덱스 기반 매핑: 응답은 allSymbols와 같은 순서 보장
-    // p.symbol을 키로 쓰면 KR주식의 "005930" vs "005930.KS" 불일치가 생김
-    const priceMap: Record<string, any> = {};
-    if (livePrices && Array.isArray(livePrices)) {
-      allSymbols.forEach((sym, i) => {
-        const p = (livePrices as any[])[i];
-        if (p) priceMap[sym] = p;
+    // 인덱스 기반 priceMap: Portfolio.tsx와 동일한 방식
+    const priceMap: Record<string, number> = {};
+    if (Array.isArray(batchPrices)) {
+      priceableItems.forEach((item: any, i: number) => {
+        const d = (batchPrices as any[])[i];
+        if (d?.price != null) priceMap[item.symbol] = d.price;
       });
     }
     return (portfolios as any[])
@@ -132,16 +128,15 @@ export default function MyPage() {
         items: (allPortfolioItems as any[])
           .filter((i: any) => i.portfolioId === pf.id)
           .map((i: any) => {
-            const lp = priceMap[i.symbol];
-            const currentPriceNative = lp?.price ?? 0;
+            const currentPrice = priceMap[i.symbol];
             const fx = i.currency === "USD" ? exchangeRate : 1;
-            const currentValueKRW = currentPriceNative > 0
-              ? currentPriceNative * fx * i.shares
+            const currentValueKRW = currentPrice != null && currentPrice > 0
+              ? currentPrice * fx * i.shares
               : undefined;
             return { ...i, currentValueKRW };
           }),
       }));
-  }, [portfolios, allPortfolioItems, livePrices, exchangeRate]);
+  }, [portfolios, allPortfolioItems, batchPrices, priceableItems, exchangeRate]);
 
   useEffect(() => {
     if (!activity?.items) return;
