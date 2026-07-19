@@ -359,8 +359,7 @@ export default function StockDetail() {
     queryFn: () => stocksApi.getQuantScore(m, sym, quantWeights ?? undefined, quantMetrics ?? undefined),
     enabled: !!sym && mainTab === "quant",
     retry: 1,
-    // 사용자 가중치/지표 커스터마이징 중이면 즉시 재계산, 그 외엔 5분 캐시
-    staleTime: (quantWeights || quantMetrics) ? 0 : 300_000,
+    staleTime: 60_000,
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return false;
@@ -429,7 +428,7 @@ export default function StockDetail() {
     queryKey: ["watchlist-folders"],
     queryFn: () => watchlistFolderApi.getFolders(),
     enabled: isLoggedIn,
-    staleTime: 60_000,
+    staleTime: 600_000,
   });
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
   const folderMenuRef = useRef<HTMLDivElement>(null);

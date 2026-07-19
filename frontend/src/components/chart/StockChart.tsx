@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createChart, ColorType, CrosshairMode, LineStyle, PriceScaleMode } from "lightweight-charts";
 import { Settings, Plus, X } from "lucide-react";
 import {
@@ -162,6 +162,32 @@ function preprocessData(data: OHLCV[]) {
   });
 }
 
+/* ── NumInput — SettingsPanel 외부에 정의해 리렌더시 재마운트 방지 ── */
+function NumInput({ label, value, onChange: oc, min = 1, max = 500 }: {
+  label: string; value: number; onChange: (v: number) => void; min?: number; max?: number;
+}) {
+  const [localVal, setLocalVal] = useState(String(value));
+  useEffect(() => { setLocalVal(String(value)); }, [value]);
+  const commit = useCallback(() => {
+    const parsed = parseInt(localVal, 10);
+    const clamped = isNaN(parsed) ? min : Math.max(min, Math.min(max, parsed));
+    setLocalVal(String(clamped));
+    oc(clamped);
+  }, [localVal, min, max, oc]);
+  return (
+    <label className="flex items-center gap-2 text-xs">
+      <span className="text-text-muted w-20 flex-shrink-0">{label}</span>
+      <input
+        type="number" min={min} max={max} value={localVal}
+        onChange={e => setLocalVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === "Enter") commit(); }}
+        className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center focus:outline-none focus:border-accent-blue"
+      />
+    </label>
+  );
+}
+
 /* ── 설정 패널 컴포넌트 ──────────────────────────────────── */
 function SettingsPanel({ settings, onChange, onClose }: {
   settings: ChartSettings;
@@ -188,31 +214,6 @@ function SettingsPanel({ settings, onChange, onClose }: {
   const removeEMA = (i: number) => set({ emas: settings.emas.filter((_, j) => j !== i) });
   const updateEMA = (i: number, period: number) =>
     set({ emas: settings.emas.map((e, j) => j === i ? { ...e, period } : e) });
-
-  const NumInput = ({ label, value, onChange: oc, min = 1, max = 500 }: {
-    label: string; value: number; onChange: (v: number) => void; min?: number; max?: number;
-  }) => {
-    const [localVal, setLocalVal] = useState(String(value));
-    useEffect(() => { setLocalVal(String(value)); }, [value]);
-    const commit = useCallback(() => {
-      const parsed = parseInt(localVal, 10);
-      const clamped = isNaN(parsed) ? min : Math.max(min, Math.min(max, parsed));
-      setLocalVal(String(clamped));
-      oc(clamped);
-    }, [localVal, min, max, oc]);
-    return (
-      <label className="flex items-center gap-2 text-xs">
-        <span className="text-text-muted w-20 flex-shrink-0">{label}</span>
-        <input
-          type="number" min={min} max={max} value={localVal}
-          onChange={e => setLocalVal(e.target.value)}
-          onBlur={commit}
-          onKeyDown={e => { if (e.key === "Enter") commit(); }}
-          className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center focus:outline-none focus:border-accent-blue"
-        />
-      </label>
-    );
-  };
 
   const Toggle = ({ label, checked, onToggle, color }: { label: string; checked: boolean; onToggle: () => void; color?: string }) => (
     <button onClick={onToggle}
@@ -468,6 +469,31 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     });
   }
 
+  // 구조 변경(지표 토글, 서브차트 파라미터, MA/EMA 개수)만 추적 — 전체 재생성 트리거
+  const indicatorToggles = useMemo(() => JSON.stringify({
+    volume: settings.volume,
+    bb: settings.bb, bbPeriod: settings.bbPeriod, bbMult: settings.bbMult,
+    vwap: settings.vwap, sar: settings.sar,
+    rsi: settings.rsi, rsiPeriod: settings.rsiPeriod,
+    macd: settings.macd, macdFast: settings.macdFast, macdSlow: settings.macdSlow, macdSignal: settings.macdSignal,
+    stoch: settings.stoch, stochK: settings.stochK, stochD: settings.stochD,
+    cci: settings.cci, cciPeriod: settings.cciPeriod,
+    atr: settings.atr, atrPeriod: settings.atrPeriod,
+    obv: settings.obv,
+    williams: settings.williams, williamsPeriod: settings.williamsPeriod,
+    adx: settings.adx, adxPeriod: settings.adxPeriod,
+    roc: settings.roc, rocPeriod: settings.rocPeriod,
+    mfi: settings.mfi, mfiPeriod: settings.mfiPeriod,
+    masLen: settings.mas.length,
+    emasLen: settings.emas.length,
+  }), [settings]);
+
+  // MA/EMA 기간·색상만 추적 — 기존 시리즈 데이터만 갱신 (전체 재생성 없음)
+  const overlayPeriods = useMemo(() => JSON.stringify({
+    mas: settings.mas,
+    emas: settings.emas,
+  }), [settings.mas, settings.emas]);
+
   /* ── 차트 전체 재생성 ─────────────────────────────────── */
   useEffect(() => {
     if (!mainRef.current || !data.length) return;
@@ -696,7 +722,26 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       subRefs.current.forEach(c => { try { c.remove(); } catch {} });
       subRefs.current.clear();
     };
-  }, [data, chartType, height, isKR, settings, colorScheme]); // settings/색상 테마 변경 시 전체 재생성
+  }, [data, chartType, height, isKR, colorScheme, indicatorToggles]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── MA/EMA 기간·색상 증분 업데이트 (전체 재생성 없음) ── */
+  useEffect(() => {
+    const ohlcv = ohlcvRef.current;
+    if (!ohlcv.length) return;
+    const s = settingsRef.current;
+    s.mas.forEach((m, i) => {
+      const series = overlayRef.current.get(`ma_${i}`);
+      if (!series) return;
+      series.applyOptions({ color: m.color });
+      series.setData(calcMA(ohlcv, m.period).map((d: any) => ({ time: d.time as any, value: d.value })));
+    });
+    s.emas.forEach((e, i) => {
+      const series = overlayRef.current.get(`ema_${i}`);
+      if (!series) return;
+      series.applyOptions({ color: e.color });
+      series.setData(calcEMA(ohlcv, e.period).map((d: any) => ({ time: d.time as any, value: d.value })));
+    });
+  }, [overlayPeriods]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 로그스케일 즉시 적용 ─────────────────────────────── */
   useEffect(() => {
