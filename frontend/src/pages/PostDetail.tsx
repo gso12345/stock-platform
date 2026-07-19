@@ -180,20 +180,24 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
           )}
         </div>
         {showReply && (
-          <div className="mt-2 flex gap-2">
-            <textarea autoFocus value={replyText} rows={1}
-              onChange={e => {
-                setReplyText(e.target.value);
-                e.target.style.height = "auto";
-                e.target.style.height = Math.min(e.target.scrollHeight, 80) + "px";
-              }}
-              onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submitReply())}
-              placeholder="답글 입력..." maxLength={500}
-              className="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50 resize-none overflow-hidden leading-relaxed" />
-            <button onClick={submitReply} disabled={!replyText.trim() || submitting}
-              className="px-3 py-2 bg-accent-blue text-white text-xs rounded-xl disabled:opacity-40 hover:bg-accent-blue/90 transition-colors">
-              {submitting ? "..." : "등록"}
-            </button>
+          <div className="mt-2 flex items-end gap-2">
+            <div className="flex-1 flex items-end gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2 focus-within:border-accent-blue/50 transition-colors">
+              <textarea autoFocus value={replyText} rows={1}
+                onChange={e => {
+                  setReplyText(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = Math.min(e.target.scrollHeight, 80) + "px";
+                }}
+                onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submitReply())}
+                placeholder="답글을 입력하세요..." maxLength={500}
+                className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
+              <button onClick={submitReply} disabled={submitting}
+                className="shrink-0 mb-0.5 transition-all active:scale-90">
+                {replyText.trim()
+                  ? <Send size={15} className={`text-accent-blue ${submitting ? "opacity-40" : ""}`} />
+                  : <PenLine size={15} className="text-text-dim" />}
+              </button>
+            </div>
           </div>
         )}
         {comment.replies.length > 0 && (
@@ -533,7 +537,9 @@ export default function PostDetail() {
         <div className="max-w-2xl mx-auto px-3 sm:px-4 py-2.5" style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}>
           {isLoggedIn ? (
             <div className="flex items-end gap-2.5">
-              <AvatarComponent username={myUsername ?? "?"} colorIndex={0} size="sm" />
+              <div className="w-6 h-6 rounded-full bg-accent-blue/20 border border-accent-blue/30 flex items-center justify-center text-xs font-bold text-accent-blue shrink-0">
+                {(myUsername ?? "?")[0]?.toUpperCase()}
+              </div>
               <div className="flex-1 flex items-end gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2 focus-within:border-accent-blue/50 transition-colors">
                 <textarea ref={commentInputRef} value={commentText}
                   rows={1}
