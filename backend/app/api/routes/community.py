@@ -503,6 +503,7 @@ def get_post(
 @router.get("/posts/{post_id}/comments")
 def list_comments(
     post_id: int = Path(...),
+    sort:    str = Query(default="latest", pattern="^(latest|popular)$"),
     db:      Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -513,12 +514,12 @@ def list_comments(
     if not exists:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     uid = current_user.id if current_user else None
-    # 루트 댓글만 (replies는 _ser_comment 내부에서 처리)
+    order = StockComment.like_count.desc() if sort == "popular" else StockComment.created_at.asc()
     root = db.query(StockComment).filter(
         StockComment.post_id == post_id,
         StockComment.parent_id == None,
         StockComment.is_deleted.isnot(True),
-    ).order_by(StockComment.created_at.asc()).all()
+    ).order_by(order).all()
     return [_ser_comment(c, uid, db) for c in root]
 
 

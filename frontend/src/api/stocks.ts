@@ -364,8 +364,8 @@ export const communityApi = {
     api.delete(`/community/${market}/${symbol}/posts/${postId}`).then((r) => r.data),
   togglePostLike: (postId: number) =>
     api.post(`/community/posts/${postId}/like`).then((r) => r.data),
-  getComments: (postId: number) =>
-    api.get(`/community/posts/${postId}/comments`).then((r) => r.data),
+  getComments: (postId: number, sort: "latest" | "popular" = "latest") =>
+    api.get(`/community/posts/${postId}/comments`, { params: { sort } }).then((r) => r.data),
   createComment: (postId: number, content: string, parentId?: number) =>
     api.post(`/community/posts/${postId}/comments`, { content, parent_id: parentId ?? null }).then((r) => r.data),
   deleteComment: (commentId: number) =>

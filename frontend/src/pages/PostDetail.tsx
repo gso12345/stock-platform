@@ -311,10 +311,11 @@ export default function PostDetail() {
     staleTime: 60_000,
   });
 
-  const commentsKey = ["post-comments", Number(postId)];
+  const [commentSort, setCommentSort] = useState<"latest" | "popular">("latest");
+  const commentsKey = ["post-comments", Number(postId), commentSort];
   const { data: comments = [], isLoading: commentsLoading, refetch: refetchComments } = useQuery<Comment[]>({
     queryKey: commentsKey,
-    queryFn: () => communityApi.getComments(Number(postId)),
+    queryFn: () => communityApi.getComments(Number(postId), commentSort),
     enabled: !!postId,
     staleTime: 30_000,
   });
@@ -786,9 +787,21 @@ export default function PostDetail() {
 
           {/* 댓글 목록 */}
           <div className="flex flex-col gap-5 border-t border-border/50 pt-4">
-            <p className="text-sm font-semibold text-text-primary">
-              댓글 {comments.length > 0 ? comments.length : ""}
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-text-primary">
+                댓글 {comments.length > 0 ? comments.length : ""}
+              </p>
+              <div className="flex items-center gap-0.5 bg-bg-elevated rounded-lg p-0.5">
+                {(["latest", "popular"] as const).map(s => (
+                  <button key={s} onClick={() => setCommentSort(s)}
+                    className={`text-2xs px-2.5 py-1 rounded-md transition-all font-medium ${
+                      commentSort === s ? "bg-bg-card text-text-primary shadow-sm" : "text-text-dim hover:text-text-secondary"
+                    }`}>
+                    {s === "latest" ? "최신순" : "인기순"}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* 댓글 입력 pill — 댓글 숫자 바로 아래 */}
             {isLoggedIn ? (
