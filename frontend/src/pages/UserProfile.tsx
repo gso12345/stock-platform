@@ -4,8 +4,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 import { communityApi, portfolioApi, dashboardApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
-import PostDetailModal from "@/components/community/PostDetailModal";
-import type { ModalPost } from "@/components/community/PostDetailModal";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 
 const AVATAR_COLORS = [
@@ -47,8 +45,6 @@ export default function UserProfile() {
   const qc = useQueryClient();
   const { isLoggedIn } = useAuthStore();
   const [followModal, setFollowModal] = useState<FollowModalType>(null);
-  const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
-  const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
 
   const { data: profile, isLoading, isError, isFetching } = useQuery({
     queryKey: ["userPublicProfile", userId],
@@ -75,17 +71,8 @@ export default function UserProfile() {
     });
   }, [activity, qc]);
 
-  const openActivityPost = async (postId: number) => {
-    if (loadingPostId === postId) return;
-    const cached = qc.getQueryData<ModalPost>(["post", postId]);
-    if (cached) { setSelectedPost(cached); return; }
-    setLoadingPostId(postId);
-    try {
-      const post = await communityApi.getPost(postId);
-      qc.setQueryData(["post", postId], post);
-      setSelectedPost(post);
-    } catch {}
-    finally { setLoadingPostId(null); }
+  const openActivityPost = (postId: number) => {
+    navigate(`/post/${postId}`);
   };
 
   const { data: followersData } = useQuery({
@@ -295,14 +282,6 @@ export default function UserProfile() {
           </div>
         )}
       </div>
-
-      {/* 게시글 상세 모달 */}
-      {selectedPost && (
-        <PostDetailModal
-          post={selectedPost}
-          onClose={() => setSelectedPost(null)}
-        />
-      )}
 
       {/* 팔로워/팔로잉 모달 */}
       {followModal && (

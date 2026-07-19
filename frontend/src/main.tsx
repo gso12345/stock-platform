@@ -26,6 +26,7 @@ const Privacy = lazy(() => import("./pages/Privacy"));
 const MyPage = lazy(() => import("./pages/MyPage"));
 const Feed   = lazy(() => import("./pages/Feed"));
 const UserProfile = lazy(() => import("./pages/UserProfile"));
+const PostDetail  = lazy(() => import("./pages/PostDetail"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -99,6 +100,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <Route path="mypage" element={<MyPage />} />
               <Route path="feed" element={<Feed />} />
               <Route path="profile/:userId" element={<UserProfile />} />
+              <Route path="post/:postId" element={<PostDetail />} />
             </Route>
           </Routes>
         </Suspense>

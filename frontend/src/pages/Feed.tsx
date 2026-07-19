@@ -8,7 +8,6 @@ import {
 import { communityApi, portfolioApi, watchlistApi, dashboardApi } from "@/api/stocks";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/store/authStore";
-import PostDetailModal from "@/components/community/PostDetailModal";
 import api from "@/api/client";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import PortfolioChart, { type PfPortfolioForChart } from "@/components/portfolio/PortfolioChart";
@@ -99,6 +98,7 @@ interface FeedPost {
   liked: boolean;
   created_at: string;
   is_mine: boolean;
+  is_following?: boolean;
 }
 
 function FeedCard({
@@ -127,7 +127,7 @@ function FeedCard({
 
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const url = `${window.location.origin}/stocks/${post.market}/${post.symbol}`;
+    const url = `${window.location.origin}/post/${post.id}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -926,7 +926,6 @@ export default function Feed() {
   const { isLoggedIn } = useAuthStore();
   const [feedType, setFeedType] = useState<FeedType>("all");
   const [sort, setSort] = useState<SortType>("latest");
-  const [selectedPost, setSelectedPost] = useState<FeedPost | null>(null);
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("ALL");
   const [page, setPage] = useState(1);
 
@@ -1164,7 +1163,7 @@ export default function Feed() {
                 post={post}
                 onLike={(id) => likeMutation.mutate(id)}
                 onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
-                onOpen={(p) => setSelectedPost(p)}
+                onOpen={(p) => navigate(`/post/${p.id}`)}
                 onDelete={(id) => { const p = posts.find((x) => x.id === id); if (p) deleteMutation.mutate(p); }}
                 queryKey={queryKey}
                 qc={qc}
@@ -1222,29 +1221,7 @@ export default function Feed() {
         </>
       )}
 
-      {/* 게시글 상세 모달 */}
-      {selectedPost && (
-        <PostDetailModal
-          post={selectedPost}
-          onClose={() => { setSelectedPost(null); qc.invalidateQueries({ queryKey }); }}
-          onDeleted={() => { setSelectedPost(null); qc.invalidateQueries({ queryKey: ["feed"] }); }}
-          onLikeToggled={(postId, liked, likeCount) => {
-            qc.setQueryData<any>(queryKey, (prev) =>
-              prev ? { ...prev, items: prev.items.map((p: FeedPost) =>
-                p.id === postId ? { ...p, liked, like_count: likeCount } : p
-              )} : prev
-            );
-            setSelectedPost((p) => p ? { ...p, liked, like_count: likeCount } : p);
-          }}
-          onVoteUpdated={(postId, counts, total, myVote) => {
-            qc.setQueryData<any>(queryKey, (prev) =>
-              prev ? { ...prev, items: prev.items.map((p: FeedPost) =>
-                p.id === postId && p.poll ? { ...p, poll: { ...p.poll, counts, total, my_vote: myVote } } : p
-              )} : prev
-            );
-          }}
-        />
-      )}
+
     </div>
   );
 }

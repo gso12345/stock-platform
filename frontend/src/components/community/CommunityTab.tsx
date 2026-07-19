@@ -9,7 +9,6 @@ import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import api from "@/api/client";
-import PostDetailModal from "./PostDetailModal";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 
 // ── 타입 ──────────────────────────────────────────────────────────
@@ -718,7 +717,6 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
 
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<"latest" | "likes">("latest");
-  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -746,11 +744,9 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   useEffect(() => {
     const postId = searchParams.get("post");
     if (!postId) return;
-    communityApi.getPost(Number(postId)).then((post) => {
-      setSelectedPost(post);
-      setSearchParams((prev) => { prev.delete("post"); return prev; }, { replace: true });
-    }).catch(() => {});
-  }, [searchParams, setSearchParams]);
+    setSearchParams((prev) => { prev.delete("post"); return prev; }, { replace: true });
+    navigate(`/post/${postId}`);
+  }, [searchParams, setSearchParams, navigate]);
 
   const key = ["community", market, symbol, page, sort];
 
@@ -1261,7 +1257,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
               onDelete={(id) => deleteMutation.mutate(id)}
               onLike={(id) => likeMutation.mutate(id)}
               onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
-              onOpen={(p) => setSelectedPost(p)}
+              onOpen={(p) => navigate(`/post/${p.id}`)}
             />
           ))}
         </div>
@@ -1311,28 +1307,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
         </div>
       )}
 
-      {/* 게시글 상세 모달 */}
-      {selectedPost && (
-        <PostDetailModal
-          post={selectedPost}
-          onClose={() => { setSelectedPost(null); invalidate(); }}
-          onLikeToggled={(postId, liked, likeCount) => {
-            qc.setQueryData<any>(key, (prev) =>
-              prev ? { ...prev, items: prev.items.map((p: Post) =>
-                p.id === postId ? { ...p, liked, like_count: likeCount } : p
-              )} : prev
-            );
-            setSelectedPost((p) => p ? { ...p, liked, like_count: likeCount } : p);
-          }}
-          onVoteUpdated={(postId, counts, total, myVote) => {
-            qc.setQueryData<any>(key, (prev) =>
-              prev ? { ...prev, items: prev.items.map((p: Post) =>
-                p.id === postId && p.poll ? { ...p, poll: { ...p.poll, counts, total, my_vote: myVote } } : p
-              )} : prev
-            );
-          }}
-        />
-      )}
+
     </div>
   );
 }
