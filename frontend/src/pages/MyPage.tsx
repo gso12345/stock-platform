@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/stocks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { usePricesStream } from "@/hooks/useWebSocket";
 import { Save, Palette, Globe, Lock, FileText } from "lucide-react";
 import PostDetailModal from "@/components/community/PostDetailModal";
 import type { ModalPost } from "@/components/community/PostDetailModal";
@@ -110,17 +111,26 @@ export default function MyPage() {
     staleTime: 120_000,
   });
 
+  // Portfolio.tsx와 동일: WebSocket 실시간 가격 (HTTP 배치 보완)
+  const [wsPrices, setWsPrices] = useState<any[] | null>(null);
+  const priceSymbols = useMemo(() => priceableItems.map((i: any) => i.symbol), [priceableItems]);
+  const priceMarkets = useMemo(() => priceableItems.map((i: any) => i.market), [priceableItems]);
+  usePricesStream(priceSymbols, priceMarkets, useCallback((prices: any[]) => {
+    setWsPrices(prices);
+  }, []));
+  const effectivePrices = wsPrices ?? batchPrices;
+
   // Portfolio.tsx와 동일: item.id 기준 priceMap
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
-    if (Array.isArray(batchPrices)) {
+    if (Array.isArray(effectivePrices)) {
       priceableItems.forEach((item: any, i: number) => {
-        const d = (batchPrices as any[])[i];
+        const d = (effectivePrices as any[])[i];
         if (d?.price != null) map[item.id] = d.price;
       });
     }
     return map;
-  }, [priceableItems, batchPrices]);
+  }, [priceableItems, effectivePrices]);
 
   const pfForChart = useMemo(() => {
     if (!portfolios || !allItems.length) return [];

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
@@ -6,6 +6,7 @@ import {
   PenSquare, Hash, BarChart2, X, Trash2, Image as ImageIcon, Send, LogIn, Eye,
 } from "lucide-react";
 import { communityApi, portfolioApi, watchlistApi, dashboardApi } from "@/api/stocks";
+import { usePricesStream } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/store/authStore";
 import PostDetailModal from "@/components/community/PostDetailModal";
 import api from "@/api/client";
@@ -410,17 +411,26 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     staleTime: 120_000,
   });
 
+  // Portfolio.tsx와 동일: WebSocket 실시간 가격 (HTTP 배치 보완)
+  const [wsFeedPrices, setWsFeedPrices] = useState<any[] | null>(null);
+  const feedPriceSymbols = useMemo(() => priceableItemsForFeed.map((i: any) => i.symbol), [priceableItemsForFeed]);
+  const feedPriceMarkets = useMemo(() => priceableItemsForFeed.map((i: any) => i.market), [priceableItemsForFeed]);
+  usePricesStream(feedPriceSymbols, feedPriceMarkets, useCallback((prices: any[]) => {
+    setWsFeedPrices(prices);
+  }, []), 5);
+  const feedEffectivePrices = wsFeedPrices ?? allBatchPrices;
+
   // 내자산과 동일: item.id 기준 priceMap
   const feedPriceMap = useMemo(() => {
     const map: Record<number, number> = {};
-    if (Array.isArray(allBatchPrices)) {
+    if (Array.isArray(feedEffectivePrices)) {
       priceableItemsForFeed.forEach((item: any, i: number) => {
-        const d = (allBatchPrices as any[])[i];
+        const d = (feedEffectivePrices as any[])[i];
         if (d?.price != null) map[item.id] = d.price;
       });
     }
     return map;
-  }, [priceableItemsForFeed, allBatchPrices]);
+  }, [priceableItemsForFeed, feedEffectivePrices]);
 
   useEffect(() => {
     if (!searchQ.trim()) { setSearchResults([]); return; }
