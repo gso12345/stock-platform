@@ -485,7 +485,7 @@ export default function PostDetail() {
           )}
 
           {/* 액션 바 */}
-          <div className="flex items-center gap-1 py-3 border-t border-b border-border/50">
+          <div className="flex items-center gap-1 py-3 border-t border-border/50">
             <button onClick={handleLike}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all active:scale-95 ${
                 activePost.liked ? "text-accent-red bg-accent-red/10" : "text-text-dim hover:text-accent-red hover:bg-accent-red/5"
@@ -511,54 +511,9 @@ export default function PostDetail() {
             </button>
           </div>
 
-          {/* 댓글 */}
-          <div className="flex flex-col gap-5">
-            <p className="text-sm font-semibold text-text-primary">
-              댓글 {comments.length > 0 ? comments.length : ""}
-            </p>
-            {commentsLoading ? (
-              <div className="flex justify-center py-6">
-                <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-              </div>
-            ) : comments.length > 0 ? (
-              comments.map(c => (
-                <CommentItem key={c.id} comment={c} postId={activePost.id} uid={uid}
-                  isLoggedIn={isLoggedIn} queryKey={commentsKey} myUsername={myUsername} />
-              ))
-            ) : (
-              <p className="text-sm text-text-dim text-center py-6">첫 댓글을 남겨보세요</p>
-            )}
-
-            {/* 인라인 댓글 입력 — pill (클릭 시 하단 고정 입력창 포커스) */}
-            {isLoggedIn ? (
-              <div className="flex items-end gap-2.5 pt-2"
-                onClick={() => commentInputRef.current?.focus()}>
-                <div className="w-6 h-6 rounded-full bg-accent-blue/20 border border-accent-blue/30 flex items-center justify-center text-xs font-bold text-accent-blue shrink-0 pointer-events-none">
-                  {(myUsername ?? "?")[0]?.toUpperCase()}
-                </div>
-                <div className="flex-1 flex items-center gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2.5 hover:border-accent-blue/40 transition-colors cursor-text">
-                  <span className="flex-1 text-sm text-text-dim select-none">
-                    {commentText || "댓글을 입력하세요..."}
-                  </span>
-                  <PenLine size={15} className="text-text-dim shrink-0" />
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => navigate("/login")}
-                className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors mt-2">
-                <PenLine size={13} className="text-text-dim shrink-0" />
-                <span className="text-sm text-text-dim">로그인 후 댓글 작성</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 고정 댓글 입력 — pill 디자인 */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 bg-bg-card/95 backdrop-blur-md border-t border-border">
-        <div className="max-w-2xl mx-auto px-3 sm:px-4 py-2.5" style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}>
+          {/* 댓글 입력 pill — 액션 바 바로 아래 */}
           {isLoggedIn ? (
-            <div className="flex items-end gap-2.5">
+            <div className="flex items-end gap-2.5 pb-1">
               <div className="w-6 h-6 rounded-full bg-accent-blue/20 border border-accent-blue/30 flex items-center justify-center text-xs font-bold text-accent-blue shrink-0">
                 {(myUsername ?? "?")[0]?.toUpperCase()}
               </div>
@@ -580,13 +535,30 @@ export default function PostDetail() {
             </div>
           ) : (
             <button onClick={() => navigate("/login")}
-              className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors">
-              <div className="w-6 h-6 rounded-full bg-bg-card border border-border flex items-center justify-center text-text-dim shrink-0">
-                <PenLine size={12} />
-              </div>
-              <span className="text-sm text-text-dim flex-1 text-left">로그인 후 댓글 작성</span>
+              className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors mb-1">
+              <PenLine size={13} className="text-text-dim shrink-0" />
+              <span className="text-sm text-text-dim">로그인 후 댓글 작성</span>
             </button>
           )}
+
+          {/* 댓글 목록 */}
+          <div className="flex flex-col gap-5 border-t border-border/50 pt-4">
+            <p className="text-sm font-semibold text-text-primary">
+              댓글 {comments.length > 0 ? comments.length : ""}
+            </p>
+            {commentsLoading ? (
+              <div className="flex justify-center py-6">
+                <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+              </div>
+            ) : comments.length > 0 ? (
+              comments.map(c => (
+                <CommentItem key={c.id} comment={c} postId={activePost.id} uid={uid}
+                  isLoggedIn={isLoggedIn} queryKey={commentsKey} myUsername={myUsername} />
+              ))
+            ) : (
+              <p className="text-sm text-text-dim text-center py-6">첫 댓글을 남겨보세요</p>
+            )}
+          </div>
         </div>
       </div>
     </div>
