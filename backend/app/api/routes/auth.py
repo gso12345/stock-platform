@@ -132,7 +132,7 @@ def register(request: Request, req: RegisterRequest, db: Session = Depends(get_d
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("20/minute")
+@limiter.limit("5/minute")
 def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
     """username+비밀번호 검증 후 JWT 토큰 반환"""
     user = db.query(User).filter(User.username == req.username).first()
