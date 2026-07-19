@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   Heart, Trash2, Send, LogIn, MessageSquare, AlertCircle,
   RefreshCw, ChevronDown, ChevronUp, Share2, ArrowUpDown,
@@ -391,23 +391,12 @@ function PostCard({
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
-  const [showComments, setShowComments] = useState(false);
-  const [commentText, setCommentText] = useState("");
-  const [submittingComment, setSubmittingComment] = useState(false);
   const [copied, setCopied] = useState(false);
   const [following, setFollowing] = useState(false);
   const [followPending, setFollowPending] = useState(false);
 
-  const commentsKey = ["comments", post.id];
-  const { data: comments, refetch: refetchComments } = useQuery<Comment[]>({
-    queryKey: commentsKey,
-    queryFn: () => communityApi.getComments(post.id),
-    enabled: showComments,
-    staleTime: 30_000,
-  });
-
   const handleShare = async () => {
-    const url = `${window.location.origin}/stocks/${market}/${symbol}`;
+    const url = `${window.location.origin}/post/${post.id}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -428,20 +417,6 @@ function PostCard({
       /* ignore */
     } finally {
       setFollowPending(false);
-    }
-  };
-
-  const submitComment = async () => {
-    const txt = commentText.trim();
-    if (!txt || submittingComment) return;
-    setSubmittingComment(true);
-    try {
-      await communityApi.createComment(post.id, txt);
-      setCommentText("");
-      refetchComments();
-      qc.invalidateQueries({ queryKey: ["community", market, symbol] });
-    } finally {
-      setSubmittingComment(false);
     }
   };
 
@@ -538,6 +513,7 @@ function PostCard({
             <img
               src={post.image}
               alt="첨부 이미지"
+              loading="lazy"
               className="w-full max-h-64 object-cover rounded-xl mb-2"
             />
           )}
@@ -653,55 +629,6 @@ function PostCard({
             </span>
           </div>
 
-          {/* 댓글 영역 */}
-          {showComments && (
-            <div className="mt-3 pt-3 border-t border-border/50 flex flex-col gap-3">
-              {comments && comments.length > 0 ? (
-                comments.map((c) => (
-                  <CommentItem
-                    key={c.id}
-                    comment={c}
-                    postId={post.id}
-                    uid={uid}
-                    isLoggedIn={isLoggedIn}
-                    onReplyAdded={() => {
-                      refetchComments();
-                      qc.invalidateQueries({ queryKey: ["community", market, symbol] });
-                    }}
-                  />
-                ))
-              ) : (
-                <p className="text-xs text-text-dim text-center py-2">첫 댓글을 남겨보세요</p>
-              )}
-
-              {isLoggedIn ? (
-                <div className="flex gap-2 mt-1">
-                  <input
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submitComment()}
-                    placeholder="댓글을 입력하세요..."
-                    maxLength={500}
-                    className="flex-1 px-3 py-1.5 bg-bg-elevated border border-border rounded-xl text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
-                  />
-                  <button
-                    onClick={submitComment}
-                    disabled={!commentText.trim() || submittingComment}
-                    className="px-3 py-1.5 bg-accent-blue text-white text-xs rounded-xl disabled:opacity-40 hover:bg-accent-blue/90 transition-colors"
-                  >
-                    {submittingComment ? "..." : <Send size={12} />}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => navigate("/login")}
-                  className="text-xs text-accent-blue hover:underline text-center"
-                >
-                  로그인 후 댓글을 남겨보세요
-                </button>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -734,7 +661,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   const [tagQuery, setTagQuery] = useState("");
   const [tagResults, setTagResults] = useState<StockTag[]>([]);
   const [tags, setTags] = useState<StockTag[]>([{ symbol, market }]);
-  const [tagSearchTimeout, setTagSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const tagSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setPage(1);
@@ -750,11 +677,12 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
 
   const key = ["community", market, symbol, page, sort];
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: key,
     queryFn: () => communityApi.getPosts(market, symbol, page, sort),
     staleTime: 30_000,
     refetchInterval: 60_000,
+    placeholderData: keepPreviousData,
   });
 
   const posts: Post[] = data?.items ?? [];
@@ -830,9 +758,9 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
 
   const handleTagSearch = (q: string) => {
     setTagQuery(q);
-    if (tagSearchTimeout) clearTimeout(tagSearchTimeout);
+    if (tagSearchTimeoutRef.current) clearTimeout(tagSearchTimeoutRef.current);
     if (!q.trim()) { setTagResults([]); return; }
-    const t = setTimeout(async () => {
+    tagSearchTimeoutRef.current = setTimeout(async () => {
       try {
         const res = await api.get("/search", { params: { q: q.trim(), limit: 10 } });
         setTagResults(res.data?.results ?? res.data ?? []);
@@ -840,7 +768,6 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
         setTagResults([]);
       }
     }, 300);
-    setTagSearchTimeout(t);
   };
 
   const addTag = (tag: StockTag) => {
@@ -974,6 +901,10 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
         <div className="flex items-center gap-1">
           <button
             onClick={() => setSort((s) => (s === "latest" ? "likes" : "latest"))}
+            onMouseEnter={() => {
+              const nextSort = sort === "latest" ? "likes" : "latest";
+              qc.prefetchQuery({ queryKey: ["community", market, symbol, page, nextSort], queryFn: () => communityApi.getPosts(market, symbol, page, nextSort), staleTime: 30_000 });
+            }}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-text-dim border border-border hover:border-accent-blue/40 hover:text-accent-blue transition-all"
           >
             <ArrowUpDown size={10} />
@@ -1245,7 +1176,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
 
       {/* 게시글 목록 */}
       {!isLoading && !isError && posts.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div className={`flex flex-col gap-2 transition-opacity duration-150 ${isFetching ? "opacity-60" : "opacity-100"}`}>
           {posts.map((post) => (
             <PostCard
               key={post.id}

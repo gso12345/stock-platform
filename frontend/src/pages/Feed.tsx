@@ -212,6 +212,7 @@ function FeedCard({
             <img
               src={post.image}
               alt="첨부 이미지"
+              loading="lazy"
               className="w-full max-h-48 object-cover rounded-xl mb-2"
             />
           )}
@@ -369,7 +370,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const [tagQuery, setTagQuery] = useState("");
   const [tagResults, setTagResults] = useState<any[]>([]);
   const [customTags, setCustomTags] = useState<{ symbol: string; market: string }[]>([]);
-  const [tagSearchTimeout, setTagSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const tagSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 내자산과 동일한 queryKey → 캐시 공유
@@ -505,15 +506,14 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
 
   const handleTagSearch = (q: string) => {
     setTagQuery(q);
-    if (tagSearchTimeout) clearTimeout(tagSearchTimeout);
+    if (tagSearchTimeoutRef.current) clearTimeout(tagSearchTimeoutRef.current);
     if (!q.trim()) { setTagResults([]); return; }
-    const t = setTimeout(async () => {
+    tagSearchTimeoutRef.current = setTimeout(async () => {
       try {
         const res = await api.get("/search", { params: { q: q.trim(), limit: 10 } });
         setTagResults(res.data?.results ?? res.data ?? []);
       } catch { setTagResults([]); }
     }, 300);
-    setTagSearchTimeout(t);
   };
 
   const addCustomTag = (tag: { symbol: string; market: string }) => {
