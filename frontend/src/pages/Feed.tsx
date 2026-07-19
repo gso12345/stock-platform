@@ -403,8 +403,13 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     });
     watchlistApi.getPrices(symbolsArr, marketsArr).then((prices: any) => {
       if (!Array.isArray(prices)) return;
+      // 인덱스 기반 매핑: 응답은 symbolsArr와 같은 순서 보장
+      // p.symbol을 키로 쓰면 KR주식의 "005930" vs "005930.KS" 불일치가 생김
       const map: Record<string, number> = {};
-      prices.forEach((p: any) => { if (p?.price > 0) map[p.symbol] = p.price; });
+      symbolsArr.forEach((sym, i) => {
+        const p = (prices as any[])[i];
+        if (p?.price > 0) map[sym] = p.price;
+      });
       setLivePriceMap(map);
     }).catch(() => {});
   }, [pfItems]);

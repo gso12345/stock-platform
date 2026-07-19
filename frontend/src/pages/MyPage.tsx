@@ -115,9 +115,14 @@ export default function MyPage() {
 
   const pfForChart = useMemo(() => {
     if (!portfolios || !allPortfolioItems) return [];
+    // 인덱스 기반 매핑: 응답은 allSymbols와 같은 순서 보장
+    // p.symbol을 키로 쓰면 KR주식의 "005930" vs "005930.KS" 불일치가 생김
     const priceMap: Record<string, any> = {};
-    if (livePrices) {
-      (livePrices as any[]).forEach((p: any) => { priceMap[p.symbol] = p; });
+    if (livePrices && Array.isArray(livePrices)) {
+      allSymbols.forEach((sym, i) => {
+        const p = (livePrices as any[])[i];
+        if (p) priceMap[sym] = p;
+      });
     }
     return (portfolios as any[])
       .filter((pf: any) => pf.is_public)
