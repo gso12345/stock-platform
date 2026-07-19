@@ -10,6 +10,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import api from "@/api/client";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
+import AvatarComponent from "@/components/community/Avatar";
 
 // ── 타입 ──────────────────────────────────────────────────────────
 interface PollData {
@@ -107,7 +108,6 @@ const AVATAR_COLORS = [
   "bg-orange-500/20 text-orange-400 border-orange-500/30",
 ];
 
-import AvatarComponent from "@/components/community/Avatar";
 function Avatar({
   username, colorIndex, avatarUrl, size = "sm", userId, isMine,
 }: {

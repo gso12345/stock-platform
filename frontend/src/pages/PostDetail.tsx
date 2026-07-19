@@ -351,7 +351,6 @@ export default function PostDetail() {
 
   const isFollowing = following ?? activePost.is_following ?? false;
   const badgeCls = MARKET_BADGE[activePost.market] ?? MARKET_BADGE.KR;
-  const avatarCls = AVATAR_COLORS[activePost.avatar_color % AVATAR_COLORS.length];
 
   return (
     <div className="min-h-screen flex flex-col">
