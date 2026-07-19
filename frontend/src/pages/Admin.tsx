@@ -542,7 +542,13 @@ function CommunityAdminTab({ qc }: { qc: any }) {
                       </div>
                     </td>
                     <td className="px-3 py-3 max-w-[200px] lg:max-w-xs">
-                      <p className="text-xs text-text-secondary truncate">{p.title || p.body || "—"}</p>
+                      <Link
+                        to={`/stocks/${p.market}/${encodeURIComponent(p.symbol)}`}
+                        className="text-xs text-text-secondary hover:text-accent-blue transition-colors truncate block"
+                        title={p.title || p.body || ""}
+                      >
+                        {p.title || p.body || "—"}
+                      </Link>
                     </td>
                     <td className="px-3 py-3 text-center hidden sm:table-cell">
                       <div className="flex items-center justify-center gap-1 text-text-muted">
