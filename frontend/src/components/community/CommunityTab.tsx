@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import api from "@/api/client";
 import PostDetailModal from "./PostDetailModal";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
@@ -714,6 +714,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   const { isLoggedIn, username, userId } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<"latest" | "likes">("latest");
@@ -741,6 +742,15 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
     setPage(1);
     setTags([{ symbol, market }]);
   }, [symbol, market]);
+
+  useEffect(() => {
+    const postId = searchParams.get("post");
+    if (!postId) return;
+    communityApi.getPost(Number(postId)).then((post) => {
+      setSelectedPost(post);
+      setSearchParams((prev) => { prev.delete("post"); return prev; }, { replace: true });
+    }).catch(() => {});
+  }, [searchParams, setSearchParams]);
 
   const key = ["community", market, symbol, page, sort];
 

@@ -1403,8 +1403,8 @@ export default function Portfolio() {
   /* ── 차트 데이터 ── */
   const stockPieData = useMemo(() => {
     const sorted = [...enriched].sort((a, b) => b.currentValueKRW - a.currentValueKRW);
-    const top  = sorted.slice(0, 10);
-    const rest = sorted.slice(10);
+    const top  = sorted.slice(0, 20);
+    const rest = sorted.slice(20);
     const data = top.map((e) => ({
       name: (e.market === "US" || e.market === "ETF") ? e.symbol : (e.name || e.symbol),
       value: Math.round(e.currentValueKRW),

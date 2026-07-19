@@ -543,7 +543,7 @@ function CommunityAdminTab({ qc }: { qc: any }) {
                     </td>
                     <td className="px-3 py-3 max-w-[200px] lg:max-w-xs">
                       <Link
-                        to={`/stocks/${p.market}/${encodeURIComponent(p.symbol)}`}
+                        to={`/stocks/${p.market}/${encodeURIComponent(p.symbol)}?post=${p.id}`}
                         className="text-xs text-text-secondary hover:text-accent-blue transition-colors truncate block"
                         title={p.title || p.body || ""}
                       >
