@@ -2,7 +2,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session, selectinload, defer
 from sqlalchemy import func, text
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, field_validator, model_validator, Field
 from typing import Literal, Optional
 from app.db.database import get_db, engine
 from fastapi import Body
@@ -14,6 +14,8 @@ from app.services.ticker_service import get_kr_db
 router = APIRouter(prefix="/community", tags=["community"])
 
 _SYMBOL_RE = r"^[A-Za-z0-9.\-]{1,20}$"
+
+_SAFE_AVATAR_TYPES = frozenset({"image/jpeg", "image/png", "image/gif", "image/webp"})
 
 _kr_name_cache: dict[str, str] = {}
 
@@ -231,7 +233,7 @@ class ProfileUpdate(BaseModel):
     nickname:     Optional[str] = None
     avatar_color: Optional[int] = None
     bio:          Optional[str] = None
-    avatar_url:   Optional[str] = None  # base64 data URL or empty string to remove
+    avatar_url:   Optional[str] = Field(None, max_length=2_000_000)
 
 # ── 게시글 목록 ────────────────────────────────────────────────
 @router.get("/{market}/{symbol}/posts")
@@ -737,10 +739,12 @@ def update_my_profile(
             raise HTTPException(422, "소개는 200자 이내로 입력해 주세요")
         p.bio = bio or None
     if body.avatar_url is not None:
-        if body.avatar_url and not body.avatar_url.startswith("data:image/"):
-            raise HTTPException(422, "유효하지 않은 이미지 형식입니다")
-        if len(body.avatar_url) > 2_000_000:
-            raise HTTPException(422, "이미지 크기가 너무 큽니다 (최대 1.5MB)")
+        if body.avatar_url:
+            if not body.avatar_url.startswith("data:"):
+                raise HTTPException(422, "유효하지 않은 이미지 형식입니다")
+            mime = body.avatar_url[5:].split(";")[0]
+            if mime not in _SAFE_AVATAR_TYPES:
+                raise HTTPException(422, "지원하지 않는 이미지 형식입니다 (JPEG, PNG, GIF, WebP만 허용)")
         p.avatar_url = body.avatar_url or None
     db.commit()
     return {

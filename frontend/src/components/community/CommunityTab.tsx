@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   Heart, Trash2, Send, LogIn, MessageSquare, AlertCircle,
@@ -38,6 +38,7 @@ interface Post {
   liked: boolean;
   created_at: string;
   is_mine: boolean;
+  is_following?: boolean;
 }
 
 interface Comment {
@@ -348,7 +349,7 @@ function ReplyLikeDelete({
 }
 
 // ── 게시글 카드 ───────────────────────────────────────────────────
-function PostCard({
+const PostCard = memo(function PostCard({
   post,
   uid,
   isLoggedIn,
@@ -373,7 +374,7 @@ function PostCard({
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [following, setFollowing] = useState(false);
+  const [following, setFollowing] = useState(post.is_following ?? false);
   const [followPending, setFollowPending] = useState(false);
 
   const handleShare = async () => {
@@ -615,7 +616,7 @@ function PostCard({
       </div>
     </div>
   );
-}
+});
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────
 export default function CommunityTab({ market, symbol }: { market: string; symbol: string }) {
@@ -662,7 +663,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: key,
     queryFn: () => communityApi.getPosts(market, symbol, page, sort),
-    staleTime: 30_000,
+    staleTime: 60_000,
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
   });

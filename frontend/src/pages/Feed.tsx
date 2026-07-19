@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
@@ -102,7 +102,7 @@ interface FeedPost {
   is_following?: boolean;
 }
 
-function FeedCard({
+const FeedCard = memo(function FeedCard({
   post,
   onLike,
   onVote,
@@ -340,7 +340,7 @@ function FeedCard({
       </div>
     </div>
   );
-}
+});
 
 function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const { isLoggedIn, username, userId } = useAuthStore();
@@ -396,6 +396,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     queryKey: ["dashboard-us-rates"],
     queryFn: dashboardApi.getUSRates,
     staleTime: 300_000,
+    enabled: isLoggedIn && open && mode === "portfolio",
   });
 
   const liveExchangeRate = useMemo(() => {
@@ -949,7 +950,7 @@ export default function Feed() {
         marketFilter === "ALL" ? undefined : marketFilter,
         isFollowing
       ),
-    staleTime: 30_000,
+    staleTime: 60_000,
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
   });
