@@ -528,6 +528,28 @@ export default function PostDetail() {
             ) : (
               <p className="text-sm text-text-dim text-center py-6">첫 댓글을 남겨보세요</p>
             )}
+
+            {/* 인라인 댓글 입력 — pill (클릭 시 하단 고정 입력창 포커스) */}
+            {isLoggedIn ? (
+              <div className="flex items-end gap-2.5 pt-2"
+                onClick={() => commentInputRef.current?.focus()}>
+                <div className="w-6 h-6 rounded-full bg-accent-blue/20 border border-accent-blue/30 flex items-center justify-center text-xs font-bold text-accent-blue shrink-0 pointer-events-none">
+                  {(myUsername ?? "?")[0]?.toUpperCase()}
+                </div>
+                <div className="flex-1 flex items-center gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2.5 hover:border-accent-blue/40 transition-colors cursor-text">
+                  <span className="flex-1 text-sm text-text-dim select-none">
+                    {commentText || "댓글을 입력하세요..."}
+                  </span>
+                  <PenLine size={15} className="text-text-dim shrink-0" />
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => navigate("/login")}
+                className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors mt-2">
+                <PenLine size={13} className="text-text-dim shrink-0" />
+                <span className="text-sm text-text-dim">로그인 후 댓글 작성</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
