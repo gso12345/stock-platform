@@ -353,6 +353,8 @@ def create_post(
 class PostUpdate(BaseModel):
     title: str = ""
     body:  str = ""
+    tags:  Optional[list] = None
+    poll:  Optional[dict] = None
 
 @router.put("/{market}/{symbol}/posts/{post_id}")
 def update_post(
@@ -374,10 +376,13 @@ def update_post(
         parsed = decode_content(row[1])
         new_title = payload.title.strip()
         new_body  = payload.body.strip()
+        new_tags  = payload.tags if payload.tags is not None else parsed.get("tags")
+        existing_poll = parsed.get("poll")
+        new_poll  = existing_poll if existing_poll else payload.poll
         new_content = encode_content(
             new_title, new_body,
-            parsed.get("image", ""), parsed.get("poll"),
-            parsed.get("tags"), parsed.get("portfolio"),
+            parsed.get("image", ""), new_poll,
+            new_tags, parsed.get("portfolio"),
         )
         conn.execute(
             text("UPDATE stock_posts SET content = :content WHERE id = :id"),

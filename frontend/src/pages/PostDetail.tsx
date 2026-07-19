@@ -2,9 +2,11 @@ import { useState, useRef, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Heart, MessageSquare, Share2, Send, Trash2, Eye, PenLine, Pencil, Check, X,
+  ArrowLeft, Heart, MessageSquare, Share2, Send, Trash2, Eye, PenLine, Pencil, X,
+  Hash, BarChart2,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
+import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import AvatarComponent from "@/components/community/Avatar";
@@ -376,24 +378,73 @@ export default function PostDetail() {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody] = useState("");
+  const [editTags, setEditTags] = useState<{ symbol: string; market: string; name?: string }[]>([]);
+  const [editTagQuery, setEditTagQuery] = useState("");
+  const [editTagResults, setEditTagResults] = useState<any[]>([]);
+  const [editShowTagSearch, setEditShowTagSearch] = useState(false);
+  const [editShowPoll, setEditShowPoll] = useState(false);
+  const [editPollQuestion, setEditPollQuestion] = useState("");
+  const [editPollOptions, setEditPollOptions] = useState(["", ""]);
   const [savingEdit, setSavingEdit] = useState(false);
+  const editBodyRef = useRef<HTMLTextAreaElement>(null);
+  const editTagSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startEdit = () => {
     if (!activePost) return;
     setEditTitle(activePost.title ?? "");
     setEditBody(activePost.body ?? "");
+    setEditTags(activePost.tags ?? []);
+    setEditTagQuery("");
+    setEditTagResults([]);
+    setEditShowTagSearch(false);
+    setEditShowPoll(false);
+    setEditPollQuestion("");
+    setEditPollOptions(["", ""]);
     setIsEditing(true);
+    setTimeout(() => {
+      if (editBodyRef.current) {
+        editBodyRef.current.style.height = "auto";
+        editBodyRef.current.style.height = editBodyRef.current.scrollHeight + "px";
+      }
+    }, 0);
   };
 
   const cancelEdit = () => setIsEditing(false);
+
+  const handleEditTagSearch = (q: string) => {
+    setEditTagQuery(q);
+    if (editTagSearchTimer.current) clearTimeout(editTagSearchTimer.current);
+    if (!q.trim()) { setEditTagResults([]); return; }
+    editTagSearchTimer.current = setTimeout(async () => {
+      try {
+        const { data } = await api.get<{ results: any[] }>("/search", { params: { q } });
+        setEditTagResults((data.results || []).slice(0, 6));
+      } catch { setEditTagResults([]); }
+    }, 300);
+  };
+
+  const addEditTag = (tag: { symbol: string; market: string; name?: string }) => {
+    if (editTags.length >= 5) return;
+    if (!editTags.find(t => t.symbol === tag.symbol && t.market === tag.market)) {
+      setEditTags(prev => [...prev, tag]);
+    }
+    setEditTagQuery("");
+    setEditTagResults([]);
+  };
 
   const saveEdit = async () => {
     if (!activePost || savingEdit) return;
     setSavingEdit(true);
     try {
-      await communityApi.updatePost(activePost.market, activePost.symbol, activePost.id, editTitle, editBody);
-      setLocalPost((p: any) => ({ ...(p ?? activePost), title: editTitle, body: editBody }));
-      qc.setQueryData(["post", activePost.id], (old: any) => old ? { ...old, title: editTitle, body: editBody } : old);
+      const newPoll = !activePost.poll && editShowPoll && editPollQuestion.trim() && editPollOptions.filter(o => o.trim()).length >= 2
+        ? { question: editPollQuestion.trim(), options: editPollOptions.filter(o => o.trim()) }
+        : undefined;
+      await communityApi.updatePost(activePost.market, activePost.symbol, activePost.id, editTitle, editBody, editTags, newPoll);
+      const updatedPoll = newPoll
+        ? { question: newPoll.question, options: newPoll.options, counts: newPoll.options.map(() => 0), total: 0, my_vote: null }
+        : activePost.poll;
+      setLocalPost((p: any) => ({ ...(p ?? activePost), title: editTitle, body: editBody, tags: editTags, poll: updatedPoll }));
+      qc.setQueryData(["post", activePost.id], (old: any) => old ? { ...old, title: editTitle, body: editBody, tags: editTags, poll: updatedPoll } : old);
       setIsEditing(false);
     } catch {
     } finally {
@@ -521,31 +572,118 @@ export default function PostDetail() {
             )}
           </div>
 
-          {/* 제목 / 본문 — 수정 모드 */}
+          {/* 수정 패널 — 글쓰기와 동일한 UI */}
           {isEditing ? (
-            <div className="flex flex-col gap-3">
-              <input
-                value={editTitle}
-                onChange={e => setEditTitle(e.target.value)}
-                placeholder="제목 (선택)"
-                className="w-full bg-bg-elevated border border-accent-blue/50 rounded-xl px-3 py-2 text-base font-bold text-text-primary placeholder:text-text-dim focus:outline-none"
-              />
-              <textarea
-                value={editBody}
-                onChange={e => setEditBody(e.target.value)}
-                placeholder="내용을 입력하세요..."
-                rows={6}
-                className="w-full bg-bg-elevated border border-accent-blue/50 rounded-xl px-3 py-2 text-sm text-text-secondary leading-relaxed placeholder:text-text-dim focus:outline-none resize-none"
-              />
-              <div className="flex justify-end gap-2">
-                <button onClick={cancelEdit}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-text-dim hover:text-text-primary border border-border hover:bg-bg-elevated transition-colors">
-                  <X size={14} /> 취소
-                </button>
-                <button onClick={saveEdit} disabled={savingEdit}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-accent-blue text-white hover:bg-accent-blue/90 disabled:opacity-50 transition-colors">
-                  <Check size={14} /> {savingEdit ? "저장 중..." : "저장"}
-                </button>
+            <div className="bg-bg-elevated border border-accent-blue/30 rounded-2xl p-4 flex flex-col gap-3">
+              {/* 제목 + 본문 */}
+              <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
+                placeholder="제목 (선택사항)" maxLength={100}
+                className="w-full bg-transparent border-none text-sm font-semibold text-text-primary placeholder:text-text-dim focus:outline-none" />
+              <div className="h-px bg-border/50" />
+              <textarea ref={editBodyRef} value={editBody}
+                onChange={e => { setEditBody(e.target.value); const el = e.target; el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; }}
+                placeholder="의견을 입력하세요..." maxLength={5000}
+                className="w-full bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
+                style={{ minHeight: "5rem" }} />
+
+              {/* 투표 — 기존 있으면 읽기전용, 없으면 추가 가능 */}
+              {activePost.poll ? (
+                <div className="bg-bg-card rounded-xl p-3 border border-border/50">
+                  <p className="text-xs text-text-dim mb-1.5">투표 (수정 불가)</p>
+                  <p className="text-xs font-semibold text-text-primary mb-2">{activePost.poll.question}</p>
+                  <div className="flex flex-col gap-1">
+                    {activePost.poll.options.map((opt: string, i: number) => (
+                      <div key={i} className="text-xs px-2.5 py-1.5 bg-bg-elevated rounded-lg text-text-secondary">{opt}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : editShowPoll && (
+                <div className="bg-bg-card rounded-xl p-3 flex flex-col gap-2 border border-border/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-text-primary">투표 만들기</span>
+                    <button onClick={() => setEditShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
+                  </div>
+                  <input value={editPollQuestion} onChange={e => setEditPollQuestion(e.target.value)}
+                    placeholder="투표 질문을 입력하세요" maxLength={100}
+                    className="w-full px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
+                  {editPollOptions.map((opt, i) => (
+                    <div key={i} className="flex gap-1.5">
+                      <input value={opt}
+                        onChange={e => { const n = [...editPollOptions]; n[i] = e.target.value; setEditPollOptions(n); }}
+                        placeholder={`선택지 ${i + 1}`} maxLength={50}
+                        className="flex-1 px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
+                      {editPollOptions.length > 2 && (
+                        <button onClick={() => setEditPollOptions(prev => prev.filter((_, j) => j !== i))} className="text-text-dim hover:text-accent-red"><X size={12} /></button>
+                      )}
+                    </div>
+                  ))}
+                  {editPollOptions.length < 4 && (
+                    <button onClick={() => setEditPollOptions(prev => [...prev, ""])} className="text-xs text-accent-blue hover:underline text-left">+ 옵션 추가</button>
+                  )}
+                </div>
+              )}
+
+              {/* 태그 UI */}
+              {editShowTagSearch && (
+                <div className="bg-bg-card rounded-xl p-3 flex flex-col gap-2 border border-border/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-text-primary">종목 태그</span>
+                    <button onClick={() => { setEditShowTagSearch(false); setEditTagQuery(""); setEditTagResults([]); }} className="text-text-dim hover:text-accent-red"><X size={13} /></button>
+                  </div>
+                  {editTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {editTags.map(t => (
+                        <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
+                          #{t.market === "KR" && t.name ? t.name : t.symbol}
+                          <button onClick={() => setEditTags(prev => prev.filter(x => x.symbol !== t.symbol))}><X size={10} /></button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {editTags.length < 5 && (
+                    <div className="relative">
+                      <input value={editTagQuery} onChange={e => handleEditTagSearch(e.target.value)}
+                        placeholder="종목명 또는 심볼 검색..."
+                        className="w-full px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
+                      {editTagResults.length > 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-lg max-h-36 overflow-y-auto">
+                          {editTagResults.map((r: any, idx) => (
+                            <button key={idx} onClick={() => addEditTag({ symbol: r.symbol, market: r.market, name: r.name })}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-bg-elevated transition-colors text-left">
+                              <span className="font-semibold text-text-primary">{r.symbol}</span>
+                              <span className="text-text-dim">{r.name || r.market}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 툴바 */}
+              <div className="flex items-center justify-between pt-1 border-t border-border/50">
+                <div className="flex items-center gap-1">
+                  {!activePost.poll && (
+                    <button onClick={() => setEditShowPoll(v => !v)} title="투표 만들기"
+                      className={`p-1.5 rounded-lg transition-all ${editShowPoll ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}>
+                      <BarChart2 size={14} />
+                    </button>
+                  )}
+                  <button onClick={() => setEditShowTagSearch(v => !v)} title="종목 태그"
+                    className={`p-1.5 rounded-lg transition-all ${(editShowTagSearch || editTags.length > 0) ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}>
+                    <Hash size={14} />
+                  </button>
+                  <span className="text-2xs text-text-dim ml-1">{editBody.length}/5000</span>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={cancelEdit}
+                    className="px-3 py-1.5 rounded-xl text-xs text-text-dim hover:text-text-primary border border-border hover:bg-bg-elevated transition-colors">취소</button>
+                  <button onClick={saveEdit} disabled={savingEdit}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 disabled:opacity-50 transition-all">
+                    <Send size={12} />{savingEdit ? "저장 중..." : "저장"}
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
