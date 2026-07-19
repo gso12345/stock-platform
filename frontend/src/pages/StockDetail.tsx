@@ -1590,34 +1590,69 @@ export default function StockDetail() {
                   </div>
                 )}
 
-                {/* 차트 */}
+                {/* 차트 — 단위별 분리 */}
                 {selectedOpts.length > 0 && allYears.length > 0 && (() => {
                   const chartData = allYears.map(year => {
                     const row: any = { year };
                     selectedOpts.forEach(opt => { row[opt.key] = getVal(opt.key, year); });
                     return row;
                   });
+                  const xFmt = (v: string) => finPeriod === "quarterly" ? v.replace(/(\d{4})-?Q(\d)/, "$1 Q$2") : v;
+                  const ttFmt = (v: number, name: string) => {
+                    const opt = FIN_CUSTOM_OPTS.find(o => o.key === name);
+                    return [opt ? fmtVal(opt, v) : v, opt?.label ?? name];
+                  };
+                  const legFmt = (v: string) => FIN_CUSTOM_OPTS.find(o => o.key === v)?.label ?? v;
+                  const UNIT_GROUPS = [
+                    {
+                      fmts: ["fin"],
+                      label: isKR ? "금액 (조원 / 억원)" : "금액 (B / M)",
+                      yFmt: (v: number) => { const a=Math.abs(v); return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":v.toFixed(1)); },
+                    },
+                    {
+                      fmts: ["epsbps"],
+                      label: isKR ? "주당 (원)" : "주당 ($)",
+                      yFmt: (v: number) => { const a=Math.abs(v); return isKR?(a>=10000?(v/10000).toFixed(1)+"만":v.toLocaleString("ko-KR")):("$"+v.toFixed(2)); },
+                    },
+                    {
+                      fmts: ["pct", "ratio_pct"],
+                      label: "비율 (%)",
+                      yFmt: (v: number) => v.toFixed(1) + "%",
+                    },
+                    {
+                      fmts: ["x"],
+                      label: "배수 (x)",
+                      yFmt: (v: number) => v.toFixed(2) + "x",
+                    },
+                  ];
                   return (
-                    <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-                      <div className="px-4 py-3 border-b border-border">
-                        <span className="text-base font-semibold text-text-primary">추이 차트</span>
-                      </div>
-                      <div className="p-4">
-                        <ResponsiveContainer width="100%" height={chartH}>
-                          <BarChart data={chartData} {...chartProps.margin}>
-                            <CartesianGrid {...chartProps.cartesianGridProps}/>
-                            <XAxis dataKey="year" {...chartProps.xAxisProps}
-                              tickFormatter={(v:string) => finPeriod === "quarterly" ? v.replace(/(\d{4})-?Q(\d)/, "$1 Q$2") : v}/>
-                            <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":v.toFixed(1));}}/>
-                            <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const opt=FIN_CUSTOM_OPTS.find(o=>o.key===name);return[opt?fmtVal(opt,v):v,opt?.label??name];}}/>
-                            <Legend formatter={(v:string)=>FIN_CUSTOM_OPTS.find(o=>o.key===v)?.label??v}/>
-                            {selectedOpts.map((opt, i) => (
-                              <Bar key={opt.key} dataKey={opt.key} fill={COLORS[i % COLORS.length]} radius={[2,2,0,0]} maxBarSize={35}/>
-                            ))}
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
+                    <>
+                      {UNIT_GROUPS.map(group => {
+                        const groupOpts = selectedOpts.filter(opt => group.fmts.includes(opt.fmt));
+                        if (!groupOpts.length) return null;
+                        return (
+                          <div key={group.label} className="rounded-xl overflow-hidden border border-border bg-bg-card">
+                            <div className="px-4 py-3 border-b border-border">
+                              <span className="text-base font-semibold text-text-primary">추이 차트 — {group.label}</span>
+                            </div>
+                            <div className="p-4">
+                              <ResponsiveContainer width="100%" height={chartH}>
+                                <BarChart data={chartData} {...chartProps.margin}>
+                                  <CartesianGrid {...chartProps.cartesianGridProps}/>
+                                  <XAxis dataKey="year" {...chartProps.xAxisProps} tickFormatter={xFmt}/>
+                                  <YAxis {...chartProps.yAxisProps} tickFormatter={group.yFmt}/>
+                                  <Tooltip {...chartProps.tooltipProps} formatter={ttFmt as any}/>
+                                  <Legend formatter={legFmt}/>
+                                  {groupOpts.map(opt => (
+                                    <Bar key={opt.key} dataKey={opt.key} fill={COLORS[selectedOpts.indexOf(opt) % COLORS.length]} radius={[2,2,0,0]} maxBarSize={35}/>
+                                  ))}
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
                   );
                 })()}
 
