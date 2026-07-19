@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
@@ -338,12 +338,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const searchRef = useRef<HTMLDivElement>(null);
 
   // portfolio mode
-  const [portfolios, setPortfolios] = useState<any[]>([]);
   const [selectedPfId, setSelectedPfId] = useState<number | null>(null);
-  const [pfItems, setPfItems] = useState<any[]>([]);
-  const [loadingPf, setLoadingPf] = useState(false);
-  const [livePriceMap, setLivePriceMap] = useState<Record<string, number>>({});
-  const [liveExchangeRate, setLiveExchangeRate] = useState<number>(1350);
 
   // common
   const [title, setTitle] = useState("");
@@ -363,56 +358,69 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const [tagSearchTimeout, setTagSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (mode === "portfolio" && portfolios.length === 0 && open) {
-      setLoadingPf(true);
-      portfolioApi.getPortfolios()
-        .then((pfs: any[]) => {
-          setPortfolios(pfs);
-        })
-        .finally(() => setLoadingPf(false));
-      dashboardApi.getUSRates().then((rates: any) => {
-        if (Array.isArray(rates)) {
-          const row = (rates as any[]).find((r: any) => r.name === "원/달러");
-          if (row?.value) setLiveExchangeRate(row.value);
-        }
-      }).catch(() => {});
-    }
-  }, [mode, open]);
+  // 내자산과 동일한 queryKey → 캐시 공유
+  const { data: portfoliosData = [], isLoading: loadingPf } = useQuery({
+    queryKey: ["portfolios"],
+    queryFn: portfolioApi.getPortfolios,
+    enabled: isLoggedIn && open && mode === "portfolio",
+    staleTime: 300_000,
+  });
 
-  useEffect(() => {
-    if (mode !== "portfolio" || portfolios.length === 0) return;
-    if (selectedPfId === null) {
-      portfolioApi.getItems(undefined, true).then((items: any[]) => setPfItems(items));
-    } else {
-      portfolioApi.getItems(selectedPfId).then((items: any[]) => setPfItems(items));
-    }
-  }, [selectedPfId, portfolios.length, mode]);
+  const { data: allItems = [] } = useQuery({
+    queryKey: ["portfolio-items-all"],
+    queryFn: () => portfolioApi.getItems(undefined, true),
+    enabled: isLoggedIn && open && mode === "portfolio",
+    staleTime: 300_000,
+  });
 
-  useEffect(() => {
-    if (pfItems.length === 0) { setLivePriceMap({}); return; }
-    const seen = new Set<string>();
-    const symbolsArr: string[] = [];
-    const marketsArr: string[] = [];
-    (pfItems as any[]).forEach((i: any) => {
-      if (!seen.has(i.symbol)) {
-        seen.add(i.symbol);
-        symbolsArr.push(i.symbol);
-        marketsArr.push(i.market);
-      }
-    });
-    watchlistApi.getPrices(symbolsArr, marketsArr).then((prices: any) => {
-      if (!Array.isArray(prices)) return;
-      // 인덱스 기반 매핑: 응답은 symbolsArr와 같은 순서 보장
-      // p.symbol을 키로 쓰면 KR주식의 "005930" vs "005930.KS" 불일치가 생김
-      const map: Record<string, number> = {};
-      symbolsArr.forEach((sym, i) => {
-        const p = (prices as any[])[i];
-        if (p?.price > 0) map[sym] = p.price;
+  const { data: usRatesData } = useQuery({
+    queryKey: ["dashboard-us-rates"],
+    queryFn: dashboardApi.getUSRates,
+    staleTime: 300_000,
+  });
+
+  const liveExchangeRate = useMemo(() => {
+    if (Array.isArray(usRatesData)) {
+      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
+      if (row?.value) return row.value;
+    }
+    return 1350;
+  }, [usRatesData]);
+
+  // 선택된 포트폴리오 아이템 (클라이언트 필터링)
+  const pfItems = useMemo(() => {
+    if (!open || mode !== "portfolio") return [];
+    if (selectedPfId === null) return allItems as any[];
+    return (allItems as any[]).filter((i: any) => i.portfolioId === selectedPfId);
+  }, [allItems, selectedPfId, open, mode]);
+
+  // 내자산과 동일: 전체 아이템 기준 가격 조회 → 캐시 공유
+  const priceableItemsForFeed = useMemo(() =>
+    (allItems as any[]).filter((i: any) => i.assetClass !== "현금"),
+    [allItems]
+  );
+
+  const { data: allBatchPrices } = useQuery({
+    queryKey: ["portfolio-prices", priceableItemsForFeed.map((i: any) => `${i.market}:${i.symbol}`).join(",")],
+    queryFn: () => watchlistApi.getPrices(
+      priceableItemsForFeed.map((i: any) => i.symbol),
+      priceableItemsForFeed.map((i: any) => i.market)
+    ),
+    enabled: isLoggedIn && open && mode === "portfolio" && priceableItemsForFeed.length > 0,
+    staleTime: 120_000,
+  });
+
+  // 내자산과 동일: item.id 기준 priceMap
+  const feedPriceMap = useMemo(() => {
+    const map: Record<number, number> = {};
+    if (Array.isArray(allBatchPrices)) {
+      priceableItemsForFeed.forEach((item: any, i: number) => {
+        const d = (allBatchPrices as any[])[i];
+        if (d?.price != null) map[item.id] = d.price;
       });
-      setLivePriceMap(map);
-    }).catch(() => {});
-  }, [pfItems]);
+    }
+    return map;
+  }, [priceableItemsForFeed, allBatchPrices]);
 
   useEffect(() => {
     if (!searchQ.trim()) { setSearchResults([]); return; }
@@ -451,8 +459,6 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     setSearchResults([]);
     setSelectedStock(null);
     setSelectedPfId(null);
-    setPfItems([]);
-    setPortfolios([]);
     setTitle("");
     setBody("");
     setError("");
@@ -496,14 +502,14 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     setTagResults([]);
   };
 
-  // Portfolio chart for write panel preview — with live prices
+  // 내자산과 동일한 방식으로 차트 데이터 구성
   const pfForChart: PfPortfolioForChart[] = pfItems.length > 0 ? [{
     id: selectedPfId ?? 0,
-    name: selectedPfId === null ? "전체 포트폴리오" : (portfolios.find((p: any) => p.id === selectedPfId)?.name ?? "포트폴리오"),
+    name: selectedPfId === null ? "전체 포트폴리오" : ((portfoliosData as any[]).find((p: any) => p.id === selectedPfId)?.name ?? "포트폴리오"),
     items: pfItems.map((item: any) => {
-      const currentPrice = livePriceMap[item.symbol];
+      const currentPrice = feedPriceMap[item.id];
       const fx = item.currency === "USD" ? liveExchangeRate : 1;
-      const currentValueKRW = currentPrice > 0 ? currentPrice * fx * item.shares : undefined;
+      const currentValueKRW = currentPrice != null && currentPrice > 0 ? currentPrice * fx * item.shares : undefined;
       return {
         symbol: item.symbol,
         market: item.market,
@@ -694,16 +700,16 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
           <div className="flex flex-col gap-2">
             {loadingPf ? (
               <p className="text-xs text-text-dim">포트폴리오 불러오는 중...</p>
-            ) : portfolios.length === 0 ? (
+            ) : (portfoliosData as any[]).length === 0 ? (
               <p className="text-xs text-text-dim">등록된 포트폴리오가 없습니다</p>
             ) : (
               <select
                 value={selectedPfId ?? ""}
-                onChange={(e) => { const val = e.target.value; setSelectedPfId(val === "" ? null : Number(val)); setPfItems([]); }}
+                onChange={(e) => { const val = e.target.value; setSelectedPfId(val === "" ? null : Number(val)); }}
                 className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
               >
                 <option value="">전체 포트폴리오</option>
-                {portfolios.map((pf: any) => (
+                {(portfoliosData as any[]).map((pf: any) => (
                   <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
                 ))}
               </select>

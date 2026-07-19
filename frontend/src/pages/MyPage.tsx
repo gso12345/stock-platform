@@ -56,10 +56,12 @@ export default function MyPage() {
     enabled: isLoggedIn,
   });
 
-  const { data: allPortfolioItems } = useQuery({
-    queryKey: ["allPortfolioItems"],
+  // Portfolio.tsx와 동일한 queryKey → 내자산 캐시 공유
+  const { data: allItems = [] } = useQuery({
+    queryKey: ["portfolio-items-all"],
     queryFn: () => portfolioApi.getItems(undefined, true),
     enabled: isLoggedIn,
+    staleTime: 300_000,
   });
 
   const { data: usRatesData } = useQuery({
@@ -91,15 +93,13 @@ export default function MyPage() {
   const [selectedPost, setSelectedPost] = useState<ModalPost | null>(null);
   const [loadingPostId, setLoadingPostId] = useState<number | null>(null);
 
-  // Portfolio.tsx와 동일한 방식: 현금 제외 아이템 목록
+  // Portfolio.tsx와 동일: 현금 제외
   const priceableItems = useMemo(() =>
-    Array.isArray(allPortfolioItems)
-      ? (allPortfolioItems as any[]).filter((i: any) => i.assetClass !== "현금")
-      : [],
-    [allPortfolioItems]
+    (allItems as any[]).filter((i: any) => i.assetClass !== "현금"),
+    [allItems]
   );
 
-  // Portfolio.tsx와 동일한 queryKey → 캐시 공유
+  // Portfolio.tsx와 동일한 queryKey → 내자산 가격 캐시 공유
   const { data: batchPrices } = useQuery({
     queryKey: ["portfolio-prices", priceableItems.map((i: any) => `${i.market}:${i.symbol}`).join(",")],
     queryFn: () => watchlistApi.getPrices(
@@ -110,25 +110,29 @@ export default function MyPage() {
     staleTime: 120_000,
   });
 
-  const pfForChart = useMemo(() => {
-    if (!portfolios || !allPortfolioItems) return [];
-    // 인덱스 기반 priceMap: Portfolio.tsx와 동일한 방식
-    const priceMap: Record<string, number> = {};
+  // Portfolio.tsx와 동일: item.id 기준 priceMap
+  const priceMap = useMemo(() => {
+    const map: Record<number, number> = {};
     if (Array.isArray(batchPrices)) {
       priceableItems.forEach((item: any, i: number) => {
         const d = (batchPrices as any[])[i];
-        if (d?.price != null) priceMap[item.symbol] = d.price;
+        if (d?.price != null) map[item.id] = d.price;
       });
     }
+    return map;
+  }, [priceableItems, batchPrices]);
+
+  const pfForChart = useMemo(() => {
+    if (!portfolios || !allItems.length) return [];
     return (portfolios as any[])
       .filter((pf: any) => pf.is_public)
       .map((pf: any) => ({
         id: pf.id,
         name: pf.name,
-        items: (allPortfolioItems as any[])
+        items: (allItems as any[])
           .filter((i: any) => i.portfolioId === pf.id)
           .map((i: any) => {
-            const currentPrice = priceMap[i.symbol];
+            const currentPrice = priceMap[i.id];
             const fx = i.currency === "USD" ? exchangeRate : 1;
             const currentValueKRW = currentPrice != null && currentPrice > 0
               ? currentPrice * fx * i.shares
@@ -136,7 +140,7 @@ export default function MyPage() {
             return { ...i, currentValueKRW };
           }),
       }));
-  }, [portfolios, allPortfolioItems, batchPrices, priceableItems, exchangeRate]);
+  }, [portfolios, allItems, priceMap, exchangeRate]);
 
   useEffect(() => {
     if (!activity?.items) return;
