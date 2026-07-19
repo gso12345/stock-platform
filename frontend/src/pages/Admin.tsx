@@ -169,8 +169,8 @@ function DashboardTab({ qc }: { qc: any }) {
 
       {/* DB 용량 */}
       {(() => {
-        const LIMIT_GB = 1; // Render free tier 1 GB
-        const LIMIT_BYTES = LIMIT_GB * 1024 * 1024 * 1024;
+        const LIMIT_MB = 500; // Supabase 무료 플랜 500 MB
+        const LIMIT_BYTES = LIMIT_MB * 1024 * 1024;
         const usedBytes: number = dbStats?.total_bytes ?? 0;
         const pct = LIMIT_BYTES > 0 ? Math.min((usedBytes / LIMIT_BYTES) * 100, 100) : 0;
         const barColor = pct >= 90 ? "bg-accent-red" : pct >= 70 ? "bg-amber-400" : "bg-accent-green";
@@ -191,7 +191,7 @@ function DashboardTab({ qc }: { qc: any }) {
                 <div className="flex flex-col gap-1.5">
                   <div className="flex justify-between items-baseline">
                     <span className="text-lg font-bold text-text-primary font-mono">{dbStats.total_pretty}</span>
-                    <span className="text-xs text-text-muted">/ {LIMIT_GB} GB (Render 무료)</span>
+                    <span className="text-xs text-text-muted">/ {LIMIT_MB} MB (Supabase 무료)</span>
                   </div>
                   <div className="w-full h-2.5 bg-bg-elevated rounded-full overflow-hidden">
                     <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
