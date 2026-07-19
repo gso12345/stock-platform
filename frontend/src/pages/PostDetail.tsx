@@ -511,9 +511,28 @@ export default function PostDetail() {
             </button>
           </div>
 
-          {/* 댓글 입력 pill — 액션 바 바로 아래 */}
+          {/* 댓글 목록 */}
+          <div className="flex flex-col gap-5 border-t border-border/50 pt-4">
+            <p className="text-sm font-semibold text-text-primary">
+              댓글 {comments.length > 0 ? comments.length : ""}
+            </p>
+            {commentsLoading ? (
+              <div className="flex justify-center py-6">
+                <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+              </div>
+            ) : comments.length > 0 ? (
+              comments.map(c => (
+                <CommentItem key={c.id} comment={c} postId={activePost.id} uid={uid}
+                  isLoggedIn={isLoggedIn} queryKey={commentsKey} myUsername={myUsername} />
+              ))
+            ) : (
+              <p className="text-sm text-text-dim text-center py-6">첫 댓글을 남겨보세요</p>
+            )}
+          </div>
+
+          {/* 댓글 입력 pill — 댓글 목록 아래 */}
           {isLoggedIn ? (
-            <div className="flex items-end gap-2.5 pb-1">
+            <div className="flex items-end gap-2.5 pt-2">
               <div className="w-6 h-6 rounded-full bg-accent-blue/20 border border-accent-blue/30 flex items-center justify-center text-xs font-bold text-accent-blue shrink-0">
                 {(myUsername ?? "?")[0]?.toUpperCase()}
               </div>
@@ -535,30 +554,11 @@ export default function PostDetail() {
             </div>
           ) : (
             <button onClick={() => navigate("/login")}
-              className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors mb-1">
+              className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors mt-2">
               <PenLine size={13} className="text-text-dim shrink-0" />
               <span className="text-sm text-text-dim">로그인 후 댓글 작성</span>
             </button>
           )}
-
-          {/* 댓글 목록 */}
-          <div className="flex flex-col gap-5 border-t border-border/50 pt-4">
-            <p className="text-sm font-semibold text-text-primary">
-              댓글 {comments.length > 0 ? comments.length : ""}
-            </p>
-            {commentsLoading ? (
-              <div className="flex justify-center py-6">
-                <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-              </div>
-            ) : comments.length > 0 ? (
-              comments.map(c => (
-                <CommentItem key={c.id} comment={c} postId={activePost.id} uid={uid}
-                  isLoggedIn={isLoggedIn} queryKey={commentsKey} myUsername={myUsername} />
-              ))
-            ) : (
-              <p className="text-sm text-text-dim text-center py-6">첫 댓글을 남겨보세요</p>
-            )}
-          </div>
         </div>
       </div>
     </div>
