@@ -725,12 +725,14 @@ function CommunityAdminTab({ qc }: { qc: any }) {
 /* ─────────────────────────── 유저 관리 탭 ─────────────────────────── */
 function UsersTab({ qc }: { qc: any }) {
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [search, setSearch] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["admin-users", statusFilter],
     queryFn: () => adminApi.getUsers(statusFilter),
     staleTime: 30_000,
   });
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
   const toggleMut = useMutation({
     mutationFn: (id: number) => adminApi.toggleActive(id),
@@ -745,119 +747,129 @@ function UsersTab({ qc }: { qc: any }) {
     onSuccess: () => { setConfirmDelete(null); qc.invalidateQueries({ queryKey: ["admin-users"] }); },
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-      </div>
-    );
-  }
+  const filtered = search.trim()
+    ? (users as any[]).filter(u =>
+        u.username.toLowerCase().includes(search.toLowerCase()) ||
+        (u.email ?? "").toLowerCase().includes(search.toLowerCase()))
+    : (users as any[]);
 
   return (
-    <div className="flex flex-col gap-4">
-    <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
-        <span className="text-sm font-semibold text-text-primary">유저 목록</span>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1 p-0.5 rounded-lg bg-bg-elevated border border-border">
-            {(["all", "active", "inactive"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  statusFilter === s ? "bg-bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
-                }`}
-              >
-                {s === "all" ? "전체" : s === "active" ? "활성" : "비활성"}
-              </button>
-            ))}
-          </div>
-          <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{users.length}명</span>
+    <div className="flex flex-col gap-3">
+      {/* 필터 + 검색 */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-0.5 p-0.5 rounded-lg bg-bg-elevated border border-border">
+          {(["all", "active", "inactive"] as const).map((s) => (
+            <button key={s} onClick={() => setStatusFilter(s)}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                statusFilter === s ? "bg-bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
+              }`}>
+              {s === "all" ? "전체" : s === "active" ? "활성" : "비활성"}
+            </button>
+          ))}
         </div>
+        <div className="relative flex-1 min-w-[160px]">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="이름 또는 이메일 검색..."
+            className="w-full pl-8 pr-7 py-1.5 text-xs bg-bg-elevated border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue/60 transition-colors" />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
+              <XIcon size={12} />
+            </button>
+          )}
+        </div>
+        <span className="text-xs text-text-muted shrink-0">{filtered.length}명</span>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-text-muted text-xs">
-              <th className="text-left px-4 py-3 font-medium">ID</th>
-              <th className="text-left px-3 py-3 font-medium">아이디</th>
-              <th className="text-left px-3 py-3 font-medium hidden sm:table-cell">이메일</th>
-              <th className="text-left px-3 py-3 font-medium hidden md:table-cell">가입일</th>
-              <th className="text-center px-3 py-3 font-medium">계정</th>
-              <th className="text-center px-3 py-3 font-medium">커뮤니티</th>
-              <th className="text-center px-3 py-3 font-medium">관리</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u: any) => (
-              <tr key={u.id} className="border-b border-border/30 hover:bg-bg-hover transition-colors">
-                <td className="px-4 py-3 font-mono text-text-muted text-xs">{u.id}</td>
-                <td className="px-3 py-3">
-                  <div className="flex items-center gap-1.5">
-                    <Link
-                      to={`/profile/${u.id}`}
-                      className="font-semibold text-text-primary hover:text-accent-blue transition-colors"
-                    >
-                      {u.username}
-                    </Link>
-                    {u.is_admin && (
-                      <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold">관리자</span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-3 py-3 text-text-muted text-xs hidden sm:table-cell">{u.email || "—"}</td>
-                <td className="px-3 py-3 text-text-muted text-xs hidden md:table-cell">
-                  {u.created_at ? u.created_at.slice(0, 10) : "—"}
-                </td>
-                <td className="px-3 py-3 text-center">
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${u.is_active ? "bg-accent-green/12 text-accent-green" : "bg-accent-red/12 text-accent-red"}`}>
-                    {u.is_active ? "활성" : "비활성"}
-                  </span>
-                </td>
-                <td className="px-3 py-3 text-center">
-                  {!u.is_admin && (
-                    <button
-                      onClick={() => communityBanMut.mutate(u.id)}
-                      title={u.is_community_banned ? "커뮤니티 차단 해제" : "커뮤니티 차단"}
-                      className="text-text-muted hover:text-accent-blue transition-colors"
-                    >
-                      {u.is_community_banned
-                        ? <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-accent-red/12 text-accent-red">차단</span>
-                        : <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted">정상</span>}
+
+      {/* 유저 목록 */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border bg-bg-card divide-y divide-border/40 overflow-hidden">
+          {filtered.length === 0 && (
+            <div className="py-10 text-center text-text-muted text-sm">검색 결과가 없습니다</div>
+          )}
+          {filtered.map((u: any) => (
+            <div key={u.id} className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 hover:bg-bg-hover transition-colors">
+              {/* ID */}
+              <span className="text-[11px] font-mono text-text-muted/60 w-7 shrink-0 hidden sm:block">{u.id}</span>
+
+              {/* 이름 + 이메일 */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Link to={`/profile/${u.id}`}
+                    className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors leading-none">
+                    {u.username}
+                  </Link>
+                  {u.is_admin && (
+                    <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold shrink-0">관리자</span>
+                  )}
+                  {!u.is_admin && u.is_community_banned && (
+                    <span className="text-[10px] bg-orange-400/15 text-orange-400 px-1.5 py-px rounded font-bold shrink-0">커뮤니티차단</span>
+                  )}
+                </div>
+                {u.email && (
+                  <p className="text-[11px] text-text-muted truncate mt-0.5 hidden sm:block">{u.email}</p>
+                )}
+              </div>
+
+              {/* 계정 상태 배지 */}
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                u.is_active ? "bg-accent-green/12 text-accent-green" : "bg-accent-red/12 text-accent-red"
+              }`}>
+                {u.is_active ? "활성" : "비활성"}
+              </span>
+
+              {/* 가입일 */}
+              <span className="text-[11px] text-text-muted font-mono shrink-0 hidden md:block">
+                {u.created_at ? u.created_at.slice(0, 10) : "—"}
+              </span>
+
+              {/* 액션 버튼 */}
+              {!u.is_admin ? (
+                <div className="flex items-center gap-0.5 shrink-0">
+                  {/* 계정 활성화 토글 */}
+                  <button onClick={() => toggleMut.mutate(u.id)}
+                    title={u.is_active ? "계정 비활성화" : "계정 활성화"}
+                    className="p-1.5 rounded-lg hover:bg-bg-elevated transition-colors">
+                    {u.is_active
+                      ? <ToggleRight size={18} className="text-accent-green" />
+                      : <ToggleLeft size={18} className="text-text-muted" />}
+                  </button>
+                  {/* 커뮤니티 차단 토글 */}
+                  <button onClick={() => communityBanMut.mutate(u.id)}
+                    title={u.is_community_banned ? "커뮤니티 차단 해제" : "커뮤니티 차단"}
+                    className="p-1.5 rounded-lg hover:bg-bg-elevated transition-colors">
+                    <MessageSquare size={14} className={u.is_community_banned ? "text-orange-400" : "text-text-muted"} />
+                  </button>
+                  {/* 삭제 */}
+                  {confirmDelete === u.id ? (
+                    <div className="flex items-center gap-1 ml-1">
+                      <button onClick={() => deleteMut.mutate(u.id)} disabled={deleteMut.isPending}
+                        className="text-[11px] px-1.5 py-0.5 rounded bg-accent-red text-white font-semibold">
+                        {deleteMut.isPending ? "..." : "삭제"}
+                      </button>
+                      <button onClick={() => setConfirmDelete(null)}
+                        className="text-[11px] px-1.5 py-0.5 rounded border border-border text-text-muted">
+                        취소
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDelete(u.id)}
+                      className="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-accent-red transition-colors">
+                      <Trash2 size={14} />
                     </button>
                   )}
-                </td>
-                <td className="px-3 py-3 text-center">
-                  {!u.is_admin && (
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        onClick={() => toggleMut.mutate(u.id)}
-                        title={u.is_active ? "계정 비활성화" : "계정 활성화"}
-                        className="text-text-muted hover:text-accent-blue transition-colors"
-                      >
-                        {u.is_active
-                          ? <ToggleRight size={18} className="text-accent-green" />
-                          : <ToggleLeft  size={18} />}
-                      </button>
-                      {confirmDelete === u.id ? (
-                        <div className="flex gap-1">
-                          <button onClick={() => deleteMut.mutate(u.id)} className="text-[11px] text-accent-red font-semibold hover:underline">삭제</button>
-                          <button onClick={() => setConfirmDelete(null)} className="text-[11px] text-text-muted hover:underline">취소</button>
-                        </div>
-                      ) : (
-                        <button onClick={() => setConfirmDelete(u.id)} className="text-text-muted hover:text-accent-red transition-colors">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+                </div>
+              ) : (
+                <div className="w-[90px] shrink-0" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1239,6 +1251,7 @@ function PopupTab({ qc }: { qc: any }) {
 function ReportsTab({ qc }: { qc: any }) {
   const [statusFilter, setStatusFilter] = useState<"pending" | "resolved" | "dismissed" | "all">("pending");
   const [page, setPage] = useState(1);
+  const [actingId, setActingId] = useState<number | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["admin-reports", statusFilter, page],
@@ -1246,114 +1259,149 @@ function ReportsTab({ qc }: { qc: any }) {
     staleTime: 30_000,
   });
 
-  const blindMut   = useMutation({ mutationFn: adminApi.blindReport,         onSuccess: () => { refetch(); qc.invalidateQueries({ queryKey: ["admin-reports"] }); } });
-  const dismissMut = useMutation({ mutationFn: adminApi.dismissReport,       onSuccess: () => { refetch(); qc.invalidateQueries({ queryKey: ["admin-reports"] }); } });
-  const deleteMut  = useMutation({ mutationFn: adminApi.deleteReportContent, onSuccess: () => { refetch(); qc.invalidateQueries({ queryKey: ["admin-reports"] }); } });
+  const act = (fn: (id: number) => Promise<any>, id: number) => {
+    setActingId(id);
+    fn(id).finally(() => {
+      setActingId(null);
+      refetch();
+      qc.invalidateQueries({ queryKey: ["admin-reports"] });
+    });
+  };
 
   const reports: any[] = data?.items ?? [];
   const total: number  = data?.total ?? 0;
   const totalPages = Math.ceil(total / 20);
 
   const STATUS_LABELS: Record<string, string> = { pending: "대기", resolved: "처리됨", dismissed: "기각됨", all: "전체" };
-  const STATUS_COLORS: Record<string, string> = {
-    pending:   "bg-amber-400/15 text-amber-500",
-    resolved:  "bg-accent-green/12 text-accent-green",
-    dismissed: "bg-bg-elevated text-text-muted",
+  const STATUS_BADGE: Record<string, string> = {
+    pending:   "bg-amber-400/15 text-amber-500 border-amber-400/30",
+    resolved:  "bg-accent-green/12 text-accent-green border-accent-green/30",
+    dismissed: "bg-bg-elevated text-text-muted border-border",
   };
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 필터 */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card">
+      {/* 필터 바 */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-0.5 p-0.5 rounded-lg bg-bg-elevated border border-border">
           {(["pending", "resolved", "dismissed", "all"] as const).map((s) => (
             <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${statusFilter === s ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                statusFilter === s ? "bg-bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
+              }`}>
               {STATUS_LABELS[s]}
             </button>
           ))}
         </div>
         <span className="text-xs text-text-muted ml-auto">총 {total}건</span>
-        <button onClick={() => refetch()} className="p-1 text-text-muted hover:text-text-primary transition-colors"><RefreshCw size={13} /></button>
+        <button onClick={() => refetch()} className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-colors">
+          <RefreshCw size={13} />
+        </button>
       </div>
 
       {/* 목록 */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-16"><div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" /></div>
+        <div className="flex items-center justify-center py-16">
+          <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+        </div>
       ) : reports.length === 0 ? (
-        <div className="rounded-xl border border-border bg-bg-card py-12 text-center text-text-muted text-sm">신고 내역이 없습니다</div>
+        <div className="rounded-xl border border-border bg-bg-card py-14 text-center">
+          <Flag size={24} className="text-text-muted/30 mx-auto mb-2" />
+          <p className="text-sm text-text-muted">신고 내역이 없습니다</p>
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {reports.map((r: any) => (
-            <div key={r.id} className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] ?? "bg-bg-elevated text-text-muted"}`}>
+          {reports.map((r: any) => {
+            const isPending = r.status === "pending";
+            const isActing  = actingId === r.id;
+            return (
+              <div key={r.id}
+                className={`rounded-xl border bg-bg-card overflow-hidden transition-opacity ${
+                  isPending ? "border-border" : "border-border/50 opacity-70"
+                }`}>
+
+                {/* 헤더 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-elevated/60 border-b border-border/50">
+                  <span className={`text-[11px] font-bold px-2 py-px rounded-full border ${STATUS_BADGE[r.status] ?? STATUS_BADGE.dismissed}`}>
                     {STATUS_LABELS[r.status] ?? r.status}
                   </span>
-                  <span className="text-[11px] text-text-muted">
-                    #{r.id} · {r.reporter} 신고 · {r.created_at?.slice(0, 10)}
-                  </span>
+                  <span className="text-[11px] text-text-muted font-mono">#{r.id}</span>
+                  <span className="text-[11px] text-text-muted">·</span>
+                  <Flag size={10} className="text-text-muted" />
+                  <span className="text-[11px] font-semibold text-text-secondary">{r.reporter}</span>
+                  <span className="text-[11px] text-text-muted">신고</span>
+                  <span className="text-[11px] text-text-muted ml-auto font-mono">{r.created_at?.slice(0, 10)}</span>
                 </div>
-                {r.status === "pending" && (
-                  <div className="flex gap-1 shrink-0">
-                    <button onClick={() => blindMut.mutate(r.id)} disabled={blindMut.isPending}
-                      title="블라인드 처리"
-                      className="px-2 py-1 rounded-lg text-xs font-semibold bg-amber-400/10 text-amber-500 hover:bg-amber-400/20 transition-colors">
-                      블라인드
-                    </button>
-                    <button onClick={() => deleteMut.mutate(r.id)} disabled={deleteMut.isPending}
-                      title="콘텐츠 삭제"
-                      className="px-2 py-1 rounded-lg text-xs font-semibold bg-accent-red/10 text-accent-red hover:bg-accent-red/20 transition-colors">
-                      삭제
-                    </button>
-                    <button onClick={() => dismissMut.mutate(r.id)} disabled={dismissMut.isPending}
-                      title="신고 기각"
-                      className="px-2 py-1 rounded-lg text-xs font-semibold bg-bg-elevated text-text-muted hover:text-text-primary transition-colors">
-                      기각
-                    </button>
-                  </div>
-                )}
-              </div>
 
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-start gap-2">
-                  <AlertCircle size={13} className="text-text-muted shrink-0 mt-0.5" />
-                  <p className="text-xs text-text-secondary leading-relaxed">신고 사유: {r.reason}</p>
+                {/* 신고 사유 */}
+                <div className="px-4 pt-3 pb-2 flex items-start gap-2">
+                  <AlertCircle size={13} className={`shrink-0 mt-0.5 ${isPending ? "text-amber-400" : "text-text-muted"}`} />
+                  <p className="text-sm font-medium text-text-primary leading-snug">{r.reason}</p>
                 </div>
-                {r.post_id && (
-                  <div className="rounded-lg bg-bg-elevated p-3 flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-text-muted">게시글 #{r.post_id}</span>
-                      {r.post_author && <span className="text-[11px] font-semibold text-text-secondary">@{r.post_author}</span>}
-                      <Link to={`/post/${r.post_id}`} target="_blank"
-                        className="ml-auto flex items-center gap-0.5 text-[11px] text-accent-blue hover:underline">
-                        <ExternalLink size={10} />보기
-                      </Link>
-                    </div>
-                    {r.post_title && <p className="text-xs font-semibold text-text-primary">{r.post_title}</p>}
-                    {r.post_body && <p className="text-xs text-text-secondary leading-relaxed line-clamp-3">{r.post_body}</p>}
-                    {!r.post_title && !r.post_body && <p className="text-xs text-text-muted">—</p>}
-                  </div>
-                )}
-                {r.comment_id && (
-                  <div className="rounded-lg bg-bg-elevated p-3 flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-text-muted">댓글 #{r.comment_id}</span>
-                      {r.comment_author && <span className="text-[11px] font-semibold text-text-secondary">@{r.comment_author}</span>}
-                      {r.post_id && (
+
+                {/* 신고 대상 콘텐츠 */}
+                <div className="px-4 pb-3 flex flex-col gap-2">
+                  {r.post_id && (
+                    <div className="rounded-lg bg-bg-elevated border border-border/50 p-3 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare size={11} className="text-text-muted shrink-0" />
+                        <span className="text-[11px] text-text-muted">게시글 #{r.post_id}</span>
+                        {r.post_author && (
+                          <span className="text-[11px] font-semibold text-text-secondary">· @{r.post_author}</span>
+                        )}
                         <Link to={`/post/${r.post_id}`} target="_blank"
-                          className="ml-auto flex items-center gap-0.5 text-[11px] text-accent-blue hover:underline">
-                          <ExternalLink size={10} />게시글 보기
+                          className="ml-auto flex items-center gap-0.5 text-[11px] text-accent-blue hover:underline shrink-0">
+                          <ExternalLink size={10} />보기
                         </Link>
+                      </div>
+                      {r.post_title && (
+                        <p className="text-xs font-semibold text-text-primary truncate">{r.post_title}</p>
+                      )}
+                      {r.post_body && (
+                        <p className="text-xs text-text-secondary leading-relaxed line-clamp-2">{r.post_body}</p>
                       )}
                     </div>
-                    <p className="text-xs text-text-secondary leading-relaxed">{r.comment_preview || "—"}</p>
+                  )}
+                  {r.comment_id && (
+                    <div className="rounded-lg bg-bg-elevated border border-border/50 p-3 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare size={11} className="text-text-muted shrink-0" />
+                        <span className="text-[11px] text-text-muted">댓글 #{r.comment_id}</span>
+                        {r.comment_author && (
+                          <span className="text-[11px] font-semibold text-text-secondary">· @{r.comment_author}</span>
+                        )}
+                        {r.post_id && (
+                          <Link to={`/post/${r.post_id}`} target="_blank"
+                            className="ml-auto flex items-center gap-0.5 text-[11px] text-accent-blue hover:underline shrink-0">
+                            <ExternalLink size={10} />게시글
+                          </Link>
+                        )}
+                      </div>
+                      <p className="text-xs text-text-secondary leading-relaxed line-clamp-2">{r.comment_preview || "—"}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* 액션 버튼 (대기 상태만) */}
+                {isPending && (
+                  <div className="flex border-t border-border/50 divide-x divide-border/50">
+                    <button onClick={() => act(adminApi.blindReport, r.id)} disabled={isActing}
+                      className="flex-1 py-3 text-xs font-semibold text-amber-500 hover:bg-amber-400/8 active:bg-amber-400/15 transition-colors disabled:opacity-40">
+                      {isActing ? "처리 중..." : "블라인드"}
+                    </button>
+                    <button onClick={() => act(adminApi.deleteReportContent, r.id)} disabled={isActing}
+                      className="flex-1 py-3 text-xs font-semibold text-accent-red hover:bg-accent-red/8 active:bg-accent-red/15 transition-colors disabled:opacity-40">
+                      {isActing ? "처리 중..." : "콘텐츠 삭제"}
+                    </button>
+                    <button onClick={() => act(adminApi.dismissReport, r.id)} disabled={isActing}
+                      className="flex-1 py-3 text-xs font-semibold text-text-muted hover:text-text-primary hover:bg-bg-elevated active:bg-bg-hover transition-colors disabled:opacity-40">
+                      {isActing ? "처리 중..." : "기각"}
+                    </button>
                   </div>
                 )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
