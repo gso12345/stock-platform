@@ -7,12 +7,13 @@ import {
   Users, BarChart2, Megaphone, Trash2, ToggleLeft, ToggleRight,
   ShieldCheck, RefreshCw, Activity, Database, Star, CheckCircle,
   TrendingUp, Zap, Clock, Folder, Wifi, Eye, Search, X as XIcon,
-  MessageSquare, Heart,
+  MessageSquare, Heart, Flag, Layers, Plus, Pencil, AlertCircle,
+  ExternalLink, Calendar,
 } from "lucide-react";
 
 const adminApi = {
   getStats:        () => api.get("/admin/stats").then(r => r.data),
-  getUsers:        () => api.get("/admin/users").then(r => r.data),
+  getUsers:        (status = "all") => api.get("/admin/users", { params: { status } }).then(r => r.data),
   getCommunityPosts: (page = 1, market?: string) =>
     api.get("/admin/community/posts", { params: { page, limit: 20, ...(market && market !== "ALL" ? { market } : {}) } }).then(r => r.data),
   deleteCommunityPost: (id: number) =>
@@ -30,9 +31,22 @@ const adminApi = {
   deleteUser:      (id: number) => api.delete(`/admin/users/${id}`).then(r => r.data),
   getAnnouncement: () => api.get("/admin/announcement").then(r => r.data),
   setAnnouncement: (text: string) => api.post("/admin/announcement", { text }).then(r => r.data),
+  // 팝업
+  getPopups:       () => api.get("/admin/popups").then(r => r.data),
+  createPopup:     (data: any) => api.post("/admin/popups", data).then(r => r.data),
+  updatePopup:     (id: number, data: any) => api.put(`/admin/popups/${id}`, data).then(r => r.data),
+  deletePopup:     (id: number) => api.delete(`/admin/popups/${id}`).then(r => r.data),
+  // 신고
+  getReports:      (status = "pending", page = 1) => api.get("/admin/reports", { params: { status, page } }).then(r => r.data),
+  blindReport:     (id: number) => api.patch(`/admin/reports/${id}/blind`).then(r => r.data),
+  dismissReport:   (id: number) => api.patch(`/admin/reports/${id}/dismiss`).then(r => r.data),
+  deleteReportContent: (id: number) => api.delete(`/admin/reports/${id}/content`).then(r => r.data),
+  // 트렌드
+  getSearchTrends: () => api.get("/admin/search-trends").then(r => r.data),
+  getUsageStats:   () => api.get("/admin/usage-stats").then(r => r.data),
 };
 
-type Tab = "dashboard" | "users" | "community" | "announcement" | "cache";
+type Tab = "dashboard" | "users" | "community" | "announcement" | "cache" | "popup" | "reports";
 
 export default function Admin() {
   const { isAdmin, username } = useAuthStore();
@@ -57,6 +71,8 @@ export default function Admin() {
     { id: "dashboard",    Icon: BarChart2,     label: "대시보드" },
     { id: "users",        Icon: Users,         label: "유저 관리" },
     { id: "community",    Icon: MessageSquare, label: "커뮤니티" },
+    { id: "reports",      Icon: Flag,          label: "신고 관리" },
+    { id: "popup",        Icon: Layers,        label: "팝업 관리" },
     { id: "cache",        Icon: Database,      label: "캐시" },
     { id: "announcement", Icon: Megaphone,     label: "공지사항" },
   ];
@@ -98,6 +114,8 @@ export default function Admin() {
       {tab === "dashboard"    && <DashboardTab qc={qc} />}
       {tab === "users"        && <UsersTab qc={qc} />}
       {tab === "community"    && <CommunityAdminTab qc={qc} />}
+      {tab === "reports"      && <ReportsTab qc={qc} />}
+      {tab === "popup"        && <PopupTab qc={qc} />}
       {tab === "cache"        && <CacheTab qc={qc} />}
       {tab === "announcement" && <AnnouncementTab annoText={annoText} setAnnoText={setAnnoText} qc={qc} />}
     </div>
@@ -113,6 +131,8 @@ function DashboardTab({ qc }: { qc: any }) {
   const { data: visitorTrend } = useQuery({ queryKey: ["admin-visitor-trend"], queryFn: adminApi.getVisitorTrend, staleTime: 60_000 });
   const { data: system, refetch: refetchSystem } = useQuery({ queryKey: ["admin-system"], queryFn: adminApi.getSystem, staleTime: 30_000 });
   const { data: dbStats, refetch: refetchDbStats } = useQuery({ queryKey: ["admin-db-stats"], queryFn: adminApi.getDbStats, staleTime: 60_000 });
+  const { data: searchTrends } = useQuery({ queryKey: ["admin-search-trends"], queryFn: adminApi.getSearchTrends, staleTime: 60_000 });
+  const { data: usageStats }   = useQuery({ queryKey: ["admin-usage-stats"],   queryFn: adminApi.getUsageStats,   staleTime: 60_000 });
 
   const clearMut = useMutation({
     mutationFn: adminApi.clearCache,
@@ -442,6 +462,74 @@ function DashboardTab({ qc }: { qc: any }) {
           </div>
         )}
       </div>
+
+      {/* 검색 트렌드 */}
+      {(() => {
+        const trends: { query: string; count: number }[] = searchTrends ?? [];
+        const maxCount = Math.max(...trends.map(t => t.count), 1);
+        return (
+          <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex items-center gap-1.5">
+              <Search size={14} className="text-accent-blue" />
+              <span className="text-sm font-semibold text-text-primary">검색 트렌드 TOP 20</span>
+              <span className="text-xs text-text-muted ml-auto">서버 재시작 시 초기화</span>
+            </div>
+            {trends.length === 0 ? (
+              <div className="py-8 text-center text-text-muted text-sm">검색 데이터가 없습니다</div>
+            ) : (
+              <div className="divide-y divide-border/40">
+                {trends.map((t, idx) => (
+                  <div key={t.query} className="flex items-center gap-3 px-4 py-2.5 hover:bg-bg-hover transition-colors">
+                    <span className={`w-5 text-center text-xs font-bold font-mono shrink-0 ${idx < 3 ? "text-accent-yellow" : "text-text-muted/50"}`}>
+                      {idx + 1}
+                    </span>
+                    <span className="flex-1 text-sm text-text-primary font-medium">{t.query}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="w-24 h-1.5 rounded-full bg-bg-elevated overflow-hidden">
+                        <div className="h-full rounded-full bg-accent-blue/60" style={{ width: `${(t.count / maxCount) * 100}%` }} />
+                      </div>
+                      <span className="text-xs font-mono text-text-muted w-12 text-right">{t.count}회</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* 기능별 사용 통계 */}
+      {(() => {
+        const usage: { feature: string; label: string; count: number }[] = usageStats ?? [];
+        const maxUsage = Math.max(...usage.map(u => u.count), 1);
+        return (
+          <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex items-center gap-1.5">
+              <Activity size={14} className="text-accent-green" />
+              <span className="text-sm font-semibold text-text-primary">기능별 사용 통계</span>
+              <span className="text-xs text-text-muted ml-auto">서버 재시작 시 초기화</span>
+            </div>
+            {usage.length === 0 ? (
+              <div className="py-8 text-center text-text-muted text-sm">사용 데이터가 없습니다</div>
+            ) : (
+              <div className="p-4 flex flex-col gap-3">
+                {usage.map((u) => (
+                  <div key={u.feature} className="flex items-center gap-3">
+                    <span className="text-sm text-text-secondary w-20 shrink-0">{u.label}</span>
+                    <div className="flex-1 h-2 rounded-full bg-bg-elevated overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-accent-green/70 transition-all"
+                        style={{ width: `${(u.count / maxUsage) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-mono text-text-muted w-12 text-right shrink-0">{u.count.toLocaleString()}회</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -638,7 +726,12 @@ function CommunityAdminTab({ qc }: { qc: any }) {
 
 /* ─────────────────────────── 유저 관리 탭 ─────────────────────────── */
 function UsersTab({ qc }: { qc: any }) {
-  const { data: users = [], isLoading } = useQuery({ queryKey: ["admin-users"], queryFn: adminApi.getUsers, staleTime: 30_000 });
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ["admin-users", statusFilter],
+    queryFn: () => adminApi.getUsers(statusFilter),
+    staleTime: 30_000,
+  });
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
   const toggleMut = useMutation({
@@ -659,10 +752,26 @@ function UsersTab({ qc }: { qc: any }) {
   }
 
   return (
+    <div className="flex flex-col gap-4">
     <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <span className="text-sm font-semibold text-text-primary">전체 유저</span>
-        <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{users.length}명</span>
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
+        <span className="text-sm font-semibold text-text-primary">유저 목록</span>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 p-0.5 rounded-lg bg-bg-elevated border border-border">
+            {(["all", "active", "inactive"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                  statusFilter === s ? "bg-bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
+                }`}
+              >
+                {s === "all" ? "전체" : s === "active" ? "활성" : "비활성"}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{users.length}명</span>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -732,6 +841,7 @@ function UsersTab({ qc }: { qc: any }) {
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   );
 }
@@ -926,6 +1036,288 @@ function CacheTab({ qc }: { qc: any }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── 팝업 관리 탭 ─────────────────────────── */
+const POPUP_TYPE_LABELS: Record<string, string> = {
+  info: "정보", warning: "경고", event: "이벤트", feature: "신기능",
+};
+const POPUP_BG_OPTIONS = [
+  { value: "blue",   label: "파란색" },
+  { value: "green",  label: "초록색" },
+  { value: "amber",  label: "노란색" },
+  { value: "red",    label: "빨간색" },
+  { value: "purple", label: "보라색" },
+];
+
+function PopupTab({ qc }: { qc: any }) {
+  const { data: popups = [], isLoading, refetch } = useQuery({ queryKey: ["admin-popups"], queryFn: adminApi.getPopups, staleTime: 30_000 });
+  const [editTarget, setEditTarget] = useState<any | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ popup_type: "info", title: "", content: "", link_url: "", link_text: "", bg_color: "blue", is_active: true, starts_at: "", ends_at: "" });
+
+  const openCreate = () => { setForm({ popup_type: "info", title: "", content: "", link_url: "", link_text: "", bg_color: "blue", is_active: true, starts_at: "", ends_at: "" }); setEditTarget(null); setShowForm(true); };
+  const openEdit   = (p: any) => {
+    setForm({ popup_type: p.popup_type, title: p.title, content: p.content ?? "", link_url: p.link_url ?? "", link_text: p.link_text ?? "", bg_color: p.bg_color ?? "blue", is_active: p.is_active, starts_at: p.starts_at ? p.starts_at.slice(0, 16) : "", ends_at: p.ends_at ? p.ends_at.slice(0, 16) : "" });
+    setEditTarget(p);
+    setShowForm(true);
+  };
+
+  const createMut = useMutation({ mutationFn: adminApi.createPopup, onSuccess: () => { setShowForm(false); refetch(); qc.invalidateQueries({ queryKey: ["admin-popups"] }); } });
+  const updateMut = useMutation({ mutationFn: ({ id, data }: any) => adminApi.updatePopup(id, data), onSuccess: () => { setShowForm(false); refetch(); qc.invalidateQueries({ queryKey: ["admin-popups"] }); } });
+  const deleteMut = useMutation({ mutationFn: adminApi.deletePopup, onSuccess: () => { refetch(); qc.invalidateQueries({ queryKey: ["admin-popups"] }); } });
+
+  const handleSave = () => {
+    const payload = { ...form, starts_at: form.starts_at || null, ends_at: form.ends_at || null };
+    if (editTarget) updateMut.mutate({ id: editTarget.id, data: payload });
+    else createMut.mutate(payload);
+  };
+
+  const BG_COLOR_MAP: Record<string, string> = { blue: "bg-blue-500/15 text-blue-400", green: "bg-green-500/15 text-green-400", amber: "bg-amber-400/15 text-amber-500", red: "bg-red-500/15 text-red-400", purple: "bg-purple-500/15 text-purple-400" };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <span className="text-base font-bold text-text-primary">팝업 배너 관리</span>
+        <button onClick={openCreate} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-colors">
+          <Plus size={13} />새 팝업
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16"><div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" /></div>
+      ) : popups.length === 0 ? (
+        <div className="rounded-xl border border-border bg-bg-card py-12 text-center text-text-muted text-sm">등록된 팝업이 없습니다</div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {popups.map((p: any) => (
+            <div key={p.id} className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${BG_COLOR_MAP[p.bg_color] ?? "bg-bg-secondary text-text-muted"}`}>
+                    {POPUP_TYPE_LABELS[p.popup_type] ?? p.popup_type}
+                  </span>
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${p.is_active ? "bg-accent-green/12 text-accent-green" : "bg-bg-elevated text-text-muted"}`}>
+                    {p.is_active ? "활성" : "비활성"}
+                  </span>
+                  <span className="text-sm font-semibold text-text-primary">{p.title}</span>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => openEdit(p)} className="p-1.5 text-text-muted hover:text-accent-blue transition-colors"><Pencil size={13} /></button>
+                  <button onClick={() => { if (window.confirm("팝업을 삭제할까요?")) deleteMut.mutate(p.id); }} className="p-1.5 text-text-muted hover:text-accent-red transition-colors"><Trash2 size={13} /></button>
+                </div>
+              </div>
+              {p.content && <p className="text-xs text-text-muted leading-relaxed">{p.content}</p>}
+              {(p.starts_at || p.ends_at) && (
+                <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                  <Calendar size={11} />
+                  {p.starts_at ? p.starts_at.slice(0, 16) : "—"} ~ {p.ends_at ? p.ends_at.slice(0, 16) : "상시"}
+                </div>
+              )}
+              {p.link_url && (
+                <a href={p.link_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-accent-blue hover:underline">
+                  <ExternalLink size={10} />{p.link_text || p.link_url}
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 팝업 폼 모달 */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowForm(false)}>
+          <div className="bg-bg-card border border-border rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4 flex flex-col gap-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-bold text-text-primary">{editTarget ? "팝업 수정" : "새 팝업 추가"}</p>
+              <button onClick={() => setShowForm(false)}><XIcon size={16} className="text-text-muted" /></button>
+            </div>
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">유형</label>
+                  <select value={form.popup_type} onChange={e => setForm(f => ({...f, popup_type: e.target.value}))}
+                    className="w-full rounded-lg border border-border bg-bg-elevated text-text-primary text-sm px-3 py-2 focus:outline-none">
+                    {Object.entries(POPUP_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">색상</label>
+                  <select value={form.bg_color} onChange={e => setForm(f => ({...f, bg_color: e.target.value}))}
+                    className="w-full rounded-lg border border-border bg-bg-elevated text-text-primary text-sm px-3 py-2 focus:outline-none">
+                    {POPUP_BG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-text-muted mb-1 block">제목 *</label>
+                <input value={form.title} onChange={e => setForm(f => ({...f, title: e.target.value}))} maxLength={200}
+                  className="w-full rounded-lg border border-border bg-bg-elevated text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-accent-blue" />
+              </div>
+              <div>
+                <label className="text-xs text-text-muted mb-1 block">내용</label>
+                <textarea value={form.content} onChange={e => setForm(f => ({...f, content: e.target.value}))} rows={3}
+                  className="w-full rounded-lg border border-border bg-bg-elevated text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-accent-blue resize-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">링크 URL</label>
+                  <input value={form.link_url} onChange={e => setForm(f => ({...f, link_url: e.target.value}))} maxLength={500} placeholder="https://..."
+                    className="w-full rounded-lg border border-border bg-bg-elevated text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-accent-blue" />
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">링크 텍스트</label>
+                  <input value={form.link_text} onChange={e => setForm(f => ({...f, link_text: e.target.value}))} maxLength={100} placeholder="자세히 보기"
+                    className="w-full rounded-lg border border-border bg-bg-elevated text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-accent-blue" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">시작일시</label>
+                  <input type="datetime-local" value={form.starts_at} onChange={e => setForm(f => ({...f, starts_at: e.target.value}))}
+                    className="w-full rounded-lg border border-border bg-bg-elevated text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-accent-blue" />
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted mb-1 block">종료일시</label>
+                  <input type="datetime-local" value={form.ends_at} onChange={e => setForm(f => ({...f, ends_at: e.target.value}))}
+                    className="w-full rounded-lg border border-border bg-bg-elevated text-text-primary text-sm px-3 py-2 focus:outline-none focus:border-accent-blue" />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.is_active} onChange={e => setForm(f => ({...f, is_active: e.target.checked}))} className="w-4 h-4 accent-accent-blue" />
+                <span className="text-sm text-text-secondary">활성화</span>
+              </label>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setShowForm(false)} className="flex-1 py-2 rounded-xl border border-border text-sm text-text-secondary hover:border-accent-blue/50 transition-all">취소</button>
+              <button onClick={handleSave} disabled={!form.title || createMut.isPending || updateMut.isPending}
+                className="flex-1 py-2 rounded-xl bg-accent-blue text-white text-sm font-semibold hover:bg-accent-blue/90 transition-all disabled:opacity-50">
+                {createMut.isPending || updateMut.isPending ? "저장 중..." : "저장"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── 신고 관리 탭 ─────────────────────────── */
+function ReportsTab({ qc }: { qc: any }) {
+  const [statusFilter, setStatusFilter] = useState<"pending" | "resolved" | "dismissed" | "all">("pending");
+  const [page, setPage] = useState(1);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["admin-reports", statusFilter, page],
+    queryFn: () => adminApi.getReports(statusFilter, page),
+    staleTime: 30_000,
+  });
+
+  const blindMut   = useMutation({ mutationFn: adminApi.blindReport,         onSuccess: () => { refetch(); qc.invalidateQueries({ queryKey: ["admin-reports"] }); } });
+  const dismissMut = useMutation({ mutationFn: adminApi.dismissReport,       onSuccess: () => { refetch(); qc.invalidateQueries({ queryKey: ["admin-reports"] }); } });
+  const deleteMut  = useMutation({ mutationFn: adminApi.deleteReportContent, onSuccess: () => { refetch(); qc.invalidateQueries({ queryKey: ["admin-reports"] }); } });
+
+  const reports: any[] = data?.items ?? [];
+  const total: number  = data?.total ?? 0;
+  const totalPages = Math.ceil(total / 20);
+
+  const STATUS_LABELS: Record<string, string> = { pending: "대기", resolved: "처리됨", dismissed: "기각됨", all: "전체" };
+  const STATUS_COLORS: Record<string, string> = {
+    pending:   "bg-amber-400/15 text-amber-500",
+    resolved:  "bg-accent-green/12 text-accent-green",
+    dismissed: "bg-bg-elevated text-text-muted",
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* 필터 */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card">
+          {(["pending", "resolved", "dismissed", "all"] as const).map((s) => (
+            <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${statusFilter === s ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
+              {STATUS_LABELS[s]}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-text-muted ml-auto">총 {total}건</span>
+        <button onClick={() => refetch()} className="p-1 text-text-muted hover:text-text-primary transition-colors"><RefreshCw size={13} /></button>
+      </div>
+
+      {/* 목록 */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16"><div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" /></div>
+      ) : reports.length === 0 ? (
+        <div className="rounded-xl border border-border bg-bg-card py-12 text-center text-text-muted text-sm">신고 내역이 없습니다</div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {reports.map((r: any) => (
+            <div key={r.id} className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status] ?? "bg-bg-elevated text-text-muted"}`}>
+                    {STATUS_LABELS[r.status] ?? r.status}
+                  </span>
+                  <span className="text-[11px] text-text-muted">
+                    #{r.id} · {r.reporter} 신고 · {r.created_at?.slice(0, 10)}
+                  </span>
+                </div>
+                {r.status === "pending" && (
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => blindMut.mutate(r.id)} disabled={blindMut.isPending}
+                      title="블라인드 처리"
+                      className="px-2 py-1 rounded-lg text-xs font-semibold bg-amber-400/10 text-amber-500 hover:bg-amber-400/20 transition-colors">
+                      블라인드
+                    </button>
+                    <button onClick={() => deleteMut.mutate(r.id)} disabled={deleteMut.isPending}
+                      title="콘텐츠 삭제"
+                      className="px-2 py-1 rounded-lg text-xs font-semibold bg-accent-red/10 text-accent-red hover:bg-accent-red/20 transition-colors">
+                      삭제
+                    </button>
+                    <button onClick={() => dismissMut.mutate(r.id)} disabled={dismissMut.isPending}
+                      title="신고 기각"
+                      className="px-2 py-1 rounded-lg text-xs font-semibold bg-bg-elevated text-text-muted hover:text-text-primary transition-colors">
+                      기각
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={13} className="text-text-muted shrink-0 mt-0.5" />
+                  <p className="text-xs text-text-secondary leading-relaxed">신고 사유: {r.reason}</p>
+                </div>
+                {r.post_id && (
+                  <div className="rounded-lg bg-bg-elevated p-3">
+                    <p className="text-[11px] text-text-muted mb-1">게시글 #{r.post_id}</p>
+                    <p className="text-xs text-text-secondary truncate">{r.post_title || "—"}</p>
+                  </div>
+                )}
+                {r.comment_id && (
+                  <div className="rounded-lg bg-bg-elevated p-3">
+                    <p className="text-[11px] text-text-muted mb-1">댓글 #{r.comment_id}</p>
+                    <p className="text-xs text-text-secondary truncate">{r.comment_preview || "—"}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 페이지네이션 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">이전</button>
+          <span className="text-xs text-text-muted px-2">{page} / {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">다음</button>
+        </div>
+      )}
     </div>
   );
 }

@@ -99,6 +99,15 @@ async def search_route(
             r["currency"]    = p.get("currency", "KRW" if r.get("market") == "KR" else "USD")
 
     cache.set(ck, results, 300)  # 5분 캐시
+
+    # 검색 트렌드 추적 (결과가 있을 때만)
+    if results:
+        try:
+            from app.core.trends import track_search
+            track_search(q.strip())
+        except Exception:
+            pass
+
     return {"results": results, "total": len(results)}
 
 

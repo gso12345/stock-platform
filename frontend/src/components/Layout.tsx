@@ -432,6 +432,8 @@ export default function Layout() {
 
         {/* 공지사항 배너 */}
         <AnnouncementBanner />
+        {/* 팝업 배너 */}
+        <PopupBanners />
 
         {/* 콘텐츠 */}
         <main className="flex-1 overflow-y-auto bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
@@ -469,6 +471,50 @@ export default function Layout() {
       </nav>
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+    </div>
+  );
+}
+
+/* ── 팝업 배너 ──────────────────────────────────────────── */
+const POPUP_BG_CLASS: Record<string, string> = {
+  blue:   "bg-accent-blue/10 border-accent-blue/20 text-accent-blue",
+  green:  "bg-accent-green/10 border-accent-green/20 text-accent-green",
+  amber:  "bg-amber-400/10 border-amber-400/20 text-amber-500",
+  red:    "bg-red-500/10 border-red-500/20 text-red-400",
+  purple: "bg-purple-500/10 border-purple-500/20 text-purple-400",
+};
+
+function PopupBanners() {
+  const [dismissed, setDismissed] = useState<Set<number>>(new Set());
+  const { data: popups = [] } = useQuery<any[]>({
+    queryKey: ["active-popups"],
+    queryFn: () => api.get("/admin/popups/active").then(r => r.data),
+    staleTime: 300_000,
+  });
+  const visible = popups.filter((p: any) => !dismissed.has(p.id));
+  if (visible.length === 0) return null;
+  return (
+    <div className="flex flex-col">
+      {visible.map((p: any) => {
+        const cls = POPUP_BG_CLASS[p.bg_color] ?? POPUP_BG_CLASS["blue"];
+        return (
+          <div key={p.id} className={`flex items-center gap-2 px-4 py-2 border-b text-sm ${cls}`}>
+            <span className="flex-1">
+              <span className="font-semibold mr-1.5">{p.title}</span>
+              {p.content && <span className="opacity-80">{p.content}</span>}
+              {p.link_url && (
+                <a href={p.link_url} target="_blank" rel="noopener noreferrer"
+                  className="ml-2 underline underline-offset-2 text-[11px] font-semibold opacity-80 hover:opacity-100">
+                  {p.link_text || "자세히 보기"}
+                </a>
+              )}
+            </span>
+            <button onClick={() => setDismissed(s => new Set([...s, p.id]))} className="flex-shrink-0 hover:opacity-60 transition-opacity">
+              <X size={14} />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

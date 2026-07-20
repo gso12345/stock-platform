@@ -15,7 +15,8 @@ class StockPost(Base):
     like_count = Column(Integer, default=0)
     comment_count = Column(Integer, default=0)
     view_count = Column(Integer, default=0, server_default="0")
-    is_deleted = Column(Boolean, default=False)
+    is_deleted  = Column(Boolean, default=False)
+    is_blinded  = Column(Boolean, default=False, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -44,7 +45,8 @@ class StockComment(Base):
     user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     content    = Column(Text, nullable=False)
     like_count = Column(Integer, default=0)
-    is_deleted = Column(Boolean, default=False)
+    is_deleted  = Column(Boolean, default=False)
+    is_blinded  = Column(Boolean, default=False, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user    = relationship("User")
@@ -99,3 +101,33 @@ class StockPostPollVote(Base):
     user_id      = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     option_index = Column(Integer, nullable=False)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SitePopup(Base):
+    __tablename__ = "site_popups"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    popup_type = Column(String(20), default="info")   # info, warning, event, feature
+    title      = Column(String(200), nullable=False)
+    content    = Column(Text, nullable=True)
+    link_url   = Column(String(500), nullable=True)
+    link_text  = Column(String(100), nullable=True)
+    bg_color   = Column(String(20), default="blue")
+    is_active  = Column(Boolean, default=True)
+    starts_at  = Column(DateTime(timezone=True), nullable=True)
+    ends_at    = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Report(Base):
+    __tablename__ = "reports"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    post_id     = Column(Integer, ForeignKey("stock_posts.id"), nullable=True, index=True)
+    comment_id  = Column(Integer, ForeignKey("stock_comments.id"), nullable=True, index=True)
+    reason      = Column(String(200), nullable=False)
+    status      = Column(String(20), default="pending")  # pending, resolved, dismissed
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+    reporter = relationship("User")

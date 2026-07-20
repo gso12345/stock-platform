@@ -18,7 +18,7 @@ from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
     QuantScoreWeight, QuantPercentileCache,
 )
-from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote  # noqa: F401
+from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, SitePopup, Report  # noqa: F401
 from app.api.websocket.price_stream import stream_prices, stream_indices
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db
@@ -165,7 +165,7 @@ async def lifespan(application: FastAPI):
                     conn.rollback()
 
         # 커뮤니티 테이블이 없으면 재생성 (이전 배포에서 create_all이 실패했을 경우 대비)
-        community_tables = {"stock_posts", "stock_post_likes", "stock_comments", "stock_comment_likes", "user_profiles", "user_follows", "stock_post_poll_votes"}
+        community_tables = {"stock_posts", "stock_post_likes", "stock_comments", "stock_comment_likes", "user_profiles", "user_follows", "stock_post_poll_votes", "site_popups", "reports"}
         if not community_tables.issubset(set(tables)):
             try:
                 Base.metadata.create_all(bind=engine)
@@ -192,6 +192,14 @@ async def lifespan(application: FastAPI):
                 _startup_log.info("user_profiles.avatar_url 컬럼 추가 완료")
         except Exception as _mc2_err:
             _startup_log.warning(f"user_profiles 마이그레이션 스킵: {_mc2_err}")
+        try:
+            with engine.connect() as _mc3:
+                _mc3.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS is_blinded BOOLEAN DEFAULT FALSE"))
+                _mc3.execute(text("ALTER TABLE stock_comments ADD COLUMN IF NOT EXISTS is_blinded BOOLEAN DEFAULT FALSE"))
+                _mc3.commit()
+                _startup_log.info("is_blinded 컬럼 마이그레이션 완료")
+        except Exception as _mc3_err:
+            _startup_log.warning(f"is_blinded 마이그레이션 스킵: {_mc3_err}")
     except Exception as e:
         logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")
 
@@ -262,6 +270,18 @@ if settings.APP_ENV not in ("production", "staging"):
     _allowed_origins = ["http://localhost:5173", "http://localhost:3000", *_allowed_origins]
 
 
+_FEATURE_PATH_MAP = {
+    "/api/v1/dashboard":  "dashboard",
+    "/api/v1/stocks/":    "stock_detail",
+    "/api/v1/community":  "community",
+    "/api/v1/search":     "search",
+    "/api/v1/portfolio":  "portfolio",
+    "/api/v1/watchlist":  "watchlist",
+    "/api/v1/screening":  "screening",
+    "/api/v1/backtest":   "backtest",
+}
+
+
 class ActivityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         auth = request.headers.get("authorization", "")
@@ -269,9 +289,15 @@ class ActivityMiddleware(BaseHTTPMiddleware):
             try:
                 from app.core.security import decode_token
                 from app.core.activity import mark_active
+                from app.core.trends import track_usage
                 payload = decode_token(auth[7:])
                 if payload and "sub" in payload:
                     mark_active(int(payload["sub"]))
+                    path = request.url.path
+                    for prefix, feature in _FEATURE_PATH_MAP.items():
+                        if path.startswith(prefix):
+                            track_usage(feature)
+                            break
             except Exception:
                 pass
         return await call_next(request)
