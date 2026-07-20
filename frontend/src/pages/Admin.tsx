@@ -788,6 +788,14 @@ function UsersTab({ qc }: { qc: any }) {
         </div>
       ) : (
         <div className="rounded-xl border border-border bg-bg-card divide-y divide-border/40 overflow-hidden">
+          {/* 컬럼 헤더 */}
+          <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-bg-elevated/60 border-b border-border text-[11px] font-semibold text-text-muted">
+            <span className="w-7 shrink-0 hidden sm:block">ID</span>
+            <span className="flex-1 min-w-0">아이디 / 이메일</span>
+            <span className="shrink-0">계정 상태</span>
+            <span className="shrink-0 hidden lg:block w-[80px] text-right">가입일</span>
+            <span className="shrink-0 w-[90px] text-right">관리</span>
+          </div>
           {filtered.length === 0 && (
             <div className="py-10 text-center text-text-muted text-sm">검색 결과가 없습니다</div>
           )}
