@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
@@ -7,7 +7,7 @@ import {
   Users, BarChart2, Megaphone, Trash2, ToggleLeft, ToggleRight,
   ShieldCheck, RefreshCw, Activity, Database, Star, CheckCircle,
   TrendingUp, Zap, Clock, Folder, Wifi, Eye, Search, X as XIcon,
-  MessageSquare, Heart, Flag, Layers, Plus, Pencil, AlertCircle,
+  MessageSquare, Heart, Flag, Plus, Pencil, AlertCircle,
   ExternalLink, Calendar,
 } from "lucide-react";
 
@@ -46,14 +46,13 @@ const adminApi = {
   getUsageStats:   () => api.get("/admin/usage-stats").then(r => r.data),
 };
 
-type Tab = "dashboard" | "users" | "community" | "announcement" | "cache" | "popup" | "reports";
+type Tab = "dashboard" | "users" | "community" | "banner" | "cache" | "reports";
 
 export default function Admin() {
   const { isAdmin, username } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("dashboard");
-  const [annoText, setAnnoText] = useState("");
 
   if (!isAdmin) {
     return (
@@ -68,13 +67,12 @@ export default function Admin() {
   }
 
   const TABS: { id: Tab; Icon: any; label: string }[] = [
-    { id: "dashboard",    Icon: BarChart2,     label: "대시보드" },
-    { id: "users",        Icon: Users,         label: "유저 관리" },
-    { id: "community",    Icon: MessageSquare, label: "커뮤니티" },
-    { id: "reports",      Icon: Flag,          label: "신고 관리" },
-    { id: "popup",        Icon: Layers,        label: "팝업 관리" },
-    { id: "cache",        Icon: Database,      label: "캐시" },
-    { id: "announcement", Icon: Megaphone,     label: "공지사항" },
+    { id: "dashboard", Icon: BarChart2,     label: "대시보드" },
+    { id: "users",     Icon: Users,         label: "유저 관리" },
+    { id: "community", Icon: MessageSquare, label: "커뮤니티" },
+    { id: "reports",   Icon: Flag,          label: "신고 관리" },
+    { id: "banner",    Icon: Megaphone,     label: "배너·공지" },
+    { id: "cache",     Icon: Database,      label: "캐시" },
   ];
 
   return (
@@ -111,13 +109,12 @@ export default function Admin() {
         ))}
       </div>
 
-      {tab === "dashboard"    && <DashboardTab qc={qc} />}
-      {tab === "users"        && <UsersTab qc={qc} />}
-      {tab === "community"    && <CommunityAdminTab qc={qc} />}
-      {tab === "reports"      && <ReportsTab qc={qc} />}
-      {tab === "popup"        && <PopupTab qc={qc} />}
-      {tab === "cache"        && <CacheTab qc={qc} />}
-      {tab === "announcement" && <AnnouncementTab annoText={annoText} setAnnoText={setAnnoText} qc={qc} />}
+      {tab === "dashboard" && <DashboardTab qc={qc} />}
+      {tab === "users"     && <UsersTab qc={qc} />}
+      {tab === "community" && <CommunityAdminTab qc={qc} />}
+      {tab === "reports"   && <ReportsTab qc={qc} />}
+      {tab === "banner"    && <BannerTab qc={qc} />}
+      {tab === "cache"     && <CacheTab qc={qc} />}
     </div>
   );
 }
@@ -850,12 +847,14 @@ function UsersTab({ qc }: { qc: any }) {
 function AnnouncementTab({ annoText, setAnnoText, qc }: { annoText: string; setAnnoText: (v: string) => void; qc: any }) {
   const [saved, setSaved] = useState(false);
 
-  useQuery({
+  const { data: annoData } = useQuery({
     queryKey: ["admin-announcement"],
     queryFn: adminApi.getAnnouncement,
     staleTime: 30_000,
-    onSuccess: (d: any) => { if (annoText === "") setAnnoText(d.text || ""); },
-  } as any);
+  });
+  useEffect(() => {
+    if (annoData && annoText === "") setAnnoText(annoData.text || "");
+  }, [annoData]);
 
   const saveMut = useMutation({
     mutationFn: (text: string) => adminApi.setAnnouncement(text),
@@ -916,6 +915,19 @@ function AnnouncementTab({ annoText, setAnnoText, qc }: { annoText: string; setA
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── 배너·공지 탭 ─────────────────────────── */
+function BannerTab({ qc }: { qc: any }) {
+  const [annoText, setAnnoText] = useState("");
+  return (
+    <div className="flex flex-col gap-8">
+      <AnnouncementTab annoText={annoText} setAnnoText={setAnnoText} qc={qc} />
+      <div className="border-t border-border pt-6">
+        <PopupTab qc={qc} />
+      </div>
     </div>
   );
 }
