@@ -282,7 +282,7 @@ def list_posts(
     comment_counts: dict = {}
     if post_ids:
         rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted = false GROUP BY post_id"),
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE GROUP BY post_id"),
             {"ids": post_ids},
         ).fetchall()
         comment_counts = {r[0]: r[1] for r in rows}
@@ -489,7 +489,7 @@ def get_post(
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     profile = get_profile(db, post.user_id) if post.user else None
     count_row = db.execute(
-        text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted = false"),
+        text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted IS NOT TRUE"),
         {"pid": post_id},
     ).fetchone()
     comment_count = count_row[0] if count_row else 0
@@ -682,7 +682,7 @@ def get_feed(
     feed_comment_counts: dict = {}
     if post_ids:
         rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted = false GROUP BY post_id"),
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE GROUP BY post_id"),
             {"ids": post_ids},
         ).fetchall()
         feed_comment_counts = {r[0]: r[1] for r in rows}
@@ -898,7 +898,7 @@ def get_user_activity(
     act_comment_counts: dict = {}
     if act_post_ids:
         rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted = false GROUP BY post_id"),
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE GROUP BY post_id"),
             {"ids": act_post_ids},
         ).fetchall()
         act_comment_counts = {r[0]: r[1] for r in rows}

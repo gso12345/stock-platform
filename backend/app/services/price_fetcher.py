@@ -167,9 +167,9 @@ async def fetch_naver_index(name: str) -> dict | None:
             if r.status_code != 200:
                 return None
             d = r.json()
-            curr = _safe(d.get("closePrice"))
-            chg  = _safe(d.get("compareToPreviousClosePrice"))
-            chgr = _safe(d.get("fluctuationsRatio"))
+            curr = _safe(d.get("closePrice") or d.get("currentIndexValue") or d.get("indexValue"))
+            chg  = _safe(d.get("compareToPreviousClosePrice") or d.get("changeValue") or d.get("priceChange"))
+            chgr = _safe(d.get("fluctuationsRatio") or d.get("changeRate") or d.get("rateOfChange"))
             if curr is None:
                 return None
             return {
@@ -533,6 +533,25 @@ async def get_usdkrw() -> dict:
         entry = {"symbol":"USDKRW","name":"원/달러 환율","value":q["price"],"change":q["change"],"change_rate":q["change_rate"],"unit":"원"}
         cache.set(ck, entry, 60)
         return entry
+
+    # 3차: open.er-api.com (기준환율, 실시간 아님)
+    r2 = await _fetch_open_er()
+    if r2:
+        cache.set(ck, r2, 60)
+        return r2
+
+    # 4차: frankfurter.app (ECB 기준환율)
+    try:
+        async with httpx.AsyncClient(timeout=8) as cl:
+            r3 = await cl.get("https://api.frankfurter.app/latest?from=USD&to=KRW")
+        if r3.status_code == 200:
+            krw = _safe(r3.json().get("rates", {}).get("KRW"))
+            if krw and krw > 100:
+                entry = {"symbol":"USDKRW","name":"원/달러 환율","value":round(krw,2),"change":0,"change_rate":0,"unit":"원"}
+                cache.set(ck, entry, 60)
+                return entry
+    except Exception as e:
+        log.debug(f"frankfurter.app 실패: {e}")
 
     stale = cache.get_stale(ck)
     return stale or {"symbol":"USDKRW","name":"원/달러 환율","value":0,"change":0,"change_rate":0,"unit":"원"}

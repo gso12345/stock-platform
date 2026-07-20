@@ -75,7 +75,7 @@ async def refresh_kr_indices():
             loop = asyncio.get_running_loop()
             result = await asyncio.wait_for(
                 loop.run_in_executor(None, fetch_pykrx_index, name),
-                timeout=10,
+                timeout=25,
             )
             if result and result.get("value", 0) > 0:
                 cache.set(f"idx:{name}", result, 60)
