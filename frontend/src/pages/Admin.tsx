@@ -472,7 +472,7 @@ function DashboardTab({ qc }: { qc: any }) {
             <div className="px-4 py-3 border-b border-border flex items-center gap-1.5">
               <Search size={14} className="text-accent-blue" />
               <span className="text-sm font-semibold text-text-primary">검색 트렌드 TOP 20</span>
-              <span className="text-xs text-text-muted ml-auto">서버 재시작 시 초기화</span>
+              <span className="text-xs text-text-muted ml-auto">누적 집계</span>
             </div>
             {trends.length === 0 ? (
               <div className="py-8 text-center text-text-muted text-sm">검색 데이터가 없습니다</div>
@@ -507,7 +507,7 @@ function DashboardTab({ qc }: { qc: any }) {
             <div className="px-4 py-3 border-b border-border flex items-center gap-1.5">
               <Activity size={14} className="text-accent-green" />
               <span className="text-sm font-semibold text-text-primary">기능별 사용 통계</span>
-              <span className="text-xs text-text-muted ml-auto">서버 재시작 시 초기화</span>
+              <span className="text-xs text-text-muted ml-auto">누적 집계</span>
             </div>
             {usage.length === 0 ? (
               <div className="py-8 text-center text-text-muted text-sm">사용 데이터가 없습니다</div>

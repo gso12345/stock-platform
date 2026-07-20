@@ -524,6 +524,15 @@ async def periodic_refresh():
                 return_exceptions=True,
             )
 
+        # 트렌드·사용 통계 DB flush (5분)
+        if counter % 30 == 0:
+            try:
+                from app.core.trends import flush_to_db
+                loop3 = asyncio.get_running_loop()
+                await loop3.run_in_executor(None, flush_to_db)
+            except Exception:
+                pass
+
         # 순위 (60초) - Naver 실시간
         if counter % 6 == 0:
             await refresh_kr_rankings_from_naver()
