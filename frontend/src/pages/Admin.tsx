@@ -792,26 +792,24 @@ function UsersTab({ qc }: { qc: any }) {
             <div className="py-10 text-center text-text-muted text-sm">검색 결과가 없습니다</div>
           )}
           {filtered.map((u: any) => (
-            <div key={u.id} className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 hover:bg-bg-hover transition-colors">
+            <div key={u.id} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 hover:bg-bg-hover transition-colors min-w-0">
               {/* ID */}
               <span className="text-[11px] font-mono text-text-muted/60 w-7 shrink-0 hidden sm:block">{u.id}</span>
 
-              {/* 이름 + 이메일 */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <Link to={`/profile/${u.id}`}
-                    className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors leading-none">
-                    {u.username}
-                  </Link>
-                  {u.is_admin && (
-                    <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold shrink-0">관리자</span>
-                  )}
-                  {!u.is_admin && u.is_community_banned && (
-                    <span className="text-[10px] bg-orange-400/15 text-orange-400 px-1.5 py-px rounded font-bold shrink-0">커뮤니티차단</span>
-                  )}
-                </div>
+              {/* 이름 + 배지 + 이메일 — 1줄, 넘치면 말줄임 */}
+              <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
+                <Link to={`/profile/${u.id}`}
+                  className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors whitespace-nowrap">
+                  {u.username}
+                </Link>
+                {u.is_admin && (
+                  <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold shrink-0">관리자</span>
+                )}
+                {!u.is_admin && u.is_community_banned && (
+                  <span className="text-[10px] bg-orange-400/15 text-orange-400 px-1.5 py-px rounded font-bold shrink-0 hidden sm:inline">커뮤차단</span>
+                )}
                 {u.email && (
-                  <p className="text-[11px] text-text-muted truncate mt-0.5 hidden sm:block">{u.email}</p>
+                  <span className="text-[11px] text-text-muted truncate hidden sm:inline">{u.email}</span>
                 )}
               </div>
 
@@ -823,7 +821,7 @@ function UsersTab({ qc }: { qc: any }) {
               </span>
 
               {/* 가입일 */}
-              <span className="text-[11px] text-text-muted font-mono shrink-0 hidden md:block">
+              <span className="text-[11px] text-text-muted font-mono shrink-0 hidden lg:block">
                 {u.created_at ? u.created_at.slice(0, 10) : "—"}
               </span>
 
