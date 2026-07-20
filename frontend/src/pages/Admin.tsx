@@ -726,7 +726,6 @@ function CommunityAdminTab({ qc }: { qc: any }) {
 function UsersTab({ qc }: { qc: any }) {
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [search, setSearch] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["admin-users", statusFilter],
@@ -741,10 +740,6 @@ function UsersTab({ qc }: { qc: any }) {
   const communityBanMut = useMutation({
     mutationFn: (id: number) => adminApi.toggleCommunityBan(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] }),
-  });
-  const deleteMut = useMutation({
-    mutationFn: (id: number) => adminApi.deleteUser(id),
-    onSuccess: () => { setConfirmDelete(null); qc.invalidateQueries({ queryKey: ["admin-users"] }); },
   });
 
   const filtered = search.trim()
@@ -792,10 +787,9 @@ function UsersTab({ qc }: { qc: any }) {
           <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-bg-elevated/60 border-b border-border text-[11px] font-semibold text-text-muted">
             <span className="w-7 shrink-0 hidden sm:block">ID</span>
             <span className="flex-1 min-w-0">아이디 / 이메일</span>
-            <span className="shrink-0 w-[48px] text-center">계정</span>
-            <span className="shrink-0 w-[64px] text-center">커뮤니티</span>
+            <span className="shrink-0 w-[56px] text-center">계정</span>
+            <span className="shrink-0 w-[72px] text-center">커뮤니티</span>
             <span className="shrink-0 hidden lg:block w-[80px] text-right">가입일</span>
-            <span className="shrink-0 w-[60px] text-right">관리</span>
           </div>
           {filtered.length === 0 && (
             <div className="py-10 text-center text-text-muted text-sm">검색 결과가 없습니다</div>
@@ -822,8 +816,8 @@ function UsersTab({ qc }: { qc: any }) {
                 )}
               </div>
 
-              {/* 계정 상태 토글 */}
-              <div className="w-[48px] flex justify-center shrink-0">
+              {/* 계정 비활성화 토글 */}
+              <div className="w-[56px] flex justify-center shrink-0">
                 {!u.is_admin ? (
                   <button onClick={() => toggleMut.mutate(u.id)}
                     title={u.is_active ? "계정 비활성화" : "계정 활성화"}>
@@ -836,15 +830,14 @@ function UsersTab({ qc }: { qc: any }) {
                 )}
               </div>
 
-              {/* 커뮤니티 차단 토글 */}
-              <div className="w-[64px] flex justify-center shrink-0">
+              {/* 커뮤니티 비활성화 토글 */}
+              <div className="w-[72px] flex justify-center shrink-0">
                 {!u.is_admin && (
                   <button onClick={() => communityBanMut.mutate(u.id)}
-                    title={u.is_community_banned ? "커뮤니티 차단 해제" : "커뮤니티 차단"}
-                    className="transition-all">
+                    title={u.is_community_banned ? "커뮤니티 차단 해제" : "커뮤니티 차단"}>
                     {u.is_community_banned
-                      ? <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-orange-400/15 text-orange-400">차단</span>
-                      : <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted hover:text-text-primary">정상</span>}
+                      ? <ToggleRight size={20} className="text-orange-400" />
+                      : <ToggleLeft size={20} className="text-text-muted" />}
                   </button>
                 )}
               </div>
@@ -853,29 +846,6 @@ function UsersTab({ qc }: { qc: any }) {
               <span className="text-[11px] text-text-muted font-mono shrink-0 hidden lg:block w-[80px] text-right">
                 {u.created_at ? u.created_at.slice(0, 10) : "—"}
               </span>
-
-              {/* 관리 (삭제) */}
-              <div className="w-[60px] flex justify-end shrink-0">
-                {!u.is_admin && (
-                  confirmDelete === u.id ? (
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => deleteMut.mutate(u.id)} disabled={deleteMut.isPending}
-                        className="text-[11px] px-1.5 py-0.5 rounded bg-accent-red text-white font-semibold">
-                        {deleteMut.isPending ? "..." : "삭제"}
-                      </button>
-                      <button onClick={() => setConfirmDelete(null)}
-                        className="text-[11px] text-text-muted hover:text-text-primary">
-                        취소
-                      </button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setConfirmDelete(u.id)}
-                      className="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-accent-red transition-colors">
-                      <Trash2 size={14} />
-                    </button>
-                  )
-                )}
-              </div>
             </div>
           ))}
         </div>
