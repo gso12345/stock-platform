@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Heart, MessageSquare, Share2, Send, Trash2, Eye, PenLine, Pencil, X,
-  Hash, BarChart2, Image as ImageIcon,
+  Hash, BarChart2, Image as ImageIcon, Flag,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import api from "@/api/client";
@@ -71,6 +71,23 @@ function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [submittingReport, setSubmittingReport] = useState(false);
+
+  const handleReport = async () => {
+    const reason = reportReason.trim();
+    if (!reason || submittingReport) return;
+    setSubmittingReport(true);
+    try {
+      await communityApi.reportComment(reply.id, reason);
+      setShowReport(false);
+      setReportReason("");
+      alert("신고가 접수되었습니다");
+    } catch (e: any) {
+      if (e?.response?.status === 409) alert("이미 신고한 댓글입니다");
+    } finally { setSubmittingReport(false); }
+  };
 
   const handleLike = async () => {
     if (!isLoggedIn) { navigate("/login"); return; }
@@ -135,16 +152,33 @@ function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
           <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">{reply.content}</p>
         )}
         {!isEditing && (
-          <div className="flex items-center gap-3 mt-1.5">
-            <button onClick={handleLike}
-              className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-              <Heart size={10} className={liked ? "fill-accent-red" : ""} />
-              {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
-            </button>
-            {reply.is_mine && (<>
-              <button onClick={startEdit} className="text-xs text-text-dim hover:text-accent-blue transition-colors">수정</button>
-              <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
-            </>)}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-3 mt-1.5">
+              <button onClick={handleLike}
+                className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
+                <Heart size={10} className={liked ? "fill-accent-red" : ""} />
+                {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
+              </button>
+              {reply.is_mine ? (<>
+                <button onClick={startEdit} className="text-xs text-text-dim hover:text-accent-blue transition-colors">수정</button>
+                <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
+              </>) : isLoggedIn && (
+                <button onClick={() => setShowReport(v => !v)}
+                  className={`flex items-center gap-0.5 text-xs transition-colors ${showReport ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
+                  <Flag size={9} />신고
+                </button>
+              )}
+            </div>
+            {showReport && (
+              <div className="flex items-center gap-1.5 mt-1">
+                <input value={reportReason} onChange={e => setReportReason(e.target.value)}
+                  placeholder="신고 사유를 입력하세요" maxLength={200}
+                  className="flex-1 bg-bg-elevated border border-border rounded-lg px-2 py-1 text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-red/50" />
+                <button onClick={handleReport} disabled={submittingReport || !reportReason.trim()}
+                  className="text-xs px-2 py-1 bg-accent-red/90 text-white rounded-lg disabled:opacity-40">{submittingReport ? "..." : "신고"}</button>
+                <button onClick={() => { setShowReport(false); setReportReason(""); }} className="text-xs text-text-dim hover:text-text-primary">취소</button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -165,6 +199,23 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [submittingReport, setSubmittingReport] = useState(false);
+
+  const handleReport = async () => {
+    const reason = reportReason.trim();
+    if (!reason || submittingReport) return;
+    setSubmittingReport(true);
+    try {
+      await communityApi.reportComment(comment.id, reason);
+      setShowReport(false);
+      setReportReason("");
+      alert("신고가 접수되었습니다");
+    } catch (e: any) {
+      if (e?.response?.status === 409) alert("이미 신고한 댓글입니다");
+    } finally { setSubmittingReport(false); }
+  };
 
   const handleLike = async () => {
     if (!isLoggedIn) { navigate("/login"); return; }
@@ -261,20 +312,37 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
           <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words mb-2">{comment.content}</p>
         )}
         {!isEditing && (
-          <div className="flex items-center gap-4">
-            <button onClick={handleLike}
-              className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-              <Heart size={11} className={liked ? "fill-accent-red" : ""} />
-              {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
-            </button>
-            {isLoggedIn && (
-              <button onClick={() => setShowReply(v => !v)}
-                className="text-xs text-text-dim hover:text-accent-blue transition-colors">답글</button>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-4">
+              <button onClick={handleLike}
+                className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
+                <Heart size={11} className={liked ? "fill-accent-red" : ""} />
+                {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
+              </button>
+              {isLoggedIn && (
+                <button onClick={() => setShowReply(v => !v)}
+                  className="text-xs text-text-dim hover:text-accent-blue transition-colors">답글</button>
+              )}
+              {comment.is_mine ? (<>
+                <button onClick={startEdit} className="text-xs text-text-dim hover:text-accent-blue transition-colors">수정</button>
+                <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
+              </>) : isLoggedIn && (
+                <button onClick={() => setShowReport(v => !v)}
+                  className={`flex items-center gap-0.5 text-xs transition-colors ${showReport ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
+                  <Flag size={10} />신고
+                </button>
+              )}
+            </div>
+            {showReport && (
+              <div className="flex items-center gap-1.5 mt-1">
+                <input value={reportReason} onChange={e => setReportReason(e.target.value)}
+                  placeholder="신고 사유를 입력하세요" maxLength={200}
+                  className="flex-1 bg-bg-elevated border border-border rounded-lg px-2.5 py-1 text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-red/50" />
+                <button onClick={handleReport} disabled={submittingReport || !reportReason.trim()}
+                  className="text-xs px-2.5 py-1 bg-accent-red/90 text-white rounded-lg disabled:opacity-40">{submittingReport ? "..." : "신고"}</button>
+                <button onClick={() => { setShowReport(false); setReportReason(""); }} className="text-xs text-text-dim hover:text-text-primary">취소</button>
+              </div>
             )}
-            {comment.is_mine && (<>
-              <button onClick={startEdit} className="text-xs text-text-dim hover:text-accent-blue transition-colors">수정</button>
-              <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
-            </>)}
           </div>
         )}
         {showReply && (
@@ -323,6 +391,9 @@ export default function PostDetail() {
   const [copied, setCopied] = useState(false);
   const [following, setFollowing] = useState<boolean | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const [showPostReport, setShowPostReport] = useState(false);
+  const [postReportReason, setPostReportReason] = useState("");
+  const [submittingPostReport, setSubmittingPostReport] = useState(false);
 
   const autoResize = useCallback((el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -399,6 +470,20 @@ export default function PostDetail() {
     if (!activePost) return;
     const url = `${window.location.origin}/post/${activePost.id}`;
     try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+  };
+
+  const handlePostReport = async () => {
+    const reason = postReportReason.trim();
+    if (!reason || submittingPostReport || !activePost) return;
+    setSubmittingPostReport(true);
+    try {
+      await communityApi.reportPost(activePost.id, reason);
+      setShowPostReport(false);
+      setPostReportReason("");
+      alert("신고가 접수되었습니다");
+    } catch (e: any) {
+      if (e?.response?.status === 409) alert("이미 신고한 게시글입니다");
+    } finally { setSubmittingPostReport(false); }
   };
 
   const [isEditing, setIsEditing] = useState(false);
@@ -809,30 +894,53 @@ export default function PostDetail() {
           )}
 
           {/* 액션 바 */}
-          <div className="flex items-center gap-1 py-3 border-t border-border/50">
-            <button onClick={handleLike}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all active:scale-95 ${
-                activePost.liked ? "text-accent-red bg-accent-red/10" : "text-text-dim hover:text-accent-red hover:bg-accent-red/5"
-              }`}>
-              <Heart size={16} className={activePost.liked ? "fill-accent-red" : ""} />
-              <span>{activePost.like_count > 0 ? activePost.like_count : "좋아요"}</span>
-            </button>
-            <button onClick={() => commentInputRef.current?.focus()}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-text-dim hover:text-accent-blue hover:bg-accent-blue/5 transition-all">
-              <MessageSquare size={16} />
-              <span>{activePost.comment_count > 0 ? activePost.comment_count : "댓글"}</span>
-            </button>
-            {(activePost.view_count ?? 0) > 0 && (
-              <span className="flex items-center gap-1.5 px-3 py-2 text-sm text-text-dim">
-                <Eye size={16} />
-                <span>{activePost.view_count}</span>
-              </span>
+          <div className="flex flex-col gap-2 py-3 border-t border-border/50">
+            <div className="flex items-center gap-1">
+              <button onClick={handleLike}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all active:scale-95 ${
+                  activePost.liked ? "text-accent-red bg-accent-red/10" : "text-text-dim hover:text-accent-red hover:bg-accent-red/5"
+                }`}>
+                <Heart size={16} className={activePost.liked ? "fill-accent-red" : ""} />
+                <span>{activePost.like_count > 0 ? activePost.like_count : "좋아요"}</span>
+              </button>
+              <button onClick={() => commentInputRef.current?.focus()}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-text-dim hover:text-accent-blue hover:bg-accent-blue/5 transition-all">
+                <MessageSquare size={16} />
+                <span>{activePost.comment_count > 0 ? activePost.comment_count : "댓글"}</span>
+              </button>
+              {(activePost.view_count ?? 0) > 0 && (
+                <span className="flex items-center gap-1.5 px-3 py-2 text-sm text-text-dim">
+                  <Eye size={16} />
+                  <span>{activePost.view_count}</span>
+                </span>
+              )}
+              <div className="flex items-center gap-1 ml-auto">
+                {!activePost.is_mine && isLoggedIn && (
+                  <button onClick={() => setShowPostReport(v => !v)}
+                    className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                      showPostReport ? "text-accent-red bg-accent-red/10" : "text-text-dim hover:text-accent-red hover:bg-accent-red/5"
+                    }`}>
+                    <Flag size={15} />
+                  </button>
+                )}
+                <button onClick={handleShare}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all">
+                  <Share2 size={15} />
+                  <span>{copied ? "복사됨!" : "공유"}</span>
+                </button>
+              </div>
+            </div>
+            {showPostReport && (
+              <div className="flex items-center gap-2">
+                <input value={postReportReason} onChange={e => setPostReportReason(e.target.value)}
+                  placeholder="신고 사유를 입력하세요" maxLength={200}
+                  className="flex-1 bg-bg-elevated border border-border rounded-xl px-3 py-2 text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-red/50" />
+                <button onClick={handlePostReport} disabled={submittingPostReport || !postReportReason.trim()}
+                  className="text-sm px-3 py-2 bg-accent-red/90 text-white rounded-xl disabled:opacity-40 whitespace-nowrap">{submittingPostReport ? "..." : "신고"}</button>
+                <button onClick={() => { setShowPostReport(false); setPostReportReason(""); }}
+                  className="text-sm px-3 py-2 text-text-dim hover:text-text-primary border border-border rounded-xl">취소</button>
+              </div>
             )}
-            <button onClick={handleShare}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all ml-auto">
-              <Share2 size={15} />
-              <span>{copied ? "복사됨!" : "공유"}</span>
-            </button>
           </div>
 
           {/* 댓글 목록 */}

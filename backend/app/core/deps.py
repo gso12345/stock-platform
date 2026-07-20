@@ -26,8 +26,6 @@ def get_current_user(
         user = db.query(User).filter(User.id == int(user_id)).first()
     except (ValueError, TypeError):
         return None
-    if user and not user.is_active:
-        return None
     return user
 
 
@@ -37,5 +35,15 @@ def require_user(user: User | None = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="로그인이 필요합니다",
+        )
+    return user
+
+
+def require_community_active(user: User = Depends(require_user)) -> User:
+    """커뮤니티 쓰기 전용 — 비활성화 계정은 403 반환"""
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="계정이 비활성화되어 커뮤니티 기능을 이용할 수 없습니다",
         )
     return user

@@ -148,7 +148,7 @@ NAVER_INDEX_CODE = {
     "KOSPI":    "KOSPI",
     "KOSDAQ":   "KOSDAQ",
     "KOSPI200": "KPI200",
-    "KOSDAQ150":"KSDAQ150",
+    "KOSDAQ150": "KSQ150",
 }
 INDEX_DISPLAY = {
     "KOSPI":"코스피","KOSDAQ":"코스닥","KOSPI200":"코스피 200","KOSDAQ150":"코스닥 150",
@@ -316,28 +316,39 @@ async def fetch_naver_exchange() -> dict | None:
             r = await cl.get(url)
             if r.status_code == 200:
                 d = r.json()
-                curr = _safe(d.get("closePrice"))
-                chg  = _safe(d.get("compareToPreviousClosePrice"))
-                chgr = _safe(d.get("fluctuationsRatio"))
+                curr = _safe(d.get("closePrice") or d.get("currentPrice") or d.get("price"))
+                chg  = _safe(d.get("compareToPreviousClosePrice") or d.get("changePrice") or d.get("change"))
+                chgr = _safe(d.get("fluctuationsRatio") or d.get("changeRate") or d.get("rateOfChange"))
                 if curr and curr > 100:
-                    return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":round(chg or 0,2),"change_rate":round(chgr or 0,4),"unit":"원"}
+                    # fluctuationsRatio가 소수 형식(0.0019)이면 백분율로 변환
+                    if chgr is not None and abs(chgr) < 1:
+                        chgr = chgr * 100
+                    # chgr 없으면 직접 계산
+                    if chgr is None and chg is not None and curr:
+                        prev = curr - chg
+                        chgr = (chg / prev * 100) if prev else 0
+                    return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":round(chg or 0,2),"change_rate":round(chgr or 0,2),"unit":"원"}
     except Exception:
         pass
-    # 폴백: 네이버 외환 시장 정보
-    url2 = "https://api.stock.naver.com/forex/close/history?stockEndType=index&code=FX_USDKRW&timeframe=day&count=2&requestType=0"
-    try:
-        async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
-            r = await cl.get(url2)
-            if r.status_code == 200:
-                items = r.json()
-                if items and len(items) >= 2:
-                    curr = _safe(items[-1].get("closePrice") or items[-1].get("value"))
-                    prev = _safe(items[-2].get("closePrice") or items[-2].get("value"))
-                    if curr and curr > 100:
-                        chg = curr - (prev or curr)
-                        return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":round(chg,2),"change_rate":round(chg/(prev or 1)*100,4),"unit":"원"}
-    except Exception:
-        pass
+    # 폴백: 네이버 외환 히스토리 API
+    for url2 in [
+        "https://api.stock.naver.com/forex/close/history?stockEndType=index&code=FX_USDKRW&timeframe=day&count=2&requestType=0",
+        "https://m.stock.naver.com/api/forex/history?symbol=FX_USDKRW&timeframe=day&count=2",
+    ]:
+        try:
+            async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
+                r = await cl.get(url2)
+                if r.status_code == 200:
+                    items = r.json()
+                    if isinstance(items, list) and len(items) >= 2:
+                        curr = _safe(items[-1].get("closePrice") or items[-1].get("value") or items[-1].get("price"))
+                        prev = _safe(items[-2].get("closePrice") or items[-2].get("value") or items[-2].get("price"))
+                        if curr and curr > 100:
+                            chg = round(curr - (prev or curr), 2)
+                            chgr = round(chg / (prev or 1) * 100, 2) if prev else 0
+                            return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":chg,"change_rate":chgr,"unit":"원"}
+        except Exception:
+            pass
     return None
 
 
@@ -534,11 +545,22 @@ async def get_usdkrw() -> dict:
         cache.set(ck, entry, 60)
         return entry
 
+    # 이전 캐시값 (변동률 계산용)
+    _stale = cache.get_stale(ck)
+    _prev_val = _stale.get("value", 0) if _stale else 0
+
+    def _with_change(value: float) -> dict:
+        """기준환율 소스용 — 이전 캐시값과 비교해 변동 계산"""
+        chg = round(value - _prev_val, 2) if _prev_val > 0 else 0
+        chgr = round(chg / _prev_val * 100, 2) if _prev_val > 0 else 0
+        return {"symbol":"USDKRW","name":"원/달러 환율","value":round(value,2),"change":chg,"change_rate":chgr,"unit":"원"}
+
     # 3차: open.er-api.com (기준환율, 실시간 아님)
     r2 = await _fetch_open_er()
     if r2:
-        cache.set(ck, r2, 60)
-        return r2
+        entry2 = _with_change(r2["value"])
+        cache.set(ck, entry2, 3600)  # 기준환율은 1시간 캐시
+        return entry2
 
     # 4차: frankfurter.app (ECB 기준환율)
     try:
@@ -547,9 +569,9 @@ async def get_usdkrw() -> dict:
         if r3.status_code == 200:
             krw = _safe(r3.json().get("rates", {}).get("KRW"))
             if krw and krw > 100:
-                entry = {"symbol":"USDKRW","name":"원/달러 환율","value":round(krw,2),"change":0,"change_rate":0,"unit":"원"}
-                cache.set(ck, entry, 60)
-                return entry
+                entry3 = _with_change(krw)
+                cache.set(ck, entry3, 3600)
+                return entry3
     except Exception as e:
         log.debug(f"frankfurter.app 실패: {e}")
 

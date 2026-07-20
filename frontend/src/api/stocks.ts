@@ -394,4 +394,8 @@ export const communityApi = {
     api.post(`/community/posts/${postId}/poll/vote`, { option_index: optionIndex }).then((r) => r.data),
   setPortfolioVisibility: (portfolioId: number, isPublic: boolean) =>
     api.put(`/portfolio/${portfolioId}/visibility`, { is_public: isPublic }).then((r) => r.data),
+  reportPost: (postId: number, reason: string) =>
+    api.post(`/community/posts/${postId}/report`, { reason }).then((r) => r.data),
+  reportComment: (commentId: number, reason: string) =>
+    api.post(`/community/comments/${commentId}/report`, { reason }).then((r) => r.data),
 };

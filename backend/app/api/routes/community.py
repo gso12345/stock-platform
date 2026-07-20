@@ -8,7 +8,7 @@ from app.db.database import get_db, engine
 from fastapi import Body
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, Report
 from app.models.user import User
-from app.core.deps import get_current_user, require_user
+from app.core.deps import get_current_user, require_user, require_community_active
 from app.services.ticker_service import get_kr_db
 
 router = APIRouter(prefix="/community", tags=["community"])
@@ -283,7 +283,7 @@ def list_posts(
     comment_counts: dict = {}
     if post_ids:
         rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE GROUP BY post_id"),
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE GROUP BY post_id"),
             {"ids": post_ids},
         ).fetchall()
         comment_counts = {r[0]: r[1] for r in rows}
@@ -306,7 +306,7 @@ def create_post(
     body:         PostCreate,
     market:       Literal["KR", "US", "ETF"],
     symbol:       str = Path(..., pattern=_SYMBOL_RE),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     # admin/announcement과 동일하게 engine.connect() + raw SQL 사용.
     # ORM 세션을 쓰면 commit 후 lazy-load가 발생해 Render 커넥션 풀 고갈로 500.
@@ -366,7 +366,7 @@ def update_post(
     symbol:   str = Path(..., pattern=_SYMBOL_RE),
     post_id:  int = Path(...),
     payload:  PostUpdate = Body(...),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     with engine.connect() as conn:
         row = conn.execute(
@@ -404,7 +404,7 @@ def delete_post(
     symbol:  str = Path(..., pattern=_SYMBOL_RE),
     post_id: int = Path(...),
     db:      Session = Depends(get_db),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     post = (
         db.query(StockPost)
@@ -429,7 +429,7 @@ def delete_post(
 def toggle_post_like(
     post_id: int = Path(...),
     db:      Session = Depends(get_db),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     post = (
         db.query(StockPost)
@@ -490,7 +490,7 @@ def get_post(
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     profile = get_profile(db, post.user_id) if post.user else None
     count_row = db.execute(
-        text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted IS NOT TRUE"),
+        text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE"),
         {"pid": post_id},
     ).fetchone()
     comment_count = count_row[0] if count_row else 0
@@ -535,7 +535,7 @@ def create_comment(
     body:    CommentCreate,
     post_id: int = Path(...),
     db:      Session = Depends(get_db),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     post = (
         db.query(StockPost)
@@ -576,7 +576,7 @@ def update_comment(
     comment_id: int = Path(...),
     payload:    CommentUpdate = Body(...),
     db:         Session = Depends(get_db),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     c = db.query(StockComment).filter(StockComment.id == comment_id).first()
     if not c or c.is_deleted:
@@ -593,7 +593,7 @@ def update_comment(
 def delete_comment(
     comment_id: int = Path(...),
     db:         Session = Depends(get_db),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     c = db.query(StockComment).filter(StockComment.id == comment_id).first()
     if not c or c.is_deleted:
@@ -613,7 +613,7 @@ def delete_comment(
 def toggle_comment_like(
     comment_id: int = Path(...),
     db:         Session = Depends(get_db),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     c = db.query(StockComment).filter(StockComment.id == comment_id, StockComment.is_deleted.isnot(True)).first()
     if not c:
@@ -684,7 +684,7 @@ def get_feed(
     feed_comment_counts: dict = {}
     if post_ids:
         rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE GROUP BY post_id"),
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE GROUP BY post_id"),
             {"ids": post_ids},
         ).fetchall()
         feed_comment_counts = {r[0]: r[1] for r in rows}
@@ -784,7 +784,7 @@ def vote_poll(
     post_id: int = Path(...),
     option_index: int = Body(..., embed=True),
     db: Session = Depends(get_db),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     post = (
         db.query(StockPost)
@@ -822,7 +822,7 @@ def vote_poll(
 def toggle_follow(
     user_id: int = Path(...),
     db: Session = Depends(get_db),
-    current_user=Depends(require_user),
+    current_user=Depends(require_community_active),
 ):
     if user_id == current_user.id:
         raise HTTPException(400, "자기 자신을 팔로우할 수 없습니다")
@@ -900,7 +900,7 @@ def get_user_activity(
     act_comment_counts: dict = {}
     if act_post_ids:
         rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE GROUP BY post_id"),
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE GROUP BY post_id"),
             {"ids": act_post_ids},
         ).fetchall()
         act_comment_counts = {r[0]: r[1] for r in rows}
@@ -985,7 +985,7 @@ def report_post(
     post_id: int = Path(...),
     body: ReportIn = Body(...),
     db: Session = Depends(get_db),
-    current: User = Depends(require_user),
+    current: User = Depends(require_community_active),
 ):
     """게시글 신고"""
     post = db.query(StockPost).filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True)).first()
@@ -1005,7 +1005,7 @@ def report_comment(
     comment_id: int = Path(...),
     body: ReportIn = Body(...),
     db: Session = Depends(get_db),
-    current: User = Depends(require_user),
+    current: User = Depends(require_community_active),
 ):
     """댓글 신고"""
     comment = db.query(StockComment).filter(StockComment.id == comment_id, StockComment.is_deleted.isnot(True)).first()
