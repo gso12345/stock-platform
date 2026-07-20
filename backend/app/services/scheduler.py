@@ -51,9 +51,32 @@ async def refresh_kr_indices():
             ok += 1
             resolved.add(name)
 
-    # Naver에서 가져오지 못한 지수는 yfinance로 보완
+    # Naver에서 가져오지 못한 지수는 Yahoo Finance async로 보완 (빠름)
     failed = [n for n in KR_INDICES if n not in resolved]
-    for name in failed:
+    if failed:
+        from app.services.yf_service import INDEX_SYMBOLS, INDEX_NAMES
+        yf_syms = [INDEX_SYMBOLS.get(n, n) for n in failed]
+        try:
+            yf_data = await asyncio.wait_for(fetch_yf_quotes(yf_syms), timeout=8)
+            for name in list(failed):
+                sym = INDEX_SYMBOLS.get(name, name)
+                if q := yf_data.get(sym):
+                    entry = {
+                        "index": name,
+                        "name":  INDEX_NAMES.get(name, name),
+                        "value": q["price"],
+                        "change": q["change"],
+                        "change_rate": q["change_rate"],
+                    }
+                    cache.set(f"idx:{name}", entry, 60)
+                    ok += 1
+                    resolved.add(name)
+                    failed.remove(name)
+        except Exception:
+            pass
+
+    # 그래도 안 된 지수는 yfinance 동기 함수로 보완
+    for name in [n for n in KR_INDICES if n not in resolved]:
         try:
             loop = asyncio.get_running_loop()
             result = await asyncio.wait_for(

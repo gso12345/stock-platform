@@ -200,6 +200,13 @@ async def lifespan(application: FastAPI):
                 _startup_log.info("is_blinded 컬럼 마이그레이션 완료")
         except Exception as _mc3_err:
             _startup_log.warning(f"is_blinded 마이그레이션 스킵: {_mc3_err}")
+        try:
+            with engine.connect() as _mc4:
+                _mc4.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_community_banned BOOLEAN DEFAULT FALSE"))
+                _mc4.commit()
+                _startup_log.info("is_community_banned 컬럼 마이그레이션 완료")
+        except Exception as _mc4_err:
+            _startup_log.warning(f"is_community_banned 마이그레이션 스킵: {_mc4_err}")
     except Exception as e:
         logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")
 

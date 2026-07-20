@@ -148,7 +148,7 @@ NAVER_INDEX_CODE = {
     "KOSPI":    "KOSPI",
     "KOSDAQ":   "KOSDAQ",
     "KOSPI200": "KPI200",
-    "KOSDAQ150": "KSQ150",
+    "KOSDAQ150": "KQ150",
 }
 INDEX_DISPLAY = {
     "KOSPI":"코스피","KOSDAQ":"코스닥","KOSPI200":"코스피 200","KOSDAQ150":"코스닥 150",
@@ -526,18 +526,18 @@ async def get_usdkrw() -> dict:
     if fresh:
         return fresh
 
-    # 1차: 네이버 금융 (실시간 시장환율)
-    r = await fetch_naver_exchange()
-    if r and r.get("value", 0) > 100:
-        cache.set(ck, r, 60)
-        return r
-
-    # 2차: Yahoo Finance (실시간 USDKRW=X — open.er-api보다 정확)
+    # 1차: Yahoo Finance (regularMarketChange = 전일종가 대비 변동 — 정확)
     data = await fetch_yf_quotes(["USDKRW=X"])
     if q := data.get("USDKRW=X"):
         entry = {"symbol":"USDKRW","name":"원/달러 환율","value":q["price"],"change":q["change"],"change_rate":q["change_rate"],"unit":"원"}
         cache.set(ck, entry, 60)
         return entry
+
+    # 2차: 네이버 금융 (실시간 시장환율)
+    r = await fetch_naver_exchange()
+    if r and r.get("value", 0) > 100:
+        cache.set(ck, r, 60)
+        return r
 
     # 이전 캐시값 (변동률 계산용)
     _stale = cache.get_stale(ck)

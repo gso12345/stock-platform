@@ -40,10 +40,10 @@ def require_user(user: User | None = Depends(get_current_user)) -> User:
 
 
 def require_community_active(user: User = Depends(require_user)) -> User:
-    """커뮤니티 쓰기 전용 — 비활성화 계정은 403 반환"""
-    if not user.is_active:
+    """커뮤니티 쓰기 전용 — 커뮤니티 차단된 계정은 403 반환"""
+    if getattr(user, "is_community_banned", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="계정이 비활성화되어 커뮤니티 기능을 이용할 수 없습니다",
+            detail="커뮤니티 이용이 제한된 계정입니다",
         )
     return user

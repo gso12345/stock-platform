@@ -222,12 +222,13 @@ def get_users(
     users = q.all()
     return [
         {
-            "id":         u.id,
-            "username":   u.username,
-            "email":      u.email,
-            "is_active":  u.is_active,
-            "is_admin":   u.is_admin,
-            "created_at": str(u.created_at) if u.created_at else None,
+            "id":                  u.id,
+            "username":            u.username,
+            "email":               u.email,
+            "is_active":           u.is_active,
+            "is_admin":            u.is_admin,
+            "is_community_banned": bool(getattr(u, "is_community_banned", False)),
+            "created_at":          str(u.created_at) if u.created_at else None,
         }
         for u in users
     ]
@@ -243,6 +244,20 @@ def toggle_active(user_id: int, db: Session = Depends(get_db), current: User = D
     user.is_active = not user.is_active
     db.commit()
     return {"id": user.id, "is_active": user.is_active}
+
+
+@router.patch("/users/{user_id}/community-ban")
+def toggle_community_ban(user_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
+    """커뮤니티 차단/해제 — 로그인 자체는 유지, 커뮤니티 쓰기만 차단"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+    if user.id == current.id:
+        raise HTTPException(status_code=400, detail="자신의 계정은 변경할 수 없습니다")
+    current_val = bool(getattr(user, "is_community_banned", False))
+    user.is_community_banned = not current_val
+    db.commit()
+    return {"id": user.id, "is_community_banned": user.is_community_banned}
 
 
 @router.delete("/users/{user_id}")
@@ -463,7 +478,8 @@ def list_reports(
     _: User = Depends(require_admin),
 ):
     from app.models.community import Report, StockPost, StockComment
-    q = db.query(Report)
+    from sqlalchemy.orm import selectinload
+    q = db.query(Report).options(selectinload(Report.reporter))
     if status != "all":
         q = q.filter(Report.status == status)
     total = q.count()
@@ -471,19 +487,27 @@ def list_reports(
     result = []
     for r in reports:
         post_title = None
+        post_body  = None
+        post_author = None
         comment_preview = None
+        comment_author  = None
         if r.post_id:
             post = db.query(StockPost).filter(StockPost.id == r.post_id).first()
             if post:
                 try:
                     cd = json.loads(post.content)
-                    post_title = cd.get("title", "")[:100]
+                    post_title = (cd.get("title") or "")[:200]
+                    post_body  = (cd.get("body") or "")[:300]
                 except Exception:
-                    post_title = str(post.content)[:100]
+                    post_body = str(post.content)[:300]
+                author = db.query(User).filter(User.id == post.user_id).first()
+                post_author = author.username if author else "—"
         if r.comment_id:
             comment = db.query(StockComment).filter(StockComment.id == r.comment_id).first()
             if comment:
-                comment_preview = str(comment.content)[:100]
+                comment_preview = str(comment.content)[:300]
+                author = db.query(User).filter(User.id == comment.user_id).first()
+                comment_author = author.username if author else "—"
         result.append({
             "id":              r.id,
             "reporter_id":     r.reporter_id,
@@ -491,7 +515,10 @@ def list_reports(
             "post_id":         r.post_id,
             "comment_id":      r.comment_id,
             "post_title":      post_title,
+            "post_body":       post_body,
+            "post_author":     post_author,
             "comment_preview": comment_preview,
+            "comment_author":  comment_author,
             "reason":          r.reason,
             "status":          r.status,
             "created_at":      r.created_at.isoformat() if r.created_at else None,

@@ -947,7 +947,7 @@ export default function PostDetail() {
           <div className="flex flex-col gap-5 border-t border-border/50 pt-4">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-text-primary">
-                댓글 {comments.length > 0 ? comments.length : ""}
+                댓글 {(activePost.comment_count ?? 0) > 0 ? activePost.comment_count : ""}
               </p>
               <div className="flex items-center gap-0.5 bg-bg-elevated rounded-lg p-0.5">
                 {(["latest", "popular"] as const).map(s => (

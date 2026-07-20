@@ -27,8 +27,9 @@ const adminApi = {
   listCache:       (prefix?: string) => api.get("/admin/cache", { params: prefix ? { prefix } : {} }).then(r => r.data),
   deleteCache:     (key: string) => api.delete(`/admin/cache/${encodeURIComponent(key)}`).then(r => r.data),
   deleteCachePrefix: (prefix: string) => api.delete("/admin/cache", { params: { prefix } }).then(r => r.data),
-  toggleActive:    (id: number) => api.patch(`/admin/users/${id}/active`).then(r => r.data),
-  deleteUser:      (id: number) => api.delete(`/admin/users/${id}`).then(r => r.data),
+  toggleActive:       (id: number) => api.patch(`/admin/users/${id}/active`).then(r => r.data),
+  toggleCommunityBan: (id: number) => api.patch(`/admin/users/${id}/community-ban`).then(r => r.data),
+  deleteUser:         (id: number) => api.delete(`/admin/users/${id}`).then(r => r.data),
   getAnnouncement: () => api.get("/admin/announcement").then(r => r.data),
   setAnnouncement: (text: string) => api.post("/admin/announcement", { text }).then(r => r.data),
   // 팝업
@@ -735,6 +736,10 @@ function UsersTab({ qc }: { qc: any }) {
     mutationFn: (id: number) => adminApi.toggleActive(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] }),
   });
+  const communityBanMut = useMutation({
+    mutationFn: (id: number) => adminApi.toggleCommunityBan(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
   const deleteMut = useMutation({
     mutationFn: (id: number) => adminApi.deleteUser(id),
     onSuccess: () => { setConfirmDelete(null); qc.invalidateQueries({ queryKey: ["admin-users"] }); },
@@ -778,7 +783,8 @@ function UsersTab({ qc }: { qc: any }) {
               <th className="text-left px-3 py-3 font-medium">아이디</th>
               <th className="text-left px-3 py-3 font-medium hidden sm:table-cell">이메일</th>
               <th className="text-left px-3 py-3 font-medium hidden md:table-cell">가입일</th>
-              <th className="text-center px-3 py-3 font-medium">상태</th>
+              <th className="text-center px-3 py-3 font-medium">계정</th>
+              <th className="text-center px-3 py-3 font-medium">커뮤니티</th>
               <th className="text-center px-3 py-3 font-medium">관리</th>
             </tr>
           </thead>
@@ -810,10 +816,23 @@ function UsersTab({ qc }: { qc: any }) {
                 </td>
                 <td className="px-3 py-3 text-center">
                   {!u.is_admin && (
+                    <button
+                      onClick={() => communityBanMut.mutate(u.id)}
+                      title={u.is_community_banned ? "커뮤니티 차단 해제" : "커뮤니티 차단"}
+                      className="text-text-muted hover:text-accent-blue transition-colors"
+                    >
+                      {u.is_community_banned
+                        ? <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-accent-red/12 text-accent-red">차단</span>
+                        : <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted">정상</span>}
+                    </button>
+                  )}
+                </td>
+                <td className="px-3 py-3 text-center">
+                  {!u.is_admin && (
                     <div className="flex items-center justify-center gap-2">
                       <button
                         onClick={() => toggleMut.mutate(u.id)}
-                        title={u.is_active ? "비활성화" : "활성화"}
+                        title={u.is_active ? "계정 비활성화" : "계정 활성화"}
                         className="text-text-muted hover:text-accent-blue transition-colors"
                       >
                         {u.is_active
@@ -1303,15 +1322,33 @@ function ReportsTab({ qc }: { qc: any }) {
                   <p className="text-xs text-text-secondary leading-relaxed">신고 사유: {r.reason}</p>
                 </div>
                 {r.post_id && (
-                  <div className="rounded-lg bg-bg-elevated p-3">
-                    <p className="text-[11px] text-text-muted mb-1">게시글 #{r.post_id}</p>
-                    <p className="text-xs text-text-secondary truncate">{r.post_title || "—"}</p>
+                  <div className="rounded-lg bg-bg-elevated p-3 flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-text-muted">게시글 #{r.post_id}</span>
+                      {r.post_author && <span className="text-[11px] font-semibold text-text-secondary">@{r.post_author}</span>}
+                      <Link to={`/post/${r.post_id}`} target="_blank"
+                        className="ml-auto flex items-center gap-0.5 text-[11px] text-accent-blue hover:underline">
+                        <ExternalLink size={10} />보기
+                      </Link>
+                    </div>
+                    {r.post_title && <p className="text-xs font-semibold text-text-primary">{r.post_title}</p>}
+                    {r.post_body && <p className="text-xs text-text-secondary leading-relaxed line-clamp-3">{r.post_body}</p>}
+                    {!r.post_title && !r.post_body && <p className="text-xs text-text-muted">—</p>}
                   </div>
                 )}
                 {r.comment_id && (
-                  <div className="rounded-lg bg-bg-elevated p-3">
-                    <p className="text-[11px] text-text-muted mb-1">댓글 #{r.comment_id}</p>
-                    <p className="text-xs text-text-secondary truncate">{r.comment_preview || "—"}</p>
+                  <div className="rounded-lg bg-bg-elevated p-3 flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-text-muted">댓글 #{r.comment_id}</span>
+                      {r.comment_author && <span className="text-[11px] font-semibold text-text-secondary">@{r.comment_author}</span>}
+                      {r.post_id && (
+                        <Link to={`/post/${r.post_id}`} target="_blank"
+                          className="ml-auto flex items-center gap-0.5 text-[11px] text-accent-blue hover:underline">
+                          <ExternalLink size={10} />게시글 보기
+                        </Link>
+                      )}
+                    </div>
+                    <p className="text-xs text-text-secondary leading-relaxed">{r.comment_preview || "—"}</p>
                   </div>
                 )}
               </div>
