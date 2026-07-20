@@ -6,7 +6,7 @@ from pydantic import BaseModel, field_validator, model_validator, Field
 from typing import Literal, Optional
 from app.db.database import get_db, engine
 from fastapi import Body
-from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote
+from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, Report
 from app.models.user import User
 from app.core.deps import get_current_user, require_user
 from app.services.ticker_service import get_kr_db
@@ -250,7 +250,8 @@ def list_posts(
     uid = current_user.id if current_user else None
 
     q = db.query(StockPost).filter(
-        StockPost.symbol == sym, StockPost.market == market, StockPost.is_deleted.isnot(True)
+        StockPost.symbol == sym, StockPost.market == market,
+        StockPost.is_deleted.isnot(True), StockPost.is_blinded.isnot(True)
     )
     total = q.count()
     if sort == "likes":
@@ -282,7 +283,7 @@ def list_posts(
     comment_counts: dict = {}
     if post_ids:
         rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted = false GROUP BY post_id"),
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE GROUP BY post_id"),
             {"ids": post_ids},
         ).fetchall()
         comment_counts = {r[0]: r[1] for r in rows}
@@ -489,7 +490,7 @@ def get_post(
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     profile = get_profile(db, post.user_id) if post.user else None
     count_row = db.execute(
-        text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted = false"),
+        text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted IS NOT TRUE"),
         {"pid": post_id},
     ).fetchone()
     comment_count = count_row[0] if count_row else 0
@@ -523,6 +524,7 @@ def list_comments(
         StockComment.post_id == post_id,
         StockComment.parent_id == None,
         StockComment.is_deleted.isnot(True),
+        StockComment.is_blinded.isnot(True),
     ).order_by(order).all()
     return [_ser_comment(c, uid, db) for c in root]
 
@@ -643,7 +645,7 @@ def get_feed(
     current_user=Depends(get_current_user),
 ):
     uid = current_user.id if current_user else None
-    q = db.query(StockPost).filter(StockPost.is_deleted.isnot(True))
+    q = db.query(StockPost).filter(StockPost.is_deleted.isnot(True), StockPost.is_blinded.isnot(True))
 
     if following and uid:
         followed_ids = [
@@ -682,7 +684,7 @@ def get_feed(
     feed_comment_counts: dict = {}
     if post_ids:
         rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted = false GROUP BY post_id"),
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE GROUP BY post_id"),
             {"ids": post_ids},
         ).fetchall()
         feed_comment_counts = {r[0]: r[1] for r in rows}
@@ -898,7 +900,7 @@ def get_user_activity(
     act_comment_counts: dict = {}
     if act_post_ids:
         rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted = false GROUP BY post_id"),
+            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE GROUP BY post_id"),
             {"ids": act_post_ids},
         ).fetchall()
         act_comment_counts = {r[0]: r[1] for r in rows}
@@ -970,3 +972,49 @@ def get_following(user_id: int = Path(...), db: Session = Depends(get_db)):
                 "avatar_color": p.avatar_color if p else 0,
             })
     return result
+
+
+# ── 신고 ─────────────────────────────────────────────────────────────────────
+
+class ReportIn(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=200)
+
+
+@router.post("/posts/{post_id}/report", status_code=201)
+def report_post(
+    post_id: int = Path(...),
+    body: ReportIn = Body(...),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_user),
+):
+    """게시글 신고"""
+    post = db.query(StockPost).filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True)).first()
+    if not post:
+        raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    existing = db.query(Report).filter(Report.reporter_id == current.id, Report.post_id == post_id).first()
+    if existing:
+        raise HTTPException(409, "이미 신고한 게시글입니다")
+    report = Report(reporter_id=current.id, post_id=post_id, reason=body.reason)
+    db.add(report)
+    db.commit()
+    return {"message": "신고가 접수되었습니다"}
+
+
+@router.post("/comments/{comment_id}/report", status_code=201)
+def report_comment(
+    comment_id: int = Path(...),
+    body: ReportIn = Body(...),
+    db: Session = Depends(get_db),
+    current: User = Depends(require_user),
+):
+    """댓글 신고"""
+    comment = db.query(StockComment).filter(StockComment.id == comment_id, StockComment.is_deleted.isnot(True)).first()
+    if not comment:
+        raise HTTPException(404, "댓글을 찾을 수 없습니다")
+    existing = db.query(Report).filter(Report.reporter_id == current.id, Report.comment_id == comment_id).first()
+    if existing:
+        raise HTTPException(409, "이미 신고한 댓글입니다")
+    report = Report(reporter_id=current.id, comment_id=comment_id, reason=body.reason)
+    db.add(report)
+    db.commit()
+    return {"message": "신고가 접수되었습니다"}

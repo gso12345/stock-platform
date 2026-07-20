@@ -209,8 +209,17 @@ def delete_cache_prefix(prefix: str, _: User = Depends(require_admin)):
 # ── 유저 관리 ────────────────────────────────────────────────────────────────
 
 @router.get("/users")
-def get_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    users = db.query(User).order_by(User.id.desc()).all()
+def get_users(
+    status: str = Query(default="all", pattern="^(all|active|inactive)$"),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    q = db.query(User).order_by(User.id.desc())
+    if status == "active":
+        q = q.filter(User.is_active == True)
+    elif status == "inactive":
+        q = q.filter(User.is_active == False)
+    users = q.all()
     return [
         {
             "id":         u.id,
@@ -344,3 +353,214 @@ def set_announcement(body: dict, _: User = Depends(require_admin)):
     except Exception as e:
         log.error(f"공지사항 저장 실패: {e}")
         raise HTTPException(status_code=500, detail="저장 실패")
+
+
+# ── 팝업 관리 ──────────────────────────────────────────────────────────────────
+
+def _popup_dict(p) -> dict:
+    return {
+        "id":         p.id,
+        "popup_type": p.popup_type,
+        "title":      p.title,
+        "content":    p.content,
+        "link_url":   p.link_url,
+        "link_text":  p.link_text,
+        "bg_color":   p.bg_color,
+        "is_active":  p.is_active,
+        "starts_at":  p.starts_at.isoformat() if p.starts_at else None,
+        "ends_at":    p.ends_at.isoformat() if p.ends_at else None,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+    }
+
+
+@router.get("/popups/active")
+def get_active_popups(db: Session = Depends(get_db)):
+    """현재 노출 중인 팝업 목록 (인증 불필요 — 프론트엔드 레이아웃에서 호출)"""
+    from app.models.community import SitePopup
+    now = datetime.now(timezone.utc)
+    popups = (
+        db.query(SitePopup)
+        .filter(
+            SitePopup.is_active == True,
+            (SitePopup.starts_at == None) | (SitePopup.starts_at <= now),
+            (SitePopup.ends_at == None) | (SitePopup.ends_at >= now),
+        )
+        .order_by(SitePopup.id.desc())
+        .all()
+    )
+    return [_popup_dict(p) for p in popups]
+
+
+@router.get("/popups")
+def list_popups(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    from app.models.community import SitePopup
+    popups = db.query(SitePopup).order_by(SitePopup.id.desc()).all()
+    return [_popup_dict(p) for p in popups]
+
+
+@router.post("/popups", status_code=201)
+def create_popup(body: dict, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    from app.models.community import SitePopup
+    popup = SitePopup(
+        popup_type=body.get("popup_type", "info")[:20],
+        title=(body.get("title") or "")[:200],
+        content=body.get("content"),
+        link_url=body.get("link_url"),
+        link_text=body.get("link_text"),
+        bg_color=(body.get("bg_color") or "blue")[:20],
+        is_active=bool(body.get("is_active", True)),
+        starts_at=body.get("starts_at"),
+        ends_at=body.get("ends_at"),
+    )
+    db.add(popup)
+    db.commit()
+    db.refresh(popup)
+    return _popup_dict(popup)
+
+
+@router.put("/popups/{popup_id}")
+def update_popup(
+    popup_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    from app.models.community import SitePopup
+    popup = db.query(SitePopup).filter(SitePopup.id == popup_id).first()
+    if not popup:
+        raise HTTPException(404, "팝업을 찾을 수 없습니다")
+    for field, max_len in [("popup_type", 20), ("title", 200), ("bg_color", 20)]:
+        if field in body:
+            setattr(popup, field, str(body[field])[:max_len])
+    for field in ("content", "link_url", "link_text", "starts_at", "ends_at"):
+        if field in body:
+            setattr(popup, field, body[field])
+    if "is_active" in body:
+        popup.is_active = bool(body["is_active"])
+    db.commit()
+    db.refresh(popup)
+    return _popup_dict(popup)
+
+
+@router.delete("/popups/{popup_id}", status_code=204)
+def delete_popup(popup_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    from app.models.community import SitePopup
+    popup = db.query(SitePopup).filter(SitePopup.id == popup_id).first()
+    if not popup:
+        raise HTTPException(404, "팝업을 찾을 수 없습니다")
+    db.delete(popup)
+    db.commit()
+
+
+# ── 신고 관리 ─────────────────────────────────────────────────────────────────
+
+@router.get("/reports")
+def list_reports(
+    status: str = Query(default="pending", pattern="^(pending|resolved|dismissed|all)$"),
+    page:  int  = Query(1, ge=1),
+    limit: int  = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    from app.models.community import Report, StockPost, StockComment
+    q = db.query(Report)
+    if status != "all":
+        q = q.filter(Report.status == status)
+    total = q.count()
+    reports = q.order_by(Report.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    result = []
+    for r in reports:
+        post_title = None
+        comment_preview = None
+        if r.post_id:
+            post = db.query(StockPost).filter(StockPost.id == r.post_id).first()
+            if post:
+                try:
+                    cd = json.loads(post.content)
+                    post_title = cd.get("title", "")[:100]
+                except Exception:
+                    post_title = str(post.content)[:100]
+        if r.comment_id:
+            comment = db.query(StockComment).filter(StockComment.id == r.comment_id).first()
+            if comment:
+                comment_preview = str(comment.content)[:100]
+        result.append({
+            "id":              r.id,
+            "reporter_id":     r.reporter_id,
+            "reporter":        r.reporter.username if r.reporter else "—",
+            "post_id":         r.post_id,
+            "comment_id":      r.comment_id,
+            "post_title":      post_title,
+            "comment_preview": comment_preview,
+            "reason":          r.reason,
+            "status":          r.status,
+            "created_at":      r.created_at.isoformat() if r.created_at else None,
+        })
+    return {"total": total, "items": result}
+
+
+@router.patch("/reports/{report_id}/blind")
+def blind_content(report_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """신고된 게시글 또는 댓글을 블라인드 처리"""
+    from app.models.community import Report, StockPost, StockComment
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "신고를 찾을 수 없습니다")
+    if report.post_id:
+        post = db.query(StockPost).filter(StockPost.id == report.post_id).first()
+        if post:
+            post.is_blinded = True
+    if report.comment_id:
+        comment = db.query(StockComment).filter(StockComment.id == report.comment_id).first()
+        if comment:
+            comment.is_blinded = True
+    report.status = "resolved"
+    db.commit()
+    return {"message": "블라인드 처리 완료", "report_id": report_id}
+
+
+@router.patch("/reports/{report_id}/dismiss")
+def dismiss_report(report_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """신고 기각"""
+    from app.models.community import Report
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "신고를 찾을 수 없습니다")
+    report.status = "dismissed"
+    db.commit()
+    return {"message": "신고 기각 완료", "report_id": report_id}
+
+
+@router.delete("/reports/{report_id}/content", status_code=204)
+def delete_reported_content(report_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """신고된 게시글 또는 댓글을 삭제 처리"""
+    from app.models.community import Report, StockPost, StockComment
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "신고를 찾을 수 없습니다")
+    if report.post_id:
+        post = db.query(StockPost).filter(StockPost.id == report.post_id).first()
+        if post:
+            post.is_deleted = True
+    if report.comment_id:
+        comment = db.query(StockComment).filter(StockComment.id == report.comment_id).first()
+        if comment:
+            comment.is_deleted = True
+    report.status = "resolved"
+    db.commit()
+
+
+# ── 트렌드 / 사용 통계 ──────────────────────────────────────────────────────────
+
+@router.get("/search-trends")
+def get_search_trends(_: User = Depends(require_admin)):
+    """검색어 트렌드 TOP 20 (인메모리, 서버 재시작 시 초기화)"""
+    from app.core.trends import get_search_trends as _trends
+    return _trends(top_n=20)
+
+
+@router.get("/usage-stats")
+def get_usage_stats(_: User = Depends(require_admin)):
+    """기능별 사용 통계 (인메모리, 서버 재시작 시 초기화)"""
+    from app.core.trends import get_usage_stats as _stats
+    return _stats()
