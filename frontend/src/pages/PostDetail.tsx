@@ -36,6 +36,48 @@ async function compressImage(file: File): Promise<string> {
   });
 }
 
+const REPORT_REASONS = ["스팸·광고", "욕설·혐오 표현", "허위 정보", "성적·불법 콘텐츠", "개인정보 침해", "기타"];
+
+function ReportForm({ onSubmit, onCancel, submitting }: {
+  onSubmit: (reason: string) => void;
+  onCancel: () => void;
+  submitting: boolean;
+}) {
+  const [selected, setSelected] = useState("");
+  const [custom, setCustom] = useState("");
+  const finalReason = selected === "기타" ? custom.trim() : selected;
+
+  return (
+    <div className="flex flex-col gap-2 mt-1.5 p-2.5 bg-bg-elevated rounded-xl border border-border/50">
+      <div className="flex flex-wrap gap-1.5">
+        {REPORT_REASONS.map(r => (
+          <button key={r} onClick={() => setSelected(r)}
+            className={`text-xs px-2.5 py-1 rounded-full border transition-all ${
+              selected === r
+                ? "bg-accent-red/15 text-accent-red border-accent-red/40 font-semibold"
+                : "border-border text-text-muted hover:border-accent-red/40 hover:text-accent-red"
+            }`}>
+            {r}
+          </button>
+        ))}
+      </div>
+      {selected === "기타" && (
+        <input value={custom} onChange={e => setCustom(e.target.value)}
+          placeholder="신고 사유를 직접 입력하세요" maxLength={200} autoFocus
+          className="w-full bg-bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-red/50" />
+      )}
+      <div className="flex gap-1.5 justify-end">
+        <button onClick={onCancel}
+          className="text-xs px-2.5 py-1 text-text-dim hover:text-text-primary border border-border rounded-lg">취소</button>
+        <button onClick={() => onSubmit(finalReason)} disabled={!finalReason || submitting}
+          className="text-xs px-2.5 py-1 bg-accent-red/90 text-white rounded-lg disabled:opacity-40">
+          {submitting ? "..." : "신고"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const MARKET_BADGE: Record<string, string> = {
   KR:  "border-blue-500/40 text-blue-400 bg-blue-500/10",
   US:  "border-emerald-500/40 text-emerald-400 bg-emerald-500/10",
@@ -72,17 +114,14 @@ function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const [reportReason, setReportReason] = useState("");
   const [submittingReport, setSubmittingReport] = useState(false);
 
-  const handleReport = async () => {
-    const reason = reportReason.trim();
+  const handleReport = async (reason: string) => {
     if (!reason || submittingReport) return;
     setSubmittingReport(true);
     try {
       await communityApi.reportComment(reply.id, reason);
       setShowReport(false);
-      setReportReason("");
       alert("신고가 접수되었습니다");
     } catch (e: any) {
       if (e?.response?.status === 409) alert("이미 신고한 댓글입니다");
@@ -170,14 +209,11 @@ function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
               )}
             </div>
             {showReport && (
-              <div className="flex items-center gap-1.5 mt-1">
-                <input value={reportReason} onChange={e => setReportReason(e.target.value)}
-                  placeholder="신고 사유를 입력하세요" maxLength={200}
-                  className="flex-1 bg-bg-elevated border border-border rounded-lg px-2 py-1 text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-red/50" />
-                <button onClick={handleReport} disabled={submittingReport || !reportReason.trim()}
-                  className="text-xs px-2 py-1 bg-accent-red/90 text-white rounded-lg disabled:opacity-40">{submittingReport ? "..." : "신고"}</button>
-                <button onClick={() => { setShowReport(false); setReportReason(""); }} className="text-xs text-text-dim hover:text-text-primary">취소</button>
-              </div>
+              <ReportForm
+                onSubmit={handleReport}
+                onCancel={() => setShowReport(false)}
+                submitting={submittingReport}
+              />
             )}
           </div>
         )}
@@ -200,17 +236,14 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
   const [editText, setEditText] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const [reportReason, setReportReason] = useState("");
   const [submittingReport, setSubmittingReport] = useState(false);
 
-  const handleReport = async () => {
-    const reason = reportReason.trim();
+  const handleReport = async (reason: string) => {
     if (!reason || submittingReport) return;
     setSubmittingReport(true);
     try {
       await communityApi.reportComment(comment.id, reason);
       setShowReport(false);
-      setReportReason("");
       alert("신고가 접수되었습니다");
     } catch (e: any) {
       if (e?.response?.status === 409) alert("이미 신고한 댓글입니다");
@@ -334,14 +367,11 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
               )}
             </div>
             {showReport && (
-              <div className="flex items-center gap-1.5 mt-1">
-                <input value={reportReason} onChange={e => setReportReason(e.target.value)}
-                  placeholder="신고 사유를 입력하세요" maxLength={200}
-                  className="flex-1 bg-bg-elevated border border-border rounded-lg px-2.5 py-1 text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-red/50" />
-                <button onClick={handleReport} disabled={submittingReport || !reportReason.trim()}
-                  className="text-xs px-2.5 py-1 bg-accent-red/90 text-white rounded-lg disabled:opacity-40">{submittingReport ? "..." : "신고"}</button>
-                <button onClick={() => { setShowReport(false); setReportReason(""); }} className="text-xs text-text-dim hover:text-text-primary">취소</button>
-              </div>
+              <ReportForm
+                onSubmit={handleReport}
+                onCancel={() => setShowReport(false)}
+                submitting={submittingReport}
+              />
             )}
           </div>
         )}
@@ -392,7 +422,6 @@ export default function PostDetail() {
   const [following, setFollowing] = useState<boolean | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const [showPostReport, setShowPostReport] = useState(false);
-  const [postReportReason, setPostReportReason] = useState("");
   const [submittingPostReport, setSubmittingPostReport] = useState(false);
 
   const autoResize = useCallback((el: HTMLTextAreaElement | null) => {
@@ -472,14 +501,12 @@ export default function PostDetail() {
     try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
   };
 
-  const handlePostReport = async () => {
-    const reason = postReportReason.trim();
+  const handlePostReport = async (reason: string) => {
     if (!reason || submittingPostReport || !activePost) return;
     setSubmittingPostReport(true);
     try {
       await communityApi.reportPost(activePost.id, reason);
       setShowPostReport(false);
-      setPostReportReason("");
       alert("신고가 접수되었습니다");
     } catch (e: any) {
       if (e?.response?.status === 409) alert("이미 신고한 게시글입니다");
@@ -931,15 +958,11 @@ export default function PostDetail() {
               </div>
             </div>
             {showPostReport && (
-              <div className="flex items-center gap-2">
-                <input value={postReportReason} onChange={e => setPostReportReason(e.target.value)}
-                  placeholder="신고 사유를 입력하세요" maxLength={200}
-                  className="flex-1 bg-bg-elevated border border-border rounded-xl px-3 py-2 text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-red/50" />
-                <button onClick={handlePostReport} disabled={submittingPostReport || !postReportReason.trim()}
-                  className="text-sm px-3 py-2 bg-accent-red/90 text-white rounded-xl disabled:opacity-40 whitespace-nowrap">{submittingPostReport ? "..." : "신고"}</button>
-                <button onClick={() => { setShowPostReport(false); setPostReportReason(""); }}
-                  className="text-sm px-3 py-2 text-text-dim hover:text-text-primary border border-border rounded-xl">취소</button>
-              </div>
+              <ReportForm
+                onSubmit={handlePostReport}
+                onCancel={() => setShowPostReport(false)}
+                submitting={submittingPostReport}
+              />
             )}
           </div>
 
