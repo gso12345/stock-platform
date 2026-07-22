@@ -150,37 +150,64 @@ def _batch_close(symbols: list) -> "pd.DataFrame | None":
 
 
 def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
-    """네이버 금융 국내금리 페이지에서 한국 기준금리 · CD(91일) 실시간 조회 (API 키 불필요)"""
+    """네이버 금융에서 기준금리 + CD(91일) 조회. CD금리는 일별 시세 2행으로 전일대비 계산"""
+    from bs4 import BeautifulSoup
+    _HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://finance.naver.com/",
+    }
+
+    base_rate = None
     try:
-        from bs4 import BeautifulSoup
-        r = httpx.get(
-            "https://finance.naver.com/marketindex/interestList.naver",
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-                "Referer": "https://finance.naver.com/",
-            },
+        r = httpx.get("https://finance.naver.com/marketindex/interestList.naver", headers=_HEADERS, timeout=8)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, "lxml")
+            for row in soup.select("table tbody tr"):
+                cells = [c.get_text(strip=True) for c in row.find_all("td")]
+                if len(cells) < 2:
+                    continue
+                try:
+                    val = float(cells[1].replace(",", ""))
+                except (ValueError, IndexError):
+                    continue
+                if base_rate is None and "기준금리" in cells[0]:
+                    base_rate = {"name": "한국 기준금리", "value": val, "change": 0.0, "change_rate": 0.0, "unit": "%"}
+    except Exception:
+        pass
+
+    # CD금리: 일별 시세 2행 → 전일대비 계산
+    cd_rate = None
+    try:
+        r2 = httpx.get(
+            "https://finance.naver.com/marketindex/interestDailyQuote.naver",
+            params={"marketindexCd": "IRR_CD91", "page": "1"},
+            headers=_HEADERS,
             timeout=8,
         )
-        if r.status_code != 200:
-            return None, None
-        soup = BeautifulSoup(r.text, "lxml")
-        base_rate = cd_rate = None
-        for row in soup.select("table tbody tr"):
-            cells = [c.get_text(strip=True) for c in row.find_all("td")]
-            if len(cells) < 2:
-                continue
-            name = cells[0]
-            try:
-                val = float(cells[1].replace(",", ""))
-            except (ValueError, IndexError):
-                continue
-            if base_rate is None and "기준금리" in name:
-                base_rate = {"name": "한국 기준금리", "value": val, "change": 0.0, "change_rate": 0.0, "unit": "%"}
-            elif cd_rate is None and "CD" in name and "91" in name:
-                cd_rate = {"name": "CD금리(91일)", "value": val, "change": 0.0, "change_rate": 0.0, "unit": "%"}
-        return base_rate, cd_rate
+        if r2.status_code == 200:
+            soup2 = BeautifulSoup(r2.text, "lxml")
+            vals = []
+            for row in soup2.select("table tbody tr"):
+                cells = row.find_all("td")
+                if not cells:
+                    continue
+                # 컬럼: 날짜 | 현재가 | 전일대비 | 등락률  (인덱스 1이 현재가)
+                try:
+                    val = float(cells[1].get_text(strip=True).replace(",", ""))
+                    vals.append(val)
+                except (ValueError, IndexError):
+                    continue
+                if len(vals) >= 2:
+                    break
+            if vals:
+                curr = vals[0]
+                prev = vals[1] if len(vals) >= 2 else curr
+                chg = round(curr - prev, 3)
+                cd_rate = {"name": "CD금리(91일)", "value": curr, "change": chg, "change_rate": chg, "unit": "%"}
     except Exception:
-        return None, None
+        pass
+
+    return base_rate, cd_rate
 
 
 def _do_fetch_kr_rates() -> list:
@@ -200,7 +227,7 @@ def _do_fetch_kr_rates() -> list:
         except Exception:
             close_data = None
         try:
-            _naver_base, naver_cd = f_naver.result(timeout=10)
+            _, naver_cd = f_naver.result(timeout=10)
         except Exception:
             naver_cd = None
     finally:
@@ -241,37 +268,30 @@ def get_kr_rates() -> list:
     return _do_fetch_kr_rates()
 
 
+_FX_CACHE_MAP = {
+    "USDKRW=X": ("extra:usdkrw", "USDKRW", "원/달러 환율"),
+    "EURKRW=X": ("extra:eurkrw", "EURKRW", "원/유로 환율"),
+    "JPYKRW=X": ("extra:jpykrw", "JPYKRW", "원/100엔"),
+}
+
+
 def _do_fetch_us_rates() -> list:
     ck = "extra:us_rates"
-    # (yf_sym, display_name, unit, is_rate, rt_cache_key)
-    # rt_cache_key: 실시간 캐시 키 — get_usdkrw/get_eurkrw가 채워 둔 값 우선 사용
+    # 원달러·원유로·원엔 모두 yfinance history 방식으로 통일 (rt_cache_key 없음)
     specs = [
-        ("USDKRW=X",  "원/달러",          "원",  False, "extra:usdkrw"),
-        ("EURKRW=X",  "원/유로",          "원",  False, "extra:eurkrw"),
-        ("JPYKRW=X",  "원/100엔",         "원",  False, None),
-        ("^IRX",      "미국 단기금리(3M)", "%",   True,  None),
-        ("^FVX",      "미국 5년 국채",     "%",   True,  None),
-        ("^TNX",      "미국 10년 국채",    "%",   True,  None),
-        ("^TYX",      "미국 30년 국채",    "%",   True,  None),
-        ("^VIX",      "VIX 공포지수",      "pt",  False, None),
+        ("USDKRW=X",  "원/달러",          "원",  False),
+        ("EURKRW=X",  "원/유로",          "원",  False),
+        ("JPYKRW=X",  "원/100엔",         "원",  False),
+        ("^IRX",      "미국 단기금리(3M)", "%",   True),
+        ("^FVX",      "미국 5년 국채",     "%",   True),
+        ("^TNX",      "미국 10년 국채",    "%",   True),
+        ("^TYX",      "미국 30년 국채",    "%",   True),
+        ("^VIX",      "VIX 공포지수",      "pt",  False),
     ]
-    # 실시간 캐시가 없는 종목만 yfinance 배치 조회
-    need_yf = [s[0] for s in specs if not s[4] or not (cache.get(s[4]) or cache.get_stale(s[4]))]
-    close_data = _batch_close(need_yf) if need_yf else None
+    close_data = _batch_close([s[0] for s in specs])
 
     results = []
-    for sym, name, unit, is_rate, rt_key in specs:
-        # 실시간 환율 캐시 우선 (USD/EUR — get_fxkrw가 채운 값)
-        if rt_key:
-            rt = cache.get(rt_key) or cache.get_stale(rt_key)
-            if rt and rt.get("value", 0) > 0:
-                results.append({
-                    "name": name, "value": rt["value"],
-                    "change": rt.get("change", 0), "change_rate": rt.get("change_rate", 0),
-                    "unit": unit, "is_rate": is_rate,
-                })
-                continue
-        # 폴백: yfinance 히스토리
+    for sym, name, unit, is_rate in specs:
         try:
             c2 = close_data[sym].dropna() if (close_data is not None and sym in close_data.columns) \
                  else yf.Ticker(sym).history(period="5d")["Close"].dropna()
@@ -280,12 +300,17 @@ def _do_fetch_us_rates() -> list:
             curr, prev = float(c2.iloc[-1]), float(c2.iloc[-2]) if len(c2) >= 2 else float(c2.iloc[-1])
             chg  = curr - prev
             chgr = chg / prev * 100 if prev and not is_rate else chg
-            results.append({
+            item = {
                 "name": name, "value": round(curr, 3 if is_rate else 2),
                 "change": round(chg, 3 if is_rate else 2),
                 "change_rate": round(chgr, 3 if is_rate else 2),
                 "unit": unit, "is_rate": is_rate,
-            })
+            }
+            results.append(item)
+            # 환율은 개별 캐시에도 저장 (get_usdkrw/get_eurkrw 하위 호환)
+            if sym in _FX_CACHE_MAP and curr > 0:
+                fx_ck, symbol, fx_name = _FX_CACHE_MAP[sym]
+                cache.set(fx_ck, {**item, "symbol": symbol, "name": fx_name, "value": round(curr, 2)}, 360)
         except Exception:
             continue
 

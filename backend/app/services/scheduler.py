@@ -9,7 +9,7 @@ from datetime import datetime
 from app.core.cache import cache
 from app.services.price_fetcher import (
     fetch_naver_indices, fetch_naver_stocks, fetch_naver_exchange,
-    fetch_yf_quotes, fetch_yf_index_quotes, get_usdkrw, get_eurkrw, fetch_pykrx_index,
+    fetch_yf_quotes, fetch_yf_index_quotes, fetch_pykrx_index,
 )
 from app.core.config import settings
 
@@ -342,13 +342,16 @@ async def refresh_held_symbols():
 
 
 async def refresh_exchange():
-    """환율 갱신 (USD/KRW + EUR/KRW — 동일한 폴백 체인)"""
+    """환율 갱신 — 원달러·원유로·원엔 모두 us_rates 배치(yfinance history)로 통일"""
     try:
-        usd, eur = await asyncio.gather(get_usdkrw(), get_eurkrw(), return_exceptions=True)
-        if isinstance(usd, dict) and usd.get("value", 0) > 0:
-            log.info(f"USD/KRW: {usd['value']}원 ({usd.get('change', 0):+.2f})")
-        if isinstance(eur, dict) and eur.get("value", 0) > 0:
-            log.info(f"EUR/KRW: {eur['value']}원 ({eur.get('change', 0):+.2f})")
+        loop = asyncio.get_running_loop()
+        from app.services.market_extras import _do_fetch_us_rates
+        await loop.run_in_executor(None, _do_fetch_us_rates)
+        from app.core.cache import cache as _cache
+        for ck, sym in [("extra:usdkrw", "USD"), ("extra:eurkrw", "EUR"), ("extra:jpykrw", "JPY")]:
+            v = _cache.get(ck)
+            if v and v.get("value", 0) > 0:
+                log.info(f"{sym}/KRW: {v['value']} ({v.get('change', 0):+.2f})")
     except Exception as e:
         log.debug(f"환율 갱신 실패: {e}")
 
