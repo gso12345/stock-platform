@@ -205,6 +205,9 @@ export const dashboardApi = {
   getUSRates: () =>
     api.get("/dashboard/us/rates").then((r) => r.data),
 
+  getExchangeRate: () =>
+    api.get("/dashboard/exchange").then((r) => r.data),
+
   getTopMovers: () =>
     api.get<{ risers: any[]; fallers: any[] }>("/dashboard/top-movers").then((r) => r.data),
 };

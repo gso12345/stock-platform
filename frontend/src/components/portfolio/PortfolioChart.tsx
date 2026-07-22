@@ -64,9 +64,10 @@ export default function PortfolioChart({
         } else {
           const isUSDStock = item.market === "US" || item.market === "ETF";
           // 매입가 환산: currency 우선(사용자가 명시적으로 지정한 통화), 미설정이면 market 기준
+          // inputExchangeRate: 매수 당시 환율(항상 실수), exchangeRate: 실시간(0이면 미로드)
           const fx = item.currency === "USD"
-            ? (item.inputExchangeRate ?? exchangeRate)
-            : isUSDStock ? exchangeRate : 1;
+            ? (item.inputExchangeRate ?? (exchangeRate > 0 ? exchangeRate : 1))
+            : isUSDStock ? (exchangeRate > 0 ? exchangeRate : 1) : 1;
           value = (item.avgPrice ?? 0) * fx * (item.shares ?? 0);
         }
         if (map[item.symbol]) map[item.symbol].value += value;
@@ -100,8 +101,8 @@ export default function PortfolioChart({
         if (item.currentValueKRW != null) return s + item.currentValueKRW;
         const isUSDStock = item.market === "US" || item.market === "ETF";
         const fx = item.currency === "USD"
-          ? (item.inputExchangeRate ?? exchangeRate)
-          : isUSDStock ? exchangeRate : 1;
+          ? (item.inputExchangeRate ?? (exchangeRate > 0 ? exchangeRate : 1))
+          : isUSDStock ? (exchangeRate > 0 ? exchangeRate : 1) : 1;
         return s + (item.avgPrice ?? 0) * fx * item.shares;
       }, 0)),
     })).filter(d => d.value > 0),

@@ -95,18 +95,13 @@ export default function UserProfile() {
     staleTime: 120_000,
   });
 
-  const { data: usRatesData } = useQuery({
-    queryKey: ["dashboard-us-rates"],
-    queryFn: () => dashboardApi.getUSRates(),
-    staleTime: 300_000,
+  const { data: fxData } = useQuery({
+    queryKey: ["exchange-rate"],
+    queryFn: () => dashboardApi.getExchangeRate(),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   });
-  const exchangeRate: number = useMemo(() => {
-    if (Array.isArray(usRatesData)) {
-      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
-      if (row?.value) return row.value;
-    }
-    return 1350;
-  }, [usRatesData]);
+  const exchangeRate: number = (fxData as any)?.value ?? 0;
 
   // 현금 제외한 가격 조회 가능 종목 추출
   const priceableItems = useMemo(() => {
@@ -159,7 +154,8 @@ export default function UserProfile() {
         // YF 실시간 가격은 항상 USD — currency 필드 오설정과 무관하게 market 기준으로 환산
         const isUSDStock = i.market === "US" || i.market === "ETF";
         const fx = isUSDStock ? exchangeRate : 1;
-        const currentValueKRW = currentPrice != null && currentPrice > 0
+        // fx=0 이면 환율 미로드 상태 — undefined 반환해 PortfolioChart 내 fallback 사용
+        const currentValueKRW = currentPrice != null && currentPrice > 0 && fx > 0
           ? currentPrice * fx * i.shares
           : undefined;
         return { ...i, currentValueKRW };
