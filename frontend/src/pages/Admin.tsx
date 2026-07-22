@@ -13,11 +13,19 @@ import {
 
 const adminApi = {
   getStats:        () => api.get("/admin/stats").then(r => r.data),
-  getUsers:        (status = "all") => api.get("/admin/users", { params: { status } }).then(r => r.data),
+  getUsers:        (status = "all", page = 1) => api.get("/admin/users", { params: { status, page, limit: 50 } }).then(r => r.data),
+  getUserDetail:   (id: number) => api.get(`/admin/users/${id}/detail`).then(r => r.data),
   getCommunityPosts: (page = 1, market?: string) =>
     api.get("/admin/community/posts", { params: { page, limit: 20, ...(market && market !== "ALL" ? { market } : {}) } }).then(r => r.data),
   deleteCommunityPost: (id: number) =>
     api.delete(`/admin/community/posts/${id}`).then(r => r.data),
+  blindPost:       (id: number) => api.patch(`/admin/community/posts/${id}/blind`).then(r => r.data),
+  unblindPost:     (id: number) => api.patch(`/admin/community/posts/${id}/unblind`).then(r => r.data),
+  getCommunityComments: (page = 1, postId?: number) =>
+    api.get("/admin/community/comments", { params: { page, limit: 20, ...(postId ? { post_id: postId } : {}) } }).then(r => r.data),
+  deleteCommunityComment: (id: number) => api.delete(`/admin/community/comments/${id}`).then(r => r.data),
+  blindComment:    (id: number) => api.patch(`/admin/community/comments/${id}/blind`).then(r => r.data),
+  unblindComment:  (id: number) => api.patch(`/admin/community/comments/${id}/unblind`).then(r => r.data),
   getPopular:      (basis: string) => api.get(`/admin/popular-stocks?basis=${basis}`).then(r => r.data),
   getSignups:        () => api.get("/admin/signups").then(r => r.data),
   getVisitorTrend:   () => api.get("/admin/visitor-trend").then(r => r.data),
@@ -56,6 +64,14 @@ export default function Admin() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("dashboard");
 
+  const { data: stats } = useQuery({
+    queryKey: ["admin-stats"],
+    queryFn: adminApi.getStats,
+    staleTime: 30_000,
+    enabled: isAdmin,
+  });
+  const pendingReports: number = stats?.pending_reports ?? 0;
+
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -67,15 +83,6 @@ export default function Admin() {
       </div>
     );
   }
-
-  const TABS: { id: Tab; Icon: any; label: string }[] = [
-    { id: "dashboard", Icon: BarChart2,     label: "대시보드" },
-    { id: "users",     Icon: Users,         label: "유저 관리" },
-    { id: "community", Icon: MessageSquare, label: "커뮤니티" },
-    { id: "reports",   Icon: Flag,          label: "신고 관리" },
-    { id: "banner",    Icon: Megaphone,     label: "배너·공지" },
-    { id: "cache",     Icon: Database,      label: "캐시" },
-  ];
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 flex flex-col gap-6">
@@ -96,22 +103,34 @@ export default function Admin() {
 
       {/* 탭 */}
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-hide">
-        {TABS.map(({ id, Icon, label }) => (
+        {([
+          { id: "dashboard", Icon: BarChart2,     label: "대시보드",  badge: 0 },
+          { id: "users",     Icon: Users,         label: "유저 관리", badge: 0 },
+          { id: "community", Icon: MessageSquare, label: "커뮤니티",  badge: 0 },
+          { id: "reports",   Icon: Flag,          label: "신고 관리", badge: pendingReports },
+          { id: "banner",    Icon: Megaphone,     label: "배너·공지", badge: 0 },
+          { id: "cache",     Icon: Database,      label: "캐시",      badge: 0 },
+        ] as { id: Tab; Icon: any; label: string; badge: number }[]).map(({ id, Icon, label, badge }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all border-b-2 -mb-px whitespace-nowrap ${
+            className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all border-b-2 -mb-px whitespace-nowrap ${
               tab === id
                 ? "border-accent-blue text-accent-blue"
                 : "border-transparent text-text-muted hover:text-text-primary"
             }`}
           >
             <Icon size={14} />{label}
+            {badge > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-accent-red text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+                {badge > 99 ? "99+" : badge}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      {tab === "dashboard" && <DashboardTab qc={qc} />}
+      {tab === "dashboard" && <DashboardTab qc={qc} stats={stats} />}
       {tab === "users"     && <UsersTab qc={qc} />}
       {tab === "community" && <CommunityAdminTab qc={qc} />}
       {tab === "reports"   && <ReportsTab qc={qc} />}
@@ -122,9 +141,10 @@ export default function Admin() {
 }
 
 /* ─────────────────────────── 대시보드 탭 ─────────────────────────── */
-function DashboardTab({ qc }: { qc: any }) {
+function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
   const [popularBasis, setPopularBasis] = useState<"watchlist" | "portfolio">("watchlist");
-  const { data: stats }   = useQuery({ queryKey: ["admin-stats"],   queryFn: adminApi.getStats,   staleTime: 30_000 });
+  const { data: statsData } = useQuery({ queryKey: ["admin-stats"], queryFn: adminApi.getStats, staleTime: 30_000 });
+  const stats = statsProp ?? statsData;
   const { data: popular } = useQuery({ queryKey: ["admin-popular", popularBasis], queryFn: () => adminApi.getPopular(popularBasis), staleTime: 60_000 });
   const { data: signups }      = useQuery({ queryKey: ["admin-signups"],       queryFn: adminApi.getSignups,      staleTime: 60_000 });
   const { data: visitorTrend } = useQuery({ queryKey: ["admin-visitor-trend"], queryFn: adminApi.getVisitorTrend, staleTime: 60_000 });
@@ -471,7 +491,7 @@ function DashboardTab({ qc }: { qc: any }) {
             <div className="px-4 py-3 border-b border-border flex items-center gap-1.5">
               <Search size={14} className="text-accent-blue" />
               <span className="text-sm font-semibold text-text-primary">검색 트렌드 TOP 20</span>
-              <span className="text-xs text-text-muted ml-auto">누적 집계</span>
+              <span className="text-xs text-text-muted ml-auto">DB 영속화</span>
             </div>
             {trends.length === 0 ? (
               <div className="py-8 text-center text-text-muted text-sm">검색 데이터가 없습니다</div>
@@ -506,7 +526,7 @@ function DashboardTab({ qc }: { qc: any }) {
             <div className="px-4 py-3 border-b border-border flex items-center gap-1.5">
               <Activity size={14} className="text-accent-green" />
               <span className="text-sm font-semibold text-text-primary">기능별 사용 통계</span>
-              <span className="text-xs text-text-muted ml-auto">누적 집계</span>
+              <span className="text-xs text-text-muted ml-auto">DB 영속화</span>
             </div>
             {usage.length === 0 ? (
               <div className="py-8 text-center text-text-muted text-sm">사용 데이터가 없습니다</div>
@@ -541,9 +561,30 @@ const MARKET_COLOR_MAP: Record<string, string> = {
 };
 
 function CommunityAdminTab({ qc }: { qc: any }) {
+  const [subTab, setSubTab] = useState<"posts" | "comments">("posts");
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
+        {(["posts", "comments"] as const).map((t) => (
+          <button key={t} onClick={() => setSubTab(t)}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              subTab === t ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
+            }`}>
+            {t === "posts" ? "게시글" : "댓글"}
+          </button>
+        ))}
+      </div>
+      {subTab === "posts"    && <PostsAdminSection qc={qc} />}
+      {subTab === "comments" && <CommentsAdminSection qc={qc} />}
+    </div>
+  );
+}
+
+function PostsAdminSection({ qc }: { qc: any }) {
   const [page, setPage] = useState(1);
   const [marketFilter, setMarketFilter] = useState("ALL");
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [actingId, setActingId] = useState<number | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["admin-community-posts", page, marketFilter],
@@ -560,6 +601,11 @@ function CommunityAdminTab({ qc }: { qc: any }) {
       refetch();
     },
   });
+
+  const actPost = (fn: (id: number) => Promise<any>, id: number) => {
+    setActingId(id);
+    fn(id).finally(() => { setActingId(null); refetch(); });
+  };
 
   const posts: any[] = data?.items ?? [];
   const total: number = data?.total ?? 0;
@@ -605,12 +651,12 @@ function CommunityAdminTab({ qc }: { qc: any }) {
                   <th className="text-left px-3 py-3 font-medium">내용</th>
                   <th className="text-center px-3 py-3 font-medium hidden sm:table-cell">좋아요</th>
                   <th className="text-center px-3 py-3 font-medium hidden lg:table-cell">작성일</th>
-                  <th className="text-center px-3 py-3 font-medium">삭제</th>
+                  <th className="text-center px-3 py-3 font-medium">관리</th>
                 </tr>
               </thead>
               <tbody>
                 {posts.map((p) => (
-                  <tr key={p.id} className="border-b border-border/30 hover:bg-bg-hover transition-colors">
+                  <tr key={p.id} className={`border-b border-border/30 hover:bg-bg-hover transition-colors ${p.is_blinded ? "opacity-50" : ""}`}>
                     <td className="px-4 py-3 font-mono text-text-muted text-xs">{p.id}</td>
                     <td className="px-3 py-3">
                       <Link
@@ -629,13 +675,18 @@ function CommunityAdminTab({ qc }: { qc: any }) {
                       </div>
                     </td>
                     <td className="px-3 py-3 max-w-[200px] lg:max-w-xs">
-                      <Link
-                        to={`/post/${p.id}`}
-                        className="text-xs text-text-secondary hover:text-accent-blue transition-colors truncate block"
-                        title={p.title || p.body || ""}
-                      >
-                        {p.title || p.body || "—"}
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        {p.is_blinded && (
+                          <span className="text-[10px] bg-amber-400/15 text-amber-500 px-1.5 py-px rounded font-bold shrink-0">블라인드</span>
+                        )}
+                        <Link
+                          to={`/post/${p.id}`}
+                          className="text-xs text-text-secondary hover:text-accent-blue transition-colors truncate block"
+                          title={p.title || p.body || ""}
+                        >
+                          {p.title || p.body || "—"}
+                        </Link>
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-center hidden sm:table-cell">
                       <div className="flex items-center justify-center gap-1 text-text-muted">
@@ -646,13 +697,23 @@ function CommunityAdminTab({ qc }: { qc: any }) {
                     <td className="px-3 py-3 text-center hidden lg:table-cell">
                       <span className="text-xs text-text-muted font-mono">{p.created_at.slice(0, 10)}</span>
                     </td>
-                    <td className="px-3 py-3 text-center">
-                      <button
-                        onClick={() => setConfirmDelete(p.id)}
-                        className="text-text-muted hover:text-accent-red transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => actPost(p.is_blinded ? adminApi.unblindPost : adminApi.blindPost, p.id)}
+                          disabled={actingId === p.id}
+                          title={p.is_blinded ? "블라인드 복구" : "블라인드"}
+                          className={`p-1 rounded transition-colors ${p.is_blinded ? "text-accent-blue hover:bg-accent-blue/10" : "text-amber-500 hover:bg-amber-400/10"} disabled:opacity-40`}
+                        >
+                          <Eye size={13} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(p.id)}
+                          className="p-1 rounded text-text-muted hover:text-accent-red transition-colors"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -668,51 +729,179 @@ function CommunityAdminTab({ qc }: { qc: any }) {
       {/* 페이지네이션 */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all"
-          >
-            이전
-          </button>
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">이전</button>
           <span className="text-xs text-text-muted px-2">{page} / {totalPages}</span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all"
-          >
-            다음
-          </button>
+          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">다음</button>
         </div>
       )}
 
       {/* 삭제 확인 팝업 */}
       {confirmDelete !== null && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => { if (!deleteMut.isPending) setConfirmDelete(null); }}
-        >
-          <div
-            className="bg-bg-card border border-border rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => { if (!deleteMut.isPending) setConfirmDelete(null); }}>
+          <div className="bg-bg-card border border-border rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4"
+            onClick={(e) => e.stopPropagation()}>
             <div className="flex flex-col gap-1">
               <p className="text-sm font-bold text-text-primary">글을 삭제하시겠습니까?</p>
               <p className="text-xs text-text-dim">삭제된 게시글은 복구할 수 없습니다.</p>
             </div>
             <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                disabled={deleteMut.isPending}
-                className="flex-1 py-2 rounded-xl border border-border text-sm text-text-secondary hover:border-accent-blue/50 transition-all disabled:opacity-50"
-              >
-                취소
+              <button onClick={() => setConfirmDelete(null)} disabled={deleteMut.isPending}
+                className="flex-1 py-2 rounded-xl border border-border text-sm text-text-secondary hover:border-accent-blue/50 transition-all disabled:opacity-50">취소</button>
+              <button onClick={() => deleteMut.mutate(confirmDelete)} disabled={deleteMut.isPending}
+                className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-accent-red/90 transition-all disabled:opacity-50">
+                {deleteMut.isPending ? "삭제 중..." : "삭제"}
               </button>
-              <button
-                onClick={() => deleteMut.mutate(confirmDelete)}
-                disabled={deleteMut.isPending}
-                className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-accent-red/90 transition-all disabled:opacity-50"
-              >
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommentsAdminSection({ qc }: { qc: any }) {
+  const [page, setPage] = useState(1);
+  const [actingId, setActingId] = useState<number | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["admin-community-comments", page],
+    queryFn: () => adminApi.getCommunityComments(page),
+    staleTime: 30_000,
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => adminApi.deleteCommunityComment(id),
+    onSuccess: () => {
+      setConfirmDelete(null);
+      qc.invalidateQueries({ queryKey: ["admin-community-comments"] });
+      qc.invalidateQueries({ queryKey: ["admin-stats"] });
+      refetch();
+    },
+  });
+
+  const actComment = (fn: (id: number) => Promise<any>, id: number) => {
+    setActingId(id);
+    fn(id).finally(() => { setActingId(null); refetch(); });
+  };
+
+  const comments: any[] = data?.items ?? [];
+  const total: number   = data?.total ?? 0;
+  const totalPages = Math.ceil(total / 20);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-text-muted ml-auto">총 {total.toLocaleString()}개</span>
+        <button onClick={() => refetch()} className="p-1 text-text-muted hover:text-text-primary transition-colors">
+          <RefreshCw size={13} />
+        </button>
+      </div>
+
+      <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-text-muted text-xs">
+                  <th className="text-left px-4 py-3 font-medium">ID</th>
+                  <th className="text-left px-3 py-3 font-medium">작성자</th>
+                  <th className="text-left px-3 py-3 font-medium hidden md:table-cell">게시글</th>
+                  <th className="text-left px-3 py-3 font-medium">내용</th>
+                  <th className="text-center px-3 py-3 font-medium hidden lg:table-cell">작성일</th>
+                  <th className="text-center px-3 py-3 font-medium">관리</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comments.map((c) => (
+                  <tr key={c.id} className={`border-b border-border/30 hover:bg-bg-hover transition-colors ${c.is_blinded ? "opacity-50" : ""}`}>
+                    <td className="px-4 py-3 font-mono text-text-muted text-xs">{c.id}</td>
+                    <td className="px-3 py-3">
+                      <Link to={`/profile/${c.user_id}`}
+                        className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors">
+                        {c.username}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-3 hidden md:table-cell">
+                      <Link to={`/post/${c.post_id}`}
+                        className="text-xs font-mono text-accent-blue hover:underline">
+                        #{c.post_id}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-3 max-w-[200px] lg:max-w-xs">
+                      <div className="flex items-center gap-1.5">
+                        {c.is_blinded && (
+                          <span className="text-[10px] bg-amber-400/15 text-amber-500 px-1.5 py-px rounded font-bold shrink-0">블라인드</span>
+                        )}
+                        {c.parent_id && (
+                          <span className="text-[10px] bg-bg-elevated text-text-muted px-1.5 py-px rounded shrink-0">답글</span>
+                        )}
+                        <span className="text-xs text-text-secondary truncate">{c.content || "—"}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-center hidden lg:table-cell">
+                      <span className="text-xs text-text-muted font-mono">{c.created_at?.slice(0, 10)}</span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => actComment(c.is_blinded ? adminApi.unblindComment : adminApi.blindComment, c.id)}
+                          disabled={actingId === c.id}
+                          title={c.is_blinded ? "블라인드 복구" : "블라인드"}
+                          className={`p-1 rounded transition-colors ${c.is_blinded ? "text-accent-blue hover:bg-accent-blue/10" : "text-amber-500 hover:bg-amber-400/10"} disabled:opacity-40`}
+                        >
+                          <Eye size={13} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(c.id)}
+                          className="p-1 rounded text-text-muted hover:text-accent-red transition-colors"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {comments.length === 0 && (
+              <div className="py-12 text-center text-text-muted text-sm">댓글이 없습니다</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">이전</button>
+          <span className="text-xs text-text-muted px-2">{page} / {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">다음</button>
+        </div>
+      )}
+
+      {confirmDelete !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => { if (!deleteMut.isPending) setConfirmDelete(null); }}>
+          <div className="bg-bg-card border border-border rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-bold text-text-primary">댓글을 삭제하시겠습니까?</p>
+              <p className="text-xs text-text-dim">삭제된 댓글은 복구할 수 없습니다.</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDelete(null)} disabled={deleteMut.isPending}
+                className="flex-1 py-2 rounded-xl border border-border text-sm text-text-secondary hover:border-accent-blue/50 transition-all disabled:opacity-50">취소</button>
+              <button onClick={() => deleteMut.mutate(confirmDelete)} disabled={deleteMut.isPending}
+                className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-accent-red/90 transition-all disabled:opacity-50">
                 {deleteMut.isPending ? "삭제 중..." : "삭제"}
               </button>
             </div>
@@ -727,12 +916,18 @@ function CommunityAdminTab({ qc }: { qc: any }) {
 function UsersTab({ qc }: { qc: any }) {
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [detailUserId, setDetailUserId] = useState<number | null>(null);
 
-  const { data: users = [], isLoading } = useQuery({
-    queryKey: ["admin-users", statusFilter],
-    queryFn: () => adminApi.getUsers(statusFilter),
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-users", statusFilter, page],
+    queryFn: () => adminApi.getUsers(statusFilter, page),
     staleTime: 30_000,
   });
+
+  const allUsers: any[] = data?.items ?? [];
+  const total: number   = data?.total ?? 0;
+  const totalPages = Math.ceil(total / 50);
 
   const toggleMut = useMutation({
     mutationFn: (id: number) => adminApi.toggleActive(id),
@@ -744,10 +939,10 @@ function UsersTab({ qc }: { qc: any }) {
   });
 
   const filtered = search.trim()
-    ? (users as any[]).filter(u =>
+    ? allUsers.filter(u =>
         u.username.toLowerCase().includes(search.toLowerCase()) ||
         (u.email ?? "").toLowerCase().includes(search.toLowerCase()))
-    : (users as any[]);
+    : allUsers;
 
   return (
     <div className="flex flex-col gap-3">
@@ -755,7 +950,7 @@ function UsersTab({ qc }: { qc: any }) {
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex gap-0.5 p-0.5 rounded-lg bg-bg-elevated border border-border">
           {(["all", "active", "inactive"] as const).map((s) => (
-            <button key={s} onClick={() => setStatusFilter(s)}
+            <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
               className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
                 statusFilter === s ? "bg-bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
               }`}>
@@ -774,7 +969,7 @@ function UsersTab({ qc }: { qc: any }) {
             </button>
           )}
         </div>
-        <span className="text-xs text-text-muted shrink-0">{filtered.length}명</span>
+        <span className="text-xs text-text-muted shrink-0">총 {total}명</span>
       </div>
 
       {/* 유저 목록 */}
@@ -800,12 +995,13 @@ function UsersTab({ qc }: { qc: any }) {
               {/* ID */}
               <span className="text-[11px] font-mono text-text-muted/60 w-7 shrink-0 hidden sm:block">{u.id}</span>
 
-              {/* 이름 + 배지 + 이메일 — 1줄, 넘치면 말줄임 */}
+              {/* 이름 + 배지 + 이메일 */}
               <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
-                <Link to={`/profile/${u.id}`}
+                <button
+                  onClick={() => setDetailUserId(u.id)}
                   className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors whitespace-nowrap">
                   {u.username}
-                </Link>
+                </button>
                 {u.is_admin && (
                   <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold shrink-0">관리자</span>
                 )}
@@ -851,6 +1047,135 @@ function UsersTab({ qc }: { qc: any }) {
           ))}
         </div>
       )}
+
+      {/* 페이지네이션 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">이전</button>
+          <span className="text-xs text-text-muted px-2">{page} / {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">다음</button>
+        </div>
+      )}
+
+      {/* 유저 상세 모달 */}
+      {detailUserId !== null && (
+        <UserDetailModal userId={detailUserId} onClose={() => setDetailUserId(null)} qc={qc} />
+      )}
+    </div>
+  );
+}
+
+function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () => void; qc: any }) {
+  const { data: detail, isLoading } = useQuery({
+    queryKey: ["admin-user-detail", userId],
+    queryFn: () => adminApi.getUserDetail(userId),
+    staleTime: 30_000,
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: () => adminApi.toggleActive(userId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); qc.invalidateQueries({ queryKey: ["admin-user-detail", userId] }); },
+  });
+  const communityBanMut = useMutation({
+    mutationFn: () => adminApi.toggleCommunityBan(userId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); qc.invalidateQueries({ queryKey: ["admin-user-detail", userId] }); },
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}>
+      <div className="bg-bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden"
+        onClick={e => e.stopPropagation()}>
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <p className="text-sm font-bold text-text-primary">유저 상세</p>
+          <button onClick={onClose}><XIcon size={16} className="text-text-muted" /></button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+          </div>
+        ) : detail ? (
+          <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
+            {/* 프로필 */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-accent-blue/15 flex items-center justify-center shrink-0">
+                <span className="text-sm font-bold text-accent-blue">{detail.username?.[0]?.toUpperCase()}</span>
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-bold text-text-primary">{detail.username}</p>
+                  {detail.is_admin && <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold">관리자</span>}
+                  {!detail.is_active && <span className="text-[10px] bg-accent-red/15 text-accent-red px-1.5 py-px rounded font-bold">비활성</span>}
+                  {detail.is_community_banned && <span className="text-[10px] bg-orange-400/15 text-orange-400 px-1.5 py-px rounded font-bold">커뮤차단</span>}
+                </div>
+                <p className="text-xs text-text-muted">{detail.email}</p>
+                <p className="text-xs text-text-muted">가입일: {detail.created_at?.slice(0, 10)}</p>
+              </div>
+            </div>
+
+            {/* 통계 */}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: "게시글", value: detail.post_count },
+                { label: "댓글", value: detail.comment_count },
+                { label: "신고 보냄", value: detail.report_sent_count },
+                { label: "팔로워", value: detail.follower_count },
+                { label: "팔로잉", value: detail.following_count },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded-lg bg-bg-elevated p-2.5 flex flex-col gap-0.5">
+                  <p className="text-[10px] text-text-muted">{label}</p>
+                  <p className="text-base font-bold font-mono text-text-primary">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* 최근 게시글 */}
+            {detail.recent_posts?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-text-muted mb-2">최근 게시글</p>
+                <div className="flex flex-col gap-1">
+                  {detail.recent_posts.map((p: any) => (
+                    <Link key={p.id} to={`/post/${p.id}`}
+                      className="flex items-center gap-2 p-2 rounded-lg bg-bg-elevated hover:bg-bg-hover transition-colors">
+                      <span className={`text-[10px] font-bold px-1.5 py-px rounded shrink-0 ${MARKET_COLOR_MAP[p.market] ?? "bg-bg-secondary text-text-muted"}`}>{p.market}</span>
+                      <span className="text-xs text-text-secondary truncate flex-1">{p.title || "—"}</span>
+                      <span className="text-[10px] text-text-muted font-mono shrink-0">{p.created_at?.slice(0, 10)}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 액션 버튼 */}
+            {!detail.is_admin && (
+              <div className="flex gap-2 pt-2 border-t border-border">
+                <button onClick={() => toggleMut.mutate()} disabled={toggleMut.isPending}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    detail.is_active
+                      ? "bg-accent-red/10 text-accent-red hover:bg-accent-red/20"
+                      : "bg-accent-green/10 text-accent-green hover:bg-accent-green/20"
+                  } disabled:opacity-50`}>
+                  {detail.is_active ? "계정 비활성화" : "계정 활성화"}
+                </button>
+                <button onClick={() => communityBanMut.mutate()} disabled={communityBanMut.isPending}
+                  className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    detail.is_community_banned
+                      ? "bg-accent-green/10 text-accent-green hover:bg-accent-green/20"
+                      : "bg-orange-400/10 text-orange-400 hover:bg-orange-400/20"
+                  } disabled:opacity-50`}>
+                  {detail.is_community_banned ? "커뮤니티 차단 해제" : "커뮤니티 차단"}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="py-12 text-center text-text-muted text-sm">정보를 불러올 수 없습니다</div>
+        )}
+      </div>
     </div>
   );
 }

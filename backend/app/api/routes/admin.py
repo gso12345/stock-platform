@@ -26,26 +26,29 @@ def require_admin(current_user: User = Depends(require_user)):
 
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    from app.models.stock import Portfolio, WatchlistFolder
-    from app.models.community import StockPost, StockComment
     from app.core.activity import online_count, today_visitor_count
-    total_users       = db.query(func.count(User.id)).scalar() or 0
-    active_users      = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
-    watchlist_cnt     = db.query(func.count(WatchlistItem.id)).scalar() or 0
-    portfolio_cnt     = db.query(func.count(Portfolio.id)).scalar() or 0
-    folder_cnt        = db.query(func.count(WatchlistFolder.id)).scalar() or 0
-    post_cnt          = db.query(func.count(StockPost.id)).filter(StockPost.is_deleted.isnot(True)).scalar() or 0
-    comment_cnt       = db.query(func.count(StockComment.id)).filter(StockComment.is_deleted.isnot(True)).scalar() or 0
+    row = db.execute(text("""
+        SELECT
+            (SELECT COUNT(*) FROM users)                                           AS total_users,
+            (SELECT COUNT(*) FROM users WHERE is_active = TRUE)                    AS active_users,
+            (SELECT COUNT(*) FROM watchlist_items)                                 AS watchlist_cnt,
+            (SELECT COUNT(*) FROM portfolios)                                      AS portfolio_cnt,
+            (SELECT COUNT(*) FROM watchlist_folders)                               AS folder_cnt,
+            (SELECT COUNT(*) FROM stock_posts    WHERE is_deleted IS NOT TRUE)     AS post_cnt,
+            (SELECT COUNT(*) FROM stock_comments WHERE is_deleted IS NOT TRUE)     AS comment_cnt,
+            (SELECT COUNT(*) FROM reports        WHERE status = 'pending')         AS pending_reports
+    """)).fetchone()
     return {
-        "total_users":       total_users,
-        "active_users":      active_users,
-        "watchlist_items":   watchlist_cnt,
-        "portfolio_items":   portfolio_cnt,
-        "watchlist_folders": folder_cnt,
+        "total_users":       row[0] or 0,
+        "active_users":      row[1] or 0,
+        "watchlist_items":   row[2] or 0,
+        "portfolio_items":   row[3] or 0,
+        "watchlist_folders": row[4] or 0,
+        "total_posts":       row[5] or 0,
+        "total_comments":    row[6] or 0,
+        "pending_reports":   row[7] or 0,
         "online_users":      online_count(),
         "today_visitors":    today_visitor_count(),
-        "total_posts":       post_cnt,
-        "total_comments":    comment_cnt,
     }
 
 
@@ -211,6 +214,8 @@ def delete_cache_prefix(prefix: str, _: User = Depends(require_admin)):
 @router.get("/users")
 def get_users(
     status: str = Query(default="all", pattern="^(all|active|inactive)$"),
+    page:   int = Query(1, ge=1),
+    limit:  int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
@@ -219,19 +224,23 @@ def get_users(
         q = q.filter(User.is_active == True)
     elif status == "inactive":
         q = q.filter(User.is_active == False)
-    users = q.all()
-    return [
-        {
-            "id":                  u.id,
-            "username":            u.username,
-            "email":               u.email,
-            "is_active":           u.is_active,
-            "is_admin":            u.is_admin,
-            "is_community_banned": bool(getattr(u, "is_community_banned", False)),
-            "created_at":          str(u.created_at) if u.created_at else None,
-        }
-        for u in users
-    ]
+    total = q.count()
+    users = q.offset((page - 1) * limit).limit(limit).all()
+    return {
+        "total": total,
+        "items": [
+            {
+                "id":                  u.id,
+                "username":            u.username,
+                "email":               u.email,
+                "is_active":           u.is_active,
+                "is_admin":            u.is_admin,
+                "is_community_banned": bool(getattr(u, "is_community_banned", False)),
+                "created_at":          str(u.created_at) if u.created_at else None,
+            }
+            for u in users
+        ]
+    }
 
 
 @router.patch("/users/{user_id}/active")
@@ -270,6 +279,56 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current: User = Dep
     db.delete(user)
     db.commit()
     return {"message": "삭제 완료"}
+
+
+@router.get("/users/{user_id}/detail")
+def get_user_detail(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """유저 상세 정보 (통계 + 최근 게시글)"""
+    from app.models.community import StockPost
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "사용자를 찾을 수 없습니다")
+    row = db.execute(text("""
+        SELECT
+            (SELECT COUNT(*) FROM stock_posts    WHERE user_id = :uid AND is_deleted IS NOT TRUE) AS post_cnt,
+            (SELECT COUNT(*) FROM stock_comments WHERE user_id = :uid AND is_deleted IS NOT TRUE) AS comment_cnt,
+            (SELECT COUNT(*) FROM reports        WHERE reporter_id = :uid)                        AS report_sent,
+            (SELECT COUNT(*) FROM user_follows   WHERE follower_id  = :uid)                      AS following_cnt,
+            (SELECT COUNT(*) FROM user_follows   WHERE following_id = :uid)                      AS follower_cnt
+    """), {"uid": user_id}).fetchone()
+    recent_posts = (
+        db.query(StockPost)
+        .filter(StockPost.user_id == user_id, StockPost.is_deleted.isnot(True))
+        .order_by(StockPost.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    posts_list = []
+    for p in recent_posts:
+        try:
+            cd = json.loads(p.content)
+            title = (cd.get("title") or cd.get("body") or "")[:100]
+        except Exception:
+            title = str(p.content)[:100]
+        posts_list.append({
+            "id": p.id, "symbol": p.symbol, "market": p.market,
+            "title": title, "created_at": p.created_at.isoformat() if p.created_at else None,
+        })
+    return {
+        "id":                  user.id,
+        "username":            user.username,
+        "email":               user.email,
+        "is_active":           user.is_active,
+        "is_admin":            user.is_admin,
+        "is_community_banned": bool(getattr(user, "is_community_banned", False)),
+        "created_at":          str(user.created_at) if user.created_at else None,
+        "post_count":          row[0] or 0,
+        "comment_count":       row[1] or 0,
+        "report_sent_count":   row[2] or 0,
+        "following_count":     row[3] or 0,
+        "follower_count":      row[4] or 0,
+        "recent_posts":        posts_list,
+    }
 
 
 # ── 커뮤니티 관리 ────────────────────────────────────────────────────────────
@@ -316,6 +375,7 @@ def admin_list_posts(
             "title":      title,
             "body":       body,
             "like_count": getattr(p, "like_count", 0) or 0,
+            "is_blinded": bool(getattr(p, "is_blinded", False)),
             "created_at": p.created_at.isoformat(),
         })
     return {"total": total, "items": result}
@@ -340,6 +400,125 @@ def admin_delete_post(
     db.delete(post)
     db.commit()
     log.info(f"관리자가 게시글 삭제: post_id={post_id}")
+
+
+@router.patch("/community/posts/{post_id}/blind")
+def admin_blind_post(
+    post_id: int     = Path(...),
+    db:      Session = Depends(get_db),
+    _:       User    = Depends(require_admin),
+):
+    from app.models.community import StockPost
+    post = db.query(StockPost).filter(StockPost.id == post_id).first()
+    if not post:
+        raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    post.is_blinded = True
+    db.commit()
+    log.info(f"관리자가 게시글 블라인드: post_id={post_id}")
+    return {"id": post_id, "is_blinded": True}
+
+
+@router.patch("/community/posts/{post_id}/unblind")
+def admin_unblind_post(
+    post_id: int     = Path(...),
+    db:      Session = Depends(get_db),
+    _:       User    = Depends(require_admin),
+):
+    from app.models.community import StockPost
+    post = db.query(StockPost).filter(StockPost.id == post_id).first()
+    if not post:
+        raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    post.is_blinded = False
+    db.commit()
+    log.info(f"관리자가 게시글 블라인드 복구: post_id={post_id}")
+    return {"id": post_id, "is_blinded": False}
+
+
+# ── 댓글 관리 ────────────────────────────────────────────────────────────────
+
+@router.get("/community/comments")
+def admin_list_comments(
+    page:    int           = Query(1, ge=1),
+    limit:   int           = Query(20, ge=1, le=50),
+    post_id: Optional[int] = Query(None),
+    db:      Session       = Depends(get_db),
+    _:       User          = Depends(require_admin),
+):
+    from app.models.community import StockComment
+    q = db.query(StockComment).filter(StockComment.is_deleted.isnot(True))
+    if post_id:
+        q = q.filter(StockComment.post_id == post_id)
+    total = q.count()
+    comments = (
+        q.options(selectinload(StockComment.user))
+        .order_by(StockComment.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    return {
+        "total": total,
+        "items": [
+            {
+                "id":         c.id,
+                "post_id":    c.post_id,
+                "user_id":    c.user_id,
+                "username":   c.user.username if c.user else "—",
+                "content":    str(c.content)[:300],
+                "is_blinded": bool(getattr(c, "is_blinded", False)),
+                "parent_id":  c.parent_id,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in comments
+        ],
+    }
+
+
+@router.delete("/community/comments/{comment_id}", status_code=204)
+def admin_delete_comment(
+    comment_id: int     = Path(...),
+    db:         Session = Depends(get_db),
+    _:          User    = Depends(require_admin),
+):
+    from app.models.community import StockComment
+    comment = db.query(StockComment).filter(StockComment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(404, "댓글을 찾을 수 없습니다")
+    comment.is_deleted = True
+    db.commit()
+    log.info(f"관리자가 댓글 삭제: comment_id={comment_id}")
+
+
+@router.patch("/community/comments/{comment_id}/blind")
+def admin_blind_comment(
+    comment_id: int     = Path(...),
+    db:         Session = Depends(get_db),
+    _:          User    = Depends(require_admin),
+):
+    from app.models.community import StockComment
+    comment = db.query(StockComment).filter(StockComment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(404, "댓글을 찾을 수 없습니다")
+    comment.is_blinded = True
+    db.commit()
+    log.info(f"관리자가 댓글 블라인드: comment_id={comment_id}")
+    return {"id": comment_id, "is_blinded": True}
+
+
+@router.patch("/community/comments/{comment_id}/unblind")
+def admin_unblind_comment(
+    comment_id: int     = Path(...),
+    db:         Session = Depends(get_db),
+    _:          User    = Depends(require_admin),
+):
+    from app.models.community import StockComment
+    comment = db.query(StockComment).filter(StockComment.id == comment_id).first()
+    if not comment:
+        raise HTTPException(404, "댓글을 찾을 수 없습니다")
+    comment.is_blinded = False
+    db.commit()
+    log.info(f"관리자가 댓글 블라인드 복구: comment_id={comment_id}")
+    return {"id": comment_id, "is_blinded": False}
 
 
 # ── 공지사항 ──────────────────────────────────────────────────────────────────
@@ -478,44 +657,62 @@ def list_reports(
     _: User = Depends(require_admin),
 ):
     from app.models.community import Report, StockPost, StockComment
-    from sqlalchemy.orm import selectinload
     q = db.query(Report).options(selectinload(Report.reporter))
     if status != "all":
         q = q.filter(Report.status == status)
     total = q.count()
     reports = q.order_by(Report.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+
+    # 배치 조회로 N+1 제거
+    post_ids    = list({r.post_id    for r in reports if r.post_id})
+    comment_ids = list({r.comment_id for r in reports if r.comment_id})
+
+    posts_map: dict = {}
+    comments_map: dict = {}
+    author_ids: set = set()
+
+    if post_ids:
+        for p in db.query(StockPost).filter(StockPost.id.in_(post_ids)).all():
+            posts_map[p.id] = p
+            author_ids.add(p.user_id)
+    if comment_ids:
+        for c in db.query(StockComment).filter(StockComment.id.in_(comment_ids)).all():
+            comments_map[c.id] = c
+            author_ids.add(c.user_id)
+
+    users_map: dict = {}
+    if author_ids:
+        for u in db.query(User).filter(User.id.in_(author_ids)).all():
+            users_map[u.id] = u
+
     result = []
     for r in reports:
-        post_title = None
-        post_body  = None
-        post_author = None
-        comment_preview = None
-        comment_author  = None
-        post_is_blinded     = False
-        comment_is_blinded  = False
-        post_is_deleted     = False
-        comment_is_deleted  = False
-        if r.post_id:
-            post = db.query(StockPost).filter(StockPost.id == r.post_id).first()
-            if post:
-                post_is_blinded = bool(post.is_blinded)
-                post_is_deleted = bool(post.is_deleted)
-                try:
-                    cd = json.loads(post.content)
-                    post_title = (cd.get("title") or "")[:200]
-                    post_body  = (cd.get("body") or "")[:300]
-                except Exception:
-                    post_body = str(post.content)[:300]
-                author = db.query(User).filter(User.id == post.user_id).first()
-                post_author = author.username if author else "—"
-        if r.comment_id:
-            comment = db.query(StockComment).filter(StockComment.id == r.comment_id).first()
-            if comment:
-                comment_is_blinded = bool(comment.is_blinded)
-                comment_is_deleted = bool(comment.is_deleted)
-                comment_preview = str(comment.content)[:300]
-                author = db.query(User).filter(User.id == comment.user_id).first()
-                comment_author = author.username if author else "—"
+        post_title = post_body = post_author = None
+        comment_preview = comment_author = None
+        post_is_blinded = comment_is_blinded = False
+        post_is_deleted = comment_is_deleted = False
+
+        if r.post_id and r.post_id in posts_map:
+            post = posts_map[r.post_id]
+            post_is_blinded = bool(post.is_blinded)
+            post_is_deleted = bool(post.is_deleted)
+            try:
+                cd = json.loads(post.content)
+                post_title = (cd.get("title") or "")[:200]
+                post_body  = (cd.get("body") or "")[:300]
+            except Exception:
+                post_body = str(post.content)[:300]
+            author = users_map.get(post.user_id)
+            post_author = author.username if author else "—"
+
+        if r.comment_id and r.comment_id in comments_map:
+            comment = comments_map[r.comment_id]
+            comment_is_blinded = bool(comment.is_blinded)
+            comment_is_deleted = bool(comment.is_deleted)
+            comment_preview = str(comment.content)[:300]
+            author = users_map.get(comment.user_id)
+            comment_author = author.username if author else "—"
+
         result.append({
             "id":                 r.id,
             "reporter_id":        r.reporter_id,
