@@ -150,92 +150,86 @@ def _batch_close(symbols: list) -> "pd.DataFrame | None":
 
 
 def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
-    """네이버 금융에서 한국 금리 전체 조회.
-    - interestList.naver: 기준금리, 국고채 3/5/10년 (현재값, change=전일대비)
-    - interestDailyQuote.naver: CD금리(91일) 2일치 → 전일대비 계산
-    반환: (list_of_rates, cd_rate)
+    """네이버 모바일 API (m.stock.naver.com) — 한국 금리 JSON 직접 조회.
+    주식·환율과 동일 도메인이라 서버 환경에서 접근 가능.
+    개별 rate 코드 조회 방식 사용.
     """
-    from bs4 import BeautifulSoup
-    _HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://finance.naver.com/",
+    _H = {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ko-KR,ko;q=0.9",
+        "Referer": "https://m.stock.naver.com/",
+        "Origin": "https://m.stock.naver.com",
     }
-    def _classify(raw: str) -> "str | None":
-        if "기준금리" in raw:
-            return "한국 기준금리"
-        if "국고채" in raw and "3년" in raw:
-            return "국고채 3년"
-        if "국고채" in raw and "5년" in raw:
-            return "국고채 5년"
-        if "국고채" in raw and "10년" in raw:
-            return "국고채 10년"
-        return None
 
-    rates = []
-    try:
-        r = httpx.get("https://finance.naver.com/marketindex/interestList.naver", headers=_HEADERS, timeout=8)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, "lxml")
-            seen = set()
-            for row in soup.select("table tbody tr"):
-                cells = [c.get_text(strip=True) for c in row.find_all("td")]
-                if len(cells) < 2:
-                    continue
-                raw_name = cells[0]
-                display = _classify(raw_name)
-                if not display or display in seen:
-                    continue
-                try:
-                    val = float(cells[1].replace(",", ""))
-                except (ValueError, IndexError):
-                    continue
-                # 전일대비 추출 (3번째 컬럼)
-                chg = 0.0
-                if len(cells) >= 3:
-                    try:
-                        chg_txt = cells[2].replace(",", "").replace("+", "").strip()
-                        chg = float(chg_txt) if chg_txt not in ("", "-") else 0.0
-                    except (ValueError, IndexError):
-                        pass
-                seen.add(display)
-                rates.append({
-                    "name": display, "value": round(val, 3),
-                    "change": round(chg, 3), "change_rate": round(chg, 3),
-                    "unit": "%", "is_rate": True,
-                })
-    except Exception:
-        pass
+    # 네이버 금리 코드 → (표시명, is_cd)
+    RATE_CODES = [
+        ("BASERATE",  "한국 기준금리", False),
+        ("CD91",      "CD금리(91일)",  True),
+        ("GOV3Y",     "국고채 3년",    False),
+        ("GOV5Y",     "국고채 5년",    False),
+        ("GOV10Y",    "국고채 10년",   False),
+    ]
+    # 네이버 내부 marketindexCd 형식 (basic endpoint 실패 시 fallback)
+    IRR_CODES = {
+        "BASERATE": "IRR_BASERATE",
+        "CD91":     "IRR_CD91",
+        "GOV3Y":    "IRR_GOV3Y",
+        "GOV5Y":    "IRR_GOV5Y",
+        "GOV10Y":   "IRR_GOV10Y",
+    }
 
-    # CD금리: 일별 시세 2행 → 전일대비 계산
+    def _parse_item(d: dict) -> "tuple[float, float]":
+        """JSON 응답에서 (현재값, 전일대비) 추출"""
+        def _f(v):
+            try: return float(str(v).replace(",", ""))
+            except: return 0.0
+        val = _f(d.get("closePrice") or d.get("currentPrice") or
+                 d.get("close") or d.get("price") or 0)
+        chg = _f(d.get("compareToPreviousClosePrice") or d.get("change") or
+                 d.get("priceChange") or d.get("priceComparison") or 0)
+        # 일부 응답에서 history 배열 [current, prev] 형식
+        if val == 0:
+            hist = d.get("priceList") or d.get("closeList") or []
+            if len(hist) >= 1:
+                val = _f(hist[0])
+            if len(hist) >= 2:
+                chg = round(val - _f(hist[1]), 3)
+        return val, chg
+
+    rates: list = []
     cd_rate = None
-    try:
-        r2 = httpx.get(
-            "https://finance.naver.com/marketindex/interestDailyQuote.naver",
-            params={"marketindexCd": "IRR_CD91", "page": "1"},
-            headers=_HEADERS,
-            timeout=8,
-        )
-        if r2.status_code == 200:
-            soup2 = BeautifulSoup(r2.text, "lxml")
-            vals = []
-            for row in soup2.select("table tbody tr"):
-                cells = row.find_all("td")
-                if not cells:
-                    continue
-                try:
-                    val = float(cells[1].get_text(strip=True).replace(",", ""))
-                    vals.append(val)
-                except (ValueError, IndexError):
-                    continue
-                if len(vals) >= 2:
-                    break
-            if vals:
-                curr = vals[0]
-                prev = vals[1] if len(vals) >= 2 else curr
-                chg = round(curr - prev, 3)
-                cd_rate = {"name": "CD금리(91일)", "value": curr, "change": chg, "change_rate": chg, "unit": "%", "is_rate": True}
-    except Exception:
-        pass
+
+    for code, display, is_cd in RATE_CODES:
+        val, chg = 0.0, 0.0
+        # 시도 1: m.stock.naver.com/api/rate/{code}/basic
+        for path in [
+            f"https://m.stock.naver.com/api/rate/{code}/basic",
+            f"https://m.stock.naver.com/api/rate/{IRR_CODES[code]}/basic",
+        ]:
+            try:
+                r = httpx.get(path, headers=_H, timeout=6)
+                if r.status_code == 200:
+                    d = r.json()
+                    v, c = _parse_item(d if isinstance(d, dict) else (d[0] if d else {}))
+                    if v > 0:
+                        val, chg = v, c
+                        break
+            except Exception:
+                continue
+
+        if val <= 0:
+            continue
+
+        entry = {
+            "name": display, "value": round(val, 3),
+            "change": round(chg, 3), "change_rate": round(chg, 3),
+            "unit": "%", "is_rate": True,
+        }
+        if is_cd:
+            cd_rate = entry
+        else:
+            rates.append(entry)
 
     return rates, cd_rate
 
@@ -405,28 +399,28 @@ def _do_fetch_kr_rates() -> list:
     bonds: list = []
     cd_override: "dict | None" = None
 
-    # 1순위: 한국은행 ECOS API (정부 공개 API, 서버 IP 차단 없음)
+    # 1순위: 네이버 모바일 API (주식/환율과 동일 도메인, 서버에서 작동)
     try:
-        bok_base, bok_bonds = _fetch_bok_rates_ecos()
-        if bok_base:
-            base = bok_base
-        if bok_bonds:
-            bonds = bok_bonds
+        naver_rates, naver_cd = _fetch_kr_rates_naver()
+        if not base:
+            base = next((r for r in naver_rates if "기준금리" in r["name"]), None)
+            if base:
+                cache.set("extra:kr_base_rate", base, 86400)
+        if not bonds:
+            bonds = [r for r in naver_rates if "국고채" in r["name"]]
+        if naver_cd:
+            cd_override = naver_cd
     except Exception:
         pass
 
-    # 2순위: 네이버 스크래핑 (서버 환경에서 403이 많아 실패 가능)
+    # 2순위: 한국은행 ECOS API (정부 공개 API, 클라우드 IP 차단 없음)
     if not base or not bonds:
         try:
-            naver_rates, naver_cd = _fetch_kr_rates_naver()
-            if not base:
-                base = next((r for r in naver_rates if "기준금리" in r["name"]), None)
-                if base:
-                    cache.set("extra:kr_base_rate", base, 86400)
-            if not bonds:
-                bonds = [r for r in naver_rates if "국고채" in r["name"]]
-            if naver_cd:
-                cd_override = naver_cd
+            bok_base, bok_bonds = _fetch_bok_rates_ecos()
+            if not base and bok_base:
+                base = bok_base
+            if not bonds and bok_bonds:
+                bonds = bok_bonds
         except Exception:
             pass
 
