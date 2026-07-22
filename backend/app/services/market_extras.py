@@ -149,15 +149,25 @@ def _batch_close(symbols: list) -> "pd.DataFrame | None":
         return None
 
 
-def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
-    """네이버 금융에서 기준금리 + CD(91일) 조회. CD금리는 일별 시세 2행으로 전일대비 계산"""
+def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
+    """네이버 금융에서 한국 금리 전체 조회.
+    - interestList.naver: 기준금리, 국고채 3/5/10년 (현재값, change=전일대비)
+    - interestDailyQuote.naver: CD금리(91일) 2일치 → 전일대비 계산
+    반환: (list_of_rates, cd_rate)
+    """
     from bs4 import BeautifulSoup
     _HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://finance.naver.com/",
     }
+    _INTEREST_NAMES = {
+        "기준금리": "한국 기준금리",
+        "국고채권(3년)": "국고채 3년",
+        "국고채권(5년)": "국고채 5년",
+        "국고채권(10년)": "국고채 10년",
+    }
 
-    base_rate = None
+    rates = []
     try:
         r = httpx.get("https://finance.naver.com/marketindex/interestList.naver", headers=_HEADERS, timeout=8)
         if r.status_code == 200:
@@ -166,12 +176,26 @@ def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
                 cells = [c.get_text(strip=True) for c in row.find_all("td")]
                 if len(cells) < 2:
                     continue
+                raw_name = cells[0]
                 try:
                     val = float(cells[1].replace(",", ""))
                 except (ValueError, IndexError):
                     continue
-                if base_rate is None and "기준금리" in cells[0]:
-                    base_rate = {"name": "한국 기준금리", "value": val, "change": 0.0, "change_rate": 0.0, "unit": "%"}
+                # 전일대비 추출 (3번째 컬럼)
+                chg = 0.0
+                if len(cells) >= 3:
+                    try:
+                        chg_txt = cells[2].replace(",", "").replace("+", "").strip()
+                        chg = float(chg_txt) if chg_txt not in ("", "-") else 0.0
+                    except (ValueError, IndexError):
+                        pass
+                display = next((v for k, v in _INTEREST_NAMES.items() if k in raw_name), None)
+                if display:
+                    rates.append({
+                        "name": display, "value": round(val, 3),
+                        "change": round(chg, 3), "change_rate": round(chg, 3),
+                        "unit": "%", "is_rate": True,
+                    })
     except Exception:
         pass
 
@@ -191,7 +215,6 @@ def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
                 cells = row.find_all("td")
                 if not cells:
                     continue
-                # 컬럼: 날짜 | 현재가 | 전일대비 | 등락률  (인덱스 1이 현재가)
                 try:
                     val = float(cells[1].get_text(strip=True).replace(",", ""))
                     vals.append(val)
@@ -203,54 +226,40 @@ def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
                 curr = vals[0]
                 prev = vals[1] if len(vals) >= 2 else curr
                 chg = round(curr - prev, 3)
-                cd_rate = {"name": "CD금리(91일)", "value": curr, "change": chg, "change_rate": chg, "unit": "%"}
+                cd_rate = {"name": "CD금리(91일)", "value": curr, "change": chg, "change_rate": chg, "unit": "%", "is_rate": True}
     except Exception:
         pass
 
-    return base_rate, cd_rate
+    return rates, cd_rate
+
+
+# 하위 호환용 래퍼 (scheduler 등에서 직접 호출 시)
+def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
+    rates, cd = _fetch_kr_rates_naver()
+    base = next((r for r in rates if "기준금리" in r["name"]), None)
+    return base, cd
 
 
 def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
-    rate_specs = [
-        ("^IRX",  "미국 단기 금리(13W)",  "%"),
-        ("^TNX",  "미국 10년 국채",        "%"),
-        ("^TYX",  "미국 30년 국채",        "%"),
-    ]
-    # yfinance 배치 조회와 네이버 CD금리 조회를 병렬화 — 순차 대비 응답 시간 단축
-    ex = ThreadPoolExecutor(max_workers=2)
     try:
-        f_close = ex.submit(_batch_close, [s[0] for s in rate_specs])
-        f_naver = ex.submit(_fetch_kr_base_cd)
-        try:
-            close_data = f_close.result(timeout=15)
-        except Exception:
-            close_data = None
-        try:
-            _, naver_cd = f_naver.result(timeout=10)
-        except Exception:
-            naver_cd = None
-    finally:
-        ex.shutdown(wait=False)
-
-    rates = []
-    for sym, name, unit in rate_specs:
-        try:
-            c = close_data[sym].dropna() if (close_data is not None and sym in close_data.columns) \
-                else yf.Ticker(sym).history(period="5d")["Close"].dropna()
-            if len(c) < 1:
-                continue
-            curr, prev = float(c.iloc[-1]), float(c.iloc[-2]) if len(c) >= 2 else float(c.iloc[-1])
-            rates.append({"name": name, "value": round(curr, 3),
-                          "change": round(curr - prev, 3), "change_rate": round(curr - prev, 3), "unit": unit})
-        except Exception:
-            continue
+        naver_rates, naver_cd = _fetch_kr_rates_naver()
+    except Exception:
+        naver_rates, naver_cd = [], None
 
     cd_rate = naver_cd or cache.get_stale("extra:cd_rate") or \
-        {"name":"CD금리(91일)","value":3.62,"change":0.0,"change_rate":0.0,"unit":"%","_static":True}
+        {"name": "CD금리(91일)", "value": 3.62, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
     cache.set("extra:cd_rate", cd_rate, 86400)
 
-    rates.insert(0, cd_rate)
+    # 순서: 기준금리 → CD금리 → 국고채 3/5/10년
+    base = next((r for r in naver_rates if "기준금리" in r["name"]), None)
+    bonds = [r for r in naver_rates if "국고채" in r["name"]]
+
+    rates = []
+    if base:
+        rates.append(base)
+    rates.append(cd_rate)
+    rates.extend(bonds)
 
     if rates:
         cache.set(ck, rates, 300)
@@ -332,8 +341,9 @@ def get_us_rates() -> list:
 
 def _demo_rates() -> list:
     return [
-        {"name":"CD금리(91일)","value":3.62,"change":0.01,"change_rate":0.0,"unit":"%","_static":True},
-        {"name":"국채 3년","value":3.45,"change":-0.02,"change_rate":0.0,"unit":"%","_demo":True},
-        {"name":"국채 10년","value":3.78,"change":0.01,"change_rate":0.0,"unit":"%","_demo":True},
-        {"name":"미국 10년 국채","value":4.52,"change":-0.03,"change_rate":0.0,"unit":"%","_demo":True},
+        {"name":"한국 기준금리","value":2.75,"change":0.0,"change_rate":0.0,"unit":"%","is_rate":True,"_demo":True},
+        {"name":"CD금리(91일)","value":3.62,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
+        {"name":"국고채 3년","value":3.45,"change":-0.02,"change_rate":-0.02,"unit":"%","is_rate":True,"_demo":True},
+        {"name":"국고채 5년","value":3.61,"change":-0.01,"change_rate":-0.01,"unit":"%","is_rate":True,"_demo":True},
+        {"name":"국고채 10년","value":3.78,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
     ]
