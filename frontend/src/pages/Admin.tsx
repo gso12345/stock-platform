@@ -40,6 +40,7 @@ const adminApi = {
   // 신고
   getReports:      (status = "pending", page = 1) => api.get("/admin/reports", { params: { status, page } }).then(r => r.data),
   blindReport:     (id: number) => api.patch(`/admin/reports/${id}/blind`).then(r => r.data),
+  unblindReport:   (id: number) => api.patch(`/admin/reports/${id}/unblind`).then(r => r.data),
   dismissReport:   (id: number) => api.patch(`/admin/reports/${id}/dismiss`).then(r => r.data),
   deleteReportContent: (id: number) => api.delete(`/admin/reports/${id}/content`).then(r => r.data),
   // 트렌드
@@ -1362,8 +1363,8 @@ function ReportsTab({ qc }: { qc: any }) {
                   )}
                 </div>
 
-                {/* 액션 버튼 (대기 상태만) */}
-                {isPending && (
+                {/* 액션 버튼 */}
+                {isPending ? (
                   <div className="flex border-t border-border/50 divide-x divide-border/50">
                     <button onClick={() => act(adminApi.blindReport, r.id)} disabled={isActing}
                       className="flex-1 py-3 text-xs font-semibold text-amber-500 hover:bg-amber-400/8 active:bg-amber-400/15 transition-colors disabled:opacity-40">
@@ -1376,6 +1377,13 @@ function ReportsTab({ qc }: { qc: any }) {
                     <button onClick={() => act(adminApi.dismissReport, r.id)} disabled={isActing}
                       className="flex-1 py-3 text-xs font-semibold text-text-muted hover:text-text-primary hover:bg-bg-elevated active:bg-bg-hover transition-colors disabled:opacity-40">
                       {isActing ? "처리 중..." : "기각"}
+                    </button>
+                  </div>
+                ) : (r.status === "resolved" && (r.post_is_blinded || r.comment_is_blinded)) && (
+                  <div className="flex border-t border-border/50">
+                    <button onClick={() => act(adminApi.unblindReport, r.id)} disabled={isActing}
+                      className="flex-1 py-3 text-xs font-semibold text-accent-blue hover:bg-accent-blue/8 active:bg-accent-blue/15 transition-colors disabled:opacity-40">
+                      {isActing ? "처리 중..." : "블라인드 복구"}
                     </button>
                   </div>
                 )}

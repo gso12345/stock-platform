@@ -491,9 +491,15 @@ def list_reports(
         post_author = None
         comment_preview = None
         comment_author  = None
+        post_is_blinded     = False
+        comment_is_blinded  = False
+        post_is_deleted     = False
+        comment_is_deleted  = False
         if r.post_id:
             post = db.query(StockPost).filter(StockPost.id == r.post_id).first()
             if post:
+                post_is_blinded = bool(post.is_blinded)
+                post_is_deleted = bool(post.is_deleted)
                 try:
                     cd = json.loads(post.content)
                     post_title = (cd.get("title") or "")[:200]
@@ -505,23 +511,29 @@ def list_reports(
         if r.comment_id:
             comment = db.query(StockComment).filter(StockComment.id == r.comment_id).first()
             if comment:
+                comment_is_blinded = bool(comment.is_blinded)
+                comment_is_deleted = bool(comment.is_deleted)
                 comment_preview = str(comment.content)[:300]
                 author = db.query(User).filter(User.id == comment.user_id).first()
                 comment_author = author.username if author else "—"
         result.append({
-            "id":              r.id,
-            "reporter_id":     r.reporter_id,
-            "reporter":        r.reporter.username if r.reporter else "—",
-            "post_id":         r.post_id,
-            "comment_id":      r.comment_id,
-            "post_title":      post_title,
-            "post_body":       post_body,
-            "post_author":     post_author,
-            "comment_preview": comment_preview,
-            "comment_author":  comment_author,
-            "reason":          r.reason,
-            "status":          r.status,
-            "created_at":      r.created_at.isoformat() if r.created_at else None,
+            "id":                 r.id,
+            "reporter_id":        r.reporter_id,
+            "reporter":           r.reporter.username if r.reporter else "—",
+            "post_id":            r.post_id,
+            "comment_id":         r.comment_id,
+            "post_title":         post_title,
+            "post_body":          post_body,
+            "post_author":        post_author,
+            "comment_preview":    comment_preview,
+            "comment_author":     comment_author,
+            "post_is_blinded":    post_is_blinded,
+            "comment_is_blinded": comment_is_blinded,
+            "post_is_deleted":    post_is_deleted,
+            "comment_is_deleted": comment_is_deleted,
+            "reason":             r.reason,
+            "status":             r.status,
+            "created_at":         r.created_at.isoformat() if r.created_at else None,
         })
     return {"total": total, "items": result}
 
@@ -544,6 +556,26 @@ def blind_content(report_id: int, db: Session = Depends(get_db), _: User = Depen
     report.status = "resolved"
     db.commit()
     return {"message": "블라인드 처리 완료", "report_id": report_id}
+
+
+@router.patch("/reports/{report_id}/unblind")
+def unblind_content(report_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """블라인드 처리된 게시글 또는 댓글을 복구"""
+    from app.models.community import Report, StockPost, StockComment
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "신고를 찾을 수 없습니다")
+    if report.post_id:
+        post = db.query(StockPost).filter(StockPost.id == report.post_id).first()
+        if post:
+            post.is_blinded = False
+    if report.comment_id:
+        comment = db.query(StockComment).filter(StockComment.id == report.comment_id).first()
+        if comment:
+            comment.is_blinded = False
+    report.status = "dismissed"
+    db.commit()
+    return {"message": "블라인드 복구 완료", "report_id": report_id}
 
 
 @router.patch("/reports/{report_id}/dismiss")
