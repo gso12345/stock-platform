@@ -392,20 +392,14 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     staleTime: 300_000,
   });
 
-  const { data: usRatesData } = useQuery({
-    queryKey: ["dashboard-us-rates"],
-    queryFn: dashboardApi.getUSRates,
-    staleTime: 300_000,
+  const { data: fxData } = useQuery({
+    queryKey: ["exchange-rate"],
+    queryFn: () => dashboardApi.getExchangeRate(),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
     enabled: isLoggedIn && open && mode === "portfolio",
   });
-
-  const liveExchangeRate = useMemo(() => {
-    if (Array.isArray(usRatesData)) {
-      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
-      if (row?.value) return row.value;
-    }
-    return 1350;
-  }, [usRatesData]);
+  const liveExchangeRate: number = (fxData as any)?.value ?? 0;
 
   // 선택된 포트폴리오 아이템 (클라이언트 필터링)
   const pfItems = useMemo(() => {
@@ -536,8 +530,11 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     name: selectedPfId === null ? "전체 포트폴리오" : ((portfoliosData as any[]).find((p: any) => p.id === selectedPfId)?.name ?? "포트폴리오"),
     items: pfItems.map((item: any) => {
       const currentPrice = feedPriceMap[item.id];
-      const fx = item.currency === "USD" ? liveExchangeRate : 1;
-      const currentValueKRW = currentPrice != null && currentPrice > 0 ? currentPrice * fx * item.shares : undefined;
+      const isUSDStock = item.market === "US" || item.market === "ETF";
+      const fx = isUSDStock ? liveExchangeRate : 1;
+      const currentValueKRW = currentPrice != null && currentPrice > 0 && fx > 0
+        ? currentPrice * fx * item.shares
+        : undefined;
       return {
         symbol: item.symbol,
         market: item.market,
