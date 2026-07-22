@@ -247,6 +247,89 @@ def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
     return base, cd
 
 
+def _fetch_kr_bonds_yf() -> list:
+    """yfinance로 한국 국고채 금리 조회 (네이버 스크래핑 실패 시 폴백)"""
+    bond_specs = [
+        ("KR3YT=RR", "국고채 3년"),
+        ("KR5YT=RR", "국고채 5년"),
+        ("KR10YT=RR", "국고채 10년"),
+    ]
+    symbols = [s[0] for s in bond_specs]
+    close_data = _batch_close(symbols)
+
+    results = []
+    for sym, name in bond_specs:
+        try:
+            if close_data is not None and sym in close_data.columns:
+                c = close_data[sym].dropna()
+            else:
+                c = yf.Ticker(sym).history(period="5d")["Close"].dropna()
+            if len(c) < 1:
+                continue
+            curr = float(c.iloc[-1])
+            prev = float(c.iloc[-2]) if len(c) >= 2 else curr
+            chg = round(curr - prev, 3)
+            results.append({
+                "name": name, "value": round(curr, 3),
+                "change": chg, "change_rate": chg,
+                "unit": "%", "is_rate": True,
+            })
+        except Exception:
+            continue
+    return results
+
+
+def _fetch_kr_bonds_pykrx() -> "tuple[list, dict | None]":
+    """pykrx로 KRX 장외 채권수익률 조회 (국고채 3/5/10년 + CD금리)"""
+    try:
+        import datetime
+        from pykrx import bond as krx_bond
+
+        today = datetime.date.today()
+        df = None
+        for days_back in range(0, 7):
+            d = today - datetime.timedelta(days=days_back)
+            try:
+                tmp = krx_bond.get_otc_treasury_yields(d.strftime("%Y%m%d"))
+                if tmp is not None and not tmp.empty:
+                    df = tmp
+                    break
+            except Exception:
+                continue
+
+        if df is None or df.empty:
+            return [], None
+
+        bonds = []
+        for krx_name, display_name in [("국고채 3년", "국고채 3년"), ("국고채 5년", "국고채 5년"), ("국고채 10년", "국고채 10년")]:
+            if krx_name in df.index:
+                row = df.loc[krx_name]
+                val = float(row["수익률"])
+                chg = float(row["대비"]) if "대비" in row.index else 0.0
+                bonds.append({
+                    "name": display_name, "value": round(val, 3),
+                    "change": round(chg, 3), "change_rate": round(chg, 3),
+                    "unit": "%", "is_rate": True,
+                })
+
+        cd = None
+        for cd_key in ["CD(91일)", "CD91일", "CD"]:
+            if cd_key in df.index:
+                row = df.loc[cd_key]
+                val = float(row["수익률"])
+                chg = float(row["대비"]) if "대비" in row.index else 0.0
+                cd = {
+                    "name": "CD금리(91일)", "value": round(val, 3),
+                    "change": round(chg, 3), "change_rate": round(chg, 3),
+                    "unit": "%", "is_rate": True,
+                }
+                break
+
+        return bonds, cd
+    except Exception:
+        return [], None
+
+
 def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
     try:
@@ -261,6 +344,32 @@ def _do_fetch_kr_rates() -> list:
     # 순서: 기준금리 → CD금리 → 국고채 3/5/10년
     base = next((r for r in naver_rates if "기준금리" in r["name"]), None)
     bonds = [r for r in naver_rates if "국고채" in r["name"]]
+
+    # 네이버 실패 시 yfinance 시도
+    if not bonds:
+        try:
+            bonds = _fetch_kr_bonds_yf()
+        except Exception:
+            pass
+
+    # yfinance도 실패 시 pykrx 시도 (KRX 장외 채권수익률)
+    if not bonds:
+        try:
+            pkrx_bonds, pkrx_cd = _fetch_kr_bonds_pykrx()
+            if pkrx_bonds:
+                bonds = pkrx_bonds
+            if pkrx_cd and not naver_cd:
+                cd_rate = pkrx_cd
+                cache.set("extra:cd_rate", cd_rate, 86400)
+        except Exception:
+            pass
+
+    # 기준금리: 네이버 실패 시 캐시된 값 또는 정적 값 (BOK 변경 빈도 낮음)
+    if not base:
+        base = cache.get_stale("extra:kr_base_rate") or \
+            {"name": "한국 기준금리", "value": 2.75, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
+    else:
+        cache.set("extra:kr_base_rate", base, 86400)
 
     rates = []
     if base:
