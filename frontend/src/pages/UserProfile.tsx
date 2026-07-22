@@ -156,7 +156,9 @@ export default function UserProfile() {
       ...pf,
       items: (pf.items ?? []).map((i: any) => {
         const currentPrice = priceMap[i.id];
-        const fx = i.currency === "USD" ? exchangeRate : 1;
+        // YF 실시간 가격은 항상 USD — currency 필드 오설정과 무관하게 market 기준으로 환산
+        const isUSDStock = i.market === "US" || i.market === "ETF";
+        const fx = isUSDStock ? exchangeRate : 1;
         const currentValueKRW = currentPrice != null && currentPrice > 0
           ? currentPrice * fx * i.shares
           : undefined;
