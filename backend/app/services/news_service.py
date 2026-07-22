@@ -195,7 +195,7 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
         # 피드 하나가 스레드를 오래 점유해 다른 피드까지 10초 예산 안에 못 끝나는
         # 문제가 있었음 — httpx로 명시적 타임아웃을 두고 받아온 바이트를 파싱
         import httpx
-        resp = httpx.get(url, headers=_FEED_HEADERS, timeout=4, follow_redirects=True)
+        resp = httpx.get(url, headers=_FEED_HEADERS, timeout=5, follow_redirects=True)
         feed = feedparser.parse(resp.content)
         items = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=3)
@@ -254,11 +254,9 @@ def _add_trending_score(articles: list) -> list:
     return articles
 
 
-# 피드 fetch 전용 공유 스레드풀 — 호출마다 새 ThreadPoolExecutor를 만들면
-# 피드 수(50개+)만큼 OS 스레드가 한꺼번에 생성/TLS 핸드셰이크를 동시 수행해
-# 호스트 CPU가 제한된 환경(Render 등)에서 전체 응답 지연을 유발할 수 있음 —
-# 동시 처리량을 적절히 제한하는 공유 풀을 재사용한다.
-_feed_executor = ThreadPoolExecutor(max_workers=32, thread_name_prefix="feed-fetch")
+# 피드 fetch 전용 공유 스레드풀 — KR 피드 50개가 동시에 실행될 수 있도록
+# max_workers를 64로 설정해 모든 언론사 피드가 큐 대기 없이 즉시 시작되게 한다.
+_feed_executor = ThreadPoolExecutor(max_workers=64, thread_name_prefix="feed-fetch")
 
 
 def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
@@ -278,9 +276,9 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
         for source, url in shuffled
     }
     try:
-        for future in as_completed(futures, timeout=20):
+        for future in as_completed(futures, timeout=30):
             try:
-                items = future.result(timeout=6)
+                items = future.result(timeout=7)
                 all_news.extend(items)
             except Exception:
                 pass
