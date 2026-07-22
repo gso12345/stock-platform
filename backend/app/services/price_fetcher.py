@@ -307,10 +307,10 @@ def fetch_pykrx_index_ohlcv(name: str, period: str = "1y") -> list:
         return []
 
 
-# ── 네이버 — 환율 ──────────────────────────────────────────
-async def fetch_naver_exchange() -> dict | None:
-    """네이버 환율 (USDKRW)"""
-    url = "https://m.stock.naver.com/api/forex/basic?symbol=FX_USDKRW"
+# ── 네이버 — 환율 (파라미터화) ────────────────────────────
+async def _fetch_naver_fx(naver_symbol: str, display_name: str, symbol: str) -> dict | None:
+    """네이버 환율 — naver_symbol: FX_USDKRW / FX_EURKRW 등"""
+    url = f"https://m.stock.naver.com/api/forex/basic?symbol={naver_symbol}"
     try:
         async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
             r = await cl.get(url)
@@ -320,20 +320,17 @@ async def fetch_naver_exchange() -> dict | None:
                 chg  = _safe(d.get("compareToPreviousClosePrice") or d.get("changePrice") or d.get("change"))
                 chgr = _safe(d.get("fluctuationsRatio") or d.get("changeRate") or d.get("rateOfChange"))
                 if curr and curr > 100:
-                    # fluctuationsRatio가 소수 형식(0.0019)이면 백분율로 변환
                     if chgr is not None and abs(chgr) < 1:
                         chgr = chgr * 100
-                    # chgr 없으면 직접 계산
                     if chgr is None and chg is not None and curr:
                         prev = curr - chg
                         chgr = (chg / prev * 100) if prev else 0
-                    return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":round(chg or 0,2),"change_rate":round(chgr or 0,2),"unit":"원"}
+                    return {"symbol": symbol, "name": display_name, "value": round(curr, 2), "change": round(chg or 0, 2), "change_rate": round(chgr or 0, 2), "unit": "원"}
     except Exception:
         pass
-    # 폴백: 네이버 외환 히스토리 API
     for url2 in [
-        "https://api.stock.naver.com/forex/close/history?stockEndType=index&code=FX_USDKRW&timeframe=day&count=2&requestType=0",
-        "https://m.stock.naver.com/api/forex/history?symbol=FX_USDKRW&timeframe=day&count=2",
+        f"https://api.stock.naver.com/forex/close/history?stockEndType=index&code={naver_symbol}&timeframe=day&count=2&requestType=0",
+        f"https://m.stock.naver.com/api/forex/history?symbol={naver_symbol}&timeframe=day&count=2",
     ]:
         try:
             async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
@@ -346,10 +343,15 @@ async def fetch_naver_exchange() -> dict | None:
                         if curr and curr > 100:
                             chg = round(curr - (prev or curr), 2)
                             chgr = round(chg / (prev or 1) * 100, 2) if prev else 0
-                            return {"symbol":"USDKRW","name":"원/달러 환율","value":round(curr,2),"change":chg,"change_rate":chgr,"unit":"원"}
+                            return {"symbol": symbol, "name": display_name, "value": round(curr, 2), "change": chg, "change_rate": chgr, "unit": "원"}
         except Exception:
             pass
     return None
+
+
+async def fetch_naver_exchange() -> dict | None:
+    """하위호환 래퍼 — USD/KRW 전용"""
+    return await _fetch_naver_fx("FX_USDKRW", "원/달러 환율", "USDKRW")
 
 
 # ── Yahoo Finance — 미국 주식 ──────────────────────────────
@@ -500,75 +502,85 @@ async def get_index_price(yf_sym: str, name: str, display: str, ttl: int = 30) -
     return cache.get(ck) or cache.get_stale(ck)
 
 
-async def _fetch_open_er() -> dict | None:
-    """open.er-api.com — 무료 환율 API (키 불필요)"""
-    try:
-        async with httpx.AsyncClient(timeout=8) as cl:
-            r = await cl.get("https://open.er-api.com/v6/latest/USD")
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        krw = _safe(d.get("rates", {}).get("KRW"))
-        if krw and krw > 100:
-            return {
-                "symbol":"USDKRW","name":"원/달러 환율",
-                "value":round(krw, 2),"change":0,"change_rate":0,"unit":"원",
-                "_source":"open.er-api.com",
-            }
-    except Exception as e:
-        log.debug(f"open.er-api 실패: {e}")
-    return None
-
-
-async def get_usdkrw() -> dict:
-    ck = "extra:usdkrw"
-    fresh = cache.get(ck)
+async def get_fxkrw(
+    yf_sym: str,
+    naver_sym: str,
+    display_name: str,
+    symbol: str,
+    cache_key: str,
+) -> dict:
+    """환율 통합 조회 (YF 실시간 → 네이버 → open.er-api → frankfurter)
+    yf_sym:      Yahoo Finance 심볼 (e.g. USDKRW=X, EURKRW=X)
+    naver_sym:   네이버 심볼    (e.g. FX_USDKRW, FX_EURKRW)
+    display_name: 표시 이름    (e.g. 원/달러 환율, 원/유로 환율)
+    symbol:      캐시 응답 내 symbol 필드 (e.g. USDKRW, EURKRW)
+    cache_key:   캐시 키       (e.g. extra:usdkrw, extra:eurkrw)
+    """
+    fresh = cache.get(cache_key)
     if fresh:
         return fresh
 
-    # 1차: Yahoo Finance (regularMarketChange = 전일종가 대비 변동 — 정확)
-    data = await fetch_yf_quotes(["USDKRW=X"])
-    if q := data.get("USDKRW=X"):
-        entry = {"symbol":"USDKRW","name":"원/달러 환율","value":q["price"],"change":q["change"],"change_rate":q["change_rate"],"unit":"원"}
-        cache.set(ck, entry, 60)
+    from_currency = yf_sym.replace("KRW=X", "")  # USD / EUR / JPY …
+
+    # 1차: Yahoo Finance v7 실시간 (regularMarketChange = 전일종가 대비 변동)
+    data = await fetch_yf_quotes([yf_sym])
+    if q := data.get(yf_sym):
+        entry = {
+            "symbol": symbol, "name": display_name,
+            "value": q["price"], "change": q["change"],
+            "change_rate": q["change_rate"], "unit": "원",
+        }
+        cache.set(cache_key, entry, 60)
         return entry
 
     # 2차: 네이버 금융 (실시간 시장환율)
-    r = await fetch_naver_exchange()
+    r = await _fetch_naver_fx(naver_sym, display_name, symbol)
     if r and r.get("value", 0) > 100:
-        cache.set(ck, r, 60)
+        cache.set(cache_key, r, 60)
         return r
 
-    # 이전 캐시값 (변동률 계산용)
-    _stale = cache.get_stale(ck)
+    # 이전 캐시값 (기준환율 소스의 변동 계산용)
+    _stale = cache.get_stale(cache_key)
     _prev_val = _stale.get("value", 0) if _stale else 0
 
     def _with_change(value: float) -> dict:
-        """기준환율 소스용 — 이전 캐시값과 비교해 변동 계산"""
-        chg = round(value - _prev_val, 2) if _prev_val > 0 else 0
+        chg  = round(value - _prev_val, 2) if _prev_val > 0 else 0
         chgr = round(chg / _prev_val * 100, 2) if _prev_val > 0 else 0
-        return {"symbol":"USDKRW","name":"원/달러 환율","value":round(value,2),"change":chg,"change_rate":chgr,"unit":"원"}
+        return {"symbol": symbol, "name": display_name, "value": round(value, 2), "change": chg, "change_rate": chgr, "unit": "원"}
 
-    # 3차: open.er-api.com (기준환율, 실시간 아님)
-    r2 = await _fetch_open_er()
-    if r2:
-        entry2 = _with_change(r2["value"])
-        cache.set(ck, entry2, 3600)  # 기준환율은 1시간 캐시
-        return entry2
+    # 3차: open.er-api.com (기준환율, 실시간 아님 — 1시간 캐시)
+    try:
+        async with httpx.AsyncClient(timeout=8) as cl:
+            r2 = await cl.get(f"https://open.er-api.com/v6/latest/{from_currency}")
+        if r2.status_code == 200:
+            krw = _safe(r2.json().get("rates", {}).get("KRW"))
+            if krw and krw > 100:
+                entry2 = _with_change(krw)
+                cache.set(cache_key, entry2, 3600)
+                return entry2
+    except Exception as e:
+        log.debug(f"open.er-api {from_currency} 실패: {e}")
 
     # 4차: frankfurter.app (ECB 기준환율)
     try:
         async with httpx.AsyncClient(timeout=8) as cl:
-            r3 = await cl.get("https://api.frankfurter.app/latest?from=USD&to=KRW")
+            r3 = await cl.get(f"https://api.frankfurter.app/latest?from={from_currency}&to=KRW")
         if r3.status_code == 200:
             krw = _safe(r3.json().get("rates", {}).get("KRW"))
             if krw and krw > 100:
                 entry3 = _with_change(krw)
-                cache.set(ck, entry3, 3600)
+                cache.set(cache_key, entry3, 3600)
                 return entry3
     except Exception as e:
-        log.debug(f"frankfurter.app 실패: {e}")
+        log.debug(f"frankfurter.app {from_currency} 실패: {e}")
+
+    stale = cache.get_stale(cache_key)
+    return stale or {"symbol": symbol, "name": display_name, "value": 0, "change": 0, "change_rate": 0, "unit": "원"}
 
 
-    stale = cache.get_stale(ck)
-    return stale or {"symbol":"USDKRW","name":"원/달러 환율","value":0,"change":0,"change_rate":0,"unit":"원"}
+async def get_usdkrw() -> dict:
+    return await get_fxkrw("USDKRW=X", "FX_USDKRW", "원/달러 환율", "USDKRW", "extra:usdkrw")
+
+
+async def get_eurkrw() -> dict:
+    return await get_fxkrw("EURKRW=X", "FX_EURKRW", "원/유로 환율", "EURKRW", "extra:eurkrw")

@@ -11,7 +11,7 @@ from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
 from app.services.news_service import get_kr_news, get_us_news, pick_top_image_first
 from app.services.ranking_service import get_us_rankings
 from app.services.market_extras import get_kr_futures, get_kr_rates, get_us_rates
-from app.services.price_fetcher import get_usdkrw, fetch_pykrx_index_ohlcv
+from app.services.price_fetcher import get_usdkrw, get_eurkrw, fetch_pykrx_index_ohlcv
 from app.core.config import settings
 from app.core.cache import cache
 
@@ -349,6 +349,10 @@ async def news_summary(market: str = Query(default="kr", pattern="^(kr|us)$")):
 @router.get("/exchange")
 async def exchange_rate():
     return await get_usdkrw()
+
+@router.get("/exchange/eur")
+async def exchange_rate_eur():
+    return await get_eurkrw()
 
 @router.get("/kr/futures")
 async def kr_futures():

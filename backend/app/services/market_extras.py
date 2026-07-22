@@ -243,20 +243,35 @@ def get_kr_rates() -> list:
 
 def _do_fetch_us_rates() -> list:
     ck = "extra:us_rates"
+    # (yf_sym, display_name, unit, is_rate, rt_cache_key)
+    # rt_cache_key: 실시간 캐시 키 — get_usdkrw/get_eurkrw가 채워 둔 값 우선 사용
     specs = [
-        ("USDKRW=X",  "원/달러",          "원",  False),
-        ("EURKRW=X",  "원/유로",          "원",  False),
-        ("JPYKRW=X",  "원/100엔",         "원",  False),
-        ("^IRX",      "미국 단기금리(3M)", "%",   True),
-        ("^FVX",      "미국 5년 국채",     "%",   True),
-        ("^TNX",      "미국 10년 국채",    "%",   True),
-        ("^TYX",      "미국 30년 국채",    "%",   True),
-        ("^VIX",      "VIX 공포지수",      "pt",  False),
+        ("USDKRW=X",  "원/달러",          "원",  False, "extra:usdkrw"),
+        ("EURKRW=X",  "원/유로",          "원",  False, "extra:eurkrw"),
+        ("JPYKRW=X",  "원/100엔",         "원",  False, None),
+        ("^IRX",      "미국 단기금리(3M)", "%",   True,  None),
+        ("^FVX",      "미국 5년 국채",     "%",   True,  None),
+        ("^TNX",      "미국 10년 국채",    "%",   True,  None),
+        ("^TYX",      "미국 30년 국채",    "%",   True,  None),
+        ("^VIX",      "VIX 공포지수",      "pt",  False, None),
     ]
-    close_data = _batch_close([s[0] for s in specs])  # 8회 → 1회 배치
+    # 실시간 캐시가 없는 종목만 yfinance 배치 조회
+    need_yf = [s[0] for s in specs if not s[4] or not (cache.get(s[4]) or cache.get_stale(s[4]))]
+    close_data = _batch_close(need_yf) if need_yf else None
 
     results = []
-    for sym, name, unit, is_rate in specs:
+    for sym, name, unit, is_rate, rt_key in specs:
+        # 실시간 환율 캐시 우선 (USD/EUR — get_fxkrw가 채운 값)
+        if rt_key:
+            rt = cache.get(rt_key) or cache.get_stale(rt_key)
+            if rt and rt.get("value", 0) > 0:
+                results.append({
+                    "name": name, "value": rt["value"],
+                    "change": rt.get("change", 0), "change_rate": rt.get("change_rate", 0),
+                    "unit": unit, "is_rate": is_rate,
+                })
+                continue
+        # 폴백: yfinance 히스토리
         try:
             c2 = close_data[sym].dropna() if (close_data is not None and sym in close_data.columns) \
                  else yf.Ticker(sym).history(period="5d")["Close"].dropna()

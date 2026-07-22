@@ -9,7 +9,7 @@ from datetime import datetime
 from app.core.cache import cache
 from app.services.price_fetcher import (
     fetch_naver_indices, fetch_naver_stocks, fetch_naver_exchange,
-    fetch_yf_quotes, fetch_yf_index_quotes, get_usdkrw, fetch_pykrx_index,
+    fetch_yf_quotes, fetch_yf_index_quotes, get_usdkrw, get_eurkrw, fetch_pykrx_index,
 )
 from app.core.config import settings
 
@@ -342,11 +342,13 @@ async def refresh_held_symbols():
 
 
 async def refresh_exchange():
-    """환율 갱신"""
+    """환율 갱신 (USD/KRW + EUR/KRW — 동일한 폴백 체인)"""
     try:
-        r = await get_usdkrw()
-        if r and r.get("value", 0) > 0 and not r.get("_demo"):
-            log.info(f"환율: {r['value']}원")
+        usd, eur = await asyncio.gather(get_usdkrw(), get_eurkrw(), return_exceptions=True)
+        if isinstance(usd, dict) and usd.get("value", 0) > 0:
+            log.info(f"USD/KRW: {usd['value']}원 ({usd.get('change', 0):+.2f})")
+        if isinstance(eur, dict) and eur.get("value", 0) > 0:
+            log.info(f"EUR/KRW: {eur['value']}원 ({eur.get('change', 0):+.2f})")
     except Exception as e:
         log.debug(f"환율 갱신 실패: {e}")
 
