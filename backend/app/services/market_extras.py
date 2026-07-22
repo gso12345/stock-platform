@@ -544,8 +544,37 @@ def _do_fetch_kr_rates() -> list:
         base = cache.get_stale("extra:kr_base_rate") or \
             {"name": "한국 기준금리", "value": 2.75, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
 
-    # 순서: 기준금리 → CD금리 → 국고채 3/5/10년
+    # 순서: 기준금리 → CD금리 → 국고채 3/5/10년 → 원/유로 → 원/100엔
     rates = [base, cd_rate] + bonds
+
+    # 원/유로·원/100엔 환율 — 캐시 우선, 없으면 yfinance 직접 조회
+    fx_specs = [
+        ("extra:eurkrw", "EURKRW=X", "원/유로 환율"),
+        ("extra:jpykrw", "JPYKRW=X", "원/100엔"),
+    ]
+    for fx_ck, fx_sym, fx_label in fx_specs:
+        fx = cache.get(fx_ck) or cache.get_stale(fx_ck)
+        if not fx or fx.get("value", 0) <= 0:
+            try:
+                h = yf.Ticker(fx_sym).history(period="5d")["Close"].dropna()
+                if len(h) >= 1:
+                    curr = float(h.iloc[-1])
+                    prev = float(h.iloc[-2]) if len(h) >= 2 else curr
+                    chg = curr - prev
+                    chgr = chg / prev * 100 if prev else 0.0
+                    fx = {"value": round(curr, 2), "change": round(chg, 2), "change_rate": round(chgr, 2)}
+                    cache.set(fx_ck, {**fx, "name": fx_label, "unit": "원"}, 360)
+            except Exception:
+                pass
+        if fx and fx.get("value", 0) > 0:
+            rates.append({
+                "name": fx_label,
+                "value": round(fx["value"], 2),
+                "change": round(fx.get("change", 0), 2),
+                "change_rate": round(fx.get("change_rate", 0), 2),
+                "unit": "원",
+                "is_rate": False,
+            })
 
     cache.set(ck, rates, 300)
     return rates
