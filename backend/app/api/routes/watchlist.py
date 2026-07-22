@@ -291,15 +291,15 @@ async def get_watchlist_prices_batch(
             if label == "us":
                 for sym, q in data.items():
                     if q and q.get("price"):
-                        cache.set(f"price:{sym}", q, 60)
+                        cache.set(f"price:{sym}", q, 120)
                         results[sym] = {**q, "market": sym_to_mkt.get(sym, "US")}
             else:  # kr
                 for code, q in data.items():
                     if not q or not q.get("price"):
                         continue
-                    cache.set(f"price:{code}", q, 60)
-                    cache.set(f"price:{code}.KS", q, 60)
-                    cache.set(f"price:{code}.KQ", q, 60)
+                    cache.set(f"price:{code}", q, 120)
+                    cache.set(f"price:{code}.KS", q, 120)
+                    cache.set(f"price:{code}.KQ", q, 120)
                     for s in sym_list:
                         if s.replace(".KS", "").replace(".KQ", "") == code:
                             results[s] = {**q, "market": "KR"}
@@ -349,13 +349,13 @@ async def _batch_fetch_prices(items: list[WatchlistItem]) -> dict[str, dict]:
             if label == "us":
                 for sym, q in data.items():
                     if q and q.get("price"):
-                        cache.set(f"price:{sym}", q, 60)
+                        cache.set(f"price:{sym}", q, 120)
                         results[sym] = q
             else:
                 for code, q in data.items():
                     if not q or not q.get("price"):
                         continue
-                    cache.set(f"price:{code}", q, 60)
+                    cache.set(f"price:{code}", q, 120)
                     for orig_sym in kr_symbol_map.get(code, [code]):
                         results[orig_sym] = q
     return results

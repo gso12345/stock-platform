@@ -253,7 +253,7 @@ async def refresh_us_stocks():
                     for field in ("volume", "market_cap", "name"):
                         if existing.get(field):
                             merged[field] = existing[field]
-                    cache.set(f"price:{sym}", merged, 60)
+                    cache.set(f"price:{sym}", merged, 360)
                     return True
             except Exception:
                 pass
@@ -291,8 +291,8 @@ async def refresh_kr_stocks():
     ok = 0
     for code6, q in naver_data.items():
         sym_ks = f"{code6}.KS"
-        cache.set(f"price:{sym_ks}", q, 60)
-        cache.set(f"price:{code6}", q, 60)
+        cache.set(f"price:{sym_ks}", q, 360)
+        cache.set(f"price:{code6}", q, 360)
         ok += 1
     log.info(f"국내 종목(네이버) {ok}/{len(POPULAR_KR_CODES)}개 갱신")
     return ok
@@ -318,9 +318,9 @@ async def refresh_held_symbols():
     if kr_codes:
         naver_data = await fetch_naver_stocks(list(kr_codes))
         for code6, q in naver_data.items():
-            cache.set(f"price:{code6}", q, 60)
-            cache.set(f"price:{code6}.KS", q, 60)
-            cache.set(f"price:{code6}.KQ", q, 60)
+            cache.set(f"price:{code6}", q, 360)
+            cache.set(f"price:{code6}.KS", q, 360)
+            cache.set(f"price:{code6}.KQ", q, 360)
         log.info(f"보유 국내종목 시세 선제 캐싱: {len(naver_data)}/{len(kr_codes)}개")
 
     if us_syms:

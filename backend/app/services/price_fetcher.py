@@ -64,78 +64,85 @@ def _parse_kr_num(s) -> float:
     return total or _safe(s) or 0
 
 
-async def fetch_naver_stock(code6: str) -> dict | None:
-    """네이버 모바일 API (basic + integration) 로 한국 종목 실시간 조회"""
+async def _fetch_naver_one(cl: httpx.AsyncClient, code6: str) -> dict | None:
+    """공유 AsyncClient로 단일 네이버 종목 조회 (connection pool 재사용)"""
     try:
-        async with httpx.AsyncClient(timeout=10, headers=NAVER_HEADERS) as cl:
-            basic_r, intg_r = await asyncio.gather(
-                cl.get(f"https://m.stock.naver.com/api/stock/{code6}/basic"),
-                cl.get(f"https://m.stock.naver.com/api/stock/{code6}/integration"),
-                return_exceptions=True,
-            )
+        basic_r, intg_r = await asyncio.gather(
+            cl.get(f"https://m.stock.naver.com/api/stock/{code6}/basic"),
+            cl.get(f"https://m.stock.naver.com/api/stock/{code6}/integration"),
+            return_exceptions=True,
+        )
 
-            # basic: 현재가·등락 — 블록 안에서 처리
-            if not isinstance(basic_r, Exception) and basic_r.status_code == 200:
-                b = basic_r.json()
-            else:
-                return None
-            curr = _safe(b.get("closePrice"))
-            if curr is None:
-                return None
-            chg  = _safe(b.get("compareToPreviousClosePrice")) or 0
-            chgr = _safe(b.get("fluctuationsRatio")) or 0
-            suffix = ".KQ" if "KOSDAQ" in str(b.get("stockExchangeType","")) else ".KS"
+        if not isinstance(basic_r, Exception) and basic_r.status_code == 200:
+            b = basic_r.json()
+        else:
+            return None
+        curr = _safe(b.get("closePrice"))
+        if curr is None:
+            return None
+        chg  = _safe(b.get("compareToPreviousClosePrice")) or 0
+        chgr = _safe(b.get("fluctuationsRatio")) or 0
 
-            # integration: totalInfos 배열에서 항목별 파싱 (대소문자 무관)
-            info: dict = {}
-            if not isinstance(intg_r, Exception) and intg_r.status_code == 200:
-                for item in (intg_r.json().get("totalInfos") or []):
-                    code_key = str(item.get("code","")).lower()
-                    info[code_key] = item.get("value","")
+        info: dict = {}
+        if not isinstance(intg_r, Exception) and intg_r.status_code == 200:
+            for item in (intg_r.json().get("totalInfos") or []):
+                code_key = str(item.get("code","")).lower()
+                info[code_key] = item.get("value","")
 
-            def num(key): return _parse_kr_num(info.get(key.lower()))
-            def pct(key):
-                v = str(info.get(key.lower(),"")).replace("%","").replace("배","").replace(",","")
-                return _safe(v)
+        def num(key): return _parse_kr_num(info.get(key.lower()))
+        def pct(key):
+            v = str(info.get(key.lower(),"")).replace("%","").replace("배","").replace(",","")
+            return _safe(v)
 
-            exchange = str(b.get("stockExchangeType", {}).get("code", "KS"))
-            market_suffix = ".KQ" if "KQ" in exchange or "KOSDAQ" in exchange.upper() else ".KS"
+        exchange = str(b.get("stockExchangeType", {}).get("code", "KS"))
+        market_suffix = ".KQ" if "KQ" in exchange or "KOSDAQ" in exchange.upper() else ".KS"
 
-            return {
-                "symbol":         f"{code6}{market_suffix}",
-                "name":           b.get("stockName",""),
-                "price":          curr,
-                "prev_close":     _parse_kr_num(info.get("lastcloseprice")) or (curr - chg),
-                "change":         round(chg, 2),
-                "change_rate":    round(chgr, 2),
-                "open":           num("openPrice") or None,
-                "high":           num("highPrice") or None,
-                "low":            num("lowPrice") or None,
-                "volume":         int(num("accumulatedTradingVolume")),
-                "amount":         int(num("accumulatedTradingValue")),
-                "market_cap":     int(num("marketValue")),
-                "per":            pct("per"),
-                "forward_per":    pct("cnsPer"),   # 컨센서스 PER
-                "pbr":            pct("pbr"),
-                "eps":            _parse_kr_num(info.get("eps")) or None,
-                "forward_eps":    _parse_kr_num(info.get("cnsEps")) or None,  # 컨센서스 EPS
-                "bps":            _parse_kr_num(info.get("bps")) or None,
-                "dividend_yield": pct("dividendYieldRatio"),
-                "week52_high":    num("highPriceOf52Weeks") or None,
-                "week52_low":     num("lowPriceOf52Weeks") or None,
-                "foreign_rate":   pct("foreignRate"),
-                "currency":       "KRW",
-                "market":         "KOSDAQ" if "KQ" in exchange else "KOSPI",
-            }
+        return {
+            "symbol":         f"{code6}{market_suffix}",
+            "name":           b.get("stockName",""),
+            "price":          curr,
+            "prev_close":     _parse_kr_num(info.get("lastcloseprice")) or (curr - chg),
+            "change":         round(chg, 2),
+            "change_rate":    round(chgr, 2),
+            "open":           num("openPrice") or None,
+            "high":           num("highPrice") or None,
+            "low":            num("lowPrice") or None,
+            "volume":         int(num("accumulatedTradingVolume")),
+            "amount":         int(num("accumulatedTradingValue")),
+            "market_cap":     int(num("marketValue")),
+            "per":            pct("per"),
+            "forward_per":    pct("cnsPer"),
+            "pbr":            pct("pbr"),
+            "eps":            _parse_kr_num(info.get("eps")) or None,
+            "forward_eps":    _parse_kr_num(info.get("cnsEps")) or None,
+            "bps":            _parse_kr_num(info.get("bps")) or None,
+            "dividend_yield": pct("dividendYieldRatio"),
+            "week52_high":    num("highPriceOf52Weeks") or None,
+            "week52_low":     num("lowPriceOf52Weeks") or None,
+            "foreign_rate":   pct("foreignRate"),
+            "currency":       "KRW",
+            "market":         "KOSDAQ" if "KQ" in exchange else "KOSPI",
+        }
     except Exception as e:
         log.debug(f"네이버 주식 {code6} 실패: {e}")
         return None
 
 
+async def fetch_naver_stock(code6: str) -> dict | None:
+    """네이버 모바일 API (basic + integration) 로 한국 종목 실시간 조회"""
+    async with httpx.AsyncClient(timeout=10, headers=NAVER_HEADERS) as cl:
+        return await _fetch_naver_one(cl, code6)
+
+
 async def fetch_naver_stocks(codes: list[str]) -> dict[str, dict]:
-    """여러 한국 종목 병렬 조회"""
-    tasks = [fetch_naver_stock(c) for c in codes]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    """여러 한국 종목 병렬 조회 — 단일 AsyncClient로 connection pool 재사용"""
+    if not codes:
+        return {}
+    async with httpx.AsyncClient(timeout=10, headers=NAVER_HEADERS) as cl:
+        results = await asyncio.gather(
+            *[_fetch_naver_one(cl, c) for c in codes],
+            return_exceptions=True,
+        )
     out = {}
     for code, r in zip(codes, results):
         if isinstance(r, dict) and r:
