@@ -150,16 +150,23 @@ def _batch_close(symbols: list) -> "pd.DataFrame | None":
 
 
 def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
-    """네이버 모바일 API (m.stock.naver.com) — 한국 금리 조회.
-    주식·환율과 동일 도메인이라 서버 환경에서 접근 가능.
-    전체 목록 API → 개별 코드 순으로 시도.
+    """네이버 금리 다중 엔드포인트 조회.
+    1) polling.finance.naver.com — 실시간 위젯 전용, IP 차단 적음
+    2) m.stock.naver.com 목록 API
+    3) m.stock.naver.com 개별 코드 (다중 경로)
     """
-    _H = {
+    _H_MOB = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "ko-KR,ko;q=0.9",
         "Referer": "https://m.stock.naver.com/",
         "Origin": "https://m.stock.naver.com",
+    }
+    _H_POLL = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ko-KR,ko;q=0.9",
+        "Referer": "https://finance.naver.com/",
     }
 
     def _sf(v) -> float:
@@ -168,6 +175,7 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
 
     def _display(raw: str) -> "str | None":
         if not raw: return None
+        raw = str(raw)
         if "기준금리" in raw: return "한국 기준금리"
         if "CD" in raw and ("91" in raw or "일" in raw): return "CD금리(91일)"
         if ("국고채" in raw or "국고" in raw) and "3년" in raw: return "국고채 3년"
@@ -176,92 +184,144 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
         return None
 
     def _extract(d: dict) -> "tuple[float, float]":
-        val = _sf(d.get("closePrice") or d.get("currentPrice") or d.get("close") or 0)
+        val = _sf(d.get("closePrice") or d.get("currentPrice") or d.get("close") or
+                  d.get("rateValue") or d.get("rate") or 0)
         chg = _sf(d.get("compareToPreviousClosePrice") or d.get("change") or
-                  d.get("priceChange") or 0)
+                  d.get("priceChange") or d.get("rateChange") or 0)
         return val, chg
 
     def _entry(name: str, val: float, chg: float) -> dict:
         return {"name": name, "value": round(val, 3), "change": round(chg, 3),
                 "change_rate": round(chg, 3), "unit": "%", "is_rate": True}
 
+    def _consume(items: list, rates: list, cd_rate):
+        seen: set = {e["name"] for e in rates}
+        if cd_rate: seen.add(cd_rate["name"])
+        for item in items:
+            raw = (item.get("rateName") or item.get("name") or item.get("symbolName") or
+                   item.get("itemName") or item.get("indexName") or "")
+            name = _display(raw)
+            if not name or name in seen: continue
+            val, chg = _extract(item)
+            if val <= 0: continue
+            seen.add(name)
+            e = _entry(name, val, chg)
+            if name == "CD금리(91일)": cd_rate = e
+            else: rates.append(e)
+        return rates, cd_rate
+
     rates: list = []
     cd_rate = None
 
-    # ── 1순위: 전체 목록 API (한 번에 모든 금리 반환) ─────────
+    # ── 1순위: polling.finance.naver.com 실시간 위젯 API ──────
+    # 네이버 시세 위젯 전용 엔드포인트, 서버 IP 차단이 상대적으로 적음
+    POLL_KEYS = "IRR_BASERATE|IRR_CD91|IRR_GOV3YR|IRR_GOV5YR|IRR_GOV10YR"
+    for svc in ["SERVICE_RATE", "SERVICE_MARKET_INDEX"]:
+        try:
+            r = httpx.get(
+                f"https://polling.finance.naver.com/api/realtime?query={svc}:{POLL_KEYS}",
+                headers=_H_POLL, timeout=8,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                # polling API는 {"result":{"polling":[{"key":..,"datas":{...}}]}} 또는 flat dict
+                polling_items = (data.get("result", {}).get("polling") or
+                                 data.get("polling") or [])
+                if polling_items:
+                    for pi in polling_items:
+                        key = pi.get("key", "")
+                        datas = pi.get("datas") or pi.get("data") or {}
+                        # key 에서 이름 유추
+                        name_hint = key.replace(f"{svc}:", "")
+                        name_map = {
+                            "IRR_BASERATE": "한국 기준금리",
+                            "IRR_CD91": "CD금리(91일)",
+                            "IRR_GOV3YR": "국고채 3년",
+                            "IRR_GOV5YR": "국고채 5년",
+                            "IRR_GOV10YR": "국고채 10년",
+                        }
+                        name = name_map.get(name_hint) or _display(datas.get("name", ""))
+                        if not name: continue
+                        val, chg = _extract(datas)
+                        if val <= 0: continue
+                        e = _entry(name, val, chg)
+                        if name == "CD금리(91일)": cd_rate = e
+                        elif name not in {r["name"] for r in rates}: rates.append(e)
+                elif isinstance(data, dict):
+                    # flat: {"IRR_BASERATE": {...}, "IRR_GOV3YR": {...}}
+                    name_map = {
+                        "IRR_BASERATE": "한국 기준금리", "IRR_CD91": "CD금리(91일)",
+                        "IRR_GOV3YR": "국고채 3년", "IRR_GOV5YR": "국고채 5년", "IRR_GOV10YR": "국고채 10년",
+                    }
+                    for key, datas in data.items():
+                        if not isinstance(datas, dict): continue
+                        name = name_map.get(key) or _display(datas.get("name", ""))
+                        if not name: continue
+                        val, chg = _extract(datas)
+                        if val <= 0: continue
+                        e = _entry(name, val, chg)
+                        if name == "CD금리(91일)": cd_rate = e
+                        elif name not in {r["name"] for r in rates}: rates.append(e)
+                if rates:
+                    return rates, cd_rate
+        except Exception:
+            continue
+
+    # ── 2순위: m.stock.naver.com 목록 API ─────────────────────
     for list_url in [
         "https://m.stock.naver.com/api/rate/domestic",
         "https://m.stock.naver.com/api/rate/index",
-        "https://m.stock.naver.com/api/market/domestic/interest",
+        "https://m.stock.naver.com/api/marketindex/rate",
     ]:
         try:
-            r = httpx.get(list_url, headers=_H, timeout=8)
-            if r.status_code != 200:
-                continue
+            r = httpx.get(list_url, headers=_H_MOB, timeout=8)
+            if r.status_code != 200: continue
             data = r.json()
             items = data if isinstance(data, list) else next(
                 (v for v in (data.values() if isinstance(data, dict) else []) if isinstance(v, list)), []
             )
-            seen: set = set()
-            for item in items:
-                raw_name = (item.get("rateName") or item.get("name") or
-                            item.get("symbolName") or item.get("itemName") or "")
-                name = _display(raw_name)
-                if not name or name in seen:
-                    continue
-                val, chg = _extract(item)
-                if val <= 0:
-                    continue
-                seen.add(name)
-                e = _entry(name, val, chg)
-                if name == "CD금리(91일)":
-                    cd_rate = e
-                else:
-                    rates.append(e)
-            if rates:
-                return rates, cd_rate
+            rates, cd_rate = _consume(items, rates, cd_rate)
+            if rates: return rates, cd_rate
         except Exception:
             continue
 
-    # ── 2순위: 개별 코드 조회 (후보 코드 여러 개 시도) ────────
-    # 국고채 코드는 Naver 내부 코드가 불확실해 후보 다수 시도
-    SPECS = [
+    # ── 3순위: 개별 코드 × 다중 경로 ────────────────────────────
+    BOND_SPECS = [
         ("한국 기준금리", False, ["BASERATE", "IRR_BASERATE"]),
-        ("CD금리(91일)",  True,  ["CD91", "IRR_CD91", "CD_91"]),
-        ("국고채 3년",    False, ["GOV3YR", "GOV3Y", "KTB3YR", "KTB3Y", "IRR_GOV3YR",
-                                   "IRR_GOV3Y", "GB3YR", "NGS3Y", "NGOV3Y"]),
-        ("국고채 5년",    False, ["GOV5YR", "GOV5Y", "KTB5YR", "KTB5Y", "IRR_GOV5YR",
-                                   "IRR_GOV5Y", "GB5YR", "NGS5Y"]),
-        ("국고채 10년",   False, ["GOV10YR", "GOV10Y", "KTB10YR", "KTB10Y", "IRR_GOV10YR",
-                                    "IRR_GOV10Y", "GB10YR", "NGS10Y"]),
+        ("CD금리(91일)",  True,  ["CD91", "IRR_CD91"]),
+        ("국고채 3년",    False, ["IRR_GOV3YR", "GOV3YR", "GOV3Y", "KTB3YR", "KTB3Y",
+                                   "GB3YR", "NGS3Y"]),
+        ("국고채 5년",    False, ["IRR_GOV5YR", "GOV5YR", "GOV5Y", "KTB5YR", "KTB5Y",
+                                   "GB5YR"]),
+        ("국고채 10년",   False, ["IRR_GOV10YR", "GOV10YR", "GOV10Y", "KTB10YR", "KTB10Y",
+                                    "GB10YR"]),
     ]
-    found: set = set()
-    for name, is_cd, codes in SPECS:
-        if name in found:
-            continue
+    PATHS = [
+        "https://m.stock.naver.com/api/rate/{}/basic",
+        "https://m.stock.naver.com/api/marketindex/{}/basic",
+        "https://m.stock.naver.com/api/bond/{}/basic",
+    ]
+    found: set = {e["name"] for e in rates}
+    if cd_rate: found.add(cd_rate["name"])
+    for name, is_cd, codes in BOND_SPECS:
+        if name in found: continue
         for code in codes:
-            try:
-                r = httpx.get(
-                    f"https://m.stock.naver.com/api/rate/{code}/basic",
-                    headers=_H, timeout=5,
-                )
-                if r.status_code != 200:
+            for path_tmpl in PATHS:
+                try:
+                    r = httpx.get(path_tmpl.format(code), headers=_H_MOB, timeout=5)
+                    if r.status_code != 200: continue
+                    d = r.json()
+                    if isinstance(d, list): d = d[0] if d else {}
+                    val, chg = _extract(d)
+                    if val <= 0: continue
+                    e = _entry(name, val, chg)
+                    if is_cd: cd_rate = e
+                    else: rates.append(e)
+                    found.add(name)
+                    break
+                except Exception:
                     continue
-                d = r.json()
-                if isinstance(d, list):
-                    d = d[0] if d else {}
-                val, chg = _extract(d)
-                if val <= 0:
-                    continue
-                e = _entry(name, val, chg)
-                if is_cd:
-                    cd_rate = e
-                else:
-                    rates.append(e)
-                found.add(name)
-                break
-            except Exception:
-                continue
+            if name in found: break
 
     return rates, cd_rate
 
