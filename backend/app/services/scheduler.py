@@ -533,6 +533,12 @@ async def periodic_refresh():
         if counter % 6 == 0:
             await refresh_exchange()
 
+        # 한국 금리 — 기준금리·CD금리·국고채 (3분)
+        if counter % 18 == 0:
+            from app.services.market_extras import _do_fetch_kr_rates
+            loop2 = asyncio.get_running_loop()
+            await loop2.run_in_executor(None, _do_fetch_kr_rates)
+
         # 미국 환율·금리·국채 (5분)
         if counter % 30 == 0:
             from app.services.market_extras import get_us_rates
