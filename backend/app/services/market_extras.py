@@ -32,7 +32,7 @@ def get_exchange_rate() -> dict:
             return _demo_exchange()
         result = {
             "symbol": "USDKRW",
-            "name":   "원/달러 환율",
+            "name":   "원달러",
             "value":  round(curr, 2),
             "change": round(chg, 2),
             "change_rate": round(chgr, 4),
@@ -45,7 +45,7 @@ def get_exchange_rate() -> dict:
 
 
 def _demo_exchange() -> dict:
-    return {"symbol":"USDKRW","name":"원/달러 환율","value":1384.50,"change":-2.30,"change_rate":-0.17,"unit":"원","_demo":True}
+    return {"symbol":"USDKRW","name":"원달러","value":1384.50,"change":-2.30,"change_rate":-0.17,"unit":"원","_demo":True}
 
 
 # ── 국내 선물 (KIS API 또는 yfinance 근사) ─────────────────
@@ -176,8 +176,8 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
     def _display(raw: str) -> "str | None":
         if not raw: return None
         raw = str(raw)
-        if "기준금리" in raw: return "한국 기준금리"
-        if "CD" in raw and ("91" in raw or "일" in raw): return "CD금리(91일)"
+        if "기준금리" in raw: return "기준금리"
+        if "CD" in raw and ("91" in raw or "일" in raw): return "CD금리"
         if ("국고채" in raw or "국고" in raw) and "3년" in raw: return "국고채 3년"
         if ("국고채" in raw or "국고" in raw) and "5년" in raw: return "국고채 5년"
         if ("국고채" in raw or "국고" in raw) and "10년" in raw: return "국고채 10년"
@@ -206,7 +206,7 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
             if val <= 0: continue
             seen.add(name)
             e = _entry(name, val, chg)
-            if name == "CD금리(91일)": cd_rate = e
+            if name == "CD금리": cd_rate = e
             else: rates.append(e)
         return rates, cd_rate
 
@@ -234,8 +234,8 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
                         # key 에서 이름 유추
                         name_hint = key.replace(f"{svc}:", "")
                         name_map = {
-                            "IRR_BASERATE": "한국 기준금리",
-                            "IRR_CD91": "CD금리(91일)",
+                            "IRR_BASERATE": "기준금리",
+                            "IRR_CD91": "CD금리",
                             "IRR_GOV3YR": "국고채 3년",
                             "IRR_GOV5YR": "국고채 5년",
                             "IRR_GOV10YR": "국고채 10년",
@@ -245,12 +245,12 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
                         val, chg = _extract(datas)
                         if val <= 0: continue
                         e = _entry(name, val, chg)
-                        if name == "CD금리(91일)": cd_rate = e
+                        if name == "CD금리": cd_rate = e
                         elif name not in {r["name"] for r in rates}: rates.append(e)
                 elif isinstance(data, dict):
                     # flat: {"IRR_BASERATE": {...}, "IRR_GOV3YR": {...}}
                     name_map = {
-                        "IRR_BASERATE": "한국 기준금리", "IRR_CD91": "CD금리(91일)",
+                        "IRR_BASERATE": "기준금리", "IRR_CD91": "CD금리",
                         "IRR_GOV3YR": "국고채 3년", "IRR_GOV5YR": "국고채 5년", "IRR_GOV10YR": "국고채 10년",
                     }
                     for key, datas in data.items():
@@ -260,7 +260,7 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
                         val, chg = _extract(datas)
                         if val <= 0: continue
                         e = _entry(name, val, chg)
-                        if name == "CD금리(91일)": cd_rate = e
+                        if name == "CD금리": cd_rate = e
                         elif name not in {r["name"] for r in rates}: rates.append(e)
                 if rates:
                     return rates, cd_rate
@@ -287,8 +287,8 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
 
     # ── 3순위: 개별 코드 × 다중 경로 ────────────────────────────
     BOND_SPECS = [
-        ("한국 기준금리", False, ["BASERATE", "IRR_BASERATE"]),
-        ("CD금리(91일)",  True,  ["CD91", "IRR_CD91"]),
+        ("기준금리", False, ["BASERATE", "IRR_BASERATE"]),
+        ("CD금리",   True,  ["CD91", "IRR_CD91"]),
         ("국고채 3년",    False, ["IRR_GOV3YR", "GOV3YR", "GOV3Y", "KTB3YR", "KTB3Y",
                                    "GB3YR", "NGS3Y"]),
         ("국고채 5년",    False, ["IRR_GOV5YR", "GOV5YR", "GOV5Y", "KTB5YR", "KTB5Y",
@@ -363,7 +363,7 @@ def _fetch_bok_rates_ecos() -> "tuple[dict | None, list]":
                 val = float(rows[-1].get("DATA_VALUE") or 0)
                 if val > 0:
                     bok_base = {
-                        "name": "한국 기준금리", "value": round(val, 3),
+                        "name": "기준금리", "value": round(val, 3),
                         "change": 0.0, "change_rate": 0.0,
                         "unit": "%", "is_rate": True,
                     }
@@ -473,7 +473,7 @@ def _fetch_kr_bonds_pykrx() -> "tuple[list, dict | None]":
                 val = float(row["수익률"])
                 chg = float(row["대비"]) if "대비" in row.index else 0.0
                 cd = {
-                    "name": "CD금리(91일)", "value": round(val, 3),
+                    "name": "CD금리", "value": round(val, 3),
                     "change": round(chg, 3), "change_rate": round(chg, 3),
                     "unit": "%", "is_rate": True,
                 }
@@ -536,21 +536,21 @@ def _do_fetch_kr_rates() -> list:
 
     # CD금리: 위 소스 중 하나에서 얻었거나, 캐시·정적 값
     cd_rate = cd_override or cache.get_stale("extra:cd_rate") or \
-        {"name": "CD금리(91일)", "value": 3.62, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
+        {"name": "CD금리", "value": 3.62, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
     cache.set("extra:cd_rate", cd_rate, 86400)
 
     # 기준금리: 위 소스 없으면 캐시 or 정적 값 (BOK 변경 빈도 낮음)
     if not base:
         base = cache.get_stale("extra:kr_base_rate") or \
-            {"name": "한국 기준금리", "value": 2.75, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
+            {"name": "기준금리", "value": 2.75, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
 
     # 순서: 기준금리 → CD금리 → 국고채 3/5/10년 → 원/유로 → 원/100엔
     rates = [base, cd_rate] + bonds
 
     # 원/유로·원/100엔 환율 — 캐시 우선, 없으면 yfinance 직접 조회
     fx_specs = [
-        ("extra:eurkrw", "EURKRW=X", "원/유로 환율"),
-        ("extra:jpykrw", "JPYKRW=X", "원/100엔"),
+        ("extra:eurkrw", "EURKRW=X", "원유로"),
+        ("extra:jpykrw", "JPYKRW=X", "원엔"),
     ]
     for fx_ck, fx_sym, fx_label in fx_specs:
         fx = cache.get(fx_ck) or cache.get_stale(fx_ck)
@@ -592,9 +592,9 @@ def get_kr_rates() -> list:
 
 
 _FX_CACHE_MAP = {
-    "USDKRW=X": ("extra:usdkrw", "USDKRW", "원/달러 환율"),
-    "EURKRW=X": ("extra:eurkrw", "EURKRW", "원/유로 환율"),
-    "JPYKRW=X": ("extra:jpykrw", "JPYKRW", "원/100엔"),
+    "USDKRW=X": ("extra:usdkrw", "USDKRW", "원달러"),
+    "EURKRW=X": ("extra:eurkrw", "EURKRW", "원유로"),
+    "JPYKRW=X": ("extra:jpykrw", "JPYKRW", "원엔"),
 }
 
 
@@ -602,9 +602,9 @@ def _do_fetch_us_rates() -> list:
     ck = "extra:us_rates"
     # 원달러·원유로·원엔 모두 yfinance history 방식으로 통일 (rt_cache_key 없음)
     specs = [
-        ("USDKRW=X",  "원/달러",          "원",  False),
-        ("EURKRW=X",  "원/유로",          "원",  False),
-        ("JPYKRW=X",  "원/100엔",         "원",  False),
+        ("USDKRW=X",  "원달러",  "원",  False),
+        ("EURKRW=X",  "원유로",  "원",  False),
+        ("JPYKRW=X",  "원엔",    "원",  False),
         ("^IRX",      "미국 단기금리(3M)", "%",   True),
         ("^FVX",      "미국 5년 국채",     "%",   True),
         ("^TNX",      "미국 10년 국채",    "%",   True),
@@ -655,8 +655,8 @@ def get_us_rates() -> list:
 
 def _demo_rates() -> list:
     return [
-        {"name":"한국 기준금리","value":2.75,"change":0.0,"change_rate":0.0,"unit":"%","is_rate":True,"_demo":True},
-        {"name":"CD금리(91일)","value":3.62,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
+        {"name":"기준금리","value":2.75,"change":0.0,"change_rate":0.0,"unit":"%","is_rate":True,"_demo":True},
+        {"name":"CD금리","value":3.62,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
         {"name":"국고채 3년","value":3.45,"change":-0.02,"change_rate":-0.02,"unit":"%","is_rate":True,"_demo":True},
         {"name":"국고채 5년","value":3.61,"change":-0.01,"change_rate":-0.01,"unit":"%","is_rate":True,"_demo":True},
         {"name":"국고채 10년","value":3.78,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
