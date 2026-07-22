@@ -948,8 +948,8 @@ export default function Feed() {
         marketFilter === "ALL" ? undefined : marketFilter,
         isFollowing
       ),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 120_000,
+    refetchInterval: 300_000,
     placeholderData: keepPreviousData,
   });
 

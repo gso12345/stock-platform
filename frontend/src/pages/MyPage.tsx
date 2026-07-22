@@ -41,12 +41,14 @@ export default function MyPage() {
     queryKey: ["myProfile"],
     queryFn: communityApi.getMyProfile,
     enabled: isLoggedIn,
+    staleTime: 120_000,
   });
 
   const { data: publicProfile } = useQuery({
     queryKey: ["userPublicProfile", userId],
     queryFn: () => communityApi.getUserPublicProfile(userId!),
     enabled: isLoggedIn && !!userId,
+    staleTime: 120_000,
   });
 
   const { data: portfolios } = useQuery({
@@ -75,6 +77,7 @@ export default function MyPage() {
     queryKey: ["userActivity", userId],
     queryFn: () => communityApi.getUserActivity(userId!),
     enabled: isLoggedIn && !!userId,
+    staleTime: 120_000,
   });
 
   const [editMode, setEditMode] = useState(false);

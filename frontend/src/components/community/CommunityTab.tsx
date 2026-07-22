@@ -663,8 +663,8 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: key,
     queryFn: () => communityApi.getPosts(market, symbol, page, sort),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 120_000,
+    refetchInterval: 300_000,
     placeholderData: keepPreviousData,
   });
 

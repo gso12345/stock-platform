@@ -95,17 +95,20 @@ def display_name(user, profile: Optional[UserProfile]) -> str:
 def _ser_post(post: StockPost, uid: Optional[int], db: Session,
               profiles_map: Optional[dict] = None,
               comment_counts: Optional[dict] = None,
-              following_ids: Optional[set] = None) -> dict:
+              following_ids: Optional[set] = None,
+              poll_votes_map: Optional[dict] = None) -> dict:
     liked  = any(lk.user_id == uid for lk in post.likes) if uid else False
     parsed = decode_content(post.content)
     profile = profiles_map.get(post.user_id) if profiles_map is not None else (
         get_profile(db, post.user_id) if post.user else None
     )
 
-    # 투표 집계
+    # 투표 집계 — poll_votes_map이 있으면 DB 재조회 없이 사용
     poll_data = None
     if parsed.get("poll"):
-        votes = db.query(StockPostPollVote).filter(StockPostPollVote.post_id == post.id).all()
+        votes = poll_votes_map.get(post.id, []) if poll_votes_map is not None else (
+            db.query(StockPostPollVote).filter(StockPostPollVote.post_id == post.id).all()
+        )
         options = parsed["poll"].get("options", [])
         counts = [0] * len(options)
         for v in votes:
@@ -143,13 +146,13 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "is_following":  (post.user_id in following_ids) if following_ids is not None and uid and post.user_id != uid else False,
     }
 
-def _ser_comment(c: StockComment, uid: Optional[int], db: Session) -> dict:
+def _ser_comment(c: StockComment, uid: Optional[int], db: Session, profiles_map: Optional[dict] = None) -> dict:
     liked   = any(lk.user_id == uid for lk in c.likes) if uid else False
-    profile = get_profile(db, c.user_id) if c.user else None
+    profile = profiles_map.get(c.user_id) if profiles_map is not None else (get_profile(db, c.user_id) if c.user else None)
     replies = []
     if c.replies:
         for r in sorted([x for x in c.replies if not x.is_deleted], key=lambda x: x.created_at):
-            rp = get_profile(db, r.user_id) if r.user else None
+            rp = profiles_map.get(r.user_id) if profiles_map is not None else (get_profile(db, r.user_id) if r.user else None)
             r_liked = any(lk.user_id == uid for lk in r.likes) if uid else False
             replies.append({
                 "id":           r.id,
@@ -295,8 +298,13 @@ def list_posts(
                 UserFollow.follower_id == uid, UserFollow.following_id.in_(others)
             ).all()
             lp_following_ids = {r[0] for r in fol_rows}
+    # 투표 일괄 조회 (N+1 방지)
+    lp_poll_votes: dict = {}
+    if post_ids:
+        for v in db.query(StockPostPollVote).filter(StockPostPollVote.post_id.in_(post_ids)).all():
+            lp_poll_votes.setdefault(v.post_id, []).append(v)
     return {"total": total, "page": page, "items": [
-        _ser_post(p, uid, db, profiles_map, comment_counts, lp_following_ids) for p in posts
+        _ser_post(p, uid, db, profiles_map, comment_counts, lp_following_ids, lp_poll_votes) for p in posts
     ]}
 
 
@@ -462,19 +470,6 @@ def get_post(
     current_user=Depends(get_current_user),
 ):
     uid = current_user.id if current_user else None
-    # 존재 확인
-    exists = db.execute(
-        text("SELECT 1 FROM stock_posts WHERE id = :id AND is_deleted IS NOT TRUE LIMIT 1"),
-        {"id": post_id},
-    ).fetchone()
-    if not exists:
-        raise HTTPException(404, "게시글을 찾을 수 없습니다")
-    # 조회수 먼저 증가 (fetch 전에 커밋해야 반환값에 반영됨)
-    try:
-        db.execute(text("UPDATE stock_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :id"), {"id": post_id})
-        db.commit()
-    except Exception:
-        db.rollback()
     post = (
         db.query(StockPost)
         .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
@@ -488,6 +483,12 @@ def get_post(
     )
     if not post:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    # 조회수 증가 (게시글 확인 후)
+    try:
+        db.execute(text("UPDATE stock_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = :id"), {"id": post_id})
+        db.commit()
+    except Exception:
+        db.rollback()
     profile = get_profile(db, post.user_id) if post.user else None
     count_row = db.execute(
         text("SELECT COUNT(*) FROM stock_comments WHERE post_id = :pid AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE"),
@@ -501,7 +502,11 @@ def get_post(
         ).first()
         if is_fol:
             following_ids.add(post.user_id)
-    return _ser_post(post, uid, db, {post.user_id: profile} if profile else None, {post_id: comment_count}, following_ids)
+    # 투표 일괄 조회
+    gp_poll_votes: dict = {}
+    for v in db.query(StockPostPollVote).filter(StockPostPollVote.post_id == post_id).all():
+        gp_poll_votes.setdefault(v.post_id, []).append(v)
+    return _ser_post(post, uid, db, {post.user_id: profile} if profile else None, {post_id: comment_count}, following_ids, gp_poll_votes)
 
 
 # ── 댓글 목록 ─────────────────────────────────────────────────
@@ -520,13 +525,34 @@ def list_comments(
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     uid = current_user.id if current_user else None
     order = StockComment.like_count.desc() if sort == "popular" else StockComment.created_at.asc()
-    root = db.query(StockComment).filter(
-        StockComment.post_id == post_id,
-        StockComment.parent_id == None,
-        StockComment.is_deleted.isnot(True),
-        StockComment.is_blinded.isnot(True),
-    ).order_by(order).all()
-    return [_ser_comment(c, uid, db) for c in root]
+    root = (
+        db.query(StockComment)
+        .filter(
+            StockComment.post_id == post_id,
+            StockComment.parent_id == None,
+            StockComment.is_deleted.isnot(True),
+            StockComment.is_blinded.isnot(True),
+        )
+        .options(
+            selectinload(StockComment.likes),
+            selectinload(StockComment.user),
+            selectinload(StockComment.replies).selectinload(StockComment.likes),
+            selectinload(StockComment.replies).selectinload(StockComment.user),
+        )
+        .order_by(order)
+        .all()
+    )
+    # 모든 댓글/답글 작성자 프로필 일괄 조회
+    all_user_ids: set = set()
+    for c in root:
+        all_user_ids.add(c.user_id)
+        for r in c.replies:
+            all_user_ids.add(r.user_id)
+    cm_profiles_map: dict = (
+        {p.user_id: p for p in db.query(UserProfile).filter(UserProfile.user_id.in_(list(all_user_ids))).all()}
+        if all_user_ids else {}
+    )
+    return [_ser_comment(c, uid, db, cm_profiles_map) for c in root]
 
 
 # ── 댓글 작성 ─────────────────────────────────────────────────
@@ -649,8 +675,7 @@ def get_feed(
 
     if following and uid:
         followed_ids = [
-            f.following_id
-            for f in db.query(UserFollow).filter(UserFollow.follower_id == uid).all()
+            r[0] for r in db.query(UserFollow.following_id).filter(UserFollow.follower_id == uid).all()
         ]
         if followed_ids:
             q = q.filter(StockPost.user_id.in_(followed_ids))
@@ -696,8 +721,13 @@ def get_feed(
                 UserFollow.follower_id == uid, UserFollow.following_id.in_(others)
             ).all()
             feed_following_ids = {r[0] for r in fol_rows}
+    # 투표 일괄 조회 (N+1 방지)
+    feed_poll_votes: dict = {}
+    if post_ids:
+        for v in db.query(StockPostPollVote).filter(StockPostPollVote.post_id.in_(post_ids)).all():
+            feed_poll_votes.setdefault(v.post_id, []).append(v)
     return {"total": total, "page": page, "items": [
-        _ser_post(p, uid, db, profiles_map, feed_comment_counts, feed_following_ids) for p in posts
+        _ser_post(p, uid, db, profiles_map, feed_comment_counts, feed_following_ids, feed_poll_votes) for p in posts
     ]}
 
 
@@ -851,17 +881,19 @@ def get_user_public_profile(
     if not user:
         raise HTTPException(404, "사용자를 찾을 수 없습니다")
     p = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
-    follower_count = db.query(UserFollow).filter(UserFollow.following_id == user_id).count()
-    following_count = db.query(UserFollow).filter(UserFollow.follower_id == user_id).count()
-    post_count = db.query(StockPost).filter(
-        StockPost.user_id == user_id, StockPost.is_deleted.isnot(True)
-    ).count()
-    is_following = False
-    if current_user:
-        is_following = db.query(UserFollow).filter(
-            UserFollow.follower_id == current_user.id,
-            UserFollow.following_id == user_id,
-        ).first() is not None
+    # COUNT 4번 → 단일 SQL로 통합
+    me_id = current_user.id if current_user else 0
+    stat_row = db.execute(text("""
+        SELECT
+            (SELECT COUNT(*) FROM user_follows WHERE following_id = :uid) AS follower_count,
+            (SELECT COUNT(*) FROM user_follows WHERE follower_id  = :uid) AS following_count,
+            (SELECT COUNT(*) FROM stock_posts  WHERE user_id = :uid AND is_deleted IS NOT TRUE) AS post_count,
+            (SELECT 1 FROM user_follows WHERE follower_id = :me AND following_id = :uid LIMIT 1) AS is_following
+    """), {"uid": user_id, "me": me_id}).fetchone()
+    follower_count  = stat_row[0] or 0
+    following_count = stat_row[1] or 0
+    post_count      = stat_row[2] or 0
+    is_following    = bool(stat_row[3]) if current_user else False
     is_me = current_user.id == user_id if current_user else False
     return {
         "user_id":        user.id,
@@ -904,17 +936,20 @@ def get_user_activity(
             {"ids": act_post_ids},
         ).fetchall()
         act_comment_counts = {r[0]: r[1] for r in rows}
-    post_items = [{
-        "type": "post",
-        "id": p.id,
-        "symbol": p.symbol,
-        "market": p.market,
-        "title": decode_content(p.content)["title"],
-        "body": decode_content(p.content)["body"],
-        "like_count": getattr(p, "like_count", 0) or 0,
-        "comment_count": act_comment_counts.get(p.id, 0),
-        "created_at": p.created_at.isoformat(),
-    } for p in posts]
+    post_items = []
+    for p in posts:
+        parsed = decode_content(p.content)
+        post_items.append({
+            "type": "post",
+            "id": p.id,
+            "symbol": p.symbol,
+            "market": p.market,
+            "title": parsed["title"],
+            "body": parsed["body"],
+            "like_count": getattr(p, "like_count", 0) or 0,
+            "comment_count": act_comment_counts.get(p.id, 0),
+            "created_at": p.created_at.isoformat(),
+        })
     comment_post_ids = [c.post_id for c in comments]
     post_meta: dict = {}
     if comment_post_ids:
@@ -942,36 +977,38 @@ def get_user_activity(
 # ── 팔로워/팔로잉 목록 ────────────────────────────────────────
 @router.get("/users/{user_id}/followers")
 def get_followers(user_id: int = Path(...), db: Session = Depends(get_db)):
-    follows = db.query(UserFollow).filter(UserFollow.following_id == user_id).all()
-    result = []
-    for f in follows:
-        u = db.query(User).filter(User.id == f.follower_id).first()
-        if u:
-            p = db.query(UserProfile).filter(UserProfile.user_id == u.id).first()
-            result.append({
-                "user_id": u.id,
-                "username": u.username,
-                "nickname": p.nickname if p else None,
-                "avatar_color": p.avatar_color if p else 0,
-            })
-    return result
+    follower_ids = [r[0] for r in db.query(UserFollow.follower_id).filter(UserFollow.following_id == user_id).all()]
+    if not follower_ids:
+        return []
+    users    = {u.id: u for u in db.query(User).filter(User.id.in_(follower_ids), User.is_active == True).all()}
+    profiles = {p.user_id: p for p in db.query(UserProfile).filter(UserProfile.user_id.in_(follower_ids)).all()}
+    return [
+        {
+            "user_id":      uid,
+            "username":     users[uid].username,
+            "nickname":     profiles[uid].nickname if uid in profiles else None,
+            "avatar_color": profiles[uid].avatar_color if uid in profiles else 0,
+        }
+        for uid in follower_ids if uid in users
+    ]
 
 
 @router.get("/users/{user_id}/following")
 def get_following(user_id: int = Path(...), db: Session = Depends(get_db)):
-    follows = db.query(UserFollow).filter(UserFollow.follower_id == user_id).all()
-    result = []
-    for f in follows:
-        u = db.query(User).filter(User.id == f.following_id).first()
-        if u:
-            p = db.query(UserProfile).filter(UserProfile.user_id == u.id).first()
-            result.append({
-                "user_id": u.id,
-                "username": u.username,
-                "nickname": p.nickname if p else None,
-                "avatar_color": p.avatar_color if p else 0,
-            })
-    return result
+    following_ids = [r[0] for r in db.query(UserFollow.following_id).filter(UserFollow.follower_id == user_id).all()]
+    if not following_ids:
+        return []
+    users    = {u.id: u for u in db.query(User).filter(User.id.in_(following_ids), User.is_active == True).all()}
+    profiles = {p.user_id: p for p in db.query(UserProfile).filter(UserProfile.user_id.in_(following_ids)).all()}
+    return [
+        {
+            "user_id":      uid,
+            "username":     users[uid].username,
+            "nickname":     profiles[uid].nickname if uid in profiles else None,
+            "avatar_color": profiles[uid].avatar_color if uid in profiles else 0,
+        }
+        for uid in following_ids if uid in users
+    ]
 
 
 # ── 신고 ─────────────────────────────────────────────────────────────────────

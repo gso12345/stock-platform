@@ -173,6 +173,19 @@ async def lifespan(application: FastAPI):
             except Exception as _ct_err:
                 _startup_log.warning(f"커뮤니티 테이블 생성 실패: {_ct_err}")
 
+        # 커뮤니티 성능 인덱스 (복합 인덱스 — CREATE INDEX IF NOT EXISTS는 멱등)
+        try:
+            with engine.connect() as _idx:
+                _idx.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_posts_sym_mkt_created ON stock_posts (symbol, market, created_at DESC) WHERE is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE"))
+                _idx.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_posts_sym_mkt_likes   ON stock_posts (symbol, market, like_count DESC, created_at DESC) WHERE is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE"))
+                _idx.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_posts_created_at       ON stock_posts (created_at DESC) WHERE is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE"))
+                _idx.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_posts_like_count       ON stock_posts (like_count DESC, created_at DESC) WHERE is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE"))
+                _idx.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_comments_post_parent   ON stock_comments (post_id, parent_id, created_at ASC) WHERE is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE"))
+                _idx.commit()
+                _startup_log.info("커뮤니티 성능 인덱스 생성 완료")
+        except Exception as _idx_err:
+            _startup_log.warning(f"커뮤니티 인덱스 생성 스킵: {_idx_err}")
+
         # 누락 컬럼 추가 (스키마 변경 시 자동 마이그레이션)
         try:
             with engine.connect() as _mc:

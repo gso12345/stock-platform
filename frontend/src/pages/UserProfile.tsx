@@ -58,6 +58,7 @@ export default function UserProfile() {
     queryKey: ["userActivity", userId],
     queryFn: () => communityApi.getUserActivity(userId),
     enabled: !!userId,
+    staleTime: 120_000,
   });
 
   useEffect(() => {
