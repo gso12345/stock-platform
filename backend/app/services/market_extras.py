@@ -160,23 +160,31 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://finance.naver.com/",
     }
-    _INTEREST_NAMES = {
-        "기준금리": "한국 기준금리",
-        "국고채권(3년)": "국고채 3년",
-        "국고채권(5년)": "국고채 5년",
-        "국고채권(10년)": "국고채 10년",
-    }
+    def _classify(raw: str) -> "str | None":
+        if "기준금리" in raw:
+            return "한국 기준금리"
+        if "국고채" in raw and "3년" in raw:
+            return "국고채 3년"
+        if "국고채" in raw and "5년" in raw:
+            return "국고채 5년"
+        if "국고채" in raw and "10년" in raw:
+            return "국고채 10년"
+        return None
 
     rates = []
     try:
         r = httpx.get("https://finance.naver.com/marketindex/interestList.naver", headers=_HEADERS, timeout=8)
         if r.status_code == 200:
             soup = BeautifulSoup(r.text, "lxml")
+            seen = set()
             for row in soup.select("table tbody tr"):
                 cells = [c.get_text(strip=True) for c in row.find_all("td")]
                 if len(cells) < 2:
                     continue
                 raw_name = cells[0]
+                display = _classify(raw_name)
+                if not display or display in seen:
+                    continue
                 try:
                     val = float(cells[1].replace(",", ""))
                 except (ValueError, IndexError):
@@ -189,13 +197,12 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
                         chg = float(chg_txt) if chg_txt not in ("", "-") else 0.0
                     except (ValueError, IndexError):
                         pass
-                display = next((v for k, v in _INTEREST_NAMES.items() if k in raw_name), None)
-                if display:
-                    rates.append({
-                        "name": display, "value": round(val, 3),
-                        "change": round(chg, 3), "change_rate": round(chg, 3),
-                        "unit": "%", "is_rate": True,
-                    })
+                seen.add(display)
+                rates.append({
+                    "name": display, "value": round(val, 3),
+                    "change": round(chg, 3), "change_rate": round(chg, 3),
+                    "unit": "%", "is_rate": True,
+                })
     except Exception:
         pass
 
