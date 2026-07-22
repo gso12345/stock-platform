@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
-import { communityApi, portfolioApi, dashboardApi } from "@/api/stocks";
+import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
+import { usePricesStream } from "@/hooks/useWebSocket";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 
 const AVATAR_COLORS = [
@@ -106,6 +107,63 @@ export default function UserProfile() {
     }
     return 1350;
   }, [usRatesData]);
+
+  // 현금 제외한 가격 조회 가능 종목 추출
+  const priceableItems = useMemo(() => {
+    if (!publicPortfolios) return [];
+    return (publicPortfolios as any[])
+      .flatMap((pf: any) => pf.items ?? [])
+      .filter((i: any) => i.assetClass !== "현금");
+  }, [publicPortfolios]);
+
+  // HTTP 배치 가격 (1분 주기 갱신)
+  const { data: batchPrices } = useQuery({
+    queryKey: ["public-portfolio-prices", userId, priceableItems.map((i: any) => `${i.market}:${i.symbol}`).join(",")],
+    queryFn: () => watchlistApi.getPrices(
+      priceableItems.map((i: any) => i.symbol),
+      priceableItems.map((i: any) => i.market),
+    ),
+    enabled: priceableItems.length > 0,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+
+  // WebSocket 실시간 가격
+  const [wsPrices, setWsPrices] = useState<any[] | null>(null);
+  const priceSymbols = useMemo(() => priceableItems.map((i: any) => i.symbol), [priceableItems]);
+  const priceMarkets = useMemo(() => priceableItems.map((i: any) => i.market), [priceableItems]);
+  usePricesStream(priceSymbols, priceMarkets, useCallback((prices: any[]) => {
+    setWsPrices(prices);
+  }, []));
+  const effectivePrices = wsPrices ?? batchPrices;
+
+  // item.id → 현재가 맵
+  const priceMap = useMemo(() => {
+    const map: Record<number, number> = {};
+    if (Array.isArray(effectivePrices)) {
+      priceableItems.forEach((item: any, i: number) => {
+        const d = (effectivePrices as any[])[i];
+        if (d?.price != null) map[item.id] = d.price;
+      });
+    }
+    return map;
+  }, [priceableItems, effectivePrices]);
+
+  // 실시간 평가금액 적용된 포트폴리오
+  const enrichedPortfolios = useMemo(() => {
+    if (!publicPortfolios) return [];
+    return (publicPortfolios as any[]).map((pf: any) => ({
+      ...pf,
+      items: (pf.items ?? []).map((i: any) => {
+        const currentPrice = priceMap[i.id];
+        const fx = i.currency === "USD" ? exchangeRate : 1;
+        const currentValueKRW = currentPrice != null && currentPrice > 0
+          ? currentPrice * fx * i.shares
+          : undefined;
+        return { ...i, currentValueKRW };
+      }),
+    }));
+  }, [publicPortfolios, priceMap, exchangeRate]);
 
   const followMutation = useMutation({
     mutationFn: () => communityApi.toggleFollow(userId),
@@ -238,9 +296,9 @@ export default function UserProfile() {
         </div>
       </div>
 
-      {/* 공개 포트폴리오 */}
-      {publicPortfolios && publicPortfolios.length > 0 && (
-        <PortfolioChart portfolios={publicPortfolios} exchangeRate={exchangeRate} title="공개 포트폴리오" />
+      {/* 공개 포트폴리오 (실시간 가격 연동) */}
+      {enrichedPortfolios.length > 0 && (
+        <PortfolioChart portfolios={enrichedPortfolios} exchangeRate={exchangeRate} title="공개 포트폴리오" />
       )}
 
       {/* 최근 활동 */}
