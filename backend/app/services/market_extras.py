@@ -247,6 +247,74 @@ def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
     return base, cd
 
 
+def _fetch_bok_rates_ecos() -> "tuple[dict | None, list]":
+    """한국은행 ECOS Open API — 기준금리(월별) + 국고채 수익률(일별)
+    API 키: settings.BOK_API_KEY (기본값 'sample' — 무료, 일부 통계 제한)
+    기준금리 통계코드 722Y001/0101000, 국고채 817Y002/010190000~010400000
+    """
+    import datetime
+    api_key = getattr(settings, "BOK_API_KEY", "sample") or "sample"
+    base_url = f"https://ecos.bok.or.kr/api/StatisticSearch/{api_key}/json/kr"
+
+    today = datetime.date.today()
+    end_date  = today.strftime("%Y%m%d")
+    start_date = (today - datetime.timedelta(days=14)).strftime("%Y%m%d")
+    end_month  = today.strftime("%Y%m")
+    start_month = (today - datetime.timedelta(days=180)).strftime("%Y%m")
+
+    bok_base = None
+    bok_bonds: list = []
+
+    # ── 기준금리 (월별, 최근 6개월 중 최신값) ───────────────
+    try:
+        r = httpx.get(
+            f"{base_url}/1/5/722Y001/M/{start_month}/{end_month}/0101000/",
+            timeout=8,
+        )
+        if r.status_code == 200:
+            rows = r.json().get("StatisticSearch", {}).get("row", [])
+            if rows:
+                val = float(rows[-1].get("DATA_VALUE") or 0)
+                if val > 0:
+                    bok_base = {
+                        "name": "한국 기준금리", "value": round(val, 3),
+                        "change": 0.0, "change_rate": 0.0,
+                        "unit": "%", "is_rate": True,
+                    }
+                    cache.set("extra:kr_base_rate", bok_base, 86400)
+    except Exception:
+        pass
+
+    # ── 국고채 수익률 (일별, 최근 14일 중 최신 2영업일 비교) ─
+    bond_specs = [
+        ("010190000", "국고채 3년"),
+        ("010300000", "국고채 5년"),
+        ("010400000", "국고채 10년"),
+    ]
+    for code, name in bond_specs:
+        try:
+            r = httpx.get(
+                f"{base_url}/1/5/817Y002/D/{start_date}/{end_date}/{code}/",
+                timeout=8,
+            )
+            if r.status_code == 200:
+                rows = r.json().get("StatisticSearch", {}).get("row", [])
+                if rows:
+                    val = float(rows[-1].get("DATA_VALUE") or 0)
+                    prev = float(rows[-2].get("DATA_VALUE") or val) if len(rows) >= 2 else val
+                    if val > 0:
+                        chg = round(val - prev, 3)
+                        bok_bonds.append({
+                            "name": name, "value": round(val, 3),
+                            "change": chg, "change_rate": chg,
+                            "unit": "%", "is_rate": True,
+                        })
+        except Exception:
+            continue
+
+    return bok_base, bok_bonds
+
+
 def _fetch_kr_bonds_yf() -> list:
     """yfinance로 한국 국고채 금리 조회 (네이버 스크래핑 실패 시 폴백)"""
     bond_specs = [
@@ -332,54 +400,69 @@ def _fetch_kr_bonds_pykrx() -> "tuple[list, dict | None]":
 
 def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
+
+    base: "dict | None" = None
+    bonds: list = []
+    cd_override: "dict | None" = None
+
+    # 1순위: 한국은행 ECOS API (정부 공개 API, 서버 IP 차단 없음)
     try:
-        naver_rates, naver_cd = _fetch_kr_rates_naver()
+        bok_base, bok_bonds = _fetch_bok_rates_ecos()
+        if bok_base:
+            base = bok_base
+        if bok_bonds:
+            bonds = bok_bonds
     except Exception:
-        naver_rates, naver_cd = [], None
+        pass
 
-    cd_rate = naver_cd or cache.get_stale("extra:cd_rate") or \
-        {"name": "CD금리(91일)", "value": 3.62, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
-    cache.set("extra:cd_rate", cd_rate, 86400)
+    # 2순위: 네이버 스크래핑 (서버 환경에서 403이 많아 실패 가능)
+    if not base or not bonds:
+        try:
+            naver_rates, naver_cd = _fetch_kr_rates_naver()
+            if not base:
+                base = next((r for r in naver_rates if "기준금리" in r["name"]), None)
+                if base:
+                    cache.set("extra:kr_base_rate", base, 86400)
+            if not bonds:
+                bonds = [r for r in naver_rates if "국고채" in r["name"]]
+            if naver_cd:
+                cd_override = naver_cd
+        except Exception:
+            pass
 
-    # 순서: 기준금리 → CD금리 → 국고채 3/5/10년
-    base = next((r for r in naver_rates if "기준금리" in r["name"]), None)
-    bonds = [r for r in naver_rates if "국고채" in r["name"]]
-
-    # 네이버 실패 시 yfinance 시도
+    # 3순위: yfinance (KR3YT=RR 등)
     if not bonds:
         try:
             bonds = _fetch_kr_bonds_yf()
         except Exception:
             pass
 
-    # yfinance도 실패 시 pykrx 시도 (KRX 장외 채권수익률)
+    # 4순위: pykrx (KRX 장외채권수익률)
     if not bonds:
         try:
             pkrx_bonds, pkrx_cd = _fetch_kr_bonds_pykrx()
             if pkrx_bonds:
                 bonds = pkrx_bonds
-            if pkrx_cd and not naver_cd:
-                cd_rate = pkrx_cd
-                cache.set("extra:cd_rate", cd_rate, 86400)
+            if pkrx_cd and not cd_override:
+                cd_override = pkrx_cd
         except Exception:
             pass
 
-    # 기준금리: 네이버 실패 시 캐시된 값 또는 정적 값 (BOK 변경 빈도 낮음)
+    # CD금리: 위 소스 중 하나에서 얻었거나, 캐시·정적 값
+    cd_rate = cd_override or cache.get_stale("extra:cd_rate") or \
+        {"name": "CD금리(91일)", "value": 3.62, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
+    cache.set("extra:cd_rate", cd_rate, 86400)
+
+    # 기준금리: 위 소스 없으면 캐시 or 정적 값 (BOK 변경 빈도 낮음)
     if not base:
         base = cache.get_stale("extra:kr_base_rate") or \
             {"name": "한국 기준금리", "value": 2.75, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
-    else:
-        cache.set("extra:kr_base_rate", base, 86400)
 
-    rates = []
-    if base:
-        rates.append(base)
-    rates.append(cd_rate)
-    rates.extend(bonds)
+    # 순서: 기준금리 → CD금리 → 국고채 3/5/10년
+    rates = [base, cd_rate] + bonds
 
-    if rates:
-        cache.set(ck, rates, 300)
-    return rates or _demo_rates()
+    cache.set(ck, rates, 300)
+    return rates
 
 
 def get_kr_rates() -> list:

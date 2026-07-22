@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # ── FMP - Financial Modeling Prep (해외 재무) ───────
     FMP_API_KEY: str = ""
 
+    # ── 한국은행 ECOS (기준금리/국고채) ─────────────────────
+    BOK_API_KEY: str = "sample"   # 무료 가입 후 발급 키 입력, 기본값은 sample
+
     # ── Anthropic (뉴스 AI 요약) ─────────────────────────
     ANTHROPIC_API_KEY: str = ""
 
