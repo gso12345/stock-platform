@@ -67,11 +67,12 @@ export default function News() {
   const getTs = (item: any): number =>
     item.published_ts != null ? item.published_ts : newsTimestampMs(item.published) / 1000;
 
-  const sorted = useMemo(() => (
-    sort === "popular"
+  const sorted = useMemo(() => {
+    const base = sort === "popular"
       ? [...(news ?? [])].sort((a: any, b: any) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
-      : [...(news ?? [])].sort((a: any, b: any) => getTs(b) - getTs(a))
-  ), [news, sort]);
+      : [...(news ?? [])].sort((a: any, b: any) => getTs(b) - getTs(a));
+    return market === "kr" ? base.filter((item: any) => item.image) : base;
+  }, [news, sort, market]);
 
   const shown = sorted.slice(0, shownCount);
   const remaining = sorted.length - shown.length;

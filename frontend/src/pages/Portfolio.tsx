@@ -129,9 +129,11 @@ function usePnlColors(scheme: ColorScheme) {
   return {
     gain: scheme === "red-blue" ? "text-accent-red"  : "text-accent-green",
     loss: scheme === "red-blue" ? "text-accent-blue" : "text-accent-red",
-    pnlColor: (v: number) => v >= 0
-      ? (scheme === "red-blue" ? "text-accent-red"  : "text-accent-green")
-      : (scheme === "red-blue" ? "text-accent-blue" : "text-accent-red"),
+    pnlColor: (v: number) => v === 0
+      ? "text-text-muted"
+      : v > 0
+        ? (scheme === "red-blue" ? "text-accent-red"  : "text-accent-green")
+        : (scheme === "red-blue" ? "text-accent-blue" : "text-accent-red"),
   };
 }
 
