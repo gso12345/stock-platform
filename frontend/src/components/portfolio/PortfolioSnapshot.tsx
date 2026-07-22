@@ -11,6 +11,7 @@ interface SnapshotItem {
   currency?: string;
   input_exchange_rate?: number | null;
   current_price?: number | null;
+  asset_class?: string | null;
 }
 
 export default function PortfolioSnapshot({ items }: { items: SnapshotItem[] }) {
@@ -45,6 +46,7 @@ export default function PortfolioSnapshot({ items }: { items: SnapshotItem[] }) 
         currency: item.currency,
         inputExchangeRate: item.input_exchange_rate,
         currentValueKRW,
+        assetClass: item.asset_class,
       };
     }),
   }];

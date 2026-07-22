@@ -5,10 +5,10 @@ import { Link } from "react-router-dom";
 
 const PIE_COLORS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
 
-function classifyAsset(market: string, name: string, symbol: string): string {
+function autoClassifyAsset(market: string, name: string, symbol: string): string {
   const h = `${name} ${symbol}`.toUpperCase();
-  const CC = ["커버드콜","COVERED CALL","JEPI","JEPQ","QYLD","XYLD","RYLD","DIVO","BUYWRITE"];
-  const BOND = ["채권","국고채","회사채","TLT","BND","AGG","SHY","IEF","TIP","LQD","HYG","BNDX","TIGER 미국채","KODEX 국고채"];
+  const CC = ["커버드콜","COVERED CALL","COVEREDCALL","BUY WRITE","BUYWRITE","JEPI","JEPQ","QYLD","XYLD","RYLD","DIVO"];
+  const BOND = ["채권","국고채","회사채","단기채","장기채","본드","TLT","BND","AGG","SHY","IEF","TIP","LQD","HYG","BNDX","TIGER 미국채","KODEX 국고채"];
   const GOLD = ["금현물","골드","GLD","IAU","GLDM","SGOL","KRX금"];
   if (CC.some(k => h.includes(k.toUpperCase()))) return "커버드콜";
   if (BOND.some(k => h.includes(k.toUpperCase()))) return "채권";
@@ -31,6 +31,7 @@ export interface PfItemForChart {
   currency?: string;
   inputExchangeRate?: number | null;
   currentValueKRW?: number;
+  assetClass?: string | null;
 }
 
 export interface PfPortfolioForChart {
@@ -75,7 +76,7 @@ export default function PortfolioChart({
           symbol: item.symbol,
           name: item.name || item.symbol,
           market: item.market,
-          assetType: classifyAsset(item.market, item.name || "", item.symbol),
+          assetType: item.assetClass ?? autoClassifyAsset(item.market, item.name || "", item.symbol),
           value,
         };
       });

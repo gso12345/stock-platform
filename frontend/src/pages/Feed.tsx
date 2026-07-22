@@ -599,6 +599,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
               currency: i.currency ?? "KRW",
               input_exchange_rate: i.inputExchangeRate ?? null,
               current_price: currentPrice ?? null,
+              asset_class: i.assetClass ?? null,
             };
           })
         : null;
