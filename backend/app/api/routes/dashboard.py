@@ -141,7 +141,7 @@ async def get_kr_dashboard(
         "kospi":    idx_results[0],
         "kosdaq":   idx_results[1],
         "rankings": rankings,
-        "news":     [a for a in news if a.get("image")][:80] if news else [],
+        "news":     pick_top_image_first(news, 80) if news else [],
         "category": category,
         "exchange": exchange,
         "futures":  futures,
@@ -290,10 +290,10 @@ NEWS_TAB_LIMIT = 100
 async def kr_news():
     cached = cache.get("news:kr") or cache.get_stale("news:kr")
     if cached:
-        return [a for a in cached if a.get("image")][:NEWS_TAB_LIMIT]
+        return pick_top_image_first(cached, NEWS_TAB_LIMIT)
     loop = asyncio.get_running_loop()
     news = await loop.run_in_executor(None, get_kr_news)
-    return [a for a in news if a.get("image")][:NEWS_TAB_LIMIT]
+    return pick_top_image_first(news, NEWS_TAB_LIMIT)
 
 
 @router.get("/news/us")
