@@ -387,7 +387,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { live
             <>
               {(usdkrwRate ?? data?.exchange) && (
                 <ExtraCard
-                  name="원달러"
+                  name="원/달러"
                   value={usdkrwRate?.value ?? data?.exchange?.value ?? data?.exchange?.usdkrw ?? 0}
                   change={usdkrwRate?.change ?? data?.exchange?.change ?? 0}
                   change_rate={usdkrwRate?.change_rate ?? data?.exchange?.change_rate ?? 0}
@@ -464,11 +464,11 @@ const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { live
   const liveUsdkrwUS = liveIndices?.forex?.usdkrw ?? null;
   const rates: any[] = useMemo(() => {
     const base: any[] = ratesData?.length ? [...ratesData] : data?.rates?.length ? [...data.rates] :
-      data?.exchange ? [{ name: "원달러", value: data.exchange.value ?? data.exchange.usdkrw ?? 0, change: data.exchange.change ?? 0, change_rate: data.exchange.change_rate ?? 0, unit: "원" }] : [];
+      data?.exchange ? [{ name: "원/달러", value: data.exchange.value ?? data.exchange.usdkrw ?? 0, change: data.exchange.change ?? 0, change_rate: data.exchange.change_rate ?? 0, unit: "원" }] : [];
     // WebSocket으로 실시간 환율 덮어쓰기
     if (liveUsdkrwUS) {
-      const idx = base.findIndex((r) => r.name === "원달러");
-      const live = { ...liveUsdkrwUS, name: "원달러" };
+      const idx = base.findIndex((r) => r.name === "원/달러");
+      const live = { ...liveUsdkrwUS, name: "원/달러" };
       if (idx >= 0) base[idx] = live; else base.unshift(live);
     }
     return base;

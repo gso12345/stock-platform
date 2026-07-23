@@ -32,7 +32,7 @@ def get_exchange_rate() -> dict:
             return _demo_exchange()
         result = {
             "symbol": "USDKRW",
-            "name":   "원달러",
+            "name":   "원/달러",
             "value":  round(curr, 2),
             "change": round(chg, 2),
             "change_rate": round(chgr, 4),
@@ -45,7 +45,7 @@ def get_exchange_rate() -> dict:
 
 
 def _demo_exchange() -> dict:
-    return {"symbol":"USDKRW","name":"원달러","value":1384.50,"change":-2.30,"change_rate":-0.17,"unit":"원","_demo":True}
+    return {"symbol":"USDKRW","name":"원/달러","value":1384.50,"change":-2.30,"change_rate":-0.17,"unit":"원","_demo":True}
 
 
 # ── 국내 선물 (KIS API 또는 yfinance 근사) ─────────────────
@@ -549,8 +549,8 @@ def _do_fetch_kr_rates() -> list:
 
     # 원/유로·원/100엔 환율 — 캐시 우선, 없으면 yfinance 직접 조회
     fx_specs = [
-        ("extra:eurkrw", "EURKRW=X", "원유로"),
-        ("extra:jpykrw", "JPYKRW=X", "원엔"),
+        ("extra:eurkrw", "EURKRW=X", "원/유로"),
+        ("extra:jpykrw", "JPYKRW=X", "원/100엔"),
     ]
     for fx_ck, fx_sym, fx_label in fx_specs:
         fx = cache.get(fx_ck) or cache.get_stale(fx_ck)
@@ -592,9 +592,9 @@ def get_kr_rates() -> list:
 
 
 _FX_CACHE_MAP = {
-    "USDKRW=X": ("extra:usdkrw", "USDKRW", "원달러"),
-    "EURKRW=X": ("extra:eurkrw", "EURKRW", "원유로"),
-    "JPYKRW=X": ("extra:jpykrw", "JPYKRW", "원엔"),
+    "USDKRW=X": ("extra:usdkrw", "USDKRW", "원/달러"),
+    "EURKRW=X": ("extra:eurkrw", "EURKRW", "원/유로"),
+    "JPYKRW=X": ("extra:jpykrw", "JPYKRW", "원/100엔"),
 }
 
 
@@ -602,9 +602,9 @@ def _do_fetch_us_rates() -> list:
     ck = "extra:us_rates"
     # 원달러·원유로·원엔 모두 yfinance history 방식으로 통일 (rt_cache_key 없음)
     specs = [
-        ("USDKRW=X",  "원달러",  "원",  False),
-        ("EURKRW=X",  "원유로",  "원",  False),
-        ("JPYKRW=X",  "원엔",    "원",  False),
+        ("USDKRW=X",  "원/달러",   "원",  False),
+        ("EURKRW=X",  "원/유로",   "원",  False),
+        ("JPYKRW=X",  "원/100엔",  "원",  False),
         ("^IRX",      "미국 단기금리(3M)", "%",   True),
         ("^FVX",      "미국 5년 국채",     "%",   True),
         ("^TNX",      "미국 10년 국채",    "%",   True),
