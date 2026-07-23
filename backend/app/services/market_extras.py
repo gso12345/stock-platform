@@ -32,7 +32,7 @@ def get_exchange_rate() -> dict:
             return _demo_exchange()
         result = {
             "symbol": "USDKRW",
-            "name":   "원/달러",
+            "name":   "원/달러 환율",
             "value":  round(curr, 2),
             "change": round(chg, 2),
             "change_rate": round(chgr, 4),
@@ -45,7 +45,7 @@ def get_exchange_rate() -> dict:
 
 
 def _demo_exchange() -> dict:
-    return {"symbol":"USDKRW","name":"원/달러","value":1384.50,"change":-2.30,"change_rate":-0.17,"unit":"원","_demo":True}
+    return {"symbol":"USDKRW","name":"원/달러 환율","value":1384.50,"change":-2.30,"change_rate":-0.17,"unit":"원","_demo":True}
 
 
 # ── 국내 선물 (KIS API 또는 yfinance 근사) ─────────────────
@@ -150,23 +150,16 @@ def _batch_close(symbols: list) -> "pd.DataFrame | None":
 
 
 def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
-    """네이버 금리 다중 엔드포인트 조회.
-    1) polling.finance.naver.com — 실시간 위젯 전용, IP 차단 적음
-    2) m.stock.naver.com 목록 API
-    3) m.stock.naver.com 개별 코드 (다중 경로)
+    """네이버 모바일 API (m.stock.naver.com) — 한국 금리 조회.
+    주식·환율과 동일 도메인이라 서버 환경에서 접근 가능.
+    전체 목록 API → 개별 코드 순으로 시도.
     """
-    _H_MOB = {
+    _H = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "ko-KR,ko;q=0.9",
         "Referer": "https://m.stock.naver.com/",
         "Origin": "https://m.stock.naver.com",
-    }
-    _H_POLL = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "ko-KR,ko;q=0.9",
-        "Referer": "https://finance.naver.com/",
     }
 
     def _sf(v) -> float:
@@ -175,153 +168,100 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
 
     def _display(raw: str) -> "str | None":
         if not raw: return None
-        raw = str(raw)
-        if "기준금리" in raw: return "기준금리"
-        if "CD" in raw and ("91" in raw or "일" in raw): return "CD금리"
+        if "기준금리" in raw: return "한국 기준금리"
+        if "CD" in raw and ("91" in raw or "일" in raw): return "CD금리(91일)"
         if ("국고채" in raw or "국고" in raw) and "3년" in raw: return "국고채 3년"
         if ("국고채" in raw or "국고" in raw) and "5년" in raw: return "국고채 5년"
         if ("국고채" in raw or "국고" in raw) and "10년" in raw: return "국고채 10년"
         return None
 
     def _extract(d: dict) -> "tuple[float, float]":
-        val = _sf(d.get("closePrice") or d.get("currentPrice") or d.get("close") or
-                  d.get("rateValue") or d.get("rate") or 0)
+        val = _sf(d.get("closePrice") or d.get("currentPrice") or d.get("close") or 0)
         chg = _sf(d.get("compareToPreviousClosePrice") or d.get("change") or
-                  d.get("priceChange") or d.get("rateChange") or 0)
+                  d.get("priceChange") or 0)
         return val, chg
 
     def _entry(name: str, val: float, chg: float) -> dict:
         return {"name": name, "value": round(val, 3), "change": round(chg, 3),
                 "change_rate": round(chg, 3), "unit": "%", "is_rate": True}
 
-    def _consume(items: list, rates: list, cd_rate):
-        seen: set = {e["name"] for e in rates}
-        if cd_rate: seen.add(cd_rate["name"])
-        for item in items:
-            raw = (item.get("rateName") or item.get("name") or item.get("symbolName") or
-                   item.get("itemName") or item.get("indexName") or "")
-            name = _display(raw)
-            if not name or name in seen: continue
-            val, chg = _extract(item)
-            if val <= 0: continue
-            seen.add(name)
-            e = _entry(name, val, chg)
-            if name == "CD금리": cd_rate = e
-            else: rates.append(e)
-        return rates, cd_rate
-
     rates: list = []
     cd_rate = None
 
-    # ── 1순위: polling.finance.naver.com 실시간 위젯 API ──────
-    # 네이버 시세 위젯 전용 엔드포인트, 서버 IP 차단이 상대적으로 적음
-    POLL_KEYS = "IRR_BASERATE|IRR_CD91|IRR_GOV3YR|IRR_GOV5YR|IRR_GOV10YR"
-    for svc in ["SERVICE_RATE", "SERVICE_MARKET_INDEX"]:
-        try:
-            r = httpx.get(
-                f"https://polling.finance.naver.com/api/realtime?query={svc}:{POLL_KEYS}",
-                headers=_H_POLL, timeout=8,
-            )
-            if r.status_code == 200:
-                data = r.json()
-                # polling API는 {"result":{"polling":[{"key":..,"datas":{...}}]}} 또는 flat dict
-                polling_items = (data.get("result", {}).get("polling") or
-                                 data.get("polling") or [])
-                if polling_items:
-                    for pi in polling_items:
-                        key = pi.get("key", "")
-                        datas = pi.get("datas") or pi.get("data") or {}
-                        # key 에서 이름 유추
-                        name_hint = key.replace(f"{svc}:", "")
-                        name_map = {
-                            "IRR_BASERATE": "기준금리",
-                            "IRR_CD91": "CD금리",
-                            "IRR_GOV3YR": "국고채 3년",
-                            "IRR_GOV5YR": "국고채 5년",
-                            "IRR_GOV10YR": "국고채 10년",
-                        }
-                        name = name_map.get(name_hint) or _display(datas.get("name", ""))
-                        if not name: continue
-                        val, chg = _extract(datas)
-                        if val <= 0: continue
-                        e = _entry(name, val, chg)
-                        if name == "CD금리": cd_rate = e
-                        elif name not in {r["name"] for r in rates}: rates.append(e)
-                elif isinstance(data, dict):
-                    # flat: {"IRR_BASERATE": {...}, "IRR_GOV3YR": {...}}
-                    name_map = {
-                        "IRR_BASERATE": "기준금리", "IRR_CD91": "CD금리",
-                        "IRR_GOV3YR": "국고채 3년", "IRR_GOV5YR": "국고채 5년", "IRR_GOV10YR": "국고채 10년",
-                    }
-                    for key, datas in data.items():
-                        if not isinstance(datas, dict): continue
-                        name = name_map.get(key) or _display(datas.get("name", ""))
-                        if not name: continue
-                        val, chg = _extract(datas)
-                        if val <= 0: continue
-                        e = _entry(name, val, chg)
-                        if name == "CD금리": cd_rate = e
-                        elif name not in {r["name"] for r in rates}: rates.append(e)
-                if rates:
-                    return rates, cd_rate
-        except Exception:
-            continue
-
-    # ── 2순위: m.stock.naver.com 목록 API ─────────────────────
+    # ── 1순위: 전체 목록 API (한 번에 모든 금리 반환) ─────────
     for list_url in [
         "https://m.stock.naver.com/api/rate/domestic",
         "https://m.stock.naver.com/api/rate/index",
-        "https://m.stock.naver.com/api/marketindex/rate",
+        "https://m.stock.naver.com/api/market/domestic/interest",
     ]:
         try:
-            r = httpx.get(list_url, headers=_H_MOB, timeout=8)
-            if r.status_code != 200: continue
+            r = httpx.get(list_url, headers=_H, timeout=8)
+            if r.status_code != 200:
+                continue
             data = r.json()
             items = data if isinstance(data, list) else next(
                 (v for v in (data.values() if isinstance(data, dict) else []) if isinstance(v, list)), []
             )
-            rates, cd_rate = _consume(items, rates, cd_rate)
-            if rates: return rates, cd_rate
+            seen: set = set()
+            for item in items:
+                raw_name = (item.get("rateName") or item.get("name") or
+                            item.get("symbolName") or item.get("itemName") or "")
+                name = _display(raw_name)
+                if not name or name in seen:
+                    continue
+                val, chg = _extract(item)
+                if val <= 0:
+                    continue
+                seen.add(name)
+                e = _entry(name, val, chg)
+                if name == "CD금리(91일)":
+                    cd_rate = e
+                else:
+                    rates.append(e)
+            if rates:
+                return rates, cd_rate
         except Exception:
             continue
 
-    # ── 3순위: 개별 코드 × 다중 경로 ────────────────────────────
-    BOND_SPECS = [
-        ("기준금리", False, ["BASERATE", "IRR_BASERATE"]),
-        ("CD금리",   True,  ["CD91", "IRR_CD91"]),
-        ("국고채 3년",    False, ["IRR_GOV3YR", "GOV3YR", "GOV3Y", "KTB3YR", "KTB3Y",
-                                   "GB3YR", "NGS3Y"]),
-        ("국고채 5년",    False, ["IRR_GOV5YR", "GOV5YR", "GOV5Y", "KTB5YR", "KTB5Y",
-                                   "GB5YR"]),
-        ("국고채 10년",   False, ["IRR_GOV10YR", "GOV10YR", "GOV10Y", "KTB10YR", "KTB10Y",
-                                    "GB10YR"]),
+    # ── 2순위: 개별 코드 조회 (후보 코드 여러 개 시도) ────────
+    # 국고채 코드는 Naver 내부 코드가 불확실해 후보 다수 시도
+    SPECS = [
+        ("한국 기준금리", False, ["BASERATE", "IRR_BASERATE"]),
+        ("CD금리(91일)",  True,  ["CD91", "IRR_CD91", "CD_91"]),
+        ("국고채 3년",    False, ["GOV3YR", "GOV3Y", "KTB3YR", "KTB3Y", "IRR_GOV3YR",
+                                   "IRR_GOV3Y", "GB3YR", "NGS3Y", "NGOV3Y"]),
+        ("국고채 5년",    False, ["GOV5YR", "GOV5Y", "KTB5YR", "KTB5Y", "IRR_GOV5YR",
+                                   "IRR_GOV5Y", "GB5YR", "NGS5Y"]),
+        ("국고채 10년",   False, ["GOV10YR", "GOV10Y", "KTB10YR", "KTB10Y", "IRR_GOV10YR",
+                                    "IRR_GOV10Y", "GB10YR", "NGS10Y"]),
     ]
-    PATHS = [
-        "https://m.stock.naver.com/api/rate/{}/basic",
-        "https://m.stock.naver.com/api/marketindex/{}/basic",
-        "https://m.stock.naver.com/api/bond/{}/basic",
-    ]
-    found: set = {e["name"] for e in rates}
-    if cd_rate: found.add(cd_rate["name"])
-    for name, is_cd, codes in BOND_SPECS:
-        if name in found: continue
+    found: set = set()
+    for name, is_cd, codes in SPECS:
+        if name in found:
+            continue
         for code in codes:
-            for path_tmpl in PATHS:
-                try:
-                    r = httpx.get(path_tmpl.format(code), headers=_H_MOB, timeout=5)
-                    if r.status_code != 200: continue
-                    d = r.json()
-                    if isinstance(d, list): d = d[0] if d else {}
-                    val, chg = _extract(d)
-                    if val <= 0: continue
-                    e = _entry(name, val, chg)
-                    if is_cd: cd_rate = e
-                    else: rates.append(e)
-                    found.add(name)
-                    break
-                except Exception:
+            try:
+                r = httpx.get(
+                    f"https://m.stock.naver.com/api/rate/{code}/basic",
+                    headers=_H, timeout=5,
+                )
+                if r.status_code != 200:
                     continue
-            if name in found: break
+                d = r.json()
+                if isinstance(d, list):
+                    d = d[0] if d else {}
+                val, chg = _extract(d)
+                if val <= 0:
+                    continue
+                e = _entry(name, val, chg)
+                if is_cd:
+                    cd_rate = e
+                else:
+                    rates.append(e)
+                found.add(name)
+                break
+            except Exception:
+                continue
 
     return rates, cd_rate
 
@@ -363,7 +303,7 @@ def _fetch_bok_rates_ecos() -> "tuple[dict | None, list]":
                 val = float(rows[-1].get("DATA_VALUE") or 0)
                 if val > 0:
                     bok_base = {
-                        "name": "기준금리", "value": round(val, 3),
+                        "name": "한국 기준금리", "value": round(val, 3),
                         "change": 0.0, "change_rate": 0.0,
                         "unit": "%", "is_rate": True,
                     }
@@ -473,7 +413,7 @@ def _fetch_kr_bonds_pykrx() -> "tuple[list, dict | None]":
                 val = float(row["수익률"])
                 chg = float(row["대비"]) if "대비" in row.index else 0.0
                 cd = {
-                    "name": "CD금리", "value": round(val, 3),
+                    "name": "CD금리(91일)", "value": round(val, 3),
                     "change": round(chg, 3), "change_rate": round(chg, 3),
                     "unit": "%", "is_rate": True,
                 }
@@ -536,45 +476,16 @@ def _do_fetch_kr_rates() -> list:
 
     # CD금리: 위 소스 중 하나에서 얻었거나, 캐시·정적 값
     cd_rate = cd_override or cache.get_stale("extra:cd_rate") or \
-        {"name": "CD금리", "value": 3.62, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
+        {"name": "CD금리(91일)", "value": 3.62, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
     cache.set("extra:cd_rate", cd_rate, 86400)
 
     # 기준금리: 위 소스 없으면 캐시 or 정적 값 (BOK 변경 빈도 낮음)
     if not base:
         base = cache.get_stale("extra:kr_base_rate") or \
-            {"name": "기준금리", "value": 2.75, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
+            {"name": "한국 기준금리", "value": 2.75, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
 
-    # 순서: 기준금리 → CD금리 → 국고채 3/5/10년 → 원/유로 → 원/100엔
+    # 순서: 기준금리 → CD금리 → 국고채 3/5/10년
     rates = [base, cd_rate] + bonds
-
-    # 원/유로·원/100엔 환율 — 캐시 우선, 없으면 yfinance 직접 조회
-    fx_specs = [
-        ("extra:eurkrw", "EURKRW=X", "원/유로"),
-        ("extra:jpykrw", "JPYKRW=X", "원/100엔"),
-    ]
-    for fx_ck, fx_sym, fx_label in fx_specs:
-        fx = cache.get(fx_ck) or cache.get_stale(fx_ck)
-        if not fx or fx.get("value", 0) <= 0:
-            try:
-                h = yf.Ticker(fx_sym).history(period="5d")["Close"].dropna()
-                if len(h) >= 1:
-                    curr = float(h.iloc[-1])
-                    prev = float(h.iloc[-2]) if len(h) >= 2 else curr
-                    chg = curr - prev
-                    chgr = chg / prev * 100 if prev else 0.0
-                    fx = {"value": round(curr, 2), "change": round(chg, 2), "change_rate": round(chgr, 2)}
-                    cache.set(fx_ck, {**fx, "name": fx_label, "unit": "원"}, 360)
-            except Exception:
-                pass
-        if fx and fx.get("value", 0) > 0:
-            rates.append({
-                "name": fx_label,
-                "value": round(fx["value"], 2),
-                "change": round(fx.get("change", 0), 2),
-                "change_rate": round(fx.get("change_rate", 0), 2),
-                "unit": "원",
-                "is_rate": False,
-            })
 
     cache.set(ck, rates, 300)
     return rates
@@ -592,8 +503,8 @@ def get_kr_rates() -> list:
 
 
 _FX_CACHE_MAP = {
-    "USDKRW=X": ("extra:usdkrw", "USDKRW", "원/달러"),
-    "EURKRW=X": ("extra:eurkrw", "EURKRW", "원/유로"),
+    "USDKRW=X": ("extra:usdkrw", "USDKRW", "원/달러 환율"),
+    "EURKRW=X": ("extra:eurkrw", "EURKRW", "원/유로 환율"),
     "JPYKRW=X": ("extra:jpykrw", "JPYKRW", "원/100엔"),
 }
 
@@ -602,9 +513,9 @@ def _do_fetch_us_rates() -> list:
     ck = "extra:us_rates"
     # 원달러·원유로·원엔 모두 yfinance history 방식으로 통일 (rt_cache_key 없음)
     specs = [
-        ("USDKRW=X",  "원/달러",   "원",  False),
-        ("EURKRW=X",  "원/유로",   "원",  False),
-        ("JPYKRW=X",  "원/100엔",  "원",  False),
+        ("USDKRW=X",  "원/달러",          "원",  False),
+        ("EURKRW=X",  "원/유로",          "원",  False),
+        ("JPYKRW=X",  "원/100엔",         "원",  False),
         ("^IRX",      "미국 단기금리(3M)", "%",   True),
         ("^FVX",      "미국 5년 국채",     "%",   True),
         ("^TNX",      "미국 10년 국채",    "%",   True),
@@ -655,8 +566,8 @@ def get_us_rates() -> list:
 
 def _demo_rates() -> list:
     return [
-        {"name":"기준금리","value":2.75,"change":0.0,"change_rate":0.0,"unit":"%","is_rate":True,"_demo":True},
-        {"name":"CD금리","value":3.62,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
+        {"name":"한국 기준금리","value":2.75,"change":0.0,"change_rate":0.0,"unit":"%","is_rate":True,"_demo":True},
+        {"name":"CD금리(91일)","value":3.62,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
         {"name":"국고채 3년","value":3.45,"change":-0.02,"change_rate":-0.02,"unit":"%","is_rate":True,"_demo":True},
         {"name":"국고채 5년","value":3.61,"change":-0.01,"change_rate":-0.01,"unit":"%","is_rate":True,"_demo":True},
         {"name":"국고채 10년","value":3.78,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
