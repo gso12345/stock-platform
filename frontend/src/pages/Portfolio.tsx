@@ -1203,19 +1203,14 @@ export default function Portfolio() {
     },
   });
 
-  /* ── 환율 조회 (해외 대시보드 기준 — yfinance USDKRW=X) ── */
-  const { data: usRatesData } = useQuery({
-    queryKey: ["dashboard-us-rates"],
-    queryFn:  () => dashboardApi.getUSRates(),
-    staleTime: 300_000,
+  /* ── 환율 조회 — /dashboard/exchange 전용 엔드포인트 ── */
+  const { data: fxData } = useQuery({
+    queryKey: ["exchange-rate"],
+    queryFn:  () => dashboardApi.getExchangeRate(),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   });
-  const exchangeRate: number = useMemo(() => {
-    if (Array.isArray(usRatesData)) {
-      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
-      if (row?.value) return row.value;
-    }
-    return DEFAULT_FX;
-  }, [usRatesData]);
+  const exchangeRate: number = (fxData as any)?.value > 0 ? (fxData as any).value : DEFAULT_FX;
 
   const handleTabChange = (tab: "portfolio" | "watchlist") => {
     if (tab === "watchlist") { navigate("/watchlist"); return; }

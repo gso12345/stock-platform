@@ -494,19 +494,13 @@ function AddToPortfolioModal({
     staleTime: 300_000,
   });
 
-  const { data: usRatesData } = useQuery({
-    queryKey: ["dashboard-us-rates"],
-    queryFn:  () => dashboardApi.getUSRates(),
-    staleTime: 300_000,
+  const { data: fxData } = useQuery({
+    queryKey: ["exchange-rate"],
+    queryFn:  () => dashboardApi.getExchangeRate(),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   });
-
-  const defaultFx = useMemo(() => {
-    if (Array.isArray(usRatesData)) {
-      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
-      if (row?.value) return row.value as number;
-    }
-    return 1350;
-  }, [usRatesData]);
+  const defaultFx: number = (fxData as any)?.value > 0 ? (fxData as any).value : 1350;
 
   useEffect(() => {
     if ((portfolios as any[]).length > 0 && portfolioId === null) {
