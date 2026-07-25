@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi, dashboardApi } from "@/api/stocks";
@@ -315,7 +315,7 @@ const SWIPE_REVEAL = 210; // 수정(70) + 보유종목추가(70) + 삭제(70)
 const SWIPE_THRESHOLD = 50;
 
 /* ── 종목 행: 드래그 재정렬 + 왼쪽으로 스와이프 → 수정/삭제 ─── */
-function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, onAddToPortfolio,
+const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, onAddToPortfolio,
   isDragging, isDragOver, onDragStart, onDragOver, onDrop,
   onTouchDragStart, onTouchDragMove, onTouchDragEnd }: {
   item: any; livePrice: any;
@@ -323,6 +323,7 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
   onPrefetch?: () => void;
   onAddToPortfolio?: () => void;
   isDragging?: boolean; isDragOver?: boolean;
+  dragActive?: boolean;
   onDragStart?: React.DragEventHandler;
   onDragOver?: React.DragEventHandler;
   onDrop?: React.DragEventHandler;
@@ -458,7 +459,21 @@ function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, on
       </div>
     </div>
   );
-}
+}, (prev, next) => {
+  // 핸들러들이 매 렌더마다 새 함수로 만들어지므로 기본 얕은 비교로는 메모이제이션이
+  // 전혀 동작하지 않는다. 실제로 화면에 영향을 주는 값만 비교한다.
+  //
+  // 단, 드래그 중에는 핸들러가 dragId·localOrder 같은 최신 상태를 품고 있어야 하므로
+  // 메모이제이션을 완전히 끈다 (순서 변경 정확도 > 렌더 절약).
+  if (prev.dragActive || next.dragActive) return false;
+  return (
+    prev.item === next.item &&
+    prev.livePrice === next.livePrice &&
+    prev.isDragging === next.isDragging &&
+    prev.isDragOver === next.isDragOver &&
+    !!prev.onAddToPortfolio === !!next.onAddToPortfolio
+  );
+});
 
 /* ── 관심종목 → 포트폴리오 추가 미니 모달 ─────────────────── */
 const ASSET_CLASS_OPTIONS = ["국내주식", "해외주식", "채권", "금", "커버드콜"] as const;
@@ -981,21 +996,46 @@ export default function Watchlist() {
     });
   }, [previewPrices]);
 
+  /* 값이 실제로 바뀐 종목만 교체 — 바뀐 게 없으면 이전 객체를 그대로 돌려주어
+     불필요한 리렌더(ItemRow 전체 재렌더)를 막는다 */
+  const mergePrices = useCallback((incoming: any[], skipSymbols?: Set<string>) => {
+    setLivePrices((prev) => {
+      let next: Record<string, any> | null = null;
+      for (const p of incoming) {
+        if (!p?.symbol || p.error || p.price == null) continue;
+        if (skipSymbols?.has(p.symbol)) continue;
+        const cur = prev[p.symbol];
+        if (cur && cur.price === p.price && cur.change_rate === p.change_rate) continue;
+        if (!next) next = { ...prev };
+        next[p.symbol] = p;
+      }
+      return next ?? prev;
+    });
+  }, []);
+
+  /* WebSocket이 담당 중인 종목은 REST 결과로 덮어쓰지 않는다 (이중 갱신 방지).
+     단 서버는 최대 50종목만 스트리밍하므로, WS가 실제로 보내준 종목만 건너뛰고
+     WS가 한동안 조용하면(연결 끊김 등) 다시 REST 값을 받아들인다. */
+  const wsSymbolsRef   = useRef<Set<string>>(new Set());
+  const wsLastMsgAtRef = useRef(0);
+  const WS_FRESH_MS = 90_000;
+
   useEffect(() => {
     if (!restPrices?.length) return;
-    const map: Record<string, any> = {};
-    (restPrices as any[]).forEach((p: any) => {
-      if (p?.symbol && p.price != null) map[p.symbol] = p;
-    });
-    if (Object.keys(map).length) setLivePrices(prev => ({ ...prev, ...map }));
-  }, [restPrices]);
+    const wsFresh = Date.now() - wsLastMsgAtRef.current < WS_FRESH_MS;
+    mergePrices(restPrices as any[], wsFresh ? wsSymbolsRef.current : undefined);
+  }, [restPrices, mergePrices]);
 
-  /* WebSocket — 캐시에 있는 종목 실시간 업데이트 (보조) */
+  /* WebSocket — 캐시에 있는 종목 실시간 업데이트 (주 경로) */
   usePricesStream(symbols, markets, useCallback((prices: any[]) => {
-    const map: Record<string, any> = {};
-    prices.forEach((p) => { if (!p.error && p.price != null) map[p.symbol] = p; });
-    if (Object.keys(map).length) setLivePrices((prev) => ({ ...prev, ...map }));
-  }, []), 30);
+    const delivered = new Set<string>();
+    for (const p of prices) {
+      if (p?.symbol && !p.error && p.price != null) delivered.add(p.symbol);
+    }
+    wsSymbolsRef.current   = delivered;
+    wsLastMsgAtRef.current = Date.now();
+    mergePrices(prices);
+  }, [mergePrices]), 30);
 
   const addMutation = useMutation({
     mutationFn: (req: any) => watchlistApi.addItem({ ...req, watchlist_id: 1 }),
@@ -1304,6 +1344,7 @@ export default function Watchlist() {
           onAddToPortfolio={() => setAddToPortfolioItem(item)}
           isDragging={dragId === item.id}
           isDragOver={dropId === item.id}
+          dragActive={dragId !== null}
           onDragStart={() => handleDragStart(item)}
           onDragOver={(e) => handleDragOver(e, item.id)}
           onDrop={handleDrop}

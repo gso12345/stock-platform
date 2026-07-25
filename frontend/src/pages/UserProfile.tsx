@@ -5,6 +5,7 @@ import { AlertCircle } from "lucide-react";
 import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { usePricesStream } from "@/hooks/useWebSocket";
+import { mergeEffectivePrices, indexPricesBySymbol } from "@/utils/prices";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 
 const AVATAR_COLORS = [
@@ -131,19 +132,21 @@ export default function UserProfile() {
   usePricesStream(priceSymbols, priceMarkets, useCallback((prices: any[]) => {
     setWsPrices(prices);
   }, []));
-  const effectivePrices = wsPrices ?? batchPrices;
+  const effectivePrices = useMemo(
+    () => mergeEffectivePrices(wsPrices, batchPrices),
+    [wsPrices, batchPrices],
+  );
 
-  // item.id → 현재가 맵
+  // item.id → 현재가 맵 (배열 순서가 아닌 심볼로 매칭)
+  const priceBySymbol = useMemo(() => indexPricesBySymbol(effectivePrices), [effectivePrices]);
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
-    if (Array.isArray(effectivePrices)) {
-      priceableItems.forEach((item: any, i: number) => {
-        const d = (effectivePrices as any[])[i];
-        if (d?.price != null) map[item.id] = d.price;
-      });
-    }
+    priceableItems.forEach((item: any) => {
+      const d = priceBySymbol[item.symbol];
+      if (d?.price != null) map[item.id] = d.price;
+    });
     return map;
-  }, [priceableItems, effectivePrices]);
+  }, [priceableItems, priceBySymbol]);
 
   // 실시간 평가금액 적용된 포트폴리오
   const enrichedPortfolios = useMemo(() => {

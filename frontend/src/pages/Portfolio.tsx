@@ -11,6 +11,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { ColorScheme } from "@/store/settingsStore";
 import { fmtKRWCompact, fmtKRWFull, fmtKRWFullSign, fmtUSDFull, fmtNative } from "@/utils/formatters";
+import { mergeEffectivePrices, indexPricesBySymbol } from "@/utils/prices";
 
 /* ── Types ─────────────────────────────────────────────── */
 type Market = "KR" | "US" | "ETF";
@@ -50,6 +51,27 @@ interface EnrichedItem extends PortfolioItem {
   pnlRate: number;
   weight: number;
   dailyChangeKRW?: number;
+  /* 외화 표시(달러 보기) 전용 값 — 행마다 매 렌더 재계산하지 않도록 미리 구해둔다 */
+  isForexItem: boolean;
+  nativeAvgPrice: number;
+  nativeValue: number;
+  nativePnl: number;
+}
+
+/* 외화 종목의 현지통화 기준 값 계산 — enriched 단계에서 한 번만 수행 */
+function withNativeValues<T extends {
+  market: Market; currency: Currency; avgPrice: number; shares: number;
+  costKRW: number; currentPriceNative: number; currentValueKRW: number; pnlKRW: number;
+}>(e: T, fx: number) {
+  const isForexItem = e.market === "US" || e.market === "ETF";
+  const nativeAvgPrice = !isForexItem
+    ? e.avgPrice
+    : e.currency === "USD"
+      ? e.avgPrice
+      : e.shares ? (e.costKRW / e.shares) / fx : 0;
+  const nativeValue = isForexItem ? e.currentPriceNative * e.shares : e.currentValueKRW;
+  const nativePnl   = isForexItem ? nativeValue - nativeAvgPrice * e.shares : e.pnlKRW;
+  return { ...e, isForexItem, nativeAvgPrice, nativeValue, nativePnl };
 }
 
 /* ── Constants ─────────────────────────────────────────── */
@@ -57,7 +79,9 @@ const PIE_COLORS  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4"
 const DEFAULT_FX  = 1350;
 
 /* ── 미리보기 예시 데이터 (비로그인 시 표시) ────────────────── */
-const PREVIEW_ENRICHED: EnrichedItem[] = [
+type PreviewEnrichedBase = Omit<EnrichedItem, "isForexItem" | "nativeAvgPrice" | "nativeValue" | "nativePnl">;
+
+const PREVIEW_ENRICHED: PreviewEnrichedBase[] = [
   { id: -1, symbol: "005930", market: "KR", name: "삼성전자",   shares: 50,  avgPrice: 100000, currency: "KRW",
     currentPriceNative: 72400,  currentValueKRW: 3_620_000,  costKRW: 5_000_000,  pnlKRW: -1_380_000, pnlRate: -27.60, weight:  4.7 },
   { id: -2, symbol: "NVDA",   market: "US", name: "엔비디아",   shares: 50,  avgPrice: 110,   currency: "USD", inputExchangeRate: 1320,
@@ -944,12 +968,12 @@ export default function Portfolio() {
   const { colorScheme } = useSettingsStore();
 
   // 행에 마우스를 올리면 상세 페이지 데이터 선제 prefetch (클릭 시 즉시 표시)
-  const prefetchStock = (item: any) => {
+  const prefetchStock = useCallback((item: any) => {
     const mkt = item.market as Market;
     const sym = item.symbol;
     if (queryClient.getQueryData(["stock-detail", mkt, sym])) return;
     queryClient.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 60_000 });
-  };
+  }, [queryClient]);
   const { pnlColor } = usePnlColors(colorScheme);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir,   setSortDir]   = useState<"asc" | "desc">("desc");
@@ -1243,8 +1267,12 @@ export default function Portfolio() {
     refetchInterval: false,
   });
 
-  /* WebSocket 우선, 없으면 HTTP 조회값 사용 */
-  const effectivePrices = wsPrices ?? batchPrices;
+  /* 종목별로 WebSocket 값을 우선하되, WS가 다루지 못한 종목(스트리밍 상한 50개
+     초과분·가격 미수신분)은 HTTP 조회값으로 채운다 */
+  const effectivePrices = useMemo(
+    () => mergeEffectivePrices(wsPrices, batchPrices),
+    [wsPrices, batchPrices],
+  );
 
   /* ── 비로그인 미리보기용 실시간 현재가 (예시 보유종목도 실제 시세로 표시) ── */
   const { data: previewBatchPrices } = useQuery({
@@ -1271,7 +1299,10 @@ export default function Portfolio() {
       const costKRW = base.avgPrice * fxForCost * base.shares;
       const pnlKRW = currentValueKRW - costKRW;
       const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;
-      return { ...base, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0 };
+      return withNativeValues(
+        { ...base, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0 },
+        exchangeRate,
+      );
     });
     const totalKRW = list.reduce((s, e) => s + e.currentValueKRW, 0);
     return list.map((e) => ({ ...e, weight: totalKRW > 0 ? (e.currentValueKRW / totalKRW) * 100 : 0 }));
@@ -1285,24 +1316,29 @@ export default function Portfolio() {
     return { totalValue, totalCost, totalPnl, totalRate, totalDailyChangeKRW: 0, totalDailyChangeRate: 0 };
   }, [previewEnrichedLive]);
 
+  /* ── 심볼 → 시세 (배열 순서에 의존하지 않도록 심볼로 짝지음) ──
+     WebSocket은 심볼을 정렬해 구독하므로 응답 순서가 보유종목 순서와 다를 수 있다.
+     인덱스로 짝지으면 종목별 가격이 뒤바뀌므로 반드시 심볼 기준으로 매칭한다. */
+  const priceBySymbol = useMemo(() => indexPricesBySymbol(effectivePrices), [effectivePrices]);
+
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
-    priceableItems.forEach((item, i) => {
-      const d = effectivePrices?.[i] as any;
+    priceableItems.forEach((item) => {
+      const d = priceBySymbol[item.symbol];
       if (d?.price != null && d.price > 0) map[item.id] = d.price;
     });
     return map;
-  }, [priceableItems, effectivePrices]);
+  }, [priceableItems, priceBySymbol]);
 
   /* ── 일일 등락률 맵 (현재가 조회 결과의 change_rate, % 단위) ── */
   const changeRateMap = useMemo(() => {
     const map: Record<number, number> = {};
-    priceableItems.forEach((item, i) => {
-      const d = effectivePrices?.[i] as any;
+    priceableItems.forEach((item) => {
+      const d = priceBySymbol[item.symbol];
       if (d?.change_rate != null) map[item.id] = d.change_rate;
     });
     return map;
-  }, [priceableItems, effectivePrices]);
+  }, [priceableItems, priceBySymbol]);
 
   /* ── 전체 보기에서 제외된 포트폴리오의 종목은 집계에서 빼기 ── */
   const filteredItems = useMemo(() => {
@@ -1347,7 +1383,10 @@ export default function Portfolio() {
         ? currentValueKRW - currentValueKRW / (1 + changeRate / 100)
         : 0;
 
-      return { ...item, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0, dailyChangeKRW };
+      return withNativeValues(
+        { ...item, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0, dailyChangeKRW },
+        exchangeRate,
+      );
     });
 
     const totalKRW = list.reduce((s, e) => s + e.currentValueKRW, 0);
@@ -1929,12 +1968,8 @@ export default function Portfolio() {
                     </div>
 
                     {(() => {
-                      const isForexItem = item.market === "US" || item.market === "ETF";
+                      const { isForexItem, nativeAvgPrice, nativeValue, nativePnl } = item;
                       const showAsNative = isForexItem && currencyMode === "native";
-                      const nativeAvgPrice = !isForexItem ? item.avgPrice
-                        : item.currency === "USD" ? item.avgPrice : (item.costKRW / item.shares) / exchangeRate;
-                      const nativeValue = isForexItem ? item.currentPriceNative * item.shares : item.currentValueKRW;
-                      const nativePnl = isForexItem ? nativeValue - nativeAvgPrice * item.shares : item.pnlKRW;
                       return (
                         <>
                           <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/40">
@@ -2032,12 +2067,8 @@ export default function Portfolio() {
                         {item.shares % 1 === 0 ? item.shares.toLocaleString() : item.shares.toFixed(4)}
                       </td>
                       {(() => {
-                        const isForexItem = item.market === "US" || item.market === "ETF";
+                        const { isForexItem, nativeAvgPrice, nativeValue, nativePnl } = item;
                         const showAsNative = isForexItem && currencyMode === "native";
-                        const nativeAvgPrice = !isForexItem ? item.avgPrice
-                          : item.currency === "USD" ? item.avgPrice : (item.costKRW / item.shares) / exchangeRate;
-                        const nativeValue = isForexItem ? item.currentPriceNative * item.shares : item.currentValueKRW;
-                        const nativePnl = isForexItem ? nativeValue - nativeAvgPrice * item.shares : item.pnlKRW;
                         return (
                           <>
                             <td className="px-3 py-2.5 text-right font-mono text-text-secondary whitespace-nowrap">
