@@ -4,7 +4,7 @@ import { useAuthStore } from "@/store/authStore";
 import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/stocks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePricesStream } from "@/hooks/useWebSocket";
-import { mergeEffectivePrices, indexPricesBySymbol } from "@/utils/prices";
+import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import { Save, Palette, Globe, Lock, FileText, Camera, X } from "lucide-react";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 
@@ -125,7 +125,7 @@ export default function MyPage() {
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
     priceableItems.forEach((item: any) => {
-      const d = priceBySymbol[item.symbol];
+      const d = lookupPrice(priceBySymbol, item.symbol);
       if (d?.price != null) map[item.id] = d.price;
     });
     return map;

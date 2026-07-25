@@ -5,6 +5,7 @@ import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi, dashboardApi
 import api from "@/api/client";
 import { Card, ChangeBadge, RowSkeleton, Badge, Modal } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
+import { normalizeSymbol, lookupPrice } from "@/utils/prices";
 import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle, Clock, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
@@ -1003,11 +1004,14 @@ export default function Watchlist() {
       let next: Record<string, any> | null = null;
       for (const p of incoming) {
         if (!p?.symbol || p.error || p.price == null) continue;
-        if (skipSymbols?.has(p.symbol)) continue;
+        const norm = normalizeSymbol(p.symbol);
+        if (skipSymbols?.has(norm)) continue;
         const cur = prev[p.symbol];
         if (cur && cur.price === p.price && cur.change_rate === p.change_rate) continue;
         if (!next) next = { ...prev };
+        // 서버 응답의 접미사(.KS/.KQ) 유무가 보유 심볼과 다를 수 있어 두 키로 모두 담는다
         next[p.symbol] = p;
+        next[norm] = p;
       }
       return next ?? prev;
     });
@@ -1030,7 +1034,7 @@ export default function Watchlist() {
   usePricesStream(symbols, markets, useCallback((prices: any[]) => {
     const delivered = new Set<string>();
     for (const p of prices) {
-      if (p?.symbol && !p.error && p.price != null) delivered.add(p.symbol);
+      if (p?.symbol && !p.error && p.price != null) delivered.add(normalizeSymbol(p.symbol));
     }
     wsSymbolsRef.current   = delivered;
     wsLastMsgAtRef.current = Date.now();
@@ -1336,7 +1340,7 @@ export default function Watchlist() {
       <div key={item.id} className="list-item-in" ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol} data-item-id={item.id}>
         <ItemRow
           item={item}
-          livePrice={livePrices[item.symbol]}
+          livePrice={lookupPrice(livePrices, item.symbol)}
           onRemove={() => removeMutation.mutate(item.id)}
           onNavigate={() => goToStock(item)}
           onEdit={() => setEditingItem(item)}
@@ -1771,7 +1775,7 @@ export default function Watchlist() {
       {addToPortfolioItem && (
         <AddToPortfolioModal
           item={addToPortfolioItem}
-          currentPrice={livePrices[addToPortfolioItem.symbol]?.price ?? null}
+          currentPrice={lookupPrice(livePrices, addToPortfolioItem.symbol)?.price ?? null}
           onClose={() => setAddToPortfolioItem(null)}
         />
       )}

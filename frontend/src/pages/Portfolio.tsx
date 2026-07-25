@@ -11,7 +11,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { ColorScheme } from "@/store/settingsStore";
 import { fmtKRWCompact, fmtKRWFull, fmtKRWFullSign, fmtUSDFull, fmtNative } from "@/utils/formatters";
-import { mergeEffectivePrices, indexPricesBySymbol } from "@/utils/prices";
+import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 
 /* ── Types ─────────────────────────────────────────────── */
 type Market = "KR" | "US" | "ETF";
@@ -1324,7 +1324,7 @@ export default function Portfolio() {
   const priceMap = useMemo(() => {
     const map: Record<number, number> = {};
     priceableItems.forEach((item) => {
-      const d = priceBySymbol[item.symbol];
+      const d = lookupPrice(priceBySymbol, item.symbol);
       if (d?.price != null && d.price > 0) map[item.id] = d.price;
     });
     return map;
@@ -1334,7 +1334,7 @@ export default function Portfolio() {
   const changeRateMap = useMemo(() => {
     const map: Record<number, number> = {};
     priceableItems.forEach((item) => {
-      const d = priceBySymbol[item.symbol];
+      const d = lookupPrice(priceBySymbol, item.symbol);
       if (d?.change_rate != null) map[item.id] = d.change_rate;
     });
     return map;

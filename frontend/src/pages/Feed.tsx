@@ -9,7 +9,7 @@ import { communityApi, portfolioApi, watchlistApi, dashboardApi } from "@/api/st
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/store/authStore";
 import api from "@/api/client";
-import { mergeEffectivePrices, indexPricesBySymbol } from "@/utils/prices";
+import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import PortfolioChart, { type PfPortfolioForChart } from "@/components/portfolio/PortfolioChart";
 
@@ -442,7 +442,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const feedPriceMap = useMemo(() => {
     const map: Record<number, number> = {};
     priceableItemsForFeed.forEach((item: any) => {
-      const d = feedPriceBySymbol[item.symbol];
+      const d = lookupPrice(feedPriceBySymbol, item.symbol);
       if (d?.price != null) map[item.id] = d.price;
     });
     return map;
