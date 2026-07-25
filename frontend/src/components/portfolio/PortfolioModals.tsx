@@ -55,8 +55,12 @@ export function PortfolioModal({
   const [priceLoading, setPriceLoading] = useState(false);
 
   useEffect(() => {
-    if (step === 1) setTimeout(() => inputRef.current?.focus(), 50);
-    if (step === 2) setTimeout(() => sharesRef.current?.focus(), 50);
+    // 모달이 50ms 안에 닫히면 사라진 요소를 건드리므로 정리해 준다
+    const t = setTimeout(() => {
+      if (step === 1) inputRef.current?.focus();
+      else sharesRef.current?.focus();
+    }, 50);
+    return () => clearTimeout(t);
   }, [step]);
 
   // 현재가 자동 입력: 신규 추가 시에만 (수정 모드 아님) 현재가 조회하여 평균매수가 초기값 설정
@@ -225,7 +229,10 @@ export function CashModal({
   const [note,     setNote]     = useState(item?.note ?? "");
   const amountRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setTimeout(() => amountRef.current?.focus(), 50); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => amountRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, []);
 
   const canSave = Number(amount) > 0;
 
@@ -449,7 +456,11 @@ export function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void })
   const [name, setName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { if (adding) setTimeout(() => inputRef.current?.focus(), 30); }, [adding]);
+  useEffect(() => {
+    if (!adding) return;
+    const t = setTimeout(() => inputRef.current?.focus(), 30);
+    return () => clearTimeout(t);
+  }, [adding]);
 
   const commit = () => {
     const trimmed = name.trim();

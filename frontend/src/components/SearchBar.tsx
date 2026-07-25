@@ -74,11 +74,15 @@ export default function SearchBar() {
     return () => document.removeEventListener("mousedown", h);
   }, [folderDropdown]);
 
+  // 포커스 타이머는 ref로 들고 있다가 닫힐 때/언마운트 때 정리한다
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openSearch = () => {
     setRecent(getRecent());
     setOpen(true);
-    setTimeout(() => inputRef.current?.focus(), 10);
+    if (focusTimer.current) clearTimeout(focusTimer.current);
+    focusTimer.current = setTimeout(() => inputRef.current?.focus(), 10);
   };
+  useEffect(() => () => { if (focusTimer.current) clearTimeout(focusTimer.current); }, []);
 
   const closeSearch = useCallback(() => {
     setOpen(false);

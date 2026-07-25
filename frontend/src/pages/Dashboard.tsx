@@ -1,16 +1,16 @@
-import { useState, useCallback, useMemo, memo, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { dashboardApi, stocksApi } from "@/api/stocks";
-import { Card, ChangeBadge, formatNumber } from "@/components/ui";
+import { dashboardApi } from "@/api/stocks";
+import { Card, ChangeBadge } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { isUsdKrwRow } from "@/hooks/useExchangeRate";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
-import { fmtUSD, fmtNewsDateTime, newsTimestampMs, fmtVolume } from "@/utils/formatters";
+import { fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
 
 /* ── 지수 카드 ───────────────────────────────────────────── */
-const IndexCard = memo(function IndexCard({ name, value, change, change_rate, _demo, onClick, colorScheme }: any) {
+const IndexCard = memo(function IndexCard({ name, value, change_rate, onClick, colorScheme }: any) {
   const pos = (change_rate ?? 0) >= 0;
   const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
   const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
@@ -89,145 +89,6 @@ const ExtraCardSkeleton = memo(function ExtraCardSkeleton() {
       <div className="h-2 bg-bg-elevated rounded w-20" />
       <div className="h-5 bg-bg-elevated rounded w-24 mt-0.5" />
       <div className="h-2 bg-bg-elevated rounded w-12" />
-    </div>
-  );
-});
-
-const RankingTableSkeleton = memo(function RankingTableSkeleton() {
-  return (
-    <div className="animate-pulse">
-      {Array.from({ length: 10 }, (_, i) => (
-        <div key={i} className="flex items-center gap-3 py-2.5 px-3 border-b border-border/30">
-          <div className="w-4 h-3 bg-bg-elevated rounded flex-shrink-0" />
-          <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-            <div className="h-3 bg-bg-elevated rounded w-16" />
-            <div className="h-2 bg-bg-elevated rounded w-24" />
-          </div>
-          <div className="h-3 bg-bg-elevated rounded w-16" />
-          <div className="h-3 bg-bg-elevated rounded w-10" />
-          <div className="h-3 bg-bg-elevated rounded w-16 hidden sm:block" />
-          <div className="h-3 bg-bg-elevated rounded w-12 hidden sm:block" />
-        </div>
-      ))}
-    </div>
-  );
-});
-
-/* ── 순위 테이블 (실시간 가격 반영) ─────────────────────── */
-const RankingTable = memo(function RankingTable({ items, isKR, onSymbolClick, livePrices }: {
-  items: any[]; isKR: boolean; onSymbolClick: (sym: string, mkt: string) => void; livePrices: Record<string, any>;
-}) {
-  const [showAll, setShowAll] = useState(false);
-  const qc = useQueryClient();
-  const mkt = isKR ? "KR" : "US";
-  const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
-
-  const prefetchStock = useCallback((sym: string) => {
-    // 이미 캐시에 있으면 요청하지 않음 (과도한 요청 방지)
-    if (qc.getQueryData(["stock-detail", mkt, sym])) return;
-    qc.prefetchQuery({
-      queryKey: ["stock-detail", mkt, sym],
-      queryFn: () => stocksApi.getDetail(mkt as any, sym),
-      staleTime: 15_000,
-    });
-    qc.prefetchQuery({
-      queryKey: ["stock-ohlcv", mkt, sym, "1d", "max"],
-      queryFn: () => stocksApi.getOHLCV(mkt as any, sym, "max", "1d"),
-      staleTime: 300_000,
-    });
-  }, [qc, mkt]);
-
-  // 순위 데이터 로드 후 화면에 보이는 종목 즉시 prefetch
-  useEffect(() => {
-    if (!items?.length) return; // 데이터 없으면 대기
-    let queue: string[] = [];
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const flush = () => {
-      queue.splice(0, 6).forEach(prefetchStock);
-      if (queue.length > 0) timer = setTimeout(flush, 250);
-    };
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(e => {
-        if (e.isIntersecting) {
-          const sym = (e.target as HTMLElement).dataset.sym;
-          if (sym && !queue.includes(sym)) queue.push(sym);
-        }
-      });
-      if (queue.length > 0 && !timer) timer = setTimeout(flush, 200);
-    }, { threshold: 0.5 });
-    // 현재 화면에 있는 모든 rows 관찰 등록
-    rowRefs.current.forEach(row => observer.observe(row));
-    return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
-  }, [items, prefetchStock, showAll]); // items 변경 시(데이터 로드) 재설정
-
-  if (!items?.length) return <RankingTableSkeleton />;
-
-  const dispSym = (s: string) => s.replace(".KS","").replace(".KQ","");
-  const visible = showAll ? items : items.slice(0, 10);
-
-  return (
-    <div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-text-muted border-b border-border">
-              <th className="text-left py-2 pl-3 w-7">#</th>
-              <th className="text-left py-2">종목</th>
-              <th className="text-right py-2">현재가</th>
-              <th className="text-right py-2">등락률</th>
-              <th className="text-right py-2">시가총액</th>
-              <th className="text-right py-2 pr-3">거래량</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((item: any) => {
-              const mkt   = isKR ? "KR" : "US";
-              const live  = livePrices[item.symbol];
-              const price = live?.price ?? item.price;
-              const chgr  = live?.change_rate ?? item.change_rate ?? 0;
-              const hasLive = !!live;
-              return (
-                <tr key={item.symbol}
-                  ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }}
-                  data-sym={item.symbol}
-                  className="border-b border-border/30 hover:bg-bg-hover cursor-pointer transition-colors"
-                  onMouseEnter={() => prefetchStock(item.symbol)}
-                  onClick={() => onSymbolClick(item.symbol, mkt)}
-                >
-                  <td className="py-2.5 pl-3 text-text-muted font-mono font-bold">{item.rank}</td>
-                  <td className="py-2.5">
-                    <div className="flex items-center gap-1">
-                      <span className="font-mono font-bold text-text-primary">{dispSym(item.symbol)}</span>
-                      {hasLive && <span className="w-1 h-1 rounded-full bg-accent-green animate-pulse flex-shrink-0" />}
-                    </div>
-                    <div className="text-text-muted text-2xs truncate max-w-[100px]">{item.name}</div>
-                  </td>
-                  <td className="py-2.5 text-right font-mono text-text-primary num">
-                    {price ? (isKR ? `₩${price.toLocaleString("ko-KR")}` : fmtUSD(price)) : "—"}
-                  </td>
-                  <td className="py-2.5 text-right">
-                    {price ? <ChangeBadge value={chgr} /> : <span className="text-text-muted">—</span>}
-                  </td>
-                  <td className="py-2.5 text-right font-mono text-text-muted text-[10px]">
-                    {item.market_cap ? (isKR ? formatNumber(item.market_cap) : fmtUSD(item.market_cap)) : "—"}
-                  </td>
-                  <td className="py-2.5 text-right font-mono text-text-muted pr-3">
-                    {fmtVolume(live?.volume ?? item.volume, isKR)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {items.length > 10 && (
-        <button
-          onClick={() => setShowAll(v => !v)}
-          className="w-full py-2.5 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border"
-        >
-          {showAll ? "접기 ▲" : `더보기 (${items.length - 10}개 더) ▼`}
-        </button>
-      )}
     </div>
   );
 });

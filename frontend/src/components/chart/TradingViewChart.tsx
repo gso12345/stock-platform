@@ -62,7 +62,6 @@ interface Props {
   candleType?: string;
   height?: number;
   hideTopToolbar?: boolean;
-  hideBottomBar?: boolean;
 }
 
 let widgetCounter = 0;
@@ -72,7 +71,6 @@ const TradingViewChart = memo(function TradingViewChart({
   candleType = "1d",
   height = 500,
   hideTopToolbar = false,
-  hideBottomBar = false,
 }: Props) {
   const containerId = useRef(`tv_${++widgetCounter}`);
   const containerRef = useRef<HTMLDivElement>(null);

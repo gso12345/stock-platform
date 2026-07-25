@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { screeningApi, watchlistApi, stocksApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import {
-  Card, ChangeBadge, LoadingSpinner, formatNumber, RangeFilter, Tabs, Button, Badge,
+  Card, ChangeBadge, formatNumber, RangeFilter, Button, Badge,
 } from "@/components/ui";
 import ComingSoon from "@/components/ComingSoon";
 import type { Market } from "@/types";

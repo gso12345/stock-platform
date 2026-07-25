@@ -11,6 +11,7 @@ interface LoginResponse {
   access_token: string;
   user_id: number;
   username: string;
+  is_admin: boolean;
 }
 
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {

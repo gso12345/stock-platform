@@ -11,31 +11,17 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors } from "@/hooks/usePnlColors";
 import { fmtKRWCompact, fmtKRWFull, fmtKRWFullSign } from "@/utils/formatters";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
+import { extractErrorMessage } from "@/utils/errors";
+import { withNativeValues } from "@/utils/holdings";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { type AssetClass, resolveAssetClass } from "@/utils/assetClass";
-import type { Market, Currency, ChartMode, PortfolioItem, SelectedPortfolio, PortfolioMeta, EnrichedItem } from "@/types/portfolio";
+import type { Market, ChartMode, PortfolioItem, SelectedPortfolio, PortfolioMeta, EnrichedItem } from "@/types/portfolio";
 import {
   PortfolioModal, CashModal, ConfirmDeleteModal, PortfolioPill,
   PortfolioFilterDropdown, AddPortfolioButton, PortfolioManagerModal,
 } from "@/components/portfolio/PortfolioModals";
 import { SortHead, HoldingCard, HoldingTableRow, type SortField } from "@/components/portfolio/HoldingRow";
 
-
-/* 외화 종목의 현지통화 기준 값 계산 — enriched 단계에서 한 번만 수행 */
-function withNativeValues<T extends {
-  market: Market; currency: Currency; avgPrice: number; shares: number;
-  costKRW: number; currentPriceNative: number; currentValueKRW: number; pnlKRW: number;
-}>(e: T, fx: number) {
-  const isForexItem = e.market === "US" || e.market === "ETF";
-  const nativeAvgPrice = !isForexItem
-    ? e.avgPrice
-    : e.currency === "USD"
-      ? e.avgPrice
-      : e.shares ? (e.costKRW / e.shares) / fx : 0;
-  const nativeValue = isForexItem ? e.currentPriceNative * e.shares : e.currentValueKRW;
-  const nativePnl   = isForexItem ? nativeValue - nativeAvgPrice * e.shares : e.pnlKRW;
-  return { ...e, isForexItem, nativeAvgPrice, nativeValue, nativePnl };
-}
 
 /* ── Constants ─────────────────────────────────────────── */
 const PIE_COLORS  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
@@ -292,17 +278,6 @@ export default function Portfolio() {
     return allItems.filter((i) => i.portfolioId === selectedPortfolioId);
   }, [allItems, isAllView, selectedPortfolioId]);
 
-  const _extractErrMsg = (err: unknown): string => {
-    const e = err as any;
-    if (e?.response?.data?.detail) {
-      const d = e.response.data.detail;
-      if (typeof d === "string") return d;
-      if (Array.isArray(d)) return d.map((x: any) => x?.msg ?? JSON.stringify(x)).join(", ");
-    }
-    if (e?.message) return e.message;
-    return "알 수 없는 오류가 발생했습니다";
-  };
-
   const addMutation = useMutation({
     mutationFn: (data: Omit<PortfolioItem, "id">) =>
       portfolioApi.addItem({
@@ -319,7 +294,7 @@ export default function Portfolio() {
       queryClient.invalidateQueries({ queryKey: ["portfolios"] });
       setModalError(null);
     },
-    onError: (err) => setModalError(_extractErrMsg(err)),
+    onError: (err) => setModalError(extractErrorMessage(err)),
   });
 
   const editMutation = useMutation({
@@ -336,7 +311,7 @@ export default function Portfolio() {
       queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] });
       setModalError(null);
     },
-    onError: (err) => setModalError(_extractErrMsg(err)),
+    onError: (err) => setModalError(extractErrorMessage(err)),
   });
 
   const deleteMutation = useMutation({
@@ -594,9 +569,21 @@ export default function Portfolio() {
     [portfolioBreakdown],
   );
 
-  const activePieData = isLoggedIn
-    ? (chartMode === "portfolio" ? portfolioPieData : chartMode === "stock" ? stockPieData : marketPieData)
-    : (chartMode === "stock" ? previewStockPie : previewMarketPie);
+  const activePieData = useMemo(
+    () => (isLoggedIn
+      ? (chartMode === "portfolio" ? portfolioPieData : chartMode === "stock" ? stockPieData : marketPieData)
+      : (chartMode === "stock" ? previewStockPie : previewMarketPie)),
+    [isLoggedIn, chartMode, portfolioPieData, stockPieData, marketPieData, previewStockPie, previewMarketPie],
+  );
+
+  /* 범례용 합계·비율 — 매 렌더마다 reduce를 다시 돌리지 않도록 미리 계산 */
+  const pieLegend = useMemo(() => {
+    const total = activePieData.reduce((s, e) => s + e.value, 0);
+    return activePieData.map((e) => ({
+      ...e,
+      pct: total > 0 ? (e.value / total) * 100 : 0,
+    }));
+  }, [activePieData]);
 
   /* ── 전체 보기를 벗어나면 포트폴리오별 비중 탭에 머물러 있지 않도록 ── */
   useEffect(() => {
@@ -869,10 +856,8 @@ export default function Portfolio() {
               </div>
               {/* 우측 목록 */}
               <div className="flex-1 min-w-0 w-full self-center flex flex-col gap-0.5 py-1">
-                {(() => {
-                  const total = activePieData.reduce((s, e) => s + e.value, 0);
-                  return activePieData.map((entry, i) => {
-                    const pct = total > 0 ? (entry.value / total) * 100 : 0;
+                {pieLegend.map((entry, i) => {
+                    const pct = entry.pct;
                     return (
                       <div key={entry.name} className="flex items-center gap-2 py-1">
                         <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -890,8 +875,7 @@ export default function Portfolio() {
                         </span>
                       </div>
                     );
-                  });
-                })()}
+                  })}
               </div>
             </div>
           ) : (
@@ -1001,24 +985,26 @@ export default function Portfolio() {
             </div>
             <div className="text-center">
               <p className="text-text-primary font-semibold text-sm">보유 종목 없음</p>
-              {!isAllView && <p className="text-text-muted text-xs mt-1">+ 추가 버튼으로 종목을 등록하세요</p>}
+              <p className="text-text-muted text-xs mt-1">+ 추가 버튼으로 종목을 등록하세요</p>
             </div>
-            {!isAllView && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setCashEditItem(undefined); setCashModalOpen(true); }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-text-secondary text-sm font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors"
-                >
-                  <DollarSign size={14} /> 현금 추가
-                </button>
-                <button
-                  onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
-                >
-                  <Plus size={14} /> 첫 종목 추가
-                </button>
-              </div>
-            )}
+            {/* "전체" 탭에서도 추가 버튼을 보여준다 —
+               새로 가입하면 이 탭이 기본으로 열리는데 예전에는 버튼이 숨겨져 있어
+               첫 종목을 넣을 방법이 화면에 아예 없었다.
+               포트폴리오를 지정하지 않고 저장하면 서버가 기본 포트폴리오로 자동 편입한다 */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setCashEditItem(undefined); setCashModalOpen(true); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-text-secondary text-sm font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors"
+              >
+                <DollarSign size={14} /> 현금 추가
+              </button>
+              <button
+                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+              >
+                <Plus size={14} /> 첫 종목 추가
+              </button>
+            </div>
           </div>
         ) : viewMode === "card" ? (
           <>

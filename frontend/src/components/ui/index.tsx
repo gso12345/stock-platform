@@ -109,6 +109,16 @@ export function Modal({ children, maxWidth = "max-w-md", align = "center", padTo
   );
 }
 
+/* ── 시장 배지 (KR / US / ETF) ──
+   내 자산은 이 컴포넌트를, 관심종목은 Badge + 별도 색상표를 쓰던 것을 하나로 합쳤다. */
+export function MarketBadge({ market }: { market: string }) {
+  const cls =
+    market === "KR"  ? "border-blue-700/50 text-blue-400 bg-blue-900/20" :
+    market === "ETF" ? "border-purple-700/50 text-purple-400 bg-purple-900/20" :
+                       "border-green-700/50 text-green-400 bg-green-900/20";
+  return <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${cls}`}>{market}</span>;
+}
+
 /* ── 배지 ──────────────────────────────────────────────── */
 export function Badge({ children, variant = "default" }: {
   children: React.ReactNode;

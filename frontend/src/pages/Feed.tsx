@@ -109,16 +109,12 @@ const FeedCard = memo(function FeedCard({
   onVote,
   onOpen,
   onDelete,
-  queryKey,
-  qc,
 }: {
   post: FeedPost;
   onLike: (id: number) => void;
   onVote: (postId: number, optionIndex: number) => void;
   onOpen: (post: FeedPost) => void;
   onDelete: (id: number) => void;
-  queryKey: any[];
-  qc: ReturnType<typeof useQueryClient>;
 }) {
   const { isLoggedIn } = useAuthStore();
   const navigate = useNavigate();
@@ -344,7 +340,7 @@ const FeedCard = memo(function FeedCard({
 });
 
 function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
-  const { isLoggedIn, username, userId } = useAuthStore();
+  const { isLoggedIn, username } = useAuthStore();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"stock" | "portfolio">("stock");
@@ -518,7 +514,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     }, 300);
   };
 
-  const addCustomTag = (tag: { symbol: string; market: string }) => {
+  const addCustomTag = (tag: { symbol: string; market: string; name?: string }) => {
     if (customTags.length >= 5) return;
     if (!customTags.find((t) => t.symbol === tag.symbol && t.market === tag.market)) {
       setCustomTags((prev) => [...prev, { symbol: tag.symbol, market: tag.market, name: tag.name }]);
@@ -1175,8 +1171,6 @@ export default function Feed() {
                 onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
                 onOpen={(p) => navigate(`/post/${p.id}`)}
                 onDelete={(id) => { const p = posts.find((x) => x.id === id); if (p) deleteMutation.mutate(p); }}
-                queryKey={queryKey}
-                qc={qc}
               />
             ))}
           </div>

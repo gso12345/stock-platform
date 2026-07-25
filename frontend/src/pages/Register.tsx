@@ -11,6 +11,7 @@ interface RegisterResponse {
   access_token: string;
   user_id: number;
   username: string;
+  is_admin: boolean;
 }
 
 export default function Register() {

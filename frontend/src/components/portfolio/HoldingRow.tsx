@@ -1,16 +1,10 @@
 import { memo } from "react";
+import { MarketBadge } from "@/components/ui";
 import { Pencil, Trash2, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { fmtKRWFull, fmtKRWFullSign, fmtUSDFull, fmtNative } from "@/utils/formatters";
-import type { Market, EnrichedItem } from "@/types/portfolio";
+import type { EnrichedItem } from "@/types/portfolio";
 
 /* ── Market badge ───────────────────────────────────────── */
-export function MarketBadge({ market }: { market: Market }) {
-  const cls =
-    market === "KR"  ? "border-blue-700/50 text-blue-400 bg-blue-900/20" :
-    market === "ETF" ? "border-purple-700/50 text-purple-400 bg-purple-900/20" :
-                       "border-green-700/50 text-green-400 bg-green-900/20";
-  return <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${cls}`}>{market}</span>;
-}
 
 /* ── Sort ──────────────────────────────────────────────── */
 export type SortField = "name" | "shares" | "value" | "pnl" | "pnlRate" | "weight";

@@ -98,7 +98,6 @@ export function ConditionBuilder({ label, color = "blue", group, onChange }: Pro
     onChange({ ...group, conditions: group.conditions.filter((_, idx) => idx !== i) });
   };
 
-  const accentColor = color === "blue" ? "text-accent-blue border-accent-blue/30 bg-accent-blue/10" : "text-accent-red border-accent-red/30 bg-accent-red/10";
   const dotColor = color === "blue" ? "bg-accent-blue" : "bg-accent-red";
 
   return (

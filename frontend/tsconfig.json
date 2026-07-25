@@ -17,9 +17,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    // baseUrl 폐기 예고 경고가 error로 올라와 타입 검사 자체가 중단되던 문제를 막는다
-    "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
+    // baseUrl은 폐기 예정이라 TypeScript 버전이 오를 때 경고가 error로 올라와
+    // 타입 검사 자체가 중단됐다. paths는 baseUrl 없이도 tsconfig 위치 기준으로
+    // 해석되므로 아예 뺀다 (번들러 별칭은 vite.config.ts의 resolve.alias가 담당).
     "paths": {
       "@/*": ["./src/*"]
     }

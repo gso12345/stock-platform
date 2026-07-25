@@ -339,7 +339,8 @@ export const watchlistApi = {
   getWithPrices: (id: number) =>
     api.get(`/watchlist/${id}/prices`).then((r) => r.data),
 
-  addItem: (payload: { symbol: string; market: string; name: string; watchlist_id: number; memo?: string; folder_id?: number }) =>
+  // folder_id를 null로 보내면 서버가 "기본 관심목록" 폴더로 자동 편입한다 (watchlist.py add_item)
+  addItem: (payload: { symbol: string; market: string; name: string; watchlist_id: number; memo?: string; folder_id?: number | null }) =>
     api.post("/watchlist/items", payload).then((r) => r.data),
 
   updateItem: (id: number, payload: { name?: string; memo?: string; folder_id?: number }) =>

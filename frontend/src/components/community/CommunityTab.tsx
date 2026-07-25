@@ -26,11 +26,12 @@ interface Post {
   user_id: number;
   username: string;
   avatar_color: number;
+  avatar_url?: string | null;
   title: string;
   body: string;
   image: string;
   poll: PollData | null;
-  tags: { symbol: string; market: string }[];
+  tags: { symbol: string; market: string; name?: string }[];
   portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null }[] | null;
   like_count: number;
   comment_count: number;
@@ -39,20 +40,6 @@ interface Post {
   created_at: string;
   is_mine: boolean;
   is_following?: boolean;
-}
-
-interface Comment {
-  id: number;
-  parent_id: number | null;
-  user_id: number;
-  username: string;
-  avatar_color: number;
-  content: string;
-  like_count: number;
-  liked: boolean;
-  created_at: string;
-  is_mine: boolean;
-  replies: Comment[];
 }
 
 interface StockTag {
@@ -119,242 +106,10 @@ function Avatar({
     size={size} userId={userId} isMine={isMine} />;
 }
 
-// ── 댓글 컴포넌트 ─────────────────────────────────────────────────
-function CommentItem({
-  comment,
-  postId,
-  uid,
-  isLoggedIn,
-  onReplyAdded,
-}: {
-  comment: Comment;
-  postId: number;
-  uid?: number;
-  isLoggedIn: boolean;
-  onReplyAdded: () => void;
-}) {
-  const navigate = useNavigate();
-  const [showReply, setShowReply] = useState(false);
-  const [replyText, setReplyText] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [liked, setLiked] = useState(comment.liked);
-  const [likeCount, setLikeCount] = useState(comment.like_count);
-  const qc = useQueryClient();
-
-  const likeMutation = useMutation({
-    mutationFn: () => communityApi.toggleCommentLike(comment.id),
-    onMutate: () => {
-      setLiked((v) => !v);
-      setLikeCount((n) => (liked ? n - 1 : n + 1));
-    },
-    onError: () => {
-      setLiked(comment.liked);
-      setLikeCount(comment.like_count);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () => communityApi.deleteComment(comment.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["comments", postId] }),
-  });
-
-  const submitReply = async () => {
-    const txt = replyText.trim();
-    if (!txt || submitting) return;
-    setSubmitting(true);
-    try {
-      await communityApi.createComment(postId, txt, comment.id);
-      setReplyText("");
-      setShowReply(false);
-      onReplyAdded();
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="flex gap-2.5">
-      <Avatar
-        username={comment.username}
-        colorIndex={comment.avatar_color}
-        userId={comment.user_id}
-        isMine={uid != null && comment.user_id === uid}
-      />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <Link
-            to={uid != null && comment.user_id === uid ? "/mypage" : `/profile/${comment.user_id}`}
-            className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
-          >
-            {comment.username}
-          </Link>
-          <span className="text-2xs text-text-dim">·</span>
-          <span className="text-2xs text-text-dim">{timeAgo(comment.created_at)}</span>
-        </div>
-        <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words mb-1.5">
-          {comment.content}
-        </p>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => (isLoggedIn ? likeMutation.mutate() : navigate("/login"))}
-            className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${
-              liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"
-            }`}
-          >
-            <Heart size={11} className={liked ? "fill-accent-red" : ""} />
-            {likeCount > 0 ? (
-              <span className={liked ? "font-semibold" : ""}>{likeCount}</span>
-            ) : (
-              <span className="opacity-50">좋아요</span>
-            )}
-          </button>
-          {isLoggedIn && (
-            <button
-              onClick={() => setShowReply((v) => !v)}
-              className="text-xs text-text-dim hover:text-accent-blue transition-colors"
-            >
-              답글
-            </button>
-          )}
-          {comment.is_mine && (
-            <button
-              onClick={() => {
-                if (confirm("댓글을 삭제할까요?")) deleteMutation.mutate();
-              }}
-              className="text-xs text-text-dim hover:text-accent-red transition-colors"
-            >
-              삭제
-            </button>
-          )}
-        </div>
-
-        {/* 답글 입력 */}
-        {showReply && (
-          <div className="mt-2 flex gap-2">
-            <input
-              autoFocus
-              value={replyText}
-              onChange={(e) => setReplyText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submitReply()}
-              placeholder="답글 입력..."
-              maxLength={500}
-              className="flex-1 px-3 py-1.5 bg-bg-elevated border border-border rounded-xl text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
-            />
-            <button
-              onClick={submitReply}
-              disabled={!replyText.trim() || submitting}
-              className="px-3 py-1.5 bg-accent-blue text-white text-xs rounded-xl disabled:opacity-40 hover:bg-accent-blue/90 transition-colors"
-            >
-              {submitting ? "..." : "등록"}
-            </button>
-          </div>
-        )}
-
-        {/* 대댓글 */}
-        {comment.replies.length > 0 && (
-          <div className="mt-2 flex flex-col gap-2 pl-3 border-l-2 border-border/50">
-            {comment.replies.map((r) => (
-              <div key={r.id} className="flex gap-2">
-                <Avatar
-                  username={r.username}
-                  colorIndex={r.avatar_color}
-                  userId={r.user_id}
-                  isMine={uid != null && r.user_id === uid}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <Link
-                      to={uid != null && r.user_id === uid ? "/mypage" : `/profile/${r.user_id}`}
-                      className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
-                    >
-                      {r.username}
-                    </Link>
-                    <span className="text-2xs text-text-dim">·</span>
-                    <span className="text-2xs text-text-dim">{timeAgo(r.created_at)}</span>
-                  </div>
-                  <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words mb-1">
-                    {r.content}
-                  </p>
-                  <ReplyLikeDelete reply={r} postId={postId} isLoggedIn={isLoggedIn} uid={uid} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ReplyLikeDelete({
-  reply,
-  postId,
-  isLoggedIn,
-  uid,
-}: {
-  reply: Comment;
-  postId: number;
-  isLoggedIn: boolean;
-  uid?: number;
-}) {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const [liked, setLiked] = useState(reply.liked);
-  const [likeCount, setLikeCount] = useState(reply.like_count);
-
-  const likeMutation = useMutation({
-    mutationFn: () => communityApi.toggleCommentLike(reply.id),
-    onMutate: () => {
-      setLiked((v) => !v);
-      setLikeCount((n) => (liked ? n - 1 : n + 1));
-    },
-    onError: () => {
-      setLiked(reply.liked);
-      setLikeCount(reply.like_count);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () => communityApi.deleteComment(reply.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["comments", postId] }),
-  });
-
-  return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={() => (isLoggedIn ? likeMutation.mutate() : navigate("/login"))}
-        className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${
-          liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"
-        }`}
-      >
-        <Heart size={10} className={liked ? "fill-accent-red" : ""} />
-        {likeCount > 0 ? (
-          <span className={liked ? "font-semibold" : ""}>{likeCount}</span>
-        ) : (
-          <span className="opacity-50">좋아요</span>
-        )}
-      </button>
-      {reply.is_mine && (
-        <button
-          onClick={() => {
-            if (confirm("댓글을 삭제할까요?")) deleteMutation.mutate();
-          }}
-          className="text-xs text-text-dim hover:text-accent-red transition-colors"
-        >
-          삭제
-        </button>
-      )}
-    </div>
-  );
-}
-
 // ── 게시글 카드 ───────────────────────────────────────────────────
 const PostCard = memo(function PostCard({
   post,
-  uid,
   isLoggedIn,
-  market,
-  symbol,
   onDelete,
   onLike,
   onVote,
@@ -371,7 +126,6 @@ const PostCard = memo(function PostCard({
   onOpen: (post: Post) => void;
 }) {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [following, setFollowing] = useState(post.is_following ?? false);

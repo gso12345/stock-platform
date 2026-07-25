@@ -7,7 +7,7 @@ import api from "@/api/client";
 import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
-import { Card, Badge } from "@/components/ui";
+import { Card } from "@/components/ui";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
@@ -35,14 +35,6 @@ function StatCell({ label, value, color, sub }: { label: string; value: React.Re
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h3 className="text-sm font-bold text-text-muted uppercase tracking-widest mb-2">{children}</h3>;
-}
-
-function TabBtn({ active, onClick, icon: Icon, label }: any) {
-  return (
-    <button onClick={onClick} className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-base font-semibold transition-all ${active ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-secondary hover:bg-bg-elevated"}`}>
-      <Icon size={13} />{label}
-    </button>
-  );
 }
 
 /* ── 재무제표 탭 — 기간 토글 ─────────────────────────────── */
@@ -156,7 +148,7 @@ export default function StockDetail() {
   const m   = (market?.toUpperCase() || "US") as Market;
   const sym = decodeURIComponent(rawSymbol ?? "").toUpperCase();
   const isKR = m === "KR";
-  const { userId, isLoggedIn } = useAuthStore();
+  const { isLoggedIn } = useAuthStore();
 
   const [candleType, setCandleType]   = useState("1d");
   const [chartType, setChartType]     = useState<ChartType>("candle");

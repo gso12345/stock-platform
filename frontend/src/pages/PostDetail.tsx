@@ -103,7 +103,7 @@ interface Comment {
   like_count: number; liked: boolean; created_at: string; is_mine: boolean; replies: Comment[];
 }
 
-function ReplyItem({ reply, postId, uid, isLoggedIn, queryKey }: {
+function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
   reply: Comment; postId: number; uid?: number; isLoggedIn: boolean; queryKey: any[];
 }) {
   const navigate = useNavigate();

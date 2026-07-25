@@ -2,10 +2,12 @@ import { useState, useCallback, useEffect, useRef, useMemo, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
-import { Card, ChangeBadge, RowSkeleton, Badge, Modal, InlineSpinner, INPUT_CLASS } from "@/components/ui";
+import { Card, ChangeBadge, RowSkeleton, Modal, InlineSpinner, INPUT_CLASS, MarketBadge } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { normalizeSymbol, lookupPrice } from "@/utils/prices";
+import { extractErrorMessage } from "@/utils/errors";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { useDragReorder } from "@/hooks/useDragReorder";
 import { useStockSearch, type SearchResult } from "@/hooks/useStockSearch";
 import { BuyInfoFields, type BuyInfoValue } from "@/components/portfolio/BuyInfoFields";
 import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
@@ -47,13 +49,7 @@ const PREVIEW_WATCHLIST: PreviewItem[] = [
   { id: -12, symbol: "QQQ",   market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
 ];
 
-const MKT_BADGE_VARIANT: Record<string, "blue" | "green" | "purple"> = {
-  KR:  "blue",
-  US:  "green",
-  ETF: "purple",
-};
-
-function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {
+const PreviewItemRow = memo(function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {
   const isKR = item.market === "KR";
   const hasPrice = item.hasPrice !== false;
   return (
@@ -65,7 +61,7 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
     >
       {/* 마켓 배지 */}
-      <Badge variant={MKT_BADGE_VARIANT[item.market] ?? "default"}>{item.market}</Badge>
+      <MarketBadge market={item.market} />
       {/* 종목 정보 */}
       <div className="flex-1 min-w-0">
         <div className="font-mono font-bold text-sm text-text-primary">
@@ -84,7 +80,7 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
       </div>
     </div>
   );
-}
+});
 
 /* ── 검색 기반 종목 추가 모달 ─────────────────────────────── */
 
@@ -147,7 +143,7 @@ function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
             className="w-full flex items-center gap-3 px-4 py-3 border-b border-border/30 hover:bg-bg-hover text-left transition-colors"
             onClick={() => handleSelect(item)}
           >
-            <Badge variant={MKT_BADGE_VARIANT[item.market] ?? "default"}>{item.market}</Badge>
+            <MarketBadge market={item.market} />
             <div className="flex-1 min-w-0">
               <div className="font-mono font-bold text-sm text-text-primary">{item.symbol}</div>
               <div className="text-xs text-text-muted truncate">{item.name}</div>
@@ -411,9 +407,7 @@ const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavigate, o
               {normalizeSymbol(item.symbol ?? "")}
             </span>
             {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
-            <Badge variant={item.market==="KR"?"blue":item.market==="ETF"?"purple":"green"}>
-              {item.market}
-            </Badge>
+            <MarketBadge market={item.market} />
           </div>
           <div className="text-[11px] text-text-muted truncate">{item.name || p.name}</div>
           {item.memo && <div className="text-[10px] text-text-muted/60 italic mt-0.5">{item.memo}</div>}
@@ -543,9 +537,8 @@ function AddToPortfolioModal({
       qc.invalidateQueries({ queryKey: ["portfolio-items-all"] });
       qc.invalidateQueries({ queryKey: ["portfolios"] });
       onClose();
-    } catch (err: any) {
-      const d = err?.response?.data?.detail;
-      setSaveError(typeof d === "string" ? d : Array.isArray(d) ? d.map((x: any) => x?.msg ?? JSON.stringify(x)).join(", ") : (err?.message ?? "추가에 실패했습니다"));
+    } catch (err) {
+      setSaveError(extractErrorMessage(err, "추가에 실패했습니다"));
     } finally {
       setSaving(false);
     }
@@ -565,7 +558,7 @@ function AddToPortfolioModal({
 
       {/* 종목 정보 */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-bg-elevated/50">
-        <Badge variant={isKR ? "blue" : item.market === "ETF" ? "purple" : "green"}>{item.market}</Badge>
+        <MarketBadge market={item.market} />
         <div className="flex-1 min-w-0">
           <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(item.symbol ?? "")}</div>
           <div className="text-xs text-text-muted truncate">{item.name}</div>
@@ -833,7 +826,9 @@ export default function Watchlist() {
     queryKey: ["watchlist-items"],
     queryFn: () => watchlistApi.getItems(),
     staleTime: 120_000,
-    refetchInterval: 120_000,
+    // 목록 구성은 사용자가 추가·삭제할 때만 바뀐다. 각 mutation의 onSuccess에서
+    // invalidate하므로 주기 폴링은 불필요한 요청일 뿐이다 (가격은 별도 쿼리가 갱신)
+    refetchInterval: false,
   });
 
   // 탭 전환 시 API 재호출 없이 클라이언트 필터링
@@ -929,10 +924,7 @@ export default function Watchlist() {
       setAddError("");
       qc.invalidateQueries({ queryKey: ["watchlist-items"] });
     },
-    onError: (err: any) => {
-      const msg = err?.response?.data?.detail || "종목 추가에 실패했습니다";
-      setAddError(String(msg));
-    },
+    onError: (err) => setAddError(extractErrorMessage(err, "종목 추가에 실패했습니다")),
   });
 
   const removeMutation = useMutation({
@@ -945,72 +937,13 @@ export default function Watchlist() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
   });
 
-  // 드래그 상태
-  const [dragId, setDragId]   = useState<number | null>(null);
-  const [dropId, setDropId]   = useState<number | null>(null);
-  const [localOrder, setLocalOrder] = useState<any[] | null>(null); // 드래그 중 낙관적 순서
 
   const reorderMutation = useMutation({
     mutationFn: (order: number[]) => watchlistApi.reorderItems(order),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
-    onError: () => {
-      qc.invalidateQueries({ queryKey: ["watchlist-items"] });
-      setLocalOrder(null);
-    },
+    onError: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
   });
 
-  /* dragover는 초당 수십 번 연달아 발생해 리렌더를 기다릴 수 없다.
-     state만 보면 직전 이동이 반영되기 전의 값을 읽어 순서가 밀리거나 누락되므로,
-     폴더·포트폴리오 드래그와 동일하게 ref를 진짜 기준으로 삼고 state는 표시용으로만 쓴다 */
-  const dragIdRef     = useRef<number | null>(null);
-  const localOrderRef = useRef<any[] | null>(null);
-
-  const handleDragStart = (item: any) => {
-    dragIdRef.current = item.id;
-    localOrderRef.current = itemsList;
-    setDragId(item.id);
-    setLocalOrder(itemsList);
-  };
-
-  const moveItemTo = (targetId: number) => {
-    const fromId = dragIdRef.current;
-    if (fromId === null || fromId === targetId) return;
-    // 낙관적 순서 재배치
-    const base = localOrderRef.current ?? itemsList;
-    const from = base.findIndex((i: any) => i.id === fromId);
-    const to   = base.findIndex((i: any) => i.id === targetId);
-    if (from === -1 || to === -1) return;
-    const next = [...base];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    localOrderRef.current = next;
-    setDropId(targetId);
-    setLocalOrder(next);
-  };
-
-  const handleDragOver = (e: React.DragEvent, targetId: number) => {
-    e.preventDefault();
-    moveItemTo(targetId);
-  };
-
-  const handleDrop = () => {
-    const order = localOrderRef.current;
-    if (dragIdRef.current !== null && order) {
-      reorderMutation.mutate(order.map((i: any) => i.id));
-    }
-    dragIdRef.current = null;
-    localOrderRef.current = null;
-    setDragId(null); setDropId(null); setLocalOrder(null);
-  };
-
-  // 모바일 터치 드래그 (HTML5 draggable은 터치 환경에서 동작하지 않으므로 직접 구현)
-  const handleItemTouchMove = (clientX: number, clientY: number) => {
-    if (dragIdRef.current === null) return;
-    const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest("[data-item-id]") as HTMLElement | null;
-    if (!el) return;
-    const targetId = Number(el.dataset.itemId);
-    if (targetId) moveItemTo(targetId);
-  };
 
   // 폴더 드래그 상태
   const [dragFolderId, setDragFolderId] = useState<number | null>(null);
@@ -1151,9 +1084,22 @@ export default function Watchlist() {
   const toggleCollapse = (key: string) =>
     setCollapsed((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
-  // 드래그 중에는 낙관적으로 정렬된 순서 사용 (탭 필터 적용된 items 기준)
-  const baseList  = localOrder ?? (items as any[]);
   const itemsList = items as any[];
+
+  /* 종목 드래그 재정렬 — 공용 훅 (ref 기준으로 순서를 계산해 연속 이벤트에서도 밀리지 않는다) */
+  const itemDrag = useDragReorder<any>({
+    items: itemsList,
+    onCommit: (order) => reorderMutation.mutate(order),
+  });
+  const { dragId, dropId, localOrder } = itemDrag;
+  const handleDragStart      = itemDrag.start;
+  const handleDragOver       = itemDrag.onDragOver;
+  const handleDrop           = itemDrag.drop;
+  const handleItemTouchMove  = (clientX: number, clientY: number) =>
+    itemDrag.moveToPoint(clientX, clientY, "data-item-id");
+
+  // 드래그 중에는 낙관적으로 정렬된 순서 사용 (탭 필터 적용된 items 기준)
+  const baseList = localOrder ?? itemsList;
 
   // 폴더 탭 필터 적용 — 실시간 시세 갱신마다 재계산되지 않도록 메모이제이션
   const displayList = useMemo(
@@ -1456,7 +1402,7 @@ export default function Watchlist() {
                   onClick={() => navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`); } }}
                 >
-                  <Badge variant={r.market === "KR" ? "blue" : r.market === "ETF" ? "purple" : "green"}>{r.market}</Badge>
+                  <MarketBadge market={r.market} />
                   <div className="flex-1 min-w-0">
                     <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(r.symbol)}</div>
                     <div className="text-[11px] text-text-muted truncate">{r.name}</div>
@@ -1508,7 +1454,7 @@ export default function Watchlist() {
                     onClick={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`); } }}
                   >
-                    <Badge variant={item.market === "KR" ? "blue" : item.market === "ETF" ? "purple" : "green"}>{item.market}</Badge>
+                    <MarketBadge market={item.market} />
                     <div className="flex-1 min-w-0">
                       <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(item.symbol)}</div>
                       <div className="text-[11px] text-text-muted truncate">{item.name}</div>

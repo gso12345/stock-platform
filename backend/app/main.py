@@ -187,39 +187,47 @@ async def lifespan(application: FastAPI):
             _startup_log.warning(f"커뮤니티 인덱스 생성 스킵: {_idx_err}")
 
         # 누락 컬럼 추가 (스키마 변경 시 자동 마이그레이션)
+        #
+        # "ALTER TABLE ... ADD COLUMN IF NOT EXISTS" 는 PostgreSQL 전용 문법이라
+        # SQLite(로컬 개발)에서는 구문 오류로 통째로 실패하고 경고만 남긴 채 넘어갔다.
+        # 그 결과 로컬에서는 컬럼이 끝내 만들어지지 않아 회원가입 등이 500으로 죽었다.
+        # 그래서 실제 컬럼 목록을 먼저 조회해 없는 것만 추가하는 방식으로 바꾼다.
+        _MIGRATIONS = [
+            ("stock_posts",    "like_count",           "INTEGER NOT NULL DEFAULT 0"),
+            ("stock_posts",    "comment_count",        "INTEGER NOT NULL DEFAULT 0"),
+            ("stock_posts",    "view_count",           "INTEGER NOT NULL DEFAULT 0"),
+            ("stock_posts",    "is_deleted",           "BOOLEAN NOT NULL DEFAULT false"),
+            ("stock_posts",    "updated_at",           None),   # 타입이 DB마다 달라 아래에서 분기
+            ("stock_posts",    "is_blinded",           "BOOLEAN DEFAULT false"),
+            ("stock_comments", "is_blinded",           "BOOLEAN DEFAULT false"),
+            ("user_profiles",  "avatar_url",           "TEXT"),
+            ("users",          "is_community_banned",  "BOOLEAN DEFAULT false"),
+        ]
         try:
-            with engine.connect() as _mc:
-                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS like_count INTEGER NOT NULL DEFAULT 0"))
-                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS comment_count INTEGER NOT NULL DEFAULT 0"))
-                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0"))
-                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false"))
-                _mc.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
-                _mc.commit()
-                _startup_log.info("stock_posts 컬럼 마이그레이션 완료")
-        except Exception as _mc_err:
-            _startup_log.warning(f"컬럼 마이그레이션 스킵: {_mc_err}")
-        try:
-            with engine.connect() as _mc2:
-                _mc2.execute(text("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT"))
-                _mc2.commit()
-                _startup_log.info("user_profiles.avatar_url 컬럼 추가 완료")
-        except Exception as _mc2_err:
-            _startup_log.warning(f"user_profiles 마이그레이션 스킵: {_mc2_err}")
-        try:
-            with engine.connect() as _mc3:
-                _mc3.execute(text("ALTER TABLE stock_posts ADD COLUMN IF NOT EXISTS is_blinded BOOLEAN DEFAULT FALSE"))
-                _mc3.execute(text("ALTER TABLE stock_comments ADD COLUMN IF NOT EXISTS is_blinded BOOLEAN DEFAULT FALSE"))
-                _mc3.commit()
-                _startup_log.info("is_blinded 컬럼 마이그레이션 완료")
-        except Exception as _mc3_err:
-            _startup_log.warning(f"is_blinded 마이그레이션 스킵: {_mc3_err}")
-        try:
-            with engine.connect() as _mc4:
-                _mc4.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_community_banned BOOLEAN DEFAULT FALSE"))
-                _mc4.commit()
-                _startup_log.info("is_community_banned 컬럼 마이그레이션 완료")
-        except Exception as _mc4_err:
-            _startup_log.warning(f"is_community_banned 마이그레이션 스킵: {_mc4_err}")
+            from sqlalchemy import inspect as _sa_inspect
+            _is_sqlite = engine.dialect.name == "sqlite"
+            _inspector = _sa_inspect(engine)
+            _added, _skipped = 0, 0
+            for _table, _col, _ddl in _MIGRATIONS:
+                try:
+                    _existing = {c["name"] for c in _inspector.get_columns(_table)}
+                except Exception:
+                    continue  # 아직 테이블이 없으면 create_all이 만들어 준다
+                if _col in _existing:
+                    _skipped += 1
+                    continue
+                if _ddl is None:  # updated_at — SQLite에는 TIMESTAMPTZ/now()가 없다
+                    _ddl = "TIMESTAMP" if _is_sqlite else "TIMESTAMPTZ DEFAULT now()"
+                try:
+                    with engine.connect() as _mc:
+                        _mc.execute(text(f"ALTER TABLE {_table} ADD COLUMN {_col} {_ddl}"))
+                        _mc.commit()
+                    _added += 1
+                except Exception as _col_err:
+                    _startup_log.warning(f"컬럼 추가 실패 {_table}.{_col}: {_col_err}")
+            _startup_log.info(f"컬럼 마이그레이션 완료 (추가 {_added}, 이미 존재 {_skipped})")
+        except Exception as _mig_err:
+            _startup_log.warning(f"컬럼 마이그레이션 스킵: {_mig_err}")
     except Exception as e:
         logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")
 
