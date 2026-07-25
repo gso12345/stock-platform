@@ -1,12 +1,15 @@
 import { useState, useCallback, useEffect, useRef, useMemo, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
-import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi, dashboardApi } from "@/api/stocks";
-import api from "@/api/client";
-import { Card, ChangeBadge, RowSkeleton, Badge, Modal } from "@/components/ui";
+import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
+import { Card, ChangeBadge, RowSkeleton, Badge, Modal, InlineSpinner, INPUT_CLASS } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { normalizeSymbol, lookupPrice } from "@/utils/prices";
-import { Plus, FolderPlus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle, Clock, RefreshCw } from "lucide-react";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { useStockSearch, type SearchResult } from "@/hooks/useStockSearch";
+import { BuyInfoFields, type BuyInfoValue } from "@/components/portfolio/BuyInfoFields";
+import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
+import { Plus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle, Clock, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 
@@ -66,7 +69,7 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
       {/* 종목 정보 */}
       <div className="flex-1 min-w-0">
         <div className="font-mono font-bold text-sm text-text-primary">
-          {item.symbol.replace(".KS","").replace(".KQ","")}
+          {normalizeSymbol(item.symbol)}
         </div>
         <div className="text-[11px] text-text-muted truncate">{item.name}</div>
       </div>
@@ -74,7 +77,7 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
       <div className="text-right flex-shrink-0 min-w-[80px]">
         <div className="text-sm font-mono font-semibold text-text-primary">
           {hasPrice
-            ? (isKR ? `₩${item.price.toLocaleString("ko-KR")}` : `$${item.price.toFixed(2)}`)
+            ? (isKR ? fmtKRWFull(item.price) : fmtUSDFull(item.price))
             : <span className="text-text-muted text-xs">조회 중</span>}
         </div>
         {hasPrice && <ChangeBadge value={item.change_rate} className="text-xs" />}
@@ -84,9 +87,6 @@ function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: (
 }
 
 /* ── 검색 기반 종목 추가 모달 ─────────────────────────────── */
-interface SearchResult {
-  symbol: string; name: string; market: string; type: string; exchange: string;
-}
 
 function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
   folders: any[];
@@ -94,28 +94,15 @@ function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
   onClose: () => void;
   onAdd: (req: any) => void;
 }) {
-  const [query, setQuery]       = useState("");
-  const [results, setResults]   = useState<SearchResult[]>([]);
-  const [loading, setLoading]   = useState(false);
+  const { query, setQuery, results, searching: loading } = useStockSearch();
   const [folderId, setFolderId] = useState<number>(defaultFolderId);
   const [memo, setMemo]         = useState("");
-  const debounce  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
-
   useEffect(() => {
-    if (debounce.current) clearTimeout(debounce.current);
-    if (!query.trim()) { setResults([]); setLoading(false); return; }
-    setLoading(true);
-    debounce.current = setTimeout(async () => {
-      try {
-        const { data } = await api.get<{ results: SearchResult[] }>("/search", { params: { q: query } });
-        setResults(data.results ?? []);
-      } catch { setResults([]); }
-      finally { setLoading(false); }
-    }, 300); // 한국어 조합 완료 후 검색되도록 디바운스 약간 늘림
-  }, [query]);
+    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleSelect = (item: SearchResult) => {
     onAdd({ symbol: item.symbol, market: item.market, name: item.name, folder_id: folderId, memo });
@@ -141,7 +128,7 @@ function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
           onChange={(e) => setQuery(e.target.value)}
           autoComplete="off"
         />
-        {loading && <div className="w-4 h-4 border border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
+        {loading && <InlineSpinner />}
       </div>
 
       {/* 검색 결과 */}
@@ -421,7 +408,7 @@ const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavigate, o
         >
           <div className="flex items-center gap-1.5">
             <span className="font-mono font-bold text-sm text-text-primary">
-              {item.symbol?.replace(".KS","").replace(".KQ","")}
+              {normalizeSymbol(item.symbol ?? "")}
             </span>
             {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
             <Badge variant={item.market==="KR"?"blue":item.market==="ETF"?"purple":"green"}>
@@ -442,7 +429,7 @@ const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavigate, o
         >
           <div className="text-sm font-mono font-semibold text-text-primary">
             {hasPrice
-              ? isKR ? `₩${Number(p.price).toLocaleString("ko-KR")}` : `$${Number(p.price).toFixed(2)}`
+              ? isKR ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))
               : <span className="text-text-muted text-xs">—</span>}
           </div>
           {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs"/>}
@@ -477,7 +464,6 @@ const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavigate, o
 });
 
 /* ── 관심종목 → 포트폴리오 추가 미니 모달 ─────────────────── */
-const ASSET_CLASS_OPTIONS = ["국내주식", "해외주식", "채권", "금", "커버드콜"] as const;
 
 function AddToPortfolioModal({
   item,
@@ -493,14 +479,18 @@ function AddToPortfolioModal({
   const isForex = item.market === "US" || item.market === "ETF";
 
   const [portfolioId,  setPortfolioId]  = useState<number | null>(null);
-  const [currency,     setCurrency]     = useState<"KRW" | "USD">(isKR ? "KRW" : "USD");
-  const [shares,       setShares]       = useState("");
-  const [avgPrice,     setAvgPrice]     = useState(currentPrice != null && currentPrice > 0 ? String(currentPrice) : "");
+  const [form, setForm] = useState<BuyInfoValue>({
+    currency:     isKR ? "KRW" : "USD",
+    shares:       "",
+    avgPrice:     currentPrice != null && currentPrice > 0 ? String(currentPrice) : "",
+    inputFx:      "",
+    purchaseDate: "",
+    note:         "",
+    assetClass:   "",
+  });
+  const patchForm = (p: Partial<BuyInfoValue>) => setForm((prev) => ({ ...prev, ...p }));
+  const { currency, shares, avgPrice, note, inputFx, purchaseDate, assetClass } = form;
   const [priceLoading, setPriceLoading] = useState(currentPrice == null || currentPrice <= 0);
-  const [inputFx,      setInputFx]      = useState("");
-  const [purchaseDate, setPurchaseDate] = useState("");
-  const [note,         setNote]         = useState("");
-  const [assetClass,   setAssetClass]   = useState("");
   const [saving,       setSaving]       = useState(false);
   const [saveError,    setSaveError]    = useState("");
 
@@ -510,19 +500,7 @@ function AddToPortfolioModal({
     staleTime: 300_000,
   });
 
-  const { data: usRatesData } = useQuery({
-    queryKey: ["dashboard-us-rates"],
-    queryFn:  () => dashboardApi.getUSRates(),
-    staleTime: 300_000,
-  });
-
-  const defaultFx = useMemo(() => {
-    if (Array.isArray(usRatesData)) {
-      const row = (usRatesData as any[]).find((r: any) => r.name === "원/달러");
-      if (row?.value) return row.value as number;
-    }
-    return 1350;
-  }, [usRatesData]);
+  const defaultFx = useExchangeRate();
 
   useEffect(() => {
     if ((portfolios as any[]).length > 0 && portfolioId === null) {
@@ -535,7 +513,7 @@ function AddToPortfolioModal({
     setPriceLoading(true);
     stocksApi.getPrice(item.market, item.symbol)
       .then((data) => {
-        if (data?.price != null) setAvgPrice((prev) => (prev === "" ? String(data.price) : prev));
+        if (data?.price != null) setForm((prev) => (prev.avgPrice === "" ? { ...prev, avgPrice: String(data.price) } : prev));
       })
       .catch(() => {})
       .finally(() => setPriceLoading(false));
@@ -573,7 +551,6 @@ function AddToPortfolioModal({
     }
   };
 
-  const inp = "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
 
   return (
     <Modal align="start" padTop="pt-16" backdropOpacity={70} maxWidth="max-w-md" onClose={onClose}>
@@ -590,7 +567,7 @@ function AddToPortfolioModal({
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-bg-elevated/50">
         <Badge variant={isKR ? "blue" : item.market === "ETF" ? "purple" : "green"}>{item.market}</Badge>
         <div className="flex-1 min-w-0">
-          <div className="font-mono font-bold text-sm text-text-primary">{item.symbol?.replace(".KS","").replace(".KQ","")}</div>
+          <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(item.symbol ?? "")}</div>
           <div className="text-xs text-text-muted truncate">{item.name}</div>
         </div>
       </div>
@@ -600,7 +577,7 @@ function AddToPortfolioModal({
         {(portfolios as any[]).length > 1 && (
           <div className="flex flex-col gap-1.5">
             <label className="text-2xs font-semibold text-text-muted">포트폴리오</label>
-            <select className={inp} value={portfolioId ?? ""} onChange={(e) => setPortfolioId(Number(e.target.value))}>
+            <select className={INPUT_CLASS} value={portfolioId ?? ""} onChange={(e) => setPortfolioId(Number(e.target.value))}>
               {(portfolios as any[]).map((pf: any) => (
                 <option key={pf.id} value={pf.id}>{pf.name}</option>
               ))}
@@ -608,109 +585,14 @@ function AddToPortfolioModal({
           </div>
         )}
 
-        {/* 해외 종목: 통화 선택 */}
-        {isForex && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">입력 통화 *</label>
-            <div className="flex gap-2">
-              {(["USD", "KRW"] as const).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setCurrency(c)}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
-                    currency === c
-                      ? c === "USD"
-                        ? "bg-green-900/40 border-green-700/60 text-green-400"
-                        : "bg-blue-900/40 border-blue-700/60 text-blue-400"
-                      : "border-border text-text-muted hover:text-text-primary"
-                  }`}
-                >
-                  {c === "USD" ? "달러 ($)" : "원화 (₩)"}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="flex gap-3">
-          <div className="flex-1 flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">보유수량 *</label>
-            <input
-              className={inp}
-              type="number"
-              min="0.0001"
-              step="0.0001"
-              placeholder="0"
-              value={shares}
-              onChange={(e) => setShares(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <div className="flex-1 flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">
-              평균매수가 * {isForex ? (currency === "USD" ? "($)" : "(₩)") : "(₩)"}
-            </label>
-            <input
-              className={inp}
-              type="number"
-              min="0"
-              step="any"
-              placeholder={priceLoading ? "로딩 중..." : "0"}
-              value={avgPrice}
-              onChange={(e) => setAvgPrice(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* 달러 입력 시 환율 */}
-        {isForex && currency === "USD" && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">
-              매수 당시 환율 (₩/$ · 선택)
-              <span className="ml-1 text-text-dim font-normal">공란 시 현재 환율 사용</span>
-            </label>
-            <input
-              className={inp}
-              type="number"
-              min="0"
-              step="1"
-              placeholder={`예: ${Math.round(defaultFx)}`}
-              value={inputFx}
-              onChange={(e) => setInputFx(e.target.value)}
-            />
-          </div>
-        )}
-
-        <div className="flex gap-3">
-          <div className="flex-1 flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">매수일 (선택)</label>
-            <input className={inp} type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
-          </div>
-          <div className="flex-1 flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">자산유형</label>
-            <select className={inp} value={assetClass} onChange={(e) => setAssetClass(e.target.value)}>
-              <option value="">자동 분류</option>
-              {ASSET_CLASS_OPTIONS.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-2xs font-semibold text-text-muted">
-            메모<span className="ml-1 text-text-dim font-normal">({note.length}/100)</span>
-          </label>
-          <textarea
-            className={`${inp} resize-none`}
-            rows={2}
-            maxLength={100}
-            placeholder="선택 사항"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-        </div>
+        <BuyInfoFields
+          value={form}
+          onChange={patchForm}
+          isForex={isForex}
+          priceLoading={priceLoading}
+          defaultFx={defaultFx}
+          autoFocusShares
+        />
       </div>
 
       {saveError && (
@@ -1077,22 +959,32 @@ export default function Watchlist() {
     },
   });
 
+  /* dragover는 초당 수십 번 연달아 발생해 리렌더를 기다릴 수 없다.
+     state만 보면 직전 이동이 반영되기 전의 값을 읽어 순서가 밀리거나 누락되므로,
+     폴더·포트폴리오 드래그와 동일하게 ref를 진짜 기준으로 삼고 state는 표시용으로만 쓴다 */
+  const dragIdRef     = useRef<number | null>(null);
+  const localOrderRef = useRef<any[] | null>(null);
+
   const handleDragStart = (item: any) => {
+    dragIdRef.current = item.id;
+    localOrderRef.current = itemsList;
     setDragId(item.id);
     setLocalOrder(itemsList);
   };
 
   const moveItemTo = (targetId: number) => {
-    if (dragId === null || dragId === targetId) return;
-    setDropId(targetId);
+    const fromId = dragIdRef.current;
+    if (fromId === null || fromId === targetId) return;
     // 낙관적 순서 재배치
-    const base = localOrder ?? itemsList;
-    const from = base.findIndex((i: any) => i.id === dragId);
+    const base = localOrderRef.current ?? itemsList;
+    const from = base.findIndex((i: any) => i.id === fromId);
     const to   = base.findIndex((i: any) => i.id === targetId);
     if (from === -1 || to === -1) return;
     const next = [...base];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
+    localOrderRef.current = next;
+    setDropId(targetId);
     setLocalOrder(next);
   };
 
@@ -1102,15 +994,18 @@ export default function Watchlist() {
   };
 
   const handleDrop = () => {
-    if (dragId !== null && localOrder) {
-      reorderMutation.mutate(localOrder.map((i: any) => i.id));
+    const order = localOrderRef.current;
+    if (dragIdRef.current !== null && order) {
+      reorderMutation.mutate(order.map((i: any) => i.id));
     }
+    dragIdRef.current = null;
+    localOrderRef.current = null;
     setDragId(null); setDropId(null); setLocalOrder(null);
   };
 
   // 모바일 터치 드래그 (HTML5 draggable은 터치 환경에서 동작하지 않으므로 직접 구현)
   const handleItemTouchMove = (clientX: number, clientY: number) => {
-    if (dragId === null) return;
+    if (dragIdRef.current === null) return;
     const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest("[data-item-id]") as HTMLElement | null;
     if (!el) return;
     const targetId = Number(el.dataset.itemId);
@@ -1279,6 +1174,14 @@ export default function Watchlist() {
   }, [displayList]);
   const byFolder = (fid: number) => itemsByFolder.get(fid) ?? [];
 
+  /* 폴더 탭에 붙는 개수 — 폴더마다 전체 목록을 훑으면 폴더수×종목수가 되므로 한 번만 센다.
+     (itemsByFolder는 폴더탭 필터가 적용된 목록 기준이라 탭 개수용으로는 쓸 수 없다) */
+  const folderCounts = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const i of itemsList) map.set(i.folder_id, (map.get(i.folder_id) ?? 0) + 1);
+    return map;
+  }, [itemsList]);
+
   const createDefaultFolderMutation = useMutation({
     mutationFn: () => watchlistFolderApi.createFolder("기본 관심목록"),
   });
@@ -1337,7 +1240,7 @@ export default function Watchlist() {
 
   const renderItems = (list: any[]) =>
     list.map((item: any) => (
-      <div key={item.id} className="list-item-in" ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol} data-item-id={item.id}>
+      <div key={item.id} className="list-item-in list-row-lite" ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol} data-item-id={item.id}>
         <ItemRow
           item={item}
           livePrice={lookupPrice(livePrices, item.symbol)}
@@ -1489,7 +1392,7 @@ export default function Watchlist() {
               <Clock size={13} /> 최근조회
             </button>
             {(localFolderOrder ?? (folders as any[])).map((f: any) => {
-              const cnt = itemsList.filter((i: any) => i.folder_id === f.id).length;
+              const cnt = folderCounts.get(f.id) ?? 0;
               return (
                 <button
                   key={f.id}
@@ -1555,13 +1458,13 @@ export default function Watchlist() {
                 >
                   <Badge variant={r.market === "KR" ? "blue" : r.market === "ETF" ? "purple" : "green"}>{r.market}</Badge>
                   <div className="flex-1 min-w-0">
-                    <div className="font-mono font-bold text-sm text-text-primary">{r.symbol.replace(".KS", "").replace(".KQ", "")}</div>
+                    <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(r.symbol)}</div>
                     <div className="text-[11px] text-text-muted truncate">{r.name}</div>
                   </div>
                   <div className="text-right flex-shrink-0 min-w-[80px]">
                     <div className="text-sm font-mono font-semibold text-text-primary">
                       {hasPrice
-                        ? isKRItem ? `₩${Number(p.price).toLocaleString("ko-KR")}` : `$${Number(p.price).toFixed(2)}`
+                        ? isKRItem ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))
                         : <span className="text-text-muted text-xs">조회 중</span>}
                     </div>
                     {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs" />}
@@ -1582,7 +1485,7 @@ export default function Watchlist() {
           </div>
           {pfTabLoading ? (
             <div className="flex justify-center py-8">
-              <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
+              <InlineSpinner className="w-5 h-5" />
             </div>
           ) : pfTabDeduped.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-4 py-8">
@@ -1607,13 +1510,13 @@ export default function Watchlist() {
                   >
                     <Badge variant={item.market === "KR" ? "blue" : item.market === "ETF" ? "purple" : "green"}>{item.market}</Badge>
                     <div className="flex-1 min-w-0">
-                      <div className="font-mono font-bold text-sm text-text-primary">{item.symbol.replace(".KS", "").replace(".KQ", "")}</div>
+                      <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(item.symbol)}</div>
                       <div className="text-[11px] text-text-muted truncate">{item.name}</div>
                     </div>
                     <div className="text-right flex-shrink-0 min-w-[80px]">
                       <div className="text-sm font-mono font-semibold text-text-primary">
                         {hasPrice
-                          ? isKRItem ? `₩${Number(p.price).toLocaleString("ko-KR")}` : `$${Number(p.price).toFixed(2)}`
+                          ? isKRItem ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))
                           : <span className="text-text-muted text-xs">조회 중</span>}
                       </div>
                       {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs" />}

@@ -48,6 +48,23 @@ export function LoadingSpinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
   );
 }
 
+/* ── 인라인 스피너 ──
+   여백 없이 버튼·입력창 옆에 바로 붙이는 용도 (LoadingSpinner는 py-8 여백을 가진다).
+   같은 마크업이 화면마다 손으로 복사돼 있던 것을 하나로 모았다. */
+export function InlineSpinner({ className }: { className?: string }) {
+  return (
+    <div className={cn(
+      "border-2 border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0",
+      className ?? "w-4 h-4",
+    )} />
+  );
+}
+
+/* ── 폼 입력창 공통 스타일 ──
+   내 자산·관심종목의 각 모달이 동일한 문자열을 복사해 쓰던 것을 상수화 */
+export const INPUT_CLASS =
+  "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
+
 /* ── 행 스켈레톤 (목록/테이블 로딩 공통) ──────────────── */
 export function RowSkeleton({ rows = 4 }: { rows?: number }) {
   return (

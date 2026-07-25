@@ -5,6 +5,7 @@ import { dashboardApi, stocksApi } from "@/api/stocks";
 import { Card, ChangeBadge, formatNumber } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
+import { isUsdKrwRow } from "@/hooks/useExchangeRate";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
 import { fmtUSD, fmtNewsDateTime, newsTimestampMs, fmtVolume } from "@/utils/formatters";
 
@@ -323,7 +324,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { live
   const usdkrwRate = useMemo(() => {
     if (liveUsdkrw) return liveUsdkrw;
     if (Array.isArray(usRatesData)) {
-      return (usRatesData as any[]).find((r: any) => r.name === "원/달러");
+      return (usRatesData as any[]).find(isUsdKrwRow);
     }
     return null;
   }, [liveUsdkrw, usRatesData]);
@@ -467,7 +468,7 @@ const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { live
       data?.exchange ? [{ name: "원/달러", value: data.exchange.value ?? data.exchange.usdkrw ?? 0, change: data.exchange.change ?? 0, change_rate: data.exchange.change_rate ?? 0, unit: "원" }] : [];
     // WebSocket으로 실시간 환율 덮어쓰기
     if (liveUsdkrwUS) {
-      const idx = base.findIndex((r) => r.name === "원/달러");
+      const idx = base.findIndex(isUsdKrwRow);
       const live = { ...liveUsdkrwUS, name: "원/달러" };
       if (idx >= 0) base[idx] = live; else base.unshift(live);
     }
