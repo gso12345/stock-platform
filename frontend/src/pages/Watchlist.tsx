@@ -307,7 +307,6 @@ const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavigate, o
   onPrefetch?: () => void;
   onAddToPortfolio?: () => void;
   isDragging?: boolean; isDragOver?: boolean;
-  dragActive?: boolean;
   onDragStart?: React.DragEventHandler;
   onDragOver?: React.DragEventHandler;
   onDrop?: React.DragEventHandler;
@@ -445,9 +444,10 @@ const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavigate, o
   // 핸들러들이 매 렌더마다 새 함수로 만들어지므로 기본 얕은 비교로는 메모이제이션이
   // 전혀 동작하지 않는다. 실제로 화면에 영향을 주는 값만 비교한다.
   //
-  // 단, 드래그 중에는 핸들러가 dragId·localOrder 같은 최신 상태를 품고 있어야 하므로
-  // 메모이제이션을 완전히 끈다 (순서 변경 정확도 > 렌더 절약).
-  if (prev.dragActive || next.dragActive) return false;
+  // 드래그 중에도 메모이제이션을 유지한다. 드래그 로직이 state가 아닌 ref를 기준으로
+  // 동작하도록 바뀌어서, 리렌더를 건너뛴 행이 낡은 핸들러를 들고 있어도 항상 최신
+  // 순서를 읽는다. 예전에는 여기서 메모이제이션을 꺼버려 dragover가 발생할 때마다
+  // 목록 전체가 다시 그려졌고, 종목이 많으면 드래그가 눈에 띄게 버벅였다.
   return (
     prev.item === next.item &&
     prev.livePrice === next.livePrice &&
@@ -1197,7 +1197,6 @@ export default function Watchlist() {
           onAddToPortfolio={() => setAddToPortfolioItem(item)}
           isDragging={dragId === item.id}
           isDragOver={dropId === item.id}
-          dragActive={dragId !== null}
           onDragStart={() => handleDragStart(item)}
           onDragOver={(e) => handleDragOver(e, item.id)}
           onDrop={handleDrop}

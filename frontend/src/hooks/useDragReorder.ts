@@ -20,10 +20,14 @@ export function useDragReorder<T extends { id: number }>({
 
   const dragIdRef = useRef<number | null>(null);
   const orderRef  = useRef<T[] | null>(null);
+  // 같은 항목 위에 머물러 있는 동안에도 dragover는 초당 수십 번 발생한다.
+  // 마지막으로 처리한 대상을 기억해 두고 같은 대상이면 통째로 건너뛴다.
+  const lastTargetRef = useRef<number | null>(null);
 
   const start = useCallback((item: T) => {
     dragIdRef.current = item.id;
     orderRef.current = items;
+    lastTargetRef.current = null;
     setDragId(item.id);
     setLocalOrder(items);
   }, [items]);
@@ -31,6 +35,8 @@ export function useDragReorder<T extends { id: number }>({
   const moveTo = useCallback((targetId: number) => {
     const fromId = dragIdRef.current;
     if (fromId === null || fromId === targetId) return;
+    if (lastTargetRef.current === targetId) return;   // 직전과 같은 위치 → 재계산 불필요
+    lastTargetRef.current = targetId;
     const base = orderRef.current ?? items;
     const from = base.findIndex((i) => i.id === fromId);
     const to   = base.findIndex((i) => i.id === targetId);
@@ -48,12 +54,14 @@ export function useDragReorder<T extends { id: number }>({
     if (dragIdRef.current !== null && order) onCommit(order.map((i) => i.id));
     dragIdRef.current = null;
     orderRef.current = null;
+    lastTargetRef.current = null;
     setDragId(null); setDropId(null); setLocalOrder(null);
   }, [onCommit]);
 
   const cancel = useCallback(() => {
     dragIdRef.current = null;
     orderRef.current = null;
+    lastTargetRef.current = null;
     setDragId(null); setDropId(null); setLocalOrder(null);
   }, []);
 

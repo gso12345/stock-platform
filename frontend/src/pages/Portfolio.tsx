@@ -701,15 +701,8 @@ export default function Portfolio() {
               ))}
             </>
           )}
-          <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
-          {portfolios.length > 0 && (
-            <button
-              onClick={() => setShowPortfolioManager(true)}
-              className="p-2 flex-shrink-0 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 transition-colors rounded-lg mx-1"
-              title="포트폴리오 관리"
-            >
-              <Settings2 size={14} />
-            </button>
+          {portfolios.length === 0 && (
+            <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
           )}
         </div>
       )}
@@ -754,6 +747,26 @@ export default function Portfolio() {
               excludedIds={excludedPortfolioIds}
               onToggle={toggleExcludedPortfolio}
             />
+          )}
+          {/* 관심종목의 "폴더 관리 / 종목 추가"와 같은 위치·형태로 맞춘다 */}
+          {isLoggedIn && (
+            <>
+              {portfolios.length > 0 && (
+                <button
+                  onClick={() => setShowPortfolioManager(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all whitespace-nowrap"
+                  title="포트폴리오 추가/편집"
+                >
+                  <Settings2 size={13} />포트폴리오 관리
+                </button>
+              )}
+              <button
+                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all whitespace-nowrap"
+              >
+                <Plus size={13} />종목 추가
+              </button>
+            </>
           )}
         </div>
       </div>
