@@ -726,10 +726,13 @@ export default function Portfolio() {
       )}
 
       {/* ── 헤더 ── */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold text-text-primary">내 자산</h1>
-          <p className="text-text-muted text-xs mt-0.5">
+      {/* 좁은 화면에서는 제목과 버튼을 세로로 쌓는다.
+          한 줄에 나란히 두면 버튼 개수(포트폴리오 수에 따라 늘어남)에 밀려 제목이
+          찌그러지고, 한글은 글자 사이에서도 줄바꿈돼 세로로 쪼개진다. */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">내 자산</h1>
+          <p className="text-text-muted text-xs mt-0.5 truncate">
             {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : (
               <>
                 {displayEnriched.length}개 종목
@@ -738,8 +741,7 @@ export default function Portfolio() {
             )}
           </p>
         </div>
-        {/* 모바일에서는 버튼들이 제목 아래 줄로 내려가 서로 눌리지 않게 한다 */}
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
           <button
             onClick={() => { queryClient.invalidateQueries({ queryKey: ["portfolios"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-prices"] }); }}
             className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"

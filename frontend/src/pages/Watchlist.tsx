@@ -1264,16 +1264,16 @@ export default function Watchlist() {
       )}
 
       {/* 헤더 */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-text-primary">관심종목</h1>
-          <p className="text-text-muted text-xs mt-0.5">
+      {/* 좁은 화면에서는 제목과 버튼을 세로로 쌓는다 (내 자산과 동일) */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">관심종목</h1>
+          <p className="text-text-muted text-xs mt-0.5 truncate">
             {isPreview ? `${PREVIEW_WATCHLIST.length}개 예시 종목` : `${itemsList.length}개 종목`}
             <span className="hidden sm:inline"> · 클릭하면 상세로 이동</span>
           </p>
         </div>
-        {/* 모바일에서는 버튼들이 제목 아래 줄로 내려가 서로 눌리지 않게 한다 */}
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
           <button
             onClick={() => { qc.invalidateQueries({ queryKey: ["watchlist-items"] }); qc.invalidateQueries({ queryKey: ["watchlist-prices"] }); qc.invalidateQueries({ queryKey: ["watchlist-folders"] }); }}
             className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
