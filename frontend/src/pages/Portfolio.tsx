@@ -718,7 +718,7 @@ export default function Portfolio() {
             <p className="text-xs text-text-muted mt-0.5">아래는 예시 데이터입니다. 로그인하면 내 종목을 직접 추가·관리할 수 있어요.</p>
           </div>
           <Link to="/login"
-            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
           >
             <LogIn size={12} /> 로그인
           </Link>
@@ -744,7 +744,7 @@ export default function Portfolio() {
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
           <button
             onClick={() => { queryClient.invalidateQueries({ queryKey: ["portfolios"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-prices"] }); }}
-            className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+            className="p-2.5 sm:p-2 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
             title="내 자산 업데이트"
           >
             <RefreshCw size={13} />
@@ -762,7 +762,7 @@ export default function Portfolio() {
               {portfolios.length > 0 && (
                 <button
                   onClick={() => setShowPortfolioManager(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all whitespace-nowrap"
+                  className="flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all whitespace-nowrap"
                   title="포트폴리오 추가/편집"
                 >
                   <Settings2 size={13} />포트폴리오 관리
@@ -773,7 +773,7 @@ export default function Portfolio() {
               {!isAllView && (
                 <button
                   onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all whitespace-nowrap"
+                  className="flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all whitespace-nowrap"
                 >
                   <Plus size={13} />종목 추가
                 </button>
@@ -963,13 +963,13 @@ export default function Portfolio() {
                 <>
                   <button
                     onClick={() => { setCashEditItem(undefined); setCashModalOpen(true); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-secondary text-xs font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors whitespace-nowrap flex-shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-border text-text-secondary text-xs font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors whitespace-nowrap flex-shrink-0"
                   >
                     <DollarSign size={13} /> 현금
                   </button>
                   <button
                     onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors whitespace-nowrap flex-shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors whitespace-nowrap flex-shrink-0"
                   >
                     <Plus size={13} /> 추가
                   </button>
@@ -991,7 +991,7 @@ export default function Portfolio() {
                 <button
                   key={t.id}
                   onClick={() => setAssetFilterTab(t.id)}
-                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap ${
+                  className={`px-3 py-2 sm:py-1 min-h-[36px] sm:min-h-0 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap ${
                     assetFilterTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
                   }`}
                 >{t.label}</button>

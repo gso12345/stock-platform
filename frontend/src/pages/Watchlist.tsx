@@ -1,20 +1,21 @@
-import { useState, useCallback, useEffect, useRef, useMemo, memo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
-import { Card, ChangeBadge, RowSkeleton, Modal, InlineSpinner, INPUT_CLASS, MarketBadge } from "@/components/ui";
+import { Card, ChangeBadge, RowSkeleton, InlineSpinner, MarketBadge, ErrorToast } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { normalizeSymbol, lookupPrice } from "@/utils/prices";
+import { PREVIEW_FOLDERS, PREVIEW_WATCHLIST, PreviewItemRow, type PreviewItem } from "@/components/watchlist/Preview";
+import { ItemRow } from "@/components/watchlist/ItemRow";
+import {
+  AddModal, EditItemModal, DeleteFolderModal, AddToPortfolioModal, FolderManagerModal, FolderNameEdit,
+} from "@/components/watchlist/WatchlistModals";
 import { extractErrorMessage } from "@/utils/errors";
-import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { useDragReorder } from "@/hooks/useDragReorder";
-import { useStockSearch, type SearchResult } from "@/hooks/useStockSearch";
-import { BuyInfoFields, type BuyInfoValue } from "@/components/portfolio/BuyInfoFields";
 import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
-import { Plus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, X, Check, Search, Settings2, LogIn, AlertTriangle, Clock, RefreshCw } from "lucide-react";
+import { Plus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, Settings2, LogIn, Clock, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
-
 const MARKET_TABS = [
   { id: "전체", label: "전체" },
   { id: "KR",   label: "국내" },
@@ -22,729 +23,6 @@ const MARKET_TABS = [
   { id: "ETF",  label: "ETF"  },
 ];
 
-/* ── 미리보기 예시 데이터 (비로그인 시 표시) ── */
-interface PreviewItem {
-  id: number; symbol: string; market: string; name: string;
-  folderId: number; price: number; change_rate: number; hasPrice?: boolean;
-}
-interface PreviewFolder { id: number; name: string; }
-
-const PREVIEW_FOLDERS: PreviewFolder[] = [
-  { id: -1, name: "국내 우량주" },
-  { id: -2, name: "해외 성장주" },
-  { id: -3, name: "ETF" },
-];
-const PREVIEW_WATCHLIST: PreviewItem[] = [
-  { id: -1, symbol: "005930", market: "KR",  name: "삼성전자",          folderId: -1, price: 72400,  change_rate:  0.58 },
-  { id: -2, symbol: "000660", market: "KR",  name: "SK하이닉스",        folderId: -1, price: 198500, change_rate:  1.33 },
-  { id: -3, symbol: "005380", market: "KR",  name: "현대차",             folderId: -1, price: 218000, change_rate:  0.93 },
-  { id: -4, symbol: "NVDA",   market: "US",  name: "엔비디아",           folderId: -2, price: 135.58, change_rate:  2.14 },
-  { id: -5, symbol: "AAPL",   market: "US",  name: "애플",               folderId: -2, price: 221.85, change_rate:  0.73 },
-  { id: -6, symbol: "MSFT",   market: "US",  name: "마이크로소프트",      folderId: -2, price: 510.32, change_rate:  0.47 },
-  { id: -7, symbol: "GOOGL",  market: "US",  name: "알파벳A",            folderId: -2, price: 197.45, change_rate:  0.61 },
-  { id: -8, symbol: "AMZN",   market: "US",  name: "아마존",             folderId: -2, price: 225.10, change_rate:  1.02 },
-  { id: -9, symbol: "META",   market: "US",  name: "메타",               folderId: -2, price: 636.20, change_rate:  1.38 },
-  { id: -10, symbol: "TSLA",  market: "US",  name: "테슬라",             folderId: -2, price: 247.15, change_rate: -0.94 },
-  { id: -11, symbol: "SPY",   market: "ETF", name: "SPDR S&P 500 ETF",  folderId: -3, price: 534.21, change_rate:  0.41 },
-  { id: -12, symbol: "QQQ",   market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
-];
-
-const PreviewItemRow = memo(function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {
-  const isKR = item.market === "KR";
-  const hasPrice = item.hasPrice !== false;
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
-      onClick={onNavigate}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
-    >
-      {/* 마켓 배지 */}
-      <MarketBadge market={item.market} />
-      {/* 종목 정보 */}
-      <div className="flex-1 min-w-0">
-        <div className="font-mono font-bold text-sm text-text-primary">
-          {normalizeSymbol(item.symbol)}
-        </div>
-        <div className="text-[11px] text-text-muted truncate">{item.name}</div>
-      </div>
-      {/* 가격 */}
-      <div className="text-right flex-shrink-0 min-w-[80px]">
-        <div className="text-sm font-mono font-semibold text-text-primary">
-          {hasPrice
-            ? (isKR ? fmtKRWFull(item.price) : fmtUSDFull(item.price))
-            : <span className="text-text-muted text-xs">조회 중</span>}
-        </div>
-        {hasPrice && <ChangeBadge value={item.change_rate} className="text-xs" />}
-      </div>
-    </div>
-  );
-});
-
-/* ── 검색 기반 종목 추가 모달 ─────────────────────────────── */
-
-function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
-  folders: any[];
-  defaultFolderId: number;
-  onClose: () => void;
-  onAdd: (req: any) => void;
-}) {
-  const { query, setQuery, results, searching: loading } = useStockSearch();
-  const [folderId, setFolderId] = useState<number>(defaultFolderId);
-  const [memo, setMemo]         = useState("");
-  const inputRef  = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 50);
-    return () => clearTimeout(t);
-  }, []);
-
-  const handleSelect = (item: SearchResult) => {
-    onAdd({ symbol: item.symbol, market: item.market, name: item.name, folder_id: folderId, memo });
-    onClose();
-  };
-
-  return (
-    <Modal align="start" padTop="pt-20" maxWidth="max-w-md">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
-        <h3 className="text-sm font-bold text-text-primary">관심종목 추가</h3>
-        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
-      </div>
-
-      {/* 검색 입력 */}
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
-        <Search size={14} className="text-text-muted flex-shrink-0" />
-        <input
-          ref={inputRef}
-          className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
-          placeholder="종목명 또는 코드 검색 (예: AAPL, 005930, 삼성)"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          autoComplete="off"
-        />
-        {loading && <InlineSpinner />}
-      </div>
-
-      {/* 검색 결과 */}
-      <div className="max-h-64 overflow-y-auto">
-        {!query && (
-          <div className="px-4 py-6 text-center text-text-muted text-xs">
-            종목명·코드·한글로 검색하세요
-          </div>
-        )}
-        {query && !loading && results.length === 0 && (
-          <div className="px-4 py-6 text-center text-text-muted text-sm">검색 결과 없음</div>
-        )}
-        {results.map((item) => (
-          <button
-            key={item.symbol}
-            className="w-full flex items-center gap-3 px-4 py-3 border-b border-border/30 hover:bg-bg-hover text-left transition-colors"
-            onClick={() => handleSelect(item)}
-          >
-            <MarketBadge market={item.market} />
-            <div className="flex-1 min-w-0">
-              <div className="font-mono font-bold text-sm text-text-primary">{item.symbol}</div>
-              <div className="text-xs text-text-muted truncate">{item.name}</div>
-            </div>
-            <div className="text-xs text-text-muted flex-shrink-0">{item.exchange}</div>
-            <Plus size={13} className="text-accent-blue flex-shrink-0" />
-          </button>
-        ))}
-      </div>
-
-      {/* 옵션 */}
-      <div className="px-4 py-3 border-t border-border flex flex-col gap-2">
-        <select
-          className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none"
-          value={folderId}
-          onChange={(e) => setFolderId(Number(e.target.value))}
-        >
-          {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
-        <input
-          className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none placeholder:text-text-muted"
-          placeholder="메모 (선택)"
-          value={memo}
-          onChange={(e) => setMemo(e.target.value)}
-        />
-      </div>
-    </Modal>
-  );
-}
-
-/* ── 종목 편집 모달 ──────────────────────────────────────── */
-function EditItemModal({ item, folders, onClose, onSave }: {
-  item: any;
-  folders: any[];
-  onClose: () => void;
-  onSave: (patch: { name?: string; memo?: string; folder_id?: number }) => void;
-}) {
-  const [name, setName]     = useState(item.name || "");
-  const [memo, setMemo]     = useState(item.memo || "");
-  const [folderId, setFolderId] = useState<number>(item.folder_id ?? folders[0]?.id);
-
-  return (
-    <Modal maxWidth="max-w-sm">
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
-        <div>
-          <h3 className="text-sm font-bold text-text-primary">종목 편집</h3>
-          <p className="text-2xs text-text-muted mt-0.5">{item.symbol}</p>
-        </div>
-        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
-      </div>
-      <div className="p-4 flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-2xs font-semibold text-text-muted">표시 이름</label>
-          <input
-            className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
-            placeholder={item.symbol}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-2xs font-semibold text-text-muted">메모</label>
-          <textarea
-            rows={3}
-            className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue resize-none"
-            placeholder="메모 입력..."
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-          />
-        </div>
-        {folders.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <label className="text-2xs font-semibold text-text-muted">폴더</label>
-            <select
-              className="bg-bg-primary border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none"
-              value={folderId}
-              onChange={(e) => setFolderId(Number(e.target.value))}
-            >
-              {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
-          </div>
-        )}
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all"
-          >취소</button>
-          <button
-            onClick={() => { onSave({ name, memo, folder_id: folderId }); onClose(); }}
-            className="flex-1 py-2 rounded-xl bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
-          >저장</button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-/* ── 폴더 이름 편집 ──────────────────────────────────────── */
-function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSave: (n: string) => void; onCancel: () => void }) {
-  const [val, setVal] = useState(folder.name);
-  return (
-    <div className="flex items-center gap-1 flex-1">
-      <input
-        className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-2 py-0.5 text-xs text-text-primary focus:outline-none"
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") onSave(val); if (e.key === "Escape") onCancel(); }}
-        autoFocus
-      />
-      <button onClick={() => onSave(val)} className="text-accent-green p-1"><Check size={13} /></button>
-      <button onClick={onCancel} className="text-text-muted p-1"><X size={13} /></button>
-    </div>
-  );
-}
-
-/* ── 폴더 삭제 확인 모달 ──────────────────────────────────── */
-function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
-  folder: any; itemCount: number; onClose: () => void; onConfirm: () => void;
-}) {
-  return (
-    <Modal maxWidth="max-w-sm">
-      <div className="p-5 flex flex-col gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
-            <AlertTriangle size={18} className="text-accent-red" />
-          </div>
-          <h3 className="text-sm font-bold text-text-primary">폴더를 삭제할까요?</h3>
-        </div>
-        <p className="text-xs text-text-muted leading-relaxed">
-          <span className="font-semibold text-text-primary">"{folder.name}"</span> 폴더를 삭제합니다.
-          {itemCount > 0 && (
-            <> 폴더에 담긴 종목 <span className="font-semibold text-text-primary">{itemCount}개</span>는 관심종목에서 제거되지 않고 "기본 관심목록" 폴더로 이동합니다.</>
-          )}
-        </p>
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 rounded-xl border border-border text-text-muted text-sm hover:border-accent-blue hover:text-text-primary transition-all"
-          >취소</button>
-          <button
-            onClick={() => { onConfirm(); onClose(); }}
-            className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors"
-          >삭제</button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-/* ── 종목 행 (클릭 → 상세) ──────────────────────────────── */
-const SWIPE_REVEAL = 210; // 수정(70) + 보유종목추가(70) + 삭제(70)
-const SWIPE_THRESHOLD = 50;
-
-/* ── 종목 행: 드래그 재정렬 + 왼쪽으로 스와이프 → 수정/삭제 ─── */
-const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, onAddToPortfolio,
-  isDragging, isDragOver, onDragStart, onDragOver, onDrop,
-  onTouchDragStart, onTouchDragMove, onTouchDragEnd }: {
-  item: any; livePrice: any;
-  onRemove: () => void; onNavigate: () => void; onEdit: () => void;
-  onPrefetch?: () => void;
-  onAddToPortfolio?: () => void;
-  isDragging?: boolean; isDragOver?: boolean;
-  onDragStart?: React.DragEventHandler;
-  onDragOver?: React.DragEventHandler;
-  onDrop?: React.DragEventHandler;
-  onTouchDragStart?: () => void;
-  onTouchDragMove?: (clientX: number, clientY: number) => void;
-  onTouchDragEnd?: () => void;
-}) {
-  const p        = livePrice ?? item;
-  const isKR     = item.market === "KR";
-  const hasPrice = p.price != null && p.price > 0;
-
-  const [swipeX, setSwipeX] = useState(0); // 음수 = 왼쪽으로 밀림
-  const [isOpen, setIsOpen] = useState(false);
-  const touchStartX = useRef(0);
-  const touchStartY = useRef(0);
-  const isScrolling = useRef<boolean | null>(null);
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
-    isScrolling.current = null;
-  };
-  const onTouchMove = (e: React.TouchEvent) => {
-    const dx = e.touches[0].clientX - touchStartX.current;
-    const dy = e.touches[0].clientY - touchStartY.current;
-    if (isScrolling.current === null) isScrolling.current = Math.abs(dy) > Math.abs(dx);
-    if (isScrolling.current) return;
-    const base = isOpen ? -SWIPE_REVEAL : 0;
-    // 왼쪽(음수)으로만 허용
-    setSwipeX(Math.min(0, Math.max(-SWIPE_REVEAL - 16, base + dx)));
-  };
-  const onTouchEnd = () => {
-    if (isScrolling.current) return;
-    if (swipeX < -SWIPE_THRESHOLD) { setSwipeX(-SWIPE_REVEAL); setIsOpen(true); }
-    else { setSwipeX(0); setIsOpen(false); }
-  };
-  const closeSwipe = () => { setSwipeX(0); setIsOpen(false); };
-
-  return (
-    <div
-      className={`relative overflow-hidden border-b border-border/30 group ${isDragOver ? "bg-accent-blue/5" : ""} ${isDragging ? "opacity-40" : ""}`}
-      onDragOver={onDragOver} onDrop={onDrop}
-      onMouseEnter={onPrefetch}
-    >
-      {/* 스와이프 액션 버튼 (오른쪽 고정, 왼쪽으로 밀면 등장) */}
-      <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL }}>
-        <button onClick={() => { closeSwipe(); onEdit(); }} aria-label="종목 수정"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-blue text-white text-[10px] font-semibold">
-          <Settings2 size={14}/><span>수정</span>
-        </button>
-        {onAddToPortfolio && (
-          <button onClick={() => { closeSwipe(); onAddToPortfolio(); }} aria-label="보유종목 추가"
-            className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-green text-white text-[10px] font-semibold">
-            <Wallet size={14}/><span>보유추가</span>
-          </button>
-        )}
-        <button onClick={() => { closeSwipe(); onRemove(); }} aria-label="종목 삭제"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-red text-white text-[10px] font-semibold">
-          <Trash2 size={14}/><span>삭제</span>
-        </button>
-      </div>
-
-      {/* 슬라이드 콘텐츠 */}
-      <div
-        className="flex items-center gap-2 px-3 py-3 bg-bg-card hover:bg-bg-hover transition-colors"
-        style={{ transform: `translateX(${swipeX}px)`, transition: swipeX === 0 || swipeX === -SWIPE_REVEAL ? "transform 0.2s ease" : "none" }}
-        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-        onClick={swipeX !== 0 ? closeSwipe : undefined}
-      >
-        {/* 드래그 핸들 */}
-        <div
-          draggable
-          onDragStart={onDragStart}
-          onTouchStart={onTouchDragStart}
-          onTouchMove={(e) => onTouchDragMove?.(e.touches[0].clientX, e.touches[0].clientY)}
-          onTouchEnd={onTouchDragEnd}
-          className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1"
-          title="드래그하여 순서 변경"
-        >
-          <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-            <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>
-            <circle cx="3" cy="7"   r="1.3"/><circle cx="7" cy="7"   r="1.3"/>
-            <circle cx="3" cy="11.5" r="1.3"/><circle cx="7" cy="11.5" r="1.3"/>
-          </svg>
-        </div>
-
-        {/* 종목 정보 */}
-        <div
-          role="button"
-          tabIndex={0}
-          className="flex-1 min-w-0 cursor-pointer"
-          onClick={onNavigate}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
-        >
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono font-bold text-sm text-text-primary">
-              {normalizeSymbol(item.symbol ?? "")}
-            </span>
-            {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
-            <MarketBadge market={item.market} />
-          </div>
-          <div className="text-[11px] text-text-muted truncate">{item.name || p.name}</div>
-          {item.memo && <div className="text-[10px] text-text-muted/60 italic mt-0.5">{item.memo}</div>}
-        </div>
-
-        {/* 가격 */}
-        <div
-          role="button"
-          tabIndex={0}
-          className="text-right flex-shrink-0 cursor-pointer min-w-[80px]"
-          onClick={onNavigate}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
-        >
-          <div className="text-sm font-mono font-semibold text-text-primary">
-            {hasPrice
-              ? isKR ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))
-              : <span className="text-text-muted text-xs">—</span>}
-          </div>
-          {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs"/>}
-        </div>
-
-        {/* 포트폴리오 추가 버튼 */}
-        {onAddToPortfolio && (
-          <button onClick={(e) => { e.stopPropagation(); onAddToPortfolio(); }} className="text-text-muted hover:text-accent-green p-1.5 rounded-lg hover:bg-accent-green/10 transition-colors flex-shrink-0" title="포트폴리오에 추가"><Wallet size={14}/></button>
-        )}
-        {/* 편집/삭제 버튼 (데스크탑 hover) */}
-        <div className="hidden md:flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1.5 rounded-lg hover:bg-accent-blue/10 transition-colors"><Settings2 size={13}/></button>
-          <button onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1.5 rounded-lg hover:bg-accent-red/10  transition-colors"><Trash2 size={13}/></button>
-        </div>
-      </div>
-    </div>
-  );
-}, (prev, next) => {
-  // 핸들러들이 매 렌더마다 새 함수로 만들어지므로 기본 얕은 비교로는 메모이제이션이
-  // 전혀 동작하지 않는다. 실제로 화면에 영향을 주는 값만 비교한다.
-  //
-  // 드래그 중에도 메모이제이션을 유지한다. 드래그 로직이 state가 아닌 ref를 기준으로
-  // 동작하도록 바뀌어서, 리렌더를 건너뛴 행이 낡은 핸들러를 들고 있어도 항상 최신
-  // 순서를 읽는다. 예전에는 여기서 메모이제이션을 꺼버려 dragover가 발생할 때마다
-  // 목록 전체가 다시 그려졌고, 종목이 많으면 드래그가 눈에 띄게 버벅였다.
-  return (
-    prev.item === next.item &&
-    prev.livePrice === next.livePrice &&
-    prev.isDragging === next.isDragging &&
-    prev.isDragOver === next.isDragOver &&
-    !!prev.onAddToPortfolio === !!next.onAddToPortfolio
-  );
-});
-
-/* ── 관심종목 → 포트폴리오 추가 미니 모달 ─────────────────── */
-
-function AddToPortfolioModal({
-  item,
-  currentPrice,
-  onClose,
-}: {
-  item: any;
-  currentPrice?: number | null;
-  onClose: () => void;
-}) {
-  const qc = useQueryClient();
-  const isKR    = item.market === "KR";
-  const isForex = item.market === "US" || item.market === "ETF";
-
-  const [portfolioId,  setPortfolioId]  = useState<number | null>(null);
-  const [form, setForm] = useState<BuyInfoValue>({
-    currency:     isKR ? "KRW" : "USD",
-    shares:       "",
-    avgPrice:     currentPrice != null && currentPrice > 0 ? String(currentPrice) : "",
-    inputFx:      "",
-    purchaseDate: "",
-    note:         "",
-    assetClass:   "",
-  });
-  const patchForm = (p: Partial<BuyInfoValue>) => setForm((prev) => ({ ...prev, ...p }));
-  const { currency, shares, avgPrice, note, inputFx, purchaseDate, assetClass } = form;
-  const [priceLoading, setPriceLoading] = useState(currentPrice == null || currentPrice <= 0);
-  const [saving,       setSaving]       = useState(false);
-  const [saveError,    setSaveError]    = useState("");
-
-  const { data: portfolios = [] } = useQuery<any[]>({
-    queryKey: ["portfolios"],
-    queryFn:  portfolioApi.getPortfolios,
-    staleTime: 300_000,
-  });
-
-  const defaultFx = useExchangeRate();
-
-  useEffect(() => {
-    if ((portfolios as any[]).length > 0 && portfolioId === null) {
-      setPortfolioId((portfolios as any[])[0].id);
-    }
-  }, [portfolios, portfolioId]);
-
-  useEffect(() => {
-    if (currentPrice != null && currentPrice > 0) return;
-    setPriceLoading(true);
-    stocksApi.getPrice(item.market, item.symbol)
-      .then((data) => {
-        if (data?.price != null) setForm((prev) => (prev.avgPrice === "" ? { ...prev, avgPrice: String(data.price) } : prev));
-      })
-      .catch(() => {})
-      .finally(() => setPriceLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const canSave = Number(shares) > 0 && Number(avgPrice) >= 0;
-
-  const handleSave = async () => {
-    if (!canSave) return;
-    setSaving(true);
-    setSaveError("");
-    try {
-      await portfolioApi.addItem({
-        portfolio_id:       portfolioId,
-        symbol:             item.symbol,
-        market:             item.market,
-        name:               item.name,
-        shares:             Number(shares),
-        avg_price:          Number(avgPrice),
-        currency,
-        input_exchange_rate: currency === "USD" && inputFx ? Number(inputFx) : null,
-        purchase_date:      purchaseDate || null,
-        note:               note || null,
-        asset_class:        assetClass || null,
-      });
-      qc.invalidateQueries({ queryKey: ["portfolio-items-all"] });
-      qc.invalidateQueries({ queryKey: ["portfolios"] });
-      onClose();
-    } catch (err) {
-      setSaveError(extractErrorMessage(err, "추가에 실패했습니다"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-
-  return (
-    <Modal align="start" padTop="pt-16" backdropOpacity={70} maxWidth="max-w-md" onClose={onClose}>
-      {/* 헤더 */}
-      <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
-        <Wallet size={14} className="text-accent-blue" />
-        <h3 className="flex-1 text-sm font-bold text-text-primary">매수 정보 입력</h3>
-        <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-          <X size={15} />
-        </button>
-      </div>
-
-      {/* 종목 정보 */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-bg-elevated/50">
-        <MarketBadge market={item.market} />
-        <div className="flex-1 min-w-0">
-          <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(item.symbol ?? "")}</div>
-          <div className="text-xs text-text-muted truncate">{item.name}</div>
-        </div>
-      </div>
-
-      <div className="px-5 py-4 flex flex-col gap-3.5">
-        {/* 포트폴리오 선택 */}
-        {(portfolios as any[]).length > 1 && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">포트폴리오</label>
-            <select className={INPUT_CLASS} value={portfolioId ?? ""} onChange={(e) => setPortfolioId(Number(e.target.value))}>
-              {(portfolios as any[]).map((pf: any) => (
-                <option key={pf.id} value={pf.id}>{pf.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <BuyInfoFields
-          value={form}
-          onChange={patchForm}
-          isForex={isForex}
-          priceLoading={priceLoading}
-          defaultFx={defaultFx}
-          autoFocusShares
-        />
-      </div>
-
-      {saveError && (
-        <p className="mx-5 mb-2 text-xs text-red-400 bg-red-900/20 rounded-lg px-3 py-2">
-          오류: {saveError}
-        </p>
-      )}
-
-      <div className="flex gap-2 px-5 py-4 border-t border-border">
-        <button onClick={onClose} disabled={saving}
-          className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-          취소
-        </button>
-        <button onClick={handleSave} disabled={!canSave || saving}
-          className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-          {saving ? "추가 중..." : "추가"}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-/* ── 폴더 관리 팝업 ────────────────────────────────────────── */
-function FolderManagerModal({
-  folders, onClose, onCreate, onRename, onDelete, onReorder,
-}: {
-  folders: any[];
-  onClose: () => void;
-  onCreate: () => void;
-  onRename: (id: number, name: string) => void;
-  onDelete: (folder: any) => void;
-  onReorder: (order: number[]) => void;
-}) {
-  const [local, setLocal] = useState<any[]>(folders);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editName, setEditName] = useState("");
-  const [dragOver, setDragOver] = useState<number | null>(null);
-  const dragIdx = useRef(-1);
-
-  // 터치 드래그 상태
-  const touchDragIdxRef = useRef(-1);
-  const touchOverIdxRef = useRef(-1);
-  const [touchOver, setTouchOver] = useState<number | null>(null);
-  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
-  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearLPTimer = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
-
-  const handleRowTouchStart = (i: number, e: React.TouchEvent) => {
-    const t = e.touches[0];
-    touchStartPos.current = { x: t.clientX, y: t.clientY };
-    clearLPTimer();
-    lpTimer.current = setTimeout(() => { touchDragIdxRef.current = i; }, 350);
-  };
-
-  const handleRowTouchMove = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    if (touchDragIdxRef.current < 0) {
-      const s = touchStartPos.current;
-      if (s && (Math.abs(t.clientX - s.x) > 8 || Math.abs(t.clientY - s.y) > 8)) clearLPTimer();
-      return;
-    }
-    const el = (document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null)?.closest('[data-drag-idx]') as HTMLElement | null;
-    if (el) {
-      const toIdx = parseInt(el.dataset.dragIdx ?? '-1', 10);
-      if (toIdx >= 0) { touchOverIdxRef.current = toIdx; setTouchOver(toIdx); }
-    }
-  };
-
-  const handleRowTouchEnd = () => {
-    clearLPTimer();
-    if (touchDragIdxRef.current >= 0 && touchOverIdxRef.current >= 0 && touchOverIdxRef.current !== touchDragIdxRef.current) {
-      handleDrop(touchOverIdxRef.current);
-    }
-    touchDragIdxRef.current = -1;
-    touchOverIdxRef.current = -1;
-    setTouchOver(null);
-  };
-
-  useEffect(() => { setLocal(folders); }, [folders]);
-
-  const commitRename = (id: number) => {
-    const trimmed = editName.trim();
-    if (trimmed) onRename(id, trimmed);
-    setEditingId(null);
-  };
-
-  const handleDrop = (toIdx: number) => {
-    const from = dragIdx.current >= 0 ? dragIdx.current : touchDragIdxRef.current;
-    if (from < 0 || from === toIdx) return;
-    const next = [...local];
-    const [moved] = next.splice(from, 1);
-    next.splice(toIdx, 0, moved);
-    setLocal(next);
-    onReorder(next.map((f: any) => f.id));
-  };
-
-  return (
-    <Modal maxWidth="max-w-sm" onClose={onClose}>
-      <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
-        <h3 className="text-sm font-bold text-text-primary">폴더 관리</h3>
-        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
-      </div>
-      <div className="flex flex-col max-h-96 overflow-y-auto">
-        {local.map((f: any, i: number) => (
-          <div
-            key={f.id}
-            data-drag-idx={i}
-            draggable
-            onDragStart={() => { dragIdx.current = i; }}
-            onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
-            onDrop={() => { handleDrop(i); setDragOver(null); }}
-            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null); }}
-            onTouchStart={(e) => handleRowTouchStart(i, e)}
-            onTouchMove={handleRowTouchMove}
-            onTouchEnd={handleRowTouchEnd}
-            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors cursor-grab active:cursor-grabbing select-none ${dragOver === i || touchOver === i ? "bg-accent-blue/10 ring-2 ring-accent-blue/30 ring-inset" : ""}`}
-          >
-            {/* 드래그 핸들 */}
-            <div className="text-text-muted flex-shrink-0 px-2 pointer-events-none">
-              <svg width="18" height="28" viewBox="0 0 10 16" fill="currentColor">
-                <circle cx="3" cy="2" r="1.8"/><circle cx="7" cy="2" r="1.8"/>
-                <circle cx="3" cy="8" r="1.8"/><circle cx="7" cy="8" r="1.8"/>
-                <circle cx="3" cy="14" r="1.8"/><circle cx="7" cy="14" r="1.8"/>
-              </svg>
-            </div>
-            {editingId === f.id ? (
-              <input
-                draggable={false}
-                className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none cursor-text select-text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") commitRename(f.id); if (e.key === "Escape") setEditingId(null); }}
-                autoFocus
-              />
-            ) : (
-              <span className="flex-1 text-sm font-medium text-text-primary truncate">{f.name}</span>
-            )}
-            {editingId === f.id ? (
-              <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(f.id); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={15} /></button>
-            ) : (
-              <button draggable={false} onClick={(e) => { e.stopPropagation(); setEditingId(f.id); setEditName(f.name); }}
-                className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={15} /></button>
-            )}
-            <button draggable={false} onClick={(e) => { e.stopPropagation(); onDelete(f); }}
-              className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={15} /></button>
-          </div>
-        ))}
-      </div>
-      <div className="p-4 border-t border-border">
-        <button onClick={onCreate}
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue transition-colors text-sm">
-          <Plus size={14} />새 폴더 만들기
-        </button>
-      </div>
-    </Modal>
-  );
-}
 
 /* ── 메인 ────────────────────────────────────────────────── */
 export default function Watchlist() {
@@ -938,10 +216,28 @@ export default function Watchlist() {
   });
 
 
+  /* 순서 저장 — 서버 응답을 기다리지 않고 캐시를 먼저 갱신한다.
+     예전에는 드롭하는 순간 낙관적 순서를 버려 항목이 원래 자리로 튀었다가,
+     저장 후 목록 전체를 다시 받아 60개를 통째로 다시 그렸다. 그 재조회가
+     드롭 직후 100ms짜리 멈춤을 만들었고 순서도 두 번 움직여 보였다. */
   const reorderMutation = useMutation({
     mutationFn: (order: number[]) => watchlistApi.reorderItems(order),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
-    onError: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
+    onMutate: async (order: number[]) => {
+      await qc.cancelQueries({ queryKey: ["watchlist-items"] });
+      const prev = qc.getQueryData(["watchlist-items"]);
+      qc.setQueryData(["watchlist-items"], (old: any) => {
+        if (!Array.isArray(old)) return old;
+        const byId = new Map(old.map((i: any) => [i.id, i]));
+        const moved = order.map((id) => byId.get(id)).filter(Boolean);
+        const movedIds = new Set(order);
+        return [...moved, ...old.filter((i: any) => !movedIds.has(i.id))];
+      });
+      return { prev };
+    },
+    // 실패하면 되돌린다. 성공 시에는 캐시가 이미 최신이라 재조회하지 않는다
+    onError: (_err, _order, ctx: any) => {
+      if (ctx?.prev) qc.setQueryData(["watchlist-items"], ctx.prev);
+    },
   });
 
 
@@ -1223,12 +519,7 @@ export default function Watchlist() {
   return (
     <div className="flex flex-col gap-5 pb-20">
       {/* 추가 오류 토스트 */}
-      {addError && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 px-4 py-2.5 bg-accent-red text-white text-xs font-semibold rounded-xl shadow-lg animate-fade-in">
-          <span>{addError}</span>
-          <button onClick={() => setAddError("")} className="ml-1 opacity-70 hover:opacity-100">✕</button>
-        </div>
-      )}
+      <ErrorToast message={addError} onClose={() => setAddError("")} />
 
       {/* 페이지 탭 */}
       <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-hidden">
@@ -1257,7 +548,7 @@ export default function Watchlist() {
             <p className="text-xs font-semibold text-text-primary">미리보기 모드</p>
             <p className="text-xs text-text-muted mt-0.5">아래는 예시 데이터입니다. 로그인하면 내 관심종목을 추가·관리할 수 있어요.</p>
           </div>
-          <Link to="/login" className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors">
+          <Link to="/login" className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors">
             <LogIn size={12} /> 로그인
           </Link>
         </div>
@@ -1276,7 +567,7 @@ export default function Watchlist() {
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
           <button
             onClick={() => { qc.invalidateQueries({ queryKey: ["watchlist-items"] }); qc.invalidateQueries({ queryKey: ["watchlist-prices"] }); qc.invalidateQueries({ queryKey: ["watchlist-folders"] }); }}
-            className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+            className="p-2.5 sm:p-2 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
             title="관심종목 업데이트"
           >
             <RefreshCw size={13} />
@@ -1285,14 +576,14 @@ export default function Watchlist() {
             <>
               <button
                 onClick={() => setShowFolderManager(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+                className="flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
                 title="폴더 추가/편집"
               >
                 <Settings2 size={13} />폴더 관리
               </button>
               <button
                 onClick={() => openAddModal(typeof folderTab === "number" ? folderTab : null)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all"
+                className="flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all"
               >
                 <Plus size={13} />종목 추가
               </button>
@@ -1305,7 +596,7 @@ export default function Watchlist() {
       <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
         {MARKET_TABS.map((t) => (
           <button key={t.id} onClick={() => { setMarketTab(t.id); setFolderTab("all"); }}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+            className={`px-4 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 text-xs font-semibold rounded-lg transition-all ${
               marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
             }`}
           >{t.label}</button>
@@ -1577,7 +868,7 @@ export default function Watchlist() {
                         <p className="text-text-muted text-xs">이 폴더에 종목이 없습니다</p>
                         <button
                           onClick={() => openAddModal(folder.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
+                          className="flex items-center gap-1 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
                         >
                           <Plus size={12} /> 종목 추가
                         </button>
