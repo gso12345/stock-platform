@@ -308,16 +308,21 @@ async def _news_tab(market: str, sort: str, images_only: bool) -> list:
     if images_only:
         articles = [a for a in articles if a.get("image")]
 
-    if sort == "popular":
-        articles.sort(key=lambda a: a.get("_trend_score", 0), reverse=True)
-    else:
-        articles.sort(key=lambda a: a.get("_ts") or a.get("published_ts") or 0, reverse=True)
+    def _key(a):
+        if sort == "popular":
+            return a.get("_trend_score", 0)
+        return a.get("_ts") or a.get("published_ts") or 0
 
     if images_only:
-        articles = articles[:NEWS_TAB_LIMIT]
+        chosen = sorted(articles, key=_key, reverse=True)[:NEWS_TAB_LIMIT]
     else:
-        articles = pick_top_image_first(articles, NEWS_TAB_LIMIT)
-    return strip_internal_fields(articles)
+        # 어떤 기사를 보여줄지 고를 때는 이미지 있는 쪽을 우선하되(글만 있는 목록은
+        # 보기 나빠서), 고른 뒤에는 사용자가 선택한 정렬을 그대로 따른다.
+        # 예전에는 이미지 우선 배치가 정렬을 덮어써서, "최신순"을 눌러도 오래된
+        # 이미지 기사가 최신 텍스트 기사보다 위에 오는 일이 있었다.
+        chosen = pick_top_image_first(sorted(articles, key=_key, reverse=True), NEWS_TAB_LIMIT)
+        chosen = sorted(chosen, key=_key, reverse=True)
+    return strip_internal_fields(chosen)
 
 
 @router.get("/news/kr")
