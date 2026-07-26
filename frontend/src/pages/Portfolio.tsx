@@ -768,12 +768,16 @@ export default function Portfolio() {
                   <Settings2 size={13} />포트폴리오 관리
                 </button>
               )}
-              <button
-                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all whitespace-nowrap"
-              >
-                <Plus size={13} />종목 추가
-              </button>
+              {/* "전체"는 여러 포트폴리오를 모아 보는 화면이라 어디에 담을지가 모호하다.
+                  종목 추가는 특정 포트폴리오를 고른 상태에서만 노출한다 */}
+              {!isAllView && (
+                <button
+                  onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all whitespace-nowrap"
+                >
+                  <Plus size={13} />종목 추가
+                </button>
+              )}
             </>
           )}
         </div>
@@ -1006,26 +1010,30 @@ export default function Portfolio() {
             </div>
             <div className="text-center">
               <p className="text-text-primary font-semibold text-sm">보유 종목 없음</p>
-              <p className="text-text-muted text-xs mt-1">+ 추가 버튼으로 종목을 등록하세요</p>
+              <p className="text-text-muted text-xs mt-1">
+                {isAllView
+                  ? "위에서 포트폴리오를 선택하면 종목을 추가할 수 있어요"
+                  : "+ 추가 버튼으로 종목을 등록하세요"}
+              </p>
             </div>
-            {/* "전체" 탭에서도 추가 버튼을 보여준다 —
-               새로 가입하면 이 탭이 기본으로 열리는데 예전에는 버튼이 숨겨져 있어
-               첫 종목을 넣을 방법이 화면에 아예 없었다.
-               포트폴리오를 지정하지 않고 저장하면 서버가 기본 포트폴리오로 자동 편입한다 */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => { setCashEditItem(undefined); setCashModalOpen(true); }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-text-secondary text-sm font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors"
-              >
-                <DollarSign size={14} /> 현금 추가
-              </button>
-              <button
-                onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
-              >
-                <Plus size={14} /> 첫 종목 추가
-              </button>
-            </div>
+            {/* "전체"는 담을 포트폴리오가 정해지지 않아 추가 버튼을 두지 않는다.
+               대신 위 안내로 어디로 가야 하는지 알려준다 */}
+            {!isAllView && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setCashEditItem(undefined); setCashModalOpen(true); }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-text-secondary text-sm font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors"
+                >
+                  <DollarSign size={14} /> 현금 추가
+                </button>
+                <button
+                  onClick={() => { setEditItem(undefined); setModalOpen(true); }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+                >
+                  <Plus size={14} /> 첫 종목 추가
+                </button>
+              </div>
+            )}
           </div>
         ) : viewMode === "card" ? (
           <>
