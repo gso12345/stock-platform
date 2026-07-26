@@ -320,6 +320,9 @@ export const portfolioApi = {
     api.get(`/portfolio/public/${userId}`).then((r) => r.data),
 };
 
+/** 서버 /watchlist/prices 가 한 요청에 허용하는 최대 심볼 수 (backend watchlist.py) */
+const PRICE_CHUNK_SIZE = 50;
+
 export const watchlistApi = {
   getAll: () =>
     api.get("/watchlist/").then((r) => r.data),
@@ -327,11 +330,35 @@ export const watchlistApi = {
   getItems: (market?: string, folderId?: number) =>
     api.get("/watchlist/items", { params: { market, folder_id: folderId } }).then((r) => r.data),
 
-  getPrices: (symbols: string[], markets: string[], signal?: AbortSignal) =>
-    api.get<any[]>("/watchlist/prices", {
-      params: { symbols: symbols.join(","), markets: markets.join(",") },
-      signal,
-    }).then((r) => r.data),
+  /**
+   * 여러 종목의 현재가를 한 번에 조회한다.
+   *
+   * 서버는 한 요청당 최대 50종목만 받는다(초과하면 400). 예전에는 보유·관심종목을
+   * 통째로 보내서, 51개만 넘어도 일부가 아니라 **전부** 실패해 가격이 하나도
+   * 표시되지 않았다. 그래서 50개씩 나눠 보내고 결과를 이어 붙인다.
+   * (순서는 요청 순서 그대로 유지되므로 인덱스로 읽는 쪽도 그대로 동작한다)
+   */
+  getPrices: async (symbols: string[], markets: string[], signal?: AbortSignal): Promise<any[]> => {
+    if (symbols.length === 0) return [];
+
+    const fetchChunk = (syms: string[], mkts: string[]) =>
+      api.get<any[]>("/watchlist/prices", {
+        params: { symbols: syms.join(","), markets: mkts.join(",") },
+        signal,
+      }).then((r) => r.data);
+
+    if (symbols.length <= PRICE_CHUNK_SIZE) return fetchChunk(symbols, markets);
+
+    const requests: Promise<any[]>[] = [];
+    for (let i = 0; i < symbols.length; i += PRICE_CHUNK_SIZE) {
+      // 서버가 symbols[i]와 markets[i]를 짝지으므로 같은 구간으로 잘라야 한다
+      requests.push(fetchChunk(
+        symbols.slice(i, i + PRICE_CHUNK_SIZE),
+        markets.slice(i, i + PRICE_CHUNK_SIZE),
+      ));
+    }
+    return (await Promise.all(requests)).flat();
+  },
 
   getItemsWithPrices: (market?: string) =>
     api.get("/watchlist/items/prices", { params: { market } }).then((r) => r.data),
