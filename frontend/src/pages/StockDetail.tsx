@@ -17,7 +17,8 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
-import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, newsTimestampMs, fmtVolume } from "@/utils/formatters";
+import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, fmtVolume } from "@/utils/formatters";
+import { safeExternalUrl } from "@/utils/url";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 import CommunityTab from "@/components/community/CommunityTab";
@@ -374,8 +375,8 @@ export default function StockDetail() {
   }, [quantScore]);
 
   const { data: stockNews, isLoading: loadingNews } = useQuery({
-    queryKey: ["stock-news", m, sym],
-    queryFn: () => stocksApi.getNews(m, sym),
+    queryKey: ["stock-news", m, sym, newsSort],
+    queryFn: () => stocksApi.getNews(m, sym, newsSort),
     enabled: !!sym && mainTab === "news" && newsSubTab === "news",
     staleTime: 300_000,
   });
@@ -2242,23 +2243,24 @@ export default function StockDetail() {
             {loadingNews ? (
               <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/></div>
             ) : (stockNews?.length ?? 0) > 0 ? (() => {
-              const sorted = [...(stockNews ?? [])].sort((a,b)=>
-                newsSort==="popular"
-                  ? (b._trend_score ?? 0) - (a._trend_score ?? 0)
-                  : newsTimestampMs(b.published) - newsTimestampMs(a.published)
-              );
+              // 정렬은 서버가 처리한다 (인기도 산식을 노출하지 않기 위해)
+              const sorted = stockNews ?? [];
               return (
                 <>
                   <ul>
                     {sorted.map((item: any, i: number) => (
                       <li key={i} className="border-b border-border/30 last:border-0">
-                        <a href={item.link} target="_blank" rel="noopener noreferrer"
+                        <a href={safeExternalUrl(item.link)} target="_blank" rel="noopener noreferrer nofollow"
                           className="flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
-                          {item.image ? (
+                          {safeExternalUrl(item.image) ? (
                             <img
-                              src={item.image}
+                              src={safeExternalUrl(item.image)}
                               alt=""
                               loading="lazy"
+                              decoding="async"
+                              width={80}
+                              height={80}
+                              referrerPolicy="no-referrer"
                               className="w-20 h-20 rounded-lg object-cover flex-shrink-0 bg-bg-elevated"
                               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                             />

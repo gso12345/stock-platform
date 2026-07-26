@@ -1359,16 +1359,37 @@ def _merge_news(primary: list, secondary: list, limit: int = 120) -> list:
     return result
 
 
+def _sort_and_clean_news(items: list, sort: str) -> list:
+    """정렬한 뒤 내부 계산 필드를 뺀 응답을 만든다"""
+    from app.services.news_service import strip_internal_fields
+    ordered = sorted(
+        items or [],
+        key=(lambda a: a.get("_trend_score", 0)) if sort == "popular"
+            else (lambda a: a.get("published_ts") or ""),
+        reverse=True,
+    )
+    return strip_internal_fields(ordered)
+
+
 @router.get("/{market}/{symbol}/news")
 @limiter.limit("10/minute")
-async def get_stock_news(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
-    """종목 관련 뉴스 — 종합 RSS 피드(다양한 언론사 + 이미지 보장) + 종목별 검색(KR: 구글뉴스, US: yfinance) 병합"""
+async def get_stock_news(
+    request: Request,
+    market: Literal["KR","US","ETF"],
+    symbol: str = Path(..., pattern=_SYMBOL_PATTERN),
+    sort: str = Query(default="latest", pattern="^(latest|popular)$"),
+):
+    """종목 관련 뉴스 — 종합 RSS 피드(다양한 언론사 + 이미지 보장) + 종목별 검색(KR: 구글뉴스, US: yfinance) 병합
+
+    정렬은 서버가 한다 — 인기도 점수는 내부 계산값이라 응답에 싣지 않는다
+    (뉴스 탭·대시보드와 동일한 방식)
+    """
     from app.core.cache import cache
     ck = f"stock_news:{market}:{symbol}"
     if c := cache.get(ck):
-        return c
+        return _sort_and_clean_news(c, sort)
 
-    from app.services.news_service import _extract_thumbnail, _add_trending_score, get_kr_news, get_us_news
+    from app.services.news_service import _extract_thumbnail, _add_trending_score, get_kr_news, get_us_news, _safe_url
     code6 = symbol.replace(".KS","").replace(".KQ","")
 
     if market == "KR":
@@ -1408,11 +1429,17 @@ async def get_stock_news(request: Request, market: Literal["KR","US","ETF"], sym
                 title = entry.get("title", "").strip()
                 if not title:
                     continue
-                image = _extract_thumbnail(entry)
+                # 외부 RSS가 주는 주소는 그대로 쓰지 않는다 — javascript: 같은
+                # 실행 가능한 스킴이 섞이면 기사를 누르는 순간 우리 사이트 권한으로
+                # 실행된다 (뉴스 탭과 동일한 검증)
+                link = _safe_url(entry.get("link"))
+                if not link:
+                    continue
+                image = _safe_url(_extract_thumbnail(entry))
                 source = (entry.get("source") or {}).get("title", "")
                 items.append({
                     "title": title,
-                    "link": entry.get("link", ""),
+                    "link": link,
                     "source": source,
                     "published": pub,
                     "published_ts": pub_ts,
@@ -1501,12 +1528,12 @@ async def get_stock_news(request: Request, market: Literal["KR","US","ETF"], sym
             feed_items = []
         result = _merge_news(feed_items, yf_items)
 
-    # 인기순 정렬에 필요한 trend_score 계산
+    # 인기순 정렬에 쓰는 점수 — 캐시에는 남기고 응답에서만 제거한다
     if result:
         result = _add_trending_score(result)
 
     cache.set(ck, result, 300)
-    return result
+    return _sort_and_clean_news(result, sort)
 
 
 @router.get("/{market}/{symbol}/earnings")

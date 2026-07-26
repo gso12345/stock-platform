@@ -6,8 +6,9 @@ import { Card, ChangeBadge } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { isUsdKrwRow } from "@/hooks/useExchangeRate";
+import { safeExternalUrl } from "@/utils/url";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
-import { fmtNewsDateTime, newsTimestampMs } from "@/utils/formatters";
+import { fmtNewsDateTime } from "@/utils/formatters";
 
 /* ── 지수 카드 ───────────────────────────────────────────── */
 const IndexCard = memo(function IndexCard({ name, value, change_rate, onClick, colorScheme }: any) {
@@ -96,16 +97,16 @@ const ExtraCardSkeleton = memo(function ExtraCardSkeleton() {
 /* ── 뉴스 패널 ───────────────────────────────────────────── */
 const NEWS_INITIAL = 10;
 
-const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
+const NewsPanel = memo(function NewsPanel({
+  news, sort, onSortChange,
+}: {
+  news: any[];
+  sort: "latest" | "popular";
+  onSortChange: (s: "latest" | "popular") => void;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const [sort, setSort]         = useState<"latest" | "popular">("latest");
-
-  const sorted = useMemo(() =>
-    sort === "popular"
-      ? [...news].sort((a, b) => (b._trend_score ?? 0) - (a._trend_score ?? 0))
-      : [...news].sort((a, b) => newsTimestampMs(b.published) - newsTimestampMs(a.published)),
-    [news, sort]
-  );
+  // 정렬은 서버가 처리한다 — 인기도 점수는 내부 계산값이라 응답에 실리지 않는다
+  const sorted = news;
 
   const shown = expanded ? sorted : sorted.slice(0, NEWS_INITIAL);
   const remaining = sorted.length - NEWS_INITIAL;
@@ -116,20 +117,24 @@ const NewsPanel = memo(function NewsPanel({ news }: { news: any[] }) {
       {/* 정렬 토글 */}
       <div className="flex gap-1 p-0.5 mb-1">
         {(["latest","popular"] as const).map(s=>(
-          <button key={s} onClick={()=>setSort(s)}
+          <button key={s} onClick={()=>onSortChange(s)}
             className={`px-2.5 py-1 text-2xs rounded-md font-semibold transition-all ${sort===s?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
             {s==="latest"?"최신순":"인기순"}
           </button>
         ))}
       </div>
       {shown.map((item: any, i: number) => (
-        <a key={item.link || i} href={item.link} target="_blank" rel="noopener noreferrer"
+        <a key={item.link || i} href={safeExternalUrl(item.link)} target="_blank" rel="noopener noreferrer nofollow"
           className="flex items-start gap-2.5 py-2.5 px-1 border-b border-border/40 hover:bg-bg-hover transition-colors group">
-          {item.image ? (
+          {safeExternalUrl(item.image) ? (
             <img
-              src={item.image}
+              src={safeExternalUrl(item.image)}
               alt=""
               loading="lazy"
+              decoding="async"
+              width={56}
+              height={56}
+              referrerPolicy="no-referrer"
               className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-bg-elevated"
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
             />
@@ -196,9 +201,10 @@ const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { live
     // OHLCV는 실제 지수 상세 페이지 진입 시 로드 (대시보드 호버 프리페치 제거)
   }, [qc]);
 
+  const [newsSort, setNewsSort] = useState<"latest" | "popular">("latest");
   const { data: newsData } = useQuery({
-    queryKey: ["news", "kr"],
-    queryFn: () => dashboardApi.getNews("kr"),
+    queryKey: ["news", "kr", newsSort],
+    queryFn: () => dashboardApi.getNews("kr", newsSort),
     staleTime: 300_000,
     refetchInterval: 300_000,
     refetchIntervalInBackground: false,
@@ -274,7 +280,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { live
           {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
         </div>
         <div className="px-3 py-1">
-          <NewsPanel news={newsData ?? []} />
+          <NewsPanel news={newsData ?? []} sort={newsSort} onSortChange={setNewsSort} />
         </div>
       </Card>
     </div>
@@ -300,9 +306,10 @@ const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { live
     refetchInterval: 300_000,
   });
 
+  const [newsSort, setNewsSort] = useState<"latest" | "popular">("latest");
   const { data: newsData } = useQuery({
-    queryKey: ["news", "us"],
-    queryFn: () => dashboardApi.getNews("us"),
+    queryKey: ["news", "us", newsSort],
+    queryFn: () => dashboardApi.getNews("us", newsSort),
     staleTime: 300_000,
     refetchInterval: 300_000,
     refetchIntervalInBackground: false,
@@ -381,7 +388,7 @@ const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { live
           {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
         </div>
         <div className="px-3 py-1">
-          <NewsPanel news={newsData ?? []} />
+          <NewsPanel news={newsData ?? []} sort={newsSort} onSortChange={setNewsSort} />
         </div>
       </Card>
     </div>

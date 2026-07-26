@@ -17,8 +17,9 @@ export const stocksApi = {
   getNXT: (market: Market, symbol: string) =>
     api.get<any>(`/stocks/${market}/${symbol}/nxt`).then((r) => r.data),
 
-  getNews: (market: string, symbol: string) =>
-    api.get<any[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/news`).then((r) => r.data),
+  /** 정렬은 서버가 처리한다 — 인기도 점수는 내부 계산값이라 응답에 싣지 않는다 */
+  getNews: (market: string, symbol: string, sort: "latest" | "popular" = "latest") =>
+    api.get<any[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/news`, { params: { sort } }).then((r) => r.data),
 
   getMetricsHistory: (market: string, symbol: string) =>
     api.get<{annual: any[], quarterly: any[]}>(`/stocks/${market}/${encodeURIComponent(symbol)}/metrics-history`).then((r) => r.data),
