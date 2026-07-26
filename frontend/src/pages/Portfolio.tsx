@@ -922,7 +922,7 @@ export default function Portfolio() {
           <div className="flex items-center gap-2 flex-wrap">
             {/* 원화/외화 표시 모드 토글 (해외 보유종목이 있을 때만) — 둘 중 하나만 표시 */}
             {hasForexHoldings && (
-              <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary flex-shrink-0" title="해외 보유종목의 가격 표시 기준 통화">
+              <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary flex-shrink-0" title="해외 보유종목의 가격 표시 기준 통화" aria-label="해외 보유종목의 가격 표시 기준 통화">
                 <button
                   onClick={() => setCurrencyMode("krw")}
                   className={`flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-semibold transition-all whitespace-nowrap ${
@@ -1177,7 +1177,7 @@ export default function Portfolio() {
       {/* ── 종목 삭제 확인 모달 ── */}
       {deleteTarget && (
         <ConfirmDeleteModal
-          title="종목을 삭제할까요?"
+          title="종목을 삭제할까요?" aria-label="종목을 삭제할까요?"
           description={
             <>
               <span className="font-semibold text-text-primary">{deleteTarget.name || deleteTarget.symbol}</span>
@@ -1193,7 +1193,7 @@ export default function Portfolio() {
       {/* ── 포트폴리오 삭제 확인 모달 ── */}
       {deletePortfolioTarget && (
         <ConfirmDeleteModal
-          title="포트폴리오를 삭제할까요?"
+          title="포트폴리오를 삭제할까요?" aria-label="포트폴리오를 삭제할까요?"
           description={
             <>
               <span className="font-semibold text-text-primary">{deletePortfolioTarget.name}</span>

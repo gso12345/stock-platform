@@ -143,8 +143,8 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
         )}
         {/* 편집/삭제 버튼 (데스크탑 hover) */}
         <div className="hidden md:flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1.5 rounded-lg hover:bg-accent-blue/10 transition-colors"><Settings2 size={13}/></button>
-          <button onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1.5 rounded-lg hover:bg-accent-red/10  transition-colors"><Trash2 size={13}/></button>
+          <button aria-label="종목 수정" onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1.5 rounded-lg hover:bg-accent-blue/10 transition-colors"><Settings2 size={13}/></button>
+          <button aria-label="종목 삭제" onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1.5 rounded-lg hover:bg-accent-red/10  transition-colors"><Trash2 size={13}/></button>
         </div>
       </div>
     </div>

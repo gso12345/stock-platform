@@ -4,7 +4,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
 import { Card, ChangeBadge, RowSkeleton, InlineSpinner, MarketBadge, ErrorToast } from "@/components/ui";
 import { usePricesStream } from "@/hooks/useWebSocket";
-import { normalizeSymbol, lookupPrice } from "@/utils/prices";
+import { normalizeSymbol, lookupPrice, indexPricesBySymbol } from "@/utils/prices";
 import { PREVIEW_FOLDERS, PREVIEW_WATCHLIST, PreviewItemRow, type PreviewItem } from "@/components/watchlist/Preview";
 import { ItemRow } from "@/components/watchlist/ItemRow";
 import {
@@ -46,11 +46,13 @@ export default function Watchlist() {
     enabled: folderTab === "recent" && recentSymbols.length > 0,
     staleTime: 30_000,
   });
-  const recentPriceMap = useMemo(() => {
-    const map: Record<string, any> = {};
-    (recentPrices as any[] ?? []).forEach((p: any, i: number) => { map[recentSymbols[i]] = p; });
-    return map;
-  }, [recentPrices, recentSymbols]);
+  /* 응답 배열의 순서에 의존하지 않도록 종목코드로 색인한다.
+     예전에는 "i번째 종목 = i번째 가격"으로 짝지었는데, 서버가 순서를 바꿔 주면
+     가격이 통째로 다른 종목에 붙는다 (다른 화면들은 이미 이 방식으로 바꿨다) */
+  const recentPriceMap = useMemo(
+    () => indexPricesBySymbol(recentPrices as any[] | undefined),
+    [recentPrices],
+  );
 
   // 포트폴리오 목록 (탭 표시용)
   const { data: pfList = [] } = useQuery<any[]>({
@@ -76,11 +78,10 @@ export default function Watchlist() {
     enabled: portfolioTab !== null && portfolioTab > 0 && pfTabSymbols.length > 0,
     staleTime: 60_000,
   });
-  const pfTabPriceMap = useMemo(() => {
-    const map: Record<string, any> = {};
-    (pfTabPrices as any[] ?? []).forEach((p: any, i: number) => { if (pfTabSymbols[i]) map[pfTabSymbols[i]] = p; });
-    return map;
-  }, [pfTabPrices, pfTabSymbols]);
+  const pfTabPriceMap = useMemo(
+    () => indexPricesBySymbol(pfTabPrices as any[] | undefined),
+    [pfTabPrices],
+  );
   // 중복 종목도 각각 표시하므로 symbol 기준 가격 공유는 그대로 사용
 
   const [showAdd, setShowAdd]           = useState(false);
@@ -695,7 +696,7 @@ export default function Watchlist() {
             </div>
           ) : (
             recentStocks.map((r) => {
-              const p = recentPriceMap[r.symbol];
+              const p = lookupPrice(recentPriceMap, r.symbol);
               const isKRItem = r.market === "KR";
               const hasPrice = p?.price != null;
               return (
@@ -747,7 +748,7 @@ export default function Watchlist() {
             pfTabDeduped
               .filter((i: any) => marketTab === "전체" || i.market === marketTab)
               .map((item: any) => {
-                const p = pfTabPriceMap[item.symbol];
+                const p = lookupPrice(pfTabPriceMap, item.symbol);
                 const isKRItem = item.market === "KR";
                 const hasPrice = p?.price != null;
                 return (
@@ -829,7 +830,7 @@ export default function Watchlist() {
                       onTouchMove={(e) => handleFolderTouchMove(e.touches[0].clientX, e.touches[0].clientY)}
                       onTouchEnd={handleFolderDrop}
                       className="cursor-grab active:cursor-grabbing text-text-dim hover:text-text-muted touch-none flex-shrink-0 px-1 py-1"
-                      title="드래그하여 폴더 순서 변경"
+                      title="드래그하여 폴더 순서 변경" aria-label="드래그하여 폴더 순서 변경"
                     >
                       <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
                         <circle cx="3" cy="2.5" r="1.3"/><circle cx="7" cy="2.5" r="1.3"/>

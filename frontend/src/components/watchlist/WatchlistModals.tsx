@@ -36,7 +36,7 @@ export function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
       {/* 헤더 */}
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
         <h3 className="text-sm font-bold text-text-primary">관심종목 추가</h3>
-        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+        <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
       </div>
 
       {/* 검색 입력 */}
@@ -118,7 +118,7 @@ export function EditItemModal({ item, folders, onClose, onSave }: {
           <h3 className="text-sm font-bold text-text-primary">종목 편집</h3>
           <p className="text-2xs text-text-muted mt-0.5">{item.symbol}</p>
         </div>
-        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+        <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
       </div>
       <div className="p-4 flex flex-col gap-3">
         <div className="flex flex-col gap-1">
@@ -181,7 +181,7 @@ export function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSa
         autoFocus
       />
       <button onClick={() => onSave(val)} className="text-accent-green p-1"><Check size={13} /></button>
-      <button onClick={onCancel} className="text-text-muted p-1"><X size={13} /></button>
+      <button aria-label="닫기" onClick={onCancel} className="text-text-muted p-1"><X size={13} /></button>
     </div>
   );
 }
@@ -315,7 +315,7 @@ export function AddToPortfolioModal({
       <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
         <Wallet size={14} className="text-accent-blue" />
         <h3 className="flex-1 text-sm font-bold text-text-primary">매수 정보 입력</h3>
-        <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+        <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
           <X size={15} />
         </button>
       </div>
@@ -451,7 +451,7 @@ export function FolderManagerModal({
     <Modal maxWidth="max-w-sm" onClose={onClose}>
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
         <h3 className="text-sm font-bold text-text-primary">폴더 관리</h3>
-        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+        <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
       </div>
       <div className="flex flex-col max-h-96 overflow-y-auto">
         {local.map((f: any, i: number) => (

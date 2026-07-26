@@ -117,7 +117,7 @@ export function PortfolioModal({
         <h3 className="flex-1 text-sm font-bold text-text-primary">
           {item ? "포지션 수정" : step === 1 ? "종목 검색" : "매수 정보 입력"}
         </h3>
-        <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+        <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
           <X size={15} />
         </button>
       </div>
@@ -255,7 +255,7 @@ export function CashModal({
     <Modal align="start" padTop="pt-16" backdropOpacity={70} maxWidth="max-w-md" onClose={onClose}>
         <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
           <h3 className="flex-1 text-sm font-bold text-text-primary">{item ? "현금 수정" : "현금 추가"}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+          <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
             <X size={15} />
           </button>
         </div>
@@ -484,7 +484,7 @@ export function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void })
             if (e.key === "Escape") { setName(""); setAdding(false); }
           }}
         />
-        <button onClick={commit} className="p-0.5 text-accent-blue hover:text-blue-400"><Check size={12} /></button>
+        <button aria-label="확인" onClick={commit} className="p-0.5 text-accent-blue hover:text-blue-400"><Check size={12} /></button>
       </div>
     );
   }
@@ -585,7 +585,7 @@ export function PortfolioManagerModal({
     <Modal maxWidth="max-w-sm" onClose={onClose}>
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
         <h3 className="text-sm font-bold text-text-primary">포트폴리오 관리</h3>
-        <button onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+        <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
       </div>
       <div className="flex flex-col max-h-96 overflow-y-auto">
         {local.map((pf, i) => (
@@ -646,7 +646,7 @@ export function PortfolioManagerModal({
               onKeyDown={(e) => { if (e.key === "Enter") commitAdd(); if (e.key === "Escape") { setAddingNew(false); setNewName(""); } }}
               autoFocus
             />
-            <button onClick={commitAdd} className="p-1.5 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
+            <button aria-label="확인" onClick={commitAdd} className="p-1.5 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
             <button onClick={() => { setAddingNew(false); setNewName(""); }} className="p-1.5 text-text-muted hover:text-text-primary rounded-lg"><X size={14} /></button>
           </div>
         ) : (

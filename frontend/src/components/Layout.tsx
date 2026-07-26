@@ -51,7 +51,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
       <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h3 className="text-sm font-bold text-text-primary">설정</h3>
-          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
+          <button onClick={onClose} aria-label="닫기" className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
             <X size={15} />
           </button>
         </div>
