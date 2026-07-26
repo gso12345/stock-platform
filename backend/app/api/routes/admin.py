@@ -1,5 +1,6 @@
 """관리자 전용 API"""
 import json
+import re
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -592,6 +593,28 @@ def list_popups(db: Session = Depends(get_db), _: User = Depends(require_admin))
     return [_popup_dict(p) for p in popups]
 
 
+def _safe_link_url(raw):
+    """팝업 배너의 이동 주소 — http/https만 허용한다.
+
+    관리자만 입력하지만 모든 사용자에게 노출되는 링크다. 계정이 탈취되면
+    javascript: 같은 실행 가능한 스킴이 들어갈 수 있고, 배너를 누른 사용자의
+    브라우저에서 우리 사이트 권한으로 코드가 돈다.
+    """
+    if raw is None or raw == "":
+        return None
+    if not isinstance(raw, str):
+        raise HTTPException(422, "링크 형식이 올바르지 않습니다")
+    cleaned = re.sub(r"[\s\x00-\x1f]+", "", raw)
+    if not cleaned:
+        return None
+    if cleaned.startswith("//"):
+        return "https:" + raw.strip()
+    scheme = cleaned.split(":", 1)[0].lower() if ":" in cleaned else ""
+    if scheme in ("http", "https"):
+        return raw.strip()
+    raise HTTPException(422, "링크는 http:// 또는 https:// 로 시작해야 합니다")
+
+
 @router.post("/popups", status_code=201)
 def create_popup(body: dict, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     from app.models.community import SitePopup
@@ -599,7 +622,7 @@ def create_popup(body: dict, db: Session = Depends(get_db), _: User = Depends(re
         popup_type=body.get("popup_type", "info")[:20],
         title=(body.get("title") or "")[:200],
         content=body.get("content"),
-        link_url=body.get("link_url"),
+        link_url=_safe_link_url(body.get("link_url")),
         link_text=body.get("link_text"),
         bg_color=(body.get("bg_color") or "blue")[:20],
         is_active=bool(body.get("is_active", True)),
@@ -626,9 +649,11 @@ def update_popup(
     for field, max_len in [("popup_type", 20), ("title", 200), ("bg_color", 20)]:
         if field in body:
             setattr(popup, field, str(body[field])[:max_len])
-    for field in ("content", "link_url", "link_text", "starts_at", "ends_at"):
+    for field in ("content", "link_text", "starts_at", "ends_at"):
         if field in body:
             setattr(popup, field, body[field])
+    if "link_url" in body:
+        popup.link_url = _safe_link_url(body["link_url"])
     if "is_active" in body:
         popup.is_active = bool(body["is_active"])
     db.commit()

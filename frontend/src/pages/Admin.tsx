@@ -10,6 +10,7 @@ import {
   MessageSquare, Heart, Flag, Plus, Pencil, AlertCircle,
   ExternalLink, Calendar,
 } from "lucide-react";
+import { safeExternalUrl } from "@/utils/url";
 
 const adminApi = {
   getStats:        () => api.get("/admin/stats").then(r => r.data),
@@ -1466,7 +1467,7 @@ function PopupTab({ qc }: { qc: any }) {
                 </div>
               )}
               {p.link_url && (
-                <a href={p.link_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-accent-blue hover:underline">
+                <a href={safeExternalUrl(p.link_url)} target="_blank" rel="noopener noreferrer nofollow" className="flex items-center gap-1 text-[11px] text-accent-blue hover:underline">
                   <ExternalLink size={10} />{p.link_text || p.link_url}
                 </a>
               )}

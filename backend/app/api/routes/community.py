@@ -17,6 +17,25 @@ _SYMBOL_RE = r"^[A-Za-z0-9.\-]{1,20}$"
 
 _SAFE_AVATAR_TYPES = frozenset({"image/jpeg", "image/png", "image/gif", "image/webp"})
 
+
+def _validate_uploaded_image(value: str, field: str = "이미지") -> str:
+    """게시글·프로필에 첨부되는 이미지를 검증한다.
+
+    화면에서는 캔버스로 압축한 data:image/jpeg 만 보내지만, API는 누구나 직접
+    호출할 수 있다. 외부 주소(https://…)를 넣으면 그 글을 보는 모든 사용자의
+    접속 정보가 작성자가 지정한 서버로 전달돼 추적에 쓰일 수 있고,
+    data:text/html 같은 형식은 브라우저·환경에 따라 다르게 해석될 수 있다.
+    그래서 프로필 사진과 동일하게 허용된 이미지 형식만 받는다.
+    """
+    if not value:
+        return ""
+    if not value.startswith("data:"):
+        raise HTTPException(422, f"{field}는 파일 첨부만 가능합니다")
+    mime = value[5:].split(";")[0]
+    if mime not in _SAFE_AVATAR_TYPES:
+        raise HTTPException(422, "지원하지 않는 이미지 형식입니다 (JPEG, PNG, GIF, WebP만 허용)")
+    return value
+
 _kr_name_cache: dict[str, str] = {}
 
 def _kr_name(symbol: str) -> str | None:
@@ -321,7 +340,8 @@ def create_post(
     uid_val   = current_user.id
     uname_val = current_user.username
     sym_upper = symbol.upper()
-    content_val = encode_content(body.title, body.body, body.image, body.poll, body.tags, body.portfolio)
+    image_val = _validate_uploaded_image(body.image, "첨부 이미지")
+    content_val = encode_content(body.title, body.body, image_val, body.poll, body.tags, body.portfolio)
 
     try:
         with engine.connect() as conn:
@@ -348,7 +368,7 @@ def create_post(
         "avatar_color":  0,
         "title":         body.title.strip() if body.title else "",
         "body":          body.body,
-        "image":         body.image or "",
+        "image":         image_val,
         "poll":          None,
         "tags":          [t for t in (body.tags or []) if isinstance(t, dict) and "symbol" in t],
         "portfolio":     body.portfolio or None,
@@ -391,7 +411,8 @@ def update_post(
         new_tags  = payload.tags if payload.tags is not None else parsed.get("tags")
         existing_poll = parsed.get("poll")
         new_poll  = existing_poll if existing_poll else payload.poll
-        new_image = payload.image if payload.image is not None else parsed.get("image", "")
+        new_image = (_validate_uploaded_image(payload.image, "첨부 이미지")
+                     if payload.image is not None else parsed.get("image", ""))
         new_content = encode_content(
             new_title, new_body,
             new_image, new_poll,
@@ -771,12 +792,7 @@ def update_my_profile(
             raise HTTPException(422, "소개는 200자 이내로 입력해 주세요")
         p.bio = bio or None
     if body.avatar_url is not None:
-        if body.avatar_url:
-            if not body.avatar_url.startswith("data:"):
-                raise HTTPException(422, "유효하지 않은 이미지 형식입니다")
-            mime = body.avatar_url[5:].split(";")[0]
-            if mime not in _SAFE_AVATAR_TYPES:
-                raise HTTPException(422, "지원하지 않는 이미지 형식입니다 (JPEG, PNG, GIF, WebP만 허용)")
+        _validate_uploaded_image(body.avatar_url, "프로필 사진")
         p.avatar_url = body.avatar_url or None
     db.commit()
     return {

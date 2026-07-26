@@ -1,5 +1,6 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone, ShieldCheck, Megaphone, User, Rss } from "lucide-react";
+import { safeExternalUrl } from "@/utils/url";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
@@ -503,7 +504,7 @@ function PopupBanners() {
               <span className="font-semibold mr-1.5">{p.title}</span>
               {p.content && <span className="opacity-80">{p.content}</span>}
               {p.link_url && (
-                <a href={p.link_url} target="_blank" rel="noopener noreferrer"
+                <a href={safeExternalUrl(p.link_url)} target="_blank" rel="noopener noreferrer nofollow"
                   className="ml-2 underline underline-offset-2 text-[11px] font-semibold opacity-80 hover:opacity-100">
                   {p.link_text || "자세히 보기"}
                 </a>
