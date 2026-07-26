@@ -190,8 +190,9 @@ export const dashboardApi = {
   getRankings: (market: "kr" | "us", category = "시가총액") =>
     api.get(`/dashboard/rankings/${market}`, { params: { category } }).then((r) => r.data),
 
-  getNews: (market: "kr" | "us") =>
-    api.get(`/dashboard/news/${market}`).then((r) => r.data),
+  /** 정렬은 서버가 처리한다 — 인기도 점수는 내부 계산값이라 응답에 싣지 않는다 */
+  getNews: (market: "kr" | "us", sort: "latest" | "popular" = "latest") =>
+    api.get(`/dashboard/news/${market}`, { params: { sort } }).then((r) => r.data),
 
   getIndexDetail: (name: string) =>
     api.get(`/dashboard/index/${name}`).then((r) => r.data),

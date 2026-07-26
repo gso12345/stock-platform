@@ -8,7 +8,7 @@ import asyncio
 from app.services.kis_service import kis_service
 from app.services.finnhub_service import finnhub_service
 from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
-from app.services.news_service import get_kr_news, get_us_news, pick_top_image_first
+from app.services.news_service import get_kr_news, get_us_news, pick_top_image_first, strip_internal_fields
 from app.services.ranking_service import get_us_rankings
 from app.services.market_extras import get_kr_futures, get_kr_rates, get_us_rates
 from app.services.price_fetcher import get_usdkrw, get_eurkrw, fetch_pykrx_index_ohlcv
@@ -286,24 +286,54 @@ async def us_rankings(category: str = Query(default="시가총액")):
 NEWS_TAB_LIMIT = 100
 
 
+async def _news_tab(market: str, sort: str, images_only: bool) -> list:
+    """뉴스 탭 응답을 만든다.
+
+    정렬을 서버에서 처리하는 이유: 인기도 점수(_trend_score)는 내부 계산값이라
+    화면에 내보내지 않는다. 예전에는 이 값을 그대로 응답에 실어 보내 프론트가
+    정렬했는데, 산식이 노출될 뿐 아니라 쓰이지도 않는 필드가 매 응답에 붙었다.
+
+    이미지 필터도 서버에서 한다. 예전에는 100건을 보낸 뒤 프론트가 이미지 없는
+    기사를 걸러내서, 국내 탭은 실제로 40~60건만 보였다. 받아놓고 버린 셈이라
+    아예 조건에 맞는 기사로만 100건을 채워 보낸다.
+    """
+    ck = f"news:{market}"
+    cached = cache.get(ck) or cache.get_stale(ck)
+    if cached is None:
+        loop = asyncio.get_running_loop()
+        fetch = get_kr_news if market == "kr" else get_us_news
+        cached = await loop.run_in_executor(None, fetch)
+
+    articles = list(cached or [])
+    if images_only:
+        articles = [a for a in articles if a.get("image")]
+
+    if sort == "popular":
+        articles.sort(key=lambda a: a.get("_trend_score", 0), reverse=True)
+    else:
+        articles.sort(key=lambda a: a.get("_ts") or a.get("published_ts") or 0, reverse=True)
+
+    if images_only:
+        articles = articles[:NEWS_TAB_LIMIT]
+    else:
+        articles = pick_top_image_first(articles, NEWS_TAB_LIMIT)
+    return strip_internal_fields(articles)
+
+
 @router.get("/news/kr")
-async def kr_news():
-    cached = cache.get("news:kr") or cache.get_stale("news:kr")
-    if cached:
-        return pick_top_image_first(cached, NEWS_TAB_LIMIT)
-    loop = asyncio.get_running_loop()
-    news = await loop.run_in_executor(None, get_kr_news)
-    return pick_top_image_first(news, NEWS_TAB_LIMIT)
+async def kr_news(
+    sort: str = Query(default="latest", pattern="^(latest|popular)$"),
+    images_only: bool = Query(default=True),
+):
+    return await _news_tab("kr", sort, images_only)
 
 
 @router.get("/news/us")
-async def us_news():
-    cached = cache.get("news:us") or cache.get_stale("news:us")
-    if cached:
-        return pick_top_image_first(cached, NEWS_TAB_LIMIT)
-    loop = asyncio.get_running_loop()
-    news = await loop.run_in_executor(None, get_us_news)
-    return pick_top_image_first(news, NEWS_TAB_LIMIT)
+async def us_news(
+    sort: str = Query(default="latest", pattern="^(latest|popular)$"),
+    images_only: bool = Query(default=False),
+):
+    return await _news_tab("us", sort, images_only)
 
 
 @router.get("/news/summary")

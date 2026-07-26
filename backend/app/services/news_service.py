@@ -139,6 +139,30 @@ def _is_finance_news(title: str) -> bool:
     return any(kw in title for kw in _FINANCE_KW) or any(kw in lower for kw in _FINANCE_KW_EN)
 
 
+def _safe_url(raw: str | None) -> str | None:
+    """외부 RSS에서 온 URL을 http/https만 통과시킨다.
+
+    링크와 이미지 주소는 언론사 피드가 주는 값을 그대로 화면에 넣는다.
+    피드가 변조되거나 언론사 서버가 뚫리면 javascript:… 같은 주소가 섞여 들어올
+    수 있고, 그러면 사용자가 기사를 누르는 순간 우리 사이트 권한으로 실행된다.
+    (브라우저에 로그인 토큰이 있으므로 계정 탈취까지 이어질 수 있다)
+
+    공백·개행을 먼저 제거하는 이유: "java\\nscript:" 처럼 끼워 넣어 검사를
+    피하는 수법이 있어서, 스킴을 판정하기 전에 정규화해야 한다.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    url = re.sub(r"[\s\x00-\x1f]+", "", raw)           # 공백·제어문자 제거
+    if not url:
+        return None
+    scheme = url.split(":", 1)[0].lower() if ":" in url else ""
+    if scheme in ("http", "https"):
+        return raw.strip()
+    # 스킴이 없는 상대경로(//img.example.com/a.jpg 포함)는 우리 도메인 기준으로
+    # 해석돼 버리므로 받지 않는다
+    return None
+
+
 def _clean_text(raw: str) -> str:
     """HTML 태그 제거 + 엔티티 디코딩 + 공백 정리"""
     if not raw:
@@ -217,11 +241,15 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
             if dt < cutoff:
                 continue
 
-            image = _extract_thumbnail(entry)
+            # 링크가 http/https가 아니면 기사 자체를 버린다 (누를 수 없는 기사는 무의미)
+            link = _safe_url(entry.get("link"))
+            if not link:
+                continue
+            image = _safe_url(_extract_thumbnail(entry))
 
             items.append({
                 "title":     title,
-                "link":      entry.get("link", ""),
+                "link":      link,
                 "source":    source,
                 "published":    dt.astimezone(KST).strftime("%m/%d %H:%M"),
                 "published_ts": dt.timestamp(),
@@ -287,9 +315,18 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
     return all_news
 
 
-def _strip_ts(articles: list[dict]) -> list[dict]:
-    # _ts is internal; published_ts is kept for frontend sort
-    return [{k: v for k, v in a.items() if k != "_ts"} for a in articles]
+# 화면에 필요 없는 내부 계산 필드 — 응답에서 제외한다
+# (_ts: 정렬용 원본 타임스탬프, _trend_score: 인기순 산식)
+_INTERNAL_FIELDS = {"_ts", "_trend_score"}
+
+
+def strip_internal_fields(articles: list[dict]) -> list[dict]:
+    """내부 계산 필드를 제거한 뒤 응답에 싣는다"""
+    return [{k: v for k, v in a.items() if k not in _INTERNAL_FIELDS} for a in articles]
+
+
+# 기존 호출부 호환용 별칭
+_strip_ts = strip_internal_fields
 
 
 def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
