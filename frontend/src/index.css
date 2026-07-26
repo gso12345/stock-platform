@@ -135,6 +135,9 @@ html.light {
      contain-intrinsic-size로 자리 높이를 미리 알려줘야 스크롤바가 안 흔들린다.
      미지원 브라우저에서는 이 속성이 무시될 뿐 동작에는 영향이 없다. */
   .list-row-lite   { content-visibility: auto; contain-intrinsic-size: auto 68px; }
+  /* 드래그로 순서를 바꾸는 동안에는 화면 밖 건너뛰기를 끈다 —
+     매 이동마다 위치가 바뀌어 오히려 레이아웃 재계산 비용이 커진다 */
+  body.dragging-list .list-row-lite { content-visibility: visible; }
   .holding-card-lite { content-visibility: auto; contain-intrinsic-size: auto 176px; }
 
   /* ── 앱 실행 인트로(스플래시) ───────────────────────── */

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 /**
  * 목록 드래그 재정렬 — 종목·폴더·포트폴리오 탭이 각자 복사해 쓰던 로직을 하나로 모았다.
@@ -28,6 +28,9 @@ export function useDragReorder<T extends { id: number }>({
     dragIdRef.current = item.id;
     orderRef.current = items;
     lastTargetRef.current = null;
+    // 리렌더 없이 CSS만 바꿔, 드래그 중에는 화면 밖 항목 건너뛰기를 잠시 끈다
+    // (순서가 계속 바뀌는 동안에는 오히려 레이아웃 재계산을 유발한다)
+    document.body.classList.add("dragging-list");
     setDragId(item.id);
     setLocalOrder(items);
   }, [items]);
@@ -55,6 +58,7 @@ export function useDragReorder<T extends { id: number }>({
     dragIdRef.current = null;
     orderRef.current = null;
     lastTargetRef.current = null;
+    document.body.classList.remove("dragging-list");
     setDragId(null); setDropId(null); setLocalOrder(null);
   }, [onCommit]);
 
@@ -62,18 +66,38 @@ export function useDragReorder<T extends { id: number }>({
     dragIdRef.current = null;
     orderRef.current = null;
     lastTargetRef.current = null;
+    document.body.classList.remove("dragging-list");
     setDragId(null); setDropId(null); setLocalOrder(null);
   }, []);
 
-  /** 화면 좌표 아래에 있는 항목으로 이동 (모바일 터치 드래그용) */
+  /** 화면 좌표 아래에 있는 항목으로 이동 (모바일 터치 드래그용)
+   *
+   *  touchmove는 손가락을 움직이는 내내 초당 수십 번 발생하고, elementFromPoint는
+   *  호출할 때마다 브라우저에 레이아웃 재계산을 강제한다. 그래서 화면 갱신 주기에
+   *  맞춰 한 프레임당 한 번만 처리한다 (좌표는 항상 최신값을 쓴다). */
+  const rafRef    = useRef<number | null>(null);
+  const pointRef  = useRef<{ x: number; y: number; attr: string } | null>(null);
+
   const moveToPoint = useCallback((clientX: number, clientY: number, attr: string) => {
     if (dragIdRef.current === null) return;
-    const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)
-      ?.closest(`[${attr}]`) as HTMLElement | null;
-    if (!el) return;
-    const targetId = Number(el.getAttribute(attr));
-    if (targetId) moveTo(targetId);
+    pointRef.current = { x: clientX, y: clientY, attr };
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const p = pointRef.current;
+      if (!p || dragIdRef.current === null) return;
+      const el = (document.elementFromPoint(p.x, p.y) as HTMLElement | null)
+        ?.closest(`[${p.attr}]`) as HTMLElement | null;
+      if (!el) return;
+      const targetId = Number(el.getAttribute(p.attr));
+      if (targetId) moveTo(targetId);
+    });
   }, [moveTo]);
+
+  useEffect(() => () => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    document.body.classList.remove("dragging-list");
+  }, []);
 
   return {
     dragId, dropId, localOrder,

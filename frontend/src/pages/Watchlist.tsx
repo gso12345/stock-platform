@@ -1163,6 +1163,19 @@ export default function Watchlist() {
     qc.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 60_000 });
   }, [qc]);
 
+  /* 화면에 들어온 종목을 미리 불러오는 감지기.
+     관찰 대상은 "어떤 종목이 목록에 있는가"만 중요하고 순서는 상관없다.
+     displayList를 그대로 의존성에 두면 드래그로 순서가 바뀔 때마다 감지기를 통째로
+     다시 만들고 행 수만큼 다시 등록해서, 종목이 많을수록 드래그가 크게 느려졌다.
+     그래서 종목 구성이 실제로 바뀔 때만 다시 만들고, 최신 목록은 ref로 읽는다. */
+  const displayListRef = useRef(displayList);
+  displayListRef.current = displayList;
+
+  const observedSymbolsKey = useMemo(
+    () => displayList.map((i: any) => i.symbol).sort().join(","),
+    [displayList],
+  );
+
   useEffect(() => {
     let queue: any[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1174,7 +1187,7 @@ export default function Watchlist() {
       entries.forEach(e => {
         if (e.isIntersecting) {
           const sym = (e.target as HTMLElement).dataset.sym;
-          const item = displayList.find((i: any) => i.symbol === sym);
+          const item = displayListRef.current.find((i: any) => i.symbol === sym);
           if (item && !queue.find((q: any) => q.symbol === sym)) queue.push(item);
         }
       });
@@ -1182,7 +1195,7 @@ export default function Watchlist() {
     }, { threshold: 0.5 });
     rowRefs.current.forEach(row => observer.observe(row));
     return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
-  }, [displayList, prefetchStock]);
+  }, [observedSymbolsKey, prefetchStock]);
 
   const renderItems = (list: any[]) =>
     list.map((item: any) => (
@@ -1208,7 +1221,7 @@ export default function Watchlist() {
     ));
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5 pb-20">
       {/* 추가 오류 토스트 */}
       {addError && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 px-4 py-2.5 bg-accent-red text-white text-xs font-semibold rounded-xl shadow-lg animate-fade-in">
@@ -1255,10 +1268,12 @@ export default function Watchlist() {
         <div>
           <h1 className="text-xl font-bold text-text-primary">관심종목</h1>
           <p className="text-text-muted text-xs mt-0.5">
-            {isPreview ? `${PREVIEW_WATCHLIST.length}개 예시 종목 · 클릭하면 상세로 이동` : `${itemsList.length}개 종목 · 클릭하면 상세로 이동`}
+            {isPreview ? `${PREVIEW_WATCHLIST.length}개 예시 종목` : `${itemsList.length}개 종목`}
+            <span className="hidden sm:inline"> · 클릭하면 상세로 이동</span>
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* 모바일에서는 버튼들이 제목 아래 줄로 내려가 서로 눌리지 않게 한다 */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <button
             onClick={() => { qc.invalidateQueries({ queryKey: ["watchlist-items"] }); qc.invalidateQueries({ queryKey: ["watchlist-prices"] }); qc.invalidateQueries({ queryKey: ["watchlist-folders"] }); }}
             className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"

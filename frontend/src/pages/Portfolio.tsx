@@ -726,14 +726,20 @@ export default function Portfolio() {
       )}
 
       {/* ── 헤더 ── */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-text-primary">내 자산</h1>
           <p className="text-text-muted text-xs mt-0.5">
-            {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : `${displayEnriched.length}개 종목 · 클릭하면 상세로 이동`}
+            {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : (
+              <>
+                {displayEnriched.length}개 종목
+                <span className="hidden sm:inline"> · 클릭하면 상세로 이동</span>
+              </>
+            )}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        {/* 모바일에서는 버튼들이 제목 아래 줄로 내려가 서로 눌리지 않게 한다 */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <button
             onClick={() => { queryClient.invalidateQueries({ queryKey: ["portfolios"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-prices"] }); }}
             className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
