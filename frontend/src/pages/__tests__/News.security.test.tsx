@@ -19,7 +19,7 @@ const ARTICLES = [
     source: "언론사", published: "07/26 10:00" },
   { title: "위험한 이미지", link: "https://news.example.com/4", image: "javascript:alert(1)",
     source: "언론사", published: "07/26 09:00" },
-  { title: "프로토콜 생략", link: "//evil.example.com/x", image: null,
+  { title: "프로토콜 생략", link: "//news.example.com/x", image: null,
     source: "언론사", published: "07/26 08:00" },
 ];
 
@@ -57,10 +57,11 @@ describe("뉴스 — 외부 주소 처리", () => {
     expect(a).not.toHaveAttribute("href");
   });
 
-  it("프로토콜을 생략한 주소도 막는다", async () => {
+  it("스킴만 생략한 주소는 https로 살려 쓴다 (RSS에 흔한 형태)", async () => {
+    // 예전에 이걸 차단했더니 이미지가 있는 기사가 통째로 걸러져 목록이 줄었다
     renderPage();
     const a = (await screen.findByText("프로토콜 생략")).closest("a")!;
-    expect(a).not.toHaveAttribute("href");
+    expect(a).toHaveAttribute("href", "https://news.example.com/x");
   });
 
   it("위험한 이미지 주소는 렌더하지 않는다", async () => {

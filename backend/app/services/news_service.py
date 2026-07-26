@@ -155,11 +155,17 @@ def _safe_url(raw: str | None) -> str | None:
     url = re.sub(r"[\s\x00-\x1f]+", "", raw)           # 공백·제어문자 제거
     if not url:
         return None
+
+    # "//img.example.com/a.jpg" 처럼 스킴만 생략한 주소는 RSS에서 흔하고,
+    # 브라우저가 https://img.example.com/a.jpg 로 해석하는 정상 주소다.
+    # (우리 도메인이 아니라 // 뒤의 호스트로 간다) https를 붙여 살려 쓴다.
+    if url.startswith("//"):
+        return "https:" + raw.strip()
+
     scheme = url.split(":", 1)[0].lower() if ":" in url else ""
     if scheme in ("http", "https"):
         return raw.strip()
-    # 스킴이 없는 상대경로(//img.example.com/a.jpg 포함)는 우리 도메인 기준으로
-    # 해석돼 버리므로 받지 않는다
+    # javascript:, data: 등 실행 가능한 스킴과 단순 상대경로(/path)는 받지 않는다
     return None
 
 
