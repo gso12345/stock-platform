@@ -397,14 +397,14 @@ export default function Layout() {
                   {username}
                 </Link>
                 {isAdmin && (
-                  <Link to="/admin" className="flex items-center gap-1 px-2.5 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-accent-blue/40 hover:bg-accent-blue/10 text-accent-blue transition-all" title="관리자 페이지">
+                  <Link to="/admin" className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-accent-blue/40 hover:bg-accent-blue/10 text-accent-blue transition-all" title="관리자 페이지">
                     <ShieldCheck size={13} />
                     <span className="hidden sm:block text-xs">관리자</span>
                   </Link>
                 )}
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-1 px-2.5 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-red transition-all"
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-red transition-all"
                   title="로그아웃"
                 >
                   <LogOut size={13} />
@@ -414,7 +414,7 @@ export default function Layout() {
             ) : (
               <Link
                 to="/login"
-                className="flex items-center gap-1 px-2.5 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-all whitespace-nowrap"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-all whitespace-nowrap"
               >
                 <LogIn size={13} />
                 <span className="text-xs">로그인</span>
@@ -422,7 +422,7 @@ export default function Layout() {
             )}
             <button
               onClick={() => setTheme(isLight ? "dark" : "light")}
-              className="p-2.5 sm:p-1.5 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-all"
+              className="p-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-all"
               title={isLight ? "다크 모드" : "라이트 모드"}
             >
               {isLight ? <Moon size={14} /> : <Sun size={14} />}

@@ -63,7 +63,7 @@ export function InlineSpinner({ className }: { className?: string }) {
 /* ── 폼 입력창 공통 스타일 ──
    내 자산·관심종목의 각 모달이 동일한 문자열을 복사해 쓰던 것을 상수화 */
 export const INPUT_CLASS =
-  "w-full bg-bg-primary border border-border rounded-lg px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-base sm:text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
+  "w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue transition-colors";
 
 /* ── 행 스켈레톤 (목록/테이블 로딩 공통) ──────────────── */
 export function RowSkeleton({ rows = 4 }: { rows?: number }) {

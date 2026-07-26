@@ -548,7 +548,7 @@ export default function Watchlist() {
             <p className="text-xs font-semibold text-text-primary">미리보기 모드</p>
             <p className="text-xs text-text-muted mt-0.5">아래는 예시 데이터입니다. 로그인하면 내 관심종목을 추가·관리할 수 있어요.</p>
           </div>
-          <Link to="/login" className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors">
+          <Link to="/login" className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors">
             <LogIn size={12} /> 로그인
           </Link>
         </div>
@@ -567,7 +567,7 @@ export default function Watchlist() {
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
           <button
             onClick={() => { qc.invalidateQueries({ queryKey: ["watchlist-items"] }); qc.invalidateQueries({ queryKey: ["watchlist-prices"] }); qc.invalidateQueries({ queryKey: ["watchlist-folders"] }); }}
-            className="p-2.5 sm:p-2 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+            className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
             title="관심종목 업데이트"
           >
             <RefreshCw size={13} />
@@ -576,14 +576,14 @@ export default function Watchlist() {
             <>
               <button
                 onClick={() => setShowFolderManager(true)}
-                className="flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
                 title="폴더 추가/편집"
               >
                 <Settings2 size={13} />폴더 관리
               </button>
               <button
                 onClick={() => openAddModal(typeof folderTab === "number" ? folderTab : null)}
-                className="flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all"
               >
                 <Plus size={13} />종목 추가
               </button>
@@ -596,7 +596,7 @@ export default function Watchlist() {
       <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
         {MARKET_TABS.map((t) => (
           <button key={t.id} onClick={() => { setMarketTab(t.id); setFolderTab("all"); }}
-            className={`px-4 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 text-xs font-semibold rounded-lg transition-all ${
+            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
             }`}
           >{t.label}</button>
@@ -868,7 +868,7 @@ export default function Watchlist() {
                         <p className="text-text-muted text-xs">이 폴더에 종목이 없습니다</p>
                         <button
                           onClick={() => openAddModal(folder.id)}
-                          className="flex items-center gap-1 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
                         >
                           <Plus size={12} /> 종목 추가
                         </button>

@@ -196,11 +196,11 @@ export function PortfolioModal({
             )}
             <div className="flex gap-2 px-5 py-4 border-t border-border">
               <button onClick={onClose} disabled={isSaving}
-                className="flex-1 px-4 py-3 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 취소
               </button>
               <button onClick={handleSave} disabled={!canSave || isSaving}
-                className="flex-1 px-4 py-3 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 {isSaving ? "저장 중..." : "저장"}
               </button>
             </div>
@@ -319,11 +319,11 @@ export function CashModal({
         )}
         <div className="flex gap-2 px-5 py-4 border-t border-border">
           <button onClick={onClose} disabled={isSaving}
-            className="flex-1 px-4 py-3 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             취소
           </button>
           <button onClick={handleSave} disabled={!canSave || isSaving}
-            className="flex-1 px-4 py-3 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             {isSaving ? "저장 중..." : "저장"}
           </button>
         </div>
@@ -492,7 +492,7 @@ export function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void })
   return (
     <button
       onClick={() => setAdding(true)}
-      className="flex items-center gap-1 px-3 py-2.5 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 text-xs font-semibold transition-colors flex-shrink-0"
+      className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 text-xs font-semibold transition-colors flex-shrink-0"
     >
       <Plus size={12} /> 포트폴리오
     </button>
