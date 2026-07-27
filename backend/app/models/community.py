@@ -77,6 +77,11 @@ class UserProfile(Base):
     avatar_color = Column(Integer, default=0)   # 0~7 preset index
     bio          = Column(String(200), nullable=True)
     avatar_url   = Column(Text, nullable=True)  # base64 data URL 프로필 사진
+    # 받지 않기로 한 알림 종류를 쉼표로 이어 둔다 (예: "post_like,follow").
+    # '켠 것'이 아니라 '끈 것'을 저장하는 이유: 비어 있으면 전부 켜진 상태가 되어
+    # 기존 사용자에게 값을 채워 넣지 않아도 되고, 나중에 알림 종류가 늘어도
+    # 컬럼을 추가할 필요가 없다.
+    noti_disabled = Column(String(200), nullable=True)
     updated_at   = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User")

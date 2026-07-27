@@ -53,6 +53,23 @@ def test_투표_보기_개수가_서버와_같다(화면):
     assert 화면["POLL_OPTION_MAX_COUNT"] == 최대
 
 
+def test_알림_종류가_화면과_같다():
+    """서버에만 종류를 추가하면 설정에서 끌 수 없는 알림이 생기고,
+    화면에만 추가하면 켜도 오지 않는 스위치가 생긴다. 둘 다 오류가 나지 않는다."""
+    ts = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "constants" / "notifications.ts")
+    if not ts.exists():
+        pytest.skip("프런트엔드 notifications.ts가 없다")
+    src = ts.read_text(encoding="utf-8")
+    m = re.search(r"NOTIFICATION_KINDS:\s*NotificationKind\[\]\s*=\s*\[(.*?)\]", src, re.S)
+    assert m, "NOTIFICATION_KINDS를 찾지 못했다"
+    화면 = [x.strip().strip('"') for x in m.group(1).split(",") if x.strip()]
+    assert 화면 == list(C._NOTI_KINDS), f"화면 {화면} / 서버 {list(C._NOTI_KINDS)}"
+
+    # 각 종류의 문구도 빠짐없이 있어야 한다 — 없으면 알림이 엉뚱한 문구로 표시된다
+    for kind in C._NOTI_KINDS:
+        assert re.search(rf"\b{kind}:\s*\{{", src), f"{kind}의 문구가 화면에 없다"
+
+
 def test_첨부_이미지_상한이_화면과_같다():
     ts = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "utils" / "image.ts")
     if not ts.exists():

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone, ShieldCheck, Megaphone, User, Rss } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone, ShieldCheck, Megaphone, User, Rss, Bell } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
@@ -10,6 +10,8 @@ import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
 import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
 import NotificationBell from "@/components/community/NotificationBell";
+import { NotificationToggles } from "@/components/community/NotificationSettings";
+import { communityApi } from "@/api/stocks";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/api/client";
@@ -35,7 +37,7 @@ const BOTTOM_NAV = [
 ];
 
 /* ── "더보기" 시트에 들어가는 나머지 메뉴 ─────────────── */
-const MORE_NAV = [
+const MORE_NAV: { to: string; icon: typeof Star; label: string; badge?: string | null }[] = [
   { to: "/watchlist",  icon: Star,      label: "관심종목"   },
   { to: "/screening",  icon: Search,    label: "스크리닝"   },
   { to: "/backtest",   icon: LineChart, label: "백테스트"   },
@@ -44,20 +46,21 @@ const MORE_NAV = [
 ];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation } = useSettingsStore();
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+      <div className="w-full max-w-sm max-h-[85vh] flex flex-col bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <h3 className="text-sm font-bold text-text-primary">설정</h3>
           <button onClick={onClose} aria-label="닫기" className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
             <X size={15} />
           </button>
         </div>
-        <div className="px-5 py-5 flex flex-col gap-5">
+        <div className="px-5 py-5 flex flex-col gap-5 flex-1 overflow-y-auto">
 
           {/* 테마 */}
           <div>
@@ -177,8 +180,19 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
+          {/* 알림 — 로그인한 사람에게만 의미가 있다 */}
+          {isLoggedIn && (
+            <div>
+              <p className="text-xs font-semibold text-text-muted mb-2">알림</p>
+              <p className="text-2xs text-text-dim mb-2">끈 알림은 아예 쌓이지 않아요</p>
+              <div className="border border-border rounded-xl overflow-hidden">
+                <NotificationToggles />
+              </div>
+            </div>
+          )}
+
 </div>
-        <div className="px-5 pb-5">
+        <div className="px-5 pb-5 pt-4 border-t border-border shrink-0">
           <button
             onClick={onClose}
             className="w-full py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors"
@@ -207,6 +221,21 @@ export default function Layout() {
     () => window.matchMedia?.("(prefers-color-scheme: light)").matches ?? false
   );
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // 좁은 화면에서는 헤더의 종이 눈에 잘 안 들어와, 더보기에도 알림을 둔다.
+  // (NotificationBell과 같은 질의 키라 요청이 한 번만 나간다)
+  const { data: notiUnread } = useQuery({
+    queryKey: ["notiUnread"],
+    queryFn: communityApi.getUnreadNotificationCount,
+    enabled: isLoggedIn,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    staleTime: 30_000,
+  });
+  const notiBadge = !notiUnread?.count ? null : notiUnread.capped ? "99+" : String(notiUnread.count);
+  const moreNav = isLoggedIn
+    ? [{ to: "/notifications", icon: Bell, label: "알림", badge: notiBadge }, ...MORE_NAV]
+    : MORE_NAV;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isLight = theme === "system" ? systemPrefersLight : theme === "light";
@@ -346,13 +375,20 @@ export default function Layout() {
           <div className="w-9 h-1 rounded-full bg-border-light" />
         </div>
         <div className="px-4 pt-1 pb-2 grid grid-cols-5 gap-2">
-          {MORE_NAV.map(({ to, icon: Icon, label }) => (
+          {moreNav.map(({ to, icon: Icon, label, badge }) => (
             <NavLink key={to} to={to} onClick={closeMore}
               className={({ isActive }) =>
                 `flex flex-col items-center gap-1.5 py-3 rounded-xl text-2xs font-medium transition-all duration-150 active:scale-95 ${
                   isActive ? "bg-accent-blue/15 text-accent-blue" : "text-text-muted hover:bg-bg-elevated hover:text-text-secondary"}`}
             >
-              <Icon size={20} className="flex-shrink-0" />
+              <span className="relative">
+                <Icon size={20} className="flex-shrink-0" />
+                {badge ? (
+                  <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-0.5 flex items-center justify-center rounded-full bg-accent-red text-white text-[9px] font-bold leading-none">
+                    {badge}
+                  </span>
+                ) : null}
+              </span>
               {label}
             </NavLink>
           ))}

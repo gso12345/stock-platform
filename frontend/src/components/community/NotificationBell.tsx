@@ -4,56 +4,36 @@
  * 안 읽은 개수는 화면이 떠 있는 내내 주기적으로 물어보게 되므로, 목록과 분리된
  * 가벼운 엔드포인트(COUNT 한 번)만 주기 조회한다. 목록은 종을 눌러 열 때만
  * 가져온다 — 열지도 않을 30건을 계속 받아올 이유가 없다.
+ *
+ * 여는 방식은 화면 크기에 따라 다르다. 좁은 화면에서 320px짜리 드롭다운은
+ * 글자가 두세 줄로 접히고 손가락으로 누르기도 좁아서, 아래에서 올라오는
+ * 시트로 띄운다(이 앱의 "더보기" 메뉴와 같은 방식).
  */
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import { Bell, Heart, MessageSquare, CornerDownRight, UserPlus, CheckCheck } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Bell, CheckCheck, X, Settings } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
-import Avatar from "@/components/community/Avatar";
+import NotificationList, { type NotificationItem } from "@/components/community/NotificationList";
 
-interface NotificationItem {
-  id: number;
-  kind: "comment" | "reply" | "post_like" | "comment_like" | "follow";
-  post_id: number | null;
-  comment_id: number | null;
-  preview: string | null;
-  is_read: boolean;
-  created_at: string;
-  actor_id: number | null;
-  actor_name: string;
-  actor_color: number;
-  actor_avatar: string | null;
-}
-
-/** 알림 종류별 문구와 아이콘 — 한곳에 모아 문구가 화면마다 달라지지 않게 한다 */
-const KIND_META: Record<NotificationItem["kind"], { text: string; Icon: typeof Heart; cls: string }> = {
-  comment:      { text: "님이 회원님의 글에 댓글을 남겼습니다",   Icon: MessageSquare,    cls: "text-accent-blue" },
-  reply:        { text: "님이 회원님의 댓글에 답글을 남겼습니다", Icon: CornerDownRight,  cls: "text-accent-blue" },
-  post_like:    { text: "님이 회원님의 글을 좋아합니다",         Icon: Heart,            cls: "text-accent-red" },
-  comment_like: { text: "님이 회원님의 댓글을 좋아합니다",       Icon: Heart,            cls: "text-accent-red" },
-  follow:       { text: "님이 회원님을 팔로우했습니다",          Icon: UserPlus,         cls: "text-accent-green" },
-};
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "방금 전";
-  if (m < 60) return `${m}분 전`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}시간 전`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `${d}일 전`;
-  return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
-}
+/** 이 폭 미만이면 시트로 연다 — Tailwind의 lg 기준과 맞춘다 */
+const SHEET_BELOW = 1024;
 
 export default function NotificationBell() {
   const { isLoggedIn } = useAuthStore();
   const [open, setOpen] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < SHEET_BELOW
+  );
   const wrapRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
   const qc = useQueryClient();
+
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < SHEET_BELOW);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const { data: unread } = useQuery({
     queryKey: ["notiUnread"],
@@ -80,10 +60,11 @@ export default function NotificationBell() {
     },
   });
 
-  // 바깥을 누르거나 Esc를 누르면 닫는다
+  // 바깥을 누르거나 Esc를 누르면 닫는다 (드롭다운일 때만 — 시트는 덮개를 누른다)
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
+      if (isNarrow) return;
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
@@ -93,7 +74,15 @@ export default function NotificationBell() {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, isNarrow]);
+
+  // 시트가 열려 있는 동안 뒤 화면이 스크롤되지 않게 한다
+  useEffect(() => {
+    if (!(open && isNarrow)) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open, isNarrow]);
 
   if (!isLoggedIn) return null;
 
@@ -101,18 +90,52 @@ export default function NotificationBell() {
   const badge = unread?.capped ? "99+" : String(count);
   const items: NotificationItem[] = list?.items ?? [];
 
-  const openItem = async (n: NotificationItem) => {
-    setOpen(false);
-    if (!n.is_read) {
-      try {
-        await communityApi.markNotificationRead(n.id);
-        qc.invalidateQueries({ queryKey: ["notiUnread"] });
-        qc.invalidateQueries({ queryKey: ["notiList"] });
-      } catch { /* 읽음 표시 실패로 이동까지 막지는 않는다 */ }
-    }
-    if (n.kind === "follow" && n.actor_id) navigate(`/profile/${n.actor_id}`);
-    else if (n.post_id) navigate(`/post/${n.post_id}`);
-  };
+  const 머리말 = (
+    <div className="flex items-center gap-2 px-4 py-3 bg-bg-card border-b border-border">
+      <span className="text-sm font-bold text-text-primary">알림</span>
+      <div className="flex-1" />
+      {count > 0 && (
+        <button
+          onClick={() => readAll.mutate()}
+          disabled={readAll.isPending}
+          className="flex items-center gap-1 text-2xs text-text-muted hover:text-accent-blue transition-colors disabled:opacity-50"
+        >
+          <CheckCheck size={12} /> 모두 읽음
+        </button>
+      )}
+      {isNarrow && (
+        <button onClick={() => setOpen(false)} aria-label="닫기"
+          className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
+          <X size={16} />
+        </button>
+      )}
+    </div>
+  );
+
+  const 본문 = isLoading ? (
+    <p className="px-3 py-8 text-center text-xs text-text-dim">불러오는 중…</p>
+  ) : items.length === 0 ? (
+    <div className="px-3 py-10 text-center">
+      <Bell size={22} className="mx-auto mb-2 text-text-dim opacity-50" />
+      <p className="text-xs text-text-dim">아직 알림이 없습니다</p>
+    </div>
+  ) : (
+    <NotificationList items={items} onNavigate={() => setOpen(false)} roomy={isNarrow} />
+  );
+
+  const 꼬리말 = (
+    <div className="flex items-center gap-3 px-4 py-2.5 bg-bg-card border-t border-border">
+      <Link to="/notifications" onClick={() => setOpen(false)}
+        className="text-2xs font-semibold text-accent-blue hover:underline">
+        전체 보기
+      </Link>
+      <div className="flex-1" />
+      <Link to="/notifications?settings=1" onClick={() => setOpen(false)}
+        className="flex items-center gap-1 text-2xs text-text-muted hover:text-text-primary transition-colors">
+        <Settings size={12} /> 알림 설정
+      </Link>
+    </div>
+  );
 
   return (
     <div className="relative" ref={wrapRef}>
@@ -131,69 +154,34 @@ export default function NotificationBell() {
         )}
       </button>
 
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full mt-1.5 w-[min(92vw,20rem)] max-h-[70vh] overflow-y-auto z-50 bg-bg-card border border-border rounded-2xl shadow-xl"
-        >
-          <div className="sticky top-0 flex items-center gap-2 px-3 py-2 bg-bg-card border-b border-border">
-            <span className="text-xs font-bold text-text-primary">알림</span>
-            <div className="flex-1" />
-            {count > 0 && (
-              <button
-                onClick={() => readAll.mutate()}
-                disabled={readAll.isPending}
-                className="flex items-center gap-1 text-2xs text-text-muted hover:text-accent-blue transition-colors disabled:opacity-50"
-              >
-                <CheckCheck size={12} /> 모두 읽음
-              </button>
-            )}
-          </div>
-
-          {isLoading ? (
-            <p className="px-3 py-6 text-center text-xs text-text-dim">불러오는 중…</p>
-          ) : items.length === 0 ? (
-            <p className="px-3 py-8 text-center text-xs text-text-dim">아직 알림이 없습니다</p>
-          ) : (
-            <ul>
-              {items.map((n) => {
-                const meta = KIND_META[n.kind] ?? KIND_META.comment;
-                return (
-                  <li key={n.id}>
-                    <button
-                      onClick={() => openItem(n)}
-                      className={`w-full flex gap-2.5 px-3 py-2.5 text-left border-b border-border/50 hover:bg-bg-elevated transition-colors ${
-                        n.is_read ? "" : "bg-accent-blue/5"
-                      }`}
-                    >
-                      <div className="relative shrink-0">
-                        <Avatar username={n.actor_name} colorIndex={n.actor_color}
-                                avatarUrl={n.actor_avatar} size="md" />
-                        <meta.Icon size={11}
-                          className={`absolute -bottom-0.5 -right-0.5 p-[1px] rounded-full bg-bg-card ${meta.cls}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        {/* break-keep: 한글은 어절 단위로 끊어야 "남겼습니 / 다"처럼
-                            낱말이 잘리지 않는다. 좁은 화면에서 특히 눈에 띈다 */}
-                        <p className="text-xs text-text-secondary leading-snug break-keep">
-                          <span className="font-semibold text-text-primary">{n.actor_name}</span>
-                          {meta.text}
-                        </p>
-                        {n.preview && (
-                          <p className="mt-0.5 text-2xs text-text-dim line-clamp-2 break-words">{n.preview}</p>
-                        )}
-                        <p className="mt-0.5 text-2xs text-text-dim">{timeAgo(n.created_at)}</p>
-                      </div>
-                      {!n.is_read && (
-                        <span className="mt-1 w-1.5 h-1.5 rounded-full bg-accent-blue shrink-0" aria-hidden />
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+      {open && !isNarrow && (
+        <div role="menu"
+          className="absolute right-0 top-full mt-1.5 w-80 z-50 bg-bg-card border border-border rounded-2xl shadow-xl overflow-hidden">
+          {머리말}
+          <div className="max-h-[60vh] overflow-y-auto">{본문}</div>
+          {꼬리말}
         </div>
+      )}
+
+      {open && isNarrow && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm modal-backdrop"
+               onClick={() => setOpen(false)} aria-hidden />
+          <div
+            role="menu"
+            className="fixed inset-x-0 bottom-0 z-50 bg-bg-card border-t border-border rounded-t-2xl shadow-2xl flex flex-col"
+            // 화면의 80%까지만 차지하고, 아이폰 홈 인디케이터 영역을 피한다
+            style={{ maxHeight: "80vh", paddingBottom: "env(safe-area-inset-bottom)" }}
+          >
+            {/* 손잡이 — 아래에서 올라온 시트라는 걸 알려준다 */}
+            <div className="pt-2 pb-1 flex justify-center shrink-0">
+              <span className="w-9 h-1 rounded-full bg-border" aria-hidden />
+            </div>
+            <div className="shrink-0">{머리말}</div>
+            <div className="flex-1 overflow-y-auto overscroll-contain">{본문}</div>
+            <div className="shrink-0">{꼬리말}</div>
+          </div>
+        </>
       )}
     </div>
   );

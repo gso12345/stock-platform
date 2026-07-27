@@ -439,4 +439,8 @@ export const communityApi = {
     api.post(`/community/notifications/${notiId}/read`).then((r) => r.data),
   markAllNotificationsRead: () =>
     api.post("/community/notifications/read-all").then((r) => r.data),
+  getNotificationSettings: () =>
+    api.get("/community/notifications/settings").then((r) => r.data),
+  updateNotificationSettings: (payload: Record<string, boolean>) =>
+    api.put("/community/notifications/settings", payload).then((r) => r.data),
 };

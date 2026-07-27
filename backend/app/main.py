@@ -201,6 +201,7 @@ async def lifespan(application: FastAPI):
             ("stock_posts",    "is_blinded",           "BOOLEAN DEFAULT false"),
             ("stock_comments", "is_blinded",           "BOOLEAN DEFAULT false"),
             ("user_profiles",  "avatar_url",           "TEXT"),
+            ("user_profiles",  "noti_disabled",        "VARCHAR(200)"),
             ("users",          "is_community_banned",  "BOOLEAN DEFAULT false"),
         ]
         try:

@@ -487,6 +487,19 @@ _NOTI_PREVIEW_MAX = 100
 # 같은 사람이 같은 대상에 몇 번을 눌러도 알림은 한 번만 남기는 종류
 _NOTI_ONCE_KINDS = frozenset({"post_like", "comment_like", "follow"})
 
+# 사용자가 켜고 끌 수 있는 알림 종류 — 화면의 설정 항목과 1:1로 대응한다
+_NOTI_KINDS = ("comment", "reply", "post_like", "comment_like", "follow")
+
+
+def _disabled_kinds(db: Session, user_id: int) -> frozenset:
+    """이 사람이 받지 않기로 한 알림 종류.
+
+    설정을 화면에서만 걸러내면 끈 알림도 DB에 계속 쌓이고 안 읽은 개수에
+    잡힌다. 그래서 만들기 전에 여기서 확인한다."""
+    row = db.query(UserProfile.noti_disabled).filter(UserProfile.user_id == user_id).first()
+    raw = (row[0] if row else None) or ""
+    return frozenset(k for k in (s.strip() for s in raw.split(",")) if k)
+
 
 def _notify(db: Session, *, user_id: int, actor_id: int, kind: str,
             post_id: Optional[int] = None, comment_id: Optional[int] = None,
@@ -500,6 +513,8 @@ def _notify(db: Session, *, user_id: int, actor_id: int, kind: str,
     if not user_id or user_id == actor_id:
         return
     try:
+        if kind in _disabled_kinds(db, user_id):
+            return
         if kind in _NOTI_ONCE_KINDS:
             # 좋아요·팔로우는 '한 사람이 한 번 누른 상태'이지 사건의 연속이 아니다.
             # 껐다 켜기를 반복하면 알림이 계속 쌓여 상대 알림함을 도배할 수 있었다
@@ -1301,6 +1316,42 @@ def get_following(user_id: int = Path(...), db: Session = Depends(get_db)):
 # 사람이 셀 수 있는 수준을 넘어가면 굳이 정확한 수를 세지 않는다.
 _NOTI_COUNT_CAP = 99
 _NOTI_PAGE_SIZE = 30
+
+
+class NotificationSettingsIn(BaseModel):
+    """켜진 종류만 받는다. 화면의 스위치와 그대로 대응한다."""
+    model_config = ConfigDict(extra="ignore")
+    comment:      bool = True
+    reply:        bool = True
+    post_like:    bool = True
+    comment_like: bool = True
+    follow:       bool = True
+
+
+@router.get("/notifications/settings")
+def get_notification_settings(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    off = _disabled_kinds(db, current_user.id)
+    return {k: k not in off for k in _NOTI_KINDS}
+
+
+@router.put("/notifications/settings")
+@limiter.limit("30/minute")
+def update_notification_settings(
+    request: Request,
+    body: NotificationSettingsIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    p = get_profile(db, current_user.id)
+    if not p:
+        raise HTTPException(500, "설정을 저장하지 못했습니다")
+    off = [k for k in _NOTI_KINDS if not getattr(body, k)]
+    p.noti_disabled = ",".join(off) or None
+    db.commit()
+    return {k: k not in off for k in _NOTI_KINDS}
 
 
 @router.get("/notifications/unread-count")

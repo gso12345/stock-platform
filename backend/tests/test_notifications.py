@@ -9,21 +9,26 @@ import inspect
 import pytest
 
 from app.api.routes import community as C
-from app.models.community import Notification
+from app.models.community import Notification, UserProfile
 
 
 class _FakeQuery:
-    """_notify가 중복 검사에서 무엇을 찾는지만 보기 위한 최소 대역"""
+    """_notify가 무엇을 찾는지만 보기 위한 최소 대역"""
     def __init__(self, found): self._found = found
     def filter(self, *a, **k): return self
     def first(self): return self._found
 
 
 class _FakeDB:
-    def __init__(self, dup=None):
+    """_notify가 하는 조회는 두 가지다 — 알림 설정(UserProfile)과 중복 검사(Notification).
+    둘을 구분하지 않으면 한쪽 대역이 다른 쪽 결과를 받아 엉뚱하게 통과/실패한다."""
+    def __init__(self, dup=None, 꺼둔종류=""):
         self.added, self.commits, self.rollbacks = [], 0, 0
-        self._dup = dup
-    def query(self, *a, **k): return _FakeQuery(self._dup)
+        self._dup, self._off = dup, 꺼둔종류
+    def query(self, entity, *a, **k):
+        if entity is UserProfile.noti_disabled:
+            return _FakeQuery((self._off,))
+        return _FakeQuery(self._dup)
     def add(self, obj): self.added.append(obj)
     def commit(self): self.commits += 1
     def rollback(self): self.rollbacks += 1
@@ -74,6 +79,47 @@ class Test도배_방지:
         db = _FakeDB(dup=object())
         notify(db, kind=kind, post_id=10, preview="새 댓글")
         assert len(db.added) == 1, f"{kind}가 합쳐졌다"
+
+
+class Test알림_설정:
+    """설정을 화면에서만 걸러내면, 끈 알림도 DB에 계속 쌓이고 안 읽은 개수에
+    잡힌다. 배지에 숫자가 떠서 눌렀더니 아무것도 없는 상태가 된다."""
+
+    @pytest.mark.parametrize("kind", ["comment", "reply", "post_like", "comment_like", "follow"])
+    def test_끈_종류는_아예_만들지_않는다(self, kind):
+        db = _FakeDB(꺼둔종류=kind)
+        notify(db, kind=kind, post_id=10)
+        assert db.added == [], f"{kind}를 껐는데도 알림이 쌓인다"
+
+    def test_끄지_않은_종류는_그대로_온다(self):
+        db = _FakeDB(꺼둔종류="post_like,follow")
+        notify(db, kind="comment", post_id=10)
+        assert len(db.added) == 1
+
+    @pytest.mark.parametrize("저장값", [None, "", "   ", ",,"])
+    def test_설정한_적_없으면_전부_켜진_상태다(self, 저장값):
+        # 기존 사용자에게 값을 채워 넣지 않아도 되도록 '끈 것'만 저장한다
+        db = _FakeDB(꺼둔종류=저장값)
+        notify(db, kind="post_like", post_id=10)
+        assert len(db.added) == 1
+
+    def test_설정_항목이_화면과_같은_다섯_가지다(self):
+        from app.api.routes.community import NotificationSettingsIn
+        assert set(C._NOTI_KINDS) == set(NotificationSettingsIn.model_fields)
+        assert set(C._NOTI_KINDS) == {"comment", "reply", "post_like", "comment_like", "follow"}
+
+    def test_설정_기본값은_모두_켜짐이다(self):
+        from app.api.routes.community import NotificationSettingsIn
+        s = NotificationSettingsIn()
+        assert all(getattr(s, k) for k in C._NOTI_KINDS)
+
+    def test_설정은_로그인해야_바꿀_수_있다(self):
+        for 함수명 in ("get_notification_settings", "update_notification_settings"):
+            assert "require_user" in inspect.getsource(getattr(C, 함수명))
+
+    def test_설정_저장에도_요청_제한이_있다(self):
+        키 = "app.api.routes.community.update_notification_settings"
+        assert C.limiter._route_limits.get(키), "설정 저장에 요청 제한이 없다"
 
 
 class Test안전장치:
