@@ -571,8 +571,12 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
       bodyToSubmit = bodyTrim;
     } else {
       if (pfItems.length === 0) { setError("포트폴리오에 종목이 없습니다"); return; }
-      market = pfItems[0].market;
-      symbol = pfItems[0].symbol;
+      // 글이 걸릴 종목은 실제 종목코드여야 한다. 현금 항목은 코드가 "현금"이라
+      // 첫 항목이 현금이면 주소 자체가 거부돼 공유가 통째로 실패했다.
+      const anchor = pfItems.find((i: any) => i.assetClass !== "현금");
+      if (!anchor) { setError("현금만 있는 포트폴리오는 공유할 수 없습니다"); return; }
+      market = anchor.market;
+      symbol = anchor.symbol;
       allTags = [
         ...pfItems.map((i: any) => ({ symbol: i.symbol, market: i.market })),
         ...customTags.filter((ct) => !pfItems.find((i: any) => i.symbol === ct.symbol)),

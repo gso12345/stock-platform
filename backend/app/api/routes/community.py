@@ -1,19 +1,51 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from sqlalchemy.orm import Session, selectinload, defer
 from sqlalchemy import func, text
-from pydantic import BaseModel, field_validator, model_validator, Field
+from pydantic import BaseModel, field_validator, model_validator, Field, ConfigDict
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from typing import Literal, Optional
 from app.db.database import get_db, engine
 from fastapi import Body
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, Report
 from app.models.user import User
 from app.core.deps import get_current_user, require_user, require_community_active
+from app.core.security import decode_token
 from app.services.ticker_service import get_kr_db
 
 router = APIRouter(prefix="/community", tags=["community"])
 
+
+def _account_key(request: Request) -> str:
+    """쓰기 요청 횟수를 계정 기준으로 센다.
+
+    IP로 세면 양쪽이 다 어긋난다. 회사·학교·모바일망처럼 여러 사람이 한 IP를
+    쓰면 한 명 때문에 나머지가 막히고, 반대로 IP만 바꾸면 제한이 그냥 풀린다.
+    커뮤니티 쓰기는 전부 로그인이 필요하므로 계정으로 세는 게 맞다.
+    토큰을 읽지 못한 요청(=어차피 401로 막힐 요청)만 IP로 되돌린다."""
+    auth = request.headers.get("authorization") or ""
+    if auth[:7].lower() == "bearer ":
+        data = decode_token(auth[7:].strip())
+        if data and data.get("sub"):
+            return f"community-user:{data['sub']}"
+    return get_remote_address(request)
+
+
+# 쓰기 엔드포인트에는 아무 제한이 없었다. 자동화 도구로 글·댓글·좋아요를
+# 초당 수십 번 보내면 피드가 도배되고 DB 쓰기가 그대로 늘어난다.
+# 사람이 손으로 쓰는 속도보다 넉넉하게, 자동 반복은 걸리도록 잡는다.
+limiter = Limiter(key_func=_account_key)
+
 _SYMBOL_RE = r"^[A-Za-z0-9.\-]{1,20}$"
+
+# 블라인드(신고 누적·관리자 조치로 가려진 글·댓글)는 목록에서만 빠졌고
+# 단건 조회·좋아요·댓글 작성·투표는 그대로 통과했다. 목록에서 사라진 글도
+# 주소만 알면 계속 읽히고 반응이 달렸다는 뜻이다. 모든 접근 경로가 목록과
+# 같은 기준을 쓰도록 조건을 한곳에 모은다.
+# (관리자 화면은 admin.py의 별도 질의를 쓰므로 여기 조건에 영향받지 않는다)
+_POST_VISIBLE    = (StockPost.is_deleted.isnot(True),    StockPost.is_blinded.isnot(True))
+_COMMENT_VISIBLE = (StockComment.is_deleted.isnot(True), StockComment.is_blinded.isnot(True))
 
 _SAFE_AVATAR_TYPES = frozenset({"image/jpeg", "image/png", "image/gif", "image/webp"})
 
@@ -62,15 +94,28 @@ def _enrich_tags(tags: list) -> list:
     return result
 
 # ── 컨텐츠 인코딩/디코딩 ──────────────────────────────────────
+def _plain(v):
+    """첨부물을 JSON에 담을 수 있는 순수 dict/list로 되돌린다.
+
+    첨부물은 검증을 위해 Pydantic 모델로 받지만 저장은 JSON 문자열이라
+    모델 객체 그대로는 json.dumps가 터진다. 읽어올 때는 이미 dict이므로
+    양쪽 어느 형태로 들어와도 같은 결과가 나오게 한다."""
+    if isinstance(v, BaseModel):
+        return v.model_dump()
+    if isinstance(v, list):
+        return [_plain(x) for x in v]
+    return v
+
+
 def encode_content(title: str, body: str, image: str = "", poll: Optional[dict] = None, tags: Optional[list] = None, portfolio: Optional[list] = None) -> str:
     return json.dumps({
         "v":         1,
         "title":     title.strip(),
         "body":      body.strip(),
         "image":     image,
-        "poll":      poll or None,
-        "tags":      tags or [],
-        "portfolio": portfolio or None,
+        "poll":      _plain(poll) or None,
+        "tags":      _plain(tags) or [],
+        "portfolio": _plain(portfolio) or None,
     }, ensure_ascii=False)
 
 def decode_content(raw: str) -> dict:
@@ -170,7 +215,10 @@ def _ser_comment(c: StockComment, uid: Optional[int], db: Session, profiles_map:
     profile = profiles_map.get(c.user_id) if profiles_map is not None else (get_profile(db, c.user_id) if c.user else None)
     replies = []
     if c.replies:
-        for r in sorted([x for x in c.replies if not x.is_deleted], key=lambda x: x.created_at):
+        # 최상위 댓글은 질의에서 블라인드를 걸렀지만 답글은 관계로 딸려와
+        # 그대로 노출되고 있었다
+        for r in sorted([x for x in c.replies if not x.is_deleted and not x.is_blinded],
+                        key=lambda x: x.created_at):
             rp = profiles_map.get(r.user_id) if profiles_map is not None else (get_profile(db, r.user_id) if r.user else None)
             r_liked = any(lk.user_id == uid for lk in r.likes) if uid else False
             replies.append({
@@ -203,14 +251,98 @@ def _ser_comment(c: StockComment, uid: Optional[int], db: Session, profiles_map:
     }
 
 # ── Pydantic ──────────────────────────────────────────────────
+#
+# 첨부물(투표·종목태그·포트폴리오)은 예전에 dict/list 라는 것만 확인하고 내부 구조를
+# 전혀 보지 않았다. 그래서 options 자리에 숫자를 넣으면 목록을 만들 때 len()이 터져
+# 피드와 모든 종목 커뮤니티가 500으로 죽었다. 자기 글 하나를 정상 API로 수정하는
+# 것만으로 가능했고, 같은 목록에 있던 남의 글까지 함께 보이지 않게 됐다.
+# 화면이 실제로 만들 수 있는 형태만 받도록 스키마를 고정한다.
+
+class PollIn(BaseModel):
+    """투표 — 화면에서는 질문 1개 + 보기 2~4개만 만들 수 있다"""
+    model_config = ConfigDict(extra="ignore")
+    question: str = Field(..., max_length=100)
+    options:  list[str] = Field(..., min_length=2, max_length=4)
+
+    @field_validator("options")
+    @classmethod
+    def _options_ok(cls, v: list[str]) -> list[str]:
+        cleaned = [o.strip() for o in v if isinstance(o, str) and o.strip()]
+        if len(cleaned) < 2:
+            raise ValueError("투표 보기는 2개 이상 입력해 주세요")
+        if any(len(o) > 50 for o in cleaned):
+            raise ValueError("투표 보기는 50자 이내로 입력해 주세요")
+        return cleaned
+
+
+# 종목코드는 형식을 강제하지 않는다. 내 자산의 현금 항목은 symbol이 "현금"이라
+# 영문·숫자만 허용하면 현금이 들어간 포트폴리오는 공유 자체가 막힌다.
+# 여기서 막아야 하는 건 표기 형식이 아니라 '터지거나 화면을 밀어버리는 값'이다.
+_SymbolIn = Field(..., min_length=1, max_length=40)
+
+
+class TagIn(BaseModel):
+    """종목 태그 — 글에 붙는 종목 참조"""
+    model_config = ConfigDict(extra="ignore")
+    symbol: str = _SymbolIn
+    market: Literal["KR", "US", "ETF"]
+    name:   Optional[str] = Field(None, max_length=100)
+
+
+class PortfolioItemIn(BaseModel):
+    """포트폴리오 첨부 — 화면에서 보유 종목을 골라 붙인다"""
+    model_config = ConfigDict(extra="ignore")
+    symbol:    str = _SymbolIn
+    market:    Literal["KR", "US", "ETF"]
+    name:      str = Field("", max_length=100)
+    shares:    float = Field(0, ge=0, le=1e12)
+    avg_price: float = Field(0, ge=0, le=1e12)
+    currency:  Optional[str] = Field(None, max_length=8)
+    input_exchange_rate: Optional[float] = Field(None, ge=0, le=1e6)
+    current_price:       Optional[float] = Field(None, ge=0, le=1e12)
+    asset_class:         Optional[str] = Field(None, max_length=20)
+
+
+# 본문·제목·댓글 길이 — 작성과 수정이 같은 기준을 쓰도록 한곳에 둔다
+_BODY_MAX, _TITLE_MAX, _COMMENT_MAX = 2000, 100, 500
+_TAGS_MAX, _PORTFOLIO_MAX = 60, 50
+
+
+def _check_body(v: str) -> str:
+    v = (v or "").strip()
+    if not v:
+        raise ValueError("내용을 입력해 주세요")
+    if len(v) > _BODY_MAX:
+        raise ValueError(f"내용은 {_BODY_MAX}자 이내로 입력해 주세요")
+    return v
+
+
+def _check_title(v: str) -> str:
+    v = (v or "").strip()
+    if len(v) > _TITLE_MAX:
+        raise ValueError(f"제목은 {_TITLE_MAX}자 이내로 입력해 주세요")
+    return v
+
+
+def _check_comment(v: str) -> str:
+    v = (v or "").strip()
+    if not v:
+        raise ValueError("내용을 입력해 주세요")
+    if len(v) > _COMMENT_MAX:
+        raise ValueError(f"댓글은 {_COMMENT_MAX}자 이내로 입력해 주세요")
+    return v
+
+
 class PostCreate(BaseModel):
     title:     str = ""
     body:      str = ""
     content:   str = ""  # backwards compat: old frontend sends {content}
     image:     str = ""
-    poll:      Optional[dict] = None
-    tags:      list = []
-    portfolio: Optional[list] = None
+    poll:      Optional[PollIn] = None
+    # 직접 붙이는 태그는 화면에서 5개까지지만, 포트폴리오 공유는 보유 종목
+    # 수만큼 태그가 자동으로 붙는다. 5로 잡으면 종목이 많은 사람은 공유가 막힌다.
+    tags:      list[TagIn] = Field(default_factory=list, max_length=_TAGS_MAX)
+    portfolio: Optional[list[PortfolioItemIn]] = Field(None, max_length=_PORTFOLIO_MAX)
 
     @model_validator(mode="before")
     @classmethod
@@ -220,36 +352,13 @@ class PostCreate(BaseModel):
             data["body"] = data["content"]
         return data
 
-    @field_validator("body")
-    @classmethod
-    def body_not_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("내용을 입력해 주세요")
-        if len(v) > 2000:
-            raise ValueError("내용은 2000자 이내로 입력해 주세요")
-        return v
-
-    @field_validator("title")
-    @classmethod
-    def title_max(cls, v: str) -> str:
-        v = v.strip()
-        if len(v) > 100:
-            raise ValueError("제목은 100자 이내로 입력해 주세요")
-        return v
+    _body  = field_validator("body")(classmethod(lambda cls, v: _check_body(v)))
+    _title = field_validator("title")(classmethod(lambda cls, v: _check_title(v)))
 
 class CommentCreate(BaseModel):
     content:   str
     parent_id: Optional[int] = None
-    @field_validator("content")
-    @classmethod
-    def not_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("내용을 입력해 주세요")
-        if len(v) > 500:
-            raise ValueError("댓글은 500자 이내로 입력해 주세요")
-        return v
+    _content = field_validator("content")(classmethod(lambda cls, v: _check_comment(v)))
 
 class ProfileUpdate(BaseModel):
     nickname:     Optional[str] = None
@@ -329,7 +438,9 @@ def list_posts(
 
 # ── 게시글 작성 ────────────────────────────────────────────────
 @router.post("/{market}/{symbol}/posts", status_code=201)
+@limiter.limit("10/minute")
 def create_post(
+    request: Request,
     body:         PostCreate,
     market:       Literal["KR", "US", "ETF"],
     symbol:       str = Path(..., pattern=_SYMBOL_RE),
@@ -370,8 +481,8 @@ def create_post(
         "body":          body.body,
         "image":         image_val,
         "poll":          None,
-        "tags":          [t for t in (body.tags or []) if isinstance(t, dict) and "symbol" in t],
-        "portfolio":     body.portfolio or None,
+        "tags":          _plain(body.tags),
+        "portfolio":     _plain(body.portfolio),
         "like_count":    0,
         "comment_count": 0,
         "liked":         False,
@@ -382,14 +493,22 @@ def create_post(
 
 # ── 게시글 수정 ────────────────────────────────────────────────
 class PostUpdate(BaseModel):
+    """수정에도 작성과 동일한 제한을 건다.
+    예전에는 검증이 하나도 없어서 '정상 작성 → 즉시 수정'만으로 글자수 제한을
+    우회할 수 있었다 (본문 100만자 저장이 실제로 가능했다)."""
     title: str = ""
     body:  str = ""
-    tags:  Optional[list] = None
-    poll:  Optional[dict] = None
+    tags:  Optional[list[TagIn]] = Field(None, max_length=_TAGS_MAX)
+    poll:  Optional[PollIn] = None
     image: Optional[str] = None
 
+    _body  = field_validator("body")(classmethod(lambda cls, v: _check_body(v)))
+    _title = field_validator("title")(classmethod(lambda cls, v: _check_title(v)))
+
 @router.put("/{market}/{symbol}/posts/{post_id}")
+@limiter.limit("20/minute")
 def update_post(
+    request: Request,
     market:   Literal["KR", "US", "ETF"],
     symbol:   str = Path(..., pattern=_SYMBOL_RE),
     post_id:  int = Path(...),
@@ -428,7 +547,9 @@ def update_post(
 
 # ── 게시글 삭제 ────────────────────────────────────────────────
 @router.delete("/{market}/{symbol}/posts/{post_id}", status_code=204)
+@limiter.limit("20/minute")
 def delete_post(
+    request: Request,
     market:  Literal["KR", "US", "ETF"],
     symbol:  str = Path(..., pattern=_SYMBOL_RE),
     post_id: int = Path(...),
@@ -455,14 +576,16 @@ def delete_post(
 
 # ── 게시글 좋아요 ──────────────────────────────────────────────
 @router.post("/posts/{post_id}/like")
+@limiter.limit("60/minute")
 def toggle_post_like(
+    request: Request,
     post_id: int = Path(...),
     db:      Session = Depends(get_db),
     current_user=Depends(require_community_active),
 ):
     post = (
         db.query(StockPost)
-        .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
+        .filter(StockPost.id == post_id, *_POST_VISIBLE)
         .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
         .first()
     )
@@ -493,7 +616,7 @@ def get_post(
     uid = current_user.id if current_user else None
     post = (
         db.query(StockPost)
-        .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
+        .filter(StockPost.id == post_id, *_POST_VISIBLE)
         .options(
             defer(StockPost.comment_count),
             defer(StockPost.updated_at),
@@ -539,7 +662,7 @@ def list_comments(
     current_user=Depends(get_current_user),
 ):
     exists = db.execute(
-        text("SELECT 1 FROM stock_posts WHERE id = :pid AND is_deleted IS NOT TRUE LIMIT 1"),
+        text("SELECT 1 FROM stock_posts WHERE id = :pid AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE LIMIT 1"),
         {"pid": post_id},
     ).fetchone()
     if not exists:
@@ -578,7 +701,9 @@ def list_comments(
 
 # ── 댓글 작성 ─────────────────────────────────────────────────
 @router.post("/posts/{post_id}/comments", status_code=201)
+@limiter.limit("20/minute")
 def create_comment(
+    request: Request,
     body:    CommentCreate,
     post_id: int = Path(...),
     db:      Session = Depends(get_db),
@@ -586,7 +711,7 @@ def create_comment(
 ):
     post = (
         db.query(StockPost)
-        .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
+        .filter(StockPost.id == post_id, *_POST_VISIBLE)
         .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
         .first()
     )
@@ -594,7 +719,8 @@ def create_comment(
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     if body.parent_id:
         parent = db.query(StockComment).filter(
-            StockComment.id == body.parent_id, StockComment.post_id == post_id
+            StockComment.id == body.parent_id, StockComment.post_id == post_id,
+            *_COMMENT_VISIBLE,
         ).first()
         if not parent:
             raise HTTPException(404, "부모 댓글을 찾을 수 없습니다")
@@ -617,9 +743,12 @@ def create_comment(
 # ── 댓글 수정 ─────────────────────────────────────────────────
 class CommentUpdate(BaseModel):
     content: str
+    _content = field_validator("content")(classmethod(lambda cls, v: _check_comment(v)))
 
 @router.put("/comments/{comment_id}")
+@limiter.limit("20/minute")
 def update_comment(
+    request: Request,
     comment_id: int = Path(...),
     payload:    CommentUpdate = Body(...),
     db:         Session = Depends(get_db),
@@ -637,7 +766,9 @@ def update_comment(
 
 # ── 댓글 삭제 ─────────────────────────────────────────────────
 @router.delete("/comments/{comment_id}", status_code=204)
+@limiter.limit("20/minute")
 def delete_comment(
+    request: Request,
     comment_id: int = Path(...),
     db:         Session = Depends(get_db),
     current_user=Depends(require_community_active),
@@ -657,12 +788,14 @@ def delete_comment(
 
 # ── 댓글 좋아요 ───────────────────────────────────────────────
 @router.post("/comments/{comment_id}/like")
+@limiter.limit("60/minute")
 def toggle_comment_like(
+    request: Request,
     comment_id: int = Path(...),
     db:         Session = Depends(get_db),
     current_user=Depends(require_community_active),
 ):
-    c = db.query(StockComment).filter(StockComment.id == comment_id, StockComment.is_deleted.isnot(True)).first()
+    c = db.query(StockComment).filter(StockComment.id == comment_id, *_COMMENT_VISIBLE).first()
     if not c:
         raise HTTPException(404, "댓글을 찾을 수 없습니다")
     existing = db.query(StockCommentLike).filter(
@@ -771,7 +904,9 @@ def get_my_profile(
 
 
 @router.put("/profile/me")
+@limiter.limit("10/minute")
 def update_my_profile(
+    request: Request,
     body:         ProfileUpdate,
     db:           Session = Depends(get_db),
     current_user=Depends(require_user),
@@ -826,7 +961,9 @@ def get_user_profile(
 
 # ── 투표 ─────────────────────────────────────────────────────
 @router.post("/posts/{post_id}/poll/vote")
+@limiter.limit("30/minute")
 def vote_poll(
+    request: Request,
     post_id: int = Path(...),
     option_index: int = Body(..., embed=True),
     db: Session = Depends(get_db),
@@ -834,7 +971,7 @@ def vote_poll(
 ):
     post = (
         db.query(StockPost)
-        .filter(StockPost.id == post_id, StockPost.is_deleted.isnot(True))
+        .filter(StockPost.id == post_id, *_POST_VISIBLE)
         .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
         .first()
     )
@@ -865,7 +1002,9 @@ def vote_poll(
 
 # ── 팔로우 토글 ───────────────────────────────────────────────
 @router.post("/users/{user_id}/follow")
+@limiter.limit("30/minute")
 def toggle_follow(
+    request: Request,
     user_id: int = Path(...),
     db: Session = Depends(get_db),
     current_user=Depends(require_community_active),
@@ -903,7 +1042,7 @@ def get_user_public_profile(
         SELECT
             (SELECT COUNT(*) FROM user_follows WHERE following_id = :uid) AS follower_count,
             (SELECT COUNT(*) FROM user_follows WHERE follower_id  = :uid) AS following_count,
-            (SELECT COUNT(*) FROM stock_posts  WHERE user_id = :uid AND is_deleted IS NOT TRUE) AS post_count,
+            (SELECT COUNT(*) FROM stock_posts  WHERE user_id = :uid AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE) AS post_count,
             (SELECT 1 FROM user_follows WHERE follower_id = :me AND following_id = :uid LIMIT 1) AS is_following
     """), {"uid": user_id, "me": me_id}).fetchone()
     follower_count  = stat_row[0] or 0
@@ -935,14 +1074,14 @@ def get_user_activity(
 ):
     posts = (
         db.query(StockPost)
-        .filter(StockPost.user_id == user_id, StockPost.is_deleted.isnot(True))
+        .filter(StockPost.user_id == user_id, *_POST_VISIBLE)
         .options(defer(StockPost.comment_count), defer(StockPost.updated_at))
         .order_by(StockPost.created_at.desc())
         .limit(10)
         .all()
     )
     comments = db.query(StockComment).filter(
-        StockComment.user_id == user_id, StockComment.is_deleted.isnot(True)
+        StockComment.user_id == user_id, *_COMMENT_VISIBLE
     ).order_by(StockComment.created_at.desc()).limit(10).all()
     act_post_ids = [p.id for p in posts]
     act_comment_counts: dict = {}
@@ -971,11 +1110,11 @@ def get_user_activity(
     if comment_post_ids:
         meta_rows = db.query(StockPost.id, StockPost.symbol, StockPost.market).filter(
             StockPost.id.in_(comment_post_ids),
-            StockPost.is_deleted.isnot(True),
+            *_POST_VISIBLE,
         ).all()
         post_meta = {r[0]: (r[1], r[2]) for r in meta_rows}
 
-    # 부모 글이 삭제됐거나 존재하지 않는 댓글은 제외
+    # 부모 글이 삭제·블라인드됐거나 존재하지 않는 댓글은 제외
     comment_items = [{
         "type": "comment",
         "id": c.id,
@@ -1034,7 +1173,9 @@ class ReportIn(BaseModel):
 
 
 @router.post("/posts/{post_id}/report", status_code=201)
+@limiter.limit("20/hour")
 def report_post(
+    request: Request,
     post_id: int = Path(...),
     body: ReportIn = Body(...),
     db: Session = Depends(get_db),
@@ -1054,7 +1195,9 @@ def report_post(
 
 
 @router.post("/comments/{comment_id}/report", status_code=201)
+@limiter.limit("20/hour")
 def report_comment(
+    request: Request,
     comment_id: int = Path(...),
     body: ReportIn = Body(...),
     db: Session = Depends(get_db),
