@@ -17,7 +17,8 @@ interface AvatarProps {
   avatarUrl?: string | null;
   userId?: number;
   isMine?: boolean;
-  size?: "xs" | "sm" | "md" | "lg" | "xl";
+  /** Tailwind 글자 크기와 같은 눈금 — base(28px)는 피드 카드가 쓰던 크기다 */
+  size?: "xs" | "sm" | "base" | "md" | "lg" | "xl";
   onClick?: () => void;
 }
 
@@ -27,6 +28,7 @@ export default function Avatar({ username, colorIndex, avatarUrl, userId, isMine
     size === "xl" ? "w-20 h-20 text-3xl border-2" :
     size === "lg" ? "w-10 h-10 text-sm border-2" :
     size === "md" ? "w-8 h-8 text-xs border-2" :
+    size === "base" ? "w-7 h-7 text-xs border" :
     size === "sm" ? "w-6 h-6 text-xs border" :
                     "w-5 h-5 text-2xs border";
 
@@ -34,7 +36,9 @@ export default function Avatar({ username, colorIndex, avatarUrl, userId, isMine
     <img
       src={avatarUrl}
       alt={username}
-      className={`${sz} rounded-full object-cover shrink-0`}
+      // 사진 아바타에는 테두리 색이 지정돼 있지 않아 기본색으로 그려졌다.
+      // 글자 아바타(cls에 테두리 색 포함)와 맞춘다
+      className={`${sz} border-border rounded-full object-cover shrink-0`}
     />
   ) : (
     <div className={`rounded-full flex items-center justify-center font-bold shrink-0 ${sz} ${cls}`}>

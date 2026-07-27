@@ -1,4 +1,5 @@
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from sqlalchemy.orm import Session, selectinload, defer
 from sqlalchemy import func, text
@@ -8,11 +9,13 @@ from slowapi.util import get_remote_address
 from typing import Literal, Optional
 from app.db.database import get_db, engine
 from fastapi import Body
-from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, Report
+from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, Report, Notification
 from app.models.user import User
 from app.core.deps import get_current_user, require_user, require_community_active
 from app.core.security import decode_token
 from app.services.ticker_service import get_kr_db
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/community", tags=["community"])
 
@@ -49,6 +52,12 @@ _COMMENT_VISIBLE = (StockComment.is_deleted.isnot(True), StockComment.is_blinded
 
 _SAFE_AVATAR_TYPES = frozenset({"image/jpeg", "image/png", "image/gif", "image/webp"})
 
+# 화면은 800px·품질 0.7 JPEG로 줄여 보내므로 보통 200KB 안쪽이다. 상한은 그보다
+# 넉넉히 잡되 무제한은 아니게 둔다 — 글 이미지에는 상한이 아예 없어서, API를
+# 직접 호출하면 수십 MB짜리 글을 만들 수 있었다. 그 글은 목록에 뜨는 것만으로
+# 모든 사용자의 피드 응답에 그대로 실려 나간다.
+_IMAGE_MAX_CHARS = 1_500_000
+
 
 def _validate_uploaded_image(value: str, field: str = "이미지") -> str:
     """게시글·프로필에 첨부되는 이미지를 검증한다.
@@ -61,6 +70,8 @@ def _validate_uploaded_image(value: str, field: str = "이미지") -> str:
     """
     if not value:
         return ""
+    if len(value) > _IMAGE_MAX_CHARS:
+        raise HTTPException(422, f"{field}가 너무 큽니다 (약 1.5MB 이하)")
     if not value.startswith("data:"):
         raise HTTPException(422, f"{field}는 파일 첨부만 가능합니다")
     mime = value[5:].split(";")[0]
@@ -155,13 +166,42 @@ def display_name(user, profile: Optional[UserProfile]) -> str:
         return profile.nickname
     return user.username if user else "알 수 없음"
 
+# ── 좋아요 여부 조회 ──────────────────────────────────────────
+def _liked_post_ids(db: Session, uid: Optional[int], post_ids: list) -> set:
+    """이 목록 중 내가 좋아요한 글의 id만 뽑는다.
+
+    예전에는 글마다 좋아요 행을 통째로 불러와(selectinload) 그 안에서 내 id를
+    찾았다. 화면에 필요한 건 '내가 눌렀는가' 한 줄인데, 좋아요 5천 개짜리 글이
+    한 페이지에 몇 개만 있어도 수만 행을 읽어 버린다. 개수는 like_count 컬럼에
+    이미 있으므로 내 것만 물어보면 된다."""
+    if not uid or not post_ids:
+        return set()
+    rows = db.query(StockPostLike.post_id).filter(
+        StockPostLike.user_id == uid, StockPostLike.post_id.in_(post_ids)
+    ).all()
+    return {r[0] for r in rows}
+
+
+def _liked_comment_ids(db: Session, uid: Optional[int], comment_ids: list) -> set:
+    """댓글도 같은 이유로 내가 누른 것만 조회한다"""
+    if not uid or not comment_ids:
+        return set()
+    rows = db.query(StockCommentLike.comment_id).filter(
+        StockCommentLike.user_id == uid, StockCommentLike.comment_id.in_(comment_ids)
+    ).all()
+    return {r[0] for r in rows}
+
+
 # ── 직렬화 ────────────────────────────────────────────────────
 def _ser_post(post: StockPost, uid: Optional[int], db: Session,
               profiles_map: Optional[dict] = None,
               comment_counts: Optional[dict] = None,
               following_ids: Optional[set] = None,
-              poll_votes_map: Optional[dict] = None) -> dict:
-    liked  = any(lk.user_id == uid for lk in post.likes) if uid else False
+              poll_votes_map: Optional[dict] = None,
+              liked_ids: Optional[set] = None) -> dict:
+    liked = (post.id in liked_ids) if liked_ids is not None else (
+        any(lk.user_id == uid for lk in post.likes) if uid else False
+    )
     parsed = decode_content(post.content)
     profile = profiles_map.get(post.user_id) if profiles_map is not None else (
         get_profile(db, post.user_id) if post.user else None
@@ -210,8 +250,11 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "is_following":  (post.user_id in following_ids) if following_ids is not None and uid and post.user_id != uid else False,
     }
 
-def _ser_comment(c: StockComment, uid: Optional[int], db: Session, profiles_map: Optional[dict] = None) -> dict:
-    liked   = any(lk.user_id == uid for lk in c.likes) if uid else False
+def _ser_comment(c: StockComment, uid: Optional[int], db: Session, profiles_map: Optional[dict] = None,
+                 liked_ids: Optional[set] = None) -> dict:
+    liked = (c.id in liked_ids) if liked_ids is not None else (
+        any(lk.user_id == uid for lk in c.likes) if uid else False
+    )
     profile = profiles_map.get(c.user_id) if profiles_map is not None else (get_profile(db, c.user_id) if c.user else None)
     replies = []
     if c.replies:
@@ -220,7 +263,9 @@ def _ser_comment(c: StockComment, uid: Optional[int], db: Session, profiles_map:
         for r in sorted([x for x in c.replies if not x.is_deleted and not x.is_blinded],
                         key=lambda x: x.created_at):
             rp = profiles_map.get(r.user_id) if profiles_map is not None else (get_profile(db, r.user_id) if r.user else None)
-            r_liked = any(lk.user_id == uid for lk in r.likes) if uid else False
+            r_liked = (r.id in liked_ids) if liked_ids is not None else (
+                any(lk.user_id == uid for lk in r.likes) if uid else False
+            )
             replies.append({
                 "id":           r.id,
                 "parent_id":    c.id,
@@ -337,7 +382,7 @@ class PostCreate(BaseModel):
     title:     str = ""
     body:      str = ""
     content:   str = ""  # backwards compat: old frontend sends {content}
-    image:     str = ""
+    image:     str = Field("", max_length=_IMAGE_MAX_CHARS)
     poll:      Optional[PollIn] = None
     # 직접 붙이는 태그는 화면에서 5개까지지만, 포트폴리오 공유는 보유 종목
     # 수만큼 태그가 자동으로 붙는다. 5로 잡으면 종목이 많은 사람은 공유가 막힌다.
@@ -364,7 +409,7 @@ class ProfileUpdate(BaseModel):
     nickname:     Optional[str] = None
     avatar_color: Optional[int] = None
     bio:          Optional[str] = None
-    avatar_url:   Optional[str] = Field(None, max_length=2_000_000)
+    avatar_url:   Optional[str] = Field(None, max_length=_IMAGE_MAX_CHARS)
 
 # ── 게시글 목록 ────────────────────────────────────────────────
 @router.get("/{market}/{symbol}/posts")
@@ -396,7 +441,6 @@ def list_posts(
         q.options(
             defer(StockPost.comment_count),
             defer(StockPost.updated_at),
-            selectinload(StockPost.likes),
             selectinload(StockPost.user),
         )
         .offset((page - 1) * limit)
@@ -426,14 +470,60 @@ def list_posts(
                 UserFollow.follower_id == uid, UserFollow.following_id.in_(others)
             ).all()
             lp_following_ids = {r[0] for r in fol_rows}
+    lp_liked_ids = _liked_post_ids(db, uid, post_ids)
     # 투표 일괄 조회 (N+1 방지)
     lp_poll_votes: dict = {}
     if post_ids:
         for v in db.query(StockPostPollVote).filter(StockPostPollVote.post_id.in_(post_ids)).all():
             lp_poll_votes.setdefault(v.post_id, []).append(v)
     return {"total": total, "page": page, "items": [
-        _ser_post(p, uid, db, profiles_map, comment_counts, lp_following_ids, lp_poll_votes) for p in posts
+        _ser_post(p, uid, db, profiles_map, comment_counts, lp_following_ids, lp_poll_votes,
+                  lp_liked_ids) for p in posts
     ]}
+
+
+# ── 알림 쌓기 ─────────────────────────────────────────────────
+_NOTI_PREVIEW_MAX = 100
+# 같은 사람이 같은 대상에 몇 번을 눌러도 알림은 한 번만 남기는 종류
+_NOTI_ONCE_KINDS = frozenset({"post_like", "comment_like", "follow"})
+
+
+def _notify(db: Session, *, user_id: int, actor_id: int, kind: str,
+            post_id: Optional[int] = None, comment_id: Optional[int] = None,
+            preview: str = "") -> None:
+    """반응이 생겼을 때 알림 한 줄을 남긴다.
+
+    알림은 곁다리 기능이다. 여기서 실패했다고 원래 하려던 일(댓글 작성,
+    좋아요)까지 같이 실패하면 안 된다. 그래서 반드시 '원래 작업을 커밋한
+    뒤에' 호출하고, 실패하면 알림만 되돌린다.
+    내가 내 글에 다는 댓글처럼 자기 행동은 알리지 않는다."""
+    if not user_id or user_id == actor_id:
+        return
+    try:
+        if kind in _NOTI_ONCE_KINDS:
+            # 좋아요·팔로우는 '한 사람이 한 번 누른 상태'이지 사건의 연속이 아니다.
+            # 껐다 켜기를 반복하면 알림이 계속 쌓여 상대 알림함을 도배할 수 있었다
+            # (요청 제한만으로는 분당 30건까지 통과한다).
+            dup = db.query(Notification.id).filter(
+                Notification.user_id == user_id,
+                Notification.actor_id == actor_id,
+                Notification.kind == kind,
+                Notification.post_id.is_(None) if post_id is None else Notification.post_id == post_id,
+                Notification.comment_id.is_(None) if comment_id is None else Notification.comment_id == comment_id,
+            ).first()
+            if dup:
+                return
+        db.add(Notification(
+            user_id=user_id, actor_id=actor_id, kind=kind,
+            post_id=post_id, comment_id=comment_id,
+            preview=(preview or "")[:_NOTI_PREVIEW_MAX] or None,
+        ))
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 # ── 게시글 작성 ────────────────────────────────────────────────
@@ -468,7 +558,10 @@ def create_post(
             row = result.fetchone()
             post_id = row[0]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"글 등록 실패: {type(e).__name__}: {str(e)[:300]}")
+        # 예전에는 예외 원문을 그대로 돌려줘 테이블·컬럼 구조가 노출됐다.
+        # 원인은 서버 로그로 남기고 사용자에게는 상황만 알린다
+        log.exception("글 등록 실패 (user=%s, symbol=%s)", uid_val, sym_upper)
+        raise HTTPException(status_code=500, detail="글 등록에 실패했습니다. 잠시 후 다시 시도해 주세요")
 
     return {
         "id":            post_id,
@@ -500,7 +593,7 @@ class PostUpdate(BaseModel):
     body:  str = ""
     tags:  Optional[list[TagIn]] = Field(None, max_length=_TAGS_MAX)
     poll:  Optional[PollIn] = None
-    image: Optional[str] = None
+    image: Optional[str] = Field(None, max_length=_IMAGE_MAX_CHARS)
 
     _body  = field_validator("body")(classmethod(lambda cls, v: _check_body(v)))
     _title = field_validator("title")(classmethod(lambda cls, v: _check_title(v)))
@@ -566,6 +659,9 @@ def delete_post(
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     if post.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(403, "삭제 권한이 없습니다")
+    # 알림이 이 글·댓글을 참조하므로 먼저 지운다. 남겨두면 외래키 때문에
+    # 글 삭제 자체가 실패한다
+    db.execute(text("DELETE FROM notifications WHERE post_id = :pid"), {"pid": post_id})
     db.execute(text("DELETE FROM stock_post_poll_votes WHERE post_id = :pid"), {"pid": post_id})
     db.execute(text("DELETE FROM stock_comment_likes WHERE comment_id IN (SELECT id FROM stock_comments WHERE post_id = :pid)"), {"pid": post_id})
     db.execute(text("DELETE FROM stock_comments WHERE post_id = :pid"), {"pid": post_id})
@@ -602,8 +698,13 @@ def toggle_post_like(
         db.add(StockPostLike(post_id=post_id, user_id=current_user.id))
         post.like_count += 1
         liked = True
+    like_count = post.like_count
+    author_id = post.user_id
     db.commit()
-    return {"liked": liked, "like_count": post.like_count}
+    if liked:
+        _notify(db, user_id=author_id, actor_id=current_user.id,
+                kind="post_like", post_id=post_id)
+    return {"liked": liked, "like_count": like_count}
 
 
 # ── 게시글 단건 조회 ──────────────────────────────────────────
@@ -620,7 +721,6 @@ def get_post(
         .options(
             defer(StockPost.comment_count),
             defer(StockPost.updated_at),
-            selectinload(StockPost.likes),
             selectinload(StockPost.user),
         )
         .first()
@@ -650,7 +750,9 @@ def get_post(
     gp_poll_votes: dict = {}
     for v in db.query(StockPostPollVote).filter(StockPostPollVote.post_id == post_id).all():
         gp_poll_votes.setdefault(v.post_id, []).append(v)
-    return _ser_post(post, uid, db, {post.user_id: profile} if profile else None, {post_id: comment_count}, following_ids, gp_poll_votes)
+    return _ser_post(post, uid, db, {post.user_id: profile} if profile else None,
+                     {post_id: comment_count}, following_ids, gp_poll_votes,
+                     _liked_post_ids(db, uid, [post_id]))
 
 
 # ── 댓글 목록 ─────────────────────────────────────────────────
@@ -678,25 +780,27 @@ def list_comments(
             StockComment.is_blinded.isnot(True),
         )
         .options(
-            selectinload(StockComment.likes),
             selectinload(StockComment.user),
-            selectinload(StockComment.replies).selectinload(StockComment.likes),
             selectinload(StockComment.replies).selectinload(StockComment.user),
         )
         .order_by(order)
         .all()
     )
-    # 모든 댓글/답글 작성자 프로필 일괄 조회
+    # 작성자 프로필과 '내가 누른 좋아요'를 각각 한 번에 가져온다
     all_user_ids: set = set()
+    all_comment_ids: list = []
     for c in root:
         all_user_ids.add(c.user_id)
+        all_comment_ids.append(c.id)
         for r in c.replies:
             all_user_ids.add(r.user_id)
+            all_comment_ids.append(r.id)
     cm_profiles_map: dict = (
         {p.user_id: p for p in db.query(UserProfile).filter(UserProfile.user_id.in_(list(all_user_ids))).all()}
         if all_user_ids else {}
     )
-    return [_ser_comment(c, uid, db, cm_profiles_map) for c in root]
+    cm_liked = _liked_comment_ids(db, uid, all_comment_ids)
+    return [_ser_comment(c, uid, db, cm_profiles_map, cm_liked) for c in root]
 
 
 # ── 댓글 작성 ─────────────────────────────────────────────────
@@ -717,6 +821,7 @@ def create_comment(
     )
     if not post:
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
+    parent = None
     if body.parent_id:
         parent = db.query(StockComment).filter(
             StockComment.id == body.parent_id, StockComment.post_id == post_id,
@@ -724,12 +829,27 @@ def create_comment(
         ).first()
         if not parent:
             raise HTTPException(404, "부모 댓글을 찾을 수 없습니다")
+    post_author_id = post.user_id
+    parent_author_id = parent.user_id if parent else None
     c = StockComment(post_id=post_id, parent_id=body.parent_id,
                      user_id=current_user.id, content=body.content.strip())
     db.add(c)
     db.commit()
     db.refresh(c)
     uid = current_user.id
+
+    # 답글이면 부모 댓글 작성자에게, 아니면 글쓴이에게 알린다.
+    # 답글이 글쓴이의 댓글에 달린 경우 두 번 알리지 않도록 받는 사람을 모아서 처리한다
+    if parent_author_id is not None:
+        _notify(db, user_id=parent_author_id, actor_id=uid, kind="reply",
+                post_id=post_id, comment_id=c.id, preview=c.content)
+        if post_author_id != parent_author_id:
+            _notify(db, user_id=post_author_id, actor_id=uid, kind="comment",
+                    post_id=post_id, comment_id=c.id, preview=c.content)
+    else:
+        _notify(db, user_id=post_author_id, actor_id=uid, kind="comment",
+                post_id=post_id, comment_id=c.id, preview=c.content)
+
     profile = get_profile(db, uid)
     return {
         "id": c.id, "parent_id": c.parent_id, "user_id": uid,
@@ -778,7 +898,9 @@ def delete_comment(
         raise HTTPException(404, "댓글을 찾을 수 없습니다")
     if c.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(403, "삭제 권한이 없습니다")
-    # 대댓글 좋아요 → 대댓글 → 댓글 좋아요 순으로 명시적 삭제
+    # 대댓글 좋아요 → 대댓글 → 댓글 좋아요 순으로 명시적 삭제.
+    # 이 댓글과 대댓글을 가리키는 알림도 함께 지운다(외래키)
+    db.execute(text("DELETE FROM notifications WHERE comment_id = :cid OR comment_id IN (SELECT id FROM stock_comments WHERE parent_id = :cid)"), {"cid": comment_id})
     db.execute(text("DELETE FROM stock_comment_likes WHERE comment_id IN (SELECT id FROM stock_comments WHERE parent_id = :cid)"), {"cid": comment_id})
     db.execute(text("DELETE FROM stock_comments WHERE parent_id = :cid"), {"cid": comment_id})
     db.execute(text("DELETE FROM stock_comment_likes WHERE comment_id = :cid"), {"cid": comment_id})
@@ -809,8 +931,12 @@ def toggle_comment_like(
         db.add(StockCommentLike(comment_id=comment_id, user_id=current_user.id))
         c.like_count += 1
         liked = True
+    like_count, author_id, post_id, preview = c.like_count, c.user_id, c.post_id, c.content
     db.commit()
-    return {"liked": liked, "like_count": c.like_count}
+    if liked:
+        _notify(db, user_id=author_id, actor_id=current_user.id, kind="comment_like",
+                post_id=post_id, comment_id=comment_id, preview=preview)
+    return {"liked": liked, "like_count": like_count}
 
 
 # ── 전체 피드 ─────────────────────────────────────────────────
@@ -847,7 +973,6 @@ def get_feed(
         q.options(
             defer(StockPost.comment_count),
             defer(StockPost.updated_at),
-            selectinload(StockPost.likes),
             selectinload(StockPost.user),
         )
         .offset((page - 1) * limit)
@@ -875,13 +1000,15 @@ def get_feed(
                 UserFollow.follower_id == uid, UserFollow.following_id.in_(others)
             ).all()
             feed_following_ids = {r[0] for r in fol_rows}
+    feed_liked_ids = _liked_post_ids(db, uid, post_ids)
     # 투표 일괄 조회 (N+1 방지)
     feed_poll_votes: dict = {}
     if post_ids:
         for v in db.query(StockPostPollVote).filter(StockPostPollVote.post_id.in_(post_ids)).all():
             feed_poll_votes.setdefault(v.post_id, []).append(v)
     return {"total": total, "page": page, "items": [
-        _ser_post(p, uid, db, profiles_map, feed_comment_counts, feed_following_ids, feed_poll_votes) for p in posts
+        _ser_post(p, uid, db, profiles_map, feed_comment_counts, feed_following_ids, feed_poll_votes,
+                  feed_liked_ids) for p in posts
     ]}
 
 
@@ -1022,6 +1149,7 @@ def toggle_follow(
     else:
         db.add(UserFollow(follower_id=current_user.id, following_id=user_id))
         db.commit()
+        _notify(db, user_id=user_id, actor_id=current_user.id, kind="follow")
         return {"followed": True}
 
 
@@ -1164,6 +1292,99 @@ def get_following(user_id: int = Path(...), db: Session = Depends(get_db)):
         }
         for uid in following_ids if uid in users
     ]
+
+
+# ── 알림 ─────────────────────────────────────────────────────────────────────
+#
+# 목록은 자주 열리지 않지만 '안 읽은 개수'는 화면에 종이 떠 있는 내내 주기적으로
+# 물어보게 된다. 그래서 개수는 COUNT 한 번만 하는 별도 엔드포인트로 분리하고,
+# 사람이 셀 수 있는 수준을 넘어가면 굳이 정확한 수를 세지 않는다.
+_NOTI_COUNT_CAP = 99
+_NOTI_PAGE_SIZE = 30
+
+
+@router.get("/notifications/unread-count")
+def get_unread_notification_count(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    row = db.execute(text("""
+        SELECT COUNT(*) FROM (
+            SELECT 1 FROM notifications
+            WHERE user_id = :uid AND is_read IS NOT TRUE
+            LIMIT :cap
+        ) t
+    """), {"uid": current_user.id, "cap": _NOTI_COUNT_CAP + 1}).fetchone()
+    n = row[0] if row else 0
+    return {"count": min(n, _NOTI_COUNT_CAP), "capped": n > _NOTI_COUNT_CAP}
+
+
+@router.get("/notifications")
+def list_notifications(
+    page: int = Query(1, ge=1),
+    db:   Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    rows = (
+        db.query(Notification)
+        .filter(Notification.user_id == current_user.id)
+        .order_by(Notification.created_at.desc(), Notification.id.desc())
+        .offset((page - 1) * _NOTI_PAGE_SIZE)
+        .limit(_NOTI_PAGE_SIZE)
+        .all()
+    )
+    # 보낸 사람 이름·사진을 한 번에 가져온다 (알림마다 조회하면 30번이 된다)
+    actor_ids = list({r.actor_id for r in rows if r.actor_id})
+    actors   = {u.id: u for u in db.query(User).filter(User.id.in_(actor_ids)).all()} if actor_ids else {}
+    profiles = ({p.user_id: p for p in db.query(UserProfile).filter(UserProfile.user_id.in_(actor_ids)).all()}
+                if actor_ids else {})
+    return {"items": [{
+        "id":           r.id,
+        "kind":         r.kind,
+        "post_id":      r.post_id,
+        "comment_id":   r.comment_id,
+        "preview":      r.preview,
+        "is_read":      bool(r.is_read),
+        "created_at":   r.created_at.isoformat() if r.created_at else "",
+        "actor_id":     r.actor_id,
+        "actor_name":   display_name(actors.get(r.actor_id), profiles.get(r.actor_id)),
+        "actor_color":  profiles[r.actor_id].avatar_color if r.actor_id in profiles else 0,
+        "actor_avatar": profiles[r.actor_id].avatar_url if r.actor_id in profiles else None,
+    } for r in rows]}
+
+
+@router.post("/notifications/read-all")
+@limiter.limit("30/minute")
+def mark_all_notifications_read(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    db.execute(
+        text("UPDATE notifications SET is_read = true WHERE user_id = :uid AND is_read IS NOT TRUE"),
+        {"uid": current_user.id},
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/notifications/{noti_id}/read")
+@limiter.limit("120/minute")
+def mark_notification_read(
+    request: Request,
+    noti_id: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    # user_id 조건이 없으면 남의 알림도 읽음 처리할 수 있다
+    result = db.execute(
+        text("UPDATE notifications SET is_read = true WHERE id = :id AND user_id = :uid"),
+        {"id": noti_id, "uid": current_user.id},
+    )
+    db.commit()
+    if result.rowcount == 0:
+        raise HTTPException(404, "알림을 찾을 수 없습니다")
+    return {"ok": True}
 
 
 # ── 신고 ─────────────────────────────────────────────────────────────────────

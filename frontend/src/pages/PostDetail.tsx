@@ -10,6 +10,7 @@ import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import AvatarComponent from "@/components/community/Avatar";
+import { BODY_MAX, TITLE_MAX, COMMENT_MAX, POLL_QUESTION_MAX, POLL_OPTION_MAX } from "@/constants/community";
 
 async function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -385,7 +386,7 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
                   e.target.style.height = Math.min(e.target.scrollHeight, 80) + "px";
                 }}
                 onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submitReply())}
-                placeholder="답글을 입력하세요..." maxLength={500}
+                placeholder="답글을 입력하세요..." maxLength={COMMENT_MAX}
                 className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
               <button onClick={submitReply} disabled={submitting}
                 className="shrink-0 mb-0.5 transition-all active:scale-90">
@@ -703,10 +704,10 @@ export default function PostDetail() {
             </div>
             {activePost.is_mine && (
               <div className="flex items-center gap-1">
-                <button onClick={startEdit} className="p-1.5 text-text-dim hover:text-accent-blue transition-colors rounded-lg hover:bg-bg-elevated">
+                <button onClick={startEdit} aria-label="게시글 수정" title="수정" className="p-1.5 text-text-dim hover:text-accent-blue transition-colors rounded-lg hover:bg-bg-elevated">
                   <Pencil size={15} />
                 </button>
-                <button onClick={handleDelete} className="p-1.5 text-text-dim hover:text-accent-red transition-colors rounded-lg hover:bg-bg-elevated">
+                <button onClick={handleDelete} aria-label="게시글 삭제" title="삭제" className="p-1.5 text-text-dim hover:text-accent-red transition-colors rounded-lg hover:bg-bg-elevated">
                   <Trash2 size={15} />
                 </button>
               </div>
@@ -725,12 +726,12 @@ export default function PostDetail() {
                 }} />
               {/* 제목 + 본문 */}
               <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
-                placeholder="제목 (선택사항)" maxLength={100}
+                placeholder="제목 (선택사항)" maxLength={TITLE_MAX}
                 className="w-full bg-transparent border-none text-sm font-semibold text-text-primary placeholder:text-text-dim focus:outline-none" />
               <div className="h-px bg-border/50" />
               <textarea ref={editBodyRef} value={editBody}
                 onChange={e => { setEditBody(e.target.value); const el = e.target; el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; }}
-                placeholder="의견을 입력하세요..." maxLength={5000}
+                placeholder="의견을 입력하세요..." maxLength={BODY_MAX}
                 className="w-full bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
                 style={{ minHeight: "5rem" }} />
 
@@ -763,13 +764,13 @@ export default function PostDetail() {
                     <button onClick={() => setEditShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
                   </div>
                   <input value={editPollQuestion} onChange={e => setEditPollQuestion(e.target.value)}
-                    placeholder="투표 질문을 입력하세요" maxLength={100}
+                    placeholder="투표 질문을 입력하세요" maxLength={POLL_QUESTION_MAX}
                     className="w-full px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
                   {editPollOptions.map((opt, i) => (
                     <div key={i} className="flex gap-1.5">
                       <input value={opt}
                         onChange={e => { const n = [...editPollOptions]; n[i] = e.target.value; setEditPollOptions(n); }}
-                        placeholder={`선택지 ${i + 1}`} maxLength={50}
+                        placeholder={`선택지 ${i + 1}`} maxLength={POLL_OPTION_MAX}
                         className="flex-1 px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
                       {editPollOptions.length > 2 && (
                         <button onClick={() => setEditPollOptions(prev => prev.filter((_, j) => j !== i))} className="text-text-dim hover:text-accent-red"><X size={12} /></button>
@@ -837,7 +838,7 @@ export default function PostDetail() {
                     className={`p-1.5 rounded-lg transition-all ${(editShowTagSearch || editTags.length > 0) ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}>
                     <Hash size={14} />
                   </button>
-                  <span className="text-2xs text-text-dim ml-1">{editBody.length}/5000</span>
+                  <span className="text-2xs text-text-dim ml-1">{editBody.length}/{BODY_MAX}</span>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={cancelEdit}
@@ -996,7 +997,7 @@ export default function PostDetail() {
                     onChange={e => { setCommentText(e.target.value); autoResize(e.target); }}
                     onKeyDown={e => (e.ctrlKey || e.metaKey) && e.key === "Enter" && (e.preventDefault(), submitComment())}
                     placeholder="댓글을 입력하세요..."
-                    maxLength={5000}
+                    maxLength={BODY_MAX}
                     className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
                   <button onClick={submitComment} disabled={submittingComment}
                     className="shrink-0 mb-0.5 transition-all active:scale-90">

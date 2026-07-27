@@ -12,53 +12,21 @@ import api from "@/api/client";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import PortfolioChart, { type PfPortfolioForChart } from "@/components/portfolio/PortfolioChart";
+import { compressImage } from "@/utils/image";
+import { useMyProfile } from "@/hooks/useMyProfile";
+import Avatar from "@/components/community/Avatar";
+import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
 
 type SortType = "latest" | "likes";
 type MarketFilter = "ALL" | "KR" | "US" | "ETF";
 type FeedType = "all" | "following";
 
-const AVATAR_COLORS = [
-  "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  "bg-rose-500/20 text-rose-400 border-rose-500/30",
-  "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-  "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
-  "bg-orange-500/20 text-orange-400 border-orange-500/30",
-];
 
 const MARKET_BADGE: Record<string, string> = {
   KR:  "bg-blue-500/15 text-blue-400 border-blue-500/20",
   US:  "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
   ETF: "bg-purple-500/15 text-purple-400 border-purple-500/20",
 };
-
-async function compressImage(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const maxSize = 800;
-      let { width, height } = img;
-      if (width > maxSize || height > maxSize) {
-        const ratio = Math.min(maxSize / width, maxSize / height);
-        width = Math.round(width * ratio);
-        height = Math.round(height * ratio);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { URL.revokeObjectURL(url); reject(new Error("canvas unavailable")); return; }
-      ctx.drawImage(img, 0, 0, width, height);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", 0.7));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image load failed")); };
-    img.src = url;
-  });
-}
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -119,7 +87,6 @@ const FeedCard = memo(function FeedCard({
   const { isLoggedIn } = useAuthStore();
   const navigate = useNavigate();
   const badgeCls = MARKET_BADGE[post.market] ?? MARKET_BADGE.KR;
-  const avatarCls = AVATAR_COLORS[post.avatar_color % AVATAR_COLORS.length];
   const [copied, setCopied] = useState(false);
   const [showFull, setShowFull] = useState(false);
 
@@ -143,16 +110,8 @@ const FeedCard = memo(function FeedCard({
     >
       <div className="flex gap-3">
         {/* 아바타 */}
-        <Link to={post.is_mine ? "/mypage" : `/profile/${post.user_id}`}>
-          {post.avatar_url ? (
-            <img src={post.avatar_url} alt={post.username}
-              className="w-7 h-7 rounded-full object-cover border border-border shrink-0" />
-          ) : (
-            <div className={`w-7 h-7 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 ${avatarCls}`}>
-              {post.username[0]?.toUpperCase()}
-            </div>
-          )}
-        </Link>
+        <Avatar username={post.username} colorIndex={post.avatar_color} avatarUrl={post.avatar_url}
+                userId={post.user_id} isMine={post.is_mine} size="base" />
 
         <div className="flex-1 min-w-0">
           {/* 헤더: 유저·시간·종목 */}
@@ -340,7 +299,7 @@ const FeedCard = memo(function FeedCard({
 });
 
 function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
-  const { isLoggedIn, username } = useAuthStore();
+  const { isLoggedIn } = useAuthStore();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"stock" | "portfolio">("stock");
@@ -498,7 +457,13 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
   const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    try { setImage(await compressImage(file)); } catch {}
+    try {
+      setImage(await compressImage(file));
+      setError("");
+    } catch (err) {
+      // 예전에는 조용히 무시해서, 잘못된 파일을 골라도 아무 반응이 없었다
+      setError(err instanceof Error ? err.message : "이미지를 첨부할 수 없습니다");
+    }
     e.target.value = "";
   };
 
@@ -547,13 +512,8 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
     }),
   }] : [];
 
-  // Avatar color from username (same algorithm as CommunityTab)
-  const myColorIndex = (() => {
-    const u = username ?? "";
-    let h = 0;
-    for (let i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) % AVATAR_COLORS.length;
-    return h;
-  })();
+
+  const { displayName: myName, avatarColor: myAvatarColor, avatarUrl: myAvatarUrl } = useMyProfile();
 
   const handleSubmit = async () => {
     if (submitting) return;
@@ -634,9 +594,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
           onClick={() => setOpen(true)}
           className="w-full flex items-center gap-3 px-4 py-4 text-left hover:bg-bg-elevated transition-all group"
         >
-          <div className={`w-7 h-7 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 ${AVATAR_COLORS[myColorIndex]}`}>
-            {(username ?? "?")[0]?.toUpperCase()}
-          </div>
+          <Avatar username={myName} colorIndex={myAvatarColor} avatarUrl={myAvatarUrl} size="base" />
           <span className="flex-1 text-sm text-text-dim group-hover:text-text-secondary transition-colors">
             종목 의견이나 포트폴리오를 공유해보세요...
           </span>
@@ -670,7 +628,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             <BarChart2 size={11} />포트폴리오 공유
           </button>
         </div>
-        <button onClick={reset} className="p-1.5 text-text-dim hover:text-text-primary transition-colors mb-1">
+        <button onClick={reset} aria-label="작성 취소" title="작성 취소" className="p-1.5 text-text-dim hover:text-text-primary transition-colors mb-1">
           <X size={14} />
         </button>
       </div>
@@ -752,15 +710,15 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
 
         {/* 아바타 + 입력 */}
         <div className="flex gap-3">
-          <div className={`w-7 h-7 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 ${AVATAR_COLORS[myColorIndex]}`}>
-            {(username ?? "?")[0]?.toUpperCase()}
+          <div className="mt-0.5">
+            <Avatar username={myName} colorIndex={myAvatarColor} avatarUrl={myAvatarUrl} size="base" />
           </div>
           <div className="flex-1 flex flex-col gap-2">
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="제목 (선택사항)"
-              maxLength={100}
+              maxLength={TITLE_MAX}
               className="w-full px-0 py-0 bg-transparent border-none text-sm font-semibold text-text-primary placeholder:text-text-dim focus:outline-none"
             />
             <div className="h-px bg-border/50" />
@@ -770,7 +728,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
               onChange={(e) => { setBody(e.target.value); autoResize(); }}
               onFocus={() => { fetch(`${import.meta.env.VITE_API_URL || ""}/api/v1/dashboard/indices`).catch(() => {}); }}
               placeholder={mode === "portfolio" ? "포트폴리오에 대한 설명을 입력하세요... (선택사항)" : "의견을 입력하세요..."}
-              maxLength={5000}
+              maxLength={BODY_MAX}
               className="w-full px-0 py-0 bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
               style={{ minHeight: "2.5rem" }}
             />
@@ -816,7 +774,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
               value={pollQuestion}
               onChange={(e) => setPollQuestion(e.target.value)}
               placeholder="투표 질문을 입력하세요"
-              maxLength={100}
+              maxLength={TITLE_MAX}
               className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
             />
             {pollOptions.map((opt, i) => (
@@ -825,7 +783,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
                   value={opt}
                   onChange={(e) => { const next = [...pollOptions]; next[i] = e.target.value; setPollOptions(next); }}
                   placeholder={`선택지 ${i + 1}`}
-                  maxLength={50}
+                  maxLength={POLL_OPTION_MAX}
                   className="flex-1 px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
                 />
                 {pollOptions.length > 2 && (
@@ -912,7 +870,7 @@ function FeedWritePanel({ onSubmitted }: { onSubmitted: () => void }) {
             >
               <Hash size={14} />
             </button>
-            <span className="text-2xs text-text-dim ml-1">{body.length}/5000</span>
+            <span className="text-2xs text-text-dim ml-1">{body.length}/{BODY_MAX}</span>
           </div>
           <button
             onClick={handleSubmit}

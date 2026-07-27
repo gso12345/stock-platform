@@ -5,6 +5,7 @@ import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
+import { COMMENT_MAX } from "@/constants/community";
 
 // ── 공용 타입 ─────────────────────────────────────────────────────
 export interface ModalPost {
@@ -259,7 +260,7 @@ function CommentItem({
               onChange={(e) => setReplyText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submitReply()}
               placeholder="답글 입력..."
-              maxLength={500}
+              maxLength={COMMENT_MAX}
               className="flex-1 px-3 py-1.5 bg-bg-elevated border border-border rounded-xl text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
             />
             <button
@@ -443,6 +444,7 @@ export default function PostDetailModal({
               <button
                 onClick={handleDelete}
                 className="p-2 rounded-xl text-text-dim hover:text-accent-red hover:bg-accent-red/10 transition-all"
+                aria-label="게시글 삭제"
                 title="삭제"
               >
                 <Trash2 size={14} />
@@ -450,6 +452,8 @@ export default function PostDetailModal({
             )}
             <button
               onClick={onClose}
+              aria-label="닫기"
+              title="닫기"
               className="p-2 rounded-xl text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all"
             >
               <X size={16} />
@@ -590,7 +594,7 @@ export default function PostDetailModal({
                 onChange={(e) => setCommentText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submitComment()}
                 placeholder="댓글을 입력하세요..."
-                maxLength={500}
+                maxLength={COMMENT_MAX}
                 className="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
               />
               <button

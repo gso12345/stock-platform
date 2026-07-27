@@ -9,6 +9,7 @@ import type { ColorScheme, FontSize, Theme, Orientation } from "@/store/settings
 import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
 import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
+import NotificationBell from "@/components/community/NotificationBell";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/api/client";
@@ -397,6 +398,7 @@ export default function Layout() {
                 <Link to="/mypage" className="hidden sm:block text-text-muted text-xs font-medium truncate max-w-[120px] hover:text-accent-blue transition-colors" title={username ?? ""}>
                   {username}
                 </Link>
+                <NotificationBell />
                 {isAdmin && (
                   <Link to="/admin" className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-accent-blue/40 hover:bg-accent-blue/10 text-accent-blue transition-all" title="관리자 페이지">
                     <ShieldCheck size={13} />

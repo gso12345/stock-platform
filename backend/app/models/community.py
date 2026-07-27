@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.sql import func
 from app.db.database import Base
@@ -101,6 +101,29 @@ class StockPostPollVote(Base):
     user_id      = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     option_index = Column(Integer, nullable=False)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Notification(Base):
+    """내 글·댓글에 생긴 반응을 모아 보여준다.
+
+    읽지 않은 개수를 자주 물어보게 되므로 (user_id, is_read) 조합으로 찾는 일이
+    가장 잦다. 그래서 단일 컬럼 인덱스 대신 복합 인덱스를 둔다.
+    actor_id는 '누가' 했는지 — 알림 목록에서 이름·프로필 사진을 함께 보여준다.
+    """
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_user_unread", "user_id", "is_read", "created_at"),
+    )
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)   # 받는 사람
+    actor_id   = Column(Integer, ForeignKey("users.id"), nullable=True)                # 행동한 사람
+    kind       = Column(String(20), nullable=False)   # comment, reply, post_like, comment_like, follow
+    post_id    = Column(Integer, ForeignKey("stock_posts.id"), nullable=True, index=True)
+    comment_id = Column(Integer, ForeignKey("stock_comments.id"), nullable=True)
+    preview    = Column(String(100), nullable=True)   # 댓글 내용 앞부분 — 목록에서 바로 보이게
+    is_read    = Column(Boolean, default=False, nullable=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class SitePopup(Base):

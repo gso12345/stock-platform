@@ -431,4 +431,12 @@ export const communityApi = {
     api.post(`/community/posts/${postId}/report`, { reason }).then((r) => r.data),
   reportComment: (commentId: number, reason: string) =>
     api.post(`/community/comments/${commentId}/report`, { reason }).then((r) => r.data),
+  getNotifications: (page = 1) =>
+    api.get("/community/notifications", { params: { page } }).then((r) => r.data),
+  getUnreadNotificationCount: () =>
+    api.get("/community/notifications/unread-count").then((r) => r.data),
+  markNotificationRead: (notiId: number) =>
+    api.post(`/community/notifications/${notiId}/read`).then((r) => r.data),
+  markAllNotificationsRead: () =>
+    api.post("/community/notifications/read-all").then((r) => r.data),
 };

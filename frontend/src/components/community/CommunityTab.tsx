@@ -11,6 +11,9 @@ import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import api from "@/api/client";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import AvatarComponent from "@/components/community/Avatar";
+import { compressImage } from "@/utils/image";
+import { useMyProfile } from "@/hooks/useMyProfile";
+import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
 
 // ── 타입 ──────────────────────────────────────────────────────────
 interface PollData {
@@ -61,40 +64,6 @@ function timeAgo(iso: string) {
   return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
 }
 
-async function compressImage(file: File): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const maxSize = 800;
-      let { width, height } = img;
-      if (width > maxSize || height > maxSize) {
-        const ratio = Math.min(maxSize / width, maxSize / height);
-        width = Math.round(width * ratio);
-        height = Math.round(height * ratio);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", 0.7));
-    };
-    img.src = url;
-  });
-}
-
-// ── 아바타 ────────────────────────────────────────────────────────
-const AVATAR_COLORS = [
-  "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  "bg-rose-500/20 text-rose-400 border-rose-500/30",
-  "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-  "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
-  "bg-orange-500/20 text-orange-400 border-orange-500/30",
-];
 
 function Avatar({
   username, colorIndex, avatarUrl, size = "sm", userId, isMine,
@@ -374,7 +343,7 @@ const PostCard = memo(function PostCard({
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────
 export default function CommunityTab({ market, symbol }: { market: string; symbol: string }) {
-  const { isLoggedIn, username, userId } = useAuthStore();
+  const { isLoggedIn, userId } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -399,6 +368,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   const [tagResults, setTagResults] = useState<StockTag[]>([]);
   const [tags, setTags] = useState<StockTag[]>([{ symbol, market }]);
   const tagSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { displayName: myName, avatarColor: myAvatarColor, avatarUrl: myAvatarUrl } = useMyProfile();
 
   useEffect(() => {
     setPage(1);
@@ -485,10 +455,11 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const compressed = await compressImage(file);
-      setImage(compressed);
-    } catch {
-      /* ignore */
+      setImage(await compressImage(file));
+      setPostError(null);
+    } catch (err) {
+      // 예전에는 조용히 무시해서, 잘못된 파일을 골라도 아무 반응이 없었다
+      setPostError(err instanceof Error ? err.message : "이미지를 첨부할 수 없습니다");
     }
     e.target.value = "";
   };
@@ -615,12 +586,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
     }
   };
 
-  const myColorIndex = (() => {
-    const u = username ?? "";
-    let h = 0;
-    for (let i = 0; i < u.length; i++) h = (h * 31 + u.charCodeAt(i)) % AVATAR_COLORS.length;
-    return h;
-  })();
+
 
   return (
     <div className="flex flex-col gap-3">
@@ -662,13 +628,13 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
         {isLoggedIn ? (
           <div className="p-4 flex flex-col gap-2.5">
             <div className="flex gap-3">
-              <Avatar username={username ?? "?"} colorIndex={myColorIndex} size="md" userId={userId ?? undefined} isMine />
+              <Avatar username={myName} colorIndex={myAvatarColor} avatarUrl={myAvatarUrl} size="md" userId={userId ?? undefined} isMine />
               <div className="flex-1 flex flex-col gap-2">
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="제목 (선택)"
-                  maxLength={100}
+                  maxLength={TITLE_MAX}
                   className="w-full px-0 py-0 bg-transparent border-none text-sm font-semibold text-text-primary placeholder:text-text-dim focus:outline-none"
                 />
                 <div className="h-px bg-border/50" />
@@ -689,7 +655,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleSubmit();
                   }}
                   placeholder="이 종목에 대한 의견을 자유롭게 남겨보세요"
-                  maxLength={5000}
+                  maxLength={BODY_MAX}
                   rows={2}
                   className="w-full px-0 py-0 bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
                   style={{ minHeight: "2.5rem" }}
@@ -721,7 +687,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                       value={pollQuestion}
                       onChange={(e) => setPollQuestion(e.target.value)}
                       placeholder="투표 질문을 입력하세요"
-                      maxLength={100}
+                      maxLength={TITLE_MAX}
                       className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
                     />
                     {pollOptions.map((opt, i) => (
@@ -734,7 +700,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                             setPollOptions(next);
                           }}
                           placeholder={`선택지 ${i + 1}`}
-                          maxLength={50}
+                          maxLength={POLL_OPTION_MAX}
                           className="flex-1 px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
                         />
                         {pollOptions.length > 2 && (
@@ -846,7 +812,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                 >
                   <Hash size={14} />
                 </button>
-                <span className="text-2xs text-text-dim ml-1">{body.length}/5000</span>
+                <span className="text-2xs text-text-dim ml-1">{body.length}/{BODY_MAX}</span>
               </div>
               <button
                 onClick={handleSubmit}
