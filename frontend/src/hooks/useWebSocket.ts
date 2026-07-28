@@ -102,11 +102,10 @@ export function usePricesStream(
   symbols: string[],
   markets: string[],
   onUpdate: (prices: any[]) => void,
-  // 서버(/ws/prices)가 허용하는 범위는 10~60초 — 이보다 작은 값을 보내면
-  // 요청 검증에서 거부되어 연결이 곧바로 끊기고 재연결만 반복된다
-  interval = 30
+  // 서버가 허용하는 범위는 5~60초. 15초는 '숫자가 움직인다'고 느끼는 하한이면서
+  // 외부 시세 API를 차단당하지 않는 선이다(서버도 같은 주기로 값을 갱신한다).
+  interval = 15
 ) {
-  const enabled = symbols.length > 0;
   const rawSymbols = symbols.join(",");
   const rawMarkets = markets.join(",");
 
@@ -114,16 +113,27 @@ export function usePricesStream(
     // 심볼과 마켓을 쌍으로 묶어 심볼 기준 정렬 — 서버가 같은 종목 집합을 다른
     // 순서로 내려줘도 URL이 동일하게 유지되므로 불필요한 재연결이 생기지 않는다.
     // 서버는 zip(symbols, markets)로 짝을 맞추므로 쌍을 유지한 채 정렬해야 한다.
+    //
+    // 중복도 여기서 제거한다. 같은 종목을 여러 포트폴리오에 담으면 그만큼
+    // 구독 슬롯과 주소 길이를 낭비해, 실제 보유 종목이 적은데도 상한에 걸렸다.
     const syms = rawSymbols ? rawSymbols.split(",") : [];
     const mkts = rawMarkets ? rawMarkets.split(",") : [];
-    const pairs: [string, string][] = syms.map((s, i) => [s, mkts[i] ?? "US"]);
+    const seen = new Set<string>();
+    const pairs: [string, string][] = [];
+    syms.forEach((sym, i) => {
+      if (!sym || seen.has(sym)) return;
+      seen.add(sym);
+      pairs.push([sym, mkts[i] ?? "US"]);
+    });
     pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     const symbolsKey = pairs.map((p) => p[0]).join(",");
     const marketsKey = pairs.map((p) => p[1]).join(",");
     return `${getWsBase()}/ws/prices?symbols=${symbolsKey}&markets=${marketsKey}&interval=${interval}`;
   }, [rawSymbols, rawMarkets, interval]);
 
-  return useWebSocket<{ type: string; data: any[] }>(
+  const enabled = symbols.length > 0;
+
+  return useWebSocket<{ type: string; data: any[]; sent_at?: number }>(
     wsUrl,
     (msg) => {
       if (msg.type === "prices") onUpdate(msg.data);

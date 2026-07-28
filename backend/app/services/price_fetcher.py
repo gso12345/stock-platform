@@ -134,6 +134,55 @@ async def fetch_naver_stock(code6: str) -> dict | None:
         return await _fetch_naver_one(cl, code6)
 
 
+async def _fetch_naver_price_only(cl: httpx.AsyncClient, code6: str) -> dict | None:
+    """가격·등락만 가져온다 (basic 1회).
+
+    전체 조회(_fetch_naver_one)는 종목당 basic + integration 2회를 쓴다.
+    integration 이 주는 값(시가총액·PER·52주 등)은 초 단위로 변하지 않으므로,
+    자주 도는 실시간 갱신에서는 가격만 받아 기존 캐시에 덮어쓰면 된다.
+    요청 수가 절반이 되어 그만큼 주기를 당길 수 있다."""
+    try:
+        r = await cl.get(f"https://m.stock.naver.com/api/stock/{code6}/basic")
+        if r.status_code != 200:
+            return None
+        b = r.json()
+        curr = _safe(b.get("closePrice"))
+        if curr is None:
+            return None
+        exchange = str(b.get("stockExchangeType", {}).get("code", "KS"))
+        suffix = ".KQ" if "KQ" in exchange or "KOSDAQ" in exchange.upper() else ".KS"
+        return {
+            "symbol":      f"{code6}{suffix}",
+            "name":        b.get("stockName", ""),
+            "price":       curr,
+            "change":      round(_safe(b.get("compareToPreviousClosePrice")) or 0, 2),
+            "change_rate": round(_safe(b.get("fluctuationsRatio")) or 0, 2),
+            "currency":    "KRW",
+            "market":      "KOSDAQ" if "KQ" in exchange else "KOSPI",
+        }
+    except Exception:
+        return None
+
+
+async def fetch_naver_prices_light(codes: list[str], concurrency: int = 20) -> dict[str, dict]:
+    """여러 국내 종목의 가격만 조회.
+
+    동시 요청 수를 제한한다. 예전 fetch_naver_stocks 는 종목 수만큼 무제한으로
+    gather 해서, 종목이 많으면 httpx 커넥션 풀(기본 100)을 넘겨 대기하다
+    타임아웃으로 조용히 실패했다."""
+    if not codes:
+        return {}
+    sem = asyncio.Semaphore(concurrency)
+
+    async def one(cl, code):
+        async with sem:
+            return await _fetch_naver_price_only(cl, code)
+
+    async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
+        results = await asyncio.gather(*[one(cl, c) for c in codes], return_exceptions=True)
+    return {c: r for c, r in zip(codes, results) if isinstance(r, dict) and r}
+
+
 async def fetch_naver_stocks(codes: list[str]) -> dict[str, dict]:
     """여러 한국 종목 병렬 조회 — 단일 AsyncClient로 connection pool 재사용"""
     if not codes:

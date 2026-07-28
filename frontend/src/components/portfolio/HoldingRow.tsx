@@ -3,6 +3,7 @@ import { MarketBadge } from "@/components/ui";
 import { Pencil, Trash2, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { fmtKRWFull, fmtKRWFullSign, fmtUSDFull, fmtNative } from "@/utils/formatters";
 import type { EnrichedItem } from "@/types/portfolio";
+import LivePrice from "@/components/ui/LivePrice";
 
 /* ── Market badge ───────────────────────────────────────── */
 
@@ -121,9 +122,12 @@ export const HoldingCard = memo(function HoldingCard({
         <div className="flex flex-col gap-0.5">
           <span className="text-text-dim">현재가</span>
           <span className="font-mono text-text-secondary">
-            {!hasPrice ? "—"
-              : !isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
-              : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
+            {!hasPrice ? "—" : (
+              <LivePrice value={item.currentPriceNative}>
+                {!isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
+                  : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
+              </LivePrice>
+            )}
           </span>
         </div>
       </div>
@@ -172,9 +176,12 @@ export const HoldingTableRow = memo(function HoldingTableRow({
         )}
       </td>
       <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
-        {!hasPrice ? <span className="text-text-muted">—</span>
-          : !isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
-          : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
+        {!hasPrice ? <span className="text-text-muted">—</span> : (
+          <LivePrice value={item.currentPriceNative}>
+            {!isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
+              : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
+          </LivePrice>
+        )}
       </td>
       <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
         {hasPrice

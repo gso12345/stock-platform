@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
 import { Card, ChangeBadge, RowSkeleton, InlineSpinner, MarketBadge, ErrorToast } from "@/components/ui";
-import { usePricesStream } from "@/hooks/useWebSocket";
+import { useLivePrices } from "@/hooks/useLivePrices";
+import LiveBadge from "@/components/ui/LiveBadge";
 import { normalizeSymbol, lookupPrice, indexPricesBySymbol } from "@/utils/prices";
 import { PREVIEW_FOLDERS, PREVIEW_WATCHLIST, PreviewItemRow, type PreviewItem } from "@/components/watchlist/Preview";
 import { ItemRow } from "@/components/watchlist/ItemRow";
@@ -186,16 +187,26 @@ export default function Watchlist() {
     mergePrices(restPrices as any[], wsFresh ? wsSymbolsRef.current : undefined);
   }, [restPrices, mergePrices]);
 
-  /* WebSocket — 캐시에 있는 종목 실시간 업데이트 (주 경로) */
-  usePricesStream(symbols, markets, useCallback((prices: any[]) => {
-    const delivered = new Set<string>();
-    for (const p of prices) {
-      if (p?.symbol && !p.error && p.price != null) delivered.add(normalizeSymbol(p.symbol));
-    }
-    wsSymbolsRef.current   = delivered;
-    wsLastMsgAtRef.current = Date.now();
-    mergePrices(prices);
-  }, [mergePrices]), 30);
+  /* WebSocket — 실시간 시세 (주 경로).
+     연결이 오래 끊기면 받아둔 값을 버린다 — 안 그러면 끊긴 시점의 가격이
+     새로 받은 HTTP 시세를 계속 덮어써 화면이 과거에 멈춘다 */
+  const live = useLivePrices(
+    symbols, markets,
+    useCallback((prices: any[]) => {
+      const delivered = new Set<string>();
+      for (const p of prices) {
+        if (p?.symbol && !p.error && p.price != null) delivered.add(normalizeSymbol(p.symbol));
+      }
+      wsSymbolsRef.current   = delivered;
+      wsLastMsgAtRef.current = Date.now();
+      mergePrices(prices);
+    }, [mergePrices]),
+    useCallback(() => {
+      wsSymbolsRef.current = new Set();
+      wsLastMsgAtRef.current = 0;
+      setLivePrices({});
+    }, []),
+  );
 
   const addMutation = useMutation({
     mutationFn: (req: any) => watchlistApi.addItem({ ...req, watchlist_id: 1 }),
@@ -560,9 +571,14 @@ export default function Watchlist() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">관심종목</h1>
-          <p className="text-text-muted text-xs mt-0.5 truncate">
-            {isPreview ? `${PREVIEW_WATCHLIST.length}개 예시 종목` : `${itemsList.length}개 종목`}
-            <span className="hidden sm:inline"> · 클릭하면 상세로 이동</span>
+          <p className="text-text-muted text-xs mt-0.5 truncate flex items-center gap-2">
+            <span className="truncate">
+              {isPreview ? `${PREVIEW_WATCHLIST.length}개 예시 종목` : `${itemsList.length}개 종목`}
+            </span>
+            {isLoggedIn && symbols.length > 0 && (
+              <LiveBadge status={live.status} updatedAt={live.updatedAt}
+                         session={live.session} sessionLabel={live.sessionLabel} />
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">

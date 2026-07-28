@@ -13,6 +13,9 @@ class TTLCache:
     def __init__(self, maxsize: int = MAX_CACHE_SIZE):
         self._store: OrderedDict[str, tuple[Any, float]] = OrderedDict()
         self._stale: OrderedDict[str, Any] = OrderedDict()
+        # 값을 마지막으로 쓴 시각. 만료(_store에서 삭제)된 뒤에도 남는다 —
+        # stale 값을 내보낼 때 '얼마나 묵은 값인지' 알려주기 위한 것이다.
+        self._written: OrderedDict[str, float] = OrderedDict()
         self._maxsize = maxsize
         self._lock = threading.Lock()
 
@@ -29,6 +32,15 @@ class TTLCache:
             self._store.move_to_end(key)
             return value
 
+    def age(self, key: str) -> Optional[float]:
+        """이 값을 쓴 지 몇 초 지났는가. 쓴 적이 없으면 None.
+
+        만료 여부와 무관하다. 외부 API가 막혀 갱신이 끊긴 상태를
+        화면과 로그에서 알아볼 수 있게 하려고 둔다."""
+        with self._lock:
+            at = self._written.get(key)
+        return None if at is None else time.time() - at
+
     def get_stale(self, key: str) -> Optional[Any]:
         """만료됐더라도 마지막 값 반환 (rate limit 대비 폴백)"""
         fresh = self.get(key)
@@ -43,24 +55,32 @@ class TTLCache:
             if key not in self._store and len(self._store) >= self._maxsize:
                 oldest_key, _ = self._store.popitem(last=False)
                 self._stale.pop(oldest_key, None)
+                self._written.pop(oldest_key, None)
 
-            self._store[key] = (value, time.time() + ttl)
+            now = time.time()
+            self._store[key] = (value, now + ttl)
             self._store.move_to_end(key)
             self._stale[key] = value
+            self._written[key] = now
+            self._written.move_to_end(key)
 
             # stale도 크기 제한
             if len(self._stale) > self._maxsize:
                 self._stale.popitem(last=False)
+            if len(self._written) > self._maxsize:
+                self._written.popitem(last=False)
 
     def delete(self, key: str):
         with self._lock:
             self._store.pop(key, None)
             self._stale.pop(key, None)
+            self._written.pop(key, None)
 
     def clear(self):
         with self._lock:
             self._store.clear()
             self._stale.clear()
+            self._written.clear()
 
     def size(self) -> int:
         return len(self._store)
@@ -85,6 +105,7 @@ class TTLCache:
             for k in to_delete:
                 self._store.pop(k, None)
                 self._stale.pop(k, None)
+                self._written.pop(k, None)
             return len(to_delete)
 
 

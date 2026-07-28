@@ -6,7 +6,11 @@ services:
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # --forwarded-allow-ips: Render는 프록시 뒤에 있어 이 옵션이 없으면
+    # 모든 접속자의 client.host가 프록시 주소 하나로 잡힌다. 그러면 IP 기준
+    # 제한(WebSocket 동시 연결 수 등)이 '서비스 전체' 상한처럼 작동해,
+    # 접속자가 조금만 늘어도 뒷사람은 시세를 아예 못 받는다.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
     healthCheckPath: /health
     envVars:
       - key: APP_ENV

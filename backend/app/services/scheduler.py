@@ -5,12 +5,15 @@
 """
 import asyncio
 import logging
+import time
 from datetime import datetime
 from app.core.cache import cache
 from app.services.price_fetcher import (
     fetch_naver_indices, fetch_naver_stocks, fetch_naver_exchange,
+    fetch_naver_prices_light,
     fetch_yf_quotes, fetch_yf_index_quotes, fetch_pykrx_index,
 )
+from app.services import market_hours, watched
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
@@ -341,6 +344,93 @@ async def refresh_held_symbols():
         log.info(f"보유 미국/ETF 종목 시세 선제 캐싱: {ok}/{len(us_list)}개")
 
 
+# ── 지금 보고 있는 종목만 빠르게 갱신 ──────────────────────
+#
+# 예전에는 모든 사용자의 보유·관심종목을 5분마다 통째로 갱신했다. 그래서
+# WebSocket이 30초마다 값을 밀어도 실제 숫자는 5분에 한 번만 바뀌었다
+# (같은 값이 10~14번 반복 전송됐다).
+#
+# 지금은 WebSocket이 열려 있는 종목 = 누군가 화면에서 보고 있는 종목만
+# 갱신한다. 대상이 수십 개로 줄어드는 대신 주기를 장중 15초까지 당길 수 있다.
+# 아무도 안 보고 있으면 아무것도 하지 않는다.
+
+_WATCH_TTL_MULTIPLIER = 3   # TTL = 주기 × 3 (한두 번 실패해도 만료되지 않게)
+
+
+async def _refresh_watched_once() -> tuple[int, int]:
+    """보고 있는 종목을 한 번 갱신하고 (성공, 시도) 를 돌려준다"""
+    pairs = watched.snapshot()
+    if not pairs:
+        return 0, 0
+
+    kr_codes = sorted({s.replace(".KS", "").replace(".KQ", "") for s, m in pairs if m == "KR"})
+    us_syms  = sorted({s for s, m in pairs if m != "KR"})
+
+    # 국내는 종목당 1요청, 미국은 배치 1회로 끝나므로 국내 종목 수가 비용을 좌우한다
+    interval = market_hours.refresh_interval(
+        ([market_hours.kr_session()] if kr_codes else []) +
+        ([market_hours.us_session()] if us_syms else []),
+        symbol_count=len(kr_codes),
+    )
+    ttl = max(60, interval * _WATCH_TTL_MULTIPLIER)
+    ok = 0
+
+    if kr_codes:
+        try:
+            data = await fetch_naver_prices_light(kr_codes)
+            for code6, q in data.items():
+                # 가격만 새로 받았으므로 기존 값(시가총액·PER 등) 위에 덮어쓴다
+                for key in (code6, f"{code6}.KS", f"{code6}.KQ"):
+                    prev = cache.get_stale(f"price:{key}") or {}
+                    cache.set(f"price:{key}", {**prev, **q, "symbol": prev.get("symbol") or q["symbol"]}, ttl)
+                ok += 1
+            if len(data) < len(kr_codes):
+                log.warning(f"실시간 국내 시세 일부 실패: {len(data)}/{len(kr_codes)}")
+        except Exception as e:
+            log.warning(f"실시간 국내 시세 갱신 실패: {type(e).__name__}: {e}")
+
+    if us_syms:
+        try:
+            data = await fetch_yf_quotes(us_syms)
+            if not data:
+                # 예전에는 여기서 조용히 넘어가 몇 시간 된 값이 계속 나갔다
+                log.warning(f"실시간 해외 시세 응답 없음 ({len(us_syms)}종목) — 차단·한도 의심")
+            for sym, q in data.items():
+                if not q.get("price"):
+                    continue
+                prev = cache.get_stale(f"price:{sym}") or {}
+                cache.set(f"price:{sym}", {**prev, **{k: v for k, v in q.items() if v is not None}}, ttl)
+                ok += 1
+        except Exception as e:
+            log.warning(f"실시간 해외 시세 갱신 실패: {type(e).__name__}: {e}")
+
+    return ok, len(kr_codes) + len(us_syms)
+
+
+async def refresh_watched_loop():
+    """보고 있는 종목 전용 루프.
+
+    periodic_refresh 안에 두지 않는 이유: 그 루프는 작업을 순서대로 await 해서
+    한 사이클이 5.5~7분까지 늘어난다. 여기 얹으면 '15초 주기'가 이름뿐이 된다.
+    벽시계 기준으로 다음 틱을 맞춰 작업 시간이 주기에 누적되지 않게 한다."""
+    log.info("실시간 시세 루프 시작")
+    while True:
+        started = time.monotonic()
+        pairs = watched.snapshot()
+        kr_n = sum(1 for _, m in pairs if m == "KR")
+        interval = market_hours.refresh_interval(
+            [market_hours.kr_session(), market_hours.us_session()], symbol_count=kr_n
+        )
+        try:
+            ok, total = await _refresh_watched_once()
+            if total:
+                log.debug(f"실시간 시세 {ok}/{total}종목 갱신 (주기 {interval}초)")
+        except Exception as e:
+            log.warning(f"실시간 시세 루프 오류: {type(e).__name__}: {e}")
+        elapsed = time.monotonic() - started
+        await asyncio.sleep(max(1.0, interval - elapsed))
+
+
 async def refresh_exchange():
     """환율 갱신 — 원달러·원유로·원엔 모두 us_rates 배치(yfinance history)로 통일"""
     try:
@@ -579,11 +669,45 @@ async def periodic_refresh():
             log.info("일일 펀더멘털·재무제표 DB 갱신 작업 시작")
 
 
-def start_background_tasks(app):
-    @app.on_event("startup")
-    async def startup():
-        # init_ticker_db는 main.py _startup에서 이미 호출됨 — 여기서는 제거
-        loop = asyncio.get_running_loop()
-        loop.create_task(run_startup_prefetch())
-        loop.create_task(periodic_refresh())
-        log.info("스케줄러 시작됨")
+# 실행 중인 백그라운드 태스크 참조.
+# create_task 가 돌려준 Task 를 아무도 잡고 있지 않으면 가비지 컬렉션 대상이
+# 되어 도중에 조용히 사라질 수 있다(파이썬 공식 문서의 경고). 실제로 시세
+# 갱신 루프가 그렇게 사라져 실시간이 동작하지 않았다.
+_tasks: set = set()
+
+
+def _spawn(coro, name: str):
+    task = asyncio.get_running_loop().create_task(coro, name=name)
+    _tasks.add(task)
+    task.add_done_callback(lambda t: (_tasks.discard(t), _on_task_done(t, name)))
+    return task
+
+
+def _on_task_done(task, name: str):
+    """백그라운드 루프가 끝나면 반드시 흔적을 남긴다.
+
+    예전에는 태스크가 예외로 죽어도 아무 로그가 없어, 시세가 갱신되지 않는데도
+    서버는 정상으로 보였다."""
+    if task.cancelled():
+        log.warning(f"백그라운드 작업 취소됨: {name}")
+        return
+    exc = task.exception()
+    if exc:
+        log.error(f"백그라운드 작업 중단: {name}: {type(exc).__name__}: {exc}", exc_info=exc)
+    else:
+        log.warning(f"백그라운드 작업 종료: {name}")
+
+
+def start_background_tasks(app=None):
+    """백그라운드 루프를 띄운다. lifespan 안에서 호출된다.
+
+    예전에는 여기서 `@app.on_event("startup")` 으로 핸들러를 '등록'했는데,
+    이 함수 자체가 이미 lifespan 시작 단계에서 호출되기 때문에 그 시점엔
+    startup 이벤트가 이미 진행 중이라 등록된 핸들러가 영영 실행되지 않았다.
+    그래서 지수·환율을 제외한 모든 주기 갱신(종목 시세 포함)이 한 번도
+    돌지 않았고, 시세는 처음 조회된 값에 그대로 멈춰 있었다.
+    오류 없이 조용히 죽는 종류라 겉보기에는 정상으로 보였다."""
+    _spawn(run_startup_prefetch(), "startup-prefetch")
+    _spawn(periodic_refresh(), "periodic-refresh")
+    _spawn(refresh_watched_loop(), "watched-prices")
+    log.info("스케줄러 시작됨 — 백그라운드 루프 3개")

@@ -19,7 +19,7 @@ from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     QuantScoreWeight, QuantPercentileCache,
 )
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, SitePopup, Report  # noqa: F401
-from app.api.websocket.price_stream import stream_prices, stream_indices
+from app.api.websocket.price_stream import stream_prices, stream_indices, MAX_STREAM_SYMBOLS
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db
 
@@ -386,13 +386,16 @@ async def ws_indices(
 @app.websocket("/ws/prices")
 async def ws_prices(
     websocket: WebSocket,
-    symbols: str = Query(..., max_length=500),
-    markets: str = Query(..., max_length=200),
-    interval: int = Query(default=30, ge=10, le=60),
+    # 상한이 좁아 보유종목이 조금만 많아도 연결 자체가 거부됐다.
+    # markets(200자)가 실제 병목이라 국내 67종목·ETF 50종목에서 끊겼고,
+    # 거부되면 클라이언트가 3초마다 무한 재연결만 반복했다.
+    symbols: str = Query(..., max_length=2600),
+    markets: str = Query(..., max_length=900),
+    interval: int = Query(default=15, ge=5, le=60),
     token: str = Query(default=""),
 ):
     import re as _re
-    sym_list = [s.strip() for s in symbols.split(",") if s.strip()][:50]
+    sym_list = [s.strip() for s in symbols.split(",") if s.strip()][:MAX_STREAM_SYMBOLS]
     mkt_list = [m.strip() for m in markets.split(",") if m.strip()]
     bad = [s for s in sym_list if not _re.match(r"^[A-Za-z0-9.\-]{1,20}$", s)]
     if bad:

@@ -2,7 +2,8 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
-import { usePricesStream } from "@/hooks/useWebSocket";
+import { useLivePrices } from "@/hooks/useLivePrices";
+import LiveBadge from "@/components/ui/LiveBadge";
 import { Card, RowSkeleton } from "@/components/ui";
 import { Plus, Star, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
@@ -340,9 +341,14 @@ export default function Portfolio() {
   const [wsPrices, setWsPrices] = useState<any[] | null>(null);
   const priceSymbols = useMemo(() => priceableItems.map((i) => i.symbol), [priceableItems]);
   const priceMarkets = useMemo(() => priceableItems.map((i) => i.market), [priceableItems]);
-  usePricesStream(priceSymbols, priceMarkets, useCallback((prices: any[]) => {
-    setWsPrices(prices);
-  }, []));
+  /* 연결이 오래 끊기면 받아둔 스냅샷을 버린다. 예전에는 이 초기화가 없어
+     끊긴 시점의 가격이 HTTP로 새로 받은 시세를 영원히 덮어썼고,
+     평가금액·손익이 통째로 과거 값에 멈춰 있었다 */
+  const live = useLivePrices(
+    priceSymbols, priceMarkets,
+    useCallback((prices: any[]) => setWsPrices(prices), []),
+    useCallback(() => setWsPrices(null), []),
+  );
 
   const { data: batchPrices, isLoading: pricesLoading } = useQuery({
     queryKey:       ["portfolio-prices", priceableItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
@@ -918,6 +924,10 @@ export default function Portfolio() {
               {isLoggedIn ? items.length : "예시"}
             </span>
             {isLoggedIn && isLoading && <div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0" />}
+            {isLoggedIn && priceSymbols.length > 0 && (
+              <LiveBadge status={live.status} updatedAt={live.updatedAt}
+                         session={live.session} sessionLabel={live.sessionLabel} />
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {/* 원화/외화 표시 모드 토글 (해외 보유종목이 있을 때만) — 둘 중 하나만 표시 */}

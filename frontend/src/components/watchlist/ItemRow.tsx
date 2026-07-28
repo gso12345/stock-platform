@@ -3,6 +3,7 @@ import { ChangeBadge, MarketBadge } from "@/components/ui";
 import { Trash2, Wallet, Settings2 } from "lucide-react";
 import { normalizeSymbol } from "@/utils/prices";
 import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
+import LivePrice from "@/components/ui/LivePrice";
 
 const SWIPE_REVEAL = 210;   // 수정(70) + 보유종목추가(70) + 삭제(70)
 const SWIPE_THRESHOLD = 50;
@@ -131,7 +132,9 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
         >
           <div className="text-sm font-mono font-semibold text-text-primary">
             {hasPrice
-              ? isKR ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))
+              ? <LivePrice value={Number(p.price)}>
+                  {isKR ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))}
+                </LivePrice>
               : <span className="text-text-muted text-xs">—</span>}
           </div>
           {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs"/>}
