@@ -202,7 +202,7 @@ def get_runtime(_: User = Depends(require_admin)):
     Render 알림 메일이나 사용자 제보로 뒤늦게 알았다. 지금 무엇이 돌고 있고
     자원을 얼마나 쓰는지 한 화면에서 보이게 한다."""
     from app.core.cache import cache
-    from app.core import memory, cpu, activity, health
+    from app.core import memory, cpu, activity, health, libmem
     from app.services import scheduler, watched, market_hours, news_service
 
     used_mb = memory.rss_mb()
@@ -265,6 +265,10 @@ def get_runtime(_: User = Depends(require_admin)):
         # 최근 성공/실패 이력 — '언제 마지막으로 성공했는지'가 없어서
         # 문제를 찾는 데 매번 오래 걸렸다
         "health": health.snapshot(),
+        # '나머지 411MB' 한 줄로 뭉쳐 있던 것을 쪼갠다 —
+        # 어떤 라이브러리가 얼마를 쓰는지, 어떤 데이터가 몇 건 올라와 있는지
+        "libraries": libmem.report(),
+        "data_stores": memory.data_stores(),
         "cache_breakdown": cache.by_prefix()[:10],
         "websocket": {
             "connections": sum(_ws_connections.values()),

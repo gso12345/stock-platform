@@ -44,6 +44,53 @@ def usage_ratio() -> float | None:
     return None if mb is None else mb / MEMORY_LIMIT_MB
 
 
+def data_stores() -> list[dict]:
+    """메모리에 상주하는 '데이터' 목록 — 무엇이 몇 건 들어 있는지.
+
+    라이브러리와 달리 이쪽은 우리가 직접 올려둔 것이라 줄일 수 있다.
+    관리자 화면에서 크기와 함께 '무슨 데이터인지'를 보여줘야, 예를 들어
+    국내 종목 DB 를 PostgreSQL 로 옮길지 같은 판단을 할 수 있다.
+
+    크기는 근사값이다. 같은 모양의 dict 수천 개라 앞쪽 표본으로 곱해도
+    자릿수는 정확하다."""
+    from app.core.cache import cache, _rough_size
+
+    rows: list[dict] = []
+
+    def add(name: str, obj, count: int, what: str, movable: bool = True):
+        try:
+            n = _rough_size(obj)
+        except Exception:
+            n = 0
+        rows.append({
+            "name": name, "items": count, "bytes": n,
+            "mb": round(n / 1024 / 1024, 2), "what": what, "movable": movable,
+        })
+
+    try:
+        from app.services import ticker_service as ts
+        add("국내 종목 DB", ts._kr_db, len(ts._kr_db),
+            "KRX 전체 상장 종목 — 종목코드·이름·시장(KOSPI/KOSDAQ)")
+        add("국내 시세 스냅샷", ts._fdr_price_cache, len(ts._fdr_price_cache),
+            "종목별 현재가·등락·거래량·시가총액·시가/고가/저가")
+        add("미국 종목 DB", ts._us_db, len(ts._us_db),
+            "미국 상장 종목·ETF 목록 — 심볼·이름·거래소")
+        add("국내 종목 내장 목록", ts.KR_TICKERS_BUILTIN, len(ts.KR_TICKERS_BUILTIN),
+            "외부 조회가 모두 실패했을 때 쓰는 기본 종목", movable=False)
+        add("미국 종목 한글명", ts.KO_NAME_MAP, len(ts.KO_NAME_MAP),
+            "'AAPL → 애플' 같은 검색·표시용 별칭", movable=False)
+    except Exception:
+        pass
+
+    st = cache.stats()
+    rows.append({
+        "name": "응답 캐시", "items": st["items"], "bytes": st["bytes"],
+        "mb": st["mb"], "movable": True,
+        "what": "시세·차트·뉴스·재무 등 API 응답 (한도 초과 시 자동 정리)",
+    })
+    return sorted(rows, key=lambda r: -r["bytes"])
+
+
 def has_headroom(label: str = "작업") -> bool:
     """무거운 작업을 시작해도 되는지.
 

@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity, Cpu, HardDrive, RefreshCw, Newspaper, Radio, Database,
   AlertTriangle, CheckCircle2, PauseCircle, Clock, Wifi, Layers,
+  Package, Boxes,
 } from "lucide-react";
 import api from "@/api/client";
 
@@ -35,6 +36,17 @@ interface Runtime {
     kr_cached: number; us_cached: number; kr_sources: string[];
   };
   health: HealthItem[];
+  libraries: {
+    tracked: boolean;
+    items: { name: string; mb: number; total_mb: number; purpose: string }[];
+    measured_mb: number; other_count: number; other_mb: number;
+    baseline_mb: number | null;
+    preloaded: { name: string; purpose: string }[];
+    modules: number;
+  };
+  data_stores: {
+    name: string; items: number; mb: number; what: string; movable: boolean;
+  }[];
   cache_breakdown: { prefix: string; items: number; mb: number }[];
   websocket: { connections: number; limit_per_ip: number };
   uptime_sec: number;
@@ -156,6 +168,20 @@ export default function SystemTab() {
   const DB_LIMIT_MB = 500;
   const dbUsedMb = (db.data?.total_bytes ?? 0) / 1024 / 1024;
 
+  // 오랫동안 '나머지 약 411MB' 한 줄이었던 것을 실제 측정값으로 쪼갠다.
+  // 라이브러리 값은 각자가 처음 로드될 때 늘어난 메모리를 직접 잰 것이라,
+  // 항목을 다 더하면 measured_mb 가 되고 중복해서 세지 않는다.
+  const 라이브러리 = d.libraries;
+  const 상주데이터 = (d.data_stores ?? []).filter((s) => s.name !== "응답 캐시");
+  const 라이브러리MB = 라이브러리?.measured_mb ?? 0;
+  const 데이터MB = Math.round(상주데이터.reduce((a, s) => a + s.mb, 0) * 10) / 10;
+  const 나머지MB = Math.max(
+    0,
+    Math.round(((d.memory.used_mb ?? 0) - d.memory.cache_mb - 라이브러리MB - 데이터MB) * 10) / 10,
+  );
+  const 최대라이브러리 = Math.max(1, ...(라이브러리?.items ?? []).map((i) => i.mb));
+  const 최대데이터 = Math.max(0.01, ...상주데이터.map((s) => s.mb));
+
   return (
     <div className="flex flex-col gap-4">
 
@@ -186,20 +212,27 @@ export default function SystemTab() {
         }>
           <Bar big label="메모리" used={d.memory.used_mb} limit={d.memory.limit_mb} />
 
-          {/* 메모리가 무엇으로 채워졌는지 — 캐시만 보면 오해한다 */}
+          {/* 메모리가 무엇으로 채워졌는지 — 캐시만 보면 오해한다.
+              자세한 내역은 아래 '메모리를 쓰는 것들' 카드에 있다 */}
           <div className="rounded-lg bg-bg-elevated p-2.5 flex flex-col gap-1">
             <p className="text-2xs font-semibold text-text-muted">메모리 구성</p>
             {[
-              ["캐시 (조절 가능)", `${d.memory.cache_mb}MB / ${d.memory.cache_limit_mb}MB`],
-              ["라이브러리·종목DB·기타", `약 ${Math.max(0, Math.round((d.memory.used_mb ?? 0) - d.memory.cache_mb))}MB`],
-            ].map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between text-2xs">
+              ["라이브러리", `${라이브러리MB}MB`, `${라이브러리?.items.length ?? 0}개 측정`],
+              ["상주 데이터 (종목DB 등)", `${데이터MB}MB`, `${상주데이터.length}종`],
+              ["응답 캐시", `${d.memory.cache_mb}MB`, `한도 ${d.memory.cache_limit_mb}MB`],
+              ["파이썬 자체·기타", `${나머지MB}MB`,
+                라이브러리?.baseline_mb ? `인터프리터 ${라이브러리.baseline_mb}MB 포함` : ""],
+            ].map(([k, v, sub]) => (
+              <div key={k} className="flex items-baseline justify-between gap-2 text-2xs">
                 <span className="text-text-dim break-keep">{k}</span>
-                <span className="font-mono text-text-secondary">{v}</span>
+                <span className="font-mono text-text-secondary shrink-0">
+                  {v}
+                  {sub && <span className="text-text-dim font-normal ml-1.5">({sub})</span>}
+                </span>
               </div>
             ))}
             <p className="text-[10px] text-text-dim break-keep mt-0.5">
-              캐시를 0으로 만들어도 나머지는 줄지 않습니다 (pandas·yfinance 등 필수 라이브러리)
+              캐시를 0으로 만들어도 라이브러리는 줄지 않습니다 — 줄이려면 그 기능을 빼야 합니다
             </p>
           </div>
 
@@ -246,6 +279,103 @@ export default function SystemTab() {
               </div>
             </>
           ) : <p className="text-xs text-text-dim">불러오는 중…</p>}
+        </Card>
+      </div>
+
+      {/* ── 메모리를 쓰는 것들 ──
+          '나머지 411MB' 가 무엇인지 몰라 무엇을 줄여야 할지 판단할 수 없었다.
+          라이브러리는 처음 로드될 때 실제로 잰 값이고, 데이터는 지금 올라와
+          있는 건수를 그대로 보여준다. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card icon={Package} title="라이브러리별 메모리" right={
+          <span className="text-2xs font-mono text-text-dim">
+            합계 {라이브러리MB}MB
+          </span>
+        }>
+          {!라이브러리 ? (
+            <p className="text-xs text-text-dim break-keep">
+              서버가 아직 이 정보를 보내지 않습니다. 백엔드 배포가 끝나면 표시됩니다.
+            </p>
+          ) : !라이브러리.tracked ? (
+            <p className="text-xs text-text-dim break-keep">
+              이 환경에서는 측정할 수 없습니다 (리눅스 컨테이너에서만 측정합니다).
+            </p>
+          ) : 라이브러리.items.length === 0 ? (
+            <p className="text-xs text-text-dim break-keep">측정된 항목이 없습니다.</p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {라이브러리.items.map((i) => (
+                <div key={i.name} className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xs font-mono text-text-secondary w-28 truncate shrink-0"
+                          title={i.name}>{i.name}</span>
+                    <div className="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                      <div className="h-full bg-accent-blue/50 rounded-full"
+                           style={{ width: `${(i.mb / 최대라이브러리) * 100}%` }} />
+                    </div>
+                    <span className="text-2xs font-mono text-text-secondary w-14 text-right shrink-0">
+                      {i.mb}MB
+                    </span>
+                  </div>
+                  {i.purpose && (
+                    <p className="text-[10px] text-text-dim break-keep pl-0 sm:pl-[7.5rem]">
+                      {i.purpose}
+                      {i.total_mb > i.mb * 1.5 && (
+                        <span className="text-text-dim"> · 딸려오는 것 포함 {i.total_mb}MB</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              ))}
+              <p className="text-[10px] text-text-dim break-keep mt-1 leading-relaxed">
+                각 라이브러리가 처음 불러와질 때 실제로 늘어난 메모리입니다. 안에서
+                끌어오는 것(pandas → numpy)은 각자의 줄에서 세므로 겹치지 않습니다.
+                {라이브러리.other_count > 0 &&
+                  ` 0.5MB 미만 ${라이브러리.other_count}개(합계 ${라이브러리.other_mb}MB)는 목록에만 안 보일 뿐 위 합계에 들어 있습니다.`}
+                {` 로드된 모듈 ${라이브러리.modules.toLocaleString()}개.`}
+              </p>
+              {라이브러리.preloaded.length > 0 && (
+                <p className="text-[10px] text-text-dim break-keep">
+                  측정 시작 전에 이미 올라와 있던 것(크기 미상):{" "}
+                  {라이브러리.preloaded.map((p) => p.name).join(", ")}
+                </p>
+              )}
+            </div>
+          )}
+        </Card>
+
+        <Card icon={Boxes} title="메모리에 올려둔 데이터" right={
+          <span className="text-2xs font-mono text-text-dim">합계 {데이터MB}MB</span>
+        }>
+          {상주데이터.length === 0 ? (
+            <p className="text-xs text-text-dim break-keep">
+              서버가 아직 이 정보를 보내지 않습니다.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {상주데이터.map((s) => (
+                <div key={s.name} className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xs text-text-secondary w-28 truncate shrink-0 break-keep"
+                          title={s.name}>{s.name}</span>
+                    <div className="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${s.movable ? "bg-accent-amber/60" : "bg-accent-blue/40"}`}
+                           style={{ width: `${(s.mb / 최대데이터) * 100}%` }} />
+                    </div>
+                    <span className="text-2xs font-mono text-text-secondary w-24 text-right shrink-0">
+                      {s.mb}MB · {s.items.toLocaleString()}건
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-text-dim break-keep pl-0 sm:pl-[7.5rem]">{s.what}</p>
+                </div>
+              ))}
+              <p className="text-[10px] text-text-dim break-keep leading-relaxed mt-1">
+                노란 막대는 DB로 옮기거나 줄일 수 있는 항목입니다. 특히 국내 종목 DB와
+                시세 스냅샷은 지금 파이썬 변수로 들고 있는데, PostgreSQL 로 옮기면
+                그만큼과 FinanceDataReader 적재분이 함께 빠집니다.
+              </p>
+            </div>
+          )}
         </Card>
       </div>
 
