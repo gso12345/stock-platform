@@ -118,3 +118,50 @@ class Test뉴스_수집:
         # 배포 직후 캐시가 비면 한두 언론사만 뜨는 문제가 있었다
         src = inspect.getsource(news._do_refresh_news)
         assert "cold" in src and "_FEED_BATCH * 3" in src
+
+
+class Test기사_보존:
+    """수집은 성공했는데 화면에 언론사가 2곳만 뜬 적이 있다.
+    원인은 RSS가 발행 시각을 안 주면 기사를 통째로 버린 것이었다.
+    그런데 계측은 그것도 '성공'으로 세서, 지표가 문제를 가리고 있었다."""
+
+    def _entry(self, title, dated=True):
+        import time as _t
+        e = {"title": title, "link": "https://news.example.com/1", "summary": "요약"}
+        if dated:
+            e["published_parsed"] = _t.gmtime()
+        return e
+
+    def _feed(self, entries):
+        class F: pass
+        f = F(); f.entries = entries
+        return f
+
+    def test_발행시각이_없어도_기사를_버리지_않는다(self, monkeypatch):
+        import feedparser, httpx
+        entries = [self._entry("삼성전자 주가 상승", dated=False)]
+        monkeypatch.setattr(feedparser, "parse", lambda *a, **k: self._feed(entries))
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: type("R", (), {"status_code": 200, "content": b""})())
+        items = news._parse_feed("https://x/rss", "테스트언론사", 10)
+        assert len(items) == 1, "날짜가 없다고 기사를 버리면 언론사 하나가 통째로 사라진다"
+
+    def test_날짜_있는_기사가_없는_기사보다_앞선다(self, monkeypatch):
+        import feedparser, httpx
+        entries = [self._entry("코스피 하락", dated=False), self._entry("환율 급등", dated=True)]
+        monkeypatch.setattr(feedparser, "parse", lambda *a, **k: self._feed(entries))
+        monkeypatch.setattr(httpx, "get", lambda *a, **k: type("R", (), {"status_code": 200, "content": b""})())
+        items = news._parse_feed("https://x/rss", "테스트언론사", 10)
+        ts = {i["title"]: i["_ts"] for i in items}
+        assert ts["환율 급등"] > ts["코스피 하락"], "날짜 모르는 기사가 최신 기사를 밀어내면 안 된다"
+
+    def test_기사가_0건이면_성공으로_세지_않는다(self):
+        # '14/14곳 성공'인데 화면에는 2곳만 뜨던 원인이 이 계측 오류였다
+        import inspect as _i
+        src = _i.getsource(news._fetch_all_feeds)
+        assert "if items:" in src and "빈곳" in src
+        assert "기사 0건" in src
+
+    def test_수집_결과에_0건인_곳을_함께_보고한다(self):
+        import inspect as _i
+        src = _i.getsource(news._fetch_all_feeds)
+        assert "곳은 0건" in src

@@ -241,14 +241,20 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
             if not _is_finance_news(title):
                 continue
 
+            # 발행 시각이 없다고 기사를 버리면 언론사 하나가 통째로 사라진다.
+            # 실제로 그래서 14곳에서 정상 수신했는데도 화면에는 2곳만 떴다.
+            # RSS 는 최근 기사를 싣는 형식이므로, 날짜를 못 읽어도 최근 기사로
+            # 보되 정렬에서는 날짜가 확실한 기사 뒤에 놓는다.
             parsed = entry.get("published_parsed") or entry.get("updated_parsed")
-            if not parsed:
-                continue
-            try:
-                dt = datetime(*parsed[:6], tzinfo=timezone.utc)
-            except Exception:
-                continue
-            if dt < cutoff:
+            dt = None
+            if parsed:
+                try:
+                    dt = datetime(*parsed[:6], tzinfo=timezone.utc)
+                except Exception:
+                    dt = None
+            if dt is None:
+                dt = cutoff + timedelta(minutes=1)   # 통과는 하되 맨 뒤로
+            elif dt < cutoff:
                 continue
 
             # 링크가 http/https가 아니면 기사 자체를 버린다 (누를 수 없는 기사는 무의미)
@@ -335,7 +341,7 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
         _feed_executor.submit(_parse_feed, url, source, limit_per_source): source
         for source, url in picked
     }
-    성공 = 실패 = 0
+    성공 = 실패 = 빈곳 = 0
     try:
         # 워커가 적으므로 개별 피드는 여유 있게 기다린다 — 예전에는 동시 실행
         # 때문에 이 예산 안에 못 끝나 버려지는 피드가 대부분이었다
@@ -344,7 +350,14 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
             try:
                 items = future.result(timeout=12)
                 all_news.extend(items)
-                성공 += 1
+                if items:
+                    성공 += 1
+                else:
+                    # 받아오긴 했는데 기사가 하나도 안 남은 경우.
+                    # 이걸 '성공'으로 세면 지표가 거짓말을 한다 — 실제로
+                    # "14/14곳 성공"인데 화면에는 2곳만 뜨는 일이 있었다.
+                    빈곳 += 1
+                    health.record_fail(f"뉴스:{source}", "기사 0건 (필터에서 전부 제외)")
             except Exception as e:
                 실패 += 1
                 # 어떤 언론사가 왜 실패했는지 남긴다 — '아시아경제만 나온다' 같은
@@ -352,10 +365,16 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
                 health.record_fail(f"뉴스:{source}", f"{type(e).__name__}")
     except Exception:
         pass
+    전체 = 성공 + 실패 + 빈곳
     if 성공:
-        health.record_ok("뉴스 수집", None, f"{성공}/{성공+실패}곳 성공")
-    elif 실패:
-        health.record_fail("뉴스 수집", f"{실패}곳 전부 실패")
+        상세 = f"{성공}/{전체}곳에서 기사 확보"
+        if 빈곳:
+            상세 += f" · {빈곳}곳은 0건"
+        if 실패:
+            상세 += f" · {실패}곳 오류"
+        health.record_ok("뉴스 수집", None, 상세)
+    elif 전체:
+        health.record_fail("뉴스 수집", f"{전체}곳 모두 기사 확보 실패")
     return all_news
 
 
