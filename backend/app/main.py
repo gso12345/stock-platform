@@ -257,6 +257,11 @@ async def lifespan(application: FastAPI):
     except Exception as _key_err:
         logging.getLogger(__name__).warning(f"JWT 시크릿 키 DB 로드 실패, 기존 키 사용: {_key_err}")
 
+    # 스레드 수를 실제 CPU 할당량에 맞춘다. 컨테이너에서 os.cpu_count()는
+    # 호스트 코어 수를 돌려주므로, 그대로 두면 0.1 CPU 에 수십 개가 뜬다.
+    from app.core.cpu import configure_thread_limits
+    configure_thread_limits()
+
     init_ticker_db()
     start_background_tasks(application)
 

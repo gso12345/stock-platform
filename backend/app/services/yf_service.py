@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from app.core.cache import cache
 from app.core.utils import safe_float as _safe
+from app.core.cpu import worker_count
 
 PRICE_TTL  = 120     # 현재가 캐시 120초 (30→120: 외부 API 호출 빈도 75% 감소)
 INDEX_TTL  = 60      # 지수 캐시 60초
@@ -627,7 +628,7 @@ class YFinanceService:
         # 종목별 순차 호출(네트워크 I/O 대기)이 전체 응답 시간을 좌우하므로
         # 스레드풀로 동시에 fetch — yfinance가 스레드 안전한 블로킹 I/O이므로 안전함
         results = []
-        with ThreadPoolExecutor(max_workers=20) as pool:
+        with ThreadPoolExecutor(max_workers=worker_count(default=20)) as pool:
             for row in pool.map(lambda s: self._screen_one(s, market), symbols):
                 if row and self._apply_filters(row, filters):
                     results.append(row)

@@ -1,10 +1,13 @@
 import feedparser
+import os
 import re
 import html as _html
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 from datetime import datetime, timezone, timedelta
 from app.core.cache import cache
 from app.core.executor import background_executor
+from app.core.cpu import worker_count
 
 _refreshing = {}  # 중복 갱신 방지 플래그
 
@@ -288,32 +291,55 @@ def _add_trending_score(articles: list) -> list:
     return articles
 
 
-# 피드 fetch 전용 공유 스레드풀 — KR 피드 50개가 동시에 실행될 수 있도록
-# max_workers를 64로 설정해 모든 언론사 피드가 큐 대기 없이 즉시 시작되게 한다.
-_feed_executor = ThreadPoolExecutor(max_workers=64, thread_name_prefix="feed-fetch")
+# 피드 fetch 전용 공유 스레드풀.
+#
+# 예전에는 워커를 64개 두어 모든 언론사 피드를 동시에 시작했다. 그런데 이 서버는
+# CPU가 0.1개(10%)라, 동시에 띄운다고 총 CPU 시간이 줄지 않는다. 오히려 64개가
+# CPU를 나눠 쓰면서 각자 느려지고, 결국 대부분이 타임아웃(5초)에 걸려 통째로
+# 버려졌다 — 뉴스 탭에 한두 언론사 기사만 뜨던 원인이다.
+# 워커를 줄이면 각 피드가 제 시간 안에 끝나 성공률이 오히려 올라간다.
+_FEED_WORKERS = int(os.getenv("NEWS_FEED_WORKERS", 0)) or worker_count(default=6)
+_feed_executor = ThreadPoolExecutor(max_workers=_FEED_WORKERS, thread_name_prefix="feed-fetch")
+
+# 한 번에 가져올 피드 수. 국내 49개를 매번 전부 긁으면 CPU만 8초를 쓰는데,
+# 뉴스는 5분마다 몇 개 언론사씩 돌아가며 채워도 충분하다. 이전 회차 기사는
+# 아래 stale 병합이 살려 두므로 목록은 계속 가득 찬 상태로 유지된다.
+_FEED_BATCH = int(os.getenv("NEWS_FEED_BATCH", 14))
+
+# 언론사별로 돌아가며 가져오기 위한 시작 위치 (피드 목록 id → 다음 시작 index)
+_feed_cursor: dict[int, int] = {}
+_cursor_lock = Lock()
 
 
-def _fetch_all_feeds(feeds: list, limit_per_source: int) -> list[dict]:
-    """피드 목록을 공유 스레드풀로 fetch (동시 처리량 제한으로 CPU 버스트 방지)
+def _next_batch(feeds: list, batch: int) -> list:
+    """이번 회차에 가져올 피드를 돌아가며 고른다.
 
-    워커 수보다 피드가 많으면 뒤에 제출된 피드는 앞쪽 피드가 끝나야 실행되는데,
-    KR_FEEDS가 카테고리별로 묶여 있어 매번 같은 순서로 제출하면 항상 뒤쪽
-    카테고리(통신사/방송/IT 등)만 시간 예산 안에 못 끝나는 편향이 생긴다 —
-    매 호출마다 순서를 섞어 모든 언론사가 번갈아 우선권을 갖도록 한다.
-    """
-    import random
-    shuffled = list(feeds)
-    random.shuffle(shuffled)
+    무작위로 섞으면 운이 나쁜 언론사는 몇 회차 연속 빠질 수 있다.
+    순서대로 돌리면 모든 언론사가 정확히 같은 빈도로 갱신된다."""
+    if batch >= len(feeds):
+        return list(feeds)
+    key = id(feeds)
+    with _cursor_lock:
+        start = _feed_cursor.get(key, 0) % len(feeds)
+        _feed_cursor[key] = (start + batch) % len(feeds)
+    doubled = list(feeds) + list(feeds)
+    return doubled[start:start + batch]
+
+
+def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = None) -> list[dict]:
+    """피드를 순서대로 나눠 가져온다 (CPU 0.1개 환경에서 타임아웃 방지)"""
+    picked = _next_batch(feeds, batch or _FEED_BATCH)
     all_news = []
     futures = {
         _feed_executor.submit(_parse_feed, url, source, limit_per_source): source
-        for source, url in shuffled
+        for source, url in picked
     }
     try:
-        for future in as_completed(futures, timeout=30):
+        # 워커가 적으므로 개별 피드는 여유 있게 기다린다 — 예전에는 동시 실행
+        # 때문에 이 예산 안에 못 끝나 버려지는 피드가 대부분이었다
+        for future in as_completed(futures, timeout=40):
             try:
-                items = future.result(timeout=7)
-                all_news.extend(items)
+                all_news.extend(future.result(timeout=12))
             except Exception:
                 pass
     except Exception:
@@ -336,7 +362,10 @@ _strip_ts = strip_internal_fields
 
 
 def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
-    all_news = _fetch_all_feeds(feeds, limit_per_source)
+    # 배포 직후처럼 캐시가 비어 있으면 목록이 한두 언론사로만 채워져 보인다.
+    # 이때 한 번은 넓게 가져와 첫 화면을 제대로 채운다.
+    cold = not cache.get_stale(ck)
+    all_news = _fetch_all_feeds(feeds, limit_per_source, batch=None if not cold else _FEED_BATCH * 3)
     stale = cache.get_stale(ck)
     if not all_news:
         # 전체 피드 실패 시에도 _refreshing을 해제해야 다음 요청에서 재시도 가능
