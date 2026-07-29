@@ -2,6 +2,7 @@
 import json
 import re
 import logging
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -169,6 +170,84 @@ def get_system(_: User = Depends(require_admin)):
         "db_latency_ms": db_latency_ms,
         "cache_size":    cache.size(),
         "server_time":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/runtime")
+def get_runtime(_: User = Depends(require_admin)):
+    """서버 자원과 백그라운드 작업 상태.
+
+    이 화면이 없어서, 메모리 한도 초과나 백그라운드 루프 중단 같은 문제를
+    Render 알림 메일이나 사용자 제보로 뒤늦게 알았다. 지금 무엇이 돌고 있고
+    자원을 얼마나 쓰는지 한 화면에서 보이게 한다."""
+    from app.core.cache import cache
+    from app.core import memory, cpu, activity
+    from app.services import scheduler, watched, market_hours, news_service
+
+    used_mb = memory.rss_mb()
+    limit_mb = memory.MEMORY_LIMIT_MB
+    cache_stats = cache.stats()
+
+    tasks = []
+    for t in scheduler._tasks:
+        err = None
+        if t.done() and not t.cancelled():
+            e = t.exception()
+            err = f"{type(e).__name__}: {e}" if e else None
+        tasks.append({
+            "name":    t.get_name(),
+            "running": not t.done(),
+            "error":   err,
+        })
+    # 떠 있어야 하는데 목록에 없는 루프도 드러낸다
+    expected = {"startup-prefetch", "periodic-refresh", "watched-prices"}
+    for name in sorted(expected - {t["name"] for t in tasks}):
+        tasks.append({"name": name, "running": False, "error": "시작되지 않음"})
+
+    idle_sec = activity.seconds_since_last_request()
+    kr, us = market_hours.kr_session(), market_hours.us_session()
+    watched_stats = watched.stats()
+
+    return {
+        "memory": {
+            "used_mb":   round(used_mb, 1) if used_mb else None,
+            "limit_mb":  limit_mb,
+            "percent":   round(used_mb / limit_mb * 100) if used_mb else None,
+            "cache_mb":  cache_stats["mb"],
+            "cache_limit_mb": cache_stats["limit_mb"],
+            "cache_items":    cache_stats["items"],
+            "cache_packed":   cache_stats["packed"],
+        },
+        "cpu": {
+            "quota":        round(cpu.cpu_quota(), 2),
+            "reported":     os.cpu_count(),
+            "news_workers": news_service._FEED_WORKERS,
+        },
+        "tasks": tasks,
+        "market": {
+            "kr": kr, "us": us,
+            "kr_label": market_hours.session_label("KR"),
+            "us_label": market_hours.session_label("US"),
+            "price_interval_sec": market_hours.refresh_interval(
+                [kr, us], symbol_count=sum(1 for _, m in watched.snapshot() if m == "KR")
+            ),
+        },
+        "watched": watched_stats,
+        "idle": {
+            "seconds":   round(idle_sec),
+            "paused":    idle_sec > scheduler.IDLE_PAUSE_SEC,
+            "pause_after_sec": scheduler.IDLE_PAUSE_SEC,
+        },
+        "news": {
+            "kr_feeds":    len(news_service.KR_FEEDS),
+            "us_feeds":    len(news_service.US_FEEDS),
+            "batch":       news_service._FEED_BATCH,
+            "kr_cached":   len(cache.get_stale("news:kr") or []),
+            "us_cached":   len(cache.get_stale("news:us") or []),
+            "kr_sources":  sorted({a.get("source") for a in (cache.get_stale("news:kr") or []) if a.get("source")}),
+        },
+        "heavy_prefetch": scheduler.HEAVY_PREFETCH,
+        "server_time": datetime.now(timezone.utc).isoformat(),
     }
 
 

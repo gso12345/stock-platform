@@ -11,6 +11,7 @@ import {
   ExternalLink, Calendar,
 } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
+import RuntimePanel from "@/components/admin/RuntimePanel";
 
 const adminApi = {
   getStats:        () => api.get("/admin/stats").then(r => r.data),
@@ -266,6 +267,10 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
           </div>
         );
       })()}
+
+      {/* 서버 자원·백그라운드 상태 —
+          메모리 초과나 루프 중단을 알림 메일이 아니라 여기서 먼저 보도록 */}
+      <RuntimePanel />
 
       {/* 시스템 상태 + 가입 추이 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
