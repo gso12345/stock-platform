@@ -274,7 +274,8 @@ def fetch_pykrx_index(name: str) -> dict | None:
     if not market or not target_name:
         return None
     try:
-        from pykrx import stock as pkrx
+        from app.core import pykrx_light
+        pkrx = pykrx_light.stock()
         import datetime as dt
 
         aliases = [target_name] + PYKRX_INDEX_NAME_ALIASES.get(name, [])
@@ -323,7 +324,8 @@ def fetch_pykrx_index_ohlcv(name: str, period: str = "1y") -> list:
     if not market or not target_name:
         return []
     try:
-        from pykrx import stock as pkrx
+        from app.core import pykrx_light
+        pkrx = pykrx_light.stock()
         import datetime as dt
 
         aliases = [target_name] + PYKRX_INDEX_NAME_ALIASES.get(name, [])

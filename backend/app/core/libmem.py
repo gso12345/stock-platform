@@ -218,13 +218,32 @@ def report(limit: int = 20, min_bytes: int = 512 * 1024) -> dict:
 
     # 계측을 켜기 전에 이미 로드된 것들(uvicorn 이 앱을 import 하기 전에
     # 올린 것). 크기는 알 수 없지만 '무엇이 올라와 있는지'는 보여준다.
+    #
+    # __file__ 이 없는 것은 제외한다. pykrx_light 가 꽂아 둔 빈 matplotlib
+    # 대체 모듈이 여기 섞여 들어와, 정작 안 올라온 라이브러리를 '올라와 있음'
+    # 으로 보고했다 — 지금 고치려는 문제를 그 표시가 가리고 있었다.
     preloaded = sorted(
         n for n in PURPOSE
         if n in sys.modules and n not in _measured
+        and getattr(sys.modules[n], "__file__", None)
     )
+
+    # 대체 모듈로 막아 둔 것 — 안 올라왔다는 사실 자체가 정보다
+    stubbed = []
+    try:
+        from app.core import pykrx_light
+        if pykrx_light.stubbed():
+            stubbed.append({
+                "name": "matplotlib",
+                "note": "pykrx 가 폰트 설정용으로만 부르므로 대체 모듈로 막음 "
+                        "(PIL·pyparsing·fontTools 까지 약 120MB 미적재)",
+            })
+    except Exception:
+        pass
 
     return {
         "tracked":      _installed,
+        "stubbed":      stubbed,
         "items":        [_row(n, v) for n, v in shown[:limit]],
         "measured_mb":  round(sum(v["self"] for _, v in rows) / MB, 1),
         "other_count":  len(hidden),

@@ -1975,7 +1975,8 @@ async def get_supply_demand(request: Request, symbol: str = Path(..., pattern=_S
         return c
     def _fetch():
         try:
-            from pykrx import stock as pkrx
+            from app.core import pykrx_light
+            pkrx = pykrx_light.stock()
             code = symbol.replace(".KS","").replace(".KQ","")
             end   = datetime.today().strftime("%Y%m%d")
             start = (datetime.today() - timedelta(days=days+10)).strftime("%Y%m%d")

@@ -69,8 +69,11 @@ def data_stores() -> list[dict]:
 
     try:
         from app.services import ticker_service as ts
+        kr = ts.kr_status()
         add("국내 종목 DB", ts._kr_db, len(ts._kr_db),
-            "KRX 전체 상장 종목 — 종목코드·이름·시장(KOSPI/KOSDAQ)")
+            f"KRX 상장 종목 — 출처 {kr['source']}"
+            + (f" · 내장 폴백 {kr['builtin_count']}개로 축소 동작 중" if kr["degraded"]
+               else " · 종목코드·이름·시장(KOSPI/KOSDAQ)"))
         add("국내 시세 스냅샷", ts._fdr_price_cache, len(ts._fdr_price_cache),
             "종목별 현재가·등락·거래량·시가총액·시가/고가/저가")
         add("미국 종목 DB", ts._us_db, len(ts._us_db),

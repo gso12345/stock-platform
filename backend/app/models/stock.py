@@ -226,3 +226,33 @@ class ScreeningPreset(Base):
     sort_order = Column(String(4), default="desc")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class KrTicker(Base):
+    """국내 상장 종목 목록 — 예전에는 파이썬 변수로만 들고 있었다.
+
+    그 방식의 문제는 재시작마다 외부(FinanceDataReader/pykrx)에서 2,800개를
+    다시 긁어야 한다는 것이었다. 그게 실패하면 코드에 적어둔 115개로 조용히
+    떨어졌고, 화면에는 종목이 줄어든 것으로만 보였다. 실제로 프로덕션이
+    그 상태였다 — 115개 밖의 종목은 검색도 시세 조회도 되지 않았다.
+
+    목록을 여기 두면 갱신이 실패해도 지난 목록이 남는다. 그리고 평소
+    재시작에는 DB만 읽으므로 FinanceDataReader 를 아예 안 불러도 된다.
+    """
+    __tablename__ = "kr_tickers"
+
+    symbol      = Column(String(20), primary_key=True)          # 005930.KS
+    code        = Column(String(10), nullable=False, index=True)  # 005930
+    name        = Column(String(100), nullable=False, index=True)
+    market      = Column(String(10), nullable=False)             # KOSPI/KOSDAQ
+    # 목록을 받아올 때 시세도 같이 오므로 함께 저장한다. 따로 받으면
+    # 종목당 요청 한 번이라 0.15 CPU 에서는 감당이 안 된다.
+    price       = Column(Float, nullable=True)
+    change      = Column(Float, nullable=True)
+    change_rate = Column(Float, nullable=True)
+    volume      = Column(Float, nullable=True)
+    market_cap  = Column(Float, nullable=True)
+    open        = Column(Float, nullable=True)
+    high        = Column(Float, nullable=True)
+    low         = Column(Float, nullable=True)
+    updated_at  = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

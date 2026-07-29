@@ -235,3 +235,28 @@ class Test관리자_화면_연결:
         }
         assert "libmem.report" in 호출
         assert "memory.data_stores" in 호출
+
+
+class Test대체모듈_표시:
+    """pykrx 용 matplotlib 대체 모듈이 '이미 올라와 있는 라이브러리'로
+    잘못 보고돼, 정작 안 올라왔다는 사실을 화면이 가리고 있었다."""
+
+    def test_빈_대체모듈을_로드된_것으로_세지_않는다(self):
+        from app.core import pykrx_light
+        pykrx_light.stock()                      # 대체 모듈 설치
+        r = libmem.report()
+        assert "matplotlib" not in [p["name"] for p in r["preloaded"]], \
+            "빈 대체 모듈을 '올라와 있음'으로 보고하면 진단이 거꾸로 된다"
+
+    def test_진짜_라이브러리는_계속_보고한다(self):
+        # __file__ 로 걸러내다가 실제로 올라온 것까지 지우면 안 된다
+        r = libmem.report()
+        보고 = {p["name"] for p in r["preloaded"]} | {i["name"] for i in libmem.report(min_bytes=0)["items"]}
+        assert "sqlalchemy" in 보고 or "pandas" in 보고
+
+    def test_막아둔_것을_따로_알려준다(self):
+        from app.core import pykrx_light
+        pykrx_light.stock()
+        막힌것 = {x["name"]: x for x in libmem.report().get("stubbed", [])}
+        assert "matplotlib" in 막힌것
+        assert 막힌것["matplotlib"]["note"], "왜 안 올라왔는지 이유가 있어야 한다"

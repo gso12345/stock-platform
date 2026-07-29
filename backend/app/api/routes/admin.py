@@ -203,7 +203,7 @@ def get_runtime(_: User = Depends(require_admin)):
     자원을 얼마나 쓰는지 한 화면에서 보이게 한다."""
     from app.core.cache import cache
     from app.core import memory, cpu, activity, health, libmem
-    from app.services import scheduler, watched, market_hours, news_service
+    from app.services import scheduler, watched, market_hours, news_service, ticker_service
 
     used_mb = memory.rss_mb()
     limit_mb = memory.MEMORY_LIMIT_MB
@@ -269,6 +269,9 @@ def get_runtime(_: User = Depends(require_admin)):
         # 어떤 라이브러리가 얼마를 쓰는지, 어떤 데이터가 몇 건 올라와 있는지
         "libraries": libmem.report(),
         "data_stores": memory.data_stores(),
+        # 종목 목록이 어디서 왔는지. 세 단계 폴백이 전부 조용히 실패해
+        # 내장 115개로 서비스하던 것을 아무도 몰랐던 적이 있다
+        "kr_tickers": ticker_service.kr_status(),
         "cache_breakdown": cache.by_prefix()[:10],
         "websocket": {
             "connections": sum(_ws_connections.values()),

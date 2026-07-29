@@ -1,10 +1,24 @@
 """
 전체 상장 종목 DB 서비스
-- 한국: pykrx → KRX 전체 상장 종목 (KOSPI+KOSDAQ ~2500개)
-- 미국: 내장 데이터 + Finnhub/FMP 동적 조회
+
+국내 목록은 PostgreSQL(kr_tickers) → FinanceDataReader → pykrx → 내장 목록
+순으로 찾는다. DB를 맨 앞에 둔 이유는 두 가지다.
+
+  · 평소 재시작에서 외부 호출이 필요 없다. FinanceDataReader 도 pykrx 도
+    import 하지 않으므로 그만큼(약 30~50MB) 메모리를 안 쓴다.
+  · 갱신이 실패해도 지난 목록이 남는다. 예전에는 세 단계가 전부 실패하면
+    코드에 적어둔 115개로 조용히 떨어졌고, 프로덕션이 실제로 그 상태였다 —
+    그 목록에 없는 종목은 검색도 시세 조회도 되지 않았다.
+
+미국은 내장 데이터 + Finnhub/FMP 동적 조회.
 """
 import logging
+import os
 import threading
+import time
+from datetime import datetime, timedelta
+
+from app.core import health, memory
 from app.core.cache import cache
 
 log = logging.getLogger(__name__)
@@ -324,6 +338,127 @@ _lock = threading.Lock()
 # FDR 가격 캐시 (종목코드 → 가격 정보)
 _fdr_price_cache: dict = {}
 
+# 종목 목록을 어디서 가져왔는가 — 관리자 화면에 그대로 보여준다.
+# 예전에는 세 단계 폴백이 전부 조용히 실패해도 화면에는 '종목 목록'으로
+# 똑같이 보였다. 실제로 프로덕션이 내장 115개로 돌고 있었는데, 관리자
+# 화면에 건수가 찍히기 전까지 아무도 몰랐다.
+_kr_source = "미로드"
+_kr_loaded_at: float | None = None
+# DB에 담긴 행의 가장 최근 갱신 시각 — 갱신이 필요한지 판단하는 데만 쓴다
+_db_rows_at = None
+
+# DB에 담긴 목록이 이 시간보다 오래되면 외부에서 새로 받아 갱신한다
+KR_TICKER_TTL_SEC = int(os.getenv("KR_TICKER_TTL_SEC", 12 * 3600))
+
+
+def kr_status() -> dict:
+    """지금 종목 목록이 어디서 온 것인지. 관리자 화면 전용."""
+    with _lock:
+        n = len(_kr_db)
+        src, at = _kr_source, _kr_loaded_at
+    return {
+        "source": src,
+        "count": n,
+        "age_sec": None if at is None else round(time.time() - at),
+        "builtin_count": len(KR_TICKERS_BUILTIN),
+        # 내장 폴백으로 돌고 있다 = 115개 밖의 종목은 검색도 시세도 안 된다
+        "degraded": src in ("내장", "미로드") or n <= len(KR_TICKERS_BUILTIN),
+        "prices": len(_fdr_price_cache),
+        "ttl_sec": KR_TICKER_TTL_SEC,
+    }
+
+
+def _apply(rows: list[dict], prices: dict, source: str):
+    """받아온 목록을 메모리에 반영하고 출처를 기록한다"""
+    global _kr_db, _kr_loaded, _fdr_price_cache, _kr_source, _kr_loaded_at
+    with _lock:
+        _kr_db = rows
+        if prices:
+            _fdr_price_cache = prices
+        _kr_loaded = True
+        _kr_source = source
+        _kr_loaded_at = time.time()
+
+
+# ── DB (PostgreSQL) ────────────────────────────────────────
+def _load_kr_from_db() -> bool:
+    """DB에 저장된 목록을 읽는다.
+
+    이 경로에는 FinanceDataReader 도 pykrx 도 필요 없다. 평소 재시작은
+    전부 여기서 끝나므로, 무거운 라이브러리를 아예 안 불러도 된다."""
+    global _db_rows_at
+    try:
+        from sqlalchemy import select
+        from app.db.database import SessionLocal
+        from app.models.stock import KrTicker
+
+        with SessionLocal() as db:
+            rows = db.execute(select(KrTicker)).scalars().all()
+            if not rows:
+                return False
+            listing, prices, newest = [], {}, None
+            for r in rows:
+                listing.append({"s": r.symbol, "n": r.name, "x": r.market, "m": "KR", "c": r.code})
+                if r.price:
+                    prices[r.symbol] = {
+                        "symbol": r.symbol, "name": r.name, "price": r.price,
+                        "change": r.change or 0, "change_rate": r.change_rate or 0,
+                        "volume": int(r.volume or 0), "market_cap": int(r.market_cap or 0),
+                        "currency": "KRW",
+                        "high": r.high or 0, "low": r.low or 0, "open": r.open or 0,
+                    }
+                if r.updated_at and (newest is None or r.updated_at > newest):
+                    newest = r.updated_at
+        _apply(listing, prices, "DB")
+        log.info(f"DB에서 국내 종목 {len(listing)}개 로드 (시세 {len(prices)}개)")
+        health.record_ok("종목목록", detail=f"DB {len(listing)}개")
+        _db_rows_at = newest
+        return True
+    except Exception as e:
+        # 여기는 debug 로 두지 않는다 — 조용히 실패하던 게 문제의 근원이었다
+        log.warning(f"DB 종목 목록 읽기 실패: {type(e).__name__}: {e}")
+        return False
+
+
+def _save_kr_to_db(rows: list[dict], prices: dict) -> bool:
+    """받아온 목록을 DB에 써 둔다. 다음 재시작은 이걸 읽는다."""
+    if not rows:
+        return False
+    try:
+        from app.db.database import SessionLocal
+        from app.models.stock import KrTicker
+
+        with SessionLocal() as db:
+            existing = {r.symbol: r for r in db.query(KrTicker).all()}
+            seen = set()
+            for it in rows:
+                sym = it["s"]
+                seen.add(sym)
+                p = prices.get(sym) or {}
+                vals = {
+                    "code": it.get("c", ""), "name": it["n"], "market": it.get("x", "KOSPI"),
+                    "price": p.get("price"), "change": p.get("change"),
+                    "change_rate": p.get("change_rate"), "volume": p.get("volume"),
+                    "market_cap": p.get("market_cap"),
+                    "open": p.get("open"), "high": p.get("high"), "low": p.get("low"),
+                }
+                row = existing.get(sym)
+                if row is None:
+                    db.add(KrTicker(symbol=sym, **vals))
+                else:
+                    for k, v in vals.items():
+                        setattr(row, k, v)
+            # 상장폐지된 종목은 지운다
+            for sym, row in existing.items():
+                if sym not in seen:
+                    db.delete(row)
+            db.commit()
+        log.info(f"국내 종목 {len(rows)}개를 DB에 저장")
+        return True
+    except Exception as e:
+        log.warning(f"국내 종목 DB 저장 실패: {type(e).__name__}: {e}")
+        return False
+
 
 def _load_kr_from_fdr():
     """FinanceDataReader로 KRX 전체 상장 종목 로드 (가격 포함)"""
@@ -359,27 +494,59 @@ def _load_kr_from_fdr():
                     "open": float(row.get("Open", 0) or 0),
                 }
         if results:
-            with _lock:
-                _kr_db = results
-                _fdr_price_cache = prices
-                _kr_loaded = True
+            _apply(results, prices, "FinanceDataReader")
             log.info(f"FDR 한국 종목 {len(results)}개 로드 완료 (가격 {len(prices)}개 캐시)")
+            health.record_ok("종목목록", detail=f"FinanceDataReader {len(results)}개")
+            _save_kr_to_db(results, prices)
             return True
+        log.warning("FDR 응답에서 쓸 수 있는 종목이 0개")
+    except ModuleNotFoundError:
+        # 이게 프로덕션에서 실제로 벌어진 일이다. requirements.txt 에
+        # finance-datareader 를 안 넣어서 1순위가 항상 여기서 죽었고,
+        # log.debug 였던 탓에 로그에도 안 남았다
+        log.warning("FinanceDataReader 가 설치되지 않았습니다 — requirements.txt 확인 필요")
+        health.record_fail("종목목록", "FinanceDataReader 미설치")
     except Exception as e:
-        log.debug(f"FDR 실패: {e}")
+        log.warning(f"FDR 종목 목록 실패: {type(e).__name__}: {e}")
+        health.record_fail("종목목록", f"FDR {type(e).__name__}")
     return False
 
 
 def _load_kr_from_pykrx():
-    """pykrx 시도 → FDR → 내장 DB 순으로 폴백"""
-    global _kr_db, _kr_loaded
-    # 1순위: FDR
+    """DB → FinanceDataReader → pykrx → 내장 목록 순으로 시도한다.
+
+    DB를 맨 앞에 둔 이유: 평소 재시작에서 외부 호출도, 무거운 라이브러리도
+    필요 없게 만들려는 것이다. DB가 비었거나 오래됐을 때만 밖으로 나간다."""
+    global _kr_db, _kr_loaded, _kr_source, _kr_loaded_at
+
+    # 0순위: DB. 신선하면 여기서 끝 — FDR/pykrx 를 import 하지 않는다
+    if _load_kr_from_db():
+        at = _db_rows_at
+        stale = True
+        if at is not None:
+            try:
+                now = datetime.now(at.tzinfo) if at.tzinfo else datetime.now()
+                stale = (now - at).total_seconds() > KR_TICKER_TTL_SEC
+            except Exception:
+                stale = True
+        if not stale:
+            return
+        log.info("DB 종목 목록이 오래됐습니다 — 백그라운드로 갱신 시도")
+        if not memory.has_headroom("종목 목록 갱신"):
+            return          # 메모리가 빡빡하면 지난 목록으로 버틴다
+        if _load_kr_from_fdr():
+            return
+        return              # 갱신 실패 — DB에서 읽은 목록을 그대로 쓴다
+
+    # 1순위: FinanceDataReader (목록+시세를 한 번에 받는다)
     if _load_kr_from_fdr():
         return
-    # 2순위: pykrx (레거시)
+
+    # 2순위: pykrx. 종목당 이름 조회를 한 번씩 하므로 느리다 — 최후 보루다.
+    # matplotlib 없이 불러온다 (pykrx_light 참고: 약 120MB 차이)
     try:
-        from pykrx import stock
-        from datetime import datetime, timedelta
+        from app.core import pykrx_light
+        stock = pykrx_light.stock()
         date = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
         results = []
         for market in ["KOSPI", "KOSDAQ"]:
@@ -393,21 +560,26 @@ def _load_kr_from_pykrx():
                             results.append({"s": f"{ticker}{suffix}", "n": name, "x": market, "m": "KR", "c": ticker})
                     except Exception:
                         continue
-            except Exception:
-                continue
+            except Exception as e:
+                log.warning(f"pykrx {market} 종목 목록 실패: {type(e).__name__}: {e}")
         if results:
-            with _lock:
-                _kr_db = results
-                _kr_loaded = True
+            _apply(results, {}, "pykrx")
             log.info(f"pykrx 한국 종목 {len(results)}개 로드 완료")
+            health.record_ok("종목목록", detail=f"pykrx {len(results)}개")
+            _save_kr_to_db(results, {})
             return
+        log.warning("pykrx 에서 받은 종목이 0개")
     except Exception as e:
-        log.debug(f"pykrx 실패: {e}")
-    # 3순위: 내장 DB
-    log.info("내장 한국 종목 DB 사용")
-    with _lock:
-        _kr_db = KR_TICKERS_BUILTIN.copy()
-        _kr_loaded = True
+        log.warning(f"pykrx 종목 목록 실패: {type(e).__name__}: {e}")
+
+    # 3순위: 내장 목록. 여기까지 왔다는 것은 115개로 서비스한다는 뜻이고,
+    # 그 밖의 종목은 검색도 시세 조회도 되지 않는다. 조용히 넘기면 안 된다
+    log.error(
+        f"국내 종목 목록을 어디서도 받지 못해 내장 {len(KR_TICKERS_BUILTIN)}개로 동작합니다 "
+        "— 그 밖의 종목은 검색·시세 조회가 되지 않습니다"
+    )
+    health.record_fail("종목목록", f"내장 {len(KR_TICKERS_BUILTIN)}개로 축소 동작")
+    _apply(KR_TICKERS_BUILTIN.copy(), {}, "내장")
 
 
 def get_fdr_price(symbol: str) -> dict | None:

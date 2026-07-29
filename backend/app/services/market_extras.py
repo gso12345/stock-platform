@@ -377,7 +377,8 @@ def _fetch_kr_bonds_pykrx() -> "tuple[list, dict | None]":
     """pykrx로 KRX 장외 채권수익률 조회 (국고채 3/5/10년 + CD금리)"""
     try:
         import datetime
-        from pykrx import bond as krx_bond
+        from app.core import pykrx_light
+        krx_bond = pykrx_light.bond()
 
         today = datetime.date.today()
         df = None

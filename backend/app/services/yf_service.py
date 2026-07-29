@@ -391,7 +391,8 @@ class YFinanceService:
         # KR 주식: yfinance에서 per/eps/pbr 없을 때 pykrx로 보완
         if market == "KR" and not info.get("trailingPE"):
             try:
-                from pykrx import stock as pkrx
+                from app.core import pykrx_light
+                pkrx = pykrx_light.stock()
                 from datetime import datetime, timedelta
                 code6 = orig_symbol.replace(".KS","").replace(".KQ","")
                 today = datetime.today()

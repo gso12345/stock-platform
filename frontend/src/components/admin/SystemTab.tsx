@@ -42,11 +42,16 @@ interface Runtime {
     measured_mb: number; other_count: number; other_mb: number;
     baseline_mb: number | null;
     preloaded: { name: string; purpose: string }[];
+    stubbed?: { name: string; note: string }[];
     modules: number;
   };
   data_stores: {
     name: string; items: number; mb: number; what: string; movable: boolean;
   }[];
+  kr_tickers?: {
+    source: string; count: number; age_sec: number | null;
+    builtin_count: number; degraded: boolean; prices: number; ttl_sec: number;
+  };
   cache_breakdown: { prefix: string; items: number; mb: number }[];
   websocket: { connections: number; limit_per_ip: number };
   uptime_sec: number;
@@ -182,14 +187,25 @@ export default function SystemTab() {
   const 최대라이브러리 = Math.max(1, ...(라이브러리?.items ?? []).map((i) => i.mb));
   const 최대데이터 = Math.max(0.01, ...상주데이터.map((s) => s.mb));
 
+  // 종목 목록이 내장 폴백으로 떨어졌는지 — 이건 메모리보다 급한 문제다.
+  // 그 상태에서는 내장 목록에 없는 종목이 검색도 시세 조회도 되지 않는다
+  const 종목 = d.kr_tickers;
+  const 종목축소 = 종목?.degraded === true;
+
   return (
     <div className="flex flex-col gap-4">
 
       {/* ── 문제가 있으면 맨 위에 크게 ── */}
-      {(메모리위험 || 죽은작업.length > 0 || 실패중.length > 0) && (
+      {(메모리위험 || 종목축소 || 죽은작업.length > 0 || 실패중.length > 0) && (
         <div className="rounded-xl border border-accent-red/40 bg-accent-red/10 p-4 flex items-start gap-2.5">
           <AlertTriangle size={16} className="text-accent-red shrink-0 mt-0.5" />
           <div className="flex flex-col gap-1 text-xs text-accent-red break-keep leading-relaxed">
+            {종목축소 && (
+              <p>
+                <b>국내 종목이 {종목!.count}개뿐입니다</b> (출처: {종목!.source}) — 외부 조회가 실패해
+                내장 목록으로 동작 중입니다. 이 목록에 없는 종목은 검색·시세 조회가 되지 않습니다.
+              </p>
+            )}
             {메모리위험 && <p><b>메모리 {d.memory.percent}%</b> — 한도를 넘으면 서버가 강제 재시작됩니다.</p>}
             {죽은작업.map((t) => (
               <p key={t.name}><b>{TASK_LABEL[t.name] ?? t.name}</b>이(가) 멈췄습니다{t.error ? ` — ${t.error}` : ""}</p>
@@ -340,6 +356,12 @@ export default function SystemTab() {
                   {라이브러리.preloaded.map((p) => p.name).join(", ")}
                 </p>
               )}
+              {(라이브러리.stubbed ?? []).map((x) => (
+                <p key={x.name} className="text-[10px] text-accent-green break-keep flex items-start gap-1">
+                  <CheckCircle2 size={10} className="shrink-0 mt-0.5" />
+                  <span><b>{x.name}</b> 미적재 — {x.note}</span>
+                </p>
+              ))}
             </div>
           )}
         </Card>
@@ -369,10 +391,28 @@ export default function SystemTab() {
                   <p className="text-[10px] text-text-dim break-keep pl-0 sm:pl-[7.5rem]">{s.what}</p>
                 </div>
               ))}
+              {종목 && (
+                <div className={`rounded-lg p-2 flex flex-col gap-0.5 ${
+                  종목축소 ? "bg-accent-red/10 border border-accent-red/30" : "bg-bg-elevated"}`}>
+                  <div className="flex items-baseline justify-between gap-2 text-2xs">
+                    <span className="text-text-dim break-keep">국내 종목 목록 출처</span>
+                    <span className={`font-mono shrink-0 ${종목축소 ? "text-accent-red" : "text-accent-green"}`}>
+                      {종목.source} · {종목.count.toLocaleString()}개
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-text-dim break-keep">
+                    {종목축소
+                      ? `외부 조회가 실패해 내장 ${종목.builtin_count}개로 동작 중입니다. 이 목록에 없는 종목은 검색·시세 조회가 되지 않습니다.`
+                      : `시세 ${종목.prices.toLocaleString()}개 포함${
+                          종목.age_sec != null ? ` · ${초를사람말로(종목.age_sec)} 갱신` : ""
+                        } · ${Math.round(종목.ttl_sec / 3600)}시간마다 새로 받습니다`}
+                  </p>
+                </div>
+              )}
               <p className="text-[10px] text-text-dim break-keep leading-relaxed mt-1">
-                노란 막대는 DB로 옮기거나 줄일 수 있는 항목입니다. 특히 국내 종목 DB와
-                시세 스냅샷은 지금 파이썬 변수로 들고 있는데, PostgreSQL 로 옮기면
-                그만큼과 FinanceDataReader 적재분이 함께 빠집니다.
+                노란 막대는 DB로 옮기거나 줄일 수 있는 항목입니다. 국내 종목 목록은
+                PostgreSQL 에 저장돼 있어, 평소 재시작에는 DB만 읽고
+                FinanceDataReader 를 아예 불러오지 않습니다.
               </p>
             </div>
           )}
