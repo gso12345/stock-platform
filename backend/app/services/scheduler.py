@@ -15,13 +15,17 @@ from app.services.price_fetcher import (
     fetch_yf_quotes, fetch_yf_index_quotes, fetch_pykrx_index,
 )
 from app.services import market_hours, watched
-from app.core import memory
+from app.core import memory, activity
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
 
 # 큰 인스턴스에서만 켜는 선제 캐싱 (기본 끔 — 무료 플랜 메모리 한도 때문)
 HEAVY_PREFETCH = os.getenv("ENABLE_HEAVY_PREFETCH", "").lower() in ("1", "true", "yes")
+
+# 마지막 요청이 이 시간을 넘으면 주기 갱신을 멈춘다.
+# 값을 미리 받아둬 봐야 아무도 안 보고, 그 사이 CPU만 쓴다.
+IDLE_PAUSE_SEC = int(os.getenv("IDLE_PAUSE_SEC", 600))
 
 KR_INDICES = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"]
 US_INDICES = ["SP500","NASDAQ","DOW","SOX","RUSSELL"]
@@ -592,13 +596,17 @@ async def run_startup_prefetch():
         loop.run_in_executor(None, get_us_rates),
         return_exceptions=True,
     )
-    # 종목 갱신 (후순위)
-    await asyncio.gather(
-        refresh_us_stocks(),
-        refresh_kr_stocks(),
-        refresh_held_symbols(),
-        return_exceptions=True,
-    )
+    # 종목 갱신 (후순위) — 장이 열려 있을 때만.
+    # 전 사용자 보유종목 선제 캐싱(refresh_held_symbols)은 뺐다. 시작 시점엔
+    # 아무도 보고 있지 않고, 누군가 화면을 열면 refresh_watched_loop 가
+    # 15초 안에 그 종목을 가져온다.
+    startup_jobs = []
+    if market_hours.us_session() != "closed":
+        startup_jobs.append(refresh_us_stocks())
+    if market_hours.kr_session() != "closed":
+        startup_jobs.append(refresh_kr_stocks())
+    if startup_jobs:
+        await asyncio.gather(*startup_jobs, return_exceptions=True)
     # OHLCV·펀더멘털 선제 캐싱은 '미리 받아두면 빠르다'는 최적화일 뿐인데
     # 메모리를 가장 많이 먹는다. 지수·종목 23개 시계열이 약 200MB이고,
     # Render 무료 플랜(512MB)에서는 이것만으로 프로세스가 강제 재시작된다.
@@ -621,12 +629,19 @@ async def periodic_refresh():
         await asyncio.sleep(10)
         counter += 1
 
-        # 국내 지수 (30초 — 캐시 TTL과 일치)
-        if counter % 3 == 0:
+        # 아무도 안 쓰는 동안에는 갱신할 이유가 없다. Render 무료 플랜은
+        # CPU가 0.1개뿐이라, 백그라운드가 계속 도는 것만으로 사용자가 실제로
+        # 요청했을 때 응답이 밀린다. 마지막 요청이 오래됐으면 통째로 쉰다.
+        # (다시 접속하면 첫 요청이 touch_request 로 깨운다)
+        if activity.seconds_since_last_request() > IDLE_PAUSE_SEC:
+            continue
+
+        # 국내 지수 (장중 30초 / 휴장 10분)
+        if counter % (3 if market_hours.kr_session() != "closed" else 60) == 0:
             await refresh_kr_indices()
 
-        # 미국 지수 (60초 — 캐시 TTL 60초와 일치)
-        if counter % 6 == 0:
+        # 미국 지수 (장중 60초 / 휴장 10분)
+        if counter % (6 if market_hours.us_session() != "closed" else 60) == 0:
             await refresh_us_indices()
 
         # 환율 (60초)
@@ -652,15 +667,17 @@ async def periodic_refresh():
             # SP500 전 종목 갱신은 응답 파싱 중 메모리가 크게 튄다.
             # 여유가 없으면 이번 사이클은 건너뛴다 — 캐시가 조금 묵는 것과
             # 프로세스가 강제 재시작되는 것은 비교할 문제가 아니다.
-            _us_stocks = refresh_us_stocks() if memory.has_headroom("미국 전종목 갱신") else asyncio.sleep(0)
-            await asyncio.gather(
-                _us_stocks,
-                refresh_kr_stocks(),
-                refresh_held_symbols(),
-                loop.run_in_executor(None, get_kr_news),
-                loop.run_in_executor(None, get_us_news),
-                return_exceptions=True,
-            )
+            # refresh_held_symbols 는 여기서 뺐다 — refresh_watched_loop 가
+            # '지금 화면에서 보고 있는 종목'을 15초마다 이미 갱신한다. 전 사용자의
+            # 보유·관심종목을 5분마다 또 긁는 것은 순수한 중복이고, Render 무료
+            # 플랜(CPU 0.1개)에서는 그 낭비가 곧바로 응답 지연으로 나타난다.
+            jobs = [loop.run_in_executor(None, get_kr_news),
+                    loop.run_in_executor(None, get_us_news)]
+            if market_hours.kr_session() != "closed":
+                jobs.append(refresh_kr_stocks())
+            if market_hours.us_session() != "closed" and memory.has_headroom("미국 전종목 갱신"):
+                jobs.append(refresh_us_stocks())
+            await asyncio.gather(*jobs, return_exceptions=True)
 
         # 트렌드·사용 통계 DB flush (5분)
         if counter % 30 == 0:
@@ -671,8 +688,8 @@ async def periodic_refresh():
             except Exception:
                 pass
 
-        # 순위 (60초) - Naver 실시간
-        if counter % 6 == 0:
+        # 순위 (장중 60초 / 휴장 10분) - Naver 실시간
+        if counter % (6 if market_hours.kr_session() != "closed" else 60) == 0:
             await refresh_kr_rankings_from_naver()
 
         # 펀더멘털·재무제표 DB 갱신 (24시간 주기, 백그라운드)

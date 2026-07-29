@@ -1,7 +1,9 @@
+import json
 import os
 import sys
-import time
 import threading
+import time
+import zlib
 from typing import Any, Optional
 from collections import OrderedDict
 
@@ -19,6 +21,45 @@ MAX_CACHE_SIZE = 50_000  # 최대 항목 수 (초과 시 오래된 것부터 삭
 MAX_CACHE_BYTES = int(os.getenv("MAX_CACHE_BYTES", 80 * 1024 * 1024))
 
 
+# 이 크기를 넘는 값은 압축해 보관한다.
+#
+# OHLCV 시계열은 파이썬 객체로 두면 1행에 약 775바이트인데, 실제 정보는
+# 날짜 문자열 하나와 숫자 다섯 개뿐이다. JSON으로 직렬화하고 압축하면
+# 실제 시세 데이터 기준 약 28배가 줄어, 12,000행 차트가 8.9MB → 0.33MB 가
+# 된다. 같은 캐시 용량(80MB)에 차트 8개 대신 약 240개가 들어간다.
+#
+# 값을 꺼낼 때 약 20ms가 들지만(CPU가 느리면 그 몇 배), 캐시에서 밀려나
+# 야후에서 다시 받아오는 데 걸리는 몇 초와는 비교가 되지 않는다.
+COMPRESS_OVER_BYTES = int(os.getenv("CACHE_COMPRESS_OVER", 256 * 1024))
+_COMPRESS_LEVEL = 1     # 압축률은 level 6과 거의 같은데 더 빠르다
+
+
+class _Packed:
+    """압축해 보관 중인 값. 캐시 내부에서만 쓰인다."""
+    __slots__ = ("blob", "nbytes")
+
+    def __init__(self, blob: bytes):
+        self.blob = blob
+        self.nbytes = len(blob)
+
+
+def _pack(value: Any) -> Any:
+    """큰 값만 압축한다. JSON으로 만들 수 없는 값은 그대로 둔다."""
+    try:
+        raw = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()
+    except (TypeError, ValueError):
+        return value
+    if len(raw) < COMPRESS_OVER_BYTES:
+        return value
+    return _Packed(zlib.compress(raw, _COMPRESS_LEVEL))
+
+
+def _unpack(value: Any) -> Any:
+    if isinstance(value, _Packed):
+        return json.loads(zlib.decompress(value.blob))
+    return value
+
+
 def _rough_size(v: Any) -> int:
     """값의 대략적인 바이트 크기.
 
@@ -26,6 +67,8 @@ def _rough_size(v: Any) -> int:
     작은 값'을 자릿수 단위로 구분하는 것뿐이다. 전체를 재귀 순회하면 그 자체가
     비싸므로, 리스트는 앞쪽 몇 개만 재보고 곱한다."""
     try:
+        if isinstance(v, _Packed):
+            return v.nbytes
         if isinstance(v, (list, tuple)):
             n = len(v)
             if n == 0:
@@ -69,7 +112,7 @@ class TTLCache:
                 return None
             # 최근 접근 항목을 뒤로 이동 (LRU)
             self._store.move_to_end(key)
-            return value
+        return _unpack(value)
 
     def age(self, key: str) -> Optional[float]:
         """이 값을 쓴 지 몇 초 지났는가. 쓴 적이 없으면 None.
@@ -86,7 +129,8 @@ class TTLCache:
         if fresh is not None:
             return fresh
         with self._lock:
-            return self._stale.get(key)
+            value = self._stale.get(key)
+        return _unpack(value)
 
     def _evict(self, key: str):
         """락을 이미 잡은 상태에서 호출한다"""
@@ -96,6 +140,7 @@ class TTLCache:
         self._total_bytes -= self._bytes.pop(key, 0)
 
     def set(self, key: str, value: Any, ttl: int = 60):
+        value = _pack(value)
         size = _rough_size(value)
         with self._lock:
             if key in self._bytes:
@@ -151,8 +196,12 @@ class TTLCache:
     def bytes_used(self) -> int:
         return self._total_bytes
 
+    def packed_count(self) -> int:
+        return sum(1 for v, _ in self._store.values() if isinstance(v, _Packed))
+
     def stats(self) -> dict:
         return {
+            "packed": self.packed_count(),
             "items": len(self._store),
             "bytes": self._total_bytes,
             "mb": round(self._total_bytes / 1024 / 1024, 1),

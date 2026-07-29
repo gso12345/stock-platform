@@ -198,3 +198,50 @@ class Test연결_관리:
         # Render는 프록시 뒤라 client.host가 전 사용자 공통으로 잡힌다.
         # 상한이 10이면 11번째 접속자부터 시세를 아예 못 받았다
         assert price_stream.MAX_WS_PER_IP >= 100
+
+
+class Test백그라운드_부하:
+    """Render 무료 플랜은 CPU가 0.1개다. 백그라운드가 쉬지 않고 돌면
+    사용자가 실제로 요청했을 때 응답이 그만큼 밀린다. 실제로 실시간 시세를
+    켠 뒤 '정보 불러오는 속도가 느려졌다'는 문제가 생겼다."""
+
+    def test_아무도_안_쓰면_주기_갱신을_멈춘다(self):
+        import ast, textwrap
+        src = textwrap.dedent(inspect.getsource(scheduler.periodic_refresh))
+        tree = ast.parse(src)
+        멈춤 = any(
+            isinstance(n, ast.If)
+            and "seconds_since_last_request" in {
+                x.attr for x in ast.walk(n.test) if isinstance(x, ast.Attribute)
+            }
+            and any(isinstance(b, ast.Continue) for b in n.body)
+            for n in ast.walk(tree)
+        )
+        assert 멈춤, "아무도 안 쓰는 동안에도 갱신이 계속 돈다"
+
+    def test_보유종목_갱신이_주기_루프에서_빠졌다(self):
+        # refresh_watched_loop 가 '지금 보고 있는 종목'을 15초마다 갱신한다.
+        # 전 사용자 보유종목을 5분마다 또 긁는 것은 순수한 중복이다.
+        # (주석에는 이 이름이 설명으로 남아 있으므로 실제 호출만 본다)
+        import ast, textwrap
+        for fn in (scheduler.periodic_refresh, scheduler.run_startup_prefetch):
+            tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+            호출 = {n.func.id for n in ast.walk(tree)
+                    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+            assert "refresh_held_symbols" not in 호출, \
+                f"{fn.__name__}에 중복된 보유종목 갱신이 남아 있다"
+
+    def test_지수_갱신이_장_시간에_따라_달라진다(self):
+        # 휴장 중에는 값이 안 변하는데 30초마다 부르면 CPU만 쓴다
+        src = inspect.getsource(scheduler.periodic_refresh)
+        assert "kr_session()" in src and "us_session()" in src
+
+    def test_유휴_기준이_너무_짧지_않다(self):
+        # 너무 짧으면 잠깐 자리를 비운 사이 캐시가 통째로 묵는다
+        assert 300 <= scheduler.IDLE_PAUSE_SEC <= 3600
+
+    def test_실시간_시세는_유휴와_무관하게_돈다(self):
+        # 이 루프는 '보고 있는 사람이 있을 때만' 일하므로 별도 유휴 판단이
+        # 필요 없다. 여기에 유휴 정지를 걸면 화면을 켜 두고 보는 사용자의
+        # 시세가 멈춘다
+        assert "seconds_since_last_request" not in inspect.getsource(scheduler.refresh_watched_loop)

@@ -67,10 +67,31 @@ def _가드로_감싸였나(fn, 호출: str) -> bool:
     return False
 
 
+def _rough_size_of_stored(v) -> int:
+    """캐시에 실제로 들어가는 형태(압축 포함)의 크기"""
+    from app.core.cache import _pack
+    return _rough_size(_pack(v))
+
+
 def ohlcv(rows: int) -> list:
-    """실제 OHLCV 응답과 같은 모양"""
-    return [{"date": "2024-01-15", "open": 187.15, "high": 189.38,
-             "low": 186.99, "close": 188.63, "volume": 58414500} for _ in range(rows)]
+    """실제 OHLCV 응답과 같은 모양.
+
+    행마다 값이 달라야 한다 — 똑같은 행을 반복하면 압축률이 비현실적으로
+    좋게 나와, 압축 효과를 실제보다 크게 착각하게 된다."""
+    import datetime as _dt
+    d0 = _dt.date(1990, 1, 2)
+    out = []
+    for i in range(rows):
+        base = 100.0 + (i * 7919 % 9973) / 100.0
+        out.append({
+            "date":   str(d0 + _dt.timedelta(days=i)),
+            "open":   round(base, 2),
+            "high":   round(base * 1.013, 2),
+            "low":    round(base * 0.987, 2),
+            "close":  round(base * (1 + ((i * 31 % 61) - 30) / 3000), 2),
+            "volume": 1_000_000 + (i * 104729 % 90_000_000),
+        })
+    return out
 
 
 class Test크기_측정:
@@ -90,10 +111,13 @@ class Test크기_측정:
 
 class Test바이트_상한:
     def test_상한을_넘으면_오래된_것부터_밀어낸다(self):
-        c = TTLCache(maxbytes=5 * 1024 * 1024)
+        # 압축 후 크기 기준으로 상한을 잡는다 (압축 전 크기로 잡으면
+        # 아무것도 밀려나지 않아 검사가 통과해 버린다)
+        한개 = _rough_size_of_stored(ohlcv(3_000))
+        c = TTLCache(maxbytes=한개 * 3)
         for i in range(10):
             c.set(f"ohlcv:{i}", ohlcv(3_000), 3600)
-        assert c.bytes_used() <= 5 * 1024 * 1024
+        assert c.bytes_used() <= 한개 * 3
         assert c.get("ohlcv:0") is None, "가장 오래된 항목이 남아 있다"
         assert c.get("ohlcv:9") is not None, "방금 넣은 항목이 사라졌다"
 
@@ -185,3 +209,58 @@ class Test메모리_측정:
         monkeypatch.setattr(memory, "usage_ratio", lambda: ratio)
         monkeypatch.setattr(memory, "rss_mb", lambda: ratio * memory.MEMORY_LIMIT_MB)
         assert memory.has_headroom("테스트") is 기대
+
+
+class Test압축_보관:
+    """OHLCV 시계열은 파이썬 객체로 두면 1행 775바이트인데 실제 정보는
+    날짜 하나와 숫자 다섯 개다. 압축하면 1행 7바이트가 되어, 같은 용량에
+    차트 8개 대신 800개가 들어간다. 이게 없으면 사용자가 차트를 몇 개만
+    열어도 이전 것이 밀려나 매번 야후에서 다시 받는다(매번 몇 초)."""
+
+    def test_큰_값은_압축해_보관한다(self):
+        from app.core.cache import _Packed, _pack
+        assert isinstance(_pack(ohlcv(12_000)), _Packed)
+
+    def test_작은_값은_그대로_둔다(self):
+        # 시세 dict 하나까지 압축하면 조회할 때마다 헛수고를 한다
+        from app.core.cache import _pack
+        assert _pack({"symbol": "005930", "price": 71000}) == {"symbol": "005930", "price": 71000}
+
+    def test_압축해도_값이_정확히_왕복한다(self):
+        c = TTLCache()
+        rows = ohlcv(12_000)
+        c.set("ohlcv:big", rows, 3600)
+        assert c.get("ohlcv:big") == rows
+
+    def test_만료된_뒤에도_꺼낼_수_있다(self):
+        import time as _t
+        c = TTLCache()
+        c.set("ohlcv:big", ohlcv(9_000), 0)
+        _t.sleep(0.05)
+        assert c.get("ohlcv:big") is None
+        assert len(c.get_stale("ohlcv:big")) == 9_000
+
+    def test_압축_덕분에_같은_용량에_훨씬_많이_들어간다(self):
+        c = TTLCache(maxbytes=80 * 1024 * 1024)
+        for i in range(60):
+            c.set(f"ohlcv:{i}", ohlcv(12_000), 3600)
+        # 압축이 없으면 60개 × 8.9MB = 534MB 라 대부분 밀려났을 것이다
+        assert c.size() >= 60, f"{c.size()}개만 남았다 — 압축이 동작하지 않는다"
+        assert c.bytes_used() < 20 * 1024 * 1024
+
+    def test_JSON으로_만들_수_없는_값도_저장된다(self):
+        # 압축하려다 실패해서 저장 자체가 안 되면 안 된다
+        class 이상한값:
+            pass
+        c = TTLCache()
+        v = 이상한값()
+        c.set("odd", v, 60)
+        assert c.get("odd") is v
+
+    def test_압축된_항목도_사용량에_정확히_반영된다(self):
+        c = TTLCache()
+        c.set("ohlcv:a", ohlcv(12_000), 3600)
+        used = c.bytes_used()
+        assert 0 < used < 1024 * 1024, f"{used} — 압축 후 크기로 세야 한다"
+        c.delete("ohlcv:a")
+        assert c.bytes_used() == 0

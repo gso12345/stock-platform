@@ -313,6 +313,11 @@ _FEATURE_PATH_MAP = {
 
 class ActivityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # 헬스체크는 사람의 사용이 아니다 — 이걸로 '사용 중'을 판단하면
+        # 아무도 안 보는데도 백그라운드 갱신이 계속 돈다
+        if request.url.path not in ("/health", "/"):
+            from app.core.activity import touch_request
+            touch_request()
         auth = request.headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
             try:

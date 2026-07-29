@@ -46,6 +46,21 @@ def _load_db_base() -> None:
 _load_db_base()
 
 
+# 마지막으로 어떤 요청이든 들어온 시각(monotonic).
+# 로그인 여부와 무관하게 갱신한다 — 백그라운드 갱신을 계속 돌릴지 판단하는 데
+# 쓰는 값이라, '사람이 이 서비스를 쓰고 있는가'만 알면 된다.
+_last_request_at: float = time.monotonic()
+
+
+def touch_request() -> None:
+    global _last_request_at
+    _last_request_at = time.monotonic()
+
+
+def seconds_since_last_request() -> float:
+    return time.monotonic() - _last_request_at
+
+
 def mark_active(user_id: int) -> None:
     now_mono = time.monotonic()
     today = _today()
