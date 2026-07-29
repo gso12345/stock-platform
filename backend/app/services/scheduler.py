@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime
 from app.core.cache import cache
@@ -14,9 +15,13 @@ from app.services.price_fetcher import (
     fetch_yf_quotes, fetch_yf_index_quotes, fetch_pykrx_index,
 )
 from app.services import market_hours, watched
+from app.core import memory
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
+
+# 큰 인스턴스에서만 켜는 선제 캐싱 (기본 끔 — 무료 플랜 메모리 한도 때문)
+HEAVY_PREFETCH = os.getenv("ENABLE_HEAVY_PREFETCH", "").lower() in ("1", "true", "yes")
 
 KR_INDICES = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"]
 US_INDICES = ["SP500","NASDAQ","DOW","SOX","RUSSELL"]
@@ -594,10 +599,15 @@ async def run_startup_prefetch():
         refresh_held_symbols(),
         return_exceptions=True,
     )
-    # OHLCV 선제 캐싱 (후후순위 — 백그라운드)
-    asyncio.create_task(_prefetch_ohlcv_popular())
-    # 인기 종목 펀더멘털·재무제표 초기 갱신 (후후순위 — 백그라운드)
-    asyncio.create_task(_prefetch_fundamentals_popular())
+    # OHLCV·펀더멘털 선제 캐싱은 '미리 받아두면 빠르다'는 최적화일 뿐인데
+    # 메모리를 가장 많이 먹는다. 지수·종목 23개 시계열이 약 200MB이고,
+    # Render 무료 플랜(512MB)에서는 이것만으로 프로세스가 강제 재시작된다.
+    # 사용자가 차트를 열 때 받아도 되므로 기본값은 끔. 큰 인스턴스에서만 켠다.
+    if HEAVY_PREFETCH:
+        _spawn(_prefetch_ohlcv_popular(), "prefetch-ohlcv")
+        _spawn(_prefetch_fundamentals_popular(), "prefetch-fundamentals")
+    else:
+        log.info("무거운 선제 캐싱(OHLCV·펀더멘털) 비활성 — ENABLE_HEAVY_PREFETCH=1 로 켤 수 있음")
     log.info("=== 초기 프리페치 완료 ===")
 
 
@@ -639,8 +649,12 @@ async def periodic_refresh():
         if counter % 30 == 0:
             from app.services.news_service import get_kr_news, get_us_news
             loop = asyncio.get_running_loop()
+            # SP500 전 종목 갱신은 응답 파싱 중 메모리가 크게 튄다.
+            # 여유가 없으면 이번 사이클은 건너뛴다 — 캐시가 조금 묵는 것과
+            # 프로세스가 강제 재시작되는 것은 비교할 문제가 아니다.
+            _us_stocks = refresh_us_stocks() if memory.has_headroom("미국 전종목 갱신") else asyncio.sleep(0)
             await asyncio.gather(
-                refresh_us_stocks(),
+                _us_stocks,
                 refresh_kr_stocks(),
                 refresh_held_symbols(),
                 loop.run_in_executor(None, get_kr_news),
@@ -665,8 +679,9 @@ async def periodic_refresh():
         now = datetime.utcnow()
         if (now - _last_fund_refresh).total_seconds() >= 86400:
             _last_fund_refresh = now
-            asyncio.create_task(refresh_fundamentals_daily())
-            log.info("일일 펀더멘털·재무제표 DB 갱신 작업 시작")
+            if HEAVY_PREFETCH and memory.has_headroom("일일 펀더멘털 갱신"):
+                _spawn(refresh_fundamentals_daily(), "fundamentals-daily")
+                log.info("일일 펀더멘털·재무제표 DB 갱신 작업 시작")
 
 
 # 실행 중인 백그라운드 태스크 참조.
