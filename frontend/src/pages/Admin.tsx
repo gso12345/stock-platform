@@ -11,7 +11,7 @@ import {
   ExternalLink, Calendar,
 } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
-import RuntimePanel from "@/components/admin/RuntimePanel";
+import SystemTab from "@/components/admin/SystemTab";
 
 const adminApi = {
   getStats:        () => api.get("/admin/stats").then(r => r.data),
@@ -58,7 +58,7 @@ const adminApi = {
   getUsageStats:   () => api.get("/admin/usage-stats").then(r => r.data),
 };
 
-type Tab = "dashboard" | "users" | "community" | "banner" | "cache" | "reports";
+type Tab = "dashboard" | "users" | "community" | "banner" | "cache" | "reports" | "system";
 
 export default function Admin() {
   const { isAdmin, username } = useAuthStore();
@@ -112,6 +112,7 @@ export default function Admin() {
           { id: "reports",   Icon: Flag,          label: "신고 관리", badge: pendingReports },
           { id: "banner",    Icon: Megaphone,     label: "배너·공지", badge: 0 },
           { id: "cache",     Icon: Database,      label: "캐시",      badge: 0 },
+          { id: "system",    Icon: Activity,      label: "시스템",    badge: 0 },
         ] as { id: Tab; Icon: any; label: string; badge: number }[]).map(({ id, Icon, label, badge }) => (
           <button
             key={id}
@@ -138,6 +139,7 @@ export default function Admin() {
       {tab === "reports"   && <ReportsTab qc={qc} />}
       {tab === "banner"    && <BannerTab qc={qc} />}
       {tab === "cache"     && <CacheTab qc={qc} />}
+      {tab === "system"    && <SystemTab />}
     </div>
   );
 }
@@ -151,7 +153,6 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
   const { data: signups }      = useQuery({ queryKey: ["admin-signups"],       queryFn: adminApi.getSignups,      staleTime: 60_000 });
   const { data: visitorTrend } = useQuery({ queryKey: ["admin-visitor-trend"], queryFn: adminApi.getVisitorTrend, staleTime: 60_000 });
   const { data: system, refetch: refetchSystem } = useQuery({ queryKey: ["admin-system"], queryFn: adminApi.getSystem, staleTime: 30_000 });
-  const { data: dbStats, refetch: refetchDbStats } = useQuery({ queryKey: ["admin-db-stats"], queryFn: adminApi.getDbStats, staleTime: 60_000 });
   const { data: searchTrends } = useQuery({ queryKey: ["admin-search-trends"], queryFn: adminApi.getSearchTrends, staleTime: 60_000 });
   const { data: usageStats }   = useQuery({ queryKey: ["admin-usage-stats"],   queryFn: adminApi.getUsageStats,   staleTime: 60_000 });
 
@@ -207,70 +208,6 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
           </div>
         ))}
       </div>
-
-      {/* DB 용량 */}
-      {(() => {
-        const LIMIT_MB = 500; // Supabase 무료 플랜 500 MB
-        const LIMIT_BYTES = LIMIT_MB * 1024 * 1024;
-        const usedBytes: number = dbStats?.total_bytes ?? 0;
-        const pct = LIMIT_BYTES > 0 ? Math.min((usedBytes / LIMIT_BYTES) * 100, 100) : 0;
-        const barColor = pct >= 90 ? "bg-accent-red" : pct >= 70 ? "bg-amber-400" : "bg-accent-green";
-        return (
-          <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
-                <Database size={14} className="text-accent-blue" />DB 용량
-              </span>
-              <button onClick={() => refetchDbStats()} className="text-text-muted hover:text-text-primary transition-colors p-1 rounded">
-                <RefreshCw size={13} />
-              </button>
-            </div>
-
-            {dbStats ? (
-              <>
-                {/* 사용량 바 */}
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-lg font-bold text-text-primary font-mono">{dbStats.total_pretty}</span>
-                    <span className="text-xs text-text-muted">/ {LIMIT_MB} MB (Supabase 무료)</span>
-                  </div>
-                  <div className="w-full h-2.5 bg-bg-elevated rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
-                  </div>
-                  <span className="text-xs text-text-muted text-right">{pct.toFixed(1)}% 사용</span>
-                </div>
-
-                {/* 테이블별 용량 */}
-                {dbStats.tables && dbStats.tables.length > 0 && (
-                  <div className="flex flex-col gap-1 mt-1">
-                    <p className="text-2xs text-text-muted font-semibold uppercase tracking-wide mb-0.5">테이블별</p>
-                    {dbStats.tables.map((t: any) => {
-                      const tPct = usedBytes > 0 ? Math.min((t.bytes / usedBytes) * 100, 100) : 0;
-                      return (
-                        <div key={t.name} className="flex items-center gap-2">
-                          <span className="text-xs text-text-muted font-mono w-40 truncate shrink-0">{t.name}</span>
-                          <div className="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
-                            <div className="h-full bg-accent-blue/50 rounded-full" style={{ width: `${tPct}%` }} />
-                          </div>
-                          <span className="text-xs font-mono text-text-secondary w-14 text-right shrink-0">{t.pretty}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex items-center justify-center py-4">
-                <div className="w-4 h-4 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* 서버 자원·백그라운드 상태 —
-          메모리 초과나 루프 중단을 알림 메일이 아니라 여기서 먼저 보도록 */}
-      <RuntimePanel />
 
       {/* 시스템 상태 + 가입 추이 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

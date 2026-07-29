@@ -7,6 +7,7 @@ from threading import Lock
 from datetime import datetime, timezone, timedelta
 from app.core.cache import cache
 from app.core.executor import background_executor
+from app.core import health
 from app.core.cpu import cpu_worker_count, io_worker_count
 
 _refreshing = {}  # 중복 갱신 방지 플래그
@@ -334,16 +335,27 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
         _feed_executor.submit(_parse_feed, url, source, limit_per_source): source
         for source, url in picked
     }
+    성공 = 실패 = 0
     try:
         # 워커가 적으므로 개별 피드는 여유 있게 기다린다 — 예전에는 동시 실행
         # 때문에 이 예산 안에 못 끝나 버려지는 피드가 대부분이었다
         for future in as_completed(futures, timeout=40):
+            source = futures[future]
             try:
-                all_news.extend(future.result(timeout=12))
-            except Exception:
-                pass
+                items = future.result(timeout=12)
+                all_news.extend(items)
+                성공 += 1
+            except Exception as e:
+                실패 += 1
+                # 어떤 언론사가 왜 실패했는지 남긴다 — '아시아경제만 나온다' 같은
+                # 상태를 관리자 화면에서 바로 확인할 수 있게 하기 위한 것이다
+                health.record_fail(f"뉴스:{source}", f"{type(e).__name__}")
     except Exception:
         pass
+    if 성공:
+        health.record_ok("뉴스 수집", None, f"{성공}/{성공+실패}곳 성공")
+    elif 실패:
+        health.record_fail("뉴스 수집", f"{실패}곳 전부 실패")
     return all_news
 
 

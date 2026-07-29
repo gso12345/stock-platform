@@ -3,6 +3,7 @@ import json
 import re
 import logging
 import os
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -15,6 +16,9 @@ from app.models.user import User
 from app.models.stock import WatchlistItem, PortfolioItem
 
 log = logging.getLogger(__name__)
+
+# 프로세스가 시작된 시각 — 재시작이 잦은지 판단하는 데 쓴다
+_STARTED_AT = time.time()
 router = APIRouter(prefix="/admin", tags=["관리자"])
 
 
@@ -198,7 +202,7 @@ def get_runtime(_: User = Depends(require_admin)):
     Render 알림 메일이나 사용자 제보로 뒤늦게 알았다. 지금 무엇이 돌고 있고
     자원을 얼마나 쓰는지 한 화면에서 보이게 한다."""
     from app.core.cache import cache
-    from app.core import memory, cpu, activity
+    from app.core import memory, cpu, activity, health
     from app.services import scheduler, watched, market_hours, news_service
 
     used_mb = memory.rss_mb()
@@ -222,6 +226,7 @@ def get_runtime(_: User = Depends(require_admin)):
         tasks.append({"name": name, "running": False, "error": "시작되지 않음"})
 
     idle_sec = activity.seconds_since_last_request()
+    from app.api.websocket.price_stream import _ws_connections, MAX_WS_PER_IP
     kr, us = market_hours.kr_session(), market_hours.us_session()
     watched_stats = watched.stats()
 
@@ -257,6 +262,15 @@ def get_runtime(_: User = Depends(require_admin)):
         },
         "news": _news_status(),
         "heavy_prefetch": scheduler.HEAVY_PREFETCH,
+        # 최근 성공/실패 이력 — '언제 마지막으로 성공했는지'가 없어서
+        # 문제를 찾는 데 매번 오래 걸렸다
+        "health": health.snapshot(),
+        "cache_breakdown": cache.by_prefix()[:10],
+        "websocket": {
+            "connections": sum(_ws_connections.values()),
+            "limit_per_ip": MAX_WS_PER_IP,
+        },
+        "uptime_sec": round(time.time() - _STARTED_AT),
         "server_time": datetime.now(timezone.utc).isoformat(),
     }
 

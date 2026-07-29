@@ -15,7 +15,7 @@ from app.services.price_fetcher import (
     fetch_yf_quotes, fetch_yf_index_quotes, fetch_pykrx_index,
 )
 from app.services import market_hours, watched
-from app.core import memory, activity
+from app.core import memory, activity, health
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
@@ -136,6 +136,10 @@ async def refresh_kr_indices():
                     resolved.add(name)
             except Exception:
                 pass
+    if ok:
+        health.record_ok("국내 지수", None, f"{ok}/{len(KR_INDICES)}개")
+    else:
+        health.record_fail("국내 지수", "전부 실패")
     log.info(f"국내 지수 {ok}/{len(KR_INDICES)}개 갱신")
     return ok
 
@@ -206,6 +210,10 @@ async def refresh_us_indices():
         except Exception:
             pass
 
+    if ok:
+        health.record_ok("미국 지수", None, f"{ok}/{len(US_INDICES)}개")
+    else:
+        health.record_fail("미국 지수", "전부 실패")
     log.info(f"미국 지수 {ok}/{len(US_INDICES)}개 갱신")
     return ok
 
@@ -386,7 +394,12 @@ async def _refresh_watched_once() -> tuple[int, int]:
 
     if kr_codes:
         try:
+            _t = time.monotonic()
             data = await fetch_naver_prices_light(kr_codes)
+            if data:
+                health.record_ok("네이버 시세", (time.monotonic() - _t) * 1000, f"{len(data)}/{len(kr_codes)}종목")
+            else:
+                health.record_fail("네이버 시세", f"{len(kr_codes)}종목 모두 실패")
             for code6, q in data.items():
                 # 가격만 새로 받았으므로 기존 값(시가총액·PER 등) 위에 덮어쓴다
                 for key in (code6, f"{code6}.KS", f"{code6}.KQ"):
@@ -396,11 +409,17 @@ async def _refresh_watched_once() -> tuple[int, int]:
             if len(data) < len(kr_codes):
                 log.warning(f"실시간 국내 시세 일부 실패: {len(data)}/{len(kr_codes)}")
         except Exception as e:
+            health.record_fail("네이버 시세", f"{type(e).__name__}: {e}")
             log.warning(f"실시간 국내 시세 갱신 실패: {type(e).__name__}: {e}")
 
     if us_syms:
         try:
+            _t = time.monotonic()
             data = await fetch_yf_quotes(us_syms)
+            if data:
+                health.record_ok("야후 시세", (time.monotonic() - _t) * 1000, f"{len(data)}/{len(us_syms)}종목")
+            else:
+                health.record_fail("야후 시세", f"{len(us_syms)}종목 응답 없음 — 차단·한도 의심")
             if not data:
                 # 예전에는 여기서 조용히 넘어가 몇 시간 된 값이 계속 나갔다
                 log.warning(f"실시간 해외 시세 응답 없음 ({len(us_syms)}종목) — 차단·한도 의심")
@@ -411,6 +430,7 @@ async def _refresh_watched_once() -> tuple[int, int]:
                 cache.set(f"price:{sym}", {**prev, **{k: v for k, v in q.items() if v is not None}}, ttl)
                 ok += 1
         except Exception as e:
+            health.record_fail("야후 시세", f"{type(e).__name__}: {e}")
             log.warning(f"실시간 해외 시세 갱신 실패: {type(e).__name__}: {e}")
 
     return ok, len(kr_codes) + len(us_syms)
@@ -431,10 +451,12 @@ async def refresh_watched_loop():
             [market_hours.kr_session(), market_hours.us_session()], symbol_count=kr_n
         )
         try:
+            t0 = time.monotonic()
             ok, total = await _refresh_watched_once()
             if total:
-                log.debug(f"실시간 시세 {ok}/{total}종목 갱신 (주기 {interval}초)")
+                health.record_ok("실시간 시세", (time.monotonic() - t0) * 1000, f"{ok}/{total}종목")
         except Exception as e:
+            health.record_fail("실시간 시세", f"{type(e).__name__}: {e}")
             log.warning(f"실시간 시세 루프 오류: {type(e).__name__}: {e}")
         elapsed = time.monotonic() - started
         await asyncio.sleep(max(1.0, interval - elapsed))

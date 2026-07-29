@@ -199,6 +199,21 @@ class TTLCache:
     def packed_count(self) -> int:
         return sum(1 for v, _ in self._store.values() if isinstance(v, _Packed))
 
+    def by_prefix(self) -> list[dict]:
+        """종류별 사용량 — 무엇이 캐시를 채우는지 한눈에 보려고 둔다"""
+        groups: dict[str, list[int]] = {}
+        with self._lock:
+            for k, n in self._bytes.items():
+                head = k.split(":", 1)[0] if ":" in k else k
+                g = groups.setdefault(head, [0, 0])
+                g[0] += 1
+                g[1] += n
+        return sorted(
+            [{"prefix": k, "items": v[0], "bytes": v[1], "mb": round(v[1] / 1024 / 1024, 2)}
+             for k, v in groups.items()],
+            key=lambda x: -x["bytes"],
+        )
+
     def stats(self) -> dict:
         return {
             "packed": self.packed_count(),

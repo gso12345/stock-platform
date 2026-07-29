@@ -117,3 +117,59 @@ class Test패널_자체_비용:
         src = inspect.getsource(_news_status)
         assert src.count('get_stale("news:kr")') == 1
         assert src.count('get_stale("news:us")') == 1
+
+
+class Test진단_정보:
+    """'동작 중'이라는 말만으로는 문제를 못 찾는다. 마지막으로 성공한 때,
+    실패 횟수, 실패 이유까지 있어야 원인을 좁힐 수 있다."""
+
+    @pytest.mark.parametrize("키", ["health", "cache_breakdown", "websocket", "uptime_sec"])
+    def test_진단에_필요한_항목이_있다(self, 상태, 키):
+        assert 키 in 상태
+
+    def test_수집_이력이_성공률과_마지막_시각을_담는다(self):
+        from app.core import health
+        health.reset()
+        health.record_ok("테스트작업", 120, "5/5개")
+        health.record_fail("테스트작업", "타임아웃")
+        h = {x["name"]: x for x in health.snapshot()}["테스트작업"]
+        assert h["ok"] == 1 and h["fail"] == 1
+        assert h["success_pct"] == 50
+        assert h["last_ok_sec"] is not None and h["last_fail_sec"] is not None
+        assert h["last_error"] == "타임아웃"
+        assert h["detail"] == "5/5개"
+        health.reset()
+
+    def test_기록이_무한정_쌓이지_않는다(self):
+        from app.core import health
+        health.reset()
+        for i in range(health.MAX_TRACKED + 30):
+            health.record_ok(f"작업{i}")
+        assert len(health.snapshot()) <= health.MAX_TRACKED
+        health.reset()
+
+    def test_캐시를_종류별로_나눠_보여준다(self):
+        # 무엇이 캐시를 채우는지 모르면 무엇을 줄일지도 알 수 없다
+        from app.core.cache import TTLCache
+        c = TTLCache()
+        c.set("price:005930", {"p": 1}, 60)
+        c.set("price:AAPL", {"p": 2}, 60)
+        c.set("news:kr", [{"t": "x"}] * 50, 60)
+        by = {b["prefix"]: b for b in c.by_prefix()}
+        assert by["price"]["items"] == 2
+        assert by["news"]["items"] == 1
+
+    def test_가동_시간을_보여준다(self, 상태):
+        # 재시작이 잦은지 판단하는 유일한 단서다
+        assert isinstance(상태["uptime_sec"], int) and 상태["uptime_sec"] >= 0
+
+    def test_웹소켓_연결_수를_보여준다(self, 상태):
+        w = 상태["websocket"]
+        assert w["connections"] >= 0 and w["limit_per_ip"] > 0
+
+    def test_뉴스는_언론사별로_실패를_기록한다(self):
+        # '아시아경제만 나온다'를 화면에서 바로 확인할 수 있어야 한다
+        import inspect as _i
+        from app.services import news_service
+        src = _i.getsource(news_service._fetch_all_feeds)
+        assert 'health.record_fail(f"뉴스:{source}"' in src
