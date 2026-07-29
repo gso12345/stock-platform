@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.cache import cache
 from app.db.database import SessionLocal
 from app.models.stock import DisclosuresCache, DartCorpMapCache
-from app.core.cpu import worker_count
+from app.core.cpu import cpu_worker_count, io_worker_count
 
 BASE = "https://opendart.fss.or.kr/api"
 
@@ -191,7 +191,7 @@ class DARTService:
         ]
 
         # 연간/분기 조회를 동시 실행 (순차 13회 → 병렬)
-        with ThreadPoolExecutor(max_workers=worker_count(default=8)) as ex:
+        with ThreadPoolExecutor(max_workers=io_worker_count(default=8)) as ex:
             annual_futs = [ex.submit(self._fetch_single, corp_code, y, rt) for y, rt in annual_jobs]
             quarterly_futs = [ex.submit(self._fetch_single, corp_code, y, rt) for y, rt in quarterly_jobs]
             annual_rows = [f.result() for f in annual_futs]

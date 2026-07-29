@@ -29,21 +29,44 @@ class Test할당량_감지:
 
 
 class Test스레드_수:
-    @pytest.mark.parametrize("할당량, 최대", [(0.1, 2), (0.25, 2), (0.5, 4), (1.0, 8)])
-    def test_할당량이_작으면_스레드도_적다(self, monkeypatch, 할당량, 최대):
+    """CPU를 태우는 작업과 네트워크를 기다리는 작업을 구분해야 한다.
+
+    한때 둘을 같은 기준(CPU)으로 줄였다가, 0.1 CPU에서 공용 스레드풀이 2개가
+    됐다. 5분마다 도는 뉴스 수집 두 개가 그 2개를 전부 차지하는 동안
+    대시보드·종목상세 요청(run_in_executor 33곳)이 통째로 대기했다."""
+
+    @pytest.mark.parametrize("할당량, 최대", [(0.1, 2), (0.25, 2), (0.5, 3), (1.0, 6)])
+    def test_파싱_스레드는_CPU에_맞춘다(self, monkeypatch, 할당량, 최대):
         monkeypatch.setattr(cpu, "cpu_quota", lambda: 할당량)
-        assert cpu.worker_count(default=20) <= 최대, \
-            f"CPU {할당량}개에 스레드 {cpu.worker_count(default=20)}개는 과하다"
+        assert cpu.cpu_worker_count(default=20) <= 최대
+
+    @pytest.mark.parametrize("할당량", [0.1, 0.25, 0.5])
+    def test_대기_스레드는_CPU가_적어도_넉넉히_둔다(self, monkeypatch, 할당량):
+        # 이 스레드들은 CPU를 쓰지 않고 소켓을 기다린다. 줄이면 동시에
+        # 기다릴 수 있는 요청 수만 줄어 서로 관계없는 작업이 줄줄이 밀린다
+        monkeypatch.setattr(cpu, "cpu_quota", lambda: 할당량)
+        assert cpu.io_worker_count(default=24) >= 8, \
+            f"CPU {할당량}개에서 공용 스레드 {cpu.io_worker_count(default=24)}개는 너무 적다"
+
+    def test_대기_스레드가_파싱_스레드보다_많다(self, monkeypatch):
+        monkeypatch.setattr(cpu, "cpu_quota", lambda: 0.1)
+        assert cpu.io_worker_count(24) > cpu.cpu_worker_count(6)
 
     def test_기본값을_넘지_않는다(self, monkeypatch):
         # CPU가 아무리 많아도 원래 의도한 상한은 지킨다
         monkeypatch.setattr(cpu, "cpu_quota", lambda: 64.0)
-        assert cpu.worker_count(default=6) == 6
+        assert cpu.cpu_worker_count(default=6) == 6
+        assert cpu.io_worker_count(default=24) == 24
 
     def test_최소한은_보장한다(self, monkeypatch):
         # 0개가 되면 아무 작업도 못 한다
         monkeypatch.setattr(cpu, "cpu_quota", lambda: 0.01)
-        assert cpu.worker_count(default=20) >= 2
+        assert cpu.cpu_worker_count(default=20) >= 2
+        assert cpu.io_worker_count(default=20) >= 8
+
+    def test_공용_스레드풀은_대기_기준으로_잡는다(self):
+        # 요청 처리 중의 블로킹 작업이 전부 여기 얹힌다
+        assert "io_worker_count" in inspect.getsource(cpu.configure_thread_limits)
 
     def test_수치_라이브러리_스레드도_제한한다(self):
         # 0.1 CPU 에서 BLAS 가 코어 수만큼 스레드를 열면 그 자체로 경합이다
@@ -62,8 +85,8 @@ class Test스레드_수:
 
 
 class Test뉴스_수집:
-    def test_스레드가_CPU에_맞춰_잡힌다(self):
-        # 예전에는 64개 고정이었다
+    def test_파싱_스레드가_CPU에_맞춰_잡힌다(self):
+        # 예전에는 64개 고정이었다. RSS 파싱은 CPU를 태우므로 여기는 적게 잡는다
         assert news._FEED_WORKERS <= 8, f"뉴스 피드 스레드 {news._FEED_WORKERS}개는 과하다"
 
     def test_한_번에_전부_긁지_않는다(self):

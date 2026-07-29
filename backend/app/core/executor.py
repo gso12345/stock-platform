@@ -4,6 +4,6 @@
 크기가 제한된 풀을 공유한다.
 """
 from concurrent.futures import ThreadPoolExecutor
-from app.core.cpu import worker_count
+from app.core.cpu import cpu_worker_count, io_worker_count
 
-background_executor = ThreadPoolExecutor(max_workers=worker_count(default=8), thread_name_prefix="bg-refresh")
+background_executor = ThreadPoolExecutor(max_workers=io_worker_count(default=8), thread_name_prefix="bg-refresh")

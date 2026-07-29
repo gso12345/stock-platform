@@ -107,3 +107,13 @@ class Test안전:
             assert 상태["market"]["price_interval_sec"] > 0
         finally:
             asyncio.run(watched.unsubscribe([("005930", "KR"), ("AAPL", "US")]))
+
+
+class Test패널_자체_비용:
+    def test_뉴스_캐시를_한_번만_읽는다(self):
+        # 뉴스 캐시는 압축돼 있어 읽을 때마다 압축을 푼다.
+        # 감시용 화면이 스스로 부하를 만들면 안 된다
+        from app.api.routes.admin import _news_status
+        src = inspect.getsource(_news_status)
+        assert src.count('get_stale("news:kr")') == 1
+        assert src.count('get_stale("news:us")') == 1

@@ -66,12 +66,33 @@ function Bar({ label, used, limit, unit = "MB", hint }: {
 }
 
 export default function RuntimePanel() {
-  const { data, isLoading, refetch, isFetching } = useQuery<Runtime>({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<Runtime>({
     queryKey: ["admin-runtime"],
     queryFn: () => api.get("/admin/runtime").then((r) => r.data),
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
+    // 없는 엔드포인트를 계속 재시도하면 '불러오는 중'에서 영영 멈춘 것처럼 보인다.
+    // 프런트가 백엔드보다 먼저 배포되면 실제로 이 상태가 된다.
+    retry: 1,
   });
+
+  if (isError) {
+    const 없음 = (error as any)?.response?.status === 404;
+    return (
+      <div className="rounded-xl border border-border bg-bg-card p-4 flex items-center gap-2">
+        <AlertTriangle size={14} className="text-accent-amber shrink-0" />
+        <p className="flex-1 text-xs text-text-muted break-keep">
+          {없음
+            ? "서버가 아직 이 기능을 모릅니다. 백엔드 배포가 끝나면 표시됩니다."
+            : "서버 상태를 불러오지 못했습니다."}
+        </p>
+        <button onClick={() => refetch()}
+          className="px-2.5 py-1.5 rounded-lg border border-border text-2xs text-text-muted hover:text-accent-blue transition-all">
+          다시 시도
+        </button>
+      </div>
+    );
+  }
 
   if (isLoading || !data) {
     return (

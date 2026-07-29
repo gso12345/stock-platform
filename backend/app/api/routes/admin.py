@@ -173,6 +173,23 @@ def get_system(_: User = Depends(require_admin)):
     }
 
 
+def _news_status() -> dict:
+    """뉴스 캐시는 압축돼 있어 한 번 읽을 때마다 압축을 푼다.
+    같은 캐시를 세 번 읽으면 그만큼 헛일이라 한 번만 읽는다."""
+    from app.core.cache import cache
+    from app.services import news_service
+    kr = cache.get_stale("news:kr") or []
+    us = cache.get_stale("news:us") or []
+    return {
+        "kr_feeds":   len(news_service.KR_FEEDS),
+        "us_feeds":   len(news_service.US_FEEDS),
+        "batch":      news_service._FEED_BATCH,
+        "kr_cached":  len(kr),
+        "us_cached":  len(us),
+        "kr_sources": sorted({a.get("source") for a in kr if a.get("source")}),
+    }
+
+
 @router.get("/runtime")
 def get_runtime(_: User = Depends(require_admin)):
     """서버 자원과 백그라운드 작업 상태.
@@ -238,14 +255,7 @@ def get_runtime(_: User = Depends(require_admin)):
             "paused":    idle_sec > scheduler.IDLE_PAUSE_SEC,
             "pause_after_sec": scheduler.IDLE_PAUSE_SEC,
         },
-        "news": {
-            "kr_feeds":    len(news_service.KR_FEEDS),
-            "us_feeds":    len(news_service.US_FEEDS),
-            "batch":       news_service._FEED_BATCH,
-            "kr_cached":   len(cache.get_stale("news:kr") or []),
-            "us_cached":   len(cache.get_stale("news:us") or []),
-            "kr_sources":  sorted({a.get("source") for a in (cache.get_stale("news:kr") or []) if a.get("source")}),
-        },
+        "news": _news_status(),
         "heavy_prefetch": scheduler.HEAVY_PREFETCH,
         "server_time": datetime.now(timezone.utc).isoformat(),
     }

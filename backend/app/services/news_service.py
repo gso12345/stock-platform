@@ -7,7 +7,7 @@ from threading import Lock
 from datetime import datetime, timezone, timedelta
 from app.core.cache import cache
 from app.core.executor import background_executor
-from app.core.cpu import worker_count
+from app.core.cpu import cpu_worker_count, io_worker_count
 
 _refreshing = {}  # 중복 갱신 방지 플래그
 
@@ -298,7 +298,7 @@ def _add_trending_score(articles: list) -> list:
 # CPU를 나눠 쓰면서 각자 느려지고, 결국 대부분이 타임아웃(5초)에 걸려 통째로
 # 버려졌다 — 뉴스 탭에 한두 언론사 기사만 뜨던 원인이다.
 # 워커를 줄이면 각 피드가 제 시간 안에 끝나 성공률이 오히려 올라간다.
-_FEED_WORKERS = int(os.getenv("NEWS_FEED_WORKERS", 0)) or worker_count(default=6)
+_FEED_WORKERS = int(os.getenv("NEWS_FEED_WORKERS", 0)) or cpu_worker_count(default=6)
 _feed_executor = ThreadPoolExecutor(max_workers=_FEED_WORKERS, thread_name_prefix="feed-fetch")
 
 # 한 번에 가져올 피드 수. 국내 49개를 매번 전부 긁으면 CPU만 8초를 쓰는데,
