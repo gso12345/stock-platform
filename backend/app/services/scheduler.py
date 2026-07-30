@@ -12,7 +12,7 @@ from app.core.cache import cache
 from app.services.price_fetcher import (
     fetch_naver_indices, fetch_naver_stocks, fetch_naver_exchange,
     fetch_naver_prices_light,
-    fetch_yf_quotes, fetch_yf_index_quotes, fetch_pykrx_index,
+    fetch_yf_quotes, fetch_yf_quotes_with_fallback, fetch_yf_index_quotes, fetch_pykrx_index,
 )
 from app.services import market_hours, watched
 from app.core import memory, activity, health
@@ -415,14 +415,26 @@ async def _refresh_watched_once() -> tuple[int, int]:
     if us_syms:
         try:
             _t = time.monotonic()
-            data = await fetch_yf_quotes(us_syms)
-            if data:
-                health.record_ok("야후 시세", (time.monotonic() - _t) * 1000, f"{len(data)}/{len(us_syms)}종목")
+            # 배치가 막혀도 단건 폴백으로 메운다.
+            #
+            # 예전에는 여기서 배치만 썼다. 배치가 야후 인증 때문에 100% 실패하는
+            # 동안, 화면(REST)은 폴백 덕에 멀쩡했지만 이 루프는 해외 종목 캐시를
+            # 못 채웠다. 그래서 해외는 실시간(15초) 갱신 없이 60초 REST 에만
+            # 의존했다 — 국내보다 눈에 띄게 느렸고, 아무도 그 이유를 몰랐다.
+            data, filled = await fetch_yf_quotes_with_fallback(us_syms)
+            _ms = (time.monotonic() - _t) * 1000
+            if data and not filled:
+                health.record_ok("야후 시세", _ms, f"{len(data)}/{len(us_syms)}종목")
+            elif data:
+                # 폴백이 받쳐준 상태 — 사용자에게는 영향이 없으므로 실패로 세지
+                # 않는다. 붉은 경고가 계속 떠 있으면 진짜 문제가 묻힌다
+                health.record_ok("야후 시세", _ms,
+                                 f"{len(data)}/{len(us_syms)}종목 · 배치 막혀 단건 폴백 {filled}개")
             else:
-                health.record_fail("야후 시세", f"{len(us_syms)}종목 응답 없음 — 차단·한도 의심")
+                health.record_fail("야후 시세", f"{len(us_syms)}종목 응답 없음 — 배치·단건 모두 실패")
             if not data:
                 # 예전에는 여기서 조용히 넘어가 몇 시간 된 값이 계속 나갔다
-                log.warning(f"실시간 해외 시세 응답 없음 ({len(us_syms)}종목) — 차단·한도 의심")
+                log.warning(f"실시간 해외 시세 응답 없음 ({len(us_syms)}종목) — 배치·단건 모두 실패")
             for sym, q in data.items():
                 if not q.get("price"):
                     continue

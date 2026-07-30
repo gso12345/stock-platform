@@ -236,6 +236,14 @@ def delete_folder(
     return {"message": "삭제 완료"}
 
 
+
+async def _yf_only(symbols: list[str]) -> dict:
+    """가격만 필요한 곳에서 쓰는 래퍼 — 폴백 개수(계측용)는 버린다."""
+    from app.services.price_fetcher import fetch_yf_quotes_with_fallback
+    data, _ = await fetch_yf_quotes_with_fallback(symbols)
+    return data
+
+
 # ── 관심종목 일괄 가격 조회 (빠른 배치 fetch + 캐시 저장) ────────
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9.\-]{1,20}$")
 
@@ -293,7 +301,7 @@ async def get_watchlist_prices_batch(
     tasks = []
     labels: list[str] = []
     if uncached_us:
-        tasks.append(fetch_yf_quotes_with_fallback(uncached_us))
+        tasks.append(_yf_only(uncached_us))
         labels.append("us")
     if uncached_kr:
         tasks.append(fetch_naver_stocks(uncached_kr))
@@ -354,7 +362,7 @@ async def _batch_fetch_prices(items: list[WatchlistItem]) -> dict[str, dict]:
     tasks = []
     labels: list[str] = []
     if uncached_us:
-        tasks.append(fetch_yf_quotes_with_fallback(uncached_us))
+        tasks.append(_yf_only(uncached_us))
         labels.append("us")
     if uncached_kr:
         tasks.append(fetch_naver_stocks(uncached_kr))

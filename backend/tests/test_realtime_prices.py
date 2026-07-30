@@ -316,3 +316,129 @@ class Test시세없는자산_섞임:
             assert False, "닫혀야 한다"
         except Exception:
             pass    # 정상 종료(1000) 또는 수신 실패 — 어느 쪽이든 연결이 유지되지 않는다
+
+
+class Test야후_배치_인증:
+    """'야후 시세 0% — 응답 없음'이 몇 주째 붉게 떠 있던 이유.
+
+    야후는 v7/quote 에 crumb(인증 토큰)를 요구한다. 우리 배치는 httpx 로 그냥
+    불러서 늘 빈 응답이었다. 그런데 종목별 단건 폴백은 잘 됐다 — 그쪽은
+    yfinance 패키지를 쓰고, yfinance 가 crumb·쿠키·브라우저 흉내를 처리하기
+    때문이다. 같은 세션을 배치에도 쓰면 요청 한 번으로 끝난다."""
+
+    def test_인증_세션을_먼저_쓴다(self):
+        # run_in_executor 에 넘기므로 '호출'이 아니라 '이름'으로 등장한다
+        import ast
+        import inspect as _i
+        from app.services import price_fetcher as pf
+        tree = ast.parse(_i.getsource(pf.fetch_yf_quotes))
+        이름들 = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        assert "_fetch_yf_quotes_authed_sync" in 이름들, \
+            "인증 세션 경로를 안 쓰면 배치는 계속 빈 응답이다"
+
+    def test_인증_배치가_되면_맨몸_호출은_안_한다(self, monkeypatch):
+        from app.services import price_fetcher as pf
+        불린것 = []
+        monkeypatch.setattr(pf, "_fetch_yf_quotes_authed_sync",
+                            lambda syms: (불린것.append("authed"),
+                                          [{"symbol": "AAPL", "regularMarketPrice": 241.5}])[1])
+
+        async def 맨몸(syms):
+            불린것.append("raw")
+            return []
+        monkeypatch.setattr(pf, "_fetch_yf_quotes_raw", 맨몸)
+        out = asyncio.run(pf.fetch_yf_quotes(["AAPL"]))
+        assert 불린것 == ["authed"]
+        assert out["AAPL"]["price"] == 241.5
+
+    def test_인증이_안_되면_맨몸으로_넘어간다(self, monkeypatch):
+        # yfinance 내부 API에 기대는 코드라 버전이 바뀌면 못 쓸 수 있다
+        from app.services import price_fetcher as pf
+        monkeypatch.setattr(pf, "_fetch_yf_quotes_authed_sync", lambda syms: None)
+
+        async def 맨몸(syms):
+            return [{"symbol": "AAPL", "regularMarketPrice": 100.0}]
+        monkeypatch.setattr(pf, "_fetch_yf_quotes_raw", 맨몸)
+        out = asyncio.run(pf.fetch_yf_quotes(["AAPL"]))
+        assert out["AAPL"]["price"] == 100.0
+
+    def test_둘_다_안_되면_빈_결과를_돌려준다(self, monkeypatch):
+        from app.services import price_fetcher as pf
+        monkeypatch.setattr(pf, "_fetch_yf_quotes_authed_sync",
+                            lambda syms: (_ for _ in ()).throw(RuntimeError("x")))
+
+        async def 맨몸(syms):
+            return None
+        monkeypatch.setattr(pf, "_fetch_yf_quotes_raw", 맨몸)
+        assert asyncio.run(pf.fetch_yf_quotes(["AAPL"])) == {}
+
+    def test_인증_경로가_예외를_밖으로_던지지_않는다(self, monkeypatch):
+        """yfinance 내부 구조가 바뀌어도 시세 조회가 통째로 죽으면 안 된다."""
+        from app.services import price_fetcher as pf
+        import yfinance.data as ydata
+        monkeypatch.setattr(ydata, "YfData",
+                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("구조 변경")))
+        assert pf._fetch_yf_quotes_authed_sync(["AAPL"]) is None
+
+    def test_파싱은_한_곳뿐이다(self):
+        # 경로가 둘인데 파싱이 둘이면 한쪽만 고치는 실수가 난다
+        import inspect as _i
+        from app.services import price_fetcher as pf
+        for fn in (pf._fetch_yf_quotes_authed_sync, pf._fetch_yf_quotes_raw):
+            assert "regularMarketPrice" not in _i.getsource(fn).replace("_YF_QUOTE_FIELDS", ""), \
+                f"{fn.__name__} 이 응답을 직접 파싱하고 있다"
+
+
+class Test폴백_비용과_계측:
+    def test_단건_폴백_개수를_함께_돌려준다(self, monkeypatch):
+        # 배치가 죽었는데 폴백이 받쳐주는 상태를 '정상'과 구분하기 위한 값
+        from app.services import price_fetcher as pf
+
+        async def 배치없음(syms):
+            return {}
+        monkeypatch.setattr(pf, "fetch_yf_quotes", 배치없음)
+        monkeypatch.setattr(pf, "_fetch_yf_quote_single_sync",
+                            lambda s: {"symbol": s, "price": 10.0})
+        data, filled = asyncio.run(pf.fetch_yf_quotes_with_fallback(["AAPL", "MSFT"]))
+        assert len(data) == 2 and filled == 2
+
+    def test_배치가_되면_폴백은_0이다(self, monkeypatch):
+        from app.services import price_fetcher as pf
+
+        async def 배치(syms):
+            return {s: {"symbol": s, "price": 1.0} for s in syms}
+        monkeypatch.setattr(pf, "fetch_yf_quotes", 배치)
+        data, filled = asyncio.run(pf.fetch_yf_quotes_with_fallback(["AAPL"]))
+        assert filled == 0
+
+    def test_단건_폴백_개수에_상한이_있다(self, monkeypatch):
+        """단건은 종목당 요청 하나다. 0.15 CPU 에서 수십 개를 매 주기마다
+        돌리면 그것만으로 CPU 를 다 쓴다."""
+        from app.services import price_fetcher as pf
+        부른횟수 = []
+
+        async def 배치없음(syms):
+            return {}
+        monkeypatch.setattr(pf, "fetch_yf_quotes", 배치없음)
+        monkeypatch.setattr(pf, "_fetch_yf_quote_single_sync",
+                            lambda s: (부른횟수.append(s), {"symbol": s, "price": 1.0})[1])
+        asyncio.run(pf.fetch_yf_quotes_with_fallback([f"S{i}" for i in range(100)], max_fallback=5))
+        assert len(부른횟수) == 5, f"상한을 안 지켰다: {len(부른횟수)}회"
+
+    def test_배경_루프도_폴백을_쓴다(self):
+        # 이게 없으면 해외 종목은 실시간(15초) 갱신이 안 되고 60초 REST 에만 의존한다
+        import inspect as _i
+        from app.services import scheduler
+        src = _i.getsource(scheduler._refresh_watched_once)
+        assert "fetch_yf_quotes_with_fallback" in src
+
+    def test_폴백으로_복구되면_실패로_세지_않는다(self):
+        """붉은 경고가 계속 떠 있으면 진짜 문제가 묻힌다."""
+        import inspect as _i
+        from app.services import scheduler
+        src = _i.getsource(scheduler._refresh_watched_once)
+        # 데이터가 있는데 record_fail 로 가는 분기가 없어야 한다
+        assert "elif data:" in src and "단건 폴백" in src
+        i_ok = src.index("배치 막혀 단건 폴백")
+        i_fail = src.index('health.record_fail("야후 시세"')
+        assert i_ok < i_fail, "폴백 성공이 실패 분기보다 뒤에 있으면 실패로 샌다"

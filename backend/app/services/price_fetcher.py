@@ -6,6 +6,7 @@
 """
 import httpx
 import asyncio
+import os
 import re
 import logging
 from app.core.cache import cache
@@ -413,51 +414,99 @@ async def fetch_naver_exchange() -> dict | None:
 
 
 # ── Yahoo Finance — 미국 주식 ──────────────────────────────
-async def fetch_yf_quotes(symbols: list[str]) -> dict[str, dict]:
-    """Yahoo Finance v7 멀티쿼트 (query1/query2 교차로 rate limit 완화)
-    주의: fields 파라미터는 Yahoo가 검증하는 화이트리스트라 항목을 추가하면
-    요청 전체가 빈 응답으로 실패할 수 있다 — 프리/애프터마켓 등 추가 필드가
-    필요하면 이 배치 함수가 아니라 fetch_yf_quote_extended(단건)를 쓸 것."""
-    if not symbols:
-        return {}
-    base   = _yf_base()
-    syms   = ",".join(symbols)
-    fields = "regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,marketCap,shortName,longName,currency"
-    url    = f"https://{base}.finance.yahoo.com/v7/finance/quote?symbols={syms}&fields={fields}"
+# v7/quote 가 검증하는 화이트리스트. 항목을 추가하면 요청 전체가 빈 응답으로
+# 실패한다 — 프리/애프터마켓 등이 필요하면 fetch_yf_quote_extended(단건)를 쓸 것
+_YF_QUOTE_FIELDS = (
+    "regularMarketPrice,regularMarketChange,regularMarketChangePercent,"
+    "regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,"
+    "regularMarketDayLow,regularMarketVolume,marketCap,shortName,longName,currency"
+)
+
+
+def _parse_yf_quotes(res_list: list) -> dict[str, dict]:
+    """v7/quote 응답을 우리 형식으로. 어떤 경로로 받아왔든 파싱은 하나뿐이다."""
+    out: dict[str, dict] = {}
+    for q in res_list or []:
+        sym = q.get("symbol", "")
+        curr = _safe(q.get("regularMarketPrice"))
+        if not sym or not curr:
+            continue
+        out[sym] = {
+            "symbol":      sym,
+            "name":        q.get("longName") or q.get("shortName") or sym,
+            "price":       curr,
+            "prev_close":  _safe(q.get("regularMarketPreviousClose")),
+            "change":      round(_safe(q.get("regularMarketChange")) or 0, 4),
+            "change_rate": round(_safe(q.get("regularMarketChangePercent")) or 0, 4),
+            "volume":      int(q.get("regularMarketVolume") or 0),
+            "market_cap":  int(q.get("marketCap") or 0),
+            "currency":    q.get("currency", "USD"),
+            "open":        _safe(q.get("regularMarketOpen")),
+            "high":        _safe(q.get("regularMarketDayHigh")),
+            "low":         _safe(q.get("regularMarketDayLow")),
+        }
+    return out
+
+
+def _fetch_yf_quotes_authed_sync(symbols: list[str]) -> list | None:
+    """yfinance 의 인증된 세션으로 v7/quote 배치를 부른다. 못 쓰면 None.
+
+    야후는 언젠가부터 v7/quote 에 crumb(인증 토큰)를 요구한다. 우리가 httpx 로
+    직접 부르면 crumb 이 없어 늘 빈 응답이 돌아왔고, 프로덕션에서 '야후 시세
+    0% — 응답 없음'으로 몇 주를 보냈다. 그런데 종목별 단건 폴백은 잘 됐다 —
+    그쪽은 yfinance 패키지를 쓰고, yfinance 가 crumb·쿠키·브라우저 흉내를
+    전부 처리하기 때문이다. 같은 세션을 배치에도 쓰면 요청 한 번으로 끝난다.
+
+    yfinance 내부 API에 기대는 코드라 버전이 바뀌면 깨질 수 있다. 그래서
+    실패는 전부 None 으로 돌려보내고, 부르는 쪽이 기존 경로로 넘어간다."""
+    try:
+        from yfinance.data import YfData
+    except Exception:
+        return None
+    try:
+        j = YfData().get_raw_json(
+            f"https://{_yf_base()}.finance.yahoo.com/v7/finance/quote",
+            params={"symbols": ",".join(symbols), "fields": _YF_QUOTE_FIELDS},
+            timeout=12,
+        )
+        return (j or {}).get("quoteResponse", {}).get("result", [])
+    except Exception as e:
+        log.debug(f"YF 인증 배치 실패: {type(e).__name__}: {e}")
+        return None
+
+
+async def _fetch_yf_quotes_raw(symbols: list[str]) -> list | None:
+    """crumb 없이 그냥 호출 — 야후가 인증을 요구하기 전의 경로."""
+    base = _yf_base()
+    url = (f"https://{base}.finance.yahoo.com/v7/finance/quote"
+           f"?symbols={','.join(symbols)}&fields={_YF_QUOTE_FIELDS}")
     try:
         async with httpx.AsyncClient(timeout=12, headers=YF_HEADERS) as cl:
             r = await cl.get(url)
-        if r.status_code == 429:
-            log.debug(f"YF {base} 429, 다음 시도")
-            return {}
         if r.status_code != 200:
-            return {}
-        data = r.json()
-        res_list = data.get("quoteResponse", {}).get("result", [])
-        out = {}
-        for q in res_list:
-            sym  = q.get("symbol","")
-            curr = _safe(q.get("regularMarketPrice"))
-            if not curr:
-                continue
-            out[sym] = {
-                "symbol":      sym,
-                "name":        q.get("longName") or q.get("shortName") or sym,
-                "price":       curr,
-                "prev_close":  _safe(q.get("regularMarketPreviousClose")),
-                "change":      round(_safe(q.get("regularMarketChange")) or 0, 4),
-                "change_rate": round(_safe(q.get("regularMarketChangePercent")) or 0, 4),
-                "volume":      int(q.get("regularMarketVolume") or 0),
-                "market_cap":  int(q.get("marketCap") or 0),
-                "currency":    q.get("currency","USD"),
-                "open":        _safe(q.get("regularMarketOpen")),
-                "high":        _safe(q.get("regularMarketDayHigh")),
-                "low":         _safe(q.get("regularMarketDayLow")),
-            }
-        return out
+            log.debug(f"YF {base} 인증 없는 배치 status={r.status_code}")
+            return None
+        return r.json().get("quoteResponse", {}).get("result", [])
     except Exception as e:
-        log.debug(f"YF 멀티쿼트 실패: {e}")
+        log.debug(f"YF 인증 없는 배치 실패: {e}")
+        return None
+
+
+async def fetch_yf_quotes(symbols: list[str]) -> dict[str, dict]:
+    """Yahoo Finance v7 멀티쿼트 — 인증 세션 우선, 안 되면 맨몸 호출."""
+    if not symbols:
         return {}
+    loop = asyncio.get_running_loop()
+    try:
+        # 인증 경로는 yfinance 내부 구조에 기댄다. 그쪽에서 예외가 새어 나와도
+        # 시세 조회 전체가 죽으면 안 되므로 여기서 한 번 더 막는다
+        res = await loop.run_in_executor(None, _fetch_yf_quotes_authed_sync, symbols)
+    except Exception as e:
+        log.debug(f"YF 인증 배치에서 예외: {type(e).__name__}: {e}")
+        res = None
+    if res:
+        return _parse_yf_quotes(res)
+    return _parse_yf_quotes(await _fetch_yf_quotes_raw(symbols) or [])
 
 
 async def fetch_yf_quote_extended(symbol: str) -> dict | None:
@@ -531,21 +580,40 @@ def _fetch_yf_quote_single_sync(symbol: str) -> dict | None:
     return None
 
 
-async def fetch_yf_quotes_with_fallback(symbols: list[str]) -> dict[str, dict]:
-    """배치 멀티쿼트 우선 시도 → 빠진 종목만 yfinance 단건 폴백으로 보강"""
+# 배치가 실패했을 때 단건으로 다시 물어볼 최대 종목 수.
+# 단건은 종목당 요청 하나라 비싸다 — 0.15 CPU 에서 수십 개를 매 주기마다
+# 돌리면 그것만으로 CPU 를 다 쓴다. 배치가 정상이면 여기까지 오지 않는다.
+MAX_SINGLE_FALLBACK = int(os.getenv("YF_MAX_SINGLE_FALLBACK", 20))
+
+
+async def fetch_yf_quotes_with_fallback(
+    symbols: list[str], max_fallback: int | None = None,
+) -> tuple[dict[str, dict], int]:
+    """배치 우선 → 빠진 종목만 yfinance 단건으로 보강.
+
+    반환: (시세, 단건으로 메운 종목 수). 두 번째 값은 계측용이다 — 배치가
+    죽었는데 폴백이 받쳐주고 있는 상태를 '정상'과 구분하기 위해 쓴다."""
     out = await fetch_yf_quotes(symbols)
     missing = [s for s in symbols if s not in out]
     if not missing:
-        return out
+        return out, 0
+
+    cap = MAX_SINGLE_FALLBACK if max_fallback is None else max_fallback
+    if len(missing) > cap:
+        log.info(f"YF 단건 폴백 {len(missing)}종목 중 {cap}개만 시도 (비용 제한)")
+        missing = missing[:cap]
+
     loop = asyncio.get_running_loop()
     results = await asyncio.gather(
         *(loop.run_in_executor(None, _fetch_yf_quote_single_sync, s) for s in missing),
         return_exceptions=True,
     )
+    filled = 0
     for sym, r in zip(missing, results):
         if isinstance(r, dict):
             out[sym] = r
-    return out
+            filled += 1
+    return out, filled
 
 
 # ── 통합 단일 조회 ─────────────────────────────────────────
