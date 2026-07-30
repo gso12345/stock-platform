@@ -63,27 +63,29 @@ export default function Watchlist() {
     staleTime: 300_000,
   });
 
-  // 선택된 포트폴리오 탭의 보유종목
-  const { data: pfTabItems = [], isLoading: pfTabLoading } = useQuery({
-    queryKey: ["portfolio-tab-items", portfolioTab],
-    queryFn: () => portfolioApi.getItems(portfolioTab ?? undefined),
-    enabled: isLoggedIn && portfolioTab !== null && portfolioTab > 0,
-    staleTime: 60_000,
+  /* 보유종목 전체를 미리 받아둔다.
+
+     예전에는 포트폴리오 탭을 누른 뒤에야 목록과 시세를 받아왔다. 그래서
+     탭을 누를 때마다 '조회 중'을 봐야 했고, 받아온 시세는 갱신되지 않아
+     (refetchInterval 없음, WebSocket 없음) 그 화면만 과거에 멈춰 있었다.
+
+     지금은 관심종목과 같은 시세 경로에 합친다 — 탭을 누르는 순간 이미
+     값이 있고, 실시간으로 함께 갱신된다. 같은 종목을 두 번 조회하지도
+     않는다. 목록 요청은 로그인 시 한 번뿐이다. */
+  const { data: pfAllItems = [], isLoading: pfAllLoading } = useQuery<any[]>({
+    queryKey: ["portfolio-items-all"],
+    queryFn: () => portfolioApi.getItems(undefined, true),
+    enabled: isLoggedIn,
+    staleTime: 300_000,
   });
-  const pfTabDeduped = pfTabItems as any[];
-  const pfTabSymbols = useMemo(() => pfTabDeduped.map((i: any) => i.symbol), [pfTabDeduped]);
-  const pfTabMarkets = useMemo(() => pfTabDeduped.map((i: any) => i.market === "KR" ? "KR" : "US"), [pfTabDeduped]);
-  const { data: pfTabPrices } = useQuery({
-    queryKey: ["pf-tab-prices", pfTabSymbols.join(",")],
-    queryFn: ({ signal }) => watchlistApi.getPrices(pfTabSymbols, pfTabMarkets, signal),
-    enabled: portfolioTab !== null && portfolioTab > 0 && pfTabSymbols.length > 0,
-    staleTime: 60_000,
-  });
-  const pfTabPriceMap = useMemo(
-    () => indexPricesBySymbol(pfTabPrices as any[] | undefined),
-    [pfTabPrices],
+  const pfTabDeduped = useMemo(
+    () => (pfAllItems as any[]).filter(
+      // 서버는 portfolioId(카멜케이스)로 준다 — portfolio_id 로 보면 전부 걸러진다
+      (i: any) => portfolioTab == null || (i.portfolioId ?? null) === portfolioTab,
+    ),
+    [pfAllItems, portfolioTab],
   );
-  // 중복 종목도 각각 표시하므로 symbol 기준 가격 공유는 그대로 사용
+  const pfTabLoading = pfAllLoading;
 
   const [showAdd, setShowAdd]           = useState(false);
   const [addFolderId, setAddFolderId]   = useState<number | null>(null); // 추가 모달에서 기본 선택될 폴더
@@ -117,9 +119,22 @@ export default function Watchlist() {
     return (allItems as any[]).filter((i: any) => i.market === marketTab);
   }, [allItems, marketTab]);
 
-  // 가격 조회는 전체 항목 기준 — 탭 전환해도 캐시 유지
-  const symbols = useMemo(() => (allItems as any[]).map((i: any) => i.symbol), [allItems]);
-  const markets  = useMemo(() => (allItems as any[]).map((i: any) => i.market === "KR" ? "KR" : "US"), [allItems]);
+  /* 가격 조회는 관심종목 + 보유종목을 합친 기준 — 탭 전환해도 캐시 유지.
+     한 종목이 양쪽에 있으면 한 번만 조회한다. */
+  const { symbols, markets } = useMemo(() => {
+    const syms: string[] = [];
+    const mkts: string[] = [];
+    const seen = new Set<string>();
+    for (const i of [...(allItems as any[]), ...(pfAllItems as any[])]) {
+      if (!i?.symbol) continue;
+      const key = normalizeSymbol(i.symbol);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      syms.push(i.symbol);
+      mkts.push(i.market === "KR" ? "KR" : "US");
+    }
+    return { symbols: syms, markets: mkts };
+  }, [allItems, pfAllItems]);
 
   /* REST 배치 가격 조회 — signal을 받아 컴포넌트 언마운트/취소 시 HTTP 요청도 중단 */
   const priceKey = useMemo(() => [...symbols].sort().join(","), [symbols]);
@@ -749,6 +764,8 @@ export default function Watchlist() {
             <span className="flex-1 text-sm font-semibold text-text-primary">
               {pfList.find((p: any) => p.id === portfolioTab)?.name ?? "포트폴리오"}
             </span>
+            <LiveBadge status={live.status} updatedAt={live.updatedAt}
+                       session={live.session} sessionLabel={live.sessionLabel} />
             <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{pfTabDeduped.length}</span>
           </div>
           {pfTabLoading ? (
@@ -764,12 +781,16 @@ export default function Watchlist() {
             pfTabDeduped
               .filter((i: any) => marketTab === "전체" || i.market === marketTab)
               .map((item: any) => {
-                const p = lookupPrice(pfTabPriceMap, item.symbol);
+                // 관심종목과 같은 실시간 시세 맵을 본다 — 탭을 누른 순간
+                // 이미 값이 있고, WebSocket 으로 함께 갱신된다
+                const p = lookupPrice(livePrices, item.symbol);
                 const isKRItem = item.market === "KR";
                 const hasPrice = p?.price != null;
                 return (
                   <div
-                    key={item.symbol}
+                    // 같은 종목을 두 번 담을 수 있으므로 id 로 구분한다.
+                    // symbol 을 키로 쓰면 중복 시 React 가 한 행만 그린다
+                    key={item.id ?? item.symbol}
                     role="button"
                     tabIndex={0}
                     className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
