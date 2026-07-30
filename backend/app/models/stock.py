@@ -241,10 +241,14 @@ class KrTicker(Base):
     """
     __tablename__ = "kr_tickers"
 
-    symbol      = Column(String(20), primary_key=True)          # 005930.KS
-    code        = Column(String(10), nullable=False, index=True)  # 005930
+    symbol      = Column(String(30), primary_key=True)           # 005930.KS, 00680K.KS
+    code        = Column(String(20), nullable=False, index=True)  # 005930, 00680K
     name        = Column(String(100), nullable=False, index=True)
-    market      = Column(String(10), nullable=False)             # KOSPI/KOSDAQ
+    # KRX 가 주는 시장 이름은 'KOSPI'·'KOSDAQ'·'KONEX' 만이 아니다.
+    # 'KOSDAQ GLOBAL'(13자)이 있어서 처음에 10자로 잡았다가 저장이 통째로
+    # 실패했다. 로컬은 SQLite 라 길이 제한을 무시해서 못 잡았고, PostgreSQL 에
+    # 올린 뒤 관리자 화면의 '저장 실패' 표시로 알았다
+    market      = Column(String(30), nullable=False)
     # 목록을 받아올 때 시세도 같이 오므로 함께 저장한다. 따로 받으면
     # 종목당 요청 한 번이라 0.15 CPU 에서는 감당이 안 된다.
     price       = Column(Float, nullable=True)

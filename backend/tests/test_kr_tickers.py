@@ -459,3 +459,83 @@ class TestDB_저장_결과_노출:
         from app.api.routes.admin import get_runtime
         kr = get_runtime(_=None)["kr_tickers"]
         assert "db_rows" in kr and "db_error" in kr
+
+
+class Test컬럼_길이:
+    """프로덕션에서 종목 저장이 통째로 실패했던 원인.
+
+        value too long for type character varying(10)
+
+    market 컬럼을 10자로 잡았는데 KRX 가 주는 시장 이름에 'KOSDAQ GLOBAL'(13자)
+    이 있었다. 로컬 테스트는 SQLite 라 길이 제한을 무시해서 2,873개가 멀쩡히
+    저장됐고, PostgreSQL 에 올린 뒤에야 터졌다.
+
+    그래서 여기서는 DB를 쓰지 않고 '모델이 선언한 길이'와 '우리가 쓰는 값'을
+    직접 맞춰 본다. SQLite 로 돌려도 잡히는 검사여야 한다."""
+
+    def _limits(self):
+        from app.models.stock import KrTicker
+        return {c.name: c.type.length for c in KrTicker.__table__.columns
+                if getattr(c.type, "length", None)}
+
+    @pytest.mark.parametrize("시장", [
+        "KOSPI", "KOSDAQ", "KONEX",
+        "KOSDAQ GLOBAL",        # 13자 — 이것 때문에 터졌다
+    ])
+    def test_KRX가_주는_시장_이름이_컬럼에_들어간다(self, 시장):
+        n = self._limits()["market"]
+        assert len(시장) <= n, f"'{시장}'({len(시장)}자)가 market 컬럼({n}자)에 안 들어간다"
+
+    def test_종목코드와_심볼도_들어간다(self):
+        from app.services import krx_listing as kl
+        lim = self._limits()
+        for 코드 in ("005930", "00680K", "0126Z0"):
+            r = kl._row(코드, "테스트", "KOSDAQ GLOBAL")
+            assert len(r["c"]) <= lim["code"]
+            assert len(r["s"]) <= lim["symbol"]
+
+    def test_한도를_넘는_값이_와도_저장이_무너지지_않는다(self, 빈테이블):
+        """컬럼은 늘렸지만, 예상 못 한 값이 또 와도 2,873개 저장 전체가
+        실패하는 일은 없어야 한다."""
+        from app.db.database import SessionLocal
+        from app.models.stock import KrTicker
+        긴시장 = "K" * 200
+        rows = [{"s": "005930.KS", "n": "삼성전자", "x": 긴시장, "m": "KR", "c": "005930"},
+                {"s": "000660.KS", "n": "SK하이닉스", "x": "KOSPI", "m": "KR", "c": "000660"}]
+        assert ts._save_kr_to_db(rows, {}) is True
+        with SessionLocal() as db:
+            저장 = {r.symbol: r for r in db.query(KrTicker).all()}
+        assert len(저장) == 2, "값 하나가 길다고 나머지까지 날아가면 안 된다"
+        assert len(저장["005930.KS"].market) <= self._limits()["market"]
+
+    def test_실제_KRX_데이터의_모든_값이_컬럼에_맞는다(self):
+        """표본이 아니라 실제 전 종목으로 확인한다. 네트워크가 막힌 환경에서는
+        건너뛴다 — 그때는 위의 개별 검사들이 대신 지킨다."""
+        from app.services import krx_listing as kl
+        listing, _, 출처 = kl.fetch_listing()
+        if not listing:
+            pytest.skip("이 환경에서는 KRX 목록을 받아올 수 없다")
+        lim = self._limits()
+        넘는것 = [
+            (r["s"], k, len(r[v]))
+            for r in listing
+            for k, v in (("symbol", "s"), ("code", "c"), ("name", "n"), ("market", "x"))
+            if len(str(r[v])) > lim[k]
+        ]
+        assert not 넘는것, f"컬럼 한도를 넘는 값 {len(넘는것)}개: {넘는것[:5]}"
+        print(f"\n  {출처} {len(listing)}개 전부 컬럼 한도 안에 들어감")
+
+
+class Test컬럼_확장_마이그레이션:
+    def test_이미_만들어진_테이블도_늘린다(self):
+        """create_all 은 없는 테이블만 만든다. 이미 VARCHAR(10) 으로 배포된
+        컬럼은 ALTER 로 늘려야 한다 — 그게 없으면 배포해도 계속 실패한다."""
+        import inspect as _i
+        from app.main import lifespan
+        src = _i.getsource(lifespan)
+        assert "_widen_col" in src, "컬럼 확장 마이그레이션이 없다"
+        늘리는것 = [ln.strip() for ln in src.splitlines()
+                 if "_widen_col(" in ln and "def " not in ln]
+        붙은것 = " ".join(늘리는것)
+        assert "kr_tickers" in 붙은것 and "market" in 붙은것, \
+            f"kr_tickers.market 을 늘리지 않는다: {늘리는것}"

@@ -96,6 +96,40 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("portfolio_items", "asset_class", "VARCHAR(10)")
         _add_col_if_missing("portfolios", "is_public", "BOOLEAN DEFAULT FALSE")
 
+        def _widen_col(table: str, col: str, new_type: str):
+            """이미 만들어진 컬럼의 길이를 늘린다.
+
+            create_all 은 없는 테이블만 만들고 기존 컬럼은 건드리지 않는다.
+            kr_tickers.market 을 VARCHAR(10) 으로 잡았다가 'KOSDAQ GLOBAL'(13자)
+            때문에 종목 저장이 통째로 실패했다 — 이미 배포된 테이블은 여기서
+            늘려야 한다. SQLite 는 길이를 강제하지 않으므로 건너뛴다."""
+            if _is_sqlite or table not in tables:
+                return
+            if not (_IDENTIFIER_RE.match(table) and _IDENTIFIER_RE.match(col)):
+                logging.getLogger(__name__).warning(f"잘못된 식별자 형식 {table}.{col}")
+                return
+            if not _re.fullmatch(r"VARCHAR\(\d{1,4}\)", new_type):
+                logging.getLogger(__name__).warning(f"허용되지 않는 타입 {new_type}")
+                return
+            try:
+                cur = {c["name"]: c for c in inspector.get_columns(table)}.get(col)
+                if cur is None:
+                    return
+                want = int(new_type[len("VARCHAR("):-1])
+                have = getattr(cur["type"], "length", None)
+                if have is not None and have >= want:
+                    return
+                with engine.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {new_type}"))
+                    conn.commit()
+                logging.getLogger(__name__).info(f"{table}.{col} 을 {new_type} 으로 확장")
+            except Exception as me:
+                logging.getLogger(__name__).warning(f"컬럼 확장 실패 {table}.{col}: {me}")
+
+        _widen_col("kr_tickers", "market", "VARCHAR(30)")
+        _widen_col("kr_tickers", "symbol", "VARCHAR(30)")
+        _widen_col("kr_tickers", "code",   "VARCHAR(20)")
+
         def _add_index_if_missing(table: str, col: str):
             if table not in tables:
                 return

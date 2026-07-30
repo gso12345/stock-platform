@@ -447,6 +447,25 @@ def _save_kr_to_db(rows: list[dict], prices: dict) -> bool:
         from app.db.database import SessionLocal
         from app.models.stock import KrTicker
 
+        # 컬럼이 허용하는 글자 수에 맞춰 자른다.
+        #
+        # market 을 VARCHAR(10) 으로 잡았다가 'KOSDAQ GLOBAL'(13자) 하나 때문에
+        # 2,873개 저장이 통째로 실패했다. 컬럼은 늘렸지만, 예상 못 한 값이 또
+        # 와도 저장 전체가 무너지지는 않게 여기서 한 번 더 막는다. 길이는
+        # 모델에서 읽으므로 컬럼을 바꾸면 자동으로 따라온다.
+        _limit = {
+            c.name: c.type.length
+            for c in KrTicker.__table__.columns
+            if getattr(c.type, "length", None)
+        }
+
+        def _fit(col: str, v):
+            n = _limit.get(col)
+            if n and isinstance(v, str) and len(v) > n:
+                log.warning(f"kr_tickers.{col} 값이 {len(v)}자로 한도({n}자)를 넘어 잘랐습니다: {v!r}")
+                return v[:n]
+            return v
+
         with SessionLocal() as db:
             existing = {r.symbol: r for r in db.query(KrTicker).all()}
             seen = set()
@@ -455,7 +474,9 @@ def _save_kr_to_db(rows: list[dict], prices: dict) -> bool:
                 seen.add(sym)
                 p = prices.get(sym) or {}
                 vals = {
-                    "code": it.get("c", ""), "name": it["n"], "market": it.get("x", "KOSPI"),
+                    "code": _fit("code", it.get("c", "")),
+                    "name": _fit("name", it["n"]),
+                    "market": _fit("market", it.get("x", "KOSPI")),
                     "price": p.get("price"), "change": p.get("change"),
                     "change_rate": p.get("change_rate"), "volume": p.get("volume"),
                     "market_cap": p.get("market_cap"),
@@ -463,7 +484,7 @@ def _save_kr_to_db(rows: list[dict], prices: dict) -> bool:
                 }
                 row = existing.get(sym)
                 if row is None:
-                    db.add(KrTicker(symbol=sym, **vals))
+                    db.add(KrTicker(symbol=_fit("symbol", sym), **vals))
                 else:
                     for k, v in vals.items():
                         setattr(row, k, v)
