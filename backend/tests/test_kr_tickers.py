@@ -141,6 +141,8 @@ class Test조용한_실패_방지:
 
     def test_내장_폴백으로_떨어지면_error로_남긴다(self, monkeypatch, caplog):
         monkeypatch.setattr(ts, "_load_kr_from_db", lambda: False)
+        # 테스트가 실제 KRX·GitHub 로 나가면 느리고 결과가 그날 사정에 달린다
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: False)
         monkeypatch.setattr(ts, "_load_kr_from_fdr", lambda: False)
         monkeypatch.setattr(ts, "_save_kr_to_db", lambda *a: True)
         monkeypatch.setattr(pykrx_light, "stock", lambda: (_ for _ in ()).throw(RuntimeError("망함")))
@@ -154,6 +156,7 @@ class Test조용한_실패_방지:
         from app.core import health
         health.reset()
         monkeypatch.setattr(ts, "_load_kr_from_db", lambda: False)
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: False)
         monkeypatch.setattr(ts, "_load_kr_from_fdr", lambda: False)
         monkeypatch.setattr(ts, "_save_kr_to_db", lambda *a: True)
         monkeypatch.setattr(pykrx_light, "stock", lambda: (_ for _ in ()).throw(RuntimeError("x")))
@@ -301,10 +304,10 @@ class TestDB_저장:
         assert ts._load_kr_from_db() is False
 
     def test_DB를_가장_먼저_본다(self, monkeypatch):
-        """평소 재시작에서 FDR·pykrx 를 아예 부르지 않는 것이 핵심이다."""
+        """평소 재시작에서 외부 호출을 아예 하지 않는 것이 핵심이다."""
         불린것 = []
         monkeypatch.setattr(ts, "_load_kr_from_db", lambda: (불린것.append("db"), True)[1])
-        monkeypatch.setattr(ts, "_load_kr_from_fdr", lambda: (불린것.append("fdr"), True)[1])
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: (불린것.append("직접"), True)[1])
         monkeypatch.setitem(ts.__dict__, "_db_rows_at", None)
         ts._load_kr_from_pykrx()
         assert 불린것[0] == "db"
@@ -313,7 +316,7 @@ class TestDB_저장:
         from datetime import datetime, timedelta
         불린것 = []
         monkeypatch.setattr(ts, "_load_kr_from_db", lambda: (불린것.append("db"), True)[1])
-        monkeypatch.setattr(ts, "_load_kr_from_fdr", lambda: (불린것.append("fdr"), True)[1])
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: (불린것.append("직접"), True)[1])
         ts.__dict__["_db_rows_at"] = datetime.now() - timedelta(seconds=60)
         ts._load_kr_from_pykrx()
         assert 불린것 == ["db"], "신선한 DB 가 있는데 외부를 불렀다"
@@ -322,26 +325,28 @@ class TestDB_저장:
         from datetime import datetime, timedelta
         불린것 = []
         monkeypatch.setattr(ts, "_load_kr_from_db", lambda: (불린것.append("db"), True)[1])
-        monkeypatch.setattr(ts, "_load_kr_from_fdr", lambda: (불린것.append("fdr"), True)[1])
-        monkeypatch.setattr(ts.memory, "has_headroom", lambda *a: True)
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: (불린것.append("직접"), True)[1])
         ts.__dict__["_db_rows_at"] = datetime.now() - timedelta(seconds=ts.KR_TICKER_TTL_SEC + 60)
         ts._load_kr_from_pykrx()
-        assert "fdr" in 불린것
+        assert "직접" in 불린것
 
-    def test_메모리가_빡빡하면_갱신을_건너뛴다(self, monkeypatch):
-        # 갱신하려고 FDR 을 올리다가 한도를 넘겨 재시작되면 더 손해다
+    def test_메모리가_빡빡해도_가벼운_갱신은_한다(self, monkeypatch):
+        """예전에는 갱신 전에 메모리 여유를 확인했다. 갱신에 FinanceDataReader
+        (약 120MB)를 썼기 때문이다. 이제 갱신은 httpx 요청 두 번이라 사실상
+        0MB 다. 메모리를 이유로 시세를 묵히는 게 오히려 손해다."""
         from datetime import datetime, timedelta
         불린것 = []
         monkeypatch.setattr(ts, "_load_kr_from_db", lambda: True)
-        monkeypatch.setattr(ts, "_load_kr_from_fdr", lambda: (불린것.append("fdr"), True)[1])
-        monkeypatch.setattr(ts.memory, "has_headroom", lambda *a: False)
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: (불린것.append("직접"), True)[1])
+        from app.core import memory
+        monkeypatch.setattr(memory, "usage_ratio", lambda: 0.99)
         ts.__dict__["_db_rows_at"] = datetime.now() - timedelta(seconds=ts.KR_TICKER_TTL_SEC + 60)
         ts._load_kr_from_pykrx()
-        assert 불린것 == []
+        assert 불린것 == ["직접"]
 
     def test_받아온_목록을_DB에_저장한다(self):
         # 저장을 안 하면 다음 재시작에서 또 외부로 나가고, 또 실패할 수 있다
-        for fn in (ts._load_kr_from_fdr, ts._load_kr_from_pykrx):
+        for fn in (ts._load_kr_from_fdr, ts._load_kr_direct, ts._load_kr_from_pykrx_only):
             tree = ast.parse(inspect.getsource(fn))
             호출 = {n.func.id for n in ast.walk(tree)
                    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
@@ -360,3 +365,97 @@ class Test설치_목록:
         import importlib.util
         assert importlib.util.find_spec("FinanceDataReader") is not None, \
             "requirements 에만 있고 설치가 안 되면 프로덕션과 같은 상태다"
+
+
+class Test폴백_순서:
+    """무거운 것을 나중에 부르는 순서가 핵심이다.
+
+    KRX 직접(0MB) → pykrx(3.7MB) → FinanceDataReader(약 120MB) → 내장(115개).
+    이 순서가 뒤집히면 첫 배포마다 120MB를 문다."""
+
+    @pytest.fixture
+    def 전부실패(self, monkeypatch):
+        불린것 = []
+        monkeypatch.setattr(ts, "_load_kr_from_db", lambda: False)
+        monkeypatch.setattr(ts, "_save_kr_to_db", lambda *a: True)
+        for 이름 in ("_load_kr_direct", "_load_kr_from_pykrx_only", "_load_kr_from_fdr"):
+            monkeypatch.setattr(ts, 이름,
+                                (lambda n: lambda: (불린것.append(n), False)[1])(이름))
+        return 불린것
+
+    def test_가벼운_것부터_부른다(self, 전부실패):
+        ts._load_kr_from_pykrx()
+        assert 전부실패 == ["_load_kr_direct", "_load_kr_from_pykrx_only", "_load_kr_from_fdr"]
+
+    def test_KRX_직접이_되면_무거운_것을_안_부른다(self, monkeypatch):
+        불린것 = []
+        monkeypatch.setattr(ts, "_load_kr_from_db", lambda: False)
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: (불린것.append("직접"), True)[1])
+        for 이름 in ("_load_kr_from_pykrx_only", "_load_kr_from_fdr"):
+            monkeypatch.setattr(ts, 이름,
+                                (lambda n: lambda: (불린것.append(n), True)[1])(이름))
+        ts._load_kr_from_pykrx()
+        assert 불린것 == ["직접"], "가벼운 경로로 됐는데 무거운 것까지 불렀다"
+
+    def test_전부_실패하면_내장으로_떨어지고_error를_남긴다(self, 전부실패, caplog):
+        import logging as _l
+        with caplog.at_level(_l.WARNING):
+            ts._load_kr_from_pykrx()
+        assert [r for r in caplog.records if r.levelno >= _l.ERROR]
+        assert ts.kr_status()["degraded"] is True
+
+    def test_갱신에는_무거운_경로를_쓰지_않는다(self, monkeypatch):
+        """DB에 지난 목록이 이미 있다. 최신으로 맞추려고 120MB를 물 이유가 없다."""
+        from datetime import datetime, timedelta
+        불린것 = []
+        monkeypatch.setattr(ts, "_load_kr_from_db", lambda: True)
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: (불린것.append("직접"), False)[1])
+        for 이름 in ("_load_kr_from_pykrx_only", "_load_kr_from_fdr"):
+            monkeypatch.setattr(ts, 이름,
+                                (lambda n: lambda: (불린것.append(n), True)[1])(이름))
+        ts.__dict__["_db_rows_at"] = datetime.now() - timedelta(seconds=ts.KR_TICKER_TTL_SEC + 60)
+        ts._load_kr_from_pykrx()
+        assert 불린것 == ["직접"], \
+            f"갱신에 무거운 경로를 썼다: {불린것} — 12시간마다 120MB 스파이크가 난다"
+
+    def test_KRX_직접이_krx_listing을_쓴다(self):
+        # 고정값을 돌려주면 화면은 정상으로 보이고 종목은 안 늘어난다
+        tree = ast.parse(inspect.getsource(ts._load_kr_direct))
+        호출 = {f"{n.func.value.id}.{n.func.attr}" for n in ast.walk(tree)
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and isinstance(n.func.value, ast.Name)}
+        assert "krx_listing.fetch_listing" in 호출
+
+    def test_받은_목록을_DB에_저장한다(self):
+        tree = ast.parse(inspect.getsource(ts._load_kr_direct))
+        호출 = {n.func.id for n in ast.walk(tree)
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+        assert "_save_kr_to_db" in 호출
+
+
+class TestDB_저장_결과_노출:
+    """저장이 됐는지 화면에서 알 수 없었다. 프로덕션에서 kr_tickers 가 테이블
+    목록에 안 보여서 저장 실패를 의심해야 했는데, 확인할 방법이 없었다."""
+
+    def test_저장_결과를_상태에_담는다(self, 빈테이블):
+        rows = [{"s": f"{i:06d}.KS", "n": f"테스트{i}", "x": "KOSPI", "m": "KR", "c": f"{i:06d}"}
+                for i in range(1, 21)]
+        ts._save_kr_to_db(rows, {})
+        st = ts.kr_status()
+        assert st["db_rows"] == 20, "DB에 몇 건 들어있는지 알 수 없으면 저장 실패를 못 본다"
+        assert st["db_error"] is None
+
+    def test_저장이_실패하면_이유를_담는다(self, monkeypatch):
+        def 터짐(*a, **k):
+            raise RuntimeError("권한 없음")
+        monkeypatch.setattr(ts, "SessionLocal", 터짐, raising=False)
+        import app.db.database as dbmod
+        monkeypatch.setattr(dbmod, "SessionLocal", 터짐)
+        assert ts._save_kr_to_db([{"s": "A.KS", "n": "가", "x": "KOSPI", "m": "KR", "c": "000001"}], {}) is False
+        st = ts.kr_status()
+        assert st["db_error"] and "권한 없음" in st["db_error"]
+
+    def test_관리자_화면이_저장_상태를_받는다(self):
+        from app.api.routes.admin import get_runtime
+        kr = get_runtime(_=None)["kr_tickers"]
+        assert "db_rows" in kr and "db_error" in kr

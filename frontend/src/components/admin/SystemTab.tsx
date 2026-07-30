@@ -51,6 +51,7 @@ interface Runtime {
   kr_tickers?: {
     source: string; count: number; age_sec: number | null;
     builtin_count: number; degraded: boolean; prices: number; ttl_sec: number;
+    db_rows?: number | null; db_error?: string | null;
   };
   cache_breakdown: { prefix: string; items: number; mb: number }[];
   websocket: { connections: number; limit_per_ip: number };
@@ -191,12 +192,15 @@ export default function SystemTab() {
   // 그 상태에서는 내장 목록에 없는 종목이 검색도 시세 조회도 되지 않는다
   const 종목 = d.kr_tickers;
   const 종목축소 = 종목?.degraded === true;
+  // 저장이 안 되면 재시작마다 밖으로 나가고, 그때마다 무거운 라이브러리를 문다.
+  // 프로덕션에서 이걸 화면으로 확인할 방법이 없어 저장 실패를 의심만 했다
+  const 종목저장실패 = !!종목?.db_error || (종목 != null && 종목.db_rows === 0);
 
   return (
     <div className="flex flex-col gap-4">
 
       {/* ── 문제가 있으면 맨 위에 크게 ── */}
-      {(메모리위험 || 종목축소 || 죽은작업.length > 0 || 실패중.length > 0) && (
+      {(메모리위험 || 종목축소 || 종목저장실패 || 죽은작업.length > 0 || 실패중.length > 0) && (
         <div className="rounded-xl border border-accent-red/40 bg-accent-red/10 p-4 flex items-start gap-2.5">
           <AlertTriangle size={16} className="text-accent-red shrink-0 mt-0.5" />
           <div className="flex flex-col gap-1 text-xs text-accent-red break-keep leading-relaxed">
@@ -204,6 +208,12 @@ export default function SystemTab() {
               <p>
                 <b>국내 종목이 {종목!.count}개뿐입니다</b> (출처: {종목!.source}) — 외부 조회가 실패해
                 내장 목록으로 동작 중입니다. 이 목록에 없는 종목은 검색·시세 조회가 되지 않습니다.
+              </p>
+            )}
+            {종목저장실패 && (
+              <p>
+                <b>종목 목록이 DB에 저장되지 않았습니다</b> — {종목!.db_error} · 재시작마다 외부에서
+                다시 받아오게 되고, 그때마다 라이브러리가 메모리를 더 씁니다.
               </p>
             )}
             {메모리위험 && <p><b>메모리 {d.memory.percent}%</b> — 한도를 넘으면 서버가 강제 재시작됩니다.</p>}
@@ -407,6 +417,14 @@ export default function SystemTab() {
                           종목.age_sec != null ? ` · ${초를사람말로(종목.age_sec)} 갱신` : ""
                         } · ${Math.round(종목.ttl_sec / 3600)}시간마다 새로 받습니다`}
                   </p>
+                  {(종목.db_rows != null || 종목.db_error) && (
+                    <p className={`text-[10px] break-keep ${
+                      종목저장실패 ? "text-accent-red" : "text-text-dim"}`}>
+                      {종목저장실패
+                        ? `DB 저장 안 됨 — ${종목.db_error ?? "0건"}. 재시작마다 외부에서 다시 받아옵니다.`
+                        : `DB에 ${종목.db_rows!.toLocaleString()}건 저장됨 — 다음 재시작은 외부 조회 없이 이 목록을 씁니다.`}
+                    </p>
+                  )}
                 </div>
               )}
               <p className="text-[10px] text-text-dim break-keep leading-relaxed mt-1">
