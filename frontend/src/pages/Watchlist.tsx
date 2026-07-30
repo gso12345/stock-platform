@@ -17,6 +17,10 @@ import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 import { Plus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, Settings2, LogIn, Clock, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
+/* 시세를 조회할 수 있는 심볼 형식 — 서버의 검사와 같은 기준.
+   '현금'·'금' 같은 자산은 시세가 없으므로 조회 대상이 아니다. */
+const PRICEABLE_SYMBOL = /^[A-Za-z0-9.\-]{1,20}$/;
+
 const MARKET_TABS = [
   { id: "전체", label: "전체" },
   { id: "KR",   label: "국내" },
@@ -120,13 +124,19 @@ export default function Watchlist() {
   }, [allItems, marketTab]);
 
   /* 가격 조회는 관심종목 + 보유종목을 합친 기준 — 탭 전환해도 캐시 유지.
-     한 종목이 양쪽에 있으면 한 번만 조회한다. */
+     한 종목이 양쪽에 있으면 한 번만 조회한다.
+
+     시세가 없는 자산은 빼야 한다. 포트폴리오는 '현금'·'금'·'채권' 처럼 한글
+     심볼을 담을 수 있는데, 이걸 시세 조회에 넣자 관심종목 20개의 시세가
+     통째로 사라졌다 — 서버가 형식에 안 맞는 심볼 하나를 보고 REST 는 400,
+     WebSocket 은 연결을 닫아버렸기 때문이다. 서버도 고쳤지만, 애초에 시세가
+     있을 수 없는 것을 보내지 않는 게 맞다. */
   const { symbols, markets } = useMemo(() => {
     const syms: string[] = [];
     const mkts: string[] = [];
     const seen = new Set<string>();
     for (const i of [...(allItems as any[]), ...(pfAllItems as any[])]) {
-      if (!i?.symbol) continue;
+      if (!i?.symbol || !PRICEABLE_SYMBOL.test(i.symbol)) continue;
       const key = normalizeSymbol(i.symbol);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -786,6 +796,9 @@ export default function Watchlist() {
                 const p = lookupPrice(livePrices, item.symbol);
                 const isKRItem = item.market === "KR";
                 const hasPrice = p?.price != null;
+                // 현금·금 처럼 시세가 없는 자산은 영원히 '조회 중'으로 남는다.
+                // 기다리면 나올 것처럼 보이면 안 되므로 구분해서 표시한다
+                const 시세없는자산 = !PRICEABLE_SYMBOL.test(item.symbol);
                 return (
                   <div
                     // 같은 종목을 두 번 담을 수 있으므로 id 로 구분한다.
@@ -806,7 +819,9 @@ export default function Watchlist() {
                       <div className="text-sm font-mono font-semibold text-text-primary">
                         {hasPrice
                           ? isKRItem ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))
-                          : <span className="text-text-muted text-xs">조회 중</span>}
+                          : 시세없는자산
+                            ? <span className="text-text-dim text-xs">시세 없음</span>
+                            : <span className="text-text-muted text-xs">조회 중</span>}
                       </div>
                       {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs" />}
                     </div>

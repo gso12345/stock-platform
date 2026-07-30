@@ -245,3 +245,74 @@ class Test백그라운드_부하:
         # 필요 없다. 여기에 유휴 정지를 걸면 화면을 켜 두고 보는 사용자의
         # 시세가 멈춘다
         assert "seconds_since_last_request" not in inspect.getsource(scheduler.refresh_watched_loop)
+
+
+class Test시세없는자산_섞임:
+    """관심종목 20개의 시세가 통째로 사라졌던 회귀.
+
+    보유종목을 시세 조회에 합치자마자 벌어진 일이다. 포트폴리오는 '현금'·'금'·
+    '채권' 같은 한글 심볼을 담을 수 있는데(자산 배분을 보려면 필요하다),
+    시세 조회 쪽은 그런 심볼을 보면
+      · REST  → 400 으로 요청 전체를 거절
+      · WS    → close(4000) 으로 연결 전체를 종료 → 화면에 '연결 끊김'
+    했다. 국내 3종목은 서버에 값이 있었는데도 화면에는 아무것도 안 나왔다.
+
+    한 항목 때문에 나머지가 죽는 구조 자체를 고쳤다."""
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        return TestClient(app)
+
+    def test_현금이_섞여도_나머지_시세를_돌려준다(self):
+        c = self._client()
+        r = c.get("/api/v1/watchlist/prices",
+                  params={"symbols": "005930.KS,AAPL,현금", "markets": "KR,US,KR"})
+        assert r.status_code == 200, f"400 으로 전체를 거절하면 안 된다: {r.text[:200]}"
+        by = {x["symbol"]: x for x in r.json()}
+        assert set(by) == {"005930.KS", "AAPL", "현금"}, "요청한 심볼이 모두 응답에 있어야 한다"
+
+    @pytest.mark.parametrize("이상한심볼", ["현금", "금", "채권", "커버드콜"])
+    def test_조회할_수_없는_자산_이름들(self, 이상한심볼):
+        c = self._client()
+        r = c.get("/api/v1/watchlist/prices",
+                  params={"symbols": f"005930.KS,{이상한심볼}", "markets": "KR,KR"})
+        assert r.status_code == 200
+        assert len(r.json()) == 2
+
+    def test_전부_조회_대상이_아니어도_형식은_지킨다(self):
+        c = self._client()
+        r = c.get("/api/v1/watchlist/prices", params={"symbols": "현금,금", "markets": "KR,KR"})
+        assert r.status_code == 200
+        assert [x["symbol"] for x in r.json()] == ["현금", "금"]
+        assert all(x["price"] is None for x in r.json())
+
+    def test_50개_상한은_그대로_지킨다(self):
+        c = self._client()
+        r = c.get("/api/v1/watchlist/prices",
+                  params={"symbols": ",".join(f"A{i}" for i in range(51)), "markets": "US"})
+        assert r.status_code == 400
+
+    def test_WS는_이상한_심볼만_빼고_연결한다(self):
+        """연결을 닫으면 관심종목 전체가 '연결 끊김'이 된다."""
+        c = self._client()
+        with c.websocket_connect(
+            "/ws/prices?symbols=005930.KS,현금,AAPL&markets=KR,KR,US&interval=5"
+        ) as ws:
+            msg = ws.receive_json()
+            assert msg["type"] == "prices"
+            돌아온것 = {d["symbol"] for d in msg["data"]}
+            assert "현금" not in 돌아온것
+            assert {"005930.KS", "AAPL"} <= 돌아온것, \
+                f"이상한 심볼 하나 때문에 나머지가 빠졌다: {돌아온것}"
+
+    def test_WS_심볼이_전부_이상하면_그냥_닫는다(self):
+        # 구독할 게 없는 연결을 열어두면 슬롯만 차지한다
+        import websockets.exceptions
+        c = self._client()
+        try:
+            with c.websocket_connect("/ws/prices?symbols=현금&markets=KR") as ws:
+                ws.receive_json()
+            assert False, "닫혀야 한다"
+        except Exception:
+            pass    # 정상 종료(1000) 또는 수신 실패 — 어느 쪽이든 연결이 유지되지 않는다

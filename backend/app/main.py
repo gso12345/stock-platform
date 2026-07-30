@@ -439,13 +439,26 @@ async def ws_prices(
     token: str = Query(default=""),
 ):
     import re as _re
-    sym_list = [s.strip() for s in symbols.split(",") if s.strip()][:MAX_STREAM_SYMBOLS]
-    mkt_list = [m.strip() for m in markets.split(",") if m.strip()]
-    bad = [s for s in sym_list if not _re.match(r"^[A-Za-z0-9.\-]{1,20}$", s)]
-    if bad:
-        await websocket.close(code=4000)
+    raw_syms = [s.strip() for s in symbols.split(",") if s.strip()][:MAX_STREAM_SYMBOLS]
+    raw_mkts = [m.strip() for m in markets.split(",") if m.strip()]
+
+    # 시세를 조회할 수 없는 심볼은 빼고 나머지로 연결한다.
+    #
+    # 예전에는 하나라도 형식에 안 맞으면 연결 자체를 닫았다(code 4000).
+    # 포트폴리오는 '현금'·'금'·'채권' 같은 한글 심볼을 허용하므로, 보유종목을
+    # 실시간 시세 구독에 함께 넣자마자 관심종목 20개가 통째로 '연결 끊김'이
+    # 됐다. 클라이언트는 3초마다 무한 재연결만 반복했다.
+    _OK = _re.compile(r"^[A-Za-z0-9.\-]{1,20}$")
+    pairs = [(s, m) for s, m in zip(raw_syms, raw_mkts + ["US"] * len(raw_syms)) if _OK.match(s)]
+    if not pairs:
+        # 구독할 게 하나도 없으면 연결을 열어둘 이유가 없다
+        await websocket.close(code=1000)
         return
-    await stream_prices(websocket, sym_list, mkt_list, interval=interval)
+    if len(pairs) < len(raw_syms):
+        _startup_log.info(
+            f"실시간 시세: 조회 대상이 아닌 심볼 {len(raw_syms) - len(pairs)}개 제외하고 연결"
+        )
+    await stream_prices(websocket, [p[0] for p in pairs], [p[1] for p in pairs], interval=interval)
 
 
 @app.get("/")

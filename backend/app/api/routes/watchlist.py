@@ -9,11 +9,13 @@ import asyncio
 from app.db.database import get_db
 from app.models.stock import Watchlist, WatchlistItem, WatchlistFolder
 from app.models.user import User
+import logging
 import re
 from app.core.deps import get_current_user, require_user
 from app.services.ticker_service import get_display_name
 from app.core.cache import cache
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/watchlist", tags=["관심종목"])
 
 
@@ -246,17 +248,31 @@ async def get_watchlist_prices_batch(
     """심볼 목록을 받아 캐시 우선 조회, 미캐시 종목은 배치 fetch 후 캐시 저장"""
     from app.services.price_fetcher import fetch_yf_quotes_with_fallback, fetch_naver_stocks
 
-    sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
-    mkt_list = [m.strip() for m in markets.split(",") if m.strip()]
-    if not sym_list:
+    raw_syms = [s.strip() for s in symbols.split(",") if s.strip()]
+    raw_mkts = [m.strip() for m in markets.split(",") if m.strip()]
+    if not raw_syms:
         return []
-    if len(sym_list) > 50:
+    if len(raw_syms) > 50:
         raise HTTPException(status_code=400, detail="한 번에 최대 50개 심볼만 조회 가능합니다")
-    for sym in sym_list:
-        if not _SYMBOL_RE.match(sym):
-            raise HTTPException(status_code=400, detail=f"잘못된 심볼 형식: {sym}")
-    while len(mkt_list) < len(sym_list):
-        mkt_list.append("US")
+    while len(raw_mkts) < len(raw_syms):
+        raw_mkts.append("US")
+
+    # 시세를 조회할 수 없는 항목은 건너뛰고, 나머지는 그대로 돌려준다.
+    #
+    # 예전에는 형식에 안 맞는 심볼 하나만 있어도 400 으로 요청 전체를 거절했다.
+    # 포트폴리오는 '현금'·'금'·'채권' 같은 한글 심볼을 허용하므로, 보유종목을
+    # 시세 조회에 함께 넣자마자 관심종목 20개의 시세가 통째로 사라졌다.
+    # 한 항목 때문에 나머지가 죽는 구조 자체가 문제였다.
+    skipped = [s for s in raw_syms if not _SYMBOL_RE.match(s)]
+    if skipped:
+        log.info(f"시세 조회 대상이 아닌 심볼 {len(skipped)}개 건너뜀: {skipped[:5]}")
+    sym_list = [s for s in raw_syms if _SYMBOL_RE.match(s)]
+    mkt_list = [m for s, m in zip(raw_syms, raw_mkts) if _SYMBOL_RE.match(s)]
+    if not sym_list:
+        # 전부 조회 대상이 아니어도 요청한 순서대로 빈 값을 돌려준다 —
+        # 프론트엔드가 심볼 기준으로 짝을 맞추므로 형식은 유지해야 한다
+        return [{"symbol": s, "market": m, "price": None, "change_rate": 0}
+                for s, m in zip(raw_syms, raw_mkts)]
 
     sym_to_mkt = dict(zip(sym_list, mkt_list))
     results: dict[str, dict] = {}
@@ -304,9 +320,12 @@ async def get_watchlist_prices_batch(
                         if s.replace(".KS", "").replace(".KQ", "") == code:
                             results[s] = {**q, "market": "KR"}
 
+    # 건너뛴 심볼까지 포함해 요청한 순서대로 돌려준다. 프론트엔드는 심볼로
+    # 짝을 맞추므로 빠진 항목이 있어도 되지만, 있으면 '조회 대상이 아님'을
+    # 화면에서 구분할 수 있다
     return [
-        results.get(sym, {"symbol": sym, "market": sym_to_mkt.get(sym, "US"), "price": None, "change_rate": 0})
-        for sym in sym_list
+        results.get(sym, {"symbol": sym, "market": m, "price": None, "change_rate": 0})
+        for sym, m in zip(raw_syms, raw_mkts)
     ]
 
 
