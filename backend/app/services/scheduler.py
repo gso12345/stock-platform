@@ -713,6 +713,22 @@ async def periodic_refresh():
                 jobs.append(refresh_us_stocks())
             await asyncio.gather(*jobs, return_exceptions=True)
 
+        # 국내 종목 목록 (1시간마다 확인 — 실제 갱신은 DB가 묵었을 때만)
+        #
+        # 예전에는 서버가 시작할 때 딱 한 번만 확인했다. Render 무료 플랜은
+        # 재시작이 잦아 실질적으로는 하루에 몇 번씩 갱신됐지만, 서버가 오래
+        # 떠 있으면 신규 상장이 안 들어오고 상장폐지된 종목이 계속 남는다.
+        #
+        # 확인은 싸다 — DB 행의 갱신 시각만 보고, 12시간이 안 지났으면 아무
+        # 것도 하지 않는다. 실제로 받아올 때도 httpx 요청 두 번뿐이다.
+        if counter % 360 == 0:
+            try:
+                from app.services.ticker_service import refresh_kr_tickers_if_stale
+                loop4 = asyncio.get_running_loop()
+                await loop4.run_in_executor(None, refresh_kr_tickers_if_stale)
+            except Exception as e:
+                log.warning(f"종목 목록 주기 갱신 실패: {type(e).__name__}: {e}")
+
         # 트렌드·사용 통계 DB flush (5분)
         if counter % 30 == 0:
             try:

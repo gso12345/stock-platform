@@ -996,7 +996,7 @@ export default function Portfolio() {
         {/* ── 자산유형 필터 탭 ── */}
         {((isLoggedIn && items.length > 0) || !isLoggedIn) && (
           <div className="px-3 pt-2.5 pb-1 overflow-x-auto scrollbar-hide">
-            <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
+            <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 w-fit">
               {ASSET_FILTER_TABS.map((t) => (
                 <button
                   key={t.id}

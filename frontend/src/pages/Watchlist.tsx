@@ -635,7 +635,7 @@ export default function Watchlist() {
       </div>
 
       {/* 시장 탭 — 미리보기·로그인 모두 동작 */}
-      <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 w-fit">
         {MARKET_TABS.map((t) => (
           <button key={t.id} onClick={() => { setMarketTab(t.id); setFolderTab("all"); }}
             className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${

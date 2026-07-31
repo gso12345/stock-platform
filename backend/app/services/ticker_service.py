@@ -383,9 +383,43 @@ def kr_status() -> dict:
     }
 
 
+def _is_stale() -> bool:
+    """지금 들고 있는 목록이 갱신할 만큼 묵었는가.
+
+    '언제 적용했는지'가 아니라 '데이터 자체가 언제 것인지'로 판단한다.
+    서버가 방금 떴어도 DB 목록이 어제 것이면 묵은 것이다."""
+    at = _db_rows_at
+    if at is None:
+        return True
+    try:
+        now = datetime.now(at.tzinfo) if at.tzinfo else datetime.now()
+        return (now - at).total_seconds() > KR_TICKER_TTL_SEC
+    except Exception:
+        return True
+
+
+def refresh_kr_tickers_if_stale() -> bool:
+    """주기 작업이 부른다. 묵었을 때만 실제로 받아온다.
+
+    예전에는 서버가 시작할 때 딱 한 번만 확인했다. 재시작이 잦은 환경에서는
+    그래도 하루에 몇 번씩 갱신됐지만, 서버가 오래 떠 있으면 신규 상장이 안
+    들어오고 상장폐지된 종목이 계속 남았다.
+
+    확인 자체는 공짜다 — 시각만 비교하고 대부분 바로 돌아온다."""
+    if not _kr_loaded:
+        return False           # 첫 로드가 아직 안 끝났으면 건드리지 않는다
+    if not _is_stale():
+        return False
+    log.info("종목 목록이 오래돼 주기 갱신을 시작합니다")
+    return _load_kr_direct()
+
+
 def _apply(rows: list[dict], prices: dict, source: str):
     """받아온 목록을 메모리에 반영하고 출처를 기록한다"""
-    global _kr_db, _kr_loaded, _fdr_price_cache, _kr_source, _kr_loaded_at
+    global _kr_db, _kr_loaded, _fdr_price_cache, _kr_source, _kr_loaded_at, _db_rows_at
+    # 밖에서 새로 받아온 것이면 데이터 나이는 '지금'이다.
+    # DB 에서 읽은 경우는 _load_kr_from_db 가 실제 행 시각으로 다시 덮는다
+    _db_rows_at = datetime.now()
     with _lock:
         _kr_db = rows
         if prices:
@@ -600,15 +634,7 @@ def _load_kr_from_pykrx():
 
     # 0순위: DB. 신선하면 여기서 끝 — 외부 호출도 라이브러리도 없다
     if _load_kr_from_db():
-        at = _db_rows_at
-        stale = True
-        if at is not None:
-            try:
-                now = datetime.now(at.tzinfo) if at.tzinfo else datetime.now()
-                stale = (now - at).total_seconds() > KR_TICKER_TTL_SEC
-            except Exception:
-                stale = True
-        if not stale:
+        if not _is_stale():
             return
         log.info("DB 종목 목록이 오래됐습니다 — 갱신 시도")
         # 갱신은 가벼운 경로만 쓴다. 지난 목록이 이미 있으므로, 굳이

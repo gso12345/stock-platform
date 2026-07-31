@@ -539,3 +539,77 @@ class Test컬럼_확장_마이그레이션:
         붙은것 = " ".join(늘리는것)
         assert "kr_tickers" in 붙은것 and "market" in 붙은것, \
             f"kr_tickers.market 을 늘리지 않는다: {늘리는것}"
+
+
+class Test주기_갱신:
+    """서버가 시작할 때만 목록을 확인하던 문제.
+
+    재시작이 잦은 환경에서는 실질적으로 하루에 몇 번씩 갱신됐지만, 서버가
+    오래 떠 있으면 신규 상장이 안 들어오고 상장폐지된 종목이 계속 남는다.
+    유료 플랜으로 옮겨 서버가 안 죽으면 바로 문제가 된다."""
+
+    def test_묵지_않았으면_아무것도_하지_않는다(self, monkeypatch):
+        from datetime import datetime, timedelta
+        불린것 = []
+        monkeypatch.setattr(ts, "_kr_loaded", True)
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: (불린것.append("직접"), True)[1])
+        ts.__dict__["_db_rows_at"] = datetime.now() - timedelta(seconds=60)
+        assert ts.refresh_kr_tickers_if_stale() is False
+        assert 불린것 == [], "신선한데도 밖으로 나갔다"
+
+    def test_묵었으면_갱신한다(self, monkeypatch):
+        from datetime import datetime, timedelta
+        불린것 = []
+        monkeypatch.setattr(ts, "_kr_loaded", True)
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: (불린것.append("직접"), True)[1])
+        ts.__dict__["_db_rows_at"] = datetime.now() - timedelta(seconds=ts.KR_TICKER_TTL_SEC + 60)
+        assert ts.refresh_kr_tickers_if_stale() is True
+        assert 불린것 == ["직접"]
+
+    def test_첫_로드_전에는_건드리지_않는다(self, monkeypatch):
+        # 시작 시 로드가 아직 도는 중인데 끼어들면 중복 조회가 된다
+        불린것 = []
+        monkeypatch.setattr(ts, "_kr_loaded", False)
+        monkeypatch.setattr(ts, "_load_kr_direct", lambda: (불린것.append("직접"), True)[1])
+        ts.__dict__["_db_rows_at"] = None
+        assert ts.refresh_kr_tickers_if_stale() is False
+        assert 불린것 == []
+
+    def test_가벼운_경로만_쓴다(self, monkeypatch):
+        """지난 목록이 이미 있는데 120MB 짜리 라이브러리를 부를 이유가 없다."""
+        import ast, inspect as _i
+        tree = ast.parse(_i.getsource(ts.refresh_kr_tickers_if_stale))
+        불린것 = {n.func.id for n in ast.walk(tree)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+        assert "_load_kr_direct" in 불린것
+        assert "_load_kr_from_fdr" not in 불린것 and "_refresh_kr_outside" not in 불린것
+
+    def test_새로_받아오면_나이가_초기화된다(self, monkeypatch):
+        """_apply 가 데이터 나이를 갱신하지 않으면, 방금 받아왔는데도
+        계속 '묵었다'고 판단해 매 주기마다 밖으로 나간다."""
+        from datetime import datetime, timedelta
+        ts.__dict__["_db_rows_at"] = datetime.now() - timedelta(days=3)
+        원래 = ts._kr_db, ts._kr_source
+        try:
+            ts._apply([{"s": "005930.KS", "n": "삼성전자", "x": "KOSPI", "m": "KR", "c": "005930"}],
+                      {}, "테스트")
+            assert ts._is_stale() is False, "새로 받아왔는데 여전히 묵은 것으로 본다"
+        finally:
+            ts._kr_db, ts._kr_source = 원래
+
+    def test_스케줄러가_주기적으로_부른다(self):
+        import inspect as _i
+        from app.services import scheduler
+        src = _i.getsource(scheduler.periodic_refresh)
+        assert "refresh_kr_tickers_if_stale" in src, "주기 작업에 붙어 있지 않다"
+
+    def test_확인_주기가_TTL보다_촘촘하다(self):
+        """확인 주기가 TTL 보다 길면 그만큼 늦게 갱신된다."""
+        import inspect as _i, re
+        from app.services import scheduler
+        src = _i.getsource(scheduler.periodic_refresh)
+        블록 = src[:src.index("refresh_kr_tickers_if_stale")]
+        n = int(re.findall(r"counter % (\d+) == 0", 블록)[-1])
+        확인주기초 = n * 10          # 루프가 10초마다 돈다
+        assert 확인주기초 <= ts.KR_TICKER_TTL_SEC / 4, \
+            f"확인 주기 {확인주기초/3600:.1f}시간이 TTL {ts.KR_TICKER_TTL_SEC/3600:.0f}시간에 비해 성기다"
