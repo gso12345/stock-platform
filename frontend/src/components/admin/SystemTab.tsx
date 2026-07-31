@@ -97,6 +97,23 @@ function 기간(s: number): string {
   if (s < 86400) return `${Math.floor(s / 3600)}시간 ${Math.floor((s % 3600) / 60)}분`;
   return `${Math.floor(s / 86400)}일 ${Math.floor((s % 86400) / 3600)}시간`;
 }
+/** 메모리 추이 스파크라인의 막대 높이(%).
+ *
+ * 눈금을 min~max 에 딱 맞추면 240→246MB 같은 잔물결도 바닥에서 천장까지
+ * 치솟은 것처럼 보인다. 512MB 짜리 프로세스에서 6MB 흔들림은 작게 보여야
+ * 한다 — 그래서 눈금 폭에 하한(10MB 또는 최대값의 5% 중 큰 쪽)을 둔다. */
+export function 추이막대높이(v: number, min: number, max: number): number {
+  const 폭 = Math.max(max - min, 10, max * 0.05);
+  const 바닥 = max - 폭;
+  return Math.min(100, Math.max(8, ((v - 바닥) / 폭) * 100));
+}
+
+/** 기울기를 '누수'라고 말해도 되는 시점.
+ *
+ * 서버가 막 뜬 직후에는 RSS 가 원래 오른다 — 캐시가 차고 스레드가 생기는
+ * 과정이다. 그걸 보고 경고를 띄우면 재시작할 때마다 거짓 경보가 된다. */
+export const 추이_판단_최소_분 = 30;
+
 function level(pct: number) {
   return pct >= 85 ? { bar: "bg-accent-red", text: "text-accent-red" }
        : pct >= 70 ? { bar: "bg-accent-amber", text: "text-accent-amber" }
@@ -305,32 +322,39 @@ export default function SystemTab() {
           )}
 
           {/* 늘고 있는지 평탄한지 — 순간값만으로는 구분할 수 없다 */}
-          {d.mem_trend && d.mem_trend.samples >= 2 && (
+          {d.mem_trend && d.mem_trend.samples >= 2 && (() => {
+            const t = d.mem_trend;
+            const rate = t.per_hour_mb ?? 0;
+            const 판단가능 = (t.span_min ?? 0) >= 추이_판단_최소_분;
+            return (
             <div className="rounded-lg bg-bg-elevated p-2.5 flex flex-col gap-1.5">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-2xs font-semibold text-text-muted">메모리 추이</span>
                 <span className={`text-2xs font-mono ${
-                  (d.mem_trend.per_hour_mb ?? 0) > 5 ? "text-accent-red"
-                  : (d.mem_trend.per_hour_mb ?? 0) > 1 ? "text-accent-amber" : "text-accent-green"}`}>
-                  {(d.mem_trend.per_hour_mb ?? 0) >= 0 ? "+" : ""}{d.mem_trend.per_hour_mb}MB/시간
+                  !판단가능 ? "text-text-dim"
+                  : rate > 5 ? "text-accent-red"
+                  : rate > 1 ? "text-accent-amber" : "text-accent-green"}`}>
+                  {rate >= 0 ? "+" : ""}{rate}MB/시간
                 </span>
               </div>
               <div className="flex items-end gap-[2px] h-8">
-                {d.mem_trend.points.map((v, i) => {
-                  const lo = d.mem_trend!.min_mb ?? v, hi = d.mem_trend!.max_mb ?? v;
-                  const h = hi > lo ? ((v - lo) / (hi - lo)) * 100 : 50;
-                  return <div key={i} className="flex-1 bg-accent-blue/40 rounded-sm min-w-[2px]"
-                              style={{ height: `${Math.max(8, h)}%` }} title={`${v}MB`} />;
-                })}
+                {t.points.map((v, i) => (
+                  <div key={i} className="flex-1 bg-accent-blue/40 rounded-sm min-w-[2px]"
+                       style={{ height: `${추이막대높이(v, t.min_mb ?? v, t.max_mb ?? v)}%` }}
+                       title={`${v}MB`} />
+                ))}
               </div>
               <p className="text-[10px] text-text-dim break-keep">
-                최근 {d.mem_trend.span_min}분 · {d.mem_trend.min_mb}~{d.mem_trend.max_mb}MB ·
-                {(d.mem_trend.per_hour_mb ?? 0) > 5
+                최근 {t.span_min}분 · {t.min_mb}~{t.max_mb}MB ·
+                {!판단가능
+                  ? ` 아직 ${t.samples}개 표본뿐이라 판단하기 이릅니다 (30분 이상 모여야 기울기를 믿을 수 있습니다)`
+                  : rate > 5
                   ? " 계속 오르고 있습니다 — 누수를 의심할 만합니다"
                   : " 초반에 오른 뒤 평탄하면 정상입니다 (파이썬은 받은 메모리를 잘 돌려주지 않습니다)"}
               </p>
             </div>
-          )}
+            );
+          })()}
 
           <div className="grid grid-cols-2 gap-2">
             {[
