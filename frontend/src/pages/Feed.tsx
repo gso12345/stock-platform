@@ -16,10 +16,18 @@ import { compressImage } from "@/utils/image";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
+import { Tabs, type TabItem } from "@/components/ui";
 
 type SortType = "latest" | "likes";
 type MarketFilter = "ALL" | "KR" | "US" | "ETF";
 type FeedType = "all" | "following";
+
+const MARKET_FILTER_TABS: TabItem[] = [
+  { id: "ALL", label: "전체" },
+  { id: "KR",  label: "KR"  },
+  { id: "US",  label: "US"  },
+  { id: "ETF", label: "ETF" },
+];
 
 
 const MARKET_BADGE: Record<string, string> = {
@@ -1009,48 +1017,30 @@ export default function Feed() {
       </div>
 
       {/* 피드 타입 탭 */}
-      <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
-        <button
-          onClick={() => changeFeedType("all")}
-          onMouseEnter={() => prefetchFeed({ type: "all" })}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            feedType === "all" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-          }`}
-        >
-          <Rss size={11} />
-          전체 피드
-        </button>
-        <button
-          onClick={() => changeFeedType("following")}
-          onMouseEnter={() => prefetchFeed({ type: "following" })}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            feedType === "following" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-          }`}
-        >
-          <Users size={11} />
-          팔로잉
-        </button>
-      </div>
+      <Tabs
+        ariaLabel="피드 종류"
+        fill={false}
+        className="w-fit"
+        tabs={[
+          { id: "all",       label: "전체 피드", icon: Rss },
+          { id: "following", label: "팔로잉",   icon: Users },
+        ]}
+        active={feedType}
+        onChange={(id) => changeFeedType(id as any)}
+        onHover={(id) => prefetchFeed({ type: id as any })}
+      />
 
       {/* 필터 영역 */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* 마켓 필터 */}
-        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card">
-          {(["ALL", "KR", "US", "ETF"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => changeMarket(m)}
-              onMouseEnter={() => prefetchFeed({ market: m })}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                marketFilter === m
-                  ? "bg-accent-blue text-white shadow"
-                  : "text-text-muted hover:text-text-primary"
-              }`}
-            >
-              {m === "ALL" ? "전체" : m}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          ariaLabel="시장 필터"
+          fill={false}
+          tabs={MARKET_FILTER_TABS}
+          active={marketFilter}
+          onChange={(id) => changeMarket(id as any)}
+          onHover={(id) => prefetchFeed({ market: id as any })}
+        />
 
         {/* 정렬 */}
         <button

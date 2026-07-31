@@ -7,7 +7,7 @@ import api from "@/api/client";
 import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
-import { Card } from "@/components/ui";
+import { Card, Tabs } from "@/components/ui";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
@@ -1858,16 +1858,13 @@ export default function StockDetail() {
           <div className="flex flex-col gap-4">
             {/* 서브탭 + 원화 환산 토글 */}
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
-                <button onClick={() => setAnalystSubTab("opinion")}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${analystSubTab==="opinion" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
-                  투자의견
-                </button>
-                <button onClick={() => setAnalystSubTab("consensus")}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${analystSubTab==="consensus" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}>
-                  컨센서스
-                </button>
-              </div>
+              <Tabs
+                fill={false} size="md" className="w-fit"
+                ariaLabel="애널리스트 항목"
+                tabs={[{ id: "opinion", label: "투자의견" }, { id: "consensus", label: "컨센서스" }]}
+                active={analystSubTab}
+                onChange={(id) => setAnalystSubTab(id as any)}
+              />
               {!isKR && (
                 <button
                   onClick={() => setShowKRW(v => !v)}
@@ -2208,20 +2205,16 @@ export default function StockDetail() {
       {mainTab==="news" && (
         <div className="flex flex-col gap-4">
           {/* 서브탭 선택 */}
-          <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
-            <button
-              onClick={() => setNewsSubTab("news")}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${newsSubTab==="news" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}
-            >
-              <Newspaper size={11}/>뉴스
-            </button>
-            <button
-              onClick={() => setNewsSubTab("disclosure")}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${newsSubTab==="disclosure" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"}`}
-            >
-              <FileText size={11}/>공시
-            </button>
-          </div>
+          <Tabs
+            fill={false} size="md" className="w-fit"
+            ariaLabel="뉴스·공시 선택"
+            tabs={[
+              { id: "news", label: "뉴스", icon: Newspaper },
+              { id: "disclosure", label: "공시", icon: FileText },
+            ]}
+            active={newsSubTab}
+            onChange={(id) => setNewsSubTab(id as any)}
+          />
 
           {/* ── 뉴스 서브탭 ── */}
           {newsSubTab==="news" && (

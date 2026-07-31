@@ -4,8 +4,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
-import { Card, RowSkeleton } from "@/components/ui";
-import { Plus, Star, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw } from "lucide-react";
+import { Card, RowSkeleton, Tabs, UnderlineTabs } from "@/components/ui";
+import { ASSET_PAGE_TABS } from "@/constants/tabs";
+import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -58,7 +59,6 @@ const ASSET_FILTER_TABS: { id: AssetClass | "전체"; label: string }[] = [
 export default function Portfolio() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab,       setActiveTab]       = useState<"portfolio" | "watchlist">("portfolio");
   const [modalOpen,       setModalOpen]       = useState(false);
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
   const [cashModalOpen,   setCashModalOpen]   = useState(false);
@@ -327,9 +327,10 @@ export default function Portfolio() {
   /* ── 환율 — 공용 훅 (전용 엔드포인트 우선, 실패 시 금리 목록 폴백) ── */
   const exchangeRate = useExchangeRate();
 
-  const handleTabChange = (tab: "portfolio" | "watchlist") => {
-    if (tab === "watchlist") { navigate("/watchlist"); return; }
-    setActiveTab(tab);
+  /* 이 화면은 항상 '내 자산' 쪽이고, '관심종목'은 누르면 다른 페이지로
+     넘어간다. 그래서 고를 상태가 따로 없다 */
+  const handleTabChange = (tab: string) => {
+    if (tab === "watchlist") navigate("/watchlist");
   };
 
   /* ── 현재가 조회 (배치 1회 요청 — 종목별 개별 요청 대신, 전체 종목 기준으로
@@ -653,24 +654,12 @@ export default function Portfolio() {
     <div className="flex flex-col gap-4 fade-in pb-20">
 
       {/* ── 상단 탭 ── */}
-      <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-hidden">
-        {[
-          { id: "portfolio", label: "내 자산" },
-          { id: "watchlist", label: "관심종목" },
-        ].map(({ id, label }) => (
-          <button key={id}
-            onClick={() => handleTabChange(id as any)}
-            className={`flex items-center gap-1.5 px-5 py-3 text-xs font-semibold transition-all border-b-2 -mb-px whitespace-nowrap ${
-              activeTab === id && id !== "watchlist"
-                ? "border-accent-blue text-accent-blue bg-accent-blue/5"
-                : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-            }`}
-          >
-            {id === "portfolio" ? <Wallet size={13} /> : <Star size={13} />}
-            {label}
-          </button>
-        ))}
-      </div>
+      <UnderlineTabs
+        ariaLabel="자산 화면"
+        tabs={ASSET_PAGE_TABS}
+        active="portfolio"
+        onChange={handleTabChange}
+      />
 
       {/* ── 포트폴리오 선택 탭 ── */}
       {isLoggedIn && (
@@ -996,17 +985,15 @@ export default function Portfolio() {
         {/* ── 자산유형 필터 탭 ── */}
         {((isLoggedIn && items.length > 0) || !isLoggedIn) && (
           <div className="px-3 pt-2.5 pb-1 overflow-x-auto scrollbar-hide">
-            <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 w-fit">
-              {ASSET_FILTER_TABS.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setAssetFilterTab(t.id)}
-                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all whitespace-nowrap ${
-                    assetFilterTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-                  }`}
-                >{t.label}</button>
-              ))}
-            </div>
+            <Tabs
+              ariaLabel="자산유형 필터"
+              fill={false}
+              size="xs"
+              className="w-fit"
+              tabs={ASSET_FILTER_TABS}
+              active={assetFilterTab}
+              onChange={(id) => setAssetFilterTab(id as any)}
+            />
           </div>
         )}
 

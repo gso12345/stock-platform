@@ -11,6 +11,7 @@ import {
   ExternalLink, Calendar,
 } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
+import { Tabs } from "@/components/ui";
 import SystemTab from "@/components/admin/SystemTab";
 
 const adminApi = {
@@ -376,21 +377,15 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
           <span className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
             <Star size={14} className="text-accent-yellow" />인기 종목 TOP 10
           </span>
-          <div className="flex items-center gap-0.5 bg-bg-secondary border border-border rounded-lg p-0.5">
-            {(["watchlist", "portfolio"] as const).map((b) => (
-              <button
-                key={b}
-                onClick={() => setPopularBasis(b)}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  popularBasis === b
-                    ? "bg-bg-card text-text-primary shadow-sm"
-                    : "text-text-muted hover:text-text-primary"
-                }`}
-              >
-                {b === "watchlist" ? "관심종목" : "보유종목"}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            ariaLabel="인기 종목 기준" tone="subtle" fill={false}
+            tabs={[
+              { id: "watchlist", label: "관심종목" },
+              { id: "portfolio", label: "보유종목" },
+            ]}
+            active={popularBasis}
+            onChange={(id) => setPopularBasis(id as any)}
+          />
         </div>
         {popularList.length === 0 ? (
           <div className="py-12 text-center text-text-muted text-sm">데이터가 없습니다</div>
@@ -507,16 +502,12 @@ function CommunityAdminTab({ qc }: { qc: any }) {
   const [subTab, setSubTab] = useState<"posts" | "comments">("posts");
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card w-fit">
-        {(["posts", "comments"] as const).map((t) => (
-          <button key={t} onClick={() => setSubTab(t)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              subTab === t ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-            }`}>
-            {t === "posts" ? "게시글" : "댓글"}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        ariaLabel="커뮤니티 관리 대상" fill={false} className="w-fit"
+        tabs={[{ id: "posts", label: "게시글" }, { id: "comments", label: "댓글" }]}
+        active={subTab}
+        onChange={(id) => setSubTab(id as any)}
+      />
       {subTab === "posts"    && <PostsAdminSection qc={qc} />}
       {subTab === "comments" && <CommentsAdminSection qc={qc} />}
     </div>
@@ -558,19 +549,15 @@ function PostsAdminSection({ qc }: { qc: any }) {
     <div className="flex flex-col gap-4">
       {/* 필터 헤더 */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card">
-          {(["ALL", "KR", "US", "ETF"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => { setMarketFilter(m); setPage(1); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                marketFilter === m ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-              }`}
-            >
-              {m === "ALL" ? "전체" : m}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          ariaLabel="시장 필터" fill={false}
+          tabs={[
+            { id: "ALL", label: "전체" }, { id: "KR", label: "KR" },
+            { id: "US",  label: "US"   }, { id: "ETF", label: "ETF" },
+          ]}
+          active={marketFilter}
+          onChange={(id) => { setMarketFilter(id as any); setPage(1); }}
+        />
         <span className="text-xs text-text-dim ml-auto">총 {total.toLocaleString()}개</span>
         <button onClick={() => refetch()} className="p-1 text-text-muted hover:text-text-primary transition-colors">
           <RefreshCw size={13} />
@@ -891,16 +878,15 @@ function UsersTab({ qc }: { qc: any }) {
     <div className="flex flex-col gap-3">
       {/* 필터 + 검색 */}
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex gap-0.5 p-0.5 rounded-lg bg-bg-elevated border border-border">
-          {(["all", "active", "inactive"] as const).map((s) => (
-            <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
-              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                statusFilter === s ? "bg-bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
-              }`}>
-              {s === "all" ? "전체" : s === "active" ? "활성" : "비활성"}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          ariaLabel="유저 상태 필터" tone="subtle" fill={false}
+          tabs={[
+            { id: "all", label: "전체" }, { id: "active", label: "활성" },
+            { id: "inactive", label: "비활성" },
+          ]}
+          active={statusFilter}
+          onChange={(id) => { setStatusFilter(id as any); setPage(1); }}
+        />
         <div className="relative flex-1 min-w-[160px]">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
           <input value={search} onChange={e => setSearch(e.target.value)}
@@ -1532,16 +1518,13 @@ function ReportsTab({ qc }: { qc: any }) {
     <div className="flex flex-col gap-4">
       {/* 필터 바 */}
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex gap-0.5 p-0.5 rounded-lg bg-bg-elevated border border-border">
-          {(["pending", "resolved", "dismissed", "all"] as const).map((s) => (
-            <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                statusFilter === s ? "bg-bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
-              }`}>
-              {STATUS_LABELS[s]}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          ariaLabel="신고 상태 필터" tone="subtle" fill={false}
+          tabs={(["pending", "resolved", "dismissed", "all"] as const)
+            .map((s) => ({ id: s, label: STATUS_LABELS[s] }))}
+          active={statusFilter}
+          onChange={(id) => { setStatusFilter(id as any); setPage(1); }}
+        />
         <span className="text-xs text-text-muted ml-auto">총 {total}건</span>
         <button onClick={() => refetch()} className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-colors">
           <RefreshCw size={13} />

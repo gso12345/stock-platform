@@ -44,6 +44,103 @@ def usage_ratio() -> float | None:
     return None if mb is None else mb / MEMORY_LIMIT_MB
 
 
+# RSS 표본 — 시간에 따라 늘고 있는지 보려고 남긴다.
+# 순간값만 보면 '지금 85%'는 알아도 '계속 오르는 중인지 평탄한지'를 모른다.
+# 파이썬은 한 번 받은 메모리를 잘 돌려주지 않으므로, 초반 상승 후 평탄하면
+# 정상이고 계속 오르면 누수다. 그 둘을 구분하는 게 이 표본의 목적이다.
+_MAX_SAMPLES = 48          # 5분 간격이면 4시간치
+_samples: list[tuple[float, float]] = []      # (기록 시각, RSS MB)
+
+
+def record_sample():
+    """주기 작업이 부른다. /proc 한 줄 읽는 게 전부라 사실상 공짜다."""
+    mb = rss_mb()
+    if mb is None:
+        return
+    import time as _t
+    _samples.append((_t.time(), round(mb, 1)))
+    if len(_samples) > _MAX_SAMPLES:
+        del _samples[0]
+
+
+def trend() -> dict:
+    """RSS 추이 요약 — 늘고 있나, 멈췄나."""
+    import time as _t
+    if len(_samples) < 2:
+        return {"samples": len(_samples), "points": [], "per_hour_mb": None, "span_min": 0}
+    t0, m0 = _samples[0]
+    t1, m1 = _samples[-1]
+    span_h = max((t1 - t0) / 3600, 1e-6)
+    return {
+        "samples": len(_samples),
+        # 화면에 스파크라인으로 그릴 값
+        "points": [m for _, m in _samples],
+        "first_mb": m0,
+        "last_mb": m1,
+        "min_mb": min(m for _, m in _samples),
+        "max_mb": max(m for _, m in _samples),
+        "per_hour_mb": round((m1 - m0) / span_h, 1),
+        "span_min": round((t1 - t0) / 60),
+    }
+
+
+def proc_breakdown() -> dict | None:
+    """RSS 를 '코드'와 '데이터'로 나눈다.
+
+    관리자 화면의 '파이썬 자체·기타'가 프로덕션에서 281MB로 찍혔는데, 그게
+    무엇인지 알 방법이 없었다. 커널이 이미 답을 들고 있다 —
+
+      Shared_Clean   라이브러리 코드(.so). 디스크에서 매핑된 것이라 줄일 수
+                     없고, 다른 프로세스와 공유한다
+      Private_Dirty  이 프로세스만의 실제 메모리. 파이썬 객체가 여기 있다
+      Pss            공유분을 나눠 가진 '공정 분담분'
+
+    smaps_rollup 은 리눅스 4.14+ 에서만 있다. 없으면 None."""
+    try:
+        d: dict[str, float] = {}
+        with open("/proc/self/smaps_rollup", encoding="utf-8") as f:
+            for line in f:
+                k, _, v = line.partition(":")
+                if "kB" in v:
+                    d[k.strip()] = int(v.split()[0]) / 1024
+        if not d:
+            return None
+        return {
+            "rss_mb":           round(d.get("Rss", 0), 1),
+            "pss_mb":           round(d.get("Pss", 0), 1),
+            "code_shared_mb":   round(d.get("Shared_Clean", 0), 1),
+            "private_dirty_mb": round(d.get("Private_Dirty", 0), 1),
+            "private_clean_mb": round(d.get("Private_Clean", 0), 1),
+        }
+    except Exception:
+        return None
+
+
+def object_stats(top: int = 8) -> dict:
+    """파이썬이 들고 있는 객체 종류별 개수.
+
+    전체 순회지만 20ms 안팎이라 관리자 화면 갱신 주기(15초)에는 부담이 없다.
+    '무엇이 많은가'를 알면 어디를 들여다볼지 정할 수 있다."""
+    import gc
+    import sys as _sys
+    import threading as _th
+    from collections import Counter
+    try:
+        objs = gc.get_objects()
+        c = Counter(type(o).__name__ for o in objs)
+        total = len(objs)
+        del objs
+        return {
+            "total": total,
+            "blocks": _sys.getallocatedblocks(),
+            "threads": _th.active_count(),
+            "gc_counts": list(gc.get_count()),
+            "top": [{"name": n, "count": v} for n, v in c.most_common(top)],
+        }
+    except Exception:
+        return {"total": 0, "blocks": 0, "threads": 0, "gc_counts": [], "top": []}
+
+
 def data_stores() -> list[dict]:
     """메모리에 상주하는 '데이터' 목록 — 무엇이 몇 건 들어 있는지.
 

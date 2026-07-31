@@ -267,6 +267,11 @@ def get_runtime(_: User = Depends(require_admin)):
         "health": health.snapshot(),
         # '나머지 411MB' 한 줄로 뭉쳐 있던 것을 쪼갠다 —
         # 어떤 라이브러리가 얼마를 쓰는지, 어떤 데이터가 몇 건 올라와 있는지
+        # '파이썬 자체·기타'가 무엇인지 커널에게 직접 물어본다.
+        # 코드(공유)와 데이터(전용)를 나누면 줄일 수 있는 부분이 드러난다
+        "proc": memory.proc_breakdown(),
+        "objects": memory.object_stats(),
+        "mem_trend": memory.trend(),
         "libraries": libmem.report(),
         "data_stores": memory.data_stores(),
         # 종목 목록이 어디서 왔는지. 세 단계 폴백이 전부 조용히 실패해

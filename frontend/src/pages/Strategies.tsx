@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { backtestApi } from "@/api/stocks";
-import { Card, LoadingSpinner, Badge, Button } from "@/components/ui";
+import { Card, LoadingSpinner, Badge, Button, Tabs } from "@/components/ui";
 import { useAuthStore } from "@/store/authStore";
 import {
   LogIn, TrendingUp, Plus, Trash2, BarChart2, AlertTriangle,
@@ -101,28 +101,14 @@ export default function Strategies() {
 
           {/* ── 시장 필터 탭 ───────────────────────────────────── */}
           {totalCount > 0 && (
-            <div className="flex gap-1 p-1 bg-bg-card border border-border rounded-xl w-fit">
-              {MARKET_FILTER_TABS.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setMarketFilter(t.id)}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                    marketFilter === t.id
-                      ? "bg-accent-blue text-white shadow"
-                      : "text-text-muted hover:text-text-primary"
-                  }`}
-                >
-                  {t.label}
-                  {t.id !== "전체" && (
-                    <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
-                      marketFilter === t.id ? "bg-white/20 text-white" : "bg-bg-elevated text-text-muted"
-                    }`}>
-                      {t.id === "KR" ? krCount : usCount}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
+            <Tabs
+              fill={false}
+              ariaLabel="시장 필터"
+              className="w-fit"
+              tabs={MARKET_FILTER_TABS.map((t: any) => ({ id: String(t.id), label: t.label }))}
+              active={String(marketFilter)}
+              onChange={(id) => setMarketFilter(id as any)}
+            />
           )}
 
           {/* ── 로딩 ───────────────────────────────────────────── */}

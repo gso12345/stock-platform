@@ -159,29 +159,61 @@ export type TabItem = {
 
 /** 알약형 탭 — 화면 안에서 큰 구획을 바꿀 때 (국내/해외, 전체/국내/해외/ETF)
  *
- * 예전에는 이 마크업이 7개 페이지에 그대로 복붙돼 있었다. 공용 컴포넌트가
- * 있었지만 아이콘·개수·너비를 지원하지 않아 아무도 쓰지 않았다. */
-export function Tabs({ tabs, active, onChange, fill = true, className, ariaLabel }: {
+ * 예전에는 이 마크업이 페이지마다 그대로 복붙돼 있었다. 공용 컴포넌트가
+ * 있었지만 아이콘·개수·너비를 지원하지 않아 아무도 쓰지 않았다. 지금은
+ * 대시보드·퀀트·뉴스·전략·피드·관심종목·포트폴리오·관리자가 모두 이걸 쓴다.
+ *
+ * 아직 안 옮긴 곳이 있다 — 드래그로 순서를 바꾸는 폴더·포트폴리오 탭,
+ * 배지가 겹쳐 붙는 관리자 상단 탭, 카드 헤더에 닫기 버튼과 한 줄로 놓인
+ * 피드 작성기 탭. 탭 자체보다 거기 붙은 동작이 본체라, 억지로 끼워 넣으면
+ * 이 컴포넌트가 그 사정을 전부 떠안게 된다. */
+export function Tabs({
+  tabs, active, onChange, onHover,
+  fill = true, size = "sm", tone = "solid", className, ariaLabel,
+}: {
   tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
+  /** 마우스를 올렸을 때 (미리 불러오기용). 없으면 아무 일도 하지 않는다 */
+  onHover?: (id: string) => void;
   /** 남는 공간을 나눠 가질지 (false 면 내용 너비) */
   fill?: boolean;
+  /** 크기. 화면 전체를 나누는 탭은 sm, 카드 안 서브탭은 md 를 쓰던 관례가
+   *  있어 둘 다 지원한다. xs 는 좁은 줄에 탭이 예닐곱 개씩 들어가는 곳
+   *  (포트폴리오 자산유형 필터) 용으로, 넓히면 가로 스크롤만 길어진다 */
+  size?: "xs" | "sm" | "md";
+  /** 강조 정도.
+   *  solid  화면의 주된 구획을 바꾸는 탭 — 선택된 것이 파랗게 채워진다
+   *  subtle 목록에 거는 보조 필터 — 한 화면에 여러 개가 있어도 서로 다투지 않게
+   *         선택된 것만 카드색으로 떠오른다. 관리자 화면처럼 필터가 많은 곳용 */
+  tone?: "solid" | "subtle";
   className?: string;
   ariaLabel?: string;
 }) {
+  const subtle = tone === "subtle";
   return (
     <div role="tablist" aria-label={ariaLabel}
-      className={cn("flex gap-0.5 p-1 bg-bg-card border border-border rounded-xl", className)}>
+      className={cn(
+        "flex",
+        subtle ? "gap-0.5 p-0.5 bg-bg-elevated border border-border rounded-lg"
+               : "gap-0.5 p-1 bg-bg-card border border-border rounded-xl",
+        className,
+      )}>
       {tabs.map((t) => {
         const on = active === t.id;
         const Icon = t.icon;
         return (
-          <button key={t.id} role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+          <button key={t.id} role="tab" aria-selected={on}
+            onClick={() => onChange(t.id)}
+            onMouseEnter={onHover ? () => onHover(t.id) : undefined}
             className={cn(
-              "flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap",
+              "flex items-center justify-center gap-1.5 font-semibold transition-all whitespace-nowrap",
+              subtle || size === "xs" ? "px-2.5 py-1" : "px-4 py-1.5",
+              subtle ? "rounded-md" : "rounded-lg",
+              size === "md" ? "text-sm" : size === "xs" ? "text-[11px]" : "text-xs",
               fill && "flex-1",
-              on ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary",
+              on ? (subtle ? "bg-bg-card text-text-primary shadow-sm" : "bg-accent-blue text-white shadow")
+                 : "text-text-muted hover:text-text-primary",
             )}
           >
             {Icon && <Icon size={11} className="flex-shrink-0" />}

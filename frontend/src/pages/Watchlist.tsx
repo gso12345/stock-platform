@@ -2,7 +2,11 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
-import { Card, ChangeBadge, RowSkeleton, InlineSpinner, MarketBadge, ErrorToast } from "@/components/ui";
+import {
+  Card, ChangeBadge, RowSkeleton, InlineSpinner, MarketBadge, ErrorToast,
+  Tabs, UnderlineTabs, type TabItem,
+} from "@/components/ui";
+import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
 import { normalizeSymbol, lookupPrice, indexPricesBySymbol } from "@/utils/prices";
@@ -21,7 +25,7 @@ import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
    '현금'·'금' 같은 자산은 시세가 없으므로 조회 대상이 아니다. */
 const PRICEABLE_SYMBOL = /^[A-Za-z0-9.\-]{1,20}$/;
 
-const MARKET_TABS = [
+const MARKET_TABS: TabItem[] = [
   { id: "전체", label: "전체" },
   { id: "KR",   label: "국내" },
   { id: "US",   label: "해외" },
@@ -559,23 +563,12 @@ export default function Watchlist() {
       <ErrorToast message={addError} onClose={() => setAddError("")} />
 
       {/* 페이지 탭 */}
-      <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-hidden">
-        {[
-          { id: "portfolio", label: "내 자산",   icon: Wallet },
-          { id: "watchlist", label: "관심종목", icon: Star   },
-        ].map(({ id, label, icon: Icon }) => (
-          <button key={id}
-            onClick={() => id === "portfolio" ? navigate("/portfolio") : undefined}
-            className={`flex items-center gap-1.5 px-5 py-3 text-xs font-semibold transition-all border-b-2 -mb-px whitespace-nowrap ${
-              id === "watchlist"
-                ? "border-accent-blue text-accent-blue bg-accent-blue/5"
-                : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-            }`}
-          >
-            <Icon size={13} />{label}
-          </button>
-        ))}
-      </div>
+      <UnderlineTabs
+        ariaLabel="자산 화면"
+        tabs={ASSET_PAGE_TABS}
+        active="watchlist"
+        onChange={(id) => { if (id === "portfolio") navigate("/portfolio"); }}
+      />
 
       {/* 로그인 배너 */}
       {!isLoggedIn && (
@@ -635,15 +628,14 @@ export default function Watchlist() {
       </div>
 
       {/* 시장 탭 — 미리보기·로그인 모두 동작 */}
-      <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 w-fit">
-        {MARKET_TABS.map((t) => (
-          <button key={t.id} onClick={() => { setMarketTab(t.id); setFolderTab("all"); }}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-            }`}
-          >{t.label}</button>
-        ))}
-      </div>
+      <Tabs
+        ariaLabel="시장"
+        fill={false}
+        className="w-fit"
+        tabs={MARKET_TABS}
+        active={marketTab}
+        onChange={(id) => { setMarketTab(id); setFolderTab("all"); }}
+      />
 
       {/* 폴더 탭 */}
       {isPreview ? (() => {

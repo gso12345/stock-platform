@@ -2,7 +2,7 @@ import { useState, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Newspaper, RefreshCw } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
-import { Card, InlineSpinner } from "@/components/ui";
+import { Card, InlineSpinner, Tabs } from "@/components/ui";
 import { fmtNewsDateTime } from "@/utils/formatters";
 
 type MarketTab = "kr" | "us";
@@ -108,19 +108,13 @@ export default function News() {
           <p className="text-text-muted text-xs mt-0.5 truncate">국내·미국 증시 주요 뉴스</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
-          <div className="flex gap-1 p-1 rounded-xl border border-border bg-bg-card">
-            {(["kr", "us"] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => switchMarket(m)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  market === m ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-                }`}
-              >
-                {m === "kr" ? "국내" : "미국"}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            fill={false}
+            ariaLabel="시장 선택"
+            tabs={[{ id: "kr", label: "국내" }, { id: "us", label: "미국" }]}
+            active={market}
+            onChange={(id) => switchMarket(id as "kr" | "us")}
+          />
           <button
             onClick={() => refetchNews()}
             disabled={fetchingNews}

@@ -11,6 +11,7 @@ OHLCV 시계열 하나가 20,000행이면 약 15MB인데 항목 수로는 '1개'
 """
 import os
 import inspect
+import textwrap
 
 import pytest
 
@@ -264,3 +265,104 @@ class Test압축_보관:
         assert 0 < used < 1024 * 1024, f"{used} — 압축 후 크기로 세야 한다"
         c.delete("ohlcv:a")
         assert c.bytes_used() == 0
+
+
+class Test메모리_구성_보고:
+    """'파이썬 자체·기타 281MB'가 무엇인지 알 수 없어 손을 못 대던 문제.
+
+    관리자 화면에서 추정치가 아니라 커널이 적어둔 숫자를 보여주기로 했다.
+    추정과 실측을 섞으면 어느 쪽이 틀렸는지 알 수 없으므로, 여기서는
+    '실측이 실측답게 나오는가'만 못 박는다."""
+
+    def test_커널이_보고한_구성으로_RSS_를_설명할_수_있다(self):
+        b = memory.proc_breakdown()
+        if b is None:
+            pytest.skip("smaps_rollup 없음 (리눅스 4.14 미만)")
+        # 코드(공유) + 전용 데이터만으로 RSS 의 대부분이 설명돼야 한다.
+        # 아니라면 엉뚱한 필드를 읽고 있다는 뜻이다
+        설명됨 = b["code_shared_mb"] + b["private_dirty_mb"] + b["private_clean_mb"]
+        assert b["rss_mb"] > 0
+        assert 설명됨 == pytest.approx(b["rss_mb"], rel=0.15), b
+        # PSS 는 공유분을 나눠 가진 값이라 RSS 를 넘을 수 없다
+        assert 0 < b["pss_mb"] <= b["rss_mb"] * 1.01, b
+
+    def test_읽을_수_없는_환경에서도_터지지_않는다(self, monkeypatch):
+        """로컬 맥이나 오래된 커널에서 관리자 화면이 500 이 되면 안 된다"""
+        def 못연다(*a, **k):
+            raise FileNotFoundError
+        monkeypatch.setattr("builtins.open", 못연다)
+        assert memory.proc_breakdown() is None
+
+    def test_객체_통계가_실제_개수를_센다(self, monkeypatch):
+        monkeypatch.setattr(memory, "_samples", [])
+        s = memory.object_stats(top=3)
+        assert s["total"] > 1000, s          # 파이썬이 떠 있으면 최소 이만큼은 있다
+        assert s["threads"] >= 1
+        assert len(s["top"]) == 3
+        assert [x["count"] for x in s["top"]] == sorted(
+            (x["count"] for x in s["top"]), reverse=True), "많은 순이어야 한다"
+
+    def test_표본이_한_개면_추세라고_말하지_않는다(self, monkeypatch):
+        """점 하나로 그은 기울기는 숫자일 뿐 근거가 아니다"""
+        monkeypatch.setattr(memory, "_samples", [])
+        memory.record_sample()
+        t = memory.trend()
+        assert t["samples"] <= 1
+        assert t["per_hour_mb"] is None
+        assert t["points"] == []
+
+    def test_시간당_증가량을_실제_간격으로_나눈다(self, monkeypatch):
+        # 30분 동안 100MB → 200MB 면 시간당 +200MB
+        monkeypatch.setattr(memory, "_samples", [(1000.0, 100.0), (1000.0 + 1800, 200.0)])
+        t = memory.trend()
+        assert t["per_hour_mb"] == 200.0, t
+        assert t["span_min"] == 30
+        assert (t["min_mb"], t["max_mb"], t["points"]) == (100.0, 200.0, [100.0, 200.0])
+
+    def test_표본은_정해진_개수만_남긴다(self, monkeypatch):
+        """4시간치만 보면 충분하고, 무한히 쌓이면 그 자체가 누수다"""
+        monkeypatch.setattr(memory, "_samples", [])
+        monkeypatch.setattr(memory, "rss_mb", lambda: 100.0)
+        for _ in range(memory._MAX_SAMPLES + 20):
+            memory.record_sample()
+        assert len(memory._samples) == memory._MAX_SAMPLES
+
+    def test_측정할_수_없으면_표본을_남기지_않는다(self, monkeypatch):
+        monkeypatch.setattr(memory, "_samples", [])
+        monkeypatch.setattr(memory, "rss_mb", lambda: None)
+        memory.record_sample()
+        assert memory._samples == []
+
+    def test_주기_작업이_표본을_남긴다(self):
+        """관리자 화면에 추세가 뜨려면 누군가 계속 찍어줘야 한다.
+        스케줄러에서 이 호출이 빠지면 화면은 영원히 '표본 없음'이 된다.
+
+        문자열로 찾으면 주석 처리된 것도 '있다'고 세므로 구문으로 본다."""
+        import ast
+        나무 = ast.parse(inspect.getsource(scheduler))
+        호출들 = {
+            ast.unparse(n.func) for n in ast.walk(나무)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        }
+        assert "memory.record_sample" in 호출들, "스케줄러가 RSS 표본을 남기지 않는다"
+
+    def test_표본_수집이_쉬는_시간_가드보다_앞에_있다(self):
+        """사람이 안 들어오면 스케줄러는 통째로 쉰다(idle → continue).
+        표본 수집이 그 아래 있으면 정작 누수를 봐야 할 조용한 시간대에
+        기록이 끊긴다. 무거운 갱신보다도 앞이어야 간격이 5분으로 지켜진다."""
+        import ast
+        본문 = inspect.getsource(scheduler.periodic_refresh)
+        나무 = ast.parse(textwrap.dedent(본문)).body[0]
+        루프 = next(n for n in ast.walk(나무) if isinstance(n, ast.While))
+
+        표본_위치 = 쉬는시간_위치 = None
+        for i, 문 in enumerate(루프.body):
+            원문 = ast.unparse(문)
+            if "memory.record_sample" in 원문 and 표본_위치 is None:
+                표본_위치 = i
+            if "seconds_since_last_request" in 원문 and "continue" in 원문:
+                쉬는시간_위치 = i
+        assert 표본_위치 is not None, "루프 최상위에 표본 수집이 없다"
+        assert 쉬는시간_위치 is not None, "쉬는 시간 가드를 못 찾았다"
+        assert 표본_위치 < 쉬는시간_위치, (
+            f"표본 수집({표본_위치})이 쉬는 시간 가드({쉬는시간_위치}) 뒤에 있다")

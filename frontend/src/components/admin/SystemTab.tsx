@@ -36,6 +36,18 @@ interface Runtime {
     kr_cached: number; us_cached: number; kr_sources: string[];
   };
   health: HealthItem[];
+  proc?: {
+    rss_mb: number; pss_mb: number; code_shared_mb: number;
+    private_dirty_mb: number; private_clean_mb: number;
+  } | null;
+  objects?: {
+    total: number; blocks: number; threads: number;
+    gc_counts: number[]; top: { name: string; count: number }[];
+  };
+  mem_trend?: {
+    samples: number; points: number[]; first_mb?: number; last_mb?: number;
+    min_mb?: number; max_mb?: number; per_hour_mb: number | null; span_min: number;
+  };
   libraries: {
     tracked: boolean;
     items: { name: string; mb: number; total_mb: number; purpose: string }[];
@@ -261,6 +273,64 @@ export default function SystemTab() {
               캐시를 0으로 만들어도 라이브러리는 줄지 않습니다 — 줄이려면 그 기능을 빼야 합니다
             </p>
           </div>
+
+          {/* '파이썬 자체·기타'가 무엇인지 커널에게 직접 물어본 값.
+              추정이 아니라 /proc/self/smaps_rollup 에 적힌 숫자다 */}
+          {d.proc && (
+            <div className="rounded-lg bg-bg-elevated p-2.5 flex flex-col gap-1">
+              <p className="text-2xs font-semibold text-text-muted">실제 구성 (커널 보고)</p>
+              {[
+                ["라이브러리 코드 (공유)", `${d.proc.code_shared_mb}MB`,
+                 "디스크에서 매핑된 .so — 줄일 수 없고 다른 프로세스와 나눠 씁니다"],
+                ["이 프로세스 전용 데이터", `${d.proc.private_dirty_mb}MB`,
+                 "파이썬 객체·힙 — 실제로 우리가 쓰는 부분입니다"],
+                ["공정 분담분 (PSS)", `${d.proc.pss_mb}MB`,
+                 "공유분을 프로세스 수로 나눈 값 — 과금 기준에 가깝습니다"],
+              ].map(([k, v, why]) => (
+                <div key={k} className="flex flex-col">
+                  <div className="flex items-baseline justify-between gap-2 text-2xs">
+                    <span className="text-text-dim break-keep">{k}</span>
+                    <span className="font-mono text-text-secondary shrink-0">{v}</span>
+                  </div>
+                  <span className="text-[10px] text-text-dim break-keep">{why}</span>
+                </div>
+              ))}
+              {d.objects && (
+                <p className="text-[10px] text-text-dim break-keep mt-0.5 pt-1 border-t border-border/30">
+                  파이썬 객체 {d.objects.total.toLocaleString()}개 · 스레드 {d.objects.threads}개
+                  {d.objects.top.length > 0 && ` · 많은 순: ${d.objects.top.slice(0, 4).map((o) => `${o.name} ${o.count.toLocaleString()}`).join(", ")}`}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* 늘고 있는지 평탄한지 — 순간값만으로는 구분할 수 없다 */}
+          {d.mem_trend && d.mem_trend.samples >= 2 && (
+            <div className="rounded-lg bg-bg-elevated p-2.5 flex flex-col gap-1.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-2xs font-semibold text-text-muted">메모리 추이</span>
+                <span className={`text-2xs font-mono ${
+                  (d.mem_trend.per_hour_mb ?? 0) > 5 ? "text-accent-red"
+                  : (d.mem_trend.per_hour_mb ?? 0) > 1 ? "text-accent-amber" : "text-accent-green"}`}>
+                  {(d.mem_trend.per_hour_mb ?? 0) >= 0 ? "+" : ""}{d.mem_trend.per_hour_mb}MB/시간
+                </span>
+              </div>
+              <div className="flex items-end gap-[2px] h-8">
+                {d.mem_trend.points.map((v, i) => {
+                  const lo = d.mem_trend!.min_mb ?? v, hi = d.mem_trend!.max_mb ?? v;
+                  const h = hi > lo ? ((v - lo) / (hi - lo)) * 100 : 50;
+                  return <div key={i} className="flex-1 bg-accent-blue/40 rounded-sm min-w-[2px]"
+                              style={{ height: `${Math.max(8, h)}%` }} title={`${v}MB`} />;
+                })}
+              </div>
+              <p className="text-[10px] text-text-dim break-keep">
+                최근 {d.mem_trend.span_min}분 · {d.mem_trend.min_mb}~{d.mem_trend.max_mb}MB ·
+                {(d.mem_trend.per_hour_mb ?? 0) > 5
+                  ? " 계속 오르고 있습니다 — 누수를 의심할 만합니다"
+                  : " 초반에 오른 뒤 평탄하면 정상입니다 (파이썬은 받은 메모리를 잘 돌려주지 않습니다)"}
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             {[
