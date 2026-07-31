@@ -2,35 +2,28 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
-import { dashboardApi, portfolioApi, watchlistApi, quantScoreApi } from "@/api/stocks";
+import { dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import Logo from "./Logo";
 
 /** 앱 진입 시 핵심 데이터(대시보드/뉴스/보유종목/관심종목/퀀트점수비교) 로딩 진행률을 화면을 가리지 않는 작은 위젯으로 표시 */
 export default function LoadingProgressOverlay() {
-  const { isLoggedIn, userId } = useAuthStore();
+  const { isLoggedIn } = useAuthStore();
   const [closed, setClosed] = useState(false);
 
   const dashKR = useQuery({ queryKey: ["dashboard-kr", "시가총액"], queryFn: () => dashboardApi.getKR("시가총액"), staleTime: 60_000 });
   const dashUS = useQuery({ queryKey: ["dashboard-us", "시가총액"], queryFn: () => dashboardApi.getUS("시가총액"), staleTime: 60_000 });
-  const newsKR = useQuery({ queryKey: ["news", "kr"], queryFn: () => dashboardApi.getNews("kr"), staleTime: 60_000 });
-  const newsUS = useQuery({ queryKey: ["news", "us"], queryFn: () => dashboardApi.getNews("us"), staleTime: 60_000 });
-  const holdings = useQuery({ queryKey: ["portfolio-items-check", userId], queryFn: () => portfolioApi.getItems(), enabled: isLoggedIn, staleTime: 60_000 });
-  const watch = useQuery({ queryKey: ["watchlist-items-check", userId], queryFn: () => watchlistApi.getItems(), enabled: isLoggedIn, staleTime: 30_000 });
+  const newsKR = useQuery({ queryKey: ["news", "kr", "latest"], queryFn: () => dashboardApi.getNews("kr", "latest"), staleTime: 300_000 });
+  const newsUS = useQuery({ queryKey: ["news", "us", "latest"], queryFn: () => dashboardApi.getNews("us", "latest"), staleTime: 300_000 });
+  const holdings = useQuery({ queryKey: ["portfolio-items-all"], queryFn: () => portfolioApi.getItems(undefined, true), enabled: isLoggedIn, staleTime: 300_000 });
+  const watch = useQuery({ queryKey: ["watchlist-items"], queryFn: () => watchlistApi.getItems(), enabled: isLoggedIn, staleTime: 120_000 });
 
-  const compareItems = ((watch.data ?? []) as { symbol: string; market: string }[])
-    .filter((it, i, arr) => arr.findIndex((o) => o.symbol === it.symbol && o.market === it.market) === i)
-    .slice(0, 30);
-  const quantCompare = useQuery({
-    queryKey: ["quant-compare-check", userId, compareItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
-    queryFn: () => quantScoreApi.compare(compareItems),
-    enabled: isLoggedIn && watch.isSuccess && compareItems.length > 0,
-    staleTime: 60_000,
-  });
+  /* 퀀트 비교는 진행률에서 뺐다.
+     10/분 제한이 걸린 가장 비싼 요청(최대 30종목 채점)인데, 진행률 막대 하나
+     때문에 앱에 들어올 때마다 돌렸다. 퀀트 화면에 실제로 들어갈 때만 계산한다. */
 
   const allQueries = [
     dashKR, dashUS, newsKR, newsUS,
     ...(isLoggedIn ? [holdings, watch] : []),
-    ...(isLoggedIn && watch.isSuccess && compareItems.length > 0 ? [quantCompare] : []),
   ];
   const total = allQueries.length;
   const done = allQueries.filter((q) => q.isSuccess || q.isError).length;

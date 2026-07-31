@@ -622,7 +622,10 @@ async def get_quant_score_compare(
     metrics_momentum: str | None = Query(None),
     metrics_growth: str | None = Query(None),
     metrics_risk: str | None = Query(None),
-    current_user=Depends(get_current_user),
+    # 로그인 필수. 화면은 원래 로그인해야 쓸 수 있었는데 API 는 열려 있었다.
+    # 요청 하나가 최대 30종목을 채점하고, 캐시가 없으면 종목마다 OHLCV 를
+    # 받아온다 — 0.15 CPU 에서 가장 비싼 경로다
+    current_user=Depends(require_user),
     db: Session = Depends(get_db),
 ):
     """관심종목 등 사용자가 직접 고른 소수 종목들의 퀀트 점수를 같은 기준(가중치/사용 지표)으로

@@ -32,6 +32,15 @@ NAVER_SISE_PAGES = {
 # 거래대금 / 신고가 / 신저가는 상승률/하락률/거래량 데이터에서 계산
 DERIVED_CATEGORIES = {"거래대금", "신고가", "신저가"}
 
+# 허용된 순위 카테고리 — 이 목록에 없는 값은 라우트에서 거절한다.
+#
+# 예전에는 검증이 없었다. category 가 그대로 캐시 키(rank:kr:{category})가 되고,
+# 모르는 값이면 '시가총액'으로 취급해 2,873개 종목을 전부 정렬한 뒤 그 임의
+# 키로 저장했다. 인증 없이 40번만 불러도 캐시가 4.3MB → 10.2MB 로 불었고,
+# 500번이면 시세·차트·뉴스 캐시가 전부 밀려난다.
+ALLOWED_CATEGORIES = tuple(NAVER_SISE_PAGES.keys()) + tuple(sorted(DERIVED_CATEGORIES))
+CATEGORY_PATTERN = "^(" + "|".join(ALLOWED_CATEGORIES) + ")$"
+
 
 def _parse_num(s: str) -> float:
     if not s:

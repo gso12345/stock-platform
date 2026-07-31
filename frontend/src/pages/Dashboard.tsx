@@ -2,16 +2,20 @@ import { useState, useCallback, useMemo, memo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { dashboardApi } from "@/api/stocks";
-import { Card, ChangeBadge } from "@/components/ui";
+import { Card, ChangeBadge, Tabs, RowSkeleton } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { isUsdKrwRow } from "@/hooks/useExchangeRate";
 import { safeExternalUrl } from "@/utils/url";
-import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw } from "lucide-react";
-import { fmtNewsDateTime } from "@/utils/formatters";
+import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw, Trophy } from "lucide-react";
+import { fmtNewsDateTime, fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 
 /* ── 지수 카드 ───────────────────────────────────────────── */
-const IndexCard = memo(function IndexCard({ name, value, change_rate, onClick, colorScheme }: any) {
+const IndexCard = memo(function IndexCard({ name, value, change_rate, onClick }: any) {
+  // 색상 테마는 스토어에서 직접 읽는다. 예전에는 Dashboard → KRTab → IndexCard 로
+  // prop 을 세 단계 넘겼는데, 같은 파일의 ChangeBadge 는 스토어를 직접 읽어
+  // 한 화면 안에 두 방식이 섞여 있었다
+  const colorScheme = useSettingsStore((st) => st.colorScheme);
   const pos = (change_rate ?? 0) >= 0;
   const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
   const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
@@ -38,7 +42,8 @@ const IndexCard = memo(function IndexCard({ name, value, change_rate, onClick, c
 });
 
 /* ── 환율 / 금리 / 선물 카드 ─────────────────────────────── */
-const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, unit, _demo, _static, colorScheme }: any) {
+const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, unit, _demo, _static }: any) {
+  const colorScheme = useSettingsStore((st) => st.colorScheme);
   const isRate = unit === "%";
   const numVal = typeof value === "number" ? value : parseFloat(String(value).replace(/,/g,"")) || 0;
   const chgVal = typeof change === "number" ? change : 0;
@@ -111,7 +116,17 @@ const NewsPanel = memo(function NewsPanel({
   const shown = expanded ? sorted : sorted.slice(0, NEWS_INITIAL);
   const remaining = sorted.length - NEWS_INITIAL;
 
-  if (!news?.length) return <div className="py-6 text-center text-text-muted text-xs">뉴스 로딩 중...</div>;
+  /* 빈 상태 모양을 다른 화면과 맞춘다. 예전에는 '뉴스 로딩 중...' 한 줄이라
+     로딩인지 정말 없는 건지 구분이 안 됐다 */
+  if (!news?.length) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+        <Newspaper size={24} className="text-text-muted/40" />
+        <p className="text-text-secondary text-sm">표시할 뉴스가 없어요</p>
+        <p className="text-text-muted text-xs">잠시 후 다시 확인해주세요</p>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col">
       {/* 정렬 토글 */}
@@ -167,15 +182,103 @@ const NewsPanel = memo(function NewsPanel({
   );
 });
 
+/* ── 순위 ────────────────────────────────────────────────────
+   서버는 원래부터 이 값을 응답에 실어 보냈지만 화면에 표시하지 않았다.
+   요청마다 24KB 를 받아서 버렸고, 심지어 '비어 있으면 5초마다 다시 받기'의
+   판정 기준으로만 쓰였다. 이제 실제로 보여준다. */
+const RANK_CATEGORIES = [
+  { id: "시가총액", label: "시가총액" },
+  { id: "상승률",   label: "상승률"   },
+  { id: "하락률",   label: "하락률"   },
+  { id: "거래대금", label: "거래대금" },
+  { id: "거래량",   label: "거래량"   },
+] as const;
+
+const RANK_SHOWN = 10;
+
+const RankingPanel = memo(function RankingPanel({
+  market, navigate,
+}: { market: "kr" | "us"; navigate: (p: string) => void }) {
+  const [category, setCategory] = useState<string>("시가총액");
+  const [expanded, setExpanded] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["rankings", market, category],
+    queryFn: () => dashboardApi.getRankings(market, category),
+    staleTime: 60_000,
+  });
+
+  const rows: any[] = Array.isArray(data) ? data : [];
+  const shown = expanded ? rows.slice(0, 50) : rows.slice(0, RANK_SHOWN);
+  const isKR = market === "kr";
+
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <Trophy size={14} className="text-text-muted" />
+        <h3 className="text-sm font-semibold text-text-primary">{isKR ? "국내" : "해외"} 순위</h3>
+      </div>
+      <div className="px-3 pt-2">
+        <Tabs
+          fill={false}
+          ariaLabel="순위 기준"
+          tabs={RANK_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))}
+          active={category}
+          onChange={setCategory}
+          className="w-fit"
+        />
+      </div>
+      {isLoading ? (
+        <div className="p-3"><RowSkeleton rows={5} /></div>
+      ) : rows.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+          <Trophy size={24} className="text-text-muted/40" />
+          <p className="text-text-muted text-xs">순위를 불러오지 못했어요</p>
+        </div>
+      ) : (
+        <div className="flex flex-col">
+          {shown.map((r, i) => (
+            <button
+              key={r.symbol ?? i}
+              onClick={() => navigate(`/stocks/${isKR ? "KR" : "US"}/${encodeURIComponent(r.symbol)}`)}
+              className="flex items-center gap-2.5 px-3 py-2 border-b border-border/30 hover:bg-bg-hover transition-colors text-left last:border-b-0"
+            >
+              <span className="w-5 text-2xs font-mono text-text-dim flex-shrink-0">{r.rank ?? i + 1}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold text-text-primary truncate">{r.name}</div>
+                <div className="text-[11px] text-text-muted font-mono">{r.symbol}</div>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <div className="text-xs font-mono font-semibold text-text-primary">
+                  {r.price ? (isKR ? fmtKRWFull(r.price) : fmtUSDFull(r.price)) : "—"}
+                </div>
+                <ChangeBadge value={r.change_rate ?? 0} className="text-2xs" />
+              </div>
+            </button>
+          ))}
+          {rows.length > RANK_SHOWN && (
+            <button onClick={() => setExpanded((v) => !v)}
+              className="py-2 text-2xs text-accent-blue hover:text-blue-400 transition-colors text-center">
+              {expanded ? "접기 ▲" : `더보기 ${Math.min(rows.length, 50) - RANK_SHOWN}건 ▼`}
+            </button>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+});
+
 /* ── 국내 탭 ─────────────────────────────────────────────── */
-const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { liveIndices: any; navigate: (p: string) => void; colorScheme: string }) {
+const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
   const qc = useQueryClient();
   const { data, refetch } = useQuery({
     queryKey: ["dashboard-kr", "시가총액"],
     queryFn: () => dashboardApi.getKR("시가총액"),
     staleTime: 60_000,
+    /* 지수를 못 받았을 때만 잠깐 자주 시도한다.
+       예전에는 rankings 로 판정했는데, 그건 화면에 표시되지도 않는 값이라
+       비어 있으면 영원히 5초마다 폴링했다 */
     refetchInterval: (query) =>
-      (query.state.data?.rankings?.length ?? 0) === 0 ? 5_000 : 60_000,
+      (query.state.data?.indices?.length ?? 0) === 0 ? 5_000 : 60_000,
     refetchIntervalInBackground: false,
   });
 
@@ -236,8 +339,10 @@ const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { live
             : KR_INDEX_KEYS.map((key) => {
                 const idx = getIdx(key);
                 return (
-                  <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}>
-                    <IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} colorScheme={colorScheme} />
+                  <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}
+                    onTouchStart={() => prefetchIndex(key)}
+                    onFocus={() => prefetchIndex(key)}>
+                    <IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />
                   </div>
                 );
               })
@@ -261,16 +366,17 @@ const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { live
                   change_rate={usdkrwRate?.change_rate ?? data?.exchange?.change_rate ?? 0}
                   unit="원"
                   _demo={usdkrwRate ? undefined : data?.exchange?._demo}
-                  colorScheme={colorScheme}
                 />
               )}
-              {(data?.rates ?? []).map((r: any) => (
-                <ExtraCard key={r.name} {...r} colorScheme={colorScheme} />
+              {(data?.rates ?? []).map((r: any, i: number) => (
+                <ExtraCard key={`${r.name}-${i}`} {...r} />
               ))}
             </>
           )}
         </div>
       </section>
+
+      <RankingPanel market="kr" navigate={navigate} />
 
       {/* 뉴스 */}
       <Card className="p-0 overflow-hidden">
@@ -288,14 +394,14 @@ const KRTab = memo(function KRTab({ liveIndices, navigate, colorScheme }: { live
 });
 
 /* ── 해외 탭 ─────────────────────────────────────────────── */
-const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { liveIndices: any; navigate: (p: string) => void; colorScheme: string }) {
+const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
   const qc = useQueryClient();
   const { data, refetch } = useQuery({
     queryKey: ["dashboard-us", "시가총액"],
     queryFn: () => dashboardApi.getUS("시가총액"),
     staleTime: 60_000,
     refetchInterval: (query) =>
-      (query.state.data?.rankings?.length ?? 0) === 0 ? 5_000 : 60_000,
+      (query.state.data?.indices?.length ?? 0) === 0 ? 5_000 : 60_000,
     refetchIntervalInBackground: false,
   });
 
@@ -359,8 +465,10 @@ const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { live
             : US_INDEX_KEYS.map((key) => {
                 const idx = getIdx(key);
                 return (
-                  <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}>
-                    <IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} colorScheme={colorScheme} />
+                  <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}
+                    onTouchStart={() => prefetchIndex(key)}
+                    onFocus={() => prefetchIndex(key)}>
+                    <IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />
                   </div>
                 );
               })
@@ -375,10 +483,12 @@ const USTab = memo(function USTab({ liveIndices, navigate, colorScheme }: { live
           {!ratesData && !data ? (
             [1,2,3,4,5].map(i => <ExtraCardSkeleton key={i} />)
           ) : (
-            rates.map((r: any) => <ExtraCard key={r.name} {...r} colorScheme={colorScheme} />)
+            rates.map((r: any, i: number) => <ExtraCard key={`${r.name}-${i}`} {...r} />)
           )}
         </div>
       </section>
+
+      <RankingPanel market="us" navigate={navigate} />
 
       {/* 뉴스 */}
       <Card className="p-0 overflow-hidden">
@@ -400,7 +510,6 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"kr" | "us">("kr");
   const [liveIndices, setLiveIndices] = useState<any>(null);
-  const colorScheme = useSettingsStore((s) => s.colorScheme);
 
   const { status: wsStatus } = useIndicesStream(
     useCallback((data: any) => setLiveIndices(data), []),
@@ -419,23 +528,23 @@ export default function Dashboard() {
             <span className={`w-1.5 h-1.5 rounded-full ${wsStatus==="connected" ? "bg-accent-green animate-pulse" : "bg-accent-red"}`} />
             <span className="text-2xs text-text-muted">{wsStatus==="connected" ? "실시간" : "오프라인"}</span>
           </div>
-          <div className="flex gap-0.5 bg-bg-secondary border border-border rounded-xl p-1">
-            <button onClick={() => setTab("kr")}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                tab==="kr" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-              }`}><Flag size={11}/>국내</button>
-            <button onClick={() => setTab("us")}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                tab==="us" ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-              }`}><Globe size={11}/>해외</button>
-          </div>
+          <Tabs
+            fill={false}
+            ariaLabel="시장 선택"
+            tabs={[
+              { id: "kr", label: "국내", icon: Flag },
+              { id: "us", label: "해외", icon: Globe },
+            ]}
+            active={tab}
+            onChange={(id) => setTab(id as "kr" | "us")}
+          />
         </div>
       </div>
 
       <div key={tab} className="tab-fade">
         {tab === "kr"
-          ? <KRTab liveIndices={liveIndices} navigate={navigate} colorScheme={colorScheme} />
-          : <USTab liveIndices={liveIndices} navigate={navigate} colorScheme={colorScheme} />
+          ? <KRTab liveIndices={liveIndices} navigate={navigate} />
+          : <USTab liveIndices={liveIndices} navigate={navigate} />
         }
       </div>
     </div>

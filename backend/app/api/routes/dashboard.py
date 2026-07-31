@@ -15,6 +15,8 @@ from app.services.price_fetcher import get_usdkrw, get_eurkrw, fetch_pykrx_index
 from app.core.config import settings
 from app.core.cache import cache
 
+from app.services.ranking_service import CATEGORY_PATTERN
+
 router = APIRouter(prefix="/dashboard", tags=["대시보드"])
 
 _bg_refresh_in_flight: set[str] = set()
@@ -114,7 +116,7 @@ async def get_all_indices():
 # ── 국내 대시보드 ──────────────────────────────────────────
 @router.get("/kr")
 async def get_kr_dashboard(
-    category: str = Query(default="시가총액"),
+    category: str = Query(default="시가총액", pattern=CATEGORY_PATTERN),
     include_news: bool = Query(default=False),
 ):
     loop = asyncio.get_running_loop()
@@ -132,7 +134,10 @@ async def get_kr_dashboard(
     else:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         idx_results, rankings, exchange, rates, futures = results
-        news = cache.get("news:kr") or cache.get_stale("news:kr") or []
+        # include_news=False 인데도 캐시에서 꺼내 최대 80건을 실어 보냈다.
+        # 화면은 이 필드를 안 쓰고 /dashboard/news/kr 로 따로 받는다 — 매 갱신마다
+        # 기사 80건을 만들어 보내고 버리는 셈이었다
+        news = []
     # 타임아웃 등 오류 시 stale/빈 값으로 대체
     if isinstance(rates,   Exception): rates   = cache.get_stale("extra:kr_rates") or []
     if isinstance(futures, Exception): futures = cache.get_stale("extra:kr_futures") or []
@@ -198,7 +203,7 @@ async def _get_kr_rankings(category: str) -> list:
 # ── 해외 대시보드 ──────────────────────────────────────────
 @router.get("/us")
 async def get_us_dashboard(
-    category: str = Query(default="시가총액"),
+    category: str = Query(default="시가총액", pattern=CATEGORY_PATTERN),
     include_news: bool = Query(default=False),
 ):
     loop = asyncio.get_running_loop()
@@ -216,7 +221,9 @@ async def get_us_dashboard(
     exchange        = gathered[1] if not isinstance(gathered[1], Exception) else {}
     rankings        = gathered[2] if not isinstance(gathered[2], Exception) else []
     us_rates_cached = gathered[3] if not isinstance(gathered[3], Exception) else (cache.get_stale("extra:us_rates") or [])
-    news = gathered[4] if include_news and not isinstance(gathered[4], Exception) else (cache.get("news:us") or cache.get_stale("news:us") or [])
+    # KR 과 같은 이유로, 요청하지 않았으면 뉴스를 싣지 않는다.
+    # 화면은 /dashboard/news/us 로 따로 받는다
+    news = gathered[4] if (include_news and not isinstance(gathered[4], Exception)) else []
 
     idx_map = {r["index"]: r for r in idx_results if isinstance(r, dict)}
     return {
@@ -273,12 +280,12 @@ async def _get_us_rankings_cached(category: str) -> list:
 
 # ── 랭킹 ───────────────────────────────────────────────────
 @router.get("/rankings/kr")
-async def kr_rankings(category: str = Query(default="시가총액")):
+async def kr_rankings(category: str = Query(default="시가총액", pattern=CATEGORY_PATTERN)):
     return await _get_kr_rankings(category)
 
 
 @router.get("/rankings/us")
-async def us_rankings(category: str = Query(default="시가총액")):
+async def us_rankings(category: str = Query(default="시가총액", pattern=CATEGORY_PATTERN)):
     return await _get_us_rankings_cached(category)
 
 

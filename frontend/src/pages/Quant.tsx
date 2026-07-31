@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { quantScoreApi, watchlistApi, watchlistFolderApi, portfolioApi, type QuantFactorKey } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { useAuthStore } from "@/store/authStore";
-import { Card, Badge, RowSkeleton, Button } from "@/components/ui";
-import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp, Clock, Wallet } from "lucide-react";
+import { Card, Badge, RowSkeleton, Button, Tabs, UnderlineTabs, ChangeBadge } from "@/components/ui";
+import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp, Clock, Wallet, Download } from "lucide-react";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
+import { lookupPrice, indexPricesBySymbol } from "@/utils/prices";
+import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 
 const FACTOR_LABEL_KO: Record<QuantFactorKey, string> = {
   value: "가치", quality: "품질", momentum: "모멘텀", growth: "성장", risk: "안정성",
@@ -31,8 +33,17 @@ export default function Quant() {
   const [portfolioTab, setPortfolioTab] = useState<number | null>(null);
   const [showGradeHelp, setShowGradeHelp] = useState(false);
   const gradeHelpRef = useRef<HTMLDivElement>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("total");
-  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  /* 정렬 상태를 주소에 남긴다. 새로고침하면 초기화되던 것을 고치고,
+     "이 순서로 봐" 하고 링크를 넘길 수 있게 한다 */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sortKey = (searchParams.get("sort") ?? "total") as SortKey;
+  const sortDir = searchParams.get("dir") === "asc" ? "asc" : "desc";
+  const setSort = (key: SortKey, dir: "desc" | "asc") => {
+    const next = new URLSearchParams(searchParams);
+    if (key === "total" && dir === "desc") { next.delete("sort"); next.delete("dir"); }
+    else { next.set("sort", key); next.set("dir", dir); }
+    setSearchParams(next, { replace: true });
+  };
   const [recentlyViewed, setRecentlyViewed] = useState<RecentStock[]>(() => getRecentlyViewed());
 
   // 최근조회 탭 선택 시 localStorage에서 새로 불러오기
@@ -49,20 +60,30 @@ export default function Quant() {
         setShowGradeHelp(false);
       }
     };
+    // 바깥 클릭만 막아뒀더니 키보드로는 닫을 방법이 없었다
+    const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setShowGradeHelp(false); };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onEsc);
+    };
   }, []);
 
+  /* 관심종목 화면과 같은 키·같은 staleTime 을 쓴다.
+     예전에는 staleTime 이 없어(=0) 퀀트 탭에 올 때마다 폴더·종목을 다시 받았다. */
   const { data: folders } = useQuery({
     queryKey: ["watchlist-folders"],
     queryFn: watchlistFolderApi.getFolders,
     enabled: isLoggedIn,
+    staleTime: 300_000,
   });
 
   const { data: items, isLoading: itemsLoading } = useQuery({
     queryKey: ["watchlist-items"],
     queryFn: () => watchlistApi.getItems(),
     enabled: isLoggedIn,
+    staleTime: 120_000,
   });
 
   const { data: pfList = [] } = useQuery<any[]>({
@@ -72,12 +93,20 @@ export default function Quant() {
     staleTime: 300_000,
   });
 
-  const { data: pfItems = [] } = useQuery({
-    queryKey: ["portfolio-tab-items", portfolioTab],
-    queryFn: () => portfolioApi.getItems(portfolioTab ?? undefined),
-    enabled: isLoggedIn && portfolioTab !== null,
-    staleTime: 60_000,
+  /* 보유종목은 내 자산·관심종목과 같은 쿼리를 쓴다.
+     예전에는 ["portfolio-tab-items", id] 라는 이 화면 전용 키를 썼다. 내 자산에서
+     종목을 추가·삭제해도 그쪽은 ["portfolio-items-all"] 만 무효화하므로, 퀀트는
+     사라진 종목의 점수를 계속 보여줬다. 요청도 탭마다 따로 나갔다. */
+  const { data: pfAllItems = [] } = useQuery<any[]>({
+    queryKey: ["portfolio-items-all"],
+    queryFn: () => portfolioApi.getItems(undefined, true),
+    enabled: isLoggedIn,
+    staleTime: 300_000,
   });
+  const pfItems = useMemo(
+    () => (pfAllItems as any[]).filter((i) => (i.portfolioId ?? null) === portfolioTab),
+    [pfAllItems, portfolioTab],
+  );
 
   const filteredItems = useMemo(() => {
     let list = (items ?? []) as any[];
@@ -140,6 +169,21 @@ export default function Quant() {
     staleTime: 60_000,
   });
 
+  /* 표에 시세를 같이 띄운다. 점수만 보고는 "그래서 지금 얼마인데?" 를
+     알 수 없어 매번 종목 상세로 들어가야 했다. 관심종목 화면과 같은 배치
+     조회를 쓰므로 캐시를 공유한다 — 추가 요청이 사실상 없다. */
+  const priceSymbols = useMemo(() => compareItems.map((i) => i.symbol), [compareItems]);
+  const priceMarkets = useMemo(
+    () => compareItems.map((i) => (i.market === "KR" ? "KR" : "US")), [compareItems]);
+  const { data: priceRows } = useQuery({
+    queryKey: ["watchlist-prices", [...priceSymbols].sort().join(",")],
+    queryFn: ({ signal }) => watchlistApi.getPrices(priceSymbols, priceMarkets, signal),
+    enabled: isLoggedIn && priceSymbols.length > 0,
+    staleTime: 55_000,
+    refetchInterval: 60_000,
+  });
+  const priceMap = useMemo(() => indexPricesBySymbol(priceRows as any[] | undefined), [priceRows]);
+
   const nameMap = useMemo(() => {
     const m = new Map<string, string>();
     compareItems.forEach((i: { symbol: string; market: string; name: string }) => m.set(`${i.market}:${i.symbol}`, i.name));
@@ -152,12 +196,61 @@ export default function Quant() {
   const rows = useMemo(() => {
     const list = compareData?.items ?? [];
     const dir = sortDir === "desc" ? -1 : 1;
-    return [...list].sort((a, b) => dir * ((scoreOf(a, sortKey) ?? -1) - (scoreOf(b, sortKey) ?? -1)));
+    /* 점수가 없는 종목은 방향과 무관하게 항상 뒤로 보낸다.
+       예전에는 null 을 -1 로 바꿔 정렬해서, 오름차순일 때 '점수 없음'이
+       맨 위로 올라왔다 — 가장 안 궁금한 줄이 첫 화면을 차지했다 */
+    return [...list].sort((a, b) => {
+      const av = scoreOf(a, sortKey), bv = scoreOf(b, sortKey);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return dir * (av - bv);
+    });
   }, [compareData, sortKey, sortDir]);
 
+  /** 지금 보고 있는 표를 CSV 로 내려받는다.
+      비교 결과는 스프레드시트로 옮겨 보는 수요가 크다. 엑셀이 UTF-8 을
+      알아보도록 BOM 을 붙인다 — 없으면 한글이 깨진다 */
+  const downloadCsv = () => {
+    const head = ["종목명", "심볼", "시장", "현재가", "종합점수", "등급",
+                  ...(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => FACTOR_LABEL_KO[k])];
+    const esc = (v: unknown) => {
+      const t = String(v ?? "");
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const body = rows.map((r) => [
+      nameMap.get(`${r.market}:${r.symbol}`) ?? r.symbol, r.symbol, r.market,
+      lookupPrice(priceMap, r.symbol)?.price ?? "",
+      r.total_score?.toFixed(1) ?? "", r.grade ?? "",
+      ...(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map(
+        (k) => r.factors.find((f) => f.key === k)?.score?.toFixed(1) ?? ""),
+    ]);
+    const csv = "\uFEFF" + [head, ...body].map((row) => row.map(esc).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    // 파일명은 영문으로 둔다. 크로미움은 download 속성에 한글이 섞이면
+    // 이름을 통째로 버리고 'download' 로 저장한다 — 실제로 그렇게 나왔다.
+    // 파일 내용의 한글은 BOM 덕에 문제없다
+    a.download = `quant-score_${new Date().toISOString().slice(0, 10)}.csv`;
+    // 문서에 붙였다 떼야 파일명이 지켜진다 — 떠 있는 앵커는 브라우저가
+    // download 속성을 무시하고 'download' 라는 이름으로 저장한다
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  /** 시장 탭까지 반영한 폴더별 종목 수. folderId 가 null 이면 전체 */
+  const countIn = (folderId: number | null) =>
+    ((items ?? []) as any[]).filter(
+      (i) => (marketTab === "전체" || i.market === marketTab) &&
+             (folderId === null || i.folder_id === folderId),
+    ).length;
+
   const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    else { setSortKey(key); setSortDir("desc"); }
+    if (sortKey === key) setSort(key, sortDir === "desc" ? "asc" : "desc");
+    else setSort(key, "desc");
   };
 
   useEffect(() => {
@@ -179,6 +272,15 @@ export default function Quant() {
           </p>
         </div>
         {isLoggedIn && (
+          <div className="flex items-center gap-2 flex-shrink-0">
+          {rows.length > 0 && (
+            <button
+              onClick={downloadCsv}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors whitespace-nowrap"
+            >
+              <Download size={14} className="flex-shrink-0" />CSV
+            </button>
+          )}
           <button
             onClick={() => setShowSettings((s) => !s)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors whitespace-nowrap flex-shrink-0 ${
@@ -187,6 +289,7 @@ export default function Quant() {
           >
             <Settings2 size={14} className="flex-shrink-0" />기준 수정
           </button>
+          </div>
         )}
       </div>
 
@@ -212,67 +315,40 @@ export default function Quant() {
             />
           )}
 
-          <div className="flex gap-1 bg-bg-secondary border border-border rounded-xl p-1 w-fit">
-            {MARKET_TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => { setMarketTab(t.id); setFolderTab("all"); }}
-                className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  marketTab === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            fill={false}
+            ariaLabel="시장 선택"
+            className="w-fit"
+            tabs={MARKET_TABS}
+            active={marketTab}
+            onChange={(id) => { setMarketTab(id); setFolderTab("all"); }}
+          />
 
-          <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
-            {(() => {
-              const tabCls = (active: boolean) =>
-                `flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
-                  active ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-                }`;
-              return (
-                <>
-                  <button
-                    onClick={() => { setFolderTab("all"); setPortfolioTab(null); }}
-                    className={tabCls(folderTab === "all" && portfolioTab === null)}
-                  >
-                    전체 <span className="text-[10px] opacity-70">{portfolioTab === null && folderTab === "all" ? allCompareItems.length : ((items ?? []) as any[]).filter((i) => marketTab === "전체" || i.market === marketTab).length}</span>
-                  </button>
-                  <button
-                    onClick={() => { setFolderTab("recent"); setPortfolioTab(null); }}
-                    className={tabCls(folderTab === "recent" && portfolioTab === null)}
-                  >
-                    <span className="flex items-center gap-1"><Clock size={13} /> 최근조회 <span className="text-[10px] opacity-70">{recentlyViewed.filter((s) => marketTab === "전체" || s.market === marketTab).length}</span></span>
-                  </button>
-                  {(folders ?? []).map((f: any) => {
-                    const cnt = ((items ?? []) as any[]).filter(
-                      (i) => i.folder_id === f.id && (marketTab === "전체" || i.market === marketTab),
-                    ).length;
-                    return (
-                      <button
-                        key={f.id}
-                        onClick={() => { setFolderTab(f.id); setPortfolioTab(null); }}
-                        className={tabCls(folderTab === f.id && portfolioTab === null)}
-                      >
-                        {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
-                      </button>
-                    );
-                  })}
-                  {pfList.map((pf: any) => (
-                    <button
-                      key={`pf-${pf.id}`}
-                      onClick={() => { setPortfolioTab(pf.id); setFolderTab("all"); }}
-                      className={`${tabCls(portfolioTab === pf.id)} flex items-center gap-1`}
-                    >
-                      <Wallet size={11} />{pf.name}
-                    </button>
-                  ))}
-                </>
-              );
-            })()}
-          </div>
+          <UnderlineTabs
+            ariaLabel="목록 선택"
+            active={portfolioTab !== null ? `pf-${portfolioTab}` : String(folderTab)}
+            onChange={(id) => {
+              if (id.startsWith("pf-")) { setPortfolioTab(Number(id.slice(3))); setFolderTab("all"); }
+              else { setFolderTab(id === "all" || id === "recent" ? id : Number(id)); setPortfolioTab(null); }
+            }}
+            tabs={[
+              { id: "all", label: "전체", count: countIn(null) },
+              { id: "recent", label: "최근조회", icon: Clock,
+                count: recentlyViewed.filter((r) => marketTab === "전체" || r.market === marketTab).length },
+              ...(folders ?? []).map((f: any) => ({ id: String(f.id), label: f.name, count: countIn(f.id) })),
+              ...pfList.map((pf: any) => ({ id: `pf-${pf.id}`, label: pf.name, icon: Wallet })),
+            ]}
+          />
+
+          {truncated && (
+            <div className="flex items-start gap-2 rounded-xl border border-accent-amber/30 bg-accent-amber/10 px-3 py-2.5">
+              <AlertCircle size={14} className="text-accent-amber flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-accent-amber break-keep leading-relaxed">
+                이 목록은 {allCompareItems.length}개인데 <b>한 번에 30개까지</b> 비교할 수 있어
+                앞쪽 30개만 계산했습니다. 폴더나 시장 탭으로 나눠 보면 전부 확인할 수 있어요.
+              </p>
+            </div>
+          )}
 
           <Card className="p-0 overflow-hidden">
             {itemsLoading || scoreLoading ? (
@@ -310,7 +386,9 @@ export default function Quant() {
                   <thead className="sticky top-0 bg-bg-secondary border-b border-border z-10">
                     <tr className="text-text-muted text-[11px]">
                       <th className="text-left px-3 py-3 sticky left-0 bg-bg-secondary z-20">종목</th>
-                      <th className="text-right px-3 py-3">
+                      <th className="text-right px-3 py-3 whitespace-nowrap">현재가</th>
+                      <th className="text-right px-3 py-3"
+                          aria-sort={sortKey === "total" ? (sortDir === "desc" ? "descending" : "ascending") : "none"}>
                         <button
                           onClick={() => toggleSort("total")}
                           className={`flex items-center justify-end gap-1 ml-auto whitespace-nowrap ${sortKey === "total" ? "text-accent-blue" : "hover:text-text-primary"}`}
@@ -324,6 +402,8 @@ export default function Quant() {
                           등급
                           <button
                             onClick={() => setShowGradeHelp((s) => !s)}
+                            aria-label="등급 기준 보기"
+                            aria-expanded={showGradeHelp}
                             className="flex items-center justify-center w-4 h-4 rounded-full border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
                           >
                             ?
@@ -342,7 +422,8 @@ export default function Quant() {
                         </div>
                       </th>
                       {(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => (
-                        <th key={k} className="text-right px-3 py-3 whitespace-nowrap">
+                        <th key={k} className="text-right px-3 py-3 whitespace-nowrap"
+                            aria-sort={sortKey === k ? (sortDir === "desc" ? "descending" : "ascending") : "none"}>
                           <button
                             onClick={() => toggleSort(k)}
                             className={`flex items-center justify-end gap-1 ml-auto whitespace-nowrap ${sortKey === k ? "text-accent-blue" : "hover:text-text-primary"}`}
@@ -379,6 +460,22 @@ export default function Quant() {
                               <span className="text-text-muted text-[11px] font-mono">{row.symbol}</span>
                             </div>
                           </td>
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                            {(() => {
+                              const pr = lookupPrice(priceMap, row.symbol);
+                              if (pr?.price == null) return <span className="text-text-dim text-xs">—</span>;
+                              return (
+                                <div className="flex flex-col items-end">
+                                  <span className="font-mono text-xs text-text-primary">
+                                    {row.market === "KR" ? fmtKRWFull(Number(pr.price)) : fmtUSDFull(Number(pr.price))}
+                                  </span>
+                                  {pr.change_rate != null && (
+                                    <ChangeBadge value={Number(pr.change_rate)} className="text-[10px]" />
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
                           <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${scoreColor(row.total_score)}`}>
                             {row.total_score != null ? row.total_score.toFixed(1) : "—"}
                           </td>
@@ -404,11 +501,11 @@ export default function Quant() {
               <div className="px-3 py-2 text-[11px] text-text-muted border-t border-border/30">갱신 중...</div>
             )}
           </Card>
-          <p className="text-xs text-text-muted leading-relaxed">
-            {truncated
-              ? `한 번에 최대 30개까지 비교할 수 있어 앞쪽 30개만 표시했어요. 관심종목 폴더로 나눠서 확인해보세요.`
-              : "관심종목 폴더로 나눠서 보면 더 빠르게 비교할 수 있어요."}
-          </p>
+          {!truncated && (
+            <p className="text-xs text-text-muted leading-relaxed">
+              관심종목 폴더로 나눠서 보면 더 빠르게 비교할 수 있어요.
+            </p>
+          )}
         </>
       )}
     </div>

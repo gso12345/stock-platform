@@ -6,6 +6,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
@@ -43,7 +44,17 @@ try:
 except Exception as _db_init_err:
     logging.warning(f"DB 초기화 실패 (서버는 계속 실행): {_db_init_err}")
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+# 전역 기본 한도.
+#
+# 60/분으로 잡혀 있었지만 SlowAPIMiddleware 가 없어 실제로는 적용되지 않았다.
+# 이제 켜면서 값을 올린다 — 대시보드 한 번 열면 지수·환율·뉴스·관심종목·
+# 보유종목·퀀트로 8건 넘게 나가고, 화면을 몇 개 넘기면 금방 60건이 된다.
+# 정상 사용자를 막지 않으면서 남용만 걷어내는 선이 목표다.
+#
+# 프록시 뒤에서 X-Forwarded-For 가 안 잡히면 모든 사용자가 한 IP 로 보여
+# 이 값이 '서비스 전체 상한'이 된다. 그때 서비스가 멈추지 않도록 넉넉히 둔다.
+# 비싼 라우트(퀀트 비교 등)는 각자 @limiter.limit 으로 따로 조인다.
+limiter = Limiter(key_func=get_remote_address, default_limits=["300/minute"])
 
 _is_prod = settings.APP_ENV == "production"
 
@@ -332,6 +343,11 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# 이 미들웨어가 없으면 Limiter 의 default_limits 가 실제로는 적용되지 않는다.
+# @limiter.limit(...) 을 붙인 라우트만 제한됐고, 대시보드처럼 데코레이터가
+# 하나도 없는 라우트는 완전히 무제한이었다 — 임의 category 로 캐시를 밀어내는
+# 공격을 아무 제약 없이 반복할 수 있었다.
+app.add_middleware(SlowAPIMiddleware)
 
 _allowed_origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.strip()]
 if settings.APP_ENV not in ("production", "staging"):

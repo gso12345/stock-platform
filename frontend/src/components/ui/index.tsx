@@ -6,16 +6,28 @@ import { useSettingsStore } from "@/store/settingsStore";
 export function cn(...i: ClassValue[]) { return twMerge(clsx(i)); }
 
 /* ── Card ──────────────────────────────────────────────── */
-export function Card({ children, className, onClick }: {
-  children: React.ReactNode; className?: string; onClick?: () => void;
+export function Card({ children, className, onClick, ariaLabel }: {
+  children: React.ReactNode; className?: string; onClick?: () => void; ariaLabel?: string;
 }) {
+  /* onClick 이 있으면 버튼처럼 동작해야 한다.
+     예전에는 그냥 <div onClick> 이라 마우스로만 누를 수 있었다 — 대시보드의
+     지수 카드를 키보드로는 열 수 없었고, 스크린리더는 누를 수 있는지조차
+     알 수 없었다. Card 는 거의 모든 화면이 쓰므로 여기서 고치면 함께 좋아진다. */
+  const clickable = typeof onClick === "function";
   return (
     <div
       onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? ariaLabel : undefined}
+      onKeyDown={clickable ? (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick!(); }
+      } : undefined}
       className={cn(
         "bg-bg-card border border-border rounded-xl",
         !className?.includes("p-0") && "p-4",
-        onClick && "cursor-pointer hover:border-accent-blue/40 transition-colors",
+        clickable && "cursor-pointer hover:border-accent-blue/40 transition-colors " +
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/60",
         className,
       )}
     >{children}</div>
@@ -136,20 +148,82 @@ export function Badge({ children, variant = "default" }: {
 }
 
 /* ── 탭 ────────────────────────────────────────────────── */
-export function Tabs({ tabs, active, onChange }: {
-  tabs: { id: string; label: string }[];
+export type TabItem = {
+  id: string;
+  label: string;
+  /** 왼쪽 아이콘 (lucide 컴포넌트) */
+  icon?: React.ComponentType<{ size?: number | string; className?: string }>;
+  /** 라벨 옆 작은 개수 */
+  count?: number;
+};
+
+/** 알약형 탭 — 화면 안에서 큰 구획을 바꿀 때 (국내/해외, 전체/국내/해외/ETF)
+ *
+ * 예전에는 이 마크업이 7개 페이지에 그대로 복붙돼 있었다. 공용 컴포넌트가
+ * 있었지만 아이콘·개수·너비를 지원하지 않아 아무도 쓰지 않았다. */
+export function Tabs({ tabs, active, onChange, fill = true, className, ariaLabel }: {
+  tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
+  /** 남는 공간을 나눠 가질지 (false 면 내용 너비) */
+  fill?: boolean;
+  className?: string;
+  ariaLabel?: string;
 }) {
   return (
-    <div className="flex gap-0.5 p-1 bg-bg-card border border-border rounded-xl">
-      {tabs.map((t) => (
-        <button key={t.id} onClick={() => onChange(t.id)}
-          className={cn("flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
-            active === t.id ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary"
-          )}
-        >{t.label}</button>
-      ))}
+    <div role="tablist" aria-label={ariaLabel}
+      className={cn("flex gap-0.5 p-1 bg-bg-card border border-border rounded-xl", className)}>
+      {tabs.map((t) => {
+        const on = active === t.id;
+        const Icon = t.icon;
+        return (
+          <button key={t.id} role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+            className={cn(
+              "flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap",
+              fill && "flex-1",
+              on ? "bg-accent-blue text-white shadow" : "text-text-muted hover:text-text-primary",
+            )}
+          >
+            {Icon && <Icon size={11} className="flex-shrink-0" />}
+            {t.label}
+            {t.count != null && <span className="text-[10px] opacity-70">{t.count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 밑줄형 탭 — 같은 종류의 목록을 나눠 볼 때 (폴더, 포트폴리오)
+ *
+ * 개수가 많아 가로로 넘칠 수 있으므로 스크롤을 전제로 한다. */
+export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel }: {
+  tabs: TabItem[];
+  active: string;
+  onChange: (id: string) => void;
+  className?: string;
+  ariaLabel?: string;
+}) {
+  return (
+    <div role="tablist" aria-label={ariaLabel}
+      className={cn("flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide", className)}>
+      {tabs.map((t) => {
+        const on = active === t.id;
+        const Icon = t.icon;
+        return (
+          <button key={t.id} role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+            className={cn(
+              "flex items-center gap-1 flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all",
+              on ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+                 : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated",
+            )}
+          >
+            {Icon && <Icon size={13} className="flex-shrink-0" />}
+            {t.label}
+            {t.count != null && <span className="text-[10px] opacity-70">{t.count}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
