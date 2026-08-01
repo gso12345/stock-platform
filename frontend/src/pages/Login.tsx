@@ -35,8 +35,14 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const oauthError = searchParams.get("oauth_error");
+  /* 토큰이 만료돼 자동으로 밀려온 경우. 이유를 안 적으면 '왜 갑자기
+     로그인 화면이지?' 가 되고, 관심종목이 비어 보이는 것과 겹치면
+     '데이터가 사라졌다'로 읽힌다 — 실제로 그렇게 오해한 적이 있다. */
+  const expired = searchParams.get("reason") === "expired";
   const [error, setError] = useState<string | null>(
-    oauthError ? OAUTH_ERROR_MESSAGES[oauthError] ?? "소셜 로그인에 실패했습니다." : null
+    oauthError ? OAUTH_ERROR_MESSAGES[oauthError] ?? "소셜 로그인에 실패했습니다."
+      : expired ? "로그인이 만료되었습니다. 다시 로그인하면 기존 데이터가 그대로 보입니다."
+      : null
   );
   const [loading, setLoading] = useState(false);
 

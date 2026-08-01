@@ -36,10 +36,12 @@ api.interceptors.response.use(
       try {
         localStorage.removeItem(AUTH_STORAGE_KEY);
       } catch {}
-      // 로그인/회원가입 페이지가 아닐 때만 리다이렉트
+      /* 로그인/회원가입 페이지가 아닐 때만 리다이렉트.
+         왜 갑자기 로그인 화면인지 알려주지 않으면, 사용자는 '데이터가
+         사라졌다'거나 '앱이 고장났다'고 읽는다. 실제로 그런 문의가 있었다. */
       const path = window.location.pathname;
       if (!path.includes("/login") && !path.includes("/register")) {
-        window.location.href = "/login";
+        window.location.href = "/login?reason=expired";
       }
     }
     return Promise.reject(error);
