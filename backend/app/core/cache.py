@@ -20,6 +20,21 @@ MAX_CACHE_SIZE = 50_000  # 최대 항목 수 (초과 시 오래된 것부터 삭
 # 캐시는 이 정도가 상한이다. 큰 인스턴스에서는 환경변수로 올린다.
 MAX_CACHE_BYTES = int(os.getenv("MAX_CACHE_BYTES", 80 * 1024 * 1024))
 
+# 만료된 값을 따로 보관하는 몫(_stale)의 상한.
+#
+# 이 보관소의 목적은 하나다 — 외부 API 가 막혔을 때 '마지막으로 받은 값'
+# 이라도 보여주는 것. 그러려면 최근 것 얼마간이면 충분하지, 지금까지 거쳐
+# 간 모든 값이 필요하지 않다.
+#
+# 예전에는 여기에 바이트 상한이 없고 개수 상한만 신선 캐시와 같은
+# 50,000건이라 사실상 무한이었다. 게다가 값이 만료되면 _store 에서만
+# 지우고 _stale 에는 그대로 남겨서, 한 번 쓰고 버릴 값까지 영원히 쌓였다.
+# 프로덕션에서 아무도 접속하지 않는 시간대에도 시간당 84MB 씩 늘어
+# 512MB 한도를 넘겼다. 화면의 '응답 캐시 10.2MB' 에는 이 몫이 제대로
+# 잡히지 않아 눈에 띄지도 않았다.
+STALE_MAX_BYTES = int(os.getenv("STALE_MAX_BYTES", 16 * 1024 * 1024))
+STALE_MAX_ITEMS = int(os.getenv("STALE_MAX_ITEMS", 400))
+
 
 # 이 크기를 넘는 값은 압축해 보관한다.
 #
@@ -91,7 +106,11 @@ class TTLCache:
 
     def __init__(self, maxsize: int = MAX_CACHE_SIZE, maxbytes: int = MAX_CACHE_BYTES):
         self._store: OrderedDict[str, tuple[Any, float]] = OrderedDict()
+        # 만료된 값의 마지막 사본. 자체 예산(개수·바이트)을 따로 갖는다 —
+        # 신선 캐시와 같은 상한을 쓰면 사실상 무한이 되어 조용히 샌다.
         self._stale: OrderedDict[str, Any] = OrderedDict()
+        self._stale_bytes: OrderedDict[str, int] = OrderedDict()
+        self._stale_total = 0
         # 값을 마지막으로 쓴 시각. 만료(_store에서 삭제)된 뒤에도 남는다 —
         # stale 값을 내보낼 때 '얼마나 묵은 값인지' 알려주기 위한 것이다.
         self._written: OrderedDict[str, float] = OrderedDict()
@@ -99,7 +118,30 @@ class TTLCache:
         self._total_bytes = 0
         self._maxsize = maxsize
         self._maxbytes = maxbytes
+        self._stale_maxbytes = STALE_MAX_BYTES
+        self._stale_maxitems = STALE_MAX_ITEMS
         self._lock = threading.Lock()
+
+    def _stale_put(self, key: str, value: Any, size: int):
+        """락을 이미 잡은 상태에서 호출한다. 예산을 넘으면 오래된 것부터 버린다."""
+        if key in self._stale_bytes:
+            self._stale_total -= self._stale_bytes.pop(key)
+        self._stale[key] = value
+        self._stale.move_to_end(key)
+        self._stale_bytes[key] = size
+        self._stale_bytes.move_to_end(key)
+        self._stale_total += size
+        while self._stale and (
+            len(self._stale) > self._stale_maxitems
+            or self._stale_total > self._stale_maxbytes
+        ):
+            old, _ = self._stale.popitem(last=False)
+            self._stale_total -= self._stale_bytes.pop(old, 0)
+
+    def _stale_drop(self, key: str):
+        """락을 이미 잡은 상태에서 호출한다"""
+        self._stale.pop(key, None)
+        self._stale_total -= self._stale_bytes.pop(key, 0)
 
     def get(self, key: str) -> Optional[Any]:
         with self._lock:
@@ -108,7 +150,11 @@ class TTLCache:
                 return None
             value, expires_at = entry
             if time.time() > expires_at:
+                # 만료 — 신선 캐시에서 빼고 그 몫의 바이트도 함께 돌려놓는다.
+                # 예전에는 _store 에서만 지워서, 이 값이 차지하던 바이트가
+                # _total_bytes 에 영원히 남아 회계가 어긋났다.
                 del self._store[key]
+                self._total_bytes -= self._bytes.pop(key, 0)
                 return None
             # 최근 접근 항목을 뒤로 이동 (LRU)
             self._store.move_to_end(key)
@@ -135,7 +181,7 @@ class TTLCache:
     def _evict(self, key: str):
         """락을 이미 잡은 상태에서 호출한다"""
         self._store.pop(key, None)
-        self._stale.pop(key, None)
+        self._stale_drop(key)
         self._written.pop(key, None)
         self._total_bytes -= self._bytes.pop(key, 0)
 
@@ -149,7 +195,7 @@ class TTLCache:
             now = time.time()
             self._store[key] = (value, now + ttl)
             self._store.move_to_end(key)
-            self._stale[key] = value
+            self._stale_put(key, value, size)
             self._written[key] = now
             self._written.move_to_end(key)
             self._bytes[key] = size
@@ -172,9 +218,8 @@ class TTLCache:
                     break
                 self._evict(oldest)
 
-            # stale/written 도 같은 상한을 따른다
-            while len(self._stale) > self._maxsize:
-                self._stale.popitem(last=False)
+            # written 은 시각(float)만 담아 가볍지만, 그래도 한없이 늘면
+            # 안 되므로 상한을 둔다. stale 은 _stale_put 이 스스로 지킨다.
             while len(self._written) > self._maxsize:
                 self._written.popitem(last=False)
 
@@ -186,6 +231,8 @@ class TTLCache:
         with self._lock:
             self._store.clear()
             self._stale.clear()
+            self._stale_bytes.clear()
+            self._stale_total = 0
             self._written.clear()
             self._bytes.clear()
             self._total_bytes = 0
@@ -215,12 +262,18 @@ class TTLCache:
         )
 
     def stats(self) -> dict:
+        # 만료된 값 보관분(stale)도 엄연히 메모리를 쓴다. 예전에는 이걸
+        # 빼고 보고해서, 화면에는 '10MB' 인데 실제로는 수백 MB 인 상태를
+        # 아무도 알아채지 못했다.
         return {
             "packed": self.packed_count(),
             "items": len(self._store),
-            "bytes": self._total_bytes,
-            "mb": round(self._total_bytes / 1024 / 1024, 1),
-            "limit_mb": round(self._maxbytes / 1024 / 1024, 1),
+            "bytes": self._total_bytes + self._stale_total,
+            "mb": round((self._total_bytes + self._stale_total) / 1024 / 1024, 1),
+            "limit_mb": round((self._maxbytes + self._stale_maxbytes) / 1024 / 1024, 1),
+            "fresh_mb": round(self._total_bytes / 1024 / 1024, 1),
+            "stale_mb": round(self._stale_total / 1024 / 1024, 1),
+            "stale_items": len(self._stale),
         }
 
     def keys_with_ttl(self) -> list[dict]:

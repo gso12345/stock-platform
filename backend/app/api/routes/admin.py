@@ -239,6 +239,11 @@ def get_runtime(_: User = Depends(require_admin)):
             "cache_limit_mb": cache_stats["limit_mb"],
             "cache_items":    cache_stats["items"],
             "cache_packed":   cache_stats["packed"],
+            # 만료된 값 보관분. 예전에는 이 몫이 보고에서 빠져 있어,
+            # 화면에 10MB 로 보이는 동안 실제로는 수백 MB 였다.
+            "cache_fresh_mb": cache_stats["fresh_mb"],
+            "cache_stale_mb": cache_stats["stale_mb"],
+            "cache_stale_items": cache_stats["stale_items"],
         },
         "cpu": {
             "quota":        round(cpu.cpu_quota(), 2),
@@ -272,6 +277,8 @@ def get_runtime(_: User = Depends(require_admin)):
         "proc": memory.proc_breakdown(),
         "objects": memory.object_stats(),
         "mem_trend": memory.trend(),
+        # 무엇이 늘고 있는지 (MEM_TRACE=1 일 때만)
+        "alloc_growth": memory.alloc_growth(),
         "libraries": libmem.report(),
         "data_stores": memory.data_stores(),
         # 종목 목록이 어디서 왔는지. 세 단계 폴백이 전부 조용히 실패해

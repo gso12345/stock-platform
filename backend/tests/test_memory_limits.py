@@ -10,6 +10,7 @@ OHLCV 시계열 하나가 20,000행이면 약 15MB인데 항목 수로는 '1개'
 기본으로 꺼져 있다는 것을 못 박아 둔다.
 """
 import os
+import time
 import inspect
 import textwrap
 
@@ -366,3 +367,188 @@ class Test메모리_구성_보고:
         assert 쉬는시간_위치 is not None, "쉬는 시간 가드를 못 찾았다"
         assert 표본_위치 < 쉬는시간_위치, (
             f"표본 수집({표본_위치})이 쉬는 시간 가드({쉬는시간_위치}) 뒤에 있다")
+
+
+class Test만료된_값_보관소:
+    """프로덕션 메모리가 아무도 접속하지 않는 시간대에도 시간당 84MB 씩
+    늘어 512MB 한도를 넘겼다. 화면에는 '응답 캐시 10.2MB' 로 찍혀 있어서
+    캐시는 용의선상에 없었다.
+
+    범인은 만료된 값을 보관하는 몫(_stale)이었다. 외부 API 가 막혔을 때
+    마지막 값이라도 보여주려고 두는 것인데 —
+
+      · 개수 상한이 신선 캐시와 같은 50,000건이라 사실상 무한이었고
+      · 바이트 상한이 아예 없었고
+      · 값이 만료되면 _store 에서만 지우고 여기엔 그대로 남겼다
+
+    그래서 한 번 쓰고 버릴 값까지 영원히 쌓였다."""
+
+    def _큰값(self):
+        return [{"d": i, "v": "x" * 200, "n": i * 1.5} for i in range(2000)]
+
+    def test_만료가_반복돼도_무한정_쌓이지_않는다(self):
+        c = TTLCache()
+        큰값 = self._큰값()
+        for r in range(6):
+            for i in range(120):
+                c.set(f"chart:{r}:{i}", 큰값, 1)
+            time.sleep(1.05)
+            for i in range(120):
+                c.get(f"chart:{r}:{i}")        # 만료 확인 — 예전엔 여기서 샜다
+        assert len(c._stale) <= c._stale_maxitems, (
+            f"만료 보관분이 {len(c._stale)}건 — 상한 {c._stale_maxitems} 을 넘었다")
+        assert c._stale_total <= c._stale_maxbytes
+
+    def test_만료_보관분에도_바이트_상한이_있다(self):
+        """개수만 제한하면 큰 값 하나를 못 막는다 — 신선 캐시가 이미
+        같은 이유로 바이트 상한을 갖고 있다."""
+        c = TTLCache()
+        c._stale_maxbytes = 200_000
+        for i in range(50):
+            c.set(f"big:{i}", self._큰값(), 1)
+        assert c._stale_total <= c._stale_maxbytes, (
+            f"{c._stale_total} 바이트 — 상한 {c._stale_maxbytes}")
+
+    def test_만료된_값도_사용량에_잡힌다(self):
+        """예전에는 stale 몫이 stats() 에서 빠져 있어, 화면에 10MB 로
+        보이는 동안 실제로는 수백 MB 였다."""
+        c = TTLCache()
+        c.set("a", self._큰값(), 1)
+        time.sleep(1.05)
+        c.get("a")                              # 신선 캐시에서 빠진다
+        st = c.stats()
+        assert st["items"] == 0                 # 신선한 건 없지만
+        # MB 는 반올림이라 압축된 값은 0.0 으로 보인다. 바이트로 본다.
+        assert c._stale_total > 0               # 메모리는 쓰고 있다
+        assert st["bytes"] >= c._stale_total, "합계에 만료 보관분이 들어가야 한다"
+
+    def test_만료되면_신선_사용량에서_빠진다(self):
+        """예전에는 _store 에서만 지우고 _total_bytes 는 그대로 둬서,
+        쓰지도 않는 바이트가 계속 쌓여 회계가 어긋났다."""
+        c = TTLCache()
+        c.set("a", self._큰값(), 1)
+        assert c._total_bytes > 0
+        time.sleep(1.05)
+        c.get("a")
+        assert c._total_bytes == 0, (
+            f"만료된 값이 신선 사용량에 {c._total_bytes} 바이트 남아 있다")
+
+    def test_그래도_마지막_값은_돌려준다(self):
+        """상한을 두더라도 이 보관소의 본래 목적은 지켜야 한다 —
+        외부 API 가 막혔을 때 마지막으로 받은 값을 내주는 것."""
+        c = TTLCache()
+        c.set("price:005930", {"price": 72400}, 1)
+        time.sleep(1.05)
+        assert c.get("price:005930") is None            # 신선한 값은 없고
+        assert c.get_stale("price:005930") == {"price": 72400}   # 마지막 값은 있다
+
+    def test_지우면_양쪽에서_모두_사라진다(self):
+        c = TTLCache()
+        c.set("k", self._큰값(), 60)
+        c.delete("k")
+        assert c.get_stale("k") is None
+        assert c._stale_total == 0
+
+    def test_전체_삭제하면_보관분도_0이_된다(self):
+        c = TTLCache()
+        for i in range(20):
+            c.set(f"k{i}", self._큰값(), 60)
+        c.clear()
+        assert len(c._stale) == 0 and c._stale_total == 0
+        assert c.stats()["mb"] == 0
+
+
+class Test무엇이_늘었는지_알아내기:
+    """메모리가 오르는 건 보이는데 원인을 못 찾아 캐시·스레드·라이브러리를
+    하나씩 짚어가며 추측한 적이 있다. 파이썬은 자기가 어디서 무엇을
+    할당했는지 말해 줄 수 있으므로 그냥 물어보게 만든다."""
+
+    def test_기본값은_꺼짐이다(self):
+        """상시로 켜면 메모리를 10~25% 더 쓴다. 512MB 짜리에서 그걸
+        기본으로 켤 수는 없다 — 환경변수로 켠 게 아니면 꺼져 있어야 한다."""
+        import os
+        켜져있나 = os.getenv("MEM_TRACE", "").strip() in ("1", "true", "yes")
+        assert memory._TRACE == 켜져있나, (
+            "MEM_TRACE 를 켜지 않았는데 추적이 켜져 있다 — "
+            "상시 추적은 이 인스턴스에서 감당할 수 없다")
+
+    def test_꺼져_있으면_아무것도_돌려주지_않는다(self, monkeypatch):
+        monkeypatch.setattr(memory, "_TRACE", False)
+        g = memory.alloc_growth()
+        assert g["enabled"] is False
+        assert g["items"] == []
+
+    def test_켜면_늘어난_곳을_짚어_준다(self, monkeypatch):
+        monkeypatch.setattr(memory, "_TRACE", True)
+        monkeypatch.setattr(memory, "_기준_스냅샷", None)
+        monkeypatch.setattr(memory, "_samples", [(0.0, 100.0), (1.0, 100.0)])
+        try:
+            memory._추적_표본()      # tracemalloc 시작
+            memory._추적_표본()      # 기준 스냅샷
+            보관 = {i: {"a": i, "b": "x" * 50} for i in range(20000)}
+            g = memory.alloc_growth()
+            assert g["ready"] is True, g
+            assert g["items"], "늘었는데 아무것도 짚지 못했다"
+            제일큰것 = g["items"][0]
+            assert 제일큰것["grew_kb"] > 500, 제일큰것
+            assert "test_memory_limits" in 제일큰것["where"], (
+                f"어디서 늘었는지 못 짚었다: {제일큰것['where']}")
+            # '늘어난 곳' 목록에 줄어든 곳이 섞이면 읽는 사람이 헷갈린다
+            assert all(it["grew_kb"] >= 0 for it in g["items"]), g["items"]
+            assert all(it["count_diff"] > 0 or it["grew_kb"] > 0 for it in g["items"])
+            del 보관
+        finally:
+            import tracemalloc
+            if tracemalloc.is_tracing():
+                tracemalloc.stop()
+            memory._기준_스냅샷 = None
+
+    def test_gc_로는_이걸_대신할_수_없다(self):
+        """숫자·문자열만 든 dict 은 순환참조가 불가능해서 GC 가 추적을
+        끊는다. 캐시에 담기는 값이 정확히 그 모양이라, 2만 개를 만들어도
+        gc.get_objects() 에는 거의 잡히지 않는다 — 이 사실을 모르고
+        gc 기반 진단을 만들었다가 헛다리를 짚었다."""
+        import gc
+        gc.collect()
+        전 = memory.object_stats()["total"]
+        보관 = {i: {"a": i, "b": "x" * 50} for i in range(20000)}
+        후 = memory.object_stats()["total"]
+        assert 후 - 전 < 1000, (
+            f"gc 가 {후 - 전}개를 잡았다 — 이 전제가 바뀌었다면 "
+            f"gc 기반 진단을 다시 고려해도 된다")
+        assert len(보관) == 20000
+
+    def test_줄어든_곳은_늘어난_곳에_섞지_않는다(self, monkeypatch):
+        """'늘어난 곳' 목록에 줄어든 항목이 섞이면 읽는 사람이 엉뚱한
+        곳을 파게 된다."""
+        monkeypatch.setattr(memory, "_TRACE", True)
+        monkeypatch.setattr(memory, "_기준_스냅샷", None)
+        monkeypatch.setattr(memory, "_samples", [(0.0, 100.0), (1.0, 100.0)])
+        try:
+            memory._추적_표본()          # tracemalloc 시작
+            # 추적이 켜진 뒤에 할당해야 지웠을 때 '줄었다'로 잡힌다
+            버릴것 = [{"x": i, "y": "z" * 80} for i in range(30000)]
+            memory._추적_표본()          # 기준 스냅샷 (버릴것이 살아 있는 상태)
+            del 버릴것                    # 이제 줄어든다
+            import gc
+            gc.collect()
+            남길것 = {i: "a" * 40 for i in range(5000)}
+            g = memory.alloc_growth(top=200)   # 넉넉히 받아 줄어든 것도 섞이게 한다
+            assert g["ready"] is True
+            # compare_to 는 절댓값 순이라, 거르지 않으면 크게 '줄어든' 곳이
+            # 오히려 1위 '늘어난 곳' 으로 올라온다
+            줄어든것 = [it for it in g["items"] if it["grew_kb"] < 0]
+            assert not 줄어든것, f"줄어든 곳이 섞였다: {줄어든것[:3]}"
+            assert len(남길것) == 5000
+        finally:
+            import tracemalloc
+            if tracemalloc.is_tracing():
+                tracemalloc.stop()
+            memory._기준_스냅샷 = None
+
+    def test_추적이_실패해도_화면이_죽지_않는다(self, monkeypatch):
+        monkeypatch.setattr(memory, "_TRACE", True)
+        monkeypatch.setattr(memory, "_기준_스냅샷", object())   # 엉뚱한 값
+        g = memory.alloc_growth()
+        assert g["enabled"] is True and g["ready"] is False
+        assert g["items"] == []

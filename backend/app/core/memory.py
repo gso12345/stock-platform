@@ -61,6 +61,7 @@ def record_sample():
     _samples.append((_t.time(), round(mb, 1)))
     if len(_samples) > _MAX_SAMPLES:
         del _samples[0]
+    _추적_표본()
 
 
 def trend() -> dict:
@@ -82,6 +83,79 @@ def trend() -> dict:
         "per_hour_mb": round((m1 - m0) / span_h, 1),
         "span_min": round((t1 - t0) / 60),
     }
+
+
+# ── '무엇이' 늘고 있는지 ────────────────────────────────────
+#
+# RSS 가 오르는 건 보이는데 원인을 못 찾아 캐시·스레드·라이브러리를 하나씩
+# 짚어가며 추측한 적이 있다. 파이썬은 자기가 어디서 무엇을 할당했는지
+# 말해 줄 수 있다(tracemalloc). 다만 공짜가 아니라서 —
+#
+#   · 할당마다 기록을 남기므로 메모리를 10~25% 더 쓰고 CPU 도 더 쓴다
+#   · 512MB / 0.15 CPU 짜리 인스턴스에서 상시로 켜 둘 것은 아니다
+#
+# 그래서 평소엔 꺼 두고, 원인을 찾아야 할 때만 MEM_TRACE=1 로 켠다.
+# gc.get_objects() 로는 이걸 대신할 수 없다 — 숫자·문자열만 든 dict 은
+# 순환참조가 불가능해서 GC 가 추적을 끊는다. 캐시에 담기는 값이 정확히
+# 그 모양이라, 2만 개를 만들어도 '+2개' 로 보인다.
+_TRACE = os.getenv("MEM_TRACE", "").strip() in ("1", "true", "yes")
+_기준_스냅샷 = None
+_기준_시각 = 0.0
+
+
+def _추적_표본():
+    """켜져 있을 때만 기준 스냅샷을 한 번 잡아 둔다."""
+    global _기준_스냅샷, _기준_시각
+    if not _TRACE or _기준_스냅샷 is not None or len(_samples) < 2:
+        return
+    try:
+        import time as _t
+        import tracemalloc
+        if not tracemalloc.is_tracing():
+            tracemalloc.start(1)
+            return          # 켜자마자 찍으면 비어 있다. 다음 표본에서 잡는다
+        _기준_스냅샷 = tracemalloc.take_snapshot()
+        _기준_시각 = _t.time()
+    except Exception as e:
+        log.warning(f"메모리 추적 시작 실패: {type(e).__name__}: {e}")
+
+
+def alloc_growth(top: int = 8) -> dict:
+    """기준 시점 이후 어느 코드가 메모리를 늘렸는지.
+
+    MEM_TRACE=1 이 아니면 꺼져 있다고만 알린다."""
+    if not _TRACE:
+        return {"enabled": False, "ready": False, "items": [], "span_min": 0}
+    if _기준_스냅샷 is None:
+        return {"enabled": True, "ready": False, "items": [], "span_min": 0}
+    try:
+        import time as _t
+        import tracemalloc
+        지금 = tracemalloc.take_snapshot()
+        차이 = 지금.compare_to(_기준_스냅샷, "lineno")
+        items = []
+        for st in 차이[:top]:
+            if st.size_diff <= 0:
+                continue
+            f = st.traceback[0]
+            # 경로가 길어 화면을 넘치므로 app/ 아래만 남긴다
+            where = f.filename
+            if "/app/" in where:
+                where = "app/" + where.split("/app/", 1)[1]
+            items.append({
+                "where": f"{where}:{f.lineno}",
+                "grew_kb": round(st.size_diff / 1024),
+                "now_kb": round(st.size / 1024),
+                "count_diff": st.count_diff,
+            })
+        return {
+            "enabled": True, "ready": True,
+            "span_min": round((_t.time() - _기준_시각) / 60),
+            "items": items,
+        }
+    except Exception as e:
+        return {"enabled": True, "ready": False, "items": [], "span_min": 0,
+                "error": f"{type(e).__name__}: {e}"}
 
 
 def proc_breakdown() -> dict | None:

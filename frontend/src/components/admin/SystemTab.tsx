@@ -25,6 +25,8 @@ interface Runtime {
   memory: {
     used_mb: number | null; limit_mb: number; percent: number | null;
     cache_mb: number; cache_limit_mb: number; cache_items: number; cache_packed: number;
+    /* 만료된 값 보관분 — 이 몫이 보고에서 빠져 있어 누수를 오래 못 찾았다 */
+    cache_fresh_mb?: number; cache_stale_mb?: number; cache_stale_items?: number;
   };
   cpu: { quota: number; reported: number; news_workers: number };
   tasks: { name: string; running: boolean; error: string | null }[];
@@ -43,6 +45,10 @@ interface Runtime {
   objects?: {
     total: number; blocks: number; threads: number;
     gc_counts: number[]; top: { name: string; count: number }[];
+  };
+  alloc_growth?: {
+    enabled: boolean; ready: boolean; span_min: number;
+    items: { where: string; grew_kb: number; now_kb: number; count_diff: number }[];
   };
   mem_trend?: {
     samples: number; points: number[]; first_mb?: number; last_mb?: number;
@@ -274,7 +280,10 @@ export default function SystemTab() {
             {[
               ["라이브러리", `${라이브러리MB}MB`, `${라이브러리?.items.length ?? 0}개 측정`],
               ["상주 데이터 (종목DB 등)", `${데이터MB}MB`, `${상주데이터.length}종`],
-              ["응답 캐시", `${d.memory.cache_mb}MB`, `한도 ${d.memory.cache_limit_mb}MB`],
+              ["응답 캐시", `${d.memory.cache_mb}MB`,
+                d.memory.cache_stale_mb != null
+                  ? `신선 ${d.memory.cache_fresh_mb}MB + 만료보관 ${d.memory.cache_stale_mb}MB`
+                  : `한도 ${d.memory.cache_limit_mb}MB`],
               ["파이썬 자체·기타", `${나머지MB}MB`,
                 라이브러리?.baseline_mb ? `인터프리터 ${라이브러리.baseline_mb}MB 포함` : ""],
             ].map(([k, v, sub]) => (
@@ -355,6 +364,40 @@ export default function SystemTab() {
             </div>
             );
           })()}
+
+          {/* 무엇이 늘고 있는지 — MEM_TRACE=1 로 켰을 때만 */}
+          {d.alloc_growth?.enabled && (
+            <div className="rounded-lg bg-bg-elevated p-2.5 flex flex-col gap-1">
+              <p className="text-2xs font-semibold text-text-muted">
+                늘어난 곳 {d.alloc_growth.ready && `(최근 ${d.alloc_growth.span_min}분)`}
+              </p>
+              {!d.alloc_growth.ready ? (
+                <p className="text-[10px] text-text-dim break-keep">
+                  기준점을 잡는 중입니다 — 표본이 두 번 모이면(약 10분) 표시됩니다
+                </p>
+              ) : d.alloc_growth.items.length === 0 ? (
+                <p className="text-[10px] text-text-dim">늘어난 곳이 없습니다</p>
+              ) : (
+                <>
+                  {d.alloc_growth.items.map((it) => (
+                    <div key={it.where} className="flex items-baseline justify-between gap-2 text-2xs">
+                      <span className="text-text-dim font-mono truncate">{it.where}</span>
+                      <span className="font-mono text-text-secondary shrink-0">
+                        +{(it.grew_kb / 1024).toFixed(1)}MB
+                        <span className="text-text-dim font-normal ml-1">
+                          ({it.count_diff.toLocaleString()}개)
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-text-dim break-keep mt-0.5">
+                    파이썬이 직접 기록한 값입니다. 원인을 찾은 뒤에는 MEM_TRACE 를 꺼
+                    두세요 — 켜 두면 메모리를 10~25% 더 씁니다.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             {[
