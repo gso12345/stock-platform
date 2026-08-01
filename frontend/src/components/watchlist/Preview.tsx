@@ -10,10 +10,13 @@ export interface PreviewItem {
 }
 export interface PreviewFolder { id: number; name: string; }
 
+/* 폴더는 '이런 식으로 묶어 쓰는 화면'임을 보여주는 자리다. 주식만 있으면
+   폴더가 왜 필요한지 와닿지 않으므로, 성격이 다른 묶음을 하나 둔다. */
 export const PREVIEW_FOLDERS: PreviewFolder[] = [
   { id: -1, name: "국내 우량주" },
   { id: -2, name: "해외 성장주" },
   { id: -3, name: "ETF" },
+  { id: -4, name: "금·채권" },
 ];
 export const PREVIEW_WATCHLIST: PreviewItem[] = [
   { id: -1, symbol: "005930", market: "KR",  name: "삼성전자",          folderId: -1, price: 72400,  change_rate:  0.58 },
@@ -28,6 +31,8 @@ export const PREVIEW_WATCHLIST: PreviewItem[] = [
   { id: -10, symbol: "TSLA",  market: "US",  name: "테슬라",             folderId: -2, price: 247.15, change_rate: -0.94 },
   { id: -11, symbol: "SPY",   market: "ETF", name: "SPDR S&P 500 ETF",  folderId: -3, price: 534.21, change_rate:  0.41 },
   { id: -12, symbol: "QQQ",   market: "ETF", name: "Invesco QQQ Trust", folderId: -3, price: 461.83, change_rate:  0.89 },
+  { id: -13, symbol: "GLD",   market: "ETF", name: "SPDR 골드 ETF",      folderId: -4, price: 244.10, change_rate:  0.35 },
+  { id: -14, symbol: "TLT",   market: "ETF", name: "미국 장기국채 ETF",   folderId: -4, price:  88.42, change_rate: -0.28 },
 ];
 
 export const PreviewItemRow = memo(function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {

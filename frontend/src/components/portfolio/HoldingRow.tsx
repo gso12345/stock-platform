@@ -15,14 +15,24 @@ export function SortHead({ field, label, sortField, sortDir, onClick, align = "r
   onClick: (f: SortField) => void; align?: "left" | "right";
 }) {
   const active = sortField === field;
+  /* 예전에는 <th onClick> 이라 마우스로만 누를 수 있었다. 스크린리더는
+     이 칸이 눌리는지도, 지금 무엇으로 정렬돼 있는지도 알 수 없었다.
+     퀀트 표와 같은 방식(th 에 aria-sort, 안쪽은 진짜 button)으로 맞춘다. */
   return (
     <th
-      onClick={() => onClick(field)}
-      className={`px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap cursor-pointer select-none hover:text-text-primary transition-colors ${
+      aria-sort={active ? (sortDir === "desc" ? "descending" : "ascending") : "none"}
+      className={`px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap select-none ${
         align === "left" ? "text-left" : "text-right"
       }`}
     >
-      <span className={`inline-flex items-center gap-0.5 ${align === "right" ? "flex-row-reverse" : ""}`}>
+      <button
+        type="button"
+        onClick={() => onClick(field)}
+        aria-label={`${label} 기준 정렬`}
+        className={`inline-flex items-center gap-0.5 hover:text-text-primary transition-colors
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-blue/60 rounded
+          ${align === "right" ? "flex-row-reverse" : ""} ${active ? "text-accent-blue" : ""}`}
+      >
         {label}
         {active
           ? sortDir === "desc"
@@ -30,7 +40,7 @@ export function SortHead({ field, label, sortField, sortDir, onClick, align = "r
             : <ChevronUp size={10} className="text-accent-blue" />
           : <ChevronsUpDown size={10} className="opacity-25" />
         }
-      </span>
+      </button>
     </th>
   );
 }

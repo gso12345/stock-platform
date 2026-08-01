@@ -31,18 +31,37 @@ const PIE_COLORS  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4"
 /* ── 미리보기 예시 데이터 (비로그인 시 표시) ────────────────── */
 type PreviewEnrichedBase = Omit<EnrichedItem, "isForexItem" | "nativeAvgPrice" | "nativeValue" | "nativePnl">;
 
+/* 자산유형 탭이 일곱 개인데 예시에는 주식뿐이라, 로그인 전에는 '금'이나
+   '채권'을 눌러도 빈 화면만 나왔다. 유형별 합계·구성 차트가 무엇을 하는
+   기능인지 보려면 예시 자체에 그 유형들이 있어야 한다.
+   (유형은 @/utils/assetClass 가 종목명·코드로 알아서 분류한다 —
+    GLD→금, TLT→채권, JEPI→커버드콜) */
 const PREVIEW_ENRICHED: PreviewEnrichedBase[] = [
   { id: -1, symbol: "005930", market: "KR", name: "삼성전자",   shares: 50,  avgPrice: 100000, currency: "KRW",
-    currentPriceNative: 72400,  currentValueKRW: 3_620_000,  costKRW: 5_000_000,  pnlKRW: -1_380_000, pnlRate: -27.60, weight:  4.7 },
+    currentPriceNative: 72400,  currentValueKRW: 3_620_000,  costKRW: 5_000_000,  pnlKRW: -1_380_000, pnlRate: -27.60, weight: 0 },
   { id: -2, symbol: "NVDA",   market: "US", name: "엔비디아",   shares: 50,  avgPrice: 110,   currency: "USD", inputExchangeRate: 1320,
-    currentPriceNative: 875,    currentValueKRW: 57_750_000, costKRW: 7_260_000,  pnlKRW: 50_490_000, pnlRate: 695.45, weight: 74.2 },
+    currentPriceNative: 875,    currentValueKRW: 57_750_000, costKRW: 7_260_000,  pnlKRW: 50_490_000, pnlRate: 695.45, weight: 0 },
   { id: -3, symbol: "AAPL",   market: "US", name: "애플",       shares: 30,  avgPrice: 172,   currency: "USD", inputExchangeRate: 1310,
-    currentPriceNative: 195,    currentValueKRW: 7_663_500,  costKRW: 6_759_600,  pnlKRW:  903_900, pnlRate: 13.37, weight:  9.8 },
+    currentPriceNative: 195,    currentValueKRW: 7_663_500,  costKRW: 6_759_600,  pnlKRW:  903_900, pnlRate: 13.37, weight: 0 },
   { id: -4, symbol: "000660", market: "KR", name: "SK하이닉스", shares: 10,  avgPrice: 300000, currency: "KRW",
-    currentPriceNative: 185000, currentValueKRW: 1_850_000,  costKRW: 3_000_000,  pnlKRW: -1_150_000, pnlRate: -38.33, weight:  2.4 },
+    currentPriceNative: 185000, currentValueKRW: 1_850_000,  costKRW: 3_000_000,  pnlKRW: -1_150_000, pnlRate: -38.33, weight: 0 },
   { id: -5, symbol: "SPY",    market: "ETF", name: "SPDR S&P500 ETF", shares: 10, avgPrice: 420, currency: "USD", inputExchangeRate: 1300,
-    currentPriceNative: 535,    currentValueKRW: 6_955_000,  costKRW: 5_460_000,  pnlKRW: 1_495_000, pnlRate: 27.38, weight:  8.9 },
+    currentPriceNative: 535,    currentValueKRW: 6_955_000,  costKRW: 5_460_000,  pnlKRW: 1_495_000, pnlRate: 27.38, weight: 0 },
+  { id: -6, symbol: "GLD",    market: "ETF", name: "SPDR 골드 ETF", shares: 15, avgPrice: 185, currency: "USD", inputExchangeRate: 1310,
+    currentPriceNative: 244,    currentValueKRW: 4_941_000,  costKRW: 3_635_250,  pnlKRW: 1_305_750, pnlRate: 35.92, weight: 0 },
+  { id: -7, symbol: "TLT",    market: "ETF", name: "미국 장기국채 ETF", shares: 20, avgPrice: 95, currency: "USD", inputExchangeRate: 1330,
+    currentPriceNative: 88,     currentValueKRW: 2_376_000,  costKRW: 2_527_000,  pnlKRW: -151_000, pnlRate: -5.98, weight: 0 },
+  { id: -8, symbol: "JEPI",   market: "ETF", name: "JPM 커버드콜 ETF", shares: 40, avgPrice: 55, currency: "USD", inputExchangeRate: 1320,
+    currentPriceNative: 58,     currentValueKRW: 3_132_000,  costKRW: 2_904_000,  pnlKRW: 228_000, pnlRate: 7.85, weight: 0 },
+  /* 현금은 시세가 없다. 평가금액 = 매입금액이라 손익이 늘 0이고,
+     그래서 '현금 비중'을 눈으로 확인할 수 있다 */
+  { id: -9, symbol: "현금", market: "KR", name: "원화 현금", shares: 1, avgPrice: 5_000_000, currency: "KRW",
+    assetClass: "현금",
+    currentPriceNative: 5_000_000, currentValueKRW: 5_000_000, costKRW: 5_000_000, pnlKRW: 0, pnlRate: 0, weight: 0 },
 ];
+
+/* 시세를 물어볼 대상 — 현금은 시세가 없으니 뺀다 */
+const PREVIEW_PRICEABLE = PREVIEW_ENRICHED.filter((i) => i.assetClass !== "현금");
 /* ── 자산유형 — 분류 규칙은 @/utils/assetClass 에 공용으로 둔다 (관심종목과 동일 기준) ── */
 const ASSET_FILTER_TABS: { id: AssetClass | "전체"; label: string }[] = [
   { id: "전체",     label: "전체" },
@@ -372,7 +391,7 @@ export default function Portfolio() {
   /* ── 비로그인 미리보기용 실시간 현재가 (예시 보유종목도 실제 시세로 표시) ── */
   const { data: previewBatchPrices } = useQuery({
     queryKey:       ["portfolio-preview-prices"],
-    queryFn:        () => watchlistApi.getPrices(PREVIEW_ENRICHED.map((i) => i.symbol), PREVIEW_ENRICHED.map((i) => i.market)),
+    queryFn:        () => watchlistApi.getPrices(PREVIEW_PRICEABLE.map((i) => i.symbol), PREVIEW_PRICEABLE.map((i) => i.market)),
     enabled:        !isLoggedIn,
     staleTime:      120_000,
     refetchInterval:120_000,
@@ -381,8 +400,11 @@ export default function Portfolio() {
   const previewLoaded = previewBatchPrices != null;
 
   const previewEnrichedLive = useMemo<EnrichedItem[]>(() => {
-    const list = PREVIEW_ENRICHED.map((base, i) => {
-      const d = previewBatchPrices?.[i] as any;
+    /* 배열 순서가 아니라 종목코드로 짝짓는다. 서버가 한 종목을 건너뛰면
+       그 뒤가 통째로 한 칸씩 밀려 엉뚱한 가격이 붙는다 — 실제로 겪은 일이다 */
+    const bySymbol = indexPricesBySymbol(previewBatchPrices);
+    const list = PREVIEW_ENRICHED.map((base) => {
+      const d = base.assetClass === "현금" ? null : lookupPrice(bySymbol, base.symbol);
       const currentPriceNative = d?.price ?? base.currentPriceNative;
       const isUSDStock = base.market === "US" || base.market === "ETF";
       const currentValueKRW = isUSDStock
@@ -523,10 +545,13 @@ export default function Portfolio() {
 
   const summary = useMemo(() => 합계내기(enriched), [enriched, 합계내기]);
 
-  /* ── 정렬된 enriched ── */
-  const sortedEnriched = useMemo(() => {
-    if (!sortField) return enriched;
-    return [...enriched].sort((a, b) => {
+  /* ── 정렬 ──
+     로그인 여부와 무관하게 같은 규칙을 쓴다. 예전에는 미리보기에서 표
+     머리글을 눌러도 아무 일이 없어, 정렬이 되는 화면인지조차 알 수
+     없었다. 화면 안에서 줄 순서만 바꾸는 일이라 막을 이유가 없다. */
+  const 정렬 = useCallback((rows: EnrichedItem[]) => {
+    if (!sortField) return rows;
+    return [...rows].sort((a, b) => {
       if (sortField === "name") {
         const av = a.name || a.symbol, bv = b.name || b.symbol;
         return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
@@ -539,7 +564,9 @@ export default function Portfolio() {
       };
       return sortDir === "asc" ? map[sortField] - bmap[sortField] : bmap[sortField] - map[sortField];
     });
-  }, [enriched, sortField, sortDir]);
+  }, [sortField, sortDir]);
+
+  const sortedEnriched = useMemo(() => 정렬(enriched), [enriched, 정렬]);
 
   /* ── 차트 데이터 ── */
   const stockPieData = useMemo(() => {
@@ -639,7 +666,10 @@ export default function Portfolio() {
   const isLoading = itemsLoading || pricesLoading;
 
   /* ── 미리보기 vs 실데이터 ── */
-  const allDisplayEnriched = isLoggedIn ? sortedEnriched : previewEnrichedLive;
+  const allDisplayEnriched = useMemo(
+    () => (isLoggedIn ? sortedEnriched : 정렬(previewEnrichedLive)),
+    [isLoggedIn, sortedEnriched, previewEnrichedLive, 정렬],
+  );
   const displayEnriched = useMemo(
     () => assetFilterTab === "전체"
       ? allDisplayEnriched
@@ -767,29 +797,32 @@ export default function Portfolio() {
               onToggle={toggleExcludedPortfolio}
             />
           )}
-          {/* 관심종목의 "폴더 관리 / 종목 추가"와 같은 위치·형태로 맞춘다 */}
-          {isLoggedIn && (
-            <>
-              {portfolios.length > 0 && (
-                <button
-                  onClick={() => setShowPortfolioManager(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all whitespace-nowrap"
-                  title="포트폴리오 추가/편집"
-                >
-                  <Settings2 size={13} />포트폴리오 관리
-                </button>
-              )}
-              {/* "전체"는 여러 포트폴리오를 모아 보는 화면이라 어디에 담을지가 모호하다.
-                  종목 추가는 특정 포트폴리오를 고른 상태에서만 노출한다 */}
-              {!isAllView && (
-                <button
-                  onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all whitespace-nowrap"
-                >
-                  <Plus size={13} />종목 추가
-                </button>
-              )}
-            </>
+          {/* 관심종목의 "폴더 관리 / 종목 추가"와 같은 위치·형태로 맞춘다.
+              로그인 전에도 버튼을 숨기지 않는다 — 버튼이 아예 없으면 이
+              화면으로 무엇을 할 수 있는지 알 수가 없다. 누르면 로그인으로
+              보내서, 왜 로그인이 필요한지가 그 자리에서 드러나게 한다. */}
+          {(isLoggedIn ? portfolios.length > 0 : true) && (
+            <button
+              onClick={() => isLoggedIn ? setShowPortfolioManager(true) : navigate("/login")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all whitespace-nowrap"
+              title={isLoggedIn ? "포트폴리오 추가/편집" : "로그인하면 포트폴리오를 만들 수 있어요"}
+            >
+              <Settings2 size={13} />포트폴리오 관리
+            </button>
+          )}
+          {/* "전체"는 여러 포트폴리오를 모아 보는 화면이라 어디에 담을지가 모호하다.
+              종목 추가는 특정 포트폴리오를 고른 상태에서만 노출한다 */}
+          {(!isLoggedIn || !isAllView) && (
+            <button
+              onClick={() => {
+                if (!isLoggedIn) { navigate("/login"); return; }
+                setEditItem(undefined); setModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all whitespace-nowrap"
+              title={isLoggedIn ? undefined : "로그인하면 내 종목을 담을 수 있어요"}
+            >
+              <Plus size={13} />종목 추가
+            </button>
           )}
         </div>
       </div>
@@ -1105,16 +1138,16 @@ export default function Portfolio() {
             <table className="w-full text-xs min-w-[820px]">
               <thead>
                 <tr className="border-b border-border text-text-muted">
-                  <SortHead field="name"    label="종목명"      sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} align="left" />
+                  <SortHead field="name"    label="종목명"      sortField={sortField} sortDir={sortDir} onClick={toggleSort} align="left" />
                   {isAllView && <th className="px-3 py-2.5 font-medium text-text-muted whitespace-nowrap text-left text-xs">포트폴리오</th>}
                   <th className="px-3 py-2.5 font-medium text-text-muted whitespace-nowrap text-right text-xs">시장</th>
-                  <SortHead field="shares"  label="보유수량"    sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
+                  <SortHead field="shares"  label="보유수량"    sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">평단가</th>
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">현재가</th>
-                  <SortHead field="value"   label="평가금액(₩)" sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
-                  <SortHead field="pnl"     label="평가손익(₩)" sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
-                  <SortHead field="pnlRate" label="수익률"      sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
-                  <SortHead field="weight"  label="비중"        sortField={isLoggedIn ? sortField : null} sortDir={sortDir} onClick={isLoggedIn ? toggleSort : () => {}} />
+                  <SortHead field="value"   label="평가금액(₩)" sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <SortHead field="pnl"     label="평가손익(₩)" sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <SortHead field="pnlRate" label="수익률"      sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
+                  <SortHead field="weight"  label="비중"        sortField={sortField} sortDir={sortDir} onClick={toggleSort} />
                   <th className="px-3 py-2.5 font-semibold text-text-muted whitespace-nowrap text-right">액션</th>
                 </tr>
               </thead>

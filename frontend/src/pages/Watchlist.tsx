@@ -607,18 +607,24 @@ export default function Watchlist() {
           >
             <RefreshCw size={13} />
           </button>
-          {isLoggedIn && (
+          {/* 로그인 전에도 버튼을 숨기지 않는다 — 버튼이 아예 없으면 이
+              화면으로 무엇을 할 수 있는지 알 수가 없다. 누르면 로그인으로
+              보내서, 왜 로그인이 필요한지가 그 자리에서 드러나게 한다. */}
+          {(
             <>
               <button
-                onClick={() => setShowFolderManager(true)}
+                onClick={() => isLoggedIn ? setShowFolderManager(true) : navigate("/login")}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
-                title="폴더 추가/편집"
+                title={isLoggedIn ? "폴더 추가/편집" : "로그인하면 폴더를 만들 수 있어요"}
               >
                 <Settings2 size={13} />폴더 관리
               </button>
               <button
-                onClick={() => openAddModal(typeof folderTab === "number" ? folderTab : null)}
+                onClick={() => isLoggedIn
+                  ? openAddModal(typeof folderTab === "number" ? folderTab : null)
+                  : navigate("/login")}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all"
+                title={isLoggedIn ? undefined : "로그인하면 관심종목을 담을 수 있어요"}
               >
                 <Plus size={13} />종목 추가
               </button>
