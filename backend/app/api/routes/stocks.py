@@ -35,6 +35,22 @@ async def _run(fn, *args):
     return await asyncio.wait_for(loop.run_in_executor(None, fn, *args), timeout=15)
 
 
+def _시한내결과(fut, timeout: float):
+    """시한 안에 온 결과만 쓰고, 늦은 것은 없는 셈 친다.
+
+    화면 하나가 야후에 대여섯 가지를 물어보는데, 그중 하나가 늦다고 응답
+    전체를 붙들고 있을 수는 없다. 늦은 것은 다음 요청에서 캐시로 채워진다.
+
+    cancel() 을 같이 부르는 이유 — 아직 시작도 안 한 작업까지 굳이 돌릴
+    이유가 없다. 이미 시작한 작업은 취소되지 않지만, 공용 풀 위에서 도니
+    끝나면 스레드가 풀로 돌아온다."""
+    try:
+        return fut.result(timeout=timeout)
+    except Exception:
+        fut.cancel()
+        return None
+
+
 # ── 국내 주식 ──────────────────────────────────────────────
 async def get_kr_price(symbol: str) -> dict:
     """KIS → 캐시 → Naver → 순위캐시 → yfinance 순으로 폴백"""
@@ -950,8 +966,8 @@ async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"]
             except Exception:
                 pass
 
-            # 재무 DataFrame 6종을 ThreadPoolExecutor로 병렬 조회
-            import concurrent.futures
+            # 재무 DataFrame 6종을 공용 풀에서 병렬 조회
+            from app.core.executor import detail_executor
 
             def _get(attr):
                 try:
@@ -959,19 +975,12 @@ async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"]
                 except Exception:
                     return None
 
-            pool = concurrent.futures.ThreadPoolExecutor(max_workers=6)
-            _futures = {attr: pool.submit(_get, attr) for attr in (
+            _futures = {attr: detail_executor.submit(_get, attr) for attr in (
                 "financials", "balance_sheet",
                 "quarterly_financials", "quarterly_balance_sheet",
                 "cashflow", "quarterly_cashflow",
             )}
-            dfs = {}
-            for attr, fut in _futures.items():
-                try:
-                    dfs[attr] = fut.result(timeout=20)
-                except Exception:
-                    dfs[attr] = None
-            pool.shutdown(wait=False)
+            dfs = {attr: _시한내결과(fut, 20) for attr, fut in _futures.items()}
 
             annual    = _process(dfs["financials"],          dfs["balance_sheet"],          shares, hist)
             quarterly = _process(dfs["quarterly_financials"], dfs["quarterly_balance_sheet"], shares, hist)
@@ -1118,7 +1127,7 @@ async def get_forecasts(request: Request, market: Literal["KR","US","ETF"], symb
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
 
     def _fetch():
-        import concurrent.futures
+        from app.core.executor import detail_executor
 
         # 4개 yfinance 속성을 병렬로 조회 (각각 별도 Ticker 인스턴스)
         def _get_ee():
@@ -1145,30 +1154,15 @@ async def get_forecasts(request: Request, market: Literal["KR","US","ETF"], symb
             except Exception:
                 return None
 
-        # with 블록은 종료 시 모든 작업 완료까지 대기해 result(timeout=) 효과를 무력화하므로
-        # shutdown(wait=False)로 응답 시한을 넘긴 작업은 백그라운드에 두고 즉시 반환
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-        f_ee = pool.submit(_get_ee)
-        f_re = pool.submit(_get_re)
-        f_et = pool.submit(_get_et)
-        f_ge = pool.submit(_get_ge)
-        try:
-            ee = f_ee.result(timeout=12)
-        except Exception:
-            ee = None
-        try:
-            re_ = f_re.result(timeout=12)
-        except Exception:
-            re_ = None
-        try:
-            et = f_et.result(timeout=12)
-        except Exception:
-            et = None
-        try:
-            ge = f_ge.result(timeout=12)
-        except Exception:
-            ge = None
-        pool.shutdown(wait=False)
+        # with 블록은 종료 시 모든 작업 완료까지 대기해 result(timeout=) 효과를
+        # 무력화한다. 그렇다고 요청마다 새 풀을 만들면 시한을 넘긴 작업의
+        # 스레드가 그대로 쌓이므로(app/core/executor.py 참고), 크기가 정해진
+        # 공용 풀에 얹고 시한만 지킨다.
+        f_ee = detail_executor.submit(_get_ee)
+        f_re = detail_executor.submit(_get_re)
+        f_et = detail_executor.submit(_get_et)
+        f_ge = detail_executor.submit(_get_ge)
+        ee, re_, et, ge = (_시한내결과(f, 12) for f in (f_ee, f_re, f_et, f_ge))
 
         annual: dict = {}
         quarterly: dict = {}
@@ -1629,7 +1623,7 @@ async def get_analyst(request: Request, market: Literal["KR","US","ETF"], symbol
     code6 = symbol.replace(".KS","").replace(".KQ","") if market == "KR" else ""
 
     def _fetch():
-        import concurrent.futures
+        from app.core.executor import detail_executor
 
         # 3개 yfinance 속성을 병렬로 조회 (순차 실행 시 15s 타임아웃 → 병렬 시 ~4s)
         def _get_apt():
@@ -1673,40 +1667,18 @@ async def get_analyst(request: Request, market: Literal["KR","US","ETF"], symbol
             except Exception:
                 return None
 
-        # with 블록은 종료 시 모든 작업 완료까지 대기해 result(timeout=) 효과를 무력화하므로
-        # shutdown(wait=False)로 응답 시한을 넘긴 작업은 백그라운드에 두고 즉시 반환
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=6)
-        f_apt  = pool.submit(_get_apt)
-        f_rs   = pool.submit(_get_rs)
-        f_ud   = pool.submit(_get_ud)
-        f_fund = pool.submit(_get_fund)
-        f_fhpt = pool.submit(_get_fh_pt)
-        f_fhrec= pool.submit(_get_fh_rec)
-        try:
-            apt = f_apt.result(timeout=12)
-        except Exception:
-            apt = None
-        try:
-            rs = f_rs.result(timeout=12)
-        except Exception:
-            rs = None
-        try:
-            ud = f_ud.result(timeout=12)
-        except Exception:
-            ud = None
-        try:
-            fund = f_fund.result(timeout=12)
-        except Exception:
-            fund = None
-        try:
-            fh_pt = f_fhpt.result(timeout=12)
-        except Exception:
-            fh_pt = None
-        try:
-            fh_rec = f_fhrec.result(timeout=12)
-        except Exception:
-            fh_rec = None
-        pool.shutdown(wait=False)
+        # 요청마다 새 풀을 만들면 시한을 넘긴 작업의 스레드가 그대로 쌓인다
+        # (app/core/executor.py 참고). 크기가 정해진 공용 풀에 얹는다.
+        f_apt  = detail_executor.submit(_get_apt)
+        f_rs   = detail_executor.submit(_get_rs)
+        f_ud   = detail_executor.submit(_get_ud)
+        f_fund = detail_executor.submit(_get_fund)
+        f_fhpt = detail_executor.submit(_get_fh_pt)
+        f_fhrec= detail_executor.submit(_get_fh_rec)
+        apt, rs, ud, fund, fh_pt, fh_rec = (
+            _시한내결과(f, 12)
+            for f in (f_apt, f_rs, f_ud, f_fund, f_fhpt, f_fhrec)
+        )
 
         result: dict = {}
 

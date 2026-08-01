@@ -128,6 +128,12 @@ export default function SearchBar() {
 
   const goTo = useCallback((item: SR) => {
     saveRecent(item);
+    /* 관리자 화면의 '검색 트렌드' 재료 — 무엇을 쳤나가 아니라 무엇을
+       찾았나를 센다. 화면 이동을 붙잡으면 안 되므로 기다리지 않고,
+       실패해도 사용자에게 알릴 것이 없다 */
+    api.post("/search/picked", {
+      symbol: item.symbol, market: item.market, name: item.name ?? "",
+    }).catch(() => {});
     closeSearch();
     navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`);
   }, [navigate]);

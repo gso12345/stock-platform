@@ -3,7 +3,8 @@
 - 한국: Naver 자동완성 API (전체 KRX 종목)
 - 미국: Finnhub 전 종목 검색 → 내장 DB 폴백
 """
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
+from pydantic import BaseModel, Field
 import httpx
 import asyncio
 from slowapi import Limiter
@@ -100,15 +101,30 @@ async def search_route(
 
     cache.set(ck, results, 300)  # 5분 캐시
 
-    # 검색 트렌드 추적 (결과가 있을 때만)
-    if results:
-        try:
-            from app.core.trends import track_search
-            track_search(q.strip())
-        except Exception:
-            pass
-
+    # 트렌드는 여기서 세지 않는다 — '무엇을 쳤나'가 아니라 '무엇을 찾았나'를
+    # 알아야 하므로, 사용자가 결과 중 하나를 고른 시점(/search/picked)에 센다.
     return {"results": results, "total": len(results)}
+
+
+class PickedIn(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    market: str = Field(default="", max_length=8)
+    name:   str = Field(default="", max_length=60)
+
+
+@router.post("/picked", status_code=204)
+@limiter.limit("60/minute")
+def search_picked(request: Request, body: PickedIn):
+    """검색 결과에서 종목을 골랐을 때 — 관리자 화면의 '검색 트렌드' 재료.
+
+    화면 이동을 막지 않도록 아무 것도 돌려주지 않는다. 실패해도 사용자가
+    알 필요가 없는 통계라 조용히 넘어간다."""
+    try:
+        from app.core.trends import track_search
+        track_search(body.symbol, body.name, body.market)
+    except Exception:
+        pass
+    return Response(status_code=204)
 
 
 @router.get("/batch-prices")

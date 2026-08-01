@@ -11,7 +11,7 @@ import {
   ExternalLink, Calendar,
 } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
-import { Tabs } from "@/components/ui";
+import { Tabs, MarketBadge } from "@/components/ui";
 import SystemTab from "@/components/admin/SystemTab";
 
 const adminApi = {
@@ -420,34 +420,42 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
         )}
       </div>
 
-      {/* 검색 트렌드 */}
+      {/* 검색으로 찾은 종목 — '무엇을 쳤나'가 아니라 '무엇을 찾았나' */}
       {(() => {
-        const trends: { query: string; count: number }[] = searchTrends ?? [];
+        const trends: { symbol: string; market: string; name: string; count: number }[] = searchTrends ?? [];
         const maxCount = Math.max(...trends.map(t => t.count), 1);
         return (
           <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
             <div className="px-4 py-3 border-b border-border flex items-center gap-1.5">
               <Search size={14} className="text-accent-blue" />
-              <span className="text-sm font-semibold text-text-primary">검색 트렌드 TOP 20</span>
-              <span className="text-xs text-text-muted ml-auto">DB 영속화</span>
+              <span className="text-sm font-semibold text-text-primary">검색으로 찾은 종목 TOP 20</span>
+              <span className="text-xs text-text-muted ml-auto">검색 결과에서 실제로 고른 종목</span>
             </div>
             {trends.length === 0 ? (
-              <div className="py-8 text-center text-text-muted text-sm">검색 데이터가 없습니다</div>
+              <div className="py-8 text-center text-text-muted text-sm">아직 기록이 없습니다</div>
             ) : (
               <div className="divide-y divide-border/40">
                 {trends.map((t, idx) => (
-                  <div key={t.query} className="flex items-center gap-3 px-4 py-2.5 hover:bg-bg-hover transition-colors">
+                  <Link
+                    key={`${t.market}:${t.symbol}`}
+                    to={`/stocks/${t.market}/${encodeURIComponent(t.symbol)}`}
+                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-bg-hover transition-colors"
+                  >
                     <span className={`w-5 text-center text-xs font-bold font-mono shrink-0 ${idx < 3 ? "text-accent-yellow" : "text-text-muted/50"}`}>
                       {idx + 1}
                     </span>
-                    <span className="flex-1 text-sm text-text-primary font-medium">{t.query}</span>
+                    {t.market && <MarketBadge market={t.market} />}
+                    <span className="flex-1 min-w-0 flex items-baseline gap-1.5 truncate">
+                      <span className="text-sm text-text-primary font-medium truncate">{t.name || t.symbol}</span>
+                      {t.name && <span className="text-xs font-mono text-text-dim shrink-0">{t.symbol}</span>}
+                    </span>
                     <div className="flex items-center gap-2 shrink-0">
                       <div className="w-24 h-1.5 rounded-full bg-bg-elevated overflow-hidden">
                         <div className="h-full rounded-full bg-accent-blue/60" style={{ width: `${(t.count / maxCount) * 100}%` }} />
                       </div>
                       <span className="text-xs font-mono text-text-muted w-12 text-right">{t.count}회</span>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}

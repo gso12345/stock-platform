@@ -749,6 +749,12 @@ async def periodic_refresh():
                 pass
 
         # 순위 (장중 60초 / 휴장 10분) - Naver 실시간
+        #
+        # 이 주기는 순위 캐시 수명(RANK_TTL)보다 짧아야 한다. 예전에는
+        # 갱신 10분 / 캐시 60초라, 휴장 중 9분 동안 캐시가 비어 있었고 그
+        # 사이 들어온 요청은 전부 전일 종가로 순위를 새로 만들었다.
+        # 지금은 캐시가 15분이라 구멍이 없다 — 주기를 줄이는 대신 캐시를
+        # 늘렸다. 0.15 CPU 에서 휴장 중에까지 자주 긁을 이유가 없다.
         if counter % (6 if market_hours.kr_session() != "closed" else 60) == 0:
             await refresh_kr_rankings_from_naver()
 

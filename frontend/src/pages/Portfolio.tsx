@@ -506,17 +506,22 @@ export default function Portfolio() {
       .sort((a, b) => b.value - a.value);
   }, [enriched, isAllView]);
 
-  /* ── 요약 ── */
-  const summary = useMemo(() => {
-    const totalValue = enriched.reduce((s, e) => s + e.currentValueKRW, 0);
-    const totalCost  = enriched.reduce((s, e) => s + e.costKRW, 0);
+  /* ── 요약 ──
+     어떤 보유 목록이 들어와도 같은 방식으로 합계를 낸다. 자산유형 탭을
+     '국내주식'으로 바꾸면 아래 표만 국내주식으로 걸러지고 위 합계는 전체
+     그대로여서, 표와 합계가 서로 다른 것을 말하고 있었다. */
+  const 합계내기 = useCallback((rows: EnrichedItem[]) => {
+    const totalValue = rows.reduce((s, e) => s + e.currentValueKRW, 0);
+    const totalCost  = rows.reduce((s, e) => s + e.costKRW, 0);
     const totalPnl   = totalValue - totalCost;
     const totalRate  = totalCost !== 0 ? (totalPnl / totalCost) * 100 : 0;
-    const totalDailyChangeKRW = enriched.reduce((s, e) => s + (e.dailyChangeKRW ?? 0), 0);
+    const totalDailyChangeKRW = rows.reduce((s, e) => s + (e.dailyChangeKRW ?? 0), 0);
     const prevTotalValue = totalValue - totalDailyChangeKRW;
     const totalDailyChangeRate = prevTotalValue !== 0 ? (totalDailyChangeKRW / prevTotalValue) * 100 : 0;
     return { totalValue, totalCost, totalPnl, totalRate, totalDailyChangeKRW, totalDailyChangeRate };
-  }, [enriched]);
+  }, []);
+
+  const summary = useMemo(() => 합계내기(enriched), [enriched, 합계내기]);
 
   /* ── 정렬된 enriched ── */
   const sortedEnriched = useMemo(() => {
@@ -645,7 +650,18 @@ export default function Portfolio() {
     () => displayEnriched.some((e) => e.market === "US" || e.market === "ETF"),
     [displayEnriched],
   );
-  const displaySummary  = isLoggedIn ? summary : previewSummaryLive;
+  /* 자산유형 탭을 고르면 합계도 그 유형만 센다 — '국내주식'을 누르면
+     국내주식 합계, '채권'을 누르면 채권 합계. '전체'일 때만 통째로 센다.
+     (미리보기는 오늘 등락을 계산하지 않으므로 그 값만 0으로 둔다) */
+  const displaySummary = useMemo(() => {
+    if (assetFilterTab === "전체") return isLoggedIn ? summary : previewSummaryLive;
+    const s = 합계내기(displayEnriched);
+    return isLoggedIn ? s : { ...s, totalDailyChangeKRW: 0, totalDailyChangeRate: 0 };
+  }, [assetFilterTab, isLoggedIn, summary, previewSummaryLive, displayEnriched, 합계내기]);
+
+  /* 숫자만 바뀌면 '전체 합계인 줄' 알고 오해한다. 카드 이름에 무엇의
+     합계인지 같이 적는다 — '총 평가금액' vs '채권 평가금액' */
+  const 요약범위 = assetFilterTab === "전체" ? "총" : assetFilterTab;
   // 로그인/비로그인 모두 현재가를 다 불러오기 전까지 추정치를 보여주지 않음
   // 구성 차트는 자산유형 필터와 무관하게 전체 보유종목 기준으로 항상 표시
   const hasDisplay      = allDisplayEnriched.length > 0 && (isLoggedIn ? !isLoading : previewLoaded);
@@ -794,8 +810,8 @@ export default function Portfolio() {
       {((isLoggedIn && items.length > 0 && !pricesLoading) || (!isLoggedIn && previewLoaded)) && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "총 평가금액", value: fmtKRWFull(displaySummary.totalValue),    color: "text-text-primary", icon: Landmark,  tint: "" },
-            { label: "총 매입금액", value: fmtKRWFull(displaySummary.totalCost),     color: "text-text-primary", icon: Receipt,   tint: "" },
+            { label: `${요약범위} 평가금액`, value: fmtKRWFull(displaySummary.totalValue), color: "text-text-primary", icon: Landmark, tint: "" },
+            { label: `${요약범위} 매입금액`, value: fmtKRWFull(displaySummary.totalCost),  color: "text-text-primary", icon: Receipt,  tint: "" },
             { label: "평가손익",   value: fmtKRWFullSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl),
               icon: displaySummary.totalPnl >= 0 ? TrendingUp : TrendingDown,
               tint: displaySummary.totalPnl >= 0 ? "bg-accent-red/5 border-accent-red/20" : "bg-accent-blue/5 border-accent-blue/20" },
@@ -809,7 +825,7 @@ export default function Portfolio() {
                 <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{c.label}</span>
               </div>
               <span className={`text-lg font-mono font-bold ${c.color}`}>{c.value}</span>
-              {c.label === "총 평가금액" && (
+              {c.label.endsWith("평가금액") && (
                 <span className="text-[10px] text-text-dim">환율 {Math.round(exchangeRate).toLocaleString("ko-KR")}원</span>
               )}
               {c.label === "평가손익" && (

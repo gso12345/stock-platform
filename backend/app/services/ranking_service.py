@@ -12,7 +12,24 @@ from app.services.ticker_service import get_kr_db, get_fdr_price
 from app.services.yf_service import SP500_SYMBOLS
 
 log = logging.getLogger(__name__)
-RANK_TTL = 60
+
+# 순위 캐시 수명.
+#
+# 예전에는 60초였다. 그런데 이 캐시를 채우는 Naver 갱신은 장중 60초,
+# 휴장 중 10분 주기다. 즉 휴장 중에는 9분 동안 캐시가 비어 있었고, 그
+# 사이 들어온 요청은 전부 '전일 종가(FDR)'로 순위를 새로 만들었다.
+# 한국장은 하루 6시간 반만 열리므로, 대부분의 시간 동안 화면에 뜨는
+# 순위가 어제 것이었다는 뜻이다. 게다가 그 계산은 2,872 종목을 훑는
+# 일이라 요청이 몇 개만 겹쳐도 눈에 띄게 느려졌다.
+#
+# 캐시는 갱신 주기보다 넉넉히 길어야 한다. 스케줄러가 갱신할 때마다
+# 덮어쓰므로, 길다고 값이 묵지 않는다 — 갱신과 갱신 사이에 구멍이
+# 생기지 않게 하는 것이 목적이다.
+RANK_TTL = 900          # 15분 (휴장 중 갱신 주기 10분보다 길게)
+
+# 전체 종목을 훑어 만든 표를 잠깐 재사용한다. 카테고리가 7개라 이걸
+# 안 하면 같은 계산을 7번 한다.
+ROWS_TTL = 60
 
 NAVER_PC_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
@@ -167,7 +184,12 @@ async def fetch_naver_rank(category: str) -> list[dict]:
 
 # ── FDR 전체 종목 기반 순위 ────────────────────────────────
 def _build_all_kr_rows() -> list[dict]:
-    """FDR 캐시에서 전체 KRX 종목 데이터 구성"""
+    """FDR 캐시에서 전체 KRX 종목 데이터 구성.
+
+    2,872 종목을 훑는다. 카테고리마다 새로 만들면 같은 일을 7번 하므로
+    결과를 짧게 캐시해 둔다."""
+    if cached := cache.get("rank:kr:_rows"):
+        return cached
     kr_db = get_kr_db()
     rows = []
     for item in kr_db:
@@ -193,12 +215,16 @@ def _build_all_kr_rows() -> list[dict]:
             "high":        p.get("high") or 0,
             "low":         p.get("low") or 0,
         })
+    if rows:
+        cache.set("rank:kr:_rows", rows, ROWS_TTL)
     return rows
 
 
 def _sort_kr(rows: list[dict], category: str) -> list[dict]:
-    sortable   = [r for r in rows if r.get("price")]
-    unsortable = [r for r in rows if not r.get("price")]
+    # 가격을 모르는 종목은 순위표에 넣지 않는다. 예전에는 뒤에 붙여
+    # 100위 안을 채웠는데, '거래량 순위'인데 거래량을 모르는 종목이
+    # 43위에 앉아 있으면 그 표는 순위표가 아니다.
+    sortable = [r for r in rows if r.get("price")]
 
     if category == "상승률":
         sortable.sort(key=lambda x: x.get("change_rate") or -9999, reverse=True)
@@ -219,10 +245,9 @@ def _sort_kr(rows: list[dict], category: str) -> list[dict]:
     else:  # 시가총액
         sortable.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
 
-    merged = sortable + unsortable
-    for i, r in enumerate(merged):
+    for i, r in enumerate(sortable):
         r["rank"] = i + 1
-    return merged[:100]
+    return sortable[:100]
 
 
 def _build_us_rows() -> list[dict]:
@@ -275,6 +300,11 @@ def get_kr_rankings(category: str = "시가총액") -> list[dict]:
     cached = cache.get(ck)
     if cached:
         return cached
+
+    # 캐시가 막 만료됐을 뿐이라면, 몇 분 전 실시간 순위가 어제 종가로 새로
+    # 만든 순위보다 훨씬 정확하다. 스케줄러가 곧 갱신해 준다.
+    if stale := cache.get_stale(ck):
+        return stale
 
     # 거래대금/신고가/신저가는 거래량/상승률 캐시를 활용해 계산
     if category == "거래대금":
@@ -350,6 +380,8 @@ def get_us_rankings(category: str = "시가총액") -> list[dict]:
     cached = cache.get(ck)
     if cached:
         return cached
+    if stale := cache.get_stale(ck):
+        return stale
 
     rows   = _build_us_rows()
     result = _sort_us(rows, category)
