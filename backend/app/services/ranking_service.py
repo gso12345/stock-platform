@@ -182,6 +182,36 @@ async def fetch_naver_rank(category: str) -> list[dict]:
     return all_rows
 
 
+def 상장주식수(symbol: str) -> int:
+    """종목의 상장주식수. 모르면 0.
+
+    KRX(또는 그 CSV 사본)가 종목 목록과 함께 주는 값이라 정확하고, 분할·
+    증자 때만 바뀌므로 하루 한 번 받아도 충분하다."""
+    p = get_fdr_price(symbol) or {}
+    return int(p.get("shares") or 0)
+
+
+def _시가총액(symbol: str, price: float, p: dict) -> int:
+    """시가총액 = 현재가 × 상장주식수.
+
+    남이 만든 숫자를 받아 쓰는 대신 직접 계산한다. 이유가 둘 있다.
+
+    1) 정확하다. 예전에는 Naver 시세 HTML 의 표에서 '몇 번째 칸'인지로
+       시총을 읽었다. 네이버가 컬럼을 하나 끼워 넣으면 옆 칸(액면가 같은
+       것)을 시총으로 읽게 되는데, 숫자가 나오긴 하므로 아무도 눈치채지
+       못한다. 실제로 시가총액 순위에서 삼성전자가 사라지는 일이 있었다.
+       거래대금 순위는 다른 페이지라 멀쩡했던 것이 단서였다.
+
+    2) 최신이다. 주식수는 거의 안 변하고 가격만 변하므로, 실시간 가격을
+       곱하면 시총도 실시간이 된다. 받아온 시총 값은 전일 종가 기준이다.
+
+    주식수를 모르는 종목만 받아온 값을 쓴다 (신규 상장 직후 등)."""
+    n = int(p.get("shares") or 0) or 상장주식수(symbol)
+    if n > 0 and price > 0:
+        return int(price * n)
+    return int(p.get("market_cap") or 0)
+
+
 # ── FDR 전체 종목 기반 순위 ────────────────────────────────
 def _build_all_kr_rows() -> list[dict]:
     """FDR 캐시에서 전체 KRX 종목 데이터 구성.
@@ -211,7 +241,7 @@ def _build_all_kr_rows() -> list[dict]:
             "change_rate": p.get("change_rate") or 0,
             "volume":      volume,
             "amount":      (price * volume) if price and volume else 0,
-            "market_cap":  p.get("market_cap") or 0,
+            "market_cap":  _시가총액(sym, price, p),
             "high":        p.get("high") or 0,
             "low":         p.get("low") or 0,
         })
@@ -336,13 +366,6 @@ def get_kr_rankings(category: str = "시가총액") -> list[dict]:
 
     rows = _build_all_kr_rows()
 
-    # 시가총액 순위: 모바일 API 캐시 market_cap 우선 사용
-    if category == "시가총액":
-        for r in rows:
-            p = cache.get(f"price:{r['symbol']}") or cache.get_stale(f"price:{r['symbol']}")
-            if p and p.get("market_cap") and p["market_cap"] > r.get("market_cap", 0):
-                r["market_cap"] = p["market_cap"]
-
     result = _sort_kr(rows, category)
 
     if result:
@@ -359,14 +382,24 @@ async def refresh_kr_rankings_from_naver():
         if not rows:
             continue
 
-        # 시가총액 순위는 모바일 API 캐시 값으로 교정 후 재정렬
-        # (HTML 파싱 오류로 인한 순위 역전 방지)
+        # 시가총액은 HTML 에서 읽은 값을 쓰지 않고 직접 계산해 덮어쓴다.
+        #
+        # 예전에는 '캐시 값과 파싱 값 중 큰 쪽'을 골랐다. 둘 중 무엇이 맞는지
+        # 모르니 큰 쪽을 고른다는 뜻인데, 한쪽이 엉뚱하게 크면 그 종목이
+        # 그대로 1위가 된다. 실제로 시가총액 순위에서 삼성전자가 사라졌다.
+        #
+        # 현재가 × 상장주식수는 추측이 아니다. 계산할 수 없는 종목만
+        # 파싱한 값을 남겨 둔다.
         if cat == "시가총액":
             for r in rows:
                 sym = r["symbol"]
-                p = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}")
-                if p and p.get("market_cap") and p["market_cap"] > r.get("market_cap", 0):
-                    r["market_cap"] = p["market_cap"]
+                p = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}") or {}
+                가격 = p.get("price") or r.get("price") or 0
+                계산 = _시가총액(sym, 가격, p)
+                if 계산 > 0:
+                    r["market_cap"] = 계산
+                if p.get("price"):
+                    r["price"] = p["price"]          # 시총을 낸 가격과 화면 가격을 맞춘다
             rows.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
 
         for i, r in enumerate(rows):

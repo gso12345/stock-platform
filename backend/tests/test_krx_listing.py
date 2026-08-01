@@ -31,6 +31,7 @@ def _krx_row(code="005930", name="삼성전자", market="KOSPI", close="71,900")
         "ISU_SRT_CD": code, "ISU_ABBRV": name, "MKT_NM": market,
         "TDD_CLSPRC": close, "CMPPREVDD_PRC": "1,200", "FLUC_RT": "1.70",
         "ACC_TRDVOL": "12,345,678", "MKTCAP": "429,000,000,000,000",
+        "LIST_SHRS": "5,969,782,550",
         "TDD_OPNPRC": "70,900", "TDD_HGPRC": "72,000", "TDD_LWPRC": "70,500",
     }
 
@@ -40,7 +41,7 @@ def _krx_payload(rows):
 
 
 def _csv_payload(rows):
-    head = "Code,Name,Market,Close,Changes,ChagesRatio,Volume,Marcap,Open,High,Low"
+    head = "Code,Name,Market,Close,Changes,ChagesRatio,Volume,Marcap,Stocks,Open,High,Low"
     return "\n".join([head] + rows)
 
 
@@ -150,8 +151,16 @@ class TestKRX_공식_API:
         _, prices = kl.fetch_live(c, "20260729")
         assert set(prices["005930.KS"]) == {
             "symbol", "name", "price", "change", "change_rate", "volume",
-            "market_cap", "currency", "high", "low", "open",
+            "market_cap", "shares", "currency", "high", "low", "open",
         }
+
+    def test_상장주식수를_함께_받아온다(self, monkeypatch):
+        """시가총액을 남의 표에서 '몇 번째 칸'으로 읽어오다 순위가 틀어진
+        적이 있다. 이제 현재가 × 상장주식수로 직접 계산하므로, 주식수가
+        빠지면 그 계산을 아예 할 수 없다."""
+        c = self._client(monkeypatch, _krx_payload([_krx_row()]))
+        _, prices = kl.fetch_live(c, "20260729")
+        assert prices["005930.KS"]["shares"] == 5_969_782_550
 
     def test_종가가_0이면_시세를_안_넣는다(self, monkeypatch):
         # 거래정지 종목은 목록에는 있어야 하지만 시세는 없어야 한다
@@ -186,12 +195,14 @@ class TestGitHub_CSV:
 
     def test_CSV도_같은_결과를_만든다(self, monkeypatch):
         c = self._client(monkeypatch, _csv_payload([
-            "005930,삼성전자,KOSPI,71900,1200,1.7,12345678,429000000000000,70900,72000,70500",
+            "005930,삼성전자,KOSPI,71900,1200,1.7,12345678,429000000000000,5969782550,70900,72000,70500",
         ]))
         listing, prices = kl.fetch_csv_cache(c, "20260729")
         assert listing[0]["s"] == "005930.KS"
         assert prices["005930.KS"]["price"] == 71900.0
         assert prices["005930.KS"]["change_rate"] == 1.7
+        # 두 경로(KRX·CSV)가 같은 것을 채워야 어느 쪽으로 받아도 시총이 나온다
+        assert prices["005930.KS"]["shares"] == 5_969_782_550
 
     def test_날짜를_하이픈_형식으로_바꾼다(self, monkeypatch):
         받은url = []
@@ -203,12 +214,12 @@ class TestGitHub_CSV:
 
     def test_망가진_줄은_건너뛴다(self, monkeypatch):
         c = self._client(monkeypatch, _csv_payload([
-            ",,,,,,,,,,",                                     # 빈 줄
-            "00-930,잘못된코드,KOSPI,100,0,0,0,0,0,0,0",        # 코드에 기호
-            "0059301,너무긴코드,KOSPI,100,0,0,0,0,0,0,0",       # 7자리
-            "005930,,KOSPI,100,0,0,0,0,0,0,0",                # 이름 없음
-            "005930,삼성전자,KOSPI,71900,1200,1.7,1,1,1,1,1",  # 정상
-            "00680K,미래에셋증권2우B,KOSPI,9910,0,0,1,1,1,1,1",  # 영문 섞인 정상 코드
+            ",,,,,,,,,,,",                                    # 빈 줄
+            "00-930,잘못된코드,KOSPI,100,0,0,0,0,0,0,0,0",        # 코드에 기호
+            "0059301,너무긴코드,KOSPI,100,0,0,0,0,0,0,0,0",       # 7자리
+            "005930,,KOSPI,100,0,0,0,0,0,0,0,0",                # 이름 없음
+            "005930,삼성전자,KOSPI,71900,1200,1.7,1,1,1,1,1,1",  # 정상
+            "00680K,미래에셋증권2우B,KOSPI,9910,0,0,1,1,1,1,1,1",  # 영문 섞인 정상 코드
         ]))
         listing, _ = kl.fetch_csv_cache(c, "20260729")
         assert [r["c"] for r in listing] == ["005930", "00680K"]

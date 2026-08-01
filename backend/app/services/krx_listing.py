@@ -99,6 +99,11 @@ def _price(row: dict, close: float, **kw) -> dict:
         "change_rate": kw.get("change_rate", 0.0),
         "volume": int(kw.get("volume", 0)),
         "market_cap": int(kw.get("market_cap", 0)),
+        # 상장주식수. 시가총액을 남의 숫자로 받아 오는 대신 직접 계산하려고
+        # 함께 들고 온다 — 시총 = 현재가 × 상장주식수 다.
+        # 주식수는 분할·증자 때만 바뀌므로 하루 한 번 받아도 충분하고,
+        # 가격 쪽만 실시간으로 갈아 끼우면 시총도 저절로 최신이 된다.
+        "shares": int(kw.get("shares", 0)),
         "currency": "KRW",
         "high": kw.get("high", 0.0),
         "low": kw.get("low", 0.0),
@@ -158,6 +163,7 @@ def fetch_live(client: httpx.Client, ymd: str) -> tuple[list[dict], dict]:
                 change_rate=_num(it.get("FLUC_RT")),
                 volume=_num(it.get("ACC_TRDVOL")),
                 market_cap=_num(it.get("MKTCAP")),
+                shares=_num(it.get("LIST_SHRS")),
                 open=_num(it.get("TDD_OPNPRC")),
                 high=_num(it.get("TDD_HGPRC")),
                 low=_num(it.get("TDD_LWPRC")),
@@ -186,6 +192,7 @@ def fetch_csv_cache(client: httpx.Client, ymd: str) -> tuple[list[dict], dict]:
                 change_rate=_num(it.get("ChagesRatio")),   # FDR 쪽 오타를 그대로 따른다
                 volume=_num(it.get("Volume")),
                 market_cap=_num(it.get("Marcap")),
+                shares=_num(it.get("Stocks")),
                 open=_num(it.get("Open")),
                 high=_num(it.get("High")),
                 low=_num(it.get("Low")),

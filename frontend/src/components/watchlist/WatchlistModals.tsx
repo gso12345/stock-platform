@@ -8,6 +8,7 @@ import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { BuyInfoFields, type BuyInfoValue } from "@/components/portfolio/BuyInfoFields";
 import { extractErrorMessage } from "@/utils/errors";
 import { normalizeSymbol } from "@/utils/prices";
+import { ReorderableList } from "@/components/common/ReorderableList";
 
 
 export function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
@@ -386,48 +387,6 @@ export function FolderManagerModal({
   const [local, setLocal] = useState<any[]>(folders);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
-  const [dragOver, setDragOver] = useState<number | null>(null);
-  const dragIdx = useRef(-1);
-
-  // 터치 드래그 상태
-  const touchDragIdxRef = useRef(-1);
-  const touchOverIdxRef = useRef(-1);
-  const [touchOver, setTouchOver] = useState<number | null>(null);
-  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
-  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearLPTimer = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
-
-  const handleRowTouchStart = (i: number, e: React.TouchEvent) => {
-    const t = e.touches[0];
-    touchStartPos.current = { x: t.clientX, y: t.clientY };
-    clearLPTimer();
-    lpTimer.current = setTimeout(() => { touchDragIdxRef.current = i; }, 350);
-  };
-
-  const handleRowTouchMove = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    if (touchDragIdxRef.current < 0) {
-      const s = touchStartPos.current;
-      if (s && (Math.abs(t.clientX - s.x) > 8 || Math.abs(t.clientY - s.y) > 8)) clearLPTimer();
-      return;
-    }
-    const el = (document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null)?.closest('[data-drag-idx]') as HTMLElement | null;
-    if (el) {
-      const toIdx = parseInt(el.dataset.dragIdx ?? '-1', 10);
-      if (toIdx >= 0) { touchOverIdxRef.current = toIdx; setTouchOver(toIdx); }
-    }
-  };
-
-  const handleRowTouchEnd = () => {
-    clearLPTimer();
-    if (touchDragIdxRef.current >= 0 && touchOverIdxRef.current >= 0 && touchOverIdxRef.current !== touchDragIdxRef.current) {
-      handleDrop(touchOverIdxRef.current);
-    }
-    touchDragIdxRef.current = -1;
-    touchOverIdxRef.current = -1;
-    setTouchOver(null);
-  };
 
   useEffect(() => { setLocal(folders); }, [folders]);
 
@@ -437,14 +396,9 @@ export function FolderManagerModal({
     setEditingId(null);
   };
 
-  const handleDrop = (toIdx: number) => {
-    const from = dragIdx.current >= 0 ? dragIdx.current : touchDragIdxRef.current;
-    if (from < 0 || from === toIdx) return;
-    const next = [...local];
-    const [moved] = next.splice(from, 1);
-    next.splice(toIdx, 0, moved);
-    setLocal(next);
-    onReorder(next.map((f: any) => f.id));
+  const handleReorder = (order: number[]) => {
+    setLocal((prev) => order.map((id) => prev.find((f: any) => f.id === id)).filter(Boolean) as any[]);
+    onReorder(order);
   };
 
   return (
@@ -453,30 +407,15 @@ export function FolderManagerModal({
         <h3 className="text-sm font-bold text-text-primary">폴더 관리</h3>
         <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
       </div>
-      <div className="flex flex-col max-h-96 overflow-y-auto">
-        {local.map((f: any, i: number) => (
-          <div
-            key={f.id}
-            data-drag-idx={i}
-            draggable
-            onDragStart={() => { dragIdx.current = i; }}
-            onDragEnd={() => { dragIdx.current = -1; setDragOver(null); }}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(i); }}
-            onDrop={() => { handleDrop(i); setDragOver(null); }}
-            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null); }}
-            onTouchStart={(e) => handleRowTouchStart(i, e)}
-            onTouchMove={handleRowTouchMove}
-            onTouchEnd={handleRowTouchEnd}
-            className={`flex items-center gap-3 px-4 py-4 border-b border-border/40 transition-colors cursor-grab active:cursor-grabbing select-none ${dragOver === i || touchOver === i ? "bg-accent-blue/10 ring-2 ring-accent-blue/30 ring-inset" : ""}`}
-          >
-            {/* 드래그 핸들 */}
-            <div className="text-text-muted flex-shrink-0 px-2 pointer-events-none">
-              <svg width="18" height="28" viewBox="0 0 10 16" fill="currentColor">
-                <circle cx="3" cy="2" r="1.8"/><circle cx="7" cy="2" r="1.8"/>
-                <circle cx="3" cy="8" r="1.8"/><circle cx="7" cy="8" r="1.8"/>
-                <circle cx="3" cy="14" r="1.8"/><circle cx="7" cy="14" r="1.8"/>
-              </svg>
-            </div>
+      <ReorderableList
+        items={local}
+        onReorder={handleReorder}
+        itemKey="data-folder-row"
+        className="flex flex-col max-h-96 overflow-y-auto"
+      >
+        {(f: any, { handle }) => (
+          <div className="flex items-center gap-3 px-4 py-4 border-b border-border/40 select-none">
+            {handle}
             {editingId === f.id ? (
               <input
                 draggable={false}
@@ -498,8 +437,8 @@ export function FolderManagerModal({
             <button draggable={false} onClick={(e) => { e.stopPropagation(); onDelete(f); }}
               className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={15} /></button>
           </div>
-        ))}
-      </div>
+        )}
+      </ReorderableList>
       <div className="p-4 border-t border-border">
         <button onClick={onCreate}
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue transition-colors text-sm">

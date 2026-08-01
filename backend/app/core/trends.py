@@ -128,6 +128,33 @@ def track_search(symbol: str, name: str = "", market: str = "") -> None:
                 del _search_names[k]
 
 
+def _종목명(symbol: str, market: str) -> str:
+    """종목코드로 이름을 찾는다. 모르면 빈 문자열.
+
+    이름은 브라우저가 보내주지만 그것만 믿을 수는 없다 — 검색 결과에
+    이름이 비어 오기도 하고, 예전에 쌓인 기록에는 아예 없다. 그러면
+    관리자 화면에 '005930' 같은 숫자만 남아 무슨 종목인지 알 수 없다.
+    서버는 상장 종목 목록을 이미 들고 있으므로 여기서 채워 준다."""
+    try:
+        from app.services.ticker_service import get_kr_db, get_us_db
+        sym = (symbol or "").strip().upper()
+        if not sym:
+            return ""
+        if market == "KR":
+            # 화면·검색은 '005930', 종목 목록은 '005930.KS' 를 쓴다
+            코드 = sym.split(".")[0]
+            for it in get_kr_db():
+                if it.get("c") == 코드 or it.get("s", "").split(".")[0] == 코드:
+                    return it.get("n") or ""
+            return ""
+        for it in get_us_db():
+            if it.get("s", "").upper() == sym:
+                return it.get("n") or ""
+    except Exception:
+        pass
+    return ""
+
+
 def get_search_trends(top_n: int = 20) -> list[dict]:
     with _search_lock:
         rows = _search_counter.most_common(top_n)
@@ -135,10 +162,12 @@ def get_search_trends(top_n: int = 20) -> list[dict]:
     out = []
     for key, count in rows:
         mkt, _, sym = key.partition(_SEARCH_KEY_SEP)
+        symbol = sym or key
+        market = mkt if sym else ""
         out.append({
-            "symbol": sym or key,
-            "market": mkt if sym else "",
-            "name":   names.get(key, ""),
+            "symbol": symbol,
+            "market": market,
+            "name":   names.get(key) or _종목명(symbol, market),
             "count":  count,
         })
     return out

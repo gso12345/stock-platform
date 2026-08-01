@@ -209,3 +209,116 @@ class Test스레드가_쌓이지_않는다:
                 f"(상한 {detail_executor._max_workers})")
         finally:
             멈춤.set()
+
+
+# ── 시가총액을 직접 계산한다 ─────────────────────────────────
+class Test시가총액:
+    """사용자 보고: "시가총액 1위에 삼성전자가 없는데 거래대금에는 있어"
+
+    시가총액만 틀리고 거래대금은 멀쩡했다는 것이 단서였다. 둘은 서로 다른
+    Naver 페이지를 '몇 번째 칸'인지로 읽는데, 시가총액 쪽 칸 번호가
+    어긋나 있었다. 숫자가 나오긴 하므로 아무도 눈치채지 못한다.
+
+    남의 표를 위치로 읽는 대신 직접 계산한다 — 시총 = 현재가 × 상장주식수."""
+
+    def test_현재가와_주식수로_계산한다(self):
+        p = {"shares": 5_846_278_608, "price": 262_500, "market_cap": 0}
+        assert rs._시가총액("005930.KS", 262_500, p) == 262_500 * 5_846_278_608
+
+    def test_실시간_가격이_오르면_시총도_따라_오른다(self):
+        """받아온 시총은 전일 종가 기준이라 장중에 안 움직인다"""
+        p = {"shares": 1_000_000, "market_cap": 100_000_000_000}
+        어제 = rs._시가총액("X", 100_000, p)
+        오늘 = rs._시가총액("X", 110_000, p)
+        assert 오늘 > 어제
+        assert 오늘 == 110_000 * 1_000_000
+
+    def test_주식수를_모르면_받아온_값을_쓴다(self, monkeypatch):
+        """신규 상장 직후처럼 주식수가 없을 수도 있다"""
+        monkeypatch.setattr(rs, "get_fdr_price", lambda s: None)
+        p = {"market_cap": 12_345}
+        assert rs._시가총액("NEW", 1_000, p) == 12_345
+
+    def test_가격이_없으면_받아온_값을_쓴다(self, monkeypatch):
+        monkeypatch.setattr(rs, "get_fdr_price", lambda s: None)
+        assert rs._시가총액("X", 0, {"shares": 100, "market_cap": 999}) == 999
+
+    def test_주식수가_없는_종목만_남의_숫자를_쓴다(self, monkeypatch):
+        """계산할 수 있으면 언제나 계산 쪽이 이긴다 —
+        예전처럼 '둘 중 큰 쪽'을 고르면 엉뚱하게 큰 값이 1위가 된다"""
+        monkeypatch.setattr(rs, "get_fdr_price", lambda s: None)
+        # 받아온 시총이 터무니없이 커도 계산값을 쓴다
+        p = {"shares": 10, "market_cap": 9_999_999_999_999}
+        assert rs._시가총액("X", 100, p) == 1_000
+
+    def test_시가총액_순위가_큰_회사부터_나온다(self, monkeypatch):
+        from app.core.cache import cache
+        cache.clear()
+        종목 = [
+            {"s": "A.KS", "n": "작은회사", "x": "KOSPI"},
+            {"s": "B.KS", "n": "큰회사",   "x": "KOSPI"},
+            {"s": "C.KS", "n": "중간회사", "x": "KOSPI"},
+        ]
+        시세 = {
+            "A.KS": {"price": 1_000_000, "shares": 10,      "volume": 5},   # 100억
+            "B.KS": {"price": 1_000,     "shares": 100_000_000, "volume": 5},  # 1000억
+            "C.KS": {"price": 10_000,    "shares": 5_000_000,   "volume": 5},  # 500억
+        }
+        monkeypatch.setattr(rs, "get_kr_db", lambda: 종목)
+        monkeypatch.setattr(rs, "get_fdr_price", lambda s: 시세.get(s))
+        out = rs.get_kr_rankings("시가총액")
+        assert [r["name"] for r in out] == ["큰회사", "중간회사", "작은회사"], (
+            "주가가 비싼 것과 회사가 큰 것은 다르다 — 주식수를 곱해야 한다")
+
+    def test_상장주식수를_받아_온다(self):
+        """krx_listing 이 주식수를 빼먹으면 계산 자체를 할 수 없다"""
+        from app.services.krx_listing import _price
+        row = {"s": "005930.KS", "n": "삼성전자"}
+        out = _price(row, 262_500, shares=5_846_278_608, market_cap=1)
+        assert out["shares"] == 5_846_278_608
+
+
+class Test검색_트렌드_종목명:
+    """사용자 보고: "한국주식은 종목명이 나오게 해줘"
+
+    이름은 브라우저가 보내주지만 비어 오기도 하고, 예전에 쌓인 기록에는
+    아예 없다. 그러면 화면에 '005930' 만 남아 무슨 종목인지 알 수 없다."""
+
+    @pytest.fixture(autouse=True)
+    def _비우기(self, monkeypatch):
+        monkeypatch.setattr(trends, "_search_counter", trends.Counter())
+        monkeypatch.setattr(trends, "_search_names", {})
+
+    def test_이름_없이_들어와도_서버가_채워_준다(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.ticker_service.get_kr_db",
+            lambda: [{"s": "005930.KS", "c": "005930", "n": "삼성전자", "x": "KOSPI"}])
+        trends.track_search("005930", "", "KR")
+        assert trends.get_search_trends()[0]["name"] == "삼성전자"
+
+    def test_접미사가_붙어_와도_찾는다(self, monkeypatch):
+        """화면은 '005930', 종목 목록은 '005930.KS' 를 쓴다"""
+        monkeypatch.setattr(
+            "app.services.ticker_service.get_kr_db",
+            lambda: [{"s": "005930.KS", "c": "005930", "n": "삼성전자", "x": "KOSPI"}])
+        trends.track_search("005930.KS", "", "KR")
+        assert trends.get_search_trends()[0]["name"] == "삼성전자"
+
+    def test_브라우저가_보낸_이름이_있으면_그걸_쓴다(self, monkeypatch):
+        monkeypatch.setattr("app.services.ticker_service.get_kr_db",
+                            lambda: [{"s": "005930.KS", "c": "005930", "n": "삼성전자"}])
+        trends.track_search("005930", "삼성전자(보통주)", "KR")
+        assert trends.get_search_trends()[0]["name"] == "삼성전자(보통주)"
+
+    def test_모르는_종목이면_코드만_남기고_터지지_않는다(self, monkeypatch):
+        monkeypatch.setattr("app.services.ticker_service.get_kr_db", lambda: [])
+        trends.track_search("999999", "", "KR")
+        r = trends.get_search_trends()[0]
+        assert r["symbol"] == "999999" and r["name"] == ""
+
+    def test_종목_목록을_못_읽어도_화면이_죽지_않는다(self, monkeypatch):
+        def 터짐():
+            raise RuntimeError("DB 없음")
+        monkeypatch.setattr("app.services.ticker_service.get_kr_db", 터짐)
+        trends.track_search("005930", "", "KR")
+        assert trends.get_search_trends()[0]["name"] == ""
