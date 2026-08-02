@@ -219,16 +219,20 @@ export default function StockDetail() {
 
   const isIntraday = ["1m","2m","5m","15m","30m","60m","90m"].includes(candleType);
 
-  // 탭별 데이터 선제 prefetch
-  const prefetchSecondaryData = useCallback((tabId?: string) => {
-    const tab = tabId ?? "";
-    if (tab === "financial" || tab === "") {
+  /* 탭별 데이터 선제 prefetch.
+     탭을 실제로 누른 뒤에야 받는다 — 종목상세 화면 하나가 야후에 수십 번
+     나가는 곳이라, 안 볼 탭까지 미리 받으면 0.15 CPU 에서 그대로 체감된다.
+     (예전에는 tab === "" 일 때 전부 받는 분기가 있었는데, 실제로는 아무도
+      빈 문자열로 부르지 않아 죽은 코드였다) */
+  const prefetchSecondaryData = useCallback((tabId: string) => {
+    const tab = tabId;
+    if (tab === "financial") {
       qc.prefetchQuery({ queryKey: ["stock-financials",   m, sym], queryFn: () => financialsApi.get(m, sym),           staleTime: 900_000 });
       qc.prefetchQuery({ queryKey: ["stock-fundamentals", m, sym], queryFn: () => stocksApi.getFundamentals(m, sym),   staleTime: 900_000 });
       qc.prefetchQuery({ queryKey: ["metrics-history",    m, sym], queryFn: () => stocksApi.getMetricsHistory(m, sym), staleTime: 900_000 });
       qc.prefetchQuery({ queryKey: ["earnings",           m, sym], queryFn: () => stocksApi.getEarnings(m, sym),       staleTime: 900_000 });
     }
-    if (tab === "analyst" || tab === "") {
+    if (tab === "analyst") {
       qc.prefetchQuery({ queryKey: ["analyst",   m, sym], queryFn: () => stocksApi.getAnalyst(m, sym),   staleTime: 900_000 });
       qc.prefetchQuery({ queryKey: ["forecasts", m, sym], queryFn: () => stocksApi.getForecasts(m, sym), staleTime: 900_000 });
     }
@@ -236,7 +240,7 @@ export default function StockDetail() {
       qc.prefetchQuery({ queryKey: ["stock-news", m, sym], queryFn: () => stocksApi.getNews(m, sym),       staleTime: 300_000 });
       qc.prefetchQuery({ queryKey: ["earnings",   m, sym], queryFn: () => stocksApi.getEarnings(m, sym),   staleTime: 900_000 });
     }
-    if (tab === "daily" || tab === "") {
+    if (tab === "daily") {
       qc.prefetchQuery({ queryKey: ["stock-ohlcv", m, sym, "1d", "1mo"], queryFn: () => stocksApi.getOHLCV(m, sym, "1mo", "1d"), staleTime: 300_000 });
     }
     if (tab === "quant") {

@@ -774,12 +774,28 @@ async def get_quant_score(
 @router.get("/{market}/{symbol}/metrics-history")
 @limiter.limit("6/minute")
 async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
-    """재무지표 연간/분기별 추이 (yfinance)"""
+    """재무지표 연간/분기별 추이 (yfinance)
+
+    메모리 → DB fresh(24시간) → DB stale(30일) → 외부 API 순으로 본다.
+
+    이 화면 하나가 야후에 재무제표 6종을 한꺼번에 물어본다. 종목상세에서
+    가장 무거운 호출인데 예전에는 메모리 캐시만 써서, 프로세스가
+    재시작되면(무료 플랜에서는 잦다) 그 6번을 처음부터 다시 했다.
+    재무제표는 분기에 한 번 바뀌므로 하루 지난 값도 충분히 쓸 만하다."""
     from app.core.cache import cache
+    from app.models.stock import MetricsHistoryCache
+    from app.services.fundamentals_service import _db_get, _db_set
     ck = f"metrics_hist5:{symbol}"  # v5: DART 첫 연도 성장률 보완
     if c := cache.get(ck):
         return c
-    _stale_mh = cache.get_stale(ck)
+
+    db_fresh = await _run(_db_get, MetricsHistoryCache, symbol, market, 24)
+    if db_fresh:
+        cache.set(ck, db_fresh, 3600)
+        return db_fresh
+
+    db_stale = await _run(_db_get, MetricsHistoryCache, symbol, market, 720)  # 30일까지 stale 허용
+    _stale_mh = db_stale or cache.get_stale(ck)
 
     import yfinance as yf
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
@@ -1044,6 +1060,8 @@ async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"]
                     "quarterly": _merge_forecast_lists(r.get("quarterly", []), _stale_mh.get("quarterly", [])),
                 }
                 cache.set(ck, r, 3600)
+                # DB 에도 남긴다 — 재시작해도 이 6번을 다시 하지 않도록
+                await _run(_db_set, MetricsHistoryCache, symbol, market, r)
             except Exception:
                 pass
         asyncio.get_running_loop().create_task(_bg_refresh_mh())
@@ -1057,6 +1075,7 @@ async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"]
         result = {"annual": [], "quarterly": []}
     if result.get("annual") or result.get("quarterly"):
         cache.set(ck, result, 3600)
+        await _run(_db_set, MetricsHistoryCache, symbol, market, result)
     else:
         cache.set(ck, result, 60)  # 완전 실패 시 짧게 캐시해 빠른 재시도 허용
     return result

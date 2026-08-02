@@ -170,6 +170,26 @@ class ForecastsCache(Base):
     fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class MetricsHistoryCache(Base):
+    """재무지표 연간·분기 추이 DB 캐시.
+
+    이 화면 하나가 야후에 재무제표 6종(손익·재무상태·현금흐름의 연간·분기)을
+    한꺼번에 물어본다. 종목상세에서 가장 무거운 호출인데 메모리 캐시만
+    쓰고 있어서, 프로세스가 재시작되면(무료 플랜에서는 자주 있다) 그
+    6번을 처음부터 다시 했다.
+
+    옆 동네(forecasts_cache·analyst_cache)는 이미 DB 에 남기고 있다.
+    재무제표는 분기에 한 번 바뀌므로 하루 지난 값도 충분히 쓸 만하다."""
+    __tablename__ = "metrics_history_cache"
+    __table_args__ = (UniqueConstraint("symbol", "market", name="uq_mhist_sym_mkt"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    symbol     = Column(String(20), nullable=False, index=True)
+    market     = Column(String(10), nullable=False)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class DisclosuresCache(Base):
     """국내 공시 목록 DB 캐시 (OpenDART)"""
     __tablename__ = "disclosures_cache"
