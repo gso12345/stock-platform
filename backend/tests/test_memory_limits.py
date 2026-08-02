@@ -552,3 +552,109 @@ class Test무엇이_늘었는지_알아내기:
         g = memory.alloc_growth()
         assert g["enabled"] is True and g["ready"] is False
         assert g["items"] == []
+
+
+class Test파이썬이_못_보는_메모리:
+    """프로덕션에서 이런 상태를 봤다 —
+
+        파이썬 객체   348,456개 → 229,864개  (줄었다)
+        메모리        530MB → 541MB          (늘었다)
+
+    객체는 줄었는데 메모리는 늘었으니 파이썬 객체가 아니다. tracemalloc 도
+    파이썬 할당만 보므로 여기는 못 본다. C 라이브러리에게 직접 물어본다."""
+
+    def test_C_라이브러리_몫을_읽을_수_있다(self):
+        n = memory.native_breakdown()
+        if n is None:
+            pytest.skip("glibc mallinfo2 없음")
+        for k in ("arena_mb", "mmap_mb", "in_use_mb", "freed_kept_mb"):
+            assert k in n and n[k] >= 0, n
+
+    def test_중간_크기_버퍼를_잡아낸다(self):
+        """HTTP 응답·압축·파싱 중간물이 이 크기대다. 야후 응답이 쌓이면
+        여기서 보여야 한다."""
+        n = memory.native_breakdown()
+        if n is None:
+            pytest.skip("glibc mallinfo2 없음")
+        버퍼들 = [bytes(200_000) for _ in range(200)]      # 40MB
+        늘어난뒤 = memory.native_breakdown()
+        assert 늘어난뒤["in_use_mb"] - n["in_use_mb"] > 20, (
+            f"40MB 버퍼를 붙들었는데 {n['in_use_mb']} → "
+            f"{늘어난뒤['in_use_mb']} 밖에 안 늘었다")
+        assert len(버퍼들) == 200
+
+    def test_큰_배열은_따로_센다(self):
+        """numpy·pandas 는 mmap 으로 잡히고 놓으면 바로 OS 로 돌아간다 —
+        중간 크기 버퍼와 구분해야 어디를 봐야 할지 알 수 있다."""
+        n = memory.native_breakdown()
+        if n is None:
+            pytest.skip("glibc mallinfo2 없음")
+        큰것 = bytearray(60 * 1024 * 1024)
+        늘어난뒤 = memory.native_breakdown()
+        assert 늘어난뒤["mmap_mb"] - n["mmap_mb"] > 40, (
+            f"60MB 를 잡았는데 mmap 이 {n['mmap_mb']} → {늘어난뒤['mmap_mb']}")
+        assert len(큰것) > 0
+
+    def test_놓으면_사용중은_줄고_확보한_총량은_남는다(self):
+        """이 둘을 구분해야 '단편화인가 아닌가'를 알 수 있다.
+        arena(확보 총량)는 그대로인데 사용중만 줄었다면, 그 차이가
+        '비었지만 붙들고 있는' 몫이다."""
+        import gc
+        버퍼들 = [bytes(200_000) for _ in range(200)]
+        찼을때 = memory.native_breakdown()
+        if 찼을때 is None:
+            pytest.skip("glibc mallinfo2 없음")
+        del 버퍼들
+        gc.collect()
+        비웠을때 = memory.native_breakdown()
+        assert 비웠을때["in_use_mb"] < 찼을때["in_use_mb"] - 20, (
+            f"놓았는데 '사용중'이 안 줄었다 "
+            f"({찼을때['in_use_mb']} → {비웠을때['in_use_mb']}) — "
+            f"arena 총량을 사용중으로 잘못 보고하고 있을 수 있다")
+
+    def test_파이썬_작은_객체는_여기_안_잡힌다(self):
+        """이걸 모르고 '사용중'을 파이썬 객체로 읽으면 엉뚱한 곳을 판다.
+        CPython 은 작은 객체를 자체 할당기로 따로 관리한다 — 그래서 이
+        계기판은 정확히 '파이썬이 아닌 메모리'만 보여준다."""
+        n = memory.native_breakdown()
+        if n is None:
+            pytest.skip("glibc mallinfo2 없음")
+        찌꺼기 = [{"k": i, "v": "x" * 300} for i in range(20000)]   # 약 10MB
+        늘어난뒤 = memory.native_breakdown()
+        assert 늘어난뒤["in_use_mb"] - n["in_use_mb"] < 3, (
+            f"파이썬 객체가 여기 잡히기 시작했다 "
+            f"({n['in_use_mb']} → {늘어난뒤['in_use_mb']}) — "
+            f"이 전제가 바뀌었으면 화면 설명도 고쳐야 한다")
+        assert len(찌꺼기) == 20000
+
+    def test_읽을_수_없는_환경에서도_터지지_않는다(self, monkeypatch):
+        """맥이나 musl 리눅스에는 mallinfo2 가 없다. 관리자 화면이
+        그것 때문에 500 이 되면 안 된다."""
+        import ctypes
+        def 없음(*a, **k):
+            raise OSError("libc 없음")
+        monkeypatch.setattr(ctypes, "CDLL", 없음)
+        assert memory.native_breakdown() is None
+        assert memory.trim_native() is None
+
+    def test_정리하면_얼마나_돌려줬는지_알려준다(self):
+        r = memory.trim_native("테스트")
+        if r is None:
+            pytest.skip("malloc_trim 없음")
+        assert r["before_mb"] >= 0 and r["after_mb"] >= 0
+        assert r["freed_mb"] == pytest.approx(r["before_mb"] - r["after_mb"], abs=0.2)
+
+    def test_주기_작업이_정리도_함께_한다(self):
+        """단편화가 원인이면 이것만으로 해결된다. 효과가 없으면 0 이
+        나오므로 '아니었다'는 것도 바로 알 수 있다."""
+        import ast
+        나무 = ast.parse(textwrap.dedent(inspect.getsource(memory.record_sample)))
+        호출 = {ast.unparse(n.func) for n in ast.walk(나무) if isinstance(n, ast.Call)}
+        assert "trim_native" in 호출, "표본을 남기면서 정리도 같이 해야 한다"
+
+    def test_정리_결과를_화면에_남긴다(self):
+        memory.record_sample()
+        r = memory.last_trim()
+        if r is None:
+            pytest.skip("malloc_trim 없음")
+        assert "freed_mb" in r

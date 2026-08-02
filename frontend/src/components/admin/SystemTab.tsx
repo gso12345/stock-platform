@@ -46,6 +46,10 @@ interface Runtime {
     total: number; blocks: number; threads: number;
     gc_counts: number[]; top: { name: string; count: number }[];
   };
+  native?: {
+    arena_mb: number; mmap_mb: number; in_use_mb: number; freed_kept_mb: number;
+  } | null;
+  last_trim?: { before_mb: number; after_mb: number; freed_mb: number } | null;
   alloc_growth?: {
     enabled: boolean; ready: boolean; span_min: number;
     items: { where: string; grew_kb: number; now_kb: number; count_diff: number }[];
@@ -364,6 +368,45 @@ export default function SystemTab() {
             </div>
             );
           })()}
+
+          {/* 파이썬이 못 보는 영역 — C 라이브러리가 들고 있는 메모리.
+              '객체는 줄었는데 메모리는 늘었다' 를 설명할 수 있는 유일한 곳이다. */}
+          {d.native && (
+            <div className="rounded-lg bg-bg-elevated p-2.5 flex flex-col gap-1">
+              <p className="text-2xs font-semibold text-text-muted">
+                파이썬 밖의 메모리 (C 라이브러리)
+              </p>
+              {[
+                ["중간 크기 버퍼", `${d.native.in_use_mb}MB`,
+                 "HTTP 응답·압축·파싱 중간물. 야후 응답이 여기 쌓인다"],
+                ["큰 배열", `${d.native.mmap_mb}MB`,
+                 "numpy·pandas 표 — 놓으면 바로 OS 로 돌아간다"],
+                ["비었지만 붙들고 있음", `${d.native.freed_kept_mb}MB`,
+                 "해제했는데 아직 OS 에 안 돌려준 것. 크면 단편화다"],
+              ].map(([k, v, why]) => (
+                <div key={k} className="flex flex-col">
+                  <div className="flex items-baseline justify-between gap-2 text-2xs">
+                    <span className="text-text-dim break-keep">{k}</span>
+                    <span className="font-mono text-text-secondary shrink-0">{v}</span>
+                  </div>
+                  <span className="text-[10px] text-text-dim break-keep">{why}</span>
+                </div>
+              ))}
+              {d.last_trim && (
+                <p className="text-[10px] text-text-dim break-keep mt-0.5 pt-1 border-t border-border/30">
+                  마지막 정리에서 {d.last_trim.freed_mb}MB 를 OS 에 돌려줬습니다
+                  ({d.last_trim.before_mb} → {d.last_trim.after_mb}MB).
+                  {d.last_trim.freed_mb < 1 && " 거의 0 이면 단편화가 원인이 아니라는 뜻입니다."}
+                </p>
+              )}
+              {(
+                <p className="text-[10px] text-text-dim break-keep">
+                  파이썬 객체는 여기 안 잡힙니다 — 파이썬이 자체 할당기로 따로
+                  관리합니다. 그래서 이 칸은 '파이썬이 아닌 메모리'만 보여줍니다.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* 무엇이 늘고 있는지 — MEM_TRACE=1 로 켰을 때만 */}
           {d.alloc_growth?.enabled && (

@@ -279,6 +279,9 @@ def get_runtime(_: User = Depends(require_admin)):
         "mem_trend": memory.trend(),
         # 무엇이 늘고 있는지 (MEM_TRACE=1 일 때만)
         "alloc_growth": memory.alloc_growth(),
+        # 파이썬이 못 보는 영역 — C 라이브러리가 들고 있는 메모리
+        "native": memory.native_breakdown(),
+        "last_trim": memory.last_trim(),
         "libraries": libmem.report(),
         "data_stores": memory.data_stores(),
         # 종목 목록이 어디서 왔는지. 세 단계 폴백이 전부 조용히 실패해

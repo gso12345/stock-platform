@@ -63,6 +63,11 @@ def record_sample():
         del _samples[0]
     _추적_표본()
 
+    # 해제했지만 OS 에 안 돌려준 메모리를 돌려준다. 몇 밀리초짜리 일이라
+    # 5분에 한 번이면 부담이 없고, 단편화가 원인이면 이것만으로 준다.
+    global _last_trim
+    _last_trim = trim_native()
+
 
 def trend() -> dict:
     """RSS 추이 요약 — 늘고 있나, 멈췄나."""
@@ -156,6 +161,88 @@ def alloc_growth(top: int = 8) -> dict:
     except Exception as e:
         return {"enabled": True, "ready": False, "items": [], "span_min": 0,
                 "error": f"{type(e).__name__}: {e}"}
+
+
+def native_breakdown() -> dict | None:
+    """파이썬이 아니라 C 라이브러리(glibc)가 들고 있는 메모리.
+
+    왜 필요한가 — 프로덕션에서 이런 상태를 봤다.
+
+        파이썬 객체   348,456개 → 229,864개  (줄었다)
+        메모리        530MB → 541MB          (늘었다)
+
+    객체는 줄었는데 메모리는 늘었다. 그러면 파이썬 객체가 아니다.
+    tracemalloc 도 파이썬 할당만 보므로 여기는 못 본다. 남는 후보는
+    numpy·pandas 의 C 배열, HTTP 버퍼, 그리고 '해제는 했는데 OS 에
+    안 돌려준 메모리' 다.
+
+    실제로 무엇이 잡히는지 재봤다 (숫자는 직접 측정한 값) —
+
+        파이썬 dict 2만 개  →  +0.2MB   거의 안 잡힌다
+        numpy 64MB 배열     →  mmap +61MB
+        200KB 짜리 200개    →  사용중 +40.9MB
+
+    파이썬의 작은 객체는 여기 안 잡힌다. CPython 이 자체 할당기로
+    따로 관리하기 때문이다. 그래서 이 계기판은 정확히 '파이썬 객체가
+    아닌 메모리' 만 보여준다 — 지금 찾고 있는 게 바로 그것이다.
+
+        중간 크기(uordblks)  HTTP 응답·압축·파싱 버퍼가 여기 들어간다
+        큰 배열(hblkhd)      numpy·pandas. 놓으면 바로 OS 로 돌아간다
+        비었지만 붙들고 있음  free() 했는데 OS 에 안 돌려준 것.
+        (fordblks)          크면 단편화이고 malloc_trim 으로 준다"""
+    try:
+        import ctypes
+
+        class _MallInfo2(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_size_t) for n in (
+                "arena", "ordblks", "smblks", "hblks", "hblkhd", "usmblks",
+                "fsmblks", "uordblks", "fordblks", "keepcost")]
+
+        libc = ctypes.CDLL("libc.so.6")
+        libc.mallinfo2.restype = _MallInfo2
+        mi = libc.mallinfo2()
+        mb = lambda v: round(v / 1024 / 1024, 1)   # noqa: E731
+        return {
+            "arena_mb":     mb(mi.arena),      # 힙에서 확보한 총량
+            "mmap_mb":      mb(mi.hblkhd),     # 큰 할당(직접 mmap) — 보통 numpy·pandas
+            "in_use_mb":    mb(mi.uordblks),   # 중간 크기 할당 (버퍼류)
+            "freed_kept_mb": mb(mi.fordblks),  # 해제했지만 OS 에 안 돌려준 것
+        }
+    except Exception:
+        return None
+
+
+def trim_native(label: str = "주기 정리") -> dict | None:
+    """해제했지만 OS 에 안 돌려준 메모리를 돌려준다.
+
+    glibc 는 free() 한 메모리를 바로 OS 에 반납하지 않는다. 다음 할당에
+    쓰려고 들고 있는 것인데, 조각조각 흩어지면 영영 안 돌아간다.
+    malloc_trim(0) 은 그중 돌려줄 수 있는 것을 돌려달라고 요청한다.
+
+    비용은 몇 밀리초다. 5분에 한 번이면 없는 것이나 같고, 단편화가
+    원인이라면 이것만으로 해결된다. 효과가 없으면 숫자가 0으로 나오므로
+    '아니었다'는 것도 바로 알 수 있다."""
+    before = rss_mb()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        return None
+    after = rss_mb()
+    if before is None or after is None:
+        return None
+    freed = round(before - after, 1)
+    if freed >= 1:
+        log.info(f"{label}: {freed}MB 를 OS 에 돌려줬습니다 ({before:.0f} → {after:.0f}MB)")
+    return {"before_mb": round(before, 1), "after_mb": round(after, 1), "freed_mb": freed}
+
+
+# 마지막 정리 결과 — 화면에서 '효과가 있었나'를 보려고 남긴다
+_last_trim: dict | None = None
+
+
+def last_trim() -> dict | None:
+    return _last_trim
 
 
 def proc_breakdown() -> dict | None:
