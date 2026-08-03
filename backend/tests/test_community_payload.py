@@ -76,14 +76,21 @@ class Test좋아요_조회:
         assert "selectinload(StockPost.likes)" not in 전체
         assert "selectinload(StockComment.likes)" not in 전체
 
-    @pytest.mark.parametrize("함수명, 헬퍼", [
-        ("get_feed",       "_liked_post_ids"),
-        ("list_posts",     "_liked_post_ids"),
-        ("get_post",       "_liked_post_ids"),
-        ("list_comments",  "_liked_comment_ids"),
+    # 피드는 공통 부분을 캐시하면서 좋아요 조회가 _개인화 로 한 겹 내려갔다.
+    # 성질은 그대로 — 여전히 좁은 헬퍼로만 묻는다 — 이므로 위임을 따라간다.
+    @pytest.mark.parametrize("함수명, 헬퍼, 경유", [
+        ("get_feed",       "_liked_post_ids",    "_개인화"),
+        ("list_posts",     "_liked_post_ids",    None),
+        ("get_post",       "_liked_post_ids",    None),
+        ("list_comments",  "_liked_comment_ids", None),
     ])
-    def test_내가_누른_것만_조회한다(self, 함수명, 헬퍼):
-        assert 헬퍼 in inspect.getsource(getattr(C, 함수명))
+    def test_내가_누른_것만_조회한다(self, 함수명, 헬퍼, 경유):
+        본문 = inspect.getsource(getattr(C, 함수명))
+        if 헬퍼 in 본문:
+            return
+        assert 경유 and 경유 in 본문, f"{함수명} 이 좋아요를 좁은 헬퍼로 묻지 않는다"
+        assert 헬퍼 in inspect.getsource(getattr(C, 경유)), (
+            f"{함수명} → {경유} 로 넘겼는데 {경유} 도 {헬퍼} 를 쓰지 않는다")
 
     def test_비로그인은_질의조차_하지_않는다(self):
         class _NoQuery:

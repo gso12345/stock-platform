@@ -69,6 +69,40 @@ def _parse_num(s: str) -> float:
         return 0.0
 
 
+def _트리끊기(soup) -> None:
+    """다 쓴 HTML 트리를 즉시 놓아준다.
+
+    트리는 부모와 자식이 서로를 가리키는 구조라, 변수를 놓아도 참조가
+    얽혀 있어 참조 세기만으로는 정리되지 않는다. 순환참조 수집기가 와야
+    치워지는데 객체가 많을수록 그게 뜸하게 오고, 그 사이 계속 쌓인다.
+    순위 갱신은 장중 60초마다 8페이지를 파싱하므로 그동안 계속 불어난다
+    — 프로덕션 메모리에서 파싱 결과 문자열이 47,409개 남아 있었다.
+
+    루트에 대고 soup.decompose() 를 부르면 안 된다. bs4 4.15 기준 루트의
+    next_element 가 None 이라 순회가 첫걸음에서 끝나고, 정작 자식 트리는
+    통째로 남는다(재 봤다: 태그 140,400개 그대로, +118MB). 실제로 듣는 건
+    자식마다 끊는 쪽이다.
+
+        100줄짜리 페이지를 수집기 끈 채 100번 파싱
+          아무것도 안 함    +126.5MB   태그 140,400개 잔존
+          soup.decompose()  +118.4MB   태그 140,400개 잔존
+          자식마다 끊기       -1.1MB   태그     100개 잔존
+    """
+    if soup is None:          # 응답이 200 이 아니면 파싱을 안 했다 — 정상 경로다
+        return
+    try:
+        from bs4.element import Tag
+        for 자식 in list(soup.contents or ()):
+            if isinstance(자식, Tag):
+                자식.decompose()
+        soup.contents = []
+    except Exception as e:
+        # 정리하다 터져서 순위표가 통째로 사라지면 본말전도라 삼킨다.
+        # 다만 조용히 삼키면 '끊고 있다고 믿는데 사실은 매번 실패' 를
+        # 알아챌 방법이 없으므로 흔적은 남긴다.
+        log.debug(f"HTML 트리 정리 실패: {e}")
+
+
 async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap: bool = False) -> list[dict]:
     """Naver Finance 시세 HTML 파싱 — name TD 기준 상대 인덱스 사용
     체크박스 TD 등 앞쪽 TD 개수와 무관하게 정확한 컬럼 추출.
@@ -76,6 +110,7 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
     시가총액 페이지 (name 이후): 현재가|전일비|등락률|시총(억)|상장주식수|외인비율|거래량|PER|ROE
     상승률/하락률/거래량 페이지 (name 이후): 현재가|전일비|등락률|거래량|거래대금(억)|시총(억)|PER
     """
+    soup = None
     try:
         from bs4 import BeautifulSoup
         suffix   = ".KS" if market_code == 0 else ".KQ"
@@ -86,6 +121,9 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
             return []
         soup = BeautifulSoup(r.text, "lxml")
         rows = []
+        # 아래에서 뽑는 값은 전부 평범한 str/float 다. 트리에 매달린
+        # 문자열(NavigableString)을 그대로 담으면 그 하나가 트리 전체를
+        # 붙잡으므로, 끝의 _트리끊기 가 무의미해진다.
         for a_tag in soup.select('a[href*="/item/main.naver?code="]'):
             code_match = re.search(r"code=(\d{6})", a_tag.get("href", ""))
             if not code_match:
@@ -150,6 +188,10 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
     except Exception as e:
         log.debug(f"Naver sise 파싱 실패 ({url}): {e}")
         return []
+    finally:
+        # 성공하든 실패하든 트리는 끊는다. rows 에 담은 것은 이미 평범한
+        # 문자열·숫자라 트리를 끊어도 멀쩡하다.
+        _트리끊기(soup)
 
 
 async def fetch_naver_rank(category: str) -> list[dict]:

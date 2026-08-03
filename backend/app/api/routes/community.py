@@ -12,6 +12,11 @@ from fastapi import Body
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, Report, Notification
 from app.models.user import User
 from app.core.deps import get_current_user, require_user, require_community_active
+from app.core.cache import cache
+
+# 피드 공통 부분의 캐시 수명. 글이 초 단위로 바뀌지는 않으므로 30초면
+# 새 글이 늦게 보이는 느낌 없이 왕복을 크게 줄인다.
+FEED_TTL = 30
 from app.core.security import decode_token
 from app.services.ticker_service import get_kr_db
 
@@ -190,6 +195,51 @@ def _liked_comment_ids(db: Session, uid: Optional[int], comment_ids: list) -> se
         StockCommentLike.user_id == uid, StockCommentLike.comment_id.in_(comment_ids)
     ).all()
     return {r[0] for r in rows}
+
+
+def _개인화(db: Session, uid: Optional[int], 공통: dict) -> dict:
+    """캐시에서 꺼낸 공통 목록에 '나에게만 해당하는 것'을 덧칠한다.
+
+    사람마다 다른 건 네 가지뿐이다 — 좋아요를 눌렀는지, 내 글인지,
+    그 사람을 팔로우 중인지, 어느 항목에 투표했는지. 나머지는 누가 보든
+    같으므로 캐시에서 그대로 쓴다.
+
+    비로그인이면 덧칠할 것이 없어 DB 를 아예 보지 않는다."""
+    items = 공통.get("items") or []
+    if not uid or not items:
+        return 공통
+
+    post_ids = [it["id"] for it in items]
+    user_ids = {it.get("user_id") for it in items if it.get("user_id")}
+
+    liked = _liked_post_ids(db, uid, post_ids)
+    following: set = set()
+    others = [u for u in user_ids if u != uid]
+    if others:
+        following = {
+            r[0] for r in db.query(UserFollow.following_id).filter(
+                UserFollow.follower_id == uid, UserFollow.following_id.in_(others)
+            ).all()
+        }
+    # 내가 투표한 것 — 투표가 붙은 글에만 해당한다
+    투표글 = [it["id"] for it in items if it.get("poll")]
+    내투표: dict = {}
+    if 투표글:
+        for v in db.query(StockPostPollVote).filter(
+            StockPostPollVote.post_id.in_(투표글), StockPostPollVote.user_id == uid
+        ).all():
+            내투표[v.post_id] = v.option_index
+
+    새items = []
+    for it in items:
+        새 = {**it,
+              "liked":        it["id"] in liked,
+              "is_mine":      it.get("user_id") == uid,
+              "is_following": it.get("user_id") in following}
+        if it.get("poll") and it["id"] in 내투표:
+            새["poll"] = {**it["poll"], "my_vote": 내투표[it["id"]]}
+        새items.append(새)
+    return {**공통, "items": 새items}
 
 
 # ── 직렬화 ────────────────────────────────────────────────────
@@ -966,6 +1016,22 @@ def get_feed(
     current_user=Depends(get_current_user),
 ):
     uid = current_user.id if current_user else None
+
+    # ── 캐시 ──
+    # 피드 한 번 여는 데 DB 왕복이 최대 7번이다 (전체 개수·글·프로필·
+    # 댓글 수·팔로우·좋아요·투표). DB 가 원격이라 왕복마다 지연이 붙고,
+    # CPU 0.15개에서는 그게 그대로 체감된다.
+    #
+    # 그런데 그중 대부분은 '누가 보든 같은' 내용이다. 사람마다 다른 건
+    # 좋아요 눌렀는지·내 글인지·팔로우 중인지·어디에 투표했는지 네 가지뿐.
+    # 그래서 공통 부분만 캐시하고 개인 항목은 꺼낸 뒤 덧칠한다.
+    #
+    # '팔로잉만 보기'는 애초에 사람마다 목록이 달라 캐시하지 않는다.
+    캐시키 = None if (following and uid) else f"feed:{sort}:{market or 'ALL'}:{page}:{limit}"
+    공통 = cache.get(캐시키) if 캐시키 else None
+    if 공통 is not None:
+        return _개인화(db, uid, 공통)
+
     q = db.query(StockPost).filter(StockPost.is_deleted.isnot(True), StockPost.is_blinded.isnot(True))
 
     if following and uid:
@@ -1007,24 +1073,20 @@ def get_feed(
             {"ids": post_ids},
         ).fetchall()
         feed_comment_counts = {r[0]: r[1] for r in rows}
-    feed_following_ids: set = set()
-    if uid and user_ids:
-        others = [uid2 for uid2 in user_ids if uid2 != uid]
-        if others:
-            fol_rows = db.query(UserFollow.following_id).filter(
-                UserFollow.follower_id == uid, UserFollow.following_id.in_(others)
-            ).all()
-            feed_following_ids = {r[0] for r in fol_rows}
-    feed_liked_ids = _liked_post_ids(db, uid, post_ids)
     # 투표 일괄 조회 (N+1 방지)
     feed_poll_votes: dict = {}
     if post_ids:
         for v in db.query(StockPostPollVote).filter(StockPostPollVote.post_id.in_(post_ids)).all():
             feed_poll_votes.setdefault(v.post_id, []).append(v)
-    return {"total": total, "page": page, "items": [
-        _ser_post(p, uid, db, profiles_map, feed_comment_counts, feed_following_ids, feed_poll_votes,
-                  feed_liked_ids) for p in posts
+
+    # 공통 부분만 만든다 — uid 를 넘기지 않으므로 개인 항목은 전부 비어 있다
+    공통 = {"total": total, "page": page, "items": [
+        _ser_post(p, None, db, profiles_map, feed_comment_counts, set(), feed_poll_votes, set())
+        for p in posts
     ]}
+    if 캐시키:
+        cache.set(캐시키, 공통, FEED_TTL)
+    return _개인화(db, uid, 공통)
 
 
 # ── 프로필 조회 ────────────────────────────────────────────────
