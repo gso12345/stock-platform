@@ -280,3 +280,24 @@ class KrTicker(Base):
     high        = Column(Float, nullable=True)
     low         = Column(Float, nullable=True)
     updated_at  = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class UsTicker(Base):
+    """미국 상장 종목 목록 — kr_tickers 와 같은 이유로 DB에 둔다.
+
+    미국 종목은 코드에 적어둔 128개가 전부였다. Finnhub 검색 경로가 있긴
+    했지만 API 키가 있어야 하고, 없으면 조용히 128개로 떨어졌다.
+
+    여기 두면 재시작에 외부 호출이 필요 없고, 갱신이 실패해도 지난 목록이
+    남는다. 시세는 담지 않는다 — 국내와 달리 목록과 시세를 같은 곳에서
+    받지 않고, 미국 시세는 야후 배치로 따로 온다.
+    """
+    __tablename__ = "us_tickers"
+
+    symbol     = Column(String(20), primary_key=True)            # AAPL, BRK-B
+    name       = Column(String(120), nullable=False, index=True)
+    # NASDAQ / NYSE / NYSE ARCA / AMEX / BATS / IEX
+    exchange   = Column(String(20), nullable=False)
+    # 'US' 또는 'ETF' — 검색 필터가 이걸로 나뉜다
+    market     = Column(String(10), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

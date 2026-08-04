@@ -17,7 +17,8 @@ from app.models.user import User  # noqa: F401  — Base.metadata가 users 테�
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
-    QuantScoreWeight, QuantPercentileCache, KrTicker,
+    QuantScoreWeight, QuantPercentileCache, KrTicker, UsTicker,
+    MetricsHistoryCache,
 )
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, SitePopup, Report  # noqa: F401
 from app.api.websocket.price_stream import stream_prices, stream_indices, MAX_STREAM_SYMBOLS

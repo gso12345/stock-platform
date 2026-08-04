@@ -733,9 +733,14 @@ async def periodic_refresh():
         # 것도 하지 않는다. 실제로 받아올 때도 httpx 요청 두 번뿐이다.
         if counter % 360 == 0:
             try:
-                from app.services.ticker_service import refresh_kr_tickers_if_stale
+                from app.services.ticker_service import (
+                    refresh_kr_tickers_if_stale, refresh_us_tickers_if_stale,
+                )
                 loop4 = asyncio.get_running_loop()
                 await loop4.run_in_executor(None, refresh_kr_tickers_if_stale)
+                # 미국 목록도 같은 방식이다 — 묵었을 때만 실제로 받아온다.
+                # 하루에 한 번꼴이고, 받아올 때도 평문 파일 두 개뿐이다.
+                await loop4.run_in_executor(None, refresh_us_tickers_if_stale)
             except Exception as e:
                 log.warning(f"종목 목록 주기 갱신 실패: {type(e).__name__}: {e}")
 

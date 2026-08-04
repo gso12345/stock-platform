@@ -1,0 +1,201 @@
+{
+ "memory": {
+  "used_mb": 76.1,
+  "limit_mb": 512,
+  "percent": 15,
+  "cache_mb": 0.0,
+  "cache_limit_mb": 96.0,
+  "cache_items": 0,
+  "cache_packed": 0,
+  "cache_fresh_mb": 0.0,
+  "cache_stale_mb": 0.0,
+  "cache_stale_items": 0
+ },
+ "cpu": {
+  "quota": 4.0,
+  "reported": 4,
+  "news_workers": 6
+ },
+ "tasks": [
+  {
+   "name": "periodic-refresh",
+   "running": true,
+   "error": null
+  },
+  {
+   "name": "startup-prefetch",
+   "running": true,
+   "error": null
+  },
+  {
+   "name": "watched-prices",
+   "running": true,
+   "error": null
+  }
+ ],
+ "market": {
+  "kr": "after",
+  "us": "closed",
+  "kr_label": "장마감",
+  "us_label": "휴장",
+  "price_interval_sec": 60
+ },
+ "watched": {
+  "symbols": 0,
+  "connections": 0
+ },
+ "idle": {
+  "seconds": 0,
+  "paused": false,
+  "pause_after_sec": 600
+ },
+ "news": {
+  "kr_feeds": 49,
+  "us_feeds": 14,
+  "batch": 14,
+  "kr_cached": 0,
+  "us_cached": 0,
+  "kr_sources": []
+ },
+ "heavy_prefetch": false,
+ "health": [],
+ "proc": {
+  "rss_mb": 144.0,
+  "pss_mb": 123.1,
+  "code_shared_mb": 40.3,
+  "private_dirty_mb": 103.4,
+  "private_clean_mb": 0.3
+ },
+ "objects": null,
+ "mem_trend": {
+  "samples": 0,
+  "points": [],
+  "per_hour_mb": null,
+  "span_min": 0
+ },
+ "alloc_growth": {
+  "enabled": false,
+  "ready": false,
+  "items": [],
+  "span_min": 0
+ },
+ "native": {
+  "arena_mb": 36.7,
+  "mmap_mb": 2.2,
+  "in_use_mb": 34.9,
+  "freed_kept_mb": 1.8
+ },
+ "last_trim": null,
+ "libraries": {
+  "tracked": true,
+  "stubbed": [],
+  "items": [
+   {
+    "name": "pandas",
+    "mb": 31.1,
+    "total_mb": 31.7,
+    "purpose": "표 형태 데이터 처리 — 시세·재무·백테스트 계산의 기반"
+   },
+   {
+    "name": "sqlalchemy",
+    "mb": 16.1,
+    "total_mb": 17.9,
+    "purpose": "DB 접근 — 27개 테이블 매핑과 쿼리"
+   }
+  ],
+  "measured_mb": 118.7,
+  "other_count": 121,
+  "other_mb": 9.6,
+  "baseline_mb": 18.5,
+  "preloaded": [
+   {
+    "name": "_ssl",
+    "purpose": "HTTPS 암호화 엔진 (OpenSSL)"
+   },
+   {
+    "name": "asyncio",
+    "purpose": "파이썬 표준 라이브러리 — 비동기 실행"
+   }
+  ],
+  "modules": 1601
+ },
+ "data_stores": [
+  {
+   "name": "미국 종목 DB",
+   "items": 182,
+   "bytes": 111702,
+   "mb": 0.11,
+   "what": "미국 상장 종목·ETF 목록 — 심볼·이름·거래소",
+   "movable": true
+  },
+  {
+   "name": "국내 종목 내장 목록",
+   "items": 115,
+   "bytes": 83784,
+   "mb": 0.08,
+   "what": "외부 조회가 모두 실패했을 때 쓰는 기본 종목",
+   "movable": false
+  },
+  {
+   "name": "미국 종목 한글명",
+   "items": 159,
+   "bytes": 36426,
+   "mb": 0.03,
+   "what": "'AAPL → 애플' 같은 검색·표시용 별칭",
+   "movable": false
+  },
+  {
+   "name": "국내 종목 DB",
+   "items": 0,
+   "bytes": 64,
+   "mb": 0.0,
+   "what": "KRX 상장 종목 — 출처 미로드 · 내장 폴백 115개로 축소 동작 중",
+   "movable": true
+  },
+  {
+   "name": "국내 시세 스냅샷",
+   "items": 0,
+   "bytes": 64,
+   "mb": 0.0,
+   "what": "종목별 현재가·등락·거래량·시가총액·시가/고가/저가",
+   "movable": true
+  },
+  {
+   "name": "응답 캐시",
+   "items": 0,
+   "bytes": 0,
+   "mb": 0.0,
+   "movable": true,
+   "what": "시세·차트·뉴스·재무 등 API 응답 (한도 초과 시 자동 정리)"
+  }
+ ],
+ "kr_tickers": {
+  "source": "DB 2873개",
+  "count": 2873,
+  "age_sec": 60,
+  "builtin_count": 115,
+  "degraded": false,
+  "prices": 2873,
+  "ttl_sec": 43200,
+  "db_rows": 2873,
+  "db_error": null
+ },
+ "us_tickers": {
+  "source": "내장",
+  "count": 182,
+  "etf_count": 34,
+  "age_sec": null,
+  "builtin_count": 182,
+  "degraded": true,
+  "db_rows": null,
+  "db_error": null,
+  "ttl_sec": 86400
+ },
+ "cache_breakdown": [],
+ "websocket": {
+  "connections": 0,
+  "limit_per_ip": 200
+ },
+ "uptime_sec": 1,
+ "server_time": "2026-08-03T06:32:17.503605+00:00"
+}

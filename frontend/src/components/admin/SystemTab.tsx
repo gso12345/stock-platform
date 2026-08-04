@@ -75,6 +75,11 @@ interface Runtime {
     builtin_count: number; degraded: boolean; prices: number; ttl_sec: number;
     db_rows?: number | null; db_error?: string | null;
   };
+  us_tickers?: {
+    source: string; count: number; etf_count: number; age_sec: number | null;
+    builtin_count: number; degraded: boolean; ttl_sec: number;
+    db_rows?: number | null; db_error?: string | null;
+  };
   cache_breakdown: { prefix: string; items: number; mb: number }[];
   websocket: { connections: number; limit_per_ip: number };
   uptime_sec: number;
@@ -235,18 +240,29 @@ export default function SystemTab() {
   // 프로덕션에서 이걸 화면으로 확인할 방법이 없어 저장 실패를 의심만 했다
   const 종목저장실패 = !!종목?.db_error || (종목 != null && 종목.db_rows === 0);
 
+  // 미국도 마찬가지. 내장 128개로 도는 동안 화면에 아무 표시가 없었다
+  const 미국종목 = d.us_tickers;
+  const 미국축소 = 미국종목?.degraded === true;
+
   return (
     <div className="flex flex-col gap-4">
 
       {/* ── 문제가 있으면 맨 위에 크게 ── */}
-      {(메모리위험 || 종목축소 || 종목저장실패 || 죽은작업.length > 0 || 실패중.length > 0) && (
-        <div className="rounded-xl border border-accent-red/40 bg-accent-red/10 p-4 flex items-start gap-2.5">
+      {(메모리위험 || 종목축소 || 미국축소 || 종목저장실패 || 죽은작업.length > 0 || 실패중.length > 0) && (
+        <div role="alert"
+             className="rounded-xl border border-accent-red/40 bg-accent-red/10 p-4 flex items-start gap-2.5">
           <AlertTriangle size={16} className="text-accent-red shrink-0 mt-0.5" />
           <div className="flex flex-col gap-1 text-xs text-accent-red break-keep leading-relaxed">
             {종목축소 && (
               <p>
                 <b>국내 종목이 {종목!.count}개뿐입니다</b> (출처: {종목!.source}) — 외부 조회가 실패해
                 내장 목록으로 동작 중입니다. 이 목록에 없는 종목은 검색·시세 조회가 되지 않습니다.
+              </p>
+            )}
+            {미국축소 && (
+              <p>
+                <b>미국 종목이 {미국종목!.count}개뿐입니다</b> (출처: {미국종목!.source}) — 외부 조회가
+                실패해 내장 목록으로 동작 중입니다. 이 목록에 없는 종목은 검색이 되지 않습니다.
               </p>
             )}
             {종목저장실패 && (
@@ -603,6 +619,32 @@ export default function SystemTab() {
                       {종목저장실패
                         ? `DB 저장 안 됨 — ${종목.db_error ?? "0건"}. 재시작마다 외부에서 다시 받아옵니다.`
                         : `DB에 ${종목.db_rows!.toLocaleString()}건 저장됨 — 다음 재시작은 외부 조회 없이 이 목록을 씁니다.`}
+                    </p>
+                  )}
+                </div>
+              )}
+              {미국종목 && (
+                <div className={`rounded-lg p-2 flex flex-col gap-0.5 ${
+                  미국축소 ? "bg-accent-red/10 border border-accent-red/30" : "bg-bg-elevated"}`}>
+                  <div className="flex items-baseline justify-between gap-2 text-2xs">
+                    <span className="text-text-dim break-keep">미국 종목 목록 출처</span>
+                    <span className={`font-mono shrink-0 ${미국축소 ? "text-accent-red" : "text-accent-green"}`}>
+                      {미국종목.source} · {미국종목.count.toLocaleString()}개
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-text-dim break-keep">
+                    {미국축소
+                      ? `외부 조회가 실패해 내장 ${미국종목.builtin_count}개로 동작 중입니다. 이 목록에 없는 종목은 검색이 되지 않습니다.`
+                      : `ETF ${미국종목.etf_count.toLocaleString()}개 포함${
+                          미국종목.age_sec != null ? ` · ${초를사람말로(미국종목.age_sec)} 갱신` : ""
+                        } · ${Math.round(미국종목.ttl_sec / 3600)}시간마다 새로 받습니다`}
+                  </p>
+                  {(미국종목.db_rows != null || 미국종목.db_error) && (
+                    <p className={`text-[10px] break-keep ${
+                      미국종목.db_error ? "text-accent-red" : "text-text-dim"}`}>
+                      {미국종목.db_error
+                        ? `DB 저장 안 됨 — ${미국종목.db_error}. 재시작마다 외부에서 다시 받아옵니다.`
+                        : `DB에 ${미국종목.db_rows!.toLocaleString()}건 저장됨 — 다음 재시작은 외부 조회 없이 이 목록을 씁니다.`}
                     </p>
                   )}
                 </div>

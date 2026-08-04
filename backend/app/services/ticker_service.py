@@ -68,6 +68,39 @@ KO_NAME_MAP: dict[str, list[str]] = {
     "WDC":   ["웨스턴디지털"],                 "STX":  ["시게이트"],
     "ON":    ["온세미","온세미컨덕터"],          "MRVL": ["마벨테크놀로지"],
     "NXPI":  ["NXP반도체"],                     "MCHP": ["마이크로칩테크놀로지"],
+    # 미국 전 종목을 붙이고 나서 채운 것들. 목록에는 6,700개가 다 들어왔지만,
+    # 어느 게 사람들이 찾는 것인지 알려주는 건 이 별칭뿐이라 '버크셔'·'화이자'로
+    # 검색해도 안 나왔다.
+    "BRK-B": ["버크셔해서웨이","버크셔"],        "BRK-A": ["버크셔해서웨이","버크셔"],
+    "C":     ["씨티그룹","시티은행"],            "MS":    ["모건스탠리"],
+    "SCHW":  ["찰스슈왑"],                       "COF":   ["캐피털원"],
+    "USB":   ["US뱅코프"],                       "PNC":   ["PNC파이낸셜"],
+    "TFC":   ["트루이스트"],                     "SPGI":  ["S&P글로벌"],
+    "MCO":   ["무디스"],                         "ICE":   ["인터콘티넨털익스체인지"],
+    "CME":   ["CME그룹"],                        "NDAQ":  ["나스닥거래소"],
+    "PFE":   ["화이자"],                         "BMY":   ["브리스톨마이어스","BMS"],
+    "GILD":  ["길리어드"],                       "REGN":  ["리제네론"],
+    "VRTX":  ["버텍스","버텍스파마"],            "MRNA":  ["모더나"],
+    "CVS":   ["CVS헬스"],                        "CI":    ["시그나"],
+    "ELV":   ["엘레반스헬스"],                    "F":     ["포드","포드자동차"],
+    "GM":    ["제너럴모터스","GM"],              "RIVN":  ["리비안"],
+    "LCID":  ["루시드"],                         "DAL":   ["델타항공"],
+    "MAR":   ["메리어트"],                       "LULU":  ["룰루레몬"],
+    "SPOT":  ["스포티파이"],                     "APP":   ["앱러빈"],
+    "HOOD":  ["로빈후드"],                       "RBLX":  ["로블록스"],
+    "DASH":  ["도어대시"],                       "LYFT":  ["리프트"],
+    "MELI":  ["메르카도리브레"],                 "GEV":   ["GE버노바"],
+    "VST":   ["비스트라"],                       "CEG":   ["컨스텔레이션에너지"],
+    "SO":    ["서던컴퍼니"],                     "DUK":   ["듀크에너지"],
+    "SCHD":  ["슈왑 배당 ETF","슈드"],           "JEPI":  ["JEPI 커버드콜"],
+    "JEPQ":  ["JEPQ 커버드콜"],                  "SMH":   ["반도체 ETF"],
+    "SOXL":  ["반도체 3배 레버리지"],             "IBIT":  ["비트코인 ETF"],
+    "BND":   ["미국 채권 ETF"],                   "IEF":   ["미국 중기국채 ETF"],
+    "SHY":   ["미국 단기국채 ETF"],               "VEA":   ["선진국 ETF"],
+    "VWO":   ["신흥국 ETF"],                      "VIG":   ["배당성장 ETF"],
+    "VOO":   ["뱅가드 S&P500 ETF"],               "VTI":   ["미국 전체시장 ETF"],
+    "SLV":   ["은 ETF"],                          "DIA":   ["다우 ETF"],
+    "TLT":   ["미국 장기국채 ETF"],
 }
 
 def get_display_name(symbol: str, market: str, fallback: str = "") -> str:
@@ -188,6 +221,53 @@ US_TICKERS: list[dict] = [
     {"s":"ASML","n":"ASML Holding N.V.","x":"NASDAQ","m":"US"},
     {"s":"SMCI","n":"Super Micro Computer Inc.","x":"NASDAQ","m":"US"},
     {"s":"MSTR","n":"MicroStrategy Inc.","x":"NASDAQ","m":"US"},
+    # ── 빠져 있던 대형주 ──
+    #
+    # 미국 전 종목 목록을 붙이고 나서야 알았다. 'BRK' 를 치면 버크셔가 아니라
+    # BRKH·BRKHU 가 먼저 나왔다 — 목록에는 6,700개가 다 있는데, 어느 게 사람들이
+    # 찾는 것인지 알려주는 게 이 내장 목록뿐이기 때문이다. 한국어로도 안 찾아졌다.
+    {"s":"BRK-B","n":"Berkshire Hathaway Inc. Class B","x":"NYSE","m":"US"},
+    {"s":"BRK-A","n":"Berkshire Hathaway Inc. Class A","x":"NYSE","m":"US"},
+    {"s":"C","n":"Citigroup Inc.","x":"NYSE","m":"US"},
+    {"s":"MS","n":"Morgan Stanley","x":"NYSE","m":"US"},
+    {"s":"SCHW","n":"Charles Schwab Corporation","x":"NYSE","m":"US"},
+    {"s":"COF","n":"Capital One Financial Corporation","x":"NYSE","m":"US"},
+    {"s":"USB","n":"U.S. Bancorp","x":"NYSE","m":"US"},
+    {"s":"PNC","n":"PNC Financial Services Group","x":"NYSE","m":"US"},
+    {"s":"TFC","n":"Truist Financial Corporation","x":"NYSE","m":"US"},
+    {"s":"SPGI","n":"S&P Global Inc.","x":"NYSE","m":"US"},
+    {"s":"MCO","n":"Moody's Corporation","x":"NYSE","m":"US"},
+    {"s":"ICE","n":"Intercontinental Exchange Inc.","x":"NYSE","m":"US"},
+    {"s":"CME","n":"CME Group Inc.","x":"NASDAQ","m":"US"},
+    {"s":"NDAQ","n":"Nasdaq Inc.","x":"NASDAQ","m":"US"},
+    {"s":"PFE","n":"Pfizer Inc.","x":"NYSE","m":"US"},
+    {"s":"BMY","n":"Bristol-Myers Squibb Company","x":"NYSE","m":"US"},
+    {"s":"GILD","n":"Gilead Sciences Inc.","x":"NASDAQ","m":"US"},
+    {"s":"REGN","n":"Regeneron Pharmaceuticals Inc.","x":"NASDAQ","m":"US"},
+    {"s":"VRTX","n":"Vertex Pharmaceuticals Inc.","x":"NASDAQ","m":"US"},
+    {"s":"MRNA","n":"Moderna Inc.","x":"NASDAQ","m":"US"},
+    {"s":"CVS","n":"CVS Health Corporation","x":"NYSE","m":"US"},
+    {"s":"CI","n":"The Cigna Group","x":"NYSE","m":"US"},
+    {"s":"ELV","n":"Elevance Health Inc.","x":"NYSE","m":"US"},
+    {"s":"F","n":"Ford Motor Company","x":"NYSE","m":"US"},
+    {"s":"GM","n":"General Motors Company","x":"NYSE","m":"US"},
+    {"s":"RIVN","n":"Rivian Automotive Inc.","x":"NASDAQ","m":"US"},
+    {"s":"LCID","n":"Lucid Group Inc.","x":"NASDAQ","m":"US"},
+    {"s":"DAL","n":"Delta Air Lines Inc.","x":"NYSE","m":"US"},
+    {"s":"MAR","n":"Marriott International Inc.","x":"NASDAQ","m":"US"},
+    {"s":"LULU","n":"Lululemon Athletica Inc.","x":"NASDAQ","m":"US"},
+    {"s":"SPOT","n":"Spotify Technology S.A.","x":"NYSE","m":"US"},
+    {"s":"APP","n":"AppLovin Corporation","x":"NASDAQ","m":"US"},
+    {"s":"HOOD","n":"Robinhood Markets Inc.","x":"NASDAQ","m":"US"},
+    {"s":"RBLX","n":"Roblox Corporation","x":"NYSE","m":"US"},
+    {"s":"DASH","n":"DoorDash Inc.","x":"NASDAQ","m":"US"},
+    {"s":"LYFT","n":"Lyft Inc.","x":"NASDAQ","m":"US"},
+    {"s":"MELI","n":"MercadoLibre Inc.","x":"NASDAQ","m":"US"},
+    {"s":"GEV","n":"GE Vernova Inc.","x":"NYSE","m":"US"},
+    {"s":"VST","n":"Vistra Corp.","x":"NYSE","m":"US"},
+    {"s":"CEG","n":"Constellation Energy Corporation","x":"NASDAQ","m":"US"},
+    {"s":"SO","n":"The Southern Company","x":"NYSE","m":"US"},
+    {"s":"DUK","n":"Duke Energy Corporation","x":"NYSE","m":"US"},
     # ── ETF ──
     {"s":"SPY","n":"SPDR S&P 500 ETF Trust","x":"NYSE","m":"ETF"},
     {"s":"QQQ","n":"Invesco QQQ Trust (NASDAQ 100)","x":"NASDAQ","m":"ETF"},
@@ -211,6 +291,19 @@ US_TICKERS: list[dict] = [
     {"s":"TQQQ","n":"ProShares UltraPro QQQ","x":"NASDAQ","m":"ETF"},
     {"s":"SQQQ","n":"ProShares UltraPro Short QQQ","x":"NASDAQ","m":"ETF"},
     {"s":"UVXY","n":"ProShares Ultra VIX Short-Term Futures ETF","x":"CBOE","m":"ETF"},
+    # ── 빠져 있던 ETF ──
+    {"s":"SCHD","n":"Schwab U.S. Dividend Equity ETF","x":"NYSE ARCA","m":"ETF"},
+    {"s":"JEPI","n":"JPMorgan Equity Premium Income ETF","x":"NYSE ARCA","m":"ETF"},
+    {"s":"JEPQ","n":"JPMorgan Nasdaq Equity Premium Income ETF","x":"NASDAQ","m":"ETF"},
+    {"s":"SMH","n":"VanEck Semiconductor ETF","x":"NASDAQ","m":"ETF"},
+    {"s":"SOXL","n":"Direxion Daily Semiconductor Bull 3X","x":"NYSE ARCA","m":"ETF"},
+    {"s":"IBIT","n":"iShares Bitcoin Trust ETF","x":"NASDAQ","m":"ETF"},
+    {"s":"BND","n":"Vanguard Total Bond Market ETF","x":"NASDAQ","m":"ETF"},
+    {"s":"IEF","n":"iShares 7-10 Year Treasury Bond ETF","x":"NYSE ARCA","m":"ETF"},
+    {"s":"SHY","n":"iShares 1-3 Year Treasury Bond ETF","x":"NYSE ARCA","m":"ETF"},
+    {"s":"VEA","n":"Vanguard FTSE Developed Markets ETF","x":"NYSE ARCA","m":"ETF"},
+    {"s":"VWO","n":"Vanguard FTSE Emerging Markets ETF","x":"NYSE ARCA","m":"ETF"},
+    {"s":"VIG","n":"Vanguard Dividend Appreciation ETF","x":"NYSE ARCA","m":"ETF"},
 ]
 
 # ── 한국 종목 내장 DB (주요 종목 200개+) ────────────────────
@@ -718,6 +811,181 @@ def get_us_db() -> list[dict]:
     return _us_db
 
 
+# ── 미국 종목 목록 ─────────────────────────────────────────
+# 국내와 같은 순서다. DB → NASDAQ Trader → 내장 128개.
+#
+# 내장 128개로 도는 상태가 오래 갔다. 검색이 안 되는데 화면에는 아무 표시가
+# 없어서, '미국 모든 종목이 조회 가능하면 좋겠어' 라는 말을 듣고서야 알았다.
+# 그래서 국내와 마찬가지로 출처와 건수를 관리자 화면에 그대로 내보낸다.
+_us_source = "내장"
+_us_loaded_at: float | None = None
+_us_db_rows: int | None = None
+_us_error: str | None = None
+_us_rows_at: datetime | None = None
+
+US_TICKER_TTL_SEC = int(os.getenv("US_TICKER_TTL_SEC", 24 * 3600))
+
+
+def us_status() -> dict:
+    """지금 미국 종목 목록이 어디서 온 것인지. 관리자 화면 전용."""
+    with _lock:
+        n = len(_us_db)
+    return {
+        "source": _us_source,
+        "count": n,
+        "etf_count": sum(1 for t in _us_db if t.get("m") == "ETF"),
+        "age_sec": None if _us_loaded_at is None else round(time.time() - _us_loaded_at),
+        "builtin_count": len(US_TICKERS),
+        # 내장 목록으로 돌고 있다 = 128개 밖의 미국 종목은 검색이 안 된다
+        "degraded": _us_source == "내장" or n <= len(US_TICKERS),
+        "db_rows": _us_db_rows,
+        "db_error": _us_error,
+        "ttl_sec": US_TICKER_TTL_SEC,
+    }
+
+
+def _us_is_stale() -> bool:
+    at = _us_rows_at
+    if at is None:
+        return True
+    try:
+        now = datetime.now(at.tzinfo) if at.tzinfo else datetime.now()
+        return (now - at).total_seconds() > US_TICKER_TTL_SEC
+    except Exception:
+        return True
+
+
+def _apply_us(rows: list[dict], source: str) -> None:
+    global _us_db, _us_source, _us_loaded_at, _us_rows_at
+    # 내장 목록을 앞에 둔다. 한국어 별칭(KO_NAME_MAP)이 붙은 주요 종목이라
+    # 검색에서 먼저 걸려야 하고, NASDAQ Trader 에 없는 것(SPCX 등)도 있다.
+    본것 = {r["s"] for r in US_TICKERS}
+    합친것 = US_TICKERS + [r for r in rows if r["s"] not in 본것]
+    with _lock:
+        _us_db = 합친것
+        _us_source = source
+        _us_loaded_at = time.time()
+    _us_rows_at = datetime.now()
+
+
+def _load_us_from_db() -> bool:
+    """DB에 저장된 미국 목록을 읽는다. 평소 재시작은 여기서 끝난다."""
+    global _us_db_rows, _us_error, _us_rows_at
+    try:
+        from sqlalchemy import select
+        from app.db.database import SessionLocal
+        from app.models.stock import UsTicker
+
+        with SessionLocal() as db:
+            rows = db.execute(select(UsTicker)).scalars().all()
+            _us_db_rows = len(rows)
+            if not rows:
+                return False
+            listing, newest = [], None
+            for r in rows:
+                listing.append({"s": r.symbol, "n": r.name, "x": r.exchange, "m": r.market})
+                if r.updated_at and (newest is None or r.updated_at > newest):
+                    newest = r.updated_at
+        _apply_us(listing, f"DB {len(listing)}개")
+        _us_rows_at = newest          # 데이터 자체가 언제 것인지로 묵음을 판단한다
+        _us_error = None
+        return True
+    except Exception as e:
+        _us_error = f"읽기 실패: {type(e).__name__}: {e}"[:200]
+        log.warning(f"미국 종목 DB 읽기 실패: {type(e).__name__}: {e}")
+        return False
+
+
+def _save_us_to_db(rows: list[dict]) -> bool:
+    """받아온 목록을 DB에 써 둔다. 다음 재시작은 이걸 읽는다."""
+    global _us_db_rows, _us_error
+    if not rows:
+        return False
+    try:
+        from app.db.database import SessionLocal
+        from app.models.stock import UsTicker
+
+        # 국내에서 'KOSDAQ GLOBAL'(13자) 하나가 2,873개 저장을 통째로
+        # 무너뜨린 적이 있다. 길이는 모델에서 읽으므로 컬럼을 바꾸면 따라온다.
+        _limit = {c.name: c.type.length for c in UsTicker.__table__.columns
+                  if getattr(c.type, "length", None)}
+
+        def _fit(col: str, v):
+            n = _limit.get(col)
+            if n and isinstance(v, str) and len(v) > n:
+                return v[:n]
+            return v
+
+        with SessionLocal() as db:
+            existing = {r.symbol: r for r in db.query(UsTicker).all()}
+            seen = set()
+            for it in rows:
+                sym = _fit("symbol", it["s"])
+                seen.add(sym)
+                vals = {"name": _fit("name", it["n"]),
+                        "exchange": _fit("exchange", it.get("x", "")),
+                        "market": _fit("market", it.get("m", "US"))}
+                row = existing.get(sym)
+                if row is None:
+                    db.add(UsTicker(symbol=sym, **vals))
+                else:
+                    for k, v in vals.items():
+                        setattr(row, k, v)
+            # 상장폐지된 종목은 지운다
+            for sym, row in existing.items():
+                if sym not in seen:
+                    db.delete(row)
+            db.commit()
+        _us_db_rows, _us_error = len(rows), None
+        log.info(f"미국 종목 {len(rows)}개를 DB에 저장")
+        return True
+    except Exception as e:
+        _us_error = f"저장 실패: {type(e).__name__}: {e}"[:200]
+        log.error(f"미국 종목 DB 저장 실패 — 다음 재시작에도 외부 조회가 필요합니다: "
+                  f"{type(e).__name__}: {e}")
+        return False
+
+
+def _refresh_us_outside() -> bool:
+    """밖에서 새 목록을 받아온다.
+
+    빈손으로 돌아오면 아무것도 하지 않는다 — 지난 목록이 그대로 남는 게
+    128개로 떨어지는 것보다 낫다."""
+    global _us_error
+    try:
+        from app.services import us_listing
+        rows, 출처 = us_listing.fetch_listing()
+        if not rows:
+            log.warning(f"미국 종목 목록을 받지 못했습니다 ({출처}) — 지난 목록을 유지합니다")
+            health.record_fail("미국종목목록", 출처)
+            return False
+        _apply_us(rows, 출처)
+        health.record_ok("미국종목목록", detail=f"{len(rows)}개")
+        _save_us_to_db(rows)
+        return True
+    except Exception as e:
+        log.warning(f"미국 종목 목록 갱신 실패: {type(e).__name__}: {e}")
+        health.record_fail("미국종목목록", f"{type(e).__name__}")
+        return False
+
+
+def load_us_tickers() -> None:
+    """서버 시작 때 한 번. DB가 신선하면 외부 호출 없이 끝난다."""
+    if _load_us_from_db() and not _us_is_stale():
+        return
+    _refresh_us_outside()
+
+
+def refresh_us_tickers_if_stale() -> bool:
+    """주기 작업이 부른다. 묵었을 때만 실제로 받아온다.
+
+    확인 자체는 공짜다 — 시각만 비교하고 대부분 바로 돌아온다."""
+    if not _us_is_stale():
+        return False
+    log.info("미국 종목 목록이 오래돼 주기 갱신을 시작합니다")
+    return _refresh_us_outside()
+
+
 # ── 검색 함수 ──────────────────────────────────────────────
 def search_stocks(query: str, market_filter: str = "ALL") -> list[dict]:  # noqa: C901
     """
@@ -759,28 +1027,92 @@ def search_stocks(query: str, market_filter: str = "ALL") -> list[dict]:  # noqa
 
     # 미국/ETF DB 검색 (심볼, 영문명, 한국어명)
     if market_filter in ("ALL", "US", "ETF"):
-        for item in _us_db:
-            if item["m"] == "ETF" and market_filter not in ("ALL", "ETF"):
-                continue
-            if item["m"] == "US" and market_filter == "ETF":
-                continue
-            sym = item["s"]
-            ko_names = KO_NAME_MAP.get(sym, [])
-            ko_match = any(q_low in ko.lower() for ko in ko_names)
-            if q_up in sym.upper() or q_low in item["n"].lower() or ko_match:
-                # 한국어 이름도 표시
-                enriched = {**item}
-                if ko_names:
-                    enriched["ko_name"] = ko_names[0]
-                add(enriched)
-            if len(results) >= 50:
-                break
+        for item in _us_등수매기기(q_up, q_low, market_filter):
+            add(item)
 
     return results[:20]
 
 
-# 서버 시작 시 백그라운드로 한국 DB 로드
+# '어딘가 들어 있기만 한' 매치는 이만큼만 담는다. 'A' 한 글자에 6천 건이
+# 걸리는데, 그걸 다 모아서 정렬하는 비용이 훑는 비용보다 크다. 어차피
+# 20개만 돌려주므로 이 정도면 남는다.
+_US_느슨한매치_상한 = 60
+
+
+def _us_등수매기기(q_up: str, q_low: str, market_filter: str) -> list[dict]:
+    """미국 종목을 '얼마나 잘 맞았는지' 순으로 돌려준다.
+
+    목록이 128개일 때는 순서가 상관없었다. 훑다가 걸리는 대로 담아도
+    사람이 아는 종목뿐이었기 때문이다. 9천 개가 되면 얘기가 달라진다 —
+    'A' 를 치면 알파벳 앞쪽 아무거나 스무 개가 나오고, 정작 애플은 없다.
+
+    등수는 낮을수록 먼저다.
+      0 심볼이 정확히 같음        AAPL → AAPL
+      1 한국어 별칭이 앞부터 맞음  애플 → AAPL
+      2 심볼이 앞부터 맞음        AAP → AAPL
+      3 이름이 앞부터 맞음        Apple → AAPL
+      4 그밖에 어딘가 들어 있음
+    같은 등수 안에서는 내장 목록(한국어 별칭이 붙은 주요 종목)이 먼저,
+    그다음은 심볼이 짧은 것이 먼저다. 'BRK' 를 치면 BRK-B 를 찾는
+    것이지 BRKHU·BRKRP 를 찾는 게 아닌데, 담긴 순서만으로 줄을 세우면
+    파일에 먼저 나온 잡다한 쪽이 위를 차지한다.
+
+    잘 맞은 것(0~3등)은 도중에 끊지 않고 끝까지 훑는다. 매치 개수로 끊으면
+    'AB' 같은 짧은 입력에서 느슨한 매치 수백 건에 밀려, 정작 심볼이 정확히
+    'AB' 인 종목이 목록 뒤에 있다는 이유로 빠진다. 9천 개를 다 훑어도
+    3~6ms 라 끊을 이유가 없다."""
+    if not q_up:
+        return []
+    잘맞은것: list[tuple[tuple, dict]] = []
+    느슨한것: list[tuple[tuple, dict]] = []
+    내장수 = len(US_TICKERS)
+    for 순번, item in enumerate(_us_db):
+        m = item["m"]
+        if m == "ETF" and market_filter not in ("ALL", "ETF"):
+            continue
+        if m == "US" and market_filter == "ETF":
+            continue
+        sym = item["s"]
+        이름 = item["n"].lower()
+        ko_names = KO_NAME_MAP.get(sym, [])
+
+        if sym == q_up:
+            등수 = 0
+        elif any(ko.startswith(q_low) for ko in ko_names):
+            등수 = 1
+        elif sym.startswith(q_up):
+            등수 = 2
+        elif 이름.startswith(q_low):
+            등수 = 3
+        elif q_up in sym or q_low in 이름 or any(q_low in ko for ko in ko_names):
+            등수 = 4
+        else:
+            continue
+
+        if ko_names:
+            item = {**item, "ko_name": ko_names[0]}
+        줄세우기 = (등수, 0 if 순번 < 내장수 else 1, len(sym), 순번)
+        if 등수 < 4:
+            잘맞은것.append((줄세우기, item))
+        elif len(느슨한것) < _US_느슨한매치_상한:
+            느슨한것.append((줄세우기, item))
+
+    잘맞은것.sort(key=lambda t: t[0])
+    느슨한것.sort(key=lambda t: t[0])
+    return [t[1] for t in 잘맞은것 + 느슨한것]
+
+
+# 서버 시작 시 백그라운드로 종목 목록 로드
 def init_ticker_db():
-    t = threading.Thread(target=_load_kr_from_pykrx, daemon=True)
+    def _둘다():
+        _load_kr_from_pykrx()
+        # 미국은 국내 뒤에 한다. 같이 하면 재시작 직후 CPU 0.15개를 둘이
+        # 나눠 쓰면서 첫 요청이 다 느려진다. 미국 쪽은 대부분 DB 읽기 한 번이다.
+        try:
+            load_us_tickers()
+        except Exception as e:
+            log.warning(f"미국 종목 목록 로드 실패: {type(e).__name__}: {e}")
+
+    t = threading.Thread(target=_둘다, daemon=True)
     t.start()
-    log.info("한국 종목 DB 백그라운드 로드 시작")
+    log.info("종목 DB 백그라운드 로드 시작")

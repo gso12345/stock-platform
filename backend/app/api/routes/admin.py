@@ -287,6 +287,10 @@ def get_runtime(_: User = Depends(require_admin)):
         # 종목 목록이 어디서 왔는지. 세 단계 폴백이 전부 조용히 실패해
         # 내장 115개로 서비스하던 것을 아무도 몰랐던 적이 있다
         "kr_tickers": ticker_service.kr_status(),
+        # 미국도 같은 이유다. 코드에 적어둔 128개로 도는 동안 화면에는
+        # 아무 표시가 없었고, 사용자가 '미국 모든 종목이 조회 가능하면
+        # 좋겠어'라고 말하고서야 알았다
+        "us_tickers": ticker_service.us_status(),
         "cache_breakdown": cache.by_prefix()[:10],
         "websocket": {
             "connections": sum(_ws_connections.values()),
