@@ -26,27 +26,27 @@ describe("등락 배지", () => {
     expect(screen.getByText("+1.23%")).toBeInTheDocument();
   });
 
-  it("금액을 주면 % 앞에 같이 적는다", () => {
+  it("금액을 주면 '+900 (+1.22%)' 모양으로 적는다", () => {
+    /* 통화 기호는 안 쓴다. 바로 옆에 현재가가 통화와 함께 있고,
+       '+₩900 +1.22%' 는 기호가 둘이라 눈이 걸린다 */
     render(<ChangeBadge value={1.22} 금액={900} 통화="KRW" />);
-    expect(document.body.textContent).toMatch(/\+₩900\s*\+1\.22%/);
+    expect(document.body.textContent).toBe("+900 (+1.22%)");
   });
 
   it("내릴 때는 금액에도 빼기를 붙인다", () => {
     render(<ChangeBadge value={-2.5} 금액={-1850} 통화="KRW" />);
-    expect(document.body.textContent).toMatch(/-₩1,850\s*-2\.50%/);
+    expect(document.body.textContent).toBe("-1,850 (-2.50%)");
   });
 
   it("달러는 소수 둘째 자리까지 쓴다", () => {
-    /* 원화에서 12.34원은 의미가 없지만 달러에서 $12.34 는 흔하다 */
+    /* 원화에서 12.34원은 의미가 없지만 달러에서 1.37 은 흔하다 */
     render(<ChangeBadge value={0.8} 금액={1.37} 통화="USD" />);
-    expect(document.body.textContent).toMatch(/\+\$1\.37/);
+    expect(document.body.textContent).toBe("+1.37 (+0.80%)");
   });
 
   it("원화는 소수점을 버린다", () => {
     render(<ChangeBadge value={0.8} 금액={1234.7} 통화="KRW" />);
-    // % 에는 소수점이 있으므로 금액 부분만 본다
-    const 금액부분 = (document.body.textContent ?? "").split(" ")[0];
-    expect(금액부분).toBe("+₩1,235");
+    expect(document.body.textContent).toBe("+1,235 (+0.80%)");
   });
 
   it("값이 없거나 숫자가 아니면 금액을 안 그린다", () => {
@@ -54,7 +54,7 @@ describe("등락 배지", () => {
        '₩NaN' 이 보인다 */
     for (const 이상한것 of [null, undefined, NaN, Infinity]) {
       const { unmount } = render(<ChangeBadge value={0} 금액={이상한것 as any} 통화="KRW" />);
-      expect(document.body.textContent, String(이상한것)).not.toMatch(/NaN|Infinity|₩/);
+      expect(document.body.textContent, String(이상한것)).toBe("+0.00%");
       unmount();
     }
   });

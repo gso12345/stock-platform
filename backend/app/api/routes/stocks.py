@@ -380,7 +380,15 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                     pass
 
         # fundamentals 캐시에서 재무지표 보완 (forward_per, peg, ev_ebitda 등)
+        # 네이버 시세 응답에는 재무지표가 없어서 fundamentals 로 채운다.
+        #
+        # per·eps·pbr·bps 가 이 목록에 없었다. forward_eps(선행 EPS)는 있는데
+        # 정작 eps(현재 EPS)가 빠져 있어서, 국내 종목은 detail 응답의 eps 가
+        # 끝까지 비어 있었다. 재무제표 탭은 detail 이 비면 fundamentals 를
+        # 다시 보므로 값이 나왔고, 기본정보는 detail 만 보고 있어서 안 나왔다.
+        # 같은 화면에서 한쪽만 비는 그 증상의 뿌리가 여기다.
         _KR_FUND_KEYS = (
+            "per", "eps", "pbr", "bps",
             "forward_per", "peg", "ev_ebitda", "ev_revenue", "enterprise_value",
             "psr", "forward_eps", "roe", "roa", "gross_margin", "op_margin",
             "net_margin", "debt_ratio", "current_ratio", "quick_ratio",

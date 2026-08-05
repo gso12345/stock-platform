@@ -51,15 +51,18 @@ export function ChangeBadge({ value, suffix = "%", className, 금액, 통화 }: 
   const color = pos
     ? (colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green")
     : (colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red");
+  /* 금액은 통화 기호 없이 숫자만 쓴다.
+     '+₩900 +1.22%' 는 기호가 둘(₩, %)이라 눈이 걸린다. 어차피 바로 옆에
+     현재가가 통화와 함께 있으므로, 여기서는 '+900 (+1.22%)' 로 짧게 둔다. */
   const 원화 = 통화 !== "USD";
   const 금액글 = 금액 == null || !Number.isFinite(금액) ? null
     : `${금액 >= 0 ? "+" : "-"}${원화
-        ? `₩${Math.round(Math.abs(금액)).toLocaleString("ko-KR")}`
-        : `$${Math.abs(금액).toFixed(2)}`}`;
+        ? Math.round(Math.abs(금액)).toLocaleString("ko-KR")
+        : Math.abs(금액).toFixed(2)}`;
+  const 비율글 = `${pos ? "+" : ""}${value.toFixed(2)}${suffix}`;
   return (
     <span className={cn("font-mono font-semibold num", color, className)}>
-      {금액글 && <>{금액글} </>}
-      {pos ? "+" : ""}{value.toFixed(2)}{suffix}
+      {금액글 ? `${금액글} (${비율글})` : 비율글}
     </span>
   );
 }

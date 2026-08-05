@@ -115,3 +115,59 @@ class Test따로_받는_자리:
         본문 = inspect.getsource(C.get_post_image)
         assert "except Exception" in 본문
         assert "status_code=404" in 본문
+
+
+class Test이미지를_본문_밖으로:
+    """응답에서만 빼는 것으로는 부족했다.
+
+    이미지가 여전히 content 안에 있으면, 피드 SELECT 는 스무 건의 content 를
+    통째로(약 2MB) 끌어와 json.loads 한다. 응답 크기만 줄었을 뿐 읽는 비용은
+    그대로다. 그래서 컬럼으로 뺐다."""
+
+    def test_목록_질의가_이미지를_안_읽는다(self):
+        """defer 가 빠지면 다시 스무 장을 끌어온다 — 이게 핵심이다."""
+        import inspect
+        for 함수 in (C.get_feed, C.list_posts):
+            본문 = inspect.getsource(함수)
+            assert "defer(StockPost.image_data)" in 본문, f"{함수.__name__} 가 이미지를 읽는다"
+
+    def test_저장할_때_컬럼으로_뺀다(self):
+        import inspect
+        본문 = inspect.getsource(C.create_post)
+        assert "_이미지쪼개기" in 본문
+        assert "image_data" in 본문
+        # 쪼개졌으면 본문에서는 빼야 한다. 둘 다 넣으면 두 배로 무거워진다
+        assert '"" if 바이트 else image_val' in 본문
+
+    def test_원본_바이트로_넣는다(self):
+        """base64 는 3바이트를 4글자로 부풀린다. 저장도 33% 더 먹고,
+        내보낼 때마다 디코딩해야 한다."""
+        형식, 바이트 = C._이미지쪼개기(_이미지)
+        assert 형식 == "image/jpeg"
+        assert isinstance(바이트, bytes)
+        assert 바이트 == base64.b64decode(_픽셀)
+
+    def test_허용하지_않는_형식은_안_쪼갠다(self):
+        """'data:image/svg+xml' 은 스크립트를 품을 수 있다."""
+        형식, 바이트 = C._이미지쪼개기("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=")
+        assert (형식, 바이트) == (None, None)
+
+    def test_이상한_값에_터지지_않는다(self):
+        for 값 in ("", "그냥글자", "data:image/jpeg;base64,!!!깨짐!!!", None):
+            assert C._이미지쪼개기(값) == (None, None), 값
+
+    def test_옛_글도_계속_보인다(self):
+        """이미 저장된 글은 아직 content 안에 이미지가 있다. 컬럼만 보면
+        예전 글의 이미지가 통째로 사라진다."""
+        import inspect
+        본문 = inspect.getsource(C.get_post_image)
+        assert "decode_content" in 본문, "옛 글 폴백이 사라졌다"
+        본문2 = inspect.getsource(C._ser_post)
+        assert 'or parsed.get("image")' in 본문2, "옛 글의 has_image 가 항상 거짓이 된다"
+
+    def test_이미지는_gzip_을_건너뛴다(self):
+        """JPEG 은 이미 압축돼 있다. gzip 이 형식을 안 가리고 level 9 로
+        한 번 더 누르는데, 줄지도 않으면서 CPU 0.15개를 먹는다."""
+        import inspect
+        본문 = inspect.getsource(C.get_post_image)
+        assert '"Content-Encoding": "identity"' in 본문

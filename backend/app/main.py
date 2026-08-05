@@ -239,6 +239,11 @@ async def lifespan(application: FastAPI):
         # 그 결과 로컬에서는 컬럼이 끝내 만들어지지 않아 회원가입 등이 500으로 죽었다.
         # 그래서 실제 컬럼 목록을 먼저 조회해 없는 것만 추가하는 방식으로 바꾼다.
         _MIGRATIONS = [
+            # 이미지를 본문 밖으로 뺀다. 옛 글은 아직 content 안에 있으므로
+            # 읽는 쪽에 폴백을 남겨 뒀다 — 이 컬럼이 비어 있어도 안 깨진다.
+            ("stock_posts",    "has_image",            "BOOLEAN NOT NULL DEFAULT false"),
+            ("stock_posts",    "image_mime",           "VARCHAR(30)"),
+            ("stock_posts",    "image_data",           "BLOB" if _is_sqlite else "BYTEA"),
             ("stock_posts",    "like_count",           "INTEGER NOT NULL DEFAULT 0"),
             ("stock_posts",    "comment_count",        "INTEGER NOT NULL DEFAULT 0"),
             ("stock_posts",    "view_count",           "INTEGER NOT NULL DEFAULT 0"),

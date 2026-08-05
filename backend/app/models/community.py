@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, UniqueConstraint, Index, LargeBinary
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.sql import func
 from app.db.database import Base
@@ -15,6 +15,18 @@ class StockPost(Base):
     like_count = Column(Integer, default=0)
     comment_count = Column(Integer, default=0)
     view_count = Column(Integer, default=0, server_default="0")
+    # 이미지는 본문(content) 밖에 둔다.
+    #
+    # 예전에는 base64 문자열이 content JSON 안에 들어 있었다. 피드 한
+    # 페이지(20개)를 읽으면 이미지 20장이 SELECT 에 딸려 와 약 2MB 를
+    # 끌어오고, 그걸 전부 json.loads 했다. 응답에서만 빼봐야 읽는 비용은
+    # 그대로였다.
+    #
+    # 원본 바이트로 넣는다 — base64 는 3바이트를 4글자로 부풀리므로 저장도
+    # 33% 더 먹고, 내보낼 때 매번 디코딩해야 한다.
+    has_image   = Column(Boolean, nullable=False, server_default="false", default=False)
+    image_mime  = Column(String(30), nullable=True)
+    image_data  = Column(LargeBinary, nullable=True)
     is_deleted  = Column(Boolean, default=False)
     is_blinded  = Column(Boolean, default=False, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

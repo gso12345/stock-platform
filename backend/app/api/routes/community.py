@@ -123,6 +123,47 @@ def _plain(v):
     return v
 
 
+def _댓글수(db: Session, post_ids: list[int]) -> dict[int, int]:
+    """글 여러 건의 댓글 수를 한 번에 센다.
+
+    예전에는 raw SQL 의 `post_id = ANY(:ids)` 를 썼다. ANY 는 PostgreSQL
+    전용이라 SQLite 에서는 'no such function: ANY' 로 죽는다 — 프로덕션은
+    멀쩡한데 로컬에서 글이 하나라도 있으면 피드가 통째로 500 이었다.
+    ORM 의 in_() 로 바꾸면 두 곳 다 같은 SQL 로 나간다."""
+    if not post_ids:
+        return {}
+    행 = (
+        db.query(StockComment.post_id, func.count(StockComment.id))
+          .filter(StockComment.post_id.in_(post_ids),
+                  StockComment.is_deleted.isnot(True),
+                  StockComment.is_blinded.isnot(True))
+          .group_by(StockComment.post_id)
+          .all()
+    )
+    return {r[0]: r[1] for r in 행}
+
+
+def _이미지쪼개기(data_uri: str) -> tuple[str | None, bytes | None]:
+    """'data:image/jpeg;base64,...' 를 (형식, 원본바이트) 로 나눈다.
+
+    이미지를 본문(content) 안에 두면 피드 한 페이지를 읽을 때 이미지 스무
+    장이 SELECT 에 딸려 온다. 컬럼으로 빼서 목록 조회에서 아예 안 읽게
+    한다. base64 는 3바이트를 4글자로 부풀리므로 원본 바이트로 넣는다.
+
+    못 쪼개면 (None, None) — 부르는 쪽이 예전처럼 content 에 넣는다."""
+    import base64
+    if not data_uri or not data_uri.startswith("data:image/"):
+        return None, None
+    try:
+        머리, 본체 = data_uri.split(",", 1)
+        형식 = 머리.split(";")[0][5:]
+        if 형식 not in _SAFE_AVATAR_TYPES:
+            return None, None
+        return 형식, base64.b64decode(본체, validate=True)
+    except Exception:
+        return None, None
+
+
 def encode_content(title: str, body: str, image: str = "", poll: Optional[dict] = None, tags: Optional[list] = None, portfolio: Optional[list] = None) -> str:
     return json.dumps({
         "v":         1,
@@ -298,7 +339,8 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "body":          parsed["body"],
         "image":         "" if 이미지빼기 else parsed.get("image", ""),
         # 목록에서는 이미지를 안 보내므로, 자리를 잡아 두려면 있는지는 알아야 한다
-        "has_image":     bool(parsed.get("image")),
+        # 컬럼이 먼저다. 옛 글은 아직 본문 안에 있으므로 그때만 파싱값을 본다
+        "has_image":     bool(getattr(post, "has_image", False) or parsed.get("image")),
         "poll":          poll_data,
         "tags":          _enrich_tags(parsed.get("tags", [])),
         "portfolio":     parsed.get("portfolio"),
@@ -502,6 +544,9 @@ def list_posts(
         q.options(
             defer(StockPost.comment_count),
             defer(StockPost.updated_at),
+            # 이미지를 안 읽는 것이 목록 속도의 핵심이다. 응답에서만 빼면
+            # SELECT 는 여전히 이미지를 통째로 끌어온다.
+            defer(StockPost.image_data),
             selectinload(StockPost.user),
         )
         .offset((page - 1) * limit)
@@ -518,11 +563,7 @@ def list_posts(
     # 댓글 수 일괄 집계 (comment_count 컬럼 불사용)
     comment_counts: dict = {}
     if post_ids:
-        rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE GROUP BY post_id"),
-            {"ids": post_ids},
-        ).fetchall()
-        comment_counts = {r[0]: r[1] for r in rows}
+        comment_counts = _댓글수(db, post_ids)
     lp_following_ids: set = set()
     if uid and user_ids:
         others = [uid2 for uid2 in user_ids if uid2 != uid]
@@ -618,17 +659,26 @@ def create_post(
     uname_val = current_user.username
     sym_upper = symbol.upper()
     image_val = _validate_uploaded_image(body.image, "첨부 이미지")
-    content_val = encode_content(body.title, body.body, image_val, body.poll, body.tags, body.portfolio)
+    # 이미지는 본문 밖 컬럼으로 넣는다
+    형식, 바이트 = _이미지쪼개기(image_val)
+    # 쪼개지면 content 에서는 뺀다 — 목록 조회가 이미지를 안 읽게 하는 것이 목적이다
+    content_val = encode_content(body.title, body.body,
+                                 "" if 바이트 else image_val,
+                                 body.poll, body.tags, body.portfolio)
 
     try:
         with engine.connect() as conn:
             result = conn.execute(
                 text("""
-                    INSERT INTO stock_posts (symbol, market, user_id, content, is_deleted, like_count)
-                    VALUES (:symbol, :market, :user_id, :content, false, 0)
+                    INSERT INTO stock_posts (symbol, market, user_id, content, is_deleted, like_count,
+                                             has_image, image_mime, image_data)
+                    VALUES (:symbol, :market, :user_id, :content, false, 0,
+                            :has_image, :image_mime, :image_data)
                     RETURNING id
                 """),
-                {"symbol": sym_upper, "market": market, "user_id": uid_val, "content": content_val},
+                {"symbol": sym_upper, "market": market, "user_id": uid_val, "content": content_val,
+                 "has_image": bool(바이트) or bool(image_val),
+                 "image_mime": 형식, "image_data": 바이트},
             )
             conn.commit()
             row = result.fetchone()
@@ -1030,11 +1080,26 @@ def get_post_image(post_id: int, db: Session = Depends(get_db)):
     import base64
     from fastapi.responses import Response
 
-    post = db.query(StockPost).filter(
+    # 컬럼에 있으면 그것만 읽는다 — 본문(content)을 통째로 끌어올 이유가 없다
+    행 = db.query(StockPost.image_mime, StockPost.image_data).filter(
         StockPost.id == post_id,
         StockPost.is_deleted.isnot(True),
         StockPost.is_blinded.isnot(True),
     ).first()
+    if 행 is None:
+        raise HTTPException(status_code=404, detail="글을 찾을 수 없습니다")
+    if 행[1]:
+        return Response(content=행[1], media_type=행[0] or "image/jpeg",
+                        headers={
+                            "Cache-Control": "public, max-age=604800, immutable",
+                            # JPEG·PNG 는 이미 압축돼 있다. gzip 은 형식을 안 가리고
+                            # level 9 로 한 번 더 눌러서, 줄지도 않는 일에 CPU 0.15개를
+                            # 쓴다. Content-Encoding 이 이미 있으면 건너뛴다.
+                            "Content-Encoding": "identity",
+                        })
+
+    # 여기부터는 아직 컬럼으로 못 옮긴 옛 글. 본문에서 꺼낸다.
+    post = db.query(StockPost).filter(StockPost.id == post_id).first()
     if not post:
         raise HTTPException(status_code=404, detail="글을 찾을 수 없습니다")
 
@@ -1052,7 +1117,13 @@ def get_post_image(post_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="이미지를 읽을 수 없습니다")
 
     return Response(content=바이트, media_type=타입,
-                    headers={"Cache-Control": "public, max-age=604800, immutable"})
+                    headers={
+                            "Cache-Control": "public, max-age=604800, immutable",
+                            # JPEG·PNG 는 이미 압축돼 있다. gzip 은 형식을 안 가리고
+                            # level 9 로 한 번 더 눌러서, 줄지도 않는 일에 CPU 0.15개를
+                            # 쓴다. Content-Encoding 이 이미 있으면 건너뛴다.
+                            "Content-Encoding": "identity",
+                        })
 
 
 @router.get("/feed")
@@ -1104,6 +1175,9 @@ def get_feed(
         q.options(
             defer(StockPost.comment_count),
             defer(StockPost.updated_at),
+            # 이미지를 안 읽는 것이 목록 속도의 핵심이다. 응답에서만 빼면
+            # SELECT 는 여전히 이미지를 통째로 끌어온다.
+            defer(StockPost.image_data),
             selectinload(StockPost.user),
         )
         .offset((page - 1) * limit)
@@ -1118,11 +1192,7 @@ def get_feed(
     )
     feed_comment_counts: dict = {}
     if post_ids:
-        rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE GROUP BY post_id"),
-            {"ids": post_ids},
-        ).fetchall()
-        feed_comment_counts = {r[0]: r[1] for r in rows}
+        feed_comment_counts = _댓글수(db, post_ids)
     # 투표 일괄 조회 (N+1 방지)
     feed_poll_votes: dict = {}
     if post_ids:
@@ -1342,11 +1412,7 @@ def get_user_activity(
     act_post_ids = [p.id for p in posts]
     act_comment_counts: dict = {}
     if act_post_ids:
-        rows = db.execute(
-            text("SELECT post_id, COUNT(*) FROM stock_comments WHERE post_id = ANY(:ids) AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE GROUP BY post_id"),
-            {"ids": act_post_ids},
-        ).fetchall()
-        act_comment_counts = {r[0]: r[1] for r in rows}
+        act_comment_counts = _댓글수(db, act_post_ids)
     post_items = []
     for p in posts:
         parsed = decode_content(p.content)

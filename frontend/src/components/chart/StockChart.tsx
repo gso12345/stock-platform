@@ -441,6 +441,13 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
   const ohlcvRef     = useRef<ReturnType<typeof preprocessData>>([]);
   const logScaleRef  = useRef(logScale);
   logScaleRef.current = logScale;
+  /* 높이는 ref 로 읽는다.
+     예전에는 height 가 아래 useEffect 의 의존성에 들어 있어서, 1px 만
+     바뀌어도 chart.remove() → innerHTML="" → 재생성 이 돌았다. 캔버스가
+     비었다 다시 그려지고 fitContent()·보이는 구간까지 초기화돼, 전체화면을
+     열 때 화면이 크게 흔들렸다. 높이만 바뀔 때는 아래에서 크기만 바꾼다. */
+  const heightRef    = useRef(height);
+  heightRef.current  = height;
 
   const [settings, setSettingsState] = useState<ChartSettings>(() => loadSettings());
   const settingsRef = useRef(settings);
@@ -548,7 +555,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     overlayRef.current.clear();
 
     mainRef.current.innerHTML = "";
-    const main = mkChart(mainRef.current, height);
+    const main = mkChart(mainRef.current, heightRef.current);
     chartRef.current = main;
     main.priceScale("right").applyOptions({
       mode: logScaleRef.current ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
@@ -722,7 +729,13 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       subRefs.current.forEach(c => { try { c.remove(); } catch {} });
       subRefs.current.clear();
     };
-  }, [data, chartType, height, isKR, colorScheme, indicatorToggles]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, chartType, isKR, colorScheme, indicatorToggles]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* 높이만 바뀌면 기존 차트를 그대로 두고 크기만 바꾼다.
+     부수고 다시 만들면 보고 있던 확대·스크롤 위치까지 초기화된다. */
+  useEffect(() => {
+    try { chartRef.current?.applyOptions({ height }); } catch { /* 이미 정리됨 */ }
+  }, [height]);
 
   /* ── MA/EMA 기간·색상 증분 업데이트 (전체 재생성 없음) ── */
   useEffect(() => {

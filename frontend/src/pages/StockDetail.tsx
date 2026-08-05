@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
@@ -160,14 +160,23 @@ export default function StockDetail() {
   const [chartType, setChartType]     = useState<ChartType>("candle");
   const [logScale, setLogScale]       = useState(false);
   const [fullscreen, setFullscreen]   = useState(false);
-  /* 전체화면 차트가 쓸 수 있는 높이. 창 크기·회전에 따라 달라지므로 잰다 */
+  /* 전체화면 차트가 쓸 수 있는 높이. 창 크기·회전에 따라 달라지므로 잰다.
+     
+     useLayoutEffect 를 쓴다. StockChart 는 height 가 바뀌면 차트를 부수고
+     다시 만든다(chart.remove() 후 재생성). 그냥 useEffect 로 재면 첫 그림이
+     최소값(260px)으로 한 번 그려진 뒤 곧바로 부수고 제 높이로 다시 그려서,
+     전체화면을 여는 순간 화면이 크게 흔들린다.
+     useLayoutEffect 는 화면에 칠하기 전에 돌므로 처음부터 제 높이로 한 번만
+     그린다. */
   const 전체차트칸 = useRef<HTMLDivElement>(null);
   const [전체차트높이, set전체차트높이] = useState(0);
-  useEffect(() => {
-    if (!fullscreen) return;
+  useLayoutEffect(() => {
+    if (!fullscreen) { set전체차트높이(0); return; }
     const 재기 = () => {
-      const h = 전체차트칸.current?.clientHeight;
-      if (h && h > 0) set전체차트높이(h);
+      /* 소수점이 붙으면 콘텐츠가 컨테이너보다 미세하게 커져 스크롤바가
+         생겼다 사라지기를 반복한다. 내림해서 잰다. */
+      const h = Math.floor(전체차트칸.current?.getBoundingClientRect().height ?? 0);
+      if (h > 0) set전체차트높이(h);
     };
     재기();
     // 화면을 돌리면 높이가 바뀐다. ResizeObserver 가 없는 환경도 있어 창
@@ -1129,9 +1138,16 @@ export default function StockDetail() {
               이제 남은 공간을 실제로 재서 그만큼 준다. 보조지표를 켜면
               그 패널은 아래로 밀려 스크롤된다 — 주 차트가 작아지는 것보다
               한 번 밀어 보는 편이 낫다. 화면을 돌리면 다시 잰다. */}
-          <div ref={전체차트칸} className="flex-1 overflow-y-auto">
-            <StockChart data={ohlcv} height={Math.max(260, 전체차트높이)}
-                        isKR={isKR} chartType={chartType} logScale={logScale}/>
+          {/* overflow-x-hidden — 가로 스크롤바가 생기면 clientHeight 가
+              콘텐츠에 따라 흔들리고, 그것이 다시 차트 높이를 바꾸는
+              되먹임 고리가 된다. 아예 못 생기게 막는다. */}
+          <div ref={전체차트칸} className="flex-1 overflow-y-auto overflow-x-hidden">
+            {/* 높이를 재기 전에는 안 그린다. 임시 높이로 한 번 그렸다가
+                다시 만들면 그 자체가 흔들림이다 */}
+            {전체차트높이 > 0 && (
+              <StockChart data={ohlcv} height={Math.max(260, 전체차트높이)}
+                          isKR={isKR} chartType={chartType} logScale={logScale}/>
+            )}
           </div>
         </div>
       )}
