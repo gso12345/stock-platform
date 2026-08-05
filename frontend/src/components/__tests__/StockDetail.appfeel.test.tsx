@@ -32,22 +32,11 @@ describe("시세 지표", () => {
     expect(구역).toMatch(/화면모양 === "app" && mainTab === "chart" && d && \(/);
   });
 
-  it("기본으로 여섯만 편다", () => {
-    /* 열 개를 한 번에 펴면 휴대폰에서 화면 절반이다 */
-    expect(StockDetail원문).toMatch(/시세더보기 \? priceItems : priceItems\.slice\(0, 6\)/);
-  });
-
   it("'앱처럼' 에서는 가격을 카드에 가두지 않는다", () => {
     /* 제목 밑에 큰 숫자가 바로 오는 것이 앱의 모양이다. 테두리를 두르면
        한 덩어리로 안 읽힌다. 다른 모양에서는 테두리를 그대로 둔다 */
     expect(StockDetail원문).toMatch(
       /화면모양 === "app" \? "overflow-hidden"\s*\n?\s*: "rounded-xl border border-border bg-bg-card overflow-hidden"/);
-  });
-
-  it("나머지를 펼치는 버튼이 있다", () => {
-    /* 접기만 하고 펼 방법이 없으면 정보를 지운 것이다 */
-    expect(StockDetail원문).toMatch(/set시세더보기/);
-    expect(StockDetail원문).toMatch(/시세더보기 \? "접기" : "더보기"/);
   });
 
   it("칸선을 긋지 않는다", () => {
@@ -74,8 +63,7 @@ describe("차트 컨트롤", () => {
   it("캔들·라인·LOG 는 톱니를 눌렀을 때만 편다", () => {
     /* 늘 펼쳐 두면 차트가 보이기도 전에 컨트롤이 세 줄이 된다 */
     expect(StockDetail원문).toMatch(/set차트설정열림/);
-    // classic 은 늘 펼친다 — 정보를 다 보려고 고른 모양이라 그게 맞다
-    expect(StockDetail원문).toMatch(/\{\(화면모양 === "classic" \|\| 차트설정열림\) && \(/);
+    expect(StockDetail원문).toMatch(/\{차트설정열림 && \(/);
   });
 
   it("지표 이름표와 설정은 차트 위에 겹쳐 얹는다", () => {

@@ -8,13 +8,11 @@
  * 여기서 못 박는 것 —
  *   1) 요약은 카드 하나다. 넷을 같은 크기로 늘어놓으면 무엇이 중요한지
  *      알 수 없고 화면만 먹는다.
- *   2) 구성 차트는 기본으로 접힌다. 여기 들어와서 먼저 보고 싶은 건
- *      원그래프가 아니라 내가 뭘 들고 있나다.
+ *   2) 구성은 늘 보인다. 접었다 폈다 하는 수고가 얻는 것보다 컸다.
  *   3) 로딩 뼈대가 실제 모양과 같다. 다르면 값이 도착할 때 화면이 튄다.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 
@@ -70,43 +68,19 @@ describe("내 자산 첫 화면", () => {
        넷으로 2×2 였다. 휴대폰에서 화면 3분의 1을 쓰면서도 무엇이 제일
        중요한지 알 수 없었다. */
     그리기();
-    await screen.findByRole("button", { name: "구성 펼치기" }, { timeout: 4000 });
+    await screen.findByText("종목별", {}, { timeout: 4000 });
     // 평가금액이 크게 하나, 나머지는 작게 — '총 매입금액' 같은 옛 이름은 없다
     expect(screen.queryByText("총 매입금액")).toBeNull();
     expect(screen.getByText("매입금액")).toBeInTheDocument();
     expect(screen.getByText("적용 환율")).toBeInTheDocument();
   });
 
-  it("구성 차트는 접힌 채로 시작한다", async () => {
-    /* 늘 펼쳐져 있으면 원그래프 하나에 화면 한 장을 쓰고, 정작 보유
-       종목은 스크롤해야 나온다 */
-    그리기();
-    expect(await screen.findByRole("button", { name: "구성 펼치기" }, { timeout: 4000 })).toBeInTheDocument();
-    expect(screen.queryByText("종목별")).toBeNull();
-  });
-
-  it("눌러서 펼칠 수 있다", async () => {
-    const u = userEvent.setup();
-    그리기();
-    /* 글자로 찾으면 로딩 자리의 같은 글자를 먼저 잡는다. 실제 버튼이
-       나올 때까지 기다린다 */
-    await u.click(await screen.findByRole("button", { name: "구성 펼치기" }, { timeout: 4000 }));
-    expect(await screen.findByText("종목별")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "구성 펼치기" })).toBeNull();
-  });
-
-  it("펼친 선택을 기억한다", async () => {
-    /* 매번 다시 접히면 그것대로 불편하다 */
-    const u = userEvent.setup();
-    const { unmount } = 그리기();
-    /* 글자로 찾으면 로딩 자리의 같은 글자를 먼저 잡는다. 실제 버튼이
-       나올 때까지 기다린다 */
-    await u.click(await screen.findByRole("button", { name: "구성 펼치기" }, { timeout: 4000 }));
-    await screen.findByText("종목별");
-    unmount();
-
+  it("구성은 늘 보인다", async () => {
+    /* 접었다 폈다 하게 뒀더니 볼 때마다 한 번 더 눌러야 했다.
+       자산 구성은 내 자산 화면에서 늘 궁금한 것이라 숨길 이유가 없다 */
     그리기();
     expect(await screen.findByText("종목별", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "구성 펼치기" })).toBeNull();
   });
 
   it("제목과 버튼이 한 줄에 있다", async () => {

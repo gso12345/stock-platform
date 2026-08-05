@@ -84,17 +84,6 @@ export default function Portfolio() {
   const [cashEditItem,    setCashEditItem]    = useState<PortfolioItem | undefined>(undefined);
   const [deleteTarget,    setDeleteTarget]    = useState<PortfolioItem | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
-  /* 구성 차트를 펼칠지. 기본은 접힘 — 여기 들어와서 제일 먼저 보고 싶은
-     것은 내가 뭘 얼마나 들고 있나이지 원그래프가 아니다. 예전에는 차트가
-     늘 펼쳐져 있어, 휴대폰에서 종목 하나를 보려면 화면을 한 장 넘겨야 했다.
-     한 번 편 사람은 계속 보고 싶어 하므로 선택은 기억한다. */
-  const [구성펼침, set구성펼침] = useState<boolean>(() => {
-    try { return localStorage.getItem("pf_구성펼침") === "1"; } catch { return false; }
-  });
-  const 구성토글 = () => set구성펼침((v) => {
-    try { localStorage.setItem("pf_구성펼침", v ? "0" : "1"); } catch { /* 무시 */ }
-    return !v;
-  });
   const [modalError,      setModalError]      = useState<string | null>(null);
   const [viewMode,        setViewMode]        = useState<"table" | "card">(
     () => (typeof window !== "undefined" && window.innerWidth < 640) ? "card" : "table"
@@ -952,26 +941,15 @@ export default function Portfolio() {
 
       {/* ── 구성 차트 ── */}
       {((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (
-        /* 로딩 자리도 접힌 높이에 맞춘다. 예전에는 180px 짜리 빈 상자였는데,
-           구성 차트가 기본 접힘이 되면서 그 상자만 화면 4분의 1을 먹고
-           보유 종목을 아래로 밀어냈다 */
-        <Card className="flex items-center justify-between gap-2">
-          <span className="text-sm font-semibold text-text-primary">구성 보기</span>
-          <div className="h-3 w-10 rounded bg-bg-elevated animate-pulse" />
+        <Card className="flex items-center justify-center h-[180px] text-text-muted text-sm">
+          가격 불러오는 중...
         </Card>
       )}
       {hasDisplay && (
         <Card className="flex flex-col gap-3">
-          {화면모양 !== "classic" && !구성펼침 ? (
-            <button onClick={구성토글} aria-expanded={false} aria-label="구성 펼치기"
-              className="flex items-center justify-between gap-2 w-full text-left">
-              <span className="text-sm font-semibold text-text-primary">구성 보기</span>
-              <span className="flex items-center gap-1 text-xs text-text-muted">
-                {activePieData.length}개 <ChevronDown size={14} />
-              </span>
-            </button>
-          ) : (
-          <>
+          {/* 구성은 늘 보인다.
+              접었다 폈다 하게 뒀더니 볼 때마다 한 번 더 눌러야 했다.
+              자산 구성은 내 자산 화면에서 늘 궁금한 것이라, 숨길 이유가 없다. */}
           <div className="flex items-center justify-between border-b border-border -mx-4 px-4 pb-0">
             <div className="flex">
               {([
@@ -1037,15 +1015,6 @@ export default function Portfolio() {
             </div>
           ) : (
             <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">데이터 없음</div>
-          )}
-          {화면모양 !== "classic" && (
-          <button onClick={구성토글} aria-expanded aria-label="구성 접기"
-            className="self-center flex items-center gap-1 px-3 py-1 -mb-1 rounded-full text-[11px]
-                       text-text-dim hover:text-text-secondary hover:bg-bg-elevated transition-colors">
-            접기 <ChevronDown size={12} className="rotate-180" />
-          </button>
-          )}
-          </>
           )}
         </Card>
       )}

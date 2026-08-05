@@ -7,24 +7,25 @@ export type Orientation = "system" | "portrait" | "landscape";
 
 /** 내 자산·종목상세를 어떤 모양으로 그릴지.
  *
- *  classic  원래 모양 — 정보를 한 번에 다 편다. 지표 열 개가 격자로,
- *           요약 카드가 넷. 스크롤 없이 훑기보다 한눈에 다 보고 싶을 때.
- *  compact  접을 것은 접은 모양 — 자주 보는 것만 펴고 나머지는 더보기.
+ *  classic  내 자산은 요약 카드 넷을 그대로 두고, 종목상세는 가격 아래에
+ *           지표를 한 번에 편다. 숫자를 한눈에 다 보고 싶을 때.
  *  app      다른 증권 앱 배치 — 큰 가격 → 곧바로 차트 → 그 아래 통계.
  *
+ * 셋이었다가 둘로 줄였다. 가운데 것('간단히')은 종목상세만 달랐는데,
+ * 접었다 폈다 하는 수고에 견줘 얻는 게 적었다.
+ *
  * 무엇이 나은지는 사람마다 갈린다. 하나로 정하는 대신 고르게 둔다. */
-export type 화면모양 = "classic" | "compact" | "app";
+export type 화면모양 = "classic" | "app";
 /** 저장된 값이 셋 중 하나인지 확인한다. 아니면 기본값.
  *
  *  예전 버전이 남긴 값, 손으로 고친 값, 오타 — 어느 쪽이든 그대로 쓰면
  *  화면이 셋 중 아무 가지에도 안 걸려 텅 빈 채로 뜬다. */
 export function 정상화면모양(v: unknown): 화면모양 {
-  return v === "classic" || v === "compact" || v === "app" ? v : "app";
+  return v === "classic" || v === "app" ? v : "app";
 }
 
 export const 화면모양_목록: { value: 화면모양; label: string; desc: string }[] = [
-  { value: "classic", label: "기본",   desc: "정보를 한 번에 다 펼칩니다" },
-  { value: "compact", label: "간단히", desc: "자주 보는 것만 펴고 나머지는 접습니다" },
+  { value: "classic", label: "기본",   desc: "숫자를 한 번에 다 펼쳐 봅니다" },
   { value: "app",     label: "앱처럼", desc: "큰 가격 → 차트 → 통계 순서로 봅니다" },
 ];
 
