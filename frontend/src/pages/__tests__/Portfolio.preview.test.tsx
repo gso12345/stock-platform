@@ -62,13 +62,16 @@ function renderPage() {
   );
 }
 
-/** 요약 카드에서 '…평가금액' 카드의 이름과 값 */
+/** 요약에서 '…평가금액' 의 이름과 값.
+ *
+ * 요약이 카드 넷에서 카드 하나로 바뀌면서 한 카드 안에 숫자가 여럿
+ * 들어가게 됐다. 라벨이 든 묶음 안에서 첫 숫자만 읽는다. */
 async function 평가금액() {
   const label = await screen.findByText(/평가금액$/);
-  const card = label.closest("div.bg-bg-card") as HTMLElement;
+  const 묶음 = label.parentElement as HTMLElement;
   return {
     이름: label.textContent ?? "",
-    값: Number((within(card).getByText(/[0-9]/, { selector: "span.font-mono" }).textContent ?? "")
+    값: Number((within(묶음).getAllByText(/[0-9]/, { selector: "span.font-mono" })[0]?.textContent ?? "")
       .replace(/[^0-9-]/g, "")),
   };
 }

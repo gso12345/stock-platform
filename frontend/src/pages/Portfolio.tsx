@@ -6,7 +6,7 @@ import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
 import { Card, RowSkeleton, Tabs, UnderlineTabs } from "@/components/ui";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
-import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw } from "lucide-react";
+import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, Settings2, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -84,6 +84,17 @@ export default function Portfolio() {
   const [cashEditItem,    setCashEditItem]    = useState<PortfolioItem | undefined>(undefined);
   const [deleteTarget,    setDeleteTarget]    = useState<PortfolioItem | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
+  /* 구성 차트를 펼칠지. 기본은 접힘 — 여기 들어와서 제일 먼저 보고 싶은
+     것은 내가 뭘 얼마나 들고 있나이지 원그래프가 아니다. 예전에는 차트가
+     늘 펼쳐져 있어, 휴대폰에서 종목 하나를 보려면 화면을 한 장 넘겨야 했다.
+     한 번 편 사람은 계속 보고 싶어 하므로 선택은 기억한다. */
+  const [구성펼침, set구성펼침] = useState<boolean>(() => {
+    try { return localStorage.getItem("pf_구성펼침") === "1"; } catch { return false; }
+  });
+  const 구성토글 = () => set구성펼침((v) => {
+    try { localStorage.setItem("pf_구성펼침", v ? "0" : "1"); } catch { /* 무시 */ }
+    return !v;
+  });
   const [modalError,      setModalError]      = useState<string | null>(null);
   const [viewMode,        setViewMode]        = useState<"table" | "card">(
     () => (typeof window !== "undefined" && window.innerWidth < 640) ? "card" : "table"
@@ -770,19 +781,18 @@ export default function Portfolio() {
       {/* 좁은 화면에서는 제목과 버튼을 세로로 쌓는다.
           한 줄에 나란히 두면 버튼 개수(포트폴리오 수에 따라 늘어남)에 밀려 제목이
           찌그러지고, 한글은 글자 사이에서도 줄바꿈돼 세로로 쪼개진다. */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="min-w-0">
+      {/* 제목과 버튼을 한 줄에 둔다.
+          예전에는 두 줄이었다. 상단바·탭·미리보기 배너까지 더하면 요약이
+          나오기 전에 다섯 줄을 지나야 했고, 휴대폰에서는 그것만으로 화면
+          절반이었다. 제목은 줄바꿈되지 않게 고정하고 버튼만 줄인다. */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex items-baseline gap-2">
           <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">내 자산</h1>
-          <p className="text-text-muted text-xs mt-0.5 truncate">
-            {isLoggedIn && itemsLoading ? "보유 종목 불러오는 중..." : (
-              <>
-                {displayEnriched.length}개 종목
-                <span className="hidden sm:inline"> · 클릭하면 상세로 이동</span>
-              </>
-            )}
+          <p className="text-text-muted text-xs truncate">
+            {isLoggedIn && itemsLoading ? "불러오는 중..." : `${displayEnriched.length}개`}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           <button
             onClick={() => { queryClient.invalidateQueries({ queryKey: ["portfolios"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-prices"] }); }}
             className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
@@ -807,7 +817,7 @@ export default function Portfolio() {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all whitespace-nowrap"
               title={isLoggedIn ? "포트폴리오 추가/편집" : "로그인하면 포트폴리오를 만들 수 있어요"}
             >
-              <Settings2 size={13} />포트폴리오 관리
+              <Settings2 size={13} /><span className="hidden sm:inline">포트폴리오 관리</span>
             </button>
           )}
           {/* "전체"는 여러 포트폴리오를 모아 보는 화면이라 어디에 담을지가 모호하다.
@@ -831,59 +841,86 @@ export default function Portfolio() {
       {/* 보유종목이 실제로 연동(로그인 + 종목 추가)되기 전에는 미리보기 수치를 보여주지 않음 */}
       {/* 로그인 상태에서는 현재가를 다 불러오기 전까지 매입가 기반 추정치를 보여주지 않고 로딩 표시만 함 */}
       {((isLoggedIn && items.length > 0 && pricesLoading) || (!isLoggedIn && !previewLoaded)) && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {["총 평가금액", "총 매입금액", "평가손익", "수익률"].map((label) => (
-            <Card key={label} className="flex flex-col gap-1">
-              <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{label}</span>
-              <div className="h-4 w-20 rounded bg-bg-elevated animate-pulse mt-0.5" />
-            </Card>
-          ))}
-        </div>
+        /* 뼈대는 실제로 그려질 모양과 같아야 한다. 예전에는 여기가 카드
+           넷이었는데 본체는 카드 하나라, 값이 도착할 때 화면이 크게 튀었다 */
+        <Card className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-2xs text-text-muted">평가금액</span>
+            <div className="h-6 w-40 rounded bg-bg-elevated animate-pulse" />
+            <div className="h-3 w-32 rounded bg-bg-elevated animate-pulse" />
+          </div>
+          <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-border/50">
+            {["매입금액", "적용 환율"].map((label) => (
+              <div key={label} className="flex flex-col gap-1">
+                <span className="text-[10px] text-text-dim">{label}</span>
+                <div className="h-3.5 w-20 rounded bg-bg-elevated animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
       {((isLoggedIn && items.length > 0 && !pricesLoading) || (!isLoggedIn && previewLoaded)) && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: `${요약범위} 평가금액`, value: fmtKRWFull(displaySummary.totalValue), color: "text-text-primary", icon: Landmark, tint: "" },
-            { label: `${요약범위} 매입금액`, value: fmtKRWFull(displaySummary.totalCost),  color: "text-text-primary", icon: Receipt,  tint: "" },
-            { label: "평가손익",   value: fmtKRWFullSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl),
-              icon: displaySummary.totalPnl >= 0 ? TrendingUp : TrendingDown,
-              tint: displaySummary.totalPnl >= 0 ? "bg-accent-red/5 border-accent-red/20" : "bg-accent-blue/5 border-accent-blue/20" },
-            { label: "수익률",     value: `${displaySummary.totalRate >= 0 ? "+" : ""}${displaySummary.totalRate.toFixed(2)}%`, color: pnlColor(displaySummary.totalRate),
-              icon: Percent,
-              tint: displaySummary.totalRate >= 0 ? "bg-accent-red/5 border-accent-red/20" : "bg-accent-blue/5 border-accent-blue/20" },
-          ].map((c) => (
-            <Card key={c.label} className={`flex flex-col gap-1 ${c.tint} ${!isLoggedIn ? "opacity-80" : ""}`}>
-              <div className="flex items-center gap-1.5">
-                <c.icon size={12} className={c.color === "text-text-primary" ? "text-text-dim" : c.color} />
-                <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{c.label}</span>
+        /* 요약은 카드 하나로 모은다.
+           예전에는 같은 크기 카드 넷이 2×2 로 놓여, 휴대폰에서 화면 3분의 1을
+           쓰면서도 무엇이 제일 중요한지 알 수 없었다. 여기 들어와서 제일 먼저
+           보고 싶은 건 '지금 얼마인가' 하나다. 나머지는 그 아래 한 줄로 붙인다. */
+        <Card className={`flex flex-col gap-3 ${!isLoggedIn ? "opacity-90" : ""}`}>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-2xs text-text-muted">{요약범위} 평가금액</span>
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-[26px] leading-none font-mono font-bold text-text-primary num">
+                {fmtKRWFull(displaySummary.totalValue)}
+              </span>
+              <span className={`text-sm font-mono font-bold num ${pnlColor(displaySummary.totalRate)}`}>
+                {displaySummary.totalRate >= 0 ? "+" : ""}{displaySummary.totalRate.toFixed(2)}%
+              </span>
+            </div>
+            <span className={`text-xs font-mono num ${pnlColor(displaySummary.totalPnl)}`}>
+              {fmtKRWFullSign(displaySummary.totalPnl)}
+              <span className={`ml-2 ${pnlColor(displaySummary.totalDailyChangeKRW)}`}>
+                오늘 {fmtKRWFullSign(displaySummary.totalDailyChangeKRW)}
+                {" "}({displaySummary.totalDailyChangeRate >= 0 ? "+" : ""}{displaySummary.totalDailyChangeRate.toFixed(2)}%)
+              </span>
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-border/50">
+            {[
+              { label: "매입금액", value: fmtKRWFull(displaySummary.totalCost), icon: Receipt },
+              { label: "적용 환율", value: `${Math.round(exchangeRate).toLocaleString("ko-KR")}원`, icon: Landmark },
+            ].map((c) => (
+              <div key={c.label} className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-[10px] text-text-dim flex items-center gap-1">
+                  <c.icon size={10} />{c.label}
+                </span>
+                <span className="text-sm font-mono font-semibold text-text-secondary num truncate">{c.value}</span>
               </div>
-              <span className={`text-lg font-mono font-bold ${c.color}`}>{c.value}</span>
-              {c.label.endsWith("평가금액") && (
-                <span className="text-[10px] text-text-dim">환율 {Math.round(exchangeRate).toLocaleString("ko-KR")}원</span>
-              )}
-              {c.label === "평가손익" && (
-                <span className={`text-[10px] font-mono ${pnlColor(displaySummary.totalDailyChangeKRW)}`}>
-                  오늘 {fmtKRWFullSign(displaySummary.totalDailyChangeKRW)}
-                </span>
-              )}
-              {c.label === "수익률" && (
-                <span className={`text-[10px] font-mono ${pnlColor(displaySummary.totalDailyChangeRate)}`}>
-                  오늘 {displaySummary.totalDailyChangeRate >= 0 ? "+" : ""}{displaySummary.totalDailyChangeRate.toFixed(2)}%
-                </span>
-              )}
-            </Card>
-          ))}
-        </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       {/* ── 구성 차트 ── */}
       {((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (
-        <Card className="flex items-center justify-center h-[180px] text-text-muted text-sm">
-          가격 불러오는 중...
+        /* 로딩 자리도 접힌 높이에 맞춘다. 예전에는 180px 짜리 빈 상자였는데,
+           구성 차트가 기본 접힘이 되면서 그 상자만 화면 4분의 1을 먹고
+           보유 종목을 아래로 밀어냈다 */
+        <Card className="flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-text-primary">구성 보기</span>
+          <div className="h-3 w-10 rounded bg-bg-elevated animate-pulse" />
         </Card>
       )}
       {hasDisplay && (
         <Card className="flex flex-col gap-3">
+          {!구성펼침 ? (
+            <button onClick={구성토글} aria-expanded={false} aria-label="구성 펼치기"
+              className="flex items-center justify-between gap-2 w-full text-left">
+              <span className="text-sm font-semibold text-text-primary">구성 보기</span>
+              <span className="flex items-center gap-1 text-xs text-text-muted">
+                {activePieData.length}개 <ChevronDown size={14} />
+              </span>
+            </button>
+          ) : (
+          <>
           <div className="flex items-center justify-between border-b border-border -mx-4 px-4 pb-0">
             <div className="flex">
               {([
@@ -949,6 +986,13 @@ export default function Portfolio() {
             </div>
           ) : (
             <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">데이터 없음</div>
+          )}
+          <button onClick={구성토글} aria-expanded aria-label="구성 접기"
+            className="self-center flex items-center gap-1 px-3 py-1 -mb-1 rounded-full text-[11px]
+                       text-text-dim hover:text-text-secondary hover:bg-bg-elevated transition-colors">
+            접기 <ChevronDown size={12} className="rotate-180" />
+          </button>
+          </>
           )}
         </Card>
       )}

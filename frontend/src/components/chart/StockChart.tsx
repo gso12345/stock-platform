@@ -776,34 +776,37 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
 
   return (
     <div className="flex flex-col">
-      {/* 지표 바 */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-bg-secondary">
-        <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide flex-shrink-0">지표</span>
-        <div className="flex flex-wrap gap-1 flex-1 overflow-hidden">
-          {[...activeOverlay, ...activeSub].map(label => (
-            <span key={label} className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-blue/20 text-accent-blue border border-accent-blue/30">
-              {label}
-            </span>
-          ))}
-          {activeOverlay.length + activeSub.length === 0 && (
-            <span className="text-2xs text-text-dim">지표 없음</span>
-          )}
-        </div>
-        <button onClick={() => setShowSettings(v => !v)}
-          className={`p-1.5 rounded-lg border transition-all flex-shrink-0 ${showSettings ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue" : "border-border text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
-          title="지표 설정"
-        >
-          <Settings size={13}/>
-        </button>
-      </div>
-
       {/* 설정 패널 */}
       {showSettings && (
         <SettingsPanel settings={settings} onChange={updateSettings} onClose={() => setShowSettings(false)}/>
       )}
 
-      {/* 메인 차트 */}
-      <div ref={mainRef} className="w-full"/>
+      {/* 메인 차트.
+          지표 이름표와 설정 버튼은 차트 위에 겹쳐 얹는다. 예전에는 차트
+          위에 줄을 하나 더 뒀는데, 종목상세에는 이미 기간 줄·차트설정 줄이
+          있어서 정작 차트가 보이기 전에 컨트롤이 세 줄이었다.
+          겹쳐 놓아도 캔들은 아래쪽에 그려지므로 가리지 않는다. */}
+      <div className="relative">
+        <div className="absolute top-1.5 left-2 right-2 z-10 flex items-start gap-2 pointer-events-none">
+          <div className="flex flex-wrap gap-1 flex-1 overflow-hidden">
+            {[...activeOverlay, ...activeSub].map(label => (
+              <span key={label} className="px-1.5 py-0.5 rounded text-[10px] font-semibold
+                                           bg-accent-blue/15 text-accent-blue backdrop-blur-sm">
+                {label}
+              </span>
+            ))}
+          </div>
+          <button onClick={() => setShowSettings(v => !v)}
+            className={`pointer-events-auto p-1.5 rounded-lg backdrop-blur-sm transition-all flex-shrink-0 ${
+              showSettings ? "bg-accent-blue/20 text-accent-blue"
+                           : "bg-bg-card/70 text-text-muted hover:text-text-primary"}`}
+            aria-label="지표 설정" title="지표 설정"
+          >
+            <Settings size={13}/>
+          </button>
+        </div>
+        <div ref={mainRef} className="w-full"/>
+      </div>
 
       {/* 보조 지표 패널 */}
       {s.rsi && (

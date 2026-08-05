@@ -12,7 +12,7 @@ import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
   Newspaper, Users, ExternalLink, Maximize2, X, List, MessageSquare,
-  Gauge, Settings2, HelpCircle,
+  Gauge, Settings2, HelpCircle, ChevronDown,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
@@ -178,6 +178,11 @@ export default function StockDetail() {
   const [mainTab, setMainTab]       = useState<"chart" | "financial" | "quant" | "news" | "daily" | "analyst" | "supply" | "community" | "holdings">("chart");
   const [isMobile, setIsMobile]     = useState(typeof window !== "undefined" && window.innerWidth < 640);
   const [showKRW, setShowKRW]           = useState(false);
+  /* 시세 지표를 다 펼칠지. 기본은 접힌 상태 — 자주 보는 넷만 보이고
+     차트가 첫 화면에 들어온다 */
+  const [시세더보기, set시세더보기]      = useState(false);
+  /* 캔들/라인/영역·LOG 는 한 번 정하면 잘 안 바꾼다. 톱니를 눌렀을 때만 편다 */
+  const [차트설정열림, set차트설정열림]  = useState(false);
   const [analystSubTab, setAnalystSubTab] = useState<"opinion" | "consensus">("opinion");
   const [consensusPeriod, setConsensusPeriod] = useState<"annual" | "quarterly">("annual");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
@@ -702,12 +707,16 @@ export default function StockDetail() {
         </div>
       </div>
 
-      {/* 통합 지표 패널 */}
+      {/* 현재가.
+          다른 앱들은 종목명 바로 밑에 큰 숫자가 오고, 그다음이 곧바로
+          차트다. 우리는 가격을 카드에 넣고 그 안에 지표 격자까지 붙여서,
+          정작 차트는 화면을 한 장 넘겨야 나왔다. 카드 테두리를 없애 제목과
+          한 덩어리로 만들고, 지표는 차트 아래로 내렸다. */}
       {d ? (
-        <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+        <div className="overflow-hidden">
           {/* 현재가 + 등락 */}
-          <div className="px-4 py-3 flex items-center gap-4 flex-wrap border-b border-border">
-            <span className="text-3xl font-mono font-bold text-text-primary num">{priceStr}</span>
+          <div className="px-1 pb-3 flex items-center gap-3 flex-wrap">
+            <span className="text-[34px] leading-none font-mono font-bold text-text-primary num">{priceStr}</span>
             <div className="flex items-center gap-1.5">
               {isUp ? <TrendingUp size={13} className={upColor}/> : <TrendingDown size={13} className={downColor}/>}
               {d.change != null && d.change !== 0 && (
@@ -759,35 +768,6 @@ export default function StockDetail() {
             </div>
           </div>
 
-          {/* 시세 지표 — 모바일 2열 / 데스크탑 5열 */}
-          {(() => {
-            const COLS_SM = 5; // 데스크탑 열 수
-            return (
-              <div className="grid grid-cols-2 sm:grid-cols-5">
-                {priceItems.map((item, i) => {
-                  const isLastCol2  = i % 2 === 1;               // 모바일 오른쪽 열
-                  const isLastCol5  = i % COLS_SM === COLS_SM-1; // 데스크탑 마지막 열
-                  const isFirstRow2 = i < 2;                     // 모바일 첫 행
-                  const isFirstRow5 = i < COLS_SM;               // 데스크탑 첫 행
-                  return (
-                    <div key={item.label} className={[
-                      "px-4 py-3 flex flex-col gap-1",
-                      !isLastCol2  ? "border-r border-border/40"        : "",
-                      !isFirstRow2 ? "border-t border-border/40"        : "",
-                      isLastCol2 && !isLastCol5 ? "sm:border-r border-border/40" : "",
-                      isLastCol5               ? "sm:border-r-0"        : "",
-                      !isFirstRow5             ? "sm:border-t border-border/40" : "",
-                      isFirstRow2 && !isFirstRow5 ? "sm:border-t-0"    : "",
-                    ].filter(Boolean).join(" ")}>
-                      <span className="text-[10px] font-medium text-text-muted whitespace-nowrap">{item.label}</span>
-                      <span className={`text-base font-mono font-semibold num truncate ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
           {/* 투자의견 요약 행 (US 종목, 데이터 있을 때만) */}
           {!isKR && (() => {
             const ad = analystData as any;
@@ -836,19 +816,13 @@ export default function StockDetail() {
           })()}
         </div>
       ) : loadingDetail ? (
-        <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
-          <div className="px-4 py-3 flex items-center gap-4 flex-wrap border-b border-border">
-            <span className="text-3xl font-mono font-bold text-text-muted">—</span>
+        <div className="overflow-hidden">
+          <div className="px-1 pb-3 flex items-center gap-3 flex-wrap">
+            <span className="text-[34px] leading-none font-mono font-bold text-text-dim">—</span>
             <div className="ml-auto w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5">
-            {["시가","고가","저가","전일종가","거래량","거래대금","시가총액","52주 고가","52주 저가","배당수익률"].map((label) => (
-              <div key={label} className="px-4 py-3 flex flex-col gap-1 border-r border-border/40 border-b border-border/40">
-                <span className="text-[10px] font-medium text-text-muted whitespace-nowrap">{label}</span>
-                <span className="text-base font-mono font-semibold text-text-muted">—</span>
-              </div>
-            ))}
-          </div>
+          {/* 뼈대는 실제로 그려질 모양과 같아야 한다. 지표는 이제 차트
+              아래 '통계' 로 내려갔으므로 여기서는 가격만 자리를 잡는다 */}
         </div>
       ) : null}
 
@@ -943,6 +917,15 @@ export default function StockDetail() {
               })}
             </div>
             <div className="ml-auto flex items-center gap-1">
+              {/* 캔들/라인/영역·LOG 는 한 번 정해두면 잘 안 바꾼다. 늘 펼쳐
+                  두면 차트가 보이기도 전에 컨트롤이 세 줄이 된다 */}
+              <button onClick={()=>set차트설정열림(v=>!v)}
+                aria-expanded={차트설정열림} aria-label="차트 설정"
+                className={`p-1.5 rounded-lg transition-colors ${
+                  차트설정열림 ? "bg-accent-blue/15 text-accent-blue"
+                              : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}>
+                <Settings2 size={13}/>
+              </button>
               <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
                 <RefreshCw size={13}/>
               </button>
@@ -951,9 +934,9 @@ export default function StockDetail() {
               </button>
             </div>
           </div>
-          {/* 차트 설정 */}
+          {/* 차트 설정 — 톱니를 눌렀을 때만 */}
+          {차트설정열림 && (
           <div className="px-4 py-2 border-b border-border bg-bg-secondary flex flex-wrap items-center gap-3">
-            <span className="text-xs text-text-muted font-semibold uppercase tracking-wide">차트 설정</span>
             <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
               {([
                 { value:"candle", label:"캔들",  Icon: CandlestickChart },
@@ -973,6 +956,7 @@ export default function StockDetail() {
               LOG
             </button>
           </div>
+          )}
           {ohlcv?.length ? (
             <div className="relative">
               {fetchingChart && (
@@ -991,6 +975,38 @@ export default function StockDetail() {
               <p className="text-text-muted text-base">차트 데이터 없음</p>
               <button onClick={()=>refetchChart()} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue text-white text-sm rounded-lg"><RefreshCw size={12}/>재시도</button>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* 통계 한눈에 보기 — 차트 아래.
+          다른 앱들이 쓰는 자리다. 차트를 보고 나서 숫자를 확인하는 순서가
+          자연스럽고, 무엇보다 차트가 첫 화면에 들어온다.
+          칸선은 긋지 않는다 — 선을 그으면 표가 되고, 표는 앱이 아니라
+          스프레드시트로 읽힌다. */}
+      {mainTab === "chart" && d && (
+        <div className="flex flex-col gap-2">
+          <h2 className="text-base font-bold text-text-primary px-1">통계</h2>
+          <div className="px-1 grid grid-cols-3 gap-x-3 gap-y-3.5">
+            {(시세더보기 ? priceItems : priceItems.slice(0, 6)).map((item) => (
+              <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-[11px] text-text-dim whitespace-nowrap">{item.label}</span>
+                <span className={`text-[15px] font-mono font-semibold num truncate ${(item as any).color ?? "text-text-primary"}`}>
+                  {item.v ?? "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+          {priceItems.length > 6 && (
+            <button
+              onClick={() => set시세더보기((v) => !v)}
+              className="self-center flex items-center gap-1 px-3 py-1.5 rounded-full
+                         text-xs text-text-muted hover:text-text-secondary
+                         hover:bg-bg-elevated transition-colors"
+            >
+              {시세더보기 ? "접기" : "더보기"}
+              <ChevronDown size={13} className={시세더보기 ? "rotate-180 transition-transform" : "transition-transform"} />
+            </button>
           )}
         </div>
       )}

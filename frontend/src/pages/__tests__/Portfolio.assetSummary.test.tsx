@@ -69,11 +69,15 @@ function renderPage() {
   );
 }
 
-/** 요약 카드에서 '…평가금액' 카드의 숫자를 읽는다 */
+/** 요약에서 '…평가금액' 의 숫자를 읽는다.
+ *
+ * 요약이 카드 넷에서 카드 하나로 바뀌면서, 한 카드 안에 숫자가 여럿
+ * (평가금액·수익률·손익·매입금액·환율) 들어가게 됐다. 카드 전체에서
+ * 찾으면 여러 개가 걸리므로, 라벨이 든 묶음 안에서 첫 숫자만 읽는다. */
 async function 평가금액() {
   const label = await screen.findByText(/평가금액$/);
-  const card = label.closest("div.bg-bg-card") as HTMLElement;
-  const 값 = within(card).getByText(/₩|원|[0-9]/, { selector: "span.font-mono" });
+  const 묶음 = label.parentElement as HTMLElement;
+  const 값 = within(묶음).getAllByText(/[0-9]/, { selector: "span.font-mono" })[0];
   return { 이름: label.textContent ?? "", 값: 값.textContent ?? "" };
 }
 
