@@ -80,12 +80,17 @@
   "span_min": 0
  },
  "native": {
-  "arena_mb": 36.7,
+  "arena_mb": 404.3,
   "mmap_mb": 2.2,
-  "in_use_mb": 34.9,
-  "freed_kept_mb": 1.8
+  "in_use_mb": 158.7,
+  "freed_kept_mb": 245.6,
+  "arena_max": null
  },
- "last_trim": null,
+ "last_trim": {
+  "before_mb": 505.1,
+  "after_mb": 430.4,
+  "freed_mb": 74.7
+ },
  "libraries": {
   "tracked": true,
   "stubbed": [],

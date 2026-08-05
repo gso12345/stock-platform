@@ -48,6 +48,7 @@ interface Runtime {
   };
   native?: {
     arena_mb: number; mmap_mb: number; in_use_mb: number; freed_kept_mb: number;
+    arena_max?: string | null;
   } | null;
   last_trim?: { before_mb: number; after_mb: number; freed_mb: number } | null;
   alloc_growth?: {
@@ -408,6 +409,23 @@ export default function SystemTab() {
                   <span className="text-[10px] text-text-dim break-keep">{why}</span>
                 </div>
               ))}
+              {/* 힙을 몇 개까지 나눠 쓰는지. 스레드마다 따로 만들면 빈 자리도
+                  따로 놀아서 '비었지만 붙들고 있음' 이 불어난다. 설정이 실제로
+                  걸렸는지 여기서 확인할 수 있어야 효과를 판단할 수 있다 */}
+              <div className="flex flex-col pt-1 mt-0.5 border-t border-border/30">
+                <div className="flex items-baseline justify-between gap-2 text-2xs">
+                  <span className="text-text-dim break-keep">힙 나눔 상한</span>
+                  <span className={`font-mono shrink-0 ${
+                    d.native.arena_max ? "text-accent-green" : "text-accent-amber"}`}>
+                    {d.native.arena_max ? `${d.native.arena_max}개` : "제한 없음"}
+                  </span>
+                </div>
+                <span className="text-[10px] text-text-dim break-keep">
+                  {d.native.arena_max
+                    ? "스레드가 많아도 힙을 이만큼만 나눠 씁니다 — 빈 자리가 흩어지지 않습니다"
+                    : "스레드마다 힙이 따로 생길 수 있습니다. 빈 자리가 흩어져 위 '붙들고 있음' 이 커집니다"}
+                </span>
+              </div>
               {d.last_trim && (
                 <p className="text-[10px] text-text-dim break-keep mt-0.5 pt-1 border-t border-border/30">
                   마지막 정리에서 {d.last_trim.freed_mb}MB 를 OS 에 돌려줬습니다

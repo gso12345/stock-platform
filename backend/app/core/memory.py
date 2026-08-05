@@ -54,6 +54,16 @@ _samples: list[tuple[float, float]] = []      # (기록 시각, RSS MB)
 
 def record_sample():
     """주기 작업이 부른다. /proc 한 줄 읽는 게 전부라 사실상 공짜다."""
+    # 해제했지만 OS 에 안 돌려준 메모리를 먼저 돌려주고, 그다음에 잰다.
+    #
+    # 예전에는 순서가 반대였다. 그래서 추이 그래프가 전부 '정리 전' 값이었고,
+    # 실제 바닥이 430MB 인데 화면에는 461MB 로 나왔다. 30MB 를 계속 부풀려
+    # 보여준 셈이라, 남은 여유를 실제보다 적게 판단하게 만들었다.
+    #
+    # 정리는 몇 밀리초짜리 일이라 5분에 한 번이면 부담이 없다.
+    global _last_trim
+    _last_trim = trim_native()
+
     mb = rss_mb()
     if mb is None:
         return
@@ -62,11 +72,6 @@ def record_sample():
     if len(_samples) > _MAX_SAMPLES:
         del _samples[0]
     _추적_표본()
-
-    # 해제했지만 OS 에 안 돌려준 메모리를 돌려준다. 몇 밀리초짜리 일이라
-    # 5분에 한 번이면 부담이 없고, 단편화가 원인이면 이것만으로 준다.
-    global _last_trim
-    _last_trim = trim_native()
 
 
 def trend() -> dict:
@@ -207,6 +212,10 @@ def native_breakdown() -> dict | None:
             "mmap_mb":      mb(mi.hblkhd),     # 큰 할당(직접 mmap) — 보통 numpy·pandas
             "in_use_mb":    mb(mi.uordblks),   # 중간 크기 할당 (버퍼류)
             "freed_kept_mb": mb(mi.fordblks),  # 해제했지만 OS 에 안 돌려준 것
+            # 힙을 몇 개까지 나눠 쓰게 뒀는지. 이걸 안 보여주면 배포 뒤에
+            # '설정이 걸리긴 한 건가'를 확인할 방법이 없어, 효과가 있었는지
+            # 없었는지도 판단할 수 없다.
+            "arena_max":    os.getenv("MALLOC_ARENA_MAX") or None,
         }
     except Exception:
         return None
@@ -243,6 +252,41 @@ _last_trim: dict | None = None
 
 def last_trim() -> dict | None:
     return _last_trim
+
+
+# ── 한도에 다가가면 5분을 기다리지 않는다 ────────────────────
+#
+# 주기 정리는 5분에 한 번이다. 평소에는 충분한데, 그 5분 사이에 95% 까지
+# 올라간 것을 실제로 봤다 — 485/512MB. 그때 마지막 정리 기록은 74.7MB 를
+# 돌려받은 것이었다(505 → 430MB). 즉 정리는 잘 듣는데 주기가 못 따라갔다.
+#
+# 그래서 무거운 일을 시작하기 전에 한 번 더 본다. 이미 여유가 없으면 그
+# 자리에서 정리하고, 그러고도 모자라면 그 일을 건너뛴다. 몇 밀리초를 써서
+# 강제 재시작을 피하는 쪽이 낫다.
+TRIM_THRESHOLD = float(os.getenv("MEMORY_TRIM_THRESHOLD", 0.85))
+# 너무 자주 부르면 CPU 0.15개에서 그것대로 부담이다
+_TRIM_MIN_INTERVAL_SEC = int(os.getenv("MEMORY_TRIM_MIN_INTERVAL", 30))
+_last_trim_at = 0.0
+
+
+def trim_if_tight() -> dict | None:
+    """여유가 없으면 그 자리에서 정리한다. 아니면 아무 일도 안 한다.
+
+    돌려주는 값은 실제로 정리했을 때만 있다 — 부르는 쪽이 '했는지' 를
+    알 수 있어야 화면에 남길지 판단할 수 있다."""
+    global _last_trim, _last_trim_at
+    비율 = usage_ratio()
+    if 비율 is None or 비율 < TRIM_THRESHOLD:
+        return None
+    import time as _t
+    지금 = _t.time()
+    if 지금 - _last_trim_at < _TRIM_MIN_INTERVAL_SEC:
+        return None
+    _last_trim_at = 지금
+    결과 = trim_native(label=f"여유 부족({비율:.0%}) 즉시 정리")
+    if 결과:
+        _last_trim = 결과
+    return 결과
 
 
 def proc_breakdown() -> dict | None:
@@ -360,6 +404,12 @@ def has_headroom(label: str = "작업") -> bool:
     r = usage_ratio()
     if r is None:
         return True
+    if r >= HEAVY_WORK_THRESHOLD:
+        # 막기 전에 한 번 털어 본다. 붙들고만 있던 몫이 크면 이것만으로
+        # 여유가 생겨, 굳이 갱신을 거를 이유가 없어진다.
+        # (프로덕션에서 한 번에 74.7MB 를 돌려받은 적이 있다)
+        if trim_if_tight():
+            r = usage_ratio() or r
     if r >= HEAVY_WORK_THRESHOLD:
         log.warning(
             f"메모리 여유 부족으로 {label} 건너뜀 "
