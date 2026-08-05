@@ -58,14 +58,13 @@ describe("피드 빈 화면", () => {
     expect(document.body.textContent).toMatch(/아직 게시글이 없어요/);
   });
 
-  it("첫 글 쓰기를 누르면 글쓰기 칸이 있는 맨 위로 올린다", async () => {
+  it("첫 글 쓰기를 누르면 글쓰기 화면으로 간다", async () => {
+    /* 예전에는 맨 위로 올리기만 했다. 거기에 접힌 한 줄이 있었기 때문인데,
+       그 한 줄을 또 눌러야 실제로 쓸 수 있었다. 이제 바로 넘긴다 */
     const u = userEvent.setup();
-    const 올림 = vi.fn();
-    vi.stubGlobal("scrollTo", 올림);
     그리기();
     await u.click(await screen.findByRole("button", { name: /첫 글 쓰기/ }));
-    expect(올림).toHaveBeenCalled();
-    vi.unstubAllGlobals();
+    expect(navigate).toHaveBeenCalledWith("/feed/write");
   });
 
   it("팔로잉 피드가 비면 전체 피드로 보낸다", async () => {
