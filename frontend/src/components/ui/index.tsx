@@ -398,13 +398,9 @@ export function 용어힌트({ 이름, className, 글자숨김 }: {
             <p className="text-xs font-bold text-text-primary break-keep">
               {이름}{뜻.이름 && <span className="font-medium text-text-muted"> · {뜻.이름}</span>}
             </p>
+            {/* 뜻만 보여준다. '얼마면 좋다'는 업종마다 기업마다 달라
+                한 줄로 못 박을 수 없어 아예 넣지 않는다 */}
             <p className="text-xs text-text-secondary break-keep leading-relaxed font-normal">{뜻.뜻}</p>
-            {뜻.기준 && (
-              <p className="text-[11px] text-text-muted break-keep leading-relaxed font-normal
-                            border-t border-border/60 pt-1.5">
-                {뜻.기준}
-              </p>
-            )}
           </div>
         </>
       )}
