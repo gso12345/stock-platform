@@ -16,6 +16,7 @@ import {
 } from "@/components/watchlist/WatchlistModals";
 import { extractErrorMessage } from "@/utils/errors";
 import { useDragReorder } from "@/hooks/useDragReorder";
+import { 최근조회키, 폴더키, 계좌키, 탭순서읽기, 탭순서쓰기, 탭순서적용, 폴더순서반영 } from "@/utils/tabOrder";
 import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 import { Plus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, Settings2, LogIn, Clock, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
@@ -36,7 +37,7 @@ const MARKET_TABS: TabItem[] = [
 export default function Watchlist() {
   const qc       = useQueryClient();
   const navigate = useNavigate();
-  const { isLoggedIn } = useAuthStore();
+  const { isLoggedIn, userId } = useAuthStore();
   const isPreview = !isLoggedIn;
   const [marketTab, setMarketTab]   = useState("전체");
   const [folderTab, setFolderTab]   = useState<number | "all" | "recent">("all"); // 관심종목 폴더 탭
@@ -287,9 +288,6 @@ export default function Watchlist() {
   const [localFolderOrder, setLocalFolderOrder] = useState<any[] | null>(null);
   const dragFolderIdRef      = useRef<number | null>(null); // onDragOver 즉시 접근용
   const localFolderOrderRef  = useRef<any[] | null>(null);
-  const folderLongPressTimer = useRef<number | null>(null);
-  const folderTouchStartPos = useRef<{ x: number; y: number } | null>(null);
-  const folderJustDragged = useRef(false);
 
   const reorderFoldersMutation = useMutation({
     mutationFn: (order: number[]) => watchlistFolderApi.reorderFolders(order),
@@ -311,57 +309,6 @@ export default function Watchlist() {
   const LONG_PRESS_MS = 350;
   const LONG_PRESS_MOVE_TOLERANCE = 8;
 
-  const clearFolderLongPressTimer = () => {
-    if (folderLongPressTimer.current !== null) {
-      window.clearTimeout(folderLongPressTimer.current);
-      folderLongPressTimer.current = null;
-    }
-  };
-
-  const handleFolderTouchStart = (folder: any, e: React.TouchEvent) => {
-    const t = e.touches[0];
-    folderTouchStartPos.current = { x: t.clientX, y: t.clientY };
-    clearFolderLongPressTimer();
-    folderLongPressTimer.current = window.setTimeout(() => {
-      handleFolderDragStart(folder);
-    }, LONG_PRESS_MS);
-  };
-
-  const handleFolderTouchMoveGated = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    if (dragFolderIdRef.current !== null) {
-      // 드래그 활성화된 상태 — 기본 스크롤 동작 막고 순서 변경 처리
-      e.preventDefault();
-      handleFolderTouchMove(t.clientX, t.clientY);
-      return;
-    }
-    // 롱프레스가 발동하기 전, 손가락이 일정 거리 이상 움직이면 스크롤로 간주하고 취소
-    const start = folderTouchStartPos.current;
-    if (start) {
-      const dx = Math.abs(t.clientX - start.x);
-      const dy = Math.abs(t.clientY - start.y);
-      if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE) {
-        clearFolderLongPressTimer();
-      }
-    }
-  };
-
-  const handleFolderTouchEnd = () => {
-    clearFolderLongPressTimer();
-    if (dragFolderIdRef.current !== null) {
-      folderJustDragged.current = true;
-      handleFolderDrop();
-    }
-    folderTouchStartPos.current = null;
-  };
-
-  const handleFolderTabClick = (folderId: number) => {
-    if (folderJustDragged.current) {
-      folderJustDragged.current = false;
-      return;
-    }
-    setFolderTab(folderTab === folderId ? "all" : folderId);
-  };
 
   const moveFolderTo = (targetId: number) => {
     const fromId = dragFolderIdRef.current;
@@ -395,7 +342,7 @@ export default function Watchlist() {
   const handleFolderDrop = () => {
     const order = localFolderOrderRef.current;
     if (dragFolderIdRef.current !== null && order) {
-      reorderFoldersMutation.mutate(order.map((f: any) => f.id));
+      폴더순서바꾸기(order.map((f: any) => f.id));
     }
     dragFolderIdRef.current = null;
     localFolderOrderRef.current = null;
@@ -463,6 +410,97 @@ export default function Watchlist() {
     for (const i of itemsList) map.set(i.folder_id, (map.get(i.folder_id) ?? 0) + 1);
     return map;
   }, [itemsList]);
+
+  /* ── 탭 줄 한 벌 ────────────────────────────────────────────
+     최근조회·폴더·내계좌는 성격이 달라 예전에는 따로 그렸고, 순서를 바꿀
+     수 있는 것도 폴더끼리뿐이었다. 내계좌를 주로 보는 사람은 폴더를 전부
+     지나쳐야 자기 계좌에 닿았다. 셋을 한 목록으로 놓고 통째로 옮긴다.
+     ("전체"는 목록 그 자체라 맨 앞에 고정한다) */
+  const 탭들 = useMemo(() => {
+    const 폴더목록 = localFolderOrder ?? (folders as any[]);
+    return [
+      { key: 최근조회키, 종류: "recent" as const, id: null as number | null, 이름: "최근조회" },
+      ...폴더목록.map((f: any) => ({ key: 폴더키(f.id), 종류: "folder" as const, id: f.id, 이름: f.name })),
+      ...pfList.map((pf: any) => ({ key: 계좌키(pf.id), 종류: "portfolio" as const, id: pf.id, 이름: pf.name })),
+    ];
+  }, [localFolderOrder, folders, pfList]);
+
+  const [탭순서, set탭순서] = useState<string[]>(() => 탭순서읽기(userId));
+  const 정렬된탭 = useMemo(() => 탭순서적용(탭순서, 탭들), [탭순서, 탭들]);
+
+  /* 순서를 바꾸면 두 곳에 남긴다 — 섞인 순서는 이 기기에, 폴더끼리의
+     순서는 서버에. 서버 쪽까지 안 보내면 다른 기기에서 폴더가 뒤섞인다 */
+  const 탭순서바꾸기 = useCallback((키들: string[]) => {
+    set탭순서(키들);
+    탭순서쓰기(userId, 키들);
+    const 폴더순 = 키들
+      .filter((k) => k.startsWith("folder:"))
+      .map((k) => Number(k.slice("folder:".length)));
+    if (폴더순.length > 1) reorderFoldersMutation.mutate(폴더순);
+  }, [userId, reorderFoldersMutation]);
+
+  /* 폴더끼리만 옮긴 경우(본문 폴더 목록·폴더 관리 창). 서버에 보내고,
+     저장된 탭 순서의 폴더 자리에도 새 순서를 입힌다 — 안 하면 서버는
+     새 순서인데 탭 줄만 옛 순서로 남는다 */
+  const 폴더순서바꾸기 = useCallback((폴더순: number[]) => {
+    reorderFoldersMutation.mutate(폴더순);
+    set탭순서((이전) => {
+      const 다음 = 폴더순서반영(이전, 폴더순);
+      탭순서쓰기(userId, 다음);
+      return 다음;
+    });
+  }, [userId, reorderFoldersMutation]);
+
+  /* 탭 줄 드래그 — 종목 목록과 같은 훅을 쓴다. 예전에는 폴더 탭만 따로
+     짜인 로직이 있었고 내계좌는 아예 못 옮겼다 */
+  const 탭드래그 = useDragReorder<{ key: string; id: string }>({
+    // 훅은 id 로 항목을 찾는다. 탭에서 그 역할은 key 다
+    items: useMemo(() => 정렬된탭.map((t) => ({ ...t, id: t.key })), [정렬된탭]) as any,
+    onCommit: (keys) => 탭순서바꾸기(keys as string[]),
+  });
+
+  /* 탭은 눌러서 고르는 것이 본업이라, 잡자마자 끌기 시작하면 고를 수가 없다.
+     0.35초 눌러야 시작하고, 그 전에 손가락이 움직이면 가로 스크롤로 본다 */
+  const 탭꾹타이머 = useRef<number | null>(null);
+  const 탭누른자리 = useRef<{ x: number; y: number } | null>(null);
+  const 방금끌었다 = useRef(false);
+  const 탭꾹취소 = () => {
+    if (탭꾹타이머.current !== null) { window.clearTimeout(탭꾹타이머.current); 탭꾹타이머.current = null; }
+  };
+
+  const 탭터치시작 = (탭: any, e: React.TouchEvent) => {
+    const t = e.touches[0];
+    탭누른자리.current = { x: t.clientX, y: t.clientY };
+    탭꾹취소();
+    탭꾹타이머.current = window.setTimeout(() => 탭드래그.start({ ...탭, id: 탭.key } as any), LONG_PRESS_MS);
+  };
+
+  const 탭터치이동 = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (탭드래그.isDragging) {
+      e.preventDefault();
+      탭드래그.moveToPoint(t.clientX, t.clientY, "data-tab-key");
+      return;
+    }
+    const 시작 = 탭누른자리.current;
+    if (시작 && (Math.abs(t.clientX - 시작.x) > LONG_PRESS_MOVE_TOLERANCE ||
+                 Math.abs(t.clientY - 시작.y) > LONG_PRESS_MOVE_TOLERANCE)) 탭꾹취소();
+  };
+
+  const 탭터치끝 = () => {
+    탭꾹취소();
+    if (탭드래그.isDragging) { 방금끌었다.current = true; 탭드래그.drop(); }
+    탭누른자리.current = null;
+  };
+
+  /* 끌어서 놓은 직후의 click 은 무시한다 — 안 그러면 옮기자마자 그 탭이
+     열려, 보고 있던 폴더가 바뀐다 */
+  const 탭누름 = (탭: any) => {
+    if (방금끌었다.current) { 방금끌었다.current = false; return; }
+    if (탭.종류 === "recent") { setFolderTab("recent"); setPortfolioTab(null); }
+    else if (탭.종류 === "folder") { setPortfolioTab(null); setFolderTab(folderTab === 탭.id ? "all" : 탭.id); }
+    else { setPortfolioTab(탭.id); setFolderTab("all"); }
+  };
 
   const createDefaultFolderMutation = useMutation({
     mutationFn: () => watchlistFolderApi.createFolder("기본 관심목록"),
@@ -614,9 +652,9 @@ export default function Watchlist() {
               <button
                 onClick={() => isLoggedIn ? setShowFolderManager(true) : navigate("/login")}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
-                title={isLoggedIn ? "폴더 추가/편집" : "로그인하면 폴더를 만들 수 있어요"}
+                title={isLoggedIn ? "폴더 추가/편집, 탭 순서 바꾸기" : "로그인하면 폴더를 만들 수 있어요"}
               >
-                <Settings2 size={13} />폴더 관리
+                <Settings2 size={13} />탭 관리
               </button>
               <button
                 onClick={() => isLoggedIn
@@ -675,47 +713,44 @@ export default function Watchlist() {
           }`;
         return (
           <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
+            {/* "전체"는 목록 그 자체라 맨 앞에 고정한다 */}
             <button onClick={() => { setFolderTab("all"); setPortfolioTab(null); }} className={tabBtnCls(folderTab === "all" && portfolioTab === null)}>
               전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
             </button>
-            <button onClick={() => { setFolderTab("recent"); setPortfolioTab(null); }} className={`${tabBtnCls(folderTab === "recent" && portfolioTab === null)} flex items-center gap-1`}>
-              <Clock size={13} /> 최근조회
-            </button>
-            {(localFolderOrder ?? (folders as any[])).map((f: any) => {
-              const cnt = folderCounts.get(f.id) ?? 0;
+            {정렬된탭.map((탭) => {
+              const 켜짐 =
+                탭.종류 === "recent"    ? folderTab === "recent" && portfolioTab === null :
+                탭.종류 === "folder"    ? folderTab === 탭.id && portfolioTab === null :
+                                          portfolioTab === 탭.id;
+              const 끌리는중 = 탭드래그.dragId === 탭.key;
               return (
                 <button
-                  key={f.id}
-                  data-folder-id={f.id}
-                  draggable={(folders as any[]).length > 1}
-                  onDragStart={() => handleFolderDragStart(f)}
-                  onDragOver={(e) => handleFolderDragOver(e, f.id)}
-                  onDrop={handleFolderDrop}
-                  onTouchStart={(e) => handleFolderTouchStart(f, e)}
-                  onTouchMove={handleFolderTouchMoveGated}
-                  onTouchEnd={handleFolderTouchEnd}
-                  onClick={() => { setPortfolioTab(null); handleFolderTabClick(f.id); }}
-                  title="길게 눌러서 드래그하면 폴더 순서를 바꿀 수 있어요"
-                  style={{ touchAction: dragFolderId === f.id ? "none" : "auto" }}
-                  className={`cursor-grab active:cursor-grabbing ${tabBtnCls(folderTab === f.id && portfolioTab === null)} ${
-                    dragFolderId === f.id ? "opacity-40" : ""
-                  } ${dropFolderId === f.id ? "ring-1 ring-accent-blue ring-inset" : ""}`}
+                  key={탭.key}
+                  data-tab-key={탭.key}
+                  draggable={정렬된탭.length > 1}
+                  onDragStart={() => 탭드래그.start({ ...탭, id: 탭.key } as any)}
+                  onDragEnd={탭드래그.cancel}
+                  onDragOver={(e) => 탭드래그.onDragOver(e, 탭.key)}
+                  onDrop={탭드래그.drop}
+                  onTouchStart={(e) => 탭터치시작(탭, e)}
+                  onTouchMove={탭터치이동}
+                  onTouchEnd={탭터치끝}
+                  onClick={() => 탭누름(탭)}
+                  title="길게 눌러서 드래그하면 탭 순서를 바꿀 수 있어요"
+                  style={{ touchAction: 끌리는중 ? "none" : "auto" }}
+                  className={`cursor-grab active:cursor-grabbing ${tabBtnCls(켜짐)} flex items-center gap-1 ${
+                    끌리는중 ? "opacity-40" : ""
+                  } ${탭드래그.dropId === 탭.key ? "ring-1 ring-accent-blue ring-inset" : ""}`}
                 >
-                  {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
+                  {탭.종류 === "recent"    && <Clock size={13} />}
+                  {탭.종류 === "portfolio" && <Wallet size={11} />}
+                  {탭.이름}
+                  {탭.종류 === "folder" && (
+                    <span className="text-[10px] opacity-70">{folderCounts.get(탭.id!) ?? 0}</span>
+                  )}
                 </button>
               );
             })}
-            {/* 포트폴리오 탭 — 관심종목 폴더처럼 나란히 표시 */}
-            {pfList.map((pf: any) => (
-              <button
-                key={`pf-${pf.id}`}
-                onClick={() => { setPortfolioTab(pf.id); setFolderTab("all"); }}
-                className={`${tabBtnCls(portfolioTab === pf.id)} flex items-center gap-1`}
-              >
-                <Wallet size={11} />
-                {pf.name}
-              </button>
-            ))}
           </div>
         );
       })()}
@@ -1001,7 +1036,7 @@ export default function Watchlist() {
 
       {showFolderManager && (
         <FolderManagerModal
-          folders={localFolderOrder ?? (folders as any[])}
+          탭들={정렬된탭}
           onClose={() => setShowFolderManager(false)}
           onCreate={() => { createFolderMutation.mutate(); setShowFolderManager(false); }}
           onRename={(id, name) => updateFolderMutation.mutate({ id, name })}
@@ -1010,7 +1045,7 @@ export default function Watchlist() {
             setDeletingFolder({ ...folder, _itemCount: count });
             setShowFolderManager(false);
           }}
-          onReorder={(order) => reorderFoldersMutation.mutate(order)}
+          onReorder={탭순서바꾸기}
         />
       )}
     </div>

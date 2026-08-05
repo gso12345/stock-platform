@@ -373,69 +373,89 @@ export function AddToPortfolioModal({
   );
 }
 
-/* ── 폴더 관리 팝업 ────────────────────────────────────────── */
+/* ── 폴더·탭 관리 팝업 ─────────────────────────────────────
+   예전에는 폴더만 들어 있었다. 그런데 탭 줄에는 최근조회와 내계좌도 나란히
+   서 있고, 그 셋 사이의 순서는 어디서도 바꿀 수 없었다. 내계좌를 주로 보는
+   사람은 폴더를 전부 지나쳐야 자기 계좌에 닿았다.
+
+   그래서 이 창이 탭 줄 그대로를 보여준다. 이름 바꾸기와 지우기는 폴더에만
+   붙는다 — 최근조회는 앱이 만드는 것이고, 내계좌는 내 자산에서 다룬다. */
 export function FolderManagerModal({
-  folders, onClose, onCreate, onRename, onDelete, onReorder,
+  탭들, onClose, onCreate, onRename, onDelete, onReorder,
 }: {
-  folders: any[];
+  탭들: { key: string; 종류: "recent" | "folder" | "portfolio"; id: number | null; 이름: string }[];
   onClose: () => void;
   onCreate: () => void;
   onRename: (id: number, name: string) => void;
-  onDelete: (folder: any) => void;
-  onReorder: (order: number[]) => void;
+  onDelete: (folder: { id: number; name: string }) => void;
+  onReorder: (순서: string[]) => void;
 }) {
-  const [local, setLocal] = useState<any[]>(folders);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [local, setLocal] = useState(탭들);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
 
-  useEffect(() => { setLocal(folders); }, [folders]);
+  useEffect(() => { setLocal(탭들); }, [탭들]);
 
-  const commitRename = (id: number) => {
+  const commitRename = (탭: typeof 탭들[number]) => {
     const trimmed = editName.trim();
-    if (trimmed) onRename(id, trimmed);
-    setEditingId(null);
+    if (trimmed && 탭.id != null) onRename(탭.id, trimmed);
+    setEditingKey(null);
   };
 
-  const handleReorder = (order: number[]) => {
-    setLocal((prev) => order.map((id) => prev.find((f: any) => f.id === id)).filter(Boolean) as any[]);
-    onReorder(order);
+  const handleReorder = (순서: string[]) => {
+    setLocal((prev) => 순서.map((k) => prev.find((t) => t.key === k)).filter(Boolean) as typeof prev);
+    onReorder(순서);
   };
 
   return (
     <Modal maxWidth="max-w-sm" onClose={onClose}>
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
-        <h3 className="text-sm font-bold text-text-primary">폴더 관리</h3>
+        <div>
+          <h3 className="text-sm font-bold text-text-primary">탭 관리</h3>
+          <p className="text-2xs text-text-dim mt-0.5">끌어서 탭 줄에 나오는 순서를 바꿉니다</p>
+        </div>
         <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
       </div>
+      {/* 훅은 id 로 항목을 찾는다. 탭에서 그 역할은 key 다 — 폴더 id 와
+          섞이지 않게 원본을 따로 들고 다닌다 */}
       <ReorderableList
-        items={local}
-        onReorder={handleReorder}
+        items={local.map((t) => ({ id: t.key, 탭: t }))}
+        onReorder={(순서) => handleReorder(순서 as string[])}
         itemKey="data-folder-row"
         className="flex flex-col max-h-96 overflow-y-auto"
       >
-        {(f: any, { handle }) => (
+        {({ 탭 }, { handle }) => (
           <div className="flex items-center gap-3 px-4 py-4 border-b border-border/40 select-none">
             {handle}
-            {editingId === f.id ? (
+            {editingKey === 탭.key ? (
               <input
                 draggable={false}
                 className="flex-1 bg-bg-primary border border-accent-blue rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none cursor-text select-text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") commitRename(f.id); if (e.key === "Escape") setEditingId(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") commitRename(탭); if (e.key === "Escape") setEditingKey(null); }}
                 autoFocus
               />
             ) : (
-              <span className="flex-1 text-sm font-medium text-text-primary truncate">{f.name}</span>
+              <span className="flex-1 min-w-0 flex items-center gap-2">
+                <span className="text-sm font-medium text-text-primary truncate">{탭.이름}</span>
+                {/* 폴더가 아닌 줄은 왜 이름을 못 바꾸는지 여기서 드러난다 */}
+                {탭.종류 === "recent" && <span className="text-2xs text-text-dim shrink-0">자동</span>}
+                {탭.종류 === "portfolio" && <span className="text-2xs text-text-dim shrink-0">내 자산</span>}
+              </span>
             )}
-            {editingId === f.id ? (
-              <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(f.id); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={15} /></button>
-            ) : (
-              <button draggable={false} onClick={(e) => { e.stopPropagation(); setEditingId(f.id); setEditName(f.name); }}
-                className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={15} /></button>
+            {탭.종류 === "folder" && (
+              editingKey === 탭.key ? (
+                <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(탭); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={15} /></button>
+              ) : (
+                <button draggable={false} aria-label={`${탭.이름} 이름 바꾸기`} onClick={(e) => { e.stopPropagation(); setEditingKey(탭.key); setEditName(탭.이름); }}
+                  className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={15} /></button>
+              )
             )}
-            <button draggable={false} onClick={(e) => { e.stopPropagation(); onDelete(f); }}
-              className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={15} /></button>
+            {탭.종류 === "folder" && (
+              <button draggable={false} aria-label={`${탭.이름} 지우기`} onClick={(e) => { e.stopPropagation(); onDelete({ id: 탭.id!, name: 탭.이름 }); }}
+                className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={15} /></button>
+            )}
           </div>
         )}
       </ReorderableList>

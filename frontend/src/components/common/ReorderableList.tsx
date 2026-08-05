@@ -1,5 +1,5 @@
 import React from "react";
-import { useDragReorder } from "@/hooks/useDragReorder";
+import { useDragReorder, type 항목id } from "@/hooks/useDragReorder";
 
 /**
  * 순서를 바꿀 수 있는 목록 — 폴더 관리·포트폴리오 관리가 같이 쓴다.
@@ -19,11 +19,11 @@ import { useDragReorder } from "@/hooks/useDragReorder";
  * 모양으로 맞춘다. 덤으로 손잡이에 방향키를 붙였다 — 작은 목록에서는
  * 끄는 것보다 빠르고, 마우스를 쓰기 어려운 사람도 순서를 바꿀 수 있다.
  */
-export function ReorderableList<T extends { id: number }>({
+export function ReorderableList<T extends { id: 항목id }>({
   items, onReorder, itemKey = "data-reorder-id", children, className,
 }: {
   items: T[];
-  onReorder: (orderedIds: number[]) => void;
+  onReorder: (orderedIds: T["id"][]) => void;
   /** 터치 드래그가 대상 줄을 찾을 때 쓰는 속성 이름 (한 화면에 목록이 둘이면 다르게) */
   itemKey?: string;
   children: (item: T, ui: { isDragging: boolean; isDropTarget: boolean; handle: React.ReactNode }) => React.ReactNode;
@@ -33,7 +33,7 @@ export function ReorderableList<T extends { id: number }>({
   const list = drag.localOrder ?? items;
 
   /** 방향키로 한 칸 옮기기 */
-  const 옮기기 = (id: number, 방향: -1 | 1) => {
+  const 옮기기 = (id: 항목id, 방향: -1 | 1) => {
     const from = list.findIndex((i) => i.id === id);
     const to = from + 방향;
     if (from < 0 || to < 0 || to >= list.length) return;
