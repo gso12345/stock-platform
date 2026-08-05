@@ -5,6 +5,29 @@ export type FontSize = "normal" | "large" | "xl";
 export type Theme = "light" | "dark" | "system";
 export type Orientation = "system" | "portrait" | "landscape";
 
+/** 내 자산·종목상세를 어떤 모양으로 그릴지.
+ *
+ *  classic  원래 모양 — 정보를 한 번에 다 편다. 지표 열 개가 격자로,
+ *           요약 카드가 넷. 스크롤 없이 훑기보다 한눈에 다 보고 싶을 때.
+ *  compact  접을 것은 접은 모양 — 자주 보는 것만 펴고 나머지는 더보기.
+ *  app      다른 증권 앱 배치 — 큰 가격 → 곧바로 차트 → 그 아래 통계.
+ *
+ * 무엇이 나은지는 사람마다 갈린다. 하나로 정하는 대신 고르게 둔다. */
+export type 화면모양 = "classic" | "compact" | "app";
+/** 저장된 값이 셋 중 하나인지 확인한다. 아니면 기본값.
+ *
+ *  예전 버전이 남긴 값, 손으로 고친 값, 오타 — 어느 쪽이든 그대로 쓰면
+ *  화면이 셋 중 아무 가지에도 안 걸려 텅 빈 채로 뜬다. */
+export function 정상화면모양(v: unknown): 화면모양 {
+  return v === "classic" || v === "compact" || v === "app" ? v : "app";
+}
+
+export const 화면모양_목록: { value: 화면모양; label: string; desc: string }[] = [
+  { value: "classic", label: "기본",   desc: "정보를 한 번에 다 펼칩니다" },
+  { value: "compact", label: "간단히", desc: "자주 보는 것만 펴고 나머지는 접습니다" },
+  { value: "app",     label: "앱처럼", desc: "큰 가격 → 차트 → 통계 순서로 봅니다" },
+];
+
 const KEY = "portfolio_settings";
 
 function legacyTheme(): Theme {
@@ -15,7 +38,7 @@ function legacyTheme(): Theme {
   return "dark";
 }
 
-function load(): { colorScheme: ColorScheme; fontSize: FontSize; theme: Theme; orientation: Orientation } {
+function load(): { colorScheme: ColorScheme; fontSize: FontSize; theme: Theme; orientation: Orientation; 화면모양: 화면모양 } {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
@@ -25,14 +48,15 @@ function load(): { colorScheme: ColorScheme; fontSize: FontSize; theme: Theme; o
         fontSize: (["normal", "large", "xl"] as FontSize[]).includes(p.fontSize) ? p.fontSize : "normal",
         theme: (["light", "dark", "system"] as Theme[]).includes(p.theme) ? p.theme : legacyTheme(),
         orientation: (["system", "portrait", "landscape"] as Orientation[]).includes(p.orientation) ? p.orientation : "system",
+        화면모양: 정상화면모양(p.화면모양),
       };
     }
   } catch {}
-  return { colorScheme: "green-red", fontSize: "normal", theme: legacyTheme(), orientation: "system" };
+  return { colorScheme: "green-red", fontSize: "normal", theme: legacyTheme(), orientation: "system", 화면모양: "app" };
 }
 
-function save(colorScheme: ColorScheme, fontSize: FontSize, theme: Theme, orientation: Orientation) {
-  try { localStorage.setItem(KEY, JSON.stringify({ colorScheme, fontSize, theme, orientation })); } catch {}
+function save(colorScheme: ColorScheme, fontSize: FontSize, theme: Theme, orientation: Orientation, 화면모양: 화면모양) {
+  try { localStorage.setItem(KEY, JSON.stringify({ colorScheme, fontSize, theme, orientation, 화면모양 })); } catch {}
 }
 
 interface SettingsStore {
@@ -40,16 +64,19 @@ interface SettingsStore {
   fontSize: FontSize;
   theme: Theme;
   orientation: Orientation;
+  화면모양: 화면모양;
   setColorScheme: (s: ColorScheme) => void;
   setFontSize: (s: FontSize) => void;
   setTheme: (t: Theme) => void;
   setOrientation: (o: Orientation) => void;
+  set화면모양: (v: 화면모양) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   ...load(),
-  setColorScheme: (colorScheme) => { save(colorScheme, get().fontSize, get().theme, get().orientation); set({ colorScheme }); },
-  setFontSize:    (fontSize)    => { save(get().colorScheme, fontSize, get().theme, get().orientation); set({ fontSize }); },
-  setTheme:       (theme)       => { save(get().colorScheme, get().fontSize, theme, get().orientation); set({ theme }); },
-  setOrientation: (orientation) => { save(get().colorScheme, get().fontSize, get().theme, orientation); set({ orientation }); },
+  setColorScheme: (colorScheme) => { save(colorScheme, get().fontSize, get().theme, get().orientation, get().화면모양); set({ colorScheme }); },
+  setFontSize:    (fontSize)    => { save(get().colorScheme, fontSize, get().theme, get().orientation, get().화면모양); set({ fontSize }); },
+  setTheme:       (theme)       => { save(get().colorScheme, get().fontSize, theme, get().orientation, get().화면모양); set({ theme }); },
+  setOrientation: (orientation) => { save(get().colorScheme, get().fontSize, get().theme, orientation, get().화면모양); set({ orientation }); },
+  set화면모양:    (화면모양)     => { save(get().colorScheme, get().fontSize, get().theme, get().orientation, 화면모양); set({ 화면모양 }); },
 }));

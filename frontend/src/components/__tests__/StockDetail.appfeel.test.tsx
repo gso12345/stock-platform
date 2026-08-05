@@ -1,5 +1,9 @@
 /**
- * 종목상세 첫 화면 — "앱느낌이 너무 안 나는 것 같아"
+ * 종목상세 '앱처럼' 모양 — "앱느낌이 너무 안 나는 것 같아"
+ *
+ * 지금은 화면 모양을 셋 중에 고를 수 있다(기본/간단히/앱처럼). 이 파일은
+ * 그중 '앱처럼' 가지가 무너지지 않게 지킨다. 셋이 서로 다른지는
+ * ScreenLayout 테스트가 본다.
  *
  * 휴대폰 폭으로 띄워 보니 시세 지표 열 개가 굵은 칸선이 그어진 격자로
  * 펼쳐져 화면의 절반을 먹었다. 스프레드시트처럼 보였고, 정작 종목상세에
@@ -25,7 +29,7 @@ describe("시세 지표", () => {
 
     // 자리만 옮기고 안 그리면 지표가 통째로 사라진 것이다
     const 구역 = StockDetail원문.slice(통계, 통계 + 700);
-    expect(구역).toMatch(/\{mainTab === "chart" && d && \(/);
+    expect(구역).toMatch(/화면모양 === "app" && mainTab === "chart" && d && \(/);
   });
 
   it("기본으로 여섯만 편다", () => {
@@ -33,13 +37,11 @@ describe("시세 지표", () => {
     expect(StockDetail원문).toMatch(/시세더보기 \? priceItems : priceItems\.slice\(0, 6\)/);
   });
 
-  it("가격을 카드에 가두지 않는다", () => {
+  it("'앱처럼' 에서는 가격을 카드에 가두지 않는다", () => {
     /* 제목 밑에 큰 숫자가 바로 오는 것이 앱의 모양이다. 테두리를 두르면
-       한 덩어리로 안 읽힌다 */
-    const i = StockDetail원문.indexOf("{/* 현재가.");
-    expect(i).toBeGreaterThan(-1);
-    const 구역 = StockDetail원문.slice(i, i + 700);
-    expect(구역).not.toMatch(/rounded-xl border border-border bg-bg-card/);
+       한 덩어리로 안 읽힌다. 다른 모양에서는 테두리를 그대로 둔다 */
+    expect(StockDetail원문).toMatch(
+      /화면모양 === "app" \? "overflow-hidden"\s*\n?\s*: "rounded-xl border border-border bg-bg-card overflow-hidden"/);
   });
 
   it("나머지를 펼치는 버튼이 있다", () => {
@@ -72,7 +74,8 @@ describe("차트 컨트롤", () => {
   it("캔들·라인·LOG 는 톱니를 눌렀을 때만 편다", () => {
     /* 늘 펼쳐 두면 차트가 보이기도 전에 컨트롤이 세 줄이 된다 */
     expect(StockDetail원문).toMatch(/set차트설정열림/);
-    expect(StockDetail원문).toMatch(/\{차트설정열림 && \(/);
+    // classic 은 늘 펼친다 — 정보를 다 보려고 고른 모양이라 그게 맞다
+    expect(StockDetail원문).toMatch(/\{\(화면모양 === "classic" \|\| 차트설정열림\) && \(/);
   });
 
   it("지표 이름표와 설정은 차트 위에 겹쳐 얹는다", () => {

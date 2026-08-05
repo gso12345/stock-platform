@@ -4,8 +4,8 @@ import { safeExternalUrl } from "@/utils/url";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
-import { useSettingsStore } from "@/store/settingsStore";
-import type { ColorScheme, FontSize, Theme, Orientation } from "@/store/settingsStore";
+import { useSettingsStore, 화면모양_목록 } from "@/store/settingsStore";
+import type { ColorScheme, FontSize, Theme, Orientation, 화면모양 } from "@/store/settingsStore";
 import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
 import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
@@ -47,7 +47,8 @@ const MORE_NAV: { to: string; icon: typeof Star; label: string; badge?: string |
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation } = useSettingsStore();
+  const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation,
+          화면모양, set화면모양 } = useSettingsStore();
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
@@ -85,6 +86,37 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* 화면 모양 —
+              내 자산·종목상세를 어떤 배치로 볼지. 무엇이 나은지는 사람마다
+              갈려서 하나로 정하지 않고 고르게 뒀다. */}
+          <div>
+            <p className="text-xs font-semibold text-text-muted mb-2">화면 모양</p>
+            <div className="flex flex-col gap-1.5">
+              {화면모양_목록.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => set화면모양(opt.value as 화면모양)}
+                  aria-pressed={화면모양 === opt.value}
+                  className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                    화면모양 === opt.value
+                      ? "border-accent-blue bg-accent-blue/10"
+                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    화면모양 === opt.value ? "bg-accent-blue" : "bg-bg-elevated border border-border"}`} />
+                  <span className="flex flex-col min-w-0">
+                    <span className="text-xs font-semibold text-text-primary">{opt.label}</span>
+                    <span className="text-[10px] text-text-muted break-keep">{opt.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-text-dim mt-1.5 break-keep">
+              내 자산과 종목상세에 적용됩니다.
+            </p>
           </div>
 
           {/* 등락 색상 */}

@@ -611,7 +611,7 @@ export default function StockDetail() {
       : `$${d.price.toFixed(2)}`
     : "—";
   const isUp = (d?.change_rate ?? 0) >= 0;
-  const { colorScheme } = useSettingsStore();
+  const { colorScheme, 화면모양 } = useSettingsStore();
   const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
   const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
 
@@ -713,10 +713,14 @@ export default function StockDetail() {
           정작 차트는 화면을 한 장 넘겨야 나왔다. 카드 테두리를 없애 제목과
           한 덩어리로 만들고, 지표는 차트 아래로 내렸다. */}
       {d ? (
-        <div className="overflow-hidden">
+        <div className={화면모양 === "app" ? "overflow-hidden"
+                                          : "rounded-xl border border-border bg-bg-card overflow-hidden"}>
           {/* 현재가 + 등락 */}
-          <div className="px-1 pb-3 flex items-center gap-3 flex-wrap">
-            <span className="text-[34px] leading-none font-mono font-bold text-text-primary num">{priceStr}</span>
+          <div className={화면모양 === "app"
+            ? "px-1 pb-3 flex items-center gap-3 flex-wrap"
+            : "px-4 py-3 flex items-center gap-4 flex-wrap border-b border-border"}>
+            <span className={`font-mono font-bold text-text-primary num ${
+              화면모양 === "app" ? "text-[34px] leading-none" : "text-3xl"}`}>{priceStr}</span>
             <div className="flex items-center gap-1.5">
               {isUp ? <TrendingUp size={13} className={upColor}/> : <TrendingDown size={13} className={downColor}/>}
               {d.change != null && d.change !== 0 && (
@@ -767,6 +771,59 @@ export default function StockDetail() {
               </span>
             </div>
           </div>
+
+          {/* 시세 지표 — 어디에 어떻게 둘지가 화면 모양마다 다르다.
+              app 은 차트 아래 '통계' 로 내려가므로 여기서는 안 그린다. */}
+          {화면모양 === "classic" && (() => {
+            const COLS_SM = 5; // 데스크탑 열 수
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-5">
+                {priceItems.map((item, i) => {
+                  const isLastCol2  = i % 2 === 1;               // 모바일 오른쪽 열
+                  const isLastCol5  = i % COLS_SM === COLS_SM-1; // 데스크탑 마지막 열
+                  const isFirstRow2 = i < 2;                     // 모바일 첫 행
+                  const isFirstRow5 = i < COLS_SM;               // 데스크탑 첫 행
+                  return (
+                    <div key={item.label} className={[
+                      "px-4 py-3 flex flex-col gap-1",
+                      !isLastCol2  ? "border-r border-border/40"        : "",
+                      !isFirstRow2 ? "border-t border-border/40"        : "",
+                      isLastCol2 && !isLastCol5 ? "sm:border-r border-border/40" : "",
+                      isLastCol5               ? "sm:border-r-0"        : "",
+                      !isFirstRow5             ? "sm:border-t border-border/40" : "",
+                      isFirstRow2 && !isFirstRow5 ? "sm:border-t-0"    : "",
+                    ].filter(Boolean).join(" ")}>
+                      <span className="text-[10px] font-medium text-text-muted whitespace-nowrap">{item.label}</span>
+                      <span className={`text-base font-mono font-semibold num truncate ${(item as any).color ?? "text-text-primary"}`}>{item.v ?? "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+          {화면모양 === "compact" && (
+            <div className="px-3 py-2.5 flex flex-col gap-2">
+              <div className="grid grid-cols-4 gap-x-2 gap-y-2">
+                {(시세더보기 ? priceItems : priceItems.slice(0, 4)).map((item) => (
+                  <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
+                    <span className="text-[10px] text-text-dim whitespace-nowrap">{item.label}</span>
+                    <span className={`text-sm font-mono font-semibold num truncate ${(item as any).color ?? "text-text-secondary"}`}>
+                      {item.v ?? "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => set시세더보기((v) => !v)}
+                className="self-center flex items-center gap-1 px-3 py-1 -mb-0.5 rounded-full
+                           text-[11px] text-text-dim hover:text-text-secondary
+                           hover:bg-bg-elevated transition-colors"
+              >
+                {시세더보기 ? "접기" : `지표 ${priceItems.length - 4}개 더보기`}
+                <ChevronDown size={12} className={시세더보기 ? "rotate-180 transition-transform" : "transition-transform"} />
+              </button>
+            </div>
+          )}
 
           {/* 투자의견 요약 행 (US 종목, 데이터 있을 때만) */}
           {!isKR && (() => {
@@ -919,6 +976,7 @@ export default function StockDetail() {
             <div className="ml-auto flex items-center gap-1">
               {/* 캔들/라인/영역·LOG 는 한 번 정해두면 잘 안 바꾼다. 늘 펼쳐
                   두면 차트가 보이기도 전에 컨트롤이 세 줄이 된다 */}
+              {화면모양 !== "classic" && (
               <button onClick={()=>set차트설정열림(v=>!v)}
                 aria-expanded={차트설정열림} aria-label="차트 설정"
                 className={`p-1.5 rounded-lg transition-colors ${
@@ -926,6 +984,7 @@ export default function StockDetail() {
                               : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}>
                 <Settings2 size={13}/>
               </button>
+              )}
               <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
                 <RefreshCw size={13}/>
               </button>
@@ -935,7 +994,7 @@ export default function StockDetail() {
             </div>
           </div>
           {/* 차트 설정 — 톱니를 눌렀을 때만 */}
-          {차트설정열림 && (
+          {(화면모양 === "classic" || 차트설정열림) && (
           <div className="px-4 py-2 border-b border-border bg-bg-secondary flex flex-wrap items-center gap-3">
             <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
               {([
@@ -984,7 +1043,7 @@ export default function StockDetail() {
           자연스럽고, 무엇보다 차트가 첫 화면에 들어온다.
           칸선은 긋지 않는다 — 선을 그으면 표가 되고, 표는 앱이 아니라
           스프레드시트로 읽힌다. */}
-      {mainTab === "chart" && d && (
+      {화면모양 === "app" && mainTab === "chart" && d && (
         <div className="flex flex-col gap-2">
           <h2 className="text-base font-bold text-text-primary px-1">통계</h2>
           <div className="px-1 grid grid-cols-3 gap-x-3 gap-y-3.5">
