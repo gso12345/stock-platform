@@ -1,9 +1,9 @@
-import { useState, memo } from "react";
+import { useState, useEffect, memo } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Heart, MessageSquare, ArrowUpDown, RefreshCw, Rss, AlertCircle, Users, Share2,
-  PenSquare, Trash2, LogIn, Eye,
+  PenSquare, Trash2, LogIn, Eye, Search, X,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
@@ -367,8 +367,17 @@ export default function Feed() {
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("ALL");
   const [page, setPage] = useState(1);
 
+  /* 검색 — 치는 동안 매 글자마다 서버를 부르면 0.15 CPU 짜리 서버가
+     그대로 막힌다. 잠깐 멈췄을 때만 보낸다 */
+  const [검색입력, set검색입력] = useState("");
+  const [검색어, set검색어] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => { set검색어(검색입력.trim()); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [검색입력]);
+
   const isFollowing = feedType === "following";
-  const queryKey = ["feed", sort, marketFilter, page, feedType];
+  const queryKey = ["feed", sort, marketFilter, page, feedType, 검색어];
 
   const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey,
@@ -377,7 +386,8 @@ export default function Feed() {
         page,
         sort,
         marketFilter === "ALL" ? undefined : marketFilter,
-        isFollowing
+        isFollowing,
+        검색어 || undefined
       ),
     staleTime: 120_000,
     refetchInterval: 300_000,
@@ -437,10 +447,10 @@ export default function Feed() {
     const s = overrides.sort ?? sort;
     const m = overrides.market ?? marketFilter;
     const t = overrides.type ?? feedType;
-    const key = ["feed", s, m, 1, t];
+    const key = ["feed", s, m, 1, t, 검색어];
     qc.prefetchQuery({
       queryKey: key,
-      queryFn: () => communityApi.getFeed(1, s, m === "ALL" ? undefined : m, t === "following"),
+      queryFn: () => communityApi.getFeed(1, s, m === "ALL" ? undefined : m, t === "following", 검색어 || undefined),
       staleTime: 30_000,
     });
   };
@@ -491,6 +501,29 @@ export default function Feed() {
         onChange={(id) => changeFeedType(id as any)}
         onHover={(id) => prefetchFeed({ type: id as any })}
       />
+
+      {/* 검색 — 제목·본문·종목코드·태그에서 찾는다 */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
+        <input
+          type="search"
+          aria-label="피드 검색"
+          value={검색입력}
+          onChange={(e) => set검색입력(e.target.value)}
+          placeholder="종목·제목·내용·태그로 검색"
+          maxLength={50}
+          className="w-full pl-9 pr-9 py-2.5 bg-bg-card border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50 transition-colors"
+        />
+        {검색입력 && (
+          <button
+            onClick={() => set검색입력("")}
+            aria-label="검색어 지우기"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-full text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-colors"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
 
       {/* 필터 영역 */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -552,7 +585,16 @@ export default function Feed() {
         /* 팔로잉 피드가 비었을 때는 '전체'로 보내는 게 제일 낫다. 거기엔
            글이 있으니 바로 읽을 것이 생기고, 마음에 드는 사람을 그 자리에서
            팔로우하면 이 화면이 채워진다 */
-        feedType === "following" ? (
+        검색어 ? (
+          /* 검색 결과가 없을 때 "첫 글을 남겨보세요" 를 내밀면 엉뚱하다.
+             찾던 것이 없는 것이지, 피드가 빈 것이 아니다 */
+          <빈화면
+            icon={Search}
+            title={`"${검색어}" 에 대한 글이 없어요`}
+            hint="종목코드나 종목명으로도 찾을 수 있어요. 시장 필터가 걸려 있으면 풀어보세요"
+            action={{ label: "검색 지우기", onClick: () => set검색입력("") }}
+          />
+        ) : feedType === "following" ? (
           <빈화면
             icon={Users}
             title="아직 팔로우한 사람이 없어요"

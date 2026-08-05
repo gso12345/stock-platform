@@ -411,8 +411,8 @@ export const communityApi = {
     api.put("/community/profile/me", payload).then((r) => r.data),
   getUserProfile: (userId: number) =>
     api.get(`/community/profile/${userId}`).then((r) => r.data),
-  getFeed: (page = 1, sort: "latest" | "likes" = "latest", market?: string, following = false) =>
-    api.get("/community/feed", { params: { page, sort, ...(market ? { market } : {}), ...(following ? { following: true } : {}) } }).then((r) => r.data),
+  getFeed: (page = 1, sort: "latest" | "likes" = "latest", market?: string, following = false, q?: string) =>
+    api.get("/community/feed", { params: { page, sort, ...(market ? { market } : {}), ...(following ? { following: true } : {}), ...(q ? { q } : {}) } }).then((r) => r.data),
   getUserPublicProfile: (userId: number) =>
     api.get(`/community/users/${userId}/profile`).then((r) => r.data),
   getUserActivity: (userId: number) =>

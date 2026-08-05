@@ -228,6 +228,18 @@ async def lifespan(application: FastAPI):
                 _idx.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_posts_like_count       ON stock_posts (like_count DESC, created_at DESC) WHERE is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE"))
                 _idx.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_comments_post_parent   ON stock_comments (post_id, parent_id, created_at ASC) WHERE is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE"))
                 _idx.commit()
+
+                # 피드 검색은 LIKE '%...%' 라 앞이 열려 있어 일반 인덱스가 안 먹는다.
+                # PostgreSQL 의 trigram 인덱스는 이걸 태울 수 있다. 다만 확장을
+                # 못 켜는 환경도 있어, 실패하면 그냥 훑는다 — 느릴 뿐 안 깨진다.
+                if engine.dialect.name != "sqlite":
+                    try:
+                        _idx.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                        _idx.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_posts_search ON stock_posts USING GIN (search_text gin_trgm_ops)"))
+                        _idx.commit()
+                    except Exception as _trgm_err:
+                        _idx.rollback()
+                        _startup_log.info(f"검색 인덱스 없이 진행: {_trgm_err}")
                 _startup_log.info("커뮤니티 성능 인덱스 생성 완료")
         except Exception as _idx_err:
             _startup_log.warning(f"커뮤니티 인덱스 생성 스킵: {_idx_err}")
@@ -244,6 +256,8 @@ async def lifespan(application: FastAPI):
             ("stock_posts",    "has_image",            "BOOLEAN NOT NULL DEFAULT false"),
             ("stock_posts",    "image_mime",           "VARCHAR(30)"),
             ("stock_posts",    "image_data",           "BLOB" if _is_sqlite else "BYTEA"),
+            # 피드 검색용 납작한 사본. content 는 JSON 이라 DB 가 안을 못 본다
+            ("stock_posts",    "search_text",          "TEXT"),
             ("stock_posts",    "like_count",           "INTEGER NOT NULL DEFAULT 0"),
             ("stock_posts",    "comment_count",        "INTEGER NOT NULL DEFAULT 0"),
             ("stock_posts",    "view_count",           "INTEGER NOT NULL DEFAULT 0"),
@@ -280,6 +294,19 @@ async def lifespan(application: FastAPI):
             _startup_log.info(f"컬럼 마이그레이션 완료 (추가 {_added}, 이미 존재 {_skipped})")
         except Exception as _mig_err:
             _startup_log.warning(f"컬럼 마이그레이션 스킵: {_mig_err}")
+
+        # 피드 검색 — 옛 글의 search_text 채우기
+        #
+        # 컬럼을 만든 이후에 쓴 글만 검색되면, 검색이 되긴 되므로 한참 뒤에야
+        # 빈 것을 알아챈다. 한 묶음만 하고 나머지는 다음 시작 때 이어서 한다 —
+        # 0.15 CPU 에서 수천 건을 한꺼번에 올리면 그동안 앱이 안 뜬다.
+        try:
+            from app.api.routes.community import 시작할때_검색문장_채우기
+            _n = 시작할때_검색문장_채우기()
+            if _n:
+                _startup_log.info(f"검색문장 채움: {_n}건 (남은 것은 다음 시작 때)")
+        except Exception as _bf_err:
+            _startup_log.warning(f"검색문장 채우기 스킵: {_bf_err}")
     except Exception as e:
         logging.getLogger(__name__).warning(f"마이그레이션 스킵: {e}")
 

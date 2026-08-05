@@ -191,6 +191,80 @@ def decode_content(raw: str) -> dict:
         pass
     return {"title": "", "body": raw, "image": "", "poll": None, "tags": [], "portfolio": None}
 
+# ── 검색용 납작한 사본 ────────────────────────────────────────
+# content 는 JSON 이라 DB 가 안을 들여다볼 수 없다. 매번 꺼내 파싱해서
+# 거르면 글이 늘수록 그대로 느려지고, 인덱스도 못 태운다. 그래서 검색에
+# 걸릴 만한 것들만 소문자로 이어 붙여 따로 둔다.
+#
+# 이미지·투표 결과·포트폴리오 스냅샷은 넣지 않는다. 사람이 검색창에 칠
+# 만한 말이 아니고, 넣으면 컬럼만 무거워진다.
+_SEARCH_MAX = 4000
+# 검색어 길이 — 길수록 캐시 칸만 늘고 LIKE 도 느려진다
+_SEARCH_Q_MAX = 50
+
+
+def 검색문장(title: str, body: str, symbol: str = "", tags: Optional[list] = None) -> str:
+    조각 = [title or "", body or "", symbol or ""]
+    for t in (tags or []):
+        d = t if isinstance(t, dict) else getattr(t, "__dict__", {}) or {}
+        조각.append(str(d.get("symbol") or ""))
+        조각.append(str(d.get("name") or ""))
+    # 종목코드는 대문자로 저장되고 사람은 소문자로 친다. 한쪽으로 맞춘다
+    return " ".join(x for x in 조각 if x).lower()[:_SEARCH_MAX]
+
+
+def 글에서_검색문장(post) -> str:
+    """이미 저장된 글에서 뽑아낸다 — 채워 넣기(backfill)와 수정에 쓴다."""
+    parsed = decode_content(post.content or "")
+    return 검색문장(parsed.get("title", ""), parsed.get("body", ""),
+                    post.symbol or "", parsed.get("tags") or [])
+
+
+def 검색문장_채우기(db: Session, 한번에: int = 200) -> int:
+    """search_text 가 빈 옛 글을 채운다. 시작할 때 한 번 돈다.
+
+    안 채우면 컬럼을 만든 이후에 쓴 글만 검색되고, 그 전 글은 통째로
+    안 걸린다 — 검색이 되긴 되므로 한참 뒤에야 알아챈다.
+
+    한 번에 다 하지 않는다. 0.15 CPU / 512MB 짜리 서버라 수천 건을 한꺼번에
+    올리면 그동안 앱이 안 뜬다. 한 묶음만 하고 나머지는 다음 시작 때 이어서
+    한다 — 어차피 옛 글이라 급하지 않다.
+    """
+    try:
+        대상 = (db.query(StockPost)
+                  .filter(StockPost.search_text.is_(None),
+                          StockPost.is_deleted.isnot(True))
+                  .limit(한번에).all())
+        if not 대상:
+            return 0
+        for p in 대상:
+            p.search_text = 글에서_검색문장(p)
+        db.commit()
+        return len(대상)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        log.exception("검색문장 채우기 실패")
+        return 0
+
+
+def 시작할때_검색문장_채우기() -> int:
+    """서버가 뜰 때 한 묶음 채운다. main 은 이것만 부르면 된다.
+
+    세션 여닫는 것까지 여기서 하는 이유 — main 쪽에 두면 그 코드가 커다란
+    try 블록 안에 들어가, import 하나만 어긋나도 조용히 넘어간다. 실제로는
+    한 건도 안 채우면서 로그에는 아무 말도 안 남는 상태가 된다.
+    """
+    from app.db.database import SessionLocal
+    db = SessionLocal()
+    try:
+        return 검색문장_채우기(db)
+    finally:
+        db.close()
+
+
 # ── 프로필 헬퍼 ───────────────────────────────────────────────
 def get_profile(db: Session, user_id: int) -> Optional[UserProfile]:
     try:
@@ -671,14 +745,17 @@ def create_post(
             result = conn.execute(
                 text("""
                     INSERT INTO stock_posts (symbol, market, user_id, content, is_deleted, like_count,
-                                             has_image, image_mime, image_data)
+                                             has_image, image_mime, image_data, search_text)
                     VALUES (:symbol, :market, :user_id, :content, false, 0,
-                            :has_image, :image_mime, :image_data)
+                            :has_image, :image_mime, :image_data, :search_text)
                     RETURNING id
                 """),
                 {"symbol": sym_upper, "market": market, "user_id": uid_val, "content": content_val,
                  "has_image": bool(바이트) or bool(image_val),
-                 "image_mime": 형식, "image_data": 바이트},
+                 "image_mime": 형식, "image_data": 바이트,
+                 # 여기서 안 채우면 방금 쓴 글만 검색에 안 걸린다 — 제일
+                 # 알아채기 어려운 종류의 구멍이다
+                 "search_text": 검색문장(body.title, body.body, sym_upper, _plain(body.tags))},
             )
             conn.commit()
             row = result.fetchone()
@@ -757,8 +834,10 @@ def update_post(
             new_tags, parsed.get("portfolio"),
         )
         conn.execute(
-            text("UPDATE stock_posts SET content = :content WHERE id = :id"),
-            {"content": new_content, "id": post_id},
+            text("UPDATE stock_posts SET content = :content, search_text = :search_text WHERE id = :id"),
+            {"content": new_content, "id": post_id,
+             # 제목을 고쳐 놓고 옛 제목으로 검색되면 더 이상하다
+             "search_text": 검색문장(new_title, new_body, symbol.upper(), _plain(new_tags))},
         )
         conn.commit()
     return {"id": post_id, "title": new_title, "body": new_body}
@@ -1133,10 +1212,12 @@ def get_feed(
     sort:      Literal["latest", "likes"] = Query("latest"),
     market:    Optional[str] = Query(None),
     following: bool = Query(False),
+    q:         Optional[str] = Query(None, max_length=_SEARCH_Q_MAX),
     db:        Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     uid = current_user.id if current_user else None
+    검색어 = (q or "").strip().lower()
 
     # ── 캐시 ──
     # 피드 한 번 여는 데 DB 왕복이 최대 7번이다 (전체 개수·글·프로필·
@@ -1148,31 +1229,39 @@ def get_feed(
     # 그래서 공통 부분만 캐시하고 개인 항목은 꺼낸 뒤 덧칠한다.
     #
     # '팔로잉만 보기'는 애초에 사람마다 목록이 달라 캐시하지 않는다.
-    캐시키 = None if (following and uid) else f"feed:{sort}:{market or 'ALL'}:{page}:{limit}"
+    # 검색 결과도 '누가 보든 같은' 내용이라 캐시가 그대로 먹는다. 다만
+    # 검색어마다 칸이 따로 생기므로, 키에 검색어를 넣되 길이를 이미 막아 뒀다
+    캐시키 = (None if (following and uid)
+              else f"feed:{sort}:{market or 'ALL'}:{page}:{limit}:{검색어}")
     공통 = cache.get(캐시키) if 캐시키 else None
     if 공통 is not None:
         return _개인화(db, uid, 공통)
 
-    q = db.query(StockPost).filter(StockPost.is_deleted.isnot(True), StockPost.is_blinded.isnot(True))
+    질의 = db.query(StockPost).filter(StockPost.is_deleted.isnot(True), StockPost.is_blinded.isnot(True))
 
     if following and uid:
         followed_ids = [
             r[0] for r in db.query(UserFollow.following_id).filter(UserFollow.follower_id == uid).all()
         ]
         if followed_ids:
-            q = q.filter(StockPost.user_id.in_(followed_ids))
+            질의 = 질의.filter(StockPost.user_id.in_(followed_ids))
         else:
             return {"total": 0, "page": page, "items": []}
 
     if market and market in ("KR", "US", "ETF"):
-        q = q.filter(StockPost.market == market)
-    total = q.count()
+        질의 = 질의.filter(StockPost.market == market)
+    if 검색어:
+        # LIKE 의 와일드카드를 검색어에 그대로 두면 "%" 한 글자로 전체가
+        # 걸린다. 이스케이프하고 escape 문자를 명시한다 (DB 기본값이 다르다)
+        패턴 = "%" + 검색어.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        질의 = 질의.filter(StockPost.search_text.like(패턴, escape="\\"))
+    total = 질의.count()
     if sort == "likes":
-        q = q.order_by(StockPost.like_count.desc(), StockPost.created_at.desc())
+        질의 = 질의.order_by(StockPost.like_count.desc(), StockPost.created_at.desc())
     else:
-        q = q.order_by(StockPost.created_at.desc())
+        질의 = 질의.order_by(StockPost.created_at.desc())
     posts = (
-        q.options(
+        질의.options(
             defer(StockPost.comment_count),
             defer(StockPost.updated_at),
             # 이미지를 안 읽는 것이 목록 속도의 핵심이다. 응답에서만 빼면

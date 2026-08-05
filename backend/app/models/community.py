@@ -26,6 +26,10 @@ class StockPost(Base):
     # 33% 더 먹고, 내보낼 때 매번 디코딩해야 한다.
     has_image   = Column(Boolean, nullable=False, server_default="false", default=False)
     image_mime  = Column(String(30), nullable=True)
+    # 검색용 납작한 사본 — 제목·본문·종목코드·태그를 소문자로 이어 붙인 것.
+    # content 는 JSON 이라 DB 가 안을 못 본다. 매번 파싱해 걸러내면 글이
+    # 늘수록 그대로 느려진다.
+    search_text = Column(Text, nullable=True)
     image_data  = Column(LargeBinary, nullable=True)
     is_deleted  = Column(Boolean, default=False)
     is_blinded  = Column(Boolean, default=False, nullable=True)

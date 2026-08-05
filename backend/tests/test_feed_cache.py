@@ -126,25 +126,38 @@ class Test개인화:
         assert 원본["items"][0]["liked"] is False, "캐시 원본이 오염됐다"
 
 
+def _캐시키_대입문() -> str:
+    """캐시 키를 만드는 대입문 전체.
+
+    예전에는 '캐시키 =' 가 든 줄 하나만 봤다. 그러다 조건이 늘어 줄을 나누는
+    순간, 지켜야 할 성질은 그대로인데 검사가 통째로 헛돌았다. 줄바꿈 위치가
+    아니라 대입문 전체를 본다."""
+    import inspect
+    본문 = inspect.getsource(community.get_feed)
+    i = 본문.index("캐시키 = ")
+    j = 본문.index("\n", 본문.index("공통 = ", i))   # 다음 문장 앞까지
+    return 본문[i:j]
+
+
 class Test캐시_동작:
     def test_팔로잉_피드는_캐시하지_않는다(self):
         """사람마다 목록 자체가 다르므로 공유할 수 없다."""
-        import inspect
-        본문 = inspect.getsource(community.get_feed)
-        assert "following and uid" in 본문 and "캐시키 = None" in 본문, (
-            "팔로잉 전용 피드까지 캐시하면 남의 피드가 보인다")
+        키 = _캐시키_대입문()
+        assert "following and uid" in 키 and "None" in 키, (
+            f"팔로잉 전용 피드까지 캐시하면 남의 피드가 보인다: {키}")
 
     def test_캐시_수명이_너무_길지_않다(self):
         """새 글이 한참 뒤에 보이면 그것대로 문제다."""
         assert 0 < community.FEED_TTL <= 60, community.FEED_TTL
 
     def test_캐시_키가_조건을_모두_담는다(self):
-        """정렬·시장·페이지가 키에 없으면 다른 목록이 섞여 나온다."""
-        import inspect
-        본문 = inspect.getsource(community.get_feed)
-        키줄 = [l for l in 본문.splitlines() if "캐시키 =" in l][0]
-        for 조건 in ("sort", "market", "page", "limit"):
-            assert 조건 in 키줄, f"캐시 키에 {조건} 가 없다: {키줄}"
+        """목록을 가르는 것이 키에 없으면 다른 목록이 섞여 나온다.
+
+        검색어가 빠지면 제일 눈에 띈다 — 한 번 검색한 결과가 검색 안 한
+        피드에까지 그대로 나온다."""
+        키 = _캐시키_대입문()
+        for 조건 in ("sort", "market", "page", "limit", "검색어"):
+            assert 조건 in 키, f"캐시 키에 {조건} 가 없다: {키}"
 
     def test_공통_목록에는_개인_항목이_비어_있다(self):
         """캐시에 남의 좋아요가 담기면 안 된다 — uid 를 넘기지 않아야 한다."""
