@@ -480,7 +480,9 @@ export default function Quant() {
                                     {row.market === "KR" ? fmtKRWFull(Number(pr.price)) : fmtUSDFull(Number(pr.price))}
                                   </span>
                                   {pr.change_rate != null && (
-                                    <ChangeBadge value={Number(pr.change_rate)} className="text-[10px]" />
+                                    <ChangeBadge value={Number(pr.change_rate)} className="text-[10px]"
+                                      금액={pr.change != null ? Number(pr.change) : null}
+                                      통화={row.market === "KR" ? "KRW" : "USD"} />
                                   )}
                                 </div>
                               );

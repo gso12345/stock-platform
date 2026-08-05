@@ -37,16 +37,28 @@ export function Card({ children, className, onClick, ariaLabel }: {
 }
 
 /* ── 등락 배지 (설정의 색상 테마 적용) ───────────────────── */
-export function ChangeBadge({ value, suffix = "%", className }: {
+export function ChangeBadge({ value, suffix = "%", className, 금액, 통화 }: {
   value: number; suffix?: string; className?: string;
+  /** 얼마가 오르내렸는지. 주면 % 앞에 같이 적는다.
+   *  퍼센트만 보면 '3% 올랐다'는 알아도 그게 300원인지 3만원인지 모른다.
+   *  값이 없는 종목(현금·시세 미수신)도 있어 있을 때만 붙인다. */
+  금액?: number | null;
+  /** 'KRW' 면 ₩, 아니면 $. 소수 자리도 통화에 맞춘다 */
+  통화?: string;
 }) {
   const colorScheme = useSettingsStore((s) => s.colorScheme);
   const pos = value >= 0;
   const color = pos
     ? (colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green")
     : (colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red");
+  const 원화 = 통화 !== "USD";
+  const 금액글 = 금액 == null || !Number.isFinite(금액) ? null
+    : `${금액 >= 0 ? "+" : "-"}${원화
+        ? `₩${Math.round(Math.abs(금액)).toLocaleString("ko-KR")}`
+        : `$${Math.abs(금액).toFixed(2)}`}`;
   return (
     <span className={cn("font-mono font-semibold num", color, className)}>
+      {금액글 && <>{금액글} </>}
       {pos ? "+" : ""}{value.toFixed(2)}{suffix}
     </span>
   );

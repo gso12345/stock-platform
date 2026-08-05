@@ -62,7 +62,8 @@ export const PreviewItemRow = memo(function PreviewItemRow({ item, onNavigate }:
             ? (isKR ? fmtKRWFull(item.price) : fmtUSDFull(item.price))
             : <span className="text-text-muted text-xs">조회 중</span>}
         </div>
-        {hasPrice && <ChangeBadge value={item.change_rate} className="text-xs" />}
+        {hasPrice && <ChangeBadge value={item.change_rate} className="text-xs"
+          금액={(item as any).change ?? null} 통화={item.market === "KR" ? "KRW" : "USD"} />}
       </div>
     </div>
   );

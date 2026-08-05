@@ -38,6 +38,10 @@ export interface EnrichedItem extends PortfolioItem {
   pnlRate: number;
   weight: number;
   dailyChangeKRW?: number;
+  /** 어제 종가 대비 오늘 등락률(%). 매입가 대비 수익률과는 다른 숫자다 */
+  전일대비율?: number | null;
+  /** 어제 종가 대비 한 주가 움직인 금액(현지 통화) */
+  전일대비액?: number | null;
   /* 외화 표시(달러 보기) 전용 값 — 행마다 매 렌더 재계산하지 않도록 미리 구해둔다 */
   isForexItem: boolean;
   nativeAvgPrice: number;

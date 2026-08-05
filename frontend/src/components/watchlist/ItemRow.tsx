@@ -137,7 +137,11 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
                 </LivePrice>
               : <span className="text-text-muted text-xs">—</span>}
           </div>
-          {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs"/>}
+          {hasPrice && p.change_rate != null && (
+            <ChangeBadge value={Number(p.change_rate)} className="text-xs"
+              금액={p.change != null ? Number(p.change) : null}
+              통화={isKR ? "KRW" : "USD"} />
+          )}
         </div>
 
         {/* 포트폴리오 추가 버튼 */}

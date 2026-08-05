@@ -586,6 +586,11 @@ export default function StockDetail() {
     if (showKRW) return Math.round(v * exchangeRate).toLocaleString("ko-KR");
     return v.toFixed(2);
   };
+  /* 기본정보에 쓸 PER·EPS. 재무제표 탭과 같은 값을 본다 —
+     한 화면에서 두 숫자가 다르면 어느 쪽을 믿어야 할지 알 수 없다. */
+  const 기본PER: number | null = finTabData.dEnhanced.per ?? null;
+  const 기본EPS: number | null = finTabData.dEnhanced.eps ?? null;
+
   const priceItems = useMemo(() => {
     if (!d) return [] as { label: string; v: string | null; color?: string }[];
     return [
@@ -600,13 +605,25 @@ export default function StockDetail() {
       { label:"52주 저가",v: fmtPx(d.week52_low),  color:"text-accent-blue" },
       { label:"배당수익률",v: d.dividend_yield != null ? `${d.dividend_yield.toFixed(2)}%` : null, color:"text-accent-green" },
       /* PER·EPS 는 재무제표 탭에도 있지만, 시세를 보는 김에 같이 확인하는
-         사람이 많아 여기에도 둔다. 값이 없으면 '—' 로 자리만 지킨다 —
-         종목에 따라 (신규 상장·ETF 등) 못 받는 경우가 있다. */
-      { label:"PER",      v: d.per != null ? `${d.per.toFixed(2)}배` : null },
-      { label:"EPS",      v: d.eps != null ? (isKR ? `${Math.round(d.eps).toLocaleString("ko-KR")}원` : `$${d.eps.toFixed(2)}`) : null },
+         사람이 많아 여기에도 둔다.
+
+         값은 재무제표 탭과 같은 것을 쓴다(finTabData.dEnhanced). 처음에는
+         detail 응답의 d.per / d.eps 만 봤는데, 그쪽이 비는 종목이 꽤 있어서
+         '재무제표에는 EPS 가 나오는데 기본정보에는 안 나오는' 일이 생겼다.
+         재무제표는 detail → fundamentals → metrics-history 순으로 채우고
+         있었고, 기본정보만 첫 칸에서 멈춰 있었던 것이다.
+
+         EPS 는 주당 '금액' 이라 원화환산을 따라간다. PER 은 배수라
+         환산 대상이 아니다. */
+      { label:"PER",      v: 기본PER != null ? `${기본PER.toFixed(2)}배` : null },
+      { label:"EPS",      v: 기본EPS != null
+                             ? (isKR || showKRW
+                                 ? `${Math.round(isKR ? 기본EPS : 기본EPS * exchangeRate).toLocaleString("ko-KR")}원`
+                                 : `$${기본EPS.toFixed(2)}`)
+                             : null },
     ] as { label: string; v: string | null; color?: string }[];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d?.open, d?.high, d?.low, d?.prev_close, d?.volume, d?.price, d?.market_cap, d?.week52_high, d?.week52_low, d?.dividend_yield, d?.per, d?.eps, isKR, showKRW, exchangeRate, fmt]);
+  }, [d?.open, d?.high, d?.low, d?.prev_close, d?.volume, d?.price, d?.market_cap, d?.week52_high, d?.week52_low, d?.dividend_yield, 기본PER, 기본EPS, isKR, showKRW, exchangeRate, fmt]);
   const priceStr = d?.price != null
     ? isKR ? `₩${d.price.toLocaleString("ko-KR")}`
       : showKRW ? `₩${Math.round(d.price * exchangeRate).toLocaleString("ko-KR")}`

@@ -761,7 +761,11 @@ export default function Watchlist() {
                         ? isKRItem ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))
                         : <span className="text-text-muted text-xs">조회 중</span>}
                     </div>
-                    {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs" />}
+                    {hasPrice && p.change_rate != null && (
+                      <ChangeBadge value={Number(p.change_rate)} className="text-xs"
+                        금액={p.change != null ? Number(p.change) : null}
+                        통화={isKRItem ? "KRW" : "USD"} />
+                    )}
                   </div>
                 </div>
               );
@@ -827,7 +831,11 @@ export default function Watchlist() {
                             ? <span className="text-text-dim text-xs">시세 없음</span>
                             : <span className="text-text-muted text-xs">조회 중</span>}
                       </div>
-                      {hasPrice && p.change_rate != null && <ChangeBadge value={Number(p.change_rate)} className="text-xs" />}
+                      {hasPrice && p.change_rate != null && (
+                      <ChangeBadge value={Number(p.change_rate)} className="text-xs"
+                        금액={p.change != null ? Number(p.change) : null}
+                        통화={isKRItem ? "KRW" : "USD"} />
+                    )}
                     </div>
                   </div>
                 );

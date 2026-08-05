@@ -499,9 +499,17 @@ export default function Portfolio() {
       const dailyChangeKRW = changeRate != null
         ? currentValueKRW - currentValueKRW / (1 + changeRate / 100)
         : 0;
+      /* 한 주가 어제보다 얼마 움직였는지. 화면에 '전일대비'로 나간다.
+         수익률(매입가 대비)과는 다른 숫자다 — 어제 산 사람과 3년 전에 산
+         사람에게 오늘 하루의 움직임은 같지만 수익률은 전혀 다르다. */
+      const 전일대비율 = changeRate ?? null;
+      const 전일대비액 = (hasLivePrice && changeRate != null)
+        ? currentPriceNative - currentPriceNative / (1 + changeRate / 100)
+        : null;
 
       return withNativeValues(
-        { ...item, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0, dailyChangeKRW },
+        { ...item, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0,
+          dailyChangeKRW, 전일대비율, 전일대비액 },
         exchangeRate,
       );
     });

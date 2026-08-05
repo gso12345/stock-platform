@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { MarketBadge } from "@/components/ui";
+import { MarketBadge, ChangeBadge } from "@/components/ui";
 import { Pencil, Trash2, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { fmtKRWFull, fmtKRWFullSign, fmtUSDFull, fmtNative } from "@/utils/formatters";
 import type { EnrichedItem } from "@/types/portfolio";
@@ -139,6 +139,15 @@ export const HoldingCard = memo(function HoldingCard({
               </LivePrice>
             )}
           </span>
+          {/* 전일대비 — 수익률(매입가 대비)과 다른 숫자다. 어제 산 사람과
+              3년 전에 산 사람에게 오늘의 움직임은 같지만 수익률은 다르다 */}
+          {hasPrice && item.전일대비율 != null && (
+            <ChangeBadge value={item.전일대비율} className="text-[10px]"
+              금액={item.전일대비액 != null
+                ? (isForexItem && !showAsNative ? item.전일대비액 * exchangeRate : item.전일대비액)
+                : null}
+              통화={isForexItem && showAsNative ? "USD" : item.market === "KR" ? "KRW" : "USD"} />
+          )}
         </div>
       </div>
 
@@ -187,10 +196,19 @@ export const HoldingTableRow = memo(function HoldingTableRow({
       </td>
       <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
         {!hasPrice ? <span className="text-text-muted">—</span> : (
-          <LivePrice value={item.currentPriceNative}>
-            {!isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
-              : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
-          </LivePrice>
+          <div className="flex flex-col items-end">
+            <LivePrice value={item.currentPriceNative}>
+              {!isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
+                : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
+            </LivePrice>
+            {item.전일대비율 != null && (
+              <ChangeBadge value={item.전일대비율} className="text-[10px]"
+                금액={item.전일대비액 != null
+                  ? (isForexItem && !showAsNative ? item.전일대비액 * exchangeRate : item.전일대비액)
+                  : null}
+                통화={isForexItem && showAsNative ? "USD" : item.market === "KR" ? "KRW" : "USD"} />
+            )}
+          </div>
         )}
       </td>
       <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
