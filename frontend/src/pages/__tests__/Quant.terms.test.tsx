@@ -96,11 +96,15 @@ describe("퀀트 표 용어 설명", () => {
     expect(screen.getByRole("button", { name: "가치" }).className).toBe(전);
   });
 
-  it("설명에 점수가 높으면 어떤 뜻인지까지 적혀 있다", async () => {
+  it("이 점수가 '상대 점수' 라는 것을 밝힌다", async () => {
+    /* 다섯 갈래 점수는 같은 시장·업종 종목들과 견줘 매긴 백분위다.
+       그걸 안 밝히면 85점을 '85점짜리 회사'로 읽는다 — 절대 점수가 아니다 */
     const u = userEvent.setup();
     그리기();
     await screen.findByText("삼성전자");
     await u.click(screen.getByRole("button", { name: "안정성 설명" }));
-    expect(screen.getByRole("tooltip").textContent).toMatch(/점수가 높을수록/);
+    const 글 = screen.getByRole("tooltip").textContent ?? "";
+    expect(글).toMatch(/견줘|견주/);
+    expect(글).toMatch(/높을수록/);
   });
 });
