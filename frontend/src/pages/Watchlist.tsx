@@ -4,8 +4,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
 import {
   Card, ChangeBadge, RowSkeleton, InlineSpinner, MarketBadge, ErrorToast,
-  Tabs, UnderlineTabs, type TabItem,
-} from "@/components/ui";
+  Tabs, UnderlineTabs, type TabItem, 빈화면 } from "@/components/ui";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
@@ -730,9 +729,13 @@ export default function Watchlist() {
             <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{recentStocks.length}</span>
           </div>
           {recentStocks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 px-4 py-6">
-              <p className="text-text-muted text-xs">최근 조회한 종목이 없습니다</p>
-            </div>
+            <빈화면
+              compact
+              icon={Clock}
+              title="최근 조회한 종목이 없어요"
+              hint="종목을 한 번 들여다보면 여기에 쌓여요"
+              action={{ label: "종목 둘러보기", onClick: () => navigate("/") }}
+            />
           ) : (
             recentStocks.map((r) => {
               const p = lookupPrice(recentPriceMap, r.symbol);
@@ -781,10 +784,13 @@ export default function Watchlist() {
               <InlineSpinner className="w-5 h-5" />
             </div>
           ) : pfTabDeduped.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 px-4 py-8">
-              <Wallet size={24} className="text-text-muted/40" />
-              <p className="text-text-muted text-xs">이 포트폴리오에 보유종목이 없습니다</p>
-            </div>
+            <빈화면
+              compact
+              icon={Wallet}
+              title="이 포트폴리오에 보유종목이 없어요"
+              hint="산 종목을 넣어두면 여기서 시세와 함께 볼 수 있어요"
+              action={{ label: "내 자산에서 추가", onClick: () => navigate("/portfolio") }}
+            />
           ) : (
             pfTabDeduped
               .filter((i: any) => marketTab === "전체" || i.market === marketTab)

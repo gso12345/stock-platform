@@ -7,7 +7,7 @@ import api from "@/api/client";
 import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
-import { Card, Tabs } from "@/components/ui";
+import { Card, Tabs, 용어힌트 } from "@/components/ui";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
@@ -27,7 +27,12 @@ import CommunityTab from "@/components/community/CommunityTab";
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
   return (
     <div className="flex flex-col gap-0.5 p-3 rounded-xl border border-border bg-bg-elevated">
-      <span className="text-xs text-text-muted font-medium uppercase tracking-wide">{label}</span>
+      {/* 이 한 자리가 PER·PBR·ROE 등 스물다섯 가지 이름을 다 그린다.
+          용어힌트는 사전에 없는 이름이면 물음표 없이 글자만 내보내므로,
+          어떤 이름이 와도 그냥 통과한다 */}
+      <span className="text-xs text-text-muted font-medium uppercase tracking-wide">
+        <용어힌트 이름={label} />
+      </span>
       <span className={`text-base font-mono font-semibold truncate ${color ?? "text-text-primary"}`}>{value ?? "—"}</span>
       {sub && <span className="text-xs text-text-muted font-mono">{sub}</span>}
     </div>

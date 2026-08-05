@@ -6,7 +6,7 @@ import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSetting
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { useAuthStore } from "@/store/authStore";
-import { Card, Badge, RowSkeleton, Button, Tabs, UnderlineTabs, ChangeBadge } from "@/components/ui";
+import { Card, Badge, RowSkeleton, Button, Tabs, UnderlineTabs, ChangeBadge, 용어힌트, 빈화면 } from "@/components/ui";
 import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp, Clock, Wallet, Download } from "lucide-react";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 import { lookupPrice, indexPricesBySymbol } from "@/utils/prices";
@@ -356,25 +356,30 @@ export default function Quant() {
                 <RowSkeleton rows={5} />
               </div>
             ) : compareItems.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
-                <Award size={32} className="text-text-muted/40" />
-                {portfolioTab !== null ? (
-                  <>
-                    <p className="text-text-secondary text-sm">이 포트폴리오에 종목이 없어요</p>
-                    <p className="text-text-muted text-xs">내 자산 메뉴에서 종목을 추가해보세요</p>
-                  </>
-                ) : folderTab === "recent" ? (
-                  <>
-                    <p className="text-text-secondary text-sm">최근 조회한 종목이 없어요</p>
-                    <p className="text-text-muted text-xs">종목 상세 페이지를 방문하면 여기서 바로 비교할 수 있어요</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-text-secondary text-sm">비교할 관심종목이 없어요</p>
-                    <p className="text-text-muted text-xs">관심종목 메뉴에서 종목을 추가하면 여기서 비교할 수 있어요</p>
-                  </>
-                )}
-              </div>
+              /* 안내만 하고 끝내면 "그래서 어디로 가라고?" 가 된다.
+                 각 경우마다 채우러 갈 곳으로 바로 보낸다 */
+              portfolioTab !== null ? (
+                <빈화면
+                  icon={Wallet}
+                  title="이 포트폴리오에 종목이 없어요"
+                  hint="보유한 종목을 넣으면 여기서 점수를 나란히 비교할 수 있어요"
+                  action={{ label: "내 자산에 종목 넣기", onClick: () => navigate("/portfolio") }}
+                />
+              ) : folderTab === "recent" ? (
+                <빈화면
+                  icon={Clock}
+                  title="최근 조회한 종목이 없어요"
+                  hint="종목을 한 번 들여다보면 여기 쌓여서, 바로 비교해 볼 수 있어요"
+                  action={{ label: "종목 둘러보기", onClick: () => navigate("/") }}
+                />
+              ) : (
+                <빈화면
+                  icon={Award}
+                  title="비교할 관심종목이 없어요"
+                  hint="관심 있는 종목을 담아두면 가치·품질·모멘텀 점수를 한눈에 견줄 수 있어요"
+                  action={{ label: "관심종목 담으러 가기", onClick: () => navigate("/watchlist") }}
+                />
+              )
             ) : isError ? (
               <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
                 <AlertCircle size={32} className="text-accent-red/60" />
@@ -424,13 +429,18 @@ export default function Quant() {
                       {(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => (
                         <th key={k} className="text-right px-3 py-3 whitespace-nowrap"
                             aria-sort={sortKey === k ? (sortDir === "desc" ? "descending" : "ascending") : "none"}>
-                          <button
-                            onClick={() => toggleSort(k)}
-                            className={`flex items-center justify-end gap-1 ml-auto whitespace-nowrap ${sortKey === k ? "text-accent-blue" : "hover:text-text-primary"}`}
-                          >
-                            {FACTOR_LABEL_KO[k]}
-                            {sortKey === k && (sortDir === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
-                          </button>
+                          {/* 물음표는 정렬 버튼 밖에 둔다. 안에 넣으면 버튼이 겹쳐
+                              설명을 보려다 정렬이 바뀐다 */}
+                          <span className="flex items-center justify-end gap-1 ml-auto whitespace-nowrap">
+                            <button
+                              onClick={() => toggleSort(k)}
+                              className={`flex items-center gap-1 whitespace-nowrap ${sortKey === k ? "text-accent-blue" : "hover:text-text-primary"}`}
+                            >
+                              {FACTOR_LABEL_KO[k]}
+                              {sortKey === k && (sortDir === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+                            </button>
+                            <용어힌트 이름={FACTOR_LABEL_KO[k]} 글자숨김 />
+                          </span>
                         </th>
                       ))}
                     </tr>

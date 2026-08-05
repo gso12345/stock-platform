@@ -7,15 +7,17 @@
  */
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams, Link } from "react-router-dom";
+import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { Bell, CheckCheck, LogIn, ChevronLeft, ChevronRight } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import NotificationList, { type NotificationItem } from "@/components/community/NotificationList";
 import NotificationSettings from "@/components/community/NotificationSettings";
+import { 빈화면 } from "@/components/ui";
 
 export default function Notifications() {
   const { isLoggedIn } = useAuthStore();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const qc = useQueryClient();
@@ -96,12 +98,18 @@ export default function Notifications() {
         {isLoading ? (
           <p className="px-4 py-12 text-center text-xs text-text-dim">불러오는 중…</p>
         ) : items.length === 0 ? (
-          <div className="px-4 py-14 text-center">
-            <Bell size={24} className="mx-auto mb-2 text-text-dim opacity-50" />
-            <p className="text-xs text-text-dim">
-              {page > 1 ? "더 이상 알림이 없습니다" : "아직 알림이 없습니다"}
-            </p>
-          </div>
+          /* 첫 장이 비어 있는 것과 마지막 장까지 넘긴 것은 다른 상황이다.
+             앞의 경우에만 '무엇을 하면 알림이 오는지' 를 알려준다 */
+          page > 1 ? (
+            <빈화면 compact icon={Bell} title="더 이상 알림이 없습니다" />
+          ) : (
+            <빈화면
+              icon={Bell}
+              title="아직 알림이 없어요"
+              hint="내 글에 댓글이 달리거나 누가 나를 팔로우하면 여기로 알려드려요"
+              action={{ label: "피드 둘러보기", onClick: () => navigate("/feed") }}
+            />
+          )
         ) : (
           <NotificationList items={items} roomy />
         )}

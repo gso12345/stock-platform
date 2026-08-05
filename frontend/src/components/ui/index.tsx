@@ -2,6 +2,8 @@ import React from "react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { useSettingsStore } from "@/store/settingsStore";
+import { 용어사전 } from "@/constants/terms";
+import type { LucideIcon } from "lucide-react";
 
 export function cn(...i: ClassValue[]) { return twMerge(clsx(i)); }
 
@@ -297,6 +299,160 @@ export function RangeFilter({ label, filterKey, filters, onChange }: {
         <input type="number" placeholder="최대" className={inp} value={c.max ?? ""}
           onChange={(e) => onChange(filterKey, { ...c, max: e.target.value !== "" ? +e.target.value : undefined })} />
       </div>
+    </div>
+  );
+}
+
+/* ── 용어 힌트 ─────────────────────────────────────────
+   PER·ROE·샤프 비율 같은 이름 옆에 물음표를 두고, 누르면 한 줄 설명을 편다.
+
+   마우스를 올리면 뜨는 방식으로 하지 않았다. 이 앱은 절반 이상이 손가락으로
+   보는데, 손가락에는 '올려두기'가 없다. 눌러야 뜬다.
+
+   설명이 없는 이름에는 물음표를 아예 안 붙인다. 그래야 StatCell 처럼 이름이
+   스물다섯 가지로 들어오는 자리에 그냥 끼워도 안전하다.
+
+   자리 잡기는 열 때 화면 좌표를 재서 고정 위치로 띄운다. 지표는 표 안이나
+   가로로 넘치는 칸 안에 있어서, 부모에 붙여 놓으면 잘리거나 스크롤을 만든다. */
+export function 용어힌트({ 이름, className, 글자숨김 }: {
+  이름: string;
+  className?: string;
+  /** 물음표만 그린다. 이름이 이미 다른 버튼(예: 정렬) 안에 들어 있을 때 쓴다 —
+      버튼 안에 버튼을 넣으면 눌리는 곳이 겹치고 화면 읽어주는 프로그램도 헷갈린다 */
+  글자숨김?: boolean;
+}) {
+  const [열림, set열림] = React.useState(false);
+  const [자리, set자리] = React.useState<{ top: number; left: number } | null>(null);
+  const 버튼 = React.useRef<HTMLButtonElement>(null);
+  const 뜻 = 용어사전[이름];
+
+  /** 버튼 위치를 다시 재서 설명 상자를 그 아래(또는 위)에 맞춘다 */
+  const 자리잡기 = React.useCallback(() => {
+    const el = 버튼.current;
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    // 버튼이 화면 밖으로 나갔으면 붙어 있을 곳이 없다
+    if (r.bottom < 0 || r.top > window.innerHeight) return false;
+    const 너비 = Math.min(280, window.innerWidth - 24);
+    // 좌우가 화면 밖으로 나가지 않게 가둔다
+    const left = Math.max(12, Math.min(r.left, window.innerWidth - 너비 - 12));
+    // 아래가 좁으면 위로 띄운다
+    const 아래여유 = window.innerHeight - r.bottom;
+    const top = 아래여유 < 180 ? Math.max(12, r.top - 168) : r.bottom + 8;
+    set자리({ top, left });
+    return true;
+  }, []);
+
+  const 열기 = React.useCallback(() => {
+    if (자리잡기()) set열림(true);
+  }, [자리잡기]);
+
+  React.useEffect(() => {
+    if (!열림) return;
+    /* 스크롤할 때 닫지 않는다.
+       처음에는 '자리가 어긋나니 닫자'로 했는데, 실제 휴대폰 폭에서 눌러 보니
+       누르는 순간 화면이 살짝 밀리면서 곧바로 닫혀 아무 일도 안 일어난 것처럼
+       보였다. 사용자에게는 '눌러도 안 뜨는 버튼'이다.
+       닫는 대신 다시 재서 따라 움직이고, 버튼이 화면 밖으로 나갔을 때만 닫는다. */
+    const 따라가기 = () => { if (!자리잡기()) set열림(false); };
+    const 키 = (e: KeyboardEvent) => { if (e.key === "Escape") { set열림(false); 버튼.current?.focus(); } };
+    window.addEventListener("scroll", 따라가기, true);
+    window.addEventListener("resize", 따라가기);
+    window.addEventListener("keydown", 키);
+    return () => {
+      window.removeEventListener("scroll", 따라가기, true);
+      window.removeEventListener("resize", 따라가기);
+      window.removeEventListener("keydown", 키);
+    };
+  }, [열림, 자리잡기]);
+
+  if (!뜻) return 글자숨김 ? null : <>{이름}</>;
+
+  return (
+    <>
+      <span className={cn("inline-flex items-center gap-1", className)}>
+        {!글자숨김 && 이름}
+        <button
+          ref={버튼}
+          type="button"
+          onClick={(e) => { e.stopPropagation(); 열림 ? set열림(false) : 열기(); }}
+          aria-expanded={열림}
+          aria-label={`${이름} 설명`}
+          className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-current
+                     text-[9px] leading-none font-bold opacity-50 hover:opacity-100 focus:opacity-100
+                     focus:outline-none focus:ring-1 focus:ring-accent-blue transition-opacity"
+        >
+          ?
+        </button>
+      </span>
+      {열림 && 자리 && (
+        <>
+          {/* 바깥을 눌러도 닫히게 — 화면 전체를 덮되 보이지는 않는다 */}
+          <div className="fixed inset-0 z-[60]" onClick={() => set열림(false)} />
+          <div
+            role="tooltip"
+            style={{ top: 자리.top, left: 자리.left, width: Math.min(280, window.innerWidth - 24) }}
+            className="fixed z-[61] rounded-xl border border-border bg-bg-card shadow-2xl p-3
+                       flex flex-col gap-1.5 text-left normal-case tracking-normal"
+          >
+            <p className="text-xs font-bold text-text-primary break-keep">
+              {이름}{뜻.이름 && <span className="font-medium text-text-muted"> · {뜻.이름}</span>}
+            </p>
+            <p className="text-xs text-text-secondary break-keep leading-relaxed font-normal">{뜻.뜻}</p>
+            {뜻.기준 && (
+              <p className="text-[11px] text-text-muted break-keep leading-relaxed font-normal
+                            border-t border-border/60 pt-1.5">
+                {뜻.기준}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+/* ── 빈 화면 ───────────────────────────────────────────
+   '아직 게시글이 없어요' 에서 끝나면 막다른 길이다. 처음 온 사람은 거기서
+   뒤로 가기를 누른다. 무엇을 하면 채워지는지와, 그리로 가는 버튼까지 줘야
+   비로소 안내다.
+
+   전략저장소에 이미 이 모양이 있었다(아이콘·설명·버튼). 그걸 부품으로 꺼내
+   나머지 빈 화면에도 같은 대접을 한다. */
+export function 빈화면({ icon: Icon, title, hint, action, compact }: {
+  /* lucide 아이콘은 forwardRef 로 감싸여 있어 좁게 잡으면 안 들어온다.
+     이 자리에 오는 건 항상 lucide 아이콘이므로 그쪽 타입에 맞춘다 */
+  icon: LucideIcon;
+  title: string;
+  /** 무엇을 하면 채워지는지 */
+  hint?: string;
+  /** 그리로 가는 버튼. 없으면 안내만 한다 */
+  action?: { label: string; onClick: () => void };
+  /** 목록 안에 끼워 넣는 작은 자리용 */
+  compact?: boolean;
+}) {
+  return (
+    <div className={cn(
+      "flex flex-col items-center justify-center text-center gap-3",
+      compact ? "py-8" : "py-16",
+    )}>
+      <div className={cn(
+        "rounded-full bg-bg-elevated flex items-center justify-center",
+        compact ? "w-12 h-12" : "w-16 h-16",
+      )}>
+        <Icon size={compact ? 20 : 28} className="text-text-muted" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <p className={cn("font-semibold text-text-primary break-keep", compact ? "text-sm" : "text-base")}>
+          {title}
+        </p>
+        {hint && <p className="text-xs text-text-muted break-keep max-w-[18rem]">{hint}</p>}
+      </div>
+      {action && (
+        <Button size={compact ? "sm" : "md"} onClick={action.onClick}>
+          {action.label}
+        </Button>
+      )}
     </div>
   );
 }

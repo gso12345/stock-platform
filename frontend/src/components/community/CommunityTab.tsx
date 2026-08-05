@@ -10,6 +10,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import api from "@/api/client";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
+import { 빈화면 } from "@/components/ui";
 import AvatarComponent from "@/components/community/Avatar";
 import { compressImage } from "@/utils/image";
 import { useMyProfile } from "@/hooks/useMyProfile";
@@ -866,15 +867,20 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
 
       {/* 빈 상태 */}
       {!isLoading && !isError && posts.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 gap-3">
-          <div className="w-14 h-14 rounded-2xl bg-bg-elevated flex items-center justify-center">
-            <MessageSquare size={24} className="text-text-dim opacity-50" />
-          </div>
-          <div className="text-center">
-            <p className="text-sm font-medium text-text-secondary">아직 의견이 없어요</p>
-            <p className="text-xs text-text-dim mt-0.5">첫 번째 의견을 남겨보세요!</p>
-          </div>
-        </div>
+        <빈화면
+          icon={MessageSquare}
+          title="아직 의견이 없어요"
+          hint="이 종목을 어떻게 보는지 남겨보세요. 첫 글이 대화의 시작이 됩니다"
+          action={{
+            /* 글쓰기 칸이 바로 위에 있다. 커서까지 옮겨 주면 누른 다음에
+               할 일이 남지 않는다 */
+            label: "첫 의견 남기기",
+            onClick: () => {
+              textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              textareaRef.current?.focus();
+            },
+          }}
+        />
       )}
 
       {/* 게시글 목록 */}

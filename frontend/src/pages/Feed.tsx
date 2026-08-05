@@ -16,7 +16,7 @@ import { compressImage } from "@/utils/image";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
-import { Tabs, type TabItem } from "@/components/ui";
+import { Tabs, type TabItem, 빈화면 } from "@/components/ui";
 
 type SortType = "latest" | "likes";
 type MarketFilter = "ALL" | "KR" | "US" | "ETF";
@@ -1087,28 +1087,28 @@ export default function Feed() {
 
       {/* 빈 상태 */}
       {!isLoading && !isFetching && !isError && posts.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 gap-3">
-          <div className="w-16 h-16 rounded-2xl bg-bg-elevated flex items-center justify-center">
-            {feedType === "following" ? (
-              <Users size={28} className="text-text-dim opacity-40" />
-            ) : (
-              <Rss size={28} className="text-text-dim opacity-40" />
-            )}
-          </div>
-          <div className="text-center">
-            {feedType === "following" ? (
-              <>
-                <p className="text-sm font-medium text-text-secondary">아직 팔로우한 사람이 없어요</p>
-                <p className="text-xs text-text-dim mt-0.5">다른 투자자를 팔로우하고 피드를 채워보세요!</p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-text-secondary">아직 게시글이 없어요</p>
-                <p className="text-xs text-text-dim mt-0.5">종목 상세 페이지에서 의견을 남겨보세요!</p>
-              </>
-            )}
-          </div>
-        </div>
+        /* 팔로잉 피드가 비었을 때는 '전체'로 보내는 게 제일 낫다. 거기엔
+           글이 있으니 바로 읽을 것이 생기고, 마음에 드는 사람을 그 자리에서
+           팔로우하면 이 화면이 채워진다 */
+        feedType === "following" ? (
+          <빈화면
+            icon={Users}
+            title="아직 팔로우한 사람이 없어요"
+            hint="전체 피드에서 마음에 드는 글을 쓴 사람을 팔로우하면 여기에 모여요"
+            action={{ label: "전체 피드 보기", onClick: () => changeFeedType("all") }}
+          />
+        ) : (
+          <빈화면
+            icon={Rss}
+            title="아직 게시글이 없어요"
+            hint="첫 글을 남겨보세요. 종목을 함께 붙이면 다른 사람이 찾아보기 좋아요"
+            action={{
+              label: "첫 글 쓰기",
+              // 글쓰기 칸은 이 화면 맨 위에 있다
+              onClick: () => window.scrollTo({ top: 0, behavior: "smooth" }),
+            }}
+          />
+        )
       )}
 
       {/* 피드 목록 */}
