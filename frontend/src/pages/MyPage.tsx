@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/stocks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -81,7 +81,10 @@ export default function MyPage() {
     staleTime: 120_000,
   });
 
-  const [editMode, setEditMode] = useState(false);
+  /* 더보기 화면의 "프로필 수정"이 ?edit=1 로 들어온다. 그냥 /mypage 로
+     보내면 편집 패널이 접힌 채라 한 번 더 눌러야 한다 */
+  const [검색값] = useSearchParams();
+  const [editMode, setEditMode] = useState(() => 검색값.get("edit") === "1");
   const [nickname, setNickname] = useState("");
   const [avatarColor, setAvatarColor] = useState(0);
   const [bio, setBio] = useState("");

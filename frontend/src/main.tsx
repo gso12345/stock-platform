@@ -26,6 +26,7 @@ const Privacy = lazy(() => import("./pages/Privacy"));
 const MyPage = lazy(() => import("./pages/MyPage"));
 const Feed   = lazy(() => import("./pages/Feed"));
 const FeedWrite = lazy(() => import("./pages/FeedWrite"));
+const More = lazy(() => import("./pages/More"));
 const UserProfile = lazy(() => import("./pages/UserProfile"));
 const PostDetail  = lazy(() => import("./pages/PostDetail"));
 const Notifications = lazy(() => import("./pages/Notifications"));
@@ -105,6 +106,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <Route path="profile/:userId" element={<UserProfile />} />
               <Route path="post/:postId" element={<PostDetail />} />
               <Route path="notifications" element={<Notifications />} />
+              <Route path="more" element={<More />} />
             </Route>
           </Routes>
         </Suspense>

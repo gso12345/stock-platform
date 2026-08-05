@@ -16,7 +16,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { useSettingsStore, 화면모양_목록, 정상화면모양 } from "@/store/settingsStore";
 import StockDetail원문 from "../../pages/StockDetail.tsx?raw";
 import Portfolio원문 from "../../pages/Portfolio.tsx?raw";
-import Layout원문 from "../Layout.tsx?raw";
+/* 설정 창은 Layout 에서 SettingsModal 로 빠졌다 — 더보기가 화면으로
+   나오면서 설정을 여는 자리가 두 곳이 됐기 때문이다 */
+import 설정창원문 from "../SettingsModal.tsx?raw";
 
 const KEY = "portfolio_settings";
 
@@ -110,18 +112,18 @@ describe("셋이 실제로 다르게 그려진다", () => {
 
 describe("설정 화면", () => {
   it("고르는 자리가 있다", () => {
-    expect(Layout원문).toMatch(/화면 모양/);
-    expect(Layout원문).toMatch(/화면모양_목록\.map/);
+    expect(설정창원문).toMatch(/화면 모양/);
+    expect(설정창원문).toMatch(/화면모양_목록\.map/);
   });
 
   it("지금 고른 것이 무엇인지 읽어줄 수 있다", () => {
     /* 색으로만 표시하면 화면을 읽어주는 프로그램은 어느 것이 선택됐는지
        모른다 */
-    expect(Layout원문).toMatch(/aria-pressed=\{화면모양 === opt\.value\}/);
+    expect(설정창원문).toMatch(/aria-pressed=\{화면모양 === opt\.value\}/);
   });
 
   it("어디에 적용되는지 밝힌다", () => {
     /* 설정을 바꿨는데 눈앞 화면이 그대로면 안 먹은 줄 안다 */
-    expect(Layout원문).toMatch(/내 자산과 종목상세에 적용됩니다/);
+    expect(설정창원문).toMatch(/내 자산과 종목상세에 적용됩니다/);
   });
 });

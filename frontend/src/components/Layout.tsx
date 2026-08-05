@@ -1,17 +1,16 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, Monitor, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Star, Award, RectangleHorizontal, RectangleVertical, Smartphone, ShieldCheck, Megaphone, User, Rss, Bell } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Award, ShieldCheck, Megaphone, User, Rss } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
-import { useSettingsStore, 화면모양_목록 } from "@/store/settingsStore";
-import type { ColorScheme, FontSize, Theme, Orientation, 화면모양 } from "@/store/settingsStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import SearchBar from "@/components/SearchBar";
 import InstallAppButton from "@/components/InstallAppButton";
 import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
 import NotificationBell from "@/components/community/NotificationBell";
-import { NotificationToggles } from "@/components/community/NotificationSettings";
-import { communityApi } from "@/api/stocks";
+import SettingsModal from "@/components/SettingsModal";
+import { 더보기_경로 } from "@/constants/moreNav";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/api/client";
@@ -36,207 +35,6 @@ const BOTTOM_NAV = [
   { to: "/quant",     icon: Award,           label: "퀀트"     },
 ];
 
-/* ── "더보기" 시트에 들어가는 나머지 메뉴 ─────────────── */
-const MORE_NAV: { to: string; icon: typeof Star; label: string; badge?: string | null }[] = [
-  { to: "/watchlist",  icon: Star,      label: "관심종목"   },
-  { to: "/screening",  icon: Search,    label: "스크리닝"   },
-  { to: "/backtest",   icon: LineChart, label: "백테스트"   },
-  { to: "/strategies", icon: BookMarked,label: "전략저장소" },
-  { to: "/mypage",     icon: User,      label: "내 프로필"  },
-];
-
-function SettingsModal({ onClose }: { onClose: () => void }) {
-  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation,
-          화면모양, set화면모양 } = useSettingsStore();
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-sm max-h-[85vh] flex flex-col bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-          <h3 className="text-sm font-bold text-text-primary">설정</h3>
-          <button onClick={onClose} aria-label="닫기" className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
-            <X size={15} />
-          </button>
-        </div>
-        <div className="px-5 py-5 flex flex-col gap-5 flex-1 overflow-y-auto">
-
-          {/* 테마 */}
-          <div>
-            <p className="text-xs font-semibold text-text-muted mb-2">테마</p>
-            <div className="flex gap-2">
-              {([
-                { value: "light",  label: "라이트", icon: Sun },
-                { value: "dark",   label: "다크",   icon: Moon },
-                { value: "system", label: "시스템", icon: Monitor },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setTheme(opt.value as Theme)}
-                  className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
-                    theme === opt.value
-                      ? "border-accent-blue bg-accent-blue/10"
-                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
-                  }`}
-                >
-                  <opt.icon size={16} className="text-text-primary" />
-                  <span className="text-[10px] text-text-muted">{opt.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 화면 모양 —
-              내 자산·종목상세를 어떤 배치로 볼지. 무엇이 나은지는 사람마다
-              갈려서 하나로 정하지 않고 고르게 뒀다. */}
-          <div>
-            <p className="text-xs font-semibold text-text-muted mb-2">화면 모양</p>
-            <div className="flex flex-col gap-1.5">
-              {화면모양_목록.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => set화면모양(opt.value as 화면모양)}
-                  aria-pressed={화면모양 === opt.value}
-                  className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
-                    화면모양 === opt.value
-                      ? "border-accent-blue bg-accent-blue/10"
-                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    화면모양 === opt.value ? "bg-accent-blue" : "bg-bg-elevated border border-border"}`} />
-                  <span className="flex flex-col min-w-0">
-                    <span className="text-xs font-semibold text-text-primary">{opt.label}</span>
-                    <span className="text-[10px] text-text-muted break-keep">{opt.desc}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            <p className="text-[10px] text-text-dim mt-1.5 break-keep">
-              내 자산과 종목상세에 적용됩니다.
-            </p>
-          </div>
-
-          {/* 등락 색상 */}
-          <div>
-            <p className="text-xs font-semibold text-text-muted mb-2">등락 색상</p>
-            <div className="flex gap-2">
-              {([
-                { value: "green-red", label: "초록 / 빨강", desc: "상승=초록, 하락=빨강" },
-                { value: "red-blue",  label: "빨강 / 파랑",  desc: "상승=빨강, 하락=파랑" },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setColorScheme(opt.value as ColorScheme)}
-                  className={`flex-1 flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${
-                    colorScheme === opt.value
-                      ? "border-accent-blue bg-accent-blue/10"
-                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
-                  }`}
-                >
-                  <div className="flex gap-1.5">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${opt.value === "green-red" ? "text-accent-green bg-accent-green/10" : "text-accent-red bg-accent-red/10"}`}>▲</span>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${opt.value === "green-red" ? "text-accent-red bg-accent-red/10" : "text-accent-blue bg-accent-blue/10"}`}>▼</span>
-                  </div>
-                  <span className="text-xs font-semibold text-text-primary">{opt.label}</span>
-                  <span className="text-[10px] text-text-muted text-center leading-tight">{opt.desc}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 글씨 크기 */}
-          <div>
-            <p className="text-xs font-semibold text-text-muted mb-2">글씨 크기</p>
-            <div className="flex gap-2">
-              {([
-                { value: "normal", label: "작게",   size: "text-xs"  },
-                { value: "large",  label: "기본",   size: "text-sm"  },
-                { value: "xl",     label: "크게", size: "text-base" },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setFontSize(opt.value as FontSize)}
-                  className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
-                    fontSize === opt.value
-                      ? "border-accent-blue bg-accent-blue/10"
-                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
-                  }`}
-                >
-                  <span className={`font-bold text-text-primary ${opt.size}`}>Aa</span>
-                  <span className="text-[10px] text-text-muted">{opt.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 화면 방향 */}
-          <div>
-            <p className="text-xs font-semibold text-text-muted mb-2">화면 방향</p>
-            <p className="text-2xs text-text-dim mb-2">설치된 앱(PWA) 등 일부 환경에서만 적용돼요</p>
-            <div className="flex gap-2">
-              {([
-                { value: "landscape", label: "가로",     icon: RectangleHorizontal },
-                { value: "portrait",  label: "세로",     icon: RectangleVertical   },
-                { value: "system",    label: "시스템설정", icon: Smartphone          },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => {
-                    setOrientation(opt.value as Orientation);
-                    /* 화면 회전 고정 API는 사용자 클릭(transient activation) 직후
-                       동기적으로 호출해야 동작하는 브라우저가 있어 useEffect가 아닌
-                       클릭 핸들러에서 직접 호출 */
-                    const so = screen.orientation as (ScreenOrientation & { lock?: (o: string) => Promise<void> }) | undefined;
-                    if (!so) return;
-                    /* lock()/unlock()은 풀스크린/PWA가 아닌 일반 브라우저 탭에서
-                       Promise reject가 아니라 동기적으로 예외를 던지는 환경이 있어
-                       try/catch로 감싸야 함 (안 그러면 앱 전체가 흰/검은 화면으로 죽음) */
-                    try {
-                      if (opt.value === "system") so.unlock?.();
-                      else so.lock?.(opt.value)?.catch(() => {});
-                    } catch {}
-                  }}
-                  className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
-                    orientation === opt.value
-                      ? "border-accent-blue bg-accent-blue/10"
-                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
-                  }`}
-                >
-                  <opt.icon size={16} className="text-text-primary" />
-                  <span className="text-[10px] text-text-muted">{opt.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 알림 — 로그인한 사람에게만 의미가 있다 */}
-          {isLoggedIn && (
-            <div>
-              <p className="text-xs font-semibold text-text-muted mb-2">알림</p>
-              <p className="text-2xs text-text-dim mb-2">끈 알림은 아예 쌓이지 않아요</p>
-              <div className="border border-border rounded-xl overflow-hidden">
-                <NotificationToggles />
-              </div>
-            </div>
-          )}
-
-</div>
-        <div className="px-5 pb-5 pt-4 border-t border-border shrink-0">
-          <button
-            onClick={onClose}
-            className="w-full py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors"
-          >
-            확인
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Layout() {
   const wsStatus = useWSStore((s) => s.indicesStatus);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
@@ -252,22 +50,6 @@ export default function Layout() {
   const [systemPrefersLight, setSystemPrefersLight] = useState(
     () => window.matchMedia?.("(prefers-color-scheme: light)").matches ?? false
   );
-  const [moreOpen, setMoreOpen] = useState(false);
-
-  // 좁은 화면에서는 헤더의 종이 눈에 잘 안 들어와, 더보기에도 알림을 둔다.
-  // (NotificationBell과 같은 질의 키라 요청이 한 번만 나간다)
-  const { data: notiUnread } = useQuery({
-    queryKey: ["notiUnread"],
-    queryFn: communityApi.getUnreadNotificationCount,
-    enabled: isLoggedIn,
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: false,
-    staleTime: 30_000,
-  });
-  const notiBadge = !notiUnread?.count ? null : notiUnread.capped ? "99+" : String(notiUnread.count);
-  const moreNav = isLoggedIn
-    ? [{ to: "/notifications", icon: Bell, label: "알림", badge: notiBadge }, ...MORE_NAV]
-    : MORE_NAV;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isLight = theme === "system" ? systemPrefersLight : theme === "light";
@@ -311,20 +93,11 @@ export default function Layout() {
     } catch {}
   }, [orientation]);
 
-  useEffect(() => {
-    document.body.style.overflow = moreOpen ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
-  }, [moreOpen]);
-
-  /* 라우트 이동 시 "더보기" 시트 자동 닫힘 */
-  useEffect(() => {
-    setMoreOpen(false);
-  }, [location.pathname]);
-
-  const closeMore = () => setMoreOpen(false);
-
-  const isMoreActive = MORE_NAV.some(
-    (item) => location.pathname === item.to || location.pathname.startsWith(item.to + "/")
+  /* 하단 탭의 "더보기"는 /more 화면이지만, 거기 든 메뉴 중 하나를 보고
+     있을 때도 탭이 켜져 있어야 한다 — 안 그러면 관심종목을 보는 중에는
+     다섯 탭 중 아무것도 안 켜져, 지금 어디인지 알 수 없다 */
+  const isMoreActive = 더보기_경로.some(
+    (경로) => location.pathname === 경로 || location.pathname.startsWith(경로 + "/")
   );
 
   const navItemCls = (isActive: boolean) =>
@@ -390,65 +163,6 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ── 모바일 "더보기" 시트 오버레이 ───────────────── */}
-      {moreOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden" onClick={closeMore}>
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm fade-in" />
-        </div>
-      )}
-
-      {/* ── 모바일 "더보기" 바텀시트 ─────────────────────── */}
-      <div
-        className={`fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-bg-card border-t border-border rounded-t-2xl shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
-          moreOpen ? "translate-y-0" : "translate-y-full pointer-events-none"}`}
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
-      >
-        <div className="flex justify-center pt-2.5 pb-1">
-          <div className="w-9 h-1 rounded-full bg-border-light" />
-        </div>
-        <div className="px-4 pt-1 pb-2 grid grid-cols-5 gap-2">
-          {moreNav.map(({ to, icon: Icon, label, badge }) => (
-            <NavLink key={to} to={to} onClick={closeMore}
-              className={({ isActive }) =>
-                `flex flex-col items-center gap-1.5 py-3 rounded-xl text-2xs font-medium transition-all duration-150 active:scale-95 ${
-                  isActive ? "bg-accent-blue/15 text-accent-blue" : "text-text-muted hover:bg-bg-elevated hover:text-text-secondary"}`}
-            >
-              <span className="relative">
-                <Icon size={20} className="flex-shrink-0" />
-                {badge ? (
-                  <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-0.5 flex items-center justify-center rounded-full bg-accent-red text-white text-[9px] font-bold leading-none">
-                    {badge}
-                  </span>
-                ) : null}
-              </span>
-              {label}
-            </NavLink>
-          ))}
-        </div>
-        <div className="mx-4 h-px bg-border-subtle" />
-        <div className="px-3 py-2 flex flex-col gap-0.5">
-          <InstallAppButton
-            iconSize={16}
-            onAfterClick={closeMore}
-            className="flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
-          />
-          <button
-            onClick={() => { closeMore(); setSettingsOpen(true); }}
-            className="flex items-center gap-2.5 px-3 py-3 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
-          >
-            <Settings size={16} className="flex-shrink-0" />설정
-          </button>
-        </div>
-        <div className="px-5 py-3 border-t border-border-subtle">
-          <div className="flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-              wsStatus === "connected" ? "bg-accent-green animate-pulse" : "bg-text-dim"}`} />
-            <span className="text-2xs text-text-dim">
-              {wsStatus === "connected" ? "실시간 연결됨" : "오프라인"}
-            </span>
-          </div>
-        </div>
-      </div>
 
       {/* ── 메인 영역 ──────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -531,14 +245,14 @@ export default function Layout() {
             )}
           </NavLink>
         ))}
-        <button onClick={() => setMoreOpen((v) => !v)} className="flex-1 active:scale-95 transition-transform">
+        <NavLink to="/more" className="flex-1 active:scale-95 transition-transform">
           <div className={`relative flex flex-col items-center justify-center gap-0.5 h-14 text-2xs font-medium transition-colors duration-200 ${
-            moreOpen || isMoreActive ? "text-accent-blue" : "text-text-muted"}`}>
-            {(moreOpen || isMoreActive) && <span className="absolute top-1.5 w-1 h-1 rounded-full bg-accent-blue fade-in" />}
-            <MoreHorizontal size={20} className={`transition-transform duration-200 ${moreOpen ? "scale-110 rotate-90" : "scale-100"}`} />
+            isMoreActive ? "text-accent-blue" : "text-text-muted"}`}>
+            {isMoreActive && <span className="absolute top-1.5 w-1 h-1 rounded-full bg-accent-blue fade-in" />}
+            <MoreHorizontal size={20} className={`transition-transform duration-200 ${isMoreActive ? "scale-110" : "scale-100"}`} />
             더보기
           </div>
-        </button>
+        </NavLink>
       </nav>
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
