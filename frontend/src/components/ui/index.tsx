@@ -465,6 +465,65 @@ export function 빈화면({ icon: Icon, title, hint, action, compact }: {
   );
 }
 
+/* ── 아래에서 올라오는 시트 ─────────────────────────────
+   휴대폰에서 목록을 띄울 때 쓴다. 새 화면으로 넘어가지 않으므로 보던
+   자리를 잃지 않고, 닫으면 그대로 돌아온다.
+
+   알림창이 쓰던 마크업을 그대로 꺼냈다. 댓글도 같은 방식으로 띄우면서
+   두 곳이 같은 모양이 되도록 한 곳에 모았다. */
+export function 시트({ 열림, 닫기, 제목, children, 꼬리 }: {
+  열림: boolean;
+  닫기: () => void;
+  제목?: React.ReactNode;
+  children: React.ReactNode;
+  /** 시트 맨 아래에 붙는 것 (댓글 입력칸 등). 목록과 함께 스크롤되지 않는다 */
+  꼬리?: React.ReactNode;
+}) {
+  // 시트가 열린 동안 뒤 화면이 스크롤되지 않게 한다
+  React.useEffect(() => {
+    if (!열림) return;
+    const 원래 = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const 키 = (e: KeyboardEvent) => { if (e.key === "Escape") 닫기(); };
+    window.addEventListener("keydown", 키);
+    return () => {
+      document.body.style.overflow = 원래;
+      window.removeEventListener("keydown", 키);
+    };
+  }, [열림, 닫기]);
+
+  if (!열림) return null;
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm modal-backdrop"
+           onClick={닫기} aria-hidden />
+      <div
+        role="dialog" aria-modal="true"
+        className="fixed inset-x-0 bottom-0 z-50 bg-bg-card border-t border-border
+                   rounded-t-2xl shadow-2xl flex flex-col modal-pop"
+        // 화면의 85%까지만 차지하고, 아이폰 홈 인디케이터 영역을 피한다
+        style={{ maxHeight: "85vh", paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        {/* 손잡이 — 아래에서 올라온 시트라는 걸 알려준다 */}
+        <div className="pt-2 pb-1 flex justify-center shrink-0">
+          <span className="w-9 h-1 rounded-full bg-border" aria-hidden />
+        </div>
+        {제목 && (
+          <div className="shrink-0 flex items-center justify-between gap-2 px-4 pb-2 border-b border-border">
+            <span className="text-sm font-bold text-text-primary">{제목}</span>
+            <button onClick={닫기} aria-label="닫기"
+              className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
+              ✕
+            </button>
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto overscroll-contain">{children}</div>
+        {꼬리 && <div className="shrink-0 border-t border-border">{꼬리}</div>}
+      </div>
+    </>
+  );
+}
+
 /* ── 숫자 포맷 ─────────────────────────────────────────── */
 export function formatNumber(n: number | null | undefined, digits = 0): string {
   if (n == null) return "—";

@@ -160,6 +160,28 @@ export default function StockDetail() {
   const [chartType, setChartType]     = useState<ChartType>("candle");
   const [logScale, setLogScale]       = useState(false);
   const [fullscreen, setFullscreen]   = useState(false);
+  /* 전체화면 차트가 쓸 수 있는 높이. 창 크기·회전에 따라 달라지므로 잰다 */
+  const 전체차트칸 = useRef<HTMLDivElement>(null);
+  const [전체차트높이, set전체차트높이] = useState(0);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const 재기 = () => {
+      const h = 전체차트칸.current?.clientHeight;
+      if (h && h > 0) set전체차트높이(h);
+    };
+    재기();
+    // 화면을 돌리면 높이가 바뀐다. ResizeObserver 가 없는 환경도 있어 창
+    // 크기 변화도 같이 듣는다
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(재기) : null;
+    if (ro && 전체차트칸.current) ro.observe(전체차트칸.current);
+    window.addEventListener("resize", 재기);
+    window.addEventListener("orientationchange", 재기);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", 재기);
+      window.removeEventListener("orientationchange", 재기);
+    };
+  }, [fullscreen]);
 
   useEffect(() => {
     const TABS: Array<"chart" | "daily" | "financial" | "quant" | "analyst" | "news" | "community"> = ["chart","daily","financial","quant","analyst","news","community"];
@@ -1098,9 +1120,18 @@ export default function StockDetail() {
               <X size={18}/>
             </button>
           </div>
-          {/* 전체 차트 — 메인 차트 높이를 줄여 보조지표 패널이 화면 안에 보이도록 */}
-          <div className="flex-1 overflow-y-auto">
-            <StockChart data={ohlcv} height={Math.max(260, Math.floor((window.innerHeight - 100) * 0.55))} isKR={isKR} chartType={chartType} logScale={logScale}/>
+          {/* 전체 차트.
+              예전에는 높이를 '남은 공간의 55%' 로 줬다. 보조지표(RSI·MACD)를
+              켰을 때 그것까지 한 화면에 담으려던 것인데, 지표를 안 켠
+              보통의 경우에는 전체화면을 눌러도 차트가 화면 절반만 차지해
+              '전체가 아닌 부분적으로' 뜨는 것처럼 보였다.
+
+              이제 남은 공간을 실제로 재서 그만큼 준다. 보조지표를 켜면
+              그 패널은 아래로 밀려 스크롤된다 — 주 차트가 작아지는 것보다
+              한 번 밀어 보는 편이 낫다. 화면을 돌리면 다시 잰다. */}
+          <div ref={전체차트칸} className="flex-1 overflow-y-auto">
+            <StockChart data={ohlcv} height={Math.max(260, 전체차트높이)}
+                        isKR={isKR} chartType={chartType} logScale={logScale}/>
           </div>
         </div>
       )}

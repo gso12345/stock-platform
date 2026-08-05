@@ -8,7 +8,7 @@ import {
 import { communityApi, portfolioApi, watchlistApi, dashboardApi } from "@/api/stocks";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/store/authStore";
-import api from "@/api/client";
+import api, { API_BASE } from "@/api/client";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import PortfolioChart, { type PfPortfolioForChart } from "@/components/portfolio/PortfolioChart";
@@ -17,6 +17,7 @@ import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { Tabs, type TabItem, 빈화면 } from "@/components/ui";
+import PostDetailModal from "@/components/community/PostDetailModal";
 
 type SortType = "latest" | "likes";
 type MarketFilter = "ALL" | "KR" | "US" | "ETF";
@@ -72,6 +73,8 @@ interface FeedPost {
   portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null; current_price?: number | null }[] | null;
   like_count: number;
   comment_count: number;
+  /** 목록 응답은 이미지를 빼고 '있다'는 표시만 보낸다 (피드가 가벼워진다) */
+  has_image?: boolean;
   view_count?: number;
   liked: boolean;
   created_at: string;
@@ -84,12 +87,16 @@ const FeedCard = memo(function FeedCard({
   onLike,
   onVote,
   onOpen,
+  onComments,
   onDelete,
 }: {
   post: FeedPost;
   onLike: (id: number) => void;
   onVote: (postId: number, optionIndex: number) => void;
   onOpen: (post: FeedPost) => void;
+  /* 댓글은 새 화면으로 넘어가지 않고 아래에서 올라오게 한다.
+     보던 자리를 잃지 않고, 닫으면 그대로 돌아온다 — 알림창과 같은 방식. */
+  onComments: (post: FeedPost) => void;
   onDelete: (id: number) => void;
 }) {
   const { isLoggedIn } = useAuthStore();
@@ -175,13 +182,18 @@ const FeedCard = memo(function FeedCard({
             </div>
           )}
 
-          {/* 첨부 이미지 */}
-          {post.image && (
+          {/* 첨부 이미지.
+              목록 응답에는 이미지가 없다(피드 20개에 이미지 20장이 딸려
+              오면 수 MB 다). 화면에 들어올 때 따로 받는다 — 브라우저가
+              캐시하므로 다시 볼 때는 요청이 안 나간다. */}
+          {(post.image || post.has_image) && (
             <img
-              src={post.image}
+              src={post.image || `${API_BASE}/community/posts/${post.id}/image`}
               alt="첨부 이미지"
               loading="lazy"
-              className="w-full max-h-48 object-cover rounded-xl mb-2"
+              decoding="async"
+              className="w-full max-h-48 object-cover rounded-xl mb-2 bg-bg-elevated"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
             />
           )}
 
@@ -267,7 +279,7 @@ const FeedCard = memo(function FeedCard({
             </button>
 
             <button
-              onClick={() => onOpen(post)}
+              onClick={() => onComments(post)}
               className="flex items-center gap-1.5 text-xs text-text-dim hover:text-accent-blue transition-colors"
             >
               <MessageSquare size={12} />
@@ -901,6 +913,10 @@ export default function Feed() {
   const navigate = useNavigate();
   const { isLoggedIn } = useAuthStore();
   const [feedType, setFeedType] = useState<FeedType>("all");
+  /* 댓글을 볼 글. 새 화면으로 넘어가는 대신 아래에서 올라오게 한다 —
+     피드를 훑다가 댓글만 확인하고 돌아오는 흐름이 대부분인데, 화면을
+     갈아타면 스크롤 위치도 필터도 잃는다. */
+  const [댓글글, set댓글글] = useState<FeedPost | null>(null);
   const [sort, setSort] = useState<SortType>("latest");
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("ALL");
   const [page, setPage] = useState(1);
@@ -1122,6 +1138,7 @@ export default function Feed() {
                 onLike={(id) => likeMutation.mutate(id)}
                 onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
                 onOpen={(p) => navigate(`/post/${p.id}`)}
+                onComments={(p) => set댓글글(p)}
                 onDelete={(id) => { const p = posts.find((x) => x.id === id); if (p) deleteMutation.mutate(p); }}
               />
             ))}
@@ -1178,6 +1195,17 @@ export default function Feed() {
       )}
 
 
+    {/* 댓글 — 아래에서 올라온다. PostDetailModal 이 이미 모바일에서
+        아래 붙는 모양이라 그대로 쓴다(댓글 쓰기·좋아요·투표까지 그대로) */}
+    {댓글글 && (
+      <PostDetailModal
+        post={댓글글 as any}
+        onClose={() => set댓글글(null)}
+        onLikeToggled={() => qc.invalidateQueries({ queryKey: ["feed"] })}
+        onVoteUpdated={() => qc.invalidateQueries({ queryKey: ["feed"] })}
+        onDeleted={() => { set댓글글(null); qc.invalidateQueries({ queryKey: ["feed"] }); }}
+      />
+    )}
     </div>
   );
 }

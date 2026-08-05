@@ -248,7 +248,16 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
               comment_counts: Optional[dict] = None,
               following_ids: Optional[set] = None,
               poll_votes_map: Optional[dict] = None,
-              liked_ids: Optional[set] = None) -> dict:
+              liked_ids: Optional[set] = None,
+              이미지빼기: bool = False) -> dict:
+    """이미지빼기 — 목록에서는 이미지를 빼고 '있다'는 표시만 보낸다.
+
+    이미지가 base64 로 본문(content) 안에 들어 있어서, 피드 20개를 부르면
+    이미지 20장이 통째로 같이 온다. 화면에서는 높이 192px 로 잘라 보여줄
+    뿐인데 원본을 다 받는 셈이라, 글 목록 하나에 수 MB 가 오갔다.
+    목록은 가볍게 보내고, 이미지는 카드가 화면에 들어올 때 따로 받는다
+    (/community/posts/{id}/image). 브라우저가 그걸 캐시하므로 다시 볼 때는
+    아예 요청이 안 나간다."""
     liked = (post.id in liked_ids) if liked_ids is not None else (
         any(lk.user_id == uid for lk in post.likes) if uid else False
     )
@@ -287,7 +296,9 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "avatar_url":    profile.avatar_url if profile else None,
         "title":         parsed["title"],
         "body":          parsed["body"],
-        "image":         parsed.get("image", ""),
+        "image":         "" if 이미지빼기 else parsed.get("image", ""),
+        # 목록에서는 이미지를 안 보내므로, 자리를 잡아 두려면 있는지는 알아야 한다
+        "has_image":     bool(parsed.get("image")),
         "poll":          poll_data,
         "tags":          _enrich_tags(parsed.get("tags", [])),
         "portfolio":     parsed.get("portfolio"),
@@ -1005,6 +1016,45 @@ def toggle_comment_like(
 
 
 # ── 전체 피드 ─────────────────────────────────────────────────
+@router.get("/posts/{post_id}/image")
+def get_post_image(post_id: int, db: Session = Depends(get_db)):
+    """글에 붙은 이미지 한 장.
+
+    목록 응답에서 이미지를 뺐으므로, 카드가 화면에 들어올 때 여기로 따로
+    받는다. 브라우저가 캐시하도록 오래 살려 둔다 — 글에 붙은 이미지는
+    바뀌지 않는다(수정하면 글이 새로 저장되고 id 도 그대로지만, 이미지를
+    바꾸는 기능 자체가 없다).
+
+    본문에는 'data:image/jpeg;base64,...' 형태로 들어 있다. 그대로 문자열로
+    돌려주면 브라우저가 또 파싱해야 하므로, 실제 이미지로 디코딩해 보낸다."""
+    import base64
+    from fastapi.responses import Response
+
+    post = db.query(StockPost).filter(
+        StockPost.id == post_id,
+        StockPost.is_deleted.isnot(True),
+        StockPost.is_blinded.isnot(True),
+    ).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="글을 찾을 수 없습니다")
+
+    raw = (decode_content(post.content) or {}).get("image") or ""
+    if not raw.startswith("data:image/"):
+        raise HTTPException(status_code=404, detail="이미지가 없습니다")
+    try:
+        머리, 본체 = raw.split(",", 1)
+        타입 = 머리.split(";")[0][5:]          # data:image/jpeg;base64 → image/jpeg
+        if 타입 not in _SAFE_AVATAR_TYPES:
+            raise ValueError(f"허용하지 않는 형식: {타입}")
+        바이트 = base64.b64decode(본체, validate=True)
+    except Exception:
+        # 저장된 값이 깨졌을 때 500 으로 죽이면 그 글이 통째로 안 뜬다
+        raise HTTPException(status_code=404, detail="이미지를 읽을 수 없습니다")
+
+    return Response(content=바이트, media_type=타입,
+                    headers={"Cache-Control": "public, max-age=604800, immutable"})
+
+
 @router.get("/feed")
 def get_feed(
     page:      int = Query(1, ge=1),
@@ -1081,7 +1131,8 @@ def get_feed(
 
     # 공통 부분만 만든다 — uid 를 넘기지 않으므로 개인 항목은 전부 비어 있다
     공통 = {"total": total, "page": page, "items": [
-        _ser_post(p, None, db, profiles_map, feed_comment_counts, set(), feed_poll_votes, set())
+        _ser_post(p, None, db, profiles_map, feed_comment_counts, set(), feed_poll_votes, set(),
+                  이미지빼기=True)
         for p in posts
     ]}
     if 캐시키:
