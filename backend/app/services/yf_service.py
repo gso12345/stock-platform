@@ -379,7 +379,21 @@ class YFinanceService:
         orig_symbol = symbol
         if market == "KR":
             symbol = _resolve_kr_symbol(symbol, "KS")
-        ck = f"fund:{symbol}"
+        # 자기 전용 키를 쓴다.
+        #
+        # 예전에는 `fund:{symbol}` 에 썼는데, 그건 fundamentals_service 가
+        # "네이버로 보완까지 끝낸 값" 을 담는 공유 키다. 여기서 야후 단독
+        # 결과를 그 키에 박으면, /fundamentals 가 그걸 먼저 읽고 그대로
+        # 돌려준다(fundamentals_service 의 `if fresh := cache.get(ck)`).
+        # 네이버 보완 경로(_fetch_fund)는 영영 안 돈다.
+        #
+        # 국내 종목은 야후에 trailingEps 가 없는 경우가 많아, 그 상태로
+        # 기본정보 EPS 가 끝까지 빈다. 게다가 stale 도 '있음' 으로 치므로
+        # 한 번 오염되면 스스로 유지된다.
+        #
+        # 얄궂게도 _fetch_fund 자신이 이 함수를 부른다 — 즉 정식 경로조차
+        # 자기가 곧 병합해 덮을 키를 먼저 야후 단독값으로 쓰고 있었다.
+        ck = f"fund_yf:{symbol}"
         cached = cache.get(ck)
         if cached:
             return cached

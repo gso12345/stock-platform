@@ -108,7 +108,9 @@ export const HoldingCard = memo(function HoldingCard({
               금액={item.전일대비액 != null
                 ? (isForexItem && !showAsNative ? item.전일대비액 * exchangeRate : item.전일대비액)
                 : null}
-              통화={isForexItem && showAsNative ? "USD" : item.market === "KR" ? "KRW" : "USD"} />
+              /* 금액을 원화로 환산해 놓고 통화만 USD 로 두면 소수점이 붙는다 —
+                    실제로 "+25390.76 (+2.14%)" 로 나왔다. 환산 여부와 맞춘다 */
+                통화={isForexItem && showAsNative ? "USD" : "KRW"} />
           )}
         </div>
       </div>
@@ -204,11 +206,13 @@ export const HoldingTableRow = memo(function HoldingTableRow({
                 : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
             </LivePrice>
             {item.전일대비율 != null && (
-              <ChangeBadge value={item.전일대비율} className="text-[10px]"
+              <ChangeBadge value={item.전일대비율} className="text-[10px] whitespace-nowrap"
                 금액={item.전일대비액 != null
                   ? (isForexItem && !showAsNative ? item.전일대비액 * exchangeRate : item.전일대비액)
                   : null}
-                통화={isForexItem && showAsNative ? "USD" : item.market === "KR" ? "KRW" : "USD"} />
+                /* 금액을 원화로 환산해 놓고 통화만 USD 로 두면 소수점이 붙는다 —
+                    실제로 "+25390.76 (+2.14%)" 로 나왔다. 환산 여부와 맞춘다 */
+                통화={isForexItem && showAsNative ? "USD" : "KRW"} />
             )}
           </div>
         )}

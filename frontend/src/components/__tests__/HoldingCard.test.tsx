@@ -72,6 +72,35 @@ describe("현재가와 전일대비", () => {
     expect(HoldingRow원문).not.toMatch(/grid-cols-3[\s\S]{0,600}현재가/);
   });
 
+  it("원화로 볼 때 해외 종목도 원화 형식으로 찍는다", () => {
+    /* 금액은 원화로 환산해 놓고 통화만 USD 로 두면 소수점이 붙는다.
+       실제 화면에서 엔비디아가 "+25390.76 (+2.14%)" 로 나왔다 —
+       원화에 소수점 두 자리는 없다 */
+    그리기({
+      market: "US", symbol: "NVDA", name: "엔비디아",
+      isForexItem: true, 전일대비액: 18.73, 전일대비율: 2.14,
+      currentPriceNative: 875,
+    });
+    // 18.73 × 1385 ≒ 25,941 — 소수점 없이
+    expect(screen.getByText(/^\+[\d,]+ \(\+2\.14%\)$/)).toBeInTheDocument();
+    expect(screen.queryByText(/\+\d+\.\d\d \(/)).toBeNull();
+  });
+
+  it("외화로 볼 때는 달러 형식 그대로", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <HoldingCard
+          item={{ ...종목, market: "US", symbol: "NVDA", isForexItem: true,
+                  전일대비액: 18.73, 전일대비율: 2.14, currentPriceNative: 875 }}
+          hasPrice pnlClass="text-accent-green"
+          showAsNative exchangeRate={1385} isAllView={false} isLoggedIn
+          onNavigate={() => {}} onEdit={() => {}} onDelete={() => {}} onPrefetch={() => {}}
+        />
+      </MemoryRouter>,
+    );
+    expect(container.textContent).toMatch(/\+18\.73 \(\+2\.14%\)/);
+  });
+
   it("금액이 없을 때도 안 깨진다", () => {
     /* 현금이나 시세 미수신 종목은 전일대비가 없다 */
     그리기({ 전일대비율: null, 전일대비액: null });
