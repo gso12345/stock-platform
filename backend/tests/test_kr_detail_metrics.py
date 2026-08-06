@@ -21,6 +21,14 @@ import pytest
 _SRC = Path(__file__).resolve().parents[1] / "app" / "api" / "routes" / "stocks.py"
 
 
+def _목록(이름: str) -> list[str]:
+    """소스에 적힌 튜플 상수의 이름들을 뽑는다."""
+    본문 = _SRC.read_text(encoding="utf-8")
+    i = 본문.index(f"{이름} = (")
+    j = 본문.index(")", i)
+    return re.findall(r'"(\w+)"', 본문[i:j])
+
+
 @pytest.fixture(scope="module")
 def 채워오는것() -> list[str]:
     """_KR_FUND_KEYS 에 들어 있는 이름들"""
@@ -58,3 +66,44 @@ class Test국내_상세가_재무지표를_채운다:
         i = 본문.index("_KR_FUND_KEYS = (")
         구역 = 본문[i:i + 1200]
         assert "if not price.get(key)" in 구역, "무조건 덮어쓰고 있다"
+
+
+class Test해외_상세도_재무지표를_채운다:
+    """국내와 똑같은 빠짐이 해외 경로에도 있었다.
+
+    해외는 Finnhub 이 per·eps 를 주지만, 그 종목의 metrics 를 못 주거나
+    API 키가 없어 폴백으로 내려오면 채울 길이 없었다. 그러면 기본정보의
+    EPS 가 끝까지 빈다 — 국내에서 고친 것과 같은 증상이다.
+
+    한 곳만 고치면 다음에 해외 종목으로 똑같은 문의가 온다.
+    """
+
+    def test_현재_EPS_를_채운다(self):
+        assert "eps" in _목록("_VALUATION_FIELDS")
+
+    def test_PER_PBR_BPS_도_채운다(self):
+        빠진것 = [k for k in ("per", "pbr", "bps") if k not in _목록("_VALUATION_FIELDS")]
+        assert 빠진것 == [], f"{빠진것} 가 아직 빠져 있다"
+
+    def test_선행값도_그대로_있다(self):
+        """예전부터 있던 것을 실수로 빼지 않았는지."""
+        목록 = _목록("_VALUATION_FIELDS")
+        for k in ("forward_per", "forward_eps", "peg", "psr", "roa"):
+            assert k in 목록, f"{k} 가 사라졌다"
+
+    def test_국내와_해외가_같은_것을_채운다(self):
+        """두 목록이 갈라지면, 한쪽에만 지표를 추가하고 다른 쪽을 잊는다.
+        실제로 이번 문의가 그렇게 생겼다."""
+        국내 = set(_목록("_KR_FUND_KEYS"))
+        해외 = set(_목록("_VALUATION_FIELDS"))
+        핵심 = {"per", "eps", "pbr", "bps", "forward_per", "forward_eps", "peg"}
+        assert 핵심 <= 국내, f"국내에 빠진 것: {핵심 - 국내}"
+        assert 핵심 <= 해외, f"해외에 빠진 것: {핵심 - 해외}"
+
+    def test_비어_있을_때만_채운다(self):
+        """Finnhub 이 준 값이 있으면 그걸 쓴다. 덮어쓰면 실시간 값이
+        하루 묵은 캐시로 바뀐다."""
+        본문 = _SRC.read_text(encoding="utf-8")
+        i = 본문.index("_VALUATION_FIELDS = (")
+        구역 = 본문[i:i + 1600]
+        assert "detail.get(f) is None" in 구역 or "detail.get(key) is None" in 구역, "무조건 덮어쓰고 있다"

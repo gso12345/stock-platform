@@ -319,26 +319,21 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
         # 신선한 캐시에 open/high/low까지 있으면 Naver 재요청 생략
         price = None
         fresh = cache.get(f"price:{symbol}")
-        fund_ck = f"fund:{symbol}"
-        fund_cached = cache.get(fund_ck) or cache.get_stale(fund_ck)
 
         if fresh and fresh.get("price") and fresh.get("open") and not fresh.get("_demo"):
             price = fresh
         else:
-            # Naver 가격 + fundamentals(캐시 없을 때만) 병렬 fetch
-            yf_sym = symbol if symbol.endswith((".KS", ".KQ")) else f"{code6}.KS"
-            tasks: list = [fetch_naver_stock(code6)]
-            if not fund_cached:
-                tasks.append(asyncio.wait_for(
-                    asyncio.get_running_loop().run_in_executor(
-                        None, yf_service.get_fundamentals, yf_sym, "KR"
-                    ), timeout=8
-                ))
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            naver_res = results[0] if not isinstance(results[0], Exception) else None
-            if len(results) > 1 and not isinstance(results[1], Exception) and results[1]:
-                fund_cached = results[1]
-                cache.set(fund_ck, fund_cached, 86400)
+            # 가격만 기다린다.
+            #
+            # 예전에는 여기서 fundamentals 를 같이 gather 했다. 병렬이니
+            # 공짜처럼 보이지만 아니다 — gather 는 둘 다 끝나야 넘어가므로,
+            # 네이버가 1초에 와도 지표가 8초를 끌면 응답은 8초 뒤에 나간다.
+            # 종목을 처음 여는 사람이 그 8초를 통째로 문다.
+            #
+            # 지표는 아래에서 캐시에 있으면 그 자리에서 채우고, 없으면
+            # 백그라운드로 받는다. 화면 쪽도 detail 에 지표가 비면
+            # fundamentals 를 따로 부르므로(StockDetail.tsx) 곧 채워진다.
+            naver_res = await fetch_naver_stock(code6)
             price = naver_res if naver_res and naver_res.get("price") else None
 
         # Naver 실패 시 캐시 → yfinance 폴백
@@ -401,22 +396,38 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                 if not price.get(key) and fund_data.get(key) is not None:
                     price[key] = fund_data[key]
         else:
-            # 캐시 없으면 짧은 타임아웃으로 동기 대기 — 첫 조회에서도 PEG/선행EPS 등이
-            # 바로 보이도록 함 (백그라운드 fire-and-forget이면 이번 응답엔 못 반영됨)
+            # 캐시가 없으면 백그라운드로 채우고 이번 응답은 그대로 보낸다.
+            #
+            # 예전에는 여기서 최대 4초를 동기 대기했다. 첫 조회에서도 지표가
+            # 바로 보이게 하려던 것인데, 그 4초는 종목상세를 처음 여는 사람이
+            # 전부 문다 — 화면이 통째로 4초 늦게 뜬다.
+            #
+            # 지금은 화면 쪽이 detail 에 지표가 비면 fundamentals 를 따로
+            # 부른다(StockDetail.tsx 의 기본지표가_비었나). 그 요청은 detail 과
+            # 나란히 나가므로, 기다리지 않아도 지표는 곧 채워진다. 여기서
+            # 붙잡고 있을 이유가 없어졌다.
             _yf_sym_bg = symbol if symbol.endswith((".KS",".KQ")) else f"{symbol}.KS"
-            try:
-                f = await asyncio.wait_for(
-                    asyncio.get_running_loop().run_in_executor(
-                        None, yf_service.get_fundamentals, _yf_sym_bg, "KR"
-                    ), timeout=4
-                )
-                if f:
-                    cache.set(fund_ck, f, 86400)
-                    for key in _KR_FUND_KEYS:
-                        if not price.get(key) and f.get(key) is not None:
-                            price[key] = f[key]
-            except Exception:
-                pass
+
+            async def _bg_fund_kr():
+                """정식 경로로 채운다.
+
+                예전에는 여기서 yf_service.get_fundamentals(야후 단독)를 부르고
+                그 결과를 `fund:{symbol}` 에 그대로 박았다. 그런데 그 키는
+                /fundamentals 엔드포인트가 제일 먼저 읽고 그대로 돌려주는
+                키다(fundamentals_service.get_fundamentals). 그래서 detail 이
+                한 번 다녀가면, 네이버로 per·eps·pbr·bps 를 보완하는 경로
+                (_fetch_fund)가 영영 안 돌았다.
+
+                국내 종목은 야후에 trailingEps 가 없는 경우가 많다. 그러면
+                오염된 캐시 탓에 /fundamentals 도 EPS 를 못 주고, 기본정보
+                EPS 가 끝까지 빈다 — 이번 문의의 뿌리 중 하나다."""
+                try:
+                    from app.services.fundamentals_service import get_fundamentals as _정식
+                    await asyncio.wait_for(_정식(symbol, "KR"), timeout=20)
+                except Exception:
+                    pass
+
+            asyncio.create_task(_bg_fund_kr())
 
         return price
     else:
@@ -472,7 +483,15 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                         detail["amount"] = detail["price"] * detail["volume"]
                     # Finnhub이 제공하지 않는 밸류에이션 지표 보완
                     # (fund 캐시 우선, 없으면 yfinance 비동기 보완)
+                    # per·eps·pbr·bps 가 이 목록에 없었다. Finnhub 이 주면
+                    # 문제없지만, 그 종목의 metrics 를 못 주거나 키가 없어
+                    # 아래 폴백으로 내려온 경우에는 채울 길이 없어졌다 —
+                    # 그러면 기본정보의 EPS 가 끝까지 빈다.
+                    #
+                    # 국내(_KR_FUND_KEYS)에서 똑같은 빠짐을 이미 고쳤는데
+                    # 해외 쪽은 그대로였다. 같은 버그가 두 곳에 있었다.
                     _VALUATION_FIELDS = (
+                        "per", "eps", "pbr", "bps",
                         "forward_per", "peg", "ev_ebitda", "ev_revenue",
                         "enterprise_value", "psr", "forward_eps",
                         "gross_margin", "op_margin", "net_margin",
@@ -486,22 +505,24 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                             if detail.get(f) is None and fund_cached.get(f) is not None:
                                 detail[f] = fund_cached[f]
                     else:
-                        # 캐시 없으면 짧은 타임아웃으로 동기 대기 — 첫 조회에서도
-                        # PEG/선행EPS 등이 바로 보이도록 함 (fire-and-forget이면
-                        # 이번 응답엔 못 반영되고 다음 조회에서야 나타남)
-                        try:
-                            f = await asyncio.wait_for(
-                                asyncio.get_running_loop().run_in_executor(
-                                    None, yf_service.get_fundamentals, symbol, "US"
-                                ), timeout=4
-                            )
-                            if f:
-                                cache.set(fund_ck, f, 86400)
-                                for key in _VALUATION_FIELDS:
-                                    if detail.get(key) is None and f.get(key) is not None:
-                                        detail[key] = f[key]
-                        except Exception:
-                            pass
+                        # 캐시가 없으면 백그라운드로 채우고 이번 응답은 그대로
+                        # 보낸다. 예전에는 여기서 최대 4초를 동기 대기했는데,
+                        # 그 4초는 종목상세를 처음 여는 사람이 전부 문다.
+                        # 화면 쪽이 detail 에 지표가 비면 fundamentals 를 따로
+                        # 부르므로(StockDetail.tsx), 붙잡고 있을 이유가 없다.
+                        _sym_fund = symbol
+
+                        async def _bg_fund_us():
+                                # 국내와 같은 이유로 정식 경로를 쓴다 — 야후 단독 결과로
+                                # 공유 캐시(fund:*)를 덮으면 /fundamentals 가 그걸 그대로
+                                # 돌려주게 되고, 보완 경로가 영영 안 돈다
+                                try:
+                                    from app.services.fundamentals_service import get_fundamentals as _정식
+                                    await asyncio.wait_for(_정식(_sym_fund, "US"), timeout=20)
+                                except Exception:
+                                    pass
+
+                        asyncio.create_task(_bg_fund_us())
                     cache.set(f"price:{symbol}", detail, 15)
                     return await _with_ext_hours(detail)
             except Exception:
@@ -514,17 +535,21 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
         if cached and cached.get("price") and not cached.get("_demo"):
             if fund_cached:
                 return await _with_ext_hours({**cached, **fund_cached})
-            # 캐시 없으면 짧은 타임아웃으로 동기 대기 후 반환
-            try:
-                f = await asyncio.wait_for(
-                    asyncio.get_running_loop().run_in_executor(None, yf_service.get_fundamentals, symbol, "US"),
-                    timeout=4
-                )
-                if f:
-                    cache.set(fund_ck, f, 86400)
-                    return await _with_ext_hours({**cached, **f})
-            except Exception:
-                pass
+            # 가격은 이미 있다. 지표 때문에 4초를 더 기다릴 이유가 없다 —
+            # 그 4초는 화면이 통째로 늦게 뜨는 시간이다. 백그라운드로 채운다.
+            _sym_f2 = symbol
+
+            async def _bg_fund_us2():
+                # 국내와 같은 이유로 정식 경로를 쓴다 — 야후 단독 결과로
+                # 공유 캐시(fund:*)를 덮으면 /fundamentals 가 그걸 그대로
+                # 돌려주게 되고, 보완 경로가 영영 안 돈다
+                try:
+                    from app.services.fundamentals_service import get_fundamentals as _정식
+                    await asyncio.wait_for(_정식(_sym_f2, "US"), timeout=20)
+                except Exception:
+                    pass
+
+            asyncio.create_task(_bg_fund_us2())
             return await _with_ext_hours(cached)
 
         # 캐시 없으면 price + fundamentals 병렬 fetch (짧은 타임아웃)

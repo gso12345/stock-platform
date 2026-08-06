@@ -359,10 +359,23 @@ export default function StockDetail() {
     retry: 1, staleTime: 900_000,
   });
 
+  /* dEnhanced.eps 의 세 번째이자 마지막 출처다. detail 도 fundamentals 도
+     못 준 종목이 있다 — 야후에 trailingEps 가 없는 국내 종목이 그렇다.
+     그런 종목은 여기까지 와야 EPS 가 나오는데, 이 질의가 재무탭 전용이라
+     "재무제표 탭을 보고 오면 뜬다" 가 됐다. 그것이 이번 문의다.
+
+     다만 detail 이 비었다고 곧바로 열면 안 된다. 이건 야후 재무제표를
+     여러 개 부르는 제일 비싼 요청이고, 서버에 분당 6회 제한이 걸려 있다
+     (stocks.py 의 metrics-history). 종목을 몇 개만 훑어도 429 가 난다.
+     그래서 앞의 두 칸이 모두 값을 못 준 것을 확인한 뒤에만 연다. */
+  const 지표보완도_비었나 =
+    기본지표가_비었나 && !!fundamentalsData &&
+    ((fundamentalsData as any).eps == null || (fundamentalsData as any).per == null);
+
   const { data: metricsHistory } = useQuery({
     queryKey: ["metrics-history", m, sym],
     queryFn: () => stocksApi.getMetricsHistory(m, sym),
-    enabled: !!sym && mainTab === "financial",
+    enabled: !!sym && (mainTab === "financial" || 지표보완도_비었나),
     retry: 1, staleTime: 900_000,
   });
 

@@ -171,13 +171,20 @@ export default function Watchlist() {
   const previewWatchlistLive: PreviewItem[] = useMemo(() => {
     // 실시간 현재가를 아직 못 불러왔으면 정적 예시가를 보여주지 않고 로딩 상태로 표시
     if (!previewPrices) return PREVIEW_WATCHLIST.map((base) => ({ ...base, hasPrice: false }));
-    return PREVIEW_WATCHLIST.map((base, i) => {
-      const d = previewPrices[i] as any;
+    /* 배열 순서가 아니라 종목코드로 짝짓는다. 서버가 한 종목을 건너뛰면
+       그 뒤가 통째로 한 칸씩 밀려 엉뚱한 가격이 붙는다 — 내 자산 쪽에서
+       이미 겪고 고친 일인데 여기만 인덱스로 남아 있었다 */
+    const bySymbol = indexPricesBySymbol(previewPrices as any[]);
+    return PREVIEW_WATCHLIST.map((base) => {
+      const d = lookupPrice(bySymbol, base.symbol) as any;
       const hasPrice = d?.price != null;
       return {
         ...base,
         price: hasPrice ? d.price : base.price,
         change_rate: hasPrice ? (d.change_rate ?? base.change_rate) : base.change_rate,
+        /* 얼마가 올랐는지. 이걸 안 넘겨서 미리보기만 퍼센트만 나왔다 —
+           "+500 (1.23%)" 의 앞부분이 통째로 비어 있었다 */
+        change: hasPrice ? d.change ?? null : null,
         hasPrice,
       };
     });

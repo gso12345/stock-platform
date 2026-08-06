@@ -7,6 +7,8 @@ import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 export interface PreviewItem {
   id: number; symbol: string; market: string; name: string;
   folderId: number; price: number; change_rate: number; hasPrice?: boolean;
+  /** 얼마가 올랐는지. 퍼센트만 보면 3% 가 300원인지 3만원인지 모른다 */
+  change?: number | null;
 }
 export interface PreviewFolder { id: number; name: string; }
 
@@ -63,7 +65,7 @@ export const PreviewItemRow = memo(function PreviewItemRow({ item, onNavigate }:
             : <span className="text-text-muted text-xs">조회 중</span>}
         </div>
         {hasPrice && <ChangeBadge value={item.change_rate} className="text-xs"
-          금액={(item as any).change ?? null} 통화={item.market === "KR" ? "KRW" : "USD"} />}
+          금액={item.change ?? null} 통화={item.market === "KR" ? "KRW" : "USD"} />}
       </div>
     </div>
   );

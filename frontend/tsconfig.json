@@ -4,7 +4,7 @@
     "useDefineForClassFields": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     // import.meta.env / *.css 사이드이펙트 import 타입 (Vite 제공)
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",

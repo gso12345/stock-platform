@@ -1,4 +1,4 @@
-import { useState, useEffect, memo } from "react";
+import { useState, useEffect, memo, lazy, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
 import {
@@ -8,7 +8,12 @@ import {
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { API_BASE } from "@/api/client";
-import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
+/* 포트폴리오 그림은 따로 받는다.
+   이걸 정적으로 걸어 두면 recharts(gzip 110KB)가 피드 청크에 딸려 온다.
+   ESM 은 의존 그래프를 다 받아야 모듈 본문이 실행되므로, 피드의 첫 API
+   요청이 그 110KB 를 기다렸다. 정작 이 그림은 '포트폴리오를 공유한 글'
+   에만 나오는데, 그런 글이 하나도 없는 피드에서도 값을 치른 셈이다. */
+const PortfolioSnapshot = lazy(() => import("@/components/portfolio/PortfolioSnapshot"));
 import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
 import { Tabs, type TabItem, 빈화면 } from "@/components/ui";
@@ -253,7 +258,9 @@ const FeedCard = memo(function FeedCard({
           {/* 포트폴리오 차트 */}
           {post.portfolio && post.portfolio.length > 0 && (
             <div className="mb-2" onClick={(e) => e.stopPropagation()}>
-              <PortfolioSnapshot items={post.portfolio} />
+              <Suspense fallback={<div className="h-[180px] rounded-xl bg-bg-elevated/40 animate-pulse" />}>
+                <PortfolioSnapshot items={post.portfolio} />
+              </Suspense>
             </div>
           )}
 

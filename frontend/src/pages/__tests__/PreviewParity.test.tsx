@@ -105,6 +105,36 @@ describe("관심종목 — 탭 줄이 한 벌이다", () => {
   });
 });
 
+describe("관심종목 미리보기 — 등락 금액이 나온다", () => {
+  it("얼마가 올랐는지가 화면에 찍힌다", async () => {
+    /* "+500 (1.23%)" 의 앞부분이 통째로 비어 있었다. 시세 응답의 change 를
+       미리보기 목록으로 옮기는 자리에서 그 필드만 빠뜨렸기 때문이다 —
+       price 와 change_rate 는 복사하면서 change 는 안 했다.
+       퍼센트만 보면 3% 가 300원인지 3만원인지 모른다. */
+    그리기(<Watchlist />);
+    // 가짜 시세는 change 12, change_rate 1.2 를 준다.
+    // 종목이 여럿이라 여러 개 나온다 — 하나라도 있으면 된다
+    const 배지 = await screen.findAllByText(/\+12 \(\+1\.20%\)/, {}, { timeout: 4000 });
+    expect(배지.length).toBeGreaterThan(0);
+  });
+
+  it("시세를 종목코드로 짝짓는다", () => {
+    /* 배열 순서로 짝지으면 서버가 한 종목을 건너뛸 때 그 뒤가 통째로
+       한 칸씩 밀려 엉뚱한 가격이 붙는다. 내 자산에서 이미 겪고 고친
+       일인데 관심종목 미리보기만 인덱스로 남아 있었다 */
+    const i = Watchlist원문.indexOf("previewWatchlistLive");
+    const 본문 = Watchlist원문.slice(i, Watchlist원문.indexOf("}, [previewPrices]", i));
+    expect(본문).toMatch(/lookupPrice/);
+    expect(본문).not.toMatch(/previewPrices\[i\]/);
+  });
+
+  it("change 를 실제로 넘긴다", () => {
+    const i = Watchlist원문.indexOf("previewWatchlistLive");
+    const 본문 = Watchlist원문.slice(i, Watchlist원문.indexOf("}, [previewPrices]", i));
+    expect(본문).toMatch(/change:/);
+  });
+});
+
 describe("내 자산 — 오늘 등락을 같은 방법으로 센다", () => {
   it("미리보기라고 0 으로 눌러 두지 않는다", () => {
     /* 시세는 실제로 받아 온다. 등락률도 같이 오므로 셀 수 있는데도

@@ -76,6 +76,11 @@ export const HoldingCard = memo(function HoldingCard({
       onClick={() => onNavigate(item)}
       onMouseEnter={() => onPrefetch(item)}
     >
+      {/* 종목 + 지금 얼마 —
+          예전에는 현재가가 아래 3칸 격자의 한 칸 안에 들어 있어서, 그 칸
+          너비(휴대폰에서 약 110px)에 "₩185,000" 과 "+1,500 (+0.82%)" 가
+          같이 못 들어가 줄이 갈라졌다. 현재가는 종목 옆이 제자리다 —
+          다른 증권 앱들도 종목명 오른쪽에 시세를 붙인다. */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <MarketBadge market={item.market} />
@@ -86,52 +91,8 @@ export const HoldingCard = memo(function HoldingCard({
             </div>
           </div>
         </div>
-        {isLoggedIn && (
-          <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => onEdit(item)}
-              className="p-1.5 rounded-lg text-accent-blue bg-accent-blue/15 hover:bg-accent-blue/25 transition-colors" title="수정">
-              <Pencil size={13} />
-            </button>
-            <button onClick={() => onDelete(item)}
-              className="p-1.5 rounded-lg text-accent-red bg-accent-red/15 hover:bg-accent-red/25 transition-colors" title="삭제">
-              <Trash2 size={13} />
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/40">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-xs text-text-dim">평가금액</span>
-          <span className="font-mono font-bold text-text-primary text-base">
-            {hasPrice ? (showAsNative ? fmtUSDFull(nativeValue) : fmtKRWFull(item.currentValueKRW)) : "—"}
-          </span>
-        </div>
-        <div className="flex flex-col gap-0.5 items-end">
-          <span className="text-xs text-text-dim">평가손익</span>
-          <span className={`font-mono font-bold text-base whitespace-nowrap ${hasPrice ? pnlClass : "text-text-muted"}`}>
-            {hasPrice
-              ? `${showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSDFull(nativePnl)}` : fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)`
-              : "—"}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 text-xs">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-text-dim">보유수량</span>
-          <span className="font-mono text-text-secondary">{fmtShares(item.shares)}</span>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <span className="text-text-dim">평단가</span>
-          <span className="font-mono text-text-secondary">
-            {!isForexItem ? fmtNative(item.market, item.currency, item.avgPrice)
-              : showAsNative ? fmtUSDFull(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
-          </span>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          <span className="text-text-dim">현재가</span>
-          <span className="font-mono text-text-secondary">
+        <div className="flex flex-col items-end gap-0.5 shrink-0">
+          <span className="font-mono text-sm font-semibold text-text-primary whitespace-nowrap">
             {!hasPrice ? "—" : (
               <LivePrice value={item.currentPriceNative}>
                 {!isForexItem ? fmtNative(item.market, item.currency, item.currentPriceNative)
@@ -140,9 +101,10 @@ export const HoldingCard = memo(function HoldingCard({
             )}
           </span>
           {/* 전일대비 — 수익률(매입가 대비)과 다른 숫자다. 어제 산 사람과
-              3년 전에 산 사람에게 오늘의 움직임은 같지만 수익률은 다르다 */}
+              3년 전에 산 사람에게 오늘의 움직임은 같지만 수익률은 다르다.
+              whitespace-nowrap 이 없으면 좁은 칸에서 다시 갈라진다 */}
           {hasPrice && item.전일대비율 != null && (
-            <ChangeBadge value={item.전일대비율} className="text-[10px]"
+            <ChangeBadge value={item.전일대비율} className="text-[11px] whitespace-nowrap"
               금액={item.전일대비액 != null
                 ? (isForexItem && !showAsNative ? item.전일대비액 * exchangeRate : item.전일대비액)
                 : null}
@@ -151,12 +113,52 @@ export const HoldingCard = memo(function HoldingCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <div className="flex-1 h-1 bg-bg-elevated rounded-full overflow-hidden">
-          <div className="h-full bg-accent-blue/60 rounded-full" style={{ width: `${Math.min(100, item.weight)}%` }} />
+      {/* 내 몫 — 이 카드에서 제일 크게 읽혀야 하는 두 값 */}
+      <div className="flex items-end justify-between gap-3 pt-2.5 border-t border-border/40">
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="text-2xs text-text-dim">평가금액</span>
+          <span className="font-mono font-bold text-text-primary text-lg leading-none truncate">
+            {hasPrice ? (showAsNative ? fmtUSDFull(nativeValue) : fmtKRWFull(item.currentValueKRW)) : "—"}
+          </span>
         </div>
-        <span className="text-xs font-mono text-text-muted flex-shrink-0">비중 {item.weight.toFixed(1)}%</span>
+        <span className={`font-mono font-bold text-sm whitespace-nowrap ${hasPrice ? pnlClass : "text-text-muted"}`}>
+          {hasPrice
+            ? `${showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSDFull(nativePnl)}` : fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)`
+            : "—"}
+        </span>
       </div>
+
+      {/* 참고값 — 한 줄로 낮춘다. 예전에는 라벨과 값이 각각 두 줄씩
+          세 칸을 차지해 카드 높이의 3분의 1을 먹었다 */}
+      <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-2xs text-text-dim">
+        <span className="whitespace-nowrap">
+          {fmtShares(item.shares)}주 · 평단{" "}
+          <span className="font-mono text-text-muted">
+            {!isForexItem ? fmtNative(item.market, item.currency, item.avgPrice)
+              : showAsNative ? fmtUSDFull(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
+          </span>
+        </span>
+        <span className="ml-auto flex items-center gap-1.5 shrink-0">
+          <span className="w-10 h-1 bg-bg-elevated rounded-full overflow-hidden">
+            <span className="block h-full bg-accent-blue/60 rounded-full" style={{ width: `${Math.min(100, item.weight)}%` }} />
+          </span>
+          <span className="font-mono whitespace-nowrap">{item.weight.toFixed(1)}%</span>
+        </span>
+      </div>
+
+      {/* 수정·삭제는 맨 아래로. 위에 두면 종목명 옆의 시세 자리를 뺏는다 */}
+      {isLoggedIn && (
+        <div className="flex items-center gap-1 justify-end -mt-1" onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => onEdit(item)} aria-label={`${item.name || item.symbol} 수정`}
+            className="p-1.5 rounded-lg text-text-dim hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
+            <Pencil size={13} />
+          </button>
+          <button onClick={() => onDelete(item)} aria-label={`${item.name || item.symbol} 삭제`}
+            className="p-1.5 rounded-lg text-text-dim hover:text-accent-red hover:bg-accent-red/10 transition-colors" title="삭제">
+            <Trash2 size={13} />
+          </button>
+        </div>
+      )}
     </div>
   );
 });
