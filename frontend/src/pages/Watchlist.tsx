@@ -407,9 +407,12 @@ export default function Watchlist() {
      (itemsByFolder는 폴더탭 필터가 적용된 목록 기준이라 탭 개수용으로는 쓸 수 없다) */
   const folderCounts = useMemo(() => {
     const map = new Map<number, number>();
-    for (const i of itemsList) map.set(i.folder_id, (map.get(i.folder_id) ?? 0) + 1);
+    const 셀것 = isPreview
+      ? PREVIEW_WATCHLIST.map((i) => ({ folder_id: i.folderId }))
+      : itemsList;
+    for (const i of 셀것) map.set(i.folder_id, (map.get(i.folder_id) ?? 0) + 1);
     return map;
-  }, [itemsList]);
+  }, [itemsList, isPreview]);
 
   /* ── 탭 줄 한 벌 ────────────────────────────────────────────
      최근조회·폴더·내계좌는 성격이 달라 예전에는 따로 그렸고, 순서를 바꿀
@@ -417,13 +420,18 @@ export default function Watchlist() {
      지나쳐야 자기 계좌에 닿았다. 셋을 한 목록으로 놓고 통째로 옮긴다.
      ("전체"는 목록 그 자체라 맨 앞에 고정한다) */
   const 탭들 = useMemo(() => {
-    const 폴더목록 = localFolderOrder ?? (folders as any[]);
+    /* 로그인 전에도 같은 목록을 만든다. 예전에는 미리보기용 탭 줄을 따로
+       그렸는데, 그러면 탭 줄을 고칠 때마다 로그인한 화면만 좋아지고
+       처음 들어온 사람이 보는 화면은 옛 모습으로 남는다 — 실제로 탭 순서
+       변경을 넣었을 때 미리보기에는 반영되지 않았다. */
+    const 폴더목록 = isPreview ? PREVIEW_FOLDERS : (localFolderOrder ?? (folders as any[]));
+    const 계좌목록 = isPreview ? [] : pfList;
     return [
       { key: 최근조회키, 종류: "recent" as const, id: null as number | null, 이름: "최근조회" },
       ...폴더목록.map((f: any) => ({ key: 폴더키(f.id), 종류: "folder" as const, id: f.id, 이름: f.name })),
-      ...pfList.map((pf: any) => ({ key: 계좌키(pf.id), 종류: "portfolio" as const, id: pf.id, 이름: pf.name })),
+      ...계좌목록.map((pf: any) => ({ key: 계좌키(pf.id), 종류: "portfolio" as const, id: pf.id, 이름: pf.name })),
     ];
-  }, [localFolderOrder, folders, pfList]);
+  }, [isPreview, localFolderOrder, folders, pfList]);
 
   const [탭순서, set탭순서] = useState<string[]>(() => 탭순서읽기(userId));
   const 정렬된탭 = useMemo(() => 탭순서적용(탭순서, 탭들), [탭순서, 탭들]);
@@ -433,23 +441,26 @@ export default function Watchlist() {
   const 탭순서바꾸기 = useCallback((키들: string[]) => {
     set탭순서(키들);
     탭순서쓰기(userId, 키들);
+    /* 로그인 전에는 서버에 보낼 폴더가 없다. 그대로 보내면 401 이 나고
+       인터셉터가 로그인 화면으로 튕긴다 — 예시를 만지다 쫓겨나는 셈이다 */
+    if (isPreview) return;
     const 폴더순 = 키들
       .filter((k) => k.startsWith("folder:"))
       .map((k) => Number(k.slice("folder:".length)));
     if (폴더순.length > 1) reorderFoldersMutation.mutate(폴더순);
-  }, [userId, reorderFoldersMutation]);
+  }, [userId, isPreview, reorderFoldersMutation]);
 
   /* 폴더끼리만 옮긴 경우(본문 폴더 목록·폴더 관리 창). 서버에 보내고,
      저장된 탭 순서의 폴더 자리에도 새 순서를 입힌다 — 안 하면 서버는
      새 순서인데 탭 줄만 옛 순서로 남는다 */
   const 폴더순서바꾸기 = useCallback((폴더순: number[]) => {
-    reorderFoldersMutation.mutate(폴더순);
+    if (!isPreview) reorderFoldersMutation.mutate(폴더순);
     set탭순서((이전) => {
       const 다음 = 폴더순서반영(이전, 폴더순);
       탭순서쓰기(userId, 다음);
       return 다음;
     });
-  }, [userId, reorderFoldersMutation]);
+  }, [userId, isPreview, reorderFoldersMutation]);
 
   /* 탭 줄 드래그 — 종목 목록과 같은 훅을 쓴다. 예전에는 폴더 탭만 따로
      짜인 로직이 있었고 내계좌는 아예 못 옮겼다 */
@@ -680,33 +691,8 @@ export default function Watchlist() {
         onChange={(id) => { setMarketTab(id); setFolderTab("all"); }}
       />
 
-      {/* 폴더 탭 */}
-      {isPreview ? (() => {
-        const mktFiltered = marketTab === "전체" ? PREVIEW_WATCHLIST : PREVIEW_WATCHLIST.filter(i => i.market === marketTab);
-        const tabBtnCls = (active: boolean) =>
-          `flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
-            active ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-          }`;
-        return (
-          <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
-            <button onClick={() => { setFolderTab("all"); setPortfolioTab(null); }} className={tabBtnCls(folderTab === "all" && portfolioTab === null)}>
-              전체 <span className="text-[10px] opacity-70">{mktFiltered.length}</span>
-            </button>
-            <button onClick={() => { setFolderTab("recent"); setPortfolioTab(null); }} className={`${tabBtnCls(folderTab === "recent" && portfolioTab === null)} flex items-center gap-1`}>
-              <Clock size={13} /> 최근조회
-            </button>
-            {PREVIEW_FOLDERS.map(f => {
-              const cnt = mktFiltered.filter(i => i.folderId === f.id).length;
-              if (cnt === 0) return null;
-              return (
-                <button key={f.id} onClick={() => { setFolderTab(f.id); setPortfolioTab(null); }} className={tabBtnCls(folderTab === f.id && portfolioTab === null)}>
-                  {f.name} <span className="text-[10px] opacity-70">{cnt}</span>
-                </button>
-              );
-            })}
-          </div>
-        );
-      })() : (() => {
+      {/* 폴더 탭 — 로그인 여부와 상관없이 한 벌로 그린다 */}
+      {(() => {
         const tabBtnCls = (active: boolean) =>
           `flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
             active ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
@@ -715,7 +701,7 @@ export default function Watchlist() {
           <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
             {/* "전체"는 목록 그 자체라 맨 앞에 고정한다 */}
             <button onClick={() => { setFolderTab("all"); setPortfolioTab(null); }} className={tabBtnCls(folderTab === "all" && portfolioTab === null)}>
-              전체 <span className="text-[10px] opacity-70">{itemsList.length}</span>
+              전체 <span className="text-[10px] opacity-70">{isPreview ? PREVIEW_WATCHLIST.length : itemsList.length}</span>
             </button>
             {정렬된탭.map((탭) => {
               const 켜짐 =
@@ -880,7 +866,12 @@ export default function Watchlist() {
       ) : isPreview ? (() => {
         const mktFiltered = marketTab === "전체" ? previewWatchlistLive : previewWatchlistLive.filter(i => i.market === marketTab);
         const shown = folderTab === "all" ? mktFiltered : mktFiltered.filter(i => i.folderId === folderTab);
-        const visibleFolders = PREVIEW_FOLDERS.filter(f => shown.some(i => i.folderId === f.id));
+        /* 본문 폴더 순서도 탭 줄과 같아야 한다. 탭에서 순서를 바꿔 놓고
+           아래 목록은 그대로면, 바꾼 것이 안 먹은 줄 안다 */
+        const 탭순 = 정렬된탭.filter(t => t.종류 === "folder").map(t => t.id);
+        const visibleFolders = 탭순
+          .map(id => PREVIEW_FOLDERS.find(f => f.id === id))
+          .filter((f): f is typeof PREVIEW_FOLDERS[number] => !!f && shown.some(i => i.folderId === f.id));
         return (
           <div className="flex flex-col gap-3">
             {visibleFolders.map(folder => (

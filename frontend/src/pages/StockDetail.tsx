@@ -343,11 +343,19 @@ export default function StockDetail() {
     retry: 1, staleTime: 900_000,
   });
 
-  // KR 종목 벨류에이션 보완용 — 재무탭 진입 시 별도 fetch
+  /* 기본정보의 PER·EPS 가 detail 에 없을 때 이걸로 메운다.
+     예전에는 재무탭에 들어가야만 불렀다. 그래서 기본정보의 EPS 는 재무제표
+     탭을 한 번 들렀다 돌아와야 나타났다 — 처음 들어온 사람에게는 그냥
+     "EPS 가 없는 종목" 으로 보인다.
+
+     그렇다고 늘 부르면 종목을 열 때마다 요청이 하나 더 는다(0.15 CPU 서버다).
+     그래서 detail 이 값을 못 준 종목에서만 부른다. detail 이 채워 주면
+     이 요청은 아예 안 나간다. */
+  const 기본지표가_비었나 = !!detail && ((detail as any).eps == null || (detail as any).per == null);
   const { data: fundamentalsData } = useQuery({
     queryKey: ["stock-fundamentals", m, sym],
     queryFn: () => stocksApi.getFundamentals(m, sym),
-    enabled: !!sym && mainTab === "financial",
+    enabled: !!sym && (mainTab === "financial" || 기본지표가_비었나),
     retry: 1, staleTime: 900_000,
   });
 

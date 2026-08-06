@@ -13,6 +13,8 @@
   1) 캐시가 실제로 왕복을 줄이는가
   2) 줄이면서 '남의 좋아요가 내 것으로 보이는' 사고가 없는가
 """
+import inspect
+
 import pytest
 
 from app.api.routes import community
@@ -146,9 +148,11 @@ class Test캐시_동작:
         assert "following and uid" in 키 and "None" in 키, (
             f"팔로잉 전용 피드까지 캐시하면 남의 피드가 보인다: {키}")
 
-    def test_캐시_수명이_너무_길지_않다(self):
-        """새 글이 한참 뒤에 보이면 그것대로 문제다."""
-        assert 0 < community.FEED_TTL <= 60, community.FEED_TTL
+    def test_캐시_수명에_상한이_있다(self):
+        """새 글이 늦게 보이는 것은 이제 무효화가 막는다(아래 클래스).
+        그래도 무한은 아니다 — 댓글 수처럼 무효화하지 않는 값이 공통 목록에
+        들어 있어서, 그건 이 수명만큼 늦게 따라온다."""
+        assert 0 < community.FEED_TTL <= 600, community.FEED_TTL
 
     def test_캐시_키가_조건을_모두_담는다(self):
         """목록을 가르는 것이 키에 없으면 다른 목록이 섞여 나온다.
@@ -165,3 +169,72 @@ class Test캐시_동작:
         본문 = inspect.getsource(community.get_feed)
         assert "_ser_post(p, None, db" in 본문, (
             "캐시에 담을 때 uid 를 넘기고 있다 — 남의 개인 정보가 캐시된다")
+
+
+class Test캐시를_언제_버리나:
+    """수명만으로 버티던 것을 무효화로 바꿨다.
+
+    예전에는 30초였다. 무효화하는 곳이 하나도 없어서, 새 글이 늦게 보이는
+    것을 짧은 수명으로 막고 있었던 것이다. 그 대가로 30초마다 모든 방문자가
+    캐시를 놓치고 DB 를 여섯 번 왕복했다 — DB 가 원격이라 왕복마다 지연이
+    붙고, 그게 '피드가 느리다' 의 실체였다.
+
+    (원격 DB 왕복을 30ms 로 흉내내 재보면 캐시 미스 190ms, 적중 0ms 였다)
+    """
+
+    def test_수명이_짧지_않다(self):
+        """짧으면 무효화를 넣은 뜻이 없다 — 여전히 자주 놓친다."""
+        assert community.FEED_TTL >= 120, community.FEED_TTL
+
+    @staticmethod
+    def _실제로_부르나(함수) -> bool:
+        """주석 처리된 호출은 세지 않는다.
+
+        소스를 글자로만 훑으면 `# 피드캐시_비우기()` 도 통과한다. 그러면
+        누가 잠시 주석 처리해 두고 잊어도 아무도 못 알아챈다."""
+        본문 = "\n".join(
+            줄.split("#")[0] for 줄 in inspect.getsource(함수).splitlines()
+        )
+        return "피드캐시_비우기()" in 본문
+
+    def test_새_글을_쓰면_버린다(self):
+        """방금 쓴 글이 목록에 안 보이면, 글이 안 올라간 줄 알고 또 쓴다."""
+        assert self._실제로_부르나(community.create_post)
+
+    def test_고친_글도_버린다(self):
+        """제목을 고쳐 놓고 목록에는 옛 제목이 남으면 더 이상하다."""
+        assert self._실제로_부르나(community.update_post)
+
+    def test_지운_글도_버린다(self):
+        """목록에 남아 있는 것을 누르면 404 다."""
+        assert self._실제로_부르나(community.delete_post)
+
+    def test_실제로_다_버린다(self):
+        """페이지·정렬·시장·검색어마다 칸이 따로다. 한 글이 어느 칸에
+        들어 있는지 알 수 없으니 전부 버려야 한다."""
+        community.cache.set("feed:latest:ALL:1:20:", {"items": []}, 60)
+        community.cache.set("feed:likes:KR:3:20:삼성", {"items": []}, 60)
+        community.cache.set("다른것:건드리지마", 1, 60)
+
+        community.피드캐시_비우기()
+
+        assert community.cache.get("feed:latest:ALL:1:20:") is None
+        assert community.cache.get("feed:likes:KR:3:20:삼성") is None
+        # 피드와 무관한 캐시까지 쓸어버리면 다른 화면이 같이 느려진다
+        assert community.cache.get("다른것:건드리지마") == 1
+
+    def test_비우다_실패해도_글은_올라간다(self, monkeypatch):
+        """캐시는 거들 뿐이다. 여기서 터지면 글쓰기가 통째로 실패한다."""
+        def 터짐(_):
+            raise RuntimeError("캐시 죽음")
+        monkeypatch.setattr(community.cache, "delete_pattern", 터짐)
+        community.피드캐시_비우기()   # 예외가 새어 나오면 안 된다
+
+
+class Test개인화_비용:
+    def test_로그인_안_했으면_DB_를_안_친다(self):
+        """비로그인은 좋아요도 팔로우도 없다. 그런데도 질의를 날리면
+        캐시가 적중해도 왕복이 남는다."""
+        본문 = inspect.getsource(community._개인화)
+        assert "if not uid" in 본문 or "if uid is None" in 본문, (
+            "비로그인일 때 일찍 빠져나가지 않는다")

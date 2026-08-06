@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
-import { Card, RowSkeleton, Tabs, UnderlineTabs } from "@/components/ui";
+import { Card, RowSkeleton, Tabs, UnderlineTabs, ChangeBadge } from "@/components/ui";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
@@ -416,8 +416,22 @@ export default function Portfolio() {
       const costKRW = base.avgPrice * fxForCost * base.shares;
       const pnlKRW = currentValueKRW - costKRW;
       const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;
+
+      /* 오늘 등락 — 로그인했을 때와 같은 방법으로 센다.
+         예전에는 미리보기만 0 으로 두었다. 그런데 시세는 실제로 받아 오므로
+         등락률도 같이 온다. 안 세면 미리보기의 '오늘' 칸만 늘 0 이 되고,
+         로그인해야 비로소 값이 나타나는 이상한 화면이 된다. */
+      const changeRate = d?.change_rate ?? null;
+      const dailyChangeKRW = changeRate != null
+        ? currentValueKRW - currentValueKRW / (1 + changeRate / 100)
+        : 0;
+      const 전일대비액 = (d?.price != null && changeRate != null)
+        ? currentPriceNative - currentPriceNative / (1 + changeRate / 100)
+        : null;
+
       return withNativeValues(
-        { ...base, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0 },
+        { ...base, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0,
+          dailyChangeKRW, 전일대비율: changeRate, 전일대비액 },
         exchangeRate,
       );
     });
@@ -430,7 +444,12 @@ export default function Portfolio() {
     const totalCost  = previewEnrichedLive.reduce((s, e) => s + e.costKRW, 0);
     const totalPnl   = totalValue - totalCost;
     const totalRate  = totalCost !== 0 ? (totalPnl / totalCost) * 100 : 0;
-    return { totalValue, totalCost, totalPnl, totalRate, totalDailyChangeKRW: 0, totalDailyChangeRate: 0 };
+    const totalDailyChangeKRW = previewEnrichedLive.reduce((s, e) => s + (e.dailyChangeKRW ?? 0), 0);
+    const 어제 = totalValue - totalDailyChangeKRW;
+    return {
+      totalValue, totalCost, totalPnl, totalRate, totalDailyChangeKRW,
+      totalDailyChangeRate: 어제 !== 0 ? (totalDailyChangeKRW / 어제) * 100 : 0,
+    };
   }, [previewEnrichedLive]);
 
   /* ── 심볼 → 시세 (배열 순서에 의존하지 않도록 심볼로 짝지음) ──
@@ -690,11 +709,13 @@ export default function Portfolio() {
   );
   /* 자산유형 탭을 고르면 합계도 그 유형만 센다 — '국내주식'을 누르면
      국내주식 합계, '채권'을 누르면 채권 합계. '전체'일 때만 통째로 센다.
-     (미리보기는 오늘 등락을 계산하지 않으므로 그 값만 0으로 둔다) */
+
+     미리보기도 로그인했을 때와 같은 방법으로 센다. 예전에는 미리보기의
+     오늘 등락만 0 으로 눌러 뒀는데, 시세는 실제로 받아 오므로 그럴 이유가
+     없었다. 그 탓에 로그인해야 비로소 '오늘' 칸이 살아나는 화면이 됐다. */
   const displaySummary = useMemo(() => {
     if (assetFilterTab === "전체") return isLoggedIn ? summary : previewSummaryLive;
-    const s = 합계내기(displayEnriched);
-    return isLoggedIn ? s : { ...s, totalDailyChangeKRW: 0, totalDailyChangeRate: 0 };
+    return 합계내기(displayEnriched);
   }, [assetFilterTab, isLoggedIn, summary, previewSummaryLive, displayEnriched, 합계내기]);
 
   /* 숫자만 바뀌면 '전체 합계인 줄' 알고 오해한다. 카드 이름에 무엇의
@@ -910,27 +931,40 @@ export default function Portfolio() {
         /* 요약은 카드 하나로 모은다.
            예전에는 같은 크기 카드 넷이 2×2 로 놓여, 휴대폰에서 화면 3분의 1을
            쓰면서도 무엇이 제일 중요한지 알 수 없었다. 여기 들어와서 제일 먼저
-           보고 싶은 건 '지금 얼마인가' 하나다. 나머지는 그 아래 한 줄로 붙인다. */
-        <Card className={`flex flex-col gap-3 ${!isLoggedIn ? "opacity-90" : ""}`}>
-          <div className="flex flex-col gap-0.5">
+           보고 싶은 건 '지금 얼마인가' 하나다.
+
+           그 아래는 줄마다 하나씩 —
+             평가손익  +5,000,000 (+12.34%)
+             오늘      +123,000 (+0.21%)
+           예전에는 총수익률이 평가금액 옆에 붙고 오늘치가 손익과 한 줄에
+           끼어 있었다. 셋이 뒤엉켜서 어느 %가 무엇의 %인지 읽기 어려웠다.
+           금액과 그 비율은 붙이고, 성격이 다른 줄은 나눈다. */
+        <Card className={`flex flex-col p-0 overflow-hidden ${!isLoggedIn ? "opacity-90" : ""}`}>
+          {/* 지금 얼마인가 */}
+          <div className="flex flex-col gap-1 px-4 pt-4 pb-3.5">
             <span className="text-2xs text-text-muted">{요약범위} 평가금액</span>
-            <div className="flex items-baseline gap-2 flex-wrap">
-              <span className="text-[26px] leading-none font-mono font-bold text-text-primary num">
-                {fmtKRWFull(displaySummary.totalValue)}
-              </span>
-              <span className={`text-sm font-mono font-bold num ${pnlColor(displaySummary.totalRate)}`}>
-                {displaySummary.totalRate >= 0 ? "+" : ""}{displaySummary.totalRate.toFixed(2)}%
-              </span>
-            </div>
-            <span className={`text-xs font-mono num ${pnlColor(displaySummary.totalPnl)}`}>
-              {fmtKRWFullSign(displaySummary.totalPnl)}
-              <span className={`ml-2 ${pnlColor(displaySummary.totalDailyChangeKRW)}`}>
-                오늘 {fmtKRWFullSign(displaySummary.totalDailyChangeKRW)}
-                {" "}({displaySummary.totalDailyChangeRate >= 0 ? "+" : ""}{displaySummary.totalDailyChangeRate.toFixed(2)}%)
-              </span>
+            <span className="text-[28px] leading-none font-mono font-bold text-text-primary num">
+              {fmtKRWFull(displaySummary.totalValue)}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-border/50">
+
+          {/* 얼마나 벌었나 — 줄마다 하나씩 */}
+          <div className="flex flex-col gap-2 px-4 py-3 bg-bg-elevated/40 border-y border-border/50">
+            {[
+              { label: "평가손익", 금액: displaySummary.totalPnl,             비율: displaySummary.totalRate },
+              { label: "오늘",     금액: displaySummary.totalDailyChangeKRW,  비율: displaySummary.totalDailyChangeRate },
+            ].map((행) => (
+              <div key={행.label} className="flex items-baseline justify-between gap-3">
+                <span className="text-xs text-text-muted shrink-0">{행.label}</span>
+                {/* 관심종목·퀀트와 같은 부품을 쓴다. 같은 것이 화면마다
+                    다른 모양이면 읽는 사람이 매번 다시 익혀야 한다 */}
+                <ChangeBadge value={행.비율} 금액={행.금액} 통화="KRW" className="text-sm" />
+              </div>
+            ))}
+          </div>
+
+          {/* 참고값 */}
+          <div className="grid grid-cols-2 gap-2 px-4 py-3">
             {[
               { label: "매입금액", value: fmtKRWFull(displaySummary.totalCost), icon: Receipt },
               { label: "적용 환율", value: `${Math.round(exchangeRate).toLocaleString("ko-KR")}원`, icon: Landmark },

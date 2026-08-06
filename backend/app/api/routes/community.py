@@ -16,7 +16,28 @@ from app.core.cache import cache
 
 # 피드 공통 부분의 캐시 수명. 글이 초 단위로 바뀌지는 않으므로 30초면
 # 새 글이 늦게 보이는 느낌 없이 왕복을 크게 줄인다.
-FEED_TTL = 30
+# 피드 캐시 수명.
+#
+# 예전에는 30초였다. 무효화하는 곳이 하나도 없어서, 새 글이 늦게 보이는 것을
+# 짧은 수명으로 막고 있었던 것이다. 그 대가로 30초마다 모든 방문자가 캐시를
+# 놓쳤고, 그때마다 DB 를 여섯 번 왕복했다 — DB 가 원격이라 왕복마다 지연이
+# 붙고, 그게 "피드가 느리다" 의 실체였다.
+#
+# 이제 글이 바뀔 때 직접 비운다. 그래서 수명을 길게 잡아도 새 글은 곧바로
+# 보인다. 댓글 수만 이 수명만큼 늦게 따라오는데, 그건 기다려도 되는 값이다.
+FEED_TTL = 180
+
+
+def 피드캐시_비우기() -> None:
+    """글이 바뀌었으니 목록 캐시를 버린다.
+
+    페이지·정렬·시장·검색어마다 칸이 따로 있어서 한 글이 바뀌면 어느 칸에
+    들어 있는지 알 수 없다. 전부 버리는 편이 맞다 — 다시 채우는 값이
+    묵은 목록을 보여주는 것보다 싸다."""
+    try:
+        cache.delete_pattern("feed:")
+    except Exception:
+        log.exception("피드 캐시 비우기 실패")
 from app.core.security import decode_token
 from app.services.ticker_service import get_kr_db
 
@@ -766,6 +787,7 @@ def create_post(
         log.exception("글 등록 실패 (user=%s, symbol=%s)", uid_val, sym_upper)
         raise HTTPException(status_code=500, detail="글 등록에 실패했습니다. 잠시 후 다시 시도해 주세요")
 
+    피드캐시_비우기()   # 방금 쓴 글이 목록에 바로 보여야 한다
     return {
         "id":            post_id,
         "symbol":        sym_upper,
@@ -840,6 +862,7 @@ def update_post(
              "search_text": 검색문장(new_title, new_body, symbol.upper(), _plain(new_tags))},
         )
         conn.commit()
+    피드캐시_비우기()   # 고친 제목이 목록에도 반영돼야 한다
     return {"id": post_id, "title": new_title, "body": new_body}
 
 
@@ -873,6 +896,7 @@ def delete_post(
     db.execute(text("DELETE FROM stock_post_likes WHERE post_id = :pid"), {"pid": post_id})
     db.delete(post)
     db.commit()
+    피드캐시_비우기()   # 지운 글이 목록에 남아 있으면 눌렀을 때 404 다
 
 
 # ── 게시글 좋아요 ──────────────────────────────────────────────

@@ -83,6 +83,42 @@ describe("내 자산 첫 화면", () => {
     expect(screen.queryByRole("button", { name: "구성 펼치기" })).toBeNull();
   });
 
+  it("손익과 오늘이 줄마다 하나씩 선다", async () => {
+    /* 예전에는 총수익률이 평가금액 옆에 붙고, 오늘치가 평가손익과 한 줄에
+       끼어 있었다. 셋이 뒤엉켜 어느 %가 무엇의 %인지 읽기 어려웠다 */
+    그리기();
+    await screen.findByText("종목별", {}, { timeout: 4000 });
+
+    const 손익라벨 = screen.getByText("평가손익");
+    const 오늘라벨 = screen.getByText("오늘");
+    expect(손익라벨).toBeInTheDocument();
+    expect(오늘라벨).toBeInTheDocument();
+    // 서로 다른 줄이어야 한다 — 같은 부모에 나란히 있으면 한 줄이다
+    expect(손익라벨.parentElement).not.toBe(오늘라벨.parentElement);
+  });
+
+  it("금액과 그 비율을 붙여 한 줄로 적는다", async () => {
+    /* "+5,000,000" 과 "+12.34%" 가 떨어져 있으면 어느 금액의 비율인지
+       매번 눈으로 이어 붙여야 한다 */
+    그리기();
+    await screen.findByText("종목별", {}, { timeout: 4000 });
+
+    for (const 라벨 of ["평가손익", "오늘"]) {
+      const 줄 = screen.getByText(라벨).parentElement!;
+      // 한 덩어리 안에 부호 붙은 금액과 괄호 친 비율이 같이 있다
+      expect(줄.textContent).toMatch(/[+-][\d,]+ \([+-]?\d+\.\d\d%\)/);
+    }
+  });
+
+  it("총평가금액이 제일 크게 남는다", async () => {
+    /* 손익 줄을 늘리면서 정작 '지금 얼마인가' 가 묻히면 안 된다 */
+    그리기();
+    await screen.findByText("종목별", {}, { timeout: 4000 });
+    const 라벨 = screen.getByText(/평가금액$/);
+    const 값 = 라벨.parentElement!.querySelector("span:last-child");
+    expect(값?.className).toMatch(/text-\[28px\]|text-\[26px\]/);
+  });
+
   it("제목과 버튼이 한 줄에 있다", async () => {
     /* 두 줄이면 상단바·탭·배너까지 더해 다섯 줄을 지나야 요약이 나온다 */
     그리기();
