@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from sqlalchemy.orm import Session, selectinload, defer
 from sqlalchemy import func, text
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, field_validator, model_validator, Field, ConfigDict
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -929,7 +930,20 @@ def toggle_post_like(
         liked = True
     like_count = post.like_count
     author_id = post.user_id
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # 같은 사람이 같은 글에 두 번 넣으려 했다. (post_id, user_id) 에
+        # 유일 제약이 있어 DB 가 막아 준다 — 두 번 눌린 것뿐이니 500 을
+        # 낼 일이 아니다. 지금 상태를 다시 읽어 그대로 알려준다.
+        db.rollback()
+        liked = db.query(StockPostLike).filter(
+            StockPostLike.post_id == post_id, StockPostLike.user_id == current_user.id
+        ).first() is not None
+        like_count = db.query(func.count(StockPostLike.id)).filter(
+            StockPostLike.post_id == post_id
+        ).scalar() or 0
+        return {"liked": liked, "like_count": like_count}
     if liked:
         _notify(db, user_id=author_id, actor_id=current_user.id,
                 kind="post_like", post_id=post_id)

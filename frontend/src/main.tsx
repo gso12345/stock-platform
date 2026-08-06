@@ -1,7 +1,8 @@
 import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./api/queryClient";
 import Layout from "./components/Layout";
 import SplashScreen from "./components/SplashScreen";
 import { dashboardApi } from "./api/stocks";
@@ -31,18 +32,8 @@ const UserProfile = lazy(() => import("./pages/UserProfile"));
 const PostDetail  = lazy(() => import("./pages/PostDetail"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 300_000,
-      gcTime: 1_800_000,
-      refetchOnWindowFocus: false,
-      // Render 무료 플랜 슬립(20~45s) 대응: 3회 재시도, 지수 백오프(2s→6s→18s)
-      retry: 3,
-      retryDelay: (attempt) => Math.min(2_000 * 3 ** attempt, 20_000),
-    },
-  },
-});
+// queryClient 는 api/queryClient 로 옮겼다 — 로그인·로그아웃 때
+// 화면 밖(authStore)에서도 비울 수 있어야 하기 때문이다
 
 // 대시보드 핵심 데이터만 선제 요청
 queryClient.prefetchQuery({

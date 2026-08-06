@@ -425,6 +425,25 @@ export default function Feed() {
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(queryKey, ctx.prev);
     },
+    /* 서버가 알려준 것으로 맞춘다.
+       낙관적으로 뒤집은 값은 "내가 알고 있던 상태" 를 기준으로 한 추측이다.
+       그 추측이 틀렸을 수 있다 — 다른 기기에서 이미 눌렀거나, 화면이
+       오래된 목록을 들고 있었을 때. 서버는 토글이라 어긋나면 반대로
+       움직이므로, 한 번 누른 뒤에는 반드시 실제 값으로 맞춰 놓아야
+       다음 클릭이 또 어긋나지 않는다. */
+    onSuccess: (결과: any, postId) => {
+      if (!결과 || typeof 결과.liked !== "boolean") return;
+      qc.setQueryData(queryKey, (prev: any) => {
+        if (!prev?.items) return prev;
+        return {
+          ...prev,
+          items: prev.items.map((p: FeedPost) =>
+            p.id === postId
+              ? { ...p, liked: 결과.liked, like_count: 결과.like_count ?? p.like_count }
+              : p),
+        };
+      });
+    },
   });
 
   const voteMutation = useMutation({

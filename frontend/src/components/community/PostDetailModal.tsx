@@ -325,8 +325,13 @@ export default function PostDetailModal({
     const newCount = newLiked ? post.like_count + 1 : post.like_count - 1;
     setPost((p) => ({ ...p, liked: newLiked, like_count: newCount }));
     try {
-      await communityApi.togglePostLike(post.id);
-      onLikeToggled?.(post.id, newLiked, newCount);
+      /* 서버가 알려준 것으로 맞춘다 — 서버는 토글이라, 화면이 들고 있던
+         상태가 틀렸으면 반대로 움직인다 */
+      const r: any = await communityApi.togglePostLike(post.id);
+      const 실제liked = r && typeof r.liked === "boolean" ? r.liked : newLiked;
+      const 실제count = r?.like_count ?? newCount;
+      setPost((p) => ({ ...p, liked: 실제liked, like_count: 실제count }));
+      onLikeToggled?.(post.id, 실제liked, 실제count);
     } catch {
       setPost((p) => ({ ...p, liked: !newLiked, like_count: post.like_count }));
     }

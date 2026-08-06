@@ -309,6 +309,7 @@ export default function Quant() {
               onToggleMetric={quantSettings.toggleMetric}
               onReset={quantSettings.resetToDefault}
               onSave={() => quantSettings.save.mutate({ weights: quantSettings.weightsDraft ?? QUANT_DEFAULT_WEIGHTS, metrics: quantSettings.metricsDraft ?? {} })}
+              onClose={() => setShowSettings(false)}
               isSaving={quantSettings.save.isPending}
               isLoggedIn={isLoggedIn}
               saveMsg={quantSettings.saveMsg}

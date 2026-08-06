@@ -101,6 +101,7 @@ function TransTable({ rows, allYears, getVal, finPeriod }: {
     </div>
   );
 }
+import MetricManagerModal from "@/components/stock/MetricManagerModal";
 
 /* ── 사용자설정 재무지표 옵션 ───────────────────────────── */
 const FIN_CUSTOM_OPTS = [
@@ -1600,7 +1601,6 @@ export default function StockDetail() {
 
           {/* ── 사용자설정 ── */}
           {finSubTab==="custom" && (() => {
-            const groups = [...new Set(FIN_CUSTOM_OPTS.map(o => o.group))];
             const selectedOpts = customMetricKeys.map(k => FIN_CUSTOM_OPTS.find(o => o.key === k)).filter((o): o is typeof FIN_CUSTOM_OPTS[number] => !!o);
             const fmtVal = (opt: typeof FIN_CUSTOM_OPTS[number], v: number) => {
               if (opt.fmt === "fin") return fmtFin(v);
@@ -1618,87 +1618,44 @@ export default function StockDetail() {
                   <PeriodToggle finPeriod={finPeriod} setFinPeriod={setFinPeriod}/>
                 </div>
 
-                {/* 지표 선택기 */}
-                <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-                  <div className="px-4 py-3 border-b border-border flex items-center justify-between cursor-pointer select-none"
-                       onClick={() => setShowCustomSelector(v => !v)}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-base font-semibold text-text-primary">지표 선택</span>
-                      <span className="text-xs text-text-muted">(최대 20개 · {customMetricKeys.length}개 선택됨)</span>
-                    </div>
-                    <span className="text-text-muted text-xs">{showCustomSelector ? "▲ 접기" : "▼ 펼치기"}</span>
-                  </div>
-                  {showCustomSelector && <div className="p-4 flex flex-col gap-4">
-                    {groups.map(group => (
-                      <div key={group}>
-                        <span className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-2 block">{group}</span>
-                        <div className="flex flex-wrap gap-2">
-                          {FIN_CUSTOM_OPTS.filter(o => o.group === group).map(opt => {
-                            const checked = customMetricKeys.includes(opt.key);
-                            return (
-                              <button key={opt.key}
-                                onClick={() => {
-                                  if (checked) {
-                                    updateCustomMetricKeys(customMetricKeys.filter(k => k !== opt.key));
-                                  } else if (customMetricKeys.length < 20) {
-                                    updateCustomMetricKeys([...customMetricKeys, opt.key]);
-                                  }
-                                }}
-                                className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${
-                                  checked
-                                    ? "text-white border-transparent"
-                                    : "border-border text-text-muted hover:text-text-primary"
-                                }`}
-                                style={checked ? { background: opt.color + "cc", borderColor: opt.color } : {}}
-                              >{opt.label}</button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>}
+                {/* 지표 관리 —
+                    관심종목 탭 관리·내 자산 계좌 관리와 같은 모양이다.
+                    예전에는 "지표 선택"(접이식 칩)과 "순서 조정"(◀▶ 버튼)이
+                    화면에 늘 펼쳐져 있어, 정작 보려던 차트가 저 아래로
+                    밀렸다. 순서 바꾸는 방식도 여기만 화살표였다. */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setShowCustomSelector(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
+                  >
+                    <Settings2 size={13} />
+                    지표 관리
+                    <span className="text-text-dim font-normal">{customMetricKeys.length}/20</span>
+                  </button>
+                  {/* 고른 것을 여기서도 보여준다 — 창을 열지 않고도 무엇을
+                      보고 있는지 알 수 있게. 누르면 바로 뺀다 */}
+                  {selectedOpts.map((opt) => (
+                    <button
+                      key={opt.key}
+                      onClick={() => updateCustomMetricKeys(customMetricKeys.filter((k) => k !== opt.key))}
+                      aria-label={`${opt.label} 빼기`}
+                      title="눌러서 빼기"
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-white border border-transparent hover:opacity-80 transition-opacity"
+                      style={{ background: opt.color + "bb", borderColor: opt.color }}
+                    >
+                      {opt.label}
+                      <X size={10} className="opacity-70" />
+                    </button>
+                  ))}
                 </div>
 
-                {/* 순서 조정 — 버튼으로 재배열 */}
-                {customMetricKeys.length > 1 && (
-                  <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
-                    <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-                      <span className="text-base font-semibold text-text-primary">순서 조정</span>
-                      <span className="text-xs text-text-muted">← → 버튼으로 차트·표 순서 변경</span>
-                    </div>
-                    <div className="p-3 flex flex-wrap gap-2">
-                      {customMetricKeys.map((key, i) => {
-                        const opt = FIN_CUSTOM_OPTS.find(o => o.key === key);
-                        if (!opt) return null;
-                        const moveMetric = (dir: -1 | 1) => {
-                          const j = i + dir;
-                          if (j < 0 || j >= customMetricKeys.length) return;
-                          const next = [...customMetricKeys];
-                          [next[i], next[j]] = [next[j], next[i]];
-                          updateCustomMetricKeys(next);
-                        };
-                        return (
-                          <div
-                            key={key}
-                            className="flex items-center rounded-lg border text-sm font-semibold select-none text-white border-transparent overflow-hidden"
-                            style={{ background: opt.color + "bb", borderColor: opt.color }}
-                          >
-                            <button
-                              onClick={() => moveMetric(-1)}
-                              disabled={i === 0}
-                              className="px-1.5 py-1.5 text-white/70 hover:text-white hover:bg-black/20 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none"
-                            >◀</button>
-                            <span className="px-2 py-1.5">{opt.label}</span>
-                            <button
-                              onClick={() => moveMetric(1)}
-                              disabled={i === customMetricKeys.length - 1}
-                              className="px-1.5 py-1.5 text-white/70 hover:text-white hover:bg-black/20 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none"
-                            >▶</button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                {showCustomSelector && (
+                  <MetricManagerModal
+                    전체={FIN_CUSTOM_OPTS}
+                    선택된={customMetricKeys}
+                    onChange={updateCustomMetricKeys}
+                    onClose={() => setShowCustomSelector(false)}
+                  />
                 )}
 
                 {/* 선택된 지표 없을 때 */}
@@ -1863,6 +1820,7 @@ export default function StockDetail() {
                   onToggleMetric={quantSettings.toggleMetric}
                   onReset={quantSettings.resetToDefault}
                   onSave={() => quantSettings.save.mutate({ weights: quantSettings.weightsDraft ?? QUANT_DEFAULT_WEIGHTS, metrics: quantSettings.metricsDraft ?? {} })}
+                  onClose={() => setShowQuantSettings(false)}
                   isSaving={quantSettings.save.isPending}
                   isLoggedIn={isLoggedIn}
                   saveMsg={quantSettings.saveMsg}

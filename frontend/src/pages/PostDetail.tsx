@@ -456,7 +456,15 @@ export default function PostDetail() {
     const newLiked = !activePost.liked;
     const newCount = newLiked ? activePost.like_count + 1 : activePost.like_count - 1;
     setLocalPost((p: any) => ({ ...(p ?? activePost), liked: newLiked, like_count: newCount }));
-    try { await communityApi.togglePostLike(activePost.id); }
+    try {
+      /* 서버가 알려준 것으로 맞춘다. 먼저 뒤집어 놓은 값은 "내가 알고 있던
+         상태" 를 기준으로 한 추측이고, 서버는 토글이라 그 추측이 틀리면
+         반대로 움직인다 — 맞춰 놓지 않으면 다음 클릭이 또 어긋난다 */
+      const r: any = await communityApi.togglePostLike(activePost.id);
+      if (r && typeof r.liked === "boolean") {
+        setLocalPost((p: any) => ({ ...(p ?? activePost), liked: r.liked, like_count: r.like_count ?? newCount }));
+      }
+    }
     catch { setLocalPost((p: any) => ({ ...(p ?? activePost), liked: !newLiked, like_count: activePost.like_count })); }
   };
 
