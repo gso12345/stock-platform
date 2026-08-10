@@ -6,6 +6,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api/client";
 import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
+import { marketSession } from "@/hooks/useLivePrices";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { Card, Tabs, 용어힌트 } from "@/components/ui";
 import {
@@ -22,6 +23,7 @@ import { safeExternalUrl } from "@/utils/url";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 import CommunityTab from "@/components/community/CommunityTab";
+import SupplyDemandTab from "@/components/stock/SupplyDemandTab";
 
 /* ── 지표 셀 ────────────────────────────────────────── */
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
@@ -146,6 +148,17 @@ const FIN_CUSTOM_OPTS = [
 
 const FIN_CUSTOM_KEY = "stkplt_fin_custom_v1";
 
+/** 0 을 '값 없음' 으로 본다.
+ *
+ *  PER·EPS·BPS 같은 밸류에이션 지표에서 0 은 실제 값이 아니라 "못 구했다" 는
+ *  뜻이다. 백엔드가 0.0 을 내려보내는 경로가 있는데(kis_service), `??` 도
+ *  `== null` 도 0 을 값으로 치기 때문에 여러 출처를 순서대로 보는 폴백이
+ *  첫 칸에서 멈춰 버렸다. 그래서 판정 전에 한 번 걸러 준다.
+ *
+ *  마진·부채비율·배당수익률처럼 0 이 정말 0 일 수 있는 것에는 쓰지 않는다. */
+const 유효 = (v: unknown): number | null =>
+  typeof v === "number" && v !== 0 && Number.isFinite(v) ? v : null;
+
 /* ── 메인 ───────────────────────────────────────────── */
 export default function StockDetail() {
   const { market, symbol: rawSymbol } = useParams<{ market: string; symbol: string }>();
@@ -153,7 +166,14 @@ export default function StockDetail() {
   const qc = useQueryClient();
 
   const m   = (market?.toUpperCase() || "US") as Market;
-  const sym = decodeURIComponent(rawSymbol ?? "").toUpperCase();
+  /* decodeURIComponent 는 깨진 % 인코딩에 URIError 를 던진다.
+     /stocks/KR/% 같은 주소 하나로 이 화면이 아니라 앱 전체가 흰 화면이 됐다
+     (그리다 던지면 React 가 트리를 통째로 걷어낸다). 못 풀면 원문을 쓴다 —
+     어차피 없는 종목이면 아래 '데이터를 불러올 수 없습니다' 가 뜬다. */
+  const sym = (() => {
+    try { return decodeURIComponent(rawSymbol ?? "").toUpperCase(); }
+    catch { return (rawSymbol ?? "").toUpperCase(); }
+  })();
   const isKR = m === "KR";
   const { isLoggedIn } = useAuthStore();
 
@@ -193,20 +213,8 @@ export default function StockDetail() {
     };
   }, [fullscreen]);
 
-  useEffect(() => {
-    const TABS: Array<"chart" | "daily" | "financial" | "quant" | "analyst" | "news" | "community"> = ["chart","daily","financial","quant","analyst","news","community"];
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setFullscreen(false); return; }
-      // 입력 필드 포커스 중이면 단축키 무시
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      const idx = parseInt(e.key, 10) - 1;
-      if (idx >= 0 && idx < TABS.length && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        setMainTab(TABS[idx]);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  /* 숫자키 단축키는 탭 목록이 만들어진 뒤에 건다 (아래 '탭목록' 참고).
+     예전에는 여기에 7개짜리 배열이 따로 박혀 있어서 실제 탭과 어긋났다. */
   const [mainTab, setMainTab]       = useState<"chart" | "financial" | "quant" | "news" | "daily" | "analyst" | "supply" | "community" | "holdings">("chart");
   const [isMobile, setIsMobile]     = useState(typeof window !== "undefined" && window.innerWidth < 640);
   const [showKRW, setShowKRW]           = useState(false);
@@ -218,7 +226,17 @@ export default function StockDetail() {
   const [finSubTab, setFinSubTab]       = useState<"basic" | "income" | "valuation" | "profitability" | "health" | "cashflow" | "custom">("basic");
   const [showCustomSelector, setShowCustomSelector] = useState(false);
   const [customMetricKeys, setCustomMetricKeys] = useState<string[]>(() => {
-    try { const r = localStorage.getItem(FIN_CUSTOM_KEY); if (r) return JSON.parse(r); } catch {}
+    /* JSON.parse 는 무엇이든 돌려준다 — 숫자도, 객체도, null 도.
+       배열인지 안 보고 그대로 쓰면 재무제표 탭에서 .map 이 터지고, 그리다
+       터지는 것이라 앱 전체가 흰 화면이 된다. 저장된 값이 예전 형식이거나
+       손으로 고쳐졌을 수 있으니 모양을 확인하고 받는다. */
+    try {
+      const r = localStorage.getItem(FIN_CUSTOM_KEY);
+      if (r) {
+        const 읽은것 = JSON.parse(r);
+        if (Array.isArray(읽은것)) return 읽은것.filter((k): k is string => typeof k === "string");
+      }
+    } catch {}
     return ["revenue", "op_income", "net_income"];
   });
   const updateCustomMetricKeys = (keys: string[]) => {
@@ -232,14 +250,21 @@ export default function StockDetail() {
   const [watchlistItemId, setWatchlistItemId] = useState<number | null>(null);
   const [watchlistMsg, setWatchlistMsg] = useState("");
   const [openGroup, setOpenGroup]     = useState<string | null>(null);
+  /* 봉 종류 고르는 줄이 일반 차트와 전체화면 차트에 하나씩, 둘 있다.
+     예전에는 ref 하나를 두 곳에 달았다. 그러면 전체화면을 열 때 ref 가 그쪽을
+     가리켰다가, 닫을 때 React 가 null 로 되돌린다. 일반 차트 쪽 div 는 그동안
+     언마운트된 적이 없어 ref 를 다시 안 채우므로, 그 뒤로는 바깥을 눌러도
+     드롭다운이 안 닫혔다(새로고침해야 돌아왔다). 그래서 각자 하나씩 갖는다. */
   const candleDropdownRef             = useRef<HTMLDivElement>(null);
+  const candleDropdownFsRef           = useRef<HTMLDivElement>(null);
 
   // 캔들 그룹 드롭다운 외부 클릭 시 닫기
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (candleDropdownRef.current && !candleDropdownRef.current.contains(e.target as Node)) {
-        setOpenGroup(null);
-      }
+      const 안쪽 = [candleDropdownRef.current, candleDropdownFsRef.current]
+        .some((el) => el?.contains(e.target as Node));
+      // 둘 다 화면에 없으면(=드롭다운을 그리는 곳이 없으면) 건드리지 않는다
+      if (!안쪽) setOpenGroup(null);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -276,7 +301,10 @@ export default function StockDetail() {
       qc.prefetchQuery({ queryKey: ["forecasts", m, sym], queryFn: () => stocksApi.getForecasts(m, sym), staleTime: 900_000 });
     }
     if (tab === "news") {
-      qc.prefetchQuery({ queryKey: ["stock-news", m, sym], queryFn: () => stocksApi.getNews(m, sym),       staleTime: 300_000 });
+      /* 키에 newsSort 가 빠져 있었다. 실제 질의는 ["stock-news", m, sym, newsSort]
+         라서, 미리 받아 둔 것을 아무도 안 읽고 곧바로 같은 뉴스를 다시 받았다 —
+         뉴스는 RSS 를 여러 개 도는 비싼 요청이라 한 번이 그대로 낭비였다. */
+      qc.prefetchQuery({ queryKey: ["stock-news", m, sym, newsSort], queryFn: () => stocksApi.getNews(m, sym, newsSort), staleTime: 300_000 });
       qc.prefetchQuery({ queryKey: ["earnings",   m, sym], queryFn: () => stocksApi.getEarnings(m, sym),   staleTime: 900_000 });
     }
     if (tab === "daily") {
@@ -285,14 +313,35 @@ export default function StockDetail() {
     if (tab === "quant") {
       qc.prefetchQuery({ queryKey: ["quant-score", m, sym, null, null], queryFn: () => stocksApi.getQuantScore(m, sym), staleTime: 60_000 });
     }
-  }, [m, sym, qc]);
+  }, [m, sym, qc, newsSort]);
+
+  /* 얼마나 자주 다시 물어볼지는 장이 열려 있느냐에 달렸다.
+     예전에는 조건 없이 15초였다. 토요일 밤에 이 화면을 켜 두면 값이 변할 수
+     없는데도 시간당 240건(KR 은 NXT 까지 두 개라 480건)이 0.15 CPU 서버로
+     나갔다. 관심종목(60초)·내 자산(120초)보다 자주 때리면서, 정작 저 두
+     화면이 쓰는 장 세션 판단은 안 쓰고 있었다.
+     marketSession 은 관심종목·내 자산이 이미 쓰는 것과 같은 함수다. */
+  const [세션틱, set세션틱] = useState(0);
+  const 장세션 = useMemo(() => marketSession(m), [m, 세션틱]);
+  /* 휴장 중에는 폴링이 멈춘다 — 그러면 다시 그릴 일이 없어서 장이 열리는
+     순간을 영영 못 알아챈다. 쉬는 동안만 1분에 한 번 시계를 본다. */
+  useEffect(() => {
+    if (장세션 !== "closed") return;
+    const t = setInterval(() => set세션틱((v) => v + 1), 60_000);
+    return () => clearInterval(t);
+  }, [장세션]);
+
+  const 시세주기 = 장세션 === "closed" ? false      // 휴장·주말: 아예 안 묻는다
+                 : 장세션 === "regular" ? 15_000
+                 : 60_000;                          // 장전·장마감 후엔 느슨하게
 
   const { data: detail, isLoading: loadingDetail, error: detailError, refetch: refetchDetail, dataUpdatedAt } = useQuery({
     queryKey: ["stock-detail", m, sym],
     queryFn: () => stocksApi.getDetail(m, sym),
     enabled: !!sym, retry: 1, retryDelay: 3000,
     staleTime: 15_000,
-    refetchInterval: isIntraday ? false : 15_000,
+    // 분봉일 때는 아래 ohlcv 폴링이 같은 값을 실어 오므로 여기서는 쉰다
+    refetchInterval: isIntraday ? false : 시세주기,
   });
 
   // 대체거래소(NXT/넥스트레이드) 시세 — KR 종목만 조회
@@ -302,10 +351,21 @@ export default function StockDetail() {
     enabled: !!sym && m === "KR",
     retry: 1,
     staleTime: 15_000,
-    refetchInterval: 15_000,
+    /* NXT 는 취급 종목이 한정돼 있다. available 이 false 면 화면에 아예 안
+       그리는데도(아래 showNxt) 예전에는 15초마다 계속 물었다. 한 번 아니라고
+       하면 그만 묻는다. 옆의 detail 과 달리 분봉 여부도 안 보고 있었다. */
+    refetchInterval: (query) =>
+      query.state.data && (query.state.data as any).available === false ? false : 시세주기,
   });
 
   const chartPeriod = CANDLE_MAX_PERIOD[candleType] ?? "max";
+
+  /* 차트가 빈 배열로 오면 서버 캐시가 아직 안 찼을 수 있어 잠깐 더 기다린다.
+     그런데 횟수 상한이 없었다 — 상장폐지·심볼 오타처럼 영영 안 채워지는
+     종목에서는 4초마다(retry:1 이라 실제로는 4초당 2건) 끝없이 두드렸다.
+     퀀트 폴링(아래)은 4회 상한을 두고 있으니 같은 방식으로 맞춘다. */
+  const ohlcvPollCount = useRef(0);
+  useEffect(() => { ohlcvPollCount.current = 0; }, [m, sym, candleType]);
 
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
     queryKey: ["stock-ohlcv", m, sym, candleType, chartPeriod],
@@ -314,8 +374,15 @@ export default function StockDetail() {
     staleTime: isIntraday ? 15_000 : 21_600_000,
     placeholderData: (prev) => prev,
     refetchInterval: isIntraday
-      ? 15_000
-      : (query) => (query.state.data?.length ?? 0) === 0 ? 4_000 : false,
+      ? 시세주기
+      : (query) => {
+          // 에러로 끝난 것은 data 가 undefined 라 '비었다' 와 구분이 안 됐다
+          if (query.state.status === "error") return false;
+          if ((query.state.data?.length ?? 0) > 0) return false;
+          if (ohlcvPollCount.current >= 5) return false;
+          ohlcvPollCount.current += 1;
+          return 4_000;
+        },
   });
 
   // 종목 진입 1초 후 일별탭 데이터만 선제 prefetch (차트 로딩과 경합 방지)
@@ -352,7 +419,9 @@ export default function StockDetail() {
      그렇다고 늘 부르면 종목을 열 때마다 요청이 하나 더 는다(0.15 CPU 서버다).
      그래서 detail 이 값을 못 준 종목에서만 부른다. detail 이 채워 주면
      이 요청은 아예 안 나간다. */
-  const 기본지표가_비었나 = !!detail && ((detail as any).eps == null || (detail as any).per == null);
+  /* 0 도 '비었다' 로 친다 — 그러지 않으면 백엔드가 eps=0.0 을 준 종목에서
+     이 폴백이 열리지도 않는다(0 == null 은 false 다). 유효() 참고. */
+  const 기본지표가_비었나 = !!detail && (유효((detail as any).eps) == null || 유효((detail as any).per) == null);
   const { data: fundamentalsData } = useQuery({
     queryKey: ["stock-fundamentals", m, sym],
     queryFn: () => stocksApi.getFundamentals(m, sym),
@@ -371,7 +440,7 @@ export default function StockDetail() {
      그래서 앞의 두 칸이 모두 값을 못 준 것을 확인한 뒤에만 연다. */
   const 지표보완도_비었나 =
     기본지표가_비었나 && !!fundamentalsData &&
-    ((fundamentalsData as any).eps == null || (fundamentalsData as any).per == null);
+    (유효((fundamentalsData as any).eps) == null || 유효((fundamentalsData as any).per) == null);
 
   const { data: metricsHistory } = useQuery({
     queryKey: ["metrics-history", m, sym],
@@ -555,6 +624,48 @@ export default function StockDetail() {
   const isKRETF = isKR && /\bETF\b/i.test(d?.name ?? "");
   const isETF = m === "ETF" || isKRETF;
 
+  /* 탭 목록은 한 곳에서만 만든다.
+     예전에는 그리는 곳(아래 탭 줄)과 숫자키 단축키가 각자 목록을 들고 있었다.
+     그리는 쪽은 종목에 따라 6~8개로 변하는데 단축키 쪽은 7개 고정이라,
+     ETF 에서 3 을 누르면 화면에 없는 '재무제표' 가 열리고(탭은 아무것도 안 눌린
+     상태가 된다), KR 종목에서 7 은 일곱 번째인 '수급' 이 아니라 '커뮤니티' 로
+     갔다. 수급·보유비중은 어떤 숫자로도 갈 수 없었다.
+     목록이 하나면 탭이 늘고 줄어도 저절로 맞는다. */
+  const 탭목록 = useMemo(() => [
+    { id:"chart",     Icon: BarChart2,       label:"차트" },
+    { id:"daily",     Icon: List,            label:"일별" },
+    ...(!isETF ? [{ id:"financial", Icon: DollarSign, label:"재무제표" }] : []),
+    { id:"quant",     Icon: Gauge,           label:"퀀트점수" },
+    ...(!isETF ? [{ id:"analyst", Icon: TrendingUp, label:"투자의견" }] : []),
+    { id:"news",      Icon: Newspaper,       label:"뉴스/공시" },
+    ...(isKR && !isKRETF ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
+    ...(isETF ? [{ id:"holdings", Icon: BarChart2, label:"보유비중" }] : []),
+    { id:"community", Icon: MessageSquare,   label:"커뮤니티" },
+  ], [isETF, isKR, isKRETF]);
+
+  /* 종목을 바꿔도 이 화면은 리마운트되지 않는다(라우트가 같고 params 만 바뀐다).
+     그래서 고른 탭이 그대로 남는데, 탭 목록은 종목마다 다르다 — KR 종목에서
+     '수급' 을 보다가 미국 종목으로 넘어가면 그 탭이 사라지면서 아무 탭도 안
+     눌린 채 아래가 통째로 비었다. 없어진 탭에 서 있으면 차트로 되돌린다. */
+  useEffect(() => {
+    if (!탭목록.some((t) => t.id === mainTab)) setMainTab("chart");
+  }, [탭목록, mainTab]);
+
+  /* 숫자키로 탭 이동 (1~9). 위에서 만든 목록을 그대로 쓴다 */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setFullscreen(false); return; }
+      // 입력 필드 포커스 중이면 단축키 무시
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const idx = parseInt(e.key, 10) - 1;
+      const 탭 = 탭목록[idx];
+      if (탭) setMainTab(탭.id as typeof mainTab);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [탭목록]);
+
   useEffect(() => {
     if (d?.name) addRecentlyViewed(sym, m, d.name);
   }, [sym, m, d?.name]);
@@ -581,12 +692,19 @@ export default function StockDetail() {
       : null;
 
     const dEnhanced = {
-      per:          d?.per          ?? fd.per          ?? mhLatest.per          ?? null,
-      pbr:          d?.pbr          ?? fd.pbr          ?? mhLatest.pbr          ?? null,
-      psr:          d?.psr          ?? fd.psr          ?? mhLatest.psr          ?? null,
-      eps:          d?.eps          ?? fd.eps          ?? mhLatest.eps          ?? null,
-      bps:          d?.bps          ?? fd.bps          ?? mhLatest.bps          ?? null,
-      roe:          d?.roe          ?? fd.roe          ?? mhLatest.roe          ?? null,
+      /* 밸류에이션 지표는 0 이 '없음' 이다 — PER 0배, EPS 0원, BPS 0원인
+         회사는 없다. 그런데 백엔드(kis_service)가 값을 못 구하면 0.0 을
+         내려보내고, `??` 는 0 을 넘기지 않으므로 뒤의 두 출처가 채워져
+         있어도 0 이 그대로 이겼다. 그 결과 기본정보에는 'EPS 0원' 이,
+         바로 아래 표에는(metrics-history 를 직접 읽는다) '5,240원' 이
+         동시에 떴다. 0 을 없음으로 바꿔 폴백이 이어지게 한다.
+         마진·부채비율처럼 0 이 실제 값일 수 있는 것은 손대지 않는다. */
+      per:          유효(d?.per)  ?? 유효(fd.per)  ?? mhLatest.per  ?? null,
+      pbr:          유효(d?.pbr)  ?? 유효(fd.pbr)  ?? mhLatest.pbr  ?? null,
+      psr:          유효(d?.psr)  ?? 유효(fd.psr)  ?? mhLatest.psr  ?? null,
+      eps:          유효(d?.eps)  ?? 유효(fd.eps)  ?? mhLatest.eps  ?? null,
+      bps:          유효(d?.bps)  ?? 유효(fd.bps)  ?? mhLatest.bps  ?? null,
+      roe:          유효(d?.roe)  ?? 유효(fd.roe)  ?? mhLatest.roe  ?? null,
       roa:          d?.roa          ?? fd.roa          ?? null,
       op_margin:    d?.op_margin    ?? fd.op_margin    ?? mhLatest.op_margin    ?? null,
       net_margin:   d?.net_margin   ?? fd.net_margin   ?? mhLatest.net_margin   ?? null,
@@ -925,20 +1043,13 @@ export default function StockDetail() {
       {/* 탭 네비게이션 */}
       <div className="flex flex-col gap-2">
         {/* 메인 탭 — 한 줄 + 가로 스크롤 */}
-        <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
-          {[
-            { id:"chart",     Icon: BarChart2,      label:"차트" },
-            { id:"daily",     Icon: List,            label:"일별" },
-            ...(!isETF ? [{ id:"financial", Icon: DollarSign, label:"재무제표" }] : []),
-            { id:"quant",     Icon: Gauge,           label:"퀀트점수" },
-            ...(!isETF ? [{ id:"analyst", Icon: TrendingUp, label:"투자의견" }] : []),
-            { id:"news",      Icon: Newspaper,       label:"뉴스/공시" },
-            ...(isKR && !isKRETF ? [{ id:"supply", Icon: Users, label:"수급" }] : []),
-            ...(isETF ? [{ id:"holdings", Icon: BarChart2, label:"보유비중" }] : []),
-            { id:"community", Icon: MessageSquare,   label:"커뮤니티" },
-          ].map(({ id, Icon, label }) => (
-            <button key={id}
-              onClick={() => { setMainTab(id as any); prefetchSecondaryData(id); }}
+        <div role="tablist" aria-label="종목 정보"
+             className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
+          {탭목록.map(({ id, Icon, label }, i) => (
+            <button key={id} role="tab" aria-selected={mainTab === id}
+              /* 숫자키 단축키와 같은 순서다 — 눌러 보기 전에 알 수 있게 적어 둔다 */
+              title={`${label} (${i + 1})`}
+              onClick={() => { setMainTab(id as typeof mainTab); prefetchSecondaryData(id); }}
               className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold transition-all border-b-2 -mb-px whitespace-nowrap flex-shrink-0 ${
                 mainTab === id
                   ? "border-accent-blue text-accent-blue bg-accent-blue/5"
@@ -1103,7 +1214,7 @@ export default function StockDetail() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg-card flex-shrink-0">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="font-bold text-text-primary">{d?.name ?? sym}</span>
-              <div ref={candleDropdownRef} className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary relative">
+              <div ref={candleDropdownFsRef} className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary relative">
                 {CANDLE_GROUPS.map(group => {
                   const isActive = group.key === activeGroupKey;
                   const currentOpt = group.options.find(o => o.value === candleType);
@@ -1209,7 +1320,12 @@ export default function StockDetail() {
 
         // 공통 차트 옵션
         const chartProps = {
-          margin: {top:8,right:12,left:4,bottom:4} as any,
+          /* margin 은 반드시 margin={...} 로 넘긴다.
+             예전에는 {...chartProps.margin} 으로 펼쳐서 넘겼다. 그러면 recharts 가
+             모르는 top/right/left/bottom 이 각각 prop 으로 들어가고 정작 margin 은
+             안 들어간다 — 차트 11개의 여백이 한 번도 적용된 적이 없었다.
+             `as any` 가 붙어 있어서 타입 검사도 이걸 못 잡았으므로 떼어 둔다. */
+          margin: {top:8,right:12,left:4,bottom:4},
           cartesianGridProps: { strokeDasharray:"3 3", stroke:"#232840" },
           xAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any,
           yAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false, width:isMobile?46:58 } as any,
@@ -1253,7 +1369,7 @@ export default function StockDetail() {
                     if (!finData.length) return null;
                     return (
                     <ResponsiveContainer width="100%" height={chartH}>
-                      <BarChart data={finData} {...chartProps.margin}>
+                      <BarChart data={finData} margin={chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                         <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
@@ -1323,7 +1439,7 @@ export default function StockDetail() {
                     if (dEnhanced.per != null || dEnhanced.pbr != null) {
                       return (
                         <ResponsiveContainer width="100%" height={chartHSm}>
-                          <BarChart data={singlePoint} {...chartProps.margin}>
+                          <BarChart data={singlePoint} margin={chartProps.margin}>
                             <CartesianGrid {...chartProps.cartesianGridProps}/>
                             <XAxis dataKey="period" {...chartProps.xAxisProps}/>
                             <YAxis {...chartProps.yAxisProps}/>
@@ -1339,7 +1455,7 @@ export default function StockDetail() {
                     if (dEnhanced.eps != null) {
                       return (
                         <ResponsiveContainer width="100%" height={chartHSm}>
-                          <BarChart data={singlePoint.filter(r=>r.eps!=null)} {...chartProps.margin}>
+                          <BarChart data={singlePoint.filter(r=>r.eps!=null)} margin={chartProps.margin}>
                             <CartesianGrid {...chartProps.cartesianGridProps}/>
                             <XAxis dataKey="period" {...chartProps.xAxisProps}/>
                             <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtEpsBps(v)!}/>
@@ -1354,7 +1470,7 @@ export default function StockDetail() {
                   if (hasMultiple) {
                     return (
                       <ResponsiveContainer width="100%" height={chartHSm}>
-                        <BarChart data={mh} {...chartProps.margin}>
+                        <BarChart data={mh} margin={chartProps.margin}>
                           <CartesianGrid {...chartProps.cartesianGridProps}/>
                           <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                           <YAxis {...chartProps.yAxisProps}/>
@@ -1370,7 +1486,7 @@ export default function StockDetail() {
                   // EPS 차트 (PER/PBR 없을 때)
                   return (
                     <ResponsiveContainer width="100%" height={chartHSm}>
-                      <BarChart data={mh.filter((r:any)=>r.eps!=null)} {...chartProps.margin}>
+                      <BarChart data={mh.filter((r:any)=>r.eps!=null)} margin={chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                         <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtEpsBps(v)!}/>
@@ -1426,7 +1542,7 @@ export default function StockDetail() {
                   {/* 선택 지표 차트 */}
                   {chartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height={chartH}>
-                      <BarChart data={chartData} {...chartProps.margin}>
+                      <BarChart data={chartData} margin={chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                         <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>curr.pct?`${v}%`:fmtFin(v)}/>
@@ -1470,7 +1586,7 @@ export default function StockDetail() {
                 )}
                 {mhYears.length > 0 && (
                   <ResponsiveContainer width="100%" height={chartHSm}>
-                    <BarChart data={mh.filter((r:any)=>r.op_margin||r.net_margin)} {...chartProps.margin}>
+                    <BarChart data={mh.filter((r:any)=>r.op_margin||r.net_margin)} margin={chartProps.margin}>
                       <CartesianGrid {...chartProps.cartesianGridProps}/>
                       <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                       <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
@@ -1519,7 +1635,7 @@ export default function StockDetail() {
                 {/* 차트 */}
                 {mhYears.length > 0 && (
                   <ResponsiveContainer width="100%" height={chartHSm}>
-                    <BarChart data={mh.filter((r:any)=>r.debt_ratio||r.current_ratio)} {...chartProps.margin}>
+                    <BarChart data={mh.filter((r:any)=>r.debt_ratio||r.current_ratio)} margin={chartProps.margin}>
                       <CartesianGrid {...chartProps.cartesianGridProps}/>
                       <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                       <YAxis yAxisId="ratio" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${(v*100).toFixed(0)}%`}/>
@@ -1555,7 +1671,7 @@ export default function StockDetail() {
                   <div>
                     <p className="text-sm text-text-muted font-semibold mb-2">영업 / 투자 / 재무 현금흐름</p>
                     <ResponsiveContainer width="100%" height={chartH}>
-                      <BarChart data={mh.filter((r:any)=>r.operating_cf!=null)} {...chartProps.margin}>
+                      <BarChart data={mh.filter((r:any)=>r.operating_cf!=null)} margin={chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                         <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
@@ -1573,7 +1689,7 @@ export default function StockDetail() {
                   <div>
                     <p className="text-sm text-text-muted font-semibold mb-2">잉여현금흐름 (FCF)</p>
                     <ResponsiveContainer width="100%" height={chartHSm}>
-                      <BarChart data={mh.filter((r:any)=>r.free_cf!=null)} {...chartProps.margin}>
+                      <BarChart data={mh.filter((r:any)=>r.free_cf!=null)} margin={chartProps.margin}>
                         <CartesianGrid {...chartProps.cartesianGridProps}/>
                         <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                         <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
@@ -1712,7 +1828,7 @@ export default function StockDetail() {
                             </div>
                             <div className="p-4">
                               <ResponsiveContainer width="100%" height={chartH}>
-                                <BarChart data={chartData} {...chartProps.margin}>
+                                <BarChart data={chartData} margin={chartProps.margin}>
                                   <CartesianGrid {...chartProps.cartesianGridProps}/>
                                   <XAxis dataKey="year" {...chartProps.xAxisProps} tickFormatter={xFmt}/>
                                   <YAxis {...chartProps.yAxisProps} tickFormatter={group.yFmt}/>
@@ -2524,14 +2640,10 @@ export default function StockDetail() {
       )}
 
       {/* 수급 탭 — 서비스 준비중 */}
+      {/* 수급 탭 — 백엔드(stocks.py 의 supply-demand)는 진작 있었는데
+          프론트에서 부르는 코드가 없어 "서비스 준비중" 안내판만 떠 있었다 */}
       {mainTab==="supply" && isKR && (
-        <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
-          <Users size={40} className="text-text-muted/30"/>
-          <div className="text-center">
-            <p className="text-text-primary font-semibold text-base">서비스 준비중입니다</p>
-            <p className="text-text-muted text-sm mt-1">투자자별 수급 데이터는 곧 제공될 예정입니다</p>
-          </div>
-        </div>
+        <SupplyDemandTab symbol={sym} isMobile={isMobile} />
       )}
 
       {/* 보유비중 탭 — ETF 전용 */}

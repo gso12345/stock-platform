@@ -1,6 +1,15 @@
 import api from "./client";
 import type { Market, StockPrice, StockDetail, OHLCV, StockFundamentals } from "@/types";
 
+/** 투자자별 수급 하루치. 값은 순매수 '거래대금'(원)이고 음수면 순매도다. */
+export interface 수급행 {
+  date: string;          // "2026-08-07"
+  foreign: number;       // 외국인
+  institution: number;   // 기관
+  individual: number;    // 개인
+  total: number;         // 전체
+}
+
 export const stocksApi = {
   getPrice: (market: Market, symbol: string) =>
     api.get<StockPrice>(`/stocks/${market}/${symbol}/price`).then((r) => r.data),
@@ -29,6 +38,14 @@ export const stocksApi = {
 
   getForecasts: (market: string, symbol: string) =>
     api.get<any[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/forecasts`).then((r) => r.data),
+
+  /** 투자자별 수급 (외국인·기관·개인 일별 순매수 거래대금) — 국내 종목만.
+   *
+   *  경로가 /stocks/KR/... 로 고정이다. 백엔드가 이 엔드포인트만 시장을
+   *  path 로 안 받고 KR 로 박아 뒀다(stocks.py 의 supply-demand). */
+  getSupplyDemand: (symbol: string, days = 30) =>
+    api.get<수급행[]>(`/stocks/KR/${encodeURIComponent(symbol)}/supply-demand`, { params: { days } })
+       .then((r) => r.data),
 
   getAnalyst: (market: string, symbol: string) =>
     api.get<any>(`/stocks/${market}/${encodeURIComponent(symbol)}/analyst`).then((r) => r.data),

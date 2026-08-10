@@ -47,8 +47,19 @@ describe("기본정보 지표가 언제 채워지는가", () => {
 
     const i = StockDetail원문.indexOf("const 기본지표가_비었나");
     const 판정 = StockDetail원문.slice(i, StockDetail원문.indexOf("\n", i));
-    expect(판정).toMatch(/eps == null/);
-    expect(판정).toMatch(/per == null/);
+    /* eps 와 per 을 둘 다 보고, '없음' 으로 판정한다는 것이 요점이다.
+       0 도 없음으로 치도록 유효() 를 거치게 바뀌었으므로(백엔드가 eps=0.0 을
+       주는 경로가 있다) 철자를 그대로 박아 두지 않는다 */
+    expect(판정).toMatch(/eps\)? == null/);
+    expect(판정).toMatch(/per\)? == null/);
+  });
+
+  it("0 을 '값 있음' 으로 착각하지 않는다", () => {
+    /* == null 은 0 을 값으로 본다. 그래서 백엔드가 eps=0.0 을 준 종목에서는
+       이 폴백이 열리지도 않았다 — 화면에는 'EPS 0원' 이 확정으로 떴다 */
+    const i = StockDetail원문.indexOf("const 기본지표가_비었나");
+    const 판정 = StockDetail원문.slice(i, StockDetail원문.indexOf("\n", i));
+    expect(판정).toMatch(/유효\(/);
   });
 
   it("detail 이 아직 안 왔을 때는 안 부른다", () => {

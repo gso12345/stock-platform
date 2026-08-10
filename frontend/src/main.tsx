@@ -1,9 +1,10 @@
 import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./api/queryClient";
 import Layout from "./components/Layout";
+import ErrorBoundary from "./components/common/ErrorBoundary";
 import SplashScreen from "./components/SplashScreen";
 import { dashboardApi } from "./api/stocks";
 import "./index.css";
@@ -66,11 +67,21 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+/** 화면을 그리다 터지면 흰 화면 대신 되돌아갈 길을 보여 준다.
+ *
+ *  주소가 바뀌면 지난 오류를 놓아 준다 — 한 화면이 망가졌다고 해서 다른
+ *  화면까지 못 열게 할 이유가 없다. 그래서 라우터 안에 둔다(useLocation). */
+function 화면오류그물({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  return <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>;
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <SplashScreen />
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <화면오류그물>
         <Suspense fallback={<div className="flex items-center justify-center h-screen text-text-muted text-sm">로딩 중...</div>}>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -101,6 +112,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </Route>
           </Routes>
         </Suspense>
+        </화면오류그물>
       </BrowserRouter>
     </QueryClientProvider>
   </React.StrictMode>
