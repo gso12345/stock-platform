@@ -20,6 +20,7 @@
  * main.tsx 안에 두면 화면 밖에서는 손댈 수 없다.
  */
 import { QueryClient } from "@tanstack/react-query";
+import { 최근조회정리 } from "@/utils/recentlyViewed";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,4 +41,9 @@ export const queryClient = new QueryClient({
  *  일부만 골라 지우면 빠뜨린 것이 반드시 생기므로 통째로 버린다. */
 export function 사용자바뀜() {
   queryClient.clear();
+  /* 서버에서 받아 온 것 말고, 브라우저에 직접 쌓아 둔 것도 앞사람 것이 남는다.
+     최근 본 종목이 그렇다 — 공용 기기에서 무엇을 들여다봤는지가 다음 사람에게
+     그대로 넘어갔다. 지금은 사람별로 칸을 나눴고, 여기서는 칸을 나누기 전에
+     쌓인 공용 기록을 치운다. */
+  최근조회정리();
 }

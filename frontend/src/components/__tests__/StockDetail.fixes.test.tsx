@@ -102,7 +102,7 @@ describe("미리 받아 둔 것을 버리지 않는다", () => {
 describe("폴링이 장 세션을 본다", () => {
   it("관심종목·내 자산과 같은 marketSession 을 쓴다", () => {
     /* 코드베이스에 이미 있는 함수다. 종목상세만 안 쓰고 조건 없이 15초였다 */
-    expect(코드).toMatch(/import \{ marketSession \} from "@\/hooks\/useLivePrices"/);
+    expect(코드).toMatch(/import \{ marketSession(, SESSION_LABEL)? \} from "@\/hooks\/useLivePrices"/);
     expect(코드).toMatch(/marketSession\(m\)/);
   });
 

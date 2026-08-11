@@ -4,26 +4,29 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api/client";
-import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
+import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, portfolioApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
-import { marketSession } from "@/hooks/useLivePrices";
+import { marketSession, SESSION_LABEL } from "@/hooks/useLivePrices";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { Card, Tabs, 용어힌트 } from "@/components/ui";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, FileText, CandlestickChart, LineChart, AreaChart,
   Newspaper, Users, ExternalLink, Maximize2, X, List, MessageSquare,
-  Gauge, Settings2, HelpCircle,
+  Gauge, Settings2, HelpCircle, Wallet, Share2, Check,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, fmtVolume } from "@/utils/formatters";
 import { safeExternalUrl } from "@/utils/url";
+import { 격자, 축, 툴팁 } from "@/utils/chartTheme";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 import CommunityTab from "@/components/community/CommunityTab";
 import SupplyDemandTab from "@/components/stock/SupplyDemandTab";
+import RangeBar from "@/components/stock/RangeBar";
+import { AddToPortfolioModal } from "@/components/watchlist/WatchlistModals";
 
 /* ── 지표 셀 ────────────────────────────────────────── */
 function StatCell({ label, value, color, sub }: { label: string; value: React.ReactNode; color?: string; sub?: string }) {
@@ -122,7 +125,9 @@ const FIN_CUSTOM_OPTS = [
   // 수익성
   { key: "roe",               label: "ROE",            group: "수익성",       fmt: "pct",    color: "#06b6d4" },
   { key: "roa",               label: "ROA",            group: "수익성",       fmt: "pct",    color: "#0ea5e9" },
-  { key: "roce",              label: "ROCE",           group: "수익성",       fmt: "pct",    color: "#38bdf8" },
+  /* ROCE 는 뺐다 — 백엔드가 이 값을 만들지 않는다(stocks.py 의 _process 는
+     roce 를 계산하지 않는다). 목록에 두면 20칸 중 하나를 골라 놓고 영원히
+     '—' 만 보게 된다. 백엔드가 주기 시작하면 그때 되살린다. */
   // 밸류에이션
   { key: "per",               label: "PER",            group: "밸류에이션",   fmt: "x",      color: "#f59e0b" },
   { key: "forward_per",       label: "선행PER",        group: "밸류에이션",   fmt: "x",      color: "#fbbf24" },
@@ -517,8 +522,11 @@ export default function StockDetail() {
   const { data: earningsData } = useQuery({
     queryKey: ["earnings", m, sym],
     queryFn: () => stocksApi.getEarnings(m, sym),
-    enabled: !!sym && (mainTab === "news" || mainTab === "financial"),
-    staleTime: 900_000,
+    /* 다음 실적발표 D-day 를 헤더 배지로 쓰게 되면서 어느 탭에서든 필요해졌다.
+       백엔드가 1시간 캐시라 종목당 사실상 한 번이고, 여기 staleTime 도 그에
+       맞춰 올려 둔다 — 탭을 오갈 때마다 다시 묻지 않게. */
+    enabled: !!sym,
+    staleTime: 3_600_000,
   });
 
   const { data: exchangeRateData } = useQuery({
@@ -651,6 +659,21 @@ export default function StockDetail() {
     if (!탭목록.some((t) => t.id === mainTab)) setMainTab("chart");
   }, [탭목록, mainTab]);
 
+  /* 공유받은 주소(?tab=financial)로 들어오면 그 탭을 연다.
+     탭 목록이 종목에 따라 다르므로, 없는 탭이면 그냥 무시한다 — 위의
+     되돌리기와 싸우지 않게 목록에 있는지 먼저 본다.
+     한 번만 본다: 그 뒤 사용자가 탭을 옮겼는데 주소 때문에 되돌아가면 안 된다. */
+  const 주소탭적용됨 = useRef(false);
+  useEffect(() => {
+    if (주소탭적용됨.current || !탭목록.length) return;
+    const 원하는탭 = new URLSearchParams(window.location.search).get("tab");
+    if (원하는탭 && 탭목록.some((t) => t.id === 원하는탭)) {
+      setMainTab(원하는탭 as typeof mainTab);
+      prefetchSecondaryData(원하는탭);
+    }
+    주소탭적용됨.current = true;
+  }, [탭목록, prefetchSecondaryData]);
+
   /* 숫자키로 탭 이동 (1~9). 위에서 만든 목록을 그대로 쓴다 */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -727,15 +750,36 @@ export default function StockDetail() {
     const periodLabel = (p: string) => finPeriod === "quarterly" ? p.slice(0,7) : p.slice(0,4);
     const mhYears = [...new Set(mh.map((r:any) => periodLabel(r.period)))].sort() as string[];
 
-    // 예측 연도 제거 (컨센서스 표시 안 함)
-    const allYears = [...mhYears];
+    /* 컨센서스(예측) 연도를 실적 옆에 붙인다.
+       그리는 배관은 원래 다 있었다 — 헤더는 "E" 로 끝나는 연도를 다르게
+       칠하고, 아래 getVal 도 E 분기를 갖고 있었다. 그런데 allYears 에서
+       예측 연도를 빼 놓아 아무 데도 안 쓰였다. 받아 온 forecasts 를 화면에서
+       잘라 버리고 있었던 셈이다.
+       분기 보기에는 붙이지 않는다 — 컨센서스는 연간으로만 온다. */
+    const fcstYears = finPeriod === "annual"
+      ? [...new Set(fcst.map((r: any) => String(r.period).slice(0, 4)))]
+          .filter((y) => !mhYears.includes(y))
+          .sort()
+          .map((y) => `${y}E`)
+      : [];
+    const allYears = [...mhYears, ...fcstYears];
+
+    /* 표의 키와 컨센서스 응답의 키가 다르다 — 표는 revenue 를 찾는데
+       예측 쪽은 revenue_est 로 온다 */
+    const 예측키: Record<string, string> = {
+      revenue: "revenue_est", op_income: "op_income_est",
+      net_income: "net_income_est", eps: "eps_est",
+    };
 
     // 기간으로 데이터 조회
     const getVal = (key: string, year: string): number | null => {
       if (year.endsWith("E")) {
         const y = year.slice(0,-1);
-        const row = fcst.find((r:any) => r.period.slice(0,4) === y);
-        return row?.[key] ?? null;
+        const row = fcst.find((r:any) => String(r.period).slice(0,4) === y);
+        if (!row) return null;
+        /* 배수(PER·PBR)는 추정치가 없다. 매핑에 없는 키는 그대로 찾아보고,
+           없으면 null 이라 표에 '—' 로 빠진다 */
+        return row[예측키[key] ?? key] ?? null;
       }
       const row = mh.find((r:any) => periodLabel(r.period) === year);
       return row?.[key] ?? null;
@@ -770,7 +814,12 @@ export default function StockDetail() {
       { label:"저가",     v: fmtPx(d.low),  color:"text-accent-blue" },
       { label:"전일종가", v: fmtPx(d.prev_close) },
       { label:"거래량",   v: d.volume ? fmtVolume(d.volume, isKR) : null },
-      { label:"거래대금", v: fmt(d.price && d.volume ? d.price * d.volume : null) },
+      /* 네이버가 실제 누적 거래대금(accumulatedTradingValue)을 주고 그것이
+         detail 응답의 amount 로 온다. 예전에는 그걸 두고 종가×거래량으로
+         다시 계산했는데, 장중에는 두 값이 다르다 — 하루 종일 오르내린
+         가격으로 체결된 것을 마지막 가격 하나로 곱한 근사치였다.
+         해외 종목에는 amount 가 없어 그때만 예전 방식으로 어림한다. */
+      { label:"거래대금", v: fmt(d.amount ?? (d.price && d.volume ? d.price * d.volume : null)) },
       { label:"시가총액", v: fmt(d.market_cap) },
       { label:"52주 고가",v: fmtPx(d.week52_high), color:"text-accent-red" },
       { label:"52주 저가",v: fmtPx(d.week52_low),  color:"text-accent-blue" },
@@ -792,14 +841,80 @@ export default function StockDetail() {
                                  ? `${Math.round(isKR ? 기본EPS : 기본EPS * exchangeRate).toLocaleString("ko-KR")}원`
                                  : `$${기본EPS.toFixed(2)}`)
                              : null },
+      /* 아래는 응답에 실려 오는데 화면에 한 번도 안 쓰던 것들이다.
+         새 요청이 늘지 않으므로 그냥 보여 주는 편이 낫다. */
+      // 외국인 지분율 — 국내 종목만. 수급 탭과 짝이 되는 값이다
+      ...(d.foreign_rate != null
+        ? [{ label:"외국인비중", v: `${d.foreign_rate.toFixed(2)}%` }] : []),
+      // 유통 주식 수·비율 — 해외 종목만 온다
+      ...(d.shares_outstanding != null
+        ? [{ label:"상장주식수", v: fmtVolume(d.shares_outstanding, isKR) }] : []),
+      ...(d.float_shares != null && d.shares_outstanding
+        ? [{ label:"유통비율", v: `${((d.float_shares / d.shares_outstanding) * 100).toFixed(1)}%` }] : []),
+      // 이동평균 — 지금 값이 추세 위인지 아래인지 바로 읽힌다
+      ...(d.ma50 != null  ? [{ label:"50일선",  v: fmtPx(d.ma50) }] : []),
+      ...(d.ma200 != null ? [{ label:"200일선", v: fmtPx(d.ma200) }] : []),
     ] as { label: string; v: string | null; color?: string }[];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d?.open, d?.high, d?.low, d?.prev_close, d?.volume, d?.price, d?.market_cap, d?.week52_high, d?.week52_low, d?.dividend_yield, 기본PER, 기본EPS, isKR, showKRW, exchangeRate, fmt]);
+  }, [d?.open, d?.high, d?.low, d?.prev_close, d?.volume, d?.price, d?.amount, d?.market_cap, d?.week52_high, d?.week52_low, d?.dividend_yield, d?.foreign_rate, d?.shares_outstanding, d?.float_shares, d?.ma50, d?.ma200, 기본PER, 기본EPS, isKR, showKRW, exchangeRate, fmt]);
   const priceStr = d?.price != null
     ? isKR ? `₩${d.price.toLocaleString("ko-KR")}`
       : showKRW ? `₩${Math.round(d.price * exchangeRate).toLocaleString("ko-KR")}`
       : `$${d.price.toFixed(2)}`
     : "—";
+  /* 다음 실적발표까지 며칠 — 헤더 배지로 쓴다.
+     응답의 upcoming 은 발표일 문자열 목록이다. 이미 지난 날짜가 섞여 올 수
+     있어 오늘 이후 것 중 가장 가까운 것을 고른다. */
+  const 실적Dday = useMemo(() => {
+    const 목록: string[] = (earningsData as any)?.upcoming?.filter(Boolean) ?? [];
+    if (!목록.length) return null;
+    const 오늘 = new Date(); 오늘.setHours(0, 0, 0, 0);
+    const 앞으로 = 목록
+      .map((s) => ({ s, t: new Date(s).getTime() }))
+      .filter((x) => Number.isFinite(x.t) && x.t >= 오늘.getTime())
+      .sort((a, b) => a.t - b.t)[0];
+    if (!앞으로) return null;
+    const 남은날 = Math.round((앞으로.t - 오늘.getTime()) / 86_400_000);
+    return 남은날 === 0 ? "오늘" : `D-${남은날}`;
+  }, [earningsData]);
+
+  const [담기열림, set담기열림] = useState(false);
+  const [복사됨, set복사됨] = useState(false);
+
+  /* 지금 보고 있는 탭까지 주소에 남긴다 — 받은 사람이 '재무제표를 봐' 라고
+     따로 말하지 않아도 같은 화면을 연다. 라우트가 stocks/:market/:symbol/*
+     도 받으므로 뒤에 탭을 붙여도 화면이 열린다. */
+  const 공유하기 = useCallback(async () => {
+    const 주소 = `${window.location.origin}/stocks/${m}/${encodeURIComponent(sym)}`
+      + (mainTab === "chart" ? "" : `?tab=${mainTab}`);
+    try {
+      await navigator.clipboard.writeText(주소);
+      set복사됨(true);
+      setTimeout(() => set복사됨(false), 2000);
+    } catch {
+      /* 클립보드를 막아 둔 환경이 있다. 실패해도 화면을 방해하지 않는다 */
+    }
+  }, [m, sym, mainTab]);
+
+  /* 내가 이 종목을 갖고 있나. 내 자산·퀀트·글쓰기가 이미 같은 키로 받아 둔
+     것을 그대로 읽으므로 요청이 늘지 않는다. */
+  const { data: 보유목록 } = useQuery({
+    queryKey: ["portfolio-items-all"],
+    queryFn: () => portfolioApi.getItems(undefined, true),
+    enabled: isLoggedIn,
+    staleTime: 300_000,
+  });
+  const 내보유 = useMemo(() => {
+    const 것들 = (보유목록 as any[] | undefined) ?? [];
+    const 맞는것 = 것들.filter((x) => (x.symbol ?? "").toUpperCase() === sym && x.market === m);
+    if (!맞는것.length) return null;
+    const 수량 = 맞는것.reduce((a, x) => a + (Number(x.shares) || 0), 0);
+    if (!(수량 > 0)) return null;
+    // 여러 계좌에 나눠 담았을 수 있다 — 수량 가중으로 평단을 합친다
+    const 총액 = 맞는것.reduce((a, x) => a + (Number(x.shares) || 0) * (Number(x.avg_price ?? x.avgPrice) || 0), 0);
+    return { 수량, 평단: 총액 / 수량, 계좌수: 맞는것.length };
+  }, [보유목록, sym, m]);
+
   const isUp = (d?.change_rate ?? 0) >= 0;
   const { colorScheme, 화면모양 } = useSettingsStore();
   const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
@@ -837,15 +952,42 @@ export default function StockDetail() {
       {/* 헤더 */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <button onClick={()=>navigate(-1)} className="mt-1 p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors"><ArrowLeft size={16}/></button>
+          <button aria-label="뒤로 가기" onClick={()=>navigate(-1)} className="mt-0.5 -ml-2 w-11 h-11 flex items-center justify-center rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors"><ArrowLeft size={18}/></button>
           <div>
             <h1 className="text-2xl font-bold text-text-primary leading-tight">
               {d?.name && d.name !== sym ? d.name : sym.replace(".KS","").replace(".KQ","")}
             </h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-base font-mono text-text-muted">{sym.replace(".KS","").replace(".KQ","")}</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${isETF?"border-purple-700/50 text-purple-400 bg-purple-900/20":isKR?"border-blue-700/50 text-blue-400 bg-blue-900/20":"border-green-700/50 text-green-400 bg-green-900/20"}`}>{isETF ? "ETF" : m}</span>
+              {/* 색은 토큰으로 쓴다 — 이 파일에서 Tailwind 팔레트를 직접
+                  부르던 유일한 자리였다(text-blue-400 / bg-green-900 등).
+                  이름도 라우트 파라미터(m)를 그대로 찍어 국내는 늘 'KR' 이었는데,
+                  응답에는 KOSPI/KOSDAQ 구분이 들어 있다. */}
+              <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${
+                isETF ? "border-accent-purple/50 text-accent-purple bg-accent-purple/10"
+                : isKR ? "border-accent-blue/50 text-accent-blue bg-accent-blue/10"
+                : "border-accent-green/50 text-accent-green bg-accent-green/10"}`}>
+                {isETF ? "ETF" : (isKR ? (d?.market ?? "KR") : m)}
+              </span>
               {d?.sector && <span className="text-xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted">{d.sector}</span>}
+              {/* 다음 실적발표 — 뉴스 탭 안쪽에 묻혀 있어서 보려면
+                  탭을 옮기고 스크롤해야 했다 */}
+              {실적Dday && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-accent-yellow/10 border border-accent-yellow/30 text-accent-yellow font-semibold">
+                  실적 {실적Dday}
+                </span>
+              )}
+              {/* 내가 가진 것 — 종목을 보면서 '나는 얼마에 샀더라' 를 확인하러
+                  내 자산으로 건너갈 필요가 없게 한다. 손익은 여기서 계산하지
+                  않는다. 환율·계좌별 규칙은 내 자산 화면이 갖고 있어서, 두 번
+                  계산하면 두 화면의 숫자가 갈라진다. */}
+              {내보유 && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-accent-green/10 border border-accent-green/30 text-accent-green font-semibold">
+                  보유 {내보유.수량.toLocaleString("ko-KR")}주 · 평단 {
+                    isKR ? `₩${Math.round(내보유.평단).toLocaleString("ko-KR")}` : `$${내보유.평단.toFixed(2)}`
+                  }
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -872,6 +1014,31 @@ export default function StockDetail() {
             <Star size={14} fill={inWatchlist ? "currentColor" : "none"}/>
             {addMutation.isPending ? "추가 중..." : removeMutation.isPending ? "제거 중..." : inWatchlist ? "관심종목" : "추가"}
           </button>
+
+          {/* 담기 — 관심종목(보고 싶다)과 보유(샀다)는 다른 일이다.
+              예전에는 종목상세에서 내 자산으로 가는 길이 아예 없어서,
+              방금 보던 종목을 내 자산에서 이름으로 다시 검색해야 했다.
+              모달은 관심종목 화면이 쓰는 것을 그대로 쓴다. */}
+          <button
+            aria-label="보유종목에 담기"
+            title="보유종목에 담기"
+            onClick={() => { if (!isLoggedIn) { navigate("/login"); return; } set담기열림(true); }}
+            className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-green/60 hover:text-accent-green transition-all"
+          >
+            <Wallet size={15}/>
+          </button>
+
+          {/* 공유 — 앱의 다른 곳(피드·글 상세)이 쓰는 복사 방식과 같다.
+              지금 보고 있는 탭까지 주소에 남겨, 받은 사람이 같은 화면을 연다 */}
+          <button
+            aria-label={복사됨 ? "주소 복사됨" : "주소 복사"}
+            title="주소 복사"
+            onClick={공유하기}
+            className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-blue/60 hover:text-accent-blue transition-all"
+          >
+            {복사됨 ? <Check size={15} className="text-accent-green"/> : <Share2 size={15}/>}
+          </button>
+
           {watchlistMsg && (
             <span className="text-xs text-text-muted animate-fade-in">{watchlistMsg}</span>
           )}
@@ -910,7 +1077,7 @@ export default function StockDetail() {
             ? "px-1 pb-3 flex items-center gap-3 flex-wrap"
             : "px-4 py-3 flex items-center gap-4 flex-wrap border-b border-border"}>
             <span className={`font-mono font-bold text-text-primary num ${
-              화면모양 === "app" ? "text-[34px] leading-none" : "text-3xl"}`}>{priceStr}</span>
+              화면모양 === "app" ? "text-[2.125rem] leading-none" : "text-3xl"}`}>{priceStr}</span>
             <div className="flex items-center gap-1.5">
               {isUp ? <TrendingUp size={13} className={upColor}/> : <TrendingDown size={13} className={downColor}/>}
               {d.change != null && d.change !== 0 && (
@@ -924,7 +1091,7 @@ export default function StockDetail() {
             </div>
             {!isKR && (
               <button
-                onClick={() => setShowKRW(v => !v)}
+                aria-pressed={showKRW} onClick={() => setShowKRW(v => !v)}
                 className={`flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all whitespace-nowrap ${
                   showKRW
                     ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue"
@@ -933,7 +1100,7 @@ export default function StockDetail() {
                 title={`1USD≈${exchangeRate.toLocaleString("ko-KR")}₩`}
               >
                 ₩ 원화환산
-                {showKRW && <span className="text-[10px] text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
+                {showKRW && <span className="text-2xs text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
               </button>
             )}
             {showNxt && (
@@ -954,9 +1121,16 @@ export default function StockDetail() {
                 </span>
               </div>
             )}
-            <div className="ml-auto flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse"/>
+            {/* 예전에는 조건 없이 초록 점이 계속 뛰었다. 휴장이든, 값이 몇
+                시간 멈췄든 화면은 똑같이 '살아 있음' 이었다. 관심종목·내 자산은
+                장 세션을 함께 보여 주는데 이 화면만 그러지 않았다. */}
+            <div className="ml-auto flex items-center gap-1.5" aria-live="polite">
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                장세션 === "regular" ? "bg-accent-green animate-pulse"
+                : 장세션 === "closed" ? "bg-text-dim"
+                : "bg-accent-yellow"}`}/>
               <span className="text-xs text-text-muted">
+                {장세션 === "regular" ? "" : SESSION_LABEL[장세션] + " · "}
                 {dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("ko-KR", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}
               </span>
             </div>
@@ -973,7 +1147,7 @@ export default function StockDetail() {
             <div className="px-3 py-2.5 grid grid-cols-4 gap-x-2 gap-y-2.5">
               {priceItems.map((item) => (
                 <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-[10px] text-text-dim whitespace-nowrap">{item.label}</span>
+                  <span className="text-2xs text-text-dim whitespace-nowrap">{item.label}</span>
                   <span className={`text-sm font-mono font-semibold num truncate ${(item as any).color ?? "text-text-secondary"}`}>
                     {item.v ?? "—"}
                   </span>
@@ -1032,7 +1206,7 @@ export default function StockDetail() {
       ) : loadingDetail ? (
         <div className="overflow-hidden">
           <div className="px-1 pb-3 flex items-center gap-3 flex-wrap">
-            <span className="text-[34px] leading-none font-mono font-bold text-text-dim">—</span>
+            <span className="text-[2.125rem] leading-none font-mono font-bold text-text-dim">—</span>
             <div className="ml-auto w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
           </div>
           {/* 뼈대는 실제로 그려질 모양과 같아야 한다. 지표는 이제 차트
@@ -1062,26 +1236,28 @@ export default function StockDetail() {
         </div>
 
         {/* 재무제표 서브탭 */}
+        {/* 공용 Tabs 로 옮겼다. 여기만 알약 모양(rounded-full)이라 같은 화면
+            안에서 서브탭이 두 가지로 보였다 — 투자의견·뉴스는 이미 Tabs 를
+            쓰고 있었다. ui/index.tsx 주석의 '모두 이걸 쓴다' 목록에도,
+            일부러 안 옮긴 예외 목록에도 종목상세만 빠져 있었다.
+            덤으로 role="tablist"/aria-selected 가 따라온다. */}
         {mainTab==="financial" && (
-          <div className="flex gap-1 overflow-x-auto scrollbar-hide">
-            {([
-              { value:"basic",         label:"기본 지표" },
-              { value:"income",        label:"손익계산서" },
-              { value:"valuation",     label:"밸류에이션" },
-              { value:"profitability", label:"수익성" },
-              { value:"health",        label:"재무건전성" },
-              { value:"cashflow",      label:"현금흐름" },
-              { value:"custom",        label:"사용자설정" },
-            ] as const).map(({ value, label })=>(
-              <button key={value} onClick={()=>setFinSubTab(value)}
-                className={`px-3 py-1.5 text-sm font-semibold rounded-full whitespace-nowrap transition-all flex-shrink-0 ${
-                  finSubTab===value
-                    ? "bg-accent-blue text-white"
-                    : "bg-bg-card border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
-                }`}
-              >{label}</button>
-            ))}
-          </div>
+          <Tabs
+            ariaLabel="재무제표 항목"
+            fill={false}
+            className="overflow-x-auto scrollbar-hide"
+            active={finSubTab}
+            onChange={(v) => setFinSubTab(v as typeof finSubTab)}
+            tabs={[
+              { id:"basic",         label:"기본 지표" },
+              { id:"income",        label:"손익계산서" },
+              { id:"valuation",     label:"밸류에이션" },
+              { id:"profitability", label:"수익성" },
+              { id:"health",        label:"재무건전성" },
+              { id:"cashflow",      label:"현금흐름" },
+              { id:"custom",        label:"사용자설정" },
+            ]}
+          />
         )}
       </div>
 
@@ -1133,10 +1309,10 @@ export default function StockDetail() {
                               : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}>
                 <Settings2 size={13}/>
               </button>
-              <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+              <button aria-label="차트 새로고침" title="새로고침" onClick={()=>refetchChart()} className="w-11 h-11 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
                 <RefreshCw size={13}/>
               </button>
-              <button onClick={()=>setFullscreen(true)} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors" title="전체보기">
+              <button aria-label="차트 전체보기" onClick={()=>setFullscreen(true)} className="w-11 h-11 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors" title="전체보기">
                 <Maximize2 size={13}/>
               </button>
             </div>
@@ -1150,14 +1326,14 @@ export default function StockDetail() {
                 { value:"line",   label:"라인",  Icon: LineChart },
                 { value:"area",   label:"영역",  Icon: AreaChart },
               ] as const).map(({ value, label, Icon })=>(
-                <button key={value} onClick={()=>setChartType(value)}
+                <button key={value} aria-pressed={chartType===value} onClick={()=>setChartType(value)}
                   className={`flex items-center gap-1 px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
                 >
                   <Icon size={11}/>{label}
                 </button>
               ))}
             </div>
-            <button onClick={()=>setLogScale(v=>!v)}
+            <button aria-pressed={logScale} onClick={()=>setLogScale(v=>!v)}
               className={`px-2.5 py-1 text-sm rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted hover:text-text-primary"}`}
             >
               LOG
@@ -1194,11 +1370,24 @@ export default function StockDetail() {
       {화면모양 === "app" && mainTab === "chart" && d && (
         <div className="flex flex-col gap-2">
           <h2 className="text-base font-bold text-text-primary px-1">통계</h2>
+          {/* 52주 밴드에서 지금이 어디쯤인가.
+              값은 원래부터 응답에 있었는데 숫자 두 개로만 놓여 있어서,
+              위치를 알려면 세 숫자를 암산해야 했다. */}
+          {d.week52_low != null && d.week52_high != null && d.price != null && (
+            <div className="px-1 pb-1">
+              <RangeBar
+                low={d.week52_low} high={d.week52_high} current={d.price}
+                lowLabel={`52주 최저 ${fmtPx(d.week52_low)}`}
+                highLabel={`52주 최고 ${fmtPx(d.week52_high)}`}
+                fmt={(v) => fmtPx(v) ?? "—"}
+              />
+            </div>
+          )}
           <div className="px-1 grid grid-cols-3 gap-x-3 gap-y-3.5">
             {priceItems.map((item) => (
               <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
-                <span className="text-[11px] text-text-dim whitespace-nowrap">{item.label}</span>
-                <span className={`text-[15px] font-mono font-semibold num truncate ${(item as any).color ?? "text-text-primary"}`}>
+                <span className="text-xs text-text-dim whitespace-nowrap">{item.label}</span>
+                <span className={`text-base font-mono font-semibold num truncate ${(item as any).color ?? "text-text-primary"}`}>
                   {item.v ?? "—"}
                 </span>
               </div>
@@ -1249,12 +1438,12 @@ export default function StockDetail() {
               </div>
               <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
                 {([{value:"candle",label:"캔들"},{value:"line",label:"라인"},{value:"area",label:"영역"}] as const).map(({value,label})=>(
-                  <button key={value} onClick={()=>setChartType(value)}
+                  <button key={value} aria-pressed={chartType===value} onClick={()=>setChartType(value)}
                     className={`px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
                   >{label}</button>
                 ))}
               </div>
-              <button onClick={()=>setLogScale(v=>!v)}
+              <button aria-pressed={logScale} onClick={()=>setLogScale(v=>!v)}
                 className={`px-2.5 py-1 text-sm rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted"}`}
               >LOG</button>
             </div>
@@ -1326,10 +1515,12 @@ export default function StockDetail() {
              안 들어간다 — 차트 11개의 여백이 한 번도 적용된 적이 없었다.
              `as any` 가 붙어 있어서 타입 검사도 이걸 못 잡았으므로 떼어 둔다. */
           margin: {top:8,right:12,left:4,bottom:4},
-          cartesianGridProps: { strokeDasharray:"3 3", stroke:"#232840" },
-          xAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any,
-          yAxisProps: { tick:{fill:"#64748b",fontSize:10}, tickLine:false, width:isMobile?46:58 } as any,
-          tooltipProps: { contentStyle:{background:"#141824",border:"1px solid #232840",borderRadius:8,fontSize:11} } as any,
+          /* 축·격자·툴팁 색은 테마 토큰에서 읽는다. 예전에는 다크 값을 손으로
+             적어 두어 라이트 모드에서 차트만 어둡게 남았다 (utils/chartTheme) */
+          cartesianGridProps: 격자,
+          xAxisProps: 축 as any,
+          yAxisProps: { ...축, width: isMobile ? 46 : 58 } as any,
+          tooltipProps: 툴팁 as any,
         };
 
         return (
@@ -1339,7 +1530,7 @@ export default function StockDetail() {
           {!isKR && (
             <div className="flex justify-end">
               <button
-                onClick={() => setShowKRW(v => !v)}
+                aria-pressed={showKRW} onClick={() => setShowKRW(v => !v)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg border transition-all ${
                   showKRW
                     ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue"
@@ -1347,7 +1538,7 @@ export default function StockDetail() {
                 }`}
               >
                 ₩ 원화
-                {showKRW && <span className="text-[10px] text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
+                {showKRW && <span className="text-2xs text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
               </button>
             </div>
           )}
@@ -1392,7 +1583,11 @@ export default function StockDetail() {
                     { key:"net_income_growth",label:"순이익성장률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
                     { key:"op_margin",        label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
                     { key:"net_margin",       label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
-                    { key:"eps",              label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-cyan-400" },
+                    { key:"eps",              label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-accent-cyan" },
+                    /* 백엔드가 매출·영업이익·순이익과 함께 eps_growth 도
+                       만들어 보내는데(_add_growth) 표에는 없었다. 주당 이익이
+                       얼마나 늘었는지가 정작 주주에게 가장 가까운 숫자다 */
+                    { key:"eps_growth",       label:"EPS성장률",    fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-cyan" },
                   ]} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
                 </div>
               )}
@@ -2066,7 +2261,7 @@ export default function StockDetail() {
               />
               {!isKR && (
                 <button
-                  onClick={() => setShowKRW(v => !v)}
+                  aria-pressed={showKRW} onClick={() => setShowKRW(v => !v)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg border transition-all ${
                     showKRW
                       ? "bg-accent-blue/20 border-accent-blue/50 text-accent-blue"
@@ -2074,7 +2269,7 @@ export default function StockDetail() {
                   }`}
                 >
                   ₩ 원화
-                  {showKRW && <span className="text-[10px] text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
+                  {showKRW && <span className="text-2xs text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
                 </button>
               )}
             </div>
@@ -2248,13 +2443,13 @@ export default function StockDetail() {
                                 <td className="px-4 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
                                   {fmtPrice0(r.target)}
                                   {r.prior_target != null && r.target != null && r.prior_target !== r.target && (
-                                    <span className="text-text-muted ml-1 text-[10px]">
+                                    <span className="text-text-muted ml-1 text-2xs">
                                       ({r.target > r.prior_target ? "↑" : "↓"}{fmtPrice0(r.prior_target)})
                                     </span>
                                   )}
                                 </td>
                                 <td className="px-4 py-2.5 text-center whitespace-nowrap">
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${act.color}`}>{act.text}</span>
+                                  <span className={`px-2 py-0.5 rounded-full text-2xs font-bold whitespace-nowrap ${act.color}`}>{act.text}</span>
                                 </td>
                               </tr>
                             );
@@ -2318,10 +2513,11 @@ export default function StockDetail() {
               const hasEpsChart  = fcstData.some((r: any) => r.eps_est != null);
               const chartHSm = isMobile ? 185 : 240;
               const cMargin  = {top:8,right:12,left:4,bottom:4} as any;
-              const cGrid    = { strokeDasharray:"3 3", stroke:"#232840" };
-              const cXAxis   = { tick:{fill:"#64748b",fontSize:10}, tickLine:false } as any;
-              const cYAxis   = { tick:{fill:"#64748b",fontSize:10}, tickLine:false, width:isMobile?46:58 } as any;
-              const cTooltip = { contentStyle:{background:"#141824",border:"1px solid #232840",borderRadius:8,fontSize:11} } as any;
+              // 재무제표 탭과 같은 테마 토큰을 쓴다 (utils/chartTheme)
+              const cGrid    = 격자;
+              const cXAxis   = 축 as any;
+              const cYAxis   = { ...축, width: isMobile ? 46 : 58 } as any;
+              const cTooltip = 툴팁 as any;
               const fmtAmt = (v:number) => inKRW ? fmtKRW(v) : fmtUSD(v);
               const fmtEpsV = (v:number) => inKRW ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}`;
 
@@ -2509,6 +2705,12 @@ export default function StockDetail() {
                           EPS 예상: {isKR ? earningsData.eps_estimate?.toLocaleString("ko-KR") : `$${earningsData.eps_estimate?.toFixed(2)}`}
                         </span>
                       )}
+                      {/* 매출 예상도 같이 온다. EPS 만 쓰고 버리고 있었다 */}
+                      {earningsData.revenue_estimate != null && (
+                        <span className="px-3 py-1.5 rounded-lg bg-bg-elevated border border-border text-text-muted text-sm">
+                          매출 예상: {fmt(earningsData.revenue_estimate)}
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2648,12 +2850,22 @@ export default function StockDetail() {
 
       {/* 보유비중 탭 — ETF 전용 */}
       {mainTab==="holdings" && isETF && (
-        <EtfHoldingsTab symbol={sym} />
+        <EtfHoldingsTab symbol={sym} market={m} />
       )}
 
       {/* 커뮤니티 탭 */}
       {mainTab==="community" && (
         <CommunityTab market={m} symbol={sym} />
+      )}
+
+      {/* 담기 모달 — 관심종목 화면이 쓰는 것을 그대로 쓴다.
+          계좌 목록 조회·현재가 자동입력·저장·캐시 무효화를 모달이 다 한다 */}
+      {담기열림 && (
+        <AddToPortfolioModal
+          item={{ symbol: sym, market: m, name: d?.name ?? sym }}
+          currentPrice={d?.price}
+          onClose={() => set담기열림(false)}
+        />
       )}
 
       {/* 기업 정보 */}
@@ -2682,7 +2894,13 @@ const SECTOR_KO: Record<string, string> = {
   utilities: "유틸리티",
 };
 
-function EtfHoldingsTab({ symbol }: { symbol: string }) {
+function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Market }) {
+  const navigate = useNavigate();
+  /* 구성종목이 어느 시장인지는 응답에 없다. ETF 가 국내면 구성종목도 국내다
+     — 해외 ETF 의 구성종목은 미국 주식으로 본다 */
+  const 종목으로 = (s: string) =>
+    navigate(`/stocks/${market === "KR" ? "KR" : "US"}/${encodeURIComponent(s)}`);
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ["etf_holdings", symbol],
     queryFn: () => stocksApi.getEtfHoldings(symbol),
@@ -2741,7 +2959,14 @@ function EtfHoldingsTab({ symbol }: { symbol: string }) {
               </thead>
               <tbody>
                 {holdings.map((h, i) => (
-                  <tr key={i} className="border-b border-border/30 hover:bg-bg-hover transition-colors">
+                  /* 심볼을 갖고 있으면서 글자로만 찍고 있었다. 앱의 다른
+                     목록(관심종목·퀀트·대시보드 랭킹)은 전부 행을 눌러
+                     그 종목으로 넘어간다 — 여기만 막다른 길이었다.
+                     심볼이 없는 항목(현금·기타)은 그대로 둔다 */
+                  <tr key={i}
+                      onClick={h.symbol ? () => 종목으로(h.symbol) : undefined}
+                      className={`border-b border-border/30 transition-colors ${
+                        h.symbol ? "cursor-pointer hover:bg-bg-hover" : ""}`}>
                     <td className="px-4 py-2.5 text-text-muted font-mono text-xs">{i + 1}</td>
                     <td className="px-2 py-2.5">
                       <div className="flex flex-col gap-0.5">
@@ -2817,7 +3042,11 @@ function DisclosurePanel({ symbol }: { symbol: string }) {
       ) : (
         <ul>{items.map((item: any, i: number) => (
           <li key={i} className="border-b border-border/30 last:border-0">
-            <a href={item.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
+            {/* 같은 파일의 뉴스 링크는 safeExternalUrl 을 거치는데 여기만
+                안 거치고 있었다. 지금은 서버가 dart.fss.or.kr 로 스킴을
+                하드코딩해 만들므로 악용할 수 없지만, 한 화면에서 규칙이
+                갈리면 다음에 고치는 사람이 어느 쪽을 따라야 할지 모른다. */}
+            <a href={safeExternalUrl(item.url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3 hover:bg-bg-hover transition-colors group">
               <div className="flex-1 min-w-0">
                 <p className="text-base text-text-primary group-hover:text-accent-blue transition-colors">{item.title}</p>
                 <p className="text-xs text-text-muted mt-0.5">{item.reporter} · {fmtDate(item.date?.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"))}</p>

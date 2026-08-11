@@ -19,6 +19,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from "recharts";
 import { Users } from "lucide-react";
 import { stocksApi } from "@/api/stocks";
+import { 격자, 축, 툴팁, 영점 } from "@/utils/chartTheme";
 
 /* 재무제표 탭과 같은 색 규칙을 쓴다 — 화면마다 외국인 색이 달라지면 안 된다 */
 const 색 = { foreign: "#3b82f6", institution: "#10b981", individual: "#f59e0b" } as const;
@@ -148,15 +149,14 @@ export default function SupplyDemandTab({ symbol, isMobile }: { symbol: string; 
         <div className="px-2 pb-3">
           <ResponsiveContainer width="100%" height={isMobile ? 240 : 320}>
             <BarChart data={차트데이터} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#232840" />
-              <XAxis dataKey="날짜" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false}
+              <CartesianGrid {...격자} />
+              <XAxis dataKey="날짜" {...축}
                      interval={Math.max(0, Math.floor(차트데이터.length / (isMobile ? 5 : 10)) - 1)} />
-              <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false}
-                     width={isMobile ? 46 : 58} tickFormatter={금액} />
+              <YAxis {...축} width={isMobile ? 46 : 58} tickFormatter={금액} />
               {/* 0선이 없으면 순매수와 순매도가 눈으로 안 갈린다 */}
-              <ReferenceLine y={0} stroke="#4b5563" />
+              <ReferenceLine y={0} {...영점} />
               <Tooltip
-                contentStyle={{ background: "#141824", border: "1px solid #232840", borderRadius: 8, fontSize: 11 }}
+                {...툴팁}
                 formatter={(v: number, n: string) => [금액(v), 이름[n as keyof typeof 이름] ?? n]}
               />
               <Legend wrapperStyle={{ fontSize: 11 }}

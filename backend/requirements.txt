@@ -10,14 +10,29 @@ pandas==2.2.3
 numpy==2.2.0
 python-multipart==0.0.20
 websockets==14.1
+# 여기 걸린 권고는 대부분 '서버로 쓸 때' 의 요청 밀수·헤더 파싱 문제인데
+# 이 앱은 aiohttp 를 클라이언트로만 쓴다(서버는 uvicorn/starlette). 3.11 → 3.14
+# 는 파서 동작이 바뀌는 큰 폭이라, 돌려보지 않고 올리면 외부 API 조회가 조용히
+# 깨질 수 있다. 이 환경에서는 백엔드 의존성 설치 자체가 안 돼 검증을 못 했다.
+# 로컬에서 테스트를 돌릴 수 있을 때 3.14 로 올릴 것.
 aiohttp==3.11.10
 feedparser==6.0.11
-requests==2.32.3
+# 2.32.3 은 특정 URL 에서 .netrc 자격증명이 제3자로 새는 문제가 있다(PYSEC-2026-1872).
+# 순수 패치 업데이트라 동작은 그대로다.
+requests==2.32.4
 slowapi==0.1.9
 psycopg2-binary==2.9.10
 beautifulsoup4==4.12.3
+# XXE 권고(PYSEC-2026-87)는 XML 파서를 기본 설정으로 쓸 때의 이야기다.
+# 이 앱은 lxml 을 bs4 의 HTML 파서 백엔드로만 쓰고(ranking_service), XML 은
+# 표준 라이브러리 ElementTree 로 읽는다(dart_service) — 해당 없음.
+# 6.x 는 엔티티 처리 기본값이 바뀌는 메이저라 검증 없이 올리지 않는다.
 lxml==5.3.0
-PyJWT==2.9.0
+# 인증의 핵심이라 최신을 유지한다. 2.9.0 에 걸린 권고 대부분은 이 앱에는
+# 해당하지 않지만(단일 키 HS256 만 쓰고 JWKS·crit·detached JWS 를 안 쓴다),
+# 서명 검증 라이브러리는 "해당 없음" 을 근거로 낡은 채 두지 않는다.
+# encode/decode 시그니처는 2.x 내내 그대로다.
+PyJWT==2.13.0
 finance-datareader==0.9.202
 pykrx==1.0.45
 anthropic>=0.40.0
