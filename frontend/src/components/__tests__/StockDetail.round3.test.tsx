@@ -88,8 +88,10 @@ describe("4. 야후가 비어도 재무제표가 채워진다", () => {
   });
 
   it("야후에 없는 연도도 열로 세운다", () => {
-    // 국내는 DART 쪽이 더 길게 있는 경우가 많다
-    expect(코드).toMatch(/\.\.\.fin\.map\(\(r: any\) => String\(r\.period\)\)/);
+    /* 국내는 DART 쪽이 더 길게 있는 경우가 많다.
+       단 두 출처를 같은 이름표로 줄여서 세워야 한다 — 아래 '열이
+       중복되지 않는다' 묶음 참고 */
+    expect(코드).toMatch(/\.\.\.fin\.map\(\(r: any\) => periodLabel\(String\(r\.period\)\)\)/);
   });
 
   it("분기는 라벨이 어긋나므로 섞지 않는다", () => {
@@ -261,5 +263,47 @@ describe("5. 질의 배선 — 안 부르거나 헛부르는 곳이 없다", () 
     /* 미리받기 1(일별) + 차트 1 + 일별 1 = 셋. 앞부분을 맞춰 뒀기에
        같은 기간·봉이면 react-query 가 하나로 합친다 */
     expect((코드.match(/queryKey: \["stock-ohlcv", m, sym/g) ?? []).length).toBe(3);
+  });
+});
+
+describe("헤더 배지는 한 줄로", () => {
+  it("접히지 않고 가로로 민다", () => {
+    /* flex-wrap 이면 시장·업종·실적·보유가 늘어날수록 두 줄, 세 줄로
+       접히고 그만큼 차트가 아래로 밀린다 */
+    const i = 코드.indexOf('{sym.replace(".KS","").replace(".KQ","")}</span>');
+    expect(i, "배지 줄을 못 찾음").toBeGreaterThan(-1);
+    const 여는태그 = 코드.slice(Math.max(0, i - 400), i);
+    expect(여는태그, "아직 flex-wrap 이라 접힌다").not.toMatch(/gap-2 mt-1 flex-wrap/);
+    expect(여는태그).toMatch(/overflow-x-auto scrollbar-hide/);
+  });
+
+  it("배지가 눌려 찌그러지지 않는다", () => {
+    /* 한 줄에 몰아넣으면 flex 가 각 배지를 줄여 버려서 글자가 잘린다.
+       시장·업종·실적·보유 넷 다 안 줄어들게 못 박는다 */
+    expect((코드.match(/flex-shrink-0 whitespace-nowrap/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("재무제표 열이 중복되지 않는다", () => {
+  it("두 출처를 같은 이름표로 줄인다", () => {
+    /* financials 가 야후 폴백을 타면 period 가 "2025-06-30" 처럼 날짜로
+       온다. 그대로 쓰면 같은 자료가 "2025"(야후 쪽, 줄인 것) 와
+       "2025-06-30"(그대로) 두 열로 서서 값이 똑같은 칸이 나란히 찍혔다 */
+    expect(코드, "financials 기간을 안 줄이고 그대로 쓴다")
+      .not.toMatch(/fin\.map\(\(r: any\) => String\(r\.period\)\)/);
+    expect(코드).toMatch(/fin\.map\(\(r: any\) => periodLabel\(String\(r\.period\)\)\)/);
+  });
+
+  it("값을 찾는 자리도 같은 이름표를 쓴다", () => {
+    /* 열은 줄여 놓고 찾을 때 원본 키로 찾으면 영영 못 찾는다 */
+    expect(코드).toMatch(/fin\.map\(\(r: any\) => \[periodLabel\(String\(r\.period\)\), r\]\)/);
+  });
+
+  it("이름표 함수가 두 곳에 따로 있지 않다", () => {
+    /* 따로 두면 한쪽만 고쳐서 또 어긋난다.
+       (2540줄 근처의 컨센서스 표는 다른 스코프의 별개 함수다) */
+    const 재무구간 = 코드.slice(코드.indexOf("const finTabData = useMemo"),
+                                코드.indexOf("const priceItems = useMemo"));
+    expect((재무구간.match(/const periodLabel = /g) ?? []).length).toBe(1);
   });
 });

@@ -721,11 +721,20 @@ export default function StockDetail() {
          FMP   연간 "2024", 분기 "2024-03"
        연간은 셋 다 "2024" 로 정확히 같다. 분기는 DART 가 분기 개념 자체가
        달라(1분기·반기·3분기) 야후와 섞으면 열이 어긋나므로, 야후 쪽이
-       아예 비었을 때만 financials 의 라벨을 그대로 쓴다. */
+       아예 비었을 때만 financials 를 쓴다.
+
+       **양쪽을 반드시 같은 이름표로 줄여야 한다.** financials 가 야후 폴백을
+       타면 period 가 "2025-06-30" 처럼 날짜로 온다. 그대로 쓰면 같은 자료가
+       "2025"(야후 쪽, 줄인 것) 와 "2025-06-30"(그대로) 두 열로 서서 값이
+       똑같은 칸이 나란히 찍혔다. */
+    // 기간 레이블 (연간: YYYY, 분기: YYYY-QQ) — 두 출처가 같이 쓴다
+    const periodLabel = (p: string) => finPeriod === "quarterly" ? p.slice(0,7) : p.slice(0,4);
+
     const finRaw: any[] = (financials as any)?.[finPeriod] ?? [];
     const 연간인가 = finPeriod === "annual";
     const fin: any[] = (연간인가 || mh.length === 0) ? finRaw : [];
-    const finByPeriod = new Map<string, any>(fin.map((r: any) => [String(r.period), r]));
+    const finByPeriod = new Map<string, any>(
+      fin.map((r: any) => [periodLabel(String(r.period)), r]));
 
     // metrics-history 최신값으로 detail의 None 보완
     const mhLatest = [...mh].sort((a,b)=>b.period.localeCompare(a.period))[0] ?? {};
@@ -769,13 +778,16 @@ export default function StockDetail() {
       payout_ratio:    d?.payout_ratio    ?? fd.payout_ratio    ?? null,
     };
 
-    // 기간 레이블 (연간: YYYY, 분기: YYYY-QQ)
-    const periodLabel = (p: string) => finPeriod === "quarterly" ? p.slice(0,7) : p.slice(0,4);
     /* 야후 연도 ∪ DART·FMP 연도. 야후에 없는 연도가 financials 에만 있으면
-       그 열도 세운다 — 국내 종목은 이쪽이 더 길게 있는 경우가 많다 */
+       그 열도 세운다 — 국내 종목은 이쪽이 더 길게 있는 경우가 많다.
+
+       두 쪽 다 같은 이름표로 줄여야 한다. 처음에는 financials 의 period 를
+       그대로 썼는데, 그쪽이 야후 폴백을 타면 "2025-06-30" 처럼 날짜가 통째로
+       온다. 그러면 같은 자료가 "2025"(야후, 줄인 것) 와 "2025-06-30"(그대로)
+       두 열로 서서, 값이 똑같은 칸이 나란히 찍혔다. */
     const mhYears = [...new Set([
       ...mh.map((r: any) => periodLabel(r.period)),
-      ...fin.map((r: any) => String(r.period)),
+      ...fin.map((r: any) => periodLabel(String(r.period))),
     ])].sort() as string[];
 
     /* 컨센서스(예측) 연도를 실적 옆에 붙인다.
@@ -986,23 +998,28 @@ export default function StockDetail() {
             <h1 className="text-2xl font-bold text-text-primary leading-tight">
               {d?.name && d.name !== sym ? d.name : sym.replace(".KS","").replace(".KQ","")}
             </h1>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="text-base font-mono text-text-muted">{sym.replace(".KS","").replace(".KQ","")}</span>
+            {/* 배지는 한 줄로 둔다.
+                예전에는 flex-wrap 이라 시장·업종·실적·보유가 늘어날수록
+                두 줄, 세 줄로 접혔고 그만큼 차트가 아래로 밀렸다.
+                대신 넘치면 가로로 밀어서 본다 — 접히는 것보다 낫다.
+                (scrollbar-hide 는 앱 전역에서 쓰는 것과 같다) */}
+            <div className="flex items-center gap-2 mt-1 overflow-x-auto scrollbar-hide">
+              <span className="text-base font-mono text-text-muted flex-shrink-0">{sym.replace(".KS","").replace(".KQ","")}</span>
               {/* 색은 토큰으로 쓴다 — 이 파일에서 Tailwind 팔레트를 직접
                   부르던 유일한 자리였다(text-blue-400 / bg-green-900 등).
                   이름도 라우트 파라미터(m)를 그대로 찍어 국내는 늘 'KR' 이었는데,
                   응답에는 KOSPI/KOSDAQ 구분이 들어 있다. */}
-              <span className={`text-xs px-1.5 py-0.5 rounded border font-bold ${
+              <span className={`text-xs px-1.5 py-0.5 rounded border font-bold flex-shrink-0 whitespace-nowrap ${
                 isETF ? "border-accent-purple/50 text-accent-purple bg-accent-purple/10"
                 : isKR ? "border-accent-blue/50 text-accent-blue bg-accent-blue/10"
                 : "border-accent-green/50 text-accent-green bg-accent-green/10"}`}>
                 {isETF ? "ETF" : (isKR ? (d?.market ?? "KR") : m)}
               </span>
-              {d?.sector && <span className="text-xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted">{d.sector}</span>}
+              {d?.sector && <span className="text-xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted flex-shrink-0 whitespace-nowrap">{d.sector}</span>}
               {/* 다음 실적발표 — 뉴스 탭 안쪽에 묻혀 있어서 보려면
                   탭을 옮기고 스크롤해야 했다 */}
               {실적Dday && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-accent-yellow/10 border border-accent-yellow/30 text-accent-yellow font-semibold">
+                <span className="text-xs px-1.5 py-0.5 rounded bg-accent-yellow/10 border border-accent-yellow/30 text-accent-yellow font-semibold flex-shrink-0 whitespace-nowrap">
                   실적 {실적Dday}
                 </span>
               )}
@@ -1011,7 +1028,7 @@ export default function StockDetail() {
                   않는다. 환율·계좌별 규칙은 내 자산 화면이 갖고 있어서, 두 번
                   계산하면 두 화면의 숫자가 갈라진다. */}
               {내보유 && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-accent-green/10 border border-accent-green/30 text-accent-green font-semibold">
+                <span className="text-xs px-1.5 py-0.5 rounded bg-accent-green/10 border border-accent-green/30 text-accent-green font-semibold flex-shrink-0 whitespace-nowrap">
                   보유 {내보유.수량.toLocaleString("ko-KR")}주 · 평단 {
                     isKR ? `₩${Math.round(내보유.평단).toLocaleString("ko-KR")}` : `$${내보유.평단.toFixed(2)}`
                   }
