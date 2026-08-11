@@ -2108,7 +2108,65 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
         except Exception:
             return {"holdings": [], "sector_weights": []}
 
+    def _fetch_kr() -> dict:
+        """국내 ETF 구성종목 — KRX 의 PDF(납입자산구성내역).
+
+        yfinance 는 국내 ETF 의 구성종목을 거의 못 준다(funds_data 가 비어
+        온다). 그래서 국내는 KRX 를 직접 본다 — 수급 탭이 쓰는 것과 같은
+        pykrx 다.
+
+        PDF 는 전 영업일 기준으로 올라오므로 오늘 날짜로 물으면 빈다.
+        며칠 뒤로 물러가며 채워진 날을 찾는다.
+        """
+        code = symbol.replace(".KS", "").replace(".KQ", "")
+        if not code.isdigit():
+            return {"holdings": [], "sector_weights": []}
+        try:
+            from datetime import datetime, timedelta
+            from app.core import pykrx_light
+            pkrx = pykrx_light.stock()
+
+            df = None
+            오늘 = datetime.today()
+            for 뒤로 in range(0, 7):
+                ymd = (오늘 - timedelta(days=뒤로)).strftime("%Y%m%d")
+                try:
+                    후보 = pkrx.get_etf_portfolio_deposit_file(ymd, code)
+                except Exception:
+                    continue
+                if 후보 is not None and not 후보.empty:
+                    df = 후보
+                    break
+            if df is None:
+                return {"holdings": [], "sector_weights": []}
+
+            rows = []
+            for 종목코드, row in df.iterrows():
+                코드 = str(종목코드).strip()
+                # 현금·원화예금 같은 항목은 코드가 비거나 숫자가 아니다
+                비중 = float(row.get("비중", 0) or 0)
+                if 비중 <= 0:
+                    continue
+                이름 = ""
+                try:
+                    이름 = pkrx.get_market_ticker_name(코드) or ""
+                except Exception:
+                    pass
+                rows.append({
+                    "symbol": 코드 if 코드.isdigit() else "",
+                    "name": 이름 or 코드,
+                    "pct": 비중,
+                    "value": float(row.get("금액", 0) or 0),
+                })
+            rows.sort(key=lambda x: x["pct"], reverse=True)
+            return {"holdings": rows[:25], "sector_weights": []}
+        except Exception:
+            return {"holdings": [], "sector_weights": []}
+
     result = await _run(_fetch)
+    # 국내 ETF 는 야후가 비워서 보내는 일이 잦다 — 그때만 KRX 를 본다
+    if not result.get("holdings") and symbol.replace(".KS", "").replace(".KQ", "").isdigit():
+        result = await _run(_fetch_kr)
     # 데이터가 있으면 1시간, 없으면 5분 캐시 (재시도 빠르게)
     cache.set(ck, result, 3600 if (result["holdings"] or result["sector_weights"]) else 300)
     return result

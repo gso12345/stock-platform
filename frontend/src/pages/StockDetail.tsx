@@ -20,6 +20,7 @@ import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, fmtVolume } from "@/utils/formatters";
 import { safeExternalUrl } from "@/utils/url";
+import { isETFStock } from "@/utils/etf";
 import { 격자, 축, 툴팁 } from "@/utils/chartTheme";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
@@ -628,9 +629,13 @@ export default function StockDetail() {
 
   const d = detail as any;
 
-  // 한국 ETF 감지: 종목명에 "ETF" 포함 여부
-  const isKRETF = isKR && /\bETF\b/i.test(d?.name ?? "");
-  const isETF = m === "ETF" || isKRETF;
+  /* 국내 ETF 감지.
+     예전에는 이름에 "ETF" 가 들어가는지만 봤는데, 국내 ETF 이름은 그렇게
+     짓지 않는다(KODEX 200, TIGER 미국나스닥100). 그래서 사실상 모든 국내
+     ETF 가 일반 종목으로 취급돼 '보유비중' 대신 '재무제표'·'투자의견'·'수급'
+     탭이 뜨고, 그 탭들은 ETF 라 텅 비었다. utils/etf 참고 */
+  const isETF = isETFStock(m, d?.name);
+  const isKRETF = isKR && isETF;
 
   /* 탭 목록은 한 곳에서만 만든다.
      예전에는 그리는 곳(아래 탭 줄)과 숫자키 단축키가 각자 목록을 들고 있었다.
@@ -704,6 +709,24 @@ export default function StockDetail() {
     );
     const fcst: any[] = ((forecasts as any)?.annual ?? []).filter((r:any) => r.type === "forecast");
 
+    /* 표는 metrics-history(야후) 만 보고 있었다. 그런데 국내 종목은 야후에
+       재무가 비는 일이 흔해서, 바로 위 막대 차트는 DART 값으로 멀쩡히
+       그려지는데 아래 표는 통째로 '연결 중...' 이었다 — 같은 카드 안에서.
+       financials 응답(국내 DART / 해외 FMP)을 두 번째 출처로 쓴다.
+       이미 받아 둔 것이라 새 요청이 없다.
+
+       기간 라벨이 맞아떨어지는지가 관건이다.
+         야후  "2024-12-31" → periodLabel 로 연간 "2024", 분기 "2024-12"
+         DART  연간 "2024", 분기 "2024Q1"/"2024H1"/"2024Q3"
+         FMP   연간 "2024", 분기 "2024-03"
+       연간은 셋 다 "2024" 로 정확히 같다. 분기는 DART 가 분기 개념 자체가
+       달라(1분기·반기·3분기) 야후와 섞으면 열이 어긋나므로, 야후 쪽이
+       아예 비었을 때만 financials 의 라벨을 그대로 쓴다. */
+    const finRaw: any[] = (financials as any)?.[finPeriod] ?? [];
+    const 연간인가 = finPeriod === "annual";
+    const fin: any[] = (연간인가 || mh.length === 0) ? finRaw : [];
+    const finByPeriod = new Map<string, any>(fin.map((r: any) => [String(r.period), r]));
+
     // metrics-history 최신값으로 detail의 None 보완
     const mhLatest = [...mh].sort((a,b)=>b.period.localeCompare(a.period))[0] ?? {};
     const fd = (fundamentalsData as any) ?? {};
@@ -748,7 +771,12 @@ export default function StockDetail() {
 
     // 기간 레이블 (연간: YYYY, 분기: YYYY-QQ)
     const periodLabel = (p: string) => finPeriod === "quarterly" ? p.slice(0,7) : p.slice(0,4);
-    const mhYears = [...new Set(mh.map((r:any) => periodLabel(r.period)))].sort() as string[];
+    /* 야후 연도 ∪ DART·FMP 연도. 야후에 없는 연도가 financials 에만 있으면
+       그 열도 세운다 — 국내 종목은 이쪽이 더 길게 있는 경우가 많다 */
+    const mhYears = [...new Set([
+      ...mh.map((r: any) => periodLabel(r.period)),
+      ...fin.map((r: any) => String(r.period)),
+    ])].sort() as string[];
 
     /* 컨센서스(예측) 연도를 실적 옆에 붙인다.
        그리는 배관은 원래 다 있었다 — 헤더는 "E" 로 끝나는 연도를 다르게
@@ -782,12 +810,16 @@ export default function StockDetail() {
         return row[예측키[key] ?? key] ?? null;
       }
       const row = mh.find((r:any) => periodLabel(r.period) === year);
-      return row?.[key] ?? null;
+      const v = row?.[key];
+      if (v != null) return v;
+      /* 야후가 못 준 칸은 DART(국내)·FMP(해외) 값으로 채운다.
+         이게 없으면 국내 종목 표가 통째로 비어 보였다 */
+      return finByPeriod.get(year)?.[key] ?? null;
     };
 
     return { mh, fcst, dEnhanced, periodLabel, mhYears, allYears, getVal };
   }, [
-    metricsHistory, forecasts, fundamentalsData, finPeriod,
+    metricsHistory, forecasts, fundamentalsData, financials, finPeriod,
     d?.price, d?.per, d?.pbr, d?.psr, d?.eps, d?.bps, d?.roe, d?.roa,
     d?.op_margin, d?.net_margin, d?.gross_margin, d?.debt_ratio,
     d?.current_ratio, d?.quick_ratio, d?.forward_per, d?.peg,
@@ -843,9 +875,6 @@ export default function StockDetail() {
                              : null },
       /* 아래는 응답에 실려 오는데 화면에 한 번도 안 쓰던 것들이다.
          새 요청이 늘지 않으므로 그냥 보여 주는 편이 낫다. */
-      // 외국인 지분율 — 국내 종목만. 수급 탭과 짝이 되는 값이다
-      ...(d.foreign_rate != null
-        ? [{ label:"외국인비중", v: `${d.foreign_rate.toFixed(2)}%` }] : []),
       // 유통 주식 수·비율 — 해외 종목만 온다
       ...(d.shares_outstanding != null
         ? [{ label:"상장주식수", v: fmtVolume(d.shares_outstanding, isKR) }] : []),
@@ -856,7 +885,7 @@ export default function StockDetail() {
       ...(d.ma200 != null ? [{ label:"200일선", v: fmtPx(d.ma200) }] : []),
     ] as { label: string; v: string | null; color?: string }[];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d?.open, d?.high, d?.low, d?.prev_close, d?.volume, d?.price, d?.amount, d?.market_cap, d?.week52_high, d?.week52_low, d?.dividend_yield, d?.foreign_rate, d?.shares_outstanding, d?.float_shares, d?.ma50, d?.ma200, 기본PER, 기본EPS, isKR, showKRW, exchangeRate, fmt]);
+  }, [d?.open, d?.high, d?.low, d?.prev_close, d?.volume, d?.price, d?.amount, d?.market_cap, d?.week52_high, d?.week52_low, d?.dividend_yield, d?.shares_outstanding, d?.float_shares, d?.ma50, d?.ma200, 기본PER, 기본EPS, isKR, showKRW, exchangeRate, fmt]);
   const priceStr = d?.price != null
     ? isKR ? `₩${d.price.toLocaleString("ko-KR")}`
       : showKRW ? `₩${Math.round(d.price * exchangeRate).toLocaleString("ko-KR")}`
@@ -992,52 +1021,66 @@ export default function StockDetail() {
           </div>
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0 relative" ref={folderMenuRef}>
-          <button
-            onClick={() => {
-              if (!isLoggedIn) {
-                navigate("/login");
-                return;
-              }
-              if (inWatchlist && watchlistItemId) {
-                removeMutation.mutate(watchlistItemId);
-              } else if (!inWatchlist && !addMutation.isPending) {
-                setFolderMenuOpen(v => !v);
-              }
-            }}
-            disabled={addMutation.isPending || removeMutation.isPending}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-base font-medium transition-all ${
-              inWatchlist
-                ? "border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow hover:bg-accent-red/10 hover:border-accent-red/50 hover:text-accent-red"
-                : "border-border text-text-muted hover:border-accent-yellow/60 hover:text-accent-yellow"
-            }`}
-          >
-            <Star size={14} fill={inWatchlist ? "currentColor" : "none"}/>
-            {addMutation.isPending ? "추가 중..." : removeMutation.isPending ? "제거 중..." : inWatchlist ? "관심종목" : "추가"}
-          </button>
+          {/* 세 버튼을 한 줄에 눕힌다.
+              담기·공유가 생기면서 세로로 3층이 쌓였고, 휴대폰에서는 그
+              세로줄이 종목명 옆을 차지해 이름이 두 줄로 접히고 화면 위쪽이
+              통째로 버튼 자리가 됐다.
+              좁은 화면에서는 관심종목 버튼의 글자를 숨겨 아이콘 세 개만
+              나란히 둔다 — 셋 다 44×44 라 손가락에는 그대로 맞는다. */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                if (!isLoggedIn) {
+                  navigate("/login");
+                  return;
+                }
+                if (inWatchlist && watchlistItemId) {
+                  removeMutation.mutate(watchlistItemId);
+                } else if (!inWatchlist && !addMutation.isPending) {
+                  setFolderMenuOpen(v => !v);
+                }
+              }}
+              disabled={addMutation.isPending || removeMutation.isPending}
+              aria-label={inWatchlist ? "관심종목에서 빼기" : "관심종목에 넣기"}
+              aria-pressed={inWatchlist}
+              className={`flex items-center justify-center gap-1.5 w-11 h-11 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-xl border text-base font-medium transition-all ${
+                inWatchlist
+                  ? "border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow hover:bg-accent-red/10 hover:border-accent-red/50 hover:text-accent-red"
+                  : "border-border text-text-muted hover:border-accent-yellow/60 hover:text-accent-yellow"
+              }`}
+            >
+              <Star size={16} className="sm:hidden" fill={inWatchlist ? "currentColor" : "none"}/>
+              <Star size={14} className="hidden sm:block" fill={inWatchlist ? "currentColor" : "none"}/>
+              {/* 글자는 넓은 화면에서만. 진행 중 표시도 같이 숨긴다 */}
+              <span className="hidden sm:inline">
+                {addMutation.isPending ? "추가 중..." : removeMutation.isPending ? "제거 중..." : inWatchlist ? "관심종목" : "추가"}
+              </span>
+            </button>
 
-          {/* 담기 — 관심종목(보고 싶다)과 보유(샀다)는 다른 일이다.
-              예전에는 종목상세에서 내 자산으로 가는 길이 아예 없어서,
-              방금 보던 종목을 내 자산에서 이름으로 다시 검색해야 했다.
-              모달은 관심종목 화면이 쓰는 것을 그대로 쓴다. */}
-          <button
-            aria-label="보유종목에 담기"
-            title="보유종목에 담기"
-            onClick={() => { if (!isLoggedIn) { navigate("/login"); return; } set담기열림(true); }}
-            className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-green/60 hover:text-accent-green transition-all"
-          >
-            <Wallet size={15}/>
-          </button>
+            {/* 담기 — 관심종목(보고 싶다)과 보유(샀다)는 다른 일이다.
+                예전에는 종목상세에서 내 자산으로 가는 길이 아예 없어서,
+                방금 보던 종목을 내 자산에서 이름으로 다시 검색해야 했다.
+                모달은 관심종목 화면이 쓰는 것을 그대로 쓴다. */}
+            <button
+              aria-label="보유종목에 담기"
+              title="보유종목에 담기"
+              onClick={() => { if (!isLoggedIn) { navigate("/login"); return; } set담기열림(true); }}
+              className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-green/60 hover:text-accent-green transition-all"
+            >
+              <Wallet size={16}/>
+            </button>
 
-          {/* 공유 — 앱의 다른 곳(피드·글 상세)이 쓰는 복사 방식과 같다.
-              지금 보고 있는 탭까지 주소에 남겨, 받은 사람이 같은 화면을 연다 */}
-          <button
-            aria-label={복사됨 ? "주소 복사됨" : "주소 복사"}
-            title="주소 복사"
-            onClick={공유하기}
-            className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-blue/60 hover:text-accent-blue transition-all"
-          >
-            {복사됨 ? <Check size={15} className="text-accent-green"/> : <Share2 size={15}/>}
-          </button>
+            {/* 공유 — 앱의 다른 곳(피드·글 상세)이 쓰는 복사 방식과 같다.
+                지금 보고 있는 탭까지 주소에 남겨, 받은 사람이 같은 화면을 연다 */}
+            <button
+              aria-label={복사됨 ? "주소 복사됨" : "주소 복사"}
+              title="주소 복사"
+              onClick={공유하기}
+              className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-blue/60 hover:text-accent-blue transition-all"
+            >
+              {복사됨 ? <Check size={16} className="text-accent-green"/> : <Share2 size={16}/>}
+            </button>
+          </div>
 
           {watchlistMsg && (
             <span className="text-xs text-text-muted animate-fade-in">{watchlistMsg}</span>
@@ -1241,23 +1284,33 @@ export default function StockDetail() {
             쓰고 있었다. ui/index.tsx 주석의 '모두 이걸 쓴다' 목록에도,
             일부러 안 옮긴 예외 목록에도 종목상세만 빠져 있었다.
             덤으로 role="tablist"/aria-selected 가 따라온다. */}
+        {/* 알약 모양 그대로 둔다 — 항목이 일곱 개라 가로로 길고, 눌러서
+            거르는 '필터' 에 가깝다. 공용 Tabs 로 옮겨 봤더니 칸을 나눠
+            가지면서 글자가 눌려 읽기 나빠졌다.
+            다만 공용 Tabs 가 주던 것(역할·선택 상태)은 손으로 붙여 둔다 —
+            화면 읽어주는 기능이 "탭 목록, 3/7 선택됨" 으로 읽는다. */}
         {mainTab==="financial" && (
-          <Tabs
-            ariaLabel="재무제표 항목"
-            fill={false}
-            className="overflow-x-auto scrollbar-hide"
-            active={finSubTab}
-            onChange={(v) => setFinSubTab(v as typeof finSubTab)}
-            tabs={[
-              { id:"basic",         label:"기본 지표" },
-              { id:"income",        label:"손익계산서" },
-              { id:"valuation",     label:"밸류에이션" },
-              { id:"profitability", label:"수익성" },
-              { id:"health",        label:"재무건전성" },
-              { id:"cashflow",      label:"현금흐름" },
-              { id:"custom",        label:"사용자설정" },
-            ]}
-          />
+          <div role="tablist" aria-label="재무제표 항목"
+               className="flex gap-1 overflow-x-auto scrollbar-hide">
+            {([
+              { value:"basic",         label:"기본 지표" },
+              { value:"income",        label:"손익계산서" },
+              { value:"valuation",     label:"밸류에이션" },
+              { value:"profitability", label:"수익성" },
+              { value:"health",        label:"재무건전성" },
+              { value:"cashflow",      label:"현금흐름" },
+              { value:"custom",        label:"사용자설정" },
+            ] as const).map(({ value, label })=>(
+              <button key={value} role="tab" aria-selected={finSubTab===value}
+                onClick={()=>setFinSubTab(value)}
+                className={`px-3 py-1.5 text-sm font-semibold rounded-full whitespace-nowrap transition-all flex-shrink-0 ${
+                  finSubTab===value
+                    ? "bg-accent-blue text-white"
+                    : "bg-bg-card border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+                }`}
+              >{label}</button>
+            ))}
+          </div>
         )}
       </div>
 

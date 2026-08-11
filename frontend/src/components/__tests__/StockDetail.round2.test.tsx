@@ -50,8 +50,14 @@ describe("잘못된 정보를 보여 주지 않는다", () => {
 });
 
 describe("받아 놓고 안 쓰던 것을 보여 준다", () => {
+  it("외국인 지분율은 빼 두었다", () => {
+    /* 한 번 넣었다가 뺐다 — 통계 칸이 이미 빽빽한데 굳이 필요하지
+       않다는 판단이었다. 수급 탭에 투자자별 흐름이 따로 있다 */
+    const 코드2 = 원본.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    expect(코드2).not.toMatch(/foreign_rate/);
+  });
+
   it.each([
-    ["외국인 지분율", /d\.foreign_rate != null/],
     ["상장주식수",    /d\.shares_outstanding/],
     ["이동평균",      /d\.ma50/],
     ["EPS 성장률",    /key:"eps_growth"/],
@@ -149,10 +155,13 @@ describe("끊겨 있던 길을 잇는다", () => {
 });
 
 describe("모양을 앱에 맞춘다", () => {
-  it("재무제표 서브탭도 공용 Tabs 를 쓴다", () => {
-    /* 여기만 알약 모양이라 한 화면에 서브탭이 두 가지로 보였다 */
-    expect(코드).not.toMatch(/rounded-full[^"]*"[^)]*finSubTab/);
-    expect(코드).toMatch(/ariaLabel="재무제표 항목"/);
+  it("재무제표 서브탭은 알약 모양으로 두되 역할은 붙인다", () => {
+    /* 한때 공용 Tabs 로 옮겼는데, 항목이 일곱 개라 칸을 나눠 가지면서
+       글자가 눌려 읽기 나빠졌다. 모양은 알약으로 되돌리고, 공용 Tabs 가
+       주던 것(역할·선택 상태)만 손으로 붙여 뒀다.
+       자세한 검사는 round3 테스트에 있다 */
+    expect(코드).toMatch(/aria-label="재무제표 항목"/);
+    expect(코드).toMatch(/aria-selected=\{finSubTab===value\}/);
   });
 
   it("글자 크기를 px 로 못 박지 않는다", () => {
