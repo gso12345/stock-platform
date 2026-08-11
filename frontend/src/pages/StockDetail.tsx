@@ -991,135 +991,128 @@ export default function StockDetail() {
   return (
     <div className="flex flex-col gap-4 fade-in">
       {/* 헤더 */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <button aria-label="뒤로 가기" onClick={()=>navigate(-1)} className="mt-0.5 -ml-2 w-11 h-11 flex items-center justify-center rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors"><ArrowLeft size={18}/></button>
-          <div>
-            <h1 className="text-2xl font-bold text-text-primary leading-tight">
-              {d?.name && d.name !== sym ? d.name : sym.replace(".KS","").replace(".KQ","")}
-            </h1>
-            {/* 배지는 한 줄로 둔다.
-                예전에는 flex-wrap 이라 시장·업종·실적·보유가 늘어날수록
-                두 줄, 세 줄로 접혔고 그만큼 차트가 아래로 밀렸다.
-                대신 넘치면 가로로 밀어서 본다 — 접히는 것보다 낫다.
-                (scrollbar-hide 는 앱 전역에서 쓰는 것과 같다) */}
-            <div className="flex items-center gap-2 mt-1 overflow-x-auto scrollbar-hide">
-              <span className="text-base font-mono text-text-muted flex-shrink-0">{sym.replace(".KS","").replace(".KQ","")}</span>
-              {/* 색은 토큰으로 쓴다 — 이 파일에서 Tailwind 팔레트를 직접
-                  부르던 유일한 자리였다(text-blue-400 / bg-green-900 등).
-                  이름도 라우트 파라미터(m)를 그대로 찍어 국내는 늘 'KR' 이었는데,
-                  응답에는 KOSPI/KOSDAQ 구분이 들어 있다. */}
-              <span className={`text-xs px-1.5 py-0.5 rounded border font-bold flex-shrink-0 whitespace-nowrap ${
-                isETF ? "border-accent-purple/50 text-accent-purple bg-accent-purple/10"
-                : isKR ? "border-accent-blue/50 text-accent-blue bg-accent-blue/10"
-                : "border-accent-green/50 text-accent-green bg-accent-green/10"}`}>
-                {isETF ? "ETF" : (isKR ? (d?.market ?? "KR") : m)}
-              </span>
-              {d?.sector && <span className="text-xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted flex-shrink-0 whitespace-nowrap">{d.sector}</span>}
-              {/* 다음 실적발표 — 뉴스 탭 안쪽에 묻혀 있어서 보려면
-                  탭을 옮기고 스크롤해야 했다 */}
-              {실적Dday && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-accent-yellow/10 border border-accent-yellow/30 text-accent-yellow font-semibold flex-shrink-0 whitespace-nowrap">
-                  실적 {실적Dday}
-                </span>
-              )}
-              {/* 내가 가진 것 — 종목을 보면서 '나는 얼마에 샀더라' 를 확인하러
-                  내 자산으로 건너갈 필요가 없게 한다. 손익은 여기서 계산하지
-                  않는다. 환율·계좌별 규칙은 내 자산 화면이 갖고 있어서, 두 번
-                  계산하면 두 화면의 숫자가 갈라진다. */}
-              {내보유 && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-accent-green/10 border border-accent-green/30 text-accent-green font-semibold flex-shrink-0 whitespace-nowrap">
-                  보유 {내보유.수량.toLocaleString("ko-KR")}주 · 평단 {
-                    isKR ? `₩${Math.round(내보유.평단).toLocaleString("ko-KR")}` : `$${내보유.평단.toFixed(2)}`
-                  }
-                </span>
-              )}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <button aria-label="뒤로 가기" onClick={()=>navigate(-1)} className="mt-0.5 -ml-2 w-11 h-11 flex items-center justify-center rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors"><ArrowLeft size={18}/></button>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold text-text-primary leading-tight truncate">
+                {d?.name && d.name !== sym ? d.name : sym.replace(".KS","").replace(".KQ","")}
+              </h1>
             </div>
+          </div>
+          <div className="flex flex-col items-end gap-1 flex-shrink-0 relative" ref={folderMenuRef}>
+            {/* 세 버튼을 한 줄에 눕힌다.
+                담기·공유가 생기면서 세로로 3층이 쌓였고, 휴대폰에서는 그
+                세로줄이 종목명 옆을 차지해 이름이 두 줄로 접히고 화면 위쪽이
+                통째로 버튼 자리가 됐다.
+                좁은 화면에서는 관심종목 버튼의 글자를 숨겨 아이콘 세 개만
+                나란히 둔다 — 셋 다 44×44 라 손가락에는 그대로 맞는다. */}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => {
+                  if (!isLoggedIn) {
+                    navigate("/login");
+                    return;
+                  }
+                  if (inWatchlist && watchlistItemId) {
+                    removeMutation.mutate(watchlistItemId);
+                  } else if (!inWatchlist && !addMutation.isPending) {
+                    setFolderMenuOpen(v => !v);
+                  }
+                }}
+                disabled={addMutation.isPending || removeMutation.isPending}
+                aria-label={inWatchlist ? "관심종목에서 빼기" : "관심종목에 넣기"}
+                aria-pressed={inWatchlist}
+                className={`flex items-center justify-center gap-1.5 w-11 h-11 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-xl border text-base font-medium transition-all ${
+                  inWatchlist
+                    ? "border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow hover:bg-accent-red/10 hover:border-accent-red/50 hover:text-accent-red"
+                    : "border-border text-text-muted hover:border-accent-yellow/60 hover:text-accent-yellow"
+                }`}
+              >
+                <Star size={16} className="sm:hidden" fill={inWatchlist ? "currentColor" : "none"}/>
+                <Star size={14} className="hidden sm:block" fill={inWatchlist ? "currentColor" : "none"}/>
+                {/* 글자는 넓은 화면에서만. 진행 중 표시도 같이 숨긴다 */}
+                <span className="hidden sm:inline">
+                  {addMutation.isPending ? "추가 중..." : removeMutation.isPending ? "제거 중..." : inWatchlist ? "관심종목" : "추가"}
+                </span>
+              </button>
+
+              {/* 담기 — 관심종목(보고 싶다)과 보유(샀다)는 다른 일이다.
+                  예전에는 종목상세에서 내 자산으로 가는 길이 아예 없어서,
+                  방금 보던 종목을 내 자산에서 이름으로 다시 검색해야 했다.
+                  모달은 관심종목 화면이 쓰는 것을 그대로 쓴다. */}
+              <button
+                aria-label="보유종목에 담기"
+                title="보유종목에 담기"
+                onClick={() => { if (!isLoggedIn) { navigate("/login"); return; } set담기열림(true); }}
+                className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-green/60 hover:text-accent-green transition-all"
+              >
+                <Wallet size={16}/>
+              </button>
+
+              {/* 공유 — 앱의 다른 곳(피드·글 상세)이 쓰는 복사 방식과 같다.
+                  지금 보고 있는 탭까지 주소에 남겨, 받은 사람이 같은 화면을 연다 */}
+              <button
+                aria-label={복사됨 ? "주소 복사됨" : "주소 복사"}
+                title="주소 복사"
+                onClick={공유하기}
+                className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-blue/60 hover:text-accent-blue transition-all"
+              >
+                {복사됨 ? <Check size={16} className="text-accent-green"/> : <Share2 size={16}/>}
+              </button>
+            </div>
+
+            {watchlistMsg && (
+              <span className="text-xs text-text-muted animate-fade-in">{watchlistMsg}</span>
+            )}
+            {folderMenuOpen && !inWatchlist && (
+              <div className="absolute top-full mt-1 right-0 z-20 w-44 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
+                <button
+                  onClick={() => { addMutation.mutate(null); setFolderMenuOpen(false); }}
+                  className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
+                >
+                  기본 (폴더 없음)
+                </button>
+                {(watchlistFolders as any[]).map((f: any) => (
+                  <button
+                    key={f.id}
+                    onClick={() => { addMutation.mutate(f.id); setFolderMenuOpen(false); }}
+                    className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors border-t border-border truncate"
+                  >
+                    {f.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1 flex-shrink-0 relative" ref={folderMenuRef}>
-          {/* 세 버튼을 한 줄에 눕힌다.
-              담기·공유가 생기면서 세로로 3층이 쌓였고, 휴대폰에서는 그
-              세로줄이 종목명 옆을 차지해 이름이 두 줄로 접히고 화면 위쪽이
-              통째로 버튼 자리가 됐다.
-              좁은 화면에서는 관심종목 버튼의 글자를 숨겨 아이콘 세 개만
-              나란히 둔다 — 셋 다 44×44 라 손가락에는 그대로 맞는다. */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => {
-                if (!isLoggedIn) {
-                  navigate("/login");
-                  return;
-                }
-                if (inWatchlist && watchlistItemId) {
-                  removeMutation.mutate(watchlistItemId);
-                } else if (!inWatchlist && !addMutation.isPending) {
-                  setFolderMenuOpen(v => !v);
-                }
-              }}
-              disabled={addMutation.isPending || removeMutation.isPending}
-              aria-label={inWatchlist ? "관심종목에서 빼기" : "관심종목에 넣기"}
-              aria-pressed={inWatchlist}
-              className={`flex items-center justify-center gap-1.5 w-11 h-11 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-xl border text-base font-medium transition-all ${
-                inWatchlist
-                  ? "border-accent-yellow/50 bg-accent-yellow/10 text-accent-yellow hover:bg-accent-red/10 hover:border-accent-red/50 hover:text-accent-red"
-                  : "border-border text-text-muted hover:border-accent-yellow/60 hover:text-accent-yellow"
-              }`}
-            >
-              <Star size={16} className="sm:hidden" fill={inWatchlist ? "currentColor" : "none"}/>
-              <Star size={14} className="hidden sm:block" fill={inWatchlist ? "currentColor" : "none"}/>
-              {/* 글자는 넓은 화면에서만. 진행 중 표시도 같이 숨긴다 */}
-              <span className="hidden sm:inline">
-                {addMutation.isPending ? "추가 중..." : removeMutation.isPending ? "제거 중..." : inWatchlist ? "관심종목" : "추가"}
-              </span>
-            </button>
 
-            {/* 담기 — 관심종목(보고 싶다)과 보유(샀다)는 다른 일이다.
-                예전에는 종목상세에서 내 자산으로 가는 길이 아예 없어서,
-                방금 보던 종목을 내 자산에서 이름으로 다시 검색해야 했다.
-                모달은 관심종목 화면이 쓰는 것을 그대로 쓴다. */}
-            <button
-              aria-label="보유종목에 담기"
-              title="보유종목에 담기"
-              onClick={() => { if (!isLoggedIn) { navigate("/login"); return; } set담기열림(true); }}
-              className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-green/60 hover:text-accent-green transition-all"
-            >
-              <Wallet size={16}/>
-            </button>
-
-            {/* 공유 — 앱의 다른 곳(피드·글 상세)이 쓰는 복사 방식과 같다.
-                지금 보고 있는 탭까지 주소에 남겨, 받은 사람이 같은 화면을 연다 */}
-            <button
-              aria-label={복사됨 ? "주소 복사됨" : "주소 복사"}
-              title="주소 복사"
-              onClick={공유하기}
-              className="flex items-center justify-center w-11 h-11 rounded-xl border border-border text-text-muted hover:border-accent-blue/60 hover:text-accent-blue transition-all"
-            >
-              {복사됨 ? <Check size={16} className="text-accent-green"/> : <Share2 size={16}/>}
-            </button>
-          </div>
-
-          {watchlistMsg && (
-            <span className="text-xs text-text-muted animate-fade-in">{watchlistMsg}</span>
+        {/* 배지는 이름·버튼 줄 아래에 따로 둔다.
+            이름 옆에 두면 휴대폰에서 자리를 다툰다. flex 안에서 배지는
+            안 줄어드는데(flex-shrink-0), 위쪽에 min-w-0 이 없으면 그 폭이
+            그대로 헤더를 밀어내 버튼이 화면 밖으로 나가고 가로 스크롤이
+            생겼다. 줄을 따로 내어 화면 폭을 다 쓰고, 넘치면 가로로 민다. */}
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
+          <span className="text-base font-mono text-text-muted flex-shrink-0">{sym.replace(".KS","").replace(".KQ","")}</span>
+          <span className={`text-xs px-1.5 py-0.5 rounded border font-bold flex-shrink-0 whitespace-nowrap ${
+            isETF ? "border-accent-purple/50 text-accent-purple bg-accent-purple/10"
+            : isKR ? "border-accent-blue/50 text-accent-blue bg-accent-blue/10"
+            : "border-accent-green/50 text-accent-green bg-accent-green/10"}`}>
+            {isETF ? "ETF" : (isKR ? (d?.market ?? "KR") : m)}
+          </span>
+          {d?.sector && <span className="text-xs px-1.5 py-0.5 rounded bg-bg-elevated border border-border text-text-muted flex-shrink-0 whitespace-nowrap">{d.sector}</span>}
+          {실적Dday && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-accent-yellow/10 border border-accent-yellow/30 text-accent-yellow font-semibold flex-shrink-0 whitespace-nowrap">
+              실적 {실적Dday}
+            </span>
           )}
-          {folderMenuOpen && !inWatchlist && (
-            <div className="absolute top-full mt-1 right-0 z-20 w-44 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
-              <button
-                onClick={() => { addMutation.mutate(null); setFolderMenuOpen(false); }}
-                className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
-              >
-                기본 (폴더 없음)
-              </button>
-              {(watchlistFolders as any[]).map((f: any) => (
-                <button
-                  key={f.id}
-                  onClick={() => { addMutation.mutate(f.id); setFolderMenuOpen(false); }}
-                  className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors border-t border-border truncate"
-                >
-                  {f.name}
-                </button>
-              ))}
-            </div>
+          {내보유 && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-accent-green/10 border border-accent-green/30 text-accent-green font-semibold flex-shrink-0 whitespace-nowrap">
+              보유 {내보유.수량.toLocaleString("ko-KR")}주 · 평단 {
+                isKR ? `₩${Math.round(내보유.평단).toLocaleString("ko-KR")}` : `$${내보유.평단.toFixed(2)}`
+              }
+            </span>
           )}
         </div>
       </div>
@@ -2998,10 +2991,17 @@ function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Market }) 
   if (!holdings.length && !sectors.length) return (
     <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
       <BarChart2 size={40} className="text-text-muted/30" />
-      <div className="text-center">
+      <div className="text-center px-6">
         <p className="text-text-muted text-base">보유비중 데이터가 없습니다</p>
-        {isKrEtf && (
-          <p className="text-text-dim text-sm mt-1">국내 ETF는 yfinance에서 보유비중을 제공하지 않을 수 있습니다</p>
+        <p className="text-2xs text-text-dim mt-2">
+          {isKrEtf
+            ? "국내 ETF 구성종목은 한국거래소에서 가져옵니다"
+            : "이 종목은 구성종목이 공개되지 않습니다"}
+        </p>
+        {/* 왜 비었는지 서버가 알려 주면 그대로 보여 준다.
+            로그를 뒤지지 않고도 원인을 말할 수 있어야 고칠 수 있다 */}
+        {(data as any)?.reason && (
+          <p className="text-2xs text-text-dim/70 mt-1 font-mono break-all">{(data as any).reason}</p>
         )}
       </div>
     </div>

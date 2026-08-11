@@ -2143,6 +2143,7 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
             date 를 비우면 가장 최근 것을 준다. 그것부터 보고, 비면 며칠
             물러가며 찾는다 — 한 번 물을 때마다 KRX 왕복이다."""
             df = None
+            마지막오류 = ""
             시도 = [None]
             어제 = datetime.today() - timedelta(days=1)
             시도 += [(어제 - timedelta(days=n)).strftime("%Y%m%d") for n in range(0, 5)]
@@ -2151,14 +2152,16 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
                     후보 = pkrx.get_etf_portfolio_deposit_file(code, ymd) if ymd \
                         else pkrx.get_etf_portfolio_deposit_file(code)
                 except Exception as e:
-                    log.warning("ETF 구성종목 조회 실패 %s %s: %s", code, ymd, type(e).__name__)
+                    마지막오류 = f"{type(e).__name__}: {str(e)[:80]}"
+                    log.warning("ETF 구성종목 조회 실패 %s %s: %s", code, ymd, 마지막오류)
                     continue
                 if 후보 is not None and not 후보.empty:
                     df = 후보
                     break
             if df is None:
-                log.warning("ETF 구성종목 없음 %s — KRX 가 빈 표를 준다", code)
-                return {"holdings": [], "sector_weights": []}
+                log.warning("ETF 구성종목 없음 %s — KRX 가 빈 표를 준다 (마지막 오류: %s)", code, 마지막오류)
+                return {"holdings": [], "sector_weights": [],
+                        "reason": f"KRX 조회 실패: {마지막오류}" if 마지막오류 else "KRX 가 빈 표를 준다"}
 
             # 코드 → 이름 (메모리에 있는 우리 종목 DB)
             이름표: dict[str, str] = {}
@@ -2194,7 +2197,8 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
             # 조용히 빈 값을 주면 화면에는 '데이터가 없습니다' 만 뜨고
             # 무엇이 잘못됐는지 알 길이 없다
             log.warning("ETF 구성종목 처리 실패 %s: %s: %s", code, type(e).__name__, e)
-            return {"holdings": [], "sector_weights": []}
+            return {"holdings": [], "sector_weights": [],
+                    "reason": f"{type(e).__name__}: {str(e)[:80]}"}
 
     빈결과 = {"holdings": [], "sector_weights": []}
     """야후가 늦으면 15초에서 잘린다. 예전에는 그 자리에서 예외가 그대로

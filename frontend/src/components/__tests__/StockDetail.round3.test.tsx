@@ -266,14 +266,37 @@ describe("5. 질의 배선 — 안 부르거나 헛부르는 곳이 없다", () 
   });
 });
 
-describe("헤더 배지는 한 줄로", () => {
+describe("헤더 배지는 이름·버튼 줄 아래 한 줄로", () => {
+  it("이름 옆이 아니라 아래 줄에 둔다", () => {
+    /* 이름 옆에 두면 배지가 안 줄어들어(flex-shrink-0) 그 폭이 그대로
+       헤더를 밀어냈다 — 버튼이 화면 밖으로 나가고 가로 스크롤이 생겼다.
+       배지 줄이 헤더 행(justify-between)보다 뒤에 와야 한다 */
+    const i헤더행 = 코드.indexOf('className="flex items-start justify-between gap-4"');
+    const i배지 = 코드.indexOf('{sym.replace(".KS","").replace(".KQ","")}</span>');
+    const i버튼 = 코드.indexOf('aria-label="보유종목에 담기"');
+    expect(i헤더행).toBeGreaterThan(-1);
+    expect(i배지, "배지가 아직 버튼보다 앞(=헤더 행 안)에 있다").toBeGreaterThan(i버튼);
+  });
+
+  it("이름이 길면 줄여서 한 줄로 둔다", () => {
+    /* min-w-0 이 없으면 flex 가 이름을 안 줄여서 버튼을 밀어낸다 */
+    expect(코드).toMatch(/flex items-start gap-3 min-w-0 flex-1/);
+    expect(코드).toMatch(/leading-tight truncate/);
+  });
+
+  it("왜 비었는지 화면에서 알 수 있다", () => {
+    /* 서버가 이유를 주면 그대로 보여 준다. 로그를 뒤지지 않고도
+       원인을 말할 수 있어야 고칠 수 있다 — 실제로 보유비중이 안 나올 때
+       이게 없어서 원인을 좁히는 데 여러 번 오갔다 */
+    expect(코드).toMatch(/\(data as any\)\?\.reason && \(/);
+    expect(코드).toMatch(/\{\(data as any\)\.reason\}/);
+  });
+
   it("접히지 않고 가로로 민다", () => {
-    /* flex-wrap 이면 시장·업종·실적·보유가 늘어날수록 두 줄, 세 줄로
-       접히고 그만큼 차트가 아래로 밀린다 */
     const i = 코드.indexOf('{sym.replace(".KS","").replace(".KQ","")}</span>');
     expect(i, "배지 줄을 못 찾음").toBeGreaterThan(-1);
     const 여는태그 = 코드.slice(Math.max(0, i - 400), i);
-    expect(여는태그, "아직 flex-wrap 이라 접힌다").not.toMatch(/gap-2 mt-1 flex-wrap/);
+    expect(여는태그, "아직 flex-wrap 이라 접힌다").not.toMatch(/flex-wrap/);
     expect(여는태그).toMatch(/overflow-x-auto scrollbar-hide/);
   });
 
