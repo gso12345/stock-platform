@@ -222,19 +222,28 @@ describe("보안", () => {
     expect(최근).toMatch(/Array\.isArray\(읽은것\)/);
   });
 
-  it("프로덕션에서 서명 키가 없으면 아예 안 뜬다", () => {
+  it("프로덕션에서 서명 키가 없으면 크게 알린다", () => {
     /* DATABASE_URL 에서 파생하면, 그 주소를 아는 사람이 아무 계정의
-       토큰이든 위조할 수 있다. 조용히 약한 키로 도느니 배포가 실패하는
-       편이 낫다 */
-    /* 같은 조건이 파일에 두 번 나온다(키 생성부 + 기동 로그).
-       막는 쪽은 키를 만드는 함수 안이어야 한다 */
+       토큰이든 위조할 수 있다.
+
+       원래는 기동을 막으려 했는데, 지금 배포에 환경변수가 실제로 들어
+       있는지 확인되지 않아 막으면 서비스가 통째로 안 뜬다. 우선 크게
+       알리기만 하고, 키를 넣은 것을 확인한 뒤 막는 쪽으로 바꾼다.
+       (같은 조건이 파일에 두 번 나온다 — 키 생성부와 기동 로그) */
     const i = 설정.indexOf("def stable_secret_key");
     const 끝 = 설정.indexOf("FRONTEND_URL");
-    const 함수 = 설정.slice(i, 끝 > i ? 끝 : i + 1500);
-    expect(함수, "키 생성부에 프로덕션 검사가 없다")
+    const 함수 = 설정.slice(i, 끝 > i ? 끝 : i + 2000);
+    expect(함수, "키 생성부에 프로덕션 분기가 없다")
       .toMatch(/APP_ENV in \("production", "staging"\)/);
-    expect(함수, "막지 않고 그냥 넘어간다").toMatch(/raise RuntimeError/);
+    expect(함수, "조용히 넘어간다 — 최소한 오류로 남겨야 한다").toMatch(/log\.error/);
     // 개발 환경의 편의는 그대로 둔다
     expect(설정).toMatch(/hashlib\.sha256\(seed\.encode\(\)\)/);
+  });
+
+  it("경고문이 무엇을 해야 하는지까지 알려 준다", () => {
+    /* "SECRET_KEY 를 설정하세요" 만 있으면 무엇이 왜 위험한지 모른 채
+       지나친다. 위험과 조치를 함께 적는다 */
+    expect(설정원본).toMatch(/위조/);
+    expect(설정원본).toMatch(/token_urlsafe/);
   });
 });

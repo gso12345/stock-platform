@@ -6,6 +6,15 @@ log = logging.getLogger(__name__)
 
 _PLACEHOLDER = "your-secret-key-change-this"
 
+_SECRET_KEY_안내 = (
+    "SECRET_KEY 가 없어 DATABASE_URL 로부터 파생한 키로 토큰에 서명하고 있습니다. "
+    "DATABASE_URL 은 로그·백업·설정 화면에 드러나기 쉬운 값이라, 그것을 아는 "
+    "사람은 관리자를 포함해 아무 계정의 토큰이든 위조할 수 있습니다. "
+    "또 DB 비밀번호를 바꾸면 그 순간 모든 사용자의 로그인이 조용히 풀립니다. "
+    "Render 대시보드 환경변수에 SECRET_KEY 를 넣어 주세요 — "
+    'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+)
+
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./stockplatform.db"
@@ -28,14 +37,19 @@ class Settings(BaseSettings):
         """
         if self.SECRET_KEY and self.SECRET_KEY != _PLACEHOLDER:
             return self.SECRET_KEY
+
         if self.APP_ENV in ("production", "staging"):
-            raise RuntimeError(
-                "SECRET_KEY 가 설정되지 않았습니다. "
-                "프로덕션에서는 DATABASE_URL 로부터 키를 파생하지 않습니다 — "
-                "접속 정보를 아는 사람이 토큰을 위조할 수 있기 때문입니다. "
-                "Render 대시보드의 환경변수에 SECRET_KEY 를 넣어 주세요 "
-                "(예: python -c \"import secrets; print(secrets.token_urlsafe(48))\")."
-            )
+            # 원래는 여기서 막으려 했다. 다만 지금 배포에서 환경변수가 실제로
+            # 들어 있는지 확인되지 않아, 막으면 서비스가 통째로 안 뜬다.
+            # 그래서 우선 크게 알리기만 한다.
+            #
+            # SECRET_KEY 를 넣은 것을 확인한 뒤에는 아래 두 줄을
+            #     raise RuntimeError(_SECRET_KEY_안내)
+            # 로 바꾼다. 조용히 약한 키로 도는 것보다 배포가 실패하는 편이
+            # 낫다 — 파생 키는 DATABASE_URL 만 알면 누구나 다시 만들 수 있고,
+            # 그러면 관리자 토큰까지 위조된다.
+            log.error(_SECRET_KEY_안내)
+
         seed = f"stock-platform-{self.DATABASE_URL}"
         return "sp-" + hashlib.sha256(seed.encode()).hexdigest()
     FRONTEND_URL: str = "http://localhost:5173,https://stock-platform-one.vercel.app"
@@ -82,7 +96,7 @@ settings = Settings()
 
 if settings.SECRET_KEY == _PLACEHOLDER:
     if settings.APP_ENV in ("production", "staging"):
-        # stable_secret_key() 가 어차피 막지만, 기동 로그 맨 앞에서 이유를 보이게 한다
-        log.error("SECRET_KEY 가 없습니다 — 프로덕션에서는 기동하지 않습니다. 환경변수를 설정하세요.")
+        # 기동 로그 맨 앞에서도 보이게 한다 — 묻히면 못 보고 지나간다
+        log.error("[보안] %s", _SECRET_KEY_안내)
     else:
         log.warning("SECRET_KEY가 기본값입니다. 개발 환경이므로 DATABASE_URL로부터 임시 키를 만듭니다.")
