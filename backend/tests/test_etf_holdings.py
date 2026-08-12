@@ -1,17 +1,17 @@
 """
-ETF 구성종목 — pykrx 인자 순서가 다시 뒤집히지 않게.
+국내 ETF 구성종목 — KRX 에 직접 묻는 경로를 지킨다.
 
-국내 ETF 는 야후가 구성종목을 거의 안 준다. 그래서 KRX(pykrx)를 보는데,
-처음에 인자를 거꾸로 넘겼다.
+여기까지 두 번 헛짚었다.
+  1) pykrx 를 쓰면서 인자를 거꾸로 넘겼다. 시그니처는 (ticker, date) 인데
+     (date, ticker) 로 줘서, 종목 자리에 날짜가 들어가 늘 빈 표가 왔다.
+     예외가 아니라 빈 DataFrame 이라 로그에도 안 남았다.
+  2) 순서를 고쳤더니 이번엔 pykrx 가 응답을 못 읽고 죽었다 —
+     UnicodeDecodeError: ... 0xea ... unexpected end of data.
+     pykrx 는 이 조회를 http:// 로 하고 자체 세션을 쓰는데, 그쪽으로 오는
+     응답이 한글 한 글자가 잘린 채 끊겨 들어왔다.
 
-    실제 시그니처: get_etf_portfolio_deposit_file(ticker, date)
-    처음 쓴 것:    get_etf_portfolio_deposit_file(ymd, code)
-
-종목 자리에 날짜("20260810")가 들어가니 KRX 는 늘 빈 표를 돌려줬다.
-예외가 아니라 '빈 DataFrame' 이라 로그에도 안 남았고, 화면에는
-"보유비중 데이터가 없습니다" 만 떴다 — 코드는 멀쩡해 보이는데.
-
-같은 실수는 눈으로 못 잡는다. 함수의 실제 시그니처에 이름으로 맞춰 본다.
+그래서 pykrx 를 쓰지 않는다. 이 앱이 이미 잘 받고 있는 방식
+(krx_listing 의 https + 브라우저 헤더)으로 직접 부른다.
 """
 import ast
 import inspect
@@ -37,6 +37,15 @@ def _보유비중구간() -> str:
     return _소스[시작:끝 if 끝 > 시작 else len(_소스)]
 
 
+def _코드만(본문: str) -> str:
+    """주석과 문서화 문자열을 걷어낸다.
+
+    설명에 "pykrx" 같은 낱말이 나올 수밖에 없다 — 무엇을 왜 그만뒀는지
+    적어 두기 때문이다. 그걸 코드로 착각하면 멀쩡한 구현이 걸린다."""
+    본문 = re.sub(r'"""[\s\S]*?"""', "", 본문)
+    return re.sub(r"^\s*#.*$", "", 본문, flags=re.M)
+
+
 def _호출들(함수이름: str) -> list[ast.Call]:
     """소스 전체에서 그 함수를 부르는 자리를 모은다."""
     나무 = ast.parse(_소스)
@@ -56,31 +65,39 @@ class Test인자순서:
         assert "def _fetch_kr_holdings" in 본문, "국내 폴백 함수가 없다"
         assert "_run(_fetch_kr_holdings)" in 본문, "폴백을 부르지 않는다"
 
-    def test_ETF_구성종목을_부르는_자리가_있다(self):
-        """폴백 자체가 사라지면 국내 ETF 는 영영 빈다."""
-        assert _호출들("get_etf_portfolio_deposit_file"), \
-            "국내 ETF 구성종목을 KRX 에서 가져오는 코드가 없다"
+    def test_pykrx_를_거치지_않는다(self):
+        """pykrx 는 이 조회를 http:// 로 하고 자체 세션을 쓴다. 그쪽 응답이
+        중간에 끊겨 들어와 UnicodeDecodeError 로 죽었다."""
+        본문 = _코드만(_보유비중구간())
+        assert "pykrx" not in 본문, "다시 pykrx 를 타고 있다"
+        assert "get_etf_portfolio_deposit_file" not in 본문
 
-    def test_종목코드가_첫_인자다(self):
-        """(ticker, date) 순서다. 뒤집으면 조용히 빈 표가 온다."""
-        for 호출 in _호출들("get_etf_portfolio_deposit_file"):
-            첫인자 = ast.unparse(호출.args[0])
-            assert "code" in 첫인자, (
-                f"첫 인자는 종목코드여야 한다 (지금: {첫인자}). "
-                "get_etf_portfolio_deposit_file(ticker, date) 순서다"
-            )
-            # 날짜를 첫 자리에 넣는 실수를 못 박는다
-            assert "ymd" not in 첫인자 and "date" not in 첫인자.lower(), \
-                f"첫 자리에 날짜가 들어갔다: {첫인자}"
+    def test_이_앱이_쓰던_방식으로_부른다(self):
+        """krx_listing 이 https + 브라우저 헤더로 잘 받고 있다. 같은 방식이라야
+        같은 결과가 온다 — http 로 내려가면 그때 그 오류로 돌아간다."""
+        본문 = _코드만(_보유비중구간())
+        assert "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd" in 본문
+        assert "http://data.krx.co.kr" not in 본문, "http 로 부르고 있다"
+        assert "User-Agent" in 본문 and "Referer" in 본문, "브라우저 헤더가 없다"
 
-    @pytest.mark.skipif(
-        pytest.importorskip("pykrx", reason="pykrx 미설치") is None, reason="")
-    def test_실제_시그니처와_맞는다(self):
-        """라이브러리가 인자 순서를 바꾸면 여기서 먼저 알아챈다."""
-        from pykrx import stock
-        칸 = list(inspect.signature(stock.get_etf_portfolio_deposit_file).parameters)
-        assert 칸[0] == "ticker", f"pykrx 시그니처가 바뀌었다: {칸}"
-        assert 칸[1] == "date", f"pykrx 시그니처가 바뀌었다: {칸}"
+    def test_두_단계를_모두_부른다(self):
+        """KRX 는 6자리 코드가 아니라 ISIN 으로 종목을 받는다.
+        목록(04601)으로 ISIN 을 얻고, PDF(05001)로 구성종목을 받는다."""
+        본문 = _코드만(_보유비중구간())
+        assert "MDCSTAT04601" in 본문, "ISIN 을 얻는 단계가 없다"
+        assert "MDCSTAT05001" in 본문, "구성종목을 받는 단계가 없다"
+
+    def test_ISIN_목록을_매번_받지_않는다(self):
+        """전 종목 목록이라 무겁다. 하루에 한 번이면 충분하다."""
+        본문 = _코드만(_보유비중구간())
+        assert 'cache.get("krx_etf_isin")' in 본문
+        assert "86400" in 본문
+
+    def test_결과_배열_이름을_가려_읽는다(self):
+        """KRX 는 화면마다 결과 배열의 이름이 다르다."""
+        본문 = _코드만(_보유비중구간())
+        for 이름 in ("output", "block1", "OutBlock_1"):
+            assert f'"{이름}"' in 본문, f"{이름} 을 안 본다"
 
     def test_수급_조회는_원래_순서가_맞다(self):
         """같은 파일의 다른 pykrx 호출까지 흔들지 않았는지 확인한다.
@@ -102,6 +119,16 @@ class Test조용히_실패하지_않는다:
         assert "ETF 구성종목 없음" in 본문, "빈 표가 왔을 때 흔적이 없다"
         assert 본문.count("log.warning") >= 3, "실패 자리마다 이유를 남겨야 한다"
 
+    def test_내부_사정을_화면에_보내지_않는다(self):
+        """reason 은 사람이 읽는 한 문장이어야 한다. 예외 이름이나 스택을
+        그대로 보내면 쓰는 사람에게는 뜻이 없고 서버 안쪽만 드러난다."""
+        본문 = _보유비중구간()
+        import re as _re
+        for m in _re.finditer(r'"reason": ([^,\n}]+)', 본문):
+            값 = m.group(1)
+            assert "type(e)" not in 값 and "str(e)" not in 값 and "__name__" not in 값, \
+                f"원시 예외를 화면으로 보낸다: {값}"
+
     def test_성공했을_때도_개수를_남긴다(self):
         assert "log.info" in _보유비중구간()
 
@@ -110,10 +137,11 @@ class Test느려서_죽지_않는다:
     def test_종목명을_한_건씩_물어보지_않는다(self):
         """pykrx 로 이름을 하나씩 물으면 25번 왕복이다.
         우리 종목 DB 가 이미 코드→이름을 들고 있다."""
-        본문 = _보유비중구간()
+        본문 = _코드만(_보유비중구간())
         assert "get_market_ticker_name" not in 본문, \
             "종목명을 KRX 에 한 건씩 묻고 있다 — 느려서 시한을 넘긴다"
-        assert "get_kr_db()" in 본문
+        # KRX 가 구성종목 이름을 같이 준다. 따로 물을 필요가 없다
+        assert "COMPST_ISU_NM" in 본문
 
     def test_시한을_넘겨도_500_이_아니다(self):
         """_run 은 15초에서 자른다. 감싸지 않으면 그 예외가 그대로 올라가

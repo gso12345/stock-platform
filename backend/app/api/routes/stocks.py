@@ -2112,93 +2112,108 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
             return {"holdings": [], "sector_weights": []}
 
     def _fetch_kr_holdings() -> dict:
-        """국내 ETF 구성종목 — KRX 의 PDF(납입자산구성내역).
+        """국내 ETF 구성종목 — KRX 에 직접 묻는다.
 
-        yfinance 는 국내 ETF 의 구성종목을 거의 못 준다(funds_data 가 비어
-        온다). 그래서 국내는 KRX 를 직접 본다 — 수급 탭이 쓰는 것과 같은
-        pykrx 다.
+        처음에는 pykrx 를 썼는데 응답을 못 읽고 죽었다:
+            UnicodeDecodeError: 'utf-8' codec can't decode byte 0xea ...
+                                unexpected end of data
+        pykrx 는 이 조회를 http:// 로 하고 자체 세션을 쓴다. 그쪽으로 오는
+        응답이 중간에 끊겨(한글 한 글자가 잘린 채) 들어온 것이다.
 
-        느려지기 쉬운 곳이 둘 있어 처음부터 피해 간다.
-          1) PDF 는 '전' 영업일 기준으로 올라온다. 오늘로 물으면 반드시 비므로
-             어제부터 본다. 주말·연휴를 감안해 며칠만 물러간다 — 한 번 물을
-             때마다 KRX 왕복이라 횟수가 그대로 응답 시간이 된다.
-          2) 종목명을 pykrx 로 하나씩 물으면 25번 왕복이다. 우리 종목 DB 가
-             이미 코드→이름을 들고 있으니 그걸 쓴다(메모리, 왕복 0회).
+        같은 데이터를 이 앱은 이미 다른 곳에서 잘 받고 있다 — krx_listing 이
+        https 로, 브라우저처럼 보이는 헤더를 달아 종목 목록을 받아 온다.
+        그 방식을 그대로 쓴다.
+
+        KRX 는 종목을 6자리 코드가 아니라 ISIN 으로 받으므로 두 번 묻는다.
+          1) MDCSTAT04601  ETF 전종목 기본정보 → 6자리 ↔ ISIN (하루 캐시)
+          2) MDCSTAT05001  PDF(구성종목)      → 종목·비중·금액
         """
+        import httpx
+
         code = symbol.replace(".KS", "").replace(".KQ", "")
         if not code.isdigit():
             return {"holdings": [], "sector_weights": []}
+
+        URL = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+        HEADERS = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://data.krx.co.kr/contents/MDC/MDI/outerLoader/index.cmd",
+        }
+
+        def _행들(payload: dict, client: httpx.Client) -> list[dict]:
+            """KRX 는 결과 배열의 이름이 화면마다 다르다(output/block1/OutBlock_1)."""
+            r = client.post(URL, headers=HEADERS, data=payload, timeout=10)
+            r.raise_for_status()
+            j = r.json()
+            for k in ("output", "block1", "OutBlock_1"):
+                if isinstance(j.get(k), list):
+                    return j[k]
+            return []
+
         try:
-            from datetime import datetime, timedelta
-            from app.core import pykrx_light
-            pkrx = pykrx_light.stock()
+            with httpx.Client(follow_redirects=True) as client:
+                # 1) 6자리 → ISIN. 전 종목을 한 번에 받아 하루 동안 재사용한다
+                isin_map = cache.get("krx_etf_isin") or {}
+                if not isin_map:
+                    for row in _행들({"bld": "dbms/MDC/STAT/standard/MDCSTAT04601"}, client):
+                        짧은 = str(row.get("ISU_SRT_CD") or "").strip()
+                        긴 = str(row.get("ISU_CD") or "").strip()
+                        if 짧은 and 긴:
+                            isin_map[짧은] = 긴
+                    if isin_map:
+                        cache.set("krx_etf_isin", isin_map, 86400)
 
-            """인자 순서를 조심할 것 — (ticker, date) 다.
+                isin = isin_map.get(code)
+                if not isin:
+                    log.warning("ETF ISIN 없음 %s — 상장 ETF 목록에 없다", code)
+                    return {"holdings": [], "sector_weights": [],
+                            "reason": "상장 ETF 목록에서 못 찾음"}
 
-            처음에 (date, ticker) 로 넘겼다가 종목 자리에 날짜가 들어가는
-            바람에 KRX 가 늘 빈 표를 줬고, 화면에는 '보유비중 데이터가
-            없습니다' 만 떴다. 예외도 안 나서(빈 DataFrame 이다) 로그로도
-            안 보였다.
+                # 2) PDF. 전 영업일 기준으로 올라오므로 어제부터 며칠 물러간다
+                from datetime import datetime, timedelta
+                어제 = datetime.today() - timedelta(days=1)
+                행 = []
+                for 뒤로 in range(0, 5):
+                    ymd = (어제 - timedelta(days=뒤로)).strftime("%Y%m%d")
+                    행 = _행들({"bld": "dbms/MDC/STAT/standard/MDCSTAT05001",
+                               "date": ymd, "isin": isin}, client)
+                    if 행:
+                        break
 
-            date 를 비우면 가장 최근 것을 준다. 그것부터 보고, 비면 며칠
-            물러가며 찾는다 — 한 번 물을 때마다 KRX 왕복이다."""
-            df = None
-            마지막오류 = ""
-            시도 = [None]
-            어제 = datetime.today() - timedelta(days=1)
-            시도 += [(어제 - timedelta(days=n)).strftime("%Y%m%d") for n in range(0, 5)]
-            for ymd in 시도:
-                try:
-                    후보 = pkrx.get_etf_portfolio_deposit_file(code, ymd) if ymd \
-                        else pkrx.get_etf_portfolio_deposit_file(code)
-                except Exception as e:
-                    마지막오류 = f"{type(e).__name__}: {str(e)[:80]}"
-                    log.warning("ETF 구성종목 조회 실패 %s %s: %s", code, ymd, 마지막오류)
-                    continue
-                if 후보 is not None and not 후보.empty:
-                    df = 후보
-                    break
-            if df is None:
-                log.warning("ETF 구성종목 없음 %s — KRX 가 빈 표를 준다 (마지막 오류: %s)", code, 마지막오류)
+            if not 행:
+                log.warning("ETF 구성종목 없음 %s — KRX 가 빈 표를 준다", code)
                 return {"holdings": [], "sector_weights": [],
-                        "reason": f"KRX 조회 실패: {마지막오류}" if 마지막오류 else "KRX 가 빈 표를 준다"}
+                        "reason": "한국거래소에 아직 공시된 구성내역이 없습니다"}
 
-            # 코드 → 이름 (메모리에 있는 우리 종목 DB)
-            이름표: dict[str, str] = {}
-            try:
-                for t in get_kr_db():
-                    s = str(t.get("s") or t.get("symbol") or "")
-                    n = t.get("n") or t.get("name")
-                    if s and n:
-                        이름표[s.replace(".KS", "").replace(".KQ", "")] = n
-            except Exception:
-                pass
+            def _수(v) -> float:
+                try:
+                    return float(str(v).replace(",", "").strip() or 0)
+                except Exception:
+                    return 0.0
 
             rows = []
-            for 종목코드, row in df.iterrows():
-                코드 = str(종목코드).strip()
-                # 현금·원화예금 같은 항목은 코드가 비거나 숫자가 아니다
-                try:
-                    비중 = float(row.get("비중", 0) or 0)
-                except Exception:
-                    continue
+            for it in 행:
+                비중 = _수(it.get("COMPST_RTO"))
                 if 비중 <= 0:
-                    continue
+                    continue          # 현금·원화예금 등
+                구성코드 = str(it.get("COMPST_ISU_CD") or "").strip()
                 rows.append({
-                    "symbol": 코드 if 코드.isdigit() else "",
-                    "name": 이름표.get(코드) or 코드,
+                    "symbol": 구성코드 if 구성코드.isdigit() else "",
+                    # 이름을 KRX 가 같이 준다 — 종목마다 따로 물을 필요가 없다
+                    "name": str(it.get("COMPST_ISU_NM") or 구성코드).strip(),
                     "pct": 비중,
-                    "value": float(row.get("금액", 0) or 0),
+                    "value": _수(it.get("COMPST_AMT")),
                 })
             rows.sort(key=lambda x: x["pct"], reverse=True)
             log.info("ETF 구성종목 %s: %d개", code, len(rows))
             return {"holdings": rows[:25], "sector_weights": []}
+
         except Exception as e:
             # 조용히 빈 값을 주면 화면에는 '데이터가 없습니다' 만 뜨고
             # 무엇이 잘못됐는지 알 길이 없다
-            log.warning("ETF 구성종목 처리 실패 %s: %s: %s", code, type(e).__name__, e)
+            log.warning("ETF 구성종목 조회 실패 %s: %s: %s", code, type(e).__name__, e)
             return {"holdings": [], "sector_weights": [],
-                    "reason": f"{type(e).__name__}: {str(e)[:80]}"}
+                    "reason": "한국거래소에서 자료를 받지 못했습니다"}
 
     빈결과 = {"holdings": [], "sector_weights": []}
     """야후가 늦으면 15초에서 잘린다. 예전에는 그 자리에서 예외가 그대로

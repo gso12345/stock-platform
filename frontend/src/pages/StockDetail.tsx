@@ -2998,10 +2998,12 @@ function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Market }) 
             ? "국내 ETF 구성종목은 한국거래소에서 가져옵니다"
             : "이 종목은 구성종목이 공개되지 않습니다"}
         </p>
-        {/* 왜 비었는지 서버가 알려 주면 그대로 보여 준다.
-            로그를 뒤지지 않고도 원인을 말할 수 있어야 고칠 수 있다 */}
+        {/* 왜 비었는지 서버가 알려 주면 보여 준다.
+            단 서버가 주는 것은 사람이 읽는 한 문장이다 — 예외 이름이나
+            스택 같은 내부 사정은 로그에만 남긴다. 화면에 그대로 뿌리면
+            쓰는 사람에게는 뜻이 없고, 서버 안쪽 구조만 드러난다. */}
         {(data as any)?.reason && (
-          <p className="text-2xs text-text-dim/70 mt-1 font-mono break-all">{(data as any).reason}</p>
+          <p className="text-2xs text-text-dim/70 mt-1">{(data as any).reason}</p>
         )}
       </div>
     </div>
