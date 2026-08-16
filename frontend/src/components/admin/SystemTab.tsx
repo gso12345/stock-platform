@@ -316,7 +316,7 @@ export default function SystemTab() {
                 </span>
               </div>
             ))}
-            <p className="text-[10px] text-text-dim break-keep mt-0.5">
+            <p className="text-2xs text-text-dim break-keep mt-0.5">
               캐시를 0으로 만들어도 라이브러리는 줄지 않습니다 — 줄이려면 그 기능을 빼야 합니다
             </p>
           </div>
@@ -339,11 +339,11 @@ export default function SystemTab() {
                     <span className="text-text-dim break-keep">{k}</span>
                     <span className="font-mono text-text-secondary shrink-0">{v}</span>
                   </div>
-                  <span className="text-[10px] text-text-dim break-keep">{why}</span>
+                  <span className="text-2xs text-text-dim break-keep">{why}</span>
                 </div>
               ))}
               {d.objects && (
-                <p className="text-[10px] text-text-dim break-keep mt-0.5 pt-1 border-t border-border/30">
+                <p className="text-2xs text-text-dim break-keep mt-0.5 pt-1 border-t border-border/30">
                   파이썬 객체 {d.objects.total.toLocaleString()}개 · 스레드 {d.objects.threads}개
                   {d.objects.top.length > 0 && ` · 많은 순: ${d.objects.top.slice(0, 4).map((o) => `${o.name} ${o.count.toLocaleString()}`).join(", ")}`}
                 </p>
@@ -374,7 +374,7 @@ export default function SystemTab() {
                        title={`${v}MB`} />
                 ))}
               </div>
-              <p className="text-[10px] text-text-dim break-keep">
+              <p className="text-2xs text-text-dim break-keep">
                 최근 {t.span_min}분 · {t.min_mb}~{t.max_mb}MB ·
                 {!판단가능
                   ? ` 아직 ${t.samples}개 표본뿐이라 판단하기 이릅니다 (30분 이상 모여야 기울기를 믿을 수 있습니다)`
@@ -406,7 +406,7 @@ export default function SystemTab() {
                     <span className="text-text-dim break-keep">{k}</span>
                     <span className="font-mono text-text-secondary shrink-0">{v}</span>
                   </div>
-                  <span className="text-[10px] text-text-dim break-keep">{why}</span>
+                  <span className="text-2xs text-text-dim break-keep">{why}</span>
                 </div>
               ))}
               {/* 힙을 몇 개까지 나눠 쓰는지. 스레드마다 따로 만들면 빈 자리도
@@ -420,21 +420,21 @@ export default function SystemTab() {
                     {d.native.arena_max ? `${d.native.arena_max}개` : "제한 없음"}
                   </span>
                 </div>
-                <span className="text-[10px] text-text-dim break-keep">
+                <span className="text-2xs text-text-dim break-keep">
                   {d.native.arena_max
                     ? "스레드가 많아도 힙을 이만큼만 나눠 씁니다 — 빈 자리가 흩어지지 않습니다"
                     : "스레드마다 힙이 따로 생길 수 있습니다. 빈 자리가 흩어져 위 '붙들고 있음' 이 커집니다"}
                 </span>
               </div>
               {d.last_trim && (
-                <p className="text-[10px] text-text-dim break-keep mt-0.5 pt-1 border-t border-border/30">
+                <p className="text-2xs text-text-dim break-keep mt-0.5 pt-1 border-t border-border/30">
                   마지막 정리에서 {d.last_trim.freed_mb}MB 를 OS 에 돌려줬습니다
                   ({d.last_trim.before_mb} → {d.last_trim.after_mb}MB).
                   {d.last_trim.freed_mb < 1 && " 거의 0 이면 단편화가 원인이 아니라는 뜻입니다."}
                 </p>
               )}
               {(
-                <p className="text-[10px] text-text-dim break-keep">
+                <p className="text-2xs text-text-dim break-keep">
                   파이썬 객체는 여기 안 잡힙니다 — 파이썬이 자체 할당기로 따로
                   관리합니다. 그래서 이 칸은 '파이썬이 아닌 메모리'만 보여줍니다.
                 </p>
@@ -449,11 +449,11 @@ export default function SystemTab() {
                 늘어난 곳 {d.alloc_growth.ready && `(최근 ${d.alloc_growth.span_min}분)`}
               </p>
               {!d.alloc_growth.ready ? (
-                <p className="text-[10px] text-text-dim break-keep">
+                <p className="text-2xs text-text-dim break-keep">
                   기준점을 잡는 중입니다 — 표본이 두 번 모이면(약 10분) 표시됩니다
                 </p>
               ) : d.alloc_growth.items.length === 0 ? (
-                <p className="text-[10px] text-text-dim">늘어난 곳이 없습니다</p>
+                <p className="text-2xs text-text-dim">늘어난 곳이 없습니다</p>
               ) : (
                 <>
                   {d.alloc_growth.items.map((it) => (
@@ -467,7 +467,7 @@ export default function SystemTab() {
                       </span>
                     </div>
                   ))}
-                  <p className="text-[10px] text-text-dim break-keep mt-0.5">
+                  <p className="text-2xs text-text-dim break-keep mt-0.5">
                     파이썬이 직접 기록한 값입니다. 원인을 찾은 뒤에는 MEM_TRACE 를 꺼
                     두세요 — 켜 두면 메모리를 10~25% 더 씁니다.
                   </p>
@@ -486,7 +486,7 @@ export default function SystemTab() {
               <div key={x.l} className="rounded-lg bg-bg-elevated p-2.5">
                 <p className="text-sm font-bold text-text-primary font-mono">{x.v}</p>
                 <p className="text-2xs text-text-dim flex items-center gap-1"><x.Icon size={10} />{x.l}</p>
-                {x.sub && <p className="text-[10px] text-accent-amber mt-0.5 break-keep">{x.sub}</p>}
+                {x.sub && <p className="text-2xs text-accent-amber mt-0.5 break-keep">{x.sub}</p>}
               </div>
             ))}
           </div>
@@ -558,7 +558,7 @@ export default function SystemTab() {
                     </span>
                   </div>
                   {i.purpose && (
-                    <p className="text-[10px] text-text-dim break-keep pl-0 sm:pl-[7.5rem]">
+                    <p className="text-2xs text-text-dim break-keep pl-0 sm:pl-[7.5rem]">
                       {i.purpose}
                       {i.total_mb > i.mb * 1.5 && (
                         <span className="text-text-dim"> · 딸려오는 것 포함 {i.total_mb}MB</span>
@@ -567,7 +567,7 @@ export default function SystemTab() {
                   )}
                 </div>
               ))}
-              <p className="text-[10px] text-text-dim break-keep mt-1 leading-relaxed">
+              <p className="text-2xs text-text-dim break-keep mt-1 leading-relaxed">
                 각 라이브러리가 처음 불러와질 때 실제로 늘어난 메모리입니다. 안에서
                 끌어오는 것(pandas → numpy)은 각자의 줄에서 세므로 겹치지 않습니다.
                 {라이브러리.other_count > 0 &&
@@ -575,13 +575,13 @@ export default function SystemTab() {
                 {` 로드된 모듈 ${라이브러리.modules.toLocaleString()}개.`}
               </p>
               {라이브러리.preloaded.length > 0 && (
-                <p className="text-[10px] text-text-dim break-keep">
+                <p className="text-2xs text-text-dim break-keep">
                   측정 시작 전에 이미 올라와 있던 것(크기 미상):{" "}
                   {라이브러리.preloaded.map((p) => p.name).join(", ")}
                 </p>
               )}
               {(라이브러리.stubbed ?? []).map((x) => (
-                <p key={x.name} className="text-[10px] text-accent-green break-keep flex items-start gap-1">
+                <p key={x.name} className="text-2xs text-accent-green break-keep flex items-start gap-1">
                   <CheckCircle2 size={10} className="shrink-0 mt-0.5" />
                   <span><b>{x.name}</b> 미적재 — {x.note}</span>
                 </p>
@@ -612,7 +612,7 @@ export default function SystemTab() {
                       {s.mb}MB · {s.items.toLocaleString()}건
                     </span>
                   </div>
-                  <p className="text-[10px] text-text-dim break-keep pl-0 sm:pl-[7.5rem]">{s.what}</p>
+                  <p className="text-2xs text-text-dim break-keep pl-0 sm:pl-[7.5rem]">{s.what}</p>
                 </div>
               ))}
               {종목 && (
@@ -624,7 +624,7 @@ export default function SystemTab() {
                       {종목.source} · {종목.count.toLocaleString()}개
                     </span>
                   </div>
-                  <p className="text-[10px] text-text-dim break-keep">
+                  <p className="text-2xs text-text-dim break-keep">
                     {종목축소
                       ? `외부 조회가 실패해 내장 ${종목.builtin_count}개로 동작 중입니다. 이 목록에 없는 종목은 검색·시세 조회가 되지 않습니다.`
                       : `시세 ${종목.prices.toLocaleString()}개 포함${
@@ -632,7 +632,7 @@ export default function SystemTab() {
                         } · ${Math.round(종목.ttl_sec / 3600)}시간마다 새로 받습니다`}
                   </p>
                   {(종목.db_rows != null || 종목.db_error) && (
-                    <p className={`text-[10px] break-keep ${
+                    <p className={`text-2xs break-keep ${
                       종목저장실패 ? "text-accent-red" : "text-text-dim"}`}>
                       {종목저장실패
                         ? `DB 저장 안 됨 — ${종목.db_error ?? "0건"}. 재시작마다 외부에서 다시 받아옵니다.`
@@ -650,7 +650,7 @@ export default function SystemTab() {
                       {미국종목.source} · {미국종목.count.toLocaleString()}개
                     </span>
                   </div>
-                  <p className="text-[10px] text-text-dim break-keep">
+                  <p className="text-2xs text-text-dim break-keep">
                     {미국축소
                       ? `외부 조회가 실패해 내장 ${미국종목.builtin_count}개로 동작 중입니다. 이 목록에 없는 종목은 검색이 되지 않습니다.`
                       : `ETF ${미국종목.etf_count.toLocaleString()}개 포함${
@@ -658,7 +658,7 @@ export default function SystemTab() {
                         } · ${Math.round(미국종목.ttl_sec / 3600)}시간마다 새로 받습니다`}
                   </p>
                   {(미국종목.db_rows != null || 미국종목.db_error) && (
-                    <p className={`text-[10px] break-keep ${
+                    <p className={`text-2xs break-keep ${
                       미국종목.db_error ? "text-accent-red" : "text-text-dim"}`}>
                       {미국종목.db_error
                         ? `DB 저장 안 됨 — ${미국종목.db_error}. 재시작마다 외부에서 다시 받아옵니다.`
@@ -667,7 +667,7 @@ export default function SystemTab() {
                   )}
                 </div>
               )}
-              <p className="text-[10px] text-text-dim break-keep leading-relaxed mt-1">
+              <p className="text-2xs text-text-dim break-keep leading-relaxed mt-1">
                 노란 막대는 DB로 옮기거나 줄일 수 있는 항목입니다. 국내 종목 목록은
                 PostgreSQL 에 저장돼 있어, 평소 재시작에는 DB만 읽고
                 FinanceDataReader 를 아예 불러오지 않습니다.
@@ -723,7 +723,7 @@ export default function SystemTab() {
                       <span className="text-text-dim"> ({h.ok}/{h.ok + h.fail})</span>
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap text-[10px] text-text-dim mt-0.5">
+                  <div className="flex items-center gap-2 flex-wrap text-2xs text-text-dim mt-0.5">
                     <span>마지막 성공 {초를사람말로(h.last_ok_sec)}</span>
                     {h.detail && <span>· {h.detail}</span>}
                     {h.last_ms != null && <span>· {h.last_ms}ms</span>}
@@ -748,7 +748,7 @@ export default function SystemTab() {
             ].map((x) => (
               <div key={x.l} className="rounded-lg bg-bg-elevated py-2.5">
                 <p className="text-base font-bold text-text-primary font-mono">{x.v}</p>
-                <p className="text-[10px] text-text-dim break-keep">{x.l}</p>
+                <p className="text-2xs text-text-dim break-keep">{x.l}</p>
               </div>
             ))}
           </div>
@@ -756,7 +756,7 @@ export default function SystemTab() {
             <span>국내 {d.market.kr_label} · 미국 {d.market.us_label}</span>
             <span className="flex items-center gap-1"><Wifi size={10} />연결 {d.websocket.connections}개</span>
           </div>
-          <p className="text-[10px] text-text-dim break-keep">
+          <p className="text-2xs text-text-dim break-keep">
             보는 사람이 없으면 갱신하지 않습니다. '갱신 중 종목 0'은 지금 아무도
             내 자산·관심종목 화면을 보고 있지 않다는 뜻입니다.
           </p>
@@ -787,7 +787,7 @@ export default function SystemTab() {
             </div>
           )}
           {!d.heavy_prefetch && (
-            <p className="text-[10px] text-text-dim break-keep">
+            <p className="text-2xs text-text-dim break-keep">
               차트 선제 캐싱 꺼짐 (메모리 절약). 큰 인스턴스에서는 ENABLE_HEAVY_PREFETCH=1
             </p>
           )}
@@ -804,7 +804,7 @@ export default function SystemTab() {
           ].map((x) => (
             <div key={x.l} className="rounded-lg bg-bg-elevated py-2.5">
               <p className="text-base font-bold text-text-primary font-mono">{x.v}</p>
-              <p className="text-[10px] text-text-dim break-keep">{x.l}</p>
+              <p className="text-2xs text-text-dim break-keep">{x.l}</p>
             </div>
           ))}
         </div>
@@ -815,7 +815,7 @@ export default function SystemTab() {
         {d.news.kr_sources.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {d.news.kr_sources.map((s) => (
-              <span key={s} className="px-1.5 py-0.5 rounded bg-bg-elevated text-[10px] text-text-muted break-keep">{s}</span>
+              <span key={s} className="px-1.5 py-0.5 rounded bg-bg-elevated text-2xs text-text-muted break-keep">{s}</span>
             ))}
           </div>
         )}
@@ -824,7 +824,7 @@ export default function SystemTab() {
             <p className="text-2xs font-semibold text-accent-red">최근 실패한 언론사</p>
             <div className="flex flex-wrap gap-1">
               {실패언론사.slice(0, 20).map((h) => (
-                <span key={h.name} className="px-1.5 py-0.5 rounded bg-accent-red/10 text-[10px] text-accent-red break-keep"
+                <span key={h.name} className="px-1.5 py-0.5 rounded bg-accent-red/10 text-2xs text-accent-red break-keep"
                       title={h.last_error ?? ""}>
                   {h.name.replace("뉴스:", "")} ({h.fail}회)
                 </span>
@@ -834,7 +834,7 @@ export default function SystemTab() {
         )}
       </Card>
 
-      <p className="text-[10px] text-text-dim text-center">
+      <p className="text-2xs text-text-dim text-center">
         15초마다 자동 갱신 · 서버 시각 {d.server_time.slice(11, 19)} UTC
       </p>
     </div>

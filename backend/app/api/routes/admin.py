@@ -19,13 +19,55 @@ log = logging.getLogger(__name__)
 
 # 프로세스가 시작된 시각 — 재시작이 잦은지 판단하는 데 쓴다
 _STARTED_AT = time.time()
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from fastapi import Request
+
 router = APIRouter(prefix="/admin", tags=["관리자"])
+
+"""관리자 API 에도 상한을 둔다.
+
+인가로 이미 막혀 있지만, 잘못 짠 스크립트가 관리자 토큰으로 돌면
+0.15 CPU 서버가 그대로 멈춘다. 사람이 손으로 누르는 속도보다는 넉넉하게,
+자동 반복은 걸리도록 잡는다."""
+limiter = Limiter(key_func=get_remote_address)
 
 
 def require_admin(current_user: User = Depends(require_user)):
     if not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="관리자 권한이 필요합니다")
     return current_user
+
+
+def 관리기록(db: Session, actor: User, action: str,
+             target_type: str = "", target_id: str = "", detail: str = "") -> None:
+    """관리자가 한 일을 남긴다.
+
+    로그 파일에만 남기던 것을 DB 로 옮긴 이유 —
+      · 예전 로그에는 '누가' 가 없었다. ADMIN_USERNAME 은 쉼표로 여러 명을
+        받으므로 관리자가 둘 이상이면 누가 했는지 알 수 없었다.
+      · Render 무료 플랜은 재시작이 잦아 로그가 곧 흘러간다.
+
+    기록에 실패했다고 본 작업까지 막지는 않는다 — 글을 지웠는데 기록이
+    안 남는 것보다, 기록 때문에 지우기가 실패하는 쪽이 더 곤란하다.
+    다만 조용히 넘어가지는 않고 로그에는 남긴다."""
+    from app.models.admin_log import AdminLog
+    try:
+        db.add(AdminLog(
+            actor_id=actor.id,
+            actor_name=actor.username or "",
+            action=action,
+            target_type=target_type,
+            target_id=str(target_id)[:80],
+            detail=detail[:2000],
+        ))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        log.warning("관리 기록 실패 (%s): %s", action, type(e).__name__)
+    # 로그에도 남긴다 — 이제는 누가 했는지 함께
+    log.info("[관리] %s 가 %s %s %s %s", actor.username, action, target_type, target_id, detail[:120])
+
 
 
 # ── 통계 ────────────────────────────────────────────────────────────────────
@@ -302,12 +344,13 @@ def get_runtime(_: User = Depends(require_admin)):
 
 
 @router.post("/cache/clear")
-def clear_cache(_: User = Depends(require_admin)):
+@limiter.limit("30/minute")
+def clear_cache(request: Request, db: Session = Depends(get_db), current: User = Depends(require_admin)):
     """인메모리 캐시 전체 초기화"""
     from app.core.cache import cache
     size_before = cache.size()
     cache.clear()
-    log.info(f"관리자가 캐시 초기화: {size_before}건 삭제")
+    관리기록(db, current, "cache.clear", "cache", "*", f"{size_before}건 삭제")
     return {"cleared": size_before}
 
 
@@ -322,20 +365,22 @@ def list_cache(prefix: str = "", _: User = Depends(require_admin)):
 
 
 @router.delete("/cache/{key:path}")
-def delete_cache_key(key: str, _: User = Depends(require_admin)):
+@limiter.limit("60/minute")
+def delete_cache_key(request: Request, key: str, db: Session = Depends(get_db), current: User = Depends(require_admin)):
     """특정 캐시 키 삭제"""
     from app.core.cache import cache
     cache.delete(key)
-    log.info(f"관리자가 캐시 키 삭제: {key}")
+    관리기록(db, current, "cache.delete", "cache", key)
     return {"deleted": key}
 
 
 @router.delete("/cache")
-def delete_cache_prefix(prefix: str, _: User = Depends(require_admin)):
+@limiter.limit("30/minute")
+def delete_cache_prefix(request: Request, prefix: str, db: Session = Depends(get_db), current: User = Depends(require_admin)):
     """prefix로 시작하는 캐시 키 일괄 삭제"""
     from app.core.cache import cache
     count = cache.delete_pattern(prefix)
-    log.info(f"관리자가 캐시 prefix 삭제: {prefix} → {count}건")
+    관리기록(db, current, "cache.delete_prefix", "cache", prefix, f"{count}건")
     return {"deleted_count": count, "prefix": prefix}
 
 
@@ -374,41 +419,105 @@ def get_users(
 
 
 @router.patch("/users/{user_id}/active")
-def toggle_active(user_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
+@limiter.limit("30/minute")
+def toggle_active(request: Request, user_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
     if user.id == current.id:
         raise HTTPException(status_code=400, detail="자신의 계정은 변경할 수 없습니다")
+    # 동료 관리자를 정지시킬 수 있으면 서로 잠글 수 있다
+    if user.is_admin:
+        raise HTTPException(status_code=400, detail="관리자 계정은 변경할 수 없습니다")
     user.is_active = not user.is_active
     db.commit()
+    관리기록(db, current, "user.active", "user", user.id,
+             f"{user.username} → {'활성' if user.is_active else '정지'}")
     return {"id": user.id, "is_active": user.is_active}
 
 
 @router.patch("/users/{user_id}/community-ban")
-def toggle_community_ban(user_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
+@limiter.limit("30/minute")
+def toggle_community_ban(request: Request, user_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
     """커뮤니티 차단/해제 — 로그인 자체는 유지, 커뮤니티 쓰기만 차단"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
     if user.id == current.id:
         raise HTTPException(status_code=400, detail="자신의 계정은 변경할 수 없습니다")
+    if user.is_admin:
+        raise HTTPException(status_code=400, detail="관리자 계정은 변경할 수 없습니다")
     current_val = bool(getattr(user, "is_community_banned", False))
     user.is_community_banned = not current_val
     db.commit()
+    관리기록(db, current, "user.community_ban", "user", user.id,
+             f"{user.username} → {'차단' if user.is_community_banned else '해제'}")
     return {"id": user.id, "is_community_banned": user.is_community_banned}
 
 
 @router.delete("/users/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
+@limiter.limit("10/minute")
+def delete_user(request: Request, user_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
+    """계정 삭제.
+
+    예전에는 db.delete(user) 한 줄이었다. 그런데 users.id 를 참조하는 표가
+    열 개가 넘는데(글·댓글·좋아요·팔로우·투표·프로필·신고·알림·관심종목·
+    포트폴리오) User 쪽에는 cascade 선언이 없다. 프로덕션(PostgreSQL)에서는
+    외래키 위반으로 500 이 나고, SQLite 에서는 주인 없는 행이 남는다.
+    화면에 이 버튼이 없어서 아무도 안 밟았을 뿐이다.
+
+    사람이 남긴 글까지 통째로 지우는 것은 되돌릴 수 없는 일이라, 기본은
+    '비활성화' 를 권한다(계정 정지). 그래도 지워야 할 때가 있으므로
+    (탈퇴 요청·스팸 계정) 딸린 것을 순서대로 정리하고 지운다.
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
     if user.id == current.id:
         raise HTTPException(status_code=400, detail="자신의 계정은 삭제할 수 없습니다")
-    db.delete(user)
-    db.commit()
-    return {"message": "삭제 완료"}
+    # 동료 관리자를 지울 수 있으면 한 사람이 나머지를 다 밀어낼 수 있다
+    if user.is_admin:
+        raise HTTPException(status_code=400, detail="관리자 계정은 삭제할 수 없습니다. 먼저 권한을 내려 주세요")
+
+    이름 = user.username
+    지운수 = {}
+    try:
+        # 딸린 것부터 정리한다. 순서가 중요하다 — 좋아요·투표처럼 남을 가리키는
+        # 것을 먼저 지우고, 그다음 글·댓글, 마지막이 사람이다.
+        for 표, 칸 in [
+            ("stock_post_likes",    "user_id"),
+            ("stock_comment_likes", "user_id"),
+            ("stock_post_poll_votes", "user_id"),
+            ("user_follows",        "follower_id"),
+            ("user_follows",        "following_id"),
+            ("reports",             "reporter_id"),
+            ("notifications",       "user_id"),
+            ("notifications",       "actor_id"),
+            ("stock_comments",      "user_id"),
+            ("stock_posts",         "user_id"),
+            ("user_profiles",       "user_id"),
+            ("watchlist_items",     "user_id"),
+            ("portfolio_items",     "user_id"),
+            ("watchlists",          "user_id"),
+            ("portfolios",          "user_id"),
+        ]:
+            try:
+                r = db.execute(text(f"DELETE FROM {표} WHERE {칸} = :uid"), {"uid": user_id})
+                if r.rowcount:
+                    지운수[f"{표}.{칸}"] = r.rowcount
+            except Exception:
+                # 아직 없는 표가 있을 수 있다(마이그레이션 전). 그건 지울 것도 없다
+                db.rollback()
+        db.delete(user)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        log.error("계정 삭제 실패 user_id=%s: %s: %s", user_id, type(e).__name__, e)
+        raise HTTPException(status_code=500, detail="삭제하지 못했습니다. 계정 정지를 대신 사용해 주세요")
+
+    관리기록(db, current, "user.delete", "user", user_id,
+             f"{이름} · 함께 지운 것 {지운수}")
+    return {"message": "삭제 완료", "deleted": 지운수}
 
 
 @router.get("/users/{user_id}/detail")
@@ -512,10 +621,12 @@ def admin_list_posts(
 
 
 @router.delete("/community/posts/{post_id}", status_code=204)
+@limiter.limit("60/minute")
 def admin_delete_post(
+    request: Request,
     post_id: int     = Path(...),
     db:      Session = Depends(get_db),
-    _:       User    = Depends(require_admin),
+    current: User    = Depends(require_admin),
 ):
     from app.models.community import StockPost
     post = (
@@ -529,14 +640,14 @@ def admin_delete_post(
     db.execute(text("DELETE FROM stock_post_poll_votes WHERE post_id = :pid"), {"pid": post_id})
     db.delete(post)
     db.commit()
-    log.info(f"관리자가 게시글 삭제: post_id={post_id}")
+    관리기록(db, current, "post.delete", "post", post_id)
 
 
 @router.patch("/community/posts/{post_id}/blind")
 def admin_blind_post(
     post_id: int     = Path(...),
     db:      Session = Depends(get_db),
-    _:       User    = Depends(require_admin),
+    current: User    = Depends(require_admin),
 ):
     from app.models.community import StockPost
     post = db.query(StockPost).filter(StockPost.id == post_id).first()
@@ -544,7 +655,7 @@ def admin_blind_post(
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     post.is_blinded = True
     db.commit()
-    log.info(f"관리자가 게시글 블라인드: post_id={post_id}")
+    관리기록(db, current, "post.blind", "post", post_id)
     return {"id": post_id, "is_blinded": True}
 
 
@@ -552,7 +663,7 @@ def admin_blind_post(
 def admin_unblind_post(
     post_id: int     = Path(...),
     db:      Session = Depends(get_db),
-    _:       User    = Depends(require_admin),
+    current: User    = Depends(require_admin),
 ):
     from app.models.community import StockPost
     post = db.query(StockPost).filter(StockPost.id == post_id).first()
@@ -560,7 +671,7 @@ def admin_unblind_post(
         raise HTTPException(404, "게시글을 찾을 수 없습니다")
     post.is_blinded = False
     db.commit()
-    log.info(f"관리자가 게시글 블라인드 복구: post_id={post_id}")
+    관리기록(db, current, "post.unblind", "post", post_id)
     return {"id": post_id, "is_blinded": False}
 
 
@@ -605,10 +716,12 @@ def admin_list_comments(
 
 
 @router.delete("/community/comments/{comment_id}", status_code=204)
+@limiter.limit("60/minute")
 def admin_delete_comment(
+    request: Request,
     comment_id: int     = Path(...),
     db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+    current:    User    = Depends(require_admin),
 ):
     from app.models.community import StockComment
     comment = db.query(StockComment).filter(StockComment.id == comment_id).first()
@@ -616,14 +729,14 @@ def admin_delete_comment(
         raise HTTPException(404, "댓글을 찾을 수 없습니다")
     comment.is_deleted = True
     db.commit()
-    log.info(f"관리자가 댓글 삭제: comment_id={comment_id}")
+    관리기록(db, current, "comment.delete", "comment", comment_id)
 
 
 @router.patch("/community/comments/{comment_id}/blind")
 def admin_blind_comment(
     comment_id: int     = Path(...),
     db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+    current:    User    = Depends(require_admin),
 ):
     from app.models.community import StockComment
     comment = db.query(StockComment).filter(StockComment.id == comment_id).first()
@@ -631,7 +744,7 @@ def admin_blind_comment(
         raise HTTPException(404, "댓글을 찾을 수 없습니다")
     comment.is_blinded = True
     db.commit()
-    log.info(f"관리자가 댓글 블라인드: comment_id={comment_id}")
+    관리기록(db, current, "comment.blind", "comment", comment_id)
     return {"id": comment_id, "is_blinded": True}
 
 
@@ -639,7 +752,7 @@ def admin_blind_comment(
 def admin_unblind_comment(
     comment_id: int     = Path(...),
     db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+    current:    User    = Depends(require_admin),
 ):
     from app.models.community import StockComment
     comment = db.query(StockComment).filter(StockComment.id == comment_id).first()
@@ -647,7 +760,7 @@ def admin_unblind_comment(
         raise HTTPException(404, "댓글을 찾을 수 없습니다")
     comment.is_blinded = False
     db.commit()
-    log.info(f"관리자가 댓글 블라인드 복구: comment_id={comment_id}")
+    관리기록(db, current, "comment.unblind", "comment", comment_id)
     return {"id": comment_id, "is_blinded": False}
 
 
@@ -974,3 +1087,40 @@ def get_usage_stats(_: User = Depends(require_admin)):
     """기능별 사용 통계 (인메모리, 서버 재시작 시 초기화)"""
     from app.core.trends import get_usage_stats as _stats
     return _stats()
+
+
+# ── 관리자 행위 기록 ────────────────────────────────────────────
+@router.get("/logs")
+def get_admin_logs(
+    request: Request,
+    action: str = Query("", max_length=40),
+    limit:  int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """누가·언제·무엇을 했는지.
+
+    지우기와 정지는 되돌릴 수 없다. 되돌릴 수 없다면 최소한 무슨 일이
+    있었는지는 알 수 있어야 한다 — 특히 관리자가 여럿일 때.
+    """
+    from app.models.admin_log import AdminLog
+    q = db.query(AdminLog)
+    if action:
+        # 앞부분만 줘도 걸리게 한다("user" 로 user.delete·user.ban 을 함께)
+        q = q.filter(AdminLog.action.like(f"{action}%"))
+    total = q.count()
+    rows = (q.order_by(AdminLog.created_at.desc())
+              .offset(offset).limit(limit).all())
+    return {
+        "total": total,
+        "items": [{
+            "id": r.id,
+            "actor": r.actor_name,
+            "action": r.action,
+            "target_type": r.target_type,
+            "target_id": r.target_id,
+            "detail": r.detail,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        } for r in rows],
+    }

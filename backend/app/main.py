@@ -21,6 +21,7 @@ from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     MetricsHistoryCache,
 )
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, SitePopup, Report  # noqa: F401
+from app.models.admin_log import AdminLog  # noqa: F401  — 관리자 행위 기록 테이블 생성 보장
 from app.api.websocket.price_stream import stream_prices, stream_indices, MAX_STREAM_SYMBOLS
 from app.services.scheduler import start_background_tasks
 from app.services.ticker_service import init_ticker_db

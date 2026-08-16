@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import api from "@/api/client";
 import {
@@ -8,10 +8,11 @@ import {
   ShieldCheck, RefreshCw, Activity, Database, Star, CheckCircle,
   TrendingUp, Zap, Clock, Folder, Wifi, Eye, Search, X as XIcon,
   MessageSquare, Heart, Flag, Plus, Pencil, AlertCircle,
-  ExternalLink, Calendar,
+  ExternalLink, Calendar, ScrollText,
 } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
 import { Tabs, MarketBadge } from "@/components/ui";
+import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import SystemTab from "@/components/admin/SystemTab";
 
 const adminApi = {
@@ -33,6 +34,12 @@ const adminApi = {
   getSignups:        () => api.get("/admin/signups").then(r => r.data),
   getVisitorTrend:   () => api.get("/admin/visitor-trend").then(r => r.data),
   getSystem:       () => api.get("/admin/system").then(r => r.data),
+  /* 백엔드에 있는데 화면에서 안 쓰던 것 — 프로세스가 얼마나 자주 재시작되는지,
+     지금 무엇을 붙들고 있는지를 본다 */
+  getRuntime:      () => api.get("/admin/runtime").then(r => r.data),
+  /* 관리자 행위 기록 — 되돌릴 수 없는 일이 무엇이 있었는지 */
+  getAdminLogs:    (action = "", offset = 0) =>
+    api.get("/admin/logs", { params: { ...(action ? { action } : {}), limit: 50, offset } }).then(r => r.data),
   getDbStats:      () => api.get("/admin/db-stats").then(r => r.data),
   clearCache:      () => api.post("/admin/cache/clear").then(r => r.data),
   listCache:       (prefix?: string) => api.get("/admin/cache", { params: prefix ? { prefix } : {} }).then(r => r.data),
@@ -59,7 +66,7 @@ const adminApi = {
   getUsageStats:   () => api.get("/admin/usage-stats").then(r => r.data),
 };
 
-type Tab = "dashboard" | "users" | "community" | "banner" | "cache" | "reports" | "system";
+type Tab = "dashboard" | "users" | "community" | "banner" | "cache" | "reports" | "system" | "logs";
 
 export default function Admin() {
   const { isAdmin, username } = useAuthStore();
@@ -105,7 +112,13 @@ export default function Admin() {
       </div>
 
       {/* 탭 */}
-      <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-hide">
+      {/* 메인 탭. 공용 <Tabs> 는 이 파일 안에서도 다섯 곳이 쓰는데 정작
+          메인 탭만 손으로 짜여 있었다. 배지(신고 대기 건수)를 겹쳐 붙이는
+          모양이라 공용 컴포넌트에 그대로 안 들어가서, 모양은 두되 공용
+          Tabs 가 주던 것(역할·선택 상태)은 붙여 둔다 —
+          화면 읽어주는 기능이 "탭 목록, 4/7 선택됨" 으로 읽는다. */}
+      <div role="tablist" aria-label="관리 항목"
+           className="flex gap-1 border-b border-border overflow-x-auto scrollbar-hide">
         {([
           { id: "dashboard", Icon: BarChart2,     label: "대시보드",  badge: 0 },
           { id: "users",     Icon: Users,         label: "유저 관리", badge: 0 },
@@ -114,9 +127,12 @@ export default function Admin() {
           { id: "banner",    Icon: Megaphone,     label: "배너·공지", badge: 0 },
           { id: "cache",     Icon: Database,      label: "캐시",      badge: 0 },
           { id: "system",    Icon: Activity,      label: "시스템",    badge: 0 },
+          { id: "logs",      Icon: ScrollText,    label: "관리 기록", badge: 0 },
         ] as { id: Tab; Icon: any; label: string; badge: number }[]).map(({ id, Icon, label, badge }) => (
           <button
             key={id}
+            role="tab"
+            aria-selected={tab === id}
             onClick={() => setTab(id)}
             className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold transition-all border-b-2 -mb-px whitespace-nowrap ${
               tab === id
@@ -126,7 +142,7 @@ export default function Admin() {
           >
             <Icon size={14} />{label}
             {badge > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-accent-red text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-accent-red text-white text-2xs font-bold rounded-full flex items-center justify-center px-1">
                 {badge > 99 ? "99+" : badge}
               </span>
             )}
@@ -141,12 +157,14 @@ export default function Admin() {
       {tab === "banner"    && <BannerTab qc={qc} />}
       {tab === "cache"     && <CacheTab qc={qc} />}
       {tab === "system"    && <SystemTab />}
+      {tab === "logs"      && <AdminLogTab />}
     </div>
   );
 }
 
 /* ─────────────────────────── 대시보드 탭 ─────────────────────────── */
-function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
+function DashboardTab({ qc, stats: statsProp }: { qc: QueryClient; stats?: any }) {
+  const [캐시확인, set캐시확인] = useState(false);
   const [popularBasis, setPopularBasis] = useState<"watchlist" | "portfolio">("watchlist");
   const { data: statsData } = useQuery({ queryKey: ["admin-stats"], queryFn: adminApi.getStats, staleTime: 30_000 });
   const stats = statsProp ?? statsData;
@@ -165,12 +183,12 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
   const METRIC_CARDS = [
     { label: "전체 회원",    value: stats?.total_users       ?? 0, color: "text-accent-blue",   bg: "bg-accent-blue/8",   Icon: Users },
     { label: "활성 계정",    value: stats?.active_users      ?? 0, color: "text-accent-green",  bg: "bg-accent-green/8",  Icon: CheckCircle },
-    { label: "현재 접속",    value: stats?.online_users      ?? 0, color: "text-cyan-400",      bg: "bg-cyan-400/8",      Icon: Wifi },
-    { label: "오늘 방문자",  value: stats?.today_visitors    ?? 0, color: "text-orange-400",    bg: "bg-orange-400/8",    Icon: Eye },
-    { label: "관심종목 폴더", value: stats?.watchlist_folders ?? 0, color: "text-amber-400",    bg: "bg-amber-400/8",     Icon: Folder },
-    { label: "포트폴리오 수", value: stats?.portfolio_items  ?? 0, color: "text-purple-400",    bg: "bg-purple-400/8",    Icon: TrendingUp },
-    { label: "커뮤니티 글",  value: stats?.total_posts       ?? 0, color: "text-rose-400",      bg: "bg-rose-400/8",      Icon: MessageSquare },
-    { label: "커뮤니티 댓글", value: stats?.total_comments   ?? 0, color: "text-pink-400",      bg: "bg-pink-400/8",      Icon: Heart },
+    { label: "현재 접속",    value: stats?.online_users      ?? 0, color: "text-accent-cyan",      bg: "bg-accent-cyan/8",      Icon: Wifi },
+    { label: "오늘 방문자",  value: stats?.today_visitors    ?? 0, color: "text-accent-orange",    bg: "bg-accent-orange/8",    Icon: Eye },
+    { label: "관심종목 폴더", value: stats?.watchlist_folders ?? 0, color: "text-accent-yellow",    bg: "bg-accent-yellow/8",     Icon: Folder },
+    { label: "포트폴리오 수", value: stats?.portfolio_items  ?? 0, color: "text-accent-purple",    bg: "bg-accent-purple/8",    Icon: TrendingUp },
+    { label: "커뮤니티 글",  value: stats?.total_posts       ?? 0, color: "text-accent-red",      bg: "bg-accent-red/8",      Icon: MessageSquare },
+    { label: "커뮤니티 댓글", value: stats?.total_comments   ?? 0, color: "text-accent-purple",      bg: "bg-accent-purple/8",      Icon: Heart },
   ];
 
   const signupData: { date: string; count: number }[] = signups ?? [];
@@ -189,7 +207,7 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
   const MARKET_COLOR: Record<string, string> = {
     KR:  "bg-accent-blue/15 text-accent-blue",
     US:  "bg-accent-green/15 text-accent-green",
-    ETF: "bg-purple-400/15 text-purple-400",
+    ETF: "bg-accent-purple/15 text-accent-purple",
   };
 
   return (
@@ -236,7 +254,7 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
                       <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
                       <span className="text-xs text-accent-green font-semibold">정상</span>
                       {system.db_latency_ms > 0 && (
-                        <span className="text-[11px] text-text-muted">{system.db_latency_ms}ms</span>
+                        <span className="text-xs text-text-muted">{system.db_latency_ms}ms</span>
                       )}
                     </>
                   ) : (
@@ -267,7 +285,9 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
           </div>
 
           <button
-            onClick={() => clearMut.mutate()}
+            /* 같은 동작인데 캐시 탭에는 확인이 있고 여기만 없었다.
+               전체 초기화는 0.15 CPU 서버에서 한동안 모든 화면을 느리게 만든다 */
+            onClick={() => set캐시확인(true)}
             disabled={clearMut.isPending}
             className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-red hover:border-accent-red/40 transition-all"
           >
@@ -302,7 +322,7 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
                     style={{ height: `${Math.max(pct, d.count > 0 ? 8 : 2)}%` }}
                   />
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:flex pointer-events-none z-10">
-                    <div className="bg-bg-elevated border border-border text-text-primary text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg">
+                    <div className="bg-bg-elevated border border-border text-text-primary text-2xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg">
                       {d.date.slice(5)} · {d.count}명
                     </div>
                   </div>
@@ -313,11 +333,11 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
 
           <div className="flex gap-5 pt-1 border-t border-border">
             <div>
-              <p className="text-[10px] text-text-muted mb-0.5">오늘</p>
+              <p className="text-2xs text-text-muted mb-0.5">오늘</p>
               <p className="text-xl font-bold font-mono text-text-primary">{todaySignups}</p>
             </div>
             <div>
-              <p className="text-[10px] text-text-muted mb-0.5">30일 누적</p>
+              <p className="text-2xs text-text-muted mb-0.5">30일 누적</p>
               <p className="text-xl font-bold font-mono text-accent-blue">{totalMonth}</p>
             </div>
           </div>
@@ -328,7 +348,7 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
       <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
-            <Eye size={14} className="text-orange-400" />방문자 추이
+            <Eye size={14} className="text-accent-orange" />방문자 추이
           </span>
           <span className="text-xs text-text-muted">최근 30일 · UTC 기준</span>
         </div>
@@ -344,12 +364,12 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
                 <div key={d.date} className="flex-1 flex flex-col justify-end group relative" style={{ height: "100%" }}>
                   <div
                     className={`w-full rounded-sm transition-colors ${
-                      isToday ? "bg-orange-400" : "bg-orange-400/30 group-hover:bg-orange-400/60"
+                      isToday ? "bg-accent-orange" : "bg-accent-orange/30 group-hover:bg-accent-orange/60"
                     }`}
                     style={{ height: `${Math.max(pct, d.count > 0 ? 8 : 2)}%` }}
                   />
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:flex pointer-events-none z-10">
-                    <div className="bg-bg-elevated border border-border text-text-primary text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg">
+                    <div className="bg-bg-elevated border border-border text-text-primary text-2xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg">
                       {d.date.slice(5)} · {d.count}명
                     </div>
                   </div>
@@ -361,12 +381,12 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
 
         <div className="flex gap-5 pt-1 border-t border-border">
           <div>
-            <p className="text-[10px] text-text-muted mb-0.5">오늘</p>
+            <p className="text-2xs text-text-muted mb-0.5">오늘</p>
             <p className="text-xl font-bold font-mono text-text-primary">{todayVisitors}</p>
           </div>
           <div>
-            <p className="text-[10px] text-text-muted mb-0.5">30일 누적</p>
-            <p className="text-xl font-bold font-mono text-orange-400">{totalVisitors.toLocaleString()}</p>
+            <p className="text-2xs text-text-muted mb-0.5">30일 누적</p>
+            <p className="text-xl font-bold font-mono text-accent-orange">{totalVisitors.toLocaleString()}</p>
           </div>
         </div>
       </div>
@@ -399,7 +419,7 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm font-semibold text-text-primary truncate">{item.name}</span>
-                    <span className={`text-[10px] font-bold px-1.5 py-px rounded shrink-0 ${MARKET_COLOR[item.market] ?? "bg-bg-secondary text-text-muted"}`}>
+                    <span className={`text-2xs font-bold px-1.5 py-px rounded shrink-0 ${MARKET_COLOR[item.market] ?? "bg-bg-secondary text-text-muted"}`}>
                       {item.market}
                     </span>
                   </div>
@@ -495,6 +515,17 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
           </div>
         );
       })()}
+
+      {캐시확인 && (
+        <ConfirmDialog
+          title="캐시를 전부 비울까요?"
+          message="모든 시세·재무 캐시가 사라집니다. 다시 채워질 때까지 한동안 모든 화면이 느려집니다."
+          확인글="비우기"
+          진행중={clearMut.isPending}
+          onConfirm={() => { clearMut.mutate(); set캐시확인(false); }}
+          onClose={() => set캐시확인(false)}
+        />
+      )}
     </div>
   );
 }
@@ -503,10 +534,10 @@ function DashboardTab({ qc, stats: statsProp }: { qc: any; stats?: any }) {
 const MARKET_COLOR_MAP: Record<string, string> = {
   KR:  "bg-accent-blue/15 text-accent-blue",
   US:  "bg-accent-green/15 text-accent-green",
-  ETF: "bg-purple-400/15 text-purple-400",
+  ETF: "bg-accent-purple/15 text-accent-purple",
 };
 
-function CommunityAdminTab({ qc }: { qc: any }) {
+function CommunityAdminTab({ qc }: { qc: QueryClient }) {
   const [subTab, setSubTab] = useState<"posts" | "comments">("posts");
   return (
     <div className="flex flex-col gap-4">
@@ -522,7 +553,7 @@ function CommunityAdminTab({ qc }: { qc: any }) {
   );
 }
 
-function PostsAdminSection({ qc }: { qc: any }) {
+function PostsAdminSection({ qc }: { qc: QueryClient }) {
   const [page, setPage] = useState(1);
   const [marketFilter, setMarketFilter] = useState("ALL");
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
@@ -606,7 +637,7 @@ function PostsAdminSection({ qc }: { qc: any }) {
                     </td>
                     <td className="px-3 py-3 hidden md:table-cell">
                       <div className="flex items-center gap-1.5">
-                        <span className={`text-[10px] font-bold px-1.5 py-px rounded ${MARKET_COLOR_MAP[p.market] ?? "bg-bg-secondary text-text-muted"}`}>
+                        <span className={`text-2xs font-bold px-1.5 py-px rounded ${MARKET_COLOR_MAP[p.market] ?? "bg-bg-secondary text-text-muted"}`}>
                           {p.market}
                         </span>
                         <span className="text-xs font-mono text-text-muted">{p.symbol}</span>
@@ -615,7 +646,7 @@ function PostsAdminSection({ qc }: { qc: any }) {
                     <td className="px-3 py-3 max-w-[200px] lg:max-w-xs">
                       <div className="flex items-center gap-1.5">
                         {p.is_blinded && (
-                          <span className="text-[10px] bg-amber-400/15 text-amber-500 px-1.5 py-px rounded font-bold shrink-0">블라인드</span>
+                          <span className="text-2xs bg-accent-yellow/15 text-accent-yellow px-1.5 py-px rounded font-bold shrink-0">블라인드</span>
                         )}
                         <Link
                           to={`/post/${p.id}`}
@@ -641,7 +672,7 @@ function PostsAdminSection({ qc }: { qc: any }) {
                           onClick={() => actPost(p.is_blinded ? adminApi.unblindPost : adminApi.blindPost, p.id)}
                           disabled={actingId === p.id}
                           title={p.is_blinded ? "블라인드 복구" : "블라인드"}
-                          className={`p-1 rounded transition-colors ${p.is_blinded ? "text-accent-blue hover:bg-accent-blue/10" : "text-amber-500 hover:bg-amber-400/10"} disabled:opacity-40`}
+                          className={`p-1 rounded transition-colors ${p.is_blinded ? "text-accent-blue hover:bg-accent-blue/10" : "text-accent-yellow hover:bg-accent-yellow/10"} disabled:opacity-40`}
                         >
                           <Eye size={13} />
                         </button>
@@ -700,7 +731,7 @@ function PostsAdminSection({ qc }: { qc: any }) {
   );
 }
 
-function CommentsAdminSection({ qc }: { qc: any }) {
+function CommentsAdminSection({ qc }: { qc: QueryClient }) {
   const [page, setPage] = useState(1);
   const [actingId, setActingId] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
@@ -776,10 +807,10 @@ function CommentsAdminSection({ qc }: { qc: any }) {
                     <td className="px-3 py-3 max-w-[200px] lg:max-w-xs">
                       <div className="flex items-center gap-1.5">
                         {c.is_blinded && (
-                          <span className="text-[10px] bg-amber-400/15 text-amber-500 px-1.5 py-px rounded font-bold shrink-0">블라인드</span>
+                          <span className="text-2xs bg-accent-yellow/15 text-accent-yellow px-1.5 py-px rounded font-bold shrink-0">블라인드</span>
                         )}
                         {c.parent_id && (
-                          <span className="text-[10px] bg-bg-elevated text-text-muted px-1.5 py-px rounded shrink-0">답글</span>
+                          <span className="text-2xs bg-bg-elevated text-text-muted px-1.5 py-px rounded shrink-0">답글</span>
                         )}
                         <span className="text-xs text-text-secondary truncate">{c.content || "—"}</span>
                       </div>
@@ -793,7 +824,7 @@ function CommentsAdminSection({ qc }: { qc: any }) {
                           onClick={() => actComment(c.is_blinded ? adminApi.unblindComment : adminApi.blindComment, c.id)}
                           disabled={actingId === c.id}
                           title={c.is_blinded ? "블라인드 복구" : "블라인드"}
-                          className={`p-1 rounded transition-colors ${c.is_blinded ? "text-accent-blue hover:bg-accent-blue/10" : "text-amber-500 hover:bg-amber-400/10"} disabled:opacity-40`}
+                          className={`p-1 rounded transition-colors ${c.is_blinded ? "text-accent-blue hover:bg-accent-blue/10" : "text-accent-yellow hover:bg-accent-yellow/10"} disabled:opacity-40`}
                         >
                           <Eye size={13} />
                         </button>
@@ -851,7 +882,12 @@ function CommentsAdminSection({ qc }: { qc: any }) {
 }
 
 /* ─────────────────────────── 유저 관리 탭 ─────────────────────────── */
-function UsersTab({ qc }: { qc: any }) {
+function UsersTab({ qc }: { qc: QueryClient }) {
+  /* 계정 정지는 그 사람이 로그인을 못 하게 되는 일이다. 목록에서 옆줄을
+     잘못 누르는 것이 가장 흔한 실수라, 무엇에 대한 일인지 이름을 보여 주고
+     한 번 묻는다 */
+  const [확인, set확인] = useState<
+    { 종류: "active" | "ban"; id: number; 이름: string; 켬: boolean } | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -917,7 +953,7 @@ function UsersTab({ qc }: { qc: any }) {
       ) : (
         <div className="rounded-xl border border-border bg-bg-card divide-y divide-border/40 overflow-hidden">
           {/* 컬럼 헤더 */}
-          <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-bg-elevated/60 border-b border-border text-[11px] font-semibold text-text-muted">
+          <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-bg-elevated/60 border-b border-border text-xs font-semibold text-text-muted">
             <span className="w-7 shrink-0 hidden sm:block">ID</span>
             <span className="flex-1 min-w-0">아이디 / 이메일</span>
             <span className="shrink-0 w-[56px] text-center">계정</span>
@@ -930,7 +966,7 @@ function UsersTab({ qc }: { qc: any }) {
           {filtered.map((u: any) => (
             <div key={u.id} className="flex items-center gap-2 px-3 sm:px-4 py-2.5 hover:bg-bg-hover transition-colors min-w-0">
               {/* ID */}
-              <span className="text-[11px] font-mono text-text-muted/60 w-7 shrink-0 hidden sm:block">{u.id}</span>
+              <span className="text-xs font-mono text-text-muted/60 w-7 shrink-0 hidden sm:block">{u.id}</span>
 
               {/* 이름 + 배지 + 이메일 */}
               <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
@@ -940,44 +976,48 @@ function UsersTab({ qc }: { qc: any }) {
                   {u.username}
                 </button>
                 {u.is_admin && (
-                  <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold shrink-0">관리자</span>
+                  <span className="text-2xs bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold shrink-0">관리자</span>
                 )}
                 {!u.is_admin && u.is_community_banned && (
-                  <span className="text-[10px] bg-orange-400/15 text-orange-400 px-1.5 py-px rounded font-bold shrink-0 hidden sm:inline">커뮤차단</span>
+                  <span className="text-2xs bg-accent-orange/15 text-accent-orange px-1.5 py-px rounded font-bold shrink-0 hidden sm:inline">커뮤차단</span>
                 )}
                 {u.email && (
-                  <span className="text-[11px] text-text-muted truncate hidden sm:inline">{u.email}</span>
+                  <span className="text-xs text-text-muted truncate hidden sm:inline">{u.email}</span>
                 )}
               </div>
 
               {/* 계정 비활성화 토글 */}
               <div className="w-[56px] flex justify-center shrink-0">
                 {!u.is_admin ? (
-                  <button onClick={() => toggleMut.mutate(u.id)}
+                  <button
+                    aria-label={u.is_active ? `${u.username} 계정 비활성화` : `${u.username} 계정 활성화`}
+                    onClick={() => set확인({ 종류: "active", id: u.id, 이름: u.username, 켬: u.is_active })}
                     title={u.is_active ? "계정 비활성화" : "계정 활성화"}>
                     {u.is_active
                       ? <ToggleRight size={20} className="text-accent-green" />
                       : <ToggleLeft size={20} className="text-text-muted" />}
                   </button>
                 ) : (
-                  <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold">관리자</span>
+                  <span className="text-2xs bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold">관리자</span>
                 )}
               </div>
 
               {/* 커뮤니티 비활성화 토글 */}
               <div className="w-[72px] flex justify-center shrink-0">
                 {!u.is_admin && (
-                  <button onClick={() => communityBanMut.mutate(u.id)}
+                  <button
+                    aria-label={u.is_community_banned ? `${u.username} 커뮤니티 차단 해제` : `${u.username} 커뮤니티 차단`}
+                    onClick={() => set확인({ 종류: "ban", id: u.id, 이름: u.username, 켬: !u.is_community_banned })}
                     title={u.is_community_banned ? "커뮤니티 차단 해제" : "커뮤니티 차단"}>
                     {u.is_community_banned
-                      ? <ToggleRight size={20} className="text-orange-400" />
+                      ? <ToggleRight size={20} className="text-accent-orange" />
                       : <ToggleLeft size={20} className="text-text-muted" />}
                   </button>
                 )}
               </div>
 
               {/* 가입일 */}
-              <span className="text-[11px] text-text-muted font-mono shrink-0 hidden lg:block w-[80px] text-right">
+              <span className="text-xs text-text-muted font-mono shrink-0 hidden lg:block w-[80px] text-right">
                 {u.created_at ? u.created_at.slice(0, 10) : "—"}
               </span>
             </div>
@@ -1000,11 +1040,34 @@ function UsersTab({ qc }: { qc: any }) {
       {detailUserId !== null && (
         <UserDetailModal userId={detailUserId} onClose={() => setDetailUserId(null)} qc={qc} />
       )}
+
+      {/* 되돌릴 수 없는 일 앞에서 한 번 묻는다 */}
+      {확인 && (
+        <ConfirmDialog
+          title={확인.종류 === "active"
+            ? (확인.켬 ? "계정을 정지할까요?" : "계정을 다시 열까요?")
+            : (확인.켬 ? "커뮤니티를 차단할까요?" : "커뮤니티 차단을 풀까요?")}
+          message={확인.종류 === "active"
+            ? (확인.켬 ? "이 사람은 로그인할 수 없게 됩니다." : "다시 로그인할 수 있게 됩니다.")
+            : (확인.켬 ? "글·댓글을 쓸 수 없게 됩니다. 로그인과 열람은 그대로입니다." : "다시 글을 쓸 수 있게 됩니다.")}
+          대상={확인.이름}
+          위험={확인.켬}
+          확인글={확인.켬 ? (확인.종류 === "active" ? "정지" : "차단") : "해제"}
+          진행중={toggleMut.isPending || communityBanMut.isPending}
+          onConfirm={() => {
+            if (확인.종류 === "active") toggleMut.mutate(확인.id);
+            else communityBanMut.mutate(확인.id);
+            set확인(null);
+          }}
+          onClose={() => set확인(null)}
+        />
+      )}
     </div>
   );
 }
 
-function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () => void; qc: any }) {
+function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () => void; qc: QueryClient }) {
+  const [확인, set확인] = useState<"active" | "ban" | null>(null);
   const { data: detail, isLoading } = useQuery({
     queryKey: ["admin-user-detail", userId],
     queryFn: () => adminApi.getUserDetail(userId),
@@ -1028,7 +1091,7 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
         {/* 헤더 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <p className="text-sm font-bold text-text-primary">유저 상세</p>
-          <button onClick={onClose}><XIcon size={16} className="text-text-muted" /></button>
+          <button aria-label="닫기" onClick={onClose}><XIcon size={16} className="text-text-muted" /></button>
         </div>
 
         {isLoading ? (
@@ -1045,9 +1108,9 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
               <div>
                 <div className="flex items-center gap-1.5">
                   <p className="text-sm font-bold text-text-primary">{detail.username}</p>
-                  {detail.is_admin && <span className="text-[10px] bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold">관리자</span>}
-                  {!detail.is_active && <span className="text-[10px] bg-accent-red/15 text-accent-red px-1.5 py-px rounded font-bold">비활성</span>}
-                  {detail.is_community_banned && <span className="text-[10px] bg-orange-400/15 text-orange-400 px-1.5 py-px rounded font-bold">커뮤차단</span>}
+                  {detail.is_admin && <span className="text-2xs bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold">관리자</span>}
+                  {!detail.is_active && <span className="text-2xs bg-accent-red/15 text-accent-red px-1.5 py-px rounded font-bold">비활성</span>}
+                  {detail.is_community_banned && <span className="text-2xs bg-accent-orange/15 text-accent-orange px-1.5 py-px rounded font-bold">커뮤차단</span>}
                 </div>
                 <p className="text-xs text-text-muted">{detail.email}</p>
                 <p className="text-xs text-text-muted">가입일: {detail.created_at?.slice(0, 10)}</p>
@@ -1064,7 +1127,7 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
                 { label: "팔로잉", value: detail.following_count },
               ].map(({ label, value }) => (
                 <div key={label} className="rounded-lg bg-bg-elevated p-2.5 flex flex-col gap-0.5">
-                  <p className="text-[10px] text-text-muted">{label}</p>
+                  <p className="text-2xs text-text-muted">{label}</p>
                   <p className="text-base font-bold font-mono text-text-primary">{value}</p>
                 </div>
               ))}
@@ -1078,9 +1141,9 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
                   {detail.recent_posts.map((p: any) => (
                     <Link key={p.id} to={`/post/${p.id}`}
                       className="flex items-center gap-2 p-2 rounded-lg bg-bg-elevated hover:bg-bg-hover transition-colors">
-                      <span className={`text-[10px] font-bold px-1.5 py-px rounded shrink-0 ${MARKET_COLOR_MAP[p.market] ?? "bg-bg-secondary text-text-muted"}`}>{p.market}</span>
+                      <span className={`text-2xs font-bold px-1.5 py-px rounded shrink-0 ${MARKET_COLOR_MAP[p.market] ?? "bg-bg-secondary text-text-muted"}`}>{p.market}</span>
                       <span className="text-xs text-text-secondary truncate flex-1">{p.title || "—"}</span>
-                      <span className="text-[10px] text-text-muted font-mono shrink-0">{p.created_at?.slice(0, 10)}</span>
+                      <span className="text-2xs text-text-muted font-mono shrink-0">{p.created_at?.slice(0, 10)}</span>
                     </Link>
                   ))}
                 </div>
@@ -1090,7 +1153,7 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
             {/* 액션 버튼 */}
             {!detail.is_admin && (
               <div className="flex gap-2 pt-2 border-t border-border">
-                <button onClick={() => toggleMut.mutate()} disabled={toggleMut.isPending}
+                <button onClick={() => set확인("active")} disabled={toggleMut.isPending}
                   className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
                     detail.is_active
                       ? "bg-accent-red/10 text-accent-red hover:bg-accent-red/20"
@@ -1098,11 +1161,11 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
                   } disabled:opacity-50`}>
                   {detail.is_active ? "계정 비활성화" : "계정 활성화"}
                 </button>
-                <button onClick={() => communityBanMut.mutate()} disabled={communityBanMut.isPending}
+                <button onClick={() => set확인("ban")} disabled={communityBanMut.isPending}
                   className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
                     detail.is_community_banned
                       ? "bg-accent-green/10 text-accent-green hover:bg-accent-green/20"
-                      : "bg-orange-400/10 text-orange-400 hover:bg-orange-400/20"
+                      : "bg-accent-orange/10 text-accent-orange hover:bg-accent-orange/20"
                   } disabled:opacity-50`}>
                   {detail.is_community_banned ? "커뮤니티 차단 해제" : "커뮤니티 차단"}
                 </button>
@@ -1113,12 +1176,35 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
           <div className="py-12 text-center text-text-muted text-sm">정보를 불러올 수 없습니다</div>
         )}
       </div>
+
+      {확인 && detail && (
+        <ConfirmDialog
+          title={확인 === "active"
+            ? (detail.is_active ? "계정을 정지할까요?" : "계정을 다시 열까요?")
+            : (detail.is_community_banned ? "커뮤니티 차단을 풀까요?" : "커뮤니티를 차단할까요?")}
+          message={확인 === "active"
+            ? (detail.is_active ? "이 사람은 로그인할 수 없게 됩니다." : "다시 로그인할 수 있게 됩니다.")
+            : (detail.is_community_banned ? "다시 글을 쓸 수 있게 됩니다." : "글·댓글을 쓸 수 없게 됩니다. 로그인과 열람은 그대로입니다.")}
+          대상={detail.username}
+          위험={확인 === "active" ? detail.is_active : !detail.is_community_banned}
+          확인글={확인 === "active"
+            ? (detail.is_active ? "정지" : "열기")
+            : (detail.is_community_banned ? "해제" : "차단")}
+          진행중={toggleMut.isPending || communityBanMut.isPending}
+          onConfirm={() => {
+            if (확인 === "active") toggleMut.mutate();
+            else communityBanMut.mutate();
+            set확인(null);
+          }}
+          onClose={() => set확인(null)}
+        />
+      )}
     </div>
   );
 }
 
 /* ─────────────────────────── 공지사항 탭 ─────────────────────────── */
-function AnnouncementTab({ annoText, setAnnoText, qc }: { annoText: string; setAnnoText: (v: string) => void; qc: any }) {
+function AnnouncementTab({ annoText, setAnnoText, qc }: { annoText: string; setAnnoText: (v: string) => void; qc: QueryClient }) {
   const [saved, setSaved] = useState(false);
 
   const { data: annoData } = useQuery({
@@ -1194,7 +1280,7 @@ function AnnouncementTab({ annoText, setAnnoText, qc }: { annoText: string; setA
 }
 
 /* ─────────────────────────── 배너·공지 탭 ─────────────────────────── */
-function BannerTab({ qc }: { qc: any }) {
+function BannerTab({ qc }: { qc: QueryClient }) {
   const [annoText, setAnnoText] = useState("");
   return (
     <div className="flex flex-col gap-8">
@@ -1207,7 +1293,10 @@ function BannerTab({ qc }: { qc: any }) {
 }
 
 /* ─────────────────────────── 캐시 탭 ─────────────────────────── */
-function CacheTab({ qc }: { qc: any }) {
+function CacheTab({ qc }: { qc: QueryClient }) {
+  /* window.confirm 은 앱 모양과 따로 놀고, 무엇이 지워지는지(키 이름)를
+     보여 줄 수 없다. 항목 삭제에는 아예 확인이 없었다 */
+  const [확인, set확인] = useState<{ 전체: boolean; key?: string } | null>(null);
   const [search, setSearch] = useState("");
   const [confirmed, setConfirmed] = useState<string | null>(null);
 
@@ -1216,6 +1305,9 @@ function CacheTab({ qc }: { qc: any }) {
     queryFn: () => adminApi.listCache(),
     staleTime: 10_000,
     refetchInterval: 30_000,
+    /* 시스템 탭은 이미 이렇게 하는데 여기만 빠져 있었다. 관리자 화면을
+       켜 둔 채 다른 일을 하면 30초마다 계속 물어본다 */
+    refetchIntervalInBackground: false,
   });
 
   const deleteMut = useMutation({
@@ -1249,7 +1341,7 @@ function CacheTab({ qc }: { qc: any }) {
             <RefreshCw size={14} />
           </button>
           <button
-            onClick={() => { if (window.confirm("캐시 전체를 초기화할까요?")) clearMut.mutate(); }}
+            onClick={() => set확인({ 전체: true })}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent-red/10 text-accent-red hover:bg-accent-red/20 transition-colors"
           >
             전체 초기화
@@ -1304,7 +1396,9 @@ function CacheTab({ qc }: { qc: any }) {
               <span className={`font-mono text-right ${TTL_COLOR(item.ttl_remaining)}`}>{item.ttl_remaining}s</span>
               <div className="flex justify-end">
                 {confirmed === item.key ? (
-                  <button onClick={() => deleteMut.mutate(item.key)}
+                  <button
+                    aria-label={`${item.key} 삭제`}
+                    onClick={() => set확인({ 전체: false, key: item.key })}
                     className="text-accent-red hover:text-accent-red/70 text-xs font-semibold">삭제</button>
                 ) : (
                   <button onClick={() => setConfirmed(item.key)}
@@ -1322,6 +1416,25 @@ function CacheTab({ qc }: { qc: any }) {
           </div>
         )}
       </div>
+
+      {확인 && (
+        <ConfirmDialog
+          title={확인.전체 ? "캐시를 전부 비울까요?" : "이 캐시를 지울까요?"}
+          message={확인.전체
+            ? "모든 시세·재무 캐시가 사라집니다. 다시 채워질 때까지 한동안 모든 화면이 느려집니다."
+            : "다음에 누군가 이 값을 찾으면 외부에서 새로 받아옵니다."}
+          대상={확인.key}
+          위험={확인.전체}
+          확인글={확인.전체 ? "비우기" : "삭제"}
+          진행중={clearMut.isPending || deleteMut.isPending}
+          onConfirm={() => {
+            if (확인.전체) clearMut.mutate();
+            else if (확인.key) deleteMut.mutate(확인.key);
+            set확인(null);
+          }}
+          onClose={() => set확인(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1338,7 +1451,10 @@ const POPUP_BG_OPTIONS = [
   { value: "purple", label: "보라색" },
 ];
 
-function PopupTab({ qc }: { qc: any }) {
+function PopupTab({ qc }: { qc: QueryClient }) {
+  /* 여기만 window.confirm 이 남아 있었다. 브라우저 기본 창은 앱 모양과
+     따로 놀고, 어느 팝업을 지우는지 제목을 보여 줄 수 없다 */
+  const [지울팝업, set지울팝업] = useState<{ id: number; title: string } | null>(null);
   const { data: popups = [], isLoading, refetch } = useQuery({ queryKey: ["admin-popups"], queryFn: adminApi.getPopups, staleTime: 30_000 });
   const [editTarget, setEditTarget] = useState<any | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -1361,7 +1477,7 @@ function PopupTab({ qc }: { qc: any }) {
     else createMut.mutate(payload);
   };
 
-  const BG_COLOR_MAP: Record<string, string> = { blue: "bg-blue-500/15 text-blue-400", green: "bg-green-500/15 text-green-400", amber: "bg-amber-400/15 text-amber-500", red: "bg-red-500/15 text-red-400", purple: "bg-purple-500/15 text-purple-400" };
+  const BG_COLOR_MAP: Record<string, string> = { blue: "bg-accent-blue/15 text-accent-blue", green: "bg-accent-green/15 text-accent-green", amber: "bg-accent-yellow/15 text-accent-yellow", red: "bg-accent-red/15 text-accent-red", purple: "bg-accent-purple/15 text-accent-purple" };
 
   return (
     <div className="flex flex-col gap-4">
@@ -1382,28 +1498,28 @@ function PopupTab({ qc }: { qc: any }) {
             <div key={p.id} className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${BG_COLOR_MAP[p.bg_color] ?? "bg-bg-secondary text-text-muted"}`}>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${BG_COLOR_MAP[p.bg_color] ?? "bg-bg-secondary text-text-muted"}`}>
                     {POPUP_TYPE_LABELS[p.popup_type] ?? p.popup_type}
                   </span>
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${p.is_active ? "bg-accent-green/12 text-accent-green" : "bg-bg-elevated text-text-muted"}`}>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.is_active ? "bg-accent-green/12 text-accent-green" : "bg-bg-elevated text-text-muted"}`}>
                     {p.is_active ? "활성" : "비활성"}
                   </span>
                   <span className="text-sm font-semibold text-text-primary">{p.title}</span>
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <button onClick={() => openEdit(p)} className="p-1.5 text-text-muted hover:text-accent-blue transition-colors"><Pencil size={13} /></button>
-                  <button onClick={() => { if (window.confirm("팝업을 삭제할까요?")) deleteMut.mutate(p.id); }} className="p-1.5 text-text-muted hover:text-accent-red transition-colors"><Trash2 size={13} /></button>
+                  <button aria-label={`${p.title} 삭제`} onClick={() => set지울팝업({ id: p.id, title: p.title })} className="p-1.5 text-text-muted hover:text-accent-red transition-colors"><Trash2 size={13} /></button>
                 </div>
               </div>
               {p.content && <p className="text-xs text-text-muted leading-relaxed">{p.content}</p>}
               {(p.starts_at || p.ends_at) && (
-                <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
+                <div className="flex items-center gap-1.5 text-xs text-text-muted">
                   <Calendar size={11} />
                   {p.starts_at ? p.starts_at.slice(0, 16) : "—"} ~ {p.ends_at ? p.ends_at.slice(0, 16) : "상시"}
                 </div>
               )}
               {p.link_url && (
-                <a href={safeExternalUrl(p.link_url)} target="_blank" rel="noopener noreferrer nofollow" className="flex items-center gap-1 text-[11px] text-accent-blue hover:underline">
+                <a href={safeExternalUrl(p.link_url)} target="_blank" rel="noopener noreferrer nofollow" className="flex items-center gap-1 text-xs text-accent-blue hover:underline">
                   <ExternalLink size={10} />{p.link_text || p.link_url}
                 </a>
               )}
@@ -1486,12 +1602,24 @@ function PopupTab({ qc }: { qc: any }) {
           </div>
         </div>
       )}
+
+      {지울팝업 && (
+        <ConfirmDialog
+          title="팝업을 삭제할까요?"
+          message="지운 팝업은 되돌릴 수 없습니다."
+          대상={지울팝업.title}
+          확인글="삭제"
+          진행중={deleteMut.isPending}
+          onConfirm={() => { deleteMut.mutate(지울팝업.id); set지울팝업(null); }}
+          onClose={() => set지울팝업(null)}
+        />
+      )}
     </div>
   );
 }
 
 /* ─────────────────────────── 신고 관리 탭 ─────────────────────────── */
-function ReportsTab({ qc }: { qc: any }) {
+function ReportsTab({ qc }: { qc: QueryClient }) {
   const [statusFilter, setStatusFilter] = useState<"pending" | "resolved" | "dismissed" | "all">("pending");
   const [page, setPage] = useState(1);
   const [actingId, setActingId] = useState<number | null>(null);
@@ -1517,7 +1645,7 @@ function ReportsTab({ qc }: { qc: any }) {
 
   const STATUS_LABELS: Record<string, string> = { pending: "대기", resolved: "처리됨", dismissed: "기각됨", all: "전체" };
   const STATUS_BADGE: Record<string, string> = {
-    pending:   "bg-amber-400/15 text-amber-500 border-amber-400/30",
+    pending:   "bg-accent-yellow/15 text-accent-yellow border-accent-yellow/30",
     resolved:  "bg-accent-green/12 text-accent-green border-accent-green/30",
     dismissed: "bg-bg-elevated text-text-muted border-border",
   };
@@ -1562,20 +1690,20 @@ function ReportsTab({ qc }: { qc: any }) {
 
                 {/* 헤더 */}
                 <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-elevated/60 border-b border-border/50">
-                  <span className={`text-[11px] font-bold px-2 py-px rounded-full border ${STATUS_BADGE[r.status] ?? STATUS_BADGE.dismissed}`}>
+                  <span className={`text-xs font-bold px-2 py-px rounded-full border ${STATUS_BADGE[r.status] ?? STATUS_BADGE.dismissed}`}>
                     {STATUS_LABELS[r.status] ?? r.status}
                   </span>
-                  <span className="text-[11px] text-text-muted font-mono">#{r.id}</span>
-                  <span className="text-[11px] text-text-muted">·</span>
+                  <span className="text-xs text-text-muted font-mono">#{r.id}</span>
+                  <span className="text-xs text-text-muted">·</span>
                   <Flag size={10} className="text-text-muted" />
-                  <span className="text-[11px] font-semibold text-text-secondary">{r.reporter}</span>
-                  <span className="text-[11px] text-text-muted">신고</span>
-                  <span className="text-[11px] text-text-muted ml-auto font-mono">{r.created_at?.slice(0, 10)}</span>
+                  <span className="text-xs font-semibold text-text-secondary">{r.reporter}</span>
+                  <span className="text-xs text-text-muted">신고</span>
+                  <span className="text-xs text-text-muted ml-auto font-mono">{r.created_at?.slice(0, 10)}</span>
                 </div>
 
                 {/* 신고 사유 */}
                 <div className="px-4 pt-3 pb-2 flex items-start gap-2">
-                  <AlertCircle size={13} className={`shrink-0 mt-0.5 ${isPending ? "text-amber-400" : "text-text-muted"}`} />
+                  <AlertCircle size={13} className={`shrink-0 mt-0.5 ${isPending ? "text-accent-yellow" : "text-text-muted"}`} />
                   <p className="text-sm font-medium text-text-primary leading-snug">{r.reason}</p>
                 </div>
 
@@ -1585,12 +1713,12 @@ function ReportsTab({ qc }: { qc: any }) {
                     <div className="rounded-lg bg-bg-elevated border border-border/50 p-3 flex flex-col gap-1.5">
                       <div className="flex items-center gap-2">
                         <MessageSquare size={11} className="text-text-muted shrink-0" />
-                        <span className="text-[11px] text-text-muted">게시글 #{r.post_id}</span>
+                        <span className="text-xs text-text-muted">게시글 #{r.post_id}</span>
                         {r.post_author && (
-                          <span className="text-[11px] font-semibold text-text-secondary">· @{r.post_author}</span>
+                          <span className="text-xs font-semibold text-text-secondary">· @{r.post_author}</span>
                         )}
                         <Link to={`/post/${r.post_id}`} target="_blank"
-                          className="ml-auto flex items-center gap-0.5 text-[11px] text-accent-blue hover:underline shrink-0">
+                          className="ml-auto flex items-center gap-0.5 text-xs text-accent-blue hover:underline shrink-0">
                           <ExternalLink size={10} />보기
                         </Link>
                       </div>
@@ -1606,13 +1734,13 @@ function ReportsTab({ qc }: { qc: any }) {
                     <div className="rounded-lg bg-bg-elevated border border-border/50 p-3 flex flex-col gap-1.5">
                       <div className="flex items-center gap-2">
                         <MessageSquare size={11} className="text-text-muted shrink-0" />
-                        <span className="text-[11px] text-text-muted">댓글 #{r.comment_id}</span>
+                        <span className="text-xs text-text-muted">댓글 #{r.comment_id}</span>
                         {r.comment_author && (
-                          <span className="text-[11px] font-semibold text-text-secondary">· @{r.comment_author}</span>
+                          <span className="text-xs font-semibold text-text-secondary">· @{r.comment_author}</span>
                         )}
                         {r.post_id && (
                           <Link to={`/post/${r.post_id}`} target="_blank"
-                            className="ml-auto flex items-center gap-0.5 text-[11px] text-accent-blue hover:underline shrink-0">
+                            className="ml-auto flex items-center gap-0.5 text-xs text-accent-blue hover:underline shrink-0">
                             <ExternalLink size={10} />게시글
                           </Link>
                         )}
@@ -1626,7 +1754,7 @@ function ReportsTab({ qc }: { qc: any }) {
                 {isPending ? (
                   <div className="flex border-t border-border/50 divide-x divide-border/50">
                     <button onClick={() => act(adminApi.blindReport, r.id)} disabled={isActing}
-                      className="flex-1 py-3 text-xs font-semibold text-amber-500 hover:bg-amber-400/8 active:bg-amber-400/15 transition-colors disabled:opacity-40">
+                      className="flex-1 py-3 text-xs font-semibold text-accent-yellow hover:bg-accent-yellow/8 active:bg-accent-yellow/15 transition-colors disabled:opacity-40">
                       {isActing ? "처리 중..." : "블라인드"}
                     </button>
                     <button onClick={() => act(adminApi.deleteReportContent, r.id)} disabled={isActing}
@@ -1662,6 +1790,96 @@ function ReportsTab({ qc }: { qc: any }) {
             className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">다음</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── 관리 기록 탭 ─────────────────────────── */
+/** 무슨 일이 있었는지.
+ *
+ *  지우기와 정지는 되돌릴 수 없다. 되돌릴 수 없다면 최소한 무슨 일이
+ *  있었는지는 알 수 있어야 한다 — 특히 관리자가 여럿일 때.
+ *  예전에는 로그 파일에만, 그나마 '누가' 가 빠진 채 남았다. */
+const 행위이름: Record<string, string> = {
+  "user.delete": "계정 삭제", "user.active": "계정 정지·해제",
+  "user.community_ban": "커뮤니티 차단·해제",
+  "post.delete": "글 삭제", "post.blind": "글 가리기", "post.unblind": "글 복구",
+  "comment.delete": "댓글 삭제", "comment.blind": "댓글 가리기", "comment.unblind": "댓글 복구",
+  "cache.clear": "캐시 전체 비우기", "cache.delete": "캐시 삭제",
+  "cache.delete_prefix": "캐시 묶음 삭제",
+};
+/** 되돌릴 수 없는 것은 눈에 띄게 */
+const 되돌릴수없음 = new Set(["user.delete", "post.delete", "comment.delete", "cache.clear"]);
+
+function AdminLogTab() {
+  const [필터, set필터] = useState("");
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-logs", 필터],
+    queryFn: () => adminApi.getAdminLogs(필터),
+    staleTime: 15_000,
+  });
+  const items: any[] = data?.items ?? [];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Tabs
+        ariaLabel="기록 종류" tone="subtle" fill={false} className="w-fit"
+        tabs={[
+          { id: "", label: "전체" },
+          { id: "user", label: "계정" },
+          { id: "post", label: "게시글" },
+          { id: "comment", label: "댓글" },
+          { id: "cache", label: "캐시" },
+        ]}
+        active={필터}
+        onChange={set필터}
+      />
+
+      <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+        {isLoading ? (
+          <div className="py-16 text-center text-text-muted text-sm">불러오는 중...</div>
+        ) : !items.length ? (
+          <div className="py-16 text-center">
+            <p className="text-text-muted text-sm">아직 기록이 없습니다</p>
+            <p className="text-2xs text-text-dim mt-1">관리자가 무언가를 지우거나 정지하면 여기 남습니다</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {items.map((it) => (
+              <li key={it.id} className="px-4 py-3 flex items-start gap-3">
+                <span className={`text-2xs px-1.5 py-0.5 rounded font-bold shrink-0 whitespace-nowrap ${
+                  되돌릴수없음.has(it.action)
+                    ? "bg-accent-red/15 text-accent-red"
+                    : "bg-bg-elevated text-text-muted"}`}>
+                  {행위이름[it.action] ?? it.action}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-text-primary truncate">
+                    <span className="font-semibold">{it.actor || "?"}</span>
+                    {it.target_id && (
+                      <span className="text-text-muted"> · {it.target_type} {it.target_id}</span>
+                    )}
+                  </p>
+                  {it.detail && (
+                    <p className="text-2xs text-text-dim mt-0.5 break-all">{it.detail}</p>
+                  )}
+                </div>
+                <span className="text-2xs text-text-dim shrink-0 whitespace-nowrap">
+                  {it.created_at
+                    ? new Date(it.created_at).toLocaleString("ko-KR", {
+                        month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {data?.total > items.length && (
+          <div className="px-4 py-2 border-t border-border text-2xs text-text-muted">
+            최근 {items.length}건 표시 / 전체 {data.total}건
+          </div>
+        )}
+      </div>
     </div>
   );
 }
