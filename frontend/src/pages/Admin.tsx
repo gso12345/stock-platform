@@ -14,6 +14,7 @@ import { safeExternalUrl } from "@/utils/url";
 import { Tabs, MarketBadge } from "@/components/ui";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
 import UserItemsPanel, { 항목이름, type 항목종류 } from "@/components/admin/UserItemsPanel";
+import PostLikesModal from "@/components/admin/PostLikesModal";
 import SystemTab from "@/components/admin/SystemTab";
 
 const adminApi = {
@@ -555,6 +556,7 @@ function CommunityAdminTab({ qc }: { qc: QueryClient }) {
 }
 
 function PostsAdminSection({ qc }: { qc: QueryClient }) {
+  const [좋아요볼글, set좋아요볼글] = useState<{ id: number; title?: string } | null>(null);
   const [page, setPage] = useState(1);
   const [marketFilter, setMarketFilter] = useState("ALL");
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
@@ -659,10 +661,20 @@ function PostsAdminSection({ qc }: { qc: QueryClient }) {
                       </div>
                     </td>
                     <td className="px-3 py-3 text-center hidden sm:table-cell">
-                      <div className="flex items-center justify-center gap-1 text-text-muted">
+                      {/* 개수만 보여 주면 '누가' 를 알 수 없다. 좋아요가 갑자기
+                          몰릴 때 관리자가 보고 싶은 것은 이름 쪽이다 */}
+                      <button
+                        disabled={!p.like_count}
+                        aria-label={`좋아요 누른 사람 ${p.like_count}명 보기`}
+                        onClick={(e) => { e.stopPropagation(); set좋아요볼글({ id: p.id, title: p.title }); }}
+                        className={`flex items-center justify-center gap-1 mx-auto px-1.5 py-1 rounded transition-colors ${
+                          p.like_count
+                            ? "text-text-muted hover:text-accent-red hover:bg-accent-red/10"
+                            : "text-text-dim cursor-default"}`}
+                      >
                         <Heart size={11} />
                         <span className="text-xs font-mono">{p.like_count}</span>
-                      </div>
+                      </button>
                     </td>
                     <td className="px-3 py-3 text-center hidden lg:table-cell">
                       <span className="text-xs text-text-muted font-mono">{p.created_at.slice(0, 10)}</span>
@@ -727,6 +739,11 @@ function PostsAdminSection({ qc }: { qc: QueryClient }) {
             </div>
           </div>
         </div>
+      )}
+
+      {좋아요볼글 && (
+        <PostLikesModal postId={좋아요볼글.id} title={좋아요볼글.title}
+                        onClose={() => set좋아요볼글(null)} />
       )}
     </div>
   );

@@ -26,7 +26,17 @@ from app.core.cache import cache
 #
 # 이제 글이 바뀔 때 직접 비운다. 그래서 수명을 길게 잡아도 새 글은 곧바로
 # 보인다. 댓글 수만 이 수명만큼 늦게 따라오는데, 그건 기다려도 되는 값이다.
-FEED_TTL = 180
+"""목록 캐시 수명.
+
+180초였다. 그 뒤에 들어온 사람은 글 스무 개를 DB 에서 다시 긁고 작성자·
+프로필·투표·댓글 수를 붙이는 값을 통째로 치렀다 — 3분마다 한 명씩 그 값을
+내는 셈이라 "들어갈 때마다 느리다" 가 됐다.
+
+길게 잡아도 되는 이유는 바로 위 주석에 이미 적혀 있다 — 글이 바뀔 때
+피드캐시_비우기() 로 직접 버린다. 그래서 새 글·삭제는 수명과 무관하게
+곧바로 보인다. 수명에 걸리는 것은 댓글 수처럼 '조금 늦어도 되는' 값뿐이다.
+"""
+FEED_TTL = 900
 
 
 def 피드캐시_비우기() -> None:
@@ -1274,6 +1284,7 @@ def get_feed(
     공통 = cache.get(캐시키) if 캐시키 else None
     if 공통 is not None:
         return _개인화(db, uid, 공통)
+
 
     질의 = db.query(StockPost).filter(StockPost.is_deleted.isnot(True), StockPost.is_blinded.isnot(True))
 

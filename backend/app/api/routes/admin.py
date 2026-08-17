@@ -672,6 +672,44 @@ def get_user_items(
     return {"kind": kind, "total": 총, "items": items}
 
 
+@router.get("/community/posts/{post_id}/likes")
+def admin_post_likes(
+    post_id: int,
+    limit:  int = Query(100, ge=1, le=300),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """이 글에 좋아요를 누른 사람들.
+
+    화면에는 개수만 있었다. 그런데 좋아요가 갑자기 몰리면 관리자가 보고
+    싶은 것은 '몇 개' 가 아니라 '누가' 다 — 같은 사람이 여러 계정으로
+    누르는지, 서로 밀어 주는 무리가 있는지는 이름을 봐야 알 수 있다.
+
+    관리자 전용이다. 일반 사용자에게는 이 목록을 주지 않는다 —
+    누가 눌렀는지는 그 사람의 활동 기록이고, 공개할 이유가 없다.
+    """
+    총 = db.execute(text("SELECT COUNT(*) FROM stock_post_likes WHERE post_id = :p"),
+                    {"p": post_id}).scalar() or 0
+    rows = db.execute(text("""
+        SELECT l.user_id, u.username, u.is_active, u.is_admin
+        FROM stock_post_likes l
+        LEFT JOIN users u ON u.id = l.user_id
+        WHERE l.post_id = :p
+        ORDER BY l.id DESC LIMIT :l OFFSET :o
+    """), {"p": post_id, "l": limit, "o": offset}).mappings().all()
+    return {
+        "total": 총,
+        "items": [{
+            "id": r["user_id"],
+            # 탈퇴한 사람도 좋아요 행은 남는다 — 빈 줄이 되지 않게 표시한다
+            "username": r["username"] or f"(탈퇴 {r['user_id']})",
+            "is_active": bool(r["is_active"]) if r["is_active"] is not None else None,
+            "is_admin": bool(r["is_admin"]) if r["is_admin"] is not None else False,
+        } for r in rows],
+    }
+
+
 # ── 커뮤니티 관리 ────────────────────────────────────────────────────────────
 
 @router.get("/community/posts")

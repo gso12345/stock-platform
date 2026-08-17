@@ -11,6 +11,42 @@ import logging
 import re
 
 log = logging.getLogger(__name__)
+
+"""퀀트 지표를 얼마나 오래 신선하다고 볼지.
+
+재무(하루 단위)와 가격(분 단위)이 섞인 값이다. 예전엔 5분이었는데, 만료된
+뒤 들어온 사람이 종목마다 OHLCV 를 새로 받는 값을 다 치렀다 — 관심종목
+20개면 20번이고, 그게 그대로 '퀀트 탭이 느리다' 였다."""
+QMETRICS_TTL = 1800
+
+_퀀트갱신중: set[str] = set()
+
+
+def _퀀트지표_뒤로미루기(sym: str, mkt: str, ck: str) -> None:
+    """지난 값으로 먼저 답하고, 새 값은 뒤에서 받아 둔다.
+
+    같은 종목을 여러 사람이 동시에 열면 갱신이 겹친다. 한 번에 하나만
+    돌게 표시해 둔다 — 0.15 CPU 에서는 겹치는 것 자체가 비용이다."""
+    if ck in _퀀트갱신중:
+        return
+    _퀀트갱신중.add(ck)
+
+    def _받기():
+        try:
+            import asyncio as _a
+            from app.services.quant_score import collect_quant_metrics as _c
+            m = _a.run(_c(sym, mkt, fetch_ohlcv=True))
+            cache.set(ck, m, QMETRICS_TTL)
+        except Exception as e:
+            log.warning("퀀트 지표 배경 갱신 실패 %s %s: %s", mkt, sym, type(e).__name__)
+        finally:
+            _퀀트갱신중.discard(ck)
+
+    try:
+        from app.core.executor import background_executor
+        background_executor.submit(_받기)
+    except Exception:
+        _퀀트갱신중.discard(ck)
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
@@ -728,15 +764,34 @@ async def get_quant_score_compare(
     sem = asyncio.Semaphore(16)
 
     async def _score_one(sym: str, mkt: str) -> dict:
+        """한 종목 채점.
+
+        느렸던 이유가 여기 있었다. 캐시가 5분이라 그 뒤에 들어온 사람은
+        종목마다 OHLCV 를 새로 받는 값을 다 치렀다 — 관심종목 20개면
+        20번이다. 퀀트 지표는 재무(하루 단위)와 가격(분 단위)이 섞인
+        값이라 5분은 지나치게 짧다.
+
+        두 가지를 바꿨다.
+          · 신선 기간을 30분으로. 이 화면에서 5분과 30분의 차이는 눈에
+            띄지 않지만, 다시 계산하는 값은 그대로 응답 시간이 된다.
+          · 지났어도 마지막 값이 있으면 그걸 쓰고 새로 받기는 뒤로 미룬다.
+            기다리게 하는 것보다 30분 지난 점수를 보여 주는 편이 낫다.
+        """
         metrics_ck = f"qmetrics:{mkt}:{sym}"
         cached_metrics = cache.get(metrics_ck)
         if cached_metrics is None:
-            async with sem:
-                try:
-                    metrics = await collect_quant_metrics(sym, mkt, fetch_ohlcv=True)
-                except Exception:
-                    return {"symbol": sym, "market": mkt, "total_score": None, "grade": None, "factors": []}
-            cache.set(metrics_ck, metrics, 300)
+            # 지난 값이라도 있으면 그것으로 답하고, 새로 받는 것은 뒤로 미룬다
+            지난값 = cache.get_stale(metrics_ck)
+            if 지난값 is not None:
+                _퀀트지표_뒤로미루기(sym, mkt, metrics_ck)
+                metrics = dict(지난값)
+            else:
+                async with sem:
+                    try:
+                        metrics = await collect_quant_metrics(sym, mkt, fetch_ohlcv=True)
+                    except Exception:
+                        return {"symbol": sym, "market": mkt, "total_score": None, "grade": None, "factors": []}
+                cache.set(metrics_ck, metrics, QMETRICS_TTL)
         else:
             metrics = dict(cached_metrics)
         sector = metrics.pop("_sector", None)
@@ -1397,18 +1452,32 @@ def _to_kst_published(value, short_mmdd: bool = False) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _merge_news(primary: list, secondary: list, limit: int = 120) -> list:
-    """종합피드(이미지 보장, 다양한 언론사) 결과를 우선 배치하고 종목별 검색 결과로 보강, 링크 기준 중복 제거"""
-    seen, result = set(), []
+def _merge_news(primary: list, secondary: list, limit: int = 120,
+                최소: int = 8) -> list:
+    """종합피드(이미지 보장, 다양한 언론사)를 앞에 두고 종목별 검색으로 보강.
+
+    이미지 없는 기사는 뒤로 미룬다.
+      · 종합피드(primary)는 썸네일이 함께 온다
+      · 구글 뉴스(secondary)는 RSS 에 썸네일이 거의 없다
+    그대로 이어 붙이면 목록 뒷쪽이 통째로 회색 신문 아이콘이 된다 — 국내
+    종목에서 특히 그랬다.
+
+    다만 아예 버리지는 않는다. 종합피드에 그 종목 기사가 적으면 걸러내는
+    순간 '뉴스가 없습니다' 가 되기 때문이다. 그림 있는 것으로 먼저 채우고,
+    그래도 최소 건수에 못 미치면 나머지로 채운다.
+    """
+    seen, 그림있음, 그림없음 = set(), [], []
     for item in (*primary, *secondary):
         link = item.get("link")
         if not link or link in seen:
             continue
         seen.add(link)
-        result.append(item)
-        if len(result) >= limit:
-            break
-    return result
+        (그림있음 if item.get("image") else 그림없음).append(item)
+
+    result = 그림있음[:limit]
+    if len(result) < 최소:
+        result += 그림없음[: 최소 - len(result)]
+    return result[:limit]
 
 
 def _sort_and_clean_news(items: list, sort: str) -> list:
