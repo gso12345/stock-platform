@@ -13,6 +13,7 @@ import {
 import { safeExternalUrl } from "@/utils/url";
 import { Tabs, MarketBadge } from "@/components/ui";
 import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import UserItemsPanel, { 항목이름, type 항목종류 } from "@/components/admin/UserItemsPanel";
 import SystemTab from "@/components/admin/SystemTab";
 
 const adminApi = {
@@ -1068,6 +1069,8 @@ function UsersTab({ qc }: { qc: QueryClient }) {
 
 function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () => void; qc: QueryClient }) {
   const [확인, set확인] = useState<"active" | "ban" | null>(null);
+  /* 어느 숫자를 펼쳤나. 한 번에 하나만 연다 — 모달 안이라 자리가 좁다 */
+  const [펼친것, set펼친것] = useState<항목종류 | null>(null);
   const { data: detail, isLoading } = useQuery({
     queryKey: ["admin-user-detail", userId],
     queryFn: () => adminApi.getUserDetail(userId),
@@ -1117,21 +1120,49 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
               </div>
             </div>
 
-            {/* 통계 */}
+            {/* 통계 — 누르면 실제 내용이 펼쳐진다.
+                숫자만 봐서는 다음에 무엇을 할지 정할 수 없다. 관리자가 이
+                화면을 여는 이유는 대개 '이 사람이 무슨 글을 썼길래' 다 */}
             <div className="grid grid-cols-3 gap-2">
-              {[
-                { label: "게시글", value: detail.post_count },
-                { label: "댓글", value: detail.comment_count },
-                { label: "신고 보냄", value: detail.report_sent_count },
-                { label: "팔로워", value: detail.follower_count },
-                { label: "팔로잉", value: detail.following_count },
-              ].map(({ label, value }) => (
-                <div key={label} className="rounded-lg bg-bg-elevated p-2.5 flex flex-col gap-0.5">
-                  <p className="text-2xs text-text-muted">{label}</p>
-                  <p className="text-base font-bold font-mono text-text-primary">{value}</p>
-                </div>
-              ))}
+              {([
+                { kind: "posts",     label: "게시글",   value: detail.post_count },
+                { kind: "comments",  label: "댓글",     value: detail.comment_count },
+                { kind: "reports",   label: "신고 보냄", value: detail.report_sent_count },
+                { kind: "followers", label: "팔로워",   value: detail.follower_count },
+                { kind: "following", label: "팔로잉",   value: detail.following_count },
+              ] as { kind: 항목종류; label: string; value: number }[]).map(({ kind, label, value }) => {
+                const 열림 = 펼친것 === kind;
+                const 빔 = !value;
+                return (
+                  <button
+                    key={kind}
+                    /* 0건이면 펼쳐 봐야 빈 목록이라 누르지 못하게 한다 */
+                    disabled={빔}
+                    aria-expanded={열림}
+                    onClick={() => set펼친것(열림 ? null : kind)}
+                    className={`rounded-lg p-2.5 flex flex-col gap-0.5 text-left transition-all ${
+                      열림 ? "bg-accent-blue/15 ring-1 ring-accent-blue/40"
+                           : "bg-bg-elevated hover:bg-bg-hover"
+                    } ${빔 ? "opacity-50 cursor-default" : ""}`}
+                  >
+                    <p className="text-2xs text-text-muted">{label}</p>
+                    <p className={`text-base font-bold font-mono ${
+                      열림 ? "text-accent-blue" : "text-text-primary"}`}>{value}</p>
+                  </button>
+                );
+              })}
             </div>
+
+            {펼친것 && (
+              <div className="rounded-lg border border-border bg-bg-card px-3 py-2">
+                <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                  <span className="text-xs font-semibold text-text-primary">{항목이름[펼친것]}</span>
+                  <button aria-label="닫기" onClick={() => set펼친것(null)}
+                          className="text-2xs text-text-muted hover:text-text-primary">닫기</button>
+                </div>
+                <UserItemsPanel userId={userId} kind={펼친것} />
+              </div>
+            )}
 
             {/* 최근 게시글 */}
             {detail.recent_posts?.length > 0 && (

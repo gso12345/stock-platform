@@ -6,7 +6,7 @@ import os
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session, defer, selectinload
 from sqlalchemy import text, func
@@ -568,6 +568,108 @@ def get_user_detail(user_id: int, db: Session = Depends(get_db), _: User = Depen
         "follower_count":      row[4] or 0,
         "recent_posts":        posts_list,
     }
+
+
+@router.get("/users/{user_id}/items")
+def get_user_items(
+    user_id: int,
+    kind: Literal["posts", "comments", "reports", "followers", "following"] = Query(...),
+    limit:  int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """유저 상세의 숫자를 눌렀을 때 나오는 실제 내용.
+
+    예전에는 '게시글 12 · 댓글 30 · 신고 보냄 3' 처럼 숫자만 있었다. 그런데
+    관리자가 이 화면을 여는 이유는 대개 '이 사람이 무슨 글을 썼길래' 를
+    확인하려는 것이라, 숫자만 봐서는 다음 행동을 정할 수 없었다.
+
+    삭제·블라인드된 것도 보여 준다 — 관리자에게는 그게 오히려 봐야 할
+    대상이다. 대신 상태를 함께 준다.
+    """
+    if not db.query(User.id).filter(User.id == user_id).first():
+        raise HTTPException(404, "사용자를 찾을 수 없습니다")
+
+    def _제목(내용: str) -> str:
+        """글 본문은 JSON 으로 저장돼 있다(제목·본문·이미지)."""
+        try:
+            cd = json.loads(내용)
+            return (cd.get("title") or cd.get("body") or "")[:120]
+        except Exception:
+            return str(내용)[:120]
+
+    if kind == "posts":
+        총 = db.execute(text("SELECT COUNT(*) FROM stock_posts WHERE user_id = :u"),
+                        {"u": user_id}).scalar() or 0
+        rows = db.execute(text("""
+            SELECT id, symbol, market, content, is_deleted, is_blinded,
+                   like_count, comment_count, created_at
+            FROM stock_posts WHERE user_id = :u
+            ORDER BY created_at DESC LIMIT :l OFFSET :o
+        """), {"u": user_id, "l": limit, "o": offset}).mappings().all()
+        items = [{
+            "id": r["id"], "symbol": r["symbol"], "market": r["market"],
+            "text": _제목(r["content"]),
+            "deleted": bool(r["is_deleted"]), "blinded": bool(r["is_blinded"]),
+            "likes": r["like_count"] or 0, "comments": r["comment_count"] or 0,
+            "created_at": str(r["created_at"]) if r["created_at"] else None,
+        } for r in rows]
+
+    elif kind == "comments":
+        총 = db.execute(text("SELECT COUNT(*) FROM stock_comments WHERE user_id = :u"),
+                        {"u": user_id}).scalar() or 0
+        rows = db.execute(text("""
+            SELECT c.id, c.post_id, c.content, c.is_deleted, c.is_blinded,
+                   c.like_count, c.created_at, p.symbol, p.market
+            FROM stock_comments c
+            LEFT JOIN stock_posts p ON p.id = c.post_id
+            WHERE c.user_id = :u
+            ORDER BY c.created_at DESC LIMIT :l OFFSET :o
+        """), {"u": user_id, "l": limit, "o": offset}).mappings().all()
+        items = [{
+            "id": r["id"], "post_id": r["post_id"],
+            "symbol": r["symbol"], "market": r["market"],
+            "text": str(r["content"] or "")[:120],
+            "deleted": bool(r["is_deleted"]), "blinded": bool(r["is_blinded"]),
+            "likes": r["like_count"] or 0,
+            "created_at": str(r["created_at"]) if r["created_at"] else None,
+        } for r in rows]
+
+    elif kind == "reports":
+        총 = db.execute(text("SELECT COUNT(*) FROM reports WHERE reporter_id = :u"),
+                        {"u": user_id}).scalar() or 0
+        rows = db.execute(text("""
+            SELECT id, post_id, comment_id, reason, status, created_at
+            FROM reports WHERE reporter_id = :u
+            ORDER BY created_at DESC LIMIT :l OFFSET :o
+        """), {"u": user_id, "l": limit, "o": offset}).mappings().all()
+        items = [{
+            "id": r["id"], "post_id": r["post_id"], "comment_id": r["comment_id"],
+            "text": r["reason"] or "", "status": r["status"] or "pending",
+            "created_at": str(r["created_at"]) if r["created_at"] else None,
+        } for r in rows]
+
+    else:
+        # 팔로워는 나를 따르는 사람, 팔로잉은 내가 따르는 사람
+        내칸, 상대칸 = (("following_id", "follower_id") if kind == "followers"
+                        else ("follower_id", "following_id"))
+        총 = db.execute(text(f"SELECT COUNT(*) FROM user_follows WHERE {내칸} = :u"),
+                        {"u": user_id}).scalar() or 0
+        rows = db.execute(text(f"""
+            SELECT f.{상대칸} AS uid, u.username, u.is_active, u.created_at
+            FROM user_follows f
+            LEFT JOIN users u ON u.id = f.{상대칸}
+            WHERE f.{내칸} = :u
+            ORDER BY f.created_at DESC LIMIT :l OFFSET :o
+        """), {"u": user_id, "l": limit, "o": offset}).mappings().all()
+        items = [{
+            "id": r["uid"], "username": r["username"] or f"(탈퇴 {r['uid']})",
+            "is_active": bool(r["is_active"]) if r["is_active"] is not None else None,
+            "created_at": str(r["created_at"]) if r["created_at"] else None,
+        } for r in rows]
+
+    return {"kind": kind, "total": 총, "items": items}
 
 
 # ── 커뮤니티 관리 ────────────────────────────────────────────────────────────
