@@ -1,31 +1,111 @@
+## Render 무료 플랜은 15분 동안 아무도 안 들어오면 서버를 내린다.
+## 다음 사람이 들어오면 그때부터 컨테이너를 올리고 파이썬을 읽는데 20~45초가
+## 걸린다("처음 볼 때 너무 느려"의 정체). 그 시간은 코드로 줄일 수 없다 —
+## 잠들지 않게 하는 것만이 답이다.
+##
+## 앞의 설계는 스스로를 막았다
+##   트리거가 5분마다 오는데 한 번 발동하면 340분을 돌았고, 동시성 그룹이
+##   cancel-in-progress: false 였다. 그래서 뒤따라온 트리거는 전부 '대기'에
+##   걸렸다가 취소됐다. 933번의 실행 중 실제로 일한 건 극히 일부다.
+##   그리고 2026-08-17 01:36 을 마지막으로 예약 트리거가 아예 멈췄다 —
+##   36시간 넘게 한 번도 안 돌았고, 그동안 서버는 계속 자고 있었다.
+##
+## 그래서 뒤집는다
+##   cancel-in-progress: true — 새 트리거가 오면 돌던 것을 죽이고 새로 시작한다.
+##   대기 줄이 생기지 않으니 취소가 쌓일 일도 없다. 새 실행이 곧바로 핑을
+##   보내므로 바꿔치는 순간에도 빈 시간이 없다.
+##
+##   루프는 55분까지 돈다. 평소에는 10분마다 오는 다음 트리거가 잘라 내므로
+##   낭비가 아니고, 트리거가 몇 번 건너뛰어도 그동안 혼자 버틴다.
+##
+## 그래도 한계는 남는다
+##   GitHub 의 예약 트리거는 약속이 아니다. 위에서 본 36시간 공백처럼 통째로
+##   멈추면 이 파일 안의 어떤 설정도 소용이 없다. 확실히 하려면 바깥에서
+##   찔러 주는 것(UptimeRobot, cron-job.org 등 무료)을 같이 걸어 두는 게 맞다.
 name: Keep Render Alive
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # 5분마다 실행 시도 (GitHub가 실제로는 더 뜸하게 발동시킴)
-  workflow_dispatch:        # 수동 실행 가능
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
 
 concurrency:
   group: keep-alive
-  cancel-in-progress: false  # 이미 도는 루프는 끝까지 유지, 중복 트리거만 큐잉 없이 무시
+  # 겹치면 새 것을 살린다. 이전 설계가 죽은 이유가 여기 있었다
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BASE: https://stock-platform-ksmu.onrender.com
 
 jobs:
   ping:
     runs-on: ubuntu-latest
-    # GitHub의 schedule 트리거는 5분 간격을 그대로 지켜주지 않고 활동이 적은 저장소는
-    # 몇 시간씩 늦게 발동시킨다 (cron 자체의 한계, 워크플로우 코드로는 해결 불가).
-    # 대신 트리거가 한 번 발동하면 그 안에서 최대 340분(약 5시간40분, 6시간 한도 내)
-    # 동안 5분마다 직접 핑을 반복해, 다음 트리거가 늦게 와도 그 사이 슬립을 최대한 방지한다.
-    timeout-minutes: 350
+    timeout-minutes: 60
     steps:
-      - name: Ping backend and warm cache every 5 minutes for up to ~340 minutes
+      - name: 서버 깨우고 55분 동안 1분마다 지킨다
         run: |
-          END=$((SECONDS + 340 * 60))
-          while [ "$SECONDS" -lt "$END" ]; do
-            curl -sf https://stock-platform-ksmu.onrender.com/health && echo "Backend is alive" || echo "Ping failed, will retry"
-            curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/kr" -o /dev/null
-            curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/us" -o /dev/null
-            curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/news/kr" -o /dev/null
-            curl -s "https://stock-platform-ksmu.onrender.com/api/v1/dashboard/news/us" -o /dev/null
-            sleep 300
+          set -uo pipefail
+
+          # 첫 요청은 자고 있던 서버를 깨우는 몫이라 오래 걸린다.
+          # 넉넉히 기다려 준다 — 여기서 끊으면 깨우다 만 셈이 된다
+          echo "::group::깨우기"
+          curl -sS --max-time 90 -o /dev/null -w '%{http_code} %{time_total}s\n' "$BASE/health" || echo "첫 응답 없음"
+          echo "::endgroup::"
+
+          # 캐시는 프로세스 안에 있어서 깰 때마다 비어 있다. 사람이 오기 전에
+          # 대시보드가 쓰는 것만 미리 데워 둔다. 매분 하면 0.15 CPU 에 부담이라
+          # 실행당 한 번만 한다
+          echo "::group::캐시 데우기"
+          for p in \
+            "/api/v1/dashboard/kr" \
+            "/api/v1/dashboard/us" \
+            "/api/v1/dashboard/news/kr" \
+            "/api/v1/dashboard/news/us"
+          do
+            curl -sS --max-time 60 -o /dev/null -w "$p %{http_code} %{time_total}s\n" "$BASE$p" || echo "$p 실패"
           done
+          echo "::endgroup::"
+
+          # 이제부터 주기적으로 두드린다. 두 가지를 동시에 지켜야 한다.
+          #
+          #   1) Render 의 슬립 — 15분 무접속이면 컨테이너를 내린다
+          #   2) 앱 안쪽의 스케줄러 — 10분(IDLE_PAUSE_SEC) 동안 요청이 없으면
+          #      지수·환율·순위·뉴스 갱신을 통째로 멈춘다
+          #
+          # 2번이 함정이다. /health 는 ActivityMiddleware 가 일부러 활동에서
+          # 빼기 때문에(사람의 사용이 아니므로) /health 만 두드리면 서버는
+          # 깨어 있는데 캐시는 다 묵는다. 그러면 처음 들어온 사람이 빈 캐시를
+          # 다시 채우는 값을 치른다 — 고치려던 것을 오히려 만드는 셈이다.
+          # 그래서 활동으로 집계되는 경로를 두드린다.
+          #
+          # us/rates 를 고른 이유는 캐시에서 바로 돌려주고 끝나기 때문이다
+          # (스케줄러가 5분마다 채워 둔다). 0.15 CPU 라 무거운 것을 계속
+          # 던지면 그 자체가 느려지는 원인이 된다.
+          # 간격은 4분 — 위 두 기준(15분·10분) 모두에 여유가 있다.
+          # (셸 변수 이름은 한글을 못 쓴다 — 여기만 영문이다)
+          KEEP=/api/v1/dashboard/us/rates
+          ok=0
+          bad=0
+          deadline=$((SECONDS + 55 * 60))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            sleep 240
+            if curl -sSf --max-time 30 -o /dev/null "$BASE$KEEP"; then
+              ok=$((ok + 1))
+            else
+              bad=$((bad + 1))
+              echo "핑 실패 (누적 ${bad}회)"
+            fi
+          done
+
+          echo "성공 ${ok}회 / 실패 ${bad}회"
+
+          # 예전에는 실패해도 `|| echo` 로 넘겨서 서버가 죽어 있어도 초록불이었다.
+          # 한 번도 못 닿았으면 알림이 가도록 실패로 끝낸다
+          if [ "$ok" -eq 0 ]; then
+            echo "::error::55분 동안 서버에 한 번도 닿지 못했습니다"
+            exit 1
+          fi
+

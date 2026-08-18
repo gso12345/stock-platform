@@ -6,6 +6,7 @@ import { queryClient } from "./api/queryClient";
 import Layout from "./components/Layout";
 import ErrorBoundary from "./components/common/ErrorBoundary";
 import SplashScreen from "./components/SplashScreen";
+import BootScreen from "./components/BootScreen";
 import { dashboardApi } from "./api/stocks";
 import "./index.css";
 
@@ -56,9 +57,16 @@ queryClient.prefetchQuery({
 // Render 무료 플랜 슬립 대응: 앱 시작 시 Authorization 없이 단순 GET 전송.
 // 단순 요청(커스텀 헤더 없음)은 CORS preflight 없이 바로 전달되므로
 // 서버가 슬립 상태여도 요청이 도달해 웨이크업을 트리거한다.
+//
+// 두드리는 곳을 /dashboard/indices 에서 /health 로 바꿨다.
+// indices 는 국내 4개·해외 5개 지수를 전부 모아 오는 무거운 요청인데,
+// 여기서는 응답을 쓰지도 않고 버린다(깨우는 것이 목적이므로). Render 무료
+// 플랜은 CPU 가 0.15개뿐이라, 바로 아래 prefetch 세 건과 이 요청이 같은
+// 한 개의 CPU 를 놓고 다툰다 — 사용자가 기다리는 화면을 스스로 늦추고
+// 있었다. 깨우는 데는 가장 싼 요청이면 충분하다.
 {
   const apiRoot = import.meta.env.VITE_API_URL || "";
-  fetch(`${apiRoot}/api/v1/dashboard/indices`).catch(() => {});
+  fetch(`${apiRoot}/health`).catch(() => {});
 }
 
 if ("serviceWorker" in navigator) {
@@ -82,7 +90,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <화면오류그물>
-        <Suspense fallback={<div className="flex items-center justify-center h-screen text-text-muted text-sm">로딩 중...</div>}>
+        {/* "로딩 중..." 다섯 글자만 있었다. 서버가 자고 있으면 20~45초가
+            걸리는데 그동안 아무 설명이 없어서 고장난 줄 알기 쉬웠다 */}
+        <Suspense fallback={<BootScreen />}>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
