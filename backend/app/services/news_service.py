@@ -74,21 +74,36 @@ KR_FEEDS = [
 ]
 
 # ── 해외 뉴스 RSS ──────────────────────────────────────────
+# 여섯 곳을 뺐다 — 관리자 화면에서 30회차 동안 30번, 즉 100% 실패했다.
+#
+#   MarketWatch  feeds.content.dowjones.io
+#   WSJ Markets  feeds.a.dj.com
+#   WSJ Economy  feeds.a.dj.com
+#   Barron's     barrons.com/xml/rss
+#   Forbes Business  forbes.com/feeds/news.rss
+#   The Street   thestreet.com/feeds
+#
+# 앞의 넷은 모두 Dow Jones 계열이고 공개 RSS 를 닫았다. 나머지 둘도 매체가
+# 개편되며 경로가 사라졌다. 같은 목록의 Yahoo·CNBC·Seeking Alpha 등은 계속
+# 성공하고 있으므로 서버나 코드 문제가 아니다.
+#
+# 안 되는 곳을 남겨 두는 것은 그냥 낭비가 아니다 — 해외는 14곳을 매 회차
+# 전부 긁는데(_FEED_BATCH 와 수가 같아서) 그중 여섯 칸이 매번 헛돌았다.
+# 빼면 나머지가 그만큼 빨리 끝난다.
+#
+# 대신할 곳을 지금 넣지 않은 이유: 이 작업 환경은 외부 인터넷이 막혀 있어
+# 새 주소가 살아 있는지 확인할 방법이 없다. 확인 못 한 주소를 넣는 것이
+# 애초에 이 목록이 이렇게 된 원인이다. 위의 '실패 이유 기록' 이 배포되면
+# 한 회차 만에 어디가 되는지 화면에 그대로 뜨므로, 그때 보고 넣는 게 맞다.
 US_FEEDS = [
     # 주요 경제·시장
     ("Yahoo Finance",      "https://finance.yahoo.com/news/rssindex"),
-    ("MarketWatch",        "https://feeds.content.dowjones.io/public/rss/mw_marketpulse"),
     ("CNBC Economy",       "https://www.cnbc.com/id/20910258/device/rss/rss.html"),
     ("CNBC Finance",       "https://www.cnbc.com/id/10000664/device/rss/rss.html"),
     ("CNBC Top News",      "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
-    ("WSJ Markets",        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"),
-    ("WSJ Economy",        "https://feeds.a.dj.com/rss/RSSWorldNews.xml"),
     # 투자·분석
     ("Seeking Alpha",      "https://seekingalpha.com/feed.xml"),
     ("Investing.com",      "https://www.investing.com/rss/news.rss"),
-    ("The Street",         "https://www.thestreet.com/feeds/headline-stories.rss"),
-    ("Forbes Business",    "https://www.forbes.com/feeds/news.rss"),
-    ("Barron's",           "https://www.barrons.com/xml/rss/3_7028.xml"),
     ("Fortune",            "https://fortune.com/feed/"),
     ("Business Insider",   "https://markets.businessinsider.com/rss/news"),
 ]
@@ -222,15 +237,67 @@ _FEED_HEADERS = {
                   "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 }
 
+# 피드 한 곳을 기다려 주는 시간.
+#
+# 5초였다. CPU 가 0.15개인 서버에서 워커 6개가 나눠 쓰면 응답을 받아 놓고도
+# 그 안에 못 끝나는 곳이 생긴다 — 국내 언론사가 여럿 실패하던 원인 중
+# 하나로 의심되는 자리다. 위쪽 예산이 넉넉하므로(as_completed 40초,
+# 개별 12초) 10초까지는 안전하다. 14곳을 6워커로 돌리면 최악이 약 24초다.
+_FEED_TIMEOUT = int(os.getenv("NEWS_FEED_TIMEOUT", 10))
+
+
+class 피드실패(Exception):
+    """왜 못 가져왔는지 사람이 읽는 한 문장으로 담는다.
+
+    예전에는 _parse_feed 가 무슨 일이 나든 `except Exception: return []` 로
+    삼켰다. 그래서 부르는 쪽에서는 타임아웃도, 403 차단도, 없어진 도메인도,
+    정말로 필터에 걸린 것도 모두 '기사 0건' 으로만 보였고, 관리자 화면에는
+    무엇이 문제든 똑같이 "기사 0건 (필터에서 전부 제외)" 라고 떴다.
+    원인을 알 수 없으니 고칠 수도 없었다."""
+
 
 def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
+    """RSS 한 곳을 가져온다.
+
+    실패하면 이유를 담아 던진다 — 조용히 빈 목록을 돌려주지 않는다."""
+    import httpx
+
+    # feedparser.parse(url)는 자체 타임아웃이 없어, 응답이 느리거나 멈춘
+    # 피드 하나가 스레드를 오래 점유해 다른 피드까지 예산 안에 못 끝나는
+    # 문제가 있었음 — httpx로 명시적 타임아웃을 두고 받아온 바이트를 파싱
     try:
-        # feedparser.parse(url)는 자체 타임아웃이 없어, 응답이 느리거나 멈춘
-        # 피드 하나가 스레드를 오래 점유해 다른 피드까지 10초 예산 안에 못 끝나는
-        # 문제가 있었음 — httpx로 명시적 타임아웃을 두고 받아온 바이트를 파싱
-        import httpx
-        resp = httpx.get(url, headers=_FEED_HEADERS, timeout=5, follow_redirects=True)
+        resp = httpx.get(url, headers=_FEED_HEADERS, timeout=_FEED_TIMEOUT,
+                         follow_redirects=True)
+    except httpx.TimeoutException:
+        raise 피드실패(f"응답 없음 ({_FEED_TIMEOUT}초 초과)")
+    except httpx.ConnectError as e:
+        # 도메인이 사라졌거나(DNS) 서버가 안 받는 경우. 둘을 가르면
+        # '주소를 고쳐야 한다' 와 '기다렸다 다시' 를 구분할 수 있다
+        말 = str(e).lower()
+        if "name or service not known" in 말 or "nodename nor servname" in 말 \
+           or "temporary failure in name resolution" in 말:
+            raise 피드실패("주소를 찾을 수 없음 (도메인 확인 필요)")
+        raise 피드실패("연결 거부됨")
+    except Exception as e:
+        raise 피드실패(f"연결 실패 ({type(e).__name__})")
+
+    if resp.status_code >= 400:
+        # 401·403 은 대개 봇 차단이나 유료화, 404 는 경로가 바뀐 것이다.
+        설명 = {401: "인증 요구", 403: "차단됨(봇 차단·유료화)",
+                404: "없는 주소(경로 변경)", 429: "요청이 너무 잦음"}
+        raise 피드실패(f"HTTP {resp.status_code}"
+                       + (f" — {설명[resp.status_code]}" if resp.status_code in 설명 else ""))
+
+    try:
         feed = feedparser.parse(resp.content)
+    except Exception as e:
+        raise 피드실패(f"읽을 수 없는 형식 ({type(e).__name__})")
+
+    if not feed.entries:
+        # 200 인데 항목이 없다 — 대개 RSS 가 아니라 안내 페이지(HTML)를 받은 것이다
+        raise 피드실패("피드에 기사가 없음 (RSS 가 아닐 수 있음)")
+
+    try:
         items = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=3)
         # 필터(경제 키워드/기간/이미지) 통과율이 낮을 수 있으므로 넉넉히 스캔
@@ -275,9 +342,16 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
             })
             if len(items) >= limit:
                 break
-        return items
-    except Exception:
-        return []
+    except Exception as e:
+        raise 피드실패(f"기사 해석 중 오류 ({type(e).__name__})")
+
+    if not items:
+        # 받아오기는 제대로 했는데 조건에 맞는 기사가 하나도 안 남은 경우다.
+        # 위의 '피드에 기사가 없음' 과 뜻이 전혀 다르므로 따로 알린다 —
+        # 이건 주소 문제가 아니라 필터를 손봐야 하는 신호다
+        raise 피드실패(f"기사 {len(feed.entries)}건 중 통과 0건 "
+                       "(경제 키워드·3일 이내 조건)")
+    return items
 
 
 def _add_trending_score(articles: list) -> list:
@@ -350,18 +424,24 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
             try:
                 items = future.result(timeout=12)
                 all_news.extend(items)
-                if items:
-                    성공 += 1
-                else:
-                    # 받아오긴 했는데 기사가 하나도 안 남은 경우.
-                    # 이걸 '성공'으로 세면 지표가 거짓말을 한다 — 실제로
-                    # "14/14곳 성공"인데 화면에는 2곳만 뜨는 일이 있었다.
+                성공 += 1
+                # 성공도 언론사별로 남긴다. 이게 없으면 실패 수만 쌓여서,
+                # 한참 전에 실패하고 그 뒤로 계속 성공한 곳도 화면에
+                # 영원히 '실패' 로 남는다(연속실패가 0으로 돌아가지 않는다)
+                health.record_ok(f"뉴스:{source}", detail=f"{len(items)}건")
+            except 피드실패 as e:
+                # 받아오긴 했는데 조건에 맞는 기사가 없던 경우와, 아예 못
+                # 가져온 경우를 갈라서 센다. 예전에는 "14/14곳 성공" 인데
+                # 화면에는 2곳만 뜨는 일이 있었다
+                if "통과 0건" in str(e):
                     빈곳 += 1
-                    health.record_fail(f"뉴스:{source}", "기사 0건 (필터에서 전부 제외)")
+                else:
+                    실패 += 1
+                # 어떤 언론사가 왜 실패했는지 그대로 남긴다 — 관리자 화면의
+                # 칩에 마우스를 올리면 이 문장이 보인다
+                health.record_fail(f"뉴스:{source}", str(e))
             except Exception as e:
                 실패 += 1
-                # 어떤 언론사가 왜 실패했는지 남긴다 — '아시아경제만 나온다' 같은
-                # 상태를 관리자 화면에서 바로 확인할 수 있게 하기 위한 것이다
                 health.record_fail(f"뉴스:{source}", f"{type(e).__name__}")
     except Exception:
         pass

@@ -17,7 +17,11 @@ import {
 import api from "@/api/client";
 
 interface HealthItem {
-  name: string; ok: number; fail: number; success_pct: number | null;
+  name: string; ok: number; fail: number;
+  /** 연속 실패 횟수. 한 번이라도 성공하면 0으로 돌아간다 —
+   *  '지금 고장 나 있는가' 는 누적 fail 이 아니라 이 값으로 봐야 한다 */
+  streak: number;
+  success_pct: number | null;
   last_ok_sec: number | null; last_fail_sec: number | null;
   last_error: string | null; last_ms: number | null; detail: string | null;
 }
@@ -214,7 +218,14 @@ export default function SystemTab() {
   const 죽은작업 = d.tasks.filter((t) => !t.running && t.name !== "startup-prefetch");
   const 메모리위험 = (d.memory.percent ?? 0) >= 85;
   const 실패중 = d.health.filter((h) => h.fail > 0 && (h.success_pct ?? 100) < 50 && !h.name.startsWith("뉴스:"));
-  const 실패언론사 = d.health.filter((h) => h.name.startsWith("뉴스:") && h.fail > 0);
+  /* '최근 실패' 는 누적 실패 수(fail)가 아니라 연속 실패(streak)로 본다.
+     예전에는 한참 전에 열 번 실패하고 그 뒤로 계속 성공한 곳도 "(10회)" 로
+     남아서, 지금 멀쩡한 언론사가 목록에 계속 떠 있었다.
+     ?? 로 적은 이유 — 서버가 아직 옛 버전이면 streak 이 안 온다.
+     그때는 예전처럼 fail 로 보여 주고, 새 버전이 뜨면 저절로 정확해진다. */
+  const 실패언론사 = d.health
+    .filter((h) => h.name.startsWith("뉴스:") && (h.streak ?? h.fail) > 0)
+    .sort((a, b) => (b.streak ?? b.fail) - (a.streak ?? a.fail));
 
   const DB_LIMIT_MB = 500;
   const dbUsedMb = (db.data?.total_bytes ?? 0) / 1024 / 1024;
@@ -820,14 +831,22 @@ export default function SystemTab() {
           </div>
         )}
         {실패언론사.length > 0 && (
-          <div className="flex flex-col gap-0.5">
-            <p className="text-2xs font-semibold text-accent-red">최근 실패한 언론사</p>
-            <div className="flex flex-wrap gap-1">
+          <div className="flex flex-col gap-1">
+            <p className="text-2xs font-semibold text-accent-red">지금 실패 중인 언론사</p>
+            {/* 이유를 칩 옆에 그대로 적는다.
+                예전에는 title 툴팁에만 있어서 마우스를 올려야 보였고,
+                휴대폰에서는 아예 볼 방법이 없었다. 무엇이 문제인지가
+                이 목록의 존재 이유인데 그게 가려져 있었다. */}
+            <div className="flex flex-col gap-0.5">
               {실패언론사.slice(0, 20).map((h) => (
-                <span key={h.name} className="px-1.5 py-0.5 rounded bg-accent-red/10 text-2xs text-accent-red break-keep"
-                      title={h.last_error ?? ""}>
-                  {h.name.replace("뉴스:", "")} ({h.fail}회)
-                </span>
+                <div key={h.name} className="flex items-baseline gap-1.5 flex-wrap">
+                  <span className="px-1.5 py-0.5 rounded bg-accent-red/10 text-2xs text-accent-red break-keep shrink-0">
+                    {h.name.replace("뉴스:", "")} ({h.streak ?? h.fail}회 연속)
+                  </span>
+                  {h.last_error && (
+                    <span className="text-2xs text-text-dim break-keep">{h.last_error}</span>
+                  )}
+                </div>
               ))}
             </div>
           </div>
