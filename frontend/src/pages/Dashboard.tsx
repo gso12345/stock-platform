@@ -350,9 +350,11 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
         </div>
       </section>
 
-      {/* 환율 / 금리 */}
+      {/* 환율 / 금리 / 변동성 */}
       <section>
-        <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리</h2>
+        {/* VKOSPI 가 이 줄에 들어오면서 제목이 내용과 안 맞게 됐다.
+            해외 탭이 VIX 를 같은 자리에 두고 있어 짝을 맞춘 것이다 */}
+        <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리 · 변동성</h2>
         <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
           {!data ? (
             [1,2,3,4].map(i => <ExtraCardSkeleton key={i} />)

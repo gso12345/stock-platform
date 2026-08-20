@@ -1,15 +1,19 @@
 """
 국내 시장 부가 데이터
 - 선물 (KOSPI200 선물)
-- 원달러 환율
+- 환율 (원/달러, 원/100엔)
 - 금리 (기준금리, CD, 국채)
+- 변동성 (VKOSPI)
 """
+import logging
 import httpx
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor
 from app.core.config import settings
 from app.core.cache import cache
 from app.core.executor import background_executor
+
+log = logging.getLogger(__name__)
 
 
 # ── 환율 ──────────────────────────────────────────────────
@@ -425,6 +429,133 @@ def _fetch_kr_bonds_pykrx() -> "tuple[list, dict | None]":
         return [], None
 
 
+_VKOSPI_CK = "extra:vkospi"
+
+# 네이버 모바일이 이 지수를 무슨 코드로 부르는지 확인할 방법이 지금 없어서
+# (작업 환경에서 외부 인터넷이 막혀 있다) 그럴듯한 후보를 차례로 걸어 본다.
+# 금리 조회에서 이미 쓰고 있는 방식이다 — 되는 것을 만나면 거기서 멈춘다.
+_VKOSPI_네이버코드 = ["VKOSPI", "VKOSPI200", "KOSPI200VOL"]
+
+
+def _fetch_vkospi_naver() -> "dict | None":
+    """네이버 모바일 지수 API. 국내 지수 4종이 이미 이 경로로 들어온다."""
+    from app.services.price_fetcher import NAVER_HEADERS
+
+    for code in _VKOSPI_네이버코드:
+        try:
+            r = httpx.get(f"https://m.stock.naver.com/api/index/{code}/basic",
+                          headers=NAVER_HEADERS, timeout=6)
+            if r.status_code != 200:
+                continue
+            d = r.json()
+            값 = d.get("closePrice") or d.get("currentIndexValue") or d.get("indexValue")
+            if 값 in (None, ""):
+                continue
+            def _수(x):
+                try:
+                    return float(str(x or 0).replace(",", ""))
+                except (TypeError, ValueError):
+                    return 0.0
+            현재 = _수(값)
+            if 현재 <= 0:
+                continue
+            return {
+                "value": round(현재, 2),
+                "change": round(_수(d.get("compareToPreviousClosePrice") or d.get("changeValue")), 2),
+                "change_rate": round(_수(d.get("fluctuationsRatio") or d.get("changeRate")), 2),
+            }
+        except Exception:
+            continue
+    return None
+
+
+def _fetch_vkospi_pykrx() -> "dict | None":
+    """KRX 공식 데이터. 네이버가 안 되면 이쪽으로.
+
+    지수 코드를 외우지 않고 이름으로 찾는다 — 코드를 잘못 적으면 빈
+    데이터가 조용히 돌아와서(지난번 ETF 보유비중 때 그랬다) 원인을
+    찾는 데 한참 걸린다."""
+    try:
+        from app.core import pykrx_light
+        import datetime as dt
+
+        pkrx = pykrx_light.stock()
+        티커 = None
+        for t in pkrx.get_index_ticker_list(market="KRX"):
+            이름 = pkrx.get_index_ticker_name(t) or ""
+            if "변동성" in 이름:
+                티커 = t
+                break
+        if not 티커:
+            return None
+
+        오늘 = dt.date.today()
+        df = pkrx.get_index_ohlcv_by_date(
+            (오늘 - dt.timedelta(days=10)).strftime("%Y%m%d"),
+            오늘.strftime("%Y%m%d"), 티커)
+        df = df[df["종가"] > 0]
+        if len(df) < 1:
+            return None
+        현재 = float(df["종가"].iloc[-1])
+        if len(df) >= 2:
+            전일 = float(df["종가"].iloc[-2])
+            변동 = 현재 - 전일
+            비율 = (변동 / 전일 * 100) if 전일 else 0.0
+        else:
+            변동 = 비율 = 0.0
+        return {"value": round(현재, 2), "change": round(변동, 2),
+                "change_rate": round(비율, 2)}
+    except Exception as e:
+        log.debug("VKOSPI pykrx 실패: %s", type(e).__name__)
+        return None
+
+
+def get_vkospi() -> "dict | None":
+    """코스피200 변동성지수.
+
+    해외 탭에는 VIX 가 있는데 국내에는 변동성 지표가 없었다. 지수가
+    올랐는지만 보면 '왜 이렇게 출렁였는지' 는 안 보인다.
+
+    못 가져오면 None 을 돌려준다 — 화면에서는 카드가 안 그려질 뿐이고,
+    엉뚱한 값을 채워 넣지 않는다."""
+    if c := cache.get(_VKOSPI_CK):
+        return c
+    결과 = _fetch_vkospi_naver() or _fetch_vkospi_pykrx()
+    if not 결과:
+        # 장 마감 뒤나 일시 장애일 수 있다. 지난 값이라도 있으면 그걸 쓴다
+        return cache.get_stale(_VKOSPI_CK)
+    항목 = {"name": "VKOSPI", "unit": "pt", **결과}
+    cache.set(_VKOSPI_CK, 항목, 300)
+    return 항목
+
+
+def get_jpykrw_100() -> "dict | None":
+    """원/100엔.
+
+    해외 탭이 이미 5분마다 받아 캐시에 넣어 두므로(extra:jpykrw) 대개
+    새로 받을 일이 없다. 없을 때만 직접 받는다 — 카드 하나 때문에
+    0.15 CPU 서버에 요청을 더 얹을 이유가 없다."""
+    항목 = cache.get("extra:jpykrw") or cache.get_stale("extra:jpykrw")
+    if 항목 and 항목.get("value"):
+        값 = 엔화_100엔당(항목["value"])
+        배수 = (값 / 항목["value"]) if 항목["value"] else 1
+        return {"name": "원/100엔", "unit": "원", "value": round(값, 2),
+                "change": round((항목.get("change") or 0) * 배수, 2),
+                "change_rate": round(항목.get("change_rate") or 0, 2)}
+    try:
+        c = yf.Ticker("JPYKRW=X").history(period="5d")["Close"].dropna()
+        if len(c) < 1:
+            return None
+        현재 = 엔화_100엔당(float(c.iloc[-1]))
+        전일 = 엔화_100엔당(float(c.iloc[-2])) if len(c) >= 2 else 현재
+        변동 = 현재 - 전일
+        return {"name": "원/100엔", "unit": "원", "value": round(현재, 2),
+                "change": round(변동, 2),
+                "change_rate": round(변동 / 전일 * 100 if 전일 else 0, 2)}
+    except Exception:
+        return None
+
+
 def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
 
@@ -485,8 +616,25 @@ def _do_fetch_kr_rates() -> list:
         base = cache.get_stale("extra:kr_base_rate") or \
             {"name": "한국 기준금리", "value": 2.75, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
 
-    # 순서: 기준금리 → CD금리 → 국고채 3/5/10년
-    rates = [base, cd_rate] + bonds
+    # 순서: 원/100엔 → 기준금리 → CD금리 → 국고채 3/5/10년 → VKOSPI
+    #
+    # 엔화를 맨 앞에 두는 이유 — 화면은 원/달러를 이 목록보다 먼저 그린다.
+    # 그래야 환율 둘이 붙어 있고 금리가 그 뒤로 이어진다.
+    # VKOSPI 는 성격이 달라서(변동성) 맨 뒤에 둔다.
+    #
+    # 둘 다 실패해도 금리 목록은 그대로 나와야 한다. 곁들이 하나 때문에
+    # 있던 것까지 사라지면 고친 게 아니라 망가뜨린 것이다.
+    엔화 = vkospi = None
+    try:
+        엔화 = get_jpykrw_100()
+    except Exception as e:
+        log.debug("원/100엔 실패: %s", type(e).__name__)
+    try:
+        vkospi = get_vkospi()
+    except Exception as e:
+        log.debug("VKOSPI 실패: %s", type(e).__name__)
+
+    rates = [x for x in ([엔화] + [base, cd_rate] + bonds + [vkospi]) if x]
 
     cache.set(ck, rates, 300)
     return rates
@@ -508,6 +656,26 @@ _FX_CACHE_MAP = {
     "EURKRW=X": ("extra:eurkrw", "EURKRW", "원/유로 환율"),
     "JPYKRW=X": ("extra:jpykrw", "JPYKRW", "원/100엔"),
 }
+
+
+def 엔화_100엔당(값: float) -> float:
+    """야후의 JPYKRW=X 는 1엔당 원화(약 9.3원)를 준다.
+
+    한국에서는 엔화를 늘 100엔당으로 말한다(약 930원). 그런데 이름만
+    '원/100엔' 으로 붙여 놓고 값은 1엔당 그대로 내보내고 있었다 —
+    해외 탭에 "원/100엔 9.32원" 이 떠 있었다는 뜻이다. 100배 어긋난 값이다.
+
+    원천이 이미 100엔당으로 주는 경우도 있어서 자릿수를 보고 판단한다.
+    1엔당은 5~20원, 100엔당은 500~2000원이라 두 범위가 겹치지 않는다.
+    (엔화가 100엔당 100원 밑으로 가는 일은 현실적으로 없다)
+    """
+    try:
+        v = float(값)
+    except (TypeError, ValueError):
+        return 값
+    if v <= 0:
+        return v
+    return v * 100 if v < 100 else v
 
 
 def _do_fetch_us_rates() -> list:
@@ -533,6 +701,11 @@ def _do_fetch_us_rates() -> list:
             if len(c2) < 1:
                 continue
             curr, prev = float(c2.iloc[-1]), float(c2.iloc[-2]) if len(c2) >= 2 else float(c2.iloc[-1])
+            # 엔화만 단위를 맞춘다 — 이름은 '원/100엔' 인데 값은 1엔당이었다.
+            # 등락률은 비율이라 단위와 무관하지만, 변동폭(chg)은 같이 100배가
+            # 되어야 하므로 나누기 전에 바꾼다
+            if sym == "JPYKRW=X":
+                curr, prev = 엔화_100엔당(curr), 엔화_100엔당(prev)
             chg  = curr - prev
             chgr = chg / prev * 100 if prev and not is_rate else chg
             item = {
