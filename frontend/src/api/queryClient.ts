@@ -19,10 +19,19 @@
  * 이 파일이 따로 있는 이유는 authStore 가 이걸 부를 수 있어야 해서다.
  * main.tsx 안에 두면 화면 밖에서는 손댈 수 없다.
  */
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryCache } from "@tanstack/react-query";
+import { 조회실패알림 } from "./queryError";
 import { 최근조회정리 } from "@/utils/recentlyViewed";
 
 export const queryClient = new QueryClient({
+  /* 조회가 실패하면 여기로 온다.
+     useQuery 102개 중 isError 를 다루는 곳이 31개뿐이라, 나머지는
+     실패해도 화면에 아무 표시가 없었다 — 빈 목록이거나 영원한 로딩으로
+     보여서 사용자는 "느리다" 고만 느꼈다. 100곳을 하나씩 고치는 대신
+     한 자리에 둔다. 새로 만드는 화면도 저절로 포함된다. */
+  queryCache: new QueryCache({
+    onError: (e) => 조회실패알림(e),
+  }),
   defaultOptions: {
     queries: {
       staleTime: 300_000,

@@ -7,6 +7,7 @@ import Layout from "./components/Layout";
 import ErrorBoundary from "./components/common/ErrorBoundary";
 import SplashScreen from "./components/SplashScreen";
 import BootScreen from "./components/BootScreen";
+import QueryErrorToast from "./components/common/QueryErrorToast";
 import { dashboardApi } from "./api/stocks";
 import "./index.css";
 
@@ -88,6 +89,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <SplashScreen />
     <QueryClientProvider client={queryClient}>
+      {/* 조회가 실패하면 여기서 알린다. 앱 전체에 하나만 둔다 —
+          화면마다 두면 화면을 옮길 때 알림이 사라지거나 겹친다 */}
+      <QueryErrorToast />
       <BrowserRouter>
         <화면오류그물>
         {/* "로딩 중..." 다섯 글자만 있었다. 서버가 자고 있으면 20~45초가

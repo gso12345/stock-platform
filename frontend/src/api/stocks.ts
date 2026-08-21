@@ -1,5 +1,8 @@
 import api from "./client";
-import type { Market, StockPrice, StockDetail, OHLCV, StockFundamentals } from "@/types";
+import type {
+  Market, StockPrice, StockDetail, OHLCV, StockFundamentals,
+  뉴스항목, 지표카드, 순위행, 대시보드응답, 실적응답, 전망행, 지표흐름, MarketIndex,
+} from "@/types";
 
 /** 투자자별 수급 하루치. 값은 순매수 '거래대금'(원)이고 음수면 순매도다. */
 export interface 수급행 {
@@ -28,16 +31,16 @@ export const stocksApi = {
 
   /** 정렬은 서버가 처리한다 — 인기도 점수는 내부 계산값이라 응답에 싣지 않는다 */
   getNews: (market: string, symbol: string, sort: "latest" | "popular" = "latest") =>
-    api.get<any[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/news`, { params: { sort } }).then((r) => r.data),
+    api.get<뉴스항목[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/news`, { params: { sort } }).then((r) => r.data),
 
   getMetricsHistory: (market: string, symbol: string) =>
-    api.get<{annual: any[], quarterly: any[]}>(`/stocks/${market}/${encodeURIComponent(symbol)}/metrics-history`).then((r) => r.data),
+    api.get<지표흐름>(`/stocks/${market}/${encodeURIComponent(symbol)}/metrics-history`).then((r) => r.data),
 
   getEarnings: (market: string, symbol: string) =>
-    api.get<any>(`/stocks/${market}/${encodeURIComponent(symbol)}/earnings`).then((r) => r.data),
+    api.get<실적응답>(`/stocks/${market}/${encodeURIComponent(symbol)}/earnings`).then((r) => r.data),
 
   getForecasts: (market: string, symbol: string) =>
-    api.get<any[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/forecasts`).then((r) => r.data),
+    api.get<전망행[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/forecasts`).then((r) => r.data),
 
   /** 투자자별 수급 (외국인·기관·개인 일별 순매수 거래대금) — 국내 종목만.
    *
@@ -197,20 +200,20 @@ export const quantScoreApi = {
 
 export const dashboardApi = {
   getIndices: () =>
-    api.get<{ kr: any[]; us: any[] }>("/dashboard/indices").then((r) => r.data),
+    api.get<{ kr: MarketIndex[]; us: MarketIndex[] }>("/dashboard/indices").then((r) => r.data),
 
   getKR: (category = "시가총액") =>
-    api.get("/dashboard/kr", { params: { category, include_news: false } }).then((r) => r.data),
+    api.get<대시보드응답>("/dashboard/kr", { params: { category, include_news: false } }).then((r) => r.data),
 
   getUS: (category = "시가총액") =>
-    api.get("/dashboard/us", { params: { category, include_news: false } }).then((r) => r.data),
+    api.get<대시보드응답>("/dashboard/us", { params: { category, include_news: false } }).then((r) => r.data),
 
   getRankings: (market: "kr" | "us", category = "시가총액") =>
-    api.get(`/dashboard/rankings/${market}`, { params: { category } }).then((r) => r.data),
+    api.get<순위행[]>(`/dashboard/rankings/${market}`, { params: { category } }).then((r) => r.data),
 
   /** 정렬은 서버가 처리한다 — 인기도 점수는 내부 계산값이라 응답에 싣지 않는다 */
   getNews: (market: "kr" | "us", sort: "latest" | "popular" = "latest") =>
-    api.get(`/dashboard/news/${market}`, { params: { sort } }).then((r) => r.data),
+    api.get<뉴스항목[]>(`/dashboard/news/${market}`, { params: { sort } }).then((r) => r.data),
 
   getIndexDetail: (name: string) =>
     api.get(`/dashboard/index/${name}`).then((r) => r.data),
@@ -222,13 +225,13 @@ export const dashboardApi = {
     api.get("/dashboard/kr/extras").then((r) => r.data),
 
   getUSRates: () =>
-    api.get("/dashboard/us/rates").then((r) => r.data),
+    api.get<지표카드[]>("/dashboard/us/rates").then((r) => r.data),
 
   getExchangeRate: () =>
-    api.get("/dashboard/exchange").then((r) => r.data),
+    api.get<지표카드>("/dashboard/exchange").then((r) => r.data),
 
   getTopMovers: () =>
-    api.get<{ risers: any[]; fallers: any[] }>("/dashboard/top-movers").then((r) => r.data),
+    api.get<{ risers: 순위행[]; fallers: 순위행[] }>("/dashboard/top-movers").then((r) => r.data),
 };
 
 export const watchlistFolderApi = {

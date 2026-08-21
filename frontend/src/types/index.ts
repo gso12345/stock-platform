@@ -137,3 +137,101 @@ export interface Trade {
   pnl_rate: number;
   shares: number;
 }
+
+
+/* ── 화면이 실제로 읽는 응답들 ────────────────────────────
+ *
+ * api/stocks.ts 가 이 자리들을 any 로 두고 있었다. 그 결과 이걸 쓰는
+ * 화면에서도 any 가 퍼져 나갔다(전체 318곳). 응답 모양을 한 번 적어 두면
+ * 화면 쪽 any 가 연쇄로 줄고, 서버가 필드 이름을 바꿨을 때 화면이
+ * 조용히 빈칸을 그리는 대신 빌드에서 걸린다.
+ *
+ * 서버가 주는 것을 그대로 적는다 — 없을 수 있는 값은 ? 로 둔다.
+ * 여기서 낙관하면(필수로 적으면) 실제로 안 올 때 화면이 터진다. */
+
+/** 뉴스 한 건. 종목 뉴스와 대시보드 뉴스가 같은 모양이다 */
+export interface 뉴스항목 {
+  title: string;
+  link: string;
+  source: string;
+  /** "08/21 14:30" 처럼 이미 사람이 읽는 모양으로 온다 */
+  published?: string;
+  published_ts?: number;
+  summary?: string;
+  /** 썸네일. RSS 에 없는 곳이 많아 자주 비어 있다 */
+  image?: string | null;
+}
+
+/** 환율·금리·변동성 카드 한 장 */
+export interface 지표카드 {
+  name: string;
+  value: number;
+  change?: number;
+  change_rate?: number;
+  /** "원", "%", "pt" */
+  unit?: string;
+  is_rate?: boolean;
+  /** 지어낸 값이라는 표시. 화면에 DEMO 배지가 붙는다 */
+  _demo?: boolean;
+  _static?: boolean;
+}
+
+/** 선물. 값 이름이 price 인 것에 주의 — 지표카드와 다르다 */
+export interface 선물항목 {
+  name: string;
+  symbol?: string;
+  price: number;
+  change?: number;
+  change_rate?: number;
+  unit?: string;
+}
+
+/** 순위표 한 줄 */
+export interface 순위행 extends StockPrice {
+  rank?: number;
+  amount?: number;
+  per?: number | null;
+  roe?: number | null;
+}
+
+/** 대시보드 한 탭 전체 */
+export interface 대시보드응답 {
+  indices: MarketIndex[];
+  rankings: 순위행[];
+  rates: 지표카드[];
+  futures?: 선물항목[];
+  exchange?: 지표카드 & { usdkrw?: number };
+  news: 뉴스항목[];
+  category: string;
+  _has_kis?: boolean;
+}
+
+/** 실적 발표. 지난 것과 다가올 것이 함께 온다.
+ *
+ *  처음엔 필드 이름을 짐작해서 적었는데(next_date, eps_actual) 서버가
+ *  주는 것과 달랐다. 타입을 붙이자마자 빌드가 그 자리를 전부 짚어 줬다 —
+ *  any 로 두면 화면이 조용히 빈칸을 그리고 아무도 모른다.
+ *  아래는 backend/app/api/routes/stocks.py 의 earnings 응답 그대로다. */
+export interface 실적응답 {
+  /** 지난 실적. 연 단위이고 매출·순이익이 함께 온다 */
+  history: { period: string; revenue: number; earnings: number }[];
+  /** 다가올 발표일. "2026-08-21" 모양의 문자열 */
+  upcoming: string[];
+  eps_estimate?: number | null;
+  revenue_estimate?: number | null;
+}
+
+/** 애널리스트 전망 한 줄 */
+export interface 전망행 {
+  period?: string;
+  revenue?: number | null;
+  operating_income?: number | null;
+  net_income?: number | null;
+  eps?: number | null;
+}
+
+/** 분기·연간 지표 흐름 */
+export interface 지표흐름 {
+  annual: Record<string, unknown>[];
+  quarterly: Record<string, unknown>[];
+}
