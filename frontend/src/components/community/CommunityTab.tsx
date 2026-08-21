@@ -10,7 +10,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import api from "@/api/client";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
-import { 빈화면, ConfirmDialog } from "@/components/ui";
+import { 빈화면, ConfirmDialog, Button } from "@/components/ui";
 import AvatarComponent from "@/components/community/Avatar";
 import { compressImage } from "@/utils/image";
 import { useMyProfile } from "@/hooks/useMyProfile";
@@ -716,12 +716,12 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                       </div>
                     ))}
                     {pollOptions.length < 4 && (
-                      <button
+                      <Button
                         onClick={() => setPollOptions((prev) => [...prev, ""])}
-                        className="text-xs text-accent-blue hover:underline text-left"
+                        variant="link" className="text-xs text-left"
                       >
                         + 옵션 추가
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}
@@ -842,9 +842,9 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
         <div className="flex flex-col items-center justify-center py-10 gap-3 text-text-dim">
           <AlertCircle size={32} className="opacity-30" />
           <p className="text-sm">의견을 불러올 수 없습니다</p>
-          <button onClick={() => refetch()} className="text-xs text-accent-blue hover:underline">
+          <Button onClick={() => refetch()} variant="link" className="text-xs">
             다시 시도
-          </button>
+          </Button>
         </div>
       )}
 

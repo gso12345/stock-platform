@@ -26,6 +26,7 @@ import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { use확인 } from "@/hooks/useDialogs";
+import { Button } from "@/components/ui";
 
 type 태그 = { symbol: string; market: string; name?: string };
 
@@ -572,7 +573,7 @@ export default function FeedWrite() {
                 </div>
               ))}
               {pollOptions.length < 4 && (
-                <button onClick={() => setPollOptions((prev) => [...prev, ""])} className="text-xs text-accent-blue hover:underline text-left">+ 옵션 추가</button>
+                <Button onClick={() => setPollOptions((prev) => [...prev, ""])} variant="link" className="text-xs text-left">+ 옵션 추가</Button>
               )}
             </div>
           )}

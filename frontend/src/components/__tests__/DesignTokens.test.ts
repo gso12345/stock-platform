@@ -239,3 +239,100 @@ describe("아이콘만 있는 버튼", () => {
     expect((전체.match(/aria-label=/g) ?? []).length).toBeGreaterThanOrEqual(120);
   });
 });
+
+
+describe("키보드 초점", () => {
+  /* 버튼이 407곳인데 초점 표시가 있는 곳이 셋뿐이었다(0%). 전역 규칙도
+     없었다. 마우스로는 아무 문제가 없지만, 탭 키로 넘기면 지금 어디에
+     가 있는지 알 수 없다 — 키보드만 쓰는 사람에게는 화면이 깜깜하다.
+
+     407곳을 하나씩 고치는 대신 전역 규칙 하나로 덮었다.
+     새로 만드는 버튼도 저절로 포함된다. */
+  const css = fs.readFileSync(path.join(뿌리, "index.css"), "utf-8");
+
+  it("전역 초점 규칙이 있다", () => {
+    expect(css).toMatch(/:focus-visible\s*\{[^}]*outline:/);
+  });
+
+  it("테두리가 실제로 보인다", () => {
+    /* outline: none 으로 바꿔도 '규칙이 있다' 는 통과한다 —
+       그러면 아무것도 안 보이는데 검사만 초록이다 */
+    const m = css.match(/:focus-visible\s*\{([^}]*)\}/);
+    expect(m).toBeTruthy();
+    expect(m![1]).toMatch(/outline:\s*\d+px\s+solid/);
+    expect(m![1]).not.toMatch(/outline:\s*none/);
+  });
+
+  it("focus 가 아니라 focus-visible 을 쓴다", () => {
+    /* :focus 로 하면 마우스로 눌렀을 때까지 테두리가 남아 지저분해지고,
+       결국 outline:none 으로 지우게 된다. 브라우저가 '키보드로 온 것'
+       만 골라 주는 쪽을 써야 오래간다. */
+    const 규칙 = css.slice(css.indexOf(":focus-visible") - 300, css.indexOf(":focus-visible") + 200);
+    expect(규칙).not.toMatch(/[^-]:focus\s*\{/);
+  });
+
+  it("버튼과 링크와 입력칸을 모두 덮는다", () => {
+    /* 주석에도 focus-visible 이라는 낱말이 나오므로, 셀렉터가 실제로
+       시작하는 :where( 자리를 찾아 그 안만 본다 */
+    const m = css.match(/:where\(([^)]*)\):focus-visible/);
+    expect(m, "전역 초점 셀렉터를 못 찾음").toBeTruthy();
+    /* toContain 으로 보면 [role="button"] 안의 button 에 걸려서,
+       진짜 button 태그를 빼도 통과한다(뮤테이션에서 그랬다).
+       쉼표로 갈라 낱말 그대로 있는지 본다. */
+    const 것들 = m![1].split(",").map((x) => x.trim());
+    for (const t of ["button", "a", "input", "textarea", "select"]) {
+      expect(것들, `${t} 가 빠졌다`).toContain(t);
+    }
+  });
+
+  it("우선순위를 0으로 둬서 화면별 스타일을 덮지 않는다", () => {
+    /* :where 로 감싸면 우선순위가 0이라, 따로 준 초점 스타일이 있으면
+       그쪽이 이긴다. 없을 때만 이 규칙이 나선다. */
+    expect(css).toMatch(/:where\([^)]*button[^)]*\):focus-visible/);
+  });
+
+  it("두 테마 모두에 초점 색이 있다", () => {
+    /* 어두운 바탕과 밝은 바탕에서 잘 보이는 파랑이 다르다 */
+    expect((css.match(/--accent-focus:/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("공용 Button", () => {
+  /* <button> 이 407곳인데 공용 Button 을 쓰는 곳은 16곳뿐이었다(4%).
+     다만 407곳이 다 같은 것이 아니다 —
+       166곳  글자+패딩+둥글기 (이 부품이 맡을 자리)
+       126곳  아이콘만 (정사각 패딩이라 모양이 다르다)
+       106곳  맨 글자 링크형
+         9곳  알약/탭 (공용 Tabs 가 따로 있다)
+
+     한꺼번에 옮기면 '통일' 이 아니라 '대량 변경' 이 된다. 지금 화면을
+     눈으로 볼 수 없어서, 모양이 정확히 같은 것만 옮겼다(link 형 7곳).
+     나머지는 화면을 보면서 하나씩 확인해야 한다. */
+  const ui = fs.readFileSync(path.join(뿌리, "components/ui/index.tsx"), "utf-8");
+
+  it("실제 쓰임에 맞는 모양을 갖췄다", () => {
+    for (const v of ["primary", "secondary", "ghost", "danger", "link"]) {
+      expect(ui, `${v} 없음`).toContain(`${v}:`);
+    }
+    /* 'icon:' 만 보면 값을 지워도 통과한다 — 정사각 패딩이 있는지 본다 */
+    expect(ui).toMatch(/icon:\s*"p-[\d.]+"/);
+  });
+
+  it("link 는 굵게 하지 않는다", () => {
+    /* 굵히면 본문 글 사이에 섞인 자리마다 글자가 두꺼워져 티가 난다.
+       옮겨 온 자리의 모양이 달라지면 옮긴 뜻이 없다. */
+    expect(ui).toMatch(/variant === "link" \? "" : "font-semibold/);
+  });
+
+  it("눌리지 않는 상태를 알려 준다", () => {
+    expect(ui).toContain("disabled:cursor-not-allowed");
+  });
+
+  it("쓰는 곳이 늘었다", () => {
+    /* 16곳에서 시작했다. 줄어들면 누가 되돌린 것이다 */
+    const 수 = 소스파일들()
+      .map((f) => (fs.readFileSync(path.join(뿌리, f), "utf-8").match(/<Button[\s>]/g) ?? []).length)
+      .reduce((a, b) => a + b, 0);
+    expect(수, `공용 Button 사용 ${수}곳`).toBeGreaterThanOrEqual(20);
+  });
+});

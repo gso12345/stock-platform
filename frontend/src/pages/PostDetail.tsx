@@ -12,6 +12,7 @@ import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import AvatarComponent from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, COMMENT_MAX, POLL_QUESTION_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { use확인, use알림 } from "@/hooks/useDialogs";
+import { Button } from "@/components/ui";
 
 async function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -681,7 +682,7 @@ export default function PostDetail() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
         <p className="text-text-muted text-sm">게시글을 찾을 수 없습니다</p>
-        <button onClick={() => navigate(-1)} className="text-xs text-accent-blue hover:underline">돌아가기</button>
+        <Button onClick={() => navigate(-1)} variant="link" className="text-xs">돌아가기</Button>
       </div>
     );
   }
@@ -820,7 +821,7 @@ export default function PostDetail() {
                     </div>
                   ))}
                   {editPollOptions.length < 4 && (
-                    <button onClick={() => setEditPollOptions(prev => [...prev, ""])} className="text-xs text-accent-blue hover:underline text-left">+ 옵션 추가</button>
+                    <Button onClick={() => setEditPollOptions(prev => [...prev, ""])} variant="link" className="text-xs text-left">+ 옵션 추가</Button>
                   )}
                 </div>
               )}

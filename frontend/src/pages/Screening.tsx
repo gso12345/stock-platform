@@ -621,12 +621,12 @@ export default function Screening() {
                 </table>
                 {sortedResults.length > visibleCount && (
                   <div className="flex justify-center py-3 border-t border-border/30">
-                    <button
+                    <Button
                       onClick={() => setVisibleCount((c) => c + 30)}
-                      className="text-xs text-accent-blue hover:underline"
+                      variant="link" className="text-xs"
                     >
                       더 보기 ({sortedResults.length - visibleCount}개 더 있음)
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>

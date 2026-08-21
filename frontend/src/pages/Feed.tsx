@@ -16,7 +16,7 @@ import { API_BASE } from "@/api/client";
 const PortfolioSnapshot = lazy(() => import("@/components/portfolio/PortfolioSnapshot"));
 import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
-import { Tabs, type TabItem, 빈화면, ConfirmDialog } from "@/components/ui";
+import { Tabs, type TabItem, 빈화면, ConfirmDialog, Button } from "@/components/ui";
 import PostDetailModal from "@/components/community/PostDetailModal";
 
 type SortType = "latest" | "likes";
@@ -591,9 +591,9 @@ export default function Feed() {
         <div className="flex flex-col items-center justify-center py-14 gap-3 text-text-dim">
           <AlertCircle size={32} className="opacity-30" />
           <p className="text-sm">피드를 불러올 수 없습니다</p>
-          <button onClick={() => refetch()} className="text-xs text-accent-blue hover:underline">
+          <Button onClick={() => refetch()} variant="link" className="text-xs">
             다시 시도
-          </button>
+          </Button>
         </div>
       )}
 

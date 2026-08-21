@@ -282,20 +282,61 @@ export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel }: 
 }
 
 /* ── 버튼 ──────────────────────────────────────────────── */
-export function Button({ children, variant = "primary", size = "md", className, ...p }: {
+/** 눌러서 무언가를 하는 버튼.
+ *
+ *  화면에 <button> 이 407곳인데 이걸 쓰는 곳은 16곳뿐이었다(4%).
+ *  나머지는 각자 padding·radius·색·disabled 를 다시 썼고, 그래서
+ *  같은 뜻의 버튼이 화면마다 조금씩 다르게 생겼다.
+ *
+ *  다 옮기지는 않는다. 407곳 중
+ *    166곳  글자+패딩+둥글기 — 여기가 이 부품이 맡을 자리
+ *    126곳  아이콘만 — 모양이 완전히 다르다(정사각 패딩)
+ *    106곳  맨 글자 링크형 — 패딩도 배경도 없다
+ *      9곳  알약/탭 — 공용 Tabs 가 따로 있다
+ *  각각 다른 것이라, 억지로 하나로 묶으면 className 으로 다 덮어쓰게 되고
+ *  결국 부품을 안 쓴 것과 같아진다. 대신 뒤 세 가지에 맞는 모양을
+ *  variant 로 더해, 옮길 수 있는 것부터 옮긴다.
+ *
+ *  선택된 상태(고른 탭, 켠 필터)처럼 조건부 색이 필요한 버튼은
+ *  그대로 둔다 — 네 가지 variant 로 표현되지 않는다. */
+export function Button({
+  children, variant = "primary", size = "md", 꽉차게, className, ...p
+}: {
   children: React.ReactNode;
-  variant?: "primary" | "secondary" | "ghost" | "danger";
-  size?: "sm" | "md" | "lg";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "link";
+  size?: "sm" | "md" | "lg" | "icon";
+  /** 모달 바닥처럼 가로를 나눠 쓰는 자리 */
+  꽉차게?: boolean;
 } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const vMap = {
-    primary:   "bg-accent-blue hover:bg-accent-blue text-white",
+    primary:   "bg-accent-blue hover:bg-accent-blue/90 text-white",
     secondary: "bg-bg-elevated border border-border text-text-primary hover:border-accent-blue",
     ghost:     "text-text-muted hover:text-text-primary hover:bg-bg-elevated",
     danger:    "bg-accent-red/20 border border-accent-red/30 text-accent-red hover:bg-accent-red/30",
+    // 패딩도 배경도 없는 맨 글자 — 본문 안에 섞여 있는 '더 보기' 같은 것
+    link:      "text-accent-blue hover:underline",
   };
-  const sMap = { sm: "px-3 py-1 text-xs", md: "px-4 py-2 text-sm", lg: "px-6 py-2.5 text-sm" };
+  const sMap = {
+    sm:   "px-3 py-1 text-xs",
+    md:   "px-4 py-2 text-sm",
+    lg:   "px-6 py-2.5 text-sm",
+    // 아이콘 하나만 들어가는 정사각 자리
+    icon: "p-1.5",
+  };
   return (
-    <button {...p} className={cn("font-semibold rounded-lg transition-colors disabled:opacity-40", vMap[variant], sMap[size], className)}>
+    <button
+      {...p}
+      className={cn(
+        "transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
+        // link 는 본문 글 사이에 섞이는 자리라 굵게 하지 않는다.
+        // 굵히면 옮겨 온 자리마다 글자가 두꺼워져 티가 난다
+        variant === "link" ? "" : "font-semibold rounded-lg",
+        vMap[variant],
+        variant === "link" ? "" : sMap[size],
+        꽉차게 && "flex-1",
+        className,
+      )}
+    >
       {children}
     </button>
   );
