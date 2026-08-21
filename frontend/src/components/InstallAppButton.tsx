@@ -11,7 +11,7 @@ function IOSInstallGuide({ onClose }: { onClose: () => void }) {
       <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-modal overflow-hidden modal-pop">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h3 className="text-sm font-bold text-text-primary">앱으로 설치하기</h3>
-          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
+          <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
             <X size={14} />
           </button>
         </div>

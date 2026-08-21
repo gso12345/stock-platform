@@ -329,7 +329,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest">국내 지수</h2>
-          <button onClick={() => refetch()} className="text-text-muted hover:text-accent-blue transition-colors">
+          <button aria-label="새로고침" onClick={() => refetch()} className="text-text-muted hover:text-accent-blue transition-colors">
             <RefreshCw size={11} />
           </button>
         </div>
@@ -471,7 +471,7 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest">해외 지수</h2>
-          <button onClick={() => refetch()} className="text-text-muted hover:text-accent-blue transition-colors">
+          <button aria-label="새로고침" onClick={() => refetch()} className="text-text-muted hover:text-accent-blue transition-colors">
             <RefreshCw size={11} />
           </button>
         </div>

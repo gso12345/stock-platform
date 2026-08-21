@@ -111,7 +111,7 @@ export function PortfolioModal({
       {/* 헤더 */}
       <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
         {step === 2 && !item && (
-          <button onClick={() => setStep(1)} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+          <button aria-label="뒤로" onClick={() => setStep(1)} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
             <ArrowLeft size={14} />
           </button>
         )}
@@ -563,12 +563,12 @@ export function PortfolioManagerModal({
             )}
             <span className="text-xs text-text-muted flex-shrink-0">{pf.count}개</span>
             {editingId === pf.id ? (
-              <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(pf.id); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
+              <button aria-label="확인" draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(pf.id); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
             ) : (
-              <button draggable={false} onClick={(e) => { e.stopPropagation(); setEditingId(pf.id); setEditName(pf.name); }}
+              <button aria-label="수정" draggable={false} onClick={(e) => { e.stopPropagation(); setEditingId(pf.id); setEditName(pf.name); }}
                 className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={14} /></button>
             )}
-            <button draggable={false} onClick={(e) => { e.stopPropagation(); onDelete(pf); }}
+            <button aria-label="삭제" draggable={false} onClick={(e) => { e.stopPropagation(); onDelete(pf); }}
               className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={14} /></button>
           </div>
         )}

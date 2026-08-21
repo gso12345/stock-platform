@@ -239,7 +239,7 @@ function DashboardTab({ qc, stats: statsProp }: { qc: QueryClient; stats?: any }
             <span className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
               <Activity size={14} className="text-accent-blue" />시스템 상태
             </span>
-            <button onClick={() => refetchSystem()} className="text-text-muted hover:text-text-primary transition-colors p-1 rounded">
+            <button aria-label="새로고침" onClick={() => refetchSystem()} className="text-text-muted hover:text-text-primary transition-colors p-1 rounded">
               <RefreshCw size={13} />
             </button>
           </div>
@@ -601,7 +601,7 @@ function PostsAdminSection({ qc }: { qc: QueryClient }) {
           onChange={(id) => { setMarketFilter(id as any); setPage(1); }}
         />
         <span className="text-xs text-text-dim ml-auto">총 {total.toLocaleString()}개</span>
-        <button onClick={() => refetch()} className="p-1 text-text-muted hover:text-text-primary transition-colors">
+        <button aria-label="새로고침" onClick={() => refetch()} className="p-1 text-text-muted hover:text-text-primary transition-colors">
           <RefreshCw size={13} />
         </button>
       </div>
@@ -689,7 +689,7 @@ function PostsAdminSection({ qc }: { qc: QueryClient }) {
                         >
                           <Eye size={13} />
                         </button>
-                        <button
+                        <button aria-label="삭제"
                           onClick={() => setConfirmDelete(p.id)}
                           className="p-1 rounded text-text-muted hover:text-accent-red transition-colors"
                         >
@@ -783,7 +783,7 @@ function CommentsAdminSection({ qc }: { qc: QueryClient }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <span className="text-xs text-text-muted ml-auto">총 {total.toLocaleString()}개</span>
-        <button onClick={() => refetch()} className="p-1 text-text-muted hover:text-text-primary transition-colors">
+        <button aria-label="새로고침" onClick={() => refetch()} className="p-1 text-text-muted hover:text-text-primary transition-colors">
           <RefreshCw size={13} />
         </button>
       </div>
@@ -846,7 +846,7 @@ function CommentsAdminSection({ qc }: { qc: QueryClient }) {
                         >
                           <Eye size={13} />
                         </button>
-                        <button
+                        <button aria-label="삭제"
                           onClick={() => setConfirmDelete(c.id)}
                           className="p-1 rounded text-text-muted hover:text-accent-red transition-colors"
                         >
@@ -1385,7 +1385,7 @@ function CacheTab({ qc }: { qc: QueryClient }) {
           <span className="text-xs text-text-muted ml-2">{data?.count ?? 0}개 항목</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => refetch()} className="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-colors">
+          <button aria-label="새로고침" onClick={() => refetch()} className="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-colors">
             <RefreshCw size={14} />
           </button>
           <button
@@ -1449,7 +1449,7 @@ function CacheTab({ qc }: { qc: QueryClient }) {
                     onClick={() => set확인({ 전체: false, key: item.key })}
                     className="text-accent-red hover:text-accent-red/70 text-xs font-semibold">삭제</button>
                 ) : (
-                  <button onClick={() => setConfirmed(item.key)}
+                  <button aria-label="삭제" onClick={() => setConfirmed(item.key)}
                     className="text-text-muted hover:text-accent-red transition-colors">
                     <Trash2 size={13} />
                   </button>
@@ -1555,7 +1555,7 @@ function PopupTab({ qc }: { qc: QueryClient }) {
                   <span className="text-sm font-semibold text-text-primary">{p.title}</span>
                 </div>
                 <div className="flex gap-1 shrink-0">
-                  <button onClick={() => openEdit(p)} className="p-1.5 text-text-muted hover:text-accent-blue transition-colors"><Pencil size={13} /></button>
+                  <button aria-label="수정" onClick={() => openEdit(p)} className="p-1.5 text-text-muted hover:text-accent-blue transition-colors"><Pencil size={13} /></button>
                   <button aria-label={`${p.title} 삭제`} onClick={() => set지울팝업({ id: p.id, title: p.title })} className="p-1.5 text-text-muted hover:text-accent-red transition-colors"><Trash2 size={13} /></button>
                 </div>
               </div>
@@ -1710,7 +1710,7 @@ function ReportsTab({ qc }: { qc: QueryClient }) {
           onChange={(id) => { setStatusFilter(id as any); setPage(1); }}
         />
         <span className="text-xs text-text-muted ml-auto">총 {total}건</span>
-        <button onClick={() => refetch()} className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-colors">
+        <button aria-label="새로고침" onClick={() => refetch()} className="p-1.5 rounded-lg text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-colors">
           <RefreshCw size={13} />
         </button>
       </div>

@@ -198,7 +198,7 @@ export default function SearchBar() {
         />
         {loading && <div className="w-3.5 h-3.5 border border-accent-blue border-t-transparent rounded-full animate-spin flex-shrink-0"/>}
         {query && !loading && (
-          <button onMouseDown={(e) => { e.preventDefault(); setQuery(""); setResults([]); inputRef.current?.focus(); }}
+          <button aria-label="검색어 지우기" onMouseDown={(e) => { e.preventDefault(); setQuery(""); setResults([]); inputRef.current?.focus(); }}
             className="text-text-muted hover:text-text-primary transition-colors flex-shrink-0">
             <X size={13}/>
           </button>

@@ -389,7 +389,7 @@ export default function Screening() {
                       {p.name}
                       <span className="text-text-muted ml-1">· {p.market}</span>
                     </button>
-                    <button
+                    <button aria-label="삭제"
                       onClick={() => deletePresetMutation.mutate(p.id)}
                       className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent-red p-1"
                     >

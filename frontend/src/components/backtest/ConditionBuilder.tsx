@@ -182,7 +182,7 @@ export function ConditionBuilder({ label, color = "blue", group, onChange }: Pro
             </div>
 
             {/* 삭제 */}
-            <button onClick={() => remove(i)} className="text-text-muted hover:text-accent-red transition-colors p-1">
+            <button aria-label="삭제" onClick={() => remove(i)} className="text-text-muted hover:text-accent-red transition-colors p-1">
               <Trash2 size={13} />
             </button>
           </div>

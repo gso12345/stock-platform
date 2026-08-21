@@ -294,7 +294,7 @@ function PopupBanners() {
                 </a>
               )}
             </span>
-            <button onClick={() => setDismissed(s => new Set([...s, p.id]))} className="flex-shrink-0 hover:opacity-60 transition-opacity">
+            <button aria-label="알림 닫기" onClick={() => setDismissed(s => new Set([...s, p.id]))} className="flex-shrink-0 hover:opacity-60 transition-opacity">
               <X size={14} />
             </button>
           </div>
@@ -318,7 +318,7 @@ function AnnouncementBanner() {
     <div className="flex items-center gap-2 px-4 py-2 bg-accent-blue/10 border-b border-accent-blue/20 text-accent-blue text-sm">
       <Megaphone size={14} className="flex-shrink-0" />
       <span className="flex-1">{text}</span>
-      <button onClick={() => setDismissed(true)} className="flex-shrink-0 hover:text-accent-blue/60 transition-colors">
+      <button aria-label="알림 닫기" onClick={() => setDismissed(true)} className="flex-shrink-0 hover:text-accent-blue/60 transition-colors">
         <X size={14} />
       </button>
     </div>

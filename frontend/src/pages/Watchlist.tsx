@@ -953,8 +953,8 @@ export default function Watchlist() {
                         <Plus size={13} />
                       </button>
                       <div className="flex gap-1">
-                        <button onClick={() => setEditingFolder(folder.id)} className="text-text-muted hover:text-accent-blue p-1"><Pencil size={13} /></button>
-                        <button onClick={() => setDeletingFolder({ ...folder, _itemCount: folderItems.length })} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={13} /></button>
+                        <button aria-label="수정" onClick={() => setEditingFolder(folder.id)} className="text-text-muted hover:text-accent-blue p-1"><Pencil size={13} /></button>
+                        <button aria-label="삭제" onClick={() => setDeletingFolder({ ...folder, _itemCount: folderItems.length })} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={13} /></button>
                       </div>
                     </>
                   )}

@@ -164,3 +164,78 @@ describe("아이콘 크기", () => {
     }
   });
 });
+
+
+describe("아이콘만 있는 버튼", () => {
+  /* 화면 읽어주는 기능은 버튼 안의 글자를 읽는다. 아이콘만 있으면 읽을
+     것이 없어서 그냥 "버튼" 이라고만 말한다.
+
+     52곳을 찾아 42곳에 이름을 붙였다. 남은 10곳은 같은 아이콘이 자리마다
+     다른 뜻이라(X 가 닫기일 수도 지우기일 수도 있다) 화면을 보면서
+     붙여야 한다. 틀린 이름은 없는 이름보다 나쁘다.
+
+     고치다 한 번 사고를 냈다. '버튼 안에 글자가 있는가' 를 보는 코드가
+     여는 태그의 끝을 find(">") 로 찾았는데, onClick={() => ...} 의
+     화살표에 든 > 를 먼저 만났다. 그래서 속을 잘못 잘라 냈고, 확인창의
+     '취소' 버튼에 aria-label="닫기" 를 덮어썼다 — 눈에 보이는 글자와
+     읽히는 이름이 달라지는 것은 원래 문제보다 나쁘다. 기존 검사가
+     그걸 잡아 줬다. */
+
+  /** 버튼 안에 사람이 읽을 글자가 있는지 */
+  function 글자있나(속: string): boolean {
+    const s = 속.replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/<[^>]*>/g, "");
+    if (/[가-힣A-Za-z0-9]/.test(s)) return true;
+    if (/\{[^}]*["'][^"']*[가-힣A-Za-z][^"']*["'][^}]*\}/.test(속)) return true;
+    if (/\{[가-힣A-Za-z_][\w가-힣.?[\]']*\}/.test(속)) return true;
+    return false;
+  }
+
+  /** <button ...> 의 닫는 꺾쇠. 중괄호 밖의 > 만 본다 */
+  function 여는태그끝(s: string, 시작: number): number {
+    let 깊이 = 0;
+    for (let i = 시작; i < s.length; i++) {
+      const c = s[i];
+      if (c === "{") 깊이++;
+      else if (c === "}") 깊이--;
+      else if (c === ">" && 깊이 === 0) return i;
+    }
+    return -1;
+  }
+
+  function 이름없는수(s: string): number {
+    let n = 0, i = 0;
+    for (;;) {
+      const st = s.indexOf("<button", i);
+      if (st < 0) break;
+      const gt = 여는태그끝(s, st);
+      if (gt < 0) break;
+      const en = s.indexOf("</button>", gt);
+      if (en < 0) break;
+      const b = s.slice(st, en + 9);
+      i = en + 9;
+      if (b.includes("aria-label") || /\btitle=/.test(b)) continue;
+      if (글자있나(b.slice(gt - st + 1, -9))) continue;
+      n++;
+    }
+    return n;
+  }
+
+  it("이름 없는 아이콘 버튼이 더 늘지 않는다", () => {
+    const 총 = 소스파일들().reduce(
+      (a, f) => a + 이름없는수(fs.readFileSync(path.join(뿌리, f), "utf-8")), 0);
+    expect(총, `이름 없는 아이콘 버튼이 ${총}곳`).toBeLessThanOrEqual(10);
+  });
+
+  it("글자가 있는 버튼에는 이름을 덮어쓰지 않는다", () => {
+    /* 눈에 보이는 글자와 읽히는 이름이 다르면 더 헷갈린다.
+       확인창의 '취소' 가 "닫기" 로 읽히던 것이 그 사고였다. */
+    const s = fs.readFileSync(path.join(뿌리, "components/ui/ConfirmDialog.tsx"), "utf-8");
+    const 취소자리 = s.slice(s.indexOf("onClick={onClose}") - 200, s.indexOf("취소"));
+    expect(취소자리).not.toContain("aria-label");
+  });
+
+  it("이름을 붙인 것이 실제로 많다", () => {
+    const 전체 = 소스파일들().map((f) => fs.readFileSync(path.join(뿌리, f), "utf-8")).join("\n");
+    expect((전체.match(/aria-label=/g) ?? []).length).toBeGreaterThanOrEqual(120);
+  });
+});

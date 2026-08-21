@@ -181,7 +181,7 @@ export function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSa
         onKeyDown={(e) => { if (e.key === "Enter") onSave(val); if (e.key === "Escape") onCancel(); }}
         autoFocus
       />
-      <button onClick={() => onSave(val)} className="text-accent-green p-1"><Check size={13} /></button>
+      <button aria-label="확인" onClick={() => onSave(val)} className="text-accent-green p-1"><Check size={13} /></button>
       <button aria-label="닫기" onClick={onCancel} className="text-text-muted p-1"><X size={13} /></button>
     </div>
   );
@@ -446,7 +446,7 @@ export function FolderManagerModal({
             )}
             {탭.종류 === "folder" && (
               editingKey === 탭.key ? (
-                <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(탭); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
+                <button aria-label="확인" draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(탭); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
               ) : (
                 <button draggable={false} aria-label={`${탭.이름} 이름 바꾸기`} onClick={(e) => { e.stopPropagation(); setEditingKey(탭.key); setEditName(탭.이름); }}
                   className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={14} /></button>

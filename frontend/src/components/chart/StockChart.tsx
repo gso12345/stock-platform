@@ -229,7 +229,7 @@ function SettingsPanel({ settings, onChange, onClose }: {
       {/* 헤더 */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
         <span className="text-xs font-bold text-text-primary uppercase tracking-widest">지표 설정</span>
-        <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={14}/></button>
+        <button aria-label="닫기" onClick={onClose} className="text-text-muted hover:text-text-primary"><X size={14}/></button>
       </div>
 
       {/* 탭 버튼 */}
@@ -280,7 +280,7 @@ function SettingsPanel({ settings, onChange, onClose }: {
                     className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
                   />
                   <span className="text-2xs text-text-muted">기간</span>
-                  <button onClick={() => removeMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={13}/></button>
+                  <button aria-label="이동평균선 빼기" onClick={() => removeMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={13}/></button>
                 </div>
               ))}
             </div>
@@ -301,7 +301,7 @@ function SettingsPanel({ settings, onChange, onClose }: {
                     className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
                   />
                   <span className="text-2xs text-text-muted">기간</span>
-                  <button onClick={() => removeEMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={13}/></button>
+                  <button aria-label="지수이동평균선 빼기" onClick={() => removeEMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={13}/></button>
                 </div>
               ))}
             </div>

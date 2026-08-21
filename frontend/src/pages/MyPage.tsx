@@ -272,7 +272,7 @@ export default function MyPage() {
                 </div>
               )}
               {editMode && (
-                <button onClick={() => photoInputRef.current?.click()}
+                <button aria-label="사진 바꾸기" onClick={() => photoInputRef.current?.click()}
                   className="absolute bottom-0 right-0 w-7 h-7 bg-accent-blue rounded-full flex items-center justify-center border-2 border-bg-card hover:bg-accent-blue/90 transition-colors">
                   <Camera size={13} className="text-white" />
                 </button>

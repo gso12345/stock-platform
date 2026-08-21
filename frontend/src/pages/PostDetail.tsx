@@ -695,7 +695,7 @@ export default function PostDetail() {
       {/* 상단 헤더 */}
       <div className="sticky top-0 z-20 bg-bg-card/90 backdrop-blur-md border-b border-border">
         <div className="max-w-2xl mx-auto px-3 sm:px-4 h-12 flex items-center gap-2">
-          <button onClick={() => navigate(-1)}
+          <button aria-label="뒤로" onClick={() => navigate(-1)}
             className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors -ml-1">
             <ArrowLeft size={16} />
           </button>
@@ -781,7 +781,7 @@ export default function PostDetail() {
               {editImage && (
                 <div className="relative w-full">
                   <img src={editImage} alt="미리보기" className="w-full max-h-48 object-cover rounded-xl" />
-                  <button onClick={() => setEditImage("")}
+                  <button aria-label="첨부 이미지 지우기" onClick={() => setEditImage("")}
                     className="absolute top-1.5 right-1.5 p-1 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors">
                     <X size={13} />
                   </button>
@@ -803,7 +803,7 @@ export default function PostDetail() {
                 <div className="bg-bg-card rounded-xl p-3 flex flex-col gap-2 border border-border/50">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-text-primary">투표 만들기</span>
-                    <button onClick={() => setEditShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
+                    <button aria-label="투표 없애기" onClick={() => setEditShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
                   </div>
                   <input value={editPollQuestion} onChange={e => setEditPollQuestion(e.target.value)}
                     placeholder="투표 질문을 입력하세요" maxLength={POLL_QUESTION_MAX}
@@ -815,7 +815,7 @@ export default function PostDetail() {
                         placeholder={`선택지 ${i + 1}`} maxLength={POLL_OPTION_MAX}
                         className="flex-1 px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
                       {editPollOptions.length > 2 && (
-                        <button onClick={() => setEditPollOptions(prev => prev.filter((_, j) => j !== i))} className="text-text-dim hover:text-accent-red"><X size={13} /></button>
+                        <button aria-label="선택지 지우기" onClick={() => setEditPollOptions(prev => prev.filter((_, j) => j !== i))} className="text-text-dim hover:text-accent-red"><X size={13} /></button>
                       )}
                     </div>
                   ))}
@@ -837,7 +837,7 @@ export default function PostDetail() {
                       {editTags.map(t => (
                         <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
                           #{t.market === "KR" && t.name ? t.name : t.symbol}
-                          <button onClick={() => setEditTags(prev => prev.filter(x => x.symbol !== t.symbol))}><X size={11} /></button>
+                          <button aria-label="태그 빼기" onClick={() => setEditTags(prev => prev.filter(x => x.symbol !== t.symbol))}><X size={11} /></button>
                         </span>
                       ))}
                     </div>

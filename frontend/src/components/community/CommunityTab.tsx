@@ -667,7 +667,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                 {image && (
                   <div className="relative w-full">
                     <img src={image} alt="미리보기" className="w-full max-h-40 object-cover rounded-xl" />
-                    <button
+                    <button aria-label="첨부 이미지 지우기"
                       onClick={() => setImage("")}
                       className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
                     >
@@ -681,7 +681,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                   <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-text-primary">투표 만들기</span>
-                      <button onClick={() => setShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors">
+                      <button aria-label="투표 없애기" onClick={() => setShowPoll(false)} className="text-text-dim hover:text-accent-red transition-colors">
                         <XIcon size={13} />
                       </button>
                     </div>
@@ -706,7 +706,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                           className="flex-1 px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
                         />
                         {pollOptions.length > 2 && (
-                          <button
+                          <button aria-label="선택지 지우기"
                             onClick={() => setPollOptions((prev) => prev.filter((_, j) => j !== i))}
                             className="text-text-dim hover:text-accent-red transition-colors"
                           >
@@ -731,7 +731,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                   <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-text-primary">종목 태그</span>
-                      <button onClick={() => { setShowTagSearch(false); setTagQuery(""); setTagResults([]); }} className="text-text-dim hover:text-accent-red transition-colors">
+                      <button aria-label="검색어 지우기" onClick={() => { setShowTagSearch(false); setTagQuery(""); setTagResults([]); }} className="text-text-dim hover:text-accent-red transition-colors">
                         <XIcon size={13} />
                       </button>
                     </div>
@@ -740,7 +740,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                         {tags.map((t) => (
                           <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
                             #{t.market === "KR" && t.name ? t.name : t.symbol}
-                            <button onClick={() => removeTag(t.symbol)}>
+                            <button aria-label="태그 빼기" onClick={() => removeTag(t.symbol)}>
                               <XIcon size={11} />
                             </button>
                           </span>

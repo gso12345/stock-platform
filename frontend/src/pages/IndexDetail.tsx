@@ -125,7 +125,7 @@ export default function IndexDetail() {
     <div className="flex flex-col gap-5">
       {/* 헤더 */}
       <div className="flex items-center gap-3">
-        <button onClick={()=>navigate(-1)} className="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors">
+        <button aria-label="뒤로" onClick={()=>navigate(-1)} className="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors">
           <ArrowLeft size={16}/>
         </button>
         <div>
@@ -151,7 +151,7 @@ export default function IndexDetail() {
               {(info as any)._demo && <span className="text-2xs px-1 py-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
             </div>
           </div>
-          <button onClick={()=>{refetchInfo();if(mainTab==="chart")refetchChart();}} className="ml-auto p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+          <button aria-label="새로고침" onClick={()=>{refetchInfo();if(mainTab==="chart")refetchChart();}} className="ml-auto p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
             <RefreshCw size={14}/>
           </button>
         </Card>
@@ -191,7 +191,7 @@ export default function IndexDetail() {
               ))}
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+              <button aria-label="새로고침" onClick={()=>refetchChart()} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
                 <RefreshCw size={13}/>
               </button>
               <button onClick={()=>setFullscreen(true)} className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors" title="전체보기">
