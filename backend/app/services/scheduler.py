@@ -159,6 +159,20 @@ async def refresh_kr_indices():
             이유 = _네이버_지수_실패이유.get(name) or "원인 미상"
             health.record_fail(f"지수:{name}", f"네 곳 모두 실패 — 네이버: {이유}")
 
+    # 받아온 값 자체가 이상한지도 본다.
+    #
+    # '조회 성공' 과 '값이 맞다' 는 다른 이야기다. 코스닥150 은 0 을 받아
+    # 들고도 성공으로 세어졌고, 그래서 화면에 0 이 떴다.
+    try:
+        from app.core import sanity
+        받은값 = [cache.get(f"idx:{n}") or cache.get_stale(f"idx:{n}") for n in KR_INDICES]
+        sanity.지수_확인([x for x in 받은값 if x])
+        for x in 받은값:
+            if x:
+                sanity.움직이는지_확인(f"지수:{x.get('index')}", x.get("value"))
+    except Exception as e:
+        log.debug("지수 이상값 확인 건너뜀: %s", type(e).__name__)
+
     if ok:
         안된것 = [n for n in KR_INDICES if n not in resolved]
         상세 = f"{ok}/{len(KR_INDICES)}개"

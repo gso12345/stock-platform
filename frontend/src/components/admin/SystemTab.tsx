@@ -222,9 +222,18 @@ export default function SystemTab() {
      아직 높아서 안 잡힌다 — 코스닥150 이 0 으로 떠 있는데도 경고가
      안 뜨던 이유다. streak 이 없으면(서버가 아직 옛 버전) 예전 규칙. */
   const 실패중 = d.health.filter((h) =>
-    !h.name.startsWith("뉴스:") &&
+    !h.name.startsWith("뉴스:") && !h.name.startsWith("값:") &&
     (h.streak != null ? h.streak >= 2
                       : (h.fail > 0 && (h.success_pct ?? 100) < 50)));
+
+  /* 값이 이상한 것 — '못 가져왔다' 와는 다른 종류다.
+     조회는 성공했는데 숫자가 틀린 경우다. 원/100엔이 1엔당 값으로 몇 달
+     떠 있었고 코스닥150 은 0 이었는데, 둘 다 '성공' 으로 세어졌다.
+     금융 화면에서 틀린 숫자는 없는 것보다 나쁘다 — 없으면 다른 데서
+     찾아보지만 틀린 값은 그대로 믿는다. */
+  const 이상값 = d.health
+    .filter((h) => h.name.startsWith("값:") && (h.streak ?? 0) > 0)
+    .sort((a, b) => (b.streak ?? 0) - (a.streak ?? 0));
   /* '최근 실패' 는 누적 실패 수(fail)가 아니라 연속 실패(streak)로 본다.
      예전에는 한참 전에 열 번 실패하고 그 뒤로 계속 성공한 곳도 "(10회)" 로
      남아서, 지금 멀쩡한 언론사가 목록에 계속 떠 있었다.
@@ -267,11 +276,24 @@ export default function SystemTab() {
     <div className="flex flex-col gap-4">
 
       {/* ── 문제가 있으면 맨 위에 크게 ── */}
-      {(메모리위험 || 종목축소 || 미국축소 || 종목저장실패 || 죽은작업.length > 0 || 실패중.length > 0) && (
+      {(메모리위험 || 종목축소 || 미국축소 || 종목저장실패 || 죽은작업.length > 0
+        || 실패중.length > 0 || 이상값.length > 0) && (
         <div role="alert"
              className="rounded-xl border border-accent-red/40 bg-accent-red/10 p-4 flex items-start gap-2.5">
           <AlertTriangle size={16} className="text-accent-red shrink-0 mt-0.5" />
           <div className="flex flex-col gap-1 text-xs text-accent-red break-keep leading-relaxed">
+            {이상값.length > 0 && (
+              /* 맨 위에 둔다. 값이 틀린 것은 '느리다' 나 '메모리' 보다
+                 먼저 알아야 한다 — 사용자가 그 숫자를 믿고 판단한다 */
+              <div className="flex flex-col gap-0.5">
+                <p><b>값이 이상한 지표 {이상값.length}개</b> — 조회는 됐는데 숫자가 맞지 않습니다.</p>
+                {이상값.slice(0, 8).map((h) => (
+                  <p key={h.name} className="pl-2">
+                    · <b>{h.name.replace(/^값:[^:]*:/, "")}</b> {h.last_error}
+                  </p>
+                ))}
+              </div>
+            )}
             {종목축소 && (
               <p>
                 <b>국내 종목이 {종목!.count}개뿐입니다</b> (출처: {종목!.source}) — 외부 조회가 실패해
@@ -723,13 +745,13 @@ export default function SystemTab() {
 
       {/* ── 데이터 수집 상태 (핵심) ── */}
       <Card icon={CheckCircle2} title="데이터 수집 — 마지막으로 성공한 때">
-        {d.health.filter((h) => !h.name.startsWith("뉴스:")).length === 0 ? (
+        {d.health.filter((h) => !h.name.startsWith("뉴스:") && !h.name.startsWith("값:")).length === 0 ? (
           <p className="text-xs text-text-dim break-keep">
             아직 기록이 없습니다. 백그라운드 작업이 한 바퀴 돌면 표시됩니다(최대 5분).
           </p>
         ) : (
           <div className="flex flex-col gap-0.5">
-            {d.health.filter((h) => !h.name.startsWith("뉴스:")).map((h) => {
+            {d.health.filter((h) => !h.name.startsWith("뉴스:") && !h.name.startsWith("값:")).map((h) => {
               const pct = h.success_pct ?? 0;
               const c = pct >= 90 ? "text-accent-green" : pct >= 50 ? "text-accent-amber" : "text-accent-red";
               return (

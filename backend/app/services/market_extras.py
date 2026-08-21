@@ -653,6 +653,21 @@ def _do_fetch_kr_rates() -> list:
                          + [base, cd_rate] + bonds
                          + [곁들이["vkospi"]]) if x]
 
+    # 값이 상식 범위를 벗어나면 기록해 둔다.
+    #
+    # 원/100엔이 1엔당 값으로 몇 달 떠 있었는데 아무 오류도 안 났다.
+    # 조회가 성공하면 그걸로 끝이었기 때문이다. 금융 화면에서 틀린 숫자는
+    # 없는 것보다 나쁘다 — 없으면 다른 데서 찾아보지만 틀린 값은 믿는다.
+    # 값을 고치지는 않는다(고칠 수 있으면 이상한 게 아니다). 관리자 화면에
+    # 뜨게만 한다.
+    try:
+        from app.core import sanity
+        sanity.환율금리_확인(rates)
+        for it in rates:
+            sanity.움직이는지_확인(f"환율금리:{it.get('name')}", it.get("value"))
+    except Exception as e:
+        log.debug("이상값 확인 건너뜀: %s", type(e).__name__)
+
     cache.set(ck, rates, 300)
     return rates
 
