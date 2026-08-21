@@ -121,3 +121,26 @@ export function fmtNewsDateTime(published: string | null | undefined): string {
 
   return rel ? `${rel} · ${abs}` : abs;
 }
+
+/** "3분 전", "2시간 전" — 지금으로부터 얼마나 지났는지.
+ *
+ *  같은 함수가 일곱 파일에 각각 있었다. 그중 다섯은 앞의 가드가 빠져
+ *  있어서, 날짜가 없는 글에 "NaN분 전" 이 떴다. 커뮤니티·피드·
+ *  내 프로필·마이페이지·알림 목록이 그 다섯이다 — 같은 시각을
+ *  화면마다 다르게 보여 주고 있었던 셈이다.
+ *
+ *  한 벌로 모은다. 고칠 일이 생기면 여기만 고치면 된다. */
+export function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";        // "2026-13-45" 같은 값도 막는다
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "방금 전";
+  if (m < 60) return `${m}분 전`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 전`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}일 전`;
+  return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+}

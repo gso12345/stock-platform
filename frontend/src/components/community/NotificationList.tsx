@@ -7,7 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { communityApi } from "@/api/stocks";
 import Avatar from "@/components/community/Avatar";
-import { KIND_META, notificationHref, timeAgo, type NotificationKind } from "@/constants/notifications";
+import { KIND_META, notificationHref, type NotificationKind } from "@/constants/notifications";
+import { timeAgo } from "@/utils/formatters";
 
 export interface NotificationItem {
   id: number;

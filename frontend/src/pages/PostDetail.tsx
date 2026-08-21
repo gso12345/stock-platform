@@ -13,6 +13,8 @@ import AvatarComponent from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, COMMENT_MAX, POLL_QUESTION_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { use확인, use알림 } from "@/hooks/useDialogs";
 import { Button } from "@/components/ui";
+import { timeAgo } from "@/utils/formatters";
+import { use좋아요 } from "@/hooks/useLike";
 
 async function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -87,18 +89,6 @@ const MARKET_BADGE: Record<string, string> = {
   ETF: "border-accent-purple/40 text-accent-purple bg-accent-purple/10",
 };
 
-function timeAgo(iso: string) {
-  if (!iso) return "";
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "방금 전";
-  if (m < 60) return `${m}분 전`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}시간 전`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `${d}일 전`;
-  return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
-}
 
 interface Comment {
   id: number; parent_id: number | null; user_id: number; username: string;
@@ -111,10 +101,9 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
 }) {
   const { 묻기, 화면: 확인화면 } = use확인();
   const { 보이기, 화면: 알림화면 } = use알림();
-  const navigate = useNavigate();
   const qc = useQueryClient();
-  const [liked, setLiked] = useState(reply.liked);
-  const [likeCount, setLikeCount] = useState(reply.like_count);
+  const { 눌림: liked, 수: likeCount, 누르기: handleLike } = use좋아요(
+    reply.liked, reply.like_count, () => communityApi.toggleCommentLike(reply.id));
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -132,15 +121,6 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
       보이기(e?.response?.status === 409
         ? "이미 신고한 댓글입니다" : "신고하지 못했습니다", "error");
     } finally { setSubmittingReport(false); }
-  };
-
-  const handleLike = async () => {
-    if (!isLoggedIn) { navigate("/login"); return; }
-    const prev = liked;
-    setLiked(v => !v);
-    setLikeCount(n => prev ? n - 1 : n + 1);
-    try { await communityApi.toggleCommentLike(reply.id); }
-    catch { setLiked(prev); setLikeCount(reply.like_count); }
   };
 
   const handleDelete = () => 묻기({
@@ -241,10 +221,9 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
 }) {
   const { 묻기, 화면: 확인화면 } = use확인();
   const { 보이기, 화면: 알림화면 } = use알림();
-  const navigate = useNavigate();
   const qc = useQueryClient();
-  const [liked, setLiked] = useState(comment.liked);
-  const [likeCount, setLikeCount] = useState(comment.like_count);
+  const { 눌림: liked, 수: likeCount, 누르기: handleLike } = use좋아요(
+    comment.liked, comment.like_count, () => communityApi.toggleCommentLike(comment.id));
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -265,15 +244,6 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
       보이기(e?.response?.status === 409
         ? "이미 신고한 댓글입니다" : "신고하지 못했습니다", "error");
     } finally { setSubmittingReport(false); }
-  };
-
-  const handleLike = async () => {
-    if (!isLoggedIn) { navigate("/login"); return; }
-    const prev = liked;
-    setLiked(v => !v);
-    setLikeCount(n => prev ? n - 1 : n + 1);
-    try { await communityApi.toggleCommentLike(comment.id); }
-    catch { setLiked(prev); setLikeCount(comment.like_count); }
   };
 
   const handleDelete = () => 묻기({

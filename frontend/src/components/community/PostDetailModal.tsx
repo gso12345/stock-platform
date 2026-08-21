@@ -7,6 +7,8 @@ import { useNavigate, Link } from "react-router-dom";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import { COMMENT_MAX } from "@/constants/community";
 import { use확인, use알림 } from "@/hooks/useDialogs";
+import { timeAgo } from "@/utils/formatters";
+import { use좋아요 } from "@/hooks/useLike";
 
 // ── 공용 타입 ─────────────────────────────────────────────────────
 export interface ModalPost {
@@ -70,18 +72,6 @@ const AVATAR_COLORS = [
   "bg-accent-orange/20 text-accent-orange border-accent-orange/30",
 ];
 
-function timeAgo(iso: string) {
-  if (!iso) return "";
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "방금 전";
-  if (m < 60) return `${m}분 전`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}시간 전`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `${d}일 전`;
-  return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
-}
 
 function Avatar({
   username, colorIndex, userId, isMine, onNavigate,
@@ -106,24 +96,9 @@ function Avatar({
 function ReplyItem({ reply, postId, uid }: { reply: Comment; postId: number; uid?: number }) {
   const { 묻기, 화면: 확인화면 } = use확인();
   const { 보이기, 화면: 알림화면 } = use알림();
-  const navigate = useNavigate();
   const qc = useQueryClient();
-  const [liked, setLiked] = useState(reply.liked);
-  const [likeCount, setLikeCount] = useState(reply.like_count);
-  const { isLoggedIn } = useAuthStore();
-
-  const handleLike = async () => {
-    if (!isLoggedIn) { navigate("/login"); return; }
-    const prev = liked;
-    setLiked(v => !v);
-    setLikeCount(n => (liked ? n - 1 : n + 1));
-    try {
-      await communityApi.toggleCommentLike(reply.id);
-    } catch {
-      setLiked(prev);
-      setLikeCount(reply.like_count);
-    }
-  };
+  const { 눌림: liked, 수: likeCount, 누르기: handleLike } = use좋아요(
+    reply.liked, reply.like_count, () => communityApi.toggleCommentLike(reply.id));
 
   const handleDelete = () => 묻기({
     title: "답글을 삭제할까요?",
@@ -185,26 +160,12 @@ function CommentItem({
 }) {
   const { 묻기, 화면: 확인화면 } = use확인();
   const { 보이기, 화면: 알림화면 } = use알림();
-  const navigate = useNavigate();
   const qc = useQueryClient();
-  const [liked, setLiked] = useState(comment.liked);
-  const [likeCount, setLikeCount] = useState(comment.like_count);
+  const { 눌림: liked, 수: likeCount, 누르기: handleLike } = use좋아요(
+    comment.liked, comment.like_count, () => communityApi.toggleCommentLike(comment.id));
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  const handleLike = async () => {
-    if (!isLoggedIn) { navigate("/login"); return; }
-    const prev = liked;
-    setLiked((v) => !v);
-    setLikeCount((n) => (liked ? n - 1 : n + 1));
-    try {
-      await communityApi.toggleCommentLike(comment.id);
-    } catch {
-      setLiked(prev);
-      setLikeCount(comment.like_count);
-    }
-  };
 
   const handleDelete = () => 묻기({
     title: "댓글을 삭제할까요?",
@@ -372,7 +333,10 @@ export default function PostDetailModal({
   };
 
   const handleShare = async () => {
-    const url = `${window.location.origin}/stocks/${post.market}/${post.symbol}`;
+    /* 글 주소여야 한다. 여기 있던 `/stocks/{시장}/{종목}` 은 그 종목의
+       게시판으로 갈 뿐이라, 링크를 받은 사람은 어떤 글 이야기인지
+       알 수 없었다. 글 상세 화면은 처음부터 `/post/{id}` 를 준다 */
+    const url = `${window.location.origin}/post/${post.id}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);

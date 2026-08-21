@@ -62,15 +62,3 @@ export function notificationHref(n: { kind: string; post_id: number | null; acto
   if (n.kind === "follow") return n.actor_id ? `/profile/${n.actor_id}` : null;
   return n.post_id ? `/post/${n.post_id}` : null;
 }
-
-export function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "방금 전";
-  if (m < 60) return `${m}분 전`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}시간 전`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `${d}일 전`;
-  return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
-}
