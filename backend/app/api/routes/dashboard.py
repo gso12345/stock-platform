@@ -5,6 +5,7 @@
 """
 from fastapi import APIRouter, Query, HTTPException
 import asyncio
+import logging
 from app.services.kis_service import kis_service
 from app.services.finnhub_service import finnhub_service
 from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
@@ -15,7 +16,9 @@ from app.services.price_fetcher import get_usdkrw, get_eurkrw, fetch_pykrx_index
 from app.core.config import settings
 from app.core.cache import cache
 
-from app.services.ranking_service import CATEGORY_PATTERN
+from app.services.ranking_service import CATEGORY_PATTERN, US_MIN_ROWS
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard", tags=["대시보드"])
 
@@ -257,23 +260,24 @@ async def _get_exchange_rate_async() -> dict:
 
 
 async def _get_us_rankings_cached(category: str) -> list:
+    """미국 순위.
+
+    화면에 다섯 종목만 나오던 자리다. 예전에는 모자랄 때 인기종목 20개만
+    더 받았는데, 그래 봐야 20위까지밖에 안 된다. 전종목(335개)을 받아
+    순위표를 다시 만든다 — 시간이 걸리므로 배경으로 돌리고, 이번 요청은
+    있는 것으로 답한다."""
     # 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, get_us_rankings, category) or []
-    if len(result) < 15:
-        # 블로킹 없이 백그라운드에서 갱신 — cold start 시 즉시 반환
+    if len(result) < US_MIN_ROWS:
+        # 블로킹 없이 백그라운드에서 갱신 — cold start 시 즉시 반환.
+        # 겹침 방지는 refresh_us_rows 안에서 한다
         async def _bg_us_refresh():
             try:
-                from app.services.price_fetcher import fetch_yf_quotes
-                from app.services.scheduler import POPULAR_US
-                data = await asyncio.wait_for(fetch_yf_quotes(POPULAR_US), timeout=10)
-                for sym, q in data.items():
-                    if q.get("price"):
-                        q["symbol"] = sym
-                        cache.set(f"price:{sym}", q, 300)
-                cache.delete(f"rank:us:{category}")
-            except Exception:
-                pass
+                from app.services.ranking_service import refresh_us_rows
+                await refresh_us_rows()
+            except Exception as e:
+                log.warning("미국 순위 배경 갱신 실패: %s", type(e).__name__)
         asyncio.get_running_loop().create_task(_bg_us_refresh())
     return result
 

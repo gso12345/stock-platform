@@ -265,7 +265,10 @@ async def refresh_us_stocks():
                 q = yf_data.get(sym)
                 if q and q.get("price"):
                     q["symbol"] = sym
-                    cache.set(f"price:{sym}", q, 120)
+                    # 이 갱신은 5분마다 도는데 수명이 120초였다. 즉 5분 중
+                    # 3분은 캐시가 비어 있었고, 지난 값 보관함은 400칸뿐이라
+                    # 미국 종목 335개가 금방 밀려났다 — 순위가 비던 원인이다
+                    cache.set(f"price:{sym}", q, 330)
                     ok_yf += 1
         except Exception as e:
             log.debug(f"YF 배치 fetch 실패: {e}")
@@ -664,6 +667,12 @@ async def run_startup_prefetch():
     startup_jobs = []
     if market_hours.us_session() != "closed":
         startup_jobs.append(refresh_us_stocks())
+    else:
+        # 미국장이 닫혀 있어도 순위표는 채운다. 안 그러면 재시작 직후
+        # 한국 낮에 들어온 사람은 다섯 종목짜리 순위를 본다 —
+        # Render 무료 플랜은 재시작이 잦아 드문 일이 아니다.
+        from app.services.ranking_service import refresh_us_rows
+        startup_jobs.append(refresh_us_rows())
     if market_hours.kr_session() != "closed":
         startup_jobs.append(refresh_kr_stocks())
     if startup_jobs:
@@ -749,6 +758,20 @@ async def periodic_refresh():
             if market_hours.us_session() != "closed" and memory.has_headroom("미국 전종목 갱신"):
                 jobs.append(refresh_us_stocks())
             await asyncio.gather(*jobs, return_exceptions=True)
+
+        # 미국 순위표 — 장이 닫혀 있을 때도 채운다.
+        #
+        # 위 갱신은 미국장이 열렸을 때만 돈다. 한국 낮에는 미국장이 닫혀
+        # 있으니 아무것도 안 받고, price 캐시(120초)는 진작 비어서 순위에
+        # 다섯 종목만 남았다. 닫혀 있으면 종가라 값이 안 변하므로 자주
+        # 받을 필요는 없다 — 30분에 한 번이면 충분하다.
+        if counter % 180 == 0 and market_hours.us_session() == "closed":
+            if memory.has_headroom("미국 순위표"):
+                try:
+                    from app.services.ranking_service import refresh_us_rows
+                    await refresh_us_rows()
+                except Exception as e:
+                    log.warning("미국 순위표 갱신 실패: %s", type(e).__name__)
 
         # 국내 종목 목록 (1시간마다 확인 — 실제 갱신은 DB가 묵었을 때만)
         #

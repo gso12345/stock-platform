@@ -322,7 +322,30 @@ def _sort_kr(rows: list[dict], category: str) -> list[dict]:
     return sortable[:100]
 
 
-def _build_us_rows() -> list[dict]:
+# 미국 순위표 자체를 담아 둔다.
+#
+# 화면에 다섯 종목만 나오던 원인이 여기 있었다. _build_us_rows 는 캐시에
+# 이미 있는 종목만 주워 담을 뿐 아무것도 새로 받지 않는다. 그런데
+#   · price:{sym} 수명이 120초이고
+#   · 이를 채우는 refresh_us_stocks 는 미국장이 열렸을 때만 도는데
+#     (한국 낮에는 미국장이 닫혀 있다)
+#   · 지난 값 보관함은 전체 400칸뿐이라 미국 종목 335개가 금방 밀려난다
+# 그래서 한국 낮에 들어오면 주울 것이 거의 없었다.
+#
+# 종목별 시세 대신 '완성된 순위표'를 따로 담는다. 한 번 만들어 두면
+# 장이 닫혀 있는 동안에도 화면이 비지 않는다.
+US_ROWS_CK = "rank:us:rows"
+US_ROWS_TTL = 900        # 15분
+
+#: 이보다 적으면 '제대로 못 만든 표' 로 보고 다시 채운다
+US_MIN_ROWS = 50
+
+#: 전종목 갱신이 겹치지 않게 하는 표시
+_us_rows_refreshing = False
+
+
+def _us_rows_from_cache() -> list[dict]:
+    """지금 캐시에 있는 것만 주워 담는다 (새로 받지 않는다)."""
     from app.services.scheduler import POPULAR_US
     all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))  # 인기종목 우선
     rows = []
@@ -344,6 +367,75 @@ def _build_us_rows() -> list[dict]:
             "_demo":       p.get("_demo", False),
         })
     return rows
+
+
+def _build_us_rows() -> list[dict]:
+    """순위를 만들 표를 돌려준다.
+
+    완성된 표를 캐시에서 먼저 찾고, 없으면 지금 있는 시세로 만든다.
+    만든 표가 쓸 만하면(US_MIN_ROWS 이상) 담아 두고, 모자라면 지난 표라도
+    쓴다 — 다섯 줄짜리 순위를 보여 주느니 15분 지난 순위가 낫다."""
+    if 담긴표 := cache.get(US_ROWS_CK):
+        return 담긴표
+
+    rows = _us_rows_from_cache()
+    if len(rows) >= US_MIN_ROWS:
+        cache.set(US_ROWS_CK, rows, US_ROWS_TTL)
+        return rows
+
+    지난표 = cache.get_stale(US_ROWS_CK)
+    if 지난표 and len(지난표) > len(rows):
+        return 지난표
+    return rows
+
+
+async def refresh_us_rows() -> int:
+    """미국 전종목 시세를 실제로 받아 순위표를 다시 만든다.
+
+    장이 닫혀 있어도 돈다 — 닫혀 있으면 종가가 안 변하므로 오히려 오래
+    담아 둘 수 있다. 예전에는 장이 닫히면 아무것도 안 받아서, 한국 낮에
+    들어온 사람은 순위가 거의 비어 있었다.
+
+    한 번에 100개씩 나눠 받는다. CPU 0.15개짜리 서버라 한꺼번에 던지면
+    그 자체가 지연이 된다."""
+    global _us_rows_refreshing
+    if _us_rows_refreshing:
+        return 0
+    _us_rows_refreshing = True
+    try:
+        from app.services.price_fetcher import fetch_yf_quotes
+        from app.services.scheduler import POPULAR_US
+        from app.services import market_hours
+
+        열림 = market_hours.us_session() != "closed"
+        시세수명 = 300 if 열림 else 1800   # 닫혀 있으면 종가라 오래 둬도 된다
+
+        심볼 = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))
+        받은수 = 0
+        for i in range(0, len(심볼), 100):
+            묶음 = 심볼[i:i + 100]
+            try:
+                받음 = await asyncio.wait_for(fetch_yf_quotes(묶음), timeout=25)
+            except Exception as e:
+                log.debug("미국 시세 묶음 실패: %s", type(e).__name__)
+                continue
+            for sym, q in 받음.items():
+                if q.get("price"):
+                    q["symbol"] = sym
+                    cache.set(f"price:{sym}", q, 시세수명)
+                    받은수 += 1
+            await asyncio.sleep(0.3)
+
+        rows = _us_rows_from_cache()
+        if rows:
+            cache.set(US_ROWS_CK, rows, US_ROWS_TTL)
+            # 카테고리별 순위도 다시 만들게 비운다
+            for c in ("시가총액", "상승률", "하락률", "거래대금", "거래량", "신고가", "신저가"):
+                cache.delete(f"rank:us:{c}")
+        log.info("미국 순위표 %d종목 (시세 %d건 갱신)", len(rows), 받은수)
+        return len(rows)
+    finally:
+        _us_rows_refreshing = False
 
 
 def _sort_us(rows: list[dict], category: str) -> list[dict]:
