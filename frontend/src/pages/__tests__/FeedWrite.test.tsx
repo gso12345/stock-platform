@@ -183,24 +183,41 @@ describe("나가기", () => {
   it("빈 화면에서는 그냥 나간다", async () => {
     const u = userEvent.setup();
     const 물음 = vi.fn(() => true);
-    vi.stubGlobal("confirm", 물음);
     그리기(<FeedWrite />);
     await u.click(screen.getByRole("button", { name: "뒤로" }));
+    /* 쓴 것이 없으면 묻지 않고 바로 나간다 — 빈 화면에서
+       확인창이 뜨면 성가시기만 하다 */
     expect(물음).not.toHaveBeenCalled();
+    expect(screen.queryByText("쓰던 글을 버릴까요?")).toBeNull();
     expect(navigate).toHaveBeenCalledWith("/feed");
-    vi.unstubAllGlobals();
   });
 
-  it("쓰던 글이 있으면 물어보고, 아니라고 하면 안 나간다", async () => {
-    /* 화면을 따로 낸 대가다 — 뒤로 한 번에 다 날아가면 안 쓰느니만 못하다 */
+  it("쓰던 글이 있으면 물어보고, 취소하면 안 나간다", async () => {
+    /* 화면을 따로 낸 대가다 — 뒤로 한 번에 다 날아가면 안 쓰느니만 못하다.
+       브라우저 기본 confirm 을 앱 확인창으로 바꿨다. 이제는 무엇을
+       버리는지(쓰던 글의 앞머리)까지 보여 준다. */
     const u = userEvent.setup();
-    const 물음 = vi.fn(() => false);
-    vi.stubGlobal("confirm", 물음);
     그리기(<FeedWrite />);
     await u.type(screen.getByLabelText(/^내용$/), "한참 쓴 글");
     await u.click(screen.getByRole("button", { name: "뒤로" }));
-    expect(물음).toHaveBeenCalled();
+
+    expect(screen.getByText("쓰던 글을 버릴까요?")).toBeTruthy();
+    /* 무엇을 버리는지 보여 준다 — 브라우저 confirm 으로는 못 하던 일이다.
+       (본문 칸에도 같은 글자가 있으므로 확인창 안에서만 찾는다) */
+    const 확인창 = screen.getByText("쓰던 글을 버릴까요?").closest("div")!.parentElement!;
+    expect(확인창.textContent).toContain("한참 쓴 글");
     expect(navigate).not.toHaveBeenCalledWith("/feed");
-    vi.unstubAllGlobals();
+
+    await u.click(screen.getByRole("button", { name: "취소" }));
+    expect(navigate).not.toHaveBeenCalledWith("/feed");
+  });
+
+  it("쓰던 글이 있어도 나가기를 누르면 나간다", async () => {
+    const u = userEvent.setup();
+    그리기(<FeedWrite />);
+    await u.type(screen.getByLabelText(/^내용$/), "한참 쓴 글");
+    await u.click(screen.getByRole("button", { name: "뒤로" }));
+    await u.click(screen.getByRole("button", { name: "나가기" }));
+    expect(navigate).toHaveBeenCalledWith("/feed");
   });
 });

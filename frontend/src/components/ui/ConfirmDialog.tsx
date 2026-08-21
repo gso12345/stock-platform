@@ -13,8 +13,12 @@
  * window.confirm 을 안 쓴 이유 — 브라우저 기본 창은 앱의 모양과 따로 놀고,
  * 무엇이 지워지는지(대상 이름)를 보여 줄 수 없다. 무엇을 되돌릴 수 없는지
  * 적어 주는 것이 확인 절차의 핵심이다.
+ *
+ * 관리자 폴더에 있던 것을 공용으로 옮겼다. 관리자만 제대로 된 확인 창을
+ * 보고 정작 사용자는 회색 브라우저 창을 보고 있었다 — 글·댓글 삭제처럼
+ * 되돌릴 수 없는 일이 사용자 쪽에 더 많은데도.
  */
-import { Modal } from "@/components/ui";
+import { Modal } from "./index";
 import { AlertTriangle } from "lucide-react";
 
 export default function ConfirmDialog({

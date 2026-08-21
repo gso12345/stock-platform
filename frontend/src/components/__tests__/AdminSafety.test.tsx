@@ -14,7 +14,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import 원본 from "../../pages/Admin.tsx?raw";
 import 시스템원본 from "../admin/SystemTab.tsx?raw";
-import ConfirmDialog from "../admin/ConfirmDialog";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
 const 코드만 = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import { COMMENT_MAX } from "@/constants/community";
+import { use확인, use알림 } from "@/hooks/useDialogs";
 
 // ── 공용 타입 ─────────────────────────────────────────────────────
 export interface ModalPost {
@@ -103,6 +104,8 @@ function Avatar({
 
 // ── 대댓글 아이템 ─────────────────────────────────────────────────
 function ReplyItem({ reply, postId, uid }: { reply: Comment; postId: number; uid?: number }) {
+  const { 묻기, 화면: 확인화면 } = use확인();
+  const { 보이기, 화면: 알림화면 } = use알림();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [liked, setLiked] = useState(reply.liked);
@@ -122,15 +125,20 @@ function ReplyItem({ reply, postId, uid }: { reply: Comment; postId: number; uid
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm("대댓글을 삭제할까요?")) return;
-    try {
-      await communityApi.deleteComment(reply.id);
-      qc.invalidateQueries({ queryKey: ["modal-comments", postId] });
-    } catch {}
-  };
+  const handleDelete = () => 묻기({
+    title: "답글을 삭제할까요?",
+    message: "지운 답글은 되돌릴 수 없습니다.",
+    대상: reply.content?.slice(0, 40),
+    onConfirm: async () => {
+      try {
+        await communityApi.deleteComment(reply.id);
+        qc.invalidateQueries({ queryKey: ["modal-comments", postId] });
+      } catch { 보이기("삭제하지 못했습니다", "error"); }
+    },
+  });
 
   return (
+    <>
     <div className="flex gap-2">
       <Avatar username={reply.username} colorIndex={reply.avatar_color} userId={reply.user_id} isMine={uid != null && reply.user_id === uid} />
       <div className="flex-1 min-w-0">
@@ -163,6 +171,9 @@ function ReplyItem({ reply, postId, uid }: { reply: Comment; postId: number; uid
         </div>
       </div>
     </div>
+    {확인화면}
+    {알림화면}
+    </>
   );
 }
 
@@ -172,6 +183,8 @@ function CommentItem({
 }: {
   comment: Comment; postId: number; uid?: number; isLoggedIn: boolean; onReplyAdded: () => void;
 }) {
+  const { 묻기, 화면: 확인화면 } = use확인();
+  const { 보이기, 화면: 알림화면 } = use알림();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [liked, setLiked] = useState(comment.liked);
@@ -193,13 +206,17 @@ function CommentItem({
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm("댓글을 삭제할까요?")) return;
-    try {
-      await communityApi.deleteComment(comment.id);
-      qc.invalidateQueries({ queryKey: ["modal-comments", postId] });
-    } catch {}
-  };
+  const handleDelete = () => 묻기({
+    title: "댓글을 삭제할까요?",
+    message: "지운 댓글은 되돌릴 수 없습니다. 달린 답글도 함께 사라집니다.",
+    대상: comment.content?.slice(0, 40),
+    onConfirm: async () => {
+      try {
+        await communityApi.deleteComment(comment.id);
+        qc.invalidateQueries({ queryKey: ["modal-comments", postId] });
+      } catch { 보이기("삭제하지 못했습니다", "error"); }
+    },
+  });
 
   const submitReply = async () => {
     const txt = replyText.trim();
@@ -216,6 +233,7 @@ function CommentItem({
   };
 
   return (
+    <>
     <div className="flex gap-2.5">
       <Avatar username={comment.username} colorIndex={comment.avatar_color} userId={comment.user_id} isMine={uid != null && comment.user_id === uid} />
       <div className="flex-1 min-w-0">
@@ -282,6 +300,9 @@ function CommentItem({
         )}
       </div>
     </div>
+    {확인화면}
+    {알림화면}
+    </>
   );
 }
 
@@ -289,6 +310,8 @@ function CommentItem({
 export default function PostDetailModal({
   post: initialPost, onClose, onLikeToggled, onVoteUpdated, onDeleted,
 }: PostDetailModalProps) {
+  const { 묻기, 화면: 확인화면 } = use확인();
+  const { 보이기, 화면: 알림화면 } = use알림();
   const { isLoggedIn, userId, username: myUsername } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -357,14 +380,18 @@ export default function PostDetailModal({
     } catch {}
   };
 
-  const handleDelete = async () => {
-    if (!confirm("게시글을 삭제할까요?")) return;
-    try {
-      await communityApi.deletePost(post.market, post.symbol, post.id);
-      onDeleted?.(post.id);
-      onClose();
-    } catch {}
-  };
+  const handleDelete = () => 묻기({
+    title: "글을 삭제할까요?",
+    message: "지운 글은 되돌릴 수 없습니다. 달린 댓글도 함께 사라집니다.",
+    대상: (post.title || post.body || "(내용 없음)").slice(0, 40),
+    onConfirm: async () => {
+      try {
+        await communityApi.deletePost(post.market, post.symbol, post.id);
+        onDeleted?.(post.id);
+        onClose();
+      } catch { 보이기("삭제하지 못했습니다", "error"); }
+    },
+  });
 
   const submitComment = async () => {
     const txt = commentText.trim();
@@ -395,6 +422,7 @@ export default function PostDetailModal({
   const commentCount = comments?.length ?? post.comment_count;
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
       onClick={onClose}
@@ -621,5 +649,8 @@ export default function PostDetailModal({
         </div>
       </div>
     </div>
+    {확인화면}
+    {알림화면}
+    </>
   );
 }

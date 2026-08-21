@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
 import { Tabs, MarketBadge } from "@/components/ui";
-import ConfirmDialog from "@/components/admin/ConfirmDialog";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import UserItemsPanel, { 항목이름, type 항목종류 } from "@/components/admin/UserItemsPanel";
 import PostLikesModal from "@/components/admin/PostLikesModal";
 import SystemTab from "@/components/admin/SystemTab";

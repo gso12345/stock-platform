@@ -11,6 +11,7 @@ import { useAuthStore } from "@/store/authStore";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import AvatarComponent from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, COMMENT_MAX, POLL_QUESTION_MAX, POLL_OPTION_MAX } from "@/constants/community";
+import { use확인, use알림 } from "@/hooks/useDialogs";
 
 async function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -107,6 +108,8 @@ interface Comment {
 function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
   reply: Comment; postId: number; uid?: number; isLoggedIn: boolean; queryKey: any[];
 }) {
+  const { 묻기, 화면: 확인화면 } = use확인();
+  const { 보이기, 화면: 알림화면 } = use알림();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [liked, setLiked] = useState(reply.liked);
@@ -123,9 +126,10 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
     try {
       await communityApi.reportComment(reply.id, reason);
       setShowReport(false);
-      alert("신고가 접수되었습니다");
+      보이기("신고가 접수되었습니다", "success");
     } catch (e: any) {
-      if (e?.response?.status === 409) alert("이미 신고한 댓글입니다");
+      보이기(e?.response?.status === 409
+        ? "이미 신고한 댓글입니다" : "신고하지 못했습니다", "error");
     } finally { setSubmittingReport(false); }
   };
 
@@ -138,13 +142,17 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
     catch { setLiked(prev); setLikeCount(reply.like_count); }
   };
 
-  const handleDelete = async () => {
-    if (!confirm("대댓글을 삭제할까요?")) return;
-    try {
-      await communityApi.deleteComment(reply.id);
-      qc.invalidateQueries({ queryKey });
-    } catch {}
-  };
+  const handleDelete = () => 묻기({
+    title: "답글을 삭제할까요?",
+    message: "지운 답글은 되돌릴 수 없습니다.",
+    대상: reply.content?.slice(0, 40),
+    onConfirm: async () => {
+      try {
+        await communityApi.deleteComment(reply.id);
+        qc.invalidateQueries({ queryKey });
+      } catch { 보이기("삭제하지 못했습니다", "error"); }
+    },
+  });
 
   const startEdit = () => { setEditText(reply.content); setIsEditing(true); };
 
@@ -165,6 +173,7 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
   };
 
   return (
+    <>
     <div className="flex gap-2">
       <AvatarComponent username={reply.username} colorIndex={reply.avatar_color} avatarUrl={reply.avatar_url}
         userId={reply.user_id} isMine={uid != null && reply.user_id === uid} size="sm" />
@@ -220,12 +229,17 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
         )}
       </div>
     </div>
+    {확인화면}
+    {알림화면}
+    </>
   );
 }
 
 function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }: {
   comment: Comment; postId: number; uid?: number; isLoggedIn: boolean; queryKey: any[]; myUsername?: string | null;
 }) {
+  const { 묻기, 화면: 확인화면 } = use확인();
+  const { 보이기, 화면: 알림화면 } = use알림();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [liked, setLiked] = useState(comment.liked);
@@ -245,9 +259,10 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
     try {
       await communityApi.reportComment(comment.id, reason);
       setShowReport(false);
-      alert("신고가 접수되었습니다");
+      보이기("신고가 접수되었습니다", "success");
     } catch (e: any) {
-      if (e?.response?.status === 409) alert("이미 신고한 댓글입니다");
+      보이기(e?.response?.status === 409
+        ? "이미 신고한 댓글입니다" : "신고하지 못했습니다", "error");
     } finally { setSubmittingReport(false); }
   };
 
@@ -260,13 +275,17 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
     catch { setLiked(prev); setLikeCount(comment.like_count); }
   };
 
-  const handleDelete = async () => {
-    if (!confirm("댓글을 삭제할까요?")) return;
-    try {
-      await communityApi.deleteComment(comment.id);
-      qc.invalidateQueries({ queryKey });
-    } catch {}
-  };
+  const handleDelete = () => 묻기({
+    title: "댓글을 삭제할까요?",
+    message: "지운 댓글은 되돌릴 수 없습니다. 달린 답글도 함께 사라집니다.",
+    대상: comment.content?.slice(0, 40),
+    onConfirm: async () => {
+      try {
+        await communityApi.deleteComment(comment.id);
+        qc.invalidateQueries({ queryKey });
+      } catch { 보이기("삭제하지 못했습니다", "error"); }
+    },
+  });
 
   const startEdit = () => { setEditText(comment.content); setIsEditing(true); };
 
@@ -319,6 +338,7 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
   };
 
   return (
+    <>
     <div className="flex gap-3">
       <AvatarComponent username={comment.username} colorIndex={comment.avatar_color} avatarUrl={comment.avatar_url}
         userId={comment.user_id} isMine={uid != null && comment.user_id === uid} />
@@ -407,10 +427,15 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
         )}
       </div>
     </div>
+    {확인화면}
+    {알림화면}
+    </>
   );
 }
 
 export default function PostDetail() {
+  const { 묻기, 화면: 확인화면 } = use확인();
+  const { 보이기, 화면: 알림화면 } = use알림();
   const { postId } = useParams<{ postId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -516,9 +541,10 @@ export default function PostDetail() {
     try {
       await communityApi.reportPost(activePost.id, reason);
       setShowPostReport(false);
-      alert("신고가 접수되었습니다");
+      보이기("신고가 접수되었습니다", "success");
     } catch (e: any) {
-      if (e?.response?.status === 409) alert("이미 신고한 게시글입니다");
+      보이기(e?.response?.status === 409
+        ? "이미 신고한 게시글입니다" : "신고하지 못했습니다", "error");
     } finally { setSubmittingPostReport(false); }
   };
 
@@ -602,12 +628,19 @@ export default function PostDetail() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!activePost || !confirm("게시글을 삭제할까요?")) return;
-    try {
-      await communityApi.deletePost(activePost.market, activePost.symbol, activePost.id);
-      navigate(-1);
-    } catch {}
+  const handleDelete = () => {
+    if (!activePost) return;
+    묻기({
+      title: "글을 삭제할까요?",
+      message: "지운 글은 되돌릴 수 없습니다. 달린 댓글도 함께 사라집니다.",
+      대상: (activePost.title || activePost.body || "(내용 없음)").slice(0, 40),
+      onConfirm: async () => {
+        try {
+          await communityApi.deletePost(activePost.market, activePost.symbol, activePost.id);
+          navigate(-1);
+        } catch { 보이기("삭제하지 못했습니다", "error"); }
+      },
+    });
   };
 
   const submitComment = async () => {
@@ -657,6 +690,7 @@ export default function PostDetail() {
   const badgeCls = MARKET_BADGE[activePost.market] ?? MARKET_BADGE.KR;
 
   return (
+    <>
     <div className="min-h-screen flex flex-col">
       {/* 상단 헤더 */}
       <div className="sticky top-0 z-20 bg-bg-card/90 backdrop-blur-md border-b border-border">
@@ -1039,5 +1073,8 @@ export default function PostDetail() {
         </div>
       </div>
     </div>
+    {확인화면}
+    {알림화면}
+    </>
   );
 }

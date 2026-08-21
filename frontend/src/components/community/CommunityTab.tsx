@@ -10,7 +10,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import api from "@/api/client";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
-import { 빈화면 } from "@/components/ui";
+import { 빈화면, ConfirmDialog } from "@/components/ui";
 import AvatarComponent from "@/components/community/Avatar";
 import { compressImage } from "@/utils/image";
 import { useMyProfile } from "@/hooks/useMyProfile";
@@ -175,9 +175,8 @@ const PostCard = memo(function PostCard({
               )}
               {post.is_mine && (
                 <button
-                  onClick={() => {
-                    if (confirm("게시글을 삭제할까요?")) onDelete(post.id);
-                  }}
+                  aria-label="글 삭제"
+                  onClick={() => onDelete(post.id)}
                   className="p-1 rounded-lg text-text-dim hover:text-accent-red hover:bg-accent-red/10 transition-all"
                   title="삭제"
                 >
@@ -349,6 +348,8 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  /* 지울 글을 들고 있어야 확인창에 무엇을 지우는지 보여 줄 수 있다 */
+  const [지울글, set지울글] = useState<any>(null);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<"latest" | "likes">("latest");
   const [title, setTitle] = useState("");
@@ -894,7 +895,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
               isLoggedIn={isLoggedIn}
               market={market}
               symbol={symbol}
-              onDelete={(id) => deleteMutation.mutate(id)}
+              onDelete={(id) => set지울글(posts.find((x: any) => x.id === id) ?? null)}
               onLike={(id) => likeMutation.mutate(id)}
               onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
               onOpen={(p) => navigate(`/post/${p.id}`)}
@@ -947,7 +948,19 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
         </div>
       )}
 
-
+      {/* 브라우저 기본 confirm 을 걷어냈다. 앱 모양과 따로 놀고,
+          어느 글을 지우는지 보여 줄 수 없었다 */}
+      {지울글 && (
+        <ConfirmDialog
+          title="글을 삭제할까요?"
+          message="지운 글은 되돌릴 수 없습니다. 달린 댓글도 함께 사라집니다."
+          대상={(지울글.title || 지울글.body || "(내용 없음)").slice(0, 40)}
+          확인글="삭제"
+          진행중={deleteMutation.isPending}
+          onConfirm={() => { deleteMutation.mutate(지울글.id); set지울글(null); }}
+          onClose={() => set지울글(null)}
+        />
+      )}
     </div>
   );
 }

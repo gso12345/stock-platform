@@ -25,10 +25,12 @@ import { compressImage } from "@/utils/image";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
+import { use확인 } from "@/hooks/useDialogs";
 
 type 태그 = { symbol: string; market: string; name?: string };
 
 export default function FeedWrite() {
+  const { 묻기, 화면: 확인화면 } = use확인();
   const { isLoggedIn } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -294,13 +296,20 @@ export default function FeedWrite() {
      다 날리는 것이 글쓰기 화면에서 제일 아픈 실수다 */
   const 나가기 = () => {
     const 쓴것 = title.trim() || body.trim() || image || customTags.length > 0;
-    if (쓴것 && !window.confirm("작성 중인 내용이 사라집니다. 나가시겠습니까?")) return;
-    navigate("/feed");
+    if (!쓴것) { navigate("/feed"); return; }
+    묻기({
+      title: "쓰던 글을 버릴까요?",
+      message: "작성 중인 내용이 사라집니다. 되돌릴 수 없습니다.",
+      대상: (title.trim() || body.trim() || "(첨부만 있음)").slice(0, 40),
+      확인글: "나가기",
+      onConfirm: () => navigate("/feed"),
+    });
   };
 
   const canSubmit = mode === "stock" ? !!(selectedStock && body.trim()) : pfItems.length > 0;
 
   return (
+    <>
     <div className="max-w-2xl mx-auto flex flex-col gap-4">
       {/* 헤더 — 나가기 / 제목 / 등록 */}
       <div className="flex items-center gap-2">
@@ -593,5 +602,7 @@ export default function FeedWrite() {
         </div>
       </div>
     </div>
+    {확인화면}
+    </>
   );
 }

@@ -16,7 +16,7 @@ import { API_BASE } from "@/api/client";
 const PortfolioSnapshot = lazy(() => import("@/components/portfolio/PortfolioSnapshot"));
 import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
-import { Tabs, type TabItem, 빈화면 } from "@/components/ui";
+import { Tabs, type TabItem, 빈화면, ConfirmDialog } from "@/components/ui";
 import PostDetailModal from "@/components/community/PostDetailModal";
 
 type SortType = "latest" | "likes";
@@ -47,6 +47,12 @@ function timeAgo(iso: string) {
   const d = Math.floor(h / 24);
   if (d < 30) return `${d}일 전`;
   return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+}
+
+/** 확인창에 보여 줄 한 줄. 제목이 없으면 본문 앞머리를 쓴다 */
+function 글요약(p: { title?: string; body?: string }): string {
+  const t = (p.title || p.body || "").trim();
+  return t.length > 40 ? t.slice(0, 40) + "…" : (t || "(내용 없음)");
 }
 
 interface PollData {
@@ -151,7 +157,8 @@ const FeedCard = memo(function FeedCard({
               </Link>
               {post.is_mine && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); if (confirm("게시글을 삭제할까요?")) onDelete(post.id); }}
+                  aria-label="글 삭제"
+                  onClick={(e) => { e.stopPropagation(); onDelete(post.id); }}
                   className="p-0.5 rounded text-text-dim hover:text-accent-red transition-colors"
                 >
                   <Trash2 size={11} />
@@ -370,6 +377,8 @@ export default function Feed() {
      피드를 훑다가 댓글만 확인하고 돌아오는 흐름이 대부분인데, 화면을
      갈아타면 스크롤 위치도 필터도 잃는다. */
   const [댓글글, set댓글글] = useState<FeedPost | null>(null);
+  /* 어느 글을 지우는지 보여 주려면 id 만으로는 안 된다 */
+  const [지울글, set지울글] = useState<FeedPost | null>(null);
   const [sort, setSort] = useState<SortType>("latest");
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("ALL");
   const [page, setPage] = useState(1);
@@ -654,7 +663,7 @@ export default function Feed() {
                 onVote={(postId, optionIndex) => voteMutation.mutate({ postId, optionIndex })}
                 onOpen={(p) => navigate(`/post/${p.id}`)}
                 onComments={(p) => set댓글글(p)}
-                onDelete={(id) => { const p = posts.find((x) => x.id === id); if (p) deleteMutation.mutate(p); }}
+                onDelete={(id) => { const p = posts.find((x) => x.id === id); if (p) set지울글(p); }}
               />
             ))}
           </div>
@@ -712,6 +721,21 @@ export default function Feed() {
 
     {/* 댓글 — 아래에서 올라온다. PostDetailModal 이 이미 모바일에서
         아래 붙는 모양이라 그대로 쓴다(댓글 쓰기·좋아요·투표까지 그대로) */}
+    {/* 글 삭제는 되돌릴 수 없다. 예전에는 브라우저 기본 confirm 이라
+        앱 모양과 따로 놀았고, 어느 글을 지우는지 보여 줄 수 없었다 —
+        목록에서 옆줄을 잘못 누르는 것이 가장 흔한 실수다. */}
+    {지울글 && (
+      <ConfirmDialog
+        title="글을 삭제할까요?"
+        message="지운 글은 되돌릴 수 없습니다. 달린 댓글도 함께 사라집니다."
+        대상={지울글.symbol ? `${지울글.symbol} · ${글요약(지울글)}` : 글요약(지울글)}
+        확인글="삭제"
+        진행중={deleteMutation.isPending}
+        onConfirm={() => { deleteMutation.mutate(지울글); set지울글(null); }}
+        onClose={() => set지울글(null)}
+      />
+    )}
+
     {댓글글 && (
       <PostDetailModal
         post={댓글글 as any}
