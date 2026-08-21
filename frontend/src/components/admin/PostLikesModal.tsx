@@ -45,7 +45,7 @@ export default function PostLikesModal({
       </div>
 
       {isLoading ? (
-        <div className="py-12 text-center text-text-muted text-xs">불러오는 중...</div>
+        <div className="py-12 text-center text-text-muted text-xs">불러오는 중</div>
       ) : isError ? (
         <div className="py-12 text-center text-text-muted text-xs">불러오지 못했습니다</div>
       ) : !items.length ? (

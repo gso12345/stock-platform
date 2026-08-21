@@ -41,7 +41,7 @@ export default function UserItemsPanel({ userId, kind }: { userId: number; kind:
   });
 
   if (isLoading) {
-    return <div className="py-8 text-center text-text-muted text-xs">불러오는 중...</div>;
+    return <div className="py-8 text-center text-text-muted text-xs">불러오는 중</div>;
   }
   if (isError) {
     return <div className="py-8 text-center text-text-muted text-xs">불러오지 못했습니다</div>;

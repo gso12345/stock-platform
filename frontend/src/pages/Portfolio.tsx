@@ -809,7 +809,7 @@ export default function Portfolio() {
         <div className="min-w-0 flex items-baseline gap-2">
           <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">내 자산</h1>
           <p className="text-text-muted text-xs truncate">
-            {isLoggedIn && itemsLoading ? "불러오는 중..." : `${displayEnriched.length}개`}
+            {isLoggedIn && itemsLoading ? "불러오는 중" : `${displayEnriched.length}개`}
           </p>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -984,7 +984,7 @@ export default function Portfolio() {
       {/* ── 구성 차트 ── */}
       {((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (
         <Card className="flex items-center justify-center h-[180px] text-text-muted text-sm">
-          가격 불러오는 중...
+          가격 불러오는 중
         </Card>
       )}
       {hasDisplay && (

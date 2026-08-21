@@ -1433,7 +1433,7 @@ function CacheTab({ qc }: { qc: QueryClient }) {
         </div>
         <div className="divide-y divide-border/40 max-h-[480px] overflow-y-auto">
           {isLoading && (
-            <div className="py-8 text-center text-text-muted text-sm">불러오는 중...</div>
+            <div className="py-8 text-center text-text-muted text-sm">불러오는 중</div>
           )}
           {!isLoading && filtered.length === 0 && (
             <div className="py-8 text-center text-text-muted text-sm">캐시 항목 없음</div>
@@ -1885,7 +1885,7 @@ function AdminLogTab() {
 
       <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
         {isLoading ? (
-          <div className="py-16 text-center text-text-muted text-sm">불러오는 중...</div>
+          <div className="py-16 text-center text-text-muted text-sm">불러오는 중</div>
         ) : !items.length ? (
           <div className="py-16 text-center">
             <p className="text-text-muted text-sm">아직 기록이 없습니다</p>

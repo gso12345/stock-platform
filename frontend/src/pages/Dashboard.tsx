@@ -373,6 +373,20 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
               {(data?.rates ?? []).map((r: any, i: number) => (
                 <ExtraCard key={`${r.name}-${i}`} {...r} />
               ))}
+              {/* 선물 — 백엔드가 응답에 담아 보내는데 화면에서 안 쓰고
+                  버리고 있었다. 대시보드를 열 때마다 KIS 선물 API 를
+                  부르고 결과를 버린 셈이다.
+                  값 이름이 price 라 ExtraCard 가 쓰는 value 로 옮긴다. */}
+              {(data?.futures ?? []).map((f: any, i: number) => (
+                <ExtraCard
+                  key={`fut-${f.symbol ?? f.name}-${i}`}
+                  name={f.name}
+                  value={f.price ?? f.value ?? 0}
+                  change={f.change ?? 0}
+                  change_rate={f.change_rate ?? 0}
+                  unit={f.unit ?? "pt"}
+                />
+              ))}
             </>
           )}
         </div>

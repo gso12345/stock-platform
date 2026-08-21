@@ -300,7 +300,7 @@ export default function IndexDetail() {
                   className="w-full py-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border disabled:opacity-50"
                 >
                   {loadingDaily
-                    ? <><div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" /><span>불러오는 중...</span></>
+                    ? <><div className="w-3.5 h-3.5 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" /><span>불러오는 중</span></>
                     : <><ChevronDown size={13} /><span>1개월 더 보기</span></>
                   }
                 </button>

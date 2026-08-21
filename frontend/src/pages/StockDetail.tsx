@@ -1413,7 +1413,7 @@ export default function StockDetail() {
           ) : fetchingChart ? (
             <div className="h-[300px] sm:h-[500px] flex flex-col items-center justify-center gap-3">
               <div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
-              <p className="text-text-muted text-base">차트 로딩 중...</p>
+              <p className="text-text-muted text-base">차트 불러오는 중</p>
             </div>
           ) : (
             <div className="h-[300px] sm:h-[420px] flex flex-col items-center justify-center gap-3">
@@ -2836,7 +2836,7 @@ export default function StockDetail() {
             ) : null}
           </div>
           {!dailyOhlcv?.length ? (
-            <div className="py-12 text-center text-text-muted text-base">{fetchingDaily ? "로딩 중..." : "데이터 없음"}</div>
+            <div className="py-12 text-center text-text-muted text-base">{fetchingDaily ? "불러오는 중" : "데이터 없음"}</div>
           ) : (
             <>
             <div className="overflow-x-auto">
@@ -2896,7 +2896,7 @@ export default function StockDetail() {
                 disabled={fetchingDaily}
                 className="w-full py-3 text-sm font-semibold text-text-muted hover:text-accent-blue hover:bg-bg-elevated transition-all border-t border-border"
               >
-                {fetchingDaily ? "로딩 중..." : `더보기 (+1개월) ▼`}
+                {fetchingDaily ? "불러오는 중" : `더보기 (+1개월) ▼`}
               </button>
             )}
             </>
@@ -2973,7 +2973,7 @@ function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Market }) 
 
   if (isLoading) return (
     <div className="rounded-xl border border-border bg-bg-card p-8 text-center text-text-muted text-base">
-      보유비중 로딩 중...
+      보유비중 불러오는 중
     </div>
   );
 
@@ -3101,7 +3101,7 @@ function DisclosurePanel({ symbol }: { symbol: string }) {
     queryFn: () => api.get(`/stocks/KR/${encodeURIComponent(symbol)}/disclosures`).then(r=>r.data),
     staleTime: 1_800_000,
   });
-  if (isLoading) return <div className="rounded-xl border border-border bg-bg-card p-8 text-center text-text-muted text-base">공시 로딩 중...</div>;
+  if (isLoading) return <div className="rounded-xl border border-border bg-bg-card p-8 text-center text-text-muted text-base">공시 불러오는 중</div>;
   const items = Array.isArray(data) ? data : [];
   return (
     <div className="rounded-xl overflow-hidden border border-border bg-bg-card">

@@ -413,7 +413,7 @@ export default function FeedWrite() {
             <div className="flex flex-col gap-1.5">
               <label className="text-2xs font-semibold text-text-muted">포트폴리오</label>
               {loadingPf ? (
-                <p className="text-xs text-text-dim">포트폴리오 불러오는 중...</p>
+                <p className="text-xs text-text-dim">포트폴리오 불러오는 중</p>
               ) : (portfoliosData as any[]).length === 0 ? (
                 <p className="text-xs text-text-dim">등록된 포트폴리오가 없습니다</p>
               ) : (

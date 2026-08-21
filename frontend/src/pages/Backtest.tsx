@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backtestApi } from "@/api/stocks";
-import { Card, ChangeBadge, LoadingSpinner, formatNumber, Tabs, Button, Badge } from "@/components/ui";
+import { Card, ChangeBadge, LoadingSpinner, formatNumber, Tabs, Button, Badge, 빈화면 } from "@/components/ui";
 import ComingSoon from "@/components/ComingSoon";
 import { ConditionBuilder } from "@/components/backtest/ConditionBuilder";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import type { ConditionGroup, Market } from "@/types";
-import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn } from "lucide-react";
+import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 
 const DEFAULT_ENTRY: ConditionGroup = {
@@ -583,7 +583,12 @@ export default function Backtest() {
                 </Card>
               ) : !strategies?.length ? (
                 <Card className="col-span-2">
-                  <p className="text-center text-text-muted text-sm py-8">저장된 전략이 없습니다</p>
+                  <빈화면
+                    compact
+                    icon={FlaskConical}
+                    title="저장된 전략이 없어요"
+                    hint="조건을 만들고 '전략 저장'을 누르면 여기에 쌓입니다."
+                  />
                 </Card>
               ) : strategies.map((s: any) => (
                 <Card key={s.id} className="flex flex-col gap-3 cursor-pointer" onClick={() => loadStrategy(s)}>

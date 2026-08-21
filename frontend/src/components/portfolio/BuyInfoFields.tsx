@@ -78,7 +78,7 @@ export function BuyInfoFields({
             type="number"
             min="0"
             step="any"
-            placeholder={priceLoading ? "로딩 중..." : "0"}
+            placeholder={priceLoading ? "불러오는 중" : "0"}
             value={avgPrice}
             onChange={(e) => onChange({ avgPrice: e.target.value })}
           />

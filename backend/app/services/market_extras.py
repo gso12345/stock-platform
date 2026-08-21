@@ -96,9 +96,19 @@ async def get_kr_futures() -> list:
         except Exception:
             pass
 
-    # 데모 폴백
+    # 아무 데서도 못 받았으면 빈 목록으로 둔다.
+    #
+    # 예전에는 여기서 만들어 둔 숫자(373.85)를 돌려줬다. _demo 표시가
+    # 붙긴 하지만, 화면에 뜨는 순간 사람은 그 숫자를 본다. 금융 화면에서
+    # 지어낸 값은 없는 것보다 나쁘다 — 없으면 다른 데서 찾아보지만
+    # 있으면 그대로 믿는다. 카드를 안 그리는 편이 옳다.
+    #
+    # (yfinance 폴백은 사실상 비어 있다. _fetch_futures_yf 의 specs 가
+    #  빈 목록이다 — ETF 값을 선물이라고 보여 주는 것이 맞지 않아
+    #  일부러 걷어낸 자리다. 즉 선물은 KIS 키가 있어야 나온다.)
     if not futures:
-        futures = _demo_futures()
+        cache.set(ck, [], 300)      # 없다는 사실도 잠깐 담아 둔다
+        return []
 
     cache.set(ck, futures, 30)
     return futures

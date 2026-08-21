@@ -2,7 +2,7 @@ import { useState, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Newspaper, RefreshCw } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
-import { Card, InlineSpinner, Tabs } from "@/components/ui";
+import { Card, InlineSpinner, Tabs, 빈화면 } from "@/components/ui";
 import { fmtNewsDateTime } from "@/utils/formatters";
 
 type MarketTab = "kr" | "us";
@@ -177,10 +177,11 @@ export default function News() {
             )}
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center py-10 gap-2">
-            <Newspaper size={28} className="text-text-muted/40" />
-            <p className="text-text-muted text-sm">뉴스 데이터가 없습니다</p>
-          </div>
+          <빈화면
+            icon={Newspaper}
+            title="표시할 뉴스가 없어요"
+            hint="언론사에서 기사를 받아오는 중일 수 있습니다. 잠시 후 다시 확인해 주세요."
+          />
         )}
       </Card>
     </div>
