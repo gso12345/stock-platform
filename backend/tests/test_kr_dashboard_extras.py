@@ -101,6 +101,56 @@ class Test원엔_항목:
         assert 항목["name"] == "원/100엔" and 항목["unit"] == "원"
 
 
+class Test원유로:
+    """엔화와 달리 단위를 손댈 것이 없다 — 손대면 그게 버그다."""
+
+    def test_캐시_값을_그대로_쓴다(self, monkeypatch):
+        monkeypatch.setattr(M.yf, "Ticker", lambda *a, **k: pytest.fail("안 받아야 한다"))
+        cache.set("extra:eurkrw", {"value": 1490.25, "change": -3.5,
+                                   "change_rate": -0.23}, 300)
+        항목 = M.get_eurkrw()
+        assert 항목["value"] == pytest.approx(1490.25)
+        assert 항목["change"] == pytest.approx(-3.5)
+        assert 항목["change_rate"] == pytest.approx(-0.23)
+
+    def test_엔화_환산이_유로에_새지_않는다(self, monkeypatch):
+        """엔화용 100배 환산이 유로까지 걸리면 149,025원이 된다.
+        유로는 1000 넘는 값이라 엔화 규칙(100 미만이면 곱하기)에
+        걸리지 않아야 정상이다."""
+        monkeypatch.setattr(M.yf, "Ticker", lambda *a, **k: pytest.fail("안 받아야 한다"))
+        cache.set("extra:eurkrw", {"value": 1490.25, "change": 0, "change_rate": 0}, 300)
+        assert M.get_eurkrw()["value"] < 2000
+
+    def test_유로는_값을_아예_건드리지_않는다(self, monkeypatch):
+        """받은 값을 그대로 쓴다 — 이게 유로의 계약이다.
+
+        실제 유로 환율(약 1490원)로는 엔화 환산을 걸어도 결과가 같아서
+        (100 이상이라 곱하지 않는다) 잘못 걸어 둔 것을 못 잡는다.
+        환산이 붙었는지 자체를 보려면 규칙이 갈리는 값을 넣어야 한다.
+        50원짜리 유로는 현실에 없지만, 여기서 보려는 것은 환율의 크기가
+        아니라 '이 함수가 값을 바꾸는가' 다."""
+        monkeypatch.setattr(M.yf, "Ticker", lambda *a, **k: pytest.fail("안 받아야 한다"))
+        cache.set("extra:eurkrw", {"value": 50.0, "change": 1.0,
+                                   "change_rate": 2.0}, 300)
+        항목 = M.get_eurkrw()
+        assert 항목["value"] == pytest.approx(50.0), "유로에 단위 환산이 걸려 있다"
+        assert 항목["change"] == pytest.approx(1.0)
+
+    def test_이름과_단위(self, monkeypatch):
+        monkeypatch.setattr(M.yf, "Ticker", lambda *a, **k: pytest.fail("안 받아야 한다"))
+        cache.set("extra:eurkrw", {"value": 1490.25, "change": 0, "change_rate": 0}, 300)
+        항목 = M.get_eurkrw()
+        assert 항목["name"] == "원/유로" and 항목["unit"] == "원"
+
+    def test_엔화와_다른_캐시를_본다(self, monkeypatch):
+        """캐시 키를 잘못 쓰면 유로 카드에 엔화 값이 뜬다."""
+        monkeypatch.setattr(M.yf, "Ticker", lambda *a, **k: pytest.fail("안 받아야 한다"))
+        cache.set("extra:eurkrw", {"value": 1490.0, "change": 0, "change_rate": 0}, 300)
+        cache.set("extra:jpykrw", {"value": 9.32, "change": 0, "change_rate": 0}, 300)
+        assert M.get_eurkrw()["value"] == pytest.approx(1490.0)
+        assert M.get_jpykrw_100()["value"] == pytest.approx(932.0)
+
+
 class Test해외탭_엔화도_같이_고쳐졌는가:
     """원/100엔 은 원래 해외 탭에 있던 항목이다.
 
@@ -209,33 +259,39 @@ class Test금리_목록에_섞여도_안전한가:
                 {"name": "국고채 3년", "value": 2.9},
                 {"name": "국고채 10년", "value": 3.1}]
 
-    def test_둘_다_붙는다(self, monkeypatch):
+    def test_셋_다_붙는다(self, monkeypatch):
         cache.delete("extra:kr_rates")
         monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: (self._금리만(), None))
+        monkeypatch.setattr(M, "get_eurkrw", lambda: {"name": "원/유로", "value": 1490.0})
         monkeypatch.setattr(M, "get_jpykrw_100",
                             lambda: {"name": "원/100엔", "value": 932.0})
         monkeypatch.setattr(M, "get_vkospi",
                             lambda: {"name": "VKOSPI", "value": 15.2})
         이름들 = [r["name"] for r in M._do_fetch_kr_rates()]
-        assert "원/100엔" in 이름들 and "VKOSPI" in 이름들
+        for 있어야할것 in ("원/유로", "원/100엔", "VKOSPI"):
+            assert 있어야할것 in 이름들
 
-    def test_엔화가_맨_앞_VKOSPI_가_맨_뒤(self, monkeypatch):
-        """화면은 원/달러를 이 목록보다 먼저 그린다. 엔화가 앞에 와야
-        환율 둘이 붙는다. VKOSPI 는 성격이 달라 맨 뒤다."""
+    def test_환율이_앞_VKOSPI_가_맨_뒤(self, monkeypatch):
+        """화면은 원/달러를 이 목록보다 먼저 그린다. 환율이 앞에 와야
+        달러·유로·엔 셋이 붙는다(해외 탭이 쓰는 차례와 같다).
+        VKOSPI 는 성격이 달라 맨 뒤다."""
         cache.delete("extra:kr_rates")
         monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: (self._금리만(), None))
+        monkeypatch.setattr(M, "get_eurkrw", lambda: {"name": "원/유로", "value": 1490.0})
         monkeypatch.setattr(M, "get_jpykrw_100", lambda: {"name": "원/100엔", "value": 932.0})
         monkeypatch.setattr(M, "get_vkospi", lambda: {"name": "VKOSPI", "value": 15.2})
         이름들 = [r["name"] for r in M._do_fetch_kr_rates()]
-        assert 이름들[0] == "원/100엔"
+        assert 이름들[0] == "원/유로"
+        assert 이름들[1] == "원/100엔"
         assert 이름들[-1] == "VKOSPI"
 
-    @pytest.mark.parametrize("고장난것", ["get_jpykrw_100", "get_vkospi"])
+    @pytest.mark.parametrize("고장난것", ["get_eurkrw", "get_jpykrw_100", "get_vkospi"])
     def test_하나가_터져도_금리는_그대로_나온다(self, monkeypatch, 고장난것):
         """곁들이 하나 때문에 있던 것까지 사라지면
         고친 게 아니라 망가뜨린 것이다."""
         cache.delete("extra:kr_rates")
         monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: (self._금리만(), None))
+        monkeypatch.setattr(M, "get_eurkrw", lambda: {"name": "원/유로", "value": 1490.0})
         monkeypatch.setattr(M, "get_jpykrw_100", lambda: {"name": "원/100엔", "value": 932.0})
         monkeypatch.setattr(M, "get_vkospi", lambda: {"name": "VKOSPI", "value": 15.2})
 
@@ -246,11 +302,12 @@ class Test금리_목록에_섞여도_안전한가:
         이름들 = [r["name"] for r in M._do_fetch_kr_rates()]
         assert "한국 기준금리" in 이름들, "금리가 통째로 사라졌다"
 
-    @pytest.mark.parametrize("없는것", ["get_jpykrw_100", "get_vkospi"])
+    @pytest.mark.parametrize("없는것", ["get_eurkrw", "get_jpykrw_100", "get_vkospi"])
     def test_값이_없으면_빈칸_대신_아예_안_넣는다(self, monkeypatch, 없는것):
         """None 이 목록에 들어가면 화면에서 카드가 깨진다."""
         cache.delete("extra:kr_rates")
         monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: (self._금리만(), None))
+        monkeypatch.setattr(M, "get_eurkrw", lambda: {"name": "원/유로", "value": 1490.0})
         monkeypatch.setattr(M, "get_jpykrw_100", lambda: {"name": "원/100엔", "value": 932.0})
         monkeypatch.setattr(M, "get_vkospi", lambda: {"name": "VKOSPI", "value": 15.2})
         monkeypatch.setattr(M, 없는것, lambda: None)

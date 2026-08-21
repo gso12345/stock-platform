@@ -201,44 +201,79 @@ async def fetch_naver_stocks(codes: list[str]) -> dict[str, dict]:
 
 
 # ── 네이버 모바일 — 한국 지수 ──────────────────────────────
-NAVER_INDEX_CODE = {
-    "KOSPI":    "KOSPI",
-    "KOSDAQ":   "KOSDAQ",
-    "KOSPI200": "KPI200",
-    "KOSDAQ150": "KQ150",
+# 네이버가 지수를 부르는 내부 코드.
+#
+# 코스닥150 이 화면에 0 으로 떠 있었다. 조회 경로는 넷이나 되는데
+# (네이버 → 야후 → pykrx → KIS) 그중 어느 것도 이 지수를 못 가져왔다.
+# 코드가 하나뿐이면 그게 틀렸을 때 그냥 조용히 실패한다 — 그래서
+# 후보를 여러 개 두고 되는 것을 만나면 거기서 멈춘다.
+# (금리·VKOSPI 조회가 이미 쓰는 방식이다)
+NAVER_INDEX_CODES = {
+    "KOSPI":     ["KOSPI"],
+    "KOSDAQ":    ["KOSDAQ"],
+    "KOSPI200":  ["KPI200", "KOSPI200"],
+    "KOSDAQ150": ["KQ150", "KOSDAQ150", "KOSDAQ_150", "KQ150I", "KRX150"],
 }
+# 예전 이름 — 밖에서 쓰는 곳이 생기면 첫 후보를 돌려준다
+NAVER_INDEX_CODE = {k: v[0] for k, v in NAVER_INDEX_CODES.items()}
+
+#: 네이버에서 왜 못 가져왔는지 — 갱신 쪽에서 관리자 화면에 남길 때 쓴다
+_네이버_지수_실패이유: dict[str, str] = {}
 INDEX_DISPLAY = {
     "KOSPI":"코스피","KOSDAQ":"코스닥","KOSPI200":"코스피 200","KOSDAQ150":"코스닥 150",
 }
 
 
 async def fetch_naver_index(name: str) -> dict | None:
-    """네이버 모바일 API로 한국 지수 조회"""
-    code = NAVER_INDEX_CODE.get(name)
-    if not code:
+    """네이버 모바일 API로 한국 지수 조회.
+
+    코드 후보를 차례로 걸어 본다. 되는 것을 만나면 그 코드를 기억해
+    다음부터는 그것만 쓴다 — 매번 네 번씩 두드릴 이유가 없다."""
+    codes = NAVER_INDEX_CODES.get(name)
+    if not codes:
         return None
-    url = f"https://m.stock.naver.com/api/index/{code}/basic"
+
+    # 지난번에 통한 코드가 있으면 그것부터
+    if 기억 := cache.get(f"naver_idx_code:{name}"):
+        codes = [기억] + [c for c in codes if c != 기억]
+
+    마지막이유 = "코드 후보를 다 걸어 봤지만 응답이 없다"
     try:
         async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
-            r = await cl.get(url)
-            if r.status_code != 200:
-                return None
-            d = r.json()
-            curr = _safe(d.get("closePrice") or d.get("currentIndexValue") or d.get("indexValue"))
-            chg  = _safe(d.get("compareToPreviousClosePrice") or d.get("changeValue") or d.get("priceChange"))
-            chgr = _safe(d.get("fluctuationsRatio") or d.get("changeRate") or d.get("rateOfChange"))
-            if curr is None:
-                return None
-            return {
-                "index":       name,
-                "name":        INDEX_DISPLAY.get(name, name),
-                "value":       round(curr, 2),
-                "change":      round(chg or 0, 2),
-                "change_rate": round(chgr or 0, 2),
-            }
+            for code in codes:
+                try:
+                    r = await cl.get(f"https://m.stock.naver.com/api/index/{code}/basic")
+                except Exception as e:
+                    마지막이유 = f"연결 실패 ({type(e).__name__})"
+                    continue
+                if r.status_code != 200:
+                    마지막이유 = f"HTTP {r.status_code} (코드 {code})"
+                    continue
+                try:
+                    d = r.json()
+                except Exception:
+                    마지막이유 = f"JSON 이 아님 (코드 {code})"
+                    continue
+                curr = _safe(d.get("closePrice") or d.get("currentIndexValue") or d.get("indexValue"))
+                if curr is None or curr <= 0:
+                    마지막이유 = f"값이 비어 있음 (코드 {code})"
+                    continue
+                chg  = _safe(d.get("compareToPreviousClosePrice") or d.get("changeValue") or d.get("priceChange"))
+                chgr = _safe(d.get("fluctuationsRatio") or d.get("changeRate") or d.get("rateOfChange"))
+                # 통한 코드를 기억해 둔다 (하루)
+                cache.set(f"naver_idx_code:{name}", code, 86400)
+                return {
+                    "index":       name,
+                    "name":        INDEX_DISPLAY.get(name, name),
+                    "value":       round(curr, 2),
+                    "change":      round(chg or 0, 2),
+                    "change_rate": round(chgr or 0, 2),
+                }
     except Exception as e:
-        log.debug(f"네이버 지수 {name} 실패: {e}")
-        return None
+        마지막이유 = f"{type(e).__name__}"
+    log.debug("네이버 지수 %s 실패: %s", name, 마지막이유)
+    _네이버_지수_실패이유[name] = 마지막이유
+    return None
 
 
 async def fetch_naver_indices() -> dict[str, dict]:

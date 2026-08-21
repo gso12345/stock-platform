@@ -529,31 +529,47 @@ def get_vkospi() -> "dict | None":
     return 항목
 
 
-def get_jpykrw_100() -> "dict | None":
-    """원/100엔.
+def _환율카드(캐시키: str, 이름: str, 야후심볼: str, 환산=None) -> "dict | None":
+    """해외 탭이 이미 받아 둔 환율을 한국 대시보드 카드 모양으로 꺼낸다.
 
-    해외 탭이 이미 5분마다 받아 캐시에 넣어 두므로(extra:jpykrw) 대개
-    새로 받을 일이 없다. 없을 때만 직접 받는다 — 카드 하나 때문에
-    0.15 CPU 서버에 요청을 더 얹을 이유가 없다."""
-    항목 = cache.get("extra:jpykrw") or cache.get_stale("extra:jpykrw")
+    해외 탭이 5분마다 받아 캐시에 넣어 두므로(extra:usdkrw 등) 대개 새로
+    받을 일이 없다. 비었을 때만 직접 받는다 — 카드 하나 때문에 0.15 CPU
+    서버에 요청을 더 얹을 이유가 없다.
+
+    환산은 단위가 다른 통화용이다(엔화는 1엔당으로 오는 것을 100엔당으로).
+    값을 바꾸면 변동폭도 같은 배수로 바뀌어야 한다 — 값만 100배 하고
+    변동폭을 두면 "932원, 어제보다 0.05원" 이라는 말이 안 되는 카드가 된다.
+    등락률은 비율이라 단위와 무관하므로 그대로 둔다."""
+    환산 = 환산 or (lambda v: v)
+    항목 = cache.get(캐시키) or cache.get_stale(캐시키)
     if 항목 and 항목.get("value"):
-        값 = 엔화_100엔당(항목["value"])
+        값 = 환산(항목["value"])
         배수 = (값 / 항목["value"]) if 항목["value"] else 1
-        return {"name": "원/100엔", "unit": "원", "value": round(값, 2),
+        return {"name": 이름, "unit": "원", "value": round(값, 2),
                 "change": round((항목.get("change") or 0) * 배수, 2),
                 "change_rate": round(항목.get("change_rate") or 0, 2)}
     try:
-        c = yf.Ticker("JPYKRW=X").history(period="5d")["Close"].dropna()
+        c = yf.Ticker(야후심볼).history(period="5d")["Close"].dropna()
         if len(c) < 1:
             return None
-        현재 = 엔화_100엔당(float(c.iloc[-1]))
-        전일 = 엔화_100엔당(float(c.iloc[-2])) if len(c) >= 2 else 현재
+        현재 = 환산(float(c.iloc[-1]))
+        전일 = 환산(float(c.iloc[-2])) if len(c) >= 2 else 현재
         변동 = 현재 - 전일
-        return {"name": "원/100엔", "unit": "원", "value": round(현재, 2),
+        return {"name": 이름, "unit": "원", "value": round(현재, 2),
                 "change": round(변동, 2),
                 "change_rate": round(변동 / 전일 * 100 if 전일 else 0, 2)}
     except Exception:
         return None
+
+
+def get_jpykrw_100() -> "dict | None":
+    """원/100엔. 야후는 1엔당으로 주므로 100을 곱한다."""
+    return _환율카드("extra:jpykrw", "원/100엔", "JPYKRW=X", 엔화_100엔당)
+
+
+def get_eurkrw() -> "dict | None":
+    """원/유로. 달러·엔과 달리 단위를 손댈 것이 없다."""
+    return _환율카드("extra:eurkrw", "원/유로", "EURKRW=X")
 
 
 def _do_fetch_kr_rates() -> list:
@@ -616,25 +632,26 @@ def _do_fetch_kr_rates() -> list:
         base = cache.get_stale("extra:kr_base_rate") or \
             {"name": "한국 기준금리", "value": 2.75, "change": 0.0, "change_rate": 0.0, "unit": "%", "is_rate": True, "_static": True}
 
-    # 순서: 원/100엔 → 기준금리 → CD금리 → 국고채 3/5/10년 → VKOSPI
+    # 순서: 원/유로 → 원/100엔 → 기준금리 → CD금리 → 국고채 3/5/10년 → VKOSPI
     #
-    # 엔화를 맨 앞에 두는 이유 — 화면은 원/달러를 이 목록보다 먼저 그린다.
-    # 그래야 환율 둘이 붙어 있고 금리가 그 뒤로 이어진다.
+    # 환율을 맨 앞에 두는 이유 — 화면은 원/달러를 이 목록보다 먼저 그린다.
+    # 그래야 환율 셋이 붙어 있고 금리가 그 뒤로 이어진다.
+    # 달러·유로·엔 순서는 해외 탭이 쓰는 차례와 맞췄다.
     # VKOSPI 는 성격이 달라서(변동성) 맨 뒤에 둔다.
     #
-    # 둘 다 실패해도 금리 목록은 그대로 나와야 한다. 곁들이 하나 때문에
+    # 하나가 실패해도 금리 목록은 그대로 나와야 한다. 곁들이 때문에
     # 있던 것까지 사라지면 고친 게 아니라 망가뜨린 것이다.
-    엔화 = vkospi = None
-    try:
-        엔화 = get_jpykrw_100()
-    except Exception as e:
-        log.debug("원/100엔 실패: %s", type(e).__name__)
-    try:
-        vkospi = get_vkospi()
-    except Exception as e:
-        log.debug("VKOSPI 실패: %s", type(e).__name__)
+    곁들이: dict[str, "dict | None"] = {}
+    for 키, 부르기 in (("유로", get_eurkrw), ("엔화", get_jpykrw_100), ("vkospi", get_vkospi)):
+        try:
+            곁들이[키] = 부르기()
+        except Exception as e:
+            log.debug("%s 실패: %s", 키, type(e).__name__)
+            곁들이[키] = None
 
-    rates = [x for x in ([엔화] + [base, cd_rate] + bonds + [vkospi]) if x]
+    rates = [x for x in ([곁들이["유로"], 곁들이["엔화"]]
+                         + [base, cd_rate] + bonds
+                         + [곁들이["vkospi"]]) if x]
 
     cache.set(ck, rates, 300)
     return rates

@@ -57,11 +57,19 @@ async def refresh_kr_indices():
     naver_data = await fetch_naver_indices()
     ok = 0
     resolved = set()
+    # 지수마다 '어느 원천이 됐는지' 를 들고 간다.
+    #
+    # 코스닥150 이 화면에 0 으로 떠 있었는데, 기록이 "3/4개" 한 줄뿐이라
+    # 어느 지수가 왜 안 되는지 알 수가 없었다. 뉴스 때와 똑같은 상황이다 —
+    # 조회 경로가 넷이나 되니(네이버·야후·pykrx·KIS) 어디까지 갔다가
+    # 무엇 때문에 멈췄는지가 있어야 고칠 수 있다.
+    원천: dict[str, str] = {}
     for name in KR_INDICES:
         if name in naver_data:
             cache.set(f"idx:{name}", naver_data[name], 30)
             ok += 1
             resolved.add(name)
+            원천[name] = "네이버"
 
     # Naver에서 가져오지 못한 지수는 Yahoo Finance async로 보완 (빠름)
     failed = [n for n in KR_INDICES if n not in resolved]
@@ -83,6 +91,7 @@ async def refresh_kr_indices():
                     cache.set(f"idx:{name}", entry, 60)
                     ok += 1
                     resolved.add(name)
+                    원천[name] = "야후"
                     failed.remove(name)
         except Exception:
             pass
@@ -99,6 +108,7 @@ async def refresh_kr_indices():
                 cache.set(f"idx:{name}", result, 60)
                 ok += 1
                 resolved.add(name)
+                원천[name] = "야후(동기)"
         except Exception:
             pass
 
@@ -116,6 +126,7 @@ async def refresh_kr_indices():
                 cache.set(f"idx:{name}", result, 60)
                 ok += 1
                 resolved.add(name)
+                원천[name] = "KRX(pykrx)"
         except Exception:
             pass
 
@@ -134,10 +145,26 @@ async def refresh_kr_indices():
                     cache.set(f"idx:{name}", r, 30)
                     ok += 1
                     resolved.add(name)
+                    원천[name] = "KIS"
             except Exception:
                 pass
+
+    # 지수마다 따로 남긴다. 묶음 한 줄("3/4개")로는 어느 것이 왜 안 되는지
+    # 알 수 없어서 코스닥150 이 0 으로 떠 있는 걸 한참 못 찾았다.
+    from app.services.price_fetcher import _네이버_지수_실패이유
+    for name in KR_INDICES:
+        if name in resolved:
+            health.record_ok(f"지수:{name}", None, 원천.get(name, ""))
+        else:
+            이유 = _네이버_지수_실패이유.get(name) or "원인 미상"
+            health.record_fail(f"지수:{name}", f"네 곳 모두 실패 — 네이버: {이유}")
+
     if ok:
-        health.record_ok("국내 지수", None, f"{ok}/{len(KR_INDICES)}개")
+        안된것 = [n for n in KR_INDICES if n not in resolved]
+        상세 = f"{ok}/{len(KR_INDICES)}개"
+        if 안된것:
+            상세 += f" · 실패 {', '.join(안된것)}"
+        health.record_ok("국내 지수", None, 상세)
     else:
         health.record_fail("국내 지수", "전부 실패")
     log.info(f"국내 지수 {ok}/{len(KR_INDICES)}개 갱신")

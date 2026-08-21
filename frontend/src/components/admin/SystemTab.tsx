@@ -217,7 +217,14 @@ export default function SystemTab() {
   const d = rt.data;
   const 죽은작업 = d.tasks.filter((t) => !t.running && t.name !== "startup-prefetch");
   const 메모리위험 = (d.memory.percent ?? 0) >= 85;
-  const 실패중 = d.health.filter((h) => h.fail > 0 && (h.success_pct ?? 100) < 50 && !h.name.startsWith("뉴스:"));
+  /* '지금 문제인 것' 도 누적치가 아니라 연속 실패로 본다.
+     누적 성공률로만 보면, 며칠 잘 되다가 오늘 망가진 것은 성공률이
+     아직 높아서 안 잡힌다 — 코스닥150 이 0 으로 떠 있는데도 경고가
+     안 뜨던 이유다. streak 이 없으면(서버가 아직 옛 버전) 예전 규칙. */
+  const 실패중 = d.health.filter((h) =>
+    !h.name.startsWith("뉴스:") &&
+    (h.streak != null ? h.streak >= 2
+                      : (h.fail > 0 && (h.success_pct ?? 100) < 50)));
   /* '최근 실패' 는 누적 실패 수(fail)가 아니라 연속 실패(streak)로 본다.
      예전에는 한참 전에 열 번 실패하고 그 뒤로 계속 성공한 곳도 "(10회)" 로
      남아서, 지금 멀쩡한 언론사가 목록에 계속 떠 있었다.
