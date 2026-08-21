@@ -20,6 +20,15 @@
   · 표가 얇으면 전종목을 실제로 받아 다시 만든다(배경).
   · 장이 닫혀 있어도 30분에 한 번, 시작할 때도 한 번 채운다.
     닫혀 있으면 종가라 값이 안 변하므로 오히려 오래 담아 둘 수 있다.
+
+그리고 범위를 넓혔다.
+  처음 고칠 때는 대상이 여전히 코드에 적어 둔 335개(인기 20 + S&P500
+  발췌 315)였다. 그건 'S&P500 안에서의 순위' 이지 미국 시장 순위가
+  아니다 — 러셀 소형주도, 나스닥 중소형도, ETF 도 후보에 없었다.
+
+  목록은 이미 갖고 있었다. us_tickers 가 NASDAQ Trader 심볼 디렉터리를
+  받아 두고(우선주·워런트·유닛은 그쪽에서 걸러진다) 약 8~9천 종목이다.
+  한 번에 다 받을 수는 없으니 나눠 훑고 다음 번에 이어 간다.
 """
 import asyncio
 
@@ -250,3 +259,150 @@ class Test시세_수명이_갱신_주기와_맞는가:
         m = re.search(r'cache\.set\(f"price:\{sym\}", q, (\d+)\)', 본문)
         assert m, "수명을 못 찾음"
         assert int(m.group(1)) >= 300, f"갱신 주기(300초)보다 짧다: {m.group(1)}초"
+
+
+class Test범위가_전종목인가:
+    """335개는 'S&P500 안에서의 순위' 이지 미국 시장 순위가 아니다."""
+
+    def _가짜목록(self, monkeypatch, 개수):
+        import app.services.ticker_service as TS
+        목록 = [{"s": f"T{i:05d}", "n": f"이름{i}", "m": "US"} for i in range(개수)]
+        monkeypatch.setattr(TS, "get_us_db", lambda: 목록)
+        return 목록
+
+    def test_상장_목록_전체를_대상으로_한다(self, monkeypatch):
+        self._가짜목록(monkeypatch, 8000)
+        assert len(R.us_universe()) >= 8000, "여전히 좁은 목록으로 돈다"
+
+    def test_인기종목과_SP500_이_앞에_온다(self, monkeypatch):
+        """한 바퀴를 다 돌기 전에도 시가총액 상위가 제대로 나와야 한다.
+        알파벳 순으로 훑으면 A 로 시작하는 종목만 있는 순위가 한동안 뜬다."""
+        self._가짜목록(monkeypatch, 8000)
+        앞 = R.us_universe()[:335]
+        assert "AAPL" in 앞 and "MSFT" in 앞
+
+    def test_중복이_없다(self, monkeypatch):
+        """S&P500 종목은 상장 목록에도 들어 있다. 두 번 받으면 낭비다."""
+        import app.services.ticker_service as TS
+        monkeypatch.setattr(TS, "get_us_db",
+                            lambda: [{"s": s, "n": s, "m": "US"} for s in
+                                     ["AAPL", "MSFT", "ZZZZ"] + [f"T{i}" for i in range(3000)]])
+        u = R.us_universe()
+        assert len(u) == len(set(u))
+
+    def test_목록이_부실해도_예전만큼은_나온다(self, monkeypatch):
+        """목록을 못 받아 내장 182개로 떨어진 상태다.
+        앞줄(인기+SP500)이 늘 먼저 오므로 예전 335개보다 나쁠 수 없다."""
+        import app.services.ticker_service as TS
+        monkeypatch.setattr(TS, "get_us_db", lambda: [{"s": "AAPL", "n": "애플", "m": "US"}])
+        assert len(R.us_universe()) >= 300
+
+    def test_목록_읽기가_터져도_돈다(self, monkeypatch):
+        import app.services.ticker_service as TS
+        def _터짐():
+            raise RuntimeError("DB 없음")
+        monkeypatch.setattr(TS, "get_us_db", _터짐)
+        assert len(R.us_universe()) >= 300
+
+    def test_ETF_도_후보에_들어간다(self, monkeypatch):
+        import app.services.ticker_service as TS
+        monkeypatch.setattr(TS, "get_us_db", lambda: (
+            [{"s": f"T{i}", "n": f"n{i}", "m": "US"} for i in range(3000)]
+            + [{"s": "SPY", "n": "SPDR S&P 500", "m": "ETF"}]))
+        assert "SPY" in R.us_universe()
+
+
+class Test나눠_훑는가:
+    """8~9천을 한 번에 받으면 몇 분씩 걸리고 그동안 서버가 멈춘다."""
+
+    def _준비(self, monkeypatch, 목록수=5000, 훑는양=400):
+        """훑는 양을 줄여 검사를 빠르게 한다 — 보려는 것은 '나눠 훑는가'
+        이지 1500이라는 숫자가 아니다. 실제 값은 아래에서 따로 본다."""
+        import app.services.ticker_service as TS
+        import app.services.price_fetcher as PF
+        monkeypatch.setattr(R, "US_SWEEP", 훑는양)
+        monkeypatch.setattr(TS, "get_us_db",
+                            lambda: [{"s": f"T{i:05d}", "n": f"n{i}", "m": "US"}
+                                     for i in range(목록수)])
+        받은심볼 = []
+
+        async def _받기(묶음):
+            받은심볼.extend(묶음)
+            return {s: {"price": 10.0, "change": 0, "change_rate": 0,
+                        "volume": 1, "market_cap": 1, "name": s} for s in 묶음}
+        monkeypatch.setattr(PF, "fetch_yf_quotes", _받기)
+        R._us_cursor = 0
+        return 받은심볼
+
+    def test_한_번에_다_받지_않는다(self, monkeypatch):
+        받은 = self._준비(monkeypatch, 5000)
+        asyncio.run(R.refresh_us_rows())
+        assert len(받은) <= R.US_SWEEP, f"{len(받은)}개를 한꺼번에 받았다"
+
+    def test_다음_번에_그_다음부터_이어_받는다(self, monkeypatch):
+        """같은 앞부분만 반복해서 받으면 뒤쪽은 영영 안 채워진다."""
+        받은 = self._준비(monkeypatch, 5000)
+        asyncio.run(R.refresh_us_rows())
+        첫바퀴 = set(받은)
+        받은.clear()
+        asyncio.run(R.refresh_us_rows())
+        assert not (set(받은) & 첫바퀴), "같은 것을 또 받았다"
+
+    def test_몇_번_돌면_한_바퀴가_된다(self, monkeypatch):
+        받은 = self._준비(monkeypatch, 2000, 훑는양=500)
+        전체수 = len(R.us_universe())
+        for _ in range(전체수 // 500 + 2):
+            asyncio.run(R.refresh_us_rows())
+        assert len(set(받은)) >= 전체수, f"한 바퀴를 못 돌았다: {len(set(받은))}/{전체수}"
+
+    def test_목록이_훑는_양보다_작으면_딱_한_바퀴만(self, monkeypatch):
+        """목록을 두 번 이어 붙여 잘라 내므로, 잘못 짜면 같은 종목을
+        두 번 받는다."""
+        받은 = self._준비(monkeypatch, 2500, 훑는양=99999)
+        asyncio.run(R.refresh_us_rows())
+        전체수 = len(R.us_universe())
+        assert len(받은) == 전체수, f"{len(받은)} 받음 / 전체 {전체수}"
+        assert len(set(받은)) == 전체수, "같은 종목을 두 번 받았다"
+
+    def test_끝에_닿아도_한_번에_훑는_양이_줄지_않는다(self, monkeypatch):
+        """목록을 두 번 이어 붙여 잘라 내는 이유다. 안 그러면 끝자락에
+        닿은 회차만 몇 개 받고 끝나 한 바퀴가 그만큼 늦어진다."""
+        받은 = self._준비(monkeypatch, 2000, 훑는양=400)
+        전체수 = len(R.us_universe())
+        R._us_cursor = 전체수 - 50          # 끝에서 50개 남은 자리
+        asyncio.run(R.refresh_us_rows())
+        assert len(받은) == 400, f"끝자락에서 {len(받은)}개만 받았다"
+
+    def test_요청_한_번에_담는_수가_주소_길이를_넘지_않는다(self, monkeypatch):
+        받은 = self._준비(monkeypatch, 5000, 훑는양=400)
+        묶음들 = []
+        import app.services.price_fetcher as PF
+
+        async def _엿보기(묶음):
+            묶음들.append(len(묶음))
+            return {}
+        monkeypatch.setattr(PF, "fetch_yf_quotes", _엿보기)
+        asyncio.run(R.refresh_us_rows())
+        assert 묶음들 and max(묶음들) <= 100
+
+    def test_기본_훑는_양이_한_번에_다_받지_않을_만큼_작다(self):
+        """전종목이 8~9천이다. 이 값이 그만큼 크면 한 번에 다 받는 셈이라
+        몇 분씩 서버를 물고 있게 된다."""
+        assert 200 <= R.US_SWEEP <= 3000
+
+    def test_장이_닫혔으면_한_바퀴_도는_동안_안_만료된다(self, monkeypatch):
+        """전종목 한 바퀴가 몇 시간 걸린다. 수명이 짧으면 앞서 받은 것이
+        뒤쪽을 받는 사이에 만료돼 순위표가 영원히 안 찬다."""
+        self._준비(monkeypatch, 5000, 훑는양=200)
+        from app.services import market_hours
+        monkeypatch.setattr(market_hours, "us_session", lambda: "closed")
+        수명 = {}
+        원래 = cache.set
+
+        def _엿보기(k, v, ttl=None, *a, **kw):
+            if k.startswith("price:"):
+                수명[k] = ttl
+            return 원래(k, v, ttl, *a, **kw)
+        monkeypatch.setattr(cache, "set", _엿보기)
+        asyncio.run(R.refresh_us_rows())
+        assert 수명 and min(수명.values()) >= 6 * 3600

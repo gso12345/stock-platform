@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+import os
 import httpx
 import re
 from app.core.cache import cache
@@ -344,12 +345,47 @@ US_MIN_ROWS = 50
 _us_rows_refreshing = False
 
 
+def us_universe() -> list[str]:
+    """순위를 매길 대상 — 미국에 상장된 모든 종목.
+
+    예전에는 코드에 적어 둔 335개(인기 20 + S&P500 발췌 315)가 전부였다.
+    그러면 'S&P500 안에서의 순위' 이지 미국 시장 순위가 아니다. 러셀
+    소형주도, 나스닥 중소형도, ETF 도 아예 후보에 없었다.
+
+    목록은 이미 갖고 있다. us_tickers 가 NASDAQ Trader 의 심볼 디렉터리를
+    받아 두는데(나스닥 + NYSE·AMEX·ARCA·BATS·IEX), 우선주·워런트·유닛 같은
+    조회 안 되는 것은 그쪽에서 이미 걸러진다. 약 8~9천 종목이다.
+
+    차례가 중요하다. 인기종목과 S&P500 을 앞에 둔다 —
+    전종목을 한 번에 다 받을 수는 없어서 나눠 훑는데(refresh_us_rows),
+    앞에서부터 채워지므로 아직 절반만 받은 상태에서도 시가총액 상위는
+    제대로 나온다. 알파벳 순으로 훑으면 A 로 시작하는 종목만 있는
+    엉뚱한 순위가 한동안 뜬다.
+
+    목록을 못 받았으면(내장 182개로 떨어진 상태) 예전처럼 335개로 돈다 —
+    적은 목록으로 도는 것과 아예 안 나오는 것 중에는 전자가 낫다.
+    """
+    from app.services.scheduler import POPULAR_US
+
+    앞줄 = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))
+    try:
+        from app.services.ticker_service import get_us_db
+        전체 = [t["s"] for t in get_us_db() if t.get("s")]
+    except Exception as e:
+        log.debug("미국 종목 목록을 못 읽음: %s", type(e).__name__)
+        전체 = []
+
+    # 목록을 못 받았어도(내장 182개로 떨어진 상태) 그냥 이어 붙이면 된다.
+    # 앞줄이 늘 먼저 오므로 결과는 '앞줄 + 조금' 이고, 예전 335개보다
+    # 나쁠 수 없다. 따로 막을 것이 없어서 가드를 두지 않는다.
+    본것 = set(앞줄)
+    return 앞줄 + [s for s in 전체 if s not in 본것]
+
+
 def _us_rows_from_cache() -> list[dict]:
     """지금 캐시에 있는 것만 주워 담는다 (새로 받지 않는다)."""
-    from app.services.scheduler import POPULAR_US
-    all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))  # 인기종목 우선
     rows = []
-    for sym in all_syms:
+    for sym in us_universe():
         p = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}")
         if not p:
             continue
@@ -389,31 +425,59 @@ def _build_us_rows() -> list[dict]:
     return rows
 
 
+#: 한 요청에 담는 종목 수. 주소 길이 한계가 있어 늘리기 어렵다
+US_BATCH = 100
+
+#: 한 번 돌 때 훑는 종목 수.
+#
+# 전종목이 8~9천이라 한 번에 다 받으면 몇 분씩 걸리고, 그동안 0.15 CPU 를
+# 통째로 물고 있게 된다. 나눠서 훑고 다음 번에 이어 받는다 — 뉴스 수집이
+# 언론사를 돌아가며 가져오는 것과 같은 방식이다.
+# 1500개면 요청 15번, 대략 30초 안팎이다.
+US_SWEEP = int(os.getenv("US_SWEEP", 1500))
+
+#: 어디까지 훑었는지. 다음 번에 그 다음부터 이어 간다
+_us_cursor = 0
+
+
 async def refresh_us_rows() -> int:
-    """미국 전종목 시세를 실제로 받아 순위표를 다시 만든다.
+    """미국 상장 종목의 시세를 받아 순위표를 다시 만든다.
+
+    범위는 us_universe() — NASDAQ Trader 목록 전부다(약 8~9천). 예전에는
+    코드에 적어 둔 335개뿐이라 'S&P500 안에서의 순위' 였다.
+
+    한 번에 다 받지는 않는다. 8~9천을 한꺼번에 훑으면 몇 분이 걸리고
+    그동안 서버가 다른 일을 못 한다. US_SWEEP 개씩 이어 훑어서 몇 번에
+    걸쳐 한 바퀴를 돈다. 목록 앞쪽이 인기종목·S&P500 이라, 한 바퀴를 다
+    돌기 전에도 시가총액 상위는 제대로 나온다.
 
     장이 닫혀 있어도 돈다 — 닫혀 있으면 종가가 안 변하므로 오히려 오래
     담아 둘 수 있다. 예전에는 장이 닫히면 아무것도 안 받아서, 한국 낮에
-    들어온 사람은 순위가 거의 비어 있었다.
-
-    한 번에 100개씩 나눠 받는다. CPU 0.15개짜리 서버라 한꺼번에 던지면
-    그 자체가 지연이 된다."""
-    global _us_rows_refreshing
+    들어온 사람은 순위가 거의 비어 있었다."""
+    global _us_rows_refreshing, _us_cursor
     if _us_rows_refreshing:
         return 0
     _us_rows_refreshing = True
     try:
         from app.services.price_fetcher import fetch_yf_quotes
-        from app.services.scheduler import POPULAR_US
         from app.services import market_hours
 
         열림 = market_hours.us_session() != "closed"
-        시세수명 = 300 if 열림 else 1800   # 닫혀 있으면 종가라 오래 둬도 된다
+        # 닫혀 있으면 종가라 값이 안 변한다. 길게 담아 둬야 한 바퀴 도는
+        # 동안 앞서 받은 것이 만료되지 않는다
+        시세수명 = 300 if 열림 else 21600   # 6시간
 
-        심볼 = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))
+        전체 = us_universe()
+        if not 전체:
+            return 0
+        시작 = _us_cursor % len(전체)
+        # 목록을 두 번 이어 붙여 놓고 잘라 낸다 — 끝에서 앞으로 넘어간다
+        훑을것 = (전체 + 전체)[시작:시작 + min(US_SWEEP, len(전체))]
+        _us_cursor = (시작 + len(훑을것)) % len(전체)
+
         받은수 = 0
-        for i in range(0, len(심볼), 100):
-            묶음 = 심볼[i:i + 100]
+        for i in range(0, len(훑을것), US_BATCH):
+            묶음 = 훑을것[i:i + US_BATCH]
             try:
                 받음 = await asyncio.wait_for(fetch_yf_quotes(묶음), timeout=25)
             except Exception as e:
@@ -432,7 +496,8 @@ async def refresh_us_rows() -> int:
             # 카테고리별 순위도 다시 만들게 비운다
             for c in ("시가총액", "상승률", "하락률", "거래대금", "거래량", "신고가", "신저가"):
                 cache.delete(f"rank:us:{c}")
-        log.info("미국 순위표 %d종목 (시세 %d건 갱신)", len(rows), 받은수)
+        log.info("미국 순위표 %d종목 / 전체 %d — 이번에 %d건 갱신 (다음 시작 %d)",
+                 len(rows), len(전체), 받은수, _us_cursor)
         return len(rows)
     finally:
         _us_rows_refreshing = False
