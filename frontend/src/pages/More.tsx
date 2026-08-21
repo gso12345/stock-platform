@@ -33,7 +33,7 @@ function 줄({ to, onClick, icon: Icon, label, 설명, badge, 위험 }: {
       <span className="relative shrink-0">
         <Icon size={18} className={위험 ? "text-accent-red" : "text-text-muted"} />
         {badge ? (
-          <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-0.5 flex items-center justify-center rounded-full bg-accent-red text-white text-[9px] font-bold leading-none">
+          <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-0.5 flex items-center justify-center rounded-full bg-accent-red text-white text-2xs font-bold leading-none">
             {badge}
           </span>
         ) : null}

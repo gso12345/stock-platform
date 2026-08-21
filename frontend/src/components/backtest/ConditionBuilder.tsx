@@ -109,13 +109,13 @@ export function ConditionBuilder({ label, color = "blue", group, onChange }: Pro
           <span className="text-sm font-semibold text-text-primary">{label}</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-text-muted">논리:</span>
+          <span className="text-xs text-text-muted">논리:</span>
           <div className="flex gap-0.5 bg-bg-primary border border-border rounded-lg p-0.5">
             {(["AND", "OR"] as const).map((l) => (
               <button
                 key={l}
                 onClick={() => onChange({ ...group, logic: l })}
-                className={`px-2 py-0.5 text-[11px] font-bold rounded-md transition-all ${
+                className={`px-2 py-0.5 text-xs font-bold rounded-md transition-all ${
                   group.logic === l ? "bg-accent-blue text-white" : "text-text-muted"
                 }`}
               >
@@ -191,7 +191,7 @@ export function ConditionBuilder({ label, color = "blue", group, onChange }: Pro
 
       <button
         onClick={addCondition}
-        className="flex items-center gap-1.5 text-xs text-accent-blue hover:text-blue-400 transition-colors py-1"
+        className="flex items-center gap-1.5 text-xs text-accent-blue hover:text-accent-blue transition-colors py-1"
       >
         <Plus size={13} />
         조건 추가

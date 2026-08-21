@@ -31,6 +31,8 @@ const PROVIDERS = [
   {
     id: "google",
     label: "Google로 계속하기",
+    /* 구글 규정상 흰 바탕에 검은 글씨여야 한다. 토큰으로 바꾸면
+       테마에 따라 색이 변해 규정을 어긴다 — 여기만 예외다 */
     className: "bg-white text-gray-800 border border-border hover:bg-gray-50",
     icon: <GoogleIcon />,
   },

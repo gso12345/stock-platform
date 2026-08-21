@@ -104,7 +104,7 @@ export const HoldingCard = memo(function HoldingCard({
               3년 전에 산 사람에게 오늘의 움직임은 같지만 수익률은 다르다.
               whitespace-nowrap 이 없으면 좁은 칸에서 다시 갈라진다 */}
           {hasPrice && item.전일대비율 != null && (
-            <ChangeBadge value={item.전일대비율} className="text-[11px] whitespace-nowrap"
+            <ChangeBadge value={item.전일대비율} className="text-xs whitespace-nowrap"
               금액={item.전일대비액 != null
                 ? (isForexItem && !showAsNative ? item.전일대비액 * exchangeRate : item.전일대비액)
                 : null}
@@ -195,7 +195,7 @@ export const HoldingTableRow = memo(function HoldingTableRow({
             : showAsNative ? fmtUSDFull(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
         </div>
         {item.currency === "USD" && item.inputExchangeRate && (
-          <div className="text-[10px] text-text-dim">@{Math.round(item.inputExchangeRate).toLocaleString()}원</div>
+          <div className="text-2xs text-text-dim">@{Math.round(item.inputExchangeRate).toLocaleString()}원</div>
         )}
       </td>
       <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
@@ -206,7 +206,7 @@ export const HoldingTableRow = memo(function HoldingTableRow({
                 : showAsNative ? fmtUSDFull(item.currentPriceNative) : fmtKRWFull(item.currentPriceNative * exchangeRate)}
             </LivePrice>
             {item.전일대비율 != null && (
-              <ChangeBadge value={item.전일대비율} className="text-[10px] whitespace-nowrap"
+              <ChangeBadge value={item.전일대비율} className="text-2xs whitespace-nowrap"
                 금액={item.전일대비액 != null
                   ? (isForexItem && !showAsNative ? item.전일대비액 * exchangeRate : item.전일대비액)
                   : null}

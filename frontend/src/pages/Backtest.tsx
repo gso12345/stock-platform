@@ -51,9 +51,9 @@ function MetricCard({ label, value, sub, color }: {
 }) {
   return (
     <Card className="flex flex-col gap-1 py-3 text-center">
-      <div className="text-[11px] text-text-muted font-medium uppercase tracking-wide">{label}</div>
+      <div className="text-xs text-text-muted font-medium uppercase tracking-wide">{label}</div>
       <div className={`text-xl font-mono font-bold ${color ?? "text-text-primary"}`}>{value}</div>
-      {sub && <div className="text-[11px] text-text-muted">{sub}</div>}
+      {sub && <div className="text-xs text-text-muted">{sub}</div>}
     </Card>
   );
 }
@@ -166,12 +166,12 @@ export default function Backtest() {
         <div className="xl:col-span-1 flex flex-col gap-3">
           {/* 기본 설정 */}
           <Card className="flex flex-col gap-4">
-            <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">기본 설정</p>
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">기본 설정</p>
 
             {pageTab === "single" && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-text-secondary">시장</label>
+                  <label className="text-xs font-medium text-text-secondary">시장</label>
                   <div className="flex gap-1">
                     {(["US", "KR"] as Market[]).map((m) => (
                       <button
@@ -187,7 +187,7 @@ export default function Backtest() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-text-secondary">종목코드</label>
+                  <label className="text-xs font-medium text-text-secondary">종목코드</label>
                   <input
                     className="bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue uppercase"
                     placeholder={market === "KR" ? "005930.KS" : "AAPL"}
@@ -200,7 +200,7 @@ export default function Backtest() {
 
             {pageTab === "universe" && (
               <div className="flex flex-col gap-2">
-                <label className="text-[11px] font-medium text-text-secondary">유니버스 선택</label>
+                <label className="text-xs font-medium text-text-secondary">유니버스 선택</label>
                 <div className="grid grid-cols-1 gap-1.5">
                   {UNIVERSE_OPTIONS.map((u) => (
                     <button
@@ -222,13 +222,13 @@ export default function Backtest() {
 
             {/* 날짜 프리셋 */}
             <div className="flex flex-col gap-2">
-              <label className="text-[11px] font-medium text-text-secondary">기간 프리셋</label>
+              <label className="text-xs font-medium text-text-secondary">기간 프리셋</label>
               <div className="flex gap-1">
                 {DATE_PRESETS.map((p) => (
                   <button
                     key={p.label}
                     onClick={() => applyDatePreset(p)}
-                    className={`flex-1 py-1 text-[11px] font-semibold rounded-lg border transition-all ${
+                    className={`flex-1 py-1 text-xs font-semibold rounded-lg border transition-all ${
                       activeDatePreset === p.label
                         ? "bg-accent-blue text-white border-accent-blue"
                         : "bg-bg-primary border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary"
@@ -242,7 +242,7 @@ export default function Backtest() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-text-secondary">시작일</label>
+                <label className="text-xs font-medium text-text-secondary">시작일</label>
                 <input
                   type="date"
                   className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
@@ -251,7 +251,7 @@ export default function Backtest() {
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-text-secondary">종료일</label>
+                <label className="text-xs font-medium text-text-secondary">종료일</label>
                 <input
                   type="date"
                   className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
@@ -262,7 +262,7 @@ export default function Backtest() {
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-text-secondary">초기 자본 (원)</label>
+              <label className="text-xs font-medium text-text-secondary">초기 자본 (원)</label>
               <input
                 type="number"
                 className="bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
@@ -273,7 +273,7 @@ export default function Backtest() {
 
             <div className="grid grid-cols-3 gap-2">
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-text-secondary">손절 (%)</label>
+                <label className="text-xs font-medium text-text-secondary">손절 (%)</label>
                 <input
                   type="number"
                   placeholder="없음"
@@ -283,7 +283,7 @@ export default function Backtest() {
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-text-secondary">익절 (%)</label>
+                <label className="text-xs font-medium text-text-secondary">익절 (%)</label>
                 <input
                   type="number"
                   placeholder="없음"
@@ -293,7 +293,7 @@ export default function Backtest() {
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-text-secondary">투자비중 (%)</label>
+                <label className="text-xs font-medium text-text-secondary">투자비중 (%)</label>
                 <input
                   type="number"
                   min={10}
@@ -308,7 +308,7 @@ export default function Backtest() {
             {pageTab === "universe" && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-text-secondary">순위 기준</label>
+                  <label className="text-xs font-medium text-text-secondary">순위 기준</label>
                   <select
                     className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none"
                     value={rankBy}
@@ -318,7 +318,7 @@ export default function Backtest() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-medium text-text-secondary">상위 N개</label>
+                  <label className="text-xs font-medium text-text-secondary">상위 N개</label>
                   <input
                     type="number"
                     min={5}
@@ -334,7 +334,7 @@ export default function Backtest() {
 
           {/* 조건 빌더 */}
           <Card className="flex flex-col gap-5">
-            <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">진입 / 청산 조건</p>
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">진입 / 청산 조건</p>
             <ConditionBuilder label="진입 조건" color="blue" group={entryConditions} onChange={setEntryConditions} />
             <div className="border-t border-border" />
             <ConditionBuilder label="청산 조건" color="red" group={exitConditions} onChange={setExitConditions} />
@@ -369,7 +369,7 @@ export default function Backtest() {
           {/* 전략 저장 */}
           {isLoggedIn && showSave && (
             <Card className="flex flex-col gap-2 p-3">
-              <p className="text-[11px] font-semibold text-text-secondary">전략 저장</p>
+              <p className="text-xs font-semibold text-text-secondary">전략 저장</p>
               <div className="flex gap-1.5">
                 <input
                   className="flex-1 bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
@@ -468,9 +468,9 @@ export default function Backtest() {
                         {result.trades?.map((t: any, i: number) => (
                           <tr key={i} className="border-b border-border/30 hover:bg-bg-hover">
                             <td className="px-4 py-2">
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                t.type === "손절" ? "bg-red-900/40 text-accent-red" :
-                                t.type === "익절" ? "bg-green-900/40 text-accent-green" :
+                              <span className={`px-1.5 py-0.5 rounded text-2xs font-semibold ${
+                                t.type === "손절" ? "bg-accent-red/15 text-accent-red" :
+                                t.type === "익절" ? "bg-accent-green/15 text-accent-green" :
                                 "bg-bg-hover text-text-secondary"
                               }`}>{t.type}</span>
                             </td>
@@ -590,7 +590,7 @@ export default function Backtest() {
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="font-semibold text-text-primary text-sm">{s.name}</p>
-                      <p className="text-[11px] text-text-muted mt-0.5">v{s.version} · {s.market} · {s.created_at?.slice(0, 10)}</p>
+                      <p className="text-xs text-text-muted mt-0.5">v{s.version} · {s.market} · {s.created_at?.slice(0, 10)}</p>
                     </div>
                     <TrendingUp size={15} className="text-text-muted" />
                   </div>
@@ -601,7 +601,7 @@ export default function Backtest() {
                     <Badge>진입 {s.entry_conditions?.conditions?.length ?? 0}조건</Badge>
                     <Badge>청산 {s.exit_conditions?.conditions?.length ?? 0}조건</Badge>
                   </div>
-                  <div className="text-[11px] text-accent-blue">클릭하여 로드</div>
+                  <div className="text-xs text-accent-blue">클릭하여 로드</div>
                 </Card>
               ))}
             </div>

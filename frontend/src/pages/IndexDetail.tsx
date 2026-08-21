@@ -132,7 +132,7 @@ export default function IndexDetail() {
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold font-mono text-text-primary">{info?.display_name ?? indexName}</h1>
             <span className={`text-2xs px-2 py-0.5 rounded border font-semibold ${
-              meta.region==="국내"?"border-blue-700/50 text-blue-400 bg-blue-900/20":"border-green-700/50 text-green-400 bg-green-900/20"
+              meta.region==="국내"?"border-accent-blue/30 text-accent-blue bg-accent-blue/15":"border-accent-green/30 text-accent-green bg-accent-green/15"
             }`}>{meta.region}</span>
           </div>
           {meta.desc && <p className="text-text-muted text-xs mt-0.5">{meta.desc}</p>}

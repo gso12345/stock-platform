@@ -268,7 +268,7 @@ function SettingsPanel({ settings, onChange, onClose }: {
             <div className="flex flex-col gap-1.5">
               <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">이동평균선 (MA)</span>
               <div className="flex items-center justify-end">
-                <button onClick={addMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-blue-400">
+                <button onClick={addMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-accent-blue">
                   <Plus size={11}/>추가
                 </button>
               </div>
@@ -289,7 +289,7 @@ function SettingsPanel({ settings, onChange, onClose }: {
             <div className="flex flex-col gap-1.5">
               <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">지수이동평균 (EMA)</span>
               <div className="flex items-center justify-end">
-                <button onClick={addEMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-blue-400">
+                <button onClick={addEMA} className="flex items-center gap-1 text-2xs text-accent-blue hover:text-accent-blue">
                   <Plus size={11}/>추가
                 </button>
               </div>
@@ -803,7 +803,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
         <div className="absolute top-1.5 left-2 right-2 z-10 flex items-start gap-2 pointer-events-none">
           <div className="flex flex-wrap gap-1 flex-1 overflow-hidden">
             {[...activeOverlay, ...activeSub].map(label => (
-              <span key={label} className="px-1.5 py-0.5 rounded text-[10px] font-semibold
+              <span key={label} className="px-1.5 py-0.5 rounded text-2xs font-semibold
                                            bg-accent-blue/15 text-accent-blue backdrop-blur-sm">
                 {label}
               </span>
@@ -866,7 +866,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       )}
       {s.adx && (
         <div className="relative border-t border-border">
-          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">ADX({s.adxPeriod}) <span className="text-green-400">+DI</span> <span className="text-red-400">−DI</span></span>
+          <span className="absolute top-1 left-2 z-10 text-2xs text-text-muted font-semibold bg-bg-card px-1 rounded">ADX({s.adxPeriod}) <span className="text-accent-green">+DI</span> <span className="text-accent-red">−DI</span></span>
           <div ref={adxRef} className="w-full"/>
         </div>
       )}

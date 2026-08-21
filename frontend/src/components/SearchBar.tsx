@@ -18,9 +18,9 @@ interface SR {
 }
 
 const MARKET_STYLE: Record<string, string> = {
-  KR:  "bg-blue-900/50 text-blue-300 border-blue-700/40",
-  US:  "bg-emerald-900/50 text-emerald-300 border-emerald-700/40",
-  ETF: "bg-violet-900/50 text-violet-300 border-violet-700/40",
+  KR:  "bg-accent-blue/15 text-accent-blue border-accent-blue/30",
+  US:  "bg-accent-green/15 text-accent-green border-accent-green/30",
+  ETF: "bg-accent-purple/15 text-accent-purple border-accent-purple/30",
 };
 
 const POPULAR: SR[] = [
@@ -232,7 +232,7 @@ export default function SearchBar() {
                       onMouseDown={(e) => { e.preventDefault(); goTo(item); }}
                       onMouseEnter={() => setCursor(i)}
                     >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-[10px] font-black border ${MARKET_STYLE[item.market] ?? MARKET_STYLE.US}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-2xs font-black border ${MARKET_STYLE[item.market] ?? MARKET_STYLE.US}`}>
                         {item.market === "ETF" ? "ETF" : item.market}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -299,7 +299,7 @@ export default function SearchBar() {
                       className="flex items-center gap-3 px-3 py-2.5 hover:bg-bg-hover cursor-pointer border-b border-border last:border-0 transition-colors"
                       onMouseDown={(e) => { e.preventDefault(); goTo(item); }}
                     >
-                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-[10px] font-black border ${MARKET_STYLE[item.market] ?? MARKET_STYLE.US}`}>
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-2xs font-black border ${MARKET_STYLE[item.market] ?? MARKET_STYLE.US}`}>
                         {item.market === "ETF" ? "E" : item.market}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -328,7 +328,7 @@ export default function SearchBar() {
                     onMouseDown={(e) => { e.preventDefault(); goTo(item); }}
                     onMouseEnter={() => setCursor(i)}
                   >
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-[10px] font-black border ${MARKET_STYLE[item.market] ?? MARKET_STYLE.US}`}>
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-2xs font-black border ${MARKET_STYLE[item.market] ?? MARKET_STYLE.US}`}>
                       {item.market === "ETF" ? "E" : item.market}
                     </div>
                     <div className="flex-1 min-w-0">

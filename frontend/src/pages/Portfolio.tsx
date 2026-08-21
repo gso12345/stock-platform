@@ -788,7 +788,7 @@ export default function Portfolio() {
             <p className="text-xs text-text-muted mt-0.5">아래는 예시 데이터입니다. 로그인하면 내 종목을 직접 추가·관리할 수 있어요.</p>
           </div>
           <Link to="/login"
-            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue transition-colors"
           >
             <LogIn size={12} /> 로그인
           </Link>
@@ -883,7 +883,7 @@ export default function Portfolio() {
           <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-border/50">
             {["매입금액", "적용 환율"].map((label) => (
               <div key={label} className="flex flex-col gap-1">
-                <span className="text-[10px] text-text-dim">{label}</span>
+                <span className="text-2xs text-text-dim">{label}</span>
                 <div className="h-3.5 w-20 rounded bg-bg-elevated animate-pulse" />
               </div>
             ))}
@@ -912,15 +912,15 @@ export default function Portfolio() {
               </div>
               <span className={`text-lg font-mono font-bold ${c.color}`}>{c.value}</span>
               {c.label.endsWith("평가금액") && (
-                <span className="text-[10px] text-text-dim">환율 {Math.round(exchangeRate).toLocaleString("ko-KR")}원</span>
+                <span className="text-2xs text-text-dim">환율 {Math.round(exchangeRate).toLocaleString("ko-KR")}원</span>
               )}
               {c.label === "평가손익" && (
-                <span className={`text-[10px] font-mono ${pnlColor(displaySummary.totalDailyChangeKRW)}`}>
+                <span className={`text-2xs font-mono ${pnlColor(displaySummary.totalDailyChangeKRW)}`}>
                   오늘 {fmtKRWFullSign(displaySummary.totalDailyChangeKRW)}
                 </span>
               )}
               {c.label === "수익률" && (
-                <span className={`text-[10px] font-mono ${pnlColor(displaySummary.totalDailyChangeRate)}`}>
+                <span className={`text-2xs font-mono ${pnlColor(displaySummary.totalDailyChangeRate)}`}>
                   오늘 {displaySummary.totalDailyChangeRate >= 0 ? "+" : ""}{displaySummary.totalDailyChangeRate.toFixed(2)}%
                 </span>
               )}
@@ -943,7 +943,7 @@ export default function Portfolio() {
           {/* 지금 얼마인가 */}
           <div className="flex flex-col gap-1 px-4 pt-4 pb-3.5">
             <span className="text-2xs text-text-muted">{요약범위} 평가금액</span>
-            <span className="text-[28px] leading-none font-mono font-bold text-text-primary num">
+            <span className="text-3xl leading-none font-mono font-bold text-text-primary num">
               {fmtKRWFull(displaySummary.totalValue)}
             </span>
           </div>
@@ -970,7 +970,7 @@ export default function Portfolio() {
               { label: "적용 환율", value: `${Math.round(exchangeRate).toLocaleString("ko-KR")}원`, icon: Landmark },
             ].map((c) => (
               <div key={c.label} className="flex flex-col gap-0.5 min-w-0">
-                <span className="text-[10px] text-text-dim flex items-center gap-1">
+                <span className="text-2xs text-text-dim flex items-center gap-1">
                   <c.icon size={10} />{c.label}
                 </span>
                 <span className="text-sm font-mono font-semibold text-text-secondary num truncate">{c.value}</span>
@@ -1125,7 +1125,7 @@ export default function Portfolio() {
                   </button>
                   <button
                     onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors whitespace-nowrap flex-shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue transition-colors whitespace-nowrap flex-shrink-0"
                   >
                     <Plus size={13} /> 추가
                   </button>
@@ -1182,7 +1182,7 @@ export default function Portfolio() {
                 </button>
                 <button
                   onClick={() => { setEditItem(undefined); setModalOpen(true); }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-accent-blue transition-colors"
                 >
                   <Plus size={14} /> 첫 종목 추가
                 </button>

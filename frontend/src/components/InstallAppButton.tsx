@@ -32,7 +32,7 @@ function IOSInstallGuide({ onClose }: { onClose: () => void }) {
         <div className="px-5 pb-5">
           <button
             onClick={onClose}
-            className="w-full py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors"
+            className="w-full py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-accent-blue transition-colors"
           >
             확인
           </button>

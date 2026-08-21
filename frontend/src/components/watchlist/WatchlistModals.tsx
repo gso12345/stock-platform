@@ -161,7 +161,7 @@ export function EditItemModal({ item, folders, onClose, onSave }: {
           >취소</button>
           <button
             onClick={() => { onSave({ name, memo, folder_id: folderId }); onClose(); }}
-            className="flex-1 py-2 rounded-xl bg-accent-blue text-white text-sm font-semibold hover:bg-blue-600 transition-colors"
+            className="flex-1 py-2 rounded-xl bg-accent-blue text-white text-sm font-semibold hover:bg-accent-blue transition-colors"
           >저장</button>
         </div>
       </div>
@@ -213,7 +213,7 @@ export function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
           >취소</button>
           <button
             onClick={() => { onConfirm(); onClose(); }}
-            className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors"
+            className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-accent-red transition-colors"
           >삭제</button>
         </div>
       </div>
@@ -354,7 +354,7 @@ export function AddToPortfolioModal({
       </div>
 
       {saveError && (
-        <p className="mx-5 mb-2 text-xs text-red-400 bg-red-900/20 rounded-lg px-3 py-2">
+        <p className="mx-5 mb-2 text-xs text-accent-red bg-accent-red/15 rounded-lg px-3 py-2">
           오류: {saveError}
         </p>
       )}
@@ -365,7 +365,7 @@ export function AddToPortfolioModal({
           취소
         </button>
         <button onClick={handleSave} disabled={!canSave || saving}
-          className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-accent-blue transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
           {saving ? "추가 중..." : "추가"}
         </button>
       </div>

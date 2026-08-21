@@ -43,8 +43,8 @@ export function BuyInfoFields({
                 className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
                   currency === c
                     ? c === "USD"
-                      ? "bg-green-900/40 border-green-700/60 text-green-400"
-                      : "bg-blue-900/40 border-blue-700/60 text-blue-400"
+                      ? "bg-accent-green/15 border-accent-green/30 text-accent-green"
+                      : "bg-accent-blue/15 border-accent-blue/30 text-accent-blue"
                     : "border-border text-text-muted hover:text-text-primary"
                 }`}
               >

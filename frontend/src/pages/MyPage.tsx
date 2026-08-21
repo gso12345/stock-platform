@@ -9,12 +9,12 @@ import { Save, Palette, Globe, Lock, FileText, Camera, X } from "lucide-react";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 
 const AVATAR_COLORS_DISPLAY = [
-  { label: "파랑", dot: "bg-blue-500",    ring: "bg-blue-500/20 text-blue-400 border-blue-500/30"    },
-  { label: "보라", dot: "bg-purple-500",  ring: "bg-purple-500/20 text-purple-400 border-purple-500/30"  },
-  { label: "초록", dot: "bg-emerald-500", ring: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
-  { label: "황금", dot: "bg-amber-500",   ring: "bg-amber-500/20 text-amber-400 border-amber-500/30"   },
-  { label: "빨강", dot: "bg-rose-500",    ring: "bg-rose-500/20 text-rose-400 border-rose-500/30"    },
-  { label: "하늘", dot: "bg-cyan-500",    ring: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"    },
+  { label: "파랑", dot: "bg-accent-blue",    ring: "bg-accent-blue/20 text-accent-blue border-accent-blue/30"    },
+  { label: "보라", dot: "bg-accent-purple",  ring: "bg-accent-purple/20 text-accent-purple border-accent-purple/30"  },
+  { label: "초록", dot: "bg-accent-green", ring: "bg-accent-green/20 text-accent-green border-accent-green/30" },
+  { label: "황금", dot: "bg-accent-yellow",   ring: "bg-accent-yellow/20 text-accent-yellow border-accent-yellow/30"   },
+  { label: "빨강", dot: "bg-accent-red",    ring: "bg-accent-red/20 text-accent-red border-accent-red/30"    },
+  { label: "하늘", dot: "bg-accent-cyan",    ring: "bg-accent-cyan/20 text-accent-cyan border-accent-cyan/30"    },
 ];
 
 function timeAgo(iso: string) {
@@ -486,7 +486,7 @@ export default function MyPage() {
                       className={`text-2xs font-bold px-1.5 py-0.5 rounded shrink-0 h-fit mt-0.5 ${
                         item.type === "post"
                           ? "bg-accent-blue/15 text-accent-blue"
-                          : "bg-purple-500/15 text-purple-400"
+                          : "bg-accent-purple/15 text-accent-purple"
                       }`}
                     >
                       {item.type === "post" ? "게시글" : "댓글"}

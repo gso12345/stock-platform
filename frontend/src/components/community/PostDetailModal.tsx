@@ -60,14 +60,14 @@ export interface PostDetailModalProps {
 
 // ── 유틸 ──────────────────────────────────────────────────────────
 const AVATAR_COLORS = [
-  "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  "bg-rose-500/20 text-rose-400 border-rose-500/30",
-  "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-  "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
-  "bg-orange-500/20 text-orange-400 border-orange-500/30",
+  "bg-accent-blue/20 text-accent-blue border-accent-blue/30",
+  "bg-accent-purple/20 text-accent-purple border-accent-purple/30",
+  "bg-accent-green/20 text-accent-green border-accent-green/30",
+  "bg-accent-yellow/20 text-accent-yellow border-accent-yellow/30",
+  "bg-accent-red/20 text-accent-red border-accent-red/30",
+  "bg-accent-cyan/20 text-accent-cyan border-accent-cyan/30",
+  "bg-accent-purple/20 text-accent-purple border-accent-purple/30",
+  "bg-accent-orange/20 text-accent-orange border-accent-orange/30",
 ];
 
 function timeAgo(iso: string) {
@@ -460,9 +460,9 @@ export default function PostDetailModal({
             {!(post.portfolio && post.portfolio.length > 0) && (
               <>
                 <span className={`text-2xs font-bold px-2 py-0.5 rounded border ${
-                  post.market === "KR" ? "bg-blue-500/15 text-blue-400 border-blue-500/20" :
-                  post.market === "US" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" :
-                  "bg-purple-500/15 text-purple-400 border-purple-500/20"
+                  post.market === "KR" ? "bg-accent-blue/15 text-accent-blue border-accent-blue/20" :
+                  post.market === "US" ? "bg-accent-green/15 text-accent-green border-accent-green/20" :
+                  "bg-accent-purple/15 text-accent-purple border-accent-purple/20"
                 }`}>{post.market}</span>
                 <Link
                   to={`/stocks/${post.market}/${post.symbol}`}

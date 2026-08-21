@@ -47,7 +47,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   }`}
                 >
                   <opt.icon size={16} className="text-text-primary" />
-                  <span className="text-[10px] text-text-muted">{opt.label}</span>
+                  <span className="text-2xs text-text-muted">{opt.label}</span>
                 </button>
               ))}
             </div>
@@ -74,12 +74,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                     화면모양 === opt.value ? "bg-accent-blue" : "bg-bg-elevated border border-border"}`} />
                   <span className="flex flex-col min-w-0">
                     <span className="text-xs font-semibold text-text-primary">{opt.label}</span>
-                    <span className="text-[10px] text-text-muted break-keep">{opt.desc}</span>
+                    <span className="text-2xs text-text-muted break-keep">{opt.desc}</span>
                   </span>
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-text-dim mt-1.5 break-keep">
+            <p className="text-2xs text-text-dim mt-1.5 break-keep">
               내 자산과 종목상세에 적용됩니다.
             </p>
           </div>
@@ -106,7 +106,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                     <span className={`text-xs font-bold px-2 py-0.5 rounded ${opt.value === "green-red" ? "text-accent-red bg-accent-red/10" : "text-accent-blue bg-accent-blue/10"}`}>▼</span>
                   </div>
                   <span className="text-xs font-semibold text-text-primary">{opt.label}</span>
-                  <span className="text-[10px] text-text-muted text-center leading-tight">{opt.desc}</span>
+                  <span className="text-2xs text-text-muted text-center leading-tight">{opt.desc}</span>
                 </button>
               ))}
             </div>
@@ -131,7 +131,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   }`}
                 >
                   <span className={`font-bold text-text-primary ${opt.size}`}>Aa</span>
-                  <span className="text-[10px] text-text-muted">{opt.label}</span>
+                  <span className="text-2xs text-text-muted">{opt.label}</span>
                 </button>
               ))}
             </div>
@@ -171,7 +171,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   }`}
                 >
                   <opt.icon size={16} className="text-text-primary" />
-                  <span className="text-[10px] text-text-muted">{opt.label}</span>
+                  <span className="text-2xs text-text-muted">{opt.label}</span>
                 </button>
               ))}
             </div>
@@ -192,7 +192,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
         <div className="px-5 pb-5 pt-4 border-t border-border shrink-0">
           <button
             onClick={onClose}
-            className="w-full py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors"
+            className="w-full py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-accent-blue transition-colors"
           >
             확인
           </button>

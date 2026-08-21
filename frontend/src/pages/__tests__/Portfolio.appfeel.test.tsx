@@ -116,7 +116,10 @@ describe("내 자산 첫 화면", () => {
     await screen.findByText("종목별", {}, { timeout: 4000 });
     const 라벨 = screen.getByText(/평가금액$/);
     const 값 = 라벨.parentElement!.querySelector("span:last-child");
-    expect(값?.className).toMatch(/text-\[28px\]|text-\[26px\]/);
+    /* text-[28px] 이었다. px 는 설정의 글씨 크기가 안 먹어서 토큰으로
+       바꿨다 — text-3xl 이 정확히 28px 이고, 이 앱에서 가장 큰 크기다.
+       (크기 이름이 바뀌었을 뿐 보이는 크기는 그대로다) */
+    expect(값?.className).toMatch(/\btext-3xl\b/);
   });
 
   it("제목과 버튼이 한 줄에 있다", async () => {

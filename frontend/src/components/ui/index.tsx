@@ -142,10 +142,10 @@ export function Modal({ children, maxWidth = "max-w-md", align = "center", padTo
    내 자산은 이 컴포넌트를, 관심종목은 Badge + 별도 색상표를 쓰던 것을 하나로 합쳤다. */
 export function MarketBadge({ market }: { market: string }) {
   const cls =
-    market === "KR"  ? "border-blue-700/50 text-blue-400 bg-blue-900/20" :
-    market === "ETF" ? "border-purple-700/50 text-purple-400 bg-purple-900/20" :
-                       "border-green-700/50 text-green-400 bg-green-900/20";
-  return <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${cls}`}>{market}</span>;
+    market === "KR"  ? "border-accent-blue/30 text-accent-blue bg-accent-blue/15" :
+    market === "ETF" ? "border-accent-purple/30 text-accent-purple bg-accent-purple/15" :
+                       "border-accent-green/30 text-accent-green bg-accent-green/15";
+  return <span className={`text-2xs px-1.5 py-0.5 rounded border font-bold ${cls}`}>{market}</span>;
 }
 
 /* ── 배지 ──────────────────────────────────────────────── */
@@ -155,11 +155,11 @@ export function Badge({ children, variant = "default" }: {
 }) {
   const v: Record<string, string> = {
     default: "bg-bg-elevated border-border text-text-muted",
-    blue:    "bg-blue-900/30 border-blue-700/40 text-blue-400",
-    green:   "bg-green-900/30 border-green-700/40 text-accent-green",
-    red:     "bg-red-900/30 border-red-700/40 text-accent-red",
-    yellow:  "bg-yellow-900/30 border-yellow-700/40 text-accent-yellow",
-    purple:  "bg-purple-900/30 border-purple-700/40 text-purple-400",
+    blue:    "bg-accent-blue/15 border-accent-blue/30 text-accent-blue",
+    green:   "bg-accent-green/15 border-accent-green/30 text-accent-green",
+    red:     "bg-accent-red/15 border-accent-red/30 text-accent-red",
+    yellow:  "bg-accent-yellow/15 border-accent-yellow/30 text-accent-yellow",
+    purple:  "bg-accent-purple/15 border-accent-purple/30 text-accent-purple",
   };
   return <span className={cn("text-2xs px-1.5 py-0.5 rounded border font-semibold", v[variant])}>{children}</span>;
 }
@@ -227,7 +227,11 @@ export function Tabs({
               "flex items-center justify-center gap-1.5 font-semibold transition-all whitespace-nowrap",
               subtle || size === "xs" ? "px-2.5 py-1" : "px-4 py-1.5",
               subtle ? "rounded-md" : "rounded-lg",
-              size === "md" ? "text-sm" : size === "xs" ? "text-[11px]" : "text-xs",
+              /* 세 크기가 서로 달라야 한다. px 를 토큰으로 바꾸면서
+                 xs(11px)와 sm 이 같은 text-xs 가 되어 버렸다 —
+                 xs 는 자산유형 필터 7개용이라 sm 과 같아지면 탭 줄이
+                 넓어져 모바일에서 가로 스크롤이 길어진다 */
+              size === "md" ? "text-sm" : size === "xs" ? "text-2xs" : "text-xs",
               fill && "flex-1",
               on ? (subtle ? "bg-bg-card text-text-primary shadow-sm" : "bg-accent-blue text-white shadow")
                  : "text-text-muted hover:text-text-primary",
@@ -235,7 +239,7 @@ export function Tabs({
           >
             {Icon && <Icon size={11} className="flex-shrink-0" />}
             {t.label}
-            {t.count != null && <span className="text-[10px] opacity-70">{t.count}</span>}
+            {t.count != null && <span className="text-2xs opacity-70">{t.count}</span>}
           </button>
         );
       })}
@@ -269,7 +273,7 @@ export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel }: 
           >
             {Icon && <Icon size={13} className="flex-shrink-0" />}
             {t.label}
-            {t.count != null && <span className="text-[10px] opacity-70">{t.count}</span>}
+            {t.count != null && <span className="text-2xs opacity-70">{t.count}</span>}
           </button>
         );
       })}
@@ -284,10 +288,10 @@ export function Button({ children, variant = "primary", size = "md", className, 
   size?: "sm" | "md" | "lg";
 } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const vMap = {
-    primary:   "bg-accent-blue hover:bg-blue-600 text-white",
+    primary:   "bg-accent-blue hover:bg-accent-blue text-white",
     secondary: "bg-bg-elevated border border-border text-text-primary hover:border-accent-blue",
     ghost:     "text-text-muted hover:text-text-primary hover:bg-bg-elevated",
-    danger:    "bg-red-600/20 border border-red-700/50 text-accent-red hover:bg-red-600/30",
+    danger:    "bg-accent-red/20 border border-accent-red/30 text-accent-red hover:bg-accent-red/30",
   };
   const sMap = { sm: "px-3 py-1 text-xs", md: "px-4 py-2 text-sm", lg: "px-6 py-2.5 text-sm" };
   return (
@@ -394,7 +398,7 @@ export function 용어힌트({ 이름, className, 글자숨김 }: {
           aria-expanded={열림}
           aria-label={`${이름} 설명`}
           className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-current
-                     text-[9px] leading-none font-bold opacity-50 hover:opacity-100 focus:opacity-100
+                     text-2xs leading-none font-bold opacity-50 hover:opacity-100 focus:opacity-100
                      focus:outline-none focus:ring-1 focus:ring-accent-blue transition-opacity"
         >
           ?

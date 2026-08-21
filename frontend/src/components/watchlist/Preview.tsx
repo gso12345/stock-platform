@@ -55,7 +55,7 @@ export const PreviewItemRow = memo(function PreviewItemRow({ item, onNavigate }:
         <div className="font-mono font-bold text-sm text-text-primary">
           {normalizeSymbol(item.symbol)}
         </div>
-        <div className="text-[11px] text-text-muted truncate">{item.name}</div>
+        <div className="text-xs text-text-muted truncate">{item.name}</div>
       </div>
       {/* 가격 */}
       <div className="text-right flex-shrink-0 min-w-[80px]">

@@ -390,7 +390,7 @@ export default function Quant() {
               <div key={`${marketTab}-${folderTab}`} className="overflow-x-auto tab-fade">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-bg-secondary border-b border-border z-10">
-                    <tr className="text-text-muted text-[11px]">
+                    <tr className="text-text-muted text-xs">
                       <th className="text-left px-3 py-3 sticky left-0 bg-bg-secondary z-20">종목</th>
                       <th className="text-right px-3 py-3 whitespace-nowrap">현재가</th>
                       <th className="text-right px-3 py-3"
@@ -416,7 +416,7 @@ export default function Quant() {
                           </button>
                           {showGradeHelp && (
                             <div className="absolute left-0 top-6 z-50 w-48 rounded-xl border border-border bg-bg-elevated shadow-lg p-3 flex flex-col gap-1.5 text-left">
-                              <span className="text-[11px] font-semibold text-text-secondary pb-1">등급 기준</span>
+                              <span className="text-xs font-semibold text-text-secondary pb-1">등급 기준</span>
                               {GRADE_BANDS.map((b) => (
                                 <div key={b.grade} className="flex items-center justify-between text-xs">
                                   <span className={`font-bold ${gradeColor(b.grade)}`}>{b.grade}</span>
@@ -468,7 +468,7 @@ export default function Quant() {
                                   {row.market}
                                 </Badge>
                               </div>
-                              <span className="text-text-muted text-[11px] font-mono">{row.symbol}</span>
+                              <span className="text-text-muted text-xs font-mono">{row.symbol}</span>
                             </div>
                           </td>
                           <td className="px-3 py-2.5 text-right whitespace-nowrap">
@@ -481,7 +481,7 @@ export default function Quant() {
                                     {row.market === "KR" ? fmtKRWFull(Number(pr.price)) : fmtUSDFull(Number(pr.price))}
                                   </span>
                                   {pr.change_rate != null && (
-                                    <ChangeBadge value={Number(pr.change_rate)} className="text-[10px]"
+                                    <ChangeBadge value={Number(pr.change_rate)} className="text-2xs"
                                       금액={pr.change != null ? Number(pr.change) : null}
                                       통화={row.market === "KR" ? "KRW" : "USD"} />
                                   )}
@@ -511,7 +511,7 @@ export default function Quant() {
               </div>
             )}
             {isFetching && !scoreLoading && (
-              <div className="px-3 py-2 text-[11px] text-text-muted border-t border-border/30">갱신 중...</div>
+              <div className="px-3 py-2 text-xs text-text-muted border-t border-border/30">갱신 중...</div>
             )}
           </Card>
           {!truncated && (

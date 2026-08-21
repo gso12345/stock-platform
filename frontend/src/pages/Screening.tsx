@@ -244,7 +244,7 @@ export default function Screening() {
         <div className="xl:col-span-1 flex flex-col gap-3 overflow-y-auto pr-1">
           {/* 시장 선택 */}
           <Card className="p-3">
-            <p className="text-[11px] font-semibold text-text-secondary mb-2 uppercase tracking-wider">시장</p>
+            <p className="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wider">시장</p>
             <div className="flex gap-1">
               {MARKET_TABS.map((m) => (
                 <button
@@ -269,7 +269,7 @@ export default function Screening() {
                 <button
                   key={t.id}
                   onClick={() => setFilterTab(t.id)}
-                  className={`flex-1 py-1 text-[11px] font-semibold rounded-md transition-all ${
+                  className={`flex-1 py-1 text-xs font-semibold rounded-md transition-all ${
                     filterTab === t.id ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
                   }`}
                 >
@@ -286,7 +286,7 @@ export default function Screening() {
                   <RangeFilter label="거래량" filterKey="volume" filters={filters} onChange={setFilter} />
                   <RangeFilter label="등락률 (%)" filterKey="change_rate" filters={filters} onChange={setFilter} />
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] font-semibold text-text-secondary">섹터</label>
+                    <label className="text-xs font-semibold text-text-secondary">섹터</label>
                     <select
                       value={sector}
                       onChange={(e) => setSector(e.target.value)}
@@ -335,7 +335,7 @@ export default function Screening() {
 
           {/* 정렬 */}
           <Card className="p-3">
-            <p className="text-[11px] font-semibold text-text-secondary mb-2 uppercase tracking-wider">정렬</p>
+            <p className="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wider">정렬</p>
             <div className="flex flex-col gap-2">
               <select
                 className="bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
@@ -366,7 +366,7 @@ export default function Screening() {
           {/* 프리셋 */}
           {showPresets && (
             <Card className="p-3">
-              <p className="text-[11px] font-semibold text-text-secondary mb-2 uppercase tracking-wider">프리셋 저장/불러오기</p>
+              <p className="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wider">프리셋 저장/불러오기</p>
               <div className="flex gap-1 mb-2">
                 <input
                   className="flex-1 bg-bg-primary border border-border rounded-lg px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
@@ -449,7 +449,7 @@ export default function Screening() {
                   </button>
                   {showColMenu && (
                     <div className="absolute right-0 top-full mt-1.5 z-30 bg-bg-card border border-border rounded-xl shadow-xl p-2 min-w-[140px]">
-                      <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider px-2 pb-1.5">표시 컬럼</p>
+                      <p className="text-2xs font-semibold text-text-muted uppercase tracking-wider px-2 pb-1.5">표시 컬럼</p>
                       {ALL_COLUMNS.map((col) => (
                         <button
                           key={col.key}
@@ -491,7 +491,7 @@ export default function Screening() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-bg-secondary border-b border-border z-10">
-                    <tr className="text-text-muted text-[11px]">
+                    <tr className="text-text-muted text-xs">
                       <th className="w-8 px-3 py-3"></th>
                       <th className="text-left px-3 py-3">종목</th>
                       {visibleCols.has("price")       && <th className="text-right px-3 py-3">현재가</th>}
@@ -533,7 +533,7 @@ export default function Screening() {
                                     {stock.market}
                                   </Badge>
                                 </div>
-                                <div className="text-text-muted text-[11px] truncate max-w-[140px]">{stock.name}</div>
+                                <div className="text-text-muted text-xs truncate max-w-[140px]">{stock.name}</div>
                               </div>
                             </div>
                           </td>

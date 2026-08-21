@@ -86,15 +86,15 @@ export default function Strategies() {
           {/* ── 통계 카드 ──────────────────────────────────────── */}
           <div className="grid grid-cols-3 gap-3">
             <Card className="flex flex-col items-center gap-1 py-4">
-              <div className="text-[11px] font-medium text-text-muted uppercase tracking-wide">전체 전략</div>
+              <div className="text-xs font-medium text-text-muted uppercase tracking-wide">전체 전략</div>
               <div className="text-2xl font-bold font-mono text-text-primary">{totalCount}</div>
             </Card>
             <Card className="flex flex-col items-center gap-1 py-4">
-              <div className="text-[11px] font-medium text-text-muted uppercase tracking-wide">한국 KR</div>
-              <div className="text-2xl font-bold font-mono text-blue-400">{krCount}</div>
+              <div className="text-xs font-medium text-text-muted uppercase tracking-wide">한국 KR</div>
+              <div className="text-2xl font-bold font-mono text-accent-blue">{krCount}</div>
             </Card>
             <Card className="flex flex-col items-center gap-1 py-4">
-              <div className="text-[11px] font-medium text-text-muted uppercase tracking-wide">미국 US</div>
+              <div className="text-xs font-medium text-text-muted uppercase tracking-wide">미국 US</div>
               <div className="text-2xl font-bold font-mono text-accent-green">{usCount}</div>
             </Card>
           </div>
@@ -161,9 +161,9 @@ export default function Strategies() {
                             <Badge variant={s.market === "KR" ? "blue" : "green"}>{s.market}</Badge>
                           </div>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[11px] text-text-muted">v{s.version ?? 1}</span>
-                            <span className="text-[11px] text-text-dim">·</span>
-                            <span className="text-[11px] text-text-muted">
+                            <span className="text-xs text-text-muted">v{s.version ?? 1}</span>
+                            <span className="text-xs text-text-dim">·</span>
+                            <span className="text-xs text-text-muted">
                               {s.created_at?.slice(0, 10) ?? "-"}
                             </span>
                           </div>
@@ -179,11 +179,11 @@ export default function Strategies() {
                       )}
                       {/* Condition counts */}
                       <div className="flex gap-1.5 flex-wrap">
-                        <span className="flex items-center gap-1 text-[11px] px-2 py-0.5 bg-blue-900/20 border border-blue-700/30 text-blue-400 rounded-md font-medium">
+                        <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-accent-blue/15 border border-accent-blue/30 text-accent-blue rounded-md font-medium">
                           <BarChart2 size={10} />
                           진입 {entryCount}조건
                         </span>
-                        <span className="flex items-center gap-1 text-[11px] px-2 py-0.5 bg-red-900/20 border border-red-700/30 text-accent-red rounded-md font-medium">
+                        <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-accent-red/15 border border-accent-red/30 text-accent-red rounded-md font-medium">
                           <BarChart2 size={10} />
                           청산 {exitCount}조건
                         </span>

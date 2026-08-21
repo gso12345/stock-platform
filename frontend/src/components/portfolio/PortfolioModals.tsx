@@ -10,9 +10,9 @@ import { ReorderableList } from "@/components/common/ReorderableList";
 
 
 export const MKTCOLOR: Record<string, string> = {
-  KR:  "border-blue-700/50 text-blue-400 bg-blue-900/20",
-  US:  "border-green-700/50 text-green-400 bg-green-900/20",
-  ETF: "border-purple-700/50 text-purple-400 bg-purple-900/20",
+  KR:  "border-accent-blue/30 text-accent-blue bg-accent-blue/15",
+  US:  "border-accent-green/30 text-accent-green bg-accent-green/15",
+  ETF: "border-accent-purple/30 text-accent-purple bg-accent-purple/15",
 };
 
 /* ── Add/Edit Modal (Step 1: 검색 → Step 2: 매수 정보) ─── */
@@ -151,7 +151,7 @@ export function PortfolioModal({
                   className="w-full flex items-center gap-3 px-4 py-3 border-b border-border/30 hover:bg-bg-hover text-left transition-colors"
                   onClick={() => handleSelect(r)}
                 >
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[r.market] ?? ""}`}>
+                  <span className={`text-2xs px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[r.market] ?? ""}`}>
                     {r.market}
                   </span>
                   <div className="flex-1 min-w-0">
@@ -171,7 +171,7 @@ export function PortfolioModal({
           <>
             {/* 선택된 종목 */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-bg-elevated/50">
-              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[selected.market] ?? ""}`}>
+              <span className={`text-2xs px-1.5 py-0.5 rounded border font-bold flex-shrink-0 ${MKTCOLOR[selected.market] ?? ""}`}>
                 {selected.market}
               </span>
               <div className="flex-1 min-w-0">
@@ -191,7 +191,7 @@ export function PortfolioModal({
             </div>
 
             {saveError && (
-              <p className="mx-5 mb-2 text-xs text-red-400 bg-red-900/20 rounded-lg px-3 py-2">
+              <p className="mx-5 mb-2 text-xs text-accent-red bg-accent-red/15 rounded-lg px-3 py-2">
                 오류: {saveError}
               </p>
             )}
@@ -201,7 +201,7 @@ export function PortfolioModal({
                 취소
               </button>
               <button onClick={handleSave} disabled={!canSave || isSaving}
-                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-accent-blue transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 {isSaving ? "저장 중..." : "저장"}
               </button>
             </div>
@@ -273,8 +273,8 @@ export function CashModal({
                   className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
                     currency === c
                       ? c === "USD"
-                        ? "bg-green-900/40 border-green-700/60 text-green-400"
-                        : "bg-blue-900/40 border-blue-700/60 text-blue-400"
+                        ? "bg-accent-green/15 border-accent-green/30 text-accent-green"
+                        : "bg-accent-blue/15 border-accent-blue/30 text-accent-blue"
                       : "border-border text-text-muted hover:text-text-primary"
                   }`}
                 >
@@ -314,7 +314,7 @@ export function CashModal({
         </div>
 
         {saveError && (
-          <p className="mx-5 mb-2 text-xs text-red-400 bg-red-900/20 rounded-lg px-3 py-2">
+          <p className="mx-5 mb-2 text-xs text-accent-red bg-accent-red/15 rounded-lg px-3 py-2">
             오류: {saveError}
           </p>
         )}
@@ -324,7 +324,7 @@ export function CashModal({
             취소
           </button>
           <button onClick={handleSave} disabled={!canSave || isSaving}
-            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-accent-blue transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
             {isSaving ? "저장 중..." : "저장"}
           </button>
         </div>
@@ -357,7 +357,7 @@ export function ConfirmDeleteModal({
           <button
             onClick={onConfirm}
             disabled={isDeleting}
-            className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-40"
+            className="flex-1 py-2 rounded-xl bg-accent-red text-white text-sm font-semibold hover:bg-accent-red transition-colors disabled:opacity-40"
           >{isDeleting ? "삭제 중..." : "삭제"}</button>
         </div>
       </div>
@@ -485,7 +485,7 @@ export function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void })
             if (e.key === "Escape") { setName(""); setAdding(false); }
           }}
         />
-        <button aria-label="확인" onClick={commit} className="p-0.5 text-accent-blue hover:text-blue-400"><Check size={12} /></button>
+        <button aria-label="확인" onClick={commit} className="p-0.5 text-accent-blue hover:text-accent-blue"><Check size={12} /></button>
       </div>
     );
   }

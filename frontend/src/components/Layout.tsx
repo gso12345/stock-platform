@@ -264,9 +264,9 @@ export default function Layout() {
 const POPUP_BG_CLASS: Record<string, string> = {
   blue:   "bg-accent-blue/10 border-accent-blue/20 text-accent-blue",
   green:  "bg-accent-green/10 border-accent-green/20 text-accent-green",
-  amber:  "bg-amber-400/10 border-amber-400/20 text-amber-500",
-  red:    "bg-red-500/10 border-red-500/20 text-red-400",
-  purple: "bg-purple-500/10 border-purple-500/20 text-purple-400",
+  amber:  "bg-accent-yellow/10 border-accent-yellow/20 text-accent-yellow",
+  red:    "bg-accent-red/10 border-accent-red/20 text-accent-red",
+  purple: "bg-accent-purple/10 border-accent-purple/20 text-accent-purple",
 };
 
 function PopupBanners() {
@@ -289,7 +289,7 @@ function PopupBanners() {
               {p.content && <span className="opacity-80">{p.content}</span>}
               {p.link_url && (
                 <a href={safeExternalUrl(p.link_url)} target="_blank" rel="noopener noreferrer nofollow"
-                  className="ml-2 underline underline-offset-2 text-[11px] font-semibold opacity-80 hover:opacity-100">
+                  className="ml-2 underline underline-offset-2 text-xs font-semibold opacity-80 hover:opacity-100">
                   {p.link_text || "자세히 보기"}
                 </a>
               )}

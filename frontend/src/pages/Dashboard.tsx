@@ -62,8 +62,8 @@ const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, un
     <Card className="flex flex-col gap-1 min-w-[135px] flex-shrink-0">
       <div className="flex items-center gap-1 flex-wrap">
         <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide truncate">{name}</span>
-        {_demo && <span className="text-[8px] px-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
-        {_static && <span className="text-[8px] px-0.5 rounded bg-blue-900/20 text-blue-400 border border-blue-700/20">고정</span>}
+        {_demo && <span className="text-2xs px-0.5 rounded bg-accent-yellow/10 text-accent-yellow border border-accent-yellow/20">DEMO</span>}
+        {_static && <span className="text-2xs px-0.5 rounded bg-accent-blue/15 text-accent-blue border border-accent-blue/20">고정</span>}
       </div>
       <span className="text-base font-mono font-bold text-text-primary num">{formatted}</span>
       {(chgVal !== 0 || chgrVal !== 0) && (
@@ -174,7 +174,7 @@ const NewsPanel = memo(function NewsPanel({
       ))}
       {remaining > 0 && (
         <button onClick={() => setExpanded(!expanded)}
-          className="py-2 text-2xs text-accent-blue hover:text-blue-400 transition-colors text-center">
+          className="py-2 text-2xs text-accent-blue hover:text-accent-blue transition-colors text-center">
           {expanded ? "접기 ▲" : `더보기 ${remaining}건 ▼`}
         </button>
       )}
@@ -245,7 +245,7 @@ const RankingPanel = memo(function RankingPanel({
               <span className="w-5 text-2xs font-mono text-text-dim flex-shrink-0">{r.rank ?? i + 1}</span>
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-semibold text-text-primary truncate">{r.name}</div>
-                <div className="text-[11px] text-text-muted font-mono">{r.symbol}</div>
+                <div className="text-xs text-text-muted font-mono">{r.symbol}</div>
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="text-xs font-mono font-semibold text-text-primary">
@@ -257,7 +257,7 @@ const RankingPanel = memo(function RankingPanel({
           ))}
           {rows.length > RANK_SHOWN && (
             <button onClick={() => setExpanded((v) => !v)}
-              className="py-2 text-2xs text-accent-blue hover:text-blue-400 transition-colors text-center">
+              className="py-2 text-2xs text-accent-blue hover:text-accent-blue transition-colors text-center">
               {expanded ? "접기 ▲" : `더보기 ${Math.min(rows.length, 50) - RANK_SHOWN}건 ▼`}
             </button>
           )}

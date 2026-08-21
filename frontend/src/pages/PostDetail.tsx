@@ -81,9 +81,9 @@ function ReportForm({ onSubmit, onCancel, submitting }: {
 }
 
 const MARKET_BADGE: Record<string, string> = {
-  KR:  "border-blue-500/40 text-blue-400 bg-blue-500/10",
-  US:  "border-emerald-500/40 text-emerald-400 bg-emerald-500/10",
-  ETF: "border-purple-500/40 text-purple-400 bg-purple-500/10",
+  KR:  "border-accent-blue/40 text-accent-blue bg-accent-blue/10",
+  US:  "border-accent-green/40 text-accent-green bg-accent-green/10",
+  ETF: "border-accent-purple/40 text-accent-purple bg-accent-purple/10",
 };
 
 function timeAgo(iso: string) {

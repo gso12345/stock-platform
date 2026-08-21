@@ -633,7 +633,7 @@ export default function Watchlist() {
             <p className="text-xs font-semibold text-text-primary">미리보기 모드</p>
             <p className="text-xs text-text-muted mt-0.5">아래는 예시 데이터입니다. 로그인하면 내 관심종목을 추가·관리할 수 있어요.</p>
           </div>
-          <Link to="/login" className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-blue-600 transition-colors">
+          <Link to="/login" className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue transition-colors">
             <LogIn size={12} /> 로그인
           </Link>
         </div>
@@ -708,7 +708,7 @@ export default function Watchlist() {
           <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
             {/* "전체"는 목록 그 자체라 맨 앞에 고정한다 */}
             <button onClick={() => { setFolderTab("all"); setPortfolioTab(null); }} className={tabBtnCls(folderTab === "all" && portfolioTab === null)}>
-              전체 <span className="text-[10px] opacity-70">{isPreview ? PREVIEW_WATCHLIST.length : itemsList.length}</span>
+              전체 <span className="text-2xs opacity-70">{isPreview ? PREVIEW_WATCHLIST.length : itemsList.length}</span>
             </button>
             {정렬된탭.map((탭) => {
               const 켜짐 =
@@ -739,7 +739,7 @@ export default function Watchlist() {
                   {탭.종류 === "portfolio" && <Wallet size={11} />}
                   {탭.이름}
                   {탭.종류 === "folder" && (
-                    <span className="text-[10px] opacity-70">{folderCounts.get(탭.id!) ?? 0}</span>
+                    <span className="text-2xs opacity-70">{folderCounts.get(탭.id!) ?? 0}</span>
                   )}
                 </button>
               );
@@ -781,7 +781,7 @@ export default function Watchlist() {
                   <MarketBadge market={r.market} />
                   <div className="flex-1 min-w-0">
                     <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(r.symbol)}</div>
-                    <div className="text-[11px] text-text-muted truncate">{r.name}</div>
+                    <div className="text-xs text-text-muted truncate">{r.name}</div>
                   </div>
                   <div className="text-right flex-shrink-0 min-w-[80px]">
                     <div className="text-sm font-mono font-semibold text-text-primary">
@@ -849,7 +849,7 @@ export default function Watchlist() {
                     <MarketBadge market={item.market} />
                     <div className="flex-1 min-w-0">
                       <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(item.symbol)}</div>
-                      <div className="text-[11px] text-text-muted truncate">{item.name}</div>
+                      <div className="text-xs text-text-muted truncate">{item.name}</div>
                     </div>
                     <div className="text-right flex-shrink-0 min-w-[80px]">
                       <div className="text-sm font-mono font-semibold text-text-primary">

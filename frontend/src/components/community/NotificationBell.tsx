@@ -148,7 +148,7 @@ export default function NotificationBell() {
       >
         <Bell size={14} />
         {count > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-0.5 flex items-center justify-center rounded-full bg-accent-red text-white text-[9px] font-bold leading-none">
+          <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-0.5 flex items-center justify-center rounded-full bg-accent-red text-white text-2xs font-bold leading-none">
             {badge}
           </span>
         )}

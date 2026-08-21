@@ -64,17 +64,17 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
       {/* 스와이프 액션 버튼 (오른쪽 고정, 왼쪽으로 밀면 등장) */}
       <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL }}>
         <button onClick={() => { closeSwipe(); onEdit(); }} aria-label="종목 수정"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-blue text-white text-[10px] font-semibold">
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-blue text-white text-2xs font-semibold">
           <Settings2 size={14}/><span>수정</span>
         </button>
         {onAddToPortfolio && (
           <button onClick={() => { closeSwipe(); onAddToPortfolio(); }} aria-label="보유종목 추가"
-            className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-green text-white text-[10px] font-semibold">
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-green text-white text-2xs font-semibold">
             <Wallet size={14}/><span>보유추가</span>
           </button>
         )}
         <button onClick={() => { closeSwipe(); onRemove(); }} aria-label="종목 삭제"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-red text-white text-[10px] font-semibold">
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-accent-red text-white text-2xs font-semibold">
           <Trash2 size={14}/><span>삭제</span>
         </button>
       </div>
@@ -118,8 +118,8 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
             {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
             <MarketBadge market={item.market} />
           </div>
-          <div className="text-[11px] text-text-muted truncate">{item.name || p.name}</div>
-          {item.memo && <div className="text-[10px] text-text-muted/60 italic mt-0.5">{item.memo}</div>}
+          <div className="text-xs text-text-muted truncate">{item.name || p.name}</div>
+          {item.memo && <div className="text-2xs text-text-muted/60 italic mt-0.5">{item.memo}</div>}
         </div>
 
         {/* 가격 */}

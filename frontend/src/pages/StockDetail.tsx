@@ -978,7 +978,7 @@ export default function StockDetail() {
   if (detailError && !detail) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <div className="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center"><TrendingDown size={20} className="text-accent-red"/></div>
+        <div className="w-12 h-12 rounded-full bg-accent-red/15 flex items-center justify-center"><TrendingDown size={20} className="text-accent-red"/></div>
         <p className="text-text-primary font-semibold">데이터를 불러올 수 없습니다 ({sym})</p>
         <div className="flex gap-2">
           <button onClick={()=>refetchDetail()} className="flex items-center gap-1.5 px-4 py-2 bg-accent-blue text-white text-base font-semibold rounded-lg"><RefreshCw size={13}/>다시 시도</button>
@@ -1642,8 +1642,8 @@ export default function StockDetail() {
                     { key:"revenue_growth",   label:"매출성장률",   fmt:(v)=>`${v.toFixed(1)}%`, color: "text-accent-blue" },
                     { key:"op_income",        label:"영업이익",     fmt:(v)=>fmtFin(v), color:"text-accent-green" },
                     { key:"op_income_growth", label:"영업이익성장률",fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-green" },
-                    { key:"net_income",       label:"당기순이익",   fmt:(v)=>fmtFin(v), color:"text-purple-400" },
-                    { key:"net_income_growth",label:"순이익성장률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
+                    { key:"net_income",       label:"당기순이익",   fmt:(v)=>fmtFin(v), color:"text-accent-purple" },
+                    { key:"net_income_growth",label:"순이익성장률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-purple" },
                     { key:"op_margin",        label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
                     { key:"net_margin",       label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-text-secondary" },
                     { key:"eps",              label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-accent-cyan" },
@@ -1758,8 +1758,8 @@ export default function StockDetail() {
                 <TransTable rows={[
                   { key:"per",  label:"PER",        fmt:(v)=>`${v.toFixed(1)}배`, color:"text-accent-blue" },
                   { key:"pbr",  label:"PBR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-accent-green" },
-                  { key:"psr",  label:"PSR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-purple-400" },
-                  { key:"eps",  label:"EPS",  fmt:(v)=>fmtEpsBps(v)!, color:"text-cyan-400" },
+                  { key:"psr",  label:"PSR",        fmt:(v)=>`${v.toFixed(2)}배`, color:"text-accent-purple" },
+                  { key:"eps",  label:"EPS",  fmt:(v)=>fmtEpsBps(v)!, color:"text-accent-cyan" },
                   { key:"bps",  label:"BPS",  fmt:(v)=>fmtEpsBps(v)!, color:"text-text-secondary" },
                 ]} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
               </div>
@@ -1859,10 +1859,10 @@ export default function StockDetail() {
                 <TransTable rows={[
                   { key:"gross_margin", label:"매출총이익률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-blue" },
                   { key:"op_margin",    label:"영업이익률",   fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-green" },
-                  { key:"net_margin",   label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-purple-400" },
+                  { key:"net_margin",   label:"순이익률",     fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-purple" },
                   { key:"roe",          label:"ROE",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-yellow" },
-                  { key:"roa",          label:"ROA",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-cyan-400" },
-                  { key:"eps",          label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-sky-400" },
+                  { key:"roa",          label:"ROA",          fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-cyan" },
+                  { key:"eps",          label:"EPS",          fmt:(v)=>fmtEpsBps(v)!, color:"text-accent-cyan" },
                 ]} allYears={allYears} getVal={getVal} finPeriod={finPeriod} />
               </div>
             </div>
@@ -2546,12 +2546,12 @@ export default function StockDetail() {
                 { key: "revenue_low",    label: "매출 최저",         color: "text-accent-blue/60", fmt: fmtAmtKRW },
                 { key: "revenue_high",   label: "매출 최고",         color: "text-accent-blue/60", fmt: fmtAmtKRW },
                 { key: "op_income_est",  label: "영업이익 추정",     color: "text-accent-green",   fmt: fmtAmtKRW },
-                { key: "net_income_est", label: "순이익 추정",       color: "text-purple-400",     fmt: fmtAmtKRW },
+                { key: "net_income_est", label: "순이익 추정",       color: "text-accent-purple",     fmt: fmtAmtKRW },
                 { key: "eps_est",        label: "EPS 추정",          color: "text-accent-green",   fmt: fmtPrice },
                 { key: "eps_low",        label: "EPS 최저",          color: "text-accent-green/60",fmt: fmtPrice },
                 { key: "eps_high",       label: "EPS 최고",          color: "text-accent-green/60",fmt: fmtPrice },
                 { key: "eps_analysts",   label: "EPS 애널리스트 수", color: "text-text-muted",     fmt: (v: number) => `${Math.round(v)}명` },
-                { key: "eps_current",    label: "EPS 현재 추정",     color: "text-cyan-400",       fmt: fmtPrice },
+                { key: "eps_current",    label: "EPS 현재 추정",     color: "text-accent-cyan",       fmt: fmtPrice },
                 { key: "eps_7d_ago",     label: "EPS 7일 전",        color: "text-text-muted",     fmt: fmtPrice },
                 { key: "eps_30d_ago",    label: "EPS 30일 전",       color: "text-text-muted",     fmt: fmtPrice },
                 { key: "eps_90d_ago",    label: "EPS 90일 전",       color: "text-text-muted",     fmt: fmtPrice },
@@ -3079,11 +3079,11 @@ function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Market }) 
                 </span>
                 <div className="flex-1 h-2 bg-bg-elevated rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-purple-500 rounded-full transition-all"
+                    className="h-full bg-accent-purple rounded-full transition-all"
                     style={{ width: `${Math.min(s.pct, 100)}%` }}
                   />
                 </div>
-                <span className="text-sm font-mono font-semibold text-purple-400 w-14 text-right flex-shrink-0">
+                <span className="text-sm font-mono font-semibold text-accent-purple w-14 text-right flex-shrink-0">
                   {s.pct.toFixed(1)}%
                 </span>
               </div>

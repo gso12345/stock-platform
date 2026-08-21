@@ -10,7 +10,7 @@ export const GRADE_BANDS: { grade: string; range: string }[] = [
 
 export function gradeColor(grade: string | null | undefined) {
   if (!grade) return "text-text-muted";
-  if (grade.startsWith("S")) return "text-purple-400";
+  if (grade.startsWith("S")) return "text-accent-purple";
   if (grade.startsWith("A")) return "text-accent-green";
   if (grade.startsWith("B")) return "text-accent-blue";
   if (grade.startsWith("C")) return "text-accent-yellow";

@@ -87,7 +87,7 @@ describe("Tabs", () => {
       unmount();
       return c;
     };
-    expect(cls("xs")).toContain("text-[11px]");
+    expect(cls("xs")).toContain("text-2xs");
     expect(cls("sm")).toContain("text-xs");
     expect(cls("md")).toContain("text-sm");
     expect(new Set([cls("xs"), cls("sm"), cls("md")]).size).toBe(3);
