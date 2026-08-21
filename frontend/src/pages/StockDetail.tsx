@@ -15,7 +15,7 @@ import {
   Newspaper, Users, ExternalLink, Maximize2, X, List, MessageSquare,
   Gauge, Settings2, HelpCircle, Wallet, Share2, Check,
 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import 차트틀 from "@/components/chart/ChartFrame";
 import type { Market } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 import { fmtKRW, fmtUSD, fmtNum, fmtDate, fmtNewsDateTime, fmtVolume } from "@/utils/formatters";
@@ -1622,18 +1622,20 @@ export default function StockDetail() {
                     const finData = (financials[finPeriod] as any[]).filter((r:any) => r.revenue != null || r.op_income != null || r.net_income != null);
                     if (!finData.length) return null;
                     return (
-                    <ResponsiveContainer width="100%" height={chartH}>
-                      <BarChart data={finData} margin={chartProps.margin}>
-                        <CartesianGrid {...chartProps.cartesianGridProps}/>
-                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={revenue:"매출",op_income:"영업이익",net_income:"당기순이익"};return[fmtFin(v),l[name]??name];}}/>
-                        <Legend formatter={v=>({revenue:"매출",op_income:"영업이익",net_income:"당기순이익"}[v as string]??v)}/>
-                        <Bar dataKey="revenue" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={35}/>
-                        <Bar dataKey="op_income" fill="#10b981" radius={[2,2,0,0]} maxBarSize={35}/>
-                        <Bar dataKey="net_income" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={35}/>
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <차트틀 height={chartH}>
+                      {(R) => (
+                        <R.BarChart data={finData} margin={chartProps.margin}>
+                          <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                          <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                          <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
+                          <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={revenue:"매출",op_income:"영업이익",net_income:"당기순이익"};return[fmtFin(v),l[name]??name];}}/>
+                          <R.Legend formatter={v=>({revenue:"매출",op_income:"영업이익",net_income:"당기순이익"}[v as string]??v)}/>
+                          <R.Bar dataKey="revenue" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={35}/>
+                          <R.Bar dataKey="op_income" fill="#10b981" radius={[2,2,0,0]} maxBarSize={35}/>
+                          <R.Bar dataKey="net_income" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={35}/>
+                        </R.BarChart>
+                      )}
+                    </차트틀>
                     );
                   })()}
                   {/* 전치 테이블 */}
@@ -1696,62 +1698,70 @@ export default function StockDetail() {
                     }];
                     if (dEnhanced.per != null || dEnhanced.pbr != null) {
                       return (
-                        <ResponsiveContainer width="100%" height={chartHSm}>
-                          <BarChart data={singlePoint} margin={chartProps.margin}>
-                            <CartesianGrid {...chartProps.cartesianGridProps}/>
-                            <XAxis dataKey="period" {...chartProps.xAxisProps}/>
-                            <YAxis {...chartProps.yAxisProps}/>
-                            <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[Number(v).toFixed(2),{per:"PER",pbr:"PBR",psr:"PSR"}[n]??n]}/>
-                            <Legend formatter={v=>({per:"PER",pbr:"PBR",psr:"PSR"}[v as string]??v)}/>
-                            {dEnhanced.per!=null&&<Bar dataKey="per" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={25}/>}
-                            {dEnhanced.pbr!=null&&<Bar dataKey="pbr" fill="#10b981" radius={[2,2,0,0]} maxBarSize={25}/>}
-                            {dEnhanced.psr!=null&&<Bar dataKey="psr" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={25}/>}
-                          </BarChart>
-                        </ResponsiveContainer>
+                        <차트틀 height={chartHSm}>
+                          {(R) => (
+                            <R.BarChart data={singlePoint} margin={chartProps.margin}>
+                              <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                              <R.XAxis dataKey="period" {...chartProps.xAxisProps}/>
+                              <R.YAxis {...chartProps.yAxisProps}/>
+                              <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[Number(v).toFixed(2),{per:"PER",pbr:"PBR",psr:"PSR"}[n]??n]}/>
+                              <R.Legend formatter={v=>({per:"PER",pbr:"PBR",psr:"PSR"}[v as string]??v)}/>
+                              {dEnhanced.per!=null&&<R.Bar dataKey="per" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={25}/>}
+                              {dEnhanced.pbr!=null&&<R.Bar dataKey="pbr" fill="#10b981" radius={[2,2,0,0]} maxBarSize={25}/>}
+                              {dEnhanced.psr!=null&&<R.Bar dataKey="psr" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={25}/>}
+                            </R.BarChart>
+                          )}
+                        </차트틀>
                       );
                     }
                     if (dEnhanced.eps != null) {
                       return (
-                        <ResponsiveContainer width="100%" height={chartHSm}>
-                          <BarChart data={singlePoint.filter(r=>r.eps!=null)} margin={chartProps.margin}>
-                            <CartesianGrid {...chartProps.cartesianGridProps}/>
-                            <XAxis dataKey="period" {...chartProps.xAxisProps}/>
-                            <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtEpsBps(v)!}/>
-                            <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtEpsBps(v)!,"EPS"]}/>
-                            <Bar dataKey="eps" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
-                          </BarChart>
-                        </ResponsiveContainer>
+                        <차트틀 height={chartHSm}>
+                          {(R) => (
+                            <R.BarChart data={singlePoint.filter(r=>r.eps!=null)} margin={chartProps.margin}>
+                              <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                              <R.XAxis dataKey="period" {...chartProps.xAxisProps}/>
+                              <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtEpsBps(v)!}/>
+                              <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtEpsBps(v)!,"EPS"]}/>
+                              <R.Bar dataKey="eps" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
+                            </R.BarChart>
+                          )}
+                        </차트틀>
                       );
                     }
                     return null;
                   }
                   if (hasMultiple) {
                     return (
-                      <ResponsiveContainer width="100%" height={chartHSm}>
-                        <BarChart data={mh} margin={chartProps.margin}>
-                          <CartesianGrid {...chartProps.cartesianGridProps}/>
-                          <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                          <YAxis {...chartProps.yAxisProps}/>
-                          <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[Number(v).toFixed(2),{per:"PER",pbr:"PBR",psr:"PSR"}[n]??n]}/>
-                          <Legend formatter={v=>({per:"PER",pbr:"PBR",psr:"PSR"}[v as string]??v)}/>
-                          <Bar dataKey="per" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={25}/>
-                          <Bar dataKey="pbr" fill="#10b981" radius={[2,2,0,0]} maxBarSize={25}/>
-                          <Bar dataKey="psr" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={25}/>
-                        </BarChart>
-                      </ResponsiveContainer>
+                      <차트틀 height={chartHSm}>
+                        {(R) => (
+                          <R.BarChart data={mh} margin={chartProps.margin}>
+                            <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                            <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                            <R.YAxis {...chartProps.yAxisProps}/>
+                            <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[Number(v).toFixed(2),{per:"PER",pbr:"PBR",psr:"PSR"}[n]??n]}/>
+                            <R.Legend formatter={v=>({per:"PER",pbr:"PBR",psr:"PSR"}[v as string]??v)}/>
+                            <R.Bar dataKey="per" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={25}/>
+                            <R.Bar dataKey="pbr" fill="#10b981" radius={[2,2,0,0]} maxBarSize={25}/>
+                            <R.Bar dataKey="psr" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={25}/>
+                          </R.BarChart>
+                        )}
+                      </차트틀>
                     );
                   }
                   // EPS 차트 (PER/PBR 없을 때)
                   return (
-                    <ResponsiveContainer width="100%" height={chartHSm}>
-                      <BarChart data={mh.filter((r:any)=>r.eps!=null)} margin={chartProps.margin}>
-                        <CartesianGrid {...chartProps.cartesianGridProps}/>
-                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtEpsBps(v)!}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtEpsBps(v)!,"EPS"]}/>
-                        <Bar dataKey="eps" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <차트틀 height={chartHSm}>
+                      {(R) => (
+                        <R.BarChart data={mh.filter((r:any)=>r.eps!=null)} margin={chartProps.margin}>
+                          <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                          <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                          <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>fmtEpsBps(v)!}/>
+                          <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtEpsBps(v)!,"EPS"]}/>
+                          <R.Bar dataKey="eps" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
+                        </R.BarChart>
+                      )}
+                    </차트틀>
                   );
                 })()}
                 {/* 전치 테이블 */}
@@ -1799,15 +1809,17 @@ export default function StockDetail() {
                   </div>
                   {/* 선택 지표 차트 */}
                   {chartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={chartH}>
-                      <BarChart data={chartData} margin={chartProps.margin}>
-                        <CartesianGrid {...chartProps.cartesianGridProps}/>
-                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>curr.pct?`${v}%`:fmtFin(v)}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[curr.pct?`${Number(v).toFixed(1)}%`:(fmtFin(v)), curr.label]}/>
-                        <Bar dataKey={selectedMetric} fill={curr.color} radius={[3,3,0,0]} maxBarSize={50}/>
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <차트틀 height={chartH}>
+                      {(R) => (
+                        <R.BarChart data={chartData} margin={chartProps.margin}>
+                          <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                          <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                          <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>curr.pct?`${v}%`:fmtFin(v)}/>
+                          <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[curr.pct?`${Number(v).toFixed(1)}%`:(fmtFin(v)), curr.label]}/>
+                          <R.Bar dataKey={selectedMetric} fill={curr.color} radius={[3,3,0,0]} maxBarSize={50}/>
+                        </R.BarChart>
+                      )}
+                    </차트틀>
                   ) : <p className="text-text-muted text-base py-4 text-center">연결 중...</p>}
                   {/* 전치 테이블 */}
                   <TransTable rows={BASIC_METRICS.map(m=>({
@@ -1843,18 +1855,20 @@ export default function StockDetail() {
                   </div>
                 )}
                 {mhYears.length > 0 && (
-                  <ResponsiveContainer width="100%" height={chartHSm}>
-                    <BarChart data={mh.filter((r:any)=>r.op_margin||r.net_margin)} margin={chartProps.margin}>
-                      <CartesianGrid {...chartProps.cartesianGridProps}/>
-                      <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                      <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
-                      <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[`${Number(v).toFixed(1)}%`,{gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률"}[n]??n]}/>
-                      <Legend formatter={v=>({gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률"}[v as string]??v)}/>
-                      <Bar dataKey="gross_margin" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={20}/>
-                      <Bar dataKey="op_margin"    fill="#10b981" radius={[2,2,0,0]} maxBarSize={20}/>
-                      <Bar dataKey="net_margin"   fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={20}/>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <차트틀 height={chartHSm}>
+                    {(R) => (
+                      <R.BarChart data={mh.filter((r:any)=>r.op_margin||r.net_margin)} margin={chartProps.margin}>
+                        <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                        <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                        <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
+                        <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>[`${Number(v).toFixed(1)}%`,{gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률"}[n]??n]}/>
+                        <R.Legend formatter={v=>({gross_margin:"매출총이익률",op_margin:"영업이익률",net_margin:"순이익률"}[v as string]??v)}/>
+                        <R.Bar dataKey="gross_margin" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={20}/>
+                        <R.Bar dataKey="op_margin"    fill="#10b981" radius={[2,2,0,0]} maxBarSize={20}/>
+                        <R.Bar dataKey="net_margin"   fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={20}/>
+                      </R.BarChart>
+                    )}
+                  </차트틀>
                 )}
                 <TransTable rows={[
                   { key:"gross_margin", label:"매출총이익률", fmt:(v)=>`${v.toFixed(1)}%`, color:"text-accent-blue" },
@@ -1892,19 +1906,21 @@ export default function StockDetail() {
                 )}
                 {/* 차트 */}
                 {mhYears.length > 0 && (
-                  <ResponsiveContainer width="100%" height={chartHSm}>
-                    <BarChart data={mh.filter((r:any)=>r.debt_ratio||r.current_ratio)} margin={chartProps.margin}>
-                      <CartesianGrid {...chartProps.cartesianGridProps}/>
-                      <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                      <YAxis yAxisId="ratio" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${(v*100).toFixed(0)}%`}/>
-                      <YAxis yAxisId="pct" orientation="right" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
-                      <Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>{const l:Record<string,string>={current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"};return[n==="debt_ratio"?`${Number(v).toFixed(0)}%`:(n==="current_ratio"||n==="quick_ratio")?`${(Number(v)*100).toFixed(0)}%`:Number(v).toFixed(2),l[n]??n];}}/>
-                      <Legend formatter={v=>({current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"}[v as string]??v)}/>
-                      <Bar yAxisId="ratio" dataKey="current_ratio" fill="#10b981" radius={[2,2,0,0]} maxBarSize={20}/>
-                      <Bar yAxisId="ratio" dataKey="quick_ratio"   fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={20}/>
-                      <Bar yAxisId="pct"   dataKey="debt_ratio"    fill="#ef4444" radius={[2,2,0,0]} maxBarSize={20}/>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <차트틀 height={chartHSm}>
+                    {(R) => (
+                      <R.BarChart data={mh.filter((r:any)=>r.debt_ratio||r.current_ratio)} margin={chartProps.margin}>
+                        <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                        <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                        <R.YAxis yAxisId="ratio" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${(v*100).toFixed(0)}%`}/>
+                        <R.YAxis yAxisId="pct" orientation="right" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
+                        <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number,n:string)=>{const l:Record<string,string>={current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"};return[n==="debt_ratio"?`${Number(v).toFixed(0)}%`:(n==="current_ratio"||n==="quick_ratio")?`${(Number(v)*100).toFixed(0)}%`:Number(v).toFixed(2),l[n]??n];}}/>
+                        <R.Legend formatter={v=>({current_ratio:"유동비율",quick_ratio:"당좌비율",debt_ratio:"부채비율(%)"}[v as string]??v)}/>
+                        <R.Bar yAxisId="ratio" dataKey="current_ratio" fill="#10b981" radius={[2,2,0,0]} maxBarSize={20}/>
+                        <R.Bar yAxisId="ratio" dataKey="quick_ratio"   fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={20}/>
+                        <R.Bar yAxisId="pct"   dataKey="debt_ratio"    fill="#ef4444" radius={[2,2,0,0]} maxBarSize={20}/>
+                      </R.BarChart>
+                    )}
+                  </차트틀>
                 )}
                 {/* 전치 테이블 */}
                 <TransTable rows={[
@@ -1928,36 +1944,40 @@ export default function StockDetail() {
                 {mh.some((r:any) => r.operating_cf != null) && (
                   <div>
                     <p className="text-sm text-text-muted font-semibold mb-2">영업 / 투자 / 재무 현금흐름</p>
-                    <ResponsiveContainer width="100%" height={chartH}>
-                      <BarChart data={mh.filter((r:any)=>r.operating_cf!=null)} margin={chartProps.margin}>
-                        <CartesianGrid {...chartProps.cartesianGridProps}/>
-                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={operating_cf:"영업현금흐름",investing_cf:"투자현금흐름",financing_cf:"재무현금흐름"};return[fmtFin(v),l[name]??name];}}/>
-                        <Legend formatter={v=>({operating_cf:"영업현금흐름",investing_cf:"투자현금흐름",financing_cf:"재무현금흐름"}[v as string]??v)}/>
-                        <Bar dataKey="operating_cf" fill="#10b981" radius={[2,2,0,0]} maxBarSize={28}/>
-                        <Bar dataKey="investing_cf" fill="#ef4444" radius={[2,2,0,0]} maxBarSize={28}/>
-                        <Bar dataKey="financing_cf" fill="#f59e0b" radius={[2,2,0,0]} maxBarSize={28}/>
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <차트틀 height={chartH}>
+                      {(R) => (
+                        <R.BarChart data={mh.filter((r:any)=>r.operating_cf!=null)} margin={chartProps.margin}>
+                          <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                          <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                          <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
+                          <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number,name:string)=>{const l:Record<string,string>={operating_cf:"영업현금흐름",investing_cf:"투자현금흐름",financing_cf:"재무현금흐름"};return[fmtFin(v),l[name]??name];}}/>
+                          <R.Legend formatter={v=>({operating_cf:"영업현금흐름",investing_cf:"투자현금흐름",financing_cf:"재무현금흐름"}[v as string]??v)}/>
+                          <R.Bar dataKey="operating_cf" fill="#10b981" radius={[2,2,0,0]} maxBarSize={28}/>
+                          <R.Bar dataKey="investing_cf" fill="#ef4444" radius={[2,2,0,0]} maxBarSize={28}/>
+                          <R.Bar dataKey="financing_cf" fill="#f59e0b" radius={[2,2,0,0]} maxBarSize={28}/>
+                        </R.BarChart>
+                      )}
+                    </차트틀>
                   </div>
                 )}
                 {/* FCF 차트 */}
                 {mh.some((r:any) => r.free_cf != null) && (
                   <div>
                     <p className="text-sm text-text-muted font-semibold mb-2">잉여현금흐름 (FCF)</p>
-                    <ResponsiveContainer width="100%" height={chartHSm}>
-                      <BarChart data={mh.filter((r:any)=>r.free_cf!=null)} margin={chartProps.margin}>
-                        <CartesianGrid {...chartProps.cartesianGridProps}/>
-                        <XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
-                        <YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
-                        <Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtFin(v),"FCF"]}/>
-                        <Bar dataKey="free_cf" radius={[2,2,0,0]} maxBarSize={35}
-                          fill="#3b82f6"
-                          label={false}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <차트틀 height={chartHSm}>
+                      {(R) => (
+                        <R.BarChart data={mh.filter((r:any)=>r.free_cf!=null)} margin={chartProps.margin}>
+                          <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                          <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
+                          <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
+                          <R.Tooltip {...chartProps.tooltipProps} formatter={(v:number)=>[fmtFin(v),"FCF"]}/>
+                          <R.Bar dataKey="free_cf" radius={[2,2,0,0]} maxBarSize={35}
+                            fill="#3b82f6"
+                            label={false}
+                          />
+                        </R.BarChart>
+                      )}
+                    </차트틀>
                   </div>
                 )}
                 {/* 전치 테이블 */}
@@ -2085,18 +2105,20 @@ export default function StockDetail() {
                               <span className="text-base font-semibold text-text-primary">추이 차트 — {group.label}</span>
                             </div>
                             <div className="p-4">
-                              <ResponsiveContainer width="100%" height={chartH}>
-                                <BarChart data={chartData} margin={chartProps.margin}>
-                                  <CartesianGrid {...chartProps.cartesianGridProps}/>
-                                  <XAxis dataKey="year" {...chartProps.xAxisProps} tickFormatter={xFmt}/>
-                                  <YAxis {...chartProps.yAxisProps} tickFormatter={group.yFmt}/>
-                                  <Tooltip {...chartProps.tooltipProps} formatter={ttFmt as any}/>
-                                  <Legend formatter={legFmt}/>
-                                  {groupOpts.map(opt => (
-                                    <Bar key={opt.key} dataKey={opt.key} fill={COLORS[selectedOpts.indexOf(opt) % COLORS.length]} radius={[2,2,0,0]} maxBarSize={35}/>
-                                  ))}
-                                </BarChart>
-                              </ResponsiveContainer>
+                              <차트틀 height={chartH}>
+                                {(R) => (
+                                  <R.BarChart data={chartData} margin={chartProps.margin}>
+                                    <R.CartesianGrid {...chartProps.cartesianGridProps}/>
+                                    <R.XAxis dataKey="year" {...chartProps.xAxisProps} tickFormatter={xFmt}/>
+                                    <R.YAxis {...chartProps.yAxisProps} tickFormatter={group.yFmt}/>
+                                    <R.Tooltip {...chartProps.tooltipProps} formatter={ttFmt as any}/>
+                                    <R.Legend formatter={legFmt}/>
+                                    {groupOpts.map(opt => (
+                                      <R.Bar key={opt.key} dataKey={opt.key} fill={COLORS[selectedOpts.indexOf(opt) % COLORS.length]} radius={[2,2,0,0]} maxBarSize={35}/>
+                                    ))}
+                                  </R.BarChart>
+                                )}
+                              </차트틀>
                             </div>
                           </div>
                         );
@@ -2598,28 +2620,30 @@ export default function StockDetail() {
                   {/* 컨센서스 추정치 그래프 */}
                   {(hasRevenueChart || hasEpsChart) && (
                     <div className="rounded-xl overflow-hidden border border-border bg-bg-card p-4">
-                      <ResponsiveContainer width="100%" height={chartHSm}>
-                        {hasRevenueChart ? (
-                          <BarChart data={chartData} {...cMargin}>
-                            <CartesianGrid {...cGrid}/>
-                            <XAxis dataKey="periodLabel" {...cXAxis}/>
-                            <YAxis {...cYAxis} tickFormatter={(v:number)=>{const a=Math.abs(v);return inKRW?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
-                            <Tooltip {...cTooltip} formatter={(v:number,name:string)=>{const l:Record<string,string>={revenue_est:"매출 추정",op_income_est:"영업이익 추정",net_income_est:"순이익 추정"};return[fmtAmt(v),l[name]??name];}}/>
-                            <Legend formatter={v=>({revenue_est:"매출",op_income_est:"영업이익",net_income_est:"순이익"}[v as string]??v)}/>
-                            <Bar dataKey="revenue_est" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={35}/>
-                            {hasOpIncome && <Bar dataKey="op_income_est" fill="#10b981" radius={[2,2,0,0]} maxBarSize={35}/>}
-                            {hasNetIncome && <Bar dataKey="net_income_est" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={35}/>}
-                          </BarChart>
-                        ) : (
-                          <BarChart data={chartData} {...cMargin}>
-                            <CartesianGrid {...cGrid}/>
-                            <XAxis dataKey="periodLabel" {...cXAxis}/>
-                            <YAxis {...cYAxis} tickFormatter={(v:number)=>fmtEpsV(v)}/>
-                            <Tooltip {...cTooltip} formatter={(v:number)=>[fmtEpsV(v),"EPS 추정"]}/>
-                            <Bar dataKey="eps_est" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
-                          </BarChart>
+                      <차트틀 height={chartHSm}>
+                        {(R) => (
+                          hasRevenueChart ? (
+                            <R.BarChart data={chartData} {...cMargin}>
+                              <R.CartesianGrid {...cGrid}/>
+                              <R.XAxis dataKey="periodLabel" {...cXAxis}/>
+                              <R.YAxis {...cYAxis} tickFormatter={(v:number)=>{const a=Math.abs(v);return inKRW?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
+                              <R.Tooltip {...cTooltip} formatter={(v:number,name:string)=>{const l:Record<string,string>={revenue_est:"매출 추정",op_income_est:"영업이익 추정",net_income_est:"순이익 추정"};return[fmtAmt(v),l[name]??name];}}/>
+                              <R.Legend formatter={v=>({revenue_est:"매출",op_income_est:"영업이익",net_income_est:"순이익"}[v as string]??v)}/>
+                              <R.Bar dataKey="revenue_est" fill="#3b82f6" radius={[2,2,0,0]} maxBarSize={35}/>
+                              {hasOpIncome && <R.Bar dataKey="op_income_est" fill="#10b981" radius={[2,2,0,0]} maxBarSize={35}/>}
+                              {hasNetIncome && <R.Bar dataKey="net_income_est" fill="#8b5cf6" radius={[2,2,0,0]} maxBarSize={35}/>}
+                            </R.BarChart>
+                          ) : (
+                            <R.BarChart data={chartData} {...cMargin}>
+                              <R.CartesianGrid {...cGrid}/>
+                              <R.XAxis dataKey="periodLabel" {...cXAxis}/>
+                              <R.YAxis {...cYAxis} tickFormatter={(v:number)=>fmtEpsV(v)}/>
+                              <R.Tooltip {...cTooltip} formatter={(v:number)=>[fmtEpsV(v),"EPS 추정"]}/>
+                              <R.Bar dataKey="eps_est" fill="#06b6d4" radius={[2,2,0,0]} maxBarSize={35}/>
+                            </R.BarChart>
+                          )
                         )}
-                      </ResponsiveContainer>
+                      </차트틀>
                     </div>
                   )}
                   {/* 테이블 */}

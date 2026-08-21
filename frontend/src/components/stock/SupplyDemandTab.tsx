@@ -16,7 +16,7 @@
  */
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from "recharts";
+import 차트틀 from "@/components/chart/ChartFrame";
 import { Users } from "lucide-react";
 import { stocksApi } from "@/api/stocks";
 import { 격자, 축, 툴팁, 영점 } from "@/utils/chartTheme";
@@ -147,23 +147,25 @@ export default function SupplyDemandTab({ symbol, isMobile }: { symbol: string; 
           <span className="text-base font-semibold text-text-primary">일별 순매수</span>
         </div>
         <div className="px-2 pb-3">
-          <ResponsiveContainer width="100%" height={isMobile ? 240 : 320}>
-            <BarChart data={차트데이터} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-              <CartesianGrid {...격자} />
-              <XAxis dataKey="날짜" {...축}
-                     interval={Math.max(0, Math.floor(차트데이터.length / (isMobile ? 5 : 10)) - 1)} />
-              <YAxis {...축} width={isMobile ? 46 : 58} tickFormatter={금액} />
-              {/* 0선이 없으면 순매수와 순매도가 눈으로 안 갈린다 */}
-              <ReferenceLine y={0} {...영점} />
-              <Tooltip
-                {...툴팁}
-                formatter={(v: number, n: string) => [금액(v), 이름[n as keyof typeof 이름] ?? n]}
-              />
-              <Legend wrapperStyle={{ fontSize: 11 }}
-                      formatter={(n: string) => 이름[n as keyof typeof 이름] ?? n} />
-              {투자자.map((k) => <Bar key={k} dataKey={k} fill={색[k]} radius={[2, 2, 0, 0]} />)}
-            </BarChart>
-          </ResponsiveContainer>
+          <차트틀 height={isMobile ? 240 : 320}>
+            {(R) => (
+              <R.BarChart data={차트데이터} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+                <R.CartesianGrid {...격자} />
+                <R.XAxis dataKey="날짜" {...축}
+                       interval={Math.max(0, Math.floor(차트데이터.length / (isMobile ? 5 : 10)) - 1)} />
+                <R.YAxis {...축} width={isMobile ? 46 : 58} tickFormatter={금액} />
+                {/* 0선이 없으면 순매수와 순매도가 눈으로 안 갈린다 */}
+                <R.ReferenceLine y={0} {...영점} />
+                <R.Tooltip
+                  {...툴팁}
+                  formatter={(v: number, n: string) => [금액(v), 이름[n as keyof typeof 이름] ?? n]}
+                />
+                <R.Legend wrapperStyle={{ fontSize: 11 }}
+                        formatter={(n: string) => 이름[n as keyof typeof 이름] ?? n} />
+                {투자자.map((k) => <R.Bar key={k} dataKey={k} fill={색[k]} radius={[2, 2, 0, 0]} />)}
+              </R.BarChart>
+            )}
+          </차트틀>
         </div>
       </div>
     </div>

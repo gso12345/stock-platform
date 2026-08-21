@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import 차트틀 from "@/components/chart/ChartFrame";
 import { fmtKRWCompact } from "@/utils/formatters";
 import { Link } from "react-router-dom";
 
@@ -140,23 +140,25 @@ export default function PortfolioChart({
         ) : (
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-center sm:items-start">
             <div className="flex-shrink-0 w-full sm:w-44">
-              <ResponsiveContainer width="100%" height={180}>
-                <PieChart key={mode}>
-                  <Pie
-                    data={activePieData} dataKey="value" nameKey="name"
-                    cx="50%" cy="50%" outerRadius={72} innerRadius={30}
-                    isAnimationActive animationBegin={0} animationDuration={700} animationEasing="ease-out"
-                  >
-                    {activePieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
-                    itemStyle={{ color: "#e2e8f0" }}
-                    labelStyle={{ color: "#94a3b8", display: "none" }}
-                    formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              <차트틀 height={180}>
+                {(R) => (
+                  <R.PieChart key={mode}>
+                    <R.Pie
+                      data={activePieData} dataKey="value" nameKey="name"
+                      cx="50%" cy="50%" outerRadius={72} innerRadius={30}
+                      isAnimationActive animationBegin={0} animationDuration={700} animationEasing="ease-out"
+                    >
+                      {activePieData.map((_, i) => <R.Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    </R.Pie>
+                    <R.Tooltip
+                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
+                      itemStyle={{ color: "#e2e8f0" }}
+                      labelStyle={{ color: "#94a3b8", display: "none" }}
+                      formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
+                    />
+                  </R.PieChart>
+                )}
+              </차트틀>
             </div>
             <div className="flex-1 min-w-0 w-full self-center flex flex-col gap-0.5 py-1">
               {(() => {

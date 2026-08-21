@@ -4,9 +4,7 @@ import { backtestApi } from "@/api/stocks";
 import { Card, ChangeBadge, LoadingSpinner, formatNumber, Tabs, Button, Badge, 빈화면 } from "@/components/ui";
 import ComingSoon from "@/components/ComingSoon";
 import { ConditionBuilder } from "@/components/backtest/ConditionBuilder";
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
-} from "recharts";
+import 차트틀 from "@/components/chart/ChartFrame";
 import type { ConditionGroup, Market } from "@/types";
 import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
@@ -423,25 +421,27 @@ export default function Backtest() {
                     <span className="text-text-muted text-xs ml-2">초기자본 {formatNumber(capital)}원</span>
                   </div>
                   <div className="p-4">
-                    <ResponsiveContainer width="100%" height={280}>
-                      <AreaChart data={result.equity_curve}>
-                        <defs>
-                          <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.25} />
-                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2d3352" />
-                        <XAxis dataKey="date" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
-                        <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatNumber(v)} width={70} />
-                        <Tooltip
-                          contentStyle={{ backgroundColor: "#1e2235", border: "1px solid #2d3352", borderRadius: "10px", fontSize: 12 }}
-                          formatter={(v: number) => [formatNumber(v) + "원", "포트폴리오"]}
-                        />
-                        <ReferenceLine y={capital} stroke="#64748b" strokeDasharray="4 4" />
-                        <Area type="monotone" dataKey="value" stroke="#3b82f6" fill="url(#grad)" strokeWidth={2} dot={false} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <차트틀 height={280}>
+                      {(R) => (
+                        <R.AreaChart data={result.equity_curve}>
+                          <defs>
+                            <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.25} />
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <R.CartesianGrid strokeDasharray="3 3" stroke="#2d3352" />
+                          <R.XAxis dataKey="date" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
+                          <R.YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatNumber(v)} width={70} />
+                          <R.Tooltip
+                            contentStyle={{ backgroundColor: "#1e2235", border: "1px solid #2d3352", borderRadius: "10px", fontSize: 12 }}
+                            formatter={(v: number) => [formatNumber(v) + "원", "포트폴리오"]}
+                          />
+                          <R.ReferenceLine y={capital} stroke="#64748b" strokeDasharray="4 4" />
+                          <R.Area type="monotone" dataKey="value" stroke="#3b82f6" fill="url(#grad)" strokeWidth={2} dot={false} />
+                        </R.AreaChart>
+                      )}
+                    </차트틀>
                   </div>
                 </Card>
 
