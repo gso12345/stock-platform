@@ -48,7 +48,7 @@ export default function QuantSettingsPanel({
           <p className="text-2xs text-text-dim mt-0.5">무엇을 얼마나 볼지 정합니다</p>
         </div>
         <button aria-label="닫기" onClick={onClose}>
-          <X size={15} className="text-text-muted hover:text-text-primary" />
+          <X size={14} className="text-text-muted hover:text-text-primary" />
         </button>
       </div>
 

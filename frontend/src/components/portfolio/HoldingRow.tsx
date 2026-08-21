@@ -36,9 +36,9 @@ export function SortHead({ field, label, sortField, sortDir, onClick, align = "r
         {label}
         {active
           ? sortDir === "desc"
-            ? <ChevronDown size={10} className="text-accent-blue" />
-            : <ChevronUp size={10} className="text-accent-blue" />
-          : <ChevronsUpDown size={10} className="opacity-25" />
+            ? <ChevronDown size={11} className="text-accent-blue" />
+            : <ChevronUp size={11} className="text-accent-blue" />
+          : <ChevronsUpDown size={11} className="opacity-25" />
         }
       </button>
     </th>

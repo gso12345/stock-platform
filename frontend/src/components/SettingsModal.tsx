@@ -19,11 +19,11 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-sm max-h-[85vh] flex flex-col bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
+      <div className="w-full max-w-sm max-h-[85vh] flex flex-col bg-bg-card border border-border rounded-2xl shadow-modal overflow-hidden modal-pop">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <h3 className="text-sm font-bold text-text-primary">설정</h3>
           <button onClick={onClose} aria-label="닫기" className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
         <div className="px-5 py-5 flex flex-col gap-5 flex-1 overflow-y-auto">

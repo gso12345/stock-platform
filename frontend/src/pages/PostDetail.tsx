@@ -205,7 +205,7 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
             <div className="flex items-center gap-3 mt-1.5">
               <button onClick={handleLike}
                 className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-                <Heart size={10} className={liked ? "fill-accent-red" : ""} />
+                <Heart size={11} className={liked ? "fill-accent-red" : ""} />
                 {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
               </button>
               {reply.is_mine ? (<>
@@ -383,7 +383,7 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
               </>) : isLoggedIn && (
                 <button onClick={() => setShowReport(v => !v)}
                   className={`flex items-center gap-0.5 text-xs transition-colors ${showReport ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-                  <Flag size={10} />신고
+                  <Flag size={11} />신고
                 </button>
               )}
             </div>
@@ -411,8 +411,8 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
               <button onClick={submitReply} disabled={submitting}
                 className="shrink-0 mb-0.5 transition-all active:scale-90">
                 {replyText.trim()
-                  ? <Send size={15} className={`text-accent-blue ${submitting ? "opacity-40" : ""}`} />
-                  : <PenLine size={15} className="text-text-dim" />}
+                  ? <Send size={14} className={`text-accent-blue ${submitting ? "opacity-40" : ""}`} />
+                  : <PenLine size={14} className="text-text-dim" />}
               </button>
             </div>
           </div>
@@ -697,7 +697,7 @@ export default function PostDetail() {
         <div className="max-w-2xl mx-auto px-3 sm:px-4 h-12 flex items-center gap-2">
           <button onClick={() => navigate(-1)}
             className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors -ml-1">
-            <ArrowLeft size={18} />
+            <ArrowLeft size={16} />
           </button>
           <span className="text-sm font-semibold text-text-primary truncate flex-1">게시글</span>
           <Link to={`/stocks/${activePost.market}/${activePost.symbol}`}
@@ -747,10 +747,10 @@ export default function PostDetail() {
             {activePost.is_mine && (
               <div className="flex items-center gap-1">
                 <button onClick={startEdit} aria-label="게시글 수정" title="수정" className="p-1.5 text-text-dim hover:text-accent-blue transition-colors rounded-lg hover:bg-bg-elevated">
-                  <Pencil size={15} />
+                  <Pencil size={14} />
                 </button>
                 <button onClick={handleDelete} aria-label="게시글 삭제" title="삭제" className="p-1.5 text-text-dim hover:text-accent-red transition-colors rounded-lg hover:bg-bg-elevated">
-                  <Trash2 size={15} />
+                  <Trash2 size={14} />
                 </button>
               </div>
             )}
@@ -783,7 +783,7 @@ export default function PostDetail() {
                   <img src={editImage} alt="미리보기" className="w-full max-h-48 object-cover rounded-xl" />
                   <button onClick={() => setEditImage("")}
                     className="absolute top-1.5 right-1.5 p-1 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors">
-                    <X size={12} />
+                    <X size={13} />
                   </button>
                 </div>
               )}
@@ -815,7 +815,7 @@ export default function PostDetail() {
                         placeholder={`선택지 ${i + 1}`} maxLength={POLL_OPTION_MAX}
                         className="flex-1 px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
                       {editPollOptions.length > 2 && (
-                        <button onClick={() => setEditPollOptions(prev => prev.filter((_, j) => j !== i))} className="text-text-dim hover:text-accent-red"><X size={12} /></button>
+                        <button onClick={() => setEditPollOptions(prev => prev.filter((_, j) => j !== i))} className="text-text-dim hover:text-accent-red"><X size={13} /></button>
                       )}
                     </div>
                   ))}
@@ -837,7 +837,7 @@ export default function PostDetail() {
                       {editTags.map(t => (
                         <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
                           #{t.market === "KR" && t.name ? t.name : t.symbol}
-                          <button onClick={() => setEditTags(prev => prev.filter(x => x.symbol !== t.symbol))}><X size={10} /></button>
+                          <button onClick={() => setEditTags(prev => prev.filter(x => x.symbol !== t.symbol))}><X size={11} /></button>
                         </span>
                       ))}
                     </div>
@@ -848,7 +848,7 @@ export default function PostDetail() {
                         placeholder="종목명 또는 심볼 검색..."
                         className="w-full px-2.5 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50" />
                       {editTagResults.length > 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-lg max-h-36 overflow-y-auto">
+                        <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-float max-h-36 overflow-y-auto">
                           {editTagResults.map((r: any, idx) => (
                             <button key={idx} onClick={() => addEditTag({ symbol: r.symbol, market: r.market, name: r.name })}
                               className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-bg-elevated transition-colors text-left">
@@ -887,7 +887,7 @@ export default function PostDetail() {
                     className="px-3 py-1.5 rounded-xl text-xs text-text-dim hover:text-text-primary border border-border hover:bg-bg-elevated transition-colors">취소</button>
                   <button onClick={saveEdit} disabled={savingEdit}
                     className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 disabled:opacity-50 transition-all">
-                    <Send size={12} />{savingEdit ? "저장 중..." : "저장"}
+                    <Send size={13} />{savingEdit ? "저장 중..." : "저장"}
                   </button>
                 </div>
               </div>
@@ -990,12 +990,12 @@ export default function PostDetail() {
                     className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
                       showPostReport ? "text-accent-red bg-accent-red/10" : "text-text-dim hover:text-accent-red hover:bg-accent-red/5"
                     }`}>
-                    <Flag size={15} />
+                    <Flag size={14} />
                   </button>
                 )}
                 <button onClick={handleShare}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all">
-                  <Share2 size={15} />
+                  <Share2 size={14} />
                   <span>{copied ? "복사됨!" : "공유"}</span>
                 </button>
               </div>
@@ -1019,7 +1019,7 @@ export default function PostDetail() {
                 {(["latest", "popular"] as const).map(s => (
                   <button key={s} onClick={() => setCommentSort(s)}
                     className={`text-2xs px-2.5 py-1 rounded-md transition-all font-medium ${
-                      commentSort === s ? "bg-bg-card text-text-primary shadow-sm" : "text-text-dim hover:text-text-secondary"
+                      commentSort === s ? "bg-bg-card text-text-primary shadow-card" : "text-text-dim hover:text-text-secondary"
                     }`}>
                     {s === "latest" ? "최신순" : "인기순"}
                   </button>

@@ -44,7 +44,7 @@ export function Toast({
   return (
     <div
       role={kind === "error" ? "alert" : "status"}
-      className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 max-w-[calc(100vw-2rem)] px-4 py-2.5 ${바탕} text-white text-xs font-semibold rounded-xl shadow-lg animate-fade-in`}
+      className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 max-w-[calc(100vw-2rem)] px-4 py-2.5 ${바탕} text-white text-xs font-semibold rounded-xl shadow-float animate-fade-in`}
     >
       <Icon size={14} className="flex-shrink-0" />
       <span className="min-w-0 break-words">{message}</span>

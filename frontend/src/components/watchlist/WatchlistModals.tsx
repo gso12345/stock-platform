@@ -37,7 +37,7 @@ export function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
       {/* 헤더 */}
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
         <h3 className="text-sm font-bold text-text-primary">관심종목 추가</h3>
-        <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+        <button aria-label="닫기" onClick={onClose}><X size={14} className="text-text-muted hover:text-text-primary" /></button>
       </div>
 
       {/* 검색 입력 */}
@@ -119,7 +119,7 @@ export function EditItemModal({ item, folders, onClose, onSave }: {
           <h3 className="text-sm font-bold text-text-primary">종목 편집</h3>
           <p className="text-2xs text-text-muted mt-0.5">{item.symbol}</p>
         </div>
-        <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+        <button aria-label="닫기" onClick={onClose}><X size={14} className="text-text-muted hover:text-text-primary" /></button>
       </div>
       <div className="p-4 flex flex-col gap-3">
         <div className="flex flex-col gap-1">
@@ -196,7 +196,7 @@ export function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
       <div className="p-5 flex flex-col gap-3">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
-            <AlertTriangle size={18} className="text-accent-red" />
+            <AlertTriangle size={16} className="text-accent-red" />
           </div>
           <h3 className="text-sm font-bold text-text-primary">폴더를 삭제할까요?</h3>
         </div>
@@ -317,7 +317,7 @@ export function AddToPortfolioModal({
         <Wallet size={14} className="text-accent-blue" />
         <h3 className="flex-1 text-sm font-bold text-text-primary">매수 정보 입력</h3>
         <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-          <X size={15} />
+          <X size={14} />
         </button>
       </div>
 
@@ -414,7 +414,7 @@ export function FolderManagerModal({
           <h3 className="text-sm font-bold text-text-primary">탭 관리</h3>
           <p className="text-2xs text-text-dim mt-0.5">끌어서 탭 줄에 나오는 순서를 바꿉니다</p>
         </div>
-        <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+        <button aria-label="닫기" onClick={onClose}><X size={14} className="text-text-muted hover:text-text-primary" /></button>
       </div>
       {/* 훅은 id 로 항목을 찾는다. 탭에서 그 역할은 key 다 — 폴더 id 와
           섞이지 않게 원본을 따로 들고 다닌다 */}
@@ -446,15 +446,15 @@ export function FolderManagerModal({
             )}
             {탭.종류 === "folder" && (
               editingKey === 탭.key ? (
-                <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(탭); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={15} /></button>
+                <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(탭); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
               ) : (
                 <button draggable={false} aria-label={`${탭.이름} 이름 바꾸기`} onClick={(e) => { e.stopPropagation(); setEditingKey(탭.key); setEditName(탭.이름); }}
-                  className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={15} /></button>
+                  className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={14} /></button>
               )
             )}
             {탭.종류 === "folder" && (
               <button draggable={false} aria-label={`${탭.이름} 지우기`} onClick={(e) => { e.stopPropagation(); onDelete({ id: 탭.id!, name: 탭.이름 }); }}
-                className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={15} /></button>
+                className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={14} /></button>
             )}
           </div>
         )}

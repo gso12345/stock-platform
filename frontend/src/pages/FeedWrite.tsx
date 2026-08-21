@@ -318,7 +318,7 @@ export default function FeedWrite() {
           aria-label="뒤로"
           className="p-1.5 -ml-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
         >
-          <ArrowLeft size={18} />
+          <ArrowLeft size={16} />
         </button>
         <h1 className="text-lg font-bold text-text-primary flex-1">글쓰기</h1>
         <button
@@ -326,7 +326,7 @@ export default function FeedWrite() {
           disabled={!canSubmit || submitting}
           className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
-          {submitting ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
           {submitting ? "등록 중..." : "등록"}
         </button>
       </div>
@@ -367,7 +367,7 @@ export default function FeedWrite() {
                         <span className="text-accent-blue/70 font-normal">{selectedStock.name}</span>
                       )}
                       <button onClick={() => setSelectedStock(null)} aria-label="종목 지우기" className="ml-0.5 hover:text-accent-red transition-colors">
-                        <X size={10} />
+                        <X size={11} />
                       </button>
                     </span>
                     <span className="text-xs text-text-dim">에 대한 의견</span>
@@ -382,7 +382,7 @@ export default function FeedWrite() {
                       className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
                     />
                     {(searchResults.length > 0 || searching) && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-bg-card border border-border rounded-xl shadow-lg z-20 overflow-hidden">
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-bg-card border border-border rounded-xl shadow-float z-20 overflow-hidden">
                         {searching && searchResults.length === 0 && <div className="px-3 py-2 text-xs text-text-dim">검색 중...</div>}
                         {searchResults.map((r: any, i: number) => (
                           <button
@@ -496,7 +496,7 @@ export default function FeedWrite() {
                   <span key={`${t.market}:${t.symbol}`} className="flex items-center gap-1 text-2xs px-2 py-1 rounded-lg bg-accent-blue/15 text-accent-blue">
                     #{t.market === "KR" && t.name ? t.name : t.symbol}
                     <button onClick={() => setCustomTags((prev) => prev.filter((x) => x.symbol !== t.symbol))} aria-label={`${t.symbol} 태그 빼기`}>
-                      <X size={10} />
+                      <X size={11} />
                     </button>
                   </span>
                 ))}
@@ -512,7 +512,7 @@ export default function FeedWrite() {
                   className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
                 />
                 {tagResults.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-lg max-h-36 overflow-y-auto">
+                  <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-float max-h-36 overflow-y-auto">
                     {tagResults.map((r: any, idx) => (
                       <button
                         key={idx}
@@ -536,7 +536,7 @@ export default function FeedWrite() {
             <div className="relative w-full">
               <img src={image} alt="미리보기" className="w-full max-h-60 object-cover rounded-xl" />
               <button onClick={() => setImage("")} aria-label="사진 빼기" className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors">
-                <X size={12} />
+                <X size={13} />
               </button>
             </div>
           )}
@@ -566,7 +566,7 @@ export default function FeedWrite() {
                   />
                   {pollOptions.length > 2 && (
                     <button onClick={() => setPollOptions((prev) => prev.filter((_, j) => j !== i))} aria-label={`선택지 ${i + 1} 빼기`} className="text-text-dim hover:text-accent-red transition-colors">
-                      <X size={12} />
+                      <X size={13} />
                     </button>
                   )}
                 </div>

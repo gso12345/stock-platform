@@ -415,7 +415,7 @@ export default function Quant() {
                             ?
                           </button>
                           {showGradeHelp && (
-                            <div className="absolute left-0 top-6 z-50 w-48 rounded-xl border border-border bg-bg-elevated shadow-lg p-3 flex flex-col gap-1.5 text-left">
+                            <div className="absolute left-0 top-6 z-50 w-48 rounded-xl border border-border bg-bg-elevated shadow-float p-3 flex flex-col gap-1.5 text-left">
                               <span className="text-xs font-semibold text-text-secondary pb-1">등급 기준</span>
                               {GRADE_BANDS.map((b) => (
                                 <div key={b.grade} className="flex items-center justify-between text-xs">

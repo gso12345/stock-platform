@@ -100,7 +100,7 @@ export default function NotificationBell() {
           disabled={readAll.isPending}
           className="flex items-center gap-1 text-2xs text-text-muted hover:text-accent-blue transition-colors disabled:opacity-50"
         >
-          <CheckCheck size={12} /> 모두 읽음
+          <CheckCheck size={13} /> 모두 읽음
         </button>
       )}
       {isNarrow && (
@@ -132,7 +132,7 @@ export default function NotificationBell() {
       <div className="flex-1" />
       <Link to="/notifications?settings=1" onClick={() => setOpen(false)}
         className="flex items-center gap-1 text-2xs text-text-muted hover:text-text-primary transition-colors">
-        <Settings size={12} /> 알림 설정
+        <Settings size={13} /> 알림 설정
       </Link>
     </div>
   );
@@ -156,7 +156,7 @@ export default function NotificationBell() {
 
       {open && !isNarrow && (
         <div role="menu"
-          className="absolute right-0 top-full mt-1.5 w-80 z-50 bg-bg-card border border-border rounded-2xl shadow-xl overflow-hidden">
+          className="absolute right-0 top-full mt-1.5 w-80 z-50 bg-bg-card border border-border rounded-2xl shadow-float overflow-hidden">
           {머리말}
           <div className="max-h-[60vh] overflow-y-auto">{본문}</div>
           {꼬리말}
@@ -169,7 +169,7 @@ export default function NotificationBell() {
                onClick={() => setOpen(false)} aria-hidden />
           <div
             role="menu"
-            className="fixed inset-x-0 bottom-0 z-50 bg-bg-card border-t border-border rounded-t-2xl shadow-2xl flex flex-col"
+            className="fixed inset-x-0 bottom-0 z-50 bg-bg-card border-t border-border rounded-t-2xl shadow-modal flex flex-col"
             // 화면의 80%까지만 차지하고, 아이폰 홈 인디케이터 영역을 피한다
             style={{ maxHeight: "80vh", paddingBottom: "env(safe-area-inset-bottom)" }}
           >

@@ -781,7 +781,7 @@ export default function Portfolio() {
       {!isLoggedIn && (
         <div className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-accent-blue/10 border border-accent-blue/20">
           <div className="w-8 h-8 rounded-lg bg-accent-blue/20 flex items-center justify-center flex-shrink-0">
-            <LogIn size={15} className="text-accent-blue" />
+            <LogIn size={14} className="text-accent-blue" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-text-primary">미리보기 모드</p>
@@ -790,7 +790,7 @@ export default function Portfolio() {
           <Link to="/login"
             className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue transition-colors"
           >
-            <LogIn size={12} /> 로그인
+            <LogIn size={13} /> 로그인
           </Link>
         </div>
       )}
@@ -907,7 +907,7 @@ export default function Portfolio() {
           ].map((c) => (
             <Card key={c.label} className={`flex flex-col gap-1 ${c.tint} ${!isLoggedIn ? "opacity-80" : ""}`}>
               <div className="flex items-center gap-1.5">
-                <c.icon size={12} className={c.color === "text-text-primary" ? "text-text-dim" : c.color} />
+                <c.icon size={13} className={c.color === "text-text-primary" ? "text-text-dim" : c.color} />
                 <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{c.label}</span>
               </div>
               <span className={`text-lg font-mono font-bold ${c.color}`}>{c.value}</span>
@@ -971,7 +971,7 @@ export default function Portfolio() {
             ].map((c) => (
               <div key={c.label} className="flex flex-col gap-0.5 min-w-0">
                 <span className="text-2xs text-text-dim flex items-center gap-1">
-                  <c.icon size={10} />{c.label}
+                  <c.icon size={11} />{c.label}
                 </span>
                 <span className="text-sm font-mono font-semibold text-text-secondary num truncate">{c.value}</span>
               </div>
@@ -1214,8 +1214,8 @@ export default function Portfolio() {
                     >
                       {label}
                       {active
-                        ? (sortDir === "desc" ? <ChevronDown size={10} /> : <ChevronUp size={10} />)
-                        : <ChevronsUpDown size={10} className="opacity-30" />}
+                        ? (sortDir === "desc" ? <ChevronDown size={11} /> : <ChevronUp size={11} />)
+                        : <ChevronsUpDown size={11} className="opacity-30" />}
                     </button>
                   );
                 })}

@@ -8,23 +8,23 @@ function IOSInstallGuide({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop">
+      <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-modal overflow-hidden modal-pop">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h3 className="text-sm font-bold text-text-primary">앱으로 설치하기</h3>
           <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
         <div className="px-5 py-5 flex flex-col gap-4 text-sm text-text-secondary">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-accent-blue/10 flex items-center justify-center flex-shrink-0">
-              <Share size={15} className="text-accent-blue" />
+              <Share size={14} className="text-accent-blue" />
             </div>
             <p>Safari 하단의 <b className="text-text-primary">공유</b> 버튼을 누르세요</p>
           </div>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-accent-blue/10 flex items-center justify-center flex-shrink-0">
-              <PlusSquare size={15} className="text-accent-blue" />
+              <PlusSquare size={14} className="text-accent-blue" />
             </div>
             <p><b className="text-text-primary">홈 화면에 추가</b>를 선택하세요</p>
           </div>

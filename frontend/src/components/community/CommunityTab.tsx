@@ -301,7 +301,7 @@ const PostCard = memo(function PostCard({
                 post.liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"
               }`}
             >
-              <Heart size={12} className={post.liked ? "fill-accent-red" : ""} />
+              <Heart size={13} className={post.liked ? "fill-accent-red" : ""} />
               {post.like_count > 0 ? (
                 <span className={post.liked ? "font-semibold" : ""}>{post.like_count}</span>
               ) : (
@@ -313,7 +313,7 @@ const PostCard = memo(function PostCard({
               onClick={() => onOpen(post)}
               className="flex items-center gap-1.5 text-xs text-text-dim hover:text-accent-blue transition-all"
             >
-              <MessageSquare size={12} />
+              <MessageSquare size={13} />
               {post.comment_count > 0 ? (
                 <span>{post.comment_count}</span>
               ) : (
@@ -325,7 +325,7 @@ const PostCard = memo(function PostCard({
               onClick={handleShare}
               className="flex items-center gap-1.5 text-xs text-text-dim hover:text-text-primary transition-colors"
             >
-              <Share2 size={12} />
+              <Share2 size={13} />
               <span className="opacity-60">{copied ? "복사됨!" : "공유"}</span>
             </button>
 
@@ -595,7 +595,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
       {/* 헤더 */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
-          <MessageSquare size={15} className="text-text-muted" />
+          <MessageSquare size={14} className="text-text-muted" />
           <span className="text-sm font-semibold text-text-primary">종목 토론</span>
           {total > 0 && (
             <span className="text-xs text-text-dim bg-bg-elevated px-1.5 py-0.5 rounded-full border border-border">
@@ -612,7 +612,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
             }}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-text-dim border border-border hover:border-accent-blue/40 hover:text-accent-blue transition-all"
           >
-            <ArrowUpDown size={10} />
+            <ArrowUpDown size={11} />
             {sort === "latest" ? "최신순" : "좋아요순"}
           </button>
           <button
@@ -620,7 +620,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
             className="p-1.5 text-text-dim hover:text-text-primary transition-colors"
             title="새로고침"
           >
-            <RefreshCw size={12} />
+            <RefreshCw size={13} />
           </button>
         </div>
       </div>
@@ -671,7 +671,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                       onClick={() => setImage("")}
                       className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
                     >
-                      <XIcon size={12} />
+                      <XIcon size={13} />
                     </button>
                   </div>
                 )}
@@ -710,7 +710,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                             onClick={() => setPollOptions((prev) => prev.filter((_, j) => j !== i))}
                             className="text-text-dim hover:text-accent-red transition-colors"
                           >
-                            <XIcon size={12} />
+                            <XIcon size={13} />
                           </button>
                         )}
                       </div>
@@ -741,7 +741,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                           <span key={t.symbol} className="flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue">
                             #{t.market === "KR" && t.name ? t.name : t.symbol}
                             <button onClick={() => removeTag(t.symbol)}>
-                              <XIcon size={10} />
+                              <XIcon size={11} />
                             </button>
                           </span>
                         ))}
@@ -756,7 +756,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                           className="w-full px-2.5 py-1.5 bg-bg-card border border-border rounded-lg text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
                         />
                         {tagResults.length > 0 && (
-                          <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-lg max-h-36 overflow-y-auto">
+                          <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-float max-h-36 overflow-y-auto">
                             {tagResults.map((r: any, idx) => (
                               <button
                                 key={idx}
@@ -776,7 +776,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
 
                 {postError && (
                   <div className="flex items-center gap-1.5 text-xs text-accent-red">
-                    <AlertCircle size={12} />
+                    <AlertCircle size={13} />
                     {postError}
                   </div>
                 )}
@@ -821,7 +821,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
                 disabled={!body.trim() || submitting}
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
               >
-                <Send size={12} />
+                <Send size={13} />
                 {submitting ? "등록 중..." : "의견 남기기"}
               </button>
             </div>
@@ -831,7 +831,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
             onClick={() => navigate("/login")}
             className="w-full flex items-center justify-center gap-2.5 py-5 text-sm text-text-muted hover:text-accent-blue hover:bg-accent-blue/5 transition-all"
           >
-            <LogIn size={15} />
+            <LogIn size={14} />
             로그인하고 의견 남기기
           </button>
         )}

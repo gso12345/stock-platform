@@ -525,7 +525,7 @@ export default function SystemTab() {
             ].map((x) => (
               <div key={x.l} className="rounded-lg bg-bg-elevated p-2.5">
                 <p className="text-sm font-bold text-text-primary font-mono">{x.v}</p>
-                <p className="text-2xs text-text-dim flex items-center gap-1"><x.Icon size={10} />{x.l}</p>
+                <p className="text-2xs text-text-dim flex items-center gap-1"><x.Icon size={11} />{x.l}</p>
                 {x.sub && <p className="text-2xs text-accent-amber mt-0.5 break-keep">{x.sub}</p>}
               </div>
             ))}
@@ -622,7 +622,7 @@ export default function SystemTab() {
               )}
               {(라이브러리.stubbed ?? []).map((x) => (
                 <p key={x.name} className="text-2xs text-accent-green break-keep flex items-start gap-1">
-                  <CheckCircle2 size={10} className="shrink-0 mt-0.5" />
+                  <CheckCircle2 size={11} className="shrink-0 mt-0.5" />
                   <span><b>{x.name}</b> 미적재 — {x.note}</span>
                 </p>
               ))}
@@ -794,7 +794,7 @@ export default function SystemTab() {
           </div>
           <div className="flex items-center justify-between text-2xs text-text-dim">
             <span>국내 {d.market.kr_label} · 미국 {d.market.us_label}</span>
-            <span className="flex items-center gap-1"><Wifi size={10} />연결 {d.websocket.connections}개</span>
+            <span className="flex items-center gap-1"><Wifi size={11} />연결 {d.websocket.connections}개</span>
           </div>
           <p className="text-2xs text-text-dim break-keep">
             보는 사람이 없으면 갱신하지 않습니다. '갱신 중 종목 0'은 지금 아무도

@@ -994,7 +994,7 @@ export default function StockDetail() {
       <div className="flex flex-col gap-2">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3 min-w-0 flex-1">
-            <button aria-label="뒤로 가기" onClick={()=>navigate(-1)} className="mt-0.5 -ml-2 w-11 h-11 flex items-center justify-center rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors"><ArrowLeft size={18}/></button>
+            <button aria-label="뒤로 가기" onClick={()=>navigate(-1)} className="mt-0.5 -ml-2 w-11 h-11 flex items-center justify-center rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors"><ArrowLeft size={16}/></button>
             <div className="min-w-0">
               <h1 className="text-2xl font-bold text-text-primary leading-tight truncate">
                 {d?.name && d.name !== sym ? d.name : sym.replace(".KS","").replace(".KQ","")}
@@ -1067,7 +1067,7 @@ export default function StockDetail() {
               <span className="text-xs text-text-muted animate-fade-in">{watchlistMsg}</span>
             )}
             {folderMenuOpen && !inWatchlist && (
-              <div className="absolute top-full mt-1 right-0 z-20 w-44 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
+              <div className="absolute top-full mt-1 right-0 z-20 w-44 rounded-xl border border-border bg-bg-card shadow-float overflow-hidden">
                 <button
                   onClick={() => { addMutation.mutate(null); setFolderMenuOpen(false); }}
                   className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
@@ -1349,7 +1349,7 @@ export default function StockDetail() {
                       {isActive ? (currentOpt?.label ?? group.label) : group.label}
                     </button>
                     {openGroup === group.key && (
-                      <div className="absolute top-full left-0 mt-1 z-50 flex flex-col gap-0.5 p-1 rounded-lg border border-border bg-bg-card shadow-xl min-w-[64px]">
+                      <div className="absolute top-full left-0 mt-1 z-50 flex flex-col gap-0.5 p-1 rounded-lg border border-border bg-bg-card shadow-float min-w-[64px]">
                         {group.options.map(opt => (
                           <button key={opt.value}
                             onClick={() => { onCandleChange(opt.value); setOpenGroup(null); }}
@@ -1419,7 +1419,7 @@ export default function StockDetail() {
             <div className="h-[300px] sm:h-[420px] flex flex-col items-center justify-center gap-3">
               <BarChart2 size={32} className="text-text-muted/40"/>
               <p className="text-text-muted text-base">차트 데이터 없음</p>
-              <button onClick={()=>refetchChart()} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue text-white text-sm rounded-lg"><RefreshCw size={12}/>재시도</button>
+              <button onClick={()=>refetchChart()} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-blue text-white text-sm rounded-lg"><RefreshCw size={13}/>재시도</button>
             </div>
           )}
         </div>
@@ -1486,7 +1486,7 @@ export default function StockDetail() {
                         {isActive ? (currentOpt?.label ?? group.label) : group.label}
                       </button>
                       {openGroup === group.key && (
-                        <div className="absolute top-full left-0 mt-1 z-50 flex flex-col gap-0.5 p-1 rounded-lg border border-border bg-bg-card shadow-xl min-w-[64px]">
+                        <div className="absolute top-full left-0 mt-1 z-50 flex flex-col gap-0.5 p-1 rounded-lg border border-border bg-bg-card shadow-float min-w-[64px]">
                           {group.options.map(opt => (
                             <button key={opt.value}
                               onClick={() => { onCandleChange(opt.value); setOpenGroup(null); }}
@@ -1511,7 +1511,7 @@ export default function StockDetail() {
               >LOG</button>
             </div>
             <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-              <X size={18}/>
+              <X size={16}/>
             </button>
           </div>
           {/* 전체 차트.
@@ -2038,7 +2038,7 @@ export default function StockDetail() {
                       style={{ background: opt.color + "bb", borderColor: opt.color }}
                     >
                       {opt.label}
-                      <X size={10} className="opacity-70" />
+                      <X size={11} className="opacity-70" />
                     </button>
                   ))}
                 </div>
@@ -2182,7 +2182,7 @@ export default function StockDetail() {
                       <HelpCircle size={13}/>
                     </button>
                     {showGradeHelp && (
-                      <div className="absolute left-0 top-7 z-20 w-56 rounded-xl border border-border bg-bg-elevated shadow-lg p-3 flex flex-col gap-1.5">
+                      <div className="absolute left-0 top-7 z-20 w-56 rounded-xl border border-border bg-bg-elevated shadow-float p-3 flex flex-col gap-1.5">
                         <span className="text-base font-semibold text-text-secondary pb-1">종합 점수 → 등급 기준</span>
                         {GRADE_BANDS.map((b) => (
                           <div key={b.grade} className="flex items-center justify-between text-base">
@@ -2758,7 +2758,7 @@ export default function StockDetail() {
                             </div>
                             {item.summary && <p className="text-sm text-text-muted mt-1 line-clamp-2">{item.summary}</p>}
                           </div>
-                          <ExternalLink size={12} className="text-text-muted flex-shrink-0 mt-1"/>
+                          <ExternalLink size={13} className="text-text-muted flex-shrink-0 mt-1"/>
                         </a>
                       </li>
                     ))}

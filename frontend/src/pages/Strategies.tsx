@@ -180,11 +180,11 @@ export default function Strategies() {
                       {/* Condition counts */}
                       <div className="flex gap-1.5 flex-wrap">
                         <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-accent-blue/15 border border-accent-blue/30 text-accent-blue rounded-md font-medium">
-                          <BarChart2 size={10} />
+                          <BarChart2 size={11} />
                           진입 {entryCount}조건
                         </span>
                         <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-accent-red/15 border border-accent-red/30 text-accent-red rounded-md font-medium">
-                          <BarChart2 size={10} />
+                          <BarChart2 size={11} />
                           청산 {exitCount}조건
                         </span>
                       </div>
@@ -204,7 +204,7 @@ export default function Strategies() {
                         className="flex-1"
                         onClick={() => navigate("/backtest")}
                       >
-                        <BarChart2 size={12} className="inline mr-1" />
+                        <BarChart2 size={13} className="inline mr-1" />
                         백테스트 실행
                       </Button>
                       {isPendingDelete ? (

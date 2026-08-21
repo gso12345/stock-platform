@@ -32,16 +32,16 @@ export default function LoadingProgressOverlay() {
   if (closed || percent >= 100) return null;
 
   return (
-    <div className="fixed right-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] lg:bottom-4 z-[150] w-48 bg-bg-card border border-border rounded-xl shadow-2xl p-2.5 flex flex-col gap-1.5 fade-in">
+    <div className="fixed right-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] lg:bottom-4 z-[150] w-48 bg-bg-card border border-border rounded-xl shadow-modal p-2.5 flex flex-col gap-1.5 fade-in">
       <div className="flex items-center gap-1.5">
-        <Logo size={18} />
+        <Logo size={16} />
         <span className="text-2xs font-semibold text-text-secondary flex-1 truncate">데이터 불러오는 중…</span>
         <button
           onClick={() => setClosed(true)}
           aria-label="닫기"
           className="p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
         >
-          <X size={12} />
+          <X size={13} />
         </button>
       </div>
       <div className="flex items-center gap-2">

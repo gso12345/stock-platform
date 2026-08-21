@@ -102,7 +102,7 @@ export default function Layout() {
 
   const navItemCls = (isActive: boolean) =>
     `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
-      isActive ? "bg-accent-blue/15 text-accent-blue border border-accent-blue/20 shadow-sm"
+      isActive ? "bg-accent-blue/15 text-accent-blue border border-accent-blue/20 shadow-card"
                : "text-text-muted hover:text-text-secondary hover:bg-bg-elevated"}`;
 
   return (
@@ -131,7 +131,7 @@ export default function Layout() {
             <NavLink key={to} to={to} end={end}
               className={({ isActive }) => navItemCls(isActive)}
             >
-              <Icon size={15} className="flex-shrink-0" />{label}
+              <Icon size={14} className="flex-shrink-0" />{label}
             </NavLink>
           ))}
         </nav>
@@ -140,7 +140,7 @@ export default function Layout() {
             <NavLink to="/mypage"
               className={({ isActive }) => navItemCls(isActive)}
             >
-              <User size={15} className="flex-shrink-0" />내 프로필
+              <User size={14} className="flex-shrink-0" />내 프로필
             </NavLink>
           )}
           <InstallAppButton className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150" />
@@ -148,7 +148,7 @@ export default function Layout() {
             onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
           >
-            <Settings size={15} className="flex-shrink-0" />설정
+            <Settings size={14} className="flex-shrink-0" />설정
           </button>
         </div>
         <div className="px-5 py-3 border-t border-border-subtle">

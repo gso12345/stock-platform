@@ -69,7 +69,7 @@ export function NotificationToggles() {
         const on = settings[kind];
         return (
           <div key={kind} className="flex items-center gap-3 px-4 py-3 border-b border-border/50 last:border-b-0">
-            <meta.Icon size={15} className={`shrink-0 ${on ? meta.cls : "text-text-dim"}`} />
+            <meta.Icon size={14} className={`shrink-0 ${on ? meta.cls : "text-text-dim"}`} />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-text-primary break-keep">{meta.label}</p>
               <p className="text-2xs text-text-dim break-keep">{meta.desc}</p>
@@ -121,13 +121,13 @@ export default function NotificationSettings({
         aria-expanded={open}
         className="w-full flex items-center gap-2 px-4 py-3 hover:bg-bg-elevated transition-colors"
       >
-        <BellRing size={15} className="text-text-muted" />
+        <BellRing size={14} className="text-text-muted" />
         <span className="text-xs font-semibold text-text-primary">알림 설정</span>
         <span className="text-2xs text-text-dim">
           {isLoading ? "" : 꺼진개수 === 0 ? "모두 받는 중" : `${꺼진개수}개 꺼둠`}
         </span>
         <div className="flex-1" />
-        <ChevronDown size={15}
+        <ChevronDown size={14}
           className={`text-text-dim transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && <div className="border-t border-border"><NotificationToggles /></div>}

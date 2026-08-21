@@ -112,14 +112,14 @@ export function PortfolioModal({
       <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
         {step === 2 && !item && (
           <button onClick={() => setStep(1)} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-            <ArrowLeft size={15} />
+            <ArrowLeft size={14} />
           </button>
         )}
         <h3 className="flex-1 text-sm font-bold text-text-primary">
           {item ? "포지션 수정" : step === 1 ? "종목 검색" : "매수 정보 입력"}
         </h3>
         <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-          <X size={15} />
+          <X size={14} />
         </button>
       </div>
 
@@ -257,7 +257,7 @@ export function CashModal({
         <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
           <h3 className="flex-1 text-sm font-bold text-text-primary">{item ? "현금 수정" : "현금 추가"}</h3>
           <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
 
@@ -343,7 +343,7 @@ export function ConfirmDeleteModal({
       <div className="p-5 flex flex-col gap-3">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-full bg-accent-red/10 flex items-center justify-center flex-shrink-0">
-            <AlertTriangle size={18} className="text-accent-red" />
+            <AlertTriangle size={16} className="text-accent-red" />
           </div>
           <h3 className="text-sm font-bold text-text-primary">{title}</h3>
         </div>
@@ -427,10 +427,10 @@ export function PortfolioFilterDropdown({ portfolios, excludedIds, onToggle }: {
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 text-xs font-semibold transition-colors whitespace-nowrap"
         title="전체 보기에 포함할 포트폴리오 선택"
       >
-        <Check size={12} /> 포트폴리오 선택 ({includedCount}/{portfolios.length})
+        <Check size={13} /> 포트폴리오 선택 ({includedCount}/{portfolios.length})
       </button>
       {open && (
-        <div className="absolute z-30 top-full mt-1 left-0 w-56 max-h-64 overflow-y-auto bg-bg-card border border-border rounded-xl shadow-2xl p-1.5 flex flex-col gap-0.5">
+        <div className="absolute z-30 top-full mt-1 left-0 w-56 max-h-64 overflow-y-auto bg-bg-card border border-border rounded-xl shadow-modal p-1.5 flex flex-col gap-0.5">
           {portfolios.map((pf) => {
             const checked = !excludedIds.has(pf.id);
             return (
@@ -485,7 +485,7 @@ export function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void })
             if (e.key === "Escape") { setName(""); setAdding(false); }
           }}
         />
-        <button aria-label="확인" onClick={commit} className="p-0.5 text-accent-blue hover:text-accent-blue"><Check size={12} /></button>
+        <button aria-label="확인" onClick={commit} className="p-0.5 text-accent-blue hover:text-accent-blue"><Check size={13} /></button>
       </div>
     );
   }
@@ -495,7 +495,7 @@ export function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void })
       onClick={() => setAdding(true)}
       className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-dashed border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 text-xs font-semibold transition-colors flex-shrink-0"
     >
-      <Plus size={12} /> 포트폴리오
+      <Plus size={13} /> 포트폴리오
     </button>
   );
 }
@@ -538,7 +538,7 @@ export function PortfolioManagerModal({
     <Modal maxWidth="max-w-sm" onClose={onClose}>
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
         <h3 className="text-sm font-bold text-text-primary">포트폴리오 관리</h3>
-        <button aria-label="닫기" onClick={onClose}><X size={15} className="text-text-muted hover:text-text-primary" /></button>
+        <button aria-label="닫기" onClick={onClose}><X size={14} className="text-text-muted hover:text-text-primary" /></button>
       </div>
       <ReorderableList
         items={local}
@@ -563,13 +563,13 @@ export function PortfolioManagerModal({
             )}
             <span className="text-xs text-text-muted flex-shrink-0">{pf.count}개</span>
             {editingId === pf.id ? (
-              <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(pf.id); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={15} /></button>
+              <button draggable={false} onClick={(e) => { e.stopPropagation(); commitRename(pf.id); }} className="p-2 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
             ) : (
               <button draggable={false} onClick={(e) => { e.stopPropagation(); setEditingId(pf.id); setEditName(pf.name); }}
-                className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={15} /></button>
+                className="p-2 text-text-muted hover:text-accent-blue hover:bg-accent-blue/10 rounded-lg transition-colors"><Pencil size={14} /></button>
             )}
             <button draggable={false} onClick={(e) => { e.stopPropagation(); onDelete(pf); }}
-              className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={15} /></button>
+              className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"><Trash2 size={14} /></button>
           </div>
         )}
       </ReorderableList>

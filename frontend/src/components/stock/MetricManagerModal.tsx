@@ -52,7 +52,7 @@ export default function MetricManagerModal({
           </p>
         </div>
         <button aria-label="닫기" onClick={onClose}>
-          <X size={15} className="text-text-muted hover:text-text-primary" />
+          <X size={14} className="text-text-muted hover:text-text-primary" />
         </button>
       </div>
 
@@ -79,7 +79,7 @@ export default function MetricManagerModal({
                 onClick={(e) => { e.stopPropagation(); onChange(선택된.filter((k) => k !== 지표.key)); }}
                 className="p-2 text-text-muted hover:text-accent-red hover:bg-accent-red/10 rounded-lg transition-colors"
               >
-                <Trash2 size={15} />
+                <Trash2 size={14} />
               </button>
             </div>
           )}

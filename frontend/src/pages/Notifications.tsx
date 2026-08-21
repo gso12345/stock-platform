@@ -73,7 +73,7 @@ export default function Notifications() {
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <Bell size={18} className="text-accent-blue" />
+        <Bell size={16} className="text-accent-blue" />
         <h1 className="text-lg font-bold text-text-primary">알림</h1>
         {count > 0 && (
           <span className="px-1.5 py-0.5 rounded-full bg-accent-red text-white text-2xs font-bold">
@@ -123,7 +123,7 @@ export default function Notifications() {
             aria-label="이전 쪽"
             className="p-2 rounded-xl border border-border text-text-muted hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
-            <ChevronLeft size={15} />
+            <ChevronLeft size={14} />
           </button>
           <span className="text-xs text-text-muted tabular-nums">{page}</span>
           <button
@@ -132,7 +132,7 @@ export default function Notifications() {
             aria-label="다음 쪽"
             className="p-2 rounded-xl border border-border text-text-muted hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
-            <ChevronRight size={15} />
+            <ChevronRight size={14} />
           </button>
         </div>
       )}

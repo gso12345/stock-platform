@@ -352,7 +352,7 @@ export default function UserProfile() {
             if (e.target === e.currentTarget) setFollowModal(null);
           }}
         >
-          <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+          <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-modal overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h3 className="text-sm font-bold text-text-primary">
                 {followModal === "followers" ? "팔로워" : "팔로잉"}

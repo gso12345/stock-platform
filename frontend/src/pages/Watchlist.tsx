@@ -634,7 +634,7 @@ export default function Watchlist() {
             <p className="text-xs text-text-muted mt-0.5">아래는 예시 데이터입니다. 로그인하면 내 관심종목을 추가·관리할 수 있어요.</p>
           </div>
           <Link to="/login" className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue transition-colors">
-            <LogIn size={12} /> 로그인
+            <LogIn size={13} /> 로그인
           </Link>
         </div>
       )}
@@ -953,8 +953,8 @@ export default function Watchlist() {
                         <Plus size={13} />
                       </button>
                       <div className="flex gap-1">
-                        <button onClick={() => setEditingFolder(folder.id)} className="text-text-muted hover:text-accent-blue p-1"><Pencil size={12} /></button>
-                        <button onClick={() => setDeletingFolder({ ...folder, _itemCount: folderItems.length })} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={12} /></button>
+                        <button onClick={() => setEditingFolder(folder.id)} className="text-text-muted hover:text-accent-blue p-1"><Pencil size={13} /></button>
+                        <button onClick={() => setDeletingFolder({ ...folder, _itemCount: folderItems.length })} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={13} /></button>
                       </div>
                     </>
                   )}
@@ -968,7 +968,7 @@ export default function Watchlist() {
                           onClick={() => openAddModal(folder.id)}
                           className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-text-muted text-xs hover:border-accent-blue hover:text-accent-blue transition-colors"
                         >
-                          <Plus size={12} /> 종목 추가
+                          <Plus size={13} /> 종목 추가
                         </button>
                       </div>
                     )

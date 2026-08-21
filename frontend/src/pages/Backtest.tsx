@@ -513,7 +513,7 @@ export default function Backtest() {
               <Card className="p-0 overflow-hidden">
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Award size={15} className="text-accent-yellow" />
+                    <Award size={14} className="text-accent-yellow" />
                     <span className="text-sm font-semibold text-text-primary">유니버스 백테스트 결과</span>
                   </div>
                   <span className="text-text-muted text-xs">
@@ -597,7 +597,7 @@ export default function Backtest() {
                       <p className="font-semibold text-text-primary text-sm">{s.name}</p>
                       <p className="text-xs text-text-muted mt-0.5">v{s.version} · {s.market} · {s.created_at?.slice(0, 10)}</p>
                     </div>
-                    <TrendingUp size={15} className="text-text-muted" />
+                    <TrendingUp size={14} className="text-text-muted" />
                   </div>
                   {s.description && <p className="text-xs text-text-secondary">{s.description}</p>}
                   <div className="flex gap-1.5 flex-wrap">

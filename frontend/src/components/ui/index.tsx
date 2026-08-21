@@ -131,7 +131,7 @@ export function Modal({ children, maxWidth = "max-w-md", align = "center", padTo
       )}
       onClick={onClose ? (e) => { if (e.target === e.currentTarget) onClose(); } : undefined}
     >
-      <div className={cn("w-full bg-bg-card border border-border rounded-2xl shadow-2xl overflow-hidden modal-pop", maxWidth, className)}>
+      <div className={cn("w-full bg-bg-card border border-border rounded-2xl shadow-modal overflow-hidden modal-pop", maxWidth, className)}>
         {children}
       </div>
     </div>
@@ -233,7 +233,7 @@ export function Tabs({
                  넓어져 모바일에서 가로 스크롤이 길어진다 */
               size === "md" ? "text-sm" : size === "xs" ? "text-2xs" : "text-xs",
               fill && "flex-1",
-              on ? (subtle ? "bg-bg-card text-text-primary shadow-sm" : "bg-accent-blue text-white shadow")
+              on ? (subtle ? "bg-bg-card text-text-primary shadow-card" : "bg-accent-blue text-white shadow")
                  : "text-text-muted hover:text-text-primary",
             )}
           >
@@ -411,7 +411,7 @@ export function 용어힌트({ 이름, className, 글자숨김 }: {
           <div
             role="tooltip"
             style={{ top: 자리.top, left: 자리.left, width: Math.min(280, window.innerWidth - 24) }}
-            className="fixed z-[61] rounded-xl border border-border bg-bg-card shadow-2xl p-3
+            className="fixed z-[61] rounded-xl border border-border bg-bg-card shadow-modal p-3
                        flex flex-col gap-1.5 text-left normal-case tracking-normal"
           >
             <p className="text-xs font-bold text-text-primary break-keep">
@@ -507,7 +507,7 @@ export function 시트({ 열림, 닫기, 제목, children, 꼬리 }: {
       <div
         role="dialog" aria-modal="true"
         className="fixed inset-x-0 bottom-0 z-50 bg-bg-card border-t border-border
-                   rounded-t-2xl shadow-2xl flex flex-col modal-pop"
+                   rounded-t-2xl shadow-modal flex flex-col modal-pop"
         // 화면의 85%까지만 차지하고, 아이폰 홈 인디케이터 영역을 피한다
         style={{ maxHeight: "85vh", paddingBottom: "env(safe-area-inset-bottom)" }}
       >

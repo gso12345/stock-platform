@@ -85,7 +85,7 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
     return () => clearTimeout(t);
   }, [onDone]);
   return (
-    <div className="fixed bottom-[calc(4.5rem_+_env(safe-area-inset-bottom))] right-4 lg:bottom-6 lg:right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-accent-green/20 border border-accent-green/40 text-accent-green text-sm font-medium rounded-xl shadow-lg animate-fade-in">
+    <div className="fixed bottom-[calc(4.5rem_+_env(safe-area-inset-bottom))] right-4 lg:bottom-6 lg:right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-accent-green/20 border border-accent-green/40 text-accent-green text-sm font-medium rounded-xl shadow-float animate-fade-in">
       <Check size={14} />
       {message}
     </div>
@@ -355,7 +355,7 @@ export default function Screening() {
                         : "bg-bg-primary border border-border text-text-muted"
                     }`}
                   >
-                    {o === "desc" ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                    {o === "desc" ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
                     {o === "desc" ? "내림차순" : "오름차순"}
                   </button>
                 ))}
@@ -430,7 +430,7 @@ export default function Screening() {
                   title="CSV 다운로드"
                   className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary bg-bg-elevated border border-border rounded-lg hover:border-accent-blue/50 transition-colors"
                 >
-                  <Download size={12} />
+                  <Download size={13} />
                   CSV
                 </button>
                 {/* Column visibility toggle */}
@@ -444,11 +444,11 @@ export default function Screening() {
                         : "text-text-secondary hover:text-text-primary bg-bg-elevated border-border hover:border-accent-blue/50"
                     }`}
                   >
-                    <Settings2 size={12} />
+                    <Settings2 size={13} />
                     컬럼
                   </button>
                   {showColMenu && (
-                    <div className="absolute right-0 top-full mt-1.5 z-30 bg-bg-card border border-border rounded-xl shadow-xl p-2 min-w-[140px]">
+                    <div className="absolute right-0 top-full mt-1.5 z-30 bg-bg-card border border-border rounded-xl shadow-float p-2 min-w-[140px]">
                       <p className="text-2xs font-semibold text-text-muted uppercase tracking-wider px-2 pb-1.5">표시 컬럼</p>
                       {ALL_COLUMNS.map((col) => (
                         <button
@@ -462,7 +462,7 @@ export default function Screening() {
                               ? "bg-accent-blue border-accent-blue text-white"
                               : "border-border"
                           }`}>
-                            {visibleCols.has(col.key) && <Check size={10} />}
+                            {visibleCols.has(col.key) && <Check size={11} />}
                           </span>
                         </button>
                       ))}

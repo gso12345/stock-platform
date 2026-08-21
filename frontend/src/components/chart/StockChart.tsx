@@ -280,7 +280,7 @@ function SettingsPanel({ settings, onChange, onClose }: {
                     className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
                   />
                   <span className="text-2xs text-text-muted">기간</span>
-                  <button onClick={() => removeMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={12}/></button>
+                  <button onClick={() => removeMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={13}/></button>
                 </div>
               ))}
             </div>
@@ -301,7 +301,7 @@ function SettingsPanel({ settings, onChange, onClose }: {
                     className="w-16 bg-bg-primary border border-border rounded px-2 py-0.5 text-text-primary font-mono text-center text-xs focus:outline-none focus:border-accent-blue"
                   />
                   <span className="text-2xs text-text-muted">기간</span>
-                  <button onClick={() => removeEMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={12}/></button>
+                  <button onClick={() => removeEMA(i)} className="ml-auto text-text-dim hover:text-accent-red"><X size={13}/></button>
                 </div>
               ))}
             </div>

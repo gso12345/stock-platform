@@ -357,7 +357,7 @@ export default function MyPage() {
               {avatarUrl && (
                 <button onClick={() => setAvatarUrl(null)}
                   className="flex items-center gap-1.5 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-xs text-accent-red hover:border-accent-red/50 transition-all">
-                  <X size={12} /> 사진 삭제
+                  <X size={13} /> 사진 삭제
                 </button>
               )}
               {avatarUrl && (
@@ -425,7 +425,7 @@ export default function MyPage() {
       {portfolios && portfolios.length > 0 && (
         <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3">
           <div className="flex items-center gap-2">
-            <Globe size={15} className="text-accent-blue" />
+            <Globe size={14} className="text-accent-blue" />
             <h2 className="text-sm font-bold text-text-primary">포트폴리오 공개 설정</h2>
           </div>
           <p className="text-xs text-text-dim">공개된 포트폴리오는 다른 사용자가 내 프로필에서 볼 수 있습니다</p>
@@ -471,7 +471,7 @@ export default function MyPage() {
       {activity && (
         <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3">
           <div className="flex items-center gap-2">
-            <FileText size={15} className="text-accent-blue" />
+            <FileText size={14} className="text-accent-blue" />
             <h2 className="text-sm font-bold text-text-primary">최근 활동</h2>
           </div>
           {!activity.items || activity.items.length === 0 ? (

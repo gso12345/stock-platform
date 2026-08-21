@@ -31,7 +31,7 @@ function 줄({ to, onClick, icon: Icon, label, 설명, badge, 위험 }: {
   const 안쪽 = (
     <>
       <span className="relative shrink-0">
-        <Icon size={18} className={위험 ? "text-accent-red" : "text-text-muted"} />
+        <Icon size={16} className={위험 ? "text-accent-red" : "text-text-muted"} />
         {badge ? (
           <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-0.5 flex items-center justify-center rounded-full bg-accent-red text-white text-2xs font-bold leading-none">
             {badge}
@@ -42,7 +42,7 @@ function 줄({ to, onClick, icon: Icon, label, 설명, badge, 위험 }: {
         <span className={`text-sm font-semibold ${위험 ? "text-accent-red" : "text-text-primary"}`}>{label}</span>
         {설명 && <span className="text-2xs text-text-dim truncate">{설명}</span>}
       </span>
-      <ChevronRight size={15} className="text-text-dim shrink-0" />
+      <ChevronRight size={14} className="text-text-dim shrink-0" />
     </>
   );
   const cls = "w-full flex items-center gap-3.5 px-4 py-3.5 text-left hover:bg-bg-elevated active:bg-bg-elevated transition-colors";
@@ -132,7 +132,7 @@ export default function More() {
             onClick={() => navigate("/login")}
             className="w-full flex items-center justify-center gap-2.5 py-5 text-sm text-text-muted hover:text-accent-blue hover:bg-accent-blue/5 transition-all"
           >
-            <LogIn size={15} />
+            <LogIn size={14} />
             로그인하고 시작하기
           </button>
         </div>

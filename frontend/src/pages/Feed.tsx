@@ -279,7 +279,7 @@ const FeedCard = memo(function FeedCard({
                 post.liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"
               }`}
             >
-              <Heart size={12} className={post.liked ? "fill-accent-red" : ""} />
+              <Heart size={13} className={post.liked ? "fill-accent-red" : ""} />
               {post.like_count > 0 ? (
                 <span className={post.liked ? "font-semibold" : ""}>{post.like_count}</span>
               ) : (
@@ -291,7 +291,7 @@ const FeedCard = memo(function FeedCard({
               onClick={() => onComments(post)}
               className="flex items-center gap-1.5 text-xs text-text-dim hover:text-accent-blue transition-colors"
             >
-              <MessageSquare size={12} />
+              <MessageSquare size={13} />
               {post.comment_count > 0 ? (
                 <span>{post.comment_count}</span>
               ) : (
@@ -303,7 +303,7 @@ const FeedCard = memo(function FeedCard({
               onClick={handleShare}
               className="flex items-center gap-1.5 text-xs text-text-dim hover:text-text-primary transition-colors"
             >
-              <Share2 size={12} />
+              <Share2 size={13} />
               <span className="opacity-60">{copied ? "복사됨!" : "공유"}</span>
             </button>
 
@@ -339,7 +339,7 @@ function 글쓰기버튼() {
     return (
       <div className="bg-bg-card border border-border rounded-2xl overflow-hidden">
         <button onClick={() => navigate("/login")} className="w-full flex items-center justify-center gap-2.5 py-5 text-sm text-text-muted hover:text-accent-blue hover:bg-accent-blue/5 transition-all">
-          <LogIn size={15} />
+          <LogIn size={14} />
           로그인하고 의견 남기기
         </button>
       </div>
@@ -507,7 +507,7 @@ export default function Feed() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <Rss size={18} className="text-accent-blue" />
+            <Rss size={16} className="text-accent-blue" />
             <h1 className="text-xl font-bold text-text-primary">커뮤니티 피드</h1>
           </div>
           <p className="text-xs text-text-dim mt-0.5">

@@ -293,7 +293,7 @@ function DashboardTab({ qc, stats: statsProp }: { qc: QueryClient; stats?: any }
             disabled={clearMut.isPending}
             className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-red hover:border-accent-red/40 transition-all"
           >
-            <RefreshCw size={12} className={clearMut.isPending ? "animate-spin" : ""} />
+            <RefreshCw size={13} className={clearMut.isPending ? "animate-spin" : ""} />
             {clearMut.isPending
               ? "초기화 중..."
               : clearMut.isSuccess
@@ -324,7 +324,7 @@ function DashboardTab({ qc, stats: statsProp }: { qc: QueryClient; stats?: any }
                     style={{ height: `${Math.max(pct, d.count > 0 ? 8 : 2)}%` }}
                   />
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:flex pointer-events-none z-10">
-                    <div className="bg-bg-elevated border border-border text-text-primary text-2xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg">
+                    <div className="bg-bg-elevated border border-border text-text-primary text-2xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-float">
                       {d.date.slice(5)} · {d.count}명
                     </div>
                   </div>
@@ -371,7 +371,7 @@ function DashboardTab({ qc, stats: statsProp }: { qc: QueryClient; stats?: any }
                     style={{ height: `${Math.max(pct, d.count > 0 ? 8 : 2)}%` }}
                   />
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:flex pointer-events-none z-10">
-                    <div className="bg-bg-elevated border border-border text-text-primary text-2xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-lg">
+                    <div className="bg-bg-elevated border border-border text-text-primary text-2xs font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-float">
                       {d.date.slice(5)} · {d.count}명
                     </div>
                   </div>
@@ -723,7 +723,7 @@ function PostsAdminSection({ qc }: { qc: QueryClient }) {
       {confirmDelete !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={() => { if (!deleteMut.isPending) setConfirmDelete(null); }}>
-          <div className="bg-bg-card border border-border rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4"
+          <div className="bg-bg-card border border-border rounded-2xl shadow-modal p-6 w-80 flex flex-col gap-4"
             onClick={(e) => e.stopPropagation()}>
             <div className="flex flex-col gap-1">
               <p className="text-sm font-bold text-text-primary">글을 삭제하시겠습니까?</p>
@@ -878,7 +878,7 @@ function CommentsAdminSection({ qc }: { qc: QueryClient }) {
       {confirmDelete !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={() => { if (!deleteMut.isPending) setConfirmDelete(null); }}>
-          <div className="bg-bg-card border border-border rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4"
+          <div className="bg-bg-card border border-border rounded-2xl shadow-modal p-6 w-80 flex flex-col gap-4"
             onClick={e => e.stopPropagation()}>
             <div className="flex flex-col gap-1">
               <p className="text-sm font-bold text-text-primary">댓글을 삭제하시겠습니까?</p>
@@ -956,7 +956,7 @@ function UsersTab({ qc }: { qc: QueryClient }) {
             className="w-full pl-8 pr-7 py-1.5 text-xs bg-bg-elevated border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue/60 transition-colors" />
           {search && (
             <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
-              <XIcon size={12} />
+              <XIcon size={13} />
             </button>
           )}
         </div>
@@ -1106,7 +1106,7 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       onClick={onClose}>
-      <div className="bg-bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden"
+      <div className="bg-bg-card border border-border rounded-2xl shadow-modal w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden"
         onClick={e => e.stopPropagation()}>
         {/* 헤더 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
@@ -1451,7 +1451,7 @@ function CacheTab({ qc }: { qc: QueryClient }) {
                 ) : (
                   <button onClick={() => setConfirmed(item.key)}
                     className="text-text-muted hover:text-accent-red transition-colors">
-                    <Trash2 size={12} />
+                    <Trash2 size={13} />
                   </button>
                 )}
               </div>
@@ -1568,7 +1568,7 @@ function PopupTab({ qc }: { qc: QueryClient }) {
               )}
               {p.link_url && (
                 <a href={safeExternalUrl(p.link_url)} target="_blank" rel="noopener noreferrer nofollow" className="flex items-center gap-1 text-xs text-accent-blue hover:underline">
-                  <ExternalLink size={10} />{p.link_text || p.link_url}
+                  <ExternalLink size={11} />{p.link_text || p.link_url}
                 </a>
               )}
             </div>
@@ -1579,7 +1579,7 @@ function PopupTab({ qc }: { qc: QueryClient }) {
       {/* 팝업 폼 모달 */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowForm(false)}>
-          <div className="bg-bg-card border border-border rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4 flex flex-col gap-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="bg-bg-card border border-border rounded-2xl shadow-modal p-6 w-full max-w-lg mx-4 flex flex-col gap-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <p className="text-sm font-bold text-text-primary">{editTarget ? "팝업 수정" : "새 팝업 추가"}</p>
               <button onClick={() => setShowForm(false)}><XIcon size={16} className="text-text-muted" /></button>
@@ -1743,7 +1743,7 @@ function ReportsTab({ qc }: { qc: QueryClient }) {
                   </span>
                   <span className="text-xs text-text-muted font-mono">#{r.id}</span>
                   <span className="text-xs text-text-muted">·</span>
-                  <Flag size={10} className="text-text-muted" />
+                  <Flag size={11} className="text-text-muted" />
                   <span className="text-xs font-semibold text-text-secondary">{r.reporter}</span>
                   <span className="text-xs text-text-muted">신고</span>
                   <span className="text-xs text-text-muted ml-auto font-mono">{r.created_at?.slice(0, 10)}</span>
@@ -1767,7 +1767,7 @@ function ReportsTab({ qc }: { qc: QueryClient }) {
                         )}
                         <Link to={`/post/${r.post_id}`} target="_blank"
                           className="ml-auto flex items-center gap-0.5 text-xs text-accent-blue hover:underline shrink-0">
-                          <ExternalLink size={10} />보기
+                          <ExternalLink size={11} />보기
                         </Link>
                       </div>
                       {r.post_title && (
@@ -1789,7 +1789,7 @@ function ReportsTab({ qc }: { qc: QueryClient }) {
                         {r.post_id && (
                           <Link to={`/post/${r.post_id}`} target="_blank"
                             className="ml-auto flex items-center gap-0.5 text-xs text-accent-blue hover:underline shrink-0">
-                            <ExternalLink size={10} />게시글
+                            <ExternalLink size={11} />게시글
                           </Link>
                         )}
                       </div>

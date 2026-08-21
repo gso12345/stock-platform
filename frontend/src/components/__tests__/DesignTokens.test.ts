@@ -101,3 +101,66 @@ describe("글자 크기는 rem 으로", () => {
     expect(parseFloat(m![1]) * 16).toBeGreaterThanOrEqual(10);
   });
 });
+
+
+describe("그림자는 세 층으로", () => {
+  /* 토큰은 진작 있었는데 아무도 안 썼다(card·modal·glow 사용 0곳).
+     대신 shadow-lg/2xl/xl/sm 이 흩어져서, 같은 종류의 것이 화면마다
+     다르게 떠 보였다. 실제 쓰임을 보니 세 층으로 갈렸다 —
+     카드 / 살짝 떠 있는 것(드롭다운·토스트) / 화면을 덮는 것(모달). */
+  const 기본그림자 = /\bshadow-(sm|md|lg|xl|2xl|inner)\b/g;
+
+  it("Tailwind 기본 그림자를 직접 쓰지 않는다", () => {
+    const 걸린것 = 소스파일들()
+      .map((f) => ({ f, 찾음: (fs.readFileSync(path.join(뿌리, f), "utf-8").match(기본그림자) ?? []) }))
+      .filter((x) => x.찾음.length > 0)
+      .map((x) => `${x.f}: ${[...new Set(x.찾음)].join(", ")}`);
+    expect(걸린것).toEqual([]);
+  });
+
+  it("토큰이 실제로 쓰인다", () => {
+    /* 위 검사만 있으면 그림자를 통째로 지워도 통과한다 */
+    const 전체 = 소스파일들().map((f) => fs.readFileSync(path.join(뿌리, f), "utf-8")).join("\n");
+    for (const t of ["shadow-card", "shadow-float", "shadow-modal"]) {
+      expect(전체, `${t} 를 쓰는 곳이 없다`).toContain(t);
+    }
+  });
+
+  it("세 층이 서로 다른 값이다", () => {
+    const cfg = fs.readFileSync(path.resolve(뿌리, "../tailwind.config.js"), "utf-8");
+    const 값 = ["card", "float", "modal"].map((k) => {
+      const m = cfg.match(new RegExp(`${k}:\\s*"([^"]+)"`));
+      return m?.[1];
+    });
+    expect(값.every(Boolean)).toBe(true);
+    expect(new Set(값).size).toBe(3);
+  });
+});
+
+describe("아이콘 크기", () => {
+  /* 열 가지가 흩어져 있었다(10·11·12·13·14·15·16·18·20·32).
+     13·14·15 는 눈으로 구분이 안 되는데 같은 자리에서도 파일마다 달랐다.
+     2px 이내로만 합쳤다 — 화면을 눈으로 못 보는 상태에서 크게 바꾸면
+     좁은 줄에서 넘칠 수 있다. */
+  const 허용 = new Set([9, 11, 13, 14, 16, 17, 20, 22, 24, 28, 32, 36, 40]);
+
+  it("정해진 크기만 쓴다", () => {
+    const 걸린것: string[] = [];
+    for (const f of 소스파일들()) {
+      const s = fs.readFileSync(path.join(뿌리, f), "utf-8");
+      for (const m of s.matchAll(/size=\{(\d+)\}/g)) {
+        const n = Number(m[1]);
+        if (!허용.has(n)) 걸린것.push(`${f}: size={${n}}`);
+      }
+    }
+    expect([...new Set(걸린것)]).toEqual([]);
+  });
+
+  it("작은 쪽이 촘촘하게 갈리지 않는다", () => {
+    /* 12·15 처럼 옆 크기와 1px 차이인 값이 되살아나면 다시 흩어진다 */
+    const 전체 = 소스파일들().map((f) => fs.readFileSync(path.join(뿌리, f), "utf-8")).join("\n");
+    for (const n of [10, 12, 15, 18]) {
+      expect(전체, `size={${n}} 이 되살아났다`).not.toContain(`size={${n}}`);
+    }
+  });
+});

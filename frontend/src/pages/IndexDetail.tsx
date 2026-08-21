@@ -126,7 +126,7 @@ export default function IndexDetail() {
       {/* 헤더 */}
       <div className="flex items-center gap-3">
         <button onClick={()=>navigate(-1)} className="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors">
-          <ArrowLeft size={18}/>
+          <ArrowLeft size={16}/>
         </button>
         <div>
           <div className="flex items-center gap-2.5">
@@ -329,7 +329,7 @@ export default function IndexDetail() {
               </div>
             </div>
             <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-              <X size={18}/>
+              <X size={16}/>
             </button>
           </div>
           <div className="flex-1 overflow-y-auto">

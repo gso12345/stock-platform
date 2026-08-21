@@ -34,7 +34,7 @@ const IndexCard = memo(function IndexCard({ name, value, change_rate, onClick }:
         {value > 0 ? value.toLocaleString("ko-KR", {maximumFractionDigits:2}) : "—"}
       </span>
       <div className="flex items-center gap-1">
-        {pos ? <TrendingUp size={10} className={`${upColor} flex-shrink-0`} /> : <TrendingDown size={10} className={`${downColor} flex-shrink-0`} />}
+        {pos ? <TrendingUp size={11} className={`${upColor} flex-shrink-0`} /> : <TrendingDown size={11} className={`${downColor} flex-shrink-0`} />}
         <ChangeBadge value={change_rate ?? 0} className="text-xs" />
       </div>
     </Card>
@@ -68,7 +68,7 @@ const ExtraCard = memo(function ExtraCard({ name, value, change, change_rate, un
       <span className="text-base font-mono font-bold text-text-primary num">{formatted}</span>
       {(chgVal !== 0 || chgrVal !== 0) && (
         <div className="flex items-center gap-1">
-          {pos ? <TrendingUp size={10} className={upColor} /> : <TrendingDown size={10} className={downColor} />}
+          {pos ? <TrendingUp size={11} className={upColor} /> : <TrendingDown size={11} className={downColor} />}
           <span className={`text-2xs font-mono ${pos ? upColor : downColor}`}>
             {pos ? "+" : ""}{isRate ? chgVal.toFixed(2) + "bp" : chgVal !== 0 ? chgVal.toFixed(2) : (chgrVal.toFixed(2) + "%")}
           </span>
@@ -155,7 +155,7 @@ const NewsPanel = memo(function NewsPanel({
             />
           ) : (
             <div className="w-14 h-14 rounded-lg flex-shrink-0 bg-bg-elevated flex items-center justify-center">
-              <Newspaper size={18} className="text-text-muted" />
+              <Newspaper size={16} className="text-text-muted" />
             </div>
           )}
           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
@@ -163,7 +163,7 @@ const NewsPanel = memo(function NewsPanel({
               <span className="flex-1 text-xs text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2 leading-relaxed">
                 {item.title}
               </span>
-              <ExternalLink size={10} className="text-text-muted mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+              <ExternalLink size={11} className="text-text-muted mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <div className="flex items-center gap-2 text-2xs text-text-muted">
               <span className="font-medium text-text-dim">{item.source}</span>

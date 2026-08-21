@@ -160,7 +160,7 @@ function ReplyItem({ reply, postId, uid }: { reply: Comment; postId: number; uid
             onClick={handleLike}
             className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}
           >
-            <Heart size={10} className={liked ? "fill-accent-red" : ""} />
+            <Heart size={11} className={liked ? "fill-accent-red" : ""} />
             {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
           </button>
           {reply.is_mine && (
@@ -432,7 +432,7 @@ export default function PostDetailModal({
 
       {/* 모달 패널 */}
       <div
-        className="relative z-10 w-full sm:max-w-2xl max-h-[92dvh] sm:max-h-[85dvh] bg-bg-card border border-border rounded-t-3xl sm:rounded-3xl flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200"
+        className="relative z-10 w-full sm:max-w-2xl max-h-[92dvh] sm:max-h-[85dvh] bg-bg-card border border-border rounded-t-3xl sm:rounded-3xl flex flex-col shadow-modal animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
@@ -568,7 +568,7 @@ export default function PostDetailModal({
               onClick={handleLike}
               className={`flex items-center gap-1.5 text-sm transition-all active:scale-90 ${post.liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}
             >
-              <Heart size={15} className={post.liked ? "fill-accent-red" : ""} />
+              <Heart size={14} className={post.liked ? "fill-accent-red" : ""} />
               <span className={post.liked ? "font-semibold" : ""}>{post.like_count > 0 ? post.like_count : "좋아요"}</span>
             </button>
 
@@ -576,7 +576,7 @@ export default function PostDetailModal({
               onClick={() => commentInputRef.current?.focus()}
               className="flex items-center gap-1.5 text-sm text-text-dim hover:text-accent-blue transition-colors"
             >
-              <MessageSquare size={15} />
+              <MessageSquare size={14} />
               <span>{commentCount > 0 ? `댓글 ${commentCount}` : "댓글"}</span>
             </button>
 
@@ -589,7 +589,7 @@ export default function PostDetailModal({
               onClick={handleShare}
               className="flex items-center gap-1.5 text-sm text-text-dim hover:text-text-primary transition-colors ml-auto"
             >
-              <Share2 size={15} />
+              <Share2 size={14} />
               <span>{copied ? "복사됨!" : "공유"}</span>
             </button>
           </div>

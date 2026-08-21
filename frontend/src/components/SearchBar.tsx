@@ -182,7 +182,7 @@ export default function SearchBar() {
     <div ref={containerRef} className="relative w-full max-w-xs md:max-w-sm">
       {/* 검색 입력창 */}
       <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${
-        open ? "border-accent-blue/60 bg-bg-card shadow-lg" : "border-border bg-bg-elevated hover:border-border-light"
+        open ? "border-accent-blue/60 bg-bg-card shadow-float" : "border-border bg-bg-elevated hover:border-border-light"
       }`}>
         <Search size={13} className="text-text-muted flex-shrink-0" />
         <input
@@ -207,7 +207,7 @@ export default function SearchBar() {
 
       {/* 드롭다운 */}
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-2 rounded-xl border border-border bg-bg-card shadow-xl z-50 overflow-hidden slide-up"
+        <div className="absolute top-full left-0 right-0 mt-2 rounded-xl border border-border bg-bg-card shadow-float z-50 overflow-hidden slide-up"
              style={{ maxHeight: 420 }}>
 
           {/* 검색 결과 없음 */}
@@ -260,7 +260,7 @@ export default function SearchBar() {
                           {isAdded ? <Check size={11}/> : <Plus size={11}/>}
                         </button>
                         {folderDropdown === item.symbol && (
-                          <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
+                          <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-xl border border-border bg-bg-card shadow-float overflow-hidden">
                             {(folders as any[]).map((f: any, idx: number) => (
                               <button
                                 key={f.id}
@@ -288,7 +288,7 @@ export default function SearchBar() {
                 <>
                   <div className="px-3 pt-3 pb-1.5 flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                      <Clock size={10} className="text-text-dim"/>
+                      <Clock size={11} className="text-text-dim"/>
                       <span className="text-2xs font-semibold text-text-dim uppercase tracking-widest">최근 검색</span>
                     </div>
                     <button onMouseDown={(e) => { e.preventDefault(); localStorage.removeItem(RECENT_KEY); setRecent([]); }}
@@ -316,7 +316,7 @@ export default function SearchBar() {
               {/* 인기 종목 */}
               <div className="px-3 pt-3 pb-1.5">
                 <div className="flex items-center gap-1.5">
-                  <TrendingUp size={10} className="text-text-dim"/>
+                  <TrendingUp size={11} className="text-text-dim"/>
                   <span className="text-2xs font-semibold text-text-dim uppercase tracking-widest">인기 종목</span>
                 </div>
               </div>
@@ -346,7 +346,7 @@ export default function SearchBar() {
                         {isAdded ? <Check size={11}/> : <Plus size={11}/>}
                       </button>
                       {folderDropdown === item.symbol && (
-                        <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-xl border border-border bg-bg-card shadow-lg overflow-hidden">
+                        <div className="absolute right-0 top-full mt-1 z-50 w-40 rounded-xl border border-border bg-bg-card shadow-float overflow-hidden">
                           {(folders as any[]).map((f: any, idx: number) => (
                             <button
                               key={f.id}

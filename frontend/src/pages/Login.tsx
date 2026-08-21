@@ -89,7 +89,7 @@ export default function Login() {
         </div>
 
         {/* 카드 */}
-        <div className="bg-bg-card border border-border rounded-2xl p-7 shadow-lg">
+        <div className="bg-bg-card border border-border rounded-2xl p-7 shadow-float">
           <h1 className="text-lg font-semibold text-text-primary mb-1">로그인</h1>
           <p className="text-xs text-text-muted mb-6">계정에 로그인하여 이용하세요</p>
 
