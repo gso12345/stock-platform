@@ -570,6 +570,10 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     if not all_news:
         # 전체 피드 실패 시에도 _refreshing을 해제해야 다음 요청에서 재시도 가능
         _refreshing.pop(ck, None)
+        if not stale:
+            # 빈손이었다는 것을 담아 둔다. 이게 없으면 들어오는 요청마다
+            # 49곳을 처음부터 다시 훑는다(실측 2.8초/요청, 응답은 빈 배열)
+            cache.set(f"{ck}:miss", True, NEWS_MISS_TTL)
         return _strip_ts(stale) if stale else []
     _add_trending_score(all_news)
 
@@ -595,31 +599,49 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
     return _strip_ts(result)
 
 
-def get_kr_news(limit_per_source: int = 40, total_limit: int = 800) -> list[dict]:
-    ck = "news:kr"
+#: 훑었는데 빈손이었을 때, 이만큼은 다시 안 훑는다.
+#
+# 서버를 띄워 재보니 뉴스가 매 요청 2.8초씩 걸리는데 응답은 2바이트
+# (빈 배열)였다. 결과가 비면 아무것도 담지 않고 그대로 돌려주니,
+# 다음 요청이 또 49곳을 훑는다. 게다가 겹침 방지는 지난 값이 있을 때만
+# 걸려 있어서, 재시작 직후에는 들어오는 요청마다 각자 수집을 돌렸다.
+NEWS_MISS_TTL = int(os.getenv("NEWS_MISS_TTL", 90))
+
+
+def _뉴스가져오기(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
+    """캐시 → 지난 값 → (한 번만) 직접 수집.
+
+    어느 갈래로 가든 요청을 오래 잡지 않는 것이 규칙이다."""
     if c := cache.get(ck):
         return _strip_ts(c)
+
     stale = cache.get_stale(ck)
     if stale:
+        # 지난 값이 있으면 그걸 주고 갱신은 배경으로 넘긴다
         if not _refreshing.get(ck):
             _refreshing[ck] = True
-            background_executor.submit(_do_refresh_news, ck, KR_FEEDS, limit_per_source, total_limit)
+            background_executor.submit(_do_refresh_news, ck, feeds, limit_per_source, total_limit)
         return _strip_ts(stale)
-    return _do_refresh_news(ck, KR_FEEDS, limit_per_source, total_limit)
+
+    # 여기부터가 캐시가 통째로 빈 상태(재시작 직후)다.
+    if cache.get(f"{ck}:miss"):
+        return []                      # 방금 훑었는데 빈손이었다
+    if _refreshing.get(ck):
+        return []                      # 이미 누가 훑는 중 — 줄 서지 않는다
+    _refreshing[ck] = True
+    try:
+        return _do_refresh_news(ck, feeds, limit_per_source, total_limit)
+    finally:
+        _refreshing.pop(ck, None)
+
+
+def get_kr_news(limit_per_source: int = 40, total_limit: int = 800) -> list[dict]:
+    return _뉴스가져오기("news:kr", KR_FEEDS, limit_per_source, total_limit)
 
 
 def get_us_news(limit_per_source: int = 35, total_limit: int = 500) -> list[dict]:
-    """해외(미국 등) 증시·경제 뉴스 — 해외 언론사 RSS(Yahoo Finance/CNBC/WSJ 등)에서 직접 수집"""
-    ck = "news:us"
-    if c := cache.get(ck):
-        return _strip_ts(c)
-    stale = cache.get_stale(ck)
-    if stale:
-        if not _refreshing.get(ck):
-            _refreshing[ck] = True
-            background_executor.submit(_do_refresh_news, ck, US_FEEDS, limit_per_source, total_limit)
-        return _strip_ts(stale)
-    return _do_refresh_news(ck, US_FEEDS, limit_per_source, total_limit)
+    """해외(미국 등) 증시·경제 뉴스 — 해외 언론사 RSS(Yahoo Finance/CNBC 등)에서 직접 수집"""
+    return _뉴스가져오기("news:us", US_FEEDS, limit_per_source, total_limit)
 
 
 def pick_top_image_first(articles: list, limit: int) -> list:

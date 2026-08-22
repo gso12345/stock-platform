@@ -154,12 +154,46 @@ class Test기사_보존:
         ts = {i["title"]: i["_ts"] for i in items}
         assert ts["환율 급등"] > ts["코스피 하락"], "날짜 모르는 기사가 최신 기사를 밀어내면 안 된다"
 
-    def test_기사가_0건이면_성공으로_세지_않는다(self):
-        # '14/14곳 성공'인데 화면에는 2곳만 뜨던 원인이 이 계측 오류였다
-        import inspect as _i
-        src = _i.getsource(news._fetch_all_feeds)
-        assert "if items:" in src and "빈곳" in src
-        assert "기사 0건" in src
+    def test_기사가_0건이면_성공으로_세지_않는다(self, monkeypatch):
+        """'14/14곳 성공'인데 화면에는 2곳만 뜨던 원인이 이 계측 오류였다.
+
+        예전에는 소스에 'if items:' 라는 글자가 있는지를 봤다. 그 뒤에
+        판정이 _parse_feed 안쪽으로 옮겨 가면서(0건이면 예외를 던진다)
+        글자가 사라졌고, 검사는 동작과 무관하게 깨져 있었다.
+        이제는 실제로 돌려 보고 무엇으로 세는지 확인한다."""
+        남긴것 = []
+        monkeypatch.setattr(news.health, "record_ok",
+                            lambda 이름, *a, **kw: 남긴것.append((이름, a, kw)))
+        monkeypatch.setattr(news.health, "record_fail", lambda *a, **kw: None)
+
+        결과 = {"빈곳": news.피드실패("기사 40건 중 통과 0건"),
+                "받은곳": [{"title": "코스피 상승"}]}
+
+        def 가짜파싱(url, source, limit):
+            r = 결과[source]
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+        class 즉시실행기:
+            def submit(self, fn, *a, **kw):
+                from concurrent.futures import Future
+                f = Future()
+                try:
+                    f.set_result(fn(*a, **kw))
+                except Exception as e:                      # noqa: BLE001
+                    f.set_exception(e)
+                return f
+
+        monkeypatch.setattr(news, "_parse_feed", 가짜파싱)
+        monkeypatch.setattr(news, "_feed_executor", 즉시실행기())
+        news._fetch_all_feeds([(n, f"https://x/{n}") for n in 결과], 5, batch=2)
+
+        요약 = [x for x in 남긴것 if x[0] == "뉴스 수집"]
+        assert 요약, "수집 결과를 안 남기면 화면에서 확인할 방법이 없다"
+        말 = " ".join(str(v) for v in 요약[-1][1]) + " " + str(요약[-1][2])
+        assert "1/2곳에서 기사 확보" in 말, 말
+        assert "1곳은 0건" in 말, f"0건인 곳을 따로 안 세면 '전부 성공'으로 보인다: {말}"
 
     def test_수집_결과에_0건인_곳을_함께_보고한다(self):
         import inspect as _i

@@ -126,7 +126,10 @@ async def get_kr_dashboard(
     tasks = [
         asyncio.gather(*[_get_kr_index_with_fallback(n) for n in KR_INDICES]),
         _get_kr_rankings(category),
-        _get_exchange_rate_async(),
+        # 환율에만 상한이 없었다. 나머지 넷은 전부 wait_for 가 걸려 있는데
+        # 이것만 없어서, 환율 하나가 늦으면 화면 전체가 그만큼 멈췄다
+        # (실측 12초). 안쪽에서도 막지만 여기서도 한 번 더 조인다
+        asyncio.wait_for(_get_exchange_rate_async(), timeout=5),
         asyncio.wait_for(loop.run_in_executor(None, get_kr_rates), timeout=5),
         asyncio.wait_for(get_kr_futures(), timeout=5),
     ]
@@ -212,7 +215,7 @@ async def get_us_dashboard(
     loop = asyncio.get_running_loop()
     tasks = [
         asyncio.gather(*[_get_us_index(n) for n in US_INDICES]),
-        _get_exchange_rate_async(),
+        asyncio.wait_for(_get_exchange_rate_async(), timeout=5),
         _get_us_rankings_cached(category),
         asyncio.wait_for(loop.run_in_executor(None, get_us_rates), timeout=5),
     ]
@@ -251,7 +254,11 @@ async def us_rates():
     cached = cache.get("extra:us_rates") or cache.get_stale("extra:us_rates")
     if cached:
         return cached
-    result = await loop.run_in_executor(None, get_us_rates)
+    try:
+        result = await asyncio.wait_for(loop.run_in_executor(None, get_us_rates), timeout=5)
+    except Exception:
+        # 받아 오는 일은 배경에서 계속 돈다. 여기서 더 기다리면 화면이 멈춘다
+        return cache.get_stale("extra:us_rates") or []
     return result or []
 
 
@@ -407,17 +414,26 @@ async def kr_futures():
 @router.get("/kr/rates")
 async def kr_rates():
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, get_kr_rates)
+    try:
+        return await asyncio.wait_for(loop.run_in_executor(None, get_kr_rates), timeout=5)
+    except Exception:
+        return cache.get_stale("extra:kr_rates") or []
 
 @router.get("/kr/extras")
 async def kr_extras():
     """선물 + 환율 + 금리 통합"""
     loop = asyncio.get_running_loop()
     exchange, rates, futures = await asyncio.gather(
-        _get_exchange_rate_async(),
-        loop.run_in_executor(None, get_kr_rates),
-        get_kr_futures(),
+        asyncio.wait_for(_get_exchange_rate_async(), timeout=5),
+        asyncio.wait_for(loop.run_in_executor(None, get_kr_rates), timeout=5),
+        asyncio.wait_for(get_kr_futures(), timeout=5),
+        return_exceptions=True,
     )
+    # 하나가 늦었다고 나머지까지 버리지 않는다. 셋을 한 번에 주려고 묶은
+    # 화면이라, 통째로 실패하면 카드 세 개가 동시에 사라진다
+    if isinstance(exchange, BaseException): exchange = cache.get_stale("extra:usdkrw") or {}
+    if isinstance(rates,    BaseException): rates    = cache.get_stale("extra:kr_rates") or []
+    if isinstance(futures,  BaseException): futures  = cache.get_stale("extra:kr_futures") or []
     return {"exchange": exchange, "rates": rates, "futures": futures}
 
 

@@ -5,6 +5,7 @@
 - 금리 (기준금리, CD, 국채)
 - 변동성 (VKOSPI)
 """
+import os
 import logging
 import httpx
 import yfinance as yf
@@ -682,15 +683,61 @@ def _do_fetch_kr_rates() -> list:
     return rates
 
 
-def get_kr_rates() -> list:
-    ck = "extra:kr_rates"
+# ── 캐시 우선으로 내주는 공통 규칙 ─────────────────────────
+#
+# 같은 모양을 세 번째 쓴다(환율·국내 금리·미국 금리). 세 곳 다 같은
+# 세 가지가 빠져 있었고, 서버를 띄워 재보니 요청 하나가 5초를 잡았다.
+#
+#   · 빈손이었다는 것을 안 담아 둔다 → 요청마다 처음부터 다시 받는다
+#   · 겹침을 안 막는다 → 동시 접속자 수만큼 같은 배치가 동시에 돈다
+#   · 지난 값이 있을 때도 겹침을 안 막는다 → 요청마다 배경 작업을
+#     하나씩 새로 밀어 넣는다(0.15 CPU 에서는 이것만으로 밀린다)
+#
+# 순위 쪽은 진작 제대로 하고 있었다. 그 방식을 한 자리에 모은다.
+
+#: 못 받았을 때 이만큼은 다시 안 물어본다
+MISS_TTL = int(os.getenv("EXTRAS_MISS_TTL", 60))
+
+#: 지금 받고 있는 것
+_받는중: dict[str, bool] = {}
+
+
+def _한번만(ck: str, 받기):
+    try:
+        받기()
+    finally:
+        _받는중.pop(ck, None)
+
+
+def _캐시_우선(ck: str, 받기, 빈값):
+    """캐시 → 지난 값 → (한 번만) 직접. 요청을 오래 잡지 않는 것이 규칙이다."""
     if c := cache.get(ck):
         return c
+
     stale = cache.get_stale(ck)
     if stale:
-        background_executor.submit(_do_fetch_kr_rates)
+        if not _받는중.get(ck):
+            _받는중[ck] = True
+            background_executor.submit(_한번만, ck, 받기)
         return stale
-    return _do_fetch_kr_rates()
+
+    if cache.get(f"{ck}:miss"):
+        return 빈값                      # 방금 받아 봤는데 빈손이었다
+    if _받는중.get(ck):
+        return 빈값                      # 이미 누가 받는 중 — 줄 서지 않는다
+
+    _받는중[ck] = True
+    try:
+        결과 = 받기()
+    finally:
+        _받는중.pop(ck, None)
+    if not 결과:
+        cache.set(f"{ck}:miss", True, MISS_TTL)
+    return 결과 or 빈값
+
+
+def get_kr_rates() -> list:
+    return _캐시_우선("extra:kr_rates", _do_fetch_kr_rates, [])
 
 
 _FX_CACHE_MAP = {
@@ -770,14 +817,7 @@ def _do_fetch_us_rates() -> list:
 
 
 def get_us_rates() -> list:
-    ck = "extra:us_rates"
-    if c := cache.get(ck):
-        return c
-    stale = cache.get_stale(ck)
-    if stale:
-        background_executor.submit(_do_fetch_us_rates)
-        return stale
-    return _do_fetch_us_rates()
+    return _캐시_우선("extra:us_rates", _do_fetch_us_rates, [])
 
 
 def _demo_rates() -> list:

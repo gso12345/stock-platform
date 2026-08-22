@@ -701,16 +701,91 @@ async def get_index_price(yf_sym: str, name: str, display: str, ttl: int = 30) -
     return cache.get(ck) or cache.get_stale(ck)
 
 
-async def _get_fx_cached(cache_key: str, symbol: str, display_name: str) -> dict:
-    """환율 캐시 조회 — 미스 시 us_rates 배치 갱신 후 재조회"""
-    cached = cache.get(cache_key) or cache.get_stale(cache_key)
-    if cached and cached.get("value", 0) > 0:
-        return cached
+# ── 환율 ───────────────────────────────────────────────────
+#
+# 여기가 한국 대시보드를 통째로 막고 있던 자리다. 서버를 띄워 조각별로
+# 재보니 이랬다.
+#
+#     지수 209ms · 순위 5ms · 금리 3ms · 선물 3ms · 환율 12,018ms
+#     → /dashboard/kr 전체 12,563ms
+#
+# 12.5초 중 12초가 환율 하나였다. 세 가지가 겹쳤다.
+#
+#   1) 타임아웃이 없었다. 같은 gather 에 묶인 나머지 넷은 전부
+#      wait_for(timeout=5) 가 걸려 있는데 환율만 없어서, 얼마가 걸리든
+#      끝까지 기다렸다.
+#   2) 환율 하나를 얻으려고 미국 금리 전체 배치(VIX·10년물·30년물·
+#      5년물·13주…)를 사용자 요청 경로에서 돌렸다.
+#   3) 중복 실행을 안 막았다. 동시 5명으로 재보니 각자 28~30초가 나왔다 —
+#      혼자면 12초인 일이다. 다섯이 같은 배치를 동시에 돌려 서로를
+#      느리게 만든다. 0.15 CPU 에서는 이게 훨씬 심하다.
+#
+# 순위 쪽은 진작 제대로 하고 있었다(_bg_refresh_in_flight 로 겹침을 막고
+# 지난 값을 즉시 돌려준다). 그 방식을 그대로 가져온다.
+
+#: 못 받았을 때 이만큼은 다시 안 물어본다. 실패도 캐시해야 한다 —
+#: 안 하면 들어오는 요청마다 같은 실패를 처음부터 다시 겪는다.
+FX_MISS_TTL = int(os.getenv("FX_MISS_TTL", 60))
+
+#: 요청 경로에서 기다려 주는 시간. 이걸 넘기면 지난 값으로 답하고,
+#: 받아 오는 일은 배경에서 계속 돈다(다음 요청이 그 결과를 쓴다).
+FX_WAIT_SEC = float(os.getenv("FX_WAIT_SEC", 3))
+
+#: 지금 돌고 있는 배치. 여럿이 동시에 들어와도 하나만 돈다.
+_fx_배치: "asyncio.Future | None" = None
+
+
+async def _환율배치_한번만(대기: float) -> None:
+    """미국 금리 배치를 돌린다 — 이미 돌고 있으면 그것을 같이 기다린다.
+
+    shield 로 감싸는 이유: wait_for 가 시간을 넘기면 감싼 것을 취소하는데,
+    여기서 취소되면 먼저 들어온 사람이 시작해 둔 배치가 죽는다. 그러면
+    아무도 못 받고 다음 요청이 또 처음부터 시작한다."""
+    global _fx_배치
     loop = asyncio.get_running_loop()
-    from app.services.market_extras import _do_fetch_us_rates
-    await loop.run_in_executor(None, _do_fetch_us_rates)
-    return cache.get(cache_key) or cache.get_stale(cache_key) or \
-        {"symbol": symbol, "name": display_name, "value": 0, "change": 0, "change_rate": 0, "unit": "원"}
+    if _fx_배치 is None or _fx_배치.done():
+        from app.services.market_extras import _do_fetch_us_rates
+        _fx_배치 = loop.run_in_executor(None, _do_fetch_us_rates)
+    await asyncio.wait_for(asyncio.shield(_fx_배치), 대기)
+
+
+async def _get_fx_cached(cache_key: str, symbol: str, display_name: str) -> dict:
+    """환율 조회. 요청 경로를 절대 오래 잡지 않는다."""
+    빈값 = {"symbol": symbol, "name": display_name, "value": 0,
+            "change": 0, "change_rate": 0, "unit": "원"}
+
+    def 지금값():
+        return cache.get(cache_key) or cache.get_stale(cache_key)
+
+    쓸만한가 = lambda v: bool(v) and (v.get("value") or 0) > 0
+
+    if 쓸만한가(값 := 지금값()):
+        return 값
+
+    # 방금 훑었는데 빈손이었다면 다시 묻지 않는다. 이 표시가 없으면
+    # 요청이 올 때마다 12초짜리 배치를 새로 돌린다.
+    if cache.get(f"{cache_key}:miss"):
+        return 값 or 빈값
+
+    try:
+        await _환율배치_한번만(FX_WAIT_SEC)
+    except asyncio.TimeoutError:
+        # 배치는 배경에서 계속 돈다. 여기서 더 기다리면 화면 전체가 멈춘다.
+        #
+        # 시간을 넘긴 것도 실패로 담아 둔다. 안 담으면 늦는 동안 들어오는
+        # 요청이 전부 이 상한만큼 잡힌다 — 실제로 그렇게 나왔다(모든
+        # 요청이 정확히 3.0초). 뒤늦게 배치가 성공하면 위의 캐시 검사가
+        # 먼저 걸리므로, 이 표시가 값을 가리지는 않는다.
+        if not 쓸만한가(값 := 지금값()):
+            cache.set(f"{cache_key}:miss", True, FX_MISS_TTL)
+        return 값 or 빈값
+    except Exception:
+        pass
+
+    if 쓸만한가(값 := 지금값()):
+        return 값
+    cache.set(f"{cache_key}:miss", True, FX_MISS_TTL)
+    return 값 or 빈값
 
 
 async def get_usdkrw() -> dict:
