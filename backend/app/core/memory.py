@@ -264,7 +264,11 @@ def native_breakdown() -> dict | None:
             # '제한 없음' 이 떠서 환경변수가 안 닿은 것을 알았는데,
             # 코드에서 걸고 나면 환경변수는 여전히 비어 있으므로 그것만
             # 봐서는 걸렸는지 알 수 없다.
-            "arena_max":    _힙나눔_결과 or os.getenv("MALLOC_ARENA_MAX") or None,
+            #
+            # 환경변수를 먼저 본다. glibc 는 프로세스가 뜰 때 이 값을 읽으므로,
+            # 걸려 있다면 그게 실제로 적용된 값이다. 코드에서 건 결과는
+            # 환경변수가 없을 때만 의미가 있다.
+            "arena_max":    os.getenv("MALLOC_ARENA_MAX") or _힙나눔_결과 or None,
         }
     except Exception:
         return None

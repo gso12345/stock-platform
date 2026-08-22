@@ -132,17 +132,34 @@ class Test힙_나눔_상한:
         """배포한 뒤 '설정이 걸리긴 한 건가'를 확인할 방법이 있어야,
         효과가 있었는지 없었는지도 판단할 수 있다."""
         monkeypatch.setenv("MALLOC_ARENA_MAX", "2")
+        # 환경변수가 걸려 있으면 그게 실제로 적용된 값이다 — glibc 는
+        # 프로세스가 뜰 때 읽는다. 코드에서 건 결과보다 먼저 봐야 한다.
+        monkeypatch.setattr(memory, "_힙나눔_결과", "8 (코드)")
         n = memory.native_breakdown()
         if n is None:
             pytest.skip("이 환경에서는 mallinfo2 를 못 읽는다")
         assert n["arena_max"] == "2"
 
-    def test_설정이_없으면_없다고_알려준다(self, monkeypatch):
+    def test_아무_상한도_안_걸렸으면_없다고_알려준다(self, monkeypatch):
+        """없는 상한을 걸렸다고 적으면 '설정했는데 왜 안 줄지' 를 영영 못 찾는다."""
         monkeypatch.delenv("MALLOC_ARENA_MAX", raising=False)
+        monkeypatch.setattr(memory, "_힙나눔_결과", None)
         n = memory.native_breakdown()
         if n is None:
             pytest.skip("이 환경에서는 mallinfo2 를 못 읽는다")
         assert n["arena_max"] is None
+
+    def test_코드에서_걸었으면_그렇게_적는다(self, monkeypatch):
+        """render.yaml 은 Blueprint 로 만든 서비스에만 적용된다. 프로덕션에서
+        환경변수가 안 닿아 '제한 없음' 이 떴고, 그래서 코드에서 직접 걸게
+        됐다. 그러면 환경변수는 여전히 비어 있으므로 그것만 봐서는 걸렸는지
+        알 수 없다 — 실제 적용 결과를 내보내야 한다."""
+        monkeypatch.delenv("MALLOC_ARENA_MAX", raising=False)
+        monkeypatch.setattr(memory, "_힙나눔_결과", "2 (코드)")
+        n = memory.native_breakdown()
+        if n is None:
+            pytest.skip("이 환경에서는 mallinfo2 를 못 읽는다")
+        assert n["arena_max"] == "2 (코드)"
 
     def test_배포_설정에_들어_있다(self):
         """render.yaml 에서 빠지면 프로덕션에는 안 걸린다."""
