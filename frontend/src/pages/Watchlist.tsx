@@ -59,7 +59,7 @@ export default function Watchlist() {
      예전에는 "i번째 종목 = i번째 가격"으로 짝지었는데, 서버가 순서를 바꿔 주면
      가격이 통째로 다른 종목에 붙는다 (다른 화면들은 이미 이 방식으로 바꿨다) */
   const recentPriceMap = useMemo(
-    () => indexPricesBySymbol(recentPrices as any[] | undefined),
+    () => indexPricesBySymbol(recentPrices),
     [recentPrices],
   );
 
@@ -87,7 +87,7 @@ export default function Watchlist() {
     staleTime: 300_000,
   });
   const pfTabDeduped = useMemo(
-    () => (pfAllItems as any[]).filter(
+    () => pfAllItems.filter(
       // 서버는 portfolioId(카멜케이스)로 준다 — portfolio_id 로 보면 전부 걸러진다
       (i: any) => portfolioTab == null || (i.portfolioId ?? null) === portfolioTab,
     ),
@@ -123,8 +123,8 @@ export default function Watchlist() {
 
   // 탭 전환 시 API 재호출 없이 클라이언트 필터링
   const items = useMemo(() => {
-    if (marketTab === "전체") return allItems as any[];
-    return (allItems as any[]).filter((i: any) => i.market === marketTab);
+    if (marketTab === "전체") return allItems;
+    return allItems.filter((i) => i.market === marketTab);
   }, [allItems, marketTab]);
 
   /* 가격 조회는 관심종목 + 보유종목을 합친 기준 — 탭 전환해도 캐시 유지.
@@ -139,7 +139,7 @@ export default function Watchlist() {
     const syms: string[] = [];
     const mkts: string[] = [];
     const seen = new Set<string>();
-    for (const i of [...(allItems as any[]), ...(pfAllItems as any[])]) {
+    for (const i of [...allItems, ...pfAllItems]) {
       if (!i?.symbol || !PRICEABLE_SYMBOL.test(i.symbol)) continue;
       const key = normalizeSymbol(i.symbol);
       if (seen.has(key)) continue;
@@ -177,7 +177,7 @@ export default function Watchlist() {
     /* 배열 순서가 아니라 종목코드로 짝짓는다. 서버가 한 종목을 건너뛰면
        그 뒤가 통째로 한 칸씩 밀려 엉뚱한 가격이 붙는다 — 내 자산 쪽에서
        이미 겪고 고친 일인데 여기만 인덱스로 남아 있었다 */
-    const bySymbol = indexPricesBySymbol(previewPrices as any[]);
+    const bySymbol = indexPricesBySymbol(previewPrices);
     return PREVIEW_WATCHLIST.map((base) => {
       const d = lookupPrice(bySymbol, base.symbol) as any;
       const hasPrice = d?.price != null;
@@ -223,7 +223,7 @@ export default function Watchlist() {
   useEffect(() => {
     if (!restPrices?.length) return;
     const wsFresh = Date.now() - wsLastMsgAtRef.current < WS_FRESH_MS;
-    mergePrices(restPrices as any[], wsFresh ? wsSymbolsRef.current : undefined);
+    mergePrices(restPrices, wsFresh ? wsSymbolsRef.current : undefined);
   }, [restPrices, mergePrices]);
 
   /* WebSocket — 실시간 시세 (주 경로).
@@ -310,9 +310,9 @@ export default function Watchlist() {
 
   const handleFolderDragStart = (folder: any) => {
     dragFolderIdRef.current = folder.id;
-    localFolderOrderRef.current = folders as any[];
+    localFolderOrderRef.current = folders;
     setDragFolderId(folder.id);
-    setLocalFolderOrder(folders as any[]);
+    setLocalFolderOrder(folders);
   };
 
   // 길게 누르기(롱프레스) 후에만 드래그가 시작되도록 — 일반 탭/스크롤과 구분
@@ -324,7 +324,7 @@ export default function Watchlist() {
     const fromId = dragFolderIdRef.current;
     if (fromId === null || fromId === targetId) return;
     setDropFolderId(targetId);
-    const base = localFolderOrderRef.current ?? (folders as any[]);
+    const base = localFolderOrderRef.current ?? folders;
     const from = base.findIndex((f: any) => f.id === fromId);
     const to   = base.findIndex((f: any) => f.id === targetId);
     if (from === -1 || to === -1) return;
@@ -377,7 +377,7 @@ export default function Watchlist() {
   const toggleCollapse = (key: string) =>
     setCollapsed((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
-  const itemsList = items as any[];
+  const itemsList = items;
 
   /* 종목 드래그 재정렬 — 공용 훅 (ref 기준으로 순서를 계산해 연속 이벤트에서도 밀리지 않는다) */
   const itemDrag = useDragReorder<any>({
@@ -417,10 +417,17 @@ export default function Watchlist() {
      (itemsByFolder는 폴더탭 필터가 적용된 목록 기준이라 탭 개수용으로는 쓸 수 없다) */
   const folderCounts = useMemo(() => {
     const map = new Map<number, number>();
-    const 셀것 = isPreview
+    const 셀것: { folder_id?: number | null }[] = isPreview
       ? PREVIEW_WATCHLIST.map((i) => ({ folder_id: i.folderId }))
       : itemsList;
-    for (const i of 셀것) map.set(i.folder_id, (map.get(i.folder_id) ?? 0) + 1);
+    for (const i of 셀것) {
+      /* 폴더에 안 넣은 종목은 세지 않는다. 타입을 붙이고 나서야 보였는데,
+         예전에는 folder_id 가 null 인 것들이 null 이라는 열쇠 하나에
+         뭉쳐 담기고 있었다. 쓰이지는 않았지만 폴더 번호가 아닌 것이
+         폴더 개수표에 앉아 있었던 셈이다 */
+      if (typeof i.folder_id !== "number") continue;
+      map.set(i.folder_id, (map.get(i.folder_id) ?? 0) + 1);
+    }
     return map;
   }, [itemsList, isPreview]);
 
@@ -434,7 +441,7 @@ export default function Watchlist() {
        그렸는데, 그러면 탭 줄을 고칠 때마다 로그인한 화면만 좋아지고
        처음 들어온 사람이 보는 화면은 옛 모습으로 남는다 — 실제로 탭 순서
        변경을 넣었을 때 미리보기에는 반영되지 않았다. */
-    const 폴더목록 = isPreview ? PREVIEW_FOLDERS : (localFolderOrder ?? (folders as any[]));
+    const 폴더목록 = isPreview ? PREVIEW_FOLDERS : (localFolderOrder ?? folders);
     const 계좌목록 = isPreview ? [] : pfList;
     return [
       { key: 최근조회키, 종류: "recent" as const, id: null as number | null, 이름: "최근조회" },
@@ -531,7 +538,7 @@ export default function Watchlist() {
   const openAddModal = async (folderId: number | null) => {
     let fid = folderId;
     if (fid == null) {
-      const list = folders as any[];
+      const list = folders;
       if (list.length > 0) fid = list[0].id;
       else {
         const created = await createDefaultFolderMutation.mutateAsync();
@@ -911,7 +918,7 @@ export default function Watchlist() {
         : 못받음 ? <못불러옴 사유={실패사유} 다시={() => 다시받기()} /> : (
         <div key={`${marketTab}-${folderTab}`} className="flex flex-col gap-3 tab-fade">
           {/* 폴더 그룹 — 폴더 탭이 "전체"이거나 해당 폴더가 선택된 경우에만 표시 */}
-          {(localFolderOrder ?? (folders as any[]))
+          {(localFolderOrder ?? folders)
             .filter((folder: any) => folderTab === "all" || folderTab === folder.id)
             .map((folder: any) => {
             const folderItems = byFolder(folder.id);
@@ -924,7 +931,7 @@ export default function Watchlist() {
                   onDragOver={(e) => handleFolderDragOver(e, folder.id)}
                   onDrop={handleFolderDrop}
                 >
-                  {(folders as any[]).length > 1 && (
+                  {folders.length > 1 && (
                     <div
                       draggable
                       onDragStart={() => handleFolderDragStart(folder)}
@@ -1044,7 +1051,7 @@ export default function Watchlist() {
           onCreate={() => { createFolderMutation.mutate(); setShowFolderManager(false); }}
           onRename={(id, name) => updateFolderMutation.mutate({ id, name })}
           onDelete={(folder) => {
-            const count = (items as any[]).filter((i: any) => i.folder_id === folder.id).length;
+            const count = items.filter((i) => i.folder_id === folder.id).length;
             setDeletingFolder({ ...folder, _itemCount: count });
             setShowFolderManager(false);
           }}

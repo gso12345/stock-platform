@@ -427,7 +427,7 @@ export default function StockDetail() {
      이 요청은 아예 안 나간다. */
   /* 0 도 '비었다' 로 친다 — 그러지 않으면 백엔드가 eps=0.0 을 준 종목에서
      이 폴백이 열리지도 않는다(0 == null 은 false 다). 유효() 참고. */
-  const 기본지표가_비었나 = !!detail && (유효((detail as any).eps) == null || 유효((detail as any).per) == null);
+  const 기본지표가_비었나 = !!detail && (유효(detail.eps) == null || 유효(detail.per) == null);
   const { data: fundamentalsData } = useQuery({
     queryKey: ["stock-fundamentals", m, sym],
     queryFn: () => stocksApi.getFundamentals(m, sym),
@@ -446,7 +446,7 @@ export default function StockDetail() {
      그래서 앞의 두 칸이 모두 값을 못 준 것을 확인한 뒤에만 연다. */
   const 지표보완도_비었나 =
     기본지표가_비었나 && !!fundamentalsData &&
-    (유효((fundamentalsData as any).eps) == null || 유효((fundamentalsData as any).per) == null);
+    (유효(fundamentalsData.eps) == null || 유효(fundamentalsData.per) == null);
 
   const { data: metricsHistory } = useQuery({
     queryKey: ["metrics-history", m, sym],
@@ -581,7 +581,7 @@ export default function StockDetail() {
     mutationFn: (folderId?: number | null) => watchlistApi.addItem({
       symbol: sym,
       market: m,
-      name: (detail as any)?.name ?? sym,
+      name: detail?.name ?? sym,
       watchlist_id: 1,
       folder_id: folderId ?? null,
     }),
@@ -707,7 +707,7 @@ export default function StockDetail() {
       r.revenue != null || r.op_income != null || r.net_income != null ||
       r.per != null || r.pbr != null || r.roe != null
     );
-    const fcst: any[] = ((forecasts as any)?.annual ?? []).filter((r:any) => r.type === "forecast");
+    const fcst = (forecasts?.annual ?? []).filter((r) => r.type === "forecast");
 
     /* 표는 metrics-history(야후) 만 보고 있었다. 그런데 국내 종목은 야후에
        재무가 비는 일이 흔해서, 바로 위 막대 차트는 DART 값으로 멀쩡히
@@ -806,6 +806,17 @@ export default function StockDetail() {
 
     /* 표의 키와 컨센서스 응답의 키가 다르다 — 표는 revenue 를 찾는데
        예측 쪽은 revenue_est 로 온다 */
+    /* 화면 이름 → 서버가 주는 이름.
+       서버(stocks.py get_forecasts)가 실제로 넣는 추정치는 셋뿐이다 —
+       eps_est · revenue_est · growth_est.
+
+       op_income_est · net_income_est 는 서버 어디에도 없다. 즉 컨센서스
+       표의 영업이익·순이익 예상 칸은 처음부터 늘 '—' 였다. any 로 두고
+       있어서 아무도 몰랐고, 타입을 붙이고 나서야 드러났다.
+
+       줄을 지우지는 않는다 — 서버가 그 값을 넣기 시작하면 이 매핑이
+       그대로 살아난다. 없는 이유를 여기 적어 두는 편이, 다음 사람이
+       "왜 비지?" 하고 화면부터 뒤지는 것보다 낫다. */
     const 예측키: Record<string, string> = {
       revenue: "revenue_est", op_income: "op_income_est",
       net_income: "net_income_est", eps: "eps_est",
@@ -818,8 +829,12 @@ export default function StockDetail() {
         const row = fcst.find((r:any) => String(r.period).slice(0,4) === y);
         if (!row) return null;
         /* 배수(PER·PBR)는 추정치가 없다. 매핑에 없는 키는 그대로 찾아보고,
-           없으면 null 이라 표에 '—' 로 빠진다 */
-        return row[예측키[key] ?? key] ?? null;
+           없으면 null 이라 표에 '—' 로 빠진다.
+
+           키가 실행 중에 정해지므로 인덱스 서명이 필요하다. 전망행 에
+           [k: string] 을 열어 두면 오타를 다시 못 잡으니, 여기서만
+           Record 로 본다 — 어떤 이름이 실제로 오는지는 전망행 이 지킨다 */
+        return (row as unknown as Record<string, number | null | undefined>)[예측키[key] ?? key] ?? null;
       }
       const row = mh.find((r:any) => periodLabel(r.period) === year);
       const v = row?.[key];
@@ -2548,7 +2563,7 @@ export default function StockDetail() {
             ))}
 
             {analystSubTab==="consensus" && (() => {
-              const fcstData = (forecasts as any)?.[consensusPeriod] ?? [];
+              const fcstData = forecasts?.[consensusPeriod] ?? [];
               if (!fcstData.length) return (
                 <div className="rounded-xl border border-border bg-bg-card flex items-center justify-center py-16">
                   <p className="text-text-muted text-base">컨센서스 데이터가 없습니다</p>

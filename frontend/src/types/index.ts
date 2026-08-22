@@ -47,14 +47,50 @@ export interface MarketIndex {
   change_rate: number;
 }
 
+/** 관심종목 한 줄. 서버 watchlist.py 의 _item_to_dict 와 같은 모양이다.
+ *
+ *  화면이 이걸 `as any` 로 다루고 있었다. 서버가 주는 칸을 적어 두면
+ *  이름을 잘못 써도 빌드가 짚어 준다 — any 로 두면 화면이 조용히 빈칸을
+ *  그리고 아무도 모른다(지난번 실적 응답에서 그렇게 겪었다). */
 export interface WatchlistItem {
   id: number;
   symbol: string;
   market: Market;
   name: string;
-  price?: number;
-  change?: number;
-  change_rate?: number;
+  memo?: string;
+  folder_id?: number | null;
+  folder_name?: string | null;
+  added_at?: string;
+  position?: number;
+  /* 시세는 /items/prices 로 받을 때만 붙는다. 못 받은 종목은 null 이 온다 */
+  price?: number | null;
+  change?: number | null;
+  change_rate?: number | null;
+  volume?: number | null;
+  currency?: string;
+}
+
+/** 여러 종목의 시세를 한 번에 받을 때 오는 한 줄.
+ *  못 받은 종목도 자리는 오고 값만 null 이다 — 목록에서 그 줄이
+ *  통째로 빠지면 '내가 넣은 종목이 사라졌다' 로 보인다. */
+export interface 시세행 {
+  symbol: string;
+  market?: Market;
+  name?: string;
+  price: number | null;
+  change?: number | null;
+  change_rate?: number | null;
+  volume?: number | null;
+  currency?: string;
+}
+
+/** 관심종목 폴더. 서버 watchlist.py 의 GET /folders 응답 */
+export interface 관심폴더 {
+  id: number;
+  name: string;
+  position: number;
+  /** 그 폴더에 든 종목 수 — 서버가 세어서 준다 */
+  count: number;
 }
 
 export interface Watchlist {
@@ -221,13 +257,47 @@ export interface 실적응답 {
   revenue_estimate?: number | null;
 }
 
-/** 애널리스트 전망 한 줄 */
+/** 애널리스트 전망 한 줄.
+ *
+ *  여기 적힌 이름이 서버와 달랐다 — revenue·eps 로 적어 뒀는데 서버는
+ *  revenue_est·eps_est 를 준다. 화면은 `as any` 로 우회하고 있어서
+ *  아무도 몰랐다. 실제로 선행PER 을 보완하는 자리가 이 이름으로 값을
+ *  꺼내는데, 타입만 보면 늘 빈 값처럼 보인다.
+ *
+ *  backend stocks.py 의 get_forecasts 안 _upsert 가 넣는 이름 그대로
+ *  적는다. period 와 type 은 _upsert 가 늘 넣으므로 필수다. */
 export interface 전망행 {
-  period?: string;
-  revenue?: number | null;
-  operating_income?: number | null;
-  net_income?: number | null;
-  eps?: number | null;
+  period: string;
+  /** 서버는 항상 "forecast" 를 넣는다 */
+  type: string;
+  /* EPS 추정 */
+  eps_est?: number | null;
+  eps_low?: number | null;
+  eps_high?: number | null;
+  eps_analysts?: number | null;
+  /* 추정치가 어떻게 움직였는지 */
+  eps_current?: number | null;
+  eps_7d_ago?: number | null;
+  eps_30d_ago?: number | null;
+  eps_90d_ago?: number | null;
+  /* 매출 추정 */
+  revenue_est?: number | null;
+  revenue_low?: number | null;
+  revenue_high?: number | null;
+  /* 성장률 추정 */
+  growth_est?: number | null;
+}
+
+/** 컨센서스 응답. 서버는 연간·분기를 함께 준다.
+ *
+ *  api 쪽 타입이 전망행[] 로 적혀 있었다 — 서버는
+ *  {annual, quarterly} 를 주는데 배열이라고 선언해 놓은 것이라,
+ *  화면이 `as any` 로 우회하고 있었다. 그러면 여기 이름이 하나
+ *  바뀌어도 빌드가 아무 말을 안 한다(투자의견 탭이 조용히 빈다).
+ *  backend stocks.py 의 get_forecasts 응답 그대로 적는다. */
+export interface 전망응답 {
+  annual: 전망행[];
+  quarterly: 전망행[];
 }
 
 /** 분기·연간 지표 흐름 */

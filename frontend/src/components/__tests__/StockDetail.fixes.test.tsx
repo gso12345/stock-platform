@@ -155,9 +155,18 @@ describe("0 을 값으로 착각하지 않는다", () => {
   });
 
   it("폴백을 여는 판정도 같은 기준이다", () => {
-    // 판정이 0을 '있음'으로 보면 폴백 질의가 열리지도 않는다
-    expect(코드).toMatch(/유효\(\(detail as any\)\.eps\) == null/);
-    expect(코드).toMatch(/유효\(\(fundamentalsData as any\)\.eps\) == null/);
+    /* 판정이 0을 '있음'으로 보면 폴백 질의가 열리지도 않는다.
+       예전에는 `유효((detail as any).eps)` 라는 글자를 그대로 기대했다.
+       as any 를 걷어내자 깨졌는데, 지키려던 것은 '유효() 를 거치는가'
+       이지 캐스트가 붙어 있는가가 아니다 — 형태가 아니라 뜻을 본다. */
+    for (const 값 of ["detail", "fundamentalsData"]) {
+      expect(코드, `${값} 의 eps 판정이 유효() 를 안 거친다`).toMatch(
+        new RegExp(`유효\\(${값}[.?]*\\.?eps\\)\\s*==\\s*null`),
+      );
+      expect(코드, `${값} 의 per 판정이 유효() 를 안 거친다`).toMatch(
+        new RegExp(`유효\\(${값}[.?]*\\.?per\\)\\s*==\\s*null`),
+      );
+    }
   });
 
   it("0 이 정당한 항목은 건드리지 않는다", () => {

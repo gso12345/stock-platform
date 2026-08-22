@@ -1,7 +1,8 @@
 import api from "./client";
 import type {
   Market, StockPrice, StockDetail, OHLCV, StockFundamentals,
-  뉴스항목, 지표카드, 순위행, 대시보드응답, 실적응답, 전망행, 지표흐름, MarketIndex,
+  뉴스항목, 지표카드, 순위행, 대시보드응답, 실적응답, 전망응답, 지표흐름, MarketIndex,
+  WatchlistItem, 관심폴더, 시세행,
 } from "@/types";
 
 /** 투자자별 수급 하루치. 값은 순매수 '거래대금'(원)이고 음수면 순매도다. */
@@ -40,7 +41,7 @@ export const stocksApi = {
     api.get<실적응답>(`/stocks/${market}/${encodeURIComponent(symbol)}/earnings`).then((r) => r.data),
 
   getForecasts: (market: string, symbol: string) =>
-    api.get<전망행[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/forecasts`).then((r) => r.data),
+    api.get<전망응답>(`/stocks/${market}/${encodeURIComponent(symbol)}/forecasts`).then((r) => r.data),
 
   /** 투자자별 수급 (외국인·기관·개인 일별 순매수 거래대금) — 국내 종목만.
    *
@@ -235,7 +236,7 @@ export const dashboardApi = {
 };
 
 export const watchlistFolderApi = {
-  getFolders: () =>
+  getFolders: (): Promise<관심폴더[]> =>
     api.get("/watchlist/folders").then((r) => r.data),
   createFolder: (name: string) =>
     api.post("/watchlist/folders", { name }).then((r) => r.data),
@@ -349,7 +350,7 @@ export const watchlistApi = {
   getAll: () =>
     api.get("/watchlist/").then((r) => r.data),
 
-  getItems: (market?: string, folderId?: number) =>
+  getItems: (market?: string, folderId?: number): Promise<WatchlistItem[]> =>
     api.get("/watchlist/items", { params: { market, folder_id: folderId } }).then((r) => r.data),
 
   /**
@@ -360,7 +361,7 @@ export const watchlistApi = {
    * 표시되지 않았다. 그래서 50개씩 나눠 보내고 결과를 이어 붙인다.
    * (순서는 요청 순서 그대로 유지되므로 인덱스로 읽는 쪽도 그대로 동작한다)
    */
-  getPrices: async (symbols: string[], markets: string[], signal?: AbortSignal): Promise<any[]> => {
+  getPrices: async (symbols: string[], markets: string[], signal?: AbortSignal): Promise<시세행[]> => {
     if (symbols.length === 0) return [];
 
     const fetchChunk = (syms: string[], mkts: string[]) =>
