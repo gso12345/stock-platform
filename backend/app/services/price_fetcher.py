@@ -212,6 +212,11 @@ NAVER_INDEX_CODES = {
     "KOSPI":     ["KOSPI"],
     "KOSDAQ":    ["KOSDAQ"],
     "KOSPI200":  ["KPI200", "KOSPI200"],
+    # 다섯 후보를 다 걸어 봤지만 프로덕션에서 전부 실패했다
+    # (마지막 이유: HTTP 409, 코드 KRX150). 네이버 모바일 API 는 이
+    # 지수를 이 경로로 안 주는 것으로 보인다. 코드는 남겨 둔다 —
+    # 지우면 네이버가 열어 줘도 영영 안 쓴다. 실제 값은 아래 pykrx 가
+    # KRX 지수 코드 2203 으로 바로 받아 온다.
     "KOSDAQ150": ["KQ150", "KOSDAQ150", "KOSDAQ_150", "KQ150I", "KRX150"],
 }
 # 예전 이름 — 밖에서 쓰는 곳이 생기면 첫 후보를 돌려준다
@@ -301,6 +306,27 @@ PYKRX_INDEX_NAME_ALIASES = {
     "KOSDAQ150": ["코스닥 150", "코스닥150", "코스닥 150 지수"],
 }
 
+#: KRX 가 쓰는 지수 코드. 이름으로 찾기 전에 이걸 먼저 걸어 본다.
+#
+# 이름 대조는 두 가지가 약하다.
+#   · KRX 가 표기를 조금만 바꿔도(띄어쓰기 하나) 못 찾는다. 별칭을 세 개나
+#     둔 것 자체가 그 증거다.
+#   · 코스닥 지수가 백 개가 넘는데 하나하나 이름을 물어본다. 찾는 것이
+#     목록 뒤쪽이면 그만큼 왕복한다.
+#
+# 코드는 안 바뀐다. 실제로 이 저장소는 이미 2203 을 알고 있었다 —
+# scheduler 의 KIS 코드표에 적혀 있다. 그런데 pykrx 쪽은 이름으로만
+# 찾고 있었다.
+#
+# 코드가 틀렸으면 빈 표가 오고, 그러면 예전처럼 이름으로 찾는다.
+# 없던 실패가 생기지는 않는다.
+PYKRX_INDEX_TICKER = {
+    "KOSPI":     "1001",
+    "KOSPI200":  "1028",
+    "KOSDAQ":    "2001",
+    "KOSDAQ150": "2203",
+}
+
 
 def fetch_pykrx_index(name: str) -> dict | None:
     """KRX 공식 데이터(pykrx)로 지수 조회 — 네이버 내부 코드/야후 심볼이 안 맞을 때 보강용.
@@ -314,22 +340,34 @@ def fetch_pykrx_index(name: str) -> dict | None:
         pkrx = pykrx_light.stock()
         import datetime as dt
 
-        aliases = [target_name] + PYKRX_INDEX_NAME_ALIASES.get(name, [])
-        ticker = None
-        for t in pkrx.get_index_ticker_list(market=market):
-            t_name = pkrx.get_index_ticker_name(t)
-            if t_name in aliases:
-                ticker = t
-                break
-        if not ticker:
-            return None
-
         today = dt.date.today()
         fromdate = (today - dt.timedelta(days=10)).strftime("%Y%m%d")
         todate = today.strftime("%Y%m%d")
-        df = pkrx.get_index_ohlcv_by_date(fromdate, todate, ticker)
-        df = df[df["종가"] > 0]
-        if len(df) < 1:
+
+        def 받기(t):
+            try:
+                d = pkrx.get_index_ohlcv_by_date(fromdate, todate, t)
+                return d[d["종가"] > 0] if d is not None and len(d) else None
+            except Exception:
+                return None
+
+        # 1) 아는 코드로 바로 — 이름 대조 없이 한 번에 끝난다
+        df = 받기(PYKRX_INDEX_TICKER.get(name)) if PYKRX_INDEX_TICKER.get(name) else None
+
+        # 2) 코드가 안 통하면 예전처럼 이름으로 찾는다
+        if df is None or len(df) < 1:
+            aliases = [target_name] + PYKRX_INDEX_NAME_ALIASES.get(name, [])
+            ticker = None
+            for t in pkrx.get_index_ticker_list(market=market):
+                t_name = pkrx.get_index_ticker_name(t)
+                if t_name in aliases:
+                    ticker = t
+                    break
+            if not ticker:
+                return None
+            df = 받기(ticker)
+
+        if df is None or len(df) < 1:
             return None
 
         curr = float(df["종가"].iloc[-1])

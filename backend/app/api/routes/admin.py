@@ -226,6 +226,8 @@ def _news_status() -> dict:
     from app.services import news_service
     kr = cache.get_stale("news:kr") or []
     us = cache.get_stale("news:us") or []
+    쉬는곳 = sorted(이름 for 이름, _ in news_service.KR_FEEDS + news_service.US_FEEDS
+                    if news_service._쉬는가(이름))
     return {
         "kr_feeds":   len(news_service.KR_FEEDS),
         "us_feeds":   len(news_service.US_FEEDS),
@@ -233,6 +235,11 @@ def _news_status() -> dict:
         "kr_cached":  len(kr),
         "us_cached":  len(us),
         "kr_sources": sorted({a.get("source") for a in kr if a.get("source")}),
+        # 계속 실패해서 뒤로 물린 곳. '지금 실패 중' 과 갈라 보여 줘야
+        # 관리자가 '서버가 매 회차 여기에 시간을 쓰고 있다' 고 오해하지 않는다
+        "resting":    쉬는곳,
+        "rest_after": news_service._쉼_기준,
+        "probe":      news_service._되살림_칸,
     }
 
 

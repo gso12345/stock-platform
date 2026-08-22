@@ -685,8 +685,19 @@ async def run_startup_prefetch():
         # 미국장이 닫혀 있어도 순위표는 채운다. 안 그러면 재시작 직후
         # 한국 낮에 들어온 사람은 다섯 종목짜리 순위를 본다 —
         # Render 무료 플랜은 재시작이 잦아 드문 일이 아니다.
-        from app.services.ranking_service import refresh_us_rows
-        startup_jobs.append(refresh_us_rows())
+        #
+        # 여유 검사를 붙였다. 주기 갱신 쪽에는 처음부터 has_headroom 이
+        # 있었는데 이 시작 경로에만 없었고, 그래서 프로덕션이 시작 3분
+        # 만에 96%(493/512MB)까지 올라가 강제 재시작을 반복했다.
+        # 바로 아래 주석이 같은 말을 하고 있었다 — 시작 시점의 선제 캐싱은
+        # 이 서버에서 프로세스를 죽이는 가장 흔한 원인이다.
+        #
+        # 훑는 양도 줄인다. 시작 직후는 라이브러리를 막 올려 메모리가 가장
+        # 높은 때다. 여기서 1500개를 훑을 이유가 없다 — 화면이 비지 않을
+        # 만큼만 채우고 나머지는 주기 갱신이 이어서 돈다.
+        from app.services.ranking_service import refresh_us_rows, US_STARTUP_SWEEP
+        if memory.has_headroom("시작 시 미국 순위표"):
+            startup_jobs.append(refresh_us_rows(sweep=US_STARTUP_SWEEP))
     if market_hours.kr_session() != "closed":
         startup_jobs.append(refresh_kr_stocks())
     if startup_jobs:

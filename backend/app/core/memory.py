@@ -22,6 +22,50 @@ MEMORY_LIMIT_MB = int(os.getenv("MEMORY_LIMIT_MB", 512))
 HEAVY_WORK_THRESHOLD = float(os.getenv("MEMORY_HEAVY_THRESHOLD", 0.75))
 
 
+# ── 힙을 여러 개로 나누지 않게 막는다 ────────────────────────
+#
+# render.yaml 에 MALLOC_ARENA_MAX=2 를 넣어 뒀는데, 프로덕션 화면에는
+# '힙 나눔 상한: 제한 없음' 이 떴다. 즉 그 줄이 프로세스에 안 닿았다
+# (render.yaml 은 Blueprint 로 만든 서비스에만 적용된다 — 대시보드에서
+# 직접 만든 서비스는 이 파일을 읽지 않는다).
+#
+# 그래서 코드에서 직접 건다. 환경변수와 달리 이건 배포만 하면 반드시
+# 걸리고, 어디에 걸렸는지 화면에서 확인할 수 있다.
+#
+# 왜 걸어야 하나 — 프로덕션 493.6MB 중 197.4MB 가 '해제했는데 OS 에 안
+# 돌려준' 몫이었다. glibc 는 스레드가 malloc 을 부를 때 잠금 경합을
+# 줄이려고 힙을 여러 개 만드는데, 힙이 나뉘면 빈 자리도 따로 논다.
+# 한쪽에 남는 자리가 있어도 다른 쪽은 OS 에서 새로 받아 온다.
+# 이 서버는 스레드가 12개인데 CPU 는 0.15개다. 애초에 동시에 돌 수가
+# 없으니 경합을 줄여 봐야 얻는 것은 없고 조각만 늘어난다.
+#
+# mallopt 는 이미 만들어진 힙을 되돌리지는 못한다. 그래서 되도록 이른
+# 시점에 — 스레드 풀이 생기기 전에 — 불러야 한다(app/main.py 맨 위).
+_M_ARENA_MAX = -8          # glibc malloc.h
+_힙나눔_결과: str | None = None
+
+
+def 힙나눔_제한(최대: int = 2) -> str:
+    """스레드마다 힙을 따로 만들지 않게 막고, 무엇을 했는지 돌려준다."""
+    global _힙나눔_결과
+    이미 = os.getenv("MALLOC_ARENA_MAX")
+    if 이미:
+        _힙나눔_결과 = f"{이미} (환경변수)"
+        return _힙나눔_결과
+    try:
+        import ctypes
+        # mallopt 는 성공하면 1 을 준다. 0 이면 안 먹은 것이므로
+        # '걸었다' 고 적으면 안 된다 — 화면이 거짓말을 하게 된다.
+        if ctypes.CDLL("libc.so.6").mallopt(_M_ARENA_MAX, 최대) == 1:
+            _힙나눔_결과 = f"{최대} (코드)"
+        else:
+            _힙나눔_결과 = "제한 실패 (mallopt 거부)"
+    except Exception as e:                       # glibc 가 아닌 환경(musl 등)
+        _힙나눔_결과 = f"제한 못 함 ({type(e).__name__})"
+    log.info("힙 나눔 상한: %s", _힙나눔_결과)
+    return _힙나눔_결과
+
+
 def rss_mb() -> float | None:
     """현재 프로세스가 실제로 쓰는 물리 메모리(MB). 못 읽으면 None."""
     try:
@@ -215,7 +259,12 @@ def native_breakdown() -> dict | None:
             # 힙을 몇 개까지 나눠 쓰게 뒀는지. 이걸 안 보여주면 배포 뒤에
             # '설정이 걸리긴 한 건가'를 확인할 방법이 없어, 효과가 있었는지
             # 없었는지도 판단할 수 없다.
-            "arena_max":    os.getenv("MALLOC_ARENA_MAX") or None,
+            #
+            # 환경변수만 보던 것을 실제 적용 결과로 바꿨다. 프로덕션에서
+            # '제한 없음' 이 떠서 환경변수가 안 닿은 것을 알았는데,
+            # 코드에서 걸고 나면 환경변수는 여전히 비어 있으므로 그것만
+            # 봐서는 걸렸는지 알 수 없다.
+            "arena_max":    _힙나눔_결과 or os.getenv("MALLOC_ARENA_MAX") or None,
         }
     except Exception:
         return None

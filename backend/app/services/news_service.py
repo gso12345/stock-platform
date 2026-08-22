@@ -387,24 +387,93 @@ _feed_executor = ThreadPoolExecutor(max_workers=_FEED_WORKERS, thread_name_prefi
 # 아래 stale 병합이 살려 두므로 목록은 계속 가득 찬 상태로 유지된다.
 _FEED_BATCH = int(os.getenv("NEWS_FEED_BATCH", 14))
 
-# 언론사별로 돌아가며 가져오기 위한 시작 위치 (피드 목록 id → 다음 시작 index)
-_feed_cursor: dict[int, int] = {}
+# 언론사별로 돌아가며 가져오기 위한 시작 위치 (자리 이름 → 다음 시작 index)
+_feed_cursor: dict[str, int] = {}
 _cursor_lock = Lock()
+
+# ── 계속 실패하는 곳은 뒤로 물린다 ──────────────────────────
+#
+# 실패 이유를 화면에 띄우고 나서야 규모가 보였다. 국내 49곳 중 36곳이
+# 38회 연속 실패 중이다. 그런데 고르는 코드는 그걸 전혀 안 본다 —
+# 순서대로만 돌리니 회차당 14칸 중 열 칸이 38번 연속 실패한 곳으로 간다.
+#
+# 두 가지를 한꺼번에 잃고 있었다.
+#   · 살아 있는 13곳이 3~4회차에 한 번씩만 갱신된다(약 17분마다).
+#     칸이 남아도는 게 아니라 죽은 곳이 칸을 먹고 있어서다.
+#   · 회차 전체 예산이 40초인데 죽은 곳 하나가 최대 10초를 쓴다.
+#     열 곳이면 예산을 다 쓰고, 살아 있는 곳이 그 안에 못 끝나 버려진다.
+#
+# 그래서 연속 실패가 쌓인 곳은 '쉬는 곳' 으로 빼고, 매 회차 몇 칸만
+# 다시 찔러본다. 목록에서 지우지는 않는다 — 언론사가 주소를 되살리면
+# 그 찔러보는 칸에서 성공해 스스로 돌아온다. 지워 버리면 사람이
+# 알아채고 다시 넣기 전까지는 영영 안 온다.
+#
+# '기사는 받았는데 경제 키워드에 하나도 안 걸림' 은 실패로 세지 않는다.
+# 그건 피드가 멀쩡하다는 뜻이다.
+_연속실패: dict[str, int] = {}
+
+#: 이만큼 연속 실패하면 쉬는 곳으로 본다. 한두 번은 서버가 잠깐
+#: 흔들린 것일 수 있어 넉넉히 잡는다.
+_쉼_기준 = int(os.getenv("NEWS_FEED_REST_AFTER", 5))
+
+#: 한 회차에서 쉬는 곳을 다시 찔러보는 칸 수. 36곳을 2칸씩 돌면
+#: 한 곳당 18회차(약 90분)에 한 번 다시 시도한다.
+_되살림_칸 = int(os.getenv("NEWS_FEED_PROBE", 2))
+
+
+def _쉬는가(이름: str) -> bool:
+    return _연속실패.get(이름, 0) >= _쉼_기준
+
+
+def _실패기록(이름: str, 실패했나: bool) -> None:
+    with _cursor_lock:
+        if 실패했나:
+            _연속실패[이름] = _연속실패.get(이름, 0) + 1
+        else:
+            _연속실패[이름] = 0
+
+
+def _돌아가며(목록: list, 개수: int, 자리: str) -> list:
+    """목록에서 순서대로 개수만큼 고르고, 다음에 이어서 갈 자리를 남긴다.
+
+    무작위로 섞으면 운이 나쁜 언론사는 몇 회차 연속 빠질 수 있다.
+    순서대로 돌리면 모든 언론사가 정확히 같은 빈도로 갱신된다.
+
+    자리 이름을 따로 받는 이유 — 예전에는 id(목록) 을 열쇠로 썼다.
+    목록이 모듈 상수일 때는 맞지만, 아래처럼 그때그때 걸러 만든
+    임시 목록에는 못 쓴다. id 는 회차마다 달라지고, 심하면 먼저 버려진
+    목록의 번지를 물려받아 엉뚱한 자리에서 이어가게 된다."""
+    if 개수 <= 0 or not 목록:
+        return []
+    if 개수 >= len(목록):
+        return list(목록)
+    with _cursor_lock:
+        시작 = _feed_cursor.get(자리, 0) % len(목록)
+        _feed_cursor[자리] = (시작 + 개수) % len(목록)
+    이어붙인것 = list(목록) + list(목록)
+    return 이어붙인것[시작:시작 + 개수]
 
 
 def _next_batch(feeds: list, batch: int) -> list:
-    """이번 회차에 가져올 피드를 돌아가며 고른다.
-
-    무작위로 섞으면 운이 나쁜 언론사는 몇 회차 연속 빠질 수 있다.
-    순서대로 돌리면 모든 언론사가 정확히 같은 빈도로 갱신된다."""
+    """이번 회차에 가져올 피드를 고른다 — 쉬는 곳은 몇 칸만."""
     if batch >= len(feeds):
         return list(feeds)
-    key = id(feeds)
-    with _cursor_lock:
-        start = _feed_cursor.get(key, 0) % len(feeds)
-        _feed_cursor[key] = (start + batch) % len(feeds)
-    doubled = list(feeds) + list(feeds)
-    return doubled[start:start + batch]
+    자리 = "kr" if feeds is KR_FEEDS else "us" if feeds is US_FEEDS else str(id(feeds))
+
+    사는곳 = [f for f in feeds if not _쉬는가(f[0])]
+    쉬는곳 = [f for f in feeds if _쉬는가(f[0])]
+
+    # 전부 쉬는 중이면 예전처럼 돈다. 여기서 빈 목록을 주면 뉴스가
+    # 통째로 멈추고, 그러면 스스로 되살아날 길도 함께 막힌다.
+    if not 사는곳:
+        return _돌아가며(feeds, batch, 자리)
+    if not 쉬는곳:
+        return _돌아가며(사는곳, batch, f"{자리}:live")
+
+    # 찔러보는 칸이 묶음을 다 먹지 않게 한다 — 살아 있는 곳이 최소 한 칸.
+    찔러볼칸 = max(0, min(_되살림_칸, batch - 1, len(쉬는곳)))
+    return (_돌아가며(사는곳, batch - 찔러볼칸, f"{자리}:live")
+            + _돌아가며(쉬는곳, 찔러볼칸, f"{자리}:rest"))
 
 
 def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = None) -> list[dict]:
@@ -416,15 +485,18 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
         for source, url in picked
     }
     성공 = 실패 = 빈곳 = 0
+    남은곳 = dict(futures)          # 답을 못 들은 곳 — 아래에서 하나씩 지운다
     try:
         # 워커가 적으므로 개별 피드는 여유 있게 기다린다 — 예전에는 동시 실행
         # 때문에 이 예산 안에 못 끝나 버려지는 피드가 대부분이었다
         for future in as_completed(futures, timeout=40):
             source = futures[future]
+            남은곳.pop(future, None)
             try:
                 items = future.result(timeout=12)
                 all_news.extend(items)
                 성공 += 1
+                _실패기록(source, False)
                 # 성공도 언론사별로 남긴다. 이게 없으면 실패 수만 쌓여서,
                 # 한참 전에 실패하고 그 뒤로 계속 성공한 곳도 화면에
                 # 영원히 '실패' 로 남는다(연속실패가 0으로 돌아가지 않는다)
@@ -435,16 +507,33 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
                 # 화면에는 2곳만 뜨는 일이 있었다
                 if "통과 0건" in str(e):
                     빈곳 += 1
+                    # 받아오긴 했다. 피드는 멀쩡하므로 쉬게 하지 않는다 —
+                    # 여기서 실패로 세면 경제 기사가 뜸한 언론사가 통째로
+                    # 목록에서 빠진다
+                    _실패기록(source, False)
                 else:
                     실패 += 1
+                    _실패기록(source, True)
                 # 어떤 언론사가 왜 실패했는지 그대로 남긴다 — 관리자 화면의
                 # 칩에 마우스를 올리면 이 문장이 보인다
                 health.record_fail(f"뉴스:{source}", str(e))
             except Exception as e:
                 실패 += 1
+                _실패기록(source, True)
                 health.record_fail(f"뉴스:{source}", f"{type(e).__name__}")
     except Exception:
         pass
+
+    # 회차 예산(40초)이 끝나면 남은 것은 결과를 못 듣는다. 예전에는 여기서
+    # 그냥 빠져나가서, 매번 예산을 넘기는 느린 곳은 성공도 실패도 기록되지
+    # 않았다 — 화면에 아무 흔적이 없으니 '되고 있는 줄' 알았고, 연속 실패도
+    # 안 쌓이니 쉬는 곳으로 물러나지도 않아 매 회차 칸만 먹었다.
+    for future, source in 남은곳.items():
+        future.cancel()
+        실패 += 1
+        _실패기록(source, True)
+        health.record_fail(f"뉴스:{source}", "회차 시간(40초) 안에 못 끝냄")
+
     전체 = 성공 + 실패 + 빈곳
     if 성공:
         상세 = f"{성공}/{전체}곳에서 기사 확보"

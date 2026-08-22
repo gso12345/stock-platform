@@ -547,6 +547,9 @@ def _load_kr_from_db() -> bool:
                         "symbol": r.symbol, "name": r.name, "price": r.price,
                         "change": r.change or 0, "change_rate": r.change_rate or 0,
                         "volume": int(r.volume or 0), "market_cap": int(r.market_cap or 0),
+                        # 이게 빠져 있어서 재시작마다 시가총액 계산이 통째로
+                        # 무너졌다 — 시총 = 현재가 × 상장주식수 다
+                        "shares": int(r.shares or 0),
                         "currency": "KRW",
                         "high": r.high or 0, "low": r.low or 0, "open": r.open or 0,
                     }
@@ -607,6 +610,7 @@ def _save_kr_to_db(rows: list[dict], prices: dict) -> bool:
                     "price": p.get("price"), "change": p.get("change"),
                     "change_rate": p.get("change_rate"), "volume": p.get("volume"),
                     "market_cap": p.get("market_cap"),
+                    "shares": p.get("shares"),
                     "open": p.get("open"), "high": p.get("high"), "low": p.get("low"),
                 }
                 row = existing.get(sym)

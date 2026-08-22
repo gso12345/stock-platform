@@ -40,6 +40,8 @@ interface Runtime {
   news: {
     kr_feeds: number; us_feeds: number; batch: number;
     kr_cached: number; us_cached: number; kr_sources: string[];
+    /** 계속 실패해서 뒤로 물린 곳 — 회차당 몇 칸만 다시 시도한다 */
+    resting?: string[]; rest_after?: number; probe?: number;
   };
   health: HealthItem[];
   proc?: {
@@ -851,6 +853,13 @@ export default function SystemTab() {
         <p className="text-2xs text-text-dim break-keep">
           회차당 {d.news.batch}곳씩 번갈아 가져옵니다 — 전체 한 바퀴에 약{" "}
           {Math.ceil(d.news.kr_feeds / d.news.batch) * 5}분
+          {(d.news.resting?.length ?? 0) > 0 && (
+            /* 계속 실패하는 곳은 칸을 거의 안 먹는다는 것을 적어 준다.
+               안 적으면 '실패 중 36곳' 만 보고 서버가 매 회차 거기에
+               시간을 쓰고 있다고 읽게 된다 */
+            <> · 계속 실패한 {d.news.resting!.length}곳은 쉬는 중
+              (회차당 {d.news.probe ?? 2}칸만 다시 시도)</>
+          )}
         </p>
         {d.news.kr_sources.length > 0 && (
           <div className="flex flex-wrap gap-1">
@@ -866,17 +875,29 @@ export default function SystemTab() {
                 예전에는 title 툴팁에만 있어서 마우스를 올려야 보였고,
                 휴대폰에서는 아예 볼 방법이 없었다. 무엇이 문제인지가
                 이 목록의 존재 이유인데 그게 가려져 있었다. */}
-            <div className="flex flex-col gap-0.5">
-              {실패언론사.slice(0, 20).map((h) => (
-                <div key={h.name} className="flex items-baseline gap-1.5 flex-wrap">
-                  <span className="px-1.5 py-0.5 rounded bg-accent-red/10 text-2xs text-accent-red break-keep shrink-0">
-                    {h.name.replace("뉴스:", "")} ({h.streak ?? h.fail}회 연속)
-                  </span>
-                  {h.last_error && (
-                    <span className="text-2xs text-text-dim break-keep">{h.last_error}</span>
-                  )}
-                </div>
-              ))}
+            {/* 한 줄에 언론사 하나. 예전에는 flex-wrap 이라 이유가 다음
+                줄로 넘어갔고, 넘어간 이유가 아래 언론사 것처럼 보였다.
+                이유를 보여 주는 게 이 목록의 존재 이유인데 그게 어느
+                언론사 것인지 헷갈리면 없는 것만 못하다. */}
+            <div className="flex flex-col gap-1">
+              {실패언론사.map((h) => {
+                const 이름 = h.name.replace("뉴스:", "");
+                const 쉬는중 = d.news.resting?.includes(이름);
+                return (
+                  <div key={h.name} className="flex flex-col gap-0.5 pl-2 border-l-2 border-accent-red/30">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-2xs font-semibold text-accent-red break-keep">{이름}</span>
+                      <span className="text-2xs text-text-dim">{h.streak ?? h.fail}회 연속</span>
+                      {쉬는중 && (
+                        <span className="px-1 rounded bg-bg-elevated text-2xs text-text-muted">쉬는 중</span>
+                      )}
+                    </div>
+                    {h.last_error && (
+                      <span className="text-2xs text-text-dim break-keep">{h.last_error}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

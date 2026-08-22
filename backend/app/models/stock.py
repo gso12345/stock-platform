@@ -276,6 +276,19 @@ class KrTicker(Base):
     change_rate = Column(Float, nullable=True)
     volume      = Column(Float, nullable=True)
     market_cap  = Column(Float, nullable=True)
+    # 상장주식수. KRX 가 목록과 함께 주는데 여기 담지 않고 있었다.
+    #
+    # 시가총액은 '현재가 × 상장주식수' 로 직접 계산한다. 남이 준 시총 값은
+    # 전일 종가 기준인 데다, 예전에 표의 옆 칸을 잘못 읽어 시가총액 순위에서
+    # 삼성전자가 사라진 적이 있어 안 쓰기로 했다.
+    #
+    # 그런데 이 값이 파이썬 변수에만 있었다. 평소 재시작은 DB 만 읽으므로
+    # (그게 이 표를 만든 이유다) 재시작 직후에는 2,800 종목 전부 주식수가
+    # 0 이 됐고, 계산이 안 되니 안 쓰기로 한 그 값으로 되돌아갔다.
+    # 더 나쁜 것은 실시간 시세가 있는 종목이었다 — 그쪽 응답에는 시총이
+    # 아예 없어서 0 이 되고, 순위에서 통째로 빠졌다. 사람이 많이 보는
+    # 종목일수록 사라지는 셈이라 삼성전자가 가장 먼저 없어졌다.
+    shares      = Column(Float, nullable=True)
     open        = Column(Float, nullable=True)
     high        = Column(Float, nullable=True)
     low         = Column(Float, nullable=True)

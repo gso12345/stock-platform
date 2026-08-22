@@ -9,6 +9,7 @@ import os
 import httpx
 import re
 from app.core.cache import cache
+from app.core import memory
 from app.services.ticker_service import get_kr_db, get_fdr_price
 from app.services.yf_service import SP500_SYMBOLS
 
@@ -252,7 +253,20 @@ def _시가총액(symbol: str, price: float, p: dict) -> int:
     n = int(p.get("shares") or 0) or 상장주식수(symbol)
     if n > 0 and price > 0:
         return int(price * n)
-    return int(p.get("market_cap") or 0)
+
+    # 여기까지 오면 계산을 못 한 것이다. 넘겨받은 p 에만 시총이 있는지
+    # 보면 안 된다 — p 가 실시간 시세면 거기엔 시총 칸이 아예 없다.
+    #
+    # 그래서 실제로 이런 일이 났다. 사람이 많이 보는 종목일수록 실시간
+    # 시세가 채워져 있는데, 그 종목들만 시총이 0 이 되어 순위에서 통째로
+    # 빠졌다. 시가총액 1위인 삼성전자가 가장 먼저 사라졌다.
+    #
+    # 목록과 함께 받아 둔 값이 있으면 그걸 쓴다. 전일 종가 기준이라
+    # 정확하진 않지만, 0 으로 만들어 순위에서 지워 버리는 것보다는 낫다.
+    if 받아둔것 := int(p.get("market_cap") or 0):
+        return 받아둔것
+    from app.services.ticker_service import get_fdr_price
+    return int((get_fdr_price(symbol) or {}).get("market_cap") or 0)
 
 
 # ── FDR 전체 종목 기반 순위 ────────────────────────────────
@@ -436,11 +450,20 @@ US_BATCH = 100
 # 1500개면 요청 15번, 대략 30초 안팎이다.
 US_SWEEP = int(os.getenv("US_SWEEP", 1500))
 
+#: 서버가 막 시작했을 때만 쓰는, 더 작은 양.
+#
+# 시작 직후는 라이브러리를 다 올린 직후라 메모리가 가장 높다. 거기서
+# 1500개를 훑다가 프로덕션이 3분 만에 96%(493/512MB)까지 올라가 강제
+# 재시작을 반복했다. 화면이 비지 않을 만큼만 채우고(앞쪽이 인기종목·
+# S&P500 이라 300개면 상위 순위는 제대로 나온다) 나머지는 주기 갱신이
+# 이어서 돈다 — 커서가 남아 있으므로 훑던 자리에서 계속된다.
+US_STARTUP_SWEEP = int(os.getenv("US_STARTUP_SWEEP", 300))
+
 #: 어디까지 훑었는지. 다음 번에 그 다음부터 이어 간다
 _us_cursor = 0
 
 
-async def refresh_us_rows() -> int:
+async def refresh_us_rows(sweep: int | None = None) -> int:
     """미국 상장 종목의 시세를 받아 순위표를 다시 만든다.
 
     범위는 us_universe() — NASDAQ Trader 목록 전부다(약 8~9천). 예전에는
@@ -472,11 +495,22 @@ async def refresh_us_rows() -> int:
             return 0
         시작 = _us_cursor % len(전체)
         # 목록을 두 번 이어 붙여 놓고 잘라 낸다 — 끝에서 앞으로 넘어간다
-        훑을것 = (전체 + 전체)[시작:시작 + min(US_SWEEP, len(전체))]
+        훑을것 = (전체 + 전체)[시작:시작 + min(sweep or US_SWEEP, len(전체))]
         _us_cursor = (시작 + len(훑을것)) % len(전체)
 
         받은수 = 0
         for i in range(0, len(훑을것), US_BATCH):
+            # 묶음 사이마다 여유를 본다.
+            #
+            # 예전에는 한 번 시작하면 끝까지 갔다. 야후 응답은 파싱 중간물이
+            # 크게 잡히는데(프로덕션에서 '중간 크기 버퍼' 131.5MB), 15묶음을
+            # 쉬지 않고 돌면 그 사이에 한도를 넘어 프로세스가 죽는다.
+            # 죽으면 담아 둔 것까지 다 잃으므로, 받은 데까지로 표를 만들고
+            # 멈추는 쪽이 낫다 — 커서는 남으니 다음 회차가 이어서 훑는다.
+            if i and not memory.has_headroom("미국 시세 묶음"):
+                _us_cursor = (시작 + i) % len(전체)
+                log.info("메모리 여유 부족 — %d개까지만 훑고 멈춥니다", i)
+                break
             묶음 = 훑을것[i:i + US_BATCH]
             try:
                 받음 = await asyncio.wait_for(fetch_yf_quotes(묶음), timeout=25)
@@ -488,6 +522,7 @@ async def refresh_us_rows() -> int:
                     q["symbol"] = sym
                     cache.set(f"price:{sym}", q, 시세수명)
                     받은수 += 1
+            받음 = None          # 다음 묶음을 받기 전에 놓아준다
             await asyncio.sleep(0.3)
 
         rows = _us_rows_from_cache()

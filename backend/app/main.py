@@ -1,5 +1,10 @@
-from contextlib import asynccontextmanager
-import asyncio
+# 맨 앞이어야 한다 — 힙 나눔 상한은 이미 만들어진 힙에는 소급되지 않는다.
+# 아래 import 들이 스레드 풀과 커넥션 풀을 만들기 시작하면 늦는다.
+from app.core.memory import 힙나눔_제한
+힙나눔_제한()
+
+from contextlib import asynccontextmanager  # noqa: E402
+import asyncio  # noqa: E402
 from fastapi import FastAPI, WebSocket, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -70,7 +75,7 @@ async def lifespan(application: FastAPI):
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
-        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights", "portfolio_items", "portfolios"}
+        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights", "portfolio_items", "portfolios", "kr_tickers"}
         _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
         # 테이블/컬럼명이 항상 이 파일 내 하드코딩된 값이지만, 방어적으로 식별자 형식을 강제
         _IDENTIFIER_RE = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -108,6 +113,10 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("portfolio_items", "portfolio_id", "INTEGER REFERENCES portfolios(id)", "INTEGER")
         _add_col_if_missing("portfolio_items", "asset_class", "VARCHAR(10)")
         _add_col_if_missing("portfolios", "is_public", "BOOLEAN DEFAULT FALSE")
+        # 상장주식수. 시가총액을 직접 계산하려고 KRX 에서 함께 받아 오는데
+        # DB 에 안 담고 있었다 — 재시작하면 통째로 사라졌다.
+        # (아래 '시가총액 순위에서 삼성전자가 사라진' 건의 원인)
+        _add_col_if_missing("kr_tickers", "shares", "DOUBLE PRECISION", "REAL")
 
         def _widen_col(table: str, col: str, new_type: str):
             """이미 만들어진 컬럼의 길이를 늘린다.
