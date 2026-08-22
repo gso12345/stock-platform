@@ -306,7 +306,7 @@ export default function SearchBar() {
                         <span className="font-mono font-bold text-sm text-text-primary">{dispSym(item.symbol)}</span>
                         <p className="text-xs text-text-muted truncate">{item.name}</p>
                       </div>
-                      <button onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); const n = getRecent().filter(r => r.symbol !== item.symbol); localStorage.setItem(RECENT_KEY, JSON.stringify(n)); setRecent(n); }}
+                      <button aria-label="최근 본 종목에서 빼기" onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); const n = getRecent().filter(r => r.symbol !== item.symbol); localStorage.setItem(RECENT_KEY, JSON.stringify(n)); setRecent(n); }}
                         className="text-text-dim hover:text-text-muted p-1 flex-shrink-0 transition-colors"><X size={11}/></button>
                     </div>
                   ))}

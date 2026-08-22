@@ -8,6 +8,7 @@ import { usePricesStream } from "@/hooks/useWebSocket";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 import { timeAgo } from "@/utils/formatters";
+import { 시세갱신주기 } from "@/hooks/useLivePrices";
 
 const AVATAR_COLORS = [
   "bg-accent-blue/20 text-accent-blue border-accent-blue/30",
@@ -90,8 +91,11 @@ export default function UserProfile() {
   const { data: fxData } = useQuery({
     queryKey: ["exchange-rate"],
     queryFn: () => dashboardApi.getExchangeRate(),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 300_000,
+    /* 서버가 이 값을 300초 담아 둔다. 60초마다 물으면 다섯 번 중
+       네 번은 같은 답을 받으려고 왕복하는 셈이다 — CPU 0.15개에서는
+       그 왕복 자체가 비용이다 */
+    refetchInterval: 300_000,
   });
   const exchangeRate: number = (fxData as any)?.value ?? 0;
 
@@ -112,7 +116,10 @@ export default function UserProfile() {
     ),
     enabled: priceableItems.length > 0,
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    /* 장이 닫혀 있으면 종가라 값이 안 변한다. 예전에는 장 상태를 안 보고
+       늘 60초마다 물었다 — 주말 내내, 밤새도록 같은 값을 받으려고
+       1분에 한 번씩 왕복했다 */
+    refetchInterval: 시세갱신주기(priceableItems.map((i: any) => i.market)),
   });
 
   // WebSocket 실시간 가격
@@ -347,11 +354,15 @@ export default function UserProfile() {
               <h3 className="text-sm font-bold text-text-primary">
                 {followModal === "followers" ? "팔로워" : "팔로잉"}
               </h3>
+              {/* 글자 '×' 를 쓰고 있었다. 눈으로는 닫기 표시로 보이지만
+                  화면 읽어주는 기능은 이것을 "곱하기" 로 읽는다.
+                  보이는 것은 그대로 두고 읽히는 이름만 붙인다. */}
               <button
                 onClick={() => setFollowModal(null)}
+                aria-label="닫기"
                 className="text-text-muted hover:text-text-primary transition-colors w-6 h-6 flex items-center justify-center text-lg"
               >
-                ×
+                <span aria-hidden="true">×</span>
               </button>
             </div>
             <div className="px-4 py-3 max-h-80 overflow-y-auto flex flex-col gap-1">

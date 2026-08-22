@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backtestApi } from "@/api/stocks";
-import { Card, ChangeBadge, LoadingSpinner, formatNumber, Tabs, Button, Badge, 빈화면 } from "@/components/ui";
+import { Card, ChangeBadge, formatNumber, Tabs, Button, Badge, 빈화면, 못불러옴} from "@/components/ui";
 import ComingSoon from "@/components/ComingSoon";
 import { ConditionBuilder } from "@/components/backtest/ConditionBuilder";
 import 차트틀 from "@/components/chart/ChartFrame";
@@ -53,6 +53,29 @@ function MetricCard({ label, value, sub, color }: {
       <div className={`text-xl font-mono font-bold ${color ?? "text-text-primary"}`}>{value}</div>
       {sub && <div className="text-xs text-text-muted">{sub}</div>}
     </Card>
+  );
+}
+
+/* 백테스트 결과가 뜰 자리 — 지표 카드 8개와 그래프 */
+function BacktestSkeleton() {
+  return (
+    <>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="bg-bg-card border border-border rounded-xl p-3 animate-pulse flex flex-col gap-2">
+            <div className="h-2.5 w-16 rounded bg-bg-elevated" />
+            <div className="h-5 w-20 rounded bg-bg-elevated" />
+          </div>
+        ))}
+      </div>
+      <div className="bg-bg-card border border-border rounded-xl p-4 animate-pulse">
+        <div className="h-3 w-24 rounded bg-bg-elevated mb-3" />
+        <div className="h-48 rounded bg-bg-elevated" />
+      </div>
+      <p className="text-center text-xs text-text-muted">
+        과거 데이터로 돌려보는 중입니다. 기간이 길면 몇 초 걸립니다.
+      </p>
+    </>
   );
 }
 
@@ -386,7 +409,11 @@ export default function Backtest() {
           {/* 단일 종목 결과 */}
           {pageTab === "single" && (
             runMutation.isPending ? (
-              <Card><LoadingSpinner /></Card>
+              /* 백테스트는 몇 초씩 걸린다. 동그라미만 돌면 얼마나 걸릴지
+                 가늠이 안 돼서, 사람이 멈춘 줄 알고 다시 누른다 */
+              <BacktestSkeleton />
+            ) : runMutation.isError ? (
+              <Card><못불러옴 사유={runMutation.error} 다시={() => runMutation.mutate()} /></Card>
             ) : result ? (
               <>
                 {/* KPI 카드 */}

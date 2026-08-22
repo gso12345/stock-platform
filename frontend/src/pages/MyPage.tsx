@@ -8,6 +8,7 @@ import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/
 import { Save, Palette, Globe, Lock, FileText, Camera, X } from "lucide-react";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 import { timeAgo } from "@/utils/formatters";
+import { 못불러옴 } from "@/components/ui";
 
 const AVATAR_COLORS_DISPLAY = [
   { label: "파랑", dot: "bg-accent-blue",    ring: "bg-accent-blue/20 text-accent-blue border-accent-blue/30"    },
@@ -28,7 +29,7 @@ export default function MyPage() {
     if (!isLoggedIn) navigate("/login");
   }, [isLoggedIn, navigate]);
 
-  const { data: profile, isLoading } = useQuery({
+  const { data: profile, isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery({
     queryKey: ["myProfile"],
     queryFn: communityApi.getMyProfile,
     enabled: isLoggedIn,
@@ -59,8 +60,11 @@ export default function MyPage() {
   const { data: fxData } = useQuery({
     queryKey: ["exchange-rate"],
     queryFn: () => dashboardApi.getExchangeRate(),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 300_000,
+    /* 서버가 이 값을 300초 담아 둔다. 60초마다 물으면 다섯 번 중
+       네 번은 같은 답을 받으려고 왕복하는 셈이다 — CPU 0.15개에서는
+       그 왕복 자체가 비용이다 */
+    refetchInterval: 300_000,
   });
   const exchangeRate: number = (fxData as any)?.value ?? 0;
 
@@ -238,7 +242,9 @@ export default function MyPage() {
   return (
     <div className="max-w-2xl mx-auto py-6 flex flex-col gap-5">
       {/* 프로필 카드 — 다른 사람에게 보이는 모습 */}
-      {isLoading ? (
+      {못받음 ? (
+        <못불러옴 사유={실패사유} 다시={() => 다시받기()} />
+      ) : isLoading ? (
         <div className="bg-bg-card border border-border rounded-2xl p-6 animate-pulse flex flex-col gap-4">
           <div className="flex gap-4">
             <div className="w-20 h-20 rounded-full bg-bg-elevated" />

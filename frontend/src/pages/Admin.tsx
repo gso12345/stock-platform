@@ -955,7 +955,7 @@ function UsersTab({ qc }: { qc: QueryClient }) {
             placeholder="이름 또는 이메일 검색..."
             className="w-full pl-8 pr-7 py-1.5 text-xs bg-bg-elevated border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue/60 transition-colors" />
           {search && (
-            <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
+            <button aria-label="검색어 지우기" onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
               <XIcon size={13} />
             </button>
           )}
@@ -1420,7 +1420,7 @@ function CacheTab({ qc }: { qc: QueryClient }) {
           className="w-full pl-8 pr-8 py-2 text-sm bg-bg-elevated border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-blue"
         />
         {search && (
-          <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
+          <button aria-label="검색어 지우기" onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
             <XIcon size={13} />
           </button>
         )}
@@ -1582,7 +1582,7 @@ function PopupTab({ qc }: { qc: QueryClient }) {
           <div className="bg-bg-card border border-border rounded-2xl shadow-modal p-6 w-full max-w-lg mx-4 flex flex-col gap-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <p className="text-sm font-bold text-text-primary">{editTarget ? "팝업 수정" : "새 팝업 추가"}</p>
-              <button onClick={() => setShowForm(false)}><XIcon size={16} className="text-text-muted" /></button>
+              <button aria-label="작성 취소" onClick={() => setShowForm(false)}><XIcon size={16} className="text-text-muted" /></button>
             </div>
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-2 gap-3">

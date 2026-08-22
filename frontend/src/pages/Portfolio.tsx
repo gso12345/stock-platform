@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
-import { Card, RowSkeleton, Tabs, UnderlineTabs, ChangeBadge } from "@/components/ui";
+import { Card, RowSkeleton, Tabs, UnderlineTabs, ChangeBadge, 못불러옴} from "@/components/ui";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
@@ -285,7 +285,7 @@ export default function Portfolio() {
      전체(view_all) 한 번만 불러와서 캐시해두고, 특정 포트폴리오 탭은 그 결과를
      클라이언트에서 필터링만 한다 — 탭마다 매번 새로 불러오면 전환할 때마다
      로딩이 보여서 느리게 느껴지는 문제를 없앤다 */
-  const { data: allItems = [], isLoading: itemsLoading } = useQuery<PortfolioItem[]>({
+  const { data: allItems = [], isLoading: itemsLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery<PortfolioItem[]>({
     queryKey: ["portfolio-items-all"],
     queryFn:  () => portfolioApi.getItems(undefined, true),
     enabled:  isLoggedIn,
@@ -1157,6 +1157,10 @@ export default function Portfolio() {
         {/* 로그인 상태에서 보유종목 불러오는 중 — 빈 상태로 단정하지 않고 스켈레톤만 표시 */}
         {isLoggedIn && itemsLoading ? (
           <div className="p-3"><RowSkeleton rows={3} /></div>
+        ) : isLoggedIn && 못받음 ? (
+          /* 돈이 걸린 화면이라 특히 갈라야 한다. 손익이 0 으로 보이는 것이
+             진짜 0 인지 못 받은 건지 알 수 없으면 화면을 믿을 수 없다 */
+          <못불러옴 사유={실패사유} 다시={() => 다시받기()} />
         ) : isLoggedIn && items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-4">
             <div className="w-14 h-14 rounded-2xl bg-bg-elevated border border-border flex items-center justify-center">

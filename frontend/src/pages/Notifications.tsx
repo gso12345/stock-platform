@@ -13,7 +13,7 @@ import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import NotificationList, { type NotificationItem } from "@/components/community/NotificationList";
 import NotificationSettings from "@/components/community/NotificationSettings";
-import { 빈화면 } from "@/components/ui";
+import { 빈화면, 못불러옴, RowSkeleton} from "@/components/ui";
 
 export default function Notifications() {
   const { isLoggedIn } = useAuthStore();
@@ -31,7 +31,7 @@ export default function Notifications() {
     }
   }, [params, setParams]);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery({
     queryKey: ["notiPage", page],
     queryFn: () => communityApi.getNotifications(page),
     enabled: isLoggedIn,
@@ -96,7 +96,9 @@ export default function Notifications() {
 
       <div className="bg-bg-card border border-border rounded-2xl overflow-hidden">
         {isLoading ? (
-          <p className="px-4 py-12 text-center text-xs text-text-dim">불러오는 중…</p>
+          <RowSkeleton rows={5} />
+        ) : 못받음 ? (
+          <못불러옴 사유={실패사유} 다시={() => 다시받기()} />
         ) : items.length === 0 ? (
           /* 첫 장이 비어 있는 것과 마지막 장까지 넘긴 것은 다른 상황이다.
              앞의 경우에만 '무엇을 하면 알림이 오는지' 를 알려준다 */

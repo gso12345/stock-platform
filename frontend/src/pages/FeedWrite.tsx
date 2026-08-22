@@ -13,8 +13,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
-  Hash, BarChart2, X, Image as ImageIcon, Send, ArrowLeft, Loader2,
-} from "lucide-react";
+  Hash, BarChart2, X, Image as ImageIcon, Send, ArrowLeft, Loader2, FileText} from "lucide-react";
 import { communityApi, portfolioApi, watchlistApi, dashboardApi } from "@/api/stocks";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/store/authStore";
@@ -27,6 +26,10 @@ import Avatar from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { use확인 } from "@/hooks/useDialogs";
 import { Button } from "@/components/ui";
+import { use임시저장, use임시본알림, 임시저장지우기 } from "@/hooks/useDraft";
+
+/** 브라우저에 담아 두는 자리 이름 */
+const 임시본열쇠 = "feed-write-draft";
 
 type 태그 = { symbol: string; market: string; name?: string };
 
@@ -65,6 +68,40 @@ export default function FeedWrite() {
   const tagSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /* ── 쓰던 글 지키기 ──────────────────────────────────
+     저장이 실패해도 내용은 남고(화면을 안 떠난다), 뒤로 갈 때도 한 번
+     물어본다. 그 사이에 구멍이 있었다 — 새로고침, 탭 닫기, 휴대폰이
+     배경에서 앱을 정리하는 경우다.
+
+     긴 글을 쓰다가 전화가 오거나 다른 앱을 잠깐 보고 오면 브라우저가
+     화면을 버리는 일이 흔하다. 돌아오면 빈 칸이고 되돌릴 방법이 없다.
+
+     이미지는 담지 않는다 — 압축해도 수백 KB 라 localStorage 한도(보통
+     5MB)를 금방 먹고, 그러면 정작 글자가 안 담긴다. */
+  const 쓴것 = useMemo(() => ({
+    mode, title, body, showPoll, pollQuestion, pollOptions, customTags,
+    selectedStock, selectedPfId,
+  }), [mode, title, body, showPoll, pollQuestion, pollOptions, customTags,
+       selectedStock, selectedPfId]);
+  const 담을만한가 = !!(title.trim() || body.trim() || customTags.length > 0
+                       || pollOptions.some((o) => o.trim()));
+  use임시저장(임시본열쇠, 쓴것, 담을만한가);
+  const { 임시본, 닫기: 임시본닫기, 버리기: 임시본버리기 } = use임시본알림<typeof 쓴것>(임시본열쇠);
+
+  const 임시본이어쓰기 = () => {
+    if (!임시본) return;
+    setMode(임시본.mode);
+    setTitle(임시본.title ?? "");
+    setBody(임시본.body ?? "");
+    setShowPoll(!!임시본.showPoll);
+    setPollQuestion(임시본.pollQuestion ?? "");
+    setPollOptions(임시본.pollOptions ?? ["", ""]);
+    setCustomTags(임시본.customTags ?? []);
+    setSelectedStock(임시본.selectedStock ?? null);
+    setSelectedPfId(임시본.selectedPfId ?? null);
+    임시본닫기();
+  };
+
   /* 로그인 없이 들어오면 쓸 수 있는 것이 하나도 없다. 빈 폼을 보여주고
      제출에서 막는 것보다 바로 보내는 편이 낫다 */
   useEffect(() => {
@@ -91,8 +128,11 @@ export default function FeedWrite() {
   const { data: fxData } = useQuery({
     queryKey: ["exchange-rate"],
     queryFn: () => dashboardApi.getExchangeRate(),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 300_000,
+    /* 서버가 이 값을 300초 담아 둔다. 60초마다 물으면 다섯 번 중
+       네 번은 같은 답을 받으려고 왕복하는 셈이다 — CPU 0.15개에서는
+       그 왕복 자체가 비용이다 */
+    refetchInterval: 300_000,
     enabled: isLoggedIn && 포트폴리오모드,
   });
   const liveExchangeRate: number = (fxData as any)?.value ?? 0;
@@ -286,6 +326,7 @@ export default function FeedWrite() {
         : null;
       await communityApi.createPost(market, symbol, title.trim(), bodyToSubmit, image, pollData, allTags, portfolioSnapshot);
       qc.invalidateQueries({ queryKey: ["feed"] });
+      임시저장지우기(임시본열쇠);           // 올렸으니 더 들고 있을 이유가 없다
       navigate("/feed", { replace: true });
     } catch {
       setError("게시글 작성에 실패했습니다. 다시 시도해주세요.");
@@ -303,7 +344,7 @@ export default function FeedWrite() {
       message: "작성 중인 내용이 사라집니다. 되돌릴 수 없습니다.",
       대상: (title.trim() || body.trim() || "(첨부만 있음)").slice(0, 40),
       확인글: "나가기",
-      onConfirm: () => navigate("/feed"),
+      onConfirm: () => { 임시저장지우기(임시본열쇠); navigate("/feed"); },
     });
   };
 
@@ -331,6 +372,23 @@ export default function FeedWrite() {
           {submitting ? "등록 중..." : "등록"}
         </button>
       </div>
+
+      {/* 쓰다 만 글이 있으면 한 번 물어본다.
+          곧바로 채워 넣지 않는 이유 — 새 글을 쓰려고 들어왔는데 예전 글이
+          들어가 있으면 그것대로 당황스럽다. 고르게 한다. */}
+      {임시본 && (
+        <div className="flex items-center gap-2 rounded-xl border border-accent-blue/40 bg-accent-blue/10 px-3 py-2.5">
+          <FileText size={14} className="text-accent-blue flex-shrink-0" />
+          <p className="flex-1 text-xs text-text-secondary break-keep">
+            쓰다 만 글이 있습니다
+            {임시본.title?.trim() || 임시본.body?.trim()
+              ? ` — "${(임시본.title?.trim() || 임시본.body?.trim() || "").slice(0, 24)}…"`
+              : ""}
+          </p>
+          <Button size="sm" onClick={임시본이어쓰기}>이어 쓰기</Button>
+          <Button size="sm" variant="ghost" onClick={임시본버리기}>버리기</Button>
+        </div>
+      )}
 
       <div className="bg-bg-card border border-border rounded-2xl overflow-hidden">
         {/* 모드 탭 */}

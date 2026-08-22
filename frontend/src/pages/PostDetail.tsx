@@ -12,7 +12,7 @@ import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import AvatarComponent from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, COMMENT_MAX, POLL_QUESTION_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { use확인, use알림 } from "@/hooks/useDialogs";
-import { Button } from "@/components/ui";
+import { Button, 못불러옴} from "@/components/ui";
 import { timeAgo } from "@/utils/formatters";
 import { use좋아요 } from "@/hooks/useLike";
 
@@ -404,6 +404,37 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
   );
 }
 
+/* 글 상세가 뜰 자리 */
+function PostSkeleton() {
+  return (
+    <div className="max-w-2xl mx-auto py-4 flex flex-col gap-4 animate-pulse">
+      <div className="flex items-center gap-2">
+        <div className="w-9 h-9 rounded-full bg-bg-elevated" />
+        <div className="flex flex-col gap-1.5">
+          <div className="h-3 w-24 rounded bg-bg-elevated" />
+          <div className="h-2.5 w-16 rounded bg-bg-elevated" />
+        </div>
+      </div>
+      <div className="h-5 w-3/4 rounded bg-bg-elevated" />
+      <div className="flex flex-col gap-2">
+        <div className="h-3 w-full rounded bg-bg-elevated" />
+        <div className="h-3 w-11/12 rounded bg-bg-elevated" />
+        <div className="h-3 w-2/3 rounded bg-bg-elevated" />
+      </div>
+      <div className="h-px bg-border" />
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex gap-2">
+          <div className="w-7 h-7 rounded-full bg-bg-elevated flex-shrink-0" />
+          <div className="flex-1 flex flex-col gap-1.5">
+            <div className="h-2.5 w-20 rounded bg-bg-elevated" />
+            <div className="h-3 w-4/5 rounded bg-bg-elevated" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PostDetail() {
   const { 묻기, 화면: 확인화면 } = use확인();
   const { 보이기, 화면: 알림화면 } = use알림();
@@ -427,7 +458,7 @@ export default function PostDetail() {
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   }, []);
 
-  const { data: post, isLoading: postLoading } = useQuery<any>({
+  const { data: post, isLoading: postLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery<any>({
     queryKey: ["post", postId],
     queryFn: () => communityApi.getPost(Number(postId)),
     staleTime: 60_000,
@@ -641,11 +672,16 @@ export default function PostDetail() {
   };
 
   if (postLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="w-6 h-6 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-      </div>
-    );
+    /* 글 한 편의 모양을 미리 잡아 둔다. 예전에는 동그라미만 돌다가
+       제목·본문·댓글이 한꺼번에 튀어나와 읽던 자리가 밀렸다 */
+    return <PostSkeleton />;
+  }
+
+  /* '못 불러왔다' 와 '없는 글' 은 다르다. 아래 !activePost 는 지워진 글에도
+     걸리는데, 예전에는 조회가 실패해도 똑같이 "찾을 수 없습니다" 가 떴다.
+     지워진 글은 다시 눌러도 소용없지만 실패는 한 번이면 되는 일이다 */
+  if (못받음) {
+    return <못불러옴 사유={실패사유} 다시={() => 다시받기()} />;
   }
 
   if (!activePost) {
@@ -801,7 +837,7 @@ export default function PostDetail() {
                 <div className="bg-bg-card rounded-xl p-3 flex flex-col gap-2 border border-border/50">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-text-primary">종목 태그</span>
-                    <button onClick={() => { setEditShowTagSearch(false); setEditTagQuery(""); setEditTagResults([]); }} className="text-text-dim hover:text-accent-red"><X size={13} /></button>
+                    <button aria-label="태그 검색 닫기" onClick={() => { setEditShowTagSearch(false); setEditTagQuery(""); setEditTagResults([]); }} className="text-text-dim hover:text-accent-red"><X size={13} /></button>
                   </div>
                   {editTags.length > 0 && (
                     <div className="flex flex-wrap gap-1">
@@ -958,6 +994,8 @@ export default function PostDetail() {
               <div className="flex items-center gap-1 ml-auto">
                 {!activePost.is_mine && isLoggedIn && (
                   <button onClick={() => setShowPostReport(v => !v)}
+                    aria-label={showPostReport ? "신고 창 닫기" : "이 글 신고하기"}
+                    aria-expanded={showPostReport}
                     className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
                       showPostReport ? "text-accent-red bg-accent-red/10" : "text-text-dim hover:text-accent-red hover:bg-accent-red/5"
                     }`}>

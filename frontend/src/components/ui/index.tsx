@@ -4,6 +4,8 @@ import { twMerge } from "tailwind-merge";
 import { useSettingsStore } from "@/store/settingsStore";
 import { 용어사전 } from "@/constants/terms";
 import type { LucideIcon } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
+import { 사람말로 } from "@/api/queryError";
 
 export function cn(...i: ClassValue[]) { return twMerge(clsx(i)); }
 
@@ -512,6 +514,61 @@ export function 빈화면({ icon: Icon, title, hint, action, compact }: {
     </div>
   );
 }
+
+/* ── 못 불러왔을 때 ────────────────────────────────────
+   빈 화면과 반드시 갈라야 한다.
+
+   조회가 102곳인데 화면 안에서 실패를 알려 주는 곳이 4곳뿐이었다.
+   나머지 14개 화면은 실패해도 목록이 비어 보이기만 했다. 사용자는
+   "아직 아무것도 없구나" 로 읽고 그냥 나간다 — 실제로는 한 번만
+   다시 누르면 됐을 일이다.
+
+   전역 오류 토스트가 '아무 말도 없는 것' 은 막지만 그건 바닥이다.
+   토스트는 몇 초 뒤 사라지고, 그 뒤로 화면에 남는 것은 여전히
+   빈 목록이다. 자리 자체가 무슨 일인지 말해야 한다.
+
+   다시 시도 버튼이 핵심이다. 이 서버는 자다 깨는 데 20~45초가
+   걸려서, 실패의 상당수가 '한 번 더 누르면 되는' 것이다. */
+export function 못불러옴({ 사유, 다시, compact }: {
+  /** useQuery 가 준 error. 사람 말로 바꿔서 보여 준다 */
+  사유?: unknown;
+  /** refetch. 없으면 안내만 한다 */
+  다시?: () => void;
+  compact?: boolean;
+}) {
+  const 글 = 사람말로(사유) || "불러오지 못했습니다";
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex flex-col items-center justify-center text-center gap-3",
+        compact ? "py-8" : "py-16",
+      )}
+    >
+      <div className={cn(
+        "rounded-full bg-accent-red/10 flex items-center justify-center",
+        compact ? "w-12 h-12" : "w-16 h-16",
+      )}>
+        <AlertTriangle size={compact ? 20 : 28} className="text-accent-red" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <p className={cn("font-semibold text-text-primary break-keep", compact ? "text-sm" : "text-base")}>
+          {글}
+        </p>
+        <p className="text-xs text-text-muted break-keep max-w-[18rem]">
+          잠시 뒤 다시 시도해 보세요. 서버가 자고 있었다면 깨어나는 데
+          20~45초가 걸립니다.
+        </p>
+      </div>
+      {다시 && (
+        <Button size={compact ? "sm" : "md"} variant="secondary" onClick={다시}>
+          다시 시도
+        </Button>
+      )}
+    </div>
+  );
+}
+
 
 /* ── 아래에서 올라오는 시트 ─────────────────────────────
    휴대폰에서 목록을 띄울 때 쓴다. 새 화면으로 넘어가지 않으므로 보던

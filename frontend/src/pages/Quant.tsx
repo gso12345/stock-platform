@@ -11,6 +11,7 @@ import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp, Clock, Wallet
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 import { lookupPrice, indexPricesBySymbol } from "@/utils/prices";
 import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
+import { 시세갱신주기 } from "@/hooks/useLivePrices";
 
 const FACTOR_LABEL_KO: Record<QuantFactorKey, string> = {
   value: "가치", quality: "품질", momentum: "모멘텀", growth: "성장", risk: "안정성",
@@ -180,7 +181,10 @@ export default function Quant() {
     queryFn: ({ signal }) => watchlistApi.getPrices(priceSymbols, priceMarkets, signal),
     enabled: isLoggedIn && priceSymbols.length > 0,
     staleTime: 55_000,
-    refetchInterval: 60_000,
+    /* 장이 닫혀 있으면 종가라 값이 안 변한다. 예전에는 장 상태를 안 보고
+       늘 60초마다 물었다 — 주말 내내, 밤새도록 같은 값을 받으려고
+       1분에 한 번씩 왕복했다 */
+    refetchInterval: 시세갱신주기(priceMarkets),
   });
   const priceMap = useMemo(() => indexPricesBySymbol(priceRows as any[] | undefined), [priceRows]);
 

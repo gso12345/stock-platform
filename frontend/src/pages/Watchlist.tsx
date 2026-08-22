@@ -4,9 +4,9 @@ import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
 import {
   Card, ChangeBadge, RowSkeleton, InlineSpinner, MarketBadge, ErrorToast,
-  Tabs, UnderlineTabs, type TabItem, 빈화면 } from "@/components/ui";
+  Tabs, UnderlineTabs, type TabItem, 빈화면, 못불러옴} from "@/components/ui";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
-import { useLivePrices } from "@/hooks/useLivePrices";
+import { useLivePrices, 시세갱신주기} from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
 import { normalizeSymbol, lookupPrice, indexPricesBySymbol } from "@/utils/prices";
 import { PREVIEW_FOLDERS, PREVIEW_WATCHLIST, PreviewItemRow, type PreviewItem } from "@/components/watchlist/Preview";
@@ -112,7 +112,7 @@ export default function Watchlist() {
     staleTime: 300_000,
   });
 
-  const { data: allItems = [], isLoading } = useQuery({
+  const { data: allItems = [], isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery({
     queryKey: ["watchlist-items"],
     queryFn: () => watchlistApi.getItems(),
     staleTime: 120_000,
@@ -157,7 +157,10 @@ export default function Watchlist() {
     queryFn: ({ signal }) => watchlistApi.getPrices(symbols, markets, signal),
     enabled: symbols.length > 0,
     staleTime: 55_000,
-    refetchInterval: 60_000,
+    /* 장이 닫혀 있으면 종가라 값이 안 변한다. 예전에는 장 상태를 안 보고
+       늘 60초마다 물었다 — 주말 내내, 밤새도록 같은 값을 받으려고
+       1분에 한 번씩 왕복했다 */
+    refetchInterval: 시세갱신주기(markets),
   });
 
   /* 비로그인 미리보기용 실시간 현재가 (예시 관심종목도 실제 시세로 표시) */
@@ -166,7 +169,7 @@ export default function Watchlist() {
     queryFn: () => watchlistApi.getPrices(PREVIEW_WATCHLIST.map((i) => i.symbol), PREVIEW_WATCHLIST.map((i) => i.market)),
     enabled: isPreview,
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    refetchInterval: 시세갱신주기(PREVIEW_WATCHLIST.map((i) => i.market)),
   });
   const previewWatchlistLive: PreviewItem[] = useMemo(() => {
     // 실시간 현재가를 아직 못 불러왔으면 정적 예시가를 보여주지 않고 로딩 상태로 표시
@@ -903,7 +906,9 @@ export default function Watchlist() {
             )}
           </div>
         );
-      })() : isLoading ? <RowSkeleton rows={5} /> : (
+      })() : isLoading ? <RowSkeleton rows={5} />
+        /* 시세가 안 뜨는 이유를 알 수 없던 자리. 빈 목록과 갈라야 한다 */
+        : 못받음 ? <못불러옴 사유={실패사유} 다시={() => 다시받기()} /> : (
         <div key={`${marketTab}-${folderTab}`} className="flex flex-col gap-3 tab-fade">
           {/* 폴더 그룹 — 폴더 탭이 "전체"이거나 해당 폴더가 선택된 경우에만 표시 */}
           {(localFolderOrder ?? (folders as any[]))

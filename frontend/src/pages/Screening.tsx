@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { screeningApi, watchlistApi, stocksApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import {
-  Card, ChangeBadge, formatNumber, RangeFilter, Button, Badge,
+  Card, ChangeBadge, formatNumber, RangeFilter, Button, Badge, 빈화면, 못불러옴,
 } from "@/components/ui";
 import ComingSoon from "@/components/ComingSoon";
 import type { Market } from "@/types";
@@ -88,6 +88,27 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
     <div className="fixed bottom-[calc(4.5rem_+_env(safe-area-inset-bottom))] right-4 lg:bottom-6 lg:right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-accent-green/20 border border-accent-green/40 text-accent-green text-sm font-medium rounded-xl shadow-float animate-fade-in">
       <Check size={14} />
       {message}
+    </div>
+  );
+}
+
+/* 결과 표 자리를 미리 잡아 둔다.
+   스크리닝은 몇 초씩 걸리는데 예전에는 동그라미만 돌았다. 표가 뜰 자리를
+   보여 주면 얼마나 나올지 가늠이 되고, 뜰 때 화면이 안 밀린다. */
+function ScreeningSkeleton({ rows = 8 }: { rows?: number }) {
+  return (
+    <div className="flex flex-col gap-2 p-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 animate-pulse">
+          <div className="h-4 w-4 rounded bg-bg-elevated flex-shrink-0" />
+          <div className="h-3 w-40 rounded bg-bg-elevated" />
+          <div className="ml-auto flex gap-4">
+            {Array.from({ length: 4 }).map((__, j) => (
+              <div key={j} className="h-3 w-12 rounded bg-bg-elevated" />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -475,18 +496,31 @@ export default function Screening() {
 
           <Card className="p-0 overflow-hidden flex-1">
             {runMutation.isPending ? (
-              <div className="flex flex-col items-center justify-center h-64 gap-3">
-                <div className="w-10 h-10 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
-                <p className="text-text-muted text-sm">종목 분석 중...</p>
-              </div>
+              <ScreeningSkeleton />
+            ) : runMutation.isError ? (
+              /* 실패와 '결과 0건' 을 갈라야 한다. 스크리닝은 조건을 조절해
+                 가며 쓰는 화면이라, 조건이 빡빡한 것인지 서버가 못 답한
+                 것인지 모르면 조건만 계속 헛되이 풀게 된다 */
+              <못불러옴 사유={runMutation.error} 다시={() => runMutation.mutate()} />
             ) : sortedResults.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
-                <Filter size={32} className="text-text-muted/40" />
-                <div>
-                  <p className="text-text-secondary font-medium">조건을 설정하고 스크리닝을 실행하세요</p>
-                  <p className="text-text-muted text-xs mt-1">좌측 필터로 다양한 조건을 추가할 수 있습니다</p>
+              /* 예전에는 '아직 안 돌림' 과 '돌렸는데 0건' 이 같은 문구였다.
+                 실행했는데 "실행하세요" 가 뜨니, 눌린 건지 아닌지조차
+                 알 수 없었다 */
+              runMutation.isSuccess ? (
+                <빈화면
+                  icon={Filter}
+                  title="조건에 맞는 종목이 없어요"
+                  hint="조건이 너무 좁습니다. 값의 범위를 넓히거나 필터를 하나 빼 보세요."
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
+                  <Filter size={32} className="text-text-muted/40" />
+                  <div>
+                    <p className="text-text-secondary font-medium">조건을 설정하고 스크리닝을 실행하세요</p>
+                    <p className="text-text-muted text-xs mt-1">좌측 필터로 다양한 조건을 추가할 수 있습니다</p>
+                  </div>
                 </div>
-              </div>
+              )
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

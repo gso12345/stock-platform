@@ -52,6 +52,26 @@ export function overallSession(markets: string[], now = new Date()): MarketSessi
   return order.find((s) => found.has(s)) ?? "closed";
 }
 
+/** 시세를 얼마 만에 다시 물어볼지.
+ *
+ *  장이 닫혀 있으면 종가라 값이 안 변한다. 그런데 목록 화면들이 장 상태를
+ *  안 보고 늘 60초마다 물었다 — 주말 내내, 밤새도록, 값이 하나도 안 바뀌는
+ *  동안에도 1분에 한 번씩 왕복한다. 서버는 CPU 0.15개다.
+ *
+ *  장전·장마감(시간외)에는 값이 조금씩 움직이므로 중간으로 둔다.
+ *
+ *  false 를 주면 react-query 가 주기 갱신을 아예 끈다. 화면을 다시 열거나
+ *  다른 탭에서 돌아오면 그때 한 번 받으므로, 장이 열린 뒤에 들어와도
+ *  묵은 값이 남지는 않는다. */
+export function 시세갱신주기(markets: string[], now = new Date()): number | false {
+  switch (overallSession(markets, now)) {
+    case "regular": return 60_000;
+    case "pre":
+    case "after":   return 180_000;
+    default:        return false;       // 휴장 — 값이 안 변한다
+  }
+}
+
 export function useLivePrices(
   symbols: string[],
   markets: string[],

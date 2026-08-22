@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, memo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { dashboardApi } from "@/api/stocks";
-import { Card, ChangeBadge, Tabs, RowSkeleton } from "@/components/ui";
+import { Card, ChangeBadge, Tabs, RowSkeleton, 못불러옴} from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { isUsdKrwRow } from "@/hooks/useExchangeRate";
@@ -201,7 +201,7 @@ const RankingPanel = memo(function RankingPanel({
 }: { market: "kr" | "us"; navigate: (p: string) => void }) {
   const [category, setCategory] = useState<string>("시가총액");
   const [expanded, setExpanded] = useState(false);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery({
     queryKey: ["rankings", market, category],
     queryFn: () => dashboardApi.getRankings(market, category),
     staleTime: 60_000,
@@ -229,10 +229,14 @@ const RankingPanel = memo(function RankingPanel({
       </div>
       {isLoading ? (
         <div className="p-3"><RowSkeleton rows={5} /></div>
+      ) : 못받음 ? (
+        /* 예전에는 실패든 빈 목록이든 '순위를 불러오지 못했어요' 한 줄이었다.
+           다시 눌러 볼 방법도 없었다 */
+        <못불러옴 compact 사유={실패사유} 다시={() => 다시받기()} />
       ) : rows.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
           <Trophy size={24} className="text-text-muted/40" />
-          <p className="text-text-muted text-xs">순위를 불러오지 못했어요</p>
+          <p className="text-text-muted text-xs">아직 순위가 만들어지지 않았어요</p>
         </div>
       ) : (
         <div className="flex flex-col">

@@ -2,7 +2,7 @@ import { useState, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Newspaper, RefreshCw } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
-import { Card, InlineSpinner, Tabs, 빈화면 } from "@/components/ui";
+import { Card, Tabs, 빈화면, 못불러옴 } from "@/components/ui";
 import { fmtNewsDateTime } from "@/utils/formatters";
 
 type MarketTab = "kr" | "us";
@@ -78,12 +78,34 @@ const NewsItem = memo(function NewsItem({ item }: { item: any }) {
 
 const PAGE_SIZE = 20;
 
+/* 기사 목록 자리를 미리 잡아 둔다.
+   예전에는 스피너 하나만 돌다가 목록이 통째로 튀어나와, 읽으려던
+   자리가 밀렸다. 기사에는 이미지가 붙으므로 그 자리까지 잡아야
+   뜰 때 안 밀린다. */
+function NewsSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <ul className="flex flex-col">
+      {Array.from({ length: rows }).map((_, i) => (
+        <li key={i} className="flex gap-3 p-3 border-b border-border/40 animate-pulse">
+          <div className="w-16 h-16 rounded-lg bg-bg-elevated flex-shrink-0" />
+          <div className="flex-1 flex flex-col gap-2 py-1">
+            <div className="h-3 w-11/12 rounded bg-bg-elevated" />
+            <div className="h-3 w-2/3 rounded bg-bg-elevated" />
+            <div className="h-2.5 w-24 rounded bg-bg-elevated mt-auto" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function News() {
   const [market, setMarket] = useState<MarketTab>("kr");
   const [sort, setSort] = useState<SortTab>("latest");
   const [shownCount, setShownCount] = useState(PAGE_SIZE);
 
-  const { data: news, isLoading: loadingNews, refetch: refetchNews, isFetching: fetchingNews } = useQuery({
+  const { data: news, isLoading: loadingNews, isError: 못받음, error: 실패사유,
+          refetch: refetchNews, isFetching: fetchingNews } = useQuery({
     queryKey: ["news", market, sort],
     queryFn: () => dashboardApi.getNews(market, sort),
     staleTime: 60_000,
@@ -157,9 +179,12 @@ export default function News() {
         </div>
 
         {loadingNews ? (
-          <div className="flex justify-center py-8">
-            <InlineSpinner className="w-6 h-6" />
-          </div>
+          <NewsSkeleton />
+        ) : 못받음 ? (
+          /* 빈 화면과 갈라야 한다. 지금 국내 언론사 49곳 중 36곳이 실패
+             중이라 이 자리가 비어 보일 확률이 실제로 높은데, "기사가 없다"
+             와 "못 받았다" 는 사용자가 할 일이 다르다 */
+          <못불러옴 사유={실패사유} 다시={() => refetchNews()} />
         ) : sorted.length > 0 ? (
           <>
             <ul>

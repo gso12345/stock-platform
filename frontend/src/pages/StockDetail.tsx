@@ -1510,7 +1510,7 @@ export default function StockDetail() {
                 className={`px-2.5 py-1 text-sm rounded-lg border font-semibold transition-all ${logScale?"bg-accent-blue/20 border-accent-blue/50 text-accent-blue":"border-border text-text-muted"}`}
               >LOG</button>
             </div>
-            <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+            <button aria-label="전체화면 끄기" onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
               <X size={16}/>
             </button>
           </div>

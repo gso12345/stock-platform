@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { dashboardApi } from "@/api/stocks";
-import { Card, ChangeBadge } from "@/components/ui";
+import { Card, ChangeBadge, 못불러옴} from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { ArrowLeft, TrendingUp, TrendingDown, RefreshCw, Maximize2, X, ChevronDown } from "lucide-react";
 import StockChart from "@/components/chart/StockChart";
@@ -81,7 +81,8 @@ export default function IndexDetail() {
   });
 
   // 차트 전용: max 기간, 차트 탭이 활성화될 때만 fetch
-  const { data: ohlcv, isLoading: loadingChart, refetch: refetchChart } = useQuery({
+  const { data: ohlcv, isLoading: loadingChart, isError: 차트못받음,
+          error: 차트실패사유, refetch: refetchChart } = useQuery({
     queryKey: ["index-ohlcv", indexName, "max", candleType],
     queryFn: () => dashboardApi.getIndexOHLCV(indexName, "max", candleType),
     enabled: !!indexName && mainTab === "chart",
@@ -207,6 +208,13 @@ export default function IndexDetail() {
             </div>
           ) : ohlcv?.length ? (
             <StockChart data={ohlcv} height={400} isKR={meta.isKR} />
+          ) : 차트못받음 ? (
+            /* 예전에는 실패해도 "불러오는 중입니다..." 가 그대로 떠 있었다.
+               영영 안 오는데 계속 기다리라고 하는 셈이라 사람이 그 앞에서
+               한참을 기다린다 */
+            <div className="h-[400px] flex items-center justify-center">
+              <못불러옴 compact 사유={차트실패사유} 다시={() => refetchChart()} />
+            </div>
           ) : (
             <div className="h-[400px] flex items-center justify-center text-text-muted text-sm">
               차트 데이터를 불러오는 중입니다...
@@ -328,7 +336,7 @@ export default function IndexDetail() {
                 ))}
               </div>
             </div>
-            <button onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
+            <button aria-label="전체화면 끄기" onClick={()=>setFullscreen(false)} className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
               <X size={16}/>
             </button>
           </div>

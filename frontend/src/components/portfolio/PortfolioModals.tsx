@@ -585,7 +585,7 @@ export function PortfolioManagerModal({
               autoFocus
             />
             <button aria-label="확인" onClick={commitAdd} className="p-1.5 text-accent-blue hover:bg-accent-blue/10 rounded-lg"><Check size={14} /></button>
-            <button onClick={() => { setAddingNew(false); setNewName(""); }} className="p-1.5 text-text-muted hover:text-text-primary rounded-lg"><X size={14} /></button>
+            <button aria-label="새 포트폴리오 만들기 취소" onClick={() => { setAddingNew(false); setNewName(""); }} className="p-1.5 text-text-muted hover:text-text-primary rounded-lg"><X size={14} /></button>
           </div>
         ) : (
           <button onClick={() => setAddingNew(true)}

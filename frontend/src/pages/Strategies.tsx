@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { backtestApi } from "@/api/stocks";
-import { Card, LoadingSpinner, Badge, Button, Tabs } from "@/components/ui";
+import { Card, LoadingSpinner, Badge, Button, Tabs, 못불러옴} from "@/components/ui";
 import { useAuthStore } from "@/store/authStore";
 import {
   LogIn, TrendingUp, Plus, Trash2, BarChart2, AlertTriangle,
@@ -25,7 +25,7 @@ export default function Strategies() {
   // 2-step delete: stores the id of the strategy awaiting confirmation
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
-  const { data: strategies, isLoading } = useQuery({
+  const { data: strategies, isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery({
     queryKey: ["strategies"],
     queryFn: backtestApi.getStrategies,
     enabled: isLoggedIn,
@@ -113,9 +113,12 @@ export default function Strategies() {
 
           {/* ── 로딩 ───────────────────────────────────────────── */}
           {isLoading && <LoadingSpinner />}
+          {!isLoading && 못받음 && (
+            <못불러옴 사유={실패사유} 다시={() => 다시받기()} />
+          )}
 
           {/* ── 빈 상태 ────────────────────────────────────────── */}
-          {!isLoading && totalCount === 0 && (
+          {!isLoading && !못받음 && totalCount === 0 && (
             <Card className="flex flex-col items-center justify-center py-16 gap-4 text-center">
               <div className="w-16 h-16 rounded-full bg-bg-elevated flex items-center justify-center">
                 <TrendingUp size={28} className="text-text-muted" />
