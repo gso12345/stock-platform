@@ -15,6 +15,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
+import { 종목상세원문 } from "./stockDetailSource";
 
 const 뿌리 = path.resolve(__dirname, "../..");
 const 소스 = (rel: string) => fs.readFileSync(path.join(뿌리, rel), "utf-8");
@@ -36,7 +37,7 @@ describe("컨센서스 응답", () => {
   });
 
   it("화면이 as any 없이 꺼낸다", () => {
-    const s = 코드만(소스("pages/StockDetail.tsx"));
+    const s = 코드만(종목상세원문);
     expect(s).not.toContain("(forecasts as any)");
     expect(s).toContain("forecasts?.annual");
     expect(s).toContain("forecasts?.[consensusPeriod]");
@@ -75,7 +76,7 @@ describe("서버에 없는 추정치를 아는 채로 둔다", () => {
        그 이름이 없다. 즉 그 칸은 처음부터 늘 '—' 였다.
        매핑을 지우지는 않는다 — 서버가 넣기 시작하면 그대로 살아난다.
        대신 이유를 적어 둬야 다음 사람이 화면부터 뒤지지 않는다. */
-    const 원문 = 소스("pages/StockDetail.tsx");
+    const 원문 = 종목상세원문;
     const i = 원문.indexOf("const 예측키");
     expect(i).toBeGreaterThan(-1);
     const 앞 = 원문.slice(Math.max(0, i - 800), i);
@@ -127,7 +128,7 @@ describe("걷어낸 as any 가 되살아나지 않게", () => {
   });
 
   it("종목상세가 detail·fundamentals 를 as any 로 다루지 않는다", () => {
-    const s = 코드만(소스("pages/StockDetail.tsx"));
+    const s = 코드만(종목상세원문);
     expect(s).not.toContain("유효((detail as any)");
     expect(s).not.toContain("유효((fundamentalsData as any)");
     expect(s).not.toContain("(detail as any)?.name");

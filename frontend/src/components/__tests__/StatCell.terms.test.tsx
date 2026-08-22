@@ -17,7 +17,7 @@ import userEvent from "@testing-library/user-event";
 import { 용어힌트 } from "../ui";
 /* 원문을 글자 그대로 읽는다. node 의 파일 읽기를 쓰면 이 프로젝트에
    없는 타입이 필요해지므로, 빌드 도구가 주는 ?raw 를 쓴다 */
-import StockDetail원문 from "../../pages/StockDetail.tsx?raw";
+import { 종목상세원문 as StockDetail원문 } from "./stockDetailSource";
 
 /** StockDetail 의 StatCell 과 같은 모양 */
 function StatCell({ label, value }: { label: string; value: React.ReactNode }) {

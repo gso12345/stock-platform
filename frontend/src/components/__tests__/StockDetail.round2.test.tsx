@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import 원본 from "../../pages/StockDetail.tsx?raw";
+import { 종목상세원문 as 원본 } from "./stockDetailSource";
 import 수급원본 from "../stock/SupplyDemandTab.tsx?raw";
 import 최근조회원본 from "../../utils/recentlyViewed.ts?raw";
 import 캐시원본 from "../../api/queryClient.ts?raw";

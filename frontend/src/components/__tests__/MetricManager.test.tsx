@@ -18,7 +18,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import StockDetail원문_전체 from "../../pages/StockDetail.tsx?raw";
+import { 종목상세원문 as StockDetail원문_전체 } from "./stockDetailSource";
 
 /* 주석에는 "예전에는 ◀▶ 버튼이었다" 같은 설명을 남겨 둔다. 글자로만
    훑으면 그 설명이 검사에 걸린다 — 실제 코드만 본다 */

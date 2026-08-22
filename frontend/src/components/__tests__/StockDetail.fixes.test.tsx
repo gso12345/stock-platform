@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import 원문 from "../../pages/StockDetail.tsx?raw";
+import { 종목상세원문 as 원문 } from "./stockDetailSource";
 import main원문 from "../../main.tsx?raw";
 import ErrorBoundary from "../common/ErrorBoundary";
 

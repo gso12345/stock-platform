@@ -20,6 +20,7 @@ import fs from "fs";
 import path from "path";
 
 import 차트틀 from "../chart/ChartFrame";
+import { 종목상세원문 } from "./stockDetailSource";
 
 afterEach(cleanup);
 
@@ -60,7 +61,7 @@ describe("recharts 를 정적으로 끌어오지 않는다", () => {
   it("종목 상세는 반드시 미룬다", () => {
     /* 여기가 이번 고침의 핵심이다. 기본으로 열리는 차트 탭은 전혀 다른
        라이브러리를 쓰므로, 가격 차트만 보는 사람은 recharts 가 필요 없다 */
-    const s = fs.readFileSync(path.join(뿌리, "pages/StockDetail.tsx"), "utf-8");
+    const s = 종목상세원문;
     expect(s).not.toMatch(/from ["']recharts["']/);
     expect(s).toContain("차트틀");
   });
@@ -78,7 +79,11 @@ describe("recharts 를 정적으로 끌어오지 않는다", () => {
   });
 
   it("그래프를 쓰던 화면들이 차트틀로 옮겨졌다", () => {
-    for (const f of ["pages/StockDetail.tsx", "pages/Backtest.tsx",
+    /* 종목상세를 탭별로 쪼개면서 그래프가 탭 파일로 따라갔다.
+       "pages/StockDetail.tsx" 만 보던 것을 실제로 그리는 자리로 고친다 —
+       파일이 어디냐가 아니라 차트틀을 쓰느냐가 이 검사의 뜻이다. */
+    for (const f of ["components/stock/FinancialTab.tsx",
+                     "components/stock/AnalystTab.tsx", "pages/Backtest.tsx",
                      "components/stock/SupplyDemandTab.tsx"]) {
       const s = fs.readFileSync(path.join(뿌리, f), "utf-8");
       /* 쓰기만 하고 import 를 안 하면 빌드가 깨진다. 둘 다 본다 —
