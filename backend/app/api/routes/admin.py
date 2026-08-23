@@ -10,6 +10,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session, defer, selectinload
 from sqlalchemy import text, func
+from pydantic import BaseModel, Field
 from app.core.deps import require_user
 from app.db.database import get_db, engine
 from app.models.user import User
@@ -923,9 +924,20 @@ def get_announcement():
         return {"text": ""}
 
 
+class 공지요청(BaseModel):
+    """공지는 모든 사용자가 보는 글이다.
+
+    예전에는 body: dict 로 받고 `(body.get("text") or "")[:500]` 했다.
+    text 자리에 숫자나 dict 가 오면 그 자리에서 500 이 난다 — 관리자만
+    부르는 곳이라 급하진 않지만, 형식을 적어 두면 그런 요청은 422 로
+    또렷하게 돌려보낸다."""
+    text: str = Field(default="", max_length=500)
+
+
 @router.post("/announcement")
-def set_announcement(body: dict, _: User = Depends(require_admin)):
-    text_val = (body.get("text") or "")[:500]
+def set_announcement(body: 공지요청, db: Session = Depends(get_db),
+                     current: User = Depends(require_admin)):
+    text_val = body.text
     try:
         with engine.connect() as conn:
             conn.execute(
@@ -933,6 +945,8 @@ def set_announcement(body: dict, _: User = Depends(require_admin)):
                 {"v": text_val},
             )
             conn.commit()
+        관리기록(db, current, "announcement.set", "announcement", "-",
+                 text_val[:200] or "(지움)")
         return {"text": text_val}
     except Exception as e:
         log.error(f"공지사항 저장 실패: {e}")
@@ -1004,60 +1018,89 @@ def _safe_link_url(raw):
     raise HTTPException(422, "링크는 http:// 또는 https:// 로 시작해야 합니다")
 
 
+class 팝업요청(BaseModel):
+    """팝업도 모든 사용자가 보는 것이다.
+
+    예전에는 body: dict 였고 세 가지가 새어 나갔다.
+      · content·link_text 에 길이 제한이 없었다. 몇 MB 짜리 글이 그대로
+        DB 에 들어간다.
+      · starts_at·ends_at 을 문자열 그대로 DateTime 칸에 넣었다.
+        모양이 틀리면 그 자리에서 500 이 난다.
+      · popup_type 에 숫자가 오면 `[:20]` 이 터진다.
+
+    관리자만 부르는 곳이라 공격보다는 '실수로 화면을 망가뜨리는' 쪽이
+    문제다. 그래도 형식을 적어 두면 잘못된 요청이 422 로 또렷하게 돌아간다."""
+    popup_type: str = Field(default="info", max_length=20)
+    title: str = Field(default="", max_length=200)
+    content: Optional[str] = Field(default=None, max_length=4000)
+    link_url: Optional[str] = None
+    link_text: Optional[str] = Field(default=None, max_length=100)
+    bg_color: str = Field(default="blue", max_length=20)
+    is_active: bool = True
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+
+
 @router.post("/popups", status_code=201)
-def create_popup(body: dict, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def create_popup(body: 팝업요청, db: Session = Depends(get_db),
+                 current: User = Depends(require_admin)):
     from app.models.community import SitePopup
     popup = SitePopup(
-        popup_type=body.get("popup_type", "info")[:20],
-        title=(body.get("title") or "")[:200],
-        content=body.get("content"),
-        link_url=_safe_link_url(body.get("link_url")),
-        link_text=body.get("link_text"),
-        bg_color=(body.get("bg_color") or "blue")[:20],
-        is_active=bool(body.get("is_active", True)),
-        starts_at=body.get("starts_at"),
-        ends_at=body.get("ends_at"),
+        popup_type=body.popup_type,
+        title=body.title,
+        content=body.content,
+        link_url=_safe_link_url(body.link_url),
+        link_text=body.link_text,
+        bg_color=body.bg_color,
+        is_active=body.is_active,
+        starts_at=body.starts_at,
+        ends_at=body.ends_at,
     )
     db.add(popup)
     db.commit()
     db.refresh(popup)
+    관리기록(db, current, "popup.create", "popup", popup.id, body.title[:200])
     return _popup_dict(popup)
 
 
 @router.put("/popups/{popup_id}")
 def update_popup(
     popup_id: int,
-    body: dict,
+    body: 팝업요청,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current: User = Depends(require_admin),
 ):
     from app.models.community import SitePopup
     popup = db.query(SitePopup).filter(SitePopup.id == popup_id).first()
     if not popup:
         raise HTTPException(404, "팝업을 찾을 수 없습니다")
-    for field, max_len in [("popup_type", 20), ("title", 200), ("bg_color", 20)]:
-        if field in body:
-            setattr(popup, field, str(body[field])[:max_len])
-    for field in ("content", "link_text", "starts_at", "ends_at"):
-        if field in body:
-            setattr(popup, field, body[field])
-    if "link_url" in body:
-        popup.link_url = _safe_link_url(body["link_url"])
-    if "is_active" in body:
-        popup.is_active = bool(body["is_active"])
+    """보낸 칸만 고친다.
+
+    exclude_unset 이 핵심이다. 이걸 안 쓰면 모델의 기본값(popup_type="info",
+    is_active=True …)이 안 보낸 칸까지 덮어써서, 제목만 고치려다 꺼 둔
+    팝업이 켜진다."""
+    for 이름, 값 in body.model_dump(exclude_unset=True).items():
+        if 이름 == "link_url":
+            popup.link_url = _safe_link_url(값)
+        else:
+            setattr(popup, 이름, 값)
     db.commit()
     db.refresh(popup)
+    관리기록(db, current, "popup.update", "popup", popup_id, popup.title[:200] or "")
     return _popup_dict(popup)
 
 
 @router.delete("/popups/{popup_id}", status_code=204)
-def delete_popup(popup_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def delete_popup(popup_id: int, db: Session = Depends(get_db),
+                 current: User = Depends(require_admin)):
     from app.models.community import SitePopup
     popup = db.query(SitePopup).filter(SitePopup.id == popup_id).first()
     if not popup:
         raise HTTPException(404, "팝업을 찾을 수 없습니다")
+    제목 = popup.title or ""
     db.delete(popup)
     db.commit()
+    관리기록(db, current, "popup.delete", "popup", popup_id, 제목[:200])
 
 
 # ── 신고 관리 ─────────────────────────────────────────────────────────────────
@@ -1150,7 +1193,7 @@ def list_reports(
 
 
 @router.patch("/reports/{report_id}/blind")
-def blind_content(report_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def blind_content(report_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
     """신고된 게시글 또는 댓글을 블라인드 처리"""
     from app.models.community import Report, StockPost, StockComment
     report = db.query(Report).filter(Report.id == report_id).first()
@@ -1166,11 +1209,13 @@ def blind_content(report_id: int, db: Session = Depends(get_db), _: User = Depen
             comment.is_blinded = True
     report.status = "resolved"
     db.commit()
+    관리기록(db, current, "report.blind", "report", report_id,
+             f"글 {report.post_id} · 댓글 {report.comment_id}")
     return {"message": "블라인드 처리 완료", "report_id": report_id}
 
 
 @router.patch("/reports/{report_id}/unblind")
-def unblind_content(report_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def unblind_content(report_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
     """블라인드 처리된 게시글 또는 댓글을 복구"""
     from app.models.community import Report, StockPost, StockComment
     report = db.query(Report).filter(Report.id == report_id).first()
@@ -1186,11 +1231,13 @@ def unblind_content(report_id: int, db: Session = Depends(get_db), _: User = Dep
             comment.is_blinded = False
     report.status = "dismissed"
     db.commit()
+    관리기록(db, current, "report.unblind", "report", report_id,
+             f"글 {report.post_id} · 댓글 {report.comment_id}")
     return {"message": "블라인드 복구 완료", "report_id": report_id}
 
 
 @router.patch("/reports/{report_id}/dismiss")
-def dismiss_report(report_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def dismiss_report(report_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
     """신고 기각"""
     from app.models.community import Report
     report = db.query(Report).filter(Report.id == report_id).first()
@@ -1198,11 +1245,12 @@ def dismiss_report(report_id: int, db: Session = Depends(get_db), _: User = Depe
         raise HTTPException(404, "신고를 찾을 수 없습니다")
     report.status = "dismissed"
     db.commit()
+    관리기록(db, current, "report.dismiss", "report", report_id)
     return {"message": "신고 기각 완료", "report_id": report_id}
 
 
 @router.delete("/reports/{report_id}/content", status_code=204)
-def delete_reported_content(report_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def delete_reported_content(report_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
     """신고된 게시글 또는 댓글을 삭제 처리"""
     from app.models.community import Report, StockPost, StockComment
     report = db.query(Report).filter(Report.id == report_id).first()
@@ -1218,6 +1266,8 @@ def delete_reported_content(report_id: int, db: Session = Depends(get_db), _: Us
             comment.is_deleted = True
     report.status = "resolved"
     db.commit()
+    관리기록(db, current, "report.delete_content", "report", report_id,
+             f"글 {report.post_id} · 댓글 {report.comment_id}")
 
 
 # ── 트렌드 / 사용 통계 ──────────────────────────────────────────────────────────

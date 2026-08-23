@@ -608,6 +608,21 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
 NEWS_MISS_TTL = int(os.getenv("NEWS_MISS_TTL", 90))
 
 
+def _배경갱신(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> None:
+    """배경에서 갱신하고, 무슨 일이 있어도 표시를 풀어 준다.
+
+    _do_refresh_news 는 제 갈래마다 _refreshing 을 지운다. 그런데 그 사이
+    어디서든 예외가 나면 표시가 True 로 남고, 그 뒤로는
+    `if not _refreshing.get(ck)` 에 걸려 다시는 갱신을 안 시작한다.
+    화면에는 지난 기사가 계속 떠 있으니 멈춘 줄도 모른다."""
+    try:
+        _do_refresh_news(ck, feeds, limit_per_source, total_limit)
+    except Exception as e:                      # noqa: BLE001
+        health.record_fail("뉴스 수집", f"배경 갱신 실패 ({type(e).__name__})")
+    finally:
+        _refreshing.pop(ck, None)
+
+
 def _뉴스가져오기(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
     """캐시 → 지난 값 → (한 번만) 직접 수집.
 
@@ -620,7 +635,12 @@ def _뉴스가져오기(ck: str, feeds: list, limit_per_source: int, total_limit
         # 지난 값이 있으면 그걸 주고 갱신은 배경으로 넘긴다
         if not _refreshing.get(ck):
             _refreshing[ck] = True
-            background_executor.submit(_do_refresh_news, ck, feeds, limit_per_source, total_limit)
+            try:
+                background_executor.submit(_배경갱신, ck, feeds, limit_per_source, total_limit)
+            except Exception:
+                # 밀어 넣는 것 자체가 실패하면(풀이 닫혔다든지) 표시를 그대로
+                # 두면 안 된다 — 그 뒤로 뉴스가 영영 안 갱신된다
+                _refreshing.pop(ck, None)
         return _strip_ts(stale)
 
     # 여기부터가 캐시가 통째로 빈 상태(재시작 직후)다.

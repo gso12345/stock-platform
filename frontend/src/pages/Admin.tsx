@@ -11,11 +11,13 @@ import {
   ExternalLink, Calendar, ScrollText,
 } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
-import { Tabs, MarketBadge } from "@/components/ui";
+import { Tabs, MarketBadge, RowSkeleton, 못불러옴} from "@/components/ui";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import UserItemsPanel, { 항목이름, type 항목종류 } from "@/components/admin/UserItemsPanel";
 import PostLikesModal from "@/components/admin/PostLikesModal";
 import SystemTab from "@/components/admin/SystemTab";
+import { use확인, use알림 } from "@/hooks/useDialogs";
+import { 사람말로 } from "@/api/queryError";
 
 const adminApi = {
   getStats:        () => api.get("/admin/stats").then(r => r.data),
@@ -562,7 +564,7 @@ function PostsAdminSection({ qc }: { qc: QueryClient }) {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [actingId, setActingId] = useState<number | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, refetch, isError: 못받음, error: 실패사유 } = useQuery({
     queryKey: ["admin-community-posts", page, marketFilter],
     queryFn: () => adminApi.getCommunityPosts(page, marketFilter),
     staleTime: 30_000,
@@ -609,9 +611,9 @@ function PostsAdminSection({ qc }: { qc: QueryClient }) {
       {/* 테이블 */}
       <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
         {isLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-          </div>
+          <div className="p-3"><RowSkeleton rows={6} /></div>
+        ) : 못받음 ? (
+          <못불러옴 사유={실패사유} 다시={() => refetch()} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -754,7 +756,7 @@ function CommentsAdminSection({ qc }: { qc: QueryClient }) {
   const [actingId, setActingId] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, refetch, isError: 못받음, error: 실패사유 } = useQuery({
     queryKey: ["admin-community-comments", page],
     queryFn: () => adminApi.getCommunityComments(page),
     staleTime: 30_000,
@@ -790,9 +792,9 @@ function CommentsAdminSection({ qc }: { qc: QueryClient }) {
 
       <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
         {isLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-          </div>
+          <div className="p-3"><RowSkeleton rows={6} /></div>
+        ) : 못받음 ? (
+          <못불러옴 사유={실패사유} 다시={() => refetch()} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -911,7 +913,7 @@ function UsersTab({ qc }: { qc: QueryClient }) {
   const [page, setPage] = useState(1);
   const [detailUserId, setDetailUserId] = useState<number | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: 못받음, error: 실패사유, refetch } = useQuery({
     queryKey: ["admin-users", statusFilter, page],
     queryFn: () => adminApi.getUsers(statusFilter, page),
     staleTime: 30_000,
@@ -965,9 +967,9 @@ function UsersTab({ qc }: { qc: QueryClient }) {
 
       {/* 유저 목록 */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-        </div>
+        <RowSkeleton rows={6} />
+      ) : 못받음 ? (
+        <못불러옴 사유={실패사유} 다시={() => refetch()} />
       ) : (
         <div className="rounded-xl border border-border bg-bg-card divide-y divide-border/40 overflow-hidden">
           {/* 컬럼 헤더 */}
@@ -1088,7 +1090,7 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
   const [확인, set확인] = useState<"active" | "ban" | null>(null);
   /* 어느 숫자를 펼쳤나. 한 번에 하나만 연다 — 모달 안이라 자리가 좁다 */
   const [펼친것, set펼친것] = useState<항목종류 | null>(null);
-  const { data: detail, isLoading } = useQuery({
+  const { data: detail, isLoading, isError: 못받음, error: 실패사유, refetch } = useQuery({
     queryKey: ["admin-user-detail", userId],
     queryFn: () => adminApi.getUserDetail(userId),
     staleTime: 30_000,
@@ -1115,9 +1117,9 @@ function UserDetailModal({ userId, onClose, qc }: { userId: number; onClose: () 
         </div>
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-          </div>
+          <div className="p-4"><RowSkeleton rows={4} /></div>
+        ) : 못받음 ? (
+          <못불러옴 사유={실패사유} 다시={() => refetch()} />
         ) : detail ? (
           <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5">
             {/* 프로필 */}
@@ -1348,7 +1350,7 @@ function CacheTab({ qc }: { qc: QueryClient }) {
   const [search, setSearch] = useState("");
   const [confirmed, setConfirmed] = useState<string | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, refetch, isError: 못받음, error: 실패사유 } = useQuery({
     queryKey: ["admin-cache"],
     queryFn: () => adminApi.listCache(),
     staleTime: 10_000,
@@ -1432,11 +1434,14 @@ function CacheTab({ qc }: { qc: QueryClient }) {
           <span>키</span><span className="text-right">남은 TTL</span><span />
         </div>
         <div className="divide-y divide-border/40 max-h-[480px] overflow-y-auto">
-          {isLoading && (
-            <div className="py-8 text-center text-text-muted text-sm">불러오는 중</div>
+          {isLoading && <div className="p-3"><RowSkeleton rows={5} /></div>}
+          {!isLoading && 못받음 && (
+            <못불러옴 compact 사유={실패사유} 다시={() => refetch()} />
           )}
-          {!isLoading && filtered.length === 0 && (
-            <div className="py-8 text-center text-text-muted text-sm">캐시 항목 없음</div>
+          {!isLoading && !못받음 && filtered.length === 0 && (
+            <div className="py-8 text-center text-text-muted text-sm">
+              {search ? "검색 결과 없음" : "캐시 항목 없음"}
+            </div>
           )}
           {filtered.map((item) => (
             <div key={item.key} className="grid grid-cols-[1fr_80px_40px] items-center px-4 py-2 hover:bg-bg-hover text-xs">
@@ -1503,7 +1508,7 @@ function PopupTab({ qc }: { qc: QueryClient }) {
   /* 여기만 window.confirm 이 남아 있었다. 브라우저 기본 창은 앱 모양과
      따로 놀고, 어느 팝업을 지우는지 제목을 보여 줄 수 없다 */
   const [지울팝업, set지울팝업] = useState<{ id: number; title: string } | null>(null);
-  const { data: popups = [], isLoading, refetch } = useQuery({ queryKey: ["admin-popups"], queryFn: adminApi.getPopups, staleTime: 30_000 });
+  const { data: popups = [], isLoading, refetch, isError: 못받음, error: 실패사유 } = useQuery({ queryKey: ["admin-popups"], queryFn: adminApi.getPopups, staleTime: 30_000 });
   const [editTarget, setEditTarget] = useState<any | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ popup_type: "info", title: "", content: "", link_url: "", link_text: "", bg_color: "blue", is_active: true, starts_at: "", ends_at: "" });
@@ -1537,7 +1542,9 @@ function PopupTab({ qc }: { qc: QueryClient }) {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16"><div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" /></div>
+        <RowSkeleton rows={3} />
+      ) : 못받음 ? (
+        <못불러옴 사유={실패사유} 다시={() => refetch()} />
       ) : popups.length === 0 ? (
         <div className="rounded-xl border border-border bg-bg-card py-12 text-center text-text-muted text-sm">등록된 팝업이 없습니다</div>
       ) : (
@@ -1671,21 +1678,40 @@ function ReportsTab({ qc }: { qc: QueryClient }) {
   const [statusFilter, setStatusFilter] = useState<"pending" | "resolved" | "dismissed" | "all">("pending");
   const [page, setPage] = useState(1);
   const [actingId, setActingId] = useState<number | null>(null);
+  const { 묻기, 화면: 확인화면 } = use확인();
+  const { 보이기, 화면: 알림화면 } = use알림();
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, refetch, isError: 못받음, error: 실패사유 } = useQuery({
     queryKey: ["admin-reports", statusFilter, page],
     queryFn: () => adminApi.getReports(statusFilter, page),
     staleTime: 30_000,
   });
 
-  const act = (fn: (id: number) => Promise<any>, id: number) => {
+  /* .finally() 만 있어서 실패해도 성공처럼 보였다 — 목록을 새로고침하고
+     끝나니, 아무것도 안 바뀐 채 "처리했다" 로 읽힌다 */
+  const act = async (fn: (id: number) => Promise<any>, id: number) => {
     setActingId(id);
-    fn(id).finally(() => {
+    try {
+      await fn(id);
+    } catch (e) {
+      보이기(사람말로(e) || "처리하지 못했습니다", "error");
+    } finally {
       setActingId(null);
       refetch();
       qc.invalidateQueries({ queryKey: ["admin-reports"] });
-    });
+    }
   };
+
+  /* 신고된 글을 지우는 것은 되돌릴 수 없다. 그런데 여기만 확인 없이
+     클릭 한 번에 실행됐다 — 커뮤니티 탭의 같은 동작에는 확인창이 있다.
+     옆 버튼(블라인드·기각)과 나란히 있어서 잘못 누르기도 쉽다. */
+  const 지우기 = (r: any) => 묻기({
+    title: "신고된 글을 삭제할까요?",
+    message: "지운 글은 되돌릴 수 없습니다. 블라인드는 되돌릴 수 있으니 먼저 검토해 보세요.",
+    대상: (r.post_title || r.post_preview || r.comment_preview || "(내용 없음)").slice(0, 40),
+    확인글: "삭제",
+    onConfirm: () => act(adminApi.deleteReportContent, r.id),
+  });
 
   const reports: any[] = data?.items ?? [];
   const total: number  = data?.total ?? 0;
@@ -1717,9 +1743,9 @@ function ReportsTab({ qc }: { qc: QueryClient }) {
 
       {/* 목록 */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
-        </div>
+        <RowSkeleton rows={4} />
+      ) : 못받음 ? (
+        <못불러옴 사유={실패사유} 다시={() => refetch()} />
       ) : reports.length === 0 ? (
         <div className="rounded-xl border border-border bg-bg-card py-14 text-center">
           <Flag size={24} className="text-text-muted/30 mx-auto mb-2" />
@@ -1805,7 +1831,7 @@ function ReportsTab({ qc }: { qc: QueryClient }) {
                       className="flex-1 py-3 text-xs font-semibold text-accent-yellow hover:bg-accent-yellow/8 active:bg-accent-yellow/15 transition-colors disabled:opacity-40">
                       {isActing ? "처리 중..." : "블라인드"}
                     </button>
-                    <button onClick={() => act(adminApi.deleteReportContent, r.id)} disabled={isActing}
+                    <button onClick={() => 지우기(r)} disabled={isActing}
                       className="flex-1 py-3 text-xs font-semibold text-accent-red hover:bg-accent-red/8 active:bg-accent-red/15 transition-colors disabled:opacity-40">
                       {isActing ? "처리 중..." : "콘텐츠 삭제"}
                     </button>
@@ -1838,6 +1864,8 @@ function ReportsTab({ qc }: { qc: QueryClient }) {
             className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">다음</button>
         </div>
       )}
+      {확인화면}
+      {알림화면}
     </div>
   );
 }
@@ -1861,7 +1889,7 @@ const 되돌릴수없음 = new Set(["user.delete", "post.delete", "comment.delet
 
 function AdminLogTab() {
   const [필터, set필터] = useState("");
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: 못받음, error: 실패사유, refetch } = useQuery({
     queryKey: ["admin-logs", 필터],
     queryFn: () => adminApi.getAdminLogs(필터),
     staleTime: 15_000,
@@ -1885,7 +1913,9 @@ function AdminLogTab() {
 
       <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
         {isLoading ? (
-          <div className="py-16 text-center text-text-muted text-sm">불러오는 중</div>
+          <div className="p-3"><RowSkeleton rows={6} /></div>
+        ) : 못받음 ? (
+          <못불러옴 사유={실패사유} 다시={() => refetch()} />
         ) : !items.length ? (
           <div className="py-16 text-center">
             <p className="text-text-muted text-sm">아직 기록이 없습니다</p>
