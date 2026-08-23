@@ -381,7 +381,19 @@ def us_universe() -> list[str]:
     """
     from app.services.scheduler import POPULAR_US
 
-    앞줄 = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))
+    """대표 ETF 를 앞줄에 함께 둔다.
+
+    미국 목록을 GitHub 거울에서 받게 했는데(NASDAQ Trader 가 막힐 때),
+    그 거울에는 NYSE Arca 가 없다. SPY·QQQ 같은 대표 ETF 가 거기 있어서
+    거울로만 돌면 순위에서 통째로 빠진다 — 6,813 종목을 받아 놓고
+    정작 거래대금 1위를 잃는 셈이다.
+
+    앞줄에 박아 두면 어느 목록이 오든 안 잃는다. 순위표는 시세를 받은
+    것만 담으므로, 거래소가 어디든 값만 오면 제자리를 찾아간다."""
+    대표ETF = ["SPY", "QQQ", "IWM", "DIA", "VOO", "VTI", "GLD", "SLV",
+               "TQQQ", "SQQQ", "SOXL", "SOXS", "ARKK", "XLK", "XLF", "XLE"]
+
+    앞줄 = list(dict.fromkeys(POPULAR_US + 대표ETF + SP500_SYMBOLS))
     try:
         from app.services.ticker_service import get_us_db
         전체 = [t["s"] for t in get_us_db() if t.get("s")]

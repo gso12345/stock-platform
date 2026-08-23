@@ -274,15 +274,25 @@ const RankingPanel = memo(function RankingPanel({
 /* ── 국내 탭 ─────────────────────────────────────────────── */
 const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
   const qc = useQueryClient();
-  const { data, refetch } = useQuery({
+  const { data, refetch, isError: 못받음, error: 실패사유 } = useQuery({
     queryKey: ["dashboard-kr", "시가총액"],
     queryFn: () => dashboardApi.getKR("시가총액"),
     staleTime: 60_000,
     /* 지수를 못 받았을 때만 잠깐 자주 시도한다.
        예전에는 rankings 로 판정했는데, 그건 화면에 표시되지도 않는 값이라
-       비어 있으면 영원히 5초마다 폴링했다 */
-    refetchInterval: (query) =>
-      (query.state.data?.indices?.length ?? 0) === 0 ? 5_000 : 60_000,
+       비어 있으면 영원히 5초마다 폴링했다.
+
+       그 뒤에도 구멍이 남아 있었다 — 조회가 실패하면 data 가 undefined 라
+       `?? 0` 이 0 이 되고, 결국 실패하는 동안 5초마다 계속 두드린다.
+       서버가 자고 있거나 죽어 있을 때가 정확히 그 상황인데, 0.15 CPU
+       서버를 그때 가장 세게 때리는 셈이다.
+
+       실패했으면 평소 주기로 물러난다. 자다 깨는 데 20~45초가 걸리므로
+       5초로 재촉해 봐야 얻는 것이 없다. */
+    refetchInterval: (query) => {
+      if (query.state.status === "error") return 60_000;
+      return (query.state.data?.indices?.length ?? 0) === 0 ? 5_000 : 60_000;
+    },
     refetchIntervalInBackground: false,
   });
 
@@ -309,7 +319,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
   }, [qc]);
 
   const [newsSort, setNewsSort] = useState<"latest" | "popular">("latest");
-  const { data: newsData } = useQuery({
+  const { data: newsData, isError: 뉴스못받음, error: 뉴스실패사유, refetch: 뉴스다시 } = useQuery({
     queryKey: ["news", "kr", newsSort],
     queryFn: () => dashboardApi.getNews("kr", newsSort),
     staleTime: 300_000,
@@ -317,9 +327,14 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
     refetchIntervalInBackground: false,
   });
 
-  const KR_INDEX_KEYS = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"] as const;
+  /* 코스닥150 을 뺐다 — 네 원천이 전부 실패해서 몇 달 동안 0 이나
+     빈 카드로 떠 있었다. 대신 KRX 300·코스피 100 을 후보로 넣었다.
+     서버가 못 받으면 그 카드는 아예 안 그려지므로(아래 getIdx 가
+     없는 것은 건너뛴다) 안 되는 채로 자리만 차지하지 않는다. */
+  const KR_INDEX_KEYS = ["KOSPI","KOSDAQ","KOSPI200","KRX300","KOSPI100"] as const;
   const KR_DISPLAY: Record<string, string> = {
-    KOSPI:"코스피",KOSDAQ:"코스닥",KOSPI200:"코스피 200",KOSDAQ150:"코스닥 150"
+    KOSPI:"코스피",KOSDAQ:"코스닥",KOSPI200:"코스피 200",
+    KRX300:"KRX 300",KOSPI100:"코스피 100"
   };
   const getIdx = (key: string) => {
     const live    = liveIndices?.kr?.find((r: any) => r.index === key);
@@ -338,7 +353,11 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
           </button>
         </div>
         <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
-          {!data
+          {못받음 && !data
+            /* 실패하면 스켈레톤이 영원히 돌았다. 사용자에게는 '아직
+               불러오는 중' 으로 보이는데 영영 안 온다 */
+            ? <못불러옴 compact 사유={실패사유} 다시={() => refetch()} />
+            : !data
             ? KR_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
             : KR_INDEX_KEYS.map((key) => {
                 const idx = getIdx(key);
@@ -406,7 +425,13 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
           {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
         </div>
         <div className="px-3 py-1">
-          <NewsPanel news={newsData ?? []} sort={newsSort} onSortChange={setNewsSort} />
+          {뉴스못받음 ? (
+            /* 국내 언론사 49곳 중 상당수가 실패 중일 때가 있다.
+               "기사가 없다" 와 "못 받았다" 는 사용자가 할 일이 다르다 */
+            <못불러옴 compact 사유={뉴스실패사유} 다시={() => 뉴스다시()} />
+          ) : (
+            <NewsPanel news={newsData ?? []} sort={newsSort} onSortChange={setNewsSort} />
+          )}
         </div>
       </Card>
     </div>
@@ -416,12 +441,14 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
 /* ── 해외 탭 ─────────────────────────────────────────────── */
 const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any; navigate: (p: string) => void }) {
   const qc = useQueryClient();
-  const { data, refetch } = useQuery({
+  const { data, refetch, isError: 못받음, error: 실패사유 } = useQuery({
     queryKey: ["dashboard-us", "시가총액"],
     queryFn: () => dashboardApi.getUS("시가총액"),
     staleTime: 60_000,
-    refetchInterval: (query) =>
-      (query.state.data?.indices?.length ?? 0) === 0 ? 5_000 : 60_000,
+    refetchInterval: (query) => {
+      if (query.state.status === "error") return 60_000;
+      return (query.state.data?.indices?.length ?? 0) === 0 ? 5_000 : 60_000;
+    },
     refetchIntervalInBackground: false,
   });
 
@@ -433,7 +460,7 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
   });
 
   const [newsSort, setNewsSort] = useState<"latest" | "popular">("latest");
-  const { data: newsData } = useQuery({
+  const { data: newsData, isError: 뉴스못받음, error: 뉴스실패사유, refetch: 뉴스다시 } = useQuery({
     queryKey: ["news", "us", newsSort],
     queryFn: () => dashboardApi.getNews("us", newsSort),
     staleTime: 300_000,
@@ -480,7 +507,9 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
           </button>
         </div>
         <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
-          {!data
+          {못받음 && !data
+            ? <못불러옴 compact 사유={실패사유} 다시={() => refetch()} />
+            : !data
             ? US_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
             : US_INDEX_KEYS.map((key) => {
                 const idx = getIdx(key);
@@ -518,7 +547,13 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
           {newsData && <span className="text-2xs text-text-muted ml-auto">{newsData.length}건</span>}
         </div>
         <div className="px-3 py-1">
-          <NewsPanel news={newsData ?? []} sort={newsSort} onSortChange={setNewsSort} />
+          {뉴스못받음 ? (
+            /* 국내 언론사 49곳 중 상당수가 실패 중일 때가 있다.
+               "기사가 없다" 와 "못 받았다" 는 사용자가 할 일이 다르다 */
+            <못불러옴 compact 사유={뉴스실패사유} 다시={() => 뉴스다시()} />
+          ) : (
+            <NewsPanel news={newsData ?? []} sort={newsSort} onSortChange={setNewsSort} />
+          )}
         </div>
       </Card>
     </div>

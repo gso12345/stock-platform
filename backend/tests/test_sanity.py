@@ -48,16 +48,19 @@ class Test엔화_100배_사건:
         assert _기록()["값:환율금리:원/100엔"]["streak"] == 0
 
 
-class Test코스닥150_0_사건:
+class Test지수가_0으로_뜬_사건:
+    """코스닥150 이 0 으로 떠 있던 자리다. 그 지수는 네 원천이 전부
+    실패해서 결국 목록에서 뺐지만, '0 을 성공으로 세지 않는다' 는
+    규칙 자체는 남아 있어야 한다 — 다른 지수에서 같은 일이 난다."""
     def test_0_은_성공이_아니다(self):
         """조회가 성공해도 0 이면 화면에 0 이 뜬다."""
-        assert sanity.확인("지수", "KOSDAQ150", 0,
-                           sanity.지수범위["KOSDAQ150"]) is False
-        assert "0" in _기록()["값:지수:KOSDAQ150"]["last_error"]
+        assert sanity.확인("지수", "KOSPI200", 0,
+                           sanity.지수범위["KOSPI200"]) is False
+        assert "0" in _기록()["값:지수:KOSPI200"]["last_error"]
 
     def test_값이_없어도_잡는다(self):
-        assert sanity.확인("지수", "KOSDAQ150", None) is False
-        assert "없음" in _기록()["값:지수:KOSDAQ150"]["last_error"]
+        assert sanity.확인("지수", "KOSPI200", None) is False
+        assert "없음" in _기록()["값:지수:KOSPI200"]["last_error"]
 
     def test_숫자가_아니면_잡는다(self):
         assert sanity.확인("지수", "KOSPI", "??") is False
@@ -85,8 +88,6 @@ class Test범위:
         ("KOSPI",     26.5,    False),
         ("KOSDAQ",    780.0,   True),
         ("KOSPI200",  350.0,   True),
-        ("KOSDAQ150", 1412.0,  True),
-        ("KOSDAQ150", 0,       False),
         ("NASDAQ",    18500.0, True),
         ("DOW",       43000.0, True),
     ])
@@ -116,10 +117,10 @@ class Test목록_통째로:
     def test_지수_목록도_같은_규칙(self):
         수 = sanity.지수_확인([
             {"index": "KOSPI", "value": 2650.0},
-            {"index": "KOSDAQ150", "value": 0},
+            {"index": "KOSPI200", "value": 0},
         ])
         assert 수 == 1
-        assert _기록()["값:지수:KOSDAQ150"]["streak"] == 1
+        assert _기록()["값:지수:KOSPI200"]["streak"] == 1
         assert _기록()["값:지수:KOSPI"]["streak"] == 0
 
     def test_빈_목록에_울지_않는다(self):

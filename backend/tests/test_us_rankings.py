@@ -136,11 +136,36 @@ class Test정렬:
 class Test전종목_받아오기:
     """이게 이번 고침의 핵심이다 — 예전에는 아무것도 안 받았다."""
 
+    @pytest.fixture(autouse=True)
+    def _여유는_있다고_본다(self, monkeypatch):
+        """메모리 여유 검사를 고정한다.
+
+        refresh_us_rows 는 묶음 사이마다 has_headroom 을 본다 — 야후 응답이
+        파싱 중간물로 크게 잡혀서, 15묶음을 쉬지 않고 돌면 그 사이에 한도를
+        넘기 때문이다(실제로 프로덕션이 그렇게 죽었다).
+
+        그런데 검사를 전부 돌리는 프로세스는 pandas·yfinance 를 다 올려서
+        RSS 가 MEMORY_LIMIT_MB(기본 512) 의 75% 를 넘는다. 그러면 첫 묶음
+        뒤에 바로 멈춰 '한 묶음 실패에 전부 포기했다' 로 보인다 —
+        이 검사가 보려는 것과 상관없는 이유로.
+
+        단독으로 돌리면 통과하고 전체로 돌리면 깨지던 것이 이것이었다.
+        여유 검사 자체는 test_memory_guard 가 따로 지킨다.
+
+        커서도 함께 되돌린다. _us_cursor 는 모듈 전역이라 앞 검사가 옮겨
+        놓은 자리가 그대로 남는다. 그러면 다음 검사는 목록 중간부터
+        훑는데, 여기 가짜는 앞줄(인기종목·S&P500)만 답하므로 아무것도
+        못 받고 '한 묶음 실패에 전부 포기했다' 로 보인다.
+
+        목록이 6,884 종목이 되면서 드러났다 — 예전 372개일 때는 한 회차에
+        한 바퀴를 다 돌아 커서가 늘 0 으로 돌아왔다."""
+        monkeypatch.setattr(R.memory, "has_headroom", lambda *a, **kw: True)
+        R._us_cursor = 0
+
     def _가짜받기(self, monkeypatch, 개수):
         from app.services.scheduler import POPULAR_US
         심볼 = list(dict.fromkeys(POPULAR_US + R.SP500_SYMBOLS))
         부른묶음 = []
-
         async def _받기(묶음):
             부른묶음.append(list(묶음))
             return {s: {"price": 100.0, "change": 1, "change_rate": 1,

@@ -208,16 +208,26 @@ async def fetch_naver_stocks(codes: list[str]) -> dict[str, dict]:
 # 코드가 하나뿐이면 그게 틀렸을 때 그냥 조용히 실패한다 — 그래서
 # 후보를 여러 개 두고 되는 것을 만나면 거기서 멈춘다.
 # (금리·VKOSPI 조회가 이미 쓰는 방식이다)
+#
+# 아래 셋(KOSPI·KOSDAQ·KOSPI200)은 프로덕션에서 실제로 되는 것이 확인됐다.
+# 그 아래 후보들은 확인하지 못했다 — 이 작업 환경은 네이버가 막혀 있다.
+#
+# 그래도 넣는 이유는, 위의 백오프가 붙어서 넣어 보는 값이 거의 0 이
+# 됐기 때문이다. 다섯 회차 안에 안 되면 스스로 물러나고, 그 뒤로는
+# 60회차(약 30분)에 한 번만 다시 찔러본다. 관리자 화면에는 왜 안 되는지가
+# 이름과 함께 남는다.
+#
+# 확인 못 한 것을 넣는 것 자체가 코스닥150 을 만든 원인이었다. 달라진
+# 것은 '넣어도 안전한가' 다 — 예전에는 안 되는 지수 하나가 매 회차
+# 네 원천을 두드리며 나머지를 붙잡고 있었다.
 NAVER_INDEX_CODES = {
+    # ── 되는 것이 확인됨 ──
     "KOSPI":     ["KOSPI"],
     "KOSDAQ":    ["KOSDAQ"],
     "KOSPI200":  ["KPI200", "KOSPI200"],
-    # 다섯 후보를 다 걸어 봤지만 프로덕션에서 전부 실패했다
-    # (마지막 이유: HTTP 409, 코드 KRX150). 네이버 모바일 API 는 이
-    # 지수를 이 경로로 안 주는 것으로 보인다. 코드는 남겨 둔다 —
-    # 지우면 네이버가 열어 줘도 영영 안 쓴다. 실제 값은 아래 pykrx 가
-    # KRX 지수 코드 2203 으로 바로 받아 온다.
-    "KOSDAQ150": ["KQ150", "KOSDAQ150", "KOSDAQ_150", "KQ150I", "KRX150"],
+    # ── 후보 (안 되면 스스로 물러난다) ──
+    "KRX300":    ["KRX300", "KRX_300", "KRX300I"],
+    "KOSPI100":  ["KPI100", "KOSPI100", "KOSPI_100"],
 }
 # 예전 이름 — 밖에서 쓰는 곳이 생기면 첫 후보를 돌려준다
 NAVER_INDEX_CODE = {k: v[0] for k, v in NAVER_INDEX_CODES.items()}
@@ -225,7 +235,8 @@ NAVER_INDEX_CODE = {k: v[0] for k, v in NAVER_INDEX_CODES.items()}
 #: 네이버에서 왜 못 가져왔는지 — 갱신 쪽에서 관리자 화면에 남길 때 쓴다
 _네이버_지수_실패이유: dict[str, str] = {}
 INDEX_DISPLAY = {
-    "KOSPI":"코스피","KOSDAQ":"코스닥","KOSPI200":"코스피 200","KOSDAQ150":"코스닥 150",
+    "KOSPI":"코스피","KOSDAQ":"코스닥","KOSPI200":"코스피 200",
+    "KRX300":"KRX 300","KOSPI100":"코스피 100",
 }
 
 
@@ -281,14 +292,62 @@ async def fetch_naver_index(name: str) -> dict | None:
     return None
 
 
-async def fetch_naver_indices() -> dict[str, dict]:
-    """한국 4대 지수 병렬 조회"""
-    names = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"]
-    tasks = [fetch_naver_index(n) for n in names]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+# ── 안 되는 지수는 스스로 물러난다 ──────────────────────────
+#
+# 코스닥150 을 빼면서 배운 것. 안 되는 지수 하나가 목록에 남아 있으면
+# 매 회차 네 원천(네이버·야후·pykrx·KIS)을 순서대로 두드리고, 그동안
+# 나머지 지수도 함께 기다린다. 몇 달을 그렇게 돌았다.
+#
+# 그래서 지수 목록에 새 후보를 넣는 것 자체가 위험한 일이 됐다 —
+# 맞는지 확인할 방법이 없으면 넣어 볼 수도 없다.
+#
+# 뉴스 피드에 쓴 방식을 그대로 가져온다. 연속으로 실패하면 쉬게 하고,
+# 가끔만 다시 찔러본다. 그러면 후보를 넣어 보는 값이 거의 0 이 된다 —
+# 되면 얻고, 안 되면 몇 분 만에 스스로 빠진다. 관리자 화면에는 왜
+# 안 되는지가 남는다.
+_지수_연속실패: dict[str, int] = {}
+
+#: 이만큼 연속 실패하면 쉰다
+_지수_쉼_기준 = int(os.getenv("INDEX_REST_AFTER", 5))
+
+#: 쉬는 지수를 몇 회차마다 다시 찔러보는지
+_지수_되살림_주기 = int(os.getenv("INDEX_PROBE_EVERY", 60))
+_지수_회차 = 0
+
+
+def 지수_쉬는가(이름: str) -> bool:
+    return _지수_연속실패.get(이름, 0) >= _지수_쉼_기준
+
+
+def 지수_실패기록(이름: str, 실패했나: bool) -> None:
+    if 실패했나:
+        _지수_연속실패[이름] = _지수_연속실패.get(이름, 0) + 1
+    else:
+        _지수_연속실패[이름] = 0
+
+
+def 이번회차_지수(전체: list[str]) -> list[str]:
+    """이번에 물어볼 지수. 쉬는 것은 가끔만 낀다."""
+    global _지수_회차
+    _지수_회차 += 1
+    찔러볼때 = _지수_회차 % _지수_되살림_주기 == 0
+    고른것 = [n for n in 전체 if not 지수_쉬는가(n) or 찔러볼때]
+    # 전부 쉬는 중이면 그래도 하나는 본다 — 아무것도 안 하면
+    # 되살아날 길까지 막힌다
+    return 고른것 or 전체[:1]
+
+
+async def fetch_naver_indices(names: "list[str] | None" = None) -> dict[str, dict]:
+    """국내 지수 병렬 조회. 쉬는 지수는 빼고 묻는다."""
+    전체 = names if names is not None else list(NAVER_INDEX_CODES)
+    물어볼것 = 이번회차_지수(전체)
+    results = await asyncio.gather(*[fetch_naver_index(n) for n in 물어볼것],
+                                   return_exceptions=True)
     out = {}
-    for name, r in zip(names, results):
-        if isinstance(r, dict) and r:
+    for name, r in zip(물어볼것, results):
+        됐나 = isinstance(r, dict) and bool(r)
+        지수_실패기록(name, not 됐나)
+        if 됐나:
             out[name] = r
     return out
 
@@ -296,15 +355,16 @@ async def fetch_naver_indices() -> dict[str, dict]:
 # ── pykrx(KRX 공식 데이터) — 네이버/야후 모두 실패한 지수용 최종 폴백 ──
 PYKRX_INDEX_MARKET = {
     "KOSPI": "KOSPI", "KOSPI200": "KOSPI",
-    "KOSDAQ": "KOSDAQ", "KOSDAQ150": "KOSDAQ",
+    "KOSDAQ": "KOSDAQ",
 }
 PYKRX_INDEX_NAME = {
     "KOSPI": "코스피", "KOSPI200": "코스피200",
-    "KOSDAQ": "코스닥지수", "KOSDAQ150": "코스닥 150",
+    "KOSDAQ": "코스닥지수",
 }
-PYKRX_INDEX_NAME_ALIASES = {
-    "KOSDAQ150": ["코스닥 150", "코스닥150", "코스닥 150 지수"],
-}
+#: 이름 표기가 흔들리는 지수용. 지금은 비어 있다 — 코스닥150 을 빼면서
+#: 유일한 항목이 없어졌다. 자리를 남겨 두는 이유는 KRX 가 표기를 바꾸는
+#: 일이 실제로 있어서다(띄어쓰기 하나로 이름 대조가 어긋난다).
+PYKRX_INDEX_NAME_ALIASES: dict[str, list[str]] = {}
 
 #: KRX 가 쓰는 지수 코드. 이름으로 찾기 전에 이걸 먼저 걸어 본다.
 #
@@ -324,7 +384,6 @@ PYKRX_INDEX_TICKER = {
     "KOSPI":     "1001",
     "KOSPI200":  "1028",
     "KOSDAQ":    "2001",
-    "KOSDAQ150": "2203",
 }
 
 

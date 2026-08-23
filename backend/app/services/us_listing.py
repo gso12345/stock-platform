@@ -161,6 +161,52 @@ def _받기(client: httpx.Client, 파일: str) -> str:
     return r.text
 
 
+#: NASDAQ Trader 가 막혔을 때 쓰는 대체 경로.
+#
+# 국내 종목 목록이 이미 같은 방식을 쓴다 — KRX 가 403 을 주면
+# raw.githubusercontent 에 있는 사본을 받는다. 미국 쪽에는 그게 없어서,
+# nasdaqtrader.com 이 막히면 순위 대상이 코드에 적어 둔 372개로 떨어졌다.
+# 그러면 '미국 전종목 순위' 가 아니라 'S&P500 안에서의 순위' 다.
+#
+# 이 저장소는 세 거래소 심볼을 하루 한 번 갱신해 텍스트로 올려 둔다.
+# 종목 코드만 있고 이름·거래소 구분이 없으므로, 파일별로 거래소를
+# 붙이고 이름은 심볼로 둔다 — 순위를 매기는 데는 코드만 있으면 되고,
+# 이름은 시세를 받을 때 함께 온다.
+_거울 = "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main"
+_거울_파일 = (("nasdaq/nasdaq_tickers.txt", "NASDAQ"),
+              ("nyse/nyse_tickers.txt",     "NYSE"),
+              ("amex/amex_tickers.txt",     "AMEX"))
+
+
+def _거울에서_받기() -> tuple[list[dict], str]:
+    rows: list[dict] = []
+    받은것 = []
+    try:
+        with httpx.Client(follow_redirects=True, timeout=20,
+                          headers={"User-Agent": "Mozilla/5.0"}) as cl:
+            for 경로, 거래소 in _거울_파일:
+                try:
+                    r = cl.get(f"{_거울}/{경로}")
+                    r.raise_for_status()
+                    몫 = 0
+                    for 줄 in r.text.splitlines():
+                        코드 = 줄.strip().upper()
+                        # 우선주·워런트·유닛은 점이나 하이픈이 붙는다.
+                        # 시세 조회가 안 되는 것들이라 여기서 거른다 —
+                        # 원래 파일도 같은 이유로 걸러져 있다.
+                        if not 코드 or not 코드.isalnum() or len(코드) > 5:
+                            continue
+                        rows.append({"s": 코드, "n": 코드, "x": 거래소, "m": "US"})
+                        몫 += 1
+                    if 몫:
+                        받은것.append(f"{거래소} {몫}개")
+                except Exception as e:
+                    log.warning("거울 %s 실패: %s", 경로, type(e).__name__)
+    except Exception as e:
+        return [], f"거울 접속 실패 ({type(e).__name__})"
+    return rows, "GitHub 거울 " + " + ".join(받은것)
+
+
 def fetch_listing() -> tuple[list[dict], str]:
     """미국 상장 종목 목록을 받아온다. (목록, 출처) — 실패하면 ([], 사유).
 
@@ -186,7 +232,17 @@ def fetch_listing() -> tuple[list[dict], str]:
         return [], f"접속 실패 ({type(e).__name__})"
 
     if not rows:
-        return [], "응답 없음"
+        """본 경로가 빈손이면 거울을 본다.
+
+        예전에는 여기서 그냥 포기했고, 그러면 순위 대상이 코드에 적어 둔
+        372개로 떨어졌다 — 화면에는 아무 표시도 없이 'S&P500 안에서의
+        순위' 가 뜬다."""
+        거울행, 거울출처 = _거울에서_받기()
+        if 거울행:
+            rows = 거울행
+            받은파일 = [거울출처]
+        else:
+            return [], f"응답 없음 · {거울출처}"
 
     # 같은 종목이 두 파일에 겹쳐 나오는 경우가 있다(이전 상장 이력 등).
     # 먼저 온 것을 남긴다 — 나스닥 쪽 이름이 더 정확하다.
@@ -199,4 +255,6 @@ def fetch_listing() -> tuple[list[dict], str]:
 
     if not _쓸만한가(정리):
         return [], f"목록이 미덥지 않음 ({len(정리)}개)"
-    return 정리, "NASDAQ Trader " + " + ".join(받은파일)
+    출처 = 받은파일[0] if 받은파일 and 받은파일[0].startswith("GitHub") \
+        else "NASDAQ Trader " + " + ".join(받은파일)
+    return 정리, 출처

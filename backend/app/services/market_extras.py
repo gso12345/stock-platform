@@ -182,12 +182,32 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
         except: return 0.0
 
     def _display(raw: str) -> "str | None":
+        """네이버가 준 이름 → 화면에 쓸 이름. 모르는 것은 None 이라 버려진다.
+
+        여기가 좁아서 받아 놓고 버리던 것이 있었다. 위의 목록 API 는 국내
+        금리를 통째로 주는데, 이 함수가 다섯 개만 알아보고 나머지는 전부
+        None 으로 떨궜다. 선물을 응답에 담아 놓고 화면에서 안 쓰던 것과
+        같은 모양이다.
+
+        아래를 더 알아보게 했다 — 콜금리, 회사채(AA-/BBB-), CP, COFIX.
+        전부 금리 화면에 흔히 함께 놓이는 것들이다.
+
+        새 주소를 찍는 것이 아니라 이미 오는 것을 안 버리는 것뿐이라,
+        네이버가 그 항목을 안 주면 예전과 똑같이 아무 일도 안 일어난다.
+        없던 실패가 생기지 않는다."""
         if not raw: return None
         if "기준금리" in raw: return "한국 기준금리"
         if "CD" in raw and ("91" in raw or "일" in raw): return "CD금리(91일)"
         if ("국고채" in raw or "국고" in raw) and "3년" in raw: return "국고채 3년"
         if ("국고채" in raw or "국고" in raw) and "5년" in raw: return "국고채 5년"
         if ("국고채" in raw or "국고" in raw) and "10년" in raw: return "국고채 10년"
+        # ── 여기부터가 예전에 버려지던 것들 ──
+        if "콜" in raw and "금리" in raw: return "콜금리(1일)"
+        if "회사채" in raw and "AA" in raw.upper(): return "회사채 AA- 3년"
+        if "회사채" in raw and "BBB" in raw.upper(): return "회사채 BBB- 3년"
+        if raw.upper().startswith("CP") or ("CP" in raw.upper() and "91" in raw):
+            return "CP금리(91일)"
+        if "COFIX" in raw.upper() or "코픽스" in raw: return "코픽스"
         return None
 
     def _extract(d: dict) -> "tuple[float, float]":
@@ -588,6 +608,7 @@ def _do_fetch_kr_rates() -> list:
 
     base: "dict | None" = None
     bonds: list = []
+    그밖: list = []                  # 콜금리·회사채·CP·코픽스 등
     cd_override: "dict | None" = None
 
     # 1순위: 네이버 모바일 API (주식/환율과 동일 도메인, 서버에서 작동)
@@ -598,7 +619,14 @@ def _do_fetch_kr_rates() -> list:
             if base:
                 cache.set("extra:kr_base_rate", base, 86400)
         if not bonds:
+            """국고채와 '그 밖의 금리' 를 갈라 담는다.
+
+            예전에는 국고채만 골라 담고 나머지는 버렸다. 위 _display 가
+            새로 알아보게 된 것들(콜금리·회사채·CP·코픽스)이 여기서 또
+            떨어지면 살린 뜻이 없다."""
             bonds = [r for r in naver_rates if "국고채" in r["name"]]
+            그밖 = [r for r in naver_rates
+                    if "국고채" not in r["name"] and "기준금리" not in r["name"]]
         if naver_cd:
             cd_override = naver_cd
     except Exception:
@@ -660,8 +688,12 @@ def _do_fetch_kr_rates() -> list:
             log.debug("%s 실패: %s", 키, type(e).__name__)
             곁들이[키] = None
 
+    # 순서: 환율 → 정책·단기금리 → 국고채 → 그 밖의 금리 → VKOSPI
+    #
+    # '그 밖' 을 국고채 뒤에 두는 이유 — 국고채 3/5/10년은 한 묶음으로
+    # 읽는 값이라 사이에 다른 것이 끼면 눈이 걸린다.
     rates = [x for x in ([곁들이["유로"], 곁들이["엔화"]]
-                         + [base, cd_rate] + bonds
+                         + [base, cd_rate] + bonds + 그밖
                          + [곁들이["vkospi"]]) if x]
 
     # 값이 상식 범위를 벗어나면 기록해 둔다.

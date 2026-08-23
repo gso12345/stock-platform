@@ -27,11 +27,23 @@ HEAVY_PREFETCH = os.getenv("ENABLE_HEAVY_PREFETCH", "").lower() in ("1", "true",
 # 값을 미리 받아둬 봐야 아무도 안 보고, 그 사이 CPU만 쓴다.
 IDLE_PAUSE_SEC = int(os.getenv("IDLE_PAUSE_SEC", 600))
 
-KR_INDICES = ["KOSPI","KOSDAQ","KOSPI200","KOSDAQ150"]
+# 코스닥150 을 뺐다.
+#
+# 네 원천(네이버·야후·pykrx·KIS)이 전부 실패했다. 네이버 모바일 API 는
+# 코드 후보 다섯을 다 걸어도 HTTP 409 를 주고, 야후 ^KQ150 도 값을 안 준다.
+# 화면에는 몇 달 동안 0 또는 빈 카드로 떠 있었다.
+#
+# 안 되는 것을 목록에 남겨 두는 건 그냥 낭비가 아니다 — 지수 갱신은
+# gather 로 묶여 있어서, 안 되는 하나가 매 회차 네 원천을 순서대로
+# 두드리는 동안 나머지 셋도 함께 기다린다.
+# 뒤의 둘은 후보다 — 되는지 확인 못 했다. 안 되면 price_fetcher 의
+# 백오프가 다섯 회차 안에 물러나게 하고, 관리자 화면에 이유가 남는다.
+KR_INDICES = ["KOSPI","KOSDAQ","KOSPI200","KRX300","KOSPI100"]
 US_INDICES = ["SP500","NASDAQ","DOW","SOX","RUSSELL"]
 
 KR_INDEX_DISPLAY = {
-    "KOSPI":"코스피","KOSDAQ":"코스닥","KOSPI200":"코스피 200","KOSDAQ150":"코스닥 150",
+    "KOSPI":"코스피","KOSDAQ":"코스닥","KOSPI200":"코스피 200",
+    "KRX300":"KRX 300","KOSPI100":"코스피 100",
 }
 US_INDEX_YF = {
     "SP500":"^GSPC","NASDAQ":"^IXIC","DOW":"^DJI","SOX":"^SOX","RUSSELL":"^RUT",
@@ -59,7 +71,8 @@ async def refresh_kr_indices():
     resolved = set()
     # 지수마다 '어느 원천이 됐는지' 를 들고 간다.
     #
-    # 코스닥150 이 화면에 0 으로 떠 있었는데, 기록이 "3/4개" 한 줄뿐이라
+    # 코스닥150 이 화면에 0 으로 떠 있었는데(그래서 결국 뺐다),
+    # 기록이 "3/4개" 한 줄뿐이라
     # 어느 지수가 왜 안 되는지 알 수가 없었다. 뉴스 때와 똑같은 상황이다 —
     # 조회 경로가 넷이나 되니(네이버·야후·pykrx·KIS) 어디까지 갔다가
     # 무엇 때문에 멈췄는지가 있어야 고칠 수 있다.
@@ -113,7 +126,7 @@ async def refresh_kr_indices():
             pass
 
     # Naver/yfinance 모두 실패한 지수는 pykrx(KRX 공식 데이터)로 보완
-    # (네이버 내부 코드 추정이나 야후 심볼이 실제와 다를 때 — 예: KOSDAQ150)
+    # (네이버 내부 코드 추정이나 야후 심볼이 실제와 다를 때)
     still_failed = [n for n in KR_INDICES if n not in resolved]
     for name in still_failed:
         try:
@@ -133,7 +146,7 @@ async def refresh_kr_indices():
     # KIS API 보강
     if settings.KIS_APP_KEY:
         from app.services.kis_service import kis_service
-        KIS_MAP = {"KOSPI":"0001","KOSDAQ":"1001","KOSPI200":"2001","KOSDAQ150":"2203"}
+        KIS_MAP = {"KOSPI":"0001","KOSDAQ":"1001","KOSPI200":"2001"}
         for name, code in KIS_MAP.items():
             if name in resolved:
                 continue  # 이미 다른 소스로 갱신됨
@@ -150,7 +163,7 @@ async def refresh_kr_indices():
                 pass
 
     # 지수마다 따로 남긴다. 묶음 한 줄("3/4개")로는 어느 것이 왜 안 되는지
-    # 알 수 없어서 코스닥150 이 0 으로 떠 있는 걸 한참 못 찾았다.
+    # 알 수 없어서 그때 코스닥150 이 0 으로 떠 있는 걸 한참 못 찾았다.
     from app.services.price_fetcher import _네이버_지수_실패이유
     for name in KR_INDICES:
         if name in resolved:

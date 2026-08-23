@@ -3,7 +3,7 @@
 - 국내: KIS API (지수 + 랭킹) → demo 폴백
 - 해외: Finnhub/yfinance (지수) → demo 폴백
 """
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Path, Query, HTTPException
 import asyncio
 import logging
 from app.services.kis_service import kis_service
@@ -24,14 +24,13 @@ router = APIRouter(prefix="/dashboard", tags=["대시보드"])
 
 _bg_refresh_in_flight: set[str] = set()
 
-KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200", "KOSDAQ150"]
+KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200", "KRX300", "KOSPI100"]
 US_INDICES = ["SP500", "NASDAQ", "DOW", "SOX", "RUSSELL"]
 
 KIS_INDEX_CODES = {
     "KOSPI":    ("0001", "코스피"),
     "KOSDAQ":   ("1001", "코스닥"),
     "KOSPI200": ("2001", "코스피 200"),
-    "KOSDAQ150":("2203", "코스닥 150"),
 }
 
 
@@ -324,7 +323,21 @@ async def _news_tab(market: str, sort: str, images_only: bool) -> list:
 
     articles = list(cached or [])
     if images_only:
-        articles = [a for a in articles if a.get("image")]
+        있는것 = [a for a in articles if a.get("image")]
+        """이미지 있는 것만 남기되, 그것 때문에 화면이 비면 안 된다.
+
+        언론사가 썸네일을 빼거나 이미지 추출이 어긋나면 목록이 통째로
+        빈다. 그때는 '사진 있는 기사만 보여 주기' 보다 '기사를 보여 주기'
+        가 먼저다 — 빈 화면은 고장으로 보이지만 사진 없는 카드는
+        조금 심심할 뿐이다.
+
+        절반을 기준으로 삼았다. 화면이 쓰는 것은 100건인데 국내는 보통
+        200~600건이 있으므로, 절반만 남아도 100건은 채워진다."""
+        if len(있는것) >= min(NEWS_TAB_LIMIT, len(articles) // 2):
+            articles = 있는것
+        else:
+            log.info("이미지 있는 기사가 %d/%d 건뿐이라 필터를 건너뜁니다 (%s)",
+                     len(있는것), len(articles), market)
 
     def _key(a):
         if sort == "popular":
@@ -354,8 +367,17 @@ async def kr_news(
 @router.get("/news/us")
 async def us_news(
     sort: str = Query(default="latest", pattern="^(latest|popular)$"),
-    images_only: bool = Query(default=False),
+    images_only: bool = Query(default=True),
 ):
+    """해외 뉴스도 이미지 있는 것만.
+
+    국내는 진작 True 였는데 여기만 False 였다. 그래서 같은 화면의 두 탭이
+    서로 다르게 보였다 — 국내는 사진이 붙은 카드가 늘어서고, 해외는
+    글자만 있는 줄이 섞였다.
+
+    기사가 모자랄 걱정은 접었다. 해외는 여덟 곳에서 500건 안팎을 받는데
+    화면은 100건만 쓴다. 이미지 없는 것을 빼도 채우고 남는다 —
+    아래 '기사가 확 줄면 되돌린다' 가 그걸 지킨다."""
     return await _news_tab("us", sort, images_only)
 
 
@@ -438,8 +460,23 @@ async def kr_extras():
 
 
 # ── 지수 상세 ──────────────────────────────────────────────
+#
+# 지수 이름·기간·간격을 그대로 캐시 키에 쓴다. 검증이 없으면 아무 값이나
+# 새 키가 되고, 인증 없이 부를 수 있으므로 캐시를 통째로 밀어낼 수 있다.
+# 순위 카테고리에서 똑같은 일을 이미 겪었다 — 40번만 불러도 캐시가
+# 4.3MB → 10.2MB 로 불었고, 500번이면 시세·차트·뉴스가 전부 밀려났다.
+#
+# 여기는 그때 안 고쳐진 자리다. 아는 값만 받는다.
+_INDEX_PATTERN = "^(" + "|".join(KR_INDICES + US_INDICES) + ")$"
+
+#: 야후가 받는 것만. 모르는 값을 넘기면 빈 결과가 오는데, 그 빈 결과가
+#: 새 캐시 키로 자리를 차지한다.
+_PERIOD_PATTERN = "^(1d|5d|1mo|3mo|6mo|1y|2y|5y|10y|ytd|max)$"
+_INTERVAL_PATTERN = "^(1m|2m|5m|15m|30m|60m|90m|1h|1d|5d|1wk|1mo|3mo)$"
+
+
 @router.get("/index/{name}")
-async def get_index_detail(name: str):
+async def get_index_detail(name: str = Path(..., pattern=_INDEX_PATTERN)):
     name_upper = name.upper()
     if name_upper in KR_INDICES:
         info = await _get_kr_index(name_upper)
@@ -451,7 +488,11 @@ async def get_index_detail(name: str):
 
 
 @router.get("/index/{name}/ohlcv")
-async def get_index_ohlcv(name: str, period: str = Query(default="1y"), interval: str = Query(default="1d")):
+async def get_index_ohlcv(
+    name: str = Path(..., pattern=_INDEX_PATTERN),
+    period: str = Query(default="1y", pattern=_PERIOD_PATTERN),
+    interval: str = Query(default="1d", pattern=_INTERVAL_PATTERN),
+):
     name_upper = name.upper()
     ck = f"idx_ohlcv:{name_upper}:{period}:{interval}"
 
@@ -469,7 +510,7 @@ async def get_index_ohlcv(name: str, period: str = Query(default="1y"), interval
     except Exception:
         result = []
 
-    # 야후 심볼이 해당 지수를 지원하지 않는 경우(예: KOSDAQ150) pykrx(KRX 공식 데이터)로 보완
+    # 야후 심볼이 해당 지수를 지원하지 않는 경우 pykrx(KRX 공식 데이터)로 보완
     if not result and name_upper in KR_INDICES and interval == "1d":
         try:
             result = await asyncio.wait_for(

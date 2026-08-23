@@ -136,14 +136,14 @@ def test_멈춘_자리를_커서에_남긴다():
     assert "_us_cursor" in 멈추는곳
 
 
-# ── KOSDAQ150 ──────────────────────────────────────────────
-def test_코스닥150은_아는_코드로_바로_받는다():
-    """네이버는 다섯 후보를 다 걸어도 실패했다(HTTP 409). pykrx 는
-    이름 대조를 하고 있었는데, 코드는 이미 저장소 안에 있었다."""
+# ── pykrx 지수 코드 ────────────────────────────────────────
+def test_아는_코드로_바로_받는다():
+    """이름 대조는 KRX 가 표기를 조금만 바꿔도 못 찾는다.
+    코드는 안 바뀌므로 그걸 먼저 건다."""
     from app.services import price_fetcher as pf
-    assert pf.PYKRX_INDEX_TICKER["KOSDAQ150"] == "2203"
     assert pf.PYKRX_INDEX_TICKER["KOSPI"] == "1001"
     assert pf.PYKRX_INDEX_TICKER["KOSDAQ"] == "2001"
+    assert pf.PYKRX_INDEX_TICKER["KOSPI200"] == "1028"
 
 
 def test_코드가_안_통하면_이름으로_찾는다():
@@ -153,13 +153,5 @@ def test_코드가_안_통하면_이름으로_찾는다():
     몸통 = 본문[본문.index("def fetch_pykrx_index"):]
     몸통 = 몸통[:몸통.index("\ndef ", 10)]
     assert "PYKRX_INDEX_TICKER" in 몸통
-    assert "get_index_ticker_name" in 몸통      # 이름으로 찾는 길이 남아 있다
-    코드자리 = 몸통.index("PYKRX_INDEX_TICKER")
-    이름자리 = 몸통.index("get_index_ticker_name")
-    assert 코드자리 < 이름자리                  # 코드를 먼저 건다
-
-
-def test_네이버_후보를_지우지_않았다():
-    """지우면 네이버가 열어 줘도 영영 안 쓴다."""
-    from app.services import price_fetcher as pf
-    assert len(pf.NAVER_INDEX_CODES["KOSDAQ150"]) >= 5
+    assert "get_index_ticker_name" in 몸통
+    assert 몸통.index("PYKRX_INDEX_TICKER") < 몸통.index("get_index_ticker_name")

@@ -9,7 +9,6 @@ DEMO_INDICES = {
     "KOSPI":     {"index":"KOSPI",    "name":"코스피",           "value":2838.52, "change":-10.34, "change_rate":-0.36},
     "KOSDAQ":    {"index":"KOSDAQ",   "name":"코스닥",           "value":909.88,  "change":2.41,   "change_rate":0.27},
     "KOSPI200":  {"index":"KOSPI200", "name":"코스피 200",       "value":373.20,  "change":-1.05,  "change_rate":-0.28},
-    "KOSDAQ150": {"index":"KOSDAQ150","name":"코스닥 150",       "value":1190.44, "change":3.20,   "change_rate":0.27},
     # 해외 (yfinance rate limit 시 — 2026-05-30 실제값 기준)
     "SP500":     {"index":"SP500",    "name":"S&P 500",          "value":7582.30, "change":24.97,  "change_rate":0.33},
     "NASDAQ":    {"index":"NASDAQ",   "name":"나스닥 종합",       "value":26994.28,"change":80.99,  "change_rate":0.30},

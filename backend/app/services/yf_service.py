@@ -91,7 +91,6 @@ INDEX_SYMBOLS = {
     "KOSPI":    "^KS11",
     "KOSDAQ":   "^KQ11",
     "KOSPI200": "^KS200",
-    "KOSDAQ150":"^KQ150",
     # 미국
     "SP500":    "^GSPC",
     "NASDAQ":   "^IXIC",
@@ -108,7 +107,6 @@ INDEX_NAMES = {
     "KOSPI":    "코스피",
     "KOSDAQ":   "코스닥",
     "KOSPI200": "코스피 200",
-    "KOSDAQ150":"코스닥 150",
     "SP500":    "S&P 500",
     "NASDAQ":   "나스닥 종합",
     "DOW":      "다우 산업",
