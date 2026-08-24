@@ -409,27 +409,56 @@ _FEATURE_PATH_MAP = {
 }
 
 
+def 접속주소(request: Request) -> str:
+    """이 요청이 어디서 왔는지.
+
+    Render 는 프록시 뒤에 있어서 request.client.host 가 프록시 주소
+    하나로 잡힌다. 그러면 방문자가 전부 한 사람으로 세어진다.
+    X-Forwarded-For 의 맨 앞이 실제 접속자다.
+
+    맨 앞을 그대로 믿는 것은 위조가 가능하지만, 여기서는 방문자 수를
+    세는 데만 쓴다 — 위조해 봐야 자기 방문이 여러 번 세어질 뿐이고,
+    권한이나 제한에 쓰이지 않는다."""
+    앞줄 = request.headers.get("x-forwarded-for", "")
+    if 앞줄:
+        return 앞줄.split(",")[0].strip()
+    return getattr(request.client, "host", "") or ""
+
+
 class ActivityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # 헬스체크는 사람의 사용이 아니다 — 이걸로 '사용 중'을 판단하면
         # 아무도 안 보는데도 백그라운드 갱신이 계속 돈다
         if request.url.path not in ("/health", "/"):
-            from app.core.activity import touch_request
+            from app.core.activity import touch_request, mark_visit
             touch_request()
-        auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("bearer "):
+
+            누구 = None
+            auth = request.headers.get("authorization", "")
+            if auth.lower().startswith("bearer "):
+                try:
+                    from app.core.security import decode_token
+                    from app.core.trends import track_usage
+                    payload = decode_token(auth[7:])
+                    if payload and "sub" in payload:
+                        누구 = int(payload["sub"])
+                        path = request.url.path
+                        for prefix, feature in _FEATURE_PATH_MAP.items():
+                            if path.startswith(prefix):
+                                track_usage(feature)
+                                break
+                except Exception:
+                    pass
+
+            # 로그인 여부와 상관없이 센다.
+            #
+            # 예전에는 이 줄이 위의 `if auth...` 안에 있어서 로그인한
+            # 사람만 세어졌다. 이 사이트는 로그인 없이도 대시보드·종목
+            # 상세·뉴스를 다 볼 수 있으니, 방문자의 대부분이 통째로
+            # 안 보이고 있었다.
             try:
-                from app.core.security import decode_token
-                from app.core.activity import mark_active
-                from app.core.trends import track_usage
-                payload = decode_token(auth[7:])
-                if payload and "sub" in payload:
-                    mark_active(int(payload["sub"]))
-                    path = request.url.path
-                    for prefix, feature in _FEATURE_PATH_MAP.items():
-                        if path.startswith(prefix):
-                            track_usage(feature)
-                            break
+                mark_visit(누구, 접속주소(request),
+                           request.headers.get("user-agent", ""))
             except Exception:
                 pass
         return await call_next(request)

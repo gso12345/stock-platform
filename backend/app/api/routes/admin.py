@@ -75,7 +75,7 @@ def 관리기록(db: Session, actor: User, action: str,
 
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    from app.core.activity import online_count, today_visitor_count
+    from app.core.activity import online_count, today_visitor_count, 오늘_방문_요약
     row = db.execute(text("""
         SELECT
             (SELECT COUNT(*) FROM users)                                           AS total_users,
@@ -98,6 +98,10 @@ def get_stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
         "pending_reports":   row[7] or 0,
         "online_users":      online_count(),
         "today_visitors":    today_visitor_count(),
+        # 로그인/비로그인을 갈라 준다. 예전에는 로그인한 사람만 세어서
+        # 방문자의 대부분이 안 보였다 — 광고·제휴 심사에서 묻는 것도,
+        # 무엇을 먼저 만들지 정하는 데 필요한 것도 이 숫자다.
+        "visits":            오늘_방문_요약(),
     }
 
 
