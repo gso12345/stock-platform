@@ -256,9 +256,38 @@ def _쉬는금리() -> list:
         쉬는코드 = set(me.금리쉼표.쉬는것들())
         못찾은것 = [이름 for 이름, _, 코드들 in me._네이버_금리후보
                     if all(f"rate:{c}" in 쉬는코드 for c in 코드들)]
-        return sorted(못찾은것)
+        못찾은것 += [이름 for 이름, 코드 in me._시장지표_금리
+                     if f"지표:{코드}" in 쉬는코드 and 이름 not in 못찾은것]
+        return sorted(set(못찾은것))
     except Exception:
         return []
+
+
+@router.get("/rates-diagnosis")
+def get_rates_diagnosis(_: User = Depends(require_admin)):
+    """국내 금리를 원천별로 뭘 해 봤고 뭐가 돌아왔는지.
+
+    "콜금리 회사채 안뜸" 을 두 번 들었는데, 두 번 다 원인을 화면에서
+    확인할 방법이 없었다. 작업 환경에서는 네이버·KRX·ECOS 가 전부
+    막혀 있어 코드를 고쳐도 맞는지 알 수가 없고, 배포한 뒤에도 '안
+    나온다' 만 보일 뿐 왜 안 나오는지는 안 보였다.
+
+    이 화면을 보면 다음 한 번에 고칠 수 있다 —
+      · '실패(...)' 면 그 원천에 서버가 못 닿는 것이다
+      · '빈손' 이면 닿기는 하는데 그 항목을 안 주는 것이다(코드가 틀렸다)
+      · ECOS 가 계속 빈손이면 BOK_API_KEY 를 봐야 한다. 기본값 'sample'
+        은 대부분의 통계가 막혀 있다 — ecos.bok.or.kr 에서 무료로 받는다.
+    """
+    from app.services.market_extras import 금리진단, get_kr_rates
+    from app.core.config import settings as _s
+    지금값 = get_kr_rates()
+    키 = getattr(_s, "BOK_API_KEY", "sample") or "sample"
+    return {
+        "원천별": 금리진단(),
+        "지금_나가는_것": [x.get("name") for x in 지금값],
+        "쉬는_후보": _쉬는금리(),
+        "bok_api_key": "기본값 sample (대부분 통계 막힘)" if 키 == "sample" else "설정됨",
+    }
 
 
 def _쉬는지수() -> list:

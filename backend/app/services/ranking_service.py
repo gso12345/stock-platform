@@ -434,20 +434,32 @@ def _us_rows_from_cache() -> list[dict]:
 def _build_us_rows() -> list[dict]:
     """순위를 만들 표를 돌려준다.
 
-    완성된 표를 캐시에서 먼저 찾고, 없으면 지금 있는 시세로 만든다.
-    만든 표가 쓸 만하면(US_MIN_ROWS 이상) 담아 두고, 모자라면 지난 표라도
-    쓴다 — 다섯 줄짜리 순위를 보여 주느니 15분 지난 순위가 낫다."""
+    담긴 표가 있으면 그것을, 없으면 지금 있는 시세를 지난 표 위에 쌓는다.
+
+    여기가 '엔비디아가 순위에 안 뜬다' 의 주범이었다. 훑는 쪽
+    (refresh_us_rows)은 표를 쌓게 고쳤는데, 사용자가 순위를 열 때 도는
+    이 함수는 그대로 새로 만들고 있었다. 그래서 이런 일이 벌어졌다 —
+
+      1. 훑기를 여러 회차 돌려 6,882 종목짜리 표를 쌓아 둔다. 1위 엔비디아.
+      2. 15분이 지나 US_ROWS_CK 가 만료된다.
+      3. 그때 사용자가 순위를 연다. 이 함수가 price:{sym} 를 주워 담는데,
+         보관함이 400칸뿐이라 살아남은 건 마지막 회차 몇백 개뿐이다.
+      4. 그 몇백 개가 US_MIN_ROWS(50)보다 많으니 '쓸 만한 표' 로 보고
+         6,882줄짜리 표를 덮어써 버린다.
+      5. 엔비디아는 한참 전 회차에 훑은 종목이라 그 몇백 개에 없다.
+         시가총액 1위가 목록에서 사라진다.
+
+    재현해 보면 그대로다 — 누적 371줄(1위 NVDA)이 60줄로 덮이고 1위가
+    엉뚱한 ETF 가 된다.
+
+    쌓기로 바꾸면 만료는 '다시 담을 때가 됐다' 는 뜻일 뿐, 표를 버리라는
+    뜻이 아니게 된다. 표는 한 덩어리로 담기므로 보관함 한도와 무관하다."""
     if 담긴표 := cache.get(US_ROWS_CK):
         return 담긴표
 
-    rows = _us_rows_from_cache()
+    rows = _표에_쌓기(_us_rows_from_cache())
     if len(rows) >= US_MIN_ROWS:
         cache.set(US_ROWS_CK, rows, US_ROWS_TTL)
-        return rows
-
-    지난표 = cache.get_stale(US_ROWS_CK)
-    if 지난표 and len(지난표) > len(rows):
-        return 지난표
     return rows
 
 
@@ -499,9 +511,50 @@ def _표에_쌓기(이번회차: list[dict]) -> list[dict]:
     지난표 = cache.get(US_ROWS_CK) or cache.get_stale(US_ROWS_CK) or []
     모음 = {r["symbol"]: r for r in 지난표 if r.get("symbol")}
     for r in 이번회차:
-        if r.get("symbol"):
-            모음[r["symbol"]] = r
+        sym = r.get("symbol")
+        if sym:
+            모음[sym] = _아는값_지키기(모음.get(sym), r)
     return list(모음.values())
+
+
+#: 0 은 '0' 이 아니라 '모른다' 는 뜻인 항목들.
+#
+# 시가총액이 0인 회사는 없다. 거래량 0은 있을 수 있지만(거래 정지) 이름이
+# 빈 것은 없다. 이런 자리에 0/빈값이 들어오면 값이 아니라 '이번엔 못 받았다'
+# 는 뜻이다.
+_모르면_0으로_오는것 = ("market_cap", "name")
+
+
+def _아는값_지키기(옛줄: "dict | None", 새줄: dict) -> dict:
+    """새로 받은 줄에 빠진 것이 있으면 알던 값을 남긴다.
+
+    엔비디아가 시가총액 순위에서 통째로 사라진 두 번째 원인이 여기다.
+    price:{sym} 를 쓰는 곳이 열 군데가 넘는데, 그중 몇은 시가총액을 안 담는다 —
+
+      · 배치 조회가 안 되는 종목의 단건 폴백(_fetch_yf_quote_single_sync)은
+        market_cap 을 0 으로 박아 넣는다. fast_info 에 그 값이 없어서다.
+      · 종목 상세 화면을 열면 그 응답으로 price:{sym} 를 덮어쓴다. 거기엔
+        시가총액이 없을 수 있다.
+
+    그렇게 한 번 0 으로 덮이면, 시가총액 순위는 그 종목을 아예 빼 버린다
+    (0 을 '시가총액 0원' 으로 보여 주는 것보다 빼는 게 맞다). 인기 종목일수록
+    상세 화면이 자주 열리니, 하필 제일 큰 회사부터 사라진다.
+
+    그래서 덮어쓸 때 이 항목들만 지킨다. 새 값이 있으면 새 값이 이긴다 —
+    시가총액은 실제로 변하니까. 새 값이 0/빈값일 때만 알던 값을 남긴다."""
+    if not 옛줄:
+        return 새줄
+    지킬것 = {k: 옛줄[k] for k in _모르면_0으로_오는것
+              if not 새줄.get(k) and 옛줄.get(k)}
+
+    # 이름은 빈값으로 안 온다 — 단건 폴백이 name 을 심볼로 채운다
+    # ("NVDA"). 빈값 검사로는 안 걸리는데, 목록에는 회사 이름 대신
+    # 티커만 뜨게 된다. 이름이 심볼과 같으면 '모른다' 로 본다.
+    이름, 심볼 = 새줄.get("name"), 새줄.get("symbol")
+    if 이름 and 심볼 and 이름 == 심볼 and 옛줄.get("name") not in (None, "", 심볼):
+        지킬것["name"] = 옛줄["name"]
+
+    return {**새줄, **지킬것} if 지킬것 else 새줄
 
 
 async def refresh_us_rows(sweep: int | None = None) -> int:

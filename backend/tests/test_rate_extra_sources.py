@@ -191,3 +191,110 @@ class Test콜금리는_ECOS에서:
         이름들 = [r["name"] for r in M._do_fetch_kr_rates()]
         assert 이름들.count("회사채 AA- 3년") == 1
         assert "콜금리(1일)" in 이름들
+
+
+class Test왜_안_왔는지_남기는가:
+    """"콜금리 회사채 안뜸" 을 두 번 들었다. 두 번 다 원인을 못 짚은 게
+    아니라 짚을 방법이 없었다 — 작업 환경에서 네이버·KRX·ECOS 가 전부
+    막혀 있어 고친 게 맞는지 알 수 없고, 배포한 뒤에도 '안 나온다' 만
+    보일 뿐 서버가 뭘 시도했는지는 아무 데도 안 보였다."""
+
+    def _아무것도_안_되게(self, monkeypatch):
+        monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: ([], None))
+        monkeypatch.setattr(M, "_fetch_kr_rates_시장지표", lambda: [])
+        monkeypatch.setattr(M, "_fetch_bok_rates_ecos", lambda: (None, []))
+        monkeypatch.setattr(M, "_fetch_kr_bonds_yf", lambda: [])
+        monkeypatch.setattr(M, "_fetch_kr_bonds_pykrx", lambda: ([], None, []))
+        monkeypatch.setattr(M, "_fetch_bok_그밖_ecos", lambda: [])
+        cache.delete("extra:kr_rates")
+        M._금리진단.clear()
+
+    def test_원천마다_결과를_남긴다(self, monkeypatch):
+        self._아무것도_안_되게(monkeypatch)
+        M._do_fetch_kr_rates()
+        진단 = M.금리진단()
+        for 원천 in ("네이버 모바일 API", "네이버 시장지표(HTML)",
+                     "ECOS 기준금리·국고채", "KRX 장외채권(pykrx)", "ECOS 시장금리표"):
+            assert 원천 in 진단, f"{원천} 결과가 안 남았다"
+            assert 진단[원천]["결과"], f"{원천} 결과가 비어 있다"
+
+    def test_실패와_빈손을_갈라_적는다(self, monkeypatch):
+        """'못 닿는다' 와 '닿는데 그 항목이 없다' 는 고치는 방법이 다르다.
+        앞은 접근 문제고, 뒤는 코드가 틀린 것이다."""
+        self._아무것도_안_되게(monkeypatch)
+
+        def _터짐():
+            raise ConnectionError("차단됨")
+        monkeypatch.setattr(M, "_fetch_kr_rates_시장지표", _터짐)
+
+        M._do_fetch_kr_rates()
+        진단 = M.금리진단()
+        assert 진단["네이버 시장지표(HTML)"]["결과"].startswith("실패")
+        assert "ConnectionError" in 진단["네이버 시장지표(HTML)"]["결과"]
+        assert 진단["네이버 모바일 API"]["결과"] == "빈손"
+
+    def test_받은_것의_이름을_적어_둔다(self, monkeypatch):
+        self._아무것도_안_되게(monkeypatch)
+        monkeypatch.setattr(M, "_fetch_kr_rates_시장지표", lambda: [
+            {"name": "콜금리(1일)", "value": 3.1, "change": 0,
+             "change_rate": 0, "unit": "%", "is_rate": True}])
+        M._do_fetch_kr_rates()
+        진단 = M.금리진단()["네이버 시장지표(HTML)"]
+        assert 진단["결과"] == "받음"
+        assert "콜금리(1일)" in 진단["받은것"]
+
+
+class Test시장지표_경로:
+    """네이버 모바일 JSON API 의 금리 코드는 짐작이었다. 시장지표 페이지는
+    코드가 공개된 주소에 그대로 들어 있어서 짐작이 아니다."""
+
+    def test_콜금리와_회사채_후보가_들어_있다(self):
+        이름들 = [이름 for 이름, _ in M._시장지표_금리]
+        assert "콜금리(1일)" in 이름들
+        assert "회사채 AA- 3년" in 이름들
+
+    def _응답(self, 본문: str):
+        class _R:
+            status_code = 200
+            text = 본문
+        return _R()
+
+    def test_표에서_최근_값과_전일_대비를_읽는다(self, monkeypatch):
+        M.금리쉼표.잊기()
+        본문 = ("<table><tr><td>2026.08.24</td><td> 3.115 </td></tr>"
+                "<tr><td>2026.08.23</td><td> 3.095 </td></tr></table>")
+        monkeypatch.setattr(M.httpx, "get", lambda *a, **k: self._응답(본문))
+        결과 = M._fetch_kr_rates_시장지표()
+        assert 결과, "아무것도 못 읽었다"
+        첫줄 = 결과[0]
+        assert 첫줄["value"] == 3.115
+        assert 첫줄["change"] == pytest.approx(0.02, abs=0.001)
+
+    def test_금리_범위를_벗어난_숫자는_버린다(self, monkeypatch):
+        """표 구조가 바뀌면 엉뚱한 숫자가 첫 번째로 걸릴 수 있다.
+        틀린 금리를 보여 주느니 안 보여 주는 게 낫다."""
+        M.금리쉼표.잊기()
+        본문 = "<table><tr><td> 1234.56 </td><td> 99.99 </td></tr></table>"
+        monkeypatch.setattr(M.httpx, "get", lambda *a, **k: self._응답(본문))
+        assert M._fetch_kr_rates_시장지표() == []
+
+    def test_안_되는_코드는_그만_묻는다(self, monkeypatch):
+        M.금리쉼표.잊기()
+        센것 = {"n": 0}
+
+        class _R:
+            status_code = 404
+            text = ""
+
+        def _가짜(*a, **k):
+            센것["n"] += 1
+            return _R()
+
+        monkeypatch.setattr(M.httpx, "get", _가짜)
+        for _ in range(M.금리쉼표.쉼_기준 + 1):
+            M._fetch_kr_rates_시장지표()
+        센것["n"] = 0
+        M._fetch_kr_rates_시장지표()
+        assert 센것["n"] <= M.금리쉼표.되살림_칸, \
+            f"쉬어야 하는데 {센것['n']}번 물었다"
+        M.금리쉼표.잊기()

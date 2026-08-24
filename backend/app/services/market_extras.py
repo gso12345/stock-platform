@@ -787,6 +787,104 @@ def get_eurkrw() -> "dict | None":
     return _환율카드("extra:eurkrw", "원/유로", "EURKRW=X")
 
 
+# ── 왜 안 왔는지 남긴다 ────────────────────────────────────
+#
+# "콜금리 회사채 안뜸" 을 두 번 들었다. 첫 번째에 고쳤다고 했는데 또
+# 안 됐다. 원인을 못 짚은 게 아니라 **짚을 방법이 없었다** — 작업
+# 환경에서는 네이버·KRX·ECOS 가 전부 막혀 있어서, 코드를 고쳐도 그게
+# 맞는지 프로덕션에 올려 보기 전에는 알 수가 없다. 그리고 올린 뒤에도
+# 화면에 안 뜨는 것만 보일 뿐 왜 안 뜨는지는 안 보인다.
+#
+# 그래서 원천마다 '뭘 해 봤고 뭐가 돌아왔는지' 를 남긴다. 관리자 화면에서
+# 이걸 보면 다음 한 번에 고칠 수 있다 — 지금처럼 짐작으로 후보를 바꿔
+# 가며 배포를 되풀이하지 않아도 된다.
+_금리진단: dict = {}
+
+
+def 금리진단() -> dict:
+    """관리자 화면용 — 원천별 마지막 시도 결과."""
+    return dict(_금리진단)
+
+
+def _남기기(원천: str, 결과: str, 개수: int = 0, 받은것: "list | None" = None):
+    import datetime
+    _금리진단[원천] = {
+        "결과": 결과, "개수": 개수,
+        "받은것": [x.get("name") for x in (받은것 or [])][:12],
+        "언제": datetime.datetime.now().strftime("%m/%d %H:%M:%S"),
+    }
+
+
+#: 네이버 시장지표 페이지의 금리 코드. 주소에 그대로 드러나 있는 값들이라
+#: (finance.naver.com/marketindex/interestDailyQuote.naver?marketindexCd=…)
+#: 모바일 JSON API 코드를 짐작하던 것보다 근거가 있다.
+지표쉼표 = 쉼표(쉼_기준=int(os.getenv("RATE_REST_AFTER", 3)),
+                되살림_칸=int(os.getenv("RATE_PROBE_SLOTS", 2)))
+
+_시장지표_금리 = [
+    ("콜금리(1일)",      "IRR_CALL"),
+    ("CD금리(91일)",     "IRR_CD91"),
+    ("CP금리(91일)",     "IRR_CP91"),
+    ("국고채 3년",       "IRR_GOVT03Y"),
+    ("국고채 5년",       "IRR_GOVT05Y"),
+    ("국고채 10년",      "IRR_GOVT10Y"),
+    ("회사채 AA- 3년",   "IRR_CORP03Y"),
+]
+
+
+def _fetch_kr_rates_시장지표() -> list:
+    """네이버 금융 '시장지표' 페이지에서 금리를 읽는다.
+
+    지금까지 두드리던 곳은 m.stock.naver.com 의 JSON API 였는데, 거기
+    금리 코드는 짐작이었다. 이 페이지는 다르다 — 코드가 공개된 주소에
+    그대로 들어 있다. 사람이 브라우저로 열어 확인할 수 있는 값이라
+    짐작이 아니다.
+
+    HTML 을 읽는 것이 마음에 들지는 않는다. 그래도 —
+      · 이 페이지는 십수 년째 같은 모양이다(표 한 줄에 날짜·금리)
+      · 키가 필요 없다. ECOS 는 한국은행 API 키가 있어야 하는데
+        기본값이 'sample' 이라 대부분의 통계가 막혀 있다
+      · 실패해도 백오프가 알아서 물러난다
+
+    숫자를 아주 헐겁게 찾는다. 표 구조가 바뀌어도 '첫 번째로 나오는
+    소수점 있는 숫자' 는 대개 그대로다. 금리 범위(0~20%)를 벗어나면
+    버린다 — 엉뚱한 숫자를 금리라고 보여 주느니 안 보여 주는 게 낫다."""
+    import re as _re
+    _H = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+          "Accept-Language": "ko-KR,ko;q=0.9",
+          "Referer": "https://finance.naver.com/marketindex/"}
+    결과: list = []
+    # 쉼표를 따로 둔다. 금리쉼표와 후보 목록이 달라서, 같이 쓰면 깨울
+    # 자리를 세는 커서가 서로 엇갈린다.
+    for 이름, 코드 in 지표쉼표.돌아가며_깨우기(_시장지표_금리, lambda t: f"지표:{t[1]}"):
+        열쇠 = f"지표:{코드}"
+        try:
+            r = httpx.get(
+                "https://finance.naver.com/marketindex/interestDailyQuote.naver",
+                params={"marketindexCd": 코드}, headers=_H, timeout=6)
+            if r.status_code != 200:
+                지표쉼표.기록(열쇠, True)
+                continue
+            본문 = r.text
+            # 표의 첫 줄이 가장 최근 값이다. 날짜(2026.08.24)는 건너뛰고
+            # 소수점 있는 두 자리 이하 숫자만 본다.
+            숫자들 = _re.findall(r">\s*(\d{1,2}\.\d{2,3})\s*<", 본문)
+            값 = next((float(x) for x in 숫자들 if 0 < float(x) < 20), None)
+            if 값 is None:
+                지표쉼표.기록(열쇠, True)
+                continue
+            전 = next((float(x) for x in 숫자들[1:] if 0 < float(x) < 20), 값)
+            지표쉼표.기록(열쇠, False)
+            결과.append({"name": 이름, "value": round(값, 3),
+                         "change": round(값 - 전, 3), "change_rate": round(값 - 전, 3),
+                         "unit": "%", "is_rate": True})
+        except Exception:
+            지표쉼표.기록(열쇠, True)
+            continue
+    return 결과
+
+
 def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
 
@@ -816,10 +914,48 @@ def _do_fetch_kr_rates() -> list:
                 if "국고채" not in r["name"] and "기준금리" not in r["name"]]
         if naver_cd:
             cd_override = naver_cd
-    except Exception:
-        pass
+        _남기기("네이버 모바일 API", "받음" if naver_rates else "빈손",
+                len(naver_rates), naver_rates)
+    except Exception as e:
+        _남기기("네이버 모바일 API", f"실패({type(e).__name__})")
 
-    # 2순위: 한국은행 ECOS API (정부 공개 API, 클라우드 IP 차단 없음)
+    def _채우기(원천: str, 부르기, 조건: bool = True):
+        """원천 하나를 시도하고, 없던 것만 채우고, 결과를 남긴다.
+
+        예전에는 원천마다 try/except 를 따로 썼고 실패는 pass 로 삼켰다.
+        그래서 '콜금리가 왜 안 오는지' 를 볼 방법이 아무 데도 없었다."""
+        nonlocal 그밖
+        if not 조건:
+            _남기기(원천, "건너뜀(이미 있음)")
+            return
+        try:
+            받은것 = 부르기() or []
+            있는것 = {x["name"] for x in 그밖} | {x["name"] for x in bonds}
+            새것 = [x for x in 받은것 if x["name"] not in 있는것]
+            그밖 = 그밖 + 새것
+            _남기기(원천, "받음" if 받은것 else "빈손", len(받은것), 받은것)
+        except Exception as e:
+            _남기기(원천, f"실패({type(e).__name__}: {str(e)[:60]})")
+
+    # 2순위: 네이버 시장지표 페이지 (키가 필요 없고, 코드가 주소에 드러나 있다)
+    #
+    # 콜금리·회사채·CP 가 여기 다 있다. 위 모바일 API 는 금리 코드가
+    # 짐작이었는데 이쪽은 사람이 브라우저로 열어 확인할 수 있는 주소다.
+    부족한것 = {"콜금리", "회사채", "CP"}
+    있는이름 = " ".join(x["name"] for x in 그밖)
+    if any(k not in 있는이름 for k in 부족한것):
+        _채우기("네이버 시장지표(HTML)", _fetch_kr_rates_시장지표)
+        # 여기서 국고채도 같이 오면 그쪽으로도 채운다
+        국고채들 = [x for x in 그밖 if "국고채" in x["name"]]
+        if 국고채들 and not bonds:
+            bonds = 국고채들
+            그밖 = [x for x in 그밖 if "국고채" not in x["name"]]
+        if not cd_override:
+            cd_override = next((x for x in 그밖 if "CD금리" in x["name"]), None)
+            if cd_override:
+                그밖 = [x for x in 그밖 if "CD금리" not in x["name"]]
+
+    # 3순위: 한국은행 ECOS API — 기준금리·국고채
     if not base or not bonds:
         try:
             bok_base, bok_bonds = _fetch_bok_rates_ecos()
@@ -827,45 +963,48 @@ def _do_fetch_kr_rates() -> list:
                 base = bok_base
             if not bonds and bok_bonds:
                 bonds = bok_bonds
-        except Exception:
-            pass
+            _남기기("ECOS 기준금리·국고채",
+                    "받음" if (bok_base or bok_bonds) else "빈손(API 키 확인)",
+                    len(bok_bonds) + (1 if bok_base else 0), bok_bonds)
+        except Exception as e:
+            _남기기("ECOS 기준금리·국고채", f"실패({type(e).__name__})")
+    else:
+        _남기기("ECOS 기준금리·국고채", "건너뜀(이미 있음)")
 
-    # 3순위: yfinance (KR3YT=RR 등)
+    # 4순위: yfinance (KR3YT=RR 등)
     if not bonds:
         try:
             bonds = _fetch_kr_bonds_yf()
-        except Exception:
-            pass
+            _남기기("yfinance 국고채", "받음" if bonds else "빈손", len(bonds), bonds)
+        except Exception as e:
+            _남기기("yfinance 국고채", f"실패({type(e).__name__})")
+    else:
+        _남기기("yfinance 국고채", "건너뜀(이미 있음)")
 
-    # 4순위: pykrx (KRX 장외채권수익률)
+    # 5순위: pykrx (KRX 장외채권수익률) — 회사채 AA-/BBB- 가 여기 있다
     #
     # 조건이 `if not bonds` 였다. 국고채를 위에서 얻으면 이 줄이 통째로
     # 안 돌았고, 그래서 이 표에만 있는 회사채 두 줄도 같이 못 받았다.
-    # 국고채가 없을 때뿐 아니라 '그 밖' 이 비었을 때도 부른다 —
-    # 어차피 요청 한 번에 표 전체가 온다.
-    if not bonds or not 그밖:
+    if not bonds or not any("회사채" in x["name"] for x in 그밖):
         try:
             pkrx_bonds, pkrx_cd, pkrx_그밖 = _fetch_kr_bonds_pykrx()
             if pkrx_bonds and not bonds:
                 bonds = pkrx_bonds
             if pkrx_cd and not cd_override:
                 cd_override = pkrx_cd
-            if pkrx_그밖 and not 그밖:
-                그밖 = pkrx_그밖
-        except Exception:
-            pass
-
-    # 5순위: ECOS 시장금리표 — 콜금리는 여기에만 있다.
-    #
-    # 위에서 '그 밖' 을 채웠으면(회사채 두 줄) 콜금리만 없는 셈이라
-    # 그때도 부른다. 실패하면 쉼표가 기억해서 다음부터 건너뛴다.
-    if not 그밖 or not any("콜금리" in x["name"] for x in 그밖):
-        try:
             있는것 = {x["name"] for x in 그밖}
-            그밖 = 그밖 + [x for x in _fetch_bok_그밖_ecos()
-                           if x["name"] not in 있는것]
-        except Exception:
-            pass
+            그밖 = 그밖 + [x for x in pkrx_그밖 if x["name"] not in 있는것]
+            _남기기("KRX 장외채권(pykrx)",
+                    "받음" if (pkrx_bonds or pkrx_그밖) else "빈손",
+                    len(pkrx_bonds) + len(pkrx_그밖), pkrx_bonds + pkrx_그밖)
+        except Exception as e:
+            _남기기("KRX 장외채권(pykrx)", f"실패({type(e).__name__}: {str(e)[:60]})")
+    else:
+        _남기기("KRX 장외채권(pykrx)", "건너뜀(이미 있음)")
+
+    # 6순위: ECOS 시장금리표 — 콜금리가 여기에도 있다
+    _채우기("ECOS 시장금리표", _fetch_bok_그밖_ecos,
+            조건=not any("콜금리" in x["name"] for x in 그밖))
 
     # CD금리: 위 소스 중 하나에서 얻었거나, 캐시·정적 값
     cd_rate = cd_override or cache.get_stale("extra:cd_rate") or \

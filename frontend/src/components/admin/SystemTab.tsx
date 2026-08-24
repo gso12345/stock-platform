@@ -12,7 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity, Cpu, HardDrive, RefreshCw, Newspaper, Radio, Database,
   AlertTriangle, CheckCircle2, PauseCircle, Clock, Wifi, Layers,
-  Package, Boxes,
+  Package, Boxes, Percent,
 } from "lucide-react";
 import api from "@/api/client";
 
@@ -181,6 +181,75 @@ function Card({ icon: Icon, title, right, children }: {
   );
 }
 
+type 금리진단 = {
+  원천별: Record<string, { 결과: string; 개수: number; 받은것: string[]; 언제: string }>;
+  지금_나가는_것: string[];
+  쉬는_후보: string[];
+  bok_api_key: string;
+};
+
+/** 국내 금리를 원천별로 뭘 해 봤고 뭐가 돌아왔는지.
+ *
+ *  "콜금리 회사채 안뜸" 을 두 번 들었다. 두 번 다 원인을 못 짚은 게
+ *  아니라 짚을 방법이 없었다 — 화면에는 '안 나온다' 만 보이고, 서버가
+ *  어느 원천에 닿았는지 못 닿았는지는 아무 데도 안 보였다.
+ *
+ *  이 표를 보면 다음 한 번에 고칠 수 있다.
+ *    · '실패(...)'  → 서버가 그 원천에 못 닿는다
+ *    · '빈손'       → 닿기는 하는데 그 항목을 안 준다 (코드가 틀렸다) */
+function 금리진단표({ d }: { d?: 금리진단 }) {
+  if (!d) return null;
+  const 항목들 = Object.entries(d.원천별 ?? {});
+  const 색 = (결과: string) =>
+    결과.startsWith("실패") ? "text-accent-red"
+    : 결과.startsWith("받음") ? "text-accent-green"
+    : "text-text-muted";
+  return (
+    <Card icon={Percent} title="국내 금리 원천">
+      <div className="flex flex-col gap-2.5">
+        <div className="flex flex-wrap gap-1">
+          {d.지금_나가는_것?.length ? d.지금_나가는_것.map((n) => (
+            <span key={n} className="px-1.5 py-0.5 rounded bg-bg-elevated text-2xs text-text-muted break-keep">{n}</span>
+          )) : <span className="text-2xs text-text-dim">지금 나가는 금리가 없습니다</span>}
+        </div>
+
+        {항목들.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {항목들.map(([원천, r]) => (
+              <div key={원천} className="flex flex-col gap-0.5 pl-2 border-l-2 border-border">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-2xs font-semibold text-text-secondary break-keep">{원천}</span>
+                  <span className={`text-2xs font-semibold ${색(r.결과)}`}>{r.결과}</span>
+                  {r.개수 > 0 && <span className="text-2xs text-text-dim">{r.개수}건</span>}
+                  <span className="text-2xs text-text-dim">{r.언제}</span>
+                </div>
+                {r.받은것?.length > 0 && (
+                  <span className="text-2xs text-text-dim break-keep">{r.받은것.join(" · ")}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {d.쉬는_후보?.length > 0 && (
+          <p className="text-2xs text-text-dim break-keep">
+            아직 못 받은 금리: {d.쉬는_후보.join(" · ")}
+          </p>
+        )}
+        {d.bok_api_key?.startsWith("기본값") && (
+          /* ECOS 는 한국은행 API 키가 있어야 한다. 기본값 'sample' 은
+             대부분의 통계가 막혀 있어서, 콜금리를 여기서 받으려면
+             ecos.bok.or.kr 에서 무료 키를 받아 BOK_API_KEY 로 넣어야 한다. */
+          <p className="text-2xs text-accent-amber break-keep">
+            한국은행 ECOS 키가 {d.bok_api_key} — 콜금리를 ECOS 에서 받으려면
+            ecos.bok.or.kr 에서 무료 키를 받아 BOK_API_KEY 에 넣어야 합니다.
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export default function SystemTab() {
   const rt = useQuery<Runtime>({
     queryKey: ["admin-runtime"],
@@ -193,6 +262,16 @@ export default function SystemTab() {
     queryKey: ["admin-db-stats"],
     queryFn: () => api.get("/admin/db-stats").then((r) => r.data),
     staleTime: 60_000,
+  });
+  /* 국내 금리가 원천별로 뭘 받아 왔는지. "콜금리 회사채 안뜸" 을 두 번
+     들었는데 두 번 다 원인을 볼 방법이 없었다 — 화면에는 '안 나온다' 만
+     보이고 서버가 뭘 시도했는지는 로그에만 있었다. */
+  const 금리 = useQuery<금리진단>({
+    queryKey: ["admin-rates-diagnosis"],
+    queryFn: () => api.get("/admin/rates-diagnosis").then((r) => r.data),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    retry: 1,
   });
 
   if (rt.isError) {
@@ -902,6 +981,8 @@ export default function SystemTab() {
           </div>
         )}
       </Card>
+
+      <금리진단표 d={금리.data} />
 
       <p className="text-2xs text-text-dim text-center">
         15초마다 자동 갱신 · 서버 시각 {d.server_time.slice(11, 19)} UTC

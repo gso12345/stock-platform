@@ -24,7 +24,7 @@ router = APIRouter(prefix="/dashboard", tags=["대시보드"])
 
 _bg_refresh_in_flight: set[str] = set()
 
-KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200", "KRX300", "KOSPI100"]
+KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200", "KOSPI100"]
 US_INDICES = ["SP500", "NASDAQ", "DOW", "SOX", "RUSSELL"]
 
 KIS_INDEX_CODES = {

@@ -104,17 +104,21 @@ const NEWS_INITIAL = 10;
 
 /** 기사 사진 한 칸.
  *
- *  예전에는 못 불러오면 `style.display = "none"` 으로 숨겼다. 그러면
- *  그 자리가 통째로 사라져서 글자만 왼쪽으로 붙는다 — 목록에서 어떤
- *  줄만 들쭉날쭉해 보인다. "이미지 안 나오는 거 있어" 가 이것이다.
+ *  주소가 살아 있는지는 받아 보기 전에는 알 수 없다. 서버는 주소가
+ *  있는지까지만 볼 수 있고, 그 주소가 실제로 그림을 주는지는 브라우저가
+ *  받아 봐야 안다. 언론사가 사진을 치우거나 핫링크를 막으면 주소는
+ *  멀쩡한데 그림만 안 온다.
  *
- *  주소가 살아 있는지는 받아 보기 전에는 알 수 없다. 언론사가 이미지를
- *  치우거나 핫링크를 막으면 주소는 멀쩡한데 그림만 안 온다. 그래서
- *  숨기는 대신 자리를 지키고 대체 그림으로 바꾼다. */
-export function 뉴스썸네일({ src }: { src?: string }) {
+ *  그래서 안 되는 것을 여기서 위로 알린다(onFail). 목록 쪽이 그 기사를
+ *  통째로 뺀다 — "이미지 있는 기사만" 이라는 약속을 화면에서 끝까지
+ *  지키려면 이 방법뿐이다. 대체 아이콘을 그려 두는 것으로는 부족했다.
+ *  사용자에게는 그것도 '이미지가 안 나오는 기사' 로 보인다. */
+export function 뉴스썸네일({ src, onFail }: { src?: string; onFail?: () => void }) {
   const [깨짐, set깨짐] = useState(false);
   const 자리 = "w-14 h-14 rounded-lg flex-shrink-0 bg-bg-elevated";
   if (!src || 깨짐) {
+    /* 목록에서 빠지기 전 한 프레임 동안만 보이는 자리다. 자리를 지켜서
+       그 순간에도 줄이 들쭉날쭉해 보이지 않게 한다. */
     return (
       <div className={`${자리} flex items-center justify-center`}>
         <Newspaper size={16} className="text-text-muted" />
@@ -131,7 +135,7 @@ export function 뉴스썸네일({ src }: { src?: string }) {
       height={56}
       referrerPolicy="no-referrer"
       className={`${자리} object-cover`}
-      onError={() => set깨짐(true)}
+      onError={() => { set깨짐(true); onFail?.(); }}
     />
   );
 }
@@ -144,15 +148,28 @@ const NewsPanel = memo(function NewsPanel({
   onSortChange: (s: "latest" | "popular") => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+
+  /* 그림을 못 받은 기사 주소. 서버는 '주소가 있는지' 까지만 볼 수 있어서,
+     실제로 안 뜨는 것은 브라우저가 받아 봐야 안다. 한 번 실패한 것은
+     여기 담아 두고 목록에서 뺀다 — 그래야 "이미지 있는 기사만" 이
+     화면에서도 지켜진다. */
+  const [사진없음, set사진없음] = useState<Set<string>>(new Set());
+  const 사진깨짐 = useCallback((키: string) => {
+    set사진없음((이전) => (이전.has(키) ? 이전 : new Set(이전).add(키)));
+  }, []);
+
   // 정렬은 서버가 처리한다 — 인기도 점수는 내부 계산값이라 응답에 실리지 않는다
-  const sorted = news;
+  const sorted = useMemo(
+    () => (news ?? []).filter((a: any) => a?.image && !사진없음.has(a.link || a.title)),
+    [news, 사진없음],
+  );
 
   const shown = expanded ? sorted : sorted.slice(0, NEWS_INITIAL);
   const remaining = sorted.length - NEWS_INITIAL;
 
   /* 빈 상태 모양을 다른 화면과 맞춘다. 예전에는 '뉴스 로딩 중...' 한 줄이라
      로딩인지 정말 없는 건지 구분이 안 됐다 */
-  if (!news?.length) {
+  if (!sorted.length) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
         <Newspaper size={24} className="text-text-muted/40" />
@@ -175,7 +192,8 @@ const NewsPanel = memo(function NewsPanel({
       {shown.map((item: any, i: number) => (
         <a key={item.link || i} href={safeExternalUrl(item.link)} target="_blank" rel="noopener noreferrer nofollow"
           className="flex items-start gap-2.5 py-2.5 px-1 border-b border-border/40 hover:bg-bg-hover transition-colors group">
-          <뉴스썸네일 src={safeExternalUrl(item.image)} />
+          <뉴스썸네일 src={safeExternalUrl(item.image)}
+            onFail={() => 사진깨짐(item.link || item.title)} />
           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
             <div className="flex items-start gap-2">
               <span className="flex-1 text-xs text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2 leading-relaxed">
@@ -345,27 +363,42 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
     refetchIntervalInBackground: false,
   });
 
-  /* 코스닥150 을 뺐다 — 네 원천이 전부 실패해서 몇 달 동안 0 이나
-     빈 카드로 떠 있었다. 대신 KRX 300·코스피 100 을 후보로 넣었다.
-     서버가 못 받으면 그 카드는 아예 안 그려지므로(아래 getIdx 가
-     없는 것은 건너뛴다) 안 되는 채로 자리만 차지하지 않는다. */
-  const KR_INDEX_KEYS = ["KOSPI","KOSDAQ","KOSPI200","KRX300","KOSPI100"] as const;
-  const KR_DISPLAY: Record<string, string> = {
-    KOSPI:"코스피",KOSDAQ:"코스닥",KOSPI200:"코스피 200",
-    KRX300:"KRX 300",KOSPI100:"코스피 100"
-  };
-  /* 서버가 안 준 지수는 카드를 안 그린다.
-     예전에는 여기서 { value: 0 } 을 채워 줘서, 못 받은 지수가 '0' 으로
-     떠 있었다. 코스닥150 이 몇 달 동안 0 으로 보이던 자리가 정확히
-     이것이다 — 그 지수를 빼고 KRX 300 을 넣었더니 이번엔 KRX 300 이
-     0 으로 떴다. 지수를 바꾼다고 고쳐지는 문제가 아니었다.
+  /* 화면이 지수 목록을 들고 있지 않는다 — 서버가 준 것만 그린다.
 
-     0 은 '0포인트' 가 아니라 '모른다' 는 뜻이다. 금융 화면에서 모르는
-     값을 숫자로 채워 보여 주면 사람은 그걸 믿는다. */
-  const getIdx = (key: string) =>
-    liveIndices?.kr?.find((r: any) => r.index === key)
-    ?? data?.indices?.find((r: any) => r.index === key)
-    ?? null;
+     여기서 같은 일을 세 번 겪었다. 코스닥150 이 몇 달 동안 0 으로 떠
+     있었고, 그걸 빼고 KRX 300 을 넣었더니 이번엔 KRX 300 이 안 나왔다.
+     원인이 매번 달랐지만 되풀이되는 구조는 하나였다 —
+
+       화면에 지수 이름을 적어 둔다 → 서버가 그 지수를 못 받는다
+       → 화면은 적어 둔 이름대로 자리를 만든다 → 빈 카드/0 이 뜬다
+
+     이름을 적어 두는 한 다음 후보에서 또 겪는다. 그래서 목록을
+     서버 응답에서 만든다. 서버가 값을 못 받으면 응답에 안 실리고,
+     그러면 화면에도 애초에 안 생긴다. 지수를 더 넣거나 뺄 때 화면을
+     같이 고칠 일도 없어진다. */
+  const 지수이름: Record<string, string> = {
+    KOSPI:"코스피", KOSDAQ:"코스닥", KOSPI200:"코스피 200", KOSPI100:"코스피 100",
+  };
+  const 쓸모있는지수 = (r: any) =>
+    /* 0 은 '0포인트' 가 아니라 '모른다' 는 뜻이다. 서버가 아직
+       0 을 실어 보내는 경로가 남아 있어(옛 캐시 등) 여기서 한 번 더 거른다.
+       금융 화면에서 모르는 값을 숫자로 채우면 사람은 그걸 믿는다. */
+    r && r.index && typeof r.value === "number" && r.value > 0;
+
+  const 국내지수 = useMemo(() => {
+    const 실시간 = new Map<string, any>();
+    for (const r of liveIndices?.kr ?? []) if (쓸모있는지수(r)) 실시간.set(r.index, r);
+    const 목록: any[] = [];
+    const 본것 = new Set<string>();
+    /* 순서는 서버가 준 차례를 따른다. 실시간 값이 있으면 그걸로 바꿔 끼운다 */
+    for (const r of [...(data?.indices ?? []), ...(liveIndices?.kr ?? [])]) {
+      const 쓸것 = 실시간.get(r?.index) ?? r;
+      if (!쓸모있는지수(쓸것) || 본것.has(쓸것.index)) continue;
+      본것.add(쓸것.index);
+      목록.push(쓸것);
+    }
+    return 목록;
+  }, [data?.indices, liveIndices?.kr]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -383,18 +416,16 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
                불러오는 중' 으로 보이는데 영영 안 온다 */
             ? <못불러옴 compact 사유={실패사유} 다시={() => refetch()} />
             : !data
-            ? KR_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
-            : KR_INDEX_KEYS.map((key) => {
-                const idx = getIdx(key);
-                if (!idx) return null;          // 못 받은 지수는 자리도 안 잡는다
-                return (
-                  <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}
-                    onTouchStart={() => prefetchIndex(key)}
-                    onFocus={() => prefetchIndex(key)}>
-                    <IndexCard name={KR_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />
-                  </div>
-                );
-              })
+            ? [0, 1, 2, 3].map((i) => <div key={i} className="flex-shrink-0"><IndexCardSkeleton /></div>)
+            : 국내지수.map((idx) => (
+                <div key={idx.index} className="flex-shrink-0"
+                  onMouseEnter={() => prefetchIndex(idx.index)}
+                  onTouchStart={() => prefetchIndex(idx.index)}
+                  onFocus={() => prefetchIndex(idx.index)}>
+                  <IndexCard name={지수이름[idx.index] ?? idx.name ?? idx.index} {...idx}
+                    onClick={() => navigate(`/index/${idx.index}`)} />
+                </div>
+              ))
           }
         </div>
       </section>
@@ -494,19 +525,31 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
     refetchIntervalInBackground: false,
   });
 
-  const US_INDEX_KEYS = ["SP500","NASDAQ","DOW","SOX","RUSSELL"] as const;
-  const US_DISPLAY: Record<string, string> = {
+  const 지수이름: Record<string, string> = {
     SP500:"S&P 500", NASDAQ:"나스닥", DOW:"다우 산업", SOX:"필라델피아 반도체", RUSSELL:"러셀 2000"
   };
   const prefetchIndex = useCallback((key: string) => {
     if (qc.getQueryData(["index-detail", key])) return;
     qc.prefetchQuery({ queryKey: ["index-detail", key], queryFn: () => dashboardApi.getIndexDetail(key), staleTime: 30_000 });
   }, [qc]);
-  /* 국내 탭과 같은 규칙 — 못 받은 지수는 0 으로 채우지 않는다 */
-  const getIdx = (key: string) =>
-    liveIndices?.us?.find((r: any) => r.index === key)
-    ?? data?.indices?.find((r: any) => r.index === key)
-    ?? null;
+
+  /* 국내 탭과 같은 규칙 — 목록을 화면에 적어 두지 않고 서버가 준 것만 그린다 */
+  const 쓸모있는지수 = (r: any) =>
+    r && r.index && typeof r.value === "number" && r.value > 0;
+
+  const 해외지수 = useMemo(() => {
+    const 실시간 = new Map<string, any>();
+    for (const r of liveIndices?.us ?? []) if (쓸모있는지수(r)) 실시간.set(r.index, r);
+    const 목록: any[] = [];
+    const 본것 = new Set<string>();
+    for (const r of [...(data?.indices ?? []), ...(liveIndices?.us ?? [])]) {
+      const 쓸것 = 실시간.get(r?.index) ?? r;
+      if (!쓸모있는지수(쓸것) || 본것.has(쓸것.index)) continue;
+      본것.add(쓸것.index);
+      목록.push(쓸것);
+    }
+    return 목록;
+  }, [data?.indices, liveIndices?.us]);
 
   // rates: WebSocket 실시간 환율 반영 후 목록 구성
   const liveUsdkrwUS = liveIndices?.forex?.usdkrw ?? null;
@@ -536,18 +579,16 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
           {못받음 && !data
             ? <못불러옴 compact 사유={실패사유} 다시={() => refetch()} />
             : !data
-            ? US_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
-            : US_INDEX_KEYS.map((key) => {
-                const idx = getIdx(key);
-                if (!idx) return null;
-                return (
-                  <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}
-                    onTouchStart={() => prefetchIndex(key)}
-                    onFocus={() => prefetchIndex(key)}>
-                    <IndexCard name={US_DISPLAY[key]} {...idx} onClick={() => navigate(`/index/${key}`)} />
-                  </div>
-                );
-              })
+            ? [0, 1, 2, 3, 4].map((i) => <div key={i} className="flex-shrink-0"><IndexCardSkeleton /></div>)
+            : 해외지수.map((idx) => (
+                <div key={idx.index} className="flex-shrink-0"
+                  onMouseEnter={() => prefetchIndex(idx.index)}
+                  onTouchStart={() => prefetchIndex(idx.index)}
+                  onFocus={() => prefetchIndex(idx.index)}>
+                  <IndexCard name={지수이름[idx.index] ?? idx.name ?? idx.index} {...idx}
+                    onClick={() => navigate(`/index/${idx.index}`)} />
+                </div>
+              ))
           }
         </div>
       </section>

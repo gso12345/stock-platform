@@ -19,7 +19,6 @@ const INDEX_INFO: Record<string, { region: string; desc: string; isKR: boolean }
   KOSPI:     { region:"국내", desc:"한국 유가증권시장 전체 시가총액 기준 지수",     isKR:true  },
   KOSDAQ:    { region:"국내", desc:"한국 코스닥시장 전체 종목 지수",               isKR:true  },
   KOSPI200:  { region:"국내", desc:"코스피 대표 200개 종목 지수",                  isKR:true  },
-  KRX300:    { region:"국내", desc:"유가증권·코스닥 통합 대표 300개 종목 지수",     isKR:true  },
   KOSPI100:  { region:"국내", desc:"코스피 대표 100개 종목 지수",                  isKR:true  },
   SP500:     { region:"해외", desc:"미국 대형주 500개 기업 지수 (S&P 500)",        isKR:false },
   NASDAQ:    { region:"해외", desc:"미국 나스닥 시장 전체 종합 지수",               isKR:false },

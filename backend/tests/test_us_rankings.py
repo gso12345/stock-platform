@@ -549,3 +549,100 @@ class Test훑기가_표를_쌓는가:
         assert not 놓친것, (
             f"첫 바퀴에 받은 {len(놓친것)}개가 사라졌다 — 쌓지 않고 새로 만들었다")
         assert len(둘째바퀴) > len(첫바퀴), "표가 안 두꺼워졌다"
+
+
+class Test순위를_열_때도_표를_쌓는가:
+    """엔비디아가 시가총액 순위에서 사라지던 주범.
+
+    훑는 쪽(refresh_us_rows)은 표를 쌓게 고쳤는데, 사용자가 순위를 열 때
+    도는 _build_us_rows 는 그대로 새로 만들고 있었다. 15분 뒤 표가
+    만료되면 그때 살아남은 시세 몇백 개로 6,882줄짜리 표를 덮어썼고,
+    한참 전 회차에 훑은 엔비디아는 거기 없었다."""
+
+    def test_표가_만료돼도_지난_표_위에_쌓는다(self):
+        큰표 = [{"symbol": f"OLD{i}", "price": 1.0, "market_cap": 1000 + i}
+                for i in range(300)]
+        큰표.append({"symbol": "NVDA", "price": 100.0, "market_cap": 4_400_000_000_000})
+        cache.set(R.US_ROWS_CK, 큰표, 1)
+        import time
+        time.sleep(1.1)                         # 15분이 지난 셈
+
+        _가짜시세(60)                            # 마지막 회차 것만 살아 있다
+        표 = R._build_us_rows()
+
+        assert any(r["symbol"] == "NVDA" for r in 표), \
+            "지난 표를 버리고 새로 만들었다 — 시가총액 1위가 사라진다"
+        assert len(표) > len(큰표), "이번 회차 것이 안 담겼다"
+
+    def test_상세를_열어_시가총액이_0으로_덮여도_1위를_지킨다(self):
+        """사용자가 엔비디아 상세 화면을 열면 그 응답으로 price:NVDA 가
+        덮인다. 거기엔 시가총액이 없을 수 있고, 그러면 시가총액 순위에서
+        통째로 빠진다 — 인기 종목일수록 상세를 자주 여니 하필 제일 큰
+        회사부터 사라진다."""
+        cache.set(R.US_ROWS_CK, [
+            {"symbol": "NVDA", "name": "NVIDIA", "price": 100.0,
+             "market_cap": 4_400_000_000_000},
+            {"symbol": "AAPL", "name": "Apple", "price": 100.0,
+             "market_cap": 3_900_000_000_000},
+        ], 1)
+        import time
+        time.sleep(1.1)
+        # 상세 화면이 남긴 값 — 가격은 있는데 시가총액이 없다
+        cache.set("price:NVDA", {"symbol": "NVDA", "name": "NVDA",
+                                 "price": 101.0, "change": 1, "change_rate": 1,
+                                 "volume": 10, "market_cap": 0}, 300)
+        순위 = R._sort_us(R._build_us_rows(), "시가총액")
+        assert 순위[0]["symbol"] == "NVDA", \
+            f"시가총액 1위가 사라졌다: {[r['symbol'] for r in 순위[:3]]}"
+        assert 순위[0]["price"] == 101.0, "새 가격은 반영돼야 한다"
+
+    def test_얇은_표는_담아_두지_않는다(self):
+        """예전에도 있던 규칙이다. 쌓기로 바꾸면서 잃지 않았는지 본다."""
+        cache.delete(R.US_ROWS_CK)
+        _가짜시세(5)
+        R._build_us_rows()
+        assert cache.get(R.US_ROWS_CK) is None
+
+
+class Test아는_시가총액을_지키는가:
+    """두 번째 원인. price:{sym} 를 쓰는 곳이 열 곳이 넘는데 그중 몇은
+    시가총액을 안 담는다 — 배치가 안 되는 종목의 단건 폴백은 0 으로 박고,
+    종목 상세 화면을 열면 그 응답으로 덮어쓴다. 한 번 0 으로 덮이면
+    시가총액 순위에서 통째로 빠진다. 인기 종목일수록 상세를 자주 여니
+    하필 제일 큰 회사부터 사라진다."""
+
+    def test_새_값이_0이면_알던_시가총액을_남긴다(self):
+        옛것 = {"symbol": "NVDA", "price": 100.0, "market_cap": 4_400_000_000_000}
+        새것 = {"symbol": "NVDA", "price": 101.0, "market_cap": 0}
+        결과 = R._아는값_지키기(옛것, 새것)
+        assert 결과["price"] == 101.0, "새 가격은 새 값이 이겨야 한다"
+        assert 결과["market_cap"] == 4_400_000_000_000
+
+    def test_새_값이_있으면_새_값이_이긴다(self):
+        """시가총액은 실제로 변한다. 안 변하는 값으로 굳히면 안 된다."""
+        결과 = R._아는값_지키기(
+            {"symbol": "NVDA", "market_cap": 100},
+            {"symbol": "NVDA", "market_cap": 200})
+        assert 결과["market_cap"] == 200
+
+    def test_이름도_지킨다(self):
+        """단건 폴백은 name 을 심볼로 채운다. 그러면 목록에 'NVDA' 만 뜬다."""
+        결과 = R._아는값_지키기(
+            {"symbol": "NVDA", "name": "NVIDIA Corporation", "market_cap": 1},
+            {"symbol": "NVDA", "name": "", "market_cap": 2})
+        assert 결과["name"] == "NVIDIA Corporation"
+
+    def test_처음_보는_종목은_그대로_담는다(self):
+        새것 = {"symbol": "NEW", "market_cap": 0}
+        assert R._아는값_지키기(None, 새것) == 새것
+
+    def test_쌓을_때_실제로_지켜진다(self):
+        cache.set(R.US_ROWS_CK, [
+            {"symbol": "NVDA", "name": "NVIDIA", "market_cap": 4_400_000_000_000},
+        ], 300)
+        쌓은것 = R._표에_쌓기([{"symbol": "NVDA", "name": "NVDA",
+                                "price": 101.0, "market_cap": 0}])
+        nvda = next(r for r in 쌓은것 if r["symbol"] == "NVDA")
+        assert nvda["market_cap"] == 4_400_000_000_000
+        assert nvda["name"] == "NVIDIA"
+        assert nvda["price"] == 101.0

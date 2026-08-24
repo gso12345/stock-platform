@@ -36,7 +36,6 @@ const INDEX_TV: Record<string, string> = {
   KOSPI:    "KOSPI:KOSPI",
   KOSDAQ:   "KOSDAQ:KOSDAQ",
   KOSPI200: "KRX:KS200",
-  KRX300:   "KRX:KRX300",
   KOSPI100: "KRX:KS100",
   SP500:    "SP:SPX",
   NASDAQ:   "NASDAQ:COMP",

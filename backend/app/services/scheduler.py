@@ -38,12 +38,12 @@ IDLE_PAUSE_SEC = int(os.getenv("IDLE_PAUSE_SEC", 600))
 # 두드리는 동안 나머지 셋도 함께 기다린다.
 # 뒤의 둘은 후보다 — 되는지 확인 못 했다. 안 되면 price_fetcher 의
 # 백오프가 다섯 회차 안에 물러나게 하고, 관리자 화면에 이유가 남는다.
-KR_INDICES = ["KOSPI","KOSDAQ","KOSPI200","KRX300","KOSPI100"]
+KR_INDICES = ["KOSPI","KOSDAQ","KOSPI200","KOSPI100"]
 US_INDICES = ["SP500","NASDAQ","DOW","SOX","RUSSELL"]
 
 KR_INDEX_DISPLAY = {
     "KOSPI":"코스피","KOSDAQ":"코스닥","KOSPI200":"코스피 200",
-    "KRX300":"KRX 300","KOSPI100":"코스피 100",
+    "KOSPI100":"코스피 100",
 }
 US_INDEX_YF = {
     "SP500":"^GSPC","NASDAQ":"^IXIC","DOW":"^DJI","SOX":"^SOX","RUSSELL":"^RUT",
