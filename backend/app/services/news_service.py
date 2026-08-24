@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from datetime import datetime, timezone, timedelta
 from app.core.cache import cache
+from app.core.backoff import 쉼표
 from app.core.executor import background_executor
 from app.core import health
 from app.core.cpu import cpu_worker_count, io_worker_count
@@ -188,6 +189,30 @@ def _safe_url(raw: str | None) -> str | None:
     return None
 
 
+def _이미지주소(raw: "str | None") -> "str | None":
+    """이미지 주소는 링크보다 한 가지를 더 본다 — http:// 를 https:// 로 올린다.
+
+    "이미지 안 나오는 기사가 있다" 의 조용한 원인이다. 우리 사이트는
+    https 로 열리는데, 그 안에서 <img src="http://..."> 를 그리면 브라우저가
+    혼합 콘텐츠라며 통째로 막는다. 오류도 안 뜨고 그냥 안 나온다.
+
+    서버 쪽에서는 이게 더 나쁘다. 주소가 있으니 '사진 있는 기사' 로 세어
+    필터를 통과시키는데, 화면에서는 빈 자리가 된다. 세는 것과 보이는 것이
+    어긋난다.
+
+    링크(a href)는 안 올린다 — 거기는 브라우저가 그냥 이동하므로 http 라도
+    멀쩡히 열린다. 이미지만 문제다.
+
+    https 를 안 하는 서버면 올려도 실패한다. 그래도 손해는 없다 — http 로
+    두면 100% 막히고, 올리면 될 가능성이라도 있다. 실패하면 화면이
+    대체 아이콘으로 바꿔 그린다.
+    """
+    url = _safe_url(raw)
+    if not url:
+        return None
+    return "https://" + url[7:] if url[:7].lower() == "http://" else url
+
+
 def _clean_text(raw: str) -> str:
     """HTML 태그 제거 + 엔티티 디코딩 + 공백 정리"""
     if not raw:
@@ -328,7 +353,7 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
             link = _safe_url(entry.get("link"))
             if not link:
                 continue
-            image = _safe_url(_extract_thumbnail(entry))
+            image = _이미지주소(_extract_thumbnail(entry))
 
             items.append({
                 "title":     title,
@@ -410,27 +435,33 @@ _cursor_lock = Lock()
 #
 # '기사는 받았는데 경제 키워드에 하나도 안 걸림' 은 실패로 세지 않는다.
 # 그건 피드가 멀쩡하다는 뜻이다.
-_연속실패: dict[str, int] = {}
+#
+# 세는 일 자체는 app/core/backoff.py 로 옮겼다. 국내 지수와 국내 금리도
+# 똑같은 것을 각자 가지고 있었는데, 이름만 조금씩 달라 관리자 화면에서
+# 꺼내 볼 때 세 벌을 따로 알아야 했다. 여기 남은 이름들은 그대로 두고
+# (admin 화면과 시험이 이 이름으로 부른다) 속만 공용 것으로 바꾼다.
+뉴스쉼표 = 쉼표(
+    #: 이만큼 연속 실패하면 쉬는 곳으로 본다. 한두 번은 서버가 잠깐
+    #: 흔들린 것일 수 있어 넉넉히 잡는다.
+    쉼_기준=int(os.getenv("NEWS_FEED_REST_AFTER", 5)),
+    #: 한 회차에서 쉬는 곳을 다시 찔러보는 칸 수. 36곳을 2칸씩 돌면
+    #: 한 곳당 18회차(약 90분)에 한 번 다시 시도한다.
+    되살림_칸=int(os.getenv("NEWS_FEED_PROBE", 2)),
+)
 
-#: 이만큼 연속 실패하면 쉬는 곳으로 본다. 한두 번은 서버가 잠깐
-#: 흔들린 것일 수 있어 넉넉히 잡는다.
-_쉼_기준 = int(os.getenv("NEWS_FEED_REST_AFTER", 5))
-
-#: 한 회차에서 쉬는 곳을 다시 찔러보는 칸 수. 36곳을 2칸씩 돌면
-#: 한 곳당 18회차(약 90분)에 한 번 다시 시도한다.
-_되살림_칸 = int(os.getenv("NEWS_FEED_PROBE", 2))
+#: 같은 딕셔너리를 가리킨다 — 새로 만들면 두 벌이 따로 놀아서
+#: 여기에 넣은 값이 쉼표에는 안 보인다.
+_연속실패: dict[str, int] = 뉴스쉼표._연속실패
+_쉼_기준 = 뉴스쉼표.쉼_기준
+_되살림_칸 = 뉴스쉼표.되살림_칸
 
 
 def _쉬는가(이름: str) -> bool:
-    return _연속실패.get(이름, 0) >= _쉼_기준
+    return 뉴스쉼표.쉬는가(이름)
 
 
 def _실패기록(이름: str, 실패했나: bool) -> None:
-    with _cursor_lock:
-        if 실패했나:
-            _연속실패[이름] = _연속실패.get(이름, 0) + 1
-        else:
-            _연속실패[이름] = 0
+    뉴스쉼표.기록(이름, 실패했나)
 
 
 def _돌아가며(목록: list, 개수: int, 자리: str) -> list:

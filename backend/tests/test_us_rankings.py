@@ -431,3 +431,121 @@ class Test나눠_훑는가:
         monkeypatch.setattr(cache, "set", _엿보기)
         asyncio.run(R.refresh_us_rows())
         assert 수명 and min(수명.values()) >= 6 * 3600
+
+
+class Test표를_쌓아_올리는가:
+    """"해외종목순위 시가총액 안맞아" — 순위가 6,884 종목이 아니라
+    마지막에 훑은 몇백 개 안에서만 매겨지고 있었다.
+
+    _us_rows_from_cache 는 종목마다 price:{sym} 를 캐시에서 읽는다.
+    그런데 지난 값 보관함이 400칸뿐이다(STALE_MAX_ITEMS). 한 바퀴에
+    300개씩 훑으면, 다음 바퀴를 도는 사이에 앞서 받은 것이 밀려난다.
+    매번 표를 처음부터 다시 만드니 앞부분이 통째로 사라졌고, 그래서
+    삼성전자급 대형주가 빠진 순위가 나왔다."""
+
+    def test_지난_표에_이번_회차를_덮어_쌓는다(self):
+        지난표 = [{"symbol": "옛것", "price": 1.0, "market_cap": 500},
+                  {"symbol": "겹침", "price": 1.0, "market_cap": 100}]
+        cache.set(R.US_ROWS_CK, 지난표, 300)
+        쌓은것 = R._표에_쌓기([{"symbol": "새것", "price": 2.0, "market_cap": 900},
+                              {"symbol": "겹침", "price": 9.0, "market_cap": 999}])
+
+        모음 = {r["symbol"]: r for r in 쌓은것}
+        assert set(모음) == {"옛것", "겹침", "새것"}, "지난 표를 버렸다"
+        assert 모음["겹침"]["market_cap"] == 999, "겹치면 새 값으로 덮어야 한다"
+
+    def test_지난_표가_만료돼도_담아_둔_것을_쓴다(self):
+        """수명이 지나도 stale 로 남아 있으면 그걸 밑바탕으로 쌓는다."""
+        cache.set(R.US_ROWS_CK, [{"symbol": "옛것", "market_cap": 5}], 1)
+        import time
+        time.sleep(1.1)
+        쌓은것 = R._표에_쌓기([{"symbol": "새것", "market_cap": 9}])
+        assert {r["symbol"] for r in 쌓은것} == {"옛것", "새것"}
+
+    def test_여러_회차를_돌면_표가_계속_두꺼워진다(self):
+        """이게 실제로 겪은 것이다. 쌓지 않으면 몇 회차를 돌아도 표는
+        마지막 회차 크기에 머문다."""
+        cache.delete(R.US_ROWS_CK)
+        누적 = []
+        for 회차 in range(5):
+            이번 = [{"symbol": f"S{회차}_{i}", "market_cap": i + 1} for i in range(50)]
+            누적 = R._표에_쌓기(이번)
+            cache.set(R.US_ROWS_CK, 누적, 300)
+        assert len(누적) == 250, f"쌓이지 않는다: {len(누적)}줄"
+
+    def test_심볼이_없는_줄은_안_담는다(self):
+        쌓은것 = R._표에_쌓기([{"price": 1.0}, {"symbol": "", "price": 2.0},
+                              {"symbol": "정상", "price": 3.0}])
+        assert [r["symbol"] for r in 쌓은것] == ["정상"]
+
+
+class Test시가총액이_없는_종목:
+    def test_시가총액이_0인_것은_시가총액_순위에_안_넣는다(self):
+        """ETF·리츠·신규 상장은 시가총액이 안 오는 일이 흔하다. 0 으로
+        두면 목록 맨 아래에 '시가총액 0원' 짜리가 줄줄이 붙는다 —
+        모르는 값을 숫자로 보여 주는 셈이다."""
+        rows = [{"symbol": "있음", "price": 1.0, "market_cap": 1000},
+                {"symbol": "없음", "price": 1.0, "market_cap": 0},
+                {"symbol": "빈값", "price": 1.0, "market_cap": None}]
+        순위 = R._sort_us(list(rows), "시가총액")
+        assert [r["symbol"] for r in 순위] == ["있음"]
+
+    def test_다른_순위에서는_안_뺀다(self):
+        """시가총액을 모른다고 상승률 순위에서까지 빠질 이유는 없다."""
+        rows = [{"symbol": "있음", "price": 1.0, "market_cap": 1000, "change_rate": 1.0},
+                {"symbol": "없음", "price": 1.0, "market_cap": 0, "change_rate": 9.0}]
+        순위 = R._sort_us(list(rows), "상승률")
+        assert [r["symbol"] for r in 순위][0] == "없음"
+
+
+class Test훑기가_표를_쌓는가:
+    """_표에_쌓기 를 만들어 놓고 refresh_us_rows 가 안 쓰면 아무 소용이 없다.
+    사용자가 본 증상(순위가 마지막 회차 안에서만 매겨짐)이 그대로 돌아온다."""
+
+    @pytest.fixture(autouse=True)
+    def _여유는_있다고_본다(self, monkeypatch):
+        monkeypatch.setattr(R.memory, "has_headroom", lambda *a, **kw: True)
+        R._us_cursor = 0
+
+    def test_시세가_밀려나도_먼저_받은_종목이_표에_남는다(self, monkeypatch):
+        """실제로 겪은 그대로를 흉내 낸다.
+
+        지난 값 보관함이 400칸인데(STALE_MAX_ITEMS) 종목이 6,884개다.
+        한 바퀴에 300개씩 훑으면, 둘째 바퀴를 도는 사이에 첫 바퀴 시세가
+        보관함에서 밀려난다. 그 상태에서 표를 처음부터 다시 만들면 첫
+        바퀴에 받은 대형주가 통째로 빠진다 — 사용자가 본 것이 이것이다.
+
+        아래에서 첫 바퀴 뒤에 price:{sym} 를 지우는 것이 그 '밀려남'
+        이다. 쌓아 두지 않으면 여기서 첫 바퀴가 사라진다."""
+        from app.services.scheduler import POPULAR_US
+        심볼 = list(dict.fromkeys(POPULAR_US + R.SP500_SYMBOLS))
+        앞, 뒤 = 심볼[:150], 심볼[150:300]
+        답할것 = {"현재": set(앞)}
+
+        async def _받기(묶음):
+            return {s: {"price": 100.0, "change": 1, "change_rate": 1,
+                        "volume": 10, "market_cap": 1000, "name": s}
+                    for s in 묶음 if s in 답할것["현재"]}
+
+        import app.services.price_fetcher as PF
+        monkeypatch.setattr(PF, "fetch_yf_quotes", _받기)
+        monkeypatch.setattr(R, "US_MIN_ROWS", 10)
+
+        R._us_cursor = 0
+        asyncio.run(R.refresh_us_rows(sweep=len(심볼)))
+        첫바퀴 = {r["symbol"] for r in (cache.get(R.US_ROWS_CK) or [])}
+        assert 첫바퀴 & set(앞), "첫 바퀴에 아무것도 못 담았다"
+
+        for s in 앞:                       # 보관함에서 밀려난 상황
+            cache.delete(f"price:{s}")
+
+        답할것["현재"] = set(뒤)
+        R._us_cursor = 0
+        asyncio.run(R.refresh_us_rows(sweep=len(심볼)))
+        둘째바퀴 = {r["symbol"] for r in (cache.get(R.US_ROWS_CK) or [])}
+
+        assert 둘째바퀴 & set(뒤), "둘째 바퀴 것이 안 담겼다"
+        놓친것 = 첫바퀴 - 둘째바퀴
+        assert not 놓친것, (
+            f"첫 바퀴에 받은 {len(놓친것)}개가 사라졌다 — 쌓지 않고 새로 만들었다")
+        assert len(둘째바퀴) > len(첫바퀴), "표가 안 두꺼워졌다"

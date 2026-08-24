@@ -102,6 +102,40 @@ const ExtraCardSkeleton = memo(function ExtraCardSkeleton() {
 /* ── 뉴스 패널 ───────────────────────────────────────────── */
 const NEWS_INITIAL = 10;
 
+/** 기사 사진 한 칸.
+ *
+ *  예전에는 못 불러오면 `style.display = "none"` 으로 숨겼다. 그러면
+ *  그 자리가 통째로 사라져서 글자만 왼쪽으로 붙는다 — 목록에서 어떤
+ *  줄만 들쭉날쭉해 보인다. "이미지 안 나오는 거 있어" 가 이것이다.
+ *
+ *  주소가 살아 있는지는 받아 보기 전에는 알 수 없다. 언론사가 이미지를
+ *  치우거나 핫링크를 막으면 주소는 멀쩡한데 그림만 안 온다. 그래서
+ *  숨기는 대신 자리를 지키고 대체 그림으로 바꾼다. */
+export function 뉴스썸네일({ src }: { src?: string }) {
+  const [깨짐, set깨짐] = useState(false);
+  const 자리 = "w-14 h-14 rounded-lg flex-shrink-0 bg-bg-elevated";
+  if (!src || 깨짐) {
+    return (
+      <div className={`${자리} flex items-center justify-center`}>
+        <Newspaper size={16} className="text-text-muted" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      width={56}
+      height={56}
+      referrerPolicy="no-referrer"
+      className={`${자리} object-cover`}
+      onError={() => set깨짐(true)}
+    />
+  );
+}
+
 const NewsPanel = memo(function NewsPanel({
   news, sort, onSortChange,
 }: {
@@ -141,23 +175,7 @@ const NewsPanel = memo(function NewsPanel({
       {shown.map((item: any, i: number) => (
         <a key={item.link || i} href={safeExternalUrl(item.link)} target="_blank" rel="noopener noreferrer nofollow"
           className="flex items-start gap-2.5 py-2.5 px-1 border-b border-border/40 hover:bg-bg-hover transition-colors group">
-          {safeExternalUrl(item.image) ? (
-            <img
-              src={safeExternalUrl(item.image)}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              width={56}
-              height={56}
-              referrerPolicy="no-referrer"
-              className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-bg-elevated"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-            />
-          ) : (
-            <div className="w-14 h-14 rounded-lg flex-shrink-0 bg-bg-elevated flex items-center justify-center">
-              <Newspaper size={16} className="text-text-muted" />
-            </div>
-          )}
+          <뉴스썸네일 src={safeExternalUrl(item.image)} />
           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
             <div className="flex items-start gap-2">
               <span className="flex-1 text-xs text-text-primary group-hover:text-accent-blue transition-colors line-clamp-2 leading-relaxed">
@@ -336,11 +354,18 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
     KOSPI:"코스피",KOSDAQ:"코스닥",KOSPI200:"코스피 200",
     KRX300:"KRX 300",KOSPI100:"코스피 100"
   };
-  const getIdx = (key: string) => {
-    const live    = liveIndices?.kr?.find((r: any) => r.index === key);
-    const fetched = data?.indices?.find((r: any) => r.index === key);
-    return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
-  };
+  /* 서버가 안 준 지수는 카드를 안 그린다.
+     예전에는 여기서 { value: 0 } 을 채워 줘서, 못 받은 지수가 '0' 으로
+     떠 있었다. 코스닥150 이 몇 달 동안 0 으로 보이던 자리가 정확히
+     이것이다 — 그 지수를 빼고 KRX 300 을 넣었더니 이번엔 KRX 300 이
+     0 으로 떴다. 지수를 바꾼다고 고쳐지는 문제가 아니었다.
+
+     0 은 '0포인트' 가 아니라 '모른다' 는 뜻이다. 금융 화면에서 모르는
+     값을 숫자로 채워 보여 주면 사람은 그걸 믿는다. */
+  const getIdx = (key: string) =>
+    liveIndices?.kr?.find((r: any) => r.index === key)
+    ?? data?.indices?.find((r: any) => r.index === key)
+    ?? null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -361,6 +386,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
             ? KR_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
             : KR_INDEX_KEYS.map((key) => {
                 const idx = getIdx(key);
+                if (!idx) return null;          // 못 받은 지수는 자리도 안 잡는다
                 return (
                   <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}
                     onTouchStart={() => prefetchIndex(key)}
@@ -476,11 +502,11 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
     if (qc.getQueryData(["index-detail", key])) return;
     qc.prefetchQuery({ queryKey: ["index-detail", key], queryFn: () => dashboardApi.getIndexDetail(key), staleTime: 30_000 });
   }, [qc]);
-  const getIdx = (key: string) => {
-    const live    = liveIndices?.us?.find((r: any) => r.index === key);
-    const fetched = data?.indices?.find((r: any) => r.index === key);
-    return live ?? fetched ?? { value: 0, change: 0, change_rate: 0 };
-  };
+  /* 국내 탭과 같은 규칙 — 못 받은 지수는 0 으로 채우지 않는다 */
+  const getIdx = (key: string) =>
+    liveIndices?.us?.find((r: any) => r.index === key)
+    ?? data?.indices?.find((r: any) => r.index === key)
+    ?? null;
 
   // rates: WebSocket 실시간 환율 반영 후 목록 구성
   const liveUsdkrwUS = liveIndices?.forex?.usdkrw ?? null;
@@ -513,6 +539,7 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
             ? US_INDEX_KEYS.map((key) => <div key={key} className="flex-shrink-0"><IndexCardSkeleton /></div>)
             : US_INDEX_KEYS.map((key) => {
                 const idx = getIdx(key);
+                if (!idx) return null;
                 return (
                   <div key={key} className="flex-shrink-0" onMouseEnter={() => prefetchIndex(key)}
                     onTouchStart={() => prefetchIndex(key)}

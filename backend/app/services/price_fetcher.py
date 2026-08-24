@@ -10,6 +10,7 @@ import os
 import re
 import logging
 from app.core.cache import cache
+from app.core.backoff import 쉼표
 from app.core.utils import safe_float as _safe
 
 log = logging.getLogger(__name__)
@@ -305,36 +306,36 @@ async def fetch_naver_index(name: str) -> dict | None:
 # 가끔만 다시 찔러본다. 그러면 후보를 넣어 보는 값이 거의 0 이 된다 —
 # 되면 얻고, 안 되면 몇 분 만에 스스로 빠진다. 관리자 화면에는 왜
 # 안 되는지가 남는다.
-_지수_연속실패: dict[str, int] = {}
+# 세는 일은 app/core/backoff.py 에 모았다 — 뉴스 피드·국내 금리도 같은
+# 것을 각자 들고 있었다. 여기 이름들은 그대로 두고 속만 공용으로 바꾼다.
+#
+# 지수는 다섯 개뿐이라 '주기마다 전부 깨우기' 를 그대로 쓴다. 후보가
+# 쉰 개가 넘는 금리 쪽과 달리, 다섯 개를 한꺼번에 깨워도 부담이 없다.
+지수쉼표 = 쉼표(
+    쉼_기준=int(os.getenv("INDEX_REST_AFTER", 5)),        #: 이만큼 연속 실패하면 쉰다
+    되살림_주기=int(os.getenv("INDEX_PROBE_EVERY", 60)),   #: 몇 회차마다 다시 찔러보는지
+)
 
-#: 이만큼 연속 실패하면 쉰다
-_지수_쉼_기준 = int(os.getenv("INDEX_REST_AFTER", 5))
-
-#: 쉬는 지수를 몇 회차마다 다시 찔러보는지
-_지수_되살림_주기 = int(os.getenv("INDEX_PROBE_EVERY", 60))
-_지수_회차 = 0
+#: 같은 딕셔너리를 가리킨다 (새로 만들면 두 벌이 따로 논다)
+_지수_연속실패: dict[str, int] = 지수쉼표._연속실패
+_지수_쉼_기준 = 지수쉼표.쉼_기준
+_지수_되살림_주기 = 지수쉼표.되살림_주기
 
 
 def 지수_쉬는가(이름: str) -> bool:
-    return _지수_연속실패.get(이름, 0) >= _지수_쉼_기준
+    return 지수쉼표.쉬는가(이름)
 
 
 def 지수_실패기록(이름: str, 실패했나: bool) -> None:
-    if 실패했나:
-        _지수_연속실패[이름] = _지수_연속실패.get(이름, 0) + 1
-    else:
-        _지수_연속실패[이름] = 0
+    지수쉼표.기록(이름, 실패했나)
 
 
-def 이번회차_지수(전체: list[str]) -> list[str]:
-    """이번에 물어볼 지수. 쉬는 것은 가끔만 낀다."""
-    global _지수_회차
-    _지수_회차 += 1
-    찔러볼때 = _지수_회차 % _지수_되살림_주기 == 0
-    고른것 = [n for n in 전체 if not 지수_쉬는가(n) or 찔러볼때]
-    # 전부 쉬는 중이면 그래도 하나는 본다 — 아무것도 안 하면
-    # 되살아날 길까지 막힌다
-    return 고른것 or 전체[:1]
+def 이번회차_지수(전체: list) -> list:
+    """이번에 물어볼 지수. 쉬는 것은 가끔만 낀다.
+
+    전부 쉬는 중이면 그래도 하나는 본다 — 아무것도 안 하면 되살아날
+    길까지 막힌다. (골라내기가 그 규칙을 갖고 있다)"""
+    return 지수쉼표.골라내기(전체)
 
 
 async def fetch_naver_indices(names: "list[str] | None" = None) -> dict[str, dict]:

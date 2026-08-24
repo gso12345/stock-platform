@@ -475,6 +475,35 @@ US_STARTUP_SWEEP = int(os.getenv("US_STARTUP_SWEEP", 300))
 _us_cursor = 0
 
 
+#: 표를 담아 두는 자리는 US_ROWS_CK 다. 여기서는 그 표에 이번 회차 결과를
+#: 덮어쓴다 — 매번 새로 만들지 않는다.
+def _표에_쌓기(이번회차: list[dict]) -> list[dict]:
+    """지난 표에 이번에 받은 것을 덮어쓴다.
+
+    왜 새로 안 만드는가 —
+
+    _us_rows_from_cache 는 종목마다 price:{sym} 를 캐시에서 읽는다. 그런데
+    지난 값 보관함이 400칸뿐인데(STALE_MAX_ITEMS) 종목이 6,884개다. 한 바퀴를
+    도는 데 다섯 회차가 걸리므로, 5회차를 훑을 때쯤이면 1회차에 받은 것은
+    신선 캐시에서 만료되고 400칸에서도 밀려나 있다.
+
+    그래서 매 회차 표를 새로 만들면 '방금 훑은 1,500개 언저리' 만 남는다.
+    시가총액 순위인데 그 1,500개 안에서의 순위가 뜬다 — 종목을 372개에서
+    6,884개로 늘리자 오히려 순위가 더 이상해진 이유가 이것이다.
+
+    표 자체는 한 덩어리로 담기므로(항목 하나로 세어진다) 보관함 한도와
+    상관없다. 거기에 쌓으면 한 바퀴를 다 돌았을 때 전종목이 모인다.
+
+    오래된 줄은 그대로 둔다. 종가는 안 변하고, 장중이라도 몇십 분 전
+    가격이 아예 빠지는 것보다 낫다 — 빠지면 그 종목이 순위에서 사라진다."""
+    지난표 = cache.get(US_ROWS_CK) or cache.get_stale(US_ROWS_CK) or []
+    모음 = {r["symbol"]: r for r in 지난표 if r.get("symbol")}
+    for r in 이번회차:
+        if r.get("symbol"):
+            모음[r["symbol"]] = r
+    return list(모음.values())
+
+
 async def refresh_us_rows(sweep: int | None = None) -> int:
     """미국 상장 종목의 시세를 받아 순위표를 다시 만든다.
 
@@ -537,7 +566,7 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
             받음 = None          # 다음 묶음을 받기 전에 놓아준다
             await asyncio.sleep(0.3)
 
-        rows = _us_rows_from_cache()
+        rows = _표에_쌓기(_us_rows_from_cache())
         if rows:
             cache.set(US_ROWS_CK, rows, US_ROWS_TTL)
             # 카테고리별 순위도 다시 만들게 비운다
@@ -564,6 +593,15 @@ def _sort_us(rows: list[dict], category: str) -> list[dict]:
         rev = (category == "신고가")
         sortable.sort(key=lambda x: x.get("change_rate") or 0, reverse=rev)
     else:
+        """시가총액을 모르는 종목은 순위에서 뺀다.
+
+        0 은 '0원' 이 아니라 '모른다' 는 뜻이다. 야후 v7 배치가 marketCap 을
+        늘 주지는 않는다 — ETF 는 시가총액 대신 순자산(totalAssets)을 쓰고,
+        배치가 실패해 단건 폴백으로 받은 것은 아예 0 으로 채운다.
+
+        그것들을 그냥 두면 '거래량 순위인데 거래량을 모르는 종목이 43위에
+        앉아 있는' 것과 같은 표가 된다. 국내 순위는 진작 이렇게 하고 있다."""
+        sortable = [r for r in sortable if (r.get("market_cap") or 0) > 0]
         sortable.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
     for i, r in enumerate(sortable):
         r["rank"] = i + 1

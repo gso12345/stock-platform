@@ -241,7 +241,32 @@ def _news_status() -> dict:
         "resting":    쉬는곳,
         "rest_after": news_service._쉼_기준,
         "probe":      news_service._되살림_칸,
+        # 금리·지수도 같은 방식으로 쉬는 곳을 둔다. 여기 안 보이면
+        # '왜 콜금리가 화면에 없나' 를 서버 로그로 뒤져야 했다.
+        "rate_resting":  _쉬는금리(),
+        "index_resting": _쉬는지수(),
     }
+
+
+def _쉬는금리() -> list:
+    """지금 쉬고 있는 금리 후보. 화면에는 후보 코드가 아니라 어떤 금리가
+    아직 못 들어왔는지를 보여 준다 — 코드 이름은 관리자에게 뜻이 없다."""
+    try:
+        from app.services import market_extras as me
+        쉬는코드 = set(me.금리쉼표.쉬는것들())
+        못찾은것 = [이름 for 이름, _, 코드들 in me._네이버_금리후보
+                    if all(f"rate:{c}" in 쉬는코드 for c in 코드들)]
+        return sorted(못찾은것)
+    except Exception:
+        return []
+
+
+def _쉬는지수() -> list:
+    try:
+        from app.services import price_fetcher as pf
+        return pf.지수쉼표.쉬는것들()
+    except Exception:
+        return []
 
 
 @router.get("/runtime")

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from app.db.database import SessionLocal
 from app.models.stock import FundamentalsCache, FinancialsCache
 from app.core.cache import cache
+from app.core.fetchcache import 캐시_우선_비동기
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
@@ -264,15 +265,22 @@ async def get_fundamentals(symbol: str, market: str) -> dict:
         asyncio.create_task(_bg_fund(symbol, market))
         return db_stale
 
-    mem_stale = cache.get_stale(ck)
+    """여기서부터가 '아무 데도 없다' 인 자리다.
 
-    result = await _fetch_fund(symbol, market)
-    if result:
-        cache.set(ck, result, 86400)
-        await _run(_db_set, FundamentalsCache, symbol, market, result)
-        return result
+    예전에는 곧장 _fetch_fund 를 불렀다. 성공하면 담아 두니 두 번째부터
+    빠른데, **실패하면 아무것도 안 담았다**. 원천이 죽어 있는 동안은
+    요청마다 처음부터 다시 받으러 갔다 — 서버를 띄워 재 보니 재무제표가
+    첫 요청 5.4초, 두 번째 2.6초였다. 캐시가 있는데 안 빨라진다.
 
-    return mem_stale or {}
+    겹침도 안 막았다. 종목 상세는 탭 예닐곱 개가 한꺼번에 열리는
+    화면이라, 같은 종목을 동시에 여러 번 받고 있었다."""
+    async def _담기(r):
+        cache.set(ck, r, 86400)
+        await _run(_db_set, FundamentalsCache, symbol, market, r)
+
+    return await 캐시_우선_비동기(
+        ck, lambda: _fetch_fund(symbol, market), {},
+        지난값=cache.get_stale(ck), 담기=_담기)
 
 
 async def get_financials(symbol: str, market: str) -> dict:
@@ -293,15 +301,19 @@ async def get_financials(symbol: str, market: str) -> dict:
         asyncio.create_task(_bg_fin(symbol, market))
         return db_stale
 
-    mem_stale = cache.get_stale(ck)
+    # 재무제표는 '틀은 왔는데 속이 빈' 응답이 흔하다. 그런 것을 성공으로
+    # 담으면 빈 표가 한 시간 굳으므로, 여기서 미리 빈손으로 바꾼다.
+    async def _받기():
+        r = await _fetch_fin(symbol, market)
+        return r if r and (r.get("annual") or r.get("quarterly")) else None
 
-    result = await _fetch_fin(symbol, market)
-    if result and (result.get("annual") or result.get("quarterly")):
-        cache.set(ck, result, 3600)
-        await _run(_db_set, FinancialsCache, symbol, market, result)
-        return result
+    async def _담기(r):
+        cache.set(ck, r, 3600)
+        await _run(_db_set, FinancialsCache, symbol, market, r)
 
-    return mem_stale or {"annual": [], "quarterly": []}
+    return await 캐시_우선_비동기(
+        ck, _받기, {"annual": [], "quarterly": []},
+        지난값=cache.get_stale(ck), 담기=_담기)
 
 
 async def _bg_fund(symbol: str, market: str):

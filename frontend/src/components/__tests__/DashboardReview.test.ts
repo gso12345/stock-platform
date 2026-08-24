@@ -61,14 +61,32 @@ describe("안 되는 지수는 스스로 물러난다", () => {
   });
 
   it("전부 쉬어도 하나는 본다", () => {
-    /* 아무것도 안 물으면 되살아날 길까지 막힌다 */
-    const i = pf.indexOf("def 이번회차_지수");
-    expect(pf.slice(i, i + 700)).toContain("고른것 or 전체[:1]");
+    /* 아무것도 안 물으면 되살아날 길까지 막힌다.
+
+       이 규칙은 app/core/backoff.py 로 옮겼다 — 뉴스 피드·국내 지수·
+       국내 금리가 각자 한 벌씩 들고 있던 것을 한자리에 모았다.
+       여기서는 '옮긴 자리에 그대로 있는지' 만 본다. 규칙이 정말
+       그렇게 도는지는 backend/tests/test_rate_backoff.py 가 실제로
+       돌려 보며 확인한다(글자 대조보다 그쪽이 세다). */
+    const bo = fs.readFileSync(path.join(백엔드, "app/core/backoff.py"), "utf-8");
+    expect(bo).toContain("고른것 or list(전체[:1])");
+    expect(bo).toContain("or 쉬는것[:1]");
   });
 
   it("가끔은 다시 찔러본다", () => {
-    const i = pf.indexOf("def 이번회차_지수");
-    expect(pf.slice(i, i + 700)).toContain("_지수_되살림_주기");
+    const bo = fs.readFileSync(path.join(백엔드, "app/core/backoff.py"), "utf-8");
+    expect(pf).toContain("되살림_주기=int(os.getenv(\"INDEX_PROBE_EVERY\"");
+    expect(bo).toContain("self._회차 % self.되살림_주기 == 0");
+  });
+
+  it("세 곳이 같은 것을 쓴다", () => {
+    /* 뉴스·지수·금리가 각자 자기 것을 들고 있으면, 관리자 화면에서
+       꺼내 볼 때도 세 벌을 따로 알아야 한다 */
+    const ns = fs.readFileSync(path.join(백엔드, "app/services/news_service.py"), "utf-8");
+    const me = fs.readFileSync(path.join(백엔드, "app/services/market_extras.py"), "utf-8");
+    for (const s of [pf, ns, me]) {
+      expect(s).toContain("from app.core.backoff import 쉼표");
+    }
   });
 });
 
@@ -124,13 +142,26 @@ describe("뉴스는 이미지 있는 기사만", () => {
     expect(해외).toContain("images_only: bool = Query(default=True)");
   });
 
-  it("그것 때문에 화면이 비면 되돌린다", () => {
-    /* 언론사가 썸네일을 빼면 목록이 통째로 빈다. 빈 화면은 고장으로
-       보이지만 사진 없는 카드는 조금 심심할 뿐이다 */
+  it("사진 있는 기사가 몇 건이든 그것만 남긴다", () => {
+    /* 처음에는 '사진 있는 것이 절반이 안 되면 필터를 건너뛴다' 였다.
+       너무 헐거웠다 — 절반만 넘으면 사진 없는 기사가 섞여 들어갔다.
+       다음에는 '100건에 모자라면 뒤에 채운다' 로 바꿔 봤는데, 그건
+       부탁을 고쳐 읽은 것이었고 "이미지 안 나오는 기사가 있다" 는
+       말을 다시 들었다. 지금은 부탁받은 그대로 사진 있는 것만 남긴다. */
     const i = 서버.indexOf("if images_only:");
-    const 몸통 = 서버.slice(i, i + 600);
-    expect(몸통).toContain("NEWS_TAB_LIMIT");
-    expect(몸통).toContain("len(articles) // 2");
+    const 몸통 = 서버.slice(i, i + 900);
+    expect(몸통).toContain('있는것 = [a for a in articles if a.get("image")]');
+    expect(몸통).not.toContain("len(articles) // 2");
+    expect(몸통).not.toContain("모자란수");
+  });
+
+  it("사진 있는 기사가 아예 없을 때만 필터를 접는다", () => {
+    /* 빈 화면은 고장으로 보인다. 그때는 '사진 있는 기사만' 보다
+       '기사를 보여 주기' 가 먼저다 */
+    const i = 서버.indexOf("if images_only:");
+    const 몸통 = 서버.slice(i, i + 900);
+    expect(몸통).toContain("if 있는것:");
+    expect(몸통).toContain("articles = 있는것");
   });
 });
 
