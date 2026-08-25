@@ -229,6 +229,7 @@ def _news_status() -> dict:
     같은 캐시를 세 번 읽으면 그만큼 헛일이라 한 번만 읽는다."""
     from app.core.cache import cache
     from app.services import news_service
+    from app.services.market_extras import get_kr_rates
     kr = cache.get_stale("news:kr") or []
     us = cache.get_stale("news:us") or []
     쉬는곳 = sorted(이름 for 이름, _ in news_service.KR_FEEDS + news_service.US_FEEDS
@@ -247,22 +248,33 @@ def _news_status() -> dict:
         "probe":      news_service._되살림_칸,
         # 금리·지수도 같은 방식으로 쉬는 곳을 둔다. 여기 안 보이면
         # '왜 콜금리가 화면에 없나' 를 서버 로그로 뒤져야 했다.
-        "rate_resting":  _쉬는금리(),
+        "rate_resting":  _쉬는금리(get_kr_rates()),
         "index_resting": _쉬는지수(),
     }
 
 
-def _쉬는금리() -> list:
-    """지금 쉬고 있는 금리 후보. 화면에는 후보 코드가 아니라 어떤 금리가
-    아직 못 들어왔는지를 보여 준다 — 코드 이름은 관리자에게 뜻이 없다."""
+def _쉬는금리(지금값: "list | None" = None) -> list:
+    """아직 화면에 못 올린 금리.
+
+    이름 그대로여야 한다. 처음에는 '쉬는 후보 코드' 만 보고 이름을
+    넣었는데, 그래서 **이미 나가고 있는 금리가 '아직 못 받은' 칸에도
+    같이 떴다.** 콜금리·회사채·CD·국고채 3년이 위아래 양쪽에 있었다 —
+    화면이 스스로 모순되는 말을 한 셈이다.
+
+    원인은 이렇다. 콜금리는 네이버 모바일 API 후보(CALL·CALLRATE…)가
+    전부 쉬고 있지만, 시장지표(HTML) 경로에서는 멀쩡히 받아 온다.
+    후보만 보면 '못 받았다' 가 되고, 결과를 보면 '받았다' 가 된다.
+
+    그래서 지금 실제로 나가는 목록을 먼저 빼고 센다."""
     try:
         from app.services import market_extras as me
-        쉬는코드 = set(me.금리쉼표.쉬는것들())
+        나가는것 = {x.get("name") for x in (지금값 or [])}
+        쉬는코드 = set(me.금리쉼표.쉬는것들()) | set(me.지표쉼표.쉬는것들())
         못찾은것 = [이름 for 이름, _, 코드들 in me._네이버_금리후보
                     if all(f"rate:{c}" in 쉬는코드 for c in 코드들)]
         못찾은것 += [이름 for 이름, 코드 in me._시장지표_금리
-                     if f"지표:{코드}" in 쉬는코드 and 이름 not in 못찾은것]
-        return sorted(set(못찾은것))
+                     if f"지표:{코드}" in 쉬는코드]
+        return sorted(set(못찾은것) - 나가는것)
     except Exception:
         return []
 
@@ -289,9 +301,31 @@ def get_rates_diagnosis(_: User = Depends(require_admin)):
     return {
         "원천별": 금리진단(),
         "지금_나가는_것": [x.get("name") for x in 지금값],
-        "쉬는_후보": _쉬는금리(),
+        "쉬는_후보": _쉬는금리(지금값),
         "bok_api_key": "기본값 sample (대부분 통계 막힘)" if 키 == "sample" else "설정됨",
     }
+
+
+@router.get("/errors")
+def get_errors(개수: int = Query(default=50, ge=1, le=200),
+               _: User = Depends(require_admin)):
+    """최근에 터진 오류.
+
+    지금까지 서버가 터지면 로그에만 찍혔다. Render 무료 플랜은 재시작이
+    잦아 로그가 곧 흘러가고, 그래서 문제를 전부 사용자 제보로 알았다 —
+    엔비디아가 순위에서 사라진 것도, 콜금리가 안 뜨는 것도.
+    사용자가 제보자 역할을 하지 않아도 되게 하는 것이 목적이다."""
+    from app.core import errors
+    return {"요약": errors.요약(), "목록": errors.목록(개수)}
+
+
+@router.delete("/errors")
+def clear_errors(_: User = Depends(require_admin)):
+    """다 보고 나서 비운다. 고친 뒤 다시 터지는지 보려면 한 번 비워야
+    '새로 터진 것' 과 '아까 것' 을 가를 수 있다."""
+    from app.core import errors
+    errors.비우기()
+    return {"ok": True}
 
 
 def _쉬는지수() -> list:

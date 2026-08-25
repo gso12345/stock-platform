@@ -298,3 +298,143 @@ class Test시장지표_경로:
         assert 센것["n"] <= M.금리쉼표.되살림_칸, \
             f"쉬어야 하는데 {센것['n']}번 물었다"
         M.금리쉼표.잊기()
+
+
+class Test국고채가_하나만_와도_나머지를_찾는가:
+    """관리자 화면 실측에서 드러났다.
+
+    네이버 시장지표가 콜금리·CD·국고채 3년·회사채 AA- 넉 줄을 줬다.
+    그런데 국고채 3년 하나로 bonds 가 채워지자 조건이 `if not bonds` 라
+    yfinance 도 pykrx 도 "건너뜀(이미 있음)" 이 됐다. 5년·10년이 들어올
+    자리가 없어진 것이다 — 실제로 화면에 3년만 떴다.
+
+    오늘 회사채에서 고친 것과 같은 종류다. '몇 개 있느냐' 가 아니라
+    '무엇이 빠졌느냐' 를 물어야 한다."""
+
+    def _삼년만(self):
+        return ([{"name": "국고채 3년", "value": 3.185, "change": 0.0,
+                  "change_rate": 0.0, "unit": "%", "is_rate": True}], None)
+
+    def test_빠진_국고채를_찾아낸다(self):
+        삼년만 = [{"name": "국고채 3년"}]
+        assert M._빠진_국고채(삼년만) == ["국고채 5년", "국고채 10년"]
+        assert M._빠진_국고채([]) == ["국고채 3년", "국고채 5년", "국고채 10년"]
+        assert M._빠진_국고채(
+            [{"name": n} for n in ("국고채 3년", "국고채 5년", "국고채 10년")]) == []
+
+    def test_채울_때_먼저_온_것을_안_덮는다(self):
+        """앞 원천이 더 믿을 만하다(네이버 시장지표 > yfinance).
+        그리고 같은 이름이 두 줄 뜨는 것을 막는다."""
+        결과 = M._국고채_채우기(
+            [{"name": "국고채 3년", "value": 3.185}],
+            [{"name": "국고채 3년", "value": 9.99}, {"name": "국고채 5년", "value": 3.3}])
+        삼년 = [x for x in 결과 if x["name"] == "국고채 3년"]
+        assert len(삼년) == 1 and 삼년[0]["value"] == 3.185
+        assert any(x["name"] == "국고채 5년" for x in 결과)
+
+    def test_채운_뒤_3_5_10년_차례로_놓인다(self):
+        """한 묶음으로 읽는 값이라 사이가 뒤바뀌면 눈이 걸린다."""
+        결과 = M._국고채_채우기(
+            [{"name": "국고채 3년"}],
+            [{"name": "국고채 10년"}, {"name": "국고채 5년"}])
+        assert [x["name"] for x in 결과] == ["국고채 3년", "국고채 5년", "국고채 10년"]
+
+    def test_삼년만_와도_KRX_표를_읽어_5년_10년을_채운다(self, monkeypatch, KRX표):
+        """스크린샷에 찍힌 그 상황이다."""
+        KRX표()
+        monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: ([], None))
+        monkeypatch.setattr(M, "_fetch_kr_rates_시장지표",
+                            lambda: [{"name": "국고채 3년", "value": 3.185, "change": 0.0,
+                                      "change_rate": 0.0, "unit": "%", "is_rate": True}])
+        monkeypatch.setattr(M, "_fetch_bok_rates_ecos", lambda: (None, []))
+        monkeypatch.setattr(M, "_fetch_bok_그밖_ecos", lambda: [])
+        cache.delete("extra:kr_rates")
+
+        이름들 = [r["name"] for r in M._do_fetch_kr_rates()]
+        for n in ("국고채 3년", "국고채 5년", "국고채 10년"):
+            assert n in 이름들, f"{n} 이 안 들어왔다 — 3년만 받고 나머지를 건너뛴 것"
+
+    def test_회사채_AA만_와도_BBB를_채운다(self, monkeypatch, KRX표):
+        """시장지표는 AA- 만 준다. BBB- 는 KRX 표에만 있다."""
+        KRX표()
+        monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: ([], None))
+        monkeypatch.setattr(M, "_fetch_kr_rates_시장지표",
+                            lambda: [{"name": "회사채 AA- 3년", "value": 3.5, "change": 0.0,
+                                      "change_rate": 0.0, "unit": "%", "is_rate": True}])
+        monkeypatch.setattr(M, "_fetch_bok_rates_ecos", lambda: (None, []))
+        monkeypatch.setattr(M, "_fetch_bok_그밖_ecos", lambda: [])
+        cache.delete("extra:kr_rates")
+
+        이름들 = [r["name"] for r in M._do_fetch_kr_rates()]
+        assert "회사채 AA- 3년" in 이름들
+        assert "회사채 BBB- 3년" in 이름들
+
+    def test_셋_다_있으면_더_안_부른다(self, monkeypatch):
+        """다 있는데 또 부르면 0.15 CPU 서버에 헛일만 얹는다."""
+        불렸나 = {"yf": False, "krx": False}
+
+        def _yf():
+            불렸나["yf"] = True
+            return []
+
+        def _krx():
+            불렸나["krx"] = True
+            return ([], None, [])
+
+        국고채 = [{"name": f"국고채 {n}년", "value": 3.0, "change": 0.0,
+                   "change_rate": 0.0, "unit": "%", "is_rate": True}
+                  for n in (3, 5, 10)]
+        회사채 = [{"name": f"회사채 {g} 3년", "value": 3.5, "change": 0.0,
+                   "change_rate": 0.0, "unit": "%", "is_rate": True}
+                  for g in ("AA-", "BBB-")]
+        monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: (국고채, None))
+        monkeypatch.setattr(M, "_fetch_kr_rates_시장지표", lambda: 회사채)
+        monkeypatch.setattr(M, "_fetch_bok_rates_ecos", lambda: (None, []))
+        monkeypatch.setattr(M, "_fetch_kr_bonds_yf", _yf)
+        monkeypatch.setattr(M, "_fetch_kr_bonds_pykrx", _krx)
+        monkeypatch.setattr(M, "_fetch_bok_그밖_ecos", lambda: [])
+        cache.delete("extra:kr_rates")
+
+        M._do_fetch_kr_rates()
+        assert not 불렸나["yf"] and not 불렸나["krx"]
+
+
+class Test이미_나가는_금리를_못받았다고_하지_않는가:
+    """관리자 화면이 스스로 모순되는 말을 했다.
+
+    위 칸에는 '콜금리(1일)·회사채 AA- 3년' 이 나가는 것으로 떠 있는데,
+    아래 '아직 못 받은 금리' 에도 같은 이름이 있었다.
+
+    원인 — 콜금리는 네이버 모바일 API 후보(CALL·CALLRATE…)가 전부 쉬고
+    있지만 시장지표(HTML) 경로에서는 멀쩡히 받아 온다. 후보만 보면
+    '못 받았다' 가 되고, 결과를 보면 '받았다' 가 된다."""
+
+    def test_나가는_금리는_못받은_목록에서_빠진다(self, monkeypatch):
+        from app.api.routes import admin
+        # 콜금리 후보를 전부 쉬게 만든다 (모바일 API 는 실제로 죽어 있다)
+        M.금리쉼표.잊기()
+        for _, _, 코드들 in M._네이버_금리후보:
+            for c in 코드들:
+                for _ in range(M.금리쉼표.쉼_기준):
+                    M.금리쉼표.기록(f"rate:{c}", True)
+
+        지금값 = [{"name": "콜금리(1일)"}, {"name": "회사채 AA- 3년"}]
+        못받은것 = admin._쉬는금리(지금값)
+        M.금리쉼표.잊기()
+
+        assert "콜금리(1일)" not in 못받은것
+        assert "회사채 AA- 3년" not in 못받은것
+
+    def test_정말_못_받은_것은_그대로_남는다(self, monkeypatch):
+        """빼는 데만 급해서 다 지워 버리면 화면이 쓸모없어진다."""
+        from app.api.routes import admin
+        M.금리쉼표.잊기()
+        for _, _, 코드들 in M._네이버_금리후보:
+            for c in 코드들:
+                for _ in range(M.금리쉼표.쉼_기준):
+                    M.금리쉼표.기록(f"rate:{c}", True)
+
+        못받은것 = admin._쉬는금리([{"name": "콜금리(1일)"}])
+        M.금리쉼표.잊기()
+        assert 못받은것, "쉬는 후보가 있는데 목록이 통째로 비었다"
+        assert "코픽스" in 못받은것

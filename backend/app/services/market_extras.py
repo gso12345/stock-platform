@@ -885,6 +885,37 @@ def _fetch_kr_rates_시장지표() -> list:
     return 결과
 
 
+#: 화면에 늘 함께 놓는 국고채 세 줄. 하나만 있으면 나머지를 더 찾아야 한다.
+_국고채_세줄 = ("국고채 3년", "국고채 5년", "국고채 10년")
+
+
+def _빠진_국고채(bonds: list) -> list:
+    """세 줄 중 아직 없는 것.
+
+    `if not bonds` 로 판단하던 자리를 대신한다. 그 조건은 국고채 3년
+    하나만 받아도 "있음" 으로 봐서, 5년·10년을 받을 기회를 없앴다.
+    실제로 그랬다 — 네이버 시장지표가 3년만 주는데 그걸로 bonds 가
+    채워져서 yfinance 도 pykrx 도 안 돌았다.
+
+    '몇 개 있느냐' 가 아니라 '무엇이 빠졌느냐' 를 물어야 한다."""
+    있는것 = {x.get("name") for x in bonds}
+    return [n for n in _국고채_세줄 if n not in 있는것]
+
+
+def _국고채_채우기(bonds: list, 새것: list) -> list:
+    """빠진 것만 채운다. 이미 있는 것은 먼저 온 원천을 그대로 둔다.
+
+    앞 원천이 더 믿을 만해서다(네이버 시장지표 > yfinance). 그리고
+    같은 이름이 두 줄 뜨는 것을 막는다.
+
+    화면에서 3·5·10년이 순서대로 붙어 보이도록 정렬해서 돌려준다 —
+    한 묶음으로 읽는 값이라 사이가 뒤바뀌면 눈이 걸린다."""
+    있는것 = {x.get("name") for x in bonds}
+    합친것 = bonds + [x for x in (새것 or []) if x.get("name") not in 있는것]
+    차례 = {n: i for i, n in enumerate(_국고채_세줄)}
+    return sorted(합친것, key=lambda x: 차례.get(x.get("name"), 99))
+
+
 def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
 
@@ -956,13 +987,12 @@ def _do_fetch_kr_rates() -> list:
                 그밖 = [x for x in 그밖 if "CD금리" not in x["name"]]
 
     # 3순위: 한국은행 ECOS API — 기준금리·국고채
-    if not base or not bonds:
+    if not base or _빠진_국고채(bonds):
         try:
             bok_base, bok_bonds = _fetch_bok_rates_ecos()
             if not base and bok_base:
                 base = bok_base
-            if not bonds and bok_bonds:
-                bonds = bok_bonds
+            bonds = _국고채_채우기(bonds, bok_bonds)
             _남기기("ECOS 기준금리·국고채",
                     "받음" if (bok_base or bok_bonds) else "빈손(API 키 확인)",
                     len(bok_bonds) + (1 if bok_base else 0), bok_bonds)
@@ -972,24 +1002,39 @@ def _do_fetch_kr_rates() -> list:
         _남기기("ECOS 기준금리·국고채", "건너뜀(이미 있음)")
 
     # 4순위: yfinance (KR3YT=RR 등)
-    if not bonds:
+    #
+    # 조건이 `if not bonds` 였다. 국고채 3년 하나만 받아도 "있음" 으로
+    # 보고 여기를 건너뛰어서, 5년·10년이 영영 안 왔다. 실제로 그랬다 —
+    # 네이버 시장지표가 3년만 주는데 그걸로 bonds 가 채워져서 yfinance 도
+    # pykrx 도 안 돌았다. 오늘 회사채에서 고친 것과 같은 종류의 버그다.
+    #
+    # 이제 '몇 개 있느냐' 가 아니라 '무엇이 빠졌느냐' 를 본다.
+    if _빠진_국고채(bonds):
         try:
-            bonds = _fetch_kr_bonds_yf()
-            _남기기("yfinance 국고채", "받음" if bonds else "빈손", len(bonds), bonds)
+            새것 = _fetch_kr_bonds_yf()
+            bonds = _국고채_채우기(bonds, 새것)
+            _남기기("yfinance 국고채", "받음" if 새것 else "빈손", len(새것), 새것)
         except Exception as e:
             _남기기("yfinance 국고채", f"실패({type(e).__name__})")
     else:
-        _남기기("yfinance 국고채", "건너뜀(이미 있음)")
+        _남기기("yfinance 국고채", "건너뜀(3·5·10년 다 있음)")
 
-    # 5순위: pykrx (KRX 장외채권수익률) — 회사채 AA-/BBB- 가 여기 있다
+    # 5순위: pykrx (KRX 장외채권수익률)
     #
-    # 조건이 `if not bonds` 였다. 국고채를 위에서 얻으면 이 줄이 통째로
-    # 안 돌았고, 그래서 이 표에만 있는 회사채 두 줄도 같이 못 받았다.
-    if not bonds or not any("회사채" in x["name"] for x in 그밖):
+    # 이 표 하나에 국고채 1~30년과 회사채 AA-/BBB- 가 다 들어 있다.
+    # 위 원천들이 국고채 3년·회사채 AA- 만 주는 일이 잦아서, 여기가
+    # 나머지를 메우는 자리가 된다.
+    #
+    # 조건을 두 번 고쳤다. 처음엔 `if not bonds` 라 국고채가 하나만
+    # 있어도 건너뛰었고, 다음엔 회사채만 봤다. 지금은 국고채 3·5·10년과
+    # 회사채 AA-·BBB- 중 하나라도 빠졌으면 부른다 — 어차피 요청 한 번에
+    # 표 전체가 온다.
+    빠진회사채 = [n for n in ("회사채 AA- 3년", "회사채 BBB- 3년")
+                  if not any(x["name"] == n for x in 그밖)]
+    if _빠진_국고채(bonds) or 빠진회사채:
         try:
             pkrx_bonds, pkrx_cd, pkrx_그밖 = _fetch_kr_bonds_pykrx()
-            if pkrx_bonds and not bonds:
-                bonds = pkrx_bonds
+            bonds = _국고채_채우기(bonds, pkrx_bonds)
             if pkrx_cd and not cd_override:
                 cd_override = pkrx_cd
             있는것 = {x["name"] for x in 그밖}
@@ -1000,7 +1045,7 @@ def _do_fetch_kr_rates() -> list:
         except Exception as e:
             _남기기("KRX 장외채권(pykrx)", f"실패({type(e).__name__}: {str(e)[:60]})")
     else:
-        _남기기("KRX 장외채권(pykrx)", "건너뜀(이미 있음)")
+        _남기기("KRX 장외채권(pykrx)", "건너뜀(국고채·회사채 다 있음)")
 
     # 6순위: ECOS 시장금리표 — 콜금리가 여기에도 있다
     _채우기("ECOS 시장금리표", _fetch_bok_그밖_ecos,

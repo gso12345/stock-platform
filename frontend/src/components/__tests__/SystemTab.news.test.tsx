@@ -53,9 +53,17 @@ function 실패목록(n: number, 쉬는수 = 0) {
   })).map((h, i) => (i < 쉬는수 ? h : h));
 }
 
+/* 오류표가 따로 부르는 자리. 시험마다 갈아 끼운다 */
+let 오류응답: any = { 요약: { 종류: 0, 전체횟수: 0, 한시간_종류: 0, 한시간_횟수: 0, 가장_잦은: null }, 목록: [] };
+
 beforeEach(() => {
-  get.mockImplementation((url: string) =>
-    Promise.resolve({ data: String(url).includes("db-stats") ? { tables: [] } : 응답 }));
+  오류응답 = { 요약: { 종류: 0, 전체횟수: 0, 한시간_종류: 0, 한시간_횟수: 0, 가장_잦은: null }, 목록: [] };
+  get.mockImplementation((url: string) => {
+    const u = String(url);
+    if (u.includes("db-stats")) return Promise.resolve({ data: { tables: [] } });
+    if (u.includes("/errors")) return Promise.resolve({ data: 오류응답 });
+    return Promise.resolve({ data: 응답 });
+  });
 });
 
 describe("실패한 언론사 목록", () => {
@@ -165,5 +173,56 @@ describe("쉬는 중 표시", () => {
     expect(글자(/매체0/)).toBe(true);
     expect(resting).toBeDefined();
     expect(probe).toBeDefined();
+  });
+});
+
+/* ── 오류표가 스스로 터지지 않는가 ─────────────────────────
+ *
+ * 오류를 보여 주려고 만든 자리가 스스로 오류를 내면 앞뒤가 안 맞는다.
+ * 실제로 그랬다 — 서버 응답에 '요약' 이 없으면 관리자 화면 전체가
+ * 흰 화면이 됐다. 배포 직후 몇 분간(백엔드가 아직 옛 버전) 정확히
+ * 그 상태가 된다. */
+describe("오류표", () => {
+  it("서버가 아직 이 기능을 몰라도 화면이 안 깨진다", async () => {
+    /* 배포 직후 몇 분간 백엔드가 옛 버전이라 404 가 온다 */
+    get.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.includes("db-stats")) return Promise.resolve({ data: { tables: [] } });
+      if (u.includes("/errors")) return Promise.reject({ response: { status: 404 } });
+      return Promise.resolve({ data: 응답 });
+    });
+    그리기(실제응답);
+    await screen.findByText(/지금 실패 중인 언론사|주기 갱신/);
+    expect(글자(/최근 오류/)).toBe(false);
+  });
+
+  it("응답이 반쪽이어도 안 깨진다", async () => {
+    /* 목록만 오고 요약이 없는 경우 — 화면 전체가 흰 화면이 됐었다 */
+    오류응답 = { 목록: [] };
+    그리기(실제응답);
+    await screen.findByText(/주기 갱신|지금 실패 중인 언론사/);
+    expect(글자(/최근 오류/)).toBe(false);
+  });
+
+  it("터진 것이 있으면 무엇이 몇 번인지 보여준다", async () => {
+    오류응답 = {
+      요약: { 종류: 2, 전체횟수: 7, 한시간_종류: 1, 한시간_횟수: 5, 가장_잦은: "TypeError" },
+      목록: [{ 어디: "화면", 무엇: "TypeError", 자세히: "터짐", 어디서: "/",
+               횟수: 5, 처음: "08/25 09:00:00", 마지막: "08/25 09:30:00", 지난초: 60 }],
+    };
+    그리기(실제응답);
+    expect(await screen.findByText("TypeError")).toBeTruthy();
+    expect(screen.getByText("×5")).toBeTruthy();
+  });
+
+  it("조용하면 조용하다고 적는다", async () => {
+    오류응답 = {
+      요약: { 종류: 3, 전체횟수: 9, 한시간_종류: 0, 한시간_횟수: 0, 가장_잦은: "ValueError" },
+      목록: [{ 어디: "GET /x", 무엇: "ValueError", 자세히: "예전 것", 어디서: "",
+               횟수: 9, 처음: "08/24 10:00:00", 마지막: "08/24 11:00:00", 지난초: 80000 }],
+    };
+    그리기(실제응답);
+    await screen.findByText("ValueError");
+    expect(글자(/최근 1시간에는 조용합니다/)).toBe(true);
   });
 });

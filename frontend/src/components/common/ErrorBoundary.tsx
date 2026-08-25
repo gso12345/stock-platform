@@ -14,6 +14,7 @@
  * 홈으로(그 화면 자체가 망가졌으면 벗어나야 한다).
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { 오류보내기 } from "@/utils/오류보내기";
 
 interface Props {
   children: ReactNode;
@@ -42,6 +43,10 @@ export default class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     // 콘솔에는 남긴다 — 사용자에게 보여 줄 것은 아래 화면뿐이다
     console.error("화면 오류:", error, info.componentStack);
+    /* 서버에도 보낸다.
+       콘솔은 사용자 브라우저에만 있어서, 흰 화면을 본 사람이 말해 주지
+       않으면 우리는 영영 모른다. 오늘까지 화면 고장을 전부 제보로 알았다. */
+    오류보내기(error.name, `${error.message}\n${error.stack ?? ""}\n${info.componentStack ?? ""}`);
   }
 
   render() {

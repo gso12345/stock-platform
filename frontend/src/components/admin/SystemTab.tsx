@@ -250,6 +250,83 @@ function 금리진단표({ d }: { d?: 금리진단 }) {
   );
 }
 
+type 오류목록 = {
+  요약: { 종류: number; 전체횟수: number; 한시간_종류: number; 한시간_횟수: number; 가장_잦은: string | null };
+  목록: { 어디: string; 무엇: string; 자세히: string; 어디서: string;
+          횟수: number; 처음: string; 마지막: string; 지난초: number }[];
+};
+
+/** 최근에 터진 것.
+ *
+ *  이 화면이 없어서 오늘까지 문제를 전부 사용자 제보로 알았다 —
+ *  엔비디아가 순위에서 사라진 것도, 콜금리가 안 뜨는 것도, 글자가 너무
+ *  커진 것도. 사용자가 말해 주지 않았으면 몰랐을 것이다.
+ *
+ *  서버 오류와 화면(브라우저) 오류를 한자리에 모은다. 사용자가 겪는
+ *  고장은 어느 쪽에서 났든 하나의 사건이기 때문이다. */
+function 오류표({ d, 비우기 }: { d?: 오류목록; 비우기: () => void }) {
+  /* 서버가 아직 이 기능을 모르거나(배포 직후 몇 분) 응답이 반쪽이어도
+     화면이 터지면 안 된다. 오류를 보여 주려고 만든 자리가 스스로
+     오류를 내면 앞뒤가 안 맞는다 — 실제로 시험에서 그렇게 터졌다. */
+  const 목록 = d?.목록 ?? [];
+  const 요약 = d?.요약;
+  if (!d || !요약) return null;
+  const 최근 = (요약.한시간_횟수 ?? 0) > 0;
+  return (
+    <Card
+      icon={AlertTriangle}
+      title="최근 오류"
+      right={
+        목록.length > 0 ? (
+          <button
+            onClick={비우기}
+            className="text-2xs text-text-muted hover:text-accent-red border border-border rounded px-2 py-0.5 transition-colors"
+          >
+            비우기
+          </button>
+        ) : undefined
+      }
+    >
+      {목록.length === 0 ? (
+        <p className="text-xs text-text-muted">터진 것이 없습니다.</p>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          <p className={`text-2xs break-keep ${최근 ? "text-accent-amber" : "text-text-dim"}`}>
+            {최근
+              ? `최근 1시간에 ${요약.한시간_종류}종류 ${요약.한시간_횟수}건`
+              : "최근 1시간에는 조용합니다"}
+            {" · "}전체 {요약.종류}종류 {요약.전체횟수}건
+            {요약.가장_잦은 && ` · 가장 잦은 것 ${요약.가장_잦은}`}
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {목록.map((e, i) => (
+              <details key={i} className="pl-2 border-l-2 border-accent-red/30">
+                <summary className="cursor-pointer list-none flex items-center gap-1.5 flex-wrap">
+                  <span className="text-2xs font-semibold text-accent-red break-keep">{e.무엇}</span>
+                  <span className="text-2xs text-text-muted break-all">{e.어디}</span>
+                  {e.횟수 > 1 && (
+                    <span className="text-2xs text-text-dim">×{e.횟수}</span>
+                  )}
+                  <span className="text-2xs text-text-dim">{e.마지막}</span>
+                </summary>
+                {/* 스택은 접어 둔다. 펼치지 않으면 목록이 길어져서
+                    '무엇이 몇 번 터졌나' 를 한눈에 못 본다. */}
+                <pre className="mt-1 mb-1 max-h-40 overflow-auto whitespace-pre-wrap break-all
+                                text-2xs text-text-dim bg-bg-elevated rounded p-2">
+                  {e.자세히}
+                </pre>
+                {e.어디서 && (
+                  <p className="text-2xs text-text-dim break-all mb-1">어디서: {e.어디서}</p>
+                )}
+              </details>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function SystemTab() {
   const rt = useQuery<Runtime>({
     queryKey: ["admin-runtime"],
@@ -266,6 +343,13 @@ export default function SystemTab() {
   /* 국내 금리가 원천별로 뭘 받아 왔는지. "콜금리 회사채 안뜸" 을 두 번
      들었는데 두 번 다 원인을 볼 방법이 없었다 — 화면에는 '안 나온다' 만
      보이고 서버가 뭘 시도했는지는 로그에만 있었다. */
+  const 오류 = useQuery<오류목록>({
+    queryKey: ["admin-errors"],
+    queryFn: () => api.get("/admin/errors").then((r) => r.data),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    retry: 1,
+  });
   const 금리 = useQuery<금리진단>({
     queryKey: ["admin-rates-diagnosis"],
     queryFn: () => api.get("/admin/rates-diagnosis").then((r) => r.data),
@@ -981,6 +1065,11 @@ export default function SystemTab() {
           </div>
         )}
       </Card>
+
+      <오류표 d={오류.data} 비우기={async () => {
+        await api.delete("/admin/errors").catch(() => {});
+        오류.refetch();
+      }} />
 
       <금리진단표 d={금리.data} />
 

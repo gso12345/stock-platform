@@ -9,7 +9,13 @@ import SplashScreen from "./components/SplashScreen";
 import BootScreen from "./components/BootScreen";
 import QueryErrorToast from "./components/common/QueryErrorToast";
 import { dashboardApi } from "./api/stocks";
+import { 오류받기_시작 } from "./utils/오류보내기";
 import "./index.css";
+
+/* 아무 데서도 안 잡힌 오류를 줍는다. ErrorBoundary 는 화면을 그리다
+   터진 것만 잡고, 이벤트 처리기나 약속(Promise) 안에서 터진 것은
+   콘솔에만 남는다 — 사용자에게는 "눌러도 아무 일이 안 일어남" 이다. */
+오류받기_시작();
 
 const Dashboard  = lazy(() => import("./pages/Dashboard"));
 const Screening  = lazy(() => import("./pages/Screening"));

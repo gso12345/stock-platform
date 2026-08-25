@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.db.database import Base, engine
 from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth, portfolio, admin as admin_routes
 from app.api.routes import community
+from app.api.routes import clienterr
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
@@ -386,6 +387,26 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(Exception)
+async def _오류_남기고_500(request: Request, exc: Exception):
+    """터진 것을 남기고, 사용자에게는 짧게 알린다.
+
+    지금까지 서버가 터지면 로그에만 찍혔다. Render 무료 플랜은 재시작이
+    잦아 로그가 곧 흘러가고, 그래서 문제를 전부 사용자 제보로 알았다.
+    이제 관리자 화면에서 볼 수 있다.
+
+    사용자에게 보내는 본문에는 오류 내용을 안 싣는다 — 스택에는 파일
+    경로와 내부 구조가 들어 있어 그대로 내보내면 공격에 쓰인다."""
+    from app.core import errors
+    errors.남기기(f"{request.method} {request.url.path}", exc,
+                  어디서=request.headers.get("referer", ""))
+    _startup_log.exception("처리되지 않은 오류: %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."},
+    )
 # 이 미들웨어가 없으면 Limiter 의 default_limits 가 실제로는 적용되지 않는다.
 # @limiter.limit(...) 을 붙인 라우트만 제한됐고, 대시보드처럼 데코레이터가
 # 하나도 없는 라우트는 완전히 무제한이었다 — 임의 category 로 캐시를 밀어내는
@@ -505,6 +526,8 @@ app.include_router(watchlist.router,  prefix="/api/v1")
 app.include_router(portfolio.router, prefix="/api/v1")
 app.include_router(admin_routes.router, prefix="/api/v1")
 app.include_router(community.router,    prefix="/api/v1")
+# 브라우저에서 터진 것을 받는 자리. 사용자가 제보자 역할을 안 해도 되게 한다.
+app.include_router(clienterr.router,    prefix="/api/v1")
 
 
 @app.websocket("/ws/indices")
