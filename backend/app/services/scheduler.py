@@ -766,6 +766,18 @@ async def periodic_refresh():
         if counter % 6 == 0:
             await refresh_exchange()
 
+        # 걸어 둔 가격 알림 (30초)
+        #
+        # 자주 봐야 뜻이 있는 일이다 — "8만원 되면 알려줘" 인데 5분 뒤에
+        # 알려 주면 이미 지나간 뒤다. 대신 값이 거의 안 든다: 새로
+        # 조회하지 않고 이미 받아 둔 시세 캐시만 읽는다.
+        if counter % 3 == 0:
+            try:
+                from app.services.alert_checker import 확인하기
+                await asyncio.get_running_loop().run_in_executor(None, 확인하기)
+            except Exception as e:
+                log.debug("가격 알림 확인 건너뜀: %s", type(e).__name__)
+
         # 한국 금리 — 기준금리·CD금리·국고채 (3분)
         if counter % 18 == 0:
             from app.services.market_extras import _do_fetch_kr_rates

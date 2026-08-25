@@ -1712,6 +1712,9 @@ def list_notifications(
         "post_id":      r.post_id,
         "comment_id":   r.comment_id,
         "preview":      r.preview,
+        # 가격 알림이 가리키는 종목 — 눌렀을 때 그리로 간다
+        "symbol":       r.symbol,
+        "market":       r.market,
         "is_read":      bool(r.is_read),
         "created_at":   r.created_at.isoformat() if r.created_at else "",
         "actor_id":     r.actor_id,

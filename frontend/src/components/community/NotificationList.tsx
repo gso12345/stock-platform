@@ -22,6 +22,9 @@ export interface NotificationItem {
   actor_name: string;
   actor_color: number;
   actor_avatar: string | null;
+  /** 가격 알림만 채워진다 — 눌렀을 때 갈 종목 */
+  symbol?: string | null;
+  market?: string | null;
 }
 
 export default function NotificationList({
@@ -54,6 +57,10 @@ export default function NotificationList({
     <ul>
       {items.map((n) => {
         const meta = KIND_META[n.kind] ?? KIND_META.comment;
+        /* 사람이 한 일이 아닌 알림(가격 알림)은 보낸 사람이 없다.
+           그대로 그리면 빈 동그라미와 이름 없는 문장 — "님이 ..." 도 아닌
+           그냥 빈칸 — 이 남는다. 아이콘 하나와 내용만 보여 준다. */
+        const 사람이_한_일 = n.actor_id != null && !!n.actor_name;
         return (
           <li key={n.id}>
             <button
@@ -63,20 +70,38 @@ export default function NotificationList({
               } ${n.is_read ? "" : "bg-accent-blue/5"}`}
             >
               <div className="relative shrink-0">
-                <Avatar username={n.actor_name} colorIndex={n.actor_color}
-                        avatarUrl={n.actor_avatar} size={roomy ? "md" : "base"} />
-                <meta.Icon size={11}
-                  className={`absolute -bottom-0.5 -right-0.5 p-[1px] rounded-full bg-bg-card ${meta.cls}`} />
+                {사람이_한_일 ? (
+                  <>
+                    <Avatar username={n.actor_name} colorIndex={n.actor_color}
+                            avatarUrl={n.actor_avatar} size={roomy ? "md" : "base"} />
+                    <meta.Icon size={11}
+                      className={`absolute -bottom-0.5 -right-0.5 p-[1px] rounded-full bg-bg-card ${meta.cls}`} />
+                  </>
+                ) : (
+                  <div className={`flex items-center justify-center rounded-full bg-bg-elevated border border-border ${
+                    roomy ? "w-8 h-8" : "w-7 h-7"
+                  }`}>
+                    <meta.Icon size={roomy ? 15 : 13} className={meta.cls} />
+                  </div>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 {/* break-keep: 한글은 어절 단위로 끊어야 "남겼습니 / 다"처럼
                     낱말이 잘리지 않는다. 좁은 화면에서 특히 눈에 띈다 */}
                 <p className="text-xs text-text-secondary leading-snug break-keep">
-                  <span className="font-semibold text-text-primary">{n.actor_name}</span>
-                  {meta.text}
+                  {사람이_한_일 ? (
+                    <>
+                      <span className="font-semibold text-text-primary">{n.actor_name}</span>
+                      {meta.text}
+                    </>
+                  ) : (
+                    <span className="font-semibold text-text-primary">{meta.label}</span>
+                  )}
                 </p>
                 {n.preview && (
-                  <p className="mt-0.5 text-2xs text-text-dim line-clamp-2 break-keep">{n.preview}</p>
+                  <p className={`mt-0.5 line-clamp-2 break-keep ${
+                    사람이_한_일 ? "text-2xs text-text-dim" : "text-xs text-text-secondary"
+                  }`}>{n.preview}</p>
                 )}
                 <p className="mt-0.5 text-2xs text-text-dim">{timeAgo(n.created_at)}</p>
               </div>

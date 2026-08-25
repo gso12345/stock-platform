@@ -54,6 +54,60 @@ const 팔레트 = new RegExp(
 );
 const px글자 = /text-\[\d+px\]/g;
 
+describe("없는 토큰을 쓰지 않는다", () => {
+  /* Tailwind 는 팔레트에 없는 이름을 조용히 버린다. 오류도 경고도 없고,
+     그 자리는 그냥 '색이 안 먹은 글자' 가 된다. 무엇도 안 깨져 보이므로
+     아무도 눈치를 못 챈다.
+
+     실제로 accent-amber 가 팔레트에 없는 채로 25곳이 쓰고 있었다 —
+     실시간 배지의 점, 퀀트 화면의 주의 상자, 관리자 화면의 경고 문구가
+     전부 평범한 회색 글자로 나왔다. 종목 상세를 찍어 보고서야 알았다.
+
+     그래서 '쓰는 이름' 과 '있는 이름' 을 맞춰 본다. */
+  const 설정 = fs.readFileSync(path.resolve(뿌리, "../tailwind.config.js"), "utf-8");
+  const 있는색 = new Set(
+    (설정.slice(설정.indexOf("accent: {")).match(/^\s*([a-z]+):\s*"#/gm) ?? [])
+      .map((l) => l.trim().split(":")[0]),
+  );
+
+  it("accent 팔레트에 여러 색이 있다", () => {
+    // 읽기가 실패하면 아래 검사가 통째로 무의미해진다
+    expect(있는색.size).toBeGreaterThan(3);
+    expect(있는색.has("blue")).toBe(true);
+  });
+
+  it("변수로 된 색에 투명도가 먹는다", async () => {
+    /* border-border/50 같은 자리가 113곳이다. 예전에는 Tailwind 가
+       그 규칙을 통째로 버려서, 어두운 화면에 흐릿해야 할 구분선이
+       기본색(밝은 회색)으로 그어졌다. */
+    // @ts-expect-error tailwind 설정 파일에는 타입 선언이 없다
+    const cfg = (await import("../../../tailwind.config.js")).default as any;
+    const 색들 = cfg.theme.extend.colors;
+    for (const [갈래, 이름] of [["border", "DEFAULT"], ["bg", "card"], ["text", "muted"]] as const) {
+      const f = 색들[갈래][이름];
+      expect(typeof f, `${갈래}.${이름} 가 함수가 아니다`).toBe("function");
+      // 투명도 없이 쓰면 예전과 똑같아야 한다 — 화면 전체가 걸린 자리다
+      expect(f({ opacityValue: undefined })).toMatch(/^var\(--/);
+      expect(f({ opacityValue: "var(--tw-bg-opacity)" })).toMatch(/^var\(--/);
+      // 투명도를 주면 실제로 반투명이 되어야 한다
+      const 반 = f({ opacityValue: "0.5" });
+      expect(반).toContain("50%");
+      expect(반).toContain("transparent");
+    }
+  });
+
+  it("화면이 쓰는 accent-* 가 모두 팔레트에 있다", () => {
+    const 걸린것: string[] = [];
+    for (const f of 소스파일들()) {
+      const 글 = fs.readFileSync(path.join(뿌리, f), "utf-8");
+      for (const m of 글.matchAll(/\b(?:text|bg|border|ring|fill|stroke|from|to|via|divide)-accent-([a-z]+)\b/g)) {
+        if (!있는색.has(m[1])) 걸린것.push(`${f}: accent-${m[1]}`);
+      }
+    }
+    expect([...new Set(걸린것)]).toEqual([]);
+  });
+});
+
 describe("색은 토큰으로", () => {
   const 걸린것 = 소스파일들()
     .filter((f) => !(f in 예외))

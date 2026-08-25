@@ -25,6 +25,7 @@ import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 import CommunityTab from "@/components/community/CommunityTab";
 import SupplyDemandTab from "@/components/stock/SupplyDemandTab";
 import RangeBar from "@/components/stock/RangeBar";
+import AlertButton from "@/components/stock/AlertButton";
 import { AddToPortfolioModal } from "@/components/watchlist/WatchlistModals";
 
 /* 재무제표·투자의견 탭은 필요할 때 받는다.
@@ -943,6 +944,14 @@ export default function StockDetail() {
                   {addMutation.isPending ? "추가 중..." : removeMutation.isPending ? "제거 중..." : inWatchlist ? "관심종목" : "추가"}
                 </span>
               </button>
+
+              {/* 가격 알림 — 이 화면을 다시 열지 않아도 값이 오면 알려 준다.
+                  관심종목은 '보고 싶다', 알림은 '이 값이 되면 알려 달라'로
+                  하는 일이 다르다. */}
+              <AlertButton
+                market={m} symbol={sym} name={d?.name}
+                price={d?.price} isLoggedIn={isLoggedIn}
+              />
 
               {/* 담기 — 관심종목(보고 싶다)과 보유(샀다)는 다른 일이다.
                   예전에는 종목상세에서 내 자산으로 가는 길이 아예 없어서,

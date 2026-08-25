@@ -19,12 +19,13 @@ from app.db.database import Base, engine
 from app.api.routes import dashboard, stocks, screening, backtest, watchlist, search, auth, portfolio, admin as admin_routes
 from app.api.routes import community
 from app.api.routes import clienterr
+from app.api.routes import alerts
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
     QuantScoreWeight, QuantPercentileCache, KrTicker, UsTicker,
-    MetricsHistoryCache,
+    MetricsHistoryCache, PriceAlert,
 )
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, SitePopup, Report  # noqa: F401
 from app.models.admin_log import AdminLog  # noqa: F401  — 관리자 행위 기록 테이블 생성 보장
@@ -76,7 +77,7 @@ async def lifespan(application: FastAPI):
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
-        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights", "portfolio_items", "portfolios", "kr_tickers"}
+        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights", "portfolio_items", "portfolios", "kr_tickers", "notifications"}
         _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
         # 테이블/컬럼명이 항상 이 파일 내 하드코딩된 값이지만, 방어적으로 식별자 형식을 강제
         _IDENTIFIER_RE = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -118,6 +119,9 @@ async def lifespan(application: FastAPI):
         # DB 에 안 담고 있었다 — 재시작하면 통째로 사라졌다.
         # (아래 '시가총액 순위에서 삼성전자가 사라진' 건의 원인)
         _add_col_if_missing("kr_tickers", "shares", "DOUBLE PRECISION", "REAL")
+        # 가격 알림이 가리키는 종목. 알림을 눌렀을 때 그 종목으로 가야 한다.
+        _add_col_if_missing("notifications", "symbol", "VARCHAR(20)")
+        _add_col_if_missing("notifications", "market", "VARCHAR(10)")
 
         def _widen_col(table: str, col: str, new_type: str):
             """이미 만들어진 컬럼의 길이를 늘린다.
@@ -528,6 +532,8 @@ app.include_router(admin_routes.router, prefix="/api/v1")
 app.include_router(community.router,    prefix="/api/v1")
 # 브라우저에서 터진 것을 받는 자리. 사용자가 제보자 역할을 안 해도 되게 한다.
 app.include_router(clienterr.router,    prefix="/api/v1")
+# 가격 알림 — "삼성전자 8만원 되면 알려줘"
+app.include_router(alerts.router,       prefix="/api/v1")
 
 
 @app.websocket("/ws/indices")

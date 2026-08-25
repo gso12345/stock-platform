@@ -143,6 +143,11 @@ class Notification(Base):
     post_id    = Column(Integer, ForeignKey("stock_posts.id"), nullable=True, index=True)
     comment_id = Column(Integer, ForeignKey("stock_comments.id"), nullable=True)
     preview    = Column(String(100), nullable=True)   # 댓글 내용 앞부분 — 목록에서 바로 보이게
+    # 가격 알림(kind="price_alert")이 가리키는 종목. 눌렀을 때 그 종목으로
+    # 갈 수 있어야 알림이 쓸모 있다 — "8만원 닿았다" 만 보고 끝나면
+    # 어차피 직접 찾아 들어가야 한다.
+    symbol     = Column(String(20), nullable=True)
+    market     = Column(String(10), nullable=True)
     is_read    = Column(Boolean, default=False, nullable=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

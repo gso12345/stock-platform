@@ -314,3 +314,47 @@ class UsTicker(Base):
     # 'US' 또는 'ETF' — 검색 필터가 이걸로 나뉜다
     market     = Column(String(10), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PriceAlert(Base):
+    """가격 알림 — "삼성전자 8만원 되면 알려줘".
+
+    자산 앱에 사람을 다시 오게 하는 가장 큰 힘인데 이 자리가 비어 있었다.
+    알림 화면은 진작 있었지만 커뮤니티 반응(댓글·좋아요)만 받았다.
+
+    ── 설계에서 신경 쓴 것 ──
+
+    · 새 알림 파이프라인을 안 만든다. 조건이 맞으면 기존 notifications
+      테이블에 kind="price_alert" 로 한 줄 넣는다. 종·읽지않음·목록이
+      이미 다 돌아가므로 그것만으로 끝난다.
+
+    · 한 번 울리면 스스로 꺼진다(is_active=False). 8만원을 넘나드는
+      동안 계속 울리면 알림 화면이 그 종목 하나로 뒤덮인다.
+      다시 받고 싶으면 사용자가 켠다 — 그게 '알림을 봤다' 는 뜻이다.
+
+    · 확인은 이미 받아 둔 시세 캐시(price:{symbol})만 읽는다. 알림
+      때문에 새로 조회하지 않는다. 0.15 CPU 서버라 그만한 여유가 없고,
+      어차피 시세는 주기 갱신이 계속 받아 오고 있다.
+    """
+    __tablename__ = "price_alerts"
+    __table_args__ = (
+        # 확인할 때마다 '켜져 있는 것 전부' 를 훑으므로 그 조합이 가장 잦다
+        UniqueConstraint("user_id", "symbol", "direction", "target",
+                         name="uq_price_alert_once"),
+    )
+
+    id        = Column(Integer, primary_key=True, index=True)
+    user_id   = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    symbol    = Column(String(20), nullable=False, index=True)
+    market    = Column(String(10), nullable=False)          # KR, US, ETF
+    name      = Column(String(100))                          # 알림 문구에 쓴다
+    #: "above" = 이 값 이상이 되면, "below" = 이 값 이하가 되면
+    direction = Column(String(5), nullable=False)
+    target    = Column(Float, nullable=False)
+    #: 만든 시점의 값. "8만원에 걸었는데 그때 얼마였지" 를 알 수 있게 남긴다
+    made_at_price = Column(Float)
+    is_active = Column(Boolean, default=True, nullable=False, server_default="true", index=True)
+    fired_at  = Column(DateTime(timezone=True), nullable=True)
+    #: 울릴 때의 값. 알림 문구에 그대로 쓴다
+    fired_price = Column(Float)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

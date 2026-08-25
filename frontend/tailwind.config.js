@@ -1,3 +1,28 @@
+/** CSS 변수로 된 색에 투명도(/50)가 먹게 한다.
+ *
+ * 색 토큰이 "var(--bg-card)" 같은 글자였다. Tailwind 는 그런 색에
+ * `/50` 을 붙이면 투명도를 못 넣고 그 규칙을 통째로 버린다 — 오류도
+ * 경고도 없다. 그래서 지금까지
+ *
+ *   border-border/50  →  테두리가 Tailwind 기본색(밝은 회색)으로 나옴
+ *   text-text-muted/40 →  투명도가 안 먹고 물려받은 색 그대로
+ *
+ * 이 됐다. 어두운 화면에 흐릿해야 할 구분선이 밝은 회색 줄로
+ * 그어지고 있었던 것이다(가격 알림 화면을 찍어 보고 알았다).
+ * 지금 코드에 그런 자리가 113곳이다.
+ *
+ * 투명도를 안 쓸 때는 예전과 글자 하나 다르지 않게 var(...) 를
+ * 그대로 돌려준다 — 바꾸는 것은 '지금 깨져 있는 자리' 뿐이다.
+ */
+const 변수색 = (이름) => ({ opacityValue } = {}) => {
+  // 투명도 없이 쓰면 예전 그대로
+  if (opacityValue === undefined || String(opacityValue).startsWith("var(")) {
+    return `var(${이름})`;
+  }
+  const 비율 = Number(opacityValue) * 100;
+  return `color-mix(in srgb, var(${이름}) ${비율}%, transparent)`;
+};
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: "class",
@@ -6,23 +31,23 @@ export default {
     extend: {
       colors: {
         bg: {
-          base:      "var(--bg-base)",
-          primary:   "var(--bg-primary)",
-          secondary: "var(--bg-secondary)",
-          card:      "var(--bg-card)",
-          elevated:  "var(--bg-elevated)",
-          hover:     "var(--bg-hover)",
+          base:      변수색("--bg-base"),
+          primary:   변수색("--bg-primary"),
+          secondary: 변수색("--bg-secondary"),
+          card:      변수색("--bg-card"),
+          elevated:  변수색("--bg-elevated"),
+          hover:     변수색("--bg-hover"),
         },
         border: {
-          DEFAULT: "var(--border-default)",
-          light:   "var(--border-light)",
-          subtle:  "var(--border-subtle)",
+          DEFAULT: 변수색("--border-default"),
+          light:   변수색("--border-light"),
+          subtle:  변수색("--border-subtle"),
         },
         text: {
-          primary:   "var(--text-primary)",
-          secondary: "var(--text-secondary)",
-          muted:     "var(--text-muted)",
-          dim:       "var(--text-dim)",
+          primary:   변수색("--text-primary"),
+          secondary: 변수색("--text-secondary"),
+          muted:     변수색("--text-muted"),
+          dim:       변수색("--text-dim"),
         },
         accent: {
           blue:   "#3b82f6",
@@ -32,6 +57,15 @@ export default {
           purple: "#8b5cf6",
           cyan:   "#06b6d4",
           orange: "#f97316",
+          /* amber 는 이 목록에 없었는데 화면 25곳이 이미 쓰고 있었다.
+             Tailwind 는 없는 이름을 조용히 버린다 — 오류도 경고도 없이
+             그 자리가 색 없는 글자가 된다. 그래서 실시간 배지의 점,
+             퀀트 화면의 주의 상자, 관리자 화면의 경고 문구가 전부
+             '평범한 회색 글자' 로 나오고 있었다(무엇도 안 깨져 보여서
+             더 오래 갔다).
+             값은 노랑과 같은 #f59e0b 다 — 쓰는 쪽이 원래 그 색을
+             뜻했다. 아래 DesignTokens 검사가 없는 이름을 잡는다. */
+          amber:  "#f59e0b",
         },
       },
       fontFamily: {

@@ -4,9 +4,12 @@
  * 종(NotificationBell)과 설정 화면이 같은 목록·같은 문구를 쓰도록 한곳에 모은다.
  * 따로 두면 한쪽에만 종류를 추가했을 때 설정에서 끌 수 없는 알림이 생긴다.
  */
-import { Heart, MessageSquare, CornerDownRight, UserPlus } from "lucide-react";
+import { Heart, MessageSquare, CornerDownRight, UserPlus, Bell } from "lucide-react";
 
-export type NotificationKind = "comment" | "reply" | "post_like" | "comment_like" | "follow";
+export type NotificationKind =
+  | "comment" | "reply" | "post_like" | "comment_like" | "follow"
+  /** 걸어 둔 가격에 닿았을 때. 사람이 한 일이 아니라 actor 가 없다 */
+  | "price_alert";
 
 export interface KindMeta {
   /** 알림 목록에 쓰는 문구 — 앞에 보낸 사람 이름이 붙는다 */
@@ -50,15 +53,31 @@ export const KIND_META: Record<NotificationKind, KindMeta> = {
     desc: "누군가 나를 팔로우할 때",
     Icon: UserPlus, cls: "text-accent-green",
   },
+  price_alert: {
+    /* 이것만 앞에 사람 이름이 안 붙는다. 사람이 한 일이 아니기 때문이다 —
+       목록에서 actor 가 없으면 이름을 안 그리고 preview 만 보여준다. */
+    text: "",
+    label: "가격 알림",
+    desc: "걸어 둔 가격에 닿았을 때",
+    Icon: Bell, cls: "text-accent-orange",
+  },
 };
 
 /** 설정 화면에 보여줄 순서 */
 export const NOTIFICATION_KINDS: NotificationKind[] = [
   "comment", "reply", "post_like", "comment_like", "follow",
 ];
+/* 가격 알림은 설정 목록에 안 넣는다 — 끄고 켜는 것이 알림마다 따로
+   있어서(종목 상세의 알림 버튼), 여기서 통째로 끄면 어느 쪽이 이기는지
+   헷갈린다. */
 
 /** 알림이 가리키는 화면 — 목록과 설정이 같은 규칙을 쓰도록 여기에 둔다 */
-export function notificationHref(n: { kind: string; post_id: number | null; actor_id: number | null }) {
+export function notificationHref(n: {
+  kind: string; post_id: number | null; actor_id: number | null; symbol?: string | null; market?: string | null;
+}) {
+  if (n.kind === "price_alert") {
+    return n.symbol && n.market ? `/stocks/${n.market}/${encodeURIComponent(n.symbol)}` : null;
+  }
   if (n.kind === "follow") return n.actor_id ? `/profile/${n.actor_id}` : null;
   return n.post_id ? `/post/${n.post_id}` : null;
 }
