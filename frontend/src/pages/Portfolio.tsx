@@ -1062,14 +1062,12 @@ export default function Portfolio() {
       )}
 
       {/* ── 보유 종목 ──
-          바깥 상자를 걷어냈다.
-          여기가 `rounded-xl border bg-bg-card` 였는데 그 안의 종목 카드도
-          (HoldingRow.tsx:75) 똑같이 `rounded-xl border bg-bg-card` 였다.
-          같은 배경색 상자가 겹치니 테두리만 두 겹으로 보이고 화면이
-          탁해진다. 안쪽 카드는 '카드 보기' 의 실제 카드라 남기고,
-          감싸기만 하던 바깥을 뺐다. */}
-      <div className="overflow-hidden">
-        <div className="flex items-center justify-between gap-2 pb-3 border-b border-border flex-wrap">
+          바깥 상자를 되돌렸다.
+          안쪽 종목 카드와 테두리가 겹쳐 보인다는 이유로 뺐는데, 없애고
+          보니 보유 종목 묶음이 어디서 시작하고 끝나는지가 흐릿해졌다.
+          겹쳐 보이는 것보다 경계가 없는 쪽이 더 불편하다. */}
+      <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border flex-wrap">
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-sm font-semibold text-text-primary whitespace-nowrap">보유 종목</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-bg-secondary text-text-muted font-semibold whitespace-nowrap">
