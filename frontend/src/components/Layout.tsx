@@ -10,7 +10,7 @@ import InstallAppButton from "@/components/InstallAppButton";
 import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
 import NotificationBell from "@/components/community/NotificationBell";
 import SettingsModal from "@/components/SettingsModal";
-import { 더보기_경로 } from "@/constants/moreNav";
+import { 더보기_경로, 내자산_경로 } from "@/constants/moreNav";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/api/client";
@@ -235,14 +235,21 @@ export default function Layout() {
       >
         {BOTTOM_NAV.map(({ to, icon: Icon, label, end }) => (
           <NavLink key={to} to={to} end={end} className="flex-1 active:scale-95 transition-transform">
-            {({ isActive }) => (
+            {({ isActive }) => {
+              /* 관심종목은 "내 자산" 화면의 형제 탭이라, 거기 있을 때도
+                 "내 자산" 에 불이 켜져야 한다. 안 그러면 화면 위 탭은
+                 "관심종목" 이라고 하는데 아래는 아무 데도 안 켜진다. */
+              const 켜짐 = isActive ||
+                (to === "/portfolio" && 내자산_경로.some((p) => location.pathname === p));
+              return (
               <div className={`relative flex flex-col items-center justify-center gap-0.5 h-14 text-2xs font-medium transition-colors duration-200 ${
-                isActive ? "text-accent-blue" : "text-text-muted"}`}>
-                {isActive && <span className="absolute top-1.5 w-1 h-1 rounded-full bg-accent-blue fade-in" />}
-                <Icon size={20} className={`transition-transform duration-200 ${isActive ? "scale-110" : "scale-100"}`} />
+                켜짐 ? "text-accent-blue" : "text-text-muted"}`}>
+                {켜짐 && <span className="absolute top-1.5 w-1 h-1 rounded-full bg-accent-blue fade-in" />}
+                <Icon size={20} className={`transition-transform duration-200 ${켜짐 ? "scale-110" : "scale-100"}`} />
                 {label}
               </div>
-            )}
+              );
+            }}
           </NavLink>
         ))}
         <NavLink to="/more" className="flex-1 active:scale-95 transition-transform">

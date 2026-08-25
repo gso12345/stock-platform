@@ -111,14 +111,19 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
           onClick={onNavigate}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
         >
+          {/* 이름이 먼저다.
+              사람은 "삼성전자" 로 종목을 찾지 "005930" 으로 찾지 않는다.
+              순위·보유종목은 이미 이렇게 그리고 있었는데 관심종목만
+              거꾸로였다 — 세 화면이 종목을 서로 다르게 그리던 것 자체가
+              '통일 안 된 느낌' 의 원인이었다. */}
           <div className="flex items-center gap-1.5">
-            <span className="font-mono font-bold text-sm text-text-primary">
-              {normalizeSymbol(item.symbol ?? "")}
+            <span className="text-base font-semibold text-text-primary truncate">
+              {item.name || p.name || normalizeSymbol(item.symbol ?? "")}
             </span>
             {livePrice && <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse flex-shrink-0"/>}
             <MarketBadge market={item.market} />
           </div>
-          <div className="text-xs text-text-muted truncate">{item.name || p.name}</div>
+          <div className="font-mono text-xs text-text-muted">{normalizeSymbol(item.symbol ?? "")}</div>
           {item.memo && <div className="text-2xs text-text-muted/60 italic mt-0.5">{item.memo}</div>}
         </div>
 

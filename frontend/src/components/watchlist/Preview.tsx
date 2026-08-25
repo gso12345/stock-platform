@@ -52,10 +52,11 @@ export const PreviewItemRow = memo(function PreviewItemRow({ item, onNavigate }:
       <MarketBadge market={item.market} />
       {/* 종목 정보 */}
       <div className="flex-1 min-w-0">
-        <div className="font-mono font-bold text-sm text-text-primary">
+        {/* 이름이 먼저다. 사람은 "삼성전자" 로 찾지 "005930" 으로 찾지 않는다 */}
+        <div className="text-base font-semibold text-text-primary truncate">{item.name}</div>
+        <div className="font-mono text-xs text-text-muted">
           {normalizeSymbol(item.symbol)}
         </div>
-        <div className="text-xs text-text-muted truncate">{item.name}</div>
       </div>
       {/* 가격 */}
       <div className="text-right flex-shrink-0 min-w-[80px]">

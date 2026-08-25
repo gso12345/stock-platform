@@ -642,10 +642,12 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-text-primary">대시보드</h1>
-          <p className="text-text-muted text-xs mt-0.5">지수 클릭 → 상세 차트 · 종목 클릭 → 종목 상세</p>
-        </div>
+        {/* 제목과 사용법 설명을 뺐다.
+            하단 탭이 이미 "대시보드" 라고 말한다. 그리고 "지수 클릭 →
+            상세 차트" 같은 설명이 필요하다는 건 눌러야 할 곳이 눌러
+            보이지 않는다는 뜻이다 — 설명을 지우는 게 아니라 지워도
+            되게 만드는 것이 목표다(카드·줄에 › 를 붙였다). */}
+        <div />
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <span className={`w-1.5 h-1.5 rounded-full ${wsStatus==="connected" ? "bg-accent-green animate-pulse" : "bg-accent-red"}`} />

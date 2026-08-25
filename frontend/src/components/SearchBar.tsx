@@ -236,11 +236,14 @@ export default function SearchBar() {
                         {item.market === "ETF" ? "ETF" : item.market}
                       </div>
                       <div className="flex-1 min-w-0">
+                        {/* 이름이 먼저 — 검색은 특히 그렇다. 이름을 쳐서 찾은
+                            결과인데 코드가 먼저 보이면 내가 찾던 게 맞는지
+                            한 번 더 읽어야 한다 */}
+                        <p className="text-base font-semibold text-text-primary truncate">{item.name}</p>
                         <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-bold text-sm text-text-primary">{dispSym(item.symbol)}</span>
+                          <span className="font-mono text-xs text-text-muted">{dispSym(item.symbol)}</span>
                           <span className="text-2xs text-text-dim">{item.exchange}</span>
                         </div>
-                        <p className="text-xs text-text-muted truncate">{item.name}</p>
                       </div>
                       {priceStr && (
                         <div className="text-right flex-shrink-0 mr-1">

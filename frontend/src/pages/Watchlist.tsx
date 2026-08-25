@@ -790,8 +790,13 @@ export default function Watchlist() {
                 >
                   <MarketBadge market={r.market} />
                   <div className="flex-1 min-w-0">
-                    <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(r.symbol)}</div>
-                    <div className="text-xs text-text-muted truncate">{r.name}</div>
+                    {/* 이름이 먼저다.
+                        사람은 "삼성전자" 로 종목을 찾지 "005930" 으로 찾지
+                        않는다. 순위·보유종목은 이미 이렇게 그리고 있었는데
+                        여기만 거꾸로였다 — 세 화면이 종목을 서로 다르게
+                        그리던 것 자체가 '통일 안 된 느낌' 의 원인이었다. */}
+                    <div className="text-base font-semibold text-text-primary truncate">{r.name}</div>
+                    <div className="font-mono text-xs text-text-muted">{normalizeSymbol(r.symbol)}</div>
                   </div>
                   <div className="text-right flex-shrink-0 min-w-[80px]">
                     <div className="text-sm font-mono font-semibold text-text-primary">
@@ -858,8 +863,9 @@ export default function Watchlist() {
                   >
                     <MarketBadge market={item.market} />
                     <div className="flex-1 min-w-0">
-                      <div className="font-mono font-bold text-sm text-text-primary">{normalizeSymbol(item.symbol)}</div>
-                      <div className="text-xs text-text-muted truncate">{item.name}</div>
+                      {/* 이름이 먼저 — 위와 같은 규칙 */}
+                      <div className="text-base font-semibold text-text-primary truncate">{item.name}</div>
+                      <div className="font-mono text-xs text-text-muted">{normalizeSymbol(item.symbol)}</div>
                     </div>
                     <div className="text-right flex-shrink-0 min-w-[80px]">
                       <div className="text-sm font-mono font-semibold text-text-primary">

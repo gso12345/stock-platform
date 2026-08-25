@@ -18,7 +18,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import Layout원문 from "../../components/Layout.tsx?raw";
-import { 더보기_메뉴, 더보기_경로 } from "@/constants/moreNav";
+import { 더보기_메뉴, 더보기_경로, 내자산_경로 } from "@/constants/moreNav";
 
 const navigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -73,10 +73,28 @@ describe("하단 탭의 더보기", () => {
   });
 
   it("더보기 안의 화면을 보고 있어도 탭이 켜져 있다", () => {
-    /* 관심종목을 보는 중에 다섯 탭 중 아무것도 안 켜지면 지금 어디인지 모른다 */
+    /* 스크리닝을 보는 중에 다섯 탭 중 아무것도 안 켜지면 지금 어디인지 모른다 */
     expect(더보기_경로).toContain("/more");
-    expect(더보기_경로).toContain("/watchlist");
+    expect(더보기_경로).toContain("/screening");
     expect(Layout원문).toMatch(/더보기_경로\.some/);
+  });
+
+  it("관심종목은 더보기가 아니라 내 자산 아래에 있다", () => {
+    /* 두 곳에 동시에 속해 있었다 — "내 자산" 화면의 형제 탭이면서
+       더보기 메뉴에도 들어 있었다. 그래서 내 자산에서 관심종목 탭을
+       누르면 하단 탭이 "내 자산" 에서 "더보기" 로 바뀌었다.
+       화면 위는 "내 자산 | 관심종목" 이라는데 아래는 "더보기" 라고 하니,
+       지금 어디 있는지 앱이 두 가지로 말하는 셈이었다. */
+    expect(더보기_경로).not.toContain("/watchlist");
+    expect(내자산_경로).toContain("/portfolio");
+    expect(내자산_경로).toContain("/watchlist");
+  });
+
+  it("하단 탭의 내 자산이 관심종목에서도 켜진다", () => {
+    /* 더보기에서 뺐으니 어딘가는 켜져야 한다. 안 그러면 관심종목을
+       보는 중에 다섯 탭 중 아무것도 안 켜진다 — 고치려던 것보다 나빠진다 */
+    expect(Layout원문).toMatch(/내자산_경로\.some/);
+    expect(Layout원문).toMatch(/to === "\/portfolio"/);
   });
 
   it("메뉴 목록을 두 벌로 들지 않는다", () => {
@@ -161,7 +179,7 @@ describe("메뉴", () => {
   it("로그인 안 했으면 알림·내 프로필·로그아웃은 안 보인다", async () => {
     로그인함 = false;
     그리기();
-    await screen.findByRole("link", { name: /관심종목/ });
+    await screen.findByRole("link", { name: /스크리닝/ });
     expect(screen.queryByRole("link", { name: /알림/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /내 프로필/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /로그아웃/ })).toBeNull();

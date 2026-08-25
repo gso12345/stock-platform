@@ -2,7 +2,7 @@ import { useState, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Newspaper, RefreshCw } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
-import { Card, Tabs, 빈화면, 못불러옴 } from "@/components/ui";
+import { Tabs, 빈화면, 못불러옴 } from "@/components/ui";
 import { fmtNewsDateTime } from "@/utils/formatters";
 
 type MarketTab = "kr" | "us";
@@ -123,12 +123,11 @@ export default function News() {
 
   return (
     <div className="flex flex-col gap-5 max-w-3xl mx-auto pb-20">
-      {/* 헤더 — 좁은 화면에서는 제목과 버튼을 세로로 쌓는다 (다른 화면과 동일) */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">뉴스</h1>
-          <p className="text-text-muted text-xs mt-0.5 truncate">국내·미국 증시 주요 뉴스</p>
-        </div>
+      {/* 제목을 뺐다.
+          하단 탭이 이미 "뉴스" 라고 말하고 있는데 여기서 또 "뉴스" 라고
+          하고, 아래 카드가 세 번째로 "국내 증시 뉴스" 라고 했다. 같은 말을
+          네 번 하는 자리에 기사가 한 건 더 들어간다. */}
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
           <Tabs
             fill={false}
@@ -149,20 +148,15 @@ export default function News() {
         </div>
       </div>
 
-      {/* 뉴스 목록 */}
-      <Card className="p-0 overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <Newspaper size={14} className="text-text-muted flex-shrink-0" />
-            <span className="text-sm font-semibold text-text-primary truncate">
-              {market === "kr" ? "국내" : "미국"} 증시 뉴스
-            </span>
-            {sorted.length > 0 && (
-              <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full flex-shrink-0">
-                {sorted.length}
-              </span>
-            )}
-          </div>
+      {/* 목록을 카드로 감싸지 않는다.
+          이 화면에는 목록 하나뿐이라 감쌀 것이 없다. 감싸면 테두리가
+          화면 가장자리를 한 번 더 그어서, 목록이 화면 안의 작은 상자처럼
+          보인다. 카드는 성격이 다른 묶음을 가를 때만 쓴다. */}
+      <div>
+        <div className="pb-2 flex items-center justify-between gap-2">
+          <span className="text-xs text-text-muted">
+            {sorted.length > 0 ? `${sorted.length}건` : ""}
+          </span>
           <div className="flex gap-1 flex-shrink-0">
             {(["latest", "popular"] as const).map((s) => (
               <button
@@ -208,7 +202,7 @@ export default function News() {
             hint="언론사에서 기사를 받아오는 중일 수 있습니다. 잠시 후 다시 확인해 주세요."
           />
         )}
-      </Card>
+      </div>
     </div>
   );
 }

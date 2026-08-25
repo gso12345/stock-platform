@@ -336,3 +336,57 @@ describe("공용 Button", () => {
     expect(수, `공용 Button 사용 ${수}곳`).toBeGreaterThanOrEqual(20);
   });
 });
+
+/* ── 글자 크기 ──────────────────────────────────────────────
+ *
+ * 세어 보니 화면에 있는 글자 1,215곳 중 1,108곳(91.2%)이 12px 이하였다.
+ * 16px 넘는 것은 40곳(3.3%), 28px 은 딱 한 곳.
+ *
+ * 크기가 다 같으면 '무엇이 중요한지' 를 눈이 못 알아챈다. 그래서 대신
+ * 테두리와 상자로 구분하려 들고, 화면이 시끄러워진다. 자산 앱이
+ * 조용해 보이는 이유는 반대다 — 총자산 34px, 라벨 12px 로 대비를
+ * 크게 벌려 놓는다.
+ *
+ * 되돌리기 쉬운 변경이라(파일 하나) 지켜 두지 않으면 조용히 되돌아간다.
+ */
+describe("글자 크기", () => {
+  const 설정 = fs.readFileSync(path.resolve(__dirname, "../../../tailwind.config.js"), "utf-8");
+  const 크기 = (이름: string): number => {
+    /* 줄 시작에 고정한다. 안 그러면 "xs" 가 "2xs" 안에서도 걸려서
+       둘이 같은 값으로 읽힌다 — 처음에 그렇게 헛짚었다. */
+    const m = 설정.match(new RegExp(`^\\s*["']?${이름}["']?:\\s*\\[\\s*"([\\d.]+)rem`, "m"));
+    if (!m) throw new Error(`${이름} 크기를 못 찾았다`);
+    return parseFloat(m[1]) * 16;
+  };
+
+  it("숫자 전용 크기가 있다", () => {
+    /* 자산 앱의 정체성은 '숫자가 크다' 는 것인데 그 크기가 아예 없었다 */
+    expect(크기("display")).toBeGreaterThanOrEqual(26);
+    expect(크기("hero")).toBeGreaterThanOrEqual(32);
+  });
+
+  it("가장 작은 글자가 11px 밑으로 안 내려간다", () => {
+    /* 10px 는 휴대폰에서 읽기 힘들다. 라벨이라도 최소선이 있다 */
+    expect(크기("2xs")).toBeGreaterThanOrEqual(11);
+  });
+
+  it("본문이 15px 이상이다", () => {
+    /* 종목명·기사 제목이 여기 들어간다. 13px 로는 목록이 빽빽해 보인다 */
+    expect(크기("base")).toBeGreaterThanOrEqual(15);
+  });
+
+  it("가장 큰 것과 가장 작은 것의 차이가 세 배 이상이다", () => {
+    /* 대비가 위계를 만든다. 예전에는 10px ~ 28px 로 2.8배였고,
+       그나마 28px 은 한 곳에서만 쓰였다 */
+    expect(크기("3xl") / 크기("2xs")).toBeGreaterThanOrEqual(3);
+  });
+
+  it("단계가 작은 것부터 큰 것 순으로 이어진다", () => {
+    /* 중간이 뒤집히면 text-sm 이 text-base 보다 커지는 일이 생긴다 */
+    const 차례 = ["2xs", "xs", "sm", "base", "md", "lg", "xl", "2xl", "3xl"];
+    const 값 = 차례.map(크기);
+    for (let i = 1; i < 값.length; i++) {
+      expect(값[i]).toBeGreaterThan(값[i - 1]);
+    }
+  });
+});
