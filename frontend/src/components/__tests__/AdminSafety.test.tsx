@@ -12,13 +12,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import 원본 from "../../pages/Admin.tsx?raw";
+import { 관리자원문 } from "./관리자원문";
 import 시스템원본 from "../admin/SystemTab.tsx?raw";
 import ConfirmDialog from "../ui/ConfirmDialog";
 
 const 코드만 = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-const 코드 = 코드만(원본);
+const 코드 = 코드만(관리자원문());
 const 시스템 = 코드만(시스템원본);
 
 describe("확인 창", () => {

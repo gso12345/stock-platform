@@ -14,9 +14,14 @@ import 본문 from "../../pages/StockDetail.tsx?raw";
 import 재무제표탭 from "../stock/FinancialTab.tsx?raw";
 import 투자의견탭 from "../stock/AnalystTab.tsx?raw";
 import 작은부품 from "../stock/DetailBits.tsx?raw";
+import 뉴스탭 from "../stock/NewsTab.tsx?raw";
+import 일별탭 from "../stock/DailyTab.tsx?raw";
+import 보유비중탭 from "../stock/EtfHoldingsTab.tsx?raw";
 
 /** 화면을 이루는 모든 파일을 이어 붙인 것 */
-export const 종목상세원문 = [본문, 재무제표탭, 투자의견탭, 작은부품].join("\n");
+export const 종목상세원문 = [
+  본문, 재무제표탭, 투자의견탭, 작은부품, 뉴스탭, 일별탭, 보유비중탭,
+].join("\n");
 
 /** 본문 파일만 (파일 크기·lazy 처럼 '어느 파일인가' 가 뜻을 갖는 검사용) */
 export const 종목상세본문 = 본문;

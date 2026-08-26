@@ -23,7 +23,7 @@ import pytest
 # 모듈로 import 하지 않고 파일로 읽는다 — 이건 구조 검사라 앱 전체를
 # 띄울 필요가 없고, fastapi 가 없는 환경에서도 돌아야 한다.
 _소스 = (pathlib.Path(__file__).resolve().parents[1]
-         / "app" / "api" / "routes" / "stocks.py").read_text(encoding="utf-8")
+         / "app" / "api" / "routes" / "stocks" / "flows.py").read_text(encoding="utf-8")
 
 
 def _보유비중구간() -> str:

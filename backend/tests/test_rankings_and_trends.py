@@ -170,8 +170,8 @@ class Test스레드가_쌓이지_않는다:
         요청 시한이 없어서 야후가 늦으면 그 스레드는 영영 살아 있는다.
         실제로 요청 10번에 스레드 61개가 남았고, 종목상세를 10분쯤
         돌아다니면 512MB 한도를 넘겨 프로세스가 강제 재시작됐다."""
-        from app.api.routes import stocks
-        나무 = ast.parse(inspect.getsource(stocks))
+        from 도구 import 종목라우트_원문
+        나무 = ast.parse(종목라우트_원문())
         만드는곳 = [
             ast.unparse(n) for n in ast.walk(나무)
             if isinstance(n, ast.Call)

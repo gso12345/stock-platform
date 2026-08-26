@@ -10,10 +10,11 @@
  *  아래 '질의 배선' 묶음에서 본다)
  */
 import { describe, it, expect } from "vitest";
-import 원본 from "../../pages/StockDetail.tsx?raw";
+import { 종목상세원문 } from "./stockDetailSource";
 import { isETFStock } from "../../utils/etf";
 
-const 코드 = 원본.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+/* 화면이 여러 파일로 쪼개져 있다. 본문만 읽으면 옮겨 간 것을 놓친다 */
+const 코드 = 종목상세원문.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 describe("1. 재무제표 서브탭은 알약 모양으로 둔다", () => {
   it("알약 모양이 유지된다", () => {

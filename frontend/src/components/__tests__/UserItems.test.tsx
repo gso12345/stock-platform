@@ -8,14 +8,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import 원본 from "../../pages/Admin.tsx?raw";
+import { 관리자원문 } from "./관리자원문";
 
 const get = vi.fn();
 vi.mock("@/api/client", () => ({ default: { get: (...a: any[]) => get(...a) } }));
 
 import UserItemsPanel from "../admin/UserItemsPanel";
 
-const 코드 = 원본.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+const 코드 = 관리자원문().replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 const 감싸기 = (ui: React.ReactNode) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

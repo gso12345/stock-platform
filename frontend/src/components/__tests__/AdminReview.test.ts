@@ -16,14 +16,16 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 
-const 뿌리 = path.resolve(__dirname, "../..");
+import { 관리자원문 } from "./관리자원문";
+
 const 백엔드 = path.resolve(__dirname, "../../../../backend");
-const 소스 = (rel: string) => fs.readFileSync(path.join(뿌리, rel), "utf-8");
 const 코드만 = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")
    .replace(/"""[\s\S]*?"""/g, "").replace(/^\s*#.*$/gm, "");
 
-const 화면 = 코드만(소스("pages/Admin.tsx"));
+/* 관리자 화면은 파일 아홉 개로 쪼개져 있다. 본체만 읽으면 검사가
+   통과하면서 아무것도 안 지키게 된다 — 전부 이어 붙여서 본다 */
+const 화면 = 코드만(관리자원문());
 const 서버 = 코드만(fs.readFileSync(path.join(백엔드, "app/api/routes/admin.py"), "utf-8"));
 
 describe("조회가 실패하면 화면이 말한다", () => {

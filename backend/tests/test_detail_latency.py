@@ -27,7 +27,8 @@ from pathlib import Path
 
 import pytest
 
-_SRC = Path(__file__).resolve().parents[1] / "app" / "api" / "routes" / "stocks.py"
+# 종목 라우트는 파일 일곱 개로 쪼개져 있다. get_stock_detail 은 price 조각에 있다
+_SRC = Path(__file__).resolve().parents[1] / "app" / "api" / "routes" / "stocks" / "price.py"
 
 
 @pytest.fixture(scope="module")

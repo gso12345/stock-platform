@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-_SRC = Path(__file__).resolve().parents[1] / "app" / "api" / "routes" / "stocks.py"
+_SRC = Path(__file__).resolve().parents[1] / "app" / "api" / "routes" / "stocks" / "price.py"
 
 
 def _목록(이름: str) -> list[str]:

@@ -17,8 +17,11 @@ import ast
 import pathlib
 import re
 
-_주식 = (pathlib.Path(__file__).resolve().parents[1]
-         / "app" / "api" / "routes" / "stocks.py").read_text(encoding="utf-8")
+from 도구 import 종목라우트_원문
+
+# 종목 라우트는 파일 일곱 개로 쪼개져 있다. 조각 하나만 보면 나머지에서
+# 되살아난 것을 놓친다 — 전부 이어 붙여서 본다
+_주식 = 종목라우트_원문()
 _커뮤 = (pathlib.Path(__file__).resolve().parents[1]
          / "app" / "api" / "routes" / "community.py").read_text(encoding="utf-8")
 

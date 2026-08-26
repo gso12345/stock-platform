@@ -54,7 +54,10 @@ class TestDB캐시:
 
         def 야후는_부르면_안된다(*a, **k):
             raise AssertionError("DB 에 있는데 야후를 불렀다")
-        monkeypatch.setattr(stocks, "_resolve_kr_symbol", 야후는_부르면_안된다)
+        # 이름을 찾는 곳에 붙여야 한다. get_metrics_history 는 metrics
+        # 조각에 있으므로 패키지(stocks)에 붙이면 아무 일도 안 일어난다
+        from app.api.routes.stocks import metrics as _metrics
+        monkeypatch.setattr(_metrics, "_resolve_kr_symbol", 야후는_부르면_안된다)
 
         class 가짜요청:
             class client:
@@ -113,7 +116,8 @@ class Test요청마다_새_스레드풀을_안_만든다:
     시한을 넘긴 작업의 스레드가 그대로 쌓인다."""
 
     def test_공용_풀만_쓴다(self):
-        나무 = ast.parse(inspect.getsource(stocks))
+        from 도구 import 종목라우트_원문
+        나무 = ast.parse(종목라우트_원문())
         만듦 = [ast.unparse(n) for n in ast.walk(나무)
                 if isinstance(n, ast.Call) and "ThreadPoolExecutor" in ast.unparse(n.func)]
         assert not 만듦, 만듦

@@ -10,7 +10,7 @@ import pytest
 
 from app.core.cache import cache
 from app.api.routes.dashboard import _news_tab
-from app.api.routes.stocks import _sort_and_clean_news
+from app.api.routes.stocks.news import _sort_and_clean_news
 
 
 def article(title, *, image=None, ts=0, score=0):
