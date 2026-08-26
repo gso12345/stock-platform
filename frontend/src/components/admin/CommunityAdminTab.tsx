@@ -10,6 +10,7 @@ import { Tabs, RowSkeleton, 못불러옴 } from "@/components/ui";
 import PostLikesModal from "@/components/admin/PostLikesModal";
 
 import { adminApi, MARKET_COLOR_MAP } from "@/components/admin/adminApi";
+import Pagination from "@/components/ui/Pagination";
 
 /* ─────────────────────────── 커뮤니티 관리 탭 ─────────────────────────── */
 
@@ -183,15 +184,7 @@ export function PostsAdminSection({ qc }: { qc: QueryClient }) {
       </div>
 
       {/* 페이지네이션 */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">이전</button>
-          <span className="text-xs text-text-muted px-2">{page} / {totalPages}</span>
-          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">다음</button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       {/* 삭제 확인 팝업 */}
       {confirmDelete !== null && (
@@ -339,15 +332,7 @@ export function CommentsAdminSection({ qc }: { qc: QueryClient }) {
         )}
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">이전</button>
-          <span className="text-xs text-text-muted px-2">{page} / {totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">다음</button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       {confirmDelete !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"

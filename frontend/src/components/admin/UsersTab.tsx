@@ -11,6 +11,7 @@ import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import UserItemsPanel, { 항목이름, type 항목종류 } from "@/components/admin/UserItemsPanel";
 
 import { adminApi, MARKET_COLOR_MAP } from "@/components/admin/adminApi";
+import Pagination from "@/components/ui/Pagination";
 
 /* ─────────────────────────── 유저 관리 탭 ─────────────────────────── */
 export function UsersTab({ qc }: { qc: QueryClient }) {
@@ -157,15 +158,7 @@ export function UsersTab({ qc }: { qc: QueryClient }) {
       )}
 
       {/* 페이지네이션 */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">이전</button>
-          <span className="text-xs text-text-muted px-2">{page} / {totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 transition-all">다음</button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       {/* 유저 상세 모달 */}
       {detailUserId !== null && (

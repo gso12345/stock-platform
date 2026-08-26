@@ -16,6 +16,7 @@ import { compressImage } from "@/utils/image";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { timeAgo } from "@/utils/formatters";
+import Pagination from "@/components/ui/Pagination";
 
 // ── 타입 ──────────────────────────────────────────────────────────
 interface PollData {
@@ -895,48 +896,7 @@ export default function CommunityTab({ market, symbol }: { market: string; symbo
       )}
 
       {/* 페이지네이션 */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 py-1">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-          >
-            이전
-          </button>
-          <div className="flex items-center gap-1">
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              const p =
-                page <= 3
-                  ? i + 1
-                  : page >= totalPages - 2
-                  ? totalPages - 4 + i
-                  : page - 2 + i;
-              if (p < 1 || p > totalPages) return null;
-              return (
-                <button
-                  key={p}
-                  onClick={() => setPage(p)}
-                  className={`w-7 h-7 rounded-lg text-xs transition-all ${
-                    p === page
-                      ? "bg-accent-blue text-white font-semibold"
-                      : "text-text-dim hover:text-text-primary border border-border"
-                  }`}
-                >
-                  {p}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="px-3 py-1.5 rounded-xl text-xs text-text-muted border border-border hover:border-accent-blue/50 hover:text-accent-blue disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-          >
-            다음
-          </button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} numbered className="py-1" />
 
       {/* 브라우저 기본 confirm 을 걷어냈다. 앱 모양과 따로 놀고,
           어느 글을 지우는지 보여 줄 수 없었다 */}

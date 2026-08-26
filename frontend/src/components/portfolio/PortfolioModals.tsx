@@ -7,6 +7,7 @@ import type { AssetClass } from "@/utils/assetClass";
 import { BuyInfoFields, type BuyInfoValue } from "./BuyInfoFields";
 import type { Market, Currency, PortfolioItem, PortfolioMeta } from "@/types/portfolio";
 import { ReorderableList } from "@/components/common/ReorderableList";
+import ModalFooter from "@/components/ui/ModalFooter";
 
 
 export const MKTCOLOR: Record<string, string> = {
@@ -195,16 +196,11 @@ export function PortfolioModal({
                 오류: {saveError}
               </p>
             )}
-            <div className="flex gap-2 px-5 py-4 border-t border-border">
-              <button onClick={onClose} disabled={isSaving}
-                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                취소
-              </button>
-              <button onClick={handleSave} disabled={!canSave || isSaving}
-                className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-accent-blue transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                {isSaving ? "저장 중..." : "저장"}
-              </button>
-            </div>
+            <ModalFooter
+              onCancel={onClose} onConfirm={handleSave}
+              진행중={isSaving} 확인가능={canSave}
+              확인글={isSaving ? "저장 중..." : "저장"}
+            />
           </>
         )}
     </Modal>
@@ -318,16 +314,11 @@ export function CashModal({
             오류: {saveError}
           </p>
         )}
-        <div className="flex gap-2 px-5 py-4 border-t border-border">
-          <button onClick={onClose} disabled={isSaving}
-            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            취소
-          </button>
-          <button onClick={handleSave} disabled={!canSave || isSaving}
-            className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-accent-blue transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            {isSaving ? "저장 중..." : "저장"}
-          </button>
-        </div>
+        <ModalFooter
+          onCancel={onClose} onConfirm={handleSave}
+          진행중={isSaving} 확인가능={canSave}
+          확인글={isSaving ? "저장 중..." : "저장"}
+        />
     </Modal>
   );
 }

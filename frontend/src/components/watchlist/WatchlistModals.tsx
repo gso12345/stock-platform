@@ -9,6 +9,7 @@ import { BuyInfoFields, type BuyInfoValue } from "@/components/portfolio/BuyInfo
 import { extractErrorMessage } from "@/utils/errors";
 import { normalizeSymbol } from "@/utils/prices";
 import { ReorderableList } from "@/components/common/ReorderableList";
+import ModalFooter from "@/components/ui/ModalFooter";
 
 
 export function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
@@ -359,16 +360,11 @@ export function AddToPortfolioModal({
         </p>
       )}
 
-      <div className="flex gap-2 px-5 py-4 border-t border-border">
-        <button onClick={onClose} disabled={saving}
-          className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-          취소
-        </button>
-        <button onClick={handleSave} disabled={!canSave || saving}
-          className="flex-1 px-4 py-2 text-sm font-semibold rounded-lg bg-accent-blue text-white hover:bg-accent-blue transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-          {saving ? "추가 중..." : "추가"}
-        </button>
-      </div>
+      <ModalFooter
+        onCancel={onClose} onConfirm={handleSave}
+        진행중={saving} 확인가능={canSave}
+        확인글={saving ? "추가 중..." : "추가"}
+      />
     </Modal>
   );
 }
