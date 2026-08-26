@@ -11,7 +11,7 @@
  *   3) 달러와 원을 그냥 더하면 완전히 틀린 숫자가 된다.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DividendCalendar, { 날짜글, 어림날짜글, 남은날 }
   from "@/components/portfolio/DividendCalendar";
@@ -33,10 +33,10 @@ const 줄 = (덮: Partial<배당줄> = {}): 배당줄 => ({
   recent: [], ...덮,
 });
 
-function 그리기() {
+function 그리기(props: React.ComponentProps<typeof DividendCalendar> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}><DividendCalendar /></QueryClientProvider>,
+    <QueryClientProvider client={qc}><DividendCalendar {...props} /></QueryClientProvider>,
   );
 }
 
@@ -158,6 +158,13 @@ describe("아직 못 받은 것", () => {
     expect(await screen.findByText(/배당을 주는 종목이 아직 없어요/)).toBeInTheDocument();
   });
 
+  it("한 포트폴리오만 볼 때는 그 포트폴리오 이야기라고 한다", async () => {
+    /* '전체' 를 보고 있는데 '이 포트폴리오에는' 이라고 하면 틀린 말이다 */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [], pending: 0 });
+    그리기({ portfolioId: 7, 이름: "연금저축" });
+    expect(await screen.findByText(/이 포트폴리오에는/)).toBeInTheDocument();
+  });
+
   it("불러오기에 실패하면 다시 시도할 수 있다", async () => {
     vi.mocked(portfolioApi.getDividends).mockRejectedValue(new Error("서버 오류"));
     그리기();
@@ -181,11 +188,48 @@ describe("순서", () => {
     expect(이름들).toEqual(["애플", "삼성전자"]);
   });
 
-  it("자산 화면에 붙어 있다", async () => {
+  it("자산 화면에 붙어 있고 지금 고른 포트폴리오를 넘긴다", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const 글 = fs.readFileSync(
       path.resolve(__dirname, "../../../pages/Portfolio.tsx"), "utf-8");
-    expect(글).toContain("isLoggedIn && items.length > 0 && <DividendCalendar />");
+    expect(글).toContain("<DividendCalendar");
+    /* 탭을 바꿔도 배당 목록이 그대로면 '전체' 와 구분이 안 된다 */
+    expect(글).toContain("portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)}");
+  });
+});
+
+
+describe("포트폴리오별로 나눠 본다", () => {
+  it("고른 포트폴리오만 물어본다", async () => {
+    /* 예전에는 가진 것 전부 + 관심종목까지 한꺼번에 보여 줬다.
+       탭이 여럿인 사람에게는 어느 계좌의 배당인지 알 수 없었다. */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [줄()], pending: 0 });
+    그리기({ portfolioId: 7, 이름: "연금저축" });
+    await waitFor(() => expect(portfolioApi.getDividends).toHaveBeenCalledWith(7));
+  });
+
+  it("전체 보기에서는 아무것도 안 넘긴다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [줄()], pending: 0 });
+    그리기();
+    await waitFor(() => expect(portfolioApi.getDividends).toHaveBeenCalledWith(undefined));
+  });
+
+  it("무엇의 배당인지 제목에 적는다", async () => {
+    /* 탭을 바꾸면 목록도 바뀐다. 안 적으면 '왜 아까랑 다르지' 가 된다 */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [줄()], pending: 0 });
+    그리기({ portfolioId: 7, 이름: "연금저축" });
+    expect(await screen.findByText("연금저축")).toBeInTheDocument();
+  });
+
+  it("포트폴리오를 바꾸면 다시 물어본다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [줄()], pending: 0 });
+    const { rerender } = 그리기({ portfolioId: 7 });
+    await waitFor(() => expect(portfolioApi.getDividends).toHaveBeenCalledWith(7));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    rerender(
+      <QueryClientProvider client={qc}><DividendCalendar portfolioId={9} /></QueryClientProvider>,
+    );
+    await waitFor(() => expect(portfolioApi.getDividends).toHaveBeenCalledWith(9));
   });
 });

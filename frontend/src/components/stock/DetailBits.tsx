@@ -39,7 +39,7 @@ export function PeriodToggle({ finPeriod, setFinPeriod }: {
     <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary">
       {(["annual","quarterly"] as const).map(k=>(
         <button key={k} onClick={()=>setFinPeriod(k)}
-          className={`px-2.5 py-1 text-sm font-semibold rounded-md transition-all ${finPeriod===k?"bg-accent-blue text-white":"text-text-muted"}`}>
+          className={`px-2.5 py-1 text-sm font-semibold rounded-lg transition-all ${finPeriod===k?"bg-accent-blue text-white":"text-text-muted"}`}>
           {k==="annual"?"연간":"분기"}
         </button>
       ))}

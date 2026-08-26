@@ -51,10 +51,15 @@ export function 남은날(day: string, 오늘 = new Date()): number {
   return Math.round((그날.getTime() - 기준.getTime()) / 86_400_000);
 }
 
-export default function DividendCalendar() {
+export default function DividendCalendar({ portfolioId, 이름 }: {
+  /** 지금 보고 있는 포트폴리오. 없으면(전체 보기) 가진 것 전부 */
+  portfolioId?: number;
+  /** 포트폴리오 이름 — 무엇의 배당인지 제목에 밝힌다 */
+  이름?: string;
+}) {
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["dividend-calendar"],
-    queryFn: () => portfolioApi.getDividends(),
+    queryKey: ["dividend-calendar", portfolioId ?? "all"],
+    queryFn: () => portfolioApi.getDividends(portfolioId),
     staleTime: 600_000,
   });
 
@@ -79,6 +84,9 @@ export default function DividendCalendar() {
       <div className="flex items-center gap-1.5">
         <CalendarDays size={14} className="text-accent-green" />
         <span className="text-sm font-semibold text-text-primary">배당 달력</span>
+        {/* 탭을 바꾸면 목록도 바뀐다. 무엇의 배당인지 안 적으면
+            '왜 아까랑 다르지' 가 된다 */}
+        {이름 && <span className="text-2xs text-text-dim truncate">{이름}</span>}
         {아직 > 0 && (
           <span className="text-2xs text-text-dim">{아직}개 확인 중</span>
         )}
@@ -95,7 +103,10 @@ export default function DividendCalendar() {
       <p className="py-4 text-center text-xs text-text-dim break-keep">
         {아직 > 0
           ? "배당 일정을 확인하는 중이에요. 잠시 뒤 다시 열어 보세요."
-          : "배당을 주는 종목이 아직 없어요."}
+          /* '전체' 를 보고 있는데 '이 포트폴리오에는' 이라고 하면 틀린 말이다 */
+          : portfolioId
+            ? "이 포트폴리오에는 배당을 주는 종목이 없어요."
+            : "배당을 주는 종목이 아직 없어요."}
       </p>,
     );
   }

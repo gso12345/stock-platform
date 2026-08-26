@@ -115,7 +115,7 @@ export function ConditionBuilder({ label, color = "blue", group, onChange }: Pro
               <button
                 key={l}
                 onClick={() => onChange({ ...group, logic: l })}
-                className={`px-2 py-0.5 text-xs font-bold rounded-md transition-all ${
+                className={`px-2 py-0.5 text-xs font-bold rounded-lg transition-all ${
                   group.logic === l ? "bg-accent-blue text-white" : "text-text-muted"
                 }`}
               >

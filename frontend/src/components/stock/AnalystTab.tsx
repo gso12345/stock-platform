@@ -378,7 +378,7 @@ export default function 투자의견탭({
               <div className="flex gap-1 p-0.5 rounded-lg border border-border bg-bg-primary w-fit">
                 {(["annual","quarterly"] as const).map(k => (
                   <button key={k} onClick={() => setConsensusPeriod(k)}
-                    className={`px-3 py-1 text-sm font-semibold rounded-md transition-all ${consensusPeriod===k?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
+                    className={`px-3 py-1 text-sm font-semibold rounded-lg transition-all ${consensusPeriod===k?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
                     {k==="annual" ? "연간" : "분기"}
                   </button>
                 ))}

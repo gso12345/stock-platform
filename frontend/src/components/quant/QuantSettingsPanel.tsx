@@ -78,7 +78,7 @@ export default function QuantSettingsPanel({
                 const v = Number(e.target.value);
                 if (!Number.isNaN(v)) onUpdateWeight(k, Math.max(0, Math.min(100, v)));
               }}
-              className="w-12 text-right text-sm font-mono text-text-primary flex-shrink-0 rounded-md border border-border bg-bg-primary px-1.5 py-0.5 focus:outline-none focus:border-accent-blue"
+              className="w-12 text-right text-sm font-mono text-text-primary flex-shrink-0 rounded-lg border border-border bg-bg-primary px-1.5 py-0.5 focus:outline-none focus:border-accent-blue"
             />
           </div>
         ))}

@@ -1261,7 +1261,7 @@ export default function StockDetail() {
                           setOpenGroup(null);
                         }
                       }}
-                      className={`px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                      className={`px-2.5 py-1 text-sm rounded-lg font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
                     >
                       {isActive ? (currentOpt?.label ?? group.label) : group.label}
                     </button>
@@ -1270,7 +1270,7 @@ export default function StockDetail() {
                         {group.options.map(opt => (
                           <button key={opt.value}
                             onClick={() => { onCandleChange(opt.value); setOpenGroup(null); }}
-                            className={`px-3 py-1.5 text-sm rounded-md font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
+                            className={`px-3 py-1.5 text-sm rounded-lg font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
                           >{opt.label}</button>
                         ))}
                       </div>
@@ -1307,7 +1307,7 @@ export default function StockDetail() {
                 { value:"area",   label:"영역",  Icon: AreaChart },
               ] as const).map(({ value, label, Icon })=>(
                 <button key={value} aria-pressed={chartType===value} onClick={()=>setChartType(value)}
-                  className={`flex items-center gap-1 px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                  className={`flex items-center gap-1 px-2.5 py-1 text-sm rounded-lg font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
                 >
                   <Icon size={11}/>{label}
                 </button>
@@ -1398,7 +1398,7 @@ export default function StockDetail() {
                             setOpenGroup(null);
                           }
                         }}
-                        className={`px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                        className={`px-2.5 py-1 text-sm rounded-lg font-semibold transition-all ${isActive ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
                       >
                         {isActive ? (currentOpt?.label ?? group.label) : group.label}
                       </button>
@@ -1407,7 +1407,7 @@ export default function StockDetail() {
                           {group.options.map(opt => (
                             <button key={opt.value}
                               onClick={() => { onCandleChange(opt.value); setOpenGroup(null); }}
-                              className={`px-3 py-1.5 text-sm rounded-md font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
+                              className={`px-3 py-1.5 text-sm rounded-lg font-semibold whitespace-nowrap transition-all ${candleType === opt.value ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"}`}
                             >{opt.label}</button>
                           ))}
                         </div>
@@ -1419,7 +1419,7 @@ export default function StockDetail() {
               <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
                 {([{value:"candle",label:"캔들"},{value:"line",label:"라인"},{value:"area",label:"영역"}] as const).map(({value,label})=>(
                   <button key={value} aria-pressed={chartType===value} onClick={()=>setChartType(value)}
-                    className={`px-2.5 py-1 text-sm rounded-md font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                    className={`px-2.5 py-1 text-sm rounded-lg font-semibold transition-all ${chartType===value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
                   >{label}</button>
                 ))}
               </div>

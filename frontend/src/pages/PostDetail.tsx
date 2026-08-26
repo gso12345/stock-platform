@@ -1027,7 +1027,7 @@ export default function PostDetail() {
               <div className="flex items-center gap-0.5 bg-bg-elevated rounded-lg p-0.5">
                 {(["latest", "popular"] as const).map(s => (
                   <button key={s} onClick={() => setCommentSort(s)}
-                    className={`text-2xs px-2.5 py-1 rounded-md transition-all font-medium ${
+                    className={`text-2xs px-2.5 py-1 rounded-lg transition-all font-medium ${
                       commentSort === s ? "bg-bg-card text-text-primary shadow-card" : "text-text-dim hover:text-text-secondary"
                     }`}>
                     {s === "latest" ? "최신순" : "인기순"}

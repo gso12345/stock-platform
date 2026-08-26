@@ -16,11 +16,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import AssetHistory from "@/components/portfolio/AssetHistory";
-import { portfolioApi } from "@/api/stocks";
+import AssetHistory, { 견주기 } from "@/components/portfolio/AssetHistory";
+import { portfolioApi, dashboardApi } from "@/api/stocks";
 
 vi.mock("@/api/stocks", () => ({
   portfolioApi: { getHistory: vi.fn() },
+  dashboardApi: { getIndexOHLCV: vi.fn() },
 }));
 
 /* recharts 는 jsdom 에서 폭이 0 이라 아무것도 안 그린다. 넘겨받은
@@ -75,7 +76,14 @@ function 그리기() {
 const 점 = (day: string, value: number, cost = 900_000) =>
   ({ day, value, cost, filled: 1, priced: 1 });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([]);
+});
+
+/** 지수 종가 한 줄 */
+const 봉 = (date: string, close: number) =>
+  ({ date, open: close, high: close, low: close, close, volume: 0 });
 
 
 describe("기록이 아직 없을 때", () => {
@@ -161,5 +169,131 @@ describe("자산 화면에 붙어 있다", () => {
     const 글 = fs.readFileSync(
       path.resolve(__dirname, "../../../pages/Portfolio.tsx"), "utf-8");
     expect(글).toContain("isLoggedIn && items.length > 0 && <AssetHistory />");
+  });
+});
+
+describe("벤치마크 견주기", () => {
+  const 점 = (day: string, value: number) =>
+    ({ day, value, cost: 900_000, filled: 1, priced: 1 });
+
+  it("둘 다 첫날 대비 %로 바꾼다", () => {
+    /* 원화 금액과 지수 포인트는 단위가 달라 한 축에 못 올린다.
+       그대로 겹치면 자산 선이 바닥에 붙어 아무것도 안 보인다. */
+    const 결과 = 견주기(
+      [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)],
+      [봉("2026-08-01", 2500), 봉("2026-08-02", 2600)],
+    );
+    expect(결과[0].내수익).toBeCloseTo(0);
+    expect(결과[0].지수수익).toBeCloseTo(0);
+    expect(결과[1].내수익).toBeCloseTo(10);
+    expect(결과[1].지수수익).toBeCloseTo(4);
+  });
+
+  it("장이 안 선 날은 직전 종가를 쓴다", () => {
+    /* 지수는 평일만 있고 내 기록은 주말에도 있다. 날짜가 안 맞는다고
+       그날을 비우면 선이 끊겨 보인다 */
+    const 결과 = 견주기(
+      [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_050_000), 점("2026-08-03", 1_100_000)],
+      [봉("2026-08-01", 2500), 봉("2026-08-03", 2600)],   // 8/2 휴장
+    );
+    /* toBeCloseTo 는 null 을 0 처럼 받아 준다. 휴장일 처리를 지워도
+       통과해 버리므로 '값이 있다' 를 먼저 못 박는다 */
+    expect(결과[1].지수수익).not.toBeNull();
+    expect(결과[1].지수수익).toBeCloseTo(0);      // 8/1 종가를 그대로
+    expect(결과[2].지수수익).toBeCloseTo(4);
+  });
+
+  it("기록이 지수보다 앞서면 겹치는 날부터 견준다", () => {
+    /* 내 기록의 첫날을 기준으로 잡으면, 지수 범위가 그보다 늦게
+       시작할 때 비교가 통째로 사라진다 — 사용자에게는 '눌렀는데
+       아무 일도 안 일어남' 으로 보인다.
+
+       그리고 겹치기 전 날은 0으로 안 채운다. 0을 넣으면
+       '그날 안 움직였다' 는 거짓말이 된다. */
+    const 결과 = 견주기(
+      [점("2026-08-01", 1_000_000), 점("2026-08-03", 1_000_000), 점("2026-08-05", 1_100_000)],
+      [봉("2026-08-03", 2500), 봉("2026-08-05", 2600)],   // 기록이 지수보다 앞선다
+    );
+    expect(결과[0].지수수익).toBeNull();      // 겹치기 전 — 비운다
+    expect(결과[1].지수수익).not.toBeNull();
+    expect(결과[1].지수수익).toBeCloseTo(0);  // 기준일
+    expect(결과[2].지수수익).toBeCloseTo(4);
+    // 내 자산도 같은 기준일(8/3)에서 잰다
+    expect(결과[1].내수익).toBeCloseTo(0);
+    expect(결과[2].내수익).toBeCloseTo(10);
+  });
+
+  it("겹치는 날이 아예 없으면 비교를 안 한다", () => {
+    const 원본 = [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)];
+    const 결과 = 견주기(원본, [봉("2026-09-01", 2500)]);   // 지수가 통째로 뒤
+    expect(결과[0].지수수익).toBeUndefined();
+  });
+
+  it("지수가 없으면 원래 점을 그대로 돌려준다", () => {
+    const 원본 = [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)];
+    expect(견주기(원본, undefined)).toEqual(원본.map((p) => ({ ...p })));
+    expect(견주기(원본, [])).toEqual(원본.map((p) => ({ ...p })));
+  });
+});
+
+
+describe("벤치마크 화면", () => {
+  const 점들 = [
+    { day: "2026-08-01", value: 1_000_000, cost: 900_000, filled: 1, priced: 1 },
+    { day: "2026-08-02", value: 1_100_000, cost: 900_000, filled: 1, priced: 1 },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
+  });
+
+  it("처음에는 지수를 안 받는다 — 안 고른 사람에게 왕복을 태우지 않는다", async () => {
+    그리기();
+    await screen.findByTestId("차트");
+    expect(dashboardApi.getIndexOHLCV).not.toHaveBeenCalled();
+  });
+
+  it("지수를 고르면 그때 받는다", async () => {
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    await waitFor(() => expect(dashboardApi.getIndexOHLCV)
+      .toHaveBeenCalledWith("KOSPI", "3mo", "1d"));
+  });
+
+  it("견줄 때는 원금 대신 지수를 그린다", async () => {
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    /* 금액 축(cost/value)과 % 축(지수수익/내수익)을 섞으면 안 된다 */
+    await waitFor(() => expect(screen.getByTestId("선들"))
+      .toHaveTextContent("지수수익,내수익"));
+  });
+
+  it("이겼는지 졌는지 글로도 적는다", async () => {
+    /* 선 두 개가 붙어 있으면 눈으로는 어느 쪽이 이겼는지 잘 안 보인다 */
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    // 내 자산 +10%, 코스피 +4% → 6%p 앞섬
+    expect(await screen.findByText(/앞섬 6.00%p/)).toBeInTheDocument();
+  });
+
+  it("'없음' 으로 되돌리면 다시 금액으로 그린다", async () => {
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("지수수익,내수익"));
+    await userEvent.click(screen.getByRole("button", { name: "없음" }));
+    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("cost,value"));
   });
 });

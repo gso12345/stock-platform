@@ -210,6 +210,66 @@ describe("거는 쪽 — 종목 상세의 종", () => {
     await waitFor(() => expect(alertsApi.deleteAlert).toHaveBeenCalledWith(5));
   });
 
+  it("누른 즉시 화면이 바뀐다 — 서버를 안 기다린다", async () => {
+    /* 무료 플랜 서버는 한 번 다녀오는 데 수백 ms~몇 초다. 예전에는
+       바꿔 달라고 한 뒤 목록을 통째로 다시 받아서 그걸 두 번 기다렸다.
+       알림 스위치는 '눌렀는데 반응이 없다' 가 제일 나쁜 지연이다 —
+       사람은 안 눌렸다고 생각하고 한 번 더 누른다. */
+    vi.mocked(alertsApi.getAlerts).mockResolvedValue({
+      items: [{ id: 5, symbol: "005930", market: "KR", name: "삼성전자", direction: "above",
+                target: 80_000, made_at_price: 79_000, is_active: true, fired_at: null, fired_price: null }],
+      limit: 30,
+    });
+    // 서버가 영영 안 끝나는 상황
+    vi.mocked(alertsApi.deleteAlert).mockImplementation(() => new Promise(() => {}));
+    그리기();
+    await 열기();
+    await screen.findByText("80,000원 이상");
+
+    await userEvent.click(screen.getByRole("button", { name: "알림 지우기" }));
+    // 서버 응답이 오기 전에 이미 사라져 있어야 한다
+    expect(screen.queryByText("80,000원 이상")).not.toBeInTheDocument();
+  });
+
+  it("서버가 거절하면 화면을 되돌린다", async () => {
+    /* 낙관적으로 고치는 대신, 틀렸을 때 반드시 되돌려야 한다.
+       안 그러면 지워진 줄 알았던 알림이 다음에 그대로 울린다. */
+    vi.mocked(alertsApi.getAlerts).mockResolvedValue({
+      items: [{ id: 5, symbol: "005930", market: "KR", name: "삼성전자", direction: "above",
+                target: 80_000, made_at_price: 79_000, is_active: true, fired_at: null, fired_price: null }],
+      limit: 30,
+    });
+    vi.mocked(alertsApi.deleteAlert).mockRejectedValue(new Error("서버 오류"));
+    그리기();
+    await 열기();
+    await screen.findByText("80,000원 이상");
+
+    await userEvent.click(screen.getByRole("button", { name: "알림 지우기" }));
+    await waitFor(() => expect(screen.getByText("80,000원 이상")).toBeInTheDocument());
+  });
+
+  it("바꾼 뒤에 목록을 다시 받지 않는다", async () => {
+    /* 다시 받으면 왕복이 두 번이 되어 아끼려던 것이 되살아난다 */
+    vi.mocked(alertsApi.getAlerts).mockResolvedValue({
+      items: [{ id: 5, symbol: "005930", market: "KR", name: "삼성전자", direction: "above",
+                target: 80_000, made_at_price: 79_000, is_active: true, fired_at: null, fired_price: null }],
+      limit: 30,
+    });
+    vi.mocked(alertsApi.toggleAlert).mockResolvedValue({
+      id: 5, symbol: "005930", market: "KR", name: "삼성전자", direction: "above",
+      target: 80_000, made_at_price: 79_000, is_active: false, fired_at: null, fired_price: null,
+    });
+    그리기();
+    await 열기();
+    await screen.findByRole("switch", { name: "80,000원 이상 알림" });
+    const 처음조회수 = vi.mocked(alertsApi.getAlerts).mock.calls.length;
+
+    await userEvent.click(screen.getByRole("switch", { name: "80,000원 이상 알림" }));
+    await waitFor(() => expect(alertsApi.toggleAlert).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 60));
+    expect(vi.mocked(alertsApi.getAlerts).mock.calls.length).toBe(처음조회수);
+  });
+
   it("미국 종목은 달러로 보여 준다", async () => {
     vi.mocked(alertsApi.getAlerts).mockResolvedValue({
       items: [{ id: 1, symbol: "NVDA", market: "US", name: "NVIDIA", direction: "above",

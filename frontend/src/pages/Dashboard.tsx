@@ -184,7 +184,7 @@ const NewsPanel = memo(function NewsPanel({
       <div className="flex gap-1 p-0.5 mb-1">
         {(["latest","popular"] as const).map(s=>(
           <button key={s} onClick={()=>onSortChange(s)}
-            className={`px-2.5 py-1 text-2xs rounded-md font-semibold transition-all ${sort===s?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
+            className={`px-2.5 py-1 text-2xs rounded-lg font-semibold transition-all ${sort===s?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}>
             {s==="latest"?"최신순":"인기순"}
           </button>
         ))}

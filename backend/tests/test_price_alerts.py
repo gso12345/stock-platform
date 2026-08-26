@@ -51,13 +51,20 @@ class _질의:
 class _DB:
     def __init__(self, rows=(), 터질때=None):
         self.rows, self.added = list(rows), []
-        self.commits = self.rollbacks = self.closes = 0
+        self.commits = self.rollbacks = self.closes = self.flushes = 0
         self._터질때 = 터질때            # "query" | "commit" | None
     def query(self, *a, **k):
         if self._터질때 == "query":
             raise RuntimeError("표가 없다")
         return _질의(self.rows)
     def add(self, o): self.added.append(o)
+    def flush(self):
+        """새 줄에 id 를 매긴다 — 진짜 DB 가 하는 일을 흉내 낸다.
+        커밋 전에 id 를 받아야 응답을 만들 수 있다(왕복 하나를 아낀다)."""
+        self.flushes += 1
+        for i, o in enumerate(self.added, start=1):
+            if getattr(o, "id", None) is None:
+                o.id = 1000 + i
     def delete(self, o): self.rows = [r for r in self.rows if r is not o]
     def commit(self):
         if self._터질때 == "commit":
@@ -250,6 +257,38 @@ class Test거는쪽:
         assert 있던것.is_active is True
         assert 있던것.fired_at is None and 있던것.fired_price is None
         assert 나온것["id"] == 있던것.id and 나온것["is_active"] is True
+
+    def test_없던_조건이면_새로_만든다(self):
+        """방금 만든 줄의 id 를 응답에 실어야 한다.
+
+        화면은 그 id 로 스위치를 끄고 켠다. id 가 없으면 방금 건 알림을
+        지울 수도 끌 수도 없다 — 새로고침해야 손댈 수 있게 된다.
+
+        커밋 뒤에 다시 읽지 않고 flush 로 id 를 받는다(왕복 하나를 아낀다).
+        그래서 flush 가 실제로 불렸는지도 같이 본다."""
+        db = _DB([])                     # 걸어 둔 것이 하나도 없다
+        me = type("나", (), {"id": 7})()
+        본문 = R.알림요청(symbol="005930", market="KR", name="삼성전자",
+                          direction="above", target=80_000)
+        나온것 = _생짜(R.만들기)(request=None, 본문=본문, db=db, me=me)
+
+        assert len(db.added) == 1 and db.commits == 1
+        assert db.flushes == 1, "id 를 못 받은 채 응답을 만들었다"
+        assert 나온것["id"] and 나온것["id"] > 0
+        assert 나온것["symbol"] == "005930" and 나온것["is_active"] is True
+        assert 나온것["target"] == 80_000
+
+    def test_응답을_만든_뒤에_커밋한다(self):
+        """refresh 를 빼면서 순서가 중요해졌다.
+
+        커밋이 먼저 나면 SQLAlchemy 가 속성을 만료시켜서, 응답을 만들
+        때 방금 쓴 줄을 다시 읽어 온다 — 아끼려던 왕복이 그대로 되살아난다."""
+        import inspect
+        본문 = inspect.getsource(R.만들기)
+        답자리 = 본문.index("답 = _내보내기(새것)")
+        커밋자리 = 본문.index("db.commit()", 답자리)
+        assert 답자리 < 커밋자리
+        assert "db.refresh" not in 본문, "refresh 가 되살아났다 — 왕복이 하나 늘어난다"
 
     def test_다시_켜면_지난_기록을_지운다(self):
         a = _알림(is_active=False, fired_at=datetime.now(timezone.utc), fired_price=80_100)

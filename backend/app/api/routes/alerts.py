@@ -68,20 +68,31 @@ def 목록(symbol: str | None = Query(default=None),
 @limiter.limit("30/minute")
 def 만들기(request: Request, 본문: 알림요청,
            db: Session = Depends(get_db), me=Depends(require_user)):
-    켜진것 = _내알림(db, me.id).filter(PriceAlert.is_active.is_(True)).count()
-    if 켜진것 >= 최대_알림수:
-        raise HTTPException(400, f"알림은 {최대_알림수}개까지 걸 수 있어요. 안 쓰는 것을 지워 주세요.")
-
-    """같은 조건을 또 걸면 새로 만들지 않고 켜기만 한다.
+    """알림을 건다. 같은 조건이 이미 있으면 새로 안 만들고 켜기만 한다.
 
     껐다 켰다 하는 것이 흔한 동작인데, 그때마다 새 줄이 쌓이면 목록이
     같은 알림으로 뒤덮인다. 표에도 (user, symbol, direction, target) 을
-    한 벌로 못 박아 뒀다."""
-    있던것 = _내알림(db, me.id).filter(
-        PriceAlert.symbol == 본문.symbol,
-        PriceAlert.direction == 본문.direction,
-        PriceAlert.target == 본문.target,
-    ).first()
+    한 벌로 못 박아 뒀다.
+
+    ── DB 왕복을 줄인다 ──
+
+    예전에는 '켜진 것 세기'(count) 와 '같은 조건 찾기'(first) 를 따로
+    물어봤다. DB 가 같은 기계에 있으면 공짜지만 여기는 Supabase 라
+    한 번 물어볼 때마다 네트워크를 건넌다. 어차피 한 사람의 알림은
+    30개까지라 통째로 한 번에 꺼내서 둘 다 여기서 센다.
+
+    commit 뒤의 refresh 도 뺐다. 그건 방금 쓴 줄을 다시 읽어 오는
+    일인데(왕복 하나 더), flush 로 id 만 받아 두면 그럴 이유가 없다.
+    """
+    내것 = _내알림(db, me.id).limit(최대_알림수 * 4).all()
+
+    if sum(1 for a in 내것 if a.is_active) >= 최대_알림수:
+        raise HTTPException(400, f"알림은 {최대_알림수}개까지 걸 수 있어요. 안 쓰는 것을 지워 주세요.")
+
+    있던것 = next((a for a in 내것
+                   if a.symbol == 본문.symbol
+                   and a.direction == 본문.direction
+                   and a.target == 본문.target), None)
 
     지금값 = _지금값(본문.symbol)
     if 있던것:
@@ -90,16 +101,20 @@ def 만들기(request: Request, 본문: 알림요청,
         있던것.fired_price = None
         있던것.made_at_price = 지금값
         있던것.name = 본문.name or 있던것.name
-        db.commit(); db.refresh(있던것)
-        return _내보내기(있던것)
+        답 = _내보내기(있던것)          # 커밋 전에 만들어 둔다 — 뒤에 다시 안 읽는다
+        db.commit()
+        return 답
 
     새것 = PriceAlert(
         user_id=me.id, symbol=본문.symbol, market=본문.market,
         name=본문.name or 본문.symbol, direction=본문.direction,
         target=본문.target, made_at_price=지금값, is_active=True,
     )
-    db.add(새것); db.commit(); db.refresh(새것)
-    return _내보내기(새것)
+    db.add(새것)
+    db.flush()                           # id 를 받는다. 아직 커밋은 아니다
+    답 = _내보내기(새것)
+    db.commit()
+    return 답
 
 
 @router.patch("/{알림id}")
@@ -115,8 +130,9 @@ def 켜고끄기(request: Request, 알림id: int = Path(..., ge=1),
         a.fired_at = None
         a.fired_price = None
         a.made_at_price = _지금값(a.symbol)
-    db.commit(); db.refresh(a)
-    return _내보내기(a)
+    답 = _내보내기(a)                    # 커밋 전에. refresh 는 왕복 하나 더다
+    db.commit()
+    return 답
 
 
 @router.delete("/{알림id}")

@@ -290,7 +290,7 @@ export default function Screening() {
                 <button
                   key={t.id}
                   onClick={() => setFilterTab(t.id)}
-                  className={`flex-1 py-1 text-xs font-semibold rounded-md transition-all ${
+                  className={`flex-1 py-1 text-xs font-semibold rounded-lg transition-all ${
                     filterTab === t.id ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
                   }`}
                 >

@@ -271,9 +271,30 @@ class Test배관:
         assert '@router.get("/dividends")' in 본문
         # 전 종목이 아니라 내 종목만 봐야 조회 수가 묶인다
         assert "PortfolioItem.user_id == current_user.id" in 본문
-        assert "WatchlistItem" in 본문
 
     def test_현금은_배당_후보에서_뺀다(self):
         import inspect
         from app.api.routes import portfolio as P
         assert '(it.asset_class or "") == "현금"' in inspect.getsource(P.배당달력)
+
+    def test_고른_포트폴리오만_본다(self):
+        """탭이 여럿인 사람에게 전부 섞어서 보여 주면 어느 계좌의
+        배당인지 알 수 없다."""
+        import inspect
+        본문 = inspect.getsource(__import__("app.api.routes.portfolio",
+                                            fromlist=["배당달력"]).배당달력)
+        assert "portfolio_id" in 본문
+        assert "PortfolioItem.portfolio_id == portfolio_id" in 본문
+        # 남의 포트폴리오 번호를 넣어 들여다볼 수 없어야 한다
+        assert "_valid_portfolio_id" in 본문
+
+    def test_관심종목은_이제_안_넣는다(self):
+        """살까 말까 하는 종목까지 넣으면 달력이 안 가진 종목으로
+        뒤덮인다. 받을 돈도 못 적는다(수량이 0이다).
+
+        배당 달력을 보는 이유는 '내가 언제 얼마를 받나' 다."""
+        import inspect
+        본문 = inspect.getsource(__import__("app.api.routes.portfolio",
+                                            fromlist=["배당달력"]).배당달력)
+        assert "WatchlistItem" not in 본문
+        assert "include_watchlist" not in 본문

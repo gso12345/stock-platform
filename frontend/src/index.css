@@ -100,6 +100,69 @@ html.light {
 
   /* 표 헤더 기본 굵기/색 — 개별 th에 font-weight나 text-color 유틸리티가 있으면 그게 우선 적용됨 */
   th { font-weight: 600; color: var(--text-secondary); }
+
+  /* ══ 앱처럼 보이게 ══════════════════════════════════════
+   *
+   * 설치형(PWA)인데 만지면 웹페이지 티가 났다. 화면을 다시 그리는
+   * 것이 아니라, 브라우저가 기본으로 하는 '웹스러운 행동' 을 끄는 쪽이다.
+   */
+
+  /* 1) 누를 때 번쩍이는 회색·파란 사각형.
+   *    안드로이드·iOS 가 링크와 버튼에 기본으로 씌운다. 이것 하나가
+   *    "이건 웹페이지다" 를 가장 크게 말한다. */
+  * { -webkit-tap-highlight-color: transparent; }
+
+  /* 2) 눌린 느낌.
+   *
+   *    버튼이 399곳인데 눌렀을 때 반응이 있는 곳은 22곳(5.5%)뿐이었다.
+   *    나머지는 hover 만 있는데, **손가락에는 hover 가 없다.** 그래서
+   *    폰에서는 눌러도 아무 일이 안 일어나는 것처럼 보이고, 사람은
+   *    안 눌렸다고 생각해 한 번 더 누른다.
+   *
+   *    399곳을 하나씩 고치는 대신 여기서 덮는다. :where 라 우선순위가
+   *    0이므로, 따로 준 active 스타일(하단 탭의 scale-95 등)이 있으면
+   *    그쪽이 그대로 이긴다.
+   *
+   *    hover 가 되는 기기(마우스)는 건드리지 않는다 — 거기서는 이미
+   *    hover 로 충분하고, 누를 때 흐려지면 오히려 어색하다. */
+  @media (hover: none) {
+    :where(button, [role="button"], [role="tab"], [role="switch"], a):active {
+      opacity: 0.55;
+      transition: opacity 60ms ease-out;
+    }
+  }
+
+  /* 3) 위아래로 당겼을 때 브라우저가 튕기거나 새로고침하는 것.
+   *    앱에서는 목록 끝에 닿으면 거기서 멈춘다. */
+  html, body { overscroll-behavior-y: none; }
+
+  /* 4) 버튼·탭을 길게 누르면 글자가 잡히고 복사 메뉴가 뜨는 것.
+   *    본문에는 안 건다 — 종목코드와 금액은 복사할 수 있어야 한다. */
+  :where(button, [role="button"], [role="tab"], nav, header) {
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* user-select 는 물려받는다. 위 규칙 안에 입력칸이 들어 있으면
+     (검색창이 header 안에 있다) 거기 글자까지 못 고르게 된다 —
+     붙여넣고 고치는 것이 막힌다. 실제로 그렇게 만들어 놓고 브라우저에서
+     재 보다가 찾았다. 입력칸은 도로 풀어 준다. */
+  :where(input, textarea, [contenteditable]) {
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
+  }
+
+  /* 5) iOS 는 글자가 16px 보다 작은 입력칸을 누르면 **화면을 확대한다.**
+   *    검색창을 누를 때마다 화면 전체가 커졌다가 되돌아온다 — 이것도
+   *    즉시 웹으로 보인다.
+   *
+   *    viewport 에 maximum-scale=1 을 박는 우회법이 흔하지만, 그러면
+   *    눈이 불편한 사람이 손가락으로 확대하는 것까지 막힌다. 입력칸
+   *    글자만 키우는 쪽이 옳다. 좁은 화면에서만 적용한다. */
+  @media (max-width: 640px) {
+    input, select, textarea { font-size: 16px; }
+  }
 }
 
 @layer utilities {

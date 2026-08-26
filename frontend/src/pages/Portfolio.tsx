@@ -996,7 +996,12 @@ export default function Portfolio() {
       {/* ── 배당 달력 ──
           '얼마인가 → 어떻게 변해 왔나' 다음에 오는 것이 '앞으로 뭐가
           들어오나' 다. 구성 차트보다 위에 둔다. */}
-      {isLoggedIn && items.length > 0 && <DividendCalendar />}
+      {isLoggedIn && items.length > 0 && (
+        <DividendCalendar
+          portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)}
+          이름={isAllView ? undefined : portfolios.find((p) => p.id === selectedPortfolioId)?.name}
+        />
+      )}
 
       {/* ── 구성 차트 ── */}
       {((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (
@@ -1102,7 +1107,7 @@ export default function Portfolio() {
               <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary flex-shrink-0" title="해외 보유종목의 가격 표시 기준 통화" aria-label="해외 보유종목의 가격 표시 기준 통화">
                 <button
                   onClick={() => setCurrencyMode("krw")}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-semibold transition-all whitespace-nowrap ${
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-semibold transition-all whitespace-nowrap ${
                     currencyMode === "krw" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
                   }`}
                 >
@@ -1110,7 +1115,7 @@ export default function Portfolio() {
                 </button>
                 <button
                   onClick={() => setCurrencyMode("native")}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-semibold transition-all whitespace-nowrap ${
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-semibold transition-all whitespace-nowrap ${
                     currencyMode === "native" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
                   }`}
                 >
@@ -1122,14 +1127,14 @@ export default function Portfolio() {
             <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary flex-shrink-0">
               <button
                 onClick={() => setViewMode("table")}
-                className={`p-1.5 rounded-md transition-all ${viewMode === "table" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                className={`p-1.5 rounded-lg transition-all ${viewMode === "table" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
                 title="표로 보기"
               >
                 <Table2 size={13} />
               </button>
               <button
                 onClick={() => setViewMode("card")}
-                className={`p-1.5 rounded-md transition-all ${viewMode === "card" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
+                className={`p-1.5 rounded-lg transition-all ${viewMode === "card" ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"}`}
                 title="카드로 보기"
               >
                 <LayoutGrid size={13} />
@@ -1233,7 +1238,7 @@ export default function Portfolio() {
                     <button
                       key={field}
                       onClick={() => toggleSort(field)}
-                      className={`flex items-center gap-0.5 px-2 py-1 rounded-md text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-colors ${
+                      className={`flex items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-colors ${
                         active ? "bg-accent-blue/15 text-accent-blue" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
                       }`}
                     >

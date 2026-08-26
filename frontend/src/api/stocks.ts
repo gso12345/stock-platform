@@ -220,7 +220,7 @@ export const dashboardApi = {
     api.get(`/dashboard/index/${name}`).then((r) => r.data),
 
   getIndexOHLCV: (name: string, period = "1y", interval = "1d") =>
-    api.get(`/dashboard/index/${name}/ohlcv`, { params: { period, interval } }).then((r) => r.data),
+    api.get<OHLCV[]>(`/dashboard/index/${name}/ohlcv`, { params: { period, interval } }).then((r) => r.data),
 
   getKRExtras: () =>
     api.get("/dashboard/kr/extras").then((r) => r.data),
@@ -392,10 +392,11 @@ export const portfolioApi = {
     api.get<{ points: 자산흐름점[]; days: number }>("/portfolio/history",
       { params: { days } }).then((r) => r.data),
 
-  /** 내 종목이 언제 얼마를 주는가 — 보유 + 관심종목 */
-  getDividends: () =>
-    api.get<{ items: 배당줄[]; pending: number }>("/portfolio/dividends")
-       .then((r) => r.data),
+  /** 내가 가진 종목이 언제 얼마를 주는가.
+   *  portfolioId 를 주면 그 포트폴리오 것만, 안 주면 전체. */
+  getDividends: (portfolioId?: number) =>
+    api.get<{ items: 배당줄[]; pending: number }>("/portfolio/dividends",
+      { params: portfolioId ? { portfolio_id: portfolioId } : {} }).then((r) => r.data),
 
   getItems: (portfolioId?: number, viewAll?: boolean) =>
     api.get("/portfolio/items", {

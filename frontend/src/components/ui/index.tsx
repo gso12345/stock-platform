@@ -228,7 +228,7 @@ export function Tabs({
             className={cn(
               "flex items-center justify-center gap-1.5 font-semibold transition-all whitespace-nowrap",
               subtle || size === "xs" ? "px-2.5 py-1" : "px-4 py-1.5",
-              subtle ? "rounded-md" : "rounded-lg",
+              subtle ? "rounded-lg" : "rounded-lg",
               /* 세 크기가 서로 달라야 한다. px 를 토큰으로 바꾸면서
                  xs(11px)와 sm 이 같은 text-xs 가 되어 버렸다 —
                  xs 는 자산유형 필터 7개용이라 sm 과 같아지면 탭 줄이

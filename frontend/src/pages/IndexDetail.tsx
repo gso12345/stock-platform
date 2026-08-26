@@ -187,7 +187,7 @@ export default function IndexDetail() {
             <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
               {CANDLE_TYPES.map(ct=>(
                 <button key={ct.value} onClick={()=>setCandleType(ct.value)}
-                  className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                  className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
                 >{ct.label}</button>
               ))}
             </div>
@@ -331,7 +331,7 @@ export default function IndexDetail() {
               <div className="flex gap-0.5 p-0.5 rounded-lg border border-border bg-bg-primary">
                 {CANDLE_TYPES.map(ct=>(
                   <button key={ct.value} onClick={()=>setCandleType(ct.value)}
-                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition-all ${candleType===ct.value?"bg-accent-blue text-white":"text-text-muted hover:text-text-primary"}`}
                   >{ct.label}</button>
                 ))}
               </div>
@@ -347,7 +347,9 @@ export default function IndexDetail() {
       )}
 
       {/* 기간 요약 */}
-      {mainTab==="chart" && ohlcv?.length > 1 && (
+      {/* ohlcv?.length > 1 로 두면 undefined 와 비교하는 꼴이라 아래에서
+          ohlcv 가 좁혀지지 않는다. 값은 같지만 타입이 못 따라온다 */}
+      {mainTab==="chart" && ohlcv && ohlcv.length > 1 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label:"기간 시작", value: ohlcv[0]?.close },

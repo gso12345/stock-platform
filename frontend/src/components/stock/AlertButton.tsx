@@ -64,29 +64,75 @@ export default function AlertButton({
     if (price != null) set목표(원화 ? String(Math.round(price)) : price.toFixed(2));
   }, [열림, price, 원화]);
 
-  const 새로고침 = () => {
-    qc.invalidateQueries({ queryKey: ["price-alerts", symbol] });
-    qc.invalidateQueries({ queryKey: ["price-alerts"] });
+  /* ── 왜 낙관적으로 고치나 ──
+   *
+   * 예전에는 무엇을 하든 왕복이 두 번이었다 — 서버에 바꿔 달라고 한 뒤,
+   * 목록을 통째로 다시 받았다(invalidateQueries). 무료 플랜 서버는
+   * 한 번 다녀오는 데만 수백 ms 에서 몇 초가 걸리므로, 스위치 한 번
+   * 누르고 두 번을 기다리는 셈이었다. 지우기도 마찬가지였다.
+   *
+   * 그래서 두 가지를 바꾼다.
+   *   1) 누른 즉시 화면을 고친다(onMutate). 실패하면 되돌린다.
+   *   2) 서버가 준 결과를 캐시에 직접 넣는다. 목록을 다시 안 받는다.
+   *
+   * 알림 스위치는 '눌렀는데 반응이 없다' 가 제일 나쁜 종류의 지연이다 —
+   * 사람은 안 눌렸다고 생각하고 한 번 더 누른다.
+   */
+  const 열쇠 = ["price-alerts", symbol] as const;
+  const 지금목록 = () => qc.getQueryData<{ items: 가격알림[]; limit: number }>(열쇠);
+
+  /** 캐시를 지금 자리에서 고친다. 되돌릴 수 있게 이전 값을 돌려준다 */
+  const 미리고치기 = async (바꾸기: (items: 가격알림[]) => 가격알림[]) => {
+    await qc.cancelQueries({ queryKey: 열쇠 });
+    const 이전 = 지금목록();
+    if (이전) qc.setQueryData(열쇠, { ...이전, items: 바꾸기(이전.items) });
+    return { 이전 };
+  };
+  const 되돌리기 = (ctx?: { 이전?: { items: 가격알림[]; limit: number } }) => {
+    if (ctx?.이전) qc.setQueryData(열쇠, ctx.이전);
   };
 
   const 걸기 = useMutation({
     mutationFn: () => alertsApi.createAlert({
       symbol, market, name: name || symbol, direction: 방향, target: Number(목표),
     }),
-    onSuccess: () => { set말("알림을 걸었어요"); 새로고침(); },
-    onError: (e) => set말(사람말로(e)),
+    onMutate: async () => {
+      /* 서버가 줄 id 를 아직 모른다. 임시 번호로 먼저 그려 두고,
+         응답이 오면 진짜 것으로 바꿔 넣는다. */
+      const 임시 = { id: -Date.now(), symbol, market, name: name || symbol,
+                     direction: 방향, target: Number(목표), made_at_price: price ?? null,
+                     is_active: true, fired_at: null, fired_price: null } as 가격알림;
+      set말("알림을 걸었어요");
+      return 미리고치기((items) => [임시, ...items.filter(
+        (a) => !(a.direction === 방향 && a.target === Number(목표)))]);
+    },
+    onSuccess: (새것) => {
+      const 이전 = 지금목록();
+      if (이전 && 새것?.id) {
+        // 임시로 그려 둔 줄(음수 id)을 서버가 준 진짜 줄로 바꾼다
+        qc.setQueryData(열쇠, { ...이전, items: [새것, ...이전.items.filter((a) => a.id > 0 && a.id !== 새것.id)] });
+      }
+    },
+    onError: (e, _v, ctx) => { 되돌리기(ctx); set말(사람말로(e)); },
   });
 
   const 켜고끄기 = useMutation({
     mutationFn: (id: number) => alertsApi.toggleAlert(id),
-    onSuccess: 새로고침,
-    onError: (e) => set말(사람말로(e)),
+    onMutate: (id) => 미리고치기((items) => items.map(
+      (a) => a.id === id ? { ...a, is_active: !a.is_active } : a)),
+    onSuccess: (바뀐것) => {
+      const 이전 = 지금목록();
+      if (이전 && 바뀐것?.id) {
+        qc.setQueryData(열쇠, { ...이전, items: 이전.items.map((a) => a.id === 바뀐것.id ? 바뀐것 : a) });
+      }
+    },
+    onError: (e, _v, ctx) => { 되돌리기(ctx); set말(사람말로(e)); },
   });
 
   const 지우기 = useMutation({
     mutationFn: (id: number) => alertsApi.deleteAlert(id),
-    onSuccess: () => { set말("지웠어요"); 새로고침(); },
-    onError: (e) => set말(사람말로(e)),
+    onMutate: (id) => { set말("지웠어요"); return 미리고치기((items) => items.filter((a) => a.id !== id)); },
+    onError: (e, _v, ctx) => { 되돌리기(ctx); set말(사람말로(e)); },
   });
 
   const 숫자목표 = Number(목표);
