@@ -73,6 +73,13 @@ class Test주기:
         날들 = [날(490), 날(90), 날(60), 날(30)]
         assert DV._주기(날들) == "월"
 
+    def test_주배당을_월배당과_구분한다(self):
+        """APLY·NVDY 같은 주배당 ETF 가 늘었다. '월' 로 묶으면 한 달에
+        네 번 받는 것을 한 번으로 세어 예상액이 4분의 1이 된다."""
+        날들 = [날(28), 날(21), 날(14), 날(7)]
+        assert DV._주기(날들) == "주"
+        assert DV._한달회차["주"] > 4
+
     def test_한_건뿐이면_모른다고_한다(self):
         assert DV._주기([날(30)]) is None
         assert DV._주기([]) is None
@@ -161,6 +168,29 @@ class Test한종목:
         r = DV.한종목("AAPL", "US")
         assert r["ex_date"] is None and r["pay_date"] is None
         assert r["estimated_date"] is not None      # 대신 추정으로 채운다
+
+    def test_몇_월에_주는지_적는다(self, 야후):
+        """분기배당이라도 회사마다 달이 다르다(2·5·8·11 vs 3·6·9·12).
+        안 적으면 한 해 계획을 못 세운다."""
+        from datetime import date as _d
+        내역 = [(_d(2026, 2, 10), 100.0), (_d(2026, 5, 10), 100.0),
+                (_d(2026, 8, 10), 100.0), (_d(2026, 11, 10), 100.0)]
+        야후(_가짜티커(내역))
+        r = DV.한종목("GD", "US")
+        assert r["months"] == [2, 5, 8, 11]
+        assert r["per_month"] == 1.0
+        assert r["currency"] == "USD"
+
+    def test_주배당은_열두_달_전부다(self, 야후):
+        야후(_가짜티커([(날(28), 1.0), (날(21), 1.0), (날(14), 1.0), (날(7), 1.0)]))
+        r = DV.한종목("APLY", "US")
+        assert r["cycle"] == "주"
+        assert r["months"] == list(range(1, 13))
+        assert r["per_month"] > 4
+
+    def test_국내_종목은_원화로_표시한다(self, 야후):
+        야후(_가짜티커([(날(365), 361.0), (날(1), 361.0)]))
+        assert DV.한종목("005930", "KR")["currency"] == "KRW"
 
     def test_배당이_없으면_빈손이다(self, 야후):
         야후(_가짜티커([]))

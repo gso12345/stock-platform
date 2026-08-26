@@ -76,6 +76,10 @@ def _주기(날들: list) -> "str | None":
     if not 간격:
         return None
     가운데 = 간격[len(간격) // 2]
+    if 가운데 <= 10:
+        # 주배당 ETF(APLY·NVDY·AMZY 같은 것). '월' 로 묶으면 한 달에
+        # 네 번 받는 것을 한 번으로 세어 예상액이 4분의 1이 된다
+        return "주"
     if 가운데 <= 45:
         return "월"
     if 가운데 <= 135:
@@ -87,7 +91,10 @@ def _주기(날들: list) -> "str | None":
     return None
 
 
-_주기일수 = {"월": 30, "분기": 91, "반기": 182, "연": 365}
+_주기일수 = {"주": 7, "월": 30, "분기": 91, "반기": 182, "연": 365}
+
+#: 한 달에 몇 번 받나. 주배당은 4~5주라 평균을 쓴다(365/12/7)
+_한달회차 = {"주": 4.35, "월": 1.0, "분기": 1.0, "반기": 1.0, "연": 1.0}
 
 
 def _다음_예상(마지막: date, 주기: "str | None") -> "date | None":
@@ -141,6 +148,21 @@ def _가져오기(symbol: str, market: str) -> dict:
     한해전 = date.today() - timedelta(days=365)
     연배당 = round(sum(x["amount"] for x, d in zip(최근, 날들) if d >= 한해전), 6)
 
+    """배당월 — 이 종목이 몇 월에 주나.
+
+    화면이 '2, 5, 8, 11' 처럼 적어 준다. 분기배당이라도 회사마다 달이
+    달라서(2·5·8·11 vs 3·6·9·12), 이걸 안 적으면 한 해 계획을 못 세운다.
+
+    주배당·월배당은 열두 달 전부다."""
+    if 주기 in ("주", "월"):
+        배당월 = list(range(1, 13))
+    else:
+        # 지난 1년치에서 실제로 받은 달만. 오래된 것까지 넣으면
+        # 예전에 주다 만 달이 섞인다
+        배당월 = sorted({d.month for d in 날들 if d >= 한해전})
+        if not 배당월:
+            배당월 = sorted({d.month for d in 날들})
+
     확정일 = 지급일 = None
     try:
         cal = t.calendar or {}
@@ -165,6 +187,12 @@ def _가져오기(symbol: str, market: str) -> dict:
         "recent": 최근,
         "per_year": 연배당,
         "cycle": 주기,
+        #: 몇 월에 주나 — [2, 5, 8, 11]. 주·월배당은 1~12 전부
+        "months": 배당월,
+        #: 한 달에 몇 번. 주배당만 1보다 크다
+        "per_month": _한달회차.get(주기 or "", 1.0),
+        #: 국내면 원, 아니면 달러. 화면이 원화로 환산할 때 쓴다
+        "currency": "KRW" if market == "KR" else "USD",
         "last_date": 최근[-1]["date"],
         "last_amount": 최근[-1]["amount"],
         # 회사가 공시한 날짜. 있으면 이쪽이 옳다

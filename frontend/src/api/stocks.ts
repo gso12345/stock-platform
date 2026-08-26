@@ -359,8 +359,16 @@ export interface 배당줄 {
   /** 회사가 공시한 날짜(있을 때만) */
   ex_date: string | null;
   pay_date: string | null;
-  /** "월" | "분기" | "반기" | "연" */
+  /** "주" | "월" | "분기" | "반기" | "연" */
   cycle: string | null;
+  /** 몇 월에 주나 — [2, 5, 8, 11]. 주·월배당은 1~12 전부.
+   *  분기배당이라도 회사마다 달이 달라서(2·5·8·11 vs 3·6·9·12)
+   *  이게 없으면 한 해 그림이 통째로 틀린다 */
+  months: number[];
+  /** 한 달에 몇 번 받나. 주배당만 1보다 크다(≈4.35) */
+  per_month: number;
+  /** "KRW" | "USD" — 원화로 환산할 때 쓴다 */
+  currency: string;
   last_date: string;
   last_amount: number;
   per_year: number;
