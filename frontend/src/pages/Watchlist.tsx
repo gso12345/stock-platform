@@ -21,6 +21,8 @@ import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 import { Plus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, Settings2, LogIn, Clock, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
+import type { Market, WatchlistItem, 관심폴더, 시세행 } from "@/types";
+import type { PortfolioItem, PortfolioMeta } from "@/types/portfolio";
 /* 시세를 조회할 수 있는 심볼 형식 — 서버의 검사와 같은 기준.
    '현금'·'금' 같은 자산은 시세가 없으므로 조회 대상이 아니다. */
 const PRICEABLE_SYMBOL = /^[A-Za-z0-9.\-]{1,20}$/;
@@ -64,7 +66,7 @@ export default function Watchlist() {
   );
 
   // 포트폴리오 목록 (탭 표시용)
-  const { data: pfList = [] } = useQuery<any[]>({
+  const { data: pfList = [] } = useQuery<PortfolioMeta[]>({
     queryKey: ["portfolios"],
     queryFn: portfolioApi.getPortfolios,
     enabled: isLoggedIn,
@@ -80,7 +82,7 @@ export default function Watchlist() {
      지금은 관심종목과 같은 시세 경로에 합친다 — 탭을 누르는 순간 이미
      값이 있고, 실시간으로 함께 갱신된다. 같은 종목을 두 번 조회하지도
      않는다. 목록 요청은 로그인 시 한 번뿐이다. */
-  const { data: pfAllItems = [], isLoading: pfAllLoading } = useQuery<any[]>({
+  const { data: pfAllItems = [], isLoading: pfAllLoading } = useQuery<PortfolioItem[]>({
     queryKey: ["portfolio-items-all"],
     queryFn: () => portfolioApi.getItems(undefined, true),
     enabled: isLoggedIn,
@@ -89,7 +91,7 @@ export default function Watchlist() {
   const pfTabDeduped = useMemo(
     () => pfAllItems.filter(
       // 서버는 portfolioId(카멜케이스)로 준다 — portfolio_id 로 보면 전부 걸러진다
-      (i: any) => portfolioTab == null || (i.portfolioId ?? null) === portfolioTab,
+      (i) => portfolioTab == null || (i.portfolioId ?? null) === portfolioTab,
     ),
     [pfAllItems, portfolioTab],
   );
@@ -98,11 +100,16 @@ export default function Watchlist() {
   const [showAdd, setShowAdd]           = useState(false);
   const [addFolderId, setAddFolderId]   = useState<number | null>(null); // 추가 모달에서 기본 선택될 폴더
   const [editingFolder, setEditingFolder] = useState<number | null>(null);
-  const [editingItem, setEditingItem]   = useState<any>(null);
-  const [deletingFolder, setDeletingFolder] = useState<any>(null);
-  const [addToPortfolioItem, setAddToPortfolioItem] = useState<any | null>(null);
+  const [editingItem, setEditingItem]   = useState<WatchlistItem | null>(null);
+  /* 지울 폴더와 그 안의 종목 수.
+     예전에는 폴더 객체에 _itemCount 를 몰래 붙여서 넘겼는데, 서버가
+     주는 모양에 없는 칸이라 타입을 붙이는 순간 드러났다. 세어 본 값은
+     세어 본 값대로 따로 들고 간다. */
+  const [deletingFolder, setDeletingFolder] =
+    useState<{ 폴더: { id: number; name: string }; 종목수: number } | null>(null);
+  const [addToPortfolioItem, setAddToPortfolioItem] = useState<WatchlistItem | null>(null);
   const [collapsed, setCollapsed]   = useState<Set<string>>(new Set());
-  const [livePrices, setLivePrices] = useState<Record<string, any>>({});
+  const [livePrices, setLivePrices] = useState<Record<string, 시세행>>({});
   const [addError, setAddError]     = useState("");
 
   const { data: folders = [] } = useQuery({
@@ -179,15 +186,19 @@ export default function Watchlist() {
        이미 겪고 고친 일인데 여기만 인덱스로 남아 있었다 */
     const bySymbol = indexPricesBySymbol(previewPrices);
     return PREVIEW_WATCHLIST.map((base) => {
-      const d = lookupPrice(bySymbol, base.symbol) as any;
-      const hasPrice = d?.price != null;
+      const d = lookupPrice(bySymbol, base.symbol);
+      /* 값이 있는지 한 번만 판정해서 그 뒤로는 그 결과만 쓴다.
+         예전에는 hasPrice 로 거른 뒤에도 d.price 를 다시 꺼내 썼는데,
+         '걸렀으니 값이 있다' 는 것은 사람만 아는 사실이었다 */
+      const 받은값 = d?.price ?? null;
+      const hasPrice = 받은값 != null;
       return {
         ...base,
-        price: hasPrice ? d.price : base.price,
-        change_rate: hasPrice ? (d.change_rate ?? base.change_rate) : base.change_rate,
+        price: 받은값 ?? base.price,
+        change_rate: hasPrice ? (d?.change_rate ?? base.change_rate) : base.change_rate,
         /* 얼마가 올랐는지. 이걸 안 넘겨서 미리보기만 퍼센트만 나왔다 —
            "+500 (1.23%)" 의 앞부분이 통째로 비어 있었다 */
-        change: hasPrice ? d.change ?? null : null,
+        change: hasPrice ? d?.change ?? null : null,
         hasPrice,
       };
     });
@@ -195,11 +206,15 @@ export default function Watchlist() {
 
   /* 값이 실제로 바뀐 종목만 교체 — 바뀐 게 없으면 이전 객체를 그대로 돌려주어
      불필요한 리렌더(ItemRow 전체 재렌더)를 막는다 */
-  const mergePrices = useCallback((incoming: any[], skipSymbols?: Set<string>) => {
+  const mergePrices = useCallback((incoming: 시세행[], skipSymbols?: Set<string>) => {
     setLivePrices((prev) => {
-      let next: Record<string, any> | null = null;
+      let next: Record<string, 시세행> | null = null;
       for (const p of incoming) {
-        if (!p?.symbol || p.error || p.price == null) continue;
+        /* p.error 를 함께 보고 있었는데, 시세 응답에는 error 칸이
+           애초에 없다(서버 어디서도 안 넣는다). 늘 undefined 라 아무
+           일도 안 하면서, 읽는 사람에게는 '서버가 실패를 이렇게
+           알려준다' 고 잘못 말하고 있었다. 값이 없으면 값이 없는 것이다 */
+        if (!p?.symbol || p.price == null) continue;
         const norm = normalizeSymbol(p.symbol);
         if (skipSymbols?.has(norm)) continue;
         const cur = prev[p.symbol];
@@ -231,10 +246,10 @@ export default function Watchlist() {
      새로 받은 HTTP 시세를 계속 덮어써 화면이 과거에 멈춘다 */
   const live = useLivePrices(
     symbols, markets,
-    useCallback((prices: any[]) => {
+    useCallback((prices: 시세행[]) => {
       const delivered = new Set<string>();
       for (const p of prices) {
-        if (p?.symbol && !p.error && p.price != null) delivered.add(normalizeSymbol(p.symbol));
+        if (p?.symbol && p.price != null) delivered.add(normalizeSymbol(p.symbol));
       }
       wsSymbolsRef.current   = delivered;
       wsLastMsgAtRef.current = Date.now();
@@ -248,7 +263,9 @@ export default function Watchlist() {
   );
 
   const addMutation = useMutation({
-    mutationFn: (req: any) => watchlistApi.addItem({ ...req, watchlist_id: 1 }),
+    mutationFn: (req: { symbol: string; market: string; name: string;
+                        folder_id?: number; memo?: string }) =>
+      watchlistApi.addItem({ ...req, watchlist_id: 1 }),
     onSuccess: () => {
       setAddError("");
       qc.invalidateQueries({ queryKey: ["watchlist-items"] });
@@ -262,7 +279,11 @@ export default function Watchlist() {
   });
 
   const updateItemMutation = useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: any }) => watchlistApi.updateItem(id, patch),
+    mutationFn: ({ id, patch }: {
+      id: number;
+      /** 바꿀 수 있는 것은 이름·메모·폴더뿐이다 — 종목코드나 시세는 아니다 */
+      patch: { name?: string; memo?: string; folder_id?: number };
+    }) => watchlistApi.updateItem(id, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
   });
 
@@ -276,17 +297,17 @@ export default function Watchlist() {
     onMutate: async (order: number[]) => {
       await qc.cancelQueries({ queryKey: ["watchlist-items"] });
       const prev = qc.getQueryData(["watchlist-items"]);
-      qc.setQueryData(["watchlist-items"], (old: any) => {
+      qc.setQueryData(["watchlist-items"], (old: WatchlistItem[] | undefined) => {
         if (!Array.isArray(old)) return old;
-        const byId = new Map(old.map((i: any) => [i.id, i]));
+        const byId = new Map(old.map((i) => [i.id, i]));
         const moved = order.map((id) => byId.get(id)).filter(Boolean);
         const movedIds = new Set(order);
-        return [...moved, ...old.filter((i: any) => !movedIds.has(i.id))];
+        return [...moved, ...old.filter((i) => !movedIds.has(i.id))];
       });
       return { prev };
     },
     // 실패하면 되돌린다. 성공 시에는 캐시가 이미 최신이라 재조회하지 않는다
-    onError: (_err, _order, ctx: any) => {
+    onError: (_err, _order, ctx) => {
       if (ctx?.prev) qc.setQueryData(["watchlist-items"], ctx.prev);
     },
   });
@@ -295,9 +316,9 @@ export default function Watchlist() {
   // 폴더 드래그 상태
   const [dragFolderId, setDragFolderId] = useState<number | null>(null);
   const [dropFolderId, setDropFolderId] = useState<number | null>(null);
-  const [localFolderOrder, setLocalFolderOrder] = useState<any[] | null>(null);
+  const [localFolderOrder, setLocalFolderOrder] = useState<관심폴더[] | null>(null);
   const dragFolderIdRef      = useRef<number | null>(null); // onDragOver 즉시 접근용
-  const localFolderOrderRef  = useRef<any[] | null>(null);
+  const localFolderOrderRef  = useRef<관심폴더[] | null>(null);
 
   const reorderFoldersMutation = useMutation({
     mutationFn: (order: number[]) => watchlistFolderApi.reorderFolders(order),
@@ -308,7 +329,7 @@ export default function Watchlist() {
     },
   });
 
-  const handleFolderDragStart = (folder: any) => {
+  const handleFolderDragStart = (folder: 관심폴더) => {
     dragFolderIdRef.current = folder.id;
     localFolderOrderRef.current = folders;
     setDragFolderId(folder.id);
@@ -325,8 +346,8 @@ export default function Watchlist() {
     if (fromId === null || fromId === targetId) return;
     setDropFolderId(targetId);
     const base = localFolderOrderRef.current ?? folders;
-    const from = base.findIndex((f: any) => f.id === fromId);
-    const to   = base.findIndex((f: any) => f.id === targetId);
+    const from = base.findIndex((f) => f.id === fromId);
+    const to   = base.findIndex((f) => f.id === targetId);
     if (from === -1 || to === -1) return;
     const next = [...base];
     const [moved] = next.splice(from, 1);
@@ -352,7 +373,7 @@ export default function Watchlist() {
   const handleFolderDrop = () => {
     const order = localFolderOrderRef.current;
     if (dragFolderIdRef.current !== null && order) {
-      폴더순서바꾸기(order.map((f: any) => f.id));
+      폴더순서바꾸기(order.map((f) => f.id));
     }
     dragFolderIdRef.current = null;
     localFolderOrderRef.current = null;
@@ -380,7 +401,7 @@ export default function Watchlist() {
   const itemsList = items;
 
   /* 종목 드래그 재정렬 — 공용 훅 (ref 기준으로 순서를 계산해 연속 이벤트에서도 밀리지 않는다) */
-  const itemDrag = useDragReorder<any>({
+  const itemDrag = useDragReorder<WatchlistItem>({
     items: itemsList,
     onCommit: (order) => reorderMutation.mutate(order),
   });
@@ -398,13 +419,16 @@ export default function Watchlist() {
   const displayList = useMemo(
     () => (folderTab === "all" || folderTab === "recent")
       ? baseList
-      : baseList.filter((i: any) => i.folder_id === folderTab),
+      : baseList.filter((i) => i.folder_id === folderTab),
     [baseList, folderTab]
   );
 
   // 폴더별로 한 번에 그룹화 — byFolder를 폴더 개수만큼 반복 필터링하던 것을 단일 패스로 변경
   const itemsByFolder = useMemo(() => {
-    const map = new Map<number, any[]>();
+    /* 열쇠가 number 만은 아니다 — 폴더에 안 들어간 종목은 folder_id 가
+       비어 있다. 그 줄들은 어느 폴더 아래에도 안 나오는데, 예전부터
+       그랬고 여기서 바꿀 일은 아니다. 타입만 있는 그대로 적는다. */
+    const map = new Map<WatchlistItem["folder_id"], WatchlistItem[]>();
     for (const item of displayList) {
       const arr = map.get(item.folder_id);
       if (arr) arr.push(item); else map.set(item.folder_id, [item]);
@@ -436,7 +460,16 @@ export default function Watchlist() {
      수 있는 것도 폴더끼리뿐이었다. 내계좌를 주로 보는 사람은 폴더를 전부
      지나쳐야 자기 계좌에 닿았다. 셋을 한 목록으로 놓고 통째로 옮긴다.
      ("전체"는 목록 그 자체라 맨 앞에 고정한다) */
-  const 탭들 = useMemo(() => {
+  /** 탭 줄 한 칸 — 최근조회·폴더·계좌 셋이 같은 줄에 섞여 있다.
+   *
+   *  '최근조회' 만 id 가 없다. 갈래를 나눠 적어 두면, 종류를 확인한
+   *  뒤에는 id 가 있는지 다시 안 따져도 된다 — 예전에는 any 로 두고
+   *  '폴더면 id 가 있다' 는 것을 사람만 알고 있었다. */
+  type 탭칸 =
+    | { key: string; 종류: "recent"; id: null; 이름: string }
+    | { key: string; 종류: "folder" | "portfolio"; id: number; 이름: string };
+
+  const 탭들 = useMemo<탭칸[]>(() => {
     /* 로그인 전에도 같은 목록을 만든다. 예전에는 미리보기용 탭 줄을 따로
        그렸는데, 그러면 탭 줄을 고칠 때마다 로그인한 화면만 좋아지고
        처음 들어온 사람이 보는 화면은 옛 모습으로 남는다 — 실제로 탭 순서
@@ -444,9 +477,9 @@ export default function Watchlist() {
     const 폴더목록 = isPreview ? PREVIEW_FOLDERS : (localFolderOrder ?? folders);
     const 계좌목록 = isPreview ? [] : pfList;
     return [
-      { key: 최근조회키, 종류: "recent" as const, id: null as number | null, 이름: "최근조회" },
-      ...폴더목록.map((f: any) => ({ key: 폴더키(f.id), 종류: "folder" as const, id: f.id, 이름: f.name })),
-      ...계좌목록.map((pf: any) => ({ key: 계좌키(pf.id), 종류: "portfolio" as const, id: pf.id, 이름: pf.name })),
+      { key: 최근조회키, 종류: "recent" as const, id: null, 이름: "최근조회" },
+      ...폴더목록.map((f) => ({ key: 폴더키(f.id), 종류: "folder" as const, id: f.id, 이름: f.name })),
+      ...계좌목록.map((pf) => ({ key: 계좌키(pf.id), 종류: "portfolio" as const, id: pf.id, 이름: pf.name })),
     ];
   }, [isPreview, localFolderOrder, folders, pfList]);
 
@@ -483,7 +516,10 @@ export default function Watchlist() {
      짜인 로직이 있었고 내계좌는 아예 못 옮겼다 */
   const 탭드래그 = useDragReorder<{ key: string; id: string }>({
     // 훅은 id 로 항목을 찾는다. 탭에서 그 역할은 key 다
-    items: useMemo(() => 정렬된탭.map((t) => ({ ...t, id: t.key })), [정렬된탭]) as any,
+    /* 드래그 훅은 id 로 항목을 짚는다. 탭의 id 는 폴더 번호라 최근조회
+       칸이 null 이고 폴더·계좌끼리 번호가 겹칠 수도 있어서, 여기서만
+       key(문자열)를 id 로 바꿔 넘긴다 */
+    items: useMemo(() => 정렬된탭.map((t) => ({ ...t, id: t.key })), [정렬된탭]),
     onCommit: (keys) => 탭순서바꾸기(keys as string[]),
   });
 
@@ -496,11 +532,11 @@ export default function Watchlist() {
     if (탭꾹타이머.current !== null) { window.clearTimeout(탭꾹타이머.current); 탭꾹타이머.current = null; }
   };
 
-  const 탭터치시작 = (탭: any, e: React.TouchEvent) => {
+  const 탭터치시작 = (탭: 탭칸, e: React.TouchEvent) => {
     const t = e.touches[0];
     탭누른자리.current = { x: t.clientX, y: t.clientY };
     탭꾹취소();
-    탭꾹타이머.current = window.setTimeout(() => 탭드래그.start({ ...탭, id: 탭.key } as any), LONG_PRESS_MS);
+    탭꾹타이머.current = window.setTimeout(() => 탭드래그.start({ ...탭, id: 탭.key }), LONG_PRESS_MS);
   };
 
   const 탭터치이동 = (e: React.TouchEvent) => {
@@ -523,7 +559,7 @@ export default function Watchlist() {
 
   /* 끌어서 놓은 직후의 click 은 무시한다 — 안 그러면 옮기자마자 그 탭이
      열려, 보고 있던 폴더가 바뀐다 */
-  const 탭누름 = (탭: any) => {
+  const 탭누름 = (탭: 탭칸) => {
     if (방금끌었다.current) { 방금끌었다.current = false; return; }
     if (탭.종류 === "recent") { setFolderTab("recent"); setPortfolioTab(null); }
     else if (탭.종류 === "folder") { setPortfolioTab(null); setFolderTab(folderTab === 탭.id ? "all" : 탭.id); }
@@ -550,7 +586,7 @@ export default function Watchlist() {
     setShowAdd(true);
   };
 
-  const goToStock = (item: any) => {
+  const goToStock = (item: { market: string; symbol: string }) => {
     // 가격 조회 중이라면 취소하고 종목 상세로 이동 (상세 페이지 로딩 우선)
     qc.cancelQueries({ queryKey: ["watchlist-prices"] });
     navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`);
@@ -558,8 +594,8 @@ export default function Watchlist() {
 
   // 화면에 보이는 종목 자동 prefetch
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const prefetchStock = useCallback((item: any) => {
-    const mkt = item.market as any;
+  const prefetchStock = useCallback((item: { market: string; symbol: string }) => {
+    const mkt = item.market as Market;
     const sym = item.symbol;
     if (qc.getQueryData(["stock-detail", mkt, sym])) return;
     qc.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 60_000 });
@@ -574,12 +610,12 @@ export default function Watchlist() {
   displayListRef.current = displayList;
 
   const observedSymbolsKey = useMemo(
-    () => displayList.map((i: any) => i.symbol).sort().join(","),
+    () => displayList.map((i) => i.symbol).sort().join(","),
     [displayList],
   );
 
   useEffect(() => {
-    let queue: any[] = [];
+    let queue: WatchlistItem[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;
     const flush = () => {
       queue.splice(0, 3).forEach(prefetchStock);
@@ -589,8 +625,8 @@ export default function Watchlist() {
       entries.forEach(e => {
         if (e.isIntersecting) {
           const sym = (e.target as HTMLElement).dataset.sym;
-          const item = displayListRef.current.find((i: any) => i.symbol === sym);
-          if (item && !queue.find((q: any) => q.symbol === sym)) queue.push(item);
+          const item = displayListRef.current.find((i) => i.symbol === sym);
+          if (item && !queue.find((q) => q.symbol === sym)) queue.push(item);
         }
       });
       if (queue.length > 0 && !timer) timer = setTimeout(flush, 200);
@@ -599,8 +635,8 @@ export default function Watchlist() {
     return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
   }, [observedSymbolsKey, prefetchStock]);
 
-  const renderItems = (list: any[]) =>
-    list.map((item: any) => (
+  const renderItems = (list: WatchlistItem[]) =>
+    list.map((item) => (
       <div key={item.id} className="list-item-in list-row-lite" ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol} data-item-id={item.id}>
         <ItemRow
           item={item}
@@ -731,7 +767,7 @@ export default function Watchlist() {
                   key={탭.key}
                   data-tab-key={탭.key}
                   draggable={정렬된탭.length > 1}
-                  onDragStart={() => 탭드래그.start({ ...탭, id: 탭.key } as any)}
+                  onDragStart={() => 탭드래그.start({ ...탭, id: 탭.key })}
                   onDragEnd={탭드래그.cancel}
                   onDragOver={(e) => 탭드래그.onDragOver(e, 탭.key)}
                   onDrop={탭드래그.drop}
@@ -820,7 +856,7 @@ export default function Watchlist() {
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-bg-card">
             <Wallet size={13} className="text-accent-blue" />
             <span className="flex-1 text-sm font-semibold text-text-primary">
-              {pfList.find((p: any) => p.id === portfolioTab)?.name ?? "포트폴리오"}
+              {pfList.find((p) => p.id === portfolioTab)?.name ?? "포트폴리오"}
             </span>
             <LiveBadge status={live.status} updatedAt={live.updatedAt}
                        session={live.session} sessionLabel={live.sessionLabel} />
@@ -840,8 +876,8 @@ export default function Watchlist() {
             />
           ) : (
             pfTabDeduped
-              .filter((i: any) => marketTab === "전체" || i.market === marketTab)
-              .map((item: any) => {
+              .filter((i) => marketTab === "전체" || i.market === marketTab)
+              .map((item) => {
                 // 관심종목과 같은 실시간 시세 맵을 본다 — 탭을 누른 순간
                 // 이미 값이 있고, WebSocket 으로 함께 갱신된다
                 const p = lookupPrice(livePrices, item.symbol);
@@ -925,8 +961,8 @@ export default function Watchlist() {
         <div key={`${marketTab}-${folderTab}`} className="flex flex-col gap-3 tab-fade">
           {/* 폴더 그룹 — 폴더 탭이 "전체"이거나 해당 폴더가 선택된 경우에만 표시 */}
           {(localFolderOrder ?? folders)
-            .filter((folder: any) => folderTab === "all" || folderTab === folder.id)
-            .map((folder: any) => {
+            .filter((folder) => folderTab === "all" || folderTab === folder.id)
+            .map((folder) => {
             const folderItems = byFolder(folder.id);
             const isCollapsed = collapsed.has(`f-${folder.id}`);
             return (
@@ -972,7 +1008,7 @@ export default function Watchlist() {
                       </button>
                       <div className="flex gap-1">
                         <button aria-label="수정" onClick={() => setEditingFolder(folder.id)} className="text-text-muted hover:text-accent-blue p-1"><Pencil size={13} /></button>
-                        <button aria-label="삭제" onClick={() => setDeletingFolder({ ...folder, _itemCount: folderItems.length })} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={13} /></button>
+                        <button aria-label="삭제" onClick={() => setDeletingFolder({ 폴더: folder, 종목수: folderItems.length })} className="text-text-muted hover:text-accent-red p-1"><Trash2 size={13} /></button>
                       </div>
                     </>
                   )}
@@ -1035,10 +1071,10 @@ export default function Watchlist() {
 
       {deletingFolder && (
         <DeleteFolderModal
-          folder={deletingFolder}
-          itemCount={deletingFolder._itemCount ?? 0}
+          folder={deletingFolder.폴더}
+          itemCount={deletingFolder.종목수}
           onClose={() => setDeletingFolder(null)}
-          onConfirm={() => deleteFolderMutation.mutate(deletingFolder.id)}
+          onConfirm={() => deleteFolderMutation.mutate(deletingFolder.폴더.id)}
         />
       )}
 
@@ -1058,7 +1094,7 @@ export default function Watchlist() {
           onRename={(id, name) => updateFolderMutation.mutate({ id, name })}
           onDelete={(folder) => {
             const count = items.filter((i) => i.folder_id === folder.id).length;
-            setDeletingFolder({ ...folder, _itemCount: count });
+            setDeletingFolder({ 폴더: folder, 종목수: count });
             setShowFolderManager(false);
           }}
           onReorder={탭순서바꾸기}

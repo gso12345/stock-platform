@@ -10,13 +10,16 @@ import { extractErrorMessage } from "@/utils/errors";
 import { normalizeSymbol } from "@/utils/prices";
 import { ReorderableList } from "@/components/common/ReorderableList";
 import ModalFooter from "@/components/ui/ModalFooter";
+import type { Market, WatchlistItem, 관심폴더 } from "@/types";
+import type { PortfolioMeta } from "@/types/portfolio";
 
 
 export function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
-  folders: any[];
+  folders: 관심폴더[];
   defaultFolderId: number;
   onClose: () => void;
-  onAdd: (req: any) => void;
+  onAdd: (req: { symbol: string; market: string; name: string;
+                 folder_id?: number; memo?: string }) => void;
 }) {
   const { query, setQuery, results, searching: loading } = useStockSearch();
   const [folderId, setFolderId] = useState<number>(defaultFolderId);
@@ -89,7 +92,7 @@ export function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
           value={folderId}
           onChange={(e) => setFolderId(Number(e.target.value))}
         >
-          {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
         </select>
         <input
           className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none placeholder:text-text-muted"
@@ -104,8 +107,8 @@ export function AddModal({ folders, defaultFolderId, onClose, onAdd }: {
 
 /* ── 종목 편집 모달 ──────────────────────────────────────── */
 export function EditItemModal({ item, folders, onClose, onSave }: {
-  item: any;
-  folders: any[];
+  item: WatchlistItem;
+  folders: 관심폴더[];
   onClose: () => void;
   onSave: (patch: { name?: string; memo?: string; folder_id?: number }) => void;
 }) {
@@ -151,7 +154,7 @@ export function EditItemModal({ item, folders, onClose, onSave }: {
               value={folderId}
               onChange={(e) => setFolderId(Number(e.target.value))}
             >
-              {folders.map((f: any) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           </div>
         )}
@@ -171,7 +174,9 @@ export function EditItemModal({ item, folders, onClose, onSave }: {
 }
 
 /* ── 폴더 이름 편집 ──────────────────────────────────────── */
-export function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSave: (n: string) => void; onCancel: () => void }) {
+export function FolderNameEdit({ folder, onSave, onCancel }: {
+  folder: { id: number; name: string }; onSave: (n: string) => void; onCancel: () => void;
+}) {
   const [val, setVal] = useState(folder.name);
   return (
     <div className="flex items-center gap-1 flex-1">
@@ -189,8 +194,12 @@ export function FolderNameEdit({ folder, onSave, onCancel }: { folder: any; onSa
 }
 
 /* ── 폴더 삭제 확인 모달 ──────────────────────────────────── */
+/** 폴더 지우기 확인.
+ *  이름만 있으면 되지만, 무엇을 지우는지 이름으로 보여 주는 것이
+ *  이 창의 전부라 이름은 반드시 받는다. */
 export function DeleteFolderModal({ folder, itemCount, onClose, onConfirm }: {
-  folder: any; itemCount: number; onClose: () => void; onConfirm: () => void;
+  folder: { id: number; name: string };
+  itemCount: number; onClose: () => void; onConfirm: () => void;
 }) {
   return (
     <Modal maxWidth="max-w-sm">
@@ -230,7 +239,10 @@ export function AddToPortfolioModal({
   currentPrice,
   onClose,
 }: {
-  item: any;
+  /** 관심종목 한 줄. 여기서 쓰는 것은 종목코드·시장·이름뿐이다.
+   *  이름이 비어 있으면 종목코드를 대신 담는다 — 서버가 이름을
+   *  필수로 받으므로 빈칸을 그대로 보내면 거절당한다. */
+  item: { symbol: string; market: Market; name?: string };
   currentPrice?: number | null;
   onClose: () => void;
 }) {
@@ -254,7 +266,7 @@ export function AddToPortfolioModal({
   const [saving,       setSaving]       = useState(false);
   const [saveError,    setSaveError]    = useState("");
 
-  const { data: portfolios = [] } = useQuery<any[]>({
+  const { data: portfolios = [] } = useQuery<PortfolioMeta[]>({
     queryKey: ["portfolios"],
     queryFn:  portfolioApi.getPortfolios,
     staleTime: 300_000,
@@ -263,8 +275,8 @@ export function AddToPortfolioModal({
   const defaultFx = useExchangeRate();
 
   useEffect(() => {
-    if ((portfolios as any[]).length > 0 && portfolioId === null) {
-      setPortfolioId((portfolios as any[])[0].id);
+    if (portfolios.length > 0 && portfolioId === null) {
+      setPortfolioId(portfolios[0].id);
     }
   }, [portfolios, portfolioId]);
 
@@ -291,7 +303,7 @@ export function AddToPortfolioModal({
         portfolio_id:       portfolioId,
         symbol:             item.symbol,
         market:             item.market,
-        name:               item.name,
+        name:               item.name || item.symbol,
         shares:             Number(shares),
         avg_price:          Number(avgPrice),
         currency,
@@ -333,11 +345,11 @@ export function AddToPortfolioModal({
 
       <div className="px-5 py-4 flex flex-col gap-3.5">
         {/* 포트폴리오 선택 */}
-        {(portfolios as any[]).length > 1 && (
+        {portfolios.length > 1 && (
           <div className="flex flex-col gap-1.5">
             <label className="text-2xs font-semibold text-text-muted">포트폴리오</label>
             <select className={INPUT_CLASS} value={portfolioId ?? ""} onChange={(e) => setPortfolioId(Number(e.target.value))}>
-              {(portfolios as any[]).map((pf: any) => (
+              {portfolios.map((pf) => (
                 <option key={pf.id} value={pf.id}>{pf.name}</option>
               ))}
             </select>

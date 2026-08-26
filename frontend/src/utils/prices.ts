@@ -10,6 +10,8 @@
  * 접미사를 흡수한 정규화 키를 함께 색인해 두고 조회 시 폴백한다.
  */
 
+import type { 시세행 } from "@/types";
+
 /** 국내 종목 접미사(.KS/.KQ)를 제거한 비교용 키 */
 export function normalizeSymbol(sym: string): string {
   return sym.replace(/\.(KS|KQ)$/i, "").toUpperCase();
@@ -17,26 +19,28 @@ export function normalizeSymbol(sym: string): string {
 
 /** 종목별로 WebSocket 값을 우선하되, WS가 다루지 못한 종목은 HTTP 조회값으로 채운다 */
 export function mergeEffectivePrices(
-  wsPrices: any[] | null | undefined,
-  batchPrices: any[] | null | undefined,
-): any[] | null | undefined {
+  wsPrices: 시세행[] | null | undefined,
+  batchPrices: 시세행[] | null | undefined,
+): 시세행[] | null | undefined {
   if (!wsPrices)    return batchPrices;
   if (!batchPrices) return wsPrices;
-  const bySymbol: Record<string, any> = {};
-  batchPrices.forEach((d: any) => { if (d?.symbol) bySymbol[d.symbol] = d; });
-  wsPrices.forEach((d: any) => { if (d?.symbol && d.price != null) bySymbol[d.symbol] = d; });
+  const bySymbol: Record<string, 시세행> = {};
+  batchPrices.forEach((d) => { if (d?.symbol) bySymbol[d.symbol] = d; });
+  wsPrices.forEach((d) => { if (d?.symbol && d.price != null) bySymbol[d.symbol] = d; });
   return Object.values(bySymbol);
 }
 
 /** 심볼 → 시세 객체 색인 (원본 심볼 + 접미사 제거 키를 함께 담는다) */
-export function indexPricesBySymbol(prices: any[] | null | undefined): Record<string, any> {
-  const map: Record<string, any> = {};
-  const put = (key: string, d: any) => {
+export function indexPricesBySymbol(
+  prices: 시세행[] | null | undefined,
+): Record<string, 시세행> {
+  const map: Record<string, 시세행> = {};
+  const put = (key: string, d: 시세행) => {
     const cur = map[key];
     // 가격이 있는 항목을 우선 — 값 없는 응답이 유효한 값을 가리지 않도록
     if (!cur || (cur.price == null && d.price != null)) map[key] = d;
   };
-  prices?.forEach((d: any) => {
+  prices?.forEach((d) => {
     if (!d?.symbol) return;
     put(d.symbol, d);
     put(normalizeSymbol(d.symbol), d);
@@ -45,7 +49,9 @@ export function indexPricesBySymbol(prices: any[] | null | undefined): Record<st
 }
 
 /** 색인에서 시세 조회 — 요청 심볼과 응답 심볼의 접미사가 달라도 찾아낸다 */
-export function lookupPrice(index: Record<string, any>, symbol: string): any {
+export function lookupPrice(
+  index: Record<string, 시세행>, symbol: string,
+): 시세행 | undefined {
   if (!symbol) return undefined;
   return index[symbol] ?? index[normalizeSymbol(symbol)];
 }

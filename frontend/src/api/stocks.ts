@@ -2,7 +2,7 @@ import api from "./client";
 import type {
   Market, StockPrice, StockDetail, OHLCV, StockFundamentals,
   뉴스항목, 지표카드, 순위행, 대시보드응답, 실적응답, 전망응답, 지표흐름, MarketIndex,
-  WatchlistItem, 관심폴더, 시세행,
+  WatchlistItem, 관심폴더, 시세행, ScreeningFilter, ConditionGroup,
 } from "@/types";
 
 /** 투자자별 수급 하루치. 값은 순매수 '거래대금'(원)이고 음수면 순매도다. */
@@ -254,24 +254,67 @@ export const financialsApi = {
 };
 
 export const screeningApi = {
-  run: (payload: { market: string; filters: any; sort_by: string; sort_order: string; limit: number }) =>
+  run: (payload: { market: string; filters: ScreeningFilter; sort_by: string; sort_order: string; limit: number }) =>
     api.post("/screening/run", payload).then((r) => r.data),
 
   getPresets: () =>
     api.get("/screening/presets").then((r) => r.data),
 
-  savePreset: (payload: any) =>
+  savePreset: (payload: 스크리닝저장) =>
     api.post("/screening/presets", payload).then((r) => r.data),
 
   deletePreset: (id: number) =>
     api.delete(`/screening/presets/${id}`).then((r) => r.data),
 };
 
+/** 저장해 두는 스크리닝 조건 한 벌 — 서버 PresetSaveRequest 와 같은 모양 */
+export interface 스크리닝저장 {
+  name: string;
+  market: string;
+  filters: ScreeningFilter;
+  sort_by: string;
+  sort_order: "asc" | "desc";
+}
+
+/** 백테스트 한 번의 조건 — 서버 BacktestRequest 와 같은 모양 */
+export interface 백테스트요청 {
+  symbol: string;
+  market: string;
+  start_date: string;
+  end_date: string;
+  initial_capital: number;
+  /** 사기·팔기 조건 — 화면(Backtest.tsx)이 만드는 것과 같은 모양 */
+  entry_conditions: ConditionGroup;
+  exit_conditions: ConditionGroup;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  strategy_id?: number | null;
+}
+
+/** 여러 종목을 한꺼번에 돌릴 때 — 서버 UniverseBacktestRequest */
+export interface 전종목백테스트요청 extends Omit<백테스트요청, "symbol" | "strategy_id"> {
+  universe: string;
+  custom_symbols?: string[];
+  rank_by?: string;
+  top_n?: number;
+}
+
+/** 저장해 두는 전략 — 서버 StrategySaveRequest */
+export interface 전략저장 {
+  name: string;
+  description?: string | null;
+  market: string;
+  entry_conditions: ConditionGroup;
+  exit_conditions: ConditionGroup;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+}
+
 export const backtestApi = {
-  run: (payload: any) =>
+  run: (payload: 백테스트요청) =>
     api.post("/backtest/run", payload).then((r) => r.data),
 
-  runUniverse: (payload: any) =>
+  runUniverse: (payload: 전종목백테스트요청) =>
     api.post("/backtest/universe", payload).then((r) => r.data),
 
   getResults: (limit = 20) =>
@@ -283,10 +326,10 @@ export const backtestApi = {
   getStrategies: () =>
     api.get("/backtest/strategies").then((r) => r.data),
 
-  saveStrategy: (payload: any) =>
+  saveStrategy: (payload: 전략저장) =>
     api.post("/backtest/strategies", payload).then((r) => r.data),
 
-  updateStrategy: (id: number, payload: any) =>
+  updateStrategy: (id: number, payload: 전략저장) =>
     api.put(`/backtest/strategies/${id}`, payload).then((r) => r.data),
 
   deleteStrategy: (id: number) =>
@@ -410,14 +453,14 @@ export const watchlistApi = {
     if (symbols.length === 0) return [];
 
     const fetchChunk = (syms: string[], mkts: string[]) =>
-      api.get<any[]>("/watchlist/prices", {
+      api.get<시세행[]>("/watchlist/prices", {
         params: { symbols: syms.join(","), markets: mkts.join(",") },
         signal,
       }).then((r) => r.data);
 
     if (symbols.length <= PRICE_CHUNK_SIZE) return fetchChunk(symbols, markets);
 
-    const requests: Promise<any[]>[] = [];
+    const requests: Promise<시세행[]>[] = [];
     for (let i = 0; i < symbols.length; i += PRICE_CHUNK_SIZE) {
       // 서버가 symbols[i]와 markets[i]를 짝지으므로 같은 구간으로 잘라야 한다
       requests.push(fetchChunk(
@@ -448,14 +491,33 @@ export const watchlistApi = {
     api.put("/watchlist/items/reorder", { order }).then((r) => r.data),
 };
 
+/** 글에 붙이는 투표 — 서버 PollIn 과 같은 모양 (질문 1개 + 보기 2~4개) */
+export interface 글투표 { question: string; options: string[] }
+
+/** 글에 붙이는 종목 태그 — 서버 TagIn */
+export interface 글태그 { symbol: string; market: string; name?: string | null }
+
+/** 글에 붙이는 보유 종목 — 서버 PortfolioItemIn.
+ *  현금 항목은 symbol 이 "현금" 이라 종목코드 형식을 강제하지 않는다. */
+export interface 글보유종목 {
+  symbol: string; market: string; name?: string;
+  shares?: number; avg_price?: number; currency?: string | null;
+  input_exchange_rate?: number | null;
+  current_price?: number | null;
+  asset_class?: string | null;
+}
+
 export const communityApi = {
   getPosts: (market: string, symbol: string, page = 1, sort: "latest" | "likes" = "latest") =>
     api.get(`/community/${market}/${symbol}/posts`, { params: { page, sort } }).then((r) => r.data),
-  createPost: (market: string, symbol: string, title: string, body: string, image = "", poll: any = null, tags: any[] = [], portfolio: any[] | null = null) =>
+  createPost: (market: string, symbol: string, title: string, body: string,
+               image = "", poll: 글투표 | null = null, tags: 글태그[] = [],
+               portfolio: 글보유종목[] | null = null) =>
     api.post(`/community/${market}/${symbol}/posts`, { title, body, content: body, image, poll, tags, portfolio }).then((r) => r.data),
   getPost: (postId: number) =>
     api.get(`/community/posts/${postId}`).then((r) => r.data),
-  updatePost: (market: string, symbol: string, postId: number, title: string, body: string, tags?: any[], poll?: any, image?: string) =>
+  updatePost: (market: string, symbol: string, postId: number, title: string,
+               body: string, tags?: 글태그[], poll?: 글투표 | null, image?: string) =>
     api.put(`/community/${market}/${symbol}/posts/${postId}`, { title, body, tags, poll, image }).then((r) => r.data),
   updateComment: (commentId: number, content: string) =>
     api.put(`/community/comments/${commentId}`, { content }).then((r) => r.data),

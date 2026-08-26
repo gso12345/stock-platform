@@ -37,6 +37,10 @@ export interface OHLCV {
   low: number;
   close: number;
   volume: number;
+  /** 거래대금. 원천에 따라 있기도 없기도 하다 —
+   *  국내 KIS 는 실제 거래대금을 주고, 야후 경로는 안 준다.
+   *  없을 때 화면은 종가×거래량으로 어림한다(일별 시세 탭). */
+  amount?: number;
 }
 
 export interface MarketIndex {

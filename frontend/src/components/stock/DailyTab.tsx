@@ -34,7 +34,7 @@ export default function DailyTab({
           {fetchingDaily && <div className="w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>}
         </div>
         {dailyOhlcv?.length ? (
-          <span className="text-sm text-text-muted">{(dailyOhlcv as any[]).length}일</span>
+          <span className="text-sm text-text-muted">{dailyOhlcv.length}일</span>
         ) : null}
       </div>
       {!dailyOhlcv?.length ? (
@@ -56,11 +56,14 @@ export default function DailyTab({
               </tr>
             </thead>
             <tbody>
-              {[...(dailyOhlcv as any[])].reverse().map((bar: any, i: number, arr: any[]) => {
+              {[...dailyOhlcv].reverse().map((bar, i, arr) => {
                 const prevClose = arr[i + 1]?.close;
                 const chgRate = prevClose ? ((bar.close - prevClose) / prevClose * 100) : 0;
                 const isPos = chgRate >= 0;
-                const amount = bar.amount > 0 ? bar.amount : bar.close * (bar.volume || 0);
+                /* 거래대금은 원천에 따라 안 올 수 있다. 그때는 종가×거래량으로
+                   어림한다 — 실제 값과 조금 다르지만 자리가 비는 것보다 낫다 */
+                const amount = bar.amount && bar.amount > 0
+                  ? bar.amount : bar.close * (bar.volume || 0);
                 return (
                   <tr key={bar.date} className="border-b border-border/30 hover:bg-bg-hover">
                     <td className="px-4 py-2.5 font-mono text-text-muted whitespace-nowrap sticky left-0 bg-bg-card">{bar.date?.replace(/^(\d{4})(\d{2})(\d{2})/, "$1-$2-$3").slice(0,10)}</td>
