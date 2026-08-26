@@ -19,6 +19,7 @@ import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { type AssetClass, resolveAssetClass } from "@/utils/assetClass";
 import type { Market, ChartMode, PortfolioItem, SelectedPortfolio, PortfolioMeta, EnrichedItem } from "@/types/portfolio";
 import AssetHistory from "@/components/portfolio/AssetHistory";
+import DividendCalendar from "@/components/portfolio/DividendCalendar";
 import {
   PortfolioModal, CashModal, ConfirmDeleteModal, PortfolioPill,
   PortfolioFilterDropdown, AddPortfolioButton, PortfolioManagerModal,
@@ -991,6 +992,11 @@ export default function Portfolio() {
           로그인 안 한 미리보기에서는 안 그린다 — 남의 기록이 아니라
           아무 기록도 없어서, 늘 "아직 없어요" 만 보이게 된다. */}
       {isLoggedIn && items.length > 0 && <AssetHistory />}
+
+      {/* ── 배당 달력 ──
+          '얼마인가 → 어떻게 변해 왔나' 다음에 오는 것이 '앞으로 뭐가
+          들어오나' 다. 구성 차트보다 위에 둔다. */}
+      {isLoggedIn && items.length > 0 && <DividendCalendar />}
 
       {/* ── 구성 차트 ── */}
       {((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (

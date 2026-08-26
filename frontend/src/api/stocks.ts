@@ -305,6 +305,29 @@ export interface 자산흐름점 {
   priced: number;
 }
 
+/** 배당 달력 한 줄 — 종목 하나의 다음 배당 */
+export interface 배당줄 {
+  symbol: string;
+  market: string;
+  name: string;
+  /** 다음 배당기준일. confirmed 가 false 면 지난 주기로 미뤄 본 추정치다 */
+  date: string;
+  confirmed: boolean;
+  /** 회사가 공시한 날짜(있을 때만) */
+  ex_date: string | null;
+  pay_date: string | null;
+  /** "월" | "분기" | "반기" | "연" */
+  cycle: string | null;
+  last_date: string;
+  last_amount: number;
+  per_year: number;
+  shares: number;
+  /** 이번 회차·한 해에 받을 것으로 보이는 돈. 안 갖고 있으면 null */
+  expected: number | null;
+  expected_year: number | null;
+  recent: { date: string; amount: number }[];
+}
+
 export const portfolioApi = {
   getPortfolios: () =>
     api.get("/portfolio/portfolios").then((r) => r.data),
@@ -325,6 +348,11 @@ export const portfolioApi = {
   getHistory: (days = 90) =>
     api.get<{ points: 자산흐름점[]; days: number }>("/portfolio/history",
       { params: { days } }).then((r) => r.data),
+
+  /** 내 종목이 언제 얼마를 주는가 — 보유 + 관심종목 */
+  getDividends: () =>
+    api.get<{ items: 배당줄[]; pending: number }>("/portfolio/dividends")
+       .then((r) => r.data),
 
   getItems: (portfolioId?: number, viewAll?: boolean) =>
     api.get("/portfolio/items", {

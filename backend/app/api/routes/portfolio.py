@@ -250,6 +250,53 @@ def 자산흐름(
     return {"points": points, "days": days}
 
 
+# ── 배당 달력 ────────────────────────────────────────────────
+@router.get("/dividends")
+def 배당달력(
+    include_watchlist: bool = Query(True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """내 종목이 언제 얼마를 주는가.
+
+    지금까지 배당은 '배당수익률 2.1%' 라는 숫자 하나로만 있었다.
+    배당을 보고 사는 사람이 정작 알고 싶은 것은 **언제** 들어오느냐다.
+
+    전 종목을 뒤지지 않는다 — 내가 가진 것과 관심 있는 것만 본다.
+    그래야 조회 수가 사람마다 수십 건으로 묶인다.
+
+    한 요청에 새로 받아 오는 종목 수에도 상한이 있다(dividend_service).
+    처음 몇 번은 목록이 조금씩 길어지는 대신, 화면이 30초를 기다리는
+    일이 없다. 아직 못 받은 수는 pending 으로 같이 내보낸다.
+    """
+    from app.models.stock import Watchlist, WatchlistItem
+    from app.services import dividend_service as DV
+
+    보유 = db.query(PortfolioItem).filter(PortfolioItem.user_id == current_user.id).all()
+    후보: dict[tuple, dict] = {}
+    for it in 보유:
+        if (it.asset_class or "") == "현금":
+            continue                     # 현금에는 배당이 없다
+        열쇠 = (it.symbol, it.market)
+        칸 = 후보.setdefault(열쇠, {"symbol": it.symbol, "market": it.market,
+                                     "name": it.name or it.symbol, "shares": 0.0})
+        # 같은 종목을 여러 포트폴리오에 나눠 담았으면 수량을 합친다
+        칸["shares"] += float(it.shares or 0)
+
+    if include_watchlist:
+        관심 = (db.query(WatchlistItem)
+                .join(Watchlist, Watchlist.id == WatchlistItem.watchlist_id)
+                .filter(Watchlist.user_id == current_user.id)
+                .limit(100).all())
+        for w in 관심:
+            열쇠 = (w.symbol, w.market)
+            # 이미 보유 중이면 수량을 지우지 않는다
+            후보.setdefault(열쇠, {"symbol": w.symbol, "market": w.market,
+                                   "name": w.name or w.symbol, "shares": 0.0})
+
+    return DV.달력(list(후보.values()))
+
+
 # ── 종목 CRUD ────────────────────────────────────────────────
 @router.get("/items")
 def get_items(
