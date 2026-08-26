@@ -293,6 +293,18 @@ export const backtestApi = {
     api.delete(`/backtest/strategies/${id}`).then((r) => r.data),
 };
 
+/** 자산 흐름 그래프의 한 점. 서버가 하루 한 줄씩 남긴 것 */
+export interface 자산흐름점 {
+  /** "2026-08-26" — 한국 날짜 */
+  day: string;
+  /** 원화 환산 평가금액·매입금액 */
+  value: number;
+  cost: number;
+  /** 그날 시세를 실제로 구한 종목 수 / 시세가 있어야 하는 종목 수 */
+  filled: number;
+  priced: number;
+}
+
 export const portfolioApi = {
   getPortfolios: () =>
     api.get("/portfolio/portfolios").then((r) => r.data),
@@ -308,6 +320,11 @@ export const portfolioApi = {
 
   reorderPortfolios: (order: number[]) =>
     api.put("/portfolio/portfolios/reorder", { order }).then((r) => r.data),
+
+  /** 내 자산이 하루하루 얼마였는지 — 자산 흐름 그래프의 재료 */
+  getHistory: (days = 90) =>
+    api.get<{ points: 자산흐름점[]; days: number }>("/portfolio/history",
+      { params: { days } }).then((r) => r.data),
 
   getItems: (portfolioId?: number, viewAll?: boolean) =>
     api.get("/portfolio/items", {

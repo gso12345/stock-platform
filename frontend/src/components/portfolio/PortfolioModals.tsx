@@ -397,7 +397,7 @@ export function PortfolioPill({
       } ${isDragging ? "opacity-40" : ""} ${isDropTarget ? "ring-1 ring-accent-blue ring-inset" : ""}`}
     >
       <span>{portfolio.name}</span>
-      <span className="text-xs opacity-60">({portfolio.count})</span>
+      <span className="text-xs opacity-60">({portfolio.count ?? 0})</span>
     </div>
   );
 }

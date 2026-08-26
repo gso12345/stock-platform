@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Path, Body
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Body, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -203,6 +205,49 @@ def delete_portfolio(
     db.delete(pf)
     db.commit()
     return {"message": "삭제 완료"}
+
+
+# ── 자산 그래프 ──────────────────────────────────────────────
+@router.get("/history")
+def 자산흐름(
+    days: int = Query(90, ge=7, le=365),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """내 자산이 하루하루 얼마였는지.
+
+    기록은 서버가 15분마다 '오늘 치가 없는 사람' 만 한 줄씩 남긴다
+    (portfolio_snapshot.찍기). 그래서 앱을 안 연 날은 비어 있다 —
+    없는 날을 억지로 채우지 않고 그대로 비워서 내보낸다. 이어 그리는
+    것은 화면이 할 일이고, 서버가 지어낸 값을 섞으면 안 된다.
+
+    오늘 치는 여기서 즉석으로 계산해 얹는다. 15분을 기다려야 오늘
+    점이 생기면, 방금 종목을 담은 사람에게는 그래프가 고장 나 보인다.
+    """
+    from datetime import timedelta as _td
+    from app.models.stock import PortfolioSnapshot
+    from app.services import portfolio_snapshot as PS
+
+    부터 = (datetime.now(PS.KST) - _td(days=days)).strftime("%Y-%m-%d")
+    rows = (db.query(PortfolioSnapshot)
+            .filter(PortfolioSnapshot.user_id == current_user.id,
+                    PortfolioSnapshot.day >= 부터)
+            .order_by(PortfolioSnapshot.day)
+            .all())
+    points = [{"day": r.day, "value": r.total_value, "cost": r.total_cost,
+               "filled": r.filled or 0, "priced": r.priced or 0} for r in rows]
+
+    날 = PS.오늘()
+    if not points or points[-1]["day"] != 날:
+        환율 = PS._환율()
+        내것 = db.query(PortfolioItem).filter(PortfolioItem.user_id == current_user.id).all()
+        if 환율 > 0 and 내것:
+            합 = PS.합계내기(내것, 환율)
+            if not (합["priced"] > 0 and 합["filled"] == 0):
+                points.append({"day": 날, "value": round(합["value"], 2),
+                               "cost": round(합["cost"], 2),
+                               "filled": 합["filled"], "priced": 합["priced"]})
+    return {"points": points, "days": days}
 
 
 # ── 종목 CRUD ────────────────────────────────────────────────

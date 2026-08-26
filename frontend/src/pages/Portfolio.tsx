@@ -18,6 +18,7 @@ import { withNativeValues } from "@/utils/holdings";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { type AssetClass, resolveAssetClass } from "@/utils/assetClass";
 import type { Market, ChartMode, PortfolioItem, SelectedPortfolio, PortfolioMeta, EnrichedItem } from "@/types/portfolio";
+import AssetHistory from "@/components/portfolio/AssetHistory";
 import {
   PortfolioModal, CashModal, ConfirmDeleteModal, PortfolioPill,
   PortfolioFilterDropdown, AddPortfolioButton, PortfolioManagerModal,
@@ -139,7 +140,9 @@ export default function Portfolio() {
   }, [isLoggedIn, portfolios, selectedPortfolioId]);
 
   const isAllView = selectedPortfolioId === "all";
-  const totalItemCount = portfolios.reduce((s, p) => s + p.count, 0);
+  /* count 가 하나라도 비면 합계 전체가 NaN 이 되어 탭에 '전체 (NaN)' 이
+     찍힌다. 숫자 하나가 없는 것과 화면에 NaN 이 뜨는 것은 다른 일이다 */
+  const totalItemCount = portfolios.reduce((s, p) => s + (p.count ?? 0), 0);
 
   const createPortfolioMutation = useMutation({
     mutationFn: (name: string) => portfolioApi.createPortfolio(name),
@@ -980,6 +983,14 @@ export default function Portfolio() {
         </Card>
         )
       )}
+
+      {/* ── 자산 흐름 ──
+          '지금 얼마인가'(위) 다음에 오는 질문이 '어떻게 변해 왔나' 이고,
+          그다음이 '무엇으로 이뤄졌나'(아래 구성) 이다. 그 순서로 둔다.
+
+          로그인 안 한 미리보기에서는 안 그린다 — 남의 기록이 아니라
+          아무 기록도 없어서, 늘 "아직 없어요" 만 보이게 된다. */}
+      {isLoggedIn && items.length > 0 && <AssetHistory />}
 
       {/* ── 구성 차트 ── */}
       {((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (

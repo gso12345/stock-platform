@@ -25,7 +25,7 @@ from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
     QuantScoreWeight, QuantPercentileCache, KrTicker, UsTicker,
-    MetricsHistoryCache, PriceAlert,
+    MetricsHistoryCache, PriceAlert, PortfolioSnapshot,
 )
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, SitePopup, Report  # noqa: F401
 from app.models.admin_log import AdminLog  # noqa: F401  — 관리자 행위 기록 테이블 생성 보장

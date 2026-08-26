@@ -778,6 +778,19 @@ async def periodic_refresh():
             except Exception as e:
                 log.debug("가격 알림 확인 건너뜀: %s", type(e).__name__)
 
+        # 내 자산 하루치 기록 (15분)
+        #
+        # 자주 할 필요가 없다 — 하루에 한 줄이면 되고, 이미 적은 사람은
+        # 곧장 넘어간다. 그래도 15분마다 보는 이유는 서버가 잠들었다
+        # 깨는 시간이 일정하지 않아서다. '새벽 3시에 한 번' 으로 잡으면
+        # 그 시각에 서버가 자고 있던 날은 통째로 빈다.
+        if counter % 90 == 0:
+            try:
+                from app.services.portfolio_snapshot import 찍기
+                await asyncio.get_running_loop().run_in_executor(None, 찍기)
+            except Exception as e:
+                log.debug("자산 기록 건너뜀: %s", type(e).__name__)
+
         # 한국 금리 — 기준금리·CD금리·국고채 (3분)
         if counter % 18 == 0:
             from app.services.market_extras import _do_fetch_kr_rates

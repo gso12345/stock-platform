@@ -358,3 +358,44 @@ class PriceAlert(Base):
     #: 울릴 때의 값. 알림 문구에 그대로 쓴다
     fired_price = Column(Float)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PortfolioSnapshot(Base):
+    """내 자산이 하루하루 얼마였는지. 자산 그래프의 재료다.
+
+    지금까지 화면은 '오늘 얼마인가' 만 말했다. 자산 앱에서 정작 보고
+    싶은 것은 '지난달보다 늘었나' 인데, 그걸 받쳐 줄 기록이 아무 데도
+    없었다 — 매일 화면을 열어 숫자를 적어 두지 않는 한 알 수 없었다.
+
+    ── 설계에서 신경 쓴 것 ──
+
+    · 하루 한 줄이다. (user_id, day) 를 한 벌로 못 박아서, 하루에
+      몇 번을 돌든 그날 값은 한 번만 남는다.
+
+    · 날짜는 한국 날짜(KST)다. 쓰는 사람이 한국에 있고, UTC 로 적으면
+      밤 9시 이후에 찍힌 값이 '내일' 로 들어간다.
+
+    · 값은 이미 받아 둔 시세 캐시로만 계산한다. 그래프 때문에 시세를
+      새로 받지 않는다 — 0.15 CPU 서버라 그만한 여유가 없다.
+
+    · 시세를 하나도 못 구한 날은 아예 안 적는다. 매입금액을 그대로
+      적으면 '그날 자산이 원금과 같았다' 는 거짓말이 그래프에 남는다.
+      빈 날은 그냥 비워 두는 편이 정직하다.
+    """
+    __tablename__ = "portfolio_snapshots"
+    __table_args__ = (
+        UniqueConstraint("user_id", "day", name="uq_pf_snapshot_day"),
+    )
+
+    id      = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    #: "2026-08-26" — 한국 날짜
+    day     = Column(String(10), nullable=False, index=True)
+    #: 원화 환산 평가금액·매입금액. 화면의 합계와 같은 방법으로 낸다
+    total_value = Column(Float, nullable=False)
+    total_cost  = Column(Float, nullable=False)
+    #: 시세를 실제로 구한 종목 수 / 시세가 있어야 하는 종목 수.
+    #  한두 종목이 빠진 날인지 아닌지를 나중에 알 수 있어야 한다
+    filled  = Column(Integer, default=0)
+    priced  = Column(Integer, default=0)
+    made_at = Column(DateTime(timezone=True), server_default=func.now())
