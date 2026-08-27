@@ -1,9 +1,37 @@
 import { memo } from "react";
 import { MarketBadge, ChangeBadge } from "@/components/ui";
 import { Pencil, Trash2, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
-import { fmtKRWFull, fmtKRWFullSign, fmtUSDFull, fmtNative } from "@/utils/formatters";
+/* 현재가는 가리지 않으므로 원본 포맷터를 그대로 쓴다 — 남들도 다 아는
+   값이고, 여기까지 가리면 목록이 읽을 수 없게만 되고 지켜지는 건 없다 */
+import { fmtNative, fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
+import { use돈, 가린글 } from "@/hooks/useMoney";
 import type { EnrichedItem } from "@/types/portfolio";
 import LivePrice from "@/components/ui/LivePrice";
+
+/** 이 종목이 배당을 어떻게 주나 — 배당 달력이 받아 온 것을 나눠 쓴다.
+ *
+ *  참고한 자산 앱들은 종목 카드마다 '배당월 2·5·8·11' 과 '투자배당률
+ *  3.2%' 를 달아 둔다. 목록을 훑다가 "이 종목 배당이 언제였지" 를
+ *  다른 화면에 가서 확인하지 않아도 된다. 서버에 새로 물어볼 것도
+ *  없다 — 배당 탭이 이미 받는 값이고 캐시를 나눠 쓴다. */
+export interface 배당몫 {
+  /** 몇 월에 주나. 주·월배당은 1~12 전부라 화면에 안 쓴다 */
+  months: number[];
+  /** 한 주에 한 해 얼마 — 원본 통화 */
+  perYear: number;
+  currency: string;
+}
+
+/** 투자배당률 — 한 해 배당 ÷ 내가 넣은 돈.
+ *
+ *  '시가배당률'(지금 가격 대비)과 다른 숫자다. 오래 가진 사람일수록
+ *  높아지는 쪽이 이것이고, 배당주를 오래 들고 있는 사람이 보고 싶어
+ *  하는 것도 이쪽이다. */
+export function 투자배당률(몫: 배당몫 | undefined, item: EnrichedItem, 환율: number): number | null {
+  if (!몫 || !몫.perYear || item.costKRW <= 0 || !item.shares) return null;
+  const 한해 = 몫.perYear * item.shares * (몫.currency === "KRW" ? 1 : 환율);
+  return (한해 / item.costKRW) * 100;
+}
 
 /* ── Market badge ───────────────────────────────────────── */
 
@@ -57,6 +85,8 @@ export interface HoldingRowProps {
   exchangeRate: number;
   isAllView: boolean;
   isLoggedIn: boolean;
+  /** 배당 정보. 아직 안 왔으면 undefined — 그때는 배지를 안 그린다 */
+  배당?: 배당몫;
   onNavigate: (item: EnrichedItem) => void;
   onEdit: (item: EnrichedItem) => void;
   onDelete: (item: EnrichedItem) => void;
@@ -66,10 +96,16 @@ export interface HoldingRowProps {
 export const fmtShares = (n: number) => (n % 1 === 0 ? n.toLocaleString() : n.toFixed(4));
 
 export const HoldingCard = memo(function HoldingCard({
-  item, hasPrice, pnlClass, showAsNative, exchangeRate, isAllView, isLoggedIn,
+  item, hasPrice, pnlClass, showAsNative, exchangeRate, isAllView, isLoggedIn, 배당,
   onNavigate, onEdit, onDelete, onPrefetch,
 }: HoldingRowProps) {
   const { isForexItem, nativeAvgPrice, nativeValue, nativePnl } = item;
+  const 돈 = use돈();
+  const 배당률 = 투자배당률(배당, item, exchangeRate);
+  /* 주·월배당은 months 가 1~12 전부라 적을 뜻이 없다. 분기·반기·연배당만
+     '언제 주나' 가 정보가 된다 */
+  const 배당월 = 배당?.months && 배당.months.length > 0 && 배당.months.length < 12
+    ? 배당.months : null;
   return (
     <div
       className="holding-card-lite rounded-xl border border-border bg-bg-card hover:border-accent-blue/30 hover:bg-bg-hover transition-all p-4 flex flex-col gap-3 cursor-pointer"
@@ -120,12 +156,12 @@ export const HoldingCard = memo(function HoldingCard({
         <div className="flex flex-col gap-0.5 min-w-0">
           <span className="text-2xs text-text-dim">평가금액</span>
           <span className="font-mono font-bold text-text-primary text-lg leading-none truncate">
-            {hasPrice ? (showAsNative ? fmtUSDFull(nativeValue) : fmtKRWFull(item.currentValueKRW)) : "—"}
+            {hasPrice ? (showAsNative ? 돈.달러(nativeValue) : 돈.원(item.currentValueKRW)) : "—"}
           </span>
         </div>
         <span className={`font-mono font-bold text-sm whitespace-nowrap ${hasPrice ? pnlClass : "text-text-muted"}`}>
           {hasPrice
-            ? `${showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSDFull(nativePnl)}` : fmtKRWFullSign(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)`
+            ? `${showAsNative ? `${nativePnl >= 0 ? "+" : ""}${돈.달러(nativePnl)}` : 돈.원부호(item.pnlKRW)} (${item.pnlRate >= 0 ? "+" : ""}${item.pnlRate.toFixed(2)}%)`
             : "—"}
         </span>
       </div>
@@ -133,13 +169,28 @@ export const HoldingCard = memo(function HoldingCard({
       {/* 참고값 — 한 줄로 낮춘다. 예전에는 라벨과 값이 각각 두 줄씩
           세 칸을 차지해 카드 높이의 3분의 1을 먹었다 */}
       <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-2xs text-text-dim">
+        {/* 수량과 평단가도 가린다.
+            평가금액만 가리고 이 둘을 남기면 곱해서 그대로 나온다 —
+            가리는 시늉만 하는 셈이다. 반면 현재가·수익률·비중은 남긴다:
+            남들도 아는 값이거나, 내가 얼마를 가졌는지를 말하지 않는다 */}
         <span className="whitespace-nowrap">
-          {fmtShares(item.shares)}주 · 평단{" "}
+          {돈.가림 ? 가린글 : `${fmtShares(item.shares)}주`} · 평단{" "}
           <span className="font-mono text-text-muted">
-            {!isForexItem ? fmtNative(item.market, item.currency, item.avgPrice)
-              : showAsNative ? fmtUSDFull(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
+            {!isForexItem ? 돈.현지(item.market, item.currency, item.avgPrice)
+              : showAsNative ? 돈.달러(nativeAvgPrice) : 돈.원(nativeAvgPrice * exchangeRate)}
           </span>
         </span>
+        {/* 배당 —
+            목록을 훑다가 "이 종목 배당이 언제였지" 를 다른 화면에 가서
+            확인하지 않아도 되게. 투자배당률은 %라 안 가린다 */}
+        {배당률 != null && (
+          <span className="whitespace-nowrap text-accent-green/80 font-mono">
+            배당 {배당률.toFixed(2)}%
+          </span>
+        )}
+        {배당월 && (
+          <span className="whitespace-nowrap">{배당월.join("·")}월</span>
+        )}
         <span className="ml-auto flex items-center gap-1.5 shrink-0">
           <span className="w-10 h-1 bg-bg-elevated rounded-full overflow-hidden">
             <span className="block h-full bg-accent-blue/60 rounded-full" style={{ width: `${Math.min(100, item.weight)}%` }} />
@@ -166,10 +217,14 @@ export const HoldingCard = memo(function HoldingCard({
 });
 
 export const HoldingTableRow = memo(function HoldingTableRow({
-  item, hasPrice, pnlClass, showAsNative, exchangeRate, isAllView, isLoggedIn,
+  item, hasPrice, pnlClass, showAsNative, exchangeRate, isAllView, isLoggedIn, 배당,
   onNavigate, onEdit, onDelete, onPrefetch,
 }: HoldingRowProps) {
   const { isForexItem, nativeAvgPrice, nativeValue, nativePnl } = item;
+  const 돈 = use돈();
+  const 배당률 = 투자배당률(배당, item, exchangeRate);
+  const 배당월 = 배당?.months && 배당.months.length > 0 && 배당.months.length < 12
+    ? 배당.months : null;
   return (
     <tr
       className="border-b border-border/40 transition-colors hover:bg-bg-hover cursor-pointer"
@@ -180,6 +235,13 @@ export const HoldingTableRow = memo(function HoldingTableRow({
         <div className="flex flex-col gap-0.5">
           <span className="font-semibold text-text-primary">{item.name || item.symbol}</span>
           <span className="text-text-dim font-mono">{item.symbol}</span>
+          {/* 배당 — 카드 보기와 같은 값을 같은 자리에 둔다 */}
+          {(배당률 != null || 배당월) && (
+            <span className="flex items-center gap-1.5 text-2xs text-text-dim whitespace-nowrap">
+              {배당률 != null && <span className="text-accent-green/80 font-mono">배당 {배당률.toFixed(2)}%</span>}
+              {배당월 && <span>{배당월.join("·")}월</span>}
+            </span>
+          )}
         </div>
       </td>
       {isAllView && (
@@ -187,12 +249,12 @@ export const HoldingTableRow = memo(function HoldingTableRow({
       )}
       <td className="px-3 py-2.5 text-right whitespace-nowrap"><MarketBadge market={item.market} /></td>
       <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
-        {fmtShares(item.shares)}
+        {돈.가림 ? 가린글 : fmtShares(item.shares)}
       </td>
       <td className="px-3 py-2.5 text-right font-mono text-text-secondary whitespace-nowrap">
         <div>
-          {!isForexItem ? fmtNative(item.market, item.currency, item.avgPrice)
-            : showAsNative ? fmtUSDFull(nativeAvgPrice) : fmtKRWFull(nativeAvgPrice * exchangeRate)}
+          {!isForexItem ? 돈.현지(item.market, item.currency, item.avgPrice)
+            : showAsNative ? 돈.달러(nativeAvgPrice) : 돈.원(nativeAvgPrice * exchangeRate)}
         </div>
         {item.currency === "USD" && item.inputExchangeRate && (
           <div className="text-2xs text-text-dim">@{Math.round(item.inputExchangeRate).toLocaleString()}원</div>
@@ -219,12 +281,12 @@ export const HoldingTableRow = memo(function HoldingTableRow({
       </td>
       <td className="px-3 py-2.5 text-right font-mono text-text-primary whitespace-nowrap">
         {hasPrice
-          ? (showAsNative ? fmtUSDFull(nativeValue) : fmtKRWFull(item.currentValueKRW))
+          ? (showAsNative ? 돈.달러(nativeValue) : 돈.원(item.currentValueKRW))
           : <span className="text-text-muted">—</span>}
       </td>
       <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${hasPrice ? pnlClass : "text-text-muted"}`}>
         {hasPrice
-          ? (showAsNative ? `${nativePnl >= 0 ? "+" : ""}${fmtUSDFull(nativePnl)}` : fmtKRWFullSign(item.pnlKRW))
+          ? (showAsNative ? `${nativePnl >= 0 ? "+" : ""}${돈.달러(nativePnl)}` : 돈.원부호(item.pnlKRW))
           : "—"}
       </td>
       <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${hasPrice ? pnlClass : "text-text-muted"}`}>

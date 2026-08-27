@@ -81,11 +81,27 @@ describe.skipIf(!빌드있음)("첫 진입에 받는 JS", () => {
     expect(kb, `피드가 ${kb.toFixed(0)}KB 를 받는다`).toBeLessThan(500);
   });
 
-  it("차트를 정말 쓰는 화면은 그대로 받는다", () => {
-    /* 내 자산과 종목상세는 차트가 화면의 알맹이다. 여기서까지 빼면
-       그림이 늦게 뜬다 — 미루는 것이 늘 이득은 아니다 */
+  it("내 자산도 이제는 recharts 를 미리 안 받는다", () => {
+    /* 예전에는 반대였다 — "내 자산은 원그래프가 화면의 알맹이라
+       목록보다 먼저 눈에 들어온다" 는 이유로 일부러 미리 받게 뒀다.
+       그 배치에서는 맞는 판단이었다.
+
+       지금은 원그래프가 '비중' 탭 안에 있다. 기본 탭('자산')을 여는
+       사람은 그림을 아예 안 본다 — 그 사람에게 132KB 를 먼저 받게 할
+       이유가 없다. 탭을 누르면 그때 받는다(차트틀이 동적으로 받는다). */
     const 자산 = 받는것("Portfolio-");
-    if (자산.length) expect(자산.some((f) => f.includes("recharts"))).toBe(true);
+    expect(자산.length, "Portfolio 청크를 못 찾았다 — 빌드가 오래됐을 수 있다").toBeGreaterThan(0);
+    expect(자산.filter((f) => f.includes("recharts"))).toEqual([]);
+  });
+
+  it("내 자산 첫 진입이 600KB 를 넘지 않는다", () => {
+    /* 위 검사만 있으면 recharts 대신 다른 큰 것이 딸려 와도 통과한다.
+
+       지금 실측 508KB(압축 전)다. recharts 를 미리 받던 때는 여기에
+       515KB 가 더해져 1MB 를 넘었다. 600KB 는 그 사이에 그은 선이라,
+       그래프 라이브러리 한 벌이 다시 들어오면 반드시 걸린다. */
+    const kb = KB(받는것("Portfolio-"));
+    expect(kb, `내 자산이 ${kb.toFixed(0)}KB 를 받는다`).toBeLessThan(600);
   });
 });
 

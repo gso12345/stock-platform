@@ -28,15 +28,39 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { portfolioApi, dashboardApi, type 자산흐름점 } from "@/api/stocks";
 import 차트틀 from "@/components/chart/ChartFrame";
-import { Card, ChangeBadge, 못불러옴 } from "@/components/ui";
-import { fmtKRWFull } from "@/utils/formatters";
+import { Card, 못불러옴 } from "@/components/ui";
+import { use돈 } from "@/hooks/useMoney";
 import type { OHLCV } from "@/types";
 
-const 기간들 = [
-  { id: 30,  label: "1개월" },
-  { id: 90,  label: "3개월" },
-  { id: 365, label: "1년" },
+/**
+ * 볼 수 있는 기간.
+ *
+ * 예전에는 일수(30·90·365) 그 자체가 상태였고, 지수 기간은 그 숫자에서
+ * 되짚었다(30 이하면 1mo …). 그 방식으로는 '올해' 를 넣을 수가 없다 —
+ * 올해가 238일이면 '1년' 과 구분이 안 돼 지수만 1년치로 그려진다.
+ * 그래서 고른 것 자체를 상태로 두고, 일수와 지수 기간을 따로 적는다.
+ */
+export const 기간들 = [
+  { id: "1개월", label: "1개월", 일수: 30,   지수: "1mo" },
+  { id: "3개월", label: "3개월", 일수: 90,   지수: "3mo" },
+  { id: "1년",   label: "1년",   일수: 365,  지수: "1y"  },
+  { id: "올해",  label: "올해",  일수: null, 지수: "ytd" },
+  { id: "전체",  label: "전체",  일수: 3650, 지수: "max" },
 ] as const;
+
+export type 기간id = (typeof 기간들)[number]["id"];
+
+/**
+ * 1월 1일부터 오늘까지 며칠인가.
+ *
+ * 서버가 days 를 최소 7 로 받는다(그보다 짧으면 선이 안 그려진다).
+ * 1월 1일~7일 사이에 '올해' 를 누르면 그 밑으로 내려가 422 가 난다.
+ */
+export function 올해일수(오늘 = new Date()): number {
+  const 첫날 = new Date(오늘.getFullYear(), 0, 1);
+  const 지난날 = Math.ceil((오늘.getTime() - 첫날.getTime()) / 86_400_000);
+  return Math.max(7, 지난날);
+}
 
 /** 견줄 지수. 서버 KR_INDICES·US_INDICES 에 있는 이름만 쓴다 */
 export const 벤치마크들 = [
@@ -51,11 +75,6 @@ export const 벤치마크들 = [
 function 짧은날(day: string): string {
   const [, m, d] = day.split("-");
   return m && d ? `${Number(m)}/${Number(d)}` : day;
-}
-
-/** 일수 → 서버가 받는 기간 문자열 */
-function 기간글(일수: number): string {
-  return 일수 <= 30 ? "1mo" : 일수 <= 90 ? "3mo" : "1y";
 }
 
 export interface 그릴점 {
@@ -119,11 +138,16 @@ export function 견주기(점들: 자산흐름점[], 지수: OHLCV[] | undefined
 }
 
 export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
-  const [일수, set일수] = useState<number>(90);
+  const [고른기간, set고른기간] = useState<기간id>("3개월");
   const [벤치, set벤치] = useState<string>("");
+  const 돈 = use돈();
+
+  const 기간 = 기간들.find((g) => g.id === 고른기간) ?? 기간들[1];
+  /* '올해' 만 오늘이 며칠이냐에 따라 달라진다. 나머지는 고정값이다 */
+  const 일수 = 기간.일수 ?? 올해일수();
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["portfolio-history", 일수],
+    queryKey: ["portfolio-history", 고른기간, 일수],
     queryFn: () => portfolioApi.getHistory(일수),
     enabled: 켜짐,
     staleTime: 300_000,
@@ -132,8 +156,8 @@ export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
   /* 지수는 벤치마크를 골랐을 때만 받는다. 안 고른 사람에게 왕복
      하나를 더 태울 이유가 없다 — 0.15 CPU 서버다 */
   const { data: 지수 } = useQuery<OHLCV[]>({
-    queryKey: ["index-ohlcv", 벤치, 기간글(일수)],
-    queryFn: () => dashboardApi.getIndexOHLCV(벤치, 기간글(일수), "1d"),
+    queryKey: ["index-ohlcv", 벤치, 기간.지수],
+    queryFn: () => dashboardApi.getIndexOHLCV(벤치, 기간.지수, "1d"),
     enabled: 켜짐 && !!벤치,
     staleTime: 600_000,
   });
@@ -164,18 +188,38 @@ export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
     return null;
   }, [비교중, 그릴것]);
 
+  /**
+   * 비교할 때 쓸 '내 수익률'.
+   *
+   * 견주기() 는 내 기록과 지수가 **둘 다 있는 첫날**을 기준으로 삼는다
+   * (기록이 지수 범위보다 앞서면 기준이 없어 비교가 통째로 사라지기
+   * 때문이다). 그런데 변화는 늘 점들[0] 대비였다. 두 기준이 다르면
+   * 아래 '앞섬/뒤짐' 이 서로 다른 자를 대고 잰 숫자를 뺀 값이 된다.
+   * 비교 중일 때는 지수와 같은 기준을 쓴다.
+   */
+  const 내수익률 = useMemo(() => {
+    if (!비교중) return 변화?.비율 ?? null;
+    for (let i = 그릴것.length - 1; i >= 0; i--) {
+      const v = 그릴것[i].내수익;
+      if (v != null) return v;
+    }
+    return 변화?.비율 ?? null;
+  }, [비교중, 그릴것, 변화]);
+
   const 틀 = (속: React.ReactNode) => (
     <Card className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-text-primary">자산 흐름</span>
-        <div className="flex rounded-lg border border-border overflow-hidden shrink-0">
+        <span className="text-sm font-semibold text-text-primary shrink-0">자산 흐름</span>
+        {/* 칩이 다섯 개라 좁은 화면에서 넘친다. 넘치면 잘리는 대신
+            옆으로 밀리게 둔다 — 잘린 칩은 있는 줄도 모른다 */}
+        <div className="flex rounded-lg border border-border overflow-x-auto scrollbar-hide">
           {기간들.map((g) => (
             <button
               key={g.id}
-              onClick={() => set일수(g.id)}
-              aria-pressed={일수 === g.id}
-              className={`px-2.5 py-1 text-2xs font-medium transition-colors ${
-                일수 === g.id ? "bg-accent-blue/15 text-accent-blue" : "text-text-muted hover:bg-bg-elevated"
+              onClick={() => set고른기간(g.id)}
+              aria-pressed={고른기간 === g.id}
+              className={`px-2.5 py-1 text-2xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                고른기간 === g.id ? "bg-accent-blue/15 text-accent-blue" : "text-text-muted hover:bg-bg-elevated"
               }`}
             >{g.label}</button>
           ))}
@@ -202,12 +246,37 @@ export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
 
   return 틀(
     <>
-      {변화 && (
-        <div className="flex items-baseline justify-between gap-3 -mt-1">
-          <span className="text-2xs text-text-muted shrink-0">
-            {기간들.find((g) => g.id === 일수)?.label} 변화
+      {/* 고른 기간에 얼마 벌었나 —
+          예전에는 이 줄이 라벨과 같은 크기로 오른쪽 끝에 붙어 있어서,
+          정작 기간을 바꿔 가며 보는 이유인 그 숫자가 제일 작았다.
+          그래프 위에서 제일 크게 읽히도록 올린다. */}
+      {변화 && 내수익률 != null && (
+        <div className="flex flex-col gap-0.5 -mt-1">
+          <span className="text-2xs text-text-muted">
+            {기간.label} 수익
+            {/* 서버는 하루 한 줄씩만 쌓는다. 그 기록이 시작된 날보다 앞은
+                아예 없으므로, 고른 기간을 다 못 채웠으면 그렇게 적는다 —
+                '전체' 를 눌렀는데 3개월치만 나오면 고장으로 보인다 */}
+            {점들.length > 0 && (
+              <span className="text-text-dim"> · {점들[0].day.replace(/-/g, ".")}부터</span>
+            )}
           </span>
-          <ChangeBadge value={변화.비율} 금액={비교중 ? undefined : 변화.금액} 통화="KRW" className="text-sm" />
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className={`text-2xl leading-none font-mono font-bold num ${
+              내수익률 >= 0 ? "text-accent-green" : "text-accent-red"
+            }`}>
+              {내수익률 >= 0 ? "+" : ""}{내수익률.toFixed(2)}%
+            </span>
+            {/* 비교 중이면 금액을 안 쓴다 — 그때는 첫 공통일 기준이라
+                이 %와 금액의 기준이 서로 다르다 */}
+            {!비교중 && (
+              <span className={`text-sm font-mono font-semibold num ${
+                변화.금액 >= 0 ? "text-accent-green" : "text-accent-red"
+              }`}>
+                {돈.원부호(변화.금액)}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -228,13 +297,13 @@ export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
         ))}
       </div>
 
-      {비교중 && 지수변화 != null && 변화 && (
+      {비교중 && 지수변화 != null && 내수익률 != null && (
         /* 숫자로도 한 줄 적는다. 선 두 개가 붙어 있으면 눈으로는
            어느 쪽이 이겼는지 잘 안 보인다 */
         <p className="text-2xs text-text-secondary break-keep -mt-1">
           {벤치이름} {지수변화 >= 0 ? "+" : ""}{지수변화.toFixed(2)}% 대비{" "}
-          <span className={변화.비율 >= 지수변화 ? "text-accent-green font-semibold" : "text-accent-red font-semibold"}>
-            {변화.비율 >= 지수변화 ? "앞섬" : "뒤짐"} {Math.abs(변화.비율 - 지수변화).toFixed(2)}%p
+          <span className={내수익률! >= 지수변화 ? "text-accent-green font-semibold" : "text-accent-red font-semibold"}>
+            {내수익률! >= 지수변화 ? "앞섬" : "뒤짐"} {Math.abs(내수익률! - 지수변화).toFixed(2)}%p
           </span>
         </p>
       )}
@@ -263,7 +332,7 @@ export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
               }}
               labelStyle={{ color: "var(--text-muted)" }}
               formatter={(v: number, name: string) => [
-                비교중 ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : fmtKRWFull(Number(v)),
+                비교중 ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : 돈.원(Number(v)),
                 name,
               ]}
             />

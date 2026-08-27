@@ -379,6 +379,29 @@ export interface 배당줄 {
   recent: { date: string; amount: number }[];
 }
 
+/** 보유 종목 뉴스 한 건 — 어느 종목으로 걸렸는지가 같이 온다 */
+export interface 보유뉴스항목 {
+  title: string;
+  link: string;
+  source: string;
+  /** "2026/08/26 14:30" 처럼 이미 사람이 읽는 모양으로 온다 */
+  published: string;
+  published_ts: number;
+  summary: string;
+  image?: string | null;
+  /** 이 기사가 걸린 내 종목들. 한 기사가 두 종목에 걸리기도 한다 */
+  symbols: string[];
+}
+
+export interface 보유뉴스응답 {
+  items: 보유뉴스항목[];
+  /** 기사를 찾은 종목 */
+  covered: string[];
+  /** 아직 못 찾은 종목 — 서버가 새로 받아 오지 않으므로 숨기지 않고 알려 준다.
+   *  종목 상세 주소가 /stocks/{market}/{symbol} 이라 시장이 같이 와야 한다 */
+  missing: { symbol: string; market: string; name: string }[];
+}
+
 export const portfolioApi = {
   getPortfolios: () =>
     api.get("/portfolio/portfolios").then((r) => r.data),
@@ -404,6 +427,14 @@ export const portfolioApi = {
    *  portfolioId 를 주면 그 포트폴리오 것만, 안 주면 전체. */
   getDividends: (portfolioId?: number) =>
     api.get<{ items: 배당줄[]; pending: number }>("/portfolio/dividends",
+      { params: portfolioId ? { portfolio_id: portfolioId } : {} }).then((r) => r.data),
+
+  /** 내 종목 얘기를 한 자리에.
+   *
+   *  서버는 새로 받아 오지 않고 이미 받아 둔 캐시에서만 고른다 —
+   *  그래서 아직 기사를 못 찾은 종목이 missing 으로 같이 온다. */
+  getHoldingNews: (portfolioId?: number) =>
+    api.get<보유뉴스응답>("/portfolio/news",
       { params: portfolioId ? { portfolio_id: portfolioId } : {} }).then((r) => r.data),
 
   getItems: (portfolioId?: number, viewAll?: boolean) =>

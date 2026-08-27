@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import AssetHistory, { 견주기 } from "@/components/portfolio/AssetHistory";
+import AssetHistory, { 견주기, 올해일수, 기간들 } from "@/components/portfolio/AssetHistory";
 import { portfolioApi, dashboardApi } from "@/api/stocks";
 
 vi.mock("@/api/stocks", () => ({
@@ -157,18 +157,93 @@ describe("선을 그릴 때", () => {
     그리기();
     await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(90));
   });
+
+  it("'올해' 는 1월 1일부터 오늘까지로 물어본다", async () => {
+    /* 예전에는 일수(30·90·365)가 곧 상태였다. 그 방식으로는 올해를 넣을
+       수가 없었다 — 올해가 238일이면 '1년'(365)과 구분이 안 돼서
+       지수만 1년치로 그려지고, 화면의 두 선이 서로 다른 기간이 된다. */
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "올해" }));
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(올해일수()));
+    // 고정값 셋 중 어느 것도 아니어야 한다(1월 초·연말 빼고)
+    expect([30, 90, 365, 3650]).not.toContain(올해일수(new Date(2026, 7, 26)));
+  });
+
+  it("'전체' 는 서버 상한(3650일) 안에서 제일 길게 물어본다", async () => {
+    /* 상한이 365 였다. 366 이상은 라우트 본문에 닿기도 전에 422 로
+       거절돼서, 사용자에게는 '눌렀는데 아무 일도 안 일어남' 으로 보인다.
+       서버 쪽 Query(le=...) 도 같이 풀어 뒀다. */
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "전체" }));
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(3650));
+  });
+});
+
+describe("올해일수", () => {
+  it("1월 1일부터 센다", () => {
+    expect(올해일수(new Date(2026, 0, 31))).toBe(30);
+    expect(올해일수(new Date(2026, 1, 1))).toBe(31);
+  });
+
+  it("연초에도 7 밑으로 안 내려간다", () => {
+    /* 서버가 days 를 ge=7 로 받는다. 1월 3일에 '올해' 를 누르면 2가 되어
+       422 가 나고, 화면에는 아무 일도 안 일어난 것처럼 보인다. */
+    expect(올해일수(new Date(2026, 0, 1))).toBe(7);
+    expect(올해일수(new Date(2026, 0, 3))).toBe(7);
+    expect(올해일수(new Date(2026, 0, 9))).toBe(8);
+  });
+});
+
+describe("지수 기간을 기간마다 따로 적는다", () => {
+  /* 예전에는 일수에서 되짚었다 — 일수<=30 이면 1mo, <=90 이면 3mo,
+     나머지는 전부 1y. '올해'(238일)와 '전체'(3650일)가 둘 다 1y 로
+     눌려서, 자산 선은 3년치인데 지수 선만 1년치가 되는 화면이 나온다. */
+  it("올해는 ytd, 전체는 max 로 받는다", () => {
+    const 표 = Object.fromEntries(기간들.map((g) => [g.id, g.지수]));
+    expect(표).toEqual({
+      "1개월": "1mo", "3개월": "3mo", "1년": "1y", "올해": "ytd", "전체": "max",
+    });
+  });
+
+  it("고른 기간에 맞는 지수 기간으로 물어본다", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)], days: 90,
+    });
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    await waitFor(() => expect(dashboardApi.getIndexOHLCV)
+      .toHaveBeenCalledWith("KOSPI", "3mo", "1d"));
+
+    await userEvent.click(screen.getByRole("button", { name: "전체" }));
+    await waitFor(() => expect(dashboardApi.getIndexOHLCV)
+      .toHaveBeenCalledWith("KOSPI", "max", "1d"));
+  });
 });
 
 
 describe("자산 화면에 붙어 있다", () => {
-  it("로그인하고 보유 종목이 있을 때만 그린다", async () => {
-    /* 미리보기(로그인 전)에는 기록이 아예 없어서 늘 "아직 없어요" 만
-       보인다 — 빈 상자를 하나 더 놓는 셈이다. */
+  it("'추이' 탭에서, 로그인하고 보유 종목이 있을 때만 그린다", async () => {
+    /* 두 가지를 함께 못 박는다.
+
+       1) 미리보기(로그인 전)에는 기록이 아예 없어서 늘 "아직 없어요" 만
+          보인다 — 빈 상자를 하나 더 놓는 셈이다.
+       2) 이제 '추이' 탭 안에 있다. 예전에는 요약 바로 아래에 늘 그려져
+          있었고, 그래서 보유 종목을 보러 온 사람도 이 그래프의
+          /portfolio/history 왕복을 먼저 기다려야 했다. 탭 뒤로 옮기면
+          안 연 사람에게는 그 요청이 아예 안 나간다 — 0.15 CPU 서버다.
+
+       이 조건이 조용히 풀리면(예: 탭 밖으로 나오면) 첫 화면이 도로
+       느려지는데 화면만 봐서는 티가 안 난다. 그래서 원문으로 잡는다. */
     const fs = await import("fs");
     const path = await import("path");
     const 글 = fs.readFileSync(
       path.resolve(__dirname, "../../../pages/Portfolio.tsx"), "utf-8");
-    expect(글).toContain("isLoggedIn && items.length > 0 && <AssetHistory />");
+    expect(글).toContain('속탭 === "추이" && isLoggedIn && items.length > 0 && (');
+    // 탭 밖에 또 한 벌 그리면 위 이득이 사라진다
+    expect(글.match(/<AssetHistory\b/g) ?? []).toHaveLength(1);
   });
 });
 

@@ -210,7 +210,12 @@ def delete_portfolio(
 # ── 자산 그래프 ──────────────────────────────────────────────
 @router.get("/history")
 def 자산흐름(
-    days: int = Query(90, ge=7, le=365),
+    # 상한이 365 였다. 화면에 '전체' 칩을 넣으면서 풀었다 —
+    # 366 이상은 라우트 본문에 닿기도 전에 422 로 거절돼서, 사용자에게는
+    # '눌렀는데 아무 일도 안 일어남' 으로 보인다.
+    # 넉넉히 열되 무한은 아니다. day 에 인덱스가 있고(models/stock.py)
+    # 한 사람당 하루 한 줄이라 10년치라도 3,650줄이 넘지 않는다.
+    days: int = Query(90, ge=7, le=3650),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
@@ -294,6 +299,50 @@ def 배당달력(
         칸["shares"] += float(it.shares or 0)
 
     return DV.달력(list(후보.values()))
+
+
+# ── 보유 종목 뉴스 ───────────────────────────────────────────
+@router.get("/news")
+def 보유뉴스(
+    portfolio_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """내 종목 얘기를 한 자리에.
+
+    종목 상세마다 뉴스가 있지만, 열 종목을 가진 사람은 '내 종목에 무슨
+    일이 있었나' 를 보려고 화면을 열 번 드나들어야 했다.
+
+    ── 외부 호출을 한 번도 안 한다 ──
+
+    종목마다 구글뉴스나 yfinance 를 부르면 스무 종목 = 외부 호출 스무
+    번이다. 0.15 CPU 에서 그건 화면이 30초를 기다린다는 뜻이다. 대신
+    이미 받아 둔 것만 쓴다 — 스케줄러가 5분마다 채우는 종합 뉴스
+    캐시와, 누가 종목 상세를 열어 남긴 종목 뉴스 캐시.
+
+    그래서 쓸수록 좋아지고, 아직 기사를 못 찾은 종목은 missing 으로
+    그대로 알려 준다(자세한 것은 services/portfolio_news.py).
+    """
+    from app.services import portfolio_news as PN
+
+    질의 = db.query(PortfolioItem).filter(PortfolioItem.user_id == current_user.id)
+    if portfolio_id is not None:
+        if not _valid_portfolio_id(db, portfolio_id, current_user.id):
+            raise HTTPException(status_code=404, detail="포트폴리오를 찾을 수 없습니다")
+        질의 = 질의.filter(PortfolioItem.portfolio_id == portfolio_id)
+
+    후보: dict[tuple, dict] = {}
+    for it in 질의.all():
+        if (it.asset_class or "") == "현금":
+            continue                     # 현금에는 뉴스가 없다
+        후보.setdefault((it.symbol, it.market), {
+            "symbol": it.symbol,
+            "market": it.market,
+            # 국내 기사 매칭은 한글 종목명으로 한다 — 표시 이름이 곧 검색어다
+            "name": get_display_name(it.symbol, it.market, it.name or it.symbol),
+        })
+
+    return PN.모으기(list(후보.values()))
 
 
 # ── 종목 CRUD ────────────────────────────────────────────────

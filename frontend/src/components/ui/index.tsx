@@ -2,6 +2,7 @@ import React from "react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { useSettingsStore } from "@/store/settingsStore";
+import { 가린글 } from "@/hooks/useMoney";
 import { 용어사전 } from "@/constants/terms";
 import type { LucideIcon } from "lucide-react";
 import { AlertTriangle } from "lucide-react";
@@ -39,7 +40,7 @@ export function Card({ children, className, onClick, ariaLabel }: {
 }
 
 /* ── 등락 배지 (설정의 색상 테마 적용) ───────────────────── */
-export function ChangeBadge({ value, suffix = "%", className, 금액, 통화 }: {
+export function ChangeBadge({ value, suffix = "%", className, 금액, 통화, 내돈 }: {
   value: number; suffix?: string; className?: string;
   /** 얼마가 오르내렸는지. 주면 % 앞에 같이 적는다.
    *  퍼센트만 보면 '3% 올랐다'는 알아도 그게 300원인지 3만원인지 모른다.
@@ -47,8 +48,15 @@ export function ChangeBadge({ value, suffix = "%", className, 금액, 통화 }: 
   금액?: number | null;
   /** 'KRW' 면 ₩, 아니면 $. 소수 자리도 통화에 맞춘다 */
   통화?: string;
+  /** 이 금액이 '내 돈' 인가 — 평가손익처럼 내 자산 규모가 드러나는 값.
+   *
+   *  금액 가리기를 켜면 이런 값만 가린다. 같은 배지가 종목 상세에서는
+   *  '한 주가 오늘 얼마 움직였나' 를 그리는데, 그건 남들도 다 아는
+   *  값이라 가릴 이유가 없다. 비율(%)은 어느 쪽이든 그대로 둔다. */
+  내돈?: boolean;
 }) {
   const colorScheme = useSettingsStore((s) => s.colorScheme);
+  const 가림 = useSettingsStore((s) => s.금액가리기) && 내돈 === true;
   const pos = value >= 0;
   const color = pos
     ? (colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green")
@@ -58,6 +66,7 @@ export function ChangeBadge({ value, suffix = "%", className, 금액, 통화 }: 
      현재가가 통화와 함께 있으므로, 여기서는 '+900 (+1.22%)' 로 짧게 둔다. */
   const 원화 = 통화 !== "USD";
   const 금액글 = 금액 == null || !Number.isFinite(금액) ? null
+    : 가림 ? 가린글
     : `${금액 >= 0 ? "+" : "-"}${원화
         ? Math.round(Math.abs(금액)).toLocaleString("ko-KR")
         : Math.abs(금액).toFixed(2)}`;

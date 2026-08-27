@@ -300,3 +300,27 @@ class Test배관:
         assert '@router.get("/history")' in 본문
         # 없는 날을 서버가 지어내면 안 된다
         assert "PortfolioSnapshot" in 본문
+
+    def test_전체_기간을_받아_준다(self):
+        """화면에 '전체' 칩이 생겼다.
+
+        상한이 365 였다. 366 이상은 라우트 본문에 닿기도 전에 Pydantic
+        검증에서 422 로 거절돼서, 사용자에게는 '눌렀는데 아무 일도 안
+        일어남' 으로 보인다 — 오류 메시지조차 안 뜬다.
+
+        화면은 3650(10년)을 보낸다. 그 값이 실제로 통과해야 한다.
+        무한은 아니다 — 상한이 아예 없으면 days=99999999 로 스캔을
+        시킬 수 있다.
+        """
+        from fastapi.routing import APIRoute
+        from app.api.routes.portfolio import router
+
+        길 = next(r for r in router.routes
+                  if isinstance(r, APIRoute) and r.path.endswith("/history"))
+        칸 = next(p for p in 길.dependant.query_params if p.name == "days")
+        메타 = 칸.field_info.metadata          # [Ge(7), Le(3650)]
+        아래 = next(m.ge for m in 메타 if hasattr(m, "ge"))
+        위   = next((m.le for m in 메타 if hasattr(m, "le")), None)
+        assert 위 is not None, "상한이 아예 없으면 큰 값으로 스캔을 시킬 수 있다"
+        assert 위 >= 3650, f"화면이 보내는 3650 이 422 로 거절된다(지금 상한 {위})"
+        assert 아래 == 7, "'올해' 를 1월 초에 누르면 7 밑으로 내려간다"

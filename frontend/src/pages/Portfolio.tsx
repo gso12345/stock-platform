@@ -6,12 +6,12 @@ import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
 import { Card, RowSkeleton, Tabs, UnderlineTabs, ChangeBadge, 못불러옴} from "@/components/ui";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
-import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw } from "lucide-react";
+import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw, Eye, EyeOff, PieChart as PieIcon, Grid2x2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import 차트틀 from "@/components/chart/ChartFrame";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors } from "@/hooks/usePnlColors";
-import { fmtKRWCompact, fmtKRWFull, fmtKRWFullSign } from "@/utils/formatters";
+import { use돈 } from "@/hooks/useMoney";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import { extractErrorMessage } from "@/utils/errors";
 import { withNativeValues } from "@/utils/holdings";
@@ -19,12 +19,15 @@ import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { type AssetClass, resolveAssetClass } from "@/utils/assetClass";
 import type { Market, ChartMode, PortfolioItem, SelectedPortfolio, PortfolioMeta, EnrichedItem } from "@/types/portfolio";
 import AssetHistory from "@/components/portfolio/AssetHistory";
-import DividendCalendar from "@/components/portfolio/DividendCalendar";
+import DividendCalendar, { type 보유몫 } from "@/components/portfolio/DividendCalendar";
+import 자산지도, { type 지도칸 } from "@/components/portfolio/AssetTreemap";
+import 수익기여 from "@/components/portfolio/ProfitContribution";
+import 보유뉴스 from "@/components/portfolio/HoldingNews";
 import {
   PortfolioModal, CashModal, ConfirmDeleteModal, PortfolioPill,
   PortfolioFilterDropdown, AddPortfolioButton, PortfolioManagerModal,
 } from "@/components/portfolio/PortfolioModals";
-import { SortHead, HoldingCard, HoldingTableRow, type SortField } from "@/components/portfolio/HoldingRow";
+import { SortHead, HoldingCard, HoldingTableRow, type SortField, type 배당몫 } from "@/components/portfolio/HoldingRow";
 
 
 /* ── Constants ─────────────────────────────────────────── */
@@ -75,6 +78,30 @@ const ASSET_FILTER_TABS: { id: AssetClass | "전체"; label: string }[] = [
   { id: "현금",     label: "현금" },
 ];
 
+/* ── 내 자산 안 탭 ────────────────────────────────────────
+ *
+ * 예전에는 전부 세로로 쌓여 있었다 — 요약 → 자산 흐름 그래프 → 배당
+ * 달력 → 구성 차트 → 자산유형 필터 → 그제서야 보유 종목. 휴대폰에서
+ * **내 종목을 보려면 화면을 네다섯 번 넘겨야** 했다. 정작 이 화면을
+ * 여는 가장 흔한 이유가 그 목록인데.
+ *
+ * 눈에 안 보이는 값도 컸다. 자산 흐름과 배당 달력이 화면이 뜨자마자
+ * /portfolio/history 와 /portfolio/dividends 를 부른다. 즉 **보유
+ * 종목이 보이기 전에 요청 두 개를 더 기다리는** 구조였다 —
+ * Render 무료 등급은 0.15 CPU 다.
+ *
+ * 탭으로 나누면 둘 다 풀린다. 안 연 탭은 mount 되지 않으므로 그 탭의
+ * 요청도 안 나간다. recharts(gzip 132KB)도 '비중' 을 열 때만 받는다.
+ *
+ * 총 평가금액은 탭 위에 남긴다 — 어느 탭에 있든 '지금 얼마인가' 는
+ * 늘 보여야 한다. 참고한 자산 앱들도 그 배치다.
+ */
+type 자산탭 = "자산" | "추이" | "배당" | "비중" | "뉴스";
+
+/** 로그인해야 뜻이 있는 탭 — 기록도 배당도 '내 것' 이 있어야 나온다.
+ *  미리보기(비로그인)에서 열면 늘 "아직 없어요" 만 나오므로 아예 감춘다 */
+const 로그인필요탭: 자산탭[] = ["추이", "배당", "뉴스"];
+
 
 /* ── Main Page ──────────────────────────────────────────── */
 export default function Portfolio() {
@@ -92,9 +119,13 @@ export default function Portfolio() {
   );
   const [currencyMode,    setCurrencyMode]    = useState<"krw" | "native">("krw"); // 해외종목 원화/외화 표시 모드
   const [assetFilterTab,  setAssetFilterTab]  = useState<AssetClass | "전체">("전체");
+  const [속탭,            set속탭]            = useState<자산탭>("자산");
+  /* 파이 ↔ 지도. 종목이 열 개를 넘으면 파이는 조각이 얇아져 못 읽는다 */
+  const [구성모양,        set구성모양]        = useState<"파이" | "지도">("파이");
 
   const { isLoggedIn } = useAuthStore();
-  const { colorScheme, 화면모양 } = useSettingsStore();
+  const { colorScheme, 화면모양, 금액가리기, 토글금액가리기 } = useSettingsStore();
+  const 돈 = use돈();
 
   // 행에 마우스를 올리면 상세 페이지 데이터 선제 prefetch (클릭 시 즉시 표시)
   const prefetchStock = useCallback((item: any) => {
@@ -660,6 +691,58 @@ export default function Portfolio() {
     if (!isAllView && chartMode === "portfolio") setChartMode("stock");
   }, [isAllView, chartMode]);
 
+  /* ── 로그아웃하면 로그인 전용 탭에 갇히지 않도록 ── */
+  useEffect(() => {
+    if (!isLoggedIn && 로그인필요탭.includes(속탭)) set속탭("자산");
+  }, [isLoggedIn, 속탭]);
+
+  const 보일탭들 = useMemo(
+    () => (["자산", "추이", "배당", "비중", "뉴스"] as 자산탭[])
+      .filter((t) => isLoggedIn || !로그인필요탭.includes(t))
+      .map((t) => ({ id: t, label: t })),
+    [isLoggedIn],
+  );
+
+  /* ── 보유 종목 줄에 붙일 배당 정보 ──
+     배당 탭과 **같은 열쇠**를 쓴다. 탭을 열어 봤으면 캐시가 그대로
+     쓰이고, 안 열어 봤으면 여기서 한 번 받아 배당 탭이 물려받는다.
+
+     enabled 에 !pricesLoading 을 건 이유 — 이 배지는 있으면 좋은
+     것이지 목록이 뜨는 조건이 아니다. 시세와 같이 나가면 0.15 CPU
+     서버에서 서로 밀어낸다. 목록이 다 그려진 뒤에 조용히 따라붙는다. */
+  const { data: 배당자료 } = useQuery({
+    queryKey: ["dividend-calendar", isAllView ? "all" : (selectedPortfolioId ?? "all")],
+    queryFn: () => portfolioApi.getDividends(isAllView ? undefined : (selectedPortfolioId ?? undefined)),
+    enabled: isLoggedIn && items.length > 0 && !pricesLoading,
+    staleTime: 600_000,
+  });
+
+  const 배당정보 = useMemo<Record<string, 배당몫>>(() => {
+    const 칸: Record<string, 배당몫> = {};
+    for (const r of 배당자료?.items ?? []) {
+      칸[r.symbol] = { months: r.months ?? [], perYear: r.per_year || 0, currency: r.currency };
+    }
+    return 칸;
+  }, [배당자료]);
+
+  /* ── 배당 화면에 넘길 '내 몫' ──
+     배당금(분자)은 서버가 주지만 '얼마를 넣어서 그만큼 받나'(분모)는
+     이 화면만 안다. 요청을 하나 더 보내는 대신 여기서 내려보낸다.
+     자산유형 필터는 일부러 안 태운다 — 투자배당률은 '내 포트폴리오
+     전체' 대비여야 뜻이 맞는다. */
+  const 보유몫들 = useMemo<Record<string, 보유몫>>(() => {
+    const 칸: Record<string, 보유몫> = {};
+    for (const e of enriched) {
+      if (resolveAssetClass(e) === "현금") continue;   // 현금에는 배당이 없다
+      const 몫 = 칸[e.symbol] ?? (칸[e.symbol] = { 수량: 0, 원가: 0, 평가: 0 });
+      몫.수량 += e.shares;
+      몫.원가 += e.costKRW;
+      몫.평가 += e.currentValueKRW;
+    }
+    return 칸;
+  }, [enriched]);
+
+
   /* ── CRUD ── */
   const handleAdd = (data: Omit<PortfolioItem, "id">) => {
     setModalError(null);
@@ -707,6 +790,45 @@ export default function Portfolio() {
       : allDisplayEnriched.filter((e) => resolveAssetClass(e) === assetFilterTab),
     [allDisplayEnriched, assetFilterTab],
   );
+
+  /* ── 자산 지도(트리맵) 칸 ──
+     파이와 같은 세 가지 갈래를 그대로 쓰되, 파이처럼 열한 번째부터
+     '기타' 로 뭉치지 않는다 — 지도는 칸이 많아도 읽히는 것이 요점이다.
+
+     색은 오늘 등락이다. 시세를 하나도 못 받은 묶음은 0% 가 아니라
+     '모름'(null)이어야 한다. 0 으로 적으면 '안 움직였다' 는 거짓말이 된다. */
+  const 지도칸들 = useMemo<지도칸[]>(() => {
+    const 묶기 = (열쇠: (e: EnrichedItem) => string, 이름짓기: (e: EnrichedItem) => string) => {
+      const 칸 = new Map<string, { name: string; 평가: number; 오늘: number; 안다: boolean }>();
+      for (const e of allDisplayEnriched) {
+        const k = 열쇠(e);
+        const c = 칸.get(k) ?? { name: 이름짓기(e), 평가: 0, 오늘: 0, 안다: false };
+        c.평가 += e.currentValueKRW;
+        c.오늘 += e.dailyChangeKRW ?? 0;
+        if (e.전일대비율 != null) c.안다 = true;
+        칸.set(k, c);
+      }
+      const 총 = [...칸.values()].reduce((s, c) => s + c.평가, 0);
+      return [...칸.entries()].map(([k, c]) => {
+        const 어제 = c.평가 - c.오늘;
+        return {
+          key: k,
+          name: c.name,
+          value: Math.round(c.평가),
+          등락률: c.안다 && 어제 !== 0 ? (c.오늘 / 어제) * 100 : null,
+          비중: 총 > 0 ? (c.평가 / 총) * 100 : 0,
+        };
+      }).sort((a, b) => b.value - a.value);
+    };
+    if (chartMode === "portfolio") {
+      return 묶기((e) => String(e.portfolioId ?? "기타"), (e) => e.portfolioName || "기타");
+    }
+    if (chartMode === "market") {
+      return 묶기((e) => resolveAssetClass(e), (e) => resolveAssetClass(e));
+    }
+    return 묶기((e) => e.symbol,
+      (e) => ((e.market === "US" || e.market === "ETF") ? e.symbol : (e.name || e.symbol)));
+  }, [allDisplayEnriched, chartMode]);
   const hasForexHoldings = useMemo(
     () => displayEnriched.some((e) => e.market === "US" || e.market === "ETF"),
     [displayEnriched],
@@ -817,6 +939,23 @@ export default function Portfolio() {
           </p>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* 금액 가리기 —
+              지하철에서 내 자산을 열면 옆자리가 평가금액을 그대로 본다.
+              설정 창에도 같은 스위치가 있지만, 급할 때 설정을 찾아 들어갈
+              수는 없다. 자산 앱들이 하나같이 여기에 눈을 다는 이유다. */}
+          <button
+            onClick={토글금액가리기}
+            aria-pressed={금액가리기}
+            aria-label={금액가리기 ? "금액 보이기" : "금액 가리기"}
+            title={금액가리기 ? "금액 보이기" : "금액 가리기"}
+            className={`p-2 rounded-lg border transition-all ${
+              금액가리기
+                ? "border-accent-blue/40 text-accent-blue bg-accent-blue/10"
+                : "border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40"
+            }`}
+          >
+            {금액가리기 ? <EyeOff size={13} /> : <Eye size={13} />}
+          </button>
           <button
             onClick={() => { queryClient.invalidateQueries({ queryKey: ["portfolios"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] }); queryClient.invalidateQueries({ queryKey: ["portfolio-prices"] }); }}
             className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
@@ -900,9 +1039,9 @@ export default function Portfolio() {
         화면모양 === "classic" ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: `${요약범위} 평가금액`, value: fmtKRWFull(displaySummary.totalValue), color: "text-text-primary", icon: Landmark, tint: "" },
-            { label: `${요약범위} 매입금액`, value: fmtKRWFull(displaySummary.totalCost),  color: "text-text-primary", icon: Receipt,  tint: "" },
-            { label: "평가손익",   value: fmtKRWFullSign(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl),
+            { label: `${요약범위} 평가금액`, value: 돈.원(displaySummary.totalValue), color: "text-text-primary", icon: Landmark, tint: "" },
+            { label: `${요약범위} 매입금액`, value: 돈.원(displaySummary.totalCost),  color: "text-text-primary", icon: Receipt,  tint: "" },
+            { label: "평가손익",   value: 돈.원부호(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl),
               icon: displaySummary.totalPnl >= 0 ? TrendingUp : TrendingDown,
               tint: displaySummary.totalPnl >= 0 ? "bg-accent-red/5 border-accent-red/20" : "bg-accent-blue/5 border-accent-blue/20" },
             { label: "수익률",     value: `${displaySummary.totalRate >= 0 ? "+" : ""}${displaySummary.totalRate.toFixed(2)}%`, color: pnlColor(displaySummary.totalRate),
@@ -920,7 +1059,7 @@ export default function Portfolio() {
               )}
               {c.label === "평가손익" && (
                 <span className={`text-2xs font-mono ${pnlColor(displaySummary.totalDailyChangeKRW)}`}>
-                  오늘 {fmtKRWFullSign(displaySummary.totalDailyChangeKRW)}
+                  오늘 {돈.원부호(displaySummary.totalDailyChangeKRW)}
                 </span>
               )}
               {c.label === "수익률" && (
@@ -948,7 +1087,7 @@ export default function Portfolio() {
           <div className="flex flex-col gap-1 px-4 pt-4 pb-3.5">
             <span className="text-2xs text-text-muted">{요약범위} 평가금액</span>
             <span className="text-3xl leading-none font-mono font-bold text-text-primary num">
-              {fmtKRWFull(displaySummary.totalValue)}
+              {돈.원(displaySummary.totalValue)}
             </span>
           </div>
 
@@ -962,7 +1101,7 @@ export default function Portfolio() {
                 <span className="text-xs text-text-muted shrink-0">{행.label}</span>
                 {/* 관심종목·퀀트와 같은 부품을 쓴다. 같은 것이 화면마다
                     다른 모양이면 읽는 사람이 매번 다시 익혀야 한다 */}
-                <ChangeBadge value={행.비율} 금액={행.금액} 통화="KRW" className="text-sm" />
+                <ChangeBadge value={행.비율} 금액={행.금액} 통화="KRW" className="text-sm" 내돈 />
               </div>
             ))}
           </div>
@@ -970,7 +1109,7 @@ export default function Portfolio() {
           {/* 참고값 */}
           <div className="grid grid-cols-2 gap-2 px-4 py-3">
             {[
-              { label: "매입금액", value: fmtKRWFull(displaySummary.totalCost), icon: Receipt },
+              { label: "매입금액", value: 돈.원(displaySummary.totalCost), icon: Receipt },
               { label: "적용 환율", value: `${Math.round(exchangeRate).toLocaleString("ko-KR")}원`, icon: Landmark },
             ].map((c) => (
               <div key={c.label} className="flex flex-col gap-0.5 min-w-0">
@@ -985,73 +1124,149 @@ export default function Portfolio() {
         )
       )}
 
-      {/* ── 자산 흐름 ──
-          '지금 얼마인가'(위) 다음에 오는 질문이 '어떻게 변해 왔나' 이고,
-          그다음이 '무엇으로 이뤄졌나'(아래 구성) 이다. 그 순서로 둔다.
-
-          로그인 안 한 미리보기에서는 안 그린다 — 남의 기록이 아니라
-          아무 기록도 없어서, 늘 "아직 없어요" 만 보이게 된다. */}
-      {isLoggedIn && items.length > 0 && <AssetHistory />}
-
-      {/* ── 배당 달력 ──
-          '얼마인가 → 어떻게 변해 왔나' 다음에 오는 것이 '앞으로 뭐가
-          들어오나' 다. 구성 차트보다 위에 둔다. */}
-      {isLoggedIn && items.length > 0 && (
-        <DividendCalendar
-          portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)}
-          이름={isAllView ? undefined : portfolios.find((p) => p.id === selectedPortfolioId)?.name}
+      {/* ── 내 자산 안 탭 ──
+          요약(위)은 어느 탭에 있든 남는다 — '지금 얼마인가' 는 늘 보여야
+          한다. 아래만 갈아 끼운다. 파일 위쪽 자산탭 주석에 왜 나눴는지가
+          적혀 있다(첫 화면 스크롤과 요청 수). */}
+      {/* 시세가 오기 전에도 그린다. previewLoaded 를 기다리게 했더니
+          탭 줄이 뒤늦게 끼어들면서 아래가 통째로 밀려 내려갔다 */}
+      {(!isLoggedIn || items.length > 0) && (
+        <Tabs
+          ariaLabel="내 자산 화면"
+          tabs={보일탭들}
+          active={속탭}
+          onChange={(id) => set속탭(id as 자산탭)}
         />
       )}
 
-      {/* ── 구성 차트 ── */}
-      {((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (
+      {/* ── 추이 ──
+          '지금 얼마인가' 다음에 오는 질문이 '어떻게 변해 왔나' 다.
+
+          로그인 안 한 미리보기에서는 탭 자체가 없다 — 남의 기록이 아니라
+          아무 기록도 없어서, 늘 "아직 없어요" 만 보이게 된다. */}
+      {속탭 === "추이" && isLoggedIn && items.length > 0 && (
+        <>
+          <AssetHistory />
+          {/* 그래프가 '얼마나' 를 말하면, 이건 '누가' 를 말한다.
+              합계가 +512만원일 때 그게 한 종목이 혼자 번 것인지 열 종목이
+              조금씩 모은 것인지는 완전히 다른 상황인데 합계로는 같아 보인다 */}
+          <Card className="flex flex-col gap-3">
+            <div className="flex items-center gap-1.5">
+              <TrendingUp size={14} className="text-accent-blue" />
+              <span className="text-sm font-semibold text-text-primary">수익 기여</span>
+            </div>
+            {/* 위 그래프의 기간 칩과 기준이 다르다. 안 적으면 기간을 바꿨을 때
+                이 숫자도 따라 바뀔 것으로 읽는다 — 종목별 기간 기록은 서버에
+                없다(스냅샷은 하루에 사용자당 합계 한 줄이다).
+
+                '누적 손익' 이라고만 적었더니 아래 '오늘' 칩에는 안 맞는
+                말이 됐다. 두 칩의 기준을 각각 적는다. */}
+            <p className="text-2xs text-text-dim break-keep -mt-1.5">
+              ‘총’ 은 매입가 대비, ‘오늘’ 은 어제 종가 대비예요. 위 그래프의 기간과는 다른 기준이에요.
+            </p>
+            <수익기여 항목={allDisplayEnriched} onSelect={(r) =>
+              navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`)} />
+          </Card>
+        </>
+      )}
+
+      {/* ── 배당 ── */}
+      {속탭 === "배당" && isLoggedIn && items.length > 0 && (
+        <DividendCalendar
+          portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)}
+          이름={isAllView ? undefined : portfolios.find((p) => p.id === selectedPortfolioId)?.name}
+          보유={보유몫들}
+        />
+      )}
+
+      {/* ── 뉴스 ──
+          내 종목 얘기가 어디에 흩어져 있는지 찾아다닐 이유가 없다 */}
+      {속탭 === "뉴스" && isLoggedIn && items.length > 0 && (
+        <보유뉴스 portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)} />
+      )}
+
+      {/* ── 비중 ── */}
+      {속탭 === "비중" && ((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (
         <Card className="flex items-center justify-center h-[180px] text-text-muted text-sm">
           가격 불러오는 중
         </Card>
       )}
-      {hasDisplay && (
+      {속탭 === "비중" && hasDisplay && (
         <Card className="flex flex-col gap-3">
-          {/* 구성은 늘 보인다.
-              접었다 폈다 하게 뒀더니 볼 때마다 한 번 더 눌러야 했다.
-              자산 구성은 내 자산 화면에서 늘 궁금한 것이라, 숨길 이유가 없다. */}
-          <div className="flex items-center justify-between border-b border-border -mx-4 px-4 pb-0">
-            <div className="flex">
+          <div className="flex items-center justify-between border-b border-border -mx-4 px-4 pb-0 gap-2">
+            <div className="flex overflow-x-auto scrollbar-hide">
               {([
                 { id: "stock",  label: "종목별" },
                 { id: "market", label: "자산유형별" },
                 ...(isAllView && portfolios.length > 1 ? [{ id: "portfolio", label: "포트폴리오별" }] : []),
               ] as { id: ChartMode; label: string }[]).map(({ id, label }) => (
                 <button key={id} onClick={() => setChartMode(id)}
-                  className={`px-4 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all ${
+                  className={`px-4 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all whitespace-nowrap ${
                     chartMode === id ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
                   }`}
                 >{label}</button>
               ))}
             </div>
+            {/* 파이 ↔ 지도.
+                파이는 종목이 예닐곱 개를 넘으면 조각이 얇아져 못 읽는다.
+                그래서 열한 번째부터 '기타' 로 뭉쳐 두고 있었는데, 스무
+                종목을 가진 사람에게는 절반이 '기타' 인 그림이 된다. */}
+            <div className="flex gap-0.5 p-0.5 mb-1.5 rounded-lg border border-border bg-bg-primary shrink-0 self-center">
+              {([
+                { id: "파이", icon: PieIcon,  label: "원그래프로 보기" },
+                { id: "지도", icon: Grid2x2,  label: "지도로 보기" },
+              ] as const).map((v) => (
+                <button key={v.id} onClick={() => set구성모양(v.id)}
+                  aria-pressed={구성모양 === v.id} aria-label={v.label} title={v.label}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    구성모양 === v.id ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
+                  }`}
+                >
+                  <v.icon size={13} />
+                </button>
+              ))}
+            </div>
           </div>
-          {activePieData.length > 0 ? (
+          {구성모양 === "지도" ? (
+            <자산지도
+              칸들={지도칸들}
+              가림={금액가리기}
+              onSelect={(이름) => {
+                /* 지도 칸은 이름만 안다. 종목별일 때만 종목으로 보낸다 —
+                   '국내주식' 이나 '연금저축' 을 종목코드로 열 수는 없다 */
+                if (chartMode !== "stock") return;
+                const 것 = allDisplayEnriched.find((e) => (e.name || e.symbol) === 이름 || e.symbol === 이름);
+                if (것) navigate(`/stocks/${것.market}/${encodeURIComponent(것.symbol)}`);
+              }}
+            />
+          ) : activePieData.length > 0 ? (
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-center sm:items-start">
               {/* 파이 차트 */}
               <div className="flex-shrink-0 w-full sm:w-44">
-                <ResponsiveContainer width="100%" height={180}>
-                  <PieChart key={chartMode}>
-                    <Pie
+                <차트틀 height={180}>
+                  {(R) => (
+                  <R.PieChart key={chartMode}>
+                    <R.Pie
                       data={activePieData} dataKey="value" nameKey="name"
                       cx="50%" cy="50%" outerRadius={72} innerRadius={30}
                       isAnimationActive animationBegin={0} animationDuration={700} animationEasing="ease-out"
                     >
                       {activePieData.map((_, i) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                        <R.Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
-                      itemStyle={{ color: "#e2e8f0" }}
-                      labelStyle={{ color: "#94a3b8", display: "none" }}
-                      formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
+                    </R.Pie>
+                    <R.Tooltip
+                      contentStyle={{
+                        background: "var(--bg-card)", border: "1px solid var(--border-default)",
+                        borderRadius: 8, fontSize: 11, color: "var(--text-primary)",
+                      }}
+                      itemStyle={{ color: "var(--text-primary)" }}
+                      labelStyle={{ color: "var(--text-muted)", display: "none" }}
+                      formatter={(v: number) => [돈.원줄임(Number(v)), ""]}
                     />
-                  </PieChart>
-                </ResponsiveContainer>
+                  </R.PieChart>
+                  )}
+                </차트틀>
               </div>
               {/* 우측 목록 */}
               <div className="flex-1 min-w-0 w-full self-center flex flex-col gap-0.5 py-1">
@@ -1070,7 +1285,7 @@ export default function Portfolio() {
                           {pct.toFixed(1)}%
                         </span>
                         <span className="text-xs font-mono text-text-muted text-right flex-shrink-0 w-20 hidden sm:block">
-                          {fmtKRWCompact(entry.value)}
+                          {돈.원줄임(entry.value)}
                         </span>
                       </div>
                     );
@@ -1087,7 +1302,10 @@ export default function Portfolio() {
           바깥 상자를 되돌렸다.
           안쪽 종목 카드와 테두리가 겹쳐 보인다는 이유로 뺐는데, 없애고
           보니 보유 종목 묶음이 어디서 시작하고 끝나는지가 흐릿해졌다.
-          겹쳐 보이는 것보다 경계가 없는 쪽이 더 불편하다. */}
+          겹쳐 보이는 것보다 경계가 없는 쪽이 더 불편하다.
+
+          '자산' 탭에만 둔다. 이 화면을 여는 가장 흔한 이유라 기본 탭이다. */}
+      {속탭 === "자산" && (
       <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border flex-wrap">
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -1263,6 +1481,7 @@ export default function Portfolio() {
                   exchangeRate={exchangeRate}
                   isAllView={isAllView}
                   isLoggedIn={isLoggedIn}
+                  배당={배당정보[item.symbol]}
                   onNavigate={handleRowNavigate}
                   onEdit={handleRowEdit}
                   onDelete={handleRowDelete}
@@ -1300,6 +1519,7 @@ export default function Portfolio() {
                     exchangeRate={exchangeRate}
                     isAllView={isAllView}
                     isLoggedIn={isLoggedIn}
+                    배당={배당정보[item.symbol]}
                     onNavigate={handleRowNavigate}
                     onEdit={handleRowEdit}
                     onDelete={handleRowDelete}
@@ -1319,8 +1539,8 @@ export default function Portfolio() {
                     </>
                   ) : (
                     <>
-                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary whitespace-nowrap">{fmtKRWFull(displaySummary.totalValue)}</td>
-                      <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${pnlColor(displaySummary.totalPnl)}`}>{fmtKRWFullSign(displaySummary.totalPnl)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-text-primary whitespace-nowrap">{돈.원(displaySummary.totalValue)}</td>
+                      <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${pnlColor(displaySummary.totalPnl)}`}>{돈.원부호(displaySummary.totalPnl)}</td>
                       <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${pnlColor(displaySummary.totalRate)}`}>
                         {displaySummary.totalRate >= 0 ? "+" : ""}{displaySummary.totalRate.toFixed(2)}%
                       </td>
@@ -1334,6 +1554,7 @@ export default function Portfolio() {
           </div>
         )}
       </div>
+      )}
 
       {/* ── 종목 추가/수정 모달 ── */}
       {isLoggedIn && (modalOpen || editItem) && (

@@ -39,7 +39,26 @@ function legacyTheme(): Theme {
   return "dark";
 }
 
-function load(): { colorScheme: ColorScheme; fontSize: FontSize; theme: Theme; orientation: Orientation; 화면모양: 화면모양 } {
+/** localStorage 에 실제로 담기는 것 — 함수를 뺀 값들만 */
+export interface 저장값 {
+  colorScheme: ColorScheme;
+  fontSize: FontSize;
+  theme: Theme;
+  orientation: Orientation;
+  화면모양: 화면모양;
+  /** 금액을 •••• 로 가린다. 지하철에서 내 자산을 열 때 옆자리가 본다.
+   *  가리는 것은 '금액' 뿐이다 — 수익률·비중·현재가는 그대로 둔다.
+   *  퍼센트는 내가 얼마를 가졌는지 말해 주지 않고, 현재가는 남들도 아는 값이다. */
+  금액가리기: boolean;
+}
+
+const 기본값: 저장값 = {
+  colorScheme: "green-red", fontSize: "normal", theme: "dark",
+  orientation: "system", 화면모양: "app", 금액가리기: false,
+};
+
+function load(): 저장값 {
+  const 기본 = { ...기본값, theme: legacyTheme() };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
@@ -50,34 +69,44 @@ function load(): { colorScheme: ColorScheme; fontSize: FontSize; theme: Theme; o
         theme: (["light", "dark", "system"] as Theme[]).includes(p.theme) ? p.theme : legacyTheme(),
         orientation: (["system", "portrait", "landscape"] as Orientation[]).includes(p.orientation) ? p.orientation : "system",
         화면모양: 정상화면모양(p.화면모양),
+        금액가리기: p.금액가리기 === true,
       };
     }
   } catch {}
-  return { colorScheme: "green-red", fontSize: "normal", theme: legacyTheme(), orientation: "system", 화면모양: "app" };
+  return 기본;
 }
 
-function save(colorScheme: ColorScheme, fontSize: FontSize, theme: Theme, orientation: Orientation, 화면모양: 화면모양) {
-  try { localStorage.setItem(KEY, JSON.stringify({ colorScheme, fontSize, theme, orientation, 화면모양 })); } catch {}
+/** 값 하나가 바뀔 때마다 통째로 다시 쓴다.
+ *
+ *  예전에는 save(colorScheme, fontSize, theme, orientation, 화면모양) 처럼
+ *  자리로 받았다. 설정을 하나 늘릴 때마다 다섯 군데를 다 고쳐야 했고,
+ *  한 곳만 빠뜨려도 그 설정이 조용히 초기화됐다. 조각만 받는다. */
+function 저장(이전: 저장값, 조각: Partial<저장값>) {
+  const 다음: 저장값 = { ...이전, ...조각 };
+  try { localStorage.setItem(KEY, JSON.stringify(다음)); } catch {}
+  return 다음;
 }
 
-interface SettingsStore {
-  colorScheme: ColorScheme;
-  fontSize: FontSize;
-  theme: Theme;
-  orientation: Orientation;
-  화면모양: 화면모양;
+interface SettingsStore extends 저장값 {
   setColorScheme: (s: ColorScheme) => void;
   setFontSize: (s: FontSize) => void;
   setTheme: (t: Theme) => void;
   setOrientation: (o: Orientation) => void;
   set화면모양: (v: 화면모양) => void;
+  set금액가리기: (v: boolean) => void;
+  토글금액가리기: () => void;
 }
 
-export const useSettingsStore = create<SettingsStore>((set, get) => ({
-  ...load(),
-  setColorScheme: (colorScheme) => { save(colorScheme, get().fontSize, get().theme, get().orientation, get().화면모양); set({ colorScheme }); },
-  setFontSize:    (fontSize)    => { save(get().colorScheme, fontSize, get().theme, get().orientation, get().화면모양); set({ fontSize }); },
-  setTheme:       (theme)       => { save(get().colorScheme, get().fontSize, theme, get().orientation, get().화면모양); set({ theme }); },
-  setOrientation: (orientation) => { save(get().colorScheme, get().fontSize, get().theme, orientation, get().화면모양); set({ orientation }); },
-  set화면모양:    (화면모양)     => { save(get().colorScheme, get().fontSize, get().theme, get().orientation, 화면모양); set({ 화면모양 }); },
-}));
+export const useSettingsStore = create<SettingsStore>((set, get) => {
+  const 바꾸기 = (조각: Partial<저장값>) => { 저장(get(), 조각); set(조각); };
+  return {
+    ...load(),
+    setColorScheme: (colorScheme) => 바꾸기({ colorScheme }),
+    setFontSize:    (fontSize)    => 바꾸기({ fontSize }),
+    setTheme:       (theme)       => 바꾸기({ theme }),
+    setOrientation: (orientation) => 바꾸기({ orientation }),
+    set화면모양:    (화면모양)     => 바꾸기({ 화면모양 }),
+    set금액가리기:  (금액가리기)   => 바꾸기({ 금액가리기 }),
+    토글금액가리기: ()            => 바꾸기({ 금액가리기: !get().금액가리기 }),
+  };
+});

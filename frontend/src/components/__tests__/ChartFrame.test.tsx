@@ -42,18 +42,19 @@ function 소스파일들(): string[] {
   return 결과;
 }
 
-/* 일부러 정적으로 두는 곳.
-   내 자산은 원그래프가 화면의 알맹이다 — 목록보다 먼저 눈에 들어오는
-   자리라, 여기서까지 미루면 그림이 늦게 뜬다. 앞선 세션이 그렇게
-   판단하고 bundle 검사에 못 박아 뒀고, 그 판단을 그대로 따른다.
-   (같은 차트를 쓰는 피드 쪽은 PortfolioSnapshot 이 이미 lazy 로 받는다) */
-const 정적허용 = ["pages/Portfolio.tsx"];
+/* 예외가 하나 있었다 — pages/Portfolio.tsx.
+   "내 자산은 원그래프가 화면의 알맹이라 목록보다 먼저 눈에 들어온다"
+   는 이유였고, 그 판단은 그때 배치에서는 맞았다.
+
+   지금은 원그래프가 '비중' 탭 안에 있다. 기본 탭('자산')을 여는 사람은
+   그림을 아예 안 본다 — 그 사람에게 132KB 를 먼저 받게 할 이유가 없다.
+   그래서 예외를 없앴다. 다시 생기면 아래 검사가 잡는다. */
 
 describe("recharts 를 정적으로 끌어오지 않는다", () => {
   it("차트틀 말고는 recharts 를 import 하지 않는다", () => {
     /* 한 곳만 정적으로 남아도 청크가 도로 붙어 132KB 를 다시 받는다 */
     const 걸린것 = 소스파일들()
-      .filter((f) => f !== "components/chart/ChartFrame.tsx" && !정적허용.includes(f))
+      .filter((f) => f !== "components/chart/ChartFrame.tsx")
       .filter((f) => /from ["']recharts["']/.test(fs.readFileSync(path.join(뿌리, f), "utf-8")));
     expect(걸린것).toEqual([]);
   });

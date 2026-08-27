@@ -4,7 +4,7 @@
  * 예전에는 Layout 안에 들어 있었다. 더보기가 화면으로 나오면서 설정을 여는
  * 자리가 두 곳(사이드바, 더보기 화면)이 됐고, 둘 다 이걸 써야 해서 뺐다.
  */
-import { Sun, Moon, Monitor, X, RectangleHorizontal, RectangleVertical, Smartphone } from "lucide-react";
+import { Sun, Moon, Monitor, X, RectangleHorizontal, RectangleVertical, Smartphone, Eye, EyeOff } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore, 화면모양_목록 } from "@/store/settingsStore";
 import type { ColorScheme, FontSize, Theme, Orientation, 화면모양 } from "@/store/settingsStore";
@@ -13,7 +13,7 @@ import { NotificationToggles } from "@/components/community/NotificationSettings
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation,
-          화면모양, set화면모양 } = useSettingsStore();
+          화면모양, set화면모양, 금액가리기, set금액가리기 } = useSettingsStore();
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
@@ -175,6 +175,40 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* 금액 가리기 —
+              내 자산 화면 오른쪽 위 눈 버튼과 같은 설정이다. 두 곳에 둔
+              이유는, 급할 때는 화면에서 바로 눌러야 하고(지하철), 평소에
+              늘 가려 두고 싶은 사람은 여기서 한 번 켜 두면 되기 때문이다. */}
+          <div>
+            <p className="text-xs font-semibold text-text-muted mb-2">금액 가리기</p>
+            <button
+              onClick={() => set금액가리기(!금액가리기)}
+              role="switch"
+              aria-checked={금액가리기}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                금액가리기 ? "border-accent-blue bg-accent-blue/10" : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
+              }`}
+            >
+              {금액가리기 ? <EyeOff size={16} className="text-accent-blue shrink-0" />
+                          : <Eye size={16} className="text-text-muted shrink-0" />}
+              <span className="flex flex-col min-w-0 flex-1">
+                <span className="text-xs font-semibold text-text-primary">
+                  {금액가리기 ? "가리는 중" : "금액 보이기"}
+                </span>
+                <span className="text-2xs text-text-muted break-keep">
+                  평가금액·손익·배당금을 ••••• 로 가려요. 수익률과 비중은 그대로 보여요
+                </span>
+              </span>
+              <span className={`w-9 h-5 rounded-full shrink-0 transition-colors relative ${
+                금액가리기 ? "bg-accent-blue" : "bg-bg-elevated border border-border"
+              }`}>
+                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
+                  금액가리기 ? "left-[1.125rem]" : "left-0.5"
+                }`} />
+              </span>
+            </button>
           </div>
 
           {/* 알림 — 로그인한 사람에게만 의미가 있다 */}
