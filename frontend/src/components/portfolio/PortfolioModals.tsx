@@ -17,6 +17,12 @@ export const MKTCOLOR: Record<string, string> = {
 };
 
 /* ── Add/Edit Modal (Step 1: 검색 → Step 2: 매수 정보) ─── */
+/** 내 자산에 담을 수 있는 것.
+ *
+ *  창을 둘로 나눠 뒀던 때는 '현금 추가' 버튼을 못 찾는 일이 있었다.
+ *  담는 사람에게는 둘 다 같은 일이라 한 창에서 고르게 한다. */
+export type 자산종류 = "종목" | "현금";
+
 export function PortfolioModal({
   item,
   defaultFx,
@@ -32,9 +38,19 @@ export function PortfolioModal({
   isSaving?: boolean;
   saveError?: string | null;
 }) {
+  /* ── 종목과 현금을 한 창에서 담는다 ──
+     예전에는 창이 둘이었다('종목 추가' 와 '현금 추가'). 담으려는 사람
+     입장에서는 둘 다 '내 자산에 뭘 넣는' 같은 일인데, 무엇을 넣느냐에
+     따라 눌러야 할 버튼이 달랐다 — 현금 버튼을 못 찾아 종목 검색창에
+     '현금' 을 쳐 보는 일이 생긴다. 한 창에서 종류만 고르게 한다. */
+  const [종류, set종류] = useState<자산종류>(item?.assetClass === "현금" ? "현금" : "종목");
+  const 현금인가 = 종류 === "현금";
+
   const [step, setStep] = useState<1 | 2>(item ? 2 : 1);
   const [selected, setSelected] = useState<{ symbol: string; market: Market; name: string } | null>(
-    item ? { symbol: item.symbol, market: item.market, name: item.name } : null
+    item && item.assetClass !== "현금"
+      ? { symbol: item.symbol, market: item.market, name: item.name }
+      : null
   );
 
   const { query, setQuery, results, searching } = useStockSearch();
@@ -45,8 +61,9 @@ export function PortfolioModal({
 
   const [form, setForm] = useState<BuyInfoValue>({
     shares:       item ? String(item.shares)   : "",
+    // 현금은 '금액' 을 여기에 담는다(수량 1 × 금액)
     avgPrice:     item ? String(item.avgPrice) : "",
-    currency:     item?.currency ?? "USD",
+    currency:     item?.currency ?? (item?.assetClass === "현금" ? "KRW" : "USD"),
     inputFx:      item?.inputExchangeRate ? String(item.inputExchangeRate) : "",
     purchaseDate: item?.purchaseDate ?? "",
     note:         item?.note ?? "",
@@ -87,10 +104,49 @@ export function PortfolioModal({
     setStep(2);
   };
 
-  const canSave = Number(shares) > 0 && Number(avgPrice) >= 0 && selected != null;
+  /** 종류를 바꾸면 화면도 따라간다.
+   *
+   *  현금 화면은 step 과 무관하게 그린다 — 고를 종목이 없어 단계가
+   *  하나다. 대신 매수 정보 화면 쪽에 `!현금인가` 를 걸어 둔다.
+   *  그게 없으면 종목을 고른 뒤 현금으로 바꿨을 때 두 화면이 같이
+   *  그려지고 저장 버튼이 둘이 된다.
+   *
+   *  주식으로 되돌아올 때 고른 종목을 비우는 것은 지금 화면에 드러나지
+   *  않는다(검색은 1단계라 고른 종목을 안 본다). 그래도 비운다 —
+   *  '검색으로 돌아왔는데 이전 선택이 남아 있는' 상태를 두면, 나중에
+   *  단계를 손볼 때 그게 되살아난다. */
+  const 종류바꾸기 = (v: 자산종류) => {
+    set종류(v);
+    if (v === "현금") {
+      patchForm({ currency: "KRW" });
+      return;
+    }
+    setSelected(null);
+    setStep(1);
+  };
+
+  const canSave = 현금인가
+    ? Number(avgPrice) > 0
+    : Number(shares) > 0 && Number(avgPrice) >= 0 && selected != null;
 
   const handleSave = () => {
-    if (!canSave || !selected) return;
+    if (!canSave) return;
+    if (현금인가) {
+      onSave({
+        symbol: "현금",
+        market: currency === "USD" ? "US" : "KR",
+        name: currency === "USD" ? "달러 현금" : "원화 현금",
+        /* 수량 1 × 금액 으로 담는다. 현금에는 '몇 주' 가 없지만,
+           보유 종목과 같은 표에 들어가야 합계가 한 규칙으로 난다 */
+        shares: 1,
+        avgPrice: Number(avgPrice),
+        currency,
+        note: note || undefined,
+        assetClass: "현금",
+      });
+      return;
+    }
+    if (!selected) return;
     onSave({
       symbol: selected.symbol,
       market: selected.market,
@@ -111,21 +167,114 @@ export function PortfolioModal({
 
       {/* 헤더 */}
       <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
-        {step === 2 && !item && (
+        {step === 2 && !item && !현금인가 && (
           <button aria-label="뒤로" onClick={() => setStep(1)} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
             <ArrowLeft size={14} />
           </button>
         )}
         <h3 className="flex-1 text-sm font-bold text-text-primary">
-          {item ? "포지션 수정" : step === 1 ? "종목 검색" : "매수 정보 입력"}
+          {item
+            ? (현금인가 ? "현금 수정" : "보유 수정")
+            : 현금인가 ? "현금 담기"
+            : step === 1 ? "자산 추가" : "매수 정보 입력"}
         </h3>
         <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
           <X size={14} />
         </button>
       </div>
 
+      {/* 무엇을 담을까 — 새로 담을 때만 고른다.
+          수정할 때는 이미 정해져 있고, 바꾸려면 지우고 다시 담는 편이
+          맞다(종목을 현금으로 바꾸면 수량·평단이 갈 곳이 없다) */}
+      {!item && (
+        <div className="flex gap-2 px-4 pt-3">
+          {(["종목", "현금"] as 자산종류[]).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => 종류바꾸기(v)}
+              aria-pressed={종류 === v}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
+                종류 === v
+                  ? "bg-accent-blue/15 border-accent-blue/30 text-accent-blue"
+                  : "border-border text-text-muted hover:text-text-primary"
+              }`}
+            >
+              {v === "종목" ? "주식·ETF" : "현금"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 현금 — 고를 종목이 없으니 검색 단계를 건너뛴다 */}
+      {현금인가 && (
+        <>
+          <div className="px-5 py-4 flex flex-col gap-3.5">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-2xs font-semibold text-text-muted">통화 *</label>
+              <div className="flex gap-2">
+                {(["KRW", "USD"] as Currency[]).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => patchForm({ currency: c })}
+                    aria-pressed={currency === c}
+                    className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
+                      currency === c
+                        ? c === "USD"
+                          ? "bg-accent-green/15 border-accent-green/30 text-accent-green"
+                          : "bg-accent-blue/15 border-accent-blue/30 text-accent-blue"
+                        : "border-border text-text-muted hover:text-text-primary"
+                    }`}
+                  >
+                    {c === "USD" ? "달러 ($)" : "원화 (₩)"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-2xs font-semibold text-text-muted">
+                금액 * {currency === "USD" ? "($)" : "(₩)"}
+              </label>
+              <input
+                ref={sharesRef}
+                className={INPUT_CLASS}
+                type="number" min="0" step="any" placeholder="0"
+                value={avgPrice}
+                onChange={(e) => patchForm({ avgPrice: e.target.value })}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-2xs font-semibold text-text-muted">
+                메모<span className="ml-1 text-text-dim font-normal">({note.length}/100)</span>
+              </label>
+              <input
+                className={INPUT_CLASS}
+                maxLength={100}
+                placeholder="예: 비상금, 매수 대기"
+                value={note}
+                onChange={(e) => patchForm({ note: e.target.value })}
+              />
+            </div>
+          </div>
+
+          {saveError && (
+            <p className="mx-5 mb-2 text-xs text-accent-red bg-accent-red/15 rounded-lg px-3 py-2">
+              오류: {saveError}
+            </p>
+          )}
+          <ModalFooter
+            onCancel={onClose} onConfirm={handleSave}
+            진행중={isSaving} 확인가능={canSave}
+            확인글={isSaving ? "저장 중..." : "저장"}
+          />
+        </>
+      )}
+
       {/* Step 1: 검색 */}
-        {step === 1 && (
+        {!현금인가 && step === 1 && (
           <>
             <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
               <Search size={14} className="text-text-muted flex-shrink-0" />
@@ -168,7 +317,7 @@ export function PortfolioModal({
         )}
 
         {/* Step 2: 매수 정보 */}
-        {step === 2 && selected && (
+        {!현금인가 && step === 2 && selected && (
           <>
             {/* 선택된 종목 */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-bg-elevated/50">
@@ -207,121 +356,11 @@ export function PortfolioModal({
   );
 }
 
-/* ── 현금 추가/수정 모달 ──────────────────────────────────── */
-export function CashModal({
-  item,
-  onClose,
-  onSave,
-  isSaving,
-  saveError,
-}: {
-  item?: PortfolioItem;
-  onClose: () => void;
-  onSave: (data: Omit<PortfolioItem, "id">) => void;
-  isSaving?: boolean;
-  saveError?: string | null;
-}) {
-  const [currency, setCurrency] = useState<Currency>(item?.currency ?? "KRW");
-  const [amount,   setAmount]   = useState(item ? String(item.avgPrice) : "");
-  const [note,     setNote]     = useState(item?.note ?? "");
-  const amountRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const t = setTimeout(() => amountRef.current?.focus(), 50);
-    return () => clearTimeout(t);
-  }, []);
-
-  const canSave = Number(amount) > 0;
-
-  const handleSave = () => {
-    if (!canSave) return;
-    onSave({
-      symbol: "현금",
-      market: currency === "USD" ? "US" : "KR",
-      name: currency === "USD" ? "달러 현금" : "원화 현금",
-      shares: 1,
-      avgPrice: Number(amount),
-      currency,
-      note: note || undefined,
-      assetClass: "현금",
-    });
-  };
-
-
-  return (
-    <Modal align="start" padTop="pt-16" backdropOpacity={70} maxWidth="max-w-md" onClose={onClose}>
-        <div className="flex items-center gap-2 px-4 py-3.5 border-b border-border">
-          <h3 className="flex-1 text-sm font-bold text-text-primary">{item ? "현금 수정" : "현금 추가"}</h3>
-          <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
-            <X size={14} />
-          </button>
-        </div>
-
-        <div className="px-5 py-4 flex flex-col gap-3.5">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">통화 *</label>
-            <div className="flex gap-2">
-              {(["KRW", "USD"] as Currency[]).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setCurrency(c)}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${
-                    currency === c
-                      ? c === "USD"
-                        ? "bg-accent-green/15 border-accent-green/30 text-accent-green"
-                        : "bg-accent-blue/15 border-accent-blue/30 text-accent-blue"
-                      : "border-border text-text-muted hover:text-text-primary"
-                  }`}
-                >
-                  {c === "USD" ? "달러 ($)" : "원화 (₩)"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">금액 * {currency === "USD" ? "($)" : "(₩)"}</label>
-            <input
-              ref={amountRef}
-              className={INPUT_CLASS}
-              type="number"
-              min="0"
-              step="any"
-              placeholder="0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-2xs font-semibold text-text-muted">
-              메모<span className="ml-1 text-text-dim font-normal">({note.length}/100)</span>
-            </label>
-            <textarea
-              className={`${INPUT_CLASS} resize-none`}
-              rows={2}
-              maxLength={100}
-              placeholder="선택 사항"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {saveError && (
-          <p className="mx-5 mb-2 text-xs text-accent-red bg-accent-red/15 rounded-lg px-3 py-2">
-            오류: {saveError}
-          </p>
-        )}
-        <ModalFooter
-          onCancel={onClose} onConfirm={handleSave}
-          진행중={isSaving} 확인가능={canSave}
-          확인글={isSaving ? "저장 중..." : "저장"}
-        />
-    </Modal>
-  );
-}
+/* 현금 추가/수정 창은 없앴다.
+   담는 사람에게는 '종목을 넣는 일' 과 '현금을 넣는 일' 이 같은 일인데
+   버튼이 둘로 나뉘어 있었다 — 현금 버튼을 못 찾아 종목 검색창에
+   '현금' 을 쳐 보는 일이 생긴다. 위 PortfolioModal 이 종류(주식·ETF /
+   현금)를 고르는 줄 하나로 둘 다 받는다. */
 
 /* ── 삭제 확인 모달 (종목/포트폴리오 공용 — 디자인 통일) ──────────── */
 export function ConfirmDeleteModal({

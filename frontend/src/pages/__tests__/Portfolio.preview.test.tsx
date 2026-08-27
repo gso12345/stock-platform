@@ -140,7 +140,7 @@ describe("내 자산 미리보기 (비로그인)", () => {
     renderPage();
     await waitFor(async () => expect((await 평가금액()).값).toBeGreaterThan(0), { timeout: 5000 });
 
-    await user.click(screen.getByRole("button", { name: /종목 추가/ }));
+    await user.click(screen.getByRole("button", { name: /자산 추가/ }));
     expect(navigate).toHaveBeenCalledWith("/login");
 
     navigate.mockClear();

@@ -5,16 +5,25 @@
 
 ── 이 파일이 지키는 것 ──
 
-**외부 호출을 한 번도 안 한다.** 종목마다 구글뉴스 RSS 나 yfinance 를
-부르면 스무 종목이 외부 호출 스무 번이고, 0.15 CPU 서버에서 그건 화면이
-30초를 기다린다는 뜻이다. 그래서 이미 받아 둔 캐시(스케줄러가 5분마다
-채우는 종합 뉴스 + 누가 종목 상세를 열어 남긴 종목 뉴스)에서만 고른다.
+**요청을 붙잡지 않는다.** 종목마다 구글뉴스 RSS 나 yfinance 를 부르면
+스무 종목이 외부 호출 스무 번이고, 0.15 CPU 서버에서 그건 화면이 30초를
+기다린다는 뜻이다.
 
-이 규칙은 조용히 깨지기 쉽다. `get_kr_news()` 한 줄이면 캐시가 빈
-상태에서 그 자리에서 RSS 를 훑는 갈래로 빠지는데, 개발 기계에서는
-캐시가 늘 더워서 아무 일도 안 일어난 것처럼 보인다. 그래서 아래
-`test_외부를_안_부른다` 는 그 함수를 '부르면 터지는' 것으로 바꿔 놓고
-돈다.
+처음에는 아예 안 받았다. 그런데 그러면 종목 상세를 한 번도 안 열어 본
+종목은 영영 안 나온다 — '내 종목 뉴스' 인데 절반이 비어 있으면 화면을
+여는 뜻이 없다. 그래서 **배경에서** 받아 오고, 요청은 지금 있는 것만
+돌려주면서 `pending` 으로 몇 개가 오는 중인지 알려 준다.
+
+여기서 못 박는 것 —
+  · 요청 안에서 외부를 부르지 않는다(배경 스레드에 맡긴다)
+  · 한 요청에 배경으로 보내는 종목 수에 상한이 있다
+  · 같은 종목을 두 번 밀어 넣지 않는다
+  · 종목 상세와 **같은 열쇠**에 담는다(두 화면이 서로 덕을 본다)
+
+그리고 종합 뉴스 쪽은 여전히 캐시만 읽는다. `get_kr_news()` 한 줄이면
+캐시가 빈 상태에서 요청 안에서 RSS 를 훑는 갈래로 빠지는데, 개발
+기계에서는 캐시가 늘 더워서 아무 일도 안 일어난 것처럼 보인다. 그래서
+`test_외부를_안_부른다` 는 그 함수를 '부르면 터지는' 것으로 바꿔 놓고 돈다.
 
 그리고 published_ts 의 타입이 출처마다 다르다 — 종합피드는 float,
 구글뉴스는 ISO 문자열, yfinance 는 아예 없다. 섞인 채로 sorted() 를
@@ -40,6 +49,7 @@ def _캐시_치우기():
         cache.delete("news:us")
         cache.delete_pattern("stock_news:")
         cache.delete_pattern("portfolio_news:")
+        PN._받는중.clear()          # '받는 중' 표시가 남으면 다음 검사가 안 보낸다
     치우기()
     yield
     치우기()
@@ -59,6 +69,29 @@ def 기사(제목, 주소=None, ts=None, 사진=None, 요약="", 출처="한국�
 
 보유_삼성 = {"symbol": "005930", "market": "KR", "name": "삼성전자"}
 보유_엔비 = {"symbol": "NVDA", "market": "US", "name": "NVIDIA Corporation"}
+
+
+@pytest.fixture(autouse=True)
+def _배경_막기(monkeypatch):
+    """배경 수집을 대역으로 바꾼다.
+
+    안 막으면 검사가 진짜 구글뉴스·야후를 친다 — 네트워크가 없는 곳에서
+    느려지고, 있는 곳에서는 결과가 그날그날 달라진다. 무엇을 몇 개
+    보냈는지만 기록한다."""
+    보낸것: list = []
+
+    def 가짜(심볼, 시장, 이름):
+        보낸것.append((심볼, 시장, 이름))
+        PN._받는중.discard(f"stock_news:{시장}:{심볼}")
+
+    class _가짜풀:
+        @staticmethod
+        def submit(fn, *a, **k):
+            가짜(*a, **k)          # 곧바로 부른다(스레드를 안 띄운다)
+
+    import app.core.executor as EX
+    monkeypatch.setattr(EX, "background_executor", _가짜풀)
+    return 보낸것
 
 
 class Test시각정규화:
@@ -175,7 +208,7 @@ class Test모으기:
         cache.set("news:kr", [기사("금값이 사상 최고를 찍었다")], 60)
         답 = PN.모으기([{"symbol": "금", "market": "KR", "name": "금"},
                         {"symbol": "현금", "market": "KR", "name": "원화 현금"}])
-        assert 답 == {"items": [], "covered": [], "missing": []}
+        assert 답 == {"items": [], "covered": [], "missing": [], "pending": 0}
 
     def test_종합_캐시에서_내_종목을_골라낸다(self):
         cache.set("news:kr", [
@@ -243,7 +276,7 @@ class Test모으기:
         assert [m["symbol"] for m in 답["missing"]] == ["005930", "NVDA"]
 
     def test_보유가_비면_빈손이다(self):
-        assert PN.모으기([]) == {"items": [], "covered": [], "missing": []}
+        assert PN.모으기([]) == {"items": [], "covered": [], "missing": [], "pending": 0}
 
     def test_한_종목이_목록을_다_먹지_않는다(self):
         """한 종목이 기사를 백 건 갖고 있으면 나머지 종목이 화면에서
@@ -272,20 +305,74 @@ class Test모으기:
         답 = PN.모으기([보유_삼성, 보유_엔비])
         assert len(답["items"]) == 1
 
-    def test_소스에_직접_받아_오는_흔적이_없다(self):
-        """위 검사는 이름을 아는 함수만 막는다. 새로 requests 를
-        들여오면 안 걸리므로 원문도 같이 본다.
+    def test_요청_안에서는_외부를_안_친다(self, _배경_막기):
+        """받아 오기는 배경 스레드 몫이다.
 
-        주석·설명글은 뺀다 — 이 파일 머리말이 'yfinance 를 부르면 안
-        된다' 고 적고 있어서, 글자만 찾으면 그 설명 자체가 걸린다."""
-        import inspect
-        import re
-        본문 = inspect.getsource(PN)
-        # 문서화 문자열과 # 주석을 걷어낸다
-        코드 = re.sub(r'"""[\s\S]*?"""', "", 본문)
-        코드 = re.sub(r"#.*", "", 코드)
-        for 금지 in ("requests", "httpx", "yfinance", "feedparser", "urlopen", "urllib"):
-            assert 금지 not in 코드, f"보유 뉴스가 {금지} 로 새로 받아 온다"
+        모으기() 안에서 곧장 httpx·yfinance 를 부르면 스무 종목짜리
+        포트폴리오가 요청 하나를 30초 붙잡는다. 실제로 받아 오는 두
+        함수를 '부르면 터지는' 것으로 바꿔 놓고 돈다 — 배경 대역은
+        그 함수들을 안 부르므로 통과해야 한다."""
+        def 터짐(*a, **k):
+            raise AssertionError("요청 안에서 뉴스를 직접 받고 있다")
+
+        원래 = (PN._구글뉴스, PN._야후뉴스)
+        PN._구글뉴스, PN._야후뉴스 = 터짐, 터짐
+        try:
+            cache.set("news:kr", [기사("삼성전자 소식")], 60)
+            답 = PN.모으기([보유_삼성, 보유_엔비])
+        finally:
+            PN._구글뉴스, PN._야후뉴스 = 원래
+        assert len(답["items"]) == 1
+
+    def test_배경으로_보내는_종목_수에_상한이_있다(self, _배경_막기):
+        """스무 종목을 한꺼번에 밀어 넣으면 풀이 막혀 다른 화면까지
+        같이 느려진다. 나머지는 다음 요청에 간다 — 그래서 pending 은
+        보낸 수가 아니라 '아직 안 채워진 수' 다."""
+        많이 = [{"symbol": f"AAA{i}", "market": "US", "name": f"이름{i}"} for i in range(12)]
+        답 = PN.모으기(많이)
+        assert len(_배경_막기) == PN.한번에, f"{len(_배경_막기)}개를 한꺼번에 보냈다"
+        assert 답["pending"] == 12
+
+    def test_같은_종목을_두_번_안_보낸다(self, _배경_막기, monkeypatch):
+        """배경이 아직 안 끝났는데 화면이 다시 물어보면(pending 이라
+        곧 다시 물어본다) 같은 종목을 또 받게 된다."""
+        # 이번에는 '받는 중' 표시가 남도록 대역을 바꾼다
+        class _붙잡는풀:
+            @staticmethod
+            def submit(fn, *a, **k):
+                pass                      # 표시만 남기고 아무것도 안 한다
+
+        import app.core.executor as EX
+        monkeypatch.setattr(EX, "background_executor", _붙잡는풀)
+
+        PN.모으기([보유_엔비])
+        cache.delete_pattern("portfolio_news:")
+        답 = PN.모으기([보유_엔비])
+        assert 답["pending"] == 1          # 여전히 오는 중이라고 말한다
+        assert len(PN._받는중) == 1        # 두 번 안 밀어 넣었다
+
+    def test_받아_온_것을_종목_상세와_같은_열쇠에_담는다(self):
+        """이 화면을 연 뒤 종목 상세를 열면 곧바로 떠야 한다.
+        열쇠가 다르면 같은 것을 두 번 받는다."""
+        PN._구글뉴스 = lambda 이름: [기사("받아 온 기사")]
+        try:
+            PN._한종목_받기("005930", "KR", "삼성전자")
+        finally:
+            del PN._구글뉴스
+            import importlib
+            importlib.reload(PN)
+        assert cache.get("stock_news:KR:005930") is not None
+
+    def test_빈손이면_한동안_그만_물어본다(self, _배경_막기, monkeypatch):
+        """뉴스가 아예 안 잡히는 종목(작은 ETF·우선주)이 생각보다 많다.
+        표시를 안 남기면 그 종목을 매 요청마다 다시 받는다."""
+        monkeypatch.setattr(PN, "_야후뉴스", lambda 심볼: [])
+        PN._한종목_받기("ZZZZ", "US", "ZZZZ")
+        assert cache.get("stock_news:US:ZZZZ:miss") is True
+
+        보낸것 = _배경_막기
+        PN.모으기([{"symbol": "ZZZZ", "market": "US", "name": "ZZZZ"}])
+        assert 보낸것 == [], "빈손 표시를 무시하고 또 받으러 갔다"
 
 
 class Test라우트:

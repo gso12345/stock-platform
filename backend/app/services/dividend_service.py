@@ -50,8 +50,16 @@ log = logging.getLogger(__name__)
 #: 안 되는 종목은 쉬게 둔다. 후보가 사람마다 수십 개라 '돌아가며' 쪽
 쉼 = 쉼표(쉼_기준=3, 되살림_칸=1)
 
-#: 지난 배당을 몇 건까지 보여줄지
-최근_건수 = 8
+#: 지난 배당을 몇 건까지 들여다볼지.
+#
+#  8 이었다. 분기배당이면 두 해치지만 주배당 ETF 는 두 달치밖에 안 된다 —
+#  달마다 실제로 얼마를 줬는지 보려면 최소 한 해가 필요하고, '작년 이맘때
+#  얼마였나' 까지 보려면 두 해가 있어야 한다. 주배당(연 52회) 두 해면
+#  104건이라 넉넉히 잡는다.
+최근_건수 = 120
+
+#: 달별 금액·날짜를 뽑을 때 몇 해까지 거슬러 보나
+되짚는_해 = 2
 
 
 def _야후심볼(symbol: str, market: str) -> str:
@@ -95,6 +103,80 @@ _주기일수 = {"주": 7, "월": 30, "분기": 91, "반기": 182, "연": 365}
 
 #: 한 달에 몇 번 받나. 주배당은 4~5주라 평균을 쓴다(365/12/7)
 _한달회차 = {"주": 4.35, "월": 1.0, "분기": 1.0, "반기": 1.0, "연": 1.0}
+
+
+def _월별일정(최근: list, 날들: list, 주기: "str | None") -> list:
+    """달마다 '며칠에, 주당 얼마' 를 실제 내역에서 뽑는다.
+
+    ── 왜 필요한가 ──
+
+    지금까지 화면은 마지막 회차 금액(last_amount) 하나를 열두 달에 다
+    썼다. 그런데 분기배당은 회차마다 금액이 다르다 — 결산배당이 붙는
+    4분기가 특히 크다. 마지막 회차가 그 큰 회차면 한 해 예상이 통째로
+    부풀고, 작은 회차면 반대로 깎인다.
+
+    예: 분기마다 0.20 / 0.25 / 0.30 / 0.35 를 주는 종목이면 한 해 1.10
+    인데, 마지막 회차(0.35)를 네 번 곱하면 1.40 이 된다 — 27% 를 더
+    받는 것으로 나온다.
+
+    ── 어떻게 뽑나 ──
+
+    달마다 **가장 최근 해의 실제 지급액**을 쓴다. 주배당·월배당처럼 한
+    달에 여러 번 주는 종목은 그 달 안의 지급을 합친다.
+
+    날짜는 그 달에 실제로 준 날이다. '분기배당은 91일마다' 로 미루면
+    회차마다 며칠씩 밀려서 1년 뒤에는 달이 바뀐다 — 3월 말에 주던
+    종목이 4월로 넘어가 버린다.
+    """
+    if not 최근:
+        return []
+    자를날 = date.today() - timedelta(days=365 * 되짚는_해)
+    칸: dict = {}
+    for x, d in zip(최근, 날들):
+        if d < 자를날:
+            continue
+        칸.setdefault(d.month, []).append((d, float(x.get("amount") or 0)))
+
+    결과 = []
+    for m in sorted(칸):
+        것들 = sorted(칸[m])
+        # 그 달이 마지막으로 나온 해만 쓴다. 두 해를 다 더하면 두 배가 된다
+        최신해 = 것들[-1][0].year
+        같은해 = [(d, a) for d, a in 것들 if d.year == 최신해]
+        결과.append({
+            "month": m,
+            "day": 같은해[-1][0].day,
+            "amount": round(sum(a for _, a in 같은해), 6),
+            "year": 최신해,
+        })
+    return 결과
+
+
+def _다음_일정(일정: list, 오늘: "date | None" = None) -> "date | None":
+    """월별 일정에서 앞으로 제일 가까운 날.
+
+    예전에는 '마지막 기준일 + 주기일수' 였다. 91일씩 더하면 회차마다
+    며칠씩 밀리고, 네 번 밀리면 364일이라 한 해에 하루씩 앞당겨진다 —
+    몇 해 지나면 달이 바뀐다. 실제로 준 달·날을 그대로 쓴다."""
+    if not 일정:
+        return None
+    오늘 = 오늘 or date.today()
+    후보 = []
+    for 해 in (오늘.year, 오늘.year + 1):
+        for 칸 in 일정:
+            try:
+                d = date(해, 칸["month"], min(칸["day"], _그달끝(해, 칸["month"])))
+            except ValueError:
+                continue
+            if d >= 오늘:
+                후보.append(d)
+    return min(후보) if 후보 else None
+
+
+def _그달끝(해: int, 달: int) -> int:
+    """그 달의 마지막 날. 2월 30일 같은 날짜를 만들지 않으려고."""
+    import calendar as _cal
+    return _cal.monthrange(해, 달)[1]
 
 
 def _다음_예상(마지막: date, 주기: "str | None") -> "date | None":
@@ -154,12 +236,20 @@ def _가져오기(symbol: str, market: str) -> dict:
     달라서(2·5·8·11 vs 3·6·9·12), 이걸 안 적으면 한 해 계획을 못 세운다.
 
     주배당·월배당은 열두 달 전부다."""
+    일정 = _월별일정(최근, 날들, 주기)
     if 주기 in ("주", "월"):
         배당월 = list(range(1, 13))
+        # 아직 한 해가 안 찬 종목은 빈 달이 생긴다. 월배당인 걸 아는데
+        # 몇 달이 비어 보이면 '그 달은 안 준다' 로 읽힌다 — 있는 달들의
+        # 평균으로 메운다
+        있는것 = {x["month"]: x for x in 일정}
+        if 있는것:
+            평균 = round(sum(x["amount"] for x in 있는것.values()) / len(있는것), 6)
+            어느날 = sorted(있는것.values(), key=lambda x: x["month"])[-1]["day"]
+            일정 = [있는것.get(m) or {"month": m, "day": 어느날, "amount": 평균, "year": None}
+                    for m in 배당월]
     else:
-        # 지난 1년치에서 실제로 받은 달만. 오래된 것까지 넣으면
-        # 예전에 주다 만 달이 섞인다
-        배당월 = sorted({d.month for d in 날들 if d >= 한해전})
+        배당월 = [x["month"] for x in 일정]
         if not 배당월:
             배당월 = sorted({d.month for d in 날들})
 
@@ -179,13 +269,22 @@ def _가져오기(symbol: str, market: str) -> dict:
 
     예상일 = None
     if not 확정일:
-        d = _다음_예상(날들[-1], 주기)
+        # 실제로 준 달·날 패턴을 먼저 쓰고, 그게 없을 때만 주기로 민다
+        d = _다음_일정(일정) or _다음_예상(날들[-1], 주기)
         예상일 = d.isoformat() if d else None
 
     return {
         "symbol": symbol, "market": market,
         "recent": 최근,
         "per_year": 연배당,
+        #: 앞으로 한 해 받을 것으로 보이는 주당 금액.
+        #
+        #  per_year(지난 1년 실제 합)와 다를 수 있다 — 반년 전에 배당을
+        #  시작한 종목은 지난 1년 합이 반년치뿐이라 실제보다 작게 나온다.
+        #  화면이 '한 해 예상' 으로 쓰는 것은 이쪽이다.
+        "plan_year": round(sum(x["amount"] for x in 일정), 6) if 일정 else 연배당,
+        #: 달마다 며칠에 주당 얼마 — [{"month":3,"day":31,"amount":0.25}, ...]
+        "schedule": 일정,
         "cycle": 주기,
         #: 몇 월에 주나 — [2, 5, 8, 11]. 주·월배당은 1~12 전부
         "months": 배당월,
@@ -272,8 +371,10 @@ def 달력(보유: list) -> dict:
             "confirmed": bool(정보.get("ex_date")),
             # 이번 회차에 받을 것으로 보이는 돈. 수량이 0이면 안 낸다
             "expected": round(수량 * float(정보.get("last_amount") or 0), 2) if 수량 else None,
-            # 한 해에 받을 것으로 보이는 돈
-            "expected_year": round(수량 * float(정보.get("per_year") or 0), 2) if 수량 else None,
+            # 한 해에 받을 것으로 보이는 돈. 지난 1년 실제 합(per_year)이
+            # 아니라 앞으로 한 해 계획(plan_year)을 쓴다 — 화면의 월별
+            # 막대를 다 더한 값과 같아야 두 숫자가 서로 안 어긋난다
+            "expected_year": round(수량 * float(정보.get("plan_year") or 정보.get("per_year") or 0), 2) if 수량 else None,
         })
 
     줄들.sort(key=lambda x: x["date"])

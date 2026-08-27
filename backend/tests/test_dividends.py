@@ -328,3 +328,239 @@ class Test배관:
                                             fromlist=["배당달력"]).배당달력)
         assert "WatchlistItem" not in 본문
         assert "include_watchlist" not in 본문
+
+
+# ── 달마다 얼마·언제 ──────────────────────────────────────────
+#
+# 이게 없던 때는 마지막 회차 금액(last_amount) 하나를 열두 달에 다 썼다.
+# 분기배당은 회차마다 금액이 다르다 — 결산배당이 붙는 분기가 특히 크다.
+# 마지막 회차가 그 큰 회차면 한 해 예상이 통째로 부풀고, 작은 회차면
+# 반대로 깎인다.
+#
+# 예: 0.20 / 0.25 / 0.30 / 0.35 를 주는 종목이면 한 해 1.10 인데,
+# 마지막(0.35)을 네 번 곱하면 1.40 — 27% 를 더 받는 것으로 나온다.
+
+class Test월별일정:
+    def _일정(self, 내역):
+        날들 = [d for d, _ in 내역]
+        최근 = [{"date": d.isoformat(), "amount": a} for d, a in 내역]
+        return DV._월별일정(최근, 날들, "분기")
+
+    def test_달마다_그_달_실제_금액을_쓴다(self):
+        """네 회차 금액이 다 다른 종목. 마지막 회차를 네 번 곱하면
+        1.40 이 되지만 실제로는 1.10 이다.
+
+        날짜를 해로 못 박는다 — 오늘로부터 며칠 전으로 잡으면 달이
+        오늘 날짜에 따라 달라져서 어느 달에 얼마인지를 검사할 수 없다."""
+        해 = date.today().year - 1
+        내역 = [(date(해, 3, 25), 0.20), (date(해, 6, 25), 0.25),
+                (date(해, 9, 25), 0.30), (date(해, 12, 25), 0.35)]
+        일정 = self._일정(내역)
+        assert {x["month"]: x["amount"] for x in 일정} == {
+            3: pytest.approx(0.20), 6: pytest.approx(0.25),
+            9: pytest.approx(0.30), 12: pytest.approx(0.35),
+        }
+        assert sum(x["amount"] for x in 일정) == pytest.approx(1.10)
+        # 마지막 회차 × 4 로 어림하던 옛 방식과 확실히 다르다
+        assert sum(x["amount"] for x in 일정) != pytest.approx(0.35 * 4)
+
+    def test_그_달에_준_날을_같이_준다(self):
+        """'3월' 이라고만 적으면 언제 사야 받는지 알 수 없다."""
+        내역 = [(date(date.today().year - 1, 3, 25), 0.25)]
+        일정 = DV._월별일정(
+            [{"date": d.isoformat(), "amount": a} for d, a in 내역],
+            [d for d, _ in 내역], "분기")
+        assert 일정 == [{"month": 3, "day": 25, "amount": 0.25, "year": date.today().year - 1}]
+
+    def test_한_달에_여러_번_주면_합친다(self):
+        """주배당·월배당은 한 달에 여러 번 들어온다. 하나만 세면
+        그 달 금액이 4분의 1로 줄어든다."""
+        해 = date.today().year - 1
+        내역 = [(date(해, 5, d), 0.06) for d in (2, 9, 16, 23)]
+        일정 = DV._월별일정(
+            [{"date": d.isoformat(), "amount": a} for d, a in 내역],
+            [d for d, _ in 내역], "주")
+        assert len(일정) == 1
+        assert 일정[0]["amount"] == pytest.approx(0.24)
+
+    def test_두_해가_있으면_최근_해만_쓴다(self):
+        """두 해를 다 더하면 그 달 금액이 두 배가 된다."""
+        올 = date.today().year - 1
+        전 = date.today().year - 2
+        내역 = [(date(전, 3, 25), 0.20), (date(올, 3, 25), 0.30)]
+        일정 = DV._월별일정(
+            [{"date": d.isoformat(), "amount": a} for d, a in 내역],
+            [d for d, _ in 내역], "분기")
+        assert len(일정) == 1
+        assert 일정[0]["amount"] == pytest.approx(0.30)
+        assert 일정[0]["year"] == 올
+
+    def test_아주_오래된_것은_안_본다(self):
+        """5년 전에 주다 만 달이 배당월로 살아나면 안 된다."""
+        옛날 = date.today().replace(year=date.today().year - 5)
+        일정 = DV._월별일정([{"date": 옛날.isoformat(), "amount": 1.0}], [옛날], "연")
+        assert 일정 == []
+
+    def test_내역이_없으면_빈_목록(self):
+        assert DV._월별일정([], [], "분기") == []
+
+
+class Test다음일정:
+    def test_실제로_준_달과_날을_그대로_쓴다(self):
+        """예전에는 '마지막 기준일 + 91일' 이었다. 네 번 밀면 364일이라
+        한 해에 하루씩 앞당겨지고, 몇 해 지나면 달이 바뀐다 —
+        3월 말에 주던 종목이 4월로 넘어간다."""
+        오늘 = date(2026, 5, 10)
+        일정 = [{"month": 3, "day": 31}, {"month": 6, "day": 30},
+                {"month": 9, "day": 30}, {"month": 12, "day": 31}]
+        assert DV._다음_일정(일정, 오늘) == date(2026, 6, 30)
+
+    def test_올해_남은_게_없으면_내년_첫_회차(self):
+        오늘 = date(2026, 12, 31)
+        일정 = [{"month": 3, "day": 31}, {"month": 6, "day": 30}]
+        assert DV._다음_일정(일정, 오늘) == date(2027, 3, 31)
+
+    def test_오늘이_바로_그날이면_오늘이다(self):
+        오늘 = date(2026, 6, 30)
+        assert DV._다음_일정([{"month": 6, "day": 30}], 오늘) == 오늘
+
+    def test_그_달에_없는_날은_그_달_끝으로_민다(self):
+        """2월 30일 같은 날짜를 만들면 그 종목만 통째로 사라진다."""
+        오늘 = date(2026, 1, 5)
+        assert DV._다음_일정([{"month": 2, "day": 31}], 오늘) == date(2026, 2, 28)
+
+    def test_일정이_없으면_모른다고_한다(self):
+        assert DV._다음_일정([], date(2026, 5, 10)) is None
+
+
+class Test한해계획:
+    def test_plan_year_는_달마다_실제_금액의_합이다(self, 야후):
+        """화면의 월별 막대를 다 더한 값과 같아야 한다. 다르면 같은
+        화면 안에서 '연간 배당금' 과 막대 합이 서로 다른 말을 한다."""
+        해 = date.today().year - 1
+        내역 = [(date(해, 2, 28), 361.0), (date(해, 5, 31), 361.0),
+                (date(해, 8, 31), 361.0), (date(해, 11, 30), 1083.0)]
+        야후(_가짜티커(내역))
+        r = DV.한종목("005930", "KR")
+        assert r["plan_year"] == pytest.approx(361 * 3 + 1083)
+        assert sum(x["amount"] for x in r["schedule"]) == pytest.approx(r["plan_year"])
+
+    def test_반년_전에_시작한_종목도_한_해로_센다(self, 야후):
+        """per_year(지난 1년 실제 합)만 쓰면 반년치라 절반으로 나온다."""
+        내역 = [(날(150), 0.25), (날(60), 0.25)]
+        야후(_가짜티커(내역))
+        r = DV.한종목("SCHD", "ETF")
+        assert r["per_year"] == pytest.approx(0.5)      # 실제로 받은 것
+        assert r["plan_year"] == pytest.approx(0.5)     # 아직 두 달치뿐이라 같다
+        assert len(r["schedule"]) == 2
+
+    def test_다음_날짜를_주기가_아니라_달_패턴으로_잡는다(self, 야후, monkeypatch):
+        """예전에는 '마지막 기준일 + 주기일수' 였다.
+
+        반기배당(182일)을 두 번 밀면 하루씩 어긋난다. 네 번, 여섯 번
+        밀수록 벌어져서 몇 해 지나면 달이 바뀐다 — 4월에 주던 종목이
+        3월로 넘어가 버린다. 배당월 막대와 다음 배당일이 서로 다른
+        달을 가리키게 되는 셈이다.
+
+        오늘을 고정한다. 안 그러면 검사를 돌린 날에 따라 '주기로 민 날'
+        과 '달 패턴으로 잡은 날' 이 우연히 같아져서, 옛 방식으로
+        되돌려 놔도 안 걸리는 날이 생긴다(실제로 그랬다)."""
+        class _고정날(date):
+            @classmethod
+            def today(cls):
+                return date(2026, 8, 27)
+        monkeypatch.setattr(DV, "date", _고정날)
+
+        내역 = [(date(2024, 10, 20), 0.5), (date(2025, 4, 20), 0.5),
+                (date(2025, 10, 20), 0.5)]
+        야후(_가짜티커(내역))
+        r = DV.한종목("ABBV", "US")
+
+        assert r["cycle"] == "반기"
+        예상 = date.fromisoformat(r["estimated_date"])
+        # 실제로 준 날(10월 20일)이어야 한다
+        assert (예상.month, 예상.day) == (10, 20), f"{예상} 은 실제로 준 날이 아니다"
+        # 주기로 밀면 하루가 어긋난다 — 그 방식으로 되돌리면 여기서 걸린다
+        주기로 = DV._다음_예상(내역[-1][0], r["cycle"])
+        assert 예상 != 주기로, f"주기로 민 날({주기로})과 같다 — 달 패턴을 안 쓴 것이다"
+
+
+class Test달력이쓰는한해:
+    def test_한_해_예상을_plan_year_로_센다(self, 야후):
+        """per_year(지난 1년 실제 합)를 쓰면 화면의 월별 막대 합계와
+        다른 숫자가 나온다 — 같은 카드 안에서 두 값이 어긋난다.
+
+        한 회차가 1년 밖으로 밀려난 종목으로 확인한다."""
+        내역 = [(날(380), 0.25), (날(289), 0.25), (날(198), 0.25), (날(107), 0.25)]
+        야후(_가짜티커(내역))
+        정보 = DV.한종목("SCHD", "ETF")
+        # 지난 1년에는 세 번뿐이지만, 한 해 계획은 네 번이다
+        assert 정보["per_year"] == pytest.approx(0.75)
+        assert 정보["plan_year"] == pytest.approx(1.0)
+
+        답 = DV.달력([{"symbol": "SCHD", "market": "ETF", "name": "SCHD", "shares": 10}])
+        줄 = 답["items"][0]
+        assert 줄["expected_year"] == pytest.approx(10.0)     # 10주 × 1.0
+        assert 줄["expected_year"] != pytest.approx(7.5)      # per_year 를 쓰면 이 값이다
+
+
+class Test공개경로:
+    """로그인 없이 한 종목 배당을 볼 수 있어야 한다.
+
+    내 자산 화면의 미리보기(로그인 전)가 배당 탭을 보여 준다. 예전에는
+    그 자리에 지어낸 예시를 넣었는데, 그러면 화면이 무엇을 할 수 있는지
+    보여 주려다 **없는 값을 진짜처럼** 보여 주는 셈이 된다.
+    """
+
+    def test_경로가_있다(self):
+        from app.main import app
+        assert "/api/v1/stocks/{market}/{symbol}/dividends" in app.openapi()["paths"]
+
+    def test_로그인을_요구하지_않는다(self):
+        from app.main import app
+        것 = app.openapi()["paths"]["/api/v1/stocks/{market}/{symbol}/dividends"]["get"]
+        assert not 것.get("security"), "미리보기가 못 쓴다"
+
+    def test_배당_달력과_같은_서비스를_쓴다(self):
+        """서비스가 갈리면 같은 종목에 두 값이 생긴다. 캐시도 두 벌이
+        되어 야후를 두 번 친다."""
+        import inspect
+        from app.api.routes.stocks import analyst as A
+        본문 = inspect.getsource(A.get_stock_dividends)
+        assert "dividend_service" in 본문
+        assert "한종목" in 본문
+
+    @staticmethod
+    def _불러보기(market, symbol):
+        """레이트리미터(slowapi)가 진짜 Request 를 요구한다. 최소한만 만든다."""
+        import asyncio
+        from starlette.requests import Request
+        from app.api.routes.stocks import analyst as A
+
+        요청 = Request({
+            "type": "http", "method": "GET", "path": "/", "headers": [],
+            "query_string": b"", "client": ("127.0.0.1", 1),
+            "app": None, "server": ("test", 80), "scheme": "http",
+        })
+        return asyncio.new_event_loop().run_until_complete(
+            A.get_stock_dividends(request=요청, market=market, symbol=symbol))
+
+    def test_배당이_없으면_빈_것을_준다(self, 야후):
+        """404 로 만들면 화면이 오류 상자를 띄운다. '배당이 없다' 는
+        오류가 아니다 — 무배당 종목이 훨씬 많다."""
+        야후(_가짜티커([]))
+        assert self._불러보기("US", "BRK.B") == {}
+
+    def test_실제_값을_그대로_준다(self, 야후):
+        """미리보기가 이 값으로 배당 화면을 그린다 — 달마다 얼마·언제가
+        다 들어 있어야 한다. 지어낸 값이 아니라는 것이 요점이다."""
+        해 = date.today().year - 1
+        야후(_가짜티커([(date(해, 5, 31), 361.0), (date(해, 11, 30), 1083.0)]))
+        답 = self._불러보기("KR", "005930")
+        assert 답["schedule"], "달마다 얼마 주는지가 없다"
+        assert 답["plan_year"] == pytest.approx(361 + 1083)
+        assert 답["recent"]
+        # 달마다 금액이 다른 것이 그대로 실려야 한다
+        assert {x["month"]: x["amount"] for x in 답["schedule"]} == {
+            5: pytest.approx(361.0), 11: pytest.approx(1083.0),
+        }

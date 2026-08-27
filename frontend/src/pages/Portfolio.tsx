@@ -14,8 +14,8 @@ import { usePnlColors } from "@/hooks/usePnlColors";
 import { use돈 } from "@/hooks/useMoney";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import { extractErrorMessage } from "@/utils/errors";
-import { withNativeValues } from "@/utils/holdings";
-import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { withNativeValues, 오늘변화원화, 전일대비주당 } from "@/utils/holdings";
+import { useExchangeRate, useExchangeRateChange } from "@/hooks/useExchangeRate";
 import { type AssetClass, resolveAssetClass } from "@/utils/assetClass";
 import type { Market, ChartMode, PortfolioItem, SelectedPortfolio, PortfolioMeta, EnrichedItem } from "@/types/portfolio";
 import AssetHistory from "@/components/portfolio/AssetHistory";
@@ -23,8 +23,9 @@ import DividendCalendar, { type 보유몫 } from "@/components/portfolio/Dividen
 import 자산지도, { type 지도칸 } from "@/components/portfolio/AssetTreemap";
 import 수익기여 from "@/components/portfolio/ProfitContribution";
 import 보유뉴스 from "@/components/portfolio/HoldingNews";
+import { use미리보기흐름, use미리보기배당, use미리보기뉴스 } from "@/hooks/usePortfolioPreview";
 import {
-  PortfolioModal, CashModal, ConfirmDeleteModal, PortfolioPill,
+  PortfolioModal, ConfirmDeleteModal, PortfolioPill,
   PortfolioFilterDropdown, AddPortfolioButton, PortfolioManagerModal,
 } from "@/components/portfolio/PortfolioModals";
 import { SortHead, HoldingCard, HoldingTableRow, type SortField, type 배당몫 } from "@/components/portfolio/HoldingRow";
@@ -98,9 +99,19 @@ const ASSET_FILTER_TABS: { id: AssetClass | "전체"; label: string }[] = [
  */
 type 자산탭 = "자산" | "추이" | "배당" | "비중" | "뉴스";
 
-/** 로그인해야 뜻이 있는 탭 — 기록도 배당도 '내 것' 이 있어야 나온다.
- *  미리보기(비로그인)에서 열면 늘 "아직 없어요" 만 나오므로 아예 감춘다 */
-const 로그인필요탭: 자산탭[] = ["추이", "배당", "뉴스"];
+/** 화면 안 탭 다섯.
+ *
+ *  한때 추이·배당·뉴스는 로그인해야만 보였다. 기록도 배당도 '내 것' 이
+ *  있어야 나오는 값이라, 안 그러면 늘 "아직 없어요" 만 보였기 때문이다.
+ *
+ *  그런데 그러면 **이 화면이 무엇을 할 수 있는지**가 가입 전에는 안
+ *  보인다 — 자산 흐름 그래프도, 배당 달력도, 종목 뉴스도 이 앱을 쓸
+ *  이유 그 자체인데 존재조차 모르게 된다.
+ *
+ *  그래서 다섯 탭을 다 열고, 로그인 전에는 예시로 채운다. 예시는
+ *  서버를 안 부르고(constants/portfolioPreview) 탭마다 '예시' 라고
+ *  적는다. */
+const 모든탭: 자산탭[] = ["자산", "추이", "배당", "비중", "뉴스"];
 
 
 /* ── Main Page ──────────────────────────────────────────── */
@@ -109,8 +120,6 @@ export default function Portfolio() {
   const queryClient = useQueryClient();
   const [modalOpen,       setModalOpen]       = useState(false);
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
-  const [cashModalOpen,   setCashModalOpen]   = useState(false);
-  const [cashEditItem,    setCashEditItem]    = useState<PortfolioItem | undefined>(undefined);
   const [deleteTarget,    setDeleteTarget]    = useState<PortfolioItem | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
   const [modalError,      setModalError]      = useState<string | null>(null);
@@ -380,6 +389,9 @@ export default function Portfolio() {
 
   /* ── 환율 — 공용 훅 (전용 엔드포인트 우선, 실패 시 금리 목록 폴백) ── */
   const exchangeRate = useExchangeRate();
+  /* 환율이 오늘 얼마나 움직였나 — 해외 종목의 원화 평가금액은 주가와
+     환율 둘이 같이 정한다. 예전에는 주가만 봤다(utils/holdings 주석) */
+  const 환율등락 = useExchangeRateChange();
 
   /* 이 화면은 항상 '내 자산' 쪽이고, '관심종목'은 누르면 다른 페이지로
      넘어간다. 그래서 고를 상태가 따로 없다 */
@@ -457,12 +469,8 @@ export default function Portfolio() {
          등락률도 같이 온다. 안 세면 미리보기의 '오늘' 칸만 늘 0 이 되고,
          로그인해야 비로소 값이 나타나는 이상한 화면이 된다. */
       const changeRate = d?.change_rate ?? null;
-      const dailyChangeKRW = changeRate != null
-        ? currentValueKRW - currentValueKRW / (1 + changeRate / 100)
-        : 0;
-      const 전일대비액 = (d?.price != null && changeRate != null)
-        ? currentPriceNative - currentPriceNative / (1 + changeRate / 100)
-        : null;
+      const dailyChangeKRW = 오늘변화원화(currentValueKRW, changeRate, 환율등락, isUSDStock) ?? 0;
+      const 전일대비액 = d?.price != null ? 전일대비주당(currentPriceNative, changeRate) : null;
 
       return withNativeValues(
         { ...base, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0,
@@ -472,7 +480,7 @@ export default function Portfolio() {
     });
     const totalKRW = list.reduce((s, e) => s + e.currentValueKRW, 0);
     return list.map((e) => ({ ...e, weight: totalKRW > 0 ? (e.currentValueKRW / totalKRW) * 100 : 0 }));
-  }, [previewBatchPrices, exchangeRate]);
+  }, [previewBatchPrices, exchangeRate, 환율등락]);
 
   const previewSummaryLive = useMemo(() => {
     const totalValue = previewEnrichedLive.reduce((s, e) => s + e.currentValueKRW, 0);
@@ -548,18 +556,24 @@ export default function Portfolio() {
       const pnlKRW = currentValueKRW - costKRW;
       const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;
 
-      // 일일 등락(원화 기준) — change_rate(%)로 전일 평가금액을 역산
+      /* 일일 등락(원화 기준) — 어제 평가금액을 역산한다.
+         해외 종목은 환율 등락도 같이 곱한다(utils/holdings 주석 참고).
+
+         시세를 못 받았을 때는 환율도 안 곱한다. 그때 평가금액은 오늘
+         환율로 잰 값이 아니라 **매입금액 그대로**(costKRW)라서, 환율이
+         움직여도 그 숫자는 안 바뀐다 — 곱하면 없는 변화를 지어낸다. */
       const changeRate = changeRateMap[item.id];
-      const dailyChangeKRW = changeRate != null
-        ? currentValueKRW - currentValueKRW / (1 + changeRate / 100)
-        : 0;
+      const dailyChangeKRW = 오늘변화원화(
+        currentValueKRW,
+        hasLivePrice ? changeRate : null,
+        환율등락,
+        isUSDStock && hasLivePrice,
+      ) ?? 0;
       /* 한 주가 어제보다 얼마 움직였는지. 화면에 '전일대비'로 나간다.
          수익률(매입가 대비)과는 다른 숫자다 — 어제 산 사람과 3년 전에 산
          사람에게 오늘 하루의 움직임은 같지만 수익률은 전혀 다르다. */
       const 전일대비율 = changeRate ?? null;
-      const 전일대비액 = (hasLivePrice && changeRate != null)
-        ? currentPriceNative - currentPriceNative / (1 + changeRate / 100)
-        : null;
+      const 전일대비액 = hasLivePrice ? 전일대비주당(currentPriceNative, changeRate) : null;
 
       return withNativeValues(
         { ...item, currentPriceNative, currentValueKRW, costKRW, pnlKRW, pnlRate, weight: 0,
@@ -573,7 +587,7 @@ export default function Portfolio() {
       ...e,
       weight: totalKRW > 0 ? (e.currentValueKRW / totalKRW) * 100 : 0,
     }));
-  }, [filteredItems, priceMap, changeRateMap, exchangeRate]);
+  }, [filteredItems, priceMap, changeRateMap, exchangeRate, 환율등락]);
 
   /* ── 전체 보기 — 포트폴리오별 비중 ── */
   const portfolioBreakdown = useMemo(() => {
@@ -691,17 +705,9 @@ export default function Portfolio() {
     if (!isAllView && chartMode === "portfolio") setChartMode("stock");
   }, [isAllView, chartMode]);
 
-  /* ── 로그아웃하면 로그인 전용 탭에 갇히지 않도록 ── */
-  useEffect(() => {
-    if (!isLoggedIn && 로그인필요탭.includes(속탭)) set속탭("자산");
-  }, [isLoggedIn, 속탭]);
+  const 보일탭들 = useMemo(() => 모든탭.map((t) => ({ id: t, label: t })), []);
 
-  const 보일탭들 = useMemo(
-    () => (["자산", "추이", "배당", "비중", "뉴스"] as 자산탭[])
-      .filter((t) => isLoggedIn || !로그인필요탭.includes(t))
-      .map((t) => ({ id: t, label: t })),
-    [isLoggedIn],
-  );
+
 
   /* ── 보유 종목 줄에 붙일 배당 정보 ──
      배당 탭과 **같은 열쇠**를 쓴다. 탭을 열어 봤으면 캐시가 그대로
@@ -720,27 +726,18 @@ export default function Portfolio() {
   const 배당정보 = useMemo<Record<string, 배당몫>>(() => {
     const 칸: Record<string, 배당몫> = {};
     for (const r of 배당자료?.items ?? []) {
-      칸[r.symbol] = { months: r.months ?? [], perYear: r.per_year || 0, currency: r.currency };
+      /* plan_year(앞으로 한 해)를 쓴다. per_year 는 '지난 1년에 실제로
+         받은 합' 이라 배당 탭의 월별 막대 합계와 다른 숫자가 나온다 —
+         두 화면이 서로 다른 배당률을 말하게 된다. */
+      칸[r.symbol] = {
+        months: r.months ?? [],
+        perYear: r.plan_year ?? r.per_year ?? 0,
+        currency: r.currency,
+      };
     }
     return 칸;
   }, [배당자료]);
 
-  /* ── 배당 화면에 넘길 '내 몫' ──
-     배당금(분자)은 서버가 주지만 '얼마를 넣어서 그만큼 받나'(분모)는
-     이 화면만 안다. 요청을 하나 더 보내는 대신 여기서 내려보낸다.
-     자산유형 필터는 일부러 안 태운다 — 투자배당률은 '내 포트폴리오
-     전체' 대비여야 뜻이 맞는다. */
-  const 보유몫들 = useMemo<Record<string, 보유몫>>(() => {
-    const 칸: Record<string, 보유몫> = {};
-    for (const e of enriched) {
-      if (resolveAssetClass(e) === "현금") continue;   // 현금에는 배당이 없다
-      const 몫 = 칸[e.symbol] ?? (칸[e.symbol] = { 수량: 0, 원가: 0, 평가: 0 });
-      몫.수량 += e.shares;
-      몫.원가 += e.costKRW;
-      몫.평가 += e.currentValueKRW;
-    }
-    return 칸;
-  }, [enriched]);
 
 
   /* ── CRUD ── */
@@ -753,19 +750,9 @@ export default function Portfolio() {
     setModalError(null);
     editMutation.mutate({ id: editItem.id, data }, { onSuccess: () => { setEditItem(undefined); setModalError(null); } });
   };
-  const handleCashAdd = (data: Omit<PortfolioItem, "id">) => {
-    setModalError(null);
-    addMutation.mutate(data, { onSuccess: () => { setCashModalOpen(false); setModalError(null); } });
-  };
-  const handleCashEdit = (data: Omit<PortfolioItem, "id">) => {
-    if (!cashEditItem) return;
-    setModalError(null);
-    editMutation.mutate({ id: cashEditItem.id, data }, { onSuccess: () => { setCashEditItem(undefined); setModalError(null); } });
-  };
-  const openEditModal = useCallback((item: PortfolioItem) => {
-    if (item.assetClass === "현금") setCashEditItem(item);
-    else setEditItem(item);
-  }, []);
+  /* 현금도 같은 창에서 고친다. 예전에는 현금이면 다른 창을 띄웠다 —
+     쓰는 사람에게는 둘 다 '담아 둔 것을 고치는' 같은 일이다 */
+  const openEditModal = useCallback((item: PortfolioItem) => setEditItem(item), []);
 
   /* 행 컴포넌트에 넘길 핸들러 — 렌더마다 새로 만들어지면 memo가 무력화되므로 고정한다 */
   const handleRowNavigate = useCallback((item: EnrichedItem) => {
@@ -790,6 +777,38 @@ export default function Portfolio() {
       : allDisplayEnriched.filter((e) => resolveAssetClass(e) === assetFilterTab),
     [allDisplayEnriched, assetFilterTab],
   );
+
+  /* ── 배당 화면에 넘길 '내 몫' ──
+     배당금(분자)은 서버가 주지만 '얼마를 넣어서 그만큼 받나'(분모)는
+     이 화면만 안다. 요청을 하나 더 보내는 대신 여기서 내려보낸다.
+     자산유형 필터는 일부러 안 태운다 — 투자배당률은 '내 포트폴리오
+     전체' 대비여야 뜻이 맞는다. */
+  const 보유몫들 = useMemo<Record<string, 보유몫>>(() => {
+    const 칸: Record<string, 보유몫> = {};
+    /* 미리보기(비로그인)에서도 만든다. 안 그러면 예시 배당 화면의
+       투자배당률·시가배당률이 '—' 로만 나와서, 그 두 칸이 무엇을
+       말하는 자리인지 로그인 전에는 알 수가 없다 */
+    for (const e of allDisplayEnriched) {
+      if (resolveAssetClass(e) === "현금") continue;   // 현금에는 배당이 없다
+      const 몫 = 칸[e.symbol] ?? (칸[e.symbol] = { 수량: 0, 원가: 0, 평가: 0 });
+      몫.수량 += e.shares;
+      몫.원가 += e.costKRW;
+      몫.평가 += e.currentValueKRW;
+    }
+    return 칸;
+  }, [allDisplayEnriched]);
+
+  /* ── 로그인 전 미리보기 ──
+     보유 수량만 예시고, 시세·시세이력·배당·뉴스는 **실제 값**이다.
+     지어낸 값을 진짜처럼 보여 주면 화면이 무엇을 할 수 있는지 알리려다
+     거짓말을 하는 셈이 된다(hooks/usePortfolioPreview 주석 참고).
+
+     탭을 눌렀을 때만 받는다 — 안 그러면 로그인 안 한 방문자 때문에
+     0.15 CPU 서버가 느려진다. */
+  const 미리보기중 = !isLoggedIn;
+  const 예시흐름 = use미리보기흐름(allDisplayEnriched, exchangeRate, 미리보기중 && 속탭 === "추이");
+  const 예시배당 = use미리보기배당(allDisplayEnriched, 미리보기중 && 속탭 === "배당");
+  const 예시뉴스 = use미리보기뉴스(allDisplayEnriched, 미리보기중 && 속탭 === "뉴스");
 
   /* ── 자산 지도(트리맵) 칸 ──
      파이와 같은 세 가지 갈래를 그대로 쓰되, 파이처럼 열한 번째부터
@@ -994,7 +1013,7 @@ export default function Portfolio() {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all whitespace-nowrap"
               title={isLoggedIn ? undefined : "로그인하면 내 종목을 담을 수 있어요"}
             >
-              <Plus size={13} />종목 추가
+              <Plus size={13} />자산 추가
             </button>
           )}
         </div>
@@ -1144,9 +1163,10 @@ export default function Portfolio() {
 
           로그인 안 한 미리보기에서는 탭 자체가 없다 — 남의 기록이 아니라
           아무 기록도 없어서, 늘 "아직 없어요" 만 보이게 된다. */}
-      {속탭 === "추이" && isLoggedIn && items.length > 0 && (
+      {속탭 === "추이" && (isLoggedIn ? items.length > 0 : previewLoaded) && (
         <>
-          <AssetHistory />
+          <AssetHistory 미리보기={미리보기중 ? (예시흐름.점들 ?? undefined) : undefined}
+                        받는중={예시흐름.받는중} />
           {/* 그래프가 '얼마나' 를 말하면, 이건 '누가' 를 말한다.
               합계가 +512만원일 때 그게 한 종목이 혼자 번 것인지 열 종목이
               조금씩 모은 것인지는 완전히 다른 상황인데 합계로는 같아 보인다 */}
@@ -1171,18 +1191,22 @@ export default function Portfolio() {
       )}
 
       {/* ── 배당 ── */}
-      {속탭 === "배당" && isLoggedIn && items.length > 0 && (
+      {속탭 === "배당" && (isLoggedIn ? items.length > 0 : previewLoaded) && (
         <DividendCalendar
           portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)}
           이름={isAllView ? undefined : portfolios.find((p) => p.id === selectedPortfolioId)?.name}
           보유={보유몫들}
+          미리보기={예시배당}
         />
       )}
 
       {/* ── 뉴스 ──
           내 종목 얘기가 어디에 흩어져 있는지 찾아다닐 이유가 없다 */}
-      {속탭 === "뉴스" && isLoggedIn && items.length > 0 && (
-        <보유뉴스 portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)} />
+      {속탭 === "뉴스" && (isLoggedIn ? items.length > 0 : previewLoaded) && (
+        <보유뉴스
+          portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)}
+          미리보기={예시뉴스}
+        />
       )}
 
       {/* ── 비중 ── */}
@@ -1361,12 +1385,8 @@ export default function Portfolio() {
             {isLoggedIn ? (
               !isAllView && (
                 <>
-                  <button
-                    onClick={() => { setCashEditItem(undefined); setCashModalOpen(true); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-secondary text-xs font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors whitespace-nowrap flex-shrink-0"
-                  >
-                    <DollarSign size={13} /> 현금
-                  </button>
+                  {/* 버튼이 '현금' 과 '추가' 둘이었다. 담는 사람에게는
+                      같은 일이라 하나로 합쳤다 — 창 안에서 종류를 고른다 */}
                   <button
                     onClick={() => { setEditItem(undefined); setModalOpen(true); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue transition-colors whitespace-nowrap flex-shrink-0"
@@ -1423,16 +1443,10 @@ export default function Portfolio() {
             {!isAllView && (
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => { setCashEditItem(undefined); setCashModalOpen(true); }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-text-secondary text-sm font-semibold hover:border-accent-blue/40 hover:text-accent-blue transition-colors"
-                >
-                  <DollarSign size={14} /> 현금 추가
-                </button>
-                <button
                   onClick={() => { setEditItem(undefined); setModalOpen(true); }}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-blue text-white text-sm font-semibold hover:bg-accent-blue transition-colors"
                 >
-                  <Plus size={14} /> 첫 종목 추가
+                  <Plus size={14} /> 첫 자산 담기
                 </button>
               </div>
             )}
@@ -1563,17 +1577,6 @@ export default function Portfolio() {
           defaultFx={exchangeRate}
           onClose={() => { setModalOpen(false); setEditItem(undefined); setModalError(null); }}
           onSave={editItem ? handleEdit : handleAdd}
-          isSaving={addMutation.isPending || editMutation.isPending}
-          saveError={modalError}
-        />
-      )}
-
-      {/* ── 현금 추가/수정 모달 ── */}
-      {isLoggedIn && (cashModalOpen || cashEditItem) && (
-        <CashModal
-          item={cashEditItem}
-          onClose={() => { setCashModalOpen(false); setCashEditItem(undefined); setModalError(null); }}
-          onSave={cashEditItem ? handleCashEdit : handleCashAdd}
           isSaving={addMutation.isPending || editMutation.isPending}
           saveError={modalError}
         />

@@ -167,7 +167,7 @@ describe("내 자산 첫 화면", () => {
     const 제목 = await screen.findByRole("heading", { name: "내 자산" });
     const 줄 = 제목.closest("div")?.parentElement;
     // 같은 상자 안에 있는지만 보면 세로로 쌓아도 통과한다. 가로줄인지까지 본다
-    expect(줄?.textContent).toMatch(/종목 추가/);
+    expect(줄?.textContent).toMatch(/자산 추가/);
     expect(줄?.className).toMatch(/items-center/);
     expect(줄?.className).not.toMatch(/flex-col/);
   });

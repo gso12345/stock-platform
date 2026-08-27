@@ -79,16 +79,48 @@ export function 세율(currency?: string): number {
   return currency === "KRW" ? 원천징수.국내 : 원천징수.해외;
 }
 
-/** 한 종목이 한 회차에 주는 돈 — 원화로 */
-export function 회차금액(r: 배당줄, 환율: number, 세후로 = false): number {
+/** 주당 금액 하나를 내 몫 원화로 */
+function _원화로(r: 배당줄, 주당: number, 환율: number, 세후로: boolean): number {
   const 수량 = r.shares || 0;
-  if (!수량) return 0;
+  if (!수량 || !주당) return 0;
   const 배수 = r.currency === "KRW" ? 1 : 환율;
-  const 세전 = (r.last_amount || 0) * 수량 * 배수;
+  const 세전 = 주당 * 수량 * 배수;
   return 세후로 ? 세전 * (1 - 세율(r.currency)) : 세전;
 }
 
-/** 한 달치 — 주배당은 한 달에 네 번쯤 들어온다 */
+/** 한 종목이 한 회차에 주는 돈 — 원화로 */
+export function 회차금액(r: 배당줄, 환율: number, 세후로 = false): number {
+  return _원화로(r, r.last_amount || 0, 환율, 세후로);
+}
+
+/**
+ * 그 달에 받는 돈 — 원화로.
+ *
+ * ── 왜 달마다 따로 보나 ──
+ *
+ * 예전에는 마지막 회차 금액(last_amount)을 모든 달에 똑같이 썼다.
+ * 그런데 분기배당은 회차마다 금액이 다르다 — 결산배당이 붙는 분기가
+ * 특히 크다. 마지막 회차가 그 큰 회차면 한 해 예상이 통째로 부풀고,
+ * 작은 회차면 반대로 깎인다.
+ *
+ * 예: 0.20 / 0.25 / 0.30 / 0.35 를 주는 종목이면 한 해 1.10 인데,
+ * 마지막(0.35)을 네 번 곱하면 1.40 — 27% 를 더 받는 것으로 나온다.
+ *
+ * 이제 서버가 달마다 **실제로 준 금액**(schedule)을 준다. 그게 없는
+ * 옛 응답에만 예전 방식으로 떨어진다.
+ */
+export function 달금액(r: 배당줄, 달: number, 환율: number, 세후로 = false): number {
+  const 칸 = r.schedule?.find((x) => x.month === 달);
+  if (칸) return _원화로(r, 칸.amount, 환율, 세후로);
+  if (!r.months?.includes(달)) return 0;
+  // 옛 응답 — 마지막 회차 금액으로 어림한다
+  const 회차 = r.per_month && r.per_month > 1 ? r.per_month : 1;
+  return 회차금액(r, 환율, 세후로) * 회차;
+}
+
+/** 한 달치 — 주배당은 한 달에 네 번쯤 들어온다.
+ *
+ *  달을 안 정하고 부르면 '한 달 평균' 이다(목록 정렬용). */
 export function 한달금액(r: 배당줄, 환율: number, 세후로 = false): number {
   const 회차 = r.per_month && r.per_month > 1 ? r.per_month : 1;
   return 회차금액(r, 환율, 세후로) * 회차;
@@ -102,15 +134,21 @@ export function 한달금액(r: 배당줄, 환율: number, 세후로 = false): n
  * 통째로 틀린다.
  */
 export function 달마다(줄들: 배당줄[], 환율: number, 세후로 = false): number[] {
-  const 칸 = Array(12).fill(0);
+  const 칸: number[] = Array(12).fill(0);
   for (const r of 줄들) {
-    const 한달 = 한달금액(r, 환율, 세후로);
-    if (!한달) continue;
-    for (const m of r.months ?? []) {
-      if (m >= 1 && m <= 12) 칸[m - 1] += 한달;
+    /* 서버가 준 달만 돈다. schedule 이 있으면 그 달들, 없으면 months.
+       달마다 금액이 다르므로 한 값을 열두 번 더하면 안 된다 */
+    const 달들 = r.schedule?.length ? r.schedule.map((x) => x.month) : (r.months ?? []);
+    for (const m of 달들) {
+      if (m >= 1 && m <= 12) 칸[m - 1] += 달금액(r, m, 환율, 세후로);
     }
   }
   return 칸;
+}
+
+/** 그 달에 주는 날 — 서버가 실제로 준 날에서 뽑은 값 */
+export function 그달날(r: 배당줄, 달: number): number | null {
+  return r.schedule?.find((x) => x.month === 달)?.day ?? null;
 }
 
 /** 내 보유 몫 — 배당률의 분모가 되는 값들.
@@ -164,13 +202,19 @@ export function 원본돈(v: number, currency?: string): string {
   return `$${v.toFixed(자리)}`;
 }
 
-export default function DividendCalendar({ portfolioId, 이름, 보유 }: {
+export default function DividendCalendar({ portfolioId, 이름, 보유, 미리보기 }: {
   /** 지금 보고 있는 포트폴리오. 없으면(전체 보기) 가진 것 전부 */
   portfolioId?: number;
   /** 포트폴리오 이름 — 무엇의 배당인지 제목에 밝힌다 */
   이름?: string;
   /** 심볼 → 내 몫. 배당률의 분모이자, 화면이 보고 있는 수량의 기준 */
   보유?: Record<string, 보유몫>;
+  /** 로그인 전 미리보기. 주면 /portfolio/dividends(로그인 필요)를 안 부른다.
+   *
+   *  값은 지어낸 것이 아니다 — 공개 경로(/stocks/{market}/{symbol}/dividends)로
+   *  받은 **실제 배당**에 예시 수량을 곱한 것이다. 두 경로가 같은 캐시를
+   *  본다(hooks/usePortfolioPreview). */
+  미리보기?: { items: 배당줄[]; pending: number };
 }) {
   const 환율 = useExchangeRate();
   const 돈 = use돈();
@@ -183,11 +227,17 @@ export default function DividendCalendar({ portfolioId, 이름, 보유 }: {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["dividend-calendar", portfolioId ?? "all"],
     queryFn: () => portfolioApi.getDividends(portfolioId),
+    enabled: !미리보기,          // 미리보기는 공개 경로로 따로 받는다
     staleTime: 600_000,
   });
 
-  const 줄들 = useMemo<배당줄[]>(() => 내몫으로(data?.items ?? [], 보유), [data, 보유]);
-  const 아직 = data?.pending ?? 0;
+  const 받은것 = 미리보기 ?? data;
+  const 줄들 = useMemo<배당줄[]>(
+    // 예시에는 '내 몫' 이 따로 없다 — 예시 수량이 곧 내 몫이다
+    () => (미리보기 ? 미리보기.items : 내몫으로(data?.items ?? [], 보유)),
+    [data, 보유, 미리보기],
+  );
+  const 아직 = 받은것?.pending ?? 0;
 
   const 월별 = useMemo(() => 달마다(줄들, 환율, 세후로), [줄들, 환율, 세후로]);
   const 한해 = useMemo(() => 월별.reduce((s, v) => s + v, 0), [월별]);
@@ -210,8 +260,12 @@ export default function DividendCalendar({ portfolioId, 이름, 보유 }: {
 
   /** 고른 달에 주는 종목들 — 금액 큰 순 */
   const 그달것 = useMemo(() => 줄들
-    .filter((r) => r.months?.includes(고른달))
-    .map((r) => ({ r, 금액: 한달금액(r, 환율, 세후로) }))
+    .filter((r) => (r.schedule?.length
+      ? r.schedule.some((x) => x.month === 고른달)
+      : r.months?.includes(고른달)))
+    /* 그 달의 **실제** 금액을 쓴다. 예전에는 마지막 회차 금액을 모든
+       달에 똑같이 써서, 결산배당이 붙는 달과 아닌 달이 같아 보였다 */
+    .map((r) => ({ r, 금액: 달금액(r, 고른달, 환율, 세후로) }))
     .sort((a, b) => b.금액 - a.금액), [줄들, 고른달, 환율, 세후로]);
 
   const 틀 = (속: React.ReactNode) => (
@@ -219,6 +273,7 @@ export default function DividendCalendar({ portfolioId, 이름, 보유 }: {
       <div className="flex items-center gap-1.5">
         <CalendarDays size={14} className="text-accent-green" />
         <span className="text-sm font-semibold text-text-primary">배당 달력</span>
+        {미리보기 && <span className="text-2xs font-medium text-text-dim">예시 수량 · 실제 배당</span>}
         {/* 탭을 바꾸면 목록도 바뀐다. 무엇의 배당인지 안 적으면
             '왜 아까랑 다르지' 가 된다 */}
         {이름 && <span className="text-2xs text-text-dim truncate">{이름}</span>}
@@ -230,8 +285,8 @@ export default function DividendCalendar({ portfolioId, 이름, 보유 }: {
     </Card>
   );
 
-  if (isError) return 틀(<못불러옴 사유={error} 다시={() => refetch()} compact />);
-  if (isLoading) return 틀(<div className="h-24 rounded-lg bg-bg-elevated animate-pulse" />);
+  if (!미리보기 && isError) return 틀(<못불러옴 사유={error} 다시={() => refetch()} compact />);
+  if (!미리보기 && isLoading) return 틀(<div className="h-24 rounded-lg bg-bg-elevated animate-pulse" />);
 
   if (줄들.length === 0) {
     return 틀(
@@ -349,22 +404,33 @@ export default function DividendCalendar({ portfolioId, 이름, 보유 }: {
       ) : (
         <ul className="flex flex-col">
           {그달것.map(({ r, 금액 }) => {
-            /* 이번 회차 날짜(r.date)가 이 달일 때만 D-day 를 적는다.
-               다른 달은 아직 날짜를 모른다 */
+            /* 이번 회차(r.date)가 이 달이면 확정/추정 날짜와 D-day 를 적는다.
+               다른 달도 이제는 날짜를 안다 — 서버가 그 달에 **실제로 준 날**
+               (schedule.day)을 보내 준다. 예전에는 '3월' 이라고만 적었다. */
             const 예정 = 고른달 === Number(r.date.split("-")[1]);
             const 남음 = 예정 ? 남은날(r.date) : null;
+            const 그날 = 그달날(r, 고른달);
             return (
               <li key={`${r.market}:${r.symbol}`}
                   className="flex items-center gap-2.5 py-2 border-b border-border/50 last:border-b-0">
-                <div className="flex flex-col items-center shrink-0 w-12">
+                <div className="flex flex-col items-center shrink-0 w-14">
                   {예정 ? (
                     <>
                       <span className={`text-2xs font-semibold ${r.confirmed ? "text-accent-green" : "text-text-dim"}`}>
                         {남음 != null && 남음 <= 0 ? "오늘" : `D-${남음}`}
                       </span>
-                      <span className="text-2xs text-text-dim">
+                      <span className="text-2xs text-text-dim whitespace-nowrap">
                         {r.confirmed ? 날짜글(r.date) : 어림날짜글(r.date)}
                       </span>
+                    </>
+                  ) : 그날 != null ? (
+                    <>
+                      <span className="text-2xs text-text-secondary whitespace-nowrap">
+                        {고른달}월 {그날}일
+                      </span>
+                      {/* 작년 그 달에 준 날이다. 올해도 꼭 그날이라고
+                          말하면 안 된다 */}
+                      <span className="text-2xs text-text-dim">작년 기준</span>
                     </>
                   ) : (
                     <span className="text-2xs text-text-dim">{고른달}월</span>
@@ -385,7 +451,13 @@ export default function DividendCalendar({ portfolioId, 이름, 보유 }: {
                   </div>
                   <p className="text-2xs text-text-dim truncate">
                     {r.shares ? `${r.shares.toLocaleString("ko-KR")}주 · ` : ""}
-                    주당 {원본돈(r.last_amount, r.currency)}
+                    {/* 그 달의 주당 금액이다. 예전에는 마지막 회차 금액을
+                        모든 달에 똑같이 적어서, 결산배당이 붙는 달과 아닌
+                        달이 화면에서 같아 보였다 */}
+                    주당 {원본돈(
+                      r.schedule?.find((x) => x.month === 고른달)?.amount ?? r.last_amount,
+                      r.currency,
+                    )}
                     {r.cycle ? ` · ${r.cycle}배당` : ""}
                   </p>
                   {/* 몇 월에 주는지. 분기배당이라도 회사마다 달이 다르다 */}
@@ -393,6 +465,18 @@ export default function DividendCalendar({ portfolioId, 이름, 보유 }: {
                     <p className="text-2xs text-text-dim">배당월 {r.months.join("·")}</p>
                   )}
                 </div>
+
+                {/* 지난 배당 — 그 달에 정말 얼마였나.
+                    '앞으로 이만큼 받을 것 같다' 만 있으면 그 숫자를
+                    믿을 근거가 화면에 없다. 실제로 받은 회차를 옆에 둔다 */}
+                {r.recent && r.recent.length > 0 && (
+                  <p className="text-2xs text-text-dim truncate">
+                    지난 배당{" "}
+                    {r.recent.slice(-3).map((x) => (
+                      `${Number(x.date.split("-")[1])}월 ${원본돈(x.amount, r.currency)}`
+                    )).join(" · ")}
+                  </p>
+                )}
 
                 {/* 수량이 0이면 금액을 안 쓴다 — '0원' 은 '배당을 안 준다'
                     로 읽힌다 */}

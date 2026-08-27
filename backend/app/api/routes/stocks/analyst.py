@@ -420,3 +420,38 @@ def _enrich_analyst_fallback(result: dict, symbol: str, market: str):
                     nc["recommendation"] = rec_label
             if src.get("analyst_count"):
                 nc.setdefault("analyst_count", src.get("analyst_count"))
+
+
+@router.get("/{market}/{symbol}/dividends")
+@limiter.limit("30/minute")
+async def get_stock_dividends(
+    request: Request,
+    market: Literal["KR", "US", "ETF"],
+    symbol: str = Path(..., pattern=_SYMBOL_PATTERN),
+):
+    """한 종목의 배당 — 지난 내역, 달마다 얼마·언제, 다음 배당일.
+
+    배당 달력(/portfolio/dividends)이 쓰는 것과 **같은 서비스·같은
+    캐시**를 본다. 다른 점은 로그인이 필요 없다는 것뿐이다.
+
+    ── 왜 따로 열었나 ──
+
+    내 자산 화면의 미리보기(로그인 전)가 배당 탭을 보여 준다. 예전에는
+    그 자리에 지어낸 예시를 넣었는데, 그러면 화면이 무엇을 할 수 있는지
+    보여 주려다 **없는 값을 진짜처럼 보여 주는** 셈이 된다.
+
+    같은 캐시를 쓰므로 값이 두 벌로 갈리지 않고, 미리보기가 채운 캐시를
+    로그인한 사람이 그대로 쓴다(반대도 마찬가지다).
+
+    받아 오는 종목 수는 화면이 정한다 — 여기서는 한 종목만 본다.
+    캐시에 없으면 하루치를 새로 받고, 안 되는 종목은 쉬게 둔다
+    (services/dividend_service 의 규칙 그대로).
+    """
+    from app.services import dividend_service as DV
+
+    정보 = await _run(DV.한종목, symbol, market)
+    if not 정보:
+        # 배당을 안 주는 종목이거나 아직 못 받았다. 404 로 만들면 화면이
+        # 오류 상자를 띄우는데, '배당이 없다' 는 오류가 아니다
+        return {}
+    return 정보

@@ -137,7 +137,22 @@ export function 견주기(점들: 자산흐름점[], 지수: OHLCV[] | undefined
   });
 }
 
-export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
+export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }: {
+  켜짐?: boolean;
+  /** 미리보기 값을 아직 받는 중인가 — 그동안 '기록이 없다' 고 하면 안 된다 */
+  받는중?: boolean;
+  /** 로그인 전 미리보기용 점들. 주면 /portfolio/history 를 안 부른다.
+   *
+   *  예전에는 로그인 전에 이 그래프를 아예 안 그렸다. 그런데 그러면
+   *  '내 자산이 어떻게 변해 왔나' 를 볼 수 있다는 사실 자체가 가입
+   *  전에는 안 보인다 — 이 앱을 쓸 이유 하나가 통째로 숨는 셈이다.
+   *
+   *  값 자체는 **지어낸 것이 아니다**. 예시 종목들의 실제 시세 이력으로
+   *  화면 위 합계와 같은 규칙에 따라 계산한다
+   *  (hooks/usePortfolioPreview 의 이력합치기). 예시인 것은 '어떤 종목을
+   *  몇 주 갖고 있나' 뿐이다. */
+  미리보기?: 자산흐름점[];
+}) {
   const [고른기간, set고른기간] = useState<기간id>("3개월");
   const [벤치, set벤치] = useState<string>("");
   const 돈 = use돈();
@@ -146,10 +161,13 @@ export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
   /* '올해' 만 오늘이 며칠이냐에 따라 달라진다. 나머지는 고정값이다 */
   const 일수 = 기간.일수 ?? 올해일수();
 
+  const 예시인가 = !!미리보기 || !!받는중;
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["portfolio-history", 고른기간, 일수],
     queryFn: () => portfolioApi.getHistory(일수),
-    enabled: 켜짐,
+    /* 미리보기는 이 경로(로그인 필요)를 안 부른다. 대신 공개된
+       종목 시세 이력으로 화면에서 계산한다 */
+    enabled: 켜짐 && !예시인가,
     staleTime: 300_000,
   });
 
@@ -162,7 +180,17 @@ export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
     staleTime: 600_000,
   });
 
-  const 점들 = useMemo<자산흐름점[]>(() => data?.points ?? [], [data]);
+  const 점들 = useMemo<자산흐름점[]>(() => {
+    if (!미리보기) return data?.points ?? [];
+    /* 미리보기는 석 달치를 받아 두고 고른 기간만큼 잘라 쓴다 — 기간 칩을
+       눌러도 아무 일이 없으면 그 칩이 뭔지 알 수 없다. 석 달보다 긴
+       기간을 고르면 받아 둔 것을 그대로 다 보여 준다 */
+    const 자를날 = new Date();
+    자를날.setDate(자를날.getDate() - 일수);
+    const 기준 = 자를날.toISOString().slice(0, 10);
+    const 자른것 = 미리보기.filter((p) => p.day >= 기준);
+    return 자른것.length >= 2 ? 자른것 : 미리보기;
+  }, [data, 미리보기, 일수]);
   const 비교중 = !!벤치 && !!지수?.length;
   const 그릴것 = useMemo(() => 견주기(점들, 벤치 ? 지수 : undefined), [점들, 지수, 벤치]);
   const 벤치이름 = 벤치마크들.find((b) => b.id === 벤치)?.label ?? "";
@@ -209,7 +237,14 @@ export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
   const 틀 = (속: React.ReactNode) => (
     <Card className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-text-primary shrink-0">자산 흐름</span>
+        <span className="text-sm font-semibold text-text-primary shrink-0">
+          자산 흐름
+          {/* 무엇이 예시인지 정확히 적는다. 값은 실제 시세로 계산한
+              것이라 '예시' 라고만 하면 숫자까지 지어낸 것으로 읽힌다 */}
+          {예시인가 && (
+            <span className="ml-1.5 text-2xs font-medium text-text-dim">예시 종목 · 실제 시세</span>
+          )}
+        </span>
         {/* 칩이 다섯 개라 좁은 화면에서 넘친다. 넘치면 잘리는 대신
             옆으로 밀리게 둔다 — 잘린 칩은 있는 줄도 모른다 */}
         <div className="flex rounded-lg border border-border overflow-x-auto scrollbar-hide">
@@ -229,8 +264,10 @@ export default function AssetHistory({ 켜짐 = true }: { 켜짐?: boolean }) {
     </Card>
   );
 
-  if (isError) return 틀(<못불러옴 사유={error} 다시={() => refetch()} compact />);
-  if (isLoading) return 틀(<div className="h-[160px] rounded-lg bg-bg-elevated animate-pulse" />);
+  if (!예시인가 && isError) return 틀(<못불러옴 사유={error} 다시={() => refetch()} compact />);
+  if ((!예시인가 && isLoading) || 받는중) {
+    return 틀(<div className="h-[160px] rounded-lg bg-bg-elevated animate-pulse" />);
+  }
 
   if (점들.length < 2) {
     /* 점 하나짜리 선은 그리면 고장으로 보인다. 무엇을 기다리는지 말한다 */

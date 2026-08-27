@@ -235,13 +235,18 @@ describe("자산 화면에 붙어 있다", () => {
           /portfolio/history 왕복을 먼저 기다려야 했다. 탭 뒤로 옮기면
           안 연 사람에게는 그 요청이 아예 안 나간다 — 0.15 CPU 서버다.
 
+       (1) 은 '아예 안 그린다' 에서 '예시로 그린다' 로 바뀌었다. 로그인
+       전에 이 그래프를 통째로 감췄더니, 이 앱이 무엇을 할 수 있는지가
+       가입 전에는 안 보였다. 예시는 서버를 안 부른다 — 미리보기가
+       0.15 CPU 서버에 요청을 늘리면 정작 쓰는 사람이 느려진다.
+
        이 조건이 조용히 풀리면(예: 탭 밖으로 나오면) 첫 화면이 도로
        느려지는데 화면만 봐서는 티가 안 난다. 그래서 원문으로 잡는다. */
     const fs = await import("fs");
     const path = await import("path");
     const 글 = fs.readFileSync(
       path.resolve(__dirname, "../../../pages/Portfolio.tsx"), "utf-8");
-    expect(글).toContain('속탭 === "추이" && isLoggedIn && items.length > 0 && (');
+    expect(글).toContain('속탭 === "추이" && (isLoggedIn ? items.length > 0 : previewLoaded) && (');
     // 탭 밖에 또 한 벌 그리면 위 이득이 사라진다
     expect(글.match(/<AssetHistory\b/g) ?? []).toHaveLength(1);
   });

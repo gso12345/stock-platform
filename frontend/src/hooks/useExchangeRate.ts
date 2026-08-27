@@ -22,6 +22,30 @@ export function isUsdKrwRow(r: any): boolean {
  * 그래서 값만 돌려주는 전용 엔드포인트(/dashboard/exchange)를 1순위로 쓰고,
  * 실패했을 때만 금리 목록을 느슨한 조건으로 뒤지는 2순위 조회를 켠다.
  */
+/**
+ * 원/달러가 오늘 얼마나 움직였나(%).
+ *
+ * 해외 종목의 원화 평가금액은 주가와 환율 둘이 같이 정한다. 그런데
+ * 지금까지 '오늘 손익' 은 주가만 봤다 — 미국장이 쉬는 날에 원화가 1%
+ * 약해지면 총 평가금액은 1% 늘어나는데 '오늘' 은 0원이었다.
+ *
+ * 값 자체는 같은 질의에서 이미 오고 있었다(지표카드의 change_rate).
+ * 훅이 value 만 꺼내 쓰고 버리고 있었을 뿐이다.
+ *
+ * useExchangeRate 와 **같은 queryKey** 를 쓴다 — react-query 가 합쳐
+ * 주므로 왕복이 늘지 않는다.
+ */
+export function useExchangeRateChange(): number | null {
+  const { data: fx } = useQuery({
+    queryKey: ["exchange-rate"],
+    queryFn: () => dashboardApi.getExchangeRate(),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+  const v = (fx as { change_rate?: unknown } | undefined)?.change_rate;
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
 export function useExchangeRate(): number {
   const { data: fx } = useQuery({
     queryKey: ["exchange-rate"],

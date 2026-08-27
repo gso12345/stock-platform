@@ -4,24 +4,33 @@
 사람은 '내 종목에 무슨 일이 있었나' 를 알려고 화면을 열 번 드나들어야
 했다. 참고한 자산 앱들이 포트폴리오 안에 뉴스 탭을 두는 이유다.
 
-── 외부 호출을 한 번도 안 한다 ──
+── 요청을 붙잡지 않으면서 모든 종목을 채운다 ──
 
-이게 이 파일의 핵심 제약이다. 종목마다 구글뉴스 RSS 나 yfinance 를
-부르면 스무 종목 = 외부 호출 스무 번이다. Render 무료 등급(0.15 CPU)
-에서 그건 화면이 30초를 기다린다는 뜻이고, 배당 달력이 '한 요청에
-여섯 개까지만' 규칙을 둔 것도 같은 이유였다.
+처음에는 아예 새로 안 받았다. 종목마다 구글뉴스 RSS 나 yfinance 를
+부르면 스무 종목 = 외부 호출 스무 번이고, 0.15 CPU 서버에서 그건
+화면이 30초를 기다린다는 뜻이라서다.
 
-여기서는 아예 새로 안 받는다. 대신 **이미 받아 둔 것** 두 곳을 쓴다.
+그런데 그러면 종목 상세를 한 번도 안 열어 본 종목은 영영 안 나온다.
+'내 종목 뉴스' 인데 절반이 비어 있으면 화면을 여는 뜻이 없다.
 
-  1) 종합 뉴스 캐시(news:kr · news:us)
-     스케줄러가 5분마다 채워 둔다. 800건·500건이 늘 더운 상태다.
-     거기서 내 종목을 언급한 기사를 골라낸다. 비용 0.
-  2) 종목 뉴스 캐시(stock_news:{market}:{symbol})
-     누군가 그 종목 상세를 열었으면 5분간 남아 있다. 있으면 쓰고,
-     없으면 그냥 넘어간다 — 여기서 채우지 않는다.
+그래서 세 겹으로 나눈다.
 
-그래서 이 화면은 '쓸수록 좋아진다'. 대신 정직해야 한다 — 기사를 못
-찾은 종목을 숨기지 않고 그대로 알려 준다(missing).
+  1) 종합 뉴스 캐시(news:kr · news:us) — 비용 0
+     스케줄러가 5분마다 채워 둔다. 거기서 내 종목을 언급한 기사를
+     골라낸다. 큰 종목은 대개 여기서 다 잡힌다.
+  2) 종목 뉴스 캐시(stock_news:{market}:{symbol}) — 비용 0
+     누군가 그 종목 상세를 열었으면 남아 있다.
+  3) **배경에서 받아 온다** — 요청은 안 기다린다
+     1·2 로 못 채운 종목은 배경 스레드에 맡기고, 지금 있는 것만
+     돌려주면서 `pending` 으로 몇 개가 오는 중인지 알려 준다.
+     화면은 그 수를 보고 몇 초 뒤 한 번 더 물어본다.
+
+받아 온 것은 종목 상세와 **같은 열쇠**에 담는다. 그래서 이 화면을
+연 뒤에 종목 상세를 열면 그쪽도 곧바로 뜬다 — 반대도 마찬가지다.
+
+한 번에 배경으로 보내는 종목 수에도 상한이 있다(배당 달력의
+'한번에' 와 같은 규칙). 스무 종목을 한꺼번에 밀어 넣으면 풀이 막혀
+다른 화면까지 같이 느려진다.
 
 ── 조심한 것 ──
 
@@ -151,6 +160,147 @@ def 열쇠(보유: list[dict]) -> str:
     return "portfolio_news:" + hashlib.md5(씨.encode("utf-8")).hexdigest()[:16]
 
 
+#: 한 요청에 배경으로 새로 받을 종목 수. 배당 달력의 '한번에' 와 같은 규칙 —
+#: 스무 종목을 한꺼번에 밀어 넣으면 풀이 막혀 다른 화면까지 느려진다
+한번에 = 4
+
+#: 종목 뉴스 캐시 수명. 종목 상세가 쓰는 값과 같게 둔다(같은 열쇠를 쓴다)
+종목뉴스_수명 = 300
+
+#: 빈손이었던 종목은 한동안 그만 물어본다. 뉴스가 아예 안 잡히는
+#: 종목(작은 ETF·우선주)이 생각보다 많다
+빈손수명 = 60 * 30
+
+#: 지금 배경에서 받는 중인 열쇠. 같은 종목을 두 번 밀어 넣지 않는다
+_받는중: set = set()
+
+#: 외부 요청 시한. 이 시간을 넘기면 그 종목은 다음 기회에
+_시한 = 8.0
+
+
+def _구글뉴스(이름: str) -> list[dict]:
+    """국내 종목 — 구글뉴스 RSS.
+
+    feedparser.parse(url) 을 그냥 쓰면 시한이 없다. 응답이 멈춘 피드
+    하나가 배경 스레드를 영영 붙잡는다(뉴스 수집이 httpx 로 옮겨 간
+    것도 같은 이유였다). 바이트를 받아서 파싱한다."""
+    import urllib.parse
+    import feedparser
+    import httpx
+
+    질의 = urllib.parse.quote(f"{이름} 주가")
+    주소 = f"https://news.google.com/rss/search?q={질의}&hl=ko&gl=KR&ceid=KR:ko"
+    resp = httpx.get(주소, timeout=_시한, follow_redirects=True,
+                     headers={"User-Agent": "Mozilla/5.0"})
+    if resp.status_code >= 400:
+        return []
+    feed = feedparser.parse(resp.content)
+
+    from app.services.news_service import _safe_url, _extract_thumbnail
+
+    항목 = []
+    for e in (feed.entries or [])[:40]:
+        제목 = (e.get("title") or "").strip()
+        주소2 = _safe_url(e.get("link"))
+        if not 제목 or not 주소2:
+            continue
+        ts = 0.0
+        try:
+            if e.get("published_parsed"):
+                ts = datetime(*e.published_parsed[:6], tzinfo=timezone.utc).timestamp()
+        except Exception:
+            pass
+        항목.append({
+            "title": 제목,
+            "link": 주소2,
+            "source": (e.get("source") or {}).get("title", ""),
+            # 화면이 읽는 꼴로 맞춰 둔다(fmtNewsDateTime 이 KST 로 읽는다)
+            "published": datetime.fromtimestamp(ts, KST).strftime("%Y/%m/%d %H:%M") if ts else "",
+            "published_ts": ts,
+            "summary": (e.get("summary") or "")[:200],
+            "image": _safe_url(_extract_thumbnail(e)),
+        })
+    return 항목
+
+
+def _야후뉴스(심볼: str) -> list[dict]:
+    """해외 종목 — yfinance."""
+    import yfinance as yf
+
+    항목 = []
+    for n in (yf.Ticker(심볼).news or [])[:40]:
+        ct = n.get("content", {}) or {}
+        제목 = ct.get("title") or n.get("title") or ""
+        주소 = (ct.get("canonicalUrl") or {}).get("url") or n.get("link") or ""
+        if not 제목 or not 주소:
+            continue
+        낸때 = ct.get("pubDate") or n.get("providerPublishTime") or ""
+        ts = _시각(낸때)
+        썸 = ct.get("thumbnail") or n.get("thumbnail") or {}
+        해상도 = 썸.get("resolutions") or []
+        항목.append({
+            "title": 제목,
+            "link": 주소,
+            "source": (ct.get("provider") or {}).get("displayName") or n.get("publisher") or "",
+            "published": datetime.fromtimestamp(ts, KST).strftime("%Y/%m/%d %H:%M") if ts else "",
+            "published_ts": ts,
+            "summary": (ct.get("summary") or "")[:200],
+            "image": 해상도[0].get("url") if 해상도 else 썸.get("originalUrl"),
+        })
+    return 항목
+
+
+def _한종목_받기(심볼: str, 시장: str, 이름: str) -> None:
+    """한 종목 뉴스를 받아 **종목 상세와 같은 열쇠**에 담는다.
+
+    같은 열쇠를 쓰는 것이 요점이다 — 이 화면을 연 뒤 그 종목 상세를
+    열면 곧바로 뜨고, 반대도 마찬가지다. 같은 것을 두 번 받지 않는다."""
+    ck = f"stock_news:{시장}:{심볼}"
+    try:
+        항목 = _구글뉴스(이름 or 심볼) if 시장 == "KR" else _야후뉴스(심볼)
+        if 항목:
+            cache.set(ck, 항목, 종목뉴스_수명)
+        else:
+            # 빈손도 기억한다. 안 그러면 뉴스가 없는 종목을 매번 다시 받는다
+            cache.set(f"{ck}:miss", True, 빈손수명)
+    except Exception as e:
+        log.debug("보유 뉴스 받기 실패 %s: %s", 심볼, type(e).__name__)
+        cache.set(f"{ck}:miss", True, 60)
+    finally:
+        _받는중.discard(ck)
+
+
+def _배경으로(대상: list[dict]) -> int:
+    """캐시에 없는 종목을 배경 스레드에 맡긴다. 요청은 안 기다린다.
+
+    돌려주는 것은 '지금 오는 중인 종목 수'. 화면이 그 수를 보고 몇 초
+    뒤에 한 번 더 물어본다."""
+    from app.core.executor import background_executor
+
+    보낸수 = 0
+    오는중 = 0
+    for h in 대상:
+        심볼, 시장 = str(h.get("symbol")), str(h.get("market"))
+        ck = f"stock_news:{시장}:{심볼}"
+        if cache.get(ck) is not None or cache.get(f"{ck}:miss"):
+            continue                       # 이미 있거나 방금 빈손이었다
+        if ck in _받는중:
+            오는중 += 1
+            continue
+        if 보낸수 >= 한번에:
+            오는중 += 1                    # 이번엔 못 보냈지만 다음 요청에 간다
+            continue
+        _받는중.add(ck)
+        try:
+            background_executor.submit(_한종목_받기, 심볼, 시장, str(h.get("name") or 심볼))
+            보낸수 += 1
+            오는중 += 1
+        except Exception:
+            # 풀이 닫혔다든지. 표시를 남겨 두면 그 종목이 영영 안 온다
+            _받는중.discard(ck)
+    return 오는중
+
+
 def _고르기(보유: list[dict]) -> tuple[list[dict], list[str]]:
     """이미 받아 둔 것에서 내 종목 기사를 골라낸다. 외부 호출 없음."""
     # 종합 뉴스는 캐시에서만 읽는다. get_kr_news() 를 부르면 캐시가 비었을
@@ -236,27 +386,36 @@ def 모으기(보유: list[dict]) -> dict:
     돌려주는 것
       items    기사 목록. 각 기사에 symbols(어느 종목으로 걸렸나)가 붙는다
       covered  기사를 찾은 종목
-      missing  아직 못 찾은 종목 — 숨기지 않는다. 이 화면은 이미 받아 둔
-               것만 쓰므로, 그 종목 상세를 한 번 열면 다음부터 나온다
+      missing  아직 기사를 못 찾은 종목 — 숨기지 않는다
+      pending  지금 배경에서 받아 오는 중인 종목 수. 0 보다 크면 화면이
+               몇 초 뒤에 한 번 더 물어본다
     """
+    빈답 = {"items": [], "covered": [], "missing": [], "pending": 0}
     쓸것 = [h for h in 보유 if _종목코드.match(str(h.get("symbol") or ""))]
     if not 쓸것:
-        return {"items": [], "covered": [], "missing": []}
+        return 빈답
 
     ck = 열쇠(쓸것)
-    if (담긴것 := cache.get(ck)) is not None:
+    담긴것 = cache.get(ck)
+    if 담긴것 is not None and not 담긴것.get("pending"):
+        # 다 채워진 답만 캐시에서 그대로 준다. 아직 오는 중이면 다시 센다 —
+        # 안 그러면 배경이 채워 놓은 것을 5분 동안 못 보여 준다
         return 담긴것
 
     try:
         기사들, 찾음 = _고르기(쓸것)
     except Exception as e:                                # pragma: no cover - 방어
         log.warning("보유 뉴스 모으기 실패: %s", e)
-        return {"items": [], "covered": [], "missing": []}
+        return 빈답
 
     찾은것 = set(찾음)
+    # 아직 기사를 못 찾은 종목만 배경에 맡긴다
+    오는중 = _배경으로([h for h in 쓸것 if str(h["symbol"]) not in 찾은것])
+
     답 = {
         "items": 기사들,
         "covered": 찾음,
+        "pending": 오는중,
         # 심볼만 주면 화면이 그 종목으로 갈 수가 없다 — 종목 상세 주소는
         # /stocks/{market}/{symbol} 이라 시장을 모르면 국내 종목을
         # 미국 종목으로 열게 된다
@@ -266,5 +425,7 @@ def 모으기(보유: list[dict]) -> dict:
             if str(h["symbol"]) not in 찾은것
         ],
     }
-    cache.set(ck, 답, TTL)
+    # 아직 오는 중이면 짧게만 담는다. 5분을 담아 두면 배경이 채워 놓은
+    # 것을 그동안 못 보여 준다
+    cache.set(ck, 답, TTL if not 오는중 else 20)
     return 답

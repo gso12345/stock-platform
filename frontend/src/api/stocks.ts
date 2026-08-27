@@ -14,6 +14,26 @@ export interface 수급행 {
   total: number;         // 전체
 }
 
+/** 한 종목의 배당. 배당 달력의 한 줄에서 '내 몫'(수량·받을 돈)만 뺀 것 */
+export interface 종목배당 {
+  symbol: string;
+  market: string;
+  cycle: string | null;
+  months: number[];
+  per_month: number;
+  currency: string;
+  last_date: string;
+  last_amount: number;
+  per_year: number;
+  plan_year?: number;
+  schedule?: { month: number; day: number; amount: number; year: number | null }[];
+  ex_date: string | null;
+  pay_date: string | null;
+  /** 공시된 날짜가 없을 때 쓰는 추정치 */
+  estimated_date?: string | null;
+  recent: { date: string; amount: number }[];
+}
+
 export const stocksApi = {
   getPrice: (market: Market, symbol: string) =>
     api.get<StockPrice>(`/stocks/${market}/${symbol}/price`).then((r) => r.data),
@@ -33,6 +53,14 @@ export const stocksApi = {
   /** 정렬은 서버가 처리한다 — 인기도 점수는 내부 계산값이라 응답에 싣지 않는다 */
   getNews: (market: string, symbol: string, sort: "latest" | "popular" = "latest") =>
     api.get<뉴스항목[]>(`/stocks/${market}/${encodeURIComponent(symbol)}/news`, { params: { sort } }).then((r) => r.data),
+
+  /** 한 종목의 배당 — 지난 내역, 달마다 얼마·언제, 다음 배당일.
+   *
+   *  배당 달력(/portfolio/dividends)과 **같은 서비스·같은 캐시**를 본다.
+   *  다른 점은 로그인이 필요 없다는 것뿐이라, 로그인 전 미리보기가
+   *  지어낸 값 대신 실제 배당을 보여 줄 수 있다. */
+  getDividends: (market: string, symbol: string) =>
+    api.get<종목배당>(`/stocks/${market}/${encodeURIComponent(symbol)}/dividends`).then((r) => r.data),
 
   getMetricsHistory: (market: string, symbol: string) =>
     api.get<지표흐름>(`/stocks/${market}/${encodeURIComponent(symbol)}/metrics-history`).then((r) => r.data),
@@ -371,7 +399,19 @@ export interface 배당줄 {
   currency: string;
   last_date: string;
   last_amount: number;
+  /** 지난 1년에 **실제로** 준 주당 합계 */
   per_year: number;
+  /** 앞으로 한 해 줄 것으로 보이는 주당 합계.
+   *
+   *  per_year 와 다를 수 있다 — 반년 전에 배당을 시작한 종목은 지난 1년
+   *  합이 반년치뿐이다. 화면이 '한 해 예상' 으로 쓰는 것은 이쪽이다. */
+  plan_year?: number;
+  /** 달마다 며칠에 주당 얼마.
+   *
+   *  이게 없던 때는 마지막 회차 금액을 열두 달에 다 썼다. 분기배당은
+   *  회차마다 금액이 다르므로(결산배당이 붙는 분기가 특히 크다) 그
+   *  방식은 한 해 예상을 통째로 틀리게 만든다. */
+  schedule?: { month: number; day: number; amount: number; year: number | null }[];
   shares: number;
   /** 이번 회차·한 해에 받을 것으로 보이는 돈. 안 갖고 있으면 null */
   expected: number | null;
@@ -397,6 +437,9 @@ export interface 보유뉴스응답 {
   items: 보유뉴스항목[];
   /** 기사를 찾은 종목 */
   covered: string[];
+  /** 지금 서버가 배경에서 받아 오는 중인 종목 수.
+   *  0 보다 크면 몇 초 뒤에 한 번 더 물어보면 더 채워져 있다 */
+  pending: number;
   /** 아직 못 찾은 종목 — 서버가 새로 받아 오지 않으므로 숨기지 않고 알려 준다.
    *  종목 상세 주소가 /stocks/{market}/{symbol} 이라 시장이 같이 와야 한다 */
   missing: { symbol: string; market: string; name: string }[];
@@ -431,8 +474,8 @@ export const portfolioApi = {
 
   /** 내 종목 얘기를 한 자리에.
    *
-   *  서버는 새로 받아 오지 않고 이미 받아 둔 캐시에서만 고른다 —
-   *  그래서 아직 기사를 못 찾은 종목이 missing 으로 같이 온다. */
+   *  서버는 요청을 붙잡지 않는다 — 캐시에 없는 종목은 배경에서 받아
+   *  오고 pending 으로 몇 개가 오는 중인지 알려 준다. */
   getHoldingNews: (portfolioId?: number) =>
     api.get<보유뉴스응답>("/portfolio/news",
       { params: portfolioId ? { portfolio_id: portfolioId } : {} }).then((r) => r.data),
