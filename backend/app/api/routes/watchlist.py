@@ -10,7 +10,9 @@ from app.db.database import get_db
 from app.models.stock import Watchlist, WatchlistItem, WatchlistFolder
 from app.models.user import User
 import logging
+import os
 import re
+from app.core.backoff import 쉼표
 from app.core.deps import get_current_user, require_user
 from app.services.ticker_service import get_display_name
 from app.core.cache import cache
@@ -247,6 +249,53 @@ async def _yf_only(symbols: list[str]) -> dict:
 # ── 관심종목 일괄 가격 조회 (빠른 배치 fetch + 캐시 저장) ────────
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9.\-]{1,20}$")
 
+#: 시세를 받아 오느라 화면을 붙잡아 둘 수 있는 최대 시간(초).
+#:
+#: 상한이 아예 없었다. 그런데 이 경로는 '내 자산' 화면 전체가 매달려
+#: 있는 자리다 — 평가금액도, 보유 목록도, 배당 배지도 여기가 답해야
+#: 그려진다. 실제로 재 보니 캐시에 없는 종목이 섞이면 **9초**가
+#: 걸렸다(배치가 실패한 뒤 종목마다 단건으로 한 번씩 더 물어보기
+#: 때문이다). 그동안 화면은 통째로 뼈대다.
+#:
+#: 상한을 넘기면 받아 둔 것만 주고 나머지는 null 로 답한다. 화면은
+#: 그 모양을 이미 다룰 줄 안다(시세 조회 대상이 아닌 심볼과 같은 모양)
+#: 이고, price 가 null 인 종목이 남아 있으면 몇 초 뒤 한 번 더 물어본다 —
+#: 그래서 화면이 통째로 멈추는 대신 채워지면서 완성된다.
+#:
+#: 받아 오는 일 자체는 shield 로 배경에 남겨 둔다 — 여기서 취소하면
+#: 다음 요청도, 그다음 요청도 똑같이 처음부터 돌아 영영 캐시가 안 찬다.
+_시세_상한 = float(os.getenv("PRICE_BATCH_TIMEOUT", "3"))
+
+#: 못 받는 종목은 쉬게 둔다.
+#:
+#: 실패를 기억하지 않아서, 야후가 모르는 심볼 하나가 섞여 있으면 화면을
+#: 열 때마다 그 종목 때문에 단건 조회가 한 번씩 더 나갔다. 상장폐지된
+#: 종목을 목록에 남겨 둔 사람은 그 비용을 영원히 문다.
+#:
+#: 지우지는 않는다 — 얼마 뒤 저절로 다시 찔러보고, 되살아나면 돌아온다.
+시세쉼 = 쉼표(쉼_기준=3, 되살림_칸=2)
+
+#: 지금 받아 오는 중인 묶음. 같은 종목을 두 번 물어보지 않으려고 둔다.
+#:
+#: 상한을 걸면서 새로 생긴 문제다 — 3초에 끊고 돌려보내는데 화면은 몇 초
+#: 뒤 다시 물어본다. 그 사이 앞의 조회가 아직 안 끝났으면, 같은 종목을
+#: 받아 오는 일이 둘·셋 겹쳐 돈다. 야후 입장에서는 같은 질문을 여러 번
+#: 받는 셈이고, 이 서버 입장에서는 스레드가 그만큼 묶인다.
+#:
+#: 이미 도는 것이 있으면 그것에 붙는다. 끝나면 치운다.
+_받는중: dict[str, asyncio.Task] = {}
+
+
+def _한번만(열쇠: str, 만들기) -> asyncio.Task:
+    """같은 열쇠로 이미 도는 일이 있으면 그것을 준다."""
+    있던것 = _받는중.get(열쇠)
+    if 있던것 and not 있던것.done():
+        return 있던것
+    새것 = asyncio.get_running_loop().create_task(만들기())
+    _받는중[열쇠] = 새것
+    새것.add_done_callback(lambda t, k=열쇠: _받는중.pop(k, None) if _받는중.get(k) is t else None)
+    return 새것
+
 
 @router.get("/prices")
 async def get_watchlist_prices_batch(
@@ -286,47 +335,120 @@ async def get_watchlist_prices_batch(
     results: dict[str, dict] = {}
     uncached_us: list[str] = []
     uncached_kr: list[str] = []
+    #: 쉬다가 이번 회차에 한 번 찔러볼 것들. 이쪽은 **기다리지 않는다**
+    깨울_us: list[str] = []
+    깨울_kr: list[str] = []
+
+    # 쉬는 종목을 뒤로 미룬다 — 살아 있는 것부터 시간을 쓴다.
+    # 계속 실패하는 심볼 하나가 매번 상한을 다 먹고 나머지를 굶기면 안 된다
+    이번회차 = set(시세쉼.돌아가며_깨우기(sym_list, lambda s: f"price:{s}"))
 
     # 1. 캐시 우선 조회
     for sym, mkt in zip(sym_list, mkt_list):
         cached = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}")
         if cached and cached.get("price"):
             results[sym] = {**cached, "market": mkt}
+            continue
+        if sym not in 이번회차:
+            continue                     # 쉬는 중 — 이번엔 아예 안 물어본다
+        코드 = sym.replace(".KS", "").replace(".KQ", "") if mkt == "KR" else sym
+        if 시세쉼.쉬는가(f"price:{sym}"):
+            # 되살아났나 찔러보는 것뿐이다. 이걸 기다리면, 상장폐지된 종목
+            # 하나 때문에 멀쩡한 사람이 매번 상한을 꽉 채워 기다리게 된다 —
+            # 되살아날 확률이 낮은 쪽에 사람의 시간을 쓰는 셈이다.
+            # 배경으로 던져 두고 결과는 다음 요청이 캐시에서 줍는다.
+            (깨울_kr if mkt == "KR" else 깨울_us).append(코드)
         elif mkt == "KR":
-            uncached_kr.append(sym.replace(".KS", "").replace(".KQ", ""))
+            uncached_kr.append(코드)
         else:
             uncached_us.append(sym)
 
     # 2. 미캐시 종목 배치 fetch (멀티쿼트로 빠르게)
+    #
+    # 받자마자 캐시에 넣는 것이 요점이다. 예전에는 gather 를 기다린 **뒤**에
+    # 캐시에 넣었는데, 상한을 걸고 나니 그 자리가 상한을 넘긴 요청에서는
+    # 아예 안 돌았다 — 배경에 남겨 둔 일이 값을 받아 놓고도 아무 데도
+    # 안 넣어서, 다음 요청도 또 처음부터 받아야 했다. 상한을 건 뜻이 통째로
+    # 사라지는 셈이다.
+    def _성패기록(물어본것: list[str], 받은것: dict) -> None:
+        """무엇이 됐고 무엇이 안 됐는지 쉼표에 남긴다.
+
+        여기서 하는 것이 요점이다. 배경으로 던진 '되살아났나' 찔러보기도
+        같은 자리를 지나므로, 되살아난 종목이 스스로 쉼에서 빠져나온다 —
+        응답을 만드는 쪽에서 세면 그 길이 막힌다(배경 일의 결과를 모르니까).
+        """
+        for 이름 in 물어본것:
+            q = 받은것.get(이름)
+            됐나 = bool(q and q.get("price"))
+            시세쉼.기록(f"price:{이름}", not 됐나)
+            if 이름 in sym_to_mkt or 이름 in sym_list:
+                continue
+            # 국내는 접미사를 뗀 코드로 물어본다. 화면이 쓰는 이름으로도 남긴다
+            for 원래 in sym_list:
+                if 원래.replace(".KS", "").replace(".KQ", "") == 이름:
+                    시세쉼.기록(f"price:{원래}", not 됐나)
+
+    async def _받아서_담기(label: str, 코루틴, 물어본것: list[str]) -> None:
+        try:
+            data = await 코루틴
+        except Exception as e:
+            log.debug("시세 배치 실패(%s): %s", label, type(e).__name__)
+            _성패기록(물어본것, {})
+            return
+        if not isinstance(data, dict):
+            _성패기록(물어본것, {})
+            return
+        if label == "us":
+            for sym, q in data.items():
+                if q and q.get("price"):
+                    cache.set(f"price:{sym}", q, 120)
+        else:  # kr — 접미사(.KS/.KQ)를 붙여 찾는 자리가 있어 셋 다 담는다
+            for code, q in data.items():
+                if not q or not q.get("price"):
+                    continue
+                cache.set(f"price:{code}", q, 120)
+                cache.set(f"price:{code}.KS", q, 120)
+                cache.set(f"price:{code}.KQ", q, 120)
+        _성패기록(물어본것, data)
+
+    # 되살아났나 찔러보는 것은 배경으로 던진다. 사람은 안 기다린다
+    if 깨울_us or 깨울_kr:
+        async def _찔러보기():
+            일 = []
+            if 깨울_us:
+                일.append(_한번만("us:" + ",".join(sorted(깨울_us)),
+                                  lambda: _받아서_담기("us", _yf_only(깨울_us), 깨울_us)))
+            if 깨울_kr:
+                일.append(_한번만("kr:" + ",".join(sorted(깨울_kr)),
+                                  lambda: _받아서_담기("kr", fetch_naver_stocks(깨울_kr), 깨울_kr)))
+            await asyncio.gather(*일, return_exceptions=True)
+        asyncio.get_running_loop().create_task(_찔러보기())
+
     tasks = []
-    labels: list[str] = []
     if uncached_us:
-        tasks.append(_yf_only(uncached_us))
-        labels.append("us")
+        tasks.append(_한번만("us:" + ",".join(sorted(uncached_us)),
+                             lambda: _받아서_담기("us", _yf_only(uncached_us), uncached_us)))
     if uncached_kr:
-        tasks.append(fetch_naver_stocks(uncached_kr))
-        labels.append("kr")
+        tasks.append(_한번만("kr:" + ",".join(sorted(uncached_kr)),
+                             lambda: _받아서_담기("kr", fetch_naver_stocks(uncached_kr), uncached_kr)))
 
     if tasks:
-        fetch_results = await asyncio.gather(*tasks, return_exceptions=True)
-        for label, data in zip(labels, fetch_results):
-            if isinstance(data, Exception) or not isinstance(data, dict):
+        # 상한을 건다. 넘기면 받아 둔 것만 주고 나머지는 배경에서 마저 받는다 —
+        # 그 결과는 위에서 캐시에 들어가므로 다음 요청 때는 곧바로 나온다
+        모으기 = asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            await asyncio.wait_for(asyncio.shield(모으기), timeout=_시세_상한)
+        except Exception:
+            log.info("시세 배치가 %.1f초를 넘겨 받은 것만 돌려준다 (남은 것은 배경에서)", _시세_상한)
+
+        # 상한 안에 들어온 것을 캐시에서 다시 꺼낸다. 담는 자리가 한 곳뿐이라
+        # '받아 놓고 응답에는 안 실리는' 어긋남이 생길 수 없다
+        for sym, mkt in zip(sym_list, mkt_list):
+            if sym in results:
                 continue
-            if label == "us":
-                for sym, q in data.items():
-                    if q and q.get("price"):
-                        cache.set(f"price:{sym}", q, 120)
-                        results[sym] = {**q, "market": sym_to_mkt.get(sym, "US")}
-            else:  # kr
-                for code, q in data.items():
-                    if not q or not q.get("price"):
-                        continue
-                    cache.set(f"price:{code}", q, 120)
-                    cache.set(f"price:{code}.KS", q, 120)
-                    cache.set(f"price:{code}.KQ", q, 120)
-                    for s in sym_list:
-                        if s.replace(".KS", "").replace(".KQ", "") == code:
-                            results[s] = {**q, "market": "KR"}
+            받은것 = cache.get(f"price:{sym}")
+            if 받은것 and 받은것.get("price"):
+                results[sym] = {**받은것, "market": mkt}
 
     # 건너뛴 심볼까지 포함해 요청한 순서대로 돌려준다. 프론트엔드는 심볼로
     # 짝을 맞추므로 빠진 항목이 있어도 되지만, 있으면 '조회 대상이 아님'을
@@ -369,7 +491,14 @@ async def _batch_fetch_prices(items: list[WatchlistItem]) -> dict[str, dict]:
         labels.append("kr")
 
     if tasks:
-        fetch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        # 상한을 건다. 넘기면 받아 둔 것만 주고 나머지는 배경에서 마저 받는다 —
+        # 그 결과는 캐시에 들어가므로 다음 요청 때는 곧바로 나온다
+        모으기 = asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            fetch_results = await asyncio.wait_for(asyncio.shield(모으기), timeout=_시세_상한)
+        except Exception:
+            log.info("시세 배치가 %.0f초를 넘겨 받은 것만 돌려준다 (남은 것은 배경에서)", _시세_상한)
+            fetch_results = []
         for label, data in zip(labels, fetch_results):
             if isinstance(data, Exception) or not isinstance(data, dict):
                 continue

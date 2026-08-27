@@ -301,19 +301,27 @@ describe("안 연 탭은 서버에 안 물어본다", () => {
     expect(getDividends.mock.calls.length).toBe(부른횟수);
   });
 
-  it("배당은 시세가 다 온 뒤에 나간다 — 목록이 뜨는 길을 막지 않는다", async () => {
-    /* 배지는 '있으면 좋은 것' 이지 목록이 뜨는 조건이 아니다.
-       시세와 같이 나가면 0.15 CPU 서버에서 둘이 서로 밀어낸다. */
-    시세놓기 = () => {};                     // 붙잡기 켬(실제 함수는 mock 이 다시 넣는다)
+  it("배당은 시세를 안 기다린다 — 요청이 줄지어 나가지 않게", async () => {
+    /* 예전에는 여기에 !pricesLoading 이 걸려 있었다. '시세와 같이 나가면
+       0.15 CPU 서버에서 둘이 서로 밀어낸다' 는 이유였는데, 대가가 컸다 —
+       화면을 열면 요청이 **세 번 줄지어** 나갔다.
+
+           보유 목록 → 시세 → 배당
+
+       한 칸이 한국↔싱가포르 왕복이라, 서버가 아무리 빨라도 배지가 뜨기까지
+       왕복 셋이 그대로 쌓인다. 게다가 시세 쪽은 상한이 없어 실측 9초였고,
+       그동안 배당은 시작조차 못 했다.
+
+       시세에 상한을 걸었으니(서버 3초) 이제 나란히 보낸다. 둘은 서로
+       기다릴 이유가 없는 값이다 — 배당은 보유 목록만 있으면 낸다. */
+    시세놓기 = () => {};                     // 시세를 붙잡아 둔다
     그리기();
 
-    // 시세가 아직 안 왔다 — 이 동안에는 배당을 부르면 안 된다
     await screen.findByText("보유 종목", {}, { timeout: 8000 });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(getDividends).not.toHaveBeenCalled();
+    // 시세가 아직 안 왔는데도 배당은 나가 있어야 한다
+    await waitFor(() => expect(getDividends).toHaveBeenCalled(), { timeout: 8000 });
 
     시세놓기!();                              // 이제 시세를 놓아 준다
-    await waitFor(() => expect(getDividends).toHaveBeenCalled(), { timeout: 8000 });
   }, 20_000);
 
   it("'비중' 을 눌러야 구성 차트가 나온다", async () => {
@@ -327,6 +335,75 @@ describe("안 연 탭은 서버에 안 물어본다", () => {
     expect(await screen.findByText("종목별", {}, { timeout: 8000 })).toBeInTheDocument();
     expect(screen.getByText("자산유형별")).toBeInTheDocument();
   });
+});
+
+/**
+ * 시세를 다 못 받았을 때.
+ *
+ * 서버는 시세를 모으는 데 3초까지만 쓴다. 못 채운 종목은 price 를 비운
+ * 채 온다 — 화면이 통째로 멈추는 것을 막으려는 것이다(상한이 없던 시절
+ * 실측 9초였고, 그동안 평가금액도 보유 목록의 합계도 배당 배지도 전부
+ * 뼈대였다).
+ *
+ * 그러면 화면 쪽이 두 가지를 해야 한다 —
+ *
+ *   1) 못 받은 것이 남아 있으면 몇 초 뒤 한 번 더 물어본다. 서버가
+ *      배경에서 마저 받아 캐시에 넣으므로 그때는 곧바로 나온다.
+ *   2) 다만 끝이 있어야 한다. 영영 못 받는 종목(상장폐지·오타)이 섞여
+ *      있으면 3초마다 영원히 두드리게 되고, 그건 서버를 제일 세게 때리는
+ *      짓이면서 값이 생기지도 않는다.
+ */
+describe("시세가 덜 왔을 때 다시 물어본다", () => {
+  /** price 가 비어 있는 응답 — 서버가 상한 안에 못 채운 모양 */
+  const 덜온것 = PRICES.map((p) => ({ ...p, price: null }));
+
+  it("못 받은 종목이 남으면 다시 물어본다", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    getPrices.mockImplementation(() => Promise.resolve(덜온것 as unknown as typeof PRICES));
+    try {
+      그리기();
+      await vi.waitFor(() => expect(getPrices).toHaveBeenCalled(), { timeout: 8000 });
+      const 처음 = getPrices.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(3_500);
+      expect(getPrices.mock.calls.length).toBeGreaterThan(처음);
+    } finally {
+      vi.useRealTimers();
+      getPrices.mockImplementation(() => Promise.resolve(PRICES));
+    }
+  }, 20_000);
+
+  it("재촉에 끝이 있다 — 영영 못 받는 종목에 매달리지 않는다", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    getPrices.mockImplementation(() => Promise.resolve(덜온것 as unknown as typeof PRICES));
+    try {
+      그리기();
+      await vi.waitFor(() => expect(getPrices).toHaveBeenCalled(), { timeout: 8000 });
+      // 재촉 구간을 넉넉히 지나 보낸다
+      await vi.advanceTimersByTimeAsync(3_500 * 8);
+      const 재촉끝 = getPrices.mock.calls.length;
+      // 그 뒤로는 평소 주기(2분)라, 10초쯤 더 흘려도 안 는다
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(getPrices.mock.calls.length).toBe(재촉끝);
+      // 그리고 3초마다 계속 두드리지도 않았다
+      expect(재촉끝).toBeLessThan(10);
+    } finally {
+      vi.useRealTimers();
+      getPrices.mockImplementation(() => Promise.resolve(PRICES));
+    }
+  }, 20_000);
+
+  it("다 왔으면 재촉하지 않는다", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      그리기();
+      await vi.waitFor(() => expect(getPrices).toHaveBeenCalled(), { timeout: 8000 });
+      const 처음 = getPrices.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(getPrices.mock.calls.length).toBe(처음);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 20_000);
 });
 
 describe("투자배당률", () => {

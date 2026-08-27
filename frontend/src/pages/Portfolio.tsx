@@ -66,6 +66,17 @@ const PREVIEW_ENRICHED: PreviewEnrichedBase[] = [
     currentPriceNative: 5_000_000, currentValueKRW: 5_000_000, costKRW: 5_000_000, pnlKRW: 0, pnlRate: 0, weight: 0 },
 ];
 
+/** 시세를 다 못 받았을 때 다시 물어보는 간격.
+ *
+ *  서버가 시세를 모으는 데 쓰는 시간에 상한이 있어서(3초), 못 채운
+ *  종목은 비워서 온다. 그 사이 서버는 배경에서 마저 받아 캐시에 넣으므로
+ *  잠깐 뒤 다시 물어보면 그때는 곧바로 나온다. */
+const 재촉주기 = 3_000;
+/** 평소 주기. WebSocket 이 상한(50종목) 때문에 못 다루는 종목용 */
+const 평소주기 = 120_000;
+/** 몇 번까지 재촉할지. 이 뒤로는 평소 주기로 물러난다 */
+const 재촉_횟수 = 3;
+
 /* 시세를 물어볼 대상 — 현금은 시세가 없으니 뺀다 */
 const PREVIEW_PRICEABLE = PREVIEW_ENRICHED.filter((i) => i.assetClass !== "현금");
 /* ── 자산유형 — 분류 규칙은 @/utils/assetClass 에 공용으로 둔다 (관심종목과 동일 기준) ── */
@@ -422,9 +433,28 @@ export default function Portfolio() {
     queryFn:        () => watchlistApi.getPrices(priceableItems.map((i) => i.symbol), priceableItems.map((i) => i.market)),
     enabled:        priceableItems.length > 0,
     staleTime:      120_000,
-    // WebSocket은 서버 상한 때문에 최대 50종목만 흘려준다. 이 조회가 한 번만 돌면
-    // 51번째부터는 첫 값에 고정되므로, 실시간이 닿지 않는 종목을 위해 주기 갱신을 켠다
-    refetchInterval: 120_000,
+    /* 두 가지 이유로 다시 물어본다.
+     *
+     * 1) WebSocket 은 서버 상한 때문에 최대 50종목만 흘려준다. 이 조회가
+     *    한 번만 돌면 51번째부터는 첫 값에 고정된다.
+     * 2) **아직 시세를 못 받은 종목이 남아 있을 때.**
+     *    서버는 시세를 모으는 데 3초까지만 쓰고, 못 채운 종목은 price 를
+     *    비운 채 돌려준다 — 화면이 통째로 멈추는 것을 막으려는 것이다.
+     *    (상한이 없던 시절 실측 9초였고, 그동안 평가금액도 보유 목록의
+     *    합계도 배당 배지도 전부 뼈대였다.)
+     *    못 받은 것은 서버가 배경에서 마저 받아 캐시에 넣으므로, 몇 초 뒤
+     *    한 번 더 물어보면 그때는 곧바로 나온다. 화면이 멈추는 대신
+     *    채워지면서 완성된다.
+     *
+     * 다 채워지면 평소 주기로 돌아간다 — 계속 두드리면 그 자체가 부담이다. */
+    refetchInterval: (q) => {
+      const 아직 = (q.state.data ?? []).filter((p: { price?: number | null }) => p?.price == null).length;
+      if (아직 === 0) return 평소주기;
+      /* 다만 몇 번만 재촉한다. 영영 못 받는 종목이 섞여 있으면
+         (상장폐지·오타·야후가 모르는 심볼) 3초마다 영원히 두드리게 된다 —
+         그건 서버를 제일 세게 때리는 짓이고, 그런다고 값이 생기지도 않는다. */
+      return q.state.dataUpdateCount <= 재촉_횟수 ? 재촉주기 : 평소주기;
+    },
     refetchIntervalInBackground: false,
   });
 
@@ -713,13 +743,22 @@ export default function Portfolio() {
      배당 탭과 **같은 열쇠**를 쓴다. 탭을 열어 봤으면 캐시가 그대로
      쓰이고, 안 열어 봤으면 여기서 한 번 받아 배당 탭이 물려받는다.
 
-     enabled 에 !pricesLoading 을 건 이유 — 이 배지는 있으면 좋은
-     것이지 목록이 뜨는 조건이 아니다. 시세와 같이 나가면 0.15 CPU
-     서버에서 서로 밀어낸다. 목록이 다 그려진 뒤에 조용히 따라붙는다. */
+     예전에는 여기에 !pricesLoading 이 걸려 있었다. '시세와 같이 나가면
+     0.15 CPU 서버에서 서로 밀어낸다' 는 이유였는데, 그 대가가 컸다 —
+     화면을 열면 요청이 **세 번 줄지어** 나갔다.
+
+         보유 목록 → 시세 → 배당
+
+     한 칸이 한국↔싱가포르 왕복이라, 서버가 아무리 빨라도 배지가 뜨기까지
+     왕복 세 번이 그대로 쌓인다. 게다가 시세 쪽은 상한이 없어 실측 9초가
+     나왔고, 그동안 배당은 시작조차 못 했다.
+
+     시세에 상한을 걸었으니(서버 4초) 이제 나란히 보낸다. 둘은 서로
+     기다릴 이유가 없는 값이다 — 배당은 보유 목록만 있으면 낸다. */
   const { data: 배당자료 } = useQuery({
     queryKey: ["dividend-calendar", isAllView ? "all" : (selectedPortfolioId ?? "all")],
     queryFn: () => portfolioApi.getDividends(isAllView ? undefined : (selectedPortfolioId ?? undefined)),
-    enabled: isLoggedIn && items.length > 0 && !pricesLoading,
+    enabled: isLoggedIn && items.length > 0,
     staleTime: 600_000,
   });
 
@@ -1039,14 +1078,24 @@ export default function Portfolio() {
         <Card className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <span className="text-2xs text-text-muted">평가금액</span>
+            {/* 평가금액과 손익은 시세를 받아야 안다. 매입가로 대신 채우면
+                그건 그냥 틀린 숫자다 — 여기만 뼈대로 둔다 */}
             <div className="h-6 w-40 rounded bg-bg-elevated animate-pulse" />
             <div className="h-3 w-32 rounded bg-bg-elevated animate-pulse" />
           </div>
+          {/* 매입금액과 환율은 시세와 아무 상관이 없다. 내가 얼마에 샀는지는
+              보유 목록에 이미 들어 있고, 환율은 따로 받는다.
+              그런데도 셋을 통째로 뼈대로 두고 있었다 — 시세가 늦는 동안
+              화면 전체가 '아무것도 없는 곳' 으로 보이던 이유다.
+              아는 것부터 적어 두면 그 사이가 훨씬 짧게 느껴진다 */}
           <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-border/50">
-            {["매입금액", "적용 환율"].map((label) => (
-              <div key={label} className="flex flex-col gap-1">
-                <span className="text-2xs text-text-dim">{label}</span>
-                <div className="h-3.5 w-20 rounded bg-bg-elevated animate-pulse" />
+            {[
+              { label: "매입금액", value: 돈.원(displaySummary.totalCost) },
+              { label: "적용 환율", value: `${Math.round(exchangeRate).toLocaleString("ko-KR")}원` },
+            ].map((c) => (
+              <div key={c.label} className="flex flex-col gap-1">
+                <span className="text-2xs text-text-dim">{c.label}</span>
+                <span className="text-sm font-mono font-semibold text-text-primary num">{c.value}</span>
               </div>
             ))}
           </div>
