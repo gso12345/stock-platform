@@ -148,6 +148,13 @@ def _월별일정(최근: list, 날들: list, 주기: "str | None") -> list:
             "day": 같은해[-1][0].day,
             "amount": round(sum(a for _, a in 같은해), 6),
             "year": 최신해,
+            #: 이 칸이 실제 지급 내역에서 나온 것인가.
+            #
+            #  아래 주·월배당 메우기가 없는 달을 평균으로 채우는데,
+            #  그건 실제로 받은 값이 아니다. 화면이 둘을 구분해 말할 수
+            #  있어야 한다 — 지어낸 값을 실제인 척 보여 주면, 그 숫자로
+            #  한 해 계획을 세우는 사람이 생긴다.
+            "actual": True,
         })
     return 결과
 
@@ -246,7 +253,10 @@ def _가져오기(symbol: str, market: str) -> dict:
         if 있는것:
             평균 = round(sum(x["amount"] for x in 있는것.values()) / len(있는것), 6)
             어느날 = sorted(있는것.values(), key=lambda x: x["month"])[-1]["day"]
-            일정 = [있는것.get(m) or {"month": m, "day": 어느날, "amount": 평균, "year": None}
+            # 메운 칸은 actual=False 다. 실제로 받은 값이 아니라 있는
+            # 달들의 평균이라, 화면이 '평균' 이라고 밝힐 수 있어야 한다
+            일정 = [있는것.get(m) or {"month": m, "day": 어느날, "amount": 평균,
+                                      "year": None, "actual": False}
                     for m in 배당월]
     else:
         배당월 = [x["month"] for x in 일정]
@@ -363,14 +373,26 @@ def 달력(보유: list) -> dict:
         if not 날:
             continue
         수량 = float(it.get("shares") or 0)
+        """이번 회차 주당 금액 — 그 달에 **실제로 준** 금액을 쓴다.
+
+        마지막 회차 금액(last_amount)을 쓰고 있었다. 분기배당은 회차마다
+        금액이 다르므로(결산배당이 붙는 분기가 특히 크다) 그 값은 다음
+        회차와 아무 상관이 없다. 0.20/0.25/0.30/0.35 를 주는 종목이
+        다음에 0.20 을 줄 차례인데 마지막이 0.35 였으면, 화면은 75% 를
+        더 받는다고 말한다."""
+        그달 = int(날.split("-")[1])
+        칸 = next((x for x in (정보.get("schedule") or []) if x.get("month") == 그달), None)
+        회차주당 = float((칸 or {}).get("amount") or 정보.get("last_amount") or 0)
         줄들.append({
             **정보,
             "name": it.get("name") or sym,
             "shares": 수량,
             "date": 날,
             "confirmed": bool(정보.get("ex_date")),
+            #: 이번 회차 주당 금액. 화면이 같은 값을 다시 안 찾아도 되게 싣는다
+            "next_amount": round(회차주당, 6),
             # 이번 회차에 받을 것으로 보이는 돈. 수량이 0이면 안 낸다
-            "expected": round(수량 * float(정보.get("last_amount") or 0), 2) if 수량 else None,
+            "expected": round(수량 * 회차주당, 2) if 수량 else None,
             # 한 해에 받을 것으로 보이는 돈. 지난 1년 실제 합(per_year)이
             # 아니라 앞으로 한 해 계획(plan_year)을 쓴다 — 화면의 월별
             # 막대를 다 더한 값과 같아야 두 숫자가 서로 안 어긋난다

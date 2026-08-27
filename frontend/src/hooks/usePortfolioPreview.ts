@@ -108,6 +108,23 @@ export function use미리보기흐름(항목: EnrichedItem[], 환율: number, �
 
 /* ── 배당 ───────────────────────────────────────────────── */
 
+/**
+ * 이번 회차의 주당 금액.
+ *
+ * 마지막 회차 금액을 쓰면 안 된다 — 분기배당은 회차마다 금액이 다르고
+ * (결산배당이 붙는 분기가 크다), 마지막이 큰 회차였으면 다음에 받을
+ * 돈이 통째로 부풀어 보인다. 그 달에 실제로 준 금액을 쓴다.
+ *
+ * 서버의 달력 경로가 next_amount 로 같은 값을 보내 주는데, 미리보기는
+ * 공개 경로(/stocks/{market}/{symbol}/dividends)로 받아서 그 필드가
+ * 없다. 같은 규칙을 여기서 한 번 더 적용한다.
+ */
+export function 회차주당(정보: 종목배당, 날: string): number {
+  const 달 = Number(날.split("-")[1]);
+  const 칸 = (정보.schedule ?? []).find((x) => x.month === 달);
+  return 칸?.amount ?? 정보.last_amount ?? 0;
+}
+
 export function use미리보기배당(항목: EnrichedItem[], 켜짐: boolean) {
   const 대상 = useMemo(() => 받을것(항목), [항목]);
   const 결과 = useQueries({
@@ -135,7 +152,12 @@ export function use미리보기배당(항목: EnrichedItem[], 켜짐: boolean) {
         shares: 수량,
         date: 날,
         confirmed: !!정보.ex_date,
-        expected: Math.round(수량 * (정보.last_amount ?? 0) * 100) / 100,
+        /* 이번 회차 주당 금액 — 그 달에 **실제로 준** 금액을 쓴다.
+           마지막 회차(last_amount)는 분기마다 금액이 다른 종목에서
+           다음 회차와 아무 상관이 없다. 서버가 보내 주는 달별 일정에서
+           이번 회차의 달을 찾아 쓴다(달력 경로와 같은 규칙). */
+        next_amount: 회차주당(정보, 날),
+        expected: Math.round(수량 * 회차주당(정보, 날) * 100) / 100,
         expected_year: Math.round(수량 * (정보.plan_year ?? 정보.per_year ?? 0) * 100) / 100,
       });
     });

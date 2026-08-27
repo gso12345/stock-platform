@@ -26,7 +26,8 @@ export interface 종목배당 {
   last_amount: number;
   per_year: number;
   plan_year?: number;
-  schedule?: { month: number; day: number; amount: number; year: number | null }[];
+  /** 달마다 며칠에 주당 얼마. actual 이 거짓이면 평균으로 메운 칸이다 */
+  schedule?: { month: number; day: number; amount: number; year: number | null; actual?: boolean }[];
   ex_date: string | null;
   pay_date: string | null;
   /** 공시된 날짜가 없을 때 쓰는 추정치 */
@@ -416,8 +417,22 @@ export interface 배당줄 {
    *  이게 없던 때는 마지막 회차 금액을 열두 달에 다 썼다. 분기배당은
    *  회차마다 금액이 다르므로(결산배당이 붙는 분기가 특히 크다) 그
    *  방식은 한 해 예상을 통째로 틀리게 만든다. */
-  schedule?: { month: number; day: number; amount: number; year: number | null }[];
+  schedule?: {
+    month: number; day: number; amount: number; year: number | null;
+    /** 이 칸이 **실제 지급 내역**에서 나온 것인가.
+     *
+     *  주·월배당은 아직 한 해가 안 찬 종목에서 빈 달이 생기는데, 서버가
+     *  있는 달들의 평균으로 메운다. 그건 실제로 받은 값이 아니다 —
+     *  화면이 '평균' 이라고 밝힐 수 있게 표시가 온다. */
+    actual?: boolean;
+  }[];
   shares: number;
+  /** 이번 회차의 **주당** 금액.
+   *
+   *  last_amount(마지막 회차)와 다르다. 분기배당은 회차마다 금액이
+   *  달라서(결산배당이 붙는 분기가 크다) 마지막 회차는 다음 회차와
+   *  아무 상관이 없다. 서버가 그 달에 실제로 준 금액을 골라 준다. */
+  next_amount?: number;
   /** 이번 회차·한 해에 받을 것으로 보이는 돈. 안 갖고 있으면 null */
   expected: number | null;
   expected_year: number | null;
@@ -688,6 +703,9 @@ export const alertsApi = {
   /** 켜져 있으면 끄고, 꺼져 있으면 켠다 */
   toggleAlert: (id: number) =>
     api.patch<가격알림>(`/alerts/${id}`).then((r) => r.data),
+  /** 목표가·방향을 바꾼다. 지우고 다시 거는 대신 한 번에 */
+  editAlert: (id: number, payload: { direction: "above" | "below"; target: number }) =>
+    api.put<가격알림>(`/alerts/${id}`, payload).then((r) => r.data),
   deleteAlert: (id: number) =>
     api.delete(`/alerts/${id}`).then((r) => r.data),
 };

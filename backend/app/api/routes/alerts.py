@@ -30,6 +30,17 @@ limiter = Limiter(key_func=get_remote_address)
 _기호패턴 = r"^[A-Za-z0-9._-]{1,20}$"
 
 
+class 고치기요청(BaseModel):
+    """이미 걸어 둔 알림의 조건을 바꾼다.
+
+    예전에는 이 자리가 없었다. 목표가를 79,000 에서 78,000 으로 낮추려면
+    지우고 다시 걸어야 했는데, 그러면 왕복이 두 번이고 실수로 지우기만
+    하고 끝나기도 쉽다. '8만원 되면 알려줘' 는 한 번에 딱 맞게 잡히는
+    값이 아니라 몇 번 만져 보게 되는 값이다."""
+    direction: str   = Field(..., pattern=r"^(above|below)$")
+    target:    float = Field(..., gt=0)
+
+
 class 알림요청(BaseModel):
     symbol:    str   = Field(..., pattern=_기호패턴)
     market:    str   = Field(..., pattern=r"^(KR|US|ETF)$")
@@ -130,6 +141,46 @@ def 켜고끄기(request: Request, 알림id: int = Path(..., ge=1),
         a.fired_at = None
         a.fired_price = None
         a.made_at_price = _지금값(a.symbol)
+    답 = _내보내기(a)                    # 커밋 전에. refresh 는 왕복 하나 더다
+    db.commit()
+    return 답
+
+
+@router.put("/{알림id}")
+@limiter.limit("60/minute")
+def 고치기(request: Request, 본문: 고치기요청, 알림id: int = Path(..., ge=1),
+           db: Session = Depends(get_db), me=Depends(require_user)):
+    """목표가·방향을 바꾼다.
+
+    바꾸면 '아직 안 울린 알림' 으로 되돌린다. 79,000 에서 울렸던 알림의
+    목표를 85,000 으로 올렸는데 여전히 '울림' 으로 남아 있으면, 새 조건은
+    영영 안 울린다 — 울린 알림은 스스로 꺼지기 때문이다.
+
+    같은 조건이 이미 따로 걸려 있으면 거절한다. 표에
+    (user, symbol, direction, target) 이 한 벌로 못 박혀 있어서, 그냥
+    두면 DB 가 거절하고 사용자에게는 알 수 없는 500 이 간다."""
+    # 만들기() 와 같은 방식으로 한 번에 꺼내 화면에서 고른다.
+    # DB 가 Supabase 라 물어볼 때마다 네트워크를 건넌다 — '고칠 줄 찾기'
+    # 와 '겹치는 것 찾기' 를 따로 물으면 왕복이 둘이다.
+    내것 = _내알림(db, me.id).limit(최대_알림수 * 4).all()
+    a = next((x for x in 내것 if x.id == 알림id), None)
+    if not a:
+        raise HTTPException(404, "없는 알림입니다")
+
+    겹침 = next((x for x in 내것
+                 if x.id != 알림id
+                 and x.symbol == a.symbol
+                 and x.direction == 본문.direction
+                 and x.target == 본문.target), None)
+    if 겹침:
+        raise HTTPException(400, "같은 조건의 알림이 이미 있어요")
+
+    a.direction = 본문.direction
+    a.target = 본문.target
+    a.is_active = True
+    a.fired_at = None
+    a.fired_price = None
+    a.made_at_price = _지금값(a.symbol)
     답 = _내보내기(a)                    # 커밋 전에. refresh 는 왕복 하나 더다
     db.commit()
     return 답

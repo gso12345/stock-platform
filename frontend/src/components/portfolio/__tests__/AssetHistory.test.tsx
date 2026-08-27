@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import AssetHistory, { 견주기, 올해일수, 기간들 } from "@/components/portfolio/AssetHistory";
+import AssetHistory, { 견주기, 올해일수, 기간들, 최고최저, 퍼센트글 } from "@/components/portfolio/AssetHistory";
 import { portfolioApi, dashboardApi } from "@/api/stocks";
 import { useSettingsStore } from "@/store/settingsStore";
 
@@ -52,8 +52,9 @@ vi.mock("@/components/chart/ChartFrame", () => {
       const 담김: Record<string, Record<string, unknown>[]> = {};
       모으기(children(R) as 마디, 담김);
       const 차트 = (담김.AreaChart?.[0] ?? {}) as { data?: { day: string }[] };
-      const 면들 = (담김.Area ?? []) as { dataKey?: string; stroke?: string; fill?: string }[];
+      const 면들 = (담김.Area ?? []) as { dataKey?: string; stroke?: string; fill?: string; yAxisId?: string }[];
       const 칠들 = (담김.stop ?? []) as { stopColor?: string }[];
+      const 기준선 = (담김.ReferenceLine ?? []) as { y?: number }[];
       return (
         <div data-testid="차트">
           <span data-testid="점수">{차트.data?.length ?? 0}</span>
@@ -64,6 +65,13 @@ vi.mock("@/components/chart/ChartFrame", () => {
           <span data-testid="선색들">{면들.map((a) => `${a.dataKey}=${a.stroke}`).join(" ")}</span>
           <span data-testid="칠들">{면들.map((a) => `${a.dataKey}=${a.fill}`).join(" ")}</span>
           <span data-testid="칠색들">{칠들.map((c) => c.stopColor).join(" ")}</span>
+          {/* 최고·최저 줄 — 세로축이 없는 대신 이 둘이 눈금 노릇을 한다 */}
+          <span data-testid="기준선">{기준선.map((l) => `${l.y}`).join(" ")}</span>
+          {/* 어느 선이 어느 세로축을 쓰나 — 손익이 평가금액과 같은 축에
+              들어가면 그래프가 통째로 찌그러진다 */}
+          <span data-testid="축들">
+            {면들.map((a) => `${a.dataKey}:${a.yAxisId ?? "기본"}`).join(" ")}
+          </span>
         </div>
       );
     },
@@ -477,5 +485,196 @@ describe("등락 색상 설정을 따른다", () => {
     그리기();
     await waitFor(() => expect(screen.getByTestId("선색들"))
       .toHaveTextContent("cost=var(--text-dim)"));
+  });
+});
+
+/**
+ * 한눈에 읽히게 —
+ *
+ * 그래프는 있는데 읽어 낼 수가 없었다. 세로축을 숨겼기 때문에(좁은
+ * 화면에서 '1,234,567원' 눈금이 가로폭의 3분의 1을 먹는다) 선이
+ * 오르내리는 모양은 보이는데 **얼마나** 오르내렸는지는 안 보였다.
+ * 그리고 선이 둘·셋인데 어느 것이 무엇인지 화면에 적혀 있지 않았다 —
+ * 점선 회색이 '원금' 이라는 건 툴팁을 띄워 봐야 알 수 있었고,
+ * 휴대폰에서 툴팁을 띄우는 것 자체가 번거롭다.
+ */
+describe("최고최저", () => {
+  const 점 = (v: number) => ({ day: "2026-08-20", value: v, cost: 0 });
+
+  it("보고 있는 값에서 최고·최저를 낸다", () => {
+    expect(최고최저([점(100), 점(300), 점(200)], "value")).toEqual({ 최고: 300, 최저: 100 });
+  });
+
+  it("비교 중에는 수익률에서 낸다", () => {
+    const 점들 = [
+      { day: "d1", value: 1, cost: 0, 내수익: -3 },
+      { day: "d2", value: 2, cost: 0, 내수익: 7 },
+    ];
+    expect(최고최저(점들, "내수익")).toEqual({ 최고: 7, 최저: -3 });
+  });
+
+  it("값이 비어 있는 날은 건너뛴다", () => {
+    /* 벤치마크 기준일보다 앞선 날은 수익률이 없다. null 을 0 으로
+       세면 '그날 안 움직였다' 는 거짓말이 그래프의 최저선이 된다 */
+    const 점들 = [
+      { day: "d1", value: 1, cost: 0, 내수익: null },
+      { day: "d2", value: 2, cost: 0, 내수익: 5 },
+      { day: "d3", value: 3, cost: 0, 내수익: 9 },
+    ];
+    expect(최고최저(점들, "내수익")).toEqual({ 최고: 9, 최저: 5 });
+  });
+
+  it("전부 같은 값이면 안 긋는다", () => {
+    /* 두 줄이 겹쳐서 라벨만 뭉친다 */
+    expect(최고최저([점(100), 점(100)], "value")).toBeNull();
+  });
+
+  it("점이 하나뿐이면 안 긋는다", () => {
+    expect(최고최저([점(100)], "value")).toBeNull();
+  });
+});
+
+describe("퍼센트글", () => {
+  it("오른 값에는 부호를 붙인다", () => {
+    expect(퍼센트글(3.214)).toBe("+3.21%");
+    expect(퍼센트글(0)).toBe("+0.00%");
+  });
+  it("내린 값은 그대로", () => {
+    expect(퍼센트글(-1.5)).toBe("-1.50%");
+  });
+});
+
+describe("눈금 노릇을 하는 두 줄", () => {
+  const 점들 = [
+    점("2026-08-20", 1_000_000),
+    점("2026-08-21", 1_300_000),
+    점("2026-08-24", 1_200_000),
+  ];
+
+  it("최고·최저에 줄을 긋는다", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("기준선"))
+      .toHaveTextContent("1300000 1000000"));
+  });
+
+  it("얼마인지 그래프 아래에 적는다 — 줄만 그으면 여전히 못 읽는다", async () => {
+    /* 선 위에 적어 봤더니, 두 줄이 가까울 때 라벨끼리 겹쳐서 둘 다 못
+       읽었다. 어디에 붙여도 선이나 오른쪽 끝(지금 값)을 가렸다.
+       실제 화면을 찍어 보고 그래프 밖으로 뺐다. */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
+    그리기();
+    expect(await screen.findByText(/최고 130만 · 최저 100만/)).toBeInTheDocument();
+  });
+
+  it("전체 금액을 적지 않는다 — 자리가 좁다", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
+    그리기();
+    await screen.findByText(/최고/);
+    expect(screen.queryByText(/1,300,000/)).toBeNull();
+  });
+
+  it("금액 가리기를 켜면 이 숫자도 가린다", async () => {
+    /* 안 가리면 이 두 값이 대략의 자산 규모를 그대로 말해 버린다 —
+       지하철에서 옆자리가 보는 것을 막으려고 켠 설정이다 */
+    useSettingsStore.setState({ 금액가리기: true });
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
+    그리기();
+    await screen.findByText(/최고/);
+    expect(screen.queryByText(/130만/)).toBeNull();
+    useSettingsStore.setState({ 금액가리기: false });
+  });
+
+  it("비교 중에는 %로 적는다", async () => {
+    /* 그때 축은 첫날 대비 %다. 원화로 적으면 축과 이 줄이 다른 말을 한다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    await waitFor(() => expect(screen.getByText(/최고 \+?[\d.]+%/)).toBeInTheDocument());
+  });
+
+  it("움직임이 없으면 안 긋는다", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점("2026-08-21", 1_000_000)], days: 90,
+    });
+    그리기();
+    await screen.findByTestId("차트");
+    expect(screen.getByTestId("기준선")).toHaveTextContent("");
+  });
+});
+
+describe("어느 선이 무엇인가", () => {
+  const 점들 = [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)];
+
+  it("평가금액과 원금을 적는다", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
+    그리기();
+    expect(await screen.findByText("평가금액")).toBeInTheDocument();
+    expect(screen.getByText("원금")).toBeInTheDocument();
+  });
+
+  it("비교하면 벤치마크 이름으로 바뀐다", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    // 범례에 '내 자산' 이 뜬다. '원금' 은 그때 안 그리므로 사라진다
+    await waitFor(() => expect(screen.getByText("내 자산")).toBeInTheDocument());
+    expect(screen.queryByText("원금")).toBeNull();
+  });
+});
+
+describe("툴팁에 그날 손익", () => {
+  it("평가와 원금 말고 그 차이도 넘긴다", async () => {
+    /* 두 선 사이의 간격이 곧 번 돈인데, 눈으로 재는 일은 생각보다
+       어렵다. 숫자로 같이 적는다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)], days: 90,
+    });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("cost,value,손익"));
+  });
+
+  it("손익은 세로 범위를 안 흔든다 — 제 축을 따로 쓴다", async () => {
+    /* 이걸 안 하면 손익(수천만 원)이 평가금액과 같은 축에 들어가서,
+       정작 보려는 선이 화면 가운데 얇은 띠로 눌린다. 실제로 찍어 보고
+       알았다 — 그리지도 않는 선이 그래프를 통째로 찌그러뜨렸다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)], days: 90,
+    });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("축들")).toHaveTextContent("손익:손익축"));
+    // 평가금액과 원금은 기본 축을 그대로 쓴다
+    expect(screen.getByTestId("축들").textContent).toContain("value:기본");
+  });
+
+  it("손익 선은 안 그린다 — 세 번째 선이 생기면 그래프가 안 읽힌다", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)], days: 90,
+    });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("선색들")).toHaveTextContent("손익=none"));
+  });
+
+  it("비교 중에는 손익을 안 넘긴다 — 그때 축은 %다", async () => {
+    /* %축에 원화 손익을 얹으면 그래프가 통째로 찌그러진다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)], days: 90,
+    });
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("지수수익,내수익"));
+    expect(screen.getByTestId("선들").textContent).not.toContain("손익");
   });
 });

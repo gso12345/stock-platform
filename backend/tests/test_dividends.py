@@ -370,7 +370,8 @@ class Test월별일정:
         일정 = DV._월별일정(
             [{"date": d.isoformat(), "amount": a} for d, a in 내역],
             [d for d, _ in 내역], "분기")
-        assert 일정 == [{"month": 3, "day": 25, "amount": 0.25, "year": date.today().year - 1}]
+        assert 일정 == [{"month": 3, "day": 25, "amount": 0.25,
+                        "year": date.today().year - 1, "actual": True}]
 
     def test_한_달에_여러_번_주면_합친다(self):
         """주배당·월배당은 한 달에 여러 번 들어온다. 하나만 세면
@@ -564,3 +565,99 @@ class Test공개경로:
         assert {x["month"]: x["amount"] for x in 답["schedule"]} == {
             5: pytest.approx(361.0), 11: pytest.approx(1083.0),
         }
+
+
+# ── 이번 회차 금액 ────────────────────────────────────────────
+class Test이번회차금액:
+    """'다음에 얼마 받나' 를 마지막 회차 금액으로 답하고 있었다.
+
+    분기배당은 회차마다 금액이 다르다 — 결산배당이 붙는 분기가 특히
+    크다. 0.20 / 0.25 / 0.30 / 0.35 를 주는 종목이 다음에 0.20 을 줄
+    차례인데 마지막이 0.35 였으면, 화면은 75% 를 더 받는다고 말한다.
+
+    그 값으로 생활비 계획을 세우는 사람이 있다. 실제로 준 그 달의
+    금액을 쓴다.
+    """
+
+    @staticmethod
+    def _담기(달, 금액, 마지막):
+        """schedule 이 있는 배당 정보를 캐시에 넣는다."""
+        from app.core.cache import cache
+        그날 = date.today() + timedelta(days=20)
+        cache.set("div:US:XYZ", {
+            "symbol": "XYZ", "market": "US", "recent": [],
+            "per_year": 1.10, "plan_year": 1.10, "cycle": "분기",
+            "schedule": [{"month": 달, "day": 그날.day, "amount": 금액,
+                          "year": 그날.year, "actual": True}],
+            "months": [달], "per_month": 1.0, "currency": "USD",
+            "last_date": 날(90).isoformat(), "last_amount": 마지막,
+            "ex_date": 그날.isoformat(), "pay_date": None, "estimated_date": None,
+        }, 60)
+        return 그날
+
+    def test_그_달의_실제_금액을_쓴다(self, 야후):
+        그날 = self._담기(달=(date.today() + timedelta(days=20)).month,
+                          금액=0.20, 마지막=0.35)
+        야후(_가짜티커([]))
+        r = DV.달력([{"symbol": "XYZ", "market": "US", "name": "XYZ", "shares": 100}])
+        줄 = r["items"][0]
+        assert 줄["next_amount"] == pytest.approx(0.20)
+        # 마지막 회차(0.35)를 썼다면 35 가 나온다 — 75% 가 부풀려진다
+        assert 줄["expected"] == pytest.approx(20.0)
+        assert 그날.isoformat() == 줄["date"]
+
+    def test_그_달이_일정에_없으면_마지막_회차로_떨어진다(self, 야후):
+        """공시된 기준일이 지난해 일정에 없는 달일 수 있다. 그때는
+        아무 값도 안 주는 것보다 마지막 회차라도 주는 편이 낫다 —
+        다만 그게 어림이라는 것은 화면이 밝힌다."""
+        딴달 = (date.today() + timedelta(days=20)).month % 12 + 1
+        self._담기(달=딴달, 금액=0.20, 마지막=0.35)
+        야후(_가짜티커([]))
+        r = DV.달력([{"symbol": "XYZ", "market": "US", "name": "XYZ", "shares": 100}])
+        assert r["items"][0]["next_amount"] == pytest.approx(0.35)
+
+    def test_수량이_0이면_여전히_금액을_안_낸다(self, 야후):
+        self._담기(달=(date.today() + timedelta(days=20)).month, 금액=0.20, 마지막=0.35)
+        야후(_가짜티커([]))
+        r = DV.달력([{"symbol": "XYZ", "market": "US", "name": "XYZ", "shares": 0}])
+        assert r["items"][0]["expected"] is None
+        # 주당 금액 자체는 남는다 — 관심종목도 '한 주에 얼마 주나' 는 볼 수 있다
+        assert r["items"][0]["next_amount"] == pytest.approx(0.20)
+
+
+# ── 실제로 준 것과 메운 것 ────────────────────────────────────
+class Test실제와메움을_가른다:
+    """주·월배당은 아직 한 해가 안 찬 종목에서 빈 달이 생긴다. 그걸
+    있는 달들의 평균으로 메우는데, 그건 **실제로 받은 값이 아니다**.
+
+    메운 값을 실제인 척 보여 주면 그 숫자로 한 해 계획을 세우는 사람이
+    생긴다. 어느 칸이 실제인지 화면이 말할 수 있어야 한다."""
+
+    def test_실제_지급에서_나온_칸은_actual_이_참이다(self):
+        내역 = [(date.today() - timedelta(days=90), 0.25)]
+        일정 = DV._월별일정(
+            [{"date": d.isoformat(), "amount": a} for d, a in 내역],
+            [d for d, _ in 내역], "분기")
+        assert 일정[0]["actual"] is True
+
+    def test_평균으로_메운_칸은_actual_이_거짓이다(self, 야후):
+        """월배당인데 석 달치만 있는 종목 — 나머지 아홉 달이 메워진다."""
+        내역 = [(날(60), 0.10), (날(30), 0.12), (날(1), 0.11)]
+        야후(_가짜티커(내역))
+        r = DV.한종목("MONTHLY", "US")
+        일정 = r["schedule"]
+        assert len(일정) == 12, "월배당은 열두 달을 다 채운다"
+        실제 = [x for x in 일정 if x.get("actual")]
+        메움 = [x for x in 일정 if not x.get("actual")]
+        assert len(실제) == 3 and len(메움) == 9
+        # 메운 값은 있는 달들의 평균이다
+        assert 메움[0]["amount"] == pytest.approx((0.10 + 0.12 + 0.11) / 3, abs=1e-6)
+
+    def test_분기배당은_메우지_않는다(self, 야후):
+        """2·5·8·11월에만 주는 종목의 3월을 메우면 '3월에도 준다' 는
+        거짓말이 된다. 안 주는 달은 그냥 없어야 한다."""
+        내역 = [(날(365), 0.20), (날(274), 0.25), (날(183), 0.30), (날(91), 0.35)]
+        야후(_가짜티커(내역))
+        r = DV.한종목("QTR", "US")
+        assert all(x.get("actual") for x in r["schedule"])
+        assert len(r["schedule"]) <= 4

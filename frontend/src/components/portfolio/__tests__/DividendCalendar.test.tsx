@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈 }
+import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈, 회차금액, 그달지난배당, 실제값인가, 짧은돈 }
   from "@/components/portfolio/DividendCalendar";
 import { portfolioApi, type 배당줄 } from "@/api/stocks";
 
@@ -360,5 +360,232 @@ describe("포트폴리오별로 나눠 본다", () => {
       <QueryClientProvider client={qc}><DividendCalendar portfolioId={9} /></QueryClientProvider>,
     );
     await waitFor(() => expect(portfolioApi.getDividends).toHaveBeenCalledWith(9));
+  });
+});
+
+/**
+ * 금액은 실제로 받은 값에서 나와야 한다.
+ *
+ * '다음에 얼마 받나' 를 마지막 회차 금액으로 답하고 있었다. 분기배당은
+ * 회차마다 금액이 다르다 — 결산배당이 붙는 분기가 특히 크다.
+ * 0.20 / 0.25 / 0.30 / 0.35 를 주는 종목이 다음에 0.20 을 줄 차례인데
+ * 마지막이 0.35 였으면, 화면은 75% 를 더 받는다고 말한다.
+ *
+ * 이 화면의 숫자로 생활비 계획을 세우는 사람이 있다.
+ */
+describe("이번 회차 금액", () => {
+  it("마지막 회차가 아니라 이번 회차 금액을 쓴다", () => {
+    const r = 줄({ currency: "USD", shares: 100, last_amount: 0.35, next_amount: 0.20 });
+    // 0.20 × 100주 × 1400원 = 28,000원. 마지막(0.35)이면 49,000원이다
+    expect(회차금액(r, 1400)).toBeCloseTo(28_000, 0);
+  });
+
+  it("이번 회차를 모르는 옛 응답은 마지막 회차로 떨어진다", () => {
+    const r = 줄({ currency: "USD", shares: 100, last_amount: 0.35 });
+    expect(회차금액(r, 1400)).toBeCloseTo(49_000, 0);
+  });
+
+  it("세후는 원천징수를 뗀다", () => {
+    const r = 줄({ currency: "USD", shares: 100, next_amount: 0.20 });
+    expect(회차금액(r, 1400, true)).toBeCloseTo(28_000 * 0.85, 0);
+  });
+
+  it("주당 금액을 화면에도 이번 회차로 적는다", async () => {
+    /* 목록에 '주당 $0.35' 라고 적혀 있는데 옆의 금액은 0.20 으로
+       계산돼 있으면, 눈으로 검산하는 사람이 반드시 어긋난다 */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        currency: "USD", shares: 100, last_amount: 0.35, next_amount: 0.20,
+        date: 이번달날(20), months: [이번달],
+        schedule: [{ month: 이번달, day: 20, amount: 0.20, year: 2025, actual: true }],
+      })],
+      pending: 0,
+    });
+    그리기();
+    expect(await screen.findByText(/주당 \$0\.20/)).toBeInTheDocument();
+    expect(screen.queryByText(/주당 \$0\.35/)).toBeNull();
+  });
+});
+
+describe("그 달에 정말 얼마였나", () => {
+  it("같은 달만 골라 해마다 보여 준다", () => {
+    /* 예전에는 마지막 세 회차를 그냥 보여 줬다. 3월을 보고 있는데
+       12·9·6월 금액이 나오니, 옆의 '3월 예상' 을 검산하는 데 아무
+       도움이 안 됐다 */
+    const r = 줄({ recent: [
+      { date: "2024-03-25", amount: 0.20 },
+      { date: "2024-06-25", amount: 0.25 },
+      { date: "2025-03-25", amount: 0.22 },
+      { date: "2025-12-25", amount: 0.35 },
+    ] });
+    expect(그달지난배당(r, 3)).toEqual([
+      { year: 2025, amount: 0.22 },
+      { year: 2024, amount: 0.20 },
+    ]);
+  });
+
+  it("최근 해부터 적는다", () => {
+    const r = 줄({ recent: [
+      { date: "2023-03-25", amount: 0.10 },
+      { date: "2025-03-25", amount: 0.30 },
+      { date: "2024-03-25", amount: 0.20 },
+    ] });
+    expect(그달지난배당(r, 3, 3).map((x) => x.year)).toEqual([2025, 2024, 2023]);
+  });
+
+  it("그 달 기록이 없으면 아무것도 안 준다", () => {
+    /* 없는데 다른 달 값을 갖다 붙이면 그게 곧 거짓말이다 */
+    const r = 줄({ recent: [{ date: "2025-06-25", amount: 0.25 }] });
+    expect(그달지난배당(r, 3)).toEqual([]);
+  });
+
+  it("화면에도 그 달 것만 적는다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        currency: "USD", shares: 100, date: 이번달날(20), months: [이번달],
+        recent: [
+          { date: `2024-${String(이번달).padStart(2, "0")}-20`, amount: 0.20 },
+          { date: `2025-${String(이번달).padStart(2, "0")}-20`, amount: 0.22 },
+          { date: "2025-01-15", amount: 0.99 },   // 다른 달 — 나오면 안 된다
+        ],
+      })],
+      pending: 0,
+    });
+    그리기();
+    const 글 = await screen.findAllByText(new RegExp(`지난 ${이번달}월`));
+    expect(글.length).toBeGreaterThan(0);
+    expect(글[0].textContent).toContain("2025 $0.22");
+    expect(글[0].textContent).toContain("2024 $0.20");
+    expect(글[0].textContent).not.toContain("0.99");
+  });
+});
+
+describe("메운 값을 실제인 척하지 않는다", () => {
+  it("actual 이 거짓이면 평균으로 친다", () => {
+    const r = 줄({ schedule: [{ month: 3, day: 20, amount: 0.1, year: null, actual: false }] });
+    expect(실제값인가(r, 3)).toBe(false);
+  });
+
+  it("actual 이 참이면 실제다", () => {
+    const r = 줄({ schedule: [{ month: 3, day: 20, amount: 0.1, year: 2025, actual: true }] });
+    expect(실제값인가(r, 3)).toBe(true);
+  });
+
+  it("표시가 없는 옛 응답은 실제로 친다", () => {
+    /* 그때는 메우는 칸이 schedule 에 안 들어 있었다. 없다고 해서
+       전부 '평균' 이라고 적으면, 멀쩡한 값에 다 딱지가 붙는다 */
+    const r = 줄({ schedule: [{ month: 3, day: 20, amount: 0.1, year: 2025 }] });
+    expect(실제값인가(r, 3)).toBe(true);
+  });
+
+  it("화면에 '평균' 이라고 적는다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        currency: "USD", shares: 100, cycle: "월", date: 이번달날(20),
+        months: [이번달],
+        schedule: [{ month: 이번달, day: 20, amount: 0.11, year: null, actual: false }],
+      })],
+      pending: 0,
+    });
+    그리기();
+    expect(await screen.findByText(/\(평균\)/)).toBeInTheDocument();
+  });
+
+  it("실제 값에는 '평균' 을 안 붙인다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        currency: "USD", shares: 100, date: 이번달날(20), months: [이번달],
+        schedule: [{ month: 이번달, day: 20, amount: 0.20, year: 2025, actual: true }],
+      })],
+      pending: 0,
+    });
+    그리기();
+    await screen.findByText(/주당 \$0\.20/);
+    expect(screen.queryByText(/\(평균\)/)).toBeNull();
+  });
+});
+
+describe("좁은 화면과 넓은 화면", () => {
+  /* jsdom 에는 화면 폭이 없어서 미디어 쿼리가 안 돈다. 대신 '두 폭에
+     쓸 자리가 실제로 따로 있는가' 를 클래스로 본다 — 하나뿐이면
+     한쪽 화면에서는 반드시 뭉개진다. */
+  async function 그려보기() {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        currency: "USD", shares: 100, date: 이번달날(20), months: [이번달],
+        recent: [{ date: `2025-${String(이번달).padStart(2, "0")}-20`, amount: 0.22 }],
+      })],
+      pending: 0,
+    });
+    const { container } = 그리기();
+    await screen.findByText("삼성전자");
+    return container;
+  }
+
+  it("지난 배당 자리가 폭마다 따로 있다", async () => {
+    const c = await 그려보기();
+    expect(c.querySelector(".sm\\:hidden")).toBeTruthy();       // 좁은 화면용
+    expect(c.querySelector(".hidden.sm\\:block")).toBeTruthy(); // 넓은 화면용
+  });
+
+  it("한 폭에서는 하나만 보인다 — 둘 다 뜨면 같은 말이 두 번 나온다", async () => {
+    const c = await 그려보기();
+    const 좁은것 = c.querySelector(".sm\\:hidden");
+    const 넓은것 = c.querySelector(".hidden.sm\\:block");
+    expect(좁은것).not.toBe(넓은것);
+    // 좁은 쪽은 sm 이상에서 숨고, 넓은 쪽은 sm 미만에서 숨는다
+    expect(좁은것?.className).toContain("sm:hidden");
+    expect(넓은것?.className).toContain("hidden");
+  });
+
+  it("연간 배당금이 좁은 화면에서 한 줄을 다 쓴다", async () => {
+    /* 세 칸을 나란히 두면 휴대폰 폭에서 '1,234,567원' 이 잘려
+       '1,234,5…' 가 된다 — 제일 먼저 보고 싶은 숫자가 못 읽힌다 */
+    const c = await 그려보기();
+    const 칸 = c.querySelector(".col-span-2");
+    expect(칸?.className).toContain("sm:col-span-1");
+  });
+
+  it("막대 높이가 넓은 화면에서 늘어난다", async () => {
+    /* PC 에서 44px 짜리 막대는 너무 납작해서 달끼리 비교가 안 된다 */
+    const c = await 그려보기();
+    const 막대 = c.querySelector("[class*='sm:h-[calc(var(--막대)']");
+    expect(막대).toBeTruthy();
+  });
+});
+
+describe("막대 위 라벨은 잘리면 안 된다", () => {
+  /* 휴대폰 폭(390px)에서 열두 칸이면 한 칸이 28px 남짓이다. '8,140' 은
+     다섯 글자라 '8,1…' 로 잘리는데, 잘린 숫자는 안 쓰느니만 못하다 —
+     8,140 인지 81,400 인지 알 수가 없다. */
+  it("천 단위 아래로 줄인다", () => {
+    expect(짧은돈(8_140)).toBe("8천");
+    expect(짧은돈(9_400)).toBe("9천");
+    expect(짧은돈(1_000)).toBe("1천");
+  });
+
+  it("만·억은 그대로", () => {
+    expect(짧은돈(37_470)).toBe("4만");
+    expect(짧은돈(120_000_000)).toBe("1.2억");
+  });
+
+  it("천 밑은 그냥 숫자", () => {
+    expect(짧은돈(870)).toBe("870");
+  });
+
+  it("0 은 아무것도 안 쓴다 — 빈 달에 '0' 이 붙으면 어지럽다", () => {
+    expect(짧은돈(0)).toBe("");
+  });
+
+  it("만 단위에는 쉼표를 안 넣는다 — 쉼표 하나에 칸 하나를 쓴다", () => {
+    expect(짧은돈(12_345_678)).toBe("1235만");
+  });
+
+  it("어떤 값이든 다섯 글자를 안 넘는다", () => {
+    /* 한 칸이 28px 남짓이다. 다섯 글자가 이 글자 크기의 한계다 */
+    for (const v of [1, 999, 1_000, 9_999, 10_000, 999_999, 12_345_678,
+                     99_999_999, 999_999_999, 12_345_678_901]) {
+      expect(짧은돈(v).length).toBeLessThanOrEqual(5);
+    }
   });
 });

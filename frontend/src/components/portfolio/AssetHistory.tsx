@@ -73,6 +73,11 @@ export const 벤치마크들 = [
   { id: "NASDAQ", label: "나스닥" },
 ] as const;
 
+/** "+3.21%" — 툴팁과 최고·최저 라벨이 같은 모양을 쓰게 한 자리에 둔다 */
+export function 퍼센트글(v: number): string {
+  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+}
+
 /** "2026-08-26" → "8/26" — 축에는 연도를 안 쓴다. 좁은 화면에서 자리를 다 먹는다 */
 function 짧은날(day: string): string {
   const [, m, d] = day.split("-");
@@ -83,9 +88,34 @@ export interface 그릴점 {
   day: string;
   value: number;
   cost: number;
+  /** 그날의 평가손익(평가 − 원금).
+   *
+   *  선 두 개(평가·원금)의 **사이 간격**이 곧 번 돈인데, 눈으로 재는
+   *  일은 생각보다 어렵다. 툴팁에 숫자로 같이 적는다. */
+  손익?: number;
   /** 벤치마크를 켰을 때만. 첫날 대비 % */
   내수익?: number | null;
   지수수익?: number | null;
+}
+
+/**
+ * 기간 안의 최고·최저 — 어느 값을 보고 있느냐에 따라 다르다.
+ *
+ * 그래프에 눈금이 하나도 없다(세로축을 숨겼다 — 좁은 화면에서
+ * '1,234,567원' 이 가로폭의 3분의 1을 먹는다). 그래서 선이 오르내리는
+ * 모양은 보이는데 **얼마나** 오르내렸는지는 안 보인다. 최고·최저 두
+ * 줄만 그어 주면 그 사이가 곧 눈금이 된다.
+ */
+export function 최고최저(점들: 그릴점[], 열쇠: "value" | "내수익"):
+  { 최고: number; 최저: number } | null {
+  const 값들 = 점들
+    .map((p) => p[열쇠])
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  if (값들.length < 2) return null;
+  const 최고 = Math.max(...값들);
+  const 최저 = Math.min(...값들);
+  /* 둘이 같으면 줄을 두 개 겹쳐 긋는 셈이라 라벨만 뭉친다 */
+  return 최고 === 최저 ? null : { 최고, 최저 };
 }
 
 /**
@@ -202,7 +232,11 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
     return 자른것.length >= 2 ? 자른것 : 미리보기;
   }, [data, 미리보기, 일수]);
   const 비교중 = !!벤치 && !!지수?.length;
-  const 그릴것 = useMemo(() => 견주기(점들, 벤치 ? 지수 : undefined), [점들, 지수, 벤치]);
+  const 그릴것 = useMemo(
+    () => 견주기(점들, 벤치 ? 지수 : undefined)
+      .map((p) => ({ ...p, 손익: p.value - p.cost })),
+    [점들, 지수, 벤치],
+  );
   const 벤치이름 = 벤치마크들.find((b) => b.id === 벤치)?.label ?? "";
 
   /* 기간 수익 — 첫 점 대비 마지막 점.
@@ -255,6 +289,28 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
      칠해진다 — SVG 는 문서 전체에서 id 하나를 찾는다. */
   const 선색 = (내수익률 ?? 변화?.비율 ?? 0) >= 0 ? 오름 : 내림;
   const 칠id = `자산흐름칠-${선색.replace("#", "")}`;
+
+  /* 기간 안의 최고·최저. 비교 중이면 %축이므로 그 값으로 잡는다 */
+  const 끝점 = useMemo(
+    () => 최고최저(그릴것, 비교중 ? "내수익" : "value"),
+    [그릴것, 비교중],
+  );
+  /** 최고·최저 라벨 — 축 하나가 없는 대신 이 두 줄이 눈금 노릇을 한다.
+   *
+   *  '₩27,362,872' 를 그대로 적으면 열한 글자가 그래프 위를 가로질러
+   *  선을 가린다. 실제로 찍어 보고 줄임 표기로 바꿨다 — '2736만' 이면
+   *  다섯 글자다.
+   *
+   *  금액 가리기를 켜면 여기도 가려야 한다. 그러지 않으면 이 두 줄이
+   *  대략의 자산 규모를 그대로 말해 버린다. */
+  const 축값 = (v: number) => (비교중 ? 퍼센트글(v) : 돈.원짧게(v));
+
+  /** 어느 선이 무엇인가. 없으면 점선 회색이 원금이라는 걸 알 길이 없다 */
+  const 범례 = 비교중
+    ? [{ 이름: "내 자산", 색: 선색, 점선: false },
+       { 이름: 벤치이름, 색: "var(--accent-purple, #8b5cf6)", 점선: true }]
+    : [{ 이름: "평가금액", 색: 선색, 점선: false },
+       { 이름: "원금", 색: "var(--text-dim)", 점선: true }];
 
   const 틀 = (속: React.ReactNode) => (
     <Card className="flex flex-col gap-3">
@@ -322,7 +378,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
           </span>
           <div className="flex items-baseline gap-2 flex-wrap">
             <span className={`text-2xl leading-none font-mono font-bold num ${pnlColor(내수익률)}`}>
-              {내수익률 >= 0 ? "+" : ""}{내수익률.toFixed(2)}%
+              {퍼센트글(내수익률)}
             </span>
             {/* 비교 중이면 금액을 안 쓴다 — 그때는 첫 공통일 기준이라
                 이 %와 금액의 기준이 서로 다르다 */}
@@ -356,7 +412,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
         /* 숫자로도 한 줄 적는다. 선 두 개가 붙어 있으면 눈으로는
            어느 쪽이 이겼는지 잘 안 보인다 */
         <p className="text-2xs text-text-secondary break-keep -mt-1">
-          {벤치이름} {지수변화 >= 0 ? "+" : ""}{지수변화.toFixed(2)}% 대비{" "}
+          {벤치이름} {퍼센트글(지수변화)} 대비{" "}
           <span className={`font-semibold ${pnlColor(내수익률! - 지수변화)}`}>
             {내수익률! >= 지수변화 ? "앞섬" : "뒤짐"} {Math.abs(내수익률! - 지수변화).toFixed(2)}%p
           </span>
@@ -365,7 +421,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
 
       <차트틀 height={160}>
         {(R) => (
-          <R.AreaChart data={그릴것} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+          <R.AreaChart data={그릴것} margin={{ top: 10, right: 4, bottom: 0, left: 4 }}>
             <defs>
               <linearGradient id={칠id} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%"   stopColor={선색} stopOpacity={0.35} />
@@ -380,6 +436,12 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
             {/* 세로축은 안 그린다. 좁은 화면에서 '1,234,567원' 눈금이
                 가로폭의 3분의 1을 먹는다. 금액은 위 카드가 이미 말한다 */}
             <R.YAxis hide domain={["dataMin", "dataMax"]} />
+            {/* 손익 전용 축.
+                이걸 안 두면 손익(수천만 원)이 세로 범위에 같이 들어가서,
+                정작 보려는 평가금액 선이 화면 가운데 얇은 띠로 눌린다.
+                실제로 찍어 보고 알았다 — 그리지도 않는 선이 그래프를
+                통째로 찌그러뜨리고 있었다. */}
+            <R.YAxis yAxisId="손익축" hide domain={["dataMin", "dataMax"]} />
             <R.Tooltip
               contentStyle={{
                 background: "var(--bg-card)", border: "1px solid var(--border-default)",
@@ -387,10 +449,27 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
               }}
               labelStyle={{ color: "var(--text-muted)" }}
               formatter={(v: number, name: string) => [
-                비교중 ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : 돈.원(Number(v)),
+                비교중 ? 퍼센트글(Number(v)) : 돈.원(Number(v)),
                 name,
               ]}
             />
+
+            {/* ── 최고·최저 ──
+                눈금이 하나도 없어서, 선이 오르내리는 모양은 보여도
+                **얼마나** 오르내렸는지는 안 보였다. 두 줄만 그으면
+                그 사이가 곧 눈금이 된다. */}
+            {끝점 && (
+              <>
+                {/* 숫자는 여기 안 적는다. 실제로 찍어 보니 두 줄이 가까울
+                    때 라벨끼리 겹쳐서 둘 다 못 읽었고, 어디에 붙여도
+                    선이나 오른쪽 끝(지금 값)을 가렸다. 줄은 '어디쯤인가'
+                    만 보여 주고, 숫자는 그래프 아래 한 줄에 적는다. */}
+                <R.ReferenceLine y={끝점.최고} stroke="var(--text-dim)"
+                                 strokeDasharray="2 4" strokeWidth={1} />
+                <R.ReferenceLine y={끝점.최저} stroke="var(--text-dim)"
+                                 strokeDasharray="2 4" strokeWidth={1} />
+              </>
+            )}
 
             {비교중 ? (
               <>
@@ -414,11 +493,41 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
                 <R.Area type="monotone" dataKey="value" name="평가금액"
                         stroke={선색} strokeWidth={2}
                         fill={`url(#${칠id})`} dot={false} isAnimationActive={false} />
+                {/* 그리지 않는 선. 툴팁에 '그날 손익' 한 줄을 더하려고 둔다 —
+                    두 선 사이의 간격이 곧 번 돈인데, 눈으로 재는 일은
+                    생각보다 어렵다 */}
+                <R.Area type="monotone" dataKey="손익" name="평가손익" yAxisId="손익축"
+                        stroke="none" fill="none" dot={false}
+                        activeDot={false} isAnimationActive={false} />
               </>
             )}
           </R.AreaChart>
         )}
       </차트틀>
+
+      {/* ── 범례 ──
+          선이 둘 또는 셋인데 어느 것이 무엇인지 화면에 적혀 있지 않았다.
+          점선 회색이 '원금' 이라는 것은 툴팁을 띄워 봐야 알 수 있었고,
+          휴대폰에서는 툴팁을 띄우는 것 자체가 번거롭다. */}
+      <div className="flex items-center justify-center gap-3 flex-wrap -mt-1">
+        {/* 위아래 점선이 어느 값인지 — 그래프에는 세로 눈금이 없다.
+            선 위에 적어 봤더니 두 줄이 가까울 때 겹쳐서 둘 다 못 읽었다 */}
+        {끝점 && (
+          <span className="text-2xs text-text-dim tabular-nums">
+            최고 {축값(끝점.최고)} · 최저 {축값(끝점.최저)}
+          </span>
+        )}
+        {범례.map((x) => (
+          <span key={x.이름} className="flex items-center gap-1 text-2xs text-text-dim">
+            <span
+              aria-hidden
+              className="w-3 h-0 border-t-2 rounded"
+              style={{ borderColor: x.색, borderTopStyle: x.점선 ? "dashed" : "solid" }}
+            />
+            {x.이름}
+          </span>
+        ))}
+      </div>
     </>,
   );
 }

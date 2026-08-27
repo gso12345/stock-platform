@@ -305,6 +305,96 @@ class Test거는쪽:
         _생짜(R.켜고끄기)(request=None, 알림id=1, db=db, me=me)
         assert a.is_active is False
 
+    def test_목표가를_고칠_수_있다(self):
+        """예전에는 이 자리가 없었다. 79,000 을 78,000 으로 낮추려면
+        지우고 다시 걸어야 했는데, 왕복이 두 번인 데다 지우기만 하고
+        다시 거는 걸 잊으면 알림이 통째로 사라진다.
+
+        '8만원 되면 알려줘' 는 한 번에 딱 맞게 잡히는 값이 아니라
+        몇 번 만져 보게 되는 값이다."""
+        a = _알림(id=1, target=79_000, direction="above")
+        db = _DB([a])
+        me = type("나", (), {"id": 7})()
+        본문 = R.고치기요청(direction="below", target=78_000)
+        나온것 = _생짜(R.고치기)(request=None, 본문=본문, 알림id=1, db=db, me=me)
+
+        assert a.target == 78_000 and a.direction == "below"
+        assert 나온것["target"] == 78_000 and 나온것["direction"] == "below"
+        assert db.commits == 1
+        assert db.added == [], "고치는데 새 줄을 만들었다"
+
+    def test_고치면_다시_울릴_수_있게_되돌린다(self):
+        """울린 알림은 스스로 꺼진다. 79,000 에서 울렸던 알림의 목표를
+        85,000 으로 올렸는데 꺼진 채로 두면 새 조건은 영영 안 울린다 —
+        사용자는 고쳤다고 생각하고 기다린다."""
+        a = _알림(id=1, target=79_000, is_active=False,
+                  fired_at=datetime.now(timezone.utc), fired_price=79_100)
+        db = _DB([a])
+        me = type("나", (), {"id": 7})()
+        본문 = R.고치기요청(direction="above", target=85_000)
+        나온것 = _생짜(R.고치기)(request=None, 본문=본문, 알림id=1, db=db, me=me)
+
+        assert a.is_active is True
+        assert a.fired_at is None and a.fired_price is None
+        assert 나온것["is_active"] is True and 나온것["fired_at"] is None
+
+    def test_같은_조건이_이미_있으면_거절한다(self):
+        """표에 (user, symbol, direction, target) 이 한 벌로 못 박혀 있다.
+        그냥 두면 DB 가 거절하고 사용자에게는 알 수 없는 500 이 간다."""
+        from fastapi import HTTPException
+        고칠것 = _알림(id=1, target=79_000, direction="above")
+        이미있는것 = _알림(id=2, target=85_000, direction="above")
+        db = _DB([고칠것, 이미있는것])
+        me = type("나", (), {"id": 7})()
+        본문 = R.고치기요청(direction="above", target=85_000)
+        with pytest.raises(HTTPException) as e:
+            _생짜(R.고치기)(request=None, 본문=본문, 알림id=1, db=db, me=me)
+        assert e.value.status_code == 400
+        assert 고칠것.target == 79_000, "거절했는데 값이 바뀌었다"
+        assert db.commits == 0
+
+    def test_자기_자신은_겹침으로_안_센다(self):
+        """방향만 바꾸고 목표가는 그대로 두는 일이 흔하다. 자기 자신을
+        겹침으로 세면 그때마다 '이미 있어요' 로 막힌다."""
+        a = _알림(id=1, target=79_000, direction="above")
+        db = _DB([a])
+        me = type("나", (), {"id": 7})()
+        본문 = R.고치기요청(direction="above", target=79_000)
+        나온것 = _생짜(R.고치기)(request=None, 본문=본문, 알림id=1, db=db, me=me)
+        assert 나온것["target"] == 79_000
+
+    def test_고칠_때도_DB_를_한_번만_물어본다(self):
+        """DB 가 Supabase 라 물어볼 때마다 네트워크를 건넌다.
+        '고칠 줄 찾기' 와 '겹치는 것 찾기' 를 따로 물으면 왕복이 둘이다."""
+        class _세는DB(_DB):
+            def __init__(self, rows):
+                super().__init__(rows)
+                self.질의수 = 0
+            def query(self, *a, **k):
+                self.질의수 += 1
+                return super().query(*a, **k)
+        db = _세는DB([_알림(id=1, target=79_000)])
+        me = type("나", (), {"id": 7})()
+        _생짜(R.고치기)(request=None, 본문=R.고치기요청(direction="above", target=80_000),
+                        알림id=1, db=db, me=me)
+        assert db.질의수 == 1, f"DB 를 {db.질의수}번 물어봤다"
+
+    def test_고치기_요청도_값의_형태를_고정한다(self):
+        from pydantic import ValidationError
+        for 나쁜값 in [
+            {"direction": "up", "target": 1},
+            {"direction": "above", "target": 0},
+            {"direction": "above", "target": -1},
+        ]:
+            with pytest.raises(ValidationError):
+                R.고치기요청(**나쁜값)
+
+    def test_고치기도_응답을_만든_뒤에_커밋한다(self):
+        import inspect
+        본문 = inspect.getsource(R.고치기)
+        assert 본문.index("답 = _내보내기(a)") < 본문.index("db.commit()")
+        assert "db.refresh" not in 본문
+
     def test_없는_알림은_404(self):
         from fastapi import HTTPException
         db = _DB([])
@@ -313,6 +403,10 @@ class Test거는쪽:
             with pytest.raises(HTTPException) as e:
                 _생짜(부르기)(request=None, 알림id=99, db=db, me=me)
             assert e.value.status_code == 404
+        with pytest.raises(HTTPException) as e:
+            _생짜(R.고치기)(request=None, 본문=R.고치기요청(direction="above", target=1),
+                            알림id=99, db=db, me=me)
+        assert e.value.status_code == 404
 
     def test_지금값은_캐시만_읽는다(self, 시세):
         """알림을 거는 순간에도 바깥 조회를 하면 안 된다."""
