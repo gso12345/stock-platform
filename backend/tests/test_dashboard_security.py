@@ -41,10 +41,34 @@ class Test카테고리_검증:
         r = client.get("/api/v1/dashboard/rankings/kr", params={"category": category})
         assert r.status_code == 422, f"'{category[:20]}' 가 통과했다 → {r.status_code}"
 
-    def test_대시보드_본문에도_같은_검증이_걸린다(self, client):
-        # /rankings 만 막고 /kr, /us 를 두면 같은 경로로 그대로 들어온다
-        for path in ("/api/v1/dashboard/kr", "/api/v1/dashboard/us"):
-            assert client.get(path, params={"category": "attack"}).status_code == 422
+    def test_대시보드_본문은_아예_순위를_안_만든다(self, client):
+        """예전에는 /rankings 만 막고 /kr, /us 를 두면 같은 경로로 그대로
+        들어왔다. 그래서 두 라우트에도 같은 검증을 걸어 422 로 막았다.
+
+        지금은 더 강하다 — /kr, /us 가 순위표를 **아예 안 만든다**.
+        화면이 그 값을 안 읽는데 매번 만들어 20KB 를 실어 보내고 있었다.
+        만들지 않으니 임의 category 로 캐시를 밀어낼 길 자체가 없고,
+        모르는 값을 보내도 그냥 무시된다(422 로 막을 것이 없다).
+
+        검증을 되돌리는 것보다 이쪽이 낫다 — 막아야 할 일이 없어졌다."""
+        from app.core.cache import cache
+
+        def 순위칸수() -> int:
+            """rank: 로 시작하는 캐시 항목만 센다.
+
+            캐시 전체를 세면 안 된다 — 이 두 라우트는 환율·금리·선물도
+            같이 받아 오고, 그것들은 정상적으로 캐시에 한 자리씩 잡는다.
+            여기서 보려는 것은 '임의 category 가 새 캐시 키를 만드는가'다."""
+            return sum(1 for x in cache.keys_with_ttl() if str(x["key"]).startswith("rank:"))
+
+        전 = 순위칸수()
+        for i in range(30):
+            for path in ("/api/v1/dashboard/kr", "/api/v1/dashboard/us"):
+                r = client.get(path, params={"category": f"attack{i}"})
+                assert r.status_code == 200
+                assert r.json()["rankings"] == [], "순위표를 만들어 실어 보내고 있다"
+        assert 순위칸수() - 전 == 0, \
+            f"임의 category 60회로 순위 캐시가 {순위칸수() - 전}건 늘었다"
 
     def test_임의_카테고리로_캐시가_늘지_않는다(self, client):
         from app.core.cache import cache

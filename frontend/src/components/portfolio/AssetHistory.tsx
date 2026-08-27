@@ -30,6 +30,8 @@ import { portfolioApi, dashboardApi, type 자산흐름점 } from "@/api/stocks";
 import 차트틀 from "@/components/chart/ChartFrame";
 import { Card, 못불러옴 } from "@/components/ui";
 import { use돈 } from "@/hooks/useMoney";
+import { useSettingsStore } from "@/store/settingsStore";
+import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import type { OHLCV } from "@/types";
 
 /**
@@ -156,6 +158,14 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
   const [고른기간, set고른기간] = useState<기간id>("3개월");
   const [벤치, set벤치] = useState<string>("");
   const 돈 = use돈();
+  /* 오름·내림 색은 설정을 따른다(초록/빨강 · 빨강/파랑).
+     여기만 초록·빨강으로 못 박혀 있어서, 빨강/파랑을 쓰는 사람에게는
+     같은 화면 안에서 보유 목록은 빨강이 오름인데 이 그래프만 빨강이
+     내림이었다 — 어느 쪽이 번 것인지 매번 다시 읽어야 한다. */
+  const 배색 = useSettingsStore((s) => s.colorScheme);
+  const { pnlColor } = usePnlColors(배색);
+  const 오름 = 오름색(배색);
+  const 내림 = 내림색(배색);
 
   const 기간 = 기간들.find((g) => g.id === 고른기간) ?? 기간들[1];
   /* '올해' 만 오늘이 며칠이냐에 따라 달라진다. 나머지는 고정값이다 */
@@ -234,6 +244,18 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
     return 변화?.비율 ?? null;
   }, [비교중, 그릴것, 변화]);
 
+  /* 선 색도 설정을 따른다.
+     예전에는 늘 var(--accent-focus)(파랑)였다. 빨강/파랑을 쓰는 사람에게
+     파랑은 '내렸다' 는 뜻이라, 자산이 오른 달에도 선이 내림 색으로
+     그려졌다. 기간 수익이 플러스면 오름 색, 마이너스면 내림 색으로
+     칠한다 — 바로 위에 있는 큰 숫자와 같은 색이 된다.
+
+     칠 무늬(gradient)의 id 에 색을 섞는다. 고정 id 로 두면 색이 다른
+     그래프가 한 화면에 둘 이상 있을 때 먼저 그려진 쪽 색으로 둘 다
+     칠해진다 — SVG 는 문서 전체에서 id 하나를 찾는다. */
+  const 선색 = (내수익률 ?? 변화?.비율 ?? 0) >= 0 ? 오름 : 내림;
+  const 칠id = `자산흐름칠-${선색.replace("#", "")}`;
+
   const 틀 = (속: React.ReactNode) => (
     <Card className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
@@ -299,17 +321,13 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
             )}
           </span>
           <div className="flex items-baseline gap-2 flex-wrap">
-            <span className={`text-2xl leading-none font-mono font-bold num ${
-              내수익률 >= 0 ? "text-accent-green" : "text-accent-red"
-            }`}>
+            <span className={`text-2xl leading-none font-mono font-bold num ${pnlColor(내수익률)}`}>
               {내수익률 >= 0 ? "+" : ""}{내수익률.toFixed(2)}%
             </span>
             {/* 비교 중이면 금액을 안 쓴다 — 그때는 첫 공통일 기준이라
                 이 %와 금액의 기준이 서로 다르다 */}
             {!비교중 && (
-              <span className={`text-sm font-mono font-semibold num ${
-                변화.금액 >= 0 ? "text-accent-green" : "text-accent-red"
-              }`}>
+              <span className={`text-sm font-mono font-semibold num ${pnlColor(변화.금액)}`}>
                 {돈.원부호(변화.금액)}
               </span>
             )}
@@ -339,7 +357,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
            어느 쪽이 이겼는지 잘 안 보인다 */
         <p className="text-2xs text-text-secondary break-keep -mt-1">
           {벤치이름} {지수변화 >= 0 ? "+" : ""}{지수변화.toFixed(2)}% 대비{" "}
-          <span className={내수익률! >= 지수변화 ? "text-accent-green font-semibold" : "text-accent-red font-semibold"}>
+          <span className={`font-semibold ${pnlColor(내수익률! - 지수변화)}`}>
             {내수익률! >= 지수변화 ? "앞섬" : "뒤짐"} {Math.abs(내수익률! - 지수변화).toFixed(2)}%p
           </span>
         </p>
@@ -349,9 +367,9 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
         {(R) => (
           <R.AreaChart data={그릴것} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
             <defs>
-              <linearGradient id="자산흐름칠" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"   stopColor="var(--accent-focus)" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="var(--accent-focus)" stopOpacity={0} />
+              <linearGradient id={칠id} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%"   stopColor={선색} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={선색} stopOpacity={0} />
               </linearGradient>
             </defs>
             <R.XAxis
@@ -383,8 +401,8 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
                         strokeDasharray="4 3" fill="none" dot={false}
                         connectNulls isAnimationActive={false} />
                 <R.Area type="monotone" dataKey="내수익" name="내 자산"
-                        stroke="var(--accent-focus)" strokeWidth={2}
-                        fill="url(#자산흐름칠)" dot={false} isAnimationActive={false} />
+                        stroke={선색} strokeWidth={2}
+                        fill={`url(#${칠id})`} dot={false} isAnimationActive={false} />
               </>
             ) : (
               <>
@@ -394,8 +412,8 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
                         stroke="var(--text-dim)" strokeWidth={1} strokeDasharray="4 3"
                         fill="none" dot={false} isAnimationActive={false} />
                 <R.Area type="monotone" dataKey="value" name="평가금액"
-                        stroke="var(--accent-focus)" strokeWidth={2}
-                        fill="url(#자산흐름칠)" dot={false} isAnimationActive={false} />
+                        stroke={선색} strokeWidth={2}
+                        fill={`url(#${칠id})`} dot={false} isAnimationActive={false} />
               </>
             )}
           </R.AreaChart>

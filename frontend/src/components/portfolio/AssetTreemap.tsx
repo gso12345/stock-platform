@@ -27,6 +27,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import 차트틀 from "@/components/chart/ChartFrame";
 import { fmtKRWCompact } from "@/utils/formatters";
 import { 가린글 } from "@/hooks/useMoney";
+import { 등락색, 삼색 } from "@/hooks/usePnlColors";
 
 export interface 지도칸 {
   /** react key. 심볼이나 묶음 이름 */
@@ -42,12 +43,11 @@ export interface 지도칸 {
 
 /** 등락 색상 설정에 따른 오름/내림 색.
  *
- *  Tailwind 팔레트의 accent 값과 같은 값을 쓴다. 클래스 이름으로는
- *  SVG fill 을 못 주기 때문에 여기서는 색 자체가 필요하다. */
-const 오름내림 = {
-  "green-red": { 오름: "16,185,129",  내림: "239,68,68"  },   // accent-green / accent-red
-  "red-blue":  { 오름: "239,68,68",   내림: "59,130,246" },   // accent-red   / accent-blue
-} as const;
+ *  클래스 이름으로는 SVG fill 을 못 주기 때문에 여기서는 색 자체가
+ *  필요하다. 값은 hooks/usePnlColors 한 자리에서만 정한다 — 여기와
+ *  자산 흐름이 각자 적어 두었다가 한쪽만 고쳐지면, 같은 화면 안에서
+ *  빨강이 한 번은 오름이고 한 번은 내림이 된다. */
+type 배색이름 = keyof typeof 등락색;
 
 /** 등락률이 몇 %면 완전히 진해지는가.
  *
@@ -86,11 +86,11 @@ export const 짙기바닥 = 0.18;
 export const 무채색 = "color-mix(in srgb, var(--text-dim) 22%, transparent)";
 
 /** 등락률 → 칸 색. null(시세 없음)이면 무채색 */
-export function 칸색(등락률: number | null, 배색: keyof typeof 오름내림): string {
+export function 칸색(등락률: number | null, 배색: 배색이름): string {
   if (등락률 == null || 등락률 === 0) return 무채색;
-  const { 오름, 내림 } = 오름내림[배색];
+  const { 오름, 내림 } = 등락색[배색];
   const 진하기 = 짙기바닥 + Math.min(1, Math.abs(등락률) / 짙어지는등락) * (짙기상한 - 짙기바닥);
-  return `rgba(${등락률 > 0 ? 오름 : 내림},${진하기.toFixed(2)})`;
+  return `rgba(${삼색(등락률 > 0 ? 오름 : 내림)},${진하기.toFixed(2)})`;
 }
 
 /** 칸 글씨는 늘 테마 글자색이다.
@@ -129,7 +129,7 @@ interface 칸그리기 {
   x?: number; y?: number; width?: number; height?: number;
   /** recharts 가 넘기는 깊이. 0 은 전체를 감싸는 뿌리 칸이다 */
   depth?: number;
-  name?: string; 등락률?: number | null; 배색?: keyof typeof 오름내림;
+  name?: string; 등락률?: number | null; 배색?: 배색이름;
   onSelect?: (name: string) => void;
 }
 

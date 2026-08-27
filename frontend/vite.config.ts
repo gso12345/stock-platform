@@ -1,9 +1,22 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { API미리연결 } from "./src/utils/apiPreconnect";
 
-export default defineConfig({
-  plugins: [react()],
+function api미리연결플러그인(mode: string): Plugin {
+  return {
+    name: "api-preconnect",
+    transformIndexHtml(html) {
+      const env = loadEnv(mode, process.cwd(), "VITE_");
+      const 태그 = API미리연결(env.VITE_API_URL);
+      if (!태그) return html;
+      return html.replace("</head>", `    ${태그}\n  </head>`);
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), api미리연결플러그인(mode)],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -54,4 +67,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

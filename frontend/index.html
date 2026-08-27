@@ -48,13 +48,38 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="StockPlatform" />
 
-    <!-- ── 폰트 ──────────────────────────────────────────── -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <!-- ── 폰트 ──────────────────────────────────────────────
+         숫자에만 쓰는 고정폭 글꼴이다. 그런데 <link rel="stylesheet">
+         는 **첫 픽셀을 막는다** — 브라우저는 이 CSS 를 다 받기 전까지
+         아무것도 안 그린다. 남의 서버(fonts.googleapis.com)에 새로
+         연결해서 받아야 하므로 DNS+TCP+TLS 로 왕복 세 번이 먼저 든다.
+         실측으로 첫 픽셀이 그만큼 밀렸다.
 
-    <!-- ── API 서버 사전 연결 (초기 로딩 속도 개선) ──────── -->
-    <link rel="preconnect" href="https://stock-platform-ksmu.onrender.com" crossorigin />
-    <link rel="dns-prefetch" href="https://stock-platform-ksmu.onrender.com" />
+         preload 로 받아 놓고 다 받은 뒤에 stylesheet 로 바꾼다. 그동안
+         숫자는 기본 고정폭 글꼴로 보이고, 글꼴이 오면 바뀐다 — 화면이
+         비어 있는 것보다 낫다.
+
+         gstatic 도 미리 연결한다. 글꼴 파일(woff2)은 googleapis 가
+         아니라 거기서 온다 — 한 곳만 미리 연결해 두면 나머지 왕복은
+         그대로 남는다. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="style"
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
+          onload="this.onload=null;this.rel='stylesheet'" />
+    <noscript>
+      <link rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" />
+    </noscript>
+
+    <!-- ── API 서버 사전 연결 ────────────────────────────────
+         여기에 주소를 직접 적어 두었었는데, 그 주소가 지금 쓰는 API
+         서버가 아니었다. 그러면 두 배로 손해다 — 정작 필요한 곳은
+         미리 연결이 안 되고(첫 요청이 DNS+TCP+TLS 세 왕복을 다 문다),
+         쓰지도 않을 곳에 연결을 하나 여느라 그 순간을 더 붐비게 한다.
+
+         빌드할 때 VITE_API_URL 에서 만들어 넣는다(vite.config.ts).
+         배포 설정을 바꾸면 이 태그도 따라간다. -->
 
     <!-- ── 구조화 데이터 (JSON-LD) ──────────────────────── -->
     <script type="application/ld+json">

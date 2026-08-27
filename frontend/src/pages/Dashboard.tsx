@@ -312,7 +312,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
   const qc = useQueryClient();
   const { data, refetch, isError: 못받음, error: 실패사유 } = useQuery({
     queryKey: ["dashboard-kr", "시가총액"],
-    queryFn: () => dashboardApi.getKR("시가총액"),
+    queryFn: () => dashboardApi.getKR(),
     staleTime: 60_000,
     /* 지수를 못 받았을 때만 잠깐 자주 시도한다.
        예전에는 rankings 로 판정했는데, 그건 화면에 표시되지도 않는 값이라
@@ -500,7 +500,7 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
   const qc = useQueryClient();
   const { data, refetch, isError: 못받음, error: 실패사유 } = useQuery({
     queryKey: ["dashboard-us", "시가총액"],
-    queryFn: () => dashboardApi.getUS("시가총액"),
+    queryFn: () => dashboardApi.getUS(),
     staleTime: 60_000,
     refetchInterval: (query) => {
       if (query.state.status === "error") return 60_000;

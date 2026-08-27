@@ -22,6 +22,7 @@
 import { QueryClient, QueryCache } from "@tanstack/react-query";
 import { 조회실패알림 } from "./queryError";
 import { 최근조회정리 } from "@/utils/recentlyViewed";
+import { 되살리기, 붙이기 } from "./queryPersist";
 
 export const queryClient = new QueryClient({
   /* 조회가 실패하면 여기로 온다.
@@ -37,9 +38,23 @@ export const queryClient = new QueryClient({
       staleTime: 300_000,
       gcTime: 1_800_000,
       refetchOnWindowFocus: false,
-      // Render 무료 플랜 슬립(20~45s) 대응: 3회 재시도, 지수 백오프(2s→6s→18s)
-      retry: 3,
-      retryDelay: (attempt) => Math.min(2_000 * 3 ** attempt, 20_000),
+      /* 다시 시도하는 규칙.
+       *
+       * 예전에는 3번을 2초·6초·18초 간격으로 했다. Render 무료 플랜이
+       * 자다 깨는 데 20~45초가 걸려서, 그동안 버티라고 잡은 값이다.
+       * 그 잠듦이 없어졌으므로 이 값은 이제 순수한 지연이다 —
+       * 한 번 삐끗하면 화면이 26초 동안 아무 말 없이 멈춘다.
+       *
+       * 그리고 4xx 는 아예 다시 안 한다. 로그인이 안 됐거나(401),
+       * 없는 것을 찾거나(404), 값이 틀린(422) 요청은 몇 번을 더 보내도
+       * 같은 답이 온다. 그런데도 세 번을 26초에 걸쳐 보내고 있었다 —
+       * 로그아웃 상태로 앱을 여는 사람이 정확히 그 상황이다. */
+      retry: (횟수, 오류) => {
+        const 상태 = (오류 as { response?: { status?: number } })?.response?.status;
+        if (typeof 상태 === "number" && 상태 >= 400 && 상태 < 500) return false;
+        return 횟수 < 2;
+      },
+      retryDelay: (attempt) => Math.min(400 * 3 ** attempt, 3_000),
     },
   },
 });
@@ -48,6 +63,12 @@ export const queryClient = new QueryClient({
  *
  *  좋아요만의 문제가 아니다. 내 자산·관심종목·알림도 앞사람 것이 남는다.
  *  일부만 골라 지우면 빠뜨린 것이 반드시 생기므로 통째로 버린다. */
+/* 지난번에 받아 둔 것을 곧바로 화면에 올린다.
+   화면(main.tsx)이 그려지기 전에 해야 뜻이 있다 — 그려진 뒤에 넣으면
+   이미 뼈대를 한 번 보여 준 뒤다. 그래서 이 파일에서 바로 부른다. */
+되살리기(queryClient);
+붙이기(queryClient);
+
 export function 사용자바뀜() {
   queryClient.clear();
   /* 서버에서 받아 온 것 말고, 브라우저에 직접 쌓아 둔 것도 앞사람 것이 남는다.

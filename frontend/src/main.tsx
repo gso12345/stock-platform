@@ -47,12 +47,12 @@ const Notifications = lazy(() => import("./pages/Notifications"));
 // 대시보드 핵심 데이터만 선제 요청
 queryClient.prefetchQuery({
   queryKey: ["dashboard-kr", "시가총액"],
-  queryFn: () => dashboardApi.getKR("시가총액"),
+  queryFn: () => dashboardApi.getKR(),
   staleTime: 60_000,
 });
 queryClient.prefetchQuery({
   queryKey: ["dashboard-us", "시가총액"],
-  queryFn: () => dashboardApi.getUS("시가총액"),
+  queryFn: () => dashboardApi.getUS(),
   staleTime: 60_000,
 });
 // 환율/금리 — 대시보드 KR/US 탭 + 포트폴리오에서 공통 사용
@@ -61,20 +61,13 @@ queryClient.prefetchQuery({
   queryFn: () => dashboardApi.getUSRates(),
   staleTime: 300_000,
 });
-// Render 무료 플랜 슬립 대응: 앱 시작 시 Authorization 없이 단순 GET 전송.
-// 단순 요청(커스텀 헤더 없음)은 CORS preflight 없이 바로 전달되므로
-// 서버가 슬립 상태여도 요청이 도달해 웨이크업을 트리거한다.
+// 서버를 깨우려고 /health 를 한 번 두드리던 자리다. Render 무료 플랜이
+// 자고 있을 때 첫 요청을 도달시키려는 것이었는데, 그 잠듦이 없어졌다.
+// 남겨 두면 얻는 것 없이 손해만 남는다 — 바로 위 prefetch 세 건과
+// 같은 순간에 요청이 하나 더 나가서, 정작 화면에 필요한 값들이
+// 그만큼 뒤로 밀린다.
 //
-// 두드리는 곳을 /dashboard/indices 에서 /health 로 바꿨다.
-// indices 는 국내 4개·해외 5개 지수를 전부 모아 오는 무거운 요청인데,
-// 여기서는 응답을 쓰지도 않고 버린다(깨우는 것이 목적이므로). Render 무료
-// 플랜은 CPU 가 0.15개뿐이라, 바로 아래 prefetch 세 건과 이 요청이 같은
-// 한 개의 CPU 를 놓고 다툰다 — 사용자가 기다리는 화면을 스스로 늦추고
-// 있었다. 깨우는 데는 가장 싼 요청이면 충분하다.
-{
-  const apiRoot = import.meta.env.VITE_API_URL || "";
-  fetch(`${apiRoot}/health`).catch(() => {});
-}
+// 다시 재우는 요금제로 돌아가면 이 자리를 되살린다.
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

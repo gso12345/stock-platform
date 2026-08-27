@@ -231,11 +231,16 @@ export const dashboardApi = {
   getIndices: () =>
     api.get<{ kr: MarketIndex[]; us: MarketIndex[] }>("/dashboard/indices").then((r) => r.data),
 
-  getKR: (category = "시가총액") =>
-    api.get<대시보드응답>("/dashboard/kr", { params: { category, include_news: false } }).then((r) => r.data),
+  /* 순위 기준(category)을 안 보낸다.
+     이 응답에 순위표가 들어 있었는데, 화면은 그걸 한 군데서도 안 읽고
+     getRankings 로 따로 받는다 — 기준을 바꿔 가며 봐야 하기 때문이다.
+     그래서 서버가 같은 순위표를 두 번 만들고, 그중 한 번은 만들자마자
+     버려지는 20KB 였다. 서버에서 뺐고, 여기서도 안 보낸다. */
+  getKR: () =>
+    api.get<대시보드응답>("/dashboard/kr", { params: { include_news: false } }).then((r) => r.data),
 
-  getUS: (category = "시가총액") =>
-    api.get<대시보드응답>("/dashboard/us", { params: { category, include_news: false } }).then((r) => r.data),
+  getUS: () =>
+    api.get<대시보드응답>("/dashboard/us", { params: { include_news: false } }).then((r) => r.data),
 
   getRankings: (market: "kr" | "us", category = "시가총액") =>
     api.get<순위행[]>(`/dashboard/rankings/${market}`, { params: { category } }).then((r) => r.data),

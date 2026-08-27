@@ -732,6 +732,9 @@ async def periodic_refresh():
     from app.services.ranking_service import refresh_kr_rankings_from_naver
     counter = 0
     _last_fund_refresh = datetime.utcnow()
+    # 지난 회차에 쉬고 있었나. 첫 회차는 시작 직후라 이미 프리페치가
+    # 돌고 있으므로 '쉬는 중이었다' 로 안 본다
+    쉬는중 = False
 
     while True:
         await asyncio.sleep(10)
@@ -752,18 +755,33 @@ async def periodic_refresh():
         # 요청했을 때 응답이 밀린다. 마지막 요청이 오래됐으면 통째로 쉰다.
         # (다시 접속하면 첫 요청이 touch_request 로 깨운다)
         if activity.seconds_since_last_request() > IDLE_PAUSE_SEC:
+            쉬는중 = True
             continue
 
+        # 방금 쉬다 깼는가 —
+        #
+        # 여기가 구멍이었다. 쉬는 동안에는 아무것도 안 받으므로 캐시가
+        # 통째로 묵는다. 그런데 깨어난 뒤 실제로 갱신이 도는 시점은
+        # counter 가 배수에 걸릴 때다. 휴장 중이면 지수는 counter % 60,
+        # 곧 **최대 10분 뒤**다. 그동안 처음 들어온 사람은 열 시간 전
+        # 값을 본다 — 서버는 멀쩡히 깨어 있는데도 그렇다.
+        #
+        # 그래서 깬 회차에는 배수를 안 따지고 한 번 돌린다. 값이 싼
+        # 것들(지수·환율)만 골랐다 — 뉴스·순위표까지 여기서 같이
+        # 돌리면 사람이 기다리는 첫 요청과 정면으로 부딪친다.
+        방금깼나 = 쉬는중
+        쉬는중 = False
+
         # 국내 지수 (장중 30초 / 휴장 10분)
-        if counter % (3 if market_hours.kr_session() != "closed" else 60) == 0:
+        if 방금깼나 or counter % (3 if market_hours.kr_session() != "closed" else 60) == 0:
             await refresh_kr_indices()
 
         # 미국 지수 (장중 60초 / 휴장 10분)
-        if counter % (6 if market_hours.us_session() != "closed" else 60) == 0:
+        if 방금깼나 or counter % (6 if market_hours.us_session() != "closed" else 60) == 0:
             await refresh_us_indices()
 
         # 환율 (60초)
-        if counter % 6 == 0:
+        if 방금깼나 or counter % 6 == 0:
             await refresh_exchange()
 
         # 걸어 둔 가격 알림 (30초)

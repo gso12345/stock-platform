@@ -39,13 +39,24 @@ async def _run(fn, *args):
     return await asyncio.wait_for(loop.run_in_executor(None, fn, *args), timeout=15)
 
 
+#: 지수 하나를 KIS 에서 실시간으로 받아 올 때 기다릴 최대 시간.
+#:
+#: 상한이 없었다. KIS 는 이 화면에서 '더 신선한 값' 을 얻으려고 부르는
+#: 곳이지 없으면 안 되는 곳이 아니다(바로 아래 캐시가 30초짜리 값을
+#: 들고 있다). 그런데 상한이 없어서, KIS 가 늦는 날에는 그 대안이
+#: 있는데도 대시보드가 통째로 그만큼 멈췄다.
+_KIS_지수_상한 = 3
+
+
 # ── 국내 지수 조회 ─────────────────────────────────────────
 async def _get_kr_index(name: str) -> dict:
     # 1. KIS API (실시간)
     if settings.KIS_APP_KEY and name in KIS_INDEX_CODES:
         code, display = KIS_INDEX_CODES[name]
         try:
-            r = await kis_service.get_index(code, name, display)
+            r = await asyncio.wait_for(
+                kis_service.get_index(code, name, display), timeout=_KIS_지수_상한
+            )
             if r and r.get("value", 0) > 0:
                 return r
         except Exception:
@@ -116,15 +127,24 @@ async def get_all_indices():
 
 
 # ── 국내 대시보드 ──────────────────────────────────────────
+#
+# 순위표를 여기서 뺐다. 뉴스를 뺀 것과 같은 이유다 —
+# 화면은 이 응답의 rankings 를 **한 군데서도 안 읽는다**. 순위 카드는
+# /dashboard/rankings/kr 로 따로 받아서 기준(시가총액·거래량…)을 바꿀 수
+# 있어야 하기 때문이다.
+#
+# 그래서 대시보드를 한 번 열 때마다 같은 순위표를 두 번 만들고 있었다.
+# 캐시가 비어 있으면 두 번 다 전 종목을 훑는다. 게다가 만든 것을 응답에
+# 실어 보내니 이 응답만 23KB 였다(순위표를 빼면 3KB 남짓이다) —
+# 받아서 버리는 20KB 를 매번 싱가포르에서 한국까지 나른 셈이다.
+#
+# category 도 같이 뺐다. 이 라우트에서 그 값이 쓰이던 곳이 순위표뿐이라,
+# 남겨 두면 아무 일도 안 하는 값을 계속 받게 된다.
 @router.get("/kr")
-async def get_kr_dashboard(
-    category: str = Query(default="시가총액", pattern=CATEGORY_PATTERN),
-    include_news: bool = Query(default=False),
-):
+async def get_kr_dashboard(include_news: bool = Query(default=False)):
     loop = asyncio.get_running_loop()
     tasks = [
         asyncio.gather(*[_get_kr_index_with_fallback(n) for n in KR_INDICES]),
-        _get_kr_rankings(category),
         # 환율에만 상한이 없었다. 나머지 넷은 전부 wait_for 가 걸려 있는데
         # 이것만 없어서, 환율 하나가 늦으면 화면 전체가 그만큼 멈췄다
         # (실측 12초). 안쪽에서도 막지만 여기서도 한 번 더 조인다
@@ -133,12 +153,14 @@ async def get_kr_dashboard(
         asyncio.wait_for(get_kr_futures(), timeout=5),
     ]
     if include_news:
-        tasks.append(loop.run_in_executor(None, get_kr_news))
+        tasks.append(asyncio.wait_for(loop.run_in_executor(None, get_kr_news), timeout=8))
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        idx_results, rankings, exchange, rates, futures, news = results
+        idx_results, exchange, rates, futures, news = results
+        if isinstance(news, BaseException):
+            news = cache.get_stale("news:kr") or []
     else:
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        idx_results, rankings, exchange, rates, futures = results
+        idx_results, exchange, rates, futures = results
         # include_news=False 인데도 캐시에서 꺼내 최대 80건을 실어 보냈다.
         # 화면은 이 필드를 안 쓰고 /dashboard/news/kr 로 따로 받는다 — 매 갱신마다
         # 기사 80건을 만들어 보내고 버리는 셈이었다
@@ -150,9 +172,10 @@ async def get_kr_dashboard(
         "indices":  idx_results,
         "kospi":    idx_results[0],
         "kosdaq":   idx_results[1],
-        "rankings": rankings,
+        # 화면은 /dashboard/rankings/kr 로 따로 받는다. 자리는 남겨 둔다 —
+        # 배포가 엇갈려 옛 화면이 이 응답을 받을 때 없는 칸을 읽으면 터진다
+        "rankings": [],
         "news":     pick_top_image_first(news, 80) if news else [],
-        "category": category,
         "exchange": exchange,
         "futures":  futures,
         "rates":    rates,
@@ -173,18 +196,33 @@ async def _refresh_kr_ranking_bg(category: str):
         pass
 
 
+#: 순위표를 만드느라 화면을 붙잡아 둘 수 있는 최대 시간.
+#:
+#: 여기에는 상한이 아예 없었다. KIS 가 늦으면 늦는 만큼, 캐시가 비어
+#: FDR 로 전 종목을 훑으면 훑는 만큼 화면이 멈췄다. 순위표는 '있으면
+#: 좋은' 카드지, 그것 하나 때문에 대시보드가 통째로 멈출 값이 아니다.
+#: 상한을 넘기면 있는 것으로 답하고 나머지는 배경에서 채운다.
+_RANK_상한 = 6
+
+
 async def _get_kr_rankings(category: str) -> list:
     from app.services.ranking_service import get_kr_rankings
 
-    if settings.KIS_APP_KEY:
-        result = await kis_service.get_rankings(category)
-        if result:
-            return result
-
-    # 신선한 캐시
+    # 신선한 캐시가 있으면 그걸로 끝낸다.
+    #
+    # 예전에는 KIS 를 **먼저** 불렀다. 키가 설정돼 있으면 캐시가 아무리
+    # 신선해도 매 요청마다 외부 왕복이 한 번씩 붙었다는 뜻이다.
     cached = cache.get(f"rank:kr:{category}")
     if cached:
         return cached
+
+    if settings.KIS_APP_KEY:
+        try:
+            result = await asyncio.wait_for(kis_service.get_rankings(category), timeout=_RANK_상한)
+            if result:
+                return result
+        except Exception:
+            pass
 
     # stale 캐시 → 즉시 반환 + 백그라운드 갱신
     stale = cache.get_stale(f"rank:kr:{category}")
@@ -200,35 +238,41 @@ async def _get_kr_rankings(category: str) -> list:
     if stale:
         return stale
 
-    # FDR 기반 랭킹 — 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행
+    # FDR 기반 랭킹 — 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행.
+    # 상한을 넘기면 빈 목록으로 답한다. 바로 위에서 배경 갱신을 이미
+    # 걸어 뒀으므로, 다음 요청 때는 캐시에서 곧바로 나온다.
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, get_kr_rankings, category) or []
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, get_kr_rankings, category), timeout=_RANK_상한
+        ) or []
+    except Exception:
+        return []
 
 
 # ── 해외 대시보드 ──────────────────────────────────────────
+# 순위표는 /dashboard/rankings/us 로 따로 받는다. 국내 쪽과 같은 이유다 —
+# 화면이 이 응답의 rankings 를 안 읽는데 매번 만들어 실어 보내고 있었다.
 @router.get("/us")
-async def get_us_dashboard(
-    category: str = Query(default="시가총액", pattern=CATEGORY_PATTERN),
-    include_news: bool = Query(default=False),
-):
+async def get_us_dashboard(include_news: bool = Query(default=False)):
     loop = asyncio.get_running_loop()
     tasks = [
         asyncio.gather(*[_get_us_index(n) for n in US_INDICES]),
         asyncio.wait_for(_get_exchange_rate_async(), timeout=5),
-        _get_us_rankings_cached(category),
         asyncio.wait_for(loop.run_in_executor(None, get_us_rates), timeout=5),
     ]
     if include_news:
-        tasks.append(loop.run_in_executor(None, get_us_news))
+        tasks.append(asyncio.wait_for(loop.run_in_executor(None, get_us_news), timeout=8))
 
     gathered = await asyncio.gather(*tasks, return_exceptions=True)
     idx_results     = gathered[0] if not isinstance(gathered[0], Exception) else []
     exchange        = gathered[1] if not isinstance(gathered[1], Exception) else {}
-    rankings        = gathered[2] if not isinstance(gathered[2], Exception) else []
-    us_rates_cached = gathered[3] if not isinstance(gathered[3], Exception) else (cache.get_stale("extra:us_rates") or [])
+    us_rates_cached = gathered[2] if not isinstance(gathered[2], Exception) else (cache.get_stale("extra:us_rates") or [])
     # KR 과 같은 이유로, 요청하지 않았으면 뉴스를 싣지 않는다.
     # 화면은 /dashboard/news/us 로 따로 받는다
-    news = gathered[4] if (include_news and not isinstance(gathered[4], Exception)) else []
+    news = gathered[3] if (include_news and not isinstance(gathered[3], Exception)) else []
+    if include_news and isinstance(gathered[3], BaseException):
+        news = cache.get_stale("news:us") or []
 
     idx_map = {r["index"]: r for r in idx_results if isinstance(r, dict)}
     return {
@@ -240,9 +284,9 @@ async def get_us_dashboard(
         "russell":  idx_map.get("RUSSELL"),
         "exchange": exchange,
         "rates":    us_rates_cached,
-        "rankings": rankings,
+        # 옛 화면이 받아도 안 터지도록 칸만 남긴다 (국내 쪽 주석 참고)
+        "rankings": [],
         "news":     news[:80] if news else [],
-        "category": category,
     }
 
 
@@ -272,9 +316,15 @@ async def _get_us_rankings_cached(category: str) -> list:
     더 받았는데, 그래 봐야 20위까지밖에 안 된다. 전종목(335개)을 받아
     순위표를 다시 만든다 — 시간이 걸리므로 배경으로 돌리고, 이번 요청은
     있는 것으로 답한다."""
-    # 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행
+    # 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행.
+    # 국내 쪽과 같은 이유로 상한을 둔다 — 순위표 하나가 화면을 멈춰 세우면 안 된다
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, get_us_rankings, category) or []
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, get_us_rankings, category), timeout=_RANK_상한
+        ) or []
+    except Exception:
+        result = []
     if len(result) < US_MIN_ROWS:
         # 블로킹 없이 백그라운드에서 갱신 — cold start 시 즉시 반환.
         # 겹침 방지는 refresh_us_rows 안에서 한다
@@ -302,6 +352,14 @@ async def us_rankings(category: str = Query(default="시가총액", pattern=CATE
 # ── 뉴스 ───────────────────────────────────────────────────
 NEWS_TAB_LIMIT = 100
 
+#: 기사를 모으느라 화면을 붙잡아 둘 수 있는 최대 시간.
+#:
+#: 상한이 없었다. RSS 를 여덟 곳 도는 일이라 늦을 때는 한참 늦는데,
+#: 그동안 뉴스 탭은 아무 말 없이 멈춰 있었다. shield 로 감싸는 이유는
+#: 상한을 넘겨도 **수집 자체는 계속 돌게** 하기 위해서다 — 여기서
+#: 취소해 버리면 다음 요청도, 그다음 요청도 똑같이 처음부터 돈다.
+_뉴스_상한 = 8
+
 
 async def _news_tab(market: str, sort: str, images_only: bool) -> list:
     """뉴스 탭 응답을 만든다.
@@ -317,9 +375,17 @@ async def _news_tab(market: str, sort: str, images_only: bool) -> list:
     ck = f"news:{market}"
     cached = cache.get(ck) or cache.get_stale(ck)
     if cached is None:
+        # 여기에 상한이 없었다. 캐시가 비면 RSS 여덟 곳을 다 돌 때까지
+        # 화면이 기다린다 — 그 시간이 곧 '뉴스 탭이 안 뜬다' 였다.
+        # 상한을 넘기면 빈 목록으로 답하고, 수집은 배경에서 마저 돈다.
+        # (5분마다 도는 갱신이 채워 두므로 다음 번에는 캐시에서 나온다)
         loop = asyncio.get_running_loop()
         fetch = get_kr_news if market == "kr" else get_us_news
-        cached = await loop.run_in_executor(None, fetch)
+        받아오기 = loop.run_in_executor(None, fetch)
+        try:
+            cached = await asyncio.wait_for(asyncio.shield(받아오기), timeout=_뉴스_상한)
+        except Exception:
+            cached = cache.get_stale(ck) or []
 
     articles = list(cached or [])
     if images_only:

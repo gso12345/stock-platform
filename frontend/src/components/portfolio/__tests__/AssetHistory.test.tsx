@@ -18,6 +18,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AssetHistory, { 견주기, 올해일수, 기간들 } from "@/components/portfolio/AssetHistory";
 import { portfolioApi, dashboardApi } from "@/api/stocks";
+import { useSettingsStore } from "@/store/settingsStore";
 
 vi.mock("@/api/stocks", () => ({
   portfolioApi: { getHistory: vi.fn() },
@@ -51,12 +52,18 @@ vi.mock("@/components/chart/ChartFrame", () => {
       const 담김: Record<string, Record<string, unknown>[]> = {};
       모으기(children(R) as 마디, 담김);
       const 차트 = (담김.AreaChart?.[0] ?? {}) as { data?: { day: string }[] };
-      const 면들 = (담김.Area ?? []) as { dataKey?: string }[];
+      const 면들 = (담김.Area ?? []) as { dataKey?: string; stroke?: string; fill?: string }[];
+      const 칠들 = (담김.stop ?? []) as { stopColor?: string }[];
       return (
         <div data-testid="차트">
           <span data-testid="점수">{차트.data?.length ?? 0}</span>
           <span data-testid="선들">{면들.map((a) => a.dataKey).join(",")}</span>
           <span data-testid="날들">{(차트.data ?? []).map((p) => p.day).join(" ")}</span>
+          {/* 선 색·칠 색까지 내보낸다 — 등락 색상 설정을 따르는지 보려면
+              '무슨 색을 넘겼나' 가 필요하다 */}
+          <span data-testid="선색들">{면들.map((a) => `${a.dataKey}=${a.stroke}`).join(" ")}</span>
+          <span data-testid="칠들">{면들.map((a) => `${a.dataKey}=${a.fill}`).join(" ")}</span>
+          <span data-testid="칠색들">{칠들.map((c) => c.stopColor).join(" ")}</span>
         </div>
       );
     },
@@ -79,6 +86,9 @@ const 점 = (day: string, value: number, cost = 900_000) =>
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([]);
+  /* 색 설정은 전역이다. 되돌리지 않으면 앞 검사가 바꿔 놓은 값이
+     뒤 검사로 새서, 혼자 돌리면 통과하고 다 같이 돌리면 실패한다 */
+  useSettingsStore.setState({ colorScheme: "green-red" });
 });
 
 /** 지수 종가 한 줄 */
@@ -375,5 +385,97 @@ describe("벤치마크 화면", () => {
     await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("지수수익,내수익"));
     await userEvent.click(screen.getByRole("button", { name: "없음" }));
     await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("cost,value"));
+  });
+});
+
+/**
+ * 등락 색상 설정(초록/빨강 · 빨강/파랑)을 여기서도 따른다.
+ *
+ * 이 그래프만 안 따르고 있었다. 선은 늘 파랑(--accent-focus)이었고,
+ * 기간 수익 숫자는 늘 초록/빨강이었다. 빨강/파랑을 고른 사람에게는
+ * 같은 화면 안에서 보유 목록의 빨강이 '올랐다' 인데 이 그래프의
+ * 빨강은 '내렸다' 가 된다 — 색이 뜻을 잃는다.
+ *
+ * 검사가 색값(#10b981 …)을 직접 적는 이유: 클래스 이름은 SVG stroke 에
+ * 못 쓰므로 hooks/usePnlColors 가 색값 자체를 준다. 그 값이 바뀌면
+ * 여기가 걸려야 한다 — 팔레트를 조용히 바꾸면 화면이 통째로 달라진다.
+ */
+describe("등락 색상 설정을 따른다", () => {
+  const 오른점들 = [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)];
+  const 내린점들 = [점("2026-08-20", 1_200_000), 점("2026-08-24", 1_000_000)];
+
+  it("초록/빨강 — 오르면 초록 선", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("선색들"))
+      .toHaveTextContent("value=#10b981"));
+    // 칠(gradient)도 같은 색이어야 한다. 선만 바뀌면 아래 면이 딴 색이다
+    expect(screen.getByTestId("칠색들").textContent).toBe("#10b981 #10b981");
+  });
+
+  it("초록/빨강 — 내리면 빨강 선", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 내린점들, days: 90 });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("선색들"))
+      .toHaveTextContent("value=#ef4444"));
+  });
+
+  it("빨강/파랑 — 오르면 빨강 선", async () => {
+    /* 여기가 핵심이다. 예전 코드는 어느 설정에서든 파랑을 그렸고,
+       빨강/파랑 쓰는 사람에게 파랑은 '내렸다' 는 뜻이다 */
+    useSettingsStore.setState({ colorScheme: "red-blue" });
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("선색들"))
+      .toHaveTextContent("value=#ef4444"));
+  });
+
+  it("빨강/파랑 — 내리면 파랑 선", async () => {
+    useSettingsStore.setState({ colorScheme: "red-blue" });
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 내린점들, days: 90 });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("선색들"))
+      .toHaveTextContent("value=#3b82f6"));
+  });
+
+  it("칠 무늬 id 에 색을 섞는다 — 색이 다른 그래프가 둘이어도 안 섞인다", async () => {
+    /* SVG 는 id 를 문서 전체에서 찾는다. id 가 고정이면 먼저 그려진
+       쪽 무늬로 둘 다 칠해져서, 오른 그래프가 내림 색으로 칠해진다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("칠들"))
+      .toHaveTextContent("value=url(#자산흐름칠-10b981)"));
+  });
+
+  it("기간 수익 숫자도 같은 색을 쓴다", async () => {
+    useSettingsStore.setState({ colorScheme: "red-blue" });
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
+    그리기();
+    const 숫자 = await screen.findByText(/\+20\.00%/);
+    expect(숫자.className).toContain("text-accent-red");
+    expect(숫자.className).not.toContain("text-accent-green");
+  });
+
+  it("'앞섬/뒤짐' 도 같은 색을 쓴다", async () => {
+    useSettingsStore.setState({ colorScheme: "red-blue" });
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    const 말 = await screen.findByText(/앞섬/);
+    expect(말.className).toContain("text-accent-red");
+  });
+
+  it("원금 선과 벤치마크 선은 설정과 무관하다", async () => {
+    /* 이 둘은 '올랐나 내렸나' 가 아니라 '무슨 선인가' 를 가리키는
+       색이다. 등락 색으로 칠하면 세 선이 같은 색이 되어 못 읽는다 */
+    useSettingsStore.setState({ colorScheme: "red-blue" });
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("선색들"))
+      .toHaveTextContent("cost=var(--text-dim)"));
   });
 });
