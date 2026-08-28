@@ -15,7 +15,7 @@ import { Link } from "react-router-dom";
 import { Bell, CheckCheck, X, Settings } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
-import NotificationList, { type NotificationItem } from "@/components/community/NotificationList";
+import NotificationList, { 모두읽음, type NotificationItem } from "@/components/community/NotificationList";
 
 /** 이 폭 미만이면 시트로 연다 — Tailwind의 lg 기준과 맞춘다 */
 const SHEET_BELOW = 1024;
@@ -52,11 +52,25 @@ export default function NotificationBell() {
     staleTime: 10_000,
   });
 
+  /* 누른 즉시 다 읽은 모양으로 바꾼다.
+     예전에는 서버가 답한 **뒤에야** 배지가 사라지고, 거기서 목록을 또
+     받아 와야 파란 배경이 걷혔다 — 왕복 둘이다. 그동안 사람은 안 눌린
+     줄 알고 한 번 더 누른다. */
   const readAll = useMutation({
     mutationFn: communityApi.markAllNotificationsRead,
-    onSuccess: () => {
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ["notiList"] });
+      const 이전목록 = qc.getQueryData(["notiList"]);
+      const 이전수 = qc.getQueryData(["notiUnread"]);
       qc.setQueryData(["notiUnread"], { count: 0, capped: false });
-      qc.invalidateQueries({ queryKey: ["notiList"] });
+      qc.setQueryData(["notiList"], (prev: unknown) => 모두읽음(prev));
+      qc.setQueryData(["notiPage"], (prev: unknown) => 모두읽음(prev));
+      return { 이전목록, 이전수 };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.이전목록 !== undefined) qc.setQueryData(["notiList"], ctx.이전목록);
+      if (ctx?.이전수 !== undefined) qc.setQueryData(["notiUnread"], ctx.이전수);
+      qc.invalidateQueries({ queryKey: ["notiPage"] });
     },
   });
 

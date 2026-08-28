@@ -11,7 +11,7 @@ import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { Bell, CheckCheck, LogIn, ChevronLeft, ChevronRight } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
-import NotificationList, { type NotificationItem } from "@/components/community/NotificationList";
+import NotificationList, { 모두읽음, type NotificationItem } from "@/components/community/NotificationList";
 import NotificationSettings from "@/components/community/NotificationSettings";
 import { 빈화면, 못불러옴, RowSkeleton} from "@/components/ui";
 
@@ -45,9 +45,21 @@ export default function Notifications() {
 
   const readAll = useMutation({
     mutationFn: communityApi.markAllNotificationsRead,
-    onSuccess: () => {
+    /* 누른 즉시 바꾼다 — 종과 같은 방식.
+       서버가 답한 뒤에 목록을 다시 받으면 왕복이 둘이고, 그동안
+       화면은 아무 일도 안 일어난 것처럼 보인다 */
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ["notiPage"] });
+      const 이전 = qc.getQueryData(["notiPage"]);
+      const 이전수 = qc.getQueryData(["notiUnread"]);
       qc.setQueryData(["notiUnread"], { count: 0, capped: false });
-      qc.invalidateQueries({ queryKey: ["notiPage"] });
+      qc.setQueryData(["notiPage"], (prev: unknown) => 모두읽음(prev));
+      qc.setQueryData(["notiList"], (prev: unknown) => 모두읽음(prev));
+      return { 이전, 이전수 };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.이전 !== undefined) qc.setQueryData(["notiPage"], ctx.이전);
+      if (ctx?.이전수 !== undefined) qc.setQueryData(["notiUnread"], ctx.이전수);
       qc.invalidateQueries({ queryKey: ["notiList"] });
     },
   });

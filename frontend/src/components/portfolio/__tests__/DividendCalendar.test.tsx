@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈, 회차금액, 그달지난배당, 실제값인가, 짧은돈 }
+import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈, 회차금액, 그달지난배당, 실제값인가, 짧은돈, 기준글, 그달날들, 앞으로그달, 날과요일 }
   from "@/components/portfolio/DividendCalendar";
 import { portfolioApi, type 배당줄 } from "@/api/stocks";
 
@@ -587,5 +587,292 @@ describe("막대 위 라벨은 잘리면 안 된다", () => {
                      99_999_999, 999_999_999, 12_345_678_901]) {
       expect(짧은돈(v).length).toBeLessThanOrEqual(5);
     }
+  });
+});
+
+/**
+ * "작년 기준이 아니라 올해 확정된 데이터로 계산해 줘" 라는 말을 들었다.
+ *
+ * 파 보니 **계산은 이미 올해 것을 쓰고 있었다.** 서버는 달마다 따로
+ * 최신 연도를 고른다 — 오늘이 8월이면 1~8월 칸은 올해 실제 지급이고
+ * 9~12월 칸만 작년 것이다.
+ *
+ * 거짓말을 한 것은 라벨이었다. 이번 회차가 아닌 달에는 **조건 없이**
+ * '작년 기준' 이 붙었다. 연도를 한 번도 안 봤다. 열두 달 중 여덟 달의
+ * 라벨이 틀린 셈이다.
+ */
+describe("몇 년 것인지 제대로 적는다", () => {
+  const 올해 = new Date().getFullYear();
+
+  it("올해 받은 달에는 '올해 확정'", () => {
+    const r = 줄({ schedule: [{ month: 3, day: 20, amount: 0.2, year: 올해, 올해확정: true, actual: true }] });
+    expect(기준글(r, 3)).toBe("올해 확정");
+  });
+
+  it("작년 것에는 그 연도를 적는다 — '작년' 이라는 말로 뭉개지 않는다", () => {
+    /* 재작년 것이면 '작년 기준' 은 그냥 틀린 말이다 */
+    const r = 줄({ schedule: [{ month: 11, day: 20, amount: 0.2, year: 올해 - 1, 올해확정: false, actual: true }] });
+    expect(기준글(r, 11)).toBe(`${올해 - 1}년 기준`);
+  });
+
+  it("평균으로 메운 칸에는 연도를 안 적는다", () => {
+    /* 연도가 없는 값이다. '평균' 은 주당 금액 옆에 이미 적는다 */
+    const r = 줄({ schedule: [{ month: 5, day: 15, amount: 0.1, year: null, actual: false }] });
+    expect(기준글(r, 5)).toBeNull();
+  });
+
+  it("그 달 칸이 없으면 아무것도 안 적는다", () => {
+    expect(기준글(줄({ schedule: [] }), 7)).toBeNull();
+  });
+
+  it("옛 응답(올해확정 없음)은 연도로 판단한다", () => {
+    const r = 줄({ schedule: [{ month: 3, day: 20, amount: 0.2, year: 올해, actual: true }] });
+    expect(기준글(r, 3)).toBe("올해 확정");
+  });
+
+  it("화면에 '작년 기준' 을 조건 없이 찍지 않는다", async () => {
+    /* 이번 회차가 아닌 달을 골랐는데 그 달이 올해 것이면
+       '올해 확정' 이 떠야 한다 */
+    const 딴달 = (이번달 % 12) + 1;
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        currency: "USD", shares: 100, date: 이번달날(20),
+        months: [이번달, 딴달],
+        schedule: [
+          { month: 이번달, day: 20, amount: 0.2, year: 올해, 올해확정: true, actual: true },
+          { month: 딴달, day: 15, amount: 0.25, year: 올해, 올해확정: true, actual: true },
+        ],
+      })],
+      pending: 0,
+    });
+    그리기();
+    // 뼈대가 아니라 실제 내용이 뜰 때까지 기다린다
+    await screen.findByText("연간 배당금");
+    await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${딴달}월`) }));
+    expect(await screen.findByText("올해 확정")).toBeInTheDocument();
+    expect(screen.queryByText("작년 기준")).toBeNull();
+  });
+});
+
+/**
+ * 주배당은 한 달에 네다섯 번 준다.
+ *
+ * 그걸 한 칸으로 접으면 '8월 20일 · 주당 $0.189' 한 줄이 되는데,
+ * 날짜는 그 달 **마지막** 회차이고 금액은 그 달 **합계**다. 두 값의
+ * 기준이 서로 달라서, 나란히 찍으면 그냥 틀린 줄이다.
+ */
+describe("주배당은 날짜별로 다 적는다", () => {
+  const 올해 = new Date().getFullYear();
+  const 주배당줄 = (덮 = {}) => 줄({
+    currency: "USD", shares: 100, cycle: "주", per_month: 4.35,
+    date: 이번달날(27), months: Array.from({ length: 12 }, (_, i) => i + 1),
+    schedule: [{
+      month: 이번달, day: 27, amount: 0.252, year: 올해, 올해확정: true, actual: true,
+      days: [6, 13, 20, 27].map((d) => ({ date: 이번달날(d), amount: 0.063 })),
+    }],
+    ...덮,
+  });
+
+  it("그 달에 받은 날들을 그대로 준다", () => {
+    expect(그달날들(주배당줄(), 이번달).map((x) => x.amount)).toEqual([0.063, 0.063, 0.063, 0.063]);
+  });
+
+  it("앞으로 받을 날은 따로 온다 — 지난 것과 안 섞는다", () => {
+    /* 지난 지급은 실제로 들어온 돈이고, 앞으로는 추정이다.
+       한 배열에 담으면 화면이 둘을 구분할 방법이 없다 */
+    const r = 주배당줄({ upcoming: [{ date: 이번달날(28), amount: 0.063 }] });
+    expect(앞으로그달(r, 이번달)).toHaveLength(1);
+    expect(그달날들(r, 이번달)).toHaveLength(4);   // 지난 것은 그대로
+  });
+
+  it("다른 달의 앞으로는 안 섞인다", () => {
+    const 딴달 = (이번달 % 12) + 1;
+    const r = 주배당줄({ upcoming: [{ date: `${올해}-${String(딴달).padStart(2, "0")}-05`, amount: 0.063 }] });
+    expect(앞으로그달(r, 이번달)).toHaveLength(0);
+    expect(앞으로그달(r, 딴달)).toHaveLength(1);
+  });
+
+  it("화면에 날짜가 네 줄 다 나온다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당줄()], pending: 0 });
+    그리기();
+    await screen.findByText("연간 배당금");
+    for (const d of [6, 13, 20, 27]) {
+      expect(await screen.findByText(new RegExp(`${d}일 \\(.\\)`))).toBeInTheDocument();
+    }
+  });
+
+  it("합계라고 밝히고 회차 수를 적는다", async () => {
+    /* '주당 $0.252' 라고 쓰면 한 번에 그만큼 주는 줄로 읽는다 */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당줄()], pending: 0 });
+    그리기();
+    expect(await screen.findByText(/그 달 합계/)).toBeInTheDocument();
+    expect(screen.getByText(/\(4회\)/)).toBeInTheDocument();
+  });
+
+  it("앞으로의 날에는 '예상' 을 붙인다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [주배당줄({ upcoming: [{ date: 이번달날(28), amount: 0.063 }] })], pending: 0,
+    });
+    그리기();
+    await screen.findByText("연간 배당금");
+    expect(await screen.findByText(/·예상/)).toBeInTheDocument();
+  });
+
+  it("한 번만 주는 달은 날짜 목록을 안 만든다", async () => {
+    /* 분기배당에까지 목록을 붙이면 한 줄짜리 목록이 되어 어지럽다 */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        currency: "USD", shares: 100, date: 이번달날(20), months: [이번달],
+        schedule: [{ month: 이번달, day: 20, amount: 0.25, year: 올해, 올해확정: true, actual: true,
+                     days: [{ date: 이번달날(20), amount: 0.25 }] }],
+      })],
+      pending: 0,
+    });
+    그리기();
+    expect(await screen.findByText(/주당 \$0\.25/)).toBeInTheDocument();
+    expect(screen.queryByText(/그 달 합계/)).toBeNull();
+  });
+});
+
+describe("날과요일", () => {
+  it("날짜와 요일을 같이 적는다 — 주배당은 '매주 무슨 요일' 이 곧 성격이다", () => {
+    expect(날과요일("2026-09-03")).toBe("3일 (목)");
+    expect(날과요일("2026-09-06")).toBe("6일 (일)");
+  });
+
+  it("이상한 값에도 안 터진다", () => {
+    expect(날과요일("깨진값")).toBe("깨진값");
+  });
+});
+
+describe("입금일을 같이 적는다", () => {
+  it("공시된 지급일이 있으면 화면에 적는다", async () => {
+    /* 이 화면이 답해야 할 질문은 '언제 들어오나' 다. 지금까지 적던
+       날짜는 **기준일**(그날까지 갖고 있어야 받는 날)이지 입금일이
+       아니다. 둘은 보통 몇 주 차이가 난다 */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        currency: "USD", shares: 100, confirmed: true,
+        date: 이번달날(12), pay_date: 이번달날(26), months: [이번달],
+      })],
+      pending: 0,
+    });
+    그리기();
+    expect(await screen.findByText(/입금/)).toBeInTheDocument();
+  });
+
+  it("기준일과 같으면 두 번 안 적는다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({ currency: "USD", shares: 100, confirmed: true,
+                   date: 이번달날(12), pay_date: 이번달날(12), months: [이번달] })],
+      pending: 0,
+    });
+    그리기();
+    await screen.findByText("연간 배당금");
+    expect(screen.queryByText(/입금/)).toBeNull();
+  });
+});
+
+describe("지난 배당은 해마다 한 줄", () => {
+  it("주배당은 그 달 합계로 묶는다 — 같은 해가 두 번 찍히면 안 된다", () => {
+    /* 주배당은 한 달에 네다섯 건이라, 그냥 자르면 '2026 · 2026' 이
+       된다. 해마다 얼마였나를 보려고 만든 자리인데 아무것도 비교가
+       안 된다. 옆에 적히는 예상값도 그 달 합계라 기준이 맞는다 */
+    const r = 줄({ recent: [
+      { date: "2025-08-07", amount: 0.06 }, { date: "2025-08-14", amount: 0.06 },
+      { date: "2026-08-06", amount: 0.063 }, { date: "2026-08-13", amount: 0.063 },
+      { date: "2026-08-20", amount: 0.063 }, { date: "2026-08-27", amount: 0.063 },
+    ] });
+    expect(그달지난배당(r, 8)).toEqual([
+      { year: 2026, amount: 0.252 },
+      { year: 2025, amount: 0.12 },
+    ]);
+  });
+
+  it("한 번만 주는 달은 그대로", () => {
+    const r = 줄({ recent: [
+      { date: "2024-03-25", amount: 0.2 }, { date: "2025-03-25", amount: 0.22 },
+    ] });
+    expect(그달지난배당(r, 3)).toEqual([
+      { year: 2025, amount: 0.22 }, { year: 2024, amount: 0.2 },
+    ]);
+  });
+});
+
+/**
+ * 응답을 가볍게 — 서버가 미리 묶어 준다.
+ *
+ * 지난 지급 원본(recent)을 통째로 받아 화면에서 합치고 있었다.
+ * 주배당이면 한 종목에 104건이라, 열두 종목 응답의 **절반**이 그
+ * 배열이었다. 정작 화면이 쓰는 것은 '그 달에 해마다 얼마였나' 두 줄뿐이다.
+ */
+describe("월별지난 — 서버가 묶어 준 것을 쓴다", () => {
+  it("월별지난이 있으면 그걸 쓴다", () => {
+    const r = 줄({ 월별지난: [
+      { year: 2026, month: 8, amount: 0.252 },
+      { year: 2025, month: 8, amount: 0.12 },
+      { year: 2026, month: 7, amount: 0.189 },
+    ] });
+    expect(그달지난배당(r, 8)).toEqual([
+      { year: 2026, amount: 0.252 },
+      { year: 2025, amount: 0.12 },
+    ]);
+  });
+
+  it("다른 달은 안 섞인다", () => {
+    const r = 줄({ 월별지난: [
+      { year: 2026, month: 8, amount: 0.252 },
+      { year: 2026, month: 7, amount: 0.189 },
+    ] });
+    expect(그달지난배당(r, 7)).toEqual([{ year: 2026, amount: 0.189 }]);
+  });
+
+  it("최신 해부터 적는다", () => {
+    const r = 줄({ 월별지난: [
+      { year: 2024, month: 3, amount: 0.1 },
+      { year: 2026, month: 3, amount: 0.3 },
+      { year: 2025, month: 3, amount: 0.2 },
+    ] });
+    expect(그달지난배당(r, 3, 3).map((x) => x.year)).toEqual([2026, 2025, 2024]);
+  });
+
+  it("옛 응답(월별지난 없음)은 원본에서 묶는다", () => {
+    /* 배포가 엇갈리는 동안 옛 응답이 캐시에 남아 있을 수 있다.
+       그때 이 자리가 비면 근거 줄이 통째로 사라진다 */
+    const r = 줄({ recent: [
+      { date: "2026-08-06", amount: 0.063 }, { date: "2026-08-13", amount: 0.063 },
+      { date: "2025-08-07", amount: 0.06 },
+    ] });
+    expect(그달지난배당(r, 8)).toEqual([
+      { year: 2026, amount: 0.126 },
+      { year: 2025, amount: 0.06 },
+    ]);
+  });
+
+  it("둘 다 없으면 빈 목록", () => {
+    expect(그달지난배당(줄({ recent: undefined, 월별지난: undefined }), 3)).toEqual([]);
+  });
+});
+
+describe("지난 배당은 두 줄까지만", () => {
+  it("세 해가 있어도 최근 두 해만 — 자리가 한 줄이다", () => {
+    /* 좁은 화면에서는 이름 아래 한 줄에 들어간다. 다 적으면
+       그 줄이 넘쳐서 옆 칸을 밀어낸다 */
+    const r = 줄({ 월별지난: [
+      { year: 2026, month: 3, amount: 0.3 },
+      { year: 2025, month: 3, amount: 0.2 },
+      { year: 2024, month: 3, amount: 0.1 },
+    ] });
+    expect(그달지난배당(r, 3)).toHaveLength(2);
+    expect(그달지난배당(r, 3).map((x) => x.year)).toEqual([2026, 2025]);
+  });
+
+  it("몇 개인지 부르는 쪽이 정할 수 있다", () => {
+    const r = 줄({ 월별지난: [
+      { year: 2026, month: 3, amount: 0.3 },
+      { year: 2025, month: 3, amount: 0.2 },
+      { year: 2024, month: 3, amount: 0.1 },
+    ] });
+    expect(그달지난배당(r, 3, 3)).toHaveLength(3);
   });
 });

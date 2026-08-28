@@ -27,7 +27,8 @@ export interface 종목배당 {
   per_year: number;
   plan_year?: number;
   /** 달마다 며칠에 주당 얼마. actual 이 거짓이면 평균으로 메운 칸이다 */
-  schedule?: { month: number; day: number; amount: number; year: number | null; actual?: boolean }[];
+  schedule?: 배당월칸[];
+  upcoming?: { date: string; amount: number }[];
   ex_date: string | null;
   pay_date: string | null;
   /** 공시된 날짜가 없을 때 쓰는 추정치 */
@@ -383,6 +384,34 @@ export interface 자산흐름점 {
 }
 
 /** 배당 달력 한 줄 — 종목 하나의 다음 배당 */
+/** 한 달치 배당 일정 — 종목 배당과 배당 달력이 같은 모양을 쓴다 */
+export interface 배당월칸 {
+  month: number;
+  /** 그 달에 마지막으로 준 날. 주배당은 days 를 봐야 정확하다 */
+  day: number;
+  /** 그 달 **합계**. 주배당이면 네다섯 회차를 더한 값이다 */
+  amount: number;
+  year: number | null;
+  /** 이 칸이 **올해** 실제 지급에서 나왔나.
+   *
+   *  한 종목의 열두 칸은 서로 다른 해에서 나온다 — 오늘이 8월이면
+   *  1~8월은 올해, 9~12월은 작년이다. 화면이 그걸 밝혀야 한다.
+   *  예전에는 연도를 안 보고 모든 칸에 '작년 기준' 을 붙여서, 올해
+   *  3월에 받은 값 위에도 그 말이 찍혔다. */
+  올해확정?: boolean;
+  /** 그 달에 **날짜별로** 얼마씩 받았나.
+   *
+   *  주배당(연 52회)은 한 달에 네다섯 번 준다. 한 칸으로 접으면
+   *  날짜는 마지막 회차인데 금액은 그 달 합계라 둘의 기준이 어긋난다. */
+  days?: { date: string; amount: number }[];
+  /** 이 칸이 **실제 지급 내역**에서 나온 것인가.
+   *
+   *  주·월배당은 아직 한 해가 안 찬 종목에서 빈 달이 생기는데, 서버가
+   *  있는 달들의 평균으로 메운다. 그건 실제로 받은 값이 아니다 —
+   *  화면이 '평균' 이라고 밝힐 수 있게 표시가 온다. */
+  actual?: boolean;
+}
+
 export interface 배당줄 {
   symbol: string;
   market: string;
@@ -417,15 +446,14 @@ export interface 배당줄 {
    *  이게 없던 때는 마지막 회차 금액을 열두 달에 다 썼다. 분기배당은
    *  회차마다 금액이 다르므로(결산배당이 붙는 분기가 특히 크다) 그
    *  방식은 한 해 예상을 통째로 틀리게 만든다. */
-  schedule?: {
-    month: number; day: number; amount: number; year: number | null;
-    /** 이 칸이 **실제 지급 내역**에서 나온 것인가.
-     *
-     *  주·월배당은 아직 한 해가 안 찬 종목에서 빈 달이 생기는데, 서버가
-     *  있는 달들의 평균으로 메운다. 그건 실제로 받은 값이 아니다 —
-     *  화면이 '평균' 이라고 밝힐 수 있게 표시가 온다. */
-    actual?: boolean;
-  }[];
+  schedule?: 배당월칸[];
+  /** 앞으로 받을 날들 — 주·월배당만. **전부 추정이다.**
+   *  지난 지급(schedule[].days)과 다른 배열로 온다 — 섞으면 안 된다 */
+  upcoming?: { date: string; amount: number }[];
+  /** 공시된 날짜 원본. 지난 것도 담긴다.
+   *  '기준일은 지났고 지급일만 남았다' 를 화면이 말할 수 있게 */
+  ex_date_공시?: string | null;
+  pay_date_공시?: string | null;
   shares: number;
   /** 이번 회차의 **주당** 금액.
    *
@@ -433,10 +461,17 @@ export interface 배당줄 {
    *  달라서(결산배당이 붙는 분기가 크다) 마지막 회차는 다음 회차와
    *  아무 상관이 없다. 서버가 그 달에 실제로 준 금액을 골라 준다. */
   next_amount?: number;
+  /** 해·달마다 실제로 받은 합계 — 지난 내역을 압축한 것.
+   *
+   *  달력 응답은 recent(원본, 주배당이면 104건)를 안 싣는다. 화면이
+   *  쓰는 것은 '그 달에 해마다 얼마였나' 두 줄뿐인데, 원본은 열두
+   *  종목 응답의 절반을 차지했다. */
+  월별지난?: { year: number; month: number; amount: number }[];
   /** 이번 회차·한 해에 받을 것으로 보이는 돈. 안 갖고 있으면 null */
   expected: number | null;
   expected_year: number | null;
-  recent: { date: string; amount: number }[];
+  /** 지난 지급 원본. **달력 응답에는 안 온다** — 월별지난을 쓴다 */
+  recent?: { date: string; amount: number }[];
 }
 
 /** 보유 종목 뉴스 한 건 — 어느 종목으로 걸렸는지가 같이 온다 */

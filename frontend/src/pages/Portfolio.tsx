@@ -11,6 +11,8 @@ import { useAuthStore } from "@/store/authStore";
 import 차트틀 from "@/components/chart/ChartFrame";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors } from "@/hooks/usePnlColors";
+import { use배당달력 } from "@/hooks/useDividendCalendar";
+import { 내몫으로, 배당키 } from "@/components/portfolio/DividendCalendar";
 import { use돈 } from "@/hooks/useMoney";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import { extractErrorMessage } from "@/utils/errors";
@@ -428,7 +430,7 @@ export default function Portfolio() {
     useCallback(() => setWsPrices(null), []),
   );
 
-  const { data: batchPrices, isLoading: pricesLoading } = useQuery({
+  const { data: batchPrices, isLoading: pricesLoading, isError: 시세못받음 } = useQuery({
     queryKey:       ["portfolio-prices", priceableItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
     queryFn:        () => watchlistApi.getPrices(priceableItems.map((i) => i.symbol), priceableItems.map((i) => i.market)),
     enabled:        priceableItems.length > 0,
@@ -755,27 +757,12 @@ export default function Portfolio() {
 
      시세에 상한을 걸었으니(서버 4초) 이제 나란히 보낸다. 둘은 서로
      기다릴 이유가 없는 값이다 — 배당은 보유 목록만 있으면 낸다. */
-  const { data: 배당자료 } = useQuery({
-    queryKey: ["dividend-calendar", isAllView ? "all" : (selectedPortfolioId ?? "all")],
-    queryFn: () => portfolioApi.getDividends(isAllView ? undefined : (selectedPortfolioId ?? undefined)),
-    enabled: isLoggedIn && items.length > 0,
-    staleTime: 600_000,
-  });
+  const { data: 배당자료 } = use배당달력(
+    isAllView ? undefined : selectedPortfolioId,
+    isLoggedIn && items.length > 0,
+  );
 
-  const 배당정보 = useMemo<Record<string, 배당몫>>(() => {
-    const 칸: Record<string, 배당몫> = {};
-    for (const r of 배당자료?.items ?? []) {
-      /* plan_year(앞으로 한 해)를 쓴다. per_year 는 '지난 1년에 실제로
-         받은 합' 이라 배당 탭의 월별 막대 합계와 다른 숫자가 나온다 —
-         두 화면이 서로 다른 배당률을 말하게 된다. */
-      칸[r.symbol] = {
-        months: r.months ?? [],
-        perYear: r.plan_year ?? r.per_year ?? 0,
-        currency: r.currency,
-      };
-    }
-    return 칸;
-  }, [배당자료]);
+
 
 
 
@@ -805,6 +792,28 @@ export default function Portfolio() {
 
   const isLoading = itemsLoading || pricesLoading;
 
+  /**
+   * 시세를 **하나도** 못 받았나.
+   *
+   * 여기가 조용히 거짓말을 하고 있었다. 시세가 없으면 평가금액이
+   * 매입금액으로 떨어지도록 만들어 뒀는데(그래야 원화로 입력한 해외
+   * 종목에 환율을 두 번 곱하는 사고가 안 난다), 화면은 그 사실을
+   * 어디에도 안 적었다. 그래서 시세 조회가 통째로 실패하면 —
+   *
+   *     평가금액 = 매입금액,  평가손익 +0원 (0.00%)
+   *
+   * 이 나온다. 사람은 이걸 '본전' 으로 읽는다. 실제로는 **모른다** 가
+   * 맞는 답이다. 둘은 전혀 다른 말이다.
+   *
+   * 한 종목도 못 받았을 때만 센다. 몇 개만 빠진 것은 서버가 배경에서
+   * 마저 받아 오므로 곧 채워진다(위 재촉 주기).
+   */
+  const 시세전부실패 = useMemo(() => {
+    if (!isLoggedIn || priceableItems.length === 0 || pricesLoading) return false;
+    if (시세못받음) return true;
+    return priceableItems.every((i) => priceMap[i.id] == null);
+  }, [isLoggedIn, priceableItems, pricesLoading, 시세못받음, priceMap]);
+
   /* ── 미리보기 vs 실데이터 ── */
   const allDisplayEnriched = useMemo(
     () => (isLoggedIn ? sortedEnriched : 정렬(previewEnrichedLive)),
@@ -829,13 +838,38 @@ export default function Portfolio() {
        말하는 자리인지 로그인 전에는 알 수가 없다 */
     for (const e of allDisplayEnriched) {
       if (resolveAssetClass(e) === "현금") continue;   // 현금에는 배당이 없다
-      const 몫 = 칸[e.symbol] ?? (칸[e.symbol] = { 수량: 0, 원가: 0, 평가: 0 });
+      /* 심볼만으로 키를 잡고 있었다. 서버는 (심볼, 시장) 으로 나눠서
+         보내므로, 같은 심볼을 두 시장에 담아 둔 사람은 배당 응답에 두 줄을
+         받는다. 그 두 줄이 여기서 합쳐진 수량을 각각 다시 받아 두 배로
+         세어졌다. 목록의 react key 는 이미 `market:symbol` 을 쓰고 있어서
+         한 파일 안에서도 두 규칙이 섞여 있었다. */
+      const 키 = 배당키(e.market, e.symbol);
+      const 몫 = 칸[키] ?? (칸[키] = { 수량: 0, 원가: 0, 평가: 0 });
       몫.수량 += e.shares;
       몫.원가 += e.costKRW;
       몫.평가 += e.currentValueKRW;
     }
     return 칸;
   }, [allDisplayEnriched]);
+
+  const 배당정보 = useMemo<Record<string, 배당몫>>(() => {
+    const 칸: Record<string, 배당몫> = {};
+    /* 배당 탭과 **같은 함수**를 거친다.
+       예전에는 서버 응답을 그대로 돌았다. 그러면 전체 보기에서
+       포트폴리오를 제외해도 이 배지만 제외 전 기준으로 남는다 —
+       같은 화면의 두 자리가 서로 다른 모집단을 말하게 된다. */
+    for (const r of 내몫으로(배당자료?.items ?? [], 보유몫들)) {
+      /* plan_year(앞으로 한 해)를 쓴다. per_year 는 '지난 1년에 실제로
+         받은 합' 이라 배당 탭의 월별 막대 합계와 다른 숫자가 나온다 —
+         두 화면이 서로 다른 배당률을 말하게 된다. */
+      칸[배당키(r.market, r.symbol)] = {
+        months: r.months ?? [],
+        perYear: r.plan_year ?? r.per_year ?? 0,
+        currency: r.currency,
+      };
+    }
+    return 칸;
+  }, [배당자료, 보유몫들]);
 
   /* ── 로그인 전 미리보기 ──
      보유 수량만 예시고, 시세·시세이력·배당·뉴스는 **실제 값**이다.
@@ -1154,9 +1188,23 @@ export default function Portfolio() {
           {/* 지금 얼마인가 */}
           <div className="flex flex-col gap-1 px-4 pt-4 pb-3.5">
             <span className="text-2xs text-text-muted">{요약범위} 평가금액</span>
-            <span className="text-3xl leading-none font-mono font-bold text-text-primary num">
+            <span className={`text-3xl leading-none font-mono font-bold num ${
+              시세전부실패 ? "text-text-secondary" : "text-text-primary"
+            }`}>
               {돈.원(displaySummary.totalValue)}
             </span>
+            {/* 시세를 하나도 못 받았으면 이 숫자는 **매입금액**이다.
+                그렇게 만들어 둔 이유가 있다(원화로 입력한 해외 종목에
+                환율을 두 번 곱하는 사고를 막는다). 문제는 화면이 그
+                사실을 어디에도 안 적었다는 것이다 — 평가손익이 +0원
+                으로 뜨고, 사람은 그걸 '본전' 으로 읽는다.
+                실제로는 '모른다' 가 맞는 답이다. */}
+            {시세전부실패 && (
+              <span className="text-2xs text-accent-yellow break-keep">
+                지금 시세를 못 받았어요. 매입금액을 그대로 보여 주는 중이라
+                손익은 아직 알 수 없어요.
+              </span>
+            )}
           </div>
 
           {/* 얼마나 벌었나 — 줄마다 하나씩 */}
@@ -1544,7 +1592,7 @@ export default function Portfolio() {
                   exchangeRate={exchangeRate}
                   isAllView={isAllView}
                   isLoggedIn={isLoggedIn}
-                  배당={배당정보[item.symbol]}
+                  배당={배당정보[배당키(item.market, item.symbol)]}
                   onNavigate={handleRowNavigate}
                   onEdit={handleRowEdit}
                   onDelete={handleRowDelete}
@@ -1582,7 +1630,7 @@ export default function Portfolio() {
                     exchangeRate={exchangeRate}
                     isAllView={isAllView}
                     isLoggedIn={isLoggedIn}
-                    배당={배당정보[item.symbol]}
+                    배당={배당정보[배당키(item.market, item.symbol)]}
                     onNavigate={handleRowNavigate}
                     onEdit={handleRowEdit}
                     onDelete={handleRowDelete}

@@ -27,6 +27,31 @@ export interface NotificationItem {
   market?: string | null;
 }
 
+/**
+ * 알림 목록 캐시에서 한 줄의 읽음 표시만 바꾼다.
+ *
+ * 목록이 두 모양으로 담긴다 — 종(notiList)은 배열, 전체 화면(notiPage)은
+ * {items:[...]} 다. 한쪽만 고치면 종에서 읽은 것이 전체 화면에서는
+ * 안 읽은 채로 남는다.
+ */
+export function 표시하기<T>(prev: T, id: number, 읽음: boolean): T {
+  const 바꾸기 = (arr: NotificationItem[]) =>
+    arr.map((n) => (n.id === id ? { ...n, is_read: 읽음 } : n));
+  if (Array.isArray(prev)) return 바꾸기(prev as NotificationItem[]) as unknown as T;
+  const o = prev as { items?: NotificationItem[] } | undefined;
+  if (o && Array.isArray(o.items)) return { ...o, items: 바꾸기(o.items) } as unknown as T;
+  return prev;
+}
+
+/** 목록 전체를 읽음으로. '모두 읽음' 이 쓴다 */
+export function 모두읽음<T>(prev: T): T {
+  const 다 = (arr: NotificationItem[]) => arr.map((n) => (n.is_read ? n : { ...n, is_read: true }));
+  if (Array.isArray(prev)) return 다(prev as NotificationItem[]) as unknown as T;
+  const o = prev as { items?: NotificationItem[] } | undefined;
+  if (o && Array.isArray(o.items)) return { ...o, items: 다(o.items) } as unknown as T;
+  return prev;
+}
+
 export default function NotificationList({
   items,
   onNavigate,
@@ -40,14 +65,50 @@ export default function NotificationList({
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const open = async (n: NotificationItem) => {
+  /**
+   * 알림을 눌렀다 — 화면을 **먼저** 바꾸고 서버에는 뒤에 알린다.
+   *
+   * 예전에는 왕복을 둘이나 기다렸다.
+   *
+   *   눌림 → 서버에 '읽음' 알림(왕복 1) → 목록을 통째로 다시 받기(왕복 2)
+   *        → 그제서야 파란 배경이 사라지고 → 그제서야 화면이 넘어감
+   *
+   * 한 칸이 한국↔싱가포르 왕복이라, 누르고 나서 한참을 아무 일도 안
+   * 일어난 것처럼 보인다. 특히 가격 알림("8만원 됐어요")은 급해서 누르는
+   * 것이라 그 멈춤이 제일 크게 느껴진다.
+   *
+   * 커뮤니티 댓글이 이미 이렇게 한다 — 쓰면 목록에 곧바로 얹고, 서버는
+   * 뒤따라간다. 같은 방식으로 바꾼다.
+   *
+   *   1) 캐시를 지금 자리에서 고친다(읽음 표시 + 안 읽은 수 -1)
+   *   2) 곧바로 화면을 넘긴다
+   *   3) 서버에는 뒤에 알린다. 실패하면 되돌린다
+   */
+  const 읽음으로 = (id: number) => {
+    qc.setQueryData<{ items?: NotificationItem[] } | NotificationItem[]>(
+      ["notiList"], (prev) => 표시하기(prev, id, true));
+    qc.setQueryData<{ items?: NotificationItem[] } | NotificationItem[]>(
+      ["notiPage"], (prev) => 표시하기(prev, id, true));
+    qc.setQueryData<{ count: number; capped: boolean } | undefined>(
+      ["notiUnread"], (prev) =>
+        prev ? { ...prev, count: Math.max(0, (prev.count ?? 0) - 1) } : prev);
+  };
+
+  const 되돌리기 = (id: number) => {
+    qc.setQueryData<{ items?: NotificationItem[] } | NotificationItem[]>(
+      ["notiList"], (prev) => 표시하기(prev, id, false));
+    qc.setQueryData<{ items?: NotificationItem[] } | NotificationItem[]>(
+      ["notiPage"], (prev) => 표시하기(prev, id, false));
+    qc.invalidateQueries({ queryKey: ["notiUnread"] });
+  };
+
+  const open = (n: NotificationItem) => {
     onNavigate?.();
     if (!n.is_read) {
-      try {
-        await communityApi.markNotificationRead(n.id);
-        qc.invalidateQueries({ queryKey: ["notiUnread"] });
-        qc.invalidateQueries({ queryKey: ["notiList"] });
-      } catch { /* 읽음 표시에 실패해도 이동까지 막지는 않는다 */ }
+      읽음으로(n.id);
+      /* 기다리지 않는다. 이 요청의 결과로 화면이 달라질 것이 없다 —
+         이미 다 바꿔 놓았다. 실패했을 때만 되돌린다 */
+      communityApi.markNotificationRead(n.id).catch(() => 되돌리기(n.id));
     }
     const href = notificationHref(n);
     if (href) navigate(href);

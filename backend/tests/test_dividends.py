@@ -370,8 +370,14 @@ class Test월별일정:
         일정 = DV._월별일정(
             [{"date": d.isoformat(), "amount": a} for d, a in 내역],
             [d for d, _ in 내역], "분기")
-        assert 일정 == [{"month": 3, "day": 25, "amount": 0.25,
-                        "year": date.today().year - 1, "actual": True}]
+        칸 = 일정[0]
+        assert (칸["month"], 칸["day"], 칸["amount"]) == (3, 25, 0.25)
+        assert 칸["actual"] is True
+        # 작년 3월 지급뿐이니 올해 확정은 아니다 — 화면이 그렇게 적어야 한다
+        assert 칸["year"] == date.today().year - 1
+        assert 칸["올해확정"] is False
+        # 그 달에 며칠에 얼마씩 받았는지도 같이 온다(주배당을 위해)
+        assert [x["amount"] for x in 칸["days"]] == [0.25]
 
     def test_한_달에_여러_번_주면_합친다(self):
         """주배당·월배당은 한 달에 여러 번 들어온다. 하나만 세면
@@ -661,3 +667,303 @@ class Test실제와메움을_가른다:
         r = DV.한종목("QTR", "US")
         assert all(x.get("actual") for x in r["schedule"])
         assert len(r["schedule"]) <= 4
+
+
+# ── 전체가 부분보다 작아 보이던 것 ────────────────────────────
+class Test전체가_부분보다_작아_보이면_안_된다:
+    """실제로 받은 제보 —
+
+        포트폴리오1 배당금액 34만원
+        포트폴리오2 배당금액 89만원
+        전체 포트폴리오 배당금액 **34만원**
+
+    기전은 이렇다. 한 요청에 새로 받아 올 종목 수에 상한(한번에)이 있고,
+    못 받은 수를 pending 으로 내보낸다. 그런데 화면이 pending 을 안 보고
+    10분간 캐시했다. '전체' 를 먼저 열면 상한에 걸려 일부만 받아지고,
+    그 부분합이 '한 해 배당금' 으로 굳는다. 그 뒤 포트폴리오를 하나씩
+    열면 각각은 온전히 나오므로 전체가 부분보다 작아진다.
+
+    서버 쪽에서 못 박을 것 —
+      1) 못 받은 수를 정직하게 pending 으로 낸다(화면이 다시 물어볼 근거)
+      2) 다 캐시된 뒤에는 몇 종목이든 전부 낸다
+      3) 상한이 흔한 보유 규모보다는 넉넉하다
+    """
+
+    @staticmethod
+    def _티커(_sym=None, *a, **k):
+        return _가짜티커([(날(365), 100.0), (날(274), 100.0),
+                          (날(183), 100.0), (날(91), 100.0)])
+
+    @staticmethod
+    def _보유(n, 시작=0):
+        return [{"symbol": f"S{i}", "market": "US", "name": f"S{i}", "shares": 10}
+                for i in range(시작, 시작 + n)]
+
+    @staticmethod
+    def _합(r):
+        return sum(x["expected_year"] or 0 for x in r["items"])
+
+    def test_다_캐시되면_전체가_부분의_합과_같다(self, 야후):
+        """이게 어긋나면 사용자가 보는 숫자가 그냥 틀린 것이다."""
+        야후(self._티커())
+        P1, P2 = self._보유(5, 0), self._보유(5, 5)
+
+        # 각각 먼저 열어 캐시를 채운다
+        r1, r2 = DV.달력(list(P1)), DV.달력(list(P2))
+        assert r1["pending"] == 0 and r2["pending"] == 0
+
+        전체 = DV.달력(P1 + P2)
+        assert 전체["pending"] == 0
+        assert len(전체["items"]) == 10
+        assert self._합(전체) == pytest.approx(self._합(r1) + self._합(r2))
+
+    def test_못_받은_수를_숨기지_않는다(self, 야후):
+        """숨기면 화면은 부분합을 전체로 믿고 다시 물어볼 이유도 없다."""
+        야후(self._티커())
+        많이 = self._보유(DV.한번에 + 4)
+        r = DV.달력(많이)
+        assert r["pending"] == 4, f"pending 이 {r['pending']} 이다 — 빠진 것을 안 세고 있다"
+        assert len(r["items"]) == DV.한번에
+
+    def test_다시_물어보면_나머지가_채워진다(self, 야후):
+        """화면이 pending>0 인 동안 다시 묻는다. 그때 채워져야 뜻이 있다."""
+        야후(self._티커())
+        많이 = self._보유(DV.한번에 + 4)
+        DV.달력(많이)                      # 1회차 — 상한까지만
+        r = DV.달력(많이)                  # 2회차 — 나머지
+        assert r["pending"] == 0
+        assert len(r["items"]) == DV.한번에 + 4
+
+    def test_상한이_흔한_보유_규모보다_넉넉하다(self):
+        """6 이면 종목 열 개짜리 사람이 매번 첫 화면에서 틀린 합계를 본다.
+        캐시에 없는 종목에만 걸리는 상한이라 넉넉해도 손해가 적다."""
+        assert DV.한번에 >= 10
+
+    def test_상한이_무한은_아니다(self):
+        """상한을 없애면 스무 종목 가진 사람이 첫 요청에서 HTTP 40번을
+        기다린다. 상한이 있는 이유가 사라지면 안 된다."""
+        assert DV.한번에 <= 30
+
+
+# ── 응답 무게 ────────────────────────────────────────────────
+class Test응답을_가볍게:
+    """지난 지급 원본(recent)을 통째로 실어 보내고 있었다.
+
+    주배당(연 52회)이면 한 종목에 104건이다. 열두 종목이면 그 배열만
+    51KB — **응답의 절반**이고, 화면이 쓰는 것은 '그 달에 해마다
+    얼마였나' 두 줄뿐이다. 받아서 버리는 몫을 싱가포르에서 한국까지
+    나르는 셈이다.
+
+    해·달별 합계로 묶어 보낸다. 주배당에서 104건 → 24건(2년 × 12달)이다.
+    """
+
+    @staticmethod
+    def _주배당티커():
+        오늘 = date.today()
+        내역 = [(오늘 - timedelta(weeks=i), 0.063) for i in range(104)][::-1]
+        return _가짜티커(내역)
+
+    def test_해달별_합계를_같이_준다(self, 야후):
+        야후(self._주배당티커())
+        r = DV.한종목("WKLY", "US")
+        묶음 = r["월별지난"]
+        assert 묶음, "월별지난이 비었다"
+        # 2년치 주배당이면 달마다 한 줄씩 최대 24줄
+        assert len(묶음) <= 24
+        # 한 달 안의 회차를 합쳤는지 — 주배당은 달마다 4~5회다
+        이번달 = next(x for x in 묶음 if (x["year"], x["month"]) ==
+                      (date.today().year, date.today().month))
+        assert 이번달["amount"] > 0.063, "한 회차만 세고 있다"
+
+    def test_최신부터_적는다(self, 야후):
+        야후(self._주배당티커())
+        묶음 = DV.한종목("WKLY", "US")["월별지난"]
+        연월 = [(x["year"], x["month"]) for x in 묶음]
+        assert 연월 == sorted(연월, reverse=True)
+
+    def test_달력_응답에는_원본을_안_싣는다(self, 야후):
+        """화면이 안 쓰는 배열이다. 한 종목이면 몰라도 스무 종목이면
+        응답의 절반이 된다."""
+        야후(self._주배당티커())
+        보유 = [{"symbol": "WKLY", "market": "US", "name": "WKLY", "shares": 10}]
+        DV.달력(list(보유))
+        r = DV.달력(list(보유))
+        줄 = r["items"][0]
+        assert "recent" not in 줄, "지난 내역 원본이 아직 실려 있다"
+        assert 줄["월별지난"], "대신 쓸 묶음이 없다"
+
+    def test_종목_상세_경로에는_원본이_남는다(self, 야후):
+        """거기는 한 종목뿐이라 값이 싸고, 앞으로 원본이 필요한 화면이
+        생길 수 있다."""
+        야후(self._주배당티커())
+        r = DV.한종목("WKLY", "US")
+        assert len(r["recent"]) > 24
+
+    def test_실제로_가벼워졌는지_재_본다(self, 야후):
+        import json
+        야후(self._주배당티커())
+        보유 = [{"symbol": f"W{i}", "market": "US", "name": f"W{i}", "shares": 10}
+                for i in range(12)]
+        DV.달력(list(보유))
+        r = DV.달력(list(보유))
+        크기 = len(json.dumps(r, ensure_ascii=False).encode())
+        # 원본을 실으면 10만 바이트를 넘었다. 넉넉히 잡아도 8만 밑이어야 한다
+        assert 크기 < 80_000, f"응답이 {크기:,}바이트다"
+
+
+# ── 뮤테이션이 잡아낸 빈 자리들 ──────────────────────────────
+class Test빈손_종목이_칸을_안_태운다:
+    """조사에서 나온 것 — 배당을 **안 주는** 종목이 매 요청마다 조회
+    칸을 하나씩 태우고 있었다.
+
+    무배당 종목은 값 캐시에 아무것도 안 담긴다. 대신 다른 열쇠에
+    '빈손' 표시만 남는다. 그래서 '아직 못 받았다' 로 오해받아 칸을
+    쓰는데, 정작 조회는 곧바로 빈손을 돌려주므로 목록에 한 줄도 안
+    보탠다 — **칸만 태우고 아무것도 안 채운다.**
+
+    무배당 종목이 상한(한번에)만큼 있으면 배당 주는 종목은 한 개도
+    새로 못 받는다. 그리고 pending 이 영영 0 이 안 되므로 화면이
+    4초마다 영원히 서버를 두드린다.
+    """
+
+    @staticmethod
+    def _반반(sym=None, *a, **k):
+        """S0~S4 만 배당을 준다. 나머지는 무배당"""
+        번호 = int(str(sym).lstrip("S").split(".")[0] or 0)
+        if 번호 >= 5:
+            return _가짜티커([])
+        return _가짜티커([(날(365), 100.0), (날(274), 100.0),
+                          (날(183), 100.0), (날(91), 100.0)])
+
+    @staticmethod
+    def _보유(n):
+        return [{"symbol": f"S{i}", "market": "US", "name": f"S{i}", "shares": 10}
+                for i in range(n)]
+
+    def test_무배당이_많아도_pending_이_0_으로_내려간다(self, 야후, monkeypatch):
+        import yfinance as yf
+        monkeypatch.setattr(yf, "Ticker", self._반반)
+        보유 = self._보유(DV.한번에 + 8)          # 배당 5 + 무배당 나머지
+
+        for _ in range(4):
+            r = DV.달력(list(보유))
+        assert r["pending"] == 0, \
+            f"무배당 종목이 칸을 태우고 있다 — pending 이 {r['pending']} 에서 안 내려간다"
+        assert len(r["items"]) == 5
+
+    def test_무배당이_배당_종목을_한_회차만_늦춘다(self, monkeypatch):
+        """무배당이 상한만큼 앞에 있으면 배당 종목이 뒤로 밀린다.
+
+        **첫 요청은 어쩔 수 없다.** 배당을 주는지 안 주는지는 물어봐야
+        아는 것이라, 첫 회차는 무배당 종목에도 칸을 쓴다. 여기서 못
+        박는 것은 그다음이다 — 한 번 물어본 뒤로는 그 종목이 칸을 안
+        쓰므로, **두 번째 요청에 전부 들어와야 한다.**
+
+        고치기 전에는 그 '그다음' 이 없었다. 빈손 표시가 값 캐시와
+        다른 열쇠에 남아서, 무배당 종목이 매 요청마다 영원히 칸을
+        태웠다 — 배당 종목은 영영 못 들어왔다."""
+        import yfinance as yf
+        monkeypatch.setattr(yf, "Ticker", self._반반)
+        # 무배당(S5~)을 앞에, 배당(S0~S4)을 뒤에 둔다
+        보유 = ([{"symbol": f"S{i}", "market": "US", "name": f"S{i}", "shares": 10}
+                 for i in range(5, 5 + DV.한번에 + 4)]
+                + [{"symbol": f"S{i}", "market": "US", "name": f"S{i}", "shares": 10}
+                   for i in range(5)])
+        DV.달력(list(보유))                    # 1회차 — 무배당을 알아 가는 회차
+        r = DV.달력(list(보유))                # 2회차
+        assert len(r["items"]) == 5, \
+            f"두 번째인데도 배당 종목이 {len(r['items'])}개만 들어왔다"
+        assert r["pending"] == 0
+
+
+class Test올해_것을_먼저_쓴다:
+    """'작년 기준이 아니라 올해 확정된 데이터로' 라는 말을 들었다.
+
+    실제로는 계산이 이미 올해 것을 쓰고 있었지만, 규칙이 '자료의
+    마지막에 나온 해' 라 **우연**이었다. 자료 순서가 흔들리면 조용히
+    작년 것을 쓰게 된다. 규칙을 명시로 바꿨으니 그걸 못 박는다.
+    """
+
+    def test_같은_달에_두_해가_있으면_올해_것을_쓴다(self):
+        올해 = date.today().year
+        내역 = [(date(올해 - 1, 3, 20), 0.20), (date(올해, 3, 25), 0.30)]
+        일정 = DV._월별일정(
+            [{"date": d.isoformat(), "amount": a} for d, a in 내역],
+            [d for d, _ in 내역], "분기")
+        칸 = 일정[0]
+        assert 칸["year"] == 올해 and 칸["amount"] == pytest.approx(0.30)
+        assert 칸["올해확정"] is True
+
+    def test_자료_순서가_거꾸로여도_올해를_고른다(self):
+        """'마지막에 나온 해' 규칙은 순서에 기댄다. 순서가 흔들리면
+        조용히 작년 값을 쓰게 된다."""
+        올해 = date.today().year
+        내역 = [(date(올해, 3, 25), 0.30), (date(올해 - 1, 3, 20), 0.20)]
+        일정 = DV._월별일정(
+            [{"date": d.isoformat(), "amount": a} for d, a in 내역],
+            [d for d, _ in 내역], "분기")
+        assert 일정[0]["year"] == 올해
+        assert 일정[0]["amount"] == pytest.approx(0.30)
+
+    def test_올해_것이_없으면_작년으로_떨어진다(self):
+        """아직 안 온 달은 작년 값을 쓸 수밖에 없다. 다만 그렇다고
+        표시해야 화면이 '작년 기준' 이라고 정직하게 적는다."""
+        올해 = date.today().year
+        내역 = [(date(올해 - 1, 11, 20), 0.35)]
+        일정 = DV._월별일정(
+            [{"date": d.isoformat(), "amount": a} for d, a in 내역],
+            [d for d, _ in 내역], "분기")
+        assert 일정[0]["year"] == 올해 - 1
+        assert 일정[0]["올해확정"] is False
+
+
+class Test주배당_다음_날짜:
+    """주배당의 '다음 배당일' 이 최대 한 달까지 어긋났다.
+
+    월별 일정 칸에는 그 달에 **마지막으로 준 날** 하나만 있다.
+    주배당(7일마다)에 그걸 쓰면, 이번 달 지급이 끝난 뒤부터는 다음
+    달 마지막 주까지 통째로 건너뛴다 — 매주 받는 사람에게 '다음
+    배당은 한 달 뒤' 라고 말하는 셈이다.
+    """
+
+    def test_주배당은_한_주_안에_다음_날짜가_잡힌다(self, 야후):
+        내역 = [(날(7 * i), 0.063) for i in range(1, 60)][::-1]
+        야후(_가짜티커(내역))
+        r = DV.한종목("WKLY", "US")
+        assert r["cycle"] == "주"
+        다음 = date.fromisoformat(r["estimated_date"])
+        간격 = (다음 - date.today()).days
+        assert 0 <= 간격 <= 8, f"주배당인데 다음 배당이 {간격}일 뒤다"
+
+    def test_분기배당은_실제로_준_달을_그대로_쓴다(self, 야후):
+        """주기로 밀면(91일씩) 회차마다 며칠씩 밀려 몇 해 뒤에는 달이
+        바뀐다 — 3월 말에 주던 종목이 4월로 넘어간다."""
+        올해 = date.today().year
+        내역 = [(date(올해 - 1, m, 20), 0.25) for m in (2, 5, 8, 11)]
+        야후(_가짜티커(내역))
+        r = DV.한종목("QTR", "US")
+        assert r["cycle"] == "분기"
+        다음 = date.fromisoformat(r["estimated_date"])
+        assert 다음.day == 20, f"실제로 준 날(20일)이 아니라 {다음.day}일로 밀었다"
+        assert 다음.month in (2, 5, 8, 11)
+
+    def test_주배당은_앞으로의_날짜를_따로_준다(self, 야후):
+        """'언제 받나' 가 곧 '매주 무슨 요일' 인 종목이다. 날짜 하나로는
+        그 모양을 못 보여 준다."""
+        내역 = [(날(7 * i), 0.063) for i in range(1, 60)][::-1]
+        야후(_가짜티커(내역))
+        r = DV.한종목("WKLY", "US")
+        앞 = r["upcoming"]
+        assert len(앞) == DV.앞으로_최대
+        날짜들 = [date.fromisoformat(x["date"]) for x in 앞]
+        assert all(d >= date.today() for d in 날짜들), "지난 날짜가 섞였다"
+        assert 날짜들 == sorted(날짜들)
+        # 7일 간격이어야 한다
+        assert all((b - a).days == 7 for a, b in zip(날짜들, 날짜들[1:]))
+
+    def test_분기배당에는_앞으로_목록을_안_만든다(self, 야후):
+        """석 달에 한 번 주는 종목에 여덟 줄을 적으면 어지럽기만 하다"""
+        올해 = date.today().year
+        내역 = [(date(올해 - 1, m, 20), 0.25) for m in (2, 5, 8, 11)]
+        야후(_가짜티커(내역))
+        assert DV.한종목("QTR", "US")["upcoming"] == []

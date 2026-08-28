@@ -23,7 +23,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DividendCalendar, {
-  원천징수, 세율, 회차금액, 한달금액, 달마다, 내몫으로, type 보유몫,
+  원천징수, 세율, 회차금액, 한달금액, 달마다, 내몫으로, 배당키, type 보유몫,
 } from "@/components/portfolio/DividendCalendar";
 import { portfolioApi, type 배당줄 } from "@/api/stocks";
 
@@ -228,26 +228,26 @@ describe("내몫으로 — 화면이 보고 있는 수량으로 맞춘다", () =
   });
 
   it("보유에 없는 심볼은 뺀다 — 화면에서 빠진 종목의 배당까지 세면 안 된다", () => {
-    const 결과 = 내몫으로([원화줄(), 달러줄()], { "005930": 몫(100) });
+    const 결과 = 내몫으로([원화줄(), 달러줄()], { [배당키("KR", "005930")]: 몫(100) });
     expect(결과).toHaveLength(1);
     expect(결과[0].symbol).toBe("005930");
   });
 
   it("수량 0 인 심볼도 뺀다 — 관심종목만 남기면 안 준 배당이 합계에 들어간다", () => {
     const 결과 = 내몫으로([원화줄(), 달러줄()], {
-      "005930": 몫(0),
-      "SCHD": 몫(200),
+      [배당키("KR", "005930")]: 몫(0),
+      [배당키("US", "SCHD")]: 몫(200),
     });
     expect(결과.map((r) => r.symbol)).toEqual(["SCHD"]);
     /* 경계 — 0 만 걸러도 '<= 0' 을 '=== 0' 으로 바꾸는 뮤테이션이 지나간다 */
-    expect(내몫으로([원화줄()], { "005930": 몫(-5) })).toHaveLength(0);
-    expect(내몫으로([원화줄()], { "005930": 몫(1) })).toHaveLength(1);
+    expect(내몫으로([원화줄()], { [배당키("KR", "005930")]: 몫(-5) })).toHaveLength(0);
+    expect(내몫으로([원화줄()], { [배당키("KR", "005930")]: 몫(1) })).toHaveLength(1);
   });
 
   it("수량이 다르면 그 수량으로 바꿔 준다 — 전량으로 세면 배당률이 말이 안 되게 커진다", () => {
     /* 서버는 가진 것 전부(200주)를 세는데 화면은 포트폴리오 하나(100주)만
        보고 있다. 수량을 안 맞추면 분자만 두 배가 된다 */
-    const 결과 = 내몫으로([원화줄({ shares: 200 })], { "005930": 몫(100) });
+    const 결과 = 내몫으로([원화줄({ shares: 200 })], { [배당키("KR", "005930")]: 몫(100) });
     expect(결과).toHaveLength(1);
     expect(결과[0].shares).toBe(100);
     // 존재만 보지 않고 값까지 — 줄어든 수량이 금액에 실제로 반영되는가
@@ -258,7 +258,7 @@ describe("내몫으로 — 화면이 보고 있는 수량으로 맞춘다", () =
   it("원본 배당줄을 건드리지 않는다 — 캐시에 든 서버 응답을 덮어쓰면 되돌릴 길이 없다", () => {
     const 원본줄 = 원화줄({ shares: 200 });
     const 원본 = [원본줄];
-    const 결과 = 내몫으로(원본, { "005930": 몫(100) });
+    const 결과 = 내몫으로(원본, { [배당키("KR", "005930")]: 몫(100) });
     expect(원본줄.shares).toBe(200);        // 원본은 전량 그대로
     expect(원본).toHaveLength(1);
     expect(결과[0]).not.toBe(원본줄);       // 새 객체를 만들어 준다
@@ -273,7 +273,7 @@ describe("내몫으로 — 화면이 보고 있는 수량으로 맞춘다", () =
 
 describe("배당률 두 가지", () => {
   /* 원화 1000원 × 100주 × 3·6·9·12월 = 한 해 400,000원 */
-  const 보유 = { "005930": { 수량: 100, 원가: 5_000_000, 평가: 6_000_000 } };
+  const 보유 = { [배당키("KR", "005930")]: { 수량: 100, 원가: 5_000_000, 평가: 6_000_000 } };
 
   it("연간 배당금·투자 배당률·시가 배당률 세 칸이 다 나온다", async () => {
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({
@@ -337,7 +337,7 @@ describe("배당률 두 가지", () => {
 
 
 describe("세전 · 세후 토글", () => {
-  const 보유 = { "005930": { 수량: 100, 원가: 5_000_000, 평가: 6_000_000 } };
+  const 보유 = { [배당키("KR", "005930")]: { 수량: 100, 원가: 5_000_000, 평가: 6_000_000 } };
 
   it("세전에는 세금 근거를 안 쓴다 — 안 뗀 값 옆에 세율을 적으면 뗀 줄 안다", async () => {
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({
@@ -400,8 +400,8 @@ describe("세전 · 세후 토글", () => {
       items: [원화줄({ months: [3] }), 달러줄({ months: [3] })], pending: 0,
     });
     그리기({ 보유: {
-      "005930": { 수량: 100, 원가: 5_000_000, 평가: 6_000_000 },
-      "SCHD": { 수량: 200, 원가: 5_000_000, 평가: 6_000_000 },
+      [배당키("KR", "005930")]: { 수량: 100, 원가: 5_000_000, 평가: 6_000_000 },
+      [배당키("US", "SCHD")]: { 수량: 200, 원가: 5_000_000, 평가: 6_000_000 },
     } });
     await screen.findByText("연간 배당금");
     expect(요약칸("연간 배당금").getByText("₩240,000")).toBeInTheDocument();
@@ -413,5 +413,43 @@ describe("세전 · 세후 토글", () => {
     // 목록 전체에 한 세율만 먹였을 때 나오는 값들
     expect(screen.queryByText("₩203,040")).not.toBeInTheDocument();  // 둘 다 국내 15.4%
     expect(screen.queryByText("₩204,000")).not.toBeInTheDocument();  // 둘 다 해외 15%
+  });
+});
+
+/**
+ * 시장까지 넣어 짝을 맞춘다.
+ *
+ * 심볼만으로 찾고 있었다. 서버는 (심볼, 시장) 으로 나눠 보내므로,
+ * 같은 심볼을 두 시장에 담아 둔 사람은 응답에 두 줄을 받는다. 그 두
+ * 줄이 **합쳐진 수량**을 각각 받아 배당이 두 배로 세어졌다.
+ *
+ * 같은 파일이 목록의 react key 로는 이미 `market:symbol` 을 쓰고
+ * 있었으니, 한 파일 안에서 두 규칙이 섞여 있던 셈이다.
+ */
+describe("같은 심볼이 두 시장에 있어도 안 겹친다", () => {
+  const 몫 = (수량: number): 보유몫 => ({ 수량, 원가: 1, 평가: 1 });
+
+  it("시장이 다르면 다른 종목으로 센다", () => {
+    const 미국 = 달러줄({ symbol: "SCHD", market: "US", shares: 999 });
+    const 국내 = 달러줄({ symbol: "SCHD", market: "ETF", shares: 999 });
+    const 결과 = 내몫으로([미국, 국내], {
+      [배당키("US", "SCHD")]: 몫(100),
+      [배당키("ETF", "SCHD")]: 몫(30),
+    });
+    expect(결과.map((r) => [r.market, r.shares])).toEqual([["US", 100], ["ETF", 30]]);
+  });
+
+  it("한쪽만 갖고 있으면 그 한 줄만 남는다", () => {
+    /* 심볼로만 찾던 때는 안 가진 쪽까지 통과시켜 두 배로 셌다 */
+    const 미국 = 달러줄({ symbol: "SCHD", market: "US" });
+    const 국내 = 달러줄({ symbol: "SCHD", market: "ETF" });
+    const 결과 = 내몫으로([미국, 국내], { [배당키("US", "SCHD")]: 몫(100) });
+    expect(결과).toHaveLength(1);
+    expect(결과[0].market).toBe("US");
+  });
+
+  it("배당키는 시장과 심볼을 둘 다 쓴다", () => {
+    expect(배당키("US", "SCHD")).not.toBe(배당키("ETF", "SCHD"));
+    expect(배당키("KR", "005930")).toContain("005930");
   });
 });
