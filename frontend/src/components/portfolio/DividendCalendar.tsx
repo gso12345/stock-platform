@@ -331,6 +331,40 @@ export function 날짜별로(줄들: 배당줄[], 달: number, 환율: number, �
  *  배당금(분자)은 서버가 주는데, '얼마를 넣어서 그만큼 받나'(분모)는
  *  내 자산 화면만 안다. 그래서 위에서 내려받는다 — 새 요청을 하나 더
  *  보내지 않으려는 것이기도 하다(무료 서버는 0.15 CPU 다). */
+/**
+ * 왼쪽 칸에 뭐라고 적을까 — 'D-3' 인가 '오늘' 인가 '입금 D-2' 인가.
+ *
+ * 여기가 틀린 말을 하고 있었다. 화면을 찍어 보고 알았다.
+ *
+ *   기준일 8월 22일 · 오늘 8월 28일  →  화면에는 **"오늘"**
+ *
+ * 남은날()이 음수(-6)를 주는데 `남음 <= 0` 을 '오늘' 로 묶었기 때문이다.
+ * 이미 엿새 지난 날을 오늘이라고 한 셈이고, 그 말을 믿으면 오늘 사도
+ * 이번 배당을 받는 줄 안다 — 기준일이 지났으면 못 받는다.
+ *
+ * 게다가 이 상태(기준일은 지났고 지급일은 아직)가 배당에서 제일 흔하다.
+ * 그때 정작 알고 싶은 것은 '언제 통장에 꽂히나' 다.
+ *
+ *   기준일이 아직   → D-3        (그날까지 갖고 있어야 받는다)
+ *   기준일이 오늘   → 오늘
+ *   기준일은 지났고 입금일이 아직 → 입금 D-2
+ *   둘 다 지났다   → 완료
+ */
+export function 남은글(r: { date: string; pay_date?: string | null },
+                       오늘 = new Date()): { 글: string; 강조: boolean } {
+  const 기준 = 남은날(r.date, 오늘);
+  if (기준 > 0) return { 글: `D-${기준}`, 강조: false };
+  if (기준 === 0) return { 글: "오늘", 강조: true };
+  if (r.pay_date) {
+    const 입금 = 남은날(r.pay_date, 오늘);
+    if (입금 > 0) return { 글: `입금 D-${입금}`, 강조: false };
+    if (입금 === 0) return { 글: "입금일", 강조: true };
+  }
+  /* 기준일이 지났는데 지급일을 모르면 '완료' 라고 못 한다 — 아직 안
+     들어왔을 수도 있다. 지난 일이라는 것만 말한다 */
+  return { 글: r.pay_date ? "완료" : "지남", 강조: false };
+}
+
 export interface 보유몫 { 수량: number; 원가: number; 평가: number }
 
 /**
@@ -714,7 +748,10 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
                다른 달도 이제는 날짜를 안다 — 서버가 그 달에 **실제로 준 날**
                (schedule.day)을 보내 준다. 예전에는 '3월' 이라고만 적었다. */
             const 예정 = 고른달 === Number(r.date.split("-")[1]);
-            const 남음 = 예정 ? 남은날(r.date) : null;
+            /* 'D-3' / '오늘' / '입금 D-2' / '지남' 을 한자리에서 고른다.
+               예전에는 여기서 남은날() <= 0 을 죄다 '오늘' 로 묶었다 —
+               엿새 지난 기준일에도 '오늘' 이 찍혔다 */
+            const 남은 = 예정 ? 남은글(r) : null;
             const 그날 = 그달날(r, 고른달);
             const 주당 = r.schedule?.find((x) => x.month === 고른달)?.amount
               ?? (예정 ? (r.next_amount ?? r.last_amount) : r.last_amount);
@@ -747,11 +784,12 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
               <li key={`${r.market}:${r.symbol}`}
                   className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] sm:grid-cols-[4rem_minmax(0,1fr)_11rem_auto] items-start gap-x-3 gap-y-1 py-2.5 border-b border-border/50 last:border-b-0">
                 <div className="flex flex-col items-center pt-0.5">
-                  {예정 ? (
+                  {예정 && 남은 ? (
                     <>
-                      <span className={`text-2xs font-semibold ${r.confirmed ? "text-accent-green" : "text-text-dim"}`}>
-                        {남음 != null && 남음 <= 0 ? "오늘" : `D-${남음}`}
-                      </span>
+                      <span className={`text-2xs font-semibold ${
+                        남은.강조 ? "text-accent-green"
+                                  : r.confirmed ? "text-accent-green/80" : "text-text-dim"
+                      }`}>{남은.글}</span>
                       <span className="text-2xs text-text-dim whitespace-nowrap">
                         {r.confirmed ? 날짜글(r.date) : 어림날짜글(r.date)}
                       </span>
@@ -822,23 +860,15 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
 
                       **받은 날과 받을 날을 섞지 않는다.** 지난 것은 실제로
                       들어온 돈이고 앞으로의 것은 추정이다. 색과 말로 가른다. */}
-                  {여러번 && (
-                    <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
-                      {받은날들.map((x) => (
-                        <span key={x.date} className="text-2xs text-text-secondary whitespace-nowrap">
-                          {날과요일(x.date)} <span className="text-text-dim">{원본돈(x.amount, r.currency)}</span>
-                        </span>
-                      ))}
-                      {받을날들.map((x) => (
-                        <span key={x.date} className="text-2xs text-text-dim whitespace-nowrap">
-                          {날과요일(x.date)} <span className="opacity-70">{원본돈(x.amount, r.currency)}</span>
-                          <span className="text-text-muted">·예상</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {/* 몇 월에 주는지. 분기배당이라도 회사마다 달이 다르다 */}
-                  {r.months && r.months.length > 0 && r.months.length < 12 && (
+                  {/* 날짜별 나열은 여기서 안 한다.
+                      주배당이면 이 자리에 네다섯 줄이 깔려서, 종목 다섯
+                      개짜리 목록이 스무 줄이 됐다 — 화면을 찍어 보고
+                      알았다. 날짜가 궁금하면 위 '날짜별' 칩이 그 일을
+                      제대로 한다(날짜를 머리글로 세우고 합계까지 낸다). */}
+                  {/* 몇 월에 주는지. 분기배당이라도 회사마다 달이 다르다.
+                      한 달짜리는 안 적는다 — '배당월 8' 은 바로 위에
+                      적힌 것을 한 번 더 말하는 줄이다 */}
+                  {r.months && r.months.length > 1 && r.months.length < 12 && (
                     <p className="text-2xs text-text-dim truncate">배당월 {r.months.join("·")}</p>
                   )}
                   {지난배당글 && (

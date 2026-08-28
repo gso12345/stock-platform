@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈, 회차금액, 그달지난배당, 실제값인가, 짧은돈, 기준글, 그달날들, 앞으로그달, 날과요일, 날짜별로, 점날짜 }
+import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈, 회차금액, 그달지난배당, 실제값인가, 짧은돈, 기준글, 그달날들, 앞으로그달, 날과요일, 날짜별로, 점날짜, 남은글 }
   from "@/components/portfolio/DividendCalendar";
 import { portfolioApi, type 배당줄 } from "@/api/stocks";
 
@@ -693,11 +693,18 @@ describe("주배당은 날짜별로 다 적는다", () => {
   });
 
   it("화면에 날짜가 네 줄 다 나온다", async () => {
+    /* 이 보장은 그대로다. 다만 **어디에 있느냐**가 바뀌었다.
+       예전에는 종목별 줄 안에 날짜를 늘어놨는데, 화면을 찍어 보니
+       주배당 종목 하나가 네다섯 줄을 먹어서 목록이 통째로 빽빽했다.
+       이제 '날짜별' 칩이 그 일을 한다 — 날짜를 머리글로 세우고
+       그날 합계까지 낸다. 사진 속 배당 앱과 같은 모양이다. */
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당줄()], pending: 0 });
     그리기();
     await screen.findByText("연간 배당금");
+    await userEvent.click(await screen.findByRole("button", { name: "날짜별" }));
+    const 달 = String(이번달).padStart(2, "0");
     for (const d of [6, 13, 20, 27]) {
-      expect(await screen.findByText(new RegExp(`${d}일 \\(.\\)`))).toBeInTheDocument();
+      expect(screen.getByText(`${달}.${String(d).padStart(2, "0")}`)).toBeInTheDocument();
     }
   });
 
@@ -710,12 +717,15 @@ describe("주배당은 날짜별로 다 적는다", () => {
   });
 
   it("앞으로의 날에는 '예상' 을 붙인다", async () => {
+    /* 지난 것은 실제로 들어온 돈이고 앞으로의 것은 추정이다.
+       섞이면 어느 쪽이 사실인지 알 길이 없어진다 */
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({
       items: [주배당줄({ upcoming: [{ date: 이번달날(28), amount: 0.063 }] })], pending: 0,
     });
     그리기();
     await screen.findByText("연간 배당금");
-    expect(await screen.findByText(/·예상/)).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "날짜별" }));
+    expect(screen.getByText("예상")).toBeInTheDocument();
   });
 
   it("한 번만 주는 달은 날짜 목록을 안 만든다", async () => {
@@ -1034,5 +1044,104 @@ describe("날짜별 화면", () => {
     그리기();
     await waitFor(() => expect(screen.getByText(/삼성전자/)).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "날짜별" })).not.toBeInTheDocument();
+  });
+});
+
+
+/**
+ * ── 왼쪽 칸에 뭐라고 적나 ──
+ *
+ * 화면을 찍어 보고 찾은 거짓말이다.
+ *
+ *   기준일 8월 22일 · 오늘 8월 28일  →  화면에는 **"오늘"**
+ *
+ * 남은날()이 음수(-6)를 주는데 `남음 <= 0` 을 '오늘' 로 묶었다. 이미
+ * 엿새 지난 날을 오늘이라고 한 셈이고, 그 말을 믿으면 오늘 사도 이번
+ * 배당을 받는 줄 안다 — 기준일이 지났으면 못 받는다.
+ */
+describe("남은글", () => {
+  const 오늘 = new Date(2026, 7, 28);          // 8월 28일
+
+  it("기준일이 아직이면 D-N", () => {
+    expect(남은글({ date: "2026-08-31" }, 오늘)).toEqual({ 글: "D-3", 강조: false });
+  });
+
+  it("기준일이 오늘이면 오늘", () => {
+    expect(남은글({ date: "2026-08-28" }, 오늘)).toEqual({ 글: "오늘", 강조: true });
+  });
+
+  it("지난 기준일을 '오늘' 이라고 하지 않는다", () => {
+    /* 여기가 고친 자리다 */
+    expect(남은글({ date: "2026-08-22" }, 오늘).글).not.toBe("오늘");
+  });
+
+  it("기준일은 지났고 입금일이 아직이면 입금 D-N", () => {
+    /* 배당에서 제일 흔한 상태다. 그때 알고 싶은 것은 '언제 통장에
+       꽂히나' 지 '기준일이 언제였나' 가 아니다 */
+    expect(남은글({ date: "2026-08-22", pay_date: "2026-08-30" }, 오늘))
+      .toEqual({ 글: "입금 D-2", 강조: false });
+  });
+
+  it("오늘이 입금일이면 그렇게 말한다", () => {
+    expect(남은글({ date: "2026-08-22", pay_date: "2026-08-28" }, 오늘))
+      .toEqual({ 글: "입금일", 강조: true });
+  });
+
+  it("둘 다 지났으면 완료", () => {
+    expect(남은글({ date: "2026-08-10", pay_date: "2026-08-20" }, 오늘).글).toBe("완료");
+  });
+
+  it("지급일을 모르면 '완료' 라고 안 한다", () => {
+    /* 아직 안 들어왔을 수도 있다. 지난 일이라는 것만 말한다 */
+    expect(남은글({ date: "2026-08-22" }, 오늘).글).toBe("지남");
+    expect(남은글({ date: "2026-08-22", pay_date: null }, 오늘).글).toBe("지남");
+  });
+});
+
+describe("종목별 줄이 빽빽하지 않다", () => {
+  it("주배당이라도 날짜를 줄줄이 늘어놓지 않는다", async () => {
+    /* 화면을 찍어 보니 주배당 종목 하나가 네다섯 줄을 먹었다 —
+       종목 다섯 개짜리 목록이 스무 줄이 됐다. 날짜가 궁금하면
+       '날짜별' 칩이 그 일을 제대로 한다(머리글 + 합계) */
+    const 주배당 = 줄({
+      symbol: "MSFO", market: "US", name: "MSFO", currency: "USD", cycle: "주",
+      shares: 22, months: [이번달], per_month: 4,
+      schedule: [{ month: 이번달, day: 25, amount: 0.56, year: new Date().getFullYear(),
+                   올해확정: true,
+                   days: [4, 11, 18, 25].map((d) => ({ date: 이번달날(d), amount: 0.14 })) }],
+    });
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당], pending: 0 });
+    그리기();
+    await waitFor(() => expect(screen.getByText("MSFO")).toBeInTheDocument());
+    // 종목별 화면에는 개별 날짜가 없다
+    expect(screen.queryByText(/4일 \(/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/11일 \(/)).not.toBeInTheDocument();
+    // 대신 회차 수는 적는다 — 한 번에 그만큼 준다고 읽히면 안 된다
+    expect(screen.getByText(/4회/)).toBeInTheDocument();
+  });
+
+  it("한 달만 주는 종목에 '배당월' 을 안 적는다", async () => {
+    /* '배당월 8' 은 바로 위에 적힌 것을 한 번 더 말하는 줄이다 */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({ shares: 100, months: [이번달], per_month: 1,
+                   schedule: [{ month: 이번달, day: 15, amount: 361,
+                                year: new Date().getFullYear(), 올해확정: true }] })],
+      pending: 0,
+    });
+    그리기();
+    await waitFor(() => expect(screen.getByText("삼성전자")).toBeInTheDocument());
+    expect(screen.queryByText(/^배당월/)).not.toBeInTheDocument();
+  });
+
+  it("여러 달 주는 종목에는 그대로 적는다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({ shares: 100, months: [2, 5, 8, 11], per_month: 1,
+                   schedule: [{ month: 이번달, day: 15, amount: 361,
+                                year: new Date().getFullYear(), 올해확정: true }] })],
+      pending: 0,
+    });
+    그리기();
+    await waitFor(() => expect(screen.getByText("삼성전자")).toBeInTheDocument());
+    expect(screen.getByText(/배당월 2·5·8·11/)).toBeInTheDocument();
   });
 });
