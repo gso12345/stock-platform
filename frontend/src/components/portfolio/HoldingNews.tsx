@@ -24,6 +24,7 @@ import { portfolioApi, type 보유뉴스응답, type 보유뉴스항목 } from "
 import { Card, 못불러옴 } from "@/components/ui";
 import { safeExternalUrl } from "@/utils/url";
 import { fmtNewsDateTime } from "@/utils/formatters";
+import { 하루수명, 재촉주기 } from "@/constants/portfolioQuery";
 
 /** 한글이 한 글자라도 있나 — 자모까지 본다(ㄱ~ㅎ, 가~힣) */
 const 한글 = /[ㄱ-ㆎ가-힣]/;
@@ -68,13 +69,13 @@ export default function 보유뉴스({ portfolioId, 미리보기 }: {
     queryFn: () => portfolioApi.getHoldingNews(portfolioId),
     enabled: !미리보기,
     /* 서버 캐시가 5분이라 그보다 자주 물어볼 이유가 없다 */
-    staleTime: 300_000,
+    staleTime: 하루수명,
     /* 아직 오는 중인 종목이 있으면 몇 초 뒤 한 번 더 물어본다.
        서버가 요청을 안 붙잡는 대신 배경에서 받아 오기 때문에, 이게
        없으면 처음 연 사람은 절반만 보고 나가게 된다.
        다 채워지면(pending 0) 알아서 멈춘다 — 계속 두드리면 0.15 CPU
        서버에서 그 자체가 부담이다. */
-    refetchInterval: (q) => ((q.state.data?.pending ?? 0) > 0 ? 5_000 : false),
+    refetchInterval: (q) => ((q.state.data?.pending ?? 0) > 0 ? 재촉주기 : false),
     refetchIntervalInBackground: false,
   });
 

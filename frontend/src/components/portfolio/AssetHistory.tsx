@@ -32,6 +32,7 @@ import { Card, 못불러옴 } from "@/components/ui";
 import { use돈 } from "@/hooks/useMoney";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
+import { 하루수명 } from "@/constants/portfolioQuery";
 import type { OHLCV } from "@/types";
 
 /**
@@ -217,7 +218,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
     /* 미리보기는 이 경로(로그인 필요)를 안 부른다. 대신 공개된
        종목 시세 이력으로 화면에서 계산한다 */
     enabled: 켜짐 && !예시인가,
-    staleTime: 300_000,
+    staleTime: 하루수명,
   });
 
   /* 지수는 벤치마크를 골랐을 때만 받는다. 안 고른 사람에게 왕복
@@ -226,7 +227,8 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
     queryKey: ["index-ohlcv", 벤치, 기간.지수],
     queryFn: () => dashboardApi.getIndexOHLCV(벤치, 기간.지수, "1d"),
     enabled: 켜짐 && !!벤치,
-    staleTime: 600_000,
+    /* 지수 종가도 하루 단위로 변한다 — 자산 흐름과 같은 규칙을 쓴다 */
+    staleTime: 하루수명,
   });
 
   const 점들 = useMemo<자산흐름점[]>(() => {

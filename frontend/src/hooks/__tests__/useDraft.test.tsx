@@ -180,7 +180,12 @@ describe("글쓰기 화면에 실제로 붙어 있다", () => {
 describe("안 변하는 값을 헛되이 다시 묻지 않는다", () => {
   it("환율은 서버 캐시 수명에 맞춘다", () => {
     /* 서버가 300초 담아 두는데 화면은 60초마다 물었다 —
-       다섯 번 중 네 번은 같은 답을 받으려고 왕복한 셈이다 */
+       다섯 번 중 네 번은 같은 답을 받으려고 왕복한 셈이다.
+
+       내 자산 화면 쪽은 숫자를 직접 안 적고 공통 상수를 쓴다
+       (constants/portfolioQuery 의 하루수명). 그래서 여기서는 '60초가
+       아니다' 와 '300초짜리 값을 쓴다' 를 따로 본다 — 리터럴만 찾으면
+       상수로 옮긴 파일이 애먼 실패로 걸린다. */
     for (const rel of ["pages/MyPage.tsx", "pages/UserProfile.tsx",
                        "pages/FeedWrite.tsx", "components/portfolio/PortfolioSnapshot.tsx"]) {
       const t = 코드만(소스(rel));
@@ -188,8 +193,15 @@ describe("안 변하는 값을 헛되이 다시 묻지 않는다", () => {
       expect(i, `${rel} 에 환율 조회가 없다`).toBeGreaterThan(-1);
       const 묶음 = t.slice(i, i + 400);
       expect(묶음, rel).not.toContain("refetchInterval: 60_000");
-      expect(묶음, rel).toContain("refetchInterval: 300_000");
+      expect(묶음, rel).toMatch(/refetchInterval:\s*(300_000|하루수명)/);
     }
+  });
+
+  it("공통 상수가 정말 300초다", async () => {
+    /* 위 검사가 이름으로 통과할 수 있으니, 그 이름이 가리키는 값을
+       여기서 못 박는다 */
+    const { 하루수명 } = await import("@/constants/portfolioQuery");
+    expect(하루수명).toBe(300_000);
   });
 
   it("시세는 장이 닫히면 안 묻는다", async () => {

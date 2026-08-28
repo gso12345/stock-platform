@@ -27,14 +27,19 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { portfolioApi, type 배당줄 } from "@/api/stocks";
+import { 하루수명, 재촉주기 as 공통재촉 } from "@/constants/portfolioQuery";
 
 export interface 배당응답 { items: 배당줄[]; pending: number }
 
-/** 아직 못 받은 종목이 남아 있을 때 다시 물어보는 간격 */
-export const 재촉주기 = 4_000;
+/* 주기는 내 자산 화면 전체가 한 곳에서 가져다 쓴다(constants/portfolioQuery).
+   예전에는 여기 4초, 뉴스에 5초, 시세에 3초가 각각 박혀 있었다 —
+   고른 값이 아니라 각자 정한 값이라, 같은 '받는 중' 상태인데 탭마다
+   다른 속도로 깜빡였다. */
+export const 재촉주기 = 공통재촉;
 
-/** 서버 캐시가 하루라 그보다 자주 물어볼 이유가 없다 */
-export const 평소수명 = 600_000;
+/** 서버가 나머지를 채워도 화면이 안 물어보던 시간을 10분 → 5분으로 줄였다.
+ *  10분은 '전체 배당 합계가 안 맞는다' 는 제보의 절반이었다. */
+export const 평소수명 = 하루수명;
 
 /**
  * 조회 열쇠.

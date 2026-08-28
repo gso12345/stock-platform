@@ -364,7 +364,11 @@ describe("시세가 덜 왔을 때 다시 물어본다", () => {
       그리기();
       await vi.waitFor(() => expect(getPrices).toHaveBeenCalled(), { timeout: 8000 });
       const 처음 = getPrices.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(3_500);
+      /* 재촉 간격은 공통 상수다(constants/portfolioQuery 의 재촉주기).
+         숫자를 여기 또 적으면 상수를 고칠 때 이 검사가 애먼 실패로
+         걸린다 — 간격을 가져다 쓰고 한 박자 더 준다 */
+      const { 재촉주기 } = await import("@/constants/portfolioQuery");
+      await vi.advanceTimersByTimeAsync(재촉주기 + 500);
       expect(getPrices.mock.calls.length).toBeGreaterThan(처음);
     } finally {
       vi.useRealTimers();

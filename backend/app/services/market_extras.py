@@ -9,6 +9,7 @@ import os
 import logging
 import httpx
 import yfinance as yf
+from concurrent.futures import ThreadPoolExecutor as _ThreadPool
 from app.core.config import settings
 from app.core.cache import cache
 from app.core.backoff import 쉼표
@@ -756,25 +757,49 @@ def _환율카드(캐시키: str, 이름: str, 야후심볼: str, 환산=None) -
     변동폭을 두면 "932원, 어제보다 0.05원" 이라는 말이 안 되는 카드가 된다.
     등락률은 비율이라 단위와 무관하므로 그대로 둔다."""
     환산 = 환산 or (lambda v: v)
-    항목 = cache.get(캐시키) or cache.get_stale(캐시키)
-    if 항목 and 항목.get("value"):
+
+    def 꺼내기():
+        항목 = cache.get(캐시키) or cache.get_stale(캐시키)
+        if not (항목 and 항목.get("value")):
+            return None
         값 = 환산(항목["value"])
         배수 = (값 / 항목["value"]) if 항목["value"] else 1
         return {"name": 이름, "unit": "원", "value": round(값, 2),
                 "change": round((항목.get("change") or 0) * 배수, 2),
                 "change_rate": round(항목.get("change_rate") or 0, 2)}
+
+    """캐시에 없으면 **없다고 답한다.** 여기서 따로 받지 않는다.
+
+    예전에는 이 자리에서 yf.Ticker(심볼).history() 를 카드마다 불렀다.
+    그래서 국내 탭을 먼저 연 사람은 원/유로·원/100엔이 통째로 빠진
+    목록을 봤다 — 해외 탭에는 멀쩡히 떠 있는데도. 실제로 재 봤다.
+
+      해외 탭을 먼저 연 뒤 : ['원/유로', '원/100엔', 기준금리, CD금리]
+      국내 탭을 먼저 연 뒤 : [기준금리, CD금리]            ← 환율 둘이 없다
+
+    채우는 일은 부르는 쪽이 한 번에 한다(_환율_채워두기). 카드마다
+    받으면 왕복이 카드 수만큼 늘고, 무엇보다 두 화면이 **서로 다른
+    원천**을 보게 된다 — 원천이 둘이면 언젠가는 다른 값을 말한다."""
+    return 꺼내기()
+
+
+def _환율_채워두기() -> None:
+    """원/달러·원/유로·원/100엔을 **해외 탭이 쓰는 그 묶음**으로 채운다.
+
+    get_us_rates() 는 여덟 심볼을 한 번에 받고(_batch_close), 받은 환율을
+    extra:usdkrw·extra:eurkrw·extra:jpykrw 에 그대로 담는다. 캐시 우선이라
+    해외 탭이 이미 받아 뒀으면 요청이 하나도 안 늘어난다.
+
+    셋이 다 있으면 아예 안 부른다 — 국내 탭 때문에 미국 금리까지
+    받아 올 이유는 없다.
+    """
+    if all(cache.get(k) or cache.get_stale(k)
+           for k in ("extra:eurkrw", "extra:jpykrw")):
+        return
     try:
-        c = yf.Ticker(야후심볼).history(period="5d")["Close"].dropna()
-        if len(c) < 1:
-            return None
-        현재 = 환산(float(c.iloc[-1]))
-        전일 = 환산(float(c.iloc[-2])) if len(c) >= 2 else 현재
-        변동 = 현재 - 전일
-        return {"name": 이름, "unit": "원", "value": round(현재, 2),
-                "change": round(변동, 2),
-                "change_rate": round(변동 / 전일 * 100 if 전일 else 0, 2)}
-    except Exception:
-        return None
+        get_us_rates()
+    except Exception as e:
+        log.debug("환율 묶음 받기 실패: %s", type(e).__name__)
 
 
 def get_jpykrw_100() -> "dict | None":
@@ -1070,8 +1095,31 @@ def _do_fetch_kr_rates() -> list:
     #
     # 하나가 실패해도 금리 목록은 그대로 나와야 한다. 곁들이 때문에
     # 있던 것까지 사라지면 고친 게 아니라 망가뜨린 것이다.
+    #
+    # 셋을 **동시에** 부른다. 차례로 부르면 셋이 다 캐시에 없을 때
+    # 왕복이 셋으로 줄줄이 이어진다 — 위 금리 원천들이 이미 몇 초를
+    # 쓰고 난 뒤라, 그 뒤에 붙는 시간이 그대로 화면 대기가 된다.
+    # (셋 다 캐시에 있으면 어차피 즉시라, 손해 볼 것이 없다)
+    #
+    # 환율 묶음과 VKOSPI 를 **동시에** 받는다. 서로 상관없는 원천이라
+    # 차례로 부르면 왕복이 줄줄이 이어진다 — 위 금리 원천들이 이미 몇
+    # 초를 쓰고 난 뒤라, 뒤에 붙는 시간이 그대로 화면 대기가 된다.
+    # (둘 다 캐시에 있으면 어차피 즉시라 손해 볼 것이 없다)
+    #
+    # 유로·엔은 여기 안 넣는다. 그 둘은 환율 묶음이 채워 둔 캐시를
+    # **읽기만** 하므로, 같이 돌리면 아직 안 채워진 캐시를 읽는다.
     곁들이: dict[str, "dict | None"] = {}
-    for 키, 부르기 in (("유로", get_eurkrw), ("엔화", get_jpykrw_100), ("vkospi", get_vkospi)):
+    with _ThreadPool(max_workers=2) as 풀:
+        맡김 = {"환율묶음": 풀.submit(_환율_채워두기),
+                "vkospi": 풀.submit(get_vkospi)}
+    for 키, 일 in 맡김.items():
+        try:
+            곁들이[키] = 일.result()
+        except Exception as e:
+            log.debug("%s 실패: %s", 키, type(e).__name__)
+            곁들이[키] = None
+    # 묶음이 끝난 뒤에 읽는다 — 둘 다 캐시만 보므로 즉시다
+    for 키, 부르기 in (("유로", get_eurkrw), ("엔화", get_jpykrw_100)):
         try:
             곁들이[키] = 부르기()
         except Exception as e:
@@ -1101,7 +1149,19 @@ def _do_fetch_kr_rates() -> list:
     except Exception as e:
         log.debug("이상값 확인 건너뜀: %s", type(e).__name__)
 
-    cache.set(ck, rates, 300)
+    """반쪽짜리 목록은 **짧게만** 담는다.
+
+    환율 둘이 빠진 채로 300초를 담아 두면, 그 사이에 해외 탭이 열려
+    extra:eurkrw 가 채워져도 국내 탭은 5분 내내 옛 목록을 준다. 실제로
+    재 봤을 때 그렇게 나왔다 — 두 화면이 같은 값을 두고 5분 동안 서로
+    다른 말을 하는 셈이고, 사용자에게는 '안 나올 때가 있다' 로 보인다.
+
+    빠진 것이 있으면 30초만 담는다. 다음 요청이 곧 다시 시도해서,
+    묶음이 도착하는 대로 채워진다. 자산 스냅샷에서 고친 것과 같은
+    결함이다 — 덜 채워진 값을 완성품처럼 얼려 두는 것."""
+    있는이름 = " ".join(x.get("name", "") for x in rates)
+    온전한가 = "유로" in 있는이름 and "100엔" in 있는이름
+    cache.set(ck, rates, 300 if 온전한가 else 30)
     return rates
 
 

@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { 시세수명, 하루수명, 재촉주기, 재촉_횟수 } from "@/constants/portfolioQuery";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
@@ -68,16 +69,11 @@ const PREVIEW_ENRICHED: PreviewEnrichedBase[] = [
     currentPriceNative: 5_000_000, currentValueKRW: 5_000_000, costKRW: 5_000_000, pnlKRW: 0, pnlRate: 0, weight: 0 },
 ];
 
-/** 시세를 다 못 받았을 때 다시 물어보는 간격.
- *
- *  서버가 시세를 모으는 데 쓰는 시간에 상한이 있어서(3초), 못 채운
- *  종목은 비워서 온다. 그 사이 서버는 배경에서 마저 받아 캐시에 넣으므로
- *  잠깐 뒤 다시 물어보면 그때는 곧바로 나온다. */
-const 재촉주기 = 3_000;
-/** 평소 주기. WebSocket 이 상한(50종목) 때문에 못 다루는 종목용 */
-const 평소주기 = 120_000;
-/** 몇 번까지 재촉할지. 이 뒤로는 평소 주기로 물러난다 */
-const 재촉_횟수 = 3;
+/* 주기는 내 자산 화면 전체가 한 곳에서 가져다 쓴다.
+   예전에는 여기 3초, 배당에 4초, 뉴스에 5초가 각각 박혀 있었다 —
+   고른 값이 아니라 각자 정한 값이라, 같은 '받는 중' 상태인데 탭마다
+   다른 속도로 깜빡였고 하나를 고치려면 세 파일을 찾아야 했다. */
+const 평소주기 = 시세수명;
 
 /* 시세를 물어볼 대상 — 현금은 시세가 없으니 뺀다 */
 const PREVIEW_PRICEABLE = PREVIEW_ENRICHED.filter((i) => i.assetClass !== "현금");
@@ -182,7 +178,7 @@ export default function Portfolio() {
     queryFn:  portfolioApi.getPortfolios,
     enabled:  isLoggedIn,
     // 포트폴리오 메타(이름·개수)는 mutation onSuccess에서 invalidate되므로 5분 캐시
-    staleTime: 300_000,
+    staleTime: 하루수명,
   });
 
   useEffect(() => {
@@ -347,7 +343,7 @@ export default function Portfolio() {
     queryFn:  () => portfolioApi.getItems(undefined, true),
     enabled:  isLoggedIn,
     // 종목 목록은 mutation onSuccess에서 invalidate되므로 5분 캐시 (가격은 별도 쿼리로 갱신)
-    staleTime: 300_000,
+    staleTime: 하루수명,
   });
 
   const items = useMemo(() => {
@@ -434,7 +430,7 @@ export default function Portfolio() {
     queryKey:       ["portfolio-prices", priceableItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
     queryFn:        () => watchlistApi.getPrices(priceableItems.map((i) => i.symbol), priceableItems.map((i) => i.market)),
     enabled:        priceableItems.length > 0,
-    staleTime:      120_000,
+    staleTime:      시세수명,
     /* 두 가지 이유로 다시 물어본다.
      *
      * 1) WebSocket 은 서버 상한 때문에 최대 50종목만 흘려준다. 이 조회가
@@ -472,8 +468,8 @@ export default function Portfolio() {
     queryKey:       ["portfolio-preview-prices"],
     queryFn:        () => watchlistApi.getPrices(PREVIEW_PRICEABLE.map((i) => i.symbol), PREVIEW_PRICEABLE.map((i) => i.market)),
     enabled:        !isLoggedIn,
-    staleTime:      120_000,
-    refetchInterval:120_000,
+    staleTime:      시세수명,
+    refetchInterval: 시세수명,
   });
   // 실시간 현재가를 아직 못 불러왔으면(=null) 정적 예시가를 절대 보여주지 않음 — 실데이터 도착 후에만 표시
   const previewLoaded = previewBatchPrices != null;

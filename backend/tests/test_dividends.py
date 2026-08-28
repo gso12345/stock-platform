@@ -967,3 +967,150 @@ class Test주배당_다음_날짜:
         내역 = [(date(올해 - 1, m, 20), 0.25) for m in (2, 5, 8, 11)]
         야후(_가짜티커(내역))
         assert DV.한종목("QTR", "US")["upcoming"] == []
+
+
+class Test달력_병렬:
+    """열두 종목을 차례로 받으면 왕복 열두 번이고, 그게 그대로 화면 대기다.
+
+    실제로 쟀다 — 아홉 종목에 2,242ms. 배당 달력만 유독 느렸고,
+    같은 화면의 나머지 다섯 경로는 전부 10~15ms 였다.
+
+    받는 일은 바깥을 기다리는 일(I/O)이라 겹쳐 두면 제일 느린 하나만큼만
+    걸린다. 0.15 CPU 서버에서도 손해가 없다 — CPU 를 쓰는 일이 아니라
+    답을 기다리는 일이라서다.
+    """
+
+    @staticmethod
+    def _보유(n: int) -> list:
+        return [{"symbol": f"PARSYM{i}", "market": "US", "name": f"종목{i}", "shares": 10}
+                for i in range(n)]
+
+    @staticmethod
+    def _치우기(보유):
+        from app.core.cache import cache
+        from app.core import fetchcache
+        for it in 보유:
+            ck = f"div:{it['market']}:{it['symbol']}"
+            cache.delete(ck); cache.delete(f"{ck}:miss")
+            DV.쉼.잊기(ck)
+        fetchcache.잊기()
+
+    def _대역(self, 걸리는시간: float, 동시: dict):
+        import threading, time
+        자물쇠 = threading.Lock()
+
+        def 가져오기(symbol, market):
+            with 자물쇠:
+                동시["지금"] = 동시.get("지금", 0) + 1
+                동시["최대"] = max(동시.get("최대", 0), 동시["지금"])
+            time.sleep(걸리는시간)
+            with 자물쇠:
+                동시["지금"] -= 1
+            return {"symbol": symbol, "market": market, "ex_date": "2026-09-15",
+                    "last_amount": 0.5, "per_year": 2.0, "plan_year": 2.0,
+                    "currency": "USD", "cycle": "분기", "months": [3, 6, 9, 12],
+                    "schedule": [{"month": 9, "day": 15, "amount": 0.5, "year": 2026}]}
+        return 가져오기
+
+    def test_여러_종목을_동시에_받는다(self, monkeypatch):
+        import time
+        보유 = self._보유(9)
+        self._치우기(보유)
+        동시: dict = {}
+        한번 = 0.25
+        monkeypatch.setattr(DV, "_가져오기", self._대역(한번, 동시))
+        시작 = time.perf_counter()
+        답 = DV.달력(보유)
+        걸림 = time.perf_counter() - 시작
+        self._치우기(보유)
+
+        assert 동시.get("최대", 0) >= 2, "한 번에 하나씩만 받고 있다"
+        차례로 = 한번 * len(보유)
+        assert 걸림 < 차례로 * 0.6, f"{걸림:.2f}초 — 차례로 받는 것과 다를 바 없다"
+        # 빨라졌다고 빠뜨리면 안 된다
+        assert len(답["items"]) == len(보유)
+        assert 답["pending"] == 0
+
+    def test_상한을_넘겨_받지_않는다(self, monkeypatch):
+        """동시에 받는다고 상한이 풀리면 안 된다. 스무 종목을 가진
+        사람이 처음 열 때 스무 번을 한꺼번에 나가면, 그건 화면을
+        빠르게 한 게 아니라 서버를 때린 것이다."""
+        보유 = self._보유(DV.한번에 + 5)
+        self._치우기(보유)
+        센다: dict = {"수": 0}
+
+        def 세기(symbol, market):
+            센다["수"] += 1
+            return {"symbol": symbol, "market": market, "ex_date": "2026-09-15",
+                    "last_amount": 0.5, "per_year": 2.0, "plan_year": 2.0,
+                    "currency": "USD", "cycle": "분기", "months": [9],
+                    "schedule": [{"month": 9, "day": 15, "amount": 0.5, "year": 2026}]}
+
+        monkeypatch.setattr(DV, "_가져오기", 세기)
+        답 = DV.달력(보유)
+        self._치우기(보유)
+        assert 센다["수"] <= DV.한번에, f"{센다['수']}개나 받았다 (상한 {DV.한번에})"
+        assert 답["pending"] == len(보유) - DV.한번에
+
+    def test_이미_담긴_것은_다시_안_받는다(self, monkeypatch):
+        """두 번째 요청은 바깥을 한 번도 안 쳐야 한다."""
+        보유 = self._보유(4)
+        self._치우기(보유)
+        센다: dict = {"수": 0}
+
+        def 세기(symbol, market):
+            센다["수"] += 1
+            return {"symbol": symbol, "market": market, "ex_date": "2026-09-15",
+                    "last_amount": 0.5, "per_year": 2.0, "plan_year": 2.0,
+                    "currency": "USD", "cycle": "분기", "months": [9],
+                    "schedule": [{"month": 9, "day": 15, "amount": 0.5, "year": 2026}]}
+
+        monkeypatch.setattr(DV, "_가져오기", 세기)
+        DV.달력(보유)
+        첫번째 = 센다["수"]
+        DV.달력(보유)
+        self._치우기(보유)
+        assert 첫번째 == 4
+        assert 센다["수"] == 4, "캐시에 있는데 또 받았다"
+
+    def test_하나가_터져도_나머지는_나온다(self, monkeypatch):
+        """겹쳐서 받는다고 한 종목의 실패가 전체를 무너뜨리면 안 된다."""
+        보유 = self._보유(5)
+        self._치우기(보유)
+
+        def 하나만터짐(symbol, market):
+            if symbol.endswith("2"):
+                raise RuntimeError("야후 막힘")
+            return {"symbol": symbol, "market": market, "ex_date": "2026-09-15",
+                    "last_amount": 0.5, "per_year": 2.0, "plan_year": 2.0,
+                    "currency": "USD", "cycle": "분기", "months": [9],
+                    "schedule": [{"month": 9, "day": 15, "amount": 0.5, "year": 2026}]}
+
+        monkeypatch.setattr(DV, "_가져오기", 하나만터짐)
+        답 = DV.달력(보유)
+        self._치우기(보유)
+        assert len(답["items"]) == 4, [x["symbol"] for x in 답["items"]]
+
+    def test_받는_중_예외가_요청을_통째로_무너뜨리지_않는다(self, monkeypatch):
+        """스레드 안에서 터진 것은 result() 에서 다시 튀어나온다.
+
+        지금은 한종목() 이 안에서 삼키므로 여기까지 안 온다. 그런데 그건
+        **다른 모듈의 사정**이다 — 캐시가 터지거나, 한종목() 이 나중에
+        예외를 그대로 올리도록 바뀌면 이 자리가 그대로 500 이 된다.
+        배당 하나 때문에 내 자산 화면 전체가 죽는 것은 너무 큰 대가다.
+
+        그 경계를 여기서 막는지 본다."""
+        보유 = self._보유(3)
+        self._치우기(보유)
+
+        원래 = DV.한종목
+        def 터지는것(symbol, market, 받아도되나=True):
+            if 받아도되나:                      # 미리받기 단계에서만 터진다
+                raise RuntimeError("스레드에서 터짐")
+            return 원래(symbol, market, False)
+
+        monkeypatch.setattr(DV, "한종목", 터지는것)
+        답 = DV.달력(보유)                      # 500 이 아니라 답이 나와야 한다
+        self._치우기(보유)
+        assert 답["items"] == []
+        assert 답["pending"] == 3               # 못 받았다고 정직하게 적는다

@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { dashboardApi } from "@/api/stocks";
+import { 하루수명 } from "@/constants/portfolioQuery";
 import type { PfPortfolioForChart } from "./PortfolioChart";
 
 /* 차트는 따로 받는다.
@@ -29,11 +30,11 @@ export default function PortfolioSnapshot({ items }: { items: SnapshotItem[] }) 
   const { data: fxData } = useQuery({
     queryKey: ["exchange-rate"],
     queryFn: () => dashboardApi.getExchangeRate(),
-    staleTime: 300_000,
+    staleTime: 하루수명,
     /* 서버가 이 값을 300초 담아 둔다. 60초마다 물으면 다섯 번 중
        네 번은 같은 답을 받으려고 왕복하는 셈이다 — CPU 0.15개에서는
        그 왕복 자체가 비용이다 */
-    refetchInterval: 300_000,
+    refetchInterval: 하루수명,
   });
   const exchangeRate: number = (fxData as any)?.value ?? 0;
 

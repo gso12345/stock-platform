@@ -314,3 +314,131 @@ class Test금리_목록에_섞여도_안전한가:
         목록 = M._do_fetch_kr_rates()
         assert all(r is not None for r in 목록)
         assert all(isinstance(r, dict) for r in 목록)
+
+
+class Test국내와_해외가_같은_환율을_본다:
+    """국내 대시보드에 원/유로·원/100엔이 '나올 때도 있고 안 나올 때도' 있었다.
+
+    원인은 원천이 둘이었던 것이다.
+
+      해외 탭 : 여덟 심볼을 한 번에 받고(_do_fetch_us_rates), 환율은
+                extra:eurkrw · extra:jpykrw 에도 담는다
+      국내 탭 : 그 캐시를 보다가, 비었으면 **카드마다 따로** 야후를 쳤다
+
+    그래서 어느 탭을 먼저 열었느냐가 결과를 갈랐다. 실제로 재 봤다.
+
+      해외 탭을 먼저 연 뒤 : ['원/유로', '원/100엔', 기준금리, CD금리]
+      국내 탭을 먼저 연 뒤 : [기준금리, CD금리]            ← 환율 둘이 없다
+
+    게다가 그 반쪽짜리 목록이 300초 캐시됐다. 그 사이에 해외 탭을 열어
+    환율이 채워져도 국내 탭은 5분 내내 옛 목록을 줬다.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _치우기(self):
+        열쇠 = ("extra:kr_rates", "extra:eurkrw", "extra:jpykrw",
+                "extra:vkospi", "extra:us_rates", "extra:usdkrw")
+        for k in 열쇠:
+            cache.delete(k); cache.delete(f"{k}:miss")
+        yield
+        for k in 열쇠:
+            cache.delete(k); cache.delete(f"{k}:miss")
+
+    def _묶음대역(self, 센다: dict):
+        """_do_fetch_us_rates 가 하는 일 — 한 번에 받아 개별 캐시에도 담는다"""
+        def 가짜():
+            센다["횟수"] = 센다.get("횟수", 0) + 1
+            cache.set("extra:eurkrw", {"value": 1620.5, "change": 3.2, "change_rate": 0.2}, 360)
+            cache.set("extra:jpykrw", {"value": 932.1, "change": -1.1, "change_rate": -0.12}, 360)
+            return []
+        return 가짜
+
+    def _국내금리만(self, monkeypatch, 센다):
+        """국내 금리 원천은 다 막고, 환율 묶음만 살려 둔다"""
+        for 이름 in ("_fetch_kr_rates_naver", "_fetch_kr_rates_시장지표",
+                     "_fetch_bok_rates_ecos"):
+            monkeypatch.setattr(M, 이름, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("막힘")))
+        monkeypatch.setattr(M, "_빠진_국고채", lambda *a, **k: False)
+        monkeypatch.setattr(M, "get_vkospi", lambda *a, **k: None)
+        monkeypatch.setattr(M, "get_us_rates", self._묶음대역(센다))
+
+    def test_국내_탭을_먼저_열어도_환율_둘이_나온다(self, monkeypatch):
+        센다: dict = {}
+        self._국내금리만(monkeypatch, 센다)
+        이름들 = [x["name"] for x in M._do_fetch_kr_rates()]
+        assert any("유로" in n for n in 이름들), 이름들
+        assert any("100엔" in n for n in 이름들), 이름들
+
+    def test_해외_탭이_먼저면_묶음을_다시_안_부른다(self, monkeypatch):
+        """국내 탭 때문에 미국 금리까지 또 받아 올 이유는 없다.
+        0.15 CPU 서버라 왕복 하나가 그대로 화면 대기다."""
+        센다: dict = {}
+        self._국내금리만(monkeypatch, 센다)
+        # 해외 탭이 이미 받아 둔 상태
+        cache.set("extra:eurkrw", {"value": 1620.5, "change": 3.2, "change_rate": 0.2}, 360)
+        cache.set("extra:jpykrw", {"value": 932.1, "change": -1.1, "change_rate": -0.12}, 360)
+        이름들 = [x["name"] for x in M._do_fetch_kr_rates()]
+        assert 센다.get("횟수", 0) == 0, "캐시가 따뜻한데도 묶음을 불렀다"
+        assert any("유로" in n for n in 이름들)
+
+    def test_카드마다_따로_야후를_치지_않는다(self, monkeypatch):
+        """여기가 원천이 둘로 갈리던 자리다. 카드가 스스로 받으면
+        국내 탭만 다른 값을 볼 수 있다."""
+        monkeypatch.setattr(M.yf, "Ticker",
+                            lambda *a, **k: pytest.fail("환율 카드가 직접 받았다"))
+        assert M.get_eurkrw() is None          # 캐시에 없으면 없다고 답한다
+        assert M.get_jpykrw_100() is None
+
+    def test_환율이_빠진_목록은_오래_안_담긴다(self, monkeypatch):
+        """300초를 담아 두면, 그 사이 해외 탭이 환율을 채워도 국내 탭은
+        5분 내내 옛 목록을 준다 — 두 화면이 5분 동안 다른 말을 한다."""
+        for 이름 in ("_fetch_kr_rates_naver", "_fetch_kr_rates_시장지표",
+                     "_fetch_bok_rates_ecos"):
+            monkeypatch.setattr(M, 이름, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("막힘")))
+        monkeypatch.setattr(M, "_빠진_국고채", lambda *a, **k: False)
+        monkeypatch.setattr(M, "get_vkospi", lambda *a, **k: None)
+        monkeypatch.setattr(M, "get_us_rates", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("막힘")))
+        M._do_fetch_kr_rates()
+        남은 = next((x["ttl_remaining"] for x in cache.keys_with_ttl()
+                     if x.get("key") == "extra:kr_rates"), None)
+        assert 남은 is not None and 남은 <= 60, f"반쪽짜리 목록이 {남은}초나 담겼다"
+
+    def test_온전하면_제대로_담는다(self, monkeypatch):
+        """환율이 다 왔으면 300초다. 매번 30초로 두면 같은 것을
+        열 배 더 자주 받는다."""
+        센다: dict = {}
+        self._국내금리만(monkeypatch, 센다)
+        M._do_fetch_kr_rates()
+        남은 = next((x["ttl_remaining"] for x in cache.keys_with_ttl()
+                     if x.get("key") == "extra:kr_rates"), None)
+        assert 남은 is not None and 남은 > 60, f"온전한 목록인데 {남은}초만 담겼다"
+
+    def test_환율_묶음과_vkospi_를_동시에_받는다(self, monkeypatch):
+        """서로 상관없는 원천이라 차례로 부르면 왕복이 줄줄이 이어진다.
+        위 금리 원천들이 이미 몇 초를 쓰고 난 뒤라, 뒤에 붙는 시간이
+        그대로 화면 대기가 된다."""
+        import time
+        센다: dict = {}
+        for 이름 in ("_fetch_kr_rates_naver", "_fetch_kr_rates_시장지표",
+                     "_fetch_bok_rates_ecos"):
+            monkeypatch.setattr(M, 이름, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("막힘")))
+        monkeypatch.setattr(M, "_빠진_국고채", lambda *a, **k: False)
+
+        느림 = 0.5
+
+        def 느린묶음():
+            time.sleep(느림)
+            return self._묶음대역(센다)()
+
+        def 느린vkospi():
+            time.sleep(느림)
+            return None
+
+        monkeypatch.setattr(M, "get_us_rates", 느린묶음)
+        monkeypatch.setattr(M, "get_vkospi", 느린vkospi)
+
+        시작 = time.perf_counter()
+        M._do_fetch_kr_rates()
+        걸림 = time.perf_counter() -시작
+        # 차례로 부르면 1.0초, 동시에 부르면 0.5초다. 넉넉히 0.85초로 건다
+        assert 걸림 < 느림 * 1.7, f"{걸림:.2f}초 — 차례로 부르고 있다"
