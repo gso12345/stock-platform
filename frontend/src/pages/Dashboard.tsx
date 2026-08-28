@@ -2,6 +2,8 @@ import { useState, useCallback, useMemo, memo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { dashboardApi } from "@/api/stocks";
+import { 빌때재촉 } from "@/utils/refetch";
+import type { 뉴스항목, 순위행 } from "@/types";
 import { Card, ChangeBadge, Tabs, RowSkeleton, 못불러옴} from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
@@ -241,6 +243,14 @@ const RankingPanel = memo(function RankingPanel({
     queryKey: ["rankings", market, category],
     queryFn: () => dashboardApi.getRankings(market, category),
     staleTime: 60_000,
+    /* 비어 있으면 몇 초 뒤 다시 물어본다.
+       서버는 순위표가 모자라면 **배경에서 다시 만들고 이번 요청은
+       있는 것으로 답한다**(0.15 CPU 서버에서 화면을 붙잡지 않으려는
+       것이라 옳은 선택이다). 그런데 화면이 다시 와서 받아 가질
+       않았다 — 처음 연 사람은 "아직 순위가 만들어지지 않았어요" 를
+       보고, 60초 뒤에나 채워졌다. */
+    refetchInterval: 빌때재촉<순위행[]>(false),
+    refetchIntervalInBackground: false,
   });
 
   const rows: any[] = Array.isArray(data) ? data : [];
@@ -359,7 +369,11 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
     queryKey: ["news", "kr", newsSort],
     queryFn: () => dashboardApi.getNews("kr", newsSort),
     staleTime: 300_000,
-    refetchInterval: 300_000,
+    /* 기사가 없으면 몇 초 뒤 다시 물어본다.
+       서버는 RSS 를 도는 데 시간이 걸리면 상한에서 끊고 배경에 넘긴다.
+       5분 주기만 있으면 처음 연 사람은 "표시할 뉴스가 없어요" 를 보고
+       **5분을 기다린다.** */
+    refetchInterval: 빌때재촉<뉴스항목[]>(300_000),
     refetchIntervalInBackground: false,
   });
 
@@ -521,7 +535,11 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
     queryKey: ["news", "us", newsSort],
     queryFn: () => dashboardApi.getNews("us", newsSort),
     staleTime: 300_000,
-    refetchInterval: 300_000,
+    /* 기사가 없으면 몇 초 뒤 다시 물어본다.
+       서버는 RSS 를 도는 데 시간이 걸리면 상한에서 끊고 배경에 넘긴다.
+       5분 주기만 있으면 처음 연 사람은 "표시할 뉴스가 없어요" 를 보고
+       **5분을 기다린다.** */
+    refetchInterval: 빌때재촉<뉴스항목[]>(300_000),
     refetchIntervalInBackground: false,
   });
 

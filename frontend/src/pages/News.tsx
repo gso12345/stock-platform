@@ -2,6 +2,8 @@ import { useState, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Newspaper, RefreshCw } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
+import { 빌때재촉 } from "@/utils/refetch";
+import type { 뉴스항목 } from "@/types";
 import { Card, Tabs, 빈화면, 못불러옴 } from "@/components/ui";
 import { fmtNewsDateTime } from "@/utils/formatters";
 
@@ -109,7 +111,11 @@ export default function News() {
     queryKey: ["news", market, sort],
     queryFn: () => dashboardApi.getNews(market, sort),
     staleTime: 60_000,
-    refetchInterval: 120_000,
+    /* 기사가 없으면 몇 초 뒤 다시 물어본다 — 대시보드 뉴스와 같은 규칙.
+       서버는 RSS 를 도는 데 오래 걸리면 상한에서 끊고 배경에 넘기는데,
+       화면이 2분을 기다리면 처음 연 사람은 빈 목록만 보고 나간다. */
+    refetchInterval: 빌때재촉<뉴스항목[]>(120_000),
+    refetchIntervalInBackground: false,
   });
 
   // 정렬·이미지 필터는 모두 서버가 처리한다 (인기도 산식을 노출하지 않기 위해)

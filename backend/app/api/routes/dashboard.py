@@ -12,6 +12,18 @@ from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
 from app.services.news_service import get_kr_news, get_us_news, pick_top_image_first, strip_internal_fields
 from app.services.ranking_service import get_us_rankings
 from app.services.market_extras import get_kr_futures, get_kr_rates, get_us_rates
+"""이름이 겹친다 — 별칭으로 갈라 둔다.
+
+price_fetcher 에도 get_eurkrw 가 있고 그쪽은 **async** 다(해외 탭의
+/exchange/eur 이 그걸 쓴다). 아래 import 가 나중이라 그냥 들여오면
+이 이름이 덮여서, 국내 카드를 만드는 자리에서 코루틴을 dict 처럼
+다루게 된다 — 'coroutine was never awaited' 와 AttributeError 로
+조용히 실패한다. 실제로 그렇게 한 번 놓쳤다."""
+from app.services.market_extras import (
+    get_eurkrw as 카드_원유로,
+    get_jpykrw_100 as 카드_원100엔,
+    get_vkospi as 카드_vkospi,
+)
 from app.services.price_fetcher import get_usdkrw, get_eurkrw, fetch_pykrx_index_ohlcv
 from app.core.config import settings
 from app.core.cache import cache
@@ -522,6 +534,40 @@ async def kr_extras():
     if isinstance(exchange, BaseException): exchange = cache.get_stale("extra:usdkrw") or {}
     if isinstance(rates,    BaseException): rates    = cache.get_stale("extra:kr_rates") or []
     if isinstance(futures,  BaseException): futures  = cache.get_stale("extra:kr_futures") or []
+
+    """환율 카드는 금리 목록과 **따로** 붙인다.
+
+    이게 '국내 대시보드에 원/유로·원/100엔이 안 뜬다' 의 진짜 원인이었다.
+    화면을 받아 보니 환율 둘만이 아니라 **금리도 VKOSPI 도 통째로**
+    없었다 — 라벨은 '환율 · 금리 · 변동성' 인데 원/달러 하나뿐이었다.
+    원/달러만 살아남은 것은 그게 rates 가 아니라 exchange 로 따로 오기
+    때문이다.
+
+    재 보니 _do_fetch_kr_rates() 가 **32.8초**였다(네이버 → 시장지표 →
+    ECOS 를 차례로 치고 실패할 때). 위 wait_for 상한은 5초다. 그래서
+    rates 가 매번 빈 배열로 나갔다.
+
+    환율 셋은 해외 탭이 이미 받아 둔 목록(extra:us_rates)에 있어서
+    **캐시만 읽으면 즉시** 꺼낼 수 있다. 금리 원천이 느리다고 이것까지
+    같이 잃을 이유가 없다. 상한을 늘리는 것은 답이 아니다 — 0.15 CPU
+    서버에서 화면을 5초 넘게 붙잡는 쪽이 더 나쁘다.
+    """
+    try:
+        있는이름 = {str(r.get("name")) for r in rates if isinstance(r, dict)}
+        따로 = [c for c in (카드_원유로(), 카드_원100엔(), 카드_vkospi()) if c]
+        더할것 = [c for c in 따로 if c.get("name") not in 있는이름]
+        if 더할것:
+            """환율은 앞에, 변동성은 뒤에.
+
+            화면이 원/달러를 이 목록보다 먼저 그린다. 그래야 환율 셋이
+            붙어 있고 금리가 그 뒤로 이어진다. VKOSPI 는 성격이 달라서
+            (변동성) 맨 뒤다 — 목록 안 차례와 같은 규칙이다."""
+            앞 = [c for c in 더할것 if not c.get("is_rate") and "VKOSPI" not in str(c.get("name"))]
+            뒤 = [c for c in 더할것 if c not in 앞]
+            rates = 앞 + list(rates) + 뒤
+    except Exception as e:
+        log.debug("환율 카드 덧붙이기 건너뜀: %s", type(e).__name__)
+
     return {"exchange": exchange, "rates": rates, "futures": futures}
 
 

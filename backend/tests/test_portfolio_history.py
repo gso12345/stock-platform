@@ -297,8 +297,15 @@ class Test찍기:
         시세("005930", 80_000)
         항목 = [_항목(user_id=7, symbol="005930", shares=10, avg_price=70_000),
                 _항목(user_id=7, symbol="000660", shares=10, avg_price=150_000)]
-        그대로 = _줄(portfolio_id=0, filled=1, priced=2, total_value=2_300_000)
-        그대로포트 = _줄(portfolio_id=1, filled=1, priced=2, total_value=2_300_000)
+        """값이 **정말로 같아야** 이 검사가 뜻을 갖는다.
+
+        total_cost 를 안 채워 두었더니 매입금액이 달라져서 쓰기가
+        나갔다 — 검사가 '안 쓴다' 를 지키는 게 아니라 대역이 덜
+        채워진 것을 보고 있었던 셈이다."""
+        그대로 = _줄(portfolio_id=0, filled=1, priced=2,
+                     total_value=2_300_000, total_cost=2_200_000)
+        그대로포트 = _줄(portfolio_id=1, filled=1, priced=2,
+                         total_value=2_300_000, total_cost=2_200_000)
         db = _찍기DB(항목, 오늘줄=(그대로, 그대로포트))
         self._붙이기(monkeypatch, db)
 
@@ -661,3 +668,98 @@ class Test옛_제약이_남아_있어도:
         db = sessionmaker(bind=엔진)()
         yield db
         db.close()
+
+
+class Test하루_중_갱신:
+    """'자산 흐름 수치가 정확하지 않다' 의 원인이었다.
+
+    예전에는 시세가 다 채워진 사람을 그날 회차에서 아예 뺐다. 그래서
+    스케줄러가 **처음 도는 순간의 값이 그날 값으로 굳었다.** 24시간
+    도는 서버에서는 새벽 00:15 값이다 — 한국 장은 열리지도 않은 시각.
+
+    어제 점은 어제 새벽 값, 그제 점은 그제 새벽 값. 점마다 하루 중
+    시각이 제각각이라 그래프의 일간 변동이 실제 움직임과 관계가 없었다.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _환율넣기(self):
+        """환율이 없으면 찍기() 가 맨 앞에서 그냥 돌아간다.
+
+        Test찍기 의 같은 픽스처는 그 클래스에만 걸린다 — 여기 안 두면
+        이 검사들이 '아무것도 안 적혔다' 를 보고 엉뚱하게 실패한다."""
+        from app.core.cache import cache
+        cache.set("extra:usdkrw", {"value": 1400.0}, 60)
+        yield
+        cache.delete("extra:usdkrw")
+
+    def test_시세가_움직이면_그날_값도_따라간다(self, monkeypatch, 시세):
+        시세("005930", 80_000)
+        항목 = [_항목(user_id=7, shares=10, avg_price=70_000)]
+        아침 = _줄(portfolio_id=0, filled=1, priced=1,
+                   total_value=750_000, total_cost=700_000)
+        아침포트 = _줄(portfolio_id=1, filled=1, priced=1,
+                       total_value=750_000, total_cost=700_000)
+        db = _찍기DB(항목, 오늘줄=(아침, 아침포트))
+        import app.db.database as D
+        monkeypatch.setattr(D, "SessionLocal", lambda: db)
+
+        assert PS.찍기() == 1
+        assert 아침.total_value == 800_000, "첫 회차 값에 굳어 있다"
+
+    def test_값이_그대로면_쓰지_않는다(self, monkeypatch, 시세):
+        """15분마다 도는 일이다. 안 바뀐 줄에까지 쓰기를 내보내면
+        그 자체가 부담이다."""
+        시세("005930", 80_000)
+        항목 = [_항목(user_id=7, shares=10, avg_price=70_000)]
+        같은것 = _줄(portfolio_id=0, filled=1, priced=1,
+                     total_value=800_000, total_cost=700_000)
+        같은것포트 = _줄(portfolio_id=1, filled=1, priced=1,
+                         total_value=800_000, total_cost=700_000)
+        db = _찍기DB(항목, 오늘줄=(같은것, 같은것포트))
+        import app.db.database as D
+        monkeypatch.setattr(D, "SessionLocal", lambda: db)
+
+        assert PS.찍기() == 0
+        assert db.commits == 0
+
+
+class Test고쳐쓸까:
+    """규칙을 따로 떼어 놓고 하나씩 본다."""
+
+    def _줄만들기(self, filled=2, value=1000.0, cost=900.0):
+        return _줄(filled=filled, priced=2, total_value=value, total_cost=cost)
+
+    def test_덜_채워진_값으로_안_돌아간다(self):
+        """장중에 캐시가 잠깐 비면 filled 가 줄어든다. 그때 덮어쓰면
+        온전하던 줄이 반쪽이 된다 — 그 하루가 17.9% 아래로 찍혔었다."""
+        있던것 = self._줄만들기(filled=2, value=1000.0)
+        새것 = {"value": 500.0, "cost": 900.0, "filled": 1, "priced": 2}
+        assert PS._고쳐쓸까(있던것, 새것) is False
+
+    def test_더_채워졌으면_고쳐_쓴다(self):
+        있던것 = self._줄만들기(filled=1, value=500.0)
+        새것 = {"value": 1000.0, "cost": 900.0, "filled": 2, "priced": 2}
+        assert PS._고쳐쓸까(있던것, 새것) is True
+
+    def test_같은_만큼_채워졌어도_값이_달라졌으면_고쳐_쓴다(self):
+        """여기가 '새벽 값으로 굳는' 것을 푸는 자리다."""
+        있던것 = self._줄만들기(filled=2, value=1000.0)
+        새것 = {"value": 1100.0, "cost": 900.0, "filled": 2, "priced": 2}
+        assert PS._고쳐쓸까(있던것, 새것) is True
+
+    def test_값이_똑같으면_안_쓴다(self):
+        있던것 = self._줄만들기(filled=2, value=1000.0, cost=900.0)
+        새것 = {"value": 1000.0, "cost": 900.0, "filled": 2, "priced": 2}
+        assert PS._고쳐쓸까(있던것, 새것) is False
+
+    def test_매입금액만_달라져도_고쳐_쓴다(self):
+        """종목을 더 샀으면 평가금액은 그대로여도 매입금액이 는다"""
+        있던것 = self._줄만들기(filled=2, value=1000.0, cost=900.0)
+        새것 = {"value": 1000.0, "cost": 950.0, "filled": 2, "priced": 2}
+        assert PS._고쳐쓸까(있던것, 새것) is True
+
+    def test_1원_미만_차이는_같은_것으로_본다(self):
+        """부동소수점 찌꺼기로 매 회차 쓰기가 나가면 안 된다"""
+        있던것 = self._줄만들기(filled=2, value=1000.0, cost=900.0)
+        새것 = {"value": 1000.001, "cost": 900.002, "filled": 2, "priced": 2}
+        assert PS._고쳐쓸까(있던것, 새것) is False

@@ -245,3 +245,68 @@ class Test삭제:
         읽은것 = next(i for i, p in enumerate(경로들) if p.endswith("/notifications/read"))
         아이디 = next(i for i, p in enumerate(경로들) if p.endswith("/notifications/{noti_id}"))
         assert 읽은것 < 아이디, f"순서가 뒤집혀 있다: {경로들}"
+
+
+def test_경로_파라미터_이름은_전부_ASCII다():
+    """이 프로젝트는 함수·변수 이름을 한글로 쓴다. 그런데 **경로 안의
+    파라미터 이름**만은 안 된다.
+
+    실제로 사고가 났다. alerts.py 에 `/{알림id}` 로 적혀 있어서 시세
+    알림의 끄기·고치기·지우기가 **전부 404** 였다. Starlette 의 경로
+    컴파일러는 파라미터 이름에 [A-Za-z_][A-Za-z0-9_]* 만 받는다 —
+    한글이면 이름을 못 읽어서 `/alerts/1` 이 매칭되지 않는다.
+
+    조용히 망가지는 방식이 나빴다.
+      · 라우트 목록에는 멀쩡히 뜬다
+      · 응답이 우리가 쓴 '없는 알림입니다' 가 아니라 FastAPI 기본
+        '{"detail":"Not Found"}' 라, 로그만 봐서는 원인이 안 보인다
+      · 화면은 낙관 갱신으로 먼저 지워 놓고 404 를 받아 되돌리므로,
+        사용자에게는 **'지웠는데 다시 살아난다'** 로 보인다
+
+    그래서 소스를 훑어 못 박는다. 새 라우트에 한글 파라미터를 쓰면
+    여기서 걸린다.
+    """
+    import re
+    import pathlib
+
+    뿌리 = pathlib.Path(__file__).resolve().parent.parent / "app"
+    걸린것 = []
+    for f in sorted(뿌리.rglob("*.py")):
+        본문 = f.read_text(encoding="utf-8")
+        for m in re.finditer(
+            r'@\w+\.(get|post|put|patch|delete)\(\s*[\'"]([^\'"]*)[\'"]', 본문
+        ):
+            길 = m.group(2)
+            for 이름 in re.findall(r"\{([^}:]+)", 길):
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", 이름):
+                    줄 = 본문[: m.start()].count("\n") + 1
+                    걸린것.append(f"{f.name}:{줄} {m.group(1).upper()} {길}")
+    assert 걸린것 == [], (
+        "경로 파라미터 이름에 ASCII 가 아닌 글자가 있습니다. "
+        "Starlette 가 못 읽어서 그 라우트는 404 가 됩니다:\n  " + "\n  ".join(걸린것)
+    )
+
+
+def test_실제로_매칭되는지_경로표로_확인한다():
+    """소스를 읽는 것만으로는 부족하다. 정말 매칭되는지 컴파일해 본다.
+
+    파라미터가 하나뿐인 라우트를 골라, 그 자리에 1 을 넣은 주소가
+    그 라우트에 걸리는지 본다."""
+    import re
+    from starlette.routing import compile_path
+    from app.main import app
+
+    안걸리는것 = []
+    for r in app.routes:
+        길 = getattr(r, "path", "")
+        이름들 = re.findall(r"\{([^}:]+)", 길)
+        if len(이름들) != 1:
+            continue
+        정규, _, 변환 = compile_path(길)
+        if not 변환:
+            안걸리는것.append(f"{길} — 파라미터를 못 읽음")
+            continue
+        시험 = re.sub(r"\{[^}]+\}", "1", 길)
+        if not 정규.match(시험):
+            안걸리는것.append(f"{길} — {시험} 가 안 걸림")
+    assert 안걸리는것 == [], "매칭 안 되는 라우트:\n  " + "\n  ".join(안걸리는것)

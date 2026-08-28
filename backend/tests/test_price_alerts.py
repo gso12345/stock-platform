@@ -294,7 +294,7 @@ class Test거는쪽:
         a = _알림(is_active=False, fired_at=datetime.now(timezone.utc), fired_price=80_100)
         db = _DB([a])
         me = type("나", (), {"id": 7})()
-        나온것 = _생짜(R.켜고끄기)(request=None, 알림id=1, db=db, me=me)
+        나온것 = _생짜(R.켜고끄기)(request=None, alert_id=1, db=db, me=me)
         assert a.is_active is True and a.fired_at is None and a.fired_price is None
         assert 나온것["fired_at"] is None
 
@@ -302,7 +302,7 @@ class Test거는쪽:
         a = _알림(is_active=True)
         db = _DB([a])
         me = type("나", (), {"id": 7})()
-        _생짜(R.켜고끄기)(request=None, 알림id=1, db=db, me=me)
+        _생짜(R.켜고끄기)(request=None, alert_id=1, db=db, me=me)
         assert a.is_active is False
 
     def test_목표가를_고칠_수_있다(self):
@@ -316,7 +316,7 @@ class Test거는쪽:
         db = _DB([a])
         me = type("나", (), {"id": 7})()
         본문 = R.고치기요청(direction="below", target=78_000)
-        나온것 = _생짜(R.고치기)(request=None, 본문=본문, 알림id=1, db=db, me=me)
+        나온것 = _생짜(R.고치기)(request=None, 본문=본문, alert_id=1, db=db, me=me)
 
         assert a.target == 78_000 and a.direction == "below"
         assert 나온것["target"] == 78_000 and 나온것["direction"] == "below"
@@ -332,7 +332,7 @@ class Test거는쪽:
         db = _DB([a])
         me = type("나", (), {"id": 7})()
         본문 = R.고치기요청(direction="above", target=85_000)
-        나온것 = _생짜(R.고치기)(request=None, 본문=본문, 알림id=1, db=db, me=me)
+        나온것 = _생짜(R.고치기)(request=None, 본문=본문, alert_id=1, db=db, me=me)
 
         assert a.is_active is True
         assert a.fired_at is None and a.fired_price is None
@@ -348,7 +348,7 @@ class Test거는쪽:
         me = type("나", (), {"id": 7})()
         본문 = R.고치기요청(direction="above", target=85_000)
         with pytest.raises(HTTPException) as e:
-            _생짜(R.고치기)(request=None, 본문=본문, 알림id=1, db=db, me=me)
+            _생짜(R.고치기)(request=None, 본문=본문, alert_id=1, db=db, me=me)
         assert e.value.status_code == 400
         assert 고칠것.target == 79_000, "거절했는데 값이 바뀌었다"
         assert db.commits == 0
@@ -360,7 +360,7 @@ class Test거는쪽:
         db = _DB([a])
         me = type("나", (), {"id": 7})()
         본문 = R.고치기요청(direction="above", target=79_000)
-        나온것 = _생짜(R.고치기)(request=None, 본문=본문, 알림id=1, db=db, me=me)
+        나온것 = _생짜(R.고치기)(request=None, 본문=본문, alert_id=1, db=db, me=me)
         assert 나온것["target"] == 79_000
 
     def test_고칠_때도_DB_를_한_번만_물어본다(self):
@@ -376,7 +376,7 @@ class Test거는쪽:
         db = _세는DB([_알림(id=1, target=79_000)])
         me = type("나", (), {"id": 7})()
         _생짜(R.고치기)(request=None, 본문=R.고치기요청(direction="above", target=80_000),
-                        알림id=1, db=db, me=me)
+                        alert_id=1, db=db, me=me)
         assert db.질의수 == 1, f"DB 를 {db.질의수}번 물어봤다"
 
     def test_고치기_요청도_값의_형태를_고정한다(self):
@@ -401,11 +401,11 @@ class Test거는쪽:
         me = type("나", (), {"id": 7})()
         for 부르기 in (R.켜고끄기, R.지우기):
             with pytest.raises(HTTPException) as e:
-                _생짜(부르기)(request=None, 알림id=99, db=db, me=me)
+                _생짜(부르기)(request=None, alert_id=99, db=db, me=me)
             assert e.value.status_code == 404
         with pytest.raises(HTTPException) as e:
             _생짜(R.고치기)(request=None, 본문=R.고치기요청(direction="above", target=1),
-                            알림id=99, db=db, me=me)
+                            alert_id=99, db=db, me=me)
         assert e.value.status_code == 404
 
     def test_지금값은_캐시만_읽는다(self, 시세):
@@ -446,3 +446,96 @@ class Test알림함에_실린다:
         from app.services import scheduler as S
         본문 = inspect.getsource(S)
         assert "alert_checker" in 본문 and "확인하기" in 본문
+
+
+class Test경로로_진짜_닿는가:
+    """함수를 직접 부르는 것만으로는 못 잡는 결함이 있다.
+
+    이 파일의 다른 검사들은 켜고끄기()·지우기() 를 **함수째로** 부른다.
+    그래서 라우팅을 통째로 건너뛴다 — 실제로 그 사이에 시세 알림의
+    끄기·고치기·지우기가 **전부 404** 인 채로 배포됐는데, 여기 검사는
+    전부 초록이었다.
+
+    원인은 경로가 `/{알림id}` 였던 것이다. Starlette 는 경로 파라미터
+    이름에 [A-Za-z_][A-Za-z0-9_]* 만 받아서, 한글이면 이름을 못 읽고
+    `/alerts/1` 이 매칭되지 않는다. 라우트 목록에는 멀쩡히 뜨고 응답은
+    FastAPI 기본 404 라, 화면에서는 '지웠는데 다시 살아난다' 로 보였다
+    (낙관 갱신이 먼저 지우고 404 를 받아 되돌리기 때문이다).
+
+    그래서 여기서는 **HTTP 로 친다.** 걸고 → 끄고 → 지우고, 그때마다
+    목록을 다시 받아 정말 그대로인지 본다.
+    """
+
+    @pytest.fixture
+    def 손님(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/알림.db")
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.db.database import SessionLocal, Base, engine
+        from app.models.user import User
+        from app.core.security import create_access_token
+
+        Base.metadata.create_all(engine)
+        db = SessionLocal()
+        me = db.query(User).filter(User.email == "경로@test").first()
+        if not me:
+            me = User(email="경로@test", username="경로", hashed_password="x")
+            db.add(me); db.commit(); db.refresh(me)
+        """앞 검사가 남긴 알림을 치운다.
+
+        engine 은 import 할 때 한 번 만들어지므로 monkeypatch 로 환경
+        변수를 바꿔도 검사마다 DB 가 갈리지 않는다. 안 치우면 앞 검사가
+        걸어 둔 알림이 남아, 혼자 돌리면 통과하고 전체로 돌리면 깨진다."""
+        from app.models.stock import PriceAlert
+        db.query(PriceAlert).filter(PriceAlert.user_id == me.id).delete()
+        db.commit()
+        토큰 = create_access_token({"sub": str(me.id)})
+        db.close()
+        yield TestClient(app), {"Authorization": f"Bearer {토큰}"}
+
+    def _걸기(self, c, H, target=80000):
+        r = c.post("/api/v1/alerts", headers=H, json={
+            "symbol": "005930", "market": "KR", "name": "삼성전자",
+            "direction": "above", "target": target})
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def _목록(self, c, H):
+        r = c.get("/api/v1/alerts", headers=H)
+        assert r.status_code == 200, r.text
+        return r.json()["items"]
+
+    def test_끄면_꺼진_채로_남는다(self, 손님):
+        c, H = 손님
+        알림id = self._걸기(c, H)
+        r = c.patch(f"/api/v1/alerts/{알림id}", headers=H)
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+        assert r.json()["is_active"] is False
+        # 다시 받아도 꺼진 채여야 한다 — 화면이 되돌아가면 안 된다
+        assert [a["is_active"] for a in self._목록(c, H)] == [False]
+
+    def test_지우면_지워진_채로_남는다(self, 손님):
+        c, H = 손님
+        알림id = self._걸기(c, H)
+        r = c.delete(f"/api/v1/alerts/{알림id}", headers=H)
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+        assert self._목록(c, H) == []
+
+    def test_목표가를_고치면_고쳐진_채로_남는다(self, 손님):
+        c, H = 손님
+        알림id = self._걸기(c, H)
+        r = c.put(f"/api/v1/alerts/{알림id}", headers=H,
+                  json={"direction": "below", "target": 70000})
+        assert r.status_code == 200, f"{r.status_code} {r.text}"
+        남은 = self._목록(c, H)
+        assert len(남은) == 1
+        assert 남은[0]["target"] == 70000 and 남은[0]["direction"] == "below"
+
+    def test_없는_알림에는_우리_메시지로_404를_준다(self, 손님):
+        """FastAPI 기본 404('Not Found')가 오면 라우트가 아예 안 걸린
+        것이다 — 그게 이번 사고의 모습이었다. 우리가 쓴 문구가 와야
+        '라우트는 닿았고 그 알림이 없을 뿐' 이라는 뜻이다."""
+        c, H = 손님
+        r = c.delete("/api/v1/alerts/99999", headers=H)
+        assert r.status_code == 404
+        assert "없는 알림" in r.json().get("detail", ""), r.text

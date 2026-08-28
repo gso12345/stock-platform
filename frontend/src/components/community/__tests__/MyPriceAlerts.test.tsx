@@ -166,19 +166,28 @@ describe("누르면 화면이 먼저 바뀐다", () => {
     });
   });
 
-  it("종목 상세의 종도 같이 갱신한다", async () => {
-    /* 같은 알림을 두 화면이 그린다. 여기서 지운 것이 거기서는 그대로
-       남아 있으면 두 화면이 서로 다른 말을 한다 */
-    /* 앞 검사가 걸어 둔 mockRejectedValue 가 그대로 남아 있다 —
-       clearAllMocks 는 호출 기록만 지우고 구현은 안 지운다.
-       실패하면 onSuccess 가 아예 안 불려서 이 검사가 헛돈다 */
+  it("종목 상세의 종과 **같은 열쇠**를 쓴다", async () => {
+    /* 같은 서버 목록(GET /alerts)을 두 화면이 그린다.
+       예전에는 여기가 ["alerts","전체"], 종 쪽이 ["price-alerts","all"]
+       로 갈려 있었다 — 각자 캐시에 담고 있었다는 뜻이고, 그러면 한쪽
+       에서 지운 것이 다른 쪽에는 그대로 남아 화면을 옮기면 되살아난다.
+
+       거기다 '종도 갱신한다' 며 부르던 ["alerts", symbol] 은 어느
+       열쇠와도 안 맞아서 아무 일도 안 했다 — 죽은 코드였다.
+
+       열쇠를 하나로 합치면 갱신이 아예 필요 없다. 한 캐시를 고치면
+       두 화면이 같이 바뀐다. 그 사실 자체를 못 박는다. */
+    const { 알림열쇠 } = await import("@/components/stock/AlertButton");
+    expect(내알림열쇠).toEqual(알림열쇠);
+
     vi.mocked(alertsApi.deleteAlert).mockResolvedValue({});
     그리기([알림({ id: 1, symbol: "005930" })]);
     await screen.findByText("80,000원 위로");
-    const 무효화 = vi.spyOn(qc, "invalidateQueries");
     await userEvent.click(screen.getByRole("button", { name: /지우기$/ }));
+    // 종이 보는 바로 그 캐시가 줄어든다
     await waitFor(() => {
-      expect(무효화).toHaveBeenCalledWith({ queryKey: ["alerts", "005930"] });
+      const 담긴것 = qc.getQueryData(알림열쇠) as { items: unknown[] } | undefined;
+      expect(담긴것?.items).toHaveLength(0);
     });
   });
 

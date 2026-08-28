@@ -128,11 +128,28 @@ def 만들기(request: Request, 본문: 알림요청,
     return 답
 
 
-@router.patch("/{알림id}")
+"""경로 파라미터 이름은 **반드시 ASCII** 여야 한다.
+
+이 파일에 `{알림id}` 로 적혀 있었고, 그래서 끄기·고치기·지우기가
+전부 404 였다. Starlette 의 경로 컴파일러는 파라미터 이름에
+[A-Za-z_][A-Za-z0-9_]* 만 받는다 — 한글이면 이름을 아예 못 읽어서
+`/alerts/1` 이 이 라우트에 **매칭되지 않는다.**
+
+조용히 망가지는 방식이 나빴다. 라우트 목록에는 멀쩡히 뜨고, 응답도
+우리가 쓴 '없는 알림입니다' 가 아니라 FastAPI 기본 '{"detail":"Not Found"}'
+라 서버 로그만 봐서는 원인이 안 보인다. 화면에서는 낙관 갱신이 먼저
+지워 놓고 404 를 받아 되돌리므로, **지웠는데 다시 살아나는** 것으로
+보였다. 그 제보를 받고서야 찾았다.
+
+(함수 이름은 한글이어도 된다 — 경로 안의 파라미터 이름만 걸린다.)
+"""
+
+
+@router.patch("/{alert_id}")
 @limiter.limit("60/minute")
-def 켜고끄기(request: Request, 알림id: int = Path(..., ge=1),
+def 켜고끄기(request: Request, alert_id: int = Path(..., ge=1),
              db: Session = Depends(get_db), me=Depends(require_user)):
-    a = _내알림(db, me.id).filter(PriceAlert.id == 알림id).first()
+    a = _내알림(db, me.id).filter(PriceAlert.id == alert_id).first()
     if not a:
         raise HTTPException(404, "없는 알림입니다")
     a.is_active = not a.is_active
@@ -146,9 +163,9 @@ def 켜고끄기(request: Request, 알림id: int = Path(..., ge=1),
     return 답
 
 
-@router.put("/{알림id}")
+@router.put("/{alert_id}")
 @limiter.limit("60/minute")
-def 고치기(request: Request, 본문: 고치기요청, 알림id: int = Path(..., ge=1),
+def 고치기(request: Request, 본문: 고치기요청, alert_id: int = Path(..., ge=1),
            db: Session = Depends(get_db), me=Depends(require_user)):
     """목표가·방향을 바꾼다.
 
@@ -163,12 +180,12 @@ def 고치기(request: Request, 본문: 고치기요청, 알림id: int = Path(..
     # DB 가 Supabase 라 물어볼 때마다 네트워크를 건넌다 — '고칠 줄 찾기'
     # 와 '겹치는 것 찾기' 를 따로 물으면 왕복이 둘이다.
     내것 = _내알림(db, me.id).limit(최대_알림수 * 4).all()
-    a = next((x for x in 내것 if x.id == 알림id), None)
+    a = next((x for x in 내것 if x.id == alert_id), None)
     if not a:
         raise HTTPException(404, "없는 알림입니다")
 
     겹침 = next((x for x in 내것
-                 if x.id != 알림id
+                 if x.id != alert_id
                  and x.symbol == a.symbol
                  and x.direction == 본문.direction
                  and x.target == 본문.target), None)
@@ -186,11 +203,11 @@ def 고치기(request: Request, 본문: 고치기요청, 알림id: int = Path(..
     return 답
 
 
-@router.delete("/{알림id}")
+@router.delete("/{alert_id}")
 @limiter.limit("60/minute")
-def 지우기(request: Request, 알림id: int = Path(..., ge=1),
+def 지우기(request: Request, alert_id: int = Path(..., ge=1),
            db: Session = Depends(get_db), me=Depends(require_user)):
-    a = _내알림(db, me.id).filter(PriceAlert.id == 알림id).first()
+    a = _내알림(db, me.id).filter(PriceAlert.id == alert_id).first()
     if not a:
         raise HTTPException(404, "없는 알림입니다")
     db.delete(a); db.commit()

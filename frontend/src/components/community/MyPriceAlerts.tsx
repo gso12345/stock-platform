@@ -26,8 +26,19 @@ import { Link } from "react-router-dom";
 import { BellRing, ChevronDown, ChevronRight, X } from "lucide-react";
 import { alertsApi, type 가격알림 } from "@/api/stocks";
 
-/** 전체 알림 목록의 열쇠. 종목 상세의 종(그 종목 것만)과 다른 자리다 */
-export const 내알림열쇠 = ["alerts", "전체"] as const;
+/** 알림 목록의 열쇠 — **종목 상세의 종과 같은 것을 쓴다.**
+ *
+ *  여기에 ["alerts","전체"] 라는 따로 만든 열쇠를 쓰고 있었다. 그런데
+ *  종 쪽은 ["price-alerts","all"] 이다. 두 화면이 **같은 서버 목록**을
+ *  각자 캐시에 담고 있었다는 뜻이고, 그러면 한쪽에서 지운 것이 다른
+ *  쪽에는 그대로 남는다 — 화면을 옮기면 지운 알림이 되살아난다.
+ *
+ *  게다가 여기서 종을 갱신한다고 부르던 ["alerts", symbol] 은 어느
+ *  열쇠와도 안 맞아서 **아무것도 안 했다.** 죽은 코드였다.
+ *
+ *  같은 것은 같은 열쇠로 담는다. */
+export { 알림열쇠 as 내알림열쇠 } from "@/components/stock/AlertButton";
+import { 알림열쇠 } from "@/components/stock/AlertButton";
 
 interface 알림응답 { items: 가격알림[]; limit: number }
 
@@ -71,7 +82,7 @@ export default function MyPriceAlerts({ open, onToggle }: {
   const qc = useQueryClient();
 
   const { data, isLoading, isError, refetch } = useQuery<알림응답>({
-    queryKey: 내알림열쇠,
+    queryKey: 알림열쇠,
     queryFn: () => alertsApi.getAlerts(),
     /* 접혀 있어도 개수는 머리글에 적는다 — '3개 걸어 둠' 이 보여야
        펼쳐 볼 이유가 생긴다. 자주 바뀌는 값이 아니라 5분 담아 둔다 */
@@ -84,32 +95,26 @@ export default function MyPriceAlerts({ open, onToggle }: {
 
   /** 캐시를 지금 자리에서 고친다. 되돌릴 수 있게 이전 값을 돌려준다 */
   const 미리고치기 = async (바꾸기: (items: 가격알림[]) => 가격알림[]) => {
-    await qc.cancelQueries({ queryKey: 내알림열쇠 });
-    const 이전 = qc.getQueryData<알림응답>(내알림열쇠);
-    if (이전) qc.setQueryData(내알림열쇠, { ...이전, items: 바꾸기(이전.items) });
+    await qc.cancelQueries({ queryKey: 알림열쇠 });
+    const 이전 = qc.getQueryData<알림응답>(알림열쇠);
+    if (이전) qc.setQueryData(알림열쇠, { ...이전, items: 바꾸기(이전.items) });
     return { 이전 };
   };
   const 되돌리기 = (ctx?: { 이전?: 알림응답 }) => {
-    if (ctx?.이전) qc.setQueryData(내알림열쇠, ctx.이전);
+    if (ctx?.이전) qc.setQueryData(알림열쇠, ctx.이전);
   };
-  /* 종목 상세의 종도 같은 알림을 그린다. 여기서 지운 것이 거기서는
-     그대로 남아 있으면 두 화면이 서로 다른 말을 한다 */
-  const 종도갱신 = (symbol: string) =>
-    qc.invalidateQueries({ queryKey: ["alerts", symbol] });
 
   const 켜고끄기 = useMutation({
     mutationFn: (a: 가격알림) => alertsApi.toggleAlert(a.id),
     onMutate: (a) => 미리고치기((items) => items.map(
       (x) => x.id === a.id ? { ...x, is_active: !x.is_active } : x)),
     onError: (_e, _v, ctx) => 되돌리기(ctx),
-    onSuccess: (_d, a) => 종도갱신(a.symbol),
   });
 
   const 지우기 = useMutation({
     mutationFn: (a: 가격알림) => alertsApi.deleteAlert(a.id),
     onMutate: (a) => 미리고치기((items) => items.filter((x) => x.id !== a.id)),
     onError: (_e, _v, ctx) => 되돌리기(ctx),
-    onSuccess: (_d, a) => 종도갱신(a.symbol),
   });
 
   return (

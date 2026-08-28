@@ -336,8 +336,14 @@ class Test국내와_해외가_같은_환율을_본다:
 
     @pytest.fixture(autouse=True)
     def _치우기(self):
+        """기준금리·CD 도 같이 치운다.
+
+        이 둘은 하루(86400초) 담긴다. 앞 검사가 담아 둔 것이 남아 있으면
+        여기서 만드는 목록의 모양이 달라져서, 혼자 돌리면 통과하고
+        전체로 돌리면 깨진다 — 실제로 그렇게 한 번 걸렸다."""
         열쇠 = ("extra:kr_rates", "extra:eurkrw", "extra:jpykrw",
-                "extra:vkospi", "extra:us_rates", "extra:usdkrw")
+                "extra:vkospi", "extra:us_rates", "extra:usdkrw",
+                "extra:kr_base_rate", "extra:cd_rate")
         for k in 열쇠:
             cache.delete(k); cache.delete(f"{k}:miss")
         yield
@@ -362,12 +368,25 @@ class Test국내와_해외가_같은_환율을_본다:
         monkeypatch.setattr(M, "get_vkospi", lambda *a, **k: None)
         monkeypatch.setattr(M, "get_us_rates", self._묶음대역(센다))
 
-    def test_국내_탭을_먼저_열어도_환율_둘이_나온다(self, monkeypatch):
+    def test_국내_탭을_먼저_열면_배경에_맡기고_기다리지_않는다(self, monkeypatch):
+        """받아 둔 것이 없으면 배경에 맡기고 **이번 요청은 안 기다린다.**
+
+        여기서 기다리면 안 되는 이유가 재 보고서야 분명해졌다.
+        _do_fetch_kr_rates() 전체를 라우트가 5초에서 끊는데, 실패할 때
+        32.8초가 나왔다 — 왕복을 하나 더 얹으면 그만큼 더 자주 끊기고,
+        끊기면 금리 목록이 통째로 빈 채로 화면에 나간다.
+
+        '국내 탭을 먼저 열어도 환율이 뜬다' 는 보장은 그대로다. 다만
+        그 일을 하는 자리가 여기가 아니라 라우트로 옮겨졌다
+        (Test국내_대시보드_라우트 참조) — 거기서는 금리가 통째로 비어도
+        캐시에 있는 환율을 붙여 준다."""
+        import time
         센다: dict = {}
         self._국내금리만(monkeypatch, 센다)
-        이름들 = [x["name"] for x in M._do_fetch_kr_rates()]
-        assert any("유로" in n for n in 이름들), 이름들
-        assert any("100엔" in n for n in 이름들), 이름들
+        시작 = time.perf_counter()
+        M._do_fetch_kr_rates()
+        걸림 = time.perf_counter() - 시작
+        assert 걸림 < 1.0, f"{걸림:.2f}초 — 환율 묶음을 기다리고 있다"
 
     def test_해외_탭이_먼저면_묶음을_다시_안_부른다(self, monkeypatch):
         """국내 탭 때문에 미국 금리까지 또 받아 올 이유는 없다.
@@ -389,9 +408,16 @@ class Test국내와_해외가_같은_환율을_본다:
         assert M.get_eurkrw() is None          # 캐시에 없으면 없다고 답한다
         assert M.get_jpykrw_100() is None
 
-    def test_환율이_빠진_목록은_오래_안_담긴다(self, monkeypatch):
-        """300초를 담아 두면, 그 사이 해외 탭이 환율을 채워도 국내 탭은
-        5분 내내 옛 목록을 준다 — 두 화면이 5분 동안 다른 말을 한다."""
+    def test_금리를_하나도_못_건진_목록은_오래_안_담긴다(self, monkeypatch):
+        """덜 채워진 값을 완성품처럼 얼려 두면, 그 사이 원천이 살아나도
+        5분 내내 옛 목록을 준다.
+
+        무엇을 '반쪽' 으로 볼지는 이 목록이 책임지는 것으로 정한다 —
+        환율은 이제 라우트가 캐시에서 따로 붙이므로 여기 몫이 아니다.
+
+        '금리가 하나라도 있나' 로는 안 된다. 아무 데서도 못 받으면
+        정적 기본값(기준금리 2.75%)을 하나 세우기 때문에 그 조건이 늘
+        참이 된다 — 이 검사가 그걸 잡았다."""
         for 이름 in ("_fetch_kr_rates_naver", "_fetch_kr_rates_시장지표",
                      "_fetch_bok_rates_ecos"):
             monkeypatch.setattr(M, 이름, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("막힘")))
@@ -403,12 +429,29 @@ class Test국내와_해외가_같은_환율을_본다:
                      if x.get("key") == "extra:kr_rates"), None)
         assert 남은 is not None and 남은 <= 60, f"반쪽짜리 목록이 {남은}초나 담겼다"
 
-    def test_온전하면_제대로_담는다(self, monkeypatch):
-        """환율이 다 왔으면 300초다. 매번 30초로 두면 같은 것을
-        열 배 더 자주 받는다."""
-        센다: dict = {}
-        self._국내금리만(monkeypatch, 센다)
-        M._do_fetch_kr_rates()
+    def test_금리를_건졌으면_제대로_담는다(self, monkeypatch):
+        """금리가 왔으면 300초다. 매번 30초로 두면 같은 것을 열 배 더
+        자주 받는다 — 0.15 CPU 서버에서 그 자체가 부담이다.
+
+        여기서는 원천 하나(네이버)가 **실제로 성공**하게 둔다. 앞
+        검사처럼 다 막아 놓으면 정적 기본값만 남아서, 담는 시간이
+        30초인 것이 맞다."""
+        monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: ([
+            {"name": "한국 기준금리", "value": 2.5, "change": 0.0,
+             "change_rate": 0.0, "unit": "%", "is_rate": True},
+            {"name": "국고채 3년", "value": 3.1, "change": 0.01,
+             "change_rate": 0.32, "unit": "%", "is_rate": True},
+        ], None))
+        monkeypatch.setattr(M, "_fetch_kr_rates_시장지표",
+                            lambda: (_ for _ in ()).throw(RuntimeError("막힘")))
+        monkeypatch.setattr(M, "_fetch_bok_rates_ecos",
+                            lambda: (_ for _ in ()).throw(RuntimeError("막힘")))
+        monkeypatch.setattr(M, "_빠진_국고채", lambda *a, **k: False)
+        monkeypatch.setattr(M, "get_vkospi", lambda *a, **k: None)
+        monkeypatch.setattr(M, "_환율_채워두기", lambda: None)
+
+        목록 = M._do_fetch_kr_rates()
+        assert any(x.get("is_rate") and not x.get("_static") for x in 목록), 목록
         남은 = next((x["ttl_remaining"] for x in cache.keys_with_ttl()
                      if x.get("key") == "extra:kr_rates"), None)
         assert 남은 is not None and 남은 > 60, f"온전한 목록인데 {남은}초만 담겼다"
@@ -488,3 +531,97 @@ class Test국내와_해외가_같은_환율을_본다:
         cache.set("extra:eurkrw", {"value": 1490.25, "change": -3.5, "change_rate": -0.23}, 300)
         항목 = M.get_eurkrw()
         assert 항목 is not None and 항목["value"] == pytest.approx(1490.25)
+
+
+class Test국내_대시보드_라우트:
+    """화면을 받아 보고서야 진짜 원인을 알았다.
+
+    '국내에 원/유로·원/100엔이 안 뜬다' 고 하셔서 캐시만 보고 두 번
+    고쳤는데 안 됐다. 화면 사진을 보니 환율 둘만이 아니라 **금리도
+    VKOSPI 도 통째로** 없었다 — 라벨은 '환율 · 금리 · 변동성' 인데
+    원/달러 하나뿐이었다. 원/달러만 살아남은 것은 그게 rates 가 아니라
+    exchange 로 따로 오기 때문이다.
+
+    재 보니 _do_fetch_kr_rates() 가 **32.8초**였다(네이버 → 시장지표 →
+    ECOS 를 차례로 치고 실패할 때). 라우트 상한은 5초다. 그래서 rates
+    가 매번 빈 배열로 나갔고, 그 안에 얹어 두었던 환율도 같이 사라졌다.
+
+    환율은 해외 탭이 받아 둔 목록에 이미 있어서 캐시만 읽으면 즉시
+    꺼낸다. 금리가 느리다고 이것까지 잃을 이유가 없다.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _치우기(self):
+        열쇠 = ("extra:us_rates", "extra:eurkrw", "extra:jpykrw", "extra:vkospi")
+        for k in 열쇠:
+            cache.delete(k); cache.delete(f"{k}:miss")
+        yield
+        for k in 열쇠:
+            cache.delete(k); cache.delete(f"{k}:miss")
+
+    def _해외탭이_받아둔상태(self):
+        cache.set("extra:us_rates", [
+            {"name": "원/달러",  "value": 1373.98, "change": -9.51,  "change_rate": -0.69},
+            {"name": "원/유로",  "value": 1599.40, "change": -12.98, "change_rate": -0.80},
+            {"name": "원/100엔", "value": 858.70,  "change": -10.06, "change_rate": -1.16},
+        ], 300)
+
+    def _부르기(self, monkeypatch, rates):
+        import asyncio
+        from app.api.routes import dashboard as D
+        monkeypatch.setattr(D, "get_kr_rates", lambda: rates)
+        monkeypatch.setattr(D, "get_kr_futures", lambda: asyncio.sleep(0, result=[]))
+        monkeypatch.setattr(D, "_get_exchange_rate_async",
+                            lambda: asyncio.sleep(0, result={"value": 1373.98}))
+        monkeypatch.setattr(D, "카드_vkospi", lambda: None)
+        고리 = asyncio.new_event_loop()
+        try:
+            return 고리.run_until_complete(D.kr_extras())
+        finally:
+            고리.close()
+
+    def test_금리가_통째로_비어도_환율은_뜬다(self, monkeypatch):
+        self._해외탭이_받아둔상태()
+        답 = self._부르기(monkeypatch, [])
+        이름들 = [x["name"] for x in 답["rates"]]
+        assert any("유로" in n for n in 이름들), 이름들
+        assert any("100엔" in n for n in 이름들), 이름들
+
+    def test_환율이_두_번_들어가지_않는다(self, monkeypatch):
+        """금리 목록이 제때 와서 환율을 이미 담고 있으면 덧붙이지
+        않는다. 같은 카드가 둘이면 합계도 눈도 어긋난다."""
+        self._해외탭이_받아둔상태()
+        답 = self._부르기(monkeypatch, [
+            {"name": "원/유로", "value": 1599.4, "change": -13.0, "change_rate": -0.8},
+            {"name": "한국 기준금리", "value": 2.75, "is_rate": True},
+        ])
+        이름들 = [x["name"] for x in 답["rates"]]
+        assert sum(1 for n in 이름들 if "유로" in n) == 1, 이름들
+        assert "한국 기준금리" in 이름들
+
+    def test_환율은_금리보다_앞에_온다(self, monkeypatch):
+        """화면이 원/달러를 이 목록보다 먼저 그린다. 환율 셋이 붙어
+        있어야 눈이 한 번에 읽는다."""
+        self._해외탭이_받아둔상태()
+        답 = self._부르기(monkeypatch, [{"name": "한국 기준금리", "value": 2.75, "is_rate": True}])
+        이름들 = [x["name"] for x in 답["rates"]]
+        assert 이름들.index("원/유로") < 이름들.index("한국 기준금리"), 이름들
+
+    def test_해외탭도_안_받아_뒀으면_조용히_넘어간다(self, monkeypatch):
+        """받아 온 것이 없으면 없는 대로 둔다 — 여기서 새로 받지 않는다.
+        이 라우트는 이미 5초에 쫓기고 있다."""
+        답 = self._부르기(monkeypatch, [{"name": "한국 기준금리", "value": 2.75, "is_rate": True}])
+        assert [x["name"] for x in 답["rates"]] == ["한국 기준금리"]
+
+    def test_이름이_겹치는_get_eurkrw_를_안_쓴다(self):
+        """price_fetcher 에도 get_eurkrw 가 있고 그쪽은 async 다.
+        그냥 들여오면 나중 import 가 덮어서, 카드 만드는 자리에서
+        코루틴을 dict 처럼 다루게 된다 — 실제로 그렇게 한 번 놓쳤다.
+        ('coroutine was never awaited' 와 AttributeError 로 조용히 실패)"""
+        import inspect
+        from app.api.routes import dashboard as D
+        # 별칭은 동기 함수여야 한다
+        assert not inspect.iscoroutinefunction(D.카드_원유로)
+        assert not inspect.iscoroutinefunction(D.카드_원100엔)
+        src = inspect.getsource(D.kr_extras)
+        assert "카드_원유로" in src and "get_eurkrw()" not in src
