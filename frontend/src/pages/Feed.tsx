@@ -6,6 +6,7 @@ import {
   PenSquare, Trash2, LogIn, Eye, Search, X,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
+import { use낙관 } from "@/hooks/useOptimistic";
 import { useAuthStore } from "@/store/authStore";
 import { API_BASE } from "@/api/client";
 /* 포트폴리오 그림은 따로 받는다.
@@ -361,6 +362,7 @@ const PAGE_SIZE = 20;
 
 export default function Feed() {
   const qc = useQueryClient();
+  const { 미리, 되돌리기 } = use낙관();
   const navigate = useNavigate();
   const { isLoggedIn } = useAuthStore();
   const [feedType, setFeedType] = useState<FeedType>("all");
@@ -466,7 +468,11 @@ export default function Feed() {
 
   const deleteMutation = useMutation({
     mutationFn: (post: FeedPost) => communityApi.deletePost(post.market, post.symbol, post.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["feed"] }),
+    /* 목록에서 먼저 뺀다. 예전에는 서버 왕복 뒤에 피드를 통째로 다시
+       받아서, 지운 글이 한참 그대로 남아 있었다 */
+    onMutate: (post) => 미리(queryKey, (앞: any) =>
+      앞?.items ? { ...앞, items: 앞.items.filter((x: FeedPost) => x.id !== post.id) } : 앞),
+    onError: (_e, _v, ctx) => 되돌리기(ctx),
   });
 
   const prefetchFeed = (overrides: { sort?: SortType; market?: MarketFilter; type?: FeedType }) => {

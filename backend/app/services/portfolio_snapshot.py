@@ -155,6 +155,9 @@ def 찍기() -> int:
     날 = 오늘()
     db = SessionLocal()
     적은수 = 0
+    #: 포트폴리오 줄이 걸려 전체 줄만 남긴 사람 수. 0 이 아니면 DB 의
+    #  옛 유니크 제약이 안 지워졌다는 뜻이다 — 눈에 보이게 남긴다
+    쪼갠사람 = 0
     try:
         """오늘 것이 **다 채워진** 사람은 아예 안 꺼낸다.
 
@@ -237,34 +240,83 @@ def 찍기() -> int:
                     continue                 # 위와 같은 이유
                 줄들.append((pid, 쪽))
 
-            고쳤나 = False
-            for pid, 값 in 줄들:
-                있던것 = 오늘것.get((uid, pid))
-                if 있던것 is None:
-                    db.add(PortfolioSnapshot(
-                        user_id=uid, portfolio_id=pid, day=날,
-                        total_value=round(값["value"], 2),
-                        total_cost=round(값["cost"], 2),
-                        filled=값["filled"], priced=값["priced"],
-                    ))
-                    고쳤나 = True
-                elif 값["filled"] > (있던것.filled or 0):
-                    """더 많이 채워졌을 때만 고쳐 쓴다.
+            def _담기(넣을것) -> bool:
+                """한 사람 몫을 **따로 담는다**(SAVEPOINT).
 
-                    'filled 가 늘었나' 로만 판단한다. 덮어쓰기를 무조건
-                    하면, 장중에 잠깐 캐시가 비었을 때 온전하던 줄이
-                    반쪽으로 되돌아간다."""
-                    있던것.total_value = round(값["value"], 2)
-                    있던것.total_cost = round(값["cost"], 2)
-                    있던것.filled = 값["filled"]
-                    있던것.priced = 값["priced"]
-                    고쳤나 = True
+                예전에는 사람 전부를 한 번에 commit 했다. 그래서 줄
+                하나가 걸리면 그 회차 전체가 뒤집혔다 — 실제로 그
+                사고가 났다(아래 참조).
+                """
+                바뀜 = False
+                자리 = db.begin_nested()
+                try:
+                    for pid, 값 in 넣을것:
+                        있던것 = 오늘것.get((uid, pid))
+                        if 있던것 is None:
+                            db.add(PortfolioSnapshot(
+                                user_id=uid, portfolio_id=pid, day=날,
+                                total_value=round(값["value"], 2),
+                                total_cost=round(값["cost"], 2),
+                                filled=값["filled"], priced=값["priced"],
+                            ))
+                            바뀜 = True
+                        elif 값["filled"] > (있던것.filled or 0):
+                            """더 많이 채워졌을 때만 고쳐 쓴다.
+
+                            'filled 가 늘었나' 로만 판단한다. 덮어쓰기를
+                            무조건 하면, 장중에 잠깐 캐시가 비었을 때
+                            온전하던 줄이 반쪽으로 되돌아간다."""
+                            있던것.total_value = round(값["value"], 2)
+                            있던것.total_cost = round(값["cost"], 2)
+                            있던것.filled = 값["filled"]
+                            있던것.priced = 값["priced"]
+                            바뀜 = True
+                    자리.commit()
+                    return 바뀜
+                except Exception as e:
+                    자리.rollback()
+                    log.debug("자산 기록 한 사람 실패 uid=%s: %s", uid, type(e).__name__)
+                    return False
+
+            고쳤나 = _담기(줄들)
+            if not 고쳤나 and len(줄들) > 1:
+                """포트폴리오 줄이 걸리면 **전체 줄만이라도** 남긴다.
+
+                실제로 난 사고다. 스냅샷을 '하루 한 줄' 에서
+                '포트폴리오마다 한 줄' 로 넓히면서 옛 유니크 제약
+                (user_id, day)을 지우는 SQL 을 배포에 넣었는데, 그게
+                실패해도 아무 소리가 안 났다. 그 뒤로는 포트폴리오 줄이
+                옛 제약에 걸려 IntegrityError 가 나고, 한 번에 commit
+                하던 탓에 **전체 줄까지 같이 날아갔다** — 자산 흐름
+                그래프가 배포한 날에서 그냥 멈춰 섰다.
+
+                제약을 못 지운 DB 에서도 전체 줄은 (user_id, day) 한
+                벌이라 반드시 들어간다. 포트폴리오별 그래프는 못 그려도
+                전체 그래프는 이어지는 것이, 둘 다 잃는 것보다 낫다."""
+                고쳤나 = _담기(줄들[:1])
+                if 고쳤나:
+                    쪼갠사람 += 1
             if 고쳤나:
                 적은수 += 1
 
         if 적은수:
             db.commit()
             log.info("자산 기록 %d명 (%s)", 적은수, 날)
+        if 쪼갠사람:
+            """조용히 넘어가지 않는다.
+
+            이 수가 0 이 아니면 DB 에 옛 제약이 남아 있다는 뜻이다.
+            전체 그래프는 살렸지만 포트폴리오별 그래프는 못 쌓고 있다."""
+            log.warning(
+                "자산 기록: %d명은 전체 줄만 남겼습니다. "
+                "portfolio_snapshots 의 옛 유니크 제약(user_id, day)이 "
+                "안 지워졌을 수 있습니다", 쪼갠사람)
+            try:
+                from app.core import errors
+                errors.남기기("자산 기록 제약",
+                              RuntimeError(f"{쪼갠사람}명 전체 줄만 기록"))
+            except Exception:
+                pass
         return 적은수
     except Exception as e:
         try:

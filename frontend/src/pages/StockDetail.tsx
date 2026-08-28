@@ -479,15 +479,21 @@ export default function StockDetail() {
       watchlist_id: 1,
       folder_id: folderId ?? null,
     }),
+    /* 별을 누른 즉시 채운다. 예전에는 서버가 답할 때까지 빈 별이라
+       안 눌린 줄 알고 한 번 더 눌렀다 — 그러면 같은 종목이 두 줄 된다 */
+    onMutate: () => { setInWatchlist(true); setWatchlistMsg("관심종목에 추가됐어요"); },
     onSuccess: (data: any) => {
-      setInWatchlist(true);
       setWatchlistItemId(data?.id ?? null);
-      setWatchlistMsg("관심종목에 추가됐어요");
       qc.invalidateQueries({ queryKey: ["watchlist-items"] });
       qc.invalidateQueries({ queryKey: ["watchlist-items-check"] });
       setTimeout(() => setWatchlistMsg(""), 2000);
     },
     onError: (err: any) => {
+      /* 낙관적으로 채워 둔 별을 되돌린다. 채운 채로 두면 관심종목
+         화면에 없는 종목을 '담겨 있다' 고 말하게 된다.
+         (아래 '이미 추가된 종목' 갈래에서는 다시 채운다 — 그때는
+          정말 담겨 있는 것이 맞다) */
+      setInWatchlist(false);
       if (err?.response?.status === 401) {
         setWatchlistMsg("로그인이 필요해요");
         setTimeout(() => setWatchlistMsg(""), 2000);
@@ -507,15 +513,15 @@ export default function StockDetail() {
 
   const removeMutation = useMutation({
     mutationFn: (id: number) => watchlistApi.removeItem(id),
+    onMutate: () => { setInWatchlist(false); setWatchlistMsg("관심종목에서 제거됐어요"); },
     onSuccess: () => {
-      setInWatchlist(false);
       setWatchlistItemId(null);
-      setWatchlistMsg("관심종목에서 제거됐어요");
       qc.invalidateQueries({ queryKey: ["watchlist-items"] });
       qc.invalidateQueries({ queryKey: ["watchlist-items-check"] });
       setTimeout(() => setWatchlistMsg(""), 2000);
     },
     onError: () => {
+      setInWatchlist(true);                     // 되돌린다
       setWatchlistMsg("제거 중 오류가 발생했어요");
       setTimeout(() => setWatchlistMsg(""), 2000);
     },

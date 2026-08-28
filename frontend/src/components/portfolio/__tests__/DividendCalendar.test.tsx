@@ -55,6 +55,34 @@ function 그리기(props: React.ComponentProps<typeof DividendCalendar> = {}) {
 
 beforeEach(() => vi.clearAllMocks());
 
+/**
+ * 종목별 줄을 보러 간다.
+ *
+ * 기본 보기가 **날짜별**로 바뀌었다. 이 화면이 답해야 할 질문이
+ * '언제 얼마 들어오나' 라서다. 종목별은 '어느 종목이 제일 많이 주나' 를
+ * 볼 때 한 번 누르는 쪽이다.
+ */
+async function 종목별로() {
+  /* 값이 도착하기 전에는 칩이 없다. 기다리지 않고 queryByRole 로
+     보면 늘 null 이라 클릭이 통째로 빠진다 — 검사는 조용히 날짜별
+     화면을 보게 되고, 무엇이 틀렸는지 알기 어렵다 */
+  await screen.findByText("연간 배당금", {}, { timeout: 4000 });
+  const 칩 = screen.queryByRole("button", { name: "종목별" });
+  if (칩) await userEvent.click(칩);
+}
+
+/**
+ * 근거(주기·배당월·지난 같은 달 금액)를 편다.
+ *
+ * '정보가 너무 많이 나온다' 는 말을 듣고 접었다. 매번 보고 싶은 것은
+ * '몇 주 × 얼마 = 얼마' 뿐이고, 나머지는 그 예상이 어디서 나왔나를
+ * 따질 때만 본다. 지운 게 아니라 접은 것이라, 검사도 펴서 본다.
+ */
+async function 자세히() {
+  const 것들 = screen.queryAllByRole("button", { name: /자세히/ });
+  for (const b of 것들) await userEvent.click(b);
+}
+
 
 describe("날짜 글", () => {
   it("확정된 날은 하루까지 적는다", () => {
@@ -154,7 +182,7 @@ describe("금액", () => {
       items: [줄()], pending: 0,
     });
     그리기();
-    expect(await screen.findByText(/100주 · 주당 361원/)).toBeInTheDocument();
+    expect(await screen.findByText(/100주 × 361원/)).toBeInTheDocument();
   });
 
   it("달러 종목은 원화로 환산하되 원래 금액도 같이 적는다", async () => {
@@ -250,7 +278,7 @@ describe("주당 금액", () => {
       pending: 0,
     });
     그리기();
-    expect(await screen.findByText(/주당 \$0\.0630/)).toBeInTheDocument();
+    expect(await screen.findByText(/× \$0\.0630/)).toBeInTheDocument();
   });
 });
 
@@ -313,6 +341,8 @@ describe("월별 막대", () => {
       items: [줄({ months: [2, 5, 8, 11] })], pending: 0,
     });
     그리기();
+    await 종목별로();
+    await 자세히();
     await userEvent.click(await screen.findByRole("button", { name: /^2월 ₩/ }));
     expect(await screen.findByText("배당월 2·5·8·11")).toBeInTheDocument();
   });
@@ -402,8 +432,8 @@ describe("이번 회차 금액", () => {
       pending: 0,
     });
     그리기();
-    expect(await screen.findByText(/주당 \$0\.20/)).toBeInTheDocument();
-    expect(screen.queryByText(/주당 \$0\.35/)).toBeNull();
+    expect(await screen.findByText(/× \$0\.20/)).toBeInTheDocument();
+    expect(screen.queryByText(/× \$0\.35/)).toBeNull();
   });
 });
 
@@ -452,6 +482,8 @@ describe("그 달에 정말 얼마였나", () => {
       pending: 0,
     });
     그리기();
+    await 종목별로();
+    await 자세히();
     const 글 = await screen.findAllByText(new RegExp(`지난 ${이번달}월`));
     expect(글.length).toBeGreaterThan(0);
     expect(글[0].textContent).toContain("2025 $0.22");
@@ -488,6 +520,7 @@ describe("메운 값을 실제인 척하지 않는다", () => {
       pending: 0,
     });
     그리기();
+    await 종목별로();
     expect(await screen.findByText(/\(평균\)/)).toBeInTheDocument();
   });
 
@@ -500,7 +533,7 @@ describe("메운 값을 실제인 척하지 않는다", () => {
       pending: 0,
     });
     그리기();
-    await screen.findByText(/주당 \$0\.20/);
+    await screen.findByText(/× \$0\.20/);
     expect(screen.queryByText(/\(평균\)/)).toBeNull();
   });
 });
@@ -522,20 +555,20 @@ describe("좁은 화면과 넓은 화면", () => {
     return container;
   }
 
-  it("지난 배당 자리가 폭마다 따로 있다", async () => {
-    const c = await 그려보기();
-    expect(c.querySelector(".sm\\:hidden")).toBeTruthy();       // 좁은 화면용
-    expect(c.querySelector(".hidden.sm\\:block")).toBeTruthy(); // 넓은 화면용
-  });
+  it("지난 배당은 이제 한 자리에만 있다", async () => {
+    /* 예전에는 좁은 화면용(sm:hidden)과 넓은 화면용(hidden sm:block)
+       두 벌을 따로 두고 폭에 따라 하나만 보였다. 그런데 '정보가 너무
+       많이 나온다' 는 말을 듣고 근거를 통째로 접었더니, 두 벌을 둘
+       이유가 사라졌다 — 접힌 안쪽은 폭과 상관없이 한 자리다.
 
-  it("한 폭에서는 하나만 보인다 — 둘 다 뜨면 같은 말이 두 번 나온다", async () => {
+       한 벌이라는 것 자체를 못 박는다. 두 벌로 되돌아가면 펴 놓았을
+       때 같은 말이 두 번 나온다. */
     const c = await 그려보기();
-    const 좁은것 = c.querySelector(".sm\\:hidden");
-    const 넓은것 = c.querySelector(".hidden.sm\\:block");
-    expect(좁은것).not.toBe(넓은것);
-    // 좁은 쪽은 sm 이상에서 숨고, 넓은 쪽은 sm 미만에서 숨는다
-    expect(좁은것?.className).toContain("sm:hidden");
-    expect(넓은것?.className).toContain("hidden");
+    await 종목별로();
+    await 자세히();
+    const 지난것 = [...c.querySelectorAll("p")]
+      .filter((el) => (el.textContent || "").startsWith("지난 "));
+    expect(지난것).toHaveLength(1);
   });
 
   it("연간 배당금이 좁은 화면에서 한 줄을 다 쓴다", async () => {
@@ -646,6 +679,11 @@ describe("몇 년 것인지 제대로 적는다", () => {
       pending: 0,
     });
     그리기();
+    await 종목별로();
+    await 종목별로();
+    await 자세히();
+    await 종목별로();
+    await 자세히();
     // 뼈대가 아니라 실제 내용이 뜰 때까지 기다린다
     await screen.findByText("연간 배당금");
     await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${딴달}월`) }));
@@ -712,8 +750,8 @@ describe("주배당은 날짜별로 다 적는다", () => {
     /* '주당 $0.252' 라고 쓰면 한 번에 그만큼 주는 줄로 읽는다 */
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당줄()], pending: 0 });
     그리기();
-    expect(await screen.findByText(/그 달 합계/)).toBeInTheDocument();
-    expect(screen.getByText(/\(4회\)/)).toBeInTheDocument();
+    await 종목별로();
+    expect(await screen.findByText(/4회 합계/)).toBeInTheDocument();
   });
 
   it("앞으로의 날에는 '예상' 을 붙인다", async () => {
@@ -739,8 +777,9 @@ describe("주배당은 날짜별로 다 적는다", () => {
       pending: 0,
     });
     그리기();
-    expect(await screen.findByText(/주당 \$0\.25/)).toBeInTheDocument();
-    expect(screen.queryByText(/그 달 합계/)).toBeNull();
+    await 종목별로();
+    expect(await screen.findByText(/× \$0\.25/)).toBeInTheDocument();
+    expect(screen.queryByText(/회 합계/)).toBeNull();
   });
 });
 
@@ -1112,6 +1151,7 @@ describe("종목별 줄이 빽빽하지 않다", () => {
     });
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당], pending: 0 });
     그리기();
+    await 종목별로();
     await waitFor(() => expect(screen.getByText("MSFO")).toBeInTheDocument());
     // 종목별 화면에는 개별 날짜가 없다
     expect(screen.queryByText(/4일 \(/)).not.toBeInTheDocument();
@@ -1141,6 +1181,8 @@ describe("종목별 줄이 빽빽하지 않다", () => {
       pending: 0,
     });
     그리기();
+    await 종목별로();
+    await 자세히();
     await waitFor(() => expect(screen.getByText("삼성전자")).toBeInTheDocument());
     expect(screen.getByText(/배당월 2·5·8·11/)).toBeInTheDocument();
   });

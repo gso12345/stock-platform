@@ -344,7 +344,51 @@ async def lifespan(application: FastAPI):
                         _sc.commit()
                     except Exception:
                         _sc.rollback()
-                _startup_log.info("자산 스냅샷 제약을 포트폴리오별로 넓혔습니다")
+
+                    """**정말 지워졌는지 확인한다.**
+
+                    여기가 조용히 실패했다. 위 DROP 두 개가 다 실패해도
+                    아래 로그는 '넓혔습니다' 를 찍었다 — 사실이 아닌 줄을
+                    남긴 것이고, 그러면 다음 사람이 여기를 안 본다.
+
+                    안 지워지면 무슨 일이 나는지가 크다. 포트폴리오 줄이
+                    옛 제약에 걸려 IntegrityError 가 나고, 한 번에 commit
+                    하던 탓에 전체 줄까지 같이 날아갔다 — 자산 흐름
+                    그래프가 배포한 날에서 그냥 멈춰 섰다.
+                    (portfolio_snapshot.찍기() 쪽도 이제 사람마다 따로
+                     담아서, 걸려도 전체 줄은 남긴다.)
+
+                    이름이 다를 수도 있다. 옛 제약을 이름으로 못 찾으면
+                    (user_id, day) 두 칸짜리 유니크를 찾아 지운다."""
+                    남은것 = _sc.execute(text("""
+                        SELECT c.conname FROM pg_constraint c
+                        JOIN pg_class t ON t.oid = c.conrelid
+                        WHERE t.relname = 'portfolio_snapshots' AND c.contype = 'u'
+                          AND array_length(c.conkey, 1) = 2
+                          AND EXISTS (SELECT 1 FROM unnest(c.conkey) k
+                                      JOIN pg_attribute a
+                                        ON a.attrelid = t.oid AND a.attnum = k
+                                      WHERE a.attname = 'day')
+                          AND NOT EXISTS (SELECT 1 FROM unnest(c.conkey) k
+                                          JOIN pg_attribute a
+                                            ON a.attrelid = t.oid AND a.attnum = k
+                                          WHERE a.attname = 'portfolio_id')
+                    """)).fetchall()
+                    for (이름,) in 남은것:
+                        try:
+                            _sc.execute(text(
+                                f'ALTER TABLE portfolio_snapshots DROP CONSTRAINT "{이름}"'))
+                            _sc.commit()
+                            _startup_log.info("옛 스냅샷 제약 %s 를 지웠습니다", 이름)
+                        except Exception as _e:
+                            _sc.rollback()
+                            _startup_log.warning(
+                                "옛 스냅샷 제약 %s 를 못 지웠습니다: %s — "
+                                "포트폴리오별 자산 흐름이 안 쌓입니다", 이름, _e)
+                    if 남은것:
+                        _startup_log.info("자산 스냅샷 제약을 포트폴리오별로 넓혔습니다")
+                    else:
+                        _startup_log.info("자산 스냅샷 제약은 이미 포트폴리오별입니다")
         except Exception as _snap_err:
             _startup_log.warning(f"자산 스냅샷 제약 변경 스킵: {_snap_err}")
 

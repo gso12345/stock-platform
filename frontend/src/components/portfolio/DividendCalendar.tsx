@@ -26,7 +26,7 @@
  *      날짜를 모른다 — 지어내지 않는다.
  */
 import { useMemo, useState } from "react";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, ChevronDown } from "lucide-react";
 import { type 배당줄 } from "@/api/stocks";
 import { use배당달력 } from "@/hooks/useDividendCalendar";
 import { Card, 못불러옴 } from "@/components/ui";
@@ -467,11 +467,26 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
   /* 세전으로 시작한다. 세후가 기본이면 '내가 아는 배당금과 다른데?' 가
      먼저 오고, 왜 다른지는 한참 뒤에야 눈에 띈다 */
   const [세후로, set세후로] = useState(false);
-  /* 종목별로 볼까 날짜별로 볼까.
-     주배당(연 52회)은 종목별로 접으면 그 달 합계만 남아서 "이번 주
-     금요일에 얼마 들어오나" 를 아무 데서도 못 본다. 배당 앱들이 날짜를
-     머리글로 세우는 이유가 그것이다. */
-  const [보기, set보기] = useState<"종목" | "날짜">("종목");
+  /* 종목별로 볼까 날짜별로 볼까 — **날짜별이 기본이다.**
+
+     이 화면이 답해야 할 질문은 '언제 얼마 들어오나' 다. 종목별로 접으면
+     그 달 합계만 남아서, 주배당(연 52회)은 "이번 주 금요일에 얼마" 를
+     아무 데서도 못 본다. 배당 앱들이 날짜를 머리글로 세우고 그걸
+     첫 화면으로 두는 이유가 그것이다.
+
+     종목별은 '어느 종목이 제일 많이 주나' 를 볼 때 쓴다 — 궁금할 때
+     한 번 누르는 쪽이지, 매번 먼저 보는 쪽이 아니다. */
+  const [보기, set보기] = useState<"종목" | "날짜">("날짜");
+  /* 종목별 줄에서 근거(주기·배당월·지난 같은 달 금액)를 펴 놓은 종목들.
+     기본은 다 접힘이다 — 매번 보고 싶은 것은 '몇 주 × 얼마 = 얼마' 뿐이고,
+     근거는 그 예상이 어디서 나왔나를 따질 때만 본다. */
+  const [펼친것, set펼친것] = useState<Set<string>>(() => new Set());
+  const 펴기 = (키: string) => set펼친것((앞) => {
+    const 뒤 = new Set(앞);
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    뒤.has(키) ? 뒤.delete(키) : 뒤.add(키);
+    return 뒤;
+  });
 
   const { data, isLoading, isError, error, refetch } =
     use배당달력(portfolioId, !미리보기);      // 미리보기는 공개 경로로 따로 받는다
@@ -671,7 +686,9 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
             종목별로 접으면 그 달 합계 한 줄만 남는다 */}
         {날짜로볼수있나 && (
           <div className="flex rounded-lg border border-border overflow-hidden ml-auto" role="group" aria-label="보기 방식">
-            {(["종목", "날짜"] as const).map((v) => (
+            {/* 날짜별이 왼쪽이다 — 기본이 왼쪽에 있어야 지금 어느 쪽을
+                보고 있는지가 눈에 걸린다 */}
+            {(["날짜", "종목"] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => set보기(v)}
@@ -679,7 +696,7 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
                 className={`px-2.5 py-1 text-2xs font-semibold transition-colors ${
                   실제보기 === v ? "bg-accent-green text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
                 }`}
-              >{v === "종목" ? "종목별" : "날짜별"}</button>
+              >{v === "날짜" ? "날짜별" : "종목별"}</button>
             ))}
           </div>
         )}
@@ -763,6 +780,8 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
             const 받은날들 = 그달날들(r, 고른달);
             const 받을날들 = 앞으로그달(r, 고른달);
             const 여러번 = 받은날들.length > 1 || 받을날들.length > 1;
+            const 키 = 배당키(r.market, r.symbol);
+            const 펼침 = 펼친것.has(키);
 
             /* 그 달에 정말 얼마였나 — 같은 달만 골라 해마다.
                예전에는 마지막 세 회차를 그냥 보여 줬다. 3월을 보고 있는데
@@ -771,6 +790,10 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
 
                좁은 화면에서는 이름 아래에, 넓은 화면에서는 따로 칸에
                둔다 — 한 줄에 넷을 나란히 두면 휴대폰에서 다 뭉개진다. */
+            const 근거있나 = !!(r.cycle
+              || (r.months && r.months.length > 1 && r.months.length < 12)
+              || 지난것.length > 0
+              || (r.pay_date && r.pay_date !== r.date));
             const 지난배당글 = 지난것.length > 0
               ? `${고른달}월 ${지난것.map((x) => `${x.year} ${원본돈(x.amount, r.currency)}`).join(" · ")}`
               : null;
@@ -782,7 +805,7 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
                  앉는다 — 눈이 그 사이를 건너다녀야 해서 한 줄로 안 읽힌다.
                  격자로 잡으면 남는 자리가 칸끼리 나뉜다. */
               <li key={`${r.market}:${r.symbol}`}
-                  className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] sm:grid-cols-[4rem_minmax(0,1fr)_11rem_auto] items-start gap-x-3 gap-y-1 py-2.5 border-b border-border/50 last:border-b-0">
+                  className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] sm:grid-cols-[4rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 py-2.5 border-b border-border/50 last:border-b-0">
                 <div className="flex flex-col items-center pt-0.5">
                   {예정 && 남은 ? (
                     <>
@@ -836,52 +859,62 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
                       }`}>{r.confirmed ? "확정" : "예상"}</span>
                     )}
                   </div>
+                  {/* ── 한 줄로 줄인다 ──
+
+                      '정보가 너무 많이 나온다' 는 말을 들었다. 실제로
+                      찍어 보니 한 종목에 이름·배지·수량·주당·회차·평균·
+                      주기·배당월·지난배당까지 아홉 가지가 깔려 있었다.
+
+                      매번 보고 싶은 것은 셋뿐이다 — **무엇을, 몇 주 ×
+                      얼마로, 얼마 받나.** 나머지(주기·배당월·지난 같은 달
+                      금액)는 '이 예상이 어디서 나왔나' 를 따질 때 보는
+                      근거다. 지우지 않고 눌러서 펴 보게 접어 둔다. */}
                   <p className="text-2xs text-text-dim truncate">
-                    {r.shares ? `${r.shares.toLocaleString("ko-KR")}주 · ` : ""}
-                    {/* 그 달의 주당 금액이다. 예전에는 마지막 회차 금액을
-                        모든 달에 똑같이 적어서, 결산배당이 붙는 달과 아닌
-                        달이 화면에서 같아 보였다 */}
+                    {r.shares ? `${r.shares.toLocaleString("ko-KR")}주 × ` : ""}
+                    {원본돈(주당 ?? 0, r.currency)}
                     {/* 한 달에 여러 번 주는 종목이면 그 달 **합계**다.
                         회차 수를 안 적으면 한 번에 그만큼 준다고 읽힌다 */}
-                    {여러번 ? "그 달 합계 " : "주당 "}{원본돈(주당 ?? 0, r.currency)}
-                    {여러번 && <span className="text-text-muted"> ({받은날들.length || 받을날들.length}회)</span>}
+                    {여러번 && <span className="text-text-muted"> ({받은날들.length || 받을날들.length}회 합계)</span>}
                     {/* 실제로 받은 값이 아니면 그렇다고 적는다.
                         주·월배당은 아직 한 해가 안 찬 종목의 빈 달을
                         평균으로 메운다 — 그걸 실제인 척 두면, 그 숫자로
                         한 해 계획을 세우는 사람이 생긴다 */}
                     {!실제 && <span className="text-text-muted"> (평균)</span>}
-                    {r.cycle ? ` · ${r.cycle}배당` : ""}
                   </p>
 
-                  {/* ── 날짜별로 전부 ──
-                      주배당(연 52회)은 한 달에 네다섯 번 준다. 한 줄로 접으면
-                      '8월 20일 · 주당 $0.189' 가 되는데, 날짜는 그 달 마지막
-                      회차이고 금액은 그 달 합계라 둘의 기준이 어긋난다.
-
-                      **받은 날과 받을 날을 섞지 않는다.** 지난 것은 실제로
-                      들어온 돈이고 앞으로의 것은 추정이다. 색과 말로 가른다. */}
-                  {/* 날짜별 나열은 여기서 안 한다.
-                      주배당이면 이 자리에 네다섯 줄이 깔려서, 종목 다섯
-                      개짜리 목록이 스무 줄이 됐다 — 화면을 찍어 보고
-                      알았다. 날짜가 궁금하면 위 '날짜별' 칩이 그 일을
-                      제대로 한다(날짜를 머리글로 세우고 합계까지 낸다). */}
-                  {/* 몇 월에 주는지. 분기배당이라도 회사마다 달이 다르다.
-                      한 달짜리는 안 적는다 — '배당월 8' 은 바로 위에
-                      적힌 것을 한 번 더 말하는 줄이다 */}
-                  {r.months && r.months.length > 1 && r.months.length < 12 && (
-                    <p className="text-2xs text-text-dim truncate">배당월 {r.months.join("·")}</p>
+                  {/* 근거는 눌러야 나온다 */}
+                  {근거있나 && (
+                    <button
+                      onClick={() => 펴기(키)}
+                      aria-expanded={펼침}
+                      className="mt-0.5 inline-flex items-center gap-0.5 text-2xs text-text-dim hover:text-accent-green transition-colors"
+                    >
+                      {펼침 ? "접기" : "자세히"}
+                      <ChevronDown size={11} className={펼침 ? "rotate-180 transition-transform" : "transition-transform"} />
+                    </button>
                   )}
-                  {지난배당글 && (
-                    <p className="sm:hidden text-2xs text-text-muted truncate">지난 {지난배당글}</p>
+                  {펼침 && (
+                    <div className="mt-1 flex flex-col gap-0.5">
+                      {r.cycle && (
+                        <p className="text-2xs text-text-dim">{r.cycle}배당</p>
+                      )}
+                      {/* 몇 월에 주는지. 분기배당이라도 회사마다 달이 다르다.
+                          한 달짜리는 안 적는다 — '배당월 8' 은 바로 위에
+                          적힌 것을 한 번 더 말하는 줄이다 */}
+                      {r.months && r.months.length > 1 && r.months.length < 12 && (
+                        <p className="text-2xs text-text-dim">배당월 {r.months.join("·")}</p>
+                      )}
+                      {지난배당글 && (
+                        <p className="text-2xs text-text-muted break-keep">지난 {지난배당글}</p>
+                      )}
+                      {r.pay_date && r.pay_date !== r.date && (
+                        <p className="text-2xs text-text-dim">
+                          기준일 {날짜글(r.date)} · 입금일 {날짜글(r.pay_date)}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
-
-                {/* 넓은 화면에서는 근거를 따로 세운다 — 자리가 남는다 */}
-                {지난배당글 && (
-                  <p className="hidden sm:block text-2xs text-text-muted leading-snug break-keep">
-                    지난 {지난배당글}
-                  </p>
-                )}
 
                 {/* 수량이 0이면 금액을 안 쓴다 — '0원' 은 '배당을 안 준다'
                     로 읽힌다 */}

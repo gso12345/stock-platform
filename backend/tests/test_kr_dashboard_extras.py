@@ -442,3 +442,49 @@ class Test국내와_해외가_같은_환율을_본다:
         걸림 = time.perf_counter() -시작
         # 차례로 부르면 1.0초, 동시에 부르면 0.5초다. 넉넉히 0.85초로 건다
         assert 걸림 < 느림 * 1.7, f"{걸림:.2f}초 — 차례로 부르고 있다"
+
+    def test_낱개_열쇠가_먼저_비어도_목록에서_꺼낸다(self, monkeypatch):
+        """지난번 수정이 안 통한 진짜 이유다. 값이 두 군데 있고
+        수명이 어긋난다.
+
+          extra:us_rates  300초   해외 탭이 그리는 목록
+          extra:eurkrw    360초   같은 함수가 낱개로도 담는 값
+
+        get_us_rates() 는 캐시 우선이라 extra:us_rates 가 살아 있으면
+        _do_fetch_us_rates 를 아예 안 부른다 — 낱개가 먼저 비면 아무도
+        다시 안 채운다. 해외 탭에는 목록이 멀쩡히 떠 있는데 국내 탭만
+        비는 상태가 그대로 굳는다."""
+        센다: dict = {}
+        # 해외 탭이 그리는 목록만 살아 있다. 낱개 열쇠는 비었다
+        cache.set("extra:us_rates", [
+            {"name": "원/달러", "value": 1385.0, "change": 2.0, "change_rate": 0.14},
+            {"name": "원/유로", "value": 1620.5, "change": 3.2, "change_rate": 0.2},
+            {"name": "원/100엔", "value": 932.1, "change": -1.1, "change_rate": -0.12},
+        ], 300)
+        cache.delete("extra:eurkrw"); cache.delete("extra:jpykrw")
+        self._국내금리만(monkeypatch, 센다)
+
+        이름들 = [x["name"] for x in M._do_fetch_kr_rates()]
+        assert any("유로" in n for n in 이름들), 이름들
+        assert any("100엔" in n for n in 이름들), 이름들
+        assert 센다.get("횟수", 0) == 0, "목록에 있는데도 다시 받았다"
+
+    def test_목록에서_꺼낸_엔화에_100을_또_곱하지_않는다(self):
+        """extra:us_rates 의 '원/100엔' 은 이미 100엔당이다.
+        여기서 또 곱하면 93,210원이 된다 — 예전에 100배 어긋난 값이
+        몇 달 떠 있었던 바로 그 자리다."""
+        cache.set("extra:us_rates", [
+            {"name": "원/100엔", "value": 932.1, "change": -1.1, "change_rate": -0.12},
+        ], 300)
+        cache.delete("extra:jpykrw")
+        항목 = M.get_jpykrw_100()
+        assert 항목 is not None
+        assert 항목["value"] == pytest.approx(932.1)
+        assert 항목["change"] == pytest.approx(-1.1)
+
+    def test_목록이_비면_낱개_열쇠를_본다(self):
+        """반대 방향의 어긋남도 있다 — 목록은 비었는데 낱개는 남은 경우"""
+        cache.delete("extra:us_rates")
+        cache.set("extra:eurkrw", {"value": 1490.25, "change": -3.5, "change_rate": -0.23}, 300)
+        항목 = M.get_eurkrw()
+        assert 항목 is not None and 항목["value"] == pytest.approx(1490.25)

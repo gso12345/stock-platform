@@ -9,6 +9,7 @@ import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { useLivePrices, 시세갱신주기} from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
 import { normalizeSymbol, lookupPrice, indexPricesBySymbol } from "@/utils/prices";
+import { use낙관, 목록에서빼기, 목록에서고치기 } from "@/hooks/useOptimistic";
 import { PREVIEW_FOLDERS, PREVIEW_WATCHLIST, PreviewItemRow, type PreviewItem } from "@/components/watchlist/Preview";
 import { ItemRow } from "@/components/watchlist/ItemRow";
 import {
@@ -38,6 +39,8 @@ const MARKET_TABS: TabItem[] = [
 /* ── 메인 ────────────────────────────────────────────────── */
 export default function Watchlist() {
   const qc       = useQueryClient();
+  /* 누른 즉시 화면을 고치고 서버는 뒤따라가게 하는 공용 도구 */
+  const { 미리, 되돌리기 } = use낙관();
   const navigate = useNavigate();
   const { isLoggedIn, userId } = useAuthStore();
   const isPreview = !isLoggedIn;
@@ -273,9 +276,15 @@ export default function Watchlist() {
     onError: (err) => setAddError(extractErrorMessage(err, "종목 추가에 실패했습니다")),
   });
 
+  /* 지우기·고치기는 **누른 즉시** 화면에서 반영한다.
+     예전에는 서버 왕복(1) 뒤에 목록을 통째로 다시 받았다(2). 한 칸이
+     한국↔싱가포르라, 누르고 나서 한참 그 줄이 그대로 남아 있었고
+     안 지워진 줄 알고 한 번 더 누르게 된다. 커뮤니티 댓글이 처음부터
+     쓰던 방식으로 맞춘다(hooks/useOptimistic). */
   const removeMutation = useMutation({
     mutationFn: (id: number) => watchlistApi.removeItem(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
+    onMutate: (id) => 미리(["watchlist-items"], (앞) => 목록에서빼기(앞, id)),
+    onError: (_e, _v, ctx) => 되돌리기(ctx),
   });
 
   const updateItemMutation = useMutation({
@@ -284,7 +293,9 @@ export default function Watchlist() {
       /** 바꿀 수 있는 것은 이름·메모·폴더뿐이다 — 종목코드나 시세는 아니다 */
       patch: { name?: string; memo?: string; folder_id?: number };
     }) => watchlistApi.updateItem(id, patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-items"] }),
+    onMutate: ({ id, patch }) =>
+      미리(["watchlist-items"], (앞) => 목록에서고치기<WatchlistItem>(앞, id, patch)),
+    onError: (_e, _v, ctx) => 되돌리기(ctx),
   });
 
 
@@ -322,11 +333,18 @@ export default function Watchlist() {
 
   const reorderFoldersMutation = useMutation({
     mutationFn: (order: number[]) => watchlistFolderApi.reorderFolders(order),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist-folders"] }),
-    onError: () => {
-      qc.invalidateQueries({ queryKey: ["watchlist-folders"] });
-      setLocalFolderOrder(null);
-    },
+    /* 끌어다 놓은 순서를 캐시에 바로 얹는다. 안 그러면 놓는 순간
+       원래 자리로 튀었다가 서버가 답한 뒤에 다시 움직인다 — 한 번의
+       동작이 화면에서 두 번 보인다 */
+    onMutate: (order) => 미리<관심폴더[]>(["watchlist-folders"], (앞) => {
+      if (!Array.isArray(앞)) return 앞;
+      const 통 = new Map(앞.map((f) => [f.id, f]));
+      const 옮긴것 = order.map((id) => 통.get(id)).filter(Boolean) as 관심폴더[];
+      const 옮긴id = new Set(order);
+      return [...옮긴것, ...앞.filter((f) => !옮긴id.has(f.id))];
+    }),
+    onError: (_e, _v, ctx) => { 되돌리기(ctx); setLocalFolderOrder(null); },
+    onSettled: () => setLocalFolderOrder(null),
   });
 
   const handleFolderDragStart = (folder: 관심폴더) => {

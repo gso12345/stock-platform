@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 시세수명, 하루수명, 재촉주기, 재촉_횟수 } from "@/constants/portfolioQuery";
+import { use낙관, 목록에서빼기, 목록에서고치기 } from "@/hooks/useOptimistic";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
@@ -127,6 +128,9 @@ const 모든탭: 자산탭[] = ["자산", "추이", "배당", "비중", "뉴스"
 export default function Portfolio() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  /* 누른 즉시 화면을 고치고 서버는 뒤따라가게 하는 공용 도구.
+     예전에는 왕복 둘(고치기 + 목록 다시 받기)을 기다렸다 */
+  const { 미리, 되돌리기 } = use낙관();
   const [modalOpen,       setModalOpen]       = useState(false);
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
   const [deleteTarget,    setDeleteTarget]    = useState<PortfolioItem | null>(null);
@@ -204,18 +208,25 @@ export default function Portfolio() {
 
   const renamePortfolioMutation = useMutation({
     mutationFn: ({ id, name }: { id: number; name: string }) => portfolioApi.renamePortfolio(id, name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolios"] }),
+    onMutate: ({ id, name }) =>
+      미리(["portfolios"], (앞) => 목록에서고치기<PortfolioMeta>(앞, id, { name })),
+    onError: (_e, _v, ctx) => 되돌리기(ctx),
   });
 
   const [deletePortfolioTarget, setDeletePortfolioTarget] = useState<PortfolioMeta | null>(null);
   const [showPortfolioManager, setShowPortfolioManager] = useState(false);
   const deletePortfolioMutation = useMutation({
     mutationFn: (id: number) => portfolioApi.deletePortfolio(id),
-    onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
+    onMutate: (id) => {
+      /* 화면에서 먼저 뺀다. 지운 포트폴리오를 보고 있었으면 전체로
+         옮겨 준다 — 안 옮기면 없는 것을 고르고 있는 상태가 된다 */
       if (selectedPortfolioId === id) setSelectedPortfolioId(null);
       setDeletePortfolioTarget(null);
+      return 미리(["portfolios"], (앞) => 목록에서빼기<PortfolioMeta>(앞, id));
     },
+    onError: (_e, _v, ctx) => 되돌리기(ctx),
+    /* 종목도 같이 지워졌다 — 그건 서버만 아는 일이라 다시 받는다 */
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] }),
   });
   const handleConfirmDeletePortfolio = () => {
     if (deletePortfolioTarget) deletePortfolioMutation.mutate(deletePortfolioTarget.id);
@@ -233,11 +244,17 @@ export default function Portfolio() {
 
   const reorderPortfoliosMutation = useMutation({
     mutationFn: (order: number[]) => portfolioApi.reorderPortfolios(order),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolios"] }),
-    onError: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
-      setLocalPortfolioOrder(null);
-    },
+    /* 끌어다 놓은 순서를 캐시에 바로 얹는다. 안 그러면 놓는 순간
+       원래 자리로 튀었다가 서버가 답한 뒤에 다시 움직인다 */
+    onMutate: (order) => 미리<PortfolioMeta[]>(["portfolios"], (앞) => {
+      if (!Array.isArray(앞)) return 앞;
+      const 통 = new Map(앞.map((p) => [p.id, p]));
+      const 옮긴것 = order.map((id) => 통.get(id)).filter(Boolean) as PortfolioMeta[];
+      const 옮긴id = new Set(order);
+      return [...옮긴것, ...앞.filter((p) => !옮긴id.has(p.id))];
+    }),
+    onError: (_e, _v, ctx) => { 되돌리기(ctx); setLocalPortfolioOrder(null); },
+    onSettled: () => setLocalPortfolioOrder(null),
   });
 
   const handlePortfolioDragStart = (pf: PortfolioMeta) => {
@@ -389,11 +406,13 @@ export default function Portfolio() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => portfolioApi.deleteItem(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["portfolio-items-all"] });
-      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
+    onMutate: (id) => {
       setDeleteTarget(null);
+      return 미리(["portfolio-items-all"], (앞) => 목록에서빼기<PortfolioItem>(앞, id));
     },
+    onError: (_e, _v, ctx) => 되돌리기(ctx),
+    /* 포트폴리오 카드의 종목 수가 줄어든다 — 그건 따로 받는다 */
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["portfolios"] }),
   });
 
   /* ── 환율 — 공용 훅 (전용 엔드포인트 우선, 실패 시 금리 목록 폴백) ── */

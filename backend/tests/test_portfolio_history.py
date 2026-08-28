@@ -152,6 +152,23 @@ class _DB:
     def rollback(self): self.rollbacks += 1
     def close(self): self.closes += 1
 
+    def begin_nested(self):
+        """SAVEPOINT 대역.
+
+        찍기() 가 사람마다 따로 담는다(begin_nested). 옛 유니크 제약이
+        안 지워진 DB 에서 포트폴리오 줄 하나가 걸려도 전체 줄은
+        남기려는 것이다 — 안 그러면 그 회차가 통째로 뒤집혀서 자산
+        흐름 그래프가 배포한 날에 멈춘다.
+
+        여기서는 아무것도 안 되돌린다. 진짜 되돌림은 SQLite 를 띄운
+        Test옛_제약이_남아_있어도 쪽에서 건다."""
+        더미 = self
+
+        class _자리:
+            def commit(self): 더미.savepoints = getattr(더미, "savepoints", 0) + 1
+            def rollback(self): 더미.savepoint_rollbacks = getattr(더미, "savepoint_rollbacks", 0) + 1
+        return _자리()
+
 
 class _줄:
     """이미 적혀 있는 portfolio_snapshots 한 줄"""
@@ -509,3 +526,138 @@ class Test진짜DB:
         with pytest.raises(HTTPException) as e:
             자산흐름(days=90, portfolio_id=1, db=임시DB, current_user=_나())
         assert e.value.status_code == 404
+
+
+class Test옛_제약이_남아_있어도:
+    """배포에서 조용히 실패할 수 있는 자리다.
+
+    스냅샷을 '하루 한 줄' 에서 '포트폴리오마다 한 줄' 로 넓히면서 옛
+    유니크 제약(user_id, day)을 지우는 SQL 을 넣었는데, 그게 실패해도
+    아무 소리가 안 났다.
+
+    그러면 포트폴리오 줄이 옛 제약에 걸려 IntegrityError 가 나고,
+    사람 전부를 한 번에 commit 하던 탓에 **전체 줄까지 같이 날아갔다**.
+    자산 흐름 그래프가 배포한 날에서 그냥 멈춰 선다 — 실제로 재현했다.
+
+    전체 줄은 (user_id, day) 한 벌이라 옛 제약에서도 반드시 들어간다.
+    포트폴리오별을 못 쌓더라도 전체는 이어지는 것이, 둘 다 잃는 것보다
+    낫다.
+    """
+
+    @pytest.fixture
+    def 옛제약DB(self, tmp_path):
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.orm import sessionmaker
+        from app.db.database import Base
+        from app.models.user import User
+        from app.models.stock import Portfolio, PortfolioItem
+
+        엔진 = create_engine(f"sqlite:///{tmp_path}/옛.db")
+        Base.metadata.create_all(엔진, tables=[
+            User.__table__, Portfolio.__table__, PortfolioItem.__table__])
+        with 엔진.connect() as c:
+            # 넓히기 **전** 모양 그대로
+            c.execute(text("""
+                CREATE TABLE portfolio_snapshots (
+                    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL,
+                    portfolio_id INTEGER NOT NULL DEFAULT 0, day VARCHAR(10) NOT NULL,
+                    total_value FLOAT, total_cost FLOAT,
+                    filled INTEGER, priced INTEGER, made_at DATETIME,
+                    CONSTRAINT uq_pf_snapshot_day UNIQUE (user_id, day))"""))
+            c.commit()
+        db = sessionmaker(bind=엔진)()
+        yield db
+        db.close()
+
+    @pytest.fixture(autouse=True)
+    def _환율넣기(self):
+        from app.core.cache import cache
+        cache.set("extra:usdkrw", {"value": 1400.0}, 60)
+        yield
+        cache.delete("extra:usdkrw")
+
+    def test_전체_줄은_반드시_남는다(self, monkeypatch, 옛제약DB, 시세):
+        from sqlalchemy import text
+        from app.models.stock import Portfolio, PortfolioItem
+        import app.db.database as D
+        시세("005930", 80_000)
+        시세("000660", 200_000)
+
+        옛제약DB.add(Portfolio(id=1, user_id=7, name="주력"))
+        옛제약DB.add(Portfolio(id=2, user_id=7, name="연금"))
+        옛제약DB.add(PortfolioItem(user_id=7, portfolio_id=1, symbol="005930",
+                                   market="KR", shares=100, avg_price=70_000, currency="KRW"))
+        옛제약DB.add(PortfolioItem(user_id=7, portfolio_id=2, symbol="000660",
+                                   market="KR", shares=50, avg_price=150_000, currency="KRW"))
+        옛제약DB.commit()
+        monkeypatch.setattr(D, "SessionLocal", lambda: 옛제약DB)
+        monkeypatch.setattr(옛제약DB, "close", lambda: None)
+
+        assert PS.찍기() == 1, "한 줄도 안 남겼다 — 그래프가 그날로 멈춘다"
+        줄들 = 옛제약DB.execute(text(
+            "SELECT portfolio_id, total_value FROM portfolio_snapshots")).fetchall()
+        assert len(줄들) == 1, 줄들
+        pid, 값 = 줄들[0]
+        assert pid == 0, "남은 것이 전체 줄이 아니다"
+        assert 값 == 100 * 80_000 + 50 * 200_000   # 1,800만
+
+    def test_한_사람이_걸려도_다른_사람은_적힌다(self, monkeypatch, 옛제약DB, 시세):
+        """예전에는 사람 전부를 한 번에 commit 했다. 한 사람이 걸리면
+        그 회차 전체가 뒤집혔다."""
+        from sqlalchemy import text
+        from app.models.stock import Portfolio, PortfolioItem
+        import app.db.database as D
+        시세("005930", 80_000)
+
+        # 7번은 포트폴리오 둘 — 옛 제약에 걸린다
+        옛제약DB.add(Portfolio(id=1, user_id=7, name="주력"))
+        옛제약DB.add(Portfolio(id=2, user_id=7, name="연금"))
+        옛제약DB.add(PortfolioItem(user_id=7, portfolio_id=1, symbol="005930",
+                                   market="KR", shares=100, avg_price=70_000, currency="KRW"))
+        옛제약DB.add(PortfolioItem(user_id=7, portfolio_id=2, symbol="005930",
+                                   market="KR", shares=10, avg_price=70_000, currency="KRW"))
+        # 9번은 포트폴리오 하나 — 안 걸린다
+        옛제약DB.add(Portfolio(id=3, user_id=9, name="하나"))
+        옛제약DB.add(PortfolioItem(user_id=9, portfolio_id=3, symbol="005930",
+                                   market="KR", shares=5, avg_price=70_000, currency="KRW"))
+        옛제약DB.commit()
+        monkeypatch.setattr(D, "SessionLocal", lambda: 옛제약DB)
+        monkeypatch.setattr(옛제약DB, "close", lambda: None)
+
+        assert PS.찍기() == 2
+        사람들 = {u for (u,) in 옛제약DB.execute(text(
+            "SELECT DISTINCT user_id FROM portfolio_snapshots")).fetchall()}
+        assert 사람들 == {7, 9}, 사람들
+
+    def test_제약이_멀쩡하면_포트폴리오_줄도_다_남는다(self, monkeypatch, 임시DB2, 시세):
+        """되돌아가는 길도 막아 둔다 — 전체 줄만 남기는 것이 기본이
+        되면 포트폴리오별 그래프가 영영 안 쌓인다."""
+        from app.models.stock import Portfolio, PortfolioItem, PortfolioSnapshot
+        import app.db.database as D
+        시세("005930", 80_000)
+        임시DB2.add(Portfolio(id=1, user_id=7, name="주력"))
+        임시DB2.add(PortfolioItem(user_id=7, portfolio_id=1, symbol="005930",
+                                  market="KR", shares=100, avg_price=70_000, currency="KRW"))
+        임시DB2.commit()
+        monkeypatch.setattr(D, "SessionLocal", lambda: 임시DB2)
+        monkeypatch.setattr(임시DB2, "close", lambda: None)
+
+        assert PS.찍기() == 1
+        칸들 = {r.portfolio_id for r in 임시DB2.query(PortfolioSnapshot).all()}
+        assert 칸들 == {0, 1}, 칸들
+
+    @pytest.fixture
+    def 임시DB2(self, tmp_path):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from app.db.database import Base
+        from app.models.user import User
+        from app.models.stock import Portfolio, PortfolioItem, PortfolioSnapshot
+
+        엔진 = create_engine(f"sqlite:///{tmp_path}/새.db")
+        Base.metadata.create_all(엔진, tables=[
+            User.__table__, Portfolio.__table__, PortfolioItem.__table__,
+            PortfolioSnapshot.__table__])
+        db = sessionmaker(bind=엔진)()
+        yield db
+        db.close()
