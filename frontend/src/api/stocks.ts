@@ -486,6 +486,11 @@ export interface 보유뉴스항목 {
   image?: string | null;
   /** 이 기사가 걸린 내 종목들. 한 기사가 두 종목에 걸리기도 한다 */
   symbols: string[];
+  /** 어느 통에서 나온 기사인가 — "ko" 한국 매체, "en" 해외 매체.
+   *
+   *  '종목의 시장' 이 아니다. 엔비디아 얘기를 한국 매체가 쓰면 그건
+   *  한국 기사다. 옛 캐시에는 이 칸이 없어서 화면이 제목으로 되짚는다. */
+  lang?: "ko" | "en";
 }
 
 export interface 보유뉴스응답 {
@@ -516,10 +521,13 @@ export const portfolioApi = {
   reorderPortfolios: (order: number[]) =>
     api.put("/portfolio/portfolios/reorder", { order }).then((r) => r.data),
 
-  /** 내 자산이 하루하루 얼마였는지 — 자산 흐름 그래프의 재료 */
-  getHistory: (days = 90) =>
-    api.get<{ points: 자산흐름점[]; days: number }>("/portfolio/history",
-      { params: { days } }).then((r) => r.data),
+  /** 내 자산이 하루하루 얼마였는지 — 자산 흐름 그래프의 재료.
+   *  portfolioId 를 주면 그 포트폴리오 것만, 안 주면 전체 합계. */
+  getHistory: (days = 90, portfolioId?: number) =>
+    api.get<{ points: 자산흐름점[]; days: number; portfolio_id?: number | null }>(
+      "/portfolio/history",
+      { params: portfolioId ? { days, portfolio_id: portfolioId } : { days } },
+    ).then((r) => r.data),
 
   /** 내가 가진 종목이 언제 얼마를 주는가.
    *  portfolioId 를 주면 그 포트폴리오 것만, 안 주면 전체. */

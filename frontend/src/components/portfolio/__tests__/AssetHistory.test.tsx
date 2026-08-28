@@ -78,10 +78,10 @@ vi.mock("@/components/chart/ChartFrame", () => {
   };
 });
 
-function 그리기() {
+function 그리기(props: { portfolioId?: number } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}><AssetHistory /></QueryClientProvider>,
+    <QueryClientProvider client={qc}><AssetHistory {...props} /></QueryClientProvider>,
   );
 }
 
@@ -125,6 +125,41 @@ describe("기록이 아직 없을 때", () => {
     그리기();
     expect(await screen.findByRole("button", { name: /다시/ })).toBeInTheDocument();
   });
+
+  it("포트폴리오를 고른 채로 비어 있으면 '이제 막 쌓기 시작' 이라고 말한다", async () => {
+    /* 전체는 지난 기록이 다 있는데 포트폴리오를 고르면 텅 빈다 —
+       기록이 사람 단위로만 남던 시절 것이라 그렇다. 그 이유를 안 적으면
+       '전체는 나오는데 이건 왜 안 나오지' 로 읽힌다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: [], days: 90 });
+    그리기({ portfolioId: 3 });
+    expect(await screen.findByText(/이제 막 쌓기 시작/)).toBeInTheDocument();
+    // 전체일 때 하던 안내(내일 다시 오면)는 여기서 하면 안 된다
+    expect(screen.queryByText(/내일 다시 오면/)).not.toBeInTheDocument();
+  });
+});
+
+
+describe("포트폴리오별로 본다", () => {
+  beforeEach(() => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)], days: 90,
+    });
+  });
+
+  it("고른 포트폴리오를 서버에 같이 넘긴다", async () => {
+    그리기({ portfolioId: 7 });
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(90, 7));
+  });
+
+  it("포트폴리오가 다르면 캐시를 따로 쓴다", async () => {
+    /* 열쇠에 포트폴리오가 빠지면 앞서 받아 둔 전체 그래프가 5분(staleTime)
+       동안 그대로 남는다 — 칩을 눌러도 선이 안 바뀐다 */
+    const { unmount } = 그리기({ portfolioId: 1 });
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(90, 1));
+    unmount();
+    그리기({ portfolioId: 2 });
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(90, 2));
+  });
 });
 
 
@@ -165,15 +200,15 @@ describe("선을 그릴 때", () => {
     그리기();
     await screen.findByTestId("차트");
     await userEvent.click(screen.getByRole("button", { name: "1개월" }));
-    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(30));
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(30, undefined));
 
     await userEvent.click(screen.getByRole("button", { name: "1년" }));
-    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(365));
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(365, undefined));
   });
 
   it("처음에는 3개월을 본다", async () => {
     그리기();
-    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(90));
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(90, undefined));
   });
 
   it("'올해' 는 1월 1일부터 오늘까지로 물어본다", async () => {
@@ -183,7 +218,7 @@ describe("선을 그릴 때", () => {
     그리기();
     await screen.findByTestId("차트");
     await userEvent.click(screen.getByRole("button", { name: "올해" }));
-    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(올해일수()));
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(올해일수(), undefined));
     // 고정값 셋 중 어느 것도 아니어야 한다(1월 초·연말 빼고)
     expect([30, 90, 365, 3650]).not.toContain(올해일수(new Date(2026, 7, 26)));
   });
@@ -195,7 +230,7 @@ describe("선을 그릴 때", () => {
     그리기();
     await screen.findByTestId("차트");
     await userEvent.click(screen.getByRole("button", { name: "전체" }));
-    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(3650));
+    await waitFor(() => expect(portfolioApi.getHistory).toHaveBeenCalledWith(3650, undefined));
   });
 });
 

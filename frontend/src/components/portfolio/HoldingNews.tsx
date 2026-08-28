@@ -16,13 +16,43 @@
  * 왔을 뿐이고, 그 종목을 한 번 열어 보면 다음부터 나온다. 그래서
  * 못 찾은 종목을 아래에 그대로 적고, 눌러서 갈 수 있게 둔다.
  */
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Newspaper, ExternalLink } from "lucide-react";
-import { portfolioApi, type 보유뉴스응답 } from "@/api/stocks";
+import { portfolioApi, type 보유뉴스응답, type 보유뉴스항목 } from "@/api/stocks";
 import { Card, 못불러옴 } from "@/components/ui";
 import { safeExternalUrl } from "@/utils/url";
 import { fmtNewsDateTime } from "@/utils/formatters";
+
+/** 한글이 한 글자라도 있나 — 자모까지 본다(ㄱ~ㅎ, 가~힣) */
+const 한글 = /[ㄱ-ㆎ가-힣]/;
+
+/**
+ * 이 기사는 한국 기사인가.
+ *
+ * 서버가 lang 을 적어 준다("ko" 한국 매체 / "en" 해외 매체). 그 값이
+ * 있으면 그대로 믿는다 — 어느 통에서 나왔는지는 서버만 안다.
+ *
+ * 없을 때가 문제다. 이 칸이 생기기 전에 담긴 캐시가 서버에 5분(다
+ * 채워졌으면 그보다 길게) 남아 있고, 그동안 화면은 lang 없는 기사를
+ * 받는다. 그때 전부 '해외' 로 몰면 한국 기사가 통째로 사라진다.
+ * 제목에 한글이 있으면 한국 기사로 본다 — 야후 기사 제목에 한글이
+ * 들어갈 일은 없다.
+ */
+export function 한국기사인가(item: Pick<보유뉴스항목, "lang" | "title">): boolean {
+  if (item.lang) return item.lang === "ko";
+  return 한글.test(item.title || "");
+}
+
+export type 뉴스칸 = "전체" | "국내" | "해외";
+
+/** 고른 칸으로 거른다. 화면과 개수 배지가 같은 규칙을 쓰게 한자리에 둔다 */
+export function 걸러내기(items: 보유뉴스항목[], 칸: 뉴스칸): 보유뉴스항목[] {
+  if (칸 === "전체") return items;
+  const 한국 = 칸 === "국내";
+  return items.filter((it) => 한국기사인가(it) === 한국);
+}
 
 export default function 보유뉴스({ portfolioId, 미리보기 }: {
   portfolioId?: number;
@@ -53,16 +83,50 @@ export default function 보유뉴스({ portfolioId, 미리보기 }: {
      아래에 두었다가 '선언 전에 썼다' 로 뉴스 탭이 통째로 죽었다. */
   const data = 미리보기 ?? 받은것;
 
+  /* 국내 기사만 · 해외 기사만.
+     열 종목을 가진 사람의 목록은 두 언어가 섞여 있다. 영어를 안 읽는
+     사람에게는 절반이 그냥 지나가는 줄이었고, 반대로 원문을 보려는
+     사람은 한국 기사 사이에서 영어 기사를 찾아야 했다. */
+  const [칸, set칸] = useState<뉴스칸>("전체");
+  const 전체기사 = data?.items ?? [];
+  const 칸별수 = useMemo(() => ({
+    전체: 전체기사.length,
+    국내: 전체기사.filter((it) => 한국기사인가(it)).length,
+    해외: 전체기사.filter((it) => !한국기사인가(it)).length,
+  }), [전체기사]);
+  const 기사들 = useMemo(() => 걸러내기(전체기사, 칸), [전체기사, 칸]);
+
   const 틀 = (속: React.ReactNode) => (
     <Card className="flex flex-col gap-3 p-0 overflow-hidden">
       <div className="flex items-center gap-1.5 px-4 pt-4">
         <Newspaper size={14} className="text-accent-blue" />
         <span className="text-sm font-semibold text-text-primary">내 종목 뉴스</span>
         {미리보기 && <span className="text-2xs font-medium text-text-dim">예시 종목</span>}
-        {data && data.items.length > 0 && (
-          <span className="text-2xs text-text-dim ml-auto">{data.items.length}건</span>
+        {전체기사.length > 0 && (
+          <span className="text-2xs text-text-dim ml-auto tabular-nums">{기사들.length}건</span>
         )}
       </div>
+      {/* 한쪽이 비어 있으면 칩을 아예 안 그린다 — 눌러 봐야 '없어요'
+          만 나오는 칩은 고장으로 읽힌다 */}
+      {칸별수.국내 > 0 && 칸별수.해외 > 0 && (
+        <div className="flex gap-1 px-4 -mt-1">
+          {(["전체", "국내", "해외"] as const).map((c) => (
+            <button
+              key={c}
+              onClick={() => set칸(c)}
+              aria-pressed={칸 === c}
+              className={`px-2.5 py-1 rounded-full text-2xs font-medium border transition-colors ${
+                칸 === c
+                  ? "border-accent-blue/50 bg-accent-blue/10 text-accent-blue"
+                  : "border-border text-text-muted hover:text-text-primary"
+              }`}
+            >
+              {c === "전체" ? "전체" : c === "국내" ? "한국 기사" : "해외 기사"}
+              <span className="ml-1 tabular-nums opacity-70">{칸별수[c]}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {속}
     </Card>
   );
@@ -85,7 +149,6 @@ export default function 보유뉴스({ portfolioId, 미리보기 }: {
     );
   }
 
-  const 기사들 = data?.items ?? [];
   const 못찾음 = data?.missing ?? [];
   const 오는중 = data?.pending ?? 0;
 
@@ -93,9 +156,13 @@ export default function 보유뉴스({ portfolioId, 미리보기 }: {
     <>
       {기사들.length === 0 ? (
         <p className="px-4 pb-6 pt-2 text-center text-xs text-text-dim break-keep">
-          {오는중 > 0
-            ? "기사를 모으는 중이에요. 잠시만 기다려 주세요."
-            : "내 종목 기사를 아직 못 찾았어요."}
+          {/* 기사가 아예 없는 것과, 걸러서 없는 것은 다른 상황이다.
+              뒤엣것에 '못 찾았어요' 라고 하면 칩이 한 일을 지운다 */}
+          {전체기사.length > 0
+            ? `${칸 === "국내" ? "한국" : "해외"} 기사는 아직 없어요.`
+            : 오는중 > 0
+              ? "기사를 모으는 중이에요. 잠시만 기다려 주세요."
+              : "내 종목 기사를 아직 못 찾았어요."}
         </p>
       ) : (
         <ul>

@@ -306,15 +306,28 @@ def _고르기(보유: list[dict]) -> tuple[list[dict], list[str]]:
     # 종합 뉴스는 캐시에서만 읽는다. get_kr_news() 를 부르면 캐시가 비었을
     # 때 그 자리에서 RSS 를 훑는 갈래로 빠질 수 있다 — 그건 이 화면이
     # 하지 않기로 한 일이다
-    종합: list[dict] = []
-    for ck in ("news:kr", "news:us"):
-        종합 += (cache.get(ck) or cache.get_stale(ck) or [])
+    """어느 통에서 나왔는지가 곧 그 기사의 언어다.
+
+    news:kr 은 한국 매체 RSS, news:us 는 해외 매체다. 종목별 캐시도
+    마찬가지로 국내 종목은 구글뉴스(한국어), 해외 종목은 야후(영어)로
+    받는다(_한종목_받기).
+
+    이걸 기사에 적어 두면 화면에서 '한국 기사만 / 해외 기사만' 을
+    고를 수 있다. 열 종목을 가진 사람의 목록은 두 언어가 섞여 있어서,
+    영어를 안 읽는 사람에게는 절반이 그냥 지나가는 줄이었다.
+
+    주의 — 해외 종목 기사가 늘 영어인 것은 아니다. 엔비디아 얘기를
+    한국 매체가 쓰면 그건 한국 기사다. 그래서 '종목의 시장' 이 아니라
+    '기사가 나온 통' 으로 가른다."""
+    종합: list[tuple[dict, str]] = []
+    for ck, 말 in (("news:kr", "ko"), ("news:us", "en")):
+        종합 += [(a, 말) for a in (cache.get(ck) or cache.get_stale(ck) or [])]
 
     모은것: dict[str, dict] = {}          # 제목열쇠 → 기사
     본주소: set[str] = set()
     찾은종목: set[str] = set()
 
-    def 담기(기사: dict, 심볼: str) -> bool:
+    def 담기(기사: dict, 심볼: str, 말: str) -> bool:
         주소 = 기사.get("link")
         if not 주소:
             return False
@@ -337,6 +350,9 @@ def _고르기(보유: list[dict]) -> tuple[list[dict], list[str]]:
             "summary": 기사.get("summary", ""),
             "image": 기사.get("image"),
             "symbols": [심볼],
+            #: "ko" 면 한국 기사, "en" 이면 해외 기사. 화면의 국내/해외
+            #  칩이 이걸 본다
+            "lang": 말,
         }
         return True
 
@@ -352,19 +368,21 @@ def _고르기(보유: list[dict]) -> tuple[list[dict], list[str]]:
             continue
         담은수 = 0
 
-        # 1) 그 종목 상세를 누가 열어 뒀으면 그 캐시가 제일 정확하다
+        # 1) 그 종목 상세를 누가 열어 뒀으면 그 캐시가 제일 정확하다.
+        #    국내 종목은 구글뉴스(한국어), 해외 종목은 야후(영어)로 받는다
+        종목말 = "ko" if 시장 == "KR" else "en"
         for 기사 in (cache.get(f"stock_news:{시장}:{심볼}") or [])[:종목당_최대]:
-            if 담기(기사, 심볼):
+            if 담기(기사, 심볼, 종목말):
                 담은수 += 1
 
         # 2) 종합 뉴스에서 이름으로 골라낸다
-        for 기사 in 종합:
+        for 기사, 말 in 종합:
             if 담은수 >= 종목당_최대:
                 break
             제목 = 기사.get("title", "")
             요약 = 기사.get("summary", "")
             if any(_맞나(w, 제목) or _맞나(w, 요약) for w in 말들):
-                if 담기(기사, 심볼):
+                if 담기(기사, 심볼, 말):
                     담은수 += 1
 
         if 담은수 > 0 or any(심볼 in v["symbols"] for v in 모은것.values()):

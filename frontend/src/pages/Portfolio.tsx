@@ -1262,8 +1262,12 @@ export default function Portfolio() {
           아무 기록도 없어서, 늘 "아직 없어요" 만 보이게 된다. */}
       {속탭 === "추이" && (isLoggedIn ? items.length > 0 : previewLoaded) && (
         <>
+          {/* 위쪽 포트폴리오 칩을 그래프도 따라간다. 예전에는 보유 목록만
+              갈리고 그래프는 늘 전체여서, 포트폴리오를 바꿔도 선이 그대로라
+              칩이 안 눌린 것처럼 보였다 */}
           <AssetHistory 미리보기={미리보기중 ? (예시흐름.점들 ?? undefined) : undefined}
-                        받는중={예시흐름.받는중} />
+                        받는중={예시흐름.받는중}
+                        portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)} />
           {/* 그래프가 '얼마나' 를 말하면, 이건 '누가' 를 말한다.
               합계가 +512만원일 때 그게 한 종목이 혼자 번 것인지 열 종목이
               조금씩 모은 것인지는 완전히 다른 상황인데 합계로는 같아 보인다 */}

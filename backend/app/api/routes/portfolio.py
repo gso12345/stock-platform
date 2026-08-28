@@ -216,6 +216,12 @@ def 자산흐름(
     # 넉넉히 열되 무한은 아니다. day 에 인덱스가 있고(models/stock.py)
     # 한 사람당 하루 한 줄이라 10년치라도 3,650줄이 넘지 않는다.
     days: int = Query(90, ge=7, le=3650),
+    #: 어느 포트폴리오인가. 안 주면 전체(사람 단위 합계).
+    #
+    #  기록 자체는 오늘부터 포트폴리오마다 따로 남는다. 이 열이 생기기
+    #  전에 쌓인 줄은 전부 '전체' 라, 특정 포트폴리오를 고르면 그래프가
+    #  짧게 시작한다 — 화면이 그 사실을 적는다.
+    portfolio_id: Optional[int] = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
@@ -233,9 +239,19 @@ def 자산흐름(
     from app.models.stock import PortfolioSnapshot
     from app.services import portfolio_snapshot as PS
 
+    if portfolio_id is not None and not _valid_portfolio_id(db, portfolio_id, current_user.id):
+        raise HTTPException(status_code=404, detail="포트폴리오를 찾을 수 없습니다")
+    칸 = portfolio_id or 0                  # 0 은 '전체' 줄
+
     부터 = (datetime.now(PS.KST) - _td(days=days)).strftime("%Y-%m-%d")
+    """어느 칸의 줄인지 **반드시** 걸러야 한다.
+
+    스냅샷이 사람마다 하루 한 줄이던 때는 이 조건이 없어도 됐다.
+    포트폴리오별 줄이 생기면서, 안 거르면 같은 날이 여러 줄 나온다 —
+    전체 줄과 포트폴리오 줄이 나란히 서서 그래프가 톱니처럼 튄다."""
     rows = (db.query(PortfolioSnapshot)
             .filter(PortfolioSnapshot.user_id == current_user.id,
+                    PortfolioSnapshot.portfolio_id == 칸,
                     PortfolioSnapshot.day >= 부터)
             .order_by(PortfolioSnapshot.day)
             .all())
@@ -245,14 +261,17 @@ def 자산흐름(
     날 = PS.오늘()
     if not points or points[-1]["day"] != 날:
         환율 = PS._환율()
-        내것 = db.query(PortfolioItem).filter(PortfolioItem.user_id == current_user.id).all()
+        내것질의 = db.query(PortfolioItem).filter(PortfolioItem.user_id == current_user.id)
+        if portfolio_id is not None:
+            내것질의 = 내것질의.filter(PortfolioItem.portfolio_id == portfolio_id)
+        내것 = 내것질의.all()
         if 환율 > 0 and 내것:
             합 = PS.합계내기(내것, 환율)
             if not (합["priced"] > 0 and 합["filled"] == 0):
                 points.append({"day": 날, "value": round(합["value"], 2),
                                "cost": round(합["cost"], 2),
                                "filled": 합["filled"], "priced": 합["priced"]})
-    return {"points": points, "days": days}
+    return {"points": points, "days": days, "portfolio_id": portfolio_id}
 
 
 # ── 배당 달력 ────────────────────────────────────────────────

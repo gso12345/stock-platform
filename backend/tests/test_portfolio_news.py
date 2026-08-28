@@ -407,3 +407,49 @@ class Test라우트:
         import inspect
         from app.api.routes import portfolio as P
         assert '현금' in inspect.getsource(P.보유뉴스)
+
+
+class Test기사언어:
+    """한국 기사만 / 해외 기사만 — 화면이 이 칸을 보고 가른다.
+
+    가르는 기준이 요점이다. **종목의 시장이 아니라 기사가 나온 통**이다.
+    엔비디아 얘기를 한국 매체가 쓰면 그건 한국 기사다. 시장으로 가르면
+    그 기사가 '해외' 로 빠져서, 한국 기사만 보려는 사람 눈에서 사라진다.
+    """
+
+    def test_국내_매체_기사는_ko(self):
+        cache.set("news:kr", [기사("삼성전자, HBM4 양산 앞당긴다")], 60)
+        답 = PN.모으기([보유_삼성])
+        assert [a["lang"] for a in 답["items"]] == ["ko"]
+
+    def test_해외_매체_기사는_en(self):
+        cache.set("news:us", [기사("NVDA tops estimates")], 60)
+        답 = PN.모으기([보유_엔비])
+        assert [a["lang"] for a in 답["items"]] == ["en"]
+
+    def test_해외_종목이라도_한국_매체_기사면_ko(self):
+        """여기가 '시장으로 가르기' 와 갈리는 자리다."""
+        cache.set("news:kr", [기사("엔비디아 주가, NVDA 사상 최고")], 60)
+        답 = PN.모으기([보유_엔비])
+        assert [a["lang"] for a in 답["items"]] == ["ko"]
+
+    def test_종목_뉴스_캐시도_시장에_따라_갈린다(self):
+        """국내 종목은 구글뉴스(한국어), 해외 종목은 야후(영어)로 받는다."""
+        cache.set("stock_news:KR:005930", [기사("상세에서 받아 둔 기사")], 60)
+        cache.set("stock_news:US:NVDA", [기사("From the detail page")], 60)
+        답 = PN.모으기([보유_삼성, 보유_엔비])
+        말 = {a["title"]: a["lang"] for a in 답["items"]}
+        assert 말["상세에서 받아 둔 기사"] == "ko"
+        assert 말["From the detail page"] == "en"
+
+    def test_모든_기사에_칸이_있다(self):
+        """하나라도 비면 화면에서 그 기사가 어느 칩에도 안 잡힌다 —
+        '전체 5건인데 국내 3 + 해외 1' 처럼 수가 안 맞는다."""
+        cache.set("news:kr", [기사("삼성전자 실적"), 기사("삼성전자 배당")], 60)
+        cache.set("news:us", [기사("NVDA beats")], 60)
+        답 = PN.모으기([보유_삼성, 보유_엔비])
+        assert 답["items"]
+        assert all(a.get("lang") in ("ko", "en") for a in 답["items"])
+        국내 = sum(1 for a in 답["items"] if a["lang"] == "ko")
+        해외 = sum(1 for a in 답["items"] if a["lang"] == "en")
+        assert 국내 + 해외 == len(답["items"])

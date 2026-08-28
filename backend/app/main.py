@@ -283,6 +283,10 @@ async def lifespan(application: FastAPI):
             ("user_profiles",  "avatar_url",           "TEXT"),
             ("user_profiles",  "noti_disabled",        "VARCHAR(200)"),
             ("users",          "is_community_banned",  "BOOLEAN DEFAULT false"),
+            # 자산 흐름을 포트폴리오별로 보려면 스냅샷에도 그 구분이 있어야 한다.
+            # 0 은 '전체'(사람 단위 합계) — 이 열이 생기기 전에 쌓인 줄이
+            # 그대로 0 이 되고, 그 줄들이 곧 전체였으므로 뜻이 맞는다.
+            ("portfolio_snapshots", "portfolio_id", "INTEGER NOT NULL DEFAULT 0"),
         ]
         try:
             from sqlalchemy import inspect as _sa_inspect
@@ -309,6 +313,40 @@ async def lifespan(application: FastAPI):
             _startup_log.info(f"컬럼 마이그레이션 완료 (추가 {_added}, 이미 존재 {_skipped})")
         except Exception as _mig_err:
             _startup_log.warning(f"컬럼 마이그레이션 스킵: {_mig_err}")
+
+        """자산 스냅샷의 한 벌 제약을 (user, day) → (user, portfolio, day) 로.
+
+        이걸 안 바꾸면 포트폴리오별 줄이 통째로 안 들어간다 — 같은 날
+        같은 사람의 두 번째 줄이 옛 제약에 걸린다.
+
+        새 것을 먼저 만들고 옛 것을 지운다. 순서를 바꾸면 그 사이에
+        스케줄러가 돌 때 중복이 들어올 수 있다.
+
+        SQLite(로컬)에서는 제약을 못 지운다. 대신 거기서는 애초에
+        create_all 이 새 모양으로 표를 만들므로 할 일이 없다."""
+        try:
+            if "portfolio_snapshots" in tables and engine.dialect.name != "sqlite":
+                with engine.connect() as _sc:
+                    _sc.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_pf_snapshot_pf_day "
+                        "ON portfolio_snapshots (user_id, portfolio_id, day)"))
+                    _sc.commit()
+                    try:
+                        _sc.execute(text(
+                            "ALTER TABLE portfolio_snapshots "
+                            "DROP CONSTRAINT IF EXISTS uq_pf_snapshot_day"))
+                        _sc.commit()
+                    except Exception:
+                        _sc.rollback()
+                    # 제약이 아니라 인덱스로 만들어졌을 수도 있다
+                    try:
+                        _sc.execute(text("DROP INDEX IF EXISTS uq_pf_snapshot_day"))
+                        _sc.commit()
+                    except Exception:
+                        _sc.rollback()
+                _startup_log.info("자산 스냅샷 제약을 포트폴리오별로 넓혔습니다")
+        except Exception as _snap_err:
+            _startup_log.warning(f"자산 스냅샷 제약 변경 스킵: {_snap_err}")
 
         # 피드 검색 — 옛 글의 search_text 채우기
         #

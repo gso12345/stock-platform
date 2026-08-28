@@ -169,10 +169,16 @@ export function 견주기(점들: 자산흐름점[], 지수: OHLCV[] | undefined
   });
 }
 
-export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }: {
+export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, portfolioId }: {
   켜짐?: boolean;
   /** 미리보기 값을 아직 받는 중인가 — 그동안 '기록이 없다' 고 하면 안 된다 */
   받는중?: boolean;
+  /** 이 포트폴리오만 볼 때 그 id. 안 주면 전체 합계다.
+   *
+   *  포트폴리오별 기록은 이번에 처음 쌓기 시작했다. 그래서 하나를 고르면
+   *  선이 오늘부터 시작한다 — 전체를 볼 때 3년치가 나오다가 포트폴리오를
+   *  고르면 점 하나가 되는 셈이라, 아래에서 그 이유를 화면에 적는다. */
+  portfolioId?: number;
   /** 로그인 전 미리보기용 점들. 주면 /portfolio/history 를 안 부른다.
    *
    *  예전에는 로그인 전에 이 그래프를 아예 안 그렸다. 그런데 그러면
@@ -203,8 +209,11 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
 
   const 예시인가 = !!미리보기 || !!받는중;
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["portfolio-history", 고른기간, 일수],
-    queryFn: () => portfolioApi.getHistory(일수),
+    /* 열쇠에 portfolioId 가 빠지면, 포트폴리오를 바꿔도 앞서 받아 둔
+       전체 그래프가 그대로 남는다 — 5분(staleTime) 동안 바뀐 것이
+       하나도 없어 보인다 */
+    queryKey: ["portfolio-history", 고른기간, 일수, portfolioId ?? 0],
+    queryFn: () => portfolioApi.getHistory(일수, portfolioId),
     /* 미리보기는 이 경로(로그인 필요)를 안 부른다. 대신 공개된
        종목 시세 이력으로 화면에서 계산한다 */
     enabled: 켜짐 && !예시인가,
@@ -350,10 +359,15 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중 }:
   if (점들.length < 2) {
     /* 점 하나짜리 선은 그리면 고장으로 보인다. 무엇을 기다리는지 말한다 */
     return 틀(
-      <div className="h-[160px] flex flex-col items-center justify-center gap-1 text-center">
+      <div className="h-[160px] flex flex-col items-center justify-center gap-1 text-center px-4">
         <p className="text-sm text-text-secondary">아직 그릴 기록이 없어요</p>
         <p className="text-2xs text-text-dim break-keep">
-          하루에 한 번씩 자동으로 쌓입니다. 내일 다시 오면 선이 보여요.
+          {portfolioId
+            /* 전체는 오래전부터 쌓아 왔지만 포트폴리오별은 이번에 처음
+               쌓기 시작했다. 그 사실을 안 적으면 '전체는 나오는데 이건
+               왜 안 나오지' 로 읽힌다 */
+            ? "포트폴리오별 기록은 이제 막 쌓기 시작했어요. 전체를 누르면 지난 기록을 볼 수 있어요."
+            : "하루에 한 번씩 자동으로 쌓입니다. 내일 다시 오면 선이 보여요."}
         </p>
       </div>,
     );

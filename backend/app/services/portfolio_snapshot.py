@@ -156,19 +156,47 @@ def 찍기() -> int:
     db = SessionLocal()
     적은수 = 0
     try:
-        """오늘 이미 적은 사람은 아예 안 꺼낸다.
+        """오늘 것이 **다 채워진** 사람은 아예 안 꺼낸다.
 
-        보유 종목이 있는 사람을 먼저 추리고, 그중 오늘 치가 있는
-        사람을 뺀다. 사람이 늘어도 훑는 양이 '오늘 아직 안 적은 사람'
-        만큼만 늘어난다."""
+        보유 종목이 있는 사람을 먼저 추리고, 그중 오늘 치가 이미
+        온전한 사람을 뺀다. 사람이 늘어도 훑는 양이 '오늘 아직 덜 적힌
+        사람' 만큼만 늘어난다.
+
+        ── '있으면 끝' 이 아니라 '다 채워졌으면 끝' 인 이유 ──
+
+        예전에는 오늘 줄이 하나라도 있으면 그 사람은 끝난 것으로 봤다.
+        그런데 합계내기() 는 시세를 못 구한 종목을 **매입금액으로**
+        세운다. 그래서 시세가 덜 들어온 이른 회차에 한 번 적히면,
+        반쪽짜리 값이 그날 내내 얼어붙었다.
+
+        실제로 재 봤다 — 두 종목 중 하나만 시세가 있으면 그날 점이
+        280만원 대신 230만원으로, **17.9% 아래로** 찍힌다. 그래프에는
+        그 하루만 뚝 떨어졌다 이튿날 되돌아오는 톱니로 남는다. 자산이
+        그렇게 움직인 적은 없는데도.
+
+        filled < priced 인 줄은 '아직 덜 됐다' 로 두고, 다음 회차
+        (15분 뒤)에 더 채워졌으면 그 줄을 고쳐 쓴다."""
         가진사람 = {uid for (uid,) in db.query(PortfolioItem.user_id).distinct().all()}
         if not 가진사람:
             return 0
-        적힌사람 = {uid for (uid,) in db.query(PortfolioSnapshot.user_id)
-                    .filter(PortfolioSnapshot.day == 날).all()}
-        할사람 = sorted(가진사람 - 적힌사람)[:한회차_최대]
+        # '전체' 줄(portfolio_id=0)만 본다. 포트폴리오별 줄까지 세면
+        # 한 사람이 여러 번 세어진다.
+        # priced == 0 (현금만 가진 사람) 이면 filled 0 >= priced 0 이라
+        # 곧바로 끝난 것으로 잡힌다 — 채울 시세가 애초에 없다
+        끝난사람 = {uid for (uid,) in db.query(PortfolioSnapshot.user_id)
+                    .filter(PortfolioSnapshot.day == 날,
+                            PortfolioSnapshot.portfolio_id == 0,
+                            PortfolioSnapshot.filled >= PortfolioSnapshot.priced).all()}
+        할사람 = sorted(가진사람 - 끝난사람)[:한회차_최대]
         if not 할사람:
             return 0
+
+        #: 오늘 이미 적힌 줄 — (사람, 포트폴리오) 로 찾는다. 더 잘
+        #  채워졌을 때만 고쳐 쓴다
+        오늘것 = {(r.user_id, r.portfolio_id): r
+                  for r in db.query(PortfolioSnapshot)
+                             .filter(PortfolioSnapshot.day == 날,
+                                     PortfolioSnapshot.user_id.in_(할사람)).all()}
 
         items = (db.query(PortfolioItem)
                  .filter(PortfolioItem.user_id.in_(할사람)).all())
@@ -185,13 +213,54 @@ def 찍기() -> int:
                 거짓말이 그래프에 남는다. 빈 날은 비워 두는 편이 낫다 —
                 다음 회차(15분 뒤)에 시세가 들어오면 그때 적힌다."""
                 continue
-            db.add(PortfolioSnapshot(
-                user_id=uid, day=날,
-                total_value=round(합["value"], 2),
-                total_cost=round(합["cost"], 2),
-                filled=합["filled"], priced=합["priced"],
-            ))
-            적은수 += 1
+
+            """전체 한 줄 + 포트폴리오마다 한 줄.
+
+            예전에는 사람마다 하루 한 줄이었다. 그래서 '연금 계좌만
+            어떻게 움직였나' 를 물어볼 수가 없었다 — 포트폴리오를 나눠
+            쓰는 사람에게는 그게 자산 흐름을 보는 이유의 절반이다.
+
+            전체 줄(portfolio_id=0)은 그대로 둔다. 포트폴리오별 줄을
+            더해서 만드는 게 아니라 따로 낸다 — 포트폴리오에 안 속한
+            종목(옛 자료)이 있으면 합이 안 맞는다."""
+            줄들 = [(0, 합)]
+            나눠: dict[int, list] = {}
+            for it in 내것:
+                # 옛 자료에는 포트폴리오가 안 붙어 있을 수 있다.
+                # 그런 종목은 전체 줄에만 들어가고 포트폴리오별 줄에는 안 든다
+                pid = getattr(it, "portfolio_id", None)
+                if pid:
+                    나눠.setdefault(pid, []).append(it)
+            for pid, 그것들 in 나눠.items():
+                쪽 = 합계내기(그것들, 환율)
+                if 쪽["priced"] > 0 and 쪽["filled"] == 0:
+                    continue                 # 위와 같은 이유
+                줄들.append((pid, 쪽))
+
+            고쳤나 = False
+            for pid, 값 in 줄들:
+                있던것 = 오늘것.get((uid, pid))
+                if 있던것 is None:
+                    db.add(PortfolioSnapshot(
+                        user_id=uid, portfolio_id=pid, day=날,
+                        total_value=round(값["value"], 2),
+                        total_cost=round(값["cost"], 2),
+                        filled=값["filled"], priced=값["priced"],
+                    ))
+                    고쳤나 = True
+                elif 값["filled"] > (있던것.filled or 0):
+                    """더 많이 채워졌을 때만 고쳐 쓴다.
+
+                    'filled 가 늘었나' 로만 판단한다. 덮어쓰기를 무조건
+                    하면, 장중에 잠깐 캐시가 비었을 때 온전하던 줄이
+                    반쪽으로 되돌아간다."""
+                    있던것.total_value = round(값["value"], 2)
+                    있던것.total_cost = round(값["cost"], 2)
+                    있던것.filled = 값["filled"]
+                    있던것.priced = 값["priced"]
+                    고쳤나 = True
+            if 고쳤나:
+                적은수 += 1
 
         if 적은수:
             db.commit()

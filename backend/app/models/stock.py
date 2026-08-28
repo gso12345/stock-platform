@@ -384,11 +384,26 @@ class PortfolioSnapshot(Base):
     """
     __tablename__ = "portfolio_snapshots"
     __table_args__ = (
-        UniqueConstraint("user_id", "day", name="uq_pf_snapshot_day"),
+        #: 하루에 **포트폴리오마다** 한 줄. 0 은 '전체'다.
+        #
+        #  예전에는 (user_id, day) 한 벌이었다 — 사람마다 하루 한 줄만
+        #  남겼다는 뜻이고, 그래서 '이 포트폴리오만 어떻게 움직였나' 를
+        #  물어볼 수가 없었다. 포트폴리오를 나눠 쓰는 사람에게는 그게
+        #  자산 흐름을 보는 이유의 절반이다(연금 따로, 단기 따로).
+        UniqueConstraint("user_id", "portfolio_id", "day", name="uq_pf_snapshot_pf_day"),
     )
 
     id      = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    #: 어느 포트폴리오인가. **0 은 전체**(사람 단위 합계)다.
+    #
+    #  NULL 이 아니라 0 을 쓰는 이유 — 유니크 제약에서 NULL 은 서로
+    #  다른 값으로 쳐서, PostgreSQL 에서는 NULL 줄이 몇 개든 들어간다.
+    #  하루에 '전체' 줄이 여럿 생기면 그래프가 톱니처럼 튄다.
+    #
+    #  이 열을 더하기 전에 쌓인 줄은 전부 0 이 된다(server_default).
+    #  그 줄들이 곧 '전체' 였으므로 뜻이 그대로 맞는다.
+    portfolio_id = Column(Integer, nullable=False, server_default="0", default=0, index=True)
     #: "2026-08-26" — 한국 날짜
     day     = Column(String(10), nullable=False, index=True)
     #: 원화 환산 평가금액·매입금액. 화면의 합계와 같은 방법으로 낸다
