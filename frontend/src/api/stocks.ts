@@ -713,6 +713,12 @@ export const communityApi = {
     api.post(`/community/notifications/${notiId}/read`).then((r) => r.data),
   markAllNotificationsRead: () =>
     api.post("/community/notifications/read-all").then((r) => r.data),
+  /** 알림 한 줄을 지운다 */
+  deleteNotification: (notiId: number) =>
+    api.delete(`/community/notifications/${notiId}`).then((r) => r.data),
+  /** 읽은 알림을 한 번에 치운다. **안 읽은 것은 안 지운다** */
+  deleteReadNotifications: () =>
+    api.delete<{ ok: boolean; deleted: number }>("/community/notifications/read").then((r) => r.data),
   getNotificationSettings: () =>
     api.get("/community/notifications/settings").then((r) => r.data),
   updateNotificationSettings: (payload: Record<string, boolean>) =>

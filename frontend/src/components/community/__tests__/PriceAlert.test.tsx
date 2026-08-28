@@ -79,7 +79,11 @@ describe("받는 쪽 — 알림 목록", () => {
 
   it("누르면 그 종목으로 간다", async () => {
     목록그리기([가격알림]);
-    await userEvent.click(screen.getByRole("button"));
+    /* 줄마다 단추가 둘이다 — 줄 자체와 지우기(X). 지우기에는 이름이
+       있으므로 그것을 빼면 줄 단추만 남는다 */
+    const 줄단추 = screen.getAllByRole("button")
+      .filter((b) => b.getAttribute("aria-label") !== "알림 지우기")[0];
+    await userEvent.click(줄단추);
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/stocks/KR/005930"));
   });
 

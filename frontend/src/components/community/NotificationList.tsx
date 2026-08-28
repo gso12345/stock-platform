@@ -5,6 +5,7 @@
  */
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import Avatar from "@/components/community/Avatar";
 import { KIND_META, notificationHref, type NotificationKind } from "@/constants/notifications";
@@ -40,6 +41,51 @@ export function 표시하기<T>(prev: T, id: number, 읽음: boolean): T {
   if (Array.isArray(prev)) return 바꾸기(prev as NotificationItem[]) as unknown as T;
   const o = prev as { items?: NotificationItem[] } | undefined;
   if (o && Array.isArray(o.items)) return { ...o, items: 바꾸기(o.items) } as unknown as T;
+  return prev;
+}
+
+/**
+ * 목록에서 한 줄을 뺀다.
+ *
+ * 커뮤니티 댓글이 이미 이렇게 한다 — 지우면 목록에서 곧바로 빠지고
+ * 서버는 뒤따라간다. 알림만 서버를 기다렸다 목록을 통째로 다시 받았다.
+ * 왕복이 둘이라 누르고 나서 한참을 그 줄이 그대로 남아 있었고,
+ * 안 지워진 줄 알고 한 번 더 누르게 된다.
+ */
+export function 빼기<T>(prev: T, id: number): T {
+  const 빼내 = (arr: NotificationItem[]) => arr.filter((n) => n.id !== id);
+  if (Array.isArray(prev)) return 빼내(prev as NotificationItem[]) as unknown as T;
+  const o = prev as { items?: NotificationItem[]; total?: number } | undefined;
+  if (o && Array.isArray(o.items)) {
+    const 남은것 = 빼내(o.items);
+    /* total 이 있으면 같이 줄인다. 안 줄이면 '3건' 이라 적힌 밑에
+       두 줄만 남는다 */
+    return {
+      ...o,
+      items: 남은것,
+      ...(typeof o.total === "number"
+        ? { total: Math.max(0, o.total - (o.items.length - 남은것.length)) }
+        : {}),
+    } as unknown as T;
+  }
+  return prev;
+}
+
+/** 읽은 줄만 뺀다. '읽은 알림 정리' 가 쓴다 */
+export function 읽은것빼기<T>(prev: T): T {
+  const 빼내 = (arr: NotificationItem[]) => arr.filter((n) => !n.is_read);
+  if (Array.isArray(prev)) return 빼내(prev as NotificationItem[]) as unknown as T;
+  const o = prev as { items?: NotificationItem[]; total?: number } | undefined;
+  if (o && Array.isArray(o.items)) {
+    const 남은것 = 빼내(o.items);
+    return {
+      ...o,
+      items: 남은것,
+      ...(typeof o.total === "number"
+        ? { total: Math.max(0, o.total - (o.items.length - 남은것.length)) }
+        : {}),
+    } as unknown as T;
+  }
   return prev;
 }
 
@@ -114,6 +160,35 @@ export default function NotificationList({
     if (href) navigate(href);
   };
 
+  /**
+   * 지우기 — 읽음과 같은 방식이다. 화면에서 먼저 빼고 서버는 뒤따라간다.
+   *
+   * 실패하면 되살린다. 낙관적으로 빼 두고 실패를 안 되돌리면, 화면에는
+   * 없는데 서버에는 남아 있다 — 새로고침하면 지운 줄이 되살아난다.
+   */
+  const 지우기 = (n: NotificationItem) => {
+    /* 여기에 e.stopPropagation() 을 넣어 뒀었다. 뮤테이션으로 빼 보니
+       아무 검사도 안 깨졌다 — 지우기 단추가 줄 버튼의 **형제**라
+       애초에 위로 퍼질 데가 없다. 실행될 일 없는 방어라 지웠다.
+       (겹쳐 놓기만 하고 안 감싸는 이유는 아래 JSX 주석에 있다) */
+    const 이전목록 = qc.getQueryData(["notiList"]);
+    const 이전쪽 = qc.getQueryData(["notiPage"]);
+    qc.setQueryData(["notiList"], (prev: unknown) => 빼기(prev, n.id));
+    qc.setQueryData(["notiPage"], (prev: unknown) => 빼기(prev, n.id));
+    if (!n.is_read) {
+      /* 안 읽은 줄을 지우면 종의 숫자도 같이 줄어야 한다. 안 줄이면
+         '1' 이 떠 있는데 눌러 보면 아무것도 없는 상태가 된다 */
+      qc.setQueryData<{ count: number; capped: boolean } | undefined>(
+        ["notiUnread"], (prev) =>
+          prev ? { ...prev, count: Math.max(0, (prev.count ?? 0) - 1) } : prev);
+    }
+    communityApi.deleteNotification(n.id).catch(() => {
+      if (이전목록 !== undefined) qc.setQueryData(["notiList"], 이전목록);
+      if (이전쪽 !== undefined) qc.setQueryData(["notiPage"], 이전쪽);
+      qc.invalidateQueries({ queryKey: ["notiUnread"] });
+    });
+  };
+
   return (
     <ul>
       {items.map((n) => {
@@ -123,11 +198,14 @@ export default function NotificationList({
            그냥 빈칸 — 이 남는다. 아이콘 하나와 내용만 보여 준다. */
         const 사람이_한_일 = n.actor_id != null && !!n.actor_name;
         return (
-          <li key={n.id}>
+          /* 지우기 단추가 줄 버튼 **안**에 있으면 안 된다 — 버튼 안의
+             버튼은 잘못된 HTML 이고, 브라우저에 따라 바깥 버튼이 같이
+             눌린다(지워 놓고 그 글로 넘어간다). 형제로 두고 겹쳐 놓는다 */
+          <li key={n.id} className="relative group/noti">
             <button
               onClick={() => open(n)}
               className={`w-full flex gap-2.5 text-left border-b border-border/50 hover:bg-bg-elevated transition-colors ${
-                roomy ? "px-4 py-3.5" : "px-3 py-2.5"
+                roomy ? "px-4 py-3.5 pr-10" : "px-3 py-2.5 pr-9"
               } ${n.is_read ? "" : "bg-accent-blue/5"}`}
             >
               <div className="relative shrink-0">
@@ -169,6 +247,19 @@ export default function NotificationList({
               {!n.is_read && (
                 <span className="mt-1 w-1.5 h-1.5 rounded-full bg-accent-blue shrink-0" aria-hidden />
               )}
+            </button>
+            {/* 손가락 화면에는 hover 가 없다. 늘 보이게 두되 흐리게 —
+                opacity 로만 숨기면 눌리기는 하는데 안 보여서 더 나쁘다 */}
+            <button
+              onClick={() => 지우기(n)}
+              aria-label="알림 지우기"
+              className={`absolute top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-text-dim
+                          opacity-60 sm:opacity-0 sm:group-hover/noti:opacity-100 focus-visible:opacity-100
+                          hover:text-accent-red hover:bg-accent-red/10 transition-all ${
+                roomy ? "right-2" : "right-1.5"
+              }`}
+            >
+              <X size={13} />
             </button>
           </li>
         );

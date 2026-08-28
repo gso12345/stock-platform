@@ -1758,6 +1758,60 @@ def mark_notification_read(
     return {"ok": True}
 
 
+@router.delete("/notifications/read")
+@limiter.limit("30/minute")
+def delete_read_notifications(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    """읽은 알림을 한 번에 치운다.
+
+    '모두 읽음' 을 눌러도 목록은 그대로 남는다. 며칠 쓰면 다 읽은
+    알림 수백 줄을 계속 넘겨야 새 것이 나온다 — 읽음 표시는 그 줄이
+    쓸모없어졌다는 뜻인데 화면은 그걸 안 치운다.
+
+    **안 읽은 알림은 안 지운다.** 아직 못 본 것까지 쓸어 버리면
+    되돌릴 방법이 없다. 이 경로가 지우는 것은 사용자가 이미 본 것뿐이다.
+
+    경로 자리가 중요하다 — /notifications/{noti_id} 보다 **위**에
+    있어야 한다. 아래에 두면 "read" 가 noti_id 로 먹혀 422 가 난다.
+    """
+    result = db.execute(
+        text("DELETE FROM notifications WHERE user_id = :uid AND is_read IS TRUE"),
+        {"uid": current_user.id},
+    )
+    db.commit()
+    return {"ok": True, "deleted": int(result.rowcount or 0)}
+
+
+@router.delete("/notifications/{noti_id}")
+@limiter.limit("120/minute")
+def delete_notification(
+    request: Request,
+    noti_id: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_user),
+):
+    """알림 한 줄을 지운다.
+
+    user_id 조건이 빠지면 id 만 바꿔 부르는 것으로 **남의 알림을**
+    지울 수 있다. 읽음 처리와 같은 자리이고, 여기가 더 위험하다 —
+    읽음은 되돌릴 수 있지만 삭제는 못 되돌린다.
+
+    안 읽은 것도 지울 수 있게 둔다. 안 읽은 알림을 못 지우게 하면
+    '먼저 눌러서 읽고 나서 지우기' 라는 두 걸음이 생긴다.
+    """
+    result = db.execute(
+        text("DELETE FROM notifications WHERE id = :id AND user_id = :uid"),
+        {"id": noti_id, "uid": current_user.id},
+    )
+    db.commit()
+    if result.rowcount == 0:
+        raise HTTPException(404, "알림을 찾을 수 없습니다")
+    return {"ok": True}
+
+
 # ── 신고 ─────────────────────────────────────────────────────────────────────
 
 class ReportIn(BaseModel):

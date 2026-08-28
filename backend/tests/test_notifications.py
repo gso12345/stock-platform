@@ -199,3 +199,49 @@ def test_알림_모델에_조회용_인덱스가_있다():
     # 안 읽은 개수는 화면이 떠 있는 내내 주기적으로 물어본다
     names = {ix.name for ix in Notification.__table__.indexes}
     assert "ix_notifications_user_unread" in names
+
+
+class Test삭제:
+    """알림을 지운다.
+
+    '모두 읽음' 을 눌러도 목록은 그대로 남는다. 며칠 쓰면 다 읽은 알림
+    수백 줄을 계속 넘겨야 새 것이 나온다 — 읽음 표시는 그 줄이
+    쓸모없어졌다는 뜻인데 화면은 그걸 안 치웠다.
+
+    지우기는 되돌릴 수 없어서 읽음 처리보다 위험하다. 규칙을 못 박는다.
+    """
+
+    def test_남의_알림은_지울_수_없다(self):
+        """id 만 바꿔 부르는 것으로 남의 알림을 지울 수 있으면 안 된다.
+        읽음은 되돌릴 수 있지만 삭제는 못 되돌린다."""
+        src = inspect.getsource(C.delete_notification)
+        assert "user_id = :uid" in src, "id만으로 남의 알림을 지울 수 있다"
+
+    def test_일괄_삭제는_읽은_것만_지운다(self):
+        """안 읽은 것까지 쓸어 버리면 못 본 알림이 통째로 사라진다."""
+        src = inspect.getsource(C.delete_read_notifications)
+        assert "is_read IS TRUE" in src
+        assert "user_id = :uid" in src
+
+    def test_없는_알림을_지우면_404(self):
+        src = inspect.getsource(C.delete_notification)
+        assert "rowcount == 0" in src and "404" in src
+
+    def test_로그인해야_지울_수_있다(self):
+        for 함수명 in ("delete_notification", "delete_read_notifications"):
+            src = inspect.getsource(getattr(C, 함수명))
+            assert "require_user" in src, f"{함수명}이 비로그인에게 열려 있다"
+
+    def test_읽은것_지우기가_id_경로보다_위에_있다(self):
+        """/notifications/read 가 /notifications/{noti_id} 아래에 있으면
+        "read" 가 noti_id 로 먹혀 422 가 난다. 순서가 곧 동작이라
+        소스를 읽는 것으로는 못 지킨다 — 등록된 경로표로 건다."""
+        걸린것 = [(r.path, sorted(r.methods)) for r in C.router.routes
+                  if "notifications" in getattr(r, "path", "")
+                  and "DELETE" in getattr(r, "methods", set())]
+        경로들 = [p for p, _ in 걸린것]
+        assert any(p.endswith("/notifications/read") for p in 경로들), 걸린것
+        assert any(p.endswith("/notifications/{noti_id}") for p in 경로들), 걸린것
+        읽은것 = next(i for i, p in enumerate(경로들) if p.endswith("/notifications/read"))
+        아이디 = next(i for i, p in enumerate(경로들) if p.endswith("/notifications/{noti_id}"))
+        assert 읽은것 < 아이디, f"순서가 뒤집혀 있다: {경로들}"

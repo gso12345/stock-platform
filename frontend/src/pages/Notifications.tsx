@@ -8,11 +8,13 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link, useNavigate } from "react-router-dom";
-import { Bell, CheckCheck, LogIn, ChevronLeft, ChevronRight } from "lucide-react";
+import { Bell, CheckCheck, LogIn, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
-import NotificationList, { 모두읽음, type NotificationItem } from "@/components/community/NotificationList";
+import NotificationList, { 모두읽음, 읽은것빼기, type NotificationItem } from "@/components/community/NotificationList";
 import NotificationSettings from "@/components/community/NotificationSettings";
+import MyPriceAlerts from "@/components/community/MyPriceAlerts";
+import { use확인 } from "@/hooks/useDialogs";
 import { 빈화면, 못불러옴, RowSkeleton} from "@/components/ui";
 
 export default function Notifications() {
@@ -21,9 +23,14 @@ export default function Notifications() {
   const [params, setParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const qc = useQueryClient();
+  /* 지우기는 못 되돌린다. 브라우저 기본 창 대신 앱 확인창을 쓴다 */
+  const { 묻기, 화면: 확인창 } = use확인();
 
   // 종의 "알림 설정"에서 들어오면 설정이 펼쳐진 채로 열린다
   const [showSettings, setShowSettings] = useState(params.get("settings") === "1");
+  /* 시세 알림 목록은 접어 둔다. 펼친 채로 두면 알림을 보러 온 사람이
+     매번 그 목록을 지나쳐야 새 알림에 닿는다 */
+  const [알림목록열림, set알림목록열림] = useState(false);
   useEffect(() => {
     if (params.get("settings") === "1") {
       setShowSettings(true);
@@ -64,6 +71,35 @@ export default function Notifications() {
     },
   });
 
+  /**
+   * 읽은 알림 정리.
+   *
+   * '모두 읽음' 을 눌러도 목록은 그대로 남는다. 며칠 쓰면 다 읽은 알림
+   * 수백 줄을 계속 넘겨야 새 것이 나온다 — 읽음 표시는 그 줄이
+   * 쓸모없어졌다는 뜻인데 화면이 그걸 안 치웠다.
+   *
+   * **안 읽은 것은 안 지운다.** 서버도 같은 규칙이다. 아직 못 본 것까지
+   * 쓸어 버리면 되돌릴 방법이 없다.
+   */
+  const 읽은것정리 = useMutation({
+    mutationFn: communityApi.deleteReadNotifications,
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ["notiPage"] });
+      const 이전 = qc.getQueryData(["notiPage"]);
+      const 이전종 = qc.getQueryData(["notiList"]);
+      qc.setQueryData(["notiPage"], (prev: unknown) => 읽은것빼기(prev));
+      qc.setQueryData(["notiList"], (prev: unknown) => 읽은것빼기(prev));
+      return { 이전, 이전종 };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.이전 !== undefined) qc.setQueryData(["notiPage"], ctx.이전);
+      if (ctx?.이전종 !== undefined) qc.setQueryData(["notiList"], ctx.이전종);
+    },
+    /* 지운 만큼 다음 쪽이 당겨진다. 이 쪽만 고쳐 두면 넘겼을 때
+       이미 지운 줄이 다시 나온다 */
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["notiPage"] }); setPage(1); },
+  });
+
   if (!isLoggedIn) {
     return (
       <div className="max-w-2xl mx-auto py-16 text-center">
@@ -79,6 +115,9 @@ export default function Notifications() {
 
   const items: NotificationItem[] = data?.items ?? [];
   const count = unread?.count ?? 0;
+  /* 지울 것이 없는데 단추가 있으면 눌러 놓고 아무 일도 안 일어나는
+     것을 보게 된다 */
+  const 읽은것있나 = items.some((n) => n.is_read);
   // 서버는 한 번에 30건까지 준다 — 꽉 찼으면 다음 쪽이 있을 수 있다
   const hasNext = items.length === 30;
 
@@ -102,9 +141,29 @@ export default function Notifications() {
             <CheckCheck size={13} /> 모두 읽음
           </button>
         )}
+        {/* 읽은 줄이 있을 때만 보여 준다. 지울 것이 없는데 단추가 있으면
+            눌러 놓고 아무 일도 안 일어나는 것을 보게 된다 */}
+        {읽은것있나 && (
+          <button
+            onClick={() => 묻기({
+              title: "읽은 알림을 정리할까요?",
+              message: "이미 읽은 알림만 지웁니다. 안 읽은 알림은 그대로 남아요.",
+              확인글: "정리",
+              onConfirm: () => 읽은것정리.mutate(),
+            })}
+            disabled={읽은것정리.isPending}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-border text-xs text-text-muted hover:text-accent-red hover:border-accent-red/40 transition-all disabled:opacity-50"
+          >
+            <Trash2 size={13} /> 읽은 것 정리
+          </button>
+        )}
       </div>
 
       <NotificationSettings open={showSettings} onToggle={() => setShowSettings((v) => !v)} />
+      {/* '어떤 알림을 받을까' 바로 다음에 오는 질문이 '지금 무엇을
+          기다리고 있나' 다. 지금까지 그 답은 종목 상세의 종 안에만
+          있어서, 알림을 건 종목을 이미 알고 있어야 볼 수 있었다 */}
+      <MyPriceAlerts open={알림목록열림} onToggle={() => set알림목록열림((v) => !v)} />
 
       <div className="bg-bg-card border border-border rounded-2xl overflow-hidden">
         {isLoading ? (
@@ -150,6 +209,8 @@ export default function Notifications() {
           </button>
         </div>
       )}
+
+      {확인창}
     </div>
   );
 }

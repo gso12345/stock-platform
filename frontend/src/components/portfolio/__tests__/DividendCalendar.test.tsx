@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈, 회차금액, 그달지난배당, 실제값인가, 짧은돈, 기준글, 그달날들, 앞으로그달, 날과요일 }
+import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈, 회차금액, 그달지난배당, 실제값인가, 짧은돈, 기준글, 그달날들, 앞으로그달, 날과요일, 날짜별로, 점날짜 }
   from "@/components/portfolio/DividendCalendar";
 import { portfolioApi, type 배당줄 } from "@/api/stocks";
 
@@ -874,5 +874,165 @@ describe("지난 배당은 두 줄까지만", () => {
       { year: 2024, month: 3, amount: 0.1 },
     ] });
     expect(그달지난배당(r, 3, 3)).toHaveLength(3);
+  });
+});
+
+
+/**
+ * ── 날짜별 보기 ──
+ *
+ * 종목별 목록만으로는 주배당을 못 읽는다. 주배당(연 52회)은 한 달에
+ * 네다섯 번 들어오는데, 종목별로 접으면 한 줄에 '그 달 합계' 만 남아서
+ * "이번 주 금요일에 얼마 들어오나" 를 아무 데서도 못 본다.
+ *
+ * 배당 앱들이 날짜를 머리글로 세우고 그 밑에 종목을 단다.
+ *
+ *   08.25
+ *     MSFO   22주 × 195원   3,631원
+ *     NVDY   23주 × 166원   3,251원
+ */
+describe("점날짜", () => {
+  it("머리글은 08.25 모양이다", () => {
+    expect(점날짜("2026-08-25")).toBe("08.25");
+    expect(점날짜("2026-12-01")).toBe("12.01");
+  });
+});
+
+describe("날짜별로", () => {
+  const 주배당 = (심볼: string, 이름: string, 수량: number, 날들: [string, number][]) =>
+    줄({
+      symbol: 심볼, market: "US", name: 이름, currency: "USD", cycle: "주",
+      shares: 수량, months: [이번달], per_month: 4,
+      schedule: [{ month: 이번달, day: Number(날들[날들.length - 1][0].slice(8)),
+                   amount: 날들.reduce((s, x) => s + x[1], 0), year: new Date().getFullYear(),
+                   올해확정: true, days: 날들.map(([date, amount]) => ({ date, amount })) }],
+    });
+
+  it("같은 날에 들어오는 종목을 한 칸에 모은다", () => {
+    const 칸들 = 날짜별로([
+      주배당("MSFO", "MSFO", 22, [[이번달날(18), 0.1], [이번달날(25), 0.2]]),
+      주배당("NVDY", "NVDY", 23, [[이번달날(25), 0.15]]),
+    ], 이번달, 1400);
+
+    expect(칸들.map((c) => c.date.slice(8))).toEqual(["25", "18"]);   // 최근 것부터
+    expect(칸들[0].줄들.map((x) => x.r.symbol).sort()).toEqual(["MSFO", "NVDY"]);
+    expect(칸들[1].줄들.map((x) => x.r.symbol)).toEqual(["MSFO"]);
+  });
+
+  it("칸 합계는 그 날 줄들의 합이다", () => {
+    const 칸들 = 날짜별로([
+      주배당("MSFO", "MSFO", 22, [[이번달날(25), 0.2]]),
+      주배당("NVDY", "NVDY", 23, [[이번달날(25), 0.15]]),
+    ], 이번달, 1400);
+    // 0.2 × 22 × 1400 + 0.15 × 23 × 1400
+    expect(칸들[0].합계).toBeCloseTo(0.2 * 22 * 1400 + 0.15 * 23 * 1400, 2);
+    expect(칸들[0].합계).toBeCloseTo(칸들[0].줄들.reduce((s, x) => s + x.금액, 0), 6);
+  });
+
+  it("한 칸 안은 금액 큰 순이다", () => {
+    const 칸들 = 날짜별로([
+      주배당("작은것", "작은것", 1, [[이번달날(25), 0.1]]),
+      주배당("큰것", "큰것", 100, [[이번달날(25), 0.1]]),
+    ], 이번달, 1400);
+    expect(칸들[0].줄들.map((x) => x.r.symbol)).toEqual(["큰것", "작은것"]);
+  });
+
+  it("지난 것과 앞으로의 것을 섞지 않는다", () => {
+    /* 하나는 실제로 들어온 돈이고 하나는 추정이다. 한 칸에 같이 담으면
+       어느 쪽이 사실인지 알 길이 없어진다 */
+    const r = 줄({
+      symbol: "SCHD", market: "US", currency: "USD", cycle: "주", shares: 10,
+      months: [이번달],
+      schedule: [{ month: 이번달, day: 10, amount: 0.1, year: new Date().getFullYear(),
+                   올해확정: true, days: [{ date: 이번달날(10), amount: 0.1 }] }],
+      upcoming: [{ date: 이번달날(24), amount: 0.1 }],
+    });
+    const 칸들 = 날짜별로([r], 이번달, 1400);
+    const 지난것 = 칸들.find((c) => c.date === 이번달날(10))!;
+    const 앞으로것 = 칸들.find((c) => c.date === 이번달날(24))!;
+    expect(지난것.예상).toBe(false);
+    expect(앞으로것.예상).toBe(true);
+  });
+
+  it("수량이 0이면 그 줄을 안 만든다", () => {
+    /* '0원' 짜리 줄은 '배당을 안 준다' 로 읽힌다 */
+    const 칸들 = 날짜별로([주배당("X", "X", 0, [[이번달날(25), 0.2]])], 이번달, 1400);
+    expect(칸들).toEqual([]);
+  });
+
+  it("날짜별 기록이 없으면 그 달 일정에서 하루를 만든다", () => {
+    /* 분기배당은 days 가 없다. 그래도 schedule.day 는 안다 */
+    const r = 줄({
+      shares: 100, currency: "KRW", months: [이번달],
+      schedule: [{ month: 이번달, day: 15, amount: 361, year: new Date().getFullYear(), 올해확정: true }],
+    });
+    const 칸들 = 날짜별로([r], 이번달, 1400);
+    expect(칸들).toHaveLength(1);
+    expect(칸들[0].date.slice(8)).toBe("15");
+    expect(칸들[0].합계).toBe(361 * 100);
+  });
+
+  it("금액이 0인 달은 줄을 안 만든다", () => {
+    /* 서버는 schedule 칸마다 day 를 늘 채워 보낸다. 그러니 '날짜를
+       모르는 달' 은 실제로는 안 오고, 걸러야 하는 것은 금액이 0인
+       달이다 — 0원짜리 줄은 '배당을 안 준다' 로 읽힌다.
+       (코드의 day 검사는 그래도 남겨 둔다. 없는 날짜로
+        "2026-08-undefined" 를 만드는 것보다는 빠지는 편이 낫다) */
+    const r = 줄({
+      shares: 100, months: [이번달],
+      schedule: [{ month: 이번달, day: 15, amount: 0, year: new Date().getFullYear() }],
+    });
+    expect(날짜별로([r], 이번달, 1400)).toEqual([]);
+  });
+
+  it("세후를 켜면 칸 합계도 줄어든다", () => {
+    const 앞 = 날짜별로([주배당("X", "X", 10, [[이번달날(25), 1]])], 이번달, 1400, false);
+    const 뒤 = 날짜별로([주배당("X", "X", 10, [[이번달날(25), 1]])], 이번달, 1400, true);
+    expect(뒤[0].합계).toBeCloseTo(앞[0].합계 * 0.85, 2);
+  });
+});
+
+describe("날짜별 화면", () => {
+  const 주배당줄 = 줄({
+    symbol: "MSFO", market: "US", name: "MSFO", currency: "USD", cycle: "주",
+    shares: 22, months: [이번달], per_month: 4,
+    schedule: [{ month: 이번달, day: 25, amount: 0.3, year: new Date().getFullYear(),
+                 올해확정: true,
+                 days: [{ date: 이번달날(18), amount: 0.1 }, { date: 이번달날(25), amount: 0.2 }] }],
+  });
+
+  it("칩을 누르면 날짜 머리글로 바뀐다", async () => {
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당줄], pending: 0 });
+    그리기();
+    await waitFor(() => expect(screen.getByRole("button", { name: "날짜별" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "날짜별" }));
+
+    const 스물다섯 = `${String(이번달).padStart(2, "0")}.25`;
+    const 열여덟 = `${String(이번달).padStart(2, "0")}.18`;
+    expect(screen.getByText(스물다섯)).toBeInTheDocument();
+    expect(screen.getByText(열여덟)).toBeInTheDocument();
+  });
+
+  it("사진처럼 '22주 × 금액' 을 적는다", async () => {
+    /* 곱셈이 보이면 그 옆 금액을 눈으로 검산할 수 있다 */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당줄], pending: 0 });
+    그리기();
+    await waitFor(() => expect(screen.getByRole("button", { name: "날짜별" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "날짜별" }));
+    expect(screen.getAllByText(/22주 ×/).length).toBeGreaterThan(0);
+  });
+
+  it("날짜를 하나도 모르면 칩을 안 그린다", async () => {
+    /* 눌러 놓고 빈 화면을 보게 되는 칩은 고장으로 읽힌다 */
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        shares: 100, months: [이번달],
+        schedule: [{ month: 이번달, day: 15, amount: 0, year: new Date().getFullYear() }],
+      })],
+      pending: 0,
+    });
+    그리기();
+    await waitFor(() => expect(screen.getByText(/삼성전자/)).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "날짜별" })).not.toBeInTheDocument();
   });
 });

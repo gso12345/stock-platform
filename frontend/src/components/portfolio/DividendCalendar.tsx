@@ -254,6 +254,78 @@ export function 날과요일(day: string): string {
   return `${d.getDate()}일 (${"일월화수목금토"[d.getDay()]})`;
 }
 
+/** "2026-08-25" → "08.25" — 날짜 머리글에 쓴다 */
+export function 점날짜(day: string): string {
+  const [, m, d] = day.split("-");
+  return m && d ? `${m}.${d}` : day;
+}
+
+export interface 날짜줄 { r: 배당줄; 주당: number; 금액: number }
+export interface 날짜칸 {
+  date: string;
+  /** 아직 안 들어온 돈인가. 지난 기록과 추정을 절대 섞지 않는다 */
+  예상: boolean;
+  줄들: 날짜줄[];
+  합계: number;
+}
+
+/**
+ * 고른 달을 **날짜별로** 묶는다.
+ *
+ * 종목별 목록만으로는 주배당을 못 읽는다. 주배당(연 52회)은 한 달에
+ * 네다섯 번 들어오는데, 종목별로 접으면 한 줄에 '그 달 합계' 만 남아서
+ * "이번 주 금요일에 얼마 들어오나" 를 아무 데서도 못 본다. 배당 앱들이
+ * 날짜를 머리글로 세우고 그 밑에 종목을 다는 이유가 그것이다.
+ *
+ *   08.25
+ *     MSFO   22주 × 195원   3,631원
+ *     NVDY   23주 × 166원   3,251원
+ *
+ * ── 섞지 않는 것 ──
+ *
+ * 지난 기록(schedule.days)은 실제로 들어온 돈이고 앞으로의 것
+ * (upcoming)은 추정이다. 한 칸에 같이 담으면 어느 쪽이 사실인지
+ * 알 길이 없어진다. 그래서 칸마다 예상 여부를 달아 둔다.
+ *
+ * 날짜를 하나도 모르는 종목(분기배당인데 그 달 일정만 아는 경우)은
+ * schedule 의 day 로 하루를 만든다. 그것도 없으면 이 목록에서 빠진다 —
+ * 없는 날짜를 지어내느니 종목별 목록에서 보는 편이 낫다.
+ */
+export function 날짜별로(줄들: 배당줄[], 달: number, 환율: number, 세후로 = false): 날짜칸[] {
+  const 칸: Map<string, 날짜칸> = new Map();
+  const 담기 = (date: string, 예상: boolean, r: 배당줄, 주당: number) => {
+    const 금액 = _원화로(r, 주당, 환율, 세후로);
+    if (!금액) return;                 // 수량 0 이면 '0원' 줄만 남는다
+    const 기존 = 칸.get(date) ?? { date, 예상, 줄들: [], 합계: 0 };
+    /* 한 날짜에 지난 것과 추정이 같이 오면 추정으로 본다 —
+       덜 확신하는 쪽으로 기울이는 것이 안전하다 */
+    기존.예상 = 기존.예상 || 예상;
+    기존.줄들.push({ r, 주당, 금액 });
+    기존.합계 += 금액;
+    칸.set(date, 기존);
+  };
+
+  for (const r of 줄들) {
+    const 받은날들 = 그달날들(r, 달);
+    const 받을날들 = 앞으로그달(r, 달);
+    for (const x of 받은날들) 담기(x.date, false, r, x.amount);
+    for (const x of 받을날들) 담기(x.date, true, r, x.amount);
+    if (받은날들.length || 받을날들.length) continue;
+
+    /* 날짜별 기록이 없는 종목 — 그 달 일정에서 하루를 만든다 */
+    const 그것 = r.schedule?.find((x) => x.month === 달);
+    if (!그것?.day || !그것.amount) continue;
+    const 해 = 그것.year ?? new Date().getFullYear();
+    const 날 = `${해}-${String(달).padStart(2, "0")}-${String(그것.day).padStart(2, "0")}`;
+    담기(날, 날 > new Date().toISOString().slice(0, 10), r, 그것.amount);
+  }
+
+  return [...칸.values()]
+    .map((c) => ({ ...c, 줄들: c.줄들.sort((a, b) => b.금액 - a.금액) }))
+    // 최근 것부터. 사진의 앱도 위가 최신이다
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
 /** 내 보유 몫 — 배당률의 분모가 되는 값들.
  *
  *  배당금(분자)은 서버가 주는데, '얼마를 넣어서 그만큼 받나'(분모)는
@@ -361,6 +433,11 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
   /* 세전으로 시작한다. 세후가 기본이면 '내가 아는 배당금과 다른데?' 가
      먼저 오고, 왜 다른지는 한참 뒤에야 눈에 띈다 */
   const [세후로, set세후로] = useState(false);
+  /* 종목별로 볼까 날짜별로 볼까.
+     주배당(연 52회)은 종목별로 접으면 그 달 합계만 남아서 "이번 주
+     금요일에 얼마 들어오나" 를 아무 데서도 못 본다. 배당 앱들이 날짜를
+     머리글로 세우는 이유가 그것이다. */
+  const [보기, set보기] = useState<"종목" | "날짜">("종목");
 
   const { data, isLoading, isError, error, refetch } =
     use배당달력(portfolioId, !미리보기);      // 미리보기는 공개 경로로 따로 받는다
@@ -401,6 +478,14 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
        달에 똑같이 써서, 결산배당이 붙는 달과 아닌 달이 같아 보였다 */
     .map((r) => ({ r, 금액: 달금액(r, 고른달, 환율, 세후로) }))
     .sort((a, b) => b.금액 - a.금액), [줄들, 고른달, 환율, 세후로]);
+
+  /** 같은 달을 날짜 머리글로 묶은 것 */
+  const 날짜칸들 = useMemo(
+    () => 날짜별로(줄들, 고른달, 환율, 세후로), [줄들, 고른달, 환율, 세후로]);
+  /* 날짜를 하나도 모르는 달이면 '날짜별' 이 텅 빈다. 그럴 때 칩을
+     보여 주면 눌러 놓고 빈 화면을 보게 된다 */
+  const 날짜로볼수있나 = 날짜칸들.length > 0;
+  const 실제보기 = 날짜로볼수있나 ? 보기 : "종목";
 
   const 틀 = (속: React.ReactNode) => (
     <Card className="flex flex-col gap-3">
@@ -540,19 +625,87 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
       </div>
 
       {/* ── 고른 달 내역 ── */}
-      <div className="flex items-baseline justify-between gap-2 pt-1 border-t border-border/50">
-        <span className="text-sm font-semibold text-text-primary">
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50">
+        <span className="text-sm font-semibold text-text-primary shrink-0">
           {고른달}월
           {고른달 === 이번달 && (
             <span className="ml-1 text-2xs text-accent-green font-medium">이번 달</span>
           )}
         </span>
-        <span className="text-sm font-mono font-semibold text-accent-green num">
+        {/* 종목별 ↔ 날짜별.
+            주배당은 날짜별이라야 읽힌다 — 한 달에 네다섯 번 들어오는데
+            종목별로 접으면 그 달 합계 한 줄만 남는다 */}
+        {날짜로볼수있나 && (
+          <div className="flex rounded-lg border border-border overflow-hidden ml-auto" role="group" aria-label="보기 방식">
+            {(["종목", "날짜"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => set보기(v)}
+                aria-pressed={실제보기 === v}
+                className={`px-2.5 py-1 text-2xs font-semibold transition-colors ${
+                  실제보기 === v ? "bg-accent-green text-white" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+                }`}
+              >{v === "종목" ? "종목별" : "날짜별"}</button>
+            ))}
+          </div>
+        )}
+        <span className="text-sm font-mono font-semibold text-accent-green num shrink-0">
           {월별[고른달 - 1] > 0 ? 돈.원(월별[고른달 - 1]) : "—"}
         </span>
       </div>
 
-      {그달것.length === 0 ? (
+      {실제보기 === "날짜" ? (
+        /* ── 날짜별 ──
+           날짜를 머리글로 세우고 그 밑에 종목을 단다.
+             08.25
+               MSFO   22주 × 195원   3,631원
+           지난 것과 앞으로의 것을 절대 한 칸에 섞지 않는다 — 하나는
+           실제로 들어온 돈이고 하나는 추정이다. */
+        <ul className="flex flex-col">
+          {날짜칸들.map((칸) => (
+            <li key={칸.date} className="border-b border-border/50 last:border-b-0 pb-2 mb-1 last:mb-0">
+              <div className="flex items-baseline justify-between gap-2 py-1.5">
+                <span className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="text-xs font-bold text-text-primary tabular-nums">
+                    {점날짜(칸.date)}
+                  </span>
+                  <span className="text-2xs text-text-dim shrink-0">
+                    {"일월화수목금토"[new Date(`${칸.date}T00:00:00`).getDay()]}
+                  </span>
+                  {/* 올해가 아니면 몇 년 것인지 밝힌다. 안 적으면
+                      작년 8월 기록이 올해 것으로 읽힌다 */}
+                  {칸.date.slice(0, 4) !== String(new Date().getFullYear()) && (
+                    <span className="text-2xs text-text-dim shrink-0">{칸.date.slice(0, 4)}년</span>
+                  )}
+                  {칸.예상 && (
+                    <span className="text-2xs px-1 py-px rounded bg-bg-elevated text-text-dim shrink-0">예상</span>
+                  )}
+                </span>
+                <span className={`text-xs font-mono font-semibold num whitespace-nowrap ${
+                  칸.예상 ? "text-text-secondary" : "text-accent-green"
+                }`}>{돈.원(칸.합계)}</span>
+              </div>
+              <ul className="flex flex-col gap-1 pl-2.5 border-l-2 border-border/50">
+                {칸.줄들.map(({ r, 주당, 금액 }) => (
+                  <li key={`${r.market}:${r.symbol}`}
+                      className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs text-text-primary truncate min-w-0">{r.name}</span>
+                    {/* 사진의 앱과 같은 모양 — '22주 × 195원'.
+                        곱셈이 보이면 그 아래 금액을 눈으로 검산할 수 있다 */}
+                    <span className="text-2xs text-text-dim whitespace-nowrap ml-auto shrink-0">
+                      {r.shares ? `${r.shares.toLocaleString("ko-KR")}주 × ` : ""}
+                      {원본돈(주당, r.currency)}
+                    </span>
+                    <span className="text-2xs font-mono text-text-secondary num whitespace-nowrap shrink-0 w-[4.5rem] text-right">
+                      {돈.원(금액)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      ) : 그달것.length === 0 ? (
         <p className="py-3 text-center text-2xs text-text-dim">이 달에는 들어오는 배당이 없어요</p>
       ) : (
         <ul className="flex flex-col">
