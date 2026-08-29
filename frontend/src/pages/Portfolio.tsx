@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 시세수명, 하루수명, 재촉주기, 재촉_횟수 } from "@/constants/portfolioQuery";
 import { use낙관, 목록에서빼기, 목록에서고치기 } from "@/hooks/useOptimistic";
+import { use저장된값, use저장된Set } from "@/hooks/useSaved";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
@@ -165,10 +166,22 @@ export default function Portfolio() {
     else { setSortField(field); setSortDir("desc"); }
   };
 
-  /* ── 포트폴리오 목록 ── */
-  const [selectedPortfolioId, setSelectedPortfolioId] = useState<SelectedPortfolio | null>(null);
+  /* ── 포트폴리오 목록 ──
+     고른 것은 **이 기기에 담는다.** 그냥 useState 였을 때는 새로고침
+     하거나 다른 화면에 갔다 오면 매번 처음 상태로 돌아갔다 — 사용자
+     에게는 '저장이 안 된다' 로 보인다. 맞는 말이다. */
+  const [selectedPortfolioId, setSelectedPortfolioId] =
+    use저장된값<SelectedPortfolio | null>("고른포트폴리오", null,
+      /* 지운 포트폴리오 id 가 담겨 있을 수 있다. 모양만 걸러 두고,
+         정말 있는 포트폴리오인지는 아래 useEffect 가 목록을 받은 뒤에
+         본다 — 여기서는 아직 목록을 모른다 */
+      (담긴것) =>
+        담긴것 === "all" || typeof 담긴것 === "number"
+          ? (담긴것 as SelectedPortfolio)
+          : undefined);
   /* 전체 보기(포트폴리오 모아보기)에서 제외할 포트폴리오 — 비어있으면 전부 포함 */
-  const [excludedPortfolioIds, setExcludedPortfolioIds] = useState<Set<number>>(new Set());
+  const [excludedPortfolioIds, setExcludedPortfolioIds] =
+    use저장된Set<number>("전체보기제외");
   const toggleExcludedPortfolio = (id: number) => {
     setExcludedPortfolioIds((prev) => {
       const next = new Set(prev);
@@ -1280,8 +1293,15 @@ export default function Portfolio() {
           {/* 위쪽 포트폴리오 칩을 그래프도 따라간다. 예전에는 보유 목록만
               갈리고 그래프는 늘 전체여서, 포트폴리오를 바꿔도 선이 그대로라
               칩이 안 눌린 것처럼 보였다 */}
+          {/* 오늘 점은 **화면이 들고 있는 값**으로 맞춘다.
+              화면 총액은 실시간 시세로, 서버의 오늘 점은 시세 캐시로
+              낸다 — 장중에는 둘이 달라서 그래프 오른쪽 끝이 바로 위
+              큰 숫자와 어긋난다. 같은 화면에서 같은 것을 두 숫자로
+              말하지 않는다. */}
           <AssetHistory 미리보기={미리보기중 ? (예시흐름.점들 ?? undefined) : undefined}
                         받는중={예시흐름.받는중}
+                        오늘평가={미리보기중 ? undefined : summary.totalValue}
+                        오늘원금={미리보기중 ? undefined : summary.totalCost}
                         portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)} />
           {/* 그래프가 '얼마나' 를 말하면, 이건 '누가' 를 말한다.
               합계가 +512만원일 때 그게 한 종목이 혼자 번 것인지 열 종목이

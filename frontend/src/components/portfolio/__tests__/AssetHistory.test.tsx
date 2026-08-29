@@ -60,6 +60,11 @@ vi.mock("@/components/chart/ChartFrame", () => {
           <span data-testid="점수">{차트.data?.length ?? 0}</span>
           <span data-testid="선들">{면들.map((a) => a.dataKey).join(",")}</span>
           <span data-testid="날들">{(차트.data ?? []).map((p) => p.day).join(" ")}</span>
+          {/* 값도 내보낸다 — 오늘 점을 화면 값으로 맞추는지 보려면
+              '무슨 숫자를 넘겼나' 가 필요하다 */}
+          <span data-testid="값들">
+            {(차트.data ?? []).map((p) => (p as { value?: number }).value).join(" ")}
+          </span>
           {/* 선 색·칠 색까지 내보낸다 — 등락 색상 설정을 따르는지 보려면
               '무슨 색을 넘겼나' 가 필요하다 */}
           <span data-testid="선색들">{면들.map((a) => `${a.dataKey}=${a.stroke}`).join(" ")}</span>
@@ -78,7 +83,7 @@ vi.mock("@/components/chart/ChartFrame", () => {
   };
 });
 
-function 그리기(props: { portfolioId?: number } = {}) {
+function 그리기(props: { portfolioId?: number; 오늘평가?: number; 오늘원금?: number } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}><AssetHistory {...props} /></QueryClientProvider>,
@@ -711,5 +716,81 @@ describe("툴팁에 그날 손익", () => {
     await userEvent.click(screen.getByRole("button", { name: "코스피" }));
     await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("지수수익,내수익"));
     expect(screen.getByTestId("선들").textContent).not.toContain("손익");
+  });
+});
+
+
+/**
+ * ── 오늘 점은 화면 위 큰 숫자와 같아야 한다 ──
+ *
+ * '자산 흐름 수치가 안 맞는다' 의 원인이었다.
+ *
+ * 화면 총액은 **실시간 시세**(WebSocket + 일괄 조회)로 낸다. 그런데
+ * 그래프의 오늘 점은 서버가 **시세 캐시**로 낸 값이다. 장중에는 그 둘이
+ * 다르다 — 같은 화면 안에서 같은 것을 두 숫자로 말하는 셈이다.
+ *
+ * 지난 점은 안 건드린다. 그건 그날의 기록이지 지금 값이 아니다.
+ */
+describe("오늘 점을 화면 값으로 맞춘다", () => {
+  const 오늘 = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+
+  it("서버의 오늘 점을 화면 값으로 덮어쓴다", async () => {
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점(오늘(), 1_100_000)], days: 90,
+    });
+    그리기({ 오늘평가: 1_234_000, 오늘원금: 900_000 });
+    await waitFor(() => expect(screen.getByTestId("차트")).toBeInTheDocument());
+    // 점 수는 그대로 둘이다 — 덮어쓴 것이지 덧붙인 게 아니다
+    expect(screen.getByTestId("점수")).toHaveTextContent("2");
+    expect(screen.getByTestId("값들").textContent).toContain("1234000");
+    expect(screen.getByTestId("값들").textContent).not.toContain("1100000");
+  });
+
+  it("서버에 오늘 점이 없으면 덧붙인다", async () => {
+    /* 스냅샷은 하루 한 번 찍힌다. 오늘 것이 아직 없을 수 있는데,
+       그때도 그래프 오른쪽 끝은 지금 값이어야 한다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000)], days: 90,
+    });
+    그리기({ 오늘평가: 1_234_000, 오늘원금: 900_000 });
+    await waitFor(() => expect(screen.getByTestId("차트")).toBeInTheDocument());
+    expect(screen.getByTestId("점수")).toHaveTextContent("2");
+    expect(screen.getByTestId("날들").textContent).toContain(오늘());
+  });
+
+  it("지난 점은 안 건드린다", async () => {
+    /* 그건 그날의 기록이지 지금 값이 아니다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점("2026-08-21", 1_050_000)], days: 90,
+    });
+    그리기({ 오늘평가: 9_999_999, 오늘원금: 900_000 });
+    await waitFor(() => expect(screen.getByTestId("차트")).toBeInTheDocument());
+    const 값들 = screen.getByTestId("값들").textContent ?? "";
+    expect(값들).toContain("1000000");
+    expect(값들).toContain("1050000");
+  });
+
+  it("화면 값이 없으면 서버 값을 그대로 쓴다", async () => {
+    /* 미리보기(로그인 전)에는 '내 총액' 이 없다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점(오늘(), 1_100_000)], days: 90,
+    });
+    그리기();
+    await waitFor(() => expect(screen.getByTestId("차트")).toBeInTheDocument());
+    expect(screen.getByTestId("값들").textContent).toContain("1100000");
+  });
+
+  it("0원이면 안 덮어쓴다", async () => {
+    /* 아직 시세가 하나도 안 온 순간에 0 이 온다. 그걸 그리면
+       '오늘 자산이 0 이 됐다' 는 거짓말이 된다 */
+    vi.mocked(portfolioApi.getHistory).mockResolvedValue({
+      points: [점("2026-08-20", 1_000_000), 점(오늘(), 1_100_000)], days: 90,
+    });
+    그리기({ 오늘평가: 0, 오늘원금: 0 });
+    await waitFor(() => expect(screen.getByTestId("차트")).toBeInTheDocument());
+    expect(screen.getByTestId("값들").textContent).toContain("1100000");
   });
 });

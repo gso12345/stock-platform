@@ -598,7 +598,19 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    # ── 라우터가 쓰는 메서드를 **다** 적어야 한다 ──
+    #
+    # PATCH 가 빠져 있었다. 그래서 시세 알림 켜고 끄기가 브라우저의
+    # preflight 에서 막혀 서버 코드에 닿지도 못했다 — 지우기(DELETE)는
+    # 되는데 켜고 끄기만 안 되던 이유다. 관리자 화면의 PATCH 아홉 개도
+    # 같이 막혀 있었다.
+    #
+    # 조용히 망가지는 방식이 나빴다. 서버 로그에는 아무것도 안 남고
+    # (요청이 오지도 않는다), 화면은 낙관 갱신으로 먼저 바꿔 놓고
+    # 실패를 받아 되돌리므로 '눌러도 아무 일이 없다' 로만 보인다.
+    #
+    # tests/test_cors.py 가 라우터를 훑어 빠진 메서드를 잡는다.
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
 

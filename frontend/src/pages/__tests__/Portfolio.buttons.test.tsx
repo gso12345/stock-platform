@@ -68,7 +68,13 @@ function renderPage() {
 }
 
 describe("내 자산 — 자산 추가 버튼 노출 규칙", () => {
-  beforeEach(() => vi.clearAllMocks());
+  /* 고른 포트폴리오는 이제 이 기기에 남는다(useSaved). 검사끼리
+     새지 않게 매번 치운다 — 안 그러면 앞 검사가 고른 것이 다음
+     검사의 첫 화면이 된다 */
+  beforeEach(() => {
+    vi.clearAllMocks();
+    try { localStorage.clear(); } catch { /* 무시 */ }
+  });
 
   it("기본으로 열리는 '전체' 탭에서는 자산 추가 버튼이 없다", async () => {
     renderPage();
@@ -88,7 +94,9 @@ describe("내 자산 — 자산 추가 버튼 노출 규칙", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByText("기본 포트폴리오"));
+    /* 이름만으로 찾으면 보유목록 표의 '포트폴리오' 칸과 겹친다.
+       탭은 버튼이므로 역할로 집는다 */
+    await user.click(await screen.findByRole("button", { name: /기본 포트폴리오/ }));
 
     expect(await screen.findByRole("button", { name: /자산 추가/ })).toBeInTheDocument();
   });

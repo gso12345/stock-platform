@@ -565,6 +565,26 @@ async def kr_extras():
             앞 = [c for c in 더할것 if not c.get("is_rate") and "VKOSPI" not in str(c.get("name"))]
             뒤 = [c for c in 더할것 if c not in 앞]
             rates = 앞 + list(rates) + 뒤
+
+        """카드가 비면 **다음 번을 위해** 배경에서 받아 둔다.
+
+        여기가 세 번째 재보고의 남은 구멍이었다. 위 카드 함수들은
+        캐시만 읽는다 — 서버가 막 깨어난 직후처럼 extra:us_rates 도
+        낱개 열쇠도 비어 있으면 국내 대시보드에는 환율 둘이 그냥 없다.
+        같은 순간 해외 탭은 자기가 직접 받아 오므로 멀쩡히 뜬다.
+        '해외엔 뜨는데 국내엔 안 뜰 때가 있다' 가 정확히 이 상태다.
+
+        (Render 무료 인스턴스는 놀면 잠든다. 그래서 '가끔' 이 아니라
+         한동안 안 들어갔다 들어오면 거의 매번이다.)
+
+        기다리지 않는다. 이 라우트는 셋을 5초에서 끊는데, 여기서
+        왕복을 하나 더 태우면 환율 카드 때문에 금리·선물까지 같이
+        늦어진다. 받아 두면 다음 요청이 쓴다."""
+        환율이름 = {"원/유로", "원/100엔"}
+        if not [c for c in 따로 if str(c.get("name")) in 환율이름]:
+            from app.core.executor import background_executor
+            from app.services.market_extras import get_us_rates
+            background_executor.submit(get_us_rates)
     except Exception as e:
         log.debug("환율 카드 덧붙이기 건너뜀: %s", type(e).__name__)
 

@@ -170,10 +170,23 @@ export function 견주기(점들: 자산흐름점[], 지수: OHLCV[] | undefined
   });
 }
 
-export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, portfolioId }: {
+export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, portfolioId,
+                                      오늘평가, 오늘원금 }: {
   켜짐?: boolean;
   /** 미리보기 값을 아직 받는 중인가 — 그동안 '기록이 없다' 고 하면 안 된다 */
   받는중?: boolean;
+  /** 화면 위에 떠 있는 **지금** 평가금액·매입금액.
+   *
+   *  이게 없으면 그래프의 오른쪽 끝이 위의 큰 숫자와 다른 말을 한다.
+   *
+   *  화면 총액은 **실시간 시세**(WebSocket + 일괄 조회)로 낸다. 그런데
+   *  그래프의 오늘 점은 서버가 **시세 캐시**로 낸 값이다. 장중에는 그
+   *  둘이 다르다 — 사용자에게는 '자산 흐름 수치가 안 맞는다' 로 보인다.
+   *
+   *  같은 화면 안에서 같은 것을 두 숫자로 말하지 않는다. 오늘 점은
+   *  화면이 이미 들고 있는 값으로 덮어쓴다. */
+  오늘평가?: number;
+  오늘원금?: number;
   /** 이 포트폴리오만 볼 때 그 id. 안 주면 전체 합계다.
    *
    *  포트폴리오별 기록은 이번에 처음 쌓기 시작했다. 그래서 하나를 고르면
@@ -231,8 +244,37 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
     staleTime: 하루수명,
   });
 
+  /** 오늘 날짜 — 서버와 같은 한국 날짜로 본다 */
+  const 오늘날 = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  /**
+   * 오늘 점을 화면이 들고 있는 값으로 맞춘다.
+   *
+   * 서버는 시세 캐시로, 화면은 실시간 시세로 센다. 장중에는 그 둘이
+   * 달라서 그래프 오른쪽 끝이 위의 큰 숫자와 어긋난다. 같은 화면
+   * 안에서 같은 것을 두 숫자로 말하지 않는다.
+   *
+   * 지난 점은 안 건드린다 — 그건 그날의 기록이지 지금 값이 아니다.
+   */
+  const 오늘맞추기 = useMemo(() => (점들: 자산흐름점[]): 자산흐름점[] => {
+    if (오늘평가 == null || !(오늘평가 > 0)) return 점들;
+    const 오늘것: 자산흐름점 = {
+      day: 오늘날,
+      value: 오늘평가,
+      cost: 오늘원금 ?? 점들[점들.length - 1]?.cost ?? 0,
+      filled: 1, priced: 1,
+    };
+    if (점들.length && 점들[점들.length - 1].day === 오늘날) {
+      return [...점들.slice(0, -1), 오늘것];
+    }
+    return [...점들, 오늘것];
+  }, [오늘평가, 오늘원금, 오늘날]);
+
   const 점들 = useMemo<자산흐름점[]>(() => {
-    if (!미리보기) return data?.points ?? [];
+    if (!미리보기) return 오늘맞추기(data?.points ?? []);
     /* 미리보기는 석 달치를 받아 두고 고른 기간만큼 잘라 쓴다 — 기간 칩을
        눌러도 아무 일이 없으면 그 칩이 뭔지 알 수 없다. 석 달보다 긴
        기간을 고르면 받아 둔 것을 그대로 다 보여 준다 */
@@ -241,7 +283,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
     const 기준 = 자를날.toISOString().slice(0, 10);
     const 자른것 = 미리보기.filter((p) => p.day >= 기준);
     return 자른것.length >= 2 ? 자른것 : 미리보기;
-  }, [data, 미리보기, 일수]);
+  }, [data, 미리보기, 일수, 오늘맞추기]);
   const 비교중 = !!벤치 && !!지수?.length;
   const 그릴것 = useMemo(
     () => 견주기(점들, 벤치 ? 지수 : undefined)

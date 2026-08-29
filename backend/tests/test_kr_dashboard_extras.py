@@ -566,14 +566,14 @@ class Test국내_대시보드_라우트:
             {"name": "원/100엔", "value": 858.70,  "change": -10.06, "change_rate": -1.16},
         ], 300)
 
-    def _부르기(self, monkeypatch, rates):
+    def _부르기(self, monkeypatch, rates, vkospi=None):
         import asyncio
         from app.api.routes import dashboard as D
         monkeypatch.setattr(D, "get_kr_rates", lambda: rates)
         monkeypatch.setattr(D, "get_kr_futures", lambda: asyncio.sleep(0, result=[]))
         monkeypatch.setattr(D, "_get_exchange_rate_async",
                             lambda: asyncio.sleep(0, result={"value": 1373.98}))
-        monkeypatch.setattr(D, "카드_vkospi", lambda: None)
+        monkeypatch.setattr(D, "카드_vkospi", lambda: vkospi)
         고리 = asyncio.new_event_loop()
         try:
             return 고리.run_until_complete(D.kr_extras())
@@ -607,11 +607,89 @@ class Test국내_대시보드_라우트:
         이름들 = [x["name"] for x in 답["rates"]]
         assert 이름들.index("원/유로") < 이름들.index("한국 기준금리"), 이름들
 
-    def test_해외탭도_안_받아_뒀으면_조용히_넘어간다(self, monkeypatch):
-        """받아 온 것이 없으면 없는 대로 둔다 — 여기서 새로 받지 않는다.
-        이 라우트는 이미 5초에 쫓기고 있다."""
+    def test_해외탭도_안_받아_뒀으면_이번_요청에는_없는_대로_둔다(self, monkeypatch):
+        """받아 온 것이 없으면 **이번 답에는** 없는 대로 둔다.
+        이 라우트는 이미 5초에 쫓기고 있어서 여기서 기다릴 수 없다.
+        (다음 요청을 위해 배경에 맡기는 것은 아래 검사가 본다.)"""
+        self._배경가짜(monkeypatch)
         답 = self._부르기(monkeypatch, [{"name": "한국 기준금리", "value": 2.75, "is_rate": True}])
         assert [x["name"] for x in 답["rates"]] == ["한국 기준금리"]
+
+    # ── 세 번째 재보고의 남은 구멍 ──────────────────────────
+    #
+    # 카드 함수들은 **캐시만 읽는다.** 서버가 막 깨어난 직후처럼
+    # extra:us_rates 도 낱개 열쇠도 비어 있으면 국내 대시보드에는
+    # 환율 둘이 그냥 없다. 같은 순간 해외 탭은 자기가 직접 받아
+    # 오므로 멀쩡히 뜬다 — '해외엔 뜨는데 국내엔 안 뜰 때가 있다'
+    # 가 정확히 이 상태다. (Render 무료 인스턴스는 놀면 잠든다.)
+    #
+    # 아무도 채우지 않으면 이 상태가 스케줄러의 다음 60초 주기까지
+    # 그대로 간다. 기다리지 말고, 다음 요청을 위해 받아 둔다.
+
+    def _배경가짜(self, monkeypatch):
+        """background_executor.submit 을 가로채 무엇을 맡겼는지만 본다.
+
+        진짜로 돌리면 야후를 친다 — 작업 환경에서는 막혀 있고,
+        열려 있더라도 검사가 네트워크에 기대면 안 된다."""
+        import app.core.executor as E
+
+        맡긴것: list = []
+
+        class _가짜:
+            def submit(self, fn, *a, **k):
+                맡긴것.append(fn)
+                return None
+
+        monkeypatch.setattr(E, "background_executor", _가짜())
+        return 맡긴것
+
+    def test_아무것도_없으면_다음을_위해_배경에서_받아_둔다(self, monkeypatch):
+        맡긴것 = self._배경가짜(monkeypatch)
+        self._부르기(monkeypatch, [{"name": "한국 기준금리", "value": 2.75, "is_rate": True}])
+        assert [f.__name__ for f in 맡긴것] == ["get_us_rates"], (
+            "환율이 하나도 없는데 채워 둘 생각을 안 했다 — "
+            f"다음 요청에도 국내 탭만 비어 있게 된다 (맡긴 것: {맡긴것})"
+        )
+
+    def test_이미_받아_뒀으면_배경에도_안_맡긴다(self, monkeypatch):
+        """국내 탭 때문에 미국 금리까지 또 받아 올 이유는 없다.
+        0.15 CPU 서버라 왕복 하나가 그대로 남의 화면 대기다."""
+        self._해외탭이_받아둔상태()
+        맡긴것 = self._배경가짜(monkeypatch)
+        self._부르기(monkeypatch, [{"name": "한국 기준금리", "value": 2.75, "is_rate": True}])
+        assert 맡긴것 == [], "캐시가 따뜻한데도 또 받으러 갔다"
+
+    def test_받아_오는_일을_이_요청_안에서_하지_않는다(self, monkeypatch):
+        """여기서 기다리면 환율 카드 하나 때문에 금리·선물까지 같이
+        늦어지고, 5초에서 끊기면 목록이 통째로 빈 채로 나간다.
+
+        '느린 submit' 으로는 이걸 못 잰다 — 진짜 submit 은 일을 큐에
+        넣고 바로 돌아온다. 느려지는 것은 **받아 오는 함수** 쪽이다.
+        그래서 get_us_rates 를 느리게 만들고, 가짜 실행기는 그것을
+        일부러 **안 돌린다.** 라우트가 submit 대신 직접 부르면
+        그 0.5초가 이 요청에 그대로 얹힌다."""
+        import time
+
+        def _느리게():
+            time.sleep(0.5)
+            return []
+
+        monkeypatch.setattr(M, "get_us_rates", _느리게)
+        self._배경가짜(monkeypatch)          # 맡기기만 하고 안 돌린다
+        시작 = time.perf_counter()
+        self._부르기(monkeypatch, [{"name": "한국 기준금리", "value": 2.75, "is_rate": True}])
+        걸림 = time.perf_counter() - 시작
+        assert 걸림 < 0.3, f"{걸림:.2f}초 — 배경에 맡기지 않고 직접 받아 왔다"
+
+    def test_VKOSPI_만_있는_것을_환율로_치지_않는다(self, monkeypatch):
+        """VKOSPI 는 is_rate 가 없다. '금리 아닌 카드가 있나' 로 세면
+        변동성 하나 때문에 환율이 있는 줄 알고 넘어간다."""
+        맡긴것 = self._배경가짜(monkeypatch)
+        답 = self._부르기(monkeypatch, [{"name": "한국 기준금리", "value": 2.75, "is_rate": True}],
+                        vkospi={"name": "VKOSPI", "unit": "pt", "value": 15.2})
+        assert "VKOSPI" in [x["name"] for x in 답["rates"]]
+        assert [f.__name__ for f in 맡긴것] == ["get_us_rates"], \
+            "VKOSPI 를 환율로 세어 버렸다"
 
     def test_이름이_겹치는_get_eurkrw_를_안_쓴다(self):
         """price_fetcher 에도 get_eurkrw 가 있고 그쪽은 async 다.

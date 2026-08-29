@@ -407,9 +407,15 @@ export function PortfolioPill({
   onDragStart?: () => void; onDragOver?: (e: React.DragEvent) => void; onDrop?: () => void;
   onTouchStart?: (e: React.TouchEvent) => void; onTouchMove?: (e: React.TouchEvent) => void; onTouchEnd?: () => void;
 }) {
+  /* 옆의 '전체' 는 <button> 인데 이것만 <div> 였다. 그래서 키보드로는
+     포트폴리오를 아예 고를 수 없었고(탭 이동이 안 닿는다), 이름으로
+     버튼을 찾는 검사도 이 탭을 집지 못해 보유목록 표의 '포트폴리오'
+     칸과 헷갈렸다. 끌어서 순서 바꾸기는 button 에서도 그대로 된다. */
   return (
-    <div
+    <button
+      type="button"
       onClick={onSelect}
+      aria-pressed={active}
       data-portfolio-id={portfolio.id}
       draggable={draggable}
       onDragStart={onDragStart}
@@ -428,7 +434,7 @@ export function PortfolioPill({
     >
       <span>{portfolio.name}</span>
       <span className="text-xs opacity-60">({portfolio.count ?? 0})</span>
-    </div>
+    </button>
   );
 }
 
