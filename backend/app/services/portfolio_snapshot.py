@@ -367,3 +367,307 @@ def 찍기() -> int:
             db.close()
         except Exception:
             pass
+
+
+# ── 빈 날 메우기 ────────────────────────────────────────────
+#
+# "앱을 안 연 날도 기록하게 해 줘" 를 받고 코드를 다시 봤다. 찍기() 는
+# 앱을 여는 것과 아무 상관이 없다 — 스케줄러가 15분마다 보유 종목이
+# 있는 **모든** 사람을 돈다. 그런데도 그래프에 구멍이 생긴다.
+#
+# 이유는 서버가 자기 때문이다. Render 무료 인스턴스는 아무도 안 들어오면
+# 잠들고, 자는 동안에는 스케줄러도 안 돈다. 하루 종일 아무도 안 들어온
+# 날은 그날 줄이 통째로 없다. 사용자 눈에는 '내가 앱을 안 연 날' 과
+# 정확히 겹쳐 보인다 — 그래서 그렇게 읽으신 거고, 맞는 관찰이다.
+#
+# ── 어떻게 메우나 ──
+#
+# 값을 **지어내지 않는다.** 그날의 실제 종가를 받아서 다시 계산한다.
+# 주말·공휴일처럼 장이 안 선 날은 직전 거래일 종가를 쓴다 — 그날
+# 자산이 실제로 안 움직였으니 그게 맞는 값이다.
+#
+# ── 어디를 메우고 어디를 안 메우나 ──
+#
+# 문제는 **그날 무엇을 갖고 있었는지** 를 우리가 모른다는 것이다.
+# 지금 보유 목록밖에 없고, 판 종목은 아예 남아 있지 않다. 오늘 목록으로
+# 반년 전을 계산하면 그건 기록이 아니라 지어낸 값이다.
+#
+# 그래서 **양쪽이 실제 기록으로 막힌 구멍**만 메운다. 그리고 그 구멍
+# 앞뒤의 원금(total_cost)이 같은지 본다 — 사고팔면 원금이 바뀌므로,
+# 앞뒤가 같으면 그 사이에 매매가 없었다고 볼 수 있다. 다르면 언제
+# 무엇을 샀는지 알 수 없으므로 **그 구멍은 그대로 둔다.**
+#
+# 원금 비교에 1% 여유를 둔다. 원화로 넣지 않은 해외 종목은 매매가
+# 없어도 환율 때문에 매입금액이 매일 조금씩 달라지기 때문이다. 며칠
+# 사이 환율은 보통 1%를 안 넘고, 실제 매수는 대개 그보다 훨씬 크다.
+#
+# purchase_date 가 그날 이후인 종목은 뺀다. 적어 둔 사람에게는 이게
+# 위 어림보다 정확하다.
+
+#: 이보다 오래된 구멍은 안 건드린다. 오래될수록 '그날 무엇을 갖고
+#  있었나' 를 어림하는 것이 위험해진다
+메울수있는_과거일 = 120
+
+#: 한 회차에 한 사람이 메울 날 수 상한. 남은 것은 다음 회차에 메운다
+한사람_최대날 = 40
+
+#: 한 회차에 볼 사람 수. 0.15 CPU 서버에서 한 번에 몰아 하지 않는다
+메우기_한회차_최대 = 50
+
+#: 원금이 이만큼 안에서 다르면 '매매가 없었다' 로 본다(환율 흔들림)
+원금_허용오차 = 0.01
+
+
+def _봉표(symbol: str, market: str) -> "tuple[list, list] | None":
+    """종목의 일봉을 (날짜들, 종가들) 로. 이미 받아 둔 것이 있으면 그대로.
+
+    yf_service.get_ohlcv 가 캐시를 먼저 본다. 같은 종목을 여러 사람이
+    갖고 있어도 조회는 한 번이다."""
+    try:
+        from app.services.yf_service import yf_service
+        봉들 = yf_service.get_ohlcv(symbol, "1y", "1d", market or "US")
+    except Exception as e:
+        log.debug("일봉 조회 실패 %s: %s", symbol, type(e).__name__)
+        return None
+    쌍 = sorted(
+        (str(b.get("date"))[:10], float(b["close"]))
+        for b in (봉들 or []) if b.get("close")
+    )
+    if not 쌍:
+        return None
+    return [d for d, _ in 쌍], [c for _, c in 쌍]
+
+
+def 그날이전종가(표: "tuple[list, list] | None", 날: str) -> "float | None":
+    """그날(포함) 이전의 마지막 종가.
+
+    주말·공휴일에는 장이 안 섰으니 값이 없다. 그때 비워 두면 그날
+    자산이 0 이 되고, 직전 종가를 쓰면 '안 움직였다' 가 된다 — 실제로
+    안 움직였다. 뒤엣것이 맞다."""
+    if not 표:
+        return None
+    import bisect
+    날짜들, 종가들 = 표
+    i = bisect.bisect_right(날짜들, 날)
+    return 종가들[i - 1] if i > 0 else None
+
+
+def _과거환율표() -> "tuple[list, list] | None":
+    """원/달러 일봉. 해외 종목을 원화로 바꾸는 데 쓴다.
+
+    오늘 환율로 반년 전을 계산하면 그날 값이 아니다. 환율이 10%
+    움직인 해에는 그 차이가 그대로 그래프에 남는다."""
+    return _봉표("KRW=X", "US")
+
+
+def 과거합계(items, 날: str, 환율: float, 봉표들: dict) -> "dict | None":
+    """그날의 원화 합계. 합계내기() 와 **같은 규칙**을 쓴다.
+
+    다른 것은 시세를 어디서 가져오느냐뿐이다 — 여기서는 그날의 종가다.
+    규칙을 두 벌로 두면 언젠가 한쪽만 고쳐져서, 메운 날과 찍은 날이
+    서로 다른 계산으로 나온 값이 된다.
+
+    시세를 하나도 못 구하면 None. 매입금액을 그대로 적으면 '그날
+    자산이 원금과 같았다' 는 거짓말이 남는다 — 찍기() 와 같은 판단이다.
+    """
+    value = cost = 0.0
+    filled = priced = 0
+
+    for it in items or []:
+        산날 = getattr(it, "purchase_date", None)
+        if 산날 and str(산날)[:10] > 날:
+            continue                      # 그날엔 아직 안 산 종목이다
+
+        수량 = float(getattr(it, "shares", 0) or 0)
+        평단 = float(getattr(it, "avg_price", 0) or 0)
+        시장 = getattr(it, "market", "") or ""
+        통화 = getattr(it, "currency", None) or ("KRW" if 시장 == "KR" else "USD")
+        입력환율 = getattr(it, "input_exchange_rate", None)
+        유형 = getattr(it, "asset_class", None)
+
+        비율 = (float(입력환율) if 입력환율 else 환율) if 통화 == "USD" else 1.0
+        매입 = 평단 * 비율 * 수량
+        cost += 매입
+
+        달러종목 = 시장 in ("US", "ETF")
+        지금 = None
+        if 유형 not in 시세없는유형:
+            priced += 1
+            지금 = 그날이전종가(봉표들.get(getattr(it, "symbol", "")), 날)
+
+        if 지금 is None:
+            value += 매입
+        else:
+            filled += 1
+            value += 지금 * 환율 * 수량 if 달러종목 else 지금 * 수량
+
+    if priced > 0 and filled == 0:
+        return None
+    return {"value": value, "cost": cost, "filled": filled, "priced": priced}
+
+
+def 빈날찾기(있는날: "set[str]", 앞: str, 뒤: str) -> "list[str]":
+    """앞과 뒤 **사이**의 빈 날들. 양 끝은 안 넣는다."""
+    from datetime import date as _date
+
+    def 파싱(s: str) -> _date:
+        y, m, d = (int(x) for x in s.split("-"))
+        return _date(y, m, d)
+
+    나온것 = []
+    하루 = 파싱(앞) + timedelta(days=1)
+    끝 = 파싱(뒤)
+    while 하루 < 끝:
+        s = 하루.strftime("%Y-%m-%d")
+        if s not in 있는날:
+            나온것.append(s)
+        하루 += timedelta(days=1)
+    return 나온것
+
+
+def 메울구간(rows, 지금원금: "float | None") -> "list[tuple[str, str]]":
+    """실제 기록으로 양쪽이 막힌 구멍 중, 그 사이에 매매가 없어 보이는 것.
+
+    rows 는 날짜순으로 정렬된 (day, total_cost) 목록이다.
+    지금원금을 주면 마지막 기록과 오늘 사이도 본다 — 지금 보유 목록은
+    정확히 알고 있으므로 그쪽이 뒤 기둥 노릇을 한다.
+    """
+    def 같은가(a: float, b: float) -> bool:
+        큰쪽 = max(abs(a), abs(b), 1.0)
+        return abs(a - b) / 큰쪽 <= 원금_허용오차
+
+    구간 = []
+    for i in range(len(rows) - 1):
+        앞날, 앞돈 = rows[i]
+        뒷날, 뒷돈 = rows[i + 1]
+        if 같은가(앞돈 or 0, 뒷돈 or 0):
+            구간.append((앞날, 뒷날))
+    if rows and 지금원금 is not None and 같은가(rows[-1][1] or 0, 지금원금):
+        구간.append((rows[-1][0], 오늘()))
+    return 구간
+
+
+def 메우기() -> int:
+    """빈 날을 실제 종가로 메운다. 메운 줄 수를 돌려준다.
+
+    스케줄러에서 하루 한 번 부른다. 15분마다 도는 찍기() 와 달리 여기는
+    **바깥에서 값을 받아 온다** — 자주 돌 일이 아니다.
+
+    어떤 예외도 밖으로 안 내보낸다 — 이 일이 주기 갱신 전체를 멈춰
+    세우면 고치려던 것보다 나쁘다.
+    """
+    try:
+        from app.db.database import SessionLocal
+        from app.models.stock import PortfolioItem, PortfolioSnapshot
+    except Exception as e:
+        log.debug("빈 날 메우기 건너뜀: %s", type(e).__name__)
+        return 0
+
+    db = None
+    메운수 = 0
+    try:
+        """환율표를 여기 안에서 받는다.
+
+        try 밖에 두면 야후가 막힌 환경에서 이 함수가 예외를 밖으로
+        던진다 — 스케줄러 루프가 그걸 맞으면 그 회차의 뒤 작업이
+        통째로 안 돈다. '어떤 예외도 안 내보낸다' 가 이 함수의 계약이다."""
+        환율표 = _과거환율표()
+        db = SessionLocal()
+        부터 = (datetime.now(KST) - timedelta(days=메울수있는_과거일)).strftime("%Y-%m-%d")
+        가진사람 = sorted({uid for (uid,) in db.query(PortfolioItem.user_id).distinct().all()})
+        if not 가진사람:
+            return 0
+        할사람 = 가진사람[:메우기_한회차_최대]
+
+        items = db.query(PortfolioItem).filter(PortfolioItem.user_id.in_(할사람)).all()
+        사람별: dict = {}
+        for it in items:
+            사람별.setdefault(it.user_id, []).append(it)
+
+        #: 종목당 한 번만 받는다. 같은 종목을 여럿이 갖고 있어도 한 번이다
+        봉표들: dict = {}
+        for it in items:
+            sym = getattr(it, "symbol", "")
+            if sym and sym not in 봉표들 and getattr(it, "asset_class", None) not in 시세없는유형:
+                봉표들[sym] = _봉표(sym, getattr(it, "market", "") or "US")
+
+        모든줄 = (db.query(PortfolioSnapshot)
+                  .filter(PortfolioSnapshot.user_id.in_(할사람),
+                          PortfolioSnapshot.day >= 부터)
+                  .order_by(PortfolioSnapshot.day).all())
+        칸별: dict = {}
+        for r in 모든줄:
+            칸별.setdefault((r.user_id, r.portfolio_id), []).append(r)
+
+        for uid, 내것 in 사람별.items():
+            """전체 줄(0)과 포트폴리오별 줄을 같은 방법으로 메운다."""
+            나눔 = {0: 내것}
+            for it in 내것:
+                pid = getattr(it, "portfolio_id", None)
+                if pid:
+                    나눔.setdefault(pid, []).append(it)
+
+            for pid, 그것들 in 나눔.items():
+                줄들 = 칸별.get((uid, pid)) or []
+                if len(줄들) < 2:
+                    """기둥이 하나뿐이면 메울 구간을 못 정한다.
+
+                    한쪽만 막힌 구멍을 메우려면 '그 사이에 매매가
+                    없었나' 를 확인할 방법이 없다."""
+                    continue
+
+                있는날 = {r.day for r in 줄들}
+                지금 = 과거합계(그것들, 오늘(),
+                              그날이전종가(환율표, 오늘()) or _환율(), 봉표들)
+                구간들 = 메울구간([(r.day, r.total_cost) for r in 줄들],
+                               지금["cost"] if 지금 else None)
+
+                남은 = 한사람_최대날
+                자리 = db.begin_nested()
+                try:
+                    for 앞, 뒤 in 구간들:
+                        for 날 in 빈날찾기(있는날, 앞, 뒤):
+                            if 남은 <= 0:
+                                break
+                            그날환율 = 그날이전종가(환율표, 날)
+                            if not 그날환율 or 그날환율 <= 0:
+                                """환율을 못 구하면 해외 종목이 통째로
+                                0 이 된다. 그런 값을 남기면 '그날
+                                반토막 났다' 로 보인다 — 찍기() 와 같은
+                                판단이다."""
+                                continue
+                            값 = 과거합계(그것들, 날, 그날환율, 봉표들)
+                            if 값 is None:
+                                continue
+                            db.add(PortfolioSnapshot(
+                                user_id=uid, portfolio_id=pid, day=날,
+                                total_value=round(값["value"], 2),
+                                total_cost=round(값["cost"], 2),
+                                filled=값["filled"], priced=값["priced"],
+                            ))
+                            있는날.add(날)
+                            남은 -= 1
+                            메운수 += 1
+                    자리.commit()
+                except Exception as e:
+                    자리.rollback()
+                    log.debug("빈 날 메우기 실패 uid=%s pid=%s: %s",
+                              uid, pid, type(e).__name__)
+
+        if 메운수:
+            db.commit()
+            log.info("빈 날 메우기 %d줄", 메운수)
+        return 메운수
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        log.warning("빈 날 메우기 실패: %s", type(e).__name__)
+        return 0
+    finally:
+        try:
+            if db is not None:
+                db.close()
+        except Exception:
+            pass

@@ -6,7 +6,7 @@
  * 배당은 실제로 받아 온다. 그래서 계산이 틀리면 그냥 틀린 숫자다.
  */
 import { describe, it, expect } from "vitest";
-import { 회차주당, 걸리나, 내종목기사 } from "@/hooks/usePortfolioPreview";
+import { 회차주당, 걸리나, 내종목기사, 미리보기_기간 } from "@/hooks/usePortfolioPreview";
 import type { 종목배당 } from "@/api/stocks";
 
 const 배당 = (덮: Partial<종목배당> = {}): 종목배당 => ({
@@ -87,5 +87,25 @@ describe("내종목기사", () => {
     );
     expect(결과).toHaveLength(1);
     expect(결과[0].symbols.sort()).toEqual(["000660", "005930"]);
+  });
+});
+
+
+describe("미리보기 시세 기간", () => {
+  /* 석 달치만 받아 두고 기간 칩은 다섯 개였다. '1년' 을 눌러도 석
+     달치가 그대로 나왔고, 눌러도 아무 일이 없으면 그 칩이 뭔지 알
+     수가 없다 — 로그인 전에 이 그래프를 보여 주는 이유가 절반쯤
+     없어진다 */
+  it("적어도 1년치를 받는다", () => {
+    expect(미리보기_기간).toBe("1y");
+  });
+
+  it("실제로 그 기간으로 부른다 — 상수만 바꾸고 안 쓰면 소용없다", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const 소스 = fs.readFileSync(
+      path.resolve(__dirname, "../usePortfolioPreview.ts"), "utf-8");
+    expect(소스).toContain('stocksApi.getOHLCV(it.market, it.symbol, 미리보기_기간, "1d")');
+    expect(소스).not.toContain('"3mo"');
   });
 });

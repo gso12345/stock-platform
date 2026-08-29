@@ -75,12 +75,28 @@ export function 이력합치기(
   }));
 }
 
+/**
+ * 미리보기로 받아 둘 기간.
+ *
+ * 석 달치였다. 그런데 기간 칩은 '1개월·3개월·1년·올해·전체' 다 —
+ * 1년을 눌러도 석 달치가 그대로 나오고, 눌러도 아무 일이 없으면
+ * 그 칩이 뭔지 알 수가 없다. 로그인 전에 이 그래프를 보여 주는
+ * 이유가 '내 자산이 어떻게 변해 왔나를 볼 수 있다' 는 것인데,
+ * 정작 그 기간을 못 바꾸면 보여 주는 뜻이 반쯤 없어진다.
+ *
+ * 'max' 로 열지 않는 이유는 값이다. 종목당 수천 줄이 로그인 전
+ * 첫 화면에서 오간다. 1년이면 250줄 남짓이고, 칩 다섯 개 중
+ * 넷('1개월·3개월·1년·올해')이 제대로 동작한다. '전체' 만 1년까지
+ * 보여 주고, 화면이 첫 점의 날짜를 적어 어디부터인지 말한다.
+ */
+export const 미리보기_기간 = "1y";
+
 export function use미리보기흐름(항목: EnrichedItem[], 환율: number, 켜짐: boolean) {
   const 대상 = useMemo(() => 받을것(항목), [항목]);
   const 결과 = useQueries({
     queries: 대상.map((it) => ({
-      queryKey: ["stock-ohlcv", it.market, it.symbol, "3mo"],
-      queryFn: () => stocksApi.getOHLCV(it.market, it.symbol, "3mo", "1d"),
+      queryKey: ["stock-ohlcv", it.market, it.symbol, 미리보기_기간],
+      queryFn: () => stocksApi.getOHLCV(it.market, it.symbol, 미리보기_기간, "1d"),
       enabled: 켜짐,
       staleTime: 3_600_000,          // 일봉이라 한 시간에 한 번이면 넉넉하다
     })),

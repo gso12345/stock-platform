@@ -187,18 +187,21 @@ describe("선을 그릴 때", () => {
       .toBe("2026-08-20 2026-08-21 2026-08-24");
   });
 
-  it("평가금액과 원금을 같이 그린다", async () => {
-    /* 선 하나만 있으면 '올랐다' 는 보여도 '벌었다' 는 안 보인다 */
+  it("내 자산과 원금을 같이 그린다", async () => {
+    /* 선 하나만 있으면 '올랐다' 는 보여도 '벌었다' 는 안 보인다.
+       둘 다 기준일 대비 % 라, 돈을 더 넣은 날에는 원금 선도 같이
+       올라간다 — 오른 이유가 '벌어서' 인지 '넣어서' 인지 갈린다 */
     그리기();
-    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("cost,value"));
+    await waitFor(() => expect(screen.getByTestId("선들"))
+      .toHaveTextContent("원금수익,내수익"));
   });
 
-  it("기간 변화는 첫 점 대비 마지막 점이다", async () => {
+  it("기간 변화는 기준일 대비 마지막 점이다", async () => {
     /* 매입가 대비 수익률(평가손익)과 다른 숫자다. 3년 전에 산 사람에게
        이번 달의 움직임과 전체 수익률은 전혀 다른 이야기다. */
     그리기();
     // 1,000,000 → 1,200,000 = +20%
-    await waitFor(() => expect(screen.getByText(/\+20\.00%/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("기간수익")).toHaveTextContent("+20.00%"));
   });
 
   it("기간을 바꾸면 그 기간으로 다시 물어본다", async () => {
@@ -310,21 +313,73 @@ describe("자산 화면에 붙어 있다", () => {
   });
 });
 
-describe("벤치마크 견주기", () => {
-  const 점 = (day: string, value: number) =>
-    ({ day, value, cost: 900_000, filled: 1, priced: 1 });
+describe("견주기 — 모든 선을 같은 자로", () => {
+  const 점 = (day: string, value: number, cost = 900_000) =>
+    ({ day, value, cost, filled: 1, priced: 1 });
+  const 지수 = (id: string, ...봉들: ReturnType<typeof 봉>[]) => ({ id, 봉들 });
 
-  it("둘 다 첫날 대비 %로 바꾼다", () => {
-    /* 원화 금액과 지수 포인트는 단위가 달라 한 축에 못 올린다.
-       그대로 겹치면 자산 선이 바닥에 붙어 아무것도 안 보인다. */
+  it("비교를 안 켜도 % 로 낸다", () => {
+    /* 예전에는 비교를 켰을 때만 % 였다. 끄면 금액 축으로 돌아가서
+       그래프 생김새가 아예 달랐다 — 켜고 끌 때마다 눈이 처음부터
+       다시 읽어야 했다 */
+    const 결과 = 견주기([점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)]);
+    expect(결과.점들[0].내수익).toBeCloseTo(0);
+    expect(결과.점들[1].내수익).toBeCloseTo(10);
+    expect(결과.기준칸).toBe(0);
+    expect(결과.쓴지수).toEqual([]);
+  });
+
+  it("원금도 같은 자로 잰다", () => {
+    /* 돈을 더 넣으면 원금 선이 같이 올라간다. 그래야 오른 이유가
+       '벌어서' 인지 '넣어서' 인지 눈으로 갈린다 */
+    const 결과 = 견주기([
+      점("2026-08-01", 1_000_000, 1_000_000),
+      점("2026-08-02", 1_500_000, 1_400_000),   // 40만원을 더 넣었다
+    ]);
+    expect(결과.점들[0].원금수익).toBeCloseTo(0);
+    expect(결과.점들[1].원금수익).toBeCloseTo(40);
+    expect(결과.점들[1].내수익).toBeCloseTo(50);
+  });
+
+  it("원금이 0이면 원금 선을 안 그린다", () => {
+    /* 나눌 수가 없다. 0으로 나눠 Infinity 를 그리면 그래프가 통째로
+       찌그러진다 */
+    const 결과 = 견주기([점("2026-08-01", 1_000_000, 0), 점("2026-08-02", 1_100_000, 0)]);
+    expect(결과.점들[0].원금수익).toBeNull();
+    expect(결과.점들[1].원금수익).toBeNull();
+  });
+
+  it("지수도 같은 첫날 대비 % 로 바꾼다", () => {
     const 결과 = 견주기(
       [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)],
-      [봉("2026-08-01", 2500), 봉("2026-08-02", 2600)],
+      [지수("KOSPI", 봉("2026-08-01", 2500), 봉("2026-08-02", 2600))],
     );
-    expect(결과[0].내수익).toBeCloseTo(0);
-    expect(결과[0].지수수익).toBeCloseTo(0);
-    expect(결과[1].내수익).toBeCloseTo(10);
-    expect(결과[1].지수수익).toBeCloseTo(4);
+    expect(결과.점들[0].지수_KOSPI).toBeCloseTo(0);
+    expect(결과.점들[1].지수_KOSPI).toBeCloseTo(4);
+    expect(결과.점들[1].내수익).toBeCloseTo(10);
+  });
+
+  it("여러 지수를 한꺼번에 올린다", () => {
+    /* 코스피와 나스닥을 같이 놓고 봐야 '국내가 빠진 달인가, 내가
+       못한 건가' 가 갈린다 */
+    const 결과 = 견주기(
+      [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)],
+      [지수("KOSPI",  봉("2026-08-01", 2500), 봉("2026-08-02", 2600)),
+       지수("NASDAQ", 봉("2026-08-01", 100),  봉("2026-08-02", 95))],
+    );
+    expect(결과.점들[1].지수_KOSPI).toBeCloseTo(4);
+    expect(결과.점들[1].지수_NASDAQ).toBeCloseTo(-5);
+    expect(결과.쓴지수).toEqual(["KOSPI", "NASDAQ"]);
+  });
+
+  it("지수마다 칸이 따로다 — 값이 섞이지 않는다", () => {
+    const 결과 = 견주기(
+      [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_000_000)],
+      [지수("KOSPI",  봉("2026-08-01", 100), 봉("2026-08-02", 110)),
+       지수("KOSDAQ", 봉("2026-08-01", 100), 봉("2026-08-02", 120))],
+    );
+    expect(결과.점들[1].지수_KOSPI).toBeCloseTo(10);
+    expect(결과.점들[1].지수_KOSDAQ).toBeCloseTo(20);
   });
 
   it("장이 안 선 날은 직전 종가를 쓴다", () => {
@@ -332,13 +387,13 @@ describe("벤치마크 견주기", () => {
        그날을 비우면 선이 끊겨 보인다 */
     const 결과 = 견주기(
       [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_050_000), 점("2026-08-03", 1_100_000)],
-      [봉("2026-08-01", 2500), 봉("2026-08-03", 2600)],   // 8/2 휴장
+      [지수("KOSPI", 봉("2026-08-01", 2500), 봉("2026-08-03", 2600))],   // 8/2 휴장
     );
     /* toBeCloseTo 는 null 을 0 처럼 받아 준다. 휴장일 처리를 지워도
        통과해 버리므로 '값이 있다' 를 먼저 못 박는다 */
-    expect(결과[1].지수수익).not.toBeNull();
-    expect(결과[1].지수수익).toBeCloseTo(0);      // 8/1 종가를 그대로
-    expect(결과[2].지수수익).toBeCloseTo(4);
+    expect(결과.점들[1].지수_KOSPI).not.toBeNull();
+    expect(결과.점들[1].지수_KOSPI).toBeCloseTo(0);      // 8/1 종가를 그대로
+    expect(결과.점들[2].지수_KOSPI).toBeCloseTo(4);
   });
 
   it("기록이 지수보다 앞서면 겹치는 날부터 견준다", () => {
@@ -350,32 +405,51 @@ describe("벤치마크 견주기", () => {
        '그날 안 움직였다' 는 거짓말이 된다. */
     const 결과 = 견주기(
       [점("2026-08-01", 1_000_000), 점("2026-08-03", 1_000_000), 점("2026-08-05", 1_100_000)],
-      [봉("2026-08-03", 2500), 봉("2026-08-05", 2600)],   // 기록이 지수보다 앞선다
+      [지수("KOSPI", 봉("2026-08-03", 2500), 봉("2026-08-05", 2600))],
     );
-    expect(결과[0].지수수익).toBeNull();      // 겹치기 전 — 비운다
-    expect(결과[1].지수수익).not.toBeNull();
-    expect(결과[1].지수수익).toBeCloseTo(0);  // 기준일
-    expect(결과[2].지수수익).toBeCloseTo(4);
+    expect(결과.기준칸).toBe(1);
+    expect(결과.점들[0].지수_KOSPI).toBeNull();      // 겹치기 전 — 비운다
+    expect(결과.점들[1].지수_KOSPI).not.toBeNull();
+    expect(결과.점들[1].지수_KOSPI).toBeCloseTo(0);  // 기준일
+    expect(결과.점들[2].지수_KOSPI).toBeCloseTo(4);
     // 내 자산도 같은 기준일(8/3)에서 잰다
-    expect(결과[1].내수익).toBeCloseTo(0);
-    expect(결과[2].내수익).toBeCloseTo(10);
+    expect(결과.점들[1].내수익).toBeCloseTo(0);
+    expect(결과.점들[2].내수익).toBeCloseTo(10);
   });
 
-  it("겹치는 날이 아예 없으면 비교를 안 한다", () => {
-    const 원본 = [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)];
-    const 결과 = 견주기(원본, [봉("2026-09-01", 2500)]);   // 지수가 통째로 뒤
-    expect(결과[0].지수수익).toBeUndefined();
+  it("겹치는 날이 없는 지수 **하나만** 뺀다", () => {
+    /* 여기가 여럿 켜기의 핵심이다. 하나 때문에 나머지 비교까지
+       없던 일이 되면 여럿 켤 수 있게 한 뜻이 없다 */
+    const 결과 = 견주기(
+      [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)],
+      [지수("KOSPI",  봉("2026-08-01", 2500), 봉("2026-08-02", 2600)),
+       지수("NASDAQ", 봉("2026-09-01", 100))],          // 통째로 뒤
+    );
+    expect(결과.쓴지수).toEqual(["KOSPI"]);
+    expect(결과.점들[1].지수_KOSPI).toBeCloseTo(4);
+    expect(결과.점들[1].지수_NASDAQ).toBeUndefined();
+    // 그리고 KOSPI 기준일이 밀리지 않는다
+    expect(결과.기준칸).toBe(0);
   });
 
-  it("지수가 없으면 원래 점을 그대로 돌려준다", () => {
-    const 원본 = [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)];
-    expect(견주기(원본, undefined)).toEqual(원본.map((p) => ({ ...p })));
-    expect(견주기(원본, [])).toEqual(원본.map((p) => ({ ...p })));
+  it("아직 안 받아 온 지수는 조용히 건너뛴다", () => {
+    const 결과 = 견주기(
+      [점("2026-08-01", 1_000_000), 점("2026-08-02", 1_100_000)],
+      [{ id: "KOSPI", 봉들: undefined }, { id: "KOSDAQ", 봉들: [] }],
+    );
+    expect(결과.쓴지수).toEqual([]);
+    expect(결과.점들[1].내수익).toBeCloseTo(10);      // 내 선은 그대로 그린다
+  });
+
+  it("값이 있는 점이 하나도 없으면 기준칸이 없다", () => {
+    const 결과 = 견주기([점("2026-08-01", 0), 점("2026-08-02", 0)]);
+    expect(결과.기준칸).toBe(-1);
+    expect(결과.점들[0].내수익).toBeUndefined();
   });
 });
 
 
-describe("벤치마크 화면", () => {
+describe("비교 칩", () => {
   const 점들 = [
     { day: "2026-08-01", value: 1_000_000, cost: 900_000, filled: 1, priced: 1 },
     { day: "2026-08-02", value: 1_100_000, cost: 900_000, filled: 1, priced: 1 },
@@ -391,6 +465,14 @@ describe("벤치마크 화면", () => {
     expect(dashboardApi.getIndexOHLCV).not.toHaveBeenCalled();
   });
 
+  it("비교를 안 켜도 % 선을 그린다", async () => {
+    /* 여기가 '비교 없음도 비교가 있을 때처럼' 의 핵심이다.
+       금액 축(cost/value)으로 돌아가지 않는다 */
+    그리기();
+    await screen.findByTestId("차트");
+    expect(screen.getByTestId("선들")).toHaveTextContent("원금수익,내수익");
+  });
+
   it("지수를 고르면 그때 받는다", async () => {
     그리기();
     await screen.findByTestId("차트");
@@ -399,20 +481,49 @@ describe("벤치마크 화면", () => {
       .toHaveBeenCalledWith("KOSPI", "3mo", "1d"));
   });
 
-  it("견줄 때는 원금 대신 지수를 그린다", async () => {
+  it("지수를 켜도 원금 선은 그대로 남는다", async () => {
+    /* 예전에는 비교를 켜면 원금이 사라졌다. 그런데 '벌어서 오른 것'
+       과 '넣어서 오른 것' 을 가르는 선은 지수를 켠 뒤에도 필요하다 */
     vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
       봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
     ]);
     그리기();
     await screen.findByTestId("차트");
     await userEvent.click(screen.getByRole("button", { name: "코스피" }));
-    /* 금액 축(cost/value)과 % 축(지수수익/내수익)을 섞으면 안 된다 */
     await waitFor(() => expect(screen.getByTestId("선들"))
-      .toHaveTextContent("지수수익,내수익"));
+      .toHaveTextContent("지수_KOSPI,원금수익,내수익"));
   });
 
-  it("이겼는지 졌는지 글로도 적는다", async () => {
-    /* 선 두 개가 붙어 있으면 눈으로는 어느 쪽이 이겼는지 잘 안 보인다 */
+  it("둘을 같이 켜면 선이 둘 다 올라온다", async () => {
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    await userEvent.click(screen.getByRole("button", { name: "나스닥" }));
+    await waitFor(() => expect(screen.getByTestId("선들"))
+      .toHaveTextContent("지수_KOSPI,지수_NASDAQ,원금수익,내수익"));
+  });
+
+  it("다시 누르면 그 지수만 꺼진다", async () => {
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
+    그리기();
+    await screen.findByTestId("차트");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    await userEvent.click(screen.getByRole("button", { name: "나스닥" }));
+    await waitFor(() => expect(screen.getByTestId("선들"))
+      .toHaveTextContent("지수_KOSPI,지수_NASDAQ"));
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    await waitFor(() => expect(screen.getByTestId("선들"))
+      .toHaveTextContent("지수_NASDAQ,원금수익,내수익"));
+    expect(screen.getByTestId("선들")).not.toHaveTextContent("지수_KOSPI");
+  });
+
+  it("이겼는지 졌는지 지수마다 한 줄씩 적는다", async () => {
+    /* 선이 붙어 있으면 눈으로는 어느 쪽이 이겼는지 잘 안 보인다 */
     vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
       봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
     ]);
@@ -421,20 +532,34 @@ describe("벤치마크 화면", () => {
     await userEvent.click(screen.getByRole("button", { name: "코스피" }));
     // 내 자산 +10%, 코스피 +4% → 6%p 앞섬
     expect(await screen.findByText(/앞섬 6.00%p/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "나스닥" }));
+    await waitFor(() => expect(screen.getAllByText(/앞섬 6.00%p/)).toHaveLength(2));
   });
 
-  it("'없음' 으로 되돌리면 다시 금액으로 그린다", async () => {
+  it("'없음' 은 켠 것을 다 끈다", async () => {
     vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
       봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
     ]);
     그리기();
     await screen.findByTestId("차트");
     await userEvent.click(screen.getByRole("button", { name: "코스피" }));
-    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("지수수익,내수익"));
+    await userEvent.click(screen.getByRole("button", { name: "나스닥" }));
+    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("지수_KOSPI"));
     await userEvent.click(screen.getByRole("button", { name: "없음" }));
-    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("cost,value"));
+    await waitFor(() => expect(screen.getByTestId("선들"))
+      .toHaveTextContent("원금수익,내수익"));
+    expect(screen.getByTestId("선들")).not.toHaveTextContent("지수_");
+  });
+
+  it("'없음' 은 아무것도 안 켰을 때 눌린 상태다", async () => {
+    그리기();
+    await screen.findByTestId("차트");
+    expect(screen.getByRole("button", { name: "없음" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    expect(screen.getByRole("button", { name: "없음" })).toHaveAttribute("aria-pressed", "false");
   });
 });
+
 
 /**
  * 등락 색상 설정(초록/빨강 · 빨강/파랑)을 여기서도 따른다.
@@ -456,7 +581,7 @@ describe("등락 색상 설정을 따른다", () => {
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
     그리기();
     await waitFor(() => expect(screen.getByTestId("선색들"))
-      .toHaveTextContent("value=#10b981"));
+      .toHaveTextContent("내수익=#10b981"));
     // 칠(gradient)도 같은 색이어야 한다. 선만 바뀌면 아래 면이 딴 색이다
     expect(screen.getByTestId("칠색들").textContent).toBe("#10b981 #10b981");
   });
@@ -465,7 +590,7 @@ describe("등락 색상 설정을 따른다", () => {
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 내린점들, days: 90 });
     그리기();
     await waitFor(() => expect(screen.getByTestId("선색들"))
-      .toHaveTextContent("value=#ef4444"));
+      .toHaveTextContent("내수익=#ef4444"));
   });
 
   it("빨강/파랑 — 오르면 빨강 선", async () => {
@@ -475,7 +600,7 @@ describe("등락 색상 설정을 따른다", () => {
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
     그리기();
     await waitFor(() => expect(screen.getByTestId("선색들"))
-      .toHaveTextContent("value=#ef4444"));
+      .toHaveTextContent("내수익=#ef4444"));
   });
 
   it("빨강/파랑 — 내리면 파랑 선", async () => {
@@ -483,7 +608,7 @@ describe("등락 색상 설정을 따른다", () => {
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 내린점들, days: 90 });
     그리기();
     await waitFor(() => expect(screen.getByTestId("선색들"))
-      .toHaveTextContent("value=#3b82f6"));
+      .toHaveTextContent("내수익=#3b82f6"));
   });
 
   it("칠 무늬 id 에 색을 섞는다 — 색이 다른 그래프가 둘이어도 안 섞인다", async () => {
@@ -492,14 +617,14 @@ describe("등락 색상 설정을 따른다", () => {
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
     그리기();
     await waitFor(() => expect(screen.getByTestId("칠들"))
-      .toHaveTextContent("value=url(#자산흐름칠-10b981)"));
+      .toHaveTextContent("내수익=url(#자산흐름칠-10b981)"));
   });
 
   it("기간 수익 숫자도 같은 색을 쓴다", async () => {
     useSettingsStore.setState({ colorScheme: "red-blue" });
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
     그리기();
-    const 숫자 = await screen.findByText(/\+20\.00%/);
+    const 숫자 = await screen.findByTestId("기간수익");
     expect(숫자.className).toContain("text-accent-red");
     expect(숫자.className).not.toContain("text-accent-green");
   });
@@ -522,9 +647,17 @@ describe("등락 색상 설정을 따른다", () => {
        색이다. 등락 색으로 칠하면 세 선이 같은 색이 되어 못 읽는다 */
     useSettingsStore.setState({ colorScheme: "red-blue" });
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 오른점들, days: 90 });
+    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
+      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
+    ]);
     그리기();
     await waitFor(() => expect(screen.getByTestId("선색들"))
-      .toHaveTextContent("cost=var(--text-dim)"));
+      .toHaveTextContent("원금수익=var(--text-dim)"));
+    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
+    /* 지수 색은 지수마다 못 박는다 — 켠 순서로 바뀌면 껐다 켤 때마다
+       방금 보던 선이 어느 것인지 놓친다 */
+    await waitFor(() => expect(screen.getByTestId("선색들"))
+      .toHaveTextContent("지수_KOSPI=#8b5cf6"));
   });
 });
 
@@ -594,8 +727,10 @@ describe("눈금 노릇을 하는 두 줄", () => {
   it("최고·최저에 줄을 긋는다", async () => {
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
     그리기();
+    /* 축이 % 다. 100만 → 130만 → 120만 이면 0%·+30%·+20% 이고,
+       줄은 최고 30 · 최저 0 에 그어진다 */
     await waitFor(() => expect(screen.getByTestId("기준선"))
-      .toHaveTextContent("1300000 1000000"));
+      .toHaveTextContent("30 0"));
   });
 
   it("얼마인지 그래프 아래에 적는다 — 줄만 그으면 여전히 못 읽는다", async () => {
@@ -604,7 +739,7 @@ describe("눈금 노릇을 하는 두 줄", () => {
        실제 화면을 찍어 보고 그래프 밖으로 뺐다. */
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
     그리기();
-    expect(await screen.findByText(/최고 130만 · 최저 100만/)).toBeInTheDocument();
+    expect(await screen.findByText(/최고 \+30\.00% · 최저 \+0\.00%/)).toBeInTheDocument();
   });
 
   it("전체 금액을 적지 않는다 — 자리가 좁다", async () => {
@@ -614,26 +749,24 @@ describe("눈금 노릇을 하는 두 줄", () => {
     expect(screen.queryByText(/1,300,000/)).toBeNull();
   });
 
-  it("금액 가리기를 켜면 이 숫자도 가린다", async () => {
-    /* 안 가리면 이 두 값이 대략의 자산 규모를 그대로 말해 버린다 —
-       지하철에서 옆자리가 보는 것을 막으려고 켠 설정이다 */
+  it("금액 가리기를 켜면 위의 금액을 가린다", async () => {
+    /* 최고·최저 줄은 이제 % 라 자산 규모를 말하지 않는다. 대신 그
+       위의 기간 금액은 그대로 말해 버린다 — 지하철에서 옆자리가
+       보는 것을 막으려고 켠 설정이다 */
     useSettingsStore.setState({ 금액가리기: true });
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
     그리기();
-    await screen.findByText(/최고/);
-    expect(screen.queryByText(/130만/)).toBeNull();
+    const 금액 = await screen.findByTestId("기간금액");
+    expect(금액.textContent).not.toMatch(/\d/);
+    // 수익률은 가리지 않는다 — 그건 규모를 말하지 않는다
+    expect(await screen.findByTestId("기간수익")).toHaveTextContent("+20.00%");
     useSettingsStore.setState({ 금액가리기: false });
   });
 
-  it("비교 중에는 %로 적는다", async () => {
-    /* 그때 축은 첫날 대비 %다. 원화로 적으면 축과 이 줄이 다른 말을 한다 */
+  it("비교를 안 켜도 %로 적는다", async () => {
+    /* 축이 늘 % 다. 원화로 적으면 축과 이 줄이 다른 말을 한다 */
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
-    vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
-      봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
-    ]);
     그리기();
-    await screen.findByTestId("차트");
-    await userEvent.click(screen.getByRole("button", { name: "코스피" }));
     await waitFor(() => expect(screen.getByText(/최고 \+?[\d.]+%/)).toBeInTheDocument());
   });
 
@@ -650,14 +783,14 @@ describe("눈금 노릇을 하는 두 줄", () => {
 describe("어느 선이 무엇인가", () => {
   const 점들 = [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)];
 
-  it("평가금액과 원금을 적는다", async () => {
+  it("내 자산과 원금을 적는다", async () => {
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
     그리기();
-    expect(await screen.findByText("평가금액")).toBeInTheDocument();
+    expect(await screen.findByText("내 자산")).toBeInTheDocument();
     expect(screen.getByText("원금")).toBeInTheDocument();
   });
 
-  it("비교하면 벤치마크 이름으로 바뀐다", async () => {
+  it("비교를 켜면 지수가 범례에 더해진다 — 원금은 그대로 남는다", async () => {
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({ points: 점들, days: 90 });
     vi.mocked(dashboardApi.getIndexOHLCV).mockResolvedValue([
       봉("2026-08-01", 2500), 봉("2026-08-02", 2600),
@@ -665,9 +798,12 @@ describe("어느 선이 무엇인가", () => {
     그리기();
     await screen.findByTestId("차트");
     await userEvent.click(screen.getByRole("button", { name: "코스피" }));
-    // 범례에 '내 자산' 이 뜬다. '원금' 은 그때 안 그리므로 사라진다
-    await waitFor(() => expect(screen.getByText("내 자산")).toBeInTheDocument());
-    expect(screen.queryByText("원금")).toBeNull();
+    /* 범례의 '코스피' 와 칩의 '코스피' 가 둘 다 있다 — 범례 쪽만 센다.
+       칩은 button, 범례는 span 이다 */
+    await waitFor(() => expect(
+      screen.getAllByText("코스피").some((e) => e.tagName !== "BUTTON")).toBe(true));
+    expect(screen.getByText("내 자산")).toBeInTheDocument();
+    expect(screen.getByText("원금")).toBeInTheDocument();
   });
 });
 
@@ -679,7 +815,7 @@ describe("툴팁에 그날 손익", () => {
       points: [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)], days: 90,
     });
     그리기();
-    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("cost,value,손익"));
+    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("원금수익,내수익,손익"));
   });
 
   it("손익은 세로 범위를 안 흔든다 — 제 축을 따로 쓴다", async () => {
@@ -692,7 +828,7 @@ describe("툴팁에 그날 손익", () => {
     그리기();
     await waitFor(() => expect(screen.getByTestId("축들")).toHaveTextContent("손익:손익축"));
     // 평가금액과 원금은 기본 축을 그대로 쓴다
-    expect(screen.getByTestId("축들").textContent).toContain("value:기본");
+    expect(screen.getByTestId("축들").textContent).toContain("내수익:기본");
   });
 
   it("손익 선은 안 그린다 — 세 번째 선이 생기면 그래프가 안 읽힌다", async () => {
@@ -703,8 +839,10 @@ describe("툴팁에 그날 손익", () => {
     await waitFor(() => expect(screen.getByTestId("선색들")).toHaveTextContent("손익=none"));
   });
 
-  it("비교 중에는 손익을 안 넘긴다 — 그때 축은 %다", async () => {
-    /* %축에 원화 손익을 얹으면 그래프가 통째로 찌그러진다 */
+  it("비교를 켜도 손익은 그대로 넘긴다 — 제 축을 쓰므로 안 흔든다", async () => {
+    /* 예전에는 비교 중에 손익을 아예 뺐다. 축이 % 라 원화를 얹으면
+       찌그러진다는 이유였는데, 손익은 처음부터 제 축(손익축)을 쓴다.
+       빼 두면 정작 비교하며 볼 때 '그날 얼마 벌었나' 가 사라진다 */
     vi.mocked(portfolioApi.getHistory).mockResolvedValue({
       points: [점("2026-08-20", 1_000_000), 점("2026-08-24", 1_200_000)], days: 90,
     });
@@ -714,8 +852,9 @@ describe("툴팁에 그날 손익", () => {
     그리기();
     await screen.findByTestId("차트");
     await userEvent.click(screen.getByRole("button", { name: "코스피" }));
-    await waitFor(() => expect(screen.getByTestId("선들")).toHaveTextContent("지수수익,내수익"));
-    expect(screen.getByTestId("선들").textContent).not.toContain("손익");
+    await waitFor(() => expect(screen.getByTestId("선들"))
+      .toHaveTextContent("지수_KOSPI,원금수익,내수익,손익"));
+    expect(screen.getByTestId("축들").textContent).toContain("손익:손익축");
   });
 });
 

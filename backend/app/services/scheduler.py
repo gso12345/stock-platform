@@ -809,6 +809,26 @@ async def periodic_refresh():
             except Exception as e:
                 log.debug("자산 기록 건너뜀: %s", type(e).__name__)
 
+        # 빈 날 메우기 (2시간)
+        #
+        # 위 찍기() 는 서버가 **깨어 있는 동안** 만 돈다. 하루 종일
+        # 아무도 안 들어온 날은 그날 줄이 통째로 없다(Render 무료
+        # 인스턴스는 놀면 잠든다). 사용자 눈에는 '앱을 안 연 날' 과
+        # 정확히 겹쳐 보인다.
+        #
+        # 그 구멍을 그날의 **실제 종가**로 메운다. 값을 지어내지 않고,
+        # 그 사이에 매매가 있었을 것 같으면 아예 안 메운다
+        # (portfolio_snapshot.메우기 의 주석 참조).
+        #
+        # 찍기와 달리 바깥에서 값을 받아 오므로 자주 돌 일이 아니다.
+        # 2시간이면 서버가 깨어 있는 어느 날이든 몇 번은 돈다.
+        if 방금깼나 or counter % 720 == 0:
+            try:
+                from app.services.portfolio_snapshot import 메우기
+                await asyncio.get_running_loop().run_in_executor(None, 메우기)
+            except Exception as e:
+                log.debug("빈 날 메우기 건너뜀: %s", type(e).__name__)
+
         # 한국 금리 — 기준금리·CD금리·국고채 (3분)
         if counter % 18 == 0:
             from app.services.market_extras import _do_fetch_kr_rates

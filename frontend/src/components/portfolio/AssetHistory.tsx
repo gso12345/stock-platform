@@ -9,23 +9,34 @@
  *
  *   · 처음 쓰는 사람에게는 점이 하나뿐이다. 그때는 그래프 대신
  *     "내일부터 쌓입니다" 라고 말한다. 점 하나짜리 선은 고장으로 보인다.
- *   · 앱을 안 연 날은 비어 있다. 서버가 지어내지 않고 비워서 보내므로,
- *     여기서도 없는 날을 만들어 채우지 않는다 — 그냥 앞뒤 점을 잇는다.
+ *   · 서버가 자던 날은 비어 있다. 그런 구멍은 서버가 나중에 그날의
+ *     실제 종가로 메운다(portfolio_snapshot.메우기). 여기서는 없는 날을
+ *     만들어 채우지 않는다 — 그냥 앞뒤 점을 잇는다.
+ *
+ * ── 축은 늘 % 다 ──
+ *
+ * 예전에는 비교를 켰을 때만 % 였고, 끄면 원화 금액 축으로 돌아갔다.
+ * 그 둘은 그래프의 생김새가 아예 달라서, 켜고 끌 때마다 눈이 처음부터
+ * 다시 읽어야 했다. 게다가 금액 축에서는 원금 선이 세로 범위를
+ * 끌어당겨 정작 보려는 평가금액 선이 얇은 띠로 눌렸다.
+ *
+ * 이제 내 자산·원금·지수가 모두 기준일 0% 에서 출발한다. 금액은
+ * 사라지지 않는다 — 위의 큰 숫자와 툴팁이 계속 말한다.
  *
  * ── 벤치마크 비교 ──
  *
  * '내 자산이 5% 올랐다' 만으로는 잘한 것인지 알 수 없다. 그 달에 코스피가
  * 10% 올랐으면 시장을 밑돈 것이다. 그래서 지수를 함께 그린다.
  *
- * 원화 금액과 지수 포인트는 단위가 달라 한 축에 못 올린다. 벤치마크를
- * 켜면 **둘 다 첫날 대비 %로 바꿔서** 같은 축에 그린다 — 비교의 뜻이
- * 거기에 있다. 끄면 원래대로 금액으로 돌아간다.
+ * 여러 개를 한꺼번에 켤 수 있다. 코스피와 나스닥을 같이 올려 놓고 봐야
+ * '국내가 빠진 달인가, 내가 못한 건가' 가 갈린다 — 하나씩 번갈아
+ * 켜서는 그 둘을 머릿속에서 겹쳐 봐야 한다.
  *
  * recharts 는 gzip 110KB 라 여기서 직접 import 하지 않는다. 차트틀이
  * 필요할 때만 받아 온다(그 파일 주석에 왜 그런지 적혀 있다).
  */
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { portfolioApi, dashboardApi, type 자산흐름점 } from "@/api/stocks";
 import 차트틀 from "@/components/chart/ChartFrame";
 import { Card, 못불러옴 } from "@/components/ui";
@@ -65,14 +76,28 @@ export function 올해일수(오늘 = new Date()): number {
   return Math.max(7, 지난날);
 }
 
-/** 견줄 지수. 서버 KR_INDICES·US_INDICES 에 있는 이름만 쓴다 */
+/**
+ * 견줄 지수. 서버 KR_INDICES·US_INDICES 에 있는 이름만 쓴다.
+ *
+ * 여러 개를 한꺼번에 켤 수 있다. 코스피와 나스닥을 같이 올려 놓고
+ * 봐야 '국내가 빠진 달인가, 내가 못한 건가' 가 갈린다 — 하나씩
+ * 번갈아 켜서는 그 둘을 머릿속에서 겹쳐 봐야 한다.
+ *
+ * 색은 지수마다 못 박는다. 켠 순서에 따라 색이 바뀌면, 코스피를 끄고
+ * 다시 켰을 때 다른 색이 되어 방금 보던 선이 어느 것인지 놓친다.
+ * '없음' 은 목록에 안 둔다 — 그건 지수가 아니라 '다 끄기' 다.
+ */
 export const 벤치마크들 = [
-  { id: "",       label: "없음" },
-  { id: "KOSPI",  label: "코스피" },
-  { id: "KOSDAQ", label: "코스닥" },
-  { id: "SP500",  label: "S&P 500" },
-  { id: "NASDAQ", label: "나스닥" },
+  { id: "KOSPI",  label: "코스피",   색: "#8b5cf6" },
+  { id: "KOSDAQ", label: "코스닥",   색: "#06b6d4" },
+  { id: "SP500",  label: "S&P 500", 색: "#f97316" },
+  { id: "NASDAQ", label: "나스닥",   색: "#f59e0b" },
 ] as const;
+
+/** recharts 의 dataKey 로 쓸 이름. 지수마다 한 칸씩 붙는다 */
+export function 지수키(id: string): string {
+  return `지수_${id}`;
+}
 
 /** "+3.21%" — 툴팁과 최고·최저 라벨이 같은 모양을 쓰게 한 자리에 둔다 */
 export function 퍼센트글(v: number): string {
@@ -94,9 +119,13 @@ export interface 그릴점 {
    *  선 두 개(평가·원금)의 **사이 간격**이 곧 번 돈인데, 눈으로 재는
    *  일은 생각보다 어렵다. 툴팁에 숫자로 같이 적는다. */
   손익?: number;
-  /** 벤치마크를 켰을 때만. 첫날 대비 % */
+  /** 기준일 대비 % — 비교를 안 켜도 늘 있다 */
   내수익?: number | null;
-  지수수익?: number | null;
+  /** 원금도 같은 자로 잰다. 돈을 더 넣으면 이 선이 같이 올라가서,
+   *  '벌어서 오른 것' 과 '넣어서 오른 것' 이 눈으로 갈린다 */
+  원금수익?: number | null;
+  /** 지수마다 한 칸 — 열쇠는 지수키(id) */
+  [지수칸: `지수_${string}`]: number | null | undefined;
 }
 
 /**
@@ -119,55 +148,106 @@ export function 최고최저(점들: 그릴점[], 열쇠: "value" | "내수익")
   return 최고 === 최저 ? null : { 최고, 최저 };
 }
 
+/** 견줄 지수 하나 — 아직 안 받아 왔으면 봉들이 비어 있다 */
+export interface 견줄지수 { id: string; 봉들: OHLCV[] | undefined }
+
+export interface 견준결과 {
+  점들: 그릴점[];
+  /** 기준일이 점들의 몇 번째인가. 화면이 '언제부터 잰 값인지' 를 적는다 */
+  기준칸: number;
+  /** 실제로 그릴 수 있었던 지수 id — 못 받았거나 기간이 안 겹치면 빠진다 */
+  쓴지수: string[];
+}
+
 /**
- * 내 자산과 지수를 같은 축(첫날 대비 %)에 올린다.
+ * 모든 선을 **같은 자**(기준일 대비 %)로 잰다.
  *
- * 지수는 장이 열린 날만 값이 있고, 내 기록은 앱을 연 날만 있다. 두
- * 목록의 날짜가 안 맞으므로 **내 기록의 날짜를 기준**으로 삼고, 그날
- * 이전의 가장 가까운 지수 종가를 쓴다(주말·휴장일 대응).
+ * ── 왜 늘 % 인가 ──
  *
- * 첫날 값이 없는 지수는 아예 안 그린다 — 기준이 없으면 %가 거짓말이 된다.
+ * 예전에는 비교를 켰을 때만 % 였다. 끄면 원화 금액 축으로 돌아갔는데,
+ * 그 둘은 그래프의 생김새가 아예 달랐다 — 켜고 끌 때마다 눈이 처음부터
+ * 다시 읽어야 했다. 게다가 금액 축에서는 원금 선이 세로 범위를 끌어당겨
+ * 정작 보려는 평가금액 선이 얇은 띠로 눌렸다.
+ *
+ * 이제 늘 % 다. 내 자산·원금·지수가 모두 기준일 0% 에서 출발한다.
+ * 금액은 사라지지 않는다 — 위의 큰 숫자와 툴팁이 계속 말한다.
+ *
+ * 원금도 같은 자로 잰다. 돈을 더 넣으면 원금 선이 같이 올라가므로,
+ * '벌어서 오른 것' 과 '넣어서 오른 것' 이 눈으로 갈린다.
+ *
+ * ── 기준일을 어떻게 잡나 ──
+ *
+ * 지수는 장이 열린 날만 값이 있고, 내 기록은 서버가 남긴 날만 있다.
+ * 날짜가 안 맞으므로 **내 기록의 날짜를 기준**으로 삼고, 그날 이전의
+ * 가장 가까운 지수 종가를 쓴다(주말·휴장일 대응).
+ *
+ * 기준일은 '내 값이 있고 **고른 지수가 전부** 값이 있는 첫날' 이다.
+ * 내 기록의 첫날로 잡으면 기록이 지수 범위보다 앞설 때 기준이 없어
+ * 비교가 통째로 사라진다 — 사용자에게는 '눌렀는데 아무 일도 안
+ * 일어남' 으로 보인다. 겹치는 구간이 있으면 거기서부터 견준다.
+ *
+ * 겹치는 날이 아예 없는 지수는 **그 지수만** 뺀다. 하나 때문에 나머지
+ * 비교까지 없던 일이 되면, 지수를 여럿 켤 수 있게 한 뜻이 없다.
  */
-export function 견주기(점들: 자산흐름점[], 지수: OHLCV[] | undefined): 그릴점[] {
-  if (!지수?.length) return 점들.map((p) => ({ ...p }));
-
-  const 오름차순 = [...지수]
-    .filter((b) => b?.date && Number.isFinite(b.close))
-    .sort((a, b) => a.date.localeCompare(b.date));
-  if (!오름차순.length) return 점들.map((p) => ({ ...p }));
-
+export function 견주기(점들: 자산흐름점[], 지수모음: 견줄지수[] = []): 견준결과 {
   /** 그날 이전(포함)의 마지막 종가 — 주말·휴장일은 직전 값을 쓴다 */
-  const 그날종가 = (day: string): number | null => {
-    let 값: number | null = null;
-    for (const b of 오름차순) {
-      if (b.date.slice(0, 10) > day) break;
-      값 = b.close;
-    }
-    return 값;
+  const 종가함수 = (봉들: OHLCV[] | undefined) => {
+    const 오름차순 = [...(봉들 ?? [])]
+      .filter((b) => b?.date && Number.isFinite(b.close))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (!오름차순.length) return null;
+    return (day: string): number | null => {
+      let 값: number | null = null;
+      for (const b of 오름차순) {
+        if (b.date.slice(0, 10) > day) break;
+        값 = b.close;
+      }
+      return 값;
+    };
   };
 
-  /* 기준일은 '둘 다 값이 있는 첫날' 이다.
-     내 기록의 첫날로 잡으면, 기록이 지수 범위보다 앞설 때 기준이 없어
-     비교가 통째로 사라진다 — 사용자에게는 '눌렀는데 아무 일도 안
-     일어남' 으로 보인다. 겹치는 구간이 있으면 거기서부터 견준다. */
-  let 기준자산 = 0;
-  let 기준지수 = 0;
-  for (const p of 점들) {
-    const 종가 = 그날종가(p.day);
-    if (종가 && p.value) { 기준자산 = p.value; 기준지수 = 종가; break; }
-  }
-  if (!기준자산 || !기준지수) return 점들.map((p) => ({ ...p }));
+  const 후보 = 지수모음
+    .map((x) => ({ id: x.id, 그날종가: 종가함수(x.봉들) }))
+    .filter((x): x is { id: string; 그날종가: (day: string) => number | null } => !!x.그날종가);
 
-  return 점들.map((p) => {
-    const 종가 = 그날종가(p.day);
-    return {
+  /* 겹치는 날이 하나도 없는 지수는 여기서 뺀다 */
+  const 쓸것 = 후보.filter((x) => 점들.some((p) => p.value > 0 && x.그날종가(p.day)));
+
+  const 기준칸 = 점들.findIndex(
+    (p) => p.value > 0 && 쓸것.every((x) => x.그날종가(p.day)),
+  );
+  if (기준칸 < 0) {
+    /* 값이 있는 점이 하나도 없다 — 잴 자가 없다 */
+    return { 점들: 점들.map((p) => ({ ...p })), 기준칸: -1, 쓴지수: [] };
+  }
+
+  const 기준자산 = 점들[기준칸].value;
+  const 기준원금 = 점들[기준칸].cost;
+  const 기준지수 = new Map<string, number>();
+  for (const x of 쓸것) {
+    const v = x.그날종가(점들[기준칸].day);
+    if (v) 기준지수.set(x.id, v);
+  }
+
+  const 그릴것: 그릴점[] = 점들.map((p) => {
+    const 칸: 그릴점 = {
       ...p,
       내수익: ((p.value - 기준자산) / 기준자산) * 100,
+      /* 원금이 0이면 나눌 수가 없다(현금만 있거나 아직 안 담은 상태) */
+      원금수익: 기준원금 > 0 ? ((p.cost - 기준원금) / 기준원금) * 100 : null,
+    };
+    for (const x of 쓸것) {
+      const 밑 = 기준지수.get(x.id);
+      const 종가 = x.그날종가(p.day);
       /* 기준일보다 앞선 날은 지수에 값이 없다. 0으로 채우면
          '그날 안 움직였다' 는 거짓말이 된다 — 비워 둔다 */
-      지수수익: 종가 == null ? null : ((종가 - 기준지수) / 기준지수) * 100,
-    };
+      칸[지수키(x.id) as `지수_${string}`] =
+        밑 && 종가 != null ? ((종가 - 밑) / 밑) * 100 : null;
+    }
+    return 칸;
   });
+
+  return { 점들: 그릴것, 기준칸, 쓴지수: 쓸것.map((x) => x.id) };
 }
 
 export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, portfolioId,
@@ -206,7 +286,9 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
   미리보기?: 자산흐름점[];
 }) {
   const [고른기간, set고른기간] = useState<기간id>("3개월");
-  const [벤치, set벤치] = useState<string>("");
+  /* 여러 개를 한꺼번에 켠다. 코스피와 나스닥을 같이 올려 놓고 봐야
+     '국내가 빠진 달인가, 내가 못한 건가' 가 갈린다 */
+  const [벤치들, set벤치들] = useState<string[]>([]);
   const 돈 = use돈();
   /* 오름·내림 색은 설정을 따른다(초록/빨강 · 빨강/파랑).
      여기만 초록·빨강으로 못 박혀 있어서, 빨강/파랑을 쓰는 사람에게는
@@ -234,14 +316,19 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
     staleTime: 하루수명,
   });
 
-  /* 지수는 벤치마크를 골랐을 때만 받는다. 안 고른 사람에게 왕복
-     하나를 더 태울 이유가 없다 — 0.15 CPU 서버다 */
-  const { data: 지수 } = useQuery<OHLCV[]>({
-    queryKey: ["index-ohlcv", 벤치, 기간.지수],
-    queryFn: () => dashboardApi.getIndexOHLCV(벤치, 기간.지수, "1d"),
-    enabled: 켜짐 && !!벤치,
-    /* 지수 종가도 하루 단위로 변한다 — 자산 흐름과 같은 규칙을 쓴다 */
-    staleTime: 하루수명,
+  /* 지수는 켠 것만 받는다. 안 고른 사람에게 왕복을 더 태울 이유가
+     없다 — 0.15 CPU 서버다.
+
+     목록 길이는 늘 벤치마크 수 그대로 두고 enabled 로만 끈다. 켠 것만
+     넘기면 훅 개수가 렌더마다 달라져서 React 가 터진다. */
+  const 지수결과 = useQueries({
+    queries: 벤치마크들.map((b) => ({
+      queryKey: ["index-ohlcv", b.id, 기간.지수],
+      queryFn: () => dashboardApi.getIndexOHLCV(b.id, 기간.지수, "1d"),
+      enabled: 켜짐 && 벤치들.includes(b.id),
+      /* 지수 종가도 하루 단위로 변한다 — 자산 흐름과 같은 규칙을 쓴다 */
+      staleTime: 하루수명,
+    })),
   });
 
   /** 오늘 날짜 — 서버와 같은 한국 날짜로 본다 */
@@ -275,61 +362,74 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
 
   const 점들 = useMemo<자산흐름점[]>(() => {
     if (!미리보기) return 오늘맞추기(data?.points ?? []);
-    /* 미리보기는 석 달치를 받아 두고 고른 기간만큼 잘라 쓴다 — 기간 칩을
-       눌러도 아무 일이 없으면 그 칩이 뭔지 알 수 없다. 석 달보다 긴
-       기간을 고르면 받아 둔 것을 그대로 다 보여 준다 */
+    /* 미리보기는 1년치를 받아 두고 고른 기간만큼 잘라 쓴다 — 기간 칩을
+       눌러도 아무 일이 없으면 그 칩이 뭔지 알 수 없다. 1년보다 긴
+       기간('전체')을 고르면 받아 둔 것을 그대로 다 보여 준다 */
     const 자를날 = new Date();
     자를날.setDate(자를날.getDate() - 일수);
     const 기준 = 자를날.toISOString().slice(0, 10);
     const 자른것 = 미리보기.filter((p) => p.day >= 기준);
     return 자른것.length >= 2 ? 자른것 : 미리보기;
   }, [data, 미리보기, 일수, 오늘맞추기]);
-  const 비교중 = !!벤치 && !!지수?.length;
-  const 그릴것 = useMemo(
-    () => 견주기(점들, 벤치 ? 지수 : undefined)
-      .map((p) => ({ ...p, 손익: p.value - p.cost })),
-    [점들, 지수, 벤치],
+  /** 켠 지수 중 실제로 봉을 받아 온 것만 넘긴다 */
+  const 지수모음 = useMemo<견줄지수[]>(
+    () => 벤치마크들
+      .map((b, i) => ({ id: b.id, 봉들: 지수결과[i]?.data as OHLCV[] | undefined }))
+      .filter((x) => 벤치들.includes(x.id) && !!x.봉들?.length),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [벤치들, 지수결과.map((r) => r.dataUpdatedAt).join(",")],
   );
-  const 벤치이름 = 벤치마크들.find((b) => b.id === 벤치)?.label ?? "";
 
-  /* 기간 수익 — 첫 점 대비 마지막 점.
+  const 견준것 = useMemo(() => 견주기(점들, 지수모음), [점들, 지수모음]);
+  const 그릴것 = useMemo<그릴점[]>(
+    () => 견준것.점들.map((p) => ({ ...p, 손익: p.value - p.cost })),
+    [견준것],
+  );
+  /** 실제로 그려진 지수들 — 켰지만 기간이 안 겹치면 여기서 빠진다 */
+  const 그린지수 = useMemo(
+    () => 벤치마크들.filter((b) => 견준것.쓴지수.includes(b.id)),
+    [견준것],
+  );
+
+  /**
+   * 기준일 — 모든 % 가 여기서 출발한다.
+   *
+   * 견주기() 는 내 기록과 고른 지수가 **다 있는 첫날**을 기준으로
+   * 삼는다(기록이 지수 범위보다 앞서면 기준이 없어 비교가 통째로
+   * 사라지기 때문이다). 아래 금액도 같은 날부터 재야 한다 — 두 기준이
+   * 다르면 '+12.4%' 와 그 옆의 금액이 서로 다른 자로 잰 숫자가 된다.
+   */
+  const 기준점 = 견준것.기준칸 >= 0 ? 점들[견준것.기준칸] : null;
+
+  /* 기간 수익 — 기준일 대비 마지막 점.
      '평가손익'(매입가 대비)과는 다른 숫자다. 3년 전에 산 사람에게
      이번 달의 움직임과 전체 수익률은 전혀 다른 이야기다. */
   const 변화 = useMemo(() => {
-    if (점들.length < 2) return null;
-    const 처음 = 점들[0].value;
+    if (점들.length < 2 || !기준점?.value) return null;
     const 끝 = 점들[점들.length - 1].value;
-    if (!처음) return null;
-    return { 금액: 끝 - 처음, 비율: ((끝 - 처음) / 처음) * 100 };
-  }, [점들]);
+    return { 금액: 끝 - 기준점.value, 비율: ((끝 - 기준점.value) / 기준점.value) * 100 };
+  }, [점들, 기준점]);
 
-  /** 같은 기간 지수는 얼마나 움직였나 — 마지막으로 값이 있는 날 기준 */
+  /** 각 지수는 같은 기간 얼마나 움직였나 — 마지막으로 값이 있는 날 기준 */
   const 지수변화 = useMemo(() => {
-    if (!비교중) return null;
-    for (let i = 그릴것.length - 1; i >= 0; i--) {
-      const v = 그릴것[i].지수수익;
-      if (v != null) return v;
+    const 표: { id: string; label: string; 색: string; 값: number }[] = [];
+    for (const b of 그린지수) {
+      for (let i = 그릴것.length - 1; i >= 0; i--) {
+        const v = 그릴것[i][지수키(b.id) as `지수_${string}`];
+        if (v != null) { 표.push({ id: b.id, label: b.label, 색: b.색, 값: v }); break; }
+      }
     }
-    return null;
-  }, [비교중, 그릴것]);
+    return 표;
+  }, [그린지수, 그릴것]);
 
-  /**
-   * 비교할 때 쓸 '내 수익률'.
-   *
-   * 견주기() 는 내 기록과 지수가 **둘 다 있는 첫날**을 기준으로 삼는다
-   * (기록이 지수 범위보다 앞서면 기준이 없어 비교가 통째로 사라지기
-   * 때문이다). 그런데 변화는 늘 점들[0] 대비였다. 두 기준이 다르면
-   * 아래 '앞섬/뒤짐' 이 서로 다른 자를 대고 잰 숫자를 뺀 값이 된다.
-   * 비교 중일 때는 지수와 같은 기준을 쓴다.
-   */
+  /** 내 수익률 — 그래프의 마지막 값과 같은 자로 잰 것 */
   const 내수익률 = useMemo(() => {
-    if (!비교중) return 변화?.비율 ?? null;
     for (let i = 그릴것.length - 1; i >= 0; i--) {
       const v = 그릴것[i].내수익;
       if (v != null) return v;
     }
     return 변화?.비율 ?? null;
-  }, [비교중, 그릴것, 변화]);
+  }, [그릴것, 변화]);
 
   /* 선 색도 설정을 따른다.
      예전에는 늘 var(--accent-focus)(파랑)였다. 빨강/파랑을 쓰는 사람에게
@@ -343,11 +443,8 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
   const 선색 = (내수익률 ?? 변화?.비율 ?? 0) >= 0 ? 오름 : 내림;
   const 칠id = `자산흐름칠-${선색.replace("#", "")}`;
 
-  /* 기간 안의 최고·최저. 비교 중이면 %축이므로 그 값으로 잡는다 */
-  const 끝점 = useMemo(
-    () => 최고최저(그릴것, 비교중 ? "내수익" : "value"),
-    [그릴것, 비교중],
-  );
+  /* 기간 안의 최고·최저. 축이 늘 % 이므로 그 값으로 잡는다 */
+  const 끝점 = useMemo(() => 최고최저(그릴것, "내수익"), [그릴것]);
   /** 최고·최저 라벨 — 축 하나가 없는 대신 이 두 줄이 눈금 노릇을 한다.
    *
    *  '₩27,362,872' 를 그대로 적으면 열한 글자가 그래프 위를 가로질러
@@ -356,14 +453,14 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
    *
    *  금액 가리기를 켜면 여기도 가려야 한다. 그러지 않으면 이 두 줄이
    *  대략의 자산 규모를 그대로 말해 버린다. */
-  const 축값 = (v: number) => (비교중 ? 퍼센트글(v) : 돈.원짧게(v));
+  const 축값 = (v: number) => 퍼센트글(v);
 
   /** 어느 선이 무엇인가. 없으면 점선 회색이 원금이라는 걸 알 길이 없다 */
-  const 범례 = 비교중
-    ? [{ 이름: "내 자산", 색: 선색, 점선: false },
-       { 이름: 벤치이름, 색: "var(--accent-purple, #8b5cf6)", 점선: true }]
-    : [{ 이름: "평가금액", 색: 선색, 점선: false },
-       { 이름: "원금", 색: "var(--text-dim)", 점선: true }];
+  const 범례 = [
+    { 이름: "내 자산", 색: 선색, 점선: false },
+    { 이름: "원금", 색: "var(--text-dim)", 점선: true },
+    ...그린지수.map((b) => ({ 이름: b.label, 색: b.색, 점선: true })),
+  ];
 
   const 틀 = (속: React.ReactNode) => (
     <Card className="flex flex-col gap-3">
@@ -435,16 +532,20 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
             )}
           </span>
           <div className="flex items-baseline gap-2 flex-wrap">
-            <span className={`text-2xl leading-none font-mono font-bold num ${pnlColor(내수익률)}`}>
+            {/* 축이 % 로 통일되면서 화면에 '+20.00%' 가 여러 군데 뜬다
+                (최고·최저 줄, 앞섬/뒤짐 줄). 검사가 이 큰 숫자를 정확히
+                집을 수 있게 이름을 붙인다 */}
+            <span data-testid="기간수익"
+                  className={`text-2xl leading-none font-mono font-bold num ${pnlColor(내수익률)}`}>
               {퍼센트글(내수익률)}
             </span>
-            {/* 비교 중이면 금액을 안 쓴다 — 그때는 첫 공통일 기준이라
-                이 %와 금액의 기준이 서로 다르다 */}
-            {!비교중 && (
-              <span className={`text-sm font-mono font-semibold num ${pnlColor(변화.금액)}`}>
-                {돈.원부호(변화.금액)}
-              </span>
-            )}
+            {/* 금액은 늘 같이 적는다. 축이 % 로 바뀌었어도 '얼마' 는
+                여전히 사람이 제일 먼저 보는 숫자다. 위 %와 이 금액은
+                이제 같은 기준일에서 잰 것이라 서로 어긋나지 않는다 */}
+            <span data-testid="기간금액"
+                  className={`text-sm font-mono font-semibold num ${pnlColor(변화.금액)}`}>
+              {돈.원부호(변화.금액)}
+            </span>
           </div>
         </div>
       )}
@@ -452,29 +553,49 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
       {/* 견줄 지수. '내가 5% 올랐다' 만으로는 잘한 것인지 알 수 없다 */}
       <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide -mt-0.5">
         <span className="text-2xs text-text-dim shrink-0">비교</span>
-        {벤치마크들.map((b) => (
-          <button
-            key={b.id || "none"}
-            onClick={() => set벤치(b.id)}
-            aria-pressed={벤치 === b.id}
-            className={`px-2 py-0.5 rounded-full text-2xs font-medium shrink-0 border transition-colors ${
-              벤치 === b.id
-                ? "border-accent-purple/50 bg-accent-purple/10 text-accent-purple"
-                : "border-border text-text-muted hover:text-text-primary"
-            }`}
-          >{b.label}</button>
-        ))}
+        {/* '없음' 은 지수가 아니라 '다 끄기' 다. 여럿을 켤 수 있게 되면서
+            토글 하나로는 전부 끄는 방법이 없어졌다 */}
+        <button
+          onClick={() => set벤치들([])}
+          aria-pressed={벤치들.length === 0}
+          className={`px-2 py-0.5 rounded-full text-2xs font-medium shrink-0 border transition-colors ${
+            벤치들.length === 0
+              ? "border-text-muted/50 bg-bg-elevated text-text-primary"
+              : "border-border text-text-muted hover:text-text-primary"
+          }`}
+        >없음</button>
+        {벤치마크들.map((b) => {
+          const 켬 = 벤치들.includes(b.id);
+          return (
+            <button
+              key={b.id}
+              onClick={() => set벤치들((앞) =>
+                앞.includes(b.id) ? 앞.filter((x) => x !== b.id) : [...앞, b.id])}
+              aria-pressed={켬}
+              className="px-2 py-0.5 rounded-full text-2xs font-medium shrink-0 border transition-colors hover:text-text-primary"
+              /* 칩 색을 그 지수의 선 색과 맞춘다. 선이 넷이면 범례를
+                 한 번 더 읽는 대신 색으로 바로 잇는다 */
+              style={켬
+                ? { borderColor: b.색, color: b.색, background: `${b.색}1a` }
+                : { borderColor: "var(--border-default)", color: "var(--text-muted)" }}
+            >{b.label}</button>
+          );
+        })}
       </div>
 
-      {비교중 && 지수변화 != null && 내수익률 != null && (
-        /* 숫자로도 한 줄 적는다. 선 두 개가 붙어 있으면 눈으로는
-           어느 쪽이 이겼는지 잘 안 보인다 */
-        <p className="text-2xs text-text-secondary break-keep -mt-1">
-          {벤치이름} {퍼센트글(지수변화)} 대비{" "}
-          <span className={`font-semibold ${pnlColor(내수익률! - 지수변화)}`}>
-            {내수익률! >= 지수변화 ? "앞섬" : "뒤짐"} {Math.abs(내수익률! - 지수변화).toFixed(2)}%p
-          </span>
-        </p>
+      {지수변화.length > 0 && 내수익률 != null && (
+        /* 숫자로도 적는다. 선이 붙어 있으면 눈으로는 어느 쪽이 이겼는지
+           잘 안 보인다. 지수를 여럿 켜면 한 줄씩 늘어난다 */
+        <div className="flex flex-col gap-0.5 -mt-1">
+          {지수변화.map((x) => (
+            <p key={x.id} className="text-2xs text-text-secondary break-keep">
+              <span style={{ color: x.색 }}>{x.label}</span> {퍼센트글(x.값)} 대비{" "}
+              <span className={`font-semibold ${pnlColor(내수익률 - x.값)}`}>
+                {내수익률 >= x.값 ? "앞섬" : "뒤짐"} {Math.abs(내수익률 - x.값).toFixed(2)}%p
+              </span>
+            </p>
+          ))}
+        </div>
       )}
 
       <차트틀 height={160}>
@@ -506,10 +627,20 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
                 borderRadius: 10, fontSize: 12, color: "var(--text-primary)",
               }}
               labelStyle={{ color: "var(--text-muted)" }}
-              formatter={(v: number, name: string) => [
-                비교중 ? 퍼센트글(Number(v)) : 돈.원(Number(v)),
-                name,
-              ]}
+              /* 축은 % 지만 사람이 먼저 보는 것은 '얼마' 다. 내 자산과
+                 원금은 % 옆에 금액을 같이 적는다 — 금액이 그래프에서
+                 통째로 사라지면 % 만 보고는 규모를 알 수 없다.
+                 (금액 가리기를 켜면 돈.원 이 알아서 가린다) */
+              formatter={(v: number, name: string, 항: { payload?: 그릴점 }) => {
+                if (name === "평가손익") return [돈.원부호(Number(v)), name];
+                if (name === "내 자산") {
+                  return [`${퍼센트글(Number(v))} · ${돈.원(항?.payload?.value ?? 0)}`, name];
+                }
+                if (name === "원금") {
+                  return [`${퍼센트글(Number(v))} · ${돈.원(항?.payload?.cost ?? 0)}`, name];
+                }
+                return [퍼센트글(Number(v)), name];
+              }}
             />
 
             {/* ── 최고·최저 ──
@@ -529,36 +660,33 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
               </>
             )}
 
-            {비교중 ? (
-              <>
-                {/* 견줄 때는 둘 다 첫날 대비 %다. 원화 금액과 지수
-                    포인트를 한 축에 올리면 아무 뜻이 없다 */}
-                <R.Area type="monotone" dataKey="지수수익" name={벤치이름}
-                        stroke="var(--accent-purple, #8b5cf6)" strokeWidth={1.5}
-                        strokeDasharray="4 3" fill="none" dot={false}
-                        connectNulls isAnimationActive={false} />
-                <R.Area type="monotone" dataKey="내수익" name="내 자산"
-                        stroke={선색} strokeWidth={2}
-                        fill={`url(#${칠id})`} dot={false} isAnimationActive={false} />
-              </>
-            ) : (
-              <>
-                {/* 원금을 같이 그린다. 선 하나만 있으면 '올랐다' 는 보여도
-                    '벌었다' 는 안 보인다 — 그 둘은 다른 이야기다 */}
-                <R.Area type="monotone" dataKey="cost" name="원금"
-                        stroke="var(--text-dim)" strokeWidth={1} strokeDasharray="4 3"
-                        fill="none" dot={false} isAnimationActive={false} />
-                <R.Area type="monotone" dataKey="value" name="평가금액"
-                        stroke={선색} strokeWidth={2}
-                        fill={`url(#${칠id})`} dot={false} isAnimationActive={false} />
-                {/* 그리지 않는 선. 툴팁에 '그날 손익' 한 줄을 더하려고 둔다 —
-                    두 선 사이의 간격이 곧 번 돈인데, 눈으로 재는 일은
-                    생각보다 어렵다 */}
-                <R.Area type="monotone" dataKey="손익" name="평가손익" yAxisId="손익축"
-                        stroke="none" fill="none" dot={false}
-                        activeDot={false} isAnimationActive={false} />
-              </>
-            )}
+            {/* ── 선은 늘 같은 자로 그린다 ──
+                내 자산·원금·지수가 모두 기준일 0% 에서 출발한다. 비교를
+                켜고 끌 때 그래프의 생김새가 안 바뀌므로, 눈이 처음부터
+                다시 읽을 일이 없다.
+
+                원금을 같이 그린다. 선 하나만 있으면 '올랐다' 는 보여도
+                '벌었다' 는 안 보인다 — 그 둘은 다른 이야기다. 돈을 더
+                넣은 날에는 원금 선이 같이 올라가서, 오른 이유가 '벌어서'
+                인지 '넣어서' 인지가 눈으로 갈린다. */}
+            {그린지수.map((b) => (
+              <R.Area key={b.id} type="monotone" dataKey={지수키(b.id)} name={b.label}
+                      stroke={b.색} strokeWidth={1.5}
+                      strokeDasharray="4 3" fill="none" dot={false}
+                      connectNulls isAnimationActive={false} />
+            ))}
+            <R.Area type="monotone" dataKey="원금수익" name="원금"
+                    stroke="var(--text-dim)" strokeWidth={1} strokeDasharray="4 3"
+                    fill="none" dot={false} connectNulls isAnimationActive={false} />
+            <R.Area type="monotone" dataKey="내수익" name="내 자산"
+                    stroke={선색} strokeWidth={2}
+                    fill={`url(#${칠id})`} dot={false} isAnimationActive={false} />
+            {/* 그리지 않는 선. 툴팁에 '그날 손익' 한 줄을 더하려고 둔다 —
+                평가와 원금 사이의 간격이 곧 번 돈인데, 눈으로 재는 일은
+                생각보다 어렵다 */}
+            <R.Area type="monotone" dataKey="손익" name="평가손익" yAxisId="손익축"
+                    stroke="none" fill="none" dot={false}
+                    activeDot={false} isAnimationActive={false} />
           </R.AreaChart>
         )}
       </차트틀>
