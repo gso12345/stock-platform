@@ -18,6 +18,7 @@ import {
 import type { Market, OHLCV } from "@/types";
 import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
 import { fmtKRW, fmtUSD, fmtVolume } from "@/utils/formatters";
+import { use저장된값 } from "@/hooks/useSaved";
 import { isETFStock } from "@/utils/etf";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
@@ -28,6 +29,7 @@ import AlertButton from "@/components/stock/AlertButton";
 import { EtfHoldingsTab } from "@/components/stock/EtfHoldingsTab";
 import DailyTab from "@/components/stock/DailyTab";
 import NewsTab from "@/components/stock/NewsTab";
+import PriceTrend from "@/components/stock/PriceTrend";
 import { AddToPortfolioModal } from "@/components/watchlist/WatchlistModals";
 
 /* 재무제표·투자의견 탭은 필요할 때 받는다.
@@ -120,6 +122,11 @@ export default function StockDetail() {
   const [showKRW, setShowKRW]           = useState(false);
   /* 캔들/라인/영역·LOG 는 한 번 정하면 잘 안 바꾼다. 톱니를 눌렀을 때만 편다 */
   const [차트설정열림, set차트설정열림]  = useState(false);
+  /* 차트 탭에 무엇을 먼저 보여 줄까.
+     대부분은 '얼마나 올랐나' 하나를 보러 온다. 그 답을 먼저 크게
+     말하고, 캔들은 '자세한 차트' 뒤에 둔다. 한 번 자세히 보기로
+     한 사람은 다음에도 그럴 것이므로 이 기기에 기억한다. */
+  const [자세한차트, set자세한차트] = use저장된값<boolean>("자세한차트", false);
   const [analystSubTab, setAnalystSubTab] = useState<"opinion" | "consensus">("opinion");
   const [consensusPeriod, setConsensusPeriod] = useState<"annual" | "quarterly">("annual");
   const [finPeriod, setFinPeriod]       = useState<"annual" | "quarterly">("annual");
@@ -1247,8 +1254,20 @@ export default function StockDetail() {
         )}
       </div>
 
-      {/* 차트 탭 */}
-      {mainTab==="chart" && (
+      {/* ── 차트 탭 ──
+          기본은 '흐름' 이다. 이 화면에 오는 이유는 대개 '얼마나 올랐나'
+          하나인데, 캔들에서 그걸 알려면 첫 봉과 마지막 봉을 눈으로 찾아
+          암산해야 한다. 게다가 봉 종류·캔들/라인/영역·LOG 컨트롤이
+          차트보다 먼저 나왔다 — 고를 것이 많다는 건 아직 아무것도 안
+          보여 줬다는 뜻이다.
+
+          캔들이 필요 없어진 것은 아니다. '자세한 차트' 를 누르면 그대로
+          나오고, 한 번 고른 것은 기억한다. */}
+      {mainTab==="chart" && !자세한차트 && (
+        <PriceTrend market={m} symbol={sym} 통화={isKR ? "KRW" : "USD"}
+                    자세히={() => set자세한차트(true)} />
+      )}
+      {mainTab==="chart" && 자세한차트 && (
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
           {/* 봉 종류 */}
           <div className="px-4 py-2.5 border-b border-border flex flex-wrap items-center gap-2">
@@ -1300,6 +1319,13 @@ export default function StockDetail() {
               </button>
               <button aria-label="차트 전체보기" onClick={()=>setFullscreen(true)} className="w-11 h-11 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors" title="전체보기">
                 <Maximize2 size={13}/>
+              </button>
+              {/* 들어온 길로 되돌아갈 수 있어야 한다. 없으면 한 번 누른
+                  사람은 다시 흐름을 볼 방법이 없다(기억까지 하므로 더 그렇다) */}
+              <button onClick={()=>set자세한차트(false)}
+                className="px-2.5 py-1 rounded-lg border border-border text-2xs font-semibold
+                           text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-colors whitespace-nowrap">
+                간단히
               </button>
             </div>
           </div>

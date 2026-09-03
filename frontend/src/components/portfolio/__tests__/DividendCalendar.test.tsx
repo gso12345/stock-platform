@@ -342,8 +342,13 @@ describe("월별 막대", () => {
     });
     그리기();
     await 종목별로();
-    await 자세히();
+    /* 달을 **고른 뒤에** 편다.
+       순서가 반대면 오늘이 몇 월이냐에 따라 통과했다 안 했다 한다 —
+       이번 달이 2·5·8·11 에 없으면 그 종목이 처음 목록에 아예 없어서
+       자세히() 가 펼 것을 못 찾고, 달을 바꾸면 접힌 채로 나온다.
+       9월 3일에 그렇게 걸렸다. */
     await userEvent.click(await screen.findByRole("button", { name: /^2월 ₩/ }));
+    await 자세히();
     expect(await screen.findByText("배당월 2·5·8·11")).toBeInTheDocument();
   });
 

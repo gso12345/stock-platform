@@ -569,7 +569,8 @@ class Test옛_제약이_남아_있어도:
                     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL,
                     portfolio_id INTEGER NOT NULL DEFAULT 0, day VARCHAR(10) NOT NULL,
                     total_value FLOAT, total_cost FLOAT,
-                    filled INTEGER, priced INTEGER, made_at DATETIME,
+                    filled INTEGER, priced INTEGER,
+                    backfilled INTEGER NOT NULL DEFAULT 0, made_at DATETIME,
                     CONSTRAINT uq_pf_snapshot_day UNIQUE (user_id, day))"""))
             c.commit()
         db = sessionmaker(bind=엔진)()
@@ -831,55 +832,67 @@ class Test빈날찾기:
             "2026-08-31", "2026-09-01"]
 
 
-class Test메울구간:
-    """어디를 메우고 어디를 안 메우나.
+class Test늘인값과_맞물림:
+    """수준은 기록에서, 모양은 시세에서.
 
-    그날 무엇을 갖고 있었는지를 우리는 모른다 — 지금 보유 목록밖에
-    없고, 판 종목은 아예 안 남아 있다. 그래서 **양쪽이 실제 기록으로
-    막힌 구멍**만 보고, 그 앞뒤 원금이 같은지로 '그 사이에 매매가
-    없었나' 를 가늠한다. 사고팔면 원금이 바뀐다.
+    처음에는 지금 보유 목록으로 그날 금액을 통째로 계산했다. 그게
+    틀렸다 — 그 뒤에 종목을 더 담은 사람은 메운 구간만 통째로 위로
+    뜬다. 실제로 '메워졌는데 값이 이상하다' 로 나왔다.
+
+    앞뒤 원금이 같은지 보는 검사를 두긴 했는데, 그건 기둥끼리만
+    비교하는 것이라 **창 바깥에서 산 것을 못 잡는다** — 모든 기둥이
+    똑같이 옛 원금이므로 검사가 그냥 통과한다.
     """
 
-    def test_원금이_같으면_메운다(self):
-        rows = [("2026-08-20", 1_000_000.0), ("2026-08-24", 1_000_000.0)]
-        assert PS.메울구간(rows, None) == [("2026-08-20", "2026-08-24")]
+    def test_앞_기둥에서_시세만큼_늘인다(self):
+        # 앞 기둥 100만원. 모형이 200 → 220 (10% 올랐다)
+        assert PS.늘인값(1_000_000, 200, 220) == pytest.approx(1_100_000)
 
-    def test_원금이_달라지면_그_구간은_안_메운다(self):
-        """그 사이에 뭔가 샀다는 뜻이다. 언제 얼마나 샀는지는 알 수
-        없으므로, 지금 목록으로 계산하면 그건 기록이 아니라 지어낸 값이다"""
-        rows = [("2026-08-20", 1_000_000.0), ("2026-08-24", 3_000_000.0)]
-        assert PS.메울구간(rows, None) == []
+    def test_보유량이_달라도_수준이_안_틀린다(self):
+        """이게 이 방식의 핵심이다. 나누기에서 보유량이 약분된다 —
+        지금 목록이 그날 목록보다 세 배여도 비율은 같다"""
+        적게 = PS.늘인값(1_000_000, 200, 220)
+        많이 = PS.늘인값(1_000_000, 600, 660)      # 같은 종목 세 배
+        assert 적게 == pytest.approx(많이)
 
-    def test_환율_흔들림_정도는_같은_것으로_본다(self):
-        """원화로 안 넣은 해외 종목은 매매가 없어도 환율 때문에
-        매입금액이 매일 조금씩 달라진다. 그것 때문에 못 메우면
-        해외 종목을 가진 사람은 이 기능을 통째로 못 쓴다"""
-        rows = [("2026-08-20", 1_000_000.0), ("2026-08-24", 1_005_000.0)]  # 0.5%
-        assert PS.메울구간(rows, None) == [("2026-08-20", "2026-08-24")]
+    def test_메운_첫_값은_앞_기둥과_정확히_이어진다(self):
+        """계단이 생기면 그것부터 '값이 이상하다' 로 보인다"""
+        assert PS.늘인값(1_234_567, 500, 500) == pytest.approx(1_234_567)
 
-    def test_1퍼센트를_넘으면_안_메운다(self):
-        rows = [("2026-08-20", 1_000_000.0), ("2026-08-24", 1_020_000.0)]  # 2%
-        assert PS.메울구간(rows, None) == []
+    @pytest.mark.parametrize("앞값,앞모형,그날모형", [
+        (0, 200, 220), (1_000_000, 0, 220), (1_000_000, 200, 0),
+        (-1, 200, 220),
+    ])
+    def test_나눌_수_없으면_없다(self, 앞값, 앞모형, 그날모형):
+        assert PS.늘인값(앞값, 앞모형, 그날모형) is None
 
-    def test_구간이_여럿이면_되는_것만_고른다(self):
-        rows = [("2026-08-01", 100.0), ("2026-08-05", 100.0),
-                ("2026-08-10", 500.0), ("2026-08-20", 500.0)]
-        assert PS.메울구간(rows, None) == [
-            ("2026-08-01", "2026-08-05"), ("2026-08-10", "2026-08-20")]
+    def test_뒤_기둥에_닿으면_메운다(self):
+        # 모형이 10% 올랐고, 실제 기록도 10% 올랐다 → 그 사이 매매 없음
+        assert PS.맞물리나(1_000_000, 200, 1_100_000, 220) is True
 
-    def test_마지막_기록과_오늘_사이도_본다(self):
-        """지금 보유 목록은 정확히 알고 있으므로 그쪽이 뒤 기둥이 된다.
-        서버가 며칠 자다 깬 경우가 여기다"""
-        rows = [("2026-08-20", 1_000_000.0)]
-        구간 = PS.메울구간(rows, 1_000_000.0)
-        assert 구간 == [("2026-08-20", PS.오늘())]
+    def test_안_닿으면_안_메운다(self):
+        """그 사이에 사거나 팔았다는 뜻이다. 실제 기록이 계단처럼 뛴다"""
+        # 모형은 10% 올랐는데 기록은 세 배가 됐다 — 뭘 샀다
+        assert PS.맞물리나(1_000_000, 200, 3_000_000, 220) is False
 
-    def test_지금_원금이_다르면_꼬리는_안_메운다(self):
-        rows = [("2026-08-20", 1_000_000.0)]
-        assert PS.메울구간(rows, 5_000_000.0) == []
+    def test_3퍼센트까지는_봐준다(self):
+        """지금 목록과 그날 목록의 구성이 조금 다르면 모양도 조금
+        어긋난다. 그 정도로 구멍을 통째로 포기할 이유는 없다"""
+        # 예측 110만, 실제 112만 → 1.8%
+        assert PS.맞물리나(1_000_000, 200, 1_120_000, 220) is True
 
-    def test_기록이_없으면_아무것도_안_한다(self):
-        assert PS.메울구간([], 1_000_000.0) == []
+    def test_3퍼센트를_넘으면_안_메운다(self):
+        # 예측 110만, 실제 118만 → 6.8%
+        assert PS.맞물리나(1_000_000, 200, 1_180_000, 220) is False
+
+    @pytest.mark.parametrize("앞모형,뒷값,뒤모형", [
+        (None, 1_100_000, 220),      # 앞 날 시세를 못 구했다
+        (200, 1_100_000, None),      # 뒤 날 시세를 못 구했다
+        (200, None, 220),            # 뒤 기둥이 없다
+        (200, 0, 220),               # 뒤 기둥이 0 — 나눌 수 없다
+    ])
+    def test_잴_수_없으면_안_메운다(self, 앞모형, 뒷값, 뒤모형):
+        assert PS.맞물리나(1_000_000, 앞모형, 뒷값, 뒤모형) is False
 
 
 class Test과거합계:
@@ -1005,12 +1018,20 @@ class Test메우기_전체:
     def _날(self, 며칠전: int) -> str:
         return (datetime.now(PS.KST) - timedelta(days=며칠전)).strftime("%Y-%m-%d")
 
-    def _채우기(self, db, 날들, 원금=700_000.0, pid=0, uid=7):
+    def _채우기(self, db, 날들, 원금=700_000.0, pid=0, uid=7, 평가=800_000.0):
+        """실제로 그날 찍힌 줄을 흉내 낸다.
+
+        made_at 을 그날로 맞춰야 한다. 찍기() 는 **그날 그날** 적으므로
+        day 와 made_at 의 한국 날짜가 늘 같고, 메우기는 그 둘이 다른
+        줄을 '내가 나중에 메운 것' 으로 보고 지운다. 여기서 안 맞추면
+        기둥이 통째로 지워져 아무것도 안 메워진다."""
+        from datetime import datetime as _dt, timezone as _tz
         from app.models.stock import PortfolioSnapshot
         for d in 날들:
+            그날 = _dt.strptime(d, "%Y-%m-%d").replace(hour=3, tzinfo=_tz.utc)
             db.add(PortfolioSnapshot(user_id=uid, portfolio_id=pid, day=d,
-                                     total_value=800_000.0, total_cost=원금,
-                                     filled=1, priced=1))
+                                     total_value=평가, total_cost=원금,
+                                     filled=1, priced=1, made_at=그날))
 
     def _보유(self, db, uid=7):
         from app.models.stock import Portfolio, PortfolioItem
@@ -1041,26 +1062,141 @@ class Test메우기_전체:
         # 라우트가 즉석으로 얹으므로 여기서 안 넣는다
         assert 날들 == sorted([self._날(i) for i in (5, 4, 3, 2, 1)]), 날들
 
-    def test_같은_날을_두_번_안_넣는다(self, monkeypatch, DB):
-        """두 번 돌아도 결과가 같아야 한다. 스케줄러가 2시간마다 부른다"""
+    def test_두_번_돌려도_결과가_같다(self, monkeypatch, DB):
+        """스케줄러가 2시간마다 부른다. 돌 때마다 줄이 늘거나 값이
+        흔들리면 그래프가 볼 때마다 달라진다.
+
+        메운 줄은 지웠다 다시 넣으므로 '한 줄도 안 건드린다' 는 아니다 —
+        규칙을 고칠 때 옛 값이 저절로 고쳐지는 대가다. 대신 **결과가
+        같아야** 한다."""
         from sqlalchemy import text
         self._보유(DB)
         self._채우기(DB, [self._날(5), self._날(2)], pid=0)
         DB.commit()
         self._붙이기(monkeypatch, DB, self._표())
 
-        PS.메우기()
-        첫번째 = DB.execute(text("SELECT COUNT(*) FROM portfolio_snapshots")).scalar()
-        assert PS.메우기() == 0, "이미 메운 것을 또 메웠다"
-        assert DB.execute(text("SELECT COUNT(*) FROM portfolio_snapshots")).scalar() == 첫번째
+        def 지금모양():
+            return sorted(DB.execute(text(
+                "SELECT day, total_value, total_cost FROM portfolio_snapshots"
+            )).fetchall())
 
-    def test_원금이_달라진_구간은_안_메운다(self, monkeypatch, DB):
-        """그 사이에 뭔가 샀다는 뜻이다. 지금 목록으로 계산하면
-        그건 기록이 아니라 지어낸 값이다"""
+        PS.메우기()
+        첫번째 = 지금모양()
+        PS.메우기()
+        assert 지금모양() == 첫번째, "두 번째에 결과가 달라졌다"
+
+    def test_옛_규칙으로_메운_줄을_고쳐_쓴다(self, monkeypatch, DB):
+        """이미 나간 잘못된 값이 그대로 남으면 안 된다.
+
+        메운 줄은 기둥이 아니라 결과다. 규칙이 바뀌면 지우고 다시
+        넣는다 — 그래서 배포만 하면 저절로 고쳐진다."""
+        from sqlalchemy import text
+        from app.models.stock import PortfolioSnapshot
+        self._보유(DB)
+        self._채우기(DB, [self._날(4), self._날(1)], pid=0)     # 진짜 기둥
+        # 옛 판이 넣어 둔 엉뚱한 값(다섯 배로 떠 있다)
+        DB.add(PortfolioSnapshot(user_id=7, portfolio_id=0, day=self._날(3),
+                                 total_value=4_000_000.0, total_cost=700_000.0,
+                                 filled=1, priced=1, backfilled=1))
+        DB.commit()
+        self._붙이기(monkeypatch, DB, self._표())
+
+        PS.메우기()
+        값 = DB.execute(text(
+            "SELECT total_value FROM portfolio_snapshots "
+            "WHERE portfolio_id=0 AND day=:d"), {"d": self._날(3)}).scalar()
+        assert 값 == 800_000, f"옛 값이 그대로 남았다: {값}"
+
+    def test_열이_없던_시절에_메운_줄도_가려낸다(self, monkeypatch, DB):
+        """backfilled 열이 생기기 전에 메운 줄은 그 값이 0 이다.
+        made_at 으로 가려낸다 — 찍기() 는 그날 그날 적으므로 day 와
+        made_at 의 한국 날짜가 반드시 같다."""
+        from datetime import datetime as _dt, timezone as _tz
+        from sqlalchemy import text
+        from app.models.stock import PortfolioSnapshot
+        self._보유(DB)
+        self._채우기(DB, [self._날(4), self._날(1)], pid=0)
+        # 표시는 없지만 '오늘 적힌 옛날 날짜' — 나중에 메운 줄이다
+        DB.add(PortfolioSnapshot(user_id=7, portfolio_id=0, day=self._날(3),
+                                 total_value=4_000_000.0, total_cost=700_000.0,
+                                 filled=1, priced=1, backfilled=0,
+                                 made_at=_dt.now(_tz.utc)))
+        DB.commit()
+        self._붙이기(monkeypatch, DB, self._표())
+
+        PS.메우기()
+        값 = DB.execute(text(
+            "SELECT total_value FROM portfolio_snapshots "
+            "WHERE portfolio_id=0 AND day=:d"), {"d": self._날(3)}).scalar()
+        assert 값 == 800_000, f"표시 없는 옛 줄을 못 가려냈다: {값}"
+
+    def test_made_at_로는_못_가려내는_줄도_표시로_가려낸다(self, monkeypatch, DB):
+        """backfilled 표시가 왜 따로 필요한가.
+
+        made_at 어림은 '오늘 적힌 옛날 날짜' 를 찾는 것이라, 메운 날과
+        적은 날의 한국 날짜가 **같으면** 못 가려낸다. 지금 규칙에서는
+        그런 줄이 안 생기지만(오늘 것은 안 메운다), 그건 우연이지
+        보장이 아니다 — 규칙을 조금만 손대면 깨진다.
+
+        표시는 어림이 아니라 사실이다. 그쪽을 먼저 본다."""
+        from datetime import datetime as _dt, timezone as _tz
+        from sqlalchemy import text
+        from app.models.stock import PortfolioSnapshot
+        self._보유(DB)
+        self._채우기(DB, [self._날(4), self._날(1)], pid=0)
+        # 메운 줄인데 made_at 이 그날로 맞춰져 있다 — 어림으로는 못 잡는다
+        그날 = _dt.strptime(self._날(3), "%Y-%m-%d").replace(hour=3, tzinfo=_tz.utc)
+        DB.add(PortfolioSnapshot(user_id=7, portfolio_id=0, day=self._날(3),
+                                 total_value=4_000_000.0, total_cost=700_000.0,
+                                 filled=1, priced=1, backfilled=1, made_at=그날))
+        DB.commit()
+        self._붙이기(monkeypatch, DB, self._표())
+
+        PS.메우기()
+        값 = DB.execute(text(
+            "SELECT total_value FROM portfolio_snapshots "
+            "WHERE portfolio_id=0 AND day=:d"), {"d": self._날(3)}).scalar()
+        assert 값 == 800_000, f"표시를 안 보고 넘어갔다: {값}"
+
+    def test_메운_줄에_표시를_남긴다(self, monkeypatch, DB):
+        """남기지 않으면 위 검사가 기댈 것이 없다"""
         from sqlalchemy import text
         self._보유(DB)
-        self._채우기(DB, [self._날(5)], 원금=700_000.0, pid=0)
-        self._채우기(DB, [self._날(2)], 원금=3_000_000.0, pid=0)
+        self._채우기(DB, [self._날(4), self._날(1)], pid=0)
+        DB.commit()
+        self._붙이기(monkeypatch, DB, self._표())
+
+        PS.메우기()
+        표시 = dict(DB.execute(text(
+            "SELECT day, backfilled FROM portfolio_snapshots WHERE portfolio_id=0")).fetchall())
+        assert 표시[self._날(3)] == 1, 표시          # 메운 줄
+        assert 표시[self._날(4)] == 0, 표시          # 진짜 기록
+
+    def test_진짜_기록은_안_건드린다(self, monkeypatch, DB):
+        """이게 제일 중요하다. 그날 실제로 찍힌 줄을 메우기가 고쳐
+        쓰면 그건 기록이 아니게 된다"""
+        from sqlalchemy import text
+        self._보유(DB)
+        self._채우기(DB, [self._날(4)], pid=0, 평가=777_777.0)
+        self._채우기(DB, [self._날(1)], pid=0, 평가=777_777.0)
+        DB.commit()
+        self._붙이기(monkeypatch, DB, self._표())
+
+        PS.메우기()
+        기둥 = DB.execute(text(
+            "SELECT total_value FROM portfolio_snapshots "
+            "WHERE portfolio_id=0 AND day=:d"), {"d": self._날(4)}).scalar()
+        assert 기둥 == 777_777.0, f"진짜 기록이 바뀌었다: {기둥}"
+
+    def test_사이에_뭘_샀으면_안_메운다(self, monkeypatch, DB):
+        """앞 기둥에 붙여 늘였을 때 뒤 기둥에 안 닿는다 — 실제 기록이
+        계단처럼 뛰었다는 뜻이다. 언제 얼마나 샀는지는 알 수 없으므로
+        그 구멍은 그대로 둔다"""
+        from sqlalchemy import text
+        self._보유(DB)
+        # 시세는 그대로인데 기록만 세 배로 뛴다
+        self._채우기(DB, [self._날(5)], pid=0)                       # 80만
+        self._채우기(DB, [self._날(2)], pid=0, 평가=2_400_000.0)      # 240만
         DB.commit()
         self._붙이기(monkeypatch, DB, self._표())
 
@@ -1126,19 +1262,80 @@ class Test메우기_전체:
         assert 메운것[self._날(4)] == 800_000
 
     def test_주말은_직전_거래일_종가로_메운다(self, monkeypatch, DB):
-        """장이 안 선 날 자산은 실제로 안 움직였다"""
+        """장이 안 선 날 자산은 실제로 안 움직였다. 그러니 그날 값은
+        앞 기둥과 같아야 한다 — 비우면 0 이 되고, 뭔가 지어내면
+        안 움직인 날에 움직인 것이 된다"""
         from sqlalchemy import text
         self._보유(DB)
-        self._채우기(DB, [self._날(4), self._날(1)], pid=0)
+        self._채우기(DB, [self._날(4), self._날(1)], pid=0)   # 둘 다 80만
         DB.commit()
-        # 4일 전 이후로는 봉이 없다(연휴)
+        # 4일 전 이후로는 봉이 없다(연휴). 모형 수준도 기록과 다르게 둔다
         self._붙이기(monkeypatch, DB,
                     {"005930": ([self._날(4)], [85_000.0])})
 
         PS.메우기()
         메운것 = dict(DB.execute(text(
             "SELECT day, total_value FROM portfolio_snapshots WHERE portfolio_id=0")).fetchall())
-        assert 메운것[self._날(3)] == 850_000, 메운것
+        # 모형 수준(85만)이 아니라 **기록 수준**(80만)을 따른다
+        assert 메운것[self._날(3)] == 800_000, 메운것
+
+    def test_그_뒤에_더_담았어도_메운_수준이_안_뜬다(self, monkeypatch, DB):
+        """여기가 '메워졌는데 값이 이상하다' 의 자리다.
+
+        옛 방식은 지금 보유 목록으로 그날 금액을 통째로 계산했다.
+        그 뒤에 종목을 더 담았으면 메운 구간만 통째로 위로 뜬다.
+        옛 원금 검사는 이걸 못 잡는다 — 기둥이 전부 똑같이 옛 원금이라
+        그냥 통과한다."""
+        from sqlalchemy import text
+        from app.models.stock import Portfolio, PortfolioItem
+        # 기록은 열 주 갖고 있던 시절의 것(80만)
+        DB.add(Portfolio(id=1, user_id=7, name="주력"))
+        DB.add(PortfolioItem(user_id=7, portfolio_id=1, symbol="005930",
+                             market="KR", shares=50, avg_price=70_000, currency="KRW"))
+        self._채우기(DB, [self._날(4), self._날(1)], pid=0)   # 둘 다 80만
+        DB.commit()
+        # 지금은 쉰 주다 → 모형은 400만. 그대로 적으면 다섯 배로 뜬다
+        self._붙이기(monkeypatch, DB, self._표())
+
+        PS.메우기()
+        메운것 = dict(DB.execute(text(
+            "SELECT day, total_value FROM portfolio_snapshots WHERE portfolio_id=0")).fetchall())
+        assert 메운것[self._날(3)] == 800_000, f"메운 값이 떠 있다: {메운것}"
+        assert 메운것[self._날(2)] == 800_000, 메운것
+
+    def test_메운_값이_시세를_따라_움직인다(self, monkeypatch, DB):
+        """수준만 기록에서 가져오고 **모양은 시세**에서 가져온다.
+        앞뒤를 직선으로 잇는 것과 다르다"""
+        from sqlalchemy import text
+        self._보유(DB)
+        self._채우기(DB, [self._날(4)], pid=0)                       # 80만
+        self._채우기(DB, [self._날(1)], pid=0, 평가=880_000.0)        # 88만 (+10%)
+        DB.commit()
+        # 시세: 8만 → 9만(3일 전) → 8.5만(2일 전) → 8.8만
+        날들 = [self._날(i) for i in (4, 3, 2, 1)]
+        self._붙이기(monkeypatch, DB,
+                    {"005930": (날들, [80_000.0, 90_000.0, 85_000.0, 88_000.0])})
+
+        PS.메우기()
+        메운것 = dict(DB.execute(text(
+            "SELECT day, total_value FROM portfolio_snapshots WHERE portfolio_id=0")).fetchall())
+        # 80만 × (90,000/80,000) = 90만 — 직선이면 나올 수 없는 값이다
+        assert 메운것[self._날(3)] == pytest.approx(900_000), 메운것
+        assert 메운것[self._날(2)] == pytest.approx(850_000), 메운것
+
+    def test_메운_날의_원금은_앞_기둥_그대로다(self, monkeypatch, DB):
+        """매매가 없었다는 것을 확인하고 메운다. 그러면 매입금액은
+        그 사이 내내 안 바뀌는 게 맞다"""
+        from sqlalchemy import text
+        self._보유(DB)
+        self._채우기(DB, [self._날(4), self._날(1)], 원금=712_345.0, pid=0)
+        DB.commit()
+        self._붙이기(monkeypatch, DB, self._표())
+
+        PS.메우기()
+        원금들 = [r[0] for r in DB.execute(text(
+            "SELECT total_cost FROM portfolio_snapshots WHERE portfolio_id=0")).fetchall()]
+        assert set(원금들) == {712_345.0}, 원금들
 
     def test_어디서_터져도_예외를_안_내보낸다(self, monkeypatch, DB):
         """이 일이 주기 갱신 전체를 멈춰 세우면 고치려던 것보다 나쁘다"""

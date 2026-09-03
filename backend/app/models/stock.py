@@ -413,4 +413,15 @@ class PortfolioSnapshot(Base):
     #  한두 종목이 빠진 날인지 아닌지를 나중에 알 수 있어야 한다
     filled  = Column(Integer, default=0)
     priced  = Column(Integer, default=0)
+    #: 서버가 자던 날을 나중에 메운 줄인가.
+    #
+    #  메운 줄은 **기둥으로 쓰지 않는다.** 메우기 규칙이 바뀌면 다시
+    #  계산해야 하는데, 메운 줄이 다음 메우기의 기준이 되면 옛 규칙으로
+    #  낸 값이 그대로 굳는다. 실제로 그렇게 한 번 굳었다 — 지금 보유
+    #  목록으로 과거 금액을 통째로 계산하던 판이 남아, 그 뒤에 종목을
+    #  더 담은 사람의 그래프가 그 구간만 위로 떠 있었다.
+    #
+    #  그래서 메우기는 매번 자기가 메운 줄을 지우고 다시 넣는다.
+    #  실제로 그날 찍힌 줄만 기둥이 된다.
+    backfilled = Column(Integer, nullable=False, server_default="0", default=0)
     made_at = Column(DateTime(timezone=True), server_default=func.now())

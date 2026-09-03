@@ -287,6 +287,13 @@ async def lifespan(application: FastAPI):
             # 0 은 '전체'(사람 단위 합계) — 이 열이 생기기 전에 쌓인 줄이
             # 그대로 0 이 되고, 그 줄들이 곧 전체였으므로 뜻이 맞는다.
             ("portfolio_snapshots", "portfolio_id", "INTEGER NOT NULL DEFAULT 0"),
+            # 서버가 자던 날을 나중에 메운 줄인가. 메운 줄은 기둥으로
+            # 쓰지 않고 매번 지웠다 다시 넣는다 — 안 그러면 옛 규칙으로
+            # 낸 값이 그대로 굳는다(실제로 한 번 굳었다).
+            #
+            # 이 열이 생기기 전에 메운 줄은 0 으로 들어오는데,
+            # portfolio_snapshot._내가_메운것() 이 made_at 으로 가려낸다.
+            ("portfolio_snapshots", "backfilled", "INTEGER NOT NULL DEFAULT 0"),
         ]
         try:
             from sqlalchemy import inspect as _sa_inspect
