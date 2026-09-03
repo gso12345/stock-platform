@@ -28,8 +28,13 @@ describe("시세 지표", () => {
     expect(통계).toBeGreaterThan(차트그리는곳);
 
     // 자리만 옮기고 안 그리면 지표가 통째로 사라진 것이다
-    const 구역 = StockDetail원문.slice(통계, 통계 + 700);
+    const 구역 = StockDetail원문.slice(통계, 통계 + 2000);
     expect(구역).toMatch(/화면모양 === "app" && mainTab === "chart" && d && \(/);
+    /* 상세가 오기 전에도 이 자리가 보여야 한다. 예전에는 d 가 올
+       때까지 통계 묶음이 통째로 없어서, 아래에 숫자가 더 온다는 것을
+       알 방법이 없었다 — 처음 온 사람에게는 '이 화면은 원래 이게
+       전부' 로 보인다 */
+    expect(구역).toMatch(/화면모양 === "app" && mainTab === "chart" && !d && loadingDetail && \(/);
   });
 
   it("'앱처럼' 에서는 가격을 카드에 가두지 않는다", () => {

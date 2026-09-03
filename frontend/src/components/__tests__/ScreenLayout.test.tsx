@@ -89,7 +89,7 @@ describe("셋이 실제로 다르게 그려진다", () => {
        붙어 있다. 첫 항목('시가') 뒤부터 찾아야 진짜 끝이 잡힌다 */
     const 시작 = StockDetail원문.indexOf('{ label:"시가"');
     expect(시작).toBeGreaterThan(-1);
-    const 끝 = StockDetail원문.indexOf("] as { label: string; v: string | null; color?: string }[];", 시작);
+    const 끝 = StockDetail원문.indexOf("] as 지표칸[];", 시작);
     expect(끝).toBeGreaterThan(시작);
     const 목록 = StockDetail원문.slice(시작, 끝);
     expect(목록).toMatch(/label:"PER"/);

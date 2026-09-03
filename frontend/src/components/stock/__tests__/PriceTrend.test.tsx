@@ -7,7 +7,7 @@
  *
  * 여기서 못 박는 것 —
  *   · 기본은 흐름(내 자산의 자산 흐름과 같은 모양)
- *   · '자세한 차트' 를 누르면 원래 캔들이 그대로 나온다
+ *   · '자세히' 를 누르면 원래 캔들이 그대로 나온다
  *   · 되돌아갈 길이 있다
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -204,18 +204,38 @@ describe("종목 흐름 화면", () => {
     expect(await screen.findByText(/\$120/)).toBeInTheDocument();
   });
 
-  it("'자세한 차트' 를 누르면 알려 준다", async () => {
+  it("'자세히' 를 누르면 알려 준다", async () => {
     const 눌림 = vi.fn();
     그리기({ 자세히: 눌림 });
     await screen.findByTestId("차트");
-    await userEvent.click(screen.getByRole("button", { name: "자세한 차트" }));
+    await userEvent.click(screen.getByRole("button", { name: "자세히" }));
     expect(눌림).toHaveBeenCalled();
   });
 
   it("갈 곳이 없으면 그 버튼을 안 그린다", async () => {
     그리기();
     await screen.findByTestId("차트");
-    expect(screen.queryByRole("button", { name: "자세한 차트" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "자세히" })).toBeNull();
+  });
+
+  it("'자세히' 는 기간 칩과 같은 줄에 있다", async () => {
+    /* 캔들 쪽 '간단히' 는 머리줄 오른쪽 끝에 있다. 이 버튼이 카드
+       맨 아래에 있으면 오갈 때마다 버튼이 화면 반대편으로 뛴다 —
+       되돌아오려고 눈으로 다시 찾아야 한다. 같은 일을 하는 버튼은
+       같은 자리에 있어야 한다. */
+    그리기({ 자세히: vi.fn() });
+    await screen.findByTestId("차트");
+    const 버튼 = screen.getByRole("button", { name: "자세히" });
+    const 칩 = screen.getByRole("button", { name: "3개월" });
+    // 칩 묶음과 버튼이 같은 부모(머리줄) 안에 있다
+    expect(버튼.parentElement).toBe(칩.parentElement?.parentElement);
+  });
+
+  it("머리줄 안에서 맨 오른쪽이다", async () => {
+    그리기({ 자세히: vi.fn() });
+    await screen.findByTestId("차트");
+    const 버튼 = screen.getByRole("button", { name: "자세히" });
+    expect(버튼.parentElement?.lastElementChild).toBe(버튼);
   });
 
   it("그릴 값이 없으면 무엇을 기다리는지 말한다", async () => {
@@ -233,7 +253,7 @@ describe("종목 흐름 화면", () => {
 
 describe("종목 상세에 실제로 붙어 있는가", () => {
   /* 컴포넌트만 맞고 화면이 안 쓰면 아무 소용이 없다 */
-  it("차트 탭 기본이 흐름이고, 자세한 차트로 넘어갈 수 있다", async () => {
+  it("차트 탭 기본이 흐름이고, 자세히로 넘어갈 수 있다", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const 소스 = fs.readFileSync(
@@ -245,5 +265,62 @@ describe("종목 상세에 실제로 붙어 있는가", () => {
     expect(소스).toContain("set자세한차트(false)");
     // 고른 것은 이 기기에 남는다
     expect(소스).toContain('use저장된값<boolean>("자세한차트", false)');
+  });
+});
+
+
+/**
+ * 아직 오는 중인가, 원래 없는가.
+ *
+ * 기본정보(통계)의 PER·EPS 는 detail → fundamentals → metrics-history 로
+ * 이어 받는다. 앞 칸이 비면 다음 칸을 부르는 구조라 값이 늦게 채워지는
+ * 것이 정상이다. 그런데 그동안 화면에는 '—' 만 있었다 — 사용자에게는
+ * '이 종목은 PER 이 없다' 와 구분이 안 된다.
+ *
+ * 기다리면 나오는 것과 기다려도 안 나오는 것은 완전히 다른 이야기다.
+ */
+describe("기본정보도 불러오는 중인 걸 알린다", () => {
+  const 소스 = () => {
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
+    return fs.readFileSync(
+      path.resolve(__dirname, "../../../pages/StockDetail.tsx"), "utf-8");
+  };
+
+  it("PER·EPS 가 오는 중인지 표시한다", () => {
+    const s = 소스();
+    // 두 보완 질의의 진행 상태를 실제로 본다
+    expect(s).toContain("isFetching: 보완받는중");
+    expect(s).toContain("isFetching: 지표받는중");
+    expect(s).toContain("const 지표오는중 = (보완받는중 || 지표받는중)");
+  });
+
+  it("값이 이미 있으면 오는 중이라고 안 한다", () => {
+    /* 값이 있는데도 띠를 그리면 숫자가 깜빡이며 사라진다 */
+    const s = 소스();
+    expect(s).toContain("받는중: 기본PER == null && 지표오는중");
+    expect(s).toContain("받는중: 기본EPS == null && 지표오는중");
+  });
+
+  it("두 화면 모양 **둘 다** 그린다", () => {
+    /* 'app' 과 'classic' 두 벌이 있다. 한쪽만 고치면 다른 모양을
+       쓰는 사람에게는 아무것도 안 바뀐다 — 예전에 그렇게 어긋난 적이
+       있다 */
+    const s = 소스();
+    expect(s.match(/item\.받는중 \?/g) ?? []).toHaveLength(2);
+  });
+
+  it("상세를 받는 동안 통계 자리를 잡아 둔다", () => {
+    /* 예전에는 d 가 올 때까지 통계 묶음이 통째로 없었다. 위 시세만
+       동그라미를 돌리고 있어서, 아래에 숫자가 더 온다는 것을 알
+       방법이 없었다 */
+    const s = 소스();
+    expect(s).toContain('mainTab === "chart" && !d && loadingDetail');
+    expect(s).toContain("불러오는 중");
+  });
+
+  it("띠에 이름을 붙인다 — 화면 읽어주는 기능도 알아야 한다", () => {
+    const s = 소스();
+    expect(s).toContain('role="status" aria-label="불러오는 중"');
   });
 });

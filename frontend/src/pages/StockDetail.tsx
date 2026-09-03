@@ -46,6 +46,21 @@ import { FIN_CUSTOM_KEY } from "@/constants/finMetrics";
 const 유효 = (v: unknown): number | null =>
   typeof v === "number" && v !== 0 && Number.isFinite(v) ? v : null;
 
+/** 기본정보(통계)의 한 칸.
+ *
+ *  `받는중` 은 '값이 없다' 와 '아직 오는 중이다' 를 가른다. 예전에는
+ *  둘 다 '—' 였다 — 기다리면 나오는 것과 기다려도 안 나오는 것은
+ *  완전히 다른 이야기인데 화면이 같은 말을 했다. */
+type 지표칸 = { label: string; v: string | null; color?: string; 받는중?: boolean };
+
+/** 값 대신 자리만 잡아 두는 띠 — 아직 오는 중이라는 뜻 */
+function 오는중띠({ 넓게 }: { 넓게?: boolean }) {
+  return (
+    <span className={`inline-block ${넓게 ? "h-4 w-16" : "h-3 w-12"} rounded bg-bg-elevated animate-pulse`}
+          role="status" aria-label="불러오는 중" />
+  );
+}
+
 /* ── 메인 ───────────────────────────────────────────── */
 /* 탭을 받아오는 잠깐. 카드 자리를 미리 잡아 둬야 표가 뜰 때 화면이
    밀리지 않는다 */
@@ -124,7 +139,7 @@ export default function StockDetail() {
   const [차트설정열림, set차트설정열림]  = useState(false);
   /* 차트 탭에 무엇을 먼저 보여 줄까.
      대부분은 '얼마나 올랐나' 하나를 보러 온다. 그 답을 먼저 크게
-     말하고, 캔들은 '자세한 차트' 뒤에 둔다. 한 번 자세히 보기로
+     말하고, 캔들은 '자세히' 뒤에 둔다. 한 번 자세히 보기로
      한 사람은 다음에도 그럴 것이므로 이 기기에 기억한다. */
   const [자세한차트, set자세한차트] = use저장된값<boolean>("자세한차트", false);
   const [analystSubTab, setAnalystSubTab] = useState<"opinion" | "consensus">("opinion");
@@ -329,7 +344,7 @@ export default function StockDetail() {
   /* 0 도 '비었다' 로 친다 — 그러지 않으면 백엔드가 eps=0.0 을 준 종목에서
      이 폴백이 열리지도 않는다(0 == null 은 false 다). 유효() 참고. */
   const 기본지표가_비었나 = !!detail && (유효(detail.eps) == null || 유효(detail.per) == null);
-  const { data: fundamentalsData } = useQuery({
+  const { data: fundamentalsData, isFetching: 보완받는중 } = useQuery({
     queryKey: ["stock-fundamentals", m, sym],
     queryFn: () => stocksApi.getFundamentals(m, sym),
     enabled: !!sym && (mainTab === "financial" || 기본지표가_비었나),
@@ -349,7 +364,7 @@ export default function StockDetail() {
     기본지표가_비었나 && !!fundamentalsData &&
     (유효(fundamentalsData.eps) == null || 유효(fundamentalsData.per) == null);
 
-  const { data: metricsHistory } = useQuery({
+  const { data: metricsHistory, isFetching: 지표받는중 } = useQuery({
     queryKey: ["metrics-history", m, sym],
     queryFn: () => stocksApi.getMetricsHistory(m, sym),
     enabled: !!sym && (mainTab === "financial" || 지표보완도_비었나),
@@ -772,8 +787,17 @@ export default function StockDetail() {
   const 기본PER: number | null = finTabData.dEnhanced.per ?? null;
   const 기본EPS: number | null = finTabData.dEnhanced.eps ?? null;
 
+  /** PER·EPS 는 아직 오는 중인가.
+   *
+   *  이 둘은 detail → fundamentals → metrics-history 로 이어 받는다.
+   *  앞 칸이 비면 다음 칸을 부르는 구조라, 값이 늦게 채워지는 것이
+   *  정상이다. 그런데 그동안 화면에는 '—' 만 있었다 — 사용자에게는
+   *  '이 종목은 PER 이 없다' 와 구분이 안 된다. 기다리면 나오는 것과
+   *  기다려도 안 나오는 것은 완전히 다른 이야기다. */
+  const 지표오는중 = (보완받는중 || 지표받는중) && (기본PER == null || 기본EPS == null);
+
   const priceItems = useMemo(() => {
-    if (!d) return [] as { label: string; v: string | null; color?: string }[];
+    if (!d) return [] as 지표칸[];
     return [
       { label:"시가",     v: fmtPx(d.open) },
       { label:"고가",     v: fmtPx(d.high), color:"text-accent-red" },
@@ -801,12 +825,14 @@ export default function StockDetail() {
 
          EPS 는 주당 '금액' 이라 원화환산을 따라간다. PER 은 배수라
          환산 대상이 아니다. */
-      { label:"PER",      v: 기본PER != null ? `${기본PER.toFixed(2)}배` : null },
+      { label:"PER",      v: 기본PER != null ? `${기본PER.toFixed(2)}배` : null,
+                          받는중: 기본PER == null && 지표오는중 },
       { label:"EPS",      v: 기본EPS != null
                              ? (isKR || showKRW
                                  ? `${Math.round(isKR ? 기본EPS : 기본EPS * exchangeRate).toLocaleString("ko-KR")}원`
                                  : `$${기본EPS.toFixed(2)}`)
-                             : null },
+                             : null,
+                          받는중: 기본EPS == null && 지표오는중 },
       /* 아래는 응답에 실려 오는데 화면에 한 번도 안 쓰던 것들이다.
          새 요청이 늘지 않으므로 그냥 보여 주는 편이 낫다. */
       // 유통 주식 수·비율 — 해외 종목만 온다
@@ -817,9 +843,9 @@ export default function StockDetail() {
       // 이동평균 — 지금 값이 추세 위인지 아래인지 바로 읽힌다
       ...(d.ma50 != null  ? [{ label:"50일선",  v: fmtPx(d.ma50) }] : []),
       ...(d.ma200 != null ? [{ label:"200일선", v: fmtPx(d.ma200) }] : []),
-    ] as { label: string; v: string | null; color?: string }[];
+    ] as 지표칸[];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d?.open, d?.high, d?.low, d?.prev_close, d?.volume, d?.price, d?.amount, d?.market_cap, d?.week52_high, d?.week52_low, d?.dividend_yield, d?.shares_outstanding, d?.float_shares, d?.ma50, d?.ma200, 기본PER, 기본EPS, isKR, showKRW, exchangeRate, fmt]);
+  }, [d?.open, d?.high, d?.low, d?.prev_close, d?.volume, d?.price, d?.amount, d?.market_cap, d?.week52_high, d?.week52_low, d?.dividend_yield, d?.shares_outstanding, d?.float_shares, d?.ma50, d?.ma200, 기본PER, 기본EPS, 지표오는중, isKR, showKRW, exchangeRate, fmt]);
   const priceStr = d?.price != null
     ? isKR ? `₩${d.price.toLocaleString("ko-KR")}`
       : showKRW ? `₩${Math.round(d.price * exchangeRate).toLocaleString("ko-KR")}`
@@ -1131,9 +1157,11 @@ export default function StockDetail() {
               {priceItems.map((item) => (
                 <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-2xs text-text-dim whitespace-nowrap">{item.label}</span>
-                  <span className={`text-sm font-mono font-semibold num truncate ${(item as any).color ?? "text-text-secondary"}`}>
-                    {item.v ?? "—"}
-                  </span>
+                  {item.받는중 ? <오는중띠 /> : (
+                    <span className={`text-sm font-mono font-semibold num truncate ${item.color ?? "text-text-secondary"}`}>
+                      {item.v ?? "—"}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -1261,7 +1289,7 @@ export default function StockDetail() {
           차트보다 먼저 나왔다 — 고를 것이 많다는 건 아직 아무것도 안
           보여 줬다는 뜻이다.
 
-          캔들이 필요 없어진 것은 아니다. '자세한 차트' 를 누르면 그대로
+          캔들이 필요 없어진 것은 아니다. '자세히' 를 누르면 그대로
           나오고, 한 번 고른 것은 기억한다. */}
       {mainTab==="chart" && !자세한차트 && (
         <PriceTrend market={m} symbol={sym} 통화={isKR ? "KRW" : "USD"}
@@ -1379,6 +1407,29 @@ export default function StockDetail() {
           자연스럽고, 무엇보다 차트가 첫 화면에 들어온다.
           칸선은 긋지 않는다 — 선을 그으면 표가 되고, 표는 앱이 아니라
           스프레드시트로 읽힌다. */}
+      {/* 상세를 받는 동안에도 이 자리가 보여야 한다.
+          예전에는 d 가 올 때까지 통계 묶음이 통째로 없었다. 위 시세만
+          동그라미를 돌리고 있어서, 아래에 숫자가 더 온다는 것을 알
+          방법이 없었다 — 처음 온 사람에게는 '이 화면은 원래 이게
+          전부' 로 보인다. 자리를 미리 잡아 두면 뜰 때 화면도 안 밀린다. */}
+      {화면모양 === "app" && mainTab === "chart" && !d && loadingDetail && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 px-1">
+            <h2 className="text-base font-bold text-text-primary">통계</h2>
+            <span className="w-3 h-3 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
+            <span className="text-2xs text-text-dim">불러오는 중</span>
+          </div>
+          <div className="px-1 grid grid-cols-3 gap-x-3 gap-y-3.5">
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div key={i} className="flex flex-col gap-1 min-w-0">
+                <span className="h-2.5 w-10 rounded bg-bg-elevated animate-pulse" />
+                <span className="h-4 w-16 rounded bg-bg-elevated animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {화면모양 === "app" && mainTab === "chart" && d && (
         <div className="flex flex-col gap-2">
           <h2 className="text-base font-bold text-text-primary px-1">통계</h2>
@@ -1399,9 +1450,11 @@ export default function StockDetail() {
             {priceItems.map((item) => (
               <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
                 <span className="text-xs text-text-dim whitespace-nowrap">{item.label}</span>
-                <span className={`text-base font-mono font-semibold num truncate ${(item as any).color ?? "text-text-primary"}`}>
-                  {item.v ?? "—"}
-                </span>
+                {item.받는중 ? <오는중띠 넓게 /> : (
+                  <span className={`text-base font-mono font-semibold num truncate ${item.color ?? "text-text-primary"}`}>
+                    {item.v ?? "—"}
+                  </span>
+                )}
               </div>
             ))}
           </div>

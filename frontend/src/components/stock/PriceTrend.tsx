@@ -13,7 +13,7 @@
  * 앱 안에서 같은 모양의 그래프가 같은 방식으로 읽히는 편이, 화면마다
  * 다른 규칙을 익히게 하는 것보다 낫다.
  *
- * 캔들이 필요 없어진 것은 아니다. '자세한 차트' 를 누르면 그대로 나온다.
+ * 캔들이 필요 없어진 것은 아니다. '자세히' 를 누르면 그대로 나온다.
  *
  * ── 자산 흐름과 무엇을 나눠 쓰나 ──
  *
@@ -87,7 +87,7 @@ export default function PriceTrend({
   symbol: string;
   /** 값을 어떻게 적을까 — 툴팁과 최고·최저 줄에 쓴다 */
   통화?: "KRW" | "USD";
-  /** '자세한 차트' 를 눌렀을 때. 안 주면 그 버튼을 안 그린다 */
+  /** '자세히' 를 눌렀을 때. 안 주면 그 버튼을 안 그린다 */
   자세히?: () => void;
 }) {
   const [고른기간, set고른기간] = useState<기간id>("3개월");
@@ -146,21 +146,25 @@ export default function PriceTrend({
           >{g.label}</button>
         ))}
       </div>
+      {/* ── '간단히' 와 같은 자리에 둔다 ──
+          캔들 쪽 '간단히' 는 머리줄 오른쪽 끝에 있는데 이 버튼은 카드
+          맨 아래 가운데에 있었다. 그래서 오갈 때마다 버튼이 화면
+          반대편으로 뛰었다 — 되돌아오려고 눈으로 다시 찾아야 한다.
+          같은 일을 하는 버튼은 같은 자리에 있어야 한다. */}
+      {자세히 && (
+        <button
+          onClick={자세히}
+          className="shrink-0 px-2.5 py-1 rounded-lg border border-border text-2xs font-semibold
+                     text-text-muted hover:text-accent-blue hover:border-accent-blue/40
+                     transition-colors whitespace-nowrap"
+        >자세히</button>
+      )}
     </div>
   );
 
-  const 자세히버튼 = 자세히 ? (
-    /* 캔들이 필요 없어진 게 아니다. 다만 먼저 나올 것은 아니다 */
-    <button
-      onClick={자세히}
-      className="self-center px-3 py-1.5 rounded-lg border border-border text-2xs font-semibold
-                 text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-colors"
-    >자세한 차트</button>
-  ) : null;
-
   const 틀 = (속: React.ReactNode) => (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-bg-card p-4">
-      {머리}{속}{자세히버튼}
+      {머리}{속}
     </div>
   );
 
