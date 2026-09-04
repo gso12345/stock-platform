@@ -420,6 +420,37 @@ function SettingsPanel({ settings, onChange, onClose }: {
   );
 }
 
+/** 십자선이 가리키는 봉 하나. 화면 맨 위 '읽는 줄' 에 그대로 쓴다 */
+export interface 읽은봉 {
+  날짜: string;
+  시가: number; 고가: number; 저가: number; 종가: number;
+  거래량: number;
+  /** 전날 종가 대비. 첫 봉은 비교할 것이 없어 null */
+  등락률: number | null;
+  /** 켜 둔 지표들의 그날 값 — 이름 → 값 */
+  지표: Record<string, number>;
+}
+
+/** 봉 하나를 읽는 줄에 쓸 모양으로. 화면과 떼어 놔야 검사할 수 있다 */
+export function 봉읽기(
+  봉들: { time?: unknown; date?: unknown; open: number; high: number; low: number; close: number; volume?: number }[],
+  칸: number,
+  지표: Record<string, number> = {},
+): 읽은봉 | null {
+  const b = 봉들[칸];
+  if (!b) return null;
+  const 앞 = 칸 > 0 ? 봉들[칸 - 1] : null;
+  const 날 = String(b.time ?? b.date ?? "");
+  return {
+    날짜: 날.length >= 10 ? 날.slice(0, 10) : 날,
+    시가: b.open, 고가: b.high, 저가: b.low, 종가: b.close,
+    거래량: b.volume ?? 0,
+    /* 첫 봉은 전날이 없다. 0 으로 두면 '안 움직였다' 는 거짓말이 된다 */
+    등락률: 앞 && 앞.close ? ((b.close - 앞.close) / 앞.close) * 100 : null,
+    지표,
+  };
+}
+
 /* ── 메인 컴포넌트 ──────────────────────────────────────── */
 export default function StockChart({ data, height = 400, isKR = false, chartType = "candle", logScale = false }: Props) {
   const { colorScheme } = useSettingsStore();
@@ -435,6 +466,9 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
   const rocRef  = useRef<HTMLDivElement>(null);
   const mfiRef  = useRef<HTMLDivElement>(null);
 
+  /** 값 축 너비를 다시 맞추는 함수 — 만들어질 때 채워진다.
+   *  크기가 바뀌면(전체보기·회전) 축 너비도 달라지므로 다시 불러야 한다 */
+  const 축너비맞추기Ref = useRef<(() => void) | null>(null);
   const chartRef     = useRef<ReturnType<typeof createChart> | null>(null);
   const subRefs      = useRef<Map<string, ReturnType<typeof createChart>>>(new Map());
   const overlayRef   = useRef<Map<string, any>>(new Map());
@@ -454,6 +488,24 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
   settingsRef.current = settings;
 
   const [showSettings, setShowSettings] = useState(false);
+
+  /** 십자선이 가리키는 봉의 값들.
+   *
+   *  ── 왜 필요한가 ──
+   *
+   *  지금까지는 값을 **눈으로 어림**해야 했다. 축 눈금 사이에 있는 봉의
+   *  종가가 얼마인지, 그날 RSI 가 정확히 몇이었는지 알 방법이 없었다.
+   *  전문적인 분석은 거기서 시작한다 — '이 봉에서 RSI 가 30을 깼나' 는
+   *  어림으로 답할 수 있는 물음이 아니다.
+   *
+   *  null 이면 십자선이 차트 밖에 있다는 뜻이다. 그때는 마지막 봉을
+   *  보여 준다 — 빈 줄을 두면 그 줄만큼 화면이 들썩인다. */
+  const [읽은값, set읽은값] = useState<읽은봉 | null>(null);
+  /** 지금 읽고 있는 봉의 시각. 같은 봉이면 다시 그리지 않는다 —
+   *  마우스가 1px 움직일 때마다 React 를 다시 돌릴 이유가 없다 */
+  const 읽은때Ref = useRef<unknown>(null);
+  /** 시각 → 지표값. 칸을 만들 때 같이 채운다 */
+  const 지표값Ref = useRef<Map<unknown, Record<string, number>>>(new Map());
 
   const updateSettings = (s: ChartSettings) => {
     setSettingsState(s);
@@ -509,7 +561,53 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     ohlcvRef.current = ohlcv;
     const s = settingsRef.current;
 
-    const mkChart = (el: HTMLDivElement, h: number) => createChart(el, {
+    /** 값 축의 너비를 모든 칸에서 **같게** 맞춘다.
+     *
+     * 이게 '줄이 안 맞는다' 의 원인이었다. 칸마다 따로 만든 차트라
+     * 값 축 너비가 그 칸의 글자 길이대로 정해진다 —
+     *
+     *   본 차트  "₩2,400,000"  →  넓다
+     *   RSI      "70"          →  좁다
+     *   MACD     "250,000"     →  중간
+     *
+     * 축이 넓으면 그림 그리는 자리가 좁아진다. 그래서 세 칸의 시간축이
+     * 서로 어긋나고, 같은 날짜가 세로로 안 맞는다. 지표를 보는 이유가
+     * '이 봉일 때 RSI 가 얼마였나' 인데 그 세로줄이 안 맞으면 볼 수가 없다.
+     *
+     * 제일 넓은 축에 나머지를 맞춘다. minimumWidth 는 바닥값이라,
+     * 제일 넓은 것을 바닥으로 주면 전부 그 너비가 된다. */
+    const 축너비_맞추기 = () => {
+      const 칸들 = [chartRef.current, ...subRefs.current.values()].filter(Boolean);
+      if (칸들.length < 2) return;
+      let 제일넓은 = 0;
+      for (const c of 칸들) {
+        try { 제일넓은 = Math.max(제일넓은, c!.priceScale("right").width()); } catch { /* 무시 */ }
+      }
+      if (!(제일넓은 > 0)) return;
+      for (const c of 칸들) {
+        try { c!.priceScale("right").applyOptions({ minimumWidth: 제일넓은 }); } catch { /* 무시 */ }
+      }
+    };
+    축너비맞추기Ref.current = 축너비_맞추기;
+
+    /** 값 축에 무엇을 적을까.
+     *
+     * 통화 표기(₩·$)는 **본 차트에만** 붙인다. 예전에는 이 형식이 모든
+     * 칸에 걸려서 RSI 가 'W42.734', MACD 가 'W250,000' 으로 나왔다.
+     * RSI 는 0~100 짜리 지수지 돈이 아니다 — 단위가 틀리면 그 숫자는
+     * 읽는 사람을 속인다.
+     *
+     * 지표 칸은 그냥 숫자로 적되 자릿수만 다듬는다. OBV 처럼 수천만이
+     * 넘는 것도 있고 RSI 처럼 소수점이 필요한 것도 있어서, 크기를 보고
+     * 정한다. */
+    const 지표숫자 = (v: number) => {
+      const 크기 = Math.abs(v);
+      if (크기 >= 10_000) return Math.round(v).toLocaleString();
+      if (크기 >= 100) return v.toFixed(1);
+      return v.toFixed(2);
+    };
+
+    const mkChart = (el: HTMLDivElement, h: number, 돈인가 = false) => createChart(el, {
       layout: { background: { type: ColorType.Solid, color: C.card }, textColor: C.text },
       grid: { vertLines: { color: C.border }, horzLines: { color: C.border } },
       crosshair: { mode: CrosshairMode.Normal },
@@ -544,7 +642,9 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       width: el.clientWidth,
       height: h,
       localization: {
-        priceFormatter: (p: number) => isKR ? `₩${p.toLocaleString("ko-KR")}` : `$${p.toFixed(2)}`,
+        priceFormatter: (p: number) =>
+          돈인가 ? (isKR ? `₩${p.toLocaleString("ko-KR")}` : `$${p.toFixed(2)}`)
+                 : 지표숫자(p),
       },
     });
 
@@ -555,7 +655,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     overlayRef.current.clear();
 
     mainRef.current.innerHTML = "";
-    const main = mkChart(mainRef.current, heightRef.current);
+    const main = mkChart(mainRef.current, heightRef.current, true);   // 여기만 돈이다
     chartRef.current = main;
     main.priceScale("right").applyOptions({
       mode: logScaleRef.current ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
@@ -622,6 +722,70 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       build(c);
       syncByTime(main, c);
     };
+
+    /** 십자선이 읽을 값을 미리 담아 둔다.
+     *
+     *  마우스가 움직일 때 지표를 다시 계산하면 봉 수천 개짜리 차트에서
+     *  손이 미끄러진다. 그릴 때 한 번 계산한 것을 시각으로 찾을 수 있게
+     *  넣어 두고, 읽을 때는 찾기만 한다. */
+    지표값Ref.current = new Map();
+    const 담기 = (이름: string, 값들: { time: unknown; value: number }[]) => {
+      for (const d of 값들) {
+        const 칸 = 지표값Ref.current.get(d.time) ?? {};
+        칸[이름] = d.value;
+        지표값Ref.current.set(d.time, 칸);
+      }
+    };
+    s.mas.forEach((m) => 담기(`MA${m.period}`, calcMA(ohlcv, m.period) as never));
+    s.emas.forEach((e) => 담기(`EMA${e.period}`, calcEMA(ohlcv, e.period) as never));
+    if (s.bb) {
+      const { upper, middle, lower } = calcBB(ohlcv, s.bbPeriod, s.bbMult);
+      담기("BB상", upper as never); 담기("BB중", middle as never); 담기("BB하", lower as never);
+    }
+    if (s.vwap) 담기("VWAP", calcVWAP(ohlcv) as never);
+    if (s.rsi)  담기(`RSI(${s.rsiPeriod})`, calcRSI(ohlcv, s.rsiPeriod) as never);
+    if (s.macd) {
+      const { macdLine, signalLine } = calcMACD(ohlcv, s.macdFast, s.macdSlow, s.macdSignal);
+      담기("MACD", macdLine as never); 담기("시그널", signalLine as never);
+    }
+    if (s.stoch) {
+      const { kLine, dLine } = calcStochastic(ohlcv, s.stochK, s.stochD);
+      담기("%K", kLine as never); 담기("%D", dLine as never);
+    }
+    if (s.cci)      담기(`CCI(${s.cciPeriod})`, calcCCI(ohlcv, s.cciPeriod) as never);
+    if (s.atr)      담기(`ATR(${s.atrPeriod})`, calcATR(ohlcv, s.atrPeriod) as never);
+    if (s.williams) 담기(`W%R(${s.williamsPeriod})`, calcWilliams(ohlcv, s.williamsPeriod) as never);
+    if (s.mfi)      담기(`MFI(${s.mfiPeriod})`, calcMFI(ohlcv, s.mfiPeriod) as never);
+    if (s.roc)      담기(`ROC(${s.rocPeriod})`, calcROC(ohlcv, s.rocPeriod) as never);
+
+    /** 십자선을 따라 읽는다.
+     *
+     *  같은 봉 위에서 마우스가 움직이는 동안에는 아무것도 안 한다 —
+     *  1px 마다 React 를 다시 돌리면 손이 미끄러진다. 봉이 바뀔 때만
+     *  한 번 갱신한다. */
+    const 시각칸 = new Map<unknown, number>();
+    ohlcv.forEach((d: any, i: number) => 시각칸.set(ct(d), i));
+    main.subscribeCrosshairMove((param) => {
+      const 칸 = param.time === undefined ? -1 : (시각칸.get(param.time) ?? -1);
+      if (칸 < 0) {
+        /* 차트 밖으로 나갔다. 마지막 봉으로 되돌린다 — 줄을 비우면
+           그 줄만큼 화면이 들썩인다 */
+        if (읽은때Ref.current !== "끝") {
+          읽은때Ref.current = "끝";
+          set읽은값(봉읽기(ohlcv as never, ohlcv.length - 1,
+                          지표값Ref.current.get(ct(ohlcv[ohlcv.length - 1])) ?? {}));
+        }
+        return;
+      }
+      if (읽은때Ref.current === param.time) return;
+      읽은때Ref.current = param.time;
+      set읽은값(봉읽기(ohlcv as never, 칸, 지표값Ref.current.get(param.time) ?? {}));
+    });
+    /* 처음에는 마지막 봉을 보여 준다. 마우스를 올리기 전에도 지금 값이
+       보여야 한다 — 휴대폰에는 아예 마우스가 없다 */
+    읽은때Ref.current = "끝";
+    set읽은값(봉읽기(ohlcv as never, ohlcv.length - 1,
+                    지표값Ref.current.get(ct(ohlcv[ohlcv.length - 1])) ?? {}));
 
     if (s.rsi) addSub(rsiRef, "rsi", 110, c => {
       c.addLineSeries({ color: "#f59e0b", lineWidth: 1, priceLineVisible: false })
@@ -721,9 +885,23 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       }
     });
 
-    const resize = () => { main.applyOptions({ width: mainRef.current?.clientWidth ?? 800 }); };
+    /* 칸을 다 만든 뒤에 한 번 맞춘다. 축 너비는 글자가 그려져 봐야
+       정해지므로, 만드는 도중에 재면 아직 0 이거나 기본값이다.
+       다음 프레임에 재는 이유가 그것이다. */
+    const 맞추기예약 = requestAnimationFrame(() => 축너비맞추기Ref.current?.());
+
+    const resize = () => {
+      main.applyOptions({ width: mainRef.current?.clientWidth ?? 800 });
+      subRefs.current.forEach(c => {
+        try { c.applyOptions({ width: mainRef.current?.clientWidth ?? 800 }); } catch { /* 무시 */ }
+      });
+      /* 폭이 바뀌면 축 글자 수도 바뀐다(자릿수가 준다). 다시 맞춘다 —
+         안 그러면 전체보기로 열었다 닫을 때마다 줄이 어긋난다 */
+      requestAnimationFrame(() => 축너비맞추기Ref.current?.());
+    };
     window.addEventListener("resize", resize);
     return () => {
+      cancelAnimationFrame(맞추기예약);
       window.removeEventListener("resize", resize);
       try { main.remove(); } catch {}
       subRefs.current.forEach(c => { try { c.remove(); } catch {} });
@@ -765,6 +943,15 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
 
   const s = settings;
 
+  /** 읽는 줄에 쓸 값 표기 — 축과 같은 규칙이어야 한다.
+   *  축은 ₩1,234,000 인데 읽는 줄만 1234000 이면 같은 값이 두 모양이 된다 */
+  const 값글 = (v: number) =>
+    isKR ? `₩${Math.round(v).toLocaleString("ko-KR")}` : `$${v.toFixed(2)}`;
+  /* 오름·내림 색은 설정을 따른다(초록/빨강 · 빨강/파랑). 이 줄만
+     못 박아 두면 같은 화면 안에서 빨강이 두 뜻을 갖는다 */
+  const 오름클래스 = colorScheme === "red-blue" ? "text-accent-red" : "text-accent-green";
+  const 내림클래스 = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
+
   // 활성 지표 요약 텍스트 (버튼 표시용)
   const activeOverlay = [
     s.volume && "거래량",
@@ -799,6 +986,45 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
           위에 줄을 하나 더 뒀는데, 종목상세에는 이미 기간 줄·차트설정 줄이
           있어서 정작 차트가 보이기 전에 컨트롤이 세 줄이었다.
           겹쳐 놓아도 캔들은 아래쪽에 그려지므로 가리지 않는다. */}
+      {/* ── 읽는 줄 ──
+          십자선이 가리키는 봉의 값을 그대로 적는다.
+
+          지금까지는 값을 **눈으로 어림**해야 했다. 축 눈금 사이에 있는
+          봉의 종가가 얼마인지, 그날 RSI 가 정확히 몇이었는지 알 방법이
+          없었다. 전문적인 분석은 거기서 시작한다 — '이 봉에서 RSI 가
+          30을 깼나' 는 어림으로 답할 수 있는 물음이 아니다.
+
+          차트 위에 겹치지 않고 한 줄을 따로 둔다. 겹쳐 놓으면 왼쪽 위
+          봉들을 가리는데, 그 자리가 보통 제일 오래된 구간이라 추세의
+          시작점이 안 보인다. */}
+      {읽은값 && (
+        <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap px-2 py-1.5 text-2xs
+                        border-b border-border bg-bg-elevated/40 font-mono tabular-nums"
+             data-testid="읽는줄">
+          <span className="text-text-muted font-sans">{읽은값.날짜}</span>
+          <span className="text-text-dim">시 <b className="text-text-secondary font-semibold">{값글(읽은값.시가)}</b></span>
+          <span className="text-text-dim">고 <b className={`font-semibold ${오름클래스}`}>{값글(읽은값.고가)}</b></span>
+          <span className="text-text-dim">저 <b className={`font-semibold ${내림클래스}`}>{값글(읽은값.저가)}</b></span>
+          <span className="text-text-dim">종 <b className="text-text-primary font-bold">{값글(읽은값.종가)}</b></span>
+          {읽은값.등락률 != null && (
+            <span className={`font-semibold ${읽은값.등락률 >= 0 ? 오름클래스 : 내림클래스}`}>
+              {읽은값.등락률 >= 0 ? "+" : ""}{읽은값.등락률.toFixed(2)}%
+            </span>
+          )}
+          {읽은값.거래량 > 0 && (
+            <span className="text-text-dim">량 <b className="text-text-secondary font-semibold">
+              {읽은값.거래량.toLocaleString()}</b></span>
+          )}
+          {/* 켜 둔 지표의 그날 값. 지표를 켜는 이유가 이 숫자다 */}
+          {Object.entries(읽은값.지표).map(([이름, v]) => (
+            <span key={이름} className="text-text-dim">
+              {이름} <b className="text-text-secondary font-semibold">
+                {Math.abs(v) >= 10_000 ? Math.round(v).toLocaleString() : v.toFixed(2)}</b>
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="relative">
         <div className="absolute top-1.5 left-2 right-2 z-10 flex items-start gap-2 pointer-events-none">
           <div className="flex flex-wrap gap-1 flex-1 overflow-hidden">

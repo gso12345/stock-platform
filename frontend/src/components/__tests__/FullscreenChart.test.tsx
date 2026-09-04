@@ -69,7 +69,9 @@ describe("전체화면 차트", () => {
     expect(StockChart원문).not.toMatch(/\}, \[data, chartType, height,/);
     expect(StockChart원문).toMatch(/chartRef\.current\?\.applyOptions\(\{ height \}\)/);
     // 재생성 때는 최신 높이를 ref 로 읽어야 낡은 값으로 만들어지지 않는다
-    expect(StockChart원문).toMatch(/mkChart\(mainRef\.current, heightRef\.current\)/);
+    /* 세 번째 인자(돈인가)가 붙었다. 여기서 보려는 것은 '최신 높이를
+       ref 로 읽는가' 이므로 뒤는 열어 둔다 */
+    expect(StockChart원문).toMatch(/mkChart\(mainRef\.current, heightRef\.current[,)]/);
   });
 
   it("닫으면 잰 값을 지운다", () => {
