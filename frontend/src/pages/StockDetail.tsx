@@ -8,7 +8,6 @@ import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, portfolioAp
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import { marketSession, SESSION_LABEL } from "@/hooks/useLivePrices";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
-import { Card } from "@/components/ui";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, CandlestickChart, LineChart, AreaChart,
@@ -21,7 +20,7 @@ import { fmtKRW, fmtUSD, fmtVolume } from "@/utils/formatters";
 import { use저장된값 } from "@/hooks/useSaved";
 import { isETFStock } from "@/utils/etf";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
-import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
+import { GRADE_BANDS, gradeColor } from "@/utils/quant";
 import CommunityTab from "@/components/community/CommunityTab";
 import SupplyDemandTab from "@/components/stock/SupplyDemandTab";
 import RangeBar from "@/components/stock/RangeBar";
@@ -39,7 +38,7 @@ import { AddToPortfolioModal } from "@/components/watchlist/WatchlistModals";
 const 재무제표탭 = lazy(() => import("@/components/stock/FinancialTab"));
 const 투자의견탭 = lazy(() => import("@/components/stock/AnalystTab"));
 
-import { SectionTitle } from "@/components/stock/DetailBits";
+import QuantScoreView from "@/components/stock/QuantScoreView";
 
 import { FIN_CUSTOM_KEY } from "@/constants/finMetrics";
 
@@ -1565,115 +1564,70 @@ export default function StockDetail() {
         </Suspense>
       )}
 
-      {/* 퀀트점수 탭 */}
-      {mainTab==="quant" && (() => {
-        return (
-          <div className="flex flex-col gap-3">
-            <Card className="flex flex-col gap-4">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex flex-col gap-1">
-                <div className="flex items-baseline gap-3">
-                  <span className="text-4xl font-mono font-bold text-text-primary">
-                    {quantMetricsIncomplete ? "···" : quantScore?.total_score ?? (loadingQuant ? "···" : "—")}
-                  </span>
-                  <span className="text-base text-text-muted">/ 100</span>
-                  {!quantMetricsIncomplete && quantScore?.grade && (
-                    <span className={`text-2xl font-bold ${gradeColor(quantScore.grade)}`}>{quantScore.grade}</span>
-                  )}
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowGradeHelp((s) => !s)}
-                      className={`flex items-center justify-center w-5 h-5 rounded-full border transition-colors ${
-                        showGradeHelp ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
-                      }`}
-                      title="등급 기준 보기"
-                    >
-                      <HelpCircle size={13}/>
-                    </button>
-                    {showGradeHelp && (
-                      <div className="absolute left-0 top-7 z-20 w-56 rounded-xl border border-border bg-bg-elevated shadow-float p-3 flex flex-col gap-1.5">
-                        <span className="text-base font-semibold text-text-secondary pb-1">종합 점수 → 등급 기준</span>
-                        {GRADE_BANDS.map((b) => (
-                          <div key={b.grade} className="flex items-center justify-between text-base">
-                            <span className={`font-bold ${gradeColor(b.grade)}`}>{b.grade}</span>
-                            <span className="text-text-secondary font-mono">{b.range}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {quantMetricsIncomplete && (
-                  <span className="text-xs text-text-muted">일부 지표 데이터를 수집하는 중입니다…</span>
-                )}
-                </div>
+      {/* 퀀트점수 탭 —
+          숫자가 글자로만 놓여 있었다. 78이 100 중에 어디쯤인지 알려면
+          머릿속에서 자를 대야 했고, 어느 팩터가 발목을 잡는지는 다섯
+          칸을 눈으로 훑어 비교해야 했다. 그건 화면이 할 일이다.
+          그리기는 QuantScoreView 로 옮긴다 — 이 파일은 이미 너무 길다. */}
+      {mainTab==="quant" && (
+        <QuantScoreView
+          quantScore={quantScore}
+          받는중={loadingQuant}
+          모으는중={quantMetricsIncomplete}
+          설정버튼={
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* 등급 기준은 점수 옆에 있어야 한다 — 등급을 보고
+                  '이게 몇 점부터인가' 가 바로 다음 물음이다 */}
+              <div className="relative">
                 <button
-                  onClick={() => setShowQuantSettings((s) => !s)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
-                    showQuantSettings ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
-                  }`}
+                  onClick={() => setShowGradeHelp((v) => !v)}
+                  aria-expanded={showGradeHelp}
+                  className={`flex items-center justify-center w-7 h-7 rounded-lg border transition-colors ${
+                    showGradeHelp ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+                                  : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"}`}
+                  title="등급 기준 보기" aria-label="등급 기준 보기"
                 >
-                  <Settings2 size={14}/>기준 수정
+                  <HelpCircle size={13}/>
                 </button>
-              </div>
-
-              {showQuantSettings && (
-                <QuantSettingsPanel
-                  weightsDraft={quantSettings.weightsDraft}
-                  metricsDraft={quantSettings.metricsDraft}
-                  onUpdateWeight={quantSettings.updateWeight}
-                  onToggleMetric={quantSettings.toggleMetric}
-                  onReset={quantSettings.resetToDefault}
-                  onSave={() => quantSettings.save.mutate({ weights: quantSettings.weightsDraft ?? QUANT_DEFAULT_WEIGHTS, metrics: quantSettings.metricsDraft ?? {} })}
-                  onClose={() => setShowQuantSettings(false)}
-                  isSaving={quantSettings.save.isPending}
-                  isLoggedIn={isLoggedIn}
-                  saveMsg={quantSettings.saveMsg}
-                />
-              )}
-
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                {(quantScore?.factors ?? []).map((f) => (
-                  <div key={f.key} className="flex flex-col gap-1.5 p-3 rounded-xl border border-border bg-bg-elevated">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-text-secondary">{f.label}</span>
-                      <span className="text-xs text-text-muted">{f.weight}%</span>
-                    </div>
-                    <span className={`text-lg font-mono font-bold ${scoreColor(f.score)}`}>{quantMetricsIncomplete ? "···" : f.score ?? "—"}</span>
-                    <div className="h-1.5 rounded-full bg-bg-primary overflow-hidden">
-                      <div className="h-full bg-accent-blue rounded-full" style={{ width: `${quantMetricsIncomplete ? 0 : Math.max(0, Math.min(100, f.score ?? 0))}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card className="flex flex-col gap-4">
-              <SectionTitle>세부 지표</SectionTitle>
-              {(quantScore?.factors ?? []).map((f) => (
-                <div key={f.key} className="flex flex-col gap-1.5">
-                  <span className="text-sm font-bold text-text-muted">{f.label}</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {f.metrics.map((mt) => (
-                      <div key={mt.key} className="flex flex-col gap-0.5 p-2.5 rounded-lg border border-border/60 bg-bg-primary">
-                        <span className="text-xs text-text-muted truncate">{mt.label}</span>
-                        <span className="text-base font-mono text-text-primary">{mt.value != null ? `${mt.value}${mt.unit}` : "—"}</span>
-                        <span className={`text-xs font-mono ${scoreColor(mt.score)}`}>
-                          {mt.score != null ? `${mt.score}점` : "데이터 없음"}
-                        </span>
+                {showGradeHelp && (
+                  <div className="absolute right-0 top-8 z-20 w-52 rounded-xl border border-border bg-bg-elevated shadow-float p-3 flex flex-col gap-1.5">
+                    <span className="text-xs font-semibold text-text-secondary pb-1">점수 → 등급</span>
+                    {GRADE_BANDS.map((b) => (
+                      <div key={b.grade} className="flex items-center justify-between text-xs">
+                        <span className={`font-bold ${gradeColor(b.grade)}`}>{b.grade}</span>
+                        <span className="text-text-secondary font-mono">{b.range}</span>
                       </div>
                     ))}
                   </div>
-                </div>
-              ))}
-              <p className="text-xs text-text-muted leading-relaxed pt-1">
-                업종 구분 없는 일반적인 기준 구간을 0~100점으로 환산한 참고용 점수이며 투자 조언이 아닙니다.
-                일부 지표는 데이터가 없으면 제외되고, 해당 팩터·종합 점수의 가중치가 나머지 항목으로 재분배됩니다.
-              </p>
-            </Card>
-          </div>
-        );
-      })()}
+                )}
+              </div>
+              <button
+                onClick={() => setShowQuantSettings((v) => !v)}
+                aria-expanded={showQuantSettings}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap ${
+                  showQuantSettings ? "border-accent-blue text-accent-blue bg-accent-blue/5"
+                                    : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"}`}
+              >
+                <Settings2 size={13}/>기준 수정
+              </button>
+            </div>
+          }
+          설정패널={showQuantSettings && (
+            <QuantSettingsPanel
+              weightsDraft={quantSettings.weightsDraft}
+              metricsDraft={quantSettings.metricsDraft}
+              onUpdateWeight={quantSettings.updateWeight}
+              onToggleMetric={quantSettings.toggleMetric}
+              onReset={quantSettings.resetToDefault}
+              onSave={() => quantSettings.save.mutate({ weights: quantSettings.weightsDraft ?? QUANT_DEFAULT_WEIGHTS, metrics: quantSettings.metricsDraft ?? {} })}
+              onClose={() => setShowQuantSettings(false)}
+              isSaving={quantSettings.save.isPending}
+              isLoggedIn={isLoggedIn}
+              saveMsg={quantSettings.saveMsg}
+            />
+          )}
+        />
+      )}
 
       {/* 투자의견 탭 */}
       {mainTab==="analyst" && (
