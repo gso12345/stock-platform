@@ -102,7 +102,11 @@ function 게이지({ score, grade, 받는중 }: {
           <span className="h-9 w-16 rounded bg-bg-elevated animate-pulse"
                 role="status" aria-label="불러오는 중" />
         ) : (
-          <span className="text-4xl leading-none font-mono font-bold text-text-primary tabular-nums">
+          /* 토큰에 없는 크기를 쓰면 안 된다. text-4xl 은 Tailwind 기본값
+             (2.25rem = 31.5px)으로 새어 들어와, 이 앱에서 제일 큰 토큰
+             (hero 26.2px)보다도 커진다 — 화면 하나에 그것보다 큰 글자가
+             있을 이유가 없다. 게이지 안에 들어가는 숫자라 더 그렇다. */
+          <span className="text-hero leading-none font-mono font-bold text-text-primary tabular-nums">
             {score ?? "—"}
           </span>
         )}

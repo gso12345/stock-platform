@@ -101,6 +101,9 @@ html.light {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
+  /* 기본은 위의 14px 다. 아래는 설정에서 고르는 것 —
+     작게 12 · 보통 14 · 크게 16 · 아주 크게 18 */
+  html.font-small { font-size: 12px; }
   html.font-large { font-size: 16px; }
   html.font-xl    { font-size: 18px; }
 

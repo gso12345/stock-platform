@@ -1,7 +1,19 @@
 import { create } from "zustand";
 
 export type ColorScheme = "green-red" | "red-blue";
-export type FontSize = "normal" | "large" | "xl";
+/** 글씨 크기.
+ *
+ *  ── 이름과 실제가 어긋나 있었다 ──
+ *
+ *  설정 화면의 라벨이 '작게 / 기본 / 크게' 였는데, 값은
+ *  normal(14px) / large(16px) / xl(18px) 이었다. 즉 **'작게' 라고
+ *  적힌 것이 사실은 기본값**이고, '기본' 을 고르면 14% 커졌다.
+ *  이름을 믿고 '기본' 을 고른 사람은 자기도 모르게 키운 셈이다.
+ *
+ *  라벨을 실제에 맞추고, 진짜로 더 작은 칸(small, 12px)을 새로 둔다.
+ *  '작게' 자리가 원래부터 비어 있었다 — 제일 작은 것이 곧 기본값이라
+ *  줄일 방법이 아예 없었다. */
+export type FontSize = "small" | "normal" | "large" | "xl";
 export type Theme = "light" | "dark" | "system";
 export type Orientation = "system" | "portrait" | "landscape";
 
@@ -65,7 +77,7 @@ function load(): 저장값 {
       const p = JSON.parse(raw);
       return {
         colorScheme: p.colorScheme === "red-blue" ? "red-blue" : "green-red",
-        fontSize: (["normal", "large", "xl"] as FontSize[]).includes(p.fontSize) ? p.fontSize : "normal",
+        fontSize: (["small", "normal", "large", "xl"] as FontSize[]).includes(p.fontSize) ? p.fontSize : "normal",
         theme: (["light", "dark", "system"] as Theme[]).includes(p.theme) ? p.theme : legacyTheme(),
         orientation: (["system", "portrait", "landscape"] as Orientation[]).includes(p.orientation) ? p.orientation : "system",
         화면모양: 정상화면모양(p.화면모양),

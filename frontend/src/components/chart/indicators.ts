@@ -290,3 +290,90 @@ export function calcMFI(data: OHLCV[], period = 14): TimedValue[] {
   }
   return result;
 }
+
+/* ── 일목균형표 (Ichimoku) ─────────────────────────────
+ *
+ * 국내에서 제일 많이 쓰이는 추세 도구인데 없었다. 다섯 선이 한꺼번에
+ * '지지·저항·추세·시점' 을 말해 준다 — 이동평균 여러 개를 겹쳐 놓는
+ * 것과 보는 방식이 다르다.
+ *
+ *   전환선  (9)   최근 9봉의 (고+저)/2      단기 균형
+ *   기준선  (26)  최근 26봉의 (고+저)/2     중기 균형
+ *   선행스팬A     (전환+기준)/2 를 26봉 **앞으로**
+ *   선행스팬B     최근 52봉의 (고+저)/2 를 26봉 앞으로
+ *   후행스팬      종가를 26봉 **뒤로**
+ *
+ * 앞뒤로 옮기는 것이 이 지표의 핵심이다. 그냥 그날 자리에 두면
+ * 구름(A와 B 사이)이 미래를 안 가리키게 되어 뜻이 없어진다.
+ *
+ * 옮긴 선은 데이터의 끝을 넘어간다. 그 자리에는 아직 봉이 없으므로
+ * 날짜를 만들어야 하는데, 여기서는 **있는 봉의 날짜까지만** 그린다 —
+ * 없는 날짜를 지어내면 시간축이 어긋나고, 그건 지지선 위치를 통째로
+ * 틀리게 만든다. 앞으로 나가는 부분은 화면 밖이라고 보면 된다.
+ */
+function 중앙값(data: OHLCV[], 끝: number, 기간: number): number | null {
+  const 시작 = 끝 - 기간 + 1;
+  if (시작 < 0) return null;
+  let hi = -Infinity, lo = Infinity;
+  for (let i = 시작; i <= 끝; i++) {
+    if (data[i].high > hi) hi = data[i].high;
+    if (data[i].low  < lo) lo = data[i].low;
+  }
+  return (hi + lo) / 2;
+}
+
+export function calcIchimoku(
+  data: OHLCV[], 전환기간 = 9, 기준기간 = 26, 선행B기간 = 52, 밀기 = 26,
+): {
+  전환선: TimedValue[]; 기준선: TimedValue[];
+  선행A: TimedValue[]; 선행B: TimedValue[]; 후행: TimedValue[];
+} {
+  const 전환선: TimedValue[] = [], 기준선: TimedValue[] = [];
+  const 선행A: TimedValue[] = [], 선행B: TimedValue[] = [], 후행: TimedValue[] = [];
+
+  for (let i = 0; i < data.length; i++) {
+    const 전 = 중앙값(data, i, 전환기간);
+    const 기 = 중앙값(data, i, 기준기간);
+    if (전 != null) 전환선.push({ time: t(data[i]), value: 전 });
+    if (기 != null) 기준선.push({ time: t(data[i]), value: 기 });
+
+    /* 선행스팬은 **앞으로** 민다. 지금 계산한 값이 26봉 뒤 자리에
+       놓여야 구름이 미래를 가리킨다 */
+    const 앞자리 = i + 밀기;
+    if (앞자리 < data.length) {
+      if (전 != null && 기 != null) 선행A.push({ time: t(data[앞자리]), value: (전 + 기) / 2 });
+      const B = 중앙값(data, i, 선행B기간);
+      if (B != null) 선행B.push({ time: t(data[앞자리]), value: B });
+    }
+
+    /* 후행스팬은 종가를 **뒤로** 민다. 지금 값이 26봉 전 자리에 놓여야
+       '그때 가격을 지금 넘었나' 를 볼 수 있다 */
+    const 뒷자리 = i - 밀기;
+    if (뒷자리 >= 0) 후행.push({ time: t(data[뒷자리]), value: data[i].close });
+  }
+  return { 전환선, 기준선, 선행A, 선행B, 후행 };
+}
+
+/* ── 피보나치 되돌림 ───────────────────────────────────
+ *
+ * 오른 구간이 어디까지 밀릴지, 밀린 구간이 어디서 막힐지를 보는
+ * 가장 흔한 자다. 고점과 저점만 있으면 나머지는 비율이다.
+ *
+ * 구간을 **보고 있는 화면**에서 잡는다. 전체 기간의 고·저로 잡으면
+ * 3년 전 고점이 이번 달 그래프를 지배해서, 화면에 그은 선이 지금
+ * 움직임과 아무 상관이 없어진다.
+ */
+export const 피보_비율 = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] as const;
+
+export function calcFibonacci(data: OHLCV[]): { 비율: number; value: number }[] {
+  if (data.length < 2) return [];
+  let hi = -Infinity, lo = Infinity;
+  for (const d of data) {
+    if (d.high > hi) hi = d.high;
+    if (d.low  < lo) lo = d.low;
+  }
+  if (!(hi > lo)) return [];       // 한 줄로 붙어 있으면 그을 자가 없다
+  /* 0% 를 고점에 둔다 — 오름 구간에서 '얼마나 되돌렸나' 로 읽는 것이
+     이 도구의 본디 쓰임이다 */
+  return 피보_비율.map((비율) => ({ 비율, value: hi - (hi - lo) * 비율 }));
+}

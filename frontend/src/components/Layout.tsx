@@ -75,8 +75,9 @@ export default function Layout() {
   /* 글씨 크기 클래스 적용 */
   useEffect(() => {
     const html = document.documentElement;
-    html.classList.remove("font-large", "font-xl");
-    if (fontSize === "large") html.classList.add("font-large");
+    html.classList.remove("font-small", "font-large", "font-xl");
+    if (fontSize === "small") html.classList.add("font-small");
+    else if (fontSize === "large") html.classList.add("font-large");
     else if (fontSize === "xl") html.classList.add("font-xl");
   }, [fontSize]);
 

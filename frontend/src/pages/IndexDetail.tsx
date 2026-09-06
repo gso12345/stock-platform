@@ -144,7 +144,7 @@ export default function IndexDetail() {
       {info && (
         <Card className="flex items-center gap-6 flex-wrap">
           <div>
-            <div className="text-4xl font-mono font-bold text-text-primary num">{fmt(info.value)}</div>
+            <div className="text-hero font-mono font-bold text-text-primary num">{fmt(info.value)}</div>
             <div className="flex items-center gap-2 mt-1.5">
               {isUp?<TrendingUp size={14} className={upColor}/>:<TrendingDown size={14} className={downColor}/>}
               <ChangeBadge value={info.change ?? 0} suffix="" />

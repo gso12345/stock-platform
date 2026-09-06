@@ -3,7 +3,8 @@ import { createChart, ColorType, CrosshairMode, LineStyle, PriceScaleMode } from
 import { Settings, Plus, X } from "lucide-react";
 import {
   calcMA, calcEMA, calcBB, calcRSI, calcMACD, calcStochastic, calcVolume,
-  calcCCI, calcATR, calcOBV, calcWilliams, calcVWAP, calcSAR, calcADX, calcROC, calcMFI, OHLCV,
+  calcCCI, calcATR, calcOBV, calcWilliams, calcVWAP, calcSAR, calcADX, calcROC, calcMFI,
+  calcIchimoku, calcFibonacci, OHLCV,
 } from "./indicators";
 import { useSettingsStore, type ColorScheme } from "@/store/settingsStore";
 
@@ -83,6 +84,13 @@ export interface ChartSettings {
   adx:     boolean; adxPeriod: number;
   roc:     boolean; rocPeriod: number;
   mfi:     boolean; mfiPeriod: number;
+  /** 일목균형표 — 다섯 선이 한꺼번에 지지·저항·추세·시점을 말한다.
+   *  국내에서 제일 많이 쓰이는 추세 도구인데 없었다 */
+  ichimoku: boolean;
+  /** 피보나치 되돌림 — **보고 있는 구간**의 고·저로 긋는다.
+   *  전체 기간으로 잡으면 3년 전 고점이 이번 달 그래프를 지배해서,
+   *  그은 선이 지금 움직임과 아무 상관이 없어진다 */
+  fib: boolean;
 }
 
 const MA_PALETTE = ["#f59e0b","#3b82f6","#8b5cf6","#10b981","#ef4444","#06b6d4","#ec4899","#14b8a6","#f97316","#6366f1"];
@@ -101,6 +109,7 @@ const DEFAULT_SETTINGS: ChartSettings = {
   williams: false, williamsPeriod: 14,
   vwap: false,
   sar: false, sarStep: 0.02, sarMax: 0.2,
+  ichimoku: false, fib: false,
   adx: false, adxPeriod: 14,
   roc: false, rocPeriod: 12,
   mfi: false, mfiPeriod: 14,
@@ -316,6 +325,16 @@ function SettingsPanel({ settings, onChange, onClose }: {
                   <NumInput label="표준편차" value={settings.bbMult} onChange={v => set({ bbMult: v })} min={1} max={5}/>
                 </div>
               )}
+            </div>
+
+            {/* ── 추세 도구 ──
+                일목균형표는 국내에서 제일 많이 쓰이는 추세 도구인데
+                없었다. 다섯 선이 한꺼번에 지지·저항·추세·시점을 말한다.
+                피보나치는 '어디까지 밀릴까' 를 보는 가장 흔한 자다. */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide border-b border-border pb-1">추세 도구</span>
+              <Toggle label="일목균형표" checked={settings.ichimoku} onToggle={() => set({ ichimoku: !settings.ichimoku })} color="#8b5cf6"/>
+              <Toggle label="피보나치 되돌림" checked={settings.fib} onToggle={() => set({ fib: !settings.fib })} color="#f59e0b"/>
             </div>
 
             {/* VWAP */}
@@ -543,6 +562,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     adx: settings.adx, adxPeriod: settings.adxPeriod,
     roc: settings.roc, rocPeriod: settings.rocPeriod,
     mfi: settings.mfi, mfiPeriod: settings.mfiPeriod,
+    ichimoku: settings.ichimoku, fib: settings.fib,
     masLen: settings.mas.length,
     emasLen: settings.emas.length,
   }), [settings]);
@@ -675,7 +695,25 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
 
     // 거래량
     if (s.volume) {
-      const vol = main.addHistogramSeries({ priceScaleId: "volume", color: "#3b82f620" });
+      /** 거래량은 **주식 수**지 돈이 아니다.
+       *
+       *  차트의 값 형식(localization.priceFormatter)은 그 차트의 모든
+       *  시리즈에 걸린다. 본 차트에 얹은 거래량도 그래서 '₩402,164' 로
+       *  나왔다 — 402,164주를 40만원으로 읽게 만든다. 지표 칸의 RSI 가
+       *  '₩42.734' 로 나오던 것과 같은 뿌리다.
+       *
+       *  시리즈마다 따로 줄 수 있는 priceFormat 으로 덮는다. 소수점은
+       *  없앤다 — 주식은 쪼개서 못 산다(그렇게 세는 시장도 있지만,
+       *  화면에 '402,164.00주' 라고 적을 이유는 없다). */
+      const vol = main.addHistogramSeries({
+        priceScaleId: "volume",
+        color: "#3b82f620",
+        priceFormat: {
+          type: "custom",
+          minMove: 1,
+          formatter: (v: number) => `${Math.round(v).toLocaleString()}주`,
+        },
+      });
       main.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
       vol.setData(calcVolume(ohlcv, hexToRgba(C.up, 0.5), hexToRgba(C.down, 0.5)).map(d => ({ time: d.time as any, value: d.value, color: d.color })));
       overlayRef.current.set("volume", vol);
@@ -702,6 +740,66 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       main.addLineSeries(bopt).setData(upper.map(d => ({ time: d.time as any, value: d.value })));
       main.addLineSeries({ ...bopt, lineStyle: LineStyle.Dashed }).setData(middle.map(d => ({ time: d.time as any, value: d.value })));
       main.addLineSeries(bopt).setData(lower.map(d => ({ time: d.time as any, value: d.value })));
+    }
+
+    /* ── 일목균형표 ──
+       선행스팬은 26봉 **앞으로**, 후행스팬은 26봉 **뒤로** 민다. 그
+       옮김이 이 지표의 핵심이라, 그냥 그날 자리에 두면 구름이 미래를
+       안 가리키게 되어 뜻이 없어진다(indicators.ts 주석 참조).
+
+       구름(선행A와 B 사이)은 색을 못 채운다 — lightweight-charts 에
+       두 선 사이를 메우는 기능이 없다. 두 선을 굵기 다르게 긋고
+       범례에 적는 편이, 캔버스를 하나 더 얹어 좌표를 손으로 맞추는
+       것보다 안 어긋난다. */
+    if (s.ichimoku) {
+      const { 전환선, 기준선, 선행A, 선행B, 후행 } = calcIchimoku(ohlcv);
+      const 옵 = { lineWidth: 1 as 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
+      const 긋기 = (색: string, 값: typeof 전환선, 점선 = false) =>
+        main.addLineSeries({ ...옵, color: 색, ...(점선 ? { lineStyle: LineStyle.Dashed } : {}) })
+            .setData(값.map(d => ({ time: d.time as any, value: d.value })));
+      긋기("#3b82f6", 전환선);                 // 전환선 — 단기 균형
+      긋기("#ef4444", 기준선);                 // 기준선 — 중기 균형
+      긋기("#10b981", 선행A, true);            // 구름 위쪽
+      긋기("#f97316", 선행B, true);            // 구름 아래쪽
+      긋기("#94a3b8", 후행);                   // 후행스팬
+    }
+
+    /* ── 피보나치 되돌림 ──
+       구간을 **보고 있는 화면**에서 잡는다. 전체 기간의 고·저로 잡으면
+       3년 전 고점이 이번 달 그래프를 지배해서, 그은 선이 지금 움직임과
+       아무 상관이 없어진다. 그래서 화면을 옮기면 다시 긋는다.
+
+       가로줄은 시리즈가 아니라 createPriceLine 으로 긋는다. 시리즈로
+       그으면 세로 범위 계산에 끼어들어 캔들이 눌린다 — 자산 흐름에서
+       손익 선이 그래프를 찌그러뜨렸던 것과 같은 일이다. */
+    if (s.fib) {
+      const 기준시리즈 = main.addLineSeries({
+        color: "transparent", lastValueVisible: false, priceLineVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      기준시리즈.setData(ohlcv.map((d: any) => ({ time: ct(d), value: d.close })));
+      let 그은것: ReturnType<typeof 기준시리즈.createPriceLine>[] = [];
+      const 피보긋기 = () => {
+        for (const l of 그은것) { try { 기준시리즈.removePriceLine(l); } catch { /* 이미 지워짐 */ } }
+        그은것 = [];
+        const r = main.timeScale().getVisibleLogicalRange();
+        const 처음 = Math.max(0, Math.floor(r?.from ?? 0));
+        const 끝 = Math.min(ohlcv.length, Math.ceil(r?.to ?? ohlcv.length) + 1);
+        for (const { 비율, value } of calcFibonacci(ohlcv.slice(처음, 끝) as never)) {
+          그은것.push(기준시리즈.createPriceLine({
+            price: value,
+            /* 0%·100% 는 구간의 끝이라 진하게, 사이는 흐리게 —
+               다 같은 굵기로 그으면 어디가 기준인지 안 보인다 */
+            color: 비율 === 0 || 비율 === 1 ? "#f59e0b" : "#f59e0b70",
+            lineWidth: 1,
+            lineStyle: 비율 === 0 || 비율 === 1 ? LineStyle.Solid : LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: `${(비율 * 100).toFixed(1)}%`,
+          }));
+        }
+      };
+      피보긋기();
+      main.timeScale().subscribeVisibleLogicalRangeChange(() => 피보긋기());
     }
 
     main.timeScale().fitContent();
@@ -960,6 +1058,8 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
     s.bb && `BB(${s.bbPeriod})`,
     s.vwap && "VWAP",
     s.sar && "SAR",
+    s.ichimoku && "일목균형표",
+    s.fib && "피보나치",
   ].filter(Boolean) as string[];
   const activeSub = [
     s.rsi && `RSI(${s.rsiPeriod})`,

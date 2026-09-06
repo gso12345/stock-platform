@@ -47,7 +47,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   }`}
                 >
                   <opt.icon size={16} className="text-text-primary" />
-                  <span className="text-2xs text-text-muted">{opt.label}</span>
+                  <span className="text-2xs text-text-muted whitespace-nowrap">{opt.label}</span>
                 </button>
               ))}
             </div>
@@ -116,10 +116,15 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           <div>
             <p className="text-xs font-semibold text-text-muted mb-2">글씨 크기</p>
             <div className="flex gap-2">
+              {/* 라벨과 실제가 어긋나 있었다 — '작게' 로 적힌 것이 사실
+                  기본값(14px)이고 '기본' 을 고르면 14% 커졌다. 이름을
+                  믿고 '기본' 을 고른 사람은 자기도 모르게 키운 셈이다.
+                  이름을 실제에 맞추고, 진짜로 더 작은 칸을 새로 둔다 */}
               {([
-                { value: "normal", label: "작게",   size: "text-xs"  },
-                { value: "large",  label: "기본",   size: "text-sm"  },
-                { value: "xl",     label: "크게", size: "text-base" },
+                { value: "small",  label: "작게",     size: "text-2xs" },
+                { value: "normal", label: "보통",     size: "text-xs"  },
+                { value: "large",  label: "크게",     size: "text-sm"  },
+                { value: "xl",     label: "아주 크게", size: "text-base" },
               ] as const).map((opt) => (
                 <button
                   key={opt.value}
@@ -131,7 +136,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   }`}
                 >
                   <span className={`font-bold text-text-primary ${opt.size}`}>Aa</span>
-                  <span className="text-2xs text-text-muted">{opt.label}</span>
+                  <span className="text-2xs text-text-muted whitespace-nowrap">{opt.label}</span>
                 </button>
               ))}
             </div>
@@ -171,7 +176,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   }`}
                 >
                   <opt.icon size={16} className="text-text-primary" />
-                  <span className="text-2xs text-text-muted">{opt.label}</span>
+                  <span className="text-2xs text-text-muted whitespace-nowrap">{opt.label}</span>
                 </button>
               ))}
             </div>
