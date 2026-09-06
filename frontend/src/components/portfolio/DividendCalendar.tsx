@@ -191,6 +191,47 @@ export function 한달금액(r: 배당줄, 환율: number, 세후로 = false): n
  * 회사마다 달이 달라서(2·5·8·11 vs 3·6·9·12) 그걸 안 쓰면 한 해 그림이
  * 통째로 틀린다.
  */
+/**
+ * 그 달 칸이 **올해 실제로 받은 것**인가.
+ *
+ * "작년이랑 올해는 배당금이 다르잖아" — 맞는 말이다. 한 종목의 열두
+ * 칸은 서로 다른 해에서 나온다. 오늘이 9월이면 1~9월은 올해 실제로
+ * 받은 값이고, 10~12월은 작년 값에 올해 흐름을 얹은 **예상**이다.
+ *
+ * 그 둘을 한 숫자로 더해 '연간 배당금' 이라고 적으면, 절반이 예상인
+ * 값을 확정처럼 보여 주는 셈이다. 갈라 놓는다.
+ *
+ * 평균으로 메운 칸(year 가 없다)도 확정이 아니다 — 여러 해 평균이라
+ * 작년이 섞여 있다.
+ */
+export function 올해확정칸인가(r: 배당줄, 달: number, 오늘 = new Date()): boolean {
+  const 칸 = r.schedule?.find((x) => x.month === 달);
+  if (!칸 || 칸.year == null) return false;
+  return 칸.올해확정 ?? (칸.year === 오늘.getFullYear());
+}
+
+/**
+ * 달마다 얼마 — 확정과 예상을 갈라서.
+ *
+ * 예전에는 둘을 더해 하나로 줬다. 그래서 '연간 배당금' 이 확정처럼
+ * 보였는데, 연초에는 그 값의 대부분이 작년 값이다.
+ */
+export function 달마다갈라(줄들: 배당줄[], 환율: number, 세후로 = false, 오늘 = new Date()): {
+  확정: number[]; 예상: number[];
+} {
+  const 확정: number[] = Array(12).fill(0);
+  const 예상: number[] = Array(12).fill(0);
+  for (const r of 줄들) {
+    const 달들 = r.schedule?.length ? r.schedule.map((x) => x.month) : (r.months ?? []);
+    for (const m of 달들) {
+      if (m < 1 || m > 12) continue;
+      const 값 = 달금액(r, m, 환율, 세후로);
+      (올해확정칸인가(r, m, 오늘) ? 확정 : 예상)[m - 1] += 값;
+    }
+  }
+  return { 확정, 예상 };
+}
+
 export function 달마다(줄들: 배당줄[], 환율: number, 세후로 = false): number[] {
   const 칸: number[] = Array(12).fill(0);
   for (const r of 줄들) {
@@ -509,8 +550,14 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
   );
   const 아직 = 받은것?.pending ?? 0;
 
-  const 월별 = useMemo(() => 달마다(줄들, 환율, 세후로), [줄들, 환율, 세후로]);
-  const 한해 = useMemo(() => 월별.reduce((s, v) => s + v, 0), [월별]);
+  /* 확정과 예상을 갈라서 센다. 둘을 더해 '연간 배당금' 이라고 적으면
+     절반이 작년 값인 숫자를 확정처럼 보여 주는 셈이다 */
+  const { 확정: 월별확정, 예상: 월별예상 } =
+    useMemo(() => 달마다갈라(줄들, 환율, 세후로), [줄들, 환율, 세후로]);
+  const 월별 = useMemo(() => 월별확정.map((v, i) => v + 월별예상[i]), [월별확정, 월별예상]);
+  const 한해확정 = useMemo(() => 월별확정.reduce((s, v) => s + v, 0), [월별확정]);
+  const 한해예상 = useMemo(() => 월별예상.reduce((s, v) => s + v, 0), [월별예상]);
+  const 한해 = 한해확정 + 한해예상;
   const 최대 = useMemo(() => Math.max(...월별, 1), [월별]);
 
   /* ── 배당률 두 가지 ──
@@ -609,7 +656,7 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 -mt-1">
         <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-1 min-w-0">
           <span className="text-2xs text-text-dim whitespace-nowrap flex items-center gap-1">
-            연간 배당금
+            올해 받은 배당
             {/* 아직 못 받은 종목이 있으면 이 숫자는 **부분합**이다.
                 그걸 안 밝히면 사람은 이 값을 전체로 믿는다 — 실제로
                 '전체가 포트폴리오 하나보다 작다' 는 제보가 그래서 나왔다.
@@ -621,9 +668,20 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
           <span className={`text-xl sm:text-lg leading-tight font-mono font-bold num truncate ${
             아직 > 0 ? "text-text-secondary" : "text-text-primary"
           }`}>
-            {돈.원(한해)}
+            {돈.원(한해확정)}
             {아직 > 0 && <span className="text-sm text-text-dim">＋</span>}
           </span>
+          {/* ── 예상은 따로 적는다 ──
+              "작년이랑 올해는 배당금이 다르잖아" — 맞는 말이다. 아직
+              안 온 달은 작년 값에 올해 흐름을 얹은 **예상**이지 확정이
+              아니다. 한 숫자로 더해 놓으면 절반이 예상인 값을 확정처럼
+              보여 주는 셈이다 */}
+          {한해예상 > 0 && (
+            <span className="text-2xs text-text-dim truncate" data-testid="예상배당">
+              남은 달 예상 {돈.원(한해예상)}
+              <span className="opacity-70"> · 작년 기준</span>
+            </span>
+          )}
         </div>
         {([
           { 이름: "투자 배당률", 값: 투자배당률, 설명: "내가 넣은 돈 대비" },
@@ -653,12 +711,14 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
           const m = i + 1;
           const 고름 = m === 고른달;
           const 높이 = v > 0 ? Math.max(6, Math.round((v / 최대) * 44)) : 3;
+          /* 이 달 값이 전부 예상인가 — 확정이 한 푼도 없으면 그렇다 */
+          const 예상뿐인달 = v > 0 && 월별확정[i] === 0;
           return (
             <button
               key={m}
               onClick={() => set고른달(m)}
               aria-pressed={고름}
-              aria-label={`${m}월 ${v > 0 ? 돈.원(v) : "배당 없음"}`}
+              aria-label={`${m}월 ${v > 0 ? `${돈.원(v)}${월별확정[i] === 0 ? " (작년 기준 예상)" : ""}` : "배당 없음"}`}
               className="flex-1 flex flex-col items-center justify-end gap-0.5 group min-w-0"
             >
               <span className={`text-2xs leading-none tabular-nums truncate w-full text-center transition-colors ${
@@ -667,11 +727,23 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
               <span
                 /* 높이를 변수로 넘겨 화면 폭에 따라 늘린다. 인라인
                    style 로는 반응형을 못 쓴다 — PC 에서 44px 짜리 막대는
-                   너무 납작해서 달끼리 비교가 안 된다 */
-                style={{ ["--막대" as string]: `${높이}px` } as React.CSSProperties}
+                   너무 납작해서 달끼리 비교가 안 된다.
+
+                   확정과 예상은 무늬로 가른다. 아직 안 온 달은 작년 값에
+                   올해 흐름을 얹은 예상인데, 같은 색으로 그리면 확정과
+                   구분이 안 된다 — 빗금을 넣는다 */
+                style={{
+                  ["--막대" as string]: `${높이}px`,
+                  ...(예상뿐인달 ? {
+                    backgroundImage:
+                      "repeating-linear-gradient(45deg, transparent 0 3px, rgba(255,255,255,.18) 3px 6px)",
+                  } : {}),
+                } as React.CSSProperties}
+                title={예상뿐인달 ? `${m}월 — 작년 기준 예상` : undefined}
                 className={`w-full rounded-t-[3px] transition-colors h-[var(--막대)] sm:h-[calc(var(--막대)*1.6)] ${
                   고름 ? "bg-accent-green"
-                       : v > 0 ? "bg-accent-green/25 group-hover:bg-accent-green/40"
+                       : v > 0 ? (예상뿐인달 ? "bg-accent-green/12 group-hover:bg-accent-green/25"
+                                             : "bg-accent-green/25 group-hover:bg-accent-green/40")
                                : "bg-bg-elevated"
                 }`}
               />

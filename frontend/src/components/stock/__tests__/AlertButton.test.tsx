@@ -124,38 +124,38 @@ describe("빠른 목표 — 한 번 눌러서 건다", () => {
     }
   });
 
-  it("누르면 그 값으로 곧장 건다 — 입력칸을 거치지 않는다", async () => {
+  it("누르면 값만 채운다 — 바로 걸지 않는다", async () => {
+    /* 예전에는 누르는 순간 알림이 걸렸다. 그런데 이 칩은 목표가를
+       암산하기 싫어서 쓰는 것이지 '이 조건으로 확정' 이라는 뜻이
+       아니다 — +5% 를 눌러 값을 보고 '조금 더 위로' 하려던 사람은
+       이미 걸린 알림을 지우는 일부터 해야 했다 */
+    그리기();
+    await userEvent.click(screen.getByRole("button", { name: /가격 알림/ }));
+    await userEvent.click(screen.getByRole("button", { name: "+5%" }));
+    expect(alertsApi.createAlert).not.toHaveBeenCalled();
+    expect(screen.getByRole("spinbutton", { name: /목표 가격/ })).toHaveValue(83_265);
+  });
+
+  it("내림 퍼센트는 방향도 '이하' 로 바꾼다", async () => {
+    /* -10% 를 '이상' 으로 두면 지금 값에서 이미 조건을 넘긴다 —
+       걸자마자 울린다 */
+    그리기();
+    await userEvent.click(screen.getByRole("button", { name: /가격 알림/ }));
+    await userEvent.click(screen.getByRole("button", { name: "-10%" }));
+    expect(screen.getByRole("spinbutton", { name: /목표 가격/ })).toHaveValue(71_370);
+    expect(screen.getByRole("button", { name: "이 값 이하" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("채운 값으로 걸면 그대로 간다", async () => {
+    /* 값만 채우고 끝나면 반쪽이다. '걸기' 까지 이어져야 한다 */
     vi.mocked(alertsApi.createAlert).mockResolvedValue(줄({ id: 5, target: 83_265 }));
     그리기();
     await userEvent.click(screen.getByRole("button", { name: /가격 알림/ }));
     await userEvent.click(screen.getByRole("button", { name: "+5%" }));
+    await userEvent.click(screen.getByRole("button", { name: "걸기" }));
     await waitFor(() => expect(alertsApi.createAlert).toHaveBeenCalledWith(
       expect.objectContaining({ symbol: "005930", direction: "above", target: 83_265 }),
     ));
-  });
-
-  it("내림 퍼센트는 '이하' 로 건다", async () => {
-    /* -10% 를 '이상' 으로 걸면 지금 값에서 이미 조건을 넘긴다 —
-       거는 즉시 울린다 */
-    vi.mocked(alertsApi.createAlert).mockResolvedValue(줄({ id: 6 }));
-    그리기();
-    await userEvent.click(screen.getByRole("button", { name: /가격 알림/ }));
-    await userEvent.click(screen.getByRole("button", { name: "-10%" }));
-    await waitFor(() => expect(alertsApi.createAlert).toHaveBeenCalledWith(
-      expect.objectContaining({ direction: "below", target: 71_370 }),
-    ));
-  });
-
-  it("누른 즉시 목록에 뜬다 — 서버를 기다리지 않는다", async () => {
-    /* '눌렀는데 반응이 없다' 가 제일 나쁜 지연이다. 사람은 안 눌렸다고
-       생각하고 한 번 더 누른다 */
-    let 풀기: (v: 가격알림) => void = () => {};
-    vi.mocked(alertsApi.createAlert).mockReturnValue(new Promise((r) => { 풀기 = r; }));
-    그리기();
-    await userEvent.click(screen.getByRole("button", { name: /가격 알림/ }));
-    await userEvent.click(screen.getByRole("button", { name: "+5%" }));
-    expect(await screen.findByText(/83,265원 이상/)).toBeInTheDocument();
-    풀기(줄({ id: 5, target: 83_265 }));
   });
 
   it("시세를 모르면 빠른 목표를 안 보여 준다", async () => {
@@ -251,7 +251,9 @@ describe("모두 같은 목록을 본다", () => {
     그리기();
     await userEvent.click(screen.getByRole("button", { name: /가격 알림/ }));
     await waitFor(() => expect(alertsApi.getAlerts).toHaveBeenCalledTimes(1));
+    /* % 는 값만 채운다. 거는 것은 '걸기' 버튼이다 */
     await userEvent.click(screen.getByRole("button", { name: "+5%" }));
+    await userEvent.click(screen.getByRole("button", { name: "걸기" }));
     await waitFor(() => expect(alertsApi.createAlert).toHaveBeenCalled());
     expect(alertsApi.getAlerts).toHaveBeenCalledTimes(1);
   });

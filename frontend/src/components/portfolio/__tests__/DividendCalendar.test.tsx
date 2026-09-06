@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈, 회차금액, 그달지난배당, 실제값인가, 짧은돈, 기준글, 그달날들, 앞으로그달, 날과요일, 날짜별로, 점날짜, 남은글 }
+import DividendCalendar, { 날짜글, 어림날짜글, 남은날, 원본돈, 회차금액, 그달지난배당, 실제값인가, 짧은돈, 기준글, 그달날들, 앞으로그달, 날과요일, 날짜별로, 점날짜, 남은글, 올해확정칸인가 }
   from "@/components/portfolio/DividendCalendar";
 import { portfolioApi, type 배당줄 } from "@/api/stocks";
 
@@ -66,7 +66,7 @@ async function 종목별로() {
   /* 값이 도착하기 전에는 칩이 없다. 기다리지 않고 queryByRole 로
      보면 늘 null 이라 클릭이 통째로 빠진다 — 검사는 조용히 날짜별
      화면을 보게 되고, 무엇이 틀렸는지 알기 어렵다 */
-  await screen.findByText("연간 배당금", {}, { timeout: 4000 });
+  await screen.findByText("올해 받은 배당", {}, { timeout: 4000 });
   const 칩 = screen.queryByRole("button", { name: "종목별" });
   if (칩) await userEvent.click(칩);
 }
@@ -165,14 +165,17 @@ describe("금액", () => {
 
   it("갖고 있으면 이번 달에 받을 돈을 쓴다", async () => {
     /* 두 달짜리로 만든다 — 한 달만 있으면 '한 해 합계' 와 값이 같아
-       어느 쪽을 본 것인지 알 수 없다 */
+       어느 쪽을 본 것인지 알 수 없다.
+
+       schedule 이 없으면 몇 년 것인지 알 수 없으므로 전부 예상으로
+       친다. 그래서 한 해 값은 '남은 달 예상' 줄에 적힌다 */
     const 다른달 = (이번달 % 12) + 1;
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({
       items: [줄({ months: [이번달, 다른달] })], pending: 0,   // 361 × 100 = 36,100
     });
     그리기();
     await screen.findByText("삼성전자");
-    expect(screen.getByText("₩72,200")).toBeInTheDocument();   // 한 해
+    expect(screen.getByTestId("예상배당")).toHaveTextContent("₩72,200");   // 한 해
     expect(screen.getAllByText("₩36,100").length).toBeGreaterThan(0);  // 이 달
   });
 
@@ -284,14 +287,45 @@ describe("주당 금액", () => {
 
 
 describe("월별 막대", () => {
-  it("한 해 합계를 맨 위에 적는다", async () => {
-    /* 이 화면에서 제일 먼저 보고 싶은 숫자다 */
+  it("올해 받은 것과 남은 달 예상을 가른다", async () => {
+    /* "작년이랑 올해는 배당금이 다르잖아" — 맞는 말이다. 한 종목의
+       열두 칸은 서로 다른 해에서 나온다. 둘을 한 숫자로 더해 '연간
+       배당금' 이라고 적으면, 절반이 예상인 값을 확정처럼 보여 주는
+       셈이다 */
+    const 올해 = new Date().getFullYear();
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({
-      items: [줄({ months: [3, 6, 9, 12] })], pending: 0,   // 36,100 × 4
+      items: [줄({
+        months: [3, 6, 9, 12],
+        schedule: [
+          { month: 3, day: 20, amount: 361, year: 올해, 올해확정: true, actual: true },
+          { month: 6, day: 20, amount: 361, year: 올해, 올해확정: true, actual: true },
+          { month: 9, day: 20, amount: 361, year: 올해 - 1, 올해확정: false, actual: true },
+          { month: 12, day: 20, amount: 361, year: 올해 - 1, 올해확정: false, actual: true },
+        ],
+      })],
+      pending: 0,
     });
     그리기();
-    expect(await screen.findByText("₩144,400")).toBeInTheDocument();
-    expect(screen.getByText("한 해 예상")).toBeInTheDocument();
+    /* 올해 확정 둘 = 72,200. 나머지 둘은 작년 기준이라 예상이다 */
+    expect(await screen.findByText("₩72,200")).toBeInTheDocument();
+    expect(screen.getByTestId("예상배당")).toHaveTextContent("₩72,200");
+    expect(screen.getByTestId("예상배당")).toHaveTextContent("작년 기준");
+  });
+
+  it("확정이 없으면 올해 받은 배당은 0이다", async () => {
+    /* 연초에는 이 값이 작을 수밖에 없다. 작년 값을 얹어 크게 보이게
+       하는 것이 바로 없애 달라고 하신 그것이다 */
+    const 올해 = new Date().getFullYear();
+    vi.mocked(portfolioApi.getDividends).mockResolvedValue({
+      items: [줄({
+        months: [12],
+        schedule: [{ month: 12, day: 20, amount: 361, year: 올해 - 1, 올해확정: false, actual: true }],
+      })],
+      pending: 0,
+    });
+    그리기();
+    await screen.findByText("올해 받은 배당");
+    expect(screen.getByTestId("예상배당")).toHaveTextContent("₩36,100");
   });
 
   it("열두 달을 다 그린다 — 빈 달도", async () => {
@@ -576,7 +610,7 @@ describe("좁은 화면과 넓은 화면", () => {
     expect(지난것).toHaveLength(1);
   });
 
-  it("연간 배당금이 좁은 화면에서 한 줄을 다 쓴다", async () => {
+  it("올해 받은 배당이 좁은 화면에서 한 줄을 다 쓴다", async () => {
     /* 세 칸을 나란히 두면 휴대폰 폭에서 '1,234,567원' 이 잘려
        '1,234,5…' 가 된다 — 제일 먼저 보고 싶은 숫자가 못 읽힌다 */
     const c = await 그려보기();
@@ -639,6 +673,46 @@ describe("막대 위 라벨은 잘리면 안 된다", () => {
  * '작년 기준' 이 붙었다. 연도를 한 번도 안 봤다. 열두 달 중 여덟 달의
  * 라벨이 틀린 셈이다.
  */
+describe("올해확정칸인가", () => {
+  const 올해 = new Date().getFullYear();
+  const 칸 = (덮: Record<string, unknown>) =>
+    줄({ schedule: [{ month: 3, day: 20, amount: 0.2, ...덮 } as never] });
+
+  it("올해 것이면 확정", () => {
+    expect(올해확정칸인가(칸({ year: 올해, 올해확정: true }), 3)).toBe(true);
+  });
+
+  it("작년 것이면 확정이 아니다", () => {
+    /* "작년이랑 올해는 배당금이 다르잖아" — 맞는 말이다 */
+    expect(올해확정칸인가(칸({ year: 올해 - 1, 올해확정: false }), 3)).toBe(false);
+  });
+
+  it("평균으로 메운 칸도 확정이 아니다", () => {
+    /* year 가 없는 칸은 여러 해 평균이라 작년이 섞여 있다. 이걸
+       확정으로 세면 '올해 받은 배당' 에 작년 값이 다시 들어온다 */
+    expect(올해확정칸인가(칸({ year: null, actual: false }), 3)).toBe(false);
+  });
+
+  it("연도가 없는데 '올해확정' 이라고 오면 안 믿는다", () => {
+    /* 여기가 year 가드가 막는 유일한 자리다. 서버가 이 조합을 보낼
+       일은 없지만, 오면 '몇 년 것인지 모르는 값' 을 확정으로 세게
+       된다 — 모르면 확정이라고 하면 안 된다.
+
+       (뮤테이션으로 알았다. 이 검사가 없으면 가드를 지워도 안 걸린다 —
+        올해확정이 없을 때는 null === 올해 가 어차피 거짓이라서다) */
+    expect(올해확정칸인가(칸({ year: null, 올해확정: true }), 3)).toBe(false);
+  });
+
+  it("일정이 없는 달은 확정이 아니다", () => {
+    expect(올해확정칸인가(칸({ year: 올해, 올해확정: true }), 6)).toBe(false);
+  });
+
+  it("일정이 아예 없으면 확정이 아니다", () => {
+    /* 옛 응답은 몇 년 것인지 알 수 없다. 모르면 확정이라고 하면 안 된다 */
+    expect(올해확정칸인가(줄({ schedule: undefined }), 3)).toBe(false);
+  });
+});
+
 describe("몇 년 것인지 제대로 적는다", () => {
   const 올해 = new Date().getFullYear();
 
@@ -690,7 +764,7 @@ describe("몇 년 것인지 제대로 적는다", () => {
     await 종목별로();
     await 자세히();
     // 뼈대가 아니라 실제 내용이 뜰 때까지 기다린다
-    await screen.findByText("연간 배당금");
+    await screen.findByText("올해 받은 배당");
     await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${딴달}월`) }));
     expect(await screen.findByText("올해 확정")).toBeInTheDocument();
     expect(screen.queryByText("작년 기준")).toBeNull();
@@ -743,7 +817,7 @@ describe("주배당은 날짜별로 다 적는다", () => {
        그날 합계까지 낸다. 사진 속 배당 앱과 같은 모양이다. */
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당줄()], pending: 0 });
     그리기();
-    await screen.findByText("연간 배당금");
+    await screen.findByText("올해 받은 배당");
     await userEvent.click(await screen.findByRole("button", { name: "날짜별" }));
     const 달 = String(이번달).padStart(2, "0");
     for (const d of [6, 13, 20, 27]) {
@@ -766,7 +840,7 @@ describe("주배당은 날짜별로 다 적는다", () => {
       items: [주배당줄({ upcoming: [{ date: 이번달날(28), amount: 0.063 }] })], pending: 0,
     });
     그리기();
-    await screen.findByText("연간 배당금");
+    await screen.findByText("올해 받은 배당");
     await userEvent.click(await screen.findByRole("button", { name: "날짜별" }));
     expect(screen.getByText("예상")).toBeInTheDocument();
   });
@@ -822,7 +896,7 @@ describe("입금일을 같이 적는다", () => {
       pending: 0,
     });
     그리기();
-    await screen.findByText("연간 배당금");
+    await screen.findByText("올해 받은 배당");
     expect(screen.queryByText(/입금/)).toBeNull();
   });
 });

@@ -193,7 +193,7 @@ export default function QuantScoreView({
             막대가 늘 파랑이었다. 20점과 90점이 같은 색이면 색이 아무
             말도 안 한다 — 바로 옆 숫자는 색이 갈리는데 막대만 안 갈려서
             같은 값을 두 규칙으로 칠하고 있었다 */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 lg:gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           {기다림 && factors.length === 0
             ? Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="flex flex-col gap-2 p-3 rounded-xl border border-border bg-bg-elevated">
@@ -225,7 +225,7 @@ export default function QuantScoreView({
               <span className="text-sm font-bold text-text-secondary">{f.label}</span>
               <span className={`text-xs font-mono font-bold ${scoreColor(f.score)}`}>{f.score ?? "—"}</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {f.metrics.map((mt) => (
                 /* 값이 없는 칸은 흐리게. 있는 것과 같은 무게로 그리면
                    눈이 없는 값에도 똑같이 머문다 */

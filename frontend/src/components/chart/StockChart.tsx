@@ -7,7 +7,6 @@ import {
   calcIchimoku, calcFibonacci, OHLCV,
 } from "./indicators";
 import { 구름시리즈 } from "./CloudSeries";
-import { 선들읽기, 선들쓰기, 고른선, 새id, type 추세선 } from "./TrendLines";
 import { useSettingsStore, type ColorScheme } from "@/store/settingsStore";
 
 /* ── 내보내기 (StockDetail에서 사용) ────────────────────── */
@@ -160,10 +159,6 @@ interface Props {
   isKR?: boolean;
   chartType?: ChartType;
   logScale?: boolean;
-  /** 추세선을 종목마다 따로 담으려고 받는다 — 삼성전자에 그은 선이
-   *  애플에 뜨면 안 된다 */
-  market?: string;
-  symbol?: string;
 }
 
 function preprocessData(data: OHLCV[]) {
@@ -477,8 +472,7 @@ export function 봉읽기(
 }
 
 /* ── 메인 컴포넌트 ──────────────────────────────────────── */
-export default function StockChart({ data, height = 400, isKR = false, chartType = "candle",
-                                    logScale = false, market = "US", symbol = "" }: Props) {
+export default function StockChart({ data, height = 400, isKR = false, chartType = "candle", logScale = false }: Props) {
   const { colorScheme } = useSettingsStore();
   const mainRef = useRef<HTMLDivElement>(null);
   const rsiRef  = useRef<HTMLDivElement>(null);
@@ -515,19 +509,6 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
 
   const [showSettings, setShowSettings] = useState(false);
 
-  /** 추세선 그리기.
-   *
-   *  지표는 열여섯 개나 붙어 있는데 정작 차트 분석의 절반인 '선을
-   *  긋는 일' 이 없었다. 고점 두 개를 이어 저항선을, 저점 두 개를
-   *  이어 지지선을 보는 것 — MTS 를 켜는 사람이 제일 먼저 하는 일이다. */
-  const [그리기중, set그리기중] = useState(false);
-  const [선수, set선수] = useState(0);          // 화면에 몇 개 그려져 있나
-  const 그리기중Ref = useRef(그리기중);
-  그리기중Ref.current = 그리기중;
-  const 선들Ref = useRef<추세선[]>([]);
-  const 첫점Ref = useRef<{ t: string | number; p: number } | null>(null);
-  const 덧판Ref = useRef<HTMLCanvasElement | null>(null);
-  const 다시그리기Ref = useRef<(() => void) | null>(null);
 
   /** 십자선이 가리키는 봉의 값들.
    *
@@ -1037,106 +1018,6 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       }
     });
 
-    /* ── 추세선 ──
-       화면 픽셀로 담으면 확대하거나 옮기는 순간 선이 엉뚱한 데로 간다.
-       **시각과 가격**으로 담고, 그릴 때마다 차트에게 좌표를 물어본다.
-       그러면 확대·이동·창 크기가 바뀌어도 선이 봉에 붙어 있다. */
-    선들Ref.current = 선들읽기(market, symbol);
-    set선수(선들Ref.current.length);
-    const 기준선 = main.addLineSeries({
-      color: "transparent", lastValueVisible: false, priceLineVisible: false,
-      crosshairMarkerVisible: false,
-    });
-    기준선.setData(ohlcv.map((d: any) => ({ time: ct(d), value: d.close })));
-
-    /** 담아 둔 (시각, 가격) 을 지금 화면의 픽셀로 */
-    const 화면자리 = (t: string | number, p: number) => {
-      const x = main.timeScale().timeToCoordinate(t as never);
-      const y = 기준선.priceToCoordinate(p);
-      return x == null || y == null ? null : { x, y };
-    };
-
-    const 덧그리기 = () => {
-      const 판 = 덧판Ref.current;
-      if (!판) return;
-      const 폭 = mainRef.current?.clientWidth ?? 0;
-      const 높이 = heightRef.current;
-      const 배율 = window.devicePixelRatio || 1;
-      if (판.width !== 폭 * 배율 || 판.height !== 높이 * 배율) {
-        판.width = 폭 * 배율; 판.height = 높이 * 배율;
-        판.style.width = `${폭}px`; 판.style.height = `${높이}px`;
-      }
-      const g = 판.getContext("2d");
-      if (!g) return;
-      g.setTransform(배율, 0, 0, 배율, 0, 0);
-      g.clearRect(0, 0, 폭, 높이);
-      for (const l of 선들Ref.current) {
-        const a = 화면자리(l.t1, l.p1), b = 화면자리(l.t2, l.p2);
-        if (!a || !b) continue;           // 화면 밖 — 지어내지 않는다
-        g.beginPath();
-        g.moveTo(a.x, a.y); g.lineTo(b.x, b.y);
-        g.strokeStyle = l.색; g.lineWidth = 1.5;
-        g.stroke();
-        /* 끝점을 찍어 준다 — 어디를 눌러야 지워지는지 보여야 한다 */
-        for (const p of [a, b]) {
-          g.beginPath(); g.arc(p.x, p.y, 3, 0, Math.PI * 2);
-          g.fillStyle = l.색; g.fill();
-        }
-      }
-      /* 첫 점만 찍고 두 번째를 기다리는 중이면 그 자리를 보여 준다 */
-      const 첫 = 첫점Ref.current;
-      if (첫) {
-        const a = 화면자리(첫.t, 첫.p);
-        if (a) {
-          g.beginPath(); g.arc(a.x, a.y, 4, 0, Math.PI * 2);
-          g.strokeStyle = C.blue; g.lineWidth = 2; g.stroke();
-        }
-      }
-    };
-    다시그리기Ref.current = 덧그리기;
-    덧그리기();
-    main.timeScale().subscribeVisibleLogicalRangeChange(() => 덧그리기());
-
-    /** 차트를 누르면 — 그리는 중이면 점을 찍고, 아니면 선을 지운다 */
-    const 눌림 = (param: Parameters<Parameters<typeof main.subscribeClick>[0]>[0]) => {
-      const 자리 = param.point;
-      if (!자리 || param.time === undefined) return;
-      const 가격 = 기준선.coordinateToPrice(자리.y);
-      if (가격 == null) return;
-
-      if (그리기중Ref.current) {
-        const 첫 = 첫점Ref.current;
-        if (!첫) {
-          첫점Ref.current = { t: param.time as never, p: 가격 };
-        } else {
-          선들Ref.current = [...선들Ref.current, {
-            id: 새id(), t1: 첫.t, p1: 첫.p,
-            t2: param.time as never, p2: 가격, 색: C.blue,
-          }];
-          첫점Ref.current = null;
-          선들쓰기(market, symbol, 선들Ref.current);
-          set선수(선들Ref.current.length);
-        }
-        덧그리기();
-        return;
-      }
-
-      /* 그리는 중이 아니면 누른 자리의 선을 지운다. 손가락이 선 위에
-         정확히 떨어질 리가 없으니 몇 픽셀 안쪽이면 그 선으로 본다 */
-      const 화면선들 = 선들Ref.current.flatMap((l) => {
-        const a = 화면자리(l.t1, l.p1), b = 화면자리(l.t2, l.p2);
-        return a && b ? [{ id: l.id, x1: a.x, y1: a.y, x2: b.x, y2: b.y }] : [];
-      });
-      const 고른것 = 고른선(화면선들, 자리.x, 자리.y);
-      if (고른것) {
-        선들Ref.current = 선들Ref.current.filter((l) => l.id !== 고른것.id);
-        선들쓰기(market, symbol, 선들Ref.current);
-        set선수(선들Ref.current.length);
-        덧그리기();
-      }
-    };
-    main.subscribeClick(눌림);
-
     /* 칸을 다 만든 뒤에 한 번 맞춘다. 축 너비는 글자가 그려져 봐야
        정해지므로, 만드는 도중에 재면 아직 0 이거나 기본값이다.
        다음 프레임에 재는 이유가 그것이다. */
@@ -1150,7 +1031,6 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       /* 폭이 바뀌면 축 글자 수도 바뀐다(자릿수가 준다). 다시 맞춘다 —
          안 그러면 전체보기로 열었다 닫을 때마다 줄이 어긋난다 */
       requestAnimationFrame(() => 축너비맞추기Ref.current?.());
-      다시그리기Ref.current?.();
     };
     window.addEventListener("resize", resize);
     return () => {
@@ -1160,7 +1040,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       subRefs.current.forEach(c => { try { c.remove(); } catch {} });
       subRefs.current.clear();
     };
-  }, [data, chartType, isKR, colorScheme, indicatorToggles, market, symbol]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, chartType, isKR, colorScheme, indicatorToggles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* 높이만 바뀌면 기존 차트를 그대로 두고 크기만 바꾼다.
      부수고 다시 만들면 보고 있던 확대·스크롤 위치까지 초기화된다. */
@@ -1300,44 +1180,6 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
           </button>
         </div>
         <div ref={mainRef} className="w-full"/>
-        {/* ── 추세선 덧판 ──
-            차트 위에 캔버스를 한 장 덮는다. 좌표는 차트에게 물어보므로
-            (timeToCoordinate·priceToCoordinate) 확대·이동해도 안 어긋난다.
-            누르는 것은 차트가 받아야 하므로 이 판은 통과시킨다 */}
-        <canvas ref={덧판Ref} className="absolute inset-0 pointer-events-none" />
-
-        {/* ── 그리기 도구 ──
-            지표는 열여섯 개나 붙어 있는데 정작 차트 분석의 절반인
-            '선을 긋는 일' 이 없었다. 고점 두 개를 이어 저항선을, 저점
-            두 개를 이어 지지선을 보는 것 — MTS 를 켜면 제일 먼저 하는
-            일이다. 그게 없으면 지표가 아무리 많아도 남이 계산해 준 값을
-            읽는 데서 끝난다 */}
-        <div className="absolute bottom-1.5 left-2 z-10 flex items-center gap-1">
-          <button
-            onClick={() => { set그리기중((v) => !v); 첫점Ref.current = null; 다시그리기Ref.current?.(); }}
-            aria-pressed={그리기중}
-            title={그리기중 ? "그리기 끄기" : "추세선 긋기 — 두 번 눌러 한 선"}
-            className={`px-2 py-1 rounded-lg text-2xs font-semibold backdrop-blur-sm transition-colors ${
-              그리기중 ? "bg-accent-blue text-white"
-                      : "bg-bg-card/70 text-text-muted hover:text-text-primary"}`}
-          >{그리기중 ? "그리는 중" : "추세선"}</button>
-          {선수 > 0 && (
-            <button
-              onClick={() => {
-                선들Ref.current = []; 첫점Ref.current = null;
-                선들쓰기(market, symbol, []); set선수(0); 다시그리기Ref.current?.();
-              }}
-              title="그은 선 모두 지우기"
-              className="px-2 py-1 rounded-lg text-2xs font-semibold backdrop-blur-sm
-                         bg-bg-card/70 text-text-muted hover:text-accent-red transition-colors"
-            >지우기 {선수}</button>
-          )}
-          {그리기중 && (
-            <span className="px-1.5 py-1 rounded text-2xs text-text-dim bg-bg-card/70 backdrop-blur-sm whitespace-nowrap">
-              {첫점Ref.current ? "끝점을 누르세요" : "시작점을 누르세요"}
-            </span>
-          )}
-        </div>
       </div>
 
       {/* 보조 지표 패널 */}

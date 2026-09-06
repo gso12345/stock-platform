@@ -194,13 +194,22 @@ export default function AlertButton({
   const 걸수있나 = Number.isFinite(숫자목표) && 숫자목표 > 0 && !걸기.isPending;
 
   /** 빠른 목표를 눌렀다 — 방향까지 같이 정해서 곧바로 건다 */
-  const 빠르게걸기 = (퍼센트: number) => {
+  /**
+   * % 칩을 누르면 **값만 채운다.**
+   *
+   * 예전에는 누르는 순간 알림이 걸렸다. 그런데 이 칩은 목표가를
+   * 암산하기 싫어서 쓰는 것이지 '이 조건으로 확정' 이라는 뜻이 아니다 —
+   * +5% 를 눌러 값을 보고 '조금 더 위로' 하려던 사람은 이미 걸린 알림을
+   * 지우는 일부터 해야 했다. 잘못 누르면 되돌릴 것이 생긴다.
+   *
+   * 이제 목표가 칸과 방향만 채운다. 거는 것은 아래 '걸기' 버튼이 한다 —
+   * 누르는 것과 확정하는 것을 갈라 놓는다.
+   */
+  const 빠르게채우기 = (퍼센트: number) => {
     if (price == null) return;
     const 값 = 목표가(price, 퍼센트, 원화);
-    const 방 = 퍼센트 >= 0 ? "above" : "below";
-    set방향(방);
+    set방향(퍼센트 >= 0 ? "above" : "below");
     set목표(원화 ? String(값) : 값.toFixed(2));
-    걸기.mutate({ direction: 방, target: 값 });
   };
 
   const 고친숫자 = Number(고친값);
@@ -243,16 +252,15 @@ export default function AlertButton({
           {price != null && (
             <div className="px-3 pt-2.5 flex flex-col gap-1.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-2xs text-text-dim">지금 {돈(price)} 대비</span>
+                <span className="text-2xs text-text-dim">지금 {돈(price)} 대비 — 누르면 값만 채웁니다</span>
               </div>
               <div className="grid grid-cols-6 gap-1">
                 {빠른퍼센트.map((p) => (
                   <button
                     key={p}
-                    onClick={() => 빠르게걸기(p)}
-                    disabled={걸기.isPending}
-                    title={`${돈(목표가(price, p, 원화))} ${p >= 0 ? "이상" : "이하"}`}
-                    className={`py-1.5 rounded-lg text-2xs font-semibold border transition-colors disabled:opacity-40 ${
+                    onClick={() => 빠르게채우기(p)}
+                    title={`목표가를 ${돈(목표가(price, p, 원화))} 로 채웁니다`}
+                    className={`py-1.5 rounded-lg text-2xs font-semibold border transition-colors ${
                       p >= 0
                         ? "border-border text-text-secondary hover:border-accent-orange/60 hover:text-accent-orange"
                         : "border-border text-text-secondary hover:border-accent-blue/60 hover:text-accent-blue"

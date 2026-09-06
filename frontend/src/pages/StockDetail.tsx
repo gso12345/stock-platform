@@ -1180,7 +1180,7 @@ export default function StockDetail() {
               사람에게 한 번 더 누르게 할 이유가 없다.
               칸선은 긋지 않는다 — 선을 그으면 표로 읽힌다. */}
           {화면모양 === "classic" && (
-            <div className="px-3 py-2.5 grid grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-x-2 gap-y-2.5">
+            <div className="px-3 py-2.5 grid grid-cols-4 gap-x-2 gap-y-2.5">
               {priceItems.map((item) => (
                 <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-2xs text-text-dim whitespace-nowrap">{item.label}</span>
@@ -1319,7 +1319,10 @@ export default function StockDetail() {
           캔들이 필요 없어진 것은 아니다. '자세히' 를 누르면 그대로
           나오고, 한 번 고른 것은 기억한다. */}
       {mainTab==="chart" && !자세한차트 && (
+        /* 높이를 자세히 차트와 같은 값으로 준다. 160px 로 못 박혀
+           있어서, 자세히를 눌렀다 돌아오면 차트가 3분의 1로 쪼그라들었다 */
         <PriceTrend market={m} symbol={sym} 통화={isKR ? "KRW" : "USD"}
+                    height={차트높이}
                     자세히={() => set자세한차트(true)} />
       )}
       {mainTab==="chart" && 자세한차트 && (
@@ -1412,7 +1415,7 @@ export default function StockDetail() {
               {fetchingChart && (
                 <div className="absolute top-2 right-2 z-10 w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
               )}
-              <StockChart data={ohlcv} height={차트높이} isKR={isKR} chartType={chartType} logScale={logScale} market={m} symbol={sym}/>
+              <StockChart data={ohlcv} height={차트높이} isKR={isKR} chartType={chartType} logScale={logScale}/>
             </div>
           ) : fetchingChart ? (
             <div className="h-[300px] sm:h-[500px] flex flex-col items-center justify-center gap-3">
@@ -1446,7 +1449,7 @@ export default function StockDetail() {
             <span className="w-3 h-3 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
             <span className="text-2xs text-text-dim">불러오는 중</span>
           </div>
-          <div className="px-1 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-x-3 gap-y-3.5">
+          <div className="px-1 grid grid-cols-3 gap-x-3 gap-y-3.5">
             {Array.from({ length: 9 }).map((_, i) => (
               <div key={i} className="flex flex-col gap-1 min-w-0">
                 <span className="h-2.5 w-10 rounded bg-bg-elevated animate-pulse" />
@@ -1473,7 +1476,7 @@ export default function StockDetail() {
               />
             </div>
           )}
-          <div className="px-1 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-x-3 gap-y-3.5">
+          <div className="px-1 grid grid-cols-3 gap-x-3 gap-y-3.5">
             {priceItems.map((item) => (
               <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
                 <span className="text-xs text-text-dim whitespace-nowrap">{item.label}</span>

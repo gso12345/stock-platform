@@ -28,22 +28,38 @@ import 차트틀 from "@/components/chart/ChartFrame";
 import { 못불러옴 } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
-import { 기간들, 올해일수, 퍼센트글, 최고최저, type 기간id } from "@/components/portfolio/AssetHistory";
+import { 퍼센트글, 최고최저 } from "@/components/portfolio/AssetHistory";
 import type { OHLCV } from "@/types";
 
 /**
- * 기간 칩 → 서버에 물을 기간.
+ * 기간 칩.
  *
- * '올해' 는 서버가 모르는 값이다(yfinance PERIOD_MAP 에 ytd 가 없어서
- * 조용히 1년으로 떨어진다). 1년치를 받아 놓고 화면에서 자른다 —
- * 눌렀는데 1년치가 그대로 나오면 그 칩이 뭔지 알 수가 없다.
+ * 자산 흐름의 기간표(1개월·3개월·1년·올해·전체)를 그대로 쓰고 있었다.
+ * 그런데 종목 차트에서 보고 싶은 기간은 다르다 — 오늘 하루가 어땠는지,
+ * 몇 해에 걸쳐 어떤 자리에 와 있는지. 그래서 여기만 따로 둔다.
+ *
+ * '올해' 는 뺐다. 서버가 모르는 값이라(yfinance PERIOD_MAP 에 ytd 가
+ * 없다) 1년치를 받아 화면에서 자르는 특례가 필요했는데, 3년·10년이
+ * 들어오면서 칩이 여덟 개가 된다. 자를 게 아니라 줄일 자리다.
  */
-export const 받을기간: Record<기간id, string> = {
-  "1개월": "1mo", "3개월": "3mo", "1년": "1y", "올해": "1y", "전체": "max",
-};
+export const 기간표 = [
+  /* 1일은 일봉으로는 점이 하나뿐이라 선이 안 그려진다. 5분봉을 받는다 */
+  { id: "1일",   label: "1일",   일수: 1,      기간: "1d",  간격: "5m" },
+  { id: "1개월", label: "1개월", 일수: 30,     기간: "1mo", 간격: "1d" },
+  { id: "3개월", label: "3개월", 일수: 90,     기간: "3mo", 간격: "1d" },
+  { id: "1년",   label: "1년",   일수: 365,    기간: "1y",  간격: "1d" },
+  { id: "3년",   label: "3년",   일수: 1095,   기간: "3y",  간격: "1d" },
+  { id: "10년",  label: "10년",  일수: 3650,   기간: "10y", 간격: "1d" },
+  { id: "전체",  label: "전체",  일수: 36500,  기간: "max", 간격: "1d" },
+] as const;
 
-/** "2026-08-26" → "8/26" — 축에는 연도를 안 쓴다. 좁은 화면에서 자리를 다 먹는다 */
-function 짧은날(day: string): string {
+export type 기간id = (typeof 기간표)[number]["id"];
+
+/** 축 라벨. 일봉은 "8/26", 분봉은 "09:30" — 하루치인데 날짜만 적으면
+ *  모든 눈금이 같은 글자가 된다 */
+export function 짧은날(day: string): string {
+  const 시각 = day.match(/[T ](\d{2}:\d{2})/);
+  if (시각) return 시각[1];
   const [, m, d] = day.split("-");
   return m && d ? `${Number(m)}/${Number(d)}` : day;
 }
@@ -60,19 +76,23 @@ export interface 흐름점 { day: string; close: number; 수익: number }
  * 기간 안에 값이 하나뿐이면 선이 안 그려진다. 그때는 빈 배열을 준다 —
  * 점 하나짜리 선은 그리면 고장으로 보인다.
  */
-export function 흐름만들기(봉들: OHLCV[] | undefined, 일수: number): 흐름점[] {
+export function 흐름만들기(봉들: OHLCV[] | undefined, 일수: number, 분봉 = false): 흐름점[] {
   const 자를날 = new Date();
   자를날.setDate(자를날.getDate() - 일수);
   const 기준 = 자를날.toISOString().slice(0, 10);
 
+  /* 분봉은 하루 안에 봉이 수십 개다. 날짜만 남기면 전부 같은 값이
+     되어 점이 하나로 뭉친다 — 1일 칩이 빈 화면이 되는 이유가 그것이다 */
+  const 자르기 = (d: unknown) => (분봉 ? String(d) : String(d).slice(0, 10));
+
   const 쓸것 = (봉들 ?? [])
     .filter((b) => b?.date && Number.isFinite(b.close) && b.close > 0)
-    .map((b) => ({ day: String(b.date).slice(0, 10), close: b.close }))
+    .map((b) => ({ day: 자르기(b.date), close: b.close }))
     .sort((a, b) => a.day.localeCompare(b.day));
 
   /* 받아 온 것이 고른 기간보다 짧으면 있는 대로 다 보여 준다. 잘라서
      둘 이하가 되면 '기간을 늘렸는데 선이 사라졌다' 가 된다 */
-  const 자른것 = 쓸것.filter((b) => b.day >= 기준);
+  const 자른것 = 쓸것.filter((b) => b.day.slice(0, 10) >= 기준);
   const 최종 = 자른것.length >= 2 ? 자른것 : 쓸것;
   if (최종.length < 2) return [];
 
@@ -81,7 +101,7 @@ export function 흐름만들기(봉들: OHLCV[] | undefined, 일수: number): �
 }
 
 export default function PriceTrend({
-  market, symbol, 통화 = "KRW", 자세히,
+  market, symbol, 통화 = "KRW", 자세히, height = 400,
 }: {
   market: string;
   symbol: string;
@@ -89,6 +109,10 @@ export default function PriceTrend({
   통화?: "KRW" | "USD";
   /** '자세히' 를 눌렀을 때. 안 주면 그 버튼을 안 그린다 */
   자세히?: () => void;
+  /** 그래프 높이. 자세히 차트와 같은 값을 받아야 오갈 때 화면이
+   *  안 튄다 — 160px 로 못 박혀 있어서, 자세히를 눌렀다 돌아오면
+   *  차트가 3분의 1로 쪼그라들었다 */
+  height?: number;
 }) {
   const [고른기간, set고른기간] = useState<기간id>("3개월");
   /* 오름·내림 색은 설정을 따른다(초록/빨강 · 빨강/파랑). 이 그래프만
@@ -98,19 +122,21 @@ export default function PriceTrend({
   const 오름 = 오름색(배색);
   const 내림 = 내림색(배색);
 
-  const 기간 = 기간들.find((g) => g.id === 고른기간) ?? 기간들[1];
-  const 일수 = 기간.일수 ?? 올해일수();
+  const 기간 = 기간표.find((g) => g.id === 고른기간) ?? 기간표[2];
+  const 일수 = 기간.일수;
+  const 분봉 = 기간.간격 !== "1d";
 
   const { data, isLoading, isError, error, refetch } = useQuery<OHLCV[]>({
-    queryKey: ["stock-ohlcv", market, symbol, 받을기간[고른기간], "1d"],
-    queryFn: () => stocksApi.getOHLCV(market, symbol, 받을기간[고른기간], "1d"),
+    queryKey: ["stock-ohlcv", market, symbol, 기간.기간, 기간.간격],
+    queryFn: () => stocksApi.getOHLCV(market, symbol, 기간.기간, 기간.간격),
     enabled: !!symbol,
-    /* 일봉이라 자주 안 바뀐다. 종목 상세의 캔들 차트와 같은 규칙을 쓴다 */
-    staleTime: 21_600_000,
+    /* 일봉은 자주 안 바뀐다. 분봉은 장중에 계속 바뀌므로 짧게 본다 —
+       '1일' 을 눌렀는데 여섯 시간 전 값이면 보는 뜻이 없다 */
+    staleTime: 분봉 ? 60_000 : 21_600_000,
     placeholderData: (prev) => prev,
   });
 
-  const 점들 = useMemo(() => 흐름만들기(data, 일수), [data, 일수]);
+  const 점들 = useMemo(() => 흐름만들기(data, 일수, 분봉), [data, 일수, 분봉]);
   const 변화 = 점들.length ? 점들[점들.length - 1].수익 : null;
   const 선색 = (변화 ?? 0) >= 0 ? 오름 : 내림;
   /* 칠 무늬 id 에 색을 섞는다. 고정 id 로 두면 색이 다른 그래프가 한
@@ -135,7 +161,7 @@ export default function PriceTrend({
       {/* 칩이 다섯 개라 좁은 화면에서 넘친다. 넘치면 잘리는 대신 옆으로
           밀리게 둔다 — 잘린 칩은 있는 줄도 모른다 */}
       <div className="flex rounded-lg border border-border overflow-x-auto scrollbar-hide">
-        {기간들.map((g) => (
+        {기간표.map((g) => (
           <button
             key={g.id}
             onClick={() => set고른기간(g.id)}
@@ -170,11 +196,11 @@ export default function PriceTrend({
 
   if (isError) return 틀(<못불러옴 사유={error} 다시={() => refetch()} compact />);
   if (isLoading && !data) {
-    return 틀(<div className="h-[160px] rounded-lg bg-bg-elevated animate-pulse" />);
+    return 틀(<div className="rounded-lg bg-bg-elevated animate-pulse" style={{ height }} />);
   }
   if (점들.length < 2) {
     return 틀(
-      <div className="h-[160px] flex items-center justify-center">
+      <div className="flex items-center justify-center" style={{ height }}>
         <p className="text-sm text-text-secondary">이 기간에 그릴 값이 없어요</p>
       </div>,
     );
@@ -199,7 +225,7 @@ export default function PriceTrend({
         </div>
       </div>
 
-      <차트틀 height={160}>
+      <차트틀 height={height}>
         {(R) => (
           <R.AreaChart data={점들} margin={{ top: 10, right: 4, bottom: 0, left: 4 }}>
             <defs>

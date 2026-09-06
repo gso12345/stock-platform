@@ -15,7 +15,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import { 흐름만들기, 받을기간 } from "@/components/stock/PriceTrend";
+import { 흐름만들기, 기간표, 짧은날 } from "@/components/stock/PriceTrend";
 
 const 봉 = (date: string, close: number) =>
   ({ date, open: close, high: close, low: close, close, volume: 1 });
@@ -75,18 +75,84 @@ describe("흐름만들기", () => {
   });
 });
 
-describe("받을기간", () => {
-  it("'올해' 는 1년치를 받아 화면에서 자른다", () => {
-    /* 서버가 ytd 를 모른다 — yfinance PERIOD_MAP 에 없어서 조용히
-       1년으로 떨어진다. 그걸 모르고 ytd 를 보내면 '올해' 를 눌러도
-       1년치가 그대로 나온다 */
-    expect(받을기간["올해"]).toBe("1y");
+describe("기간표", () => {
+  const 찾기 = (id: string) => 기간표.find((g) => g.id === id)!;
+
+  it("하루·몇 해짜리 기간이 있다", () => {
+    /* 자산 흐름의 기간표(1개월·3개월·1년·올해·전체)를 그대로 쓰고
+       있었다. 종목 차트에서 보고 싶은 기간은 다르다 — 오늘 하루가
+       어땠는지, 몇 해에 걸쳐 어떤 자리에 와 있는지 */
+    expect(기간표.map((g) => g.id)).toEqual(
+      ["1일", "1개월", "3개월", "1년", "3년", "10년", "전체"]);
   });
 
-  it("칩마다 받을 기간이 정해져 있다", () => {
-    expect(받을기간["1개월"]).toBe("1mo");
-    expect(받을기간["3개월"]).toBe("3mo");
-    expect(받을기간["전체"]).toBe("max");
+  it("1일은 분봉으로 받는다", () => {
+    /* 일봉으로는 점이 하나뿐이라 선이 안 그려진다 */
+    expect(찾기("1일").간격).toBe("5m");
+    expect(찾기("1일").기간).toBe("1d");
+  });
+
+  it("나머지는 일봉이다", () => {
+    for (const g of 기간표.filter((x) => x.id !== "1일")) {
+      expect(g.간격).toBe("1d");
+    }
+  });
+
+  it("서버가 아는 기간만 쓴다", () => {
+    /* yfinance PERIOD_MAP 에 없는 값을 보내면 조용히 1년으로 떨어진다 —
+       눌렀는데 1년치가 그대로 나오면 그 칩이 뭔지 알 수가 없다 */
+    const 아는것 = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "3y", "5y", "10y", "max"];
+    for (const g of 기간표) expect(아는것).toContain(g.기간);
+  });
+
+  it("기간이 길수록 일수도 길다", () => {
+    const 일수들 = 기간표.map((g) => g.일수);
+    expect(일수들).toEqual([...일수들].sort((a, b) => a - b));
+  });
+});
+
+describe("분봉을 뭉개지 않는다", () => {
+  const 분봉 = (시각: string, close: number) =>
+    ({ date: `2026-08-26T${시각}:00`, open: close, high: close, low: close, close, volume: 1 });
+
+  it("하루 안의 점이 다 남는다", () => {
+    /* 날짜만 남기면 하루치가 전부 같은 값이 되어 점이 하나로 뭉친다 —
+       '1일' 칩이 빈 화면이 되는 이유가 그것이다 */
+    const 것들 = 흐름만들기(
+      [분봉("09:30", 100), 분봉("10:00", 110), 분봉("11:00", 120)] as never, 1, true);
+    expect(것들).toHaveLength(3);
+    expect(것들.map((p) => p.day)).toEqual([
+      "2026-08-26T09:30:00", "2026-08-26T10:00:00", "2026-08-26T11:00:00"]);
+  });
+
+  it("일봉으로 보면 날짜가 하나로 뭉친다 — 그래서 분봉 표시가 필요하다", () => {
+    /* 줄 수가 주는 게 아니라 **가로 자리**가 겹친다. 세 점이 전부
+       같은 날짜라 그래프에서 한 자리에 쌓이고, 축 눈금도 같은 글자가
+       세 번 찍힌다 */
+    const 것들 = 흐름만들기(
+      [분봉("09:30", 100), 분봉("10:00", 110), 분봉("11:00", 120)] as never, 1, false);
+    expect(new Set(것들.map((p) => p.day)).size).toBe(1);
+    // 분봉으로 보면 셋이 다 다르다
+    const 분봉으로 = 흐름만들기(
+      [분봉("09:30", 100), 분봉("10:00", 110), 분봉("11:00", 120)] as never, 1, true);
+    expect(new Set(분봉으로.map((p) => p.day)).size).toBe(3);
+  });
+
+  it("분봉도 첫 값 대비 %로 낸다", () => {
+    const 것들 = 흐름만들기([분봉("09:30", 100), 분봉("15:20", 105)] as never, 1, true);
+    expect(것들[1].수익).toBeCloseTo(5);
+  });
+});
+
+describe("짧은날", () => {
+  it("일봉은 월/일", () => {
+    expect(짧은날("2026-08-26")).toBe("8/26");
+  });
+
+  it("분봉은 시각", () => {
+    /* 하루치인데 날짜만 적으면 모든 눈금이 같은 글자가 된다 */
+    expect(짧은날("2026-08-26T09:30:00")).toBe("09:30");
+    expect(짧은날("2026-08-26 14:05:00")).toBe("14:05");
   });
 });
 

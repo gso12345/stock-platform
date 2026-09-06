@@ -160,9 +160,15 @@ def 열쇠(보유: list[dict]) -> str:
     return "portfolio_news:" + hashlib.md5(씨.encode("utf-8")).hexdigest()[:16]
 
 
-#: 한 요청에 배경으로 새로 받을 종목 수. 배당 달력의 '한번에' 와 같은 규칙 —
-#: 스무 종목을 한꺼번에 밀어 넣으면 풀이 막혀 다른 화면까지 느려진다
-한번에 = 4
+#: 한 요청에 배경으로 보낼 종목 수.
+#
+#  4 였다. 스무 종목을 가진 사람은 다섯 번을 되물어야 다 채워지고,
+#  화면은 그동안 '기사를 모으는 중' 만 띄운다 — 4초 주기로 다섯 번이면
+#  20초다. '맨날 불러오는 중으로 뜬다' 는 말이 나온 이유다.
+#
+#  배경 풀이 여덟이므로 여덟까지는 한 회차에 다 돈다. 종목당 요청 하나
+#  씩이고 요청은 안 기다리므로 화면 대기는 안 늘어난다.
+한번에 = 8
 
 #: 종목 뉴스 캐시 수명. 종목 상세가 쓰는 값과 같게 둔다(같은 열쇠를 쓴다)
 종목뉴스_수명 = 300
@@ -301,6 +307,39 @@ def _배경으로(대상: list[dict]) -> int:
     return 오는중
 
 
+#: 종합 뉴스를 배경에서 채우는 중인 통
+_종합받는중: set = set()
+
+
+def _종합_채워두기(빈통: list[str]) -> None:
+    """종합 뉴스 통을 배경에서 채운다. 요청은 안 기다린다.
+
+    한 번 받으면 여러 종목을 한꺼번에 덮으므로, 종목별로 하나씩 받는
+    것보다 훨씬 싸다. 같은 통을 두 번 맡기지 않게 표시를 남긴다 —
+    화면이 4초마다 되묻는데 그때마다 새로 맡기면 같은 RSS 를 계속
+    긁는다."""
+    from app.core.executor import background_executor
+
+    for ck in 빈통:
+        if ck in _종합받는중:
+            continue
+        _종합받는중.add(ck)
+
+        def 받기(열쇠=ck):
+            try:
+                from app.services.news_service import get_kr_news, get_us_news
+                (get_kr_news if 열쇠 == "news:kr" else get_us_news)()
+            except Exception as e:
+                log.debug("종합 뉴스 채우기 실패 %s: %s", 열쇠, type(e).__name__)
+            finally:
+                _종합받는중.discard(열쇠)
+
+        try:
+            background_executor.submit(받기)
+        except Exception:
+            _종합받는중.discard(ck)
+
+
 def _고르기(보유: list[dict]) -> tuple[list[dict], list[str]]:
     """이미 받아 둔 것에서 내 종목 기사를 골라낸다. 외부 호출 없음."""
     # 종합 뉴스는 캐시에서만 읽는다. get_kr_news() 를 부르면 캐시가 비었을
@@ -320,8 +359,29 @@ def _고르기(보유: list[dict]) -> tuple[list[dict], list[str]]:
     한국 매체가 쓰면 그건 한국 기사다. 그래서 '종목의 시장' 이 아니라
     '기사가 나온 통' 으로 가른다."""
     종합: list[tuple[dict, str]] = []
+    빈통: list[str] = []
     for ck, 말 in (("news:kr", "ko"), ("news:us", "en")):
-        종합 += [(a, 말) for a in (cache.get(ck) or cache.get_stale(ck) or [])]
+        것들 = cache.get(ck) or cache.get_stale(ck) or []
+        if not 것들:
+            빈통.append(ck)
+        종합 += [(a, 말) for a in 것들]
+
+    """종합 통이 비었으면 **배경에서 채운다.**
+
+    여기가 '내 자산 뉴스가 맨날 불러오는 중' 의 큰 몫이었다. 이 함수는
+    캐시만 읽는데, 그 캐시를 채우는 것은 5분마다 도는 스케줄러뿐이다.
+    서버가 자다 깨면(Render 무료 인스턴스) 두 통이 다 비어 있고, 그
+    상태에서는 종목별로 하나씩 받는 길밖에 없다 — 스무 종목이면 스무
+    번이다.
+
+    종합 뉴스는 **한 번 받아 여러 종목을 덮는다.** 삼성전자·SK하이닉스
+    ·현대차 얘기가 한 통에 같이 들어 있다. 그래서 이걸 먼저 채우는 것이
+    종목별 스무 번보다 훨씬 싸고 빠르다.
+
+    여기서도 기다리지 않는다. 이번 요청은 있는 것으로 답하고, 다음
+    요청(화면이 몇 초 뒤 다시 묻는다)이 채워진 것을 쓴다."""
+    if 빈통:
+        _종합_채워두기(빈통)
 
     모은것: dict[str, dict] = {}          # 제목열쇠 → 기사
     본주소: set[str] = set()
