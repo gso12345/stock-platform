@@ -42,6 +42,16 @@ import QuantScoreView from "@/components/stock/QuantScoreView";
 
 import { FIN_CUSTOM_KEY } from "@/constants/finMetrics";
 
+/** 창 크기에 맞는 차트 높이.
+ *
+ *  화면과 떼어 놔야 검사할 수 있다. 휴대폰은 손에 쥐고 보므로 낮게,
+ *  큰 화면은 창 높이의 절반쯤. 위아래에 종목명·가격·탭·통계가 붙으므로
+ *  다 먹으면 스크롤 없이는 아무것도 못 본다 — 640 에서 끊는다. */
+export function 차트높이계산(가로: number, 세로: number): number {
+  if (가로 < 640) return Math.max(280, Math.min(340, Math.round(세로 * 0.42)));
+  return Math.max(360, Math.min(640, Math.round(세로 * 0.52)));
+}
+
 const 유효 = (v: unknown): number | null =>
   typeof v === "number" && v !== 0 && Number.isFinite(v) ? v : null;
 
@@ -133,6 +143,19 @@ export default function StockDetail() {
      예전에는 여기에 7개짜리 배열이 따로 박혀 있어서 실제 탭과 어긋났다. */
   const [mainTab, setMainTab]       = useState<"chart" | "financial" | "quant" | "news" | "daily" | "analyst" | "supply" | "community" | "holdings">("chart");
   const [isMobile, setIsMobile]     = useState(typeof window !== "undefined" && window.innerWidth < 640);
+
+  /** 차트를 얼마나 높게 그릴까.
+   *
+   *  420px 로 못 박혀 있었다. 레이아웃 최대 폭은 1,600px 인데 높이가
+   *  420px 이면, 큰 화면에서는 가로로 길쭉하고 납작한 띠가 된다 —
+   *  세로로 눌린 캔들은 등락 폭이 실제보다 작아 보인다. 증권사 차트가
+   *  창 높이를 따라가는 이유가 그것이다.
+   *
+   *  창 높이의 절반쯤을 쓰되 360~640 안에 가둔다. 위에 종목명·가격·
+   *  탭 줄이 있고 아래에 통계가 이어지므로, 다 먹으면 스크롤 없이는
+   *  아무것도 못 본다. */
+  const [차트높이, set차트높이] = useState(() =>
+    typeof window === "undefined" ? 420 : 차트높이계산(window.innerWidth, window.innerHeight));
   const [showKRW, setShowKRW]           = useState(false);
   /* 캔들/라인/영역·LOG 는 한 번 정하면 잘 안 바꾼다. 톱니를 눌렀을 때만 편다 */
   const [차트설정열림, set차트설정열림]  = useState(false);
@@ -192,7 +215,12 @@ export default function StockDetail() {
   }, []);
 
   useEffect(() => {
-    const h = () => setIsMobile(window.innerWidth < 640);
+    const h = () => {
+      setIsMobile(window.innerWidth < 640);
+      /* 창을 줄였다 늘렸을 때 차트만 옛 높이로 남으면, 큰 화면에서
+         띠처럼 납작한 그대로다 */
+      set차트높이(차트높이계산(window.innerWidth, window.innerHeight));
+    };
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
@@ -1152,7 +1180,7 @@ export default function StockDetail() {
               사람에게 한 번 더 누르게 할 이유가 없다.
               칸선은 긋지 않는다 — 선을 그으면 표로 읽힌다. */}
           {화면모양 === "classic" && (
-            <div className="px-3 py-2.5 grid grid-cols-4 gap-x-2 gap-y-2.5">
+            <div className="px-3 py-2.5 grid grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-x-2 gap-y-2.5">
               {priceItems.map((item) => (
                 <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-2xs text-text-dim whitespace-nowrap">{item.label}</span>
@@ -1384,7 +1412,7 @@ export default function StockDetail() {
               {fetchingChart && (
                 <div className="absolute top-2 right-2 z-10 w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
               )}
-              <StockChart data={ohlcv} height={isMobile ? 300 : 420} isKR={isKR} chartType={chartType} logScale={logScale}/>
+              <StockChart data={ohlcv} height={차트높이} isKR={isKR} chartType={chartType} logScale={logScale} market={m} symbol={sym}/>
             </div>
           ) : fetchingChart ? (
             <div className="h-[300px] sm:h-[500px] flex flex-col items-center justify-center gap-3">
@@ -1418,7 +1446,7 @@ export default function StockDetail() {
             <span className="w-3 h-3 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
             <span className="text-2xs text-text-dim">불러오는 중</span>
           </div>
-          <div className="px-1 grid grid-cols-3 gap-x-3 gap-y-3.5">
+          <div className="px-1 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-x-3 gap-y-3.5">
             {Array.from({ length: 9 }).map((_, i) => (
               <div key={i} className="flex flex-col gap-1 min-w-0">
                 <span className="h-2.5 w-10 rounded bg-bg-elevated animate-pulse" />
@@ -1445,7 +1473,7 @@ export default function StockDetail() {
               />
             </div>
           )}
-          <div className="px-1 grid grid-cols-3 gap-x-3 gap-y-3.5">
+          <div className="px-1 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-x-3 gap-y-3.5">
             {priceItems.map((item) => (
               <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
                 <span className="text-xs text-text-dim whitespace-nowrap">{item.label}</span>

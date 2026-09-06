@@ -173,7 +173,7 @@ export default function 재무제표탭({
           <div className="p-4 flex flex-col gap-4">
             {/* 현재 지표 — detail 없으면 metricsHistory 최신값 사용 */}
             {d && (
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 gap-2">
                 <StatCell label="PER(현재)"    value={dEnhanced.per          != null ? `${fmtNum(dEnhanced.per)}배` : null} />
                 <StatCell label="PER(선행)"    value={dEnhanced.forward_per  != null ? `${fmtNum(dEnhanced.forward_per)}배` : null} />
                 <StatCell label="EPS(선행)"    value={fmtEpsBps(dEnhanced.forward_eps)} />
