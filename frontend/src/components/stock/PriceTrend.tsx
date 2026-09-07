@@ -127,7 +127,17 @@ export default function PriceTrend({
   const 분봉 = 기간.간격 !== "1d";
 
   const { data, isLoading, isError, error, refetch } = useQuery<OHLCV[]>({
-    queryKey: ["stock-ohlcv", market, symbol, 기간.기간, 기간.간격],
+    /* 열쇠의 인자 순서를 **종목상세와 같게** 둔다.
+     *
+     *  여기만 (기간, 간격) 이고 종목상세는 (간격, 기간) 이었다. 그래서
+     *  '3개월 일봉' 을 두 화면이 서로 다른 열쇠로 담아, 똑같은 요청이
+     *  두 번 나가고 캐시에도 두 벌이 쌓였다. 0.15 CPU 서버에서 왕복
+     *  하나가 그대로 화면 대기다.
+     *
+     *  부르는 쪽 인자 순서(period, interval)와 열쇠 순서(interval,
+     *  period)가 다른 것이 헷갈림의 뿌리인데, 열쇠 쪽을 바꾸면 종목상세
+     *  세 곳을 다 고쳐야 한다. 수가 적은 이쪽을 맞춘다. */
+    queryKey: ["stock-ohlcv", market, symbol, 기간.간격, 기간.기간],
     queryFn: () => stocksApi.getOHLCV(market, symbol, 기간.기간, 기간.간격),
     enabled: !!symbol,
     /* 일봉은 자주 안 바뀐다. 분봉은 장중에 계속 바뀌므로 짧게 본다 —

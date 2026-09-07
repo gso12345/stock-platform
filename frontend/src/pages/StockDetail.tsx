@@ -52,6 +52,40 @@ export function 차트높이계산(가로: number, 세로: number): number {
   return Math.max(360, Math.min(640, Math.round(세로 * 0.52)));
 }
 
+/**
+ * 서버 오류 본문을 **사람이 읽을 한 줄**로.
+ *
+ * 여기가 화면을 죽일 수 있는 자리였다. FastAPI 의 422(검증 실패)는
+ * detail 을 객체 배열로 준다 — 그걸 그대로 상태에 넣고 그리면
+ * "Objects are not valid as a React child" 로 종목상세가 통째로 하얘진다.
+ * 프록시가 HTML 을 돌려주는 경우도 있는데, 그때는 안 죽지만 화면에
+ * HTML 한 덩어리가 찍힌다.
+ *
+ * 무엇이 오든 짧은 문장 하나로 만든다. 못 읽겠으면 기본 문구를 쓴다 —
+ * 사용자에게 서버 내부 사정을 보여 줄 이유도 없다.
+ */
+export function 읽을수있는오류(detail: unknown, 기본 = "추가 실패"): string {
+  if (typeof detail === "string" && detail.trim()) {
+    /* HTML 이 통째로 오면 화면을 밀어낸다. 앞부분만 남긴다 */
+    const 한줄 = detail.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    return 한줄 ? 한줄.slice(0, 120) : 기본;
+  }
+  if (Array.isArray(detail)) {
+    /* FastAPI 검증 오류: [{loc, msg, type}, ...] */
+    const 말들 = detail
+      .map((x) => (x && typeof x === "object" && typeof (x as { msg?: unknown }).msg === "string"
+        ? (x as { msg: string }).msg : null))
+      .filter(Boolean);
+    return 말들.length ? 말들.join(", ").slice(0, 120) : 기본;
+  }
+  if (detail && typeof detail === "object") {
+    const m = (detail as { msg?: unknown; message?: unknown });
+    if (typeof m.msg === "string" && m.msg.trim()) return m.msg.slice(0, 120);
+    if (typeof m.message === "string" && m.message.trim()) return m.message.slice(0, 120);
+  }
+  return 기본;
+}
+
 const 유효 = (v: unknown): number | null =>
   typeof v === "number" && v !== 0 && Number.isFinite(v) ? v : null;
 
@@ -479,7 +513,21 @@ export default function StockDetail() {
     enabled: !isKR,
     staleTime: 300_000,
   });
-  const exchangeRate: number = (exchangeRateData as any)?.value ?? 1350;
+  /** 원/달러. **0 을 걸러야 한다.**
+   *
+   *  `?? 1350` 은 null·undefined 만 막는다. 그런데 서버는 환율을 못
+   *  받았을 때 null 이 아니라 **`{value: 0}`** 을 돌려준다
+   *  (price_fetcher._get_fx_cached 의 `빈값`). 0 은 `??` 를 그냥 통과한다.
+   *
+   *  그러면 '원화로 보기' 를 켠 미국 종목의 모든 값이 **₩0** 이 된다 —
+   *  현재가도, 시가총액도, 52주 고저도. 값이 안 나오는 것이 아니라
+   *  **틀린 값이 나온다.** 그쪽이 훨씬 나쁘다.
+   *
+   *  서버가 0 을 주는 때가 드물지도 않다. Render 무료 인스턴스가 자다
+   *  깨면 환율 캐시가 비어 있고, 배치가 상한 안에 못 끝내면 그대로
+   *  빈값이 나간다. */
+  const 받은환율 = Number((exchangeRateData as { value?: number } | undefined)?.value);
+  const exchangeRate: number = Number.isFinite(받은환율) && 받은환율 > 0 ? 받은환율 : 1350;
   const fmt = useCallback((v: number | null | undefined) => isKR ? fmtKRW(v) : showKRW && v != null ? fmtKRW(v * exchangeRate) : fmtUSD(v), [isKR, showKRW, exchangeRate]);
 
   // 이미 추가된 종목인지 확인 — Watchlist/Quant와 동일 캐시 공유
@@ -549,7 +597,19 @@ export default function StockDetail() {
         navigate("/login");
         return;
       }
-      const msg = err?.response?.data?.detail ?? "추가 실패";
+      /** 서버 오류 본문은 **문자열이 아닐 수 있다.**
+       *
+       *  FastAPI 의 422(검증 실패)는 detail 을 객체 배열로 준다.
+       *  그걸 그대로 상태에 넣으면 화면이 그 값을 그리려다
+       *  "Objects are not valid as a React child" 로 죽는다 —
+       *  종목상세가 통째로 하얘진다.
+       *
+       *  프록시나 게이트웨이가 HTML 을 돌려주는 경우도 있다. 그때는
+       *  안 죽지만 화면에 HTML 한 덩어리가 찍힌다.
+       *
+       *  무엇이 오든 **사람이 읽을 한 줄**로 만든다. 못 읽겠으면
+       *  기본 문구를 쓴다 — 사용자에게 서버 내부 사정을 보여 줄 이유도 없다. */
+      const msg = 읽을수있는오류(err?.response?.data?.detail);
       if (msg.includes("이미")) {
         setInWatchlist(true);
         setWatchlistMsg("이미 추가된 종목이에요");
@@ -926,9 +986,23 @@ export default function StockDetail() {
     if (!맞는것.length) return null;
     const 수량 = 맞는것.reduce((a, x) => a + (Number(x.shares) || 0), 0);
     if (!(수량 > 0)) return null;
+
+    /** 담을 때 고른 통화. 시장이 아니라 이것을 봐야 한다.
+     *
+     *  해외 종목도 '원화로 얼마에 샀다' 로 넣을 수 있다(내 자산의
+     *  합계내기가 이미 통화로 가른다). 시장으로 고르면 20만원짜리
+     *  평단에 '$200,000.00' 이 붙는다.
+     *
+     *  한 종목을 계좌마다 다른 통화로 넣었으면 평단을 하나로 합칠 수
+     *  없다 — 달러와 원을 더한 수는 아무 뜻이 없다. 그때는 배지를
+     *  아예 안 그린다. 수량은 맞으니 그것만 보여 준다. */
+    const 통화들 = new Set(맞는것.map((x) =>
+      String(x.currency ?? (x.market === "KR" ? "KRW" : "USD")).toUpperCase()));
+    if (통화들.size > 1) return { 수량, 평단: null, 통화: null, 계좌수: 맞는것.length };
+
     // 여러 계좌에 나눠 담았을 수 있다 — 수량 가중으로 평단을 합친다
     const 총액 = 맞는것.reduce((a, x) => a + (Number(x.shares) || 0) * (Number(x.avg_price ?? x.avgPrice) || 0), 0);
-    return { 수량, 평단: 총액 / 수량, 계좌수: 맞는것.length };
+    return { 수량, 평단: 총액 / 수량, 통화: [...통화들][0], 계좌수: 맞는것.length };
   }, [보유목록, sym, m]);
 
   const isUp = (d?.change_rate ?? 0) >= 0;
@@ -1092,9 +1166,19 @@ export default function StockDetail() {
           )}
           {내보유 && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-accent-green/10 border border-accent-green/30 text-accent-green font-semibold flex-shrink-0 whitespace-nowrap">
-              보유 {내보유.수량.toLocaleString("ko-KR")}주 · 평단 {
-                isKR ? `₩${Math.round(내보유.평단).toLocaleString("ko-KR")}` : `$${내보유.평단.toFixed(2)}`
-              }
+              보유 {내보유.수량.toLocaleString("ko-KR")}주
+              {/* 시장이 아니라 **담을 때 고른 통화**를 따른다. 해외 종목
+                  이라도 '원화로 얼마에 샀다' 로 넣을 수 있어서, 시장으로
+                  고르면 20만원짜리 평단에 '$200,000.00' 이 붙는다.
+                  내 자산 화면이 이미 통화로 가르고 있다(합계내기).
+
+                  계좌마다 통화가 다르면 평단을 안 적는다 — 달러와 원을
+                  더한 수는 아무 뜻이 없다. 수량은 맞으니 그것만 남긴다. */}
+              {내보유.평단 != null && 내보유.통화 && (
+                <> · 평단 {내보유.통화 === "KRW"
+                  ? `₩${Math.round(내보유.평단).toLocaleString("ko-KR")}`
+                  : `$${내보유.평단.toFixed(2)}`}</>
+              )}
             </span>
           )}
         </div>
