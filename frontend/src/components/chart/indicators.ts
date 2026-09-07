@@ -86,6 +86,26 @@ export function calcMACD(data: OHLCV[], fast = 12, slow = 26, signal = 9) {
     const fi = emaFast.length - minLen + i;
     macdLine.push({ time: emaSlow[i].time, value: emaFast[fi].value - emaSlow[i].value });
   }
+  /** 시그널을 낼 만큼 안 모였으면 빈 것을 준다.
+   *
+   *  아래 `macdLine[signal - 1]` 이 가드 없이 쓰이고 있었다. macdLine 의
+   *  길이는 봉 수에서 25를 뺀 값이라(EMA26 을 거치며 깎인다), 봉이 34개
+   *  미만이면 그 자리가 undefined 이고 `.time` 을 읽다 예외가 난다.
+   *
+   *  이 예외는 차트를 그리는 useEffect 안에서 나므로 **차트가 통째로
+   *  안 그려진다.** 오류 표시도 안 뜬다 — 그냥 빈 자리가 된다.
+   *
+   *  실제로 닿는 자리다 — 갓 상장한 종목, 거래정지가 길었던 종목,
+   *  그리고 짧은 기간(1개월 = 일봉 20개 남짓)을 고른 채 설정에서 MACD 를
+   *  켜는 경우.
+   *
+   *  0으로 채우거나 짧은 평균으로 어림하지 않는다. MACD 는 26봉 추세와
+   *  12봉 추세의 차이를 보는 지표라, 그만큼이 안 모였으면 낼 값이 없는
+   *  것이지 '0에 가까운 값' 인 것이 아니다. */
+  if (signal < 1 || macdLine.length < signal) {
+    return { macdLine: [], signalLine: [], histogram: [] };
+  }
+
   const k = 2 / (signal + 1);
   let sig = macdLine.slice(0, signal).reduce((a, b) => a + b.value, 0) / signal;
   const signalLine: TimedValue[] = [{ time: macdLine[signal - 1].time, value: sig }];
@@ -138,7 +158,17 @@ export function calcCCI(data: OHLCV[], period = 20): TimedValue[] {
 
 /* ── ATR (Average True Range) ───────────────────────── */
 export function calcATR(data: OHLCV[], period = 14): TimedValue[] {
-  if (data.length < 2) return [];
+  /** 가드가 **틀린 곳**을 막고 있었다.
+   *
+   *  `data.length < 2` 만 봤는데, 아래에서 실제로 읽는 것은 `data[period]`
+   *  다. 그래서 봉이 2~14개면 가드를 통과한 뒤 undefined 를 읽다 예외가
+   *  났다 — 0·1봉은 살고 2~14봉이 죽는, 거꾸로 된 모양이었다.
+   *
+   *  예외가 차트 그리는 useEffect 안에서 나므로 차트가 통째로 안 그려진다.
+   *
+   *  period 자체도 막는다. 0이면 아래에서 0으로 나눠 NaN 이 되고,
+   *  NaN 은 그래프에서 조용히 사라진다 — 안 그려진 것과 구분이 안 된다. */
+  if (period < 1 || data.length <= period) return [];
   const trs = data.slice(1).map((d, i) => Math.max(
     d.high - d.low,
     Math.abs(d.high - data[i].close),
