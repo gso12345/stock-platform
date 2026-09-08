@@ -37,6 +37,7 @@ vi.mock("@/api/stocks", () => ({
   portfolioApi: {
     getPortfolios: vi.fn(() => Promise.resolve(PORTFOLIOS)),
     getItems: vi.fn(() => Promise.resolve(ITEMS)),
+    getItemsWithPrices: vi.fn(() => Promise.resolve({ items: ITEMS, prices: [] })),
     addItem: vi.fn(), updateItem: vi.fn(), deleteItem: vi.fn(),
     createPortfolio: vi.fn(), renamePortfolio: vi.fn(),
     deletePortfolio: vi.fn(), reorderPortfolios: vi.fn(),

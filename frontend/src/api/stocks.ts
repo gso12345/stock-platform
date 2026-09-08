@@ -555,6 +555,24 @@ export const portfolioApi = {
       params: viewAll ? { view_all: true } : (portfolioId ? { portfolio_id: portfolioId } : {}),
     }).then((r) => r.data),
 
+  /**
+   * 보유 목록 + **이미 받아 둔 시세**를 한 번에.
+   *
+   * 시세를 따로 물어보면 왕복이 두 번이다 — 종목을 받아야 무엇의
+   * 시세를 물어볼지 알기 때문에, 뒤엣것은 앞엣것이 올 때까지 시작도
+   * 못 한다. 그동안 총자산·손익·비중이 전부 빈칸이다.
+   *
+   * 서버는 캐시에 있는 것만 얹는다(바깥 호출 0). 없는 종목은 빠지고,
+   * 화면은 늘 하던 시세 조회로 마저 채운다 — 덤이지 대체가 아니다.
+   */
+  getItemsWithPrices: (portfolioId?: number, viewAll?: boolean) =>
+    api.get<{ items: unknown[]; prices: unknown[] }>("/portfolio/items", {
+      params: {
+        ...(viewAll ? { view_all: true } : (portfolioId ? { portfolio_id: portfolioId } : {})),
+        with_prices: true,
+      },
+    }).then((r) => r.data),
+
   addItem: (payload: {
     portfolio_id?: number | null;
     symbol: string; market: string; name: string;

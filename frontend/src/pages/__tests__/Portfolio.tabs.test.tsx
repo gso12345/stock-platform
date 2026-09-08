@@ -108,6 +108,7 @@ vi.mock("@/api/stocks", () => ({
   portfolioApi: {
     getPortfolios: vi.fn(() => Promise.resolve(PORTFOLIOS)),
     getItems: vi.fn(() => Promise.resolve(ITEMS)),
+    getItemsWithPrices: vi.fn(() => Promise.resolve({ items: ITEMS, prices: [] })),
     getHistory:     (...a: unknown[]) => getHistory(...(a as [])),
     getDividends:   (...a: unknown[]) => getDividends(...(a as [])),
     getHoldingNews: (...a: unknown[]) => getHoldingNews(...(a as [])),
@@ -143,8 +144,15 @@ import Portfolio from "../Portfolio";
 import { 투자배당률, type 배당몫 } from "@/components/portfolio/HoldingRow";
 import type { EnrichedItem } from "@/types/portfolio";
 
-function 그리기() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+function 그리기(설정: { gcTime?: number } = {}) {
+  /* gcTime 0 은 이 파일의 기본이다 — 검사끼리 캐시가 새지 않게.
+     그런데 **미리 받아 두는 것**을 볼 때는 그 값이 검사 자체를 거짓말로
+     만든다. 관찰자가 없는 순간 받아 둔 것이 곧바로 버려져서, 탭이
+     열릴 때 캐시가 늘 비어 있다 — 제품은 멀쩡한데 검사만 실패한다.
+     실제 앱은 30분이다(api/queryClient). 그 검사만 값을 넘긴다. */
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 설정.gcTime ?? 0 } },
+  });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter><Portfolio /></MemoryRouter>
@@ -517,5 +525,63 @@ describe("보유 줄에 붙는 배당 배지", () => {
     // 배당월 목록은 없다
     expect(within(줄!).queryByText(/1·2·3/)).toBeNull();
     expect(within(줄!).queryByText(/12월$/)).toBeNull();
+  }, 20_000);
+});
+
+describe("탭을 누르기 전에 미리 받아 둔다", () => {
+  /**
+   * 추이·배당·뉴스는 **눌러야** 요청이 나갔다. 그래서 탭을 누른 사람은
+   * 매번 왕복을 통째로 기다렸고, 배당은 캐시가 비어 있으면 그게 몇
+   * 초다(서버에서 재 보니 3.8초). 화면이 이미 가진 것으로 그릴 수 있는
+   * 값이 아니라 서버에만 있는 것이라, 줄일 길은 미리 받는 것뿐이다.
+   *
+   * 이 검사가 없으면 미리받기를 통째로 지워도 아무도 모른다 — 화면은
+   * 똑같이 그려지고 오류도 안 나고, 그냥 예전만큼 느려진다.
+   * 실제로 뮤테이션으로 확인했다(호출을 지웠더니 다른 검사가 전부 통과).
+   */
+  it("자산 탭에 머물러 있어도 추이·배당·뉴스를 받아 둔다", async () => {
+    그리기();
+    await 준비();
+    // 탭은 '자산' 그대로다 — 아무것도 안 눌렀다
+    expect(탭("자산")).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => {
+      expect(getHistory).toHaveBeenCalled();
+      expect(getHoldingNews).toHaveBeenCalled();
+    }, { timeout: 10_000 });
+    /* 배당은 여기 없다 — 자산 탭의 배당 배지가 이미 같은 열쇠로
+       받고 있어서, 미리받기에 넣어도 아무 일이 안 일어난다.
+       (넣어 뒀다가 뮤테이션으로 확인하고 뺐다.) */
+  }, 20_000);
+
+  it("미리 받아 둔 것을 탭이 다시 받지 않는다", async () => {
+    /* 이 검사가 지키는 것은 **미리 받는 쪽과 그리는 쪽이 같은 서랍을
+       본다** 는 것이다. 열쇠가 갈리면 미리 받아 둔 것은 그냥 버려지고
+       탭이 처음부터 다시 받는다 — 서버만 두 배로 맞고 사람은 그대로
+       기다린다. 고쳤다고 믿는 채로 오히려 나빠지는 경우다.
+
+       배당이 아니라 뉴스로 본다. 배당은 자산 탭의 배지가 이미 받고
+       있어서, 열쇠가 어긋나도 이 검사가 안 걸린다 — 실제로 배당으로
+       썼다가 뮤테이션에서 안 죽는 것을 보고 바꿨다. */
+    그리기({ gcTime: 300_000 });
+    await 준비();
+    await waitFor(() => expect(getHoldingNews).toHaveBeenCalled(), { timeout: 10_000 });
+    const 미리받은횟수 = getHoldingNews.mock.calls.length;
+
+    await userEvent.click(탭("뉴스"));
+    await screen.findByText("내 종목 뉴스", {}, { timeout: 8000 });
+    expect(getHoldingNews.mock.calls.length).toBe(미리받은횟수);
+  }, 25_000);
+
+  it("종목이 하나도 없으면 미리 받지 않는다", async () => {
+    /* 받아 봐야 빈 답이고, 그 빈 답이 캐시에 앉으면 종목을 담은
+       직후에도 '아직 없어요' 가 남는다. 빈 서버를 두드릴 이유도 없다. */
+    const { portfolioApi } = await import("@/api/stocks");
+    vi.mocked(portfolioApi.getItemsWithPrices).mockResolvedValueOnce({ items: [], prices: [] });
+    vi.mocked(portfolioApi.getItems).mockResolvedValueOnce([]);
+    그리기();
+    await screen.findByText("보유 종목", {}, { timeout: 8000 }).catch(() => null);
+    await new Promise((r) => setTimeout(r, 2_000));   // 미리받기가 돌 만큼 기다린다
+    expect(getDividends).not.toHaveBeenCalled();
+    expect(getHoldingNews).not.toHaveBeenCalled();
   }, 20_000);
 });

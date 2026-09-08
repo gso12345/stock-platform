@@ -36,7 +36,7 @@
  * 필요할 때만 받아 온다(그 파일 주석에 왜 그런지 적혀 있다).
  */
 import { useMemo, useState } from "react";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useQuery, useQueries, type QueryClient } from "@tanstack/react-query";
 import { portfolioApi, dashboardApi, type 자산흐름점 } from "@/api/stocks";
 import 차트틀 from "@/components/chart/ChartFrame";
 import { Card, 못불러옴 } from "@/components/ui";
@@ -63,6 +63,42 @@ export const 기간들 = [
 ] as const;
 
 export type 기간id = (typeof 기간들)[number]["id"];
+
+/** 탭을 열면 처음 보이는 기간. 아래 useState 와 미리받기가 같이 본다 —
+ *  갈리면 미리 받아 둔 것이 다른 서랍에 들어가 아무 효과가 없다 */
+export const 첫기간: 기간id = "3개월";
+
+/**
+ * 자산 흐름 조회의 이름표.
+ *
+ * 그리는 쪽과 미리 받는 쪽이 각자 만들면 반드시 어긋난다 — 일수 하나만
+ * 달라도 서랍이 갈려서, 미리 받아 둔 것이 그냥 버려진다. 그런 어긋남은
+ * 화면에 오류로 안 보이고 '여전히 느리다' 로만 보인다.
+ */
+export function 흐름열쇠(고른: 기간id, portfolioId?: number | null) {
+  const 기간 = 기간들.find((g) => g.id === 고른) ?? 기간들[1];
+  return ["portfolio-history", 고른, 기간.일수 ?? 올해일수(), portfolioId ?? 0] as const;
+}
+
+/**
+ * 추이 탭을 열기 **전에** 미리 받아 둔다.
+ *
+ * 이 탭은 눌러야 요청이 나갔다. 그래서 누른 사람은 매번 왕복 한 번을
+ * 통째로 기다렸다 — 이미 화면에 있는 정보로 그릴 수 있는 것이 아니라,
+ * 서버에만 있는 기록이라서다.
+ *
+ * 처음 보이는 기간만 받는다. 다섯 기간을 다 받으면 안 볼 것까지
+ * 받느라 0.15 CPU 서버를 다섯 배로 두드리는 셈이다.
+ */
+export function 흐름미리받기(qc: QueryClient, portfolioId?: number | null) {
+  const 기간 = 기간들.find((g) => g.id === 첫기간) ?? 기간들[1];
+  const 일수 = 기간.일수 ?? 올해일수();
+  return qc.prefetchQuery({
+    queryKey: 흐름열쇠(첫기간, portfolioId),
+    queryFn: () => portfolioApi.getHistory(일수, portfolioId ?? undefined),
+    staleTime: 하루수명,
+  });
+}
 
 /**
  * 1월 1일부터 오늘까지 며칠인가.
@@ -285,7 +321,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
    *  몇 주 갖고 있나' 뿐이다. */
   미리보기?: 자산흐름점[];
 }) {
-  const [고른기간, set고른기간] = useState<기간id>("3개월");
+  const [고른기간, set고른기간] = useState<기간id>(첫기간);
   /* 여러 개를 한꺼번에 켠다. 코스피와 나스닥을 같이 올려 놓고 봐야
      '국내가 빠진 달인가, 내가 못한 건가' 가 갈린다 */
   const [벤치들, set벤치들] = useState<string[]>([]);
@@ -308,7 +344,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
     /* 열쇠에 portfolioId 가 빠지면, 포트폴리오를 바꿔도 앞서 받아 둔
        전체 그래프가 그대로 남는다 — 5분(staleTime) 동안 바뀐 것이
        하나도 없어 보인다 */
-    queryKey: ["portfolio-history", 고른기간, 일수, portfolioId ?? 0],
+    queryKey: 흐름열쇠(고른기간, portfolioId),
     queryFn: () => portfolioApi.getHistory(일수, portfolioId),
     /* 미리보기는 이 경로(로그인 필요)를 안 부른다. 대신 공개된
        종목 시세 이력으로 화면에서 계산한다 */

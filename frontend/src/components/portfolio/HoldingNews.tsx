@@ -17,7 +17,7 @@
  * 못 찾은 종목을 아래에 그대로 적고, 눌러서 갈 수 있게 둔다.
  */
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Newspaper, ExternalLink } from "lucide-react";
 import { portfolioApi, type 보유뉴스응답, type 보유뉴스항목 } from "@/api/stocks";
@@ -55,6 +55,23 @@ export function 걸러내기(items: 보유뉴스항목[], 칸: 뉴스칸): 보�
   return items.filter((it) => 한국기사인가(it) === 한국);
 }
 
+/** 조회 열쇠. 그리는 쪽과 미리 받는 쪽이 같은 것을 쓰도록 한 군데서만 만든다 */
+export function 뉴스열쇠(portfolioId?: number | null) {
+  return ["portfolio-news", portfolioId ?? "all"] as const;
+}
+
+/** 뉴스 탭을 열기 **전에** 미리 받아 둔다.
+ *
+ *  이 조회는 바깥을 안 부르지만(이미 모아 둔 캐시만 쓴다) 왕복은 왕복이다.
+ *  눌러야 시작하면 그 왕복을 사람이 그대로 기다린다. */
+export function 뉴스미리받기(qc: QueryClient, portfolioId?: number | null) {
+  return qc.prefetchQuery({
+    queryKey: 뉴스열쇠(portfolioId),
+    queryFn: () => portfolioApi.getHoldingNews(portfolioId ?? undefined),
+    staleTime: 하루수명,
+  });
+}
+
 export default function 보유뉴스({ portfolioId, 미리보기 }: {
   portfolioId?: number;
   /** 로그인 전 미리보기. 주면 /portfolio/news(로그인 필요)를 안 부른다.
@@ -65,7 +82,7 @@ export default function 보유뉴스({ portfolioId, 미리보기 }: {
   미리보기?: 보유뉴스응답;
 }) {
   const { data: 받은것, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["portfolio-news", portfolioId ?? "all"],
+    queryKey: 뉴스열쇠(portfolioId),
     queryFn: () => portfolioApi.getHoldingNews(portfolioId),
     enabled: !미리보기,
     /* 서버 캐시가 5분이라 그보다 자주 물어볼 이유가 없다 */

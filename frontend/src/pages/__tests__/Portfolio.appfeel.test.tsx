@@ -48,6 +48,9 @@ vi.mock("@/api/stocks", async (원본가져오기) => ({
   portfolioApi: {
     getPortfolios: vi.fn(() => Promise.resolve([])),
     getItems: vi.fn(() => Promise.resolve([])),
+    /* 화면은 이제 시세를 목록과 같이 받는다 — 왕복 하나를 없앤 길이다.
+       여기에 안 두면 화면이 목록을 아예 못 받는다 */
+    getItemsWithPrices: vi.fn(() => Promise.resolve({ items: [], prices: [] })),
     addItem: vi.fn(), updateItem: vi.fn(), deleteItem: vi.fn(),
     createPortfolio: vi.fn(), renamePortfolio: vi.fn(),
     deletePortfolio: vi.fn(), reorderPortfolios: vi.fn(),

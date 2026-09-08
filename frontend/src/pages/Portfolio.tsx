@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { 시세수명, 하루수명, 재촉주기, 재촉_횟수 } from "@/constants/portfolioQuery";
+import { 시세수명, 하루수명, 재촉주기, 재촉_횟수, 시세열쇠, 시세대상 } from "@/constants/portfolioQuery";
 import { use낙관, 목록에서빼기, 목록에서고치기 } from "@/hooks/useOptimistic";
 import { use저장된값, use저장된Set } from "@/hooks/useSaved";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
@@ -23,11 +23,11 @@ import { withNativeValues, 오늘변화원화, 전일대비주당 } from "@/util
 import { useExchangeRate, useExchangeRateChange } from "@/hooks/useExchangeRate";
 import { type AssetClass, resolveAssetClass } from "@/utils/assetClass";
 import type { Market, ChartMode, PortfolioItem, SelectedPortfolio, PortfolioMeta, EnrichedItem } from "@/types/portfolio";
-import AssetHistory from "@/components/portfolio/AssetHistory";
+import AssetHistory, { 흐름미리받기 } from "@/components/portfolio/AssetHistory";
 import DividendCalendar, { type 보유몫 } from "@/components/portfolio/DividendCalendar";
 import 자산지도, { type 지도칸 } from "@/components/portfolio/AssetTreemap";
 import 수익기여 from "@/components/portfolio/ProfitContribution";
-import 보유뉴스 from "@/components/portfolio/HoldingNews";
+import 보유뉴스, { 뉴스미리받기 } from "@/components/portfolio/HoldingNews";
 import { use미리보기흐름, use미리보기배당, use미리보기뉴스 } from "@/hooks/usePortfolioPreview";
 import {
   PortfolioModal, ConfirmDeleteModal, PortfolioPill,
@@ -123,6 +123,59 @@ type 자산탭 = "자산" | "추이" | "배당" | "비중" | "뉴스";
  *  서버를 안 부르고(constants/portfolioPreview) 탭마다 '예시' 라고
  *  적는다. */
 const 모든탭: 자산탭[] = ["자산", "추이", "배당", "비중", "뉴스"];
+
+/**
+ * 보유 목록에 딸려 온 시세를, 시세 조회의 서랍에 미리 꽂아 둔다.
+ *
+ * ── 무엇을 없앤 것인가 ──
+ *
+ * 예전에는 왕복이 두 번이었다. 무엇의 시세를 물어볼지는 종목을 받아야
+ * 알 수 있어서, 뒤엣것이 앞엣것을 기다렸다.
+ *
+ *     /portfolio/items ──▶ (답) ──▶ /watchlist/prices ──▶ (답)
+ *
+ * 그 두 번째 왕복 내내 총자산·손익·비중이 통째로 빈칸이었다. 종목이
+ * 한 개든 서른 개든 늘 붙는 대기다. 이제 서버가 이미 받아 둔 시세를
+ * 목록에 같이 실어 보내고, 여기서 그것을 시세 조회 자리에 꽂는다.
+ *
+ * ── 두 가지를 꼭 지켜야 한다 ──
+ *
+ * **낡은 것으로 표시해서** 꽂는다(updatedAt: 1). 지금 시각으로 넣으면
+ * react-query 가 신선하다고 보고(staleTime 2분) 새로 안 받아 온다 —
+ * 서버 캐시에 있던 옛 시세가 2분간 화면에 눌러앉는다. 빠른 대신 틀린
+ * 값을 보여 주는 것은 느린 것보다 나쁘다.
+ *
+ * **비어 있을 때만** 꽂는다. 화면에 머물던 사람이 종목 하나를 고치면
+ * 목록을 다시 받는데, 그때 화면에는 이미 실시간으로 받은 시세가 있다.
+ * 서버 캐시 쪽이 더 낡았을 수 있으므로 있는 값을 밀어내지 않는다.
+ * 이 꽂기는 **처음 열 때**를 위한 것이다.
+ *
+ * 함수로 빼 둔 이유 — 이게 망가져도 화면에는 아무 표시가 안 난다.
+ * 숫자는 그대로 나오고 오류도 안 뜬다. 그냥 예전만큼 느려질 뿐이라
+ * 눈으로는 못 찾는다. 검사가 직접 부를 수 있어야 한다.
+ */
+export function 시세꽂기(
+  qc: { getQueryData: (k: readonly unknown[]) => unknown;
+        setQueryData: (k: readonly unknown[], v: unknown, o?: { updatedAt?: number }) => unknown },
+  받은것: { items?: unknown; prices?: unknown } | unknown[] | null | undefined,
+): PortfolioItem[] {
+  /* 서버가 **배열을 그대로 주는 경우**를 반드시 받아 줘야 한다.
+     with_prices 를 모르는 예전 서버가 그렇다. 프런트가 먼저 올라가거나,
+     배포가 반쯤 걸쳐 있거나, 옛 응답이 어딘가에 캐시돼 있으면 실제로
+     그렇게 온다. 그때 꾸러미만 알아보면 목록이 통째로 빈 것으로 읽혀서
+     **가진 종목이 하나도 없는 화면**이 뜬다 — 속도를 얻으려다 자산이
+     사라져 보이는 것은 어떤 속도로도 못 갚는다. */
+  if (Array.isArray(받은것)) return 받은것 as PortfolioItem[];
+  const 목록 = (Array.isArray(받은것?.items) ? 받은것!.items : []) as PortfolioItem[];
+  const 시세 = 받은것?.prices;
+  if (Array.isArray(시세) && 시세.length > 0) {
+    const 열쇠 = 시세열쇠(목록);
+    if (qc.getQueryData(열쇠) == null) {
+      qc.setQueryData(열쇠, 시세, { updatedAt: 1 });
+    }
+  }
+  return 목록;
+}
 
 
 /* ── Main Page ──────────────────────────────────────────── */
@@ -370,7 +423,21 @@ export default function Portfolio() {
      로딩이 보여서 느리게 느껴지는 문제를 없앤다 */
   const { data: allItems = [], isLoading: itemsLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery<PortfolioItem[]>({
     queryKey: ["portfolio-items-all"],
-    queryFn:  () => portfolioApi.getItems(undefined, true),
+    /* 보유 목록을 받으면서 **이미 받아 둔 시세**를 같이 가져온다.
+     *
+     * 예전에는 목록을 받은 **뒤에** 시세를 물어봤다. 무엇의 시세를
+     * 물어볼지 알려면 목록이 먼저 와야 해서다. 그래서 왕복이 두 번이고,
+     * 그 두 번째 왕복 내내 총자산·손익·비중이 통째로 빈칸이었다.
+     * 종목이 한 개든 서른 개든 늘 붙는 대기다.
+     *
+     * 받아 온 시세는 아래 시세 조회의 서랍에 곧바로 꽂아 둔다. 그러면
+     * 첫 그림이 숫자와 함께 뜨고, 진짜 조회는 배경에서 돌아 값을 갱신한다.
+     *
+     * **낡은 것으로 표시해서** 꽂는다(updatedAt: 1). 지금 시각으로 넣으면
+     * react-query 가 신선하다고 보고(staleTime 2분) 새로 안 받아 와서,
+     * 캐시에 있던 옛 시세가 2분간 화면에 눌러앉는다. */
+    queryFn: () => portfolioApi.getItemsWithPrices(undefined, true)
+      .then((받은것) => 시세꽂기(queryClient, 받은것)),
     enabled:  isLoggedIn,
     // 종목 목록은 mutation onSuccess에서 invalidate되므로 5분 캐시 (가격은 별도 쿼리로 갱신)
     staleTime: 하루수명,
@@ -443,7 +510,7 @@ export default function Portfolio() {
   /* ── 현재가 조회 (배치 1회 요청 — 종목별 개별 요청 대신, 전체 종목 기준으로
      한 번만 캐시해서 탭을 바꿔도 다시 불러오지 않도록 함) ──
      현금 항목은 시세가 없으므로 가격 조회 대상에서 제외 (인덱스 정합성 유지) ── */
-  const priceableItems = useMemo(() => allItems.filter((i) => i.assetClass !== "현금"), [allItems]);
+  const priceableItems = useMemo(() => 시세대상(allItems), [allItems]);
 
   /* ── 실시간 WebSocket 가격 (기존 120초 폴링 대체) ── */
   const [wsPrices, setWsPrices] = useState<any[] | null>(null);
@@ -459,7 +526,10 @@ export default function Portfolio() {
   );
 
   const { data: batchPrices, isLoading: pricesLoading, isError: 시세못받음 } = useQuery({
-    queryKey:       ["portfolio-prices", priceableItems.map((i) => `${i.market}:${i.symbol}`).join(",")],
+    /* 이름표는 시세열쇠() 한 군데서만 만든다 — 보유목록에 딸려 온 시세를
+       꽂아 두는 쪽과 여기가 한 글자라도 다르면 서랍이 갈려서, 미리 꽂은
+       것이 아무 효과가 없는데 화면에는 아무 표시도 안 난다 */
+    queryKey:       시세열쇠(allItems),
     queryFn:        () => watchlistApi.getPrices(priceableItems.map((i) => i.symbol), priceableItems.map((i) => i.market)),
     enabled:        priceableItems.length > 0,
     staleTime:      시세수명,
@@ -494,6 +564,49 @@ export default function Portfolio() {
     () => mergeEffectivePrices(wsPrices, batchPrices),
     [wsPrices, batchPrices],
   );
+
+  /* ── 추이·배당·뉴스를 미리 받아 둔다 ──
+   *
+   * 이 셋은 **눌러야** 요청이 나갔다. 탭을 누른 사람은 매번 왕복을
+   * 통째로 기다렸고, 배당은 캐시가 비어 있으면 그게 몇 초다(서버에서
+   * 재 보니 3.8초). 화면이 이미 가진 것으로 그릴 수 있는 값이 아니라
+   * 서버에만 있는 것이라, 기다림을 줄일 길은 미리 받는 것뿐이다.
+   *
+   * 첫 그림을 다 그린 **뒤** 한가할 때 시작한다. 같이 시작하면 정작
+   * 사람이 보고 있는 총자산·보유 목록의 차례를 뺏는다 — 브라우저는
+   * 한 호스트에 한 번에 여섯 개까지만 보낸다.
+   *
+   * 종목이 없으면 안 부른다. 받아 봐야 빈 답인데, 그 빈 답이 캐시에
+   * 앉으면 종목을 담은 직후에도 '아직 없어요' 가 남는다.
+   * 미리보기(비로그인)도 이 경로를 안 쓴다 — 로그인이 필요한 자리다. */
+  const 미리받아둘까 = isLoggedIn && items.length > 0;
+  const 미리받을칸 = isAllView ? undefined : (selectedPortfolioId ?? undefined);
+  useEffect(() => {
+    if (!미리받아둘까) return;
+    const 하기 = () => {
+      흐름미리받기(queryClient, 미리받을칸);
+      뉴스미리받기(queryClient, 미리받을칸);
+      /* 배당은 여기 없다. 아래 use배당달력 이 **같은 열쇠로** 이미
+         받고 있어서다 — 보유 종목 줄의 배당 배지가 그 값을 쓴다.
+         한 번 더 부르면 캐시가 맞아 요청은 안 나가지만, 읽는 사람은
+         '배당도 여기서 챙긴다' 고 읽는다. 그러다 배지를 걷어내면
+         배당이 조용히 느려지고, 이 줄은 그대로 남아 아무 일도 안 한다.
+         (뮤테이션으로 확인했다 — 이 줄을 지워도 아무 검사가 안 깨졌다.) */
+    };
+    /* 사파리에는 requestIdleCallback 이 없다(아이폰이 전부 그렇다).
+       없으면 조금 기다렸다 그냥 한다 — 미리 받는 것이 아이폰에서만
+       통째로 빠지면 고친 뜻이 반쯤 없어진다. */
+    const 한가할때 = (window as unknown as {
+      requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    });
+    if (typeof 한가할때.requestIdleCallback === "function") {
+      const id = 한가할때.requestIdleCallback(하기, { timeout: 3_000 });
+      return () => 한가할때.cancelIdleCallback?.(id);
+    }
+    const 예약 = setTimeout(하기, 1_200);
+    return () => clearTimeout(예약);
+  }, [미리받아둘까, 미리받을칸, queryClient]);
 
   /* ── 비로그인 미리보기용 실시간 현재가 (예시 보유종목도 실제 시세로 표시) ── */
   const { data: previewBatchPrices } = useQuery({

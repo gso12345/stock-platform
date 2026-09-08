@@ -45,7 +45,8 @@ vi.mock("@/api/stocks", async (원본가져오기) => {
     ...원본,
     watchlistApi: { ...원본.watchlistApi, getItems: vi.fn(() => Promise.resolve([])), getPrices: vi.fn(시세) },
     watchlistFolderApi: { ...원본.watchlistFolderApi, getFolders: vi.fn(() => Promise.resolve([])) },
-    portfolioApi: { ...원본.portfolioApi, getPortfolios: vi.fn(() => Promise.resolve([])), getItems: vi.fn(() => Promise.resolve([])) },
+    portfolioApi: { ...원본.portfolioApi, getPortfolios: vi.fn(() => Promise.resolve([])), getItems: vi.fn(() => Promise.resolve([])),
+      getItemsWithPrices: vi.fn(() => Promise.resolve({ items: [], prices: [] })) },
     dashboardApi: { ...원본.dashboardApi, getExchangeRate: vi.fn(() => Promise.resolve({ value: 1385 })) },
     stocksApi: { ...원본.stocksApi, getDetail: vi.fn(), getPrice: vi.fn() },
   };

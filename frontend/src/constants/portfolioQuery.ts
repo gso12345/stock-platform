@@ -48,3 +48,21 @@ export const 재촉주기 = 4_000;
  * 두드리게 된다.
  */
 export const 재촉_횟수 = 3;
+
+/** 시세가 없는 것 — 현금에는 물어볼 값이 없다 */
+export function 시세대상<T extends { assetClass?: string | null }>(항목들: T[]): T[] {
+  return 항목들.filter((i) => i.assetClass !== "현금");
+}
+
+/**
+ * 시세 조회의 이름표.
+ *
+ * 두 곳에서 만든다 — 실제로 물어보는 곳과, 보유목록에 딸려 온 시세를
+ * 미리 꽂아 두는 곳. 두 곳이 한 글자라도 다르면 꽂아 둔 것이 **다른
+ * 서랍에 들어가** 아무 효과가 없고, 그런 어긋남은 화면에 오류로 안
+ * 보여서 알아채지도 못한다. 그래서 한 군데서만 만든다.
+ */
+export function 시세열쇠(항목들: { market: string; symbol: string; assetClass?: string | null }[]) {
+  return ["portfolio-prices",
+          시세대상(항목들).map((i) => `${i.market}:${i.symbol}`).join(",")] as const;
+}
