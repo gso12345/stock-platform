@@ -9,6 +9,7 @@ import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 import { timeAgo } from "@/utils/formatters";
 import { 시세갱신주기 } from "@/hooks/useLivePrices";
+import { 공개시세열쇠, 시세대상 } from "@/constants/portfolioQuery";
 
 const AVATAR_COLORS = [
   "bg-accent-blue/20 text-accent-blue border-accent-blue/30",
@@ -83,7 +84,23 @@ export default function UserProfile() {
 
   const { data: publicPortfolios } = useQuery({
     queryKey: ["publicPortfolios", userId],
-    queryFn: () => portfolioApi.getPublicPortfolios(userId),
+    /* 목록을 받으면서 **이미 받아 둔 시세**를 같이 가져와, 아래 시세
+       조회의 서랍에 미리 꽂아 둔다. 안 그러면 목록이 온 **뒤에야**
+       무엇의 시세를 물어볼지 알아서 왕복이 두 번이고, 그 사이 평가금액과
+       비중이 통째로 빈칸이다 — 내 자산에서 없앤 것과 같은 대기다. */
+    queryFn: () => portfolioApi.getPublicPortfoliosWithPrices(userId).then((받은것) => {
+      const 목록 = Array.isArray(받은것) ? 받은것 : (받은것?.portfolios ?? []);
+      const 시세 = Array.isArray(받은것) ? [] : (받은것?.prices ?? []);
+      if (Array.isArray(시세) && 시세.length > 0) {
+        const 종목들 = (목록 as any[]).flatMap((pf: any) => pf.items ?? []);
+        const 열쇠 = 공개시세열쇠(userId, 종목들);
+        /* 낡은 것으로 표시해 꽂는다 — 지금 시각으로 넣으면 신선하다고
+           보고 새로 안 받아, 서버 캐시의 옛 시세가 눌러앉는다.
+           비어 있을 때만 꽂는다 — 화면에 있는 실시간 값을 밀어내지 않는다. */
+        if (qc.getQueryData(열쇠) == null) qc.setQueryData(열쇠, 시세, { updatedAt: 1 });
+      }
+      return 목록;
+    }),
     enabled: !!userId,
     staleTime: 120_000,
   });
@@ -102,14 +119,14 @@ export default function UserProfile() {
   // 현금 제외한 가격 조회 가능 종목 추출
   const priceableItems = useMemo(() => {
     if (!publicPortfolios) return [];
-    return (publicPortfolios as any[])
-      .flatMap((pf: any) => pf.items ?? [])
-      .filter((i: any) => i.assetClass !== "현금");
+    return 시세대상((publicPortfolios as any[]).flatMap((pf: any) => pf.items ?? []));
   }, [publicPortfolios]);
 
   // HTTP 배치 가격 (1분 주기 갱신)
   const { data: batchPrices } = useQuery({
-    queryKey: ["public-portfolio-prices", userId, priceableItems.map((i: any) => `${i.market}:${i.symbol}`).join(",")],
+    /* 이름표는 공개시세열쇠() 한 군데서만 만든다 — 위에서 꽂는 쪽과
+       한 글자라도 다르면 서랍이 갈려서, 미리 꽂은 것이 그냥 버려진다 */
+    queryKey: 공개시세열쇠(userId, (publicPortfolios as any[] | undefined)?.flatMap((pf: any) => pf.items ?? []) ?? []),
     queryFn: () => watchlistApi.getPrices(
       priceableItems.map((i: any) => i.symbol),
       priceableItems.map((i: any) => i.market),

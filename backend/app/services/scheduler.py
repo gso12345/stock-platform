@@ -418,6 +418,86 @@ async def refresh_held_symbols():
         log.info(f"보유 미국/ETF 종목 시세 선제 캐싱: {ok}/{len(us_list)}개")
 
 
+#: 배당 미리 채우기 — 한 회차에 몇 종목까지.
+#
+#  0.15 CPU 서버다. 전 사용자 보유 종목이 수백 개일 수 있는데 한 번에
+#  다 돌면 그 시간 내내 사람이 보낸 요청이 밀린다. 조금씩 나눠 채우고
+#  다음 회차가 이어받는다 — 배당은 하루 단위로 바뀌는 값이라 급할 것이 없다.
+배당_한회차 = 20
+
+#: 배당 미리 채우기 동시 개수. 바깥을 기다리는 일이라 겹쳐도 CPU 를
+#  거의 안 쓰지만, 스레드마다 메모리가 붙으므로 낮게 잡는다(512MB 다).
+배당_동시 = 4
+
+
+async def 배당_미리채우기() -> int:
+    """보유·관심 종목의 배당을 **사람이 열기 전에** 받아 둔다.
+
+    ── 왜 ──────────────────────────────────────────────────
+
+    배당 달력은 캐시가 비어 있으면 그 자리에서 종목마다 야후에 물어본다.
+    한 요청에 12종목까지 묶고 6개씩 겹쳐 받는데도 **첫 조회가 2.4초**다
+    (실측). 그리고 그건 첫 사람 한 명이 아니라, 캐시가 24시간마다 비므로
+    **날마다 처음 여는 사람**이 문다.
+
+    시세는 이미 이렇게 미리 받고 있다(refresh_held_symbols). 배당도 같게
+    맞춘다. 배당은 하루 단위로 바뀌는 값이라 미리 받아 두기에 딱 맞는
+    종류다 — 미리 받아도 낡지 않는다.
+
+    ── 조심한 것 ───────────────────────────────────────────
+
+    · **이미 있는 것은 건드리지 않는다.** 캐시에 있든 '빈손' 표시가
+      있든 넘어간다. 안 그러면 무배당 종목(성장주가 대부분이다)을
+      회차마다 다시 물어보게 된다.
+    · **쉬는 종목도 건너뛴다.** 계속 실패하는 심볼 하나가 회차마다
+      칸을 다 먹으면 나머지가 영영 안 채워진다.
+    · **조금씩 나눠서** 한다(배당_한회차). 한 번에 다 돌면 그 시간 내내
+      사람 요청이 밀린다.
+
+    돌려주는 값은 이번 회차에 새로 채운 종목 수다.
+    """
+    from app.db.database import SessionLocal
+    from app.models.stock import PortfolioItem, WatchlistItem
+    from app.services import dividend_service as DV
+    from app.core.fetchcache import 빈손인가
+
+    db = SessionLocal()
+    try:
+        rows = set(db.query(PortfolioItem.symbol, PortfolioItem.market).all())
+        rows |= set(db.query(WatchlistItem.symbol, WatchlistItem.market).all())
+    finally:
+        db.close()
+
+    받을것 = []
+    for sym, mkt in rows:
+        if not sym or not mkt:
+            continue
+        ck = f"div:{mkt}:{sym}"
+        if cache.get(ck) is not None or cache.get_stale(ck) is not None:
+            continue                      # 이미 있다
+        if 빈손인가(ck) or DV.쉼.쉬는가(ck):
+            continue                      # 답이 이미 나왔거나 쉬는 중
+        받을것.append((sym, mkt))
+        if len(받을것) >= 배당_한회차:
+            break
+
+    if not 받을것:
+        return 0
+
+    loop = asyncio.get_running_loop()
+    받은수 = 0
+    for i in range(0, len(받을것), 배당_동시):
+        묶음 = 받을것[i:i + 배당_동시]
+        결과 = await asyncio.gather(
+            *[loop.run_in_executor(None, DV.한종목, s, m, True) for s, m in 묶음],
+            return_exceptions=True,
+        )
+        받은수 += sum(1 for r in 결과 if isinstance(r, dict) and r)
+        await asyncio.sleep(0.3)          # 바깥에 몰아치지 않는다
+    log.info("배당 미리 채우기: %d/%d개", 받은수, len(받을것))
+    return 받은수
+
+
 # ── 지금 보고 있는 종목만 빠르게 갱신 ──────────────────────
 #
 # 예전에는 모든 사용자의 보유·관심종목을 5분마다 통째로 갱신했다. 그래서
@@ -913,6 +993,21 @@ async def periodic_refresh():
         # 늘렸다. 0.15 CPU 에서 휴장 중에까지 자주 긁을 이유가 없다.
         if counter % (6 if market_hours.kr_session() != "closed" else 60) == 0:
             await refresh_kr_rankings_from_naver()
+
+        # 배당 미리 채우기 (5분마다 조금씩)
+        #
+        # 배당 달력은 캐시가 비면 그 자리에서 종목마다 야후에 물어본다 —
+        # 첫 조회 2.4초(실측). 캐시가 24시간이라 **날마다 처음 여는
+        # 사람**이 그 값을 문다. 시세는 이미 미리 받고 있으니 배당도 같게.
+        #
+        # 한 회차에 스무 종목씩만 한다. 이미 있는 것과 쉬는 종목은
+        # 건너뛰므로, 다 채워진 뒤에는 DB 조회 한 번으로 끝난다.
+        #
+        # 메모리 여유를 본다. 0.15 CPU · 512MB 서버에서 '미리 받아두면
+        # 빠르다' 는 최적화가 프로세스를 죽인 적이 있다(위 시작 프리페치
+        # 주석 참고) — 급하지 않은 일에 그 위험을 질 이유가 없다.
+        if counter % 30 == 0 and memory.has_headroom("배당 미리 채우기"):
+            _spawn(배당_미리채우기(), "dividend-prefill")
 
         # 펀더멘털·재무제표 DB 갱신 (24시간 주기, 백그라운드)
         now = datetime.utcnow()

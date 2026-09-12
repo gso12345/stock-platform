@@ -600,6 +600,14 @@ export const portfolioApi = {
 
   getPublicPortfolios: (userId: number) =>
     api.get(`/portfolio/public/${userId}`).then((r) => r.data),
+
+  /** 남의 공개 포트폴리오 + **이미 받아 둔 시세**를 한 번에.
+   *  내 자산과 같은 이유다 — 따로 물으면 왕복이 두 번이고, 그 사이
+   *  평가금액·비중이 통째로 빈칸이다. */
+  getPublicPortfoliosWithPrices: (userId: number) =>
+    api.get<{ portfolios: unknown[]; prices: unknown[] }>(
+      `/portfolio/public/${userId}`, { params: { with_prices: true } },
+    ).then((r) => r.data),
 };
 
 /** 서버 /watchlist/prices 가 한 요청에 허용하는 최대 심볼 수 (backend watchlist.py) */

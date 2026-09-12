@@ -112,6 +112,50 @@ async def _get_us_index(name: str) -> dict:
     return {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
 
 
+def 받아둔것만(ck: str, 채우기, 표: str) -> list:
+    """이미 받아 둔 것만 준다. **요청 안에서 새로 받지 않는다.**
+
+    ── 왜 ──────────────────────────────────────────────────
+
+    금리는 `캐시_우선` 을 쓴다 — 캐시가 비어 있으면 그 자리에서 바깥에
+    물어본다. 한국은행·네이버를 차례로 도는 일이라 **찬 캐시에서 20.8초**
+    가 걸린다(실측).
+
+    라우트는 거기에 5초 상한을 걸어 뒀다. 상한은 제대로 듣는다. 그래도
+    **첫 사람은 5초를 그냥 기다린다** — 그러고 받는 것은 빈 목록이다.
+    상한에 걸리면 아래 stale 폴백으로 가기 때문이다. 5초를 기다려서
+    빈손을 받는 셈이라, 기다림에 아무 값이 없다.
+
+    게다가 그 스레드는 상한이 지나도 20초를 마저 돈다. 0.15 CPU 서버에서
+    그 20초는 같은 시간에 들어온 다른 사람의 응답까지 늦춘다.
+
+    지수는 이미 이 방식을 쓴다(_get_kr_index_with_fallback) — 있는 것을
+    곧바로 주고, 없으면 배경에서 채운다. 금리도 같게 맞춘다. 스케줄러가
+    시작할 때와 주기마다 이미 채우고 있으므로, 배경 채우기는 캐시가
+    중간에 만료된 경우를 위한 안전망이다.
+
+    돌려주는 값은 상한에 걸렸을 때와 **똑같다**(빈 목록 또는 지난 값).
+    달라지는 것은 그것을 0초에 받느냐 5초에 받느냐뿐이다.
+    """
+    담긴것 = cache.get(ck)
+    if 담긴것:
+        return 담긴것
+    if 표 not in _bg_refresh_in_flight:
+        _bg_refresh_in_flight.add(표)
+
+        async def _배경채우기():
+            try:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, 채우기)
+            except Exception as e:
+                log.debug("%s 배경 채우기 실패: %s", 표, type(e).__name__)
+            finally:
+                _bg_refresh_in_flight.discard(표)
+
+        asyncio.get_running_loop().create_task(_배경채우기())
+    return cache.get_stale(ck) or []
+
+
 async def _get_kr_index_with_fallback(name: str) -> dict:
     result = await _get_kr_index(name)  # KIS + fresh + stale 캐시 확인
     if result.get("value", 0) > 0:
@@ -161,24 +205,25 @@ async def get_kr_dashboard(include_news: bool = Query(default=False)):
         # 이것만 없어서, 환율 하나가 늦으면 화면 전체가 그만큼 멈췄다
         # (실측 12초). 안쪽에서도 막지만 여기서도 한 번 더 조인다
         asyncio.wait_for(_get_exchange_rate_async(), timeout=5),
-        asyncio.wait_for(loop.run_in_executor(None, get_kr_rates), timeout=5),
         asyncio.wait_for(get_kr_futures(), timeout=5),
     ]
+    # 금리는 기다리지 않는다 — 받아둔것만() 주석에 왜인지 적혀 있다.
+    # 상한(5초)에 걸렸을 때와 같은 값을 0초에 준다.
+    rates = 받아둔것만("extra:kr_rates", get_kr_rates, "kr_rates")
     if include_news:
         tasks.append(asyncio.wait_for(loop.run_in_executor(None, get_kr_news), timeout=8))
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        idx_results, exchange, rates, futures, news = results
+        idx_results, exchange, futures, news = results
         if isinstance(news, BaseException):
             news = cache.get_stale("news:kr") or []
     else:
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        idx_results, exchange, rates, futures = results
+        idx_results, exchange, futures = results
         # include_news=False 인데도 캐시에서 꺼내 최대 80건을 실어 보냈다.
         # 화면은 이 필드를 안 쓰고 /dashboard/news/kr 로 따로 받는다 — 매 갱신마다
         # 기사 80건을 만들어 보내고 버리는 셈이었다
         news = []
     # 타임아웃 등 오류 시 stale/빈 값으로 대체
-    if isinstance(rates,   Exception): rates   = cache.get_stale("extra:kr_rates") or []
     if isinstance(futures, Exception): futures = cache.get_stale("extra:kr_futures") or []
     return {
         "indices":  idx_results,
@@ -271,19 +316,19 @@ async def get_us_dashboard(include_news: bool = Query(default=False)):
     tasks = [
         asyncio.gather(*[_get_us_index(n) for n in US_INDICES]),
         asyncio.wait_for(_get_exchange_rate_async(), timeout=5),
-        asyncio.wait_for(loop.run_in_executor(None, get_us_rates), timeout=5),
     ]
+    # 국내와 같은 이유로 금리를 기다리지 않는다
+    us_rates_cached = 받아둔것만("extra:us_rates", get_us_rates, "us_rates")
     if include_news:
         tasks.append(asyncio.wait_for(loop.run_in_executor(None, get_us_news), timeout=8))
 
     gathered = await asyncio.gather(*tasks, return_exceptions=True)
     idx_results     = gathered[0] if not isinstance(gathered[0], Exception) else []
     exchange        = gathered[1] if not isinstance(gathered[1], Exception) else {}
-    us_rates_cached = gathered[2] if not isinstance(gathered[2], Exception) else (cache.get_stale("extra:us_rates") or [])
     # KR 과 같은 이유로, 요청하지 않았으면 뉴스를 싣지 않는다.
     # 화면은 /dashboard/news/us 로 따로 받는다
-    news = gathered[3] if (include_news and not isinstance(gathered[3], Exception)) else []
-    if include_news and isinstance(gathered[3], BaseException):
+    news = gathered[2] if (include_news and not isinstance(gathered[2], Exception)) else []
+    if include_news and isinstance(gathered[2], BaseException):
         news = cache.get_stale("news:us") or []
 
     idx_map = {r["index"]: r for r in idx_results if isinstance(r, dict)}

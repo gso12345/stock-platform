@@ -178,3 +178,86 @@ class Test응답모양:
         assert r.status_code == 200, r.text
         assert len(r.json()["items"]) == 2
         assert r.json()["prices"] == []
+
+
+class Test공개포트폴리오:
+    """남의 공개 포트폴리오도 같은 두 가지를 안고 있었다.
+
+    ① **포트폴리오마다 따로 질의했다.** 다섯 개를 공개한 사람이면
+       질의가 여섯 번이다. 로컬 SQLite 에서는 티가 안 나는데, 실제 DB 는
+       질의마다 왕복이 붙어 그 자리가 그대로 대기가 된다.
+
+    ② **시세를 따로 물었다.** 목록이 와야 무엇을 물어볼지 아니까
+       왕복이 두 번이고, 그 사이 평가금액·비중이 통째로 빈칸이다.
+    """
+
+    @pytest.fixture
+    def 손님(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/공개.db")
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.db.database import SessionLocal, Base, engine
+        from app.models.user import User
+        from app.models.stock import Portfolio, PortfolioItem
+
+        Base.metadata.create_all(engine)
+        db = SessionLocal()
+        me = db.query(User).filter(User.email == "공개@test").first()
+        if not me:
+            me = User(email="공개@test", username="공개", hashed_password="x")
+            db.add(me); db.commit(); db.refresh(me)
+        db.query(PortfolioItem).filter(PortfolioItem.user_id == me.id).delete()
+        db.query(Portfolio).filter(Portfolio.user_id == me.id).delete()
+        db.commit()
+        for i in range(5):
+            pf = Portfolio(user_id=me.id, name=f"공개{i}", position=i, is_public=True)
+            db.add(pf); db.commit(); db.refresh(pf)
+            for j in range(3):
+                db.add(PortfolioItem(user_id=me.id, portfolio_id=pf.id,
+                                     symbol=f"S{i}{j}", market="US", name="x",
+                                     shares=1, avg_price=1, currency="USD"))
+        db.commit()
+        uid = me.id
+        db.close()
+        yield TestClient(app), uid
+
+    def _질의수(self):
+        """이 요청이 DB 를 몇 번 두드렸나"""
+        import collections
+        from sqlalchemy import event
+        from app.db.database import engine
+        센것 = collections.Counter()
+
+        def _본다(conn, cur, stmt, p, ctx, m):
+            센것["n"] += 1
+
+        event.listen(engine, "before_cursor_execute", _본다)
+        return 센것, lambda: event.remove(engine, "before_cursor_execute", _본다)
+
+    def test_포트폴리오가_늘어도_질의가_안_는다(self, 손님):
+        """여기가 N+1 이었다. 다섯 개면 여섯 번을 물었다."""
+        c, uid = 손님
+        c.get(f"/api/v1/portfolio/public/{uid}")     # 첫 요청의 준비 작업을 턴다
+        센것, 그만 = self._질의수()
+        try:
+            r = c.get(f"/api/v1/portfolio/public/{uid}")
+        finally:
+            그만()
+        assert r.status_code == 200, r.text
+        assert len(r.json()) == 5
+        # 포트폴리오 한 번 + 종목 한 번. 개수와 무관해야 한다
+        assert 센것["n"] <= 3, f"포트폴리오 5개에 질의 {센것['n']}번 — 개수를 따라간다"
+
+    def test_안_켜면_예전_그대로_배열(self, 손님):
+        c, uid = 손님
+        본문 = c.get(f"/api/v1/portfolio/public/{uid}").json()
+        assert isinstance(본문, list)
+        assert sum(len(pf["items"]) for pf in 본문) == 15
+
+    def test_켜면_목록과_시세를_같이_준다(self, 손님):
+        c, uid = 손님
+        _심기("S00", {"symbol": "S00", "price": 12.5})
+        본문 = c.get(f"/api/v1/portfolio/public/{uid}?with_prices=true").json()
+        assert set(본문) == {"portfolios", "prices"}
+        assert len(본문["portfolios"]) == 5
+        assert [p["symbol"] for p in 본문["prices"]] == ["S00"]

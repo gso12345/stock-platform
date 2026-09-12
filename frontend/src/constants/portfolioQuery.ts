@@ -66,3 +66,18 @@ export function 시세열쇠(항목들: { market: string; symbol: string; assetC
   return ["portfolio-prices",
           시세대상(항목들).map((i) => `${i.market}:${i.symbol}`).join(",")] as const;
 }
+
+/**
+ * 남의 공개 포트폴리오 시세 조회의 이름표.
+ *
+ * 내 것과 서랍을 나눠야 한다 — 같은 종목이라도 '누구의 화면인가' 가
+ * 달라서, 섞이면 남의 프로필을 열었다 닫을 때 내 시세까지 흔들린다.
+ * 그 밖에는 시세열쇠() 와 같은 규칙을 쓴다(현금 제외·시장:심볼).
+ */
+export function 공개시세열쇠(
+  userId: number | string | undefined,
+  항목들: { market: string; symbol: string; assetClass?: string | null }[],
+) {
+  return ["public-portfolio-prices", userId,
+          시세대상(항목들).map((i) => `${i.market}:${i.symbol}`).join(",")] as const;
+}

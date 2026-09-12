@@ -279,3 +279,29 @@ describe("③ 시세 이름표도 손으로 적는 곳이 없다", () => {
     expect(어긴곳, `시세열쇠() 를 안 쓰고 직접 적은 곳: ${어긴곳}`).toEqual([]);
   });
 });
+
+describe("④ 퀀트 — 같은 종목 묶음이면 순서가 달라도 한 번만 받는다", () => {
+  /* 이 조회는 서버에서 **분당 10회**로 묶여 있고(quant.py 의 limiter)
+     한 번에 서른 종목을 채점한다 — 이 앱에서 제일 비싼 요청이다.
+     예전에는 이름표를 compareItems 순서 그대로 이어 붙여서, 탭을
+     옮겨 다녀 순서만 바뀌어도 똑같은 점수를 처음부터 다시 계산했다.
+     몇 번만 오가면 한도를 태우고 그다음부터는 화면이 아예 안 나온다. */
+  it("이름표가 정렬돼 있다", () => {
+    const 소스 = fs.readFileSync(
+      path.resolve(__dirname, "../../pages/Quant.tsx"), "utf-8");
+    const 자리 = 소스.indexOf('"quant-compare"');
+    expect(자리, "quant-compare 조회를 못 찾았다").toBeGreaterThan(-1);
+    const 이름표 = 소스.slice(자리, 자리 + 240);
+    expect(이름표, "이름표를 정렬하지 않는다 — 순서만 달라도 다시 받는다")
+      .toMatch(/\.sort\(\)/);
+  });
+
+  it("탭을 옮기는 동안 앞서 본 표를 비우지 않는다", () => {
+    /* 비우면 비싼 요청이 끝날 때까지 화면이 빈칸이라, 실제로는
+       아무것도 안 느려졌는데 훨씬 느리게 느껴진다 */
+    const 소스 = fs.readFileSync(
+      path.resolve(__dirname, "../../pages/Quant.tsx"), "utf-8");
+    const 자리 = 소스.indexOf('"quant-compare"');
+    expect(소스.slice(자리, 자리 + 900)).toContain("placeholderData");
+  });
+});

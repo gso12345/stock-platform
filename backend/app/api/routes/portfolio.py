@@ -534,6 +534,10 @@ def update_item(
 @router.get("/public/{user_id}")
 def get_public_portfolios(
     user_id: int,
+    #: 받아 둔 시세를 같이 실어 보낼까(_받아둔시세 참고).
+    #  내 자산과 같은 이유다 — 안 그러면 화면이 목록을 받은 **뒤에야**
+    #  무엇의 시세를 물어볼지 알아서, 왕복이 두 번이 된다.
+    with_prices: bool = False,
     db: Session = Depends(get_db),
 ):
     portfolios = (
@@ -542,20 +546,33 @@ def get_public_portfolios(
         .order_by(Portfolio.position, Portfolio.id)
         .all()
     )
-    result = []
-    for pf in portfolios:
-        items = (
+    """종목을 **한 번에** 가져온다.
+
+    예전에는 포트폴리오마다 따로 물었다. 다섯 개를 공개한 사람이면
+    질의가 여섯 번이다. 로컬 SQLite 에서는 티가 안 나는데, 실제 DB 는
+    질의마다 왕복이 붙어서 그 자리가 그대로 대기가 된다."""
+    pf_ids = [pf.id for pf in portfolios]
+    담긴것: dict[int, list[PortfolioItem]] = {i: [] for i in pf_ids}
+    전체: list[PortfolioItem] = []
+    if pf_ids:
+        전체 = (
             db.query(PortfolioItem)
-            .filter(PortfolioItem.portfolio_id == pf.id)
+            .filter(PortfolioItem.portfolio_id.in_(pf_ids))
             .order_by(PortfolioItem.created_at)
             .all()
         )
-        result.append({
-            "id": pf.id,
-            "name": pf.name,
-            "items": [_to_dict(i) for i in items],
-        })
-    return result
+        for it in 전체:
+            담긴것.setdefault(it.portfolio_id, []).append(it)
+
+    result = [{
+        "id": pf.id,
+        "name": pf.name,
+        "items": [_to_dict(i) for i in 담긴것.get(pf.id, [])],
+    } for pf in portfolios]
+
+    if not with_prices:
+        return result
+    return {"portfolios": result, "prices": _받아둔시세(전체)}
 
 
 @router.put("/{portfolio_id}/visibility")

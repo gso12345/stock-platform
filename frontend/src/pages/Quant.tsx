@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { quantScoreApi, watchlistApi, watchlistFolderApi, portfolioApi, type QuantFactorKey } from "@/api/stocks";
+import { quantScoreApi, watchlistApi, watchlistFolderApi, portfolioApi, type QuantFactorKey, type QuantCompareResult } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
@@ -160,15 +160,39 @@ export default function Quant() {
     isError,
     isFetching,
   } = useQuery({
-    queryKey: ["quant-compare", compareItems.map((i: { symbol: string; market: string }) => `${i.market}:${i.symbol}`).join(","), quantWeights, quantMetrics],
+    /* 이름표를 **정렬해서** 만든다.
+     *
+     * 예전에는 compareItems 의 순서를 그대로 이어 붙였다. 그래서 같은
+     * 종목 묶음인데 순서만 다르면(탭을 옮겨 다니면 실제로 그렇게 된다)
+     * 서랍이 갈려서 **똑같은 점수를 처음부터 다시** 계산했다.
+     *
+     * 이 조회는 서버에서 분당 10회로 묶여 있고(quant.py 의 limiter),
+     * 한 번에 최대 서른 종목을 채점한다 — 이 화면에서 제일 비싼 요청이다.
+     * 탭을 몇 번 오가는 것만으로 그 한도를 태우면, 그다음부터는 화면이
+     * 아예 안 나온다. 표는 아래에서 화면이 직접 정렬하므로(sortKey),
+     * 받아 오는 순서는 어차피 상관없다.
+     *
+     * 관심종목 화면은 이미 이렇게 하고 있었다(Watchlist 의 priceKey). */
+    queryKey: ["quant-compare",
+               [...compareItems].map((i: { symbol: string; market: string }) => `${i.market}:${i.symbol}`).sort().join(","),
+               quantWeights, quantMetrics],
     queryFn: () => quantScoreApi.compare(compareItems, quantWeights ?? undefined, quantMetrics ?? undefined),
     enabled: isLoggedIn && compareItems.length > 0,
     staleTime: 60_000,
+    /* 탭을 옮길 때 앞서 본 표를 그대로 두고 새 값이 오면 바꾼다.
+       비우면 비싼 요청이 끝날 때까지 화면이 빈칸이라, 실제로는 아무것도
+       안 느려졌는데 훨씬 느리게 느껴진다. */
+    placeholderData: (prev?: QuantCompareResult) => prev,
   });
 
   /* 표에 시세를 같이 띄운다. 점수만 보고는 "그래서 지금 얼마인데?" 를
-     알 수 없어 매번 종목 상세로 들어가야 했다. 관심종목 화면과 같은 배치
-     조회를 쓰므로 캐시를 공유한다 — 추가 요청이 사실상 없다. */
+     알 수 없어 매번 종목 상세로 들어가야 했다.
+
+     관심종목 화면과 **같은 이름표 모양**을 쓰지만 캐시가 늘 겹치지는
+     않는다 — 저쪽은 관심+보유 전부, 여기는 최근 본 것까지 섞어 서른
+     개로 자른 것이라 종목 묶음이 대개 다르다. (예전 주석은 '추가 요청이
+     사실상 없다' 고 적어 두었는데, 그건 두 묶음이 같을 때만 맞는 말이다.)
+     묶음이 같으면 공유되고, 다르면 이 화면 몫으로 한 번 더 받는다. */
   const priceSymbols = useMemo(() => compareItems.map((i) => i.symbol), [compareItems]);
   const priceMarkets = useMemo(
     () => compareItems.map((i) => (i.market === "KR" ? "KR" : "US")), [compareItems]);
