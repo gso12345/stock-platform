@@ -10,6 +10,7 @@ import PortfolioChart from "@/components/portfolio/PortfolioChart";
 import { timeAgo } from "@/utils/formatters";
 import { 못불러옴 } from "@/components/ui";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
+import { 시세열쇠, 시세대상 } from "@/constants/portfolioQuery";
 
 const AVATAR_COLORS_DISPLAY = [
   { label: "파랑", dot: "bg-accent-blue",    ring: "bg-accent-blue/20 text-accent-blue border-accent-blue/30"    },
@@ -85,14 +86,15 @@ export default function MyPage() {
   const [visibilityMap, setVisibilityMap] = useState<Record<number, boolean>>({});
 
   // Portfolio.tsx와 동일: 현금 제외
-  const priceableItems = useMemo(() =>
-    (allItems as any[]).filter((i: any) => i.assetClass !== "현금"),
-    [allItems]
-  );
+  /* 시세 대상을 고르는 규칙과 조회 이름표는 한 군데서만 만든다
+     (constants/portfolioQuery). 손으로 적으면 반드시 어긋나고, 어긋나면
+     보유 목록에 딸려 온 시세가 **다른 서랍에 들어가** 그냥 버려진다 —
+     화면에는 아무 표시가 안 나고 그냥 왕복이 한 번 더 늘 뿐이다. */
+  const priceableItems = useMemo(() => 시세대상(allItems as any[]), [allItems]);
 
   // Portfolio.tsx와 동일한 queryKey → 내자산 가격 캐시 공유
   const { data: batchPrices } = useQuery({
-    queryKey: ["portfolio-prices", priceableItems.map((i: any) => `${i.market}:${i.symbol}`).join(",")],
+    queryKey: 시세열쇠(allItems as any[]),
     queryFn: () => watchlistApi.getPrices(
       priceableItems.map((i: any) => i.symbol),
       priceableItems.map((i: any) => i.market)

@@ -28,6 +28,7 @@ import { use확인 } from "@/hooks/useDialogs";
 import { Button } from "@/components/ui";
 import { use임시저장, use임시본알림, 임시저장지우기 } from "@/hooks/useDraft";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
+import { 시세열쇠, 시세대상 } from "@/constants/portfolioQuery";
 
 /** 브라우저에 담아 두는 자리 이름 */
 const 임시본열쇠 = "feed-write-draft";
@@ -141,13 +142,14 @@ export default function FeedWrite() {
   }, [allItems, selectedPfId, 포트폴리오모드]);
 
   // 내자산과 동일: 전체 아이템 기준 가격 조회 → 캐시 공유
-  const priceableItemsForFeed = useMemo(() =>
-    (allItems as any[]).filter((i: any) => i.assetClass !== "현금"),
-    [allItems]
-  );
+  /* 시세 대상을 고르는 규칙과 조회 이름표는 한 군데서만 만든다
+     (constants/portfolioQuery). 손으로 적으면 반드시 어긋나고, 어긋나면
+     보유 목록에 딸려 온 시세가 **다른 서랍에 들어가** 그냥 버려진다 —
+     화면에는 아무 표시가 안 나고 그냥 왕복이 한 번 더 늘 뿐이다. */
+  const priceableItemsForFeed = useMemo(() => 시세대상(allItems as any[]), [allItems]);
 
   const { data: allBatchPrices } = useQuery({
-    queryKey: ["portfolio-prices", priceableItemsForFeed.map((i: any) => `${i.market}:${i.symbol}`).join(",")],
+    queryKey: 시세열쇠(allItems as any[]),
     queryFn: () => watchlistApi.getPrices(
       priceableItemsForFeed.map((i: any) => i.symbol),
       priceableItemsForFeed.map((i: any) => i.market)

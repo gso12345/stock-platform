@@ -260,3 +260,22 @@ describe("③ 공용 훅이 정말 시세를 같이 받아 오는가", () => {
     }
   });
 });
+
+describe("③ 시세 이름표도 손으로 적는 곳이 없다", () => {
+  /* 같은 고장이 시세 쪽에도 있었다. 세 화면이 "portfolio-prices" 와
+     현금 거르기를 각자 손으로 적고 있었다. 지금은 우연히 같아서
+     맞는데, 한 곳만 바뀌면 보유 목록에 딸려 온 시세가 다른 서랍으로
+     들어가 그냥 버려진다 — 화면에는 아무 표시가 안 나고 왕복만 는다. */
+  it("시세 조회 이름표는 시세열쇠() 로만 만든다", () => {
+    const 화면들 = ["../../pages/Portfolio.tsx", "../../pages/MyPage.tsx",
+                    "../../pages/FeedWrite.tsx"];
+    const 어긴곳 = 화면들.filter((f) => {
+      const 소스 = fs.readFileSync(path.resolve(__dirname, f), "utf-8");
+      /* 쉼표가 붙은 것만 본다 — ["portfolio-prices", …] 는 종목 목록으로
+         이름표를 **짓는** 것이고, ["portfolio-prices"] 하나짜리는
+         invalidateQueries 가 앞부분만 대는 것이라 fetcher 를 안 든다. */
+      return /queryKey:\s*\["portfolio-prices",/.test(소스);
+    });
+    expect(어긴곳, `시세열쇠() 를 안 쓰고 직접 적은 곳: ${어긴곳}`).toEqual([]);
+  });
+});
