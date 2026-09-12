@@ -115,9 +115,26 @@ async def _fetch_naver_one(cl: httpx.AsyncClient, code6: str) -> dict | None:
             "per":            pct("per"),
             "forward_per":    pct("cnsPer"),
             "pbr":            pct("pbr"),
-            "eps":            _parse_kr_num(info.get("eps")) or None,
-            "forward_eps":    _parse_kr_num(info.get("cnsEps")) or None,
-            "bps":            _parse_kr_num(info.get("bps")) or None,
+            "eps":            num("eps") or None,
+            # 선행 EPS 는 **한 번도 나온 적이 없었다.**
+            #
+            # info 의 열쇠는 위에서 전부 소문자로 낮춰 담는다(code_key).
+            # 그런데 여기만 `info.get("cnsEps")` 로 대문자 E 를 섞어 찾고
+            # 있었다 — 담긴 것은 "cnseps" 이므로 늘 None 이다.
+            #
+            # 바로 옆 선행 PER 은 멀쩡히 나왔다. 그쪽은 pct("cnsPer") 로
+            # 부르고 pct 는 안에서 key.lower() 를 하기 때문이다. 그래서
+            # '선행 PER 은 되는데 선행 EPS 만 빈칸' 이라는, 원인을 짐작하기
+            # 어려운 모양이 됐다.
+            #
+            # 이제 셋 다 num() 으로 부른다 — num 도 안에서 소문자로
+            # 낮추므로 같은 실수가 다시 날 자리가 없다.
+            #
+            # (주석을 문자열로 쓰면 안 된다. 파이썬은 나란한 문자열을
+            #  이어 붙이므로 그 글이 **열쇠 이름에 붙어** forward_eps 가
+            #  통째로 사라진다. 실제로 한 번 그렇게 썼다가 확인하고 고쳤다.)
+            "forward_eps":    num("cnsEps") or None,
+            "bps":            num("bps") or None,
             "dividend_yield": pct("dividendYieldRatio"),
             "week52_high":    num("highPriceOf52Weeks") or None,
             "week52_low":     num("lowPriceOf52Weeks") or None,

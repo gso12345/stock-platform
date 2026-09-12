@@ -145,15 +145,25 @@ describe("use알림", () => {
     }
   });
 
-  it("오류는 저절로 사라지지 않는다", () => {
-    /* 실패는 사용자가 읽고 닫아야 한다. 스쳐 지나가면
-       무엇이 잘못됐는지 모른 채 넘어간다 */
+  it("오류는 성공보다 오래 머물다 사라진다", () => {
+    /* 예전에는 오류가 **아예 안 닫혔다.** 사용자가 읽고 직접 닫으라는
+       뜻이었는데, 서버가 자다 깨는 동안(무료 플랜은 20~45초) 그 빨간
+       띠가 화면 맨 위에 계속 붙어 있었다 — 이미 정상으로 돌아온
+       뒤에도 그렇다. 고장은 끝났는데 고장 표시만 남는 셈이라, 그
+       시점부터는 오히려 틀린 정보가 된다.
+
+       그렇다고 성공과 같은 3초로 두면 스쳐 지나가 무엇이 잘못됐는지
+       모른 채 넘어간다. 그래서 더 길게(7초) 두고 사라지게 한다. */
     vi.useFakeTimers();
     try {
       render(<시험판 종류="error" />);
       fireEvent.click(screen.getByText("알리기"));
-      act(() => { vi.advanceTimersByTime(10_000); });
+      // 성공이 사라지는 3.5초 뒤에도 오류는 남아 있다
+      act(() => { vi.advanceTimersByTime(3500); });
       expect(screen.getByText("신고가 접수되었습니다")).toBeTruthy();
+      // 그러고는 사라진다
+      act(() => { vi.advanceTimersByTime(4000); });
+      expect(screen.queryByText("신고가 접수되었습니다")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

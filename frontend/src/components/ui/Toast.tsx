@@ -22,22 +22,40 @@ const 모양: Record<종류, { 바탕: string; Icon: any }> = {
   info:    { 바탕: "bg-accent-blue",  Icon: Info },
 };
 
+/** 종류별 기본 머무는 시간.
+ *
+ *  오류가 더 길다 — 읽고 뜻을 알아채는 데 시간이 걸리고, 대개 무엇을
+ *  해야 하는지("잠시 후 다시")까지 적혀 있다. 성공은 '잘 됐다' 한마디라
+ *  짧아도 된다.
+ *
+ *  오류는 예전에 **아예 안 닫혔다.** 사용자가 읽고 직접 닫으라는
+ *  뜻이었는데, 서버가 자다 깨는 동안에는 그 빨간 띠가 화면 맨 위에
+ *  계속 붙어 있었다 — 이미 다시 붙어 정상으로 돌아온 뒤에도 그렇다.
+ *  고장이 끝났는데 고장 표시만 남는 셈이라, 오히려 틀린 정보가 된다. */
+const 머무는시간: Record<종류, number> = {
+  error:   7000,
+  success: 3000,
+  info:    3000,
+};
+
 export function Toast({
-  message, onClose, kind = "error", 자동닫힘 = 3000,
+  message, onClose, kind = "error", 자동닫힘,
 }: {
   message: string;
   onClose: () => void;
   kind?: 종류;
-  /** 이 시간이 지나면 알아서 사라진다. 0 이면 안 사라진다 */
+  /** 이 시간이 지나면 알아서 사라진다. 0 이면 안 사라진다.
+   *  안 주면 종류에 맞는 기본값(머무는시간)을 쓴다. */
   자동닫힘?: number;
 }) {
+  const 머물기 = 자동닫힘 ?? 머무는시간[kind];
   useEffect(() => {
-    // 오류는 사용자가 읽고 닫게 두고, 성공·안내는 알아서 사라진다.
-    // 잘 됐다는 말을 굳이 누르게 할 이유가 없다.
-    if (!message || !자동닫힘 || kind === "error") return;
-    const t = setTimeout(onClose, 자동닫힘);
+    /* 0 을 주면 안 닫힌다 — 사용자가 반드시 봐야 하는 자리를 위해 남긴다.
+       `!머물기` 로 검사하므로 0 도 undefined 도 여기서 걸린다. */
+    if (!message || !머물기) return;
+    const t = setTimeout(onClose, 머물기);
     return () => clearTimeout(t);
-  }, [message, kind, 자동닫힘, onClose]);
+  }, [message, 머물기, onClose]);
 
   if (!message) return null;
   const { 바탕, Icon } = 모양[kind];
