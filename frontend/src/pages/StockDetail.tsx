@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import api from "@/api/client";
-import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, portfolioApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
+import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import { marketSession, SESSION_LABEL } from "@/hooks/useLivePrices";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
@@ -41,6 +41,7 @@ const 투자의견탭 = lazy(() => import("@/components/stock/AnalystTab"));
 import QuantScoreView from "@/components/stock/QuantScoreView";
 
 import { FIN_CUSTOM_KEY } from "@/constants/finMetrics";
+import { use보유목록 } from "@/hooks/usePortfolioItems";
 
 /** 창 크기에 맞는 차트 높이.
  *
@@ -974,12 +975,7 @@ export default function StockDetail() {
 
   /* 내가 이 종목을 갖고 있나. 내 자산·퀀트·글쓰기가 이미 같은 키로 받아 둔
      것을 그대로 읽으므로 요청이 늘지 않는다. */
-  const { data: 보유목록 } = useQuery({
-    queryKey: ["portfolio-items-all"],
-    queryFn: () => portfolioApi.getItems(undefined, true),
-    enabled: isLoggedIn,
-    staleTime: 300_000,
-  });
+  const { data: 보유목록 } = use보유목록(isLoggedIn);
   const 내보유 = useMemo(() => {
     const 것들 = (보유목록 as any[] | undefined) ?? [];
     const 맞는것 = 것들.filter((x) => (x.symbol ?? "").toUpperCase() === sym && x.market === m);

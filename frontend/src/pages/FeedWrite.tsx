@@ -27,6 +27,7 @@ import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { use확인 } from "@/hooks/useDialogs";
 import { Button } from "@/components/ui";
 import { use임시저장, use임시본알림, 임시저장지우기 } from "@/hooks/useDraft";
+import { use보유목록 } from "@/hooks/usePortfolioItems";
 
 /** 브라우저에 담아 두는 자리 이름 */
 const 임시본열쇠 = "feed-write-draft";
@@ -118,12 +119,7 @@ export default function FeedWrite() {
     staleTime: 300_000,
   });
 
-  const { data: allItems = [] } = useQuery({
-    queryKey: ["portfolio-items-all"],
-    queryFn: () => portfolioApi.getItems(undefined, true),
-    enabled: isLoggedIn && 포트폴리오모드,
-    staleTime: 300_000,
-  });
+  const { data: allItems = [] } = use보유목록(isLoggedIn && 포트폴리오모드);
 
   const { data: fxData } = useQuery({
     queryKey: ["exchange-rate"],

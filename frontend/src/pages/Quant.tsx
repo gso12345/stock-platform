@@ -12,6 +12,7 @@ import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 import { lookupPrice, indexPricesBySymbol } from "@/utils/prices";
 import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 import { 시세갱신주기 } from "@/hooks/useLivePrices";
+import { use보유목록 } from "@/hooks/usePortfolioItems";
 
 const FACTOR_LABEL_KO: Record<QuantFactorKey, string> = {
   value: "가치", quality: "품질", momentum: "모멘텀", growth: "성장", risk: "안정성",
@@ -98,12 +99,7 @@ export default function Quant() {
      예전에는 ["portfolio-tab-items", id] 라는 이 화면 전용 키를 썼다. 내 자산에서
      종목을 추가·삭제해도 그쪽은 ["portfolio-items-all"] 만 무효화하므로, 퀀트는
      사라진 종목의 점수를 계속 보여줬다. 요청도 탭마다 따로 나갔다. */
-  const { data: pfAllItems = [] } = useQuery<any[]>({
-    queryKey: ["portfolio-items-all"],
-    queryFn: () => portfolioApi.getItems(undefined, true),
-    enabled: isLoggedIn,
-    staleTime: 300_000,
-  });
+  const { data: pfAllItems = [] } = use보유목록(isLoggedIn);
   const pfItems = useMemo(
     () => (pfAllItems as any[]).filter((i) => (i.portfolioId ?? null) === portfolioTab),
     [pfAllItems, portfolioTab],

@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 시세수명, 하루수명, 재촉주기, 재촉_횟수, 시세열쇠, 시세대상 } from "@/constants/portfolioQuery";
+import { use보유목록 } from "@/hooks/usePortfolioItems";
 import { use낙관, 목록에서빼기, 목록에서고치기 } from "@/hooks/useOptimistic";
 import { use저장된값, use저장된Set } from "@/hooks/useSaved";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
@@ -123,59 +124,6 @@ type 자산탭 = "자산" | "추이" | "배당" | "비중" | "뉴스";
  *  서버를 안 부르고(constants/portfolioPreview) 탭마다 '예시' 라고
  *  적는다. */
 const 모든탭: 자산탭[] = ["자산", "추이", "배당", "비중", "뉴스"];
-
-/**
- * 보유 목록에 딸려 온 시세를, 시세 조회의 서랍에 미리 꽂아 둔다.
- *
- * ── 무엇을 없앤 것인가 ──
- *
- * 예전에는 왕복이 두 번이었다. 무엇의 시세를 물어볼지는 종목을 받아야
- * 알 수 있어서, 뒤엣것이 앞엣것을 기다렸다.
- *
- *     /portfolio/items ──▶ (답) ──▶ /watchlist/prices ──▶ (답)
- *
- * 그 두 번째 왕복 내내 총자산·손익·비중이 통째로 빈칸이었다. 종목이
- * 한 개든 서른 개든 늘 붙는 대기다. 이제 서버가 이미 받아 둔 시세를
- * 목록에 같이 실어 보내고, 여기서 그것을 시세 조회 자리에 꽂는다.
- *
- * ── 두 가지를 꼭 지켜야 한다 ──
- *
- * **낡은 것으로 표시해서** 꽂는다(updatedAt: 1). 지금 시각으로 넣으면
- * react-query 가 신선하다고 보고(staleTime 2분) 새로 안 받아 온다 —
- * 서버 캐시에 있던 옛 시세가 2분간 화면에 눌러앉는다. 빠른 대신 틀린
- * 값을 보여 주는 것은 느린 것보다 나쁘다.
- *
- * **비어 있을 때만** 꽂는다. 화면에 머물던 사람이 종목 하나를 고치면
- * 목록을 다시 받는데, 그때 화면에는 이미 실시간으로 받은 시세가 있다.
- * 서버 캐시 쪽이 더 낡았을 수 있으므로 있는 값을 밀어내지 않는다.
- * 이 꽂기는 **처음 열 때**를 위한 것이다.
- *
- * 함수로 빼 둔 이유 — 이게 망가져도 화면에는 아무 표시가 안 난다.
- * 숫자는 그대로 나오고 오류도 안 뜬다. 그냥 예전만큼 느려질 뿐이라
- * 눈으로는 못 찾는다. 검사가 직접 부를 수 있어야 한다.
- */
-export function 시세꽂기(
-  qc: { getQueryData: (k: readonly unknown[]) => unknown;
-        setQueryData: (k: readonly unknown[], v: unknown, o?: { updatedAt?: number }) => unknown },
-  받은것: { items?: unknown; prices?: unknown } | unknown[] | null | undefined,
-): PortfolioItem[] {
-  /* 서버가 **배열을 그대로 주는 경우**를 반드시 받아 줘야 한다.
-     with_prices 를 모르는 예전 서버가 그렇다. 프런트가 먼저 올라가거나,
-     배포가 반쯤 걸쳐 있거나, 옛 응답이 어딘가에 캐시돼 있으면 실제로
-     그렇게 온다. 그때 꾸러미만 알아보면 목록이 통째로 빈 것으로 읽혀서
-     **가진 종목이 하나도 없는 화면**이 뜬다 — 속도를 얻으려다 자산이
-     사라져 보이는 것은 어떤 속도로도 못 갚는다. */
-  if (Array.isArray(받은것)) return 받은것 as PortfolioItem[];
-  const 목록 = (Array.isArray(받은것?.items) ? 받은것!.items : []) as PortfolioItem[];
-  const 시세 = 받은것?.prices;
-  if (Array.isArray(시세) && 시세.length > 0) {
-    const 열쇠 = 시세열쇠(목록);
-    if (qc.getQueryData(열쇠) == null) {
-      qc.setQueryData(열쇠, 시세, { updatedAt: 1 });
-    }
-  }
-  return 목록;
-}
 
 
 /* ── Main Page ──────────────────────────────────────────── */
@@ -421,27 +369,7 @@ export default function Portfolio() {
      전체(view_all) 한 번만 불러와서 캐시해두고, 특정 포트폴리오 탭은 그 결과를
      클라이언트에서 필터링만 한다 — 탭마다 매번 새로 불러오면 전환할 때마다
      로딩이 보여서 느리게 느껴지는 문제를 없앤다 */
-  const { data: allItems = [], isLoading: itemsLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery<PortfolioItem[]>({
-    queryKey: ["portfolio-items-all"],
-    /* 보유 목록을 받으면서 **이미 받아 둔 시세**를 같이 가져온다.
-     *
-     * 예전에는 목록을 받은 **뒤에** 시세를 물어봤다. 무엇의 시세를
-     * 물어볼지 알려면 목록이 먼저 와야 해서다. 그래서 왕복이 두 번이고,
-     * 그 두 번째 왕복 내내 총자산·손익·비중이 통째로 빈칸이었다.
-     * 종목이 한 개든 서른 개든 늘 붙는 대기다.
-     *
-     * 받아 온 시세는 아래 시세 조회의 서랍에 곧바로 꽂아 둔다. 그러면
-     * 첫 그림이 숫자와 함께 뜨고, 진짜 조회는 배경에서 돌아 값을 갱신한다.
-     *
-     * **낡은 것으로 표시해서** 꽂는다(updatedAt: 1). 지금 시각으로 넣으면
-     * react-query 가 신선하다고 보고(staleTime 2분) 새로 안 받아 와서,
-     * 캐시에 있던 옛 시세가 2분간 화면에 눌러앉는다. */
-    queryFn: () => portfolioApi.getItemsWithPrices(undefined, true)
-      .then((받은것) => 시세꽂기(queryClient, 받은것)),
-    enabled:  isLoggedIn,
-    // 종목 목록은 mutation onSuccess에서 invalidate되므로 5분 캐시 (가격은 별도 쿼리로 갱신)
-    staleTime: 하루수명,
-  });
+  const { data: allItems = [], isLoading: itemsLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = use보유목록(isLoggedIn);
 
   const items = useMemo(() => {
     if (isAllView || selectedPortfolioId == null) return allItems;

@@ -23,7 +23,8 @@ import { Plus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, Settings
 import { useAuthStore } from "@/store/authStore";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 import type { Market, WatchlistItem, 관심폴더, 시세행 } from "@/types";
-import type { PortfolioItem, PortfolioMeta } from "@/types/portfolio";
+import type { PortfolioMeta } from "@/types/portfolio";
+import { use보유목록 } from "@/hooks/usePortfolioItems";
 /* 시세를 조회할 수 있는 심볼 형식 — 서버의 검사와 같은 기준.
    '현금'·'금' 같은 자산은 시세가 없으므로 조회 대상이 아니다. */
 const PRICEABLE_SYMBOL = /^[A-Za-z0-9.\-]{1,20}$/;
@@ -85,12 +86,7 @@ export default function Watchlist() {
      지금은 관심종목과 같은 시세 경로에 합친다 — 탭을 누르는 순간 이미
      값이 있고, 실시간으로 함께 갱신된다. 같은 종목을 두 번 조회하지도
      않는다. 목록 요청은 로그인 시 한 번뿐이다. */
-  const { data: pfAllItems = [], isLoading: pfAllLoading } = useQuery<PortfolioItem[]>({
-    queryKey: ["portfolio-items-all"],
-    queryFn: () => portfolioApi.getItems(undefined, true),
-    enabled: isLoggedIn,
-    staleTime: 300_000,
-  });
+  const { data: pfAllItems = [], isLoading: pfAllLoading } = use보유목록(isLoggedIn);
   const pfTabDeduped = useMemo(
     () => pfAllItems.filter(
       // 서버는 portfolioId(카멜케이스)로 준다 — portfolio_id 로 보면 전부 걸러진다

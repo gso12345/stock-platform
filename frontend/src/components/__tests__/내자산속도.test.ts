@@ -22,12 +22,13 @@
  *      쪽이 서로 다른 이름표를 쓰면, 미리 받아 둔 것을 그리는 쪽이
  *      못 찾아서 또 받는다 — 서버만 두 배로 두드리고 화면은 그대로 느리다.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { QueryClient } from "@tanstack/react-query";
 import { 시세열쇠, 시세대상, 시세수명 } from "@/constants/portfolioQuery";
-import { 시세꽂기 } from "@/pages/Portfolio";
+import { 시세꽂기, 보유목록설정, 보유목록열쇠 } from "@/hooks/usePortfolioItems";
+import { portfolioApi } from "@/api/stocks";
 import { 흐름열쇠, 첫기간, 기간들, 올해일수 } from "@/components/portfolio/AssetHistory";
 import { 배당열쇠 } from "@/hooks/useDividendCalendar";
 import { 뉴스열쇠 } from "@/components/portfolio/HoldingNews";
@@ -178,5 +179,84 @@ describe("② 미리 받는 것과 그리는 것이 같은 서랍을 본다", ()
   it("배당·뉴스 — 포트폴리오를 고르면 그 칸을 본다", () => {
     expect(배당열쇠(7)[1]).toBe(7);
     expect(뉴스열쇠(7)[1]).toBe(7);
+  });
+});
+
+describe("③ 보유 목록은 정의가 한 벌이어야 한다", () => {
+  /**
+   * 여기가 이 파일에서 제일 중요한 검사다. **실제로 한 번 당했다.**
+   *
+   * `["portfolio-items-all"]` 을 일곱 곳이 각자 정의하고 있었다.
+   * react-query 는 이름표로 묶으므로 요청은 한 번만 나갔고, 겉보기에
+   * 아무 문제가 없었다. 그런데 **먼저 붙은 쪽의 fetcher 가 이긴다.**
+   *
+   * 그래서 내 자산이 시세를 목록과 같이 받도록 고쳤을 때, 그 고침이
+   * 실제 앱에서는 한 번도 동작하지 않았다 — 불러오기 위젯이 Layout 에
+   * 있어 모든 화면에서 늘 먼저 붙고, 옛 방식으로 목록만 받아 갔다.
+   * 검사는 통과했다(검사에서는 Layout 을 안 그린다). 화면도 멀쩡했다.
+   * 그냥 예전만큼 느렸을 뿐이다. 재현해서 확인했다 —
+   *
+   *     겉옷이 먼저 붙으면:  옛것 1회 · 새것 0회
+   *
+   * 값 비교로는 절대 못 잡는다. 정의가 몇 벌인지를 본다.
+   */
+  const 화면들 = [
+    "../../pages/Portfolio.tsx", "../../pages/Watchlist.tsx",
+    "../../pages/StockDetail.tsx", "../../pages/FeedWrite.tsx",
+    "../../pages/MyPage.tsx", "../../pages/Quant.tsx",
+    "../LoadingProgressOverlay.tsx",
+  ];
+
+  it("이 이름표에 fetcher 를 직접 적는 곳이 하나도 없다", () => {
+    /* invalidateQueries 는 fetcher 를 안 들고 다니므로 상관없다 —
+       거기서는 이름표만 쓴다. 문제는 **이름표 바로 옆에 queryFn 이
+       붙어 있는** 경우뿐이다. 그래서 이름표 뒤 200자 안만 본다.
+       (파일 전체를 훑었더니 멀리 떨어진 다른 조회의 queryFn 이 걸려서
+        멀쩡한 화면을 어겼다고 했다.) */
+    const 어긴곳: string[] = [];
+    for (const f of 화면들) {
+      const 소스 = fs.readFileSync(path.resolve(__dirname, f), "utf-8");
+      let i = 소스.indexOf('queryKey: ["portfolio-items-all"]');
+      while (i !== -1) {
+        if (소스.slice(i, i + 200).includes("queryFn")) { 어긴곳.push(f); break; }
+        i = 소스.indexOf('queryKey: ["portfolio-items-all"]', i + 1);
+      }
+    }
+    expect(어긴곳, `use보유목록() 을 안 쓰고 직접 적은 곳: ${어긴곳}`).toEqual([]);
+  });
+
+  it("일곱 곳이 모두 공용 훅을 쓴다", () => {
+    for (const f of 화면들) {
+      const 소스 = fs.readFileSync(path.resolve(__dirname, f), "utf-8");
+      expect(소스, `${f} 가 use보유목록 을 안 쓴다`).toContain("use보유목록");
+    }
+  });
+});
+
+describe("③ 공용 훅이 정말 시세를 같이 받아 오는가", () => {
+  /* 정의를 한 벌로 모아도, 그 한 벌이 옛 방식이면 아무 소용이 없다.
+     일곱 곳이 사이좋게 다 같이 느려질 뿐이다 — 그리고 그 어긋남은
+     화면에 아무 표시가 안 난다. 그래서 fetcher 가 실제로 무엇을
+     부르고 무엇을 꽂는지 직접 본다. (이 검사가 없을 때 뮤테이션
+     FC 가 살아남았다.) */
+  it("시세까지 받는 경로를 부르고, 받은 시세를 꽂는다", async () => {
+    const 응답 = {
+      items: [{ market: "KR", symbol: "005930", assetClass: "국내주식" }],
+      prices: [{ symbol: "005930", market: "KR", price: 71000 }],
+    };
+    const 부름 = vi.spyOn(portfolioApi, "getItemsWithPrices")
+      .mockResolvedValue(응답 as never);
+    try {
+      const qc = new QueryClient();
+      const 설정 = 보유목록설정(qc, true);
+      expect(설정.queryKey).toEqual(보유목록열쇠);
+      const 목록 = await 설정.queryFn();
+      expect(부름).toHaveBeenCalled();
+      expect(목록).toEqual(응답.items);
+      // 받은 시세가 시세 조회 자리에 꽂혔다 — 이게 왕복 하나를 없앤다
+      expect(qc.getQueryData(시세열쇠(목록))).toEqual(응답.prices);
+    } finally {
+      부름.mockRestore();
+    }
   });
 });

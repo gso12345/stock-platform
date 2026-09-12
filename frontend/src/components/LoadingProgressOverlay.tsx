@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
-import { dashboardApi, portfolioApi, watchlistApi } from "@/api/stocks";
+import { dashboardApi, watchlistApi } from "@/api/stocks";
+import { use보유목록 } from "@/hooks/usePortfolioItems";
 import Logo from "./Logo";
 
 /** 앱 진입 시 핵심 데이터(대시보드/뉴스/보유종목/관심종목/퀀트점수비교) 로딩 진행률을 화면을 가리지 않는 작은 위젯으로 표시 */
@@ -14,7 +15,11 @@ export default function LoadingProgressOverlay() {
   const dashUS = useQuery({ queryKey: ["dashboard-us", "시가총액"], queryFn: () => dashboardApi.getUS(), staleTime: 60_000 });
   const newsKR = useQuery({ queryKey: ["news", "kr", "latest"], queryFn: () => dashboardApi.getNews("kr", "latest"), staleTime: 300_000 });
   const newsUS = useQuery({ queryKey: ["news", "us", "latest"], queryFn: () => dashboardApi.getNews("us", "latest"), staleTime: 300_000 });
-  const holdings = useQuery({ queryKey: ["portfolio-items-all"], queryFn: () => portfolioApi.getItems(undefined, true), enabled: isLoggedIn, staleTime: 300_000 });
+  /* 이 위젯은 Layout 에 있어 **모든 화면에서 가장 먼저** 붙는다.
+     같은 이름표에 fetcher 가 둘이면 먼저 붙은 쪽이 이기므로, 여기가
+     옛 방식을 들고 있는 동안 다른 화면의 고침이 통째로 죽어 있었다.
+     이제 모두 use보유목록 한 벌을 쓴다(hooks/usePortfolioItems). */
+  const holdings = use보유목록(isLoggedIn);
   const watch = useQuery({ queryKey: ["watchlist-items"], queryFn: () => watchlistApi.getItems(), enabled: isLoggedIn, staleTime: 120_000 });
 
   /* 퀀트 비교는 진행률에서 뺐다.

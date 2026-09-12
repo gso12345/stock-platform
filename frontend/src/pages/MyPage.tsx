@@ -9,6 +9,7 @@ import { Save, Palette, Globe, Lock, FileText, Camera, X } from "lucide-react";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 import { timeAgo } from "@/utils/formatters";
 import { 못불러옴 } from "@/components/ui";
+import { use보유목록 } from "@/hooks/usePortfolioItems";
 
 const AVATAR_COLORS_DISPLAY = [
   { label: "파랑", dot: "bg-accent-blue",    ring: "bg-accent-blue/20 text-accent-blue border-accent-blue/30"    },
@@ -50,12 +51,7 @@ export default function MyPage() {
   });
 
   // Portfolio.tsx와 동일한 queryKey → 내자산 캐시 공유
-  const { data: allItems = [] } = useQuery({
-    queryKey: ["portfolio-items-all"],
-    queryFn: () => portfolioApi.getItems(undefined, true),
-    enabled: isLoggedIn,
-    staleTime: 300_000,
-  });
+  const { data: allItems = [] } = use보유목록(isLoggedIn);
 
   const { data: fxData } = useQuery({
     queryKey: ["exchange-rate"],
