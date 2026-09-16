@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 import asyncio
+import logging
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -15,6 +16,8 @@ from app.core.deps import require_user, get_current_user
 from app.services.backtest_engine import backtest_engine
 from app.services.yf_service import yf_service
 from app.core.cache import cache
+
+log = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -347,5 +350,334 @@ def delete_strategy(strategy_id: int, db: Session = Depends(get_db), current_use
     if not strategy:
         raise HTTPException(status_code=404, detail="전략을 찾을 수 없습니다")
     strategy.is_active = False
+    db.commit()
+    return {"message": "삭제 완료"}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  자산배분 백테스트 — '이렇게 굴렸으면 어떻게 됐을까'
+#
+#  위쪽(/run·/universe)과 **다른 종류**다. 그쪽은 한 종목에 매매 신호를
+#  걸어 보는 것이고, 이쪽은 여러 자산을 비중대로 담아 적립·리밸런싱하며
+#  굴려 보는 것이다. 보통 사람이 실제로 하는 투자에 훨씬 가깝다.
+# ═══════════════════════════════════════════════════════════════
+
+class 자산칸(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9.\-가-힣]+$")
+    market: str = Field("US", pattern="^(KR|US|ETF)$")
+    name: Optional[str] = Field(None, max_length=100)
+    #: 비중. 60 으로 줘도 0.6 으로 줘도 된다 — 엔진이 합으로 나눠 맞춘다
+    weight: float = Field(0, ge=0, le=1000)
+
+
+class 자산배분요청(BaseModel):
+    assets: list[자산칸] = Field(..., min_length=1, max_length=12)
+    currency: str = Field("KRW", pattern="^(KRW|USD)$")
+    initial_amount: float = Field(..., gt=0, le=1e12)
+    start_date: str
+    end_date: str
+    contribution_period: str = Field("none", pattern="^(none|monthly|quarterly|yearly)$")
+    contribution_amount: float = Field(0, ge=0, le=1e11)
+    rebalance_period: str = Field("none", pattern="^(none|monthly|quarterly|yearly)$")
+    #: 배당을 재투자해 '토탈 리턴' 으로 잴까. 화면의 체크박스.
+    total_return: bool = True
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _날짜(cls, v: str) -> str:
+        return _parse_date(v)
+
+
+class 실험저장요청(자산배분요청):
+    name: str = Field(..., min_length=1, max_length=100)
+
+
+def _기간이름(시작: str, 끝: str) -> str:
+    """yfinance 가 받는 기간 이름. 넉넉히 잡는다.
+
+    yfinance 의 period 는 **오늘 기준**이라, 옛날 구간을 보려면 그만큼
+    길게 받아 와서 날짜로 잘라야 한다. 짧게 잡으면 요청한 구간이
+    통째로 비어 '자료가 없다' 가 된다."""
+    from datetime import datetime as _dt
+    오늘 = _dt.now().date()
+    시작일 = _dt.strptime(시작, "%Y-%m-%d").date()
+    지난날 = (오늘 - 시작일).days
+    for 한계, 이름 in [(365, "2y"), (730, "5y"), (1825, "10y")]:
+        if 지난날 <= 한계:
+            return 이름
+    return "max"
+
+
+async def _시세모으기(자산들: list, 기간: str, 시작: str, 끝: str) -> dict:
+    """자산마다 일봉을 받아 {심볼: {날짜: 종가}} 로 만든다.
+
+    현금은 건너뛴다 — 받아올 시세가 없다.
+    동시에 받는 수를 묶는다. 0.15 CPU 에서 열두 개를 한꺼번에 던지면
+    그 자체가 부담이고, 야후도 몰아치면 막는다.
+    """
+    from datetime import date as _date
+    from app.services.portfolio_backtest import 현금류
+
+    loop = asyncio.get_running_loop()
+    sem = asyncio.Semaphore(4)
+
+    async def 하나(a):
+        if a.symbol in 현금류:
+            return a.symbol, {}
+        async with sem:
+            mkt = "KR" if a.market == "KR" else "US"
+            try:
+                봉들 = await loop.run_in_executor(
+                    None, yf_service.get_ohlcv, a.symbol, 기간, "1d", mkt)
+            except Exception as e:
+                log.info("자산배분 시세 실패 %s: %s", a.symbol, type(e).__name__)
+                return a.symbol, {}
+        표 = {}
+        for r in 봉들 or []:
+            d = r.get("date")
+            종가 = r.get("close")
+            if not d or not 종가 or not (시작 <= d <= 끝):
+                continue
+            try:
+                표[_date.fromisoformat(d)] = float(종가)
+            except (ValueError, TypeError):
+                continue
+        return a.symbol, 표
+
+    나온것 = await asyncio.gather(*[하나(a) for a in 자산들])
+    return {심볼: 표 for 심볼, 표 in 나온것 if 표}
+
+
+async def _환율표(시작: str, 끝: str, 기간: str) -> dict:
+    """일별 원/달러. {날짜: 환율}.
+
+    통화를 맞추는 것이 이 기능에서 제일 놓치기 쉬운 자리다. 원화로 보는
+    사람에게 미국 주식은 '주가 × 환율' 이고, 환율을 빼면 2022년처럼
+    환율이 20% 오른 해의 결과가 통째로 틀린다. 한국 투자자에게 이건
+    작은 항이 아니다.
+    """
+    from datetime import date as _date
+    loop = asyncio.get_running_loop()
+    try:
+        봉들 = await loop.run_in_executor(
+            None, yf_service.get_ohlcv, "USDKRW=X", 기간, "1d", "US")
+    except Exception as e:
+        log.info("환율 시계열 실패: %s", type(e).__name__)
+        return {}
+    표 = {}
+    for r in 봉들 or []:
+        d, 값 = r.get("date"), r.get("close")
+        if d and 값 and 시작 <= d <= 끝:
+            try:
+                표[_date.fromisoformat(d)] = float(값)
+            except (ValueError, TypeError):
+                continue
+    return 표
+
+
+def _통화맞추기(가격표: dict, 자산들: list, 표시통화: str, 환율: dict) -> tuple[dict, list]:
+    """자산의 원래 통화를 표시 통화로 바꾼다.
+
+    국내 종목은 원, 해외는 달러로 온다. 한 포트폴리오 안에서 둘을 그냥
+    더하면 '71,000 + 225' 같은 뜻 없는 수가 된다 — 조용히 틀리고
+    화면에는 아무 표시도 안 난다.
+
+    환율을 못 받았으면 **바꾸지 않고 그 자산을 뺀다.** 억지로 1:1 로
+    더하느니 빼고 그 사실을 알리는 쪽이 낫다.
+
+    그 '뺀다' 는 아래 한 군데에서만 일어난다 — 날마다 환율을 찾다가
+    하나도 못 찾으면 새표가 비고, 빈 표는 뺀 것으로 친다. 환율 표가
+    통째로 비었을 때를 위에서 따로 걸러도 결과는 똑같아서(그렇게
+    짰다가 뮤테이션이 살아남는 것으로 확인했다) 두지 않는다.
+    길이 하나면 한 군데만 맞으면 된다.
+    """
+    from app.services.portfolio_backtest import 현금류
+
+    바뀐것, 뺀것 = {}, []
+    for a in 자산들:
+        표 = 가격표.get(a.symbol)
+        if not 표 or a.symbol in 현금류:
+            continue
+        원래통화 = "KRW" if a.market == "KR" else "USD"
+        if 원래통화 == 표시통화:
+            바뀐것[a.symbol] = 표
+            continue
+        새표 = {}
+        for d, 값 in 표.items():
+            fx = 환율.get(d)
+            if fx is None or fx <= 0:
+                continue                      # 환율이 없는 날은 통째로 뺀다
+            새표[d] = 값 * fx if 표시통화 == "KRW" else 값 / fx
+        if 새표:
+            바뀐것[a.symbol] = 새표
+        else:
+            뺀것.append(a.symbol)
+    return 바뀐것, 뺀것
+
+
+async def _배당표(자산들: list, 시작: str, 끝: str, 표시통화: str, 환율: dict) -> dict:
+    """{심볼: {날짜: 주당 배당금}} — 표시 통화로 바꾼 값.
+
+    배당도 통화를 맞춰야 한다. 안 맞추면 달러 배당이 원화 포트폴리오에
+    1/1400 크기로 들어가 사실상 없는 것이 된다.
+    """
+    from datetime import date as _date
+    from app.services import dividend_service as DV
+    from app.services.portfolio_backtest import 현금류
+
+    loop = asyncio.get_running_loop()
+    sem = asyncio.Semaphore(4)
+
+    async def 하나(a):
+        if a.symbol in 현금류:
+            return a.symbol, {}
+        async with sem:
+            try:
+                받은것 = await loop.run_in_executor(None, DV.한종목, a.symbol, a.market, True)
+            except Exception:
+                return a.symbol, {}
+        원래통화 = "KRW" if a.market == "KR" else "USD"
+        표 = {}
+        for x in (받은것 or {}).get("recent", []):
+            d, 금액 = x.get("date"), x.get("amount")
+            if not d or not 금액 or not (시작 <= d <= 끝):
+                continue
+            try:
+                날 = _date.fromisoformat(d)
+            except ValueError:
+                continue
+            값 = float(금액)
+            if 원래통화 != 표시통화:
+                fx = 환율.get(날)
+                if not fx:
+                    continue
+                값 = 값 * fx if 표시통화 == "KRW" else 값 / fx
+            표[날] = 값
+        return a.symbol, 표
+
+    나온것 = await asyncio.gather(*[하나(a) for a in 자산들])
+    return {심볼: 표 for 심볼, 표 in 나온것 if 표}
+
+
+@router.post("/portfolio")
+@limiter.limit("10/minute")
+async def run_portfolio_backtest(request: Request, req: 자산배분요청):
+    """자산배분 백테스트 실행."""
+    from app.services import portfolio_backtest as PB
+
+    시작dt = datetime.strptime(req.start_date, "%Y-%m-%d")
+    끝dt = datetime.strptime(req.end_date, "%Y-%m-%d")
+    if 끝dt <= 시작dt:
+        raise HTTPException(status_code=400, detail="종료일은 시작일보다 이후여야 합니다")
+    if (끝dt - 시작dt).days < 60:
+        raise HTTPException(status_code=400, detail="기간이 너무 짧습니다 (최소 2개월)")
+
+    기간 = _기간이름(req.start_date, req.end_date)
+    가격표 = await _시세모으기(req.assets, 기간, req.start_date, req.end_date)
+
+    섞였나 = len({("KRW" if a.market == "KR" else "USD") for a in req.assets}) > 1
+    바꿔야하나 = any((("KRW" if a.market == "KR" else "USD") != req.currency) for a in req.assets)
+    환율 = await _환율표(req.start_date, req.end_date, 기간) if 바꿔야하나 else {}
+    가격표, 뺀것 = _통화맞추기(가격표, req.assets, req.currency, 환율)
+
+    쓸자산 = [a for a in req.assets
+              if a.symbol in 가격표 or a.symbol in PB.현금류]
+    못받음 = [a.symbol for a in req.assets
+              if a.symbol not in 가격표 and a.symbol not in PB.현금류]
+    if not [a for a in 쓸자산 if a.symbol not in PB.현금류]:
+        raise HTTPException(
+            status_code=400,
+            detail="시세를 받을 수 있는 자산이 없습니다. 종목 코드를 확인해 주세요")
+
+    배당 = None
+    if req.total_return:
+        배당 = await _배당표(쓸자산, req.start_date, req.end_date, req.currency, 환율)
+
+    loop = asyncio.get_running_loop()
+    결과 = await loop.run_in_executor(None, lambda: PB.돌리기(
+        가격표=가격표,
+        자산들=[a.model_dump() for a in 쓸자산],
+        초기금액=req.initial_amount,
+        적립주기=req.contribution_period,
+        적립금액=req.contribution_amount,
+        리밸런싱=req.rebalance_period,
+        배당=배당,
+    ))
+    if not 결과:
+        raise HTTPException(
+            status_code=400,
+            detail="겹치는 기간이 너무 짧습니다. 기간을 늘리거나 자산을 줄여 주세요")
+
+    """무엇을 못 했는지 **반드시 적어 보낸다.**
+
+    자산 하나를 조용히 빼고 계산하면 사용자는 세 개를 담은 줄 알고
+    두 개짜리 결과를 본다. 그건 틀린 값을 자신 있게 보여 주는 것이고,
+    백테스트에서는 그게 가장 나쁜 실패다."""
+    결과["currency"] = req.currency
+    결과["assets"] = [{"symbol": a.symbol, "market": a.market, "name": a.name,
+                       "weight": w["weight"]}
+                      for a, w in zip(쓸자산, PB.정규화([a.model_dump() for a in 쓸자산]))]
+    결과["skipped"] = 못받음
+    결과["fx_skipped"] = 뺀것
+    결과["mixed_currency"] = 섞였나
+    #: 거래비용은 아직 안 넣었다. 사용자가 알고 보게 적어 둔다 —
+    #  자산배분은 사고파는 횟수가 적어 영향이 작지만 0 은 아니다.
+    결과["costs_included"] = False
+    return 결과
+
+
+@router.post("/experiments", status_code=201)
+def save_experiment(req: 실험저장요청, db: Session = Depends(get_db),
+                    current_user: User = Depends(require_user)):
+    """실험 설정을 저장한다 — 화면의 '내 실험 목록'."""
+    from app.models.stock import PortfolioExperiment
+    from app.services import portfolio_backtest as PB
+
+    exp = PortfolioExperiment(
+        user_id=current_user.id,
+        name=req.name,
+        currency=req.currency,
+        initial_amount=req.initial_amount,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        assets=PB.정규화([a.model_dump() for a in req.assets]),
+        contribution_period=req.contribution_period,
+        contribution_amount=req.contribution_amount,
+        rebalance_period=req.rebalance_period,
+        total_return=req.total_return,
+    )
+    db.add(exp)
+    db.commit()
+    db.refresh(exp)
+    return exp
+
+
+@router.get("/experiments")
+def list_experiments(db: Session = Depends(get_db),
+                     current_user: Optional[User] = Depends(get_current_user)):
+    """내 실험 목록 (비로그인은 빈 배열).
+
+    401 을 내지 않는다 — 이 화면은 로그인 없이도 백테스트를 돌릴 수
+    있고, 목록만 비면 된다. 401 을 내면 화면이 '실패' 로 읽는다."""
+    from app.models.stock import PortfolioExperiment
+    if not current_user:
+        return []
+    return (db.query(PortfolioExperiment)
+            .filter(PortfolioExperiment.user_id == current_user.id)
+            .order_by(PortfolioExperiment.created_at.desc())
+            .limit(50).all())
+
+
+@router.delete("/experiments/{experiment_id}")
+def delete_experiment(experiment_id: int, db: Session = Depends(get_db),
+                      current_user: User = Depends(require_user)):
+    from app.models.stock import PortfolioExperiment
+    exp = (db.query(PortfolioExperiment)
+           .filter(PortfolioExperiment.id == experiment_id,
+                   PortfolioExperiment.user_id == current_user.id)
+           .first())
+    if not exp:
+        raise HTTPException(status_code=404, detail="실험을 찾을 수 없습니다")
+    db.delete(exp)
     db.commit()
     return {"message": "삭제 완료"}

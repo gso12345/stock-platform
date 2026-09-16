@@ -425,3 +425,42 @@ class PortfolioSnapshot(Base):
     #  실제로 그날 찍힌 줄만 기둥이 된다.
     backfilled = Column(Integer, nullable=False, server_default="0", default=0)
     made_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PortfolioExperiment(Base):
+    """자산배분 백테스트 한 건 — 화면의 '내 실험 목록'.
+
+    기존 Strategy·BacktestResult 로는 담을 수 없다. 그쪽은 **한 종목에
+    건 매매 신호**를 위한 모양이라 symbol 이 한 칸이고, 여러 자산·비중·
+    적립·리밸런싱을 넣을 자리가 아예 없다. 억지로 JSON 에 밀어넣으면
+    조회도 못 하고 뜻도 안 통한다.
+
+    설정만 담고 **결과는 안 담는다.** 결과를 저장하면 —
+      · equity_curve 가 8년치면 한 건에 수십 KB 다. 무료 DB 용량이 금방 찬다
+      · 시세가 정정되면 저장된 값과 다시 돌린 값이 달라져, 어느 쪽이
+        맞는지 알 수 없는 상태가 된다
+    설정은 몇백 바이트고, 그것만 있으면 언제든 같은 결과를 다시 낸다.
+    """
+    __tablename__ = "portfolio_experiments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+
+    #: 표시 통화 — KRW / USD
+    currency = Column(String(3), nullable=False, default="KRW")
+    initial_amount = Column(Float, nullable=False)
+    start_date = Column(String(10), nullable=False)
+    end_date = Column(String(10), nullable=False)
+
+    #: [{symbol, market, name, weight}] — 비중은 합이 1 이 되게 저장한다
+    assets = Column(JSON, nullable=False)
+
+    contribution_period = Column(String(10), default="none")   # none/monthly/quarterly/yearly
+    contribution_amount = Column(Float, default=0)
+    rebalance_period = Column(String(10), default="none")
+    #: 배당을 재투자해 '토탈 리턴' 으로 잴까
+    total_return = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

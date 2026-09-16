@@ -340,6 +340,81 @@ export interface 전종목백테스트요청 extends Omit<백테스트요청, "s
   top_n?: number;
 }
 
+/** 자산배분에 담는 자산 한 칸. weight 는 60 으로 줘도 0.6 으로 줘도 된다 —
+ *  서버가 합으로 나눠 맞춘다. */
+export interface 배분자산 {
+  symbol: string;
+  market: string;
+  name?: string | null;
+  weight: number;
+}
+
+export type 주기 = "none" | "monthly" | "quarterly" | "yearly";
+
+/** 자산배분 백테스트 요청 — 서버 자산배분요청 */
+export interface 자산배분요청 {
+  assets: 배분자산[];
+  currency: "KRW" | "USD";
+  initial_amount: number;
+  start_date: string;
+  end_date: string;
+  contribution_period: 주기;
+  contribution_amount: number;
+  rebalance_period: 주기;
+  /** 배당을 재투자해 '토탈 리턴' 으로 잴까 */
+  total_return: boolean;
+}
+
+/** 자산배분 백테스트 결과.
+ *
+ *  **연환산이 두 가지인 이유** — 적립식에서는 둘이 다른 질문에 답한다.
+ *  twr_annual 은 넣고 뺀 시점의 영향을 지운 값이라 전략끼리 비교할 때
+ *  쓰고, irr_annual 은 내가 실제로 번 연 수익률이다. 둘 중 하나만
+ *  보여 주면 그 차이가 통째로 사라진다. */
+export interface 자산배분결과 {
+  start_date: string;
+  end_date: string;
+  years: number;
+  /** 실제로 넣은 돈의 합 (초기 + 적립 전부) */
+  contributed: number;
+  final_value: number;
+  profit: number;
+  /** 내 돈 대비 얼마나 불었나 — 적립식에서 유일하게 정직한 수 */
+  total_return: number | null;
+  twr_annual: number | null;
+  irr_annual: number | null;
+  mdd: number | null;
+  volatility: number | null;
+  sharpe: number | null;
+  dividends: number | null;
+  yearly: { year: number; return: number }[];
+  curve: { date: string; value: number }[];
+  currency: "KRW" | "USD";
+  assets: 배분자산[];
+  /** 시세를 못 받아 뺀 자산 — 조용히 빼면 사용자가 다 담은 줄 안다 */
+  skipped: string[];
+  /** 환율을 못 맞춰 뺀 자산 */
+  fx_skipped: string[];
+  mixed_currency: boolean;
+  /** 거래비용이 반영됐나 (지금은 늘 false) */
+  costs_included: boolean;
+}
+
+export interface 저장된실험 {
+  id: number;
+  name: string;
+  currency: "KRW" | "USD";
+  initial_amount: number;
+  start_date: string;
+  end_date: string;
+  assets: 배분자산[];
+  contribution_period: 주기;
+  contribution_amount: number;
+  rebalance_period: 주기;
+  total_return: boolean;
+  created_at: string;
+}
+
 /** 저장해 두는 전략 — 서버 StrategySaveRequest */
 export interface 전략저장 {
   name: string;
@@ -357,6 +432,22 @@ export const backtestApi = {
 
   runUniverse: (payload: 전종목백테스트요청) =>
     api.post("/backtest/universe", payload).then((r) => r.data),
+
+  /** 자산배분 백테스트 — 여러 자산을 비중대로 담아 적립·리밸런싱하며 굴린다.
+   *
+   *  위의 run/runUniverse 와는 **다른 종류**다. 그쪽은 한 종목에 매매
+   *  신호를 걸어 보는 것이고, 이쪽은 '이렇게 굴렸으면 어떻게 됐을까' 다. */
+  runPortfolio: (payload: 자산배분요청) =>
+    api.post<자산배분결과>("/backtest/portfolio", payload).then((r) => r.data),
+
+  getExperiments: () =>
+    api.get<저장된실험[]>("/backtest/experiments").then((r) => r.data),
+
+  saveExperiment: (payload: 자산배분요청 & { name: string }) =>
+    api.post<저장된실험>("/backtest/experiments", payload).then((r) => r.data),
+
+  deleteExperiment: (id: number) =>
+    api.delete(`/backtest/experiments/${id}`).then((r) => r.data),
 
   getResults: (limit = 20) =>
     api.get("/backtest/results", { params: { limit } }).then((r) => r.data),
@@ -604,6 +695,7 @@ export const portfolioApi = {
   deleteItem: (id: number) =>
     api.delete(`/portfolio/items/${id}`).then((r) => r.data),
 
+  /* 자산배분 백테스트는 아래 backtestApi 쪽에 있다 */
   getPublicPortfolios: (userId: number) =>
     api.get(`/portfolio/public/${userId}`).then((r) => r.data),
 

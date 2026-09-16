@@ -8,6 +8,7 @@ import type { ConditionGroup, Market } from "@/types";
 import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { 읽을수있는오류 } from "@/utils/errors";
+import 자산배분탭 from "@/components/backtest/AllocationTab";
 
 const DEFAULT_ENTRY: ConditionGroup = {
   logic: "AND",
@@ -98,7 +99,7 @@ function BacktestSkeleton() {
 export default function Backtest() {
   const qc = useQueryClient();
   const { isLoggedIn } = useAuthStore();
-  const [pageTab, setPageTab] = useState("single");
+  const [pageTab, setPageTab] = useState("alloc");
 
   // 단일종목
   const [symbol, setSymbol] = useState("AAPL");
@@ -190,7 +191,12 @@ export default function Backtest() {
     setActiveDatePreset(preset.label);
   };
 
+  /* '자산배분' 을 맨 앞에 둔다.
+     보통 사람이 실제로 하는 투자가 이쪽이다 — 여러 자산을 비중대로 담고
+     매달 넣고 가끔 비중을 맞추는 것. 뒤의 셋은 매매 신호를 시험하는
+     것이라 훨씬 좁은 쓰임이다. */
   const PAGE_TABS = [
+    { id: "alloc",      label: "자산배분" },
     { id: "single",     label: "단일 종목" },
     { id: "universe",   label: "유니버스 전체" },
     { id: "strategies", label: "전략 저장소" },
@@ -198,7 +204,11 @@ export default function Backtest() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between">
+      {/* flex-wrap 이 없으면 폰에서 제목이 한 글자씩 세로로 쪼개진다.
+          탭 줄은 안 줄어드는데 제목 칸만 줄어들어서, 390px 에서
+          '백/테/스/트' 가 된다(실제로 그렇게 찍혔다). 대시보드가
+          같은 이유로 이미 flex-wrap gap-3 을 쓰고 있어 그대로 맞춘다. */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">백테스트</h1>
           <p className="text-text-muted text-xs mt-0.5">진입·청산 조건을 설정하고 과거 데이터로 전략을 검증합니다</p>
@@ -206,6 +216,16 @@ export default function Backtest() {
         <Tabs tabs={PAGE_TABS} active={pageTab} onChange={setPageTab} />
       </div>
 
+      {/* ── 자산배분 ──
+          아래 신호 백테스트와 **다른 화면**이다. 한 화면에 섞으면
+          '진입 조건' 과 '리밸런싱 주기' 가 나란히 놓여서, 둘 중 무엇을
+          하는 중인지 알 수 없게 된다. 갈라 둔다. */}
+      {pageTab === "alloc" && (
+        <자산배분탭 />
+      )}
+
+      {pageTab !== "alloc" && (
+      <>
       {/* ── 공통 설정 패널 ──────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-1 flex flex-col gap-3">
@@ -683,6 +703,8 @@ export default function Backtest() {
           )}
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
