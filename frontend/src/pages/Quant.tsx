@@ -285,7 +285,7 @@ export default function Quant() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-text-primary flex items-center gap-2">
             <Award size={22} className="text-accent-blue" />

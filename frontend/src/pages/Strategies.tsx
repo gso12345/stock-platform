@@ -53,7 +53,7 @@ export default function Strategies() {
   return (
     <div className="flex flex-col gap-6">
       {/* ── 페이지 헤더 ──────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">전략 저장소</h1>
           <p className="text-text-muted text-xs mt-0.5">저장된 전략을 관리하고 백테스트에 로드합니다</p>

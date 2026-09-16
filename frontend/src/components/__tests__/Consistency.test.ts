@@ -101,3 +101,47 @@ describe("빈 화면이 막다른 길이 아닌가", () => {
     expect(수).toBeGreaterThanOrEqual(8);
   });
 });
+
+describe("페이지 머리 줄이 폰에서 안 무너지는가", () => {
+  /* 제목과 탭이 한 줄에 나란히 있는데 flex-wrap 이 없으면, 폰 폭(390px)
+     에서 탭 줄은 안 줄고 제목 칸만 줄어든다. 그러다 칸이 한 글자보다
+     좁아지면 제목이 **세로로 쪼개진다** — '백/테/스/트'.
+
+     이 고장은 검사로는 절대 안 잡힌다. jsdom 에는 배치가 없어서 폭이
+     늘 0 이고, 클래스만 보면 멀쩡하다. 실제로 폰 크기로 화면을 찍어
+     보고서야 나왔다. 그래서 여기서는 **규칙 자체**를 못 박는다.
+
+     대시보드가 같은 이유로 이미 flex-wrap gap-3 을 쓰고 있었다.
+     한 곳만 맞춰 두면 다음 화면에서 또 난다. */
+  /** 제목(h1)을 안고 있는 머리 줄만 고른다.
+   *
+   *  파일의 첫 `justify-between` 을 집으면 안 된다 — 대시보드는 그
+   *  자리가 카드 안의 작은 줄이라, 정작 제목 줄은 멀쩡한데 검사가
+   *  틀렸다고 말했다(그렇게 짰다가 걸렸다). */
+  function 제목줄들(s: string): string[] {
+    const 나온것: string[] = [];
+    for (const m of s.matchAll(/className="flex items-center justify-between([^"]*)"/g)) {
+      if (/<h1[\s>]/.test(s.slice(m.index!, m.index! + 260))) 나온것.push(m[1]);
+    }
+    return 나온것;
+  }
+
+  it.each(["pages/Backtest.tsx", "pages/Dashboard.tsx"])(
+    "%s 의 머리 줄이 접힌다", (f) => {
+      const 줄들 = 제목줄들(읽기(f));
+      expect(줄들.length, `${f} 에 제목 머리 줄을 못 찾았다`).toBeGreaterThan(0);
+      for (const 클래스 of 줄들)
+        expect(클래스, `${f} 제목이 폰에서 세로로 쪼개진다 — flex-wrap 을 넣어라`)
+          .toMatch(/flex-wrap/);
+    });
+
+  it("제목 옆에 무언가를 두는 화면이 다 같은 규칙을 쓴다", () => {
+    /* 위 둘만 찍어 두면 새 화면이 늘 때 또 놓친다. 실제로 이 훑기가
+       퀀트·스크리닝·전략저장소 세 곳을 더 찾아냈다 — 백테스트만
+       고쳤으면 나머지는 그대로 남았을 것이다. */
+    const 어긴것 = 화면파일들().filter(
+      (f) => 제목줄들(읽기(f)).some((c) => !/flex-wrap/.test(c)));
+    expect(어긴것, `이 화면들의 제목이 폰에서 세로로 쪼개진다: ${어긴것.join(", ")}`)
+      .toEqual([]);
+  });
+});

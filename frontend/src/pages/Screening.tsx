@@ -239,7 +239,7 @@ export default function Screening() {
   return (
     <div className="flex flex-col gap-5 h-full">
       {/* ── 페이지 헤더 ──────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">종목 스크리닝</h1>
           <p className="text-text-muted text-xs mt-0.5">다중 조건으로 유망 종목을 발굴합니다</p>
