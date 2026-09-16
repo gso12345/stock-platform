@@ -27,18 +27,52 @@ class BacktestEngine:
         for i, row in df.iterrows():
             price = row["close"]
             portfolio_value = capital + position * price
-            equity_curve.append({"date": str(row["date"].date()), "value": round(portfolio_value, 0)})
+            equity_curve.append({"date": str(row["date"].date()),
+                                 "value": round(float(portfolio_value), 0)})
 
             if position > 0:
                 pnl = (price - entry_price) / entry_price * 100
-                if stop_loss and pnl <= -stop_loss:
-                    capital += position * price
-                    trades.append(self._trade("손절", entry_date, row["date"].date(), entry_price, price, pnl, position))
-                    position = 0; continue
-                if take_profit and pnl >= take_profit:
-                    capital += position * price
-                    trades.append(self._trade("익절", entry_date, row["date"].date(), entry_price, price, pnl, position))
-                    position = 0; continue
+                """손절·익절은 **장중**에 닿는다. 종가로만 보면 안 된다.
+
+                예전에는 종가만 봤다. 그래서 장중에 저가가 -30% 를 찍고
+                종가가 -1% 로 회복한 날, 손절 10% 를 걸어 뒀는데도 **한 번도
+                안 팔렸다**(실측: 손절 0건). 실제로는 그날 팔렸어야 한다.
+
+                이게 왜 큰가 — 백테스트 결과가 **한쪽으로만** 틀린다.
+                손절을 놓치면 그 뒤에 값이 돌아온 경우만 살아남아, 실제보다
+                수익률이 높고 MDD 가 낮게 나온다. 손절을 걸수록 결과가 더
+                좋아 보이는, 정반대의 그림이 된다.
+
+                체결가는 손절선·익절선으로 잡는다. 저가가 -30% 까지
+                갔더라도 -10% 에 걸어 둔 주문은 -10% 근처에서 체결된다 —
+                저가로 잡으면 실제보다 훨씬 나쁘게 나온다. (갭 하락으로
+                시가가 이미 선 아래면 그 시가가 체결가다.)
+
+                한 봉 안에서 손절선과 익절선에 **둘 다** 닿을 수 있다.
+                일봉만으로는 어느 쪽이 먼저인지 알 수 없으므로 **손절을
+                먼저** 본다 — 모르면 나쁜 쪽으로 세는 것이 백테스트의 규칙이다.
+                반대로 하면 실제로는 손절된 거래가 익절로 기록된다."""
+                저 = row.get("low", price)
+                고 = row.get("high", price)
+                시 = row.get("open", price)
+                if stop_loss:
+                    손절선 = entry_price * (1 - stop_loss / 100)
+                    if 저 <= 손절선:
+                        체결 = min(시, 손절선)          # 갭 하락이면 시가가 이미 아래
+                        실현 = (체결 - entry_price) / entry_price * 100
+                        capital += position * 체결
+                        trades.append(self._trade("손절", entry_date, row["date"].date(),
+                                                  entry_price, 체결, 실현, position))
+                        position = 0; continue
+                if take_profit:
+                    익절선 = entry_price * (1 + take_profit / 100)
+                    if 고 >= 익절선:
+                        체결 = max(시, 익절선)          # 갭 상승이면 시가가 이미 위
+                        실현 = (체결 - entry_price) / entry_price * 100
+                        capital += position * 체결
+                        trades.append(self._trade("익절", entry_date, row["date"].date(),
+                                                  entry_price, 체결, 실현, position))
+                        position = 0; continue
                 if self._check(row, df, i, exit_conditions):
                     capital += position * price
                     trades.append(self._trade("청산", entry_date, row["date"].date(), entry_price, price, pnl, position))
@@ -61,14 +95,20 @@ class BacktestEngine:
         return self._metrics(equity_curve, trades)
 
     def _trade(self, type_, entry_date, exit_date, entry_price, exit_price, pnl, shares):
+        """numpy 스칼라를 여기서 벗긴다.
+
+        가격이 pandas 에서 나오면 np.float64 다. 그대로 두면 이 dict 가
+        응답으로도 나가고 **DB 의 JSON 칸에도** 들어가는데, 드라이버에
+        따라 거기서 직렬화가 터진다. 값이 맞는데도 저장만 실패하는,
+        원인을 찾기 어려운 자리다. 만드는 곳에서 한 번에 벗긴다."""
         return {
             "type": type_,
             "entry_date": str(entry_date),
             "exit_date": str(exit_date),
-            "entry_price": round(entry_price, 2),
-            "exit_price": round(exit_price, 2),
-            "pnl_rate": round(pnl, 2),
-            "shares": shares,
+            "entry_price": round(float(entry_price), 2),
+            "exit_price": round(float(exit_price), 2),
+            "pnl_rate": round(float(pnl), 2),
+            "shares": int(shares),
         }
 
     def _add_all_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -229,8 +269,24 @@ class BacktestEngine:
         vals = [e["value"] for e in equity_curve]
         initial, final = vals[0], vals[-1]
         total_return = (final - initial) / initial * 100
-        years = max(len(vals) / 252, 0.01)
-        annual_return = ((final / initial) ** (1 / years) - 1) * 100
+        """연환산은 **1년이 안 되는 기간에서는 내보내지 않는다.**
+
+        수식 자체는 표준이다. 문제는 짧은 기간에서 나오는 수다 —
+        6주에 +9.5% 를 연으로 늘리면 **'연 114%'** 가 찍힌다(실측).
+        여섯 주 성적이 한 해 내내 그대로 이어진다고 가정한 값인데,
+        화면에는 그 가정이 한 글자도 안 적힌다. 사람은 그냥 '이 전략은
+        연 114%' 로 읽고, 그건 거짓이다.
+
+        1년 미만이면 None 을 주고 화면이 '—' 를 그리게 한다. 총수익률은
+        그대로 나가므로 볼 것이 없어지지는 않는다 — 부풀린 수 대신
+        실제로 잰 수만 남는다.
+
+        years 도 같이 내보낸다. 화면이 '몇 년치로 잰 값인가' 를 적어 줄
+        수 있어야 한다 — 3개월 성적과 10년 성적을 같은 얼굴로 보여 주는
+        것이 과최적화로 가는 가장 흔한 길이다."""
+        years = len(vals) / 252
+        annual_return = (((final / initial) ** (1 / years) - 1) * 100
+                         if years >= 1.0 and initial > 0 else None)
 
         peak = vals[0]
         mdd = 0.0
@@ -249,18 +305,49 @@ class BacktestEngine:
         avg_loss = np.mean([t["pnl_rate"] for t in trades if t["pnl_rate"] < 0]) if any(t["pnl_rate"] < 0 for t in trades) else 0
         total_profit = sum(t["pnl_rate"] for t in trades if t["pnl_rate"] > 0)
         total_loss = sum(abs(t["pnl_rate"]) for t in trades if t["pnl_rate"] < 0)
-        profit_factor = total_profit / total_loss if total_loss != 0 else 0
+        """손실이 하나도 없으면 손익비는 **잴 수 없다**(0 이 아니다).
+
+        예전에는 0 을 내려보냈다. 손익비 0 은 '번 돈이 하나도 없다' 는
+        뜻이라, **한 번도 안 진 전략이 화면에서 최악으로 보였다**.
+        거래가 아예 없을 때도 마찬가지로 0 이었다.
+
+        None 으로 내보내고 화면이 '—' 를 그리게 한다. 없는 것과 나쁜 것은
+        다른 말이다 — 이 앱은 그 구분을 다른 화면에서도 지킨다."""
+        if not trades or total_loss == 0:
+            profit_factor = None
+        else:
+            profit_factor = total_profit / total_loss
+
+        """거래가 **한 건도 없으면** 거래에 관한 지표는 잴 수 없다.
+
+        예전에는 전부 0 이었다. 그러면 화면에 '승률 0% · 평균수익 0%' 가
+        찍히는데, 이건 '다 졌다' 로 읽힌다. 실제로는 **조건이 한 번도
+        안 맞아서 아무것도 안 샀다** 는 뜻이다 — 정반대의 상황을 같은
+        얼굴로 보여 준 셈이다.
+
+        수익률·MDD·샤프는 그대로 둔다. 안 산 채로 현금을 들고 있었던
+        기간의 성과는 실제로 0% 가 맞다.
+
+        numpy 스칼라(np.float64)를 float() 로 벗긴다. 이 값들은 그대로
+        DB 의 JSON 칸에 들어가는데, 드라이버에 따라 직렬화에서 터진다."""
+        거래있음 = len(trades) > 0
+
+        def _수(v):
+            return None if v is None else round(float(v), 2)
 
         return {
-            "total_return": round(total_return, 2),
-            "annual_return": round(annual_return, 2),
-            "mdd": round(mdd, 2),
+            "total_return": _수(total_return),
+            "annual_return": _수(annual_return),
+            "mdd": _수(mdd),
             "sharpe_ratio": round(float(sharpe), 3),
-            "win_rate": round(win_rate, 2),
+            "win_rate": _수(win_rate) if 거래있음 else None,
             "total_trades": len(trades),
-            "avg_profit": round(avg_profit, 2),
-            "avg_loss": round(avg_loss, 2),
-            "profit_factor": round(profit_factor, 2),
+            #: 몇 년치로 잰 값인가. 화면이 '3개월 성적' 과 '10년 성적' 을
+            #  같은 얼굴로 보여 주지 않도록 쓴다.
+            "years": round(years, 2),
+            "avg_profit": _수(avg_profit) if 거래있음 else None,
+            "avg_loss": _수(avg_loss) if 거래있음 else None,
+            "profit_factor": _수(profit_factor),
             "equity_curve": equity_curve,
             "trades": trades,
         }

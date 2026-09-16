@@ -323,6 +323,12 @@ export interface 백테스트요청 {
   exit_conditions: ConditionGroup;
   stop_loss?: number | null;
   take_profit?: number | null;
+  /** 한 번에 자본의 몇 %를 넣을까 (0~1). 화면의 '투자비중' 슬라이더.
+   *
+   *  이 칸이 **없어서** 슬라이더가 아무 일도 안 했다 — 사람이 50% 로
+   *  내려도 서버는 늘 95% 로 계산했고, 결과가 안 바뀌니 '설정이 안 먹는다'
+   *  로 읽혔다. */
+  position_size?: number;
   strategy_id?: number | null;
 }
 

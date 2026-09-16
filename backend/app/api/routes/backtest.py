@@ -39,6 +39,13 @@ class BacktestRequest(BaseModel):
     exit_conditions: dict
     stop_loss: Optional[float] = Field(None, ge=0.1, le=99.0)
     take_profit: Optional[float] = Field(None, ge=0.1, le=999.0)
+    #: 한 번에 자본의 몇 %를 넣을까. 화면에 '투자비중' 슬라이더로 있다.
+    #
+    #  이 칸이 **없었다.** 화면은 값을 들고 있고 사람은 50% 로 내렸는데,
+    #  서버는 그 값을 받지도 않으니 늘 95% 로 계산했다. 결과가 하나도
+    #  안 바뀌니 '이 앱은 설정이 안 먹는다' 로 읽힌다 — 아무 일도 안 하는
+    #  조작칸은 없느니만 못하다.
+    position_size: float = Field(0.95, gt=0, le=1.0)
     strategy_id: Optional[int] = None
 
     @field_validator("start_date", "end_date")
@@ -58,6 +65,7 @@ class UniverseBacktestRequest(BaseModel):
     exit_conditions: dict
     stop_loss: Optional[float] = Field(None, ge=0.1, le=99.0)
     take_profit: Optional[float] = Field(None, ge=0.1, le=999.0)
+    position_size: float = Field(0.95, gt=0, le=1.0)
     rank_by: str = Field("total_return", pattern="^(total_return|annual_return|mdd|sharpe_ratio|win_rate|profit_factor)$")
     top_n: int = Field(20, ge=1, le=50)
 
@@ -104,6 +112,7 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
         exit_conditions=req.exit_conditions,
         stop_loss=req.stop_loss,
         take_profit=req.take_profit,
+        position_size=req.position_size,
         initial_capital=req.initial_capital,
     )
 
@@ -186,6 +195,7 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
                         exit_conditions=req.exit_conditions,
                         stop_loss=req.stop_loss,
                         take_profit=req.take_profit,
+                        position_size=req.position_size,
                         initial_capital=req.initial_capital,
                     )
                 )

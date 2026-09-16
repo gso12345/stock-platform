@@ -9,7 +9,8 @@
 import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
-import { 읽을수있는오류, 차트높이계산 } from "@/pages/StockDetail";
+import { 차트높이계산 } from "@/pages/StockDetail";
+import { 읽을수있는오류 } from "@/utils/errors";
 
 const 뿌리 = path.resolve(__dirname, "../../..");
 const 읽기 = (p: string) => fs.readFileSync(path.join(뿌리, p), "utf-8");

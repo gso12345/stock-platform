@@ -2,12 +2,12 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backtestApi } from "@/api/stocks";
 import { Card, ChangeBadge, formatNumber, Tabs, Button, Badge, 빈화면, 못불러옴} from "@/components/ui";
-import ComingSoon from "@/components/ComingSoon";
 import { ConditionBuilder } from "@/components/backtest/ConditionBuilder";
 import 차트틀 from "@/components/chart/ChartFrame";
 import type { ConditionGroup, Market } from "@/types";
 import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
+import { 읽을수있는오류 } from "@/utils/errors";
 
 const DEFAULT_ENTRY: ConditionGroup = {
   logic: "AND",
@@ -43,6 +43,22 @@ const DATE_PRESETS = [
   { label: "5Y",   start: "2021-06-06", end: TODAY },
   { label: "10Y",  start: "2016-06-06", end: TODAY },
 ];
+
+/**
+ * 못 잰 값을 '—' 로 적는다.
+ *
+ * 서버는 **잴 수 없는 것**을 null 로 준다 — 거래가 없으면 승률,
+ * 손실이 없으면 손익비, 1년이 안 되면 연환산. 예전에는 이것들을 전부
+ * 0 으로 냈고 화면은 '승률 0%' 를 그렸는데, 그건 '다 졌다' 로 읽힌다.
+ * 못 잰 것과 나쁜 것은 완전히 다른 말이다.
+ *
+ * 물음표 접근자(`v?.toFixed()`)만 쓰면 undefined 가 문자열에 섞여
+ * '승률 undefined%' 가 찍힌다 — 그래서 한 자리에서 다룬다.
+ */
+function 숫자(v: number | null | undefined, 자리 = 1, 앞 = "", 뒤 = ""): React.ReactNode {
+  if (v == null || !Number.isFinite(v)) return <span className="text-text-dim">—</span>;
+  return `${앞}${v.toFixed(자리)}${뒤}`;
+}
 
 function MetricCard({ label, value, sub, color }: {
   label: string; value: React.ReactNode; sub?: string; color?: string;
@@ -83,7 +99,6 @@ export default function Backtest() {
   const qc = useQueryClient();
   const { isLoggedIn } = useAuthStore();
   const [pageTab, setPageTab] = useState("single");
-  return <ComingSoon title="백테스트" />;
 
   // 단일종목
   const [symbol, setSymbol] = useState("AAPL");
@@ -123,9 +138,16 @@ export default function Backtest() {
       initial_capital: capital, entry_conditions: entryConditions,
       exit_conditions: exitConditions,
       stop_loss: stopLoss || undefined, take_profit: takeProfit || undefined,
+      /* 화면은 퍼센트(95)로 들고, 서버는 비율(0.95)로 받는다 */
+      position_size: positionSize / 100,
     }),
     onSuccess: (data) => { setResult(data); setErrorMsg(null); },
-    onError: (err: any) => setErrorMsg(err?.response?.data?.detail ?? "백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요"),
+    /* detail 을 그대로 넣으면 안 된다. FastAPI 422 는 detail 이 **객체
+       배열**이라, React 자식으로 들어가는 순간 화면이 통째로 죽는다.
+       값을 잘못 넣어서 나는 오류인데 그 안내를 띄우려다 페이지가
+       사라지는 셈이다 — 종목상세에서 이미 같은 것을 고쳤다. */
+    onError: (err: any) => setErrorMsg(읽을수있는오류(err?.response?.data?.detail,
+      "백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요")),
   });
 
   const universeMutation = useMutation({
@@ -134,10 +156,12 @@ export default function Backtest() {
       start_date: startDate, end_date: endDate,
       initial_capital: capital, entry_conditions: entryConditions,
       exit_conditions: exitConditions, stop_loss: stopLoss || null,
-      take_profit: takeProfit || null, rank_by: rankBy, top_n: topN,
+      take_profit: takeProfit || null, position_size: positionSize / 100,
+      rank_by: rankBy, top_n: topN,
     }),
     onSuccess: (data) => { setUniverseResult(data); setErrorMsg(null); },
-    onError: (err: any) => setErrorMsg(err?.response?.data?.detail ?? "유니버스 백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요"),
+    onError: (err: any) => setErrorMsg(읽을수있는오류(err?.response?.data?.detail,
+      "유니버스 백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요")),
   });
 
   const saveStrategyMutation = useMutation({
@@ -418,26 +442,41 @@ export default function Backtest() {
               <>
                 {/* KPI 카드 */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <MetricCard label="총 수익률" value={<ChangeBadge value={result.total_return} className="text-xl" />} />
-                  <MetricCard label="연환산" value={<ChangeBadge value={result.annual_return} className="text-xl" />} />
-                  <MetricCard label="MDD" value={`-${result.mdd?.toFixed(1)}%`} color="text-accent-red" />
+                  {/* 서버가 **못 잰 값은 null** 로 준다. 0 이 아니다.
+                      · 거래가 한 건도 없으면 승률·평균수익은 잴 수가 없다
+                      · 손실이 하나도 없으면 손익비는 무한대다
+                      · 1년이 안 되는 기간은 연으로 늘리지 않는다
+                      예전에는 이것들을 전부 0 으로 냈고, 화면은 '승률 0%' 를
+                      그렸다 — '다 졌다' 로 읽힌다. 못 잰 것은 '—' 로 적는다.
+                      (물음표 접근자만 쓰면 'undefined%' 가 찍힌다) */}
+                  <MetricCard label="총 수익률" value={<ChangeBadge value={result.total_return ?? 0} className="text-xl" />} />
+                  <MetricCard label="연환산"
+                    value={result.annual_return == null
+                      ? <span className="text-text-dim">—</span>
+                      : <ChangeBadge value={result.annual_return} className="text-xl" />}
+                    sub={result.annual_return == null && result.years != null
+                      ? `${result.years}년치라 연환산 안 함` : undefined} />
+                  <MetricCard label="MDD" value={숫자(result.mdd, 1, "-", "%")} color="text-accent-red" />
                   <MetricCard
                     label="샤프 비율"
-                    value={result.sharpe_ratio?.toFixed(2)}
-                    color={result.sharpe_ratio > 1 ? "text-accent-green" : "text-text-primary"}
+                    value={숫자(result.sharpe_ratio, 2)}
+                    color={(result.sharpe_ratio ?? 0) > 1 ? "text-accent-green" : "text-text-primary"}
                   />
                   <MetricCard
                     label="승률"
-                    value={`${result.win_rate?.toFixed(1)}%`}
-                    color={result.win_rate >= 50 ? "text-accent-green" : "text-accent-red"}
+                    value={숫자(result.win_rate, 1, "", "%")}
+                    color={result.win_rate == null ? "text-text-dim"
+                      : result.win_rate >= 50 ? "text-accent-green" : "text-accent-red"}
                   />
-                  <MetricCard label="총 거래수" value={result.total_trades} />
-                  <MetricCard label="평균 수익" value={`+${result.avg_profit?.toFixed(1)}%`} color="text-accent-green" />
+                  <MetricCard label="총 거래수" value={result.total_trades ?? 0} />
+                  <MetricCard label="평균 수익" value={숫자(result.avg_profit, 1, "+", "%")}
+                    color={result.avg_profit == null ? "text-text-dim" : "text-accent-green"} />
                   <MetricCard
                     label="수익비율 (PF)"
-                    value={result.profit_factor?.toFixed(2)}
-                    color={result.profit_factor > 1.5 ? "text-accent-green" : "text-text-primary"}
-                    sub="PF > 1.5 우수"
+                    value={숫자(result.profit_factor, 2)}
+                    color={(result.profit_factor ?? 0) > 1.5 ? "text-accent-green" : "text-text-primary"}
+                    sub={result.profit_factor == null && (result.total_trades ?? 0) > 0
+                      ? "손실 거래 없음" : "PF > 1.5 우수"}
                   />
                 </div>
 
@@ -574,12 +613,16 @@ export default function Backtest() {
                             <span className="font-mono font-semibold text-text-primary">{r.symbol}</span>
                           </td>
                           <td className="px-4 py-2.5 text-right"><ChangeBadge value={r.total_return ?? 0} /></td>
-                          <td className="px-4 py-2.5 text-right"><ChangeBadge value={r.annual_return ?? 0} /></td>
+                          <td className="px-4 py-2.5 text-right">
+                            {r.annual_return == null
+                              ? <span className="text-text-dim">—</span>
+                              : <ChangeBadge value={r.annual_return} />}
+                          </td>
                           <td className="px-4 py-2.5 text-right font-mono text-accent-red">-{r.mdd?.toFixed(1)}%</td>
                           <td className="px-4 py-2.5 text-right font-mono text-text-secondary">{r.sharpe_ratio?.toFixed(2)}</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-text-secondary">{r.win_rate?.toFixed(1)}%</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-text-secondary">{숫자(r.win_rate, 1, "", "%")}</td>
                           <td className="px-4 py-2.5 text-right font-mono text-text-muted">{r.total_trades}</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-text-secondary">{r.profit_factor?.toFixed(2)}</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-text-secondary">{숫자(r.profit_factor, 2)}</td>
                         </tr>
                       ))}
                     </tbody>
