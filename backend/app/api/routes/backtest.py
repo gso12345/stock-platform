@@ -370,6 +370,49 @@ class 자산칸(BaseModel):
     weight: float = Field(0, ge=0, le=1000)
 
 
+#: 벤치마크 — '내 조합이 그냥 이렇게 둔 것보다 나았나'.
+#
+#  수익률만 보면 좋은지 나쁜지 알 수 없다. 8년에 연 9%가 잘한 것인지
+#  아닌지는 같은 기간 S&P500 이 몇 %였나를 봐야 정해진다. 그래서 같은
+#  기간·같은 납입·같은 비용으로 한 번 더 돌려 나란히 보여 준다.
+벤치마크표: dict[str, dict] = {
+    "none":   {"name": "없음", "assets": []},
+    "6040":   {"name": "주식 60 · 채권 40",
+               "assets": [{"symbol": "SPY", "market": "US", "weight": 60},
+                          {"symbol": "AGG", "market": "US", "weight": 40}]},
+    "spy":    {"name": "S&P500",
+               "assets": [{"symbol": "SPY", "market": "US", "weight": 100}]},
+    "qqq":    {"name": "나스닥100",
+               "assets": [{"symbol": "QQQ", "market": "US", "weight": 100}]},
+    "kospi":  {"name": "코스피200",
+               "assets": [{"symbol": "069500", "market": "KR", "weight": 100}]},
+    "allweather": {"name": "올웨더",
+                   "assets": [{"symbol": "SPY", "market": "US", "weight": 30},
+                              {"symbol": "TLT", "market": "US", "weight": 40},
+                              {"symbol": "IEF", "market": "US", "weight": 15},
+                              {"symbol": "GLD", "market": "US", "weight": 7.5},
+                              {"symbol": "DBC", "market": "US", "weight": 7.5}]},
+}
+
+#: ETF 가 생기기 전 구간을 **그 ETF 가 따라가는 지수**로 잇는다.
+#  화면의 '확장된 ETF 가격 사용'.
+#
+#  SPY 는 1993년에 생겼다. 1980년부터 보고 싶으면 그 앞 13년은 자료가
+#  아예 없어서, 요청한 기간이 조용히 잘린다. 지수는 훨씬 길게 있다.
+#
+#  **공짜가 아니다** — 지수는 배당이 빠진 가격지수이고 운용보수도 없다.
+#  이은 구간은 실제 ETF 보다 배당만큼 낮게, 보수만큼 높게 나온다.
+#  그래서 어느 자산을 언제부터 이었는지 응답에 적어 화면에 띄운다.
+지수잇기: dict[str, str] = {
+    "SPY": "^GSPC", "VOO": "^GSPC", "IVV": "^GSPC", "SPLG": "^GSPC",
+    "QQQ": "^IXIC", "QQQM": "^IXIC",
+    "DIA": "^DJI",
+    "IWM": "^RUT", "VTWO": "^RUT",
+    "069500": "^KS11", "102110": "^KS11", "148020": "^KS11",
+    "229200": "^KQ11",
+}
+
+
 class 자산배분요청(BaseModel):
     assets: list[자산칸] = Field(..., min_length=1, max_length=12)
     currency: str = Field("KRW", pattern="^(KRW|USD)$")
@@ -382,10 +425,31 @@ class 자산배분요청(BaseModel):
     #: 배당을 재투자해 '토탈 리턴' 으로 잴까. 화면의 체크박스.
     total_return: bool = True
 
+    #: 달의 며칠에 리밸런싱·적립을 할까. 월급날에 맞추는 사람이 많다.
+    #  29~31 은 없는 달이 있어 28 까지만 받는다.
+    rebalance_day: int = Field(1, ge=1, le=28)
+    #: 거래비용(%). 0.1 이면 0.1% — 화면이 퍼센트로 주고 여기서 나눈다.
+    cost_rate: float = Field(0, ge=0, le=5)
+    #: 일별로 잴까 월별로 잴까. 긴 기간은 월이 가볍다.
+    data_interval: str = Field("daily", pattern="^(daily|monthly)$")
+    #: 견줄 상대
+    benchmark: str = Field("none")
+    #: 비중을 화면에서 준 대로 쓸까, 똑같이 나눌까
+    equal_weight: bool = False
+    #: ETF 가 생기기 전 구간을 지수로 이을까
+    extended: bool = False
+
     @field_validator("start_date", "end_date")
     @classmethod
     def _날짜(cls, v: str) -> str:
         return _parse_date(v)
+
+    @field_validator("benchmark")
+    @classmethod
+    def _벤치(cls, v: str) -> str:
+        if v not in 벤치마크표:
+            raise ValueError(f"모르는 벤치마크입니다: {v}")
+        return v
 
 
 class 실험저장요청(자산배분요청):
@@ -408,12 +472,54 @@ def _기간이름(시작: str, 끝: str) -> str:
     return "max"
 
 
-async def _시세모으기(자산들: list, 기간: str, 시작: str, 끝: str) -> dict:
+def 앞에잇기(짧은것: dict, 긴것: dict) -> tuple[dict, Optional[str]]:
+    """ETF 가 생기기 전 구간을 지수로 잇는다.
+
+    **가격을 그대로 이어 붙이면 안 된다.** SPY 는 400 근처이고 ^GSPC 는
+    5,000 근처라, 그냥 붙이면 ETF 가 시작하는 날 하루 만에 92% 폭락한
+    것으로 잡힌다. 최대 낙폭이 -92% 로 나오고 수익률도 통째로 망가진다.
+
+    이어야 할 것은 **수익률**이다. ETF 첫날 가격을 기준으로 지수를
+    비율만큼 되감아, 두 구간이 그 지점에서 이어지게 만든다.
+
+        되감은 가격(d) = ETF 첫날 가격 × 지수(d) / 지수(ETF 첫날)
+
+    돌려주는 둘째 값은 '언제부터 이었나'. 조용히 이으면 사용자는
+    1980년치 SPY 자료가 있는 줄 안다 — 실제로는 지수를 본 것이다.
+    """
+    if not 짧은것 or not 긴것:
+        return 짧은것, None
+    이음날 = min(짧은것)
+    앞날들 = [d for d in 긴것 if d < 이음날]
+    if not 앞날들:
+        return 짧은것, None
+    기준 = 긴것.get(이음날)
+    if not 기준 or 기준 <= 0:
+        """이음날에 지수 값이 없으면(그날 지수가 휴장) 바로 앞 날로 맞춘다.
+        기준이 없다고 1.0 으로 두면 배율이 통째로 어긋난다."""
+        앞선것 = [d for d in 긴것 if d <= 이음날]
+        if not 앞선것:
+            return 짧은것, None
+        기준 = 긴것[max(앞선것)]
+        if 기준 <= 0:
+            return 짧은것, None
+    배율 = 짧은것[이음날] / 기준
+    이은것 = {d: 긴것[d] * 배율 for d in 앞날들}
+    이은것.update(짧은것)
+    return 이은것, min(앞날들).isoformat()
+
+
+async def _시세모으기(자산들: list, 기간: str, 시작: str, 끝: str,
+                      확장: bool = False) -> tuple[dict, dict]:
     """자산마다 일봉을 받아 {심볼: {날짜: 종가}} 로 만든다.
 
     현금은 건너뛴다 — 받아올 시세가 없다.
     동시에 받는 수를 묶는다. 0.15 CPU 에서 열두 개를 한꺼번에 던지면
     그 자체가 부담이고, 야후도 몰아치면 막는다.
+
+    확장 — ETF 가 생기기 전 구간을 지수로 이을까(앞에잇기 참고).
+
+    둘째로 돌려주는 것은 {심볼: 이은 시작일} 이다. 화면에 띄워야 한다.
     """
     from datetime import date as _date
     from app.services.portfolio_backtest import 현금류
@@ -421,17 +527,7 @@ async def _시세모으기(자산들: list, 기간: str, 시작: str, 끝: str) 
     loop = asyncio.get_running_loop()
     sem = asyncio.Semaphore(4)
 
-    async def 하나(a):
-        if a.symbol in 현금류:
-            return a.symbol, {}
-        async with sem:
-            mkt = "KR" if a.market == "KR" else "US"
-            try:
-                봉들 = await loop.run_in_executor(
-                    None, yf_service.get_ohlcv, a.symbol, 기간, "1d", mkt)
-            except Exception as e:
-                log.info("자산배분 시세 실패 %s: %s", a.symbol, type(e).__name__)
-                return a.symbol, {}
+    def 표만들기(봉들) -> dict:
         표 = {}
         for r in 봉들 or []:
             d = r.get("date")
@@ -442,10 +538,34 @@ async def _시세모으기(자산들: list, 기간: str, 시작: str, 끝: str) 
                 표[_date.fromisoformat(d)] = float(종가)
             except (ValueError, TypeError):
                 continue
-        return a.symbol, 표
+        return 표
+
+    async def 받기(심볼: str, 시장: str) -> dict:
+        async with sem:
+            try:
+                봉들 = await loop.run_in_executor(
+                    None, yf_service.get_ohlcv, 심볼, 기간, "1d", 시장)
+            except Exception as e:
+                log.info("자산배분 시세 실패 %s: %s", 심볼, type(e).__name__)
+                return {}
+        return 표만들기(봉들)
+
+    async def 하나(a):
+        if a.symbol in 현금류:
+            return a.symbol, {}, None
+        mkt = "KR" if a.market == "KR" else "US"
+        표 = await 받기(a.symbol, mkt)
+        이은날 = None
+        지수 = 지수잇기.get(a.symbol.upper()) if 확장 else None
+        if 지수 and 표:
+            """지수를 받는 데 실패해도 원래 시세는 그대로 쓴다.
+            '확장' 은 더 보여 주려는 것이지 없으면 못 쓰는 것이 아니다."""
+            표, 이은날 = 앞에잇기(표, await 받기(지수, mkt))
+        return a.symbol, 표, 이은날
 
     나온것 = await asyncio.gather(*[하나(a) for a in 자산들])
-    return {심볼: 표 for 심볼, 표 in 나온것 if 표}
+    return ({심볼: 표 for 심볼, 표, _ in 나온것 if 표},
+            {심볼: 날 for 심볼, _, 날 in 나온것 if 날})
 
 
 async def _환율표(시작: str, 끝: str, 기간: str) -> dict:
@@ -573,7 +693,8 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
         raise HTTPException(status_code=400, detail="기간이 너무 짧습니다 (최소 2개월)")
 
     기간 = _기간이름(req.start_date, req.end_date)
-    가격표 = await _시세모으기(req.assets, 기간, req.start_date, req.end_date)
+    가격표, 이은것 = await _시세모으기(
+        req.assets, 기간, req.start_date, req.end_date, req.extended)
 
     섞였나 = len({("KRW" if a.market == "KR" else "USD") for a in req.assets}) > 1
     바꿔야하나 = any((("KRW" if a.market == "KR" else "USD") != req.currency) for a in req.assets)
@@ -593,20 +714,104 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     if req.total_return:
         배당 = await _배당표(쓸자산, req.start_date, req.end_date, req.currency, 환율)
 
+    #: 화면은 퍼센트(0.1)로 주고 엔진은 비율(0.001)로 받는다.
+    #  이 자리를 안 나누면 수수료가 100배가 된다 — 결과가 통째로 무너지는데
+    #  오류는 안 나므로 '왜 이렇게 손해지' 만 남는다.
+    비용률 = (req.cost_rate or 0) / 100
+
+    def 돌리자(표: dict, 자산들: list[dict], 그배당: Optional[dict]) -> dict:
+        if req.data_interval == "monthly" and 표:
+            """월 데이터는 **엔진에 넣기 전에** 솎는다.
+
+            결과 곡선만 솎으면 안 된다. 그러면 곡선은 가벼워도 수익률·
+            낙폭·리밸런싱은 일별로 계산된 값이라, 화면의 그래프와 숫자가
+            서로 다른 것을 말하게 된다.
+
+            배당은 그대로 둔다 — 배당일이 월말이 아니면 솎인 날에 안
+            걸려서 통째로 사라진다. 엔진은 그날 시세가 있는 종목만
+            재투자하므로 남은 배당은 알아서 무시된다."""
+            남길날 = set(PB.월말만(sorted(
+                set.intersection(*(set(표[s]) for s in 표)))))
+            표 = {s: {d: v for d, v in 표[s].items() if d in 남길날} for s in 표}
+            if 그배당:
+                """달 안에 흩어진 배당을 그 달의 남은 날로 모은다.
+                안 모으면 월 데이터에서 배당이 거의 다 사라져, 같은
+                설정인데 '월' 로 바꾸기만 해도 성적이 뚝 떨어진다."""
+                모은것: dict = {}
+                차례 = sorted(남길날)
+                for 심볼, 표2 in 그배당.items():
+                    쌓기: dict = {}
+                    for d, 금액 in 표2.items():
+                        뒤 = [x for x in 차례 if x >= d]
+                        if not 뒤:
+                            continue
+                        쌓기[뒤[0]] = 쌓기.get(뒤[0], 0.0) + 금액
+                    if 쌓기:
+                        모은것[심볼] = 쌓기
+                그배당 = 모은것
+        return PB.돌리기(
+            가격표=표,
+            자산들=자산들,
+            초기금액=req.initial_amount,
+            적립주기=req.contribution_period,
+            적립금액=req.contribution_amount,
+            리밸런싱=req.rebalance_period,
+            배당=그배당,
+            거래비용=비용률,
+            리밸런싱날=req.rebalance_day,
+            적립날짜=req.rebalance_day,
+        )
+
+    내자산 = [a.model_dump() for a in 쓸자산]
+    if req.equal_weight:
+        #: '동일 비중' — 화면에서 적은 비중을 무시하고 똑같이 나눈다.
+        #  0 을 넣으면 정규화가 알아서 균등하게 만든다.
+        내자산 = [{**a, "weight": 0} for a in 내자산]
+
     loop = asyncio.get_running_loop()
-    결과 = await loop.run_in_executor(None, lambda: PB.돌리기(
-        가격표=가격표,
-        자산들=[a.model_dump() for a in 쓸자산],
-        초기금액=req.initial_amount,
-        적립주기=req.contribution_period,
-        적립금액=req.contribution_amount,
-        리밸런싱=req.rebalance_period,
-        배당=배당,
-    ))
+    결과 = await loop.run_in_executor(None, lambda: 돌리자(가격표, 내자산, 배당))
     if not 결과:
         raise HTTPException(
             status_code=400,
             detail="겹치는 기간이 너무 짧습니다. 기간을 늘리거나 자산을 줄여 주세요")
+
+    # ── 벤치마크 ──
+    #
+    # 수익률만 보면 잘한 것인지 알 수 없다. 8년에 연 9%가 좋은 성적인지는
+    # 같은 기간 S&P500 이 몇 %였나를 봐야 정해진다. **같은 기간·같은
+    # 납입·같은 비용**으로 한 번 더 돌린다 — 조건이 하나라도 다르면
+    # 견줄 수 없는 수가 된다.
+    벤치 = None
+    고른벤치 = 벤치마크표.get(req.benchmark) or 벤치마크표["none"]
+    if 고른벤치["assets"]:
+        try:
+            벤치칸들 = [자산칸(**x) for x in 고른벤치["assets"]]
+            벤치표, _ = await _시세모으기(
+                벤치칸들, 기간, 결과["start_date"], 결과["end_date"], req.extended)
+            벤치표, _ = _통화맞추기(벤치표, 벤치칸들, req.currency, 환율)
+            """**내 포트폴리오가 실제로 잰 구간**으로 자른다.
+
+            요청한 기간이 아니라 결과의 기간이다. 자산 하나가 늦게
+            상장해 2004년부터 재게 됐는데 벤치마크만 2003년부터 재면,
+            더 긴 기간의 수익률과 견주는 셈이라 둘 다 맞고 비교만
+            틀린 수가 된다 — 제일 알아채기 어려운 모양이다.
+            (실제로 6040 이 277점, 내 것이 263점으로 나왔다.)"""
+            쓸벤치 = [x for x in 고른벤치["assets"] if x["symbol"] in 벤치표]
+            if 쓸벤치:
+                벤치결과 = await loop.run_in_executor(
+                    None, lambda: 돌리자(벤치표, [dict(x) for x in 쓸벤치], None))
+                if 벤치결과:
+                    """곡선까지 다 담으면 응답이 두 배가 된다. 견주는 데
+                    필요한 것은 수치 몇 개와 곡선뿐이라 나머지는 뺀다."""
+                    벤치 = {"key": req.benchmark, "name": 고른벤치["name"],
+                            **{k: 벤치결과.get(k) for k in
+                               ("final_value", "total_return", "twr_annual",
+                                "irr_annual", "mdd", "volatility", "sharpe",
+                                "contributed", "curve")}}
+        except Exception as e:
+            #: 벤치마크를 못 받았다고 내 결과까지 버리면 안 된다.
+            #  견주는 것은 덤이고, 본래 답은 이미 나와 있다.
+            log.info("벤치마크 실패 %s: %s", req.benchmark, type(e).__name__)
 
     """무엇을 못 했는지 **반드시 적어 보낸다.**
 
@@ -616,13 +821,16 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     결과["currency"] = req.currency
     결과["assets"] = [{"symbol": a.symbol, "market": a.market, "name": a.name,
                        "weight": w["weight"]}
-                      for a, w in zip(쓸자산, PB.정규화([a.model_dump() for a in 쓸자산]))]
+                      for a, w in zip(쓸자산, PB.정규화(내자산))]
     결과["skipped"] = 못받음
     결과["fx_skipped"] = 뺀것
     결과["mixed_currency"] = 섞였나
-    #: 거래비용은 아직 안 넣었다. 사용자가 알고 보게 적어 둔다 —
-    #  자산배분은 사고파는 횟수가 적어 영향이 작지만 0 은 아니다.
-    결과["costs_included"] = False
+    결과["costs_included"] = 비용률 > 0
+    결과["data_interval"] = req.data_interval
+    결과["benchmark"] = 벤치
+    #: 어느 자산을 언제부터 지수로 이었나. 조용히 이으면 사용자는
+    #  1980년치 SPY 자료가 있는 줄 안다 — 실제로는 지수를 본 것이다.
+    결과["extended_from"] = {s: 날 for s, 날 in 이은것.items() if s in 가격표}
     return 결과
 
 

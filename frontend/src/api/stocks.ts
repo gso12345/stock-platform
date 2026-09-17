@@ -350,6 +350,8 @@ export interface 배분자산 {
 }
 
 export type 주기 = "none" | "monthly" | "quarterly" | "yearly";
+export type 데이터기준 = "daily" | "monthly";
+export type 벤치마크키 = "none" | "6040" | "spy" | "qqq" | "kospi" | "allweather";
 
 /** 자산배분 백테스트 요청 — 서버 자산배분요청 */
 export interface 자산배분요청 {
@@ -363,6 +365,31 @@ export interface 자산배분요청 {
   rebalance_period: 주기;
   /** 배당을 재투자해 '토탈 리턴' 으로 잴까 */
   total_return: boolean;
+  /** 달의 며칠에 리밸런싱·적립을 할까 (1~28) */
+  rebalance_day: number;
+  /** 거래비용 **퍼센트**. 0.1 이면 0.1% — 서버가 100 으로 나눈다 */
+  cost_rate: number;
+  data_interval: 데이터기준;
+  benchmark: 벤치마크키;
+  /** 적은 비중을 무시하고 똑같이 나눌까 */
+  equal_weight: boolean;
+  /** ETF 가 생기기 전 구간을 지수로 이을까 */
+  extended: boolean;
+}
+
+/** 벤치마크 결과 — 견주는 데 필요한 것만 온다(곡선까지 다 담으면 응답이 두 배다) */
+export interface 벤치마크결과 {
+  key: string;
+  name: string;
+  contributed: number;
+  final_value: number;
+  total_return: number | null;
+  twr_annual: number | null;
+  irr_annual: number | null;
+  mdd: number | null;
+  volatility: number | null;
+  sharpe: number | null;
+  curve: { date: string; value: number }[];
 }
 
 /** 자산배분 백테스트 결과.
@@ -396,8 +423,16 @@ export interface 자산배분결과 {
   /** 환율을 못 맞춰 뺀 자산 */
   fx_skipped: string[];
   mixed_currency: boolean;
-  /** 거래비용이 반영됐나 (지금은 늘 false) */
+  /** 거래비용이 반영됐나 */
   costs_included: boolean;
+  /** 낸 수수료 합. 0%로 돌렸으면 null — '안 넣었다' 와 '0원' 은 다른 말이다 */
+  costs: number | null;
+  cost_rate: number | null;
+  data_interval: 데이터기준;
+  benchmark: 벤치마크결과 | null;
+  /** {심볼: 지수로 이은 시작일}. 조용히 이으면 사용자는 그게 실제
+   *  ETF 자료인 줄 안다 — 지수에는 배당도 운용보수도 없다 */
+  extended_from: Record<string, string>;
 }
 
 export interface 저장된실험 {

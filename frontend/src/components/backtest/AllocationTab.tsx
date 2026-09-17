@@ -30,6 +30,14 @@ export function 보낼것(s: 설정): 자산배분요청 {
       ? 0 : (Number(s.contribution_amount) || 0),
     rebalance_period: s.rebalance_period,
     total_return: s.total_return,
+    rebalance_day: s.rebalance_day,
+    /* 퍼센트 그대로 보낸다 — 비율로 바꾸는 것은 서버 한 곳에서만 한다.
+       양쪽에서 나누면 수수료가 100분의 1 이 되고, 아무도 못 알아챈다 */
+    cost_rate: Number(s.cost_rate) || 0,
+    data_interval: s.data_interval,
+    benchmark: s.benchmark,
+    equal_weight: s.equal_weight,
+    extended: s.extended,
   };
 }
 
@@ -86,8 +94,12 @@ export default function 자산배분탭() {
             불러오기={(id) => {
               const x = 실험들.find((e) => e.id === id);
               if (!x) return;
+              /* 저장된 실험에는 옛 설정이 없을 수 있다(기능이 늘기 전에
+                 저장한 것). 빠진 칸은 지금 화면의 값을 그대로 둔다 —
+                 undefined 로 두면 고르기 칸이 통제 불능이 된다 */
               set설정값({
-                years: 설정값.years, 직접입력: true,
+                ...설정값,
+                직접입력: true,
                 start_date: x.start_date, end_date: x.end_date,
                 currency: x.currency, initial_amount: x.initial_amount,
                 assets: x.assets,

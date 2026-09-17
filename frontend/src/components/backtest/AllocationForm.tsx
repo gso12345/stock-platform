@@ -16,11 +16,16 @@ import { useMemo, useState } from "react";
 import { Plus, X, Trash2 } from "lucide-react";
 import { Card, Button } from "@/components/ui";
 import { useStockSearch } from "@/hooks/useStockSearch";
-import type { 배분자산, 주기 } from "@/api/stocks";
+import type { 배분자산, 주기, 데이터기준, 벤치마크키 } from "@/api/stocks";
 
-/** 기간 슬라이더가 고를 수 있는 햇수. 30년이면 어지간한 자산은 다 덮는다 */
+/** 기간 슬라이더가 고를 수 있는 햇수.
+ *
+ *  확장 ETF 가격을 켜면 지수가 1927년까지 있어 훨씬 멀리 볼 수 있다.
+ *  45년으로 두면 1981년까지밖에 못 가는데, S&P500 을 1980년부터 보는
+ *  것은 흔한 요청이라 거기서 막히면 기능을 켜 놓고도 못 쓴다.
+ *  50년이면 1976년까지 닿는다. */
 export const 최소년 = 1;
-export const 최대년 = 30;
+export const 최대년 = 50;
 
 export const 주기표: { value: 주기; label: string }[] = [
   { value: "none", label: "없음" },
@@ -28,6 +33,53 @@ export const 주기표: { value: 주기; label: string }[] = [
   { value: "quarterly", label: "매분기" },
   { value: "yearly", label: "매년" },
 ];
+
+export const 벤치마크표: { value: 벤치마크키; label: string }[] = [
+  { value: "none", label: "없음" },
+  { value: "6040", label: "주식 60 · 채권 40" },
+  { value: "spy", label: "S&P500" },
+  { value: "qqq", label: "나스닥100" },
+  { value: "kospi", label: "코스피200" },
+  { value: "allweather", label: "올웨더" },
+];
+
+export const 데이터기준표: { value: 데이터기준; label: string }[] = [
+  { value: "daily", label: "일 데이터" },
+  { value: "monthly", label: "월 데이터" },
+];
+
+/** 흔히 쓰는 수수료. 직접 칠 수도 있게 열어 둔다. */
+export const 비용표 = [0, 0.015, 0.05, 0.1, 0.25, 0.5];
+
+/** 리밸런싱 날짜. 29~31 은 없는 달이 있어 28 까지만 준다 —
+ *  '31일' 을 고르면 2월이 통째로 빠지는데 그게 화면에는 안 보인다. */
+export const 날짜들 = Array.from({ length: 28 }, (_, i) => i + 1);
+
+/** 금액을 사람이 읽는 말로. 사진의 '1만 달러' 자리.
+ *
+ *  0 이 몇 개인지 세게 하면 안 된다. 10000000 과 100000000 은 눈으로
+ *  가르기 어렵고, 한 자리 틀리면 결과가 열 배로 달라진다. */
+export function 읽는금액(v: number, 통화: "KRW" | "USD"): string {
+  if (!v || !Number.isFinite(v)) return "";
+  if (통화 === "USD") {
+    if (v >= 1e8) return `${+(v / 1e8).toFixed(1)}억 달러`;
+    if (v >= 1e4) return `${+(v / 1e4).toFixed(v % 1e4 ? 1 : 0)}만 달러`;
+    if (v >= 1e3) return `${+(v / 1e3).toFixed(v % 1e3 ? 1 : 0)}천 달러`;
+    return `${v.toLocaleString("ko-KR")} 달러`;
+  }
+  if (v >= 1e12) return `${+(v / 1e12).toFixed(1)}조원`;
+  if (v >= 1e8) return `${+(v / 1e8).toFixed(v % 1e8 ? 1 : 0)}억원`;
+  if (v >= 1e4) return `${+(v / 1e4).toFixed(v % 1e4 ? 1 : 0)}만원`;
+  return `${v.toLocaleString("ko-KR")}원`;
+}
+
+/** 금액을 한 번에 더하는 버튼 값. 통화마다 자릿수가 다르다 —
+ *  원화에 +500 은 아무 쓸모가 없고, 달러에 +5,000,000 도 마찬가지다. */
+export function 더하기값들(통화: "KRW" | "USD"): number[] {
+  return 통화 === "USD"
+    ? [500, 1_000, 5_000, 10_000, 50_000]
+    : [500_000, 1_000_000, 5_000_000, 10_000_000, 50_000_000];
+}
 
 /**
  * 햇수를 날짜 두 개로 바꾼다.
@@ -57,6 +109,12 @@ export interface 설정 {
   contribution_amount: number | "";
   rebalance_period: 주기;
   total_return: boolean;
+  rebalance_day: number;
+  cost_rate: number;
+  data_interval: 데이터기준;
+  benchmark: 벤치마크키;
+  equal_weight: boolean;
+  extended: boolean;
 }
 
 export function 첫설정(오늘 = new Date()): 설정 {
@@ -67,6 +125,15 @@ export function 첫설정(오늘 = new Date()): 설정 {
     assets: [],
     contribution_period: "monthly", contribution_amount: "",
     rebalance_period: "none", total_return: true,
+    rebalance_day: 1,
+    /* 기본을 0 으로 둔다. 수수료는 증권사마다 다르고, 지어낸 값으로
+       계산해 두면 사용자는 그게 자기 수수료인 줄 안다. 고르게 해 두고
+       안 고르면 안 넣은 것으로 적는다. */
+    cost_rate: 0,
+    data_interval: "daily",
+    benchmark: "none",
+    equal_weight: false,
+    extended: false,
   };
 }
 
@@ -92,6 +159,35 @@ function 칸제목({ children, 오른쪽 }: { children: React.ReactNode; 오른�
     <div className="flex items-center justify-between">
       <span className="text-base font-semibold text-text-primary">{children}</span>
       {오른쪽}
+    </div>
+  );
+}
+
+/** 이름표가 붙은 고르기 칸.
+ *
+ *  여덟 개가 같은 모양이라 하나로 묶었다. 그냥 <select> 만 늘어놓으면
+ *  화면이 좁아질 때 무엇을 고르는 칸인지 알 수 없어진다 — 이름표를
+ *  **위에** 붙여야 폰에서도 짝이 안 어긋난다.
+ *
+ *  htmlFor 로 잇는다. aria-label 만 붙이면 눈으로 보는 이름표와
+ *  읽어 주는 이름이 따로 놀 수 있다. */
+function 고르기({ 이름, 값, 바꾸기, 것들 }: {
+  이름: string; 값: string;
+  바꾸기: (v: string) => void;
+  것들: { value: string; label: string }[];
+}) {
+  const id = `bt-${이름.replace(/\s/g, "")}`;
+  return (
+    <div className="flex flex-col gap-1 min-w-0">
+      <label htmlFor={id} className="text-xs text-text-muted">{이름}</label>
+      <select
+        id={id}
+        className="w-full bg-bg-elevated border border-border rounded-xl px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+        value={값}
+        onChange={(e) => 바꾸기(e.target.value)}
+      >
+        {것들.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
     </div>
   );
 }
@@ -265,17 +361,43 @@ export default function 자산배분설정({
             <option value="KRW">KRW</option>
             <option value="USD">USD</option>
           </select>
-          <div className="flex-1 flex items-center gap-2 bg-bg-elevated border border-border rounded-xl px-3">
-            <span className="text-sm text-text-muted">{통화기호[값.currency]}</span>
+          <div className="flex-1 flex items-center gap-2 bg-bg-elevated border border-border rounded-xl px-3 min-w-0">
+            <span className="text-sm text-text-muted flex-shrink-0">{통화기호[값.currency]}</span>
             <input
               type="number" min={0} inputMode="numeric"
               aria-label="테스트 금액"
               placeholder="금액 입력"
-              className="flex-1 bg-transparent py-2 text-sm text-text-primary focus:outline-none"
+              className="flex-1 min-w-0 bg-transparent py-2 text-sm text-text-primary focus:outline-none"
               value={값.initial_amount}
               onChange={(e) => 바꾸기({ ...값, initial_amount: e.target.value === "" ? "" : Number(e.target.value) })}
             />
+            {/* 0 이 몇 개인지 세게 하면 안 된다. 1000만과 1억은 눈으로
+                가르기 어렵고, 한 자리 틀리면 결과가 열 배로 달라진다 */}
+            {!!Number(값.initial_amount) && (
+              <span className="text-sm font-semibold text-accent-blue flex-shrink-0">
+                {읽는금액(Number(값.initial_amount), 값.currency)}
+              </span>
+            )}
           </div>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {더하기값들(값.currency).map((v) => (
+            <button
+              key={v}
+              aria-label={`${v.toLocaleString("ko-KR")} 더하기`}
+              className="flex-1 min-w-[4.5rem] py-2 rounded-lg bg-bg-elevated border border-border text-xs font-medium text-text-secondary hover:text-text-primary hover:border-accent-blue/50"
+              onClick={() => 바꾸기({
+                ...값, initial_amount: (Number(값.initial_amount) || 0) + v,
+              })}
+            >+{v.toLocaleString("ko-KR")}</button>
+          ))}
+          {!!Number(값.initial_amount) && (
+            <button
+              aria-label="금액 지우기"
+              className="px-3 py-2 rounded-lg text-xs text-text-dim hover:text-accent-red"
+              onClick={() => 바꾸기({ ...값, initial_amount: "" })}
+            >지우기</button>
+          )}
         </div>
       </div>
 
@@ -373,18 +495,86 @@ export default function 자산배분설정({
         </div>
       </div>
 
-      {/* ── 리밸런싱 주기 ── */}
+      {/* ── 리밸런싱 ── 주기와 날짜를 나란히 ── */}
       <div className="flex flex-col gap-3">
-        <칸제목>리밸런싱 주기</칸제목>
-        <select
-          aria-label="리밸런싱 주기"
-          className="w-full bg-bg-elevated border border-border rounded-xl px-4 py-2.5 text-sm text-text-primary focus:outline-none"
-          value={값.rebalance_period}
-          onChange={(e) => 바꾸기({ ...값, rebalance_period: e.target.value as 주기 })}
-        >
-          {주기표.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+        <칸제목>리밸런싱</칸제목>
+        <div className="grid grid-cols-2 gap-3">
+          <고르기 이름="리밸런싱 주기" 값={값.rebalance_period}
+                  바꾸기={(v) => 바꾸기({ ...값, rebalance_period: v as 주기 })}
+                  것들={주기표} />
+          {/* 달의 며칠에 할까. 월급날에 맞춰 넣는 사람이 많다.
+              주기가 '없음' 이면 적립에만 쓰이므로 그때도 열어 둔다 */}
+          <고르기 이름="리밸런싱 날짜" 값={String(값.rebalance_day)}
+                  바꾸기={(v) => 바꾸기({ ...값, rebalance_day: Number(v) })}
+                  것들={날짜들.map((d) => ({ value: String(d), label: `${d}일` }))} />
+        </div>
+        <p className="text-2xs text-text-dim break-keep">
+          고른 날이 휴장이면 그 뒤 첫 거래일에 해요. 날짜를 딱 맞춰 찾으면
+          그 달이 통째로 빠져요.
+        </p>
       </div>
+
+      {/* ── 데이터 기준 · 벤치마크 ── */}
+      <div className="flex flex-col gap-3">
+        <칸제목>재는 방법</칸제목>
+        <div className="grid grid-cols-2 gap-3">
+          <고르기 이름="데이터 기준" 값={값.data_interval}
+                  바꾸기={(v) => 바꾸기({ ...값, data_interval: v as 데이터기준 })}
+                  것들={데이터기준표} />
+          <고르기 이름="벤치 마크" 값={값.benchmark}
+                  바꾸기={(v) => 바꾸기({ ...값, benchmark: v as 벤치마크키 })}
+                  것들={벤치마크표} />
+        </div>
+        {값.data_interval === "monthly" && (
+          <p className="text-2xs text-text-dim break-keep">
+            월 데이터는 가볍지만 <b>최대 낙폭이 실제보다 작게</b> 나와요 —
+            달 안에서 떨어졌다 돌아온 것은 안 보여요.
+          </p>
+        )}
+      </div>
+
+      {/* ── 거래비용 · 배분 기준 ── */}
+      <div className="flex flex-col gap-3">
+        <칸제목>거래비용 · 배분</칸제목>
+        <div className="grid grid-cols-2 gap-3">
+          <고르기 이름="거래비용" 값={String(값.cost_rate)}
+                  바꾸기={(v) => 바꾸기({ ...값, cost_rate: Number(v) })}
+                  것들={비용표.map((c) => ({
+                    value: String(c), label: c === 0 ? "반영 안 함" : `${c} %`,
+                  }))} />
+          <고르기 이름="배분 기준" 값={값.equal_weight ? "equal" : "custom"}
+                  바꾸기={(v) => 바꾸기({ ...값, equal_weight: v === "equal" })}
+                  것들={[{ value: "custom", label: "직접 지정" },
+                          { value: "equal", label: "동일 비중" }]} />
+        </div>
+        {값.equal_weight && 값.assets.length > 1 && (
+          <p className="text-2xs text-text-dim break-keep">
+            위에 적은 비중을 무시하고 {값.assets.length}개로 똑같이 나눠요.
+          </p>
+        )}
+      </div>
+
+      {/* ── 확장 ETF 가격 ── */}
+      <label className="flex items-start gap-2 text-sm text-text-secondary cursor-pointer">
+        {/* 설명이 label 안에 같이 있어서 읽어 주는 이름이 통째로
+            길어진다. 고르는 것이 무엇인지만 남기도록 따로 붙인다 */}
+        <input
+          type="checkbox" className="accent-accent-blue w-4 h-4 mt-0.5 flex-shrink-0"
+          aria-label="확장된 ETF 가격 사용"
+          checked={값.extended}
+          onChange={(e) => 바꾸기({ ...값, extended: e.target.checked })}
+        />
+        <span className="flex flex-col gap-0.5">
+          확장된 ETF 가격 사용
+          {/* 공짜가 아니다 — 지수에는 배당도 운용보수도 없다.
+              켜기 전에 알고 켜야 한다 */}
+          <span className="text-2xs text-text-dim break-keep">
+            ETF가 생기기 전 구간을 그 ETF가 따라가는 지수로 이어요.
+            SPY를 1980년까지 볼 수 있지만, 이은 구간은 <b>배당과 운용보수가
+            빠진 지수</b>예요.
+          </span>
+        </span>
+      </label>
 
       {/* ── 토탈 리턴 ── */}
       <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">

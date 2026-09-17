@@ -16,7 +16,7 @@
  * 연환산도 **두 개를 나란히** 적는다. 하나만 보여 주면 적립식의 핵심인
  * 그 차이가 통째로 사라진다.
  */
-import { lazy, Suspense } from "react";
+import { Fragment, lazy, Suspense } from "react";
 import { Card } from "@/components/ui";
 import { 짧은돈 } from "@/utils/formatters";
 import type { 자산배분결과 } from "@/api/stocks";
@@ -149,6 +149,60 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
         </p>
       </Card>
 
+      {/* ── 벤치마크 ── 수익률만으로는 잘한 것인지 알 수 없다 ── */}
+      {r.benchmark && (
+        <Card className="flex flex-col gap-3">
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
+            <span className="text-base font-semibold text-text-primary">
+              {r.benchmark.name} 와 견주기
+            </span>
+            {/* 같은 기간·같은 납입·같은 비용으로 돌린 것이라고 말해 준다.
+                조건이 다르면 견줄 수 없는 수인데, 그걸 모르면 그냥 믿는다 */}
+            <span className="text-2xs text-text-dim">같은 기간 · 같은 납입</span>
+          </div>
+          {/* 칸에 이름을 붙인다. 숫자 둘만 나란히 두면 어느 쪽이 내
+              것인지 알 수 없고, 색이 어느 쪽 이야기인지도 모호해진다.
+              색은 **내 값**에 칠한다 — '내 숫자가 초록이면 내가 나음' 이
+              설명 없이도 읽힌다. */}
+          <div className="grid grid-cols-[1fr_1fr_1fr] gap-x-2 gap-y-1.5 items-baseline">
+            <span className="text-2xs text-text-dim" />
+            <span className="text-2xs text-text-muted font-medium text-right">내 조합</span>
+            <span className="text-2xs text-text-dim text-right truncate">{r.benchmark.name}</span>
+
+            {([
+              /* 견주는 칸에서는 금액을 **줄여서** 적는다.
+                 세 칸을 390px 에 나누면 20자리 수가 잘리는데, 돈이
+                 잘리면 억인지 조인지 알 수 없다. 여기서 필요한 것은
+                 '어느 쪽이 큰가' 이고, 정확한 금액은 바로 위 칸에
+                 온전히 적혀 있다. */
+              ["최종 평가액", 눈금글(r.final_value, r.currency),
+               눈금글(r.benchmark.final_value, r.currency),
+               (r.final_value ?? 0) - (r.benchmark.final_value ?? 0)],
+              ["연환산 (TWR)", 수(r.twr_annual, 2, "", "%"), 수(r.benchmark.twr_annual, 2, "", "%"),
+               (r.twr_annual ?? 0) - (r.benchmark.twr_annual ?? 0)],
+              ["최대 낙폭", 수(r.mdd, 1, "-", "%"), 수(r.benchmark.mdd, 1, "-", "%"),
+               /* 낙폭만 작을수록 좋다 — 부호를 뒤집어야 '내가 나음' 이 맞는다.
+                  안 뒤집으면 **더 크게 물린 쪽**이 초록으로 칠해져서,
+                  위험한 조합을 좋은 것으로 읽게 된다. */
+               (r.benchmark.mdd ?? 0) - (r.mdd ?? 0)],
+            ] as [string, string, string, number][]).map(([이름, 내것, 벤것, 차]) => (
+              <Fragment key={이름}>
+                <span className="text-xs text-text-muted">{이름}</span>
+                <span className={`text-xs font-mono tabular-nums text-right font-semibold truncate ${차 >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                  {내것}
+                </span>
+                <span className="text-xs font-mono tabular-nums text-right text-text-dim truncate">
+                  {벤것}
+                </span>
+              </Fragment>
+            ))}
+          </div>
+          <p className="text-2xs text-text-dim break-keep">
+            내 숫자가 초록이면 그 항목은 내 쪽이 나아요. 낙폭은 작은 쪽이 나은 거예요.
+          </p>
+        </Card>
+      )}
+
       {/* ── 연환산 두 가지 ── */}
       <Card className="flex flex-col gap-3">
         <span className="text-base font-semibold text-text-primary">연환산 수익률</span>
@@ -241,13 +295,39 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
         </Card>
       )}
 
-      {/* 거래비용을 안 넣었다는 사실을 감추지 않는다.
-          자산배분은 사고파는 횟수가 적어 영향이 작지만 0 은 아니다 */}
-      {!r.costs_included && (
-        <p className="text-2xs text-text-dim break-keep px-1">
-          수수료·세금·슬리피지는 아직 반영하지 않았어요. 실제 성과는 이보다 조금 낮아요.
-        </p>
-      )}
+      {/* ── 무엇을 넣고 무엇을 뺐는지 ──
+          계산에 들어간 조건을 마지막에 모아 적는다. 이걸 안 적으면
+          사용자는 자기가 고른 설정이 실제로 먹었는지 알 길이 없다 */}
+      <div className="flex flex-col gap-1 px-1">
+        {r.costs_included ? (
+          <p className="text-2xs text-text-dim break-keep">
+            거래비용 {r.cost_rate != null ? `${+(r.cost_rate * 100).toFixed(3)}%` : ""} 반영 —
+            모두 {돈(r.costs, r.currency)}를 수수료로 냈어요. 살 때도 팔 때도 매겼어요.
+          </p>
+        ) : (
+          <p className="text-2xs text-text-dim break-keep">
+            수수료·세금·슬리피지는 반영하지 않았어요. 실제 성과는 이보다 조금 낮아요 —
+            설정에서 거래비용을 고르면 넣어 드려요.
+          </p>
+        )}
+
+        {r.data_interval === "monthly" && (
+          <p className="text-2xs text-text-dim break-keep">
+            월 데이터로 쟀어요. 최대 낙폭은 실제보다 작게 나와요 —
+            달 안에서 떨어졌다 돌아온 것은 안 보여요.
+          </p>
+        )}
+
+        {/* 지수로 이은 구간이 있으면 **반드시** 말한다.
+            조용히 이으면 사용자는 1980년치 SPY 자료가 있는 줄 안다 */}
+        {Object.keys(r.extended_from ?? {}).length > 0 && (
+          <p className="text-2xs text-accent-yellow/90 break-keep">
+            {Object.entries(r.extended_from).map(([s, d]) => `${s}는 ${d}`).join(", ")}부터
+            지수로 이었어요. 그 구간은 <b>배당과 운용보수가 빠진 지수</b>라
+            실제 ETF와 조금 달라요.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
