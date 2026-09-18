@@ -1,4 +1,5 @@
-import { Plus, Trash2 } from "lucide-react";
+import { Tabs, 지움단추 } from "@/components/ui";
+import { Plus } from "lucide-react";
 import type { Condition, ConditionGroup } from "@/types";
 
 const INDICATOR_GROUPS = [
@@ -110,19 +111,16 @@ export function ConditionBuilder({ label, color = "blue", group, onChange }: Pro
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-text-muted">논리:</span>
-          <div className="flex gap-0.5 bg-bg-primary border border-border rounded-lg p-0.5">
-            {(["AND", "OR"] as const).map((l) => (
-              <button
-                key={l}
-                onClick={() => onChange({ ...group, logic: l })}
-                className={`px-2 py-0.5 text-xs font-bold rounded-lg transition-all ${
-                  group.logic === l ? "bg-accent-blue text-white" : "text-text-muted"
-                }`}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
+          {/* 손으로 만든 분절 토글 대신 공용 Tabs 를 쓴다.
+              이 부품의 subtle 모양이 바로 이 용도다 — 테두리 안에서
+              고른 것만 떠오르는, 한 화면에 여러 개가 있어도 서로
+              다투지 않는 모양. 손으로 만들면 크기와 색이 또 갈린다. */}
+          <Tabs
+            tabs={[{ id: "AND", label: "AND" }, { id: "OR", label: "OR" }]}
+            active={group.logic}
+            onChange={(id) => onChange({ ...group, logic: id as "AND" | "OR" })}
+            tone="subtle" size="xs" fill={false} ariaLabel="조건 논리"
+          />
         </div>
       </div>
 
@@ -182,9 +180,9 @@ export function ConditionBuilder({ label, color = "blue", group, onChange }: Pro
             </div>
 
             {/* 삭제 */}
-            <button aria-label="삭제" onClick={() => remove(i)} className="text-text-muted hover:text-accent-red transition-colors p-1">
-              <Trash2 size={13} />
-            </button>
+            {/* 이름을 '삭제' 만 두면 조건이 여럿일 때 소리로 듣는 사람은
+                어느 것을 지우는지 알 수 없다 — 몇 번째인지 붙인다 */}
+            <지움단추 ariaLabel={`${i + 1}번째 조건 삭제`} onClick={() => remove(i)} />
           </div>
         );
       })}

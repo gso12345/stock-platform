@@ -114,6 +114,20 @@ describe("사진의 항목이 다 있다", () => {
     expect(Number(끝.value.slice(0, 4)) - Number(시작.value.slice(0, 4))).toBe(10);
   });
 
+  it("고른 칩이 고른 티가 난다", async () => {
+    /* 칩을 눌러도 눌린 표시가 안 나면 방금 무엇을 골랐는지 화면을
+       봐서는 알 수가 없다. 색과 aria-pressed 둘 다 필요하다 —
+       색은 눈으로 보는 사람에게, aria-pressed 는 읽어 주는 사람에게. */
+    그리기();
+    await userEvent.click(screen.getByLabelText("3년"));
+    const 고름 = screen.getByLabelText("3년");
+    const 안고름 = screen.getByLabelText("5년");
+    expect(고름.getAttribute("aria-pressed"), "고른 칩이 안 눌린 걸로 나온다").toBe("true");
+    expect(안고름.getAttribute("aria-pressed"), "안 고른 칩이 눌린 걸로 나온다").toBe("false");
+    expect(고름.className, "고른 칩에 강조색이 없다").toMatch(/border-accent-blue/);
+    expect(안고름.className, "안 고른 칩까지 강조색이다").not.toMatch(/border-accent-blue(?!\/)/);
+  });
+
   it("빠른 기간에 1·3·5·10년이 있다", () => {
     for (const 년 of [1, 3, 5, 10]) expect(빠른기간).toContain(년);
   });

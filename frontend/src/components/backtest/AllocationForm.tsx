@@ -14,7 +14,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Plus, X, Check } from "lucide-react";
-import { Card, Button } from "@/components/ui";
+import { Card, Button, 고른칩, 지움단추 } from "@/components/ui";
 import { useStockSearch } from "@/hooks/useStockSearch";
 import type { 배분자산, 주기, 데이터기준, 벤치마크키 } from "@/api/stocks";
 
@@ -276,10 +276,7 @@ function 자산줄({ 자산, 비중, onWeight, onRemove }: {
         />
         <span className="text-xs text-text-muted">%</span>
       </div>
-      <button onClick={onRemove} aria-label={`${자산.name || 자산.symbol} 빼기`}
-              className="p-1.5 text-text-dim hover:text-accent-red flex-shrink-0">
-        <X size={14} />
-      </button>
+      <지움단추 ariaLabel={`${자산.name || 자산.symbol} 빼기`} onClick={onRemove} />
     </div>
   );
 }
@@ -403,17 +400,9 @@ export default function 자산배분설정({
 
         <div className="flex gap-2 flex-wrap">
           {빠른기간.map((년) => (
-            <button
-              key={년}
-              aria-label={`${년}년`}
-              aria-pressed={값.years === 년}
-              className={`flex-1 min-w-[3.5rem] py-2 rounded-lg border text-xs font-medium ${
-                값.years === 년
-                  ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
-                  : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50"
-              }`}
-              onClick={() => 기간바꾸기(년)}
-            >{년}년</button>
+            <고른칩 key={년} 고름={값.years === 년} ariaLabel={`${년}년`}
+                    최소너비="3.5rem" className="flex-1"
+                    onClick={() => 기간바꾸기(년)}>{년}년</고른칩>
           ))}
         </div>
       </div>
@@ -455,17 +444,11 @@ export default function 자산배분설정({
             2,000만원이 되어 지우고 다시 시작해야 한다. */}
         <div className="flex gap-2 flex-wrap">
           {금액값들(값.currency).map((v) => (
-            <button
-              key={v}
-              aria-label={읽는금액(v, 값.currency)}
-              aria-pressed={Number(값.initial_amount) === v}
-              className={`flex-1 min-w-[4.5rem] py-2 rounded-lg border text-xs font-medium ${
-                Number(값.initial_amount) === v
-                  ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
-                  : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50"
-              }`}
-              onClick={() => 바꾸기({ ...값, initial_amount: v })}
-            >{읽는금액(v, 값.currency)}</button>
+            <고른칩 key={v} 고름={Number(값.initial_amount) === v}
+                    ariaLabel={읽는금액(v, 값.currency)}
+                    최소너비="4.5rem" className="flex-1"
+                    onClick={() => 바꾸기({ ...값, initial_amount: v })}
+            >{읽는금액(v, 값.currency)}</고른칩>
           ))}
           {!!Number(값.initial_amount) && (
             <button
@@ -625,17 +608,11 @@ export default function 자산배분설정({
 
         <div className="flex gap-2 flex-wrap">
           {비용표.map((c) => (
-            <button
-              key={c}
-              aria-label={c === 0 ? "거래비용 반영 안 함" : `거래비용 ${c}%`}
-              aria-pressed={값.cost_rate === c}
-              className={`flex-1 min-w-[4rem] py-1.5 rounded-lg border text-2xs font-medium ${
-                값.cost_rate === c
-                  ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
-                  : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary"
-              }`}
-              onClick={() => 바꾸기({ ...값, cost_rate: c })}
-            >{c === 0 ? "반영 안 함" : `${c}%`}</button>
+            <고른칩 key={c} 고름={값.cost_rate === c}
+                    ariaLabel={c === 0 ? "거래비용 반영 안 함" : `거래비용 ${c}%`}
+                    최소너비="4rem" className="flex-1"
+                    onClick={() => 바꾸기({ ...값, cost_rate: c })}
+            >{c === 0 ? "반영 안 함" : `${c}%`}</고른칩>
           ))}
         </div>
         {값.equal_weight && 값.assets.length > 1 && (

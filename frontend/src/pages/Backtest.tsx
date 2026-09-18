@@ -1,11 +1,11 @@
 import { Fragment, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backtestApi } from "@/api/stocks";
-import { Card, ChangeBadge, formatNumber, Tabs, Button, Badge, ConfirmDialog, LoadingSpinner, 빈화면, 못불러옴} from "@/components/ui";
+import { Card, ChangeBadge, formatNumber, Tabs, Button, Badge, ConfirmDialog, LoadingSpinner, 고른칩, 지움단추, 빈화면, 못불러옴} from "@/components/ui";
 import { ConditionBuilder } from "@/components/backtest/ConditionBuilder";
 import 차트틀 from "@/components/chart/ChartFrame";
 import type { ConditionGroup, Market } from "@/types";
-import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical, Trash2 } from "lucide-react";
+import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { 읽을수있는오류 } from "@/utils/errors";
 import 자산배분탭 from "@/components/backtest/AllocationTab";
@@ -284,15 +284,8 @@ export default function Backtest() {
                   <label className="text-xs font-medium text-text-secondary">시장</label>
                   <div className="flex gap-1">
                     {(["US", "KR"] as Market[]).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => setMarket(m)}
-                        className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                          market === m
-                            ? "bg-accent-blue text-white"
-                            : "bg-bg-primary border border-border text-text-muted"
-                        }`}
-                      >{m}</button>
+                      <고른칩 key={m} 고름={market === m} className="flex-1"
+                              onClick={() => setMarket(m)}>{m}</고른칩>
                     ))}
                   </div>
                 </div>
@@ -313,18 +306,12 @@ export default function Backtest() {
                 <label className="text-xs font-medium text-text-secondary">유니버스 선택</label>
                 <div className="grid grid-cols-1 gap-1.5">
                   {UNIVERSE_OPTIONS.map((u) => (
-                    <button
-                      key={u.value}
-                      onClick={() => setUniverse(u.value)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-all ${
-                        universe === u.value
-                          ? "border-accent-blue bg-accent-blue/10 text-text-primary"
-                          : "border-border text-text-secondary hover:border-accent-blue/50"
-                      }`}
-                    >
+                    <고른칩 key={u.value} 고름={universe === u.value}
+                            className="flex items-center gap-2 text-left"
+                            onClick={() => setUniverse(u.value)}>
                       <Globe size={13} className={universe === u.value ? "text-accent-blue" : "text-text-muted"} />
-                      <span className="text-xs font-medium">{u.label}</span>
-                    </button>
+                      {u.label}
+                    </고른칩>
                   ))}
                 </div>
               </div>
@@ -335,17 +322,10 @@ export default function Backtest() {
               <label className="text-xs font-medium text-text-secondary">기간 프리셋</label>
               <div className="flex gap-1">
                 {DATE_PRESETS.map((p) => (
-                  <button
-                    key={p.label}
-                    onClick={() => applyDatePreset(p)}
-                    className={`flex-1 py-1 text-xs font-semibold rounded-lg border transition-all ${
-                      activeDatePreset === p.label
-                        ? "bg-accent-blue text-white border-accent-blue"
-                        : "bg-bg-primary border-border text-text-muted hover:border-accent-blue/50 hover:text-text-primary"
-                    }`}
-                  >
+                  <고른칩 key={p.label} 고름={activeDatePreset === p.label}
+                          className="flex-1" onClick={() => applyDatePreset(p)}>
                     {p.label}
-                  </button>
+                  </고른칩>
                 ))}
               </div>
             </div>
@@ -842,13 +822,10 @@ export default function Backtest() {
                           카드 전체가 '열기' 버튼이라 안쪽 버튼은 클릭이
                           위로 안 번지게 막아야 한다. 안 막으면 지우려다
                           탭이 열린다. */}
-                      <button
-                        aria-label={`${x.name} 지우기`}
-                        className="p-1.5 text-text-dim hover:text-accent-red"
+                      <지움단추
+                        ariaLabel={`${x.name} 지우기`}
                         onClick={(e) => { e.stopPropagation(); set지울실험({ id: x.id, name: x.name }); }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      />
                     </div>
                   </div>
                   <div className="flex gap-1.5 flex-wrap">

@@ -5,7 +5,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { 가린글 } from "@/hooks/useMoney";
 import { 용어사전 } from "@/constants/terms";
 import type { LucideIcon } from "lucide-react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Trash2 } from "lucide-react";
 import { 사람말로 } from "@/api/queryError";
 
 export function cn(...i: ClassValue[]) { return twMerge(clsx(i)); }
@@ -173,6 +173,104 @@ export function Badge({ children, variant = "default" }: {
     purple:  "bg-accent-purple/15 border-accent-purple/30 text-accent-purple",
   };
   return <span className={cn("text-2xs px-1.5 py-0.5 rounded border font-semibold", v[variant])}>{children}</span>;
+}
+
+/** 아이콘만 있는 지우기 단추.
+ *
+ *  같은 '지우기' 인데 앱 전체에 스무 가지가 넘는 모양으로 적혀 있다 —
+ *  p-1 · p-1.5 · p-2, text-dim · text-muted, 배경이 있는 것과 없는 것.
+ *  나란히 놓이면 크기가 안 맞고, 손 대기 좋은 넓이도 자리마다 다르다.
+ *
+ *  **누르는 넓이를 p-1.5 로 맞춘다.** 아이콘이 14px 이라 p-1 이면
+ *  손가락으로 누르기에 너무 좁다(폰에서 옆의 것이 눌린다).
+ *
+ *  ariaLabel 을 **받아야만** 쓸 수 있게 했다. 아이콘만 있는 단추는
+ *  글자가 없어서, 이름이 없으면 화면을 소리로 듣는 사람에게 그냥
+ *  '버튼' 이다 — 무엇을 지우는지 알 수 없다.
+ */
+export function 지움단추({ ariaLabel, onClick, className, size = 14, disabled }: {
+  ariaLabel: string;
+  onClick: (e: React.MouseEvent) => void;
+  className?: string;
+  size?: number;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "p-1.5 rounded-lg text-text-dim transition-colors flex-shrink-0",
+        "hover:text-accent-red hover:bg-accent-red/10 disabled:opacity-40",
+        className,
+      )}
+    >
+      <Trash2 size={size} />
+    </button>
+  );
+}
+
+/** 여럿 중 하나를 고르는 칩.
+ *
+ *  ── 왜 부품으로 묶었나 ─────────────────────────────────────
+ *
+ *  백테스트 화면에만 같은 일을 하는 칩 묶음이 **여섯 벌**이었고
+ *  크기가 다 달랐다 —
+ *
+ *    기간(1년·3년…)      py-2   text-xs
+ *    금액(100만원…)      py-2   text-xs
+ *    거래비용(0.1%…)     py-1.5 text-2xs   ← 혼자 작다
+ *    시장(KR/US)         py-1.5 text-xs
+ *    기간 프리셋(YTD…)   py-1   text-xs
+ *    논리(AND/OR)        py-0.5 text-xs
+ *
+ *  고른 것을 파랗게 칠하는 규칙도 여섯 번 따로 적혀 있었다. 한 줄에
+ *  나란히 놓으면 높이가 안 맞고, 한 곳을 고쳐도 나머지 다섯은 그대로다.
+ *
+ *  `작게` 는 줄이 좁은 자리(조건 만들기의 AND/OR)용이다. 두 가지까지만
+ *  둔다 — 크기를 자유롭게 열어 두면 다시 여섯 가지가 된다.
+ *
+ *  aria-pressed 를 단다. 눌린 상태를 색으로만 알리면 화면을 소리로
+ *  듣는 사람은 무엇이 골라져 있는지 알 수 없다.
+ */
+export function 고른칩({
+  고름, onClick, children, ariaLabel, 작게 = false, 최소너비, className, disabled,
+}: {
+  고름: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  ariaLabel?: string;
+  작게?: boolean;
+  /** 숫자가 들쭉날쭉한 묶음에서 칸 너비를 맞출 때 (예: "4.5rem") */
+  최소너비?: string;
+  className?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      aria-pressed={고름}
+      style={최소너비 ? { minWidth: 최소너비 } : undefined}
+      className={cn(
+        /* whitespace-nowrap 이 없으면 '반영 안 함' 같은 두 마디짜리 글자가
+           좁은 칩 안에서 줄바꿈되고, 그 칩 하나 때문에 같은 줄 형제들이
+           전부 늘어난다 (실측 31px → 46px). 칩은 한 줄이 원칙이다. */
+        "rounded-lg border font-medium transition-colors disabled:opacity-40 whitespace-nowrap",
+        작게 ? "px-2.5 py-1 text-2xs" : "px-3 py-2 text-xs",
+        고름
+          ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
+          : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
 }
 
 /* ── 탭 ────────────────────────────────────────────────── */

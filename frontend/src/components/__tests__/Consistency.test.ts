@@ -205,3 +205,69 @@ describe("백테스트 화면의 통일", () => {
     }
   });
 });
+
+describe("백테스트 화면의 단추", () => {
+  /* 같은 일을 하는 단추가 자리마다 크기와 색이 달랐다.
+     한 줄에 나란히 놓으면 높이가 안 맞고, 한 곳을 고쳐도 나머지는
+     그대로 남는다. */
+  const 백테스트파일들 = [
+    "pages/Backtest.tsx",
+    "components/backtest/AllocationForm.tsx",
+    "components/backtest/AllocationTab.tsx",
+    "components/backtest/ConditionBuilder.tsx",
+  ];
+
+  it("고르기 칩을 손으로 안 만든다", () => {
+    /* '여럿 중 하나 고르기' 칩이 여섯 벌이었고 크기가 다 달랐다 —
+       기간 py-2, 금액 py-2, 거래비용 py-1.5(혼자 작음), 시장 py-1.5,
+       프리셋 py-1, 논리 py-0.5. 고른 것을 칠하는 규칙도 여섯 번
+       따로 적혀 있었다. */
+    const 걸린것: string[] = [];
+    for (const f of 백테스트파일들) {
+      const 코드 = 코드만(읽기(f));
+      /* 고른 것을 파랗게 칠하는 규칙을 직접 적은 자리를 찾는다 */
+      for (const _ of 코드.matchAll(/bg-accent-blue\/15 border-accent-blue/g)) {
+        걸린것.push(f);
+      }
+    }
+    expect(걸린것, `칩 모양을 손으로 적은 곳: ${[...new Set(걸린것)].join(", ")}`)
+      .toEqual([]);
+  });
+
+  it("칩 글자가 줄바꿈되지 않는다", () => {
+    /* '반영 안 함' 이 좁은 칩 안에서 두 줄이 되면서 그 칩만 46px 이
+       되고, 같은 줄의 형제 칩까지 31px → 46px 로 끌려 올라갔다.
+       jsdom 은 레이아웃을 안 재므로 글자로 못을 박는 수밖에 없다. */
+    expect(읽기("components/ui/index.tsx"), "고른칩에 whitespace-nowrap 이 없다")
+      .toMatch(/disabled:opacity-40 whitespace-nowrap/);
+  });
+
+  it("고르기 칩에 공용 부품을 쓴다", () => {
+    /* 위 검사만 있으면 칩을 통째로 지워도 통과한다 */
+    const 쓰는곳 = 백테스트파일들.filter((f) => 읽기(f).includes("고른칩"));
+    expect(쓰는곳.length, "공용 칩을 쓰는 곳이 없다").toBeGreaterThanOrEqual(2);
+  });
+
+  it("아이콘 지우기 단추를 손으로 안 만든다", () => {
+    /* p-1 · p-1.5 · p-2 가 섞여 있었다. 아이콘이 14px 이라 p-1 이면
+       폰에서 손가락으로 누르기에 좁다 — 옆의 것이 눌린다. */
+    const 걸린것: string[] = [];
+    for (const f of 백테스트파일들) {
+      const 코드 = 코드만(읽기(f));
+      for (const m of 코드.matchAll(/hover:text-accent-red/g)) {
+        /* 글자가 있는 단추(삭제·지우기 글씨)는 아이콘 단추가 아니다 */
+        const 자리 = 코드.slice(Math.max(0, m.index! - 200), m.index! + 200);
+        if (/<Trash2|<X /.test(자리) && !/지움단추/.test(자리)) 걸린것.push(f);
+      }
+    }
+    expect(걸린것, `아이콘 지우기를 손으로 만든 곳: ${[...new Set(걸린것)].join(", ")}`)
+      .toEqual([]);
+  });
+
+  it("AND/OR 토글도 공용 부품을 쓴다", () => {
+    /* 테두리 안의 분절 토글은 칩과 다른 모양이다. 이 앱에는 그 용도의
+       Tabs(tone="subtle")가 이미 있는데 손으로 또 만들고 있었다. */
+    const s = 읽기("components/backtest/ConditionBuilder.tsx");
+    expect(s, "논리 토글을 손으로 만들었다").toMatch(/tone="subtle"/);
+  });
+});
