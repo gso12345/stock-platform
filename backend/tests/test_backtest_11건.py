@@ -234,8 +234,12 @@ def test_벤치마크에도_배당을_넘긴다(client, monkeypatch):
 
     받은심볼 = []
 
-    async def 가짜배당표(자산들, 시작, 끝, 표시통화, 환율):
-        """연 6% 짜리 굵은 배당 — 반영되면 결과가 확실히 갈린다."""
+    async def 가짜배당표(자산들, 시작, 끝, 표시통화, 환율, 알림=None):
+        """연 6% 짜리 굵은 배당 — 반영되면 결과가 확실히 갈린다.
+
+        `알림` 을 받아 둔다. 진짜 _배당표 는 하나 받을 때마다 진행바에
+        알려 주는데, 흉내 내는 쪽이 그 인자를 안 받으면 TypeError 로
+        터진다 — 실제로 진행 표시를 넣으면서 이 검사가 깨졌다."""
         받은심볼.append(sorted(a.symbol for a in 자산들))
         return {a.symbol: {d: 값[d] * 0.06 / 4
                            for i, d in enumerate(날) if i and i % 63 == 0}
@@ -779,7 +783,8 @@ def test_벤치마크도_낙폭_곡선을_준다(client, monkeypatch):
 
     monkeypatch.setattr(R.yf_service, "get_ohlcv", 시세)
 
-    async def 배당없음(자산들, 시작, 끝, 표시통화, 환율):
+    async def 배당없음(자산들, 시작, 끝, 표시통화, 환율, 알림=None):
+        #: 알림 을 안 받으면 진짜를 대신할 수 없다 — TypeError 로 터진다
         return {}
     monkeypatch.setattr(R, "_배당표", 배당없음)
 
