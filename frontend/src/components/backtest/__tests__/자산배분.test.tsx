@@ -84,8 +84,12 @@ describe("사진의 항목이 다 있다", () => {
       expect(screen.getByText(이름), `${이름} 이 없다`).toBeInTheDocument();
     }
     expect(screen.getByText(/토탈 리턴/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "내 실험 목록" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /결과 확인/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^저장/ })).toBeInTheDocument();
+    /* 목록은 여기 없다 — '전략 저장소' 탭이 그 일을 다 한다.
+       저장한 것이 두 군데로 갈라져 있으면 어디에 뒀는지 기억해야 한다. */
+    expect(screen.queryByRole("button", { name: "내 실험 목록" }),
+      "목록 버튼이 아직 있다").toBeNull();
   });
 
   it("날짜는 늘 직접 입력이다", () => {
@@ -562,79 +566,6 @@ describe("실제로 돈다", () => {
   }, 20000);
 });
 
-describe("저장한 실험을 불러온다", () => {
-  /* 설정만 저장하고 결과는 저장하지 않는 것이 이 기능의 방침이다.
-     그 방침이 성립하려면 설정이 **빠짐없이** 되살아나야 한다 —
-     하나라도 빠지면 불러와 다시 돌렸을 때 저장할 때와 다른 수가 나오고,
-     사용자는 자기가 저장한 실험이 바뀌었다고 느낀다.
-     오류도 안 나고 경고도 없으니 눈으로는 못 찾는다. */
-  const 저장된 = {
-    id: 7, name: "금 60 · 현금 40", created_at: "2026-09-01",
-    currency: "KRW" as const, initial_amount: 5_000_000,
-    start_date: "2015-01-02", end_date: "2025-01-02",
-    assets: [{ symbol: "GLD", market: "US", name: "금", weight: 1 }],
-    contribution_period: "none" as const, contribution_amount: 0,
-    rebalance_period: "yearly" as const, total_return: true,
-    rebalance_day: 20, cost_rate: 0.25,
-    data_interval: "monthly" as const, benchmark: "6040" as const,
-    equal_weight: true, extended: true,
-  };
-
-  async function 불러오기(것: any) {
-    상태.실험들 = [것];
-    그리기();
-    await userEvent.click(screen.getByRole("button", { name: "내 실험 목록" }));
-    await userEvent.click(await screen.findByText(것.name));
-  }
-
-  it("저장한 설정이 다 되살아난다", async () => {
-    await 불러오기(저장된);
-    expect((screen.getByLabelText("시작일") as HTMLInputElement).value).toBe("2015-01-02");
-    expect((screen.getByLabelText("리밸런싱 날짜") as HTMLSelectElement).value).toBe("20");
-    expect((screen.getByLabelText("거래비용") as HTMLInputElement).value).toBe("0.25");
-    expect((screen.getByLabelText("데이터 기준") as HTMLSelectElement).value).toBe("monthly");
-    expect((screen.getByLabelText("벤치 마크") as HTMLSelectElement).value).toBe("6040");
-    expect((screen.getByLabelText("배분 기준") as HTMLSelectElement).value).toBe("equal");
-    expect((screen.getByLabelText("확장된 ETF 가격 사용") as HTMLInputElement).checked).toBe(true);
-  });
-
-  it("0 과 false 도 그대로 되살아난다", async () => {
-    /* `??` 가 아니라 `||` 를 쓰면 여기서 갈린다. 수수료 0% 와
-       '동일 비중 끔' 은 **고른 값**인데 falsy 라, || 로 두면 지금
-       화면 값으로 덮인다 — 0% 로 저장해 두고 불러오면 0.25% 가
-       되어 있는 식이다. 값이 그럴듯해서 아무도 못 알아챈다.
-
-       **화면에 먼저 0 이 아닌 값을 넣어 둬야** 이 검사가 뜻이 있다.
-       기본값도 0 이면 `0 || 0` 이라 || 로 바꿔도 같은 값이 나와서
-       그냥 통과한다(그렇게 짰다가 뮤테이션이 살아남았다). */
-    상태.실험들 = [{ ...저장된, cost_rate: 0, equal_weight: false, extended: false }];
-    그리기();
-    await userEvent.click(screen.getByLabelText("거래비용 0.25%"));
-    await userEvent.click(screen.getByLabelText("확장된 ETF 가격 사용"));
-    expect((screen.getByLabelText("거래비용") as HTMLInputElement).value).toBe("0.25");
-
-    await userEvent.click(screen.getByRole("button", { name: "내 실험 목록" }));
-    await userEvent.click(await screen.findByText(저장된.name));
-
-    expect((screen.getByLabelText("거래비용") as HTMLInputElement).value,
-      "0% 로 저장했는데 화면에 있던 값으로 덮였다").toBe("");
-    expect((screen.getByLabelText("배분 기준") as HTMLSelectElement).value).toBe("custom");
-    expect((screen.getByLabelText("확장된 ETF 가격 사용") as HTMLInputElement).checked,
-      "확장 끔으로 저장했는데 켜진 채다").toBe(false);
-  });
-
-  it("옛날에 저장한 실험에는 새 설정이 없다 — 지금 값을 그대로 둔다", async () => {
-    /* 기능이 늘기 전에 저장한 것에는 이 칸들이 아예 없다.
-       undefined 를 그대로 넣으면 고르기 칸이 통제 불능이 된다. */
-    const 옛것: any = { ...저장된 };
-    for (const k of ["rebalance_day", "cost_rate", "data_interval",
-                     "benchmark", "equal_weight", "extended"]) delete 옛것[k];
-    await 불러오기(옛것);
-    expect((screen.getByLabelText("리밸런싱 날짜") as HTMLSelectElement).value).toBe("1");
-    expect((screen.getByLabelText("벤치 마크") as HTMLSelectElement).value).toBe("none");
-  });
-});
-
 describe("로그인 전에도 무엇을 할 수 있는지 보인다", () => {
   it("저장 버튼을 숨기지 않고, 누르면 이유를 말한다", async () => {
     /* 아예 안 그리면 '저장이 어디 있지' 가 되고, 사용자는 기능이
@@ -735,42 +666,6 @@ describe("계산하는 동안 진행률을 보여 준다", () => {
   });
 });
 
-describe("지우기 전에 한 번 묻는다", () => {
-  const 저장된 = {
-    id: 3, name: "금 60 · 현금 40", created_at: "2026-09-01",
-    currency: "KRW" as const, initial_amount: 5_000_000,
-    start_date: "2015-01-02", end_date: "2025-01-02",
-    assets: [{ symbol: "GLD", market: "US", name: "금", weight: 1 }],
-    contribution_period: "none" as const, contribution_amount: 0,
-    rebalance_period: "yearly" as const, total_return: true,
-  };
-
-  it("바로 안 지우고 확인 창을 띄운다", async () => {
-    /* 누르는 즉시 사라지면 잘못 눌렀을 때 되살릴 방법이 없다 —
-       설정만 저장하므로 자산·비중·기간을 전부 다시 맞춰야 한다.
-       이 저장소에는 공용 확인 창이 있는데 여기만 안 쓰고 있었다. */
-    상태.실험들 = [저장된];
-    그리기();
-    await userEvent.click(screen.getByRole("button", { name: "내 실험 목록" }));
-    await userEvent.click(await screen.findByLabelText(`${저장된.name} 지우기`));
-
-    expect(screen.getByText(/지울까요/), "확인 없이 바로 지웠다").toBeInTheDocument();
-    expect(screen.getByText(/되돌릴 수 없어요/)).toBeInTheDocument();
-    // 무엇을 지우는지 이름을 보여 줘야 한다
-    expect(screen.getAllByText(저장된.name).length).toBeGreaterThan(0);
-  });
-
-  it("취소하면 안 지운다", async () => {
-    상태.실험들 = [저장된];
-    그리기();
-    await userEvent.click(screen.getByRole("button", { name: "내 실험 목록" }));
-    await userEvent.click(await screen.findByLabelText(`${저장된.name} 지우기`));
-    await userEvent.click(screen.getByRole("button", { name: "취소" }));
-    expect(screen.queryByText(/지울까요/)).toBeNull();
-    expect(screen.getByLabelText(`${저장된.name} 지우기`)).toBeInTheDocument();
-  });
-});
-
 describe("폰에서 날짜 두 개가 다 보인다", () => {
   it("좁은 화면에서는 세로로 쌓는다", () => {
     /* 날짜 칸 두 개를 폰에서 나란히 두면 하나가 150px 도 안 된다.
@@ -827,5 +722,38 @@ describe("비중 버튼 이름", () => {
 
     expect(screen.getByRole("button", { name: "동일비중" })).toBeInTheDocument();
     expect(screen.queryByText("비중을 똑같이 나누기"), "옛 글자가 남아 있다").toBeNull();
+  }, 20000);
+});
+
+describe("저장했다는 것을 알려 준다", () => {
+  /* 목록을 이 화면에서 없앴다. 그래서 저장 뒤에 아무 말도 안 하면
+     저장이 됐는지 **알 방법이 아예 없다** — 버튼만 눌리고 화면은
+     그대로다. 어디로 갔는지도 같이 적어야 찾으러 갈 수 있다. */
+  async function 저장까지() {
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByText("Apple"));
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    await userEvent.click(screen.getByRole("button", { name: /^저장/ }));
+  }
+
+  it("저장하면 어디에서 볼 수 있는지 말해 준다", async () => {
+    await 저장까지();
+    const 알림 = await screen.findByText(/저장했어요/);
+    expect(알림).toBeInTheDocument();
+    expect(알림.textContent, "어디로 갔는지 안 알려 준다").toMatch(/전략 저장소/);
+  }, 20000);
+
+  it("설정을 고치면 그 표시를 내린다", async () => {
+    /* 안 내리면 '저장했어요' 가 그대로 붙어 있어서, 고친 내용까지
+       저장된 줄 알게 된다. */
+    await 저장까지();
+    expect(await screen.findByText(/저장했어요/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByLabelText("500만원"));
+    await waitFor(() => {
+      expect(screen.queryByText(/저장했어요/),
+        "설정을 고쳤는데 '저장했어요' 가 그대로다").toBeNull();
+    });
   }, 20000);
 });

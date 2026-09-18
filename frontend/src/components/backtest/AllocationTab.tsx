@@ -1,5 +1,8 @@
 /**
- * 자산배분 백테스트 탭 — 설정·결과·실험목록을 잇는 자리.
+ * 자산배분 백테스트 탭 — 설정과 결과를 잇는 자리.
+ *
+ * 저장한 실험 목록은 여기 없다. '전략 저장소' 탭이 그 일을 다 한다 —
+ * 저장한 것이 두 군데로 갈라져 있으면 어디에 뒀는지 기억해야 한다.
  *
  * 계산은 서버가 하고, 여기는 설정을 모아 보내고 받은 것을 그리는 일만
  * 한다. 수익률을 화면에서 다시 계산하지 않는다 — 두 군데서 계산하면
@@ -12,7 +15,7 @@ import { backtestApi, type 자산배분요청, type 자산배분결과, type 저
 import { useAuthStore } from "@/store/authStore";
 import { Card, 못불러옴 } from "@/components/ui";
 import { 읽을수있는오류 } from "@/utils/errors";
-import 자산배분설정, { 첫설정, 실험목록, type 설정 } from "./AllocationForm";
+import 자산배분설정, { 첫설정, type 설정 } from "./AllocationForm";
 import 자산배분결과화면 from "./AllocationResult";
 
 /** 화면의 설정을 서버가 받는 모양으로. */
@@ -168,7 +171,9 @@ export default function 자산배분탭({ 불러올실험, 불러옴 }: {
   const [설정값, set설정값] = useState<설정>(() => 첫설정());
   const [결과, set결과] = useState<자산배분결과 | null>(null);
   const [오류, set오류] = useState<string | null>(null);
-  const [목록열림, set목록열림] = useState(false);
+  /* 저장 직후 잠깐 띄우는 초록 줄. 목록을 이 화면에서 없앴으므로
+     이게 없으면 저장이 됐는지 알 방법이 아예 없다. */
+  const [저장됨, set저장됨] = useState(false);
 
   const { data: 실험들 = [] } = useQuery({
     queryKey: ["backtest-experiments"],
@@ -194,15 +199,18 @@ export default function 자산배분탭({ 불러올실험, 불러옴 }: {
       name: 설정값.assets.map((a) => a.name || a.symbol).slice(0, 3).join(" · ")
             + (설정값.assets.length > 3 ? ` 외 ${설정값.assets.length - 3}` : ""),
     }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["backtest-experiments"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["backtest-experiments"] });
+      set저장됨(true);
+      set오류(null);
+    },
     onError: (e: any) => set오류(읽을수있는오류(
       e?.response?.data?.detail, "저장에 실패했어요")),
   });
 
-  const 지우기 = useMutation({
-    mutationFn: (id: number) => backtestApi.deleteExperiment(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["backtest-experiments"] }),
-  });
+  /* 설정을 고치면 초록 줄을 내린다. 안 내리면 '저장했어요' 가 그대로
+     붙어 있어서, 고친 내용까지 저장된 줄 알게 된다. */
+  useEffect(() => { set저장됨(false); }, [설정값]);
 
   /* 전략 저장소 탭에서 고른 실험을 받아 온다.
      목록이 아직 안 왔을 수 있으니 실험들이 채워진 뒤에 맞춰 본다.
@@ -213,36 +221,21 @@ export default function 자산배분탭({ 불러올실험, 불러옴 }: {
     if (!x) return;
     set설정값((앞) => 실험을설정으로(x, 앞));
     set결과(null);
-    set목록열림(false);
     불러옴?.();
   }, [불러올실험, 실험들, 불러옴]);
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       <div className="flex flex-col gap-4">
-        {목록열림 ? (
-          <실험목록
-            것들={실험들}
-            닫기={() => set목록열림(false)}
-            지우기={(id) => 지우기.mutate(id)}
-            불러오기={(id) => {
-              const x = 실험들.find((e) => e.id === id);
-              if (!x) return;
-              set설정값(실험을설정으로(x, 설정값));
-              set목록열림(false);
-              set결과(null);
-            }}
-          />
-        ) : (
-          <자산배분설정
-            값={설정값}
-            바꾸기={set설정값}
-            돌리기={() => 돌리기.mutate()}
-            도는중={돌리기.isPending}
-            목록열기={() => set목록열림(true)}
-            저장하기={isLoggedIn ? () => 저장.mutate() : undefined}
-          />
-        )}
+        <자산배분설정
+          값={설정값}
+          바꾸기={set설정값}
+          돌리기={() => 돌리기.mutate()}
+          도는중={돌리기.isPending}
+          저장하기={isLoggedIn ? () => 저장.mutate() : undefined}
+          저장중={저장.isPending}
+          저장됨={저장됨}
+        />
       </div>
 
       <div className="flex flex-col gap-4">

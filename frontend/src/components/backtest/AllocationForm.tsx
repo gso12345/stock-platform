@@ -13,8 +13,8 @@
  * 보여 주는 것이 이 기능에서 가장 나쁜 실패다.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Plus, X, Trash2 } from "lucide-react";
-import { Card, Button, ConfirmDialog } from "@/components/ui";
+import { Plus, X, Check } from "lucide-react";
+import { Card, Button } from "@/components/ui";
 import { useStockSearch } from "@/hooks/useStockSearch";
 import type { 배분자산, 주기, 데이터기준, 벤치마크키 } from "@/api/stocks";
 
@@ -343,14 +343,16 @@ function 자산고르기({ onPick, onClose }: {
 }
 
 export default function 자산배분설정({
-  값, 바꾸기, 돌리기, 도는중, 목록열기, 저장하기,
+  값, 바꾸기, 돌리기, 도는중, 저장하기, 저장중 = false, 저장됨 = false,
 }: {
   값: 설정;
   바꾸기: (다음: 설정) => void;
   돌리기: () => void;
   도는중: boolean;
-  목록열기: () => void;
   저장하기?: () => void;
+  저장중?: boolean;
+  /** 방금 저장했나 — 잠깐 초록 줄을 띄운다 */
+  저장됨?: boolean;
 }) {
   const [검색열림, set검색열림] = useState(false);
   const [로그인안내, set로그인안내] = useState(false);
@@ -689,16 +691,15 @@ export default function 자산배분설정({
       )}
 
       <div className="flex gap-3">
-        <Button variant="secondary" className="flex-1 py-3" onClick={목록열기}>
-          내 실험 목록
-        </Button>
         {/* 로그인 전에도 **버튼은 보여 준다.**
             아예 안 그리면 '저장이 어디 있지' 가 되고, 사용자는 기능이
             고장 난 것으로 읽는다. 눌러 보면 왜 안 되는지 알 수 있어야
             한다(아래 안내가 뜬다). */}
-        <Button variant="secondary" className="py-3 px-4"
+        <Button variant="secondary" className="flex-1 py-3"
                 onClick={저장하기 ?? (() => set로그인안내(true))}
-                disabled={!!못하는이유}>저장</Button>
+                disabled={!!못하는이유 || 저장중}>
+          {저장중 ? "저장 중…" : "저장"}
+        </Button>
         <Button className="flex-1 py-3" onClick={돌리기} disabled={!!못하는이유 || 도는중}>
           {도는중 ? "계산 중…" : "결과 확인"}
         </Button>
@@ -709,66 +710,16 @@ export default function 자산배분설정({
           실험을 저장하려면 로그인이 필요해요. 결과 확인은 로그인 없이도 돼요.
         </p>
       )}
-    </Card>
-  );
-}
 
-/** 저장해 둔 실험 목록 */
-export function 실험목록({ 것들, 불러오기, 지우기, 닫기 }: {
-  것들: { id: number; name: string; assets: 배분자산[]; created_at: string }[];
-  불러오기: (id: number) => void;
-  지우기: (id: number) => void;
-  닫기: () => void;
-}) {
-  /* 지우기는 **되돌릴 수 없다.** 누르는 즉시 사라지면, 잘못 눌렀을 때
-     되살릴 방법이 없다(설정만 저장하므로 다시 만들려면 자산·비중·
-     기간을 전부 다시 맞춰야 한다).
-
-     이 저장소에는 이미 공용 확인 창이 있는데 여기만 안 쓰고 있었다 —
-     관리자·커뮤니티는 제대로 묻고 정작 사용자 쪽이 그냥 지워졌다. */
-  const [지울것, set지울것] = useState<{ id: number; name: string } | null>(null);
-
-  return (
-    <Card className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <span className="text-base font-semibold text-text-primary">내 실험 목록</span>
-        <button onClick={닫기} aria-label="목록 닫기" className="p-1 text-text-dim hover:text-text-primary">
-          <X size={16} />
-        </button>
-      </div>
-      {것들.length === 0 ? (
-        <p className="text-sm text-text-dim py-6 text-center">
-          저장한 실험이 아직 없어요. 설정을 맞춘 뒤 ‘저장’ 을 눌러 보세요.
+      {/* 저장했다는 말을 **반드시** 한다.
+          목록을 이 화면에서 없앴으므로, 이 한 줄이 없으면 저장이 됐는지
+          알 방법이 아예 없다 — 버튼만 눌리고 화면은 그대로다.
+          어디로 갔는지도 같이 적어야 찾으러 갈 수 있다. */}
+      {저장됨 && (
+        <p className="text-xs text-accent-green -mt-2 break-keep flex items-center gap-1.5">
+          <Check size={14} className="flex-shrink-0" />
+          저장했어요. ‘전략 저장소’ 탭에서 다시 열 수 있어요.
         </p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {것들.map((x) => (
-            <li key={x.id} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-bg-elevated">
-              <button className="flex flex-col min-w-0 flex-1 text-left" onClick={() => 불러오기(x.id)}>
-                <span className="text-sm font-medium text-text-primary truncate">{x.name}</span>
-                <span className="text-2xs text-text-dim truncate">
-                  {x.assets.map((a) => a.name || a.symbol).join(" · ")}
-                </span>
-              </button>
-              <button onClick={() => set지울것({ id: x.id, name: x.name })}
-                      aria-label={`${x.name} 지우기`}
-                      className="p-1.5 text-text-dim hover:text-accent-red flex-shrink-0">
-                <Trash2 size={14} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {지울것 && (
-        <ConfirmDialog
-          title="실험을 지울까요?"
-          message="지우면 되돌릴 수 없어요. 자산과 비중, 기간을 처음부터 다시 맞춰야 해요."
-          대상={지울것.name}
-          확인글="지우기"
-          onConfirm={() => { 지우기(지울것.id); set지울것(null); }}
-          onClose={() => set지울것(null)}
-        />
       )}
     </Card>
   );

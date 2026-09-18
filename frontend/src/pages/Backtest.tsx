@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backtestApi } from "@/api/stocks";
-import { Card, ChangeBadge, formatNumber, Tabs, Button, Badge, 빈화면, 못불러옴} from "@/components/ui";
+import { Card, ChangeBadge, formatNumber, Tabs, Button, Badge, ConfirmDialog, 빈화면, 못불러옴} from "@/components/ui";
 import { ConditionBuilder } from "@/components/backtest/ConditionBuilder";
 import 차트틀 from "@/components/chart/ChartFrame";
 import type { ConditionGroup, Market } from "@/types";
-import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical } from "lucide-react";
+import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical, Trash2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { 읽을수있는오류 } from "@/utils/errors";
 import 자산배분탭 from "@/components/backtest/AllocationTab";
@@ -143,6 +143,21 @@ export default function Backtest() {
   });
   /* 전략 저장소에서 고른 실험을 자산배분 탭으로 넘긴다 */
   const [불러올실험, set불러올실험] = useState<number | null>(null);
+  const [지울실험, set지울실험] = useState<{ id: number; name: string } | null>(null);
+
+  const 실험지우기 = useMutation({
+    mutationFn: (id: number) => backtestApi.deleteExperiment(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["backtest-experiments"] });
+      set지울실험(null);
+    },
+    /* 실패해도 창은 닫는다. 열어 둔 채로 두면 사용자는 계속 누르게 되고,
+       그때마다 같은 요청이 나간다 */
+    onError: (err: any) => {
+      set지울실험(null);
+      setErrorMsg(읽을수있는오류(err?.response?.data?.detail, "실험을 지우지 못했어요"));
+    },
+  });
 
   const universeMarket = UNIVERSE_OPTIONS.find((o) => o.value === universe)?.market ?? "US";
 
@@ -710,7 +725,21 @@ export default function Backtest() {
                         {x.start_date} ~ {x.end_date} · {x.currency}
                       </p>
                     </div>
-                    <Badge variant="blue">자산배분</Badge>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Badge variant="blue">자산배분</Badge>
+                      {/* 지우기는 여기에만 있다 — 자산배분 탭의 목록을
+                          없앴으므로 이 자리가 유일하다.
+                          카드 전체가 '열기' 버튼이라 안쪽 버튼은 클릭이
+                          위로 안 번지게 막아야 한다. 안 막으면 지우려다
+                          탭이 열린다. */}
+                      <button
+                        aria-label={`${x.name} 지우기`}
+                        className="p-1.5 text-text-dim hover:text-accent-red"
+                        onClick={(e) => { e.stopPropagation(); set지울실험({ id: x.id, name: x.name }); }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                   <div className="flex gap-1.5 flex-wrap">
                     <Badge>자산 {x.assets.length}개</Badge>
@@ -723,6 +752,18 @@ export default function Backtest() {
                   <div className="text-xs text-accent-blue">클릭하여 자산배분 탭에서 열기</div>
                 </Card>
               ))}
+
+              {지울실험 && (
+                <ConfirmDialog
+                  title="실험을 지울까요?"
+                  message="지우면 되돌릴 수 없어요. 자산과 비중, 기간을 처음부터 다시 맞춰야 해요."
+                  대상={지울실험.name}
+                  확인글="지우기"
+                  진행중={실험지우기.isPending}
+                  onConfirm={() => 실험지우기.mutate(지울실험.id)}
+                  onClose={() => set지울실험(null)}
+                />
+              )}
 
               {(strategies ?? []).map((s: any) => (
                 <Card key={s.id} className="flex flex-col gap-3 cursor-pointer" onClick={() => loadStrategy(s)}>

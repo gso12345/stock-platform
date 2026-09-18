@@ -159,3 +159,88 @@ describe("전략 저장소에 둘 다 모인다", () => {
       "실험이 있는데도 '없어요' 를 띄웠다").toBeNull();
   });
 });
+
+describe("저장한 설정이 빠짐없이 되살아난다", () => {
+  it("0 과 false 도 그대로 되살아난다", async () => {
+    /* `??` 가 아니라 `||` 를 쓰면 여기서 갈린다. 수수료 0% 와
+       '동일 비중 끔' 은 **고른 값**인데 falsy 라, || 로 두면 지금
+       화면 값으로 덮인다.
+
+       화면에 먼저 0 이 아닌 값을 넣어 둬야 뜻이 있다 — 기본값도 0 이면
+       `0 || 0` 이라 || 로 바꿔도 같은 값이 나온다. */
+    상태.실험들 = [{ ...실험, cost_rate: 0, equal_weight: false, extended: false }];
+    그리기();
+    // 자산배분 탭에서 값을 바꿔 둔다
+    await userEvent.click(screen.getByLabelText("거래비용 0.25%"));
+    await userEvent.click(screen.getByLabelText("확장된 ETF 가격 사용"));
+    expect(screen.getByLabelText("거래비용")).toHaveValue("0.25");
+
+    await userEvent.click(screen.getByRole("tab", { name: "전략 저장소" }));
+    await userEvent.click(await screen.findByText(실험.name));
+
+    expect(await screen.findByLabelText("거래비용"),
+      "0% 로 저장했는데 화면에 있던 값으로 덮였다").toHaveValue("");
+    expect(screen.getByLabelText("배분 기준")).toHaveValue("custom");
+    expect(screen.getByLabelText("확장된 ETF 가격 사용")).not.toBeChecked();
+  }, 20000);
+
+  it("옛날에 저장한 실험에는 새 설정이 없다 — 지금 값을 그대로 둔다", async () => {
+    /* 기능이 늘기 전에 저장한 것에는 이 칸들이 아예 없다.
+       undefined 를 그대로 넣으면 고르기 칸이 통제 불능이 된다. */
+    const 옛것: any = { ...실험 };
+    for (const k of ["rebalance_day", "cost_rate", "data_interval",
+                     "benchmark", "equal_weight", "extended"]) delete 옛것[k];
+    상태.실험들 = [옛것];
+    await 저장소열기();
+    await userEvent.click(await screen.findByText(실험.name));
+    expect(await screen.findByLabelText("리밸런싱 날짜")).toHaveValue("1");
+    expect(screen.getByLabelText("벤치 마크")).toHaveValue("none");
+  }, 20000);
+});
+
+describe("지우기는 전략 저장소에서 한다", () => {
+  /* getByLabelText 가 아니라 **getByRole** 로 찾는다.
+     getByLabelText 는 화면에서 안 보이는 요소도 찾아 준다 — 버튼에
+     hidden 을 붙여도 통과했다(뮤테이션에서 그대로 살아남았다).
+     getByRole 은 접근성 트리를 보므로 안 보이면 못 찾는다. */
+  it("바로 안 지우고 확인 창을 띄운다", async () => {
+    /* 누르는 즉시 사라지면 잘못 눌렀을 때 되살릴 방법이 없다 —
+       설정만 저장하므로 자산·비중·기간을 전부 다시 맞춰야 한다. */
+    상태.실험들 = [실험];
+    await 저장소열기();
+    await userEvent.click(await screen.findByRole("button", { name: `${실험.name} 지우기` }));
+
+    expect(screen.getByText(/지울까요/), "확인 없이 바로 지웠다").toBeInTheDocument();
+    expect(screen.getByText(/되돌릴 수 없어요/)).toBeInTheDocument();
+  }, 20000);
+
+  it("지우기를 눌러도 그 실험이 안 열린다", async () => {
+    /* 카드 전체가 '열기' 버튼이라, 안쪽 버튼의 클릭이 위로 번지면
+       지우려다 자산배분 탭이 열린다. */
+    상태.실험들 = [실험];
+    await 저장소열기();
+    await userEvent.click(await screen.findByRole("button", { name: `${실험.name} 지우기` }));
+    expect(screen.getByText(/지울까요/)).toBeInTheDocument();
+    // 탭이 안 바뀌었으면 전략 저장소의 카드가 그대로 보인다
+    expect(screen.getByRole("button", { name: `${실험.name} 자산배분 실험 열기` })).toBeInTheDocument();
+  }, 20000);
+
+  it("확인을 누르면 지운다", async () => {
+    const { backtestApi } = await import("@/api/stocks");
+    상태.실험들 = [실험];
+    await 저장소열기();
+    await userEvent.click(await screen.findByRole("button", { name: `${실험.name} 지우기` }));
+    await userEvent.click(screen.getByRole("button", { name: "지우기" }));
+    expect(backtestApi.deleteExperiment).toHaveBeenCalledWith(실험.id);
+  }, 20000);
+
+  it("취소하면 안 지운다", async () => {
+    const { backtestApi } = await import("@/api/stocks");
+    상태.실험들 = [실험];
+    await 저장소열기();
+    await userEvent.click(await screen.findByRole("button", { name: `${실험.name} 지우기` }));
+    await userEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByText(/지울까요/)).toBeNull();
+    expect(backtestApi.deleteExperiment).not.toHaveBeenCalled();
+  }, 20000);
+});
