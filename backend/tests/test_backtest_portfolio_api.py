@@ -493,3 +493,27 @@ class Test실험_저장:
             assert f'_add_col_if_missing("portfolio_experiments", "{이름}"' in 소스, \
                 (f"{이름} 을 이미 배포된 표에 붙이는 자리가 없다 — "
                  "배포하면 저장이 실패한다")
+
+    def test_그_표가_옮길_수_있는_목록에_들어_있다(self):
+        """**부르는 것만으로는 아무 일도 안 일어난다.**
+
+        _add_col_if_missing 은 맨 앞에서 흰 목록을 본다.
+
+            if table not in _ALLOWED_MIGRATE_TABLES:
+                return
+
+        portfolio_experiments 가 그 목록에 없어서, 여섯 줄이 전부
+        조용히 아무 일도 안 하고 돌아왔다. 오류도 경고도 없다 —
+        배포는 멀쩡히 되고 저장을 눌렀을 때만 터진다.
+
+        위 검사는 '부르는 자리가 있나' 만 봐서 이걸 놓쳤다. 글자만
+        보는 검사의 한계라, 여기서는 **실제로 도는지**를 본다."""
+        import inspect
+        from app import main as M
+        줄들 = inspect.getsource(M).splitlines()
+        목록줄 = [l for l in 줄들 if "_ALLOWED_MIGRATE_TABLES = " in l]
+        assert 목록줄, "흰 목록을 못 찾았다"
+        assert "portfolio_experiments" in 목록줄[0], \
+            ("portfolio_experiments 가 _ALLOWED_MIGRATE_TABLES 에 없다. "
+             "_add_col_if_missing 을 여섯 번 불러도 전부 그냥 돌아온다 — "
+             "컬럼이 안 생기고, 실험 저장이 배포 후에 터진다")
