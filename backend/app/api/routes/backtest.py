@@ -939,9 +939,20 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
 @router.post("/experiments", status_code=201)
 def save_experiment(req: 실험저장요청, db: Session = Depends(get_db),
                     current_user: User = Depends(require_user)):
-    """실험 설정을 저장한다 — 화면의 '내 실험 목록'."""
+    """실험 설정을 저장한다 — 전략 저장소에 놓이는 자산배분 실험.
+
+    비중은 **화면이 준 그대로** 담는다. 예전에는 여기서 PB.정규화 를
+    불렀는데, 그것은 합이 1이 되게 나누는 함수다 — 60/20/20 을 넣으면
+    0.6/0.2/0.2 가 저장됐다. 화면은 이 수를 퍼센트로 읽으니 저장소에
+    '20%' 가 '0.2%' 로 떴고, 실험을 다시 열면 비중 칸에 0.2 가 들어와
+    있었다.
+
+    정규화는 **계산할 때** 하는 일이지 보관할 때 하는 일이 아니다.
+    돌릴 때 엔진이 어차피 합으로 나누므로 여기서 미리 나눌 이유가
+    없고, 미리 나누면 사용자가 적은 수를 잃는다. 자산 수 상한(12)과
+    빈 종목 걸러내기는 이미 요청 모델이 막는다.
+    """
     from app.models.stock import PortfolioExperiment
-    from app.services import portfolio_backtest as PB
 
     exp = PortfolioExperiment(
         user_id=current_user.id,
@@ -950,7 +961,7 @@ def save_experiment(req: 실험저장요청, db: Session = Depends(get_db),
         initial_amount=req.initial_amount,
         start_date=req.start_date,
         end_date=req.end_date,
-        assets=PB.정규화([a.model_dump() for a in req.assets]),
+        assets=[a.model_dump() for a in req.assets],
         contribution_period=req.contribution_period,
         contribution_amount=req.contribution_amount,
         rebalance_period=req.rebalance_period,
@@ -970,6 +981,27 @@ def save_experiment(req: 실험저장요청, db: Session = Depends(get_db),
     return exp
 
 
+def _비중되살리기(자산들: list[dict]) -> list[dict]:
+    """이미 0.6/0.2/0.2 로 저장돼 버린 옛날 실험을 60/20/20 으로 되돌린다.
+
+    저장할 때 합으로 나눠 버리던 시절의 줄들이 사람들 계정에 이미
+    들어 있다. 저장 쪽만 고치면 그 줄들은 영영 '0.2%' 로 남고, 열면
+    비중 칸에 0.2 가 들어와 손으로 다시 쳐야 한다.
+
+    합을 보고 가른다 — 퍼센트로 적은 조합은 합이 100 근처고, 나눠져
+    버린 것은 정확히 1 이다. 합이 1 이하인 조합, 즉 자산을 다 합쳐도
+    1% 만 담는 조합은 뜻이 없으므로 이 갈림에 걸릴 진짜 설정은 없다.
+
+    비중을 아예 안 적은 줄(합이 0 — '동일비중' 으로 두고 저장한 경우)은
+    어느 쪽으로 가도 0 이라 결과가 같다. 그래서 따로 막지 않는다.
+    """
+    합 = sum(float(a.get("weight") or 0) for a in 자산들)
+    if 합 > 1.5:
+        return 자산들
+    return [{**a, "weight": round(float(a.get("weight") or 0) * 100, 4)}
+            for a in 자산들]
+
+
 @router.get("/experiments")
 def list_experiments(db: Session = Depends(get_db),
                      current_user: Optional[User] = Depends(get_current_user)):
@@ -980,10 +1012,24 @@ def list_experiments(db: Session = Depends(get_db),
     from app.models.stock import PortfolioExperiment
     if not current_user:
         return []
-    return (db.query(PortfolioExperiment)
+    줄들 = (db.query(PortfolioExperiment)
             .filter(PortfolioExperiment.user_id == current_user.id)
             .order_by(PortfolioExperiment.created_at.desc())
             .limit(50).all())
+    #: 옛날 줄은 비중이 나눠진 채로 들어 있다. 보낼 때 되돌린다.
+    #
+    #  ORM 객체의 assets 를 그 자리에서 고치지 않고 **평범한 dict 로
+    #  베껴서** 고친다. ORM 객체를 고치면 그 객체는 '바뀐 것' 으로
+    #  표시되고, 이 세션에서 누가 commit 하는 순간 읽기만 한 요청이
+    #  DB 를 조용히 바꿔 버린다. 그렇게 바뀐 값은 나중에 어디서
+    #  바뀐 것인지 아무도 못 찾는다.
+    #
+    #  칸 이름을 손으로 적지 않고 표에서 가져온다 — 손으로 적으면
+    #  나중에 칸이 하나 늘었을 때 그 칸만 조용히 빠진다.
+    칸들 = [c.name for c in PortfolioExperiment.__table__.columns]
+    return [{**{c: getattr(x, c) for c in 칸들},
+             "assets": _비중되살리기(x.assets or [])}
+            for x in 줄들]
 
 
 @router.delete("/experiments/{experiment_id}")

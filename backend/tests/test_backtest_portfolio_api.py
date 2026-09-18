@@ -719,3 +719,183 @@ class Test그냥_들고_있었으면:
         r = client.post("/api/v1/backtest/run", json=self._몸())
         assert r.status_code == 200, f"덤이 터졌다고 본래 답까지 버렸다 — {r.text[:200]}"
         assert r.json()["buy_and_hold"] is None
+
+
+class Test저장한비중이그대로돌아온다:
+    """전략 저장소에 '20%' 가 '0.2%' 로 저장되던 것.
+
+    저장 라우트가 `PB.정규화` 를 불렀다. 그 함수는 **합이 1이 되게
+    나누는** 함수라 60/20/20 을 넣으면 0.6/0.2/0.2 가 DB 로 들어갔다.
+    화면은 그 수를 퍼센트로 읽으므로 저장소에 '0.2%' 가 떴고, 실험을
+    다시 열면 비중 칸에 0.2 가 들어와 손으로 다시 쳐야 했다.
+
+    계산은 멀쩡했다 — 돌릴 때 엔진이 어차피 합으로 나누기 때문이다.
+    그래서 결과 숫자만 보는 검사로는 절대 안 잡혔다. 저장한 것을
+    **다시 읽어 보는** 길을 밟아야만 나온다.
+    """
+
+    def _설정(self, 자산들, **더):
+        기본 = {
+            "name": "검사용",
+            "assets": 자산들,
+            "currency": "KRW",
+            "initial_amount": 10_000_000,
+            "start_date": "2020-01-02",
+            "end_date": "2021-12-30",
+            "contribution_period": "none",
+            "contribution_amount": 0,
+            "rebalance_period": "none",
+            "total_return": True,
+        }
+        기본.update(더)
+        return 기본
+
+    @pytest.fixture
+    def 로그인한손님(self):
+        """require_user 만 갈아 끼운다 — 진짜 로그인은 이 검사의 주제가 아니다."""
+        from app.api.routes.backtest import require_user, get_current_user
+        from app.db.database import Base, engine
+
+        Base.metadata.create_all(bind=engine)
+
+        class 아무개:
+            id = 987654
+            email = "weight@test.local"
+
+        app.dependency_overrides[require_user] = lambda: 아무개()
+        app.dependency_overrides[get_current_user] = lambda: 아무개()
+        yield TestClient(app), 아무개.id
+        app.dependency_overrides.pop(require_user, None)
+        app.dependency_overrides.pop(get_current_user, None)
+        self._치우기(아무개.id)
+
+    def _치우기(self, user_id):
+        from app.models.stock import PortfolioExperiment
+        from app.db.database import SessionLocal
+        s = SessionLocal()
+        try:
+            s.query(PortfolioExperiment).filter(
+                PortfolioExperiment.user_id == user_id).delete()
+            s.commit()
+        finally:
+            s.close()
+
+    def test_60_20_20_을_저장하면_60_20_20_이_돌아온다(self, 로그인한손님):
+        c, _ = 로그인한손님
+        몸 = self._설정([
+            {"symbol": "SPY", "market": "US", "name": "SPY", "weight": 60},
+            {"symbol": "TLT", "market": "US", "name": "TLT", "weight": 20},
+            {"symbol": "GLD", "market": "US", "name": "GLD", "weight": 20},
+        ])
+        r = c.post("/api/v1/backtest/experiments", json=몸)
+        assert r.status_code == 201, r.text[:300]
+        assert [a["weight"] for a in r.json()["assets"]] == [60, 20, 20], \
+            "저장 응답에서 비중이 이미 나눠졌다"
+
+        목록 = c.get("/api/v1/backtest/experiments")
+        assert 목록.status_code == 200, 목록.text[:300]
+        내것 = [x for x in 목록.json() if x["name"] == "검사용"][0]
+        assert [a["weight"] for a in 내것["assets"]] == [60, 20, 20], \
+            ("다시 읽으니 비중이 달라졌다 — 화면에는 이 수가 퍼센트로 "
+             f'뜬다: {[a["weight"] for a in 내것["assets"]]}')
+
+    def test_비중을_안_적었으면_0_그대로_둔다(self, 로그인한손님):
+        """'동일비중' 으로 두고 저장한 경우. 0 을 억지로 채우면
+        사용자가 **안 적었다는 사실** 이 지워진다."""
+        c, _ = 로그인한손님
+        몸 = self._설정([
+            {"symbol": "SPY", "market": "US", "name": "SPY", "weight": 0},
+            {"symbol": "TLT", "market": "US", "name": "TLT", "weight": 0},
+        ], equal_weight=True)
+        r = c.post("/api/v1/backtest/experiments", json=몸)
+        assert r.status_code == 201, r.text[:300]
+        내것 = [x for x in c.get("/api/v1/backtest/experiments").json()
+                if x["name"] == "검사용"][0]
+        assert [a["weight"] for a in 내것["assets"]] == [0, 0]
+
+    def test_이미_나눠져_저장된_옛날_실험도_되살려_보낸다(self, 로그인한손님):
+        """저장 쪽만 고치면 이미 계정에 들어 있는 줄들은 영영 0.2% 로
+        남는다. 그 줄을 열면 비중 칸에 0.2 가 들어와 다시 쳐야 한다."""
+        from app.models.stock import PortfolioExperiment
+        from app.db.database import SessionLocal
+        c, uid = 로그인한손님
+        s = SessionLocal()
+        s.add(PortfolioExperiment(
+            user_id=uid, name="옛날것", currency="KRW",
+            initial_amount=10_000_000,
+            start_date="2020-01-02", end_date="2021-12-30",
+            assets=[{"symbol": "SPY", "market": "US", "name": "SPY", "weight": 0.6},
+                    {"symbol": "TLT", "market": "US", "name": "TLT", "weight": 0.2},
+                    {"symbol": "GLD", "market": "US", "name": "GLD", "weight": 0.2}],
+            contribution_period="none", contribution_amount=0,
+            rebalance_period="none", total_return=True))
+        s.commit(); s.close()
+
+        내것 = [x for x in c.get("/api/v1/backtest/experiments").json()
+                if x["name"] == "옛날것"][0]
+        assert [a["weight"] for a in 내것["assets"]] == [60, 20, 20], \
+            f'옛날 줄이 안 되살아났다: {[a["weight"] for a in 내것["assets"]]}'
+
+    def test_되살리면서_DB_를_고쳐_쓰지_않는다(self, 로그인한손님):
+        """읽기 요청이 조용히 쓰기를 하면, 값이 어디서 바뀐 것인지
+        나중에 아무도 못 찾는다.
+
+        ORM 객체의 assets 를 그 자리에서 고치면 그 객체는 '바뀐 것' 으로
+        표시된다. 지금은 아무도 commit 을 안 해서 티가 안 나지만, 이
+        세션을 쓰는 코드가 나중에 하나만 commit 하면 그 순간 DB 가
+        바뀐다. 그래서 **같은 세션에 일부러 commit 을 걸어** 본다 —
+        요청이 끝난 세션이 깨끗한지는 이렇게 해야만 드러난다.
+        """
+        from app.models.stock import PortfolioExperiment
+        from app.db.database import SessionLocal
+        from app.api.routes.backtest import get_db
+        c, uid = 로그인한손님
+
+        s = SessionLocal()
+        s.add(PortfolioExperiment(
+            user_id=uid, name="그대로", currency="KRW",
+            initial_amount=10_000_000,
+            start_date="2020-01-02", end_date="2021-12-30",
+            assets=[{"symbol": "SPY", "market": "US", "name": "SPY", "weight": 0.6},
+                    {"symbol": "TLT", "market": "US", "name": "TLT", "weight": 0.4}],
+            contribution_period="none", contribution_amount=0,
+            rebalance_period="none", total_return=True))
+        s.commit(); s.close()
+
+        내세션 = SessionLocal()
+        app.dependency_overrides[get_db] = lambda: 내세션
+        try:
+            r = c.get("/api/v1/backtest/experiments")
+            assert r.status_code == 200, r.text[:300]
+            #: 화면에는 되살려서 나가야 한다
+            보인것 = [x for x in r.json() if x["name"] == "그대로"][0]
+            assert [a["weight"] for a in 보인것["assets"]] == [60, 40]
+            #: 그런데 세션에는 고칠 것이 없어야 한다
+            내세션.commit()
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            내세션.close()
+
+        s = SessionLocal()
+        try:
+            남은것 = (s.query(PortfolioExperiment)
+                      .filter(PortfolioExperiment.name == "그대로").first())
+            assert [a["weight"] for a in 남은것.assets] == [0.6, 0.4], \
+                "읽기만 했는데 DB 가 바뀌었다"
+        finally:
+            s.close()
+
+    def test_칸이_하나도_빠지지_않는다(self, 로그인한손님):
+        """목록을 dict 로 베껴서 내보내므로, 칸을 손으로 적었다면
+        나중에 칸이 늘었을 때 그 칸만 조용히 빠진다. 화면은 그것을
+        undefined 로 받아 설정 하나가 사라진 채로 열린다."""
+        from app.models.stock import PortfolioExperiment
+        c, _ = 로그인한손님
+        몸 = self._설정([{"symbol": "SPY", "market": "US", "name": "SPY", "weight": 100}])
+        assert c.post("/api/v1/backtest/experiments", json=몸).status_code == 201
+
+        내것 = [x for x in c.get("/api/v1/backtest/experiments").json()
+                if x["name"] == "검사용"][0]
+        빠진것 = [c_.name for c_ in PortfolioExperiment.__table__.columns
+                  if c_.name not in 내것]
+        assert not 빠진것, f"목록 응답에서 빠진 칸: {빠진것}"
