@@ -41,6 +41,9 @@ export function 보낼것(s: 설정): 자산배분요청 {
     benchmark: s.benchmark,
     equal_weight: s.equal_weight,
     extended: s.extended,
+    //: 퍼센트 그대로 보낸다 — 비율로 바꾸는 것은 서버 한 곳에서만 한다
+    cash_rate: Number(s.cash_rate) || 0,
+    risk_free_rate: Number(s.risk_free_rate) || 0,
   };
 }
 
@@ -155,6 +158,8 @@ export function 실험을설정으로(x: 저장된실험, 지금: 설정): 설�
     benchmark: x.benchmark ?? 지금.benchmark,
     equal_weight: x.equal_weight ?? 지금.equal_weight,
     extended: x.extended ?? 지금.extended,
+    cash_rate: x.cash_rate ?? 지금.cash_rate,
+    risk_free_rate: x.risk_free_rate ?? 지금.risk_free_rate,
   };
 }
 

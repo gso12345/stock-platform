@@ -38,6 +38,7 @@ const 결과흉내 = {
   assets: [{ symbol: "AAPL", market: "US", name: "Apple", weight: 0.6 }],
   skipped: [], fx_skipped: [], mixed_currency: true, costs_included: false,
   costs: null, cost_rate: null, data_interval: "daily" as const,
+  risk_free_rate: 0, cash_rate: 0,
   benchmark: null, extended_from: {},
 };
 
@@ -64,6 +65,7 @@ import { 눈금글 } from "../AllocationResult";
 import {
   기간에서날짜, 못돌리는이유, 첫설정, 읽는금액, 금액값들, 빠른기간,
 } from "../AllocationForm";
+import { 실험을설정으로 } from "../AllocationTab";
 import 자산배분결과화면 from "../AllocationResult";
 
 function 그리기() {
@@ -778,4 +780,59 @@ describe("저장했다는 것을 알려 준다", () => {
         "설정을 고쳤는데 '저장했어요' 가 그대로다").toBeNull();
     });
   }, 20000);
+});
+
+
+describe("가정을 감추지 않는다", () => {
+  /* 샤프는 '무위험으로 그냥 둬도 얻었을 것' 을 뺀 수이고, 낙폭은 넣은
+     돈을 지운 곡선에서 잰 수다. 무엇을 가정하고 잰 것인지 화면에 없으면
+     사람은 자기 기준으로 읽는다 — 가정을 감추는 것이 가정 자체보다
+     나쁘다. */
+
+  it("무위험수익률과 현금 이자를 칠 수 있다", async () => {
+    그리기();
+    for (const 이름 of ["현금 이자", "무위험수익률"]) {
+      expect(screen.getByLabelText(이름), `${이름} 칸이 없다`).toBeInTheDocument();
+    }
+  });
+
+  it("고른 값이 그대로 서버에 간다", () => {
+    const 설정 = { ...첫설정(), cash_rate: 3.5, risk_free_rate: 2.75 };
+    const 보낼 = 보낼것(설정);
+    /* 퍼센트 그대로 보낸다 — 비율로 바꾸는 것은 서버 한 곳에서만 한다.
+       양쪽에서 나누면 100분의 1 이 되고 아무도 못 알아챈다. */
+    expect(보낼.cash_rate).toBe(3.5);
+    expect(보낼.risk_free_rate).toBe(2.75);
+  });
+
+  it("결과에 무엇을 가정했는지 적는다", () => {
+    render(<자산배분결과화면 r={결과흉내 as never} />);
+    const 글 = document.body.textContent ?? "";
+    expect(글, "낙폭 기준을 안 적는다").toMatch(/낙폭.*넣은 돈/);
+    expect(글, "무위험수익률을 안 적는다").toMatch(/무위험 0%/);
+    expect(글, "현금 이자를 안 적는다").toMatch(/현금은 이자 없음/);
+  });
+
+  it("현금 이자를 넣었으면 그 값을 적는다", () => {
+    render(<자산배분결과화면 r={{ ...결과흉내, cash_rate: 3 } as never} />);
+    expect(document.body.textContent).toMatch(/현금 이자 연 3%/);
+  });
+
+  it("저장한 실험에서 두 설정을 되살린다", () => {
+    /* 설정 하나라도 빠지면 불러와 다시 돌렸을 때 저장할 때와 다른
+       수가 나온다. 오류도 경고도 없어서 눈으로는 못 찾는다. */
+    const 지금 = 첫설정();
+    const 되살림 = 실험을설정으로(
+      { cash_rate: 3.5, risk_free_rate: 2 } as never, 지금);
+    expect(되살림.cash_rate).toBe(3.5);
+    expect(되살림.risk_free_rate).toBe(2);
+  });
+
+  it("옛날 실험에는 그 칸이 없다 — 지금 값을 그대로 둔다", () => {
+    /* undefined 를 넣으면 입력칸이 통제 불능이 된다 */
+    const 지금 = { ...첫설정(), cash_rate: 1.5, risk_free_rate: 1 };
+    const 되살림 = 실험을설정으로({} as never, 지금);
+    expect(되살림.cash_rate).toBe(1.5);
+    expect(되살림.risk_free_rate).toBe(1);
+  });
 });

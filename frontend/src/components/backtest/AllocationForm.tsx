@@ -121,6 +121,10 @@ export interface 설정 {
   benchmark: 벤치마크키;
   equal_weight: boolean;
   extended: boolean;
+  /** 현금에 붙는 연 이율(%) */
+  cash_rate: number;
+  /** 샤프를 잴 때 뺄 무위험수익률(연 %) */
+  risk_free_rate: number;
 }
 
 export function 첫설정(오늘 = new Date()): 설정 {
@@ -148,6 +152,11 @@ export function 첫설정(오늘 = new Date()): 설정 {
     benchmark: "none",
     equal_weight: false,
     extended: false,
+    /* 둘 다 0 으로 시작한다. 지어낸 값을 넣어 두면 사용자는 그게
+       자기 기준인 줄 안다. 대신 결과에 '무엇을 가정하고 잰 수인가' 를
+       적어 보여 준다 — 가정을 감추는 것이 0 자체보다 나쁘다. */
+    cash_rate: 0,
+    risk_free_rate: 0,
   };
 }
 
@@ -206,7 +215,7 @@ function 고르기({ 이름, 값, 바꾸기, 것들 }: {
   );
 }
 
-/** 거래비용 칸 — 직접 친다.
+/** 퍼센트를 직접 치는 칸 — 거래비용·현금이자·무위험수익률이 같이 쓴다.
  *
  *  ── 왜 글자를 따로 들고 있나 ────────────────────────────────
  *
@@ -219,8 +228,14 @@ function 고르기({ 이름, 값, 바꾸기, 것들 }: {
  *
  *  그래서 **치는 동안에는 글자 그대로** 들고, 숫자는 그때그때 올려
  *  보낸다. 밖에서 값이 바뀌면(빠른 버튼, 저장한 실험 불러오기)
- *  그때만 글자를 맞춰 준다. */
-function 비용칸({ 값, 바꾸기 }: { 값: number; 바꾸기: (v: number) => void }) {
+ *  그때만 글자를 맞춰 준다.
+ *
+ *  세 칸이 똑같은 고장을 안고 있으므로 한 부품으로 만든다 — 베껴
+ *  두면 한 곳만 고치고 나머지는 그대로 남는다. */
+export function 퍼센트칸({ id, 이름, 값, 바꾸기, 최대 = 5, 설명 }: {
+  id: string; 이름: string; 값: number; 바꾸기: (v: number) => void;
+  최대?: number; 설명?: string;
+}) {
   const [글, set글] = useState(값 ? String(값) : "");
 
   /* 밖에서 바뀐 것만 따라간다. 내가 친 글자까지 덮으면 도로 같은
@@ -232,10 +247,10 @@ function 비용칸({ 값, 바꾸기 }: { 값: number; 바꾸기: (v: number) => 
 
   return (
     <div className="flex flex-col gap-1 min-w-0">
-      <label htmlFor="bt-cost" className="text-xs text-text-muted">거래비용</label>
+      <label htmlFor={id} className="text-xs text-text-muted">{이름}</label>
       <div className="flex items-center gap-1 bg-bg-elevated border border-border rounded-xl px-3 min-w-0">
         <input
-          id="bt-cost" type="text" inputMode="decimal" placeholder="0"
+          id={id} type="text" inputMode="decimal" placeholder="0"
           className="flex-1 min-w-0 bg-transparent py-2.5 text-sm text-text-primary focus:outline-none"
           value={글}
           onChange={(e) => {
@@ -244,11 +259,12 @@ function 비용칸({ 값, 바꾸기 }: { 값: number; 바꾸기: (v: number) => 
             const 다음 = e.target.value.replace(/[^\d.]/g, "").slice(0, 6);
             set글(다음);
             const n = Number(다음);
-            바꾸기(Number.isFinite(n) ? Math.min(n, 5) : 0);
+            바꾸기(Number.isFinite(n) ? Math.min(n, 최대) : 0);
           }}
         />
         <span className="text-sm text-text-muted flex-shrink-0">%</span>
       </div>
+      {설명 && <span className="text-2xs text-text-dim break-keep">{설명}</span>}
     </div>
   );
 }
@@ -599,7 +615,8 @@ export default function 자산배분설정({
           {/* 증권사마다 수수료가 제각각이라 목록으로는 다 못 담는다.
               목록에만 두면 자기 수수료가 없는 사람은 비슷한 값을 고르게
               되고, 그건 틀린 값으로 계산하는 것이다 — 직접 친다. */}
-          <비용칸 값={값.cost_rate} 바꾸기={(v) => 바꾸기({ ...값, cost_rate: v })} />
+          <퍼센트칸 id="bt-cost" 이름="거래비용" 값={값.cost_rate}
+                    바꾸기={(v) => 바꾸기({ ...값, cost_rate: v })} />
           <고르기 이름="배분 기준" 값={값.equal_weight ? "equal" : "custom"}
                   바꾸기={(v) => 바꾸기({ ...값, equal_weight: v === "equal" })}
                   것들={[{ value: "custom", label: "직접 지정" },
@@ -614,6 +631,23 @@ export default function 자산배분설정({
                     onClick={() => 바꾸기({ ...값, cost_rate: c })}
             >{c === 0 ? "반영 안 함" : `${c}%`}</고른칩>
           ))}
+        </div>
+
+        {/* ── 현금 이자 · 무위험수익률 ──
+            둘 다 **말없이 0 으로 가정하던 것**이다.
+            · 현금 이자 0 은 현금 몫이 30년 내내 안 불어난다는 뜻이라,
+              현금을 담을수록 실제보다 나쁘게 나왔다.
+            · 무위험 0 은 금리 5% 인 해에 연 5% 를 번 전략의 초과수익이
+              0 인데도 샤프가 0.5 로 나온다는 뜻이다.
+            기본값은 그대로 0 이지만, 고를 수 있게 하고 결과에 무엇을
+            가정했는지 적는다. */}
+        <div className="grid grid-cols-2 gap-3">
+          <퍼센트칸 id="bt-cash" 이름="현금 이자" 값={값.cash_rate} 최대={20}
+                    설명="예금·MMF 에 두면 받는 연 이율"
+                    바꾸기={(v) => 바꾸기({ ...값, cash_rate: v })} />
+          <퍼센트칸 id="bt-rf" 이름="무위험수익률" 값={값.risk_free_rate} 최대={20}
+                    설명="샤프를 잴 때 빼는 연 이율"
+                    바꾸기={(v) => 바꾸기({ ...값, risk_free_rate: v })} />
         </div>
         {값.equal_weight && 값.assets.length > 1 && (
           <p className="text-2xs text-text-dim break-keep">

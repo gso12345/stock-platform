@@ -10,8 +10,20 @@ class BacktestEngine:
     def run(self, ohlcv: list, entry_conditions: dict, exit_conditions: dict,
             stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
             position_size: float = 0.95, initial_capital: Optional[float] = None,
-            거래비용: float = 0.0) -> dict:
+            거래비용: float = 0.0, 평가시작: Optional[str] = None,
+            무위험수익률: float = 0.0) -> dict:
         """거래비용 — 0.001 이면 0.1%. 살 때도 팔 때도 뗀다.
+
+        평가시작 — 'YYYY-MM-DD'. **지표는 받은 자료 전부로 만들고, 매매와
+        기록은 이 날부터** 한다. 앞쪽 봉은 지표를 데우는 데만 쓰인다.
+
+        왜 필요한가 — 엔진은 받은 자료로만 지표를 만든다. 요청한 기간을
+        딱 잘라 주면 MA200 은 앞 199봉이 비고, 빈 값에서는 어떤 신호도
+        안 난다. 1년 백테스트라면 **79%가 죽은 구간**이 된다(실측:
+        거래 1건, 데워서 재면 6건).
+
+        앞을 그냥 같이 재면 안 된다 — 그러면 요청한 것보다 긴 기간의
+        성적이 나온다. 지표는 데운 값으로, 성과는 요청한 구간만.
 
         자산배분 백테스트에는 이미 들어가 있었는데 이쪽에는 없었다.
         **같은 화면의 두 탭이 다른 기준으로 계산**하고 있었던 셈이다 —
@@ -49,7 +61,22 @@ class BacktestEngine:
         지표 계산은 전체의 11% 뿐이었다. 89%가 이 순회였다 —
         처음에는 지표가 범인일 거라 짐작했는데 재 보니 아니었다."""
         줄들 = df.to_dict("records")
-        for i, row in enumerate(줄들):
+        """데우는 구간은 건너뛴다 — 지표는 이미 위에서 다 만들어졌다.
+
+        건너뛰되 `줄들` 은 통째로 들고 간다. 크로스 판정이 `줄들[i-1]`
+        을 보기 때문이다. 평가 첫날의 '어제' 가 없으면 그날 크로스는
+        영영 안 잡힌다."""
+        시작칸 = 0
+        if 평가시작:
+            for i, row in enumerate(줄들):
+                if str(row["date"].date()) >= 평가시작:
+                    시작칸 = i
+                    break
+            else:
+                return {}          # 평가할 구간이 아예 없다
+
+        for i in range(시작칸, len(줄들)):
+            row = 줄들[i]
             price = row["close"]
             portfolio_value = capital + position * price
             equity_curve.append({"date": str(row["date"].date()),
@@ -89,7 +116,7 @@ class BacktestEngine:
                         비용합 += 받은돈 * 비용률
                         capital += 받은돈 * (1 - 비용률)
                         trades.append(self._trade("손절", entry_date, row["date"].date(),
-                                                  entry_price, 체결, 실현, position))
+                                                  entry_price, 체결, 실현, position, 비용률))
                         position = 0; continue
                 if take_profit:
                     익절선 = entry_price * (1 + take_profit / 100)
@@ -100,14 +127,23 @@ class BacktestEngine:
                         비용합 += 받은돈 * 비용률
                         capital += 받은돈 * (1 - 비용률)
                         trades.append(self._trade("익절", entry_date, row["date"].date(),
-                                                  entry_price, 체결, 실현, position))
+                                                  entry_price, 체결, 실현, position, 비용률))
                         position = 0; continue
                 if self._check(row, 줄들, i, exit_conditions):
                     받은돈 = position * price
                     비용합 += 받은돈 * 비용률
                     capital += 받은돈 * (1 - 비용률)
-                    trades.append(self._trade("청산", entry_date, row["date"].date(), entry_price, price, pnl, position))
+                    trades.append(self._trade("청산", entry_date, row["date"].date(), entry_price, price, pnl, position, 비용률))
                     position = 0
+                    """판 봉에서는 **다시 안 산다.**
+
+                    손절·익절은 위에서 `continue` 로 이미 그러고 있었는데
+                    조건 청산만 빠져 있었다. 그래서 파는 조건과 사는
+                    조건이 같은 봉에 맞으면 같은 값에 그대로 되샀다 —
+                    값이 40봉 내내 그대로인 자료로 재 보니 **거래 40건에
+                    수수료 173만원, 수익률 -16.71%** 가 나왔다. 같은
+                    엔진 안에서 두 길이 다르게 동작하고 있었다."""
+                    continue
 
             if position == 0 and self._check(row, 줄들, i, entry_conditions):
                 """수수료까지 낼 수 있는 만큼만 산다.
@@ -128,17 +164,64 @@ class BacktestEngine:
             받은돈 = position * p
             비용합 += 받은돈 * 비용률
             capital += 받은돈 * (1 - 비용률)
-            trades.append(self._trade("만기청산", entry_date, df["date"].iloc[-1].date(), entry_price, p, pnl, position))
+            trades.append(self._trade("만기청산", entry_date, df["date"].iloc[-1].date(), entry_price, p, pnl, position, 비용률))
+            position = 0
 
-        return self._metrics(equity_curve, trades, 비용합 if 비용률 > 0 else None, 비용률)
+        """**마지막 봉의 거래까지 곡선에 넣는다.**
 
-    def _trade(self, type_, entry_date, exit_date, entry_price, exit_price, pnl, shares):
+        곡선은 봉마다 그 봉의 매매를 하기 **전** 값을 적는다. 중간
+        봉에서는 그 봉에 낸 수수료가 다음 봉 값에 나타나니 괜찮은데,
+        마지막 봉에는 다음이 없다. 그래서 마지막 봉에 판 수수료가
+        수익률에 영영 안 들어갔다 — 실측으로 수수료 합 56,621원 중
+        32,930원이 빠져 36.72% 와 36.39% 가 갈렸다. costs 에는 더해 놓고
+        곡선에는 없는, 같은 결과 안에서 앞뒤가 안 맞는 상태였다.
+
+        만기청산만 고치면 **마지막 봉에서 조건으로 팔린 경우**가 그대로
+        남는다. 그래서 어느 길로 끝났든 마지막 값을 '지금 가진 현금 +
+        들고 있는 주식' 으로 다시 적는다.
+
+        수수료가 0 이면 사고파는 것이 값을 안 바꾸므로 이 줄은 아무
+        일도 안 한다 — 옛날 결과가 달라지지 않는다."""
+        if equity_curve:
+            """float() 로 한 번 더 벗긴다.
+
+            capital 은 봉 가격(np.float64)이 섞이면서 numpy 스칼라가 돼
+            있다. round() 는 numpy 를 넣으면 numpy 를 돌려주므로 그대로
+            두면 곡선 끝 한 칸만 np.float64 가 된다 — 이 dict 는 DB 의
+            JSON 칸에도 들어가는데 드라이버에 따라 거기서 직렬화가
+            터진다. 값은 맞는데 저장만 실패하는, 찾기 어려운 자리다.
+            (검사가 이것을 잡았다. 위 줄들이 전부 float() 로 벗기고
+             있었는데 새로 넣은 이 줄만 빠져 있었다.)"""
+            끝값 = float(df["close"].iloc[-1])
+            equity_curve[-1]["value"] = round(float(capital) + position * 끝값, 0)
+
+        return self._metrics(equity_curve, trades, 비용합 if 비용률 > 0 else None,
+                             비용률, 무위험수익률)
+
+    def _trade(self, type_, entry_date, exit_date, entry_price, exit_price, pnl,
+               shares, 비용률=0.0):
         """numpy 스칼라를 여기서 벗긴다.
 
         가격이 pandas 에서 나오면 np.float64 다. 그대로 두면 이 dict 가
         응답으로도 나가고 **DB 의 JSON 칸에도** 들어가는데, 드라이버에
         따라 거기서 직렬화가 터진다. 값이 맞는데도 저장만 실패하는,
-        원인을 찾기 어려운 자리다. 만드는 곳에서 한 번에 벗긴다."""
+        원인을 찾기 어려운 자리다. 만드는 곳에서 한 번에 벗긴다.
+
+        ── net_pnl_rate 를 같이 담는 이유 ──
+
+        pnl_rate 는 **값이 얼마나 움직였나**다. 수수료는 안 들어 있다.
+        그 수로 승률을 세면, 수수료를 내고 나면 손해인 거래가 '이긴
+        거래' 로 잡힌다. 실측으로 수수료 0.25% 에서 **승률 100% 인데
+        실제 수익률은 -6.74%** 인 상황이 나왔다 — 화면의 두 숫자가
+        정반대를 말한 셈이다.
+
+        net_pnl_rate 는 **낸 돈 대비 받은 돈**이다. 살 때 (1+비용률)만큼
+        더 내고 팔 때 (1-비용률)만큼 덜 받는다. 승률·평균손익·손익비는
+        전부 이 수로 센다. pnl_rate 도 남겨 둔다 — 표에 적힌 매수가·
+        매도가와 앞뒤가 맞는 수가 하나는 있어야 한다."""
+        낸돈 = float(shares) * float(entry_price) * (1 + 비용률)
+        받은돈 = float(shares) * float(exit_price) * (1 - 비용률)
+        순 = ((받은돈 - 낸돈) / 낸돈 * 100) if 낸돈 > 0 else 0.0
         return {
             "type": type_,
             "entry_date": str(entry_date),
@@ -146,6 +229,8 @@ class BacktestEngine:
             "entry_price": round(float(entry_price), 2),
             "exit_price": round(float(exit_price), 2),
             "pnl_rate": round(float(pnl), 2),
+            #: 수수료까지 뺀 실제 손익. 승률·손익비는 이 수로 센다.
+            "net_pnl_rate": round(순, 2),
             "shares": int(shares),
         }
 
@@ -302,7 +387,7 @@ class BacktestEngine:
         }
         return ops.get(operator, False)
 
-    def _metrics(self, equity_curve, trades, 비용합=None, 비용률=0.0):
+    def _metrics(self, equity_curve, trades, 비용합=None, 비용률=0.0, 무위험수익률=0.0):
         if not equity_curve:
             return {}
         vals = [e["value"] for e in equity_curve]
@@ -359,15 +444,34 @@ class BacktestEngine:
 
         이 파일은 승률·손익비에서 이미 그 구분을 지키고 있었는데
         샤프만 빠져 있었다."""
+        """연으로 늘릴 때 곱하는 수는 자료에서 직접 센다 — 자산배분
+        엔진과 같은 규칙이다. 늘 √252 로 박아 두면 자료에 구멍이
+        많은 종목에서 위험이 부풀려진다."""
         daily_rets = pd.Series(vals).pct_change().dropna()
         표준 = daily_rets.std() if len(daily_rets) > 1 else 0
-        sharpe = (daily_rets.mean() / 표준 * np.sqrt(252)) if 표준 and 표준 > 0 else None
+        연칸수 = (len(daily_rets) / years) if years > 0 else 252
+        """무위험수익률을 빼고 잰다 — 자산배분 엔진과 같은 규칙이다.
 
-        win_rate = sum(1 for t in trades if t["pnl_rate"] > 0) / len(trades) * 100 if trades else 0
-        avg_profit = np.mean([t["pnl_rate"] for t in trades if t["pnl_rate"] > 0]) if any(t["pnl_rate"] > 0 for t in trades) else 0
-        avg_loss = np.mean([t["pnl_rate"] for t in trades if t["pnl_rate"] < 0]) if any(t["pnl_rate"] < 0 for t in trades) else 0
-        total_profit = sum(t["pnl_rate"] for t in trades if t["pnl_rate"] > 0)
-        total_loss = sum(abs(t["pnl_rate"]) for t in trades if t["pnl_rate"] < 0)
+        샤프는 원래 '그냥 무위험으로 뒀어도 얻었을 것' 을 뺀 초과수익을
+        위험으로 나눈 값이다. 0 으로 두면 금리 5% 인 해에 연 5% 를 번
+        전략이 초과수익 0 인데도 샤프 0.5 로 나온다. 기본은 0 이지만
+        무엇을 가정했는지 응답에 적어 내보낸다."""
+        칸무위험 = ((1 + 무위험수익률) ** (1 / 연칸수) - 1) if 연칸수 > 0 else 0.0
+        sharpe = ((daily_rets.mean() - 칸무위험) / 표준 * np.sqrt(연칸수)
+                  if 표준 and 표준 > 0 else None)
+
+        """승률·평균손익·손익비는 **수수료까지 뺀** 손익으로 센다.
+
+        가격 손익(pnl_rate)으로 세면 수수료를 내고 나면 손해인 거래가
+        '이긴 거래' 가 된다. 실측으로 승률 100% 에 실제 수익률 -6.74%
+        가 같이 찍혔다 — 화면의 두 숫자가 정반대를 말한 셈이다.
+        수수료 0% 로 돌리면 두 수가 같으므로 달라지는 것도 없다."""
+        순 = lambda t: t.get("net_pnl_rate", t["pnl_rate"])
+        win_rate = sum(1 for t in trades if 순(t) > 0) / len(trades) * 100 if trades else 0
+        avg_profit = np.mean([순(t) for t in trades if 순(t) > 0]) if any(순(t) > 0 for t in trades) else 0
+        avg_loss = np.mean([순(t) for t in trades if 순(t) < 0]) if any(순(t) < 0 for t in trades) else 0
+        total_profit = sum(순(t) for t in trades if 순(t) > 0)
+        total_loss = sum(abs(순(t)) for t in trades if 순(t) < 0)
         """손실이 하나도 없으면 손익비는 **잴 수 없다**(0 이 아니다).
 
         예전에는 0 을 내려보냈다. 손익비 0 은 '번 돈이 하나도 없다' 는
@@ -399,6 +503,11 @@ class BacktestEngine:
             return None if v is None else round(float(v), 2)
 
         return {
+            #: **실제로 잰 구간.** 요청한 기간과 다를 수 있다 — 종목이
+            #  늦게 상장했거나 시세가 거기까지 없으면 짧아진다.
+            #  안 적어 보내면 화면은 요청한 기간을 쟀다고 믿는다.
+            "start_date": 첫날,
+            "end_date": 끝날,
             "total_return": _수(total_return),
             "annual_return": _수(annual_return),
             "mdd": _수(mdd),
@@ -415,6 +524,8 @@ class BacktestEngine:
             #  '안 넣었다' 와 '넣었는데 0원' 은 다른 말이다.
             "costs": _수(비용합),
             "cost_rate": 비용률 if 비용률 > 0 else None,
+            #: 샤프를 잴 때 무엇을 무위험으로 봤나(연 %). 가정은 숨기지 않는다.
+            "risk_free_rate": round(float(무위험수익률) * 100, 2),
             "equity_curve": equity_curve,
             "trades": trades,
         }

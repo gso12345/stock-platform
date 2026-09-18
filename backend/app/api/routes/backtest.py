@@ -3,7 +3,7 @@ from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 from typing import Annotated, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 import logging
 from slowapi import Limiter
@@ -30,6 +30,15 @@ def _parse_date(v: str) -> str:
     except ValueError:
         raise ValueError("날짜 형식은 YYYY-MM-DD여야 합니다")
     return v
+
+
+#: 지표를 데우려고 **요청한 시작일보다 앞서** 더 받아 오는 날 수.
+#
+#  엔진에서 제일 긴 지표가 200일 이동평균과 52주(252일) 고저다.
+#  거래일로 252일이면 달력으로는 주말·휴장 때문에 365일이 넘는다.
+#  넉넉히 400일을 잡는다 — 모자라면 앞부분 지표가 비고, 남으면
+#  받아 오는 자료만 조금 많아진다(계산은 안 늘어난다).
+워밍업일수 = 400
 
 
 #: 종목 코드에 들어올 수 있는 글자.
@@ -68,6 +77,9 @@ class BacktestRequest(BaseModel):
     #  자산배분(/portfolio)에는 있었는데 여기만 없어서, 같은 화면의 두
     #  탭이 다른 기준으로 계산하고 있었다.
     cost_rate: float = Field(0, ge=0, le=5)
+    #: 샤프를 잴 때 뺄 무위험수익률(연 %). 0 이면 '무위험 0%' 라는
+    #  **가정**이고, 그 가정도 응답에 적어 내보낸다.
+    risk_free_rate: float = Field(0, ge=0, le=20)
     strategy_id: Optional[int] = None
 
     @field_validator("start_date", "end_date")
@@ -93,6 +105,9 @@ class UniverseBacktestRequest(BaseModel):
     stop_loss: Optional[float] = Field(None, ge=0.1, le=99.0)
     take_profit: Optional[float] = Field(None, ge=0.1, le=999.0)
     position_size: float = Field(0.95, gt=0, le=1.0)
+    #: 샤프를 잴 때 뺄 무위험수익률(연 %). 0.0 이면 '무위험 0%' 라는
+    #  **가정**이고, 그 가정도 응답에 적어 내보낸다.
+    risk_free_rate: float = Field(0, ge=0, le=20)
     cost_rate: float = Field(0, ge=0, le=5)
     rank_by: str = Field("total_return", pattern="^(total_return|annual_return|mdd|sharpe_ratio|win_rate|profit_factor)$")
     top_n: int = Field(20, ge=1, le=50)
@@ -121,11 +136,24 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
     end_dt = datetime.strptime(req.end_date, "%Y-%m-%d")
     if end_dt <= start_dt:
         raise HTTPException(status_code=400, detail="종료일은 시작일보다 이후여야 합니다")
-    days = (end_dt - start_dt).days
-    period_map = [(30, "1mo"), (90, "3mo"), (180, "6mo"), (365, "1y"), (730, "2y"), (1825, "5y"), (3650, "10y")]
-    period = next((p for d, p in period_map if days <= d), "max")
+    """기간은 **오늘부터 거꾸로** 잡아야 한다. 길이로 잡으면 안 된다.
 
+    예전에는 `days = 끝 - 시작` 으로 period 를 골랐다. 3년짜리 요청이면
+    '5y' 를 받아 오는데, yfinance 의 period 는 **오늘 기준**이라 그건
+    '오늘부터 5년 전까지' 다. 2020~2023 을 요청하면 겹치는 1.28년만
+    남았고, 화면은 3년을 쟀다고 믿었다(실측). 2015년이나 2008년처럼
+    아예 안 겹치는 구간은 '데이터가 부족합니다' 로 막혔다.
+
+    10년 요청만 우연히 맞았다 — period_map 을 넘어가 'max' 로 떨어졌기
+    때문이다. 그래서 '10년은 되는데 3년은 이상하다' 는, 원인을 짐작하기
+    가장 어려운 모양이 됐다.
+
+    자산배분 쪽 `_기간이름` 은 처음부터 오늘 기준으로 세고 있었다.
+    같은 화면의 두 탭이 다른 규칙을 쓰고 있었던 셈이다."""
     mkt = "KR" if req.market == "KR" else "US"
+    #: 지표를 데울 구간까지 거슬러 받는다(아래 워밍업 설명 참고)
+    데울시작 = (start_dt - timedelta(days=워밍업일수)).date().isoformat()
+    period = _기간이름(데울시작, req.end_date)
     loop = asyncio.get_running_loop()
     """시세를 못 받는 것은 **사용자가 고칠 수 있는 일**이다.
 
@@ -142,14 +170,26 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
         raise HTTPException(
             status_code=400,
             detail="시세를 받지 못했어요. 종목 코드를 확인해 주세요")
-    ohlcv = [row for row in (ohlcv or []) if req.start_date <= row["date"] <= req.end_date]
+    """**지표를 데울 구간을 앞에 붙여 준다.**
+
+    예전에는 요청한 기간으로 딱 잘라서 엔진에 줬다. 엔진은 받은
+    자료로만 지표를 만드니 앞부분이 비어 있고, 빈 값에서는 어떤 신호도
+    안 난다. 1년 백테스트에 MA200 을 걸면 **1년 중 79%(199봉)가 죽은
+    구간**이었다 — 거래 1건, 데워서 재면 6건이었다(실측). MA120 이면
+    47%, MA60 이면 23% 다.
+
+    그래서 자료는 데울 구간까지 주고, **매매와 기록은 요청한 날부터**
+    하게 한다(평가시작). 지표는 데운 값으로 계산되고 성과는 요청한
+    구간만 잡힌다 — 둘을 섞으면 안 된다."""
+    데운것 = [row for row in (ohlcv or []) if 데울시작 <= row["date"] <= req.end_date]
+    ohlcv = [row for row in 데운것 if req.start_date <= row["date"]]
 
     if len(ohlcv) < 20:
         raise HTTPException(status_code=400, detail="데이터가 부족합니다 (최소 20일 필요)")
 
     # 백테스트 실행
     result = backtest_engine.run(
-        ohlcv=ohlcv,
+        ohlcv=데운것,
         entry_conditions=req.entry_conditions,
         exit_conditions=req.exit_conditions,
         stop_loss=req.stop_loss,
@@ -159,6 +199,8 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
         #: 화면은 퍼센트(0.1)로 주고 엔진은 비율(0.001)로 받는다.
         #  이 자리를 안 나누면 수수료가 100배가 된다.
         거래비용=(req.cost_rate or 0) / 100,
+        평가시작=req.start_date,
+        무위험수익률=(req.risk_free_rate or 0) / 100,
     )
 
     """**그냥 들고 있었으면 어땠나**를 같이 낸다.
@@ -178,9 +220,11 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
             {"indicator": "PRICE", "operator": ">", "value": 0}]}
         안팜 = {"logic": "AND", "conditions": []}
         기준 = backtest_engine.run(
-            ohlcv=ohlcv, entry_conditions=묻지도않고삼, exit_conditions=안팜,
+            ohlcv=데운것, entry_conditions=묻지도않고삼, exit_conditions=안팜,
             position_size=req.position_size, initial_capital=req.initial_capital,
             거래비용=(req.cost_rate or 0) / 100,
+            평가시작=req.start_date,
+            무위험수익률=(req.risk_free_rate or 0) / 100,
         )
         if 기준:
             사고버티기 = {k: 기준.get(k) for k in
@@ -255,11 +299,10 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
     if not symbols:
         raise HTTPException(status_code=400, detail="종목 목록이 비어있습니다")
 
-    start_dt = datetime.strptime(req.start_date, "%Y-%m-%d")
-    end_dt = datetime.strptime(req.end_date, "%Y-%m-%d")
-    days = (end_dt - start_dt).days
-    period_map = [(30, "1mo"), (90, "3mo"), (180, "6mo"), (365, "1y"), (730, "2y"), (1825, "5y"), (3650, "10y")]
-    period = next((p for d, p in period_map if days <= d), "max")
+    #: 기간과 워밍업은 /run 과 똑같은 규칙이다. 두 탭이 같은 전략을
+    #  다른 구간으로 재면 나란히 놓고 볼 수가 없다.
+    데울시작 = (start_dt - timedelta(days=워밍업일수)).date().isoformat()
+    period = _기간이름(데울시작, req.end_date)
 
     loop = asyncio.get_running_loop()
     mkt = "KR" if req.market == "KR" else "US"
@@ -270,13 +313,14 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
         async with sem:
             try:
                 ohlcv = await loop.run_in_executor(None, yf_service.get_ohlcv, symbol, period, "1d", mkt)
-                ohlcv = [r for r in ohlcv if req.start_date <= r["date"] <= req.end_date]
+                데운것 = [r for r in ohlcv if 데울시작 <= r["date"] <= req.end_date]
+                ohlcv = [r for r in 데운것 if req.start_date <= r["date"]]
                 if len(ohlcv) < 30:
                     return None
                 result = await loop.run_in_executor(
                     None,
                     lambda: backtest_engine.run(
-                        ohlcv=ohlcv,
+                        ohlcv=데운것,
                         entry_conditions=req.entry_conditions,
                         exit_conditions=req.exit_conditions,
                         stop_loss=req.stop_loss,
@@ -284,6 +328,8 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
                         position_size=req.position_size,
                         initial_capital=req.initial_capital,
                         거래비용=(req.cost_rate or 0) / 100,
+                        평가시작=req.start_date,
+                        무위험수익률=(req.risk_free_rate or 0) / 100,
                     )
                 )
                 if not result:
@@ -327,11 +373,29 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
 
     results.sort(key=순위값, reverse=높은순)
 
+    """**생존 편향을 반드시 적어 보낸다.**
+
+    종목 목록이 '오늘 살아남아 시총 상위에 있는 것들' 로 고정돼 있다.
+    그동안 망했거나 상장폐지됐거나 밀려난 회사는 애초에 목록에 없다.
+    그래서 어떤 전략을 넣어도 실제보다 좋게 나온다 — 10년 전에 그
+    전략을 돌렸다면 지금 목록에 없는 종목들도 같이 샀을 것이다.
+
+    과거 시점의 구성 종목표가 있어야 제대로 고칠 수 있는데 지금은
+    그 자료가 없다. 자료가 없으면 **없다고 말하는 것**이 맞다 —
+    조용히 두면 사용자는 이 결과를 실제 성적으로 읽는다.
+
+    'SP500' 이라는 이름도 정직하지 않아 개수를 같이 보낸다. 진짜
+    S&P 500 이 아니라 손으로 고른 316개다."""
     payload = {
         "universe": req.universe,
         "total_symbols": len(symbols),
         "tested": len(results),
         "results": results[:req.top_n],
+        "생존편향": (
+            f"종목 {len(symbols)}개는 **오늘** 기준 목록이에요. "
+            "그동안 상장폐지되거나 밀려난 회사는 처음부터 빠져 있어서, "
+            "실제로 그때 돌렸을 때보다 결과가 좋게 나옵니다."
+        ),
     }
     cache.set(ck, payload, 300)
     return payload
@@ -538,6 +602,10 @@ class 자산배분요청(BaseModel):
     benchmark: str = Field("none")
     #: 비중을 화면에서 준 대로 쓸까, 똑같이 나눌까
     equal_weight: bool = False
+    #: 현금에 붙는 연 이율(%). 0 이면 '현금은 안 불어난다' 는 가정이다.
+    cash_rate: float = Field(0, ge=0, le=20)
+    #: 샤프를 잴 때 뺄 무위험수익률(연 %).
+    risk_free_rate: float = Field(0, ge=0, le=20)
     #: ETF 가 생기기 전 구간을 지수로 이을까
     extended: bool = False
 
@@ -862,6 +930,8 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
             거래비용=비용률,
             리밸런싱날=req.rebalance_day,
             적립날짜=req.rebalance_day,
+            현금이자=(req.cash_rate or 0) / 100,
+            무위험수익률=(req.risk_free_rate or 0) / 100,
         )
 
     내자산 = [a.model_dump() for a in 쓸자산]
@@ -900,8 +970,24 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
             (실제로 6040 이 277점, 내 것이 263점으로 나왔다.)"""
             쓸벤치 = [x for x in 고른벤치["assets"] if x["symbol"] in 벤치표]
             if 쓸벤치:
+                """**벤치마크도 배당을 받아야 한다.**
+
+                예전에는 여기에 None 을 넣었다. '토탈 리턴' 을 켜면 내
+                포트폴리오만 배당을 재투자하고 견주는 상대는 못 받았다.
+                SPY 한 종목으로 10년을 재 보니 **16.6% 차이**가 났다
+                (배당 있음 2,347만원 · 없음 2,013만원). 이기는 쪽으로
+                기울어진 비교라, 어떤 조합을 넣어도 '벤치마크를 이겼다'
+                가 나오기 쉬웠다.
+
+                같은 기간·같은 납입·같은 비용으로 재겠다고 바로 위에
+                적어 놓고, 배당만 빠져 있었다."""
+                벤치배당 = None
+                if req.total_return:
+                    벤치배당 = await _배당표(
+                        벤치칸들, 결과["start_date"], 결과["end_date"],
+                        req.currency, 환율)
                 벤치결과 = await loop.run_in_executor(
-                    None, lambda: 돌리자(벤치표, [dict(x) for x in 쓸벤치], None))
+                    None, lambda: 돌리자(벤치표, [dict(x) for x in 쓸벤치], 벤치배당))
                 if 벤치결과:
                     """곡선까지 다 담으면 응답이 두 배가 된다. 견주는 데
                     필요한 것은 수치 몇 개와 곡선뿐이라 나머지는 뺀다."""
@@ -974,6 +1060,8 @@ def save_experiment(req: 실험저장요청, db: Session = Depends(get_db),
         benchmark=req.benchmark,
         equal_weight=req.equal_weight,
         extended=req.extended,
+        cash_rate=req.cash_rate,
+        risk_free_rate=req.risk_free_rate,
     )
     db.add(exp)
     db.commit()

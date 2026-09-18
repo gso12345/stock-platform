@@ -755,7 +755,16 @@ class Test저장한비중이그대로돌아온다:
         """require_user 만 갈아 끼운다 — 진짜 로그인은 이 검사의 주제가 아니다."""
         from app.api.routes.backtest import require_user, get_current_user
         from app.db.database import Base, engine
+        from app.models.stock import PortfolioExperiment
 
+        """표를 **지우고 다시 만든다.**
+
+        create_all 은 없는 표만 만들고 칸은 절대 안 건드린다. 검사용
+        sqlite 파일은 여러 번 돌리는 사이 남아 있으므로, 모델에 칸이
+        하나 늘면 그 파일의 옛날 표에는 그 칸이 없어 'no column named
+        ...' 로 깨진다. 실서비스는 _add_col_if_missing 이 맡는 일이고,
+        여기서는 매번 새 표로 시작하는 것이 맞다."""
+        PortfolioExperiment.__table__.drop(bind=engine, checkfirst=True)
         Base.metadata.create_all(bind=engine)
 
         class 아무개:

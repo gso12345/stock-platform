@@ -20,11 +20,15 @@ const DEFAULT_EXIT: ConditionGroup = {
   conditions: [{ indicator: "RSI", operator: ">", value: 70, period: 14 }],
 };
 
+/* 이름을 **정확히** 적는다.
+   'S&P 500' 이라고 쓰면 사람은 그 지수 전부를 잰 줄 아는데, 실제로는
+   오늘 시총 상위로 손으로 고른 316개다. 개수와 '오늘 기준' 을 이름에
+   넣어 두면 결과를 읽을 때 그 사실이 같이 보인다. */
 const UNIVERSE_OPTIONS = [
-  { value: "SP500",  label: "S&P 500 (미국 대형주)", market: "US" },
-  { value: "KOSPI",  label: "KOSPI (국내 대형주)",   market: "KR" },
-  { value: "KOSDAQ", label: "KOSDAQ (국내 중소형)",  market: "KR" },
-  { value: "ETF",    label: "글로벌 ETF",            market: "US" },
+  { value: "SP500",  label: "미국 대형주 (오늘 기준)", market: "US" },
+  { value: "KOSPI",  label: "KOSPI 대형주 (오늘 기준)", market: "KR" },
+  { value: "KOSDAQ", label: "KOSDAQ (오늘 기준)",      market: "KR" },
+  { value: "ETF",    label: "글로벌 ETF",              market: "US" },
 ];
 
 const RANK_OPTIONS = [
@@ -60,6 +64,21 @@ const DATE_PRESETS = [
 function 숫자(v: number | null | undefined, 자리 = 1, 앞 = "", 뒤 = ""): React.ReactNode {
   if (v == null || !Number.isFinite(v)) return <span className="text-text-dim">—</span>;
   return `${앞}${v.toFixed(자리)}${뒤}`;
+}
+
+/** 요청한 날보다 **의미 있게 늦게** 시작했나.
+ *
+ *  그냥 `result.start_date > startDate` 로 두면 거의 매번 뜬다 —
+ *  1월 1일을 요청하면 첫 거래일은 1월 2일이고, 주말·휴장이면 더
+ *  밀린다. 매번 뜨는 경고는 아무도 안 읽고, 정작 종목이 2년 늦게
+ *  상장해서 앞이 통째로 잘린 경우까지 같이 묻힌다.
+ *
+ *  달력으로 일주일을 넘게 밀렸을 때만 말한다. 연휴가 제일 긴 나라를
+ *  기준으로 잡아도 일주일이면 첫 거래일이 나온다. */
+export function 많이늦게시작(요청: string, 실제?: string | null): boolean {
+  if (!실제) return false;
+  const 밀린날 = (new Date(실제).getTime() - new Date(요청).getTime()) / 86_400_000;
+  return Number.isFinite(밀린날) && 밀린날 > 7;
 }
 
 function MetricCard({ label, value, sub, color }: {
@@ -511,7 +530,9 @@ export default function Backtest() {
                       예전에는 이것들을 전부 0 으로 냈고, 화면은 '승률 0%' 를
                       그렸다 — '다 졌다' 로 읽힌다. 못 잰 것은 '—' 로 적는다.
                       (물음표 접근자만 쓰면 'undefined%' 가 찍힌다) */}
-                  <MetricCard label="총 수익률" value={<ChangeBadge value={result.total_return ?? 0} className="text-xl" />} />
+                  <MetricCard label="총 수익률" value={<ChangeBadge value={result.total_return ?? 0} className="text-xl" />}
+                    sub={많이늦게시작(startDate, result.start_date)
+                      ? `${result.start_date}부터 (시세가 그 전에는 없음)` : undefined} />
                   <MetricCard label="연환산"
                     value={result.annual_return == null
                       ? <span className="text-text-dim">—</span>
@@ -519,16 +540,24 @@ export default function Backtest() {
                     sub={result.annual_return == null && result.years != null
                       ? `${result.years}년치라 연환산 안 함` : undefined} />
                   <MetricCard label="MDD" value={숫자(result.mdd, 1, "-", "%")} color="text-accent-red" />
+                  {/* 샤프는 '무위험으로 그냥 둬도 얻었을 것' 을 뺀 수다.
+                      무엇을 뺐는지 안 적으면 사람이 자기 기준으로 읽는다 —
+                      금리 5% 인 해에 연 5% 를 번 전략의 샤프 0.5 는
+                      실제로는 초과수익 0 이라는 뜻이다. */}
                   <MetricCard
                     label="샤프 비율"
                     value={숫자(result.sharpe_ratio, 2)}
                     color={(result.sharpe_ratio ?? 0) > 1 ? "text-accent-green" : "text-text-primary"}
+                    sub={`무위험 ${result.risk_free_rate ?? 0}% 기준`}
                   />
+                  {/* 승률은 **수수료까지 뺀** 손익으로 센다. 가격만 보면
+                      수수료를 내고 나면 손해인 거래가 '이긴 거래' 가 된다. */}
                   <MetricCard
                     label="승률"
                     value={숫자(result.win_rate, 1, "", "%")}
                     color={result.win_rate == null ? "text-text-dim"
                       : result.win_rate >= 50 ? "text-accent-green" : "text-accent-red"}
+                    sub={result.cost_rate ? "수수료 반영" : undefined}
                   />
                   <MetricCard label="총 거래수" value={result.total_trades ?? 0} />
                   <MetricCard label="평균 수익" value={숫자(result.avg_profit, 1, "+", "%")}
@@ -644,36 +673,57 @@ export default function Backtest() {
                 <Card className="p-0 overflow-hidden">
                   <div className="px-4 py-3 border-b border-border flex items-center justify-between">
                     <span className="text-sm font-semibold text-text-primary">거래 내역</span>
-                    <span className="text-text-muted text-xs">{result.trades?.length}건</span>
+                    <div className="flex items-center gap-2">
+                      {/* 두 칸이 왜 다른지 안 적으면 '숫자가 안 맞는다' 로 읽힌다.
+                          왼쪽은 값이 움직인 폭, 오른쪽은 실제로 남은 것이다. */}
+                      {!!result.cost_rate && (
+                        <span className="text-2xs text-text-dim break-keep">
+                          수익률은 값이 움직인 폭 · 오른쪽은 수수료 {result.cost_rate * 100}%를 뺀 것
+                        </span>
+                      )}
+                      <span className="text-text-muted text-xs">{result.trades?.length}건</span>
+                    </div>
                   </div>
                   <div className="overflow-x-auto max-h-64 overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-bg-secondary border-b border-border">
                         <tr className="text-text-muted">
-                          <th className="text-left px-4 py-2">유형</th>
-                          <th className="text-right px-4 py-2">진입일</th>
-                          <th className="text-right px-4 py-2">청산일</th>
-                          <th className="text-right px-4 py-2">진입가</th>
-                          <th className="text-right px-4 py-2">청산가</th>
-                          <th className="text-right px-4 py-2">수익률</th>
-                          <th className="text-right px-4 py-2">수량</th>
+                          <th className="text-left px-4 py-2 whitespace-nowrap">유형</th>
+                          <th className="text-right px-4 py-2 whitespace-nowrap">진입일</th>
+                          <th className="text-right px-4 py-2 whitespace-nowrap">청산일</th>
+                          <th className="text-right px-4 py-2 whitespace-nowrap">진입가</th>
+                          <th className="text-right px-4 py-2 whitespace-nowrap">청산가</th>
+                          <th className="text-right px-4 py-2 whitespace-nowrap">수익률</th>
+                          {!!result.cost_rate && (
+                            <th className="text-right px-4 py-2 whitespace-nowrap">수수료 뺀 것</th>
+                          )}
+                          <th className="text-right px-4 py-2 whitespace-nowrap">수량</th>
                         </tr>
                       </thead>
                       <tbody>
                         {result.trades?.map((t: any, i: number) => (
                           <tr key={i} className="border-b border-border/30 hover:bg-bg-hover">
+                            {/* whitespace-nowrap 이 없으면 폰 너비에서 '만기청산'
+                                이 한 글자씩 쪼개져 네 줄이 된다. 표는 좁아지면
+                                **옆으로 밀려야지** 글자가 부서지면 안 된다 —
+                                가로 스크롤은 이미 있다(overflow-x-auto). */}
                             <td className="px-4 py-2">
-                              <span className={`px-1.5 py-0.5 rounded text-2xs font-semibold ${
+                              <span className={`px-1.5 py-0.5 rounded text-2xs font-semibold whitespace-nowrap ${
                                 t.type === "손절" ? "bg-accent-red/15 text-accent-red" :
                                 t.type === "익절" ? "bg-accent-green/15 text-accent-green" :
                                 "bg-bg-hover text-text-secondary"
                               }`}>{t.type}</span>
                             </td>
-                            <td className="px-4 py-2 text-right font-mono text-text-secondary">{t.entry_date}</td>
-                            <td className="px-4 py-2 text-right font-mono text-text-secondary">{t.exit_date}</td>
+                            <td className="px-4 py-2 text-right font-mono text-text-secondary whitespace-nowrap">{t.entry_date}</td>
+                            <td className="px-4 py-2 text-right font-mono text-text-secondary whitespace-nowrap">{t.exit_date}</td>
                             <td className="px-4 py-2 text-right font-mono">{t.entry_price.toLocaleString()}</td>
                             <td className="px-4 py-2 text-right font-mono">{t.exit_price.toLocaleString()}</td>
                             <td className="px-4 py-2 text-right"><ChangeBadge value={t.pnl_rate} /></td>
+                            {!!result.cost_rate && (
+                              <td className="px-4 py-2 text-right">
+                                <ChangeBadge value={t.net_pnl_rate ?? t.pnl_rate} />
+                              </td>
+                            )}
                             <td className="px-4 py-2 text-right font-mono text-text-secondary">{t.shares.toLocaleString()}</td>
                           </tr>
                         ))}
@@ -719,6 +769,17 @@ export default function Backtest() {
                     {universeResult.tested}/{universeResult.total_symbols}종목 분석 완료
                   </span>
                 </div>
+                {/* 생존 편향을 **결과 바로 위에** 적는다.
+                    종목 목록이 '오늘 살아남아 시총 상위에 있는 것들' 로
+                    고정돼 있어서, 망했거나 밀려난 회사는 처음부터 없다.
+                    어떤 전략을 넣어도 실제보다 좋게 나온다 — 조용히 두면
+                    사용자는 이 표를 실제 성적으로 읽는다. */}
+                {universeResult.생존편향 && (
+                  <p className="px-4 py-2.5 text-2xs text-accent-yellow bg-accent-yellow/10
+                                border-b border-border break-keep">
+                    ⚠ {universeResult.생존편향}
+                  </p>
+                )}
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-bg-secondary border-b border-border">
@@ -773,7 +834,7 @@ export default function Backtest() {
                   <Globe size={36} className="text-text-muted/40" />
                   <div>
                     <p className="text-text-secondary font-medium">유니버스 전체에 전략을 적용합니다</p>
-                    <p className="text-text-muted text-xs mt-1">S&P 500 전체 종목에 조건을 실행하고 성과 순위를 확인합니다</p>
+                    <p className="text-text-muted text-xs mt-1">고른 목록의 종목마다 조건을 돌려 성과 순위를 봅니다</p>
                   </div>
                 </div>
               </Card>

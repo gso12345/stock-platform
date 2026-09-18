@@ -476,6 +476,11 @@ class PortfolioExperiment(Base):
     benchmark = Column(String(20), default="none")
     equal_weight = Column(Boolean, default=False)
     extended = Column(Boolean, default=False)
+    #: 현금에 붙는 연 이율(%). 0 이면 '현금은 안 불어난다' 는 가정이다.
+    cash_rate = Column(Float, default=0)
+    #: 샤프를 잴 때 뺀 무위험수익률(%). 이것도 설정이라 같이 담는다 —
+    #  안 담으면 불러왔을 때 샤프만 다른 수가 나온다.
+    risk_free_rate = Column(Float, default=0)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

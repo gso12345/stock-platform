@@ -378,6 +378,10 @@ export interface 자산배분요청 {
   equal_weight: boolean;
   /** ETF 가 생기기 전 구간을 지수로 이을까 */
   extended: boolean;
+  /** 현금에 붙는 연 이율 **퍼센트**. 0 이면 '현금은 안 불어난다' 는 가정 */
+  cash_rate: number;
+  /** 샤프를 잴 때 뺄 무위험수익률 **퍼센트** */
+  risk_free_rate: number;
 }
 
 /** 벤치마크 결과 — 견주는 데 필요한 것만 온다(곡선까지 다 담으면 응답이 두 배다) */
@@ -431,6 +435,9 @@ export interface 자산배분결과 {
   /** 낸 수수료 합. 0%로 돌렸으면 null — '안 넣었다' 와 '0원' 은 다른 말이다 */
   costs: number | null;
   cost_rate: number | null;
+  /** 무엇을 가정하고 잰 수인가 — 0 도 가정이라 감추지 않는다 */
+  risk_free_rate: number;
+  cash_rate: number;
   data_interval: 데이터기준;
   benchmark: 벤치마크결과 | null;
   /** {심볼: 지수로 이은 시작일}. 조용히 이으면 사용자는 그게 실제
@@ -457,6 +464,8 @@ export interface 저장된실험 {
   data_interval?: 데이터기준 | null;
   benchmark?: 벤치마크키 | null;
   equal_weight?: boolean | null;
+  cash_rate?: number | null;
+  risk_free_rate?: number | null;
   extended?: boolean | null;
   total_return: boolean;
   created_at: string;
