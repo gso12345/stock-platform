@@ -198,10 +198,8 @@ export default function 자산배분탭({ 불러올실험, 불러옴 }: {
   });
 
   const 저장 = useMutation({
-    mutationFn: () => backtestApi.saveExperiment({
-      ...보낼것(설정값),
-      name: 설정값.assets.map((a) => a.name || a.symbol).slice(0, 3).join(" · ")
-            + (설정값.assets.length > 3 ? ` 외 ${설정값.assets.length - 3}` : ""),
+    mutationFn: (이름: string) => backtestApi.saveExperiment({
+      ...보낼것(설정값), name: 이름,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["backtest-experiments"] });
@@ -236,7 +234,7 @@ export default function 자산배분탭({ 불러올실험, 불러옴 }: {
           바꾸기={set설정값}
           돌리기={() => 돌리기.mutate()}
           도는중={돌리기.isPending}
-          저장하기={isLoggedIn ? () => 저장.mutate() : undefined}
+          저장하기={isLoggedIn ? (이름: string) => 저장.mutate(이름) : undefined}
           저장중={저장.isPending}
           저장됨={저장됨}
         />

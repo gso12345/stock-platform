@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useSearchParams } from "react-router-dom";
 
 const 상태 = vi.hoisted(() => ({
   단일결과: null as any,
@@ -187,5 +187,42 @@ describe("무엇을 가정하고 잰 수인지 적는다", () => {
   it("요청한 대로 쟀으면 괜히 안 적는다", async () => {
     await 단일돌리기();          // 기본 시작일이 2020-01-01 이고 결과는 01-02
     expect(screen.queryByText(/시세가 그 전에는 없음/)).toBeNull();
+  });
+});
+
+
+describe("전략 저장소 메뉴에서 넘어온 자산배분을 연다", () => {
+  /* 메뉴에서 자산배분을 누르면 주소에 실험 번호가 실려 온다.
+     안 읽으면 백테스트 첫 화면만 뜨고 무엇을 누른 것인지 사라진다. */
+
+  it("주소의 실험 번호를 읽어 자산배분 탭을 연다", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={["/backtest?experiment=11"]}>
+        <QueryClientProvider client={qc}><Backtest /></QueryClientProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("tab", { name: "자산배분" }).getAttribute("aria-selected"),
+      "주소로 왔는데 자산배분 탭이 안 열렸다").toBe("true");
+  });
+
+  it("주소에서 번호를 지운다", async () => {
+    /* 안 지우면 뒤로 갔다 오거나 새로고침할 때마다 같은 실험이 다시
+       열려, 고치던 설정이 통째로 되돌아간다. */
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const 본곳: string[] = [];
+    function 주소보기() {
+      const [p] = useSearchParams();
+      본곳.push(p.toString());
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={["/backtest?experiment=11"]}>
+        <QueryClientProvider client={qc}>
+          <Backtest /><주소보기 />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    expect(본곳[본곳.length - 1], "주소에 experiment 가 남아 있다").not.toMatch(/experiment/);
   });
 });

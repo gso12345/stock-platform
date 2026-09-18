@@ -17,7 +17,7 @@
  * 그 차이가 통째로 사라진다.
  */
 import { Fragment, lazy, Suspense, useMemo, useState } from "react";
-import { Card, 고른칩 } from "@/components/ui";
+import { Card, Tabs, 고른칩 } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { 짧은돈 } from "@/utils/formatters";
@@ -362,6 +362,218 @@ function 낙폭칸({ r }: { r: 자산배분결과 }) {
   );
 }
 
+
+/* ═══════════════════════════════════════════════════════════
+   주요 지표 비교 · 폭락 때
+   ═══════════════════════════════════════════════════════════ */
+
+/** 한 줄 — 이름 · 내 값 · 벤치마크 값. */
+function 비교줄({ 이름, 내것, 벤것, 색 }: {
+  이름: string; 내것: React.ReactNode; 벤것?: React.ReactNode; 색?: string;
+}) {
+  return (
+    <>
+      <span className="text-xs text-text-muted whitespace-nowrap">{이름}</span>
+      <span className={`text-xs font-mono tabular-nums text-right font-semibold ${색 ?? "text-text-primary"}`}>
+        {내것}
+      </span>
+      <span className="text-xs font-mono tabular-nums text-right text-text-dim">
+        {벤것 ?? "—"}
+      </span>
+    </>
+  );
+}
+
+function 요약표({ r }: { r: 자산배분결과 }) {
+  const 배색 = useSettingsStore((s) => s.colorScheme);
+  const { pnlColor, loss } = usePnlColors(배색);
+  const b = r.benchmark;
+  const 퍼 = (v: number | null | undefined) => 수(v, 2, "", "%");
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <span className="text-base font-semibold text-text-primary">주요 지표</span>
+        <span className="text-2xs text-text-dim">{r.start_date} ~ {r.end_date}</span>
+      </div>
+
+      <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-2 items-baseline">
+        <span className="text-2xs text-text-dim" />
+        <span className="text-2xs text-text-muted font-medium text-right">내 조합</span>
+        <span className="text-2xs text-text-dim text-right truncate max-w-[6rem]">
+          {b?.name ?? "—"}
+        </span>
+
+        <비교줄 이름="기간 수익률" 내것={퍼(r.total_return)} 벤것={퍼(b?.total_return)}
+                색={pnlColor(r.total_return ?? 0)} />
+        <비교줄 이름="연환산 (TWR)" 내것={퍼(r.twr_annual)} 벤것={퍼(b?.twr_annual)}
+                색={pnlColor(r.twr_annual ?? 0)} />
+        <비교줄 이름="이번 달" 내것={퍼(r.this_month)} 벤것={퍼(b?.this_month)}
+                색={pnlColor(r.this_month ?? 0)} />
+        <비교줄 이름="올해" 내것={퍼(r.ytd)} 벤것={퍼(b?.ytd)} 색={pnlColor(r.ytd ?? 0)} />
+
+        <div className="col-span-3 h-px bg-border my-0.5" />
+
+        <비교줄 이름="월 최고" 내것={퍼(r.best_month)} 벤것={퍼(b?.best_month)}
+                색={pnlColor(r.best_month ?? 0)} />
+        <비교줄 이름="월 최저" 내것={퍼(r.worst_month)} 벤것={퍼(b?.worst_month)}
+                색={pnlColor(r.worst_month ?? 0)} />
+        {/* 오른 달이 몇 달 중 몇 달인가 — 연 수익률만 보면 한 해 안의
+            출렁임이 통째로 사라진다. */}
+        <비교줄 이름="오른 달"
+                내것={`${r.positive_months} / ${r.total_months}`}
+                벤것={b?.total_months ? `${b.positive_months} / ${b.total_months}` : undefined} />
+
+        <div className="col-span-3 h-px bg-border my-0.5" />
+
+        <비교줄 이름="연 변동성" 내것={퍼(r.volatility)} 벤것={퍼(b?.volatility)} />
+        <비교줄 이름="최대 낙폭" 내것={수(r.mdd, 1, "-", "%")} 벤것={수(b?.mdd, 1, "-", "%")}
+                색={loss} />
+        {/* 같은 -30% 라도 2008년이었는지 작년이었는지에 따라 읽는 뜻이
+            전혀 다르다. */}
+        <비교줄 이름="낙폭 바닥" 내것={r.mdd_date ?? "—"} 벤것={b?.mdd_date ?? undefined} />
+        <비교줄 이름="샤프" 내것={수(r.sharpe, 2)} 벤것={수(b?.sharpe, 2)} />
+        {/* 샤프는 오르내림을 가리지 않는다 — 크게 오르기만 해도 '위험' 으로
+            잡힌다. 소티노는 내려간 흔들림만 센다. */}
+        <비교줄 이름="소티노" 내것={수(r.sortino, 2)} 벤것={수(b?.sortino, 2)} />
+
+        <div className="col-span-3 h-px bg-border my-0.5" />
+
+        {([["1년", r.return_1y, b?.return_1y], ["3년", r.return_3y, b?.return_3y],
+           ["5년", r.return_5y, b?.return_5y]] as const).map(([이름, a, c]) => (
+          <비교줄 key={이름} 이름={`최근 ${이름}`} 내것={퍼(a)} 벤것={퍼(c)}
+                  색={pnlColor(a ?? 0)} />
+        ))}
+        {([["1년", r.std_1y, b?.std_1y], ["3년", r.std_3y, b?.std_3y],
+           ["5년", r.std_5y, b?.std_5y]] as const).map(([이름, a, c]) => (
+          <비교줄 key={`s${이름}`} 이름={`${이름} 표준편차`} 내것={퍼(a)} 벤것={퍼(c)} />
+        ))}
+      </div>
+
+      {/* 자료가 거기까지 없으면 '—' 다. 3개월치를 '1년 수익률' 이라
+          적으면 안 되므로 억지로 채우지 않는다. */}
+      <p className="text-2xs text-text-dim break-keep">
+        '—' 는 잴 자료가 없다는 뜻이에요 — 없는 수를 지어내지 않아요.
+      </p>
+    </Card>
+  );
+}
+
+function 폭락표({ r }: { r: 자산배분결과 }) {
+  const 배색 = useSettingsStore((s) => s.colorScheme);
+  const { pnlColor } = usePnlColors(배색);
+  const 것들 = r.crises ?? [];
+  if (!것들.length) return null;
+  const 벤치 = new Map((r.benchmark?.crises ?? []).map((x) => [x.key, x.return]));
+
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="px-4 py-3 border-b border-border">
+        <span className="text-sm font-semibold text-text-primary">폭락 때 어땠나</span>
+        {/* '최대 낙폭 -30%' 만으로는 언제 어떤 일로 그랬는지 모른다.
+            사람은 '코로나 때' 로 기억하므로, 기억에 걸리는 이름이
+            붙어야 수가 읽힌다. */}
+        <p className="text-2xs text-text-dim mt-0.5 break-keep">
+          시장이 고점에서 바닥까지 간 구간이에요. 회복까지 넣으면 대부분 플러스로
+          끝나서 얼마나 아팠는지가 사라져요.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-bg-secondary border-b border-border">
+            <tr className="text-text-muted">
+              <th className="text-left px-3 py-2 whitespace-nowrap">언제</th>
+              <th className="text-right px-3 py-2 whitespace-nowrap">내 조합</th>
+              <th className="text-right px-3 py-2 whitespace-nowrap truncate">
+                {r.benchmark?.name ?? "—"}
+              </th>
+              <th className="text-left px-3 py-2 whitespace-nowrap">기간</th>
+            </tr>
+          </thead>
+          <tbody>
+            {것들.map((x) => {
+              const 벤 = 벤치.get(x.key);
+              return (
+                <tr key={x.key} className="border-b border-border/30">
+                  <td className="px-3 py-2 text-text-primary whitespace-nowrap">
+                    {x.name}
+                    {/* 일부만 겹쳤으면 그렇다고 적는다 — 2020-02-19 부터라고
+                        적어 놓고 3월 2일부터 쟀으면 그 차이가 곧 결과의
+                        차이다. */}
+                    {x.partial && (
+                      <span className="text-accent-yellow text-2xs ml-1">일부</span>
+                    )}
+                  </td>
+                  <td className={`px-3 py-2 text-right font-mono font-semibold whitespace-nowrap ${pnlColor(x.return)}`}>
+                    {x.return}%
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-text-dim whitespace-nowrap">
+                    {벤== null ? "—" : `${벤}%`}
+                  </td>
+                  <td className="px-3 py-2 text-text-dim whitespace-nowrap">
+                    {x.partial ? `${x.measured_start} ~ ${x.measured_end}` : `${x.start} ~ ${x.end}`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {것들.some((x) => x.partial) && (
+        <p className="px-4 py-2.5 text-2xs text-text-dim break-keep">
+          '일부' 는 그 구간에 자료가 일부만 걸쳤다는 뜻이에요 — 옆에 적힌 기간이
+          실제로 잰 구간이에요.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/** 무엇을 어떤 비중으로 담았나.
+ *
+ *  결과만 보고 있으면 **무슨 조합이었는지 잊는다** — 특히 저장해 둔
+ *  실험을 나중에 열었을 때 그렇다. 설정 화면으로 돌아가 확인해야 하는데,
+ *  그러면 결과가 화면에서 사라진다.
+ *
+ *  서버가 준 비중을 그대로 쓴다. 화면에서 다시 계산하면 '동일 비중' 이나
+ *  '합이 100이 아닌 입력' 을 서버와 다르게 풀 수 있고, 그러면 결과를
+ *  낸 비중과 화면에 적힌 비중이 달라진다. */
+function 담은자산({ r }: { r: 자산배분결과 }) {
+  const 것들 = r.assets ?? [];
+  if (!것들.length) return null;
+  /* 서버는 비율(0.6)로 준다 — 합으로 나눈 값이다. 퍼센트로 보여 준다. */
+  const 합 = 것들.reduce((a, x) => a + (Number(x.weight) || 0), 0);
+  return (
+    <Card className="flex flex-col gap-3">
+      <span className="text-base font-semibold text-text-primary">담은 자산</span>
+      <div className="flex flex-col gap-1.5">
+        {것들.map((a) => {
+          const 몫 = 합 > 0 ? (Number(a.weight) || 0) / 합 * 100 : 0;
+          return (
+            <div key={`${a.market}:${a.symbol}`} className="flex items-center gap-2">
+              <span className="text-xs text-text-primary truncate flex-1 min-w-0">
+                {a.name || a.symbol}
+              </span>
+              <div className="w-20 h-2 bg-bg-elevated rounded-full overflow-hidden flex-shrink-0">
+                <div className="h-full bg-accent-blue/70 rounded-full"
+                     style={{ width: `${Math.min(몫, 100)}%` }} />
+              </div>
+              <span className="text-xs font-mono tabular-nums text-text-secondary w-12 text-right flex-shrink-0">
+                {몫.toFixed(1)}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {/* 실제로 계산에 쓴 비중이라고 말해 준다 — '동일 비중' 을 골랐으면
+          내가 적은 수와 다를 수 있다. */}
+      <p className="text-2xs text-text-dim break-keep">
+        계산에 실제로 쓴 비중이에요.
+      </p>
+    </Card>
+  );
+}
+
 export default function 자산배분결과화면({ r }: { r: 자산배분결과 }) {
   const 벌었나 = (r.profit ?? 0) >= 0;
   const 적립했나 = r.contributed > 0 && r.curve.length > 0;
@@ -374,6 +586,9 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
   const 배색 = useSettingsStore((s) => s.colorScheme);
   const { pnlColor, gain, loss } = usePnlColors(배색);
   const 번색 = 벌었나 ? gain : loss;
+  /* 결과를 넷으로 나눠 본다. 수익률로 시작하는 것은 사람이 제일 먼저
+     묻는 것이 '얼마나 벌었나' 이기 때문이다. */
+  const [보기, set보기] = useState("수익");
 
   return (
     <div className="flex flex-col gap-4">
@@ -396,6 +611,26 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
         </Card>
       )}
 
+      {/* ── 탭 ──
+          카드가 계속 늘어 폰에서 한참 스크롤해야 무엇이 있는지 안다.
+          넷으로 나눈다 — 수익률(얼마나 벌었나) · 낙폭(얼마나 아팠나) ·
+          지표(견주기) · 세부(무엇을 담고 무엇을 가정했나).
+
+          **경고는 탭 밖에 둔다.** 자산 하나를 빼고 계산한 사실이 탭
+          안에 숨으면, 그 탭을 안 연 사람은 덜 담긴 결과를 온전한 것으로
+          읽는다 — 백테스트에서 가장 나쁜 실패다. */}
+      <Tabs
+        ariaLabel="결과 보기"
+        idPrefix="결과"
+        tabs={[{ id: "수익", label: "수익률" }, { id: "낙폭", label: "낙폭" },
+               { id: "지표", label: "지표" }, { id: "세부", label: "세부" }]}
+        active={보기}
+        onChange={set보기}
+      />
+
+      <div role="tabpanel" id="결과-panel-수익" aria-labelledby="결과-tab-수익"
+           hidden={보기 !== "수익"} className="flex flex-col gap-4">
+        {보기 === "수익" && (<>
       {/* ── 넣은 돈 → 최종 ── 맨 위에 둔다 ── */}
       <Card className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
@@ -439,8 +674,10 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
           </div>
           {/* 칸에 이름을 붙인다. 숫자 둘만 나란히 두면 어느 쪽이 내
               것인지 알 수 없고, 색이 어느 쪽 이야기인지도 모호해진다.
-              색은 **내 값**에 칠한다 — '내 숫자가 초록이면 내가 나음' 이
-              설명 없이도 읽힌다. */}
+              색은 **내 값**에 칠한다 — 오름 색이면 내 쪽이 나은 것이다.
+              (색 이름은 글로 적지 않는다. 설정에서 초록-빨강과 빨강-파랑을
+               고를 수 있어서, '초록이면 좋다' 는 설명이 절반의 사람에게는
+               거짓이 된다.) */}
           <div className="grid grid-cols-[1fr_1fr_1fr] gap-x-2 gap-y-1.5 items-baseline">
             <span className="text-2xs text-text-dim" />
             <span className="text-2xs text-text-muted font-medium text-right">내 조합</span>
@@ -474,9 +711,25 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
               </Fragment>
             ))}
           </div>
+          {/* 색으로 좋고 나쁨을 말하는 문구는 없앴다 — 설정에 따라
+              오름 색이 초록일 수도 빨강일 수도 있다. 대신 색만으로는
+              알 수 없는 것(낙폭은 작을수록 좋다)만 남긴다. */}
           <p className="text-2xs text-text-dim break-keep">
-            내 숫자가 초록이면 그 항목은 내 쪽이 나아요. 낙폭은 작은 쪽이 나은 거예요.
+            낙폭은 작은 쪽이 나은 거예요.
           </p>
+          {/* 지수는 **배당이 없다.** 내 조합은 토탈 리턴으로 쟀는데
+              견주는 쪽만 배당을 못 받으면, 지수가 실제보다 나빠 보인다 —
+              방향만 반대일 뿐 '벤치마크만 배당을 못 받던' 그 문제와
+              같은 종류다. 감추지 않고 적는다. */}
+          {/* dividends 가 있다는 것이 곧 '토탈 리턴으로 쟀다' 는 뜻이다 —
+              서버가 배당표를 넘겼을 때만 이 값이 채워진다. 굳이 칸을
+              하나 더 만들면 둘이 어긋날 자리가 생긴다. */}
+          {r.benchmark.index_only && r.dividends != null && (
+            <p className="text-2xs text-accent-yellow/90 break-keep">
+              코스피는 ETF 가 아니라 <b>지수</b>예요 — 배당이 안 들어 있어서
+              실제로 그 지수를 담았을 때보다 낮게 나와요.
+            </p>
+          )}
         </Card>
       )}
 
@@ -525,13 +778,8 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
             : " · 현금은 이자 없음"}
         </p>
       </Card>
-
       {/* ── 자산 흐름 ── */}
       {r.curve.length > 1 && <자산흐름 r={r} />}
-
-      {/* ── 낙폭 ── */}
-      {(r.drawdown?.length ?? 0) > 1 && <낙폭칸 r={r} />}
-
       {/* ── 해마다 ── */}
       {r.yearly.length > 0 && (
         <Card className="flex flex-col gap-3">
@@ -561,10 +809,37 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
           </div>
         </Card>
       )}
+        </>)}
+      </div>
 
-      {/* ── 무엇을 넣고 무엇을 뺐는지 ──
-          계산에 들어간 조건을 마지막에 모아 적는다. 이걸 안 적으면
-          사용자는 자기가 고른 설정이 실제로 먹었는지 알 길이 없다 */}
+      <div role="tabpanel" id="결과-panel-낙폭" aria-labelledby="결과-tab-낙폭"
+           hidden={보기 !== "낙폭"} className="flex flex-col gap-4">
+        {보기 === "낙폭" && (<>
+          {(r.drawdown?.length ?? 0) > 1 && <낙폭칸 r={r} />}
+          <폭락표 r={r} />
+        </>)}
+      </div>
+
+      <div role="tabpanel" id="결과-panel-지표" aria-labelledby="결과-tab-지표"
+           hidden={보기 !== "지표"} className="flex flex-col gap-4">
+        {보기 === "지표" && <요약표 r={r} />}
+      </div>
+
+      <div role="tabpanel" id="결과-panel-세부" aria-labelledby="결과-tab-세부"
+           hidden={보기 !== "세부"} className="flex flex-col gap-4">
+        {보기 === "세부" && (<>
+          <담은자산 r={r} />
+        </>)}
+      </div>
+
+      {/* ── 무엇을 넣고 무엇을 뺐는지 ── **탭 밖에 둔다** ──
+
+          이건 결과의 각주가 아니라 **보고 있는 숫자의 조건**이다.
+          수수료를 안 넣고 잰 수익률을 '세부' 탭에 숨기면, 그 탭을 안 연
+          사람은 수수료가 반영된 수로 읽는다. 월 데이터로 재서 낙폭이
+          작게 나온 것도 마찬가지다.
+
+          탭으로 나눈 것은 카드가 많아서지, 감추려는 것이 아니다. */}
       <div className="flex flex-col gap-1 px-1">
         {r.costs_included ? (
           <p className="text-2xs text-text-dim break-keep">

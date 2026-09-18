@@ -1,4 +1,5 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backtestApi } from "@/api/stocks";
 import { Card, ChangeBadge, formatNumber, Tabs, Button, Badge, ConfirmDialog, LoadingSpinner, 고른칩, 지움단추, 빈화면, 못불러옴} from "@/components/ui";
@@ -121,6 +122,11 @@ export default function Backtest() {
   const { isLoggedIn } = useAuthStore();
   const [pageTab, setPageTab] = useState("alloc");
 
+  /* 전략 저장소 **메뉴**(/strategies)에서 자산배분을 누르면 여기로 온다.
+     주소에 실험 번호를 실어 보내므로, 그걸 읽어 바로 열어 준다.
+     안 읽으면 백테스트 첫 화면만 뜨고 무엇을 누른 것인지 사라진다. */
+  const [주소파라미터, set주소파라미터] = useSearchParams();
+
   // 단일종목
   const [symbol, setSymbol] = useState("AAPL");
   const [market, setMarket] = useState<Market>("US");
@@ -164,6 +170,18 @@ export default function Backtest() {
   });
   /* 전략 저장소에서 고른 실험을 자산배분 탭으로 넘긴다 */
   const [불러올실험, set불러올실험] = useState<number | null>(null);
+
+  useEffect(() => {
+    const 번호 = Number(주소파라미터.get("experiment"));
+    if (!Number.isFinite(번호) || 번호 <= 0) return;
+    set불러올실험(번호);
+    setPageTab("alloc");
+    /* 주소에서 지운다. 안 지우면 뒤로 갔다 오거나 새로고침할 때마다
+       같은 실험이 다시 열려, 고치던 설정이 통째로 되돌아간다. */
+    주소파라미터.delete("experiment");
+    set주소파라미터(주소파라미터, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [지울실험, set지울실험] = useState<{ id: number; name: string } | null>(null);
 
   const 실험지우기 = useMutation({

@@ -14,11 +14,11 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Plus, X, Check } from "lucide-react";
-import { Card, Button, 고른칩, 지움단추 } from "@/components/ui";
+import { Card, Button, 고른칩, 지움단추, NameDialog } from "@/components/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useStockSearch } from "@/hooks/useStockSearch";
 import { useAuthStore } from "@/store/authStore";
-import { watchlistApi, portfolioApi } from "@/api/stocks";
+import { watchlistApi, watchlistFolderApi, portfolioApi } from "@/api/stocks";
 import type { 배분자산, 주기, 데이터기준, 벤치마크키 } from "@/api/stocks";
 
 /* 기간 슬라이더를 없애면서 최소년·최대년도 같이 지웠다.
@@ -33,12 +33,21 @@ export const 주기표: { value: 주기; label: string }[] = [
   { value: "yearly", label: "매년" },
 ];
 
+/** 벤치마크 목록 — **자주 쓰는 순서**로 둔다.
+ *
+ *  드롭다운은 위에서부터 읽힌다. 제일 흔히 견주는 S&P500 이 아래에
+ *  있으면 매번 내려서 찾아야 한다. 넓은 것(미국 대형주)에서 좁은 것
+ *  (국내), 한 자산에서 섞인 것(6040·올웨더) 순으로 간다.
+ *
+ *  '코스피' 와 '코스피200' 은 다른 것이다 — 앞은 지수 자체(^KS11)라
+ *  배당이 없고, 뒤는 그 지수를 따르는 ETF(069500)라 배당이 있다. */
 export const 벤치마크표: { value: 벤치마크키; label: string }[] = [
   { value: "none", label: "없음" },
-  { value: "6040", label: "주식 60 · 채권 40" },
   { value: "spy", label: "S&P500" },
   { value: "qqq", label: "나스닥100" },
+  { value: "kospi_index", label: "코스피" },
   { value: "kospi", label: "코스피200" },
+  { value: "6040", label: "주식 60 · 채권 40" },
   { value: "allweather", label: "올웨더" },
 ];
 
@@ -365,6 +374,18 @@ export function 줄을자산으로(x: any): 배분자산 | null {
   return { symbol, market, name: x?.name || symbol, weight: 0 };
 }
 
+/** 저장 창에 미리 채워 둘 이름 — 담은 자산으로 만든다.
+ *
+ *  자동 이름을 **그대로 저장하면** 비슷한 실험이 전부 같은 줄이 된다
+ *  (주식 60/40 과 70/30 이 둘 다 'SPY · AGG'). 그래서 첫 값으로만 쓰고
+ *  사람이 고칠 수 있게 한다. 빈 채로 열면 매번 처음부터 쳐야 하니
+ *  채워는 둔다. */
+export function 첫이름(assets: 배분자산[]): string {
+  if (!assets.length) return "";
+  const 앞 = assets.slice(0, 3).map((a) => a.name || a.symbol).join(" · ");
+  return assets.length > 3 ? `${앞} 외 ${assets.length - 3}` : 앞;
+}
+
 /** 자산 하나를 목록에 붙인다 — 담는 규칙이 여기 한 곳에만 있다.
  *
  *  ── 왜 함수로 뺐나 ────────────────────────────────────────
@@ -391,55 +412,157 @@ export function 자산더하기(있던것: 배분자산[], 새것: 배분자산)
   return 다음.map((x) => ({ ...x, weight: 고른비중 }));
 }
 
-/** 자산 고르기 — 종류별 대표 · 내 목록 · 검색 */
+/** 내 자산 / 관심종목에서 담기 — **어느 묶음에서** 가져올지 먼저 고른다.
+ *
+ *  포트폴리오를 여럿 두는 사람이 많다(연금·주식계좌·아이 계좌…).
+ *  전부 섞어 보여 주면 '연금 계좌만 백테스트해 보기' 를 아예 못 한다.
+ *  관심목록의 폴더도 같은 이유다.
+ *
+ *  묶음이 하나뿐이면 고르는 줄을 안 그린다 — 고를 것이 없는데 조작칸만
+ *  있으면 화면만 복잡해진다. */
+function 내목록칸({
+  어디, 묶음들, 고른묶음, 묶음바꾸기, 종목들, 받는중, 담은것, onPick,
+}: {
+  어디: "내자산" | "관심";
+  묶음들: { id: number; name: string }[];
+  고른묶음: number | null;
+  묶음바꾸기: (v: number | null) => void;
+  종목들: 배분자산[];
+  받는중: boolean;
+  담은것: 배분자산[];
+  onPick: (a: 배분자산) => void;
+}) {
+  const 묶음말 = 어디 === "내자산" ? "포트폴리오" : "폴더";
+  const 고른이름 = 묶음들.find((x) => x.id === 고른묶음)?.name;
+
+  return (
+    <>
+      {묶음들.length > 1 && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-2xs text-text-muted">{묶음말} 고르기</span>
+          <div className="flex gap-1.5 flex-wrap">
+            <고른칩 작게 고름={고른묶음 == null} onClick={() => 묶음바꾸기(null)}
+                    ariaLabel={`${묶음말} 전체`}>전체</고른칩>
+            {묶음들.map((x) => (
+              <고른칩 key={x.id} 작게 고름={고른묶음 === x.id}
+                      onClick={() => 묶음바꾸기(x.id)}
+                      ariaLabel={`${묶음말} ${x.name}`}>{x.name}</고른칩>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {받는중 ? (
+        <p className="text-xs text-text-dim px-1 py-3">가져오는 중…</p>
+      ) : 종목들.length === 0 ? (
+        /* **어디가 비었는지** 적는다. '종목이 없어요' 만 있으면 고른
+           묶음이 빈 것인지 전체가 빈 것인지 알 수 없다. */
+        <p className="text-xs text-text-dim px-1 py-3 break-keep">
+          {고른이름
+            ? `'${고른이름}' ${묶음말}에 종목이 없어요.`
+            : `${어디 === "내자산" ? "내 자산" : "관심종목"}에 종목이 없어요.`}
+          {" '검색' 으로 찾아서 담을 수 있어요."}
+        </p>
+      ) : (
+        <ul className="flex flex-col max-h-56 overflow-y-auto">
+          {종목들.map((자산) => {
+            const 이미 = 담았나(담은것, 자산.symbol);
+            return (
+              <li key={자산.symbol}>
+                <button
+                  disabled={이미}
+                  aria-label={`${자산.name} 담기`}
+                  className="w-full text-left px-2 py-2 rounded-lg hover:bg-bg-card flex items-center gap-2 disabled:opacity-40"
+                  onClick={() => onPick(자산)}
+                >
+                  <span className="text-sm text-text-primary truncate flex-1">{자산.name}</span>
+                  <span className="text-2xs text-text-dim flex-shrink-0">{자산.symbol}</span>
+                  {이미 && <Check size={14} className="text-accent-green flex-shrink-0" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+}
+
+/** 자산 고르기 — 종류별 대표 · 내 자산 · 관심종목 · 검색 */
 function 자산고르기({ 담은것, onPick, onClose }: {
   담은것: 배분자산[];
   onPick: (a: 배분자산) => void; onClose: () => void;
 }) {
   const { query, setQuery, results, searching } = useStockSearch();
   const { isLoggedIn } = useAuthStore();
-  const [칸, set칸] = useState<"대표" | "내것" | "검색">("대표");
+  const [칸, set칸] = useState<"대표" | "내자산" | "관심" | "검색">("대표");
   const [종류, set종류] = useState<자산종류>("주식");
+  /* null 은 '아직 안 골랐다' 가 아니라 **전체**다. 포트폴리오가 하나뿐인
+     사람에게 굳이 한 번 더 고르게 할 이유가 없어 전체로 시작한다. */
+  const [고른포폴, set고른포폴] = useState<number | null>(null);
+  const [고른폴더, set고른폴더] = useState<number | null>(null);
 
   /* 로그인 안 했으면 부르지 않는다. 서버가 빈 배열을 주더라도 안 쓸
-     요청을 보낼 이유가 없다 — 0.15 CPU 짜리 서버다. */
-  const { data: 관심 = [], isLoading: 관심로딩 } = useQuery({
-    queryKey: ["bt-watchlist"],
-    queryFn: () => watchlistApi.getItems(),
-    enabled: isLoggedIn && 칸 === "내것",
+     요청을 보낼 이유가 없다 — 0.15 CPU 짜리 서버다.
+     칸을 열 때만 부르는 것도 같은 이유다. */
+  const { data: 포폴들 = [] } = useQuery({
+    queryKey: ["bt-portfolios"],
+    queryFn: portfolioApi.getPortfolios,
+    enabled: isLoggedIn && 칸 === "내자산",
+    staleTime: 300_000,
+  });
+  const { data: 폴더들 = [] } = useQuery({
+    queryKey: ["bt-folders"],
+    queryFn: watchlistFolderApi.getFolders,
+    enabled: isLoggedIn && 칸 === "관심",
     staleTime: 300_000,
   });
   const { data: 보유 = [], isLoading: 보유로딩 } = useQuery({
-    queryKey: ["bt-holdings"],
-    queryFn: () => portfolioApi.getItems(undefined, true),
-    enabled: isLoggedIn && 칸 === "내것",
+    /* 고른 포트폴리오가 열쇠에 들어간다 — 안 넣으면 바꿔도 캐시가
+       옛 목록을 그대로 돌려준다. */
+    queryKey: ["bt-holdings", 고른포폴],
+    queryFn: () => portfolioApi.getItems(고른포폴 ?? undefined, 고른포폴 == null),
+    enabled: isLoggedIn && 칸 === "내자산",
+    staleTime: 300_000,
+  });
+  const { data: 관심 = [], isLoading: 관심로딩 } = useQuery({
+    queryKey: ["bt-watchlist", 고른폴더],
+    queryFn: () => watchlistApi.getItems(undefined, 고른폴더 ?? undefined),
+    enabled: isLoggedIn && 칸 === "관심",
     staleTime: 300_000,
   });
 
-  const 내것들 = useMemo(() => {
-    const 나온것: { 어디: string; 자산: 배분자산 }[] = [];
+  /** 줄들을 담을 수 있는 모양으로. 같은 종목이 두 번 있으면 한 번만
+   *  보여 준다 — 두 줄이면 어느 쪽을 눌러야 하는지 고민하게 된다. */
+  const 골라내기 = (줄들: any[]) => {
+    const 나온것: 배분자산[] = [];
     const 본것 = new Set<string>();
-    for (const [어디, 줄들] of [["내 자산", 보유], ["관심목록", 관심]] as const) {
-      for (const x of (줄들 as any[]) ?? []) {
-        const a = 줄을자산으로(x);
-        /* 같은 종목이 내 자산에도 관심목록에도 있으면 한 번만 보인다.
-           두 번 보이면 어느 쪽을 눌러야 하는지 고민하게 된다. */
-        if (!a || 본것.has(a.symbol)) continue;
-        본것.add(a.symbol);
-        나온것.push({ 어디, 자산: a });
-      }
+    for (const x of 줄들 ?? []) {
+      const a = 줄을자산으로(x);
+      if (!a || 본것.has(a.symbol)) continue;
+      본것.add(a.symbol);
+      나온것.push(a);
     }
     return 나온것;
-  }, [보유, 관심]);
+  };
+  const 보유들 = useMemo(() => 골라내기(보유 as any[]), [보유]);
+  const 관심들 = useMemo(() => 골라내기(관심 as any[]), [관심]);
 
   return (
     <div className="flex flex-col gap-2 p-3 rounded-xl border border-accent-blue/40 bg-bg-elevated">
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-1.5 flex-wrap">
-          {(["대표", "내것", "검색"] as const).map((k) => (
-            <고른칩 key={k} 작게 고름={칸 === k} onClick={() => set칸(k)}
-                    ariaLabel={k === "내것" ? "내 목록에서" : k === "대표" ? "종류별 대표" : "검색해서"}>
-              {k === "내것" ? "내 목록" : k === "대표" ? "종류별" : "검색"}
+          {/* '내 목록' 하나였던 것을 **내 자산**과 **관심종목**으로 갈랐다.
+              둘은 뜻이 다르다 — 하나는 실제로 가진 것, 하나는 지켜보는
+              것이다. 섞어 놓으면 '이 종목을 내가 가진 건가' 를 표시로만
+              구분해야 하고, 무엇보다 어느 포트폴리오·어느 폴더에서
+              가져올지를 고를 수가 없다. */}
+          {([["대표", "종류별", "종류별 대표"],
+             ["내자산", "내 자산", "내 자산에서"],
+             ["관심", "관심종목", "관심종목에서"],
+             ["검색", "검색", "검색해서"]] as const).map(([k, 글, 읽기]) => (
+            <고른칩 key={k} 작게 고름={칸 === k} onClick={() => set칸(k)} ariaLabel={읽기}>
+              {글}
             </고른칩>
           ))}
         </div>
@@ -486,37 +609,25 @@ function 자산고르기({ 담은것, onPick, onClose }: {
       )}
 
       {/* ── 내 목록 ── */}
-      {칸 === "내것" && (
+      {/* ── 내 자산 · 관심종목 ── */}
+      {(칸 === "내자산" || 칸 === "관심") && (
         !isLoggedIn ? (
           <p className="text-xs text-text-dim px-1 py-3 break-keep">
-            로그인하면 관심목록과 내 자산에서 바로 담을 수 있어요.
-          </p>
-        ) : (관심로딩 || 보유로딩) ? (
-          <p className="text-xs text-text-dim px-1 py-3">가져오는 중…</p>
-        ) : 내것들.length === 0 ? (
-          <p className="text-xs text-text-dim px-1 py-3 break-keep">
-            관심목록에도 내 자산에도 종목이 없어요. '검색' 으로 찾아 보세요.
+            로그인하면 {칸 === "내자산" ? "내 자산" : "관심종목"}에서 바로 담을 수 있어요.
           </p>
         ) : (
-          <ul className="flex flex-col max-h-56 overflow-y-auto">
-            {내것들.map(({ 어디, 자산 }) => {
-              const 이미 = 담았나(담은것, 자산.symbol);
-              return (
-                <li key={자산.symbol}>
-                  <button
-                    disabled={이미}
-                    aria-label={`${자산.name} 담기`}
-                    className="w-full text-left px-2 py-2 rounded-lg hover:bg-bg-card flex items-center gap-2 disabled:opacity-40"
-                    onClick={() => onPick(자산)}
-                  >
-                    <span className="text-sm text-text-primary truncate flex-1">{자산.name}</span>
-                    <span className="text-2xs text-text-dim flex-shrink-0">{어디}</span>
-                    {이미 && <Check size={14} className="text-accent-green flex-shrink-0" />}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <내목록칸
+            어디={칸}
+            묶음들={칸 === "내자산"
+              ? (포폴들 as any[]).map((x) => ({ id: x.id, name: x.name }))
+              : (폴더들 as any[]).map((x) => ({ id: x.id, name: x.name }))}
+            고른묶음={칸 === "내자산" ? 고른포폴 : 고른폴더}
+            묶음바꾸기={칸 === "내자산" ? set고른포폴 : set고른폴더}
+            종목들={칸 === "내자산" ? 보유들 : 관심들}
+            받는중={칸 === "내자산" ? 보유로딩 : 관심로딩}
+            담은것={담은것}
+            onPick={onPick}
+          />
         )
       )}
 
@@ -580,13 +691,15 @@ export default function 자산배분설정({
   바꾸기: (다음: 설정) => void;
   돌리기: () => void;
   도는중: boolean;
-  저장하기?: () => void;
+  /** 이름을 받아 저장한다. 로그인 전에는 안 넘어온다 */
+  저장하기?: (이름: string) => void;
   저장중?: boolean;
   /** 방금 저장했나 — 잠깐 초록 줄을 띄운다 */
   저장됨?: boolean;
 }) {
   const [검색열림, set검색열림] = useState(false);
   const [로그인안내, set로그인안내] = useState(false);
+  const [이름창, set이름창] = useState(false);
   const 못하는이유 = 못돌리는이유(값);
 
   /** 비중 합. 100 이 아니어도 서버가 맞춰 주지만, 화면에 적어 주면
@@ -917,7 +1030,7 @@ export default function 자산배분설정({
             고장 난 것으로 읽는다. 눌러 보면 왜 안 되는지 알 수 있어야
             한다(아래 안내가 뜬다). */}
         <Button variant="secondary" className="flex-1 py-3"
-                onClick={저장하기 ?? (() => set로그인안내(true))}
+                onClick={저장하기 ? () => set이름창(true) : () => set로그인안내(true)}
                 disabled={!!못하는이유 || 저장중}>
           {저장중 ? "저장 중…" : "저장"}
         </Button>
@@ -925,6 +1038,20 @@ export default function 자산배분설정({
           {도는중 ? "계산 중…" : "결과 확인"}
         </Button>
       </div>
+
+      {/* 저장할 때 **이름을 묻는다.** 자동 이름만 쓰면 비슷한 실험이
+          전부 같은 줄이 되어, 목록에서 어느 것이 무엇인지 열어 봐야
+          알 수 있다. */}
+      {이름창 && 저장하기 && (
+        <NameDialog
+          title="이 설정을 저장할까요?"
+          설명="전략 저장소에서 언제든 다시 열 수 있어요."
+          첫값={첫이름(값.assets)}
+          진행중={저장중}
+          onConfirm={(이름) => { 저장하기(이름); set이름창(false); }}
+          onClose={() => set이름창(false)}
+        />
+      )}
 
       {로그인안내 && !저장하기 && (
         <p className="text-xs text-accent-yellow/90 -mt-2 break-keep">

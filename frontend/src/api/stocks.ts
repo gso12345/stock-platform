@@ -354,7 +354,13 @@ export interface 배분자산 {
 
 export type 주기 = "none" | "monthly" | "quarterly" | "yearly";
 export type 데이터기준 = "daily" | "monthly";
-export type 벤치마크키 = "none" | "6040" | "spy" | "qqq" | "kospi" | "allweather";
+export type 벤치마크키 =
+  | "none" | "spy" | "qqq"
+  /** 코스피 **지수**(^KS11) — ETF 가 아니라 배당이 없다 */
+  | "kospi_index"
+  /** KODEX 200(069500) — 지수를 따르는 ETF, 배당이 있다 */
+  | "kospi"
+  | "6040" | "allweather";
 
 /** 자산배분 백테스트 요청 — 서버 자산배분요청 */
 export interface 자산배분요청 {
@@ -396,9 +402,27 @@ export interface 벤치마크결과 {
   mdd: number | null;
   volatility: number | null;
   sharpe: number | null;
+  sortino?: number | null;
+  best_month?: number | null;
+  worst_month?: number | null;
+  positive_months?: number;
+  total_months?: number;
+  this_month?: number | null;
+  ytd?: number | null;
+  return_1y?: number | null;
+  return_3y?: number | null;
+  return_5y?: number | null;
+  std_1y?: number | null;
+  std_3y?: number | null;
+  std_5y?: number | null;
+  mdd_date?: string | null;
+  crises?: { key: string; name: string; return: number }[];
   curve: { date: string; value: number }[];
   /** 내 것과 나란히 그리려고 같이 받는다 */
   drawdown?: { date: string; dd: number }[];
+  /** 지수 자체를 견주는 경우 — ETF 가 아니라 **배당이 없다**.
+   *  토탈 리턴으로 잰 내 조합과는 그만큼 기준이 다르다. */
+  index_only?: boolean;
 }
 
 /** 자산배분 백테스트 결과.
@@ -446,6 +470,35 @@ export interface 자산배분결과 {
     start: string; trough: string; end: string | null;
     depth: number; to_trough_days: number;
     recovery_days: number | null; underwater_days: number;
+  }[];
+  /** 내려간 흔들림만 위험으로 센 값. 크게 오르기만 해도 '위험' 으로
+   *  잡히는 샤프의 약점을 메운다. */
+  sortino: number | null;
+  /** 달마다의 수익률 — 한 해 안의 출렁임은 연 수익률에 안 남는다 */
+  monthly: { month: string; return: number }[];
+  best_month: number | null;
+  worst_month: number | null;
+  /** 오른 달 / 전체 달 */
+  positive_months: number;
+  total_months: number;
+  this_month: number | null;
+  ytd: number | null;
+  /** 최근 1·3·5년. 자료가 거기까지 없으면 null — 3개월치를
+   *  '1년 수익률' 이라 적으면 안 된다. */
+  return_1y: number | null;
+  return_3y: number | null;
+  return_5y: number | null;
+  std_1y: number | null;
+  std_3y: number | null;
+  std_5y: number | null;
+  /** 낙폭이 **언제** 바닥이었나 */
+  mdd_date: string | null;
+  /** 이름 붙은 폭락 때 얼마나 빠졌나. 겹치는 자료가 없으면 그 줄이 없다 */
+  crises: {
+    key: string; name: string; start: string; end: string;
+    return: number; measured_start: string; measured_end: string;
+    /** 요청한 구간의 일부만 겹쳤나 */
+    partial: boolean;
   }[];
   /** 무엇을 가정하고 잰 수인가 — 0 도 가정이라 감추지 않는다 */
   risk_free_rate: number;

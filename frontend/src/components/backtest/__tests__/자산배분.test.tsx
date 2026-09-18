@@ -18,9 +18,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 /* vi.mock 은 import 위로 끌어올려지므로, 팩토리가 볼 값은 vi.hoisted 로
    같이 끌어올려야 한다. 그냥 let 으로 두면 팩토리가 돌 때 아직 없다. */
-const 상태 = vi.hoisted(() => ({ 로그인함: true, 실험들: [] as any[] }));
+const 상태 = vi.hoisted(() => ({
+  로그인함: true,
+  실험들: [] as any[],
+  포폴들: [] as any[],
+  보유들: [] as any[],
+  폴더들: [] as any[],
+  관심들: [] as any[],
+}));
 
 const 돌린것: any[] = [];
+/** 저장 요청으로 실제로 나간 것 — 이름이 그대로 갔는지 본다 */
+const 저장한것: any[] = [];
 const runPortfolio = vi.fn((p: any) => {
   돌린것.push(p);
   return Promise.resolve(결과흉내);
@@ -46,7 +55,23 @@ vi.mock("@/api/stocks", () => ({
   backtestApi: {
     runPortfolio: (...a: unknown[]) => runPortfolio(...(a as [any])),
     getExperiments: vi.fn(() => Promise.resolve(상태.실험들)),
-    saveExperiment: vi.fn(), deleteExperiment: vi.fn(),
+    saveExperiment: vi.fn((p: any) => { 저장한것.push(p); return Promise.resolve({ id: 1, ...p }); }),
+    deleteExperiment: vi.fn(),
+  },
+  /* 자산 고르기가 내 자산·관심종목에서도 담을 수 있게 되면서 이 셋이
+     필요해졌다. queryFn 으로 **함수를 바로 넘기는** 자리가 있어서,
+     mock 에 없으면 그리는 순간 터진다(enabled:false 여도 그렇다). */
+  portfolioApi: {
+    getPortfolios: vi.fn(() => Promise.resolve(상태.포폴들)),
+    getItems: vi.fn((id?: number) => Promise.resolve(
+      id == null ? 상태.보유들 : 상태.보유들.filter((x: any) => x.portfolio_id === id))),
+  },
+  watchlistApi: {
+    getItems: vi.fn((_m?: string, folderId?: number) => Promise.resolve(
+      folderId == null ? 상태.관심들 : 상태.관심들.filter((x: any) => x.folder_id === folderId))),
+  },
+  watchlistFolderApi: {
+    getFolders: vi.fn(() => Promise.resolve(상태.폴더들)),
   },
 }));
 vi.mock("@/store/authStore", () => ({
@@ -87,8 +112,9 @@ async function 검색해서담기(이름: string) {
 }
 
 beforeEach(() => {
-  돌린것.length = 0; vi.clearAllMocks();
+  돌린것.length = 0; 저장한것.length = 0; vi.clearAllMocks();
   상태.로그인함 = true; 상태.실험들 = [];
+  상태.포폴들 = []; 상태.보유들 = []; 상태.폴더들 = []; 상태.관심들 = [];
 });
 
 describe("사진의 항목이 다 있다", () => {
@@ -212,9 +238,23 @@ describe("사진에 있던 나머지 항목", () => {
     const 기준 = screen.getByLabelText("데이터 기준") as HTMLSelectElement;
     expect([...기준.options].map((o) => o.value)).toEqual(["daily", "monthly"]);
     const 벤치 = screen.getByLabelText("벤치 마크") as HTMLSelectElement;
+    /* 드롭다운은 위에서부터 읽힌다. 제일 흔히 견주는 S&P500 이 아래에
+       있으면 매번 내려서 찾아야 한다 — 넓은 것에서 좁은 것, 한 자산에서
+       섞인 것 순으로 둔다. */
     expect([...벤치.options].map((o) => o.value))
-      .toEqual(["none", "6040", "spy", "qqq", "kospi", "allweather"]);
+      .toEqual(["none", "spy", "qqq", "kospi_index", "kospi", "6040", "allweather"]);
     expect(벤치.value).toBe("none");
+  });
+
+  it("코스피와 코스피200 은 다른 것이다", () => {
+    /* 앞은 지수 자체(^KS11)라 배당이 없고, 뒤는 그 지수를 따르는
+       ETF(069500)라 배당이 있다. 같은 것으로 묶으면 배당만큼 차이나는
+       결과를 같은 이름으로 보게 된다. */
+    그리기();
+    const 벤치 = screen.getByLabelText("벤치 마크") as HTMLSelectElement;
+    const 글 = [...벤치.options].map((o) => o.textContent);
+    expect(글).toContain("코스피");
+    expect(글).toContain("코스피200");
   });
 
   it("고른 설정이 그대로 서버에 간다", () => {
@@ -763,12 +803,72 @@ describe("저장했다는 것을 알려 준다", () => {
   /* 목록을 이 화면에서 없앴다. 그래서 저장 뒤에 아무 말도 안 하면
      저장이 됐는지 **알 방법이 아예 없다** — 버튼만 눌리고 화면은
      그대로다. 어디로 갔는지도 같이 적어야 찾으러 갈 수 있다. */
-  async function 저장까지() {
+  /** 저장 버튼을 누르면 **이름 창**이 뜬다. 자동 이름만 쓰면 비슷한
+   *  실험이 전부 같은 줄이 되어, 목록에서 열어 봐야 구분된다. */
+  async function 저장까지(이름?: string) {
     그리기();
     await 검색해서담기("Apple");
     await userEvent.click(screen.getByLabelText("1000만원"));
     await userEvent.click(screen.getByRole("button", { name: /^저장/ }));
+    const 칸 = await screen.findByLabelText("이름");
+    if (이름 != null) {
+      await userEvent.clear(칸);
+      if (이름) await userEvent.type(칸, 이름);
+    }
+    /* 화면에 '저장' 단추가 둘이다 — 폼의 것과 창의 것. 창 안에서만
+       찾는다. 이름을 달리 지으면 검사는 쉬워지지만 화면이 어색해진다. */
+    const 확인 = 이름창확인(칸);
+    if (!확인.disabled) await userEvent.click(확인);
+    return 칸 as HTMLInputElement;
   }
+
+  /** 이름 창 안의 저장 단추 */
+  function 이름창확인(칸: HTMLElement): HTMLButtonElement {
+    const 창 = 칸.closest("form")!;
+    return within(창).getByRole("button", { name: "저장" }) as HTMLButtonElement;
+  }
+
+  it("저장 전에 이름을 묻는다", async () => {
+    /* 자동 이름을 그대로 쓰면 주식 60/40 과 70/30 이 목록에서 똑같은
+       줄로 보인다 — 어느 쪽이 무엇인지 열어 봐야 안다. */
+    그리기();
+    await 검색해서담기("Apple");
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    await userEvent.click(screen.getByRole("button", { name: /^저장/ }));
+    expect(await screen.findByLabelText("이름"), "이름을 안 묻는다").toBeInTheDocument();
+    expect(저장한것.length, "묻기도 전에 저장했다").toBe(0);
+  }, 20000);
+
+  it("담은 자산으로 이름을 미리 채워 준다", async () => {
+    /* 빈 채로 열면 매번 처음부터 쳐야 한다. 그대로 쓸 사람은 확인만
+       누르면 되게 채워는 둔다. */
+    그리기();
+    await 검색해서담기("Apple");
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    await userEvent.click(screen.getByRole("button", { name: /^저장/ }));
+    expect((await screen.findByLabelText("이름") as HTMLInputElement).value).toBe("Apple");
+  }, 20000);
+
+  it("지은 이름이 그대로 저장된다", async () => {
+    await 저장까지("은퇴자금 안전형");
+    await waitFor(() => expect(저장한것.length).toBe(1));
+    expect(저장한것[0].name).toBe("은퇴자금 안전형");
+  }, 20000);
+
+  it("이름을 비우면 저장이 안 된다", async () => {
+    /* 이름 없는 줄이 목록에 쌓이면 무엇인지 알 방법이 없다 */
+    const 칸 = await 저장까지("");
+    expect(이름창확인(칸)).toBeDisabled();
+    expect(screen.getByText(/이름을 적어야/), "왜 안 되는지 안 적는다").toBeInTheDocument();
+    expect(저장한것.length).toBe(0);
+    expect(칸.value).toBe("");
+  }, 20000);
+
+  it("앞뒤 공백만 있는 이름도 막는다", async () => {
+    const 칸2 = await 저장까지("   ");
+    expect(이름창확인(칸2)).toBeDisabled();
+    expect(저장한것.length).toBe(0);
+  }, 20000);
 
   it("저장하면 어디에서 볼 수 있는지 말해 준다", async () => {
     await 저장까지();
@@ -899,17 +999,88 @@ describe("자산을 빠르게 담는다", () => {
     /* 자산배분에서 '현금 20%' 는 아주 흔한 구성인데 검색으로는 안 나온다 */
     그리기();
     await userEvent.click(screen.getByLabelText("자산 추가"));
-    expect(screen.getByText("+ 현금")).toBeInTheDocument();
-    await userEvent.click(screen.getByLabelText("내 목록에서"));
-    expect(screen.getByText("+ 현금")).toBeInTheDocument();
+    for (const 칸 of ["종류별 대표", "내 자산에서", "관심종목에서", "검색해서"]) {
+      await userEvent.click(screen.getByLabelText(칸));
+      expect(screen.getByText("+ 현금"), `${칸} 칸에 현금이 없다`).toBeInTheDocument();
+    }
   });
 
-  it("로그인 안 했으면 내 목록에서 그렇게 말해 준다", async () => {
+  it("로그인 안 했으면 어느 쪽인지 짚어서 말해 준다", async () => {
     상태.로그인함 = false;
     그리기();
     await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByLabelText("내 목록에서"));
-    expect(screen.getByText(/로그인하면 관심목록과 내 자산/)).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("내 자산에서"));
+    expect(screen.getByText(/로그인하면 내 자산에서/)).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("관심종목에서"));
+    expect(screen.getByText(/로그인하면 관심종목에서/)).toBeInTheDocument();
+  });
+
+  it("내 자산과 관심종목이 따로 있다", async () => {
+    /* 둘은 뜻이 다르다 — 하나는 실제로 가진 것, 하나는 지켜보는 것이다.
+       섞어 놓으면 어느 포트폴리오·어느 폴더에서 가져올지를 고를 수 없다. */
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    expect(screen.getByLabelText("내 자산에서")).toBeInTheDocument();
+    expect(screen.getByLabelText("관심종목에서")).toBeInTheDocument();
+  });
+
+  it("포트폴리오가 여럿이면 어느 것에서 가져올지 고른다", async () => {
+    /* 연금·주식계좌·아이 계좌를 따로 두는 사람이 많다. 전부 섞어 주면
+       '연금 계좌만 백테스트해 보기' 를 아예 못 한다. */
+    상태.포폴들 = [{ id: 1, name: "연금" }, { id: 2, name: "주식계좌" }];
+    상태.보유들 = [
+      { symbol: "AAPL", market: "US", name: "애플", portfolio_id: 1 },
+      { symbol: "NVDA", market: "US", name: "엔비디아", portfolio_id: 2 },
+    ];
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("내 자산에서"));
+    expect(await screen.findByLabelText("포트폴리오 연금")).toBeInTheDocument();
+    //: 전체로 시작하므로 둘 다 보인다
+    expect(await screen.findByLabelText("애플 담기")).toBeInTheDocument();
+    expect(screen.getByLabelText("엔비디아 담기")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByLabelText("포트폴리오 연금"));
+    expect(await screen.findByLabelText("애플 담기")).toBeInTheDocument();
+    expect(screen.queryByLabelText("엔비디아 담기"),
+      "연금만 골랐는데 다른 계좌 종목이 보인다").toBeNull();
+  });
+
+  it("포트폴리오가 하나뿐이면 고르는 줄을 안 그린다", async () => {
+    /* 고를 것이 없는데 조작칸만 있으면 화면만 복잡해진다 */
+    상태.포폴들 = [{ id: 1, name: "기본" }];
+    상태.보유들 = [{ symbol: "AAPL", market: "US", name: "애플", portfolio_id: 1 }];
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("내 자산에서"));
+    await screen.findByLabelText("애플 담기");
+    expect(screen.queryByText("포트폴리오 고르기")).toBeNull();
+  });
+
+  it("관심종목은 폴더로 고른다", async () => {
+    상태.폴더들 = [{ id: 7, name: "반도체" }, { id: 8, name: "배당주" }];
+    상태.관심들 = [
+      { symbol: "NVDA", market: "US", name: "엔비디아", folder_id: 7 },
+      { symbol: "KO", market: "US", name: "코카콜라", folder_id: 8 },
+    ];
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("관심종목에서"));
+    await userEvent.click(await screen.findByLabelText("폴더 반도체"));
+    expect(await screen.findByLabelText("엔비디아 담기")).toBeInTheDocument();
+    expect(screen.queryByLabelText("코카콜라 담기")).toBeNull();
+  });
+
+  it("고른 묶음이 비었으면 **어디가** 비었는지 말한다", async () => {
+    /* '종목이 없어요' 만 있으면 고른 묶음이 빈 것인지 전체가 빈 것인지
+       알 수 없다 */
+    상태.폴더들 = [{ id: 7, name: "반도체" }, { id: 8, name: "배당주" }];
+    상태.관심들 = [{ symbol: "NVDA", market: "US", name: "엔비디아", folder_id: 7 }];
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("관심종목에서"));
+    await userEvent.click(await screen.findByLabelText("폴더 배당주"));
+    expect(await screen.findByText(/'배당주' 폴더에 종목이 없어요/)).toBeInTheDocument();
   });
 
   it("대표 칸에서도 담긴 것은 눌리지 않는다", async () => {

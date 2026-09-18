@@ -550,8 +550,17 @@ class 자산칸(BaseModel):
                "assets": [{"symbol": "SPY", "market": "US", "weight": 100}]},
     "qqq":    {"name": "나스닥100",
                "assets": [{"symbol": "QQQ", "market": "US", "weight": 100}]},
+    #: 'kospi' 는 처음부터 069500(KODEX 200)이었다. **키의 뜻을 바꾸면
+    #  안 된다** — 이미 저장된 실험들이 이 키를 들고 있어서, 뜻을 바꾸면
+    #  같은 실험을 다시 열었을 때 조용히 다른 것과 견주게 된다.
+    #  그래서 코스피 지수는 새 키로 더한다.
     "kospi":  {"name": "코스피200",
                "assets": [{"symbol": "069500", "market": "KR", "weight": 100}]},
+    #: 코스피 지수 그 자체. ETF 가 아니라 **지수**라 배당이 없다 —
+    #  토탈 리턴으로 잰 내 조합과 견주면 지수 쪽이 배당만큼 불리하다.
+    #  그 사실을 화면이 적어 준다(index_only).
+    "kospi_index": {"name": "코스피", "index_only": True,
+                    "assets": [{"symbol": "^KS11", "market": "KR", "weight": 100}]},
     "allweather": {"name": "올웨더",
                    "assets": [{"symbol": "SPY", "market": "US", "weight": 30},
                               {"symbol": "TLT", "market": "US", "weight": 40},
@@ -992,6 +1001,9 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
                     """곡선까지 다 담으면 응답이 두 배가 된다. 견주는 데
                     필요한 것은 수치 몇 개와 곡선뿐이라 나머지는 뺀다."""
                     벤치 = {"key": req.benchmark, "name": 고른벤치["name"],
+                            #: 지수는 배당이 없다. 감추면 사용자는 같은
+                            #  기준으로 견준 줄 안다.
+                            "index_only": bool(고른벤치.get("index_only")),
                             **{k: 벤치결과.get(k) for k in
                                ("final_value", "total_return", "twr_annual",
                                 "irr_annual", "mdd", "volatility", "sharpe",
@@ -999,6 +1011,14 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
                                 #  나란히 그린다. 'mdd 는 6040 이 더
                                 #  작았다' 만으로는 언제 얼마나 오래
                                 #  잠겨 있었는지를 알 수 없다.
+                                #: 요약표에서 나란히 견주는 것들. 없으면
+                                #  '내 조합만 잰 수' 가 되어 비교가 안 된다.
+                                "sortino", "best_month", "worst_month",
+                                "positive_months", "total_months",
+                                "this_month", "ytd",
+                                "return_1y", "return_3y", "return_5y",
+                                "std_1y", "std_3y", "std_5y",
+                                "mdd_date", "crises",
                                 "contributed", "curve", "drawdown")}}
         except Exception as e:
             #: 벤치마크를 못 받았다고 내 결과까지 버리면 안 된다.

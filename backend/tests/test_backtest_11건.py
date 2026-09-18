@@ -798,3 +798,202 @@ def test_벤치마크도_낙폭_곡선을_준다(client, monkeypatch):
     #: 내 것과 같은 모양이어야 화면이 날짜로 맞출 수 있다
     첫칸 = d["benchmark"]["drawdown"][0]
     assert set(첫칸) == {"date", "dd"}, f"모양이 다르다: {첫칸}"
+
+
+# ══════════════════════════════════════════════════════════
+# 사진과 견줘 빠져 있던 지표들 (새 기능)
+# ══════════════════════════════════════════════════════════
+class Test지표:
+    """연 수익률만 보면 한 해 안에서 얼마나 출렁였는지가 통째로
+    사라진다. +20% 인 해도 한 달에 -12% 를 맞았을 수 있고, 그걸
+    견디는 것이 실제 경험이다."""
+
+    def _표(self, 씨=4, 시작=date(2014, 1, 2), 끝=date(2026, 9, 17)):
+        rnd = random.Random(씨)
+        날 = 거래일(끝=끝, 시작=시작)
+        c, 값 = 100.0, {}
+        for d in 날:
+            c *= (1 + rnd.gauss(0.0005, 0.011))
+            값[d] = c
+        return {"SPY": 값}
+
+    자산 = [{"symbol": "SPY", "market": "US", "weight": 100}]
+
+    def test_달마다_수익률이_달_수만큼_나온다(self):
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        assert len(r["monthly"]) == r["total_months"]
+        #: 첫 달은 시작값이 없어 안 센다 — 12년치면 150개 언저리다
+        assert 140 < r["total_months"] < 160, r["total_months"]
+
+    def test_첫_달은_안_센다(self):
+        """첫 달은 **비교할 시작값이 없다.** 값들[0] 을 쓰면 그 달만
+        0% 가 되어 '한 번도 안 움직인 달' 로 잡히고, 음수 칸을 쓰면
+        마지막 값과 견주게 되어 터무니없는 수가 나온다."""
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        assert r["monthly"][0]["month"] == "2014-02", \
+            f"첫 달(2014-01)이 섞여 있다: {r['monthly'][0]}"
+        #: 섞였으면 마지막 값과 견준 말도 안 되는 수가 끼어든다
+        assert all(-60 < x["return"] < 60 for x in r["monthly"]), \
+            f"달 수익률에 터무니없는 수가 있다: {max(r['monthly'], key=lambda x: abs(x['return']))}"
+
+    def test_월_최고최저가_달마다_안에_있다(self):
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        값들 = [x["return"] for x in r["monthly"]]
+        assert r["best_month"] == max(값들)
+        assert r["worst_month"] == min(값들)
+
+    def test_오른_달_수가_실제와_맞는다(self):
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        assert r["positive_months"] == sum(1 for x in r["monthly"] if x["return"] > 0)
+        assert 0 < r["positive_months"] < r["total_months"]
+
+    def test_적립해도_달_수익률이_부풀지_않는다(self):
+        """납입을 안 빼면 매달 넣는 사람은 **어떤 달이든 플러스**가
+        나온다 — 넣은 돈이 수익으로 둔갑한다."""
+        표 = self._표()
+        거치 = 돌리기(표, self.자산, 10_000_000)
+        적립 = 돌리기(표, self.자산, 10_000_000,
+                      적립주기="monthly", 적립금액=2_000_000)
+        assert 적립["positive_months"] < 적립["total_months"], \
+            "적립하니 모든 달이 플러스가 됐다 — 납입을 안 뺐다"
+        #: 같은 값이므로 오른 달 수가 크게 다르면 안 된다
+        assert abs(적립["positive_months"] - 거치["positive_months"]) <= 3
+
+    def test_자료가_짧으면_긴_구간은_못_잰다(self):
+        """3개월치를 '1년 수익률' 이라 적으면 안 된다."""
+        짧은표 = self._표(시작=date(2026, 1, 2), 끝=date(2026, 9, 17))
+        r = 돌리기(짧은표, self.자산, 10_000_000)
+        assert r["return_1y"] is None, "8개월치로 1년 수익률을 냈다"
+        assert r["return_3y"] is None
+        assert r["std_1y"] is None
+
+    def test_자료가_길면_1_3_5년을_다_잰다(self):
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        for 칸 in ("return_1y", "return_3y", "return_5y",
+                   "std_1y", "std_3y", "std_5y"):
+            assert r[칸] is not None, f"{칸} 을 못 쟀다"
+
+    def test_소티노_분모를_전체_칸으로_나눈다(self):
+        """분모는 **전체 칸 수**로 나눈다(내려간 칸 수가 아니다).
+
+        내려간 칸 수로 나누면 합은 그대로인데 나누는 수가 확 작아져
+        하방편차가 커지고, 소티노가 바닥으로 떨어진다 — 거의 안
+        흔들리다 딱 한 번 빠진 자료로 재 보니 **1.106 이 0.031** 이
+        됐다. 한 번 빠진 것을 '늘 그만큼 위험하다' 로 세는 셈이다.
+
+        그런 자료에서는 내려간 흔들림이 곧 전체 흔들림이라, 소티노가
+        샤프와 비슷하게 나오는 것이 맞는다."""
+        날 = 거래일(끝=date(2024, 12, 31), 시작=date(2020, 1, 2))
+        값, c = {}, 100.0
+        for i, d in enumerate(날):
+            #: 꾸준히 조금씩 오르다가 한 번만 -15%
+            c *= 0.85 if i == 600 else 1.0004
+            값[d] = c
+        r = 돌리기({"SPY": 값}, self.자산, 10_000_000)
+        assert r["sortino"] is not None and r["sharpe"] is not None
+        assert 0.5 < r["sortino"] / r["sharpe"] < 2.0, \
+            (f"소티노 {r['sortino']} · 샤프 {r['sharpe']} — 내려간 흔들림이 곧 "
+             "전체 흔들림인 자료인데 둘이 크게 다르다. 분모를 내려간 칸 "
+             "수로 나누고 있다")
+
+    def test_소티노가_샤프보다_크다(self):
+        """소티노는 **내려간 흔들림만** 위험으로 센다. 오르는 쪽을 빼니
+        분모가 작아져, 오름이 큰 자료에서는 샤프보다 커야 맞는다."""
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        assert r["sortino"] is not None
+        assert r["sortino"] > r["sharpe"], \
+            f"소티노 {r['sortino']} 가 샤프 {r['sharpe']} 보다 작다"
+
+    def test_소티노도_무위험수익률을_뺀다(self):
+        표 = self._표()
+        높음 = 돌리기(표, self.자산, 10_000_000, 무위험수익률=0.0)["sortino"]
+        낮음 = 돌리기(표, self.자산, 10_000_000, 무위험수익률=0.05)["sortino"]
+        assert 낮음 < 높음
+
+    def test_MDD_바닥_날짜가_낙폭_순위와_맞는다(self):
+        """같은 -30% 라도 2008년이었는지 작년이었는지에 따라 읽는 뜻이
+        전혀 다르다."""
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        assert r["mdd_date"] == r["drawdowns"][0]["trough"]
+
+
+class Test폭락때:
+    """'최대 낙폭 -30%' 만 보면 언제 어떤 일로 그랬는지 모른다. 사람이
+    실제로 묻는 것은 '내 조합이 코로나 때 어땠나' 다."""
+
+    자산 = [{"symbol": "SPY", "market": "US", "weight": 100}]
+
+    def _표(self, 시작=date(2005, 1, 3), 끝=date(2026, 9, 17)):
+        rnd = random.Random(4)
+        날 = 거래일(끝=끝, 시작=시작)
+        c, 값 = 100.0, {}
+        for d in 날:
+            흔들 = rnd.gauss(0.0005, 0.011)
+            if date(2007, 10, 9) <= d <= date(2009, 3, 9):
+                흔들 -= 0.0018
+            if date(2020, 2, 19) <= d <= date(2020, 3, 23):
+                흔들 -= 0.016
+            c *= (1 + 흔들)
+            값[d] = c
+        return {"SPY": 값}
+
+    def test_금융위기와_코로나에_크게_빠진다(self):
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        이름들 = {x["name"]: x["return"] for x in r["crises"]}
+        assert 이름들["미국 금융위기"] < -20, 이름들
+        assert 이름들["코로나"] < -15, 이름들
+
+    def test_자료가_없는_구간은_아예_안_낸다(self):
+        """0% 로 적으면 '안 빠졌다' 로 읽히는데, 사실은 그때 이 조합이
+        없었던 것이다."""
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        이름들 = [x["name"] for x in r["crises"]]
+        assert "닷컴버블 붕괴" not in 이름들, \
+            "2005년부터인데 2000년 닷컴버블 성적을 냈다"
+
+    def test_일부만_겹치면_실제로_잰_기간을_적는다(self):
+        표 = self._표(시작=date(2008, 6, 2))
+        r = 돌리기(표, self.자산, 10_000_000)
+        금융 = [x for x in r["crises"] if x["key"] == "gfc"]
+        assert 금융, "금융위기 구간에 자료가 걸치는데 안 냈다"
+        x = 금융[0]
+        assert x["partial"] is True
+        assert x["measured_start"] >= "2008-06-02"
+        assert x["start"] == "2007-10-09"      # 요청한 구간은 그대로 적는다
+
+    def test_며칠짜리_조각으로는_안_낸다(self):
+        """'코로나 때 -3%' 를 이틀치로 적으면 안 된다."""
+        표 = self._표(시작=date(2020, 3, 19))
+        r = 돌리기(표, self.자산, 10_000_000)
+        assert not [x for x in r["crises"] if x["key"] == "covid"]
+
+    def test_구간_직전_값부터_잰다(self):
+        """구간 첫날을 시작으로 잡으면 그날의 하락이 통째로 빠진다."""
+        r = 돌리기(self._표(), self.자산, 10_000_000)
+        코로나 = [x for x in r["crises"] if x["key"] == "covid"][0]
+        assert 코로나["measured_start"] < "2020-02-19", \
+            f"구간 첫날({코로나['measured_start']})부터 쟀다 — 그날 하락이 빠진다"
+
+
+def test_벤치마크_키의_뜻을_바꾸지_않는다():
+    """저장된 실험이 이 키를 들고 있다.
+
+    'kospi' 는 처음부터 069500(KODEX 200)이었다. 뜻을 바꾸면 같은
+    실험을 다시 열었을 때 **조용히 다른 것과 견주게 된다** — 결과만
+    달라지고 아무 오류도 안 난다.
+
+    코스피 지수는 새 키(kospi_index)로 더했다. 지수는 ETF 가 아니라
+    배당이 없으므로 index_only 로 표시한다."""
+    표 = R.벤치마크표
+    assert 표["kospi"]["assets"][0]["symbol"] == "069500", \
+        "'kospi' 가 더 이상 KODEX 200 이 아니다 — 저장된 실험의 뜻이 바뀐다"
+    assert 표["kospi"]["name"] == "코스피200"
+
+    assert "kospi_index" in 표, "코스피 지수 벤치마크가 없다"
+    assert 표["kospi_index"]["assets"][0]["symbol"] == "^KS11"
+    assert 표["kospi_index"].get("index_only") is True, \
+        "지수는 배당이 없다는 표시가 없다 — 토탈 리턴과 기준이 다르다"
+
+    #: 두 키가 다른 것을 가리켜야 '코스피' 와 '코스피200' 이 뜻이 있다
+    assert (표["kospi"]["assets"][0]["symbol"]
+            != 표["kospi_index"]["assets"][0]["symbol"])
