@@ -16,8 +16,10 @@
  * 연환산도 **두 개를 나란히** 적는다. 하나만 보여 주면 적립식의 핵심인
  * 그 차이가 통째로 사라진다.
  */
-import { Fragment, lazy, Suspense } from "react";
-import { Card } from "@/components/ui";
+import { Fragment, lazy, Suspense, useMemo, useState } from "react";
+import { Card, 고른칩 } from "@/components/ui";
+import { useSettingsStore } from "@/store/settingsStore";
+import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { 짧은돈 } from "@/utils/formatters";
 import type { 자산배분결과 } from "@/api/stocks";
 
@@ -94,9 +96,284 @@ function 칸({ 이름, 값, 색, 밑 }: {
   );
 }
 
+
+/* ═══════════════════════════════════════════════════════════
+   자산 흐름 — 로그 축과 벤치마크 겹치기
+   ═══════════════════════════════════════════════════════════ */
+
+/** 두 곡선을 **날짜로 맞춰** 한 배열로 합친다.
+ *
+ *  그냥 두 배열을 나란히 그리면 안 된다. 내 조합과 벤치마크는 겹치는
+ *  거래일이 다를 수 있다 — 한국 자산이 섞이면 휴장일이 어긋나고, 월
+ *  데이터로 재면 솎인 날이 다르다. 칸 번호로 짝지으면 2020년 값이
+ *  2021년 자리에 그려지는데, 그래프는 멀쩡해 보인다.
+ *
+ *  내 곡선의 날짜를 기준으로 삼고, 벤치마크는 그 날에 있는 값만 얹는다.
+ *  없는 날은 비워 둔다(recharts 가 알아서 잇는다). */
+export function 맞춰합치기(
+  내것: { date: string; value: number }[],
+  벤치?: { date: string; value: number }[],
+): { date: string; 내것: number; 벤치?: number }[] {
+  const 표 = new Map((벤치 ?? []).map((x) => [x.date, x.value]));
+  return 내것.map((x) => {
+    const b = 표.get(x.date);
+    return b == null ? { date: x.date, 내것: x.value } : { date: x.date, 내것: x.value, 벤치: b };
+  });
+}
+
+/** 세로축 설정 — 로그인가 아닌가.
+ *
+ *  차트 안에 직접 적으면 jsdom 에서는 검사할 수가 없다(recharts 가
+ *  레이아웃을 안 그린다). 값을 돌려주는 함수로 빼 두면 로그를 켜고
+ *  껐을 때 축이 실제로 바뀌는지 확인할 수 있다.
+ *
+ *  로그 축에서는 domain 을 auto 로 둬야 한다 — recharts 가 밑을 0 으로
+ *  잡으면 log(0) 이라 아무것도 안 그린다. */
+export function 축설정(로그켬: boolean) {
+  return 로그켬
+    ? { scale: "log" as const, domain: ["auto", "auto"] as const }
+    : { scale: "auto" as const, domain: undefined };
+}
+
+/** 로그 축을 쓸 수 있나.
+ *
+ *  로그는 0 이나 음수를 못 그린다. 평가액이 0 이 되는 일은 드물지만
+ *  전액 손실이면 실제로 0 이 나온다 — 그때 로그를 켜면 그래프가 통째로
+ *  사라지고, 사용자는 앱이 고장 난 줄 안다. 못 쓸 때는 단추를 아예
+ *  안 보여 준다. */
+export function 로그가능(칸들: { 내것: number; 벤치?: number }[]): boolean {
+  return 칸들.every((x) => x.내것 > 0 && (x.벤치 == null || x.벤치 > 0));
+}
+
+function 자산흐름({ r }: { r: 자산배분결과 }) {
+  const [로그, set로그] = useState(false);
+  const [벤치보기, set벤치보기] = useState(true);
+
+  const 합친것 = useMemo(
+    () => 맞춰합치기(r.curve, r.benchmark?.curve),
+    [r.curve, r.benchmark],
+  );
+  const 벤치있음 = !!r.benchmark && 합친것.some((x) => x.벤치 != null);
+  const 쓸수있나 = 로그가능(합친것);
+  /* 못 쓰는데 켜져 있으면 끈다 — 다른 실험을 불러와 값이 0 이 될 수 있다 */
+  const 로그켬 = 로그 && 쓸수있나;
+
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-sm font-semibold text-text-primary">자산 흐름</span>
+        <div className="flex items-center gap-1.5">
+          {벤치있음 && (
+            <고른칩 작게 고름={벤치보기} onClick={() => set벤치보기((v) => !v)}
+                    ariaLabel={`${r.benchmark!.name} 같이 보기`}>
+              {r.benchmark!.name}
+            </고른칩>
+          )}
+          {/* 로그 축은 **비율로 읽는 축**이다. 30년을 선형으로 그리면
+              초반 10년이 바닥에 눌려 아무것도 안 보인다 — 같은 2배가
+              1,000만→2,000만이든 1억→2억이든 똑같은 높이로 보이게 한다.
+              쓸 수 없을 때(값이 0 이하) 아예 안 보여 준다. */}
+          {쓸수있나 && (
+            <고른칩 작게 고름={로그켬} onClick={() => set로그((v) => !v)}
+                    ariaLabel="로그 축">로그</고른칩>
+          )}
+        </div>
+      </div>
+      <div className="p-2">
+        <Suspense fallback={<div className="h-[220px] flex items-center justify-center text-xs text-text-dim">그리는 중…</div>}>
+          <차트틀 height={220}>
+            {(R: any) => (
+              <R.AreaChart data={합친것} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+                <defs>
+                  <linearGradient id="bt-alloc" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent-blue)" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="var(--accent-blue)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <R.XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={48} />
+                <R.YAxis tick={{ fontSize: 10 }} width={54}
+                         {...축설정(로그켬)}
+                         allowDataOverflow={false}
+                         tickFormatter={(v: number) => 눈금글(v, r.currency)} />
+                <R.Tooltip formatter={(v: number, 이름: string) =>
+                  [돈(v, r.currency), 이름 === "내것" ? "내 조합" : r.benchmark?.name ?? "벤치마크"]} />
+                <R.Area type="monotone" dataKey="내것" name="내것" stroke="var(--accent-blue)"
+                        fill="url(#bt-alloc)" strokeWidth={2} dot={false} isAnimationActive={false} />
+                {벤치있음 && 벤치보기 && (
+                  /* 벤치마크는 **선만** 그린다. 면을 두 개 겹치면 색이
+                     섞여 어느 쪽이 위인지 알 수 없다. 점선이라 흑백으로
+                     인쇄해도, 색을 못 가리는 사람에게도 구분된다. */
+                  <R.Area type="monotone" dataKey="벤치" name="벤치" stroke="var(--accent-purple)"
+                          fill="none" strokeWidth={1.5} strokeDasharray="4 3"
+                          dot={false} connectNulls isAnimationActive={false} />
+                )}
+              </R.AreaChart>
+            )}
+          </차트틀>
+        </Suspense>
+      </div>
+      {로그켬 && (
+        <p className="px-4 pb-3 text-2xs text-text-dim break-keep">
+          로그 축이에요 — 같은 높이가 같은 <b>비율</b>이에요. 1,000만원이 2,000만원이
+          되는 것과 1억이 2억이 되는 것이 같은 크기로 보여요.
+        </p>
+      )}
+      {벤치있음 && 벤치보기 && (
+        <p className="px-4 pb-3 text-2xs text-text-dim break-keep">
+          점선이 {r.benchmark!.name}이에요. 같은 기간·같은 납입·같은 비용으로 돌렸어요.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   낙폭 — 그래프와 순위
+   ═══════════════════════════════════════════════════════════ */
+
+/** '1975일' 은 읽어도 감이 안 온다. '5년 5개월' 로 적는다. */
+export function 걸린기간(날: number | null | undefined): string {
+  if (날 == null) return "—";
+  if (날 < 31) return `${날}일`;
+  const 달 = Math.round(날 / 30.44);
+  if (달 < 12) return `${달}개월`;
+  const 해 = Math.floor(달 / 12);
+  const 남은달 = 달 % 12;
+  return 남은달 ? `${해}년 ${남은달}개월` : `${해}년`;
+}
+
+function 낙폭칸({ r }: { r: 자산배분결과 }) {
+  const 배색 = useSettingsStore((s) => s.colorScheme);
+  const 내림 = 내림색(배색);
+  const [벤치보기, set벤치보기] = useState(true);
+
+  const 합친것 = useMemo(() => {
+    const 표 = new Map((r.benchmark?.drawdown ?? []).map((x) => [x.date, x.dd]));
+    return (r.drawdown ?? []).map((x) => {
+      const b = 표.get(x.date);
+      return b == null ? { date: x.date, 내것: x.dd } : { date: x.date, 내것: x.dd, 벤치: b };
+    });
+  }, [r.drawdown, r.benchmark]);
+  const 벤치있음 = 합친것.some((x) => x.벤치 != null);
+  const 순위 = r.drawdowns ?? [];
+
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-sm font-semibold text-text-primary">낙폭</span>
+        {벤치있음 && (
+          <고른칩 작게 고름={벤치보기} onClick={() => set벤치보기((v) => !v)}
+                  ariaLabel={`${r.benchmark!.name} 같이 보기`}>
+            {r.benchmark!.name}
+          </고른칩>
+        )}
+      </div>
+      {/* 낙폭은 '고점에서 얼마나 내려와 있나' 다. 0 이 맨 위고 아래로
+          떨어진다 — 물에 잠긴 깊이처럼 읽힌다. 수익 곡선만 보면 오르는
+          그림만 남아서, 중간에 얼마나 오래 잠겨 있었는지가 안 보인다. */}
+      <div className="p-2">
+        <Suspense fallback={<div className="h-[160px] flex items-center justify-center text-xs text-text-dim">그리는 중…</div>}>
+          <차트틀 height={160}>
+            {(R: any) => (
+              <R.AreaChart data={합친것} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+                <defs>
+                  <linearGradient id="bt-dd" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={내림} stopOpacity={0.05} />
+                    <stop offset="100%" stopColor={내림} stopOpacity={0.4} />
+                  </linearGradient>
+                </defs>
+                <R.XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={48} />
+                <R.YAxis tick={{ fontSize: 10 }} width={42}
+                         tickFormatter={(v: number) => `${Math.round(v)}%`} />
+                <R.Tooltip formatter={(v: number, 이름: string) =>
+                  [`${v}%`, 이름 === "내것" ? "내 조합" : r.benchmark?.name ?? "벤치마크"]} />
+                <R.Area type="monotone" dataKey="내것" name="내것" stroke={내림}
+                        fill="url(#bt-dd)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                {벤치있음 && 벤치보기 && (
+                  <R.Area type="monotone" dataKey="벤치" name="벤치" stroke="var(--accent-purple)"
+                          fill="none" strokeWidth={1.5} strokeDasharray="4 3"
+                          dot={false} connectNulls isAnimationActive={false} />
+                )}
+              </R.AreaChart>
+            )}
+          </차트틀>
+        </Suspense>
+      </div>
+
+      {/* ── 깊은 낙폭 순위 ──
+          최대 낙폭 하나만 보면 '한 번 크게 맞았다' 는 것밖에 모른다.
+          실제로 견딜 수 있는지는 **얼마나 오래 잠겨 있었나**가 더 크게
+          좌우한다 — -50% 를 1년 만에 회복한 것과 -35% 로 7년을 보낸
+          것은 전혀 다른 경험이다. */}
+      {순위.length > 0 && (
+        <div className="border-t border-border">
+          <div className="px-4 py-2.5 flex items-baseline justify-between gap-2">
+            <span className="text-sm font-semibold text-text-primary">깊었던 순서</span>
+            <span className="text-2xs text-text-dim">얼마나 오래 잠겼나까지</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-bg-secondary border-y border-border">
+                {/* 폰에서는 표가 옆으로 밀린다. 제일 중요한 두 수 —
+                    **얼마나 깊었나**와 **얼마나 오래 잠겼나** — 를 앞에
+                    둬서 밀지 않고도 보이게 한다. 날짜 셋은 뒤로 보낸다.
+                    (처음에는 날짜를 앞에 뒀는데, 폰으로 찍어 보니 정작
+                     잠긴 기간이 화면 밖이었다.) */}
+                <tr className="text-text-muted">
+                  <th className="text-right px-3 py-2 whitespace-nowrap">낙폭</th>
+                  <th className="text-right px-3 py-2 whitespace-nowrap">잠긴 기간</th>
+                  <th className="text-left px-3 py-2 whitespace-nowrap">고점</th>
+                  <th className="text-left px-3 py-2 whitespace-nowrap">바닥</th>
+                  <th className="text-left px-3 py-2 whitespace-nowrap">회복</th>
+                </tr>
+              </thead>
+              <tbody>
+                {순위.map((d) => (
+                  <tr key={d.start} className="border-b border-border/30">
+                    <td className="px-3 py-2 text-right font-mono font-semibold whitespace-nowrap"
+                        style={{ color: 내림 }}>{d.depth}%</td>
+                    <td className="px-3 py-2 text-right text-text-secondary whitespace-nowrap">
+                      {걸린기간(d.underwater_days)}
+                      {!d.end && <span className="text-accent-yellow"> +</span>}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-text-secondary whitespace-nowrap">{d.start}</td>
+                    <td className="px-3 py-2 font-mono text-text-secondary whitespace-nowrap">{d.trough}</td>
+                    {/* 아직 못 되찾았으면 **그렇다고 적는다.** 마지막
+                        날짜를 넣으면 회복한 것처럼 읽힌다. */}
+                    <td className="px-3 py-2 font-mono whitespace-nowrap">
+                      {d.end
+                        ? <span className="text-text-secondary">{d.end}</span>
+                        : <span className="text-accent-yellow">아직</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {순위.some((d) => !d.end) && (
+            <p className="px-4 py-2.5 text-2xs text-text-dim break-keep">
+              '아직' 은 마지막 날까지 고점을 못 되찾았다는 뜻이에요. 잠긴 기간 뒤의
+              <b> +</b>는 더 늘어날 수 있다는 표시예요.
+            </p>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function 자산배분결과화면({ r }: { r: 자산배분결과 }) {
   const 벌었나 = (r.profit ?? 0) >= 0;
   const 적립했나 = r.contributed > 0 && r.curve.length > 0;
+  /* 오름·내림 색은 **설정으로 갈린다.** 초록/빨강 쓰는 사람과 빨강/파랑
+     쓰는 사람이 있고, 한국·중국 쪽은 오름이 빨강인 것이 익숙하다.
+     이 화면은 그 설정을 안 보고 text-accent-green/red 를 손으로 박아
+     놔서, '빨강-파랑' 으로 바꿔 둔 사람에게는 이 화면만 거꾸로 보였다 —
+     같은 앱 안에서 빨강이 한 화면에서는 오름이고 다른 화면에서는
+     내림이면 숫자를 잘못 읽는다. */
+  const 배색 = useSettingsStore((s) => s.colorScheme);
+  const { pnlColor, gain, loss } = usePnlColors(배색);
+  const 번색 = 벌었나 ? gain : loss;
 
   return (
     <div className="flex flex-col gap-4">
@@ -136,10 +413,10 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
             밀려 나간다 — 수익률은 금액만큼 중요한 수라 사라지면 안 된다 */}
         <div className="flex items-baseline gap-2 px-1 flex-wrap">
           <span className="text-sm text-text-muted">수익</span>
-          <span className={`${(돈(r.profit, r.currency).length > 15 ? "text-base" : "text-2xl")} font-mono font-bold tabular-nums ${벌었나 ? "text-accent-green" : "text-accent-red"}`}>
+          <span className={`${(돈(r.profit, r.currency).length > 15 ? "text-base" : "text-2xl")} font-mono font-bold tabular-nums ${번색}`}>
             {벌었나 ? "+" : ""}{돈(r.profit, r.currency)}
           </span>
-          <span className={`text-sm font-mono ${벌었나 ? "text-accent-green" : "text-accent-red"}`}>
+          <span className={`text-sm font-mono ${번색}`}>
             ({수(r.total_return, 2, 벌었나 ? "+" : "", "%")})
           </span>
         </div>
@@ -188,7 +465,7 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
             ] as [string, string, string, number][]).map(([이름, 내것, 벤것, 차]) => (
               <Fragment key={이름}>
                 <span className="text-xs text-text-muted">{이름}</span>
-                <span className={`text-xs font-mono tabular-nums text-right font-semibold truncate ${차 >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                <span className={`text-xs font-mono tabular-nums text-right font-semibold truncate ${pnlColor(차)}`}>
                   {내것}
                 </span>
                 <span className="text-xs font-mono tabular-nums text-right text-text-dim truncate">
@@ -208,10 +485,10 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
         <span className="text-base font-semibold text-text-primary">연환산 수익률</span>
         <div className="grid grid-cols-2 gap-3">
           <칸 이름="전략 성적 (TWR)" 값={수(r.twr_annual, 2, "", "%")}
-             색={(r.twr_annual ?? 0) >= 0 ? "text-accent-green" : "text-accent-red"}
+             색={pnlColor(r.twr_annual ?? 0)}
              밑="넣은 시점의 영향을 지운 값. 다른 전략과 비교할 때 써요" />
           <칸 이름="내 수익률 (IRR)" 값={수(r.irr_annual, 2, "", "%")}
-             색={(r.irr_annual ?? 0) >= 0 ? "text-accent-green" : "text-accent-red"}
+             색={pnlColor(r.irr_annual ?? 0)}
              밑="늦게 넣은 돈은 덜 굴렀다는 게 반영된 값" />
         </div>
         {r.twr_annual == null && (
@@ -226,7 +503,7 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
       <Card className="flex flex-col gap-3">
         <span className="text-base font-semibold text-text-primary">위험</span>
         <div className="grid grid-cols-3 gap-3">
-          <칸 이름="최대 낙폭" 값={수(r.mdd, 1, "-", "%")} 색="text-accent-red" />
+          <칸 이름="최대 낙폭" 값={수(r.mdd, 1, "-", "%")} 색={loss} />
           <칸 이름="연 변동성" 값={수(r.volatility, 1, "", "%")} />
           <칸 이름="샤프 비율" 값={수(r.sharpe, 2)} />
         </div>
@@ -249,36 +526,11 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
         </p>
       </Card>
 
-      {/* ── 자산 곡선 ── */}
-      {r.curve.length > 1 && (
-        <Card className="p-0 overflow-hidden">
-          <div className="px-4 py-3 border-b border-border">
-            <span className="text-sm font-semibold text-text-primary">자산 흐름</span>
-          </div>
-          <div className="p-2">
-            <Suspense fallback={<div className="h-[220px] flex items-center justify-center text-xs text-text-dim">그리는 중…</div>}>
-              <차트틀 height={220}>
-                {(R: any) => (
-                  <R.AreaChart data={r.curve} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-                    <defs>
-                      <linearGradient id="bt-alloc" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--accent-blue)" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="var(--accent-blue)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <R.XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={48} />
-                    <R.YAxis tick={{ fontSize: 10 }} width={54}
-                             tickFormatter={(v: number) => 눈금글(v, r.currency)} />
-                    <R.Tooltip formatter={(v: number) => 돈(v, r.currency)} />
-                    <R.Area type="monotone" dataKey="value" stroke="var(--accent-blue)"
-                            fill="url(#bt-alloc)" strokeWidth={2} dot={false} />
-                  </R.AreaChart>
-                )}
-              </차트틀>
-            </Suspense>
-          </div>
-        </Card>
-      )}
+      {/* ── 자산 흐름 ── */}
+      {r.curve.length > 1 && <자산흐름 r={r} />}
+
+      {/* ── 낙폭 ── */}
+      {(r.drawdown?.length ?? 0) > 1 && <낙폭칸 r={r} />}
 
       {/* ── 해마다 ── */}
       {r.yearly.length > 0 && (
@@ -294,11 +546,14 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
                 <span className="text-xs text-text-muted w-12 flex-shrink-0">{y.year}</span>
                 <div className="flex-1 h-4 bg-bg-elevated rounded overflow-hidden flex items-center">
                   <div
-                    className={`h-full ${y.return >= 0 ? "bg-accent-green/60" : "bg-accent-red/60"}`}
-                    style={{ width: `${Math.min(Math.abs(y.return), 100)}%` }}
+                    className="h-full opacity-60"
+                    style={{
+                      backgroundColor: y.return >= 0 ? 오름색(배색) : 내림색(배색),
+                      width: `${Math.min(Math.abs(y.return), 100)}%`,
+                    }}
                   />
                 </div>
-                <span className={`text-xs font-mono w-16 text-right flex-shrink-0 ${y.return >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                <span className={`text-xs font-mono w-16 text-right flex-shrink-0 ${pnlColor(y.return)}`}>
                   {y.return >= 0 ? "+" : ""}{y.return}%
                 </span>
               </div>

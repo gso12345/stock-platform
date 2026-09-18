@@ -995,7 +995,11 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
                             **{k: 벤치결과.get(k) for k in
                                ("final_value", "total_return", "twr_annual",
                                 "irr_annual", "mdd", "volatility", "sharpe",
-                                "contributed", "curve")}}
+                                #: 낙폭 곡선까지 준다 — 화면이 내 것과
+                                #  나란히 그린다. 'mdd 는 6040 이 더
+                                #  작았다' 만으로는 언제 얼마나 오래
+                                #  잠겨 있었는지를 알 수 없다.
+                                "contributed", "curve", "drawdown")}}
         except Exception as e:
             #: 벤치마크를 못 받았다고 내 결과까지 버리면 안 된다.
             #  견주는 것은 덤이고, 본래 답은 이미 나와 있다.

@@ -15,7 +15,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, X, Check } from "lucide-react";
 import { Card, Button, 고른칩, 지움단추 } from "@/components/ui";
+import { useQuery } from "@tanstack/react-query";
 import { useStockSearch } from "@/hooks/useStockSearch";
+import { useAuthStore } from "@/store/authStore";
+import { watchlistApi, portfolioApi } from "@/api/stocks";
 import type { 배분자산, 주기, 데이터기준, 벤치마크키 } from "@/api/stocks";
 
 /* 기간 슬라이더를 없애면서 최소년·최대년도 같이 지웠다.
@@ -297,53 +300,275 @@ function 자산줄({ 자산, 비중, onWeight, onRemove }: {
   );
 }
 
-/** 자산 고르기 — 검색해서 더한다 */
-function 자산고르기({ onPick, onClose }: {
+/* ═══════════════════════════════════════════════════════════
+   자산 고르기
+   ═══════════════════════════════════════════════════════════ */
+
+/** 종류별 대표 ETF.
+ *
+ *  ── 왜 목록을 따로 두나 ─────────────────────────────────────
+ *
+ *  검색만 두면 **무엇을 쳐야 할지 아는 사람만** 자산배분을 만들 수 있다.
+ *  '주식 60 · 채권 40' 을 해 보고 싶어도 채권 ETF 이름을 모르면 거기서
+ *  막힌다. 자산배분은 종목을 고르는 것이 아니라 **종류를 나누는 것**이라,
+ *  종류부터 보여 주는 것이 이 화면의 뜻에 맞는다.
+ *
+ *  ── 고른 기준 ──
+ *
+ *  종류마다 **가장 크고 오래된 것**을 넣었다. 오래된 것이 중요한 이유는
+ *  백테스트라서다 — 2020년에 생긴 ETF 로는 2008년을 재 볼 수가 없다.
+ *  각 줄의 '부터' 가 그 자산으로 거슬러 갈 수 있는 한계다.
+ *
+ *  국내 것도 같이 둔다. 원화로 재는 사람에게 미국 ETF 만 주면 환율까지
+ *  같이 재게 되어 '이 조합이 좋았나' 를 알 수 없다. */
+export type 자산종류 = "주식" | "채권" | "대체";
+
+export const 대표자산: {
+  종류: 자산종류; symbol: string; market: "US" | "KR" | "ETF";
+  name: string; 설명: string; 부터: string;
+}[] = [
+  // ── 주식 ──
+  { 종류: "주식", symbol: "SPY",      market: "US", name: "S&P 500",        설명: "미국 대형주", 부터: "1993" },
+  { 종류: "주식", symbol: "QQQ",      market: "US", name: "나스닥 100",     설명: "미국 기술주", 부터: "1999" },
+  { 종류: "주식", symbol: "VTI",      market: "US", name: "미국 전체",      설명: "대형+중소형", 부터: "2001" },
+  { 종류: "주식", symbol: "VEA",      market: "US", name: "선진국(미국 밖)", 설명: "유럽·일본 등", 부터: "2007" },
+  { 종류: "주식", symbol: "VWO",      market: "US", name: "신흥국",         설명: "중국·인도 등", 부터: "2005" },
+  { 종류: "주식", symbol: "069500.KS", market: "KR", name: "KODEX 200",     설명: "국내 대형주", 부터: "2002" },
+  // ── 채권 ──
+  { 종류: "채권", symbol: "TLT", market: "US", name: "미국 장기국채", 설명: "20년 이상",   부터: "2002" },
+  { 종류: "채권", symbol: "IEF", market: "US", name: "미국 중기국채", 설명: "7~10년",      부터: "2002" },
+  { 종류: "채권", symbol: "SHY", market: "US", name: "미국 단기국채", 설명: "1~3년",       부터: "2002" },
+  { 종류: "채권", symbol: "AGG", market: "US", name: "미국 종합채권", 설명: "국채+회사채", 부터: "2003" },
+  { 종류: "채권", symbol: "TIP", market: "US", name: "물가연동국채", 설명: "인플레 방어", 부터: "2003" },
+  { 종류: "채권", symbol: "148070.KS", market: "KR", name: "KOSEF 국고채10년", 설명: "국내 장기국채", 부터: "2011" },
+  // ── 대체 ──
+  { 종류: "대체", symbol: "GLD", market: "US", name: "금",         설명: "실물 금",      부터: "2004" },
+  { 종류: "대체", symbol: "SLV", market: "US", name: "은",         설명: "실물 은",      부터: "2006" },
+  { 종류: "대체", symbol: "DBC", market: "US", name: "원자재",     설명: "에너지·곡물",  부터: "2006" },
+  { 종류: "대체", symbol: "VNQ", market: "US", name: "미국 리츠",  설명: "부동산",       부터: "2004" },
+  { 종류: "대체", symbol: "IAU", market: "US", name: "금(저보수)", 설명: "GLD 보다 싼",  부터: "2005" },
+];
+
+export const 종류들: 자산종류[] = ["주식", "채권", "대체"];
+
+/** 이미 담은 것인가 — 같은 것을 두 번 담으면 비중만 헷갈린다 */
+export function 담았나(assets: 배분자산[], symbol: string): boolean {
+  return assets.some((a) => a.symbol === symbol);
+}
+
+/** 관심목록·내 자산 줄을 배분자산 모양으로. 서버 응답 모양이 조금씩
+ *  달라서 한 자리에서 맞춘다 — 여기저기서 맞추면 한 곳만 고쳐진다. */
+export function 줄을자산으로(x: any): 배분자산 | null {
+  const symbol = x?.symbol;
+  if (!symbol) return null;
+  const market = x?.market === "KR" || x?.market === "ETF" ? x.market : "US";
+  return { symbol, market, name: x?.name || symbol, weight: 0 };
+}
+
+/** 자산 하나를 목록에 붙인다 — 담는 규칙이 여기 한 곳에만 있다.
+ *
+ *  ── 왜 함수로 뺐나 ────────────────────────────────────────
+ *
+ *  예전에는 같은 것을 두 번 막는 방어가 **두 벌**이었다. 고르기 창이
+ *  이미 담은 것을 disabled 로 막고, 받는 쪽에서도 한 번 더 걸렀다.
+ *  둘 다 있으면 어느 쪽을 지워도 검사가 안 죽는다 — 뮤테이션에
+ *  살아남는 것이 그 증거다. 실제로 한쪽을 지워 봤더니 아무 검사도
+ *  안 깨졌다.
+ *
+ *  더 나쁜 것은 **두 벌의 기준이 달랐다**는 점이다. 창은 심볼만 봤고
+ *  받는 쪽은 심볼+시장을 봤다. 같은 심볼이 시장만 다르면 창은 막는데
+ *  받는 쪽은 허용해서, 어느 쪽이 맞는지 코드만 봐서는 알 수 없었다.
+ *
+ *  **심볼만 본다.** 같은 심볼이 두 줄 있으면 비중 칸의 이름이 겹쳐
+ *  어느 쪽을 고치는지 알 수 없다. 시장이 달라도 사람에게는 같은
+ *  종목이다. */
+export function 자산더하기(있던것: 배분자산[], 새것: 배분자산): 배분자산[] {
+  if (담았나(있던것, 새것.symbol)) return 있던것;
+  const 다음 = [...있던것, 새것];
+  /* 새로 담을 때마다 비중을 똑같이 나눠 준다. 0% 로 들어가면
+     '담았는데 결과에 아무 영향이 없는' 상태가 되고, 그건 고장으로 읽힌다 */
+  const 고른비중 = Math.round(1000 / 다음.length) / 10;
+  return 다음.map((x) => ({ ...x, weight: 고른비중 }));
+}
+
+/** 자산 고르기 — 종류별 대표 · 내 목록 · 검색 */
+function 자산고르기({ 담은것, onPick, onClose }: {
+  담은것: 배분자산[];
   onPick: (a: 배분자산) => void; onClose: () => void;
 }) {
   const { query, setQuery, results, searching } = useStockSearch();
+  const { isLoggedIn } = useAuthStore();
+  const [칸, set칸] = useState<"대표" | "내것" | "검색">("대표");
+  const [종류, set종류] = useState<자산종류>("주식");
+
+  /* 로그인 안 했으면 부르지 않는다. 서버가 빈 배열을 주더라도 안 쓸
+     요청을 보낼 이유가 없다 — 0.15 CPU 짜리 서버다. */
+  const { data: 관심 = [], isLoading: 관심로딩 } = useQuery({
+    queryKey: ["bt-watchlist"],
+    queryFn: () => watchlistApi.getItems(),
+    enabled: isLoggedIn && 칸 === "내것",
+    staleTime: 300_000,
+  });
+  const { data: 보유 = [], isLoading: 보유로딩 } = useQuery({
+    queryKey: ["bt-holdings"],
+    queryFn: () => portfolioApi.getItems(undefined, true),
+    enabled: isLoggedIn && 칸 === "내것",
+    staleTime: 300_000,
+  });
+
+  const 내것들 = useMemo(() => {
+    const 나온것: { 어디: string; 자산: 배분자산 }[] = [];
+    const 본것 = new Set<string>();
+    for (const [어디, 줄들] of [["내 자산", 보유], ["관심목록", 관심]] as const) {
+      for (const x of (줄들 as any[]) ?? []) {
+        const a = 줄을자산으로(x);
+        /* 같은 종목이 내 자산에도 관심목록에도 있으면 한 번만 보인다.
+           두 번 보이면 어느 쪽을 눌러야 하는지 고민하게 된다. */
+        if (!a || 본것.has(a.symbol)) continue;
+        본것.add(a.symbol);
+        나온것.push({ 어디, 자산: a });
+      }
+    }
+    return 나온것;
+  }, [보유, 관심]);
+
   return (
     <div className="flex flex-col gap-2 p-3 rounded-xl border border-accent-blue/40 bg-bg-elevated">
-      <div className="flex items-center gap-2">
-        <input
-          autoFocus
-          className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
-          placeholder="종목명 또는 코드 (예: AAPL, 005930, 삼성)"
-          aria-label="자산 검색"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <button onClick={onClose} aria-label="검색 닫기" className="p-2 text-text-dim hover:text-text-primary">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex gap-1.5 flex-wrap">
+          {(["대표", "내것", "검색"] as const).map((k) => (
+            <고른칩 key={k} 작게 고름={칸 === k} onClick={() => set칸(k)}
+                    ariaLabel={k === "내것" ? "내 목록에서" : k === "대표" ? "종류별 대표" : "검색해서"}>
+              {k === "내것" ? "내 목록" : k === "대표" ? "종류별" : "검색"}
+            </고른칩>
+          ))}
+        </div>
+        <button onClick={onClose} aria-label="자산 고르기 닫기" className="p-1.5 text-text-dim hover:text-text-primary">
           <X size={16} />
         </button>
       </div>
-      {/* 현금은 검색으로 안 나온다. 자산배분에서 '현금 20%' 는 아주 흔한
-          구성이라 버튼으로 따로 둔다 — 없으면 그 조합을 아예 못 만든다 */}
+
+      {/* ── 종류별 대표 ── */}
+      {칸 === "대표" && (
+        <>
+          <div className="flex gap-1.5">
+            {종류들.map((g) => (
+              <고른칩 key={g} 작게 고름={종류 === g} className="flex-1"
+                      onClick={() => set종류(g)} ariaLabel={`${g} 자산`}>{g}</고른칩>
+            ))}
+          </div>
+          <ul className="flex flex-col max-h-56 overflow-y-auto">
+            {대표자산.filter((x) => x.종류 === 종류).map((x) => {
+              const 이미 = 담았나(담은것, x.symbol);
+              return (
+                <li key={x.symbol}>
+                  <button
+                    disabled={이미}
+                    aria-label={`${x.name} 담기`}
+                    className="w-full text-left px-2 py-2 rounded-lg hover:bg-bg-card flex items-center gap-2 disabled:opacity-40"
+                    onClick={() => onPick({ symbol: x.symbol, market: x.market, name: x.name, weight: 0 })}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-text-primary truncate">{x.name}</p>
+                      <p className="text-2xs text-text-dim truncate">{x.설명} · {x.symbol}</p>
+                    </div>
+                    {/* 언제부터 있는 자산인지 적는다. 2020년에 생긴 것으로는
+                        2008년을 재 볼 수 없는데, 그걸 모르면 '기간이 짧아졌다'
+                        는 말만 보고 왜인지 알 수 없다. */}
+                    <span className="text-2xs text-text-dim flex-shrink-0">{x.부터}~</span>
+                    {이미 && <Check size={14} className="text-accent-green flex-shrink-0" />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+
+      {/* ── 내 목록 ── */}
+      {칸 === "내것" && (
+        !isLoggedIn ? (
+          <p className="text-xs text-text-dim px-1 py-3 break-keep">
+            로그인하면 관심목록과 내 자산에서 바로 담을 수 있어요.
+          </p>
+        ) : (관심로딩 || 보유로딩) ? (
+          <p className="text-xs text-text-dim px-1 py-3">가져오는 중…</p>
+        ) : 내것들.length === 0 ? (
+          <p className="text-xs text-text-dim px-1 py-3 break-keep">
+            관심목록에도 내 자산에도 종목이 없어요. '검색' 으로 찾아 보세요.
+          </p>
+        ) : (
+          <ul className="flex flex-col max-h-56 overflow-y-auto">
+            {내것들.map(({ 어디, 자산 }) => {
+              const 이미 = 담았나(담은것, 자산.symbol);
+              return (
+                <li key={자산.symbol}>
+                  <button
+                    disabled={이미}
+                    aria-label={`${자산.name} 담기`}
+                    className="w-full text-left px-2 py-2 rounded-lg hover:bg-bg-card flex items-center gap-2 disabled:opacity-40"
+                    onClick={() => onPick(자산)}
+                  >
+                    <span className="text-sm text-text-primary truncate flex-1">{자산.name}</span>
+                    <span className="text-2xs text-text-dim flex-shrink-0">{어디}</span>
+                    {이미 && <Check size={14} className="text-accent-green flex-shrink-0" />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      )}
+
+      {/* ── 검색 ── */}
+      {칸 === "검색" && (
+        <>
+          <input
+            autoFocus
+            className="bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+            placeholder="종목명 또는 코드 (예: AAPL, 005930, 삼성)"
+            aria-label="자산 검색"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {searching && <p className="text-xs text-text-dim px-1">찾는 중…</p>}
+          {!searching && query.trim() && results.length === 0 && (
+            <p className="text-xs text-text-dim px-1">찾는 종목이 없어요</p>
+          )}
+          {results.length > 0 && (
+            <ul className="flex flex-col max-h-56 overflow-y-auto">
+              {results.slice(0, 20).map((x: any) => {
+                const 이미 = 담았나(담은것, x.symbol);
+                return (
+                  <li key={`${x.market}:${x.symbol}`}>
+                    <button
+                      disabled={이미}
+                      aria-label={`${x.name} 담기`}
+                      className="w-full text-left px-2 py-2 rounded-lg hover:bg-bg-card flex items-center gap-2 disabled:opacity-40"
+                      onClick={() => onPick({ symbol: x.symbol, market: x.market, name: x.name, weight: 0 })}
+                    >
+                      <span className="text-sm text-text-primary truncate flex-1">{x.name}</span>
+                      <span className="text-2xs text-text-dim flex-shrink-0">{x.symbol} · {x.market}</span>
+                      {이미 && <Check size={14} className="text-accent-green flex-shrink-0" />}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
+      )}
+
+      {/* 현금은 어느 칸에서도 검색으로 안 나온다. 자산배분에서 '현금 20%'
+          는 아주 흔한 구성이라 늘 보이는 자리에 둔다 — 없으면 그 조합을
+          아예 못 만든다. */}
       <button
         onClick={() => onPick({ symbol: "현금", market: "KR", name: "현금", weight: 0 })}
-        className="self-start px-2.5 py-1 rounded-full text-2xs font-medium border border-border text-text-muted hover:text-text-primary"
+        disabled={담았나(담은것, "현금")}
+        className="self-start px-2.5 py-1 rounded-full text-2xs font-medium border border-border text-text-muted hover:text-text-primary disabled:opacity-40"
       >
         + 현금
       </button>
-      {searching && <p className="text-xs text-text-dim px-1">찾는 중…</p>}
-      {!searching && query.trim() && results.length === 0 && (
-        <p className="text-xs text-text-dim px-1">찾는 종목이 없어요</p>
-      )}
-      {results.length > 0 && (
-        <ul className="flex flex-col max-h-56 overflow-y-auto">
-          {results.slice(0, 20).map((r: any) => (
-            <li key={`${r.market}:${r.symbol}`}>
-              <button
-                className="w-full text-left px-2 py-2 rounded-lg hover:bg-bg-card flex items-center gap-2"
-                onClick={() => onPick({ symbol: r.symbol, market: r.market, name: r.name, weight: 0 })}
-              >
-                <span className="text-sm text-text-primary truncate flex-1">{r.name}</span>
-                <span className="text-2xs text-text-dim flex-shrink-0">{r.symbol} · {r.market}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
@@ -517,18 +742,10 @@ export default function 자산배분설정({
 
         {검색열림 ? (
           <자산고르기
+            담은것={값.assets}
             onClose={() => set검색열림(false)}
             onPick={(a) => {
-              if (값.assets.some((x) => x.symbol === a.symbol && x.market === a.market)) {
-                set검색열림(false);
-                return;                       // 같은 자산을 두 번 담지 않는다
-              }
-              const 다음 = [...값.assets, a];
-              /* 새로 담을 때마다 비중을 똑같이 나눠 준다. 0% 로 들어가면
-                 '담았는데 결과에 아무 영향이 없는' 상태가 되고, 그건
-                 고장으로 읽힌다 */
-              const 고른비중 = Math.round(1000 / 다음.length) / 10;
-              바꾸기({ ...값, assets: 다음.map((x) => ({ ...x, weight: 고른비중 })) });
+              바꾸기({ ...값, assets: 자산더하기(값.assets, a) });
               set검색열림(false);
             }}
           />

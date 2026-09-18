@@ -397,6 +397,8 @@ export interface 벤치마크결과 {
   volatility: number | null;
   sharpe: number | null;
   curve: { date: string; value: number }[];
+  /** 내 것과 나란히 그리려고 같이 받는다 */
+  drawdown?: { date: string; dd: number }[];
 }
 
 /** 자산배분 백테스트 결과.
@@ -435,6 +437,16 @@ export interface 자산배분결과 {
   /** 낸 수수료 합. 0%로 돌렸으면 null — '안 넣었다' 와 '0원' 은 다른 말이다 */
   costs: number | null;
   cost_rate: number | null;
+  /** 날마다의 낙폭(%). 0 이 고점, 음수가 내려온 정도.
+   *  **mdd 와 같은 곡선에서 잰 값**이다 — 화면이 curve 로 다시 재면
+   *  적립식에서 둘이 어긋난다(넣은 돈이 하락을 가린다). */
+  drawdown: { date: string; dd: number }[];
+  /** 깊은 낙폭 몇 개. end 가 null 이면 아직 고점을 못 되찾은 것이다 */
+  drawdowns: {
+    start: string; trough: string; end: string | null;
+    depth: number; to_trough_days: number;
+    recovery_days: number | null; underwater_days: number;
+  }[];
   /** 무엇을 가정하고 잰 수인가 — 0 도 가정이라 감추지 않는다 */
   risk_free_rate: number;
   cash_rate: number;

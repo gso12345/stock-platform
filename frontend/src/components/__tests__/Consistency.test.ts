@@ -271,3 +271,25 @@ describe("백테스트 화면의 단추", () => {
     expect(s, "논리 토글을 손으로 만들었다").toMatch(/tone="subtle"/);
   });
 });
+
+
+describe("백테스트 차트", () => {
+  /* jsdom 은 recharts 를 안 그린다. 그래서 '축이 로그로 바뀌는가' 를
+     화면으로는 확인할 수 없다 — 축설정() 이 맞는 값을 돌려주는지는
+     따로 검사하지만, **그 함수를 실제로 쓰는지**는 글자로 박는 수밖에
+     없다. 안 쓰면 함수만 맞고 화면은 그대로다. */
+
+  it("세로축을 축설정() 으로 정한다", () => {
+    const 소스 = 읽기("components/backtest/AllocationResult.tsx");
+    expect(소스, "축설정() 을 안 쓰고 축을 손으로 적었다")
+      .toMatch(/\{\.\.\.축설정\(로그켬\)\}/);
+  });
+
+  it("낙폭 색을 손으로 안 적는다", () => {
+    /* 상승·하락 색은 설정으로 갈린다. 여기만 박아 두면 '빨강-파랑' 으로
+       바꿔 둔 사람에게 이 화면만 거꾸로 보인다. */
+    const 코드 = 코드만(읽기("components/backtest/AllocationResult.tsx"));
+    expect(코드, "등락 색을 손으로 적은 곳이 있다")
+      .not.toMatch(/text-accent-(green|red)\b/);
+  });
+});

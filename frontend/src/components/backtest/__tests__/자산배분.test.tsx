@@ -66,11 +66,24 @@ import {
   기간에서날짜, 못돌리는이유, 첫설정, 읽는금액, 금액값들, 빠른기간,
 } from "../AllocationForm";
 import { 실험을설정으로 } from "../AllocationTab";
+import { 대표자산, 종류들, 담았나, 줄을자산으로, 자산더하기 } from "../AllocationForm";
 import 자산배분결과화면 from "../AllocationResult";
 
 function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={qc}><자산배분탭 /></QueryClientProvider>);
+}
+
+
+/** 검색으로 자산 하나를 담는다.
+ *
+ *  고르기 창이 '종류별 → 내 목록 → 검색' 세 칸으로 갈렸다. 검색은
+ *  이제 기본 칸이 아니라서 한 번 더 눌러야 한다. 이 손짓이 검사
+ *  여러 곳에 흩어져 있으면 흐름이 바뀔 때마다 전부 고쳐야 한다. */
+async function 검색해서담기(이름: string) {
+  await userEvent.click(screen.getByLabelText("자산 추가"));
+  await userEvent.click(screen.getByLabelText("검색해서"));
+  await userEvent.click(screen.getByLabelText(`${이름} 담기`));
 }
 
 beforeEach(() => {
@@ -244,8 +257,7 @@ describe("사진에 있던 나머지 항목", () => {
     await userEvent.type(시작, "1980-01-02");
     expect(시작.value, "1980년을 못 넣는다").toBe("1980-01-02");
 
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("Apple"));
+    await 검색해서담기("Apple");
     await userEvent.click(screen.getByLabelText("1000만원"));
     expect(screen.getByRole("button", { name: /결과 확인/ }),
       "1980년으로 두면 못 돌린다").toBeEnabled();
@@ -288,8 +300,7 @@ describe("금액을 읽을 수 있게 적는다", () => {
 describe("자산을 담는다", () => {
   it("+ 를 누르면 검색이 열리고, 고르면 목록에 붙는다", async () => {
     그리기();
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("Apple"));
+    await 검색해서담기("Apple");
     expect(await screen.findByLabelText("Apple 비중 (%)")).toBeInTheDocument();
   });
 
@@ -297,25 +308,30 @@ describe("자산을 담는다", () => {
     /* 0% 로 들어가면 '담았는데 결과에 아무 영향이 없는' 상태가 되고,
        그건 고장으로 읽힌다 */
     그리기();
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("Apple"));
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("삼성전자"));
+    await 검색해서담기("Apple");
+    await 검색해서담기("삼성전자");
     expect((await screen.findByLabelText("Apple 비중 (%)") as HTMLInputElement).value).toBe("50");
     expect((screen.getByLabelText("삼성전자 비중 (%)") as HTMLInputElement).value).toBe("50");
   });
 
   it("같은 자산을 두 번 담지 않는다", async () => {
-    /* 이미 담은 자산 줄에도 'Apple' 이 적혀 있어서, 글자만으로 찾으면
-       검색 결과와 담긴 줄이 둘 다 잡힌다. 검색 결과 버튼은 이름 옆에
-       심볼이 같이 적히므로 그걸로 가른다. */
-    const 검색결과 = () => screen.getByRole("button", { name: /Apple\s*AAPL/ });
     그리기();
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(검색결과());
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(검색결과());
+    await 검색해서담기("Apple");
+    await 검색해서담기("Apple");
     expect(screen.getAllByLabelText("Apple 비중 (%)")).toHaveLength(1);
+  });
+
+  it("이미 담은 것은 **눌리지 않게** 막는다", async () => {
+    /* 눌러도 아무 일이 안 일어나는 단추는 '고장' 으로 읽힌다.
+       담긴 것은 흐리게 하고 체크를 붙여, 누르기 전에 알 수 있게 한다. */
+    그리기();
+    await 검색해서담기("Apple");
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("검색해서"));
+    expect(screen.getByLabelText("Apple 담기"),
+      "이미 담았는데 아직 눌린다").toBeDisabled();
+    expect(screen.getByLabelText("삼성전자 담기"),
+      "안 담은 것까지 막혔다").toBeEnabled();
   });
 
   it("현금을 담을 수 있다 — 자산배분에서 아주 흔한 구성이다", async () => {
@@ -375,8 +391,7 @@ describe("못 돌릴 때 이유를 말로 적는다", () => {
        실제로 눌러 본다. */
     그리기();
     expect(screen.getByRole("button", { name: /결과 확인/ })).toBeDisabled();
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("Apple"));
+    await 검색해서담기("Apple");
     await userEvent.click(screen.getByLabelText("1000만원"));
     expect(screen.getByRole("button", { name: /결과 확인/ }),
       "자산과 금액을 넣었는데 여전히 잠겨 있다").toBeEnabled();
@@ -574,8 +589,7 @@ describe("결과 — 넣은 돈과 번 돈을 섞지 않는다", () => {
 describe("실제로 돈다", () => {
   it("자산을 고르고 금액을 넣으면 결과가 그려진다", async () => {
     그리기();
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("Apple"));
+    await 검색해서담기("Apple");
     await userEvent.type(screen.getByLabelText("테스트 금액"), "10000000");
     await userEvent.selectOptions(screen.getByLabelText("추가 납입 주기"), "none");
 
@@ -597,8 +611,7 @@ describe("로그인 전에도 무엇을 할 수 있는지 보인다", () => {
        그 사실까지 같이 알려 준다. */
     상태.로그인함 = false;
     그리기();
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("Apple"));
+    await 검색해서담기("Apple");
     await userEvent.click(screen.getByLabelText("1000만원"));
 
     const 저장 = screen.getByRole("button", { name: "저장" });
@@ -716,8 +729,7 @@ describe("진행률이 실제로 계산 중에 뜬다", () => {
       () => new Promise((resolve) => { 응답보내기 = resolve; }));
 
     그리기();
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("Apple"));
+    await 검색해서담기("Apple");
     await userEvent.click(screen.getByLabelText("1000만원"));
     await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
 
@@ -736,10 +748,8 @@ describe("비중 버튼 이름", () => {
     /* 짧은 말이 낫다. '비중을 똑같이 나누기' 는 버튼치고 너무 길어
        폰에서 줄이 넘어간다. */
     그리기();
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("Apple"));
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("삼성전자"));
+    await 검색해서담기("Apple");
+    await 검색해서담기("삼성전자");
     // 비중을 흐트러뜨려야 버튼이 나온다
     await userEvent.clear(screen.getAllByLabelText(/비중 \(%\)/)[0]);
     await userEvent.type(screen.getAllByLabelText(/비중 \(%\)/)[0], "70");
@@ -755,8 +765,7 @@ describe("저장했다는 것을 알려 준다", () => {
      그대로다. 어디로 갔는지도 같이 적어야 찾으러 갈 수 있다. */
   async function 저장까지() {
     그리기();
-    await userEvent.click(screen.getByLabelText("자산 추가"));
-    await userEvent.click(screen.getByText("Apple"));
+    await 검색해서담기("Apple");
     await userEvent.click(screen.getByLabelText("1000만원"));
     await userEvent.click(screen.getByRole("button", { name: /^저장/ }));
   }
@@ -834,5 +843,140 @@ describe("가정을 감추지 않는다", () => {
     const 되살림 = 실험을설정으로({} as never, 지금);
     expect(되살림.cash_rate).toBe(1.5);
     expect(되살림.risk_free_rate).toBe(1);
+  });
+});
+
+
+describe("자산을 빠르게 담는다", () => {
+  /* 검색만 두면 **무엇을 쳐야 할지 아는 사람만** 자산배분을 만들 수
+     있다. '주식 60 · 채권 40' 을 해 보고 싶어도 채권 ETF 이름을 모르면
+     거기서 막힌다. 자산배분은 종목을 고르는 것이 아니라 종류를 나누는
+     것이라, 종류부터 보여 주는 것이 이 화면의 뜻에 맞는다. */
+
+  it("열면 종류별이 먼저 보인다", async () => {
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    expect(screen.getByLabelText("종류별 대표").getAttribute("aria-pressed")).toBe("true");
+    for (const g of ["주식", "채권", "대체"]) {
+      expect(screen.getByLabelText(`${g} 자산`), `${g} 칸이 없다`).toBeInTheDocument();
+    }
+  });
+
+  it("주식·채권·대체가 다 있고, 각 종류에 종목이 있다", () => {
+    for (const g of 종류들) {
+      const 것들 = 대표자산.filter((x) => x.종류 === g);
+      expect(것들.length, `${g} 에 대표 자산이 없다`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("대표 자산을 누르면 바로 담긴다", async () => {
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("S&P 500 담기"));
+    expect(await screen.findByLabelText("S&P 500 비중 (%)")).toBeInTheDocument();
+  });
+
+  it("채권 칸으로 옮기면 채권이 나온다", async () => {
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("채권 자산"));
+    expect(screen.getByLabelText("미국 장기국채 담기")).toBeInTheDocument();
+    expect(screen.queryByLabelText("S&P 500 담기"), "주식이 아직 보인다").toBeNull();
+  });
+
+  it("언제부터 있는 자산인지 적는다", async () => {
+    /* 2020년에 생긴 ETF 로는 2008년을 재 볼 수 없다. 그걸 모르면
+       '기간이 짧아졌다' 는 말만 보고 왜인지 알 수 없다. */
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    expect(screen.getByText("1993~"), "SPY 가 언제부터인지 안 적혀 있다").toBeInTheDocument();
+    for (const x of 대표자산) {
+      expect(Number(x.부터), `${x.symbol} 의 '부터' 가 이상하다`).toBeGreaterThan(1970);
+    }
+  });
+
+  it("현금은 어느 칸에서도 담을 수 있다", async () => {
+    /* 자산배분에서 '현금 20%' 는 아주 흔한 구성인데 검색으로는 안 나온다 */
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    expect(screen.getByText("+ 현금")).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("내 목록에서"));
+    expect(screen.getByText("+ 현금")).toBeInTheDocument();
+  });
+
+  it("로그인 안 했으면 내 목록에서 그렇게 말해 준다", async () => {
+    상태.로그인함 = false;
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("내 목록에서"));
+    expect(screen.getByText(/로그인하면 관심목록과 내 자산/)).toBeInTheDocument();
+  });
+
+  it("대표 칸에서도 담긴 것은 눌리지 않는다", async () => {
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("S&P 500 담기"));
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    expect(screen.getByLabelText("S&P 500 담기"),
+      "이미 담았는데 아직 눌린다").toBeDisabled();
+    expect(screen.getByLabelText("나스닥 100 담기"),
+      "안 담은 것까지 막혔다").toBeEnabled();
+  });
+
+  it("대표 칸에서 같은 것을 두 번 눌러도 한 번만 담긴다", async () => {
+    /* 단추를 막는 것과, 막힌 것이 뚫렸을 때 값이 어떻게 되는지는
+       다른 검사다. 하나만 두면 다른 한쪽이 조용히 깨진다. */
+    그리기();
+    //: 금은 '대체' 칸에 있다 — 열면 '주식' 이 먼저 보인다
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("대체 자산"));
+    await userEvent.click(screen.getByLabelText("금 담기"));
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("대체 자산"));
+    await userEvent.click(screen.getByLabelText("금 담기"));
+    expect(screen.getAllByLabelText("금 비중 (%)")).toHaveLength(1);
+  });
+
+  it("자산더하기 — 같은 심볼은 한 번만", () => {
+    /* 방어가 두 벌이면 어느 쪽을 지워도 검사가 안 죽는다. 담는 규칙은
+       이 함수 한 곳에만 있고, 화면의 disabled 는 '누르기 전에 알려
+       주는' 몫만 한다. */
+    const 하나 = 자산더하기([], { symbol: "SPY", market: "US", name: "S&P", weight: 0 });
+    expect(하나).toHaveLength(1);
+    const 또 = 자산더하기(하나, { symbol: "SPY", market: "US", name: "S&P", weight: 0 });
+    expect(또, "같은 것이 두 번 담겼다").toHaveLength(1);
+  });
+
+  it("시장이 달라도 같은 심볼이면 안 담는다", () => {
+    /* 비중 칸의 이름이 겹쳐 어느 쪽을 고치는지 알 수 없게 된다 */
+    const 하나 = 자산더하기([], { symbol: "SPY", market: "US", name: "S&P", weight: 0 });
+    expect(자산더하기(하나, { symbol: "SPY", market: "ETF", name: "S&P", weight: 0 }))
+      .toHaveLength(1);
+  });
+
+  it("담을 때마다 비중을 똑같이 나눈다 (함수 수준)", () => {
+    /* 0% 로 들어가면 '담았는데 결과에 아무 영향이 없는' 상태가 된다 */
+    let 것들 = 자산더하기([], { symbol: "A", market: "US", name: "A", weight: 0 });
+    것들 = 자산더하기(것들, { symbol: "B", market: "US", name: "B", weight: 0 });
+    것들 = 자산더하기(것들, { symbol: "C", market: "US", name: "C", weight: 0 });
+    expect(것들.map((x) => x.weight)).toEqual([33.3, 33.3, 33.3]);
+  });
+
+  it("담았나 — 심볼로 가른다", () => {
+    const 담은것 = [{ symbol: "SPY", market: "US", name: "S&P 500", weight: 60 }];
+    expect(담았나(담은것 as never, "SPY")).toBe(true);
+    expect(담았나(담은것 as never, "QQQ")).toBe(false);
+  });
+
+  it("줄을자산으로 — 모양이 달라도 한 자리에서 맞춘다", () => {
+    /* 관심목록과 내 자산의 응답 모양이 조금씩 다르다. 여기저기서
+       맞추면 한 곳만 고쳐진다. */
+    expect(줄을자산으로({ symbol: "AAPL", market: "US", name: "Apple" }))
+      .toEqual({ symbol: "AAPL", market: "US", name: "Apple", weight: 0 });
+    //: 이름이 없으면 심볼을 쓴다 — 빈칸으로 두면 목록에 빈 줄이 보인다
+    expect(줄을자산으로({ symbol: "AAPL", market: "US" })?.name).toBe("AAPL");
+    //: 모르는 시장은 US 로 — 서버가 KR|US|ETF 만 받는다
+    expect(줄을자산으로({ symbol: "X", market: "무엇" })?.market).toBe("US");
+    expect(줄을자산으로({})).toBeNull();
   });
 });

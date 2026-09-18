@@ -594,3 +594,207 @@ def test_새_설정이_저장에도_담긴다():
     for 이름 in ("cash_rate", "risk_free_rate"):
         assert 이름 in 칸들, f"표에 {이름} 칸이 없다"
         assert f"{이름}=req.{이름}" in 소스, f"저장할 때 {이름} 을 안 담는다"
+
+
+# ══════════════════════════════════════════════════════════
+# 낙폭 곡선과 순위 (새 기능)
+# ══════════════════════════════════════════════════════════
+class Test낙폭:
+    """최대 낙폭 하나만 보면 '한 번 크게 맞았다' 는 것밖에 모른다.
+    실제로 견딜 수 있는지는 **얼마나 오래 잠겨 있었나**가 더 크게
+    좌우한다 — -50% 를 1년 만에 회복한 것과 -35% 로 7년을 보낸 것은
+    전혀 다른 경험이다."""
+
+    def _폭락표(self):
+        """5년째에 -40% 를 맞고 천천히 회복하는 값"""
+        날 = 거래일(끝=date(2023, 12, 29), 시작=date(2014, 1, 2))
+        값 = {}
+        for i, d in enumerate(날):
+            기본 = 100.0 * 1.07 ** (i / 252)
+            깎기 = 1.0
+            if 1260 <= i < 1400:
+                깎기 = 1 - 0.40 * (i - 1260) / 140
+            elif 1400 <= i < 1700:
+                깎기 = 0.60 + 0.40 * (i - 1400) / 300
+            값[d] = 기본 * 깎기
+        return {"SPY": 값}
+
+    자산 = [{"symbol": "SPY", "market": "US", "weight": 100}]
+
+    def test_그래프_최저점이_MDD_와_같다(self):
+        """솎으면서 바닥이 빠지면 그래프는 -31% 인데 옆 숫자는 -37% 인,
+        한 화면에서 두 수가 다른 말을 하는 상태가 된다."""
+        r = 돌리기(self._폭락표(), self.자산, 10_000_000)
+        바닥 = min(x["dd"] for x in r["drawdown"])
+        assert abs(abs(바닥) - r["mdd"]) < 0.01, \
+            f"그래프 최저점 {바닥}% 인데 적어 놓은 MDD 는 -{r['mdd']}% 다"
+
+    def test_적립해도_두_수가_안_어긋난다(self):
+        """낙폭 곡선도 mdd 와 **같은 곡선**(납입을 지운 것)에서 재야 한다.
+        평가액 곡선으로 재면 넣는 돈이 하락을 가린다."""
+        r = 돌리기(self._폭락표(), self.자산, 10_000_000,
+                   적립주기="monthly", 적립금액=500_000)
+        바닥 = min(x["dd"] for x in r["drawdown"])
+        assert abs(abs(바닥) - r["mdd"]) < 0.01
+
+    def test_솎아도_날짜_순서가_유지된다(self):
+        r = 돌리기(self._폭락표(), self.자산, 10_000_000)
+        날들 = [x["date"] for x in r["drawdown"]]
+        assert 날들 == sorted(날들), "솎으면서 날짜가 뒤섞였다"
+        assert len(날들) == len(set(날들)), "같은 날이 두 번 들어갔다"
+
+    def test_긴_기간은_솎아_보낸다(self):
+        """10년치를 안 솎으면 이 배열 하나가 95KB 고, 벤치마크까지
+        붙으면 응답이 406KB 가 된다(실측)."""
+        r = 돌리기(self._폭락표(), self.자산, 10_000_000)
+        assert len(r["curve"]) > 2000, "검사 자료가 짧다"
+        assert len(r["drawdown"]) <= 560, \
+            f"낙폭 곡선이 {len(r['drawdown'])}칸이다 — 안 솎고 있다"
+
+    def test_짧은_기간은_안_솎는다(self):
+        날 = 거래일(끝=date(2020, 6, 30), 시작=date(2020, 1, 2))
+        값 = {d: 100.0 + i for i, d in enumerate(날)}
+        r = 돌리기({"SPY": 값}, self.자산, 10_000_000)
+        assert len(r["drawdown"]) == len(r["curve"])
+
+    def _여러번폭락(self):
+        """크고 작은 낙폭이 여러 번 오는 값 — 순서를 확인하려면
+        낙폭이 하나뿐인 자료로는 아무것도 못 가른다."""
+        rnd = random.Random(5)
+        날 = 거래일(끝=date(2023, 12, 29), 시작=date(2014, 1, 2))
+        c, 값 = 100.0, {}
+        for d in 날:
+            c *= (1 + rnd.gauss(0.0002, 0.016))
+            값[d] = c
+        return {"SPY": 값}
+
+    def test_깊은_순서로_준다(self):
+        r = 돌리기(self._여러번폭락(), self.자산, 10_000_000)
+        깊이들 = [x["depth"] for x in r["drawdowns"]]
+        assert len(깊이들) >= 3, f"낙폭이 {len(깊이들)}개뿐이라 순서를 못 가린다"
+        assert 깊이들 == sorted(깊이들), f"깊은 순서가 아니다: {깊이들}"
+        assert all(d < 0 for d in 깊이들), "낙폭이 양수로 들어 있다"
+
+    def test_제일_깊은_것이_MDD_와_같다(self):
+        r = 돌리기(self._폭락표(), self.자산, 10_000_000)
+        assert abs(abs(r["drawdowns"][0]["depth"]) - r["mdd"]) < 0.01
+
+    def test_적립해도_순위가_MDD_와_안_어긋난다(self):
+        """순위도 mdd·낙폭곡선과 **같은 곡선**에서 재야 한다. 평가액
+        곡선으로 재면 넣는 돈이 하락을 가려 제일 깊은 낙폭이 얕게
+        나오고, 옆의 MDD 숫자와 다른 말을 한다."""
+        r = 돌리기(self._폭락표(), self.자산, 10_000_000,
+                   적립주기="monthly", 적립금액=500_000)
+        assert r["drawdowns"], "낙폭 순위가 비었다"
+        assert abs(abs(r["drawdowns"][0]["depth"]) - r["mdd"]) < 0.01, \
+            (f"순위 맨 위는 {r['drawdowns'][0]['depth']}% 인데 MDD 는 "
+             f"-{r['mdd']}% 다 — 서로 다른 곡선에서 쟀다")
+
+    def test_고점_바닥_회복_날짜가_순서대로다(self):
+        r = 돌리기(self._폭락표(), self.자산, 10_000_000)
+        for d in r["drawdowns"]:
+            assert d["start"] <= d["trough"], f"바닥이 고점보다 앞이다: {d}"
+            if d["end"]:
+                assert d["trough"] <= d["end"], f"회복이 바닥보다 앞이다: {d}"
+
+    def test_아직_회복_못_했으면_비워_둔다(self):
+        """마지막 날짜를 넣으면 회복한 것처럼 읽힌다."""
+        날 = 거래일(끝=date(2023, 12, 29), 시작=date(2014, 1, 2))
+        #: 중간까지 오르다가 끝까지 떨어지기만 하는 값
+        값 = {}
+        for i, d in enumerate(날):
+            값[d] = (100.0 + i * 0.05) if i < 1500 else (175.0 - (i - 1500) * 0.03)
+        r = 돌리기({"SPY": 값}, self.자산, 10_000_000)
+        못한것 = [x for x in r["drawdowns"] if x["end"] is None]
+        assert 못한것, "끝까지 떨어지는 자료인데 '아직' 인 낙폭이 없다"
+        x = 못한것[0]
+        assert x["recovery_days"] is None, "회복 못 했는데 회복 날짜가 들어 있다"
+        assert x["underwater_days"] > 0
+
+    def test_잠긴_날이_고점부터_회복까지다(self):
+        r = 돌리기(self._폭락표(), self.자산, 10_000_000)
+        for d in r["drawdowns"]:
+            if d["end"]:
+                assert d["underwater_days"] == \
+                    d["to_trough_days"] + (d["recovery_days"] or 0), \
+                    f"잠긴 날이 '고점→바닥' + '바닥→회복' 과 안 맞는다: {d}"
+
+    def test_거의_안_떨어진_것은_순위에_안_넣는다(self):
+        """현금이 많은 조합처럼 거의 안 흔들리는 자료에서는 -0.001%
+        짜리 흔들림이 '깊었던 순서' 다섯 칸을 채워 버린다. 그건 낙폭이
+        아니라 소수점 noise 라, 보여 주면 읽는 사람만 헷갈린다."""
+        날 = 거래일(끝=date(2020, 12, 30), 시작=date(2020, 1, 2))
+        값 = {}
+        for i, d in enumerate(날):
+            """꾸준히 오르되 이따금 **정말로 조금** 내린다.
+
+            빼는 양이 오르는 양보다 커야 실제로 내려간다 — 처음에는
+            0.002 를 뺐는데 한 칸에 0.01 씩 오르고 있어서 값이 그대로
+            올랐다. 그러면 낙폭이 아예 0 이라 이 검사가 아무것도 안
+            가린다(뮤테이션에 살아남아서 알았다).
+
+            한 칸당 0.01 오르는데 0.015 를 빼니 0.005 내린다 —
+            100 대비 0.005% 로, 걸러야 할 noise 수준이다."""
+            값[d] = 100.0 + i * 0.01 - (0.015 if i % 7 == 3 else 0.0)
+        #: 정말로 내려가는 자료인지부터 확인한다 — 안 내려가면 검사가 헛돈다
+        값들 = [값[d] for d in sorted(값)]
+        assert any(b < a for a, b in zip(값들, 값들[1:])), \
+            "검사 자료가 한 번도 안 내려간다 — 이러면 아무것도 못 가린다"
+
+        r = 돌리기({"SPY": 값}, self.자산, 10_000_000)
+        assert r["drawdowns"] == [], \
+            (f"noise 수준 낙폭이 순위에 들어갔다: "
+             f"{[x['depth'] for x in r['drawdowns']]} — 거르기를 끄면 "
+             "'-0.0%' 다섯 줄이 표를 채운다")
+
+    def test_안_떨어졌으면_순위가_빈다(self):
+        """계속 오르기만 한 자료에 낙폭 줄을 만들면 안 된다."""
+        날 = 거래일(끝=date(2020, 12, 30), 시작=date(2020, 1, 2))
+        값 = {d: 100.0 + i for i, d in enumerate(날)}
+        r = 돌리기({"SPY": 값}, self.자산, 10_000_000)
+        assert r["drawdowns"] == []
+        assert all(x["dd"] == 0 for x in r["drawdown"])
+
+    def test_다섯_개까지만_준다(self):
+        r = 돌리기(self._폭락표(), self.자산, 10_000_000)
+        assert len(r["drawdowns"]) <= 5
+
+
+def test_벤치마크도_낙폭_곡선을_준다(client, monkeypatch):
+    """낙폭을 나란히 그리려면 벤치마크 것도 와야 한다. 'mdd 는 6040 이
+    더 작았다' 만으로는 언제 얼마나 오래 잠겨 있었는지를 알 수 없다.
+
+    안 보내면 화면에 단추만 있고 선은 안 그려진다 — 눌러도 아무 일이
+    안 일어나는 단추는 '고장' 으로 읽힌다."""
+    rnd = random.Random(9)
+    날 = 거래일(끝=date(2023, 12, 29), 시작=date(2014, 1, 2))
+    c, 값 = 100.0, {}
+    for d in 날:
+        c *= (1 + rnd.gauss(0.0003, 0.013))
+        값[d] = c
+
+    def 시세(symbol, period, interval, market):
+        return [{"date": d.isoformat(), "open": v, "high": v, "low": v,
+                 "close": v, "volume": 1000} for d, v in 값.items()]
+
+    monkeypatch.setattr(R.yf_service, "get_ohlcv", 시세)
+
+    async def 배당없음(자산들, 시작, 끝, 표시통화, 환율):
+        return {}
+    monkeypatch.setattr(R, "_배당표", 배당없음)
+
+    r = client.post("/api/v1/backtest/portfolio", json={
+        "assets": [{"symbol": "AAPL", "market": "US", "name": "AAPL", "weight": 100}],
+        "currency": "USD", "initial_amount": 10_000_000,
+        "start_date": "2014-01-02", "end_date": "2023-12-29",
+        "contribution_period": "none", "contribution_amount": 0,
+        "rebalance_period": "none", "total_return": False,
+        "benchmark": "spy"})
+    assert r.status_code == 200, r.text[:300]
+    d = r.json()
+    assert d.get("benchmark"), "벤치마크가 아예 안 나왔다"
+    assert d["benchmark"].get("drawdown"), \
+        "벤치마크 낙폭 곡선이 없다 — 화면이 나란히 그릴 수가 없다"
+    #: 내 것과 같은 모양이어야 화면이 날짜로 맞출 수 있다
+    첫칸 = d["benchmark"]["drawdown"][0]
+    assert set(첫칸) == {"date", "dd"}, f"모양이 다르다: {첫칸}"
