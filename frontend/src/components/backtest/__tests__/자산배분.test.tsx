@@ -62,7 +62,7 @@ vi.mock("@/hooks/useStockSearch", () => ({
 import 자산배분탭, { 보낼것, 예상초, 단계글, 진행바 } from "../AllocationTab";
 import { 눈금글 } from "../AllocationResult";
 import {
-  기간에서날짜, 못돌리는이유, 첫설정, 읽는금액, 금액값들, 최대년, 빠른기간,
+  기간에서날짜, 못돌리는이유, 첫설정, 읽는금액, 금액값들, 빠른기간,
 } from "../AllocationForm";
 import 자산배분결과화면 from "../AllocationResult";
 
@@ -214,18 +214,26 @@ describe("사진에 있던 나머지 항목", () => {
     expect(보낼것(s).cost_rate).toBe(0.1);
   });
 
-  it("기간이 1980년까지 닿는다", () => {
-    /* 확장 ETF 가격을 켜면 지수가 1927년까지 있다. 30년에서 멈추면
-       그 기능을 켜 놓고도 못 쓴다.
+  it("1980년부터도 돌릴 수 있다", async () => {
+    /* 확장 ETF 가격을 켜면 지수가 1927년까지 있다. 옛날 구간을 못
+       고르면 그 기능을 켜 놓고도 못 쓴다.
 
-       '45년 이상' 같은 어림수가 아니라 **실제로 1980년에 닿는지**를
-       본다. 45년이면 1981년까지밖에 못 가는데, 어림수만 보면 그게
-       통과한다. */
-    const 올해 = new Date().getFullYear();
-    expect(올해 - 최대년, `${최대년}년으로는 ${올해 - 최대년}년까지밖에 못 간다`)
-      .toBeLessThanOrEqual(1980);
-    expect(Math.max(...빠른기간)).toBeLessThanOrEqual(최대년);
-  });
+       예전에는 '최대년' 이라는 상수를 검사했는데, 슬라이더를 없앤
+       뒤로는 **그 상수가 아무것도 안 막고 있었다** — 지키는 척만 하는
+       검사였다. 지금은 날짜를 직접 치므로, 정말로 1980년을 넣고
+       돌릴 수 있는지를 본다. */
+    그리기();
+    const 시작 = screen.getByLabelText("시작일") as HTMLInputElement;
+    await userEvent.clear(시작);
+    await userEvent.type(시작, "1980-01-02");
+    expect(시작.value, "1980년을 못 넣는다").toBe("1980-01-02");
+
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByText("Apple"));
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    expect(screen.getByRole("button", { name: /결과 확인/ }),
+      "1980년으로 두면 못 돌린다").toBeEnabled();
+  }, 20000);
 });
 
 describe("금액을 읽을 수 있게 적는다", () => {

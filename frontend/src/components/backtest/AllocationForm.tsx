@@ -18,14 +18,10 @@ import { Card, Button } from "@/components/ui";
 import { useStockSearch } from "@/hooks/useStockSearch";
 import type { 배분자산, 주기, 데이터기준, 벤치마크키 } from "@/api/stocks";
 
-/** 기간 슬라이더가 고를 수 있는 햇수.
- *
- *  확장 ETF 가격을 켜면 지수가 1927년까지 있어 훨씬 멀리 볼 수 있다.
- *  45년으로 두면 1981년까지밖에 못 가는데, S&P500 을 1980년부터 보는
- *  것은 흔한 요청이라 거기서 막히면 기능을 켜 놓고도 못 쓴다.
- *  50년이면 1976년까지 닿는다. */
-export const 최소년 = 1;
-export const 최대년 = 50;
+/* 기간 슬라이더를 없애면서 최소년·최대년도 같이 지웠다.
+   날짜를 직접 치므로 햇수 상한이라는 것이 아예 없다 — 1980년이든
+   1927년이든 그냥 적으면 된다. 상수만 남겨 두면 '무언가를 막고 있는
+   것처럼' 보이는데 실제로는 아무것도 안 막는다. */
 
 export const 주기표: { value: 주기; label: string }[] = [
   { value: "none", label: "없음" },
@@ -110,9 +106,6 @@ export function 기간에서날짜(년: number, 오늘 = new Date()) {
 
 export interface 설정 {
   years: number;
-  /** 남겨 둔 칸 — 이제 날짜는 늘 직접 입력이라 화면에서는 안 쓴다.
-   *  저장해 둔 옛 실험을 불러올 때 이 칸이 들어 있어 타입만 유지한다. */
-  직접입력: boolean;
   start_date: string;
   end_date: string;
   currency: "KRW" | "USD";
@@ -133,7 +126,7 @@ export interface 설정 {
 export function 첫설정(오늘 = new Date()): 설정 {
   const { start_date, end_date } = 기간에서날짜(10, 오늘);
   return {
-    years: 10, 직접입력: true, start_date, end_date,
+    years: 10, start_date, end_date,
     currency: "KRW", initial_amount: "",
     assets: [],
     /* 적립은 **꺼 놓고** 시작한다.

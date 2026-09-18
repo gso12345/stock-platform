@@ -142,7 +142,6 @@ export function 진행바({ 설정: s }: { 설정: 설정 }) {
 export function 실험을설정으로(x: 저장된실험, 지금: 설정): 설정 {
   return {
     ...지금,
-    직접입력: true,
     start_date: x.start_date, end_date: x.end_date,
     currency: x.currency, initial_amount: x.initial_amount,
     assets: x.assets,
