@@ -462,5 +462,20 @@ class PortfolioExperiment(Base):
     #: 배당을 재투자해 '토탈 리턴' 으로 잴까
     total_return = Column(Boolean, default=True)
 
+    #: 나머지 설정도 **다 담는다.**
+    #
+    #  결과를 저장하지 않고 설정만 담는 것이 이 표의 방침이다(위 설명).
+    #  그 방침이 성립하려면 설정이 **빠짐없이** 있어야 한다 — 하나라도
+    #  빠지면 불러와 다시 돌렸을 때 저장할 때와 다른 수가 나오고,
+    #  사용자는 자기가 저장한 실험이 바뀌었다고 느낀다. 오류도 안 나고
+    #  경고도 없으니 눈으로는 못 찾는다.
+    rebalance_day = Column(Integer, default=1)
+    #: 퍼센트로 담는다(0.1 이면 0.1%) — 화면이 주는 단위 그대로.
+    cost_rate = Column(Float, default=0)
+    data_interval = Column(String(10), default="daily")         # daily/monthly
+    benchmark = Column(String(20), default="none")
+    equal_weight = Column(Boolean, default=False)
+    extended = Column(Boolean, default=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

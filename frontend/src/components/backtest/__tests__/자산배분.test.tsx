@@ -16,6 +16,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+/* vi.mock 은 import 위로 끌어올려지므로, 팩토리가 볼 값은 vi.hoisted 로
+   같이 끌어올려야 한다. 그냥 let 으로 두면 팩토리가 돌 때 아직 없다. */
+const 상태 = vi.hoisted(() => ({ 로그인함: true, 실험들: [] as any[] }));
+
 const 돌린것: any[] = [];
 const runPortfolio = vi.fn((p: any) => {
   돌린것.push(p);
@@ -40,11 +44,13 @@ const 결과흉내 = {
 vi.mock("@/api/stocks", () => ({
   backtestApi: {
     runPortfolio: (...a: unknown[]) => runPortfolio(...(a as [any])),
-    getExperiments: vi.fn(() => Promise.resolve([])),
+    getExperiments: vi.fn(() => Promise.resolve(상태.실험들)),
     saveExperiment: vi.fn(), deleteExperiment: vi.fn(),
   },
 }));
-vi.mock("@/store/authStore", () => ({ useAuthStore: () => ({ isLoggedIn: true, userId: 1 }) }));
+vi.mock("@/store/authStore", () => ({
+  useAuthStore: () => ({ isLoggedIn: 상태.로그인함, userId: 1 }),
+}));
 vi.mock("@/hooks/useStockSearch", () => ({
   useStockSearch: () => ({
     query: "", setQuery: vi.fn(), searching: false,
@@ -56,7 +62,7 @@ vi.mock("@/hooks/useStockSearch", () => ({
 import 자산배분탭, { 보낼것 } from "../AllocationTab";
 import { 눈금글 } from "../AllocationResult";
 import {
-  기간에서날짜, 못돌리는이유, 첫설정, 읽는금액, 더하기값들, 최대년,
+  기간에서날짜, 못돌리는이유, 첫설정, 읽는금액, 금액값들, 최대년, 빠른기간,
 } from "../AllocationForm";
 import 자산배분결과화면 from "../AllocationResult";
 
@@ -65,7 +71,10 @@ function 그리기() {
   return render(<QueryClientProvider client={qc}><자산배분탭 /></QueryClientProvider>);
 }
 
-beforeEach(() => { 돌린것.length = 0; vi.clearAllMocks(); });
+beforeEach(() => {
+  돌린것.length = 0; vi.clearAllMocks();
+  상태.로그인함 = true; 상태.실험들 = [];
+});
 
 describe("사진의 항목이 다 있다", () => {
   it("여섯 가지가 화면에 있다", () => {
@@ -79,12 +88,30 @@ describe("사진의 항목이 다 있다", () => {
     expect(screen.getByRole("button", { name: /결과 확인/ })).toBeInTheDocument();
   });
 
-  it("기간은 슬라이더와 직접 입력 둘 다 된다", async () => {
+  it("날짜는 늘 직접 입력이다", () => {
+    /* 예전에는 슬라이더가 기본이고 체크박스를 켜야 날짜가 나왔다.
+       슬라이더로는 '2020년 3월부터' 같은 것을 아예 못 고른다 —
+       흔한 기간은 아래 버튼으로 한 번에 채우면 되니 굳이 둘 중
+       하나를 고르게 할 이유가 없다. */
     그리기();
-    expect(screen.getByLabelText("테스트 기간 (년)")).toBeInTheDocument();
-    await userEvent.click(screen.getByLabelText("직접 입력"));
     expect(screen.getByLabelText("시작일")).toBeInTheDocument();
     expect(screen.getByLabelText("종료일")).toBeInTheDocument();
+    expect(screen.queryByLabelText("직접 입력"), "체크박스가 아직 있다").toBeNull();
+  });
+
+  it("기간 빠른 버튼이 날짜를 바로 채운다", async () => {
+    그리기();
+    const 시작 = screen.getByLabelText("시작일") as HTMLInputElement;
+    const 끝 = screen.getByLabelText("종료일") as HTMLInputElement;
+    await userEvent.click(screen.getByLabelText("3년"));
+    const 햇수 = (Number(끝.value.slice(0, 4)) - Number(시작.value.slice(0, 4)));
+    expect(햇수).toBe(3);
+    await userEvent.click(screen.getByLabelText("10년"));
+    expect(Number(끝.value.slice(0, 4)) - Number(시작.value.slice(0, 4))).toBe(10);
+  });
+
+  it("빠른 기간에 1·3·5·10년이 있다", () => {
+    for (const 년 of [1, 3, 5, 10]) expect(빠른기간).toContain(년);
   });
 
   it("통화를 고를 수 있다", () => {
@@ -126,14 +153,25 @@ describe("사진에 있던 나머지 항목", () => {
     expect(값들).toHaveLength(28);
   });
 
-  it("거래비용에 '반영 안 함' 이 있고 그게 기본이다", () => {
-    /* 수수료는 증권사마다 다르다. 지어낸 값으로 계산해 두면 사용자는
-       그게 자기 수수료인 줄 안다. */
+  it("거래비용을 직접 칠 수 있다", async () => {
+    /* 증권사마다 수수료가 제각각이라 목록으로는 다 못 담는다.
+       목록에만 두면 자기 수수료가 없는 사람은 비슷한 값을 고르게
+       되고, 그건 틀린 값으로 계산하는 것이다. */
     그리기();
-    const 비용 = screen.getByLabelText("거래비용") as HTMLSelectElement;
-    expect(비용.value).toBe("0");
-    expect([...비용.options][0].textContent).toMatch(/반영 안 함/);
-    expect([...비용.options].some((o) => o.textContent?.includes("0.1"))).toBe(true);
+    const 비용 = screen.getByLabelText("거래비용") as HTMLInputElement;
+    expect(비용.tagName, "아직 드롭다운이다 — 직접 못 친다").toBe("INPUT");
+    expect(비용.value, "기본이 0 이 아니다").toBe("");
+    await userEvent.type(비용, "0.037");
+    expect(비용.value).toBe("0.037");
+  });
+
+  it("흔한 수수료는 버튼으로 한 번에", async () => {
+    그리기();
+    const 비용 = screen.getByLabelText("거래비용") as HTMLInputElement;
+    await userEvent.click(screen.getByLabelText("거래비용 0.1%"));
+    expect(비용.value).toBe("0.1");
+    await userEvent.click(screen.getByLabelText("거래비용 반영 안 함"));
+    expect(비용.value).toBe("");
   });
 
   it("데이터 기준과 벤치마크를 고를 수 있다", () => {
@@ -182,9 +220,7 @@ describe("사진에 있던 나머지 항목", () => {
     const 올해 = new Date().getFullYear();
     expect(올해 - 최대년, `${최대년}년으로는 ${올해 - 최대년}년까지밖에 못 간다`)
       .toBeLessThanOrEqual(1980);
-    그리기();
-    const 슬라이더 = screen.getByLabelText("테스트 기간 (년)") as HTMLInputElement;
-    expect(Number(슬라이더.max)).toBe(최대년);
+    expect(Math.max(...빠른기간)).toBeLessThanOrEqual(최대년);
   });
 });
 
@@ -203,20 +239,21 @@ describe("금액을 읽을 수 있게 적는다", () => {
     expect(읽는금액(NaN, "USD")).toBe("");
   });
 
-  it("빠른 더하기 값도 통화를 본다", () => {
-    /* 원화에 +500 은 아무 쓸모가 없고, 달러에 +5,000,000 도 마찬가지다 */
-    expect(더하기값들("USD")[0]).toBe(500);
-    expect(더하기값들("KRW")[0]).toBe(500_000);
+  it("금액 버튼이 통화를 본다", () => {
+    /* 원화에 1,000달러는 아무 쓸모가 없고, 달러에 100만도 마찬가지다 */
+    expect(금액값들("KRW")).toEqual([1_000_000, 5_000_000, 10_000_000, 100_000_000]);
+    expect(금액값들("USD")[0]).toBe(1_000);
   });
 
-  it("버튼을 누르면 금액이 더해진다", async () => {
+  it("버튼을 누르면 그 금액으로 바로 정해진다", async () => {
+    /* 더하기로 두면 1,000만원을 넣으려고 여러 번 눌러야 하고, 한 번
+       더 누르면 2,000만원이 되어 지우고 다시 시작해야 한다. */
     그리기();
     const 금액 = screen.getByLabelText("테스트 금액") as HTMLInputElement;
-    await userEvent.click(screen.getByLabelText("5,000,000 더하기"));
-    expect(금액.value).toBe("5000000");
-    await userEvent.click(screen.getByLabelText("1,000,000 더하기"));
-    expect(금액.value).toBe("6000000");
-    expect(screen.getByText("600만원")).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    expect(금액.value).toBe("10000000");
+    await userEvent.click(screen.getByLabelText("100만원"));
+    expect(금액.value, "더해졌다 — 바로 정해져야 한다").toBe("1000000");
   });
 });
 
@@ -269,15 +306,53 @@ describe("못 돌릴 때 이유를 말로 적는다", () => {
     expect(screen.getByRole("button", { name: /결과 확인/ })).toBeDisabled();
   });
 
-  it("못돌리는이유 가 상황마다 다른 말을 한다", () => {
+  it("자산과 금액만 넣으면 바로 돌아간다", () => {
+    /* ── 실제로 났던 고장 ──────────────────────────────────
+
+       기본 설정이 '추가 납입 **매월** + 금액 비어 있음' 이었다.
+       그래서 자산을 담고 금액을 넣어도 '결과 확인' 이 잠긴 채였다.
+       잠긴 이유는 작은 글씨로만 적혀 있었고, 풀려면 **쓰지도 않을**
+       적립 주기를 '없음' 으로 바꿔야 했다.
+
+       사용자에게는 기능이 통째로 고장 난 것으로 보인다 — 실제로
+       '백테스팅이 안 된다' 는 말을 들었다.
+
+       기본값은 **아무것도 안 고쳐도 돌아가는 값**이어야 한다. */
     const 기본 = 첫설정(new Date(2026, 0, 1));
     expect(못돌리는이유(기본)).toMatch(/자산/);
+
     const 자산만 = { ...기본, assets: [{ symbol: "A", market: "US", weight: 100 }] };
     expect(못돌리는이유(자산만)).toMatch(/금액/);
+
     const 금액까지 = { ...자산만, initial_amount: 1_000_000 };
-    expect(못돌리는이유(금액까지)).toMatch(/납입/);
-    const 다됨 = { ...금액까지, contribution_period: "none" as const };
-    expect(못돌리는이유(다됨)).toBeNull();
+    expect(못돌리는이유(금액까지),
+      "자산과 금액을 다 넣었는데도 막힌다 — 기본값이 스스로를 막고 있다")
+      .toBeNull();
+  });
+
+  it("적립을 켜면 그때는 금액을 묻는다", () => {
+    /* 위 검사의 짝이다. 막는 것 자체가 나쁜 게 아니라,
+       **아무것도 안 고른 사람을 막는 것**이 나빴다. */
+    const 기본 = 첫설정(new Date(2026, 0, 1));
+    const 적립켬 = {
+      ...기본, assets: [{ symbol: "A", market: "US", weight: 100 }],
+      initial_amount: 1_000_000, contribution_period: "monthly" as const,
+    };
+    expect(못돌리는이유(적립켬)).toMatch(/납입/);
+    expect(못돌리는이유({ ...적립켬, contribution_amount: 100_000 })).toBeNull();
+  });
+
+  it("화면에서도 자산·금액만으로 버튼이 열린다", async () => {
+    /* 함수만 고치고 화면이 그대로면 아무것도 안 고쳐진다.
+       실제로 눌러 본다. */
+    그리기();
+    expect(screen.getByRole("button", { name: /결과 확인/ })).toBeDisabled();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByText("Apple"));
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    expect(screen.getByRole("button", { name: /결과 확인/ }),
+      "자산과 금액을 넣었는데 여전히 잠겨 있다").toBeEnabled();
+    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
   });
 });
 
@@ -485,4 +560,97 @@ describe("실제로 돈다", () => {
     expect(보낸것.initial_amount).toBe(10_000_000);
     expect(보낸것.total_return).toBe(true);
   }, 20000);
+});
+
+describe("저장한 실험을 불러온다", () => {
+  /* 설정만 저장하고 결과는 저장하지 않는 것이 이 기능의 방침이다.
+     그 방침이 성립하려면 설정이 **빠짐없이** 되살아나야 한다 —
+     하나라도 빠지면 불러와 다시 돌렸을 때 저장할 때와 다른 수가 나오고,
+     사용자는 자기가 저장한 실험이 바뀌었다고 느낀다.
+     오류도 안 나고 경고도 없으니 눈으로는 못 찾는다. */
+  const 저장된 = {
+    id: 7, name: "금 60 · 현금 40", created_at: "2026-09-01",
+    currency: "KRW" as const, initial_amount: 5_000_000,
+    start_date: "2015-01-02", end_date: "2025-01-02",
+    assets: [{ symbol: "GLD", market: "US", name: "금", weight: 1 }],
+    contribution_period: "none" as const, contribution_amount: 0,
+    rebalance_period: "yearly" as const, total_return: true,
+    rebalance_day: 20, cost_rate: 0.25,
+    data_interval: "monthly" as const, benchmark: "6040" as const,
+    equal_weight: true, extended: true,
+  };
+
+  async function 불러오기(것: any) {
+    상태.실험들 = [것];
+    그리기();
+    await userEvent.click(screen.getByRole("button", { name: "내 실험 목록" }));
+    await userEvent.click(await screen.findByText(것.name));
+  }
+
+  it("저장한 설정이 다 되살아난다", async () => {
+    await 불러오기(저장된);
+    expect((screen.getByLabelText("시작일") as HTMLInputElement).value).toBe("2015-01-02");
+    expect((screen.getByLabelText("리밸런싱 날짜") as HTMLSelectElement).value).toBe("20");
+    expect((screen.getByLabelText("거래비용") as HTMLInputElement).value).toBe("0.25");
+    expect((screen.getByLabelText("데이터 기준") as HTMLSelectElement).value).toBe("monthly");
+    expect((screen.getByLabelText("벤치 마크") as HTMLSelectElement).value).toBe("6040");
+    expect((screen.getByLabelText("배분 기준") as HTMLSelectElement).value).toBe("equal");
+    expect((screen.getByLabelText("확장된 ETF 가격 사용") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("0 과 false 도 그대로 되살아난다", async () => {
+    /* `??` 가 아니라 `||` 를 쓰면 여기서 갈린다. 수수료 0% 와
+       '동일 비중 끔' 은 **고른 값**인데 falsy 라, || 로 두면 지금
+       화면 값으로 덮인다 — 0% 로 저장해 두고 불러오면 0.25% 가
+       되어 있는 식이다. 값이 그럴듯해서 아무도 못 알아챈다.
+
+       **화면에 먼저 0 이 아닌 값을 넣어 둬야** 이 검사가 뜻이 있다.
+       기본값도 0 이면 `0 || 0` 이라 || 로 바꿔도 같은 값이 나와서
+       그냥 통과한다(그렇게 짰다가 뮤테이션이 살아남았다). */
+    상태.실험들 = [{ ...저장된, cost_rate: 0, equal_weight: false, extended: false }];
+    그리기();
+    await userEvent.click(screen.getByLabelText("거래비용 0.25%"));
+    await userEvent.click(screen.getByLabelText("확장된 ETF 가격 사용"));
+    expect((screen.getByLabelText("거래비용") as HTMLInputElement).value).toBe("0.25");
+
+    await userEvent.click(screen.getByRole("button", { name: "내 실험 목록" }));
+    await userEvent.click(await screen.findByText(저장된.name));
+
+    expect((screen.getByLabelText("거래비용") as HTMLInputElement).value,
+      "0% 로 저장했는데 화면에 있던 값으로 덮였다").toBe("");
+    expect((screen.getByLabelText("배분 기준") as HTMLSelectElement).value).toBe("custom");
+    expect((screen.getByLabelText("확장된 ETF 가격 사용") as HTMLInputElement).checked,
+      "확장 끔으로 저장했는데 켜진 채다").toBe(false);
+  });
+
+  it("옛날에 저장한 실험에는 새 설정이 없다 — 지금 값을 그대로 둔다", async () => {
+    /* 기능이 늘기 전에 저장한 것에는 이 칸들이 아예 없다.
+       undefined 를 그대로 넣으면 고르기 칸이 통제 불능이 된다. */
+    const 옛것: any = { ...저장된 };
+    for (const k of ["rebalance_day", "cost_rate", "data_interval",
+                     "benchmark", "equal_weight", "extended"]) delete 옛것[k];
+    await 불러오기(옛것);
+    expect((screen.getByLabelText("리밸런싱 날짜") as HTMLSelectElement).value).toBe("1");
+    expect((screen.getByLabelText("벤치 마크") as HTMLSelectElement).value).toBe("none");
+  });
+});
+
+describe("로그인 전에도 무엇을 할 수 있는지 보인다", () => {
+  it("저장 버튼을 숨기지 않고, 누르면 이유를 말한다", async () => {
+    /* 아예 안 그리면 '저장이 어디 있지' 가 되고, 사용자는 기능이
+       고장 난 것으로 읽는다. 결과 확인은 로그인 없이도 되므로
+       그 사실까지 같이 알려 준다. */
+    상태.로그인함 = false;
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByText("Apple"));
+    await userEvent.click(screen.getByLabelText("1000만원"));
+
+    const 저장 = screen.getByRole("button", { name: "저장" });
+    expect(저장, "로그인 전이라고 저장 버튼을 아예 없앴다").toBeInTheDocument();
+    await userEvent.click(저장);
+    expect(screen.getByText(/로그인이 필요해요/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /결과 확인/ }),
+      "로그인 없이도 결과 확인은 돼야 한다").toBeEnabled();
+  });
 });

@@ -853,6 +853,14 @@ def save_experiment(req: 실험저장요청, db: Session = Depends(get_db),
         contribution_amount=req.contribution_amount,
         rebalance_period=req.rebalance_period,
         total_return=req.total_return,
+        #: 나머지 설정도 빠짐없이 담는다 — 하나라도 빠지면 불러와
+        #  다시 돌렸을 때 저장할 때와 다른 수가 나온다.
+        rebalance_day=req.rebalance_day,
+        cost_rate=req.cost_rate,
+        data_interval=req.data_interval,
+        benchmark=req.benchmark,
+        equal_weight=req.equal_weight,
+        extended=req.extended,
     )
     db.add(exp)
     db.commit()

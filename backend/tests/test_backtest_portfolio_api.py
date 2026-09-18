@@ -447,3 +447,49 @@ class Test현금만_담아도_안_죽는다:
         ], currency="KRW"))
         assert r.status_code == 400
         assert isinstance(r.json()["detail"], str)
+
+
+class Test실험_저장:
+    """설정만 담고 결과는 안 담는 것이 이 표의 방침이다.
+
+    그 방침이 성립하려면 설정이 **빠짐없이** 담겨야 한다. 하나라도
+    빠지면 불러와 다시 돌렸을 때 저장할 때와 다른 수가 나오고,
+    사용자는 자기가 저장한 실험이 바뀌었다고 느낀다 — 오류도 안 나고
+    경고도 없으니 눈으로는 절대 못 찾는다.
+    """
+
+    def test_요청의_모든_설정이_표에_담긴다(self):
+        """새 설정을 더할 때 저장하는 자리를 같이 안 고치면 조용히
+        빠진다. 요청 모형과 표를 맞대 본다 — 사람이 기억하는 것보다
+        검사가 세는 편이 낫다."""
+        import inspect
+        from app.api.routes.backtest import 자산배분요청, save_experiment
+
+        담아야할것 = set(자산배분요청.model_fields) - {"assets", "start_date", "end_date"}
+        소스 = inspect.getsource(save_experiment)
+        빠진것 = [f for f in 담아야할것 if f"{f}=req.{f}" not in 소스]
+        assert not 빠진것, \
+            (f"이 설정들이 저장에서 빠졌다: {빠진것}. 저장한 실험을 불러오면 "
+             "저장할 때와 다른 수가 나온다")
+
+    def test_표에도_그_칸들이_있다(self):
+        """라우트가 넣으려 해도 컬럼이 없으면 터진다"""
+        from app.models.stock import PortfolioExperiment
+        칸들 = {c.name for c in PortfolioExperiment.__table__.columns}
+        for 이름 in ("rebalance_day", "cost_rate", "data_interval",
+                     "benchmark", "equal_weight", "extended"):
+            assert 이름 in 칸들, f"portfolio_experiments 에 {이름} 컬럼이 없다"
+
+    def test_이미_배포된_표에도_컬럼을_붙인다(self):
+        """create_all 은 **없는 표만** 만들고 기존 표의 컬럼은 안 건드린다.
+        portfolio_experiments 는 이미 배포돼 있으므로, 새 컬럼은
+        _add_col_if_missing 으로 따로 붙여야 한다 — 안 그러면 배포
+        직후 저장이 통째로 실패한다."""
+        import inspect
+        from app import main as M
+        소스 = inspect.getsource(M)
+        for 이름 in ("rebalance_day", "cost_rate", "data_interval",
+                     "benchmark", "equal_weight", "extended"):
+            assert f'_add_col_if_missing("portfolio_experiments", "{이름}"' in 소스, \
+                (f"{이름} 을 이미 배포된 표에 붙이는 자리가 없다 — "
+                 "배포하면 저장이 실패한다")

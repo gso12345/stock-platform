@@ -96,7 +96,12 @@ export default function 자산배분탭() {
               if (!x) return;
               /* 저장된 실험에는 옛 설정이 없을 수 있다(기능이 늘기 전에
                  저장한 것). 빠진 칸은 지금 화면의 값을 그대로 둔다 —
-                 undefined 로 두면 고르기 칸이 통제 불능이 된다 */
+                 undefined 로 두면 고르기 칸이 통제 불능이 된다.
+
+                 ?? 를 쓴다(|| 가 아니라). cost_rate 0 과 equal_weight
+                 false 는 **고른 값**인데, || 로 두면 falsy 라서 지금
+                 화면 값으로 덮인다 — 수수료를 0 으로 저장해 두고
+                 불러오면 0.25% 가 되어 있는 식이다. */
               set설정값({
                 ...설정값,
                 직접입력: true,
@@ -107,6 +112,12 @@ export default function 자산배분탭() {
                 contribution_amount: x.contribution_amount,
                 rebalance_period: x.rebalance_period,
                 total_return: x.total_return,
+                rebalance_day: x.rebalance_day ?? 설정값.rebalance_day,
+                cost_rate: x.cost_rate ?? 설정값.cost_rate,
+                data_interval: x.data_interval ?? 설정값.data_interval,
+                benchmark: x.benchmark ?? 설정값.benchmark,
+                equal_weight: x.equal_weight ?? 설정값.equal_weight,
+                extended: x.extended ?? 설정값.extended,
               });
               set목록열림(false);
               set결과(null);

@@ -12,7 +12,7 @@
  * 그 사실을 감추면 안 된다. 조용히 두 개짜리 결과를 세 개짜리인 척
  * 보여 주는 것이 이 기능에서 가장 나쁜 실패다.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, X, Trash2 } from "lucide-react";
 import { Card, Button } from "@/components/ui";
 import { useStockSearch } from "@/hooks/useStockSearch";
@@ -48,8 +48,14 @@ export const 데이터기준표: { value: 데이터기준; label: string }[] = [
   { value: "monthly", label: "월 데이터" },
 ];
 
-/** 흔히 쓰는 수수료. 직접 칠 수도 있게 열어 둔다. */
-export const 비용표 = [0, 0.015, 0.05, 0.1, 0.25, 0.5];
+/** 흔히 쓰는 수수료. 이 값들은 **빠른 선택**일 뿐이고, 옆 칸에 직접
+ *  친다. 증권사마다 수수료가 제각각이라 목록으로는 절대 다 못 담는다 —
+ *  목록에만 두면 자기 수수료가 없는 사람은 비슷한 값을 고르게 되고,
+ *  그건 틀린 값으로 계산하는 것이다. */
+export const 비용표 = [0, 0.015, 0.05, 0.1, 0.25];
+
+/** 기간 빠른 선택. 버튼 하나로 날짜 두 개가 채워진다. */
+export const 빠른기간 = [1, 3, 5, 10, 20, 30];
 
 /** 리밸런싱 날짜. 29~31 은 없는 달이 있어 28 까지만 준다 —
  *  '31일' 을 고르면 2월이 통째로 빠지는데 그게 화면에는 안 보인다. */
@@ -73,12 +79,17 @@ export function 읽는금액(v: number, 통화: "KRW" | "USD"): string {
   return `${v.toLocaleString("ko-KR")}원`;
 }
 
-/** 금액을 한 번에 더하는 버튼 값. 통화마다 자릿수가 다르다 —
- *  원화에 +500 은 아무 쓸모가 없고, 달러에 +5,000,000 도 마찬가지다. */
-export function 더하기값들(통화: "KRW" | "USD"): number[] {
+/** 금액 빠른 선택. 누르면 그 금액으로 **바로 정해진다**(더하지 않는다).
+ *
+ *  더하기로 두면 1,000만원을 넣으려고 여러 번 눌러야 하고, 한 번 더
+ *  누르면 2,000만원이 되어 되돌리려면 지우고 다시 시작해야 한다.
+ *  시험해 볼 금액은 보통 몇 개로 정해져 있으니 한 번에 정하는 편이 낫다.
+ *
+ *  통화마다 자릿수가 다르다 — 원화에 500달러는 아무 쓸모가 없다. */
+export function 금액값들(통화: "KRW" | "USD"): number[] {
   return 통화 === "USD"
-    ? [500, 1_000, 5_000, 10_000, 50_000]
-    : [500_000, 1_000_000, 5_000_000, 10_000_000, 50_000_000];
+    ? [1_000, 5_000, 10_000, 100_000]
+    : [1_000_000, 5_000_000, 10_000_000, 100_000_000];
 }
 
 /**
@@ -99,6 +110,8 @@ export function 기간에서날짜(년: number, 오늘 = new Date()) {
 
 export interface 설정 {
   years: number;
+  /** 남겨 둔 칸 — 이제 날짜는 늘 직접 입력이라 화면에서는 안 쓴다.
+   *  저장해 둔 옛 실험을 불러올 때 이 칸이 들어 있어 타입만 유지한다. */
   직접입력: boolean;
   start_date: string;
   end_date: string;
@@ -118,12 +131,20 @@ export interface 설정 {
 }
 
 export function 첫설정(오늘 = new Date()): 설정 {
-  const { start_date, end_date } = 기간에서날짜(8, 오늘);
+  const { start_date, end_date } = 기간에서날짜(10, 오늘);
   return {
-    years: 8, 직접입력: false, start_date, end_date,
+    years: 10, 직접입력: true, start_date, end_date,
     currency: "KRW", initial_amount: "",
     assets: [],
-    contribution_period: "monthly", contribution_amount: "",
+    /* 적립은 **꺼 놓고** 시작한다.
+
+       예전에는 '매월' 이 기본인데 금액이 비어 있어서, 자산과 금액을
+       다 넣어도 '결과 확인' 이 잠긴 채였다. 잠긴 이유는 작은 글씨로만
+       적혀 있었고, 풀려면 쓰지도 않을 적립 주기를 '없음' 으로 바꿔야
+       했다 — 기능이 통째로 안 되는 것처럼 보였다.
+
+       기본값은 **아무것도 안 고쳐도 돌아가는 값**이어야 한다. */
+    contribution_period: "none", contribution_amount: "",
     rebalance_period: "none", total_return: true,
     rebalance_day: 1,
     /* 기본을 0 으로 둔다. 수수료는 증권사마다 다르고, 지어낸 값으로
@@ -188,6 +209,53 @@ function 고르기({ 이름, 값, 바꾸기, 것들 }: {
       >
         {것들.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+    </div>
+  );
+}
+
+/** 거래비용 칸 — 직접 친다.
+ *
+ *  ── 왜 글자를 따로 들고 있나 ────────────────────────────────
+ *
+ *  숫자만 들고 있으면 **'0.05' 를 칠 수가 없다.**
+ *
+ *  '0' 을 치는 순간 Number('0') === 0 이고, 0 을 빈칸으로 그리면
+ *  방금 친 글자가 사라진다. '0' 을 남겨 둬도 다음 '.' 이 숫자로는
+ *  0 이라 화면이 '0' 으로 되돌아가고, 소수점을 영영 못 찍는다.
+ *  (그렇게 짰다가 '0.037' 을 쳤더니 '37' 이 됐다.)
+ *
+ *  그래서 **치는 동안에는 글자 그대로** 들고, 숫자는 그때그때 올려
+ *  보낸다. 밖에서 값이 바뀌면(빠른 버튼, 저장한 실험 불러오기)
+ *  그때만 글자를 맞춰 준다. */
+function 비용칸({ 값, 바꾸기 }: { 값: number; 바꾸기: (v: number) => void }) {
+  const [글, set글] = useState(값 ? String(값) : "");
+
+  /* 밖에서 바뀐 것만 따라간다. 내가 친 글자까지 덮으면 도로 같은
+     고장이 난다 — 숫자로 같으면 손대지 않는다. */
+  useEffect(() => {
+    if ((Number(글) || 0) !== 값) set글(값 ? String(값) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [값]);
+
+  return (
+    <div className="flex flex-col gap-1 min-w-0">
+      <label htmlFor="bt-cost" className="text-xs text-text-muted">거래비용</label>
+      <div className="flex items-center gap-1 bg-bg-elevated border border-border rounded-xl px-3 min-w-0">
+        <input
+          id="bt-cost" type="text" inputMode="decimal" placeholder="0"
+          className="flex-1 min-w-0 bg-transparent py-2.5 text-sm text-text-primary focus:outline-none"
+          value={글}
+          onChange={(e) => {
+            /* 숫자와 소수점만 받는다. type="number" 를 쓰면 브라우저마다
+               중간 상태('0.')를 빈 문자열로 주는 곳이 있어 같은 고장이 난다 */
+            const 다음 = e.target.value.replace(/[^\d.]/g, "").slice(0, 6);
+            set글(다음);
+            const n = Number(다음);
+            바꾸기(Number.isFinite(n) ? Math.min(n, 5) : 0);
+          }}
+        />
+        <span className="text-sm text-text-muted flex-shrink-0">%</span>
+      </div>
     </div>
   );
 }
@@ -285,6 +353,7 @@ export default function 자산배분설정({
   저장하기?: () => void;
 }) {
   const [검색열림, set검색열림] = useState(false);
+  const [로그인안내, set로그인안내] = useState(false);
   const 못하는이유 = 못돌리는이유(값);
 
   /** 비중 합. 100 이 아니어도 서버가 맞춰 주지만, 화면에 적어 주면
@@ -302,50 +371,46 @@ export default function 자산배분설정({
       <h2 className="text-xl font-bold text-text-primary">신규 테스트</h2>
       <div className="h-px bg-border -mx-4" />
 
-      {/* ── 테스트 기간 ── */}
+      {/* ── 테스트 기간 ──
+          날짜는 **늘 직접 입력**이다. 예전에는 슬라이더가 기본이고
+          체크박스를 켜야 날짜가 나왔는데, 슬라이더로는 '2020년 3월부터'
+          같은 것을 아예 못 고른다. 흔한 기간은 아래 버튼으로 한 번에
+          채우면 되니, 굳이 둘 중 하나를 고르게 할 이유가 없다. */}
       <div className="flex flex-col gap-3">
-        <칸제목
-          오른쪽={
-            <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-              <input
-                type="checkbox" className="accent-accent-blue w-4 h-4"
-                checked={값.직접입력}
-                onChange={(e) => 바꾸기({ ...값, 직접입력: e.target.checked })}
-              />
-              직접 입력
-            </label>
-          }
-        >테스트 기간</칸제목>
+        <칸제목>테스트 기간</칸제목>
 
-        {값.직접입력 ? (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label htmlFor="bt-start" className="text-xs text-text-muted">시작일</label>
-              <input id="bt-start" type="date"
-                className="bg-bg-primary border border-border rounded-lg px-2 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
-                value={값.start_date}
-                onChange={(e) => 바꾸기({ ...값, start_date: e.target.value })} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="bt-end" className="text-xs text-text-muted">종료일</label>
-              <input id="bt-end" type="date"
-                className="bg-bg-primary border border-border rounded-lg px-2 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
-                value={값.end_date}
-                onChange={(e) => 바꾸기({ ...값, end_date: e.target.value })} />
-            </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="bt-start" className="text-xs text-text-muted">시작일</label>
+            <input id="bt-start" type="date"
+              className="bg-bg-primary border border-border rounded-lg px-2 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+              value={값.start_date}
+              onChange={(e) => 바꾸기({ ...값, start_date: e.target.value })} />
           </div>
-        ) : (
-          <div className="flex flex-col items-center gap-1">
-            <input
-              type="range" min={최소년} max={최대년} step={1}
-              aria-label="테스트 기간 (년)"
-              className="w-full accent-accent-yellow"
-              value={값.years}
-              onChange={(e) => 기간바꾸기(Number(e.target.value))}
-            />
-            <span className="text-sm font-semibold text-text-primary">{값.years}년</span>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="bt-end" className="text-xs text-text-muted">종료일</label>
+            <input id="bt-end" type="date"
+              className="bg-bg-primary border border-border rounded-lg px-2 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+              value={값.end_date}
+              onChange={(e) => 바꾸기({ ...값, end_date: e.target.value })} />
           </div>
-        )}
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          {빠른기간.map((년) => (
+            <button
+              key={년}
+              aria-label={`${년}년`}
+              aria-pressed={값.years === 년}
+              className={`flex-1 min-w-[3.5rem] py-2 rounded-lg border text-xs font-medium ${
+                값.years === 년
+                  ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
+                  : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50"
+              }`}
+              onClick={() => 기간바꾸기(년)}
+            >{년}년</button>
+          ))}
+        </div>
       </div>
 
       {/* ── 테스트 금액 ── */}
@@ -380,16 +445,22 @@ export default function 자산배분설정({
             )}
           </div>
         </div>
+        {/* 누르면 그 금액으로 **바로 정해진다**. 더하기로 두면
+            1,000만원을 넣으려고 여러 번 눌러야 하고, 한 번 더 누르면
+            2,000만원이 되어 지우고 다시 시작해야 한다. */}
         <div className="flex gap-2 flex-wrap">
-          {더하기값들(값.currency).map((v) => (
+          {금액값들(값.currency).map((v) => (
             <button
               key={v}
-              aria-label={`${v.toLocaleString("ko-KR")} 더하기`}
-              className="flex-1 min-w-[4.5rem] py-2 rounded-lg bg-bg-elevated border border-border text-xs font-medium text-text-secondary hover:text-text-primary hover:border-accent-blue/50"
-              onClick={() => 바꾸기({
-                ...값, initial_amount: (Number(값.initial_amount) || 0) + v,
-              })}
-            >+{v.toLocaleString("ko-KR")}</button>
+              aria-label={읽는금액(v, 값.currency)}
+              aria-pressed={Number(값.initial_amount) === v}
+              className={`flex-1 min-w-[4.5rem] py-2 rounded-lg border text-xs font-medium ${
+                Number(값.initial_amount) === v
+                  ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
+                  : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50"
+              }`}
+              onClick={() => 바꾸기({ ...값, initial_amount: v })}
+            >{읽는금액(v, 값.currency)}</button>
           ))}
           {!!Number(값.initial_amount) && (
             <button
@@ -537,15 +608,30 @@ export default function 자산배분설정({
       <div className="flex flex-col gap-3">
         <칸제목>거래비용 · 배분</칸제목>
         <div className="grid grid-cols-2 gap-3">
-          <고르기 이름="거래비용" 값={String(값.cost_rate)}
-                  바꾸기={(v) => 바꾸기({ ...값, cost_rate: Number(v) })}
-                  것들={비용표.map((c) => ({
-                    value: String(c), label: c === 0 ? "반영 안 함" : `${c} %`,
-                  }))} />
+          {/* 증권사마다 수수료가 제각각이라 목록으로는 다 못 담는다.
+              목록에만 두면 자기 수수료가 없는 사람은 비슷한 값을 고르게
+              되고, 그건 틀린 값으로 계산하는 것이다 — 직접 친다. */}
+          <비용칸 값={값.cost_rate} 바꾸기={(v) => 바꾸기({ ...값, cost_rate: v })} />
           <고르기 이름="배분 기준" 값={값.equal_weight ? "equal" : "custom"}
                   바꾸기={(v) => 바꾸기({ ...값, equal_weight: v === "equal" })}
                   것들={[{ value: "custom", label: "직접 지정" },
                           { value: "equal", label: "동일 비중" }]} />
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          {비용표.map((c) => (
+            <button
+              key={c}
+              aria-label={c === 0 ? "거래비용 반영 안 함" : `거래비용 ${c}%`}
+              aria-pressed={값.cost_rate === c}
+              className={`flex-1 min-w-[4rem] py-1.5 rounded-lg border text-2xs font-medium ${
+                값.cost_rate === c
+                  ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
+                  : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary"
+              }`}
+              onClick={() => 바꾸기({ ...값, cost_rate: c })}
+            >{c === 0 ? "반영 안 함" : `${c}%`}</button>
+          ))}
         </div>
         {값.equal_weight && 값.assets.length > 1 && (
           <p className="text-2xs text-text-dim break-keep">
@@ -596,14 +682,23 @@ export default function 자산배분설정({
         <Button variant="secondary" className="flex-1 py-3" onClick={목록열기}>
           내 실험 목록
         </Button>
-        {저장하기 && (
-          <Button variant="secondary" className="py-3 px-4" onClick={저장하기}
-                  disabled={!!못하는이유}>저장</Button>
-        )}
+        {/* 로그인 전에도 **버튼은 보여 준다.**
+            아예 안 그리면 '저장이 어디 있지' 가 되고, 사용자는 기능이
+            고장 난 것으로 읽는다. 눌러 보면 왜 안 되는지 알 수 있어야
+            한다(아래 안내가 뜬다). */}
+        <Button variant="secondary" className="py-3 px-4"
+                onClick={저장하기 ?? (() => set로그인안내(true))}
+                disabled={!!못하는이유}>저장</Button>
         <Button className="flex-1 py-3" onClick={돌리기} disabled={!!못하는이유 || 도는중}>
           {도는중 ? "계산 중…" : "결과 확인"}
         </Button>
       </div>
+
+      {로그인안내 && !저장하기 && (
+        <p className="text-xs text-accent-yellow/90 -mt-2 break-keep">
+          실험을 저장하려면 로그인이 필요해요. 결과 확인은 로그인 없이도 돼요.
+        </p>
+      )}
     </Card>
   );
 }

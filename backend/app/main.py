@@ -122,6 +122,15 @@ async def lifespan(application: FastAPI):
         # 가격 알림이 가리키는 종목. 알림을 눌렀을 때 그 종목으로 가야 한다.
         _add_col_if_missing("notifications", "symbol", "VARCHAR(20)")
         _add_col_if_missing("notifications", "market", "VARCHAR(10)")
+        # 자산배분 실험에 뒤늦게 붙은 설정들. 표는 이미 배포돼 있어서
+        # create_all 이 컬럼을 안 만들어 준다 — 여기서 붙여야 한다.
+        # 하나라도 빠지면 저장한 실험을 불러왔을 때 다른 수가 나온다.
+        _add_col_if_missing("portfolio_experiments", "rebalance_day", "INTEGER DEFAULT 1")
+        _add_col_if_missing("portfolio_experiments", "cost_rate", "DOUBLE PRECISION DEFAULT 0", "REAL DEFAULT 0")
+        _add_col_if_missing("portfolio_experiments", "data_interval", "VARCHAR(10) DEFAULT 'daily'")
+        _add_col_if_missing("portfolio_experiments", "benchmark", "VARCHAR(20) DEFAULT 'none'")
+        _add_col_if_missing("portfolio_experiments", "equal_weight", "BOOLEAN DEFAULT FALSE")
+        _add_col_if_missing("portfolio_experiments", "extended", "BOOLEAN DEFAULT FALSE")
 
         def _widen_col(table: str, col: str, new_type: str):
             """이미 만들어진 컬럼의 길이를 늘린다.

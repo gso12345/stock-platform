@@ -446,6 +446,15 @@ export interface 저장된실험 {
   contribution_period: 주기;
   contribution_amount: number;
   rebalance_period: 주기;
+  /** 뒤늦게 붙은 칸들 — 이 기능이 생기기 전에 저장한 실험에는 없다.
+   *  없으면 화면이 지금 값을 그대로 쓴다(undefined 를 넣으면 고르기
+   *  칸이 통제 불능이 된다) */
+  rebalance_day?: number | null;
+  cost_rate?: number | null;
+  data_interval?: 데이터기준 | null;
+  benchmark?: 벤치마크키 | null;
+  equal_weight?: boolean | null;
+  extended?: boolean | null;
   total_return: boolean;
   created_at: string;
 }
