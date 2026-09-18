@@ -329,6 +329,9 @@ export interface 백테스트요청 {
    *  내려도 서버는 늘 95% 로 계산했고, 결과가 안 바뀌니 '설정이 안 먹는다'
    *  로 읽혔다. */
   position_size?: number;
+  /** 거래비용 **퍼센트**. 0.1 이면 0.1% — 서버가 100 으로 나눈다.
+   *  자산배분(자산배분요청)과 같은 단위로 맞춘다. */
+  cost_rate?: number;
   strategy_id?: number | null;
 }
 

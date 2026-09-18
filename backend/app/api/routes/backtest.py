@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from typing import Annotated, Optional
 from datetime import datetime
 import asyncio
 import logging
@@ -32,8 +32,23 @@ def _parse_date(v: str) -> str:
     return v
 
 
+#: 종목 코드에 들어올 수 있는 글자.
+#
+#  이게 없으면 '../../../etc/passwd' 같은 것이 그대로 yfinance 로 가고,
+#  캐시 열쇠로도 쓰인다. 아래 자산배분(자산칸)에는 처음부터 있었는데
+#  위쪽 두 엔드포인트에만 없었다 — 같은 파일 안에서 한쪽 문만 지키고
+#  있었던 셈이다.
+#
+#  '^'(지수), '='(환율), '.'(거래소 접미사)까지 받는다. 실제로 쓰는
+#  심볼이 ^GSPC · USDKRW=X · 005930.KS 같은 모양이기 때문이다.
+심볼모양 = r"^[A-Za-z0-9.\^=\-가-힣]+$"
+
+#: 목록 안의 항목마다 모양을 걸 때 쓴다
+심볼 = Annotated[str, Field(min_length=1, max_length=20, pattern=심볼모양)]
+
+
 class BacktestRequest(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=20)
+    symbol: str = Field(..., min_length=1, max_length=20, pattern=심볼모양)
     market: str = Field("US", pattern="^(KR|US|ETF)$")
     start_date: str
     end_date: str
@@ -49,6 +64,10 @@ class BacktestRequest(BaseModel):
     #  안 바뀌니 '이 앱은 설정이 안 먹는다' 로 읽힌다 — 아무 일도 안 하는
     #  조작칸은 없느니만 못하다.
     position_size: float = Field(0.95, gt=0, le=1.0)
+    #: 거래비용(%). 0.1 이면 0.1% — 화면이 퍼센트로 주고 서버가 나눈다.
+    #  자산배분(/portfolio)에는 있었는데 여기만 없어서, 같은 화면의 두
+    #  탭이 다른 기준으로 계산하고 있었다.
+    cost_rate: float = Field(0, ge=0, le=5)
     strategy_id: Optional[int] = None
 
     @field_validator("start_date", "end_date")
@@ -59,7 +78,12 @@ class BacktestRequest(BaseModel):
 
 class UniverseBacktestRequest(BaseModel):
     universe: str = Field("SP500", pattern="^(SP500|KOSPI|KOSDAQ|ETF|CUSTOM)$")
-    custom_symbols: list[str] = Field(default=[], max_length=100)
+    #: 길이만 막고 **내용은 안 봤다.** 100개를 아무 글자로 채워 보낼 수
+    #  있었고, 그게 전부 야후 요청과 캐시 열쇠가 됐다.
+    #
+    #  Annotated 로 **항목마다** 모양을 건다. json_schema_extra 로 적으면
+    #  문서에만 나오고 실제로는 아무것도 안 막는다(그렇게 짰다가 고쳤다).
+    custom_symbols: list[심볼] = Field(default=[], max_length=100)
     market: str = Field("US", pattern="^(KR|US|ETF)$")
     start_date: str
     end_date: str
@@ -69,6 +93,7 @@ class UniverseBacktestRequest(BaseModel):
     stop_loss: Optional[float] = Field(None, ge=0.1, le=99.0)
     take_profit: Optional[float] = Field(None, ge=0.1, le=999.0)
     position_size: float = Field(0.95, gt=0, le=1.0)
+    cost_rate: float = Field(0, ge=0, le=5)
     rank_by: str = Field("total_return", pattern="^(total_return|annual_return|mdd|sharpe_ratio|win_rate|profit_factor)$")
     top_n: int = Field(20, ge=1, le=50)
 
@@ -102,8 +127,22 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
 
     mkt = "KR" if req.market == "KR" else "US"
     loop = asyncio.get_running_loop()
-    ohlcv = await loop.run_in_executor(None, yf_service.get_ohlcv, req.symbol, period, "1d", mkt)
-    ohlcv = [row for row in ohlcv if req.start_date <= row["date"] <= req.end_date]
+    """시세를 못 받는 것은 **사용자가 고칠 수 있는 일**이다.
+
+    감싸지 않으면 야후가 한 번 삐끗할 때마다 500 이 나가고, 화면에는
+    '알 수 없는 오류' 만 뜬다. 종목 코드를 잘못 쳤는지 서버가 고장
+    났는지 구분할 수가 없다.
+
+    자산배분 쪽에서 이미 같은 것을 고쳤다 — 여기만 남아 있었다."""
+    try:
+        ohlcv = await loop.run_in_executor(
+            None, yf_service.get_ohlcv, req.symbol, period, "1d", mkt)
+    except Exception as e:
+        log.info("백테스트 시세 실패 %s: %s", req.symbol, type(e).__name__)
+        raise HTTPException(
+            status_code=400,
+            detail="시세를 받지 못했어요. 종목 코드를 확인해 주세요")
+    ohlcv = [row for row in (ohlcv or []) if req.start_date <= row["date"] <= req.end_date]
 
     if len(ohlcv) < 20:
         raise HTTPException(status_code=400, detail="데이터가 부족합니다 (최소 20일 필요)")
@@ -117,7 +156,39 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
         take_profit=req.take_profit,
         position_size=req.position_size,
         initial_capital=req.initial_capital,
+        #: 화면은 퍼센트(0.1)로 주고 엔진은 비율(0.001)로 받는다.
+        #  이 자리를 안 나누면 수수료가 100배가 된다.
+        거래비용=(req.cost_rate or 0) / 100,
     )
+
+    """**그냥 들고 있었으면 어땠나**를 같이 낸다.
+
+    '연 12%' 만 보면 잘한 것인지 알 수 없다. 같은 기간 그 종목을 그냥
+    사서 들고만 있어도 15% 였다면, 그 전략은 사고파느라 3%를 버린 것이다.
+    신호 백테스트에서 제일 먼저 물어야 할 질문인데 답이 없었다.
+
+    같은 자료·같은 기간·같은 수수료로 **한 번만 사서 끝까지 들고 가는**
+    전략을 돌린다. 시세를 더 받지 않으므로 느려지지도 않는다.
+    (자산배분 쪽은 지수와 견주지만, 신호 백테스트는 '이 종목을 그냥
+     들고 있기' 가 훨씬 정직한 상대다 — 종목을 고른 것까지 성과로
+     치면 전략이 한 일을 알 수 없다.)"""
+    사고버티기 = None
+    try:
+        묻지도않고삼 = {"logic": "AND", "conditions": [
+            {"indicator": "PRICE", "operator": ">", "value": 0}]}
+        안팜 = {"logic": "AND", "conditions": []}
+        기준 = backtest_engine.run(
+            ohlcv=ohlcv, entry_conditions=묻지도않고삼, exit_conditions=안팜,
+            position_size=req.position_size, initial_capital=req.initial_capital,
+            거래비용=(req.cost_rate or 0) / 100,
+        )
+        if 기준:
+            사고버티기 = {k: 기준.get(k) for k in
+                          ("total_return", "annual_return", "mdd", "sharpe_ratio")}
+    except Exception as e:
+        #: 견주는 것은 덤이다. 덤 때문에 본래 답까지 버리면 안 된다.
+        log.info("사고버티기 계산 실패: %s", type(e).__name__)
+    result["buy_and_hold"] = 사고버티기
 
     # 로그인 시에만 결과 DB 저장
     if current_user:
@@ -152,7 +223,19 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
     """전체 종목 유니버스 백테스트"""
     from app.services.yf_service import SP500_SYMBOLS, KOSPI_SYMBOLS, KOSDAQ_SYMBOLS, ETF_SYMBOLS
 
-    ck = f"universe_bt:{sorted(req.model_dump().items())}"
+    """캐시 열쇠를 **해시로 줄인다.**
+
+    예전에는 요청 전체를 글자로 만들어 열쇠로 썼다. 종목 100개를 넣고
+    재 보니 열쇠 하나가 2,852자였다. 조건을 조금만 바꿔도 완전히 다른
+    열쇠가 생기고, 그게 전부 5분씩 남는다 — 512MB 서버에서는 그 자체가
+    부담이다.
+
+    sha1 로 40자로 줄인다. 값이 같으면 열쇠도 같으므로 캐시는 그대로
+    듣고, 길이만 사라진다. (열쇠끼리 겹칠 일은 사실상 없고, 겹쳐도
+    남의 자료가 새는 것이 아니라 같은 조건의 결과가 나온다.)"""
+    import hashlib, json as _json
+    _재료 = _json.dumps(req.model_dump(), sort_keys=True, default=str, ensure_ascii=False)
+    ck = f"universe_bt:{hashlib.sha1(_재료.encode()).hexdigest()}"
     if cached := cache.get(ck):
         return cached
 
@@ -200,6 +283,7 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
                         take_profit=req.take_profit,
                         position_size=req.position_size,
                         initial_capital=req.initial_capital,
+                        거래비용=(req.cost_rate or 0) / 100,
                     )
                 )
                 if not result:
@@ -222,8 +306,26 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
     raw = await asyncio.gather(*[run_one(s) for s in symbols])
     results = [r for r in raw if r is not None and r.get("total_trades", 0) > 0]
 
-    reverse = req.rank_by not in ("mdd",)
-    results.sort(key=lambda x: (x.get(req.rank_by) or 0), reverse=reverse)
+    """**못 잰 값을 0 으로 뭉개지 않는다.**
+
+    손실이 한 번도 없으면 손익비는 나눌 수가 없어 None 이 온다.
+    그런데 `or 0` 으로 두면 그게 0점이 되고, 0점은 '최악' 이라는 뜻이다 —
+    **한 번도 안 진 전략이 순위 맨 아래로 밀렸다**(실측: 완벽 < 나쁨).
+
+    손실이 없다는 것은 손익비가 무한대라는 뜻이므로, 높은 순으로 볼
+    때는 맨 앞이 맞다. 낮은 순(최대 낙폭)일 때는 못 잰 것을 맨 뒤로
+    보낸다 — 어느 쪽이든 '모르는 것' 이 '나쁜 것' 행세를 하면 안 된다.
+
+    엔진이 없는 값을 None 으로 주는 것은 그렇게 쓰라고 그런 것이다.
+    받는 쪽에서 0 으로 되돌리면 그 공이 통째로 헛일이 된다."""
+    높은순 = req.rank_by not in ("mdd",)
+    없음자리 = float("inf") if 높은순 else float("inf")
+
+    def 순위값(x):
+        v = x.get(req.rank_by)
+        return 없음자리 if v is None else v
+
+    results.sort(key=순위값, reverse=높은순)
 
     payload = {
         "universe": req.universe,

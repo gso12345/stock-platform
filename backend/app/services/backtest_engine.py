@@ -9,7 +9,18 @@ class BacktestEngine:
 
     def run(self, ohlcv: list, entry_conditions: dict, exit_conditions: dict,
             stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
-            position_size: float = 0.95, initial_capital: Optional[float] = None) -> dict:
+            position_size: float = 0.95, initial_capital: Optional[float] = None,
+            거래비용: float = 0.0) -> dict:
+        """거래비용 — 0.001 이면 0.1%. 살 때도 팔 때도 뗀다.
+
+        자산배분 백테스트에는 이미 들어가 있었는데 이쪽에는 없었다.
+        **같은 화면의 두 탭이 다른 기준으로 계산**하고 있었던 셈이다 —
+        나란히 놓고 보면 신호 쪽이 무조건 좋아 보인다.
+
+        신호 매매는 자산배분보다 사고파는 횟수가 훨씬 많아서 영향도 더
+        크다. 하루에 한 번 사고파는 전략이면 1년에 500번이고, 0.1% 씩
+        떼면 그것만으로 연 수십 %가 사라진다.
+        """
         if len(ohlcv) < 5:
             return {}
         df = pd.DataFrame(ohlcv)
@@ -18,13 +29,27 @@ class BacktestEngine:
         df = self._add_all_indicators(df)
 
         capital = initial_capital if initial_capital is not None else self.initial_capital
+        비용률 = max(float(거래비용 or 0.0), 0.0)
+        비용합 = 0.0
         position = 0
         entry_price = 0.0
         entry_date = None
         trades = []
         equity_curve = []
 
-        for i, row in df.iterrows():
+        """한 줄씩 볼 때 iterrows 를 안 쓴다.
+
+        iterrows 는 봉마다 pandas Series 를 새로 만든다. 10년치 2,520봉을
+        재 보니 순회에만 0.086초가 걸렸는데, 같은 것을 dict 목록으로
+        바꾸면 0.020초다 — **4.3배**. 계산 결과는 한 글자도 안 달라진다.
+
+        이게 왜 큰가 — 유니버스 백테스트는 이 일을 316종목에 한다.
+        계산만으로 23초가 걸려서 화면의 30초 시한을 넘기고 있었다(실측).
+
+        지표 계산은 전체의 11% 뿐이었다. 89%가 이 순회였다 —
+        처음에는 지표가 범인일 거라 짐작했는데 재 보니 아니었다."""
+        줄들 = df.to_dict("records")
+        for i, row in enumerate(줄들):
             price = row["close"]
             portfolio_value = capital + position * price
             equity_curve.append({"date": str(row["date"].date()),
@@ -60,7 +85,9 @@ class BacktestEngine:
                     if 저 <= 손절선:
                         체결 = min(시, 손절선)          # 갭 하락이면 시가가 이미 아래
                         실현 = (체결 - entry_price) / entry_price * 100
-                        capital += position * 체결
+                        받은돈 = position * 체결
+                        비용합 += 받은돈 * 비용률
+                        capital += 받은돈 * (1 - 비용률)
                         trades.append(self._trade("손절", entry_date, row["date"].date(),
                                                   entry_price, 체결, 실현, position))
                         position = 0; continue
@@ -69,30 +96,41 @@ class BacktestEngine:
                     if 고 >= 익절선:
                         체결 = max(시, 익절선)          # 갭 상승이면 시가가 이미 위
                         실현 = (체결 - entry_price) / entry_price * 100
-                        capital += position * 체결
+                        받은돈 = position * 체결
+                        비용합 += 받은돈 * 비용률
+                        capital += 받은돈 * (1 - 비용률)
                         trades.append(self._trade("익절", entry_date, row["date"].date(),
                                                   entry_price, 체결, 실현, position))
                         position = 0; continue
-                if self._check(row, df, i, exit_conditions):
-                    capital += position * price
+                if self._check(row, 줄들, i, exit_conditions):
+                    받은돈 = position * price
+                    비용합 += 받은돈 * 비용률
+                    capital += 받은돈 * (1 - 비용률)
                     trades.append(self._trade("청산", entry_date, row["date"].date(), entry_price, price, pnl, position))
                     position = 0
 
-            if position == 0 and self._check(row, df, i, entry_conditions):
-                shares = int(capital * position_size / price)
+            if position == 0 and self._check(row, 줄들, i, entry_conditions):
+                """수수료까지 낼 수 있는 만큼만 산다.
+                (1 + 비용률) 로 나누지 않으면 살 돈을 다 쓰고 나서
+                수수료를 못 내 현금이 마이너스가 된다."""
+                shares = int(capital * position_size / (price * (1 + 비용률)))
                 if shares > 0:
                     position = shares
                     entry_price = price
                     entry_date = row["date"].date()
-                    capital -= shares * price
+                    낸돈 = shares * price
+                    비용합 += 낸돈 * 비용률
+                    capital -= 낸돈 * (1 + 비용률)
 
         if position > 0:
             p = df["close"].iloc[-1]
             pnl = (p - entry_price) / entry_price * 100
-            capital += position * p
+            받은돈 = position * p
+            비용합 += 받은돈 * 비용률
+            capital += 받은돈 * (1 - 비용률)
             trades.append(self._trade("만기청산", entry_date, df["date"].iloc[-1].date(), entry_price, p, pnl, position))
 
-        return self._metrics(equity_curve, trades)
+        return self._metrics(equity_curve, trades, 비용합 if 비용률 > 0 else None, 비용률)
 
     def _trade(self, type_, entry_date, exit_date, entry_price, exit_price, pnl, shares):
         """numpy 스칼라를 여기서 벗긴다.
@@ -191,7 +229,7 @@ class BacktestEngine:
 
         return df
 
-    def _check(self, row: pd.Series, df: pd.DataFrame, idx: int, conditions: dict) -> bool:
+    def _check(self, row: dict, 줄들: list, idx: int, conditions: dict) -> bool:
         logic = conditions.get("logic", "AND")
         cond_list = conditions.get("conditions", [])
         if not cond_list:
@@ -199,11 +237,11 @@ class BacktestEngine:
 
         results = []
         for cond in cond_list:
-            results.append(self._eval_condition(row, df, idx, cond))
+            results.append(self._eval_condition(row, 줄들, idx, cond))
 
         return all(results) if logic == "AND" else any(results)
 
-    def _eval_condition(self, row, df, idx, cond) -> bool:
+    def _eval_condition(self, row, 줄들, idx, cond) -> bool:
         indicator = cond.get("indicator", "")
         operator = cond.get("operator", ">")
         value = cond.get("value", 0)
@@ -245,7 +283,8 @@ class BacktestEngine:
 
         # 크로스 감지 (전봉 vs 현재)
         if operator in ("crosses_above", "crosses_below") and idx > 0:
-            prev = df.iloc[idx - 1]
+            # df.iloc[idx-1] 은 봉마다 Series 를 또 만든다 — 목록에서 바로 꺼낸다
+            prev = 줄들[idx - 1]
             prev_left = prev.get(left_col, np.nan)
             prev_right_col = col_map.get(str(value))
             prev_right = prev.get(prev_right_col, np.nan) if prev_right_col else right
@@ -263,7 +302,7 @@ class BacktestEngine:
         }
         return ops.get(operator, False)
 
-    def _metrics(self, equity_curve, trades):
+    def _metrics(self, equity_curve, trades, 비용합=None, 비용률=0.0):
         if not equity_curve:
             return {}
         vals = [e["value"] for e in equity_curve]
@@ -284,7 +323,22 @@ class BacktestEngine:
         years 도 같이 내보낸다. 화면이 '몇 년치로 잰 값인가' 를 적어 줄
         수 있어야 한다 — 3개월 성적과 10년 성적을 같은 얼굴로 보여 주는
         것이 과최적화로 가는 가장 흔한 길이다."""
-        years = len(vals) / 252
+        """햇수는 **달력으로** 센다. 봉 수로 세면 안 된다.
+
+        예전에는 `len(vals) / 252` 였다. 252는 '1년은 거래일 252일' 이라는
+        어림인데, 실제 자료에는 휴장·누락이 있어서 봉이 그보다 적다.
+        봉이 적으면 햇수가 짧게 나오고, **짧은 기간으로 나누면 연환산이
+        부풀려진다** — 자료에 구멍이 많을수록 성적이 좋아 보이는 셈이다.
+
+        자산배분 엔진은 처음부터 달력으로 세고 있었다. 같은 화면의 두
+        백테스트가 '몇 년' 을 다르게 세면 나란히 놓고 볼 수가 없다."""
+        첫날 = equity_curve[0]["date"]
+        끝날 = equity_curve[-1]["date"]
+        try:
+            from datetime import date as _d
+            years = ((_d.fromisoformat(끝날) - _d.fromisoformat(첫날)).days) / 365.25
+        except (ValueError, TypeError):
+            years = len(vals) / 252          # 날짜를 못 읽으면 예전 방식으로
         annual_return = (((final / initial) ** (1 / years) - 1) * 100
                          if years >= 1.0 and initial > 0 else None)
 
@@ -297,8 +351,17 @@ class BacktestEngine:
             if dd > mdd:
                 mdd = dd
 
+        """값이 한 번도 안 움직였으면 샤프는 **못 잰다**(0 이 아니다).
+
+        표준편차가 0 이라는 것은 조건이 한 번도 안 맞아 아무것도 안
+        샀거나, 자료가 하루치뿐이라는 뜻이다. 거기에 0 을 적으면
+        '위험 대비 수익이 없다' 로 읽힌다 — 못 잰 것과 나쁜 것은 다르다.
+
+        이 파일은 승률·손익비에서 이미 그 구분을 지키고 있었는데
+        샤프만 빠져 있었다."""
         daily_rets = pd.Series(vals).pct_change().dropna()
-        sharpe = (daily_rets.mean() / daily_rets.std() * np.sqrt(252)) if daily_rets.std() > 0 else 0
+        표준 = daily_rets.std() if len(daily_rets) > 1 else 0
+        sharpe = (daily_rets.mean() / 표준 * np.sqrt(252)) if 표준 and 표준 > 0 else None
 
         win_rate = sum(1 for t in trades if t["pnl_rate"] > 0) / len(trades) * 100 if trades else 0
         avg_profit = np.mean([t["pnl_rate"] for t in trades if t["pnl_rate"] > 0]) if any(t["pnl_rate"] > 0 for t in trades) else 0
@@ -339,7 +402,7 @@ class BacktestEngine:
             "total_return": _수(total_return),
             "annual_return": _수(annual_return),
             "mdd": _수(mdd),
-            "sharpe_ratio": round(float(sharpe), 3),
+            "sharpe_ratio": None if sharpe is None else round(float(sharpe), 3),
             "win_rate": _수(win_rate) if 거래있음 else None,
             "total_trades": len(trades),
             #: 몇 년치로 잰 값인가. 화면이 '3개월 성적' 과 '10년 성적' 을
@@ -348,6 +411,10 @@ class BacktestEngine:
             "avg_profit": _수(avg_profit) if 거래있음 else None,
             "avg_loss": _수(avg_loss) if 거래있음 else None,
             "profit_factor": _수(profit_factor),
+            #: 낸 수수료 합. 0%로 돌렸으면 0 이 아니라 None 이다 —
+            #  '안 넣었다' 와 '넣었는데 0원' 은 다른 말이다.
+            "costs": _수(비용합),
+            "cost_rate": 비용률 if 비용률 > 0 else None,
             "equity_curve": equity_curve,
             "trades": trades,
         }

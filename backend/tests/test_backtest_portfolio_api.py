@@ -517,3 +517,205 @@ class Test실험_저장:
             ("portfolio_experiments 가 _ALLOWED_MIGRATE_TABLES 에 없다. "
              "_add_col_if_missing 을 여섯 번 불러도 전부 그냥 돌아온다 — "
              "컬럼이 안 생기고, 실험 저장이 배포 후에 터진다")
+
+
+class Test심볼을_아무거나_못_넣는다:
+    """같은 파일 안에서 문지기가 한쪽 문에만 서 있었다.
+
+    자산배분(자산칸)에는 처음부터 pattern 이 있었는데 /run 과
+    /universe 에는 없었다. 그래서 '../../../etc/passwd' 같은 것이
+    그대로 yfinance 로 가고 캐시 열쇠로도 쓰였다 — 그리고 그 요청은
+    **500** 으로 죽었다(실측).
+    """
+
+    @pytest.mark.parametrize("나쁜심볼", [
+        "../../../etc/passwd",
+        'A"; DROP TABLE x;--',
+        "sym bol",                 # 공백
+        "<script>",
+        "a" * 21,                  # 너무 김
+    ])
+    def test_run_이_거른다(self, client, 나쁜심볼):
+        r = client.post("/api/v1/backtest/run", json={
+            "symbol": 나쁜심볼, "market": "US",
+            "start_date": "2020-01-01", "end_date": "2021-01-01",
+            "entry_conditions": {"logic": "AND", "conditions": [{"indicator": "RSI", "operator": "<", "value": 30}]},
+            "exit_conditions": {"logic": "OR", "conditions": [{"indicator": "RSI", "operator": ">", "value": 70}]},
+        })
+        assert r.status_code == 422, \
+            f"{나쁜심볼!r} 이 통과했다 — yfinance 까지 간다 (HTTP {r.status_code})"
+
+    def test_universe_의_목록_안쪽까지_거른다(self, client):
+        """목록은 길이만 막고 **안쪽 글자는 안 봤다.** 100개를 아무
+        글자로 채워 보낼 수 있었다."""
+        r = client.post("/api/v1/backtest/universe", json={
+            "universe": "CUSTOM", "custom_symbols": ["AAPL", "../../etc/passwd"],
+            "market": "US", "start_date": "2020-01-01", "end_date": "2021-01-01",
+            "entry_conditions": {"logic": "AND", "conditions": [{"indicator": "RSI", "operator": "<", "value": 30}]},
+            "exit_conditions": {"logic": "OR", "conditions": [{"indicator": "RSI", "operator": ">", "value": 70}]},
+        })
+        assert r.status_code == 422, \
+            f"목록 안의 나쁜 심볼이 통과했다 (HTTP {r.status_code})"
+
+    @pytest.mark.parametrize("좋은심볼", ["AAPL", "005930", "^GSPC", "USDKRW=X", "005930.KS", "삼성전자"])
+    def test_실제로_쓰는_심볼은_막지_않는다(self, client, 좋은심볼, monkeypatch):
+        """문지기가 너무 빡빡하면 지수(^GSPC)나 환율(USDKRW=X)을 못 쓴다.
+        이 앱이 실제로 넣는 모양들은 다 통과해야 한다."""
+        from app.api.routes import backtest as R
+        monkeypatch.setattr(R.yf_service, "get_ohlcv", lambda *a, **k: 봉들())
+        r = client.post("/api/v1/backtest/run", json={
+            "symbol": 좋은심볼, "market": "US",
+            "start_date": "2019-01-02", "end_date": "2021-12-30",
+            "entry_conditions": {"logic": "AND", "conditions": [{"indicator": "RSI", "operator": "<", "value": 30}]},
+            "exit_conditions": {"logic": "OR", "conditions": [{"indicator": "RSI", "operator": ">", "value": 70}]},
+        })
+        assert r.status_code != 422, f"{좋은심볼} 을 막았다 — 실제로 쓰는 심볼이다"
+
+
+class Test시세를_못_받아도_500_이_아니다:
+    def test_run_이_사람이_읽을_말로_400(self, client, monkeypatch):
+        """감싸지 않으면 야후가 한 번 삐끗할 때마다 500 이 나가고,
+        화면에는 '알 수 없는 오류' 만 뜬다. 종목 코드를 잘못 쳤는지
+        서버가 고장 났는지 구분할 수가 없다."""
+        from app.api.routes import backtest as R
+
+        def 다터짐(*a, **k):
+            raise RuntimeError("야후가 안 준다")
+
+        monkeypatch.setattr(R.yf_service, "get_ohlcv", 다터짐)
+        r = client.post("/api/v1/backtest/run", json={
+            "symbol": "AAPL", "market": "US",
+            "start_date": "2019-01-02", "end_date": "2021-12-30",
+            "entry_conditions": {"logic": "AND", "conditions": [{"indicator": "RSI", "operator": "<", "value": 30}]},
+            "exit_conditions": {"logic": "OR", "conditions": [{"indicator": "RSI", "operator": ">", "value": 70}]},
+        })
+        assert r.status_code == 400, f"500 이 나갔다 — {r.text[:200]}"
+        assert "종목" in r.json()["detail"]
+
+
+class Test유니버스_캐시_열쇠:
+    def test_요청이_길어도_열쇠는_짧다(self):
+        """예전에는 요청 전체를 글자로 만들어 열쇠로 썼다. 종목 100개를
+        넣으면 열쇠 하나가 2,852자였고, 조건을 조금만 바꿔도 완전히 다른
+        열쇠가 5분씩 남았다 — 512MB 서버에서는 그 자체가 부담이다."""
+        import inspect
+        from app.api.routes.backtest import run_universe_backtest
+        소스 = inspect.getsource(run_universe_backtest)
+        assert "hashlib" in 소스 and "universe_bt:" in 소스, \
+            "캐시 열쇠를 줄이는 자리가 없다"
+        assert "sorted(req.model_dump().items())" not in 소스, \
+            "요청 전체를 그대로 열쇠로 쓰고 있다 — 열쇠가 수천 자가 된다"
+
+    def test_열쇠_길이를_실제로_잰다(self):
+        import hashlib, json
+        from app.api.routes.backtest import UniverseBacktestRequest
+        req = UniverseBacktestRequest(
+            universe="CUSTOM", custom_symbols=[f"SYM{i}" for i in range(100)],
+            market="US", start_date="2020-01-01", end_date="2021-01-01",
+            entry_conditions={"logic": "AND", "conditions": [{}]},
+            exit_conditions={"logic": "OR", "conditions": [{}]})
+        재료 = json.dumps(req.model_dump(), sort_keys=True, default=str, ensure_ascii=False)
+        열쇠 = f"universe_bt:{hashlib.sha1(재료.encode()).hexdigest()}"
+        assert len(열쇠) < 80, f"열쇠가 {len(열쇠)}자다"
+        # 옛 방식과 견줘 본다
+        옛것 = f"universe_bt:{sorted(req.model_dump().items())}"
+        assert len(옛것) > 1000, "검사 자료가 너무 작다 — 차이를 못 본다"
+
+
+class Test못_잰_값이_순위를_망치지_않는다:
+    def test_손실_없는_전략이_맨_앞에_온다(self, client, monkeypatch):
+        """손실이 한 번도 없으면 손익비는 나눌 수가 없어 None 이 온다.
+        `or 0` 으로 두면 그게 0점이 되고, 0점은 '최악' 이라는 뜻이다 —
+        **한 번도 안 진 전략이 순위 맨 아래로 밀렸다**(실측).
+
+        손실이 없다는 것은 손익비가 무한대라는 뜻이므로 맨 앞이 맞다."""
+        import inspect
+        from app.api.routes.backtest import run_universe_backtest
+        소스 = inspect.getsource(run_universe_backtest)
+        assert "or 0), reverse=" not in 소스, \
+            "못 잰 값을 0 으로 뭉개고 있다 — 무손실 전략이 꼴찌가 된다"
+        assert "float(\"inf\")" in 소스, "못 잰 값을 따로 다루는 자리가 없다"
+
+    def test_정렬_규칙_자체를_따져_본다(self):
+        """라우트 안쪽이라 값으로 재기가 번거롭다. 규칙만 떼어 확인한다."""
+        높은순 = True
+        없음자리 = float("inf")
+
+        def 순위값(x):
+            v = x.get("profit_factor")
+            return 없음자리 if v is None else v
+
+        것들 = [{"n": "보통", "profit_factor": 2.5},
+                {"n": "나쁨", "profit_factor": 0.4},
+                {"n": "완벽", "profit_factor": None}]
+        순서 = [x["n"] for x in sorted(것들, key=순위값, reverse=높은순)]
+        assert 순서[0] == "완벽", f"무손실 전략이 {순서.index('완벽')+1}등이다 — {순서}"
+        assert 순서 == ["완벽", "보통", "나쁨"]
+
+
+class Test그냥_들고_있었으면:
+    """'연 12%' 만 보면 잘한 것인지 알 수 없다.
+
+    같은 기간 그 종목을 그냥 사서 들고만 있어도 15% 였다면, 그 전략은
+    사고파느라 3%를 버린 것이다. 신호 백테스트에서 제일 먼저 물어야 할
+    질문인데 답이 없었다.
+    """
+
+    def _몸(self, **더):
+        기본 = {
+            "symbol": "AAPL", "market": "US",
+            "start_date": "2019-01-02", "end_date": "2021-12-30",
+            "entry_conditions": {"logic": "AND", "conditions": [
+                {"indicator": "RSI", "operator": "<", "value": 30, "period": 14}]},
+            "exit_conditions": {"logic": "OR", "conditions": [
+                {"indicator": "RSI", "operator": ">", "value": 70, "period": 14}]},
+        }
+        기본.update(더)
+        return 기본
+
+    def test_견줄_값을_같이_준다(self, client, monkeypatch):
+        from app.api.routes import backtest as R
+        monkeypatch.setattr(R.yf_service, "get_ohlcv", lambda *a, **k: 봉들(700))
+        d = client.post("/api/v1/backtest/run", json=self._몸()).json()
+        assert d.get("buy_and_hold") is not None, "그냥 들고 있었을 때를 안 알려 준다"
+        for k in ("total_return", "annual_return", "mdd"):
+            assert k in d["buy_and_hold"], f"{k} 가 빠졌다"
+
+    def test_오르기만_하는_자료면_들고_있는_쪽이_낫다(self, client, monkeypatch):
+        """값이 계속 오르는데 중간에 팔면 그만큼 놓친다.
+        그 사실이 숫자로 보여야 '내 전략이 나은가' 를 판단할 수 있다."""
+        from app.api.routes import backtest as R
+        monkeypatch.setattr(R.yf_service, "get_ohlcv", lambda *a, **k: 봉들(700))
+        팔기 = {"logic": "AND", "conditions": [
+            {"indicator": "ROC_1", "operator": "<", "value": 999}]}   # 사자마자 판다
+        d = client.post("/api/v1/backtest/run",
+                        json=self._몸(exit_conditions=팔기)).json()
+        assert d["buy_and_hold"]["total_return"] > d["total_return"], \
+            "계속 오르는 자료인데 사고팔기가 들고 있기를 이겼다"
+
+    def test_같은_수수료로_견준다(self, client, monkeypatch):
+        """한쪽만 수수료를 떼면 견줄 수 없는 수가 된다."""
+        from app.api.routes import backtest as R
+        monkeypatch.setattr(R.yf_service, "get_ohlcv", lambda *a, **k: 봉들(700))
+        없이 = client.post("/api/v1/backtest/run", json=self._몸()).json()
+        같이 = client.post("/api/v1/backtest/run", json=self._몸(cost_rate=1.0)).json()
+        assert 같이["buy_and_hold"]["total_return"] < 없이["buy_and_hold"]["total_return"], \
+            "견주는 쪽에는 수수료가 안 붙었다"
+
+    def test_견주기가_실패해도_본래_답은_나온다(self, client, monkeypatch):
+        """덤 때문에 본래 답까지 버리면 안 된다."""
+        from app.api.routes import backtest as R
+        monkeypatch.setattr(R.yf_service, "get_ohlcv", lambda *a, **k: 봉들(700))
+        원래 = R.backtest_engine.run
+        부른횟수 = {"n": 0}
+
+        def 두번째만터짐(*a, **k):
+            부른횟수["n"] += 1
+            if 부른횟수["n"] >= 2:
+                raise RuntimeError("견주기가 터졌다")
+            return 원래(*a, **k)
+
+        monkeypatch.setattr(R.backtest_engine, "run", 두번째만터짐)
+        r = client.post("/api/v1/backtest/run", json=self._몸())
+        assert r.status_code == 200, f"덤이 터졌다고 본래 답까지 버렸다 — {r.text[:200]}"
+        assert r.json()["buy_and_hold"] is None

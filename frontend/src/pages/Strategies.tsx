@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { backtestApi } from "@/api/stocks";
-import { Card, LoadingSpinner, Badge, Button, Tabs, 못불러옴} from "@/components/ui";
+import { Card, LoadingSpinner, Badge, Button, Tabs, ConfirmDialog, 못불러옴} from "@/components/ui";
 import { useAuthStore } from "@/store/authStore";
 import {
-  LogIn, TrendingUp, Plus, Trash2, BarChart2, AlertTriangle,
+  LogIn, TrendingUp, Plus, Trash2, BarChart2,
 } from "lucide-react";
 
 type MarketFilter = "전체" | "KR" | "US";
@@ -22,8 +22,7 @@ export default function Strategies() {
   const { isLoggedIn } = useAuthStore();
 
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("전체");
-  // 2-step delete: stores the id of the strategy awaiting confirmation
-  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [지울전략, set지울전략] = useState<{ id: number; name: string } | null>(null);
 
   const { data: strategies, isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery({
     queryKey: ["strategies"],
@@ -35,8 +34,11 @@ export default function Strategies() {
     mutationFn: (id: number) => backtestApi.deleteStrategy(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["strategies"] });
-      setPendingDeleteId(null);
+      set지울전략(null);
     },
+    /* 실패해도 창은 닫는다. 열어 둔 채로 두면 계속 누르게 되고,
+       그때마다 같은 요청이 나간다 */
+    onError: () => set지울전략(null),
   });
 
   const allStrategies: any[] = strategies ?? [];
@@ -149,7 +151,6 @@ export default function Strategies() {
           {!isLoading && filteredStrategies.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredStrategies.map((s: any) => {
-                const isPendingDelete = pendingDeleteId === s.id;
                 const entryCount = s.entry_conditions?.conditions?.length ?? 0;
                 const exitCount  = s.exit_conditions?.conditions?.length ?? 0;
 
@@ -210,32 +211,21 @@ export default function Strategies() {
                         <BarChart2 size={13} className="inline mr-1" />
                         백테스트 실행
                       </Button>
-                      {isPendingDelete ? (
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => deleteMutation.mutate(s.id)}
-                            disabled={deleteMutation.isPending}
-                            className="flex items-center gap-1 px-2.5 py-1 bg-accent-red/20 border border-accent-red/40 text-accent-red text-xs font-semibold rounded-lg hover:bg-accent-red/30 transition-colors"
-                          >
-                            <AlertTriangle size={11} />
-                            확인
-                          </button>
-                          <button
-                            onClick={() => setPendingDeleteId(null)}
-                            className="px-2.5 py-1 bg-bg-elevated border border-border text-text-muted text-xs rounded-lg hover:text-text-primary transition-colors"
-                          >
-                            취소
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setPendingDeleteId(s.id)}
-                          className="flex items-center gap-1 px-2.5 py-1 text-text-muted hover:text-accent-red border border-border hover:border-accent-red/40 text-xs rounded-lg transition-colors"
-                        >
-                          <Trash2 size={11} />
-                          삭제
-                        </button>
-                      )}
+                      {/* 삭제 확인을 **공용 창**으로 바꿨다.
+
+                          예전에는 버튼이 '확인/취소' 로 바뀌는 방식이었다.
+                          같은 앱 안에 삭제 확인이 세 가지였던 셈인데
+                          (공용 창 · 이 방식 · 확인 없음), 되돌릴 수 없는
+                          일에는 **무엇이 지워지는지 이름을 보여 주는**
+                          공용 창이 맞다. */}
+                      <button
+                        onClick={() => set지울전략({ id: s.id, name: s.name })}
+                        aria-label={`${s.name} 삭제`}
+                        className="flex items-center gap-1 px-2.5 py-1 text-text-muted hover:text-accent-red border border-border hover:border-accent-red/40 text-xs rounded-lg transition-colors"
+                      >
+                        <Trash2 size={11} />
+                        삭제
+                      </button>
                     </div>
                   </Card>
                 );
@@ -243,6 +233,18 @@ export default function Strategies() {
             </div>
           )}
         </>
+      )}
+
+      {지울전략 && (
+        <ConfirmDialog
+          title="전략을 지울까요?"
+          message="지우면 되돌릴 수 없어요. 진입·청산 조건을 처음부터 다시 만들어야 해요."
+          대상={지울전략.name}
+          확인글="지우기"
+          진행중={deleteMutation.isPending}
+          onConfirm={() => deleteMutation.mutate(지울전략.id)}
+          onClose={() => set지울전략(null)}
+        />
       )}
     </div>
   );

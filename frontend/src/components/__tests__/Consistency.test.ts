@@ -145,3 +145,63 @@ describe("페이지 머리 줄이 폰에서 안 무너지는가", () => {
       .toEqual([]);
   });
 });
+
+describe("백테스트 화면의 통일", () => {
+  /* 같은 뜻인데 자리마다 다르게 하던 것들. 하나하나는 사소해 보이지만,
+     한 화면 안에서 규칙이 여러 개면 '이 앱은 대충 만들었다' 로 읽힌다. */
+  const 백테스트파일들 = [
+    "pages/Backtest.tsx",
+    "components/backtest/AllocationForm.tsx",
+    "components/backtest/AllocationResult.tsx",
+    "components/backtest/AllocationTab.tsx",
+  ];
+
+  it("말줄임표를 한 가지로 쓴다", () => {
+    /* '계산 중...' 과 '계산 중…' 이 섞여 있었다(3곳 대 8곳).
+       점 세 개는 폰트에 따라 간격이 달라 보인다. */
+    const 걸린것: string[] = [];
+    for (const f of 백테스트파일들) {
+      for (const m of 읽기(f).matchAll(/중\.\.\./g)) 걸린것.push(`${f}: ${m[0]}`);
+    }
+    expect(걸린것, `점 세 개를 쓴 곳: ${걸린것.join(", ")}`).toEqual([]);
+  });
+
+  it("기다리는 표시를 손으로 만들지 않는다", () => {
+    /* 공용 LoadingSpinner 를 만들어 놓고, 정작 이 화면은 같은 마크업을
+       손으로 베껴 쓰고 있었다. 하나가 바뀌면 다른 하나만 옛날 모양으로
+       남는다. */
+    const 걸린것 = 백테스트파일들.filter(
+      (f) => 읽기(f).includes("border-t-transparent rounded-full animate-spin"));
+    expect(걸린것, `스피너를 손으로 만든 곳: ${걸린것.join(", ")}`).toEqual([]);
+  });
+
+  it("차트 색을 직접 적지 않는다", () => {
+    /* 이 앱에는 밝은 테마가 있다. 직접 적은 색은 테마를 안 따라가서,
+       하얀 배경에 어두운 말풍선이 뜬다. */
+    const 걸린것: string[] = [];
+    for (const f of 백테스트파일들) {
+      const 코드 = 코드만(읽기(f));
+      for (const m of 코드.matchAll(/#[0-9a-fA-F]{6}/g)) 걸린것.push(`${f}: ${m[0]}`);
+    }
+    expect(걸린것, `색을 직접 적은 곳: ${걸린것.join(", ")}`).toEqual([]);
+  });
+
+  it("탭과 내용이 이어져 있다", () => {
+    /* role="tab" 만 있고 내용 쪽에 아무 표시가 없으면, 화면을 소리로
+       듣는 사람은 탭을 눌렀을 때 무엇이 바뀌었는지 알 수 없다. */
+    const s = 읽기("pages/Backtest.tsx");
+    expect(s, "탭에 이름표를 안 붙였다").toMatch(/idPrefix=/);
+    expect(s, "내용 쪽에 role=\"tabpanel\" 이 없다").toMatch(/role="tabpanel"/);
+    expect(s, "어느 탭의 내용인지 안 가리킨다").toMatch(/aria-labelledby=/);
+  });
+
+  it("지우기 확인을 한 가지 방식으로 한다", () => {
+    /* 공용 확인 창 · 버튼이 '확인/취소' 로 바뀌는 방식 · 확인 없음 —
+       세 가지가 섞여 있었다. 되돌릴 수 없는 일에는 **무엇이 지워지는지
+       이름을 보여 주는** 공용 창이 맞다. */
+    for (const f of ["pages/Strategies.tsx", "pages/Backtest.tsx"]) {
+      expect(읽기(f), `${f} 가 공용 확인 창을 안 쓴다`).toMatch(/ConfirmDialog/);
+      expect(읽기(f), `${f} 에 2단계 삭제가 남아 있다`).not.toMatch(/pendingDeleteId/);
+    }
+  });
+});

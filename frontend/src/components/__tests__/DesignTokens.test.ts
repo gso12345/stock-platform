@@ -463,3 +463,66 @@ describe("글자 크기", () => {
     }
   });
 });
+
+describe("강조색이 두 군데에 있다 — 어긋나면 안 된다", () => {
+  /* Tailwind 설정의 accent 는 `bg-accent-blue` 같은 클래스가 쓰고,
+     index.css 의 --accent-* 는 **차트가** 쓴다. recharts 는 클래스를
+     못 받고 색 글자만 받으므로 var() 가 필요하다.
+
+     지금까지 index.css 쪽이 **아예 없었다.** 그래서 차트에 적어 둔
+     var(--accent-blue) 가 빈 값으로 풀렸고, 선 색이 브라우저 기본으로
+     나오고 있었다(실제로 네 개 전부 빈 값인 것을 확인했다).
+
+     한쪽만 고치면 또 어긋나므로 둘을 맞대 본다. */
+  const 씨에스에스 = fs.readFileSync(path.join(뿌리, "index.css"), "utf-8");
+  const 설정글 = fs.readFileSync(
+    path.resolve(__dirname, "../../../tailwind.config.js"), "utf-8");
+
+  function 설정의accent(): Record<string, string> {
+    const 덩어리 = 설정글.slice(설정글.indexOf("accent: {"));
+    const 끝 = 덩어리.indexOf("},");
+    const 안 = 덩어리.slice(0, 끝);
+    const out: Record<string, string> = {};
+    for (const m of 안.matchAll(/^\s*([a-z]+):\s*"(#[0-9a-fA-F]{6})"/gm)) out[m[1]] = m[2].toLowerCase();
+    return out;
+  }
+
+  function 씨에스에스의accent(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const m of 씨에스에스.matchAll(/--accent-([a-z]+):\s*(#[0-9a-fA-F]{6})/g)) {
+      out[m[1]] = m[2].toLowerCase();
+    }
+    return out;
+  }
+
+  it("차트가 쓸 수 있게 CSS 변수로도 있다", () => {
+    const v = 씨에스에스의accent();
+    for (const 이름 of ["blue", "green", "red", "yellow"]) {
+      expect(v[이름], `--accent-${이름} 이 없다 — 차트에서 var() 가 빈 값이 된다`)
+        .toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
+
+  it("두 군데 값이 같다", () => {
+    const 설정 = 설정의accent();
+    const 변수 = 씨에스에스의accent();
+    const 어긋남: string[] = [];
+    for (const [이름, 색] of Object.entries(설정)) {
+      if (변수[이름] && 변수[이름] !== 색) 어긋남.push(`${이름}: 설정 ${색} ≠ 변수 ${변수[이름]}`);
+    }
+    expect(어긋남, `강조색이 두 군데에서 다르다 — ${어긋남.join(", ")}`).toEqual([]);
+  });
+
+  it("차트가 쓰는 var(--accent-*) 가 전부 정의돼 있다", () => {
+    /* 정의 안 된 변수를 쓰면 **오류도 경고도 없이** 색만 사라진다.
+       그래서 아무도 못 알아챈 채 오래간다 — 실제로 그랬다. */
+    const 변수 = 씨에스에스의accent();
+    const 걸린것: string[] = [];
+    for (const f of 소스파일들()) {
+      for (const m of fs.readFileSync(path.join(뿌리, f), "utf-8").matchAll(/var\(--accent-([a-z]+)\)/g)) {
+        if (m[1] !== "focus" && !변수[m[1]]) 걸린것.push(`${f}: --accent-${m[1]}`);
+      }
+    }
+    expect(걸린것, `없는 색 변수를 쓰고 있다: ${걸린것.join(", ")}`).toEqual([]);
+  });
+});

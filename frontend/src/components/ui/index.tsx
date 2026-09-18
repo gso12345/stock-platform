@@ -197,7 +197,7 @@ export type TabItem = {
  * 이 컴포넌트가 그 사정을 전부 떠안게 된다. */
 export function Tabs({
   tabs, active, onChange, onHover,
-  fill = true, size = "sm", tone = "solid", className, ariaLabel,
+  fill = true, size = "sm", tone = "solid", className, ariaLabel, idPrefix,
 }: {
   tabs: TabItem[];
   active: string;
@@ -217,6 +217,16 @@ export function Tabs({
   tone?: "solid" | "subtle";
   className?: string;
   ariaLabel?: string;
+  /** 탭과 **내용**을 이어 주는 이름표의 앞머리.
+   *
+   *  role="tab" 만 있고 내용 쪽에 role="tabpanel" 이 없으면, 화면을
+   *  소리로 듣는 사람은 탭을 눌렀을 때 무엇이 바뀌었는지 알 수 없다.
+   *  둘을 이으려면 탭에 id 가 있어야 한다.
+   *
+   *  **선택형으로 둔다.** 이 부품은 스무 곳 넘게 쓰이고, 한 화면에 탭
+   *  묶음이 둘 있으면 같은 id 가 두 번 생긴다(같은 문서에 같은 id 가
+   *  둘이면 이어 주기가 오히려 망가진다). 이름표를 주는 곳만 켠다. */
+  idPrefix?: string;
 }) {
   const subtle = tone === "subtle";
   return (
@@ -232,6 +242,8 @@ export function Tabs({
         const Icon = t.icon;
         return (
           <button key={t.id} role="tab" aria-selected={on}
+            id={idPrefix ? `${idPrefix}-tab-${t.id}` : undefined}
+            aria-controls={idPrefix ? `${idPrefix}-panel` : undefined}
             onClick={() => onChange(t.id)}
             onMouseEnter={onHover ? () => onHover(t.id) : undefined}
             className={cn(

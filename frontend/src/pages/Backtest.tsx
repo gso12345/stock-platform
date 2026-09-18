@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backtestApi } from "@/api/stocks";
-import { Card, ChangeBadge, formatNumber, Tabs, Button, Badge, ConfirmDialog, 빈화면, 못불러옴} from "@/components/ui";
+import { Card, ChangeBadge, formatNumber, Tabs, Button, Badge, ConfirmDialog, LoadingSpinner, 빈화면, 못불러옴} from "@/components/ui";
 import { ConditionBuilder } from "@/components/backtest/ConditionBuilder";
 import 차트틀 from "@/components/chart/ChartFrame";
 import type { ConditionGroup, Market } from "@/types";
@@ -111,6 +111,8 @@ export default function Backtest() {
   const [stopLoss, setStopLoss] = useState<number | "">("");
   const [takeProfit, setTakeProfit] = useState<number | "">("");
   const [positionSize, setPositionSize] = useState(95);
+  /* 퍼센트로 들고 있다가 그대로 보낸다 — 비율로 바꾸는 것은 서버 한 곳에서만 */
+  const [costRate, setCostRate] = useState(0);
   const [entryConditions, setEntryConditions] = useState<ConditionGroup>(DEFAULT_ENTRY);
   const [exitConditions, setExitConditions] = useState<ConditionGroup>(DEFAULT_EXIT);
   const [result, setResult] = useState<any>(null);
@@ -169,6 +171,7 @@ export default function Backtest() {
       stop_loss: stopLoss || undefined, take_profit: takeProfit || undefined,
       /* 화면은 퍼센트(95)로 들고, 서버는 비율(0.95)로 받는다 */
       position_size: positionSize / 100,
+      cost_rate: costRate,
     }),
     onSuccess: (data) => { setResult(data); setErrorMsg(null); },
     /* detail 을 그대로 넣으면 안 된다. FastAPI 422 는 detail 이 **객체
@@ -186,6 +189,7 @@ export default function Backtest() {
       initial_capital: capital, entry_conditions: entryConditions,
       exit_conditions: exitConditions, stop_loss: stopLoss || null,
       take_profit: takeProfit || null, position_size: positionSize / 100,
+      cost_rate: costRate,
       rank_by: rankBy, top_n: topN,
     }),
     onSuccess: (data) => { setUniverseResult(data); setErrorMsg(null); },
@@ -241,8 +245,21 @@ export default function Backtest() {
           <h1 className="text-2xl font-bold text-text-primary">백테스트</h1>
           <p className="text-text-muted text-xs mt-0.5">진입·청산 조건을 설정하고 과거 데이터로 전략을 검증합니다</p>
         </div>
-        <Tabs tabs={PAGE_TABS} active={pageTab} onChange={setPageTab} />
+        <Tabs tabs={PAGE_TABS} active={pageTab} onChange={setPageTab}
+              ariaLabel="백테스트 종류" idPrefix="bt" />
       </div>
+
+      {/* 탭과 **내용**을 이어 준다.
+
+          role="tab" 만 있고 내용 쪽에 아무 표시가 없으면, 화면을 소리로
+          듣는 사람은 탭을 눌렀을 때 무엇이 바뀌었는지 알 수 없다.
+
+          칸을 탭마다 따로 두지 않고 **하나로** 둔다. 이 화면은 탭에 따라
+          같은 자리의 내용이 통째로 바뀌는 구조라, 칸을 넷으로 쪼개면
+          안 보이는 칸 셋이 늘 문서에 남는다. 지금 켜진 탭을 가리키게만
+          해 두면 바뀔 때마다 제대로 읽힌다. */}
+      <div role="tabpanel" id="bt-panel" aria-labelledby={`bt-tab-${pageTab}`}
+           className="flex flex-col gap-5">
 
       {/* ── 자산배분 ──
           아래 신호 백테스트와 **다른 화면**이다. 한 화면에 섞으면
@@ -396,6 +413,23 @@ export default function Backtest() {
                   onChange={(e) => setPositionSize(Number(e.target.value))}
                 />
               </div>
+              {/* 거래비용 — 자산배분 탭에는 있었는데 여기만 없었다.
+                  **같은 화면의 두 탭이 다른 기준으로 계산**하고 있었던
+                  셈이라, 나란히 놓고 보면 신호 쪽이 무조건 좋아 보였다.
+                  신호 매매는 사고파는 횟수가 훨씬 많아 영향도 더 크다. */}
+              <div className="flex flex-col gap-1">
+                <label htmlFor="bt-cost-single" className="text-xs font-medium text-text-secondary">
+                  거래비용 (%)
+                </label>
+                <input
+                  id="bt-cost-single"
+                  type="number" min={0} max={5} step={0.01} inputMode="decimal"
+                  placeholder="0"
+                  className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
+                  value={costRate === 0 ? "" : costRate}
+                  onChange={(e) => setCostRate(e.target.value === "" ? 0 : Number(e.target.value))}
+                />
+              </div>
             </div>
 
             {pageTab === "universe" && (
@@ -438,12 +472,12 @@ export default function Backtest() {
             {pageTab === "single" ? (
               <Button className="flex-1 py-3" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
                 <Play size={14} className="inline mr-1.5" />
-                {runMutation.isPending ? "실행 중..." : "백테스트 실행"}
+                {runMutation.isPending ? "실행 중…" : "백테스트 실행"}
               </Button>
             ) : (
               <Button className="flex-1 py-3" onClick={() => universeMutation.mutate()} disabled={universeMutation.isPending}>
                 <Globe size={14} className="inline mr-1.5" />
-                {universeMutation.isPending ? "분석 중... (수분 소요)" : "유니버스 백테스트"}
+                {universeMutation.isPending ? "분석 중… (수분 소요)" : "유니버스 백테스트"}
               </Button>
             )}
             {isLoggedIn && (
@@ -528,6 +562,55 @@ export default function Backtest() {
                   />
                 </div>
 
+                {/* ── 그냥 들고 있었으면 ──
+                    '연 12%' 만 보면 잘한 것인지 알 수 없다. 같은 기간 그
+                    종목을 그냥 사서 들고만 있어도 15% 였다면, 그 전략은
+                    사고파느라 3%를 버린 것이다. 신호 백테스트에서 제일
+                    먼저 물어야 할 질문인데 답이 없었다.
+
+                    색은 **내 값**에 칠한다 — '내 숫자가 초록이면 내가
+                    나음' 이 설명 없이도 읽힌다. */}
+                {result.buy_and_hold && (
+                  <Card className="flex flex-col gap-3">
+                    <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                      <span className="text-base font-semibold text-text-primary">
+                        그냥 사서 들고 있었으면
+                      </span>
+                      <span className="text-2xs text-text-dim">같은 기간 · 같은 수수료</span>
+                    </div>
+                    <div className="grid grid-cols-[1fr_1fr_1fr] gap-x-2 gap-y-1.5 items-baseline">
+                      <span className="text-2xs text-text-dim" />
+                      <span className="text-2xs text-text-muted font-medium text-right">내 전략</span>
+                      <span className="text-2xs text-text-dim text-right">들고 있기</span>
+                      {([
+                        ["총 수익률", 숫자(result.total_return, 1, "", "%"),
+                         숫자(result.buy_and_hold.total_return, 1, "", "%"),
+                         (result.total_return ?? 0) - (result.buy_and_hold.total_return ?? 0)],
+                        ["연환산", 숫자(result.annual_return, 1, "", "%"),
+                         숫자(result.buy_and_hold.annual_return, 1, "", "%"),
+                         (result.annual_return ?? 0) - (result.buy_and_hold.annual_return ?? 0)],
+                        /* 낙폭만 작을수록 좋다 — 부호를 뒤집어야 '내가 나음'
+                           이 맞는다. 안 뒤집으면 더 크게 물린 쪽이 초록이 된다 */
+                        ["최대 낙폭", 숫자(result.mdd, 1, "-", "%"),
+                         숫자(result.buy_and_hold.mdd, 1, "-", "%"),
+                         (result.buy_and_hold.mdd ?? 0) - (result.mdd ?? 0)],
+                      ] as [string, React.ReactNode, React.ReactNode, number][]).map(([이름, 내것, 저것, 차]) => (
+                        <Fragment key={이름}>
+                          <span className="text-xs text-text-muted">{이름}</span>
+                          <span className={`text-xs font-mono tabular-nums text-right font-semibold ${차 >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                            {내것}
+                          </span>
+                          <span className="text-xs font-mono tabular-nums text-right text-text-dim">{저것}</span>
+                        </Fragment>
+                      ))}
+                    </div>
+                    <p className="text-2xs text-text-dim break-keep">
+                      내 숫자가 초록이면 그 항목은 사고파는 쪽이 나아요.
+                      빨강이면 그냥 들고 있는 편이 나았다는 뜻이에요.
+                    </p>
+                  </Card>
+                )}
+
                 {/* 수익 곡선 */}
                 <Card className="p-0 overflow-hidden">
                   <div className="px-4 py-3 border-b border-border">
@@ -536,23 +619,41 @@ export default function Backtest() {
                   </div>
                   <div className="p-4">
                     <차트틀 height={280}>
+                      {/* 색을 **테마 변수**로 쓴다.
+
+                          예전에는 #3b82f6 · #1e2235 처럼 직접 적어 뒀다.
+                          이 앱에는 밝은 테마(html.light)가 있는데, 직접
+                          적은 색은 테마를 안 따라간다 — 하얀 배경에
+                          **어두운 말풍선**이 뜨고 격자선이 시커멓게 남는다.
+
+                          그리고 var(--accent-blue) 는 지금까지 **빈 값**
+                          이었다. 그 변수가 아예 정의돼 있지 않았다(브라우저
+                          에서 확인했다). 정의 안 된 변수를 쓰면 오류도
+                          경고도 없이 색만 사라진다 — index.css 에 넣었다. */}
                       {(R) => (
                         <R.AreaChart data={result.equity_curve}>
                           <defs>
                             <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.25} />
-                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                              <stop offset="5%"  stopColor="var(--accent-blue)" stopOpacity={0.25} />
+                              <stop offset="95%" stopColor="var(--accent-blue)" stopOpacity={0} />
                             </linearGradient>
                           </defs>
-                          <R.CartesianGrid strokeDasharray="3 3" stroke="#2d3352" />
-                          <R.XAxis dataKey="date" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
-                          <R.YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatNumber(v)} width={70} />
+                          <R.CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
+                          <R.XAxis dataKey="date" tick={{ fill: "var(--text-muted)", fontSize: 10 }} tickLine={false} interval="preserveStartEnd" />
+                          <R.YAxis tick={{ fill: "var(--text-muted)", fontSize: 10 }} tickLine={false} tickFormatter={(v) => formatNumber(v)} width={70} />
                           <R.Tooltip
-                            contentStyle={{ backgroundColor: "#1e2235", border: "1px solid #2d3352", borderRadius: "10px", fontSize: 12 }}
+                            contentStyle={{
+                              backgroundColor: "var(--bg-elevated)",
+                              border: "1px solid var(--border-light)",
+                              borderRadius: "10px", fontSize: 12,
+                              /* 배경만 바꾸면 밝은 테마에서 흰 바탕에 흰 글씨가 된다 */
+                              color: "var(--text-primary)",
+                            }}
+                            labelStyle={{ color: "var(--text-muted)" }}
                             formatter={(v: number) => [formatNumber(v) + "원", "포트폴리오"]}
                           />
-                          <R.ReferenceLine y={capital} stroke="#64748b" strokeDasharray="4 4" />
-                          <R.Area type="monotone" dataKey="value" stroke="#3b82f6" fill="url(#grad)" strokeWidth={2} dot={false} />
+                          <R.ReferenceLine y={capital} stroke="var(--text-muted)" strokeDasharray="4 4" />
+                          <R.Area type="monotone" dataKey="value" stroke="var(--accent-blue)" fill="url(#grad)" strokeWidth={2} dot={false} />
                         </R.AreaChart>
                       )}
                     </차트틀>
@@ -614,13 +715,17 @@ export default function Backtest() {
             )
           )}
 
-          {/* 유니버스 결과 */}
+          {/* 유니버스 결과 —
+              기다리는 동안은 손으로 만든 뱅글뱅글 대신 공용 부품을 쓴다.
+              같은 '기다리는 중' 인데 이 화면에만 네 가지가 있었다 —
+              골격(단일 종목) · 이 원 · 진행률 막대(자산배분) ·
+              그리고 만들어 놓고 안 쓰던 공용 LoadingSpinner. */}
           {pageTab === "universe" && (
             universeMutation.isPending ? (
               <Card>
                 <div className="flex flex-col items-center justify-center h-64 gap-3">
-                  <div className="w-10 h-10 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
-                  <p className="text-text-secondary text-sm">전체 종목 분석 중... 수분 소요될 수 있습니다</p>
+                  <LoadingSpinner size="lg" />
+                  <p className="text-text-secondary text-sm">전체 종목 분석 중… 수분 소요될 수 있습니다</p>
                 </div>
               </Card>
             ) : universeResult ? (
@@ -666,8 +771,13 @@ export default function Backtest() {
                               ? <span className="text-text-dim">—</span>
                               : <ChangeBadge value={r.annual_return} />}
                           </td>
-                          <td className="px-4 py-2.5 text-right font-mono text-accent-red">-{r.mdd?.toFixed(1)}%</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-text-secondary">{r.sharpe_ratio?.toFixed(2)}</td>
+                          {/* 이 두 칸만 물음표 접근자를 쓰고 있었다.
+                              낙폭은 못 잰 값일 때 '-%' 라는 빈 껍데기가,
+                              샤프는 아예 빈 칸이 찍혔다 — 옆 칸들은 같은
+                              상황에서 '—' 를 그린다. 한 표 안에서 세 가지
+                              방식이 섞여 있었다. */}
+                          <td className="px-4 py-2.5 text-right font-mono text-accent-red">{숫자(r.mdd, 1, "-", "%")}</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-text-secondary">{숫자(r.sharpe_ratio, 2)}</td>
                           <td className="px-4 py-2.5 text-right font-mono text-text-secondary">{숫자(r.win_rate, 1, "", "%")}</td>
                           <td className="px-4 py-2.5 text-right font-mono text-text-muted">{r.total_trades}</td>
                           <td className="px-4 py-2.5 text-right font-mono text-text-secondary">{숫자(r.profit_factor, 2)}</td>
@@ -790,6 +900,8 @@ export default function Backtest() {
       </div>
       </>
       )}
+
+      </div>
     </div>
   );
 }
