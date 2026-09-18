@@ -997,3 +997,125 @@ def test_벤치마크_키의_뜻을_바꾸지_않는다():
     #: 두 키가 다른 것을 가리켜야 '코스피' 와 '코스피200' 이 뜻이 있다
     assert (표["kospi"]["assets"][0]["symbol"]
             != 표["kospi_index"]["assets"][0]["symbol"])
+
+
+# ══════════════════════════════════════════════════════════
+# 진행 상황 — 92% 에서 멈춰 보이던 것
+# ══════════════════════════════════════════════════════════
+class Test진행:
+    """화면의 진행바가 순전히 추측이었다. '어림한 시간 대비 지난 시간'
+    이라 92% 에서 박혀 놓고 실제로는 30초를 더 기다렸다 — 자산 둘이면
+    어림이 4.2초인데 무료 서버가 자고 있었으면 첫 요청이 30초를 넘는다.
+
+    이제 서버가 **실제로 한 일**을 적어 둔다. 시세를 여덟 중 셋 받았으면
+    셋이라고 적혀 있고, 화면은 그걸 그대로 그린다."""
+
+    def test_단계마다_퍼센트가_커진다(self):
+        """앞 단계의 몫을 다 더하고 지금 단계는 된 만큼만 더한다 —
+        그래서 뒤로 가지 않는다. 뒤로 가는 막대는 고장으로 읽힌다."""
+        본것 = []
+        for 단계, 된, 전 in [("시세", 0, 5), ("시세", 3, 5), ("시세", 5, 5),
+                             ("환율", 1, 1), ("배당", 2, 5), ("배당", 5, 5),
+                             ("계산", 1, 1), ("벤치마크", 1, 1)]:
+            R._진행쓰기("k-test-0001", 단계, 된, 전)
+            본것.append(R.cache.get("진행:k-test-0001")["percent"])
+        assert 본것 == sorted(본것), f"퍼센트가 뒤로 갔다: {본것}"
+        assert 본것[0] == 0
+        assert 본것[-1] == 99
+
+    def test_100_을_먼저_안_찍는다(self):
+        """다 됐다고 해 놓고 계속 도는 것이 제일 나쁘다 — 진짜 100 은
+        응답이 실제로 왔을 때만이다."""
+        R._진행쓰기("k-test-0002", "벤치마크", 1, 1)
+        assert R.cache.get("진행:k-test-0002")["percent"] == 99
+
+    def test_열쇠가_없으면_아무것도_안_한다(self):
+        """열쇠를 안 보내도 계산은 그대로 돈다 — 진행 표시는 덤이다."""
+        R._진행쓰기(None, "시세", 1, 2)      # 터지면 안 된다
+        R._진행쓰기("", "시세", 1, 2)
+
+    def test_전체가_0_이어도_안_터진다(self):
+        R._진행쓰기("k-test-0003", "시세", 0, 0)
+        assert R.cache.get("진행:k-test-0003") is not None
+
+    def test_진행_보기가_없는_열쇠에_빈_값을_준다(self, client):
+        """404 를 내면 화면이 '실패' 로 읽어 에러를 띄우는데, 진행
+        표시가 없다고 계산이 실패한 것이 아니다."""
+        r = client.get("/api/v1/backtest/portfolio/progress/없는열쇠abcdefg")
+        assert r.status_code == 200, r.text[:200]
+        assert r.json() == {}
+
+    def test_적어_둔_것을_그대로_읽는다(self, client):
+        R._진행쓰기("k-test-0004", "배당", 3, 8, "TLT 배당")
+        d = client.get("/api/v1/backtest/portfolio/progress/k-test-0004").json()
+        assert d["단계"] == "배당"
+        assert (d["done"], d["total"]) == (3, 8)
+        assert d["글"] == "TLT 배당"
+        assert 0 < d["percent"] < 99
+
+    def test_경로_칸_이름이_영문이다(self):
+        """Starlette 이 경로에서 칸을 찾을 때 쓰는 규칙이
+        [a-zA-Z_][a-zA-Z0-9_]* 다. 한글로 지으면 칸으로 안 잡히고
+        **글자 그대로**가 되어, 라우트 목록에는 보이는데 부르면 404 가
+        난다 — 눈으로는 못 찾는 모양이다(실제로 그렇게 짰다가 걸렸다)."""
+        길 = [r.path for r in app.routes
+              if "portfolio/progress" in getattr(r, "path", "")]
+        assert 길, "진행 보기 경로가 없다"
+        import re
+        for p in 길:
+            for 칸 in re.findall(r"\{([^}]+)\}", p):
+                assert re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", 칸), \
+                    f"경로 칸 이름 '{칸}' 이 영문이 아니다 — 부르면 404 가 난다"
+
+    def test_라우트가_단계마다_실제로_적는다(self, client, monkeypatch):
+        """함수만 따로 검사하면 '잘 만들어 놓고 안 부르는' 경우를 못
+        잡는다 — 실제로 배당 알림을 떼어 봤더니 아무 검사도 안 죽었다.
+
+        적는 것을 전부 받아 적고, **시세와 배당이 하나씩 올라가는지**
+        본다. gather 가 다 끝난 뒤 한 번만 알리면 그 사이 내내 막대가
+        멈춰 있다 — 자산이 많을수록 제일 오래 걸리는 구간이 통째로
+        죽은 시간이 된다."""
+        적힌것 = []
+        원래 = R._진행쓰기
+        monkeypatch.setattr(R, "_진행쓰기",
+                            lambda 열쇠, 단계, 된것=1, 전체=1, 글="":
+                            (적힌것.append((단계, 된것, 전체)),
+                             원래(열쇠, 단계, 된것, 전체, 글))[1])
+
+        날 = 거래일(끝=date(2023, 12, 29), 시작=date(2014, 1, 2))
+        값 = {d: 100.0 * 1.07 ** (i / 252) for i, d in enumerate(날)}
+        monkeypatch.setattr(R.yf_service, "get_ohlcv",
+                            lambda *a, **k: [{"date": d.isoformat(), "open": v,
+                                              "high": v, "low": v, "close": v,
+                                              "volume": 1000} for d, v in 값.items()])
+
+        async def 배당없음(자산들, 시작, 끝, 표시통화, 환율, 알림=None):
+            """진짜 _배당표 처럼 **하나씩 알린다**"""
+            for i, a in enumerate(자산들, 1):
+                if 알림:
+                    알림(i, len(자산들), a.symbol)
+            return {}
+        monkeypatch.setattr(R, "_배당표", 배당없음)
+
+        자산 = [{"symbol": s, "market": "US", "name": s, "weight": 25}
+                for s in ["SPY", "QQQ", "TLT", "GLD"]]
+        r = client.post("/api/v1/backtest/portfolio", json={
+            "assets": 자산, "currency": "USD", "initial_amount": 10_000_000,
+            "start_date": "2014-01-02", "end_date": "2023-12-29",
+            "contribution_period": "none", "contribution_amount": 0,
+            "rebalance_period": "none", "total_return": True,
+            "benchmark": "none", "progress_key": "k-route-000001"})
+        assert r.status_code == 200, r.text[:300]
+
+        시세것 = [x for x in 적힌것 if x[0] == "시세"]
+        배당것 = [x for x in 적힌것 if x[0] == "배당"]
+        assert len({x[1] for x in 시세것}) >= 3, \
+            f"시세를 하나씩 안 알린다: {시세것}"
+        assert len({x[1] for x in 배당것}) >= 3, \
+            f"배당을 하나씩 안 알린다: {배당것}"
+        #: 마지막에는 다 됐다고 적어야 화면이 92%에 걸려 있지 않는다
+        assert 적힌것[-1][0] == "벤치마크"
+
+    def test_요청에_진행_열쇠를_받는다(self):
+        assert "progress_key" in R.자산배분요청.model_fields, \
+            "화면이 열쇠를 보낼 곳이 없다 — 서버가 진행을 적어 둘 데가 없다"

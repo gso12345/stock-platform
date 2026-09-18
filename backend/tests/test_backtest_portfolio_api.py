@@ -465,7 +465,22 @@ class Test실험_저장:
         import inspect
         from app.api.routes.backtest import 자산배분요청, save_experiment
 
-        담아야할것 = set(자산배분요청.model_fields) - {"assets", "start_date", "end_date"}
+        """**설정이 아닌 칸**은 뺀다.
+
+        요청에는 설정 말고도 들어오는 것이 있다 — progress_key 는
+        '이번 계산의 진행 상황을 어디에 적어 둘까' 를 가리키는 표식이라
+        결과와 아무 상관이 없다. 저장해 두면 다음에 불러왔을 때 남의
+        진행 칸을 가리키게 되고, 무엇보다 **설정이 아닌 것을 설정인 척**
+        담는 셈이다.
+
+        빼는 것을 여기 적어 두는 이유 — 목록을 그냥 늘리면 진짜 설정이
+        빠져도 같이 묻힌다. 왜 뺐는지 한 줄씩 남긴다."""
+        설정아닌것 = {
+            "assets",                    # 따로 정규화해 담는다(아래 검사)
+            "start_date", "end_date",    # 이름이 같아 문자열 검사에 안 걸린다
+            "progress_key",              # 이번 요청의 표식이지 설정이 아니다
+        }
+        담아야할것 = set(자산배분요청.model_fields) - 설정아닌것
         소스 = inspect.getsource(save_experiment)
         빠진것 = [f for f in 담아야할것 if f"{f}=req.{f}" not in 소스]
         assert not 빠진것, \

@@ -25,6 +25,7 @@ const 상태 = vi.hoisted(() => ({
   보유들: [] as any[],
   폴더들: [] as any[],
   관심들: [] as any[],
+  서버진행: null as any,
 }));
 
 const 돌린것: any[] = [];
@@ -55,6 +56,7 @@ vi.mock("@/api/stocks", () => ({
   backtestApi: {
     runPortfolio: (...a: unknown[]) => runPortfolio(...(a as [any])),
     getExperiments: vi.fn(() => Promise.resolve(상태.실험들)),
+    getPortfolioProgress: vi.fn(() => Promise.resolve(상태.서버진행)),
     saveExperiment: vi.fn((p: any) => { 저장한것.push(p); return Promise.resolve({ id: 1, ...p }); }),
     deleteExperiment: vi.fn(),
   },
@@ -85,7 +87,8 @@ vi.mock("@/hooks/useStockSearch", () => ({
   }),
 }));
 
-import 자산배분탭, { 보낼것, 예상초, 단계글, 진행바 } from "../AllocationTab";
+import 자산배분탭, { 보낼것, 예상초, 단계글, 진행바, 어림비율, 지난말, 새열쇠 }
+  from "../AllocationTab";
 import { 눈금글 } from "../AllocationResult";
 import {
   기간에서날짜, 못돌리는이유, 첫설정, 읽는금액, 금액값들, 빠른기간,
@@ -115,6 +118,7 @@ beforeEach(() => {
   돌린것.length = 0; 저장한것.length = 0; vi.clearAllMocks();
   상태.로그인함 = true; 상태.실험들 = [];
   상태.포폴들 = []; 상태.보유들 = []; 상태.폴더들 = []; 상태.관심들 = [];
+  상태.서버진행 = null;
 });
 
 describe("사진의 항목이 다 있다", () => {
@@ -721,12 +725,188 @@ describe("계산하는 동안 진행률을 보여 준다", () => {
       expect(중간).toBeGreaterThan(0);
 
       await act(async () => { vi.advanceTimersByTime(60_000); });
-      expect(값(), "다 되기도 전에 100%를 찍었다").toBeLessThanOrEqual(92);
+      expect(값(), "다 되기도 전에 100%를 찍었다").toBeLessThanOrEqual(99);
       expect(값()).toBeGreaterThan(중간);
     } finally {
       vi.useRealTimers();
     }
   });
+
+  it("어림을 한참 넘겨도 **막대가 멈추지 않는다**", async () => {
+    /* 예전에는 92% 에서 박혔다. 어림이 4초인데 실제로는 30초가 넘게
+       걸리니, 4초 만에 92% 를 찍고 그 뒤로는 한 픽셀도 안 움직였다.
+       멈춘 막대는 아무것도 없는 것보다 나쁘다 — 사용자는 화면이 죽은
+       줄 알고 새로고침하고, 그러면 처음부터 다시 시작한다. */
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<진행바 설정={기본()} />);
+      const 값 = () => Number(
+        container.querySelector('[role="progressbar"]')!.getAttribute("aria-valuenow"));
+
+      //: 어림(몇 초)을 한참 넘긴 뒤부터, 사람이 실제로 보는 몇 분 동안
+      await act(async () => { vi.advanceTimersByTime(20_000); });
+      const 본것 = [값()];
+      for (let i = 0; i < 4; i++) {
+        await act(async () => { vi.advanceTimersByTime(20_000); });
+        본것.push(값());
+      }
+      for (let i = 1; i < 본것.length; i++) {
+        expect(본것[i], `막대가 ${본것[i]}% 에서 멈췄다 (${본것.join(" → ")})`)
+          .toBeGreaterThan(본것[i - 1]);
+      }
+      expect(본것[본것.length - 1]).toBeLessThanOrEqual(99);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("어림비율 — 늘 오르고 99%를 안 넘는다", () => {
+    /* 막대 그리는 것과 따로, 수 자체를 못 박는다.
+       **몇 분 동안** 눈에 띄게 움직이는 것이 핵심이다 — 30초 만에
+       99% 에 붙으면 그 뒤로는 또 멈춘 것처럼 보인다. */
+    const 예상 = 5;
+    let 앞 = -1;
+    for (const 초 of [0, 1, 3, 5, 10, 30, 60, 120, 180, 300]) {
+      const v = 어림비율(초, 예상);
+      expect(v, `${초}초에서 뒤로 갔다`).toBeGreaterThan(앞);
+      expect(v, `${초}초에 이미 99%를 넘었다`).toBeLessThan(0.99);
+      앞 = v;
+    }
+  });
+
+  it("어림비율 — 어림을 넘겨도 한참 동안 눈에 띄게 움직인다", () => {
+    /* 예전에는 어림을 넘기는 순간 92% 에 박혔다. 지금은 30초마다
+       남은 거리의 절반씩 간다 — 1분 뒤와 2분 뒤가 눈에 띄게 달라야
+       '살아 있다' 로 읽힌다. */
+    const 예상 = 4.2;
+    const 퍼 = (초: number) => Math.round(어림비율(초, 예상) * 100);
+    expect(퍼(60) - 퍼(30), "30초→1분 사이에 거의 안 움직인다").toBeGreaterThanOrEqual(5);
+    expect(퍼(120) - 퍼(60), "1분→2분 사이에 거의 안 움직인다").toBeGreaterThanOrEqual(4);
+    //: 어림에 닿았다고 곧장 끝에 붙지 않는다 — 어림은 어차피 어림이다
+    expect(퍼(예상), "어림에 닿자마자 90%를 넘겼다").toBeLessThanOrEqual(75);
+  });
+
+  it("걸린 시간을 사람이 읽는 말로 적는다", () => {
+    /* '95초' 보다 '1분 35초' 가 읽힌다 */
+    expect(지난말(7)).toBe("7초");
+    expect(지난말(59.9)).toBe("59초");
+    expect(지난말(95)).toBe("1분 35초");
+    expect(지난말(605)).toBe("10분 05초");
+  });
+
+  it("첫 요청에는 서버 깨우는 시간을 얹는다", () => {
+    /* 무료 서버는 한동안 요청이 없으면 내려간다. 다음 첫 요청이
+       깨우는 데만 20~50초가 드는데, 그걸 안 세면 어림이 4초로 나오고
+       막대가 4초 만에 끝에 붙는다. */
+    const s = 기본();
+    expect(예상초(s, true)).toBeGreaterThan(예상초(s, false) + 15);
+    //: 한 번 돌고 난 뒤에는 안 얹는다
+    expect(예상초(s, false)).toBe(예상초(s));
+  });
+
+  it("서버가 알려 준 진행을 **그대로** 쓴다", async () => {
+    /* 이게 이번 고침의 핵심이다. 예전 퍼센트는 '어림한 시간 대비 지난
+       시간' 이라 서버가 실제로 무엇을 했는지와 아무 상관이 없었다.
+       이제는 '시세 4/8' 같은 실제 숫자가 온다. */
+    상태.서버진행 = { 단계: "시세", done: 4, total: 8, 글: "SPY 시세", percent: 32 };
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<진행바 설정={기본()} 열쇠="abc12345" />);
+      await act(async () => { vi.advanceTimersByTime(900); });
+      const 값 = Number(
+        container.querySelector('[role="progressbar"]')!.getAttribute("aria-valuenow"));
+      expect(값, "서버가 32% 라는데 다른 수를 그린다").toBe(32);
+      expect(container.textContent, "서버가 준 말을 안 쓴다").toMatch(/SPY 시세/);
+      expect(container.textContent, "몇 개 중 몇 개인지 안 적는다").toMatch(/시세 4\/8/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("서버가 안 알려 주면 어림으로 그린다", async () => {
+    /* 진행 표시는 덤이다. 못 받아도 계산은 그대로 도므로, 화면이
+       '실패' 로 바뀌면 안 된다. */
+    상태.서버진행 = null;
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<진행바 설정={기본()} 열쇠="abc12345" />);
+      await act(async () => { vi.advanceTimersByTime(3000); });
+      const 값 = Number(
+        container.querySelector('[role="progressbar"]')!.getAttribute("aria-valuenow"));
+      expect(값, "서버가 없다고 막대가 멈췄다").toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("걸린 시간을 늘 보여 준다", async () => {
+    /* 퍼센트가 못 미더울 때도 이건 '살아 있다' 는 증거가 된다 */
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<진행바 설정={기본()} />);
+      await act(async () => { vi.advanceTimersByTime(7000); });
+      expect(container.textContent).toMatch(/7초 지남/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("돌릴 때마다 새 열쇠를 만든다", () => {
+    /* 같은 열쇠를 다시 쓰면 앞 요청의 진행이 남아 있어, 새로 누른
+       순간 막대가 80% 에서 시작한다. */
+    const 것들 = new Set(Array.from({ length: 20 }, () => 새열쇠()));
+    expect(것들.size).toBe(20);
+    for (const k of 것들) {
+      expect(k.length, "열쇠가 너무 짧다 — 서버가 8자 이상만 받는다")
+        .toBeGreaterThanOrEqual(8);
+      expect(k, "서버가 받는 글자 모양이 아니다").toMatch(/^[A-Za-z0-9_-]+$/);
+    }
+  });
+
+  it("계산을 시작하면 열쇠를 같이 보낸다", async () => {
+    /* 안 보내면 서버가 진행을 적어 둘 곳이 없어, 화면은 영영 어림만
+       그린다 — 고쳐 놓고도 예전 그대로가 된다. */
+    그리기();
+    await 검색해서담기("Apple");
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
+    await waitFor(() => expect(돌린것.length).toBe(1));
+    expect(돌린것[0].progress_key, "진행 열쇠를 안 보냈다").toMatch(/^[A-Za-z0-9_-]{8,}$/);
+  }, 20000);
+
+  it("돌릴 때마다 **다른** 열쇠를 보낸다", async () => {
+    /* 같은 열쇠를 다시 쓰면 앞 요청의 진행이 남아 있어, 새로 누른
+       순간 막대가 80% 에서 시작한다 — 그리고 그 뒤로 안 움직인다. */
+    그리기();
+    await 검색해서담기("Apple");
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
+    await waitFor(() => expect(돌린것.length).toBe(1));
+    await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
+    await waitFor(() => expect(돌린것.length).toBe(2));
+    expect(돌린것[0].progress_key, "두 번 돌렸는데 열쇠가 같다")
+      .not.toBe(돌린것[1].progress_key);
+  }, 20000);
+
+  it("도는 동안 **서버 진행**이 화면에 뜬다", async () => {
+    /* 열쇠를 만들어 보내 놓고 진행바에 안 넘기면, 화면은 영영 어림만
+       그린다 — 고쳐 놓고도 예전 그대로가 된다. */
+    상태.서버진행 = { 단계: "배당", done: 2, total: 4, 글: "TLT 배당", percent: 55 };
+    let 풀기: (v: any) => void = () => {};
+    runPortfolio.mockImplementationOnce((p: any) => {
+      돌린것.push(p);
+      return new Promise((r) => { 풀기 = r; });
+    });
+    그리기();
+    await 검색해서담기("Apple");
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
+    //: 도는 동안 서버가 준 말이 그대로 보여야 한다
+    expect(await screen.findByText(/TLT 배당/, {}, { timeout: 4000 }))
+      .toBeInTheDocument();
+    expect(screen.getByText("55%")).toBeInTheDocument();
+    풀기(결과흉내);
+  }, 20000);
 
   it("오래 걸리면 왜 그런지 말해 준다", async () => {
     /* 무료 서버가 자고 있었으면 첫 요청이 30초 넘는다.

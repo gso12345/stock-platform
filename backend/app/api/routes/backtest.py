@@ -615,6 +615,10 @@ class 자산배분요청(BaseModel):
     cash_rate: float = Field(0, ge=0, le=20)
     #: 샤프를 잴 때 뺄 무위험수익률(연 %).
     risk_free_rate: float = Field(0, ge=0, le=20)
+    #: 진행 상황을 적어 둘 열쇠. 화면이 만들어 보내고 따로 물어본다.
+    #  안 보내도 계산은 그대로 돈다 — 진행 표시만 어림으로 돌아간다.
+    progress_key: Optional[str] = Field(None, min_length=8, max_length=64,
+                                        pattern=r"^[A-Za-z0-9_-]+$")
     #: ETF 가 생기기 전 구간을 지수로 이을까
     extended: bool = False
 
@@ -633,6 +637,65 @@ class 자산배분요청(BaseModel):
 
 class 실험저장요청(자산배분요청):
     name: str = Field(..., min_length=1, max_length=100)
+
+
+# ═══════════════════════════════════════════════════════════
+#  진행 상황 — **서버가 실제로 어디까지 했나**
+# ═══════════════════════════════════════════════════════════
+#
+#  ── 왜 필요한가 ───────────────────────────────────────────
+#
+#  화면의 진행바는 순전히 추측이었다. '설정을 보고 어림한 시간' 대비
+#  '지난 시간' 이라 92%에서 멈춰 놓고, 실제로는 30초를 더 기다렸다.
+#  자산 둘이면 어림이 4.2초인데 무료 서버가 자고 있었으면 첫 요청이
+#  30초를 넘는다 — 4초 만에 92%를 찍고 그 뒤로는 안 움직였다.
+#
+#  멈춘 막대는 아무것도 없는 것보다 나쁘다. 사용자는 화면이 죽은 줄
+#  알고 새로고침하는데, 그러면 처음부터 다시 시작한다.
+#
+#  ── 어떻게 ────────────────────────────────────────────────
+#
+#  스트리밍(SSE)이 아니라 **열쇠 + 물어보기**로 한다. 화면이 요청에
+#  열쇠를 하나 실어 보내면, 서버가 일하면서 그 열쇠에 진행 상황을
+#  적어 둔다. 화면은 따로 물어본다.
+#
+#  스트리밍을 안 쓴 이유 — 중간에 있는 프록시가 응답을 모아 뒀다가
+#  한 번에 보내면 진행 상황이 통째로 안 온다. 그러면 '고쳤는데 그대로'
+#  가 되는데, 그게 왜인지는 화면만 봐서는 알 수가 없다.
+#
+#  못 물어봐도 계산은 그대로 돈다 — 진행 표시만 예전처럼 어림으로
+#  돌아간다. 덤이 본래 일을 막으면 안 된다.
+
+#: 단계마다 전체에서 차지하는 몫. 실제로 시간을 먹는 순서다 —
+#  시세 받기가 제일 크고, 엔진이 도는 것은 순식간이다.
+_진행무게 = {"시세": 0.40, "환율": 0.05, "배당": 0.30, "계산": 0.05, "벤치마크": 0.20}
+_진행순서 = ["시세", "환율", "배당", "계산", "벤치마크"]
+
+
+def _진행쓰기(열쇠: Optional[str], 단계: str, 된것: int = 1, 전체: int = 1,
+              글: str = "") -> None:
+    """지금 무슨 단계의 몇 분의 몇인지 적어 둔다.
+
+    앞 단계들의 몫을 다 더하고, 지금 단계는 된 만큼만 더한다. 그래서
+    퍼센트가 **뒤로 가지 않는다** — 뒤로 가는 막대는 고장으로 읽힌다.
+    """
+    if not 열쇠:
+        return
+    앞 = sum(_진행무게[s] for s in _진행순서[:_진행순서.index(단계)])
+    몫 = _진행무게[단계] * (된것 / 전체 if 전체 > 0 else 1)
+    try:
+        cache.set(f"진행:{열쇠}", {
+            "단계": 단계,
+            "done": 된것,
+            "total": 전체,
+            "글": 글,
+            #: 99 를 넘지 않는다. 100 은 응답이 실제로 왔을 때만이다 —
+            #  다 됐다고 해 놓고 계속 도는 것이 제일 나쁘다.
+            "percent": min(round((앞 + 몫) * 100), 99),
+        }, 180)
+    except Exception:
+        #: 진행 표시 때문에 계산이 멈추면 안 된다
+        pass
 
 
 def _기간이름(시작: str, 끝: str) -> str:
@@ -689,7 +752,7 @@ def 앞에잇기(짧은것: dict, 긴것: dict) -> tuple[dict, Optional[str]]:
 
 
 async def _시세모으기(자산들: list, 기간: str, 시작: str, 끝: str,
-                      확장: bool = False) -> tuple[dict, dict]:
+                      확장: bool = False, 알림=None) -> tuple[dict, dict]:
     """자산마다 일봉을 받아 {심볼: {날짜: 종가}} 로 만든다.
 
     현금은 건너뛴다 — 받아올 시세가 없다.
@@ -742,7 +805,21 @@ async def _시세모으기(자산들: list, 기간: str, 시작: str, 끝: str,
             표, 이은날 = 앞에잇기(표, await 받기(지수, mkt))
         return a.symbol, 표, 이은날
 
-    나온것 = await asyncio.gather(*[하나(a) for a in 자산들])
+    """하나 받을 때마다 알려 준다.
+
+    gather 가 다 끝난 뒤에 한 번 알리면 진행바가 그 사이 내내 멈춰
+    있다 — 자산 여덟이면 제일 오래 걸리는 구간이 통째로 죽은 시간이
+    된다. 끝난 순서대로 세어 올린다(시작한 순서가 아니다)."""
+    센것 = [0]
+
+    async def 하나세며(a):
+        결과 = await 하나(a)
+        센것[0] += 1
+        if 알림:
+            알림(센것[0], len(자산들), getattr(a, "name", None) or getattr(a, "symbol", ""))
+        return 결과
+
+    나온것 = await asyncio.gather(*[하나세며(a) for a in 자산들])
     return ({심볼: 표 for 심볼, 표, _ in 나온것 if 표},
             {심볼: 날 for 심볼, _, 날 in 나온것 if 날})
 
@@ -814,7 +891,8 @@ def _통화맞추기(가격표: dict, 자산들: list, 표시통화: str, 환율
     return 바뀐것, 뺀것
 
 
-async def _배당표(자산들: list, 시작: str, 끝: str, 표시통화: str, 환율: dict) -> dict:
+async def _배당표(자산들: list, 시작: str, 끝: str, 표시통화: str, 환율: dict,
+                  알림=None) -> dict:
     """{심볼: {날짜: 주당 배당금}} — 표시 통화로 바꾼 값.
 
     배당도 통화를 맞춰야 한다. 안 맞추면 달러 배당이 원화 포트폴리오에
@@ -854,7 +932,16 @@ async def _배당표(자산들: list, 시작: str, 끝: str, 표시통화: str, 
             표[날] = 값
         return a.symbol, 표
 
-    나온것 = await asyncio.gather(*[하나(a) for a in 자산들])
+    센것 = [0]
+
+    async def 하나세며(a):
+        결과 = await 하나(a)
+        센것[0] += 1
+        if 알림:
+            알림(센것[0], len(자산들), getattr(a, "name", None) or getattr(a, "symbol", ""))
+        return 결과
+
+    나온것 = await asyncio.gather(*[하나세며(a) for a in 자산들])
     return {심볼: 표 for 심볼, 표 in 나온것 if 표}
 
 
@@ -872,12 +959,18 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
         raise HTTPException(status_code=400, detail="기간이 너무 짧습니다 (최소 2개월)")
 
     기간 = _기간이름(req.start_date, req.end_date)
+    열쇠 = req.progress_key
+    _진행쓰기(열쇠, "시세", 0, max(len(req.assets), 1), "시세를 받는 중")
     가격표, 이은것 = await _시세모으기(
-        req.assets, 기간, req.start_date, req.end_date, req.extended)
+        req.assets, 기간, req.start_date, req.end_date, req.extended,
+        알림=lambda 된, 전, 이름: _진행쓰기(열쇠, "시세", 된, 전, f"{이름} 시세"))
 
     섞였나 = len({("KRW" if a.market == "KR" else "USD") for a in req.assets}) > 1
     바꿔야하나 = any((("KRW" if a.market == "KR" else "USD") != req.currency) for a in req.assets)
+    if 바꿔야하나:
+        _진행쓰기(열쇠, "환율", 0, 1, "환율을 받는 중")
     환율 = await _환율표(req.start_date, req.end_date, 기간) if 바꿔야하나 else {}
+    _진행쓰기(열쇠, "환율", 1, 1, "환율 정리")
     가격표, 뺀것 = _통화맞추기(가격표, req.assets, req.currency, 환율)
 
     쓸자산 = [a for a in req.assets
@@ -891,7 +984,11 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
 
     배당 = None
     if req.total_return:
-        배당 = await _배당표(쓸자산, req.start_date, req.end_date, req.currency, 환율)
+        _진행쓰기(열쇠, "배당", 0, max(len(쓸자산), 1), "배당 기록을 받는 중")
+        배당 = await _배당표(
+            쓸자산, req.start_date, req.end_date, req.currency, 환율,
+            알림=lambda 된, 전, 이름: _진행쓰기(열쇠, "배당", 된, 전, f"{이름} 배당"))
+    _진행쓰기(열쇠, "배당", 1, 1, "배당 정리")
 
     #: 화면은 퍼센트(0.1)로 주고 엔진은 비율(0.001)로 받는다.
     #  이 자리를 안 나누면 수수료가 100배가 된다 — 결과가 통째로 무너지는데
@@ -950,7 +1047,9 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
         내자산 = [{**a, "weight": 0} for a in 내자산]
 
     loop = asyncio.get_running_loop()
+    _진행쓰기(열쇠, "계산", 0, 1, "굴려 보는 중")
     결과 = await loop.run_in_executor(None, lambda: 돌리자(가격표, 내자산, 배당))
+    _진행쓰기(열쇠, "계산", 1, 1, "계산 끝")
     if not 결과:
         raise HTTPException(
             status_code=400,
@@ -965,6 +1064,7 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     벤치 = None
     고른벤치 = 벤치마크표.get(req.benchmark) or 벤치마크표["none"]
     if 고른벤치["assets"]:
+        _진행쓰기(열쇠, "벤치마크", 0, 1, f"{고른벤치['name']} 와 견주는 중")
         try:
             벤치칸들 = [자산칸(**x) for x in 고른벤치["assets"]]
             벤치표, _ = await _시세모으기(
@@ -1043,7 +1143,37 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     #: 어느 자산을 언제부터 지수로 이었나. 조용히 이으면 사용자는
     #  1980년치 SPY 자료가 있는 줄 안다 — 실제로는 지수를 본 것이다.
     결과["extended_from"] = {s: 날 for s, 날 in 이은것.items() if s in 가격표}
+    #: 다 끝났다고 적어 둔다. 화면이 마지막으로 물어봤을 때 100 을
+    #  보게 되므로, 답이 늦게 와도 막대가 92% 에 걸려 있지 않는다.
+    _진행쓰기(열쇠, "벤치마크", 1, 1, "다 됐어요")
     return 결과
+
+
+#: 경로 칸 이름만은 **영문**으로 둔다.
+#
+#  이 저장소는 이름을 한글로 짓지만, 여기만은 안 된다. Starlette 이
+#  경로에서 칸을 찾을 때 쓰는 규칙이 [a-zA-Z_][a-zA-Z0-9_]* 라, {열쇠}
+#  는 칸으로 안 잡히고 **글자 그대로**가 된다. 그러면 /progress/abc 가
+#  어느 경로에도 안 걸려 404 가 난다 — 라우트 목록에는 멀쩡히 보이는데
+#  부르면 없다고 하는, 눈으로는 못 찾는 모양이다(실제로 그렇게 짰다가
+#  라우트 맞춰 보기로 확인했다).
+@router.get("/portfolio/progress/{key}")
+async def 진행보기(key: str):
+    """지금 서버가 어디까지 했나.
+
+    **어림이 아니라 실제**다 — 시세를 여덟 개 중 셋 받았으면 셋이라고
+    적혀 있다. 화면은 이걸 그대로 그린다.
+
+    아직 시작 전이거나 이미 지워졌으면 빈 값을 준다. 404 를 내면 화면이
+    '실패' 로 읽어 에러를 띄우는데, 진행 표시는 덤이라 없다고 해서
+    계산이 실패한 것이 아니다.
+
+    로그인을 안 봐도 된다 — 열쇠는 화면이 만든 임의의 수라, 남의 것을
+    맞히려면 그 수를 알아내야 하고 알아낸들 나오는 것은 '시세 3/8' 뿐
+    이다. 진행 상황에는 무엇을 담았는지도, 결과도 들어 있지 않다."""
+    if not key or len(key) > 64:
+        return {}
+    return cache.get(f"진행:{key}") or {}
 
 
 @router.post("/experiments", status_code=201)

@@ -386,11 +386,24 @@ export interface 자산배분요청 {
   extended: boolean;
   /** 현금에 붙는 연 이율 **퍼센트**. 0 이면 '현금은 안 불어난다' 는 가정 */
   cash_rate: number;
+  /** 진행 상황을 적어 둘 열쇠. 화면이 만들어 보내고 따로 물어본다 */
+  progress_key?: string;
   /** 샤프를 잴 때 뺄 무위험수익률 **퍼센트** */
   risk_free_rate: number;
 }
 
 /** 벤치마크 결과 — 견주는 데 필요한 것만 온다(곡선까지 다 담으면 응답이 두 배다) */
+/** 서버가 알려 주는 진행 상황. 어림이 아니라 실제로 한 일이다 —
+ *  시세를 여덟 중 셋 받았으면 done 3 · total 8 이다. */
+export interface 서버진행 {
+  단계: string;
+  done: number;
+  total: number;
+  글: string;
+  /** 0~99. 100 은 응답이 실제로 왔을 때만이다 */
+  percent: number;
+}
+
 export interface 벤치마크결과 {
   key: string;
   name: string;
@@ -560,6 +573,17 @@ export const backtestApi = {
    *  신호를 걸어 보는 것이고, 이쪽은 '이렇게 굴렸으면 어떻게 됐을까' 다. */
   runPortfolio: (payload: 자산배분요청) =>
     api.post<자산배분결과>("/backtest/portfolio", payload).then((r) => r.data),
+
+  /** 서버가 지금 어디까지 했나 — **어림이 아니라 실제**.
+   *
+   *  진행 표시는 덤이다. 못 받아도 계산은 그대로 도므로 오류를 위로
+   *  올리지 않고 null 을 준다 — 여기서 throw 하면 진행바 하나 때문에
+   *  화면이 '실패' 로 바뀐다. */
+  getPortfolioProgress: (key: string): Promise<서버진행 | null> =>
+    api.get<서버진행 | Record<string, never>>(
+      `/backtest/portfolio/progress/${encodeURIComponent(key)}`)
+      .then((r) => ("percent" in r.data ? (r.data as 서버진행) : null))
+      .catch(() => null),
 
   getExperiments: () =>
     api.get<저장된실험[]>("/backtest/experiments").then((r) => r.data),
