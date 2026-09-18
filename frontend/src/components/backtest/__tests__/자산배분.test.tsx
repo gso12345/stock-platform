@@ -12,7 +12,7 @@
  *      사실이 보여야 한다. 조용히 빼면 사용자는 다 담은 줄 안다.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -59,7 +59,7 @@ vi.mock("@/hooks/useStockSearch", () => ({
   }),
 }));
 
-import 자산배분탭, { 보낼것 } from "../AllocationTab";
+import 자산배분탭, { 보낼것, 예상초, 단계글, 진행바 } from "../AllocationTab";
 import { 눈금글 } from "../AllocationResult";
 import {
   기간에서날짜, 못돌리는이유, 첫설정, 읽는금액, 금액값들, 최대년, 빠른기간,
@@ -653,4 +653,179 @@ describe("로그인 전에도 무엇을 할 수 있는지 보인다", () => {
     expect(screen.getByRole("button", { name: /결과 확인/ }),
       "로그인 없이도 결과 확인은 돼야 한다").toBeEnabled();
   });
+});
+
+describe("계산하는 동안 진행률을 보여 준다", () => {
+  /* 아무 표시도 없이 몇 초 멈춰 있으면 사용자는 고장으로 읽는다.
+     특히 무료 서버가 자고 있었으면 30초가 넘는다. */
+  const 기본 = () => ({
+    ...첫설정(new Date(2026, 0, 1)),
+    assets: [{ symbol: "A", market: "US", weight: 100 }],
+    initial_amount: 1_000_000,
+  });
+
+  it("할 일이 많을수록 더 오래 잡는다", () => {
+    /* 고정된 시간으로 그리면, 짧은 경우엔 막대가 멈춰 있고 긴 경우엔
+       92%에서 한참 기다리게 된다. */
+    const 하나 = 예상초({ ...기본(), total_return: false });
+    const 여덟 = 예상초({
+      ...기본(), total_return: false,
+      assets: Array.from({ length: 8 }, (_, i) => ({ symbol: `A${i}`, market: "US", weight: 12.5 })),
+    });
+    expect(여덟).toBeGreaterThan(하나);
+
+    // 배당과 벤치마크는 서버가 실제로 더 하는 일이다
+    expect(예상초({ ...기본(), total_return: true }))
+      .toBeGreaterThan(예상초({ ...기본(), total_return: false }));
+    expect(예상초({ ...기본(), benchmark: "6040" }))
+      .toBeGreaterThan(예상초({ ...기본(), benchmark: "none" }));
+  });
+
+  it("현금은 시세를 안 받으므로 안 센다", () => {
+    const 현금낀것 = { ...기본(), assets: [
+      { symbol: "A", market: "US", weight: 50 },
+      { symbol: "현금", market: "KR", weight: 50 },
+    ]};
+    expect(예상초(현금낀것)).toBe(예상초(기본()));
+  });
+
+  it("어디쯤인지 말로 알려 준다", () => {
+    const s = 기본();
+    expect(단계글(0.1, s)).toMatch(/시세/);
+    expect(단계글(0.95, { ...s, benchmark: "6040" })).toMatch(/견줄/);
+    // 네 구간이 서로 다른 말을 해야 한다 — 같으면 말해 주는 뜻이 없다
+    const 말들 = [0.1, 0.5, 0.8, 0.95].map((r) => 단계글(r, { ...s, total_return: true }));
+    expect(new Set(말들).size).toBe(4);
+  });
+
+  it("퍼센트가 오르고, 다 되기 전에 100%를 안 찍는다", async () => {
+    /* 다 됐다고 해 놓고 계속 도는 것은 아무것도 안 보여 주는 것보다
+       나쁘다 — 사용자는 화면이 멈춘 줄 안다. */
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<진행바 설정={기본()} />);
+      const 바 = () => container.querySelector('[role="progressbar"]')!;
+      const 값 = () => Number(바().getAttribute("aria-valuenow"));
+
+      expect(값()).toBe(0);
+      await act(async () => { vi.advanceTimersByTime(1000); });
+      const 중간 = 값();
+      expect(중간).toBeGreaterThan(0);
+
+      await act(async () => { vi.advanceTimersByTime(60_000); });
+      expect(값(), "다 되기도 전에 100%를 찍었다").toBeLessThanOrEqual(92);
+      expect(값()).toBeGreaterThan(중간);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("오래 걸리면 왜 그런지 말해 준다", async () => {
+    /* 무료 서버가 자고 있었으면 첫 요청이 30초 넘는다.
+       아무 말이 없으면 고장으로 읽힌다. */
+    vi.useFakeTimers();
+    try {
+      render(<진행바 설정={기본()} />);
+      expect(screen.queryByText(/쉬고 있었나/)).toBeNull();
+      await act(async () => { vi.advanceTimersByTime(60_000); });
+      expect(screen.getByText(/쉬고 있었나/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("지우기 전에 한 번 묻는다", () => {
+  const 저장된 = {
+    id: 3, name: "금 60 · 현금 40", created_at: "2026-09-01",
+    currency: "KRW" as const, initial_amount: 5_000_000,
+    start_date: "2015-01-02", end_date: "2025-01-02",
+    assets: [{ symbol: "GLD", market: "US", name: "금", weight: 1 }],
+    contribution_period: "none" as const, contribution_amount: 0,
+    rebalance_period: "yearly" as const, total_return: true,
+  };
+
+  it("바로 안 지우고 확인 창을 띄운다", async () => {
+    /* 누르는 즉시 사라지면 잘못 눌렀을 때 되살릴 방법이 없다 —
+       설정만 저장하므로 자산·비중·기간을 전부 다시 맞춰야 한다.
+       이 저장소에는 공용 확인 창이 있는데 여기만 안 쓰고 있었다. */
+    상태.실험들 = [저장된];
+    그리기();
+    await userEvent.click(screen.getByRole("button", { name: "내 실험 목록" }));
+    await userEvent.click(await screen.findByLabelText(`${저장된.name} 지우기`));
+
+    expect(screen.getByText(/지울까요/), "확인 없이 바로 지웠다").toBeInTheDocument();
+    expect(screen.getByText(/되돌릴 수 없어요/)).toBeInTheDocument();
+    // 무엇을 지우는지 이름을 보여 줘야 한다
+    expect(screen.getAllByText(저장된.name).length).toBeGreaterThan(0);
+  });
+
+  it("취소하면 안 지운다", async () => {
+    상태.실험들 = [저장된];
+    그리기();
+    await userEvent.click(screen.getByRole("button", { name: "내 실험 목록" }));
+    await userEvent.click(await screen.findByLabelText(`${저장된.name} 지우기`));
+    await userEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByText(/지울까요/)).toBeNull();
+    expect(screen.getByLabelText(`${저장된.name} 지우기`)).toBeInTheDocument();
+  });
+});
+
+describe("폰에서 날짜 두 개가 다 보인다", () => {
+  it("좁은 화면에서는 세로로 쌓는다", () => {
+    /* 날짜 칸 두 개를 폰에서 나란히 두면 하나가 150px 도 안 된다.
+       거기에 브라우저가 붙이는 달력 단추까지 들어가는데, 그 단추
+       크기도 날짜 글자 모양도 기기·언어마다 다르다 — 한국어는
+       '2026. 09. 18.' 이라 영어보다 훨씬 넓다.
+
+       jsdom 에는 배치가 없어서 폭을 잴 수 없다. 그래서 **규칙**을
+       본다: 좁을 때 한 칸, 넓어지면 두 칸. */
+    그리기();
+    const 칸 = screen.getByLabelText("시작일").closest("div")!.parentElement!;
+    expect(칸.className, "폰에서도 두 칸으로 나눠 놨다").toMatch(/grid-cols-1/);
+    expect(칸.className, "넓은 화면에서 두 칸으로 안 벌어진다").toMatch(/sm:grid-cols-2/);
+  });
+});
+
+describe("진행률이 실제로 계산 중에 뜬다", () => {
+  it("돌리는 동안 막대가 보이고, 끝나면 사라진다", async () => {
+    /* 진행바 부품만 따로 검사하면, 그걸 화면에 **안 달아도** 통과한다.
+       실제로 '결과 확인' 을 눌러서 뜨는지 본다.
+       (부품만 검사했더니 탭에서 한 줄을 지우는 뮤테이션이 살아남았다.) */
+    let 응답보내기: (v: any) => void = () => {};
+    runPortfolio.mockImplementationOnce(
+      () => new Promise((resolve) => { 응답보내기 = resolve; }));
+
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByText("Apple"));
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
+
+    const 막대 = await screen.findByRole("progressbar");
+    expect(막대, "계산 중인데 진행률이 안 보인다").toBeInTheDocument();
+    expect(screen.queryByText("총 납입금"), "아직 안 끝났는데 결과가 보인다").toBeNull();
+
+    await act(async () => { 응답보내기(결과흉내); });
+    expect(await screen.findByText("총 납입금")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar"), "끝났는데 막대가 남아 있다").toBeNull();
+  }, 20000);
+});
+
+describe("비중 버튼 이름", () => {
+  it("'동일비중' 이라고 적는다", async () => {
+    /* 짧은 말이 낫다. '비중을 똑같이 나누기' 는 버튼치고 너무 길어
+       폰에서 줄이 넘어간다. */
+    그리기();
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByText("Apple"));
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByText("삼성전자"));
+    // 비중을 흐트러뜨려야 버튼이 나온다
+    await userEvent.clear(screen.getAllByLabelText(/비중 \(%\)/)[0]);
+    await userEvent.type(screen.getAllByLabelText(/비중 \(%\)/)[0], "70");
+
+    expect(screen.getByRole("button", { name: "동일비중" })).toBeInTheDocument();
+    expect(screen.queryByText("비중을 똑같이 나누기"), "옛 글자가 남아 있다").toBeNull();
+  }, 20000);
 });

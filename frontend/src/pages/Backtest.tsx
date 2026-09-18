@@ -9,6 +9,7 @@ import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical } 
 import { useAuthStore } from "@/store/authStore";
 import { 읽을수있는오류 } from "@/utils/errors";
 import 자산배분탭 from "@/components/backtest/AllocationTab";
+import { 주기표 } from "@/components/backtest/AllocationForm";
 
 const DEFAULT_ENTRY: ConditionGroup = {
   logic: "AND",
@@ -131,6 +132,18 @@ export default function Backtest() {
 
   const { data: strategies } = useQuery({ queryKey: ["strategies"], queryFn: backtestApi.getStrategies });
 
+  /* 저장해 둔 자산배분 실험도 전략 저장소에 같이 놓는다.
+     저장한 것이 두 군데로 갈라져 있으면 어디에 뒀는지 기억해야 한다 —
+     사용자에게는 '내가 저장한 것' 하나일 뿐이다. */
+  const { data: 실험들 = [] } = useQuery({
+    queryKey: ["backtest-experiments"],
+    queryFn: backtestApi.getExperiments,
+    enabled: isLoggedIn,
+    staleTime: 300_000,
+  });
+  /* 전략 저장소에서 고른 실험을 자산배분 탭으로 넘긴다 */
+  const [불러올실험, set불러올실험] = useState<number | null>(null);
+
   const universeMarket = UNIVERSE_OPTIONS.find((o) => o.value === universe)?.market ?? "US";
 
   const runMutation = useMutation({
@@ -221,7 +234,7 @@ export default function Backtest() {
           '진입 조건' 과 '리밸런싱 주기' 가 나란히 놓여서, 둘 중 무엇을
           하는 중인지 알 수 없게 된다. 갈라 둔다. */}
       {pageTab === "alloc" && (
-        <자산배분탭 />
+        <자산배분탭 불러올실험={불러올실험} 불러옴={() => set불러올실험(null)} />
       )}
 
       {pageTab !== "alloc" && (
@@ -671,16 +684,47 @@ export default function Backtest() {
                   <p className="text-text-muted text-sm">전략을 저장하려면 로그인이 필요합니다</p>
                   <a href="/login" className="text-xs text-accent-blue hover:underline">로그인하기</a>
                 </Card>
-              ) : !strategies?.length ? (
+              ) : !strategies?.length && !실험들.length ? (
                 <Card className="col-span-2">
                   <빈화면
                     compact
                     icon={FlaskConical}
                     title="저장된 전략이 없어요"
-                    hint="조건을 만들고 '전략 저장'을 누르면 여기에 쌓입니다."
+                    hint="조건을 만들고 '전략 저장'을, 자산배분은 '저장'을 누르면 여기에 쌓입니다."
                   />
                 </Card>
-              ) : strategies.map((s: any) => (
+              ) : null}
+
+              {/* ── 자산배분 실험 ──
+                  매매 신호 전략과 **다른 종류**라 배지로 갈라 둔다.
+                  섞어 놓고 이름만 보면 어느 탭에서 열리는 것인지
+                  알 수 없어서, 눌러 보고 나서야 알게 된다. */}
+              {isLoggedIn && 실험들.map((x) => (
+                <Card key={`exp-${x.id}`} className="flex flex-col gap-3 cursor-pointer"
+                      ariaLabel={`${x.name} 자산배분 실험 열기`}
+                      onClick={() => { set불러올실험(x.id); setPageTab("alloc"); }}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-text-primary text-sm truncate">{x.name}</p>
+                      <p className="text-xs text-text-muted mt-0.5">
+                        {x.start_date} ~ {x.end_date} · {x.currency}
+                      </p>
+                    </div>
+                    <Badge variant="blue">자산배분</Badge>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <Badge>자산 {x.assets.length}개</Badge>
+                    {x.rebalance_period !== "none" && (
+                      <Badge>리밸런싱 {주기표.find((p) => p.value === x.rebalance_period)?.label}</Badge>
+                    )}
+                    {x.contribution_period !== "none" && <Badge variant="green">적립식</Badge>}
+                    {!!x.cost_rate && <Badge variant="red">수수료 {x.cost_rate}%</Badge>}
+                  </div>
+                  <div className="text-xs text-accent-blue">클릭하여 자산배분 탭에서 열기</div>
+                </Card>
+              ))}
+
+              {(strategies ?? []).map((s: any) => (
                 <Card key={s.id} className="flex flex-col gap-3 cursor-pointer" onClick={() => loadStrategy(s)}>
                   <div className="flex items-start justify-between">
                     <div>

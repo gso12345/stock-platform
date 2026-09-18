@@ -14,7 +14,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Plus, X, Trash2 } from "lucide-react";
-import { Card, Button } from "@/components/ui";
+import { Card, Button, ConfirmDialog } from "@/components/ui";
 import { useStockSearch } from "@/hooks/useStockSearch";
 import type { 배분자산, 주기, 데이터기준, 벤치마크키 } from "@/api/stocks";
 
@@ -379,18 +379,28 @@ export default function 자산배분설정({
       <div className="flex flex-col gap-3">
         <칸제목>테스트 기간</칸제목>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1">
+        {/* 좁은 화면에서는 **세로로 쌓는다.**
+
+            날짜 칸 두 개를 폰에서 나란히 두면 하나가 150px 도 안 된다.
+            거기에 브라우저가 붙이는 달력 단추까지 들어가는데, 그 단추
+            크기도 날짜 글자 모양도 기기·언어마다 다르다 — 한국어는
+            '2026. 09. 18.' 이라 영어보다 훨씬 넓다. 크롬으로 재면
+            멀쩡한데 실제 폰에서는 잘린다.
+
+            픽셀을 맞춰 가며 아슬아슬하게 두느니 칸을 통째로 넓힌다.
+            세로로 쌓으면 기기가 무엇이든 잘릴 일이 없다. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1 min-w-0">
             <label htmlFor="bt-start" className="text-xs text-text-muted">시작일</label>
             <input id="bt-start" type="date"
-              className="bg-bg-primary border border-border rounded-lg px-2 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+              className="w-full min-w-0 bg-bg-primary border border-border rounded-lg px-2 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
               value={값.start_date}
               onChange={(e) => 바꾸기({ ...값, start_date: e.target.value })} />
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 min-w-0">
             <label htmlFor="bt-end" className="text-xs text-text-muted">종료일</label>
             <input id="bt-end" type="date"
-              className="bg-bg-primary border border-border rounded-lg px-2 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
+              className="w-full min-w-0 bg-bg-primary border border-border rounded-lg px-2 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
               value={값.end_date}
               onChange={(e) => 바꾸기({ ...값, end_date: e.target.value })} />
           </div>
@@ -508,7 +518,7 @@ export default function 자산배분설정({
               ...값,
               assets: 값.assets.map((a) => ({ ...a, weight: Math.round(1000 / 값.assets.length) / 10 })),
             })}
-          >비중을 똑같이 나누기</button>
+          >동일비중</button>
         )}
 
         {검색열림 ? (
@@ -710,6 +720,14 @@ export function 실험목록({ 것들, 불러오기, 지우기, 닫기 }: {
   지우기: (id: number) => void;
   닫기: () => void;
 }) {
+  /* 지우기는 **되돌릴 수 없다.** 누르는 즉시 사라지면, 잘못 눌렀을 때
+     되살릴 방법이 없다(설정만 저장하므로 다시 만들려면 자산·비중·
+     기간을 전부 다시 맞춰야 한다).
+
+     이 저장소에는 이미 공용 확인 창이 있는데 여기만 안 쓰고 있었다 —
+     관리자·커뮤니티는 제대로 묻고 정작 사용자 쪽이 그냥 지워졌다. */
+  const [지울것, set지울것] = useState<{ id: number; name: string } | null>(null);
+
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -732,13 +750,25 @@ export function 실험목록({ 것들, 불러오기, 지우기, 닫기 }: {
                   {x.assets.map((a) => a.name || a.symbol).join(" · ")}
                 </span>
               </button>
-              <button onClick={() => 지우기(x.id)} aria-label={`${x.name} 지우기`}
+              <button onClick={() => set지울것({ id: x.id, name: x.name })}
+                      aria-label={`${x.name} 지우기`}
                       className="p-1.5 text-text-dim hover:text-accent-red flex-shrink-0">
                 <Trash2 size={14} />
               </button>
             </li>
           ))}
         </ul>
+      )}
+
+      {지울것 && (
+        <ConfirmDialog
+          title="실험을 지울까요?"
+          message="지우면 되돌릴 수 없어요. 자산과 비중, 기간을 처음부터 다시 맞춰야 해요."
+          대상={지울것.name}
+          확인글="지우기"
+          onConfirm={() => { 지우기(지울것.id); set지울것(null); }}
+          onClose={() => set지울것(null)}
+        />
       )}
     </Card>
   );
