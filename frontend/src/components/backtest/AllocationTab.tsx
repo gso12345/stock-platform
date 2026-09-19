@@ -15,7 +15,7 @@ import { backtestApi, type 자산배분요청, type 자산배분결과, type 저
          type 서버진행 } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { Card, 못불러옴 } from "@/components/ui";
-import { 읽을수있는오류 } from "@/utils/errors";
+import { 읽을수있는오류, 요청실패말 } from "@/utils/errors";
 import 자산배분설정, { 첫설정, type 설정 } from "./AllocationForm";
 import 자산배분결과화면 from "./AllocationResult";
 
@@ -304,10 +304,14 @@ export default function 자산배분탭({ 불러올실험, 불러옴 }: {
       return backtestApi.runPortfolio({ ...보낼것(설정값), progress_key: 열쇠 });
     },
     onSuccess: (d) => { set결과(d); set오류(null); set처음인가(false); },
-    /* detail 을 그대로 넣으면 안 된다 — FastAPI 422 는 객체 배열이라
-       React 자식으로 들어가는 순간 화면이 죽는다 */
-    onError: (e: any) => set오류(읽을수있는오류(
-      e?.response?.data?.detail, "계산에 실패했어요. 잠시 후 다시 시도해 주세요")),
+    /* **끊긴 것과 실패한 것을 가른다.**
+       '계산에 실패했어요' 만 띄우면 서버가 고장 난 줄 알고 떠난다.
+       대개는 자던 서버가 깨느라 오래 걸렸을 뿐이고(무료 서버는 20~50초),
+       다시 누르면 훨씬 빠르다. detail 을 그대로 넣지 않는 것도 그대로다 —
+       FastAPI 422 는 객체 배열이라 React 자식으로 들어가면 화면이 죽는다
+       (utils/errors 의 요청실패말이 둘 다 맡는다). */
+    onError: (e: any) => set오류(
+      요청실패말(e, "계산에 실패했어요. 잠시 후 다시 시도해 주세요")),
   });
 
   const 저장 = useMutation({

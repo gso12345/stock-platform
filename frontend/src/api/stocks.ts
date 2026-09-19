@@ -1,4 +1,4 @@
-import api from "./client";
+import api, { 무거운상한 } from "./client";
 import type {
   Market, StockPrice, StockDetail, OHLCV, StockFundamentals,
   뉴스항목, 지표카드, 순위행, 대시보드응답, 실적응답, 전망응답, 지표흐름, MarketIndex,
@@ -524,6 +524,16 @@ export interface 자산배분결과 {
   cash_rate: number;
   data_interval: 데이터기준;
   benchmark: 벤치마크결과 | null;
+  /** 요청한 기간 — 실제로 잰 start_date/end_date 와 견줘 '짧아졌나' 를 안다.
+   *  저장한 실험을 다시 열면 설정이 화면에 없으므로 응답에 실려 와야 한다. */
+  requested_start?: string;
+  requested_end?: string;
+  /** 자산마다 자료가 **언제부터 언제까지** 있나.
+   *
+   *  모든 자산에 값이 있는 날만 재므로, 늦게 상장한 자산 하나가 앞을
+   *  통째로 잘라낸다. 누가 잘랐는지 알아야 그 자산을 빼거나 '확장' 을
+   *  켜는 식으로 손을 쓸 수 있다. */
+  asset_range?: Record<string, { first: string; last: string }>;
   /** {심볼: 지수로 이은 시작일}. 조용히 이으면 사용자는 그게 실제
    *  ETF 자료인 줄 안다 — 지수에는 배당도 운용보수도 없다 */
   extended_from: Record<string, string>;
@@ -567,18 +577,26 @@ export interface 전략저장 {
 }
 
 export const backtestApi = {
+  /* ── 백테스트는 **무거운상한**을 쓴다 ──
+   *
+   *  보통 상한(30초)을 그대로 두면 정상 동작 중에도 끊긴다. 무료
+   *  서버를 깨우는 데만 20~50초가 들고, 거기에 계산이 더해지기
+   *  때문이다. 끊기면 화면에는 '서버에 연결하지 못했습니다' 로 뜨는데,
+   *  그때 서버는 멀쩡히 계산 중이다(client.ts 의 무거운상한 참고). */
   run: (payload: 백테스트요청) =>
-    api.post("/backtest/run", payload).then((r) => r.data),
+    api.post("/backtest/run", payload, { timeout: 무거운상한 }).then((r) => r.data),
 
   runUniverse: (payload: 전종목백테스트요청) =>
-    api.post("/backtest/universe", payload).then((r) => r.data),
+    api.post("/backtest/universe", payload, { timeout: 무거운상한 })
+      .then((r) => r.data),
 
   /** 자산배분 백테스트 — 여러 자산을 비중대로 담아 적립·리밸런싱하며 굴린다.
    *
    *  위의 run/runUniverse 와는 **다른 종류**다. 그쪽은 한 종목에 매매
    *  신호를 걸어 보는 것이고, 이쪽은 '이렇게 굴렸으면 어떻게 됐을까' 다. */
   runPortfolio: (payload: 자산배분요청) =>
-    api.post<자산배분결과>("/backtest/portfolio", payload).then((r) => r.data),
+    api.post<자산배분결과>("/backtest/portfolio", payload, { timeout: 무거운상한 })
+      .then((r) => r.data),
 
   /** 서버가 지금 어디까지 했나 — **어림이 아니라 실제**.
    *

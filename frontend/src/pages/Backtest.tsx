@@ -8,7 +8,7 @@ import 차트틀 from "@/components/chart/ChartFrame";
 import type { ConditionGroup, Market } from "@/types";
 import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
-import { 읽을수있는오류 } from "@/utils/errors";
+import { 읽을수있는오류, 요청실패말 } from "@/utils/errors";
 import 자산배분탭 from "@/components/backtest/AllocationTab";
 import { 주기표 } from "@/components/backtest/AllocationForm";
 
@@ -215,8 +215,11 @@ export default function Backtest() {
        배열**이라, React 자식으로 들어가는 순간 화면이 통째로 죽는다.
        값을 잘못 넣어서 나는 오류인데 그 안내를 띄우려다 페이지가
        사라지는 셈이다 — 종목상세에서 이미 같은 것을 고쳤다. */
-    onError: (err: any) => setErrorMsg(읽을수있는오류(err?.response?.data?.detail,
-      "백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요")),
+    /* **끊긴 것과 실패한 것을 가른다.** '실패했어요' 만 띄우면 서버가
+       고장 난 줄 알고 떠난다 — 대개는 자던 서버가 깨는 중이라 오래
+       걸렸을 뿐이고, 다시 누르면 훨씬 빠르다(utils/errors 의 요청실패말). */
+    onError: (err: any) => setErrorMsg(
+      요청실패말(err, "백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요")),
   });
 
   const universeMutation = useMutation({
@@ -230,8 +233,8 @@ export default function Backtest() {
       rank_by: rankBy, top_n: topN,
     }),
     onSuccess: (data) => { setUniverseResult(data); setErrorMsg(null); },
-    onError: (err: any) => setErrorMsg(읽을수있는오류(err?.response?.data?.detail,
-      "유니버스 백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요")),
+    onError: (err: any) => setErrorMsg(
+      요청실패말(err, "유니버스 백테스트 실행에 실패했어요. 잠시 후 다시 시도해주세요")),
   });
 
   const saveStrategyMutation = useMutation({
