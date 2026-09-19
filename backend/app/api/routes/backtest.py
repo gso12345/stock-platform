@@ -1170,6 +1170,26 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
                       for a, w in zip(쓸자산, PB.정규화(내자산))]
     결과["skipped"] = 못받음
     결과["fx_skipped"] = 뺀것
+    """**어느 자산 때문에 기간이 짧아졌는지** 말할 수 있게 한다.
+
+    자산마다 상장일이 다르다. 2015년에 생긴 ETF 와 1993년 S&P500 을
+    같이 담으면 **모든 자산에 값이 있는 날**만 쓰므로 2015년부터 재진다.
+    그 자체는 맞는 처리인데, 화면이 '2015-01-02 ~ 2024-12-31' 만 보여
+    주면 사용자는 왜 1993년이 사라졌는지 알 길이 없다. 기간을 늘려도
+    또 같은 결과가 나오고, 무엇을 빼야 길어지는지도 모른다.
+
+    자산마다 자료가 언제부터 언제까지 있는지 그대로 적어 보낸다.
+    누가 발목을 잡았는지는 화면이 골라 말한다 — 여기서 한 자산만
+    집어 보내면, 같은 날 시작하는 자산이 둘일 때 한쪽만 말하게 된다.
+
+    요청한 기간도 같이 보낸다. 안 보내면 화면은 '짧아졌는지' 자체를
+    알 수 없다(저장한 실험을 다시 열었을 때는 설정이 화면에 없다)."""
+    결과["requested_start"] = req.start_date
+    결과["requested_end"] = req.end_date
+    결과["asset_range"] = {
+        심볼: {"first": min(표).isoformat(), "last": max(표).isoformat()}
+        for 심볼, 표 in 가격표.items() if 표
+    }
     결과["mixed_currency"] = 섞였나
     결과["costs_included"] = 비용률 > 0
     결과["data_interval"] = req.data_interval

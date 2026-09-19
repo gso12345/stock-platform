@@ -713,6 +713,69 @@ function 폭락표({ r }: { r: 자산배분결과 }) {
  *  서버가 준 비중을 그대로 쓴다. 화면에서 다시 계산하면 '동일 비중' 이나
  *  '합이 100이 아닌 입력' 을 서버와 다르게 풀 수 있고, 그러면 결과를
  *  낸 비중과 화면에 적힌 비중이 달라진다. */
+/** **누구 때문에 기간이 짧아졌나.**
+ *
+ *  ── 무엇이 문제였나 ──────────────────────────────────────
+ *
+ *  모든 자산에 값이 있는 날만 잰다. 2015년에 생긴 ETF 와 1993년부터
+ *  있는 지수를 같이 담으면 2015년부터만 재진다 — 그 처리 자체는 맞다.
+ *  없는 쪽을 0 으로 치면 포트폴리오가 반토막 난 것처럼 보이고, 마지막
+ *  값을 끌어다 쓰면 상장 전에 이미 갖고 있던 셈이 된다.
+ *
+ *  문제는 **말을 안 했다는 것**이다. 화면에는 '2015-01-02 ~ 2024-12-31'
+ *  만 떴다. 1993년부터 재려던 사람은 왜 사라졌는지 알 수 없고, 기간을
+ *  늘려도 또 같은 결과가 나오고, 무엇을 빼야 길어지는지도 모른다.
+ *  '20년을 쟀다' 고 믿은 채 10년짜리 성적을 읽는 일도 생긴다.
+ *
+ *  ── 누구를 지목하나 ──────────────────────────────────────
+ *
+ *  **시작을 늦춘 자산**은 자료가 제일 늦게 시작하는 것이고, 그게 곧
+ *  결과의 시작일이다. 같은 날 시작하는 자산이 둘이면 둘 다 적는다 —
+ *  하나만 빼서는 기간이 안 늘어나기 때문이다.
+ *
+ *  끝을 앞당긴 자산도 같은 식으로 본다(상장폐지·거래정지).
+ */
+function 기간이짧아진이유({ r }: { r: 자산배분결과 }) {
+  const 범위 = r.asset_range;
+  if (!범위) return null;
+
+  const 이름 = (심볼: string) =>
+    (r.assets ?? []).find((a) => a.symbol === 심볼)?.name || 심볼;
+
+  /** 그 날짜에 걸린 자산들 — 같은 날이면 다 적는다 */
+  const 걸린것 = (뽑기: "first" | "last", 날: string) =>
+    Object.entries(범위)
+      .filter(([, v]) => v[뽑기] === 날)
+      .map(([심볼]) => 이름(심볼));
+
+  //: 요청보다 늦게 시작했나 / 일찍 끝났나
+  const 늦게시작 = r.requested_start && r.start_date > r.requested_start
+    ? 걸린것("first", r.start_date) : [];
+  const 일찍끝남 = r.requested_end && r.end_date < r.requested_end
+    ? 걸린것("last", r.end_date) : [];
+
+  if (!늦게시작.length && !일찍끝남.length) return null;
+
+  return (
+    <p className="text-xs text-accent-yellow/90 break-keep">
+      {늦게시작.length > 0 && (
+        <>
+          <b>{늦게시작.join(" · ")}</b>의 시세가 {r.start_date}부터라
+          그 앞은 못 쟀어요{r.requested_start && ` (${r.requested_start}부터 요청)`}.
+          {" "}그 자산을 빼거나, ETF라면 ‘확장’을 켜면 더 길게 잴 수 있어요.
+        </>
+      )}
+      {늦게시작.length > 0 && 일찍끝남.length > 0 && <br />}
+      {일찍끝남.length > 0 && (
+        <>
+          <b>{일찍끝남.join(" · ")}</b>의 시세가 {r.end_date}까지라
+          그 뒤는 못 쟀어요{r.requested_end && ` (${r.requested_end}까지 요청)`}.
+        </>
+      )}
+    </p>
+  );
+}
+
 function 담은자산({ r }: { r: 자산배분결과 }) {
   const 것들 = r.assets ?? [];
   if (!것들.length) return null;
@@ -988,7 +1051,9 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
           작게 나온 것도 마찬가지다.
 
           탭으로 나눈 것은 카드가 많아서지, 감추려는 것이 아니다. */}
-      <div className="flex flex-col gap-1 px-1">
+      <div className="flex flex-col gap-1.5 px-1">
+        <기간이짧아진이유 r={r} />
+
         {r.costs_included ? (
           <p className="text-2xs text-text-dim break-keep">
             거래비용 {r.cost_rate != null ? `${+(r.cost_rate * 100).toFixed(3)}%` : ""} 반영 —

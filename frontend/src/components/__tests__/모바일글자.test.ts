@@ -2,7 +2,8 @@
  * 휴대폰에서만 글자가 커지던 것.
  *
  * '모바일에서 글자가 너무 크다' 를 듣고 재 봤다. 코드가 정한 크기는
- * 오히려 PC 보다 작다 — root 14px 기준으로 본문이 12.2px 다. 그런데도
+ * 오히려 PC 보다 작았다 — root 14px 기준으로 본문이 12.2px 였다
+ * (지금은 root 를 16px 로 옮겨 14px 다). 그런데도
  * 휴대폰에서 커 보이는 이유는 브라우저가 **제멋대로 키우기** 때문이다.
  *
  * 안드로이드 크롬의 font boosting 과 iOS 사파리의 text autosizing 은,
@@ -58,8 +59,13 @@ describe("크기표 주석이 실제와 맞는가", () => {
     return Number(m![1]);
   };
 
-  it("index.css 의 root 는 14px 다", () => {
-    expect(루트px()).toBe(14);
+  it("index.css 의 root 는 16px 다", () => {
+    /* 한동안 14px 이었다. rem 눈금이 전부 여기 곱해지니 본문이
+       12.25px, 제일 작은 라벨이 9.6px 로 그려졌다 — 브라우저 기본인
+       16px 보다 한참 작았다. 눈금은 그대로 두고 root 만 옮겨서,
+       모든 단계가 같은 비율로 커지게 했다. */
+    expect(루트px(), "root 를 옮겼으면 아래 크기표 주석도 같이 고쳐야 한다")
+      .toBe(16);
   });
 
   it("주석의 첫 숫자가 root 기준 실제 크기와 같다", () => {
@@ -78,14 +84,17 @@ describe("크기표 주석이 실제와 맞는가", () => {
   it("어느 root 기준인지 밝힌다", () => {
     /* 기준을 안 적으면 다음 사람이 또 16px 로 읽는다. 그게 이번에
        12.5% 어긋난 이유였다 */
-    expect(설정()).toMatch(/root 14px 기준/);
+    expect(설정()).toMatch(/root 16px 기준/);
   });
 
   it("본문이 휴대폰에서 읽을 만한 크기다", () => {
     /* 너무 작으면 브라우저가 키우려 드는 쪽으로 되돌아간다 */
     const s = 설정();
     const base = Number(s.match(/base:\s*\["([\d.]+)rem"/)![1]);
-    expect(base * 루트px()).toBeGreaterThanOrEqual(12);
+    /* 브라우저 기본이 16px 이고 본문 14~16px 가 보통이다. 12px 대는
+       너무 작아서, 그때 브라우저가 제멋대로 키우려 드는 쪽으로
+       되돌아간다. */
+    expect(base * 루트px()).toBeGreaterThanOrEqual(14);
   });
 });
 
@@ -205,5 +214,58 @@ describe("토큰 밖 글자 크기가 새어 들어오지 않게", () => {
       .map((m) => Number(m[1]));
     const hero = Number(설정().match(/hero:\s*\["([\d.]+)rem"/)![1]);
     expect(Math.max(...rem)).toBe(hero);
+  });
+});
+
+
+describe("고르는 칸이 **고르는 칸처럼 보이는가**", () => {
+  /* 브라우저가 그려 주는 화살표를 appearance:none 으로 지워 놓고
+     대신 그릴 것을 안 뒀다. 그래서 앱의 모든 드롭다운이 테두리만 있는
+     네모 상자로 보였다 — '통화 KRW 가 글자로만 떠 있어서 달러로
+     바꿀 수 있는 칸인지 모르겠다' 는 말이 나온 자리가 여기다.
+
+     화살표는 그 칸이 고르는 칸이라는 **유일한 신호**다. */
+
+  const 선택자규칙 = () => {
+    const s = css();
+    const i = s.indexOf("select:not([multiple])");
+    expect(i, "select 규칙을 못 찾았다").toBeGreaterThan(-1);
+    return s.slice(i, s.indexOf("\n  }", i));
+  };
+
+  it("화살표를 지웠으면 다시 그린다", () => {
+    const 규칙 = 선택자규칙();
+    expect(규칙, "appearance 를 안 지웠다면 이 검사를 다시 생각해야 한다")
+      .toMatch(/appearance:\s*none/);
+    expect(규칙, "브라우저 화살표를 지워 놓고 대신 그릴 것을 안 뒀다")
+      .toMatch(/background-image:\s*url\(/);
+  });
+
+  it("화살표가 글자를 덮지 않게 자리를 비운다", () => {
+    /* 오른쪽 여백을 안 주면 긴 항목('주식 60 · 채권 40')의 끝 글자가
+       화살표 밑으로 들어간다. */
+    expect(선택자규칙()).toMatch(/padding-right:/);
+  });
+
+  it("유틸리티(px-3)보다 우선하는 선택자다", () => {
+    /* 그냥 `select { padding-right }` 로 두면 Tailwind 의 px-3 이
+       이긴다 — 여백이 안 먹어서 화살표와 글자가 겹친다.
+       :not([multiple]) 이 한 단계 높은 명시도를 만든다. */
+    expect(css()).toMatch(/select:not\(\[multiple\]\)\s*\{/);
+    expect(css(), "명시도 없는 select 규칙이 남아 있다")
+      .not.toMatch(/\n\s*select\s*\{[^}]*padding-right/);
+  });
+
+  it("어두운 테마와 밝은 테마가 같은 색을 쓴다", () => {
+    /* 한쪽에서만 보이는 화살표면 없느니만 못하다. --text-muted 가
+       두 테마에서 같은 값이라 한 벌로 족하다 — 값이 갈리는 순간
+       이 검사가 깨져서 알려 준다. */
+    const 값들 = [...css().matchAll(/--text-muted:\s*(#[0-9a-fA-F]{3,8})/g)]
+      .map((m) => m[1].toLowerCase());
+    expect(값들.length, "--text-muted 를 못 찾았다").toBeGreaterThanOrEqual(2);
+    expect(new Set(값들).size, "테마마다 색이 달라졌다 — 화살표 색도 갈라야 한다")
+      .toBe(1);
+    //: 화살표 색이 그 값과 같아야 한다(%23 = #)
+    expect(선택자규칙().toLowerCase()).toContain(값들[0].replace("#", "%23"));
   });
 });

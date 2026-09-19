@@ -166,7 +166,11 @@ export function 첫설정(오늘 = new Date()): 설정 {
        안 고르면 안 넣은 것으로 적는다. */
     cost_rate: 0,
     data_interval: "daily",
-    benchmark: "none",
+    /* 기본은 **S&P500**이다. '없음' 으로 두면 처음 돌려 본 사람은
+       '연 9%' 같은 수만 보고 그게 잘한 것인지 알 수 없다 — 8년에
+       연 9%가 좋은 성적인지는 같은 기간 S&P500 이 몇 %였나를 봐야
+       정해진다. 견줄 상대가 있는 쪽이 기본값으로 맞다. */
+    benchmark: "spy",
     equal_weight: false,
     extended: false,
     /* 둘 다 0 으로 시작한다. 지어낸 값을 넣어 두면 사용자는 그게
@@ -984,9 +988,15 @@ export default function 자산배분설정({
       <div className="flex flex-col gap-3">
         <칸제목>테스트 금액</칸제목>
         <div className="flex gap-3">
+          {/* **알약 모양이 아니라 칸 모양으로 둔다.**
+              rounded-full 은 이 앱에서 '고른 칩' 의 모양이라, 통화가
+              누르는 칸이 아니라 '지금 원화입니다' 라는 표시처럼 보였다.
+              옆의 금액 칸과 같은 rounded-xl 로 맞춘다 — 나란히 있는
+              둘이 같은 모양이면 둘 다 고치는 칸으로 읽힌다.
+              펼침 화살표는 index.css 가 모든 고르기 칸에 그려 준다. */}
           <select
             aria-label="통화"
-            className="bg-bg-elevated border border-border rounded-full px-4 py-2 text-sm text-text-primary focus:outline-none"
+            className="bg-bg-elevated border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
             value={값.currency}
             onChange={(e) => 바꾸기({ ...값, currency: e.target.value as "KRW" | "USD" })}
           >

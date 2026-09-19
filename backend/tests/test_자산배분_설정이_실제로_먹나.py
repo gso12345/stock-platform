@@ -588,3 +588,51 @@ class Test진행:
     def test_모르는_열쇠는_404_가_아니라_빈_값이다(self, client):
         r = client.get("/api/v1/backtest/portfolio/progress/없던열쇠12345")
         assert r.status_code == 200 and r.json() == {}
+
+
+class Test기간이_짧아진_이유:
+    """**누가 기간을 잘랐는지** 말할 수 있어야 한다.
+
+    모든 자산에 값이 있는 날만 잰다 — 그 처리 자체는 맞다. 그런데
+    화면에 '2019-01-02 ~ 2021-12-30' 만 뜨면, 2016년부터 재려던 사람은
+    왜 사라졌는지 알 길이 없다. 기간을 늘려도 또 같은 결과가 나오고,
+    무엇을 빼야 길어지는지도 모른다. '6년을 쟀다' 고 믿은 채 3년짜리
+    성적을 읽는 일도 생긴다.
+    """
+
+    def test_요청한_기간을_그대로_돌려준다(self, client):
+        """화면이 '짧아졌나' 를 알려면 요청한 기간이 있어야 한다.
+        저장한 실험을 다시 열면 설정이 화면에 없다."""
+        d = 돌려(client, start_date="2016-01-04", end_date="2021-12-30")
+        assert d["requested_start"] == "2016-01-04"
+        assert d["requested_end"] == "2021-12-30"
+
+    def test_자산마다_언제부터_언제까지인지_적는다(self, client):
+        d = 돌려(client)
+        범위 = d["asset_range"]
+        assert set(범위) == {"AAA", "BBB"}, f"자산 범위가 빠졌다 — {범위}"
+        for v in 범위.values():
+            assert v["first"] <= v["last"]
+
+    def test_늦게_상장한_자산을_집어낼_수_있다(self, client):
+        """SPY 는 2019년부터만 있는 것으로 꾸며 놨다. AAA 와 같이
+        담으면 2019년부터 재지고, 그 범인이 SPY 라는 것이 보여야 한다."""
+        d = 돌려(client, assets=[
+            {"symbol": "AAA", "market": "US", "weight": 50},
+            {"symbol": "SPY", "market": "US", "weight": 50},
+        ])
+        assert d["start_date"] >= "2019-01-02"
+        assert d["start_date"] > d["requested_start"], "안 짧아졌다 — 꾸민 자료를 확인"
+
+        #: 시작일과 같은 날부터 있는 자산이 곧 발목을 잡은 자산이다
+        범인 = [s for s, v in d["asset_range"].items()
+                if v["first"] == d["start_date"]]
+        assert 범인 == ["SPY"], f"범인을 못 집어낸다 — {d['asset_range']}"
+        #: 나머지는 더 앞부터 있다
+        assert d["asset_range"]["AAA"]["first"] < d["start_date"]
+
+    def test_요청대로_쟀으면_지목할_것이_없다(self, client):
+        d = 돌려(client)
+        늦은것 = [s for s, v in d["asset_range"].items()
+                  if v["first"] > d["requested_start"]]
+        assert 늦은것 == [], f"멀쩡한데 늦게 시작한 자산이 있다고 한다 — {늦은것}"

@@ -171,10 +171,12 @@ export function ConditionBuilder({ label, color = "blue", group, onChange }: Pro
 
             {/* 기간 (MA/EMA) — **필요할 때만** 그린다.
                 빈 칸을 두면 RSI 처럼 기간이 없는 지표에서도 자리를
-                차지해, 정작 값 칸이 좁아진다. */}
+                차지해, 정작 값 칸이 좁아진다.
+                너비에 펼침 화살표 자리(1.3rem)가 들어 있다 — 예전
+                3.9rem 이면 '200일' 이 '200' 으로 잘렸다(실측). */}
             {meta?.hasPeriod && (
               <select
-                className="w-[3.9rem] flex-shrink-0 bg-bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
+                className="w-[5.1rem] flex-shrink-0 bg-bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
                 value={cond.period ?? 20}
                 onChange={(e) => update(i, { period: Number(e.target.value) })}
               >
@@ -184,10 +186,13 @@ export function ConditionBuilder({ label, color = "blue", group, onChange }: Pro
               </select>
             )}
 
-            {/* 연산자 — 글자가 제일 긴 '↑ 상향돌파' 에 맞춘 고정 너비.
-                늘었다 줄었다 하면 줄마다 칸 자리가 달라 읽기 어렵다. */}
+            {/* 연산자 — 글자가 제일 긴 '↑ 돌파' 에 맞춘 고정 너비.
+                늘었다 줄었다 하면 줄마다 칸 자리가 달라 읽기 어렵다.
+                **펼침 화살표 자리(1.3rem)를 더해 둔 너비다** — 예전
+                4.6rem 은 화살표가 없던 시절 값이라, 화살표를 되살리니
+                글자가 그 밑으로 들어갔다(실측). */}
             <select
-              className="w-[4.6rem] flex-shrink-0 bg-bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
+              className="w-[5.8rem] flex-shrink-0 bg-bg-secondary border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
               value={cond.operator}
               onChange={(e) => update(i, { operator: e.target.value as any })}
             >

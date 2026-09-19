@@ -41,6 +41,7 @@ vi.mock("@/hooks/useStockSearch", () => ({
 }));
 
 import Backtest from "@/pages/Backtest";
+import { 첫설정 } from "../AllocationForm";
 
 const 실험 = {
   id: 11, name: "금 60 · 현금 40", created_at: "2026-09-01",
@@ -193,8 +194,14 @@ describe("저장한 설정이 빠짐없이 되살아난다", () => {
     상태.실험들 = [옛것];
     await 저장소열기();
     await userEvent.click(await screen.findByText(실험.name));
-    expect(await screen.findByLabelText("리밸런싱 날짜")).toHaveValue("1");
-    expect(screen.getByLabelText("벤치 마크")).toHaveValue("none");
+    /* **기본값을 그대로 적지 않는다.** 'none' 이라고 박아 두면 나중에
+       기본 벤치마크를 바꿨을 때, '옛 실험은 지금 값을 둔다' 는 뜻은
+       그대로인데 검사만 깨진다(실제로 spy 로 바꾸며 깨졌다).
+       무엇이 기본인지는 자산배분.test 가 따로 본다. */
+    const 기본 = 첫설정();
+    expect(await screen.findByLabelText("리밸런싱 날짜"))
+      .toHaveValue(String(기본.rebalance_day));
+    expect(screen.getByLabelText("벤치 마크")).toHaveValue(기본.benchmark);
   }, 20000);
 });
 

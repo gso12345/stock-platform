@@ -96,7 +96,31 @@ html.light {
 
   html {
     font-family: "JetBrains Mono", "Pretendard Variable", "Pretendard", -apple-system, system-ui, sans-serif;
-    font-size: 14px;
+
+    /* ── 기본 글씨가 너무 작았다 ──
+     *
+     * root 가 14px 이었다. rem 으로 짠 눈금이 전부 여기에 곱해지므로,
+     * 화면에 실제로 그려지던 크기는 —
+     *
+     *     본문(base)   0.875rem × 14 = 12.25px
+     *     부가(xs)     0.75rem  × 14 = 10.5px
+     *     설명(2xs)    0.6875rem× 14 =  9.6px   ← 제일 작은 글자
+     *
+     * 브라우저 기본이 16px 이고 본문 14~16px 가 보통인데, 이 앱은
+     * 본문이 12px 대였다. 설명 줄 9.6px 는 휴대폰에서 읽기 어렵다.
+     * 바로 위 주석에도 '코드가 정한 크기는 오히려 PC 보다 작다' 고
+     * 적혀 있었는데, 알면서 안 고친 셈이다.
+     *
+     * ── 왜 root 만 옮기나 ────────────────────────────────
+     *
+     * 눈금(tailwind.config 의 fontSize)은 안 건드린다. 예전에 눈금을
+     * 손으로 올렸다가 되돌린 적이 있다 — 단계마다 다르게 올리면
+     * 제목만 뚱뚱해지고 짜임새가 무너진다. root 를 옮기면 **모든
+     * 단계가 같은 비율로** 커져서 지금의 짜임새가 그대로 유지된다.
+     *
+     * 네 단계도 같이 2px 씩 올린다. 안 올리면 '보통' 과 '크게' 가
+     * 같은 크기가 되어 설정이 뜻을 잃는다. */
+    font-size: 16px;
     -webkit-font-smoothing: antialiased;
 
     /* ── 휴대폰에서만 글자가 커지던 것 ──
@@ -121,11 +145,13 @@ html.light {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
-  /* 기본은 위의 14px 다. 아래는 설정에서 고르는 것 —
-     작게 12 · 보통 14 · 크게 16 · 아주 크게 18 */
-  html.font-small { font-size: 12px; }
-  html.font-large { font-size: 16px; }
-  html.font-xl    { font-size: 18px; }
+  /* 기본은 위의 16px 다. 아래는 설정에서 고르는 것 —
+     작게 14 · 보통 16 · 크게 18 · 아주 크게 20
+     (네 단계를 통째로 2px 씩 올렸다. 안 올리면 '보통' 과 '크게' 가
+      같은 크기가 되어 설정이 뜻을 잃는다.) */
+  html.font-small { font-size: 14px; }
+  html.font-large { font-size: 18px; }
+  html.font-xl    { font-size: 20px; }
 
   body {
     background: var(--bg-base);
@@ -141,7 +167,40 @@ html.light {
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
   input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.4); }
-  select { -webkit-appearance: none; cursor: pointer; }
+  /* ── 고르는 칸에는 **펼침 화살표**를 그린다 ──
+   *
+   * 브라우저가 그려 주는 화살표를 appearance:none 으로 지워 놓고,
+   * 대신 그릴 것을 안 뒀다. 그래서 앱의 모든 드롭다운이 그냥 네모
+   * 상자로 보였다 — 테두리만 있고 '누를 수 있다' 는 표시가 없다.
+   *
+   * '통화 KRW 가 글자로만 떠 있어서 달러로 바꿀 수 있는 칸인지
+   * 모르겠다' 는 말이 나온 자리가 정확히 여기다. 화살표는 그 칸이
+   * 고르는 칸이라는 **유일한 신호**였는데 그걸 지운 셈이다.
+   *
+   * 한 군데에서 그리므로 통화·주기·벤치마크·데이터기준 등 앱의
+   * 모든 고르기 칸이 같이 고쳐진다.
+   *
+   * 색은 --text-muted 로, 밝은 테마와 어두운 테마가 같은 값이라
+   * 한 벌로 족하다. 테마마다 다른 색을 쓰게 되면 그때 갈라야 한다. */
+  select:not([multiple]) {
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.45rem center;
+    background-size: 0.65rem 0.65rem;
+    /* 화살표가 글자를 덮지 않게 오른쪽을 비운다. 화살표는 오른쪽
+       0.45rem 에서 0.65rem 만큼 차지하므로 1.1rem 이면 닿고, 조금
+       띄워 1.3rem 으로 둔다.
+       :not([multiple]) 로 잡은 것은 이 한 줄이 px-3 같은 유틸리티보다
+       우선해야 하기 때문이다 — 안 그러면 화살표와 글자가 겹친다.
+
+       **좁은 칸은 이만큼 넓혀 줘야 한다.** 조건 줄의 기간·연산자 칸은
+       화살표가 없던 시절 너비라, 그대로 두면 '200일' 이 '200' 으로
+       잘렸다(실측). 넓힌 값은 ConditionBuilder 에 적어 뒀다. */
+    padding-right: 1.3rem;
+  }
 
   /* 표 헤더 기본 굵기/색 — 개별 th에 font-weight나 text-color 유틸리티가 있으면 그게 우선 적용됨 */
   th { font-weight: 600; color: var(--text-secondary); }

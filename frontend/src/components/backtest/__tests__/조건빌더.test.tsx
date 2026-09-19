@@ -74,6 +74,24 @@ describe("한 줄이 화면을 넘지 않는다", () => {
       .toMatch(/flex gap-1 flex-1 min-w-0 basis-\[[\d.]+rem\]/);
   });
 
+  it("고정 칸이 **펼침 화살표 자리**까지 안고 있다", () => {
+    /* index.css 가 모든 고르기 칸에 펼침 화살표를 그리고, 글자가
+       그 밑으로 들어가지 않게 오른쪽 1.3rem 을 비운다.
+       그 자리를 안 고려한 너비를 쓰면 글자가 잘린다 — 실제로
+       기간 칸 3.9rem 에서 '200일' 이 '200' 으로 잘렸다(브라우저 실측).
+
+       왼쪽 여백(px-2 = 0.5rem) + 화살표 자리(1.3rem) = 1.8rem 은
+       글자가 못 쓰는 자리다. 한글 두 글자 + 숫자 셋을 담으려면
+       3rem 쯤 더 있어야 하므로 5rem 을 밑선으로 둔다. */
+    const 고정들 = [...소스.matchAll(/w-\[([\d.]+)rem\] flex-shrink-0/g)]
+      .map((m) => Number(m[1]));
+    expect(고정들.length, "고정 너비 칸을 못 찾았다").toBeGreaterThanOrEqual(2);
+    for (const w of 고정들) {
+      expect(w, `${w}rem 은 화살표 자리(1.3rem)를 빼면 글자가 잘린다`)
+        .toBeGreaterThanOrEqual(5);
+    }
+  });
+
   it("기간·연산자 칸은 너비가 고정이다", () => {
     /* 늘었다 줄었다 하면 줄마다 칸 자리가 달라 읽기 어렵다.
        flex-shrink-0 이 없으면 좁은 화면에서 글자가 뭉개진다. */
