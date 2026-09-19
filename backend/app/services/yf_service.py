@@ -189,6 +189,13 @@ def _resolve_kr_symbol(symbol: str, market: str) -> str:
     """한국 종목코드에 야후파이낸스 접미사 자동 부여"""
     if "." in symbol:
         return symbol
+    #: **지수에는 붙이지 않는다.** 지수 티커는 ^ 로 시작하고 그 자체가
+    #  완성된 이름이다 — ^KS11(코스피), ^KQ11(코스닥). 여기에 .KS 를
+    #  붙이면 '^KS11.KS' 라는 없는 종목이 되어 야후가 빈손을 준다.
+    #  그러면 벤치마크 '코스피' 와 한국 ETF 의 '확장' 이 오류 하나 없이
+    #  조용히 사라진다 — 화면에는 고를 수 있게 떠 있는데 고르면 안 나온다.
+    if symbol.startswith("^"):
+        return symbol
     if market == "KQ":
         return f"{symbol}.KQ"
     return f"{symbol}.KS"

@@ -529,7 +529,14 @@ def delete_strategy(strategy_id: int, db: Session = Depends(get_db), current_use
 # ═══════════════════════════════════════════════════════════════
 
 class 자산칸(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9.\-가-힣]+$")
+    #: '^' 를 받아야 한다 — **지수 티커는 ^ 로 시작한다**(^KS11, ^GSPC).
+    #
+    #  예전에는 없었다. 그래서 벤치마크 '코스피'(^KS11)를 고르면
+    #  벤치마크표의 칸을 이 모델로 만드는 자리에서 ValidationError 가
+    #  나고, 그것이 바깥의 넓은 except 에 잡혀 **아무 말 없이** 비교
+    #  줄만 사라졌다. 화면에는 고를 수 있게 떠 있는데 고르면 안 나오는,
+    #  오류도 안 나는 모양이었다(실측으로 확인했다).
+    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[\^A-Za-z0-9.\-가-힣]+$")
     market: str = Field("US", pattern="^(KR|US|ETF)$")
     name: Optional[str] = Field(None, max_length=100)
     #: 비중. 60 으로 줘도 0.6 으로 줘도 된다 — 엔진이 합으로 나눠 맞춘다
@@ -965,8 +972,22 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
         req.assets, 기간, req.start_date, req.end_date, req.extended,
         알림=lambda 된, 전, 이름: _진행쓰기(열쇠, "시세", 된, 전, f"{이름} 시세"))
 
-    섞였나 = len({("KRW" if a.market == "KR" else "USD") for a in req.assets}) > 1
-    바꿔야하나 = any((("KRW" if a.market == "KR" else "USD") != req.currency) for a in req.assets)
+    고른벤치 = 벤치마크표.get(req.benchmark) or 벤치마크표["none"]
+
+    def _통화(시장: str) -> str:
+        return "KRW" if 시장 == "KR" else "USD"
+
+    섞였나 = len({_통화(a.market) for a in req.assets}) > 1
+    """환율은 **벤치마크 몫까지** 생각해서 받아야 한다.
+
+    예전에는 내 자산만 봤다. 그러면 원화로 한국 종목만 담은 사람이
+    S&P500 과 견주려 할 때 — 제일 흔한 조합이다 — 환율을 아예 안
+    받는다. 벤치마크는 달러라 바꿀 환율이 없어 통째로 빠지고,
+    화면에는 **아무 말도 없이** 비교 줄만 사라진다. 고른 것이 왜
+    안 나오는지 알 길이 없다(실측: KRW+005930+S&P500 → benchmark None).
+    """
+    바꿔야하나 = any(_통화(a.market) != req.currency for a in req.assets) or \
+        any(_통화(x["market"]) != req.currency for x in 고른벤치["assets"])
     if 바꿔야하나:
         _진행쓰기(열쇠, "환율", 0, 1, "환율을 받는 중")
     환율 = await _환율표(req.start_date, req.end_date, 기간) if 바꿔야하나 else {}
@@ -1062,7 +1083,7 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     # 납입·같은 비용**으로 한 번 더 돌린다 — 조건이 하나라도 다르면
     # 견줄 수 없는 수가 된다.
     벤치 = None
-    고른벤치 = 벤치마크표.get(req.benchmark) or 벤치마크표["none"]
+    #: 고른벤치 는 위(환율을 받을지 정하는 자리)에서 이미 뽑아 뒀다.
     if 고른벤치["assets"]:
         _진행쓰기(열쇠, "벤치마크", 0, 1, f"{고른벤치['name']} 와 견주는 중")
         try:
@@ -1143,8 +1164,9 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     #: 어느 자산을 언제부터 지수로 이었나. 조용히 이으면 사용자는
     #  1980년치 SPY 자료가 있는 줄 안다 — 실제로는 지수를 본 것이다.
     결과["extended_from"] = {s: 날 for s, 날 in 이은것.items() if s in 가격표}
-    #: 다 끝났다고 적어 둔다. 화면이 마지막으로 물어봤을 때 100 을
-    #  보게 되므로, 답이 늦게 와도 막대가 92% 에 걸려 있지 않는다.
+    #: 다 끝났다고 적어 둔다. 답이 늦게 와도 막대가 92% 에 걸려 있지
+    #  않고 99 까지는 차 있다. **100 은 아니다** — 100 은 응답이
+    #  실제로 왔을 때만이고, 그 몫은 화면이 맡는다(_진행쓰기 참고).
     _진행쓰기(열쇠, "벤치마크", 1, 1, "다 됐어요")
     return 결과
 
