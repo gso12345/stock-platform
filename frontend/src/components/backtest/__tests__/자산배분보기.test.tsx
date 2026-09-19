@@ -323,8 +323,12 @@ describe("오름·내림 색이 설정을 따른다", () => {
   it("해마다 막대도 설정 색을 쓴다", () => {
     설정.colorScheme = "red-blue";
     const { container } = 그리기();
-    const 막대들 = container.querySelectorAll<HTMLElement>(".h-full.opacity-60");
-    expect(막대들.length).toBeGreaterThan(0);
+    /* 모양(h-full·inset-y-1…)이 아니라 **색을 칠한 요소**로 고른다.
+       클래스로 집으면 막대 모양을 바꿀 때마다 이 검사가 조용히 0 개를
+       고르고 통과한다 — 실제로 0 을 고른 채로 깨졌다. */
+    const 막대들 = container.querySelectorAll<HTMLElement>(
+      '.opacity-60[style*="background-color"]');
+    expect(막대들.length, "해마다 막대를 못 찾았다").toBeGreaterThan(0);
     //: 2020년은 -4.2% 라 '내림' 색(빨강-파랑에서는 파랑)이어야 한다
     expect(막대들[0].style.backgroundColor).toBe("rgb(59, 130, 246)");
   });

@@ -384,6 +384,181 @@ function 비교줄({ 이름, 내것, 벤것, 색 }: {
   );
 }
 
+/** 해마다의 수익률 — 벤치마크가 있으면 **해별로 나란히** 견준다.
+ *
+ *  ── 왜 해마다 견줘야 하나 ─────────────────────────────────
+ *
+ *  전체 수익률 하나로는 '언제 이겼나' 를 알 수 없다. 8년 중 6년을
+ *  지고도 한 해에 몰아쳐서 총합만 이긴 조합과, 해마다 조금씩 꾸준히
+ *  이긴 조합은 전혀 다른 것인데 합계는 비슷하게 나온다. 앞엣것은
+ *  운이었을 수 있고 뒤엣것은 실력일 수 있다.
+ *
+ *  2008년·2022년 같은 하락장에서 어땠는지도 여기서만 보인다. '내 것이
+ *  -35%, S&P500 이 -37%' 는 총 수익률 어디에도 안 나온다.
+ *
+ *  ── 어떻게 그리나 ─────────────────────────────────────────
+ *
+ *  내 것은 **막대**, 벤치마크는 그 위의 **점**이다. 점이 막대 끝보다
+ *  안쪽이면 내가 앞선 해, 바깥이면 뒤진 해 — 한눈에 읽힌다. 막대 둘을
+ *  위아래로 쌓으면 길이 차이를 눈으로 재야 하는데, 같은 자 위의 점은
+ *  잴 것도 없이 보인다.
+ *
+ *  ── 0 이 가운데 있어야 한다 ───────────────────────────────
+ *
+ *  점을 같은 자에 놓으려면 **0 의 자리가 있어야 한다.** 예전처럼 왼쪽
+ *  끝에서 길이만 늘리면 부호가 색으로만 남는데, 그러면 -37% 점이
+ *  +22% 막대보다 오른쪽에 찍혀 '더 좋아 보이는' 그림이 된다. 숫자와
+ *  그림이 정반대를 말하는 셈이다.
+ *
+ *  0 을 가운데 두면 부호가 **자리**로 드러난다. 색 설정(초록 상승/
+ *  빨강 상승)을 바꿔도, 색을 구분 못 하는 사람에게도 그대로 읽힌다.
+ *
+ *  ── 자 ────────────────────────────────────────────────────
+ *
+ *  **두 줄이 같은 자로 재야 한다.** 각자 최대에 맞춰 늘리면 -5% 와
+ *  -37% 가 같은 길이로 그려져, 눈으로 보는 것과 숫자가 서로 다른 말을
+ *  한다. 그래서 둘을 통틀어 제일 큰 값에 맞춘다.
+ */
+function 해마다칸({ r }: { r: 자산배분결과 }) {
+  const 배색 = useSettingsStore((s) => s.colorScheme);
+  const { pnlColor } = usePnlColors(배색);
+  const b = r.benchmark;
+
+  /** {해: 벤치마크 수익률}. 해로 짝짓는다 — 차례로 짝지으면 한 해가
+   *  비었을 때 그 뒤가 통째로 한 칸씩 밀려 엉뚱한 해와 견주게 된다. */
+  const 벤해 = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const y of b?.yearly ?? []) m.set(y.year, y.return);
+    return m;
+  }, [b]);
+
+  const 견줄수있나 = 벤해.size > 0;
+
+  /** 막대를 재는 자 — 두 줄을 통틀어 제일 큰 값. */
+  const 자 = useMemo(() => {
+    const 값들 = [...r.yearly.map((y) => Math.abs(y.return)),
+                  ...[...벤해.values()].map((v) => Math.abs(v))];
+    //: 다 0 이면 0 으로 나눈다. 최소 1%는 두어 막대가 사라지지 않게.
+    return Math.max(1, ...값들);
+  }, [r.yearly, 벤해]);
+
+  /** 몇 해 중 몇 해를 앞섰나 — 표를 다 읽지 않아도 알 수 있게. */
+  const 이긴해 = useMemo(() => {
+    if (!견줄수있나) return null;
+    let 이김 = 0, 잰해 = 0;
+    for (const y of r.yearly) {
+      const v = 벤해.get(y.year);
+      if (v == null) continue;
+      잰해 += 1;
+      if (y.return > v) 이김 += 1;
+    }
+    return 잰해 > 0 ? { 이김, 잰해 } : null;
+  }, [r.yearly, 벤해, 견줄수있나]);
+
+  /** 값이 자 위에서 어디쯤인가 — 0 은 가운데(50%), 양 끝이 ±자. */
+  const 자리 = (값: number) =>
+    50 + Math.max(-1, Math.min(1, 값 / 자)) * 50;
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <span className="text-base font-semibold text-text-primary">해마다</span>
+        {견줄수있나 && 이긴해 && (
+          /* 표를 다 읽지 않아도 되는 한 줄. **이겼다/졌다 로 말하지
+             않는다** — 지난 성적이 앞으로를 뜻하지 않는데, 'X 를
+             이겼어요' 는 그렇게 읽힌다. 센 것만 적는다. */
+          <span className="text-2xs text-text-muted">
+            {이긴해.잰해}년 중 {이긴해.이김}년은 내 조합이 더 높았어요
+          </span>
+        )}
+      </div>
+
+      <p className="text-2xs text-text-dim break-keep -mt-2">
+        그해에 넣은 돈은 빼고 잰 값이에요 — 안 빼면 매달 넣는 사람은 어떤 해든
+        플러스가 나와요. 가운데 선이 0%예요.
+        {견줄수있나 && " 점이 막대 끝보다 안쪽이면 그해는 내 조합이 더 높았어요."}
+      </p>
+
+      {/* 막대와 점이 뭘 뜻하는지 — 안 적으면 보고 추측하게 되고,
+          추측이 반대면 결론이 통째로 뒤집힌다 */}
+      {견줄수있나 && (
+        <div className="flex items-center gap-3 text-2xs text-text-dim -mt-1 flex-wrap">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-2 rounded-sm bg-text-muted opacity-60" />
+            내 조합
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-text-primary ring-2 ring-bg-card" />
+            {b?.name}
+          </span>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        {r.yearly.map((y) => {
+          const 벤 = 벤해.get(y.year);
+          const 내자리 = 자리(y.return);
+          const 색 = y.return >= 0 ? 오름색(배색) : 내림색(배색);
+          return (
+            <div key={y.year} className="flex items-center gap-2">
+              <span className="text-xs text-text-muted w-10 flex-shrink-0 tabular-nums">
+                {y.year}
+              </span>
+
+              {/* 0 을 가운데 둔 자. 막대는 가운데에서 자라고,
+                  벤치마크는 같은 자 위의 점으로 찍힌다. */}
+              <div className="relative flex-1 min-w-0 h-4 bg-bg-elevated rounded">
+                {/* 0 선 — 이게 없으면 가운데가 어디인지 알 수 없다 */}
+                <div className="absolute inset-y-0 left-1/2 w-px bg-border" />
+                <div
+                  className="absolute inset-y-1 rounded-sm opacity-60"
+                  style={{
+                    left: `${Math.min(내자리, 50)}%`,
+                    width: `${Math.abs(내자리 - 50)}%`,
+                    backgroundColor: 색,
+                  }}
+                />
+                {벤 != null && (
+                  /* 점은 **색을 안 쓴다.** 막대와 색으로 다투면 어느
+                     것이 무엇인지 헷갈리고, 부호는 이미 자리로 드러나
+                     있어 색이 할 일이 없다. 테두리를 둘러 막대 위에
+                     겹쳐도 보이게 한다. */
+                  <div
+                    className="absolute top-1/2 w-2 h-2 -translate-y-1/2 -translate-x-1/2
+                               rounded-full bg-text-primary ring-2 ring-bg-card"
+                    style={{ left: `${자리(벤)}%` }}
+                    title={`${b?.name} ${벤 >= 0 ? "+" : ""}${벤}%`}
+                  />
+                )}
+              </div>
+
+              <div className="w-14 flex-shrink-0 flex flex-col gap-0.5 text-right">
+                <span className={`text-xs font-mono tabular-nums ${pnlColor(y.return)}`}>
+                  {y.return >= 0 ? "+" : ""}{y.return}%
+                </span>
+                {벤 != null && (
+                  <span className="text-2xs font-mono tabular-nums text-text-dim">
+                    {벤 >= 0 ? "+" : ""}{벤}%
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 지수는 배당이 없다. 해마다 몇 %p 씩 불리하게 나오므로,
+          이 표를 읽기 전에 알아야 한다. */}
+      {견줄수있나 && b?.index_only && (
+        <p className="text-2xs text-text-dim break-keep">
+          {b.name}는 지수라 배당이 빠져 있어요. 배당까지 받은 내 조합과는
+          그만큼 기준이 달라요.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function 요약표({ r }: { r: 자산배분결과 }) {
   const 배색 = useSettingsStore((s) => s.colorScheme);
   const { pnlColor, loss } = usePnlColors(배색);
@@ -780,35 +955,8 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
       </Card>
       {/* ── 자산 흐름 ── */}
       {r.curve.length > 1 && <자산흐름 r={r} />}
-      {/* ── 해마다 ── */}
-      {r.yearly.length > 0 && (
-        <Card className="flex flex-col gap-3">
-          <span className="text-base font-semibold text-text-primary">해마다</span>
-          <p className="text-2xs text-text-dim break-keep -mt-2">
-            그해에 넣은 돈은 빼고 잰 값이에요 — 안 빼면 매달 넣는 사람은 어떤 해든
-            플러스가 나와요.
-          </p>
-          <div className="flex flex-col gap-1">
-            {r.yearly.map((y) => (
-              <div key={y.year} className="flex items-center gap-2">
-                <span className="text-xs text-text-muted w-12 flex-shrink-0">{y.year}</span>
-                <div className="flex-1 h-4 bg-bg-elevated rounded overflow-hidden flex items-center">
-                  <div
-                    className="h-full opacity-60"
-                    style={{
-                      backgroundColor: y.return >= 0 ? 오름색(배색) : 내림색(배색),
-                      width: `${Math.min(Math.abs(y.return), 100)}%`,
-                    }}
-                  />
-                </div>
-                <span className={`text-xs font-mono w-16 text-right flex-shrink-0 ${pnlColor(y.return)}`}>
-                  {y.return >= 0 ? "+" : ""}{y.return}%
-                </span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      {/* ── 해마다 (벤치마크가 있으면 해별로 나란히) ── */}
+      {r.yearly.length > 0 && <해마다칸 r={r} />}
         </>)}
       </div>
 

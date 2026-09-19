@@ -430,6 +430,12 @@ export interface 벤치마크결과 {
   std_5y?: number | null;
   mdd_date?: string | null;
   crises?: { key: string; name: string; return: number }[];
+  /** 해마다의 수익률 — 내 것과 **해별로** 견준다.
+   *
+   *  전체 수익률 하나로는 '언제 이겼나' 를 알 수 없다. 8년 중 6년을
+   *  지고도 한 해에 몰아쳐서 총합만 이긴 조합과, 해마다 조금씩 이긴
+   *  조합은 전혀 다른 것인데 합계는 비슷하게 나온다. */
+  yearly?: { year: number; return: number }[];
   curve: { date: string; value: number }[];
   /** 내 것과 나란히 그리려고 같이 받는다 */
   drawdown?: { date: string; dd: number }[];
