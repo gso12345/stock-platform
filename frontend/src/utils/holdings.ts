@@ -1,5 +1,58 @@
 import type { Market, Currency } from "@/types/portfolio";
 
+/** 매입금액(원화).
+ *
+ *  평단가는 **담을 때 고른 통화** 기준이다. 달러로 적었으면 그때 환율을
+ *  곱해야 하고, 원화로 적었으면 이미 원화라 다시 곱하면 안 된다 —
+ *  곱하면 그 종목만 1,400배가 된다. */
+export function 매입금액원화(
+  item: { currency?: Currency | null; avgPrice: number; shares: number;
+          inputExchangeRate?: number | null },
+  환율: number,
+): number {
+  const fx = item.currency === "USD" ? (item.inputExchangeRate ?? 환율) : 1;
+  return item.avgPrice * fx * item.shares;
+}
+
+/** 보유 한 줄의 **평가금액(원화)**.
+ *
+ *  ── 왜 한 군데에 두나 ─────────────────────────────────────
+ *
+ *  이 셈은 내 자산 화면과 백테스트의 '포트폴리오 그대로 담기' 두 곳에서
+ *  쓴다. 두 벌로 두면 같은 포트폴리오인데 화면은 30%, 백테스트는 28%
+ *  라고 말하는 일이 생긴다 — 어느 쪽이 맞는지 코드만 봐서는 알 수 없고,
+ *  틀린 쪽이 조용히 틀린다. 이 저장소는 이미 같은 이유로 한 번 데였다
+ *  (담기 중복 검사가 두 벌이었고 기준이 서로 달랐다).
+ *
+ *  ── 시세를 못 받았을 때 ───────────────────────────────────
+ *
+ *  **매입금액으로 대신한다.** 0 으로 두면 그 종목만 비중 0% 가 되고,
+ *  나머지 종목의 비중이 그만큼 부풀려진다. 손익은 0 으로 잡히지만
+ *  비중은 얼추 맞는다 — 비중을 통째로 어긋내는 쪽이 훨씬 나쁘다.
+ *
+ *  달러 종목의 현재가는 **항상 달러로** 온다(저장한 통화와 무관하다).
+ *  그래서 오늘 환율을 곱한다. */
+export function 평가금액원화(
+  item: { market: Market; currency?: Currency | null; avgPrice: number;
+          shares: number; inputExchangeRate?: number | null },
+  현재가: number | null | undefined,
+  환율: number,
+): number {
+  const 매입 = 매입금액원화(item, 환율);
+  if (현재가 == null || !Number.isFinite(현재가) || 현재가 <= 0) return 매입;
+  const 달러종목 = item.market === "US" || item.market === "ETF";
+  return 달러종목 ? 현재가 * 환율 * item.shares : 현재가 * item.shares;
+}
+
+/** 평가금액 기준 비중(%). 합이 100 이 되게 나눈다.
+ *
+ *  합이 0 이면(모두 0원) 전부 0% 로 둔다 — 0 으로 나누면 NaN 이 되고,
+ *  NaN 은 화면에서 '-' 도 아니고 '0%' 도 아닌 빈칸으로 새어 나간다. */
+export function 비중매기기<T>(줄들: T[], 평가: (x: T) => number): (T & { weight: number })[] {
+  const 합 = 줄들.reduce((s, x) => s + 평가(x), 0);
+  return 줄들.map((x) => ({ ...x, weight: 합 > 0 ? (평가(x) / 합) * 100 : 0 }));
+}
+
 /**
  * 외화 종목의 현지통화(달러) 기준 값 계산.
  *

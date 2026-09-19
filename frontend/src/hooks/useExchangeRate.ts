@@ -46,7 +46,24 @@ export function useExchangeRateChange(): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-export function useExchangeRate(): number {
+/**
+ * 환율과 **그것이 진짜인지**를 같이 돌려준다.
+ *
+ * ── 왜 '진짜인지' 가 필요한가 ─────────────────────────────
+ *
+ * 못 받으면 1350 을 쓴다. 화면에 '오늘 환율' 처럼 보이지만 아니다.
+ * 평가금액을 눈으로 보는 자리에서는 몇십 원 차이라 넘어갈 만하지만,
+ * 그 수로 **비중을 매겨 백테스트에 넣는** 자리에서는 다르다 —
+ * 달러 종목의 비중이 통째로 어긋난 채로 지난 20년을 재게 되고,
+ * 화면에는 아무 표시도 안 난다.
+ *
+ * 그래서 값과 출처를 같이 준다. 쓰는 쪽이 '어림값이면 적어 둔다' 를
+ * 고를 수 있어야 한다.
+ *
+ * 받는 주기는 60초다 — staleTime 과 refetchInterval 이 같아서, 열어
+ * 두면 1분마다 새로 받고 그 사이에는 받아 둔 값을 쓴다.
+ */
+export function useExchangeRateLive(): { 환율: number; 진짜인가: boolean } {
   const { data: fx } = useQuery({
     queryKey: ["exchange-rate"],
     queryFn: () => dashboardApi.getExchangeRate(),
@@ -65,11 +82,18 @@ export function useExchangeRate(): number {
     enabled: !hasDirect,
   });
 
-  if (hasDirect) return direct;
+  if (hasDirect) return { 환율: direct, 진짜인가: true };
 
   if (Array.isArray(usRates)) {
     const row = (usRates as any[]).find(isUsdKrwRow);
-    if (typeof row?.value === "number" && row.value > 0) return row.value;
+    if (typeof row?.value === "number" && row.value > 0) {
+      //: 2순위도 실제로 받아 온 값이다 — 어림값이 아니다
+      return { 환율: row.value, 진짜인가: true };
+    }
   }
-  return DEFAULT_FX;
+  return { 환율: DEFAULT_FX, 진짜인가: false };
+}
+
+export function useExchangeRate(): number {
+  return useExchangeRateLive().환율;
 }

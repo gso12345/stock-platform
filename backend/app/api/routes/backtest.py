@@ -15,6 +15,9 @@ from app.models.user import User
 from app.core.deps import require_user, get_current_user
 from app.services.backtest_engine import backtest_engine
 from app.services.yf_service import yf_service
+#: 자산 수 상한은 **엔진이 정한다.** 여기서 따로 숫자를 적으면 둘이
+#  갈리는 순간 조용히 잘리거나 쓸데없이 422 가 난다.
+from app.services.portfolio_backtest import 최대자산 as PB_최대자산
 from app.core.cache import cache
 
 log = logging.getLogger(__name__)
@@ -596,7 +599,9 @@ class 자산칸(BaseModel):
 
 
 class 자산배분요청(BaseModel):
-    assets: list[자산칸] = Field(..., min_length=1, max_length=12)
+    #: 상한은 **엔진의 최대자산과 같아야** 한다. 여기가 더 크면 엔진이
+    #  조용히 잘라 버려, 스무 개를 담은 사람이 열두 개짜리 결과를 본다.
+    assets: list[자산칸] = Field(..., min_length=1, max_length=PB_최대자산)
     currency: str = Field("KRW", pattern="^(KRW|USD)$")
     initial_amount: float = Field(..., gt=0, le=1e12)
     start_date: str
@@ -1140,6 +1145,14 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
                                 "return_1y", "return_3y", "return_5y",
                                 "std_1y", "std_3y", "std_5y",
                                 "mdd_date", "crises",
+                                #: **해마다도 준다.** 전체 수익률 하나로는
+                                #  '언제 이겼나' 를 알 수 없다. 8년 중
+                                #  6년을 지고도 한 해에 몰아쳐서 총합만
+                                #  이긴 조합과, 해마다 조금씩 이긴 조합은
+                                #  전혀 다른 것인데 합계는 비슷하게 나온다.
+                                #  2008년·2022년 같은 하락장에서 어땠는지도
+                                #  여기서만 보인다.
+                                "yearly",
                                 "contributed", "curve", "drawdown")}}
         except Exception as e:
             #: 벤치마크를 못 받았다고 내 결과까지 버리면 안 된다.

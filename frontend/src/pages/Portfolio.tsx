@@ -20,7 +20,8 @@ import { 내몫으로, 배당키 } from "@/components/portfolio/DividendCalendar
 import { use돈 } from "@/hooks/useMoney";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import { extractErrorMessage } from "@/utils/errors";
-import { withNativeValues, 오늘변화원화, 전일대비주당 } from "@/utils/holdings";
+import { withNativeValues, 오늘변화원화, 전일대비주당,
+         매입금액원화, 평가금액원화, 비중매기기 } from "@/utils/holdings";
 import { useExchangeRate, useExchangeRateChange } from "@/hooks/useExchangeRate";
 import { type AssetClass, resolveAssetClass } from "@/utils/assetClass";
 import type { Market, ChartMode, PortfolioItem, SelectedPortfolio, PortfolioMeta, EnrichedItem } from "@/types/portfolio";
@@ -555,13 +556,10 @@ export default function Portfolio() {
       const d = base.assetClass === "현금" ? null : lookupPrice(bySymbol, base.symbol);
       const currentPriceNative = d?.price ?? base.currentPriceNative;
       const isUSDStock = base.market === "US" || base.market === "ETF";
-      const currentValueKRW = isUSDStock
-        ? currentPriceNative * exchangeRate * base.shares
-        : currentPriceNative * base.shares;
-      const fxForCost = base.currency === "USD"
-        ? (base.inputExchangeRate ?? exchangeRate)
-        : 1; // 평단가를 원화로 입력했으면 이미 원화 금액이므로 환율을 다시 곱하지 않음
-      const costKRW = base.avgPrice * fxForCost * base.shares;
+      //: 로그인했을 때와 **같은 함수**로 센다(utils/holdings). 미리보기만
+      //  따로 세면 로그인 전후로 같은 포트폴리오가 다른 비중을 보인다.
+      const currentValueKRW = 평가금액원화(base, currentPriceNative, exchangeRate);
+      const costKRW = 매입금액원화(base, exchangeRate);
       const pnlKRW = currentValueKRW - costKRW;
       const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;
 
@@ -579,8 +577,7 @@ export default function Portfolio() {
         exchangeRate,
       );
     });
-    const totalKRW = list.reduce((s, e) => s + e.currentValueKRW, 0);
-    return list.map((e) => ({ ...e, weight: totalKRW > 0 ? (e.currentValueKRW / totalKRW) * 100 : 0 }));
+    return 비중매기기(list, (e) => e.currentValueKRW);
   }, [previewBatchPrices, exchangeRate, 환율등락]);
 
   const previewSummaryLive = useMemo(() => {
@@ -641,7 +638,11 @@ export default function Portfolio() {
       const fxForCost = item.currency === "USD"
         ? (item.inputExchangeRate ?? exchangeRate)
         : 1; // 평단가를 원화로 입력했으면 이미 원화 금액이므로 환율을 다시 곱하지 않음
-      const costKRW = item.avgPrice * fxForCost * item.shares;
+      /* 매입금액·평가금액은 **utils/holdings 한 군데**에서만 센다.
+         같은 셈을 백테스트의 '포트폴리오 그대로 담기' 도 쓰는데, 두 벌로
+         두면 같은 포트폴리오인데 화면은 30%, 백테스트는 28% 라고 말하게
+         된다 — 어느 쪽이 맞는지 코드만 봐서는 알 수 없다. */
+      const costKRW = 매입금액원화(item, exchangeRate);
 
       // 현재가를 아직 못 불러왔으면 avgPrice를 그대로 "현지가"로 쓰면 안 됨 —
       // 원화로 입력한 해외종목의 경우 avgPrice가 이미 원화 금액이라 환율을 또 곱하는
@@ -650,9 +651,8 @@ export default function Portfolio() {
         ? priceMap[item.id]
         : (isUSDStock ? item.avgPrice / fxForCost : item.avgPrice);
 
-      const currentValueKRW = hasLivePrice
-        ? (isUSDStock ? currentPriceNative * exchangeRate * item.shares : currentPriceNative * item.shares)
-        : costKRW;
+      const currentValueKRW = 평가금액원화(
+        item, hasLivePrice ? priceMap[item.id] : null, exchangeRate);
 
       const pnlKRW = currentValueKRW - costKRW;
       const pnlRate = costKRW !== 0 ? (pnlKRW / costKRW) * 100 : 0;
@@ -683,11 +683,7 @@ export default function Portfolio() {
       );
     });
 
-    const totalKRW = list.reduce((s, e) => s + e.currentValueKRW, 0);
-    return list.map((e) => ({
-      ...e,
-      weight: totalKRW > 0 ? (e.currentValueKRW / totalKRW) * 100 : 0,
-    }));
+    return 비중매기기(list, (e) => e.currentValueKRW);
   }, [filteredItems, priceMap, changeRateMap, exchangeRate, 환율등락]);
 
   /* ── 전체 보기 — 포트폴리오별 비중 ── */

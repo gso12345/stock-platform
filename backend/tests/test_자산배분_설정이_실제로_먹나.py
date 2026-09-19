@@ -160,6 +160,40 @@ def 돌려(client, **더) -> dict:
 #  ① 담은 자산 · 비중
 # ═══════════════════════════════════════════════════════════
 
+class Test담을_수_있는_자산_수:
+    """상한이 **두 군데**에 있다 — 요청 모델과 엔진.
+
+    둘이 갈리면 조용히 틀린다. 요청 모델이 더 크면 엔진이 뒤를 잘라,
+    스무 개를 담은 사람이 열두 개짜리 결과를 **오류 하나 없이** 본다.
+    엔진이 더 크면 담을 수 있는 것을 422 로 막는다.
+    """
+
+    def test_요청_상한과_엔진_상한이_같다(self):
+        from app.api.routes.backtest import 자산배분요청
+        from app.services.portfolio_backtest import 최대자산
+        칸 = 자산배분요청.model_fields["assets"]
+        위 = next(m for m in 칸.metadata if hasattr(m, "max_length"))
+        assert 위.max_length == 최대자산, \
+            f"요청은 {위.max_length}개까지 받는데 엔진은 {최대자산}개만 쓴다"
+
+    def test_스무_개를_담아도_스무_개를_다_쓴다(self, client):
+        자산 = [{"symbol": f"S{i:02d}", "market": "US", "weight": 5}
+                for i in range(20)]
+        d = 돌려(client, assets=자산)
+        assert len(d["assets"]) == 20, \
+            f"스무 개를 보냈는데 {len(d['assets'])}개만 쟀다"
+        #: 비중도 스무 개로 나뉘어야 한다
+        assert abs(sum(a["weight"] for a in d["assets"]) - 1.0) < 1e-6
+
+    def test_상한을_넘기면_조용히_자르지_않고_거절한다(self, client):
+        from app.services.portfolio_backtest import 최대자산
+        자산 = [{"symbol": f"S{i:02d}", "market": "US", "weight": 1}
+                for i in range(최대자산 + 1)]
+        r = client.post("/api/v1/backtest/portfolio", json=몸(assets=자산))
+        assert r.status_code == 422, \
+            "상한을 넘겼는데 조용히 잘라서 계산했다 — 담은 줄 아는 것이 안 담긴다"
+
+
 class Test자산과_비중:
     def test_비중을_바꾸면_결과가_바뀐다(self, client):
         많이 = 돌려(client, assets=[{"symbol": "AAA", "market": "US", "weight": 90},
@@ -373,6 +407,29 @@ class Test벤치마크:
         assert b["final_value"] and b["final_value"] > 0
         assert b["curve"] and len(b["curve"]) > 1
         assert b["drawdown"], "낙폭 곡선이 비었다 — 나란히 못 그린다"
+
+    def test_해마다를_같이_줘서_해별로_견줄_수_있다(self, client):
+        """전체 수익률 하나로는 **언제** 이겼는지 알 수 없다.
+
+        8년 중 6년을 지고도 한 해에 몰아쳐서 총합만 이긴 조합과,
+        해마다 조금씩 이긴 조합은 전혀 다른 것인데 합계는 비슷하게
+        나온다. 2008년·2022년 같은 하락장에서 어땠는지도 여기서만
+        보인다 — '내 것 -35%, S&P500 -37%' 는 총 수익률 어디에도
+        안 나온다.
+        """
+        d = 돌려(client, benchmark="spy")
+        b = d["benchmark"]
+        assert b["yearly"], "벤치마크의 해마다가 없다 — 해별로 견줄 수 없다"
+        assert len(b["yearly"]) > 1
+
+        #: 내 것과 **같은 해**를 재야 나란히 놓을 수 있다
+        내해 = {y["year"] for y in d["yearly"]}
+        벤해 = {y["year"] for y in b["yearly"]}
+        assert 벤해 <= 내해, \
+            f"벤치마크가 내 것에 없는 해를 잰다 — {sorted(벤해 - 내해)}"
+
+        for y in b["yearly"]:
+            assert isinstance(y["return"], (int, float))
 
     def test_지수는_배당이_없다고_알린다(self, client):
         assert 돌려(client, benchmark="kospi_index")["benchmark"]["index_only"] is True

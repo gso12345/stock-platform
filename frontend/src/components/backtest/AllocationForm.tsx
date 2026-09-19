@@ -20,6 +20,11 @@ import { useStockSearch } from "@/hooks/useStockSearch";
 import { useAuthStore } from "@/store/authStore";
 import { watchlistApi, watchlistFolderApi, portfolioApi } from "@/api/stocks";
 import type { 배분자산, 주기, 데이터기준, 벤치마크키 } from "@/api/stocks";
+import { useExchangeRateLive } from "@/hooks/useExchangeRate";
+import { 시세수명, 재촉주기, 재촉_횟수 } from "@/constants/portfolioQuery";
+import { use확인 } from "@/hooks/useDialogs";
+import { indexPricesBySymbol, lookupPrice } from "@/utils/prices";
+import { 평가금액원화, 비중매기기 } from "@/utils/holdings";
 
 /* 기간 슬라이더를 없애면서 최소년·최대년도 같이 지웠다.
    날짜를 직접 치므로 햇수 상한이라는 것이 아예 없다 — 1980년이든
@@ -412,6 +417,77 @@ export function 자산더하기(있던것: 배분자산[], 새것: 배분자산)
   return 다음.map((x) => ({ ...x, weight: 고른비중 }));
 }
 
+/** 한 번에 담을 수 있는 자산 수. 서버의 상한과 **같아야** 한다
+ *  (portfolio_backtest.최대자산 = 자산배분요청.assets 의 max_length).
+ *  여기가 더 크면 스물한 번째를 담은 사람은 422 만 보고 왜인지 모르고,
+ *  여기가 더 작으면 담을 수 있는 것을 못 담는다. */
+export const 최대자산수 = 20;
+
+/** 내 포트폴리오를 **비중 그대로** 백테스트 자산으로 옮긴다.
+ *
+ *  ── 왜 비중까지 가져오나 ──────────────────────────────────
+ *
+ *  종목만 가져오고 비중을 똑같이 나눠 버리면, 내가 실제로 굴리는 것과
+ *  다른 포트폴리오를 재게 된다. 삼성전자에 60%를 넣은 사람에게 '다섯
+ *  종목 20%씩' 의 지난 10년은 남의 성적이다. 이 기능을 쓰는 이유가
+ *  '**내** 배분이 지난 10년에 어땠나' 이므로 비중이 곧 본론이다.
+ *
+ *  ── 비중의 기준 ───────────────────────────────────────────
+ *
+ *  **평가금액**이다(내 자산 화면에 뜨는 그 비중). 매입금액이 아니다 —
+ *  지금 내 돈이 어떻게 놓여 있는지를 재는 것이므로, 오른 종목은 그만큼
+ *  크게 잡혀야 맞다. 셈은 utils/holdings 한 군데에서만 한다.
+ *
+ *  ── 같은 종목이 여러 줄일 때 ──────────────────────────────
+ *
+ *  **합친다.** 나눠 사서 두 줄이거나, 전체 보기라 포트폴리오 둘에
+ *  같은 종목이 있을 수 있다. 안 합치면 한 종목이 두 줄로 들어가 비중
+ *  칸의 이름이 겹치고, 12개 상한도 헛되이 먹는다.
+ *
+ *  ── 열둘을 넘을 때 ────────────────────────────────────────
+ *
+ *  비중이 큰 열둘만 담고 **그 열둘끼리 100%가 되게 다시 나눈다.**
+ *  남은 것을 그냥 두면 합이 87% 인데, 엔진이 어차피 합으로 나누므로
+ *  결과는 같고 화면의 수만 헷갈린다. 대신 **몇 개를 뺐고 원래 비중이
+ *  얼마였는지 반드시 돌려준다** — 조용히 자르는 것이 제일 나쁘다. */
+export function 포트폴리오를자산으로(
+  줄들: any[],
+  현재가: (symbol: string, market: string) => number | null,
+  환율: number,
+): { 자산들: 배분자산[]; 전체수: number; 담은비율: number } {
+  const 칸 = new Map<string, { a: 배분자산; 평가: number }>();
+  for (const x of 줄들 ?? []) {
+    const a = 줄을자산으로(x);
+    if (!a) continue;
+    const 값 = 평가금액원화(
+      { market: a.market as any, currency: x?.currency,
+        avgPrice: Number(x?.avgPrice) || 0, shares: Number(x?.shares) || 0,
+        inputExchangeRate: x?.inputExchangeRate },
+      현재가(a.symbol, a.market), 환율);
+    const 있던것 = 칸.get(a.symbol);
+    if (있던것) 있던것.평가 += 값;
+    else 칸.set(a.symbol, { a, 평가: 값 });
+  }
+
+  const 전부 = 비중매기기([...칸.values()], (x) => x.평가)
+    .sort((x, y) => y.weight - x.weight);
+  const 남길것 = 전부.slice(0, 최대자산수);
+  /* 자른 뒤의 합. 열둘 안쪽이면 100 이고, 넘쳤으면 그보다 작다 —
+     화면이 '원래 비중의 몇 %를 담았는지' 로 읽어 준다. */
+  const 담은비율 = 남길것.reduce((s, x) => s + x.weight, 0);
+
+  return {
+    자산들: 남길것.map((x) => ({
+      ...x.a,
+      //: 자른 뒤 남은 것끼리 100%가 되게. 소수 한 자리까지만 둔다 —
+      //  비중 칸이 0.1 단위라 더 적어 봐야 사람이 고칠 수 없다.
+      weight: 담은비율 > 0 ? Math.round((x.weight / 담은비율) * 1000) / 10 : 0,
+    })),
+    전체수: 전부.length,
+    담은비율,
+  };
+}
+
 /** 내 자산 / 관심종목에서 담기 — **어느 묶음에서** 가져올지 먼저 고른다.
  *
  *  포트폴리오를 여럿 두는 사람이 많다(연금·주식계좌·아이 계좌…).
@@ -421,7 +497,7 @@ export function 자산더하기(있던것: 배분자산[], 새것: 배분자산)
  *  묶음이 하나뿐이면 고르는 줄을 안 그린다 — 고를 것이 없는데 조작칸만
  *  있으면 화면만 복잡해진다. */
 function 내목록칸({
-  어디, 묶음들, 고른묶음, 묶음바꾸기, 종목들, 받는중, 담은것, onPick,
+  어디, 묶음들, 고른묶음, 묶음바꾸기, 종목들, 받는중, 담은것, onPick, 통째로,
 }: {
   어디: "내자산" | "관심";
   묶음들: { id: number; name: string }[];
@@ -431,6 +507,16 @@ function 내목록칸({
   받는중: boolean;
   담은것: 배분자산[];
   onPick: (a: 배분자산) => void;
+  /** '비중 그대로 담기' — 내 자산에서만 뜬다. 관심종목에는 비중이 없다. */
+  통째로?: {
+    누르기: () => void; 준비됐나: boolean; 종목수: number;
+    /** 아직 시세를 못 받은 종목 수. 0 이 아니면 그 종목은 매입금액으로 잡힌다 */
+    시세없는수: number;
+    /** 비중에 쓰는 원/달러. 달러 종목이 없으면 null — 비중에 영향이 없다 */
+    환율: number | null;
+    /** 그 환율이 실제로 받아 온 값인가(아니면 어림값 1350) */
+    환율진짜: boolean;
+  };
 }) {
   const 묶음말 = 어디 === "내자산" ? "포트폴리오" : "폴더";
   const 고른이름 = 묶음들.find((x) => x.id === 고른묶음)?.name;
@@ -449,6 +535,47 @@ function 내목록칸({
                       ariaLabel={`${묶음말} ${x.name}`}>{x.name}</고른칩>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── 비중 그대로 통째로 담기 ──
+          종목을 하나씩 눌러 담으면 비중이 **똑같이 나뉜다**(자산더하기).
+          그건 내가 굴리는 것과 다른 포트폴리오다. 이 단추 하나가
+          '내 배분 그대로' 라는 이 기능의 본론이라 목록 위에 크게 둔다. */}
+      {통째로 && !받는중 && 통째로.종목수 > 0 && (
+        <div className="flex flex-col gap-1">
+          <button
+            onClick={통째로.누르기}
+            disabled={!통째로.준비됐나}
+            aria-label="이 포트폴리오를 비중 그대로 담기"
+            className="w-full px-3 py-2 rounded-lg bg-accent-blue/10 border border-accent-blue/40
+                       text-xs font-medium text-accent-blue hover:bg-accent-blue/20
+                       disabled:opacity-50 transition-colors break-keep"
+          >
+            {통째로.준비됐나
+              ? `이 ${묶음말} 비중 그대로 담기 (${통째로.종목수}개)`
+              : "시세를 받는 중…"}
+          </button>
+
+          {/* **무엇을 기준으로 비중을 매겼는지 적는다.**
+              비중은 평가금액 기준이라 시세와 환율이 정한다. 둘 중
+              하나라도 어림값이면 비중이 그만큼 어긋난 채로 지난 20년을
+              재게 되는데, 안 적으면 화면에는 아무 표시도 안 난다. */}
+          {통째로.시세없는수 > 0 && (
+            <p className="text-2xs text-accent-yellow/90 px-1 break-keep">
+              {통째로.시세없는수}개는 아직 시세를 못 받았어요. 계속 받는 중이라
+              잠시 뒤 누르면 지금 값으로 비중이 잡혀요
+              (지금 담으면 그 종목만 매입금액 기준이에요).
+            </p>
+          )}
+          {통째로.환율 != null && (
+            <p className={`text-2xs px-1 break-keep ${
+              통째로.환율진짜 ? "text-text-dim" : "text-accent-yellow/90"}`}>
+              {통째로.환율진짜
+                ? `달러 종목은 원/달러 ${Math.round(통째로.환율).toLocaleString()}원으로 환산해 비중을 매겨요.`
+                : `환율을 못 받아 어림값 ${Math.round(통째로.환율).toLocaleString()}원을 써요 — 달러 종목 비중이 조금 어긋날 수 있어요.`}
+            </p>
+          )}
         </div>
       )}
 
@@ -489,9 +616,13 @@ function 내목록칸({
 }
 
 /** 자산 고르기 — 종류별 대표 · 내 자산 · 관심종목 · 검색 */
-function 자산고르기({ 담은것, onPick, onClose }: {
+function 자산고르기({ 담은것, onPick, onPickMany, onClose }: {
   담은것: 배분자산[];
-  onPick: (a: 배분자산) => void; onClose: () => void;
+  onPick: (a: 배분자산) => void;
+  /** 포트폴리오를 비중 그대로 통째로 — 담은 목록을 **갈아 끼운다** */
+  onPickMany: (r: { 자산들: 배분자산[]; 전체수: number; 담은비율: number;
+                    어디서: string }) => void;
+  onClose: () => void;
 }) {
   const { query, setQuery, results, searching } = useStockSearch();
   const { isLoggedIn } = useAuthStore();
@@ -547,6 +678,79 @@ function 자산고르기({ 담은것, onPick, onClose }: {
   };
   const 보유들 = useMemo(() => 골라내기(보유 as any[]), [보유]);
   const 관심들 = useMemo(() => 골라내기(관심 as any[]), [관심]);
+
+  /* ── '비중 그대로 담기' 에 필요한 것 두 가지 ──
+   *
+   *  비중은 **평가금액** 기준이므로 시세와 환율이 있어야 한다. 목록만
+   *  보는 사람에게는 필요 없어서, 내 자산 칸을 열고 종목이 있을 때만
+   *  부른다 — 0.15 CPU 짜리 서버다.
+   *
+   *  못 받아도 담기는 된다. 시세가 없는 줄은 매입금액으로 대신 세므로
+   *  (utils/holdings) 비중이 얼추 맞는다. 0 으로 두면 그 종목만 0% 가
+   *  되고 나머지가 통째로 부풀려지는데, 그쪽이 훨씬 나쁘다. */
+  const 시세볼것 = useMemo(
+    () => (보유 as any[]).filter((x) => x?.assetClass !== "현금" && x?.symbol),
+    [보유]);
+  const { data: 시세들, isFetching: 시세받는중 } = useQuery({
+    queryKey: ["bt-holding-prices",
+               시세볼것.map((x: any) => `${x.market}:${x.symbol}`).join(",")],
+    queryFn: () => watchlistApi.getPrices(
+      시세볼것.map((x: any) => x.symbol), 시세볼것.map((x: any) => x.market)),
+    enabled: isLoggedIn && 칸 === "내자산" && 시세볼것.length > 0,
+    staleTime: 시세수명,
+    /* ── 못 받은 종목은 **다시 받는다** ──
+     *
+     *  서버는 시세를 모으는 데 몇 초까지만 쓰고, 못 채운 종목은 price 를
+     *  비운 채 돌려준다 — 화면이 통째로 멈추는 것을 막으려는 것이다.
+     *  못 받은 것은 서버가 배경에서 마저 받아 캐시에 넣으므로, 몇 초 뒤
+     *  한 번 더 물어보면 그때는 곧바로 나온다.
+     *
+     *  한 번만 묻고 말면 그 종목은 **매입금액**으로 비중이 매겨진다.
+     *  10년 전에 산 종목이면 지금 가치와 크게 다르고, 그 차이가 그대로
+     *  백테스트의 비중이 된다 — 화면에는 아무 표시도 안 난다.
+     *
+     *  내 자산 화면이 이미 같은 방식으로 재촉한다. 주기·횟수를 그
+     *  상수에서 그대로 가져온다 — 여기서 따로 정하면 같은 '받는 중'
+     *  인데 두 화면이 다른 속도로 깜빡인다. */
+    refetchInterval: (q) => {
+      const 아직 = ((q.state.data ?? []) as any[])
+        .filter((p) => p?.price == null).length;
+      if (아직 === 0) return false;         // 다 받았으면 그만 묻는다
+      /* 몇 번만 재촉한다. 영영 못 받는 종목이 섞여 있으면(상장폐지·
+         야후가 모르는 심볼) 영원히 두드리게 된다 — 그건 서버를 제일
+         세게 때리는 짓이고, 그런다고 값이 생기지도 않는다. */
+      return q.state.dataUpdateCount <= 재촉_횟수 ? 재촉주기 : false;
+    },
+    refetchIntervalInBackground: false,
+  });
+  const { 환율, 진짜인가: 환율진짜 } = useExchangeRateLive();
+  const 시세표 = useMemo(() => indexPricesBySymbol(시세들), [시세들]);
+
+  /** 아직 시세를 못 받은 종목 수 — 화면에 그대로 적는다. */
+  const 시세없는수 = useMemo(
+    () => 시세볼것.filter((x: any) => lookupPrice(시세표, x.symbol)?.price == null).length,
+    [시세볼것, 시세표]);
+
+  /** 달러 종목이 섞여 있나 — 없으면 환율이 비중에 아무 영향이 없다 */
+  const 달러섞였나 = useMemo(
+    () => (보유 as any[]).some((x) => x?.market === "US" || x?.market === "ETF"),
+    [보유]);
+
+  const 통째로담기 = () => {
+    const 나온것 = 포트폴리오를자산으로(
+      보유 as any[],
+      (symbol) => {
+        const d = lookupPrice(시세표, symbol);
+        return d?.price ?? null;
+      },
+      환율,
+    );
+    if (!나온것.자산들.length) return;
+    onPickMany({
+      ...나온것,
+      어디서: 포폴들.find((x: any) => x.id === 고른포폴)?.name ?? "내 자산 전체",
+    });
+  };
 
   return (
     <div className="flex flex-col gap-2 p-3 rounded-xl border border-accent-blue/40 bg-bg-elevated">
@@ -627,6 +831,16 @@ function 자산고르기({ 담은것, onPick, onClose }: {
             받는중={칸 === "내자산" ? 보유로딩 : 관심로딩}
             담은것={담은것}
             onPick={onPick}
+            통째로={칸 === "내자산"
+              ? { 누르기: 통째로담기,
+                  //: 시세를 받는 동안에도 누를 수는 있게 두면 매입금액
+                  //  기준 비중이 들어간다 — 잠깐 기다렸다 받는 쪽이 맞다.
+                  준비됐나: !시세받는중,
+                  종목수: 보유들.length,
+                  시세없는수,
+                  환율: 달러섞였나 ? 환율 : null,
+                  환율진짜 }
+              : undefined}
           />
         )
       )}
@@ -700,6 +914,11 @@ export default function 자산배분설정({
   const [검색열림, set검색열림] = useState(false);
   const [로그인안내, set로그인안내] = useState(false);
   const [이름창, set이름창] = useState(false);
+  /** 포트폴리오를 통째로 담을 때 열둘을 넘어 잘렸으면 **반드시 적는다.**
+   *  조용히 자르면 스무 종목을 담은 줄 알고 열두 종목짜리 결과를 본다. */
+  const [잘림, set잘림] = useState<
+    { 전체수: number; 담은수: number; 담은비율: number } | null>(null);
+  const { 묻기, 화면: 확인창 } = use확인();
   const 못하는이유 = 못돌리는이유(값);
 
   /** 비중 합. 100 이 아니어도 서버가 맞춰 주지만, 화면에 적어 주면
@@ -841,6 +1060,25 @@ export default function 자산배분설정({
           </div>
         )}
 
+        {/* **몇 개를 뺐는지 적는다.** 열둘이 상한이라 스무 종목짜리
+            포트폴리오는 여덟이 빠진다. 조용히 자르면 스무 종목을 담은
+            줄 알고 열두 종목짜리 결과를 보게 되는데, 그건 이 기능에서
+            제일 나쁜 실패다. */}
+        {잘림 && (
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-accent-yellow/10 border border-accent-yellow/30">
+            <p className="text-2xs text-text-secondary break-keep flex-1">
+              종목이 {잘림.전체수}개라 비중이 큰 {잘림.담은수}개만 담았어요
+              (내 포트폴리오의 {잘림.담은비율.toFixed(1)}%).
+              담은 것끼리 100%가 되게 다시 나눴어요.
+            </p>
+            <button
+              aria-label="안내 닫기"
+              className="text-text-dim hover:text-text-primary flex-shrink-0"
+              onClick={() => set잘림(null)}
+            ><X size={13} /></button>
+          </div>
+        )}
+
         {/* 비중을 아직 안 나눴으면 한 번에 맞춰 주는 길을 둔다.
             세 자산에 33.3/33.3/33.4 를 손으로 적게 하는 것은 일이다 */}
         {값.assets.length > 1 && Math.round(비중합) !== 100 && (
@@ -860,6 +1098,31 @@ export default function 자산배분설정({
             onPick={(a) => {
               바꾸기({ ...값, assets: 자산더하기(값.assets, a) });
               set검색열림(false);
+            }}
+            onPickMany={(r) => {
+              /* **갈아 끼운다.** 담겨 있던 것 위에 얹으면 비중이 뜻을
+                 잃는다 — SPY 100% 위에 합이 100%인 포트폴리오를 더하면
+                 무엇이 얼마인지 아무도 모른다. 대신 이미 담은 것이
+                 있으면 반드시 먼저 묻는다. */
+              const 넣기 = () => {
+                /* **'동일 비중' 을 같이 끈다.** 켜져 있으면 서버가 비중을
+                   무시하고 똑같이 나눈다 — 비중 그대로 담아 놓고 비중이
+                   안 먹는, 화면에는 75/25 로 적혀 있는데 결과는 50/50 인
+                   상태가 된다. 오류도 안 나고 표시도 없다. */
+                바꾸기({ ...값, assets: r.자산들, equal_weight: false });
+                set잘림(r.전체수 > r.자산들.length
+                  ? { 전체수: r.전체수, 담은수: r.자산들.length, 담은비율: r.담은비율 }
+                  : null);
+                set검색열림(false);
+              };
+              if (값.assets.length === 0) { 넣기(); return; }
+              묻기({
+                title: "담아 둔 자산을 바꿀까요?",
+                message: `지금 담은 ${값.assets.length}개를 지우고 '${r.어디서}'의 ${r.자산들.length}개를 비중 그대로 넣어요.`,
+                위험: false,
+                확인글: "바꾸기",
+                onConfirm: 넣기,
+              });
             }}
           />
         ) : (
@@ -1058,6 +1321,9 @@ export default function 자산배분설정({
           실험을 저장하려면 로그인이 필요해요. 결과 확인은 로그인 없이도 돼요.
         </p>
       )}
+
+      {/* 담아 둔 자산을 갈아 끼우기 전에 묻는 창 */}
+      {확인창}
 
       {/* 저장했다는 말을 **반드시** 한다.
           목록을 이 화면에서 없앴으므로, 이 한 줄이 없으면 저장이 됐는지
