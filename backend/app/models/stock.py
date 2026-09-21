@@ -472,7 +472,6 @@ class PortfolioExperiment(Base):
     rebalance_day = Column(Integer, default=1)
     #: 퍼센트로 담는다(0.1 이면 0.1%) — 화면이 주는 단위 그대로.
     cost_rate = Column(Float, default=0)
-    data_interval = Column(String(10), default="daily")         # daily/monthly
     benchmark = Column(String(20), default="none")
     equal_weight = Column(Boolean, default=False)
     extended = Column(Boolean, default=False)

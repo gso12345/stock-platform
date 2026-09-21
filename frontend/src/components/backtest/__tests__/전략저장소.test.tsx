@@ -52,7 +52,7 @@ const 실험 = {
   contribution_period: "monthly" as const, contribution_amount: 300_000,
   rebalance_period: "yearly" as const, total_return: true,
   rebalance_day: 20, cost_rate: 0.25,
-  data_interval: "monthly" as const, benchmark: "6040" as const,
+  benchmark: "6040" as const,
   equal_weight: false, extended: true,
 };
 
@@ -189,7 +189,7 @@ describe("저장한 설정이 빠짐없이 되살아난다", () => {
     /* 기능이 늘기 전에 저장한 것에는 이 칸들이 아예 없다.
        undefined 를 그대로 넣으면 고르기 칸이 통제 불능이 된다. */
     const 옛것: any = { ...실험 };
-    for (const k of ["rebalance_day", "cost_rate", "data_interval",
+    for (const k of ["rebalance_day", "cost_rate",
                      "benchmark", "equal_weight", "extended"]) delete 옛것[k];
     상태.실험들 = [옛것];
     await 저장소열기();

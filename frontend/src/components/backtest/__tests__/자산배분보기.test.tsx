@@ -69,7 +69,7 @@ const 기본 = {
   assets: [{ symbol: "SPY", market: "US", name: "S&P 500", weight: 0.6 },
            { symbol: "TLT", market: "US", name: "미국 장기국채", weight: 0.4 }],
   skipped: [], fx_skipped: [], mixed_currency: false, costs_included: false,
-  costs: null, cost_rate: null, data_interval: "daily" as const,
+  costs: null, cost_rate: null,
   risk_free_rate: 0, cash_rate: 0,
   benchmark: null as any, extended_from: {},
 };

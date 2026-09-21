@@ -371,48 +371,6 @@ class Test거래비용_퍼센트:
         assert d["costs_included"] is False and d["costs"] is None
 
 
-class Test월_데이터:
-    def test_점이_확_줄어든다(self, client, monkeypatch):
-        from app.api.routes import backtest as R
-        monkeypatch.setattr(R.yf_service, "get_ohlcv", lambda *a, **k: 봉들())
-        몸 = _몸([{"symbol": "AAA", "market": "US", "weight": 100}])
-        일별 = client.post("/api/v1/backtest/portfolio", json=몸).json()
-        월별 = client.post("/api/v1/backtest/portfolio",
-                           json={**몸, "data_interval": "monthly"}).json()
-        assert len(월별["curve"]) < len(일별["curve"]) / 15
-        assert 월별["data_interval"] == "monthly"
-
-    def test_수치도_같은_날들_위에서_잰다(self, client, monkeypatch):
-        """곡선만 솎으면 그래프는 가벼워도 수익률·낙폭은 일별 값이라,
-        화면의 그림과 숫자가 서로 다른 것을 말하게 된다.
-
-        수수료로 본다 — 리밸런싱이 일어난 날 수가 다르면 수수료도
-        달라진다. 자산이 **둘 이상이고 서로 다르게 움직여야** 한다.
-        (하나만 담으면 비중이 늘 100% 라 리밸런싱이 아무것도 안
-        사고팔고, 수수료가 첫날치로 똑같이 나온다. 그렇게 짰다가
-        이 검사가 헛돌았다.)"""
-        from app.api.routes import backtest as R
-
-        def 시세(symbol, period, interval, market):
-            #: 오르는 쪽과 제자리인 쪽 — 그래야 비중이 틀어지고 리밸런싱이 산다
-            if symbol == "오름":
-                return [{**r, "close": 100 * (1.002 ** i)}
-                        for i, r in enumerate(봉들())]
-            return [{**r, "close": 100.0} for r in 봉들()]
-
-        monkeypatch.setattr(R.yf_service, "get_ohlcv", 시세)
-        몸 = _몸([{"symbol": "오름", "market": "US", "weight": 50},
-                  {"symbol": "제자리", "market": "US", "weight": 50}],
-                 rebalance_period="monthly", cost_rate=0.1)
-        일별 = client.post("/api/v1/backtest/portfolio", json=몸).json()
-        월별 = client.post("/api/v1/backtest/portfolio",
-                           json={**몸, "data_interval": "monthly"}).json()
-        assert 일별["costs"] > 10_000, "리밸런싱이 아무것도 안 사고팔았다 — 검사 자료를 보라"
-        assert 월별["costs"] != 일별["costs"], \
-            (f"월 {월별['costs']} · 일 {일별['costs']} 로 똑같다 — "
-             "곡선만 솎고 계산은 일별로 하고 있다")
-
-
 class Test동일_비중:
     def test_적은_비중을_무시하고_똑같이_나눈다(self, client, monkeypatch):
         from app.api.routes import backtest as R
@@ -491,7 +449,7 @@ class Test실험_저장:
         """라우트가 넣으려 해도 컬럼이 없으면 터진다"""
         from app.models.stock import PortfolioExperiment
         칸들 = {c.name for c in PortfolioExperiment.__table__.columns}
-        for 이름 in ("rebalance_day", "cost_rate", "data_interval",
+        for 이름 in ("rebalance_day", "cost_rate",
                      "benchmark", "equal_weight", "extended"):
             assert 이름 in 칸들, f"portfolio_experiments 에 {이름} 컬럼이 없다"
 
@@ -503,7 +461,7 @@ class Test실험_저장:
         import inspect
         from app import main as M
         소스 = inspect.getsource(M)
-        for 이름 in ("rebalance_day", "cost_rate", "data_interval",
+        for 이름 in ("rebalance_day", "cost_rate",
                      "benchmark", "equal_weight", "extended"):
             assert f'_add_col_if_missing("portfolio_experiments", "{이름}"' in 소스, \
                 (f"{이름} 을 이미 배포된 표에 붙이는 자리가 없다 — "

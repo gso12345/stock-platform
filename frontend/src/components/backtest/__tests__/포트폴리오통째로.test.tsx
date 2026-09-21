@@ -54,7 +54,10 @@ vi.mock("@/store/authStore", () => ({
   useAuthStore: () => ({ isLoggedIn: 상태.로그인함, userId: 1 }),
 }));
 vi.mock("@/hooks/useStockSearch", () => ({
-  useStockSearch: () => ({ query: "", setQuery: vi.fn(), searching: false, results: [] }),
+  useStockSearch: () => ({
+    query: "", setQuery: vi.fn(), searching: false,
+    results: [{ symbol: "AAPL", market: "US", name: "Apple" }],
+  }),
 }));
 vi.mock("@/hooks/useExchangeRate", () => ({
   useExchangeRateLive: () => ({ 환율: 상태.환율, 진짜인가: 상태.환율진짜 }),
@@ -424,5 +427,37 @@ describe("환율을 실제로 받아 쓰고, 그 값을 적는다", () => {
     await 내자산칸열기();
     await screen.findByLabelText("이 포트폴리오를 비중 그대로 담기");
     expect(screen.queryByText(/원\/달러/)).toBeNull();
+  });
+});
+
+
+describe("가져온 비중이 **자산을 더해도 살아남는다**", () => {
+  /* 이 기능의 본론이 비중인데, 자산 하나 더했다고 33.3/33.3/33.3 이
+     되면 내가 굴리는 것과 다른 포트폴리오를 재게 된다. 오류도 안 나고
+     비중 칸을 다시 보지 않으면 그대로 돌려 버린다. */
+
+  it("포트폴리오를 담은 뒤 다른 자산을 더해도 비율이 그대로다", async () => {
+    const { 지금값 } = 그리기();
+    await 내자산칸열기();
+    await userEvent.click(
+      await screen.findByLabelText("이 포트폴리오를 비중 그대로 담기"));
+    await waitFor(() => expect(지금값().assets).toHaveLength(2));
+
+    //: A 30주 · B 10주 → 75 : 25
+    const 담은뒤 = Object.fromEntries(
+      지금값().assets.map((a: 배분자산) => [a.symbol, a.weight]));
+    expect(담은뒤.A / 담은뒤.B).toBeCloseTo(3, 1);
+
+    //: 검색해서 하나 더 담는다
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("검색해서"));
+    await userEvent.click(await screen.findByLabelText("Apple 담기"));
+
+    await waitFor(() => expect(지금값().assets).toHaveLength(3));
+    const 더한뒤 = Object.fromEntries(
+      지금값().assets.map((a: 배분자산) => [a.symbol, a.weight]));
+    expect(더한뒤.A / 더한뒤.B, "자산을 더하니 가져온 비중이 날아갔다")
+      .toBeCloseTo(3, 1);
+    expect(더한뒤.AAPL, "새로 담은 것이 0% 다").toBeGreaterThan(0);
   });
 });

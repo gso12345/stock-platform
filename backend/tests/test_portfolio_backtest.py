@@ -344,28 +344,6 @@ class Test리밸런싱_날짜:
         assert r["contributed"] == pytest.approx(1_000_000 + 달수 * 100_000)
 
 
-class Test월_데이터:
-    def test_달마다_마지막_거래일만_남는다(self):
-        날들 = 날들만들기(500, date(2020, 1, 1))
-        월말 = P.월말만(날들)
-        달들 = [(d.year, d.month) for d in 월말]
-        assert len(달들) == len(set(달들)), "한 달에 두 점이 남았다"
-        assert 월말[-1] == 날들[-1], "마지막 날이 빠졌다"
-        for d in 월말[:-1]:
-            뒤 = 날들[날들.index(d) + 1]
-            assert (뒤.year, 뒤.month) != (d.year, d.month), \
-                f"{d} 는 그 달의 마지막 거래일이 아니다"
-
-    def test_점이_확_줄어든다(self):
-        """1980년부터 일별로 보내면 1만 2천 점이다. 폰에서 그걸
-        그리면 버벅인다."""
-        날들 = 날들만들기(2520)                          # 약 10년
-        assert len(P.월말만(날들)) < len(날들) / 15
-
-    def test_빈_목록도_받는다(self):
-        assert P.월말만([]) == []
-
-
 class Test배당재투자:
     def test_배당을_켜면_더_번다(self):
         """S&P500 을 30년 굴리면 배당 재투자 여부로 최종 금액이

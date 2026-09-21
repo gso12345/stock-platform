@@ -19,7 +19,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useStockSearch } from "@/hooks/useStockSearch";
 import { useAuthStore } from "@/store/authStore";
 import { watchlistApi, watchlistFolderApi, portfolioApi } from "@/api/stocks";
-import type { 배분자산, 주기, 데이터기준, 벤치마크키 } from "@/api/stocks";
+import type { 배분자산, 주기, 벤치마크키 } from "@/api/stocks";
 import { useExchangeRateLive } from "@/hooks/useExchangeRate";
 import { 시세수명, 재촉주기, 재촉_횟수 } from "@/constants/portfolioQuery";
 import { use확인 } from "@/hooks/useDialogs";
@@ -54,11 +54,6 @@ export const 벤치마크표: { value: 벤치마크키; label: string }[] = [
   { value: "kospi", label: "코스피200" },
   { value: "6040", label: "주식 60 · 채권 40" },
   { value: "allweather", label: "올웨더" },
-];
-
-export const 데이터기준표: { value: 데이터기준; label: string }[] = [
-  { value: "daily", label: "일 데이터" },
-  { value: "monthly", label: "월 데이터" },
 ];
 
 /** 흔히 쓰는 수수료. 이 값들은 **빠른 선택**일 뿐이고, 옆 칸에 직접
@@ -134,7 +129,6 @@ export interface 설정 {
   total_return: boolean;
   rebalance_day: number;
   cost_rate: number;
-  data_interval: 데이터기준;
   benchmark: 벤치마크키;
   equal_weight: boolean;
   extended: boolean;
@@ -165,7 +159,6 @@ export function 첫설정(오늘 = new Date()): 설정 {
        계산해 두면 사용자는 그게 자기 수수료인 줄 안다. 고르게 해 두고
        안 고르면 안 넣은 것으로 적는다. */
     cost_rate: 0,
-    data_interval: "daily",
     /* 기본은 **S&P500**이다. '없음' 으로 두면 처음 돌려 본 사람은
        '연 9%' 같은 수만 보고 그게 잘한 것인지 알 수 없다 — 8년에
        연 9%가 좋은 성적인지는 같은 기간 S&P500 이 몇 %였나를 봐야
@@ -414,11 +407,64 @@ export function 첫이름(assets: 배분자산[]): string {
  *  종목이다. */
 export function 자산더하기(있던것: 배분자산[], 새것: 배분자산): 배분자산[] {
   if (담았나(있던것, 새것.symbol)) return 있던것;
-  const 다음 = [...있던것, 새것];
-  /* 새로 담을 때마다 비중을 똑같이 나눠 준다. 0% 로 들어가면
-     '담았는데 결과에 아무 영향이 없는' 상태가 되고, 그건 고장으로 읽힌다 */
-  const 고른비중 = Math.round(1000 / 다음.length) / 10;
-  return 다음.map((x) => ({ ...x, weight: 고른비중 }));
+
+  /* ── 이미 맞춰 둔 비중을 **덮어쓰지 않는다** ──────────────
+   *
+   *  예전에는 담을 때마다 전부 똑같이 나눴다. 빈 화면에서 하나씩
+   *  담을 때는 맞는 동작이지만, **비중을 이미 정해 둔 뒤**에는
+   *  그것을 통째로 날린다 —
+   *
+   *    내 포트폴리오를 비중 그대로(75/25) 담아 놓고
+   *    금을 하나 더하면 → 33.3 / 33.3 / 33.3
+   *
+   *  가져온 비중이 이 기능의 본론인데 자산 하나 더했다고 사라진다.
+   *  손으로 60/40 을 맞춰 둔 사람도 마찬가지다. 오류도 안 나고,
+   *  비중 칸을 다시 보지 않으면 그대로 돌려 버린다.
+   *
+   *  ── 어떻게 바꾸나 ────────────────────────────────────
+   *
+   *  **있던 것들의 비율은 그대로 두고** 자리만 내어 준다.
+   *  새것은 똑같이 나눈 몫(1/n)을 갖고, 있던 것들은 남은 몫을
+   *  지금 비율대로 나눠 가진다. 75/25 에 하나 더하면 50/16.7/33.3 —
+   *  둘의 3:1 은 그대로다.
+   *
+   *  비중이 아직 없으면(다 0) 나눌 비율이 없으므로 똑같이 나눈다.
+   *  그래서 빈 화면에서 하나씩 담는 예전 동작은 그대로 유지된다
+   *  (50/50 에 더하면 33.3 셋 — 전과 같다).
+   *
+   *  0% 로 들여보내지 않는다. '담았는데 결과에 아무 영향이 없는'
+   *  상태가 되고, 그건 고장으로 읽힌다. */
+  const 다음수 = 있던것.length + 1;
+  const 새몫 = Math.round(1000 / 다음수) / 10;
+  const 합 = 있던것.reduce((a, x) => a + (Number(x.weight) || 0), 0);
+
+  if (합 <= 0) {
+    return [...있던것, 새것].map((x) => ({ ...x, weight: 새몫 }));
+  }
+
+  const 남은몫 = 100 - 새몫;
+  const 줄인것 = 있던것.map((x) => ({
+    ...x,
+    weight: Math.round(((Number(x.weight) || 0) / 합) * 남은몫 * 10) / 10,
+  }));
+
+  /* 소수 한 자리로 자르면 합이 99.9 나 100.1 이 된다. 엔진은 어차피
+     합으로 나누지만 화면에는 '합 99.9%' 가 노란 글씨로 뜬다 —
+     사용자가 뭘 잘못했나 찾게 만든다. 제일 큰 것에 그 부스러기를
+     몰아 준다(제일 큰 쪽이 0.1 만큼 덜 티 난다). */
+  const 어긋남 = Math.round((100 - 새몫 - 줄인것.reduce((a, x) => a + x.weight, 0)) * 10) / 10;
+  if (어긋남 !== 0 && 줄인것.length) {
+    let 제일큰 = 0;
+    for (let i = 1; i < 줄인것.length; i++) {
+      if (줄인것[i].weight > 줄인것[제일큰].weight) 제일큰 = i;
+    }
+    줄인것[제일큰] = {
+      ...줄인것[제일큰],
+      weight: Math.round((줄인것[제일큰].weight + 어긋남) * 10) / 10,
+    };
+  }
+
+  return [...줄인것, { ...새것, weight: 새몫 }];
 }
 
 /** 한 번에 담을 수 있는 자산 수. 서버의 상한과 **같아야** 한다
@@ -1192,23 +1238,20 @@ export default function 자산배분설정({
         </p>
       </div>
 
-      {/* ── 데이터 기준 · 벤치마크 ── */}
+      {/* ── 벤치마크 ── */}
       <div className="flex flex-col gap-3">
         <칸제목>재는 방법</칸제목>
-        <div className="grid grid-cols-2 gap-3">
-          <고르기 이름="데이터 기준" 값={값.data_interval}
-                  바꾸기={(v) => 바꾸기({ ...값, data_interval: v as 데이터기준 })}
-                  것들={데이터기준표} />
+        {/* '일/월 데이터' 고르기가 여기 있었다. 없앴다 —
+            월로 바꿔도 기다리는 시간은 거의 그대로인데(받는 자료가
+            같다. 야후에서 일봉을 받아 뒤에 솎는 것이라 왕복이 안 준다)
+            **답은 달라졌다.** 실측으로 최종금액이 2.7% 어긋나고,
+            최대 낙폭은 달 안에서 떨어졌다 돌아온 것을 못 봐서 늘
+            작게 나왔다. 0.13초 아끼자고 치를 값이 아니다. */}
+        <div className="grid grid-cols-1 gap-3">
           <고르기 이름="벤치 마크" 값={값.benchmark}
                   바꾸기={(v) => 바꾸기({ ...값, benchmark: v as 벤치마크키 })}
                   것들={벤치마크표} />
         </div>
-        {값.data_interval === "monthly" && (
-          <p className="text-2xs text-text-dim break-keep">
-            월 데이터는 가볍지만 <b>최대 낙폭이 실제보다 작게</b> 나와요 —
-            달 안에서 떨어졌다 돌아온 것은 안 보여요.
-          </p>
-        )}
       </div>
 
       {/* ── 거래비용 · 배분 기준 ── */}

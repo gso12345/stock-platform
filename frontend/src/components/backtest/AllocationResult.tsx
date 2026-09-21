@@ -1066,13 +1066,6 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
           </p>
         )}
 
-        {r.data_interval === "monthly" && (
-          <p className="text-2xs text-text-dim break-keep">
-            월 데이터로 쟀어요. 최대 낙폭은 실제보다 작게 나와요 —
-            달 안에서 떨어졌다 돌아온 것은 안 보여요.
-          </p>
-        )}
-
         {/* 지수로 이은 구간이 있으면 **반드시** 말한다.
             조용히 이으면 사용자는 1980년치 SPY 자료가 있는 줄 안다 */}
         {Object.keys(r.extended_from ?? {}).length > 0 && (

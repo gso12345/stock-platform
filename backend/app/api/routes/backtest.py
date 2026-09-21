@@ -617,8 +617,6 @@ class 자산배분요청(BaseModel):
     rebalance_day: int = Field(1, ge=1, le=28)
     #: 거래비용(%). 0.1 이면 0.1% — 화면이 퍼센트로 주고 여기서 나눈다.
     cost_rate: float = Field(0, ge=0, le=5)
-    #: 일별로 잴까 월별로 잴까. 긴 기간은 월이 가볍다.
-    data_interval: str = Field("daily", pattern="^(daily|monthly)$")
     #: 견줄 상대
     benchmark: str = Field("none")
     #: 비중을 화면에서 준 대로 쓸까, 똑같이 나눌까
@@ -1022,35 +1020,6 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     비용률 = (req.cost_rate or 0) / 100
 
     def 돌리자(표: dict, 자산들: list[dict], 그배당: Optional[dict]) -> dict:
-        if req.data_interval == "monthly" and 표:
-            """월 데이터는 **엔진에 넣기 전에** 솎는다.
-
-            결과 곡선만 솎으면 안 된다. 그러면 곡선은 가벼워도 수익률·
-            낙폭·리밸런싱은 일별로 계산된 값이라, 화면의 그래프와 숫자가
-            서로 다른 것을 말하게 된다.
-
-            배당은 그대로 둔다 — 배당일이 월말이 아니면 솎인 날에 안
-            걸려서 통째로 사라진다. 엔진은 그날 시세가 있는 종목만
-            재투자하므로 남은 배당은 알아서 무시된다."""
-            남길날 = set(PB.월말만(sorted(
-                set.intersection(*(set(표[s]) for s in 표)))))
-            표 = {s: {d: v for d, v in 표[s].items() if d in 남길날} for s in 표}
-            if 그배당:
-                """달 안에 흩어진 배당을 그 달의 남은 날로 모은다.
-                안 모으면 월 데이터에서 배당이 거의 다 사라져, 같은
-                설정인데 '월' 로 바꾸기만 해도 성적이 뚝 떨어진다."""
-                모은것: dict = {}
-                차례 = sorted(남길날)
-                for 심볼, 표2 in 그배당.items():
-                    쌓기: dict = {}
-                    for d, 금액 in 표2.items():
-                        뒤 = [x for x in 차례 if x >= d]
-                        if not 뒤:
-                            continue
-                        쌓기[뒤[0]] = 쌓기.get(뒤[0], 0.0) + 금액
-                    if 쌓기:
-                        모은것[심볼] = 쌓기
-                그배당 = 모은것
         return PB.돌리기(
             가격표=표,
             자산들=자산들,
@@ -1192,7 +1161,6 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     }
     결과["mixed_currency"] = 섞였나
     결과["costs_included"] = 비용률 > 0
-    결과["data_interval"] = req.data_interval
     결과["benchmark"] = 벤치
     #: 어느 자산을 언제부터 지수로 이었나. 조용히 이으면 사용자는
     #  1980년치 SPY 자료가 있는 줄 안다 — 실제로는 지수를 본 것이다.
@@ -1265,7 +1233,6 @@ def save_experiment(req: 실험저장요청, db: Session = Depends(get_db),
         #  다시 돌렸을 때 저장할 때와 다른 수가 나온다.
         rebalance_day=req.rebalance_day,
         cost_rate=req.cost_rate,
-        data_interval=req.data_interval,
         benchmark=req.benchmark,
         equal_weight=req.equal_weight,
         extended=req.extended,

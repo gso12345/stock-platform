@@ -44,7 +44,7 @@ const 바탕 = {
   assets: [{ symbol: "AAA", market: "US", name: "AAA", weight: 1 }],
   skipped: [], fx_skipped: [], mixed_currency: false,
   costs_included: false, costs: null, cost_rate: null,
-  data_interval: "daily" as const, risk_free_rate: 0, cash_rate: 0,
+  risk_free_rate: 0, cash_rate: 0,
   benchmark: null as any, extended_from: {},
 };
 

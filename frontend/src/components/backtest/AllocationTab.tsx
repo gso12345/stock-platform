@@ -38,7 +38,6 @@ export function 보낼것(s: 설정): 자산배분요청 {
     /* 퍼센트 그대로 보낸다 — 비율로 바꾸는 것은 서버 한 곳에서만 한다.
        양쪽에서 나누면 수수료가 100분의 1 이 되고, 아무도 못 알아챈다 */
     cost_rate: Number(s.cost_rate) || 0,
-    data_interval: s.data_interval,
     benchmark: s.benchmark,
     equal_weight: s.equal_weight,
     extended: s.extended,
@@ -256,7 +255,6 @@ export function 실험을설정으로(x: 저장된실험, 지금: 설정): 설�
     total_return: x.total_return,
     rebalance_day: x.rebalance_day ?? 지금.rebalance_day,
     cost_rate: x.cost_rate ?? 지금.cost_rate,
-    data_interval: x.data_interval ?? 지금.data_interval,
     benchmark: x.benchmark ?? 지금.benchmark,
     equal_weight: x.equal_weight ?? 지금.equal_weight,
     extended: x.extended ?? 지금.extended,

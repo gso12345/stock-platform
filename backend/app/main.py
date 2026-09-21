@@ -127,7 +127,6 @@ async def lifespan(application: FastAPI):
         # 하나라도 빠지면 저장한 실험을 불러왔을 때 다른 수가 나온다.
         _add_col_if_missing("portfolio_experiments", "rebalance_day", "INTEGER DEFAULT 1")
         _add_col_if_missing("portfolio_experiments", "cost_rate", "DOUBLE PRECISION DEFAULT 0", "REAL DEFAULT 0")
-        _add_col_if_missing("portfolio_experiments", "data_interval", "VARCHAR(10) DEFAULT 'daily'")
         _add_col_if_missing("portfolio_experiments", "benchmark", "VARCHAR(20) DEFAULT 'none'")
         _add_col_if_missing("portfolio_experiments", "equal_weight", "BOOLEAN DEFAULT FALSE")
         _add_col_if_missing("portfolio_experiments", "extended", "BOOLEAN DEFAULT FALSE")

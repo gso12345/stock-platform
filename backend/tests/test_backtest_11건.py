@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.api.routes import backtest as R
 from app.services.backtest_engine import backtest_engine as E, BacktestEngine
-from app.services.portfolio_backtest import 돌리기, 월말만
+from app.services.portfolio_backtest import 돌리기
 
 
 # ── 자료 만들기 ──────────────────────────────────────────
@@ -287,10 +287,30 @@ def test_배당을_받으면_결과가_달라진다():
 # A4. 월별 모드의 연율화
 # ══════════════════════════════════════════════════════════
 class Test연율화:
-    """늘 √252 를 곱했다. 화면에서 '월별로 재기' 를 고르면 한 칸이 한
-    달인데도 그대로 √252 라, √252/√12 = 4.58배가 부풀려졌다 —
-    실측으로 **변동성 17.6% → 82.1%, 샤프 0.77 → 3.54**. 샤프 3.54 는
-    세계 최고 헤지펀드 수준의 수라 사람이 자기 전략을 오해한다."""
+    """늘 √252 를 곱했다. **한 칸이 하루가 아니면** 그 수는 통째로
+    틀린다 — 한 칸이 한 달이면 √252/√12 = 4.58배가 부풀려져서,
+    같은 값·같은 기간인데 **변동성 17.6% → 82.1%, 샤프 0.77 → 3.54**
+    가 나왔다(실측). 샤프 3.54 는 세계 최고 헤지펀드 수준의 수라
+    사람이 자기 전략을 오해한다.
+
+    지금은 '몇 칸이 1년인지' 를 자료에서 직접 세므로 칸 간격이
+    무엇이든 맞는다. 화면의 '월 데이터' 는 없앴지만(월로 바꿔도
+    기다리는 시간은 거의 그대로인데 답이 2.7% 달라졌다), 휴장이
+    잦은 해나 구멍 많은 자료에서는 여전히 칸 간격이 고르지 않다 —
+    그래서 **간격이 성긴 자료로 여기서 계속 확인한다.**"""
+
+    @staticmethod
+    def _달마다마지막날(날들):
+        """달의 마지막 거래일만 남긴다 — 제일 성긴 자료를 만드는 방법.
+        예전에는 본체에 같은 함수가 있었다(화면의 '월 데이터'). 그
+        기능이 없어졌으므로 검사에서만 쓴다."""
+        나온것 = []
+        for i, d in enumerate(날들):
+            끝인가 = (i == len(날들) - 1
+                      or (날들[i + 1].year, 날들[i + 1].month) != (d.year, d.month))
+            if 끝인가:
+                나온것.append(d)
+        return 나온것
 
     def _두가지(self):
         rnd = random.Random(11)
@@ -300,7 +320,7 @@ class Test연율화:
             c *= (1 + rnd.gauss(0.0004, 0.011))
             값[d] = c
         자산 = [{"symbol": "SPY", "market": "US", "weight": 100}]
-        남길 = set(월말만(sorted(값)))
+        남길 = set(self._달마다마지막날(sorted(값)))
         일별 = 돌리기({"SPY": 값}, 자산, 10_000_000)
         월별 = 돌리기({"SPY": {d: v for d, v in 값.items() if d in 남길}},
                       자산, 10_000_000)

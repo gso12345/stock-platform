@@ -353,7 +353,6 @@ export interface 배분자산 {
 }
 
 export type 주기 = "none" | "monthly" | "quarterly" | "yearly";
-export type 데이터기준 = "daily" | "monthly";
 export type 벤치마크키 =
   | "none" | "spy" | "qqq"
   /** 코스피 **지수**(^KS11) — ETF 가 아니라 배당이 없다 */
@@ -378,7 +377,6 @@ export interface 자산배분요청 {
   rebalance_day: number;
   /** 거래비용 **퍼센트**. 0.1 이면 0.1% — 서버가 100 으로 나눈다 */
   cost_rate: number;
-  data_interval: 데이터기준;
   benchmark: 벤치마크키;
   /** 적은 비중을 무시하고 똑같이 나눌까 */
   equal_weight: boolean;
@@ -522,7 +520,6 @@ export interface 자산배분결과 {
   /** 무엇을 가정하고 잰 수인가 — 0 도 가정이라 감추지 않는다 */
   risk_free_rate: number;
   cash_rate: number;
-  data_interval: 데이터기준;
   benchmark: 벤치마크결과 | null;
   /** 요청한 기간 — 실제로 잰 start_date/end_date 와 견줘 '짧아졌나' 를 안다.
    *  저장한 실험을 다시 열면 설정이 화면에 없으므로 응답에 실려 와야 한다. */
@@ -555,7 +552,6 @@ export interface 저장된실험 {
    *  칸이 통제 불능이 된다) */
   rebalance_day?: number | null;
   cost_rate?: number | null;
-  data_interval?: 데이터기준 | null;
   benchmark?: 벤치마크키 | null;
   equal_weight?: boolean | null;
   cash_rate?: number | null;

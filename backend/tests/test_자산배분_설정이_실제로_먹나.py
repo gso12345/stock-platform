@@ -367,24 +367,46 @@ class Test거래비용:
 
 
 # ═══════════════════════════════════════════════════════════
-#  ⑪ 일별 / 월별
+#  ⑪ 없앤 것 — 일별 / 월별
 # ═══════════════════════════════════════════════════════════
 
-class Test데이터간격:
-    def test_월별로_바꾸면_곡선이_짧아진다(self, client):
-        일별 = 돌려(client, data_interval="daily")
-        월별 = 돌려(client, data_interval="monthly")
-        assert len(월별["curve"]) < len(일별["curve"]) / 5, \
-            f"월별인데 점이 그대로다 — {len(일별['curve'])} vs {len(월별['curve'])}"
-        assert 월별["data_interval"] == "monthly"
+class Test월_데이터는_없앴다:
+    """'일 데이터 / 월 데이터' 고르기가 있었다. 없앴다.
 
-    def test_월별에서도_배당이_사라지지_않는다(self, client):
-        """달 안에 흩어진 배당을 월말로 모아야 한다. 안 모으면 같은
-        설정인데 '월' 로 바꾸기만 해도 성적이 뚝 떨어진다."""
-        끔 = 돌려(client, data_interval="monthly", total_return=False)
-        켬 = 돌려(client, data_interval="monthly", total_return=True)
-        assert 켬["final_value"] > 끔["final_value"], \
-            "월별로 바꿨더니 배당이 통째로 사라졌다"
+    월로 바꿔도 **기다리는 시간은 거의 그대로**다 — 야후에서 받는
+    자료가 같기 때문이다(일봉을 받아 뒤에 솎는 것이라 왕복이 안 준다).
+    실측으로 자산 5개·20년에 1,107ms → 977ms, 0.13초 차이였다.
+
+    그런데 **답은 달라졌다.** 같은 설정인데 최종금액이 2.7% 어긋나고
+    (리밸런싱·적립이 월초가 아니라 월말에 일어난다), 최대 낙폭은
+    달 안에서 떨어졌다 돌아온 것을 못 봐서 늘 작게 나왔다.
+
+    0.13초 아끼자고 치를 값이 아니다. 고를 수 있게 두면 누군가는
+    고르고, 고른 사람은 자기가 무엇을 잃었는지 모른다.
+    """
+
+    def test_그_칸을_보내도_안_받는다(self, client):
+        """모르는 칸은 무시하는 것이 pydantic 의 기본이다. 옛 화면이
+        아직 보내고 있어도 500 이 나면 안 된다 — 그냥 일별로 잰다."""
+        r = client.post("/api/v1/backtest/portfolio",
+                        json=몸(data_interval="monthly"))
+        assert r.status_code == 200, r.text[:200]
+
+    def test_보내든_말든_같은_답이_나온다(self, client):
+        """받아 놓고 조용히 무시하는 것이 제일 나쁘다 — 고른 사람은
+        월별로 쟀다고 믿는다. 아예 안 받으므로 답이 같아야 한다."""
+        그냥 = 돌려(client)
+        보냄 = 돌려(client, data_interval="monthly")
+        assert 보냄["final_value"] == 그냥["final_value"]
+        assert len(보냄["curve"]) == len(그냥["curve"])
+
+    def test_응답에도_그_칸이_없다(self, client):
+        d = 돌려(client)
+        assert "data_interval" not in d,             "없앤 설정이 응답에 아직 남아 있다 — 화면이 그걸 믿고 그린다"
+
+    def test_요청_모델에도_없다(self):
+        from app.api.routes.backtest import 자산배분요청
+        assert "data_interval" not in 자산배분요청.model_fields
 
 
 # ═══════════════════════════════════════════════════════════

@@ -47,7 +47,7 @@ const 결과흉내 = {
   currency: "KRW" as const,
   assets: [{ symbol: "AAPL", market: "US", name: "Apple", weight: 0.6 }],
   skipped: [], fx_skipped: [], mixed_currency: true, costs_included: false,
-  costs: null, cost_rate: null, data_interval: "daily" as const,
+  costs: null, cost_rate: null,
   risk_free_rate: 0, cash_rate: 0,
   benchmark: null, extended_from: {},
 };
@@ -197,7 +197,7 @@ describe("사진의 항목이 다 있다", () => {
 describe("사진에 있던 나머지 항목", () => {
   it("여덟 가지 고르기 칸이 다 있다", () => {
     그리기();
-    for (const 이름 of ["리밸런싱 주기", "리밸런싱 날짜", "데이터 기준",
+    for (const 이름 of ["리밸런싱 주기", "리밸런싱 날짜",
                         "벤치 마크", "거래비용", "배분 기준"]) {
       expect(screen.getByLabelText(이름), `${이름} 칸이 없다`).toBeInTheDocument();
     }
@@ -237,10 +237,13 @@ describe("사진에 있던 나머지 항목", () => {
     expect(비용.value).toBe("");
   });
 
-  it("데이터 기준과 벤치마크를 고를 수 있다", () => {
+  it("벤치마크를 고를 수 있다", () => {
     그리기();
-    const 기준 = screen.getByLabelText("데이터 기준") as HTMLSelectElement;
-    expect([...기준.options].map((o) => o.value)).toEqual(["daily", "monthly"]);
+    /* '데이터 기준(일/월)' 칸이 여기 같이 있었다. 없앴다 — 월로
+       바꿔도 기다리는 시간은 거의 그대로인데(받는 자료가 같다)
+       답은 2.7% 달라지고 낙폭은 늘 작게 나왔다. */
+    expect(screen.queryByLabelText("데이터 기준"),
+      "없앤 '데이터 기준' 칸이 아직 있다").toBeNull();
     const 벤치 = screen.getByLabelText("벤치 마크") as HTMLSelectElement;
     /* 드롭다운은 위에서부터 읽힌다. 제일 흔히 견주는 S&P500 이 아래에
        있으면 매번 내려서 찾아야 한다 — 넓은 것에서 좁은 것, 한 자산에서
@@ -279,13 +282,12 @@ describe("사진에 있던 나머지 항목", () => {
       ...첫설정(new Date(2026, 0, 1)),
       assets: [{ symbol: "A", market: "US", weight: 100 }],
       initial_amount: 1_000_000, contribution_period: "none" as const,
-      rebalance_day: 20, cost_rate: 0.25, data_interval: "monthly" as const,
+      rebalance_day: 20, cost_rate: 0.25,
       benchmark: "6040" as const, equal_weight: true, extended: true,
     };
     const 보낸것 = 보낼것(s);
     expect(보낸것.rebalance_day).toBe(20);
     expect(보낸것.cost_rate).toBe(0.25);
-    expect(보낸것.data_interval).toBe("monthly");
     expect(보낸것.benchmark).toBe("6040");
     expect(보낸것.equal_weight).toBe(true);
     expect(보낸것.extended).toBe(true);
@@ -625,10 +627,6 @@ describe("결과 — 넣은 돈과 번 돈을 섞지 않는다", () => {
     expect(screen.getByText(/배당과 운용보수가 빠진 지수/)).toBeInTheDocument();
   });
 
-  it("월 데이터로 쟀으면 낙폭이 작게 나온다고 알린다", () => {
-    render(<자산배분결과화면 r={{ ...결과흉내, data_interval: "monthly" } as any} />);
-    expect(screen.getByText(/최대 낙폭은 실제보다 작게/)).toBeInTheDocument();
-  });
 
   it("뺀 자산이 있으면 먼저 알린다", () => {
     /* 조용히 빼고 계산하면 사용자는 다 담은 줄 알고 덜 담긴 결과를 본다 —
@@ -1316,12 +1314,28 @@ describe("자산을 빠르게 담는다", () => {
       .toHaveLength(1);
   });
 
-  it("담을 때마다 비중을 똑같이 나눈다 (함수 수준)", () => {
-    /* 0% 로 들어가면 '담았는데 결과에 아무 영향이 없는' 상태가 된다 */
+  it("빈 화면에서 하나씩 담으면 똑같이 나뉜다 (함수 수준)", () => {
+    /* 0% 로 들어가면 '담았는데 결과에 아무 영향이 없는' 상태가 된다.
+
+       **딱 33.3 셋은 아니다.** 33.3 × 3 = 99.9 라 부스러기 0.1 을
+       하나가 받는다(합 100). 예전에는 그 부스러기를 버려서 합이
+       99.9 였고, 화면에 노란 글씨로 '합 99.9%' 가 떴다.
+
+       수를 그대로 박아 두면 반올림을 조금만 손봐도 깨진다. 여기서
+       보려는 것은 '똑같이 나뉘고, 0 이 아니고, 합이 100' 이다.
+       비중을 이미 정해 둔 뒤의 동작은 비중지키며담기.test 가 본다. */
     let 것들 = 자산더하기([], { symbol: "A", market: "US", name: "A", weight: 0 });
     것들 = 자산더하기(것들, { symbol: "B", market: "US", name: "B", weight: 0 });
     것들 = 자산더하기(것들, { symbol: "C", market: "US", name: "C", weight: 0 });
-    expect(것들.map((x) => x.weight)).toEqual([33.3, 33.3, 33.3]);
+
+    const 값들 = 것들.map((x) => x.weight);
+    expect(값들).toHaveLength(3);
+    for (const v of 값들) expect(v, "0% 로 담겼다").toBeGreaterThan(0);
+    //: 부동소수점이라 0.1 이 0.100000...142 로 나온다 — 반올림해서 본다
+    expect(Math.round((Math.max(...값들) - Math.min(...값들)) * 10) / 10,
+      "똑같이 안 나뉘었다").toBeLessThanOrEqual(0.1);
+    expect(값들.reduce((a, b) => a + b, 0), "합이 100 이 아니다")
+      .toBeCloseTo(100, 5);
   });
 
   it("담았나 — 심볼로 가른다", () => {
