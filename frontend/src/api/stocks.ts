@@ -427,7 +427,7 @@ export interface 벤치마크결과 {
   std_3y?: number | null;
   std_5y?: number | null;
   mdd_date?: string | null;
-  crises?: { key: string; name: string; return: number }[];
+  crises?: { key: string; name: string; return: number; mdd?: number | null }[];
   /** 해마다의 수익률 — 내 것과 **해별로** 견준다.
    *
    *  전체 수익률 하나로는 '언제 이겼나' 를 알 수 없다. 8년 중 6년을
@@ -514,6 +514,15 @@ export interface 자산배분결과 {
   crises: {
     key: string; name: string; start: string; end: string;
     return: number; measured_start: string; measured_end: string;
+    /** **그 구간을 지나는 동안** 제일 나빴을 때(음수 %).
+     *
+     *  return 은 시작과 끝 두 점으로만 말한 수다. -12.62% 로 끝난
+     *  구간이 중간에 -30% 까지 갔을 수 있고, 그 시절을 견딘 사람이
+     *  실제로 본 것은 그쪽이다.
+     *
+     *  낙폭은 넣은 돈을 지운 곡선에서 잰다 — 화면의 최대 낙폭과
+     *  같은 기준이라 나란히 읽을 수 있다. 옛 응답에는 없다. */
+    mdd?: number | null;
     /** 요청한 구간의 일부만 겹쳤나 */
     partial: boolean;
   }[];

@@ -636,10 +636,15 @@ function 요약표({ r }: { r: 자산배분결과 }) {
 
 function 폭락표({ r }: { r: 자산배분결과 }) {
   const 배색 = useSettingsStore((s) => s.colorScheme);
-  const { pnlColor } = usePnlColors(배색);
+  const { pnlColor, loss } = usePnlColors(배색);
   const 것들 = r.crises ?? [];
   if (!것들.length) return null;
-  const 벤치 = new Map((r.benchmark?.crises ?? []).map((x) => [x.key, x.return]));
+  /* 벤치마크는 key 로 짝짓는다 — 차례로 짝지으면 한 구간이 비었을 때
+     그 뒤가 통째로 밀려 코로나 줄에 금융위기 수가 들어간다. */
+  const 벤치 = new Map((r.benchmark?.crises ?? []).map((x) => [x.key, x]));
+  /* 낙폭 칸을 그릴까. 옛 응답에는 mdd 가 없다 — 없으면 칸 자체를
+     안 그린다. 빈 칸만 줄줄이 있으면 고장으로 읽힌다. */
+  const 낙폭있나 = 것들.some((x) => x.mdd != null);
 
   return (
     <Card className="p-0 overflow-hidden">
@@ -651,12 +656,24 @@ function 폭락표({ r }: { r: 자산배분결과 }) {
         <p className="text-2xs text-text-dim mt-0.5 break-keep">
           시장이 고점에서 바닥까지 간 구간이에요. 회복까지 넣으면 대부분 플러스로
           끝나서 얼마나 아팠는지가 사라져요.
+          {낙폭있나 && (
+            <>
+              {" "}칸마다 <b>위는 수익률</b>(그 구간을 통째로 지나고 난 값),
+              {" "}<b>아래는 최대 낙폭</b>(지나는 동안 제일 나빴을 때)이에요 —
+              중간에 더 깊이 빠졌다 돌아왔으면 둘이 크게 벌어져요.
+            </>
+          )}
         </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="bg-bg-secondary border-b border-border">
             <tr className="text-text-muted">
+              {/* **칸을 늘리지 않는다.** 낙폭 칸을 따로 세우면 폰에서
+                  기간이 잘려 나간다(실측). 사람 기준으로 묶고 —
+                  한 칸에 수익률 위, 낙폭 아래 — 칸 수는 그대로 둔다.
+                  '수익률과 낙폭' 이 아니라 '내 것과 벤치마크' 로
+                  나뉘는 쪽이 읽기도 쉽다. */}
               <th className="text-left px-3 py-2 whitespace-nowrap">언제</th>
               <th className="text-right px-3 py-2 whitespace-nowrap">내 조합</th>
               <th className="text-right px-3 py-2 whitespace-nowrap truncate">
@@ -679,11 +696,27 @@ function 폭락표({ r }: { r: 자산배분결과 }) {
                       <span className="text-accent-yellow text-2xs ml-1">일부</span>
                     )}
                   </td>
-                  <td className={`px-3 py-2 text-right font-mono font-semibold whitespace-nowrap ${pnlColor(x.return)}`}>
-                    {x.return}%
+                  <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+                    <span className={`font-semibold ${pnlColor(x.return)}`}>
+                      {x.return}%
+                    </span>
+                    {/* **이 구간을 지나는 동안 제일 나빴을 때.**
+                        -12.62% 로 끝난 구간이 중간에 -24.9% 까지 갔을 수
+                        있다. 그 시절을 견딘 사람이 실제로 본 것은
+                        그쪽이고, 못 견디고 판 이유도 그쪽이다. */}
+                    {낙폭있나 && (
+                      <span className={`block text-2xs ${loss}`}>
+                        {x.mdd == null ? "—" : `${x.mdd}%`}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-text-dim whitespace-nowrap">
-                    {벤== null ? "—" : `${벤}%`}
+                    <span className="block">{벤 == null ? "—" : `${벤.return}%`}</span>
+                    {낙폭있나 && (
+                      <span className="block text-2xs opacity-70">
+                        {벤?.mdd == null ? "—" : `${벤.mdd}%`}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-text-dim whitespace-nowrap">
                     {x.partial ? `${x.measured_start} ~ ${x.measured_end}` : `${x.start} ~ ${x.end}`}

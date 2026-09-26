@@ -59,10 +59,12 @@ const 기본 = {
   mdd_date: "2020-03-01",
   crises: [
     { key: "covid", name: "코로나", start: "2020-02-19", end: "2020-03-23",
-      return: -28.4, measured_start: "2020-02-19", measured_end: "2020-03-23",
+      return: -28.4, mdd: -34.1,
+      measured_start: "2020-02-19", measured_end: "2020-03-23",
       partial: false },
     { key: "gfc", name: "미국 금융위기", start: "2007-10-09", end: "2009-03-09",
-      return: -5.4, measured_start: "2008-06-02", measured_end: "2009-03-09",
+      return: -5.4, mdd: -41.8,
+      measured_start: "2008-06-02", measured_end: "2009-03-09",
       partial: true },
   ],
   currency: "KRW" as const,
@@ -86,7 +88,7 @@ const 벤치 = {
   return_1y: 8.9, return_3y: 50.4, return_5y: null,
   std_1y: 11.8, std_3y: 9.4, std_5y: null,
   mdd_date: "2020-02-01",
-  crises: [{ key: "covid", name: "코로나", return: -15.2 }],
+  crises: [{ key: "covid", name: "코로나", return: -15.2, mdd: -19.7 }],
 };
 
 function 그리기(덮을것: Record<string, unknown> = {}) {
@@ -484,5 +486,60 @@ describe("담은 자산", () => {
     그리기();
     await 탭열기("세부");
     expect(screen.getByText(/계산에 실제로 쓴 비중/)).toBeInTheDocument();
+  });
+});
+
+
+describe("폭락 때 — 구간 안의 최대 낙폭도 같이 본다", () => {
+  /* '2022년 약세장 -12.62%' 는 그 구간을 **시작과 끝** 두 점으로만
+     말한 수다. 중간에 -30% 까지 빠졌다가 돌아왔어도 -12.62% 로 적힌다.
+     실제로 그 시절을 견딘 사람이 본 것은 -30% 쪽이고, 못 견디고 판
+     이유도 그쪽이다. */
+
+  it("수익률과 낙폭을 **둘 다** 적는다", async () => {
+    그리기();
+    await 탭열기("낙폭");
+    expect(screen.getByText("-28.4%"), "수익률이 없다").toBeInTheDocument();
+    expect(screen.getByText("-34.1%"), "그 구간의 최대 낙폭이 없다")
+      .toBeInTheDocument();
+  });
+
+  it("둘이 다른 수라는 것을 적어 준다", async () => {
+    /* 같은 줄에 비슷한 음수 둘이 있으면 무엇이 무엇인지 모른다. */
+    그리기();
+    await 탭열기("낙폭");
+    const 글 = screen.getByText(/지나는 동안 제일 나빴을 때/);
+    expect(글).toBeInTheDocument();
+  });
+
+  it("벤치마크 낙폭도 나란히 놓는다", async () => {
+    /* '내 것이 덜 빠졌나' 는 나란히 놔야 알 수 있다. */
+    그리기({ benchmark: 벤치 });
+    await 탭열기("낙폭");
+    expect(screen.getByText("-19.7%")).toBeInTheDocument();
+  });
+
+  it("옛 응답처럼 낙폭이 없으면 그 칸을 아예 안 그린다", async () => {
+    /* 빈 칸만 줄줄이 있으면 고장으로 읽힌다. */
+    그리기({
+      crises: 기본.crises.map(({ mdd, ...나머지 }) => 나머지),
+    });
+    await 탭열기("낙폭");
+    expect(screen.queryByText("최대 낙폭", { selector: "th" })).toBeNull();
+    //: 수익률은 그대로 보여야 한다
+    expect(screen.getByText("-28.4%")).toBeInTheDocument();
+  });
+
+  it("폭락 줄을 key 로 짝짓는다 — 차례로 짝짓지 않는다", async () => {
+    /* 벤치마크에 한 구간이 비면 그 뒤가 통째로 밀려, 코로나 줄에
+       금융위기 수가 들어간다. 둘 다 맞는 수인데 비교만 틀린다. */
+    그리기({
+      benchmark: { ...벤치,
+        crises: [{ key: "gfc", name: "미국 금융위기", return: -9.9, mdd: -12.3 }] },
+    });
+    await 탭열기("낙폭");
+    const 코로나줄 = screen.getByText("코로나").closest("tr")!;
+    expect(코로나줄.textContent, "코로나 줄에 금융위기 수가 밀려 들어왔다")
+      .not.toMatch(/-9\.9%|-12\.3%/);
   });
 });

@@ -658,3 +658,178 @@ class Test기간이_짧아진_이유:
         늦은것 = [s for s, v in d["asset_range"].items()
                   if v["first"] > d["requested_start"]]
         assert 늦은것 == [], f"멀쩡한데 늦게 시작한 자산이 있다고 한다 — {늦은것}"
+
+
+class Test폭락때_최대낙폭:
+    """'2022년 약세장 -12.62%' 는 그 구간을 **시작과 끝** 두 점으로만
+    말한 수다. 중간에 -30% 까지 빠졌다가 돌아왔어도 -12.62% 로 적힌다.
+
+    실제로 그 시절을 견딘 사람이 본 것은 -30% 쪽이고, 못 견디고 판
+    이유도 그쪽이다. 그래서 구간 안의 최대 낙폭을 같이 낸다.
+    """
+
+    def test_폭락_구간마다_낙폭을_같이_준다(self, client):
+        d = 돌려(client, start_date="2016-01-04", end_date="2021-12-30")
+        폭락들 = d["crises"]
+        assert 폭락들, "겹치는 폭락 구간이 없다 — 검사 기간을 보라"
+        for x in 폭락들:
+            assert "mdd" in x, f"{x['name']} 에 낙폭이 없다"
+            assert x["mdd"] is None or x["mdd"] <= 0, \
+                f"낙폭은 0 이하여야 한다 — {x['name']} {x['mdd']}"
+
+    def test_낙폭은_수익률보다_깊거나_같다(self, client):
+        """지나는 동안 제일 나빴을 때가, 지나고 난 결과보다 나을 수는
+        없다. 이 관계가 깨지면 둘 중 하나를 잘못 재고 있다."""
+        d = 돌려(client, start_date="2016-01-04", end_date="2021-12-30")
+        for x in d["crises"]:
+            if x["mdd"] is None:
+                continue
+            assert x["mdd"] <= x["return"] + 1e-9, \
+                (f"{x['name']}: 낙폭 {x['mdd']}% 가 수익률 {x['return']}% 보다 얕다 — "
+                 "둘 중 하나를 잘못 쟀다")
+
+    def test_중간에_더_깊이_빠졌으면_둘이_벌어진다(self, client):
+        """여기가 이 기능의 본론이다. 빠졌다 돌아온 구간에서는
+        수익률과 낙폭이 **달라야** 한다 — 같으면 낙폭을 재는 것이
+        아니라 수익률을 베껴 적고 있는 것이다."""
+        d = 돌려(client, start_date="2016-01-04", end_date="2021-12-30")
+        벌어진것 = [x for x in d["crises"]
+                    if x["mdd"] is not None and abs(x["mdd"] - x["return"]) > 0.01]
+        assert 벌어진것, \
+            ("어느 구간에서도 낙폭과 수익률이 다르지 않다 — "
+             f"낙폭을 따로 재는 것이 맞는지 보라: {d['crises']}")
+
+    def test_벤치마크에도_낙폭이_온다(self, client):
+        """나란히 놓고 봐야 '내 것이 덜 빠졌나' 를 알 수 있다."""
+        b = 돌려(client, benchmark="spy", start_date="2016-01-04",
+                 end_date="2021-12-30")["benchmark"]
+        assert b["crises"], "벤치마크 폭락 자료가 없다"
+        assert any("mdd" in x for x in b["crises"]), \
+            "벤치마크 줄에 낙폭이 안 실려 온다 — 나란히 못 본다"
+
+    def test_낙폭은_넣은_돈을_지운_곡선에서_잰다(self, client):
+        """평가액으로 재면 매달 넣는 돈이 곡선을 밀어 올려 하락을
+        가린다 — 같은 폭락인데 적립하면 덜 빠진 것처럼 나온다.
+        화면의 최대 낙폭과 같은 기준이어야 나란히 읽을 수 있다."""
+        거치 = 돌려(client, start_date="2016-01-04", end_date="2021-12-30")
+        적립 = 돌려(client, start_date="2016-01-04", end_date="2021-12-30",
+                    contribution_period="monthly", contribution_amount=500_000)
+        거치낙폭 = {x["key"]: x["mdd"] for x in 거치["crises"]}
+        for x in 적립["crises"]:
+            앞 = 거치낙폭.get(x["key"])
+            if 앞 is None or x["mdd"] is None:
+                continue
+            assert abs(x["mdd"] - 앞) < 1.0, \
+                (f"{x['name']}: 적립했다고 낙폭이 {앞}% → {x['mdd']}% 로 달라졌다 — "
+                 "평가액 곡선에서 재고 있다")
+
+
+class Test폭락때_낙폭을_어디서_재나:
+    """API 로는 못 잡히는 두 가지를 엔진을 직접 불러 본다.
+
+    가짜 시세로 돌리면 적립금이 작고 폭락 구간이 짧아서, 잘못 재도
+    차이가 1%p 안쪽이다 — 실제로 그 두 뮤테이션이 살아남았다.
+    여기서는 **일부러 크게** 만들어 놓고 본다.
+    """
+
+    @staticmethod
+    def _코로나때(값들: list[float], 납입: dict | None = None):
+        """코로나 구간(2020-02-19 ~ 2020-03-23) 앞뒤로 하루씩 더 둔 날들.
+
+        첫날은 구간 **직전**이다 — 구간 첫날의 하락을 잡는지 보려면
+        그 앞이 있어야 한다."""
+        from app.services.portfolio_backtest import _폭락때
+        날들 = [date(2020, 2, 18)] + [date(2020, 2, 19) + timedelta(days=i)
+                                      for i in range(len(값들) - 1)]
+        나온것 = _폭락때(날들, 값들, 납입 or {}, 값들 if 납입 is None else None)
+        return 나온것, 날들
+
+    def test_구간_첫날의_하락도_잡는다(self):
+        """구간 첫날을 꼭대기로 잡으면 그날의 하락이 통째로 빠진다.
+        하루 만에 -20% 가 난 구간이 -0% 로 나온다."""
+        from app.services.portfolio_backtest import _폭락때
+        #: 직전 100 → 구간 첫날 80 (-20%) → 그대로
+        값들 = [100.0] + [80.0] * 10
+        날들 = [date(2020, 2, 18)] + [date(2020, 2, 19) + timedelta(days=i)
+                                      for i in range(10)]
+        [줄] = [x for x in _폭락때(날들, 값들, {}, 값들) if x["key"] == "covid"]
+        assert 줄["mdd"] == pytest.approx(-20.0, abs=0.01), \
+            f"구간 첫날의 하락을 놓쳤다 — {줄['mdd']}%"
+
+    def test_넣은_돈이_하락을_가리지_않는다(self):
+        """평가액 곡선으로 재면 매달 넣는 돈이 곡선을 밀어 올려
+        하락을 가린다. 화면의 최대 낙폭과 같은 기준이어야 한다."""
+        from app.services.portfolio_backtest import _폭락때
+        날들 = [date(2020, 2, 18)] + [date(2020, 2, 19) + timedelta(days=i)
+                                      for i in range(10)]
+        #: **순곡선은 반토막**이다(1.0 → 0.5)
+        순곡선 = [1.0, 0.9, 0.7, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85]
+        #: 그런데 평가액은 큰 적립 덕에 **계속 오른다**
+        값들 = [100.0, 150.0, 220.0, 300.0, 380.0, 460.0,
+                540.0, 620.0, 700.0, 780.0, 860.0]
+        납입 = {d: 100.0 for d in 날들[1:]}
+
+        [순줄] = [x for x in _폭락때(날들, 값들, 납입, 순곡선) if x["key"] == "covid"]
+        assert 순줄["mdd"] == pytest.approx(-50.0, abs=0.01), \
+            f"순곡선으로 안 쟀다 — {순줄['mdd']}%"
+
+        #: 평가액으로 재면 한 번도 안 빠진 것으로 나온다 — 그게 틀린 답이다
+        [평가줄] = [x for x in _폭락때(날들, 값들, 납입, 값들) if x["key"] == "covid"]
+        assert 평가줄["mdd"] == pytest.approx(0.0, abs=0.01), \
+            "검사 자료가 잘못됐다 — 평가액 곡선은 안 빠져야 한다"
+
+    def test_순곡선을_안_주면_지어내지_않는다(self):
+        """평가액으로 대신 재서 **틀린 수를 채워 넣지 않는다.**"""
+        from app.services.portfolio_backtest import _폭락때
+        날들 = [date(2020, 2, 18)] + [date(2020, 2, 19) + timedelta(days=i)
+                                      for i in range(10)]
+        값들 = [100.0] + [80.0] * 10
+        [줄] = [x for x in _폭락때(날들, 값들, {}) if x["key"] == "covid"]
+        assert 줄["mdd"] is None, f"순곡선 없이 낙폭을 지어냈다 — {줄['mdd']}"
+
+    def test_돌리기가_순곡선을_넘긴다(self):
+        """앞의 검사들은 _폭락때 를 **직접** 부른다. 함수가 맞아도
+        돌리기 가 값들을 넘기면 아무 소용이 없는데, 그 뮤테이션이
+        실제로 살아남았다 — 호출 자리를 따로 본다.
+
+        같은 시세를 적립 없이 / 크게 적립하며 두 번 돌린다. 낙폭을
+        순곡선에서 재면 둘이 같고, 평가액에서 재면 적립한 쪽이
+        훨씬 얕게 나온다."""
+        from app.services.portfolio_backtest import 돌리기
+
+        #: 코로나 구간에 딱 걸치도록 짧게 만든다
+        날들, d = [], date(2020, 1, 2)
+        while d <= date(2020, 6, 30):
+            if d.weekday() < 5:
+                날들.append(d)
+            d += timedelta(days=1)
+
+        바닥 = date(2020, 3, 23)
+        값 = {}
+        for x in 날들:
+            if x < date(2020, 2, 19):
+                값[x] = 100.0
+            elif x <= 바닥:
+                #: 폭락 구간에서 곧장 -40%
+                몫 = (x - date(2020, 2, 19)).days / (바닥 - date(2020, 2, 19)).days
+                값[x] = 100.0 * (1 - 0.40 * 몫)
+            else:
+                값[x] = 60.0 + 40.0 * min((x - 바닥).days / 90, 1.0)
+
+        자산 = [{"symbol": "A", "market": "US", "weight": 100}]
+        거치 = 돌리기({"A": 값}, 자산, 1_000_000)
+        #: **원금만큼** 매달 넣는다 — 평가액으로 재면 하락이 통째로 가려진다
+        적립 = 돌리기({"A": 값}, 자산, 1_000_000,
+                      적립주기="monthly", 적립금액=1_000_000)
+
+        def 코로나(r):
+            것 = [x for x in r["crises"] if x["key"] == "covid"]
+            assert 것, "코로나 구간이 안 잡혔다 — 검사 자료를 보라"
+            return 것[0]["mdd"]
+
+        거치낙폭, 적립낙폭 = 코로나(거치), 코로나(적립)
+        assert 거치낙폭 is not None and 거치낙폭 < -30, \
+            f"거치식 낙폭이 이상하다 — {거치낙폭}%"
+        assert abs(적립낙폭 - 거치낙폭) < 1.0, \
+            (f"적립했다고 낙폭이 {거치낙폭}% → {적립낙폭}% 로 달라졌다 — "
+             "돌리기 가 순곡선이 아니라 평가액을 넘기고 있다")
