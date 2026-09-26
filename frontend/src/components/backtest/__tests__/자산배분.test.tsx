@@ -361,14 +361,36 @@ describe("자산을 담는다", () => {
     expect(await screen.findByLabelText("Apple 비중 (%)")).toBeInTheDocument();
   });
 
-  it("담을 때마다 비중을 똑같이 나눈다", async () => {
-    /* 0% 로 들어가면 '담았는데 결과에 아무 영향이 없는' 상태가 되고,
-       그건 고장으로 읽힌다 */
+  it("첫 자산은 100%, 그 뒤로 담는 것은 0% 로 들어온다", async () => {
+    /* 담을 때마다 전부 똑같이 나누던 시절이 있었다. 그러면 비중을
+       이미 맞춰 둔 뒤에 자산 하나 더했다고 그것이 통째로 날아간다 —
+       내 포트폴리오를 75/25 로 담아 놓고 금을 더하면 33.3 셋이 됐다.
+
+       지금은 **있던 비중을 손대지 않는다.** 새것은 0% 로 들어오고,
+       얼마를 줄지는 사람이 정한다. 한 번에 맞추고 싶으면 '동일비중'
+       단추가 따로 있다(늘 보인다).
+
+       0% 가 계산에 안 들어간다는 것은 목록 아래에 적어 준다 —
+       아래 검사가 그것을 본다. */
+    그리기();
+    await 검색해서담기("Apple");
+    expect((await screen.findByLabelText("Apple 비중 (%)") as HTMLInputElement).value)
+      .toBe("100");
+    await 검색해서담기("삼성전자");
+    expect((screen.getByLabelText("Apple 비중 (%)") as HTMLInputElement).value,
+      "먼저 담은 것의 비중이 바뀌었다").toBe("100");
+    expect((screen.getByLabelText("삼성전자 비중 (%)") as HTMLInputElement).value)
+      .toBe("0");
+  });
+
+  it("0% 인 자산이 있으면 결과에 안 들어간다고 적는다", async () => {
+    /* 목록에는 보이는데 결과에는 없다. 조용히 빠지면 '두 개를
+       담았는데 왜 하나짜리 결과지' 가 된다. */
     그리기();
     await 검색해서담기("Apple");
     await 검색해서담기("삼성전자");
-    expect((await screen.findByLabelText("Apple 비중 (%)") as HTMLInputElement).value).toBe("50");
-    expect((screen.getByLabelText("삼성전자 비중 (%)") as HTMLInputElement).value).toBe("50");
+    const 글 = await screen.findByText(/비중이 0%라 결과에 안 들어가요/);
+    expect(글.textContent).toMatch(/삼성전자/);
   });
 
   it("같은 자산을 두 번 담지 않는다", async () => {
@@ -1314,28 +1336,15 @@ describe("자산을 빠르게 담는다", () => {
       .toHaveLength(1);
   });
 
-  it("빈 화면에서 하나씩 담으면 똑같이 나뉜다 (함수 수준)", () => {
-    /* 0% 로 들어가면 '담았는데 결과에 아무 영향이 없는' 상태가 된다.
-
-       **딱 33.3 셋은 아니다.** 33.3 × 3 = 99.9 라 부스러기 0.1 을
-       하나가 받는다(합 100). 예전에는 그 부스러기를 버려서 합이
-       99.9 였고, 화면에 노란 글씨로 '합 99.9%' 가 떴다.
-
-       수를 그대로 박아 두면 반올림을 조금만 손봐도 깨진다. 여기서
-       보려는 것은 '똑같이 나뉘고, 0 이 아니고, 합이 100' 이다.
-       비중을 이미 정해 둔 뒤의 동작은 비중지키며담기.test 가 본다. */
+  it("첫 자산은 100%, 그 뒤는 0% (함수 수준)", () => {
+    /* 있던 비중을 손대지 않는다. 자세한 규칙은 비중지키며담기.test
+       가 본다 — 여기서는 화면이 쓰는 함수가 그 규칙인지만 확인한다. */
     let 것들 = 자산더하기([], { symbol: "A", market: "US", name: "A", weight: 0 });
+    expect(것들.map((x) => x.weight)).toEqual([100]);
     것들 = 자산더하기(것들, { symbol: "B", market: "US", name: "B", weight: 0 });
     것들 = 자산더하기(것들, { symbol: "C", market: "US", name: "C", weight: 0 });
-
-    const 값들 = 것들.map((x) => x.weight);
-    expect(값들).toHaveLength(3);
-    for (const v of 값들) expect(v, "0% 로 담겼다").toBeGreaterThan(0);
-    //: 부동소수점이라 0.1 이 0.100000...142 로 나온다 — 반올림해서 본다
-    expect(Math.round((Math.max(...값들) - Math.min(...값들)) * 10) / 10,
-      "똑같이 안 나뉘었다").toBeLessThanOrEqual(0.1);
-    expect(값들.reduce((a, b) => a + b, 0), "합이 100 이 아니다")
-      .toBeCloseTo(100, 5);
+    expect(것들.map((x) => x.weight), "먼저 담은 것의 비중이 바뀌었다")
+      .toEqual([100, 0, 0]);
   });
 
   it("담았나 — 심볼로 가른다", () => {

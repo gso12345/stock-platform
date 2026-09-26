@@ -446,7 +446,8 @@ describe("가져온 비중이 **자산을 더해도 살아남는다**", () => {
     //: A 30주 · B 10주 → 75 : 25
     const 담은뒤 = Object.fromEntries(
       지금값().assets.map((a: 배분자산) => [a.symbol, a.weight]));
-    expect(담은뒤.A / 담은뒤.B).toBeCloseTo(3, 1);
+    expect(담은뒤.A).toBeCloseTo(75, 1);
+    expect(담은뒤.B).toBeCloseTo(25, 1);
 
     //: 검색해서 하나 더 담는다
     await userEvent.click(screen.getByLabelText("자산 추가"));
@@ -456,8 +457,57 @@ describe("가져온 비중이 **자산을 더해도 살아남는다**", () => {
     await waitFor(() => expect(지금값().assets).toHaveLength(3));
     const 더한뒤 = Object.fromEntries(
       지금값().assets.map((a: 배분자산) => [a.symbol, a.weight]));
-    expect(더한뒤.A / 더한뒤.B, "자산을 더하니 가져온 비중이 날아갔다")
-      .toBeCloseTo(3, 1);
-    expect(더한뒤.AAPL, "새로 담은 것이 0% 다").toBeGreaterThan(0);
+    expect(더한뒤.A, "자산을 더하니 가져온 비중이 바뀌었다").toBeCloseTo(75, 1);
+    expect(더한뒤.B).toBeCloseTo(25, 1);
+    expect(더한뒤.AAPL, "새로 담은 것은 0% 로 들어와야 한다").toBe(0);
+  });
+
+  it("0% 인 자산이 있으면 **결과에 안 들어간다고 적는다**", async () => {
+    /* 담아 놓고 비중을 안 준 자산은 목록에는 보이는데 결과에는 없다.
+       조용히 빠지면 '세 개를 담았는데 왜 두 개짜리 결과지' 가 된다. */
+    const { 지금값 } = 그리기();
+    await 내자산칸열기();
+    await userEvent.click(
+      await screen.findByLabelText("이 포트폴리오를 비중 그대로 담기"));
+    await waitFor(() => expect(지금값().assets).toHaveLength(2));
+
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("검색해서"));
+    await userEvent.click(await screen.findByLabelText("Apple 담기"));
+
+    const 글 = await screen.findByText(/비중이 0%라 결과에 안 들어가요/);
+    expect(글.textContent, "어느 자산인지를 안 적는다").toMatch(/Apple/);
+  });
+
+  it("비중을 다 채우면 그 안내가 사라진다", async () => {
+    const { 지금값 } = 그리기();
+    await 내자산칸열기();
+    await userEvent.click(
+      await screen.findByLabelText("이 포트폴리오를 비중 그대로 담기"));
+    await waitFor(() => expect(지금값().assets).toHaveLength(2));
+    //: 둘 다 비중이 있으므로 안내가 없어야 한다
+    expect(screen.queryByText(/비중이 0%라 결과에 안 들어가요/)).toBeNull();
+  });
+
+  it("'동일비중' 단추가 늘 있다 — 0% 를 한 번에 채우는 길", async () => {
+    /* 예전에는 '합이 100 이 아닐 때만' 보여 줬다. 새 자산이 0% 로
+       들어오면 75/25/0 은 합이 100 이라 단추가 숨는데, 정작 제일
+       필요한 자리다. */
+    const { 지금값 } = 그리기();
+    await 내자산칸열기();
+    await userEvent.click(
+      await screen.findByLabelText("이 포트폴리오를 비중 그대로 담기"));
+    await waitFor(() => expect(지금값().assets).toHaveLength(2));
+
+    await userEvent.click(screen.getByLabelText("자산 추가"));
+    await userEvent.click(screen.getByLabelText("검색해서"));
+    await userEvent.click(await screen.findByLabelText("Apple 담기"));
+    await waitFor(() => expect(지금값().assets).toHaveLength(3));
+
+    await userEvent.click(await screen.findByText("동일비중"));
+    await waitFor(() => {
+      const w = 지금값().assets.map((a: 배분자산) => a.weight);
+      expect(Math.min(...w), "동일비중을 눌러도 0% 가 남아 있다").toBeGreaterThan(0);
+    });
   });
 });
