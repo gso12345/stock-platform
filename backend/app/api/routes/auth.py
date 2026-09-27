@@ -167,12 +167,42 @@ def _redirect_uri(provider: str) -> str:
     return f"{settings.OAUTH_REDIRECT_BASE}/api/v1/auth/oauth/{provider}/callback"
 
 
+_내컴퓨터 = ("localhost", "127.0.0.1")
+
+
+def _쓸수있나(provider: str, request: Request) -> bool:
+    """이 공급자로 **끝까지** 로그인할 수 있게 설정됐는가.
+
+    열쇠(client_id)만 보면 모자란다:
+      · 비밀키가 없으면 공급자 화면까지는 가는데 돌아와서 토큰 교환이 실패한다
+        (카카오는 비밀키가 선택이라 없어도 된다)
+      · 돌아올 주소(OAUTH_REDIRECT_BASE)가 기본값 localhost 로 남아 있으면
+        배포된 서버에서 로그인한 사람이 **자기 컴퓨터의 localhost** 로 튕긴다
+    셋 중 하나라도 빠지면 버튼을 켜지 않는다 — 눌러서 오류 화면을 보는 것보다
+    '준비중' 이 낫다."""
+    cfg = PROVIDERS.get(provider)
+    if not cfg or not cfg["client_id"]:
+        return False
+    if not cfg["client_secret"] and provider != "kakao":
+        return False
+    돌아올곳 = settings.OAUTH_REDIRECT_BASE
+    if any(h in 돌아올곳 for h in _내컴퓨터) and (request.url.hostname or "") not in _내컴퓨터:
+        return False
+    return True
+
+
+@router.get("/oauth/providers")
+def oauth_providers(request: Request):
+    """지금 켜진 소셜 로그인 — 화면은 여기 있는 것만 누를 수 있게 한다"""
+    return {"providers": [p for p in PROVIDERS if _쓸수있나(p, request)]}
+
+
 @router.get("/oauth/{provider}/login")
 @limiter.limit("20/minute")
 def oauth_login(request: Request, provider: str):
     """소셜 로그인 시작 — 공급자 인증 페이지로 리다이렉트"""
     cfg = PROVIDERS.get(provider)
-    if not cfg or not cfg["client_id"]:
+    if not _쓸수있나(provider, request):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="지원하지 않는 로그인 방식입니다")
 
     state = create_access_token(data={"oauth_provider": provider}, expires_delta=timedelta(minutes=10))

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import api, { API_BASE } from "@/api/client";
 
 function GoogleIcon() {
   return (
@@ -50,8 +51,26 @@ const PROVIDERS = [
   },
 ] as const;
 
+/* 서버가 '끝까지 로그인할 수 있다' 고 한 공급자만 누를 수 있게 한다.
+   열쇠가 덜 들어간 공급자를 누르면 공급자 화면에 갔다가 오류로 돌아온다 —
+   그것보다는 '준비중' 이라고 먼저 말하는 편이 낫다. 서버에 못 물으면
+   모두 준비중으로 둔다(누르면 실패할 것을 켜 두지 않는다). */
+export function useSocialProviders(): Set<string> {
+  const [켜짐, set켜짐] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let 살아있음 = true;
+    api.get<{ providers: string[] }>("/auth/oauth/providers")
+      .then(({ data }) => { if (살아있음) set켜짐(new Set(data?.providers ?? [])); })
+      .catch(() => {});
+    return () => { 살아있음 = false; };
+  }, []);
+  return 켜짐;
+}
+
 export default function SocialLoginButtons() {
   const [notice, setNotice] = useState(false);
+  const 켜짐 = useSocialProviders();
+  const 공통 = "flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-semibold transition-all";
 
   return (
     <div className="flex flex-col gap-2">
@@ -60,19 +79,29 @@ export default function SocialLoginButtons() {
         <span className="text-2xs text-text-dim">또는</span>
         <div className="flex-1 h-px bg-border" />
       </div>
-      {PROVIDERS.map((p) => (
-        <button
-          key={p.id}
-          type="button"
-          onClick={() => setNotice(true)}
-          className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-semibold transition-all ${p.className}`}
-        >
-          {p.icon}
-          {p.label}
-        </button>
-      ))}
+      {PROVIDERS.map((p) =>
+        켜짐.has(p.id) ? (
+          /* 페이지째 넘어가야 한다 — 공급자 화면을 거쳐 서버 콜백으로 돌아오는 길이라
+             fetch 로는 안 된다 */
+          <a key={p.id} href={`${API_BASE}/auth/oauth/${p.id}/login`} className={`${공통} ${p.className}`}>
+            {p.icon}
+            {p.label}
+          </a>
+        ) : (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setNotice(true)}
+            aria-disabled="true"
+            className={`${공통} ${p.className} opacity-60`}
+          >
+            {p.icon}
+            {p.label}
+          </button>
+        ),
+      )}
       {notice && (
-        <p className="text-2xs text-text-muted text-center mt-1">SNS 로그인은 서비스 준비중입니다.</p>
+        <p className="text-2xs text-text-muted text-center mt-1">이 로그인 방식은 아직 준비중이에요.</p>
       )}
     </div>
   );

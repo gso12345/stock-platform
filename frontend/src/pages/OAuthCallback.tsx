@@ -7,6 +7,7 @@ interface ExchangeResponse {
   access_token: string;
   user_id: number;
   username: string;
+  is_admin?: boolean;
 }
 
 export default function OAuthCallback() {
@@ -23,7 +24,7 @@ export default function OAuthCallback() {
     api
       .post<ExchangeResponse>("/auth/oauth/exchange", { code })
       .then(({ data }) => {
-        login(data.access_token, data.user_id, data.username);
+        login(data.access_token, data.user_id, data.username, data.is_admin ?? false);
         navigate("/", { replace: true });
       })
       .catch(() => {
