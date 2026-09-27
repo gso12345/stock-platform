@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { backtestApi } from "@/api/stocks";
 import { Card, LoadingSpinner, Badge, Button, Tabs, ConfirmDialog, 못불러옴} from "@/components/ui";
 import { useAuthStore } from "@/store/authStore";
+import 실험비교 from "@/components/backtest/ExperimentCompare";
 import {
   LogIn, TrendingUp, Plus, Trash2, BarChart2, PieChart,
 } from "lucide-react";
@@ -210,6 +211,9 @@ export default function Strategies() {
               </p>
             </Card>
           )}
+
+          {/* ── 자산배분 실험 견주기 ── 둘 이상 저장했을 때만 뜬다 */}
+          {!isLoading && 종류 !== "신호" && <실험비교 실험들={all실험} />}
 
           {/* ── 전략 그리드 ────────────────────────────────────── */}
           {!isLoading && 보일개수 > 0 && (

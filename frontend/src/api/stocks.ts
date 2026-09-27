@@ -290,7 +290,10 @@ export const financialsApi = {
 
 export const screeningApi = {
   run: (payload: { market: string; filters: ScreeningFilter; sort_by: string; sort_order: string; limit: number }) =>
-    api.post("/screening/run", payload).then((r) => r.data),
+    /* 처음 한 번은 종목 수백 개의 1년 시세를 새로 받아 수십 초가 걸린다
+       (그 뒤 30분은 종목별로 기억해 빠르다). 기본 시한이면 서버가 아직
+       받는 중인데 화면이 '실패' 를 띄운다 — 백테스트와 같은 무거운상한을 쓴다 */
+    api.post("/screening/run", payload, { timeout: 무거운상한 }).then((r) => r.data),
 
   getPresets: () =>
     api.get("/screening/presets").then((r) => r.data),
@@ -384,6 +387,10 @@ export interface 자산배분요청 {
   extended: boolean;
   /** 현금에 붙는 연 이율 **퍼센트**. 0 이면 '현금은 안 불어난다' 는 가정 */
   cash_rate: number;
+  /** 연 운용보수 **퍼센트** — 담은 자산에서 날마다 조금씩 빠진다 */
+  expense_ratio?: number;
+  /** 매도세 **퍼센트** — 리밸런싱으로 팔 때만 붙는다 */
+  sell_tax?: number;
   /** 진행 상황을 적어 둘 열쇠. 화면이 만들어 보내고 따로 물어본다 */
   progress_key?: string;
   /** 샤프를 잴 때 뺄 무위험수익률 **퍼센트** */
@@ -427,7 +434,7 @@ export interface 벤치마크결과 {
   std_3y?: number | null;
   std_5y?: number | null;
   mdd_date?: string | null;
-  crises?: { key: string; name: string; return: number; mdd?: number | null }[];
+  crises?: { key: string; name: string; mdd: number }[];
   /** 해마다의 수익률 — 내 것과 **해별로** 견준다.
    *
    *  전체 수익률 하나로는 '언제 이겼나' 를 알 수 없다. 8년 중 6년을
@@ -478,6 +485,11 @@ export interface 자산배분결과 {
   /** 낸 수수료 합. 0%로 돌렸으면 null — '안 넣었다' 와 '0원' 은 다른 말이다 */
   costs: number | null;
   cost_rate: number | null;
+  /** 낸 운용보수·매도세 합과 그 비율(0.005 = 0.5%). 안 넣었으면 null */
+  fees?: number | null;
+  fee_rate?: number | null;
+  taxes?: number | null;
+  tax_rate?: number | null;
   /** 날마다의 낙폭(%). 0 이 고점, 음수가 내려온 정도.
    *  **mdd 와 같은 곡선에서 잰 값**이다 — 화면이 curve 로 다시 재면
    *  적립식에서 둘이 어긋난다(넣은 돈이 하락을 가린다). */
@@ -513,16 +525,15 @@ export interface 자산배분결과 {
   /** 이름 붙은 폭락 때 얼마나 빠졌나. 겹치는 자료가 없으면 그 줄이 없다 */
   crises: {
     key: string; name: string; start: string; end: string;
-    return: number; measured_start: string; measured_end: string;
+    measured_start: string; measured_end: string;
     /** **그 구간을 지나는 동안** 제일 나빴을 때(음수 %).
      *
-     *  return 은 시작과 끝 두 점으로만 말한 수다. -12.62% 로 끝난
-     *  구간이 중간에 -30% 까지 갔을 수 있고, 그 시절을 견딘 사람이
-     *  실제로 본 것은 그쪽이다.
+     *  구간을 통째로 지나고 난 수익률은 받지 않는다 — 시작과 끝 두
+     *  점으로만 말한 수라, -12% 로 끝난 구간이 중간에 -30% 까지 갔어도
+     *  -12% 로 적힌다. 그 시절을 견딘 사람이 본 것은 낙폭 쪽이다.
      *
-     *  낙폭은 넣은 돈을 지운 곡선에서 잰다 — 화면의 최대 낙폭과
-     *  같은 기준이라 나란히 읽을 수 있다. 옛 응답에는 없다. */
-    mdd?: number | null;
+     *  넣은 돈을 지운 곡선에서 잰다 — 화면의 최대 낙폭과 같은 기준이다. */
+    mdd: number;
     /** 요청한 구간의 일부만 겹쳤나 */
     partial: boolean;
   }[];
@@ -565,6 +576,8 @@ export interface 저장된실험 {
   equal_weight?: boolean | null;
   cash_rate?: number | null;
   risk_free_rate?: number | null;
+  expense_ratio?: number | null;
+  sell_tax?: number | null;
   extended?: boolean | null;
   total_return: boolean;
   created_at: string;

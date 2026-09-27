@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { screeningApi, watchlistApi, stocksApi } from "@/api/stocks";
@@ -6,7 +6,8 @@ import { useAuthStore } from "@/store/authStore";
 import {
   Card, ChangeBadge, formatNumber, RangeFilter, Button, Badge, 빈화면, 못불러옴,
 } from "@/components/ui";
-import ComingSoon from "@/components/ComingSoon";
+import { 읽을수있는오류 } from "@/utils/errors";
+import { csv내려받기, type CSV칸 } from "@/utils/csv";
 import type { Market } from "@/types";
 import {
   Filter, Save, Trash2, ChevronUp, ChevronDown, ExternalLink,
@@ -36,46 +37,80 @@ const SORT_OPTIONS = [
   { value: "debt_ratio", label: "부채비율" },
   { value: "price", label: "주가" },
   { value: "volume", label: "거래량" },
+  { value: "dividend_yield", label: "배당수익률" },
+  { value: "return_1y", label: "1년 수익률" },
 ];
 
-const SECTORS = [
-  "전체", "Technology", "Healthcare", "Financials", "Consumer Cyclical",
-  "Industrials", "Communication Services", "Consumer Defensive", "Energy",
-  "Basic Materials", "Real Estate", "Utilities",
+/* 값은 야후가 주는 이름 그대로다 — 서버가 그 글자와 똑같은지로 거른다.
+   예전 목록의 "Financials" 는 야후가 쓰지 않는 이름("Financial Services")
+   이라 금융을 고르면 늘 0개였다. */
+export const SECTORS: { value: string; label: string }[] = [
+  { value: "",                       label: "전체" },
+  { value: "Technology",             label: "기술" },
+  { value: "Healthcare",             label: "헬스케어" },
+  { value: "Financial Services",     label: "금융" },
+  { value: "Consumer Cyclical",      label: "경기소비재" },
+  { value: "Industrials",            label: "산업재" },
+  { value: "Communication Services", label: "통신서비스" },
+  { value: "Consumer Defensive",     label: "필수소비재" },
+  { value: "Energy",                 label: "에너지" },
+  { value: "Basic Materials",        label: "소재" },
+  { value: "Real Estate",            label: "부동산" },
+  { value: "Utilities",              label: "유틸리티" },
 ];
 
-type ColumnKey = "price" | "change_rate" | "per" | "pbr" | "roe" | "eps" | "debt_ratio" | "market_cap";
+/* 시가총액은 '억' 으로 적게 하고 보낼 때 원래 단위로 바꾼다.
+   예전엔 칸 이름만 '(억)' 이고 숫자를 그대로 보내서, 1000 을 적으면
+   '시총 1000원(달러) 이상' — 사실상 아무것도 안 거르는 조건이었다. */
+export function 보낼조건(filters: Record<string, any>): Record<string, any> {
+  const mc = filters.market_cap;
+  if (!mc) return filters;
+  const 바꿈: Record<string, number> = {};
+  if (mc.min != null) 바꿈.min = mc.min * 1e8;
+  if (mc.max != null) 바꿈.max = mc.max * 1e8;
+  return { ...filters, market_cap: 바꿈 };
+}
 
-const ALL_COLUMNS: { key: ColumnKey; label: string }[] = [
-  { key: "price",       label: "현재가" },
-  { key: "change_rate", label: "등락률" },
-  { key: "per",         label: "PER" },
-  { key: "pbr",         label: "PBR" },
-  { key: "roe",         label: "ROE" },
-  { key: "eps",         label: "EPS" },
-  { key: "debt_ratio",  label: "부채비율" },
-  { key: "market_cap",  label: "시가총액" },
+type ColumnKey =
+  | "price" | "change_rate" | "per" | "pbr" | "roe" | "eps" | "debt_ratio" | "market_cap"
+  | "volume" | "dividend_yield" | "rsi" | "return_1y";
+
+const ALL_COLUMNS: { key: ColumnKey; label: string; 처음보임: boolean }[] = [
+  { key: "price",          label: "현재가",     처음보임: true },
+  { key: "change_rate",    label: "등락률",     처음보임: true },
+  { key: "per",            label: "PER",        처음보임: true },
+  { key: "pbr",            label: "PBR",        처음보임: true },
+  { key: "roe",            label: "ROE",        처음보임: true },
+  { key: "eps",            label: "EPS",        처음보임: true },
+  { key: "debt_ratio",     label: "부채비율",   처음보임: true },
+  { key: "market_cap",     label: "시가총액",   처음보임: true },
+  { key: "volume",         label: "거래량",     처음보임: false },
+  { key: "dividend_yield", label: "배당수익률", 처음보임: false },
+  { key: "rsi",            label: "RSI",        처음보임: false },
+  { key: "return_1y",      label: "1년 수익률", 처음보임: false },
 ];
 
-/* ── CSV export helper ─────────────────────────────────────── */
+/* 새로 붙인 열은 모양이 단순해서 한 곳에서 그린다 */
+const 단순열: Partial<Record<ColumnKey, (v: number) => string>> = {
+  volume:         (v) => formatNumber(v),
+  dividend_yield: (v) => `${v.toFixed(2)}%`,
+  rsi:            (v) => v.toFixed(0),
+  return_1y:      (v) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`,
+};
+
+/* ── CSV export helper ─────────────────────────────────────
+   칸 감싸기는 utils/csv 가 맡는다. 예전엔 join(",") 만 해서 'Apple Inc., …'
+   같은 이름이 두 칸으로 갈라져 뒤의 숫자가 전부 한 칸씩 밀렸다. */
+export function 스크리닝CSV(rows: any[], visibleCols: Set<ColumnKey>): CSV칸[][] {
+  const 열 = ALL_COLUMNS.filter((c) => visibleCols.has(c.key));
+  return [
+    ["순위", "종목코드", "종목명", "시장", ...열.map((c) => c.label)],
+    ...rows.map((s, i) => [i + 1, s.symbol, s.name ?? "", s.market ?? "", ...열.map((c) => s[c.key])]),
+  ];
+}
+
 function downloadCSV(rows: any[], visibleCols: Set<ColumnKey>) {
-  const headers = ["순위", "종목코드", "종목명", "시장", ...ALL_COLUMNS.filter((c) => visibleCols.has(c.key)).map((c) => c.label)];
-  const lines = rows.map((s, i) => {
-    const base = [i + 1, s.symbol, s.name ?? "", s.market ?? ""];
-    const extra = ALL_COLUMNS.filter((c) => visibleCols.has(c.key)).map((c) => {
-      const v = s[c.key];
-      return v == null ? "" : v;
-    });
-    return [...base, ...extra].join(",");
-  });
-  const csv = [headers.join(","), ...lines].join("\n");
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `screening_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  csv내려받기(`screening_${new Date().toISOString().slice(0, 10)}.csv`, 스크리닝CSV(rows, visibleCols));
 }
 
 /* ── Toast component ───────────────────────────────────────── */
@@ -116,7 +151,6 @@ function ScreeningSkeleton({ rows = 8 }: { rows?: number }) {
 export default function Screening() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  return <ComingSoon title="스크리닝" />;
 
   // 행에 마우스를 올리면 상세 페이지 데이터 선제 prefetch (클릭 시 즉시 표시)
   const prefetchStock = (stock: any) => {
@@ -131,8 +165,8 @@ export default function Screening() {
   const [filters, setFilters] = useState<Record<string, any>>({});
   const [sortBy, setSortBy] = useState("market_cap");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [sector, setSector] = useState("전체");
   const [results, setResults] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
   const [visibleCount, setVisibleCount] = useState(30);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [presetName, setPresetName] = useState("");
@@ -140,7 +174,7 @@ export default function Screening() {
 
   // column visibility
   const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(
-    new Set(ALL_COLUMNS.map((c) => c.key))
+    new Set(ALL_COLUMNS.filter((c) => c.처음보임).map((c) => c.key))
   );
   const [showColMenu, setShowColMenu] = useState(false);
   const colMenuRef = useRef<HTMLDivElement>(null);
@@ -163,9 +197,9 @@ export default function Screening() {
   const { data: presets } = useQuery({ queryKey: ["screening-presets"], queryFn: screeningApi.getPresets });
 
   const runMutation = useMutation({
-    mutationFn: () => screeningApi.run({ market, filters, sort_by: sortBy, sort_order: sortOrder, limit: 100 }),
-    onSuccess: (data) => { setResults(data.results ?? []); setVisibleCount(30); },
-    onError: (err: any) => setToast(err?.response?.data?.detail ?? "스크리닝 실행에 실패했어요. 잠시 후 다시 시도해주세요"),
+    mutationFn: () => screeningApi.run({ market, filters: 보낼조건(filters), sort_by: sortBy, sort_order: sortOrder, limit: 100 }),
+    onSuccess: (data) => { setResults(data.results ?? []); setTotal(data.total ?? 0); setVisibleCount(30); },
+    // 실패는 결과 자리의 '못불러옴' 이 사람 말로 알린다 — 토스트까지 띄우면 같은 말이 두 번이다
   });
 
   const savePresetMutation = useMutation({
@@ -191,7 +225,7 @@ export default function Screening() {
         navigate("/login");
         return;
       }
-      setToast(err?.response?.data?.detail ?? "추가 실패");
+      setToast(읽을수있는오류(err?.response?.data?.detail, "추가 실패"));
     },
   });
 
@@ -205,7 +239,13 @@ export default function Screening() {
     }
   };
 
-  const resetFilters = () => { setFilters({}); setSector("전체"); };
+  const resetFilters = () => setFilters({});
+  const sector: string = filters.sector?.eq ?? "";
+  const setSector = (v: string) => {
+    const next = { ...filters };
+    if (v) next.sector = { eq: v }; else delete next.sector;
+    setFilters(next);
+  };
 
   const loadPreset = (p: any) => {
     setMarket(p.market);
@@ -230,10 +270,9 @@ export default function Screening() {
     });
   };
 
-  const sortedResults = useMemo(
-    () => results.filter((s) => sector === "전체" || s.sector === sector),
-    [results, sector]
-  );
+  /* 섹터는 서버가 거른다. 예전엔 받은 100개 안에서 화면이 걸러서,
+     '기술' 을 고르면 전체 기술주가 아니라 시총 상위 100개 중 기술주만 나왔다 */
+  const sortedResults = results;
   const activeFilterCount = Object.keys(filters).length;
 
   return (
@@ -302,7 +341,7 @@ export default function Screening() {
             <div className="flex flex-col gap-3">
               {filterTab === "basic" && (
                 <>
-                  <RangeFilter label="시가총액 (억)" filterKey="market_cap" filters={filters} onChange={setFilter} />
+                  <RangeFilter label={market === "KR" ? "시가총액 (억원)" : "시가총액 (억달러)"} filterKey="market_cap" filters={filters} onChange={setFilter} />
                   <RangeFilter label="주가" filterKey="price" filters={filters} onChange={setFilter} />
                   <RangeFilter label="거래량" filterKey="volume" filters={filters} onChange={setFilter} />
                   <RangeFilter label="등락률 (%)" filterKey="change_rate" filters={filters} onChange={setFilter} />
@@ -313,7 +352,7 @@ export default function Screening() {
                       onChange={(e) => setSector(e.target.value)}
                       className="bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
                     >
-                      {SECTORS.map((s) => <option key={s} value={s}>{s}</option>)}
+                      {SECTORS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                     </select>
                   </div>
                 </>
@@ -430,9 +469,9 @@ export default function Screening() {
             <div className="flex items-center justify-between px-1">
               <div className="flex items-center gap-3">
                 <span className="text-sm text-text-secondary">
-                  <span className="text-text-primary font-semibold">{sortedResults.length}</span>개 발굴
-                  {results.length !== sortedResults.length && (
-                    <span className="text-text-muted ml-1">/ 전체 {results.length}개</span>
+                  <span className="text-text-primary font-semibold">{total}</span>개 발굴
+                  {total > results.length && (
+                    <span className="text-text-muted ml-1">· 위에서 {results.length}개만 보여요</span>
                   )}
                 </span>
                 {selected.size > 0 && (
@@ -536,6 +575,9 @@ export default function Screening() {
                       {visibleCols.has("eps")         && <th className="text-right px-3 py-3">EPS</th>}
                       {visibleCols.has("debt_ratio")  && <th className="text-right px-3 py-3">부채비율</th>}
                       {visibleCols.has("market_cap")  && <th className="text-right px-3 py-3">시가총액</th>}
+                      {ALL_COLUMNS.filter((c) => 단순열[c.key] && visibleCols.has(c.key)).map((c) => (
+                        <th key={c.key} className="text-right px-3 py-3">{c.label}</th>
+                      ))}
                       <th className="px-3 py-3 w-16"></th>
                     </tr>
                   </thead>
@@ -621,6 +663,11 @@ export default function Screening() {
                               {formatNumber(stock.market_cap)}
                             </td>
                           )}
+                          {ALL_COLUMNS.filter((c) => 단순열[c.key] && visibleCols.has(c.key)).map((c) => (
+                            <td key={c.key} className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
+                              {stock[c.key] != null ? 단순열[c.key]!(stock[c.key]) : "-"}
+                            </td>
+                          ))}
                           {/* Actions */}
                           <td className="px-3 py-2.5">
                             <div className="flex items-center justify-end gap-1.5">

@@ -25,7 +25,7 @@ vi.mock("../client", async () => {
   };
 });
 
-import { backtestApi } from "../stocks";
+import { backtestApi, screeningApi } from "../stocks";
 import { 무거운상한 } from "../client";
 
 beforeEach(() => { 부른것.length = 0; });
@@ -34,6 +34,8 @@ const 무거운것: [string, () => Promise<unknown>][] = [
   ["자산배분", () => backtestApi.runPortfolio({} as never)],
   ["단일 종목", () => backtestApi.run({} as never)],
   ["유니버스", () => backtestApi.runUniverse({} as never)],
+  /* 백테스트는 아니지만 처음 한 번은 종목 수백 개의 1년 시세를 받는다 */
+  ["스크리닝", () => screeningApi.run({} as never)],
 ];
 
 describe("무거운 백테스트는 긴 상한으로 부른다", () => {

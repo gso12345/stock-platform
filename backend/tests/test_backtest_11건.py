@@ -964,7 +964,7 @@ class Test폭락때:
 
     def test_금융위기와_코로나에_크게_빠진다(self):
         r = 돌리기(self._표(), self.자산, 10_000_000)
-        이름들 = {x["name"]: x["return"] for x in r["crises"]}
+        이름들 = {x["name"]: x["mdd"] for x in r["crises"]}
         assert 이름들["미국 금융위기"] < -20, 이름들
         assert 이름들["코로나"] < -15, 이름들
 

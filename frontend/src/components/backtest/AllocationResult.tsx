@@ -22,6 +22,10 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { 짧은돈 } from "@/utils/formatters";
 import type { 자산배분결과 } from "@/api/stocks";
+import { Download } from "lucide-react";
+import { csv내려받기 } from "@/utils/csv";
+import { 결과CSV } from "./결과내보내기";
+import { PIE_COLORS } from "@/constants/pieColors";
 
 const 차트틀 = lazy(() => import("@/components/chart/ChartFrame"));
 
@@ -636,15 +640,12 @@ function 요약표({ r }: { r: 자산배분결과 }) {
 
 function 폭락표({ r }: { r: 자산배분결과 }) {
   const 배색 = useSettingsStore((s) => s.colorScheme);
-  const { pnlColor, loss } = usePnlColors(배색);
+  const { loss } = usePnlColors(배색);
   const 것들 = r.crises ?? [];
   if (!것들.length) return null;
   /* 벤치마크는 key 로 짝짓는다 — 차례로 짝지으면 한 구간이 비었을 때
      그 뒤가 통째로 밀려 코로나 줄에 금융위기 수가 들어간다. */
   const 벤치 = new Map((r.benchmark?.crises ?? []).map((x) => [x.key, x]));
-  /* 낙폭 칸을 그릴까. 옛 응답에는 mdd 가 없다 — 없으면 칸 자체를
-     안 그린다. 빈 칸만 줄줄이 있으면 고장으로 읽힌다. */
-  const 낙폭있나 = 것들.some((x) => x.mdd != null);
 
   return (
     <Card className="p-0 overflow-hidden">
@@ -654,26 +655,14 @@ function 폭락표({ r }: { r: 자산배분결과 }) {
             사람은 '코로나 때' 로 기억하므로, 기억에 걸리는 이름이
             붙어야 수가 읽힌다. */}
         <p className="text-2xs text-text-dim mt-0.5 break-keep">
-          시장이 고점에서 바닥까지 간 구간이에요. 회복까지 넣으면 대부분 플러스로
-          끝나서 얼마나 아팠는지가 사라져요.
-          {낙폭있나 && (
-            <>
-              {" "}칸마다 <b>위는 수익률</b>(그 구간을 통째로 지나고 난 값),
-              {" "}<b>아래는 최대 낙폭</b>(지나는 동안 제일 나빴을 때)이에요 —
-              중간에 더 깊이 빠졌다 돌아왔으면 둘이 크게 벌어져요.
-            </>
-          )}
+          시장이 고점에서 바닥까지 간 구간마다, 그 구간을 지나는 동안
+          제일 많이 빠졌을 때(최대 낙폭)예요.
         </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="bg-bg-secondary border-b border-border">
             <tr className="text-text-muted">
-              {/* **칸을 늘리지 않는다.** 낙폭 칸을 따로 세우면 폰에서
-                  기간이 잘려 나간다(실측). 사람 기준으로 묶고 —
-                  한 칸에 수익률 위, 낙폭 아래 — 칸 수는 그대로 둔다.
-                  '수익률과 낙폭' 이 아니라 '내 것과 벤치마크' 로
-                  나뉘는 쪽이 읽기도 쉽다. */}
               <th className="text-left px-3 py-2 whitespace-nowrap">언제</th>
               <th className="text-right px-3 py-2 whitespace-nowrap">내 조합</th>
               <th className="text-right px-3 py-2 whitespace-nowrap truncate">
@@ -696,27 +685,11 @@ function 폭락표({ r }: { r: 자산배분결과 }) {
                       <span className="text-accent-yellow text-2xs ml-1">일부</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
-                    <span className={`font-semibold ${pnlColor(x.return)}`}>
-                      {x.return}%
-                    </span>
-                    {/* **이 구간을 지나는 동안 제일 나빴을 때.**
-                        -12.62% 로 끝난 구간이 중간에 -24.9% 까지 갔을 수
-                        있다. 그 시절을 견딘 사람이 실제로 본 것은
-                        그쪽이고, 못 견디고 판 이유도 그쪽이다. */}
-                    {낙폭있나 && (
-                      <span className={`block text-2xs ${loss}`}>
-                        {x.mdd == null ? "—" : `${x.mdd}%`}
-                      </span>
-                    )}
+                  <td className={`px-3 py-2 text-right font-mono font-semibold whitespace-nowrap ${loss}`}>
+                    {x.mdd}%
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-text-dim whitespace-nowrap">
-                    <span className="block">{벤 == null ? "—" : `${벤.return}%`}</span>
-                    {낙폭있나 && (
-                      <span className="block text-2xs opacity-70">
-                        {벤?.mdd == null ? "—" : `${벤.mdd}%`}
-                      </span>
-                    )}
+                    {벤 == null ? "—" : `${벤.mdd}%`}
                   </td>
                   <td className="px-3 py-2 text-text-dim whitespace-nowrap">
                     {x.partial ? `${x.measured_start} ~ ${x.measured_end}` : `${x.start} ~ ${x.end}`}
@@ -814,27 +787,49 @@ function 담은자산({ r }: { r: 자산배분결과 }) {
   if (!것들.length) return null;
   /* 서버는 비율(0.6)로 준다 — 합으로 나눈 값이다. 퍼센트로 보여 준다. */
   const 합 = 것들.reduce((a, x) => a + (Number(x.weight) || 0), 0);
+  const 조각들 = 것들.map((a, i) => ({
+    key: `${a.market}:${a.symbol}`,
+    name: a.name || a.symbol,
+    몫: 합 > 0 ? (Number(a.weight) || 0) / 합 * 100 : 0,
+    색: PIE_COLORS[i % PIE_COLORS.length],
+  }));
+  /* 비중 0 인 자산은 원에 안 그린다 — 빈 조각은 선 하나로 남아 헷갈린다 */
+  const 그릴것 = 조각들.filter((x) => x.몫 > 0);
   return (
     <Card className="flex flex-col gap-3">
       <span className="text-base font-semibold text-text-primary">담은 자산</span>
-      <div className="flex flex-col gap-1.5">
-        {것들.map((a) => {
-          const 몫 = 합 > 0 ? (Number(a.weight) || 0) / 합 * 100 : 0;
-          return (
-            <div key={`${a.market}:${a.symbol}`} className="flex items-center gap-2">
-              <span className="text-xs text-text-primary truncate flex-1 min-w-0">
-                {a.name || a.symbol}
-              </span>
-              <div className="w-20 h-2 bg-bg-elevated rounded-full overflow-hidden flex-shrink-0">
-                <div className="h-full bg-accent-blue/70 rounded-full"
-                     style={{ width: `${Math.min(몫, 100)}%` }} />
+      {/* 내 자산 화면과 같은 모양 — 원그래프 옆에 색 점과 비중 */}
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-center sm:items-start">
+        <div className="flex-shrink-0 w-full sm:w-44" data-testid="담은자산-원">
+          <Suspense fallback={<div className="h-[180px]" />}>
+            <차트틀 height={180}>
+              {(R: any) => (
+                <R.PieChart>
+                  <R.Pie data={그릴것} dataKey="몫" nameKey="name"
+                         cx="50%" cy="50%" outerRadius={72} innerRadius={30}
+                         isAnimationActive={false}>
+                    {그릴것.map((x) => <R.Cell key={x.key} fill={x.색} />)}
+                  </R.Pie>
+                  <R.Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, ""]} />
+                </R.PieChart>
+              )}
+            </차트틀>
+          </Suspense>
+        </div>
+        <div className="flex-1 min-w-0 w-full self-center flex flex-col gap-1.5">
+          {조각들.map((x) => (
+            <div key={x.key} className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: x.색 }} />
+              <span className="text-xs text-text-primary truncate flex-1 min-w-0">{x.name}</span>
+              <div className="w-16 h-1.5 bg-bg-elevated rounded-full overflow-hidden flex-shrink-0 hidden sm:block">
+                <div className="h-full rounded-full" style={{ width: `${Math.min(x.몫, 100)}%`, background: x.색 }} />
               </div>
               <span className="text-xs font-mono tabular-nums text-text-secondary w-12 text-right flex-shrink-0">
-                {몫.toFixed(1)}%
+                {x.몫.toFixed(1)}%
               </span>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
       {/* 실제로 계산에 쓴 비중이라고 말해 준다 — '동일 비중' 을 골랐으면
           내가 적은 수와 다를 수 있다. */}
@@ -890,6 +885,18 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
           **경고는 탭 밖에 둔다.** 자산 하나를 빼고 계산한 사실이 탭
           안에 숨으면, 그 탭을 안 연 사람은 덜 담긴 결과를 온전한 것으로
           읽는다 — 백테스트에서 가장 나쁜 실패다. */}
+      {/* 엑셀에서 더 보고 싶은 사람을 위해. 화면의 숫자를 그대로 옮긴다 */}
+      <div className="flex justify-end -mb-2">
+        <button
+          type="button"
+          onClick={() => csv내려받기(`자산배분_${r.start_date}_${r.end_date}.csv`, 결과CSV(r))}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary bg-bg-elevated border border-border rounded-lg hover:border-accent-blue/50 transition-colors"
+        >
+          <Download size={13} />
+          CSV로 내보내기
+        </button>
+      </div>
+
       <Tabs
         ariaLabel="결과 보기"
         idPrefix="결과"
@@ -1094,8 +1101,21 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
           </p>
         ) : (
           <p className="text-2xs text-text-dim break-keep">
-            수수료·세금·슬리피지는 반영하지 않았어요. 실제 성과는 이보다 조금 낮아요 —
+            {/* 매도세를 넣었으면 '세금은 안 넣었다' 고 하면 거짓이다 */}
+            {r.taxes == null ? "수수료·세금·슬리피지" : "수수료·슬리피지"}는 반영하지 않았어요. 실제 성과는 이보다 조금 낮아요 —
             설정에서 거래비용을 고르면 넣어 드려요.
+          </p>
+        )}
+        {r.fees != null && (
+          <p className="text-2xs text-text-dim break-keep">
+            운용보수 연 {+((r.fee_rate ?? 0) * 100).toFixed(3)}% 반영 — 모두 {돈(r.fees, r.currency)}가
+            보수로 빠졌어요(현금 몫은 빼고).
+          </p>
+        )}
+        {r.taxes != null && (
+          <p className="text-2xs text-text-dim break-keep">
+            매도세 {+((r.tax_rate ?? 0) * 100).toFixed(3)}% 반영 — 리밸런싱으로 판 금액에
+            모두 {돈(r.taxes, r.currency)}를 냈어요.
           </p>
         )}
 

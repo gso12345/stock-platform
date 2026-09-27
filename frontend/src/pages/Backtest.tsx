@@ -10,6 +10,7 @@ import { Save, Play, Globe, TrendingUp, BarChart2, Award, LogIn, FlaskConical } 
 import { useAuthStore } from "@/store/authStore";
 import { 읽을수있는오류, 요청실패말 } from "@/utils/errors";
 import 자산배분탭 from "@/components/backtest/AllocationTab";
+import 실험비교 from "@/components/backtest/ExperimentCompare";
 import { 주기표 } from "@/components/backtest/AllocationForm";
 
 const DEFAULT_ENTRY: ConditionGroup = {
@@ -882,6 +883,9 @@ export default function Backtest() {
                 </Card>
               ) : null}
 
+              {isLoggedIn && 실험들.length >= 2 && (
+                <div className="md:col-span-2"><실험비교 실험들={실험들} /></div>
+              )}
               {/* ── 자산배분 실험 ──
                   매매 신호 전략과 **다른 종류**라 배지로 갈라 둔다.
                   섞어 놓고 이름만 보면 어느 탭에서 열리는 것인지

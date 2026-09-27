@@ -3,7 +3,7 @@ import 차트틀 from "@/components/chart/ChartFrame";
 import { fmtKRWCompact } from "@/utils/formatters";
 import { Link } from "react-router-dom";
 
-const PIE_COLORS = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444","#06b6d4","#f97316","#84cc16","#ec4899","#14b8a6","#6366f1"];
+import { PIE_COLORS } from "@/constants/pieColors";
 
 function autoClassifyAsset(market: string, name: string, symbol: string): string {
   const h = `${name} ${symbol}`.toUpperCase();

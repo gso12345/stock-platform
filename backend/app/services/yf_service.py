@@ -181,8 +181,138 @@ KOSDAQ_SYMBOLS = [
 ETF_SYMBOLS = [
     "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "GLD", "SLV", "TLT", "HYG",
     "XLF", "XLK", "XLE", "XLV", "XLI", "ARKK", "SOXX", "VNQ", "EEM",
-    "069500.KS", "114800.KS", "122630.KS", "252670.KS", "kodex200.KS",
+    "069500.KS", "114800.KS", "122630.KS", "252670.KS",
 ]
+
+SCREEN_ROW_TTL = 1800  # 스크리닝 종목 한 줄 30분 — 재무값은 하루에 한 번, 시세는 이 정도면 충분
+
+
+def 스크리닝_종목들(market: str) -> list[str]:
+    if market == "KR":
+        return KOSPI_SYMBOLS + KOSDAQ_SYMBOLS
+    if market == "ETF":
+        return ETF_SYMBOLS
+    return SP500_SYMBOLS
+
+
+#: 스크리닝 화면이 거를 수 있는 값들. 여기 없는 키로 거르면
+#  모든 종목이 '값 없음'으로 떨어져 결과가 조용히 0개가 된다 — 그래서
+#  라우트가 이 목록으로 요청을 먼저 막는다.
+스크리닝_숫자키 = frozenset({
+    "price", "change_rate", "volume", "market_cap",
+    "per", "forward_per", "pbr", "peg_ratio", "ev_ebitda", "ps_ratio", "dividend_yield",
+    "rsi", "pct_from_52w_high", "pct_from_52w_low", "beta",
+    "return_1m", "return_3m", "return_1y",
+    "roe", "roa", "operating_margin", "profit_margin", "eps", "debt_ratio", "current_ratio",
+})
+스크리닝_글자키 = frozenset({"sector"})
+
+
+def _퍼센트(v) -> Optional[float]:
+    """야후의 비율(0.153)을 퍼센트(15.3)로. 0 도 값이다 — 영업이익률 0% 는 '모름'이 아니다."""
+    v = _safe(v)
+    return None if v is None else round(v * 100, 2)
+
+
+def _rsi14(closes: pd.Series) -> Optional[float]:
+    """와일더 방식 RSI(14). 백테스트 엔진과 같은 식이어야 두 화면의 숫자가 맞는다."""
+    if len(closes) < 15:
+        return None
+    d = closes.diff()
+    up = d.where(d > 0, 0.0).ewm(com=13, adjust=False).mean().iloc[-1]
+    down = (-d.where(d < 0, 0.0)).ewm(com=13, adjust=False).mean().iloc[-1]
+    if down == 0:
+        return 100.0 if up > 0 else 50.0
+    return round(100 - 100 / (1 + up / down), 2)
+
+
+def _몇달전수익률(closes: pd.Series, 달: int) -> Optional[float]:
+    """마지막 날에서 `달` 개월 전(그날 이전의 마지막 거래일) 대비 수익률.
+    받은 기간이 그만큼 안 되면 모른다 — 상장 두 달 된 종목의 '1년 수익률'을
+    두 달 수익률로 채우면 안 된다."""
+    if closes.empty:
+        return None
+    기준날 = closes.index[-1] - pd.DateOffset(months=달)
+    앞 = closes[closes.index <= 기준날]
+    if 앞.empty or not 앞.iloc[-1]:
+        return None
+    return round((float(closes.iloc[-1]) / float(앞.iloc[-1]) - 1) * 100, 2)
+
+
+def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame) -> Optional[dict]:
+    """야후의 info + 1년 시세 → 스크리닝 표 한 줄. 네트워크 없이 부를 수 있게 떼어 둔다."""
+    closes = hist["Close"].dropna() if hist is not None and "Close" in hist else pd.Series(dtype=float)
+    if len(closes):
+        curr = float(closes.iloc[-1])
+    else:
+        curr = _safe(info.get("currentPrice") or info.get("regularMarketPrice"))
+    if not curr:
+        return None  # 값 하나 없는 줄은 표에 올려 봐야 '-' 뿐이다
+
+    if len(closes) >= 2 and closes.iloc[-2]:
+        change_rate = (curr / float(closes.iloc[-2]) - 1) * 100
+    else:
+        change_rate = _safe(info.get("regularMarketChangePercent"))
+
+    volume = None
+    if hist is not None and "Volume" in hist and len(hist["Volume"].dropna()):
+        volume = int(hist["Volume"].dropna().iloc[-1])
+    elif info.get("volume") is not None:
+        volume = int(info["volume"])
+
+    # 52주 고저는 마지막 날에서 1년 안쪽만 본다 — 받은 시세는 1년보다 길다
+    일년 = closes[closes.index > closes.index[-1] - pd.DateOffset(years=1)] if len(closes) else closes
+    고점 = float(일년.max()) if len(일년) else _safe(info.get("fiftyTwoWeekHigh"))
+    저점 = float(일년.min()) if len(일년) else _safe(info.get("fiftyTwoWeekLow"))
+
+    #: 배당수익률은 '연 배당금 ÷ 지금 가격' 으로 직접 낸다. 야후의
+    #  dividendYield 는 버전에 따라 0.02 로도 2.0 으로도 와서 믿기 어렵다.
+    #  배당을 안 주는 종목은 0 이다 — '모름'으로 두면 '배당 1% 이하'를
+    #  찾을 때 무배당주가 빠진다.
+    연배당 = _safe(info.get("dividendRate"))
+    if 연배당 is None:
+        연배당 = _safe(info.get("trailingAnnualDividendRate"))
+    배당 = round(연배당 / curr * 100, 2) if 연배당 is not None else _dividend_pct(info.get("yield"))
+
+    # 한국 종목은 표·상세·관심목록 모두 '005930' 처럼 접미사 없이 쓴다
+    보일이름 = symbol
+    보일시장 = market
+    if symbol.endswith((".KS", ".KQ")):
+        보일이름 = symbol.rsplit(".", 1)[0]
+        보일시장 = "KR"
+
+    return _clean({
+        "symbol": 보일이름,
+        "name": info.get("longName") or info.get("shortName") or 보일이름,
+        "market": 보일시장,
+        "sector": info.get("sector"),
+        "price": round(curr, 2),
+        "change_rate": round(change_rate, 2) if change_rate is not None else None,
+        "volume": volume,
+        "market_cap": info.get("marketCap"),
+        "per": _safe(info.get("trailingPE")),
+        "forward_per": _safe(info.get("forwardPE")),
+        "pbr": _safe(info.get("priceToBook")),
+        "peg_ratio": _safe(info.get("trailingPegRatio") or info.get("pegRatio")),
+        "ev_ebitda": _safe(info.get("enterpriseToEbitda")),
+        "ps_ratio": _safe(info.get("priceToSalesTrailing12Months")),
+        "dividend_yield": 배당,
+        "rsi": _rsi14(closes),
+        "pct_from_52w_high": round((curr / 고점 - 1) * 100, 2) if 고점 else None,
+        "pct_from_52w_low": round((curr / 저점 - 1) * 100, 2) if 저점 else None,
+        "beta": _safe(info.get("beta")),
+        "return_1m": _몇달전수익률(closes, 1),
+        "return_3m": _몇달전수익률(closes, 3),
+        "return_1y": _몇달전수익률(closes, 12),
+        "roe": _퍼센트(info.get("returnOnEquity")),
+        "roa": _퍼센트(info.get("returnOnAssets")),
+        "operating_margin": _퍼센트(info.get("operatingMargins")),
+        "profit_margin": _퍼센트(info.get("profitMargins")),
+        "eps": _safe(info.get("trailingEps")),
+        "debt_ratio": _safe(info.get("debtToEquity")),
+        "current_ratio": _safe(info.get("currentRatio")),
+        "currency": info.get("currency") or ("KRW" if 보일시장 == "KR" else "USD"),
+    })
 
 
 def _resolve_kr_symbol(symbol: str, market: str) -> str:
@@ -607,43 +737,32 @@ class YFinanceService:
             return cache.get_stale(ck) or []
 
     def _screen_one(self, symbol: str, market: str) -> dict | None:
+        #: 종목 한 줄은 조건과 상관없이 똑같다. 그래서 **조건이 아니라 종목에**
+        #  캐시를 건다. 스크리닝은 조건을 조금씩 바꿔 가며 여러 번 누르는
+        #  화면인데, 조건마다 400종목을 야후에 다시 물으면 매번 수십 초다.
+        ck = f"screen_row:{symbol}"
+        if cached := cache.get(ck):
+            return cached
         try:
             ticker = yf.Ticker(symbol)
-            info = ticker.info
-            hist = ticker.history(period="2d")
-            if len(hist) >= 2:
-                prev = float(hist["Close"].iloc[-2])
-                curr = float(hist["Close"].iloc[-1])
-                change_rate = (curr - prev) / prev * 100 if prev else 0
-            else:
-                curr = float(info.get("currentPrice") or info.get("regularMarketPrice") or 0)
-                change_rate = float(info.get("regularMarketChangePercent") or 0)
-
-            roe = _safe(info.get("returnOnEquity"))
-            return _clean({
-                "symbol": symbol,
-                "name": info.get("longName") or info.get("shortName") or symbol,
-                "market": market,
-                "price": round(curr, 2),
-                "change_rate": round(change_rate, 2),
-                "per": _safe(info.get("trailingPE")),
-                "pbr": _safe(info.get("priceToBook")),
-                "roe": round(roe * 100, 2) if roe else None,
-                "eps": _safe(info.get("trailingEps")),
-                "debt_ratio": _safe(info.get("debtToEquity")),
-                "market_cap": info.get("marketCap"),
-                "currency": info.get("currency", "USD"),
-            })
+            info = ticker.info or {}
+            #: 1년 조금 넘게 받는다. 예전엔 2일치만 받아서 등락률밖에 못 냈고,
+            #  화면의 RSI·52주 고저·1/3/12개월 수익률 필터는 값이 없어
+            #  **걸기만 하면 결과가 0개**였다. 요청 수는 그대로 한 번이다.
+            #  딱 1y 로 받으면 첫날이 '1년 전 오늘'보다 하루 늦게 잡혀
+            #  1년 수익률이 늘 '모름'이 된다 — 그래서 여유를 둔다.
+            hist = ticker.history(start=(pd.Timestamp.today() - pd.Timedelta(days=400)).strftime("%Y-%m-%d"))
+            row = 스크리닝줄(symbol, market, info, hist)
         except Exception:
             return None
+        if row:
+            cache.set(ck, row, SCREEN_ROW_TTL)
+        return row
 
     def screen_stocks(self, market: str, filters: dict) -> list:
-        if market == "KR":
-            symbols = KOSPI_SYMBOLS + KOSDAQ_SYMBOLS
-        elif market == "ETF":
-            symbols = ETF_SYMBOLS
-        else:
-            symbols = SP500_SYMBOLS
+        # 목록에 같은 종목이 두 번 적힌 곳이 있다(AMZN·NFLX·MRNA…).
+        # 그대로 두면 결과에도 두 줄로 나온다.
+        symbols = list(dict.fromkeys(스크리닝_종목들(market)))
 
         # 종목별 순차 호출(네트워크 I/O 대기)이 전체 응답 시간을 좌우하므로
         # 스레드풀로 동시에 fetch — yfinance가 스레드 안전한 블로킹 I/O이므로 안전함
@@ -657,7 +776,11 @@ class YFinanceService:
     def _apply_filters(self, stock: dict, filters: dict) -> bool:
         for key, condition in filters.items():
             value = stock.get(key)
+            #: 값이 없는 종목은 조건을 **통과시키지 않는다.** PER 10 이하를
+            #  찾는데 PER 모르는 종목이 끼면 조건이 거짓말이 된다.
             if value is None:
+                return False
+            if "eq" in condition and value != condition["eq"]:
                 return False
             if "min" in condition and value < condition["min"]:
                 return False

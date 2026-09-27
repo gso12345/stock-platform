@@ -59,11 +59,11 @@ const 기본 = {
   mdd_date: "2020-03-01",
   crises: [
     { key: "covid", name: "코로나", start: "2020-02-19", end: "2020-03-23",
-      return: -28.4, mdd: -34.1,
+      mdd: -34.1,
       measured_start: "2020-02-19", measured_end: "2020-03-23",
       partial: false },
     { key: "gfc", name: "미국 금융위기", start: "2007-10-09", end: "2009-03-09",
-      return: -5.4, mdd: -41.8,
+      mdd: -41.8,
       measured_start: "2008-06-02", measured_end: "2009-03-09",
       partial: true },
   ],
@@ -88,7 +88,7 @@ const 벤치 = {
   return_1y: 8.9, return_3y: 50.4, return_5y: null,
   std_1y: 11.8, std_3y: 9.4, std_5y: null,
   mdd_date: "2020-02-01",
-  crises: [{ key: "covid", name: "코로나", return: -15.2, mdd: -19.7 }],
+  crises: [{ key: "covid", name: "코로나", mdd: -19.7 }],
 };
 
 function 그리기(덮을것: Record<string, unknown> = {}) {
@@ -437,17 +437,26 @@ describe("폭락 때 어땠나", () => {
      사람은 '코로나 때' 로 기억하므로, 기억에 걸리는 이름이 붙어야
      수가 읽힌다. */
 
-  it("이름과 함께 얼마나 빠졌나를 적는다", async () => {
+  it("이름과 함께 그 구간의 최대 낙폭을 적는다", async () => {
     그리기();
     await 탭열기("낙폭");
     expect(screen.getByText("코로나")).toBeInTheDocument();
-    expect(screen.getByText("-28.4%")).toBeInTheDocument();
+    expect(screen.getByText("-34.1%")).toBeInTheDocument();
   });
 
-  it("벤치마크와 나란히 놓는다", async () => {
+  it("벤치마크 낙폭과 나란히 놓는다", async () => {
     그리기({ benchmark: 벤치 });
     await 탭열기("낙폭");
-    expect(screen.getByText("-15.2%")).toBeInTheDocument();
+    expect(screen.getByText("-19.7%")).toBeInTheDocument();
+  });
+
+  it("구간을 통째로 지나고 난 수익률은 안 적는다 — 낙폭만", async () => {
+    /* 서버가 옛날처럼 return 을 실어 보내도 화면에 나오면 안 된다 */
+    그리기({ crises: [{ ...기본.crises[0], return: -28.4 }] });
+    await 탭열기("낙폭");
+    const 코로나줄 = screen.getByText("코로나").closest("tr")!;
+    expect(코로나줄.textContent).not.toMatch(/-28\.4%/);
+    expect(코로나줄.querySelectorAll("td")).toHaveLength(4);
   });
 
   it("일부만 겹친 구간은 그렇다고 적고 **실제로 잰 기간**을 보여 준다", async () => {
@@ -481,6 +490,22 @@ describe("담은 자산", () => {
     expect(screen.getByText("40.0%")).toBeInTheDocument();
   });
 
+  it("내 자산 화면처럼 원그래프와 같은 색 점으로 보여 준다", async () => {
+    const { PIE_COLORS } = await import("@/constants/pieColors");
+    그리기();
+    await 탭열기("세부");
+    expect(screen.getByTestId("담은자산-원")).toBeInTheDocument();
+    /* 줄마다 붙은 색 점이 원그래프 조각 색과 같은 차례여야 어느 조각이
+       어느 자산인지 읽힌다 */
+    const 줄 = (이름: string) => screen.getByText(이름).parentElement!;
+    const 점색 = (이름: string) => (줄(이름).querySelector("span.rounded-full") as HTMLElement).style.background;
+    const 기대 = (hex: string) => {
+      const n = parseInt(hex.slice(1), 16);
+      return `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`;
+    };
+    expect(점색("S&P 500")).toBe(기대(PIE_COLORS[0]));
+  });
+
   it("실제로 계산에 쓴 비중이라고 말해 준다", async () => {
     /* '동일 비중' 을 골랐으면 내가 적은 수와 다를 수 있다 */
     그리기();
@@ -490,56 +515,36 @@ describe("담은 자산", () => {
 });
 
 
-describe("폭락 때 — 구간 안의 최대 낙폭도 같이 본다", () => {
-  /* '2022년 약세장 -12.62%' 는 그 구간을 **시작과 끝** 두 점으로만
-     말한 수다. 중간에 -30% 까지 빠졌다가 돌아왔어도 -12.62% 로 적힌다.
-     실제로 그 시절을 견딘 사람이 본 것은 -30% 쪽이고, 못 견디고 판
-     이유도 그쪽이다. */
-
-  it("수익률과 낙폭을 **둘 다** 적는다", async () => {
-    그리기();
-    await 탭열기("낙폭");
-    expect(screen.getByText("-28.4%"), "수익률이 없다").toBeInTheDocument();
-    expect(screen.getByText("-34.1%"), "그 구간의 최대 낙폭이 없다")
-      .toBeInTheDocument();
-  });
-
-  it("둘이 다른 수라는 것을 적어 준다", async () => {
-    /* 같은 줄에 비슷한 음수 둘이 있으면 무엇이 무엇인지 모른다. */
-    그리기();
-    await 탭열기("낙폭");
-    const 글 = screen.getByText(/지나는 동안 제일 나빴을 때/);
-    expect(글).toBeInTheDocument();
-  });
-
-  it("벤치마크 낙폭도 나란히 놓는다", async () => {
-    /* '내 것이 덜 빠졌나' 는 나란히 놔야 알 수 있다. */
-    그리기({ benchmark: 벤치 });
-    await 탭열기("낙폭");
-    expect(screen.getByText("-19.7%")).toBeInTheDocument();
-  });
-
-  it("옛 응답처럼 낙폭이 없으면 그 칸을 아예 안 그린다", async () => {
-    /* 빈 칸만 줄줄이 있으면 고장으로 읽힌다. */
-    그리기({
-      crises: 기본.crises.map(({ mdd, ...나머지 }) => 나머지),
-    });
-    await 탭열기("낙폭");
-    expect(screen.queryByText("최대 낙폭", { selector: "th" })).toBeNull();
-    //: 수익률은 그대로 보여야 한다
-    expect(screen.getByText("-28.4%")).toBeInTheDocument();
-  });
-
+describe("폭락 때 — 벤치마크와 짝짓기", () => {
   it("폭락 줄을 key 로 짝짓는다 — 차례로 짝짓지 않는다", async () => {
     /* 벤치마크에 한 구간이 비면 그 뒤가 통째로 밀려, 코로나 줄에
        금융위기 수가 들어간다. 둘 다 맞는 수인데 비교만 틀린다. */
     그리기({
       benchmark: { ...벤치,
-        crises: [{ key: "gfc", name: "미국 금융위기", return: -9.9, mdd: -12.3 }] },
+        crises: [{ key: "gfc", name: "미국 금융위기", mdd: -12.3 }] },
     });
     await 탭열기("낙폭");
     const 코로나줄 = screen.getByText("코로나").closest("tr")!;
     expect(코로나줄.textContent, "코로나 줄에 금융위기 수가 밀려 들어왔다")
-      .not.toMatch(/-9\.9%|-12\.3%/);
+      .not.toMatch(/-12\.3%/);
+  });
+});
+
+describe("CSV로 내보내기", () => {
+  it("결과 화면에 단추가 있고, 누르면 이 결과로 파일을 만든다", async () => {
+    const 만든것: Blob[] = [];
+    const 원래 = URL.createObjectURL;
+    URL.createObjectURL = ((b: Blob) => { 만든것.push(b); return "blob:x"; }) as any;
+    URL.revokeObjectURL = (() => {}) as any;
+    try {
+      그리기();
+      await userEvent.click(screen.getByRole("button", { name: /CSV로 내보내기/ }));
+      expect(만든것).toHaveLength(1);
+      const 글 = await 만든것[0].text();
+      expect(글).toContain("최종 평가액");
+      expect(글).toContain(String(기본.final_value));
+    } finally {
+      URL.createObjectURL = 원래;
+    }
   });
 });

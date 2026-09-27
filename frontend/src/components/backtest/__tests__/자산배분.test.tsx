@@ -12,7 +12,8 @@
  *      사실이 보여야 한다. 조용히 빼면 사용자는 다 담은 줄 안다.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import * as React from "react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -96,6 +97,7 @@ import {
 import { 실험을설정으로 } from "../AllocationTab";
 import { 대표자산, 종류들, 담았나, 줄을자산으로, 자산더하기 } from "../AllocationForm";
 import 자산배분결과화면 from "../AllocationResult";
+import 자산배분설정 from "../AllocationForm";
 
 function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -1154,6 +1156,51 @@ describe("가정을 감추지 않는다", () => {
     const 되살림 = 실험을설정으로({} as never, 지금);
     expect(되살림.cash_rate).toBe(1.5);
     expect(되살림.risk_free_rate).toBe(1);
+  });
+});
+
+
+describe("운용보수 · 매도세", () => {
+  it("화면에 두 칸이 있고, 무엇을 넣는 자리인지 적혀 있다", () => {
+    그리기();
+    expect(screen.getByLabelText("연 운용보수")).toBeInTheDocument();
+    expect(screen.getByLabelText("매도세")).toBeInTheDocument();
+    //: ETF 보수를 또 넣으면 두 번 빠진다
+    expect(document.body.textContent).toMatch(/ETF 자체 보수는 가격에 이미 빠져/);
+  });
+
+  it("친 값이 퍼센트 그대로 서버에 간다", async () => {
+    let 마지막: any = null;
+    function 감싸기() {
+      const [값, set값] = React.useState(첫설정());
+      마지막 = 값;
+      return <자산배분설정 값={값} 바꾸기={set값} 돌리기={() => {}} 도는중={false} />;
+    }
+    render(<감싸기 />);
+    fireEvent.change(screen.getByLabelText("연 운용보수"), { target: { value: "0.5" } });
+    fireEvent.change(screen.getByLabelText("매도세"), { target: { value: "0.18" } });
+    const 보낼 = 보낼것(마지막);
+    expect(보낼.expense_ratio).toBe(0.5);
+    expect(보낼.sell_tax).toBe(0.18);
+  });
+
+  it("저장한 실험에서 되살리고, 옛 실험이면 지금 값을 둔다", () => {
+    const 지금 = { ...첫설정(), expense_ratio: 0.3, sell_tax: 0.1 };
+    const 되살림 = 실험을설정으로({ expense_ratio: 1, sell_tax: 0.2 } as never, 지금);
+    expect([되살림.expense_ratio, 되살림.sell_tax]).toEqual([1, 0.2]);
+    const 옛것 = 실험을설정으로({} as never, 지금);
+    expect([옛것.expense_ratio, 옛것.sell_tax]).toEqual([0.3, 0.1]);
+  });
+
+  it("결과에 낸 보수와 세금을 적는다", async () => {
+    render(<자산배분결과화면 r={{ ...결과흉내, fees: 12345, fee_rate: 0.005,
+                                  taxes: 678, tax_rate: 0.0018 } as never} />);
+    await userEvent.click(screen.getByRole("tab", { name: "세부" }));
+    const 글 = document.body.textContent ?? "";
+    expect(글).toMatch(/운용보수 연 0\.5% 반영/);
+    expect(글).toMatch(/12,345/);
+    expect(글).toMatch(/매도세 0\.18% 반영/);
+    expect(글).toMatch(/678/);
   });
 });
 

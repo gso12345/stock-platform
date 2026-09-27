@@ -450,7 +450,8 @@ class Test실험_저장:
         from app.models.stock import PortfolioExperiment
         칸들 = {c.name for c in PortfolioExperiment.__table__.columns}
         for 이름 in ("rebalance_day", "cost_rate",
-                     "benchmark", "equal_weight", "extended"):
+                     "benchmark", "equal_weight", "extended",
+                     "expense_ratio", "sell_tax"):
             assert 이름 in 칸들, f"portfolio_experiments 에 {이름} 컬럼이 없다"
 
     def test_이미_배포된_표에도_컬럼을_붙인다(self):
@@ -462,7 +463,8 @@ class Test실험_저장:
         from app import main as M
         소스 = inspect.getsource(M)
         for 이름 in ("rebalance_day", "cost_rate",
-                     "benchmark", "equal_weight", "extended"):
+                     "benchmark", "equal_weight", "extended",
+                     "expense_ratio", "sell_tax"):
             assert f'_add_col_if_missing("portfolio_experiments", "{이름}"' in 소스, \
                 (f"{이름} 을 이미 배포된 표에 붙이는 자리가 없다 — "
                  "배포하면 저장이 실패한다")

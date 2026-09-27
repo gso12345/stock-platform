@@ -103,15 +103,9 @@ export interface Watchlist {
   items: WatchlistItem[];
 }
 
-export interface ScreeningFilter {
-  per?: { min?: number; max?: number };
-  pbr?: { min?: number; max?: number };
-  roe?: { min?: number; max?: number };
-  eps?: { min?: number; max?: number };
-  debt_ratio?: { min?: number; max?: number };
-  market_cap?: { min?: number; max?: number };
-  change_rate?: { min?: number; max?: number };
-}
+/* 숫자 조건은 {min,max}, 섹터는 {eq}. 쓸 수 있는 키는 서버의
+   스크리닝_숫자키 가 정한다 — 모르는 키는 서버가 422 로 돌려보낸다 */
+export type ScreeningFilter = Record<string, { min?: number; max?: number } | { eq: string }>;
 
 export interface ScreeningPreset {
   id: number;

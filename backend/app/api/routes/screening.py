@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 import asyncio
 from slowapi import Limiter
@@ -10,17 +10,37 @@ from app.db.database import get_db
 from app.models.stock import ScreeningPreset
 from app.models.user import User
 from app.core.deps import require_user, get_current_user
-from app.services.yf_service import yf_service
+from app.services.yf_service import yf_service, 스크리닝_숫자키, 스크리닝_글자키
 from app.core.cache import cache
 
 router = APIRouter(prefix="/screening", tags=["스크리닝"])
 limiter = Limiter(key_func=get_remote_address)
 
-_VALID_SORT = {"market_cap", "change_rate", "volume", "per", "pbr", "roe", "price"}
-_VALID_MARKETS = {"KR", "US", "ETF"}
+_SORT_PATTERN = "^(" + "|".join(sorted(스크리닝_숫자키)) + ")$"
 
 
-_SORT_PATTERN = "^(market_cap|change_rate|volume|per|pbr|roe|price|amount|eps|debt_ratio|roe|roa|operating_margin|profit_margin|beta|dividend_yield)$"
+def _조건검사(filters: dict) -> dict:
+    """모르는 키나 숫자가 아닌 값은 **요청 단계에서** 돌려보낸다.
+    모르는 키는 모든 종목이 '값 없음'으로 떨어져 결과가 조용히 0개가 되고,
+    숫자 자리에 글자가 오면 비교하다 500 이 난다 — 둘 다 사용자는
+    '조건이 너무 좁은가 보다' 로 읽는다."""
+    for key, cond in filters.items():
+        if not isinstance(cond, dict):
+            raise ValueError(f"{key} 조건 형식이 잘못됐어요")
+        if key in 스크리닝_글자키:
+            if set(cond) - {"eq"} or not isinstance(cond.get("eq"), str):
+                raise ValueError(f"{key} 는 글자 하나로 골라요")
+            continue
+        if key not in 스크리닝_숫자키:
+            raise ValueError(f"'{key}' 로는 거를 수 없어요")
+        if set(cond) - {"min", "max"}:
+            raise ValueError(f"{key} 조건은 최소·최대만 쓸 수 있어요")
+        for v in cond.values():
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError(f"{key} 조건은 숫자여야 해요")
+        if "min" in cond and "max" in cond and cond["min"] > cond["max"]:
+            raise ValueError(f"{key} 의 최소가 최대보다 커요")
+    return filters
 
 
 class ScreeningRequest(BaseModel):
@@ -30,6 +50,8 @@ class ScreeningRequest(BaseModel):
     sort_order: str = Field("desc", pattern="^(asc|desc)$")
     limit: int = Field(50, ge=1, le=100)
 
+    _조건 = field_validator("filters")(classmethod(lambda cls, v: _조건검사(v)))
+
 
 class PresetSaveRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
@@ -37,6 +59,16 @@ class PresetSaveRequest(BaseModel):
     filters: dict = Field(default={}, max_length=20)
     sort_by: str = Field(..., pattern=_SORT_PATTERN)
     sort_order: str = Field("desc", pattern="^(asc|desc)$")
+
+    _조건 = field_validator("filters")(classmethod(lambda cls, v: _조건검사(v)))
+
+
+def 줄세우기(results: list, sort_by: str, desc: bool) -> list:
+    """값 없는 종목은 오름·내림 어느 쪽이든 **맨 뒤로.** 예전엔 없는 값을 0 으로
+    쳐서, PER 낮은 순으로 세우면 PER 모르는 적자 기업들이 1등부터 깔렸다."""
+    있음 = [r for r in results if r.get(sort_by) is not None]
+    없음 = [r for r in results if r.get(sort_by) is None]
+    return sorted(있음, key=lambda r: r[sort_by], reverse=desc) + 없음
 
 
 @router.post("/run")
@@ -47,7 +79,7 @@ async def run_screening(request: Request, req: ScreeningRequest):
         return cached
     loop = asyncio.get_running_loop()
     results = await loop.run_in_executor(None, yf_service.screen_stocks, req.market, req.filters)
-    results.sort(key=lambda x: (x.get(req.sort_by) or 0), reverse=(req.sort_order == "desc"))
+    results = 줄세우기(results, req.sort_by, req.sort_order == "desc")
     payload = {"results": results[: req.limit], "total": len(results)}
     cache.set(ck, payload, 300)
     return payload
