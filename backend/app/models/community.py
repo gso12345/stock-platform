@@ -177,6 +177,10 @@ class Report(Base):
     comment_id  = Column(Integer, ForeignKey("stock_comments.id"), nullable=True, index=True)
     reason      = Column(String(200), nullable=False)
     status      = Column(String(20), default="pending")  # pending, resolved, dismissed
+    #: 처리할 때 **무엇을 했나** — blind / delete / dismiss. '처리 취소' 가 이걸 보고
+    #  되돌린다. 없으면 무엇을 되돌려야 할지 몰라, 작성자가 스스로 지운 글까지
+    #  되살릴 수 있다.
+    action      = Column(String(20), nullable=True)
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
 
     reporter = relationship("User")

@@ -47,10 +47,31 @@ export function ReportsTab({ qc }: { qc: QueryClient }) {
      옆 버튼(블라인드·기각)과 나란히 있어서 잘못 누르기도 쉽다. */
   const 지우기 = (r: any) => 묻기({
     title: "신고된 글을 삭제할까요?",
-    message: "지운 글은 되돌릴 수 없습니다. 블라인드는 되돌릴 수 있으니 먼저 검토해 보세요.",
+    message: "글이 목록에서 사라집니다. 가리기만 하려면 블라인드를 쓰세요 — 블라인드는 되돌릴 수 있고, "
+      + "잘못 지웠어도 '처리됨' 에서 '처리 취소' 로 되살릴 수 있어요.",
     대상: (r.post_title || r.post_preview || r.comment_preview || "(내용 없음)").slice(0, 40),
     확인글: "삭제",
     onConfirm: () => act(adminApi.deleteReportContent, r.id),
+  });
+
+  /* 처리 취소 — 무엇이 되돌려지는지 먼저 말한다. 블라인드·삭제는 글이
+     다시 보이게 되는 일이라 확인 없이 누르면 안 된다 */
+  const 되돌림설명: Record<string, string> = {
+    blind: "블라인드를 풀어 글이 다시 보이게 됩니다.",
+    delete: "삭제한 글을 되살려 다시 보이게 됩니다.",
+    dismiss: "기각을 거두고 다시 검토할 수 있게 됩니다.",
+  };
+  const 취소하기 = (r: any) => 묻기({
+    title: "처리를 취소할까요?",
+    message: `${되돌림설명[r.action] ?? "무엇을 처리했는지 기록이 없어 글은 그대로 두고"} 신고는 '대기' 로 돌아갑니다.`
+      + (r.action === "blind" || r.action === "delete"
+        ? " 같은 글이 다른 신고로도 처리돼 있으면 글은 그대로 둡니다." : ""),
+    대상: (r.post_title || r.post_body || r.comment_preview || "(내용 없음)").slice(0, 40),
+    확인글: "처리 취소",
+    onConfirm: () => act(async (id) => {
+      const 결과 = await adminApi.reopenReport(id);
+      if (결과?.kept?.length) 보이기(`신고는 대기로 돌렸고, ${결과.kept.join(", ")} 는 그대로 뒀어요`, "info");
+    }, r.id),
   });
 
   const reports: any[] = data?.items ?? [];
@@ -180,11 +201,17 @@ export function ReportsTab({ qc }: { qc: QueryClient }) {
                       {isActing ? "처리 중..." : "기각"}
                     </button>
                   </div>
-                ) : (r.status === "resolved" && (r.post_is_blinded || r.comment_is_blinded)) && (
-                  <div className="flex border-t border-border/50">
-                    <button onClick={() => act(adminApi.unblindReport, r.id)} disabled={isActing}
+                ) : (
+                  /* 처리한 것은 무엇이든 취소할 수 있다 — 블라인드·삭제·기각 모두 */
+                  <div className="flex items-center border-t border-border/50">
+                    {r.action && (
+                      <span className="px-4 text-2xs text-text-dim shrink-0">
+                        {{ blind: "블라인드함", delete: "삭제함", dismiss: "기각함" }[r.action as string] ?? ""}
+                      </span>
+                    )}
+                    <button onClick={() => 취소하기(r)} disabled={isActing}
                       className="flex-1 py-3 text-xs font-semibold text-accent-blue hover:bg-accent-blue/8 active:bg-accent-blue/15 transition-colors disabled:opacity-40">
-                      {isActing ? "처리 중..." : "블라인드 복구"}
+                      {isActing ? "처리 중..." : "처리 취소"}
                     </button>
                   </div>
                 )}

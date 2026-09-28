@@ -71,6 +71,8 @@ describe("되돌릴 수 없는 일은 먼저 묻는다", () => {
        되돌릴 수 없는 쪽을 덜 고른다 */
     const i = 화면.indexOf("const 지우기");
     expect(화면.slice(i, i + 500)).toMatch(/블라인드는 되돌릴 수 있/);
+    //: 삭제도 이제 '처리 취소' 로 되살릴 수 있다 — 그 길도 함께 알려 준다
+    expect(화면.slice(i, i + 500)).toMatch(/처리 취소/);
   });
 });
 

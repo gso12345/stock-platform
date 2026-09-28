@@ -51,6 +51,8 @@ export const adminApi = {
   blindReport:     (id: number) => api.patch(`/admin/reports/${id}/blind`).then(r => r.data),
   unblindReport:   (id: number) => api.patch(`/admin/reports/${id}/unblind`).then(r => r.data),
   dismissReport:   (id: number) => api.patch(`/admin/reports/${id}/dismiss`).then(r => r.data),
+  /** 처리 취소 — 한 일을 되돌리고 '대기' 로. undone/kept 에 무엇을 되돌렸는지 온다 */
+  reopenReport:    (id: number) => api.patch(`/admin/reports/${id}/reopen`).then(r => r.data),
   deleteReportContent: (id: number) => api.delete(`/admin/reports/${id}/content`).then(r => r.data),
   // 트렌드
   getSearchTrends: () => api.get("/admin/search-trends").then(r => r.data),

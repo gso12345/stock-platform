@@ -1259,6 +1259,8 @@ def list_reports(
             "comment_is_deleted": comment_is_deleted,
             "reason":             r.reason,
             "status":             r.status,
+            #: 처리할 때 무엇을 했나 — 화면이 '처리 취소' 확인 문구를 고른다
+            "action":             _처리한것(db, r) if r.status != "pending" else None,
             "created_at":         r.created_at.isoformat() if r.created_at else None,
         })
     return {"total": total, "items": result}
@@ -1280,6 +1282,7 @@ def blind_content(report_id: int, db: Session = Depends(get_db), current: User =
         if comment:
             comment.is_blinded = True
     report.status = "resolved"
+    report.action = "blind"
     db.commit()
     관리기록(db, current, "report.blind", "report", report_id,
              f"글 {report.post_id} · 댓글 {report.comment_id}")
@@ -1302,6 +1305,7 @@ def unblind_content(report_id: int, db: Session = Depends(get_db), current: User
         if comment:
             comment.is_blinded = False
     report.status = "dismissed"
+    report.action = "dismiss"
     db.commit()
     관리기록(db, current, "report.unblind", "report", report_id,
              f"글 {report.post_id} · 댓글 {report.comment_id}")
@@ -1316,6 +1320,7 @@ def dismiss_report(report_id: int, db: Session = Depends(get_db), current: User 
     if not report:
         raise HTTPException(404, "신고를 찾을 수 없습니다")
     report.status = "dismissed"
+    report.action = "dismiss"
     db.commit()
     관리기록(db, current, "report.dismiss", "report", report_id)
     return {"message": "신고 기각 완료", "report_id": report_id}
@@ -1337,9 +1342,80 @@ def delete_reported_content(report_id: int, db: Session = Depends(get_db), curre
         if comment:
             comment.is_deleted = True
     report.status = "resolved"
+    report.action = "delete"
     db.commit()
     관리기록(db, current, "report.delete_content", "report", report_id,
              f"글 {report.post_id} · 댓글 {report.comment_id}")
+
+
+#: 관리 기록의 이름 → 신고 처리 종류. action 칸이 생기기 전에 처리한 신고를 위해
+_기록으로본처리 = {"report.blind": "blind", "report.delete_content": "delete",
+                  "report.dismiss": "dismiss", "report.unblind": "dismiss"}
+
+
+def _처리한것(db: Session, report) -> str | None:
+    """이 신고를 처리할 때 무엇을 했나.
+
+    action 칸이 있으면 그것. 칸이 생기기 전에 처리한 신고는 관리 기록에서
+    찾는다. 둘 다 없으면 None — 모르는 것을 짐작해서 되돌리지 않는다."""
+    if getattr(report, "action", None):
+        return report.action
+    from app.models.admin_log import AdminLog
+    기록 = (db.query(AdminLog)
+            .filter(AdminLog.target_type == "report", AdminLog.target_id == str(report.id),
+                    AdminLog.action.in_(list(_기록으로본처리)))
+            .order_by(AdminLog.created_at.desc()).first())
+    return _기록으로본처리.get(기록.action) if 기록 else None
+
+
+@router.patch("/reports/{report_id}/reopen")
+def reopen_report(report_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
+    """처리한 신고를 **취소**하고 다시 '대기' 로 돌린다.
+
+    처리할 때 한 일을 되돌린다 — 블라인드는 풀고, 삭제한 글은 되살린다
+    (삭제는 is_deleted 표시라 되살릴 수 있다). 기각은 상태만 돌린다.
+
+    다만 **이 신고가 한 일만** 되돌린다.
+      · 같은 글이 다른 신고로도 블라인드·삭제돼 있으면 글은 그대로 둔다 —
+        그 신고는 여전히 처리된 상태다
+      · 무엇을 했는지 모르면(기록이 없는 옛 신고) 글은 건드리지 않는다 —
+        작성자가 스스로 지운 글을 되살리면 안 된다"""
+    from app.models.community import Report, StockPost, StockComment
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "신고를 찾을 수 없습니다")
+    if report.status == "pending":
+        raise HTTPException(400, "아직 처리하지 않은 신고입니다")
+
+    한것 = _처리한것(db, report)
+    되돌린것: list[str] = []
+    남긴것: list[str] = []
+    칸 = {"blind": "is_blinded", "delete": "is_deleted"}.get(한것 or "")
+    if 칸:
+        for 종류, 모델, 번호, 열 in (("글", StockPost, report.post_id, Report.post_id),
+                                    ("댓글", StockComment, report.comment_id, Report.comment_id)):
+            if not 번호:
+                continue
+            대상 = db.query(모델).filter(모델.id == 번호).first()
+            if not 대상 or not getattr(대상, 칸):
+                continue
+            다른신고 = [r for r in db.query(Report).filter(
+                열 == 번호, Report.id != report.id, Report.status == "resolved").all()
+                if _처리한것(db, r) == 한것]
+            if 다른신고:
+                남긴것.append(f"{종류} #{번호} (신고 #{다른신고[0].id} 로도 처리됨)")
+                continue
+            setattr(대상, 칸, False)
+            되돌린것.append(f"{종류} #{번호} {'블라인드 해제' if 한것 == 'blind' else '복구'}")
+
+    report.status = "pending"
+    report.action = None
+    db.commit()
+    관리기록(db, current, "report.reopen", "report", report_id,
+             f"취소한 처리 {한것 or '모름'} · 되돌림 {되돌린것 or '없음'}"
+             + (f" · 그대로 둠 {남긴것}" if 남긴것 else ""))
+    return {"message": "처리를 취소했습니다", "report_id": report_id,
+            "undone": 되돌린것, "kept": 남긴것, "action": 한것}
 
 
 # ── 트렌드 / 사용 통계 ──────────────────────────────────────────────────────────

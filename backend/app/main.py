@@ -77,7 +77,7 @@ async def lifespan(application: FastAPI):
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
-        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights", "portfolio_items", "portfolios", "kr_tickers", "notifications", "portfolio_experiments"}
+        _ALLOWED_MIGRATE_TABLES = {"watchlists", "strategies", "watchlist_items", "users", "screening_presets", "watchlist_folders", "backtest_results", "quant_score_weights", "portfolio_items", "portfolios", "kr_tickers", "notifications", "portfolio_experiments", "reports"}
         _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
         # 테이블/컬럼명이 항상 이 파일 내 하드코딩된 값이지만, 방어적으로 식별자 형식을 강제
         _IDENTIFIER_RE = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -112,6 +112,8 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("users", "oauth_id", "VARCHAR(100)")
         _add_col_if_missing("users", "is_admin", "BOOLEAN DEFAULT FALSE")
         _add_col_if_missing("users", "withdrawn_at", "TIMESTAMP WITH TIME ZONE", "DATETIME")
+        #: 신고를 처리할 때 무엇을 했나 — '처리 취소' 가 이걸 보고 되돌린다
+        _add_col_if_missing("reports", "action", "VARCHAR(20)")
         _add_col_if_missing("quant_score_weights", "enabled_metrics", "JSON")
         _add_col_if_missing("portfolio_items", "portfolio_id", "INTEGER REFERENCES portfolios(id)", "INTEGER")
         _add_col_if_missing("portfolio_items", "asset_class", "VARCHAR(10)")
@@ -507,10 +509,26 @@ async def _오류_남기고_500(request: Request, exc: Exception):
     errors.남기기(f"{request.method} {request.url.path}", exc,
                   어디서=request.headers.get("referer", ""))
     _startup_log.exception("처리되지 않은 오류: %s %s", request.method, request.url.path)
+    if _DB연결문제(exc):
+        #: DB 연결이 잠깐 끊긴 것(배포 전환·풀러 한도 등)은 코드 고장이 아니다.
+        #  503 으로 알려 '잠시 후 다시' 가 맞는 답이라고 말한다 — 화면은 5xx 를
+        #  알아서 두 번 더 시도한다(api/queryClient.ts).
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "데이터베이스 연결이 잠깐 끊겼어요. 잠시 후 다시 시도해 주세요."},
+        )
     return JSONResponse(
         status_code=500,
         content={"detail": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."},
     )
+
+
+def _DB연결문제(exc: BaseException) -> bool:
+    """연결이 끊겼거나 못 잡은 것인가 — 쿼리가 틀린 것(ProgrammingError 등)과 가른다."""
+    from sqlalchemy.exc import OperationalError, TimeoutError as 풀시간초과, DBAPIError
+    if isinstance(exc, (OperationalError, 풀시간초과)):
+        return True
+    return isinstance(exc, DBAPIError) and bool(getattr(exc, "connection_invalidated", False))
 # 이 미들웨어가 없으면 Limiter 의 default_limits 가 실제로는 적용되지 않는다.
 # @limiter.limit(...) 을 붙인 라우트만 제한됐고, 대시보드처럼 데코레이터가
 # 하나도 없는 라우트는 완전히 무제한이었다 — 임의 category 로 캐시를 밀어내는
