@@ -226,3 +226,20 @@ describe("오류표", () => {
     expect(글자(/최근 1시간에는 조용합니다/)).toBe(true);
   });
 });
+
+describe("한 번에 모두 가져오기", () => {
+  const 뉴스 = (실제응답 as any).news;
+  it("batch 0 이면 '모든 언론사를 한 번에' 라고 적고, 'Infinity분' 같은 것은 안 나온다", async () => {
+    그리기({ ...실제응답, health: 실패목록(2), news: { ...뉴스, batch: 0, resting: [] } });
+    await screen.findByText(/뉴스 수집/);
+    expect(글자(/모든 언론사를 한 번에/)).toBe(true);
+    expect(글자(/Infinity|NaN/)).toBe(false);
+    expect(글자(/번갈아/)).toBe(false);
+  });
+
+  it("나눠 가져오도록 설정한 서버면 예전 문구를 그대로 쓴다", async () => {
+    그리기({ ...실제응답, health: 실패목록(2), news: { ...뉴스, batch: 14, kr_feeds: 49, resting: [] } });
+    await screen.findByText(/뉴스 수집/);
+    expect(글자(/회차당 14곳씩 번갈아/)).toBe(true);
+  });
+});

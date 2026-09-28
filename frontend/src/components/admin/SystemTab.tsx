@@ -1014,8 +1014,11 @@ export default function SystemTab() {
           ))}
         </div>
         <p className="text-2xs text-text-dim break-keep">
-          회차당 {d.news.batch}곳씩 번갈아 가져옵니다 — 전체 한 바퀴에 약{" "}
-          {Math.ceil(d.news.kr_feeds / d.news.batch) * 5}분
+          {/* batch 0 = 매 회차 살아 있는 곳을 전부. 0 으로 나누면 'Infinity분' 이 뜬다 */}
+          {d.news.batch > 0
+            ? <>회차당 {d.news.batch}곳씩 번갈아 가져옵니다 — 전체 한 바퀴에 약{" "}
+                {Math.ceil(d.news.kr_feeds / d.news.batch) * 5}분</>
+            : <>5분마다 모든 언론사를 한 번에 가져옵니다</>}
           {(d.news.resting?.length ?? 0) > 0 && (
             /* 계속 실패하는 곳은 칸을 거의 안 먹는다는 것을 적어 준다.
                안 적으면 '실패 중 36곳' 만 보고 서버가 매 회차 거기에

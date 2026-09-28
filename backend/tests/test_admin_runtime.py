@@ -85,7 +85,8 @@ class Test운영_판단에_필요한_값:
     def test_뉴스가_몇_곳에서_수집됐는지_보여준다(self, 상태):
         # '아시아경제만 나온다'를 화면에서 바로 확인할 수 있어야 한다
         n = 상태["news"]
-        assert n["kr_feeds"] > 0 and n["batch"] > 0
+        # batch 0 은 "매 회차 살아 있는 곳 전부"
+        assert n["kr_feeds"] > 0 and n["batch"] >= 0
         assert isinstance(n["kr_sources"], list)
         assert n["kr_cached"] >= 0
 

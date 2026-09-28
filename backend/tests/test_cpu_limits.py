@@ -89,32 +89,60 @@ class Test뉴스_수집:
         # 예전에는 64개 고정이었다. RSS 파싱은 CPU를 태우므로 여기는 적게 잡는다
         assert news._FEED_WORKERS <= 8, f"뉴스 피드 스레드 {news._FEED_WORKERS}개는 과하다"
 
-    def test_한_번에_전부_긁지_않는다(self):
-        # 국내 49개를 매번 전부 긁으면 CPU만 8초를 쓴다
-        assert news._FEED_BATCH < len(news.KR_FEEDS)
+    @pytest.fixture
+    def 쉼없음(self):
+        """앞선 검사가 남긴 연속 실패 기록을 비운다 — 누가 '쉬는 곳' 이면 결과가 달라진다"""
+        저장 = dict(news._연속실패)
+        news._연속실패.clear()
+        yield
+        news._연속실패.clear()
+        news._연속실패.update(저장)
 
-    def test_언론사를_돌아가며_가져온다(self):
-        # 무작위로 섞으면 운 나쁜 언론사는 몇 회차 연속 빠질 수 있다
+    def test_기본은_매_회차_살아있는_곳을_전부_가져온다(self, 쉼없음):
+        # 예전엔 14곳씩 돌아서 49곳 한 바퀴에 20분 — 화면에 '3/49 수집' 으로 보였다
+        assert news._FEED_BATCH == 0
+        고른것 = news._next_batch(news.KR_FEEDS, news._FEED_BATCH)
+        assert {s for s, _ in 고른것} == {s for s, _ in news.KR_FEEDS}
+        assert len(고른것) == len(news.KR_FEEDS), "같은 언론사를 두 번 넣었다"
+        assert len(news._next_batch(news.US_FEEDS, news._FEED_BATCH)) == len(news.US_FEEDS)
+
+    def test_전부_가져올_때도_계속_실패하는_곳은_몇_칸만_찔러본다(self, 쉼없음):
+        # 죽은 주소 수십 곳이 매 회차 시간을 다 먹으면 살아 있는 곳까지 못 끝난다
+        죽은곳 = [s for s, _ in news.KR_FEEDS[:10]]
+        for 이름 in 죽은곳:
+            news._연속실패[이름] = news._쉼_기준
+        고른것 = [s for s, _ in news._next_batch(news.KR_FEEDS, 0)]
+        assert set(s for s, _ in news.KR_FEEDS[10:]) <= set(고른것), "살아 있는 곳이 빠졌다"
+        assert len(set(고른것) & set(죽은곳)) == min(news._되살림_칸, len(죽은곳))
+
+    def test_전부_쉬는_중이면_전부_찔러본다(self, 쉼없음):
+        # 여기서 빈 목록을 주면 뉴스가 통째로 멈추고 스스로 되살아날 길도 막힌다
+        for 이름, _ in news.US_FEEDS:
+            news._연속실패[이름] = news._쉼_기준
+        assert len(news._next_batch(news.US_FEEDS, 0)) == len(news.US_FEEDS)
+
+    def test_나눠_가져오도록_설정하면_예전처럼_돌아가며_가져온다(self, 쉼없음):
+        # NEWS_FEED_BATCH=14 로 되돌릴 수 있어야 한다 — CPU 가 모자랄 때를 위해
         모인곳 = []
-        회차 = -(-len(news.KR_FEEDS) // news._FEED_BATCH)
-        for _ in range(회차):
-            모인곳 += [s for s, _ in news._next_batch(news.KR_FEEDS, news._FEED_BATCH)]
-        assert set(모인곳) == {s for s, _ in news.KR_FEEDS}, \
-            f"{회차}회차를 돌아도 {len(news.KR_FEEDS) - len(set(모인곳))}개 언론사가 빠진다"
+        for _ in range(-(-len(news.KR_FEEDS) // 14)):
+            묶음 = news._next_batch(news.KR_FEEDS, 14)
+            assert len(묶음) == 14 and len({s for s, _ in 묶음}) == 14
+            모인곳 += [s for s, _ in 묶음]
+        assert set(모인곳) == {s for s, _ in news.KR_FEEDS}
 
-    def test_한_회차에_같은_언론사를_두_번_넣지_않는다(self):
-        batch = news._next_batch(news.KR_FEEDS, news._FEED_BATCH)
-        assert len(batch) == len({s for s, _ in batch})
-
-    def test_피드보다_배치가_크면_전부_가져온다(self):
-        assert len(news._next_batch(news.US_FEEDS, 999)) == len(news.US_FEEDS)
+    def test_회차_시간은_가져올_곳_수에_맞춘다(self):
+        # 40초 고정이면 49곳을 한꺼번에 가져올 때 뒤쪽이 통째로 버려진다
+        바퀴 = -(-len(news.KR_FEEDS) // news._FEED_WORKERS)
+        assert news._회차예산(len(news.KR_FEEDS)) >= 바퀴 * news._FEED_TIMEOUT
+        assert news._회차예산(3) >= 40
+        assert "as_completed(futures, timeout=예산)" in inspect.getsource(news._fetch_all_feeds)
 
     def test_실패한_언론사_기사는_이전_것을_남긴다(self):
         # 회차마다 일부만 가져오므로, 병합이 없으면 목록이 계속 비어 보인다
         src = inspect.getsource(news._do_refresh_news)
         assert "stale" in src and "all_news.append(a)" in src
 
-    def test_캐시가_비면_한_번은_넓게_가져온다(self):
+    def test_나눠_가져오도록_설정했어도_캐시가_비면_한_번은_넓게_가져온다(self):
         # 배포 직후 캐시가 비면 한두 언론사만 뜨는 문제가 있었다
         src = inspect.getsource(news._do_refresh_news)
         assert "cold" in src and "_FEED_BATCH * 3" in src

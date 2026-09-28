@@ -407,10 +407,16 @@ def _add_trending_score(articles: list) -> list:
 _FEED_WORKERS = int(os.getenv("NEWS_FEED_WORKERS", 0)) or cpu_worker_count(default=6)
 _feed_executor = ThreadPoolExecutor(max_workers=_FEED_WORKERS, thread_name_prefix="feed-fetch")
 
-# 한 번에 가져올 피드 수. 국내 49개를 매번 전부 긁으면 CPU만 8초를 쓰는데,
-# 뉴스는 5분마다 몇 개 언론사씩 돌아가며 채워도 충분하다. 이전 회차 기사는
-# 아래 stale 병합이 살려 두므로 목록은 계속 가득 찬 상태로 유지된다.
-_FEED_BATCH = int(os.getenv("NEWS_FEED_BATCH", 14))
+# 한 번에 가져올 피드 수. **0 이면 살아 있는 곳을 전부** 가져온다(기본).
+#
+# 예전에는 14곳씩 돌아가며 가져와서 49곳을 한 바퀴 도는 데 약 20분이
+# 걸렸다. 관리자 화면에 '3/49 수집' 처럼 보여, 수집이 안 되는 줄 알게
+# 만들었다. 이제는 매 회차 살아 있는 곳을 전부 가져온다.
+#
+# 값: CPU 가 더 든다(국내 49곳 전부 파싱에 CPU 약 8초 — 0.15 CPU 서버면
+# 벽시계로 수십 초). 배경에서 5분마다 한 번 도는 일이라 받아들인다.
+# 부담이 크면 NEWS_FEED_BATCH=14 로 예전처럼 나눠 가져올 수 있다.
+_FEED_BATCH = int(os.getenv("NEWS_FEED_BATCH", 0))
 
 # 언론사별로 돌아가며 가져오기 위한 시작 위치 (자리 이름 → 다음 시작 index)
 _feed_cursor: dict[str, int] = {}
@@ -486,13 +492,23 @@ def _돌아가며(목록: list, 개수: int, 자리: str) -> list:
 
 
 def _next_batch(feeds: list, batch: int) -> list:
-    """이번 회차에 가져올 피드를 고른다 — 쉬는 곳은 몇 칸만."""
-    if batch >= len(feeds):
-        return list(feeds)
+    """이번 회차에 가져올 피드를 고른다 — 쉬는 곳은 몇 칸만.
+
+    batch 가 0 이면 **살아 있는 곳을 전부** 가져온다. 쉬는 곳(연속 실패)은
+    그때도 몇 칸만 찔러본다 — 죽은 주소 수십 곳이 매 회차 시간을 다 먹으면
+    살아 있는 곳까지 시간 안에 못 끝난다."""
     자리 = "kr" if feeds is KR_FEEDS else "us" if feeds is US_FEEDS else str(id(feeds))
 
     사는곳 = [f for f in feeds if not _쉬는가(f[0])]
     쉬는곳 = [f for f in feeds if _쉬는가(f[0])]
+
+    if batch <= 0:
+        # 전부 쉬는 중이면 전부 찔러본다 — 뉴스가 통째로 멈추면 안 된다
+        if not 사는곳:
+            return list(feeds)
+        return 사는곳 + _돌아가며(쉬는곳, min(_되살림_칸, len(쉬는곳)), f"{자리}:rest")
+    if batch >= len(feeds):
+        return list(feeds)
 
     # 전부 쉬는 중이면 예전처럼 돈다. 여기서 빈 목록을 주면 뉴스가
     # 통째로 멈추고, 그러면 스스로 되살아날 길도 함께 막힌다.
@@ -507,9 +523,23 @@ def _next_batch(feeds: list, batch: int) -> list:
             + _돌아가며(쉬는곳, 찔러볼칸, f"{자리}:rest"))
 
 
+def _회차예산(곳수: int) -> int:
+    """한 회차를 기다려 줄 시간(초).
+
+    40초 고정이었다. 14곳이면 맞지만 49곳을 한꺼번에 가져오면 워커 6개가
+    아홉 번 돌아야 해서, 느린 곳 몇이 끼면 뒤쪽이 통째로 버려진다. 가져올
+    곳 수에 맞춰 잡는다 — 워커 한 바퀴마다 피드 제한 시간만큼, 넉넉히 더."""
+    고정 = int(os.getenv("NEWS_ROUND_BUDGET", 0))
+    if 고정 > 0:
+        return 고정
+    바퀴 = -(-max(곳수, 1) // max(_FEED_WORKERS, 1))
+    return max(40, 바퀴 * _FEED_TIMEOUT + 10)
+
+
 def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = None) -> list[dict]:
-    """피드를 순서대로 나눠 가져온다 (CPU 0.1개 환경에서 타임아웃 방지)"""
-    picked = _next_batch(feeds, batch or _FEED_BATCH)
+    """이번 회차 피드를 가져온다 — 기본은 살아 있는 곳 전부"""
+    picked = _next_batch(feeds, _FEED_BATCH if batch is None else batch)
+    예산 = _회차예산(len(picked))
     all_news = []
     futures = {
         _feed_executor.submit(_parse_feed, url, source, limit_per_source): source
@@ -520,7 +550,7 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
     try:
         # 워커가 적으므로 개별 피드는 여유 있게 기다린다 — 예전에는 동시 실행
         # 때문에 이 예산 안에 못 끝나 버려지는 피드가 대부분이었다
-        for future in as_completed(futures, timeout=40):
+        for future in as_completed(futures, timeout=예산):
             source = futures[future]
             남은곳.pop(future, None)
             try:
@@ -563,7 +593,7 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
         future.cancel()
         실패 += 1
         _실패기록(source, True)
-        health.record_fail(f"뉴스:{source}", "회차 시간(40초) 안에 못 끝냄")
+        health.record_fail(f"뉴스:{source}", f"회차 시간({예산}초) 안에 못 끝냄")
 
     전체 = 성공 + 실패 + 빈곳
     if 성공:
@@ -594,9 +624,11 @@ _strip_ts = strip_internal_fields
 
 def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
     # 배포 직후처럼 캐시가 비어 있으면 목록이 한두 언론사로만 채워져 보인다.
-    # 이때 한 번은 넓게 가져와 첫 화면을 제대로 채운다.
+    # 나눠 가져오도록 설정했더라도(NEWS_FEED_BATCH) 이때 한 번은 넓게 가져온다.
     cold = not cache.get_stale(ck)
-    all_news = _fetch_all_feeds(feeds, limit_per_source, batch=None if not cold else _FEED_BATCH * 3)
+    all_news = _fetch_all_feeds(
+        feeds, limit_per_source,
+        batch=_FEED_BATCH * 3 if cold and _FEED_BATCH > 0 else None)
     stale = cache.get_stale(ck)
     if not all_news:
         # 전체 피드 실패 시에도 _refreshing을 해제해야 다음 요청에서 재시도 가능
