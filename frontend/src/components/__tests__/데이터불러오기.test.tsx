@@ -28,6 +28,10 @@ vi.mock("@/hooks/usePortfolioItems", async () => {
 let 로그인 = false;
 vi.mock("@/store/authStore", () => ({ useAuthStore: () => ({ isLoggedIn: 로그인 }) }));
 vi.mock("../Logo", () => ({ default: () => null }));
+let 표시설정 = "보이기";
+vi.mock("@/store/settingsStore", () => ({
+  useSettingsStore: (sel: any) => sel({ 불러오기표시: 표시설정 }),
+}));
 
 import 위젯, { 라벨, 묶기, 느림기준초, 띄울때까지ms } from "../LoadingProgressOverlay";
 
@@ -51,7 +55,7 @@ const 줄 = (이름: string) => screen.getByText(이름, { exact: true }).closes
 const 뜰때까지 = { timeout: 띄울때까지ms + 1500 };
 const 기본들 = ["kr", "us", "news-kr", "news-us"];
 
-beforeEach(() => { 대기 = {}; for (const k in 부른수) delete 부른수[k]; 로그인 = false; });
+beforeEach(() => { 표시설정 = "보이기"; 대기 = {}; for (const k in 부른수) delete 부른수[k]; 로그인 = false; });
 
 describe("데이터 불러오기 위젯", () => {
   it("대시보드·뉴스를 항목별로 보여 준다", async () => {
@@ -132,12 +136,69 @@ describe("데이터 불러오기 위젯", () => {
       await waitFor(() => expect(대기.kr).toBeDefined());
       더할 = 1000;
       await screen.findByText(/데이터 불러오는 중/, {}, 뜰때까지);
-      expect(screen.queryByText(/깨어나는 중/)).toBeNull();
+      //: 자리는 늘 잡혀 있고(팝업이 커지지 않게) 보이지만 않는다
+      expect(screen.getByText(/깨어나는 중/).className).toMatch(/invisible/);
       더할 = (느림기준초 + 1) * 1000;
-      expect(await screen.findByText(/깨어나는 중/, {}, { timeout: 2500 })).toBeTruthy();
+      await waitFor(() => expect(screen.getByText(/깨어나는 중/).className).not.toMatch(/invisible/),
+                    { timeout: 2500 });
     } finally {
       시계.mockRestore();
     }
+  });
+});
+
+describe("흔들리지 않게", () => {
+  it("목록 칸과 안내 줄의 높이가 고정돼 있어 항목이 늘어도 팝업 크기가 안 바뀐다", async () => {
+    그리기([["quant-compare", "a"], ["feed", 1]]);
+    await screen.findByText(/데이터 불러오는 중/, {}, 뜰때까지);
+    expect(screen.getByTestId("불러오기-목록").className).toMatch(/\bh-\[/);
+    expect(screen.getByText(/깨어나는 중/).className).toMatch(/\bh-\[/);
+  });
+
+  it("두 번째로 뜰 때는 등장 효과 없이 제자리에 나타난다", async () => {
+    const { container } = 그리기();
+    await screen.findByText(/데이터 불러오는 중/, {}, 뜰때까지);
+    expect(screen.getByRole("status").className).toMatch(/fade-in/);
+    await act(async () => { for (const k of 기본들) 대기[k].풀기({}); });
+    await waitFor(() => expect(container.textContent).toBe(""), { timeout: 3000 });
+    //: 다른 화면으로 옮겨 새로 불러오기 시작
+    act(() => { qc.fetchQuery({ queryKey: ["feed", 2], queryFn: () => 부르기("feed2") }).catch(() => {}); });
+    await screen.findByText(/데이터 불러오는 중/, {}, 뜰때까지);
+    expect(screen.getByRole("status").className).not.toMatch(/fade-in/);
+  });
+});
+
+describe("설정 → 불러오기 표시", () => {
+  it("끄기면 불러오는 중에도, 실패해도 안 뜬다", async () => {
+    표시설정 = "끄기";
+    const { container } = 그리기();
+    await waitFor(() => expect(대기["news-us"]).toBeDefined());
+    await new Promise((r) => setTimeout(r, 띄울때까지ms + 300));
+    expect(container.textContent).toBe("");
+    await act(async () => { 대기["news-kr"].깨기(new Error("x")); });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(container.textContent).toBe("");
+  });
+
+  it("실패만이면 불러오는 중엔 안 뜨고, 실패하면 떠서 다시 시도할 수 있다", async () => {
+    표시설정 = "실패만";
+    const { container } = 그리기();
+    await waitFor(() => expect(대기["news-us"]).toBeDefined());
+    await new Promise((r) => setTimeout(r, 띄울때까지ms + 300));
+    expect(container.textContent).toBe("");
+    await act(async () => {
+      대기.kr.풀기({}); 대기.us.풀기({}); 대기["news-us"].풀기({});
+      대기["news-kr"].깨기(new Error("x"));
+    });
+    expect(await screen.findByText(/1개를 못 불러왔어요/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "국내 뉴스 다시 시도" })).toBeTruthy();
+  });
+
+  it("꺼 두어도 앱 진입 때 미리 불러오기는 그대로 한다", async () => {
+    표시설정 = "끄기";
+    그리기();
+    await waitFor(() => expect(대기["news-us"]).toBeDefined());
+    expect(Object.keys(부른수).sort()).toEqual(["kr", "news-kr", "news-us", "us"]);
   });
 });
 

@@ -41,6 +41,15 @@ export const 화면모양_목록: { value: 화면모양; label: string; desc: st
   { value: "app",     label: "앱처럼", desc: "큰 가격 → 차트 → 통계 순서로 봅니다" },
 ];
 
+/** 데이터를 불러올 때 오른쪽 아래 팝업을 띄울까.
+ *  보이기  불러오는 과정을 항목별로(기본)
+ *  실패만  평소엔 안 띄우고, 못 불러온 것이 있을 때만 — '다시' 를 누를 수 있게
+ *  끄기    아예 안 띄운다 */
+export type 불러오기표시 = "보이기" | "실패만" | "끄기";
+export function 정상불러오기표시(v: unknown): 불러오기표시 {
+  return v === "실패만" || v === "끄기" ? v : "보이기";
+}
+
 const KEY = "portfolio_settings";
 
 function legacyTheme(): Theme {
@@ -62,11 +71,12 @@ export interface 저장값 {
    *  가리는 것은 '금액' 뿐이다 — 수익률·비중·현재가는 그대로 둔다.
    *  퍼센트는 내가 얼마를 가졌는지 말해 주지 않고, 현재가는 남들도 아는 값이다. */
   금액가리기: boolean;
+  불러오기표시: 불러오기표시;
 }
 
 const 기본값: 저장값 = {
   colorScheme: "green-red", fontSize: "normal", theme: "dark",
-  orientation: "system", 화면모양: "app", 금액가리기: false,
+  orientation: "system", 화면모양: "app", 금액가리기: false, 불러오기표시: "보이기",
 };
 
 function load(): 저장값 {
@@ -82,6 +92,7 @@ function load(): 저장값 {
         orientation: (["system", "portrait", "landscape"] as Orientation[]).includes(p.orientation) ? p.orientation : "system",
         화면모양: 정상화면모양(p.화면모양),
         금액가리기: p.금액가리기 === true,
+        불러오기표시: 정상불러오기표시(p.불러오기표시),
       };
     }
   } catch {}
@@ -107,6 +118,7 @@ interface SettingsStore extends 저장값 {
   set화면모양: (v: 화면모양) => void;
   set금액가리기: (v: boolean) => void;
   토글금액가리기: () => void;
+  set불러오기표시: (v: 불러오기표시) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => {
@@ -120,5 +132,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => {
     set화면모양:    (화면모양)     => 바꾸기({ 화면모양 }),
     set금액가리기:  (금액가리기)   => 바꾸기({ 금액가리기 }),
     토글금액가리기: ()            => 바꾸기({ 금액가리기: !get().금액가리기 }),
+    set불러오기표시: (불러오기표시) => 바꾸기({ 불러오기표시 }),
   };
 });

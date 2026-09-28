@@ -47,6 +47,7 @@ const 기본값과_전부_다른_설정: 저장값 = {
   orientation: "landscape",    // 기본 system
   화면모양: "classic",          // 기본 app
   금액가리기: true,             // 기본 false
+  불러오기표시: "끄기",         // 기본 보이기
 };
 
 const 저장된것 = (): any => JSON.parse(localStorage.getItem(열쇠) ?? "null");
@@ -228,6 +229,7 @@ describe("settingsStore 금액가리기", () => {
     s.setTheme("light");
     s.setOrientation("landscape");
     s.set화면모양("classic");
+    s.set불러오기표시("끄기");
     useSettingsStore.getState().set금액가리기(true);
 
     expect(저장된것()).toEqual(기본값과_전부_다른_설정);
@@ -240,6 +242,7 @@ describe("settingsStore 금액가리기", () => {
     s.setTheme("light");
     s.setOrientation("landscape");
     s.set화면모양("classic");
+    s.set불러오기표시("끄기");
     useSettingsStore.getState().set금액가리기(false);
 
     act(() => { useSettingsStore.getState().토글금액가리기(); });

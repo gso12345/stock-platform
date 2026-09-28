@@ -13,7 +13,8 @@ import { NotificationToggles } from "@/components/community/NotificationSettings
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation,
-          화면모양, set화면모양, 금액가리기, set금액가리기 } = useSettingsStore();
+          화면모양, set화면모양, 금액가리기, set금액가리기,
+          불러오기표시, set불러오기표시 } = useSettingsStore();
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
@@ -214,6 +215,36 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 }`} />
               </span>
             </button>
+          </div>
+
+          {/* 불러오기 표시 — 오른쪽 아래 '데이터 불러오는 중' 팝업 */}
+          <div>
+            <p className="text-xs font-semibold text-text-muted mb-2">불러오기 표시</p>
+            <div className="flex gap-2" role="radiogroup" aria-label="불러오기 표시">
+              {([
+                { value: "보이기", label: "보이기", desc: "불러오는 과정을 항목별로" },
+                { value: "실패만", label: "실패만", desc: "못 불러왔을 때만" },
+                { value: "끄기",   label: "끄기",   desc: "띄우지 않음" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.value}
+                  role="radio"
+                  aria-checked={불러오기표시 === opt.value}
+                  onClick={() => set불러오기표시(opt.value)}
+                  className={`flex-1 flex flex-col items-center gap-0.5 p-2.5 rounded-xl border transition-all ${
+                    불러오기표시 === opt.value
+                      ? "border-accent-blue bg-accent-blue/10"
+                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
+                  }`}
+                >
+                  <span className="text-xs font-semibold text-text-primary">{opt.label}</span>
+                  <span className="text-2xs text-text-muted text-center leading-tight break-keep">{opt.desc}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-2xs text-text-dim mt-1.5 break-keep">
+              화면 오른쪽 아래 '데이터 불러오는 중' 창이에요. 꺼도 데이터는 똑같이 불러와요.
+            </p>
           </div>
 
           {/* 알림 — 로그인한 사람에게만 의미가 있다 */}

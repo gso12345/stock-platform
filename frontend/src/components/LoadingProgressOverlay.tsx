@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient, type Query } from "@tanstack/react-query";
 import { AlertTriangle, Check, Loader2, RotateCw, X } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { dashboardApi, watchlistApi } from "@/api/stocks";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
 import Logo from "./Logo";
@@ -69,8 +70,9 @@ export type 진행항목 = { 이름: string; 상태: 항목상태; 초: number; 
 /** 이만큼 넘게 기다리면 '서버가 깨는 중일 수 있다' 고 알려 준다.
  *  무료 서버는 한동안 요청이 없으면 잠들고, 깨는 데 20~50초가 든다. */
 export const 느림기준초 = 10;
-/** 이보다 빨리 끝나면 아예 안 띄운다 — 캐시에서 곧바로 나온 것이 번쩍이지 않게 */
-export const 띄울때까지ms = 600;
+/** 이보다 빨리 끝나면 아예 안 띄운다 — 캐시에서 곧바로 나온 것이 번쩍이지 않게.
+ *  0.6초였는데 화면을 옮길 때마다 떴다 사라졌다 해서 '흔들린다' 로 보였다. */
+export const 띄울때까지ms = 1000;
 /** 다 되고 나서 이만큼 보여 주고 닫는다 — 끝난 것을 확인할 틈 */
 export const 닫기까지ms = 1200;
 
@@ -96,6 +98,9 @@ export function 묶기(기록들: 기록[], 지금: number): 진행항목[] {
 export default function LoadingProgressOverlay() {
   const { isLoggedIn } = useAuthStore();
   const qc = useQueryClient();
+  /* 설정 → 불러오기 표시. 꺼도 아래의 미리 불러오기와 지켜보기는 그대로 돈다 —
+     '실패만' 으로 바꾸는 순간 지금 실패한 것이 곧바로 보여야 하므로 */
+  const 표시 = useSettingsStore((s) => s.불러오기표시);
 
   /* 앱 진입 시 미리 불러 두는 핵심 데이터 — 예전과 같다. 이 위젯이 Layout 에
      있어 어느 화면으로 들어와도 대시보드·뉴스·내 자산·관심종목이 준비된다.
@@ -114,6 +119,9 @@ export default function LoadingProgressOverlay() {
   const [지금, set지금] = useState(() => Date.now());
   const [닫음, set닫음] = useState(false);
   const 떠있음 = useRef(false);
+  /* 한 번이라도 떴었나. 두 번째부터는 등장 효과(아래서 4px 올라옴)를 빼고
+     제자리에 나타난다 — 화면을 옮길 때마다 튀어 오르면 흔들려 보인다 */
+  const 떴었음 = useRef(false);
 
   /* 캐시를 지켜본다. '데이터가 아직 없는데 불러오는 중' 인 것만 잡는다 */
   useEffect(() => {
@@ -169,6 +177,10 @@ export default function LoadingProgressOverlay() {
   if (항목들.length === 0) 떠있음.current = false;
 
   if (닫음 || !떠있음.current || 항목들.length === 0) return null;
+  if (표시 === "끄기") return null;
+  if (표시 === "실패만" && 실패들.length === 0) return null;
+  const 처음뜸 = !떴었음.current;
+  떴었음.current = true;
 
   const total = 항목들.length;
   const done = total - 기다림.length;
@@ -179,7 +191,7 @@ export default function LoadingProgressOverlay() {
     <div
       role="status"
       aria-label="데이터 불러오기 상황"
-      className="fixed right-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] lg:bottom-4 z-[150] w-64 bg-bg-card border border-border rounded-xl shadow-modal p-2.5 flex flex-col gap-1.5 fade-in"
+      className={`fixed right-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] lg:bottom-4 z-[150] w-64 bg-bg-card border border-border rounded-xl shadow-modal p-2.5 flex flex-col gap-1.5 ${처음뜸 ? "fade-in" : ""}`}
     >
       <div className="flex items-center gap-1.5">
         <Logo size={16} />
@@ -210,7 +222,10 @@ export default function LoadingProgressOverlay() {
         <span className="text-2xs font-mono text-text-muted">{percent}%</span>
       </div>
 
-      <ul className="flex flex-col gap-0.5 max-h-48 overflow-y-auto">
+      {/* 목록 칸의 **높이를 고정**한다. 팝업이 아래에 붙어 있어서, 항목이
+          늘거나 줄 때마다 높이가 바뀌면 위쪽 가장자리가 들썩였다 — '흔들린다'.
+          넘치면 안에서 스크롤한다. */}
+      <ul data-testid="불러오기-목록" className="flex flex-col gap-0.5 h-[7.25rem] overflow-y-auto">
         {항목들.map((x) => (
           <li key={x.이름} data-state={x.상태} className="flex items-center gap-1.5 text-2xs">
             {x.상태 === "완료" ? (
@@ -239,11 +254,10 @@ export default function LoadingProgressOverlay() {
         ))}
       </ul>
 
-      {!다끝남 && 가장오래 >= 느림기준초 && (
-        <p className="text-2xs text-text-dim break-keep">
-          서버가 쉬고 있다가 깨어나는 중일 수 있어요. 처음 한 번은 30초쯤 걸려요.
-        </p>
-      )}
+      {/* 안내 줄도 자리를 늘 잡아 둔다 — 나타날 때 팝업이 커지지 않게 */}
+      <p className={`text-2xs text-text-dim break-keep h-[2.25rem] ${!다끝남 && 가장오래 >= 느림기준초 ? "" : "invisible"}`}>
+        서버가 쉬고 있다가 깨어나는 중일 수 있어요. 처음 한 번은 30초쯤 걸려요.
+      </p>
     </div>
   );
 }
