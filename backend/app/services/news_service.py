@@ -16,62 +16,65 @@ _refreshing = {}  # 중복 갱신 방지 플래그
 KST = timezone(timedelta(hours=9))
 
 # ── 국내 뉴스 RSS ──────────────────────────────────────────
+#
+# 2026-09 에 대거 정리했다. 관리자 화면에서 49곳 중 37곳이 실패 중이었다.
+#
+#   · 주소가 바뀐 곳은 새 주소로 — 404·410·'피드에 기사가 없음' 이 뜨던
+#     서울경제·이데일리·파이낸셜뉴스·헤럴드경제·머니투데이·국민일보·
+#     세계일보·동아일보·한국경제·프라임경제·브릿지경제·메트로신문·연합뉴스
+#     (연합뉴스는 /RSS/ → /rss/ 로 대소문자가 바뀌었다)
+#   · RSS 를 더는 안 주는 곳은 뺐다 — 뉴스1·KBS·MBC·YTN·채널A·중앙일보·
+#     문화일보·더벨·인베스트조선·비즈워치·글로벌이코노믹·데일리안·
+#     디지털타임스·디지털데일리·한국경제TV·딜사이트·비즈니스포스트·
+#     연합인포맥스·이코노미스트
+#   · 대신 RSS 가 확인된 경제지를 더했다 — 이투데이·아주경제·EBN·
+#     서울파이낸스·아이뉴스24
+#
+# 새 주소의 근거는 공개된 국내 RSS 점검 목록(seokhoonj/newswatcher,
+# docs/korean-news-rss.md, 2026-08-20 점검)이다. 이 작업 환경은 바깥
+# 인터넷이 막혀 있어 직접 열어 보지는 못했다 — 배포 후 관리자 화면의
+# '지금 실패 중인 언론사' 에서 한 회차 만에 맞았는지 보인다. 틀린 곳은
+# 연속 실패로 쉬는 곳에 들어가 회차 시간을 거의 안 먹는다.
+#
+# '전체 기사' 피드가 많다. 경제 키워드 필터(_is_finance_news)가 경제
+# 기사만 남기므로 섹션 피드가 없어도 괜찮다.
 KR_FEEDS = [
     # 경제 전문지
-    ("한국경제",       "https://www.hankyung.com/feed/economy"),
-    ("한국경제TV",     "https://www.hankyungtv.com/rss/market"),
+    ("한국경제",       "https://www.hankyung.com/feed/all-news"),
     ("매일경제",       "https://www.mk.co.kr/rss/40300001/"),
-    ("서울경제",       "https://www.sedaily.com/RssData/"),
-    ("이데일리",       "https://www.edaily.co.kr/rss/"),
-    ("이데일리 증권",  "https://www.edaily.co.kr/rss/stockmarket"),
-    ("파이낸셜뉴스",   "https://www.fnnews.com/rss/fn_economy_news.xml"),
-    ("헤럴드경제",     "https://biz.heraldcorp.com/common/rss.php?ct=102"),
+    ("서울경제",       "https://www.sedaily.com/rss/newsall"),
+    ("이데일리",       "http://rss.edaily.co.kr/edaily_news.xml"),
+    ("파이낸셜뉴스",   "https://www.fnnews.com/rss/r20/fn_realnews_all.xml"),
+    ("헤럴드경제",     "https://biz.heraldcorp.com/rss/google/newsAll"),
     ("아시아경제",     "https://www.asiae.co.kr/rss/economy.htm"),
-    ("머니투데이",     "https://news.mt.co.kr/mtview.php?type=2&rss=1"),
-    ("머니투데이 증권","https://news.mt.co.kr/mtview.php?type=4&rss=1"),
-    ("비즈니스포스트", "https://www.businesspost.co.kr/BP?command=rss"),
-    ("더벨",           "https://www.thebell.co.kr/free/content/RssAllNews.asp"),
-    ("딜사이트",       "https://dealsite.co.kr/articles/rss"),
-    ("인베스트조선",   "https://www.investchosun.com/site/data/rss/rss.xml"),
+    ("머니투데이",     "http://rss.mt.co.kr/mt_news.xml"),
+    ("이투데이",       "https://rss.etoday.co.kr/eto/etoday_news_all.xml"),
+    ("아주경제",       "https://www.ajunews.com/rss/sokbo.xml"),
+    ("EBN",            "https://cdn.ebn.co.kr/rss/gns_allArticle.xml"),
+    ("서울파이낸스",   "https://cdn.seoulfn.com/rss/gn_rss_allArticle.xml"),
     # 종합지 경제섹션
     ("조선비즈",       "https://biz.chosun.com/arc/outboundfeeds/rss/?outputType=xml"),
-    ("동아일보 경제",  "https://rss.donga.com/economy.xml"),
-    ("중앙일보",       "https://rss.joins.com/joins_economy_list.xml"),
-    ("국민일보 경제",  "https://rss.kmib.co.kr/data/kmibEcoRss.xml"),
+    ("동아일보",       "https://rss.donga.com/total.xml"),
+    ("국민일보",       "https://www.kmib.co.kr/rss/data/kmibRssAll.xml"),
     ("경향신문 경제",  "https://www.khan.co.kr/rss/rssdata/economy_news.xml"),
     ("한겨레 경제",    "https://www.hani.co.kr/rss/economy/"),
-    ("문화일보 경제",  "https://www.munhwa.com/rss/economy.xml"),
-    ("세계일보 경제",  "https://www.segye.com/newsList/RSS/economy.xml"),
+    ("세계일보",       "http://www.segye.com/Articles/RSSList/segye_recent.xml"),
     # 통신사
-    ("연합뉴스",       "https://www.yna.co.kr/RSS/economy.xml"),
-    ("연합뉴스 증권",  "https://www.yna.co.kr/RSS/stocks.xml"),
-    ("뉴스1",          "https://www.news1.kr/rss/economic.xml"),
-    ("뉴스1 증권",     "https://www.news1.kr/rss/stocks.xml"),
-    ("연합인포맥스",   "https://news.einfomax.co.kr/rss/allNews.xml"),
+    ("연합뉴스",       "https://www.yna.co.kr/rss/economy.xml"),
     ("뉴시스",         "https://www.newsis.com/RSS/economy.xml"),
-    ("뉴시스 증권",    "https://www.newsis.com/RSS/stock.xml"),
     # 방송
-    ("KBS 경제",       "https://news.kbs.co.kr/rss/rss_economy.xml"),
-    ("MBC 경제",       "https://imnews.imbc.com/rss/economy/index.xml"),
     ("SBS 경제",       "https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=02&plink=RSSREADER"),
-    ("YTN 경제",       "https://www.ytn.co.kr/rss/0401.xml"),
-    ("채널A 경제",     "https://www.ichannela.com/news/rss/newsprss_eco.xml"),
     # IT/산업 (반도체·전자 등 기술주 관련 보도 보강)
     ("전자신문",       "https://rss.etnews.com/Section901.xml"),
-    ("디지털타임스",   "https://www.dt.co.kr/rss/economy.xml"),
     ("블로터",         "https://www.bloter.net/rss/allArticle.xml"),
-    ("디지털데일리",   "https://www.ddaily.co.kr/rss/allArticle.xml"),
+    ("아이뉴스24",     "https://www.inews24.com/rss/news_all.xml"),
     # 중소형 경제 전문지/매체 (언론사 다양성 보강)
-    ("데일리안 경제",  "https://www.dailian.co.kr/rss/economy.xml"),
-    ("프라임경제",     "http://www.newsprime.co.kr/rss/allArticle.xml"),
-    ("브릿지경제",     "http://www.viva100.com/rss/allArticle.xml"),
-    ("메트로신문",     "http://www.metroseoul.co.kr/rss/allArticle.xml"),
+    ("프라임경제",     "https://www.newsprime.co.kr/data/rss/news.xml"),
+    ("브릿지경제",     "https://www.viva100.com/rssAll.xml"),
+    ("메트로신문",     "https://www.metroseoul.co.kr/news/rss"),
     ("이뉴스투데이",   "http://www.enewstoday.co.kr/rss/allArticle.xml"),
     ("한스경제",       "http://www.sporbiz.co.kr/rss/allArticle.xml"),
     ("시사저널e",      "http://www.sisajournal-e.com/rss/allArticle.xml"),
-    ("글로벌이코노믹", "https://www.g-enews.com/rss/allArticle.xml"),
-    ("이코노미스트",   "https://economist.co.kr/rss/allArticle.xml"),
-    ("비즈워치",       "https://news.bizwatch.co.kr/rss/total_news.xml"),
 ]
 
 # ── 해외 뉴스 RSS ──────────────────────────────────────────
@@ -406,6 +409,16 @@ def _add_trending_score(articles: list) -> list:
 # 워커를 줄이면 각 피드가 제 시간 안에 끝나 성공률이 오히려 올라간다.
 _FEED_WORKERS = int(os.getenv("NEWS_FEED_WORKERS", 0)) or cpu_worker_count(default=6)
 _feed_executor = ThreadPoolExecutor(max_workers=_FEED_WORKERS, thread_name_prefix="feed-fetch")
+#: 해외 전용 풀. 국내와 한 풀을 쓰면, 국내 49곳을 한꺼번에 밀어 넣는 순간
+#  해외 8곳이 그 뒤에 줄을 서서 자기 회차 시간(해외 8곳 기준으로 잡힌다)을
+#  다 쓰고 전부 '시간 안에 못 끝냄' 이 됐다 — 배포 직후 실제로 그렇게 떴다.
+#  둘은 스케줄러가 동시에 돌리므로 줄도 따로 서야 한다.
+_feed_executor_us = ThreadPoolExecutor(max_workers=max(2, _FEED_WORKERS // 2),
+                                       thread_name_prefix="feed-fetch-us")
+
+
+def _풀(feeds: list) -> ThreadPoolExecutor:
+    return _feed_executor_us if feeds is US_FEEDS else _feed_executor
 
 # 한 번에 가져올 피드 수. **0 이면 살아 있는 곳을 전부** 가져온다(기본).
 #
@@ -523,7 +536,7 @@ def _next_batch(feeds: list, batch: int) -> list:
             + _돌아가며(쉬는곳, 찔러볼칸, f"{자리}:rest"))
 
 
-def _회차예산(곳수: int) -> int:
+def _회차예산(곳수: int, 워커: int | None = None) -> int:
     """한 회차를 기다려 줄 시간(초).
 
     40초 고정이었다. 14곳이면 맞지만 49곳을 한꺼번에 가져오면 워커 6개가
@@ -532,17 +545,18 @@ def _회차예산(곳수: int) -> int:
     고정 = int(os.getenv("NEWS_ROUND_BUDGET", 0))
     if 고정 > 0:
         return 고정
-    바퀴 = -(-max(곳수, 1) // max(_FEED_WORKERS, 1))
+    바퀴 = -(-max(곳수, 1) // max(워커 or _FEED_WORKERS, 1))
     return max(40, 바퀴 * _FEED_TIMEOUT + 10)
 
 
 def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = None) -> list[dict]:
     """이번 회차 피드를 가져온다 — 기본은 살아 있는 곳 전부"""
     picked = _next_batch(feeds, _FEED_BATCH if batch is None else batch)
-    예산 = _회차예산(len(picked))
+    풀 = _풀(feeds)
+    예산 = _회차예산(len(picked), getattr(풀, "_max_workers", None))
     all_news = []
     futures = {
-        _feed_executor.submit(_parse_feed, url, source, limit_per_source): source
+        풀.submit(_parse_feed, url, source, limit_per_source): source
         for source, url in picked
     }
     성공 = 실패 = 빈곳 = 0

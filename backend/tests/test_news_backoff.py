@@ -339,3 +339,25 @@ def test_쉬는곳이_없으면_빈_목록(monkeypatch):
     from app.api.routes import admin
     monkeypatch.setattr("app.core.cache.cache.get_stale", lambda k: [])
     assert admin._news_status()["resting"] == []
+
+
+def test_해외는_국내와_다른_줄에_선다(monkeypatch):
+    """국내 49곳을 한꺼번에 밀어 넣어도 해외가 그 뒤에 줄 서지 않는다.
+
+    한 풀을 같이 쓸 때 해외 8곳이 전부 '회차 시간 안에 못 끝냄' 이 됐다."""
+    import threading
+    막힘 = threading.Event()
+    국내풀 = ns._feed_executor
+    # 국내 풀의 워커를 전부 붙잡아 둔다
+    붙잡은것 = [국내풀.submit(막힘.wait) for _ in range(국내풀._max_workers)]
+    try:
+        monkeypatch.setattr(ns, "_parse_feed",
+                            lambda url, source, limit: [{"title": "t", "link": url, "source": source, "_ts": 1}])
+        monkeypatch.setattr(ns, "_회차예산", lambda 곳수, 워커=None: 3)
+        받은것 = ns._fetch_all_feeds(ns.US_FEEDS, 5, batch=len(ns.US_FEEDS))
+        assert len(받은것) == len(ns.US_FEEDS), "해외가 국내 줄 뒤에서 기다리다 버려졌다"
+    finally:
+        막힘.set()
+        for f in 붙잡은것:
+            f.result(timeout=5)
+    assert ns._풀(ns.US_FEEDS) is not ns._풀(ns.KR_FEEDS)
