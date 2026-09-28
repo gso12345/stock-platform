@@ -1365,7 +1365,35 @@ def _처리한것(db: Session, report) -> str | None:
             .filter(AdminLog.target_type == "report", AdminLog.target_id == str(report.id),
                     AdminLog.action.in_(list(_기록으로본처리)))
             .order_by(AdminLog.created_at.desc()).first())
-    return _기록으로본처리.get(기록.action) if 기록 else None
+    if 기록:
+        return _기록으로본처리.get(기록.action)
+    return _상태로본처리(db, report)
+
+
+def _상태로본처리(db: Session, report) -> str | None:
+    """기록이 아예 없는 옛 신고 — 글의 상태로 짐작한다. '처리됨' 일 때만.
+
+    짐작해도 되는 근거: 게시글을 **숨김 삭제(is_deleted)** 하는 곳은 신고의
+    '콘텐츠 삭제' 하나뿐이다. 작성자가 지우거나 커뮤니티 탭에서 지우면 줄
+    자체가 사라진다(되살릴 것도 없다). 그러니 처리된 신고의 글이 숨김
+    삭제돼 있으면 신고로 지운 것이다. 블라인드도 관리자만 거는 것이라
+    풀어도 관리자가 한 일을 되돌리는 것이다.
+
+    관리 기록은 2026-08-23 부터 남았다. 그 전에 처리한 신고가 이 길로 온다."""
+    if report.status != "resolved":
+        return None
+    from app.models.community import StockPost, StockComment
+    대상들 = []
+    if report.post_id:
+        대상들.append(db.query(StockPost).filter(StockPost.id == report.post_id).first())
+    if report.comment_id:
+        대상들.append(db.query(StockComment).filter(StockComment.id == report.comment_id).first())
+    대상들 = [x for x in 대상들 if x is not None]
+    if any(x.is_deleted for x in 대상들):
+        return "delete"
+    if any(x.is_blinded for x in 대상들):
+        return "blind"
+    return None
 
 
 @router.patch("/reports/{report_id}/reopen")
@@ -1378,8 +1406,8 @@ def reopen_report(report_id: int, db: Session = Depends(get_db), current: User =
     다만 **이 신고가 한 일만** 되돌린다.
       · 같은 글이 다른 신고로도 블라인드·삭제돼 있으면 글은 그대로 둔다 —
         그 신고는 여전히 처리된 상태다
-      · 무엇을 했는지 모르면(기록이 없는 옛 신고) 글은 건드리지 않는다 —
-        작성자가 스스로 지운 글을 되살리면 안 된다"""
+      · 무엇을 했는지 기록이 없는 옛 신고는 글의 상태로 짐작한다
+        (_상태로본처리 — 숨김 삭제는 신고 처리로만 생긴다)"""
     from app.models.community import Report, StockPost, StockComment
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:

@@ -137,8 +137,11 @@ def test_다른_신고로도_블라인드됐으면_글은_그대로(준비):
     assert _상태(ids) == "pending"
 
 
-def test_무엇을_했는지_모르면_글을_건드리지_않는다(준비):
-    """작성자가 스스로 지운 글을 되살리면 안 된다"""
+def test_기록이_전혀_없는_옛_신고도_숨김_삭제된_글은_되살린다(준비):
+    """관리 기록이 생기기(2026-08-23) 전에 신고로 지운 글.
+
+    게시글의 숨김 삭제는 신고 '콘텐츠 삭제' 로만 생긴다 — 작성자나 커뮤니티
+    탭의 삭제는 줄을 통째로 지운다. 그래서 숨김 삭제돼 있으면 신고로 지운 것이다."""
     c, ids = 준비
     s = SessionLocal()
     s.query(C.StockPost).filter(C.StockPost.id == ids["글"]).update({C.StockPost.is_deleted: True})
@@ -146,9 +149,34 @@ def test_무엇을_했는지_모르면_글을_건드리지_않는다(준비):
         {C.Report.status: "resolved", C.Report.action: None})
     s.commit(); s.close()
     r = c.patch(f"/api/v1/admin/reports/{ids['신고']}/reopen")
-    assert r.status_code == 200
-    assert _글(ids)[1] is True
+    assert r.status_code == 200 and r.json()["action"] == "delete"
+    assert _글(ids)[1] is False
     assert _상태(ids) == "pending"
+
+
+def test_기각된_옛_신고는_글을_건드리지_않는다(준비):
+    """기각은 글에 아무것도 안 한 처리다 — 글이 가려져 있어도 이 신고 탓이 아니다"""
+    c, ids = 준비
+    s = SessionLocal()
+    s.query(C.StockPost).filter(C.StockPost.id == ids["글"]).update({C.StockPost.is_blinded: True})
+    s.query(C.Report).filter(C.Report.id == ids["신고"]).update(
+        {C.Report.status: "dismissed", C.Report.action: None})
+    s.commit(); s.close()
+    c.patch(f"/api/v1/admin/reports/{ids['신고']}/reopen")
+    assert _글(ids)[0] is True
+    assert _상태(ids) == "pending"
+
+
+def test_게시글_숨김_삭제는_신고_처리에서만_생긴다():
+    """위 짐작의 근거를 지킨다 — 다른 곳에서 게시글을 숨김 삭제하기 시작하면
+    기록 없는 옛 신고를 취소할 때 남의 삭제까지 되살리게 된다"""
+    import pathlib, re
+    곳들 = []
+    for f in pathlib.Path("app").rglob("*.py"):
+        for n, 줄 in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"\bpost\.is_deleted\s*=\s*True", 줄):
+                곳들.append(f"{f}:{n}")
+    assert len(곳들) == 1 and "admin.py" in 곳들[0], 곳들
 
 
 def test_칸이_생기기_전에_처리한_신고는_관리_기록으로_판단한다(준비):
