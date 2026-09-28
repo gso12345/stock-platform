@@ -105,9 +105,23 @@ US_FEEDS = [
     ("CNBC Economy",       "https://www.cnbc.com/id/20910258/device/rss/rss.html"),
     ("CNBC Finance",       "https://www.cnbc.com/id/10000664/device/rss/rss.html"),
     ("CNBC Top News",      "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
+    #: 2026-09 추가 — 해외 기사가 너무 적었다(8곳, 그중 둘은 필터에 전부 걸림).
+    #  이 작업 환경에서는 바깥 인터넷이 막혀 직접 열어 보지 못했다. 오래
+    #  유지돼 온 공개 주소만 골랐고, 틀리면 관리자 화면에 바로 뜨고 연속
+    #  실패로 쉬는 곳에 들어가 다른 곳의 시간을 먹지 않는다.
+    ("CNBC Business",      "https://www.cnbc.com/id/10001147/device/rss/rss.html"),
+    ("CNBC Earnings",      "https://www.cnbc.com/id/15839135/device/rss/rss.html"),
+    ("CNBC Investing",     "https://www.cnbc.com/id/15839069/device/rss/rss.html"),
+    ("CNBC Technology",    "https://www.cnbc.com/id/19854910/device/rss/rss.html"),
+    ("NYT Business",       "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
+    ("NYT Economy",        "https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml"),
+    ("BBC Business",       "https://feeds.bbci.co.uk/news/business/rss.xml"),
+    ("Guardian Business",  "https://www.theguardian.com/business/rss"),
+    ("Nasdaq Markets",     "https://www.nasdaq.com/feed/rssoutbound?category=Markets"),
     # 투자·분석
     ("Seeking Alpha",      "https://seekingalpha.com/feed.xml"),
     ("Investing.com",      "https://www.investing.com/rss/news.rss"),
+    ("Investing.com 주식", "https://www.investing.com/rss/news_25.rss"),
     ("Fortune",            "https://fortune.com/feed/"),
     ("Business Insider",   "https://markets.businessinsider.com/rss/news"),
 ]
@@ -284,8 +298,13 @@ class 피드실패(Exception):
     원인을 알 수 없으니 고칠 수도 없었다."""
 
 
-def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
+def _parse_feed(url: str, source: str, limit: int = 8, 키워드거름: bool = True) -> list[dict]:
     """RSS 한 곳을 가져온다.
+
+    키워드거름 — 제목에 경제 키워드가 있는 기사만 남길까. 국내는 종합지·
+    방송의 '전체 기사' 피드가 섞여 있어 거른다. 해외는 전부 경제·시장 전용
+    섹션이라 거르지 않는다 — 걸렀더니 Yahoo Finance 49건·Fortune 10건이
+    '통과 0건' 이 됐다(영문 제목은 'Nvidia jumps after…' 처럼 키워드가 없다).
 
     실패하면 이유를 담아 던진다 — 조용히 빈 목록을 돌려주지 않는다."""
     import httpx
@@ -333,7 +352,7 @@ def _parse_feed(url: str, source: str, limit: int = 8) -> list[dict]:
             title = entry.get("title", "").strip()
             if not title:
                 continue
-            if not _is_finance_news(title):
+            if 키워드거름 and not _is_finance_news(title):
                 continue
 
             # 발행 시각이 없다고 기사를 버리면 언론사 하나가 통째로 사라진다.
@@ -553,10 +572,12 @@ def _fetch_all_feeds(feeds: list, limit_per_source: int, batch: int | None = Non
     """이번 회차 피드를 가져온다 — 기본은 살아 있는 곳 전부"""
     picked = _next_batch(feeds, _FEED_BATCH if batch is None else batch)
     풀 = _풀(feeds)
+    #: 해외는 경제 섹션만 모았으므로 키워드로 거르지 않는다(_parse_feed 참고)
+    거름 = {"키워드거름": False} if feeds is US_FEEDS else {}
     예산 = _회차예산(len(picked), getattr(풀, "_max_workers", None))
     all_news = []
     futures = {
-        풀.submit(_parse_feed, url, source, limit_per_source): source
+        풀.submit(_parse_feed, url, source, limit_per_source, **거름): source
         for source, url in picked
     }
     성공 = 실패 = 빈곳 = 0

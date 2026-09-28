@@ -352,7 +352,7 @@ def test_해외는_국내와_다른_줄에_선다(monkeypatch):
     붙잡은것 = [국내풀.submit(막힘.wait) for _ in range(국내풀._max_workers)]
     try:
         monkeypatch.setattr(ns, "_parse_feed",
-                            lambda url, source, limit: [{"title": "t", "link": url, "source": source, "_ts": 1}])
+                            lambda url, source, limit, **k: [{"title": "t", "link": url, "source": source, "_ts": 1}])
         monkeypatch.setattr(ns, "_회차예산", lambda 곳수, 워커=None: 3)
         받은것 = ns._fetch_all_feeds(ns.US_FEEDS, 5, batch=len(ns.US_FEEDS))
         assert len(받은것) == len(ns.US_FEEDS), "해외가 국내 줄 뒤에서 기다리다 버려졌다"
@@ -361,3 +361,28 @@ def test_해외는_국내와_다른_줄에_선다(monkeypatch):
         for f in 붙잡은것:
             f.result(timeout=5)
     assert ns._풀(ns.US_FEEDS) is not ns._풀(ns.KR_FEEDS)
+
+
+def test_해외는_경제_키워드로_거르지_않는다_국내는_거른다(monkeypatch):
+    """해외 피드는 전부 경제 섹션이다. 걸렀더니 Yahoo 49건이 '통과 0건' 이었다"""
+    받은 = {}
+    monkeypatch.setattr(ns, "_parse_feed",
+                        lambda url, source, limit, 키워드거름=True: 받은.setdefault(source, 키워드거름) and [] or [])
+    ns._fetch_all_feeds(ns.US_FEEDS, 5, batch=len(ns.US_FEEDS))
+    ns._fetch_all_feeds(ns.KR_FEEDS, 5, batch=len(ns.KR_FEEDS))
+    assert all(받은[s] is False for s, _ in ns.US_FEEDS)
+    assert all(받은[s] is True for s, _ in ns.KR_FEEDS)   # 기본값(거름) 그대로
+
+
+def test_키워드_없는_영문_제목도_해외면_통과한다(monkeypatch):
+    import httpx
+    본문 = b"""<?xml version="1.0"?><rss><channel>
+      <item><title>Nvidia jumps after blowout quarter</title><link>https://x/a</link>
+      <pubDate>Mon, 28 Sep 2026 10:00:00 GMT</pubDate></item></channel></rss>"""
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: httpx.Response(200, content=본문))
+    from datetime import datetime, timezone
+    monkeypatch.setattr(ns, "datetime", type("dt", (datetime,), {
+        "now": staticmethod(lambda tz=None: datetime(2026, 9, 28, 12, tzinfo=timezone.utc))}))
+    assert len(ns._parse_feed("https://x/rss", "t", 5, 키워드거름=False)) == 1
+    with pytest.raises(ns.피드실패):
+        ns._parse_feed("https://x/rss", "t", 5, 키워드거름=True)
