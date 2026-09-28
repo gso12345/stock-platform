@@ -387,10 +387,6 @@ export interface 자산배분요청 {
   extended: boolean;
   /** 현금에 붙는 연 이율 **퍼센트**. 0 이면 '현금은 안 불어난다' 는 가정 */
   cash_rate: number;
-  /** 연 운용보수 **퍼센트** — 담은 자산에서 날마다 조금씩 빠진다 */
-  expense_ratio?: number;
-  /** 매도세 **퍼센트** — 리밸런싱으로 팔 때만 붙는다 */
-  sell_tax?: number;
   /** 진행 상황을 적어 둘 열쇠. 화면이 만들어 보내고 따로 물어본다 */
   progress_key?: string;
   /** 샤프를 잴 때 뺄 무위험수익률 **퍼센트** */
@@ -485,11 +481,6 @@ export interface 자산배분결과 {
   /** 낸 수수료 합. 0%로 돌렸으면 null — '안 넣었다' 와 '0원' 은 다른 말이다 */
   costs: number | null;
   cost_rate: number | null;
-  /** 낸 운용보수·매도세 합과 그 비율(0.005 = 0.5%). 안 넣었으면 null */
-  fees?: number | null;
-  fee_rate?: number | null;
-  taxes?: number | null;
-  tax_rate?: number | null;
   /** 날마다의 낙폭(%). 0 이 고점, 음수가 내려온 정도.
    *  **mdd 와 같은 곡선에서 잰 값**이다 — 화면이 curve 로 다시 재면
    *  적립식에서 둘이 어긋난다(넣은 돈이 하락을 가린다). */
@@ -576,8 +567,6 @@ export interface 저장된실험 {
   equal_weight?: boolean | null;
   cash_rate?: number | null;
   risk_free_rate?: number | null;
-  expense_ratio?: number | null;
-  sell_tax?: number | null;
   extended?: boolean | null;
   total_return: boolean;
   created_at: string;

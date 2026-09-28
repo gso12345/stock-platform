@@ -31,8 +31,6 @@ export function 결과CSV(r: 자산배분결과): CSV칸[][] {
     ["소티노", r.sortino, b?.sortino],
     ["배당 합", r.dividends],
     ["수수료 합", r.costs],
-    ["운용보수 합", r.fees],
-    ["매도세 합", r.taxes],
   ];
   for (const [이름, 내것, 벤치] of 요약) 줄들.push(b ? [이름, 내것, 벤치] : [이름, 내것]);
 

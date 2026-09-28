@@ -625,10 +625,6 @@ class 자산배분요청(BaseModel):
     cash_rate: float = Field(0, ge=0, le=20)
     #: 샤프를 잴 때 뺄 무위험수익률(연 %).
     risk_free_rate: float = Field(0, ge=0, le=20)
-    #: 연 운용보수(%) — ETF 가격에 이미 빠진 보수 말고, 그 밖에 드는 것
-    expense_ratio: float = Field(0, ge=0, le=5)
-    #: 팔 때만 붙는 세금(%) — 증권거래세 같은 것
-    sell_tax: float = Field(0, ge=0, le=5)
     #: 진행 상황을 적어 둘 열쇠. 화면이 만들어 보내고 따로 물어본다.
     #  안 보내도 계산은 그대로 돈다 — 진행 표시만 어림으로 돌아간다.
     progress_key: Optional[str] = Field(None, min_length=8, max_length=64,
@@ -1037,9 +1033,6 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
             적립날짜=req.rebalance_day,
             현금이자=(req.cash_rate or 0) / 100,
             무위험수익률=(req.risk_free_rate or 0) / 100,
-            #: 벤치마크에도 같이 매긴다 — 거래비용처럼 '같은 조건' 으로 견준다
-            운용보수=(req.expense_ratio or 0) / 100,
-            매도세=(req.sell_tax or 0) / 100,
         )
 
     내자산 = [a.model_dump() for a in 쓸자산]
@@ -1250,8 +1243,6 @@ def save_experiment(req: 실험저장요청, db: Session = Depends(get_db),
         extended=req.extended,
         cash_rate=req.cash_rate,
         risk_free_rate=req.risk_free_rate,
-        expense_ratio=req.expense_ratio,
-        sell_tax=req.sell_tax,
     )
     db.add(exp)
     db.commit()

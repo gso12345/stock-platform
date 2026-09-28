@@ -1101,24 +1101,10 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
           </p>
         ) : (
           <p className="text-2xs text-text-dim break-keep">
-            {/* 매도세를 넣었으면 '세금은 안 넣었다' 고 하면 거짓이다 */}
-            {r.taxes == null ? "수수료·세금·슬리피지" : "수수료·슬리피지"}는 반영하지 않았어요. 실제 성과는 이보다 조금 낮아요 —
+            수수료·세금·슬리피지는 반영하지 않았어요. 실제 성과는 이보다 조금 낮아요 —
             설정에서 거래비용을 고르면 넣어 드려요.
           </p>
         )}
-        {r.fees != null && (
-          <p className="text-2xs text-text-dim break-keep">
-            운용보수 연 {+((r.fee_rate ?? 0) * 100).toFixed(3)}% 반영 — 모두 {돈(r.fees, r.currency)}가
-            보수로 빠졌어요(현금 몫은 빼고).
-          </p>
-        )}
-        {r.taxes != null && (
-          <p className="text-2xs text-text-dim break-keep">
-            매도세 {+((r.tax_rate ?? 0) * 100).toFixed(3)}% 반영 — 리밸런싱으로 판 금액에
-            모두 {돈(r.taxes, r.currency)}를 냈어요.
-          </p>
-        )}
-
         {/* 지수로 이은 구간이 있으면 **반드시** 말한다.
             조용히 이으면 사용자는 1980년치 SPY 자료가 있는 줄 안다 */}
         {Object.keys(r.extended_from ?? {}).length > 0 && (

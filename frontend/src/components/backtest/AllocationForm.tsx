@@ -136,10 +136,6 @@ export interface 설정 {
   cash_rate: number;
   /** 샤프를 잴 때 뺄 무위험수익률(연 %) */
   risk_free_rate: number;
-  /** 연 운용보수(%) — ETF 가격에 이미 빠진 보수 말고 그 밖의 것 */
-  expense_ratio: number;
-  /** 팔 때만 붙는 세금(%) */
-  sell_tax: number;
 }
 
 export function 첫설정(오늘 = new Date()): 설정 {
@@ -175,9 +171,6 @@ export function 첫설정(오늘 = new Date()): 설정 {
        적어 보여 준다 — 가정을 감추는 것이 0 자체보다 나쁘다. */
     cash_rate: 0,
     risk_free_rate: 0,
-    /* 보수·세금도 0 으로 시작한다 — 수수료와 같은 이유다 */
-    expense_ratio: 0,
-    sell_tax: 0,
   };
 }
 
@@ -1299,18 +1292,6 @@ export default function 자산배분설정({
           <퍼센트칸 id="bt-rf" 이름="무위험수익률" 값={값.risk_free_rate} 최대={20}
                     설명="샤프를 잴 때 빼는 연 이율"
                     바꾸기={(v) => 바꾸기({ ...값, risk_free_rate: v })} />
-        </div>
-        {/* ── 운용보수 · 매도세 ──
-            ETF 가격에는 그 ETF 의 보수가 **이미 빠져 있다.** 여기에 ETF
-            보수를 또 넣으면 두 번 빠진다 — 그래서 무엇을 넣는 자리인지
-            칸 밑에 적는다. */}
-        <div className="grid grid-cols-2 gap-3">
-          <퍼센트칸 id="bt-fee" 이름="연 운용보수" 값={값.expense_ratio} 최대={5}
-                    설명="랩·자문 수수료 등 (ETF 자체 보수는 가격에 이미 빠져 있어요)"
-                    바꾸기={(v) => 바꾸기({ ...값, expense_ratio: v })} />
-          <퍼센트칸 id="bt-tax" 이름="매도세" 값={값.sell_tax} 최대={5}
-                    설명="리밸런싱으로 팔 때만 붙어요 (예: 증권거래세)"
-                    바꾸기={(v) => 바꾸기({ ...값, sell_tax: v })} />
         </div>
         {값.equal_weight && 값.assets.length > 1 && (
           <p className="text-2xs text-text-dim break-keep">

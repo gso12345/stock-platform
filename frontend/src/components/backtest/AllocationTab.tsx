@@ -44,9 +44,6 @@ export function 보낼것(s: 설정): 자산배분요청 {
     //: 퍼센트 그대로 보낸다 — 비율로 바꾸는 것은 서버 한 곳에서만 한다
     cash_rate: Number(s.cash_rate) || 0,
     risk_free_rate: Number(s.risk_free_rate) || 0,
-    //: 퍼센트 그대로 — 나누는 것은 서버 한 곳에서만
-    expense_ratio: Number(s.expense_ratio) || 0,
-    sell_tax: Number(s.sell_tax) || 0,
   };
 }
 
@@ -263,8 +260,6 @@ export function 실험을설정으로(x: 저장된실험, 지금: 설정): 설�
     extended: x.extended ?? 지금.extended,
     cash_rate: x.cash_rate ?? 지금.cash_rate,
     risk_free_rate: x.risk_free_rate ?? 지금.risk_free_rate,
-    expense_ratio: x.expense_ratio ?? 지금.expense_ratio,
-    sell_tax: x.sell_tax ?? 지금.sell_tax,
   };
 }
 
