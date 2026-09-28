@@ -111,6 +111,7 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("users", "oauth_provider", "VARCHAR(20)")
         _add_col_if_missing("users", "oauth_id", "VARCHAR(100)")
         _add_col_if_missing("users", "is_admin", "BOOLEAN DEFAULT FALSE")
+        _add_col_if_missing("users", "withdrawn_at", "TIMESTAMP WITH TIME ZONE", "DATETIME")
         _add_col_if_missing("quant_score_weights", "enabled_metrics", "JSON")
         _add_col_if_missing("portfolio_items", "portfolio_id", "INTEGER REFERENCES portfolios(id)", "INTEGER")
         _add_col_if_missing("portfolio_items", "asset_class", "VARCHAR(10)")
@@ -132,8 +133,6 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("portfolio_experiments", "extended", "BOOLEAN DEFAULT FALSE")
         _add_col_if_missing("portfolio_experiments", "cash_rate", "DOUBLE PRECISION DEFAULT 0", "REAL DEFAULT 0")
         _add_col_if_missing("portfolio_experiments", "risk_free_rate", "DOUBLE PRECISION DEFAULT 0", "REAL DEFAULT 0")
-        _add_col_if_missing("portfolio_experiments", "expense_ratio", "DOUBLE PRECISION DEFAULT 0", "REAL DEFAULT 0")
-        _add_col_if_missing("portfolio_experiments", "sell_tax", "DOUBLE PRECISION DEFAULT 0", "REAL DEFAULT 0")
 
         def _widen_col(table: str, col: str, new_type: str):
             """이미 만들어진 컬럼의 길이를 늘린다.

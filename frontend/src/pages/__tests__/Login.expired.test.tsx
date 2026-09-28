@@ -37,3 +37,14 @@ describe("로그인 화면 — 만료 안내", () => {
     expect(screen.getByText(/취소되었습니다/)).toBeInTheDocument();
   });
 });
+
+describe("로그인 화면 — 탈퇴 완료", () => {
+  it("탈퇴하고 넘어오면 완료 안내를 한 번만 보여 준다", () => {
+    sessionStorage.setItem("stkplt_withdrawn", "1");
+    const { unmount } = 열기("");
+    expect(screen.getByText(/탈퇴가 완료되었습니다/)).toBeInTheDocument();
+    unmount();
+    열기("");
+    expect(screen.queryByText(/탈퇴가 완료되었습니다/)).not.toBeInTheDocument();
+  });
+});

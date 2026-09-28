@@ -49,8 +49,16 @@ def get_current_user(
     except (ValueError, TypeError):
         raise _만료됨()
     if not user:
-        # 토큰은 멀쩡한데 그 사용자가 없다 — 탈퇴했거나 DB 가 바뀐 경우
+        # 토큰은 멀쩡한데 그 사용자가 없다 — 지워졌거나 DB 가 바뀐 경우
         raise _만료됨()
+    if user.is_active is False:
+        #: 탈퇴했거나 정지된 계정. 예전엔 여기를 안 봐서, 정지해도 이미
+        #  받은 토큰으로는 만료될 때까지 계속 쓸 수 있었다.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="탈퇴했거나 이용이 정지된 계정입니다",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 

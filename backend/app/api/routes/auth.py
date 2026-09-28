@@ -70,6 +70,9 @@ class UserResponse(BaseModel):
     email: Optional[str] = None
     is_active: bool
     is_admin: bool = False
+    #: 소셜 로그인 계정이면 공급자 이름. 탈퇴 화면이 비밀번호를 물을지
+    #  정한다 — 소셜 계정은 비밀번호를 정한 적이 없다.
+    oauth_provider: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -147,7 +150,7 @@ def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="비활성화된 계정입니다",
+            detail="탈퇴한 계정입니다" if user.withdrawn_at else "비활성화된 계정입니다",
         )
     return _make_token_response(user, db)
 
@@ -156,6 +159,65 @@ def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
 def me(current_user: User = Depends(require_user)):
     """Bearer 토큰으로 현재 로그인된 유저 정보 반환"""
     return current_user
+
+
+# ── 회원 탈퇴 ─────────────────────────────────────────────────────
+#: 탈퇴 확인 문구. 화면이 '이 글자를 그대로 쳐 주세요' 라고 보여 준다.
+탈퇴확인문구 = "탈퇴합니다"
+
+
+class WithdrawRequest(BaseModel):
+    #: 일반 가입 계정만 필요하다. 소셜 계정은 비밀번호가 없다(무작위 값).
+    password: Optional[str] = Field(None, max_length=100)
+    confirm: str = Field(..., max_length=20)
+
+
+@router.delete("/me")
+@limiter.limit("5/minute")
+def withdraw(request: Request, req: WithdrawRequest,
+             current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """본인 탈퇴 — **계정만 닫는다. 데이터는 지우지 않는다.**
+
+    탈퇴하면 로그인과 이미 받은 토큰이 모두 막힌다(is_active=False).
+    글·댓글·포트폴리오 같은 기록은 그대로 남는다. 완전히 지우는 것은
+    관리자 화면의 '삭제' 로만 한다(services/account_delete).
+
+    공개해 둔 포트폴리오는 **비공개로** 돌린다 — 지우지는 않되, 떠난
+    사람의 자산 내역이 계속 남에게 보이면 안 된다.
+
+    두 번 막는다.
+      · 확인 문구를 그대로 쳐야 한다 — 실수로 누른 단추 하나로 끝나지 않게
+      · 일반 계정은 비밀번호를 다시 받는다. 소셜 계정은 비밀번호가 없으므로
+        로그인 상태만 본다.
+
+    관리자는 여기서 못 나간다. 마지막 관리자가 나가면 아무도 관리 화면에
+    못 들어간다 — 먼저 권한을 내려야 한다.
+    """
+    if req.confirm.strip() != 탈퇴확인문구:
+        raise HTTPException(status_code=400, detail=f"확인 문구 '{탈퇴확인문구}' 를 그대로 입력해 주세요")
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user or user.withdrawn_at:
+        raise HTTPException(status_code=404, detail="이미 탈퇴한 계정입니다")
+    if user.is_admin:
+        raise HTTPException(status_code=400, detail="관리자 계정은 탈퇴할 수 없습니다. 먼저 관리자 권한을 내려 주세요")
+    if not user.oauth_provider:
+        if not req.password or not verify_password(req.password, user.hashed_password):
+            raise HTTPException(status_code=400, detail="비밀번호가 맞지 않습니다")
+
+    from datetime import datetime, timezone
+    from app.models.stock import Portfolio
+    try:
+        user.is_active = False
+        user.withdrawn_at = datetime.now(timezone.utc)
+        db.query(Portfolio).filter(Portfolio.user_id == user.id).update(
+            {Portfolio.is_public: False}, synchronize_session=False)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        log.error("탈퇴 실패 user_id=%s: %s", current_user.id, type(e).__name__)
+        raise HTTPException(status_code=500, detail="탈퇴를 처리하지 못했습니다. 잠시 후 다시 시도하거나 문의해 주세요")
+    log.info("탈퇴 user_id=%s (계정 닫음, 데이터 보존)", current_user.id)
+    return {"message": "탈퇴가 완료되었습니다"}
 
 
 # ── 소셜 로그인 (OAuth 2.0) ────────────────────────────────────────
@@ -289,7 +351,8 @@ def oauth_callback(
             return RedirectResponse(f"{frontend}/login?oauth_error=signup_failed")
 
     if not user.is_active:
-        return RedirectResponse(f"{frontend}/login?oauth_error=inactive")
+        return RedirectResponse(
+            f"{frontend}/login?oauth_error={'withdrawn' if user.withdrawn_at else 'inactive'}")
 
     token_resp = _make_token_response(user)
     exchange_code = secrets.token_urlsafe(32)

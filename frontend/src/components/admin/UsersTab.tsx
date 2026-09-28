@@ -110,6 +110,10 @@ export function UsersTab({ qc }: { qc: QueryClient }) {
                 {u.is_admin && (
                   <span className="text-2xs bg-accent-blue/15 text-accent-blue px-1.5 py-px rounded font-bold shrink-0">관리자</span>
                 )}
+                {u.withdrawn_at && (
+                  <span className="text-2xs bg-bg-elevated text-text-muted px-1.5 py-px rounded font-bold shrink-0"
+                        title={`탈퇴 ${String(u.withdrawn_at).slice(0, 10)} — 기록은 남아 있어요`}>탈퇴</span>
+                )}
                 {!u.is_admin && u.is_community_banned && (
                   <span className="text-2xs bg-accent-orange/15 text-accent-orange px-1.5 py-px rounded font-bold shrink-0 hidden sm:inline">커뮤차단</span>
                 )}

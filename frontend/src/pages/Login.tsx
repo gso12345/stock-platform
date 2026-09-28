@@ -5,6 +5,7 @@ import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
 import Logo from "@/components/Logo";
 import SocialLoginButtons from "@/components/SocialLoginButtons";
+import { 탈퇴완료표시 } from "@/components/AccountWithdraw";
 import type { AxiosError } from "axios";
 
 interface LoginResponse {
@@ -22,6 +23,7 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   email_exists: "이미 가입된 이메일입니다. 아이디/비밀번호로 로그인해 주세요.",
   signup_failed: "회원가입 처리 중 오류가 발생했습니다.",
   inactive: "비활성화된 계정입니다.",
+  withdrawn: "탈퇴한 계정입니다.",
   unsupported: "지원하지 않는 로그인 방식입니다.",
   invalid_response: "로그인 처리 중 오류가 발생했습니다.",
 };
@@ -45,6 +47,14 @@ export default function Login() {
       : null
   );
   const [loading, setLoading] = useState(false);
+  /* 방금 탈퇴하고 넘어온 경우 — 한 번만 보여 준다 */
+  const [탈퇴함] = useState(() => {
+    try {
+      const 있음 = sessionStorage.getItem(탈퇴완료표시) === "1";
+      sessionStorage.removeItem(탈퇴완료표시);
+      return 있음;
+    } catch { return false; }
+  });
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -137,6 +147,12 @@ export default function Login() {
                 </button>
               </div>
             </div>
+
+            {탈퇴함 && !error && (
+              <div role="status" className="px-3 py-2 rounded-lg bg-accent-green/10 border border-accent-green/20 text-xs text-accent-green">
+                탈퇴가 완료되었습니다. 그동안 이용해 주셔서 감사합니다.
+              </div>
+            )}
 
             {/* 에러 메시지 */}
             {error && (

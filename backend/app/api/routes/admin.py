@@ -237,6 +237,7 @@ def _news_status() -> dict:
     return {
         "kr_feeds":   len(news_service.KR_FEEDS),
         "us_feeds":   len(news_service.US_FEEDS),
+        #: 0 이면 매 회차 살아 있는 곳을 전부 가져온다
         "batch":      news_service._FEED_BATCH,
         "kr_cached":  len(kr),
         "us_cached":  len(us),
@@ -509,6 +510,8 @@ def get_users(
                 "username":            u.username,
                 "email":               u.email,
                 "is_active":           u.is_active,
+                #: 탈퇴한 때 — 정지(관리자가 닫음)와 탈퇴(본인이 닫음)를 가른다
+                "withdrawn_at":        u.withdrawn_at.isoformat() if u.withdrawn_at else None,
                 "is_admin":            u.is_admin,
                 "is_community_banned": bool(getattr(u, "is_community_banned", False)),
                 "created_at":          str(u.created_at) if u.created_at else None,
@@ -580,35 +583,11 @@ def delete_user(request: Request, user_id: int, db: Session = Depends(get_db), c
         raise HTTPException(status_code=400, detail="관리자 계정은 삭제할 수 없습니다. 먼저 권한을 내려 주세요")
 
     이름 = user.username
-    지운수 = {}
     try:
-        # 딸린 것부터 정리한다. 순서가 중요하다 — 좋아요·투표처럼 남을 가리키는
-        # 것을 먼저 지우고, 그다음 글·댓글, 마지막이 사람이다.
-        for 표, 칸 in [
-            ("stock_post_likes",    "user_id"),
-            ("stock_comment_likes", "user_id"),
-            ("stock_post_poll_votes", "user_id"),
-            ("user_follows",        "follower_id"),
-            ("user_follows",        "following_id"),
-            ("reports",             "reporter_id"),
-            ("notifications",       "user_id"),
-            ("notifications",       "actor_id"),
-            ("stock_comments",      "user_id"),
-            ("stock_posts",         "user_id"),
-            ("user_profiles",       "user_id"),
-            ("watchlist_items",     "user_id"),
-            ("portfolio_items",     "user_id"),
-            ("watchlists",          "user_id"),
-            ("portfolios",          "user_id"),
-        ]:
-            try:
-                r = db.execute(text(f"DELETE FROM {표} WHERE {칸} = :uid"), {"uid": user_id})
-                if r.rowcount:
-                    지운수[f"{표}.{칸}"] = r.rowcount
-            except Exception:
-                # 아직 없는 표가 있을 수 있다(마이그레이션 전). 그건 지울 것도 없다
-                db.rollback()
-        db.delete(user)
+        # 순서·범위는 한 곳(services/account_delete)에서만 정한다 —
+        # 본인 탈퇴도 같은 함수를 쓴다
+        from app.services.account_delete import 회원지우기
+        지운수 = 회원지우기(db, user)
         db.commit()
     except Exception as e:
         db.rollback()
@@ -658,6 +637,7 @@ def get_user_detail(user_id: int, db: Session = Depends(get_db), _: User = Depen
         "username":            user.username,
         "email":               user.email,
         "is_active":           user.is_active,
+        "withdrawn_at":        user.withdrawn_at.isoformat() if user.withdrawn_at else None,
         "is_admin":            user.is_admin,
         "is_community_banned": bool(getattr(user, "is_community_banned", False)),
         "created_at":          str(user.created_at) if user.created_at else None,

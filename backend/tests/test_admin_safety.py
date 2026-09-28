@@ -40,26 +40,24 @@ class Test계정삭제:
     def test_딸린_것을_정리하고_지운다(self):
         """cascade 선언이 없으므로 손으로 지워야 한다. 안 그러면 500.
 
-        글자만 세면 안 된다 — 반복문을 빈 목록으로 바꿔도 'DELETE FROM'
-        이라는 글자는 남는다(뮤테이션에서 실제로 그렇게 빠져나갔다).
-        그래서 반복 대상이 정말 채워져 있는지를 구문 나무로 본다."""
-        나무 = ast.parse(_소스)
-        대상 = None
-        for n in ast.walk(나무):
-            if isinstance(n, ast.FunctionDef) and n.name == "delete_user":
-                대상 = n
-        assert 대상 is not None
-        표들 = []
-        for n in ast.walk(대상):
-            if isinstance(n, ast.For) and isinstance(n.iter, ast.List):
-                for 원소 in n.iter.elts:
-                    if isinstance(원소, ast.Tuple) and 원소.elts:
-                        v = 원소.elts[0]
-                        if isinstance(v, ast.Constant):
-                            표들.append(v.value)
-        assert len(표들) >= 10, f"정리하는 표가 너무 적다: {표들}"
-        for 표 in ("stock_posts", "stock_comments", "user_follows", "notifications"):
-            assert 표 in 표들, f"{표} 를 안 지운다"
+        순서·범위는 services/account_delete 한 곳에서 정하고, 관리자 삭제와
+        본인 탈퇴가 같이 쓴다. 여기서는 관리자 삭제가 **그 함수를 부르는지**와,
+        그 함수가 **사용자를 가리키는 표를 전부** 치우는지를 본다.
+
+        개인정보처리방침이 '탈퇴 시 파기' 를 약속하는데, 예전엔 전략·알림·
+        실험 표가 빠져 탈퇴한 사람의 데이터가 남았다. 표가 새로 생겨도 여기서
+        걸린다."""
+        assert "회원지우기(db, user)" in _코드만(_함수("delete_user"))
+        from app.services.account_delete import 치우는_칸
+        from app.db.database import Base
+        import app.models.stock, app.models.community, app.models.user  # noqa: F401
+        안지움 = []
+        for t in Base.metadata.sorted_tables:
+            for c in t.columns:
+                if any(f.target_fullname == "users.id" for f in c.foreign_keys):
+                    if (t.name, c.name) not in 치우는_칸:
+                        안지움.append(f"{t.name}.{c.name}")
+        assert not 안지움, f"탈퇴해도 남는 표: {안지움}"
 
     def test_실패하면_500_대신_안내를_준다(self):
         """지우다 막히면 '계정 정지를 대신 쓰라' 고 알려 줘야 한다."""
