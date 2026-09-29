@@ -20,8 +20,9 @@ describe("설정 — 불러오기 표시", () => {
     expect(screen.getByRole("radio", { name: /실패만/ }).getAttribute("aria-checked")).toBe("true");
   });
 
-  it("저장된 값이 이상하면 기본(보이기)으로", () => {
-    expect(정상불러오기표시("아무거나")).toBe("보이기");
+  it("저장된 값이 이상하면 기본(실패만)으로", () => {
+    expect(정상불러오기표시("아무거나")).toBe("실패만");
+    expect(정상불러오기표시("보이기")).toBe("보이기");
     expect(정상불러오기표시("끄기")).toBe("끄기");
   });
 });

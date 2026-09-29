@@ -96,6 +96,7 @@ import {
 import { 실험을설정으로 } from "../AllocationTab";
 import { 대표자산, 종류들, 담았나, 줄을자산으로, 자산더하기 } from "../AllocationForm";
 import 자산배분결과화면 from "../AllocationResult";
+import { useSettingsStore } from "@/store/settingsStore";
 
 function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -600,6 +601,9 @@ describe("결과 — 넣은 돈과 번 돈을 섞지 않는다", () => {
   });
 
   it("낙폭은 작은 쪽이 이긴다", () => {
+    /* 부호 논리를 보는 검사라 배색을 초록/빨강으로 못 박는다 —
+       기본 배색이 빨강/파랑으로 바뀌어도 이 검사의 뜻은 그대로다 */
+    useSettingsStore.getState().setColorScheme("green-red");
     /* 낙폭만 부호가 거꾸로다. 그냥 빼면 **더 크게 물린 쪽**이
        초록으로 칠해진다 — 잘못 읽으면 위험한 조합을 좋은 것으로 본다. */
     const 벤치 = (mdd: number) => ({

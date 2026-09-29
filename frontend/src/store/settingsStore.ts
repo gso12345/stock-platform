@@ -47,17 +47,19 @@ export const 화면모양_목록: { value: 화면모양; label: string; desc: st
  *  끄기    아예 안 띄운다 */
 export type 불러오기표시 = "보이기" | "실패만" | "끄기";
 export function 정상불러오기표시(v: unknown): 불러오기표시 {
-  return v === "실패만" || v === "끄기" ? v : "보이기";
+  return v === "보이기" || v === "끄기" ? v : "실패만";
 }
 
 const KEY = "portfolio_settings";
 
+/** 기본값(2026-09 바꿈): 테마 시스템 · 등락 빨강/파랑 · 불러오기 표시 실패만.
+ *  이미 고른 사람의 값은 그대로 둔다 — 저장된 값이 없거나 이상할 때만 쓴다. */
 function legacyTheme(): Theme {
   try {
     const legacy = localStorage.getItem("theme");
     if (legacy === "light" || legacy === "dark") return legacy;
   } catch {}
-  return "dark";
+  return "system";
 }
 
 /** localStorage 에 실제로 담기는 것 — 함수를 뺀 값들만 */
@@ -75,8 +77,8 @@ export interface 저장값 {
 }
 
 const 기본값: 저장값 = {
-  colorScheme: "green-red", fontSize: "normal", theme: "dark",
-  orientation: "system", 화면모양: "app", 금액가리기: false, 불러오기표시: "보이기",
+  colorScheme: "red-blue", fontSize: "normal", theme: "system",
+  orientation: "system", 화면모양: "app", 금액가리기: false, 불러오기표시: "실패만",
 };
 
 function load(): 저장값 {
@@ -86,7 +88,7 @@ function load(): 저장값 {
     if (raw) {
       const p = JSON.parse(raw);
       return {
-        colorScheme: p.colorScheme === "red-blue" ? "red-blue" : "green-red",
+        colorScheme: p.colorScheme === "green-red" ? "green-red" : "red-blue",
         fontSize: (["small", "normal", "large", "xl"] as FontSize[]).includes(p.fontSize) ? p.fontSize : "normal",
         theme: (["light", "dark", "system"] as Theme[]).includes(p.theme) ? p.theme : legacyTheme(),
         orientation: (["system", "portrait", "landscape"] as Orientation[]).includes(p.orientation) ? p.orientation : "system",

@@ -2,6 +2,24 @@
 <html lang="ko" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <!-- 기본 테마가 '시스템' 이다. 화면을 그리기 전에 라이트로 바꿔 두지 않으면
+         라이트 모드 기기에서 앱이 뜨는 순간 다크로 번쩍한다(Layout 이 붙기 전).
+         Layout.tsx 와 같은 규칙: 저장값 → 옛 'theme' 키 → 기기 설정 -->
+    <script>
+      (function () {
+        try {
+          var s = JSON.parse(localStorage.getItem("portfolio_settings") || "null");
+          var t = s && s.theme;
+          if (t !== "light" && t !== "dark" && t !== "system") {
+            var old = localStorage.getItem("theme");
+            t = old === "light" || old === "dark" ? old : "system";
+          }
+          var light = t === "light" || (t === "system" && window.matchMedia &&
+                      window.matchMedia("(prefers-color-scheme: light)").matches);
+          if (light) document.documentElement.classList.add("light");
+        } catch (e) {}
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
     <!-- ── 기본 SEO ──────────────────────────────────────── -->
