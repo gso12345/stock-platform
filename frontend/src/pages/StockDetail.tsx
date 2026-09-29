@@ -7,6 +7,7 @@ import api from "@/api/client";
 import { stocksApi, watchlistApi, watchlistFolderApi, financialsApi, type QuantWeights, type QuantEnabledMetrics } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import { marketSession, SESSION_LABEL } from "@/hooks/useLivePrices";
+import { usePricesStream } from "@/hooks/useWebSocket";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
@@ -294,6 +295,18 @@ export default function StockDetail() {
     staleTime: 15_000,
     // 분봉일 때는 아래 ohlcv 폴링이 같은 값을 실어 오므로 여기서는 쉰다
     refetchInterval: isIntraday ? false : 시세주기,
+  });
+
+  /* ── 실시간 시세 ──
+     상세 전체를 15초마다 다시 받는 것은 무거워 그대로 두고, **가격·등락만**
+     WebSocket 으로 받는다. 서버가 새 값을 받으면 1초 안에 온다
+     (api/websocket/price_stream.py 의 '바뀔 때 보내기'). 멈춘 값(stale)은 안 쓴다. */
+  const [실시간, set실시간] = useState<{ sym: string; price: number; change?: number; change_rate?: number } | null>(null);
+  usePricesStream(sym ? [sym] : [], [m], (prices) => {
+    const p = prices?.[0];
+    if (p && typeof p.price === "number" && p.price > 0 && !p.stale) {
+      set실시간({ sym, price: p.price, change: p.change, change_rate: p.change_rate });
+    }
   });
 
   // 대체거래소(NXT/넥스트레이드) 시세 — KR 종목만 조회
@@ -605,7 +618,17 @@ export default function StockDetail() {
     },
   });
 
-  const d = detail as any;
+  //: 실시간 값이 있으면 가격·등락만 덮어쓴다 — 다른 종목으로 옮기면 쓰지 않는다
+  const d = useMemo(() => {
+    const 원본 = detail as any;
+    if (!원본 || !실시간 || 실시간.sym !== sym) return 원본;
+    return {
+      ...원본,
+      price: 실시간.price,
+      ...(실시간.change != null ? { change: 실시간.change } : {}),
+      ...(실시간.change_rate != null ? { change_rate: 실시간.change_rate } : {}),
+    };
+  }, [detail, 실시간, sym]) as any;
 
   /* 국내 ETF 감지.
      예전에는 이름에 "ETF" 가 들어가는지만 봤는데, 국내 ETF 이름은 그렇게

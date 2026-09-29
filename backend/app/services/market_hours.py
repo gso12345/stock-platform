@@ -77,7 +77,10 @@ def market_session(market: str, now_utc: datetime | None = None) -> Session:
 # 정규장 15초는 "사람이 화면을 보며 값이 움직인다고 느끼는" 하한이고,
 # 그보다 짧게 가면 외부 API 차단 위험이 실익보다 커진다.
 # 휴장 중에는 값이 바뀌지 않으므로 길게 잡아 예산을 정규장에 몰아준다.
-_INTERVAL = {"regular": 15, "pre": 60, "after": 60, "closed": 600}
+#: 장중 5초, 시간외 15초, 휴장 10분. (2026-09: 15/60 → 5/15 — '실시간으로 해 달라')
+#  종목이 많으면 아래 refresh_interval 이 초당 요청 상한(MAX_REQ_PER_SEC)에
+#  맞춰 알아서 늘린다 — 국내는 종목당 1요청이라 40종목이면 5초가 된다.
+_INTERVAL = {"regular": 5, "pre": 15, "after": 15, "closed": 600}
 
 
 # 외부 API에 지속적으로 보낼 수 있다고 보는 초당 요청 수.

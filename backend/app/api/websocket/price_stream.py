@@ -38,6 +38,17 @@ STALE_AFTER_SEC = 180
 # '갱신 대상'이 되므로 무한정 열어두지는 않는다.
 MAX_STREAM_SYMBOLS = 200
 
+#: 캐시를 들여다보는 간격(초). 값이 바뀌었을 때만 보낸다.
+#
+# 예전에는 '몇 초마다 보낸다' 였고 그 간격의 바닥이 시세 10초·지수 15초로
+# 박혀 있었다. 서버가 5초마다 새 값을 받아 와도 화면에는 10~15초마다만
+# 반영됐다. 캐시 읽기는 외부 호출이 없어 1초마다 봐도 싸다 — 새 값이
+# 들어오면 1초 안에 나가고, 안 바뀌면 아무것도 안 보낸다.
+살피는_간격 = 1.0
+#: 값이 안 바뀌어도 이만큼마다 한 번은 보낸다 — 연결이 살아 있다는 표시이자
+#  '몇 초 전 값인지(age)' 를 화면이 새로 그릴 수 있게
+최소_전송_간격 = 15.0
+
 KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200"]
 US_INDICES = ["SP500", "NASDAQ", "DOW", "SOX", "RUSSELL"]
 
@@ -68,6 +79,35 @@ def _cached_price(symbol: str, market: str) -> dict:
     return out
 
 
+def _바뀐것만(data) -> str:
+    """보낼지 가를 때 쓰는 지문 — 매초 늘어나는 age 는 빼고 본다.
+    age 까지 넣으면 늘 '바뀜' 이 되어 1초마다 보내게 된다."""
+    def 벗기기(x):
+        if isinstance(x, dict):
+            return {k: 벗기기(v) for k, v in x.items() if k != "age"}
+        if isinstance(x, list):
+            return [벗기기(v) for v in x]
+        return x
+    return json.dumps(벗기기(data), sort_keys=True, default=str)
+
+
+async def _바뀔때_보내기(ws: WebSocket, 만들기, 종류: str, 덧붙이기=None) -> None:
+    """1초마다 캐시를 보고, 바뀌었거나 오래 안 보냈으면 보낸다."""
+    지난지문 = None
+    지난전송 = 0.0
+    while True:
+        data = 만들기()
+        지문 = _바뀐것만(data)
+        지금 = time.monotonic()
+        if 지문 != 지난지문 or 지금 - 지난전송 >= 최소_전송_간격:
+            msg = {"type": 종류, "data": data}
+            if 덧붙이기:
+                msg.update(덧붙이기())
+            await ws.send_text(json.dumps(msg))
+            지난지문, 지난전송 = 지문, 지금
+        await asyncio.sleep(살피는_간격)
+
+
 def _cached_forex() -> dict:
     """환율·금리 캐시 반환 (WebSocket 실시간 스트림용)"""
     usdkrw = cache.get_stale("extra:usdkrw")
@@ -94,20 +134,21 @@ async def stream_indices(ws: WebSocket, interval: int = 30):
         # accept()는 반드시 try 안에서 — 밖에 두면 핸드셰이크 실패 시
         # 위에서 올린 카운터가 영원히 안 내려간다
         await ws.accept()
-        while True:
-            kr = [_cached_index(n) for n in KR_INDICES]
-            us = [_cached_index(n) for n in US_INDICES]
+
+        def 지수들():
+            payload = {"kr": [_cached_index(n) for n in KR_INDICES],
+                       "us": [_cached_index(n) for n in US_INDICES]}
             forex = _cached_forex()
-            payload = {"kr": kr, "us": us}
             if forex:
                 payload["forex"] = forex
-            try:
-                await ws.send_text(json.dumps({"type": "indices", "data": payload}))
-            except Exception:
-                break
-            await asyncio.sleep(max(interval, 15))
+            return payload
+
+        #: interval 은 옛 화면이 보내는 값이라 받기만 한다 — 이제는 바뀔 때 보낸다
+        await _바뀔때_보내기(ws, 지수들, "indices")
     except WebSocketDisconnect:
         pass
+    except Exception as e:
+        log.debug(f"지수 스트림 종료: {type(e).__name__}")
     finally:
         async with _ws_lock:
             _ws_connections[client_ip] = max(0, _ws_connections[client_ip] - 1)
@@ -133,18 +174,10 @@ async def stream_prices(ws: WebSocket, symbols: list[str], markets: list[str], i
         await watched.subscribe(pairs)
         subscribed = True
 
-        while True:
-            results = [_cached_price(s, m) for s, m in zip(symbols, markets)]
-            try:
-                await ws.send_text(json.dumps({
-                    "type": "prices",
-                    "data": results,
-                    # 화면이 '언제 값인지'를 표시할 수 있도록 서버 시각을 함께 보낸다
-                    "sent_at": int(time.time() * 1000),
-                }))
-            except Exception:
-                break
-            await asyncio.sleep(max(interval, 10))
+        await _바뀔때_보내기(
+            ws, lambda: [_cached_price(s, m) for s, m in zip(symbols, markets)], "prices",
+            # 화면이 '언제 값인지'를 표시할 수 있도록 서버 시각을 함께 보낸다
+            lambda: {"sent_at": int(time.time() * 1000)})
     except WebSocketDisconnect:
         pass
     except Exception as e:
