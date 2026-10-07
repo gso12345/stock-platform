@@ -151,6 +151,32 @@ def _맞나(말: str, 글: str) -> bool:
     return re.search(rf"\b{re.escape(말)}\b", 글, re.I) is not None
 
 
+def _맞추개(말들: list[str]):
+    """_맞나 와 똑같이 맞추되, 검사기를 한 번만 만든다.
+
+    _고르기 는 보유 종목마다 종합 뉴스 전체(1,300건 가까이)를 훑으며
+    검색어 하나하나를 제목·요약에 대 본다. 스무 종목이면 _맞나 를 10만 번
+    부르는데, 부를 때마다 정규식 문자열을 새로 짓고 캐시에서 찾느라 0.15
+    CPU 에서 한 번에 1.4초를 썼다 — 화면이 4초마다 다시 묻는 동안 계속.
+
+    영문 검색어는 정규식을 미리 지어 두고, 그 전에 소문자로 '들어 있기는
+    한가' 부터 본다. 들어 있지도 않은 글에 정규식을 돌릴 이유가 없다
+    (대부분의 기사가 여기서 걸러진다). 한글은 예전처럼 그냥 포함."""
+    한글말 = [w for w in 말들 if w and _한글.search(w)]
+    영문말 = [(w.lower(), re.compile(rf"\b{re.escape(w)}\b", re.I))
+              for w in 말들 if w and not _한글.search(w)]
+
+    def 맞나(제목: str, 요약: str, 제목소: str, 요약소: str) -> bool:
+        for w in 한글말:
+            if w in 제목 or w in 요약:
+                return True
+        for 소, 식 in 영문말:
+            if (소 in 제목소 and 식.search(제목)) or (소 in 요약소 and 식.search(요약)):
+                return True
+        return False
+    return 맞나
+
+
 def 열쇠(보유: list[dict]) -> str:
     """같은 종목 묶음을 가진 사람끼리 캐시를 나눠 쓴다.
 
@@ -191,18 +217,17 @@ def _구글뉴스(이름: str) -> list[dict]:
     하나가 배경 스레드를 영영 붙잡는다(뉴스 수집이 httpx 로 옮겨 간
     것도 같은 이유였다). 바이트를 받아서 파싱한다."""
     import urllib.parse
-    import feedparser
     import httpx
+    from app.core.http import SSL
 
     질의 = urllib.parse.quote(f"{이름} 주가")
     주소 = f"https://news.google.com/rss/search?q={질의}&hl=ko&gl=KR&ceid=KR:ko"
     resp = httpx.get(주소, timeout=_시한, follow_redirects=True,
-                     headers={"User-Agent": "Mozilla/5.0"})
+                     headers={"User-Agent": "Mozilla/5.0"}, verify=SSL)
     if resp.status_code >= 400:
         return []
-    feed = feedparser.parse(resp.content)
-
-    from app.services.news_service import _safe_url, _extract_thumbnail
+    from app.services.news_service import _safe_url, _extract_thumbnail, 피드읽기
+    feed = 피드읽기(resp.content)
 
     항목 = []
     for e in (feed.entries or [])[:40]:
@@ -383,6 +408,11 @@ def _고르기(보유: list[dict]) -> tuple[list[dict], list[str]]:
     if 빈통:
         _종합_채워두기(빈통)
 
+    # 기사마다 소문자 사본을 한 번만 만든다 — 종목마다 다시 만들지 않는다
+    종합 = [(a, 말, 제목, 요약, 제목.lower(), 요약.lower())
+            for a, 말 in 종합
+            for 제목, 요약 in ((a.get("title", "") or "", a.get("summary", "") or ""),)]
+
     모은것: dict[str, dict] = {}          # 제목열쇠 → 기사
     본주소: set[str] = set()
     찾은종목: set[str] = set()
@@ -436,12 +466,11 @@ def _고르기(보유: list[dict]) -> tuple[list[dict], list[str]]:
                 담은수 += 1
 
         # 2) 종합 뉴스에서 이름으로 골라낸다
-        for 기사, 말 in 종합:
+        맞나 = _맞추개(말들)
+        for 기사, 말, 제목, 요약, 제목소, 요약소 in 종합:
             if 담은수 >= 종목당_최대:
                 break
-            제목 = 기사.get("title", "")
-            요약 = 기사.get("summary", "")
-            if any(_맞나(w, 제목) or _맞나(w, 요약) for w in 말들):
+            if 맞나(제목, 요약, 제목소, 요약소):
                 if 담기(기사, 심볼, 말):
                     담은수 += 1
 

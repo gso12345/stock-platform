@@ -5,6 +5,7 @@
 - 환율: 네이버 금융
 """
 import httpx
+from app.core.http import SSL
 import asyncio
 import os
 import re
@@ -149,7 +150,7 @@ async def _fetch_naver_one(cl: httpx.AsyncClient, code6: str) -> dict | None:
 
 async def fetch_naver_stock(code6: str) -> dict | None:
     """네이버 모바일 API (basic + integration) 로 한국 종목 실시간 조회"""
-    async with httpx.AsyncClient(timeout=10, headers=NAVER_HEADERS) as cl:
+    async with httpx.AsyncClient(timeout=10, headers=NAVER_HEADERS, verify=SSL) as cl:
         return await _fetch_naver_one(cl, code6)
 
 
@@ -197,7 +198,7 @@ async def fetch_naver_prices_light(codes: list[str], concurrency: int = 20) -> d
         async with sem:
             return await _fetch_naver_price_only(cl, code)
 
-    async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
+    async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS, verify=SSL) as cl:
         results = await asyncio.gather(*[one(cl, c) for c in codes], return_exceptions=True)
     return {c: r for c, r in zip(codes, results) if isinstance(r, dict) and r}
 
@@ -206,7 +207,7 @@ async def fetch_naver_stocks(codes: list[str]) -> dict[str, dict]:
     """여러 한국 종목 병렬 조회 — 단일 AsyncClient로 connection pool 재사용"""
     if not codes:
         return {}
-    async with httpx.AsyncClient(timeout=10, headers=NAVER_HEADERS) as cl:
+    async with httpx.AsyncClient(timeout=10, headers=NAVER_HEADERS, verify=SSL) as cl:
         results = await asyncio.gather(
             *[_fetch_naver_one(cl, c) for c in codes],
             return_exceptions=True,
@@ -281,7 +282,7 @@ async def fetch_naver_index(name: str) -> dict | None:
 
     마지막이유 = "코드 후보를 다 걸어 봤지만 응답이 없다"
     try:
-        async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
+        async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS, verify=SSL) as cl:
             for code in codes:
                 try:
                     r = await cl.get(f"https://m.stock.naver.com/api/index/{code}/basic")
@@ -529,7 +530,7 @@ async def _fetch_naver_fx(naver_symbol: str, display_name: str, symbol: str) -> 
     """네이버 환율 — naver_symbol: FX_USDKRW / FX_EURKRW 등"""
     url = f"https://m.stock.naver.com/api/forex/basic?symbol={naver_symbol}"
     try:
-        async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
+        async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS, verify=SSL) as cl:
             r = await cl.get(url)
             if r.status_code == 200:
                 d = r.json()
@@ -550,7 +551,7 @@ async def _fetch_naver_fx(naver_symbol: str, display_name: str, symbol: str) -> 
         f"https://m.stock.naver.com/api/forex/history?symbol={naver_symbol}&timeframe=day&count=2",
     ]:
         try:
-            async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS) as cl:
+            async with httpx.AsyncClient(timeout=8, headers=NAVER_HEADERS, verify=SSL) as cl:
                 r = await cl.get(url2)
                 if r.status_code == 200:
                     items = r.json()
@@ -639,7 +640,7 @@ async def _fetch_yf_quotes_raw(symbols: list[str]) -> list | None:
     url = (f"https://{base}.finance.yahoo.com/v7/finance/quote"
            f"?symbols={','.join(symbols)}&fields={_YF_QUOTE_FIELDS}")
     try:
-        async with httpx.AsyncClient(timeout=12, headers=YF_HEADERS) as cl:
+        async with httpx.AsyncClient(timeout=12, headers=YF_HEADERS, verify=SSL) as cl:
             r = await cl.get(url)
         if r.status_code != 200:
             log.debug(f"YF {base} 인증 없는 배치 status={r.status_code}")
@@ -680,7 +681,7 @@ async def fetch_yf_quote_extended(symbol: str) -> dict | None:
     )
     url = f"https://{base}.finance.yahoo.com/v7/finance/quote?symbols={symbol}&fields={fields}"
     try:
-        async with httpx.AsyncClient(timeout=10, headers=YF_HEADERS) as cl:
+        async with httpx.AsyncClient(timeout=10, headers=YF_HEADERS, verify=SSL) as cl:
             r = await cl.get(url)
         if r.status_code != 200:
             return None

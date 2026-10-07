@@ -89,6 +89,23 @@ _COMMENT_VISIBLE = (StockComment.is_deleted.isnot(True), StockComment.is_blinded
 
 _SAFE_AVATAR_TYPES = frozenset({"image/jpeg", "image/png", "image/gif", "image/webp"})
 
+
+def _사진주소(profile) -> Optional[str]:
+    """목록에 싣는 프로필 사진 — 사진 자체가 아니라 **주소**만.
+
+    사진은 data URL(base64) 로 저장돼 있다. 예전에는 그걸 글·댓글·알림
+    하나하나에 통째로 실었다 — 한 장에 9천 자 남짓이라, 피드 한 쪽이면
+    같은 사람의 사진이 스무 번 넘게 실려 응답이 수백 KB 가 됐다(그걸 매번
+    JSON 으로 만들고, 압축하고, 폰이 다시 읽는다).
+
+    주소로 보내면 사진은 브라우저가 따로 받아 오래 캐시한다. 주소에 고친
+    시각(v)을 붙여 두므로 사진을 바꾸면 주소가 바뀌어 새 사진을 받는다.
+    API 주소 기준의 상대 경로다 — 화면이 앞에 API 주소를 붙인다."""
+    if not profile or not profile.avatar_url:
+        return None
+    판 = int(profile.updated_at.timestamp()) if getattr(profile, "updated_at", None) else 0
+    return f"/community/users/{profile.user_id}/avatar?v={판}"
+
 # 화면은 800px·품질 0.7 JPEG로 줄여 보내므로 보통 200KB 안쪽이다. 상한은 그보다
 # 넉넉히 잡되 무제한은 아니게 둔다 — 글 이미지에는 상한이 아예 없어서, API를
 # 직접 호출하면 수십 MB짜리 글을 만들 수 있었다. 그 글은 목록에 뜨는 것만으로
@@ -440,7 +457,7 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "user_id":       post.user_id,
         "username":      display_name(post.user, profile),
         "avatar_color":  profile.avatar_color if profile else 0,
-        "avatar_url":    profile.avatar_url if profile else None,
+        "avatar_url":    _사진주소(profile),
         "title":         parsed["title"],
         "body":          parsed["body"],
         "image":         "" if 이미지빼기 else parsed.get("image", ""),
@@ -481,7 +498,7 @@ def _ser_comment(c: StockComment, uid: Optional[int], db: Session, profiles_map:
                 "user_id":      r.user_id,
                 "username":     display_name(r.user, rp),
                 "avatar_color": rp.avatar_color if rp else 0,
-                "avatar_url":   rp.avatar_url if rp else None,
+                "avatar_url":   _사진주소(rp),
                 "content":      r.content,
                 "like_count":   r.like_count,
                 "liked":        r_liked,
@@ -495,7 +512,7 @@ def _ser_comment(c: StockComment, uid: Optional[int], db: Session, profiles_map:
         "user_id":      c.user_id,
         "username":     display_name(c.user, profile),
         "avatar_color": profile.avatar_color if profile else 0,
-        "avatar_url":   profile.avatar_url if profile else None,
+        "avatar_url":   _사진주소(profile),
         "content":      c.content,
         "like_count":   c.like_count,
         "liked":        liked,
@@ -1253,6 +1270,44 @@ def get_post_image(post_id: int, db: Session = Depends(get_db)):
                         })
 
 
+@router.get("/users/{user_id}/avatar")
+def get_user_avatar(user_id: int, db: Session = Depends(get_db)):
+    """프로필 사진 한 장 (목록에는 주소만 싣는다 — _사진주소 참고).
+
+    주소에 고친 시각(v)이 붙어 있어 내용이 바뀌면 주소도 바뀐다. 그래서
+    브라우저가 1년 동안 다시 묻지 않게 해도 안전하다. 서버에서도 풀어 둔
+    것을 잠깐 들고 있는다 — 피드 한 쪽을 처음 여는 브라우저가 같은 사람
+    사진을 여러 번 묻지는 않지만, 여러 사람이 같은 글쓴이를 본다."""
+    import base64
+    from fastapi.responses import Response
+
+    ck = f"avatar:{user_id}"
+    담긴것 = cache.get(ck)
+    if 담긴것 is None:
+        행 = db.query(UserProfile.avatar_url).filter(UserProfile.user_id == user_id).first()
+        raw = (행[0] if 행 else None) or ""
+        if not raw.startswith("data:image/"):
+            raise HTTPException(status_code=404, detail="사진이 없습니다")
+        try:
+            머리, 본체 = raw.split(",", 1)
+            타입 = 머리.split(";")[0][5:]
+            if 타입 not in _SAFE_AVATAR_TYPES:
+                raise ValueError(타입)
+            담긴것 = {"type": 타입, "b64": 본체}
+            base64.b64decode(본체, validate=True)
+        except Exception:
+            raise HTTPException(status_code=404, detail="사진을 읽을 수 없습니다")
+        # 캐시는 JSON 으로 담기므로 base64 그대로 둔다(10분). 사진을 바꾸면
+        # 주소의 v 가 바뀌지만 이 열쇠는 그대로라 — 바꾸는 쪽에서 지운다
+        cache.set(ck, 담긴것, 600)
+    return Response(content=base64.b64decode(담긴것["b64"]), media_type=담긴것["type"],
+                    headers={
+                        "Cache-Control": "public, max-age=31536000, immutable",
+                        # 이미 압축된 그림이다 — gzip 이 다시 누르지 않게
+                        "Content-Encoding": "identity",
+                    })
+
+
 @router.get("/feed")
 def get_feed(
     page:      int = Query(1, ge=1),
@@ -1392,6 +1447,7 @@ def update_my_profile(
     if body.avatar_url is not None:
         _validate_uploaded_image(body.avatar_url, "프로필 사진")
         p.avatar_url = body.avatar_url or None
+        cache.delete(f"avatar:{p.user_id}")      # 풀어 둔 사진도 버린다(get_user_avatar)
     db.commit()
     return {
         "user_id":      current_user.id,
@@ -1720,7 +1776,7 @@ def list_notifications(
         "actor_id":     r.actor_id,
         "actor_name":   display_name(actors.get(r.actor_id), profiles.get(r.actor_id)),
         "actor_color":  profiles[r.actor_id].avatar_color if r.actor_id in profiles else 0,
-        "actor_avatar": profiles[r.actor_id].avatar_url if r.actor_id in profiles else None,
+        "actor_avatar": _사진주소(profiles.get(r.actor_id)),
     } for r in rows]}
 
 

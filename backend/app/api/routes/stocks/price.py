@@ -13,8 +13,12 @@ from ._공용 import (   # noqa: F401  — 쪼개기 전과 같은 이름을 쓴
     QuantScoreWeight, limiter, router_새로, _SYMBOL_PATTERN, _run, _시한내결과,
     get_kr_price, get_us_price,
 )
+from fastapi.responses import JSONResponse
 
 router = router_새로()
+
+#: 장전·장후 시세를 뒤에서 받고 있는 종목 (get_stock_detail 의 _with_ext_hours)
+_장외받는중: set[str] = set()
 
 # ── 엔드포인트 ─────────────────────────────────────────────
 @router.get("/{market}/{symbol}/price")
@@ -50,7 +54,17 @@ async def get_stock_ohlcv(
     OHLCV 데이터 조회
     interval: 1m/5m/15m/30m/60m = 분봉, 1d = 일봉, 1wk = 주봉, 1mo = 월봉, 1y = 연봉
     period: 1d/5d/1m/3m/6m/1y/2y/3y/5y/10y/max
+
+    JSONResponse 로 바로 내보낸다. 목록을 그냥 돌려주면 FastAPI 가
+    jsonable_encoder 로 줄 하나하나·값 하나하나를 다시 훑는데, 일봉 전체
+    (수천 줄)면 캐시에서 꺼낸 것을 돌려주기만 해도 그 일에 CPU 를 쓴다 —
+    0.15 CPU 에서는 그동안 다른 사람의 요청도 멈춘다. 담긴 값은 이미
+    str·float·int 뿐이라 다시 훑을 것이 없다.
     """
+    return JSONResponse(await _ohlcv(market, symbol, period, interval))
+
+
+async def _ohlcv(market: str, symbol: str, period: str, interval: str):
     intraday_map = {"1m":2,"5m":5,"15m":10,"30m":20,"60m":30}
     is_intraday = interval in intraday_map
     is_annual = interval == "1y"
@@ -284,14 +298,36 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
         from app.services.price_fetcher import fetch_yf_quote_extended
 
         # 프리마켓/애프터마켓 시세 — 단건 전용 조회(배치 조회와 분리, 짧게 캐시)
+        #
+        # **기다리지 않는다.** 예전에는 가격·지표를 다 모은 뒤 이걸 차례로
+        # 한 번 더 받아서, 미국 종목 상세가 그 왕복만큼 늘 늦게 떴다. 게다가
+        # 장중·휴장에는 화면이 이 칸을 쓰지도 않는다(장전·장후에만 보인다).
+        #   · 받아 둔 것이 있으면 붙인다.
+        #   · 없으면 장전·장후일 때만 뒤에서 받는다 — 화면은 15초마다 상세를
+        #     다시 묻으므로 다음 번에 붙는다.
+        #   · 못 받았으면 10분 동안 다시 안 묻는다. 예전에는 실패도 30초만
+        #     기억해서, 안 되는 조회를 30초마다 되풀이했다.
         async def _with_ext_hours(result: dict) -> dict:
             if not result:
                 return result
             ext_ck = f"ext:{symbol}"
             ext = cache.get(ext_ck)
             if ext is None:
-                ext = await fetch_yf_quote_extended(symbol) or {}
-                cache.set(ext_ck, ext, 30)
+                ext = {}
+                from app.services import market_hours
+                if market_hours.us_session() in ("pre", "after") and ext_ck not in _장외받는중:
+                    _장외받는중.add(ext_ck)
+
+                    async def _bg_ext():
+                        try:
+                            받음 = await fetch_yf_quote_extended(symbol)
+                            cache.set(ext_ck, 받음 or {}, 30 if 받음 else 600)
+                        except Exception:
+                            cache.set(ext_ck, {}, 600)
+                        finally:
+                            _장외받는중.discard(ext_ck)
+
+                    asyncio.create_task(_bg_ext())
             return {**result, **{k: v for k, v in ext.items() if v is not None}}
 
         # US: Finnhub 우선 → 캐시 → yfinance 폴백

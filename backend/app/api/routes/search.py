@@ -6,7 +6,9 @@
 from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel, Field
 import httpx
+from app.core.http import SSL
 import asyncio
+import re
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.services.ticker_service import search_stocks
@@ -27,7 +29,9 @@ NAVER_HEADERS = {
 async def _naver_search(q: str) -> list[dict]:
     """Naver 자동완성 API로 전체 KRX 종목 검색"""
     try:
-        async with httpx.AsyncClient(timeout=5, headers=NAVER_HEADERS) as cl:
+        # 3초. 못 받아도 내장 목록으로 찾으므로 오래 기다릴 이유가 없다 —
+        # 검색창은 글자를 칠 때마다 묻는 자리다
+        async with httpx.AsyncClient(timeout=3, headers=NAVER_HEADERS, verify=SSL) as cl:
             r = await cl.get(NAVER_AC_URL, params={"q": q, "target": "stock,index"})
         if r.status_code != 200:
             return []
@@ -69,25 +73,29 @@ async def search_route(
     if cached := cache.get(ck):
         return {"results": cached, "total": len(cached)}
 
-    kr_results, us_results = [], []
+    async def 국내() -> list[dict]:
+        if market not in ("ALL", "KR"):
+            return []
+        # Naver API로 한국 전체 종목 검색 → 안 되면 내장 DB
+        return (await _naver_search(q)
+                or [r for r in search_stocks(q, "KR") if r.get("market") == "KR"])
 
-    if market in ("ALL", "KR"):
-        # Naver API로 한국 전체 종목 검색
-        kr_results = await _naver_search(q)
-        if not kr_results:
-            # 폴백: 내장 DB
-            kr_results = [r for r in search_stocks(q, "KR") if r.get("market") == "KR"]
-
-    if market in ("ALL", "US", "ETF"):
-        # Finnhub으로 미국 전 종목 검색
-        if settings.FINNHUB_API_KEY:
+    async def 해외() -> list[dict]:
+        if market not in ("ALL", "US", "ETF"):
+            return []
+        결과 = []
+        # Finnhub으로 미국 전 종목 검색. 한글 검색어는 Finnhub 이 못 찾는다 —
+        # 늘 빈손으로 와서 내장 DB 로 넘어갔다. 내장 DB 가 '애플'·'테슬라'
+        # 같은 한글 이름을 알므로 바로 그쪽으로 간다(결과는 같고 왕복이 준다)
+        if settings.FINNHUB_API_KEY and not re.search(r"[가-힣]", q):
             loop = asyncio.get_running_loop()
-            fh_results = await loop.run_in_executor(None, finnhub_service.search, q)
-            if fh_results:
-                us_results = fh_results
+            결과 = await loop.run_in_executor(None, finnhub_service.search, q) or []
         # 폴백: 내장 DB
-        if not us_results:
-            us_results = [r for r in search_stocks(q, "US") if r.get("market") in ("US", "ETF")]
+        return 결과 or [r for r in search_stocks(q, "US") if r.get("market") in ("US", "ETF")]
+
+    # 국내(네이버)와 해외(Finnhub)를 **동시에** 묻는다. 예전에는 네이버가
+    # 답한 뒤에야 Finnhub 에 물어서, 검색 한 번이 두 왕복을 차례로 기다렸다.
+    kr_results, us_results = await asyncio.gather(국내(), 해외())
 
     results = (kr_results + us_results)[:30]
 

@@ -230,11 +230,28 @@ def _이미지주소(raw: "str | None") -> "str | None":
     return "https://" + url[7:] if url[:7].lower() == "http://" else url
 
 
+def 피드읽기(내용: bytes):
+    """RSS 바이트 → feedparser 결과. 모든 피드 읽기가 이것을 쓴다.
+
+    feedparser 는 기본으로 요약 HTML 을 '안전하게 다듬고'(sanitize_html)
+    상대 주소를 풀어(resolve_relative_uris) 준다. 기사 50개짜리 피드 하나에
+    23ms 인데, 그 둘을 끄면 9ms 다 — 뉴스 갱신이 5분마다 피드 50곳 가까이를
+    읽으니 0.15 CPU 서버에서는 그 차이가 깨어난 직후 수십 초가 된다.
+
+    다듬기를 꺼도 되는 이유: 우리는 요약 HTML 을 그대로 내보내지 않는다.
+    _clean_text 가 태그를 다 벗겨 글자만 남기고(스크립트·스타일 안의 글자도
+    같이 버린다), 링크·이미지 주소는 _safe_url 이 http(s) 인지 따로 본다.
+    화면도 이 글자들을 HTML 이 아니라 글자로 그린다."""
+    return feedparser.parse(내용, sanitize_html=False, resolve_relative_uris=False)
+
+
 def _clean_text(raw: str) -> str:
     """HTML 태그 제거 + 엔티티 디코딩 + 공백 정리"""
     if not raw:
         return ""
-    text = re.sub(r"<[^>]+>", " ", raw)
+    # 스크립트·스타일은 안의 글자까지 버린다 — 태그만 벗기면 코드가 요약에 남는다
+    text = re.sub(r"<(script|style)\b[^>]*>.*?</\1\s*>", " ", raw, flags=re.I | re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
     text = _html.unescape(text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:150]
@@ -308,13 +325,14 @@ def _parse_feed(url: str, source: str, limit: int = 8, 키워드거름: bool = T
 
     실패하면 이유를 담아 던진다 — 조용히 빈 목록을 돌려주지 않는다."""
     import httpx
+    from app.core.http import SSL
 
     # feedparser.parse(url)는 자체 타임아웃이 없어, 응답이 느리거나 멈춘
     # 피드 하나가 스레드를 오래 점유해 다른 피드까지 예산 안에 못 끝나는
     # 문제가 있었음 — httpx로 명시적 타임아웃을 두고 받아온 바이트를 파싱
     try:
         resp = httpx.get(url, headers=_FEED_HEADERS, timeout=_FEED_TIMEOUT,
-                         follow_redirects=True)
+                         follow_redirects=True, verify=SSL)
     except httpx.TimeoutException:
         raise 피드실패(f"응답 없음 ({_FEED_TIMEOUT}초 초과)")
     except httpx.ConnectError as e:
@@ -336,7 +354,7 @@ def _parse_feed(url: str, source: str, limit: int = 8, 키워드거름: bool = T
                        + (f" — {설명[resp.status_code]}" if resp.status_code in 설명 else ""))
 
     try:
-        feed = feedparser.parse(resp.content)
+        feed = 피드읽기(resp.content)
     except Exception as e:
         raise 피드실패(f"읽을 수 없는 형식 ({type(e).__name__})")
 

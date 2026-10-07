@@ -1,6 +1,8 @@
 import yfinance as yf
 import pandas as pd
 import math
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from app.core.cache import cache
@@ -315,6 +317,107 @@ def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame) ->
     })
 
 
+def _봉목록(hist: pd.DataFrame, rp, 날짜들: list) -> list:
+    """가격표(DataFrame) → [{date, open, high, low, close, volume}, …]
+
+    iterrows 를 쓰지 않는다. iterrows 는 줄마다 pandas Series 를 새로 만들어,
+    일봉 전체(1만 줄 남짓)면 0.4초가 걸렸다 — 0.15 CPU 로는 2.7초, 지수 상세가
+    기본으로 여는 S&P500 전체(2만 5천 줄)는 5.7초다. 열을 통째로 파이썬 목록으로
+    꺼내 짝지으면 같은 결과가 20배 넘게 빨리 나온다.
+
+    값 다루는 법(rp, int)은 예전과 똑같이 둔다 — 반올림 하나 달라져도 차트의
+    마지막 값이 시세와 어긋난다."""
+    거래량 = hist["Volume"].tolist() if "Volume" in hist.columns else [0] * len(hist)
+    return [
+        {"date": d, "open": rp(o), "high": rp(h), "low": rp(l), "close": rp(c), "volume": int(v)}
+        for d, o, h, l, c, v in zip(
+            날짜들, hist["Open"].tolist(), hist["High"].tolist(),
+            hist["Low"].tolist(), hist["Close"].tolist(), 거래량,
+        )
+    ]
+
+
+def _일자들(index) -> list:
+    """일봉 이상의 날짜 — 예전 str(idx.date()) 와 같은 'YYYY-MM-DD'."""
+    return index.strftime("%Y-%m-%d").tolist()
+
+
+# ── 스크리닝 사진 (YFinanceService.스크리닝_전체 참고) ──────────
+#: 시장 → (줄들, 찍은 시각)
+_스크리닝_사진: dict[str, tuple[list, float]] = {}
+_스크리닝_잠금들: dict[str, threading.Lock] = {}
+_스크리닝_새로찍는중: set[str] = set()
+#: 이보다 오래된 DB 사진은 안 쓴다 — 재무는 분기마다, 가격은 매일 바뀐다
+SCREEN_SNAPSHOT_MAX_AGE = 7 * 86400
+
+
+def _스크리닝_잠금(market: str) -> threading.Lock:
+    return _스크리닝_잠금들.setdefault(market, threading.Lock())
+
+
+def _사진_읽기(market: str) -> "tuple[list, float] | None":
+    """DB 에 남겨 둔 사진. 없거나 너무 오래됐거나 못 읽으면 None."""
+    try:
+        from datetime import datetime
+        from app.db.database import SessionLocal
+        from app.models.stock import ScreeningSnapshot
+        db = SessionLocal()
+        try:
+            줄 = db.query(ScreeningSnapshot).filter_by(market=market).first()
+        finally:
+            db.close()
+        if not 줄 or not 줄.data or not 줄.fetched_at:
+            return None
+        지난초 = (datetime.utcnow() - 줄.fetched_at).total_seconds()
+        if 지난초 > SCREEN_SNAPSHOT_MAX_AGE:
+            return None
+        return list(줄.data), time.time() - 지난초
+    except Exception:
+        return None
+
+
+def _사진_남기기(market: str, 줄들: list) -> None:
+    """사진을 DB 에 남긴다. 실패해도 조용히 — 메모리에는 이미 있다."""
+    if not 줄들:
+        return
+    try:
+        from datetime import datetime
+        from app.db.database import SessionLocal
+        from app.models.stock import ScreeningSnapshot
+        깨끗 = [{k: (None if isinstance(v, float) and not math.isfinite(v) else v) for k, v in r.items()}
+                for r in 줄들]
+        db = SessionLocal()
+        try:
+            줄 = db.query(ScreeningSnapshot).filter_by(market=market).first()
+            if 줄:
+                줄.data, 줄.fetched_at = 깨끗, datetime.utcnow()
+            else:
+                db.add(ScreeningSnapshot(market=market, data=깨끗, fetched_at=datetime.utcnow()))
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+
+def 스크리닝_사진_비우기() -> None:
+    """메모리와 DB 의 사진을 모두 버린다 (검사용)."""
+    _스크리닝_사진.clear()
+    try:
+        from app.db.database import SessionLocal
+        from app.models.stock import ScreeningSnapshot
+        db = SessionLocal()
+        try:
+            db.query(ScreeningSnapshot).delete()
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+
 def _resolve_kr_symbol(symbol: str, market: str) -> str:
     """한국 종목코드에 야후파이낸스 접미사 자동 부여"""
     if "." in symbol:
@@ -451,17 +554,7 @@ class YFinanceService:
             "Volume": "sum",
         }).dropna(subset=["Close"])
         def _rp(v): return int(round(float(v))) if is_kr else round(float(v), 2)
-        return [
-            {
-                "date":   str(idx.date()),
-                "open":   _rp(r["Open"]),
-                "high":   _rp(r["High"]),
-                "low":    _rp(r["Low"]),
-                "close":  _rp(r["Close"]),
-                "volume": int(r["Volume"]),
-            }
-            for idx, r in rs.iterrows()
-        ]
+        return _봉목록(rs, _rp, _일자들(rs.index))
 
     def get_ohlcv(self, symbol: str, period: str = "1y", interval: str = "1d", market: str = "US") -> list:
         if market == "KR":
@@ -495,18 +588,9 @@ class YFinanceService:
         if hist.index.tz is not None:
             hist.index = hist.index.tz_convert("Asia/Seoul").tz_localize(None) if is_kr else hist.index.tz_localize(None)
         def _rp(v): return int(round(float(v))) if is_kr else round(float(v), 2)
-        result = [
-            {
-                # 분봉은 datetime, 일봉 이상은 date만
-                "date": str(idx)[:19] if is_intraday else str(idx.date()),
-                "open":   _rp(row["Open"]),
-                "high":   _rp(row["High"]),
-                "low":    _rp(row["Low"]),
-                "close":  _rp(row["Close"]),
-                "volume": int(row["Volume"]),
-            }
-            for idx, row in hist.iterrows()
-        ]
+        # 분봉은 datetime, 일봉 이상은 date만
+        날짜들 = [str(t)[:19] for t in hist.index] if is_intraday else _일자들(hist.index)
+        result = _봉목록(hist, _rp, 날짜들)
         cache.set(ck, result, OHLCV_TTL)
         return result
 
@@ -720,17 +804,7 @@ class YFinanceService:
                     "Close": "last", "Volume": "sum"
                 }).dropna()
 
-            result = [
-                {
-                    "date":   str(idx.date()),
-                    "open":   round(float(row["Open"]), 2),
-                    "high":   round(float(row["High"]), 2),
-                    "low":    round(float(row["Low"]), 2),
-                    "close":  round(float(row["Close"]), 2),
-                    "volume": int(row.get("Volume", 0)),
-                }
-                for idx, row in hist.iterrows()
-            ]
+            result = _봉목록(hist, lambda v: round(float(v), 2), _일자들(hist.index))
             cache.set(ck, result, OHLCV_TTL)
             return result
         except Exception:
@@ -760,18 +834,67 @@ class YFinanceService:
         return row
 
     def screen_stocks(self, market: str, filters: dict) -> list:
+        return [r for r in self.스크리닝_전체(market) if self._apply_filters(r, filters)]
+
+    def _스크리닝_전체_새로(self, market: str) -> list:
+        """시장 전체를 새로 훑는다. 잠금을 잡은 쪽만 부른다."""
         # 목록에 같은 종목이 두 번 적힌 곳이 있다(AMZN·NFLX·MRNA…).
         # 그대로 두면 결과에도 두 줄로 나온다.
         symbols = list(dict.fromkeys(스크리닝_종목들(market)))
 
         # 종목별 순차 호출(네트워크 I/O 대기)이 전체 응답 시간을 좌우하므로
         # 스레드풀로 동시에 fetch — yfinance가 스레드 안전한 블로킹 I/O이므로 안전함
-        results = []
         with ThreadPoolExecutor(max_workers=io_worker_count(default=20)) as pool:
-            for row in pool.map(lambda s: self._screen_one(s, market), symbols):
-                if row and self._apply_filters(row, filters):
-                    results.append(row)
-        return results
+            줄들 = [r for r in pool.map(lambda s: self._screen_one(s, market), symbols) if r]
+        _스크리닝_사진[market] = (줄들, time.time())
+        _사진_남기기(market, 줄들)
+        return 줄들
+
+    def 스크리닝_전체(self, market: str) -> list:
+        """시장 전체의 스크리닝 줄. **조건과 상관없이** 같다 — 조건은 그 뒤에 거른다.
+
+        예전에는 누를 때마다 300종목 넘게 줄을 다시 모았다. 종목마다 30분
+        캐시가 있었지만, 30분이 지나거나 서버가 깨어나면(메모리가 빈다)
+        다시 전부 야후에 물어 0.15 CPU 에서 수십 초를 기다렸다. 게다가
+        여럿이 동시에 누르면 그 일을 각자 했다.
+
+        · 마지막 결과(사진)를 들고 있다 — 서버가 깨도 쓸 수 있게 DB 에도.
+        · 30분이 지났으면 그 사진으로 곧바로 답하고 새로 찍는 것은 뒤에서.
+        · 사진이 아예 없을 때만 기다린다 — 그때도 여럿이 한 번만 찍는다."""
+        있음 = _스크리닝_사진.get(market)
+        if 있음 is None:
+            있음 = _사진_읽기(market)
+            if 있음 is not None:
+                _스크리닝_사진[market] = 있음
+        if 있음 is not None:
+            줄들, 찍은때 = 있음
+            if time.time() - 찍은때 > SCREEN_ROW_TTL:
+                self._스크리닝_뒤에서_새로(market)
+            return 줄들
+        with _스크리닝_잠금(market):
+            if (다른사람이 := _스크리닝_사진.get(market)) is not None:
+                return 다른사람이[0]          # 기다리는 동안 앞사람이 찍었다
+            return self._스크리닝_전체_새로(market)
+
+    def _스크리닝_뒤에서_새로(self, market: str) -> None:
+        if market in _스크리닝_새로찍는중:
+            return
+        _스크리닝_새로찍는중.add(market)
+
+        def 일():
+            try:
+                with _스크리닝_잠금(market):
+                    self._스크리닝_전체_새로(market)
+            except Exception:
+                pass                      # 못 찍었으면 지난 사진을 계속 쓴다
+            finally:
+                _스크리닝_새로찍는중.discard(market)
+
+        try:
+            from app.core.executor import background_executor
+            background_executor.submit(일)
+        except Exception:
+            _스크리닝_새로찍는중.discard(market)
 
     def _apply_filters(self, stock: dict, filters: dict) -> bool:
         for key, condition in filters.items():

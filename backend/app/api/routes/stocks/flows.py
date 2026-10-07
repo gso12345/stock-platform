@@ -151,6 +151,7 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
           2) MDCSTAT05001  PDF(구성종목)      → 종목·비중·금액
         """
         import httpx
+        from app.core.http import SSL
 
         code = symbol.replace(".KS", "").replace(".KQ", "")
         if not code.isdigit():
@@ -173,7 +174,7 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
             return []
 
         try:
-            with httpx.Client(follow_redirects=True) as client:
+            with httpx.Client(follow_redirects=True, verify=SSL) as client:
                 # 1) 6자리 → ISIN. 전 종목을 한 번에 받아 하루 동안 재사용한다
                 isin_map = cache.get("krx_etf_isin") or {}
                 if not isin_map:

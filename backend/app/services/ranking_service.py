@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import httpx
+from app.core.http import SSL
 import re
 from app.core.cache import cache
 from app.core import memory
@@ -112,16 +113,32 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
     시가총액 페이지 (name 이후): 현재가|전일비|등락률|시총(억)|상장주식수|외인비율|거래량|PER|ROE
     상승률/하락률/거래량 페이지 (name 이후): 현재가|전일비|등락률|거래량|거래대금(억)|시총(억)|PER
     """
+    try:
+        async with httpx.AsyncClient(timeout=8, headers=NAVER_PC_HEADERS, verify=SSL) as cl:
+            r = await cl.get(url, params={"sosok": market_code})
+        if r.status_code != 200:
+            return []
+        # 받은 HTML 을 읽는 일은 스레드에서 한다.
+        #
+        # 예전에는 여기(async 함수 안)에서 바로 BeautifulSoup 으로 읽었다.
+        # 한 페이지에 0.05~0.4초인데 0.15 CPU 에서는 그 일곱 배라, 장중 1분마다
+        # 여덟 페이지를 읽는 동안 이벤트 루프가 통째로 멈췄다 — 그 순간 들어온
+        # 모든 사람의 요청이 같이 섰다. 스레드로 보내면 일하는 양은 같아도
+        # 루프는 그사이 다른 요청을 받는다.
+        return await asyncio.to_thread(_시세표_읽기, r.text, market_code, has_market_cap)
+    except Exception as e:
+        log.debug(f"Naver sise 받기 실패 ({url}): {e}")
+        return []
+
+
+def _시세표_읽기(html: str, market_code: int, has_market_cap: bool) -> list[dict]:
+    """네이버 시세 페이지 HTML → 순위 줄. 스레드에서 돈다 (_fetch_naver_sise_page 참고)."""
     soup = None
     try:
         from bs4 import BeautifulSoup
         suffix   = ".KS" if market_code == 0 else ".KQ"
         mkt_name = "KOSPI" if market_code == 0 else "KOSDAQ"
-        async with httpx.AsyncClient(timeout=8, headers=NAVER_PC_HEADERS) as cl:
-            r = await cl.get(url, params={"sosok": market_code})
-        if r.status_code != 200:
-            return []
-        soup = BeautifulSoup(r.text, "lxml")
+        soup = BeautifulSoup(html, "lxml")
         rows = []
         # 아래에서 뽑는 값은 전부 평범한 str/float 다. 트리에 매달린
         # 문자열(NavigableString)을 그대로 담으면 그 하나가 트리 전체를
@@ -188,7 +205,7 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
                 break
         return rows
     except Exception as e:
-        log.debug(f"Naver sise 파싱 실패 ({url}): {e}")
+        log.debug(f"Naver sise 파싱 실패: {e}")
         return []
     finally:
         # 성공하든 실패하든 트리는 끊는다. rows 에 담은 것은 이미 평범한

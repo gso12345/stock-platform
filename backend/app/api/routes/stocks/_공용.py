@@ -37,6 +37,9 @@ def _퀀트지표_뒤로미루기(sym: str, mkt: str, ck: str) -> None:
             from app.services.quant_score import collect_quant_metrics as _c
             m = _a.run(_c(sym, mkt, fetch_ohlcv=True))
             cache.set(ck, m, QMETRICS_TTL)
+            # 서버가 잠들었다 깨도 쓸 수 있게 남겨 둔다(quant_store)
+            from app.services.quant_store import 저장
+            저장(sym, mkt, dict(m))
         except Exception as e:
             log.warning("퀀트 지표 배경 갱신 실패 %s %s: %s", mkt, sym, type(e).__name__)
         finally:

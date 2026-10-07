@@ -38,6 +38,8 @@ def _캐시_치우기():
             열쇠 = 항목.get("key") if isinstance(항목, dict) else 항목
             if isinstance(열쇠, str) and 열쇠.startswith(("screening:", "screen_row:")):
                 cache.delete(열쇠)
+        # 시장 전체의 사진도 버린다 — 남아 있으면 앞 검사의 줄로 답한다
+        모듈.스크리닝_사진_비우기()
     치우기()
     yield
     치우기()

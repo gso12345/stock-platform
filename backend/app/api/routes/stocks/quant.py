@@ -152,6 +152,14 @@ async def get_quant_score_compare(
 
     sem = asyncio.Semaphore(16)
 
+    # 메모리에 지난 값조차 없는 종목은 DB 에 남겨 둔 지표를 한 번에 읽는다
+    # (서버가 잠들었다 깨면 메모리가 텅 빈다 — quant_store 참고)
+    from app.services import quant_store
+    빈것 = [(s, m) for s, m in zip(sym_list, mkt_list)
+            if cache.get_stale(f"qmetrics:{m}:{s}") is None]
+    저장된 = (await asyncio.get_running_loop().run_in_executor(None, quant_store.여럿읽기, 빈것)
+              if 빈것 else {})
+
     async def _score_one(sym: str, mkt: str) -> dict:
         """한 종목 채점.
 
@@ -174,6 +182,15 @@ async def get_quant_score_compare(
             if 지난값 is not None:
                 _퀀트지표_뒤로미루기(sym, mkt, metrics_ck)
                 metrics = dict(지난값)
+            elif (sym, mkt) in 저장된:
+                # DB 에 남겨 둔 것 — 아직 신선하면 그대로 담고, 지났으면 그것으로
+                # 답하면서 새 값은 뒤에서 받는다(메모리 지난 값과 같은 방식)
+                남긴것, 지난초 = 저장된[(sym, mkt)]
+                if 지난초 < QMETRICS_TTL:
+                    cache.set(metrics_ck, 남긴것, int(QMETRICS_TTL - 지난초))
+                else:
+                    _퀀트지표_뒤로미루기(sym, mkt, metrics_ck)
+                metrics = dict(남긴것)
             else:
                 async with sem:
                     try:
@@ -181,6 +198,8 @@ async def get_quant_score_compare(
                     except Exception:
                         return {"symbol": sym, "market": mkt, "total_score": None, "grade": None, "factors": []}
                 cache.set(metrics_ck, metrics, QMETRICS_TTL)
+                # 남겨 둔다 — 응답은 기다리지 않는다
+                asyncio.get_running_loop().run_in_executor(None, quant_store.저장, sym, mkt, dict(metrics))
         else:
             metrics = dict(cached_metrics)
         sector = metrics.pop("_sector", None)

@@ -15,6 +15,7 @@ from app.core.deps import require_user
 from app.db.database import get_db, engine
 from app.models.user import User
 from app.models.stock import WatchlistItem, PortfolioItem
+from app.core.cache import cache
 
 log = logging.getLogger(__name__)
 
@@ -986,14 +987,26 @@ def admin_unblind_comment(
 
 # ── 공지사항 ──────────────────────────────────────────────────────────────────
 
+#: 공지·팝업은 앱을 여는 모든 사람이 부른다(Layout). 바뀌는 일은 드문데
+#: 그때마다 DB 를 읽었다 — 그 자리에서 첫 화면 요청들과 연결을 다툰다.
+#: 잠깐 들고 있고, 관리자가 바꾸면 그 자리에서 버린다.
+_공지_열쇠 = "site:announcement"
+_팝업_열쇠 = "site:popups"
+_배너_수명 = 300
+
+
 @router.get("/announcement")
 def get_announcement():
+    if (담긴것 := cache.get(_공지_열쇠)) is not None:
+        return 담긴것
     try:
         with engine.connect() as conn:
             row = conn.execute(text("SELECT value FROM system_settings WHERE key = 'announcement'")).fetchone()
-            return {"text": row[0] if row else ""}
+            답 = {"text": row[0] if row else ""}
     except Exception:
-        return {"text": ""}
+        return {"text": ""}               # 못 읽은 것은 담지 않는다 — 다음 요청이 다시 본다
+    cache.set(_공지_열쇠, 답, _배너_수명)
+    return 답
 
 
 class 공지요청(BaseModel):
@@ -1017,6 +1030,7 @@ def set_announcement(body: 공지요청, db: Session = Depends(get_db),
                 {"v": text_val},
             )
             conn.commit()
+        cache.delete(_공지_열쇠)
         관리기록(db, current, "announcement.set", "announcement", "-",
                  text_val[:200] or "(지움)")
         return {"text": text_val}
@@ -1043,22 +1057,32 @@ def _popup_dict(p) -> dict:
     }
 
 
+def _시각(v) -> "datetime | None":
+    """저장된 시각(ISO 문자열) → 시간대가 붙은 datetime. 시간대가 없으면 UTC 로 본다."""
+    if not v:
+        return None
+    t = datetime.fromisoformat(v)
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
 @router.get("/popups/active")
 def get_active_popups(db: Session = Depends(get_db)):
-    """현재 노출 중인 팝업 목록 (인증 불필요 — 프론트엔드 레이아웃에서 호출)"""
+    """현재 노출 중인 팝업 목록 (인증 불필요 — 프론트엔드 레이아웃에서 호출)
+
+    켜 둔 팝업 **전부**를 잠깐 들고 있고, 노출 기간은 요청마다 지금 시각으로
+    다시 거른다. 걸러 낸 결과를 담으면, 예약해 둔 팝업이 시작 시각에 늦게
+    뜨고 끝난 팝업이 수명만큼 더 남는다."""
     from app.models.community import SitePopup
+    켜진것 = cache.get(_팝업_열쇠)
+    if 켜진것 is None:
+        켜진것 = [_popup_dict(p) for p in
+                  db.query(SitePopup).filter(SitePopup.is_active == True)
+                  .order_by(SitePopup.id.desc()).all()]
+        cache.set(_팝업_열쇠, 켜진것, _배너_수명)
     now = datetime.now(timezone.utc)
-    popups = (
-        db.query(SitePopup)
-        .filter(
-            SitePopup.is_active == True,
-            (SitePopup.starts_at == None) | (SitePopup.starts_at <= now),
-            (SitePopup.ends_at == None) | (SitePopup.ends_at >= now),
-        )
-        .order_by(SitePopup.id.desc())
-        .all()
-    )
-    return [_popup_dict(p) for p in popups]
+    return [p for p in 켜진것
+            if (not p["starts_at"] or _시각(p["starts_at"]) <= now)
+            and (not p["ends_at"] or _시각(p["ends_at"]) >= now)]
 
 
 @router.get("/popups")
@@ -1131,6 +1155,7 @@ def create_popup(body: 팝업요청, db: Session = Depends(get_db),
     db.add(popup)
     db.commit()
     db.refresh(popup)
+    cache.delete(_팝업_열쇠)
     관리기록(db, current, "popup.create", "popup", popup.id, body.title[:200])
     return _popup_dict(popup)
 
@@ -1158,6 +1183,7 @@ def update_popup(
             setattr(popup, 이름, 값)
     db.commit()
     db.refresh(popup)
+    cache.delete(_팝업_열쇠)
     관리기록(db, current, "popup.update", "popup", popup_id, popup.title[:200] or "")
     return _popup_dict(popup)
 
@@ -1172,6 +1198,7 @@ def delete_popup(popup_id: int, db: Session = Depends(get_db),
     제목 = popup.title or ""
     db.delete(popup)
     db.commit()
+    cache.delete(_팝업_열쇠)
     관리기록(db, current, "popup.delete", "popup", popup_id, 제목[:200])
 
 

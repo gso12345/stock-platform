@@ -167,14 +167,24 @@ async def get_stock_news(
             stock_name = code6
 
         def _fetch_kr():
-            import feedparser
+            import httpx
+            from app.core.http import SSL
+            from app.services.news_service import 피드읽기, _FEED_HEADERS, _FEED_TIMEOUT, _clean_text
             from datetime import timezone, timedelta, datetime
             KST = timezone(timedelta(hours=9))
             items = []
             import urllib.parse
             query = urllib.parse.quote(stock_name)
             google_rss = f"https://news.google.com/rss/search?q={query}+주식+주가&hl=ko&gl=KR&ceid=KR:ko"
-            feed = feedparser.parse(google_rss)
+            # feedparser.parse(주소) 로 바로 받으면 시한이 없다. 구글이 응답을
+            # 멈추면 스레드 하나가 영영 묶이고(바깥의 15초 시한은 기다림만
+            # 끊을 뿐 스레드는 못 끊는다), 그게 쌓이면 다른 요청이 쓸 스레드가
+            # 모자란다. 뉴스 수집·내 자산 뉴스와 같이 바이트를 받아 읽는다.
+            resp = httpx.get(google_rss, headers=_FEED_HEADERS, timeout=_FEED_TIMEOUT,
+                             follow_redirects=True, verify=SSL)
+            if resp.status_code >= 400:
+                return []
+            feed = 피드읽기(resp.content)
             entries_sorted = sorted(
                 (e for e in (feed.entries or []) if e.get("published_parsed")),
                 key=lambda e: e.published_parsed,
@@ -207,7 +217,9 @@ async def get_stock_news(
                     "source": source,
                     "published": pub,
                     "published_ts": pub_ts,
-                    "summary": (entry.get("summary") or "")[:200],
+                    # 요약은 HTML 이다. 다듬기(sanitize)를 끄고 읽으므로 태그를
+                    # 벗겨 글자만 보낸다 — 화면은 어차피 글자로 그린다
+                    "summary": _clean_text(entry.get("summary") or ""),
                     "image": image,
                 })
             return items

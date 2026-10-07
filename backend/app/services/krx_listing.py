@@ -35,6 +35,7 @@ import logging
 from datetime import date, timedelta
 
 import httpx
+from app.core.http import SSL
 
 log = logging.getLogger(__name__)
 
@@ -210,7 +211,7 @@ def fetch_listing() -> tuple[list[dict], dict, str]:
 
     실패하면 목록이 빈 리스트다 — 부르는 쪽에서 다음 폴백으로 넘어간다."""
     경로 = (("KRX", fetch_live), ("CSV", fetch_csv_cache))
-    with httpx.Client(follow_redirects=True) as client:
+    with httpx.Client(follow_redirects=True, verify=SSL) as client:
         days = _candidate_days(client)
         for 이름, fn in 경로:
             for ymd in days:

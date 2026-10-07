@@ -158,6 +158,36 @@ class AnalystCache(Base):
     fetched_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class QuantMetricsCache(Base):
+    """퀀트 점수용 원시 지표(collect_quant_metrics 결과) DB 캐시.
+
+    메모리 캐시는 서버가 잠들 때마다 비워진다. 그러면 퀀트 비교 화면은
+    종목마다 재무 두 번·2년치 가격을 다시 모아야 했다 — 30종목이면 DB
+    세션 120번에 가격 30벌이다. 계산해 둔 지표를 남겨 두면 깨어난 뒤에도
+    한 번 읽어서 곧바로 답하고, 새 값은 뒤에서 받는다."""
+    __tablename__ = "quant_metrics_cache"
+    __table_args__ = (UniqueConstraint("symbol", "market", name="uq_qmetrics_sym_mkt"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    symbol     = Column(String(20), nullable=False, index=True)
+    market     = Column(String(10), nullable=False)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, nullable=False)
+
+
+class ScreeningSnapshot(Base):
+    """스크리닝 대상 전체(시장별)의 마지막 결과 — yf_service.스크리닝_전체 참고.
+
+    스크리닝은 시장 하나에 300종목 넘게 야후에 묻는다(0.15 CPU 에서 수십 초).
+    서버가 잠들었다 깨면 메모리가 비어 그걸 처음부터 다시 했다. 마지막
+    결과를 남겨 두고 그것으로 곧바로 답한 뒤, 새 결과는 뒤에서 받는다."""
+    __tablename__ = "screening_snapshots"
+
+    market     = Column(String(10), primary_key=True)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, nullable=False)
+
+
 class ForecastsCache(Base):
     """컨센서스 추정치(매출/EPS 등 연간·분기) DB 캐시"""
     __tablename__ = "forecasts_cache"

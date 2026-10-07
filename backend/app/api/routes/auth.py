@@ -5,6 +5,7 @@ from datetime import timedelta
 from urllib.parse import urlencode
 
 import httpx
+from app.core.http import SSL
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
@@ -312,7 +313,7 @@ def oauth_callback(
         token_data["state"] = state
 
     try:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=10, verify=SSL) as client:
             token_resp = client.post(cfg["token_url"], data=token_data, headers={"Accept": "application/json"})
             token_resp.raise_for_status()
             access_token = token_resp.json().get("access_token")

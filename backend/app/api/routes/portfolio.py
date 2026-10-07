@@ -13,6 +13,7 @@ from app.models.stock import Portfolio, PortfolioItem
 from app.models.user import User
 from app.core.deps import require_user
 from app.services.ticker_service import get_display_name
+from app.services.cached_prices import 받아둔시세 as _받아둔시세  # noqa: F401 — 예전 이름
 
 log = logging.getLogger(__name__)
 
@@ -102,51 +103,6 @@ def _to_dict(item: PortfolioItem) -> dict:
         "note":              item.note,
         "assetClass":        item.asset_class,
     }
-
-
-def _받아둔시세(items: list[PortfolioItem]) -> list[dict]:
-    """이미 캐시에 있는 시세만 긁어 온다. **여기서 새로 받지 않는다.**
-
-    ── 왜 보유목록에 시세를 얹나 ──
-
-    화면이 평가금액을 그리려면 왕복이 두 번 필요했다. 종목을 받아야
-    무엇의 시세를 물어볼지 알 수 있어서다.
-
-        /portfolio/items  ──▶  (답)  ──▶  /watchlist/prices  ──▶  (답)
-
-    앞의 답이 오기 전에는 뒤를 시작조차 못 한다. 서버가 아무리 빨라도
-    한국↔서버 왕복이 한 번 통째로 더 붙고, 그동안 총자산·손익·비중이
-    전부 빈칸이다. 종목 수와 무관하게 늘 붙는 대기다.
-
-    시세는 이미 메모리에 있다 — 스케줄러가 채우고, 다른 사람이 본
-    종목도 거기 남는다. 있는 것을 같이 실어 보내면 첫 그림이 곧바로
-    찬다. 없는 종목은 null 로 두고, 화면은 늘 하던 대로 시세 조회를
-    한 번 더 해서 채운다. 그러니 이건 **덤**이지 대체가 아니다.
-
-    캐시 조회뿐이라 바깥 호출이 0 이고, 사전 조회 몇 번이 전부다.
-
-    같은 종목이 005930 으로도 005930.KS 로도 들어 있다 — 어느 경로로
-    들어왔느냐에 따라 다르므로 둘 다 본다(portfolio_snapshot 과 같은 규칙).
-    """
-    from app.core.cache import cache
-
-    나온것: list[dict] = []
-    본것: set[tuple] = set()
-    for it in items:
-        sym, mkt = it.symbol, it.market
-        if not sym or (it.asset_class or "") == "현금":
-            continue                     # 현금에는 시세가 없다
-        if (sym, mkt) in 본것:
-            continue                     # 같은 종목을 여러 줄로 담았을 때
-        본것.add((sym, mkt))
-        민 = sym.upper().replace(".KS", "").replace(".KQ", "")
-        후보 = [sym, 민] + ([f"{민}.KS", f"{민}.KQ"] if 민.isdigit() else [])
-        for k in 후보:
-            담긴것 = cache.get(f"price:{k}") or cache.get_stale(f"price:{k}")
-            if 담긴것 and 담긴것.get("price"):
-                나온것.append({**담긴것, "symbol": sym, "market": mkt})
-                break
-    return 나온것
 
 
 def _portfolio_to_dict(pf: Portfolio, count: int) -> dict:

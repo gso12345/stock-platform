@@ -241,9 +241,12 @@ def 임시DB(tmp_path):
     def 다시읽기(글_id):
         """세션을 닫는 코드를 검사할 때 쓴다 — 실제로 DB 에 남았는지는
         새 세션으로 봐야 안다"""
+        from sqlalchemy.orm import undefer
         새 = 세션열기()
         try:
-            return 새.get(StockPost, 글_id)
+            # search_text 는 필요할 때만 읽는 칸이다(deferred) — 세션을 닫기
+            # 전에 같이 읽어 둔다
+            return 새.get(StockPost, 글_id, options=[undefer(StockPost.search_text)])
         finally:
             새.close()
 

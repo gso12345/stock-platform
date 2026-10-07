@@ -6,8 +6,10 @@
 - 변동성 (VKOSPI)
 """
 import os
+import threading
 import logging
 import httpx
+from app.core.http import SSL
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor as _ThreadPool
 from app.core.config import settings
@@ -88,7 +90,7 @@ async def get_kr_futures() -> list:
             token = await kis_service._get_token()
             if token:
                 import httpx as _httpx
-                async with _httpx.AsyncClient(timeout=8) as cl:
+                async with _httpx.AsyncClient(timeout=8, verify=SSL) as cl:
                     # KOSPI200 선물 근월물
                     r = await cl.get(
                         f"{kis_service.base}/uapi/domestic-futureoption/v1/quotations/inquire-futureoption-daily",
@@ -254,7 +256,7 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
 
     for list_url in [t[2] for t in 이번에 if t[0] == "목록"]:
         try:
-            r = httpx.get(list_url, headers=_H, timeout=8)
+            r = httpx.get(list_url, headers=_H, timeout=8, verify=SSL)
             if r.status_code != 200:
                 금리쉼표.기록(f"rate:{list_url}", True)
                 continue
@@ -298,7 +300,7 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
         try:
             r = httpx.get(
                 f"https://m.stock.naver.com/api/rate/{code}/basic",
-                headers=_H, timeout=5,
+                headers=_H, timeout=5, verify=SSL,
             )
             if r.status_code != 200:
                 금리쉼표.기록(열쇠, True)
@@ -380,7 +382,7 @@ def _fetch_bok_rates_ecos() -> "tuple[dict | None, list]":
     try:
         r = httpx.get(
             f"{base_url}/1/5/722Y001/M/{start_month}/{end_month}/0101000/",
-            timeout=8,
+            timeout=8, verify=SSL,
         )
         if r.status_code == 200:
             rows = r.json().get("StatisticSearch", {}).get("row", [])
@@ -406,7 +408,7 @@ def _fetch_bok_rates_ecos() -> "tuple[dict | None, list]":
         try:
             r = httpx.get(
                 f"{base_url}/1/5/817Y002/D/{start_date}/{end_date}/{code}/",
-                timeout=8,
+                timeout=8, verify=SSL,
             )
             if r.status_code == 200:
                 rows = r.json().get("StatisticSearch", {}).get("row", [])
@@ -457,7 +459,7 @@ def _ecos_항목목록() -> dict:
         r = httpx.get(
             f"https://ecos.bok.or.kr/api/StatisticItemList/{키}/json/kr"
             f"/1/500/{_ECOS_시장금리}/",
-            timeout=8,
+            timeout=8, verify=SSL,
         )
         if r.status_code == 200:
             for row in r.json().get("StatisticItemList", {}).get("row", []):
@@ -475,7 +477,7 @@ def _ecos_한줄(코드: str, 이름: str, 시작: str, 끝: str) -> "dict | Non
     """항목 하나의 최근 값과 전일 대비."""
     try:
         r = httpx.get(f"{_ecos_주소()}/1/5/{_ECOS_시장금리}/D/{시작}/{끝}/{코드}/",
-                      timeout=8)
+                      timeout=8, verify=SSL)
         if r.status_code != 200:
             return None
         rows = r.json().get("StatisticSearch", {}).get("row", [])
@@ -660,7 +662,7 @@ def _fetch_vkospi_naver() -> "dict | None":
     for code in _VKOSPI_네이버코드:
         try:
             r = httpx.get(f"https://m.stock.naver.com/api/index/{code}/basic",
-                          headers=NAVER_HEADERS, timeout=6)
+                          headers=NAVER_HEADERS, timeout=6, verify=SSL)
             if r.status_code != 200:
                 continue
             d = r.json()
@@ -928,7 +930,7 @@ def _fetch_kr_rates_시장지표() -> list:
         try:
             r = httpx.get(
                 "https://finance.naver.com/marketindex/interestDailyQuote.naver",
-                params={"marketindexCd": 코드}, headers=_H, timeout=6)
+                params={"marketindexCd": 코드}, headers=_H, timeout=6, verify=SSL)
             if r.status_code != 200:
                 지표쉼표.기록(열쇠, True)
                 continue
@@ -1258,7 +1260,33 @@ def 엔화_100엔당(값: float) -> float:
     return v * 100 if v < 100 else v
 
 
+#: 미국 금리·환율 배치는 한 번에 하나만 돈다 (_do_fetch_us_rates 참고)
+_us_rates_잠금 = threading.Lock()
+#: 이미 돌고 있는 배치를 기다려 주는 한도(초). 넘기면 있는 값으로 답한다.
+US_RATES_WAIT_SEC = float(os.getenv("US_RATES_WAIT_SEC", 30))
+
+
 def _do_fetch_us_rates() -> list:
+    """미국 금리·환율 배치. 여럿이 동시에 부르면 한 번만 받는다.
+
+    부르는 곳이 넷이다 — 환율 갱신(refresh_exchange), 미국 금리
+    (get_us_rates), 환율 조회(price_fetcher._환율배치_한번만), 주기 갱신.
+    서버가 깨어나면 이들이 거의 같은 순간에 불러, 같은 여덟 종목을 야후에서
+    두세 번 동시에 받았다. 한 번에 종목마다 스레드를 띄우는 일이라 0.15 CPU
+    에서는 겹칠수록 모두가 같이 늦게 끝난다.
+
+    이미 누가 받고 있으면 그게 끝나길 기다렸다가 그 결과를 쓴다."""
+    if _us_rates_잠금.acquire(blocking=False):
+        try:
+            return _us_rates_받기()
+        finally:
+            _us_rates_잠금.release()
+    if _us_rates_잠금.acquire(timeout=US_RATES_WAIT_SEC):
+        _us_rates_잠금.release()
+    return cache.get("extra:us_rates") or cache.get_stale("extra:us_rates") or []
+
+
+def _us_rates_받기() -> list:
     ck = "extra:us_rates"
     # 원달러·원유로·원엔 모두 yfinance history 방식으로 통일 (rt_cache_key 없음)
     specs = [

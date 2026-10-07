@@ -3,6 +3,7 @@ FMP (Financial Modeling Prep) — 해외 재무제표
 https://financialmodelingprep.com — 무료 250 req/day
 """
 import httpx
+from app.core.http import SSL
 from concurrent.futures import ThreadPoolExecutor
 from app.core.config import settings
 from app.core.cache import cache
@@ -18,7 +19,7 @@ class FMPService:
     def _get(self, endpoint: str, params: dict = {}) -> list | dict:
         params = {**params, "apikey": settings.FMP_API_KEY}
         try:
-            r = httpx.get(f"{BASE}{endpoint}", params=params, timeout=12)
+            r = httpx.get(f"{BASE}{endpoint}", params=params, timeout=12, verify=SSL)
             return r.json()
         except Exception:
             return []

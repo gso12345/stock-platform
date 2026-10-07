@@ -16,6 +16,9 @@ from ._공용 import (   # noqa: F401  — 쪼개기 전과 같은 이름을 쓴
 
 router = router_새로()
 
+#: 컨센서스를 뒤에서 새로 받고 있는 종목 (get_forecasts)
+_컨센서스받는중: set[str] = set()
+
 @router.get("/{market}/{symbol}/metrics-history")
 @limiter.limit("6/minute")
 async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
@@ -511,17 +514,46 @@ async def get_forecasts(request: Request, market: Literal["KR","US","ETF"], symb
             "quarterly": sorted(quarterly.values(), key=lambda x: x["period"]),
         }
 
+    def _합치기(새것: dict, 지난것: dict | None) -> dict:
+        if not 지난것:
+            return 새것
+        return {
+            "annual":    _merge_forecast_lists(새것.get("annual", []),    지난것.get("annual", [])),
+            "quarterly": _merge_forecast_lists(새것.get("quarterly", []), 지난것.get("quarterly", [])),
+        }
+
+    if stale:
+        # 지난 값(30일 이내)이 있으면 그것으로 곧바로 답하고, 새로 받는 것은
+        # 뒤에서 한다 — 투자의견(get_analyst)이 이미 이렇게 한다.
+        #
+        # 예전에는 지난 값을 들고도 야후 속성 네 개(각 12초 상한)를 다 받을
+        # 때까지 기다렸다. 신선 기간이 하루라 대부분의 종목이 이 갈래로
+        # 오는데, 그 대기가 투자의견 탭과 재무>밸류에이션을 여는 사람에게
+        # 고스란히 붙었다. 컨센서스는 하루에 몇 번 바뀌는 값이 아니다.
+        cache.set(ck, stale, 3600)
+        if ck not in _컨센서스받는중:
+            _컨센서스받는중.add(ck)
+
+            async def _bg_forecasts():
+                try:
+                    새것 = _합치기(await _run(_fetch), stale)
+                    if 새것.get("annual") or 새것.get("quarterly"):
+                        cache.set(ck, 새것, 3600)
+                        await _run(_db_set, ForecastsCache, symbol, market, 새것)
+                except Exception:
+                    pass
+                finally:
+                    _컨센서스받는중.discard(ck)
+
+            asyncio.get_running_loop().create_task(_bg_forecasts())
+        return stale
+
     try:
         result = await _run(_fetch)
     except Exception:
         result = {"annual": [], "quarterly": []}
-    if stale:
-        result = {
-            "annual":    _merge_forecast_lists(result.get("annual", []),    stale.get("annual", [])),
-            "quarterly": _merge_forecast_lists(result.get("quarterly", []), stale.get("quarterly", [])),
-        }
     if result.get("annual") or result.get("quarterly"):
         cache.set(ck, result, 3600)
         await _run(_db_set, ForecastsCache, symbol, market, result)
         return result
-    return stale or result
+    return result

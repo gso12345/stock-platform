@@ -35,6 +35,39 @@ MAX_CACHE_BYTES = int(os.getenv("MAX_CACHE_BYTES", 80 * 1024 * 1024))
 STALE_MAX_BYTES = int(os.getenv("STALE_MAX_BYTES", 16 * 1024 * 1024))
 STALE_MAX_ITEMS = int(os.getenv("STALE_MAX_ITEMS", 400))
 
+# ── 지난 값 보관함을 칸으로 나눈다 ──
+#
+# 한 칸(400건)을 모두가 같이 쓰자, 스케줄러가 종목 시세를 몰아서 쓸 때
+# (미국 장이 닫힌 동안 30분마다 1,500종목, 국내·S&P500 갱신마다 수백 종목)
+# 다른 값이 전부 밀려났다. 대시보드 지수·뉴스·금리의 지난 값이 사라져
+# 첫 사람이 바깥 조회를 기다렸고, 내 자산·관심종목도 몇 분만 비워 두면
+# 보유 종목의 지난 시세가 없어 느린 길로 떨어졌다.
+#
+# 그래서 쓰는 쪽이 다른 것끼리 칸을 가른다. 칸마다 상한이 따로 있어
+# 한 칸이 넘쳐도 다른 칸을 밀어내지 않는다.
+#   · 공용 — 모든 사람의 첫 화면이 기대는 몇십 개(지수·뉴스·금리·순위).
+#            수가 적고 늘 필요하니 따로 지킨다.
+#   · 시세 — 종목 시세(price:*). 작고 많다.
+#   · 기타 — 나머지(차트·재무 등 종목별로 크게 쌓이는 것).
+STALE_SHARED_PREFIXES = ("idx:", "news:", "extra:", "rank:", "kr_rankings:")
+STALE_SHARED_MAX_ITEMS = int(os.getenv("STALE_SHARED_MAX_ITEMS", 200))
+STALE_SHARED_MAX_BYTES = int(os.getenv("STALE_SHARED_MAX_BYTES", 8 * 1024 * 1024))
+STALE_PRICE_MAX_ITEMS = int(os.getenv("STALE_PRICE_MAX_ITEMS", 3000))
+STALE_PRICE_MAX_BYTES = int(os.getenv("STALE_PRICE_MAX_BYTES", 6 * 1024 * 1024))
+
+
+#: 종목마다 마지막으로 받은 가격 (TTLCache.마지막시세 참고). 한 종목에 숫자
+#: 서너 개뿐이라 1만 종목이어도 2MB 남짓이다.
+LAST_QUOTE_MAX_ITEMS = int(os.getenv("LAST_QUOTE_MAX_ITEMS", 10_000))
+
+
+def _보관칸(key: str) -> str:
+    if key.startswith("price:"):
+        return "시세"
+    if key.startswith(STALE_SHARED_PREFIXES):
+        return "공용"
+    return "기타"
+
 
 # 이 크기를 넘는 값은 압축해 보관한다.
 #
@@ -111,6 +144,16 @@ class TTLCache:
         self._stale: OrderedDict[str, Any] = OrderedDict()
         self._stale_bytes: OrderedDict[str, int] = OrderedDict()
         self._stale_total = 0
+        # 칸마다 넣은 순서와 바이트 합 (_보관칸 참고). _stale·_stale_bytes 는
+        # 모든 칸을 함께 담고, 밀어낼 순서만 칸별로 따로 센다.
+        self._칸순서: dict[str, OrderedDict] = {c: OrderedDict() for c in ("공용", "시세", "기타")}
+        self._칸합: dict[str, int] = {c: 0 for c in self._칸순서}
+        self._칸상한: dict[str, tuple[int, int]] = {
+            "공용": (STALE_SHARED_MAX_ITEMS, STALE_SHARED_MAX_BYTES),
+            "시세": (STALE_PRICE_MAX_ITEMS, STALE_PRICE_MAX_BYTES),
+        }
+        # 종목 → (가격, 등락, 등락률, 통화, 받은 시각). 마지막시세 참고
+        self._마지막시세: OrderedDict[str, tuple] = OrderedDict()
         # 값을 마지막으로 쓴 시각. 만료(_store에서 삭제)된 뒤에도 남는다 —
         # stale 값을 내보낼 때 '얼마나 묵은 값인지' 알려주기 위한 것이다.
         self._written: OrderedDict[str, float] = OrderedDict()
@@ -123,25 +166,38 @@ class TTLCache:
         self._lock = threading.Lock()
 
     def _stale_put(self, key: str, value: Any, size: int):
-        """락을 이미 잡은 상태에서 호출한다. 예산을 넘으면 오래된 것부터 버린다."""
+        """락을 이미 잡은 상태에서 호출한다. 그 칸의 예산을 넘으면 그 칸에서
+        오래된 것부터 버린다 — 다른 칸은 건드리지 않는다."""
+        칸 = _보관칸(key)
+        순서 = self._칸순서[칸]
         if key in self._stale_bytes:
-            self._stale_total -= self._stale_bytes.pop(key)
+            n = self._stale_bytes.pop(key)
+            self._stale_total -= n
+            self._칸합[칸] -= n
         self._stale[key] = value
         self._stale.move_to_end(key)
         self._stale_bytes[key] = size
-        self._stale_bytes.move_to_end(key)
+        순서[key] = None
+        순서.move_to_end(key)
         self._stale_total += size
-        while self._stale and (
-            len(self._stale) > self._stale_maxitems
-            or self._stale_total > self._stale_maxbytes
-        ):
-            old, _ = self._stale.popitem(last=False)
-            self._stale_total -= self._stale_bytes.pop(old, 0)
+        self._칸합[칸] += size
+        # 기타 칸의 상한은 예전 이름(_stale_maxitems·_stale_maxbytes)을 그대로 쓴다
+        최대개수, 최대바이트 = self._칸상한.get(칸, (self._stale_maxitems, self._stale_maxbytes))
+        while 순서 and (len(순서) > 최대개수 or self._칸합[칸] > 최대바이트):
+            old, _ = 순서.popitem(last=False)
+            self._stale.pop(old, None)
+            n = self._stale_bytes.pop(old, 0)
+            self._stale_total -= n
+            self._칸합[칸] -= n
 
     def _stale_drop(self, key: str):
         """락을 이미 잡은 상태에서 호출한다"""
+        칸 = _보관칸(key)
+        self._칸순서[칸].pop(key, None)
         self._stale.pop(key, None)
-        self._stale_total -= self._stale_bytes.pop(key, 0)
+        n = self._stale_bytes.pop(key, 0)
+        self._stale_total -= n
+        self._칸합[칸] -= n
 
     def get(self, key: str) -> Optional[Any]:
         with self._lock:
@@ -185,7 +241,41 @@ class TTLCache:
         self._written.pop(key, None)
         self._total_bytes -= self._bytes.pop(key, 0)
 
+    def 마지막시세(self, symbol: str) -> Optional[dict]:
+        """이 종목을 마지막으로 받았을 때의 가격. 없으면 None.
+
+        내 자산·관심종목을 열 때 '받아 둔 시세' 를 목록에 같이 실어 보내
+        첫 그림을 곧바로 채운다(portfolio._받아둔시세). 그런데 그 자리가
+        price:* 의 지난 값에 기대고 있었고, 지난 값은 스케줄러가 종목 시세를
+        몰아서 쓸 때마다 밀려났다 — 몇 분만 비워 둬도 보유 종목이 다 빠져
+        빈칸으로 시작하곤 했다.
+
+        그래서 가격 몇 개만 따로, 오래 기억한다. 화면은 이걸 '낡은 값' 으로
+        꽂고 곧바로 새 시세를 다시 물으므로, 낡았더라도 빈칸보다 낫다."""
+        with self._lock:
+            v = self._마지막시세.get(symbol)
+        if v is None:
+            return None
+        가격, 등락, 등락률, 통화, 받은때 = v
+        return {"price": 가격, "change": 등락, "change_rate": 등락률,
+                "currency": 통화, "asOf": 받은때}
+
+    def _마지막시세_기억(self, key: str, value: Any, now: float):
+        """락을 이미 잡은 상태에서 호출한다. price:* 에 쓰는 가격을 기억해 둔다."""
+        if not key.startswith("price:") or not isinstance(value, dict) or value.get("_demo"):
+            return
+        가격 = value.get("price")
+        if not isinstance(가격, (int, float)) or 가격 <= 0:
+            return
+        심볼 = key[len("price:"):]
+        self._마지막시세[심볼] = (가격, value.get("change"), value.get("change_rate"),
+                                  value.get("currency"), now)
+        self._마지막시세.move_to_end(심볼)
+        while len(self._마지막시세) > LAST_QUOTE_MAX_ITEMS:
+            self._마지막시세.popitem(last=False)
+
     def set(self, key: str, value: Any, ttl: int = 60):
+        원래값 = value
         value = _pack(value)
         size = _rough_size(value)
         with self._lock:
@@ -196,6 +286,7 @@ class TTLCache:
             self._store[key] = (value, now + ttl)
             self._store.move_to_end(key)
             self._stale_put(key, value, size)
+            self._마지막시세_기억(key, 원래값, now)
             self._written[key] = now
             self._written.move_to_end(key)
             self._bytes[key] = size
@@ -233,6 +324,10 @@ class TTLCache:
             self._stale.clear()
             self._stale_bytes.clear()
             self._stale_total = 0
+            for 칸 in self._칸순서:
+                self._칸순서[칸].clear()
+                self._칸합[칸] = 0
+            self._마지막시세.clear()
             self._written.clear()
             self._bytes.clear()
             self._total_bytes = 0

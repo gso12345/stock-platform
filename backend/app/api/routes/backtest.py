@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Annotated, Optional
 from datetime import datetime, timedelta
 import asyncio
+from starlette.concurrency import run_in_threadpool
 import logging
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -131,6 +132,58 @@ class StrategySaveRequest(BaseModel):
     take_profit: Optional[float] = None
 
 
+def _신호_백테스트_계산(req: "BacktestRequest", 데운것: list) -> dict:
+    """전략 한 번 + '그냥 들고 있기' 한 번. CPU 만 쓰는 일이라 스레드에서 돈다
+    (run_backtest 참고)."""
+    # 백테스트 실행
+    result = backtest_engine.run(
+        ohlcv=데운것,
+        entry_conditions=req.entry_conditions,
+        exit_conditions=req.exit_conditions,
+        stop_loss=req.stop_loss,
+        take_profit=req.take_profit,
+        position_size=req.position_size,
+        initial_capital=req.initial_capital,
+        #: 화면은 퍼센트(0.1)로 주고 엔진은 비율(0.001)로 받는다.
+        #  이 자리를 안 나누면 수수료가 100배가 된다.
+        거래비용=(req.cost_rate or 0) / 100,
+        평가시작=req.start_date,
+        무위험수익률=(req.risk_free_rate or 0) / 100,
+    )
+
+    """**그냥 들고 있었으면 어땠나**를 같이 낸다.
+
+    '연 12%' 만 보면 잘한 것인지 알 수 없다. 같은 기간 그 종목을 그냥
+    사서 들고만 있어도 15% 였다면, 그 전략은 사고파느라 3%를 버린 것이다.
+    신호 백테스트에서 제일 먼저 물어야 할 질문인데 답이 없었다.
+
+    같은 자료·같은 기간·같은 수수료로 **한 번만 사서 끝까지 들고 가는**
+    전략을 돌린다. 시세를 더 받지 않으므로 느려지지도 않는다.
+    (자산배분 쪽은 지수와 견주지만, 신호 백테스트는 '이 종목을 그냥
+     들고 있기' 가 훨씬 정직한 상대다 — 종목을 고른 것까지 성과로
+     치면 전략이 한 일을 알 수 없다.)"""
+    사고버티기 = None
+    try:
+        묻지도않고삼 = {"logic": "AND", "conditions": [
+            {"indicator": "PRICE", "operator": ">", "value": 0}]}
+        안팜 = {"logic": "AND", "conditions": []}
+        기준 = backtest_engine.run(
+            ohlcv=데운것, entry_conditions=묻지도않고삼, exit_conditions=안팜,
+            position_size=req.position_size, initial_capital=req.initial_capital,
+            거래비용=(req.cost_rate or 0) / 100,
+            평가시작=req.start_date,
+            무위험수익률=(req.risk_free_rate or 0) / 100,
+        )
+        if 기준:
+            사고버티기 = {k: 기준.get(k) for k in
+                          ("total_return", "annual_return", "mdd", "sharpe_ratio")}
+    except Exception as e:
+        #: 견주는 것은 덤이다. 덤 때문에 본래 답까지 버리면 안 된다.
+        log.info("사고버티기 계산 실패: %s", type(e).__name__)
+    result["buy_and_hold"] = 사고버티기
+    return result
+
+
 @router.post("/run")
 @limiter.limit("20/minute")
 async def run_backtest(request: Request, req: BacktestRequest, db: Session = Depends(get_db), current_user: Optional[User] = Depends(get_current_user)):
@@ -190,52 +243,10 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
     if len(ohlcv) < 20:
         raise HTTPException(status_code=400, detail="데이터가 부족합니다 (최소 20일 필요)")
 
-    # 백테스트 실행
-    result = backtest_engine.run(
-        ohlcv=데운것,
-        entry_conditions=req.entry_conditions,
-        exit_conditions=req.exit_conditions,
-        stop_loss=req.stop_loss,
-        take_profit=req.take_profit,
-        position_size=req.position_size,
-        initial_capital=req.initial_capital,
-        #: 화면은 퍼센트(0.1)로 주고 엔진은 비율(0.001)로 받는다.
-        #  이 자리를 안 나누면 수수료가 100배가 된다.
-        거래비용=(req.cost_rate or 0) / 100,
-        평가시작=req.start_date,
-        무위험수익률=(req.risk_free_rate or 0) / 100,
-    )
-
-    """**그냥 들고 있었으면 어땠나**를 같이 낸다.
-
-    '연 12%' 만 보면 잘한 것인지 알 수 없다. 같은 기간 그 종목을 그냥
-    사서 들고만 있어도 15% 였다면, 그 전략은 사고파느라 3%를 버린 것이다.
-    신호 백테스트에서 제일 먼저 물어야 할 질문인데 답이 없었다.
-
-    같은 자료·같은 기간·같은 수수료로 **한 번만 사서 끝까지 들고 가는**
-    전략을 돌린다. 시세를 더 받지 않으므로 느려지지도 않는다.
-    (자산배분 쪽은 지수와 견주지만, 신호 백테스트는 '이 종목을 그냥
-     들고 있기' 가 훨씬 정직한 상대다 — 종목을 고른 것까지 성과로
-     치면 전략이 한 일을 알 수 없다.)"""
-    사고버티기 = None
-    try:
-        묻지도않고삼 = {"logic": "AND", "conditions": [
-            {"indicator": "PRICE", "operator": ">", "value": 0}]}
-        안팜 = {"logic": "AND", "conditions": []}
-        기준 = backtest_engine.run(
-            ohlcv=데운것, entry_conditions=묻지도않고삼, exit_conditions=안팜,
-            position_size=req.position_size, initial_capital=req.initial_capital,
-            거래비용=(req.cost_rate or 0) / 100,
-            평가시작=req.start_date,
-            무위험수익률=(req.risk_free_rate or 0) / 100,
-        )
-        if 기준:
-            사고버티기 = {k: 기준.get(k) for k in
-                          ("total_return", "annual_return", "mdd", "sharpe_ratio")}
-    except Exception as e:
-        #: 견주는 것은 덤이다. 덤 때문에 본래 답까지 버리면 안 된다.
-        log.info("사고버티기 계산 실패: %s", type(e).__name__)
-    result["buy_and_hold"] = 사고버티기
+    # 계산은 스레드에서 한다. 이 라우트는 async 라, 여기서 엔진을 그냥 돌리면
+    # 두 번 도는 동안(0.15 CPU 에서 0.5초 남짓) 이벤트 루프가 통째로 멈춰
+    # 그 순간 들어온 모든 사람의 요청이 같이 섰다.
+    result = await loop.run_in_executor(None, _신호_백테스트_계산, req, 데운것)
 
     # 로그인 시에만 결과 DB 저장
     if current_user:
@@ -256,10 +267,13 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
             equity_curve=result.get("equity_curve"),
             trades=result.get("trades"),
         )
-        db.add(bt_record)
-        db.commit()
-        db.refresh(bt_record)
-        return {"id": bt_record.id, **result}
+        def _저장():
+            db.add(bt_record)
+            db.commit()
+            db.refresh(bt_record)
+            return bt_record.id
+        # DB 왕복(INSERT·COMMIT·SELECT)도 루프 밖에서
+        return {"id": await run_in_threadpool(_저장), **result}
 
     return result
 
@@ -761,6 +775,16 @@ def 앞에잇기(짧은것: dict, 긴것: dict) -> tuple[dict, Optional[str]]:
     return 이은것, min(앞날들).isoformat()
 
 
+def _구간자르기(표들: dict, 시작: str, 끝: str) -> dict:
+    """{심볼: {날짜: 값}} 을 [시작, 끝] 으로 자른다. 비면 그 심볼은 뺀다."""
+    잘린것 = {}
+    for 심볼, 표 in (표들 or {}).items():
+        남은것 = {d: v for d, v in 표.items() if 시작 <= d.isoformat() <= 끝}
+        if 남은것:
+            잘린것[심볼] = 남은것
+    return 잘린것
+
+
 async def _시세모으기(자산들: list, 기간: str, 시작: str, 끝: str,
                       확장: bool = False, 알림=None) -> tuple[dict, dict]:
     """자산마다 일봉을 받아 {심볼: {날짜: 종가}} 로 만든다.
@@ -970,15 +994,42 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
 
     기간 = _기간이름(req.start_date, req.end_date)
     열쇠 = req.progress_key
-    _진행쓰기(열쇠, "시세", 0, max(len(req.assets), 1), "시세를 받는 중")
-    가격표, 이은것 = await _시세모으기(
-        req.assets, 기간, req.start_date, req.end_date, req.extended,
-        알림=lambda 된, 전, 이름: _진행쓰기(열쇠, "시세", 된, 전, f"{이름} 시세"))
 
     고른벤치 = 벤치마크표.get(req.benchmark) or 벤치마크표["none"]
 
     def _통화(시장: str) -> str:
         return "KRW" if 시장 == "KR" else "USD"
+
+    """서로 기다릴 이유가 없는 것은 **처음부터 같이** 받는다.
+
+    예전에는 내 자산 시세 → 환율 → 배당 → 계산 → 벤치마크 시세 → 벤치마크
+    배당 을 차례로 했다. 환율과 벤치마크 시세는 요청만 보면 무엇을 받을지
+    정해지는데도 앞의 일이 끝나길 기다렸다 — 왕복이 그만큼 줄줄이 붙었다.
+    벤치마크 시세는 요청한 기간으로 받아 두고, 내 포트폴리오가 실제로 잰
+    구간으로 나중에 자른다(아래 '내 포트폴리오가 실제로 잰 구간' 참고)."""
+    바꿔야하나 = any(_통화(a.market) != req.currency for a in req.assets) or \
+        any(_통화(x["market"]) != req.currency for x in 고른벤치["assets"])
+    환율일 = asyncio.ensure_future(_환율표(req.start_date, req.end_date, 기간)) if 바꿔야하나 else None
+    벤치칸들 = [자산칸(**x) for x in 고른벤치["assets"]]
+    벤치시세일 = (asyncio.ensure_future(_시세모으기(
+        벤치칸들, 기간, req.start_date, req.end_date, req.extended)) if 벤치칸들 else None)
+    미리받는것 = [환율일, 벤치시세일]
+    try:
+        return await _자산배분_본문(req, PB, 기간, 열쇠, 고른벤치, _통화, 바꿔야하나,
+                                    환율일, 벤치칸들, 벤치시세일, 미리받는것)
+    finally:
+        # 앞에서 터져 끝났으면(시세를 하나도 못 받음 등) 미리 받던 것은 버린다
+        for 일 in 미리받는것:
+            if 일 is not None and not 일.done():
+                일.cancel()
+
+
+async def _자산배분_본문(req, PB, 기간, 열쇠, 고른벤치, _통화, 바꿔야하나,
+                       환율일, 벤치칸들, 벤치시세일, 미리받는것):
+    _진행쓰기(열쇠, "시세", 0, max(len(req.assets), 1), "시세를 받는 중")
+    가격표, 이은것 = await _시세모으기(
+        req.assets, 기간, req.start_date, req.end_date, req.extended,
+        알림=lambda 된, 전, 이름: _진행쓰기(열쇠, "시세", 된, 전, f"{이름} 시세"))
 
     섞였나 = len({_통화(a.market) for a in req.assets}) > 1
     """환율은 **벤치마크 몫까지** 생각해서 받아야 한다.
@@ -989,11 +1040,9 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     화면에는 **아무 말도 없이** 비교 줄만 사라진다. 고른 것이 왜
     안 나오는지 알 길이 없다(실측: KRW+005930+S&P500 → benchmark None).
     """
-    바꿔야하나 = any(_통화(a.market) != req.currency for a in req.assets) or \
-        any(_통화(x["market"]) != req.currency for x in 고른벤치["assets"])
     if 바꿔야하나:
         _진행쓰기(열쇠, "환율", 0, 1, "환율을 받는 중")
-    환율 = await _환율표(req.start_date, req.end_date, 기간) if 바꿔야하나 else {}
+    환율 = await 환율일 if 환율일 is not None else {}
     _진행쓰기(열쇠, "환율", 1, 1, "환율 정리")
     가격표, 뺀것 = _통화맞추기(가격표, req.assets, req.currency, 환율)
 
@@ -1007,6 +1056,12 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
             detail="시세를 받을 수 있는 자산이 없습니다. 종목 코드를 확인해 주세요")
 
     배당 = None
+    벤치배당일 = None
+    if req.total_return and 벤치칸들:
+        # 벤치마크 배당도 내 배당과 같이 받는다(요청한 기간 — 나중에 자른다)
+        벤치배당일 = asyncio.ensure_future(_배당표(
+            벤치칸들, req.start_date, req.end_date, req.currency, 환율))
+        미리받는것.append(벤치배당일)
     if req.total_return:
         _진행쓰기(열쇠, "배당", 0, max(len(쓸자산), 1), "배당 기록을 받는 중")
         배당 = await _배당표(
@@ -1061,9 +1116,8 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     if 고른벤치["assets"]:
         _진행쓰기(열쇠, "벤치마크", 0, 1, f"{고른벤치['name']} 와 견주는 중")
         try:
-            벤치칸들 = [자산칸(**x) for x in 고른벤치["assets"]]
-            벤치표, _ = await _시세모으기(
-                벤치칸들, 기간, 결과["start_date"], 결과["end_date"], req.extended)
+            벤치표, _ = await 벤치시세일
+            벤치표 = _구간자르기(벤치표, 결과["start_date"], 결과["end_date"])
             벤치표, _ = _통화맞추기(벤치표, 벤치칸들, req.currency, 환율)
             """**내 포트폴리오가 실제로 잰 구간**으로 자른다.
 
@@ -1086,10 +1140,8 @@ async def run_portfolio_backtest(request: Request, req: 자산배분요청):
                 같은 기간·같은 납입·같은 비용으로 재겠다고 바로 위에
                 적어 놓고, 배당만 빠져 있었다."""
                 벤치배당 = None
-                if req.total_return:
-                    벤치배당 = await _배당표(
-                        벤치칸들, 결과["start_date"], 결과["end_date"],
-                        req.currency, 환율)
+                if 벤치배당일 is not None:
+                    벤치배당 = _구간자르기(await 벤치배당일, 결과["start_date"], 결과["end_date"])
                 벤치결과 = await loop.run_in_executor(
                     None, lambda: 돌리자(벤치표, [dict(x) for x in 쓸벤치], 벤치배당))
                 if 벤치결과:

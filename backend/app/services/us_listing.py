@@ -22,6 +22,7 @@
 import logging
 
 import httpx
+from app.core.http import SSL
 
 log = logging.getLogger(__name__)
 
@@ -183,7 +184,7 @@ def _거울에서_받기() -> tuple[list[dict], str]:
     받은것 = []
     try:
         with httpx.Client(follow_redirects=True, timeout=20,
-                          headers={"User-Agent": "Mozilla/5.0"}) as cl:
+                          headers={"User-Agent": "Mozilla/5.0"}, verify=SSL) as cl:
             for 경로, 거래소 in _거울_파일:
                 try:
                     r = cl.get(f"{_거울}/{경로}")
@@ -217,7 +218,7 @@ def fetch_listing() -> tuple[list[dict], str]:
     받은파일 = []
     try:
         with httpx.Client(follow_redirects=True,
-                          headers={"User-Agent": "Mozilla/5.0"}) as cl:
+                          headers={"User-Agent": "Mozilla/5.0"}, verify=SSL) as cl:
             for 파일, 기본 in (("nasdaqlisted.txt", "NASDAQ"),
                               ("otherlisted.txt", "NYSE")):
                 try:

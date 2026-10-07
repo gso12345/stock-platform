@@ -31,7 +31,6 @@ from app.models.community import StockPost, StockPostLike, StockComment, StockCo
 from app.models.admin_log import AdminLog  # noqa: F401  — 관리자 행위 기록 테이블 생성 보장
 from app.api.websocket.price_stream import stream_prices, stream_indices, MAX_STREAM_SYMBOLS
 from app.services.scheduler import start_background_tasks
-from app.services.ticker_service import init_ticker_db
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -457,27 +456,15 @@ async def lifespan(application: FastAPI):
     from app.core.cpu import configure_thread_limits
     configure_thread_limits()
 
-    init_ticker_db()
+    # 종목 목록(init_ticker_db)과 지수·환율 워밍업은 여기서 띄우지 않는다.
+    # 시작 프리페치(run_startup_prefetch)가 포트가 열린 뒤에 차례로 한다.
+    #
+    # uvicorn 은 lifespan 이 끝나야 포트를 연다. 그런데 여기서 띄운 일들은
+    # 그 사이에 이미 돌기 시작해, 0.15 CPU 를 나눠 쓰느라 포트가 30초 넘게
+    # 늦게 열렸다 — 그동안 깨어나길 기다리는 사람은 아무것도 못 받는다.
+    # 게다가 지수·환율 워밍업은 시작 프리페치가 같은 순간에 똑같이 하는
+    # 일이었다(같은 배치가 두세 번 겹쳐 돌았다).
     start_background_tasks(application)
-
-    # 지수·환율 캐시 워밍업은 백그라운드로 — 서버가 즉시 요청을 받을 수 있도록 yield를 막지 않음
-    from app.services.scheduler import refresh_kr_indices, refresh_us_indices, refresh_exchange
-
-    async def _warm_dashboard_cache():
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(
-                    refresh_kr_indices(),
-                    refresh_us_indices(),
-                    refresh_exchange(),
-                    return_exceptions=True,
-                ),
-                timeout=20,
-            )
-        except Exception:
-            pass
-
-    asyncio.create_task(_warm_dashboard_cache())
 
     yield
 
@@ -629,7 +616,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(ActivityMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# 압축 강도 6. Starlette 기본값은 9(최대)인데, 9 와 6 의 크기 차이는 4% 남짓이고
+# 시간은 다섯 배 난다 — 차트 일봉 690KB 를 재 보니 9 는 78ms, 6 은 16ms
+# (0.15 CPU 로 치면 0.5초 대 0.1초). 그동안 이벤트 루프가 멈춰 다른 사람의
+# 요청도 같이 기다린다. 4% 를 더 줄이자고 쓸 값이 아니다.
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -648,6 +639,11 @@ app.add_middleware(
     # tests/test_cors.py 가 라우터를 훑어 빠진 메서드를 잡는다.
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
+    # 브라우저가 사전 확인(preflight) 답을 기억하는 시간. 기본 600초(10분).
+    # 로그인한 사람의 요청은 Authorization 머리 때문에 주소마다 사전 확인을
+    # 먼저 한 번 보낸다 — 한국↔싱가포르 왕복 하나가 통째로 더 붙는다.
+    # 크롬이 받아 주는 최대가 2시간이라 그만큼 기억하게 한다.
+    max_age=7200,
 )
 
 app.include_router(auth.router,      prefix="/api/v1")

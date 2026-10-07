@@ -303,7 +303,7 @@ async def get_watchlist_prices_batch(
     markets: str = Query(..., max_length=500),
 ):
     """심볼 목록을 받아 캐시 우선 조회, 미캐시 종목은 배치 fetch 후 캐시 저장"""
-    from app.services.price_fetcher import fetch_yf_quotes_with_fallback, fetch_naver_stocks
+    from app.services.price_fetcher import fetch_yf_quotes_with_fallback, fetch_naver_prices_light
 
     raw_syms = [s.strip() for s in symbols.split(",") if s.strip()]
     raw_mkts = [m.strip() for m in markets.split(",") if m.strip()]
@@ -406,9 +406,13 @@ async def get_watchlist_prices_batch(
             for code, q in data.items():
                 if not q or not q.get("price"):
                     continue
-                cache.set(f"price:{code}", q, 120)
-                cache.set(f"price:{code}.KS", q, 120)
-                cache.set(f"price:{code}.KQ", q, 120)
+                # 가격만 받아 오므로(fetch_naver_prices_light) 지난 값에 덮어쓴다.
+                # 그냥 넣으면 시가총액·PER·시가 같은, 다른 화면이 읽는 칸이
+                # 지워진다. 스케줄러의 실시간 갱신도 같은 식으로 담는다
+                # (데모 표시는 넘겨받지 않는다 — 진짜 가격이 왔다)
+                for 키 in (f"price:{code}", f"price:{code}.KS", f"price:{code}.KQ"):
+                    지난것 = {k: v for k, v in (cache.get_stale(키) or {}).items() if k != "_demo"}
+                    cache.set(키, {**지난것, **q}, 120)
         _성패기록(물어본것, data)
 
     # 되살아났나 찔러보는 것은 배경으로 던진다. 사람은 안 기다린다
@@ -420,7 +424,7 @@ async def get_watchlist_prices_batch(
                                   lambda: _받아서_담기("us", _yf_only(깨울_us), 깨울_us)))
             if 깨울_kr:
                 일.append(_한번만("kr:" + ",".join(sorted(깨울_kr)),
-                                  lambda: _받아서_담기("kr", fetch_naver_stocks(깨울_kr), 깨울_kr)))
+                                  lambda: _받아서_담기("kr", fetch_naver_prices_light(깨울_kr), 깨울_kr)))
             await asyncio.gather(*일, return_exceptions=True)
         asyncio.get_running_loop().create_task(_찔러보기())
 
@@ -430,7 +434,10 @@ async def get_watchlist_prices_batch(
                              lambda: _받아서_담기("us", _yf_only(uncached_us), uncached_us)))
     if uncached_kr:
         tasks.append(_한번만("kr:" + ",".join(sorted(uncached_kr)),
-                             lambda: _받아서_담기("kr", fetch_naver_stocks(uncached_kr), uncached_kr)))
+                             # 가격만 받는다(종목당 1회, 동시 20개까지). 예전 fetch_naver_stocks
+                             # 는 종목마다 basic·integration 두 번을 한꺼번에 다 쏴서, 스무
+                             # 종목이면 마흔 개의 연결을 새로 열었다 — 이 화면은 가격·등락만 쓴다
+                             lambda: _받아서_담기("kr", fetch_naver_prices_light(uncached_kr), uncached_kr)))
 
     if tasks:
         # 상한을 건다. 넘기면 받아 둔 것만 주고 나머지는 배경에서 마저 받는다 —
@@ -522,6 +529,10 @@ async def _batch_fetch_prices(items: list[WatchlistItem]) -> dict[str, dict]:
 def get_items(
     market: Optional[str] = None,
     folder_id: Optional[int] = None,
+    #: 받아 둔 시세를 같이 실어 보낼까 — 내 자산(/portfolio/items)과 같은 것.
+    #  관심종목은 목록을 받은 뒤에야 시세를 물을 수 있어서 왕복이 두 번이었다.
+    #  안 준 곳(예전 화면)은 예전 그대로 배열을 받는다.
+    with_prices: bool = False,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
@@ -538,7 +549,11 @@ def get_items(
     if folder_id is not None:
         q = q.filter(WatchlistItem.folder_id == folder_id)
     items = q.options(joinedload(WatchlistItem.folder)).order_by(WatchlistItem.position, WatchlistItem.added_at).all()
-    return [_item_to_dict(i) for i in items]
+    줄들 = [_item_to_dict(i) for i in items]
+    if not with_prices:
+        return 줄들
+    from app.services.cached_prices import 받아둔시세
+    return {"items": 줄들, "prices": 받아둔시세(items)}
 
 
 @router.get("/items/prices")

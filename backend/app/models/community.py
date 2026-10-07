@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, UniqueConstraint, Index, LargeBinary
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship, backref, deferred
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -29,8 +29,11 @@ class StockPost(Base):
     # 검색용 납작한 사본 — 제목·본문·종목코드·태그를 소문자로 이어 붙인 것.
     # content 는 JSON 이라 DB 가 안을 못 본다. 매번 파싱해 걸러내면 글이
     # 늘수록 그대로 느려진다.
-    search_text = Column(Text, nullable=True)
-    image_data  = Column(LargeBinary, nullable=True)
+    # 아래 둘은 **필요할 때만** 읽는다(deferred). 글 한 줄을 읽을 때마다
+    # 그림 바이트(수백 KB)와 검색용 글을 같이 끌어왔다 — 좋아요·댓글·투표·
+    # 관리자 목록 어디서도 안 쓰는데. 쓰는 곳에서 꺼내면 그때 한 번 더 읽는다.
+    search_text = deferred(Column(Text, nullable=True))
+    image_data  = deferred(Column(LargeBinary, nullable=True))
     is_deleted  = Column(Boolean, default=False)
     is_blinded  = Column(Boolean, default=False, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -63,6 +63,34 @@ POPULAR_KR_CODES = [
 
 
 
+def _한번에_하나(함수):
+    """같은 갱신이 이미 돌고 있으면 새로 시작하지 않고 그것을 같이 기다린다.
+
+    지수 갱신을 부르는 곳이 넷이다 — 시작 프리페치, 주기 갱신, 그리고
+    대시보드가 캐시가 비었을 때 배경에서 부르는 것(국내·해외 따로).
+    서버가 깨어난 직후에는 이들이 거의 같은 순간에 불러, 같은 지수를
+    네이버·야후에 두세 번씩 동시에 물었다.
+
+    shield 로 감싼다 — 기다리던 쪽이 시한에 걸려 취소돼도, 먼저 시작한
+    갱신까지 같이 죽으면 안 된다(다른 사람이 그 결과를 기다리고 있다).
+    검사는 asyncio.run 을 여러 번 돌리므로, 다른 루프에서 시작된 것은
+    같이 기다리지 않는다."""
+    진행중: dict = {}
+
+    async def 감싼(*a, **k):
+        t = 진행중.get("일")
+        if t is None or t.done() or t.get_loop() is not asyncio.get_running_loop():
+            t = asyncio.ensure_future(함수(*a, **k))
+            진행중["일"] = t
+        return await asyncio.shield(t)
+
+    감싼.__name__ = 함수.__name__
+    감싼.__doc__ = 함수.__doc__
+    감싼.__wrapped__ = 함수
+    return 감싼
+
+
+@_한번에_하나
 async def refresh_kr_indices():
     """네이버 금융으로 국내 지수 갱신"""
     from app.services.yf_service import yf_service
@@ -198,6 +226,7 @@ async def refresh_kr_indices():
     return ok
 
 
+@_한번에_하나
 async def refresh_us_indices():
     """미국 지수 갱신 — YF v7 → yfinance fast_info 폴백"""
     import yfinance as yf
@@ -747,24 +776,55 @@ async def refresh_fundamentals_daily():
         log.warning(f"퀀트 percentile 분포 갱신 실패: {e}")
 
 
+#: 포트가 열리기를 기다리는 시간(초). uvicorn 은 lifespan 이 끝난 뒤에
+#: 포트를 연다 — 그 사이에 아래 무거운 일이 먼저 돌기 시작하면 0.15 CPU 를
+#: 나눠 쓰느라 포트가 30초 넘게 늦게 열렸다(재 보니 lifespan 이 끝나고
+#: 포트가 열리기까지 33초). 한가한 루프에서는 0.1초면 열린다.
+STARTUP_WARM_DELAY = float(os.getenv("STARTUP_WARM_DELAY", 2))
+#: 첫 화면(대시보드)용 갱신을 이만큼만 기다리고 다음 차례로 넘어간다.
+#: 끝나지 않은 것은 계속 돈다 — 기다리지 않을 뿐이다.
+STARTUP_FIRST_WAIT = float(os.getenv("STARTUP_FIRST_WAIT", 20))
+
+
 async def run_startup_prefetch():
+    # 포트부터 열리게 한다 (STARTUP_WARM_DELAY 참고)
+    await asyncio.sleep(STARTUP_WARM_DELAY)
     log.info("=== 초기 프리페치 시작 ===")
 
     loop = asyncio.get_running_loop()
     from app.services.news_service import get_kr_news, get_us_news
     from app.services.ranking_service import refresh_kr_rankings_from_naver
+    from app.services.market_extras import get_kr_rates
+    from app.services.ticker_service import init_ticker_db
 
-    from app.services.market_extras import get_kr_rates, get_us_rates
-    # 지수 + 환율 + 금리 + 랭킹 + 국내/해외 뉴스 동시 갱신
-    await asyncio.gather(
+    # 차례를 둔다. 예전에는 지수·환율·순위·금리·뉴스 여덟 가지를 한꺼번에
+    # 돌렸는데, 0.15 CPU 에서 한꺼번에 돌리면 빨라지는 게 아니라 모두가 같이
+    # 늦게 끝난다. 그중 뉴스(피드 수십 개를 읽고 걸러 내는 일)가 CPU 를 가장
+    # 많이 먹어, 깨어난 서버에 처음 들어온 사람의 대시보드가 뉴스를 기다렸다.
+    #
+    # 1) 대시보드 첫 화면이 기다리는 것 — 지수·환율(미국 금리 배치에 같이
+    #    실린다)·국내 순위.
+    #    미국 금리(get_us_rates)는 따로 부르지 않는다. refresh_exchange 가 같은
+    #    배치를 돌려 extra:us_rates 까지 채운다 — 예전에는 같은 여덟 종목을
+    #    두 번 동시에 받았다.
+    첫화면 = [asyncio.ensure_future(c) for c in (
         refresh_kr_indices(),
         refresh_us_indices(),
         refresh_exchange(),
         refresh_kr_rankings_from_naver(),
+    )]
+    await asyncio.wait(첫화면, timeout=STARTUP_FIRST_WAIT)
+
+    # 2) 종목 목록(검색용). 국내는 대개 DB 한 번 읽기지만 그래도 무겁다 —
+    #    예전에는 포트가 열리기도 전에 이것부터 돌았다
+    init_ticker_db()
+
+    # 3) 금리·뉴스
+    await asyncio.gather(
+        *첫화면,
         loop.run_in_executor(None, get_kr_news),
         loop.run_in_executor(None, get_us_news),
         loop.run_in_executor(None, get_kr_rates),
-        loop.run_in_executor(None, get_us_rates),
         return_exceptions=True,
     )
     # 종목 갱신 (후순위) — 장이 열려 있을 때만.

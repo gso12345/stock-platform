@@ -4,8 +4,11 @@
 - 해외: Finnhub/yfinance (지수) → demo 폴백
 """
 from fastapi import APIRouter, Path, Query, HTTPException
+from fastapi.responses import JSONResponse
 import asyncio
 import logging
+import os
+import time
 from app.services.kis_service import kis_service
 from app.services.finnhub_service import finnhub_service
 from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
@@ -93,22 +96,80 @@ async def _refresh_indices_bg():
         pass
 
 
+#: 비어 있는 지수를 채우려고 띄운 갱신 (국내·해외를 같이 한다).
+#: 예전에는 국내·해외가 따로 표시를 들고 각자 띄웠는데, 띄우는 일은 둘 다
+#: 국내·해외 전체 갱신이라 같은 일이 두 번 돌았다. 하나로 묶는다.
+_지수채우기: "asyncio.Task | None" = None
+
+#: 지수가 **하나도** 없을 때(서버가 막 깼을 때) 채우기를 기다려 주는 시간.
+#:
+#: 서버가 포트를 먼저 열고 지수는 그 뒤에 받도록 바꿨다(scheduler.
+#: STARTUP_WARM_DELAY). 그래서 깨어난 직후 들어온 사람은 지수 캐시가 빈
+#: 상태를 만날 수 있다. 그대로 0 을 주면 화면에 남아 있던 어제 값이 0 으로
+#: 덮인다. 잠깐 기다려 채운 것을 준다 — 지난 값이 하나라도 있으면 기다리지
+#: 않는다(그건 곧바로 주고 배경에서 갱신한다).
+INDEX_COLD_WAIT = float(os.getenv("INDEX_COLD_WAIT", 3))
+
+#: 채우기가 끝났는데도 비어 있으면(바깥이 막혔다) 이만큼은 다시 안 기다린다.
+#: 안 그러면 네이버·야후가 막힌 동안 대시보드 요청이 **전부** 3초씩 늦는다 —
+#: 기다려 봐야 또 빈손이다.
+INDEX_COLD_RETRY = float(os.getenv("INDEX_COLD_RETRY", 60))
+
+_지수채우기_시작시각 = 0.0
+_지수채우기_끝난시각 = -1e9
+
+
+def _채우기_끝남(_t) -> None:
+    global _지수채우기_끝난시각
+    _지수채우기_끝난시각 = time.monotonic()
+
+
+def _지수채우기_시작() -> "asyncio.Task":
+    global _지수채우기, _지수채우기_시작시각
+    t = _지수채우기
+    if t is None or t.done() or t.get_loop() is not asyncio.get_running_loop():
+        t = asyncio.get_running_loop().create_task(_refresh_indices_bg())
+        t.add_done_callback(_채우기_끝남)
+        _지수채우기 = t
+        _지수채우기_시작시각 = time.monotonic()
+    return t
+
+
+async def _빈칸이면_잠깐기다리기() -> None:
+    """기다리는 것은 한 번의 채우기에 대해 처음 몇 초뿐이다.
+
+    · 방금 채우기가 끝났는데도 비었다 → 실패한 것이다. 또 기다리지 않는다.
+    · 채우기가 이미 INDEX_COLD_WAIT 넘게 돌고 있다 → 앞사람이 이미 그만큼
+      기다렸다. 뒷사람까지 또 기다리게 하지 않는다.
+    """
+    지금 = time.monotonic()
+    if 지금 - _지수채우기_끝난시각 < INDEX_COLD_RETRY:
+        _지수채우기_시작()               # 배경에서 다시 시도는 한다(기다리지는 않는다)
+        return
+    t = _지수채우기_시작()
+    남은 = INDEX_COLD_WAIT - (time.monotonic() - _지수채우기_시작시각)
+    if 남은 <= 0:
+        return
+    try:
+        await asyncio.wait_for(asyncio.shield(t), 남은)
+    except Exception:
+        pass                             # 늦으면 0 으로 답한다 — 채우기는 계속 돈다
+
+
 # ── 해외 지수 조회 ─────────────────────────────────────────
 async def _get_us_index(name: str) -> dict:
     fresh = cache.get(f"idx:{name}")
     if fresh and fresh.get("value", 0) > 0:
         return fresh
     stale = cache.get_stale(f"idx:{name}")
-    if "us_index" not in _bg_refresh_in_flight:
-        _bg_refresh_in_flight.add("us_index")
-        async def _guarded_us_refresh():
-            try:
-                await _refresh_indices_bg()
-            finally:
-                _bg_refresh_in_flight.discard("us_index")
-        asyncio.get_running_loop().create_task(_guarded_us_refresh())
+    _지수채우기_시작()
     if stale and stale.get("value", 0) > 0:
         return stale
+    # 지난 값조차 없다 — 서버가 막 깼다. 채우기를 잠깐 기다린다
+    await _빈칸이면_잠깐기다리기()
+    채운것 = cache.get(f"idx:{name}")
+    if 채운것 and 채운것.get("value", 0) > 0:
+        return 채운것
     return {"index": name, "name": INDEX_NAMES.get(name, name), "value": 0, "change": 0, "change_rate": 0}
 
 
@@ -160,14 +221,11 @@ async def _get_kr_index_with_fallback(name: str) -> dict:
     result = await _get_kr_index(name)  # KIS + fresh + stale 캐시 확인
     if result.get("value", 0) > 0:
         return result
-    if "kr_index" not in _bg_refresh_in_flight:
-        _bg_refresh_in_flight.add("kr_index")
-        async def _guarded_kr_refresh():
-            try:
-                await _refresh_indices_bg()
-            finally:
-                _bg_refresh_in_flight.discard("kr_index")
-        asyncio.get_running_loop().create_task(_guarded_kr_refresh())
+    # 지난 값조차 없다(서버가 막 깼다) — 채우기를 띄우고 잠깐 기다린다
+    await _빈칸이면_잠깐기다리기()
+    채운것 = cache.get(f"idx:{name}")
+    if 채운것 and 채운것.get("value", 0) > 0:
+        return 채운것
     return result
 
 
@@ -670,6 +728,13 @@ async def get_index_ohlcv(
     period: str = Query(default="1y", pattern=_PERIOD_PATTERN),
     interval: str = Query(default="1d", pattern=_INTERVAL_PATTERN),
 ):
+    """지수 상세는 일봉 전체(S&P500 이면 2만 줄 넘게)를 기본으로 연다.
+    목록을 그냥 돌려주면 FastAPI 가 jsonable_encoder 로 한 값씩 다시 훑는다 —
+    종목 차트(stocks/price.py)와 같은 이유로 바로 내보낸다."""
+    return JSONResponse(await _지수봉(name, period, interval))
+
+
+async def _지수봉(name: str, period: str, interval: str) -> list:
     name_upper = name.upper()
     ck = f"idx_ohlcv:{name_upper}:{period}:{interval}"
 

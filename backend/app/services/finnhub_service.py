@@ -3,6 +3,7 @@ Finnhub API — 미국 주식 실시간 데이터
 https://finnhub.io — 무료 60 req/min
 """
 import httpx
+from app.core.http import SSL
 import time
 from datetime import datetime, timedelta
 from app.core.config import settings
@@ -29,7 +30,7 @@ class FinnhubService:
     def _get(self, endpoint: str, params: dict = {}) -> dict | list:
         params = {**params, "token": settings.FINNHUB_API_KEY}
         try:
-            r = httpx.get(f"{BASE}{endpoint}", params=params, timeout=10)
+            r = httpx.get(f"{BASE}{endpoint}", params=params, timeout=10, verify=SSL)
             return r.json()
         except Exception:
             return {}

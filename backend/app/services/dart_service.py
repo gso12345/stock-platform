@@ -3,6 +3,7 @@ OpenDART API — 국내 기업 공시/재무제표
 https://opendart.fss.or.kr — 무료
 """
 import httpx
+from app.core.http import SSL
 import zipfile
 import io
 import xml.etree.ElementTree as ET
@@ -110,7 +111,7 @@ class DARTService:
     def _get(self, endpoint: str, params: dict) -> dict:
         params["crtfc_key"] = settings.DART_API_KEY
         try:
-            r = httpx.get(f"{BASE}/{endpoint}", params=params, timeout=15)
+            r = httpx.get(f"{BASE}/{endpoint}", params=params, timeout=15, verify=SSL)
             return r.json()
         except Exception:
             return {"status": "999"}
@@ -150,7 +151,7 @@ class DARTService:
             r = httpx.get(
                 f"{BASE}/corpCode.xml",
                 params={"crtfc_key": settings.DART_API_KEY},
-                timeout=30,
+                timeout=30, verify=SSL,
             )
             with zipfile.ZipFile(io.BytesIO(r.content)) as z:
                 with z.open("CORPCODE.xml") as f:

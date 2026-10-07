@@ -5,6 +5,7 @@
 - 상승/하락 상위 종목
 """
 import httpx
+from app.core.http import SSL
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
@@ -31,7 +32,7 @@ class KISService:
         if self._token and self._token_exp and datetime.now() < self._token_exp:
             return self._token
         try:
-            async with httpx.AsyncClient(timeout=10) as c:
+            async with httpx.AsyncClient(timeout=10, verify=SSL) as c:
                 r = await c.post(f"{self.base}/oauth2/tokenP", json={
                     "grant_type": "client_credentials",
                     "appkey": settings.KIS_APP_KEY,
@@ -65,7 +66,7 @@ class KISService:
         if not token:
             return None
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
+            async with httpx.AsyncClient(timeout=8, verify=SSL) as client:
                 r = await client.get(
                     f"{self.base}/uapi/domestic-stock/v1/quotations/inquire-price",
                     headers=self._headers(token, "FHKST01010100"),
@@ -110,7 +111,7 @@ class KISService:
         if not token:
             return None
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
+            async with httpx.AsyncClient(timeout=8, verify=SSL) as client:
                 r = await client.get(
                     f"{self.base}/uapi/domestic-stock/v1/quotations/inquire-price",
                     headers=self._headers(token, "FHKST01010100"),
@@ -157,7 +158,7 @@ class KISService:
         end = datetime.now().strftime("%Y%m%d")
         start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, verify=SSL) as client:
                 r = await client.get(
                     f"{self.base}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
                     headers=self._headers(token, "FHKST03010100"),
@@ -201,7 +202,7 @@ class KISService:
         if not token:
             return None
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
+            async with httpx.AsyncClient(timeout=8, verify=SSL) as client:
                 r = await client.get(
                     f"{self.base}/uapi/domestic-stock/v1/quotations/inquire-index-price",
                     headers=self._headers(token, "FHPUP02100000"),
@@ -232,7 +233,7 @@ class KISService:
         if not token:
             return []
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, verify=SSL) as client:
                 r = await client.get(
                     f"{self.base}/uapi/domestic-stock/v1/ranking/fluctuation",
                     headers=self._headers(token, "FHPST01700000"),
@@ -294,7 +295,7 @@ class KISService:
         tr_id, sort_code = api_map.get(category, ("FHPST01260000", "20"))
 
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, verify=SSL) as client:
                 r = await client.get(
                     f"{self.base}/uapi/domestic-stock/v1/ranking/market-cap",
                     headers=self._headers(token, tr_id),

@@ -268,6 +268,7 @@ async def get_analyst(request: Request, market: Literal["KR","US","ETF"], symbol
         패턴으로 탐지해 조회한다 (전용 consensusOpinion/opinion/consensus 엔드포인트는
         더 이상 응답하지 않아 제거됨 — 가격 조회에도 쓰이는 integration 엔드포인트를 재사용)"""
         import httpx, math, re
+        from app.core.http import SSL
         headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/80.0 Mobile Safari/537.36",
             "Referer": "https://m.stock.naver.com/",
@@ -292,7 +293,7 @@ async def get_analyst(request: Request, market: Literal["KR","US","ETF"], symbol
             r = await asyncio.wait_for(
                 loop.run_in_executor(None, lambda: httpx.get(
                     f"https://m.stock.naver.com/api/stock/{code6}/integration",
-                    headers=headers, timeout=8,
+                    headers=headers, timeout=8, verify=SSL,
                 )), timeout=10
             )
             if r.status_code != 200:
