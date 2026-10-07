@@ -13,6 +13,7 @@ import { lookupPrice, indexPricesBySymbol } from "@/utils/prices";
 import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 import { 시세갱신주기 } from "@/hooks/useLivePrices";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
+import { use관심목록 } from "@/hooks/useWatchlistItems";
 
 const FACTOR_LABEL_KO: Record<QuantFactorKey, string> = {
   value: "가치", quality: "품질", momentum: "모멘텀", growth: "성장", risk: "안정성",
@@ -81,12 +82,7 @@ export default function Quant() {
     staleTime: 300_000,
   });
 
-  const { data: items, isLoading: itemsLoading } = useQuery({
-    queryKey: ["watchlist-items"],
-    queryFn: () => watchlistApi.getItems(),
-    enabled: isLoggedIn,
-    staleTime: 120_000,
-  });
+  const { data: items, isLoading: itemsLoading } = use관심목록(isLoggedIn);
 
   const { data: pfList = [] } = useQuery<any[]>({
     queryKey: ["portfolios"],

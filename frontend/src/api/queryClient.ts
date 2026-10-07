@@ -22,7 +22,7 @@
 import { QueryClient, QueryCache } from "@tanstack/react-query";
 import { 조회실패알림 } from "./queryError";
 import { 최근조회정리 } from "@/utils/recentlyViewed";
-import { 되살리기, 붙이기 } from "./queryPersist";
+import { 되살리기, 붙이기, 사람칸_모두지우기 } from "./queryPersist";
 
 export const queryClient = new QueryClient({
   /* 조회가 실패하면 여기로 온다.
@@ -71,6 +71,9 @@ export const queryClient = new QueryClient({
 
 export function 사용자바뀜() {
   queryClient.clear();
+  /* 디스크에 남겨 둔 사람 칸(내 자산·관심종목 …)도 지운다 — 공용 기기에서
+     앞사람 목록이 남지 않게 (queryPersist.사람것들) */
+  사람칸_모두지우기();
   /* 서버에서 받아 온 것 말고, 브라우저에 직접 쌓아 둔 것도 앞사람 것이 남는다.
      최근 본 종목이 그렇다 — 공용 기기에서 무엇을 들여다봤는지가 다음 사람에게
      그대로 넘어갔다. 지금은 사람별로 칸을 나눴고, 여기서는 칸을 나누기 전에

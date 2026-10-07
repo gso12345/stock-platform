@@ -63,6 +63,66 @@ export function 담을만한가(key: unknown): boolean {
   return typeof 첫칸 === "string" && (남길것들 as readonly string[]).includes(첫칸);
 }
 
+/**
+ * 로그인한 **그 사람의 칸**에만 남기는 것.
+ *
+ * 예전에는 내 자산·관심종목을 아예 안 남겼다. "공용 기기에서 다음 사람에게
+ * 넘어가면 안 되고, 어차피 로그인해야 볼 수 있다" 였는데, 로그인은 기기에
+ * 남는다(authStore). 그래서 다시 온 사람은 로그인된 채로 매번 빈 뼈대부터
+ * 보고 기다렸다 — 서버가 잠들어 있었으면 수십 초를.
+ *
+ * 그래서 사람별로 칸을 나눠 남긴다(qcache_v1:u{아이디}).
+ *   · 되살릴 때는 지금 로그인한 사람의 칸만 읽는다 — 남의 칸은 열 일이 없다.
+ *   · 로그인·로그아웃·인증 만료 때는 사람 칸을 **전부** 지운다(사람칸_모두지우기).
+ *   · 시세는 안 남긴다. 몇 시간 전 가격을 지금 값처럼 보여 주는 것은 빈칸보다
+ *     나쁘다 — 시세는 서버가 목록에 실어 보내는 것(받아 둔 시세)으로 곧바로 찬다.
+ */
+export const 사람것들 = [
+  "portfolio-items-all",
+  "portfolios",
+  "watchlist-items",
+  "watchlist-folders",
+  "quant-compare",
+] as const;
+
+export function 사람칸에_담을만한가(key: unknown): boolean {
+  if (!Array.isArray(key) || key.length === 0) return false;
+  const 첫칸 = key[0];
+  return typeof 첫칸 === "string" && (사람것들 as readonly string[]).includes(첫칸);
+}
+
+const 사람칸_머리 = `${열쇠}:u`;
+
+/** 지금 로그인한 사람의 칸 이름. 로그인 안 했으면 null.
+ *  authStore 를 import 하면 순환 참조라(스토어가 queryClient 를 부른다)
+ *  저장된 인증 정보를 직접 읽는다 — recentlyViewed 와 같은 방식 */
+export function 사람칸(): string | null {
+  try {
+    const raw = localStorage.getItem("stkplt_auth");
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    const id = o?.state?.userId ?? o?.userId;
+    const 로그인 = o?.state?.isLoggedIn ?? true;
+    return id != null && 로그인 ? `${사람칸_머리}${id}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 사람 칸을 전부 지운다 — 사람이 바뀌거나 로그인이 끊겼을 때 */
+export function 사람칸_모두지우기(): void {
+  try {
+    const 지울것: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(사람칸_머리)) 지울것.push(k);
+    }
+    지울것.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    /* 못 지워도 다음 사람은 자기 칸만 읽는다 */
+  }
+}
+
 export interface 담긴것 {
   k: unknown[];
   d: unknown;
@@ -79,11 +139,12 @@ export interface 담긴것 {
 export function 골라담기(
   항목들: { queryKey: unknown; state: { data?: unknown; dataUpdatedAt?: number; status?: string } }[],
   지금 = Date.now(),
+  허용: (key: unknown) => boolean = 담을만한가,
 ): 담긴것[] {
   const 결과: 담긴것[] = [];
   let 합계 = 0;
   for (const q of 항목들) {
-    if (!담을만한가(q.queryKey)) continue;
+    if (!허용(q.queryKey)) continue;
     if (q.state.status !== "success" || q.state.data == null) continue;
     const t = q.state.dataUpdatedAt ?? 0;
     if (!t || 지금 - t > 최대나이) continue;
@@ -104,13 +165,15 @@ export function 골라담기(
 }
 
 /** 담아 둔 것 중 아직 쓸 만한 것만 */
-export function 되살릴것(담긴: unknown, 지금 = Date.now()): 담긴것[] {
+export function 되살릴것(
+  담긴: unknown, 지금 = Date.now(), 허용: (key: unknown) => boolean = 담을만한가,
+): 담긴것[] {
   if (!Array.isArray(담긴)) return [];
   return 담긴.filter((x): x is 담긴것 => {
     if (!x || typeof x !== "object") return false;
     const o = x as 담긴것;
     return (
-      Array.isArray(o.k) && 담을만한가(o.k) &&
+      Array.isArray(o.k) && 허용(o.k) &&
       o.d != null &&
       typeof o.t === "number" && o.t > 0 && 지금 - o.t <= 최대나이
     );
@@ -123,16 +186,19 @@ export function 되살릴것(담긴: unknown, 지금 = Date.now()): 담긴것[] 
  * '받은 시각'을 그때 값 그대로 넣는다. 지금 시각을 넣으면 react-query 가
  * 신선하다고 보고 새로 안 받아 온다.
  */
-export function 되살리기(qc: QueryClient, 지금 = Date.now()): number {
-  let 담긴: unknown;
+function 읽기(이름: string): unknown {
   try {
-    const raw = localStorage.getItem(열쇠);
-    if (!raw) return 0;
-    담긴 = JSON.parse(raw);
+    const raw = localStorage.getItem(이름);
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return 0;   // 사생활 보호 모드 등 — 못 읽으면 그냥 빈 화면에서 시작한다
+    return null;   // 사생활 보호 모드 등 — 못 읽으면 그냥 빈 화면에서 시작한다
   }
-  const 쓸것 = 되살릴것(담긴, 지금);
+}
+
+export function 되살리기(qc: QueryClient, 지금 = Date.now()): number {
+  const 쓸것 = 되살릴것(읽기(열쇠), 지금);
+  const 내칸 = 사람칸();
+  if (내칸) 쓸것.push(...되살릴것(읽기(내칸), 지금, 사람칸에_담을만한가));
   for (const x of 쓸것) {
     qc.setQueryData(x.k, x.d, { updatedAt: x.t });
   }
@@ -140,20 +206,27 @@ export function 되살리기(qc: QueryClient, 지금 = Date.now()): number {
 }
 
 /** 지금 캐시를 디스크에 쓴다 */
-export function 저장하기(qc: QueryClient, 지금 = Date.now()): void {
+function 쓰기(이름: string, 담을것: 담긴것[]): void {
   try {
-    const 담을것 = 골라담기(
-      qc.getQueryCache().getAll().map((q) => ({ queryKey: q.queryKey, state: q.state })),
-      지금,
-    );
-    if (담을것.length === 0) {
-      localStorage.removeItem(열쇠);
-      return;
-    }
-    localStorage.setItem(열쇠, JSON.stringify(담을것));
+    if (담을것.length === 0) localStorage.removeItem(이름);
+    else localStorage.setItem(이름, JSON.stringify(담을것));
   } catch {
     /* 용량 초과·사생활 보호 모드. 다음에 못 되살릴 뿐 지금 화면은 멀쩡하다 */
   }
+}
+
+export function 저장하기(qc: QueryClient, 지금 = Date.now()): void {
+  let 모두: { queryKey: unknown; state: { data?: unknown; dataUpdatedAt?: number; status?: string } }[];
+  try {
+    모두 = qc.getQueryCache().getAll().map((q) => ({ queryKey: q.queryKey, state: q.state }));
+  } catch {
+    return;
+  }
+  쓰기(열쇠, 골라담기(모두, 지금));
+  /* 쓰는 그 순간에 로그인한 사람의 칸에만 쓴다. 로그아웃 직후 몰아쓰기가
+     돌아도 칸이 없으니(사람칸() === null) 아무것도 안 남는다 */
+  const 내칸 = 사람칸();
+  if (내칸) 쓰기(내칸, 골라담기(모두, 지금, 사람칸에_담을만한가));
 }
 
 /**

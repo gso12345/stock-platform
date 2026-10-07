@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import {
   담을만한가, 골라담기, 되살릴것, 되살리기, 저장하기, 붙이기,
-  최대나이, 최대바이트, 항목최대바이트, 남길것들,
+  최대나이, 최대바이트, 항목최대바이트, 남길것들, 사람칸_모두지우기,
 } from "@/api/queryPersist";
 
 const 지금 = 1_800_000_000_000;
@@ -272,5 +272,91 @@ describe("붙이기 — 몰아서 쓴다", () => {
       쓴횟수.mockRestore();
       vi.useRealTimers();
     }
+  });
+});
+
+describe("사람 칸 — 로그인한 그 사람의 목록만", () => {
+  const 로그인 = (id: number | null) => {
+    if (id == null) localStorage.removeItem("stkplt_auth");
+    else localStorage.setItem("stkplt_auth", JSON.stringify({ state: { userId: id, isLoggedIn: true } }));
+  };
+  const 새캐시 = () => new QueryClient();
+
+  beforeEach(() => localStorage.clear());
+
+  it("내 자산·관심종목은 그 사람 칸에 남고, 공용 칸에는 안 남는다", () => {
+    로그인(7);
+    const qc = 새캐시();
+    qc.setQueryData(["portfolio-items-all"], [{ symbol: "005930" }], { updatedAt: 지금 - 1000 });
+    qc.setQueryData(["dashboard-kr", "시가총액"], { a: 1 }, { updatedAt: 지금 - 1000 });
+    저장하기(qc, 지금);
+    expect(localStorage.getItem("qcache_v1")).not.toContain("portfolio-items-all");
+    expect(localStorage.getItem("qcache_v1:u7")).toContain("portfolio-items-all");
+    expect(localStorage.getItem("qcache_v1:u7")).not.toContain("dashboard-kr");
+  });
+
+  it("다시 열면 그 사람 것만 되살린다", () => {
+    로그인(7);
+    const 앞 = 새캐시();
+    앞.setQueryData(["watchlist-items"], [{ symbol: "AAPL" }], { updatedAt: 지금 - 1000 });
+    저장하기(앞, 지금);
+
+    const 같은사람 = 새캐시();
+    되살리기(같은사람, 지금);
+    expect(같은사람.getQueryData(["watchlist-items"])).toEqual([{ symbol: "AAPL" }]);
+    // 받은 시각은 그때 그대로 — 열자마자 새로 받는다
+    expect(같은사람.getQueryState(["watchlist-items"])?.dataUpdatedAt).toBe(지금 - 1000);
+
+    로그인(8);
+    const 다른사람 = 새캐시();
+    되살리기(다른사람, 지금);
+    expect(다른사람.getQueryData(["watchlist-items"])).toBeUndefined();
+
+    로그인(null);
+    const 손님 = 새캐시();
+    되살리기(손님, 지금);
+    expect(손님.getQueryData(["watchlist-items"])).toBeUndefined();
+  });
+
+  it("시세는 사람 칸에도 안 남긴다 — 몇 시간 전 가격을 지금 값처럼 보이면 안 된다", () => {
+    로그인(7);
+    const qc = 새캐시();
+    qc.setQueryData(["portfolio-prices", "KR:005930"], [{ price: 1 }], { updatedAt: 지금 - 1000 });
+    qc.setQueryData(["watchlist-prices", "AAPL"], [{ price: 1 }], { updatedAt: 지금 - 1000 });
+    저장하기(qc, 지금);
+    expect(localStorage.getItem("qcache_v1:u7")).toBeNull();
+  });
+
+  it("로그아웃하면 인증 정보가 빈 채로 남는다 — 그때도 사람 칸에 쓰지 않는다", () => {
+    localStorage.setItem("stkplt_auth", JSON.stringify({ state: { userId: null, isLoggedIn: false } }));
+    const qc = 새캐시();
+    qc.setQueryData(["portfolio-items-all"], [{ symbol: "005930" }], { updatedAt: 지금 - 1000 });
+    저장하기(qc, 지금);
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("qcache_v1:u"))).toEqual([]);
+  });
+
+  it("로그아웃 상태면 사람 칸에 쓰지 않는다", () => {
+    로그인(null);
+    const qc = 새캐시();
+    qc.setQueryData(["portfolio-items-all"], [{ symbol: "005930" }], { updatedAt: 지금 - 1000 });
+    저장하기(qc, 지금);
+    expect(Object.keys(localStorage).filter((k) => k.startsWith("qcache_v1:u"))).toEqual([]);
+  });
+
+  it("사람이 바뀌면 사람 칸을 전부 지운다", () => {
+    localStorage.setItem("qcache_v1:u7", "[]");
+    localStorage.setItem("qcache_v1:u8", "[]");
+    localStorage.setItem("qcache_v1", "[]");
+    사람칸_모두지우기();
+    expect(Object.keys(localStorage).sort()).toEqual(["qcache_v1"]);
+  });
+
+  it("로그인·로그아웃·인증 만료 때 지운다", async () => {
+    const qc원문 = (await import("../queryClient.ts?raw")).default as string;
+    const 클라원문 = (await import("../client.ts?raw")).default as string;
+    const 함수 = qc원문.slice(qc원문.indexOf("export function 사용자바뀜"));
+    expect(함수.slice(0, 400)).toMatch(/사람칸_모두지우기\(\);/);
+    const 만료 = 클라원문.slice(클라원문.indexOf("status === 401"));
+    expect(만료.slice(0, 400)).toMatch(/사람칸_모두지우기\(\);/);
   });
 });

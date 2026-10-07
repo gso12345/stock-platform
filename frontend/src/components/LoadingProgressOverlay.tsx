@@ -3,8 +3,10 @@ import { useQuery, useQueryClient, type Query } from "@tanstack/react-query";
 import { AlertTriangle, Check, Loader2, RotateCw, X } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import { dashboardApi, watchlistApi } from "@/api/stocks";
+import { dashboardApi } from "@/api/stocks";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
+import { use관심목록 } from "@/hooks/useWatchlistItems";
+import { 한가할때 } from "@/utils/한가할때";
 import Logo from "./Logo";
 
 /**
@@ -102,17 +104,25 @@ export default function LoadingProgressOverlay() {
      '실패만' 으로 바꾸는 순간 지금 실패한 것이 곧바로 보여야 하므로 */
   const 표시 = useSettingsStore((s) => s.불러오기표시);
 
-  /* 앱 진입 시 미리 불러 두는 핵심 데이터 — 예전과 같다. 이 위젯이 Layout 에
-     있어 어느 화면으로 들어와도 대시보드·뉴스·내 자산·관심종목이 준비된다.
-     진행 표시는 아래 '지켜보기' 가 이것들도 똑같이 잡는다. */
-  useQuery({ queryKey: ["dashboard-kr", "시가총액"], queryFn: () => dashboardApi.getKR(), staleTime: 60_000 });
-  useQuery({ queryKey: ["dashboard-us", "시가총액"], queryFn: () => dashboardApi.getUS(), staleTime: 60_000 });
-  useQuery({ queryKey: ["news", "kr", "latest"], queryFn: () => dashboardApi.getNews("kr", "latest"), staleTime: 300_000 });
-  useQuery({ queryKey: ["news", "us", "latest"], queryFn: () => dashboardApi.getNews("us", "latest"), staleTime: 300_000 });
+  /* 앱 진입 시 미리 불러 두는 핵심 데이터. 이 위젯이 Layout 에 있어 어느
+     화면으로 들어와도 대시보드·뉴스·내 자산·관심종목이 준비된다. 진행 표시는
+     아래 '지켜보기' 가 이것들도 똑같이 잡는다.
+
+     **한가해진 뒤에** 부른다. 예전에는 앱이 뜨는 순간 여섯 건(대시보드
+     국내·해외, 뉴스 둘, 보유·관심 목록)을 한꺼번에 보내, 공유받은 종목 링크로
+     들어온 사람의 종목 상세 요청이 0.15 CPU 서버에서 그 뒤에 줄을 섰다.
+     지금 화면이 먼저 받고, 다음에 옮길 화면은 그 뒤에 받아 둔다 — 대시보드
+     화면은 어차피 자기 데이터를 곧바로 직접 묻는다. */
+  const [미리받기, set미리받기] = useState(false);
+  useEffect(() => 한가할때(() => set미리받기(true), 2_500), []);
+  useQuery({ queryKey: ["dashboard-kr", "시가총액"], queryFn: () => dashboardApi.getKR(), staleTime: 60_000, enabled: 미리받기 });
+  useQuery({ queryKey: ["dashboard-us", "시가총액"], queryFn: () => dashboardApi.getUS(), staleTime: 60_000, enabled: 미리받기 });
+  useQuery({ queryKey: ["news", "kr", "latest"], queryFn: () => dashboardApi.getNews("kr", "latest"), staleTime: 300_000, enabled: 미리받기 });
+  useQuery({ queryKey: ["news", "us", "latest"], queryFn: () => dashboardApi.getNews("us", "latest"), staleTime: 300_000, enabled: 미리받기 });
   /* 같은 이름표에 fetcher 가 둘이면 먼저 붙은 쪽이 이긴다 — 보유목록은
      use보유목록 한 벌만 쓴다(hooks/usePortfolioItems). */
-  use보유목록(isLoggedIn);
-  useQuery({ queryKey: ["watchlist-items"], queryFn: () => watchlistApi.getItems(), enabled: isLoggedIn, staleTime: 120_000 });
+  use보유목록(isLoggedIn && 미리받기);
+  use관심목록(isLoggedIn && 미리받기);
 
   const 기록들 = useRef(new Map<string, 기록>()).current;
   const [, 다시그려] = useState(0);

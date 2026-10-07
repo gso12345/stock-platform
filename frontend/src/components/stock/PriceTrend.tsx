@@ -21,10 +21,10 @@
  * 두 벌로 두면 언젠가 한쪽만 고쳐져서, 같아 보이는 두 그래프가 다른
  * 규칙으로 그려진다.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { stocksApi } from "@/api/stocks";
-import 차트틀 from "@/components/chart/ChartFrame";
+import 차트틀, { 그래프미리받기 } from "@/components/chart/ChartFrame";
 import { 못불러옴 } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
@@ -125,6 +125,10 @@ export default function PriceTrend({
   const 기간 = 기간표.find((g) => g.id === 고른기간) ?? 기간표[2];
   const 일수 = 기간.일수;
   const 분봉 = 기간.간격 !== "1d";
+
+  /* 가격을 묻는 동안 그래프 코드도 같이 받는다 — 종목 상세의 기본 차트라,
+     데이터가 온 뒤에 코드를 받기 시작하면 첫 그림이 왕복 하나만큼 늦다 */
+  useEffect(() => { 그래프미리받기(); }, []);
 
   const { data, isLoading, isError, error, refetch } = useQuery<OHLCV[]>({
     /* 열쇠의 인자 순서를 **종목상세와 같게** 둔다.

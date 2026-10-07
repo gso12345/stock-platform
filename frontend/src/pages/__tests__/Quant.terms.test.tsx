@@ -47,6 +47,8 @@ vi.mock("@/api/stocks", async (원본가져오기) => ({
   },
   watchlistApi: {
     getItems: vi.fn(() => Promise.resolve(관심종목)),
+    /* 목록 정의는 한 벌(hooks/useWatchlistItems)이 이걸 부른다 */
+    getItemsWithCachedPrices: vi.fn(() => Promise.resolve(관심종목)),
     getPrices: vi.fn(() => Promise.resolve([])),
   },
   watchlistFolderApi: { getFolders: vi.fn(() => Promise.resolve([])) },

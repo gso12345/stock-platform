@@ -7,10 +7,25 @@ function isStandaloneMode() {
   );
 }
 
-const VISIBLE_MS = 500;
+/** 앱 틀이 그려졌다는 신호를 아무도 안 보내도 이만큼 지나면 걷는다 */
+const 최대_MS = 1_500;
 const FADE_MS = 200;
+const 준비_이벤트 = "stkplt:app-ready";
+let 준비됨 = false;
 
-/** 설치된 앱(PWA standalone)으로 실행했을 때만 보여주는 시작 인트로 화면 */
+/** 앱 틀(머리·탭)이 화면에 그려졌다 — Layout 이 부른다 */
+export function 앱준비됨() {
+  준비됨 = true;
+  window.dispatchEvent(new Event(준비_이벤트));
+}
+
+/** 설치된 앱(PWA standalone)으로 실행했을 때만 보여주는 시작 인트로 화면.
+ *
+ *  예전에는 무조건 0.5초를 보여 주고 0.2초 동안 걷었다. 그동안 그 아래의
+ *  앱은 이미 다 그려져 있었다 — 지난 대시보드 값은 저장해 둔 것으로 곧바로
+ *  뜬다. 그러니 0.7초는 그냥 기다리게 하는 시간이었다. 이제 앱 틀이
+ *  그려지는 순간 걷는다(늦어도 최대_MS). 운영체제가 띄우는 시작 화면이
+ *  앞을 이미 덮어 주므로 따로 붙잡아 둘 이유가 없다. */
 export default function SplashScreen() {
   const [stage, setStage] = useState<"hidden" | "visible" | "fading">(() =>
     isStandaloneMode() ? "visible" : "hidden"
@@ -18,9 +33,19 @@ export default function SplashScreen() {
 
   useEffect(() => {
     if (stage !== "visible") return;
-    const fadeTimer = setTimeout(() => setStage("fading"), VISIBLE_MS);
-    const hideTimer = setTimeout(() => setStage("hidden"), VISIBLE_MS + FADE_MS);
-    return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
+    let 숨김: ReturnType<typeof setTimeout> | undefined;
+    const 걷기 = () => {
+      setStage("fading");
+      숨김 = setTimeout(() => setStage("hidden"), FADE_MS);
+    };
+    if (준비됨) { 걷기(); return () => clearTimeout(숨김); }
+    const 늦음 = setTimeout(걷기, 최대_MS);
+    const 들음 = () => { clearTimeout(늦음); 걷기(); };
+    window.addEventListener(준비_이벤트, 들음, { once: true });
+    return () => {
+      clearTimeout(늦음); clearTimeout(숨김);
+      window.removeEventListener(준비_이벤트, 들음);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -40,6 +40,12 @@ function 받기(): Promise<Recharts> {
   return 받는중;
 }
 
+/** 그래프 코드를 미리 받아 둔다. 데이터를 기다리는 동안 부르면 둘이 동시에
+ *  내려온다 — 안 부르면 데이터가 온 뒤에야 받기 시작해 왕복이 하나 더 붙는다 */
+export function 그래프미리받기(): void {
+  받기().catch(() => {});
+}
+
 export default function 차트틀({
   height, children,
 }: {

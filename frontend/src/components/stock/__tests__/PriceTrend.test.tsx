@@ -176,6 +176,7 @@ vi.mock("@/components/chart/ChartFrame", () => {
   };
 
   return {
+    그래프미리받기: vi.fn(),
     default: ({ children }: { children: (R: never) => unknown }) => {
       const 만들기 = (이름: string) => {
         const C = () => null;
@@ -388,5 +389,15 @@ describe("기본정보도 불러오는 중인 걸 알린다", () => {
   it("띠에 이름을 붙인다 — 화면 읽어주는 기능도 알아야 한다", () => {
     const s = 소스();
     expect(s).toContain('role="status" aria-label="불러오는 중"');
+  });
+});
+
+describe("그래프 코드는 데이터와 같이 받는다", () => {
+  it("가격을 묻는 동안 그래프 코드도 미리 받기 시작한다", async () => {
+    const { 그래프미리받기 } = await import("@/components/chart/ChartFrame");
+    vi.mocked(그래프미리받기).mockClear();
+    vi.mocked(stocksApi.getOHLCV).mockReturnValue(new Promise(() => {}) as never);   // 데이터는 아직
+    그리기();
+    expect(그래프미리받기).toHaveBeenCalledTimes(1);
   });
 });

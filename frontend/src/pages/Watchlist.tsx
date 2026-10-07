@@ -25,6 +25,8 @@ import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 import type { Market, WatchlistItem, 관심폴더, 시세행 } from "@/types";
 import type { PortfolioMeta } from "@/types/portfolio";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
+import { use관심목록, 관심씨앗시세열쇠 } from "@/hooks/useWatchlistItems";
+import { 시세열쇠 } from "@/constants/portfolioQuery";
 /* 시세를 조회할 수 있는 심볼 형식 — 서버의 검사와 같은 기준.
    '현금'·'금' 같은 자산은 시세가 없으므로 조회 대상이 아니다. */
 const PRICEABLE_SYMBOL = /^[A-Za-z0-9.\-]{1,20}$/;
@@ -118,14 +120,10 @@ export default function Watchlist() {
     staleTime: 300_000,
   });
 
-  const { data: allItems = [], isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery({
-    queryKey: ["watchlist-items"],
-    queryFn: () => watchlistApi.getItems(),
-    staleTime: 120_000,
-    // 목록 구성은 사용자가 추가·삭제할 때만 바뀐다. 각 mutation의 onSuccess에서
-    // invalidate하므로 주기 폴링은 불필요한 요청일 뿐이다 (가격은 별도 쿼리가 갱신)
-    refetchInterval: false,
-  });
+  /* 목록 구성은 사용자가 추가·삭제할 때만 바뀐다. 각 mutation의 onSuccess에서
+     invalidate하므로 주기 폴링은 없다 (가격은 별도 쿼리가 갱신).
+     정의는 한 벌만 — hooks/useWatchlistItems */
+  const { data: allItems = [], isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = use관심목록(true);
 
   // 탭 전환 시 API 재호출 없이 클라이언트 필터링
   const items = useMemo(() => {
@@ -161,7 +159,11 @@ export default function Watchlist() {
   const { data: restPrices } = useQuery({
     queryKey: ["watchlist-prices", priceKey],
     queryFn: ({ signal }) => watchlistApi.getPrices(symbols, markets, signal),
-    enabled: symbols.length > 0,
+    /* 두 목록(관심종목·보유)이 다 온 뒤에 묻는다. 먼저 온 쪽만으로 물으면
+       뒤엣것이 올 때 이름표가 바뀌어 같은 시세를 한 번 더 받았다 — 첫
+       요청은 버려지고 WebSocket 도 다시 붙는다. 그동안 화면은 목록에
+       딸려 온 시세(아래 '첫 그림')로 먼저 채워 둔다 */
+    enabled: symbols.length > 0 && !isLoading && !pfAllLoading,
     staleTime: 55_000,
     /* 장이 닫혀 있으면 종가라 값이 안 변한다. 예전에는 장 상태를 안 보고
        늘 60초마다 물었다 — 주말 내내, 밤새도록 같은 값을 받으려고
@@ -226,6 +228,30 @@ export default function Watchlist() {
       return next ?? prev;
     });
   }, []);
+
+  /* 첫 그림 — 목록에 딸려 온 '서버가 받아 둔 시세' 로 빈칸만 채운다.
+     관심종목(hooks/useWatchlistItems)과 보유 목록(hooks/usePortfolioItems)이
+     각자 실어 온 것이다. 이미 받은 값은 건드리지 않는다 — 낡았을 수 있다.
+     곧이어 위의 시세 조회와 WebSocket 이 새 값으로 덮는다. */
+  useEffect(() => {
+    const 씨앗 = [
+      ...((qc.getQueryData(관심씨앗시세열쇠) as 시세행[] | undefined) ?? []),
+      ...((qc.getQueryData(시세열쇠(pfAllItems)) as 시세행[] | undefined) ?? []),
+    ];
+    if (!씨앗.length) return;
+    setLivePrices((prev) => {
+      let next: Record<string, 시세행> | null = null;
+      for (const p of 씨앗) {
+        if (!p?.symbol || p.price == null) continue;
+        const norm = normalizeSymbol(p.symbol);
+        if (prev[p.symbol] || prev[norm] || next?.[p.symbol]) continue;
+        if (!next) next = { ...prev };
+        next[p.symbol] = p;
+        next[norm] = p;
+      }
+      return next ?? prev;
+    });
+  }, [allItems, pfAllItems, qc]);
 
   /* WebSocket이 담당 중인 종목은 REST 결과로 덮어쓰지 않는다 (이중 갱신 방지).
      단 서버는 최대 50종목만 스트리밍하므로, WS가 실제로 보내준 종목만 건너뛰고
@@ -606,8 +632,14 @@ export default function Watchlist() {
     navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`);
   };
 
-  // 화면에 보이는 종목 자동 prefetch
-  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  /* 종목을 누를 낌새가 보이면(마우스를 올리거나 손가락을 대면) 그 종목 상세를
+     미리 받는다.
+
+     예전에는 화면에 보이는 줄을 **전부** 600ms 마다 세 개씩 미리 받았다. 그게
+     관심종목 시세를 받는 바로 그 순간에 시작돼서, 0.15 CPU 서버에 상세 요청이
+     몰려드는 동안 정작 화면이 기다리는 시세가 뒤로 밀렸다. 대부분은 누르지도
+     않는 종목이다. 누르려는 그 종목만 받는다 — 손가락을 대고 떼기까지
+     0.1~0.3초라 왕복 한 번의 상당 부분을 미리 당긴다. */
   const prefetchStock = useCallback((item: { market: string; symbol: string }) => {
     const mkt = item.market as Market;
     const sym = item.symbol;
@@ -615,43 +647,9 @@ export default function Watchlist() {
     qc.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 60_000 });
   }, [qc]);
 
-  /* 화면에 들어온 종목을 미리 불러오는 감지기.
-     관찰 대상은 "어떤 종목이 목록에 있는가"만 중요하고 순서는 상관없다.
-     displayList를 그대로 의존성에 두면 드래그로 순서가 바뀔 때마다 감지기를 통째로
-     다시 만들고 행 수만큼 다시 등록해서, 종목이 많을수록 드래그가 크게 느려졌다.
-     그래서 종목 구성이 실제로 바뀔 때만 다시 만들고, 최신 목록은 ref로 읽는다. */
-  const displayListRef = useRef(displayList);
-  displayListRef.current = displayList;
-
-  const observedSymbolsKey = useMemo(
-    () => displayList.map((i) => i.symbol).sort().join(","),
-    [displayList],
-  );
-
-  useEffect(() => {
-    let queue: WatchlistItem[] = [];
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const flush = () => {
-      queue.splice(0, 3).forEach(prefetchStock);
-      if (queue.length > 0) timer = setTimeout(flush, 600);
-    };
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(e => {
-        if (e.isIntersecting) {
-          const sym = (e.target as HTMLElement).dataset.sym;
-          const item = displayListRef.current.find((i) => i.symbol === sym);
-          if (item && !queue.find((q) => q.symbol === sym)) queue.push(item);
-        }
-      });
-      if (queue.length > 0 && !timer) timer = setTimeout(flush, 200);
-    }, { threshold: 0.5 });
-    rowRefs.current.forEach(row => observer.observe(row));
-    return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
-  }, [observedSymbolsKey, prefetchStock]);
-
   const renderItems = (list: WatchlistItem[]) =>
     list.map((item) => (
-      <div key={item.id} className="list-item-in list-row-lite" ref={el => { if (el) rowRefs.current.set(item.symbol, el); else rowRefs.current.delete(item.symbol); }} data-sym={item.symbol} data-item-id={item.id}>
+      <div key={item.id} className="list-item-in list-row-lite" data-item-id={item.id}>
         <ItemRow
           item={item}
           livePrice={lookupPrice(livePrices, item.symbol)}

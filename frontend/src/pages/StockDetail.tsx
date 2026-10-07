@@ -16,9 +16,10 @@ import {
   Gauge, Settings2, HelpCircle, Wallet, Share2, Check,
 } from "lucide-react";
 import type { Market, OHLCV } from "@/types";
-import StockChart, { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/StockChart";
+import { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/candles";
 import { fmtKRW, fmtUSD, fmtVolume } from "@/utils/formatters";
 import { use저장된값 } from "@/hooks/useSaved";
+import { use관심목록 } from "@/hooks/useWatchlistItems";
 import { isETFStock } from "@/utils/etf";
 import { addRecentlyViewed } from "@/utils/recentlyViewed";
 import { GRADE_BANDS, gradeColor } from "@/utils/quant";
@@ -36,6 +37,9 @@ import { AddToPortfolioModal } from "@/components/watchlist/WatchlistModals";
    둘이 1,111줄이라 종목상세 묶음의 절반 가까이였는데, 차트만 보고
    나가는 사람도 늘 함께 받았다. 훅이 없는 순수 렌더라 늦게 와도
    그리는 순서가 흐트러지지 않는다. */
+/* 캔들 차트(lightweight-charts, 50KB gz 남짓)는 '자세히' 를 눌러야 그린다.
+   기본 화면(흐름 차트)에는 필요 없는데 늘 같이 받고 있었다 — 그릴 때 받는다 */
+const StockChart = lazy(() => import("@/components/chart/StockChart"));
 const 재무제표탭 = lazy(() => import("@/components/stock/FinancialTab"));
 const 투자의견탭 = lazy(() => import("@/components/stock/AnalystTab"));
 
@@ -288,13 +292,20 @@ export default function StockDetail() {
                  : 장세션 === "regular" ? 15_000
                  : 60_000;                          // 장전·장마감 후엔 느슨하게
 
+  /* 캔들 차트는 '자세히' 를 눌렀을 때만 그린다(기본은 흐름 차트 PriceTrend).
+     그런데 캔들용 일봉 전체(period=max, 1MB 남짓)를 종목을 열 때마다 받고
+     있었다 — 화면에 안 보이는 것을 받느라, 서버는 수천 줄을 만들어 보내고
+     그동안 정작 보이는 시세·흐름 차트 응답이 뒤로 밀렸다. 보일 때만 받는다. */
+  const 캔들보임 = 자세한차트 && (mainTab === "chart" || fullscreen);
+
   const { data: detail, isLoading: loadingDetail, error: detailError, refetch: refetchDetail, dataUpdatedAt } = useQuery({
     queryKey: ["stock-detail", m, sym],
     queryFn: () => stocksApi.getDetail(m, sym),
     enabled: !!sym, retry: 1, retryDelay: 3000,
     staleTime: 15_000,
-    // 분봉일 때는 아래 ohlcv 폴링이 같은 값을 실어 오므로 여기서는 쉰다
-    refetchInterval: isIntraday ? false : 시세주기,
+    // 분봉 캔들을 보고 있을 때는 아래 ohlcv 폴링이 같은 값을 실어 오므로 여기서는
+    // 쉰다. 캔들이 안 보이면 그 폴링도 안 도니 이쪽이 물어야 한다.
+    refetchInterval: (isIntraday && 캔들보임) ? false : 시세주기,
   });
 
   /* ── 실시간 시세 ──
@@ -335,7 +346,7 @@ export default function StockDetail() {
   const { data: ohlcv, isFetching: fetchingChart, refetch: refetchChart } = useQuery({
     queryKey: ["stock-ohlcv", m, sym, candleType, chartPeriod],
     queryFn: () => stocksApi.getOHLCV(m, sym, chartPeriod, candleType),
-    enabled: !!sym, retry: 1,
+    enabled: !!sym && 캔들보임, retry: 1,
     staleTime: isIntraday ? 15_000 : 21_600_000,
     placeholderData: (prev) => prev,
     refetchInterval: isIntraday
@@ -513,12 +524,7 @@ export default function StockDetail() {
   const fmt = useCallback((v: number | null | undefined) => isKR ? fmtKRW(v) : showKRW && v != null ? fmtKRW(v * exchangeRate) : fmtUSD(v), [isKR, showKRW, exchangeRate]);
 
   // 이미 추가된 종목인지 확인 — Watchlist/Quant와 동일 캐시 공유
-  const { data: watchlistItems } = useQuery({
-    queryKey: ["watchlist-items"],
-    queryFn: () => watchlistApi.getItems(),
-    enabled: isLoggedIn,
-    staleTime: 120_000,
-  });
+  const { data: watchlistItems } = use관심목록(isLoggedIn);
   useEffect(() => {
     if (!isLoggedIn) {
       setInWatchlist(false);
@@ -1486,7 +1492,9 @@ export default function StockDetail() {
               {fetchingChart && (
                 <div className="absolute top-2 right-2 z-10 w-4 h-4 border-2 border-accent-blue border-t-transparent rounded-full animate-spin"/>
               )}
-              <StockChart data={ohlcv} height={차트높이} isKR={isKR} chartType={chartType} logScale={logScale}/>
+              <Suspense fallback={<div style={{ height: 차트높이 }} />}>
+                <StockChart data={ohlcv} height={차트높이} isKR={isKR} chartType={chartType} logScale={logScale}/>
+              </Suspense>
             </div>
           ) : fetchingChart ? (
             <div className="h-[300px] sm:h-[500px] flex flex-col items-center justify-center gap-3">
@@ -1633,8 +1641,10 @@ export default function StockDetail() {
             {/* 높이를 재기 전에는 안 그린다. 임시 높이로 한 번 그렸다가
                 다시 만들면 그 자체가 흔들림이다 */}
             {전체차트높이 > 0 && (
-              <StockChart data={ohlcv} height={Math.max(260, 전체차트높이)}
-                          isKR={isKR} chartType={chartType} logScale={logScale}/>
+              <Suspense fallback={<div style={{ height: Math.max(260, 전체차트높이) }} />}>
+                <StockChart data={ohlcv} height={Math.max(260, 전체차트높이)}
+                            isKR={isKR} chartType={chartType} logScale={logScale}/>
+              </Suspense>
             )}
           </div>
         </div>

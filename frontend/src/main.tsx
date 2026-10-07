@@ -9,6 +9,8 @@ import SplashScreen from "./components/SplashScreen";
 import BootScreen from "./components/BootScreen";
 import QueryErrorToast from "./components/common/QueryErrorToast";
 import { dashboardApi } from "./api/stocks";
+import { 화면들 } from "./routes/pages";
+import { 한가할때 } from "./utils/한가할때";
 import { 오류받기_시작 } from "./utils/오류보내기";
 import "./index.css";
 
@@ -17,50 +19,59 @@ import "./index.css";
    콘솔에만 남는다 — 사용자에게는 "눌러도 아무 일이 안 일어남" 이다. */
 오류받기_시작();
 
-const Dashboard  = lazy(() => import("./pages/Dashboard"));
-const Screening  = lazy(() => import("./pages/Screening"));
-const StockDetail = lazy(() => import("./pages/StockDetail"));
-const IndexDetail = lazy(() => import("./pages/IndexDetail"));
-const Backtest   = lazy(() => import("./pages/Backtest"));
-const Watchlist  = lazy(() => import("./pages/Watchlist"));
-const Strategies = lazy(() => import("./pages/Strategies"));
-const Portfolio  = lazy(() => import("./pages/Portfolio"));
-const News       = lazy(() => import("./pages/News"));
-const Quant      = lazy(() => import("./pages/Quant"));
-const Login      = lazy(() => import("./pages/Login"));
-const Register   = lazy(() => import("./pages/Register"));
-const OAuthCallback = lazy(() => import("./pages/OAuthCallback"));
-const Admin = lazy(() => import("./pages/Admin"));
-const Terms = lazy(() => import("./pages/Terms"));
-const Privacy = lazy(() => import("./pages/Privacy"));
-const MyPage = lazy(() => import("./pages/MyPage"));
-const Feed   = lazy(() => import("./pages/Feed"));
-const FeedWrite = lazy(() => import("./pages/FeedWrite"));
-const More = lazy(() => import("./pages/More"));
-const UserProfile = lazy(() => import("./pages/UserProfile"));
-const PostDetail  = lazy(() => import("./pages/PostDetail"));
-const Notifications = lazy(() => import("./pages/Notifications"));
+/* 화면 코드를 불러오는 함수는 routes/pages 한 곳에 있다 — 메뉴에 손을 대는
+   순간 같은 함수로 미리 받아 둘 수 있게(Layout) */
+const Dashboard = lazy(화면들.Dashboard);
+const Screening = lazy(화면들.Screening);
+const StockDetail = lazy(화면들.StockDetail);
+const IndexDetail = lazy(화면들.IndexDetail);
+const Backtest = lazy(화면들.Backtest);
+const Watchlist = lazy(화면들.Watchlist);
+const Strategies = lazy(화면들.Strategies);
+const Portfolio = lazy(화면들.Portfolio);
+const News = lazy(화면들.News);
+const Quant = lazy(화면들.Quant);
+const Login = lazy(화면들.Login);
+const Register = lazy(화면들.Register);
+const OAuthCallback = lazy(화면들.OAuthCallback);
+const Admin = lazy(화면들.Admin);
+const Terms = lazy(화면들.Terms);
+const Privacy = lazy(화면들.Privacy);
+const MyPage = lazy(화면들.MyPage);
+const Feed = lazy(화면들.Feed);
+const FeedWrite = lazy(화면들.FeedWrite);
+const More = lazy(화면들.More);
+const UserProfile = lazy(화면들.UserProfile);
+const PostDetail = lazy(화면들.PostDetail);
+const Notifications = lazy(화면들.Notifications);
 
 // queryClient 는 api/queryClient 로 옮겼다 — 로그인·로그아웃 때
 // 화면 밖(authStore)에서도 비울 수 있어야 하기 때문이다
 
 // 대시보드 핵심 데이터만 선제 요청
-queryClient.prefetchQuery({
-  queryKey: ["dashboard-kr", "시가총액"],
-  queryFn: () => dashboardApi.getKR(),
-  staleTime: 60_000,
-});
-queryClient.prefetchQuery({
-  queryKey: ["dashboard-us", "시가총액"],
-  queryFn: () => dashboardApi.getUS(),
-  staleTime: 60_000,
-});
-// 환율/금리 — 대시보드 KR/US 탭 + 포트폴리오에서 공통 사용
-queryClient.prefetchQuery({
-  queryKey: ["dashboard-us-rates"],
-  queryFn: () => dashboardApi.getUSRates(),
-  staleTime: 300_000,
-});
+function 대시보드_선제요청() {
+  queryClient.prefetchQuery({
+    queryKey: ["dashboard-kr", "시가총액"],
+    queryFn: () => dashboardApi.getKR(),
+    staleTime: 60_000,
+  });
+  queryClient.prefetchQuery({
+    queryKey: ["dashboard-us", "시가총액"],
+    queryFn: () => dashboardApi.getUS(),
+    staleTime: 60_000,
+  });
+  // 환율/금리 — 대시보드 KR/US 탭 + 포트폴리오에서 공통 사용
+  queryClient.prefetchQuery({
+    queryKey: ["dashboard-us-rates"],
+    queryFn: () => dashboardApi.getUSRates(),
+    staleTime: 300_000,
+  });
+}
+/* 대시보드로 들어올 때만 곧바로 보낸다. 공유받은 종목 링크처럼 다른 화면으로
+   들어온 사람에게는 이 세 건이 그 화면의 요청과 0.15 CPU 서버를 다툰다 —
+   그 화면이 먼저 받고, 한가해지면 보낸다(대시보드로 옮길 때 곧바로 뜨게). */
+if (window.location.pathname === "/") 대시보드_선제요청();
+else 한가할때(대시보드_선제요청, 4_000);
 // 서버를 깨우려고 /health 를 한 번 두드리던 자리다. Render 무료 플랜이
 // 자고 있을 때 첫 요청을 도달시키려는 것이었는데, 그 잠듦이 없어졌다.
 // 남겨 두면 얻는 것 없이 손해만 남는다 — 바로 위 prefetch 세 건과

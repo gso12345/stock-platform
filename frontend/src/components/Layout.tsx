@@ -11,7 +11,10 @@ import LoadingProgressOverlay from "@/components/LoadingProgressOverlay";
 import NotificationBell from "@/components/community/NotificationBell";
 import SettingsModal from "@/components/SettingsModal";
 import { 더보기_경로, 내자산_경로 } from "@/constants/moreNav";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { 화면미리받기 } from "@/routes/pages";
+import { 앱준비됨 } from "@/components/SplashScreen";
+import { 한가할때, 아껴쓰는중 } from "@/utils/한가할때";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/api/client";
 
@@ -34,6 +37,24 @@ const BOTTOM_NAV = [
   { to: "/news",      icon: Newspaper,       label: "뉴스"     },
   { to: "/quant",     icon: Award,           label: "퀀트"     },
 ];
+
+/** 메뉴에 손을 대는 순간(마우스를 올리거나 손가락이 닿거나 초점이 오면)
+ *  그 화면 코드를 미리 받는다 — 누르고 떼기까지의 0.1~0.3초 동안 받아 둔다 */
+function 미리받기(주소: string) {
+  const 받기 = () => 화면미리받기(주소);
+  return { onPointerEnter: 받기, onPointerDown: 받기, onFocus: 받기 };
+}
+
+/** 화면 코드를 받는 동안 내용 자리에 두는 자리표시 */
+function 화면기다리기() {
+  return (
+    <div aria-busy="true" aria-label="화면을 불러오는 중" className="flex flex-col gap-3 pt-1">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="h-24 rounded-xl border border-border bg-bg-card animate-pulse" />
+      ))}
+    </div>
+  );
+}
 
 export default function Layout() {
   const wsStatus = useWSStore((s) => s.indicesStatus);
@@ -58,6 +79,19 @@ export default function Layout() {
     logout();
     navigate("/login");
   };
+
+  /* 첫 화면이 뜨고 한가해지면 하단 탭 화면들의 코드를 미리 받는다.
+     처음 여는 화면은 코드를 받는 왕복이 끝나야 데이터를 묻기 시작했다 —
+     서버 요청은 하나도 안 늘리고 그 왕복만 앞으로 당긴다. 종목 상세는
+     크고(차트 포함) 탭에도 없으니 누를 낌새가 보일 때만 받는다.
+     데이터를 아껴 쓰는 중이면 안 한다. */
+  /* 앱 틀이 그려졌다 — 설치형 앱의 시작 화면을 걷는다(SplashScreen) */
+  useEffect(() => { 앱준비됨(); }, []);
+
+  useEffect(() => {
+    if (아껴쓰는중()) return;
+    return 한가할때(() => BOTTOM_NAV.forEach(({ to }) => 화면미리받기(to)), 5_000);
+  }, []);
 
   /* 시스템 다크/라이트 모드 변경 감지 */
   useEffect(() => {
@@ -129,7 +163,7 @@ export default function Layout() {
         <div className="mx-4 h-px bg-border-subtle mb-3" />
         <nav className="flex-1 px-3 flex flex-col gap-0.5">
           {NAV.map(({ to, icon: Icon, label, end }) => (
-            <NavLink key={to} to={to} end={end}
+            <NavLink key={to} to={to} end={end} {...미리받기(to)}
               className={({ isActive }) => navItemCls(isActive)}
             >
               <Icon size={14} className="flex-shrink-0" />{label}
@@ -224,7 +258,12 @@ export default function Layout() {
         {/* 콘텐츠 */}
         <main className="flex-1 overflow-y-auto bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
           <div className="p-3 md:p-5 max-w-[1600px] mx-auto">
-            <Outlet />
+            {/* 화면 코드를 받는 동안 **내용 자리만** 기다린다. 이게 없으면
+                바깥(main.tsx)의 대기 화면까지 올라가, 처음 여는 화면마다
+                머리·하단 탭까지 통째로 사라졌다가 다시 나타났다 */}
+            <Suspense fallback={<화면기다리기 />}>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>
@@ -235,7 +274,7 @@ export default function Layout() {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         {BOTTOM_NAV.map(({ to, icon: Icon, label, end }) => (
-          <NavLink key={to} to={to} end={end} className="flex-1 active:scale-95 transition-transform">
+          <NavLink key={to} to={to} end={end} {...미리받기(to)} className="flex-1 active:scale-95 transition-transform">
             {({ isActive }) => {
               /* 관심종목은 "내 자산" 화면의 형제 탭이라, 거기 있을 때도
                  "내 자산" 에 불이 켜져야 한다. 안 그러면 화면 위 탭은

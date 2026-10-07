@@ -19,7 +19,7 @@ vi.mock("@/api/stocks", () => ({
     getKR: () => 부르기("kr"), getUS: () => 부르기("us"),
     getNews: (m: string) => 부르기(`news-${m}`),
   },
-  watchlistApi: { getItems: () => 부르기("watch") },
+  watchlistApi: { getItems: () => 부르기("watch"), getItemsWithCachedPrices: () => 부르기("watch") },
 }));
 vi.mock("@/hooks/usePortfolioItems", async () => {
   const { useQuery } = await vi.importActual<any>("@tanstack/react-query");
@@ -31,6 +31,18 @@ vi.mock("../Logo", () => ({ default: () => null }));
 let 표시설정 = "보이기";
 vi.mock("@/store/settingsStore", () => ({
   useSettingsStore: (sel: any) => sel({ 불러오기표시: 표시설정 }),
+}));
+
+/* 미리 불러오기는 한가해진 뒤에 한다. 검사에서는 그 '한가해짐' 을 손으로 —
+   기본은 곧바로, 미루기 검사에서만 붙잡아 둔다 */
+let 한가함붙잡기 = false;
+let 한가할때_할일: (() => void) | null = null;
+vi.mock("@/utils/한가할때", () => ({
+  한가할때: (f: () => void) => {
+    if (한가함붙잡기) 한가할때_할일 = f; else f();
+    return () => {};
+  },
+  아껴쓰는중: () => false,
 }));
 
 import 위젯, { 라벨, 묶기, 느림기준초, 띄울때까지ms } from "../LoadingProgressOverlay";
@@ -55,7 +67,10 @@ const 줄 = (이름: string) => screen.getByText(이름, { exact: true }).closes
 const 뜰때까지 = { timeout: 띄울때까지ms + 1500 };
 const 기본들 = ["kr", "us", "news-kr", "news-us"];
 
-beforeEach(() => { 표시설정 = "보이기"; 대기 = {}; for (const k in 부른수) delete 부른수[k]; 로그인 = false; });
+beforeEach(() => {
+  표시설정 = "보이기"; 대기 = {}; for (const k in 부른수) delete 부른수[k]; 로그인 = false;
+  한가함붙잡기 = false; 한가할때_할일 = null;
+});
 
 describe("데이터 불러오기 위젯", () => {
   it("대시보드·뉴스를 항목별로 보여 준다", async () => {
@@ -192,6 +207,17 @@ describe("설정 → 불러오기 표시", () => {
     });
     expect(await screen.findByText(/1개를 못 불러왔어요/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "국내 뉴스 다시 시도" })).toBeTruthy();
+  });
+
+  it("미리 불러오기는 한가해진 뒤에 한다 — 지금 화면의 요청이 먼저", async () => {
+    한가함붙잡기 = true;
+    로그인 = true;
+    그리기([["stock-detail", "KR", "005930"]]);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(Object.keys(부른수)).toEqual(["stock-detail"]);
+    act(() => 한가할때_할일!());
+    await waitFor(() => expect(Object.keys(부른수).sort()).toEqual(
+      ["hold", "kr", "news-kr", "news-us", "stock-detail", "us", "watch"]));
   });
 
   it("꺼 두어도 앱 진입 때 미리 불러오기는 그대로 한다", async () => {

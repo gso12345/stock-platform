@@ -59,7 +59,9 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
     <div
       className={`relative overflow-hidden border-b border-border/30 group ${isDragOver ? "bg-accent-blue/5" : ""} ${isDragging ? "opacity-40" : ""}`}
       onDragOver={onDragOver} onDrop={onDrop}
-      onMouseEnter={onPrefetch}
+      /* 누를 낌새가 보이면 그 종목만 미리 받는다 — 마우스는 올릴 때,
+         손가락은 닿을 때, 키보드는 초점이 올 때 */
+      onMouseEnter={onPrefetch} onPointerDown={onPrefetch} onFocus={onPrefetch}
     >
       {/* 스와이프 액션 버튼 (오른쪽 고정, 왼쪽으로 밀면 등장) */}
       <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL }}>

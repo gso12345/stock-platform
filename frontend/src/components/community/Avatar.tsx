@@ -5,6 +5,15 @@
  * 자체가 사라진다. 상태를 나타내는 색(성공·오류·경고)과 달리
  * 이건 분류용 팔레트라 의도적으로 따로 둔다. */
 import { Link } from "react-router-dom";
+import { API_BASE } from "@/api/client";
+
+/** 목록(피드·댓글·알림)은 사진을 통째로 싣지 않고 주소만 보낸다 — API 주소
+ *  기준의 상대 경로라 앞에 API 주소를 붙인다. 내 프로필처럼 사진을 그대로
+ *  주는 곳(data:)은 그대로 쓴다 */
+export function 사진주소(url?: string | null): string | null {
+  if (!url) return null;
+  return url.startsWith("/") ? `${API_BASE}${url}` : url;
+}
 
 const AVATAR_COLORS = [
   "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -40,8 +49,10 @@ export default function Avatar({ username, colorIndex, avatarUrl, userId, isMine
 
   const inner = avatarUrl ? (
     <img
-      src={avatarUrl}
+      src={사진주소(avatarUrl) ?? undefined}
       alt={username}
+      loading="lazy"
+      decoding="async"
       // 사진 아바타에는 테두리 색이 지정돼 있지 않아 기본색으로 그려졌다.
       // 글자 아바타(cls에 테두리 색 포함)와 맞춘다
       className={`${sz} border-border rounded-full object-cover shrink-0`}

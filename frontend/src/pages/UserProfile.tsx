@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
@@ -54,17 +54,21 @@ export default function UserProfile() {
     staleTime: 120_000,
   });
 
-  useEffect(() => {
-    if (!activity?.items) return;
-    activity.items.forEach((item: any) => {
-      const postId = item.type === "post" ? item.id : item.post_id;
-      qc.prefetchQuery({
-        queryKey: ["post", postId],
-        queryFn: () => communityApi.getPost(postId),
-        staleTime: 120_000,
-      });
+  /* 활동 글은 **누를 낌새가 보일 때만** 미리 받는다(마우스를 올리거나
+     손가락이 닿거나 초점이 오면).
+
+     예전에는 화면을 열자마자 활동 글을 전부(최대 15개) 미리 받았다. 글
+     하나를 받을 때마다 서버는 조회수를 1 올리고 DB 를 열 번 넘게 오가므로,
+     프로필을 한 번 열 때마다 0.15 CPU 서버에 무거운 요청이 열다섯 번
+     몰리고 — 열어 보지도 않은 글들의 조회수가 올라갔다. */
+  const 글미리받기 = (postId: number) => {
+    if (qc.getQueryData(["post", postId])) return;
+    qc.prefetchQuery({
+      queryKey: ["post", postId],
+      queryFn: () => communityApi.getPost(postId),
+      staleTime: 120_000,
     });
-  }, [activity, qc]);
+  };
 
   const openActivityPost = (postId: number) => {
     navigate(`/post/${postId}`);
@@ -340,6 +344,9 @@ export default function UserProfile() {
                   <div className="flex-1 min-w-0">
                     <button
                       onClick={() => openActivityPost(postId)}
+                        onPointerEnter={() => 글미리받기(postId)}
+                        onPointerDown={() => 글미리받기(postId)}
+                        onFocus={() => 글미리받기(postId)}
                       className="text-sm text-text-secondary hover:text-accent-blue transition-colors line-clamp-2 break-words text-left w-full"
                     >
                       {item.type === "post" ? (item.title || item.body) : item.content}

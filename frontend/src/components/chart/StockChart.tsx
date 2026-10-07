@@ -7,6 +7,7 @@ import {
   calcIchimoku, calcFibonacci, OHLCV,
 } from "./indicators";
 import { 구름시리즈 } from "./CloudSeries";
+import { CANDLE_MAX_PERIOD, type ChartType } from "./candles";
 import { useSettingsStore, type ColorScheme } from "@/store/settingsStore";
 
 /* ── 내보내기 (StockDetail에서 사용) ────────────────────── */
@@ -20,22 +21,7 @@ export const CANDLE_TYPES = [
   { label: "연봉",  value: "1y"  },
 ] as const;
 
-export const CANDLE_GROUPS = [
-  { label: "분", key: "min", options: [
-    { label: "1분",  value: "1m"  }, { label: "2분",  value: "2m"  },
-    { label: "5분",  value: "5m"  }, { label: "15분", value: "15m" },
-    { label: "30분", value: "30m" }, { label: "60분", value: "60m" },
-    { label: "90분", value: "90m" },
-  ]},
-  { label: "일", key: "day", options: [
-    { label: "1일봉",  value: "1d"  }, { label: "3일봉",  value: "3d"  },
-    { label: "5일봉",  value: "5d"  }, { label: "10일봉", value: "10d" },
-    { label: "30일봉", value: "30d" }, { label: "60일봉", value: "60d" },
-  ]},
-  { label: "주",  key: "week",  options: [{ label: "1주봉", value: "1wk" }] },
-  { label: "월",  key: "month", options: [{ label: "1월봉", value: "1mo" }, { label: "3월봉", value: "3mo" }] },
-  { label: "년",  key: "year",  options: [{ label: "1년봉", value: "1y"  }] },
-] as const;
+export { CANDLE_GROUPS, CANDLE_MAX_PERIOD } from "./candles";
 
 export const PERIOD_BY_CANDLE: Record<string, { label: string; value: string }[]> = {
   "1m":  [{ label:"1일",value:"1d" },{ label:"5일",value:"5d" }],
@@ -53,11 +39,7 @@ export const PERIOD_BY_CANDLE: Record<string, { label: string; value: string }[]
   "1y":  [{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
 };
 
-export const CANDLE_MAX_PERIOD: Record<string, string> = {
-  "1m":"5d","2m":"60d","5m":"60d","15m":"60d","30m":"60d","60m":"2y","90m":"60d",
-  "1d":"max","3d":"max","5d":"max","10d":"max","30d":"max","60d":"max",
-  "1wk":"max","1mo":"max","3mo":"max","1y":"max",
-};
+
 
 export const MAX_PERIOD_BY_CANDLE = CANDLE_MAX_PERIOD;
 
@@ -151,7 +133,7 @@ function getThemeColors(colorScheme: ColorScheme) {
   };
 }
 
-export type ChartType = "candle" | "line" | "area";
+export type { ChartType } from "./candles";
 
 interface Props {
   data: OHLCV[];

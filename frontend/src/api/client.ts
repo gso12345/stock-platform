@@ -1,4 +1,5 @@
 import axios from "axios";
+import { 사람칸_모두지우기 } from "./queryPersist";
 
 const BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api/v1`
@@ -64,6 +65,8 @@ api.interceptors.response.use(
       try {
         localStorage.removeItem(AUTH_STORAGE_KEY);
       } catch {}
+      /* 로그인이 끊겼다 — 디스크에 남겨 둔 그 사람의 목록도 같이 지운다 */
+      사람칸_모두지우기();
       /* 로그인/회원가입 페이지가 아닐 때만 리다이렉트.
          왜 갑자기 로그인 화면인지 알려주지 않으면, 사용자는 '데이터가
          사라졌다'거나 '앱이 고장났다'고 읽는다. 실제로 그런 문의가 있었다. */

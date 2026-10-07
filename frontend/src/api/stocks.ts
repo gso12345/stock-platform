@@ -894,6 +894,13 @@ export const watchlistApi = {
   getItems: (market?: string, folderId?: number): Promise<WatchlistItem[]> =>
     api.get("/watchlist/items", { params: { market, folder_id: folderId } }).then((r) => r.data),
 
+  /** 관심종목 목록 + **이미 받아 둔 시세**를 한 번에 (내 자산의 getItemsWithPrices 와 같은 것).
+   *  예전 서버는 배열만 준다 — 받는 쪽(hooks/useWatchlistItems)이 둘 다 읽는다 */
+  getItemsWithCachedPrices: () =>
+    api.get<{ items: unknown[]; prices: unknown[] } | unknown[]>("/watchlist/items", {
+      params: { with_prices: true },
+    }).then((r) => r.data),
+
   /**
    * 여러 종목의 현재가를 한 번에 조회한다.
    *
