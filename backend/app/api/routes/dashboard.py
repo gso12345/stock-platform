@@ -298,19 +298,6 @@ async def get_kr_dashboard(include_news: bool = Query(default=False)):
     }
 
 
-async def _refresh_kr_ranking_bg(category: str):
-    """백그라운드 KR 랭킹 갱신 (stale-while-revalidate)"""
-    from app.services.ranking_service import fetch_naver_rank, RANK_TTL
-    try:
-        rows = await fetch_naver_rank(category)
-        if rows:
-            for i, r in enumerate(rows):
-                r["rank"] = i + 1
-            cache.set(f"rank:kr:{category}", rows, RANK_TTL)
-    except Exception:
-        pass
-
-
 #: 순위표를 만드느라 화면을 붙잡아 둘 수 있는 최대 시간.
 #:
 #: 여기에는 상한이 아예 없었다. KIS 가 늦으면 늦는 만큼, 캐시가 비어
@@ -319,43 +306,64 @@ async def _refresh_kr_ranking_bg(category: str):
 #: 상한을 넘기면 있는 것으로 답하고 나머지는 배경에서 채운다.
 _RANK_상한 = 6
 
+#: 순위 응답에 싣는 줄 수. 화면은 많아야 50위까지 보인다(더보기) — 100줄을
+#: 다 보내면 응답만 두 배가 된다.
+순위_응답_수 = 50
+
+
+def _뒤에서_국내순위_갱신() -> None:
+    """국내 순위를 배경에서 새로 만든다(이미 만드는 중이면 그것에 합류한다)."""
+    from app.services.ranking_service import refresh_kr_rankings_from_naver
+
+    async def 조용히():
+        try:
+            await refresh_kr_rankings_from_naver()
+        except Exception as e:
+            log.debug("국내 순위 배경 갱신 실패: %s", type(e).__name__)
+    asyncio.get_running_loop().create_task(조용히())
+
 
 async def _get_kr_rankings(category: str) -> list:
-    from app.services.ranking_service import get_kr_rankings
+    """국내 순위.
 
-    # 신선한 캐시가 있으면 그걸로 끝낸다.
-    #
-    # 예전에는 KIS 를 **먼저** 불렀다. 키가 설정돼 있으면 캐시가 아무리
-    # 신선해도 매 요청마다 외부 왕복이 한 번씩 붙었다는 뜻이다.
-    cached = cache.get(f"rank:kr:{category}")
+    네이버 시세표 한 곳에서 다섯 순위를 함께 만든다(ranking_service 참고).
+    예전에는 신선한 캐시가 없으면 KIS 를 먼저 불렀다. 그런데 —
+      · KIS 순위는 20위까지뿐이고, 줄 모양(종목코드 접미사·등락)도 달랐다.
+      · 거래량·거래대금은 KIS 의 **시가총액** 주소로 묻고 있었다(분류와 상관없이).
+      · 결과를 담아 두지 않아, 그동안 매 요청이 최대 6초씩 KIS 를 기다렸다.
+    그래서 순위를 열 때마다 목록이 들쭉날쭉했고 느렸다. KIS 는 이제 안 쓴다."""
+    from app.services.ranking_service import (
+        get_kr_rankings, refresh_kr_rankings_from_naver, 국내갱신_막힘,
+    )
+    from app.services import market_hours
+
+    ck = f"rank:kr:{category}"
+    cached = cache.get(ck)
     if cached:
         return cached
 
-    if settings.KIS_APP_KEY:
-        try:
-            result = await asyncio.wait_for(kis_service.get_rankings(category), timeout=_RANK_상한)
-            if result:
-                return result
-        except Exception:
-            pass
+    지난것 = cache.get_stale(ck)
+    # 장이 닫혀 있으면 지난 순위도 그대로 맞다(종가는 안 변한다) — 곧바로
+    # 주고 뒤에서 새로 받는다. 장중이면 지난 것은 이미 틀렸다. 새로 받는
+    # 동안(보통 1~2초) 기다리고, 상한을 넘기면 그때 지난 것을 준다.
+    # 다만 네이버가 방금 막혔으면 기다려 봐야 또 막힌다 — 그동안 순위를
+    # 여는 사람마다 6초씩 세우지 않고 곧바로 지난 것을 준다(스케줄러가 다시 받는다)
+    if 지난것 and 국내갱신_막힘():
+        return 지난것
+    if 지난것 and market_hours.kr_session() == "closed":
+        _뒤에서_국내순위_갱신()
+        return 지난것
+    try:
+        await asyncio.wait_for(refresh_kr_rankings_from_naver(), timeout=_RANK_상한)
+    except Exception:
+        pass
+    if 새것 := cache.get(ck):
+        return 새것
+    if 지난것:
+        return 지난것
 
-    # stale 캐시 → 즉시 반환 + 백그라운드 갱신
-    stale = cache.get_stale(f"rank:kr:{category}")
-    _rank_key = f"kr_rankings:{category}"
-    if _rank_key not in _bg_refresh_in_flight:
-        _bg_refresh_in_flight.add(_rank_key)
-        async def _guarded_kr_ranking_bg():
-            try:
-                await _refresh_kr_ranking_bg(category)
-            finally:
-                _bg_refresh_in_flight.discard(_rank_key)
-        asyncio.get_running_loop().create_task(_guarded_kr_ranking_bg())
-    if stale:
-        return stale
-
-    # FDR 기반 랭킹 — 캐시 미스 시 전체 종목을 순회/정렬하므로 이벤트 루프 블로킹 방지를 위해 executor로 실행.
-    # 상한을 넘기면 빈 목록으로 답한다. 바로 위에서 배경 갱신을 이미
-    # 걸어 뒀으므로, 다음 요청 때는 캐시에서 곧바로 나온다.
+    # 네이버를 못 받았다 — 전일 종가로라도 만든다. 전 종목을 훑으므로 이벤트
+    # 루프를 막지 않게 executor 로, 상한을 넘기면 빈 목록으로 답한다
     loop = asyncio.get_running_loop()
     try:
         return await asyncio.wait_for(
@@ -456,12 +464,12 @@ async def _get_us_rankings_cached(category: str) -> list:
 # ── 랭킹 ───────────────────────────────────────────────────
 @router.get("/rankings/kr")
 async def kr_rankings(category: str = Query(default="시가총액", pattern=CATEGORY_PATTERN)):
-    return await _get_kr_rankings(category)
+    return (await _get_kr_rankings(category))[:순위_응답_수]
 
 
 @router.get("/rankings/us")
 async def us_rankings(category: str = Query(default="시가총액", pattern=CATEGORY_PATTERN)):
-    return await _get_us_rankings_cached(category)
+    return (await _get_us_rankings_cached(category))[:순위_응답_수]
 
 
 # ── 뉴스 ───────────────────────────────────────────────────

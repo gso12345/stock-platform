@@ -578,7 +578,8 @@ async def fetch_naver_exchange() -> dict | None:
 _YF_QUOTE_FIELDS = (
     "regularMarketPrice,regularMarketChange,regularMarketChangePercent,"
     "regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,"
-    "regularMarketDayLow,regularMarketVolume,marketCap,shortName,longName,currency"
+    "regularMarketDayLow,regularMarketVolume,regularMarketTime,"
+    "marketCap,shortName,longName,currency"
 )
 
 
@@ -603,6 +604,10 @@ def _parse_yf_quotes(res_list: list) -> dict[str, dict]:
             "open":        _safe(q.get("regularMarketOpen")),
             "high":        _safe(q.get("regularMarketDayHigh")),
             "low":         _safe(q.get("regularMarketDayLow")),
+            # 정규장 마지막 체결 시각(유닉스 초). 등락률이 '어느 날 장' 의 것인지
+            # 가려야 순위표에 어제 등락과 오늘 등락이 섞이지 않는다
+            # (ranking_service._마지막_장만 참고)
+            "regular_time": int(_safe(q.get("regularMarketTime")) or 0),
         }
     return out
 

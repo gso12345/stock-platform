@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import os
+import time
 import httpx
 from app.core.http import SSL
 import re
@@ -72,6 +73,15 @@ def _parse_num(s: str) -> float:
         return 0.0
 
 
+def _칸숫자(td) -> "float | None":
+    """시세표 칸 하나의 숫자. '+1.50%'·'4,200,000' 같은 꼴을 읽는다. 숫자가 아니면 None."""
+    txt = td.get_text(strip=True).replace(",", "").replace("+", "").replace("%", "").strip()
+    try:
+        return float(txt)
+    except Exception:
+        return None
+
+
 def _트리끊기(soup) -> None:
     """다 쓴 HTML 트리를 즉시 놓아준다.
 
@@ -131,6 +141,36 @@ async def _fetch_naver_sise_page(url: str, market_code: int = 0, has_market_cap:
         return []
 
 
+#: 표 머리줄의 칸 이름 → 우리가 쓰는 이름.
+#:
+#: 예전에는 '종목명 다음 몇 번째 칸' 으로만 읽었다. 그런데 시가총액 페이지에는
+#: 등락률과 시가총액 사이에 **액면가** 칸이 있다. 칸 하나가 밀리면 시가총액
+#: 자리에서 액면가를(삼성전자가 시가총액 순위에서 사라진 일), 거래량 자리에서
+#: 외국인비율을 읽는다 — 숫자가 나오긴 하므로 아무도 눈치채지 못한다.
+#: 머리줄이 있으면 칸 이름으로 찾는다. 없으면(머리줄 모양이 바뀌었을 때) 예전
+#: 위치로 읽는다.
+_머리칸 = {
+    "종목명": "name",
+    "현재가": "price", "전일비": "change", "등락률": "change_rate",
+    "거래량": "volume", "시가총액": "market_cap",
+}
+
+
+#: 이 칸들이 머리줄에 다 있어야 머리줄을 믿는다. 이름이 바뀌어(예: '등락률(%)')
+#: 하나라도 못 찾으면 머리줄을 버리고 예전 위치로 읽는다 — 반쯤 맞는 머리줄로
+#: 읽으면 등락률이 통째로 0 이 되는 식으로 조용히 틀린다.
+_꼭있어야할칸 = ("종목명", "현재가", "등락률", "거래량")
+
+
+def _머리줄_읽기(soup) -> dict[str, int]:
+    """시세표 머리줄에서 칸 이름 → 위치. 믿을 만한 머리줄이 없으면 빈 dict."""
+    for 표 in soup.select("table"):
+        이름들 = [th.get_text(strip=True) for th in 표.select("tr th")]
+        if all(n in 이름들 for n in _꼭있어야할칸):
+            return {_머리칸[n]: i for i, n in enumerate(이름들) if n in _머리칸}
+    return {}
+
+
 def _시세표_읽기(html: str, market_code: int, has_market_cap: bool) -> list[dict]:
     """네이버 시세 페이지 HTML → 순위 줄. 스레드에서 돈다 (_fetch_naver_sise_page 참고)."""
     soup = None
@@ -139,6 +179,7 @@ def _시세표_읽기(html: str, market_code: int, has_market_cap: bool) -> list
         suffix   = ".KS" if market_code == 0 else ".KQ"
         mkt_name = "KOSPI" if market_code == 0 else "KOSDAQ"
         soup = BeautifulSoup(html, "lxml")
+        머리 = _머리줄_읽기(soup)
         rows = []
         # 아래에서 뽑는 값은 전부 평범한 str/float 다. 트리에 매달린
         # 문자열(NavigableString)을 그대로 담으면 그 하나가 트리 전체를
@@ -166,28 +207,38 @@ def _시세표_읽기(html: str, market_code: int, has_market_cap: bool) -> list
             # name TD 이후 데이터 TD만 숫자로 파싱
             nums: list = []
             for td in tds[name_idx + 1:]:
-                txt = td.get_text(strip=True).replace(",", "").replace("+", "").replace("%", "").strip()
-                try:
-                    nums.append(float(txt))
-                except Exception:
-                    nums.append(None)
+                nums.append(_칸숫자(td))
 
             if len(nums) < 4:
                 continue
 
-            # name 다음: [0]=현재가 [1]=전일비 [2]=등락률
-            price       = nums[0] if nums[0] and nums[0] > 0 else 0
-            change_raw  = nums[1] if nums[1] is not None else 0
-            change_rate = nums[2] if nums[2] is not None and abs(nums[2]) <= 100 else 0
+            # 머리줄이 있으면 칸 이름으로 읽는다(_머리칸 참고). 줄 앞에 머리줄에
+            # 없는 칸이 더 있으면 종목명 칸 위치로 그만큼 밀어 맞춘다
+            어긋남 = name_idx - 머리["name"] if "name" in 머리 else None
 
-            if has_market_cap:
-                # [3]=시총(억) [4]=상장주식수 [5]=외인비율 [6]=거래량 [7]=PER [8]=ROE
-                market_cap = int((nums[3] or 0) * 1e8) if len(nums) > 3 and nums[3] and nums[3] > 0 else 0
-                volume     = int(nums[6]) if len(nums) > 6 and nums[6] and nums[6] > 0 else 0
-            else:
-                # [3]=거래량 [4]=거래대금(억) [5]=시총(억) [6]=PER
-                volume     = int(nums[3]) if len(nums) > 3 and nums[3] and nums[3] > 0 else 0
-                market_cap = int((nums[5] or 0) * 1e8) if len(nums) > 5 and nums[5] and nums[5] > 0 else 0
+            def 칸(필드: str, 예전위치: int):
+                if 어긋남 is not None:
+                    # 머리줄을 읽었으면 그것만 믿는다. 머리줄에 없는 칸은 그
+                    # 페이지에 없는 것이다(상승률 페이지에는 시가총액이 없다) —
+                    # 예전 위치로 읽으면 매도호가 같은 옆 칸을 시가총액으로 읽는다
+                    if 필드 not in 머리:
+                        return None
+                    i = 머리[필드] + 어긋남
+                    return _칸숫자(tds[i]) if 0 <= i < len(tds) else None
+                return nums[예전위치] if len(nums) > 예전위치 else None
+
+            # 머리줄이 없을 때의 예전 위치(종목명 다음부터 0):
+            #   시가총액 페이지  [0]현재가 [1]전일비 [2]등락률 [3]시총(억) … [6]거래량
+            #   나머지 페이지    [0]현재가 [1]전일비 [2]등락률 [3]거래량 … [5]시총(억)
+            현재가, 전일비, 등락률 = 칸("price", 0), 칸("change", 1), 칸("change_rate", 2)
+            거래량 = 칸("volume", 6 if has_market_cap else 3)
+            시총억 = 칸("market_cap", 3 if has_market_cap else 5)
+
+            price       = 현재가 if 현재가 and 현재가 > 0 else 0
+            change_raw  = 전일비 if 전일비 is not None else 0
+            change_rate = 등락률 if 등락률 is not None and abs(등락률) <= 100 else 0
+            volume      = int(거래량) if 거래량 and 거래량 > 0 else 0
+            market_cap  = int(시총억 * 1e8) if 시총억 and 시총억 > 0 else 0
 
             change = round(price * change_rate / 100, 2) if price and change_rate else round(change_raw, 2)
             rows.append({
@@ -349,9 +400,8 @@ def _sort_kr(rows: list[dict], category: str) -> list[dict]:
     else:  # 시가총액
         sortable.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
 
-    for i, r in enumerate(sortable):
-        r["rank"] = i + 1
-    return sortable[:100]
+    # 번호는 복사본에 매긴다(_sort_us 와 같은 이유) — 내보낼 100줄만
+    return [dict(r, rank=i + 1) for i, r in enumerate(sortable[:100])]
 
 
 # 미국 순위표 자체를 담아 둔다.
@@ -443,6 +493,7 @@ def _us_rows_from_cache() -> list[dict]:
             "volume":      volume,
             "amount":      price * volume if price and volume else 0,
             "market_cap":  p.get("market_cap") or 0,
+            "regular_time": p.get("regular_time") or 0,
             "_demo":       p.get("_demo", False),
         })
     return rows
@@ -639,9 +690,8 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
         rows = _표에_쌓기(_us_rows_from_cache())
         if rows:
             cache.set(US_ROWS_CK, rows, US_ROWS_TTL)
-            # 카테고리별 순위도 다시 만들게 비운다
-            for c in ("시가총액", "상승률", "하락률", "거래대금", "거래량", "신고가", "신저가"):
-                cache.delete(f"rank:us:{c}")
+            # 분류별 순위도 새 표로 이 자리에서 다시 만든다(미국표_다시쌓기 참고)
+            _미국순위_모두_담기(rows)
         log.info("미국 순위표 %d종목 / 전체 %d — 이번에 %d건 갱신 (다음 시작 %d)",
                  len(rows), len(전체), 받은수, _us_cursor)
         return len(rows)
@@ -649,8 +699,50 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
         _us_rows_refreshing = False
 
 
-def _sort_us(rows: list[dict], category: str) -> list[dict]:
+#: 등락·거래 순위를 한 장(같은 날 정규장)의 값으로만 매기려면 그 장에서 이만큼은
+#: 모여야 한다 — 장이 막 열려 아직 몇 종목만 받았으면 그 앞 장으로 줄 세운다
+US_SESSION_MIN_ROWS = 20
+
+
+def _미국_하루시작(t: int) -> int:
+    """정규장 마지막 체결 시각(유닉스 초) → 그날 0시(뉴욕 기준)의 유닉스 초.
+
+    market_hours 와 같은 동부시각 계산을 쓴다(서머타임 근사). 줄마다 날짜로
+    바꾸지 않고 '하루의 시작' 하나와 견준다 — 6천 줄을 매번 변환하면 0.15
+    CPU 에서 그것만으로 눈에 띄게 걸린다."""
+    from datetime import datetime, timezone
+    from app.services.market_hours import _et_now
+    뉴욕 = _et_now(datetime.fromtimestamp(t, timezone.utc))
+    return int(뉴욕.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+
+
+def _마지막_장만(rows: list[dict]) -> list[dict]:
+    """가장 최근 정규장의 값만 남긴다 (등락률·거래량·거래대금 순위용).
+
+    표는 여러 번에 걸쳐 나눠 쌓는다. 미국장이 열려 있는 동안 인기·S&P500 은
+    자주 받지만 나머지는 전날 장 마감 값 그대로였다 — 그래서 상승률 순위에
+    **어제 오른 종목** 이 오늘 오른 종목과 섞여 위에 앉아 있었다.
+
+    정규장 마지막 체결 시각(regular_time)의 날짜로 장을 가른다. 가장 최근
+    장에 충분히(US_SESSION_MIN_ROWS) 모였으면 그 장 것만, 아직 덜 모였으면
+    (장이 막 열려 받는 중) 그 앞 장 것만 쓴다 — 어느 쪽이든 한 장의 값끼리만
+    견준다. 체결 시각을 아는 줄이 없으면(옛 캐시) 거르지 않는다."""
+    남은 = [r for r in rows if (r.get("regular_time") or 0) > 0]
+    while 남은:
+        시작 = _미국_하루시작(max(r["regular_time"] for r in 남은))
+        그날 = [r for r in 남은 if r["regular_time"] >= 시작]
+        if len(그날) >= US_SESSION_MIN_ROWS:
+            return 그날
+        남은 = [r for r in 남은 if r["regular_time"] < 시작]
+    return rows
+
+
+def _sort_us(rows: list[dict], category: str, 장거름: bool = True) -> list[dict]:
+    """미국 순위 하나. 장거름=False 면 이미 한 장으로 거른 줄을 받은 것이다
+    (_미국순위_모두_담기 가 일곱 가지를 만들며 한 번만 거른다)."""
     sortable = [r for r in rows if r.get("price")]
+    if 장거름 and category != "시가총액":
+        sortable = _마지막_장만(sortable)
     if category == "상승률":
         sortable.sort(key=lambda x: x.get("change_rate") or -9999, reverse=True)
     elif category == "하락률":
@@ -673,13 +765,28 @@ def _sort_us(rows: list[dict], category: str) -> list[dict]:
         앉아 있는' 것과 같은 표가 된다. 국내 순위는 진작 이렇게 하고 있다."""
         sortable = [r for r in sortable if (r.get("market_cap") or 0) > 0]
         sortable.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
-    for i, r in enumerate(sortable):
-        r["rank"] = i + 1
-    return sortable[:100]
+    # 번호는 복사본에 매긴다 — 표의 줄에 매기면 분류마다 서로 덮어쓴다.
+    # 복사는 내보낼 100줄만(6천 줄을 다 복사할 이유가 없다)
+    위 = []
+    for i, r in enumerate(sortable[:100]):
+        줄 = dict(r, rank=i + 1)
+        # 언제 장의 값인가 — 화면이 'M/D HH:MM 기준' 으로 보여 준다
+        if r.get("regular_time"):
+            줄["as_of"] = r["regular_time"]
+        위.append(줄)
+    return 위
 
 
 # ── 공개 인터페이스 ────────────────────────────────────────
+#: 네이버를 못 받아 전일 종가(FDR)로 만든 대체 순위의 수명.
+#: 오래 담아 두면 네이버가 돌아와도 그동안 어제 순위를 낸다.
+FDR_RANK_TTL = 60
+
+
 def get_kr_rankings(category: str = "시가총액") -> list[dict]:
+    """국내 순위 — 담아 둔 것이 없을 때만 쓰는 **대체 경로**(전일 종가 기준).
+
+    평소 순위는 refresh_kr_rankings_from_naver 가 네이버 시세표로 만든다."""
     ck = f"rank:kr:{category}"
     cached = cache.get(ck)
     if cached:
@@ -690,76 +797,157 @@ def get_kr_rankings(category: str = "시가총액") -> list[dict]:
     if stale := cache.get_stale(ck):
         return stale
 
-    # 거래대금/신고가/신저가는 거래량/상승률 캐시를 활용해 계산
-    if category == "거래대금":
-        vol_rows = cache.get_stale("rank:kr:거래량") or []
-        if vol_rows:
-            for r in vol_rows:
-                r["amount"] = (r.get("price") or 0) * (r.get("volume") or 0)
-            sorted_rows = sorted(vol_rows, key=lambda x: x.get("amount") or 0, reverse=True)
-            for i, r in enumerate(sorted_rows):
-                r["rank"] = i + 1
-            cache.set(ck, sorted_rows, RANK_TTL)
-            return sorted_rows
-    elif category == "신고가":
-        rise_rows = cache.get_stale("rank:kr:상승률") or []
-        result = [r for r in rise_rows if (r.get("change_rate") or 0) > 0][:100]
-        for i, r in enumerate(result):
-            r["rank"] = i + 1
-        if result:
-            cache.set(ck, result, RANK_TTL)
-        return result
-    elif category == "신저가":
-        fall_rows = cache.get_stale("rank:kr:하락률") or []
-        result = [r for r in fall_rows if (r.get("change_rate") or 0) < 0][:100]
-        for i, r in enumerate(result):
-            r["rank"] = i + 1
-        if result:
-            cache.set(ck, result, RANK_TTL)
-        return result
-
     rows = _build_all_kr_rows()
-
     result = _sort_kr(rows, category)
-
     if result:
-        cache.set(ck, result, RANK_TTL)
+        cache.set(ck, result, FDR_RANK_TTL)
     return result
 
 
-async def refresh_kr_rankings_from_naver():
-    """Naver Finance 순위 HTML 파싱으로 캐시 갱신
-    시가총액 순위: HTML 파싱 후 모바일 API 캐시로 market_cap 교정 → 재정렬
-    """
-    for cat in NAVER_SISE_PAGES.keys():
-        rows = await fetch_naver_rank(cat)
-        if not rows:
-            continue
+def _시가총액_다시매기기(rows: list[dict]) -> list[dict]:
+    """시가총액 순위를 현재가 × 상장주식수 로 다시 매겨 줄 세운다.
 
-        # 시가총액은 HTML 에서 읽은 값을 쓰지 않고 직접 계산해 덮어쓴다.
-        #
-        # 예전에는 '캐시 값과 파싱 값 중 큰 쪽'을 골랐다. 둘 중 무엇이 맞는지
-        # 모르니 큰 쪽을 고른다는 뜻인데, 한쪽이 엉뚱하게 크면 그 종목이
-        # 그대로 1위가 된다. 실제로 시가총액 순위에서 삼성전자가 사라졌다.
-        #
-        # 현재가 × 상장주식수는 추측이 아니다. 계산할 수 없는 종목만
-        # 파싱한 값을 남겨 둔다.
-        if cat == "시가총액":
-            for r in rows:
-                sym = r["symbol"]
-                p = cache.get(f"price:{sym}") or cache.get_stale(f"price:{sym}") or {}
-                가격 = p.get("price") or r.get("price") or 0
-                계산 = _시가총액(sym, 가격, p)
-                if 계산 > 0:
-                    r["market_cap"] = 계산
-                if p.get("price"):
-                    r["price"] = p["price"]          # 시총을 낸 가격과 화면 가격을 맞춘다
-            rows.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
+    HTML 에서 읽은 시가총액을 그대로 믿지 않는다. 예전에는 '캐시 값과 파싱
+    값 중 큰 쪽' 을 골랐는데, 한쪽이 엉뚱하게 크면 그 종목이 그대로 1위가
+    됐다. 실제로 시가총액 순위에서 삼성전자가 사라졌다. 현재가 × 상장주식수는
+    추측이 아니다 — 계산할 수 없는 종목만 받아 온 값을 쓴다.
 
-        for i, r in enumerate(rows):
-            r["rank"] = i + 1
-        cache.set(f"rank:kr:{cat}", rows, RANK_TTL)
-    log.info("Naver 순위 갱신 완료")
+    가격은 방금 받은 네이버 값을 쓰고, **신선한** 실시간 시세가 있을 때만
+    그것으로 바꾼다. 예전에는 지난 값(get_stale)까지 꺼내 덮었다. 그 값은
+    몇 시간·며칠 묵은 것일 수 있어서, 1분 전에 받은 가격을 어제 가격으로
+    바꿔 놓고 등락률은 네이버 것 그대로 두었다 — 가격과 등락률이 서로
+    맞지 않는 줄이 순위에 섞였다. 실시간 값으로 바꿀 때는 등락도 같이 바꾼다."""
+    for r in rows:
+        sym = r["symbol"]
+        실시간 = cache.get(f"price:{sym}") or {}
+        if 실시간.get("price") and not 실시간.get("_demo"):
+            r["price"] = 실시간["price"]
+            if 실시간.get("change_rate") is not None:
+                r["change_rate"] = 실시간["change_rate"]
+                r["change"] = 실시간.get("change", r.get("change"))
+        # 주식수를 모를 때 쓸 값 — 방금 읽은 이 줄의 시가총액이 전일 값보다 낫다
+        계산 = _시가총액(sym, r.get("price") or 0, {**r, **실시간})
+        if 계산 > 0:
+            r["market_cap"] = 계산
+    rows.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
+    return rows
+
+
+def _거래대금_순위(표: dict[str, list[dict]]) -> list[dict]:
+    """거래대금 순위 — 받은 네 페이지(시총·상승·하락·거래량)의 줄을 모두 합쳐 매긴다.
+
+    예전에는 '거래량 상위 100' 안에서만 다시 줄 세웠다. 거래량 상위는 값싼
+    종목과 ETF 가 채우므로, 주가가 높은 대형주(SK하이닉스·삼성바이오로직스
+    같은)는 거래대금이 1·2위권인데도 후보에 아예 없었다. 시총 상위를 합치면
+    대형주가, 상승·하락 상위를 합치면 크게 움직인 종목이 들어온다 — 실제
+    거래대금 상위는 이 넷 중 어딘가에 있다.
+
+    같은 종목이 여러 페이지에 있으면 거래량이 가장 큰(가장 나중에 받은) 줄을 쓴다."""
+    모음: dict[str, dict] = {}
+    for 줄들 in 표.values():
+        for r in 줄들:
+            sym, 가격, 거래량 = r.get("symbol"), r.get("price") or 0, r.get("volume") or 0
+            if not sym or not 가격 or not 거래량:
+                continue
+            if sym not in 모음 or 거래량 > (모음[sym].get("volume") or 0):
+                모음[sym] = r
+    줄들 = [dict(r, amount=r["price"] * r["volume"]) for r in 모음.values()]
+    줄들.sort(key=lambda r: r["amount"], reverse=True)
+    return 줄들[:100]
+
+
+async def _국내순위_만들기() -> bool:
+    """네이버 시세표 네 페이지로 국내 순위 일곱 가지를 한꺼번에 만든다.
+
+    거래대금·신고가·신저가는 따로 받는 페이지가 없어 네 페이지에서 만든다.
+    예전에는 이 셋을 '누가 순위를 열 때' 지난 캐시에서 만들었고, 스케줄러는
+    네 가지만 새로 받았다. 그래서 거래대금은 처음 한 번 만든 것이 그 뒤로
+    **계속** 나갔다 — 15분이 지나 만료되면 KIS 를 거쳐(최대 6초) 다시 지난
+    것을 꺼내 주었고, 그걸 새로 만들 길이 없었다."""
+    분류들 = list(NAVER_SISE_PAGES)
+    # 네 페이지를 한꺼번에 받는다(각 페이지는 코스피·코스닥 둘). 차례로 받으면
+    # 네 배가 걸린다 — 순위를 처음 여는 사람은 그동안 기다린다
+    받은것 = await asyncio.gather(*(fetch_naver_rank(c) for c in 분류들),
+                                  return_exceptions=True)
+    표 = {c: r for c, r in zip(분류들, 받은것) if isinstance(r, list) and r}
+    if "시가총액" in 표:
+        _시가총액_다시매기기(표["시가총액"])
+    if "거래량" in 표:
+        표["거래대금"] = _거래대금_순위(표)
+    if "상승률" in 표:
+        표["신고가"] = [r for r in 표["상승률"] if (r.get("change_rate") or 0) > 0]
+    if "하락률" in 표:
+        표["신저가"] = [r for r in 표["하락률"] if (r.get("change_rate") or 0) < 0]
+
+    # 언제 받은 순위인가 — 화면이 'HH:MM 기준' 으로 보여 준다
+    기준 = int(time.time())
+    for 분류, 줄들 in 표.items():
+        # 분류마다 새 dict 로 — 같은 종목 줄을 두 분류가 함께 쓰면 순위 번호를 서로 덮어쓴다
+        담을것 = [dict(r, rank=i + 1, as_of=기준) for i, r in enumerate(줄들[:100])]
+        cache.set(f"rank:kr:{분류}", 담을것, RANK_TTL)
+    global _국내갱신_실패
+    if 표:
+        _국내갱신_실패 = 0.0
+        log.info("국내 순위 갱신: %s", ", ".join(f"{k} {len(v)}" for k, v in 표.items()))
+    else:
+        _국내갱신_실패 = time.time()
+        log.warning("국내 순위: 네이버 시세표를 하나도 못 받았다")
+    return bool(표)
+
+
+#: 지금 돌고 있는 국내 순위 갱신 (refresh_kr_rankings_from_naver 참고)
+_국내갱신: "asyncio.Task | None" = None
+
+#: 마지막으로 네이버에서 하나도 못 받은 시각. 막혀 있는 동안 순위를 여는
+#: 사람마다 새로 받기를 기다리게(최대 6초) 하지 않으려고 둔다
+_국내갱신_실패: float = 0.0
+국내갱신_쉬는초 = 60
+
+
+def 국내갱신_막힘() -> bool:
+    """방금(국내갱신_쉬는초 안에) 네이버에서 하나도 못 받았는가."""
+    return time.time() - _국내갱신_실패 < 국내갱신_쉬는초
+
+
+async def refresh_kr_rankings_from_naver() -> bool:
+    """국내 순위를 새로 만든다. 이미 만드는 중이면 그 결과를 같이 기다린다.
+
+    스케줄러·시작 프리페치·순위를 여는 사람이 같은 순간에 부를 수 있다.
+    따로 돌면 네이버에 같은 여덟 페이지를 겹쳐 묻는다. 기다리던 쪽이 시간
+    상한으로 그만둬도(wait_for) 갱신 자체는 끝까지 돈다(shield)."""
+    global _국내갱신
+    loop = asyncio.get_running_loop()
+    작업 = _국내갱신
+    if 작업 is None or 작업.done() or 작업.get_loop() is not loop:
+        작업 = _국내갱신 = loop.create_task(_국내순위_만들기())
+    return await asyncio.shield(작업)
+
+
+#: 정렬해 둔 미국 순위의 수명.
+#:
+#: 표가 바뀌면(미국표_다시쌓기·refresh_us_rows) 그 자리에서 일곱 가지를 다시
+#: 만들어 담으므로, 이 수명은 그 길이 빠졌을 때를 위한 안전망이다. 예전에는
+#: 15분이었고, 만료되면 지난 것을 **계속** 꺼내 줘서(get_stale) 미국장이
+#: 열려 있는 동안 순위가 처음 만든 그대로 멈춰 있었다.
+US_SORTED_TTL = 300
+
+
+def _미국순위_모두_담기(rows: list[dict]) -> dict[str, list[dict]]:
+    """표 하나로 일곱 가지 순위를 한꺼번에 만들어 담는다.
+
+    표는 6천 줄이 넘는다. 분류마다 따로 만들면 표를 풀고(압축돼 담겨 있다)
+    장을 가르는 일을 일곱 번 한다 — 해외 탭을 열면 다섯 탭을 한꺼번에 미리
+    받으므로 0.15 CPU 에서 그게 겹친다. 한 번 풀고 한 번 가른다."""
+    가격있는 = [r for r in rows if r.get("price")]
+    한장 = _마지막_장만(가격있는)
+    모두 = {}
+    for c in ALLOWED_CATEGORIES:
+        줄들 = (_sort_us(가격있는, c) if c == "시가총액"
+               else _sort_us(한장, c, 장거름=False))
+        if 줄들:
+            cache.set(f"rank:us:{c}", 줄들, US_SORTED_TTL)
+        모두[c] = 줄들
+    return 모두
 
 
 def get_us_rankings(category: str = "시가총액") -> list[dict]:
@@ -767,12 +955,29 @@ def get_us_rankings(category: str = "시가총액") -> list[dict]:
     cached = cache.get(ck)
     if cached:
         return cached
+
+    rows = _build_us_rows()
+    if len(rows) >= US_MIN_ROWS:
+        if result := _미국순위_모두_담기(rows).get(category):
+            return result
+    # 표가 얇으면(재시작 직후 등) 그걸로 새로 줄 세운 것보다 지난 순위가 낫다
     if stale := cache.get_stale(ck):
         return stale
-
-    rows   = _build_us_rows()
     result = _sort_us(rows, category)
-
     if result:
-        cache.set(ck, result, RANK_TTL)
+        cache.set(ck, result, US_SORTED_TTL)
     return result
+
+
+def 미국표_다시쌓기() -> int:
+    """지금 캐시에 있는 미국 시세를 순위표에 쌓고, 정렬해 둔 순위를 비운다.
+
+    미국장이 열려 있는 동안 인기·S&P500 은 5분마다 새로 받는데(refresh_us_stocks),
+    그 값이 표에는 표가 만료될 때(15분)에야 들어갔다. 받는 쪽에서 바로 쌓는다."""
+    rows = _표에_쌓기(_us_rows_from_cache())
+    if len(rows) >= US_MIN_ROWS:
+        cache.set(US_ROWS_CK, rows, US_ROWS_TTL)
+        # 순위도 이 자리에서 다시 만든다 — 비워만 두면 다음에 여는 사람이
+        # 표를 다시 풀어 만드는 동안 기다린다
+        _미국순위_모두_담기(rows)
+    return len(rows)

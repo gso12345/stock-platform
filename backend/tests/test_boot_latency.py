@@ -102,13 +102,21 @@ class Test오래_걸릴_수_있는_자리에_상한이_있다:
         RSS 여덟 곳을 다시 돈다 — 영영 캐시가 안 찬다."""
         assert "shield" in inspect.getsource(D._news_tab)
 
-    def test_국내_순위는_신선한_캐시를_KIS_보다_먼저_본다(self):
+    def test_국내_순위는_신선한_캐시를_외부보다_먼저_본다(self):
         """예전에는 KIS 를 먼저 불렀다. 키가 설정돼 있으면 캐시가 아무리
         신선해도 매 요청마다 외부 왕복이 하나씩 붙었다."""
         본문 = inspect.getsource(D._get_kr_rankings)
-        캐시자리 = 본문.index("cache.get(f\"rank:kr:")
-        KIS자리 = 본문.index("kis_service.get_rankings")
-        assert 캐시자리 < KIS자리, "KIS 를 캐시보다 먼저 부른다"
+        캐시자리 = 본문.index("cache.get(ck)")
+        외부자리 = 본문.index("refresh_kr_rankings_from_naver()")
+        assert 캐시자리 < 외부자리, "네이버를 캐시보다 먼저 부른다"
+
+    def test_국내_순위는_KIS_를_거치지_않는다(self):
+        """KIS 순위는 20위까지뿐이고, 거래량·거래대금도 시가총액 주소로 묻고
+        있었다. 결과를 담아 두지도 않아 매 요청이 최대 6초씩 기다렸다."""
+        본문 = inspect.getsource(D._get_kr_rankings)
+        assert "kis_service" not in 본문.split('"""')[-1]
+        from app.services.kis_service import kis_service
+        assert not hasattr(kis_service, "get_rankings"), "틀린 주소로 묻던 함수가 남아 있다"
 
 
 class Test놀다_깨면_바로_갱신한다:

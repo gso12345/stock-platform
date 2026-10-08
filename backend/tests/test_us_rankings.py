@@ -185,11 +185,15 @@ class Test전종목_받아오기:
         assert len(묶음들) > 1
         assert all(len(b) <= 100 for b in 묶음들)
 
-    def test_다_받으면_카테고리_순위도_다시_만들게_비운다(self, monkeypatch):
+    def test_다_받으면_카테고리_순위도_새_표로_다시_만든다(self, monkeypatch):
+        """비워만 두면 다음에 여는 사람이 표를 다시 풀어 만드는 동안 기다린다 —
+        받은 자리에서 일곱 가지를 함께 만들어 담는다."""
         self._가짜받기(monkeypatch, 400)
         cache.set("rank:us:시가총액", [{"symbol": "낡음"}], 900)
         asyncio.run(R.refresh_us_rows())
-        assert cache.get("rank:us:시가총액") is None, "낡은 순위가 남았다"
+        새것 = cache.get("rank:us:시가총액")
+        assert 새것 and 새것[0]["symbol"] != "낡음", "낡은 순위가 남았다"
+        assert cache.get("rank:us:상승률"), "다른 분류는 안 만들었다"
 
     def test_한_묶음이_실패해도_나머지는_받는다(self, monkeypatch):
         from app.services.scheduler import POPULAR_US

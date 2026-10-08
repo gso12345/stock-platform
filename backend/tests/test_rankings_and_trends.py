@@ -58,14 +58,30 @@ class Test순위_캐시_수명:
 
         assert rs.get_kr_rankings("거래량") == 실시간
 
-    def test_미국_순위도_같다(self, monkeypatch):
+    def test_미국_순위는_만료되면_쌓아_둔_표에서_다시_줄_세운다(self, monkeypatch):
+        """예전에는 만료돼도 지난 순위를 **계속** 꺼내 줬다(get_stale). 미국장이
+        열려 있는 동안에는 표를 비우는 갱신이 안 돌아서, 순위가 처음 만든
+        그대로 몇 시간씩 멈춰 있었다. 쌓아 둔 표가 두꺼우면 그걸로 다시 줄
+        세운다 — 몇 ms 면 된다."""
+        from app.core.cache import cache
+        cache.clear()
+        cache.set("rank:us:거래량", [{"symbol": "AAPL", "rank": 1}], 1)
+        time.sleep(1.1)
+        표 = [{"symbol": f"S{i}", "price": 10.0, "volume": i, "amount": 10.0 * i}
+             for i in range(rs.US_MIN_ROWS)]
+        monkeypatch.setattr(rs, "_build_us_rows", lambda: 표)
+        assert rs.get_us_rankings("거래량")[0]["symbol"] == f"S{rs.US_MIN_ROWS - 1}"
+
+    def test_미국_표가_얇으면_지난_순위가_낫다(self, monkeypatch):
+        """재시작 직후처럼 표에 몇 종목뿐이면, 그걸로 새로 줄 세운 것보다
+        몇 분 전 순위가 낫다."""
         from app.core.cache import cache
         cache.clear()
         cache.set("rank:us:거래량", [{"symbol": "AAPL", "rank": 1}], 1)
         time.sleep(1.1)
         monkeypatch.setattr(rs, "_build_us_rows",
-                            lambda: pytest.fail("만료됐다고 새로 만들면 안 된다"))
-        assert rs.get_kr_rankings and rs.get_us_rankings("거래량")[0]["symbol"] == "AAPL"
+                            lambda: [{"symbol": "X", "price": 1.0, "volume": 1}])
+        assert rs.get_us_rankings("거래량")[0]["symbol"] == "AAPL"
 
 
 class Test순위표_내용:
@@ -104,11 +120,34 @@ class Test순위표_내용:
 
 
 # ── 2. 검색 트렌드 ───────────────────────────────────────────
+
+def _옛칸_심기(엔진, 칸들: dict) -> None:
+    """예전 서버가 쓰던 자리(system_settings 의 JSON 한 칸)를 만든다."""
+    from sqlalchemy import text
+    with 엔진.begin() as c:
+        c.execute(text("CREATE TABLE IF NOT EXISTS system_settings ("
+                       "key VARCHAR(100) PRIMARY KEY, value TEXT NOT NULL)"))
+        for k, v in 칸들.items():
+            c.execute(text("INSERT INTO system_settings (key, value) VALUES (:k, :v) "
+                           "ON CONFLICT (key) DO UPDATE SET value = :v"), {"k": k, "v": v})
+
+@pytest.fixture
+def 통계DB(tmp_path, monkeypatch):
+    """통계를 임시 DB 에 쌓게 하고, 아직 저장 안 한 증가분도 비운다."""
+    from sqlalchemy import create_engine
+    엔진 = create_engine(f"sqlite:///{tmp_path}/통계.db")
+    monkeypatch.setattr(trends, "_엔진", lambda: 엔진)
+    monkeypatch.setattr(trends, "_search_pending", trends.Counter())
+    monkeypatch.setattr(trends, "_search_names", {})
+    monkeypatch.setattr(trends, "_usage_pending", trends.Counter())
+    yield 엔진
+    엔진.dispose()
+
+
 class Test검색_트렌드:
     @pytest.fixture(autouse=True)
-    def _비우기(self, monkeypatch):
-        monkeypatch.setattr(trends, "_search_counter", trends.Counter())
-        monkeypatch.setattr(trends, "_search_names", {})
+    def _비우기(self, 통계DB):
+        yield
 
     def test_같은_종목은_어떻게_검색했든_한_줄이다(self):
         """예전에는 사람이 친 글자를 셌다. '삼성', '삼성전자', '005930' 이
@@ -137,8 +176,21 @@ class Test검색_트렌드:
         monkeypatch.setattr(trends, "_MAX_SEARCH_KEYS", 50)
         for i in range(500):
             trends.track_search(f"S{i}", f"종목{i}", "KR")
-        assert len(trends._search_counter) <= 50
+        assert len(trends._search_pending) <= 50
         assert len(trends._search_names) <= 50, "이름 목록만 따로 자라면 안 된다"
+
+    def test_DB_에_쌓인_줄도_무한정_늘지_않는다(self, monkeypatch, 통계DB):
+        """아무나 /search/picked 로 엉뚱한 코드를 보낼 수 있다. 저장할 때마다
+        상한을 넘긴 만큼 적게 찾은 것부터 지운다."""
+        from sqlalchemy import text
+        monkeypatch.setattr(trends, "_MAX_SEARCH_KEYS", 50)
+        for 회차 in range(3):
+            for i in range(40):
+                trends.track_search(f"S{회차}_{i}", "", "KR")
+            assert trends.flush_to_db()
+        with 통계DB.connect() as c:
+            수 = c.execute(text("SELECT COUNT(*) FROM usage_counters WHERE kind='search'")).scalar()
+        assert 수 <= 50
 
     def test_이상한_입력은_무시한다(self):
         trends.track_search("", "빈값", "KR")
@@ -146,13 +198,14 @@ class Test검색_트렌드:
         trends.track_search("X" * 50, "너무김", "KR")
         assert trends.get_search_trends() == []
 
-    def test_예전에_쌓인_검색어는_버린다(self):
-        """종목 기준 순위표에 옛날 검색어가 섞이면 무슨 기준인지 알 수 없다."""
+    def test_예전에_쌓인_검색어는_버린다(self, 통계DB):
+        """종목 기준 순위표에 옛날 검색어(사람이 친 글자)가 섞이면 무슨
+        기준인지 알 수 없다. 옛 기록을 새 표로 옮길 때 걸러 낸다."""
         import json
-        옛날 = json.dumps({"삼성전자": 10, "005930": 3, "KR|005930": 7})
-        counts = json.loads(옛날)
-        살아남 = {k: v for k, v in counts.items() if trends._SEARCH_KEY_SEP in k}
-        assert 살아남 == {"KR|005930": 7}
+        _옛칸_심기(통계DB, {"trends_search": json.dumps(
+            {"삼성전자": 10, "005930": 3, "KR|005930": 7})})
+        trends.옛기록_옮기기()
+        assert [(r["symbol"], r["count"]) for r in trends.get_search_trends()] == [("005930", 7)]
 
     def test_검색_결과를_보기만_한_것은_세지_않는다(self):
         """'무엇을 쳤나'가 아니라 '무엇을 찾았나'를 세기로 했으므로,
@@ -285,9 +338,8 @@ class Test검색_트렌드_종목명:
     아예 없다. 그러면 화면에 '005930' 만 남아 무슨 종목인지 알 수 없다."""
 
     @pytest.fixture(autouse=True)
-    def _비우기(self, monkeypatch):
-        monkeypatch.setattr(trends, "_search_counter", trends.Counter())
-        monkeypatch.setattr(trends, "_search_names", {})
+    def _비우기(self, 통계DB):
+        yield
 
     def test_이름_없이_들어와도_서버가_채워_준다(self, monkeypatch):
         monkeypatch.setattr(

@@ -368,6 +368,15 @@ async def refresh_us_stocks():
         ok_fh = sum(1 for r in results if r is True)
         log.info(f"미국 종목(Finnhub 병렬 보강) {ok_fh}/{len(POPULAR_US)}개")
 
+    # 방금 받은 값을 순위표에 바로 쌓는다. 장중에는 이 갱신(5분)이 인기·
+    # S&P500 의 가장 새 값인데, 예전에는 표가 만료될 때(15분)까지 순위에
+    # 안 들어갔다
+    try:
+        from app.services.ranking_service import 미국표_다시쌓기
+        미국표_다시쌓기()
+    except Exception as e:
+        log.debug("미국 순위표 쌓기 실패: %s", type(e).__name__)
+
     return ok_yf
 
 
@@ -890,6 +899,19 @@ async def periodic_refresh():
         if counter % 30 == 0:
             memory.record_sample()
 
+        # 검색·기능별 사용 통계를 DB 에 더한다 (1분).
+        #
+        # 아래 idle 가드보다 앞에 둔다. 뒤에 두면, 사람이 쓰고 나간 뒤 서버가
+        # 쉬는 동안에는 저장이 안 돌고 — 그대로 잠들면(무료 플랜은 15분 뒤에
+        # 재운다) 마지막 몇 분의 기록이 사라진다. 저장할 것이 없으면 DB 를
+        # 안 건드리므로 쉬는 동안 도는 비용은 없다.
+        if counter % 6 == 0:
+            try:
+                from app.core.trends import flush_to_db
+                await asyncio.get_running_loop().run_in_executor(None, flush_to_db)
+            except Exception:
+                pass
+
         # 아무도 안 쓰는 동안에는 갱신할 이유가 없다. Render 무료 플랜은
         # CPU가 0.1개뿐이라, 백그라운드가 계속 도는 것만으로 사용자가 실제로
         # 요청했을 때 응답이 밀린다. 마지막 요청이 오래됐으면 통째로 쉰다.
@@ -1006,7 +1028,14 @@ async def periodic_refresh():
         # 있으니 아무것도 안 받고, price 캐시(120초)는 진작 비어서 순위에
         # 다섯 종목만 남았다. 닫혀 있으면 종가라 값이 안 변하므로 자주
         # 받을 필요는 없다 — 30분에 한 번이면 충분하다.
-        if counter % 180 == 0 and market_hours.us_session() == "closed":
+        #
+        # 장이 열려 있는 동안(장전·정규·장후)에도 10분마다 나머지 종목을 이어
+        # 훑는다. 예전에는 닫혀 있을 때만 돌아서, 장중 순위에는 인기·S&P500
+        # 을 뺀 모든 종목이 **전날 마감 값** 으로 들어 있었다 — 상승률 순위에
+        # 어제 오른 종목이 오늘 것과 섞였다. (5분마다 도는 인기·S&P500 갱신과
+        # 겹치지 않게 반 박자 비켜 둔다)
+        미국닫힘 = market_hours.us_session() == "closed"
+        if (미국닫힘 and counter % 180 == 0) or (not 미국닫힘 and counter % 60 == 30):
             if memory.has_headroom("미국 순위표"):
                 try:
                     from app.services.ranking_service import refresh_us_rows
@@ -1034,15 +1063,6 @@ async def periodic_refresh():
                 await loop4.run_in_executor(None, refresh_us_tickers_if_stale)
             except Exception as e:
                 log.warning(f"종목 목록 주기 갱신 실패: {type(e).__name__}: {e}")
-
-        # 트렌드·사용 통계 DB flush (5분)
-        if counter % 30 == 0:
-            try:
-                from app.core.trends import flush_to_db
-                loop3 = asyncio.get_running_loop()
-                await loop3.run_in_executor(None, flush_to_db)
-            except Exception:
-                pass
 
         # 순위 (장중 60초 / 휴장 10분) - Naver 실시간
         #

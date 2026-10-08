@@ -29,6 +29,7 @@ from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
 )
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, SitePopup, Report  # noqa: F401
 from app.models.admin_log import AdminLog  # noqa: F401  — 관리자 행위 기록 테이블 생성 보장
+from app.models.usage import UsageCounter  # noqa: F401  — 검색·기능별 사용 통계 테이블 생성 보장
 from app.api.websocket.price_stream import stream_prices, stream_indices, MAX_STREAM_SYMBOLS
 from app.services.scheduler import start_background_tasks
 
@@ -451,6 +452,14 @@ async def lifespan(application: FastAPI):
     except Exception as _key_err:
         logging.getLogger(__name__).warning(f"JWT 시크릿 키 DB 로드 실패, 기존 키 사용: {_key_err}")
 
+    # 사용 통계 — system_settings 의 옛 JSON 칸을 새 표로 한 번만 옮긴다
+    # (app/models/usage.py 참고). 위에서 system_settings 를 만든 뒤라야 한다
+    try:
+        from app.core.trends import 옛기록_옮기기
+        옛기록_옮기기()
+    except Exception as _tr_err:
+        logging.getLogger(__name__).warning(f"옛 사용 통계 옮기기 스킵: {_tr_err}")
+
     # 스레드 수를 실제 CPU 할당량에 맞춘다. 컨테이너에서 os.cpu_count()는
     # 호스트 코어 수를 돌려주므로, 그대로 두면 0.1 CPU 에 수십 개가 뜬다.
     from app.core.cpu import configure_thread_limits
@@ -467,6 +476,17 @@ async def lifespan(application: FastAPI):
     start_background_tasks(application)
 
     yield
+
+    # 끝날 때 — 아직 저장 안 한 사용 통계를 넣는다.
+    #
+    # 여기가 비어 있어서, 배포하거나 무료 플랜이 서버를 재울 때마다 마지막
+    # 저장 뒤에 센 검색·기능 사용이 통째로 사라졌다. DB 가 늦어도 서버 종료를
+    # 붙잡지 않게 상한을 둔다.
+    try:
+        from app.core.trends import flush_to_db
+        await asyncio.wait_for(asyncio.to_thread(flush_to_db), timeout=5)
+    except Exception as _fl_err:
+        logging.getLogger(__name__).warning(f"종료 시 사용 통계 저장 실패: {_fl_err}")
 
 
 app = FastAPI(

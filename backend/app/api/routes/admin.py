@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session, defer, selectinload
-from sqlalchemy import text, func
+from sqlalchemy import text
 from pydantic import BaseModel, Field
 from app.core.deps import require_user
 from app.db.database import get_db, engine
@@ -106,40 +106,82 @@ def get_stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     }
 
 
+def _인기종목_키(symbol: str, market: str) -> tuple[str, str]:
+    """같은 종목을 한 줄로 모으는 열쇠 (시장 묶음, 종목코드).
+
+    국내는 '005930' 과 '005930.KS' 가 섞여 들어올 수 있어 접미사를 뗀다.
+    해외 ETF 는 'US' 로도 'ETF' 로도 담기므로 국내가 아니면 한 묶음으로 본다."""
+    코드 = (symbol or "").strip().upper()
+    if (market or "").upper() == "KR":
+        return "KR", re.sub(r"\.(KS|KQ)$", "", 코드)
+    return "US", 코드
+
+
+def _인기종목_집계(줄들, 개수: int = 10) -> list[dict]:
+    """(종목코드, 시장, 이름, 계정) 줄들 → 그 종목을 가진 **계정 수** 가 많은 순.
+
+    예전에는 보유 **줄** 수를 셌다. 한 사람이 포트폴리오 셋에 같은 종목을
+    담으면 3명으로 셌고(화면은 'N명' 이라고 적는다), 이름까지 묶음 기준에
+    넣어서 같은 종목이 이름이 다르게 저장돼 있으면 두 줄로 쪼개져 셌다."""
+    from collections import Counter
+    from app.core.trends import 종목명_찾기
+
+    모음: dict[tuple[str, str], dict] = {}
+    for symbol, market, name, 계정 in 줄들:
+        if 계정 is None or not (symbol or "").strip():
+            continue
+        열쇠 = _인기종목_키(symbol, market)
+        항목 = 모음.setdefault(열쇠, {"계정": set(), "이름": Counter(), "시장": Counter()})
+        항목["계정"].add(계정)
+        if name:
+            항목["이름"][name.strip()] += 1
+        항목["시장"][market or 열쇠[0]] += 1
+
+    순서 = sorted(모음.items(), key=lambda kv: (-len(kv[1]["계정"]), kv[0][1]))[:개수]
+    결과 = []
+    for (묶음, 코드), 항목 in 순서:
+        이름 = 항목["이름"].most_common(1)[0][0] if 항목["이름"] else ""
+        결과.append({
+            "symbol": 코드,
+            "name":   이름 or 종목명_찾기(코드, 묶음) or 코드,
+            "market": 항목["시장"].most_common(1)[0][0],
+            "count":  len(항목["계정"]),
+        })
+    return 결과
+
+
 @router.get("/popular-stocks")
 def get_popular_stocks(
     basis: str = "watchlist",
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """인기 종목 TOP 10 — basis: watchlist(관심종목) | portfolio(보유종목)"""
+    """인기 종목 TOP 10 — 그 종목을 담은 **계정 수** 순.
+
+    basis: watchlist(관심종목) | portfolio(보유종목). 탈퇴한 계정은 세지
+    않는다 — 기록은 보존하지만(탈퇴 정책) '지금 쓰는 사람' 은 아니다."""
+    from app.models.stock import Watchlist
     if basis == "portfolio":
-        rows = (
-            db.query(
-                PortfolioItem.symbol,
-                PortfolioItem.name,
-                PortfolioItem.market,
-                func.count(PortfolioItem.id).label("cnt"),
-            )
-            .group_by(PortfolioItem.symbol, PortfolioItem.name, PortfolioItem.market)
-            .order_by(func.count(PortfolioItem.id).desc())
-            .limit(10)
+        줄들 = (
+            db.query(PortfolioItem.symbol, PortfolioItem.market,
+                     PortfolioItem.name, PortfolioItem.user_id)
+            .join(User, User.id == PortfolioItem.user_id)
+            .filter(User.withdrawn_at.is_(None))
+            .distinct()
             .all()
         )
     else:
-        rows = (
-            db.query(
-                WatchlistItem.symbol,
-                WatchlistItem.name,
-                WatchlistItem.market,
-                func.count(WatchlistItem.id).label("cnt"),
-            )
-            .group_by(WatchlistItem.symbol, WatchlistItem.name, WatchlistItem.market)
-            .order_by(func.count(WatchlistItem.id).desc())
-            .limit(10)
+        # 관심종목은 관심목록(watchlists)을 거쳐 계정에 붙는다
+        줄들 = (
+            db.query(WatchlistItem.symbol, WatchlistItem.market,
+                     WatchlistItem.name, Watchlist.user_id)
+            .join(Watchlist, Watchlist.id == WatchlistItem.watchlist_id)
+            .join(User, User.id == Watchlist.user_id)
+            .filter(User.withdrawn_at.is_(None))
+            .distinct()
             .all()
         )
-    return [{"symbol": r.symbol, "name": r.name or r.symbol, "market": r.market, "count": r.cnt} for r in rows]
+    return _인기종목_집계(줄들)
 
 
 @router.get("/visitor-trend")
@@ -1477,14 +1519,14 @@ def reopen_report(report_id: int, db: Session = Depends(get_db), current: User =
 
 @router.get("/search-trends")
 def get_search_trends(_: User = Depends(require_admin)):
-    """검색어 트렌드 TOP 20 (인메모리, 서버 재시작 시 초기화)"""
+    """검색으로 찾은 종목 TOP 20 — DB(usage_counters)에 쌓여 배포·재시작 후에도 남는다"""
     from app.core.trends import get_search_trends as _trends
     return _trends(top_n=20)
 
 
 @router.get("/usage-stats")
 def get_usage_stats(_: User = Depends(require_admin)):
-    """기능별 사용 통계 (인메모리, 서버 재시작 시 초기화)"""
+    """기능별 사용 통계 — DB(usage_counters)에 쌓여 배포·재시작 후에도 남는다"""
     from app.core.trends import get_usage_stats as _stats
     return _stats()
 
