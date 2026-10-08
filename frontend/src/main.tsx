@@ -48,16 +48,11 @@ const Notifications = lazy(화면들.Notifications);
 // queryClient 는 api/queryClient 로 옮겼다 — 로그인·로그아웃 때
 // 화면 밖(authStore)에서도 비울 수 있어야 하기 때문이다
 
-// 대시보드 핵심 데이터만 선제 요청
+// 대시보드 핵심 데이터만 선제 요청 — 첫 화면(국내 탭)에 보이는 것만 곧바로
 function 대시보드_선제요청() {
   queryClient.prefetchQuery({
     queryKey: ["dashboard-kr", "시가총액"],
     queryFn: () => dashboardApi.getKR(),
-    staleTime: 60_000,
-  });
-  queryClient.prefetchQuery({
-    queryKey: ["dashboard-us", "시가총액"],
-    queryFn: () => dashboardApi.getUS(),
     staleTime: 60_000,
   });
   // 환율/금리 — 대시보드 KR/US 탭 + 포트폴리오에서 공통 사용
@@ -66,6 +61,23 @@ function 대시보드_선제요청() {
     queryFn: () => dashboardApi.getUSRates(),
     staleTime: 300_000,
   });
+  /* 국내 순위(첫 탭인 시가총액). 순위 카드가 화면에 붙어야 그제야 물어서,
+     대시보드 화면 코드를 받고 그리는 동안 순위만 혼자 늦게 떴다.
+     이름표는 순위 카드(Dashboard.tsx RankingPanel)와 같아야 그대로 이어 쓴다 */
+  queryClient.prefetchQuery({
+    queryKey: ["rankings", "kr", "시가총액"],
+    queryFn: () => dashboardApi.getRankings("kr", "시가총액"),
+    staleTime: 60_000,
+  });
+  /* 해외 탭은 첫 화면에 안 보인다. 곧바로 보내면 위 셋과 0.15 CPU 서버를
+     다툰다 — 한가할 때 받아 두어 해외 탭을 누를 때 곧바로 뜨게만 한다 */
+  한가할때(() => {
+    queryClient.prefetchQuery({
+      queryKey: ["dashboard-us", "시가총액"],
+      queryFn: () => dashboardApi.getUS(),
+      staleTime: 60_000,
+    });
+  }, 4_000);
 }
 /* 대시보드로 들어올 때만 곧바로 보낸다. 공유받은 종목 링크처럼 다른 화면으로
    들어온 사람에게는 이 세 건이 그 화면의 요청과 0.15 CPU 서버를 다툰다 —

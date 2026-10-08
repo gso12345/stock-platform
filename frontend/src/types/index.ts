@@ -226,6 +226,8 @@ export interface 순위행 extends StockPrice {
   amount?: number;
   per?: number | null;
   roe?: number | null;
+  /** 언제의 값인가(유닉스 초). 국내는 받은 시각, 해외는 정규장 마지막 체결 시각 */
+  as_of?: number;
 }
 
 /** 대시보드 한 탭 전체 */

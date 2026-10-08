@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, memo } from "react";
+import { useState, useCallback, useMemo, useEffect, memo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { dashboardApi } from "@/api/stocks";
@@ -11,7 +11,8 @@ import { isUsdKrwRow } from "@/hooks/useExchangeRate";
 import { use고른열 } from "@/hooks/useBalancedColumns";
 import { safeExternalUrl } from "@/utils/url";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw, Trophy } from "lucide-react";
-import { fmtNewsDateTime, fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
+import { fmtNewsDateTime, fmtKRWFull, fmtUSDFull, fmtKRW, fmtUSD, fmtVolume } from "@/utils/formatters";
+import { 한가할때, 아껴쓰는중 } from "@/utils/한가할때";
 
 /* ── 넓은 화면 배치 ─────────────────────────────────────────
    휴대폰에 맞춰 짠 화면이라 PC 에서 세 가지가 어색했다.
@@ -261,9 +262,43 @@ const RANK_CATEGORIES = [
 
 const RANK_SHOWN = 10;
 
+/** 무엇으로 줄 세운 순위인가 — 그 값을 줄마다 적는다.
+ *
+ *  예전에는 어느 탭이든 가격·등락만 보여서, 거래대금 순위가 정말 거래대금
+ *  순인지 눈으로 확인할 방법이 없었다(실제로 틀리게 매겨져 있었다).
+ *  상승률·하락률은 등락 배지가 곧 그 값이라 따로 안 적는다. */
+export function 순위기준값(category: string, r: 순위행, isKR: boolean): string {
+  if (category === "시가총액" && r.market_cap) return `시총 ${isKR ? fmtKRW(r.market_cap) : fmtUSD(r.market_cap)}`;
+  if (category === "거래대금" && r.amount) return `거래대금 ${isKR ? fmtKRW(r.amount) : fmtUSD(r.amount)}`;
+  if (category === "거래량" && r.volume) return `거래량 ${fmtVolume(r.volume, isKR)}`;
+  return "";
+}
+
+/** 언제의 순위인가 — 오늘이면 'HH:MM', 다른 날이면 'M/D HH:MM'(한국 시각).
+ *  모르면 빈 문자열(그때는 아무것도 안 적는다).
+ *
+ *  순위는 기기에 저장해 두었다가 앱을 열자마자 먼저 보여 준다. 그게
+ *  어제 것이어도 화면만 봐서는 알 수 없었다. 해외는 미국 정규장 마지막
+ *  체결 시각이라, 한국 낮에 보면 새벽 5시(장 마감) 기준으로 나온다. */
+export function 순위기준시각(rows: 순위행[], 지금: Date = new Date()): string {
+  const t = rows.reduce((m, r) => Math.max(m, r.as_of ?? 0), 0);
+  if (!t) return "";
+  const 쪼개기 = (d: Date) => Object.fromEntries(
+    new Intl.DateTimeFormat("ko-KR", {
+      timeZone: "Asia/Seoul", month: "numeric", day: "numeric",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(d).map((p) => [p.type, p.value]),
+  );
+  const 그때 = 쪼개기(new Date(t * 1000));
+  const 오늘 = 쪼개기(지금);
+  const 시각 = `${그때.hour}:${그때.minute}`;
+  return 그때.month === 오늘.month && 그때.day === 오늘.day ? 시각 : `${그때.month}/${그때.day} ${시각}`;
+}
+
 const RankingPanel = memo(function RankingPanel({
   market, navigate,
 }: { market: "kr" | "us"; navigate: (p: string) => void }) {
+  const qc = useQueryClient();
   const [category, setCategory] = useState<string>("시가총액");
   const [expanded, setExpanded] = useState(false);
   const { data, isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery({
@@ -280,15 +315,38 @@ const RankingPanel = memo(function RankingPanel({
     refetchIntervalInBackground: false,
   });
 
-  const rows: any[] = Array.isArray(data) ? data : [];
+  const rows: 순위행[] = Array.isArray(data) ? data : [];
   const shown = expanded ? rows.slice(0, 50) : rows.slice(0, RANK_SHOWN);
   const isKR = market === "kr";
+  const 기준시각 = 순위기준시각(rows);
+
+  /* 다른 탭도 한가할 때 미리 받아 둔다. 탭을 누를 때마다 그제야 물어서,
+     누를 때마다 빈 뼈대를 보고 기다렸다. 서버는 다섯 순위를 한꺼번에
+     만들어 두므로 묻는 비용은 응답 전달뿐이다(staleTime 안이면 안 묻는다) */
+  const 받음 = rows.length > 0;
+  useEffect(() => {
+    if (!받음 || 아껴쓰는중()) return;
+    return 한가할때(() => {
+      for (const c of RANK_CATEGORIES) {
+        qc.prefetchQuery({
+          queryKey: ["rankings", market, c.id],
+          queryFn: () => dashboardApi.getRankings(market, c.id),
+          staleTime: 60_000,
+        });
+      }
+    });
+  }, [받음, market, qc]);
 
   return (
     <Card className="p-0 overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         <Trophy size={14} className="text-text-muted" />
         <h3 className="text-sm font-semibold text-text-primary">{isKR ? "국내" : "해외"} 순위</h3>
+        {기준시각 && (
+          <span className="ml-auto text-2xs text-text-muted font-mono" title={isKR ? "순위를 받은 시각" : "미국 정규장 마지막 체결 시각"}>
+            {기준시각} 기준
+          </span>
+        )}
       </div>
       <div className="px-3 pt-2">
         <Tabs
@@ -322,7 +380,10 @@ const RankingPanel = memo(function RankingPanel({
               <span className="w-5 text-2xs font-mono text-text-dim flex-shrink-0">{r.rank ?? i + 1}</span>
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-semibold text-text-primary truncate">{r.name}</div>
-                <div className="text-xs text-text-muted font-mono">{r.symbol}</div>
+                <div className="text-xs text-text-muted font-mono truncate">
+                  {r.symbol}
+                  {순위기준값(category, r, isKR) && <span className="text-text-secondary"> · {순위기준값(category, r, isKR)}</span>}
+                </div>
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="text-xs font-mono font-semibold text-text-primary">

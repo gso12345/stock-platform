@@ -103,10 +103,27 @@ describe("서버 깨우기 요청을 안 보낸다", () => {
 });
 
 describe("대시보드 선제 요청", () => {
+  /* 곧바로 보내는 것만 — '한가할 때' 미뤄 보내는 것은 뺀다 */
+  const 곧바로 = () => {
+    const 본문 = main.slice(main.indexOf("function 대시보드_선제요청"),
+                            main.indexOf("if (window.location.pathname"));
+    return 본문.slice(0, 본문.indexOf("한가할때("));
+  };
+
   it("세 건을 넘지 않는다", () => {
     /* 앱이 뜨자마자 보내는 요청이다. 늘릴수록 정작 화면에 필요한
        것들이 뒤로 밀린다 */
-    const 건수 = (main.match(/queryClient\.prefetchQuery/g) ?? []).length;
+    const 건수 = (곧바로().match(/queryClient\.prefetchQuery/g) ?? []).length;
     expect(건수).toBeLessThanOrEqual(3);
+  });
+
+  it("첫 화면(국내 탭)에 보이는 것만 곧바로 — 해외 탭은 한가할 때", () => {
+    const 앞 = 곧바로();
+    expect(앞).toContain('["dashboard-kr", "시가총액"]');
+    expect(앞).toContain('["rankings", "kr", "시가총액"]');
+    expect(앞).not.toContain('["dashboard-us", "시가총액"]');
+    const 함수 = main.slice(main.indexOf("function 대시보드_선제요청"),
+                            main.indexOf("if (window.location.pathname"));
+    expect(함수.slice(함수.indexOf("한가할때("))).toContain('["dashboard-us", "시가총액"]');
   });
 });
