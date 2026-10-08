@@ -8,9 +8,36 @@ import { Card, ChangeBadge, Tabs, RowSkeleton, 못불러옴} from "@/components/
 import { useSettingsStore } from "@/store/settingsStore";
 import { useIndicesStream } from "@/hooks/useWebSocket";
 import { isUsdKrwRow } from "@/hooks/useExchangeRate";
+import { use고른열 } from "@/hooks/useBalancedColumns";
 import { safeExternalUrl } from "@/utils/url";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw, Trophy } from "lucide-react";
 import { fmtNewsDateTime, fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
+
+/* ── 넓은 화면 배치 ─────────────────────────────────────────
+   휴대폰에 맞춰 짠 화면이라 PC 에서 세 가지가 어색했다.
+     · 지수 카드 넷이 왼쪽 절반에만 서고 오른쪽이 비었다.
+     · 환율·금리 카드 줄이 오른쪽에서 잘렸다. 손가락으로 밀면 되는
+       줄인데, 마우스에는 옆으로 미는 방법이 없고 스크롤바도 숨겨 두어
+       VKOSPI·선물 카드는 PC 에서 아예 볼 수 없었다.
+     · 순위·뉴스가 1,600px 폭을 통째로 써서 종목명과 가격이 화면 양 끝에
+       떨어져 있었다 — 한 줄을 읽으려면 눈이 화면을 가로질러야 했다.
+   휴대폰 모양은 그대로 두고(lg·xl 에서만 바뀐다) 넓은 화면에서만 —
+     · 지수 카드는 줄을 꽉 채워 나눠 갖는다(개수가 몇이든).
+     · 환율·금리는 밀지 않아도 다 보이게 여러 줄로 감싼다.
+     · 아주 넓으면 순위와 뉴스를 나란히 둔다.
+   두 카드 줄은 줄마다 같은 수로 나눈다(use고른열) — 그냥 감싸면
+   10장이 9 + 1, 8장이 6 + 2 처럼 끝줄에 한두 장만 남았다.
+   아래 class 의 최소 폭(180px·140px)은 use고른열 에 넘기는 값과 같아야
+   한다. class 는 재기 전·잴 수 없는 곳에서 쓰는 기본값이다. */
+const 지수카드최소폭 = 180;
+const 지표카드최소폭 = 140;
+const 지수줄 =
+  "flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide " +
+  "lg:grid lg:grid-cols-[repeat(auto-fit,minmax(180px,1fr))] lg:overflow-visible";
+const 지표줄 =
+  "flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide " +
+  "lg:grid lg:grid-cols-[repeat(auto-fit,minmax(140px,1fr))] lg:overflow-visible";
+const 순위뉴스칸 = "flex flex-col gap-5 xl:grid xl:grid-cols-2 xl:items-start";
 
 /* ── 지수 카드 ───────────────────────────────────────────── */
 const IndexCard = memo(function IndexCard({ name, value, change_rate, onClick }: any) {
@@ -32,7 +59,7 @@ const IndexCard = memo(function IndexCard({ name, value, change_rate, onClick }:
           <ChevronRight size={11} className="text-text-dim group-hover:text-accent-blue transition-colors" />
         </div>
       </div>
-      <span className="text-lg font-mono font-bold text-text-primary num">
+      <span className="text-lg lg:text-xl font-mono font-bold text-text-primary num">
         {value > 0 ? value.toLocaleString("ko-KR", {maximumFractionDigits:2}) : "—"}
       </span>
       <div className="flex items-center gap-1">
@@ -414,6 +441,9 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
     return 목록;
   }, [data?.indices, liveIndices?.kr]);
 
+  const 지수칸 = use고른열(지수카드최소폭);
+  const 지표칸 = use고른열(지표카드최소폭);
+
   return (
     <div className="flex flex-col gap-5">
       {/* 지수 */}
@@ -424,7 +454,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
             <RefreshCw size={11} />
           </button>
         </div>
-        <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
+        <div ref={지수칸.ref} style={지수칸.style} className={지수줄}>
           {못받음 && !data
             /* 실패하면 스켈레톤이 영원히 돌았다. 사용자에게는 '아직
                불러오는 중' 으로 보이는데 영영 안 온다 */
@@ -449,9 +479,12 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
         {/* VKOSPI 가 이 줄에 들어오면서 제목이 내용과 안 맞게 됐다.
             해외 탭이 VIX 를 같은 자리에 두고 있어 짝을 맞춘 것이다 */}
         <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리 · 변동성</h2>
-        <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
+        <div ref={지표칸.ref} style={지표칸.style} className={지표줄}>
           {!data ? (
-            [1,2,3,4].map(i => <ExtraCardSkeleton key={i} />)
+            /* 뼈대는 평소 오는 장 수만큼(원/달러·금리 다섯·원/유로·원/100엔·
+               VKOSPI·선물 = 10). PC 에서는 이 줄이 여러 줄로 감싸여서, 넉 장만
+               깔면 값이 올 때 줄이 하나 늘며 아래 순위·뉴스가 밀려 내려갔다 */
+            Array.from({ length: 10 }, (_, i) => <ExtraCardSkeleton key={i} />)
           ) : (
             <>
               {(usdkrwRate ?? data?.exchange) && (
@@ -486,6 +519,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
         </div>
       </section>
 
+      <div className={순위뉴스칸}>
       <RankingPanel market="kr" navigate={navigate} />
 
       {/* 뉴스 */}
@@ -505,6 +539,7 @@ const KRTab = memo(function KRTab({ liveIndices, navigate }: { liveIndices: any;
           )}
         </div>
       </Card>
+      </div>
     </div>
   );
 });
@@ -583,6 +618,9 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
     return base;
   }, [ratesData, data, liveUsdkrwUS]);
 
+  const 지수칸 = use고른열(지수카드최소폭);
+  const 지표칸 = use고른열(지표카드최소폭);
+
   return (
     <div className="flex flex-col gap-5">
       {/* 해외 지수 */}
@@ -593,7 +631,7 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
             <RefreshCw size={11} />
           </button>
         </div>
-        <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
+        <div ref={지수칸.ref} style={지수칸.style} className={지수줄}>
           {못받음 && !data
             ? <못불러옴 compact 사유={실패사유} 다시={() => refetch()} />
             : !data
@@ -614,15 +652,17 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
       {/* 환율 · 금리 · 국채 */}
       <section>
         <h2 className="text-2xs font-semibold text-text-muted uppercase tracking-widest mb-3">환율 · 금리 · 국채</h2>
-        <div className="flex gap-3 overflow-x-auto p-2 -m-2 scrollbar-hide">
+        <div ref={지표칸.ref} style={지표칸.style} className={지표줄}>
           {!ratesData && !data ? (
-            [1,2,3,4,5].map(i => <ExtraCardSkeleton key={i} />)
+            /* 국내 탭과 같은 까닭 — 평소 오는 여덟 장(환율 셋·미국 금리 넷·VIX)만큼 */
+            Array.from({ length: 8 }, (_, i) => <ExtraCardSkeleton key={i} />)
           ) : (
             rates.map((r: any, i: number) => <ExtraCard key={`${r.name}-${i}`} {...r} />)
           )}
         </div>
       </section>
 
+      <div className={순위뉴스칸}>
       <RankingPanel market="us" navigate={navigate} />
 
       {/* 뉴스 */}
@@ -642,6 +682,7 @@ const USTab = memo(function USTab({ liveIndices, navigate }: { liveIndices: any;
           )}
         </div>
       </Card>
+      </div>
     </div>
   );
 });

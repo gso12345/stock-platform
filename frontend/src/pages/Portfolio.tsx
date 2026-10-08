@@ -23,6 +23,7 @@ import { extractErrorMessage } from "@/utils/errors";
 import { withNativeValues, 오늘변화원화, 전일대비주당,
          매입금액원화, 평가금액원화, 비중매기기 } from "@/utils/holdings";
 import { useExchangeRate, useExchangeRateChange } from "@/hooks/useExchangeRate";
+import { use넓은화면 } from "@/hooks/useWideScreen";
 import { type AssetClass, resolveAssetClass } from "@/utils/assetClass";
 import type { Market, ChartMode, PortfolioItem, SelectedPortfolio, PortfolioMeta, EnrichedItem } from "@/types/portfolio";
 import AssetHistory, { 흐름미리받기 } from "@/components/portfolio/AssetHistory";
@@ -147,6 +148,10 @@ export default function Portfolio() {
   const [속탭,            set속탭]            = useState<자산탭>("자산");
   /* 파이 ↔ 지도. 종목이 열 개를 넘으면 파이는 조각이 얇아져 못 읽는다 */
   const [구성모양,        set구성모양]        = useState<"파이" | "지도">("파이");
+  /* 원그래프 크기만 화면 폭을 따라간다(높이·반지름은 숫자로 넘겨야 해서
+     CSS 로 못 바꾼다). 넓은 화면에서 180px 짜리 그래프는 옆의 목록에
+     비해 너무 작아 무엇이 큰 조각인지 한눈에 안 들어왔다 */
+  const 넓은화면 = use넓은화면();
 
   const { isLoggedIn } = useAuthStore();
   const { colorScheme, 화면모양, 금액가리기, 토글금액가리기 } = useSettingsStore();
@@ -1174,7 +1179,7 @@ export default function Portfolio() {
       ) : (
         /* 뼈대는 실제로 그려질 모양과 같아야 한다. 예전에는 여기가 카드
            넷이었는데 본체는 카드 하나라, 값이 도착할 때 화면이 크게 튀었다 */
-        <Card className="flex flex-col gap-3">
+        <Card className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-10 lg:px-6 lg:py-5">
           <div className="flex flex-col gap-1.5">
             <span className="text-2xs text-text-muted">평가금액</span>
             {/* 평가금액과 손익은 시세를 받아야 안다. 매입가로 대신 채우면
@@ -1187,7 +1192,7 @@ export default function Portfolio() {
               그런데도 셋을 통째로 뼈대로 두고 있었다 — 시세가 늦는 동안
               화면 전체가 '아무것도 없는 곳' 으로 보이던 이유다.
               아는 것부터 적어 두면 그 사이가 훨씬 짧게 느껴진다 */}
-          <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-border/50">
+          <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-border/50 lg:border-t-0 lg:pt-0 lg:gap-x-10">
             {[
               { label: "매입금액", value: 돈.원(displaySummary.totalCost) },
               { label: "적용 환율", value: `${Math.round(exchangeRate).toLocaleString("ko-KR")}원` },
@@ -1249,9 +1254,12 @@ export default function Portfolio() {
            예전에는 총수익률이 평가금액 옆에 붙고 오늘치가 손익과 한 줄에
            끼어 있었다. 셋이 뒤엉켜서 어느 %가 무엇의 %인지 읽기 어려웠다.
            금액과 그 비율은 붙이고, 성격이 다른 줄은 나눈다. */
-        <Card className={`flex flex-col p-0 overflow-hidden ${!isLoggedIn ? "opacity-90" : ""}`}>
+        /* 넓은 화면에서는 세 칸으로 나란히 — 평가금액 | 손익·오늘 | 참고값.
+           한 줄로 쌓아 두면 PC 에서는 '평가손익' 이름과 그 금액이 1,200px
+           떨어져 양 끝에 놓여, 무엇의 숫자인지 눈으로 이어 읽기 어려웠다. */
+        <Card className={`flex flex-col p-0 overflow-hidden lg:grid lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.9fr)] ${!isLoggedIn ? "opacity-90" : ""}`}>
           {/* 지금 얼마인가 */}
-          <div className="flex flex-col gap-1 px-4 pt-4 pb-3.5">
+          <div className="flex flex-col gap-1 px-4 pt-4 pb-3.5 lg:px-6 lg:py-5 lg:justify-center">
             <span className="text-2xs text-text-muted">{요약범위} 평가금액</span>
             <span className={`text-3xl leading-none font-mono font-bold num ${
               시세전부실패 ? "text-text-secondary" : "text-text-primary"
@@ -1273,7 +1281,7 @@ export default function Portfolio() {
           </div>
 
           {/* 얼마나 벌었나 — 줄마다 하나씩 */}
-          <div className="flex flex-col gap-2 px-4 py-3 bg-bg-elevated/40 border-y border-border/50">
+          <div className="flex flex-col gap-2 px-4 py-3 bg-bg-elevated/40 border-y border-border/50 lg:border-y-0 lg:border-x lg:justify-center lg:px-6 lg:gap-3">
             {[
               { label: "평가손익", 금액: displaySummary.totalPnl,             비율: displaySummary.totalRate },
               { label: "오늘",     금액: displaySummary.totalDailyChangeKRW,  비율: displaySummary.totalDailyChangeRate },
@@ -1288,7 +1296,7 @@ export default function Portfolio() {
           </div>
 
           {/* 참고값 */}
-          <div className="grid grid-cols-2 gap-2 px-4 py-3">
+          <div className="grid grid-cols-2 gap-2 px-4 py-3 lg:grid-cols-1 lg:content-center lg:gap-3 lg:px-6">
             {[
               { label: "매입금액", value: 돈.원(displaySummary.totalCost), icon: Receipt },
               { label: "적용 환율", value: `${Math.round(exchangeRate).toLocaleString("ko-KR")}원`, icon: Landmark },
@@ -1312,11 +1320,14 @@ export default function Portfolio() {
       {/* 시세가 오기 전에도 그린다. previewLoaded 를 기다리게 했더니
           탭 줄이 뒤늦게 끼어들면서 아래가 통째로 밀려 내려갔다 */}
       {(!isLoggedIn || items.length > 0) && (
+        /* 넓은 화면에서는 버튼을 늘리지 않는다 — 탭 다섯 개가 1,200px 를
+           나눠 가지면 한 칸이 240px 짜리 막대가 되어 탭으로 안 읽힌다 */
         <Tabs
           ariaLabel="내 자산 화면"
           tabs={보일탭들}
           active={속탭}
           onChange={(id) => set속탭(id as 자산탭)}
+          className="lg:w-fit lg:[&>button]:flex-none lg:[&>button]:px-6"
         />
       )}
 
@@ -1437,15 +1448,17 @@ export default function Portfolio() {
               }}
             />
           ) : activePieData.length > 0 ? (
-            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-center sm:items-start">
-              {/* 파이 차트 */}
-              <div className="flex-shrink-0 w-full sm:w-44">
-                <차트틀 height={180}>
+            /* 목록 폭에 상한이 있어(아래) 아주 넓은 화면에서는 남는 자리가
+               생긴다 — 왼쪽에 몰지 않고 그래프와 목록을 가운데로 모은다 */
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 lg:gap-8 items-center sm:items-start lg:items-center lg:justify-center">
+              {/* 파이 차트 — 넓은 화면에서는 크게(넓은화면 참고) */}
+              <div className="flex-shrink-0 w-full sm:w-44 lg:w-64">
+                <차트틀 height={넓은화면 ? 250 : 180}>
                   {(R) => (
                   <R.PieChart key={chartMode}>
                     <R.Pie
                       data={activePieData} dataKey="value" nameKey="name"
-                      cx="50%" cy="50%" outerRadius={72} innerRadius={30}
+                      cx="50%" cy="50%" outerRadius={넓은화면 ? 108 : 72} innerRadius={넓은화면 ? 52 : 30}
                       isAnimationActive animationBegin={0} animationDuration={700} animationEasing="ease-out"
                     >
                       {activePieData.map((_, i) => (
@@ -1465,8 +1478,12 @@ export default function Portfolio() {
                   )}
                 </차트틀>
               </div>
-              {/* 우측 목록 */}
-              <div className="flex-1 min-w-0 w-full self-center flex flex-col gap-0.5 py-1">
+              {/* 우측 목록 — 넓은 화면에서는 두 줄로 나눈다. 한 줄로 두면 종목
+                  이름과 그 비중·금액이 1,000px 떨어져 눈으로 짝을 못 맞췄다 */}
+              <div className="flex-1 min-w-0 w-full self-center flex flex-col gap-0.5 py-1 lg:grid lg:grid-cols-2 lg:grid-flow-col lg:gap-x-10 lg:gap-y-0.5 lg:max-w-[760px]"
+                /* 왼쪽 줄을 위에서 아래로 다 채운 뒤 오른쪽으로 — 큰 순서가
+                   1·2·3… 으로 내려가며 읽힌다(가로로 채우면 1위 왼쪽, 2위 오른쪽) */
+                style={{ gridTemplateRows: `repeat(${Math.ceil(pieLegend.length / 2)}, auto)` }}>
                 {pieLegend.map((entry, i) => {
                     const pct = entry.pct;
                     return (
@@ -1656,8 +1673,8 @@ export default function Portfolio() {
                 })}
               </div>
             )}
-            {/* 카드형 리스트 */}
-            <div className="flex flex-col gap-2.5 p-3">
+            {/* 카드형 리스트 — 넓은 화면에서는 두세 줄로 나란히 */}
+            <div className="flex flex-col gap-2.5 p-3 lg:grid lg:grid-cols-2 2xl:grid-cols-3">
               {displayEnriched.map((item) => (
                 <HoldingCard
                   key={item.id}
