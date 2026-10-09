@@ -269,6 +269,14 @@ def _번호(링크: str) -> str:
     return m.group(1) if m else ""
 
 
+def _상세주소(링크: str) -> dict:
+    """목록 이름 칸의 링크 → {"no": 상세 페이지 번호}. 번호가 없으면 진단용으로 링크를
+    그대로 남긴다({"link"}) — 관리자 화면에서 무엇이 걸려 있었는지 보이게."""
+    if 번호 := _번호(링크):
+        return {"no": 번호}
+    return {"link": 링크[:120]} if 링크 else {}
+
+
 _이름칸 = (True, ["기업명", "종목명", "회사명"], [])
 #: 주관사 칸 — 원천(38)은 옛 용어 '주간사' 로 적어서 둘 다 찾는다. 화면 글은 표준 용어 '주관사'
 
@@ -317,7 +325,7 @@ def 읽기_수요예측(html: str) -> "tuple[list[dict], str]":
         if not 이름 or 이름 in ("기업명", "종목명"):
             continue
         out.append({
-            "name": 이름, "no": _번호(z["이름"][1]),
+            "name": 이름, **_상세주소(z["이름"][1]),
             **_일정칸(z),
             "inst_ratio": _경쟁률(z["기관"][0]),
             "lockup_pct": _퍼센트(z["확약"][0]),
@@ -348,7 +356,7 @@ def 읽기_수요예측일정(html: str) -> "tuple[list[dict], str]":
         이름 = z["이름"][0]
         if not 이름 or 이름 in ("기업명", "종목명"):
             continue
-        out.append({"name": 이름, "no": _번호(z["이름"][1]), **_일정칸(z)})
+        out.append({"name": 이름, **_상세주소(z["이름"][1]), **_일정칸(z)})
     return out, 이유 if not out else ""
 
 
@@ -361,7 +369,7 @@ def 읽기_청약(html: str) -> "tuple[list[dict], str]":
             continue
         시작, 끝 = _기간(z["일정"][0])
         r = {
-            "name": 이름, "no": _번호(z["이름"][1]),
+            "name": 이름, **_상세주소(z["이름"][1]),
             "sub_start": _iso(시작), "sub_end": _iso(끝),
             "sub_ratio": _경쟁률(z["청약"][0]),
             "underwriter": z["주관사"][0] if "주관사" in z else None,
@@ -382,7 +390,7 @@ def 읽기_신규상장(html: str) -> "tuple[list[dict], str]":
         if not 이름 or 이름 in ("기업명", "종목명"):
             continue
         out.append({
-            "name": 이름, "no": _번호(z["이름"][1]),
+            "name": 이름, **_상세주소(z["이름"][1]),
             "list_date": _iso(_날짜(z["상장일"][0])),
             "offer_price": _수(z["공모가"][0]),
             "open_price": _수(z["시초가"][0]),
@@ -555,16 +563,18 @@ def 읽기_상세(html: str) -> dict:
     return out
 
 
+def _상세볼때(r: dict) -> bool:
+    """새 규칙보다 한참 앞 것은 상세를 받지 않는다(견줄 때 안 쓴다)."""
+    날짜들 = [d for f in ("list_date", "sub_end", "forecast_date") if (d := _d(r.get(f)))]
+    return not 날짜들 or max(날짜들) >= 새규칙_시작 - timedelta(days=60)
+
+
 def _상세받을것(기록: dict, 지금: float) -> list:
     """상세 페이지를 (다시) 받을 공모주 열쇠들 — 아직 안 받은 것, 그리고 상장 전이라 값이 바뀌는
     것(갱신간격마다). 상장한 뒤에 한 번 받았으면 끝이다. 새 규칙보다 한참 앞 것은 받지 않는다."""
-    멈출날 = 새규칙_시작 - timedelta(days=60)
     out = []
     for k, r in 기록.items():
-        if not r.get("no") or r.get("detail_done"):
-            continue
-        날짜들 = [d for f in ("list_date", "sub_end", "forecast_date") if (d := _d(r.get(f)))]
-        if 날짜들 and max(날짜들) < 멈출날:
+        if not r.get("no") or r.get("detail_done") or not _상세볼때(r):
             continue
         if 지금 - float(r.get("detail_at") or 0) < 갱신간격:
             continue
@@ -608,10 +618,14 @@ def 상세채우기(기록: dict, 저장=None) -> dict:
 def _상세진단글(진단: dict, 기록: dict) -> str:
     """관리자 '공모주 상세' 줄 — 이번에 받은 곳, 항목별로 값을 읽은 곳(누적), 페이지에 있던 칸 이름"""
     받은적 = sum(1 for r in 기록.values() if r.get("detail_at"))
+    볼것 = [r for r in 기록.values() if _상세볼때(r)]
+    주소 = sum(1 for r in 볼것 if r.get("no"))
     항목 = " · ".join(f"{이름} {진단['읽은수'].get(f, 0)}" for f, 이름 in _상세이름.items())
-    글 = f"이번 {진단['받음']}곳 · 누적 {받은적}곳 — {항목}"
+    글 = f"이번 {진단['받음']}곳 · 누적 {받은적}곳 · 상세 주소 {주소}/{len(볼것)}곳 — {항목}"
     if 진단["칸"]:
         글 += f" · 칸: {'/'.join(진단['칸'])}"
+    if not 주소 and (예 := next((r["link"] for r in 볼것 if r.get("link")), "")):
+        글 += f" · 목록 링크에 상세 번호가 없음(예: {예})"
     return 글
 
 
@@ -739,16 +753,34 @@ def 새로받기(쪽수: "int | None" = None) -> dict:
     # 상세 페이지 — 목록을 받았을 때만(목록이 막혔으면 상세도 막혀 있다). 처음엔 수백 곳이라
     # 몇 분 걸린다. 그동안 화면은 목록까지 받은 기록으로 맞힌다
     if 받은것:
-        진단 = 상세채우기(기록, 저장=lambda 기: _db_쓰기(기, 상태))
-        if 진단["받음"] or not 진단["실패"]:
-            health.record_ok("공모주 상세", None, _상세진단글(진단, 기록))
-        else:
-            health.record_fail("공모주 상세", 진단["이유"] or "빈손")
-        if 진단["받음"]:
-            _db_쓰기(기록, 상태)
-            _예측보관.clear()
-        _데우기()
+        _상세받기(기록, 상태)
     return {k: v["rows"] for k, v in 상태.items()}
+
+
+def _상세받기(기록: dict, 상태: dict) -> None:
+    """상세 페이지를 받아 기록에 붙이고 관리자 '공모주 상세' 줄에 남긴다. 받은 것이 있으면
+    DB 에 남기고, 화면 값을 다시 셈해 둔다."""
+    from app.core import health
+    진단 = 상세채우기(기록, 저장=lambda 기: _db_쓰기(기, 상태))
+    if 진단["받음"] or not 진단["실패"]:
+        health.record_ok("공모주 상세", None, _상세진단글(진단, 기록))
+    else:
+        health.record_fail("공모주 상세", 진단["이유"] or "빈손")
+    if 진단["받음"]:
+        _db_쓰기(기록, 상태)
+        _예측보관.clear()
+    _데우기()
+
+
+def 상세만받기() -> None:
+    """목록은 갱신간격 안이라 그대로 두고, 상세가 모자란 공모주만 받는다.
+
+    처음에는 상세를 목록과 함께만 받았다. 그런데 목록은 6시간마다만 다시 받아서,
+    배포 직전에 목록을 받아 둔 서버는 배포 뒤 몇 시간 동안 상세를 한 번도 받지 않았다
+    (사용자: "유통물량 균등수량 안불러오고 있는데")."""
+    global _시도때
+    _시도때 = time.time()
+    _상세받기(기록들(), _상태)
 
 
 def _모자란목록() -> bool:
@@ -758,6 +790,7 @@ def _모자란목록() -> bool:
 
 def _뒤에서_받기() -> bool:
     """오래됐거나 못 받은 목록이 있으면 뒤에서 새로 받는다(한 번에 하나만). 시작했으면 True.
+    목록은 새것인데 상세가 모자란 공모주가 있으면 상세만 받는다.
 
     못 받은 목록이 있으면 6시간을 기다리지 않는다 — 고친 것을 배포해도 몇 시간
     뒤에야 반영되던 것을 막는다. 다만 막힌 동안은 실패쉼(10분)마다 한 번만."""
@@ -765,7 +798,8 @@ def _뒤에서_받기() -> bool:
     지금 = time.time()
     if _갱신중 or 지금 - _시도때 < 실패쉼:
         return False
-    if 지금 - _받은때 < 갱신간격 and not _모자란목록():
+    목록때 = 지금 - _받은때 >= 갱신간격 or _모자란목록()
+    if not 목록때 and not _상세받을것(기록들(), 지금):
         return False
     try:
         from app.core import memory
@@ -778,7 +812,7 @@ def _뒤에서_받기() -> bool:
     def 일():
         global _갱신중
         try:
-            새로받기()
+            새로받기() if 목록때 else 상세만받기()
         except Exception as e:
             log.warning("공모주 자료 받기 실패: %s", type(e).__name__)
         finally:

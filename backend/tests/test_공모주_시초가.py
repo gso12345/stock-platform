@@ -460,6 +460,43 @@ class Test상세_받기:
         줄 = {h["name"]: h for h in health.snapshot()}["공모주 상세"]
         assert 줄["streak"] == 1 and "HTTP 403" in 줄["last_error"]
 
+    def _방금_받은_서버(self, monkeypatch, 기록):
+        monkeypatch.setattr(S, "_기록", 기록)
+        monkeypatch.setattr(S, "_받은때", time.time())          # 목록은 방금 받았다
+        monkeypatch.setattr(S, "_시도때", 0.0)
+        monkeypatch.setattr(S, "_상태", {k: {"rows": 10, "reason": ""} for k in S._목록경로})
+
+    def test_목록이_새것이어도_상세가_모자라면_상세만_받는다(self, monkeypatch):
+        """사용자: "유통물량 균등수량 안불러오고 있는데" — 상세를 목록과 함께만 받았더니, 배포
+        직전에 목록을 받아 둔 서버는 배포 뒤 6시간 동안 상세를 한 번도 받지 않았다"""
+        _가짜원천(monkeypatch, {("상세", "2101"): _상세쪽()})
+        self._방금_받은_서버(monkeypatch, {"가": {"name": "가", "kind": "normal", "no": "2101",
+                                                "sub_end": "2099-01-03"}})
+        monkeypatch.setattr(S, "새로받기", lambda *a, **k: pytest.fail("목록은 6시간 안이라 다시 받으면 안 된다"))
+        assert S._뒤에서_받기() is True
+        for _ in range(100):
+            if not S._갱신중:
+                break
+            time.sleep(0.02)
+        assert S.기록들()["가"]["float_pct"] == pytest.approx(35.2) and S.기록들()["가"]["equal_shares"] == 2
+        assert S._시도때 > 0, "막혀 있으면 실패쉼마다 한 번만 — 시도한 때를 남긴다"
+
+    def test_상세가_다_있으면_따로_받지_않는다(self, monkeypatch):
+        self._방금_받은_서버(monkeypatch, {
+            "가": {"name": "가", "kind": "normal", "no": "1", "list_date": "2026-09-01", "detail_done": True},
+            "나": {"name": "나", "kind": "normal", "no": "2", "sub_end": "2099-01-03", "detail_at": time.time()},
+        })
+        assert S._뒤에서_받기() is False
+
+    def test_목록_링크에_상세_번호가_없으면_관리자_화면에(self):
+        html = _쪽("청약", 청약_머리, [['<a href="javascript:view(12)">가나바이오</a>', "2025.10.13~10.14",
+                                        "12,000", "11,000~13,000", "1,234:1", "증권", "분석"]]).decode("cp949")
+        r = S.읽기_청약(html)[0][0]
+        assert "no" not in r and r["link"] == "javascript:view(12)"
+        기록 = {"가나바이오": {**r, "kind": "normal"}}
+        글 = S._상세진단글({"받음": 0, "읽은수": {}, "칸": []}, 기록)
+        assert "상세 주소 0/1곳" in 글 and "목록 링크에 상세 번호가 없음(예: javascript:view(12))" in 글
+
     def test_새로_받으면_화면_값을_미리_셈해_둔다(self, monkeypatch):
         _가짜원천(monkeypatch, {("수요예측", 1): _수요예측쪽(
             [_이름("가", 1), "2025.10.01", "1~2", "2", "3", "4:1", "5%", "증권"])})
