@@ -175,24 +175,30 @@ class Test해외탭_엔화도_같이_고쳐졌는가:
 
         monkeypatch.setattr(M.yf, "Ticker", _가짜)
 
+    # _do_fetch_us_rates 가 아니라 그 안의 _us_rates_받기 를 부른다.
+    # 앞은 '이미 누가 받고 있으면 그걸 기다려 그 결과를 준다'(잠금) — 앞선
+    # 검사가 배경에 맡긴 진짜 조회(이 환경에서는 바깥이 막혀 느리다)가 아직
+    # 돌고 있으면, 여기 가짜 종가 대신 그 결과를 받아 엉뚱하게 실패했다.
+    # 보려는 것은 환산이지 잠금이 아니다.
+
     def test_해외탭_원100엔도_100엔당으로_나온다(self, monkeypatch):
         cache.delete("extra:us_rates")
         self._가짜종가(monkeypatch, {"JPYKRW=X": [9.27, 9.32]})
-        엔 = next(r for r in M._do_fetch_us_rates() if r["name"] == "원/100엔")
+        엔 = next(r for r in M._us_rates_받기() if r["name"] == "원/100엔")
         assert 500 <= 엔["value"] <= 2000, f"1엔당 값이 그대로 나온다: {엔['value']}"
         assert 엔["value"] == pytest.approx(932.0)
 
     def test_해외탭_변동폭도_같이_환산된다(self, monkeypatch):
         cache.delete("extra:us_rates")
         self._가짜종가(monkeypatch, {"JPYKRW=X": [9.27, 9.32]})
-        엔 = next(r for r in M._do_fetch_us_rates() if r["name"] == "원/100엔")
+        엔 = next(r for r in M._us_rates_받기() if r["name"] == "원/100엔")
         assert 엔["change"] == pytest.approx(5.0, abs=0.01)
 
     def test_달러는_건드리지_않는다(self, monkeypatch):
         """엔화만 손대야 한다. 원/달러까지 100배 하면 138,450원이 된다."""
         cache.delete("extra:us_rates")
         self._가짜종가(monkeypatch, {"USDKRW=X": [1386.8, 1384.5]})
-        달러 = next(r for r in M._do_fetch_us_rates() if r["name"] == "원/달러")
+        달러 = next(r for r in M._us_rates_받기() if r["name"] == "원/달러")
         assert 달러["value"] == pytest.approx(1384.5)
 
 
@@ -466,6 +472,11 @@ class Test국내와_해외가_같은_환율을_본다:
                      "_fetch_bok_rates_ecos"):
             monkeypatch.setattr(M, 이름, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("막힘")))
         monkeypatch.setattr(M, "_빠진_국고채", lambda *a, **k: False)
+        # 아래 둘은 이 검사가 재려는 것이 아니다. 막아 두지 않으면 바깥이 막힌
+        # 검사 환경에서 접속을 시도하느라 그 시간이 함께 재진다 — 단독으로
+        # 돌리면 실패하고 전체로 돌리면(앞 검사가 캐시를 채워 두어) 통과했다
+        monkeypatch.setattr(M, "_fetch_kr_bonds_pykrx", lambda: ([], None, []))
+        monkeypatch.setattr(M, "_fetch_bok_그밖_ecos", lambda: [])
 
         느림 = 0.5
 

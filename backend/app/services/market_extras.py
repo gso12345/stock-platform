@@ -248,16 +248,19 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
     # ── 1순위: 전체 목록 API (한 번에 모든 금리 반환) ─────────
     # 목록 주소와 아래 개별 코드를 한 목록으로 모아 한 번만 거른다.
     # 갱신 한 번이 한 회차여야 '몇 회차마다 하나씩 깨운다' 가 뜻대로 돈다.
-    이번에 = 금리쉼표.돌아가며_깨우기(
-        [("목록", None, u) for u in _네이버_금리목록주소]
-        + [(이름, is_cd, 코드)
-           for 이름, is_cd, 코드들 in _네이버_금리후보 for 코드 in 코드들],
-        lambda t: f"rate:{t[2]}")
+    후보전체 = ([("목록", None, u) for u in _네이버_금리목록주소]
+              + [(이름, is_cd, 코드)
+                 for 이름, is_cd, 코드들 in _네이버_금리후보 for 코드 in 코드들])
+    이번에 = 금리쉼표.돌아가며_깨우기(후보전체, lambda t: f"rate:{t[2]}")
+    원천 = "네이버 모바일 API"
+    if (쉬는수 := len(후보전체) - len(이번에)) > 0:
+        _응답_남기기(원천, f"연속 실패로 쉬는 후보 {쉬는수}개")
 
     for list_url in [t[2] for t in 이번에 if t[0] == "목록"]:
         try:
             r = httpx.get(list_url, headers=_H, timeout=8, verify=SSL)
             if r.status_code != 200:
+                _응답_남기기(원천, f"HTTP {r.status_code}")
                 금리쉼표.기록(f"rate:{list_url}", True)
                 continue
             data = r.json()
@@ -283,7 +286,10 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
             금리쉼표.기록(f"rate:{list_url}", not (rates or cd_rate))
             if rates:
                 return rates, cd_rate
-        except Exception:
+            if not cd_rate:
+                _응답_남기기(원천, "목록에 금리 없음")
+        except Exception as e:
+            _응답_남기기(원천, f"연결 실패({type(e).__name__})")
             금리쉼표.기록(f"rate:{list_url}", True)
             continue
 
@@ -303,6 +309,7 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
                 headers=_H, timeout=5, verify=SSL,
             )
             if r.status_code != 200:
+                _응답_남기기(원천, f"HTTP {r.status_code}")
                 금리쉼표.기록(열쇠, True)
                 continue
             d = r.json()
@@ -310,6 +317,7 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
                 d = d[0] if d else {}
             val, chg = _extract(d)
             if val <= 0:
+                _응답_남기기(원천, "값 없음")
                 금리쉼표.기록(열쇠, True)
                 continue
             금리쉼표.기록(열쇠, False)
@@ -319,7 +327,8 @@ def _fetch_kr_rates_naver() -> "tuple[list, dict | None]":
             else:
                 rates.append(e)
             찾음.add(name)
-        except Exception:
+        except Exception as e:
+            _응답_남기기(원천, f"연결 실패({type(e).__name__})")
             금리쉼표.기록(열쇠, True)
             continue
 
@@ -361,11 +370,18 @@ def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
 
 
 def _fetch_bok_rates_ecos() -> "tuple[dict | None, list]":
-    """한국은행 ECOS Open API — 기준금리(월별) + 국고채 수익률(일별)
-    API 키: settings.BOK_API_KEY (기본값 'sample' — 무료, 일부 통계 제한)
-    기준금리 통계코드 722Y001/0101000, 국고채 817Y002/010190000~010400000
-    """
+    """한국은행 ECOS Open API — 기준금리(월별) + 국고채 수익률(일별).
+
+    API 키: settings.BOK_API_KEY (기본값 'sample' 은 대부분의 통계가 막혀 있다).
+
+    국고채 항목 코드를 외워 적지 않는다. 예전에는 010190000·010300000·
+    010400000 을 3·5·10년으로 적어 두었는데, 아래 시장금리표(_ecos_항목목록)
+    를 만들 때 이미 '맞는지 확인할 방법이 없다' 고 적어 둔 그 코드다.
+    키를 넣는 순간 다른 금리(회사채 등)가 '국고채' 이름으로 뜰 수 있다.
+    표의 항목 이름에서 코드를 찾고, 받은 줄의 이름(ITEM_NAME1)이 정말
+    국고채 그 만기인지 확인한 뒤에만 쓴다."""
     import datetime
+    원천 = "ECOS 기준금리·국고채"
     api_key = getattr(settings, "BOK_API_KEY", "sample") or "sample"
     base_url = f"https://ecos.bok.or.kr/api/StatisticSearch/{api_key}/json/kr"
 
@@ -378,58 +394,67 @@ def _fetch_bok_rates_ecos() -> "tuple[dict | None, list]":
     bok_base = None
     bok_bonds: list = []
 
-    # ── 기준금리 (월별, 최근 6개월 중 최신값) ───────────────
     try:
         r = httpx.get(
             f"{base_url}/1/5/722Y001/M/{start_month}/{end_month}/0101000/",
             timeout=8, verify=SSL,
         )
-        if r.status_code == 200:
-            rows = r.json().get("StatisticSearch", {}).get("row", [])
-            if rows:
-                val = float(rows[-1].get("DATA_VALUE") or 0)
-                if val > 0:
-                    bok_base = {
-                        "name": "한국 기준금리", "value": round(val, 3),
-                        "change": 0.0, "change_rate": 0.0,
-                        "unit": "%", "is_rate": True,
-                    }
-                    cache.set("extra:kr_base_rate", bok_base, 86400)
-    except Exception:
-        pass
+        rows = _ecos_줄들(r, 원천)
+        if rows:
+            val = float(rows[-1].get("DATA_VALUE") or 0)
+            if val > 0:
+                bok_base = {
+                    "name": "한국 기준금리", "value": round(val, 3),
+                    "change": 0.0, "change_rate": 0.0,
+                    "unit": "%", "is_rate": True,
+                }
+                cache.set("extra:kr_base_rate", bok_base, 86400)
+    except Exception as e:
+        _응답_남기기(원천, f"연결 실패({type(e).__name__})")
 
-    # ── 국고채 수익률 (일별, 최근 14일 중 최신 2영업일 비교) ─
-    bond_specs = [
-        ("010190000", "국고채 3년"),
-        ("010300000", "국고채 5년"),
-        ("010400000", "국고채 10년"),
-    ]
-    for code, name in bond_specs:
-        try:
-            r = httpx.get(
-                f"{base_url}/1/5/817Y002/D/{start_date}/{end_date}/{code}/",
-                timeout=8, verify=SSL,
-            )
-            if r.status_code == 200:
-                rows = r.json().get("StatisticSearch", {}).get("row", [])
-                if rows:
-                    val = float(rows[-1].get("DATA_VALUE") or 0)
-                    prev = float(rows[-2].get("DATA_VALUE") or val) if len(rows) >= 2 else val
-                    if val > 0:
-                        chg = round(val - prev, 3)
-                        bok_bonds.append({
-                            "name": name, "value": round(val, 3),
-                            "change": chg, "change_rate": chg,
-                            "unit": "%", "is_rate": True,
-                        })
-        except Exception:
-            continue
+    항목 = _ecos_항목목록()
+    for 화면이름, 표이름, 예비코드 in _ECOS_국고채:
+        코드 = 항목.get(표이름) or 예비코드
+        if (한줄 := _ecos_한줄(코드, 화면이름, start_date, end_date,
+                               원천=원천, 이름확인=("국고채", 표이름[3:]))):
+            bok_bonds.append(한줄)
 
     return bok_base, bok_bonds
 
 
 #: 한국은행 ECOS '시장금리(일별)' 통계표. 콜금리·CD·CP·회사채가 한 표에 있다.
 _ECOS_시장금리 = "817Y002"
+
+#: 국고채 세 줄 — (화면 이름, 시장금리표의 항목 이름, 항목목록을 못 받았을 때의 코드).
+#: 코드는 항목목록이 비었을 때만 쓰고, 그때도 받은 줄의 이름이 맞아야 쓴다.
+_ECOS_국고채 = [
+    ("국고채 3년",  "국고채(3년)",  "010200000"),
+    ("국고채 5년",  "국고채(5년)",  "010200001"),
+    ("국고채 10년", "국고채(10년)", "010210000"),
+]
+
+
+def _ecos_줄들(r, 원천: str) -> list:
+    """ECOS 응답 → 줄 목록. 없으면 왜 없는지 남긴다.
+
+    ECOS 는 키가 틀리거나 자료가 없어도 HTTP 200 을 준다 — 대신 본문에
+    {"RESULT": {"CODE": "INFO-100", "MESSAGE": "인증키가 유효하지 않습니다."}}
+    같은 것을 싣는다. 그걸 안 보면 '빈손' 만 남는다."""
+    if r.status_code != 200:
+        _응답_남기기(원천, f"HTTP {r.status_code}")
+        return []
+    try:
+        j = r.json()
+    except Exception:
+        _응답_남기기(원천, "JSON 아님")
+        return []
+    rows = (j.get("StatisticSearch") or {}).get("row") or []
+    if not rows:
+        결과 = j.get("RESULT") or (j.get("StatisticSearch") or {}).get("RESULT") or {}
+        _응답_남기기(원천, f"ECOS {결과.get('CODE', '?')} {결과.get('MESSAGE', '자료 없음')}".strip())
+    return rows
+
+
 _ECOS_항목_CK = f"extra:ecos_items:{_ECOS_시장금리}"
 
 
@@ -462,26 +487,40 @@ def _ecos_항목목록() -> dict:
             timeout=8, verify=SSL,
         )
         if r.status_code == 200:
-            for row in r.json().get("StatisticItemList", {}).get("row", []):
+            j = r.json()
+            for row in (j.get("StatisticItemList") or {}).get("row") or []:
                 이름, 코드 = row.get("ITEM_NAME"), row.get("ITEM_CODE")
                 if 이름 and 코드:
                     표[str(이름)] = str(코드)
+            if not 표:
+                결과 = j.get("RESULT") or {}
+                _응답_남기기("ECOS 시장금리표",
+                             f"항목목록 ECOS {결과.get('CODE', '?')} {결과.get('MESSAGE', '비어 있음')}")
+        else:
+            _응답_남기기("ECOS 시장금리표", f"항목목록 HTTP {r.status_code}")
     except Exception as e:
+        _응답_남기기("ECOS 시장금리표", f"항목목록 연결 실패({type(e).__name__})")
         log.debug("ECOS 항목목록 실패: %s", type(e).__name__)
     # 빈손이어도 담아 둔다 — 5분마다 다시 묻지 않게. 다만 짧게.
     cache.set(_ECOS_항목_CK, 표, 86400 if 표 else 600)
     return 표
 
 
-def _ecos_한줄(코드: str, 이름: str, 시작: str, 끝: str) -> "dict | None":
-    """항목 하나의 최근 값과 전일 대비."""
+def _ecos_한줄(코드: str, 이름: str, 시작: str, 끝: str,
+              원천: str = "ECOS 시장금리표", 이름확인: tuple = ()) -> "dict | None":
+    """항목 하나의 최근 값과 전일 대비.
+
+    이름확인 — 받은 줄의 항목 이름(ITEM_NAME1)에 이 말들이 다 들어 있어야
+    쓴다. 코드가 틀려 다른 금리가 오면 그 이름이 다르므로 버려진다."""
     try:
         r = httpx.get(f"{_ecos_주소()}/1/5/{_ECOS_시장금리}/D/{시작}/{끝}/{코드}/",
                       timeout=8, verify=SSL)
-        if r.status_code != 200:
-            return None
-        rows = r.json().get("StatisticSearch", {}).get("row", [])
+        rows = _ecos_줄들(r, 원천)
         if not rows:
+            return None
+        받은이름 = str(rows[-1].get("ITEM_NAME1") or "")
+        if 이름확인 and not all(k in 받은이름 for k in 이름확인):
+            _응답_남기기(원천, f"항목 이름이 다름({받은이름 or '없음'})")
             return None
         값 = float(rows[-1].get("DATA_VALUE") or 0)
         전 = float(rows[-2].get("DATA_VALUE") or 값) if len(rows) >= 2 else 값
@@ -490,13 +529,15 @@ def _ecos_한줄(코드: str, 이름: str, 시작: str, 끝: str) -> "dict | Non
         변동 = round(값 - 전, 3)
         return {"name": 이름, "value": round(값, 3), "change": 변동,
                 "change_rate": 변동, "unit": "%", "is_rate": True}
-    except Exception:
+    except Exception as e:
+        _응답_남기기(원천, f"연결 실패({type(e).__name__})")
         return None
 
 
 #: 시장금리표에서 찾아 쓸 것들. (화면 이름, 항목 이름에 들어 있어야 할 말들)
 _ECOS_그밖 = [
     ("콜금리(1일)",     ("콜금리",), ("중개",)),
+    ("CD금리(91일)",    ("CD",), ()),
     ("CP금리(91일)",    ("CP",), ()),
     ("회사채 AA- 3년",  ("회사채", "AA-"), ()),
     ("회사채 BBB- 3년", ("회사채", "BBB-"), ()),
@@ -530,44 +571,12 @@ def _fetch_bok_그밖_ecos() -> list:
         # 가 같이 있으면 앞의 것을 쓴다.
         후보.sort(key=lambda x: len(x[0]))
         열쇠 = f"ecos:{후보[0][1]}"
-        if (한줄 := _ecos_한줄(후보[0][1], 화면이름, 시작, 끝)):
+        if (한줄 := _ecos_한줄(후보[0][1], 화면이름, 시작, 끝, 이름확인=있어야할것)):
             금리쉼표.기록(열쇠, False)
             결과.append(한줄)
         else:
             금리쉼표.기록(열쇠, True)
     return 결과
-
-
-def _fetch_kr_bonds_yf() -> list:
-    """yfinance로 한국 국고채 금리 조회 (네이버 스크래핑 실패 시 폴백)"""
-    bond_specs = [
-        ("KR3YT=RR", "국고채 3년"),
-        ("KR5YT=RR", "국고채 5년"),
-        ("KR10YT=RR", "국고채 10년"),
-    ]
-    symbols = [s[0] for s in bond_specs]
-    close_data = _batch_close(symbols)
-
-    results = []
-    for sym, name in bond_specs:
-        try:
-            if close_data is not None and sym in close_data.columns:
-                c = close_data[sym].dropna()
-            else:
-                c = yf.Ticker(sym).history(period="5d")["Close"].dropna()
-            if len(c) < 1:
-                continue
-            curr = float(c.iloc[-1])
-            prev = float(c.iloc[-2]) if len(c) >= 2 else curr
-            chg = round(curr - prev, 3)
-            results.append({
-                "name": name, "value": round(curr, 3),
-                "change": chg, "change_rate": chg,
-                "unit": "%", "is_rate": True,
-            })
-        except Exception:
-            continue
-    return results
 
 
 def _fetch_kr_bonds_pykrx() -> "tuple[list, dict | None, list]":
@@ -599,7 +608,9 @@ def _fetch_kr_bonds_pykrx() -> "tuple[list, dict | None, list]":
                 if tmp is not None and not tmp.empty:
                     df = tmp
                     break
-            except Exception:
+                _응답_남기기("KRX 장외채권(pykrx)", "표가 비어 있음")
+            except Exception as e:
+                _응답_남기기("KRX 장외채권(pykrx)", f"{type(e).__name__}")
                 continue
 
         if df is None or df.empty:
@@ -874,8 +885,31 @@ def 금리진단() -> dict:
     return dict(_금리진단)
 
 
+#: 원천마다 이번 회차에 무엇을 받았는지 — HTTP 상태, '숫자 없음', ECOS 결과
+#: 메시지 같은 것. '빈손' 한 마디로는 '막혔다'(접근 문제)와 '닿았는데 모양이
+#: 바뀌었다'(코드 문제)를 가를 수 없었다 — 관리자 화면에 여섯 원천이 모두
+#: '빈손' 으로 떠 있어도 무엇을 고쳐야 할지 알 수 없었다.
+_응답기록: dict = {}
+
+
+def _응답_남기기(원천: str, 무엇: str) -> None:
+    from collections import Counter
+    _응답기록.setdefault(원천, Counter())[무엇] += 1
+
+
+def _응답_요약(원천: str) -> str:
+    """이번 회차에 그 원천에서 받은 것을 한 줄로 — 그리고 비운다."""
+    기록 = _응답기록.pop(원천, None)
+    if not 기록:
+        return ""
+    return ", ".join(f"{k} ×{n}" if n > 1 else k for k, n in 기록.most_common(4))
+
+
 def _남기기(원천: str, 결과: str, 개수: int = 0, 받은것: "list | None" = None):
     import datetime
+    요약 = _응답_요약(원천)
+    if 요약 and not 결과.startswith(("받음", "건너뜀")):
+        결과 = f"{결과} — {요약}"
     _금리진단[원천] = {
         "결과": 결과, "개수": 개수,
         "받은것": [x.get("name") for x in (받은것 or [])][:12],
@@ -923,15 +957,26 @@ def _fetch_kr_rates_시장지표() -> list:
           "Accept-Language": "ko-KR,ko;q=0.9",
           "Referer": "https://finance.naver.com/marketindex/"}
     결과: list = []
+    원천 = "네이버 시장지표(HTML)"
     # 쉼표를 따로 둔다. 금리쉼표와 후보 목록이 달라서, 같이 쓰면 깨울
     # 자리를 세는 커서가 서로 엇갈린다.
-    for 이름, 코드 in 지표쉼표.돌아가며_깨우기(_시장지표_금리, lambda t: f"지표:{t[1]}"):
+    이번에 = 지표쉼표.돌아가며_깨우기(_시장지표_금리, lambda t: f"지표:{t[1]}")
+    if (쉬는수 := len(_시장지표_금리) - len(이번에)) > 0:
+        _응답_남기기(원천, f"연속 실패로 쉬는 코드 {쉬는수}개")
+    for 이름, 코드 in 이번에:
         열쇠 = f"지표:{코드}"
         try:
+            # 네이버가 금융 페이지를 새 주소로 옮기고 있다. 옮긴 곳으로
+            # 보내는 응답(3xx)을 따라가지 않으면 '200 이 아니다' 로 끝났다
             r = httpx.get(
                 "https://finance.naver.com/marketindex/interestDailyQuote.naver",
-                params={"marketindexCd": 코드}, headers=_H, timeout=6, verify=SSL)
+                params={"marketindexCd": 코드}, headers=_H, timeout=6, verify=SSL,
+                follow_redirects=True)
+            옮김 = getattr(getattr(r, "url", None), "host", "finance.naver.com")
+            if 옮김 and 옮김 != "finance.naver.com":
+                _응답_남기기(원천, f"주소 이동 → {옮김}")
             if r.status_code != 200:
+                _응답_남기기(원천, f"HTTP {r.status_code}")
                 지표쉼표.기록(열쇠, True)
                 continue
             본문 = r.text
@@ -940,6 +985,7 @@ def _fetch_kr_rates_시장지표() -> list:
             숫자들 = _re.findall(r">\s*(\d{1,2}\.\d{2,3})\s*<", 본문)
             값 = next((float(x) for x in 숫자들 if 0 < float(x) < 20), None)
             if 값 is None:
+                _응답_남기기(원천, f"200 인데 금리 숫자 없음(본문 {len(본문):,}자)")
                 지표쉼표.기록(열쇠, True)
                 continue
             전 = next((float(x) for x in 숫자들[1:] if 0 < float(x) < 20), 값)
@@ -947,7 +993,8 @@ def _fetch_kr_rates_시장지표() -> list:
             결과.append({"name": 이름, "value": round(값, 3),
                          "change": round(값 - 전, 3), "change_rate": round(값 - 전, 3),
                          "unit": "%", "is_rate": True})
-        except Exception:
+        except Exception as e:
+            _응답_남기기(원천, f"연결 실패({type(e).__name__})")
             지표쉼표.기록(열쇠, True)
             continue
     return 결과
@@ -1069,23 +1116,9 @@ def _do_fetch_kr_rates() -> list:
     else:
         _남기기("ECOS 기준금리·국고채", "건너뜀(이미 있음)")
 
-    # 4순위: yfinance (KR3YT=RR 등)
-    #
-    # 조건이 `if not bonds` 였다. 국고채 3년 하나만 받아도 "있음" 으로
-    # 보고 여기를 건너뛰어서, 5년·10년이 영영 안 왔다. 실제로 그랬다 —
-    # 네이버 시장지표가 3년만 주는데 그걸로 bonds 가 채워져서 yfinance 도
-    # pykrx 도 안 돌았다. 오늘 회사채에서 고친 것과 같은 종류의 버그다.
-    #
-    # 이제 '몇 개 있느냐' 가 아니라 '무엇이 빠졌느냐' 를 본다.
-    if _빠진_국고채(bonds):
-        try:
-            새것 = _fetch_kr_bonds_yf()
-            bonds = _국고채_채우기(bonds, 새것)
-            _남기기("yfinance 국고채", "받음" if 새것 else "빈손", len(새것), 새것)
-        except Exception as e:
-            _남기기("yfinance 국고채", f"실패({type(e).__name__})")
-    else:
-        _남기기("yfinance 국고채", "건너뜀(3·5·10년 다 있음)")
+    # (yfinance 국고채 경로는 없앴다. KR3YT=RR 같은 로이터 코드로 야후에
+    #  묻고 있었는데, 야후에는 그런 종목이 없어 늘 '빈손' 이었다 — 3분마다
+    #  헛요청 세 개를 보내고 관리자 화면에 실패 한 줄을 늘 남겼다.)
 
     # 5순위: pykrx (KRX 장외채권수익률)
     #
@@ -1118,6 +1151,9 @@ def _do_fetch_kr_rates() -> list:
     # 6순위: ECOS 시장금리표 — 콜금리가 여기에도 있다
     _채우기("ECOS 시장금리표", _fetch_bok_그밖_ecos,
             조건=not any("콜금리" in x["name"] for x in 그밖))
+    if not cd_override:
+        cd_override = next((x for x in 그밖 if "CD금리" in x["name"]), None)
+    그밖 = [x for x in 그밖 if "CD금리" not in x["name"]]
 
     # CD금리: 위 소스 중 하나에서 얻었거나, 캐시·정적 값
     cd_rate = cd_override or cache.get_stale("extra:cd_rate") or \

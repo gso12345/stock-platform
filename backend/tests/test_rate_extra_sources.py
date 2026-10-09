@@ -129,12 +129,17 @@ class Test콜금리는_ECOS에서:
             def json(self):
                 return self._d
 
+        # 실제 ECOS 처럼 줄마다 그 항목의 이름(ITEM_NAME1)이 실려 온다
+        코드별이름 = {c: n for n, c in 항목.items()}
+
         def _가짜(url, **kw):
             if "StatisticItemList" in url:
                 return _R({"StatisticItemList": {"row": [
                     {"ITEM_NAME": n, "ITEM_CODE": c} for n, c in 항목.items()]}})
+            이름 = 코드별이름.get(url.rstrip("/").rsplit("/", 1)[-1], "")
             return _R({"StatisticSearch": {"row": [
-                {"DATA_VALUE": str(값 - 0.02)}, {"DATA_VALUE": str(값)}]}})
+                {"ITEM_NAME1": 이름, "DATA_VALUE": str(값 - 0.02)},
+                {"ITEM_NAME1": 이름, "DATA_VALUE": str(값)}]}})
 
         monkeypatch.setattr(M.httpx, "get", _가짜)
 
@@ -203,7 +208,6 @@ class Test왜_안_왔는지_남기는가:
         monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: ([], None))
         monkeypatch.setattr(M, "_fetch_kr_rates_시장지표", lambda: [])
         monkeypatch.setattr(M, "_fetch_bok_rates_ecos", lambda: (None, []))
-        monkeypatch.setattr(M, "_fetch_kr_bonds_yf", lambda: [])
         monkeypatch.setattr(M, "_fetch_kr_bonds_pykrx", lambda: ([], None, []))
         monkeypatch.setattr(M, "_fetch_bok_그밖_ecos", lambda: [])
         cache.delete("extra:kr_rates")
@@ -371,11 +375,7 @@ class Test국고채가_하나만_와도_나머지를_찾는가:
 
     def test_셋_다_있으면_더_안_부른다(self, monkeypatch):
         """다 있는데 또 부르면 0.15 CPU 서버에 헛일만 얹는다."""
-        불렸나 = {"yf": False, "krx": False}
-
-        def _yf():
-            불렸나["yf"] = True
-            return []
+        불렸나 = {"krx": False}
 
         def _krx():
             불렸나["krx"] = True
@@ -390,13 +390,12 @@ class Test국고채가_하나만_와도_나머지를_찾는가:
         monkeypatch.setattr(M, "_fetch_kr_rates_naver", lambda: (국고채, None))
         monkeypatch.setattr(M, "_fetch_kr_rates_시장지표", lambda: 회사채)
         monkeypatch.setattr(M, "_fetch_bok_rates_ecos", lambda: (None, []))
-        monkeypatch.setattr(M, "_fetch_kr_bonds_yf", _yf)
         monkeypatch.setattr(M, "_fetch_kr_bonds_pykrx", _krx)
         monkeypatch.setattr(M, "_fetch_bok_그밖_ecos", lambda: [])
         cache.delete("extra:kr_rates")
 
         M._do_fetch_kr_rates()
-        assert not 불렸나["yf"] and not 불렸나["krx"]
+        assert not 불렸나["krx"]
 
 
 class Test이미_나가는_금리를_못받았다고_하지_않는가:
