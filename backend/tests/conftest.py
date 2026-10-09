@@ -24,7 +24,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _해외순위_사진_끄기():
-    """해외 순위 사진(DB 에 남기는 마지막 순위)을 검사에서는 끈다.
+    """해외 순위 사진(DB 에 남기는 마지막 순위)과 나스닥 전종목 받기를 검사에서는 끈다.
 
     켜 두면 순위를 만드는 검사마다 가짜 종목(T0, T1 …)으로 만든 순위를
     검사용 DB 파일(stockplatform.db)에 써 두고, 다음 검사(다음 실행까지)가
@@ -35,11 +35,19 @@ def _해외순위_사진_끄기():
     except Exception:
         yield
         return
-    원래 = (rs._사진_불러옴, rs._순위사진_남기기)
+    import time
+    이름들 = ("_사진_불러옴", "_순위사진_남기기", "_주식수", "_주식수_불러옴",
+             "_나스닥_장", "_나스닥_줄수", "_나스닥_시도때", "_한바퀴")
+    원래 = {k: getattr(rs, k) for k in 이름들}
     rs._사진_불러옴 = True
     rs._순위사진_남기기 = lambda 모두: None
+    # 나스닥 전종목 목록도 — 순위표를 쌓는 검사마다 나스닥에 묻지 않게
+    # (바깥에 나갈 수 있는 곳에서 돌리면 2MB 를 받아 공용 DB 에 쓴다)
+    rs._주식수, rs._주식수_불러옴, rs._나스닥_시도때 = {}, True, time.time()
+    rs._나스닥_장, rs._나스닥_줄수, rs._한바퀴 = None, 0, False
     yield
-    rs._사진_불러옴, rs._순위사진_남기기 = 원래
+    for k, v in 원래.items():
+        setattr(rs, k, v)
 
 
 @pytest.fixture(autouse=True)

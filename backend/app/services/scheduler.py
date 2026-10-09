@@ -314,8 +314,9 @@ async def refresh_us_stocks():
     # 표에 쌓기 전에 DB 에 남긴 마지막 해외 순위부터 깐다(프로세스당 한 번 —
     # ranking_service.refresh_us_rows 참고)
     try:
-        from app.services.ranking_service import 해외순위_사진_불러오기
+        from app.services.ranking_service import 해외순위_사진_불러오기, 나스닥_챙기기
         await asyncio.to_thread(해외순위_사진_불러오기)
+        await asyncio.to_thread(나스닥_챙기기)
     except Exception as e:
         log.debug("해외 순위 사진 깔기 실패: %s", type(e).__name__)
 
@@ -1061,8 +1062,14 @@ async def periodic_refresh():
         # 을 뺀 모든 종목이 **전날 마감 값** 으로 들어 있었다 — 상승률 순위에
         # 어제 오른 종목이 오늘 것과 섞였다. (5분마다 도는 인기·S&P500 갱신과
         # 겹치지 않게 반 박자 비켜 둔다)
+        #
+        # 순위표가 아직 전종목을 담지 못했으면(나스닥 목록을 못 받았고 훑기도 한 바퀴를
+        # 못 돌았다) 장이 닫혀 있어도 10분마다 이어 훑는다. 30분마다 1,500개씩이면
+        # 재시작 뒤 전종목이 차기까지 두 시간이 넘었다.
         미국닫힘 = market_hours.us_session() == "closed"
-        if (미국닫힘 and counter % 180 == 0) or (not 미국닫힘 and counter % 60 == 30):
+        from app.services.ranking_service import 전종목_채움
+        덜참 = not 전종목_채움()
+        if (미국닫힘 and not 덜참 and counter % 180 == 0) or ((not 미국닫힘 or 덜참) and counter % 60 == 30):
             await _미국순위표_돌리기()
 
         # 국내 종목 목록 (1시간마다 확인 — 실제 갱신은 DB가 묵었을 때만)

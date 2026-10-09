@@ -493,11 +493,232 @@ def _us_rows_from_cache() -> list[dict]:
             "change_rate": p.get("change_rate") or 0,
             "volume":      volume,
             "amount":      price * volume if price and volume else 0,
-            "market_cap":  p.get("market_cap") or 0,
+            "market_cap":  p.get("market_cap") or _주식수로_시총(sym, price),
             "regular_time": p.get("regular_time") or 0,
             "_demo":       p.get("_demo", False),
         })
     return rows
+
+
+# ── 전종목 — 나스닥 종목 목록 ──────────────────────────────────
+# 해외 순위표는 미국 상장 전종목(약 6,800)을 기준으로 해야 한다. 그런데 표를
+# 채우는 길이 야후뿐이었고, 프로덕션에서는 야후 일괄 시세(v7/quote, 인증 토큰
+# 필요)가 막혀 spark 로만 받는다(관리자 화면 '해외 순위표 · 야후 spark(v7)').
+#   · spark 는 시가총액을 안 준다 — 해외 순위의 첫 탭 '시가총액' 이 서지 못했다
+#   · 서버가 뜨면 300종목만 훑고(메모리) 나머지는 30분마다 1,500개씩 이어 훑어,
+#     전종목이 차기까지 두 시간이 넘었다. 재배포·재시작마다 300 부터 다시였다
+#     — 관리자 화면에 '279/300종목 · 표 352줄' 로 찍힌 것이 그 상태다
+#
+# 나스닥 종목 목록(screener)은 요청 한 번에 전종목의 가격·등락·거래량·시가총액을
+# 준다. 서버가 뜰 때와 장이 하나 끝날 때마다 받아 표를 전종목으로 채운다.
+# 같은 응답에서 '주식 수'(시가총액 ÷ 가격)도 구해 두고, 야후 spark 로 받은 지금
+# 가격에 곱해 시가총액을 낸다.
+#
+# 장중에는 이 목록이 오늘 값인지 어제 마감 값인지 여기서 가릴 수 없다. 그래서
+# '마지막으로 끝난 장' 의 값으로 넣는다 — 오늘 등락률 순위(한 장끼리만 견준다)
+# 에는 야후로 방금 받은 종목만 들어가고, 이 줄들은 장이 끝나 다시 받을 때 든다.
+NASDAQ_SCREENER = "https://api.nasdaq.com/api/screener/stocks"
+_나스닥_H = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://www.nasdaq.com",
+    "Referer": "https://www.nasdaq.com/",
+}
+#: 못 받았으면 다시 묻기까지(초)
+나스닥_실패쉼 = int(os.getenv("US_NASDAQ_RETRY_SEC", 3600))
+#: 장이 끝나고 이만큼 지나서 받는다(분) — 마감 직후에는 목록이 덜 고쳐져 있을 수 있다
+나스닥_마감여유분 = 30
+_주식수: dict = {}
+_나스닥_장 = None            # 이 프로세스가 표에 넣은 나스닥 목록이 어느 장의 것인지
+_나스닥_줄수 = 0
+_나스닥_시도때 = 0.0
+_주식수_불러옴 = False
+_나스닥_자물쇠 = threading.Lock()
+#: 훑기가 이 프로세스에서 전종목을 한 바퀴 돌았나
+_한바퀴 = False
+
+
+def _주식수로_시총(sym: str, 가격) -> float:
+    n = _주식수.get(sym)
+    return n * 가격 if n and 가격 else 0
+
+
+def 전종목_채움() -> bool:
+    """순위표가 전종목을 담았나 — 나스닥 전종목을 넣었거나 훑기가 한 바퀴를 돌았다.
+
+    아직이면 스케줄러가 장이 닫혀 있어도 10분마다 이어 훑는다(나스닥이 막혔을 때)."""
+    return _나스닥_장 is not None or _한바퀴
+
+
+def _나스닥수(v) -> "float | None":
+    """'$227.52' · '3,456,789,000,000.00' · '-0.537%' → 수. 'NA'·빈칸은 None."""
+    글 = str(v or "").replace("$", "").replace(",", "").replace("%", "").strip()
+    try:
+        return float(글)
+    except ValueError:
+        return None
+
+
+_이름꼬리 = re.compile(
+    r"\s+(?:Class [A-Z]\s+)?(?:Common Stock|Common Shares|Ordinary Shares?|"
+    r"American Depositary Shares?|American Depository Shares?|Depositary Shares?)\b.*$", re.I)
+
+
+def 나스닥_목록_읽기(j) -> list:
+    """나스닥 종목 목록 응답 → 표의 줄 모양(가격이 있는 것만).
+
+    download=true 면 data.rows, 아니면 data.table.rows 에 줄이 온다. 우선주·
+    클래스는 'BRK/B' 처럼 오는데 우리(야후) 꼴은 'BRK-B' 다. 이름 끝의
+    'Common Stock' 같은 꼬리는 뗀다."""
+    if not isinstance(j, dict):
+        return []
+    data = j.get("data") or {}
+    줄들 = data.get("rows") or (data.get("table") or {}).get("rows") or []
+    out = []
+    for z in 줄들:
+        if not isinstance(z, dict):
+            continue
+        sym = str(z.get("symbol") or "").strip().upper().replace("/", "-").replace("^", "-")
+        가격 = _나스닥수(z.get("lastsale"))
+        if not sym or not 가격 or 가격 <= 0:
+            continue
+        cap = _나스닥수(z.get("marketCap"))
+        거래량 = _나스닥수(z.get("volume")) or 0
+        이름 = _이름꼬리.sub("", str(z.get("name") or "")).strip() or sym
+        out.append({
+            "symbol": sym, "name": 이름, "price": 가격,
+            "change": _나스닥수(z.get("netchange")) or 0,
+            "change_rate": _나스닥수(z.get("pctchange")) or 0,
+            "volume": int(거래량), "amount": 가격 * 거래량,
+            "market_cap": cap if cap and cap > 0 else 0,
+        })
+    return out
+
+
+def 나스닥_주식수_읽기(j) -> dict:
+    """나스닥 종목 목록 응답 → {심볼: 주식 수(시가총액 ÷ 가격)}."""
+    return {r["symbol"]: r["market_cap"] / r["price"] for r in 나스닥_목록_읽기(j) if r["market_cap"]}
+
+
+def 마친장(now_utc=None) -> "tuple":
+    """마지막으로 끝난 미국 정규장 — (그날, 마감 시각 유닉스 초).
+
+    마감(16:00 ET) 뒤 나스닥_마감여유분 이 지나야 그날 장이 '끝난' 것으로 본다.
+    휴장일(공휴일)은 모른다 — 그날을 끝난 장으로 볼 뿐, 값은 그 전 장 그대로다."""
+    from datetime import datetime as _dt, time as _t, timedelta as _td, timezone as _tz
+    from app.services.market_hours import _et_now
+    et = _et_now(now_utc or _dt.now(_tz.utc))
+    날 = et.date()
+    if et.weekday() >= 5 or et.time() < _t(16, 나스닥_마감여유분):
+        날 -= _td(days=1)
+    while 날.weekday() >= 5:
+        날 -= _td(days=1)
+    마감 = _dt(날.year, 날.month, 날.day, 16, 0, tzinfo=et.tzinfo)
+    return 날, int(마감.timestamp())
+
+
+def _나스닥_쌓기(줄들: list, 마감: int) -> int:
+    """전종목 줄을 표에 넣는다. 야후로 받은 더 새 값(같은 장이나 뒤 장)이 있으면 그
+    가격은 두고 모르는 시가총액만 채운다. 표의 줄 수를 돌려준다."""
+    표 = cache.get(US_ROWS_CK) or cache.get_stale(US_ROWS_CK) or []
+    모음 = {r["symbol"]: r for r in 표 if r.get("symbol")}
+    for z in 줄들:
+        z = {**z, "regular_time": 마감}
+        옛 = 모음.get(z["symbol"])
+        if 옛 and (옛.get("regular_time") or 0) >= 마감:
+            if not 옛.get("market_cap") and (n := _주식수.get(z["symbol"])) and 옛.get("price"):
+                모음[z["symbol"]] = {**옛, "market_cap": n * 옛["price"]}
+            continue
+        모음[z["symbol"]] = _아는값_지키기(옛, z)
+    cache.set(US_ROWS_CK, list(모음.values()), US_ROWS_TTL)
+    return len(모음)
+
+
+def _주식수_db(쓰기: "dict | None" = None) -> "tuple[dict, float]":
+    """DB(ranking_snapshots 의 'US_SHARES' 줄)에서 읽거나 쓴다."""
+    from datetime import datetime, timezone as _tz
+    from app.db.database import SessionLocal
+    from app.models.stock import RankingSnapshot
+    db = SessionLocal()
+    try:
+        줄 = db.get(RankingSnapshot, "US_SHARES")
+        if 쓰기 is None:
+            if 줄 and isinstance(줄.data, dict) and 줄.data.get("shares"):
+                at = 줄.fetched_at.replace(tzinfo=_tz.utc).timestamp() if 줄.fetched_at else 0.0
+                return dict(줄.data["shares"]), at
+            return {}, 0.0
+        값 = {"shares": 쓰기, "source": "nasdaq"}
+        if 줄:
+            줄.data, 줄.fetched_at = 값, datetime.utcnow()
+        else:
+            db.add(RankingSnapshot(market="US_SHARES", data=값, fetched_at=datetime.utcnow()))
+        db.commit()
+        return 쓰기, time.time()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def 나스닥_챙기기() -> int:
+    """전종목 목록을 준비한다. 이번에 받아 표에 넣은 줄 수(안 받았으면 0).
+
+    · 처음 부르면 DB 의 주식 수부터 읽는다 — 받기 전에도 시가총액을 낼 수 있게
+    · 이 프로세스에서 아직 안 받았거나 장이 하나 더 끝났으면 받는다. 못 받으면
+      나스닥_실패쉼 동안 다시 묻지 않는다
+    순위표를 쌓기 전에 부른다(뒤에서 도는 일이라 받는 동안 기다려도 된다)."""
+    global _주식수, _나스닥_장, _나스닥_줄수, _나스닥_시도때, _주식수_불러옴
+    from app.core import health
+    if not _나스닥_자물쇠.acquire(blocking=False):
+        return 0                       # 다른 쪽이 받는 중
+    try:
+        if not _주식수_불러옴:
+            _주식수_불러옴 = True
+            try:
+                있던것, _ = _주식수_db()
+                if 있던것:
+                    _주식수 = 있던것
+            except Exception as e:
+                log.debug("주식 수 읽기 실패: %s", type(e).__name__)
+        장, 마감 = 마친장()
+        if _나스닥_장 == 장 or time.time() - _나스닥_시도때 < 나스닥_실패쉼:
+            return 0
+        if not memory.has_headroom("해외 전종목"):
+            return 0
+        _나스닥_시도때 = time.time()
+        try:
+            r = httpx.get(NASDAQ_SCREENER, params={"tableonly": "true", "download": "true"},
+                          headers=_나스닥_H, timeout=30, verify=SSL)
+        except Exception as e:
+            health.record_fail("해외 전종목(나스닥)", f"연결 실패({type(e).__name__})")
+            return 0
+        if r.status_code != 200:
+            health.record_fail("해외 전종목(나스닥)", f"HTTP {r.status_code}")
+            return 0
+        try:
+            줄들 = 나스닥_목록_읽기(r.json())
+        except Exception:
+            줄들 = []
+        r = None
+        if len(줄들) < 500:
+            health.record_fail("해외 전종목(나스닥)", f"목록이 비었거나 모양이 바뀜({len(줄들)}종목)")
+            return 0
+        _주식수 = {z["symbol"]: z["market_cap"] / z["price"] for z in 줄들 if z["market_cap"]}
+        try:
+            _주식수_db(_주식수)
+        except Exception as e:
+            log.debug("주식 수 남기기 실패: %s", type(e).__name__)
+        표줄수 = _나스닥_쌓기(줄들, 마감)
+        # 쉼(나스닥_실패쉼)은 못 받았을 때만이다 — 받았으면 다음 장이 끝나는 대로 받는다
+        _나스닥_장, _나스닥_줄수, _나스닥_시도때 = 장, len(줄들), 0.0
+        health.record_ok("해외 전종목(나스닥)", None,
+                         f"{len(줄들):,}종목 · {장.month}/{장.day} 장 · 순위표 {표줄수:,}줄")
+        return len(줄들)
+    finally:
+        _나스닥_자물쇠.release()
 
 
 def _build_us_rows() -> list[dict]:
@@ -581,8 +802,14 @@ def _표에_쌓기(이번회차: list[dict]) -> list[dict]:
     모음 = {r["symbol"]: r for r in 지난표 if r.get("symbol")}
     for r in 이번회차:
         sym = r.get("symbol")
-        if sym:
-            모음[sym] = _아는값_지키기(모음.get(sym), r)
+        if not sym:
+            continue
+        옛 = 모음.get(sym)
+        # 표에 더 뒤 장의 값이 있으면 지킨다 — 장이 끝나고 나스닥 전종목(마감값)을
+        # 넣은 뒤, 몇 시간 묵은 시세 캐시가 그것을 덮어 되돌리지 않게
+        if 옛 and (옛.get("regular_time") or 0) > (r.get("regular_time") or 0) > 0:
+            continue
+        모음[sym] = _아는값_지키기(옛, r)
     return list(모음.values())
 
 
@@ -640,7 +867,7 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
     장이 닫혀 있어도 돈다 — 닫혀 있으면 종가가 안 변하므로 오히려 오래
     담아 둘 수 있다. 예전에는 장이 닫히면 아무것도 안 받아서, 한국 낮에
     들어온 사람은 순위가 거의 비어 있었다."""
-    global _us_rows_refreshing, _us_cursor
+    global _us_rows_refreshing, _us_cursor, _한바퀴
     if _us_rows_refreshing:
         return 0
     _us_rows_refreshing = True
@@ -653,6 +880,9 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
         # 시가총액을 아는 줄이 먼저 있어야, spark(시가총액 없음)로만 받는
         # 동안에도 그 값이 지켜져 시가총액 순위가 선다
         await asyncio.to_thread(해외순위_사진_불러오기)
+        # 전종목을 먼저 표에 넣는다(나스닥 목록 한 번). 시가총액을 안 주는 spark
+        # 로만 받아도 시가총액이 서게 주식 수도 같이 챙긴다
+        await asyncio.to_thread(나스닥_챙기기)
 
         열림 = market_hours.us_session() != "closed"
         # 닫혀 있으면 종가라 값이 안 변한다. 길게 담아 둬야 한 바퀴 도는
@@ -666,6 +896,7 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
         # 목록을 두 번 이어 붙여 놓고 잘라 낸다 — 끝에서 앞으로 넘어간다
         훑을것 = (전체 + 전체)[시작:시작 + min(sweep or US_SWEEP, len(전체))]
         _us_cursor = (시작 + len(훑을것)) % len(전체)
+        한바퀴됨 = 시작 + len(훑을것) >= len(전체)
 
         받은수 = 0
         길: Counter = Counter()          # 묶음마다 야후의 어느 길로 받았나
@@ -679,6 +910,7 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
             # 멈추는 쪽이 낫다 — 커서는 남으니 다음 회차가 이어서 훑는다.
             if i and not memory.has_headroom("미국 시세 묶음"):
                 _us_cursor = (시작 + i) % len(전체)
+                한바퀴됨 = False
                 log.info("메모리 여유 부족 — %d개까지만 훑고 멈춥니다", i)
                 break
             묶음 = 훑을것[i:i + US_BATCH]
@@ -702,7 +934,9 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
             cache.set(US_ROWS_CK, rows, US_ROWS_TTL)
             # 분류별 순위도 새 표로 이 자리에서 다시 만든다(미국표_다시쌓기 참고)
             _미국순위_모두_담기(rows)
-        _순위표_상태_남기기(받은수, len(훑을것), len(rows), 길)
+        if 한바퀴됨:
+            _한바퀴 = True
+        _순위표_상태_남기기(받은수, len(훑을것), len(rows), 길, len(전체))
         log.info("미국 순위표 %d종목 / 전체 %d — 이번에 %d건 갱신 (다음 시작 %d)",
                  len(rows), len(전체), 받은수, _us_cursor)
         return len(rows)
@@ -761,7 +995,7 @@ def _시세_담기(sym: str, q: dict, 수명: int) -> None:
 
 
 def _순위표_상태_남기기(받은수: int, 물은수: int, 표줄수: int,
-                     길: "dict | None" = None) -> None:
+                     길: "dict | None" = None, 전체수: int = 0) -> None:
     """관리자 화면 '데이터 수집' 에 해외 순위표를 어떻게 채웠는지 남긴다.
 
     해외 순위가 통째로 비어도 왜 그런지 볼 곳이 없었다 — '야후 시세' 줄은
@@ -769,14 +1003,19 @@ def _순위표_상태_남기기(받은수: int, 물은수: int, 표줄수: int,
     안 적었다."""
     try:
         from app.core import health
+        # 순위가 몇 종목을 두고 매긴 것인지가 먼저다 — 예전에는 이번 회차에 받은
+        # 수('279/300종목')만 앞에 있어, 그게 순위의 기준인 줄로 읽혔다
+        표글 = f"순위표 {표줄수:,}종목" + (f"(전체 목록 {전체수:,})" if 전체수 else "")
+        if _나스닥_장 is not None:
+            표글 += f" · 나스닥 전종목 {_나스닥_줄수:,}"
         if 받은수:
             어디서 = " · ".join(f"{k} {n}묶음" for k, n in (길 or {}).items())
             health.record_ok("해외 순위표", None,
-                             f"{받은수}/{물은수}종목 · 표 {표줄수}줄"
-                             + (f" · 야후 {어디서}" if 어디서 else ""))
+                             f"{표글} · 이번에 야후 {받은수}/{물은수}종목"
+                             + (f"({어디서})" if 어디서 else ""))
         else:
             health.record_fail("해외 순위표",
-                               f"0/{물은수}종목 — 야후 일괄 시세·spark 모두 빈손(표 {표줄수}줄)")
+                               f"{표글} · 이번에 야후 0/{물은수}종목 — 일괄 시세·spark 모두 빈손")
     except Exception:
         pass
 

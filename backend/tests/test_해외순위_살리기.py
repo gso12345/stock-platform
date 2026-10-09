@@ -13,6 +13,8 @@ crumb(인증 토큰)가 있어야 해서 서버가 crumb 을 못 받으면 아�
   · 관리자 화면 '해외 순위표' 줄에 몇 종목을 어느 길로 받았는지 남긴다
 """
 import asyncio
+import time
+from datetime import date
 
 import pytest
 
@@ -273,7 +275,7 @@ class Test관리자_화면에_남긴다:
         rs._순위표_상태_남기기(1500, 1500, 6884, {"인증 배치": 10, "spark(v7)": 5})
         줄 = _해외순위표줄()
         assert 줄["streak"] == 0
-        assert "1500/1500종목" in 줄["detail"] and "6884줄" in 줄["detail"]
+        assert "순위표 6,884종목" in 줄["detail"] and "1500/1500종목" in 줄["detail"]
         assert "인증 배치 10묶음" in 줄["detail"] and "spark(v7) 5묶음" in 줄["detail"]
 
     def test_못_받으면_실패로(self):
@@ -499,3 +501,269 @@ class Test언제_남기나:
         assert 받음 == []
         rs._미국순위_모두_담기(얇은표 + [{"symbol": "X", "price": 1.0, "market_cap": 1}])
         assert len(받음) == 1
+
+
+# ── 전종목 — 나스닥 종목 목록 ─────────────────────────────────
+# 사용자: "해외순위표 전종목을 기준으로 해야지" — 관리자 화면에 '279/300종목 · 표 352줄'
+# 로 찍혀 있었다. 서버가 뜨면 300종목만 훑고 나머지는 30분마다 1,500개씩이라 전종목이
+# 차기까지 두 시간이 넘었다. 나스닥 종목 목록 한 번으로 전종목을 표에 넣고, 같은 응답의
+# 주식 수로 spark(시가총액 없음) 가격의 시가총액을 낸다.
+def _나스닥(n=600, 더: "dict | None" = None, 모양="rows") -> dict:
+    줄들 = [{"symbol": f"S{i}", "name": f"S{i} Inc. Common Stock", "lastsale": f"${10 + i % 50}.00",
+             "netchange": "0.50", "pctchange": f"{(i % 21) - 10:.3f}%", "volume": f"{1000 + i}",
+             "marketCap": f"{(10 + i % 50) * 1_000_000 * (i + 1):,}.00"} for i in range(n)]
+    for sym, (가격, 시총) in (더 or {}).items():
+        줄들.append({"symbol": sym, "name": f"{sym} Corp. Common Stock", "lastsale": f"${가격:,.2f}",
+                     "netchange": "1.00", "pctchange": "1.000%", "volume": "5000000",
+                     "marketCap": f"{시총:,.2f}"})
+    return {"data": {"rows": 줄들}} if 모양 == "rows" else {"data": {"table": {"rows": 줄들}}}
+
+
+class _나스닥응답:
+    def __init__(self, status=200, j=None):
+        self.status_code, self._j = status, j
+
+    def json(self):
+        return self._j
+
+
+#: spark 값(T1)보다 한 장 앞 — 장중에 받은 나스닥 목록은 '마지막으로 끝난 장' 으로 넣는다
+지난장 = (date(2025, 10, 8), T0)
+
+
+class Test나스닥_목록:
+    def test_두_모양을_다_읽고_야후_꼴_심볼로(self):
+        for 모양 in ("rows", "table"):
+            j = _나스닥(3, {"BRK/B": (480.0, 1_040_000_000_000), "NVDA": (180.0, 4_400_000_000_000)}, 모양)
+            j["data"].get("rows", j["data"].get("table", {}).get("rows")).append(
+                {"symbol": "XNA", "lastsale": "NA", "marketCap": "NA"})
+            줄 = {r["symbol"]: r for r in rs.나스닥_목록_읽기(j)}
+            assert "BRK-B" in 줄 and "BRK/B" not in 줄
+            assert "XNA" not in 줄, "가격을 모르는 줄을 담았다"
+            assert rs.나스닥_주식수_읽기(j)["NVDA"] == pytest.approx(4_400_000_000_000 / 180.0)
+        assert rs.나스닥_목록_읽기(None) == [] and rs.나스닥_목록_읽기([1]) == []
+
+    def test_등락률_거래량_거래대금(self):
+        줄 = {r["symbol"]: r for r in rs.나스닥_목록_읽기(_나스닥(1, {"AAPL": (227.52, 3.4e12)}))}["AAPL"]
+        assert 줄["change_rate"] == 1.0 and 줄["volume"] == 5_000_000
+        assert 줄["amount"] == pytest.approx(227.52 * 5_000_000) and 줄["market_cap"] == 3.4e12
+
+    @pytest.mark.parametrize("원래,다듬은", [
+        ("Apple Inc. Common Stock", "Apple Inc."),
+        ("Alphabet Inc. Class A Common Stock", "Alphabet Inc."),
+        ("Taiwan Semiconductor Manufacturing Company Ltd. American Depositary Shares", "Taiwan Semiconductor Manufacturing Company Ltd."),
+        ("Spotify Technology S.A. Ordinary Shares", "Spotify Technology S.A."),
+    ])
+    def test_이름_꼬리를_뗀다(self, 원래, 다듬은):
+        j = {"data": {"rows": [{"symbol": "X", "name": 원래, "lastsale": "$1.00", "marketCap": "1"}]}}
+        assert rs.나스닥_목록_읽기(j)[0]["name"] == 다듬은
+
+    def test_시총이_없으면_주식수_곱하기_가격(self, monkeypatch):
+        # 둘 다 주식 수를 안다 — 받은 시가총액이 있으면 그것을 써야 한다
+        monkeypatch.setattr(rs, "_주식수", {"NVDA": 24_000_000_000, "AAPL": 15_000_000_000})
+        monkeypatch.setattr(rs, "us_universe", lambda: ["NVDA", "AAPL"])
+        cache.set("price:NVDA", {"symbol": "NVDA", "price": 190.0}, 60)
+        cache.set("price:AAPL", {"symbol": "AAPL", "price": 230.0, "market_cap": 3_400_000_000_000}, 60)
+        try:
+            줄 = {r["symbol"]: r for r in rs._us_rows_from_cache()}
+            assert 줄["NVDA"]["market_cap"] == pytest.approx(24e9 * 190.0)
+            assert 줄["AAPL"]["market_cap"] == 3_400_000_000_000, "받은 시가총액을 덮었다"
+        finally:
+            cache.delete("price:NVDA")
+            cache.delete("price:AAPL")
+
+
+class Test마친장:
+    @pytest.mark.parametrize("utc,날", [
+        ((2026, 10, 8, 19, 0), date(2026, 10, 7)),     # 목 15:00 ET — 아직 장중 → 수요일
+        ((2026, 10, 8, 20, 10), date(2026, 10, 7)),    # 목 16:10 ET — 마감 여유 30분 전
+        ((2026, 10, 8, 20, 40), date(2026, 10, 8)),    # 목 16:40 ET — 목요일 장이 끝났다
+        ((2026, 10, 10, 15, 0), date(2026, 10, 9)),    # 토 → 금
+        ((2026, 10, 12, 14, 0), date(2026, 10, 9)),    # 월 10:00 ET → 금
+    ])
+    def test_마지막으로_끝난_장(self, utc, 날):
+        from datetime import datetime, timezone
+        그날, 마감 = rs.마친장(datetime(*utc, tzinfo=timezone.utc))
+        assert 그날 == 날
+        assert datetime.fromtimestamp(마감, timezone.utc).hour == 20, "마감은 그날 16:00 ET(서머타임 UTC 20시)"
+
+
+@pytest.fixture
+def 나스닥새로(사진DB, monkeypatch):
+    """프로세스가 막 떴다 — 나스닥 목록을 아직 안 받았고 주식 수도 안 읽었다."""
+    for k, v in (("_주식수", {}), ("_주식수_불러옴", False), ("_나스닥_장", None),
+                 ("_나스닥_줄수", 0), ("_나스닥_시도때", 0.0), ("_한바퀴", False)):
+        monkeypatch.setattr(rs, k, v)
+    monkeypatch.setattr(rs.memory, "has_headroom", lambda *a, **k: True)
+    health.reset()
+    return 사진DB
+
+
+def _전종목줄() -> dict:
+    return {x["name"]: x for x in health.snapshot()}.get("해외 전종목(나스닥)") or {}
+
+
+class Test나스닥_챙기기:
+    def test_한_번에_전종목을_표에_넣는다(self, 나스닥새로, monkeypatch):
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(200, _나스닥()))
+        assert not rs.전종목_채움()
+        assert rs.나스닥_챙기기() == 600
+        assert len(cache.get(rs.US_ROWS_CK)) == 600
+        assert rs.전종목_채움()
+        assert "600종목" in _전종목줄()["detail"]
+
+    def test_같은_장이면_다시_안_받고_장이_끝나면_받는다(self, 나스닥새로, monkeypatch):
+        물음: list = []
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: 물음.append(url) or _나스닥응답(200, _나스닥()))
+        monkeypatch.setattr(rs, "마친장", lambda *a: 지난장)
+        rs.나스닥_챙기기()
+        rs.나스닥_챙기기()
+        assert len(물음) == 1, "같은 장인데 또 받았다"
+        monkeypatch.setattr(rs, "마친장", lambda *a: (date(2025, 10, 9), T1))
+        rs.나스닥_챙기기()
+        assert len(물음) == 2, "장이 하나 끝났는데 안 받았다"
+
+    def test_다시_뜨면_DB_의_주식수부터(self, 나스닥새로, monkeypatch):
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(200, _나스닥()))
+        rs.나스닥_챙기기()
+        # 다시 떴는데 이번엔 나스닥이 막혔다 — 그래도 DB 의 주식 수로 시가총액을 낸다
+        for k, v in (("_주식수", {}), ("_주식수_불러옴", False), ("_나스닥_장", None), ("_나스닥_시도때", 0.0)):
+            monkeypatch.setattr(rs, k, v)
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(403))
+        assert rs.나스닥_챙기기() == 0
+        assert len(rs._주식수) == 600
+
+    def test_막히면_이유를_남기고_한동안_안_묻는다(self, 나스닥새로, monkeypatch):
+        물음: list = []
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: 물음.append(url) or _나스닥응답(403))
+        assert rs.나스닥_챙기기() == 0
+        줄 = _전종목줄()
+        assert 줄["streak"] == 1 and "HTTP 403" in 줄["last_error"]
+        rs.나스닥_챙기기()
+        assert len(물음) == 1, "막힌 동안 또 물었다"
+
+    def test_목록_모양이_바뀌면_있던_것을_지킨다(self, 나스닥새로, monkeypatch):
+        monkeypatch.setattr(rs, "_주식수", {"NVDA": 24e9})
+        monkeypatch.setattr(rs, "_주식수_불러옴", True)
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(200, {"data": {"rows": []}}))
+        rs.나스닥_챙기기()
+        assert rs._주식수 == {"NVDA": 24e9} and not rs.전종목_채움()
+        assert "모양이 바뀜" in _전종목줄()["last_error"]
+
+    def test_야후의_더_새_값은_덮지_않는다(self, 나스닥새로, monkeypatch):
+        cache.set(rs.US_ROWS_CK, [{"symbol": "NVDA", "name": "NVIDIA", "price": 190.0, "change_rate": 2.0,
+                                   "market_cap": 0, "regular_time": T1}], 900)
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(
+            200, _나스닥(600, {"NVDA": (180.0, 4_400_000_000_000)})))
+        monkeypatch.setattr(rs, "마친장", lambda *a: 지난장)
+        rs.나스닥_챙기기()
+        nvda = {r["symbol"]: r for r in cache.get(rs.US_ROWS_CK)}["NVDA"]
+        assert nvda["price"] == 190.0 and nvda["regular_time"] == T1, "방금 받은 값을 지난 장 값으로 덮었다"
+        assert nvda["market_cap"] == pytest.approx(4_400_000_000_000 / 180.0 * 190.0), "모르는 시가총액은 채워야 한다"
+
+    def test_지난_장_줄은_오늘_등락률_순위에_안_섞인다(self, 나스닥새로, monkeypatch):
+        """장중에 받은 목록이 어제 값이면, 어제 오른 종목이 오늘 상승률에 섞인다"""
+        오늘줄 = [{"symbol": f"K{i}", "price": 10.0, "change_rate": 1.0 + i / 100, "volume": 100,
+                  "amount": 1000.0, "market_cap": 10**9, "regular_time": T1} for i in range(rs.US_SESSION_MIN_ROWS)]
+        cache.set(rs.US_ROWS_CK, 오늘줄, 900)
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(
+            200, _나스닥(600, {"OLDUP": (50.0, 5_000_000_000_000)})))
+        monkeypatch.setattr(rs, "마친장", lambda *a: 지난장)
+        rs.나스닥_챙기기()
+        표 = cache.get(rs.US_ROWS_CK)
+        assert {r["symbol"] for r in rs._sort_us(표, "상승률")} <= {r["symbol"] for r in 오늘줄}
+        assert rs._sort_us(표, "시가총액")[0]["symbol"] == "OLDUP", "시가총액에는 전종목이 들어야 한다"
+
+    def test_묵은_캐시가_나스닥_마감값을_되돌리지_않는다(self, monkeypatch):
+        cache.set(rs.US_ROWS_CK, [{"symbol": "AAPL", "price": 230.0, "regular_time": T1}], 900)
+        try:
+            표 = {r["symbol"]: r for r in rs._표에_쌓기([{"symbol": "AAPL", "price": 225.0, "regular_time": T0}])}
+            assert 표["AAPL"]["price"] == 230.0
+            표 = {r["symbol"]: r for r in rs._표에_쌓기([{"symbol": "AAPL", "price": 231.0, "regular_time": T1 + 60}])}
+            assert 표["AAPL"]["price"] == 231.0, "더 새 값은 들어가야 한다"
+        finally:
+            cache.delete(rs.US_ROWS_CK)
+
+    def test_spark_로만_받아도_전종목_시가총액_순위가_선다(self, 나스닥새로, monkeypatch):
+        """이번 일의 한가운데 — 처음 뜬 서버 · 남긴 순위 없음 · 야후 일괄 시세 막힘"""
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(200, _나스닥(
+            600, {"NVDA": (180.0, 4_400_000_000_000), "AAPL": (230.0, 3_450_000_000_000),
+                  "MSFT": (450.0, 3_380_000_000_000)})))
+        monkeypatch.setattr(rs, "마친장", lambda *a: 지난장)
+        _일괄시세_막기(monkeypatch)
+        새값 = {"NVDA": 190.0, "AAPL": 220.0, "MSFT": 460.0}
+        monkeypatch.setattr(pf.httpx, "AsyncClient", _가짜야후(
+            lambda 판, 심볼들: (200, _v7({s: 새값[s] for s in 심볼들 if s in 새값}))))
+        monkeypatch.setattr(rs, "us_universe", lambda: list(새값))
+        monkeypatch.setattr(rs, "_us_cursor", 0)
+        asyncio.run(rs.refresh_us_rows())
+        순위 = rs.get_us_rankings("시가총액")
+        # 애플은 230→220 으로 내려 3.30조, 마이크로소프트는 450→460 으로 올라 3.46조 —
+        # 지금 가격으로 셈하므로 나스닥 목록 때와 순서가 바뀐다
+        assert [r["symbol"] for r in 순위[:3]] == ["NVDA", "MSFT", "AAPL"]
+        assert 순위[0]["market_cap"] == pytest.approx(4_400_000_000_000 / 180.0 * 190.0), "지금 가격으로 셈하지 않았다"
+        assert len(cache.get(rs.US_ROWS_CK)) == 603, "전종목이 표에 없다"
+        줄 = _해외순위표줄()
+        assert "순위표 603종목(전체 목록 3)" in 줄["detail"] and "나스닥 전종목 603" in 줄["detail"]
+
+    def test_장중_시작_경로도_전종목을_챙긴다(self, 나스닥새로, monkeypatch):
+        """장중에 다시 뜨면 인기·S&P500 갱신이 먼저 돈다 — 거기서도 챙겨야 첫 화면부터 선다"""
+        from app.services import scheduler as S
+        from app.core.config import settings
+        물음: list = []
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: 물음.append(url) or _나스닥응답(200, _나스닥()))
+        monkeypatch.setattr(settings, "FINNHUB_API_KEY", "", raising=False)
+        monkeypatch.setattr(S, "POPULAR_US", ["S1", "S2"])
+        monkeypatch.setattr("app.services.yf_service.SP500_SYMBOLS", [])
+
+        async def spark뿐(심볼들):
+            return {s: {"symbol": s, "name": s, "price": 11.0} for s in 심볼들}
+        monkeypatch.setattr(S, "fetch_yf_quotes", spark뿐)
+
+        async def 안기다림(*a, **k):
+            return None
+        monkeypatch.setattr(S.asyncio, "sleep", 안기다림)
+        try:
+            asyncio.run(S.refresh_us_stocks())
+            assert any("nasdaq" in u for u in 물음) and rs.전종목_채움()
+        finally:
+            for s in ("S1", "S2"):
+                cache.delete(f"price:{s}")
+
+
+class Test첫_바퀴:
+    def test_훑기가_한_바퀴를_돌면_전종목을_채운_것이다(self, monkeypatch):
+        monkeypatch.setattr(rs.memory, "has_headroom", lambda *a, **k: True)
+
+        async def 받기(심볼들):
+            return {s: {"symbol": s, "price": 1.0} for s in 심볼들}
+        monkeypatch.setattr(pf, "fetch_yf_quotes", 받기)
+        monkeypatch.setattr(rs, "us_universe", lambda: [f"U{i}" for i in range(10)])
+        monkeypatch.setattr(rs, "_us_cursor", 0)
+        asyncio.run(rs.refresh_us_rows(sweep=4))
+        assert not rs.전종목_채움(), "10종목 중 4개만 훑었는데 다 찼다고 한다"
+        asyncio.run(rs.refresh_us_rows(sweep=6))
+        assert rs.전종목_채움()
+        for i in range(10):
+            cache.delete(f"price:U{i}")
+
+    def test_메모리_때문에_멈춘_훑기는_한_바퀴가_아니다(self, monkeypatch):
+        여유 = iter([True] + [False] * 10)
+        monkeypatch.setattr(rs.memory, "has_headroom", lambda *a, **k: next(여유, False))
+
+        async def 받기(심볼들):
+            return {s: {"symbol": s, "price": 1.0} for s in 심볼들}
+        monkeypatch.setattr(pf, "fetch_yf_quotes", 받기)
+        monkeypatch.setattr(rs, "us_universe", lambda: [f"M{i}" for i in range(300)])
+        monkeypatch.setattr(rs, "_us_cursor", 0)
+        asyncio.run(rs.refresh_us_rows(sweep=300))
+        assert not rs.전종목_채움(), "300종목 중 100개에서 멈췄는데 다 돌았다고 한다"
+        for i in range(300):
+            cache.delete(f"price:M{i}")
+
+    def test_덜_찼으면_장이_닫혀도_10분마다_훑는다(self):
+        import ast, inspect, textwrap
+        from app.services import scheduler as S
+        본문 = ast.unparse(ast.parse(textwrap.dedent(inspect.getsource(S.periodic_refresh))))
+        자리 = 본문[본문.index("미국닫힘 ="):본문.index("_미국순위표_돌리기()")]
+        assert "전종목_채움()" in 자리 and "(not 미국닫힘 or 덜참) and counter % 60 == 30" in 자리
