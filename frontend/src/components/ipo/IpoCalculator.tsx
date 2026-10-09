@@ -18,19 +18,21 @@ import { 사람말로 } from "@/api/queryError";
 import IpoPrediction from "./IpoPrediction";
 import { 숫자로 } from "./ipoFormat";
 
-type 칸이름 = "offer_price" | "inst_ratio" | "lockup_pct" | "sub_ratio" | "band_low" | "band_high" | "offer_amount_eok";
+/* 희망공모가는 상단만 받는다 — 예측은 '확정 공모가 ÷ 상단 − 1' 만 쓰고 하단은 쓰지 않는다.
+   계산에 안 쓰이는 칸이 있으면 넣어도 결과가 그대로라 헷갈린다 */
+type 칸이름 = "offer_price" | "inst_ratio" | "lockup_pct" | "sub_ratio" | "band_high" | "offer_amount_eok";
 type 글값 = Record<칸이름, string>;
 
 const 빈값: 글값 = {
   offer_price: "", inst_ratio: "", lockup_pct: "", sub_ratio: "",
-  band_low: "", band_high: "", offer_amount_eok: "",
+  band_high: "", offer_amount_eok: "",
 };
 
 function 글로(v: 공모주직접입력): 글값 {
   const 글 = (n: number | null | undefined) => (n == null ? "" : String(Math.round(n * 100) / 100));
   return {
     offer_price: 글(v.offer_price), inst_ratio: 글(v.inst_ratio), lockup_pct: 글(v.lockup_pct),
-    sub_ratio: 글(v.sub_ratio), band_low: 글(v.band_low), band_high: 글(v.band_high),
+    sub_ratio: 글(v.sub_ratio), band_high: 글(v.band_high),
     offer_amount_eok: 글(v.offer_amount_eok),
   };
 }
@@ -51,11 +53,10 @@ export function 검사(값: 글값): [공모주직접입력 | null, Partial<Reco
   for (const k of ["inst_ratio", "sub_ratio"] as const) {
     if (수[k] != null && 수[k]! < 0) 틀림[k] = "0보다 작을 수 없어요";
   }
-  if (수.band_low != null && 수.band_high != null && 수.band_low > 수.band_high) 틀림.band_low = "하단이 상단보다 커요";
   if (Object.keys(틀림).length) return [null, 틀림];
   return [{
     offer_price: 수.offer_price!, inst_ratio: 수.inst_ratio!, lockup_pct: 수.lockup_pct!,
-    sub_ratio: 수.sub_ratio, band_low: 수.band_low, band_high: 수.band_high,
+    sub_ratio: 수.sub_ratio, band_high: 수.band_high,
     offer_amount_eok: 수.offer_amount_eok,
   }, {}];
 }
@@ -124,8 +125,7 @@ export default function IpoCalculator({ 처음값 }: {
           <입력칸 id="inst_ratio" 이름={<용어힌트 이름="기관경쟁률" />} 단위=":1" 필수 값={값.inst_ratio} 바꿈={바꿈("inst_ratio")} 틀림={틀림.inst_ratio} />
           <입력칸 id="lockup_pct" 이름={<용어힌트 이름="의무보유확약" />} 단위="%" 필수 값={값.lockup_pct} 바꿈={바꿈("lockup_pct")} 틀림={틀림.lockup_pct} />
           <입력칸 id="sub_ratio" 이름={<용어힌트 이름="청약경쟁률" />} 단위=":1" 값={값.sub_ratio} 바꿈={바꿈("sub_ratio")} 틀림={틀림.sub_ratio} 도움말="청약 뒤에 나와요" />
-          <입력칸 id="band_low" 이름="희망공모가 하단" 단위="원" 값={값.band_low} 바꿈={바꿈("band_low")} 틀림={틀림.band_low} />
-          <입력칸 id="band_high" 이름="희망공모가 상단" 단위="원" 값={값.band_high} 바꿈={바꿈("band_high")} 틀림={틀림.band_high} />
+          <입력칸 id="band_high" 이름="희망공모가 상단" 단위="원" 값={값.band_high} 바꿈={바꿈("band_high")} 틀림={틀림.band_high} 도움말="확정 공모가와 견줘요" />
           <입력칸 id="offer_amount_eok" 이름="공모금액" 단위="억원" 값={값.offer_amount_eok} 바꿈={바꿈("offer_amount_eok")} 틀림={틀림.offer_amount_eok} />
         </div>
         <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="공모주 종류">

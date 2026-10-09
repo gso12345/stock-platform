@@ -147,6 +147,18 @@ describe("공모주 — 다가오는 공모주", () => {
 });
 
 describe("공모주 — 최근 상장", () => {
+  it("V·X 의 기준을 적고, 줄마다 그때의 예상 범위를 보여 준다", async () => {
+    그리기();
+    const 범례 = await screen.findByText(/실제 시초가가 예상 범위 안/, { selector: "p" });
+    expect(범례).toHaveTextContent(/범위 밖/);
+    expect(범례).toHaveTextContent(/잘 맞아도 절반쯤은 밖에 나와요/);
+    const 줄 = screen.getByRole("link", { name: "지난종목0" }).closest("li") as HTMLElement;
+    expect(줄).toHaveTextContent("범위 +20%~+80%");
+    expect(within(줄).getByLabelText("실제가 예상 범위 밖")).toBeInTheDocument();
+    const 둘째 = screen.getByText("지난종목1").closest("li") as HTMLElement;
+    expect(within(둘째).getByLabelText("실제가 예상 범위 안")).toBeInTheDocument();
+  });
+
   it("예측과 실제, 정확도를 보여 주고 더 보기로 펼친다", async () => {
     const 사용자 = userEvent.setup();
     그리기();
@@ -187,18 +199,27 @@ describe("공모주 — 직접 넣어 보기", () => {
     expect(await within(계산기).findByTestId("예상시초가")).toHaveTextContent("18,480원");
   });
 
-  it("확약은 0~100%, 밴드 하단은 상단보다 작아야 한다", async () => {
+  it("확약은 0~100% 사이여야 한다", async () => {
     const 사용자 = userEvent.setup();
     그리기();
     await 사용자.type(await screen.findByLabelText(/확정 공모가/), "10000");
     await 사용자.type(screen.getByLabelText(/기관경쟁률/, { selector: "input" }), "100");
     await 사용자.type(screen.getByLabelText(/의무보유확약/, { selector: "input" }), "120");
-    await 사용자.type(screen.getByLabelText(/희망공모가 하단/), "13000");
-    await 사용자.type(screen.getByLabelText(/희망공모가 상단/), "11000");
     await 사용자.click(screen.getByRole("button", { name: "예측하기" }));
     expect(screen.getByText("0~100% 사이로 넣어 주세요")).toBeInTheDocument();
-    expect(screen.getByText("하단이 상단보다 커요")).toBeInTheDocument();
     expect(predict).not.toHaveBeenCalled();
+  });
+
+  it("희망공모가는 상단만 받는다 — 예측에 하단은 안 쓰인다", async () => {
+    const 사용자 = userEvent.setup();
+    그리기();
+    expect(await screen.findByLabelText(/희망공모가 상단/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/희망공모가 하단/)).toBeNull();
+    const 카드 = screen.getByText("에이비씨바이오").closest("div.bg-bg-card") as HTMLElement;
+    await 사용자.click(within(카드).getByRole("button", { name: "이 숫자로 직접 바꿔 보기" }));
+    await 사용자.click(screen.getByRole("button", { name: "예측하기" }));
+    expect(predict.mock.calls[0][0]).toMatchObject({ band_high: 13000 });
+    expect(predict.mock.calls[0][0]).not.toHaveProperty("band_low");
   });
 
   it("카드의 숫자로 계산기를 채운다", async () => {
