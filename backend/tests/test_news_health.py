@@ -256,8 +256,21 @@ class Test죽은_주소를_뺐는가:
 
     def test_살아_있던_곳은_그대로_둔다(self):
         남은것 = [n for n, _ in N.US_FEEDS]
-        for 이름 in ("Yahoo Finance", "CNBC Economy", "Seeking Alpha", "Business Insider"):
+        for 이름 in ("CNBC Economy", "Seeking Alpha", "Business Insider"):
             assert 이름 in 남은것, f"{이름} 은 성공하고 있었는데 빠졌다"
+
+    @pytest.mark.parametrize("이름, 목록", [
+        # 2026-10 관리자 화면: 'HTTP 404 — 없는 주소' 로 연속 실패(야후가 피드를 닫았다)
+        ("Yahoo Finance", "US_FEEDS"),
+        # 2026-10 관리자 화면: 'HTTP 403 — 차단됨(봇 차단·유료화)' 으로 연속 실패
+        ("한국경제", "KR_FEEDS"),
+    ])
+    def test_계속_실패하던_두_곳은_빠졌다(self, 이름, 목록):
+        assert 이름 not in [n for n, _ in getattr(N, 목록)]
+
+    @pytest.mark.parametrize("주소조각", ["finance.yahoo.com/news/rssindex", "hankyung.com"])
+    def test_그_주소도_다른_이름으로_남아_있지_않다(self, 주소조각):
+        assert not any(주소조각 in u for _, u in N.KR_FEEDS + N.US_FEEDS)
 
     def test_주소가_겹치지_않는다(self):
         주소 = [u for _, u in N.KR_FEEDS + N.US_FEEDS]

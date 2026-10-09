@@ -38,9 +38,12 @@ KST = timezone(timedelta(hours=9))
 #
 # '전체 기사' 피드가 많다. 경제 키워드 필터(_is_finance_news)가 경제
 # 기사만 남기므로 섹션 피드가 없어도 괜찮다.
+#
+# 2026-10 한국경제를 뺐다. 관리자 화면에서 HTTP 403(봇 차단·유료화)으로
+# 연속 실패하고 있었다 — 주소가 틀린 게 아니라 서버에서 오는 요청을 막는
+# 것이라 주소를 바꿔도 소용없다.
 KR_FEEDS = [
     # 경제 전문지
-    ("한국경제",       "https://www.hankyung.com/feed/all-news"),
     ("매일경제",       "https://www.mk.co.kr/rss/40300001/"),
     ("서울경제",       "https://www.sedaily.com/rss/newsall"),
     ("이데일리",       "http://rss.edaily.co.kr/edaily_news.xml"),
@@ -99,9 +102,12 @@ KR_FEEDS = [
 # 새 주소가 살아 있는지 확인할 방법이 없다. 확인 못 한 주소를 넣는 것이
 # 애초에 이 목록이 이렇게 된 원인이다. 위의 '실패 이유 기록' 이 배포되면
 # 한 회차 만에 어디가 되는지 화면에 그대로 뜨므로, 그때 보고 넣는 게 맞다.
+#
+# 2026-10 Yahoo Finance 를 뺐다. 그동안 잘 오던 finance.yahoo.com/news/rssindex
+# 가 HTTP 404(없는 주소)로 연속 실패했다 — 야후가 이 피드를 닫았다. 대신할
+# 야후 주소는 위와 같은 이유(확인 못 한 주소를 넣지 않는다)로 넣지 않았다.
 US_FEEDS = [
     # 주요 경제·시장
-    ("Yahoo Finance",      "https://finance.yahoo.com/news/rssindex"),
     ("CNBC Economy",       "https://www.cnbc.com/id/20910258/device/rss/rss.html"),
     ("CNBC Finance",       "https://www.cnbc.com/id/10000664/device/rss/rss.html"),
     ("CNBC Top News",      "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
