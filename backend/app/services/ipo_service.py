@@ -60,13 +60,19 @@ KST = timezone(timedelta(hours=9))
 
 #: 자료 원천. https 가 안 되면 http 로 한 번 더 묻는다
 _바탕들 = [os.getenv("IPO_SOURCE_BASE", "https://www.38.co.kr"), "http://www.38.co.kr"]
+#: 수요예측은 두 쪽이다 — 결과(o=r1: 기관경쟁률·의무보유확약)와 일정(o=r: 수요예측일·
+#: 밴드·확정공모가·공모금액). 처음에는 o=r 을 결과로 알고 읽었는데, 배포해 보니 그
+#: 표의 머리글이 '종목명 | 수요예측일 | 희망공모가(원) | 확정공모가 | 공모금액(백만) |
+#: 주간사' 였다 — 경쟁률·확약이 없다. 일정 쪽도 공모금액을 주므로 같이 읽는다.
 _목록경로 = {
-    "수요예측": "/html/fund/index.htm?o=r",
+    "수요예측": "/html/fund/index.htm?o=r1",
+    "수요예측일정": "/html/fund/index.htm?o=r",
     "청약": "/html/fund/index.htm?o=k",
     "신규상장": "/html/fund/index.htm?o=nw",
 }
 #: 관리자 화면 '데이터 수집' 줄 이름
-_건강이름 = {"수요예측": "공모주 수요예측", "청약": "공모주 청약일정", "신규상장": "공모주 신규상장"}
+_건강이름 = {"수요예측": "공모주 수요예측", "수요예측일정": "공모주 수요예측일정",
+            "청약": "공모주 청약일정", "신규상장": "공모주 신규상장"}
 
 _H = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -75,11 +81,11 @@ _H = {
     "Referer": "https://www.38.co.kr/",
 }
 
-#: 평소 다시 받는 쪽 수 / 처음 거슬러 받을 때의 최대 쪽 수
+#: 평소 다시 받는 쪽 수 / 처음 거슬러 받을 때의 최대 쪽 수.
+#: 처음 배포에서 청약일정이 30쪽에 420줄(쪽당 14줄)이었다 — 새 규칙 시작(2023-06)
+#: 까지 닿으려면 30쪽으로는 모자랄 수 있다. 그 날짜에 닿으면 알아서 멈춘다
 평소_쪽수 = int(os.getenv("IPO_PAGES", 2))
-거슬러_쪽수 = int(os.getenv("IPO_BACKFILL_PAGES", 30))
-#: 새 규칙 뒤 결과(시초가)가 있는 일반 공모주가 이보다 적으면 거슬러 받는다
-거슬러_기준 = 120
+거슬러_쪽수 = int(os.getenv("IPO_BACKFILL_PAGES", 50))
 #: 다시 받는 간격(초)
 갱신간격 = int(os.getenv("IPO_REFRESH_SEC", 6 * 3600))
 #: 하나도 못 받았으면 이만큼은 다시 묻지 않는다(초) — 막힌 동안 화면을 열 때마다
@@ -249,7 +255,7 @@ def _표에서(html: str, 규칙: dict) -> "tuple[list[dict], str]":
             같은줄 = sum(1 for z in 줄들 if len(z) == 칸수)
             if not 닮은표 or 같은줄 > 닮은표[0]:
                 닮은표 = (같은줄, " | ".join(c[0] for c in 줄들[0])[:80])
-    return [], ("표를 못 찾음" + (f" — 머리글: {닮은표[1]}" if 닮은표 else ""))
+    return [], ("표를 못 찾음" + (f" — 원천 표 머리글(그대로): {닮은표[1]}" if 닮은표 else ""))
 
 
 def _번호(링크: str) -> str:
@@ -258,17 +264,26 @@ def _번호(링크: str) -> str:
 
 
 _이름칸 = (True, ["기업명", "종목명", "회사명"], [])
+#: 주관사 칸 — 원천(38)은 옛 용어 '주간사' 로 적어서 둘 다 찾는다. 화면 글은 표준 용어 '주관사'
 
 _규칙 = {
     "수요예측": {
         "이름": _이름칸,
         "예측일": (False, ["예측일"], []),
-        "희망": (True, ["희망"], []),
-        "공모가": (True, ["공모가", "확정가"], ["희망", "대비", "/"]),
+        "희망": (False, ["희망"], []),
+        "공모가": (False, ["공모가", "확정가"], ["희망", "대비", "/"]),
         "금액": (False, ["공모금액", "금액"], []),
         "기관": (True, ["경쟁률"], []),
         "확약": (True, ["확약"], []),
-        "주간사": (False, ["주간사", "주관사"], []),
+        "주관사": (False, ["주관사", "주간사"], []),
+    },
+    "수요예측일정": {
+        "이름": _이름칸,
+        "예측일": (True, ["예측일"], []),
+        "희망": (True, ["희망"], []),
+        "공모가": (False, ["확정공모가", "확정", "공모가"], ["희망", "대비", "/"]),
+        "금액": (False, ["공모금액", "금액"], []),
+        "주관사": (False, ["주관사", "주간사"], []),
     },
     "청약": {
         "이름": _이름칸,
@@ -276,7 +291,7 @@ _규칙 = {
         "공모가": (False, ["확정공모가", "확정"], ["희망"]),
         "희망": (False, ["희망"], []),
         "청약": (True, ["경쟁률"], []),
-        "주간사": (False, ["주간사", "주관사"], []),
+        "주관사": (False, ["주관사", "주간사"], []),
     },
     "신규상장": {
         "이름": _이름칸,
@@ -295,18 +310,39 @@ def 읽기_수요예측(html: str) -> "tuple[list[dict], str]":
         이름 = z["이름"][0]
         if not 이름 or 이름 in ("기업명", "종목명"):
             continue
-        하, 상 = _범위(z["희망"][0])
-        r = {
+        out.append({
             "name": 이름, "no": _번호(z["이름"][1]),
-            "forecast_date": _iso(_날짜(z["예측일"][0]) if "예측일" in z else None),
-            "band_low": 하, "band_high": 상,
-            "offer_price": _수(z["공모가"][0]),
-            "offer_amount": _수(z["금액"][0]) if "금액" in z else None,
+            **_일정칸(z),
             "inst_ratio": _경쟁률(z["기관"][0]),
             "lockup_pct": _퍼센트(z["확약"][0]),
-            "underwriter": z["주간사"][0] if "주간사" in z else None,
-        }
-        out.append(r)
+        })
+    return out, 이유 if not out else ""
+
+
+def _일정칸(z: dict) -> dict:
+    """수요예측 두 표에 함께 있는 칸 — 있는 것만."""
+    r: dict = {}
+    if "예측일" in z:
+        r["forecast_date"] = _iso(_날짜(z["예측일"][0]))
+    if "희망" in z:
+        r["band_low"], r["band_high"] = _범위(z["희망"][0])
+    if "공모가" in z:
+        r["offer_price"] = _수(z["공모가"][0])
+    if "금액" in z:
+        r["offer_amount"] = _수(z["금액"][0])
+    if "주관사" in z:
+        r["underwriter"] = z["주관사"][0]
+    return r
+
+
+def 읽기_수요예측일정(html: str) -> "tuple[list[dict], str]":
+    줄들, 이유 = _표에서(html, _규칙["수요예측일정"])
+    out = []
+    for z in 줄들:
+        이름 = z["이름"][0]
+        if not 이름 or 이름 in ("기업명", "종목명"):
+            continue
+        out.append({"name": 이름, "no": _번호(z["이름"][1]), **_일정칸(z)})
     return out, 이유 if not out else ""
 
 
@@ -322,7 +358,7 @@ def 읽기_청약(html: str) -> "tuple[list[dict], str]":
             "name": 이름, "no": _번호(z["이름"][1]),
             "sub_start": _iso(시작), "sub_end": _iso(끝),
             "sub_ratio": _경쟁률(z["청약"][0]),
-            "underwriter": z["주간사"][0] if "주간사" in z else None,
+            "underwriter": z["주관사"][0] if "주관사" in z else None,
         }
         if "공모가" in z:
             r["offer_price"] = _수(z["공모가"][0])
@@ -349,9 +385,11 @@ def 읽기_신규상장(html: str) -> "tuple[list[dict], str]":
     return out, 이유 if not out else ""
 
 
-_읽기 = {"수요예측": 읽기_수요예측, "청약": 읽기_청약, "신규상장": 읽기_신규상장}
+_읽기 = {"수요예측": 읽기_수요예측, "수요예측일정": 읽기_수요예측일정,
+        "청약": 읽기_청약, "신규상장": 읽기_신규상장}
 #: 쪽을 넘기다 멈출 때 볼 날짜 칸
-_날짜칸 = {"수요예측": "forecast_date", "청약": "sub_start", "신규상장": "list_date"}
+_날짜칸 = {"수요예측": "forecast_date", "수요예측일정": "forecast_date",
+          "청약": "sub_start", "신규상장": "list_date"}
 
 
 def _iso(d: "date | None") -> "str | None":
@@ -514,22 +552,26 @@ def _결과수(기록: dict) -> int:
 
 
 def 새로받기(쪽수: "int | None" = None) -> dict:
-    """세 목록을 받아 기록에 합치고 DB 에 남긴다. 목록별 줄 수를 돌려준다.
+    """목록들을 받아 기록에 합치고 DB 에 남긴다. 목록별 줄 수를 돌려준다.
 
-    쌓인 결과가 모자라면(처음) 새 규칙 시작 때까지 거슬러 받는다."""
+    목록마다 '거슬러 받기를 마쳤는지' 를 기억한다. 아직이면 새 규칙 시작
+    때까지 거슬러 받고, 마쳤으면 앞쪽 몇 쪽만 받는다. 예전에는 '결과가 있는
+    공모주가 충분한가' 하나로 정했는데, 그러면 나중에 고친 목록(수요예측결과)이
+    다른 목록 덕에 '충분하다' 로 보여 과거를 영영 안 받았다."""
     global _기록, _받은때, _상태, _시도때
     from app.core import health
     _시도때 = time.time()
     기록 = dict(기록들())
-    if 쪽수 is None:
-        쪽수 = 거슬러_쪽수 if _결과수(기록) < 거슬러_기준 else 평소_쪽수
     상태 = {}
-    for 목록 in ("수요예측", "청약", "신규상장"):
-        줄들, 이유 = _목록받기(목록, 쪽수)
+    for 목록 in _목록경로:
+        마침 = bool((_상태.get(목록) or {}).get("backfilled"))
+        이번쪽수 = 쪽수 if 쪽수 is not None else (평소_쪽수 if 마침 else 거슬러_쪽수)
+        줄들, 이유 = _목록받기(목록, 이번쪽수)
         합치기(기록, 줄들)
-        상태[목록] = {"rows": len(줄들), "reason": 이유, "at": time.time()}
+        상태[목록] = {"rows": len(줄들), "reason": 이유, "at": time.time(),
+                     "backfilled": 마침 or (bool(줄들) and 이번쪽수 >= 거슬러_쪽수)}
         if 줄들:
-            health.record_ok(_건강이름[목록], None, f"{len(줄들)}줄 · {쪽수}쪽까지")
+            health.record_ok(_건강이름[목록], None, f"{len(줄들)}줄 · {이번쪽수}쪽까지")
         else:
             health.record_fail(_건강이름[목록], 이유 or "빈손")
     _코드붙이기(기록)
@@ -541,11 +583,21 @@ def 새로받기(쪽수: "int | None" = None) -> dict:
     return {k: v["rows"] for k, v in 상태.items()}
 
 
+def _모자란목록() -> bool:
+    """받아야 할 목록 중 아직 한 번도 못 받은 것이 있나(새로 더한 목록, 막힌 목록)."""
+    return any(not (_상태.get(k) or {}).get("rows") for k in _목록경로)
+
+
 def _뒤에서_받기() -> bool:
-    """오래됐으면 뒤에서 새로 받는다(한 번에 하나만). 시작했으면 True."""
+    """오래됐거나 못 받은 목록이 있으면 뒤에서 새로 받는다(한 번에 하나만). 시작했으면 True.
+
+    못 받은 목록이 있으면 6시간을 기다리지 않는다 — 고친 것을 배포해도 몇 시간
+    뒤에야 반영되던 것을 막는다. 다만 막힌 동안은 실패쉼(10분)마다 한 번만."""
     global _갱신중
     지금 = time.time()
-    if _갱신중 or 지금 - _받은때 < 갱신간격 or 지금 - _시도때 < 실패쉼:
+    if _갱신중 or 지금 - _시도때 < 실패쉼:
+        return False
+    if 지금 - _받은때 < 갱신간격 and not _모자란목록():
         return False
     try:
         from app.core import memory

@@ -12,6 +12,7 @@ import time
 from datetime import date, timedelta
 
 import pytest
+from urllib.parse import parse_qs, urlparse
 
 from app.core import health
 from app.services import ipo_service as S
@@ -60,7 +61,9 @@ def _가짜원천(monkeypatch, 쪽들: dict, 상태=200):
         물음.append(url)
         if 상태 != 200:
             return _응답(상태)
-        목록 = next(n for n, p in S._목록경로.items() if p.split("?")[1] in url)
+        # 'o=r' 이 'o=r1' 안에도 들어 있다 — 글자 포함이 아니라 값으로 가른다
+        o = parse_qs(urlparse(url).query)["o"][0]
+        목록 = next(n for n, p in S._목록경로.items() if parse_qs(urlparse(p).query)["o"][0] == o)
         쪽 = int(url.rsplit("page=", 1)[1])
         있는 = sorted(p for (n, p) in 쪽들 if n == 목록)
         if not 있는:
@@ -163,11 +166,34 @@ class Test표를_머리글로_읽는다:
         r = S.읽기_신규상장(html)[0][0]
         assert (r["offer_price"], r["open_price"]) == (10000, 18000)
 
+    def test_수요예측_일정_표는_결과로_읽지_않고_일정으로_읽는다(self):
+        """처음 배포에서 결과 자리(o=r)에 온 표 — 경쟁률·확약이 없는 '일정' 이었다"""
+        머리 = ["종목명", "수요예측일", "희망공모가(원)", "확정공모가", "공모금액(백만)", "주간사"]
+        html = _쪽("수요예측일정", 머리, [[_이름("가나바이오", 77), "2025.10.13~10.14", "11,000~13,000",
+                                         "-", "18,000", "KB증권"]]).decode("cp949")
+        줄들, 이유 = S.읽기_수요예측(html)
+        assert 줄들 == [] and "종목명 | 수요예측일" in 이유
+        r = S.읽기_수요예측일정(html)[0][0]
+        assert (r["forecast_date"], r["band_low"], r["band_high"]) == ("2025-10-13", 11000, 13000)
+        assert r["offer_amount"] == 18000 and r["offer_price"] is None and r["underwriter"] == "KB증권"
+
+    def test_수요예측_결과는_경쟁률과_확약만_있으면_읽는다(self):
+        for 머리, 줄 in (
+            (["기업명", "예측일", "공모희망가(원)", "공모가(원)", "공모금액(백만원)", "기관경쟁률", "의무보유확약", "주간사"],
+             ["가나", "2025.10.01", "9,000~11,000", "12,000", "15,000", "1,523.45:1", "38.20%", "증권"]),
+            (["기업명", "기관경쟁률", "의무보유확약"], ["가나", "1,523.45:1", "38.20%"]),
+        ):
+            r = S.읽기_수요예측(_쪽("수요예측결과", 머리, [줄]).decode("cp949"))[0][0]
+            assert r["inst_ratio"] == pytest.approx(1523.45) and r["lockup_pct"] == pytest.approx(38.2)
+        assert "offer_price" not in r and "band_low" not in r, "표에 없는 칸까지 실었다"
+
     def test_머리글이_바뀌면_지금_머리글을_이유로_남긴다(self):
         html = _쪽("수요예측결과", ["회사", "날짜", "가격대", "가격", "금액", "비율", "약속", "증권사"],
                    [["가", "2025.01.01", "1~2", "2", "3", "4:1", "5%", "증권"]]).decode("cp949")
         줄들, 이유 = S.읽기_수요예측(html)
         assert 줄들 == [] and "표를 못 찾음" in 이유 and "회사 | 날짜" in 이유
+        # 원천의 글을 그대로 옮긴 것임을 밝힌다(원천은 '주간사' 같은 옛 용어를 쓴다)
+        assert "원천 표 머리글(그대로)" in 이유
 
     def test_바깥_틀_표를_자료_표로_보지_않는다(self):
         """바깥 표의 한 칸에 안쪽 표 글자가 다 들어 있어도 그걸 머리글로 쓰지 않는다"""
@@ -216,16 +242,44 @@ class Test받기:
         S._목록받기("수요예측", 1)
         assert 물음[앞:] == [물음[-1]] and 물음[-1].startswith("http://"), "된 쪽을 기억해 먼저 묻는다"
 
-    def test_처음에는_거슬러_받고_쌓인_뒤에는_앞쪽만(self, monkeypatch):
+    def test_처음에는_거슬러_받고_마친_목록은_앞쪽만(self, monkeypatch):
         쪽들 = {("신규상장", p): _쪽("신규상장", 상장_머리, [[f"종목{p}", "2025/10/22", "1", "+0", "10,000", "+1", "12,000", "120", "1"]])
                for p in range(1, 6)}
         물음 = _가짜원천(monkeypatch, 쪽들)
         S.새로받기()
-        assert sum("o=nw" in u for u in 물음) == 6, "처음(쌓인 결과 없음)에는 끝까지 거슬러 받는다"
+        assert sum("o=nw" in u for u in 물음) == 6, "처음에는 끝까지 거슬러 받는다"
+        assert S._상태["신규상장"]["backfilled"] is True
         물음.clear()
-        monkeypatch.setattr(S, "_기록", _만든기록(n=S.거슬러_기준 + 5))
         S.새로받기()
         assert sum("o=nw" in u for u in 물음) == S.평소_쪽수
+
+    def test_못_받은_목록은_다음에도_거슬러_받는다(self, monkeypatch):
+        """나중에 고친 목록(수요예측결과)이 다른 목록 덕에 '다 받았다' 로 보여
+        과거를 영영 안 받으면, 비교할 공모주에 기관경쟁률·확약이 없다"""
+        쪽들 = {("신규상장", p): _쪽("신규상장", 상장_머리, [[f"종목{p}", "2025/10/22", "1", "+0", "10,000", "+1", "12,000", "120", "1"]])
+               for p in range(1, 4)}
+        물음 = _가짜원천(monkeypatch, 쪽들)
+        S.새로받기()                                     # 수요예측(결과)은 표가 없어 실패
+        assert not S._상태["수요예측"]["backfilled"]
+        쪽들.update({("수요예측", p): _수요예측쪽(
+            [_이름(f"가{p}", p), "2025.10.01", "1~2", "2", "3", "4:1", "5%", "증권"]) for p in range(1, 5)})
+        물음.clear()
+        S.새로받기()
+        assert sum("o=r1" in u for u in 물음) == 5, "고쳐진 목록을 거슬러 받지 않았다"
+        assert sum("o=nw" in u for u in 물음) == S.평소_쪽수
+
+    def test_수요예측_일정도_받아_공모금액을_채운다(self, monkeypatch):
+        머리 = ["종목명", "수요예측일", "희망공모가(원)", "확정공모가", "공모금액(백만)", "주간사"]
+        _가짜원천(monkeypatch, {
+            ("수요예측일정", 1): _쪽("수요예측일정", 머리, [[_이름("가나바이오", 7), "2025.10.13~10.14",
+                                                         "11,000~13,000", "13,000", "18,000", "KB증권"]]),
+            ("수요예측", 1): _수요예측쪽([_이름("가나바이오", 7), "2025.10.14", "11,000~13,000", "13,000",
+                                         "", "1,200:1", "41%", "KB증권"]),
+        })
+        S.새로받기(쪽수=1)
+        r = S.기록들()[S.열쇠("가나바이오")]
+        assert r["offer_amount"] == 18000 and r["inst_ratio"] == 1200 and r["lockup_pct"] == 41
+        assert S._상태["수요예측일정"]["rows"] == 1
 
     def test_막히면_이유를_관리자_화면에(self, monkeypatch):
         health.reset()
@@ -476,6 +530,28 @@ class Test한눈에:
         monkeypatch.setattr(S, "_시도때", 0.0)
         assert S.한눈에()["refreshing"] is True
         assert 불림.wait(3)
+
+    def test_못_받은_목록이_있으면_6시간을_기다리지_않는다(self, monkeypatch):
+        """고친 것을 배포해도 몇 시간 뒤에야 반영되던 것 — 처음 배포의 상태 그대로"""
+        self._채우기(monkeypatch)
+        불림 = threading.Event()
+        monkeypatch.setattr(S, "새로받기", lambda *a, **k: 불림.set())
+        monkeypatch.setattr(S, "_시도때", 0.0)
+        monkeypatch.setattr(S, "_상태", {
+            "수요예측": {"rows": 0, "reason": "표를 못 찾음 — 머리글: 종목명 | 수요예측일"},
+            "청약": {"rows": 420, "reason": ""}, "신규상장": {"rows": 300, "reason": ""}})
+        S.한눈에()
+        assert 불림.wait(3), "못 받은 목록이 있는데 6시간을 기다렸다"
+
+    def test_다_받았고_6시간_안이면_다시_안_받는다(self, monkeypatch):
+        self._채우기(monkeypatch)
+        불림: list = []
+        monkeypatch.setattr(S, "새로받기", lambda *a, **k: 불림.append(1))
+        monkeypatch.setattr(S, "_시도때", 0.0)
+        monkeypatch.setattr(S, "_상태", {k: {"rows": 10, "reason": ""} for k in S._목록경로})
+        S.한눈에()
+        time.sleep(0.1)
+        assert 불림 == []
 
     def test_막혀_있으면_화면을_열_때마다_두드리지_않는다(self, monkeypatch):
         self._채우기(monkeypatch)

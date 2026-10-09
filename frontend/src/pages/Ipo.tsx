@@ -29,7 +29,7 @@ function 기준시각(iso: string | null): string | null {
 function 자료없음({ data, 다시 }: { data: 공모주한눈에; 다시: () => void }) {
   if (data.refreshing) {
     return <빈화면 icon={RefreshCw} title="공모주 자료를 처음 받는 중이에요"
-      hint="지난 공모주까지 거슬러 받느라 1~2분 걸려요. 받는 대로 여기 채워져요." />;
+      hint="지난 공모주까지 거슬러 받느라 몇 분 걸려요. 받는 대로 여기 채워져요." />;
   }
   const 이유 = Object.entries(data.source.lists)
     .filter(([, v]) => !v.rows && v.reason).map(([k, v]) => `${k}: ${v.reason}`).join(" · ");

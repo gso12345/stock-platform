@@ -65,7 +65,7 @@ export default function IpoCard({ 공모주: g, 바꿔보기 }: {
             {g.kind === "reit" && <Badge variant="purple">리츠</Badge>}
             {g.market && <Badge>{g.market}</Badge>}
           </div>
-          {g.underwriter && <p className="text-2xs text-text-dim mt-0.5 truncate">{g.underwriter}</p>}
+          {g.underwriter && <p className="text-2xs text-text-dim mt-0.5 truncate">주관사 {g.underwriter}</p>}
         </div>
         <Badge variant={단계색[g.stage] ?? "default"}>{g.stage}{날표}</Badge>
       </div>

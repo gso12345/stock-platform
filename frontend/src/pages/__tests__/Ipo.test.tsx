@@ -101,6 +101,8 @@ describe("공모주 — 다가오는 공모주", () => {
     expect(카드).toHaveTextContent("1,235:1");
     expect(카드).toHaveTextContent("45.6%");
     expect(within(카드).getByText("청약 완료")).toBeInTheDocument();
+    // 표준 용어 — 원천(38)은 옛 용어 '주간사' 를 쓴다
+    expect(within(카드).getByText("주관사 미래에셋증권")).toBeInTheDocument();
     expect(within(카드).getByRole("img", { name: /1\.54배/ })).toBeInTheDocument();
   });
 
