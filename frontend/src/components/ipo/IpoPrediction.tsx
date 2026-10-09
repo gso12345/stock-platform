@@ -63,6 +63,7 @@ export default function IpoPrediction({ 예측, className }: { 예측: 공모주
   }
   const { range: 범위 } = 예측;
   const 청약없음 = 예측.missing.includes("청약경쟁률");
+  const 보정 = 예측.parts.correction_pct ?? 0;
   return (
     <div className={cn("rounded-xl border border-accent-blue/25 bg-accent-blue/5 p-3 flex flex-col gap-2.5", className)}>
       <div className="flex items-end justify-between gap-2 flex-wrap">
@@ -80,6 +81,14 @@ export default function IpoPrediction({ 예측, className }: { 예측: 공모주
         비슷했던 공모주 가운데 절반이 <b className="text-text-primary num">{원(범위.low_price)}~{원(범위.high_price)}</b>
         {" "}(<등락 퍼센트={배율퍼센트(범위.low_ratio)} /> ~ <등락 퍼센트={배율퍼센트(범위.high_ratio)} />)에서 시작했어요.
       </p>
+      {/* 최근 오차 보정 — 범위는 비슷했던 공모주가 실제로 시작한 값이라 그대로 두고, 예상값만 옮겼다.
+          그래서 점이 범위 밖에 찍힐 수 있다 — 왜 그런지 여기 적는다 */}
+      {!!보정 && (
+        <p className="text-2xs text-text-muted break-keep">
+          요즘 공모주가 예측보다 {보정 > 0 ? "높게" : "낮게"} 시작하고 있어서 예상을
+          {" "}<b className="text-text-primary num">{Math.abs(보정)}%</b> {보정 > 0 ? "올려" : "내려"} 잡았어요.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-bg-card border border-border px-2.5 py-2">
@@ -120,6 +129,7 @@ export default function IpoPrediction({ 예측, className }: { 예측: 공모주
       )}
       <p className="text-2xs text-text-dim break-keep">
         견준 항목: {예측.used.join(" · ")} · 지난 공모주 {예측.n_train}건
+        {예측.method && <> · 방식 {예측.method.name}</>}
       </p>
     </div>
   );

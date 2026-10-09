@@ -1107,7 +1107,10 @@ export type 공모주예측 =
       used: string[];
       missing: string[];
       n_train: number;
-      parts: { neighbors_ratio: number; regression_ratio: number | null };
+      /** correction_pct — 최근 오차 보정으로 올리거나(+) 내린(−) 몫(%). 보정 없는 방식이면 0 */
+      parts: { neighbors_ratio: number; regression_ratio: number | null; correction_pct?: number };
+      /** 맞힌 방식 — 일반 공모주만. 스팩·리츠와 예전 서버는 없다 */
+      method?: { key: string; name: string };
     };
 
 export interface 다가오는공모주 {
@@ -1147,6 +1150,16 @@ export interface 공모주결과 {
   diff_pct: number;
   /** |diff_pct| 가 accuracy.hit_band_pct 안 */
   hit: boolean;
+  /** 이 줄을 맞힌 방식(accuracy.methods 의 key) — 그 줄 상장일 전에 가장 잘 맞아 온 것 */
+  method?: string;
+}
+
+/** 방식 하나로만 같은 줄들을 맞혔을 때의 성적 */
+export interface 공모주방식성적 {
+  key: string;
+  name: string;
+  hit_rate: number | null;
+  median_abs_diff_pct: number | null;
 }
 
 export interface 공모주한눈에 {
@@ -1163,6 +1176,9 @@ export interface 공모주한눈에 {
     direction_hit: number | null;
     /** ±hit_band_pct 안에 든 몫 */
     hit_rate: number | null;
+    /** 지금 다가오는 공모주를 맞히는 방식 — 직전 pick_window 곳에서 가장 잘 맞아 온 것. 예전 서버는 없다 */
+    method?: { key: string; name: string; pick_window: number };
+    methods?: 공모주방식성적[];
   };
   train_since: string;
   n_records: number;

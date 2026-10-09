@@ -374,6 +374,28 @@ def _대상(**k):
     return {**기본, **k}
 
 
+def _국면기록(n=200, 씨앗=1, 국면=0.45, 국면길이=12, 잡음=0.12) -> dict:
+    """분위기가 '국면길이' 곳마다 바뀌는 세상 — 2026년 7~8월(연달아 낮게)·9월(연달아 높게)처럼.
+    국면이 뜨거우면 기관경쟁률도 조금 높게 나온다. 마지막 상장이 오늘 바로 앞이 되게 깐다."""
+    rnd = random.Random(씨앗)
+    시작 = S.오늘() - timedelta(days=4 * n)
+    기록, 층 = {}, 0.0
+    for i in range(n):
+        if i % 국면길이 == 0:
+            층 = rnd.choice([-국면, 0.0, 국면])
+        밀기 = 1 if 층 > 0 else (-1 if 층 < 0 else 0)
+        기관 = rnd.choice([50, 150, 400, 800, 1200, 1600][max(0, 밀기):6 + min(0, 밀기)])
+        확약 = rnd.uniform(0, 60)
+        청약 = rnd.choice([30, 200, 800, 1500, 2500])
+        y = 0.15 * math.log1p(기관) + 0.01 * 확약 + 0.05 * math.log1p(청약) - 1.0 + 층 + rnd.gauss(0, 잡음)
+        기록[f"R{i}"] = {"name": f"국면{i}", "kind": "normal",
+                         "list_date": (시작 + timedelta(days=4 * i)).isoformat(),
+                         "offer_price": 10000, "open_price": S.가격으로(10000, math.exp(y)),
+                         "inst_ratio": 기관, "lockup_pct": 확약, "sub_ratio": 청약,
+                         "band_low": 8000, "band_high": 10000, "offer_amount": 20000}
+    return 기록
+
+
 오늘 = date(2025, 1, 1)
 
 
@@ -564,6 +586,207 @@ class Test맞힘_기준:
         assert 검증["rows"][0]["name"] == "맞힘4", "최근 상장이 위로 와야 한다"
 
 
+class Test방식:
+    """사용자: "너무 낮은데 예측률이"
+
+    운영 화면에서 2026년 7~8월에는 연달아 높게, 9월 말부터는 여섯 곳이 연달아 예측보다
+    38~92% 높게 시작했다 — 직전 10곳 평균으로 잰 분위기가 바뀐 시장을 늦게 따라갔다.
+    빠른 분위기·최근 오차 보정을 더한 네 방식을 걸어가며 맞혀 보고, 그때까지 가장 잘
+    맞아 온 것을 쓴다."""
+
+    def test_빠른_분위기는_요즘_상장을_크게_본다(self):
+        앞 = [0.0] * 10 + [1.0, 1.0]           # 오래 잠잠하다가 막 두 곳이 뜨겁게 시작
+        assert S._분위기값(앞) == pytest.approx(0.2)              # 직전 10곳 평균
+        assert S._분위기값(앞, 3) > 0.35
+        # 세 곳 앞 상장은 무게가 절반
+        무게 = [0.5, 0.5 ** (2 / 3), 0.5 ** (1 / 3), 1.0]
+        assert S._분위기값([1.0, 0.0, 0.0, 0.0], 3) == pytest.approx(0.5 / sum(무게))
+        assert S._분위기값([1.0, 1.0], 3) is None                 # 셋은 있어야 잰다
+        # 직전 20곳까지만 — 그보다 앞은 무게가 1% 도 안 된다
+        assert S._분위기값([5.0] + [0.0] * 20, 3) == 0.0
+
+    def test_모델의_학습표와_대상이_같은_분위기를_쓴다(self):
+        기록 = _국면기록()
+        빠른 = S.모델(기록, 3)
+        표 = 빠른.표("normal")
+        assert 표[-1][0]["mood"] == pytest.approx(S._분위기값([x[1] for x in 표[:-1]], 3))
+        assert 빠른.분위기("normal", S.오늘()) == pytest.approx(S._분위기값([x[1] for x in 표], 3))
+        assert S.모델(기록).분위기("normal", S.오늘()) == pytest.approx(S._분위기값([x[1] for x in 표]))
+
+    def test_맞힐_대상도_같은_분위기로_잰다(self, monkeypatch):
+        기록 = _국면기록(씨앗=2)
+        빠른 = S.모델(기록, 3)
+        표 = 빠른.표("normal")                  # 학습표는 미리 — 아래에서는 대상만 잰다
+        받은: list = []
+        원래 = S.특징
+        monkeypatch.setattr(S, "특징", lambda r, 분위기: 받은.append(분위기) or 원래(r, 분위기))
+        assert 빠른.예측(_대상(), S.오늘())["ok"]
+        assert 받은 == [pytest.approx(S._분위기값([x[1] for x in 표], 3))]
+        assert 받은[0] != pytest.approx(S._분위기값([x[1] for x in 표]))
+
+    def _걸음(self, 쌍들, 기준일=date(2025, 3, 10)):
+        """[(며칠 전, 실제 y)] → 예측이 늘 0 인 걸음(오차 = 실제 y)"""
+        return [({}, 기준일 - timedelta(days=전), y, {None: 0.0, 3: 0.0}) for 전, y in 쌍들]
+
+    def test_보정은_그날_전_직전_세_곳의_오차_절반(self):
+        d = date(2025, 3, 10)
+        # 넷째 앞(40일 전)은 직전 세 곳 밖이고, 같은 날 상장은 아직 모른다
+        걸음 = self._걸음([(40, 9.0), (30, 0.3), (20, 0.2), (10, 0.1), (0, 9.0)])
+        assert S._보정값(걸음, [0.0] * 5, d) == pytest.approx(0.5 * 0.2)
+
+    def test_보정은_오래된_상장을_안_쓰고_한도가_있다(self):
+        d = date(2025, 3, 10)
+        assert S._보정값(self._걸음([(120, 0.3), (100, 0.3), (91, 0.3)]), [0.0] * 3, d) == 0.0
+        assert S._보정값(self._걸음([(30, 2.0), (20, 2.0), (10, 2.0)]), [0.0] * 3, d) == pytest.approx(math.log(1.5))
+        assert S._보정값(self._걸음([(30, -2.0), (20, -2.0), (10, -2.0)]), [0.0] * 3, d) == pytest.approx(-math.log(1.5))
+        assert S._보정값([], [], d) == 0.0
+
+    def test_그날_전_가장_잘_맞아_온_방식을_고른다(self):
+        d = date(2025, 3, 10)
+        걸음 = self._걸음([(50 - k, 1.0) for k in range(15)] + [(-5, 1.0)])
+        방식값 = {"base": [0.0] * 16, "fast": [0.5] * 16, "base_fix": [0.8] * 16, "fast_fix": [0.95] * 16}
+        방식값["base"][-1] = 1.0                      # 기준일 뒤의 성적은 보지 않는다
+        assert S._고르기(걸음, 방식값, d) == "fast_fix"
+        # 덜 쌓였으면(10곳 아래) 기본
+        assert S._고르기(걸음[:9], {k: v[:9] for k, v in 방식값.items()}, d) == "base"
+        # 같으면 앞의 것
+        assert S._고르기(걸음, {k: [0.5] * 16 for k in 방식값}, d) == "base"
+        # 같은 날 상장은 아직 결과를 모른다 — 그날 전 9곳뿐이면 덜 쌓인 것
+        같은날 = 걸음[:9] + [({}, d, 1.0, {})]
+        assert S._고르기(같은날, {k: v[:10] for k, v in 방식값.items()}, d) == "base"
+
+    def test_고를_때는_직전_40곳만_본다(self):
+        d = date(2025, 3, 10)
+        걸음 = self._걸음([(200 - k, 0.0) for k in range(60)])
+        # 오래된 20곳은 fast 가 훨씬 낫고, 직전 40곳 가운데 앞 10곳은 base, 뒤 30곳은 fast 가 조금 낫다
+        base = [3.0] * 20 + [0.0] * 10 + [0.2] * 30
+        fast = [0.0] * 20 + [1.0] * 10 + [0.1] * 30
+        방식값 = {"base": base, "fast": fast, "base_fix": [9.0] * 60, "fast_fix": [9.0] * 60}
+        assert S._고르기(걸음, 방식값, d) == "base"
+
+    def test_오차는_크기로_잰다(self):
+        d = date(2025, 3, 10)
+        걸음 = self._걸음([(50 - k, 0.0) for k in range(20)])
+        출렁 = [1.0 if k % 2 else -1.0 for k in range(20)]     # 더하면 0 이지만 매번 크게 빗나간다
+        방식값 = {"base": 출렁, "fast": [0.1] * 20, "base_fix": [9.0] * 20, "fast_fix": [9.0] * 20}
+        assert S._고르기(걸음, 방식값, d) == "fast"
+
+    def test_분위기가_바뀌는_세상에서는_기본보다_잘_맞힌다(self):
+        고른, 기본 = [], []
+        for 씨앗 in (1, 2, 3, 4):
+            검증 = S.걸어가며_검증(_국면기록(씨앗=씨앗), 최근=60)
+            방식 = {m["key"]: m for m in 검증["methods"]}
+            assert set(방식) == {"base", "fast", "base_fix", "fast_fix"}
+            assert 검증["median_abs_diff_pct"] <= 방식["base"]["median_abs_diff_pct"], 씨앗
+            고른.append(검증["hit_rate"]); 기본.append(방식["base"]["hit_rate"])
+        assert sum(고른) > sum(기본) + 0.3, (고른, 기본)
+
+    def test_분위기가_안_바뀌는_세상에서도_손해가_없다(self):
+        검증 = S.걸어가며_검증(_만든기록(n=200), 최근=60)
+        기본 = next(m for m in 검증["methods"] if m["key"] == "base")
+        assert 검증["hit_rate"] >= 기본["hit_rate"] - 0.05, (검증["hit_rate"], 기본)
+
+    def test_지금_보정은_고른_방식의_직전_오차로(self):
+        기록 = _국면기록(씨앗=2)
+        검증, 지금 = S._검증(기록, 60, S.오늘())
+        assert 지금["key"] == 검증["method"]["key"] and 지금["key"].endswith("_fix")
+        걸음 = S._걸음(기록, 60 + S.고르기_곳 + S.보정_곳)
+        assert 지금["보정"] == pytest.approx(S._보정값(걸음, [e[3][지금["반감"]] for e in 걸음], S.오늘()))
+        assert 지금["보정"] != 0
+
+    def test_보정해도_줄마다_첫날_범위_안(self):
+        for 씨앗 in (2, 3):
+            for r in S.걸어가며_검증(_국면기록(씨앗=씨앗, 국면=0.9), 최근=60)["rows"]:
+                assert 0.6 <= r["pred_ratio"] <= 4.0 and 0.6 * 10_000 <= r["pred_price"] <= 40_000, r
+
+    def test_줄마다_쓴_방식과_지금_방식을_알려_준다(self):
+        검증 = S.걸어가며_검증(_국면기록(씨앗=2), 최근=60)
+        assert {r["method"] for r in 검증["rows"]} <= {k for k, *_ in S.방식들}
+        assert 검증["method"]["key"] in {k for k, *_ in S.방식들} and 검증["method"]["pick_window"] == 40
+        assert 검증["method"]["name"] == dict((k, 이름) for k, 이름, *_ in S.방식들)[검증["method"]["key"]]
+
+    def test_방식을_고르고_보정할_때도_그_뒤_결과는_안_본다(self):
+        기록 = _국면기록(씨앗=3)
+        순서 = sorted(기록.values(), key=lambda r: r["list_date"])
+        가운데 = 순서[-20]
+        앞 = {r["name"]: (r["pred_ratio"], r["method"]) for r in S.걸어가며_검증(기록, 최근=40)["rows"]}
+        가운데["open_price"] = 39_000 if 가운데["open_price"] < 20_000 else 6_000
+        뒤 = {r["name"]: (r["pred_ratio"], r["method"]) for r in S.걸어가며_검증(기록, 최근=40)["rows"]}
+        그때까지 = {r["name"] for r in 순서 if r["list_date"] <= 가운데["list_date"]}
+        assert all(앞[n] == 뒤[n] for n in 앞 if n in 그때까지), "맞힐 날 뒤의 결과가 들어갔다"
+        assert any(앞[n] != 뒤[n] for n in 앞 if n not in 그때까지), "지난 결과를 다음 예측에 쓰지 않았다"
+
+    def _보정된_지금(self):
+        return {"key": "base_fix", "name": "기본 + 최근 오차 보정", "반감": None, "보정": math.log(1.3)}
+
+    def test_다가오는_공모주에_보정을_씌운다(self):
+        기록 = _만든기록()
+        지금 = self._보정된_지금()
+        p = S._방식대로(S._모델들(기록, 지금), _대상(), 오늘, 지금)
+        기본 = S.예측하기(기록, _대상(), 오늘)
+        assert p["ratio"] == pytest.approx(기본["ratio"] * 1.3, abs=1e-4)
+        assert p["price"] == S.가격으로(10_000, 기본["ratio"] * 1.3)
+        assert p["return_pct"] == pytest.approx((p["ratio"] - 1) * 100, abs=0.1)
+        assert p["method"] == {"key": "base_fix", "name": "기본 + 최근 오차 보정"}
+        assert p["parts"]["correction_pct"] == 30
+        # 범위(비슷했던 공모주 절반)는 그 공모주들이 실제로 시작한 값 그대로 둔다
+        assert p["range"] == 기본["range"]
+
+    def test_보정해도_첫날_범위_안(self):
+        기록 = _만든기록()
+        지금 = {**self._보정된_지금(), "보정": math.log(1.5)}
+        센 = _대상(inst_ratio=1600, lockup_pct=60, sub_ratio=2500)
+        기본 = S.예측하기(기록, 센, 오늘)
+        p = S._방식대로(S._모델들(기록, 지금), 센, 오늘, 지금)
+        assert p["ratio"] == pytest.approx(min(기본["ratio"] * 1.5, 4.0), abs=1e-4) and p["price"] <= 40_000
+
+    def test_스팩과_리츠는_기본_그대로(self):
+        기록 = _만든기록()
+        for i in range(10):
+            기록[f"S{i}"] = {**_대상(name=f"가나{i}호스팩", kind="spac", offer_price=2000,
+                                    inst_ratio=100 + 50 * i, lockup_pct=2 * i, sub_ratio=200 + 100 * i),
+                            "list_date": (date(2024, 1, 5) + timedelta(days=9 * i)).isoformat(),
+                            "open_price": 2000 + 30 * i}
+        지금 = self._보정된_지금()
+        스팩 = _대상(name="한화제30호스팩", kind="spac", offer_price=2000)
+        p = S._방식대로(S._모델들(기록, 지금), 스팩, 오늘, 지금)
+        assert p["ok"] and p == S.예측하기(기록, 스팩, 오늘) and "method" not in p
+
+    def test_빠른_분위기를_고르면_그_모델로_맞힌다(self):
+        기록 = _국면기록(씨앗=2)
+        지금 = {"key": "fast", "name": "빠른 분위기", "반감": 3, "보정": 0.0}
+        p = S._방식대로(S._모델들(기록, 지금), _대상(), S.오늘(), 지금)
+        assert p["ratio"] == S.모델(기록, 3).예측(_대상(), S.오늘())["ratio"]
+        assert p["ratio"] != S.모델(기록).예측(_대상(), S.오늘())["ratio"]
+        assert p["parts"]["correction_pct"] == 0
+
+    def test_화면과_직접_넣어_보기가_같은_방식으로(self, monkeypatch):
+        기록 = _국면기록(씨앗=2)
+        기록["UP"] = _대상(name="곧상장", sub_start="2099-01-02", sub_end="2099-01-03")
+        monkeypatch.setattr(S, "_기록", 기록)
+        monkeypatch.setattr(S, "_받은때", time.time())
+        monkeypatch.setattr(S, "_시도때", time.time())
+        monkeypatch.setattr(S, "_예측보관", {})
+        값 = S.한눈에()
+        지금 = 값["accuracy"]["method"]
+        곧 = next(u for u in 값["upcoming"] if u["name"] == "곧상장")["prediction"]
+        assert 곧["method"] == {"key": 지금["key"], "name": 지금["name"]}
+        assert 곧["parts"]["correction_pct"] != 0, "이 세상에서는 요즘 오차를 보정해야 한다"
+        넣은것 = {k: 기록["UP"][k] for k in ("offer_price", "inst_ratio", "lockup_pct", "sub_ratio",
+                                             "band_low", "band_high", "offer_amount")}
+        직접 = S.직접_예측(넣은것)
+        assert 직접["method"] == 곧["method"] and 직접["ratio"] == 곧["ratio"]
+        # 화면을 연 뒤에는 고른 방식을 다시 고르지 않는다(걸어가며 맞히기가 무겁다)
+        def 다시고름(*a, **k):
+            raise AssertionError("보관한 방식을 두고 다시 골랐다")
+        with monkeypatch.context() as mp:
+            mp.setattr(S, "_검증", 다시고름)
+            assert S.직접_예측(넣은것)["ratio"] == 곧["ratio"]
+        # 화면을 열기 전(서버가 막 떴을 때)에도 같은 방식을 골라 쓴다
+        monkeypatch.setattr(S, "_예측보관", {})
+        assert S.직접_예측(넣은것)["ratio"] == 곧["ratio"]
+
+
 # ── 한눈에 ──────────────────────────────────────────────────
 class Test한눈에:
     def _채우기(self, monkeypatch):
@@ -657,6 +880,7 @@ class TestAPI:
         r = client.get("/api/v1/ipo")
         assert r.status_code == 200
         assert {"upcoming", "recent", "accuracy", "source", "as_of"} <= set(r.json())
+        assert {"method", "methods"} <= set(r.json()["accuracy"])
 
     def test_직접_넣어_보기(self, client, monkeypatch):
         monkeypatch.setattr(S, "_기록", _만든기록())

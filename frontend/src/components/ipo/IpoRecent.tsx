@@ -9,11 +9,62 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, X } from "lucide-react";
 import { Card } from "@/components/ui";
-import type { 공모주결과, 공모주한눈에 } from "@/api/stocks";
+import type { 공모주결과, 공모주방식성적, 공모주한눈에 } from "@/api/stocks";
 import { 등락 } from "./IpoPrediction";
 import { 원, 배율퍼센트, 퍼센트글, 날짜글, 확률글 } from "./ipoFormat";
 
 const 처음보일수 = 8;
+
+/** 지금 쓰는 방식과 방식마다의 성적.
+ *
+ *  위 요약 숫자는 공모주마다 '그 전에 가장 잘 맞아 온 방식' 을 골라 쓴 결과다. 표는
+ *  같은 공모주들을 방식 하나로만 맞혔을 때라, 표에서 가장 좋은 줄을 보고 고르면
+ *  답을 보고 고르는 셈이 된다 — 그래서 고르기는 늘 그 전 결과로만 한다. */
+function 방식설명({ 지금, 방식들, 폭 }: {
+  지금: NonNullable<공모주한눈에["accuracy"]["method"]>;
+  방식들: 공모주방식성적[];
+  폭: number;
+}) {
+  const [펼침, set펼침] = useState(false);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-2xs text-text-muted break-keep">
+        지금은 <b className="text-text-primary font-semibold">{지금.name}</b> 방식으로 예측해요 —
+        직전 {지금.pick_window}곳에서 가장 잘 맞았어요.{" "}
+        <button type="button" onClick={() => set펼침((v) => !v)} aria-expanded={펼침}
+          className="font-semibold text-accent-blue hover:underline">
+          {펼침 ? "접기" : "방식별로 보기"}
+        </button>
+      </p>
+      {펼침 && (
+        <div className="rounded-lg bg-bg-elevated px-2.5 py-2 flex flex-col gap-1.5">
+          <table className="w-full text-2xs">
+            <thead>
+              <tr className="text-text-muted">
+                <th className="text-left font-medium py-1">방식</th>
+                <th className="text-right font-medium py-1">±{폭}% 안 맞힘</th>
+                <th className="text-right font-medium py-1">보통 차이</th>
+              </tr>
+            </thead>
+            <tbody>
+              {방식들.map((m) => (
+                <tr key={m.key} className={`border-t border-border/40 ${m.key === 지금.key ? "text-text-primary font-semibold" : "text-text-secondary"}`}>
+                  <td className="py-1 break-keep">{m.name}</td>
+                  <td className="py-1 text-right num">{m.hit_rate == null ? "—" : 확률글(m.hit_rate)}</td>
+                  <td className="py-1 text-right num">{m.median_abs_diff_pct == null ? "—" : `±${m.median_abs_diff_pct}%`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-2xs text-text-dim break-keep">
+            같은 공모주들을 방식 하나로만 맞혔을 때예요. 위 숫자는 공모주마다 그 전 {지금.pick_window}곳에서
+            가장 잘 맞던 방식을 골라 쓴 결과예요 — 답을 보고 고르지 않으려고 늘 그 전 결과로만 골라요.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function IpoRecent({ 줄들, 정확도 }: {
   줄들: 공모주결과[];
@@ -59,6 +110,8 @@ export default function IpoRecent({ 줄들, 정확도 }: {
             </div>
           </div>
         )}
+        {정확도.n > 0 && 정확도.method && 정확도.methods?.length
+          ? <방식설명 지금={정확도.method} 방식들={정확도.methods} 폭={폭} /> : null}
       </div>
       <ul className="divide-y divide-border-subtle">
         {보일것.map((r) => {

@@ -29,7 +29,8 @@ const 예측결과 = {
       lockup_pct: 12, sub_ratio: null, offer_price: 20000, open_price: 24000 },
   ],
   used: ["기관경쟁률", "의무보유확약", "청약경쟁률"], missing: [], n_train: 210,
-  parts: { neighbors_ratio: 1.5, regression_ratio: 1.58 },
+  parts: { neighbors_ratio: 1.5, regression_ratio: 1.58, correction_pct: 12 },
+  method: { key: "fast_fix", name: "빠른 분위기 + 최근 오차 보정" },
 };
 
 const 한눈에 = {
@@ -49,7 +50,8 @@ const 한눈에 = {
       lockup_pct: 20, sub_start: "2026-10-15", sub_end: "2026-10-16", sub_ratio: null, list_date: null,
       underwriter: null, stage: "청약 예정",
       prediction: { ...예측결과, price: 15_000, missing: ["청약경쟁률"],
-                    used: ["기관경쟁률", "의무보유확약"] } },
+                    used: ["기관경쟁률", "의무보유확약"],
+                    parts: { ...예측결과.parts, correction_pct: -8 } } },
   ],
   // 첫 줄은 크게 빗나갔다(15,000원 ÷ 11,000원 = +36%). 나머지는 14,000원으로 봤는데
   // 뒤로 갈수록 실제가 올라 ±10% 를 넘는다
@@ -62,7 +64,16 @@ const 한눈에 = {
       pred_ratio: 예측가 / 10000, pred_price: 예측가, diff_pct: 차이, hit: Math.abs(차이) <= 10,
     };
   }),
-  accuracy: { n: 60, hit_band_pct: 10, median_abs_diff_pct: 18, direction_hit: 0.82, hit_rate: 0.43 },
+  accuracy: {
+    n: 60, hit_band_pct: 10, median_abs_diff_pct: 18, direction_hit: 0.82, hit_rate: 0.43,
+    method: { key: "fast_fix", name: "빠른 분위기 + 최근 오차 보정", pick_window: 40 },
+    methods: [
+      { key: "base", name: "기본", hit_rate: 0.33, median_abs_diff_pct: 18 },
+      { key: "fast", name: "빠른 분위기", hit_rate: 0.37, median_abs_diff_pct: 16 },
+      { key: "base_fix", name: "기본 + 최근 오차 보정", hit_rate: 0.4, median_abs_diff_pct: 15 },
+      { key: "fast_fix", name: "빠른 분위기 + 최근 오차 보정", hit_rate: 0.45, median_abs_diff_pct: 13 },
+    ],
+  },
   train_since: "2023-06-26", n_records: 420, n_results: 280,
   source: { name: "38커뮤니케이션", lists: { 수요예측: { rows: 40, reason: "" } } },
   refreshing: false,
@@ -145,6 +156,34 @@ describe("공모주 — 다가오는 공모주", () => {
     expect(screen.getByText("+80%")).toBeInTheDocument();
   });
 
+  // "너무 낮은데 예측률이" — 요즘 분위기를 따라가려고 예상값을 옮겼으면 점이 범위(비슷했던
+  // 공모주가 실제로 시작한 값) 밖에 찍힐 수 있다. 왜 그런지 그 자리에 적는다
+  it("요즘 오차를 보정했으면 어느 쪽으로 얼마나 옮겼는지와 방식을 적는다", async () => {
+    그리기();
+    const 올림 = (await screen.findByText("에이비씨바이오")).closest("div.bg-bg-card") as HTMLElement;
+    expect(올림).toHaveTextContent("요즘 공모주가 예측보다 높게 시작하고 있어서 예상을 12% 올려 잡았어요.");
+    expect(올림).toHaveTextContent("방식 빠른 분위기 + 최근 오차 보정");
+    const 내림 = screen.getByText("청약전로보틱스").closest("div.bg-bg-card") as HTMLElement;
+    expect(내림).toHaveTextContent("요즘 공모주가 예측보다 낮게 시작하고 있어서 예상을 8% 내려 잡았어요.");
+  });
+
+  it("보정하지 않았거나 예전 서버면 보정 글을 쓰지 않는다", async () => {
+    const 기본부분 = { neighbors_ratio: 1.5, regression_ratio: 1.58 };
+    overview.mockResolvedValue({
+      ...한눈에,
+      upcoming: [
+        { ...한눈에.upcoming[0], prediction: { ...예측결과, parts: { ...기본부분, correction_pct: 0 } } },
+        { ...한눈에.upcoming[2], prediction: { ...예측결과, parts: 기본부분, method: undefined } },
+      ],
+    });
+    그리기();
+    expect(await screen.findByText("에이비씨바이오")).toBeInTheDocument();
+    expect(screen.queryByText(/잡았어요/)).toBeNull();
+    const 예전 = screen.getByText("청약전로보틱스").closest("div.bg-bg-card") as HTMLElement;
+    expect(예전).not.toHaveTextContent("· 방식");
+    expect(document.body.textContent).not.toMatch(/undefined|NaN/);
+  });
+
   it("언제 자료인지와 원천을 적는다", async () => {
     그리기();
     expect(await screen.findByText("10.9 14:30 기준")).toBeInTheDocument();
@@ -195,6 +234,41 @@ describe("공모주 — 최근 상장", () => {
     그리기();
     expect(await screen.findByText("에이비씨바이오")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /최근 상장/ })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/undefined|NaN/);
+  });
+
+  it("지금 쓰는 방식을 적고, 방식별 성적을 펼쳐 볼 수 있다", async () => {
+    const 사용자 = userEvent.setup();
+    그리기();
+    const 줄 = await screen.findByText(/지금은.*방식으로 예측해요/);
+    expect(줄).toHaveTextContent("지금은 빠른 분위기 + 최근 오차 보정 방식으로 예측해요 — 직전 40곳에서 가장 잘 맞았어요.");
+    expect(screen.queryByRole("table")).toBeNull();
+    await 사용자.click(screen.getByRole("button", { name: "방식별로 보기" }));
+    const 줄들 = within(screen.getByRole("table")).getAllByRole("row");
+    expect(줄들.map((r) => r.textContent)).toEqual([
+      "방식±10% 안 맞힘보통 차이",
+      "기본33%±18%",
+      "빠른 분위기37%±16%",
+      "기본 + 최근 오차 보정40%±15%",
+      "빠른 분위기 + 최근 오차 보정45%±13%",
+    ]);
+    expect(줄들[4]).toHaveClass("font-semibold");       // 지금 쓰는 방식
+    expect(줄들[1]).not.toHaveClass("font-semibold");
+    expect(screen.getByText(/답을 보고 고르지 않으려고/)).toBeInTheDocument();
+    await 사용자.click(screen.getByRole("button", { name: "접기" }));
+    expect(screen.queryByRole("table")).toBeNull();
+    // '어떻게 예측하나요?' 에도 같은 이야기를 적는다
+    expect(screen.getByText(/네 방식을 모두 지난 공모주에 맞혀 봐요/)).toHaveTextContent("직전 40곳에서 가장 잘 맞아 온 방식");
+  });
+
+  it("바로 전 서버(방식 정보 없음)면 방식 줄 없이 그린다", async () => {
+    overview.mockResolvedValue({
+      ...한눈에,
+      accuracy: { n: 60, hit_band_pct: 10, median_abs_diff_pct: 18, direction_hit: 0.82, hit_rate: 0.43 },
+    });
+    그리기();
+    expect(await screen.findByRole("heading", { name: /최근 상장/ })).toBeInTheDocument();
+    expect(screen.queryByText(/지금은.*방식으로 예측해요/)).toBeNull();
     expect(document.body.textContent).not.toMatch(/undefined|NaN/);
   });
 

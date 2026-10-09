@@ -35,6 +35,10 @@
 둘의 가운데를 예측값으로 한다. 그리고 시간 순서대로 걸어가며 — 그때까지
 상장한 것만으로 다음 공모주를 맞혀 보며 — 얼마나 맞았는지를 함께 보여 준다.
 스팩·리츠는 성격이 달라 저희끼리만 견준다.
+
+분위기를 재는 법(직전 10곳 평균 / 요즘 상장일수록 크게)과 '최근 오차 보정'
+(직전 몇 곳이 예측보다 높게·낮게 시작한 만큼 반쯤 따라간다)을 엮은 네 방식을
+모두 걸어가며 맞혀 보고, 맞힐 날까지 가장 잘 맞아 온 방식을 쓴다(방식들).
 """
 from __future__ import annotations
 
@@ -668,9 +672,19 @@ def _학습감(기록: dict, 그룹: str) -> list:
     return out
 
 
-def _분위기값(앞y: list) -> "float | None":
-    앞 = 앞y[-10:]
-    return sum(앞) / len(앞) if len(앞) >= 3 else None
+def _분위기값(앞y: list, 반감: "float | None" = None) -> "float | None":
+    """앞서 상장한 공모주들의 log(시초가/공모가) 를 모은 값 — 요즘 공모주 시장 온도.
+
+    반감이 없으면 직전 10곳 평균(처음 방식). 있으면 직전 20곳을, 그 곳 수만큼
+    거슬러 갈 때마다 무게가 절반이 되게 가중평균한다 — 분위기가 바뀌면 빨리 따라간다."""
+    if len(앞y) < 3:
+        return None
+    if 반감 is None:
+        앞 = 앞y[-10:]
+        return sum(앞) / len(앞)
+    앞 = 앞y[-20:]
+    무게 = [0.5 ** ((len(앞) - 1 - k) / 반감) for k in range(len(앞))]
+    return sum(w * y for w, y in zip(무게, 앞)) / sum(무게)
 
 
 class 모델:
@@ -678,10 +692,13 @@ class 모델:
 
     학습표의 각 줄은 '그 공모주 상장일 전' 의 분위기를 쓴다 — 줄의 값이
     맞힐 대상에 따라 달라지지 않으므로, 대상마다 '그날 전 상장' 까지만
-    잘라 쓰면 된다(시간순 검증이 60번 맞혀도 표는 한 번)."""
+    잘라 쓰면 된다(시간순 검증이 60번 맞혀도 표는 한 번).
 
-    def __init__(self, 기록: dict):
+    반감 — 분위기를 모으는 방식(_분위기값). 학습표와 맞힐 대상이 같은 방식을 쓴다."""
+
+    def __init__(self, 기록: dict, 반감: "float | None" = None):
         self.기록 = 기록
+        self.반감 = 반감
         self._표: dict = {}
 
     def 표(self, 그룹: str) -> list:
@@ -694,7 +711,7 @@ class 모델:
             for i, r in enumerate(감):
                 while j < i and 날[j] < 날[i]:      # 같은 날 상장은 서로의 '앞' 이 아니다
                     j += 1
-                표.append((특징(r, _분위기값(ys[:j])), ys[i], r, 날[i]))
+                표.append((특징(r, _분위기값(ys[:j], self.반감)), ys[i], r, 날[i]))
             self._표[그룹] = 표
         return self._표[그룹]
 
@@ -702,7 +719,7 @@ class 모델:
         return [x for x in self.표(그룹) if x[3] < 기준일]
 
     def 분위기(self, 그룹: str, 기준일: date) -> "float | None":
-        return _분위기값([x[1] for x in self.그날전(그룹, 기준일)])
+        return _분위기값([x[1] for x in self.그날전(그룹, 기준일)], self.반감)
 
     def 예측(self, 대상: dict, 기준일: "date | None" = None) -> dict:
         return _예측(self, 대상, 기준일 or 오늘())
@@ -810,7 +827,7 @@ def _예측(m: "모델", 대상: dict, 기준일: date) -> dict:
         이름 = {"spac": "스팩", "reit": "리츠"}.get(그룹, "공모주")
         return {"ok": False, "reason": f"견줄 {이름} 결과가 아직 {len(표)}건뿐이에요"}
     통계 = _통계(표)
-    대상특징 = 특징(대상, _분위기값([x[1] for x in 표]))
+    대상특징 = 특징(대상, _분위기값([x[1] for x in 표], m.반감))
     이웃결과 = _이웃(표, 대상특징, 통계)
     if not 이웃결과:
         return {"ok": False, "reason": "견줄 만큼 비슷한 공모주가 없어요"}
@@ -856,35 +873,159 @@ def _이웃줄(r: dict, y: float) -> dict:
 #: 절반) 안에 들었는지로 재면 잘 맞아도 절반쯤은 밖이라, 쌓일수록 50% 로 모일 뿐이다
 맞힘폭 = 10
 
+#: 견줘 보는 방식 — (열쇠, 화면 이름, 분위기 반감, 최근 오차 보정)
+#:
+#: 2026년 7~8월에는 연달아 높게 봤고, 9월 말부터는 여섯 곳이 연달아 예측보다 38~92%
+#: 높게 시작했다 — 직전 10곳 평균으로 잰 분위기가 바뀐 시장을 늦게 따라갔다. 그래서
+#: 둘을 더해 본다.
+#:   · 빠른 분위기 — 요즘 상장한 곳일수록 크게 본다(_분위기값 반감 3곳)
+#:   · 최근 오차 보정 — 직전 몇 곳이 그 방식의 예측보다 높게(낮게) 시작했으면 그
+#:     평균의 절반만큼 올려(내려) 잡는다
+#: 어느 쪽이 나은지는 시장이 정한다 — 넷을 모두 걸어가며 맞혀 보고, 맞힐 날 전 직전
+#: 몇 곳에서 가장 잘 맞아 온 방식을 쓴다(_고르기). 분위기가 몇 곳마다 바뀌는 가짜
+#: 세상에서는 보정이 맞힘을 30% → 40% 로 올렸고, 바뀌지 않는 세상에서는 기본이 골라졌다
+방식들 = (
+    ("base", "기본", None, False),
+    ("fast", "빠른 분위기", 3, False),
+    ("base_fix", "기본 + 최근 오차 보정", None, True),
+    ("fast_fix", "빠른 분위기 + 최근 오차 보정", 3, True),
+)
+#: 최근 오차 보정 — 직전 몇 곳의 오차를, 그 평균의 얼마만큼, 며칠 안에 상장한 것만, 많아야 얼마까지
+보정_곳, 보정_몫, 보정_기한 = 3, 0.5, 90
+보정_한도 = math.log(1.5)
+#: 방식 고르기 — 직전 몇 곳의 성적으로 고르나. 이보다 덜 쌓였으면 기본을 쓴다
+고르기_곳, 고르기_최소 = 40, 10
+
+
+def _걸음(기록: dict, 곳: int) -> list:
+    """최근 상장한 일반 공모주 '곳' 개를 상장일 순으로, 분위기 방식마다 그 전 상장만으로 맞힌다.
+
+    [(기록, 상장일, 실제 y, {반감: log 예측배율})] — 한 방식이라도 못 맞힌 줄은 뺀다."""
+    모델들 = {반감: 모델(기록, 반감) for _, _, 반감, _ in 방식들}
+    out = []
+    for _, y, r, d in next(iter(모델들.values())).표("normal")[-곳:]:
+        대상 = {**r, "open_price": None, "close_price": None}
+        예측들 = {반감: m.예측(대상, d) for 반감, m in 모델들.items()}
+        if all(p.get("ok") for p in 예측들.values()):
+            out.append((r, d, y, {반감: math.log(p["ratio"]) for 반감, p in 예측들.items()}))
+    return out
+
+
+def _보정값(걸음: list, 기본: list, 기준일: date) -> float:
+    """기준일 전 직전 보정_곳 곳(보정_기한 일 안)이 이 방식의 예측(기본)보다 얼마나 높게
+    시작했나 — log 오차 평균에 보정_몫을 곱해 ±보정_한도 로 자른 값. 없으면 0."""
+    오차 = [e[2] - 기본[j] for j, e in enumerate(걸음)
+            if e[1] < 기준일 and (기준일 - e[1]).days <= 보정_기한][-보정_곳:]
+    if not 오차:
+        return 0.0
+    return min(max(보정_몫 * sum(오차) / len(오차), -보정_한도), 보정_한도)
+
+
+def _방식별(걸음: list) -> dict:
+    """{방식 열쇠: [줄마다 log 예측배율]} — 보정은 그 줄 상장일 전의 오차만 쓴다."""
+    out = {}
+    for k, _, 반감, 보정 in 방식들:
+        기본 = [e[3][반감] for e in 걸음]
+        out[k] = [min(max(v + (_보정값(걸음, 기본, e[1]) if 보정 else 0.0),
+                          math.log(하한배율)), math.log(상한배율))
+                  for v, e in zip(기본, 걸음)]
+    return out
+
+
+def _고르기(걸음: list, 방식값: dict, 기준일: date) -> str:
+    """기준일 전 상장한 직전 고르기_곳 곳에서 가장 잘 맞아 온 방식 — log 오차 절댓값의 합이
+    가장 작은 것. 같으면 방식들의 앞쪽. 덜 쌓였으면 기본."""
+    앞 = [j for j, e in enumerate(걸음) if e[1] < 기준일][-고르기_곳:]
+    if len(앞) < 고르기_최소:
+        return 방식들[0][0]
+    return min((k for k, *_ in 방식들),
+               key=lambda k: sum(abs(걸음[j][2] - 방식값[k][j]) for j in 앞))
+
+
+def _차이(r: dict, 로그배율: float) -> tuple:
+    """(예측 배율, 예측 시초가, 실제 ÷ 예측 − 1 을 화면에 적는 정수 %)"""
+    배율 = math.exp(로그배율)
+    가격 = 가격으로(r["offer_price"], 배율)
+    return 배율, 가격, round((r["open_price"] / 가격 - 1) * 100)
+
+
+def _성적(차이들: list) -> dict:
+    절대 = sorted(abs(x) for x in 차이들)
+    n = len(절대)
+    return {"median_abs_diff_pct": 절대[n // 2] if n else None,
+            "hit_rate": round(sum(a <= 맞힘폭 for a in 절대) / n, 3) if n else None}
+
+
+def _검증(기록: dict, 최근: int, 기준일: date) -> tuple:
+    """(화면에 줄 시간순 검증, 기준일에 쓸 방식 {"key", "name", "반감", "보정"(log)}).
+
+    줄마다 그 줄 상장일 전에 가장 잘 맞아 온 방식으로 맞힌 값을 보여 준다 — 방식을
+    고를 때도 그 뒤의 결과는 보지 않는다. 방식별 성적(methods)은 같은 줄들을 그 방식
+    하나로만 맞혔을 때다."""
+    걸음 = _걸음(기록, 최근 + 고르기_곳 + 보정_곳)
+    방식값 = _방식별(걸음)
+    이름 = {k: 화면이름 for k, 화면이름, *_ in 방식들}
+    줄들, 방향 = [], []
+    방식차이: dict = {k: [] for k in 이름}
+    for i in range(max(0, len(걸음) - 최근), len(걸음)):
+        r, d, _, _ = 걸음[i]
+        고른 = _고르기(걸음, 방식값, d)
+        배율, 가격, 차이 = _차이(r, 방식값[고른][i])
+        실제 = 결과배율(r)
+        방향.append((배율 >= 1) == (실제 >= 1))
+        for k in 방식차이:
+            방식차이[k].append(_차이(r, 방식값[k][i])[2])
+        줄들.append({"name": r["name"], "code": r.get("code"), "list_date": r["list_date"],
+                     "offer_price": r["offer_price"], "open_price": r["open_price"],
+                     "actual_ratio": round(실제, 4), "pred_ratio": round(배율, 4), "pred_price": 가격,
+                     "diff_pct": 차이, "hit": abs(차이) <= 맞힘폭, "method": 고른})
+    n = len(줄들)
+    지금 = _고르기(걸음, 방식값, 기준일)
+    반감, 보정 = next((b, f) for k, _, b, f in 방식들 if k == 지금)
+    c = _보정값(걸음, [e[3][반감] for e in 걸음], 기준일) if 보정 else 0.0
+    검증 = {
+        "n": n,
+        "hit_band_pct": 맞힘폭,
+        **_성적([x["diff_pct"] for x in 줄들]),
+        "direction_hit": round(sum(방향) / n, 3) if n else None,
+        "method": {"key": 지금, "name": 이름[지금], "pick_window": 고르기_곳},
+        "methods": [{"key": k, "name": 이름[k], **_성적(방식차이[k])} for k in 이름],
+        "rows": 줄들[::-1],
+    }
+    return 검증, {"key": 지금, "name": 이름[지금], "반감": 반감, "보정": c}
+
 
 def 걸어가며_검증(기록: dict, 최근: int = 60) -> dict:
     """최근 상장한 일반 공모주를 하나씩, 그 전에 상장한 것만으로 맞혀 본다.
 
     차이는 '실제 시초가 ÷ 예측 시초가 − 1' 을 화면에 적는 정수(%)로 반올림한 값이고,
     맞힘도 그 정수로 가른다 — 적힌 숫자와 ✓·✗ 가 어긋나지 않게."""
-    m = 모델(기록)
-    줄들, 방향 = [], []
-    for _, _, r, d in m.표("normal")[-최근:]:
-        p = m.예측({**r, "open_price": None, "close_price": None}, d)
-        if not p.get("ok"):
-            continue
-        실제 = 결과배율(r)
-        차이 = round((r["open_price"] / p["price"] - 1) * 100)
-        방향.append((p["ratio"] >= 1) == (실제 >= 1))
-        줄들.append({"name": r["name"], "code": r.get("code"), "list_date": r["list_date"],
-                     "offer_price": r["offer_price"], "open_price": r["open_price"],
-                     "actual_ratio": round(실제, 4), "pred_ratio": p["ratio"], "pred_price": p["price"],
-                     "diff_pct": 차이, "hit": abs(차이) <= 맞힘폭})
-    n = len(줄들)
-    차이들 = sorted(abs(x["diff_pct"]) for x in 줄들)
-    return {
-        "n": n,
-        "hit_band_pct": 맞힘폭,
-        "median_abs_diff_pct": 차이들[n // 2] if n else None,
-        "direction_hit": round(sum(방향) / n, 3) if n else None,
-        "hit_rate": round(sum(x["hit"] for x in 줄들) / n, 3) if n else None,
-        "rows": 줄들[::-1],
-    }
+    return _검증(기록, 최근, 오늘())[0]
+
+
+def _방식대로(모델들: dict, 대상: dict, 기준일: date, 지금: dict) -> dict:
+    """대상을 지금 쓰는 방식으로 맞힌다. 방식은 일반 공모주로 골랐으므로 스팩·리츠는 기본 그대로.
+
+    모델들 — {반감: 모델}. 기본(None)과 지금 방식의 반감이 들어 있어야 한다."""
+    if (대상.get("kind") or 종류(대상.get("name"))) != "normal":
+        return 모델들[None].예측(대상, 기준일)
+    p = 모델들[지금["반감"]].예측(대상, 기준일)
+    if not p.get("ok"):
+        return p
+    p = {**p, "method": {"key": 지금["key"], "name": 지금["name"]},
+         "parts": {**p["parts"], "correction_pct": round((math.exp(지금["보정"]) - 1) * 100)}}
+    if 지금["보정"]:
+        배율 = min(max(p["ratio"] * math.exp(지금["보정"]), 하한배율), 상한배율)
+        p.update(ratio=round(배율, 4), price=가격으로(대상["offer_price"], 배율),
+                 return_pct=round((배율 - 1) * 100, 1))
+    return p
+
+
+def _모델들(기록: dict, 지금: dict) -> dict:
+    모델들 = {None: 모델(기록)}
+    if 지금["반감"] is not None:
+        모델들[지금["반감"]] = 모델(기록, 지금["반감"])
+    return 모델들
 
 
 # ── 화면에 줄 것 ───────────────────────────────────────────
@@ -932,11 +1073,10 @@ def 한눈에() -> dict:
     열 = (id(기록), _받은때, 기준일)
     if (있음 := _예측보관.get("값")) and _예측보관.get("열") == 열:
         return {**있음, "refreshing": 새로받는중 or _갱신중}
-    m = 모델(기록)
-    다가옴 = []
-    for r in _다가오는(기록, 기준일):
-        다가옴.append({**_공개(r), "stage": 단계(r, 기준일), "prediction": m.예측(r, 기준일)})
-    검증 = 걸어가며_검증(기록)
+    검증, 지금 = _검증(기록, 60, 기준일)
+    모델들 = _모델들(기록, 지금)
+    다가옴 = [{**_공개(r), "stage": 단계(r, 기준일), "prediction": _방식대로(모델들, r, 기준일, 지금)}
+              for r in _다가오는(기록, 기준일)]
     값 = {
         "as_of": datetime.fromtimestamp(_받은때, KST).isoformat() if _받은때 else None,
         "upcoming": 다가옴,
@@ -948,7 +1088,7 @@ def 한눈에() -> dict:
         "source": {"name": "38커뮤니케이션", "lists": {k: {"rows": v.get("rows", 0), "reason": v.get("reason", "")}
                                                       for k, v in _상태.items()}},
     }
-    _예측보관.update(열=열, 값=값)
+    _예측보관.update(열=열, 값=값, 지금=지금)
     return {**값, "refreshing": 새로받는중 or _갱신중}
 
 
@@ -962,7 +1102,7 @@ def _공개(r: dict) -> dict:
 
 
 def 직접_예측(값: dict) -> dict:
-    """사람이 넣은 숫자로 맞힌다(공모주 메뉴의 '직접 넣어 보기')."""
+    """사람이 넣은 숫자로 맞힌다(공모주 메뉴의 '직접 넣어 보기'). 다가오는 공모주와 같은 방식으로."""
     대상 = {
         "name": "직접 입력", "kind": 값.get("kind") or "normal",
         "offer_price": 값.get("offer_price"), "inst_ratio": 값.get("inst_ratio"),
@@ -970,4 +1110,11 @@ def 직접_예측(값: dict) -> dict:
         "band_low": 값.get("band_low"), "band_high": 값.get("band_high"),
         "offer_amount": 값.get("offer_amount"),
     }
-    return 예측하기(기록들(), 대상)
+    기록 = 기록들()
+    기준일 = 오늘()
+    # 화면을 열 때(한눈에) 고른 방식을 그대로 쓴다. 서버가 막 떠서 아직 없으면 지금 고른다
+    if _예측보관.get("열") == (id(기록), _받은때, 기준일) and _예측보관.get("지금"):
+        지금 = _예측보관["지금"]
+    else:
+        지금 = _검증(기록, 60, 기준일)[1]
+    return _방식대로(_모델들(기록, 지금), 대상, 기준일, 지금)
