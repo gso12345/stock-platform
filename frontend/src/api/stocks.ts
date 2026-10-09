@@ -1141,9 +1141,12 @@ export interface 공모주결과 {
   open_price: number;
   actual_ratio: number;
   pred_ratio: number;
-  low_ratio: number;
-  high_ratio: number;
-  in_range: boolean;
+  /** 예측 시초가(원) — 호가 단위에 맞춘 값 */
+  pred_price: number;
+  /** 실제 시초가 ÷ 예측 시초가 − 1 (%, 정수) */
+  diff_pct: number;
+  /** |diff_pct| 가 accuracy.hit_band_pct 안 */
+  hit: boolean;
 }
 
 export interface 공모주한눈에 {
@@ -1152,12 +1155,14 @@ export interface 공모주한눈에 {
   recent: 공모주결과[];
   accuracy: {
     n: number;
-    /** 예측과 실제 시초가 수익률 차이의 중앙값(%p) */
-    median_abs_err_pp: number | null;
+    /** 맞힘으로 보는 폭 — 실제 시초가가 예측 시초가의 ±이만큼(%) 안 */
+    hit_band_pct: number;
+    /** 예측 시초가와 실제 시초가 차이(%)의 중앙값 */
+    median_abs_diff_pct: number | null;
     /** 공모가 위/아래를 맞힌 몫 */
     direction_hit: number | null;
-    /** 실제가 범위 안에 든 몫 */
-    range_hit: number | null;
+    /** ±hit_band_pct 안에 든 몫 */
+    hit_rate: number | null;
   };
   train_since: string;
   n_records: number;

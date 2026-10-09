@@ -850,31 +850,39 @@ def _이웃줄(r: dict, y: float) -> dict:
             "offer_price": r.get("offer_price"), "open_price": r.get("open_price")}
 
 
+#: 지난 공모주를 '맞혔다' 고 보는 폭(%) — 실제 시초가가 예측 시초가의 ±이만큼 안.
+#: 수익률 차이(%p)로 재면 많이 오른 공모주일수록 차이가 커 보인다 — +270% 와 +300% 는
+#: 30%p 차이지만 값으로는 3.7배와 4.0배, 8% 차이다. 예상 범위(비슷했던 공모주 가운데
+#: 절반) 안에 들었는지로 재면 잘 맞아도 절반쯤은 밖이라, 쌓일수록 50% 로 모일 뿐이다
+맞힘폭 = 10
+
+
 def 걸어가며_검증(기록: dict, 최근: int = 60) -> dict:
-    """최근 상장한 일반 공모주를 하나씩, 그 전에 상장한 것만으로 맞혀 본다."""
+    """최근 상장한 일반 공모주를 하나씩, 그 전에 상장한 것만으로 맞혀 본다.
+
+    차이는 '실제 시초가 ÷ 예측 시초가 − 1' 을 화면에 적는 정수(%)로 반올림한 값이고,
+    맞힘도 그 정수로 가른다 — 적힌 숫자와 ✓·✗ 가 어긋나지 않게."""
     m = 모델(기록)
-    줄들, 오차들, 방향, 범위안 = [], [], [], []
+    줄들, 방향 = [], []
     for _, _, r, d in m.표("normal")[-최근:]:
         p = m.예측({**r, "open_price": None, "close_price": None}, d)
         if not p.get("ok"):
             continue
         실제 = 결과배율(r)
-        오차들.append(abs(p["ratio"] - 실제) * 100)
+        차이 = round((r["open_price"] / p["price"] - 1) * 100)
         방향.append((p["ratio"] >= 1) == (실제 >= 1))
-        안 = p["range"]["low_ratio"] - 1e-9 <= 실제 <= p["range"]["high_ratio"] + 1e-9
-        범위안.append(안)
         줄들.append({"name": r["name"], "code": r.get("code"), "list_date": r["list_date"],
                      "offer_price": r["offer_price"], "open_price": r["open_price"],
-                     "actual_ratio": round(실제, 4), "pred_ratio": p["ratio"],
-                     "low_ratio": p["range"]["low_ratio"], "high_ratio": p["range"]["high_ratio"],
-                     "in_range": 안})
+                     "actual_ratio": round(실제, 4), "pred_ratio": p["ratio"], "pred_price": p["price"],
+                     "diff_pct": 차이, "hit": abs(차이) <= 맞힘폭})
     n = len(줄들)
-    오차들.sort()
+    차이들 = sorted(abs(x["diff_pct"]) for x in 줄들)
     return {
         "n": n,
-        "median_abs_err_pp": round(오차들[n // 2], 1) if n else None,
+        "hit_band_pct": 맞힘폭,
+        "median_abs_diff_pct": 차이들[n // 2] if n else None,
         "direction_hit": round(sum(방향) / n, 3) if n else None,
-        "range_hit": round(sum(범위안) / n, 3) if n else None,
+        "hit_rate": round(sum(x["hit"] for x in 줄들) / n, 3) if n else None,
         "rows": 줄들[::-1],
     }
 

@@ -478,9 +478,17 @@ class Test시간순_검증:
         기록 = _만든기록()
         검증 = S.걸어가며_검증(기록, 최근=20)
         assert 검증["n"] == 20 and len(검증["rows"]) == 20
-        assert 검증["median_abs_err_pp"] is not None and 0 <= 검증["direction_hit"] <= 1
+        assert 검증["median_abs_diff_pct"] is not None and 0 <= 검증["direction_hit"] <= 1
         # 잡음이 작은 세상이라 꽤 맞아야 한다
-        assert 검증["median_abs_err_pp"] < 25, 검증["median_abs_err_pp"]
+        assert 검증["median_abs_diff_pct"] < 10, 검증["median_abs_diff_pct"]
+        assert 검증["hit_rate"] > 0.6, 검증["hit_rate"]
+
+    def test_잡음이_클수록_덜_맞는다(self):
+        """맞힘 비율이 늘 비슷한 값(범위 기준의 50% 처럼)으로 모이면 아무것도 재지 못한다."""
+        작은 = S.걸어가며_검증(_만든기록(잡음=0.08), 최근=20)
+        큰 = S.걸어가며_검증(_만든기록(잡음=0.4), 최근=20)
+        assert 작은["hit_rate"] > 큰["hit_rate"] + 0.3, (작은["hit_rate"], 큰["hit_rate"])
+        assert 작은["median_abs_diff_pct"] < 큰["median_abs_diff_pct"]
 
     def test_자기_결과를_보고_맞히지_않는다(self):
         기록 = _만든기록()
@@ -498,6 +506,62 @@ class Test시간순_검증:
         둘째 = {r["name"]: r["pred_ratio"] for r in S.걸어가며_검증(기록, 최근=10)["rows"]}
         del 첫[마지막["name"]], 둘째[마지막["name"]]
         assert 첫 == 둘째
+
+
+class Test맞힘_기준:
+    """사용자: "270% 300%는 30%p차이가 나는데도 거의 비슷하게 맞췄다고 할 수 있어"
+    → "±10으로 해줘"
+
+    맞힘(✓)은 실제 시초가가 예측 시초가의 ±10% 안인지로 가른다. 수익률 %p 로 재면
+    많이 오른 공모주일수록 차이가 커 보이고, 예상 범위 안인지로 재면 50% 로 모인다."""
+
+    def _검증(self, monkeypatch, 쌍들):
+        """쌍들 — [(예측 배율, 실제 시초가)], 공모가는 10,000원. 예측을 박아 넣고 검증한다."""
+        기록, 답 = {}, {}
+        for i, (배율, 시초) in enumerate(쌍들):
+            이름 = f"맞힘{i}"
+            기록[이름] = {"name": 이름, "kind": "normal", "offer_price": 10_000, "open_price": 시초,
+                         "list_date": (date(2024, 1, 2) + timedelta(days=7 * i)).isoformat()}
+            답[이름] = {"ok": True, "ratio": 배율, "price": S.가격으로(10_000, 배율)}
+        monkeypatch.setattr(S.모델, "예측", lambda self, 대상, 기준일=None: 답[대상["name"]])
+        검증 = S.걸어가며_검증(기록)
+        return 검증, {r["name"]: r for r in 검증["rows"]}
+
+    def test_많이_오른_공모주도_값으로_견준다(self, monkeypatch):
+        # 둘 다 30%p 차이 — +270% 예측에 +300%, +20% 예측에 +50%
+        _, 줄 = self._검증(monkeypatch, [(3.7, 40_000), (1.2, 15_000)])
+        assert 줄["맞힘0"]["pred_price"] == 37_000
+        assert 줄["맞힘0"]["diff_pct"] == 8 and 줄["맞힘0"]["hit"], 줄["맞힘0"]
+        assert 줄["맞힘1"]["diff_pct"] == 25 and not 줄["맞힘1"]["hit"], 줄["맞힘1"]
+
+    def test_아래로_빗나가도_같은_폭(self, monkeypatch):
+        _, 줄 = self._검증(monkeypatch, [(2.0, 18_000), (2.0, 17_800)])
+        assert 줄["맞힘0"]["diff_pct"] == -10 and 줄["맞힘0"]["hit"], 줄["맞힘0"]
+        assert 줄["맞힘1"]["diff_pct"] == -11 and not 줄["맞힘1"]["hit"], 줄["맞힘1"]
+
+    def test_적힌_정수로_가른다(self, monkeypatch):
+        """10.4% 는 화면에 10% 로 적힌다 — 여기에 ✗ 가 붙으면 '±10% 안인데 왜 ✗' 가 된다."""
+        _, 줄 = self._검증(monkeypatch, [(1.0, 11_040), (1.0, 11_060)])
+        assert 줄["맞힘0"]["diff_pct"] == 10 and 줄["맞힘0"]["hit"], 줄["맞힘0"]
+        assert 줄["맞힘1"]["diff_pct"] == 11 and not 줄["맞힘1"]["hit"], 줄["맞힘1"]
+
+    def test_보여_준_예측가와_견준다(self, monkeypatch):
+        """예측 시초가는 호가 단위로 맞춰 적힌다(12,005.1 → 12,010원). 적힌 값과 견줘야
+        화면의 두 가격으로 셈한 차이와 같다 — 13,270원은 12,010원의 +10.49%(✓)지만,
+        맞추기 전 값과 견주면 +10.54%(✗)가 된다."""
+        _, 줄 = self._검증(monkeypatch, [(1.20051, 13_270)])
+        assert 줄["맞힘0"]["pred_price"] == 12_010
+        assert 줄["맞힘0"]["diff_pct"] == 10 and 줄["맞힘0"]["hit"], 줄["맞힘0"]
+
+    def test_요약(self, monkeypatch):
+        # 차이 +8 · +25 · −15 · −40 · +3 — ±10% 안은 +8 과 +3
+        검증, _ = self._검증(monkeypatch, [(3.7, 40_000), (1.2, 15_000), (2.0, 17_000), (1.0, 6_000),
+                                         (1.5, 15_500)])
+        assert 검증["hit_band_pct"] == 10
+        assert 검증["hit_rate"] == 0.4
+        assert 검증["median_abs_diff_pct"] == 15          # 3 · 8 · 15 · 25 · 40 의 가운데
+        assert 검증["direction_hit"] == 0.8               # 넷째는 공모가 그대로로 봤는데 아래로 시작
+        assert 검증["rows"][0]["name"] == "맞힘4", "최근 상장이 위로 와야 한다"
 
 
 # ── 한눈에 ──────────────────────────────────────────────────

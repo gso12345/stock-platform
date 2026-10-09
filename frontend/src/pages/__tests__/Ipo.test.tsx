@@ -51,12 +51,18 @@ const 한눈에 = {
       prediction: { ...예측결과, price: 15_000, missing: ["청약경쟁률"],
                     used: ["기관경쟁률", "의무보유확약"] } },
   ],
-  recent: Array.from({ length: 10 }, (_, i) => ({
-    name: `지난종목${i}`, code: i === 0 ? "999990" : null, list_date: "2026-09-2" + (i % 9),
-    offer_price: 10000, open_price: 15000 + i * 100, actual_ratio: 1.5 + i / 100,
-    pred_ratio: 1.4, low_ratio: 1.2, high_ratio: 1.8, in_range: i % 3 !== 0,
-  })),
-  accuracy: { n: 60, median_abs_err_pp: 31.2, direction_hit: 0.82, range_hit: 0.47 },
+  // 첫 줄은 크게 빗나갔다(15,000원 ÷ 11,000원 = +36%). 나머지는 14,000원으로 봤는데
+  // 뒤로 갈수록 실제가 올라 ±10% 를 넘는다
+  recent: Array.from({ length: 10 }, (_, i) => {
+    const 예측가 = i === 0 ? 11_000 : 14_000;
+    const 차이 = Math.round(((15000 + i * 100) / 예측가 - 1) * 100);
+    return {
+      name: `지난종목${i}`, code: i === 0 ? "999990" : null, list_date: "2026-09-2" + (i % 9),
+      offer_price: 10000, open_price: 15000 + i * 100, actual_ratio: 1.5 + i / 100,
+      pred_ratio: 예측가 / 10000, pred_price: 예측가, diff_pct: 차이, hit: Math.abs(차이) <= 10,
+    };
+  }),
+  accuracy: { n: 60, hit_band_pct: 10, median_abs_diff_pct: 18, direction_hit: 0.82, hit_rate: 0.43 },
   train_since: "2023-06-26", n_records: 420, n_results: 280,
   source: { name: "38커뮤니케이션", lists: { 수요예측: { rows: 40, reason: "" } } },
   refreshing: false,
@@ -147,28 +153,59 @@ describe("공모주 — 다가오는 공모주", () => {
 });
 
 describe("공모주 — 최근 상장", () => {
-  it("V·X 의 기준을 적고, 줄마다 그때의 예상 범위를 보여 준다", async () => {
+  // "270% 300%는 30%p차이가 나는데도 거의 비슷하게 맞췄다고 할 수 있어" — %p 가 아니라
+  // 시초가 값으로 견주고, 줄마다 예측가와 몇 % 차이였는지 적는다
+  it("V·X 의 기준(예측가 ±10%)을 적고, 줄마다 예측가와의 차이를 보여 준다", async () => {
     그리기();
-    const 범례 = await screen.findByText(/실제 시초가가 예상 범위 안/, { selector: "p" });
-    expect(범례).toHaveTextContent(/범위 밖/);
-    expect(범례).toHaveTextContent(/잘 맞아도 절반쯤은 밖에 나와요/);
+    const 범례 = await screen.findByText(/실제 시초가가 예측가의 ±10% 안/, { selector: "p" });
+    expect(범례).toHaveTextContent(/값으로 견줘요/);
     const 줄 = screen.getByRole("link", { name: "지난종목0" }).closest("li") as HTMLElement;
-    expect(줄).toHaveTextContent("범위 +20%~+80%");
-    expect(within(줄).getByLabelText("실제가 예상 범위 밖")).toBeInTheDocument();
+    expect(줄).toHaveTextContent("실제 15,000원");
+    expect(줄).toHaveTextContent("예측 11,000원");
+    expect(줄).toHaveTextContent("예측 대비 +36%");
+    expect(within(줄).getByLabelText("실제가 예측가의 ±10% 밖").querySelector(".lucide-x")).not.toBeNull();
     const 둘째 = screen.getByText("지난종목1").closest("li") as HTMLElement;
-    expect(within(둘째).getByLabelText("실제가 예상 범위 안")).toBeInTheDocument();
+    expect(둘째).toHaveTextContent("예측 대비 +8%");
+    expect(within(둘째).getByLabelText("실제가 예측가의 ±10% 안").querySelector(".lucide-check")).not.toBeNull();
   });
 
   it("예측과 실제, 정확도를 보여 주고 더 보기로 펼친다", async () => {
     const 사용자 = userEvent.setup();
     그리기();
-    expect(await screen.findByText("±31.2%p")).toBeInTheDocument();
+    expect(await screen.findByText("±18%")).toBeInTheDocument();
     expect(screen.getByText("82%")).toBeInTheDocument();
-    expect(screen.getByText("47%")).toBeInTheDocument();
+    expect(screen.getByText("±10% 안 맞힘")).toBeInTheDocument();
+    expect(screen.getByText("43%")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "지난종목0" })).toHaveAttribute("href", "/stocks/KR/999990");
     expect(screen.queryByText("지난종목9")).toBeNull();
     await 사용자.click(screen.getByRole("button", { name: "2곳 더 보기" }));
     expect(screen.getByText("지난종목9")).toBeInTheDocument();
+  });
+
+  it("예전 서버(범위 기준)가 답해도 'undefined' 를 찍지 않는다 — 프런트가 먼저 올라간 배포 사이", async () => {
+    overview.mockResolvedValue({
+      ...한눈에,
+      recent: 한눈에.recent.map((r) => ({
+        name: r.name, code: r.code, list_date: r.list_date, offer_price: r.offer_price,
+        open_price: r.open_price, actual_ratio: r.actual_ratio, pred_ratio: r.pred_ratio,
+        low_ratio: 1.2, high_ratio: 1.8, in_range: true,
+      })),
+      accuracy: { n: 60, median_abs_err_pp: 31.2, direction_hit: 0.82, range_hit: 0.47 },
+    });
+    그리기();
+    expect(await screen.findByText("에이비씨바이오")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /최근 상장/ })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/undefined|NaN/);
+  });
+
+  it("맞혀 본 공모주가 아직 없으면 빈 칸을 그리지 않는다", async () => {
+    overview.mockResolvedValue({
+      ...한눈에, recent: [],
+      accuracy: { n: 0, hit_band_pct: 10, median_abs_diff_pct: null, direction_hit: null, hit_rate: null },
+    });
+    그리기();
+    expect(await screen.findByText("에이비씨바이오")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /최근 상장/ })).toBeNull();
   });
 });
 
@@ -257,7 +294,7 @@ describe("공모주 — 자료가 없을 때", () => {
     그리기();
     expect(await screen.findByText("지금 진행 중인 공모주가 없어요")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "예측하기" })).toBeInTheDocument();
-    expect(screen.getByText("±31.2%p")).toBeInTheDocument();
+    expect(screen.getByText("±18%")).toBeInTheDocument();
   });
 });
 
