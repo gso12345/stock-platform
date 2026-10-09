@@ -39,7 +39,8 @@ const 한눈에 = {
     { name: "에이비씨바이오", code: null, market: null, kind: "normal", forecast_date: "2026-10-01",
       band_low: 11000, band_high: 13000, offer_price: 12000, offer_amount: 18000, inst_ratio: 1234.5,
       lockup_pct: 45.6, sub_start: "2026-10-13", sub_end: "2026-10-14", sub_ratio: 1500.2,
-      list_date: null, underwriter: "미래에셋증권", stage: "청약 완료", prediction: 예측결과 },
+      list_date: null, underwriter: "미래에셋증권", stage: "청약 완료", prediction: 예측결과,
+      float_pct: 35.2, equal_shares: 1.534, sub_accounts: 152_345, prop_ratio: 2469.12, old_pct: 20 },
     { name: "예측전테크", code: null, market: null, kind: "normal", forecast_date: "2026-10-20",
       band_low: 9000, band_high: 11000, offer_price: null, offer_amount: null, inst_ratio: null,
       lockup_pct: null, sub_start: null, sub_end: null, sub_ratio: null, list_date: null,
@@ -121,6 +122,21 @@ describe("공모주 — 다가오는 공모주", () => {
     // 표준 용어 — 원천(38)은 옛 용어 '주간사' 를 쓴다
     expect(within(카드).getByText("주관사 미래에셋증권")).toBeInTheDocument();
     expect(within(카드).getByRole("img", { name: /1\.54배/ })).toBeInTheDocument();
+  });
+
+  // "균등수량, 경쟁률, 비례경쟁률, 상장일 유통물량 등을 넣으면 어때?" — 상세 페이지에서 읽은 값은
+  // 카드에도 보인다. 못 읽은 카드에는 빈 칸('—')을 늘어놓지 않는다
+  it("상세 페이지에서 읽은 유통물량·균등 배정·비례 경쟁률을 보여 준다 — 읽은 카드에만", async () => {
+    그리기();
+    const 카드 = (await screen.findByText("에이비씨바이오")).closest("div.bg-bg-card") as HTMLElement;
+    expect(카드).toHaveTextContent("유통물량?35.2%");
+    expect(카드).toHaveTextContent("균등배정?1.53주");
+    expect(카드).toHaveTextContent("비례경쟁률?2,469:1");
+    for (const 이름 of ["유통물량", "균등배정", "비례경쟁률"]) {
+      expect(within(카드).getByRole("button", { name: `${이름} 설명` })).toBeInTheDocument();
+    }
+    const 없음 = screen.getByText("청약전로보틱스").closest("div.bg-bg-card") as HTMLElement;
+    expect(없음).not.toHaveTextContent(/유통물량|균등배정|비례경쟁률/);
   });
 
   it("청약 전이면 청약경쟁률 없이 계산했다고 알린다 — 그 카드에만", async () => {
@@ -258,7 +274,7 @@ describe("공모주 — 최근 상장", () => {
     await 사용자.click(screen.getByRole("button", { name: "접기" }));
     expect(screen.queryByRole("table")).toBeNull();
     // '어떻게 예측하나요?' 에도 같은 이야기를 적는다
-    expect(screen.getByText(/네 방식을 모두 지난 공모주에 맞혀 봐요/)).toHaveTextContent("직전 40곳에서 가장 잘 맞아 온 방식");
+    expect(screen.getByText(/여덟 방식을 모두 지난 공모주에 맞혀 봐요/)).toHaveTextContent("직전 40곳에서 가장 잘 맞아 온 방식");
   });
 
   it("바로 전 서버(방식 정보 없음)면 방식 줄 없이 그린다", async () => {
@@ -342,6 +358,37 @@ describe("공모주 — 직접 넣어 보기", () => {
     expect(screen.getByLabelText(/기관경쟁률/, { selector: "input" })).toHaveValue("1234.5");
     expect(screen.getByLabelText(/공모금액/)).toHaveValue("180");
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
+  // 카드가 상세 항목(유통물량 등)까지 견줬으면 계산기도 같은 값으로 맞혀야 같은 답이 나온다
+  it("카드의 유통물량·균등 배정·구주매출도 채워 같이 보낸다", async () => {
+    const 사용자 = userEvent.setup();
+    그리기();
+    const 카드 = (await screen.findByText("에이비씨바이오")).closest("div.bg-bg-card") as HTMLElement;
+    await 사용자.click(within(카드).getByRole("button", { name: "이 숫자로 직접 바꿔 보기" }));
+    expect(screen.getByLabelText(/유통물량/, { selector: "input" })).toHaveValue("35.2");
+    expect(screen.getByLabelText(/균등배정/, { selector: "input" })).toHaveValue("1.53");
+    expect(screen.getByLabelText(/구주매출/)).toHaveValue("20");
+    await 사용자.click(screen.getByRole("button", { name: "예측하기" }));
+    expect(predict.mock.calls[0][0]).toMatchObject({ float_pct: 35.2, equal_shares: 1.53, old_pct: 20 });
+  });
+
+  it("상세 항목은 비워 두면 없이 보내고, 틀리게 넣으면 그 자리에서 알려 준다", async () => {
+    const 사용자 = userEvent.setup();
+    그리기();
+    await 사용자.type(await screen.findByLabelText(/확정 공모가/), "10000");
+    await 사용자.type(screen.getByLabelText(/기관경쟁률/, { selector: "input" }), "100");
+    await 사용자.type(screen.getByLabelText(/의무보유확약/, { selector: "input" }), "10");
+    await 사용자.click(screen.getByRole("button", { name: "예측하기" }));
+    expect(predict.mock.calls[0][0]).toMatchObject({ float_pct: null, equal_shares: null, old_pct: null });
+    predict.mockClear();
+    await 사용자.type(screen.getByLabelText(/유통물량/, { selector: "input" }), "0");
+    await 사용자.type(screen.getByLabelText(/균등배정/, { selector: "input" }), "-1");
+    await 사용자.type(screen.getByLabelText(/구주매출/), "120");
+    await 사용자.click(screen.getByRole("button", { name: "예측하기" }));
+    expect(screen.getAllByText("0~100% 사이로 넣어 주세요")).toHaveLength(2);
+    expect(screen.getByText("0보다 작을 수 없어요")).toBeInTheDocument();
+    expect(predict).not.toHaveBeenCalled();
   });
 });
 

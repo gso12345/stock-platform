@@ -31,6 +31,10 @@ class 직접예측(BaseModel):
     band_low: Optional[float] = Field(None, gt=0, le=10_000_000, description="희망공모가 하단(원)")
     band_high: Optional[float] = Field(None, gt=0, le=10_000_000, description="희망공모가 상단(원)")
     offer_amount_eok: Optional[float] = Field(None, gt=0, le=1_000_000, description="공모금액(억원)")
+    # 상세 페이지 항목 — 비워 두면 그 항목 없이 견준다
+    float_pct: Optional[float] = Field(None, gt=0, le=100, description="상장일 유통가능물량(%)")
+    equal_shares: Optional[float] = Field(None, ge=0, le=10_000, description="균등 배정 수량(계좌당 주)")
+    old_pct: Optional[float] = Field(None, ge=0, le=100, description="구주매출 비중(%)")
     kind: str = Field("normal", pattern="^(normal|spac|reit)$")
 
     @model_validator(mode="after")

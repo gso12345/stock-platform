@@ -28,6 +28,11 @@ export function 확약글(v: number | null | undefined): string {
   return v == null || !Number.isFinite(v) ? "—" : `${v.toFixed(1)}%`;
 }
 
+/** 계좌당 균등 배정 — 2 → '2주', 1.534 → '1.53주'(추첨이면 1주가 안 되기도 한다) */
+export function 주글(v: number | null | undefined): string {
+  return v == null || !Number.isFinite(v) ? "—" : `${+v.toFixed(2)}주`;
+}
+
 /** 공모금액(백만원) → '180억' */
 export function 억원글(백만원: number | null | undefined): string {
   if (백만원 == null || !Number.isFinite(백만원)) return "—";

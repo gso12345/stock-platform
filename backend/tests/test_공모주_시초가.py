@@ -53,8 +53,32 @@ class _응답:
         self.headers = {"content-type": ctype}
 
 
+def _상세쪽(유통="3,500,000 주 (35.20%)", 균등="2 주", 건수="152,345 건",
+           청약="1,234.56:1 (비례 2,469.12:1)",
+           상장공모="신주모집 : 1,200,000 주 (80%) / 구주매출 : 300,000 주 (20%)",
+           총="1,500,000 주", 덧붙임="") -> bytes:
+    """38 공모주 상세 페이지 흉내 — 이름칸 | 값칸 이 줄마다 두 쌍씩 든 표들. 값이 None 이면 그 줄을 뺀다.
+    (실제 페이지를 열어 보지 못해 알려진 모양을 따랐다 — 칸 이름이 아니라 '유통가능' 같은 말로 읽는다)"""
+    def 줄(*칸):
+        return "<tr>" + "".join(f"<td>{c}</td>" for c in 칸) + "</tr>"
+    공모 = (줄("총공모주식수", 총, "액면가", "500 원") if 총 else "") \
+        + (줄("상장공모", 상장공모, "", "") if 상장공모 else "") \
+        + 줄("희망공모가액", "10,000 ~ 12,000 원", "청약경쟁률", 청약 or "-") \
+        + 줄("확정공모가", "12,000 원", "공모금액", "180 억원")
+    결과 = (줄("균등배정", 균등, "", "") if 균등 else "") + (줄("청약건수", 건수, "", "") if 건수 else "")
+    html = ('<html><head><meta http-equiv="Content-Type" content="text/html; charset=euc-kr"></head><body>'
+            '<table width="100%"><tr><td>'
+            '<table><tr><td><a href="/">38커뮤니케이션</a></td><td>공모주</td></tr></table>'
+            f'<table summary="공모정보">{공모}</table>'
+            f'<table summary="청약결과">{결과}</table>'
+            + (f'<table summary="유통">{줄("상장일 유통가능주식수", 유통)}</table>' if 유통 else "")
+            + 덧붙임 + '</td></tr></table></body></html>')
+    return html.encode("cp949")
+
+
 def _가짜원천(monkeypatch, 쪽들: dict, 상태=200):
-    """쪽들: {("수요예측", 1): bytes, …}. 없는 쪽은 마지막 쪽을 다시 준다(실제 사이트처럼)."""
+    """쪽들: {("수요예측", 1): bytes, …, ("상세", "2101"): bytes}. 없는 쪽은 마지막 쪽을 다시 준다
+    (실제 사이트처럼). 없는 상세 페이지는 값 없는 빈 틀을 준다."""
     물음: list = []
 
     def get(url, **k):
@@ -62,7 +86,10 @@ def _가짜원천(monkeypatch, 쪽들: dict, 상태=200):
         if 상태 != 200:
             return _응답(상태)
         # 'o=r' 이 'o=r1' 안에도 들어 있다 — 글자 포함이 아니라 값으로 가른다
-        o = parse_qs(urlparse(url).query)["o"][0]
+        물음칸 = parse_qs(urlparse(url).query)
+        o = 물음칸["o"][0]
+        if o == "v":
+            return _응답(200, 쪽들.get(("상세", 물음칸["no"][0]), _상세쪽(None, None, None, None, None, None)))
         목록 = next(n for n, p in S._목록경로.items() if parse_qs(urlparse(p).query)["o"][0] == o)
         쪽 = int(url.rsplit("page=", 1)[1])
         있는 = sorted(p for (n, p) in 쪽들 if n == 목록)
@@ -82,6 +109,7 @@ def _깨끗이(monkeypatch):
     monkeypatch.setattr(S, "_갱신중", False)
     monkeypatch.setattr(S, "_좋은바탕", None)
     monkeypatch.setattr(S, "쪽_쉼", 0)
+    monkeypatch.setattr(S, "상세_쉼", 0)
     monkeypatch.setattr(S, "_db_읽기", lambda: ({}, 0.0, {}))
     monkeypatch.setattr(S, "_db_쓰기", lambda 기록, 상태: None)
     monkeypatch.setattr(S, "_코드붙이기", lambda 기록: None)
@@ -296,6 +324,149 @@ class Test받기:
         assert "1줄" in {h["name"]: h for h in health.snapshot()}["공모주 수요예측"]["detail"]
 
 
+# ── 상세 페이지 ─────────────────────────────────────────────
+class Test상세_읽기:
+    """사용자: "균등수량, 경쟁률, 비례경쟁률, 상장일 유통물량 등을 넣으면 어때?"
+
+    목록에 없는 값이라 공모주마다 상세 페이지를 한 번 더 받는다. 실제 페이지를 열어 보지
+    못해 칸 자리가 아니라 '유통가능' 같은 말로 읽는다 — 모양이 조금 달라도 읽혀야 한다."""
+
+    def test_이름칸_값칸에서_읽는다(self):
+        r = S.읽기_상세(_상세쪽().decode("cp949"))
+        assert r["float_pct"] == pytest.approx(35.2) and r["float_shares"] == 3_500_000
+        assert r["equal_shares"] == 2 and r["sub_accounts"] == 152_345
+        assert r["prop_ratio"] == pytest.approx(2469.12)
+        assert r["old_pct"] == 20 and r["total_shares"] == 1_500_000
+        assert "상장일유통가능주식수" in r["_칸"] and "균등배정" in r["_칸"]
+
+    def test_표가_아니라_글로_적혀_있어도(self):
+        글 = ("<p>상장일 유통가능 물량은 4,000,000주(40.5%)이며, 균등 배정 수량은 약 1.53주입니다."
+             " 청약건수 98,765건</p>")
+        r = S.읽기_상세(_상세쪽(None, None, None, None, None, None, 덧붙임=글).decode("cp949"))
+        assert r["float_pct"] == pytest.approx(40.5) and r["float_shares"] == 4_000_000
+        assert r["equal_shares"] == pytest.approx(1.53) and r["sub_accounts"] == 98_765
+
+    def test_이름칸을_먼저_본다_글에_다른_퍼센트가_먼저_나와도(self):
+        글 = "<p>안내: 유통가능 물량은 상장 1개월 뒤 50%로 늘어납니다.</p>"
+        r = S.읽기_상세(_상세쪽(덧붙임="").decode("cp949").replace("<body>", "<body>" + 글))
+        assert r["float_pct"] == pytest.approx(35.2)
+
+    def test_긴_글_칸은_이름칸이_아니다(self):
+        """화면 틀의 왼쪽 칸(안내 글)이 '유통가능' 을 품고 오른쪽 칸이 페이지 본문 전체라면,
+        그 둘을 이름·값으로 읽으면 본문의 첫 % (상장공모 80%)를 유통물량으로 읽는다"""
+        본문 = _상세쪽().decode("cp949").split("<body>", 1)[1].rsplit("</body>", 1)[0]
+        html = ('<html><body><table><tr><td>공모주 상장일 유통가능주식수와 의무보유 안내는 아래를 보세요</td>'
+                f'<td>{본문}</td></tr></table></body></html>')
+        assert S.읽기_상세(html)["float_pct"] == pytest.approx(35.2)
+
+    def test_구주매출이_없으면_0(self):
+        assert S.읽기_상세(_상세쪽(상장공모="신주모집 : 1,500,000 주 (100%)").decode("cp949"))["old_pct"] == 0
+        assert S.읽기_상세(_상세쪽(상장공모="신주모집 : 1,500,000 주 (100%) / 구주매출 : -")
+                         .decode("cp949"))["old_pct"] == 0
+
+    def test_균등_물량_전체는_계좌당_수량이_아니다(self):
+        assert "equal_shares" not in S.읽기_상세(_상세쪽(균등="750,000 주 (50%)").decode("cp949"))
+
+    def test_유통_비율이_말이_안_되면_버린다(self):
+        assert "float_pct" not in S.읽기_상세(_상세쪽(유통="3,500,000 주 (135.2%)").decode("cp949"))
+
+    def test_없는_값은_만들지_않는다(self):
+        r = S.읽기_상세(_상세쪽(None, None, None, "-", None, None).decode("cp949"))
+        assert not {"float_pct", "float_shares", "equal_shares", "sub_accounts", "prop_ratio",
+                    "old_pct", "total_shares"} & set(r)
+
+
+class Test상세_받기:
+    def _기록(self):
+        return {
+            "상장한": {"name": "상장한", "kind": "normal", "no": "11", "list_date": "2026-09-01",
+                    "open_price": 20000, "offer_price": 10000},
+            "곧상장": {"name": "곧상장", "kind": "normal", "no": "12", "sub_end": "2099-01-03"},
+            "번호없음": {"name": "번호없음", "kind": "normal", "list_date": "2026-09-01"},
+            "옛것": {"name": "옛것", "kind": "normal", "no": "13", "list_date": "2022-01-05"},
+        }
+
+    def test_상장한_것은_한_번_받고_상장_전_것은_갱신간격마다(self, monkeypatch):
+        물음 = _가짜원천(monkeypatch, {("상세", "11"): _상세쪽(), ("상세", "12"): _상세쪽(유통=None)})
+        기록 = self._기록()
+        진단 = S.상세채우기(기록)
+        assert 진단["받음"] == 2 and len(물음) == 2, "번호 없는 것·새 규칙 한참 전 것은 받지 않는다"
+        assert 기록["상장한"]["float_pct"] == pytest.approx(35.2) and 기록["상장한"]["detail_done"]
+        assert not 기록["곧상장"]["detail_done"] and "float_pct" not in 기록["곧상장"]
+        물음.clear()
+        S.상세채우기(기록)
+        assert 물음 == [], "갱신간격 안에는 다시 받지 않는다"
+        for k in ("상장한", "곧상장"):
+            기록[k]["detail_at"] -= S.갱신간격 + 1
+        S.상세채우기(기록)
+        assert len(물음) == 1 and "no=12" in 물음[0], "상장한 뒤 받은 것은 끝, 상장 전 것만 다시"
+
+    def test_상장한_뒤에_한_번_더_받아_마무리(self, monkeypatch):
+        _가짜원천(monkeypatch, {("상세", "12"): _상세쪽()})
+        기록 = self._기록()
+        S.상세채우기(기록)
+        기록["곧상장"].update(open_price=30000, offer_price=10000, list_date="2026-10-01")
+        기록["곧상장"]["detail_at"] -= S.갱신간격 + 1
+        S.상세채우기(기록)
+        assert 기록["곧상장"]["detail_done"] and 기록["곧상장"]["equal_shares"] == 2
+
+    def test_읽은_값이_다음에_빠져도_알던_값을_지우지_않는다(self, monkeypatch):
+        쪽들 = {("상세", "12"): _상세쪽()}
+        _가짜원천(monkeypatch, 쪽들)
+        기록 = self._기록()
+        S.상세채우기(기록)
+        쪽들[("상세", "12")] = _상세쪽(None, None, None, None, None, None)
+        기록["곧상장"]["detail_at"] -= S.갱신간격 + 1
+        S.상세채우기(기록)
+        assert 기록["곧상장"]["float_pct"] == pytest.approx(35.2)
+
+    def test_막혀_있으면_세_곳만_두드린다(self, monkeypatch):
+        물음 = _가짜원천(monkeypatch, {}, 상태=403)
+        기록 = {f"가{i}": {"name": f"가{i}", "kind": "normal", "no": str(i), "sub_end": "2099-01-01"}
+              for i in range(20)}
+        진단 = S.상세채우기(기록)
+        assert 진단["받음"] == 0 and 진단["실패"] == 3 and "403" in 진단["이유"]
+        assert len(물음) == 6, "곳마다 https·http 두 번씩, 세 곳에서 멈춘다"
+
+    def test_수백_곳이면_중간에_남긴다(self, monkeypatch):
+        _가짜원천(monkeypatch, {})
+        기록 = {f"가{i}": {"name": f"가{i}", "kind": "normal", "no": str(i), "sub_end": "2099-01-01"}
+              for i in range(120)}
+        남김: list = []
+        S.상세채우기(기록, 저장=lambda 기: 남김.append(len(기)))
+        assert 남김 == [120, 120], "50곳·100곳에서 남긴다"
+
+    def test_새로받기에서_목록_다음에_받고_관리자_화면에(self, monkeypatch):
+        health.reset()
+        _가짜원천(monkeypatch, {
+            ("수요예측", 1): _수요예측쪽([_이름("에이비씨바이오", 2101), "2025.10.01", "11,000~13,000", "12,000",
+                                         "18,000", "1,234:1", "45%", "증권"]),
+            ("상세", "2101"): _상세쪽(),
+        })
+        S.새로받기(쪽수=1)
+        r = S.기록들()[S.열쇠("에이비씨바이오")]
+        assert r["float_pct"] == pytest.approx(35.2) and r["equal_shares"] == 2
+        줄 = {h["name"]: h for h in health.snapshot()}["공모주 상세"]
+        assert "이번 1곳" in 줄["detail"] and "유통물량 1" in 줄["detail"] and "균등 1" in 줄["detail"]
+        assert "상장일유통가능주식수" in 줄["detail"], "페이지에 있던 칸 이름 — 못 읽으면 고칠 단서"
+
+    def test_상세가_막히면_관리자_화면에_이유(self, monkeypatch):
+        health.reset()
+        _가짜원천(monkeypatch, {("수요예측", 1): _수요예측쪽(*[
+            [_이름(f"가나{i}", i), "2025.10.01", "1~2", "2", "3", "4:1", "5%", "증권"] for i in range(5)])})
+        원래 = S.httpx.get
+        monkeypatch.setattr(S.httpx, "get", lambda url, **k: _응답(403) if "o=v" in url else 원래(url, **k))
+        S.새로받기(쪽수=1)
+        줄 = {h["name"]: h for h in health.snapshot()}["공모주 상세"]
+        assert 줄["streak"] == 1 and "HTTP 403" in 줄["last_error"]
+
+    def test_새로_받으면_화면_값을_미리_셈해_둔다(self, monkeypatch):
+        _가짜원천(monkeypatch, {("수요예측", 1): _수요예측쪽(
+            [_이름("가", 1), "2025.10.01", "1~2", "2", "3", "4:1", "5%", "증권"])})
+        S.새로받기(쪽수=1)
+        assert S._예측보관.get("값") and S._예측보관["열"] == (id(S.기록들()), S._받은때, S.오늘())
+
+
 # ── 합치기 ──────────────────────────────────────────────────
 class Test세_목록을_합친다:
     def test_한_종목_기록으로(self):
@@ -330,6 +501,7 @@ class Test다시_떠도_남는다:
         monkeypatch.setattr(database, "SessionLocal", sessionmaker(bind=엔진))
         monkeypatch.setattr(S, "_기록", None)
         monkeypatch.setattr(S, "쪽_쉼", 0)
+        monkeypatch.setattr(S, "상세_쉼", 0)
         monkeypatch.setattr(S, "_코드붙이기", lambda 기록: None)
         _가짜원천(monkeypatch, {("수요예측", 1): _수요예측쪽(
             [_이름("에이비씨바이오", 1), "2025.10.01", "1~2", "2", "3", "4:1", "5%", "증권"])})
@@ -372,6 +544,27 @@ def _대상(**k):
     기본 = {"name": "대상", "kind": "normal", "offer_price": 10000, "inst_ratio": 800,
           "lockup_pct": 20, "sub_ratio": 800, "band_low": 8000, "band_high": 10000, "offer_amount": 20000}
     return {**기본, **k}
+
+
+def _유통기록(n=200, 씨앗=5) -> dict:
+    """시초가가 상장일 유통물량에 크게 갈리는 세상 — 적게 풀릴수록 높게 시작한다."""
+    rnd = random.Random(씨앗)
+    시작 = S.오늘() - timedelta(days=4 * n)
+    기록 = {}
+    for i in range(n):
+        기관 = rnd.choice([50, 150, 400, 800, 1200, 1600])
+        확약 = rnd.uniform(0, 60)
+        청약 = rnd.choice([30, 200, 800, 1500, 2500])
+        유통 = rnd.uniform(15, 50)
+        y = (0.15 * math.log1p(기관) + 0.01 * 확약 + 0.05 * math.log1p(청약) - 1.0
+             + 2.0 * (0.32 - 유통 / 100) + rnd.gauss(0, 0.08))
+        기록[f"F{i}"] = {"name": f"유통{i}", "kind": "normal",
+                         "list_date": (시작 + timedelta(days=4 * i)).isoformat(),
+                         "offer_price": 10000, "open_price": S.가격으로(10000, math.exp(y)),
+                         "inst_ratio": 기관, "lockup_pct": 확약, "sub_ratio": 청약,
+                         "band_low": 8000, "band_high": 10000, "offer_amount": 20000,
+                         "float_pct": round(유통, 2), "equal_shares": rnd.choice([0.5, 1, 2, 3]), "old_pct": 0.0}
+    return 기록
 
 
 def _국면기록(n=200, 씨앗=1, 국면=0.45, 국면길이=12, 잡음=0.12) -> dict:
@@ -626,7 +819,16 @@ class Test방식:
 
     def _걸음(self, 쌍들, 기준일=date(2025, 3, 10)):
         """[(며칠 전, 실제 y)] → 예측이 늘 0 인 걸음(오차 = 실제 y)"""
-        return [({}, 기준일 - timedelta(days=전), y, {None: 0.0, 3: 0.0}) for 전, y in 쌍들]
+        return [({}, 기준일 - timedelta(days=전), y, {열: 0.0 for 열 in self._열들()}) for 전, y in 쌍들]
+
+    @staticmethod
+    def _열들():
+        return {(b, x) for _, _, b, _, x in S.방식들}
+
+    @staticmethod
+    def _나쁨(n):
+        """'유통물량 등' 넷 — 고르기 시험에서 늘 크게 빗나가게"""
+        return {k: [9.0] * n for k, *_ in S.방식들 if k.endswith("_x")}
 
     def test_보정은_그날_전_직전_세_곳의_오차_절반(self):
         d = date(2025, 3, 10)
@@ -644,7 +846,8 @@ class Test방식:
     def test_그날_전_가장_잘_맞아_온_방식을_고른다(self):
         d = date(2025, 3, 10)
         걸음 = self._걸음([(50 - k, 1.0) for k in range(15)] + [(-5, 1.0)])
-        방식값 = {"base": [0.0] * 16, "fast": [0.5] * 16, "base_fix": [0.8] * 16, "fast_fix": [0.95] * 16}
+        방식값 = {"base": [0.0] * 16, "fast": [0.5] * 16, "base_fix": [0.8] * 16, "fast_fix": [0.95] * 16,
+                 **self._나쁨(16)}
         방식값["base"][-1] = 1.0                      # 기준일 뒤의 성적은 보지 않는다
         assert S._고르기(걸음, 방식값, d) == "fast_fix"
         # 덜 쌓였으면(10곳 아래) 기본
@@ -661,14 +864,14 @@ class Test방식:
         # 오래된 20곳은 fast 가 훨씬 낫고, 직전 40곳 가운데 앞 10곳은 base, 뒤 30곳은 fast 가 조금 낫다
         base = [3.0] * 20 + [0.0] * 10 + [0.2] * 30
         fast = [0.0] * 20 + [1.0] * 10 + [0.1] * 30
-        방식값 = {"base": base, "fast": fast, "base_fix": [9.0] * 60, "fast_fix": [9.0] * 60}
+        방식값 = {"base": base, "fast": fast, "base_fix": [9.0] * 60, "fast_fix": [9.0] * 60, **self._나쁨(60)}
         assert S._고르기(걸음, 방식값, d) == "base"
 
     def test_오차는_크기로_잰다(self):
         d = date(2025, 3, 10)
         걸음 = self._걸음([(50 - k, 0.0) for k in range(20)])
         출렁 = [1.0 if k % 2 else -1.0 for k in range(20)]     # 더하면 0 이지만 매번 크게 빗나간다
-        방식값 = {"base": 출렁, "fast": [0.1] * 20, "base_fix": [9.0] * 20, "fast_fix": [9.0] * 20}
+        방식값 = {"base": 출렁, "fast": [0.1] * 20, "base_fix": [9.0] * 20, "fast_fix": [9.0] * 20, **self._나쁨(20)}
         assert S._고르기(걸음, 방식값, d) == "fast"
 
     def test_분위기가_바뀌는_세상에서는_기본보다_잘_맞힌다(self):
@@ -676,7 +879,8 @@ class Test방식:
         for 씨앗 in (1, 2, 3, 4):
             검증 = S.걸어가며_검증(_국면기록(씨앗=씨앗), 최근=60)
             방식 = {m["key"]: m for m in 검증["methods"]}
-            assert set(방식) == {"base", "fast", "base_fix", "fast_fix"}
+            assert set(방식) == {"base", "fast", "base_fix", "fast_fix",
+                                 "base_x", "fast_x", "base_fix_x", "fast_fix_x"}
             assert 검증["median_abs_diff_pct"] <= 방식["base"]["median_abs_diff_pct"], 씨앗
             고른.append(검증["hit_rate"]); 기본.append(방식["base"]["hit_rate"])
         assert sum(고른) > sum(기본) + 0.3, (고른, 기본)
@@ -691,7 +895,8 @@ class Test방식:
         검증, 지금 = S._검증(기록, 60, S.오늘())
         assert 지금["key"] == 검증["method"]["key"] and 지금["key"].endswith("_fix")
         걸음 = S._걸음(기록, 60 + S.고르기_곳 + S.보정_곳)
-        assert 지금["보정"] == pytest.approx(S._보정값(걸음, [e[3][지금["반감"]] for e in 걸음], S.오늘()))
+        assert 지금["보정"] == pytest.approx(
+            S._보정값(걸음, [e[3][(지금["반감"], 지금["상세"])] for e in 걸음], S.오늘()))
         assert 지금["보정"] != 0
 
     def test_보정해도_줄마다_첫날_범위_안(self):
@@ -717,7 +922,8 @@ class Test방식:
         assert any(앞[n] != 뒤[n] for n in 앞 if n not in 그때까지), "지난 결과를 다음 예측에 쓰지 않았다"
 
     def _보정된_지금(self):
-        return {"key": "base_fix", "name": "기본 + 최근 오차 보정", "반감": None, "보정": math.log(1.3)}
+        return {"key": "base_fix", "name": "기본 + 최근 오차 보정", "반감": None, "상세": False,
+                "보정": math.log(1.3)}
 
     def test_다가오는_공모주에_보정을_씌운다(self):
         기록 = _만든기록()
@@ -754,7 +960,7 @@ class Test방식:
 
     def test_빠른_분위기를_고르면_그_모델로_맞힌다(self):
         기록 = _국면기록(씨앗=2)
-        지금 = {"key": "fast", "name": "빠른 분위기", "반감": 3, "보정": 0.0}
+        지금 = {"key": "fast", "name": "빠른 분위기", "반감": 3, "상세": False, "보정": 0.0}
         p = S._방식대로(S._모델들(기록, 지금), _대상(), S.오늘(), 지금)
         assert p["ratio"] == S.모델(기록, 3).예측(_대상(), S.오늘())["ratio"]
         assert p["ratio"] != S.모델(기록).예측(_대상(), S.오늘())["ratio"]
@@ -785,6 +991,102 @@ class Test방식:
         # 화면을 열기 전(서버가 막 떴을 때)에도 같은 방식을 골라 쓴다
         monkeypatch.setattr(S, "_예측보관", {})
         assert S.직접_예측(넣은것)["ratio"] == 곧["ratio"]
+
+
+class Test상세_항목:
+    """유통물량·균등 수량·구주매출 비중 — '유통물량 등' 방식만 견주고, 실제로 더 잘 맞을 때만 골라진다."""
+
+    def test_특징으로(self):
+        f = S.특징({"float_pct": 25.0, "equal_shares": 1.9, "old_pct": 10.0}, None)
+        assert f["float"] == 0.25 and f["equal"] == pytest.approx(math.log(2.0)) and f["old"] == pytest.approx(0.1)
+        assert S.특징({}, None)["float"] is None and S.특징({}, None)["equal"] is None
+
+    def test_기본_모델은_상세_항목을_보지_않는다(self):
+        기록 = _유통기록()
+        assert S.모델(기록).항목 == tuple(f for f, _ in S.기본항목)
+        p = S.모델(기록).예측(_대상(float_pct=20.0), S.오늘())
+        assert "유통물량" not in p["used"] and "유통물량" not in p["missing"]
+
+    def test_상세_모델은_유통물량까지_견준다(self):
+        m = S.모델(_유통기록(), None, True)
+        p = m.예측(_대상(float_pct=20.0, equal_shares=1.0, old_pct=0.0), S.오늘())
+        assert {"유통물량", "균등 수량"} <= set(p["used"])
+        적게 = m.예측(_대상(float_pct=16.0, equal_shares=1.0, old_pct=0.0), S.오늘())
+        많이 = m.예측(_대상(float_pct=48.0, equal_shares=1.0, old_pct=0.0), S.오늘())
+        assert 적게["ratio"] > 많이["ratio"] * 1.3, "적게 풀릴수록 높게 봐야 한다"
+
+    def test_덜_찬_상세_항목은_쓰지_않는다(self):
+        import numpy as np
+        F = np.array([[i, v] for i, v in enumerate([0.1, 0.2, 0.3, 0.4, 0.5] + [np.nan] * 5)], dtype=float)
+        assert "float" not in S._통계(F, ("inst", "float")), "10곳 중 5곳 — 60% 아래"
+        F[5, 1] = 0.6
+        assert "float" in S._통계(F, ("inst", "float"))
+        F[:, 0] = [1, 2, 3, 4, 5] + [np.nan] * 5
+        assert "inst" in S._통계(F, ("inst", "float")), "기본 항목은 다섯 곳이면 쓴다"
+
+    def test_상세까지_맞는_공모주가_모자라면_기본_항목으로(self):
+        """상세 값은 있는데 청약경쟁률·밴드가 빈 공모주와, 그 반대인 공모주만 있으면
+        아홉 항목으로는 견줄 곳이 없다 — 이때 '못 맞힘' 이 아니라 기본 항목으로 견준다."""
+        기록 = {}
+        for i in range(20):
+            r = {"name": f"가{i}", "kind": "normal", "list_date": (date(2024, 1, 2) + timedelta(days=7 * i)).isoformat(),
+                 "offer_price": 10000, "inst_ratio": 100 + 80 * i, "lockup_pct": 2.0 * i,
+                 "offer_amount": 10000 + 1000 * i}
+            if i < 12:      # 상세 값은 있고 청약경쟁률·밴드가 빈 곳 — 높게 시작
+                r.update(float_pct=20.0 + i, equal_shares=1.0 + i % 3, old_pct=float(i % 4),
+                         open_price=30000 + 137 * i)
+            else:           # 그 반대 — 낮게 시작
+                r.update(sub_ratio=300.0 + 100 * i, band_high=9000 + 100 * i, open_price=12000 + 211 * i)
+            기록[r["name"]] = r
+        대상 = _대상(float_pct=25.0, equal_shares=2.0, old_pct=1.0)
+        상세 = S.모델(기록, None, True).예측(대상, 오늘)
+        assert 상세["ok"] and 상세["ratio"] == S.모델(기록).예측(대상, 오늘)["ratio"]
+
+    def test_한_항목_넘게_빠진_공모주는_견주지_않는다(self):
+        import numpy as np
+        열 = ("inst", "lock", "sub")
+        # 앞 8곳은 셋 다 있고 조금 다르다 · 뒤 8곳은 기관경쟁률만 있는데 대상과 똑같다
+        F = np.array([[1.5, 1.5, 1.5]] * 8 + [[1.0, np.nan, np.nan]] * 8, dtype=float)
+        표 = [(None, None, {"name": i}, None) for i in range(16)]
+        통계 = {f: (1.0, 1.0) for f in 열}
+        이웃, _ = S._이웃(F, np.arange(16.0), 표, {"inst": 1.0, "lock": 1.0, "sub": 1.0}, 통계, 열, 열)
+        assert {r["name"] for _, _, r in 이웃} == set(range(8))
+
+    def test_회귀는_덜_찬_항목부터_덜어_낸다(self):
+        import numpy as np
+        rnd = random.Random(3)
+        열 = ("inst", "sub")
+        F = np.array([[rnd.random(), rnd.random() if i < 10 else np.nan] for i in range(30)])
+        Y = F[:, 0] * 2 + 0.1 + np.array([rnd.gauss(0, 0.05) for _ in range(30)])
+        통계 = S._통계(F, 열)
+        대상 = {"inst": 0.5, "sub": 0.9}
+        assert S._릿지(F, Y, 대상, 통계, 열, 열) == pytest.approx(S._릿지(F, Y, 대상, 통계, 열, ("inst",))), \
+            "청약경쟁률이 10곳뿐이라(15곳 미만) 빼고 세워야 한다"
+
+    def test_상세_값이_없으면_짝_방식과_같다(self):
+        방식 = {m["key"]: m for m in S.걸어가며_검증(_국면기록(씨앗=2), 최근=60)["methods"]}
+        for k in ("base", "fast", "base_fix", "fast_fix"):
+            assert (방식[k + "_x"]["hit_rate"], 방식[k + "_x"]["median_abs_diff_pct"]) == \
+                   (방식[k]["hit_rate"], 방식[k]["median_abs_diff_pct"]), k
+
+    def test_유통물량이_시초가를_가르는_세상에서는_유통물량_방식을_고른다(self):
+        검증, 지금 = S._검증(_유통기록(), 60, S.오늘())
+        방식 = {m["key"]: m for m in 검증["methods"]}
+        assert 지금["key"].endswith("_x") and 지금["상세"], 지금
+        assert 방식["base_x"]["hit_rate"] > 방식["base"]["hit_rate"] + 0.3, 방식
+        assert 검증["hit_rate"] > 방식["base"]["hit_rate"] + 0.3
+
+    def test_다가오는_공모주도_유통물량_방식으로(self):
+        기록 = _유통기록()
+        지금 = S._검증(기록, 60, S.오늘())[1]
+        대상 = _대상(float_pct=16.0, equal_shares=1.0, old_pct=0.0)
+        p = S._방식대로(S._모델들(기록, 지금), 대상, S.오늘(), 지금)
+        assert "유통물량" in p["used"] and p["method"]["key"] == 지금["key"]
+
+    def test_화면에_상세_값을_보낸다(self):
+        공개 = S._공개({"float_pct": 30.5, "equal_shares": 2.0, "sub_accounts": 1e5, "prop_ratio": 2400.0,
+                       "old_pct": 0.0})
+        assert (공개["float_pct"], 공개["equal_shares"], 공개["prop_ratio"], 공개["old_pct"]) == (30.5, 2.0, 2400.0, 0.0)
 
 
 # ── 한눈에 ──────────────────────────────────────────────────
@@ -896,8 +1198,31 @@ class TestAPI:
                                                  "lockup_pct": 1, "offer_amount_eok": 250})
         assert 받은[0]["offer_amount"] == 25_000
 
+    def test_상세_항목도_받아_넘긴다(self, client, monkeypatch):
+        받은: list = []
+        monkeypatch.setattr(S, "직접_예측", lambda 값: 받은.append(값) or {"ok": False, "reason": "x"})
+        client.post("/api/v1/ipo/predict", json={"offer_price": 10000, "inst_ratio": 1, "lockup_pct": 1,
+                                                 "float_pct": 25.5, "equal_shares": 1.5, "old_pct": 0})
+        assert (받은[0]["float_pct"], 받은[0]["equal_shares"], 받은[0]["old_pct"]) == (25.5, 1.5, 0)
+
+    def test_직접_넣은_유통물량으로_맞힌다(self, monkeypatch):
+        """카드의 '이 숫자로 직접 바꿔 보기' 가 같은 값을 내려면 계산기도 상세 항목을 받아야 한다"""
+        기록 = _유통기록()
+        monkeypatch.setattr(S, "_기록", 기록)
+        monkeypatch.setattr(S, "_받은때", time.time())
+        넣은것 = {k: _대상()[k] for k in ("offer_price", "inst_ratio", "lockup_pct", "sub_ratio",
+                                           "band_low", "band_high", "offer_amount")}
+        적게 = S.직접_예측({**넣은것, "float_pct": 16.0, "equal_shares": 1.0, "old_pct": 0.0})
+        많이 = S.직접_예측({**넣은것, "float_pct": 48.0, "equal_shares": 1.0, "old_pct": 0.0})
+        assert 적게["method"]["key"].endswith("_x") and "유통물량" in 적게["used"]
+        assert 적게["ratio"] > 많이["ratio"] * 1.3
+
     @pytest.mark.parametrize("몸", [
         {"inst_ratio": 1, "lockup_pct": 1},                                   # 공모가 없음
+        {"offer_price": 1000, "inst_ratio": 1, "lockup_pct": 1, "float_pct": 0},       # 유통 0%
+        {"offer_price": 1000, "inst_ratio": 1, "lockup_pct": 1, "float_pct": 120},     # 유통 120%
+        {"offer_price": 1000, "inst_ratio": 1, "lockup_pct": 1, "equal_shares": -1},   # 균등 −1주
+        {"offer_price": 1000, "inst_ratio": 1, "lockup_pct": 1, "old_pct": 101},       # 구주 101%
         {"offer_price": 0, "inst_ratio": 1, "lockup_pct": 1},                 # 0원
         {"offer_price": 1000, "inst_ratio": 1, "lockup_pct": 120},            # 확약 120%
         {"offer_price": 1000, "inst_ratio": 1, "lockup_pct": 1, "band_low": 2000, "band_high": 1000},

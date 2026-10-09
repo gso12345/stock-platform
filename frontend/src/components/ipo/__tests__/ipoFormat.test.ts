@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { 날짜글, 남은날, 숫자로, 경쟁률글, 억원글, 배율퍼센트, 퍼센트글 } from "../ipoFormat";
+import { 날짜글, 남은날, 숫자로, 경쟁률글, 억원글, 배율퍼센트, 퍼센트글, 주글 } from "../ipoFormat";
 
 const 오늘 = new Date("2026-10-09T03:00:00Z");   // 한국 2026-10-09 낮
 
@@ -25,6 +25,13 @@ describe("공모주 글자", () => {
     expect(숫자로("12,000원")).toBe(12000);
     expect(숫자로("  ")).toBeNull();
     expect(숫자로("abc")).toBeNaN();
+  });
+
+  it("계좌당 균등 배정 — 소수 둘째 자리까지, 0 은 지운다(추첨이면 1주가 안 되기도 한다)", () => {
+    expect(주글(2)).toBe("2주");
+    expect(주글(1.534)).toBe("1.53주");
+    expect(주글(0.5)).toBe("0.5주");
+    expect(주글(null)).toBe("—");
   });
 
   it("경쟁률·공모금액·배율", () => {

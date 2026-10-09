@@ -36,12 +36,14 @@
 상장한 것만으로 다음 공모주를 맞혀 보며 — 얼마나 맞았는지를 함께 보여 준다.
 스팩·리츠는 성격이 달라 저희끼리만 견준다.
 
-분위기를 재는 법(직전 10곳 평균 / 요즘 상장일수록 크게)과 '최근 오차 보정'
-(직전 몇 곳이 예측보다 높게·낮게 시작한 만큼 반쯤 따라간다)을 엮은 네 방식을
-모두 걸어가며 맞혀 보고, 맞힐 날까지 가장 잘 맞아 온 방식을 쓴다(방식들).
+분위기를 재는 법(직전 10곳 평균 / 요즘 상장일수록 크게), '최근 오차 보정'
+(직전 몇 곳이 예측보다 높게·낮게 시작한 만큼 반쯤 따라간다), 상세 페이지에서 읽은
+유통물량·균등 수량·구주매출 비중까지 견주는지를 엮은 여덟 방식을 모두 걸어가며
+맞혀 보고, 맞힐 날까지 가장 잘 맞아 온 방식을 쓴다(방식들).
 """
 from __future__ import annotations
 
+import bisect
 import logging
 import math
 import os
@@ -423,11 +425,16 @@ def _글로(r) -> str:
 
 def _받기(목록: str, 쪽: int) -> "tuple[str | None, str]":
     """(본문, 실패 이유)"""
+    return _경로받기(f"{_목록경로[목록]}&page={쪽}")
+
+
+def _경로받기(경로: str) -> "tuple[str | None, str]":
+    """원천의 한 쪽 — https 가 안 되면 http 로. (본문, 실패 이유)"""
     global _좋은바탕
     이유 = ""
     for 바탕 in ([_좋은바탕] if _좋은바탕 else []) + [b for b in _바탕들 if b != _좋은바탕]:
         try:
-            r = httpx.get(f"{바탕}{_목록경로[목록]}&page={쪽}", headers=_H, timeout=12,
+            r = httpx.get(f"{바탕}{경로}", headers=_H, timeout=12,
                           verify=SSL, follow_redirects=True)
         except Exception as e:
             이유 = f"연결 실패({type(e).__name__})"
@@ -462,6 +469,150 @@ def _목록받기(목록: str, 쪽수: int) -> "tuple[list[dict], str]":
         if 쪽 < 쪽수 and 쪽_쉼:
             time.sleep(쪽_쉼)
     return 모음, ("" if 모음 else 이유 or "빈손")
+
+
+# ── 상세 페이지 ────────────────────────────────────────────
+#: 목록에 없는 값 — 상장일 유통가능물량, 균등 배정 수량, 청약 건수, 비례 경쟁률,
+#: 구주매출 비중. 공모주마다 38 상세 페이지(목록의 이름 칸이 가리키는 o=v&no=…)를
+#: 한 번씩 더 받아 읽는다.
+#:
+#: 이 코드를 만든 환경은 38 에 나갈 수 없어서 실제 상세 페이지를 열어 보지 못했다.
+#: 그래서 칸 자리가 아니라 '유통가능' · '균등' 같은 말을 찾아 읽고(이름칸 → 값칸, 안 되면
+#: 페이지 글 전체), 몇 곳에서 무엇을 읽었는지와 페이지에 있던 칸 이름들을 관리자 화면
+#: '공모주 상세' 줄에 남긴다 — 수요예측 목록 때처럼 첫 배포에서 그 줄이 답이다
+_상세경로 = "/html/fund/?o=v&no={no}&l=&page=1"
+#: 상세 페이지 사이에 쉬는 시간(초) / 한 번에 받는 최대 곳 수(처음엔 지난 것까지 모두)
+상세_쉼 = float(os.getenv("IPO_DETAIL_PAUSE", 0.5))
+상세_한번 = int(os.getenv("IPO_DETAIL_MAX", 400))
+#: 상세 값의 화면 이름 — 관리자 진단 줄과 같은 순서
+_상세이름 = {"float_pct": "유통물량", "equal_shares": "균등", "sub_accounts": "청약건수",
+            "prop_ratio": "비례", "old_pct": "구주매출"}
+
+_주수 = r"([\d,]+(?:\.\d+)?)\s*주"
+_몫 = r"([\d]+(?:\.\d+)?)\s*%"
+
+
+def _칸쌍(html: str) -> list:
+    """표의 줄마다 (이름칸, 값칸) 쌍 — '총공모주식수 | 1,500,000주 | 액면가 | 500원' 같은 줄.
+    이름칸은 빈칸을 뺀 짧은 글자만(바깥 화면 틀이 품은 긴 글은 이름이 아니다)."""
+    쌍 = []
+    for 줄들 in _표들(html):
+        for 줄 in 줄들:
+            글들 = [c[0] for c in 줄]
+            for i in range(0, len(글들) - 1, 2):
+                이름 = re.sub(r"\s+", "", 글들[i])
+                if 이름 and len(이름) <= 20 and not re.search(r"\d", 이름):
+                    쌍.append((이름, 글들[i + 1]))
+    return 쌍
+
+
+def 읽기_상세(html: str) -> dict:
+    """상세 페이지 → 읽은 값만 {float_shares, float_pct, equal_shares, sub_accounts,
+    prop_ratio, old_pct, total_shares} + "_칸": 페이지의 이름칸들(진단용)."""
+    from bs4 import BeautifulSoup
+    쌍 = _칸쌍(html)
+    try:
+        글 = " ".join(BeautifulSoup(html, "lxml").get_text(" ").split())
+    except Exception:
+        글 = " ".join(BeautifulSoup(html, "html.parser").get_text(" ").split())
+
+    def 값(말: str) -> str:
+        """이름칸에 말이 든 값칸들을 이어서 — 없으면 ''"""
+        return " ".join(v for 이름, v in 쌍 if 말 in 이름)
+
+    def 찾기(본: str, 꼴: str) -> "re.Match | None":
+        return re.search(꼴, 본) if 본 else None
+
+    out: dict = {}
+    # 상장일 유통가능물량 — '3,500,000주 (35.2%)' · '35.20%'. 이름칸이 없으면 글 전체에서
+    유통 = 값("유통가능") or (m.group(0) if (m := re.search(r"유통\s*가능[^%]{0,60}?%", 글)) else "")
+    if m := 찾기(유통, _몫):
+        if 0 < (v := float(m.group(1))) <= 100:
+            out["float_pct"] = v
+    if m := 찾기(유통, _주수):
+        out["float_shares"] = float(m.group(1).replace(",", ""))
+    # 균등 배정 수량(계좌당) — '2주' · '약 1.53주'
+    균등 = 값("균등") or (m.group(0) if (m := re.search(r"균등[^\d]{0,15}?[\d.]+\s*주", 글)) else "")
+    if (m := 찾기(균등, _주수)) and 0 < (v := float(m.group(1).replace(",", ""))) < 1000:
+        out["equal_shares"] = v
+    # 청약 건수 — '152,345건'
+    건수 = 값("청약건수") or 값("청약자수") or (
+        m.group(0) if (m := re.search(r"청약\s*(?:건수|자\s*수)[^\d]{0,10}?[\d,]+", 글)) else "")
+    if (m := 찾기(건수, r"([\d,]{2,})")) and (v := float(m.group(1).replace(",", ""))) > 0:
+        out["sub_accounts"] = v
+    # 비례 경쟁률 — '비례 2,468.13:1' (청약경쟁률 칸 안에 함께 적혀 있기도 하다)
+    if m := re.search(r"비례[^\d]{0,20}?([\d,]+(?:\.\d+)?)\s*(?::|대)\s*1", 글):
+        out["prop_ratio"] = _경쟁률(m.group(1))
+    # 구주매출 비중 — '신주모집 : 1,200,000 주 (80%) / 구주매출 : 300,000 주 (20%)'.
+    # 신주만 적혀 있으면 0
+    if m := re.search(r"구주\s*매출[^\d%]{0,15}?[\d,]+\s*주[^%\d]{0,15}?\(?\s*" + _몫, 글):
+        out["old_pct"] = float(m.group(1))
+    elif ("신주모집" in 글 and "구주" not in 글) or re.search(r"구주\s*매출\s*[:：]?\s*(?:-|0\s*주|없음)", 글):
+        out["old_pct"] = 0.0
+    if m := 찾기(값("총공모주식수") or 값("공모주식수"), _주수):
+        out["total_shares"] = float(m.group(1).replace(",", ""))
+    out["_칸"] = list(dict.fromkeys(이름 for 이름, _ in 쌍))[:40]
+    return out
+
+
+def _상세받을것(기록: dict, 지금: float) -> list:
+    """상세 페이지를 (다시) 받을 공모주 열쇠들 — 아직 안 받은 것, 그리고 상장 전이라 값이 바뀌는
+    것(갱신간격마다). 상장한 뒤에 한 번 받았으면 끝이다. 새 규칙보다 한참 앞 것은 받지 않는다."""
+    멈출날 = 새규칙_시작 - timedelta(days=60)
+    out = []
+    for k, r in 기록.items():
+        if not r.get("no") or r.get("detail_done"):
+            continue
+        날짜들 = [d for f in ("list_date", "sub_end", "forecast_date") if (d := _d(r.get(f)))]
+        if 날짜들 and max(날짜들) < 멈출날:
+            continue
+        if 지금 - float(r.get("detail_at") or 0) < 갱신간격:
+            continue
+        out.append(k)
+    # 받은 적 없는 것부터, 최근 것부터
+    out.sort(key=lambda k: (bool(기록[k].get("detail_at")),
+                            -(_d(기록[k].get("list_date") or 기록[k].get("sub_end")) or date.min).toordinal()))
+    return out[:상세_한번]
+
+
+def 상세채우기(기록: dict, 저장=None) -> dict:
+    """상세 페이지를 받아 기록에 붙인다. 진단 {받음, 실패, 이유, 항목별 읽은 곳 수, 칸 이름}.
+
+    저장 — 50곳마다 불러 중간 결과를 남긴다(처음엔 수백 곳이라 서버가 도중에 다시 떠도
+    처음부터가 아니게)."""
+    from collections import Counter
+    지금 = time.time()
+    받음, 실패, 이유 = 0, 0, ""
+    칸들: Counter = Counter()
+    for i, k in enumerate(_상세받을것(기록, 지금)):
+        r = 기록[k]
+        본문, 이유_ = _경로받기(_상세경로.format(no=r["no"]))
+        if 본문 is None:
+            실패, 이유 = 실패 + 1, 이유_
+            if 실패 >= 3 and not 받음:      # 막혀 있으면 수백 번 두드리지 않는다
+                break
+            continue
+        읽음 = 읽기_상세(본문)
+        칸들.update(읽음.pop("_칸"))
+        기록[k] = {**r, **읽음, "detail_at": 지금, "detail_done": bool(r.get("open_price"))}
+        받음 += 1
+        if 저장 and 받음 % 50 == 0:
+            저장(기록)
+        if 상세_쉼:
+            time.sleep(상세_쉼)
+    읽은수 = {f: sum(1 for r in 기록.values() if r.get(f) is not None) for f in _상세이름}
+    return {"받음": 받음, "실패": 실패, "이유": 이유, "읽은수": 읽은수,
+            "칸": [c for c, _ in 칸들.most_common(15)]}
+
+
+def _상세진단글(진단: dict, 기록: dict) -> str:
+    """관리자 '공모주 상세' 줄 — 이번에 받은 곳, 항목별로 값을 읽은 곳(누적), 페이지에 있던 칸 이름"""
+    받은적 = sum(1 for r in 기록.values() if r.get("detail_at"))
+    항목 = " · ".join(f"{이름} {진단['읽은수'].get(f, 0)}" for f, 이름 in _상세이름.items())
+    글 = f"이번 {진단['받음']}곳 · 누적 {받은적}곳 — {항목}"
+    if 진단["칸"]:
+        글 += f" · 칸: {'/'.join(진단['칸'])}"
+    return 글
 
 
 # ── 기록 합치기 ────────────────────────────────────────────
@@ -579,11 +730,24 @@ def 새로받기(쪽수: "int | None" = None) -> dict:
         else:
             health.record_fail(_건강이름[목록], 이유 or "빈손")
     _코드붙이기(기록)
-    if any(s["rows"] for s in 상태.values()):
+    받은것 = any(s["rows"] for s in 상태.values())
+    if 받은것:
         _db_쓰기(기록, 상태)
         _기록, _받은때 = 기록, time.time()
     _상태 = 상태
     _예측보관.clear()
+    # 상세 페이지 — 목록을 받았을 때만(목록이 막혔으면 상세도 막혀 있다). 처음엔 수백 곳이라
+    # 몇 분 걸린다. 그동안 화면은 목록까지 받은 기록으로 맞힌다
+    if 받은것:
+        진단 = 상세채우기(기록, 저장=lambda 기: _db_쓰기(기, 상태))
+        if 진단["받음"] or not 진단["실패"]:
+            health.record_ok("공모주 상세", None, _상세진단글(진단, 기록))
+        else:
+            health.record_fail("공모주 상세", 진단["이유"] or "빈손")
+        if 진단["받음"]:
+            _db_쓰기(기록, 상태)
+            _예측보관.clear()
+        _데우기()
     return {k: v["rows"] for k, v in 상태.items()}
 
 
@@ -625,8 +789,14 @@ def _뒤에서_받기() -> bool:
 
 # ── 예측 ──────────────────────────────────────────────────
 #: 견줄 항목 — (이름, 화면 이름)
-항목들 = (("inst", "기관경쟁률"), ("lock", "의무보유확약"), ("sub", "청약경쟁률"),
+기본항목 = (("inst", "기관경쟁률"), ("lock", "의무보유확약"), ("sub", "청약경쟁률"),
           ("band", "밴드 안 위치"), ("size", "공모금액"), ("mood", "최근 분위기"))
+#: 상세 페이지에서 읽은 항목 — '유통물량 등' 방식만 쓴다(방식들). 상장일에 팔 수 있는
+#: 주식이 적을수록, 개인이 많이 몰려 계좌당 균등 수량이 적을수록 위로 튀기 쉽다
+상세항목 = (("float", "유통물량"), ("equal", "균등 수량"), ("old", "구주매출 비중"))
+항목들 = 기본항목 + 상세항목
+#: 상세 항목은 학습표의 이만큼 이상에 값이 있어야 쓴다 — 덜 받은 동안 몇 곳만으로 견주지 않게
+상세_최소몫 = 0.6
 이웃수 = 8
 #: 그룹 안에 결과가 이만큼은 있어야 예측한다
 최소학습 = 8
@@ -641,6 +811,7 @@ def 특징(r: dict, 분위기: "float | None") -> dict:
         return float(v) if isinstance(v, (int, float)) else None
     기관, 확약, 청약 = _v("inst_ratio"), _v("lockup_pct"), _v("sub_ratio")
     공모가, 상단, 금액 = _v("offer_price"), _v("band_high"), _v("offer_amount")
+    유통, 균등, 구주 = _v("float_pct"), _v("equal_shares"), _v("old_pct")
     return {
         "inst": math.log1p(기관) if 기관 is not None else None,
         "lock": 확약 / 100 if 확약 is not None else None,
@@ -648,6 +819,10 @@ def 특징(r: dict, 분위기: "float | None") -> dict:
         "band": (공모가 / 상단 - 1) if 공모가 and 상단 else None,
         "size": math.log(금액) if 금액 and 금액 > 0 else None,
         "mood": 분위기,
+        "float": 유통 / 100 if 유통 is not None else None,
+        # 계좌당 0.3주(추첨)부터 수십 주까지 — 몇 배 차이가 뜻이 있어 로그로
+        "equal": math.log(균등 + 0.1) if 균등 is not None else None,
+        "old": 구주 / 100 if 구주 is not None else None,
     }
 
 
@@ -694,12 +869,16 @@ class 모델:
     맞힐 대상에 따라 달라지지 않으므로, 대상마다 '그날 전 상장' 까지만
     잘라 쓰면 된다(시간순 검증이 60번 맞혀도 표는 한 번).
 
-    반감 — 분위기를 모으는 방식(_분위기값). 학습표와 맞힐 대상이 같은 방식을 쓴다."""
+    반감 — 분위기를 모으는 방식(_분위기값). 학습표와 맞힐 대상이 같은 방식을 쓴다.
+    상세 — 상세 페이지 항목(유통물량 등)까지 견주나."""
 
-    def __init__(self, 기록: dict, 반감: "float | None" = None):
+    def __init__(self, 기록: dict, 반감: "float | None" = None, 상세: bool = False):
         self.기록 = 기록
         self.반감 = 반감
+        self.상세 = 상세
+        self.항목 = tuple(f for f, _ in (항목들 if 상세 else 기본항목))
         self._표: dict = {}
+        self._배열: dict = {}
 
     def 표(self, 그룹: str) -> list:
         """[(특징, y, 기록, 상장일)] — 상장일 순."""
@@ -714,6 +893,21 @@ class 모델:
                 표.append((특징(r, _분위기값(ys[:j], self.반감)), ys[i], r, 날[i]))
             self._표[그룹] = 표
         return self._표[그룹]
+
+    def 배열(self, 그룹: str) -> tuple:
+        """학습표를 숫자 배열로 — (특징 n×항목(없으면 nan), y, 상장일 서수, 학습표). 맞힐 때마다
+        '그날 전' 은 앞에서부터의 한 덩어리라(상장일 순) 잘라 쓰기만 하면 된다.
+
+        예전에는 맞힐 때마다 줄을 하나씩 돌며 통계·거리·회귀를 셈했는데, 방식이 넷(모델 넷)
+        으로 늘자 걸어가며 맞히기가 0.15 CPU 서버에서 몇 초씩 걸렸다."""
+        if 그룹 not in self._배열:
+            import numpy as np
+            표 = self.표(그룹)
+            F = np.array([[np.nan if x[0][f] is None else x[0][f] for f in self.항목] for x in 표],
+                         dtype=float).reshape(len(표), len(self.항목))
+            self._배열[그룹] = (F, np.array([x[1] for x in 표], dtype=float),
+                               [x[3].toordinal() for x in 표], 표)
+        return self._배열[그룹]
 
     def 그날전(self, 그룹: str, 기준일: date) -> list:
         return [x for x in self.표(그룹) if x[3] < 기준일]
@@ -741,53 +935,63 @@ def _가중분위(값무게: list, q: float) -> float:
     return 쌍[-1][0]
 
 
-def _통계(표: list) -> dict:
-    통계 = {}
-    for f, _ in 항목들:
-        값 = [x[0][f] for x in 표 if x[0][f] is not None]
-        if len(값) >= 5:
-            평 = sum(값) / len(값)
-            편 = math.sqrt(sum((v - 평) ** 2 for v in 값) / len(값))
-            if 편 > 1e-9:
-                통계[f] = (평, 편)
-    return 통계
+def _통계(F, 열: tuple) -> dict:
+    """항목마다 (평균, 표준편차) — 값이 5곳 넘게 있고 흩어진 것만. 상세 항목은 학습표의
+    상세_최소몫 넘게 차 있어야 한다(덜 받은 동안은 쓰지 않는다). F 의 칸 = 열."""
+    import numpy as np
+    상세 = {f for f, _ in 상세항목}
+    있음 = ~np.isnan(F)
+    개수 = 있음.sum(axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        평 = np.where(있음, F, 0.0).sum(axis=0) / 개수
+        편 = np.sqrt(np.where(있음, (F - 평) ** 2, 0.0).sum(axis=0) / 개수)
+    return {f: (float(평[j]), float(편[j])) for j, f in enumerate(열)
+            if 개수[j] >= 5 and (f not in 상세 or 개수[j] >= 상세_최소몫 * len(F)) and 편[j] > 1e-9}
 
 
-def _이웃(표: list, 대상: dict, 통계: dict, k: int = 이웃수):
-    쓸것 = [f for f, _ in 항목들 if 대상.get(f) is not None and f in 통계]
+def _이웃(F, Y, 표: list, 대상: dict, 통계: dict, 열: tuple, 항목: tuple, k: int = 이웃수):
+    """대상과 가까운 k 곳 [(거리, y, 기록)], 견준 항목. 거리는 표준화한 차이 제곱의 평균의
+    제곱근 — 양쪽에 다 있는 항목으로만 재고, 쓸 항목에서 하나까지만 빠져도 된다."""
+    import numpy as np
+    쓸것 = [f for f in 항목 if 대상.get(f) is not None and f in 통계]
     if len(쓸것) < 2:
         return None
-    거리 = []
-    for 특, y, r, _ in 표:
-        공통 = [f for f in 쓸것 if 특[f] is not None]
-        if len(공통) < max(2, len(쓸것) - 1):
-            continue
-        d = math.sqrt(sum(((대상[f] - 특[f]) / 통계[f][1]) ** 2 for f in 공통) / len(공통))
-        거리.append((d, y, r))
-    if len(거리) < min(k, 최소학습):
+    칸 = [열.index(f) for f in 쓸것]
+    값 = F[:, 칸]
+    있음 = ~np.isnan(값)
+    공통수 = 있음.sum(axis=1)
+    차 = (np.array([대상[f] for f in 쓸것]) - 값) / np.array([통계[f][1] for f in 쓸것])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        거리 = np.sqrt(np.where(있음, 차 * 차, 0.0).sum(axis=1) / 공통수)
+    후보 = np.nonzero(공통수 >= max(2, len(쓸것) - 1))[0]
+    if len(후보) < min(k, 최소학습):
         return None
-    거리.sort(key=lambda x: x[0])
-    return 거리[:k], 쓸것
+    고른 = 후보[np.argsort(거리[후보], kind="stable")][:k]       # 같은 거리면 먼저 상장한 것
+    return [(float(거리[i]), float(Y[i]), 표[i][2]) for i in 고른], 쓸것
 
 
-def _릿지(표: list, 대상: dict, 통계: dict, λ: float = 1.0) -> "float | None":
+def _릿지(F, Y, 대상: dict, 통계: dict, 열: tuple, 항목: tuple, λ: float = 1.0) -> "float | None":
     """대상에 있는 항목으로 직선 모델을 세워 맞힌다. 줄이 모자라면 항목을 덜어 낸다."""
     import numpy as np
-    쓸것 = [f for f, _ in 항목들 if 대상.get(f) is not None and f in 통계]
+    쓸것 = [f for f in 항목 if 대상.get(f) is not None and f in 통계]
     # 적게 채워진 항목부터 덜어 낸다
-    쓸것.sort(key=lambda f: -sum(1 for x in 표 if x[0][f] is not None))
+    개수 = {f: int((~np.isnan(F[:, 열.index(f)])).sum()) for f in 쓸것}
+    쓸것.sort(key=lambda f: -개수[f])
     while 쓸것:
-        줄 = [x for x in 표 if all(x[0][f] is not None for f in 쓸것)]
-        if len(줄) >= 최소회귀:
+        칸 = [열.index(f) for f in 쓸것]
+        완전 = ~np.isnan(F[:, 칸]).any(axis=1)
+        if 완전.sum() >= 최소회귀:
             break
         쓸것.pop()
     if not 쓸것:
         return None
-    X = np.array([[(x[0][f] - 통계[f][0]) / 통계[f][1] for f in 쓸것] for x in 줄])
-    y = np.array([x[1] for x in 줄])
+    평 = np.array([통계[f][0] for f in 쓸것])
+    편 = np.array([통계[f][1] for f in 쓸것])
+    X = (F[완전][:, 칸] - 평) / 편
+    y = Y[완전]
     평y = y.mean()
     β = np.linalg.solve(X.T @ X + λ * np.eye(len(쓸것)), X.T @ (y - 평y))
-    v = np.array([(대상[f] - 통계[f][0]) / 통계[f][1] for f in 쓸것])
+    v = (np.array([대상[f] for f in 쓸것]) - 평) / 편
     return float(평y + v @ β)
 
 
@@ -822,19 +1026,26 @@ def _예측(m: "모델", 대상: dict, 기준일: date) -> dict:
     if 대상.get("inst_ratio") is None or 대상.get("lockup_pct") is None:
         return {"ok": False, "reason": "수요예측 결과(기관경쟁률·확약)가 나오면 예측해요"}
     그룹 = 대상.get("kind") or 종류(대상.get("name"))
-    표 = m.그날전(그룹, 기준일)
-    if len(표) < 최소학습:
+    F, Y, 날, 표 = m.배열(그룹)
+    n = bisect.bisect_left(날, 기준일.toordinal())       # 상장일 순이라 '그날 전' 은 앞쪽 n 줄
+    if n < 최소학습:
         이름 = {"spac": "스팩", "reit": "리츠"}.get(그룹, "공모주")
-        return {"ok": False, "reason": f"견줄 {이름} 결과가 아직 {len(표)}건뿐이에요"}
-    통계 = _통계(표)
-    대상특징 = 특징(대상, _분위기값([x[1] for x in 표], m.반감))
-    이웃결과 = _이웃(표, 대상특징, 통계)
+        return {"ok": False, "reason": f"견줄 {이름} 결과가 아직 {n}건뿐이에요"}
+    F, Y = F[:n], Y[:n]
+    통계 = _통계(F, m.항목)
+    대상특징 = 특징(대상, _분위기값(Y[max(0, n - 20):].tolist(), m.반감))
+    항목 = m.항목
+    이웃결과 = _이웃(F, Y, 표, 대상특징, 통계, m.항목, 항목)
+    if not 이웃결과 and m.상세:
+        # 상세 항목까지 다 맞는 공모주가 모자라면(덜 받은 동안) 기본 항목으로 견준다
+        항목 = tuple(f for f, _ in 기본항목)
+        이웃결과 = _이웃(F, Y, 표, 대상특징, 통계, m.항목, 항목)
     if not 이웃결과:
         return {"ok": False, "reason": "견줄 만큼 비슷한 공모주가 없어요"}
     이웃, 쓴것 = 이웃결과
     무게 = [(y, 1.0 / (d + 0.25)) for d, y, _ in 이웃]
     이웃값 = _가중분위(무게, 0.5)
-    회귀값 = _릿지(표, 대상특징, 통계)
+    회귀값 = _릿지(F, Y, 대상특징, 통계, m.항목, 항목)
     ŷ = (이웃값 + 회귀값) / 2 if 회귀값 is not None else 이웃값
     ŷ = min(max(ŷ, math.log(하한배율)), math.log(상한배율))
     합 = sum(w for _, w in 무게)
@@ -853,8 +1064,8 @@ def _예측(m: "모델", 대상: dict, 기준일: date) -> dict:
         "p_below": round(sum(w for y, w in 무게 if y < -1e-9) / 합, 3),
         "neighbors": [_이웃줄(r, y) for _, y, r in 이웃[:5]],
         "used": [이름표[f] for f in 쓴것],
-        "missing": [이름표[f] for f, _ in 항목들 if 대상특징.get(f) is None],
-        "n_train": len(표),
+        "missing": [이름표[f] for f in m.항목 if 대상특징.get(f) is None],
+        "n_train": n,
         "parts": {"neighbors_ratio": round(math.exp(이웃값), 4),
                   "regression_ratio": round(math.exp(회귀값), 4) if 회귀값 is not None else None},
     }
@@ -873,22 +1084,28 @@ def _이웃줄(r: dict, y: float) -> dict:
 #: 절반) 안에 들었는지로 재면 잘 맞아도 절반쯤은 밖이라, 쌓일수록 50% 로 모일 뿐이다
 맞힘폭 = 10
 
-#: 견줘 보는 방식 — (열쇠, 화면 이름, 분위기 반감, 최근 오차 보정)
+#: 견줘 보는 방식 — (열쇠, 화면 이름, 분위기 반감, 최근 오차 보정, 상세 항목)
 #:
 #: 2026년 7~8월에는 연달아 높게 봤고, 9월 말부터는 여섯 곳이 연달아 예측보다 38~92%
 #: 높게 시작했다 — 직전 10곳 평균으로 잰 분위기가 바뀐 시장을 늦게 따라갔다. 그래서
-#: 둘을 더해 본다.
+#: 셋을 더해 본다.
 #:   · 빠른 분위기 — 요즘 상장한 곳일수록 크게 본다(_분위기값 반감 3곳)
 #:   · 최근 오차 보정 — 직전 몇 곳이 그 방식의 예측보다 높게(낮게) 시작했으면 그
 #:     평균의 절반만큼 올려(내려) 잡는다
-#: 어느 쪽이 나은지는 시장이 정한다 — 넷을 모두 걸어가며 맞혀 보고, 맞힐 날 전 직전
-#: 몇 곳에서 가장 잘 맞아 온 방식을 쓴다(_고르기). 분위기가 몇 곳마다 바뀌는 가짜
-#: 세상에서는 보정이 맞힘을 30% → 40% 로 올렸고, 바뀌지 않는 세상에서는 기본이 골라졌다
+#:   · 유통물량 등 — 상세 페이지의 유통물량·균등 수량·구주매출 비중까지 견준다
+#: 어느 쪽이 나은지는 시장이 정한다 — 모두 걸어가며 맞혀 보고, 맞힐 날 전 직전 몇
+#: 곳에서 가장 잘 맞아 온 방식을 쓴다(_고르기). 분위기가 몇 곳마다 바뀌는 가짜 세상
+#: 에서는 보정이 맞힘을 30% → 40% 로 올렸고, 바뀌지 않는 세상에서는 기본이 골라졌다.
+#: 상세 항목을 못 읽었으면 '유통물량 등' 은 기본 항목으로 견주어 짝과 같은 값이 된다
 방식들 = (
-    ("base", "기본", None, False),
-    ("fast", "빠른 분위기", 3, False),
-    ("base_fix", "기본 + 최근 오차 보정", None, True),
-    ("fast_fix", "빠른 분위기 + 최근 오차 보정", 3, True),
+    ("base", "기본", None, False, False),
+    ("fast", "빠른 분위기", 3, False, False),
+    ("base_fix", "기본 + 최근 오차 보정", None, True, False),
+    ("fast_fix", "빠른 분위기 + 최근 오차 보정", 3, True, False),
+    ("base_x", "기본 + 유통물량 등", None, False, True),
+    ("fast_x", "빠른 분위기 + 유통물량 등", 3, False, True),
+    ("base_fix_x", "기본 + 최근 오차 보정 + 유통물량 등", None, True, True),
+    ("fast_fix_x", "빠른 분위기 + 최근 오차 보정 + 유통물량 등", 3, True, True),
 )
 #: 최근 오차 보정 — 직전 몇 곳의 오차를, 그 평균의 얼마만큼, 며칠 안에 상장한 것만, 많아야 얼마까지
 보정_곳, 보정_몫, 보정_기한 = 3, 0.5, 90
@@ -898,16 +1115,16 @@ def _이웃줄(r: dict, y: float) -> dict:
 
 
 def _걸음(기록: dict, 곳: int) -> list:
-    """최근 상장한 일반 공모주 '곳' 개를 상장일 순으로, 분위기 방식마다 그 전 상장만으로 맞힌다.
+    """최근 상장한 일반 공모주 '곳' 개를 상장일 순으로, 모델마다 그 전 상장만으로 맞힌다.
 
-    [(기록, 상장일, 실제 y, {반감: log 예측배율})] — 한 방식이라도 못 맞힌 줄은 뺀다."""
-    모델들 = {반감: 모델(기록, 반감) for _, _, 반감, _ in 방식들}
+    [(기록, 상장일, 실제 y, {(반감, 상세): log 예측배율})] — 한 모델이라도 못 맞힌 줄은 뺀다."""
+    모델들 = {(반감, 상세): 모델(기록, 반감, 상세) for _, _, 반감, _, 상세 in 방식들}
     out = []
     for _, y, r, d in next(iter(모델들.values())).표("normal")[-곳:]:
         대상 = {**r, "open_price": None, "close_price": None}
-        예측들 = {반감: m.예측(대상, d) for 반감, m in 모델들.items()}
+        예측들 = {열: m.예측(대상, d) for 열, m in 모델들.items()}
         if all(p.get("ok") for p in 예측들.values()):
-            out.append((r, d, y, {반감: math.log(p["ratio"]) for 반감, p in 예측들.items()}))
+            out.append((r, d, y, {열: math.log(p["ratio"]) for 열, p in 예측들.items()}))
     return out
 
 
@@ -924,8 +1141,8 @@ def _보정값(걸음: list, 기본: list, 기준일: date) -> float:
 def _방식별(걸음: list) -> dict:
     """{방식 열쇠: [줄마다 log 예측배율]} — 보정은 그 줄 상장일 전의 오차만 쓴다."""
     out = {}
-    for k, _, 반감, 보정 in 방식들:
-        기본 = [e[3][반감] for e in 걸음]
+    for k, _, 반감, 보정, 상세 in 방식들:
+        기본 = [e[3][(반감, 상세)] for e in 걸음]
         out[k] = [min(max(v + (_보정값(걸음, 기본, e[1]) if 보정 else 0.0),
                           math.log(하한배율)), math.log(상한배율))
                   for v, e in zip(기본, 걸음)]
@@ -957,7 +1174,7 @@ def _성적(차이들: list) -> dict:
 
 
 def _검증(기록: dict, 최근: int, 기준일: date) -> tuple:
-    """(화면에 줄 시간순 검증, 기준일에 쓸 방식 {"key", "name", "반감", "보정"(log)}).
+    """(화면에 줄 시간순 검증, 기준일에 쓸 방식 {"key", "name", "반감", "상세", "보정"(log)}).
 
     줄마다 그 줄 상장일 전에 가장 잘 맞아 온 방식으로 맞힌 값을 보여 준다 — 방식을
     고를 때도 그 뒤의 결과는 보지 않는다. 방식별 성적(methods)은 같은 줄들을 그 방식
@@ -981,8 +1198,8 @@ def _검증(기록: dict, 최근: int, 기준일: date) -> tuple:
                      "diff_pct": 차이, "hit": abs(차이) <= 맞힘폭, "method": 고른})
     n = len(줄들)
     지금 = _고르기(걸음, 방식값, 기준일)
-    반감, 보정 = next((b, f) for k, _, b, f in 방식들 if k == 지금)
-    c = _보정값(걸음, [e[3][반감] for e in 걸음], 기준일) if 보정 else 0.0
+    반감, 보정, 상세 = next((b, f, x) for k, _, b, f, x in 방식들 if k == 지금)
+    c = _보정값(걸음, [e[3][(반감, 상세)] for e in 걸음], 기준일) if 보정 else 0.0
     검증 = {
         "n": n,
         "hit_band_pct": 맞힘폭,
@@ -992,7 +1209,7 @@ def _검증(기록: dict, 최근: int, 기준일: date) -> tuple:
         "methods": [{"key": k, "name": 이름[k], **_성적(방식차이[k])} for k in 이름],
         "rows": 줄들[::-1],
     }
-    return 검증, {"key": 지금, "name": 이름[지금], "반감": 반감, "보정": c}
+    return 검증, {"key": 지금, "name": 이름[지금], "반감": 반감, "상세": 상세, "보정": c}
 
 
 def 걸어가며_검증(기록: dict, 최근: int = 60) -> dict:
@@ -1006,10 +1223,10 @@ def 걸어가며_검증(기록: dict, 최근: int = 60) -> dict:
 def _방식대로(모델들: dict, 대상: dict, 기준일: date, 지금: dict) -> dict:
     """대상을 지금 쓰는 방식으로 맞힌다. 방식은 일반 공모주로 골랐으므로 스팩·리츠는 기본 그대로.
 
-    모델들 — {반감: 모델}. 기본(None)과 지금 방식의 반감이 들어 있어야 한다."""
+    모델들 — {(반감, 상세): 모델}. 기본(None, False)과 지금 방식의 모델이 들어 있어야 한다."""
     if (대상.get("kind") or 종류(대상.get("name"))) != "normal":
-        return 모델들[None].예측(대상, 기준일)
-    p = 모델들[지금["반감"]].예측(대상, 기준일)
+        return 모델들[(None, False)].예측(대상, 기준일)
+    p = 모델들[(지금["반감"], 지금["상세"])].예측(대상, 기준일)
     if not p.get("ok"):
         return p
     p = {**p, "method": {"key": 지금["key"], "name": 지금["name"]},
@@ -1022,9 +1239,10 @@ def _방식대로(모델들: dict, 대상: dict, 기준일: date, 지금: dict) 
 
 
 def _모델들(기록: dict, 지금: dict) -> dict:
-    모델들 = {None: 모델(기록)}
-    if 지금["반감"] is not None:
-        모델들[지금["반감"]] = 모델(기록, 지금["반감"])
+    모델들 = {(None, False): 모델(기록)}
+    열 = (지금["반감"], 지금["상세"])
+    if 열 not in 모델들:
+        모델들[열] = 모델(기록, *열)
     return 모델들
 
 
@@ -1073,6 +1291,13 @@ def 한눈에() -> dict:
     열 = (id(기록), _받은때, 기준일)
     if (있음 := _예측보관.get("값")) and _예측보관.get("열") == 열:
         return {**있음, "refreshing": 새로받는중 or _갱신중}
+    값, 지금 = _한눈에값(기록, 기준일)
+    _예측보관.update(열=열, 값=값, 지금=지금)
+    return {**값, "refreshing": 새로받는중 or _갱신중}
+
+
+def _한눈에값(기록: dict, 기준일: date) -> tuple:
+    """(화면에 줄 값, 지금 쓰는 방식) — 방식마다 걸어가며 맞혀 보느라 무겁다(보관해 두고 쓴다)."""
     검증, 지금 = _검증(기록, 60, 기준일)
     모델들 = _모델들(기록, 지금)
     다가옴 = [{**_공개(r), "stage": 단계(r, 기준일), "prediction": _방식대로(모델들, r, 기준일, 지금)}
@@ -1088,13 +1313,25 @@ def 한눈에() -> dict:
         "source": {"name": "38커뮤니케이션", "lists": {k: {"rows": v.get("rows", 0), "reason": v.get("reason", "")}
                                                       for k, v in _상태.items()}},
     }
-    _예측보관.update(열=열, 값=값, 지금=지금)
-    return {**값, "refreshing": 새로받는중 or _갱신중}
+    return 값, 지금
+
+
+def _데우기() -> None:
+    """새로 받은 뒤 화면 값을 미리 셈해 둔다 — 그 뒤 처음 여는 사람이 기다리지 않게."""
+    try:
+        기록 = 기록들()
+        기준일 = 오늘()
+        값, 지금 = _한눈에값(기록, 기준일)
+        _예측보관.update(열=(id(기록), _받은때, 기준일), 값=값, 지금=지금)
+    except Exception as e:
+        log.warning("공모주 화면 값 미리 셈하기 실패: %s", type(e).__name__)
 
 
 _공개칸 = ("name", "code", "market", "kind", "forecast_date", "band_low", "band_high",
           "offer_price", "offer_amount", "inst_ratio", "lockup_pct", "sub_start", "sub_end",
-          "sub_ratio", "list_date", "underwriter")
+          "sub_ratio", "list_date", "underwriter",
+          # 상세 페이지에서 읽은 것 — 못 읽었으면 None
+          "float_pct", "equal_shares", "sub_accounts", "prop_ratio", "old_pct")
 
 
 def _공개(r: dict) -> dict:
@@ -1109,6 +1346,7 @@ def 직접_예측(값: dict) -> dict:
         "lockup_pct": 값.get("lockup_pct"), "sub_ratio": 값.get("sub_ratio"),
         "band_low": 값.get("band_low"), "band_high": 값.get("band_high"),
         "offer_amount": 값.get("offer_amount"),
+        "float_pct": 값.get("float_pct"), "equal_shares": 값.get("equal_shares"), "old_pct": 값.get("old_pct"),
     }
     기록 = 기록들()
     기준일 = 오늘()

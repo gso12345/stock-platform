@@ -1131,6 +1131,12 @@ export interface 다가오는공모주 {
   sub_ratio: number | null;
   list_date: string | null;
   underwriter: string | null;
+  /** 상세 페이지에서 읽은 값 — 못 읽었거나 아직 안 나왔으면 null(예전 서버는 없다) */
+  float_pct?: number | null;      // 상장일 유통가능물량(%)
+  equal_shares?: number | null;   // 균등 배정 수량(계좌당 주)
+  sub_accounts?: number | null;   // 청약 건수
+  prop_ratio?: number | null;     // 비례 경쟁률(:1)
+  old_pct?: number | null;        // 구주매출 비중(%)
   stage: string;
   prediction: 공모주예측;
 }
@@ -1197,6 +1203,10 @@ export interface 공모주직접입력 {
   band_high?: number | null;
   /** 공모금액(억원) */
   offer_amount_eok?: number | null;
+  /** 상세 항목 — 상장일 유통가능물량(%) · 균등 배정(계좌당 주) · 구주매출 비중(%) */
+  float_pct?: number | null;
+  equal_shares?: number | null;
+  old_pct?: number | null;
   kind?: "normal" | "spac" | "reit";
 }
 

@@ -11,7 +11,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { Card, Badge, 용어힌트 } from "@/components/ui";
 import type { 다가오는공모주, 공모주직접입력 } from "@/api/stocks";
 import IpoPrediction from "./IpoPrediction";
-import { 원, 경쟁률글, 확약글, 억원글, 날짜글, 남은날 } from "./ipoFormat";
+import { 원, 경쟁률글, 확약글, 주글, 억원글, 날짜글, 남은날 } from "./ipoFormat";
 
 const 단계색: Record<string, "default" | "blue" | "green" | "yellow" | "purple"> = {
   "수요예측 전": "default",
@@ -38,6 +38,7 @@ export function 입력값으로(g: 다가오는공모주): 공모주직접입력
     offer_price: g.offer_price, inst_ratio: g.inst_ratio, lockup_pct: g.lockup_pct,
     sub_ratio: g.sub_ratio, band_low: g.band_low, band_high: g.band_high,
     offer_amount_eok: g.offer_amount != null ? g.offer_amount / 100 : null,
+    float_pct: g.float_pct ?? null, equal_shares: g.equal_shares ?? null, old_pct: g.old_pct ?? null,
     kind: g.kind ?? "normal",
   };
 }
@@ -79,6 +80,10 @@ export default function IpoCard({ 공모주: g, 바꿔보기 }: {
         <칸 이름="상장일">{g.list_date ? 날짜글(g.list_date) : "미정"}</칸>
         <칸 이름="공모금액">{억원글(g.offer_amount)}</칸>
         <칸 이름="수요예측">{날짜글(g.forecast_date)}</칸>
+        {/* 상세 페이지에서 읽은 것 — 읽었을 때만(못 읽은 칸을 '—' 로 늘어놓지 않는다) */}
+        {g.float_pct != null && <칸 이름={<용어힌트 이름="유통물량" />}>{확약글(g.float_pct)}</칸>}
+        {g.equal_shares != null && <칸 이름={<용어힌트 이름="균등배정" />}>{주글(g.equal_shares)}</칸>}
+        {g.prop_ratio != null && <칸 이름={<용어힌트 이름="비례경쟁률" />}>{경쟁률글(g.prop_ratio)}</칸>}
       </dl>
 
       <IpoPrediction 예측={g.prediction} />
