@@ -9,6 +9,7 @@ from app.core.http import SSL
 import asyncio
 import os
 import re
+import time
 import logging
 from app.core.cache import cache
 from app.core.backoff import 쉼표
@@ -656,21 +657,175 @@ async def _fetch_yf_quotes_raw(symbols: list[str]) -> list | None:
         return None
 
 
+#: 마지막으로 야후 시세를 어느 길로 받았나 — 관리자 화면에 함께 적는다
+#: ('인증 배치' · '맨몸 배치' · 'spark(v7)' · 'spark(v8)' · '없음')
+마지막_야후경로 = "아직 없음"
+
+#: 인증 배치가 오류로 끝나면(거절·한도 초과·연결 실패 — 없는 종목이라 결과가
+#: 빈 것과는 다르다) 이만큼은 그 길을 건너뛴다(초). 막힌 길을 묶음마다 다시
+#: 두드리면 묶음 시한(refresh_us_rows 의 25초)을 거기서 다 써 뒤의 spark 까지
+#: 못 가고, 한도 초과(429)라면 야후가 더 오래 막는다.
+#: 짧게 둔다 — 보고 있는 종목 갱신(15초마다)도 이 길을 쓰므로, 길게 쉬면
+#: 야후가 잠깐 막혔다 풀려도 그동안 그쪽까지 덜 좋은 길로 돈다
+YF_AUTH_REST_SEC = int(os.getenv("YF_AUTH_REST_SEC", 60))
+_인증_막힌때 = 0.0
+
+
 async def fetch_yf_quotes(symbols: list[str]) -> dict[str, dict]:
-    """Yahoo Finance v7 멀티쿼트 — 인증 세션 우선, 안 되면 맨몸 호출."""
+    """Yahoo Finance 여러 종목 시세 — 인증 배치 → 맨몸 배치 → spark 순.
+
+    앞의 둘(v7/quote)은 crumb(인증 토큰)가 있어야 한다. 서버가 crumb 을 못
+    받으면 둘 다 빈손이 되고, 그동안 해외 순위표는 통째로 비었다 — 순위표를
+    채우는 두 경로(인기·S&P500 갱신, 전종목 훑기)가 이 함수만 쓰기 때문이다.
+    spark 는 crumb 없이 되는 길이라 마지막에 둔다. 다만 시가총액은 안 준다
+    (순위표는 알던 시가총액을 지킨다 — ranking_service._아는값_지키기)."""
+    global 마지막_야후경로, _인증_막힌때
     if not symbols:
         return {}
-    loop = asyncio.get_running_loop()
-    try:
-        # 인증 경로는 yfinance 내부 구조에 기댄다. 그쪽에서 예외가 새어 나와도
-        # 시세 조회 전체가 죽으면 안 되므로 여기서 한 번 더 막는다
-        res = await loop.run_in_executor(None, _fetch_yf_quotes_authed_sync, symbols)
-    except Exception as e:
-        log.debug(f"YF 인증 배치에서 예외: {type(e).__name__}: {e}")
-        res = None
+    res = None
+    if time.time() - _인증_막힌때 >= YF_AUTH_REST_SEC:
+        loop = asyncio.get_running_loop()
+        try:
+            # 인증 경로는 yfinance 내부 구조에 기댄다. 그쪽에서 예외가 새어 나와도
+            # 시세 조회 전체가 죽으면 안 되므로 여기서 한 번 더 막는다
+            res = await loop.run_in_executor(None, _fetch_yf_quotes_authed_sync, symbols)
+        except Exception as e:
+            log.debug(f"YF 인증 배치에서 예외: {type(e).__name__}: {e}")
+            res = None
+        if res is None:
+            _인증_막힌때 = time.time()
     if res:
+        마지막_야후경로 = "인증 배치"
         return _parse_yf_quotes(res)
-    return _parse_yf_quotes(await _fetch_yf_quotes_raw(symbols) or [])
+    if res := await _fetch_yf_quotes_raw(symbols):
+        마지막_야후경로 = "맨몸 배치"
+        return _parse_yf_quotes(res)
+    if 받음 := await _fetch_yf_spark(symbols):
+        마지막_야후경로 = f"spark({_spark_판})"
+        return 받음
+    마지막_야후경로 = "없음"
+    return {}
+
+
+# ── spark — crumb 없이 되는 여러 종목 시세 ─────────────────────
+#: 한 번에 묻는 종목 수. spark 는 v7/quote 보다 한 번에 받는 수가 작다
+SPARK_BATCH = int(os.getenv("YF_SPARK_BATCH", 20))
+#: spark 도 막혔으면 이만큼 쉬었다가 다시 묻는다(초). 안 그러면 막힌 동안
+#: 순위표 훑기 한 번에 헛요청이 일흔 개씩 나간다
+SPARK_REST_SEC = int(os.getenv("YF_SPARK_REST_SEC", 300))
+_spark_막힌때 = 0.0
+#: 지금 쓰는 spark 주소(v7 · v8). 어느 쪽이 될지 여기서는 확인할 수 없어서,
+#: 첫 묶음이 빈손이면 다른 쪽을 한 번 찔러 보고 된 쪽을 기억한다
+_spark_판 = "v7"
+
+
+async def _spark_묻기(cl, 판: str, 묶음: list[str]) -> tuple[dict, bool]:
+    """spark 한 번 → (받은 시세, 막혔나). 막힘은 거절·한도 초과·서버 오류·
+    연결 실패다. 200 인데 비었거나 404 면 없는 종목일 수 있어 막힘이 아니다."""
+    try:
+        r = await cl.get(
+            f"https://{_yf_base()}.finance.yahoo.com/{판}/finance/spark",
+            params={"symbols": ",".join(묶음), "range": "1d", "interval": "1d"})
+    except Exception as e:
+        log.debug("YF spark(%s) 실패: %s", 판, type(e).__name__)
+        return {}, True
+    if r.status_code != 200:
+        return {}, r.status_code in (401, 403, 429) or r.status_code >= 500
+    try:
+        return _parse_yf_spark(r.json()), False
+    except Exception:
+        return {}, False
+
+
+async def _fetch_yf_spark(symbols: list[str]) -> dict[str, dict]:
+    global _spark_막힌때, _spark_판
+    if time.time() - _spark_막힌때 < SPARK_REST_SEC:
+        return {}
+    out: dict[str, dict] = {}
+    try:
+        async with httpx.AsyncClient(timeout=12, headers=YF_HEADERS, verify=SSL) as cl:
+            for i in range(0, len(symbols), SPARK_BATCH):
+                묶음 = symbols[i:i + SPARK_BATCH]
+                받음, 막힘 = await _spark_묻기(cl, _spark_판, 묶음)
+                if not 받음 and i == 0:
+                    다른판 = "v8" if _spark_판 == "v7" else "v7"
+                    받음, 막힘2 = await _spark_묻기(cl, 다른판, 묶음)
+                    if 받음:
+                        _spark_판 = 다른판
+                    else:
+                        # 첫 묶음이 두 주소 모두 빈손이면 이번 회차는 그만 —
+                        # 나머지도 같다. 막혔거나 여러 종목을 물었는데 하나도
+                        # 안 왔으면 한동안 쉰다(한두 종목이면 없는 종목일 수 있다)
+                        if 막힘 or 막힘2 or len(묶음) >= 5:
+                            _spark_막힌때 = time.time()
+                        return {}
+                out.update(받음)
+    except Exception as e:
+        log.debug("YF spark 연결 실패: %s", type(e).__name__)
+    return out
+
+
+def _parse_yf_spark(j) -> dict[str, dict]:
+    """spark 응답 → 우리 시세 모양. 두 가지 모양을 다 읽는다.
+
+    v7: {"spark": {"result": [{"symbol", "response": [{"meta": {...}, "indicators"}]}]}}
+    v8: {"AAPL": {"symbol", "close": [...], "timestamp": [...], "previousClose"}}
+    시가총액은 어느 쪽에도 없어서 아예 안 싣는다 — 0 으로 실으면 다른 데서
+    알던 값을 덮어쓴다."""
+    out: dict[str, dict] = {}
+    if not isinstance(j, dict):
+        return out
+    줄들 = []
+    if isinstance(j.get("spark"), dict):
+        for item in j["spark"].get("result") or []:
+            if not isinstance(item, dict):
+                continue
+            resp = (item.get("response") or [{}])[0] or {}
+            meta = resp.get("meta") or {}
+            # 현재가가 meta 에 없으면 마지막 종가로
+            종가들 = [c for c in ((((resp.get("indicators") or {}).get("quote") or [{}])[0] or {})
+                                 .get("close") or []) if c is not None]
+            줄들.append({
+                "symbol": meta.get("symbol") or item.get("symbol"),
+                "price": _safe(meta.get("regularMarketPrice")) or (_safe(종가들[-1]) if 종가들 else None),
+                "prev": _safe(meta.get("chartPreviousClose")) or _safe(meta.get("previousClose")),
+                "time": meta.get("regularMarketTime"),
+                "volume": meta.get("regularMarketVolume"),
+                "name": meta.get("longName") or meta.get("shortName"),
+                "currency": meta.get("currency"),
+            })
+    else:
+        for sym, v in j.items():
+            if not isinstance(v, dict):
+                continue
+            종가들 = [c for c in (v.get("close") or []) if c is not None]
+            시각들 = [t for t in (v.get("timestamp") or []) if t is not None]
+            줄들.append({
+                "symbol": v.get("symbol") or sym,
+                "price": _safe(종가들[-1]) if 종가들 else None,
+                "prev": _safe(v.get("previousClose")) or _safe(v.get("chartPreviousClose")),
+                "time": 시각들[-1] if 시각들 else None,
+                "volume": None, "name": None, "currency": None,
+            })
+    for z in 줄들:
+        sym, price, prev = z["symbol"], z["price"], z["prev"]
+        if not sym or not price:
+            continue
+        변동 = round(price - prev, 4) if prev else 0.0
+        q = {
+            "symbol": sym,
+            "name": z["name"] or sym,
+            "price": price,
+            "prev_close": prev,
+            "change": 변동,
+            "change_rate": round(변동 / prev * 100, 4) if prev else 0.0,
+            "currency": z["currency"] or "USD",
+            "regular_time": int(_safe(z["time"]) or 0),
+        }
+        if z["volume"]:
+            q["volume"] = int(z["volume"])
+        out[sym] = q
+    return out
 
 
 async def fetch_yf_quote_extended(symbol: str) -> dict | None:

@@ -440,5 +440,6 @@ class Test장중에도_표를_채운다:
         import textwrap
         from app.services import scheduler as S
         본문 = ast.unparse(ast.parse(textwrap.dedent(inspect.getsource(S.periodic_refresh))))
-        자리 = 본문[본문.index("미국닫힘 ="):본문.index("refresh_us_rows()")]
+        자리 = 본문[본문.index("미국닫힘 ="):본문.index("_미국순위표_돌리기()")]
         assert "not 미국닫힘" in 자리, "장중에 훑는 자리가 없다"
+        assert "refresh_us_rows()" in inspect.getsource(S._미국순위표_돌리기)

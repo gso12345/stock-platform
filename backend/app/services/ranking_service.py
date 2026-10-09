@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import os
+import threading
 import time
 import httpx
 from app.core.http import SSL
@@ -644,8 +645,14 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
         return 0
     _us_rows_refreshing = True
     try:
+        from collections import Counter
         from app.services.price_fetcher import fetch_yf_quotes
-        from app.services import market_hours
+        from app.services import market_hours, price_fetcher as _pf
+
+        # 표를 쌓기 전에 DB 에 남긴 마지막 순위부터 깐다(프로세스당 한 번).
+        # 시가총액을 아는 줄이 먼저 있어야, spark(시가총액 없음)로만 받는
+        # 동안에도 그 값이 지켜져 시가총액 순위가 선다
+        await asyncio.to_thread(해외순위_사진_불러오기)
 
         열림 = market_hours.us_session() != "closed"
         # 닫혀 있으면 종가라 값이 안 변한다. 길게 담아 둬야 한 바퀴 도는
@@ -661,6 +668,7 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
         _us_cursor = (시작 + len(훑을것)) % len(전체)
 
         받은수 = 0
+        길: Counter = Counter()          # 묶음마다 야후의 어느 길로 받았나
         for i in range(0, len(훑을것), US_BATCH):
             # 묶음 사이마다 여유를 본다.
             #
@@ -679,10 +687,12 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
             except Exception as e:
                 log.debug("미국 시세 묶음 실패: %s", type(e).__name__)
                 continue
+            if 받음:
+                길[_pf.마지막_야후경로] += 1
             for sym, q in 받음.items():
                 if q.get("price"):
                     q["symbol"] = sym
-                    cache.set(f"price:{sym}", q, 시세수명)
+                    _시세_담기(sym, q, 시세수명)
                     받은수 += 1
             받음 = None          # 다음 묶음을 받기 전에 놓아준다
             await asyncio.sleep(0.3)
@@ -692,6 +702,7 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
             cache.set(US_ROWS_CK, rows, US_ROWS_TTL)
             # 분류별 순위도 새 표로 이 자리에서 다시 만든다(미국표_다시쌓기 참고)
             _미국순위_모두_담기(rows)
+        _순위표_상태_남기기(받은수, len(훑을것), len(rows), 길)
         log.info("미국 순위표 %d종목 / 전체 %d — 이번에 %d건 갱신 (다음 시작 %d)",
                  len(rows), len(전체), 받은수, _us_cursor)
         return len(rows)
@@ -737,6 +748,135 @@ def _마지막_장만(rows: list[dict]) -> list[dict]:
     return rows
 
 
+def _시세_담기(sym: str, q: dict, 수명: int) -> None:
+    """새 시세를 담되, 새 값에 시가총액이 없으면 알던 것을 남긴다.
+
+    야후 일괄 시세가 막혀 spark 로 받으면 시가총액이 안 온다. 그대로 덮으면
+    종목 시세에서 시가총액이 사라진다(순위표는 _아는값_지키기 가 지킨다)."""
+    if not q.get("market_cap"):
+        알던 = (cache.get_stale(f"price:{sym}") or {}).get("market_cap")
+        if 알던:
+            q = {**q, "market_cap": 알던}
+    cache.set(f"price:{sym}", q, 수명)
+
+
+def _순위표_상태_남기기(받은수: int, 물은수: int, 표줄수: int,
+                     길: "dict | None" = None) -> None:
+    """관리자 화면 '데이터 수집' 에 해외 순위표를 어떻게 채웠는지 남긴다.
+
+    해외 순위가 통째로 비어도 왜 그런지 볼 곳이 없었다 — '야후 시세' 줄은
+    보고 있는 종목 갱신만 적었고, 순위표를 채우는 일괄 조회는 아무 데도
+    안 적었다."""
+    try:
+        from app.core import health
+        if 받은수:
+            어디서 = " · ".join(f"{k} {n}묶음" for k, n in (길 or {}).items())
+            health.record_ok("해외 순위표", None,
+                             f"{받은수}/{물은수}종목 · 표 {표줄수}줄"
+                             + (f" · 야후 {어디서}" if 어디서 else ""))
+        else:
+            health.record_fail("해외 순위표",
+                               f"0/{물은수}종목 — 야후 일괄 시세·spark 모두 빈손(표 {표줄수}줄)")
+    except Exception:
+        pass
+
+
+# ── 마지막 해외 순위를 DB 에 남긴다 ─────────────────────────────
+#: 이만큼은 쌓인 표로 만든 순위만 남긴다 — 재시작 직후 얇은 표로 만든 순위가
+#: 좋은 사진을 덮어쓰지 않게
+US_SNAPSHOT_MIN_ROWS = 300
+#: 남기는 간격(초). 표는 5~10분마다 바뀐다 — 그때마다 쓸 까닭은 없다
+US_SNAPSHOT_EVERY = 600
+_사진_남긴때 = 0.0
+_사진_불러옴 = False
+
+
+def _순위사진_남기기(모두: dict) -> None:
+    global _사진_남긴때
+    지금 = time.time()
+    # DB 에 있는 것을 읽기 전에는 쓰지 않는다 — 재시작 직후 얇은 표로 만든
+    # 순위가 남겨 둔 좋은 순위를 읽히기도 전에 덮지 않게
+    if not _사진_불러옴 or 지금 - _사진_남긴때 < US_SNAPSHOT_EVERY:
+        return
+    _사진_남긴때 = 지금
+    # DB 왕복을 부르는 쪽(갱신은 async 다)의 이벤트 루프에서 하지 않는다
+    threading.Thread(target=_순위사진_쓰기, args=("US", 모두), daemon=True).start()
+
+
+def _순위사진_쓰기(시장: str, 모두: dict) -> None:
+    try:
+        import math
+        from datetime import datetime
+        from app.db.database import SessionLocal
+        from app.models.stock import RankingSnapshot
+        깨끗 = {c: [{k: (None if isinstance(v, float) and not math.isfinite(v) else v)
+                     for k, v in r.items()} for r in 줄들]
+                for c, 줄들 in 모두.items() if 줄들}
+        if not 깨끗:
+            return
+        db = SessionLocal()
+        try:
+            줄 = db.get(RankingSnapshot, 시장)
+            if 줄:
+                # 이번에 못 만든 분류는 지난 것을 둔다 — spark 로만 받는 동안은
+                # 시가총액을 몰라 시가총액 순위가 안 서는데, 그걸로 남겨 둔
+                # 시가총액 순위를 지우면 안 된다
+                지난 = 줄.data if isinstance(줄.data, dict) else {}
+                줄.data, 줄.fetched_at = {**지난, **깨끗}, datetime.utcnow()
+            else:
+                db.add(RankingSnapshot(market=시장, data=깨끗, fetched_at=datetime.utcnow()))
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+    except Exception as e:
+        log.debug("해외 순위 사진 남기기 실패: %s", type(e).__name__)
+
+
+def 해외순위_사진_불러오기() -> bool:
+    """DB 에 남긴 마지막 해외 순위를 캐시에 깐다(프로세스당 한 번).
+
+    해외 순위표는 메모리에만 있어, 서버가 다시 뜨면 훑기가 표를 다시 쌓을
+    때까지(그동안 야후가 막혀 있으면 계속) 해외 순위 카드가 비었다. 남겨 둔
+    순위를 곧바로 보여 준다 — 줄마다 '언제 장의 값인지(as_of)' 가 실려 있어
+    화면이 'M/D HH:MM 기준' 으로 알린다.
+
+    표가 비어 있으면 그 종목들로 표도 채운다. 시가총액을 아는 줄이 생겨서,
+    야후 일괄 시세가 막혀 spark(시가총액 없음)로만 받을 때도 시가총액 순위가
+    선다."""
+    global _사진_불러옴
+    if _사진_불러옴:
+        return False
+    _사진_불러옴 = True
+    try:
+        from app.db.database import SessionLocal
+        from app.models.stock import RankingSnapshot
+        db = SessionLocal()
+        try:
+            줄 = db.get(RankingSnapshot, "US")
+        finally:
+            db.close()
+    except Exception as e:
+        log.debug("해외 순위 사진 읽기 실패: %s", type(e).__name__)
+        return False
+    if not 줄 or not isinstance(줄.data, dict) or not 줄.data:
+        return False
+    for c, 줄들 in 줄.data.items():
+        if c in ALLOWED_CATEGORIES and 줄들 and not cache.get(f"rank:us:{c}"):
+            cache.set(f"rank:us:{c}", 줄들, US_SORTED_TTL)
+    if not (cache.get(US_ROWS_CK) or cache.get_stale(US_ROWS_CK)):
+        모음: dict = {}
+        for 줄들 in 줄.data.values():
+            for r in 줄들 or []:
+                if r.get("symbol"):
+                    모음[r["symbol"]] = {k: v for k, v in r.items() if k not in ("rank", "as_of")}
+        if 모음:
+            cache.set(US_ROWS_CK, list(모음.values()), US_ROWS_TTL)
+    log.info("해외 순위 사진을 깔았다 (%s)", ", ".join(f"{c} {len(v)}" for c, v in 줄.data.items()))
+    return True
+
+
 def _sort_us(rows: list[dict], category: str, 장거름: bool = True) -> list[dict]:
     """미국 순위 하나. 장거름=False 면 이미 한 장으로 거른 줄을 받은 것이다
     (_미국순위_모두_담기 가 일곱 가지를 만들며 한 번만 거른다)."""
@@ -748,8 +888,12 @@ def _sort_us(rows: list[dict], category: str, 장거름: bool = True) -> list[di
     elif category == "하락률":
         sortable.sort(key=lambda x: x.get("change_rate") or 9999)
     elif category == "거래대금":
+        # 거래량을 모르는 줄(spark v8 은 거래량을 안 준다)은 뺀다 — 시가총액과
+        # 같은 규칙이다. 두면 '거래대금 0' 인 종목이 순위를 채운다
+        sortable = [r for r in sortable if (r.get("amount") or 0) > 0]
         sortable.sort(key=lambda x: x.get("amount") or 0, reverse=True)
     elif category == "거래량":
+        sortable = [r for r in sortable if (r.get("volume") or 0) > 0]
         sortable.sort(key=lambda x: x.get("volume") or 0, reverse=True)
     elif category in ("신고가", "신저가"):
         rev = (category == "신고가")
@@ -947,6 +1091,8 @@ def _미국순위_모두_담기(rows: list[dict]) -> dict[str, list[dict]]:
         if 줄들:
             cache.set(f"rank:us:{c}", 줄들, US_SORTED_TTL)
         모두[c] = 줄들
+    if len(rows) >= US_SNAPSHOT_MIN_ROWS:
+        _순위사진_남기기(모두)
     return 모두
 
 
@@ -963,6 +1109,9 @@ def get_us_rankings(category: str = "시가총액") -> list[dict]:
     # 표가 얇으면(재시작 직후 등) 그걸로 새로 줄 세운 것보다 지난 순위가 낫다
     if stale := cache.get_stale(ck):
         return stale
+    # 지난 순위도 없으면(재시작 직후) DB 에 남겨 둔 마지막 순위를 꺼낸다
+    if 해외순위_사진_불러오기() and (깐것 := cache.get(ck)):
+        return 깐것
     result = _sort_us(rows, category)
     if result:
         cache.set(ck, result, US_SORTED_TTL)

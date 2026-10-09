@@ -362,14 +362,16 @@ class Test야후_배치_인증:
         out = asyncio.run(pf.fetch_yf_quotes(["AAPL"]))
         assert out["AAPL"]["price"] == 100.0
 
-    def test_둘_다_안_되면_빈_결과를_돌려준다(self, monkeypatch):
+    def test_다_안_되면_빈_결과를_돌려준다(self, monkeypatch):
         from app.services import price_fetcher as pf
         monkeypatch.setattr(pf, "_fetch_yf_quotes_authed_sync",
                             lambda syms: (_ for _ in ()).throw(RuntimeError("x")))
 
-        async def 맨몸(syms):
+        async def 없음(syms):
             return None
-        monkeypatch.setattr(pf, "_fetch_yf_quotes_raw", 맨몸)
+        monkeypatch.setattr(pf, "_fetch_yf_quotes_raw", 없음)
+        # 마지막 길(spark)도 막혔다 — 바깥에 나갈 수 있는 곳에서 돌려도 같게
+        monkeypatch.setattr(pf, "_fetch_yf_spark", 없음)
         assert asyncio.run(pf.fetch_yf_quotes(["AAPL"])) == {}
 
     def test_인증_경로가_예외를_밖으로_던지지_않는다(self, monkeypatch):

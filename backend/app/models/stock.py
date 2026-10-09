@@ -175,6 +175,20 @@ class QuantMetricsCache(Base):
     fetched_at = Column(DateTime, nullable=False)
 
 
+class RankingSnapshot(Base):
+    """시장별 마지막 순위(일곱 가지, 각 100위까지) — ranking_service 참고.
+
+    해외 순위표는 메모리에만 있어서, 서버가 잠들었다 깨거나 야후 시세가
+    막히면 해외 순위 카드가 통째로 비었다('아직 순위가 만들어지지 않았어요').
+    마지막으로 제대로 만든 순위를 남겨 두고, 새로 만들 때까지 그것을
+    '언제 기준' 과 함께 보여 준다."""
+    __tablename__ = "ranking_snapshots"
+
+    market     = Column(String(10), primary_key=True)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, nullable=False)
+
+
 class ScreeningSnapshot(Base):
     """스크리닝 대상 전체(시장별)의 마지막 결과 — yf_service.스크리닝_전체 참고.
 

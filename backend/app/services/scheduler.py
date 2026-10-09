@@ -311,6 +311,14 @@ async def refresh_us_stocks():
     all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))
     BATCH = 100  # YF 요청당 최대 종목 수
 
+    # 표에 쌓기 전에 DB 에 남긴 마지막 해외 순위부터 깐다(프로세스당 한 번 —
+    # ranking_service.refresh_us_rows 참고)
+    try:
+        from app.services.ranking_service import 해외순위_사진_불러오기
+        await asyncio.to_thread(해외순위_사진_불러오기)
+    except Exception as e:
+        log.debug("해외 순위 사진 깔기 실패: %s", type(e).__name__)
+
     # YF 배치 fetch: 전체 종목 volume + market_cap + name
     ok_yf = 0
     for i in range(0, len(all_syms), BATCH):
@@ -321,6 +329,10 @@ async def refresh_us_stocks():
                 q = yf_data.get(sym)
                 if q and q.get("price"):
                     q["symbol"] = sym
+                    # 야후 일괄 시세가 막혀 spark 로 받으면 시가총액이 안 온다 —
+                    # 알던 값을 남긴다(ranking_service._시세_담기 와 같은 까닭)
+                    if not q.get("market_cap"):
+                        q["market_cap"] = (cache.get_stale(f"price:{sym}") or {}).get("market_cap") or 0
                     # 이 갱신은 5분마다 도는데 수명이 120초였다. 즉 5분 중
                     # 3분은 캐시가 비어 있었고, 지난 값 보관함은 400칸뿐이라
                     # 미국 종목 335개가 금방 밀려났다 — 순위가 비던 원인이다
@@ -378,6 +390,21 @@ async def refresh_us_stocks():
         log.debug("미국 순위표 쌓기 실패: %s", type(e).__name__)
 
     return ok_yf
+
+
+async def _미국순위표_돌리기() -> None:
+    """미국 순위표 한 회차(주기 갱신). 메모리 여유가 없어 건너뛰면 그것도
+    관리자 화면 '해외 순위표' 줄에 남긴다 — 여유가 늘 모자라면 해외 순위가
+    영영 안 서는데, 건너뛴 기록이 로그에만 있어 화면에서는 알 수 없었다."""
+    if not memory.has_headroom("미국 순위표"):
+        health.record_fail("해외 순위표", f"메모리 여유가 없어 건너뜀 "
+                           f"({memory.rss_mb() or 0:.0f}MB / {memory.MEMORY_LIMIT_MB}MB)")
+        return
+    try:
+        from app.services.ranking_service import refresh_us_rows
+        await refresh_us_rows()
+    except Exception as e:
+        log.warning("미국 순위표 갱신 실패: %s", type(e).__name__)
 
 
 async def refresh_kr_stocks():
@@ -1036,12 +1063,7 @@ async def periodic_refresh():
         # 겹치지 않게 반 박자 비켜 둔다)
         미국닫힘 = market_hours.us_session() == "closed"
         if (미국닫힘 and counter % 180 == 0) or (not 미국닫힘 and counter % 60 == 30):
-            if memory.has_headroom("미국 순위표"):
-                try:
-                    from app.services.ranking_service import refresh_us_rows
-                    await refresh_us_rows()
-                except Exception as e:
-                    log.warning("미국 순위표 갱신 실패: %s", type(e).__name__)
+            await _미국순위표_돌리기()
 
         # 국내 종목 목록 (1시간마다 확인 — 실제 갱신은 DB가 묵었을 때만)
         #
