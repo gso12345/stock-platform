@@ -9,6 +9,7 @@
 export const 화면들 = {
   Dashboard:     () => import("../pages/Dashboard"),
   Screening:     () => import("../pages/Screening"),
+  Ipo:           () => import("../pages/Ipo"),
   StockDetail:   () => import("../pages/StockDetail"),
   IndexDetail:   () => import("../pages/IndexDetail"),
   Backtest:      () => import("../pages/Backtest"),
@@ -39,6 +40,7 @@ const 주소별: Record<string, keyof typeof 화면들> = {
   "/watchlist": "Watchlist",
   "/quant": "Quant",
   "/screening": "Screening",
+  "/ipo": "Ipo",
   "/backtest": "Backtest",
   "/strategies": "Strategies",
   "/news": "News",

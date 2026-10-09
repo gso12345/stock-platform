@@ -1072,3 +1072,114 @@ export const alertsApi = {
   deleteAlert: (id: number) =>
     api.delete(`/alerts/${id}`).then((r) => r.data),
 };
+
+/* ── 공모주 — 상장일 시초가 예측 ───────────────────────────── */
+/** 비슷했던 과거 공모주 한 줄. ratio 는 시초가 ÷ 공모가 */
+export interface 공모주이웃 {
+  name: string;
+  code: string | null;
+  list_date: string;
+  ratio: number;
+  inst_ratio: number | null;
+  lockup_pct: number | null;
+  sub_ratio: number | null;
+  offer_price: number | null;
+  open_price: number | null;
+}
+
+export type 공모주예측 =
+  | { ok: false; reason: string }
+  | {
+      ok: true;
+      group: "normal" | "spac" | "reit";
+      /** 예상 시초가 ÷ 공모가 */
+      ratio: number;
+      /** 예상 시초가(원) — 첫날 범위(60~400%) 안, 호가 단위에 맞춘 값 */
+      price: number;
+      return_pct: number;
+      /** 비슷했던 공모주 가운데 절반이 시작한 범위 */
+      range: { low_ratio: number; high_ratio: number; low_price: number; high_price: number };
+      /** 비슷했던 공모주 중 2배 이상으로 시작한 몫 / 공모가 아래로 시작한 몫 */
+      p_double: number;
+      p_below: number;
+      neighbors: 공모주이웃[];
+      /** 견줄 때 쓴 항목 / 아직 없어서 못 쓴 항목 (화면 이름) */
+      used: string[];
+      missing: string[];
+      n_train: number;
+      parts: { neighbors_ratio: number; regression_ratio: number | null };
+    };
+
+export interface 다가오는공모주 {
+  name: string;
+  code: string | null;
+  market: string | null;
+  kind: "normal" | "spac" | "reit" | null;
+  forecast_date: string | null;
+  band_low: number | null;
+  band_high: number | null;
+  offer_price: number | null;
+  /** 공모금액(백만원) */
+  offer_amount: number | null;
+  inst_ratio: number | null;
+  lockup_pct: number | null;
+  sub_start: string | null;
+  sub_end: string | null;
+  sub_ratio: number | null;
+  list_date: string | null;
+  underwriter: string | null;
+  stage: string;
+  prediction: 공모주예측;
+}
+
+/** 최근 상장 — 그 전에 상장한 것만으로 맞혀 본 값과 실제 */
+export interface 공모주결과 {
+  name: string;
+  code: string | null;
+  list_date: string;
+  offer_price: number;
+  open_price: number;
+  actual_ratio: number;
+  pred_ratio: number;
+  low_ratio: number;
+  high_ratio: number;
+  in_range: boolean;
+}
+
+export interface 공모주한눈에 {
+  as_of: string | null;
+  upcoming: 다가오는공모주[];
+  recent: 공모주결과[];
+  accuracy: {
+    n: number;
+    /** 예측과 실제 시초가 수익률 차이의 중앙값(%p) */
+    median_abs_err_pp: number | null;
+    /** 공모가 위/아래를 맞힌 몫 */
+    direction_hit: number | null;
+    /** 실제가 범위 안에 든 몫 */
+    range_hit: number | null;
+  };
+  train_since: string;
+  n_records: number;
+  n_results: number;
+  source: { name: string; lists: Record<string, { rows: number; reason: string }> };
+  /** 서버가 뒤에서 자료를 새로 받는 중 */
+  refreshing: boolean;
+}
+
+export interface 공모주직접입력 {
+  offer_price: number;
+  inst_ratio: number;
+  lockup_pct: number;
+  sub_ratio?: number | null;
+  band_low?: number | null;
+  band_high?: number | null;
+  /** 공모금액(억원) */
+  offer_amount_eok?: number | null;
+  kind?: "normal" | "spac" | "reit";
+}
+
+export const ipoApi = {
+  overview: () => api.get<공모주한눈에>("/ipo").then((r) => r.data),
+  predict: (body: 공모주직접입력) => api.post<공모주예측>("/ipo/predict", body).then((r) => r.data),
+};

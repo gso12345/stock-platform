@@ -8,7 +8,7 @@
  * 따로 내면서 두 벌이 될 뻔했다. 두 벌이면 메뉴를 하나 추가할 때 화면에는
  * 나오는데 탭은 안 켜지는, 알아채기 어려운 어긋남이 생긴다.
  */
-import { Star, Search, LineChart, BookMarked } from "lucide-react";
+import { Star, Search, LineChart, BookMarked, Rocket } from "lucide-react";
 
 export interface 더보기메뉴 {
   to: string;
@@ -30,6 +30,7 @@ export interface 더보기메뉴 {
  * (Layout.tsx 의 내자산_경로 참고). */
 export const 더보기_메뉴: 더보기메뉴[] = [
   { to: "/screening",  icon: Search,     label: "스크리닝",   설명: "조건으로 종목 걸러내기" },
+  { to: "/ipo",        icon: Rocket,     label: "공모주",     설명: "상장일 시초가 예측" },
   { to: "/backtest",   icon: LineChart,  label: "백테스트",   설명: "과거 데이터로 전략 검증" },
   { to: "/strategies", icon: BookMarked, label: "전략저장소", 설명: "저장한 전략 다시 돌리기" },
 ];

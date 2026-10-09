@@ -20,6 +20,7 @@ from app.api.routes import dashboard, stocks, screening, backtest, watchlist, se
 from app.api.routes import community
 from app.api.routes import clienterr
 from app.api.routes import alerts
+from app.api.routes import ipo as ipo_routes
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
@@ -680,6 +681,8 @@ app.include_router(community.router,    prefix="/api/v1")
 app.include_router(clienterr.router,    prefix="/api/v1")
 # 가격 알림 — "삼성전자 8만원 되면 알려줘"
 app.include_router(alerts.router,       prefix="/api/v1")
+# 공모주 — 상장일 시초가 예측
+app.include_router(ipo_routes.router,   prefix="/api/v1")
 
 
 @app.websocket("/ws/indices")

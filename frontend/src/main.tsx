@@ -23,6 +23,7 @@ import "./index.css";
    순간 같은 함수로 미리 받아 둘 수 있게(Layout) */
 const Dashboard = lazy(화면들.Dashboard);
 const Screening = lazy(화면들.Screening);
+const Ipo = lazy(화면들.Ipo);
 const StockDetail = lazy(화면들.StockDetail);
 const IndexDetail = lazy(화면들.IndexDetail);
 const Backtest = lazy(화면들.Backtest);
@@ -128,6 +129,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/" element={<Layout />}>
               <Route index element={<Dashboard />} />
               <Route path="screening" element={<Screening />} />
+              <Route path="ipo" element={<Ipo />} />
               <Route path="stocks/:market/:symbol" element={<StockDetail />} />
               <Route path="stocks/:market/:symbol/*" element={<StockDetail />} />
               <Route path="index/:name" element={<IndexDetail />} />

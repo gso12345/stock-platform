@@ -189,6 +189,18 @@ class RankingSnapshot(Base):
     fetched_at = Column(DateTime, nullable=False)
 
 
+class IpoSnapshot(Base):
+    """공모주 기록 — 종목마다 수요예측·청약·상장 결과를 합친 것(ipo_service 참고).
+
+    자료 원천의 목록은 앞쪽 몇 쪽만 다시 받는다. 지난 공모주는 여기 남아
+    있어야 '비슷했던 과거 공모주' 로 견줄 수 있다."""
+    __tablename__ = "ipo_snapshots"
+
+    key        = Column(String(20), primary_key=True)
+    data       = Column(JSON, nullable=False)
+    fetched_at = Column(DateTime, nullable=False)
+
+
 class ScreeningSnapshot(Base):
     """스크리닝 대상 전체(시장별)의 마지막 결과 — yf_service.스크리닝_전체 참고.
 
