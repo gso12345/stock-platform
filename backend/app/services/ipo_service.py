@@ -1207,17 +1207,28 @@ def _이웃줄(r: dict, y: float) -> dict:
 검증_곳 = 100
 
 
+#: 청약이 끝나야 나오는 값 — '청약 전 예측' 은 이것들 없이 맞힌다. 유통물량·구주매출은
+#: 증권신고서에 먼저 나오므로 그대로 둔다
+청약뒤칸 = ("sub_ratio", "equal_shares")
+
+
 def _걸음(기록: dict, 곳: int) -> list:
     """최근 상장한 일반 공모주 '곳' 개를 상장일 순으로, 모델마다 그 전 상장만으로 맞힌다.
 
-    [(기록, 상장일, 실제 y, {(반감, 상세): log 예측배율})] — 한 모델이라도 못 맞힌 줄은 뺀다."""
+    [(기록, 상장일, 실제 y, {(반감, 상세): log 예측배율}, {(반감, 상세): 청약 전 log 예측배율 | None})]
+    — 한 모델이라도 못 맞힌 줄은 뺀다. 청약 전 예측은 청약뒤칸을 빼고 맞힌 것이다(못 맞히면 None).
+    청약할지는 청약 전에 정하는데, 그때의 예측은 청약 결과 없이 계산해서 더 빗나간다 — 그
+    정확도를 따로 보이려고 같이 맞혀 둔다."""
     모델들 = {(반감, 상세): 모델(기록, 반감, 상세) for _, _, 반감, _, 상세 in 방식들}
     out = []
     for _, y, r, d in next(iter(모델들.values())).표("normal")[-곳:]:
         대상 = {**r, "open_price": None, "close_price": None}
         예측들 = {열: m.예측(대상, d) for 열, m in 모델들.items()}
         if all(p.get("ok") for p in 예측들.values()):
-            out.append((r, d, y, {열: math.log(p["ratio"]) for 열, p in 예측들.items()}))
+            청약전 = {**대상, **{f: None for f in 청약뒤칸}}
+            전 = {열: m.예측(청약전, d) for 열, m in 모델들.items()}
+            out.append((r, d, y, {열: math.log(p["ratio"]) for 열, p in 예측들.items()},
+                        {열: math.log(p["ratio"]) if p.get("ok") else None for 열, p in 전.items()}))
     return out
 
 
@@ -1231,14 +1242,18 @@ def _보정값(걸음: list, 기본: list, 기준일: date) -> float:
     return min(max(보정_몫 * sum(오차) / len(오차), -보정_한도), 보정_한도)
 
 
-def _방식별(걸음: list) -> dict:
-    """{방식 열쇠: [줄마다 log 예측배율]} — 보정은 그 줄 상장일 전의 오차만 쓴다."""
+def _방식별(걸음: list, 칸: int = 3) -> dict:
+    """{방식 열쇠: [줄마다 log 예측배율]} — 보정은 그 줄 상장일 전의 오차만 쓴다.
+
+    칸=4 면 청약 전 예측(못 맞혔으면 None). 보정은 그때도 청약 결과까지 넣고 맞힌 예측의
+    오차로 한다 — 다가오는 공모주를 청약 전에 맞힐 때 붙이는 보정과 같게."""
     out = {}
     for k, _, 반감, 보정, 상세 in 방식들:
         기본 = [e[3][(반감, 상세)] for e in 걸음]
-        out[k] = [min(max(v + (_보정값(걸음, 기본, e[1]) if 보정 else 0.0),
+        out[k] = [None if (v := e[칸][(반감, 상세)]) is None else
+                  min(max(v + (_보정값(걸음, 기본, e[1]) if 보정 else 0.0),
                           math.log(하한배율)), math.log(상한배율))
-                  for v, e in zip(기본, 걸음)]
+                  for e in 걸음]
     return out
 
 
@@ -1274,15 +1289,22 @@ def _검증(기록: dict, 최근: int, 기준일: date) -> tuple:
     하나로만 맞혔을 때다."""
     걸음 = _걸음(기록, 최근 + 고르기_곳 + 보정_곳)
     방식값 = _방식별(걸음)
+    청약전값 = _방식별(걸음, 4)
     이름 = {k: 화면이름 for k, 화면이름, *_ in 방식들}
     줄들, 방향 = [], []
+    청약전차이, 청약전방향 = [], []
     방식차이: dict = {k: [] for k in 이름}
     for i in range(max(0, len(걸음) - 최근), len(걸음)):
-        r, d, _, _ = 걸음[i]
+        r, d = 걸음[i][:2]
         고른 = _고르기(걸음, 방식값, d)
         배율, 가격, 차이 = _차이(r, 방식값[고른][i])
         실제 = 결과배율(r)
         방향.append((배율 >= 1) == (실제 >= 1))
+        # 같은 날 같은 방식으로, 청약 결과만 모른 채 맞혔다면
+        if (전값 := 청약전값[고른][i]) is not None:
+            전배율, _, 전차이 = _차이(r, 전값)
+            청약전차이.append(전차이)
+            청약전방향.append((전배율 >= 1) == (실제 >= 1))
         for k in 방식차이:
             방식차이[k].append(_차이(r, 방식값[k][i])[2])
         줄들.append({"name": r["name"], "code": r.get("code"), "list_date": r["list_date"],
@@ -1300,6 +1322,9 @@ def _검증(기록: dict, 최근: int, 기준일: date) -> tuple:
         "direction_hit": round(sum(방향) / n, 3) if n else None,
         "method": {"key": 지금, "name": 이름[지금], "pick_window": 고르기_곳},
         "methods": [{"key": k, "name": 이름[k], **_성적(방식차이[k])} for k in 이름],
+        # 청약 전에 본 예측(청약경쟁률·균등 없이)의 성적 — 청약할지 정할 때 믿을 만한 정도
+        "pre_sub": {"n": len(청약전차이), **_성적(청약전차이),
+                    "direction_hit": round(sum(청약전방향) / len(청약전방향), 3) if 청약전방향 else None},
         "rows": 줄들[::-1],
     }
     return 검증, {"key": 지금, "name": 이름[지금], "반감": 반감, "상세": 상세, "보정": c}

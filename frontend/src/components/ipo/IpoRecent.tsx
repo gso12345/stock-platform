@@ -115,6 +115,13 @@ export default function IpoRecent({ 줄들, 정확도 }: {
             </div>
           </div>
         )}
+        {/* 위 숫자는 청약 결과까지 넣고 맞힌 값이다. 청약할지 정하는 때(청약 전)의 예측은 더 빗나간다 */}
+        {정확도.n > 0 && 정확도.pre_sub && 정확도.pre_sub.n > 0 && 정확도.pre_sub.hit_rate != null && (
+          <p className="text-2xs text-text-muted break-keep">
+            청약 전에 본 예측(청약경쟁률 없이)만 보면 ±{폭}% 안 <b className="text-text-primary num">{확률글(정확도.pre_sub.hit_rate)}</b>
+            {정확도.pre_sub.median_abs_diff_pct != null && <> · 보통 차이 <b className="text-text-primary num">±{정확도.pre_sub.median_abs_diff_pct}%</b></>}
+          </p>
+        )}
         {정확도.n > 0 && 정확도.method && 정확도.methods?.length
           ? <방식설명 지금={정확도.method} 방식들={정확도.methods} 폭={폭} /> : null}
       </div>

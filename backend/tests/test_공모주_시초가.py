@@ -924,6 +924,56 @@ class Test맞힘_기준:
         assert 검증["rows"][0]["name"] == "맞힘4", "최근 상장이 위로 와야 한다"
 
 
+class Test청약전_정확도:
+    """청약할지는 청약 전에 정한다. 그때의 예측은 청약경쟁률·균등 없이 맞힌 값이라 더 빗나가는데,
+    '최근 상장' 정확도는 청약 결과까지 넣고 맞힌 값이었다 — 청약 전 예측의 성적을 따로 낸다."""
+
+    def _기록(self, n=30):
+        return {f"가{i}": {"name": f"가{i}", "kind": "normal", "offer_price": 10_000, "open_price": 15_000,
+                           "sub_ratio": 1000.0, "equal_shares": 2.0, "float_pct": 30.0, "old_pct": 10.0,
+                           "list_date": (date(2024, 1, 2) + timedelta(days=7 * i)).isoformat()}
+                for i in range(n)}
+
+    def test_청약_결과_없이_맞힌_성적을_따로_낸다(self, monkeypatch):
+        본것: list = []
+
+        def 예측(self, 대상, 기준일=None):
+            본것.append(대상)
+            if 대상.get("sub_ratio") is not None:
+                return {"ok": True, "ratio": 1.5}                    # 청약 결과까지 알면 딱 맞힌다
+            if 대상["name"] in ("가28", "가29"):
+                return {"ok": False, "reason": "못 맞힘"}            # 청약 전에는 못 맞힌 곳
+            # 맞혀 볼 스무 곳(가10~가29) 가운데 가20~가27 은 공모가 아래로 볼 만큼 빗나간다
+            return {"ok": True, "ratio": 0.9 if 대상["name"] in {f"가{i}" for i in range(20, 28)} else 1.0}
+        monkeypatch.setattr(S.모델, "예측", 예측)
+        검증 = S.걸어가며_검증(self._기록(), 최근=20)
+        assert 검증["n"] == 20 and 검증["hit_rate"] == 1.0
+        전 = 검증["pre_sub"]
+        assert 전["n"] == 18, "청약 전에 못 맞힌 곳은 세지 않는다"
+        # +50% 열 곳, +67% 여덟 곳 — 가운데는 +50%. 공모가 위·아래는 열 곳만 맞혔다
+        assert 전["hit_rate"] == 0.0 and 전["median_abs_diff_pct"] == 50
+        assert 전["direction_hit"] == pytest.approx(10 / 18, abs=0.001)
+        청약전 = [d for d in 본것 if d.get("sub_ratio") is None]
+        assert 청약전 and all(d.get("equal_shares") is None for d in 청약전), "균등은 청약 뒤에 나온다"
+        assert all(d["float_pct"] == 30.0 and d["old_pct"] == 10.0 for d in 청약전), \
+            "유통물량·구주매출은 청약 전에도 안다 — 빼면 실제보다 나쁘게 잰다"
+
+    def test_보정은_청약_결과까지_넣은_예측의_오차로_붙인다(self, monkeypatch):
+        """다가오는 공모주를 청약 전에 맞힐 때 붙이는 보정과 같게 — 그래야 화면의 예측과 같은 것을 잰다"""
+        def 예측(self, 대상, 기준일=None):
+            return {"ok": True, "ratio": 1.2 if 대상.get("sub_ratio") is not None else 1.0}
+        monkeypatch.setattr(S.모델, "예측", 예측)
+        검증 = S.걸어가며_검증(self._기록(), 최근=20)
+        # 늘 1.2 로 봤는데 1.5 로 시작 — 보정 = log(1.25)/2, 청약 전 1.0 × 1.118 = 11,180원 → +34%
+        assert 검증["method"]["key"].endswith("_fix")
+        assert 검증["pre_sub"]["median_abs_diff_pct"] == 34, 검증["pre_sub"]
+
+    def test_한눈에도_실린다(self):
+        값, _ = S._한눈에값(_만든기록(n=120), S.오늘())
+        전 = 값["accuracy"]["pre_sub"]
+        assert 전["n"] > 0 and 0 <= 전["hit_rate"] <= 1 and 전["median_abs_diff_pct"] is not None
+
+
 class Test방식:
     """사용자: "너무 낮은데 예측률이"
 

@@ -26,25 +26,27 @@ export default function IpoBrokerFilter({ 주관사칸들, 보이는수, 모름�
   if (!칩들.length) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      {/* 안 골랐을 때 긴 안내 글을 두지 않는다 — '증권사' 이름표와 칩만으로 무엇을 하는 줄인지 보인다 */}
-      <div role="group" aria-label="증권사로 거르기" className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap pb-0.5">
-        <span className="text-2xs font-semibold text-text-muted shrink-0">증권사</span>
+      <div role="group" aria-label="증권사로 거르기" className="flex gap-1.5 overflow-x-auto sm:flex-wrap pb-0.5">
         {칩들.map(([이름, n]) => (
           <고른칩 key={이름} 작게 고름={고른.includes(이름)} onClick={() => 토글(이름)} ariaLabel={`${이름} ${n}곳`}>
             {이름} <span className="num opacity-70">{n}</span>
           </고른칩>
         ))}
       </div>
-      {고른.length > 0 && (
-        <p className="text-2xs text-text-muted break-keep">
-          고른 증권사 공모주 {보이는수}곳만 보는 중
-          {모름수 > 0 && <> · 주관사 모르는 {모름수}곳 빠짐</>}
-          {" · "}
-          <button type="button" onClick={() => 비우기([])} className="font-semibold text-accent-blue hover:underline">
-            모두 보기
-          </button>
-        </p>
-      )}
+      <p className="text-2xs text-text-muted break-keep">
+        {고른.length ? (
+          <>
+            고른 증권사 {고른.length}곳이 주관하는 공모주 {보이는수}곳만 보여요
+            {모름수 > 0 && <> · 주관사가 아직 안 나온 {모름수}곳은 빠졌어요</>}
+            {" "}
+            <button type="button" onClick={() => 비우기([])} className="font-semibold text-accent-blue hover:underline">
+              모두 보기
+            </button>
+          </>
+        ) : (
+          "청약할 증권사를 고르면 그 증권사가 주관하는 공모주만 보여요. 고른 것은 이 기기에 남아요."
+        )}
+      </p>
     </div>
   );
 }
