@@ -495,6 +495,16 @@ _상세경로 = "/html/fund/?o=v&no={no}&l=&page=1"
 #: 상세 값의 화면 이름 — 관리자 진단 줄과 같은 순서
 _상세이름 = {"float_pct": "유통물량", "equal_shares": "균등", "sub_accounts": "청약건수",
             "prop_ratio": "비례", "old_pct": "구주매출"}
+#: 상세 페이지에서 읽는 값 전부
+_상세칸 = ("float_pct", "float_shares", "equal_shares", "sub_accounts", "prop_ratio", "old_pct", "total_shares")
+#: 상세 페이지 읽는 법(읽기_상세)의 판 — 읽는 법을 고치면 올린다.
+#: 상장한 공모주는 상세를 한 번 받으면 끝낸다(detail_done). 그래서 1077ada 에서 '유통물량'·
+#: '균등 몫' 읽기를 넓혔어도 이미 받아 둔 지난 공모주 수백 곳은 옛 읽기 그대로였다(사용자:
+#: "유통물량과 균등수량, 구주매출은 여전히 안나와"). 판이 다른 것은 다시 받아 새로 읽는다
+상세판 = 2
+#: 관리자 '공모주 상세' 줄의 단서 — 서버가 뜬 뒤 받은 페이지들에서 모은다. 차례마다 받는 곳이
+#: 다르다(상장 전 몇 곳만이거나 0곳). 그 차례 것만 적으면 수백 곳을 다시 읽은 때의 단서가 사라진다
+_진단보관: dict = {"글": {}, "본말": set(), "칸": [], "본곳": 0}
 
 _주수 = r"([\d,]+(?:\.\d+)?)\s*주"
 _몫 = r"([\d]+(?:\.\d+)?)\s*%"
@@ -589,17 +599,19 @@ def _상세볼때(r: dict) -> bool:
 
 
 def _상세받을것(기록: dict, 지금: float) -> list:
-    """상세 페이지를 (다시) 받을 공모주 열쇠들 — 아직 안 받은 것, 그리고 상장 전이라 값이 바뀌는
-    것(갱신간격마다). 상장한 뒤에 한 번 받았으면 끝이다. 새 규칙보다 한참 앞 것은 받지 않는다."""
+    """상세 페이지를 (다시) 받을 공모주 열쇠들 — 아직 안 받은 것, 지금과 다른 판(상세판)으로 읽은
+    것, 그리고 상장 전이라 값이 바뀌는 것(갱신간격마다). 상장한 뒤에 지금 판으로 한 번 받았으면
+    끝이다. 새 규칙보다 한참 앞 것은 받지 않는다."""
     out = []
     for k, r in 기록.items():
-        if not r.get("no") or r.get("detail_done") or not _상세볼때(r):
+        if not r.get("no") or not _상세볼때(r):
             continue
-        if 지금 - float(r.get("detail_at") or 0) < 갱신간격:
+        if r.get("detail_ver") == 상세판 and (
+                r.get("detail_done") or 지금 - float(r.get("detail_at") or 0) < 갱신간격):
             continue
         out.append(k)
-    # 받은 적 없는 것부터, 최근 것부터
-    out.sort(key=lambda k: (bool(기록[k].get("detail_at")),
+    # 받은 적 없는 것 → 옛 판으로 읽은 것 → 다시 볼 때가 된 것. 그 안에서는 최근 것부터
+    out.sort(key=lambda k: (bool(기록[k].get("detail_at")) + (기록[k].get("detail_ver") == 상세판),
                             -(_d(기록[k].get("list_date") or 기록[k].get("sub_end")) or date.min).toordinal()))
     return out[:상세_한번]
 
@@ -613,7 +625,8 @@ def 상세채우기(기록: dict, 저장=None) -> dict:
     지금 = time.time()
     받음, 실패, 이유 = 0, 0, ""
     칸들: Counter = Counter()
-    글예: dict = {}
+    못읽은글: dict = {}      # 말 → 그 값을 못 읽은 페이지의 원문 조각 — 고칠 단서
+    본말: set = set()        # 페이지에 나오기는 한 말
     for i, k in enumerate(_상세받을것(기록, 지금)):
         r = 기록[k]
         본문, 이유_ = _경로받기(_상세경로.format(no=r["no"]))
@@ -625,10 +638,14 @@ def 상세채우기(기록: dict, 저장=None) -> dict:
         읽음 = 읽기_상세(본문)
         칸들.update(읽음.pop("_칸"))
         for 말, 조각 in 읽음.pop("_글").items():
-            값이름 = {"균등": "equal_shares", "유통": "float_pct"}[말]
-            if 말 not in 글예 or 값이름 not in 읽음:
-                글예[말] = 조각                  # 못 읽은 곳의 조각이 고칠 단서다
-        기록[k] = {**r, **읽음, "detail_at": 지금, "detail_done": bool(r.get("open_price"))}
+            본말.add(말)
+            if {"균등": "equal_shares", "유통": "float_pct"}[말] not in 읽음:
+                못읽은글[말] = 조각
+        # 같은 판이면 이번에 빠진 값도 알던 대로 둔다(상장 전 페이지는 값이 잠깐 빠지기도 한다).
+        # 판이 바뀌었으면 옛 판이 읽은 값은 버린다 — 잘못 읽었던 값이 남지 않게
+        바탕 = r if r.get("detail_ver") == 상세판 else {f: v for f, v in r.items() if f not in _상세칸}
+        기록[k] = {**바탕, **읽음, "detail_at": 지금, "detail_done": bool(r.get("open_price")),
+                  "detail_ver": 상세판}
         받음 += 1
         if 저장 and 받음 % 50 == 0:
             저장(기록)
@@ -636,11 +653,12 @@ def 상세채우기(기록: dict, 저장=None) -> dict:
             time.sleep(상세_쉼)
     읽은수 = {f: sum(1 for r in 기록.values() if r.get(f) is not None) for f in _상세이름}
     return {"받음": 받음, "실패": 실패, "이유": 이유, "읽은수": 읽은수,
-            "칸": [c for c, _ in 칸들.most_common(15)], "글": 글예}
+            "칸": [c for c, _ in 칸들.most_common(15)], "글": 못읽은글, "본말": 본말}
 
 
 def _상세진단글(진단: dict, 기록: dict) -> str:
-    """관리자 '공모주 상세' 줄 — 이번에 받은 곳, 항목별로 값을 읽은 곳(누적), 페이지에 있던 칸 이름"""
+    """관리자 '공모주 상세' 줄 — 이번에 받은 곳, 항목별로 값을 읽은 곳(누적), 페이지에 있던 칸 이름,
+    균등·유통을 못 읽은 페이지의 원문 조각(다 읽었으면 '다 읽음', 어느 페이지에도 없으면 '페이지에 없음')"""
     받은적 = sum(1 for r in 기록.values() if r.get("detail_at"))
     볼것 = [r for r in 기록.values() if _상세볼때(r)]
     주소 = sum(1 for r in 볼것 if r.get("no"))
@@ -650,10 +668,11 @@ def _상세진단글(진단: dict, 기록: dict) -> str:
         글 += f" · 칸: {'/'.join(진단['칸'])}"
     if not 주소 and (예 := next((r["link"] for r in 볼것 if r.get("link")), "")):
         글 += f" · 목록 링크에 상세 번호가 없음(예: {예})"
-    if 진단["받음"]:
-        조각 = 진단.get("글") or {}
-        글 += " · 원문 — " + " / ".join(f"{말}: '{조각[말]}'" if 말 in 조각 else f"{말}: 페이지에 없음"
-                                         for 말 in ("균등", "유통"))
+    if 진단["받음"] or 진단.get("본곳"):
+        조각, 본말 = 진단.get("글") or {}, 진단.get("본말") or set()
+        글 += " · 원문 — " + " / ".join(
+            f"{말}: '{조각[말]}'" if 말 in 조각 else f"{말}: 다 읽음" if 말 in 본말 else f"{말}: 페이지에 없음"
+            for 말 in ("균등", "유통"))
     return 글
 
 
@@ -790,6 +809,13 @@ def _상세받기(기록: dict, 상태: dict) -> None:
     DB 에 남기고, 화면 값을 다시 셈해 둔다."""
     from app.core import health
     진단 = 상세채우기(기록, 저장=lambda 기: _db_쓰기(기, 상태))
+    # 단서는 서버가 뜬 뒤 모은 것으로 적는다(_진단보관)
+    보관 = _진단보관
+    보관["글"].update(진단["글"])
+    보관["본말"] |= 진단["본말"]
+    보관["칸"] = 진단["칸"] or 보관["칸"]
+    보관["본곳"] += 진단["받음"]
+    진단 = {**진단, "글": dict(보관["글"]), "본말": set(보관["본말"]), "칸": 보관["칸"], "본곳": 보관["본곳"]}
     if 진단["받음"] or not 진단["실패"]:
         health.record_ok("공모주 상세", None, _상세진단글(진단, 기록))
     else:
@@ -1174,6 +1200,10 @@ def _이웃줄(r: dict, y: float) -> dict:
 보정_한도 = math.log(1.5)
 #: 방식 고르기 — 직전 몇 곳의 성적으로 고르나. 이보다 덜 쌓였으면 기본을 쓴다
 고르기_곳, 고르기_최소 = 40, 10
+#: 최근 상장 — 예측과 실제. 최근 이만큼을 그 전 상장만으로 맞혀 보고 모두 보여 준다(정확도도
+#: 이 곳들로 센다). 예전에는 60곳을 맞혀 30곳만 보냈다(사용자: "최근상장 개수를 늘려줘").
+#: 지금 쓸 방식은 기준일 직전 고르기_곳 곳으로만 고르므로 이 수와 상관없다
+검증_곳 = 100
 
 
 def _걸음(기록: dict, 곳: int) -> list:
@@ -1274,7 +1304,7 @@ def _검증(기록: dict, 최근: int, 기준일: date) -> tuple:
     return 검증, {"key": 지금, "name": 이름[지금], "반감": 반감, "상세": 상세, "보정": c}
 
 
-def 걸어가며_검증(기록: dict, 최근: int = 60) -> dict:
+def 걸어가며_검증(기록: dict, 최근: int = 검증_곳) -> dict:
     """최근 상장한 일반 공모주를 하나씩, 그 전에 상장한 것만으로 맞혀 본다.
 
     차이는 '실제 시초가 ÷ 예측 시초가 − 1' 을 화면에 적는 정수(%)로 반올림한 값이고,
@@ -1360,14 +1390,14 @@ def 한눈에() -> dict:
 
 def _한눈에값(기록: dict, 기준일: date) -> tuple:
     """(화면에 줄 값, 지금 쓰는 방식) — 방식마다 걸어가며 맞혀 보느라 무겁다(보관해 두고 쓴다)."""
-    검증, 지금 = _검증(기록, 60, 기준일)
+    검증, 지금 = _검증(기록, 검증_곳, 기준일)
     모델들 = _모델들(기록, 지금)
     다가옴 = [{**_공개(r), "stage": 단계(r, 기준일), "prediction": _방식대로(모델들, r, 기준일, 지금)}
               for r in _다가오는(기록, 기준일)]
     값 = {
         "as_of": datetime.fromtimestamp(_받은때, KST).isoformat() if _받은때 else None,
         "upcoming": 다가옴,
-        "recent": 검증.pop("rows")[:30],
+        "recent": 검증.pop("rows"),
         "accuracy": 검증,
         "train_since": 새규칙_시작.isoformat(),
         "n_records": len(기록),
@@ -1416,5 +1446,5 @@ def 직접_예측(값: dict) -> dict:
     if _예측보관.get("열") == (id(기록), _받은때, 기준일) and _예측보관.get("지금"):
         지금 = _예측보관["지금"]
     else:
-        지금 = _검증(기록, 60, 기준일)[1]
+        지금 = _검증(기록, 검증_곳, 기준일)[1]
     return _방식대로(_모델들(기록, 지금), 대상, 기준일, 지금)

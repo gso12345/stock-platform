@@ -134,7 +134,7 @@ export default function IpoCalculator({ 처음값 }: {
           <입력칸 id="offer_amount_eok" 이름="공모금액" 단위="억원" 값={값.offer_amount_eok} 바꿈={바꿈("offer_amount_eok")} 틀림={틀림.offer_amount_eok} />
           <입력칸 id="float_pct" 이름={<용어힌트 이름="유통물량" />} 단위="%" 값={값.float_pct} 바꿈={바꿈("float_pct")} 틀림={틀림.float_pct} 도움말="상장일에 팔 수 있는 몫" />
           <입력칸 id="equal_shares" 이름={<용어힌트 이름="균등배정" />} 단위="주" 값={값.equal_shares} 바꿈={바꿈("equal_shares")} 틀림={틀림.equal_shares} 도움말="계좌당 · 청약 뒤에 나와요" />
-          <입력칸 id="old_pct" 이름="구주매출" 단위="%" 값={값.old_pct} 바꿈={바꿈("old_pct")} 틀림={틀림.old_pct} 도움말="공모 물량 중 기존 주주 몫" />
+          <입력칸 id="old_pct" 이름={<용어힌트 이름="구주매출" />} 단위="%" 값={값.old_pct} 바꿈={바꿈("old_pct")} 틀림={틀림.old_pct} 도움말="공모 물량 중 기존 주주 몫" />
         </div>
         <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="공모주 종류">
           {([["normal", "일반"], ["spac", "스팩"], ["reit", "리츠"]] as const).map(([k, 이름]) => (

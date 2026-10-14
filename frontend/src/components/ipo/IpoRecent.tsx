@@ -13,7 +13,8 @@ import type { 공모주결과, 공모주방식성적, 공모주한눈에 } from 
 import { 등락 } from "./IpoPrediction";
 import { 원, 배율퍼센트, 퍼센트글, 날짜글, 확률글 } from "./ipoFormat";
 
-const 처음보일수 = 8;
+/** 처음에 보일 곳 수 — 나머지(서버가 맞혀 본 최근 100곳까지)는 '더 보기' 로 */
+const 처음보일수 = 15;
 
 /** 지금 쓰는 방식과 방식마다의 성적.
  *

@@ -84,6 +84,8 @@ export default function IpoCard({ 공모주: g, 바꿔보기 }: {
         {g.float_pct != null && <칸 이름={<용어힌트 이름="유통물량" />}>{확약글(g.float_pct)}</칸>}
         {g.equal_shares != null && <칸 이름={<용어힌트 이름="균등배정" />}>{주글(g.equal_shares)}</칸>}
         {g.prop_ratio != null && <칸 이름={<용어힌트 이름="비례경쟁률" />}>{경쟁률글(g.prop_ratio)}</칸>}
+        {/* 서버는 읽고 견주는 데도 썼는데('견준 항목') 카드에 칸이 없어 안 보였다 */}
+        {g.old_pct != null && <칸 이름={<용어힌트 이름="구주매출" />}>{g.old_pct === 0 ? "없음" : 확약글(g.old_pct)}</칸>}
       </dl>
 
       <IpoPrediction 예측={g.prediction} />

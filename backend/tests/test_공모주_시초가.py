@@ -113,6 +113,7 @@ def _깨끗이(monkeypatch):
     monkeypatch.setattr(S, "_db_읽기", lambda: ({}, 0.0, {}))
     monkeypatch.setattr(S, "_db_쓰기", lambda 기록, 상태: None)
     monkeypatch.setattr(S, "_코드붙이기", lambda 기록: None)
+    monkeypatch.setattr(S, "_진단보관", {"글": {}, "본말": set(), "칸": [], "본곳": 0})
     S._예측보관.clear()
     yield
     S._예측보관.clear()
@@ -466,6 +467,55 @@ class Test상세_받기:
         기록 = self._기록()
         글 = S._상세진단글(S.상세채우기(기록), 기록)
         assert "원문 — 균등: '" in 글 and "균등방식 최소청약" in 글 and "유통: 페이지에 없음" in 글, 글
+        _가짜원천(monkeypatch, {("상세", "12"): _상세쪽()})
+        기록 = self._기록()
+        글 = S._상세진단글(S.상세채우기(기록), 기록)
+        assert "균등: 다 읽음" in 글 and "유통: 다 읽음" in 글, "읽은 곳의 조각은 단서가 아니다 — " + 글
+
+    def test_관리자_줄의_단서는_받을_것이_없던_차례에도_남는다(self, monkeypatch):
+        """차례마다 받는 곳이 다르다(상장 전 몇 곳만이거나 0곳) — 수백 곳을 다시 읽은 때의 단서가
+        다음 차례에 지워지면 관리자가 볼 때는 이미 없다"""
+        health.reset()
+        monkeypatch.setattr(S, "_데우기", lambda: None)
+        _가짜원천(monkeypatch, {("상세", "12"): _상세쪽(균등=None, 건수=None,
+                                                      덧붙임="<p>균등 배정 물량 : 450,000주</p>")})
+        기록 = self._기록()
+        S._상세받기(기록, {})
+        S._상세받기(기록, {})                       # 이번엔 받을 것이 없다
+        줄 = {h["name"]: h for h in health.snapshot()}["공모주 상세"]["detail"]
+        assert "이번 0곳" in 줄 and "균등: '" in 줄 and "450,000주" in 줄 and "유통: 다 읽음" in 줄, 줄
+        assert "총공모주식수" in 줄, "페이지에 있던 칸 이름도 남긴다 — " + 줄
+
+    def test_읽는_법이_바뀌면_받아_둔_것도_다시_읽는다(self, monkeypatch):
+        """사용자: "유통물량과 균등수량, 구주매출은 여전히 안나와" — 상장한 공모주는 상세를 한 번만
+        받아서, 읽는 법을 고쳐도 이미 받아 둔 지난 공모주에는 닿지 않았다"""
+        물음 = _가짜원천(monkeypatch, {("상세", "11"): _상세쪽(균등=None, 덧붙임="<p>균등방식 최소청약 10주</p>")})
+        기록 = self._기록()
+        # 옛 판이 받아 끝낸 것 — '최소청약 10주' 를 균등 수량으로 잘못 읽어 두었다
+        기록["상장한"].update(detail_done=True, detail_at=time.time(), equal_shares=10.0)
+        S.상세채우기(기록)
+        r = 기록["상장한"]
+        assert any("no=11" in u for u in 물음), "옛 판으로 읽고 끝낸 것을 다시 받지 않았다"
+        assert r["detail_ver"] == S.상세판 and r["float_pct"] == pytest.approx(35.2)
+        assert "equal_shares" not in r, "새 판으로 다시 읽었으면 옛 판이 잘못 읽은 값은 버린다"
+        물음.clear()
+        S.상세채우기(기록)
+        assert 물음 == [], "지금 판으로 읽은 것은 다시 받지 않는다(상장 전 것은 갱신간격마다)"
+
+    def test_받을_차례는_안_받은_것_옛_판_다시_볼_것(self, monkeypatch):
+        물음 = _가짜원천(monkeypatch, {})
+        monkeypatch.setattr(S, "상세_한번", 1)
+        옛때 = time.time() - S.갱신간격 - 1
+        기록 = {
+            "다시볼것": {"name": "다시볼것", "kind": "normal", "no": "1", "sub_end": "2099-01-09",
+                     "detail_at": 옛때, "detail_ver": S.상세판},
+            "옛판": {"name": "옛판", "kind": "normal", "no": "2", "list_date": "2026-09-01",
+                   "detail_at": 옛때, "detail_done": True},
+            "안받은것": {"name": "안받은것", "kind": "normal", "no": "3", "list_date": "2025-01-01"},
+        }
+        for _ in range(3):
+            S.상세채우기(기록)
+        assert [parse_qs(urlparse(u).query)["no"][0] for u in 물음] == ["3", "2", "1"]
 
     def test_막혀_있으면_세_곳만_두드린다(self, monkeypatch):
         물음 = _가짜원천(monkeypatch, {}, 상태=403)
@@ -530,10 +580,21 @@ class Test상세_받기:
 
     def test_상세가_다_있으면_따로_받지_않는다(self, monkeypatch):
         self._방금_받은_서버(monkeypatch, {
-            "가": {"name": "가", "kind": "normal", "no": "1", "list_date": "2026-09-01", "detail_done": True},
-            "나": {"name": "나", "kind": "normal", "no": "2", "sub_end": "2099-01-03", "detail_at": time.time()},
+            "가": {"name": "가", "kind": "normal", "no": "1", "list_date": "2026-09-01", "detail_done": True,
+                  "detail_ver": S.상세판},
+            "나": {"name": "나", "kind": "normal", "no": "2", "sub_end": "2099-01-03", "detail_at": time.time(),
+                  "detail_ver": S.상세판},
         })
         assert S._뒤에서_받기() is False
+        S.기록들()["가"]["detail_ver"] = S.상세판 - 1
+        불림: list = []
+        monkeypatch.setattr(S, "상세만받기", lambda: 불림.append(1))
+        assert S._뒤에서_받기() is True, "옛 판으로 읽은 것이 있으면 다시 받는다"
+        for _ in range(100):
+            if not S._갱신중:
+                break
+            time.sleep(0.02)
+        assert 불림 == [1], "목록은 새것이라 상세만"
 
     def test_목록_링크에_상세_번호가_없으면_관리자_화면에(self):
         html = _쪽("청약", 청약_머리, [['<a href="javascript:view(12)">가나바이오</a>', "2025.10.13~10.14",
@@ -1194,6 +1255,11 @@ class Test한눈에:
         assert 곧["prediction"]["ok"] and 곧["stage"] == "청약 완료"
         assert not next(u for u in 값["upcoming"] if u["name"] == "예측전")["prediction"]["ok"]
         assert 값["accuracy"]["n"] > 0 and 값["recent"] and 값["train_since"] == "2023-06-26"
+
+    def test_최근_상장은_맞혀_본_곳을_모두_보낸다(self):
+        """사용자: "최근상장 개수를 늘려줘" — 60곳을 맞혀 보고 30곳만 보냈다. 정확도도 보이는 곳들로 센다"""
+        값, _ = S._한눈에값(_만든기록(n=200), S.오늘())
+        assert len(값["recent"]) == 값["accuracy"]["n"] == 100
 
     def test_오래됐으면_뒤에서_새로_받는다(self, monkeypatch):
         self._채우기(monkeypatch)
