@@ -532,22 +532,34 @@ def 읽기_상세(html: str) -> dict:
         return re.search(꼴, 본) if 본 else None
 
     out: dict = {}
-    # 상장일 유통가능물량 — '3,500,000주 (35.2%)' · '35.20%'. 이름칸이 없으면 글 전체에서
-    유통 = 값("유통가능") or (m.group(0) if (m := re.search(r"유통\s*가능[^%]{0,60}?%", 글)) else "")
+    # 상장일 유통가능물량 — '3,500,000주 (35.2%)' · '35.20%'. '유통가능' 말고 '유통물량'·
+    # '유통주식' 으로 적기도 한다('유통제한'·'비유통' 은 아니다). 이름칸이 없으면 글 전체에서
+    유통 = " ".join(v for 이름, v in 쌍 if re.search(r"유통(?:가능|물량|주식)", 이름)) \
+        or (m.group(0) if (m := re.search(r"(?<!비)유통\s*(?:가능|물량|주식)[^%]{0,80}?%", 글)) else "")
     if m := 찾기(유통, _몫):
         if 0 < (v := float(m.group(1))) <= 100:
             out["float_pct"] = v
     if m := 찾기(유통, _주수):
         out["float_shares"] = float(m.group(1).replace(",", ""))
-    # 균등 배정 수량(계좌당) — '2주' · '약 1.53주'
-    균등 = 값("균등") or (m.group(0) if (m := re.search(r"균등[^\d]{0,15}?[\d.]+\s*주", 글)) else "")
-    if (m := 찾기(균등, _주수)) and 0 < (v := float(m.group(1).replace(",", ""))) < 1000:
-        out["equal_shares"] = v
+    # 균등 배정 수량(계좌당) — '2주' · '약 1.53주'. 균등 몫 전체('750,000주')만 적혀 있으면
+    # 아래에서 청약 건수로 나눈다. '최소청약 10주' 는 배정 수량이 아니라 청약 단위다 — 빼고 읽는다
+    최소청약 = r"최소\s*청약[^\d]{0,10}[\d,]+\s*주"
+    균등 = re.sub(최소청약, "", 값("균등")) or (
+        m.group(0) if (m := re.search(r"균등[^\d]{0,25}?[\d.,]+\s*주", re.sub(최소청약, "", 글))) else "")
+    균등몫 = None
+    if m := 찾기(균등, _주수):
+        v = float(m.group(1).replace(",", ""))
+        if 0 < v < 1000:
+            out["equal_shares"] = v
+        elif v >= 1000:
+            균등몫 = v
     # 청약 건수 — '152,345건'
     건수 = 값("청약건수") or 값("청약자수") or (
         m.group(0) if (m := re.search(r"청약\s*(?:건수|자\s*수)[^\d]{0,10}?[\d,]+", 글)) else "")
     if (m := 찾기(건수, r"([\d,]{2,})")) and (v := float(m.group(1).replace(",", ""))) > 0:
         out["sub_accounts"] = v
+    if "equal_shares" not in out and 균등몫 and out.get("sub_accounts"):
+        out["equal_shares"] = round(균등몫 / out["sub_accounts"], 2)
     # 비례 경쟁률 — '비례 2,468.13:1' (청약경쟁률 칸 안에 함께 적혀 있기도 하다)
     if m := re.search(r"비례[^\d]{0,20}?([\d,]+(?:\.\d+)?)\s*(?::|대)\s*1", 글):
         out["prop_ratio"] = _경쟁률(m.group(1))
@@ -560,6 +572,13 @@ def 읽기_상세(html: str) -> dict:
     if m := 찾기(값("총공모주식수") or 값("공모주식수"), _주수):
         out["total_shares"] = float(m.group(1).replace(",", ""))
     out["_칸"] = list(dict.fromkeys(이름 for 이름, _ in 쌍))[:40]
+    # 원문 조각 — 못 읽은 값이 페이지에 어떻게 적혀 있는지 관리자 화면에서 보이게. 숫자와
+    # 단위(주·%·명·건)가 뒤따르는 자리를 먼저 고른다 — 메뉴·안내 글에 먼저 나온 말은 단서가 못 된다
+    out["_글"] = {}
+    for 말 in ("균등", "유통"):
+        if 자리 := [m.start() for m in re.finditer(말, 글)]:
+            i = next((i for i in 자리 if re.search(r"\d[\d,.]*\s*(?:주|%|명|건)", 글[i:i + 40])), 자리[0])
+            out["_글"][말] = 글[max(0, i - 8):i + 42]
     return out
 
 
@@ -594,6 +613,7 @@ def 상세채우기(기록: dict, 저장=None) -> dict:
     지금 = time.time()
     받음, 실패, 이유 = 0, 0, ""
     칸들: Counter = Counter()
+    글예: dict = {}
     for i, k in enumerate(_상세받을것(기록, 지금)):
         r = 기록[k]
         본문, 이유_ = _경로받기(_상세경로.format(no=r["no"]))
@@ -604,6 +624,10 @@ def 상세채우기(기록: dict, 저장=None) -> dict:
             continue
         읽음 = 읽기_상세(본문)
         칸들.update(읽음.pop("_칸"))
+        for 말, 조각 in 읽음.pop("_글").items():
+            값이름 = {"균등": "equal_shares", "유통": "float_pct"}[말]
+            if 말 not in 글예 or 값이름 not in 읽음:
+                글예[말] = 조각                  # 못 읽은 곳의 조각이 고칠 단서다
         기록[k] = {**r, **읽음, "detail_at": 지금, "detail_done": bool(r.get("open_price"))}
         받음 += 1
         if 저장 and 받음 % 50 == 0:
@@ -612,7 +636,7 @@ def 상세채우기(기록: dict, 저장=None) -> dict:
             time.sleep(상세_쉼)
     읽은수 = {f: sum(1 for r in 기록.values() if r.get(f) is not None) for f in _상세이름}
     return {"받음": 받음, "실패": 실패, "이유": 이유, "읽은수": 읽은수,
-            "칸": [c for c, _ in 칸들.most_common(15)]}
+            "칸": [c for c, _ in 칸들.most_common(15)], "글": 글예}
 
 
 def _상세진단글(진단: dict, 기록: dict) -> str:
@@ -626,6 +650,10 @@ def _상세진단글(진단: dict, 기록: dict) -> str:
         글 += f" · 칸: {'/'.join(진단['칸'])}"
     if not 주소 and (예 := next((r["link"] for r in 볼것 if r.get("link")), "")):
         글 += f" · 목록 링크에 상세 번호가 없음(예: {예})"
+    if 진단["받음"]:
+        조각 = 진단.get("글") or {}
+        글 += " · 원문 — " + " / ".join(f"{말}: '{조각[말]}'" if 말 in 조각 else f"{말}: 페이지에 없음"
+                                         for 말 in ("균등", "유통"))
     return 글
 
 

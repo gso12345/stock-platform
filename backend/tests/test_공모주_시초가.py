@@ -364,8 +364,49 @@ class Test상세_읽기:
         assert S.읽기_상세(_상세쪽(상장공모="신주모집 : 1,500,000 주 (100%) / 구주매출 : -")
                          .decode("cp949"))["old_pct"] == 0
 
-    def test_균등_물량_전체는_계좌당_수량이_아니다(self):
-        assert "equal_shares" not in S.읽기_상세(_상세쪽(균등="750,000 주 (50%)").decode("cp949"))
+    def test_균등_몫_전체만_있으면_청약_건수로_나눈다(self):
+        """'균등배정 750,000주' 는 계좌당이 아니라 균등 몫 전체다 — 청약한 계좌 수로 나눠야 한 계좌 몫"""
+        r = S.읽기_상세(_상세쪽(균등="750,000 주 (50%)").decode("cp949"))
+        assert r["equal_shares"] == pytest.approx(750_000 / 152_345, abs=0.01)
+        assert "equal_shares" not in S.읽기_상세(_상세쪽(균등="750,000 주 (50%)", 건수=None).decode("cp949")), \
+            "청약 건수를 모르면 계좌당 수량도 모른다"
+
+    def test_유통물량_유통주식으로_적어도_읽는다(self):
+        """사용자: "공모주에도 균등수량은 안나와" — 38 이 '유통가능' 말고 다른 말로 적을 수 있다"""
+        for 이름 in ("상장일 유통물량", "유통주식수(상장일)"):
+            쪽 = _상세쪽(유통=None, 덧붙임=f'<table><tr><td>{이름}</td><td>4,100,000 주 (41.0%)</td></tr></table>')
+            assert S.읽기_상세(쪽.decode("cp949"))["float_pct"] == pytest.approx(41.0), 이름
+        # 이름칸 없이 글로만 '유통물량' · '유통주식' 이라 적어도
+        for 글 in ("상장일 유통물량은 4,100,000주(41.0%)입니다", "유통주식 수는 상장일 기준 4,100,000주 (41.0%)"):
+            쪽 = _상세쪽(유통=None, 덧붙임=f"<p>{글}</p>")
+            assert S.읽기_상세(쪽.decode("cp949"))["float_pct"] == pytest.approx(41.0), 글
+        쪽 = _상세쪽(유통=None, 덧붙임='<table><tr><td>유통제한물량</td><td>6,000,000 주 (60.0%)</td></tr></table>')
+        assert "float_pct" not in S.읽기_상세(쪽.decode("cp949")), "'유통제한' 을 유통물량으로 읽었다"
+        쪽 = _상세쪽(유통=None, 덧붙임="<p>비유통물량은 6,000,000주(60.0%)입니다</p>")
+        assert "float_pct" not in S.읽기_상세(쪽.decode("cp949")), "'비유통' 을 유통물량으로 읽었다"
+        # 이름칸이 먼저다 — 글에 다른 % 가 먼저 나와도
+        쪽 = _상세쪽(유통=None, 덧붙임='<p>유통물량은 상장 1개월 뒤 50%로 늘어난다</p>'
+                                     '<table><tr><td>상장일 유통물량</td><td>4,100,000 주 (41.0%)</td></tr></table>')
+        assert S.읽기_상세(쪽.decode("cp949"))["float_pct"] == pytest.approx(41.0)
+        쪽 = _상세쪽(유통=None, 덧붙임='<p>유통물량은 상장 1개월 뒤 50%로 늘어난다</p>'
+                                     '<table><tr><td>유통가능물량(매각제한분 제외)</td>'
+                                     '<td>4,100,000 주 (41.0%)</td></tr></table>')
+        assert S.읽기_상세(쪽.decode("cp949"))["float_pct"] == pytest.approx(41.0), "이름칸에 '제한' 이 있다고 버렸다"
+
+    def test_최소청약_수량은_균등_수량이_아니다(self):
+        r = S.읽기_상세(_상세쪽(유통=None, 균등=None, 덧붙임="<p>균등방식 배정은 최소청약 10주 기준</p>").decode("cp949"))
+        assert "equal_shares" not in r, "최소청약 10주를 계좌당 균등 수량으로 읽었다"
+        r = S.읽기_상세(_상세쪽(균등="최소청약 10 주 · 계좌당 1.2 주").decode("cp949"))
+        assert r["equal_shares"] == pytest.approx(1.2)
+
+    def test_못_읽은_값의_원문_조각을_남긴다(self):
+        r = S.읽기_상세(_상세쪽(유통=None, 균등=None, 덧붙임="<p>균등방식 배정은 최소청약 10주 기준</p>").decode("cp949"))
+        assert "균등방식 배정은" in r["_글"]["균등"] and "유통" not in r["_글"]
+        # 안내 글에 먼저 나온 말이 아니라 값이 적힌 자리를
+        쪽 = _상세쪽(유통=None, 균등=None, 건수=None,
+                    덧붙임="<p>균등 배정 물량 : 450,000주 / 청약자 117,489명</p>").decode("cp949")
+        r = S.읽기_상세(쪽.replace("<body>", "<body><p>균등방식과 비례방식 안내(2024년 개정) — 자세한 설명은 아래 글을 꼭 읽어 보세요</p>"))
+        assert "equal_shares" not in r and "450,000주" in r["_글"]["균등"], "안내 글 조각으로는 고칠 단서가 없다"
 
     def test_유통_비율이_말이_안_되면_버린다(self):
         assert "float_pct" not in S.읽기_상세(_상세쪽(유통="3,500,000 주 (135.2%)").decode("cp949"))
@@ -419,6 +460,12 @@ class Test상세_받기:
         기록["곧상장"]["detail_at"] -= S.갱신간격 + 1
         S.상세채우기(기록)
         assert 기록["곧상장"]["float_pct"] == pytest.approx(35.2)
+
+    def test_관리자_줄에_못_읽은_값의_원문을(self, monkeypatch):
+        _가짜원천(monkeypatch, {("상세", "12"): _상세쪽(유통=None, 균등=None, 덧붙임="<p>균등방식 최소청약 10주</p>")})
+        기록 = self._기록()
+        글 = S._상세진단글(S.상세채우기(기록), 기록)
+        assert "원문 — 균등: '" in 글 and "균등방식 최소청약" in 글 and "유통: 페이지에 없음" in 글, 글
 
     def test_막혀_있으면_세_곳만_두드린다(self, monkeypatch):
         물음 = _가짜원천(monkeypatch, {}, 상태=403)

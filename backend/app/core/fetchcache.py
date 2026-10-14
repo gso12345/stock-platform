@@ -31,6 +31,7 @@
 import asyncio
 import logging
 import os
+import time
 
 from app.core.cache import cache
 from app.core.executor import background_executor
@@ -40,12 +41,17 @@ log = logging.getLogger(__name__)
 #: 못 받았을 때 이만큼은 다시 안 물어본다
 MISS_TTL = int(os.getenv("FETCH_MISS_TTL", 60))
 
-#: 지금 받고 있는 것 (열쇠 → True)
+#: 지금 받고 있는 것 (열쇠 → 받기 시작한 때)
 _받는중: dict = {}
+#: '받는 중' 이 이보다 오래됐으면 멈춘 것으로 본다(초). 그 일이 끝나지 않아도 다시
+#: 받으러 간다 — 원천 하나가 답을 안 줘서 받기가 영영 안 끝나면, 이 표시가 남아
+#: 서버를 다시 띄울 때까지 아무도 다시 받지 않았다(국내 금리)
+받는중_상한 = float(os.getenv("FETCH_INFLIGHT_MAX_SEC", 180))
 
 
 def 받는중인가(ck: str) -> bool:
-    return bool(_받는중.get(ck))
+    시작 = _받는중.get(ck)
+    return bool(시작) and time.time() - 시작 < 받는중_상한
 
 
 def 빈손_표시(ck: str, ttl: "int | None" = None) -> None:
@@ -81,17 +87,17 @@ def 캐시_우선(ck: str, 받기, 빈값, miss_ttl: "int | None" = None):
 
     stale = cache.get_stale(ck)
     if stale is not None:
-        if not _받는중.get(ck):
-            _받는중[ck] = True
+        if not 받는중인가(ck):
+            _받는중[ck] = time.time()
             background_executor.submit(_한번만, ck, 받기)
         return stale
 
     if 빈손인가(ck):
         return 빈값                      # 방금 받아 봤는데 빈손이었다
-    if _받는중.get(ck):
+    if 받는중인가(ck):
         return 빈값                      # 이미 누가 받는 중 — 줄 서지 않는다
 
-    _받는중[ck] = True
+    _받는중[ck] = time.time()
     try:
         결과 = 받기()
     finally:
@@ -136,12 +142,12 @@ async def 캐시_우선_비동기(ck: str, 받기, 빈값, miss_ttl: "int | None
 
     if 빈손인가(ck):
         return 있는대로
-    if _받는중.get(ck):
+    if 받는중인가(ck):
         # 이미 누가 받고 있다. 줄 서서 같은 것을 두 번 받지 않는다 —
         # 종목 상세는 탭 예닐곱 개가 한꺼번에 열리는 화면이다.
         return 있는대로
 
-    _받는중[ck] = True
+    _받는중[ck] = time.time()
 
     async def _받아서_담기():
         """받고 담는 일 전체를 감싼다.

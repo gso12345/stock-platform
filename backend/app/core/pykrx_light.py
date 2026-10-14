@@ -21,12 +21,47 @@ pykrx/__init__.py 는 한글 폰트를 지정하려고 이 두 줄을 실행한�
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import types
 
 log = logging.getLogger(__name__)
 
 _stub_installed = False
+
+#: KRX 에 한 번 물을 때의 상한(초) — (연결, 읽기)
+PYKRX_TIMEOUT = (float(os.getenv("PYKRX_CONNECT_TIMEOUT", 5)), float(os.getenv("PYKRX_READ_TIMEOUT", 15)))
+
+
+class _상한요청:
+    """requests 를 그대로 쓰되 get·post 에 시간 상한을 넣는다(따로 주면 그것을 쓴다)."""
+
+    def __init__(self, 원래):
+        self._원래 = 원래
+
+    def __getattr__(self, 이름):
+        return getattr(self._원래, 이름)
+
+    def get(self, *a, **k):
+        k.setdefault("timeout", PYKRX_TIMEOUT)
+        return self._원래.get(*a, **k)
+
+    def post(self, *a, **k):
+        k.setdefault("timeout", PYKRX_TIMEOUT)
+        return self._원래.post(*a, **k)
+
+
+def _시간제한() -> None:
+    """pykrx 는 KRX 에 물을 때 시간 상한을 두지 않는다 — 모든 조회가 지나가는
+    website/comm/webio.py 의 requests.get·post 에 timeout 이 없다.
+
+    KRX 가 답을 안 주면 그 자리에서 끝없이 기다린다. 국내 금리 목록이 그 원천
+    (장외채권·VKOSPI)을 기다리다 영영 안 채워져, 대시보드 국내 탭에 원/달러만
+    남았다. 주기 갱신 루프도 같은 자리를 기다리느라 통째로 멈출 수 있었다.
+    그래서 묻기마다 상한을 씌운다."""
+    from pykrx.website.comm import webio
+    if not isinstance(webio.requests, _상한요청):
+        webio.requests = _상한요청(webio.requests)
 
 
 class _FontEntry:
@@ -78,6 +113,7 @@ def stock():
     """pykrx.stock (종목·시세·수급 조회)"""
     _install_stub()
     from pykrx import stock as _stock
+    _시간제한()
     return _stock
 
 
@@ -85,6 +121,7 @@ def bond():
     """pykrx.bond (장외 채권수익률)"""
     _install_stub()
     from pykrx import bond as _bond
+    _시간제한()
     return _bond
 
 

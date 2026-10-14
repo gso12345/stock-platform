@@ -1031,6 +1031,22 @@ def _국고채_채우기(bonds: list, 새것: list) -> list:
     return sorted(합친것, key=lambda x: 차례.get(x.get("name"), 99))
 
 
+#: 늦을 수 있는 원천을 기다리는 상한(초). 넘기면 그 원천만 빼고 목록을 만든다
+#: — KRX(pykrx) 가 답을 안 주면 목록 전체가 영영 안 채워져 대시보드 국내 탭에
+#: 원/달러만 남았다
+느린원천_상한 = float(os.getenv("KR_RATES_SLOW_SOURCE_SEC", 30))
+
+
+def _상한안에(부르기, 초: float):
+    """부르기() 를 따로 돌려 초 안에 끝난 것만 쓴다. 넘기면 TimeoutError — 그 일은
+    뒤에서 마저 돌다 버려진다(늦은 원천 하나가 금리 목록 전체를 붙잡지 않게)."""
+    풀 = _ThreadPool(max_workers=1)
+    try:
+        return 풀.submit(부르기).result(timeout=초)
+    finally:
+        풀.shutdown(wait=False)
+
+
 def _do_fetch_kr_rates() -> list:
     ck = "extra:kr_rates"
 
@@ -1134,7 +1150,7 @@ def _do_fetch_kr_rates() -> list:
                   if not any(x["name"] == n for x in 그밖)]
     if _빠진_국고채(bonds) or 빠진회사채:
         try:
-            pkrx_bonds, pkrx_cd, pkrx_그밖 = _fetch_kr_bonds_pykrx()
+            pkrx_bonds, pkrx_cd, pkrx_그밖 = _상한안에(_fetch_kr_bonds_pykrx, 느린원천_상한)
             bonds = _국고채_채우기(bonds, pkrx_bonds)
             if pkrx_cd and not cd_override:
                 cd_override = pkrx_cd
@@ -1187,14 +1203,18 @@ def _do_fetch_kr_rates() -> list:
     #
     # 유로·엔은 여기 안 넣는다. 그 둘은 환율 묶음이 채워 둔 캐시를
     # **읽기만** 하므로, 같이 돌리면 아직 안 채워진 캐시를 읽는다.
+    #
+    # 끝나기를 무작정 기다리지 않는다(풀을 닫을 때도) — VKOSPI 는 KRX 까지 가는 원천이라
+    # 답이 없으면 여기서 목록 전체가 멈췄다. 상한을 넘기면 그것만 빼고 간다
     곁들이: dict[str, "dict | None"] = {}
-    with _ThreadPool(max_workers=2) as 풀:
-        맡김 = {"환율묶음": 풀.submit(_환율_채워두기),
-                "vkospi": 풀.submit(get_vkospi)}
+    풀 = _ThreadPool(max_workers=2)
+    맡김 = {"환율묶음": 풀.submit(_환율_채워두기),
+            "vkospi": 풀.submit(get_vkospi)}
+    풀.shutdown(wait=False)
     for 키, 일 in 맡김.items():
         try:
-            곁들이[키] = 일.result()
-        except Exception as e:
+            곁들이[키] = 일.result(timeout=느린원천_상한)
+        except Exception as e:          # 상한을 넘긴 것(TimeoutError)도 여기로
             log.debug("%s 실패: %s", 키, type(e).__name__)
             곁들이[키] = None
     # 묶음이 끝난 뒤에 읽는다 — 둘 다 캐시만 보므로 즉시다

@@ -904,6 +904,32 @@ async def run_startup_prefetch():
     log.info("=== 초기 프리페치 완료 ===")
 
 
+#: 국내 금리 갱신을 기다리는 상한(초)
+국내금리_상한 = float(os.getenv("KR_RATES_REFRESH_WAIT_SEC", 90))
+_국내금리일: "asyncio.Future | None" = None
+
+
+async def 국내금리_갱신() -> None:
+    """국내 금리 목록을 다시 받는다 — 상한까지만 기다리고, 앞선 갱신이 아직 돌고 있으면
+    새로 띄우지 않는다.
+
+    예전에는 이 루프가 끝나기를 그냥 기다렸다. 원천 하나(pykrx → KRX)가 답을 안 주면
+    그 자리에서 끝없이 기다렸고, 루프 전체가 거기 멈춰 뒤의 미국 금리·종목·뉴스
+    갱신까지 서 버렸다. 3분마다 새로 띄우기만 했다면 멈춘 스레드가 쌓였을 것이다."""
+    global _국내금리일
+    if _국내금리일 is not None and not _국내금리일.done():
+        log.warning("국내 금리 갱신이 아직 안 끝나 이번 차례는 건너뜀")
+        return
+    from app.services.market_extras import _do_fetch_kr_rates
+    _국내금리일 = asyncio.get_running_loop().run_in_executor(None, _do_fetch_kr_rates)
+    try:
+        await asyncio.wait_for(asyncio.shield(_국내금리일), timeout=국내금리_상한)
+    except asyncio.TimeoutError:
+        log.warning("국내 금리 갱신이 %d초를 넘겨 기다리지 않고 넘어감", 국내금리_상한)
+    except Exception as e:
+        log.debug("국내 금리 갱신 실패: %s", type(e).__name__)
+
+
 async def periodic_refresh():
     """30초마다 국내 지수, 60초마다 미국 지수 + 환율 + 순위, 5분마다 종목 + 뉴스, 24시간마다 펀더멘털 DB 갱신"""
     from app.services.ranking_service import refresh_kr_rankings_from_naver
@@ -1021,9 +1047,7 @@ async def periodic_refresh():
 
         # 한국 금리 — 기준금리·CD금리·국고채 (3분)
         if counter % 18 == 0:
-            from app.services.market_extras import _do_fetch_kr_rates
-            loop2 = asyncio.get_running_loop()
-            await loop2.run_in_executor(None, _do_fetch_kr_rates)
+            await 국내금리_갱신()
 
         # 미국 환율·금리·국채 (5분)
         if counter % 30 == 0:

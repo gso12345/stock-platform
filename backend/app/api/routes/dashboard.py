@@ -37,7 +37,10 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard", tags=["대시보드"])
 
-_bg_refresh_in_flight: set[str] = set()
+#: 배경에서 채우는 중인 것 (표 → 시작한 때). 이보다 오래되면 멈춘 것으로 보고 다시 띄운다 —
+#: 원천 하나가 답을 안 줘 채우기가 영영 안 끝나면, 이 표시가 남아 다시 채우지 않았다
+_bg_refresh_in_flight: dict[str, float] = {}
+배경채우기_상한 = float(os.getenv("DASH_BG_REFRESH_MAX_SEC", 180))
 
 KR_INDICES = ["KOSPI", "KOSDAQ", "KOSPI200", "KOSPI100"]
 US_INDICES = ["SP500", "NASDAQ", "DOW", "SOX", "RUSSELL"]
@@ -201,8 +204,8 @@ def 받아둔것만(ck: str, 채우기, 표: str) -> list:
     담긴것 = cache.get(ck)
     if 담긴것:
         return 담긴것
-    if 표 not in _bg_refresh_in_flight:
-        _bg_refresh_in_flight.add(표)
+    if time.time() - _bg_refresh_in_flight.get(표, 0.0) > 배경채우기_상한:
+        _bg_refresh_in_flight[표] = time.time()
 
         async def _배경채우기():
             try:
@@ -211,7 +214,7 @@ def 받아둔것만(ck: str, 채우기, 표: str) -> list:
             except Exception as e:
                 log.debug("%s 배경 채우기 실패: %s", 표, type(e).__name__)
             finally:
-                _bg_refresh_in_flight.discard(표)
+                _bg_refresh_in_flight.pop(표, None)
 
         asyncio.get_running_loop().create_task(_배경채우기())
     return cache.get_stale(ck) or []
