@@ -89,7 +89,6 @@ vi.mock("@/api/stocks", async (원본가져오기) => ({
 
 import Ipo from "../Ipo";
 import { 일정글 } from "@/components/ipo/IpoCard";
-import { 만원글 } from "@/components/ipo/IpoPrediction";
 
 function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -420,7 +419,7 @@ describe("공모주 — 증권사로 거르기", () => {
 describe("공모주 — 청약 일정·금액·청약 전 정확도", () => {
   const 카드들 = () => screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
 
-  it("청약 중이면 오늘·내일 마감, 앞두고 있으면 D-n — 청약 중인 것이 맨 위, 나머지는 다음 일정 순", async () => {
+  it("청약 중이면 오늘·내일 마감, 앞두고 있으면 D-n — 순서는 청약일이 빠른 것부터", async () => {
     overview.mockResolvedValue({
       ...한눈에,
       upcoming: [
@@ -439,21 +438,19 @@ describe("공모주 — 청약 일정·금액·청약 전 정확도", () => {
     const 예측전 = screen.getByText("예측전테크").closest("div.bg-bg-card") as HTMLElement;
     expect(within(예측전).getByText("수요예측 전")).toBeInTheDocument();
     expect(within(예측전).queryByText(/청약 D-/)).toBeNull();
-    // 청약 중 → 내일 청약 → 엿새 뒤 수요예측 → 남은 일정이 없는 것(청약이 끝나 경쟁률이 나왔다)
-    expect(카드들()).toEqual(["청약중바이오", "청약전로보틱스", "예측전테크", "에이비씨바이오"]);
+    // "청약일정 나오는 순서는 청약일이 빠른 순서로" — 10.13 → 10.14 → 10.15 → 10.27
+    expect(카드들()).toEqual(["에이비씨바이오", "청약중바이오", "청약전로보틱스", "예측전테크"]);
   });
 
-  it("1주당 예상 차익, 균등 몫만큼의 차익, 비례로 1주 받는 데 든 증거금을 금액으로", async () => {
+  // "균등 1.52주면 약 얼마 … 비례로 1주받을려면 얼마 … 나오지 않도록 해줘" — 1주당 차익만
+  it("1주당 예상 차익을 금액으로 — 균등 몫만큼의 차익·비례 1주 증거금은 적지 않는다", async () => {
     그리기();
     const 카드 = (await screen.findByText("에이비씨바이오")).closest("div.bg-bg-card") as HTMLElement;
-    // 18,480원 − 12,000원, 균등 1.534주 × 6,480원 ≈ 9,940원 → 100원 단위
-    expect(카드).toHaveTextContent("1주당 예상 차익 +6,480원 · 균등 1.53주면 약 +9,900원");
+    expect(카드).toHaveTextContent("1주당 예상 차익 +6,480원");          // 18,480원 − 12,000원
     expect(within(카드).getByText("+6,480원")).toHaveClass("text-accent-red");
-    // 비례경쟁률 2,469.12 × 12,000원 × 증거금 50%
-    expect(카드).toHaveTextContent("비례로 1주 받으려면 증거금 약 1,481만 원이 들었어요(증거금 50%).");
+    expect(카드).not.toHaveTextContent(/주면 약|비례로 1주|증거금/);
     const 청약전 = screen.getByText("청약전로보틱스").closest("div.bg-bg-card") as HTMLElement;
     expect(청약전).toHaveTextContent("1주당 예상 차익 +4,000원");
-    expect(청약전).not.toHaveTextContent(/균등 .*주면|비례로 1주/);
   });
 
   it("공모가보다 낮게 볼 때는 차익이 마이너스로", async () => {
@@ -500,12 +497,6 @@ describe("공모주 — 청약 일정·금액·청약 전 정확도", () => {
     expect(document.body.textContent).not.toMatch(/청약 전에 맞힌|undefined|NaN/);
   });
 
-  it("증거금은 만 원 단위, 1억이 넘으면 억으로", () => {
-    expect(만원글(14_814_720)).toBe("1,481만 원");
-    expect(만원글(160_000_000)).toBe("1억 6,000만 원");
-    expect(만원글(100_000_000)).toBe("1억 원");
-    expect(만원글(105_000_000)).toBe("1억 500만 원");
-  });
 });
 
 describe("공모주 — 직접 넣어 보기", () => {

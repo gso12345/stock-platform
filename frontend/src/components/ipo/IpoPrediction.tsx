@@ -11,7 +11,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useSettingsStore } from "@/store/settingsStore";
 import { cn, 용어힌트 } from "@/components/ui";
 import type { 공모주예측, 공모주청약전성적 } from "@/api/stocks";
-import { 원, 배율퍼센트, 퍼센트글, 경쟁률글, 확약글, 날짜글, 확률글, 주글 } from "./ipoFormat";
+import { 원, 배율퍼센트, 퍼센트글, 경쟁률글, 확약글, 날짜글, 확률글 } from "./ipoFormat";
 
 const 하한 = 0.6;
 const 상한 = 4.0;
@@ -36,16 +36,6 @@ function 금액등락({ 금액 }: { 금액: number }) {
   return <b className={cn("font-semibold num", 색)}>{금액 > 0 ? "+" : 금액 < 0 ? "−" : ""}{원(Math.abs(금액))}</b>;
 }
 
-/** 원 → '1,481만 원' · '1억 6,000만 원' (만 원 아래는 버린다 — 어림값이다) */
-export function 만원글(v: number): string {
-  const 만 = Math.round(v / 10_000);
-  const 억 = Math.floor(만 / 10_000), 나머지 = 만 % 10_000;
-  if (!억) return `${만.toLocaleString("ko-KR")}만 원`;
-  return 나머지 ? `${억}억 ${나머지.toLocaleString("ko-KR")}만 원` : `${억}억 원`;
-}
-
-/** 비례로 1주 받는 데 드는 증거금 — 비례경쟁률 × 공모가 × 증거금률 50% */
-export const 증거금률 = 0.5;
 
 /** 공모가의 60%~400% 를 로그 눈금으로 펴 놓은 막대 위에 범위와 예상값을 찍는다 */
 function 범위막대({ 배율, 낮음, 높음 }: { 배율: number; 낮음: number; 높음: number }) {
@@ -74,15 +64,13 @@ function 범위막대({ 배율, 낮음, 높음 }: { 배율: number; 낮음: numb
   );
 }
 
-export default function IpoPrediction({ 예측, className, 덧단추, 공모가, 균등, 비례, 청약전, 폭 }: {
+export default function IpoPrediction({ 예측, className, 덧단추, 공모가, 청약전, 폭 }: {
   예측: 공모주예측;
   className?: string;
   /** '비슷했던 공모주' 줄 오른쪽에 붙일 단추(카드의 '이 숫자로 직접 바꿔 보기') */
   덧단추?: ReactNode;
-  /** 금액으로 보여 주는 데 쓴다 — 확정 공모가, 계좌당 균등 수량, 비례경쟁률(있을 때만) */
+  /** 1주당 예상 차익을 셈한다 — 확정 공모가 */
   공모가?: number | null;
-  균등?: number | null;
-  비례?: number | null;
   /** 청약 전에 본 예측의 지난 성적과 맞힘 폭(%) — 청약 전에 계산한 예측에 붙인다 */
   청약전?: 공모주청약전성적;
   폭?: number;
@@ -138,18 +126,10 @@ export default function IpoPrediction({ 예측, className, 덧단추, 공모가,
         </div>
       </div>
 
+      {/* 균등 몫만큼의 차익·비례 1주 증거금은 뺐다(사용자: "나오지 않도록 해줘") — 1주당 차익만 */}
       {차익 != null && (
         <p className="text-xs text-text-secondary break-keep">
           1주당 예상 차익 <금액등락 금액={차익} />
-          {균등 != null && 균등 > 0 && (
-            <> · 균등 {주글(균등)}면 약 <금액등락 금액={Math.round((균등 * 차익) / 100) * 100} /></>
-          )}
-        </p>
-      )}
-      {차익 != null && 비례 != null && 비례 > 0 && (
-        <p className="text-2xs text-text-muted break-keep">
-          비례로 1주 받으려면 증거금 약 <b className="text-text-primary num">{만원글(비례 * 공모가! * 증거금률)}</b>이
-          들었어요(증거금 50%).
         </p>
       )}
 

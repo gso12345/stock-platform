@@ -20,7 +20,7 @@ import IpoCard from "@/components/ipo/IpoCard";
 import IpoCalculator from "@/components/ipo/IpoCalculator";
 import IpoRecent from "@/components/ipo/IpoRecent";
 import IpoBrokerFilter from "@/components/ipo/IpoBrokerFilter";
-import { 챙길순서 } from "@/components/ipo/ipoSchedule";
+import { 청약일순 } from "@/components/ipo/ipoSchedule";
 import { 증권사들, 내증권사공모주 } from "@/components/ipo/ipoBrokers";
 import { useSettingsStore } from "@/store/settingsStore";
 
@@ -85,8 +85,8 @@ export default function Ipo() {
     계산기자리.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   };
   const 시각 = 기준시각(data?.as_of ?? null);
-  // 청약 중인 것(마감이 빠른 것부터) → 다음 일정이 빠른 것부터
-  const 다가옴 = 챙길순서(data?.upcoming ?? []);
+  // 청약일이 빠른 순서(청약일이 아직 없는 것은 뒤로)
+  const 다가옴 = 청약일순(data?.upcoming ?? []);
   const 보일것 = 다가옴.filter((g) => 내증권사공모주(g.underwriter, 고른증권사));
   const 모름수 = 고른증권사.length ? 다가옴.filter((g) => !증권사들(g.underwriter).length).length : 0;
 

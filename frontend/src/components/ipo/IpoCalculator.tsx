@@ -145,7 +145,7 @@ export default function IpoCalculator({ 처음값 }: {
       </form>
       {예측.error && <p role="alert" className="text-xs text-accent-red">{사람말로(예측.error) || "예측하지 못했어요"}</p>}
       {예측.data && (
-        <IpoPrediction 예측={예측.data} 공모가={예측.variables?.offer_price} 균등={예측.variables?.equal_shares} />
+        <IpoPrediction 예측={예측.data} 공모가={예측.variables?.offer_price} />
       )}
     </Card>
   );

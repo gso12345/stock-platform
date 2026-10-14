@@ -107,7 +107,7 @@ export default function IpoCard({ 공모주: g, 바꿔보기, 청약전, 폭 }: 
         {g.old_pct != null && <칸 이름={<용어힌트 이름="구주매출" />}>{g.old_pct === 0 ? "없음" : 확약글(g.old_pct)}</칸>}
       </dl>
 
-      <IpoPrediction 예측={g.prediction} 공모가={g.offer_price} 균등={g.equal_shares} 비례={g.prop_ratio}
+      <IpoPrediction 예측={g.prediction} 공모가={g.offer_price}
         청약전={청약전} 폭={폭} 덧단추={바꿔보기 && 넣을값 ? (
         <button type="button" onClick={() => 바꿔보기(넣을값)}
           className="inline-flex items-center gap-1 text-xs font-semibold text-text-secondary hover:text-accent-blue">
