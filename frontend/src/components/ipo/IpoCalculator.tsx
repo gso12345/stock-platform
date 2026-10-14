@@ -11,7 +11,7 @@
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Calculator } from "lucide-react";
+import { Calculator, ChevronDown, ChevronUp } from "lucide-react";
 import { Button, Card, INPUT_CLASS, 고른칩, 용어힌트 } from "@/components/ui";
 import { ipoApi, type 공모주직접입력 } from "@/api/stocks";
 import { 사람말로 } from "@/api/queryError";
@@ -28,6 +28,10 @@ const 빈값: 글값 = {
   offer_price: "", inst_ratio: "", lockup_pct: "", sub_ratio: "",
   band_high: "", offer_amount_eok: "", float_pct: "", equal_shares: "", old_pct: "",
 };
+
+/** 처음에는 접어 두는 칸 — 비워 둬도 예측한다. 칸 아홉 개를 한꺼번에 펴 두면 무엇부터
+ *  넣을지 안 보인다. 값이 들어 있거나(카드에서 가져옴) 틀렸으면 펼친다 */
+const 더칸: 칸이름[] = ["band_high", "offer_amount_eok", "float_pct", "equal_shares", "old_pct"];
 
 function 글로(v: 공모주직접입력): 글값 {
   const 글 = (n: number | null | undefined) => (n == null ? "" : String(Math.round(n * 100) / 100));
@@ -95,13 +99,16 @@ export default function IpoCalculator({ 처음값 }: {
   const [값, set값] = useState<글값>(빈값);
   const [종류, set종류] = useState<"normal" | "spac" | "reit">("normal");
   const [틀림, set틀림] = useState<Partial<Record<칸이름, string>>>({});
+  const [더보기, set더보기] = useState(false);
   const 예측 = useMutation({ mutationFn: (v: 공모주직접입력) => ipoApi.predict(v) });
 
   useEffect(() => {
     if (!처음값) return;
-    set값(글로(처음값));
+    const 글 = 글로(처음값);
+    set값(글);
     set종류(처음값.kind ?? "normal");
     set틀림({});
+    set더보기(더칸.some((k) => 글[k] !== ""));
     예측.reset();
     // 예측(mutation 객체)은 그릴 때마다 새로 와서 의존성에 넣지 않는다
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -112,6 +119,7 @@ export default function IpoCalculator({ 처음값 }: {
     e.preventDefault();
     const [보낼것, 안내] = 검사(값);
     set틀림(안내);
+    if (더칸.some((k) => 안내[k])) set더보기(true);       // 접힌 칸이 틀렸으면 보여야 고친다
     if (보낼것) 예측.mutate({ ...보낼것, kind: 종류 });
   };
 
@@ -122,7 +130,7 @@ export default function IpoCalculator({ 처음값 }: {
         <h2 className="text-sm font-bold text-text-primary">직접 넣어 보기</h2>
       </div>
       <p className="text-2xs text-text-muted break-keep -mt-1.5">
-        수요예측 결과를 넣으면 비슷했던 공모주로 시초가를 예측해요. 청약경쟁률 등은 비워 둬도 돼요.
+        수요예측 결과(<span className="text-accent-red" aria-hidden>*</span>)만 넣어도 비슷했던 공모주로 시초가를 예측해요.
       </p>
       <form onSubmit={보내기} className="flex flex-col gap-3" noValidate>
         <div className="grid grid-cols-2 gap-2.5">
@@ -130,12 +138,24 @@ export default function IpoCalculator({ 처음값 }: {
           <입력칸 id="inst_ratio" 이름={<용어힌트 이름="기관경쟁률" />} 단위=":1" 필수 값={값.inst_ratio} 바꿈={바꿈("inst_ratio")} 틀림={틀림.inst_ratio} />
           <입력칸 id="lockup_pct" 이름={<용어힌트 이름="의무보유확약" />} 단위="%" 필수 값={값.lockup_pct} 바꿈={바꿈("lockup_pct")} 틀림={틀림.lockup_pct} />
           <입력칸 id="sub_ratio" 이름={<용어힌트 이름="청약경쟁률" />} 단위=":1" 값={값.sub_ratio} 바꿈={바꿈("sub_ratio")} 틀림={틀림.sub_ratio} 도움말="청약 뒤에 나와요" />
-          <입력칸 id="band_high" 이름="희망공모가 상단" 단위="원" 값={값.band_high} 바꿈={바꿈("band_high")} 틀림={틀림.band_high} 도움말="확정 공모가와 견줘요" />
-          <입력칸 id="offer_amount_eok" 이름="공모금액" 단위="억원" 값={값.offer_amount_eok} 바꿈={바꿈("offer_amount_eok")} 틀림={틀림.offer_amount_eok} />
-          <입력칸 id="float_pct" 이름={<용어힌트 이름="유통물량" />} 단위="%" 값={값.float_pct} 바꿈={바꿈("float_pct")} 틀림={틀림.float_pct} 도움말="상장일에 팔 수 있는 몫" />
-          <입력칸 id="equal_shares" 이름={<용어힌트 이름="균등배정" />} 단위="주" 값={값.equal_shares} 바꿈={바꿈("equal_shares")} 틀림={틀림.equal_shares} 도움말="계좌당 · 청약 뒤에 나와요" />
-          <입력칸 id="old_pct" 이름={<용어힌트 이름="구주매출" />} 단위="%" 값={값.old_pct} 바꿈={바꿈("old_pct")} 틀림={틀림.old_pct} 도움말="공모 물량 중 기존 주주 몫" />
         </div>
+        {/* 넓은 화면에서는 계산기가 좁은 옆 칸에 붙는다 — 이름표가 글자마다 끊기지 않게
+            '더 넣기' 는 한 덩어리로, 뒤의 칸 이름들은 넘치면 말줄임 */}
+        <button type="button" onClick={() => set더보기((v) => !v)} aria-expanded={더보기}
+          className="self-start max-w-full inline-flex items-center gap-1 text-xs font-semibold text-accent-blue hover:underline">
+          <span className="whitespace-nowrap">{더보기 ? "접기" : "더 넣기"}</span>
+          {더보기 ? <ChevronUp size={13} className="shrink-0" /> : <ChevronDown size={13} className="shrink-0" />}
+          {!더보기 && <span className="font-normal text-text-dim truncate min-w-0">희망공모가·공모금액·유통물량·균등배정·구주매출</span>}
+        </button>
+        {더보기 && (
+          <div className="grid grid-cols-2 gap-2.5">
+            <입력칸 id="band_high" 이름="희망공모가 상단" 단위="원" 값={값.band_high} 바꿈={바꿈("band_high")} 틀림={틀림.band_high} 도움말="확정 공모가와 견줘요" />
+            <입력칸 id="offer_amount_eok" 이름="공모금액" 단위="억원" 값={값.offer_amount_eok} 바꿈={바꿈("offer_amount_eok")} 틀림={틀림.offer_amount_eok} />
+            <입력칸 id="float_pct" 이름={<용어힌트 이름="유통물량" />} 단위="%" 값={값.float_pct} 바꿈={바꿈("float_pct")} 틀림={틀림.float_pct} 도움말="상장일에 팔 수 있는 몫" />
+            <입력칸 id="equal_shares" 이름={<용어힌트 이름="균등배정" />} 단위="주" 값={값.equal_shares} 바꿈={바꿈("equal_shares")} 틀림={틀림.equal_shares} 도움말="계좌당 · 청약 뒤에 나와요" />
+            <입력칸 id="old_pct" 이름={<용어힌트 이름="구주매출" />} 단위="%" 값={값.old_pct} 바꿈={바꿈("old_pct")} 틀림={틀림.old_pct} 도움말="공모 물량 중 기존 주주 몫" />
+          </div>
+        )}
         <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="공모주 종류">
           {([["normal", "일반"], ["spac", "스팩"], ["reit", "리츠"]] as const).map(([k, 이름]) => (
             <고른칩 key={k} 고름={종류 === k} onClick={() => set종류(k)} 작게>{이름}</고른칩>

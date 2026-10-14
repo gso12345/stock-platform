@@ -32,6 +32,25 @@ function 칸({ 이름, children }: { 이름: ReactNode; children: ReactNode }) {
   );
 }
 
+/** 덜 중요한 숫자 — 이름과 값을 한 줄에 이어 작게 */
+function 작은칸({ 이름, children }: { 이름: ReactNode; children: ReactNode }) {
+  return (
+    <div className="inline-flex items-center gap-1 min-w-0">
+      <dt className="text-text-muted inline-flex items-center gap-1">{이름}</dt>
+      <dd className="font-semibold text-text-secondary num">{children}</dd>
+    </div>
+  );
+}
+
+/** 지금 볼 일정 한 줄 — 청약이 잡혔으면 청약·상장, 아니면 수요예측 */
+export function 일정글(g: 다가오는공모주): string {
+  const 조각: string[] = [];
+  if (g.sub_start) 조각.push(`청약 ${날짜글(g.sub_start)}~${날짜글(g.sub_end)}`);
+  else if (g.forecast_date) 조각.push(`수요예측 ${날짜글(g.forecast_date)}`);
+  if (g.list_date) 조각.push(`상장 ${날짜글(g.list_date)}`);
+  return 조각.join(" · ") || "일정 미정";
+}
+
 /** 이 공모주의 숫자로 '직접 넣어 보기' 를 채울 값 */
 export function 입력값으로(g: 다가오는공모주): 공모주직접입력 | null {
   if (g.offer_price == null || g.inst_ratio == null || g.lockup_pct == null) return null;
@@ -56,6 +75,13 @@ export default function IpoCard({ 공모주: g, 바꿔보기 }: {
     : "—";
   const 넣을값 = 입력값으로(g);
   const 주관사 = 증권사들(g.underwriter);
+  // 덜 중요한 숫자는 한 줄로 작게 — 있는 것만(못 읽은 칸을 '—' 로 늘어놓지 않는다)
+  const 작은것: [ReactNode, string][] = [];
+  if (g.offer_amount != null) 작은것.push(["공모금액", 억원글(g.offer_amount)]);
+  if (g.float_pct != null) 작은것.push([<용어힌트 이름="유통물량" />, 확약글(g.float_pct)]);
+  if (g.equal_shares != null) 작은것.push([<용어힌트 이름="균등배정" />, 주글(g.equal_shares)]);
+  if (g.prop_ratio != null) 작은것.push([<용어힌트 이름="비례경쟁률" />, 경쟁률글(g.prop_ratio)]);
+  if (g.old_pct != null) 작은것.push([<용어힌트 이름="구주매출" />, g.old_pct === 0 ? "없음" : 확약글(g.old_pct)]);
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
@@ -68,36 +94,31 @@ export default function IpoCard({ 공모주: g, 바꿔보기 }: {
             {g.kind === "reit" && <Badge variant="purple">리츠</Badge>}
             {g.market && <Badge>{g.market}</Badge>}
           </div>
+          <p className="text-xs text-text-secondary num mt-1">{일정글(g)}</p>
           {주관사.length > 0 && <p className="text-2xs text-text-dim mt-0.5 truncate">주관사 {주관사.join(" · ")}</p>}
         </div>
         <Badge variant={단계색[g.stage] ?? "default"}>{g.stage}{날표}</Badge>
       </div>
 
+      {/* 큰 칸은 공모가와 수요예측·청약 결과 넷만 — 아직 안 나온 것은 빼고(단계 배지가 말해 준다) */}
       <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2">
         <칸 이름={g.offer_price != null ? "확정 공모가" : <용어힌트 이름="희망공모가" />}>{공모가글}</칸>
-        <칸 이름={<용어힌트 이름="기관경쟁률" />}>{경쟁률글(g.inst_ratio)}</칸>
-        <칸 이름={<용어힌트 이름="의무보유확약" />}>{확약글(g.lockup_pct)}</칸>
-        <칸 이름={<용어힌트 이름="청약경쟁률" />}>{경쟁률글(g.sub_ratio)}</칸>
-        <칸 이름="청약일">{g.sub_start ? `${날짜글(g.sub_start)}~${날짜글(g.sub_end)}` : "—"}</칸>
-        <칸 이름="상장일">{g.list_date ? 날짜글(g.list_date) : "미정"}</칸>
-        <칸 이름="공모금액">{억원글(g.offer_amount)}</칸>
-        <칸 이름="수요예측">{날짜글(g.forecast_date)}</칸>
-        {/* 상세 페이지에서 읽은 것 — 읽었을 때만(못 읽은 칸을 '—' 로 늘어놓지 않는다) */}
-        {g.float_pct != null && <칸 이름={<용어힌트 이름="유통물량" />}>{확약글(g.float_pct)}</칸>}
-        {g.equal_shares != null && <칸 이름={<용어힌트 이름="균등배정" />}>{주글(g.equal_shares)}</칸>}
-        {g.prop_ratio != null && <칸 이름={<용어힌트 이름="비례경쟁률" />}>{경쟁률글(g.prop_ratio)}</칸>}
-        {/* 서버는 읽고 견주는 데도 썼는데('견준 항목') 카드에 칸이 없어 안 보였다 */}
-        {g.old_pct != null && <칸 이름={<용어힌트 이름="구주매출" />}>{g.old_pct === 0 ? "없음" : 확약글(g.old_pct)}</칸>}
+        {g.inst_ratio != null && <칸 이름={<용어힌트 이름="기관경쟁률" />}>{경쟁률글(g.inst_ratio)}</칸>}
+        {g.lockup_pct != null && <칸 이름={<용어힌트 이름="의무보유확약" />}>{확약글(g.lockup_pct)}</칸>}
+        {g.sub_ratio != null && <칸 이름={<용어힌트 이름="청약경쟁률" />}>{경쟁률글(g.sub_ratio)}</칸>}
       </dl>
+      {작은것.length > 0 && (
+        <dl className="flex flex-wrap gap-x-3 gap-y-1 text-2xs -mt-1" aria-label="그 밖의 숫자">
+          {작은것.map(([이름, 값], i) => <작은칸 key={i} 이름={이름}>{값}</작은칸>)}
+        </dl>
+      )}
 
-      <IpoPrediction 예측={g.prediction} />
-
-      {바꿔보기 && 넣을값 && (
+      <IpoPrediction 예측={g.prediction} 덧단추={바꿔보기 && 넣을값 ? (
         <button type="button" onClick={() => 바꿔보기(넣을값)}
-          className="self-start inline-flex items-center gap-1.5 text-xs font-semibold text-text-secondary hover:text-accent-blue">
+          className="inline-flex items-center gap-1 text-xs font-semibold text-text-secondary hover:text-accent-blue">
           <SlidersHorizontal size={13} />이 숫자로 직접 바꿔 보기
         </button>
-      )}
+      ) : undefined} />
     </Card>
   );
 }

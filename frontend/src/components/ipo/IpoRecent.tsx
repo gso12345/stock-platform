@@ -86,13 +86,17 @@ export default function IpoRecent({ 줄들, 정확도 }: {
           <p className="text-2xs text-text-muted break-keep mt-0.5">
             각 공모주를 그 전에 상장한 공모주만으로 맞혀 본 결과예요.
           </p>
-          {/* V·X 가 무엇을 재는지 — 실제 시초가가 예측가에서 ±폭 안이었는지. 수익률 %p 로 재면
-              많이 오른 공모주일수록 차이가 커 보이고, 예상 범위 안인지로 재면 잘 맞아도 절반은 X 다 */}
-          <p className="text-2xs text-text-muted break-keep mt-1.5 flex flex-wrap items-center gap-x-1">
-            <Check size={11} className="text-accent-green" aria-hidden />실제 시초가가 예측가의 ±{폭}% 안
-            <span aria-hidden>·</span>
-            <X size={11} className="text-text-dim" aria-hidden />밖.
-            <span>%p 가 아니라 값으로 견줘요 — +270%와 +300%는 30%p 차이지만 값으로는 8% 차이예요.</span>
+          {/* V·X 가 무엇을 재는지 — 실제 시초가가 예측가에서 ±폭 안이었는지. 왜 %p 가 아니라 값으로
+              견주는지는 '어떻게 예측하나요?' 에 적었다(여기 두면 목록보다 설명이 먼저 읽힌다) */}
+          {/* 아이콘과 그 뜻은 한 덩어리 — 따로 줄바꿈되면 ✗ 만 윗줄 끝에 남는다 */}
+          <p className="text-2xs text-text-muted break-keep mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <Check size={11} className="text-accent-green" aria-hidden />실제 시초가가 예측가의 ±{폭}% 안
+            </span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <X size={11} className="text-text-dim" aria-hidden />밖
+            </span>
+            <span className="text-text-dim">아이콘 아래 숫자는 예측가와의 차이</span>
           </p>
         </div>
         {정확도.n > 0 && (
@@ -116,27 +120,24 @@ export default function IpoRecent({ 줄들, 정확도 }: {
       </div>
       <ul className="divide-y divide-border-subtle">
         {보일것.map((r) => {
-          const 판정 = `실제가 예측가의 ±${폭}% ${r.hit ? "안" : "밖"}`;
+          const 판정 = `실제가 예측가의 ±${폭}% ${r.hit ? "안" : "밖"} — 예측가 대비 ${퍼센트글(r.diff_pct)}`;
           return (
-            <li key={`${r.name}-${r.list_date}`} className="px-4 py-2.5 flex items-center gap-3 text-xs">
+            <li key={`${r.name}-${r.list_date}`} className="px-4 py-2 flex items-center gap-3 text-xs">
               <div className="flex-1 min-w-0">
                 {r.code
                   ? <Link to={`/stocks/KR/${r.code}`} className="font-semibold text-text-primary hover:text-accent-blue truncate block">{r.name}</Link>
                   : <span className="font-semibold text-text-primary truncate block">{r.name}</span>}
                 <span className="text-2xs text-text-dim break-keep">{날짜글(r.list_date)} 상장 · 공모가 {원(r.offer_price)}</span>
               </div>
-              <div className="flex flex-col items-end shrink-0">
-                <span className="text-2xs text-text-muted">실제 {원(r.open_price)}</span>
-                <등락 퍼센트={배율퍼센트(r.actual_ratio)} />
+              {/* 실제·예측을 두 줄로 — 가격 옆에 공모가 대비 오르내림 */}
+              <div className="flex flex-col items-end shrink-0 text-2xs whitespace-nowrap">
+                <span className="text-text-muted">실제 {원(r.open_price)} <등락 퍼센트={배율퍼센트(r.actual_ratio)} /></span>
+                <span className="text-text-dim">예측 {원(r.pred_price)} <등락 퍼센트={배율퍼센트(r.pred_ratio)} className="opacity-80" /></span>
               </div>
-              {/* 줄마다 같은 폭이라 실제 칸이 줄을 맞춘다. 차이가 세 자리(+122%)면 그 줄만 넓어진다 */}
-              <div className="flex flex-col items-end shrink-0 min-w-[5.5rem]">
-                <span className="text-2xs text-text-muted whitespace-nowrap">예측 {원(r.pred_price)}</span>
-                <등락 퍼센트={배율퍼센트(r.pred_ratio)} className="opacity-80" />
-                <span className="text-2xs text-text-dim num whitespace-nowrap">예측 대비 {퍼센트글(r.diff_pct)}</span>
-              </div>
-              <span className="shrink-0" title={판정} aria-label={판정}>
+              {/* 맞힘과 예측가와의 차이 — 같은 너비라 줄이 맞는다 */}
+              <span className="shrink-0 w-10 flex flex-col items-center" title={판정} aria-label={판정}>
                 {r.hit ? <Check size={14} className="text-accent-green" /> : <X size={14} className="text-text-dim" />}
+                <span className="text-2xs text-text-dim num" aria-hidden>{퍼센트글(r.diff_pct)}</span>
               </span>
             </li>
           );

@@ -88,6 +88,7 @@ vi.mock("@/api/stocks", async (원본가져오기) => ({
 }));
 
 import Ipo from "../Ipo";
+import { 일정글 } from "@/components/ipo/IpoCard";
 
 function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -145,6 +146,40 @@ describe("공모주 — 다가오는 공모주", () => {
     expect(신주만).toHaveTextContent("구주매출?없음");
   });
 
+  // "깔끔하고 너무 많은 정보가 나오지는 않는지" — 일정은 한 줄로, 큰 칸에는 이미 나온 숫자만
+  it("일정은 한 줄로 모으고, 큰 칸에는 이미 나온 숫자만, 덜 중요한 숫자는 작게", async () => {
+    그리기();
+    const 청약끝 = (await screen.findByText("에이비씨바이오")).closest("div.bg-bg-card") as HTMLElement;
+    expect(within(청약끝).getByText("청약 10.13~10.14")).toBeInTheDocument();
+    expect(within(청약끝).getByLabelText("그 밖의 숫자")).toHaveTextContent("공모금액180억");
+    const 청약전 = screen.getByText("청약전로보틱스").closest("div.bg-bg-card") as HTMLElement;
+    expect(within(청약전).getByRole("button", { name: "기관경쟁률 설명" })).toBeInTheDocument();
+    expect(within(청약전).queryByRole("button", { name: "청약경쟁률 설명" })).toBeNull();
+    const 예측전 = screen.getByText("예측전테크").closest("div.bg-bg-card") as HTMLElement;
+    expect(within(예측전).getByText("수요예측 10.20")).toBeInTheDocument();
+    expect(within(예측전).queryByRole("button", { name: "기관경쟁률 설명" })).toBeNull();
+    expect(예측전).not.toHaveTextContent("—");
+  });
+
+  it("일정 한 줄 — 청약이 잡혔으면 청약·상장, 아니면 수요예측, 아무것도 없으면 미정", () => {
+    const g = 한눈에.upcoming[0] as any;
+    expect(일정글({ ...g, list_date: "2026-10-22" })).toBe("청약 10.13~10.14 · 상장 10.22");
+    expect(일정글({ ...g, sub_start: null, sub_end: null, list_date: null })).toBe("수요예측 10.1");
+    expect(일정글({ ...g, sub_start: null, sub_end: null, forecast_date: null, list_date: "2026-10-22" })).toBe("상장 10.22");
+    expect(일정글({ ...g, sub_start: null, sub_end: null, forecast_date: null, list_date: null })).toBe("일정 미정");
+  });
+
+  it("예측이 안 돼도 넣을 숫자가 있으면 계산기로 가져갈 수 있다", async () => {
+    overview.mockResolvedValue({
+      ...한눈에,
+      upcoming: [{ ...한눈에.upcoming[0], prediction: { ok: false, reason: "견줄 만큼 비슷한 공모주가 없어요" } }],
+    });
+    그리기();
+    const 카드 = (await screen.findByText("에이비씨바이오")).closest("div.bg-bg-card") as HTMLElement;
+    expect(카드).toHaveTextContent("견줄 만큼 비슷한 공모주가 없어요");
+    expect(within(카드).getByRole("button", { name: "이 숫자로 직접 바꿔 보기" })).toBeInTheDocument();
+  });
+
   it("청약 전이면 청약경쟁률 없이 계산했다고 알린다 — 그 카드에만", async () => {
     그리기();
     const 청약전 = (await screen.findByText("청약전로보틱스")).closest("div.bg-bg-card") as HTMLElement;
@@ -180,13 +215,18 @@ describe("공모주 — 다가오는 공모주", () => {
 
   // "너무 낮은데 예측률이" — 요즘 분위기를 따라가려고 예상값을 옮겼으면 점이 범위(비슷했던
   // 공모주가 실제로 시작한 값) 밖에 찍힐 수 있다. 왜 그런지 그 자리에 적는다
-  it("요즘 오차를 보정했으면 어느 쪽으로 얼마나 옮겼는지와 방식을 적는다", async () => {
+  it("요즘 오차를 보정했으면 어느 쪽으로 얼마나 옮겼는지 적고, 방식은 근거를 펼치면 보인다", async () => {
+    const 사용자 = userEvent.setup();
     그리기();
     const 올림 = (await screen.findByText("에이비씨바이오")).closest("div.bg-bg-card") as HTMLElement;
-    expect(올림).toHaveTextContent("요즘 공모주가 예측보다 높게 시작하고 있어서 예상을 12% 올려 잡았어요.");
+    expect(올림).toHaveTextContent("요즘 공모주가 예측보다 높게 시작해서 12% 올려 잡았어요.");
+    // "너무 많은 정보가 나오지는 않는지" — 견준 항목·방식은 기술적인 글이라 처음에는 접어 둔다
+    expect(올림).not.toHaveTextContent("방식 빠른 분위기 + 최근 오차 보정");
+    await 사용자.click(within(올림).getByRole("button", { name: /비슷했던 공모주/ }));
     expect(올림).toHaveTextContent("방식 빠른 분위기 + 최근 오차 보정");
+    expect(올림).toHaveTextContent("견준 항목: 기관경쟁률 · 의무보유확약 · 청약경쟁률 · 지난 공모주 210건");
     const 내림 = screen.getByText("청약전로보틱스").closest("div.bg-bg-card") as HTMLElement;
-    expect(내림).toHaveTextContent("요즘 공모주가 예측보다 낮게 시작하고 있어서 예상을 8% 내려 잡았어요.");
+    expect(내림).toHaveTextContent("요즘 공모주가 예측보다 낮게 시작해서 8% 내려 잡았어요.");
   });
 
   it("보정하지 않았거나 예전 서버면 보정 글을 쓰지 않는다", async () => {
@@ -202,6 +242,8 @@ describe("공모주 — 다가오는 공모주", () => {
     expect(await screen.findByText("에이비씨바이오")).toBeInTheDocument();
     expect(screen.queryByText(/잡았어요/)).toBeNull();
     const 예전 = screen.getByText("청약전로보틱스").closest("div.bg-bg-card") as HTMLElement;
+    await userEvent.setup().click(within(예전).getByRole("button", { name: /비슷했던 공모주/ }));
+    expect(예전).toHaveTextContent("견준 항목:");
     expect(예전).not.toHaveTextContent("· 방식");
     expect(document.body.textContent).not.toMatch(/undefined|NaN/);
   });
@@ -218,16 +260,21 @@ describe("공모주 — 최근 상장", () => {
   // 시초가 값으로 견주고, 줄마다 예측가와 몇 % 차이였는지 적는다
   it("V·X 의 기준(예측가 ±10%)을 적고, 줄마다 예측가와의 차이를 보여 준다", async () => {
     그리기();
-    const 범례 = await screen.findByText(/실제 시초가가 예측가의 ±10% 안/, { selector: "p" });
-    expect(범례).toHaveTextContent(/값으로 견줘요/);
+    const 범례 = (await screen.findByText(/실제 시초가가 예측가의 ±10% 안/)).closest("p") as HTMLElement;
+    expect(범례).toHaveTextContent("아이콘 아래 숫자는 예측가와의 차이");
+    // 왜 %p 가 아니라 값으로 견주는지는 '어떻게 예측하나요?' 에 — 목록 위에는 짧게
+    expect(범례).not.toHaveTextContent(/값으로/);
+    expect(screen.getByText(/수익률 %p로 재면/)).toHaveTextContent("값으로는 8% 차이");
     const 줄 = screen.getByRole("link", { name: "지난종목0" }).closest("li") as HTMLElement;
     expect(줄).toHaveTextContent("실제 15,000원");
     expect(줄).toHaveTextContent("예측 11,000원");
-    expect(줄).toHaveTextContent("예측 대비 +36%");
-    expect(within(줄).getByLabelText("실제가 예측가의 ±10% 밖").querySelector(".lucide-x")).not.toBeNull();
+    const 판정 = within(줄).getByLabelText("실제가 예측가의 ±10% 밖 — 예측가 대비 +36%");
+    expect(판정.querySelector(".lucide-x")).not.toBeNull();
+    expect(판정).toHaveTextContent("+36%");
     const 둘째 = screen.getByText("지난종목1").closest("li") as HTMLElement;
-    expect(둘째).toHaveTextContent("예측 대비 +8%");
-    expect(within(둘째).getByLabelText("실제가 예측가의 ±10% 안").querySelector(".lucide-check")).not.toBeNull();
+    const 둘째판정 = within(둘째).getByLabelText("실제가 예측가의 ±10% 안 — 예측가 대비 +8%");
+    expect(둘째판정.querySelector(".lucide-check")).not.toBeNull();
+    expect(둘째판정).toHaveTextContent("+8%");
   });
 
   // "최근상장 개수를 늘려줘" — 처음 15곳, 더 보기로 서버가 보낸 것(최근 100곳까지) 모두
@@ -342,12 +389,13 @@ describe("공모주 — 증권사로 거르기", () => {
     const 사용자 = userEvent.setup();
     overview.mockResolvedValue(여럿);
     그리기();
-    await 사용자.click(await screen.findByRole("button", { name: "KB증권 2곳" }));
+    expect(await screen.findByRole("button", { name: "KB증권 2곳" })).toBeInTheDocument();
+    expect(screen.queryByText(/보는 중/)).toBeNull();      // 안 골랐을 때는 안내 글을 두지 않는다
+    await 사용자.click(screen.getByRole("button", { name: "KB증권 2곳" }));
     expect(screen.getByRole("button", { name: "KB증권 2곳" })).toHaveAttribute("aria-pressed", "true");
     expect(보이는곳()).toEqual(["가나바이오", "다라테크"]);
     expect(머리()).toHaveTextContent("다가오는 공모주 2 / 4");
-    expect(screen.getByText(/고른 증권사 1곳이 주관하는 공모주 2곳만 보여요/))
-      .toHaveTextContent("주관사가 아직 안 나온 1곳은 빠졌어요");
+    expect(screen.getByText(/고른 증권사 공모주 2곳만 보는 중/)).toHaveTextContent("주관사 모르는 1곳 빠짐");
     expect(JSON.parse(localStorage.getItem("portfolio_settings")!).내증권사).toEqual(["KB증권"]);
     await 사용자.click(screen.getByRole("button", { name: "신한투자증권 1곳" }));
     expect(보이는곳()).toEqual(["가나바이오", "다라테크", "마바로보"]);
@@ -386,6 +434,7 @@ describe("공모주 — 직접 넣어 보기", () => {
     await 사용자.type(await screen.findByLabelText(/확정 공모가/), "15,000");
     await 사용자.type(screen.getByLabelText(/기관경쟁률/, { selector: "input" }), "1,234.5");
     await 사용자.type(screen.getByLabelText(/의무보유확약/, { selector: "input" }), "40");
+    await 사용자.click(screen.getByRole("button", { name: /더 넣기/ }));
     await 사용자.type(screen.getByLabelText(/공모금액/), "250");
     await 사용자.click(screen.getByRole("button", { name: "스팩" }));
     await 사용자.click(screen.getByRole("button", { name: "예측하기" }));
@@ -411,7 +460,8 @@ describe("공모주 — 직접 넣어 보기", () => {
   it("희망공모가는 상단만 받는다 — 예측에 하단은 안 쓰인다", async () => {
     const 사용자 = userEvent.setup();
     그리기();
-    expect(await screen.findByLabelText(/희망공모가 상단/)).toBeInTheDocument();
+    await 사용자.click(await screen.findByRole("button", { name: /더 넣기/ }));
+    expect(screen.getByLabelText(/희망공모가 상단/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/희망공모가 하단/)).toBeNull();
     const 카드 = screen.getByText("에이비씨바이오").closest("div.bg-bg-card") as HTMLElement;
     await 사용자.click(within(카드).getByRole("button", { name: "이 숫자로 직접 바꿔 보기" }));
@@ -444,6 +494,29 @@ describe("공모주 — 직접 넣어 보기", () => {
     expect(predict.mock.calls[0][0]).toMatchObject({ float_pct: 35.2, equal_shares: 1.53, old_pct: 20 });
   });
 
+  // "너무 많은 정보가 나오지는 않는지" — 칸 아홉 개를 한꺼번에 펴 두면 무엇부터 넣을지 안 보인다
+  it("덜 쓰는 칸은 접어 두고, 카드에서 값을 가져오거나 접힌 칸이 틀렸으면 편다", async () => {
+    const 사용자 = userEvent.setup();
+    그리기();
+    expect(await screen.findByLabelText(/확정 공모가/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/유통물량/, { selector: "input" })).toBeNull();
+    const 더 = screen.getByRole("button", { name: /더 넣기/ });
+    expect(더).toHaveAttribute("aria-expanded", "false");
+    await 사용자.click(더);
+    await 사용자.type(screen.getByLabelText(/구주매출/, { selector: "input" }), "120");
+    await 사용자.click(screen.getByRole("button", { name: "접기" }));
+    expect(screen.queryByLabelText(/구주매출/, { selector: "input" })).toBeNull();
+    await 사용자.click(screen.getByRole("button", { name: "예측하기" }));
+    expect(screen.getByLabelText(/구주매출/, { selector: "input" })).toHaveValue("120");
+    expect(screen.getByText("0~100% 사이로 넣어 주세요")).toBeInTheDocument();
+    // 카드에서 가져오면 가져온 값(공모금액·희망공모가)이 보이게 편다
+    await 사용자.click(screen.getByRole("button", { name: "접기" }));
+    const 카드 = screen.getByText("청약전로보틱스").closest("div.bg-bg-card") as HTMLElement;
+    await 사용자.click(within(카드).getByRole("button", { name: "이 숫자로 직접 바꿔 보기" }));
+    expect(screen.getByLabelText(/공모금액/)).toHaveValue("90");
+    expect(screen.getByLabelText(/희망공모가 상단/)).toHaveValue("11000");
+  });
+
   it("상세 항목은 비워 두면 없이 보내고, 틀리게 넣으면 그 자리에서 알려 준다", async () => {
     const 사용자 = userEvent.setup();
     그리기();
@@ -453,6 +526,7 @@ describe("공모주 — 직접 넣어 보기", () => {
     await 사용자.click(screen.getByRole("button", { name: "예측하기" }));
     expect(predict.mock.calls[0][0]).toMatchObject({ float_pct: null, equal_shares: null, old_pct: null });
     predict.mockClear();
+    await 사용자.click(screen.getByRole("button", { name: /더 넣기/ }));
     await 사용자.type(screen.getByLabelText(/유통물량/, { selector: "input" }), "0");
     await 사용자.type(screen.getByLabelText(/균등배정/, { selector: "input" }), "-1");
     await 사용자.type(screen.getByLabelText(/구주매출/, { selector: "input" }), "120");

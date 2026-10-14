@@ -5,7 +5,7 @@
  * 넓게 흩어져 시작했다. 그래서 예상값 옆에 '그들 가운데 절반이 시작한 범위'
  * 를 막대로 같이 그리고, 그 공모주들을 직접 펼쳐 볼 수 있게 한다.
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -52,12 +52,18 @@ function 범위막대({ 배율, 낮음, 높음 }: { 배율: number; 낮음: numb
   );
 }
 
-export default function IpoPrediction({ 예측, className }: { 예측: 공모주예측; className?: string }) {
+export default function IpoPrediction({ 예측, className, 덧단추 }: {
+  예측: 공모주예측;
+  className?: string;
+  /** 아래 줄 오른쪽에 붙일 단추(카드의 '이 숫자로 직접 바꿔 보기') */
+  덧단추?: ReactNode;
+}) {
   const [이웃보기, set이웃보기] = useState(false);
   if (!예측.ok) {
     return (
-      <div className={cn("rounded-lg bg-bg-elevated px-3 py-2.5 text-xs text-text-muted break-keep", className)}>
-        {예측.reason}
+      <div className={cn("flex flex-col gap-2", className)}>
+        <div className="rounded-lg bg-bg-elevated px-3 py-2.5 text-xs text-text-muted break-keep">{예측.reason}</div>
+        {덧단추 && <div className="self-end">{덧단추}</div>}
       </div>
     );
   }
@@ -65,7 +71,7 @@ export default function IpoPrediction({ 예측, className }: { 예측: 공모주
   const 청약없음 = 예측.missing.includes("청약경쟁률");
   const 보정 = 예측.parts.correction_pct ?? 0;
   return (
-    <div className={cn("rounded-xl border border-accent-blue/25 bg-accent-blue/5 p-3 flex flex-col gap-2.5", className)}>
+    <div className={cn("rounded-xl border border-accent-blue/25 bg-accent-blue/5 p-3 flex flex-col gap-2", className)}>
       <div className="flex items-end justify-between gap-2 flex-wrap">
         <div className="flex flex-col">
           <span className="text-2xs font-semibold text-text-muted inline-flex items-center gap-1">
@@ -81,56 +87,56 @@ export default function IpoPrediction({ 예측, className }: { 예측: 공모주
         비슷했던 공모주 가운데 절반이 <b className="text-text-primary num">{원(범위.low_price)}~{원(범위.high_price)}</b>
         {" "}(<등락 퍼센트={배율퍼센트(범위.low_ratio)} /> ~ <등락 퍼센트={배율퍼센트(범위.high_ratio)} />)에서 시작했어요.
       </p>
+      {/* 확률 둘은 한 줄로 — 따로 칸을 두면 예상 시초가만큼 커 보인다 */}
+      <p className="text-xs text-text-secondary inline-flex flex-wrap items-center gap-x-1">
+        <용어힌트 이름="따블" /> 이상 <b className="text-text-primary num">{확률글(예측.p_double)}</b>
+        <span aria-hidden className="text-text-dim">·</span>
+        공모가 아래 <b className="text-text-primary num">{확률글(예측.p_below)}</b>
+      </p>
       {/* 최근 오차 보정 — 범위는 비슷했던 공모주가 실제로 시작한 값이라 그대로 두고, 예상값만 옮겼다.
           그래서 점이 범위 밖에 찍힐 수 있다 — 왜 그런지 여기 적는다 */}
       {!!보정 && (
         <p className="text-2xs text-text-muted break-keep">
-          요즘 공모주가 예측보다 {보정 > 0 ? "높게" : "낮게"} 시작하고 있어서 예상을
+          요즘 공모주가 예측보다 {보정 > 0 ? "높게" : "낮게"} 시작해서
           {" "}<b className="text-text-primary num">{Math.abs(보정)}%</b> {보정 > 0 ? "올려" : "내려"} 잡았어요.
         </p>
       )}
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-lg bg-bg-card border border-border px-2.5 py-2">
-          <p className="text-2xs text-text-muted inline-flex items-center gap-1"><용어힌트 이름="따블" /> 이상으로 시작</p>
-          <p className="text-sm font-bold text-text-primary num">{확률글(예측.p_double)}</p>
-        </div>
-        <div className="rounded-lg bg-bg-card border border-border px-2.5 py-2">
-          <p className="text-2xs text-text-muted">공모가 아래로 시작</p>
-          <p className="text-sm font-bold text-text-primary num">{확률글(예측.p_below)}</p>
-        </div>
-      </div>
-
       {청약없음 && (
-        <p className="text-2xs text-text-muted break-keep">청약 전이라 청약경쟁률 없이 계산했어요. 청약이 끝나면 다시 계산해요.</p>
+        <p className="text-2xs text-text-muted break-keep">청약 전이라 청약경쟁률 없이 계산했어요.</p>
       )}
 
-      <button type="button" onClick={() => set이웃보기((v) => !v)} aria-expanded={이웃보기}
-        className="self-start inline-flex items-center gap-1 text-xs font-semibold text-accent-blue hover:underline">
-        비슷했던 공모주 {예측.neighbors.length}곳 {이웃보기 ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-      </button>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <button type="button" onClick={() => set이웃보기((v) => !v)} aria-expanded={이웃보기}
+          className="inline-flex items-center gap-1 text-xs font-semibold text-accent-blue hover:underline">
+          비슷했던 공모주 {예측.neighbors.length}곳 {이웃보기 ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+        </button>
+        {덧단추}
+      </div>
+      {/* 무엇과 어떻게 견줬는지는 근거를 펼쳤을 때만 — 처음 보는 사람에게는 기술적인 글이다 */}
       {이웃보기 && (
-        <ul className="flex flex-col divide-y divide-border-subtle rounded-lg border border-border bg-bg-card">
-          {예측.neighbors.map((n) => (
-            <li key={`${n.name}-${n.list_date}`} className="px-2.5 py-2 flex items-center gap-2 text-xs">
-              <div className="flex-1 min-w-0">
-                {n.code
-                  ? <Link to={`/stocks/KR/${n.code}`} className="font-semibold text-text-primary hover:text-accent-blue truncate block">{n.name}</Link>
-                  : <span className="font-semibold text-text-primary truncate block">{n.name}</span>}
-                <span className="text-2xs text-text-dim">
-                  {날짜글(n.list_date)} 상장 · 기관 {경쟁률글(n.inst_ratio)} · 확약 {확약글(n.lockup_pct)}
-                  {n.sub_ratio != null && <> · 청약 {경쟁률글(n.sub_ratio)}</>}
-                </span>
-              </div>
-              <등락 퍼센트={배율퍼센트(n.ratio)} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="flex flex-col divide-y divide-border-subtle rounded-lg border border-border bg-bg-card">
+            {예측.neighbors.map((n) => (
+              <li key={`${n.name}-${n.list_date}`} className="px-2.5 py-2 flex items-center gap-2 text-xs">
+                <div className="flex-1 min-w-0">
+                  {n.code
+                    ? <Link to={`/stocks/KR/${n.code}`} className="font-semibold text-text-primary hover:text-accent-blue truncate block">{n.name}</Link>
+                    : <span className="font-semibold text-text-primary truncate block">{n.name}</span>}
+                  <span className="text-2xs text-text-dim">
+                    {날짜글(n.list_date)} 상장 · 기관 {경쟁률글(n.inst_ratio)} · 확약 {확약글(n.lockup_pct)}
+                    {n.sub_ratio != null && <> · 청약 {경쟁률글(n.sub_ratio)}</>}
+                  </span>
+                </div>
+                <등락 퍼센트={배율퍼센트(n.ratio)} />
+              </li>
+            ))}
+          </ul>
+          <p className="text-2xs text-text-dim break-keep">
+            견준 항목: {예측.used.join(" · ")} · 지난 공모주 {예측.n_train}건
+            {예측.method && <> · 방식 {예측.method.name}</>}
+          </p>
+        </>
       )}
-      <p className="text-2xs text-text-dim break-keep">
-        견준 항목: {예측.used.join(" · ")} · 지난 공모주 {예측.n_train}건
-        {예측.method && <> · 방식 {예측.method.name}</>}
-      </p>
     </div>
   );
 }
