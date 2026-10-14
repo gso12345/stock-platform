@@ -12,6 +12,7 @@ import { Card, Badge, 용어힌트 } from "@/components/ui";
 import type { 다가오는공모주, 공모주직접입력 } from "@/api/stocks";
 import IpoPrediction from "./IpoPrediction";
 import { 원, 경쟁률글, 확약글, 주글, 억원글, 날짜글, 남은날 } from "./ipoFormat";
+import { 증권사들 } from "./ipoBrokers";
 
 const 단계색: Record<string, "default" | "blue" | "green" | "yellow" | "purple"> = {
   "수요예측 전": "default",
@@ -54,6 +55,7 @@ export default function IpoCard({ 공모주: g, 바꿔보기 }: {
     : g.band_low != null && g.band_high != null ? `${g.band_low.toLocaleString("ko-KR")}~${원(g.band_high)}`
     : "—";
   const 넣을값 = 입력값으로(g);
+  const 주관사 = 증권사들(g.underwriter);
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
@@ -66,7 +68,7 @@ export default function IpoCard({ 공모주: g, 바꿔보기 }: {
             {g.kind === "reit" && <Badge variant="purple">리츠</Badge>}
             {g.market && <Badge>{g.market}</Badge>}
           </div>
-          {g.underwriter && <p className="text-2xs text-text-dim mt-0.5 truncate">주관사 {g.underwriter}</p>}
+          {주관사.length > 0 && <p className="text-2xs text-text-dim mt-0.5 truncate">주관사 {주관사.join(" · ")}</p>}
         </div>
         <Badge variant={단계색[g.stage] ?? "default"}>{g.stage}{날표}</Badge>
       </div>

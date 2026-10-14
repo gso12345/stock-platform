@@ -100,6 +100,7 @@ function 그리기() {
 
 beforeEach(() => {
   useSettingsStore.getState().setColorScheme("red-blue");
+  useSettingsStore.getState().set내증권사([]);
   overview.mockReset();
   predict.mockReset();
   overview.mockResolvedValue(한눈에);
@@ -309,6 +310,63 @@ describe("공모주 — 최근 상장", () => {
     그리기();
     expect(await screen.findByText("에이비씨바이오")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /최근 상장/ })).toBeNull();
+  });
+});
+
+// 사용자: "공모주 일정 증권사별로 설정해서 볼수 있게 만들어줘" — 청약은 계좌가 있는 증권사로만 한다
+describe("공모주 — 증권사로 거르기", () => {
+  const 여럿 = {
+    ...한눈에,
+    upcoming: [
+      { ...한눈에.upcoming[0], name: "가나바이오", underwriter: "미래에셋증권,KB증권" },
+      { ...한눈에.upcoming[0], name: "다라테크", underwriter: "KB증권" },
+      { ...한눈에.upcoming[0], name: "마바로보", underwriter: "신한금융투자" },
+      { ...한눈에.upcoming[0], name: "주관사모름", underwriter: null },
+    ],
+  };
+  const 보이는곳 = () => ["가나바이오", "다라테크", "마바로보", "주관사모름"].filter((n) => screen.queryByText(n));
+  const 머리 = () => screen.getByRole("heading", { name: /다가오는 공모주/ });
+
+  it("증권사마다 주관하는 곳 수를 칩으로 — 여럿이 함께 주관하면 각각, 옛 이름은 지금 이름으로", async () => {
+    overview.mockResolvedValue(여럿);
+    그리기();
+    expect(await screen.findByRole("button", { name: "KB증권 2곳" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "미래에셋증권 1곳" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "신한투자증권 1곳" })).toBeInTheDocument();
+    expect(보이는곳()).toHaveLength(4);
+    expect(머리()).toHaveTextContent("다가오는 공모주 4");
+    expect(screen.getByText("주관사 미래에셋증권 · KB증권")).toBeInTheDocument();
+  });
+
+  it("고르면 그 증권사 공모주만 보이고, 고른 것은 설정에 남는다", async () => {
+    const 사용자 = userEvent.setup();
+    overview.mockResolvedValue(여럿);
+    그리기();
+    await 사용자.click(await screen.findByRole("button", { name: "KB증권 2곳" }));
+    expect(screen.getByRole("button", { name: "KB증권 2곳" })).toHaveAttribute("aria-pressed", "true");
+    expect(보이는곳()).toEqual(["가나바이오", "다라테크"]);
+    expect(머리()).toHaveTextContent("다가오는 공모주 2 / 4");
+    expect(screen.getByText(/고른 증권사 1곳이 주관하는 공모주 2곳만 보여요/))
+      .toHaveTextContent("주관사가 아직 안 나온 1곳은 빠졌어요");
+    expect(JSON.parse(localStorage.getItem("portfolio_settings")!).내증권사).toEqual(["KB증권"]);
+    await 사용자.click(screen.getByRole("button", { name: "신한투자증권 1곳" }));
+    expect(보이는곳()).toEqual(["가나바이오", "다라테크", "마바로보"]);
+    await 사용자.click(screen.getByRole("button", { name: "모두 보기" }));
+    expect(보이는곳()).toHaveLength(4);
+    expect(useSettingsStore.getState().내증권사).toEqual([]);
+  });
+
+  it("골라 둔 증권사로 열자마자 거르고, 지금 목록에 없는 증권사도 칩으로 남겨 뺄 수 있다", async () => {
+    const 사용자 = userEvent.setup();
+    useSettingsStore.getState().set내증권사(["삼성증권"]);
+    overview.mockResolvedValue(여럿);
+    그리기();
+    expect(await screen.findByText("고른 증권사가 주관하는 공모주가 지금은 없어요")).toBeInTheDocument();
+    expect(보이는곳()).toEqual([]);
+    expect(머리()).toHaveTextContent("다가오는 공모주 0 / 4");
+    await 사용자.click(screen.getByRole("button", { name: "삼성증권 0곳" }));
+    expect(보이는곳()).toHaveLength(4);
+    expect(screen.queryByRole("button", { name: "삼성증권 0곳" })).toBeNull();
   });
 });
 

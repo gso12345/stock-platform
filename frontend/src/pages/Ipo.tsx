@@ -19,6 +19,9 @@ import { ipoApi, type 공모주직접입력, type 공모주한눈에 } from "@/a
 import IpoCard from "@/components/ipo/IpoCard";
 import IpoCalculator from "@/components/ipo/IpoCalculator";
 import IpoRecent from "@/components/ipo/IpoRecent";
+import IpoBrokerFilter from "@/components/ipo/IpoBrokerFilter";
+import { 증권사들, 내증권사공모주 } from "@/components/ipo/ipoBrokers";
+import { useSettingsStore } from "@/store/settingsStore";
 
 /** '2026-10-09T14:30:12+09:00' → '10.9 14:30' (서버가 한국 시각으로 준다) */
 function 기준시각(iso: string | null): string | null {
@@ -73,11 +76,16 @@ export default function Ipo() {
   });
   const [계산기값, set계산기값] = useState<공모주직접입력 | null>(null);
   const 계산기자리 = useRef<HTMLDivElement>(null);
+  const 고른증권사 = useSettingsStore((s) => s.내증권사);
+  const 비우기 = useSettingsStore((s) => s.set내증권사);
   const 바꿔보기 = (v: 공모주직접입력) => {
     set계산기값({ ...v });
     계산기자리.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   };
   const 시각 = 기준시각(data?.as_of ?? null);
+  const 다가옴 = data?.upcoming ?? [];
+  const 보일것 = 다가옴.filter((g) => 내증권사공모주(g.underwriter, 고른증권사));
+  const 모름수 = 고른증권사.length ? 다가옴.filter((g) => !증권사들(g.underwriter).length).length : 0;
 
   return (
     <div className="flex flex-col gap-5 max-w-6xl mx-auto pb-20">
@@ -98,7 +106,10 @@ export default function Ipo() {
             <section className="lg:col-span-2 flex flex-col gap-3" aria-labelledby="ipo-다가오는">
               <div className="flex items-baseline justify-between gap-2">
                 <h2 id="ipo-다가오는" className="text-sm font-bold text-text-primary">
-                  다가오는 공모주 <span className="text-text-muted font-semibold">{data.upcoming.length}</span>
+                  다가오는 공모주{" "}
+                  <span className="text-text-muted font-semibold">
+                    {고른증권사.length ? `${보일것.length} / ${다가옴.length}` : 다가옴.length}
+                  </span>
                 </h2>
                 {시각 && (
                   <span className="text-2xs text-text-dim">
@@ -106,8 +117,15 @@ export default function Ipo() {
                   </span>
                 )}
               </div>
-              {data.upcoming.length ? (
-                data.upcoming.map((g) => <IpoCard key={`${g.name}-${g.forecast_date ?? g.sub_start ?? ""}`} 공모주={g} 바꿔보기={바꿔보기} />)
+              <IpoBrokerFilter 주관사칸들={다가옴.map((g) => g.underwriter)} 보이는수={보일것.length} 모름수={모름수} />
+              {보일것.length ? (
+                보일것.map((g) => <IpoCard key={`${g.name}-${g.forecast_date ?? g.sub_start ?? ""}`} 공모주={g} 바꿔보기={바꿔보기} />)
+              ) : 다가옴.length ? (
+                <Card>
+                  <빈화면 compact icon={Rocket} title="고른 증권사가 주관하는 공모주가 지금은 없어요"
+                    hint={`${고른증권사.join(" · ")} — 다른 증권사 공모주 ${다가옴.length}곳은 모두 보기로 볼 수 있어요.`}
+                    action={{ label: "모두 보기", onClick: () => 비우기([]) }} />
+                </Card>
               ) : (
                 <Card>
                   <빈화면 compact icon={Rocket} title="지금 진행 중인 공모주가 없어요"

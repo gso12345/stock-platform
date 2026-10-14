@@ -74,12 +74,24 @@ export interface 저장값 {
    *  퍼센트는 내가 얼마를 가졌는지 말해 주지 않고, 현재가는 남들도 아는 값이다. */
   금액가리기: boolean;
   불러오기표시: 불러오기표시;
+  /** 공모주 일정을 이 증권사들이 주관하는 것만 본다(비면 모두).
+   *  사용자: "공모주 일정 증권사별로 설정해서 볼수 있게 만들어줘" — 청약은 계좌가 있는
+   *  증권사로만 할 수 있어서, 다른 증권사 공모주는 목록에 있어도 쓸 데가 없다 */
+  내증권사: string[];
 }
 
 const 기본값: 저장값 = {
   colorScheme: "red-blue", fontSize: "normal", theme: "system",
-  orientation: "system", 화면모양: "app", 금액가리기: false, 불러오기표시: "실패만",
+  orientation: "system", 화면모양: "app", 금액가리기: false, 불러오기표시: "실패만", 내증권사: [],
 };
+
+/** 저장된 증권사 목록을 믿을 만한 모양으로 — 글자만, 같은 것은 한 번, 지나치게 많거나 긴 것은 버린다 */
+export function 정상내증권사(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const 이름들 = v.filter((x): x is string => typeof x === "string" && !!x.trim() && x.length <= 30)
+    .map((x) => x.trim());
+  return [...new Set(이름들)].slice(0, 40);
+}
 
 function load(): 저장값 {
   const 기본 = { ...기본값, theme: legacyTheme() };
@@ -95,6 +107,7 @@ function load(): 저장값 {
         화면모양: 정상화면모양(p.화면모양),
         금액가리기: p.금액가리기 === true,
         불러오기표시: 정상불러오기표시(p.불러오기표시),
+        내증권사: 정상내증권사(p.내증권사),
       };
     }
   } catch {}
@@ -121,6 +134,9 @@ interface SettingsStore extends 저장값 {
   set금액가리기: (v: boolean) => void;
   토글금액가리기: () => void;
   set불러오기표시: (v: 불러오기표시) => void;
+  /** 고른 증권사면 빼고, 아니면 넣는다 */
+  토글내증권사: (이름: string) => void;
+  set내증권사: (v: string[]) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => {
@@ -135,5 +151,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => {
     set금액가리기:  (금액가리기)   => 바꾸기({ 금액가리기 }),
     토글금액가리기: ()            => 바꾸기({ 금액가리기: !get().금액가리기 }),
     set불러오기표시: (불러오기표시) => 바꾸기({ 불러오기표시 }),
+    토글내증권사: (이름) => {
+      const 지금 = get().내증권사;
+      바꾸기({ 내증권사: 지금.includes(이름) ? 지금.filter((x) => x !== 이름) : [...지금, 이름] });
+    },
+    set내증권사: (v) => 바꾸기({ 내증권사: 정상내증권사(v) }),
   };
 });

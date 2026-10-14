@@ -33,6 +33,24 @@ describe("기본 설정", () => {
     expect((await 새로불러오기()).theme).toBe("light");
   });
 
+  // "공모주 일정 증권사별로 설정해서 볼수 있게" — 고른 증권사는 다음에 열어도 그대로
+  it("고른 증권사는 남고, 이상한 값은 버린다", async () => {
+    let s = await 새로불러오기();
+    expect(s.내증권사).toEqual([]);
+    s.토글내증권사("KB증권");
+    s.토글내증권사("삼성증권");
+    s = await 새로불러오기();
+    expect(s.내증권사).toEqual(["KB증권", "삼성증권"]);
+    s.토글내증권사("KB증권");
+    expect((await 새로불러오기()).내증권사).toEqual(["삼성증권"]);
+    localStorage.setItem("portfolio_settings", JSON.stringify({
+      내증권사: ["KB증권", 3, "", "KB증권", "가".repeat(31), null, " 대신증권 "],
+    }));
+    expect((await 새로불러오기()).내증권사).toEqual(["KB증권", "대신증권"]);
+    localStorage.setItem("portfolio_settings", JSON.stringify({ 내증권사: "KB증권" }));
+    expect((await 새로불러오기()).내증권사).toEqual([]);
+  });
+
   it("저장값에 칸이 빠져 있으면 새 기본값으로 채운다", async () => {
     localStorage.setItem("portfolio_settings", JSON.stringify({ fontSize: "large" }));
     const s = await 새로불러오기();
