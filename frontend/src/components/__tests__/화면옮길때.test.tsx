@@ -89,7 +89,8 @@ describe("한가해지면", () => {
     await waitFor(() => expect(한가할때_할일).not.toBeNull());
     expect(받음.size).toBe(0);                      // 한가해지기 전에는 안 받는다
     한가할때_할일!();
-    expect([...받음].sort()).toEqual(["/", "/feed", "/news", "/portfolio", "/quant"]);
+    // 퀀트는 더보기로 옮겼다 — 하단 탭은 넷(+더보기)
+    expect([...받음].sort()).toEqual(["/", "/feed", "/news", "/portfolio"]);
   });
 });
 

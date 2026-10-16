@@ -8,7 +8,7 @@
  * 따로 내면서 두 벌이 될 뻔했다. 두 벌이면 메뉴를 하나 추가할 때 화면에는
  * 나오는데 탭은 안 켜지는, 알아채기 어려운 어긋남이 생긴다.
  */
-import { Star, Search, LineChart, BookMarked, Rocket } from "lucide-react";
+import { Star, Search, LineChart, BookMarked, Rocket, Award } from "lucide-react";
 
 export interface 더보기메뉴 {
   to: string;
@@ -28,7 +28,10 @@ export interface 더보기메뉴 {
  * 소속을 하나로 정했다. 관심종목은 내 자산과 같이 보는 것이라
  * 형제 탭이 맞다. 하단 탭은 /watchlist 에서도 "내 자산" 을 켠다
  * (Layout.tsx 의 내자산_경로 참고). */
+/* 퀀트는 하단 탭에 있다가 여기로 옮겼다(사용자: "퀀트페이지를 더보기에 넣어줘").
+ * PC 옆 메뉴(Layout 의 NAV)에는 그대로 있다 — 거기는 자리가 넉넉하다. */
 export const 더보기_메뉴: 더보기메뉴[] = [
+  { to: "/quant",      icon: Award,      label: "퀀트",       설명: "관심종목 퀀트 점수 비교" },
   { to: "/screening",  icon: Search,     label: "스크리닝",   설명: "조건으로 종목 걸러내기" },
   { to: "/ipo",        icon: Rocket,     label: "공모주",     설명: "상장일 시초가 예측" },
   { to: "/backtest",   icon: LineChart,  label: "백테스트",   설명: "과거 데이터로 전략 검증" },

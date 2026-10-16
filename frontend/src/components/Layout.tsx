@@ -31,12 +31,12 @@ const NAV = [
 ];
 
 /* ── 모바일 하단 탭바 ─────────────────────────────────── */
+/* 퀀트는 더보기로 옮겼다(사용자: "퀀트페이지를 더보기에 넣어줘") — constants/moreNav 참고 */
 const BOTTOM_NAV = [
   { to: "/",          icon: LayoutDashboard, label: "대시보드", end: true },
   { to: "/portfolio", icon: Wallet,          label: "내 자산"  },
   { to: "/feed",      icon: Rss,             label: "피드"     },
   { to: "/news",      icon: Newspaper,       label: "뉴스"     },
-  { to: "/quant",     icon: Award,           label: "퀀트"     },
 ];
 
 /** 메뉴에 손을 대는 순간(마우스를 올리거나 손가락이 닿거나 초점이 오면)

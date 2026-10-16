@@ -97,6 +97,16 @@ describe("하단 탭의 더보기", () => {
     expect(Layout원문).toMatch(/to === "\/portfolio"/);
   });
 
+  it("퀀트는 하단 탭이 아니라 더보기에 있다 — PC 옆 메뉴에는 그대로", () => {
+    /* "퀀트페이지를 더보기에 넣어줘" */
+    expect(더보기_메뉴.some((m) => m.to === "/quant" && m.label === "퀀트")).toBe(true);
+    expect(더보기_경로).toContain("/quant");          // 퀀트를 보는 동안 하단의 더보기가 켜진다
+    const 하단 = Layout원문.match(/const BOTTOM_NAV = \[([\s\S]*?)\];/)![1];
+    expect(하단).not.toMatch(/"\/quant"/);
+    const 옆 = Layout원문.match(/const NAV = \[([\s\S]*?)\];/)![1];
+    expect(옆).toMatch(/"\/quant"/);
+  });
+
   it("메뉴 목록을 두 벌로 들지 않는다", () => {
     /* 두 벌이면 메뉴를 추가할 때 화면에는 나오는데 탭은 안 켜진다 */
     expect(Layout원문).not.toMatch(/label: "관심종목"/);
