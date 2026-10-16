@@ -428,7 +428,7 @@ class Test상세_받기:
             "옛것": {"name": "옛것", "kind": "normal", "no": "13", "list_date": "2022-01-05"},
         }
 
-    def test_상장한_것은_한_번_받고_상장_전_것은_갱신간격마다(self, monkeypatch):
+    def test_상장한_것은_한_번_받고_상장_전_것은_상세_갱신간격마다(self, monkeypatch):
         물음 = _가짜원천(monkeypatch, {("상세", "11"): _상세쪽(), ("상세", "12"): _상세쪽(유통=None)})
         기록 = self._기록()
         진단 = S.상세채우기(기록)
@@ -437,9 +437,9 @@ class Test상세_받기:
         assert not 기록["곧상장"]["detail_done"] and "float_pct" not in 기록["곧상장"]
         물음.clear()
         S.상세채우기(기록)
-        assert 물음 == [], "갱신간격 안에는 다시 받지 않는다"
+        assert 물음 == [], "상세_갱신간격 안에는 다시 받지 않는다"
         for k in ("상장한", "곧상장"):
-            기록[k]["detail_at"] -= S.갱신간격 + 1
+            기록[k]["detail_at"] -= S.상세_갱신간격 + 1
         S.상세채우기(기록)
         assert len(물음) == 1 and "no=12" in 물음[0], "상장한 뒤 받은 것은 끝, 상장 전 것만 다시"
 
@@ -448,7 +448,7 @@ class Test상세_받기:
         기록 = self._기록()
         S.상세채우기(기록)
         기록["곧상장"].update(open_price=30000, offer_price=10000, list_date="2026-10-01")
-        기록["곧상장"]["detail_at"] -= S.갱신간격 + 1
+        기록["곧상장"]["detail_at"] -= S.상세_갱신간격 + 1
         S.상세채우기(기록)
         assert 기록["곧상장"]["detail_done"] and 기록["곧상장"]["equal_shares"] == 2
 
@@ -458,7 +458,7 @@ class Test상세_받기:
         기록 = self._기록()
         S.상세채우기(기록)
         쪽들[("상세", "12")] = _상세쪽(None, None, None, None, None, None)
-        기록["곧상장"]["detail_at"] -= S.갱신간격 + 1
+        기록["곧상장"]["detail_at"] -= S.상세_갱신간격 + 1
         S.상세채우기(기록)
         assert 기록["곧상장"]["float_pct"] == pytest.approx(35.2)
 
@@ -500,12 +500,12 @@ class Test상세_받기:
         assert "equal_shares" not in r, "새 판으로 다시 읽었으면 옛 판이 잘못 읽은 값은 버린다"
         물음.clear()
         S.상세채우기(기록)
-        assert 물음 == [], "지금 판으로 읽은 것은 다시 받지 않는다(상장 전 것은 갱신간격마다)"
+        assert 물음 == [], "지금 판으로 읽은 것은 다시 받지 않는다(상장 전 것은 상세_갱신간격마다)"
 
     def test_받을_차례는_안_받은_것_옛_판_다시_볼_것(self, monkeypatch):
         물음 = _가짜원천(monkeypatch, {})
         monkeypatch.setattr(S, "상세_한번", 1)
-        옛때 = time.time() - S.갱신간격 - 1
+        옛때 = time.time() - S.상세_갱신간격 - 1
         기록 = {
             "다시볼것": {"name": "다시볼것", "kind": "normal", "no": "1", "sub_end": "2099-01-09",
                      "detail_at": 옛때, "detail_ver": S.상세판},
@@ -569,7 +569,7 @@ class Test상세_받기:
         _가짜원천(monkeypatch, {("상세", "2101"): _상세쪽()})
         self._방금_받은_서버(monkeypatch, {"가": {"name": "가", "kind": "normal", "no": "2101",
                                                 "sub_end": "2099-01-03"}})
-        monkeypatch.setattr(S, "새로받기", lambda *a, **k: pytest.fail("목록은 6시간 안이라 다시 받으면 안 된다"))
+        monkeypatch.setattr(S, "새로받기", lambda *a, **k: pytest.fail("목록은 갱신간격 안이라 다시 받으면 안 된다"))
         assert S._뒤에서_받기() is True
         for _ in range(100):
             if not S._갱신중:
@@ -610,6 +610,32 @@ class Test상세_받기:
             [_이름("가", 1), "2025.10.01", "1~2", "2", "3", "4:1", "5%", "증권"])})
         S.새로받기(쪽수=1)
         assert S._예측보관.get("값") and S._예측보관["열"] == (id(S.기록들()), S._받은때, S.오늘())
+
+
+class Test받는_주기:
+    """사용자: "자료를 항상 더 빨리 받도록 해줘" — 목록은 6시간 → 30분(상장한 날 시초가가 몇 시간
+    늦게 들어왔다). 상장 전 공모주의 상세 페이지는 공모주마다 한 쪽씩이라 따로 1시간."""
+
+    def test_목록은_30분_상세는_1시간(self):
+        assert S.갱신간격 == 30 * 60 and S.상세_갱신간격 == 60 * 60
+
+    def test_목록을_받을_때가_돼도_상세는_1시간_안이면_다시_안_받는다(self):
+        지금 = time.time()
+        기록 = {"가": {"name": "가", "kind": "normal", "no": "1", "sub_end": "2099-01-03",
+                     "detail_at": 지금 - S.갱신간격 - 1, "detail_ver": S.상세판}}
+        assert S._상세받을것(기록, 지금) == []
+        기록["가"]["detail_at"] = 지금 - S.상세_갱신간격 - 1
+        assert S._상세받을것(기록, 지금) == ["가"]
+
+    def test_30분이_지나면_화면을_열_때_뒤에서_다시_받는다(self, monkeypatch):
+        불림 = threading.Event()
+        monkeypatch.setattr(S, "_기록", {})
+        monkeypatch.setattr(S, "_상태", {k: {"rows": 10, "reason": ""} for k in S._목록경로})
+        monkeypatch.setattr(S, "새로받기", lambda *a, **k: 불림.set())
+        monkeypatch.setattr(S, "_받은때", time.time() - 29 * 60)
+        assert S._뒤에서_받기() is False, "30분 안에는 다시 받지 않는다"
+        monkeypatch.setattr(S, "_받은때", time.time() - 31 * 60)
+        assert S._뒤에서_받기() is True and 불림.wait(3)
 
 
 # ── 합치기 ──────────────────────────────────────────────────
@@ -974,6 +1000,45 @@ class Test청약전_정확도:
         assert 전["n"] > 0 and 0 <= 전["hit_rate"] <= 1 and 전["median_abs_diff_pct"] is not None
 
 
+class Test따블_점검:
+    """사용자: "따블확률점검도 해줘" — 화면의 '따블 이상으로 시작 23%' 같은 숫자가 지난 결과에서
+    실제로 그만큼 맞았나. 예측한 확률을 구간으로 묶어 실제로 따블이었던 비율과 견준다."""
+
+    def test_구간마다_예측한_확률과_실제_비율(self):
+        쌍 = [(0.05, False), (0.15, True), (0.1, False), (0.45, True), (0.55, False), (1.0, True), (0.8, True)]
+        r = S._따블점검(쌍)
+        assert r["n"] == 7
+        assert [(b["from"], b["to"], b["n"]) for b in r["bins"]] == [(0, 20, 3), (40, 60, 2), (80, 100, 2)], \
+            "곳이 없는 구간은 빼고, 100% 는 마지막 구간에"
+        assert r["bins"][0]["predicted"] == pytest.approx(0.1) and r["bins"][0]["actual"] == pytest.approx(1 / 3, abs=0.001)
+        assert r["bins"][1]["predicted"] == pytest.approx(0.5) and r["bins"][1]["actual"] == 0.5
+        assert r["bins"][2]["actual"] == 1.0
+        assert r["predicted"] == pytest.approx(3.1 / 7, abs=0.001) and r["actual"] == pytest.approx(4 / 7, abs=0.001)
+        assert S._따블점검([]) == {"n": 0, "bins": [], "predicted": None, "actual": None}
+
+    def test_걸어가며_그날_고른_방식이_낸_확률로(self, monkeypatch):
+        기록 = {f"가{i}": {"name": f"가{i}", "kind": "normal", "offer_price": 10_000,
+                         "open_price": 25_000 if i % 2 else 12_000,
+                         "list_date": (date(2024, 1, 2) + timedelta(days=7 * i)).isoformat()} for i in range(30)}
+
+        def 예측(self, 대상, 기준일=None):
+            따블 = int(대상["name"][1:]) % 2 == 1
+            # 다 똑같이 맞혀 '기본' 을 고른다 — 다른 모델의 확률(0.5)을 쓰면 구간이 달라진다
+            p = (0.7 if 따블 else 0.1) if (self.반감, self.상세) == (None, False) else 0.5
+            return {"ok": True, "ratio": 1.5, "p_double": p}
+        monkeypatch.setattr(S.모델, "예측", 예측)
+        점검 = S.걸어가며_검증(기록, 최근=20)["double_check"]
+        assert 점검["n"] == 20
+        assert [(b["from"], b["n"], b["predicted"], b["actual"]) for b in 점검["bins"]] == \
+            [(0, 10, 0.1, 0.0), (60, 10, 0.7, 1.0)]
+        assert 점검["predicted"] == pytest.approx(0.4) and 점검["actual"] == 0.5
+
+    def test_한눈에도_실린다(self):
+        값, _ = S._한눈에값(_만든기록(n=120), S.오늘())
+        점검 = 값["accuracy"]["double_check"]
+        assert 점검["n"] > 0 and sum(b["n"] for b in 점검["bins"]) == 점검["n"]
+
+
 class Test방식:
     """사용자: "너무 낮은데 예측률이"
 
@@ -1320,7 +1385,7 @@ class Test한눈에:
         assert S.한눈에()["refreshing"] is True
         assert 불림.wait(3)
 
-    def test_못_받은_목록이_있으면_6시간을_기다리지_않는다(self, monkeypatch):
+    def test_못_받은_목록이_있으면_갱신간격을_기다리지_않는다(self, monkeypatch):
         """고친 것을 배포해도 몇 시간 뒤에야 반영되던 것 — 처음 배포의 상태 그대로"""
         self._채우기(monkeypatch)
         불림 = threading.Event()
@@ -1330,9 +1395,9 @@ class Test한눈에:
             "수요예측": {"rows": 0, "reason": "표를 못 찾음 — 머리글: 종목명 | 수요예측일"},
             "청약": {"rows": 420, "reason": ""}, "신규상장": {"rows": 300, "reason": ""}})
         S.한눈에()
-        assert 불림.wait(3), "못 받은 목록이 있는데 6시간을 기다렸다"
+        assert 불림.wait(3), "못 받은 목록이 있는데 갱신간격을 기다렸다"
 
-    def test_다_받았고_6시간_안이면_다시_안_받는다(self, monkeypatch):
+    def test_다_받았고_갱신간격_안이면_다시_안_받는다(self, monkeypatch):
         self._채우기(monkeypatch)
         불림: list = []
         monkeypatch.setattr(S, "새로받기", lambda *a, **k: 불림.append(1))

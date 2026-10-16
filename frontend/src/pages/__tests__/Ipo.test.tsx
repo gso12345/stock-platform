@@ -87,8 +87,9 @@ vi.mock("@/api/stocks", async (원본가져오기) => ({
   ipoApi: { overview: (...a: any[]) => overview(...a), predict: (...a: any[]) => predict(...a) },
 }));
 
-import Ipo from "../Ipo";
+import Ipo, { 다시묻기간격 } from "../Ipo";
 import { 일정글 } from "@/components/ipo/IpoCard";
+import { 이름으로 } from "@/components/ipo/IpoRecent";
 
 function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -246,6 +247,13 @@ describe("공모주 — 다가오는 공모주", () => {
     expect(document.body.textContent).not.toMatch(/undefined|NaN/);
   });
 
+  // "자료를 항상 더 빨리 받도록 해줘" — 열어 둔 화면도 10분마다 다시 묻는다(서버는 묻는 때 30분마다 새로 받는다)
+  it("열어 둔 화면은 10분마다, 서버가 받는 중이면 15초마다 다시 묻는다", () => {
+    expect(다시묻기간격(undefined)).toBe(10 * 60_000);
+    expect(다시묻기간격({ ...한눈에, refreshing: false } as any)).toBe(10 * 60_000);
+    expect(다시묻기간격({ ...한눈에, refreshing: true } as any)).toBe(15_000);
+  });
+
   it("언제 자료인지와 원천을 적는다", async () => {
     그리기();
     expect(await screen.findByText("10.9 14:30 기준")).toBeInTheDocument();
@@ -355,6 +363,61 @@ describe("공모주 — 최근 상장", () => {
     그리기();
     expect(await screen.findByText("에이비씨바이오")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /최근 상장/ })).toBeNull();
+  });
+
+  // "최근상장에서 이름찾기" — 100곳 가운데 하나를 찾으려면 끝까지 내려야 했다
+  it("이름으로 찾는다 — 띄어쓰기 없이, '더 보기' 뒤에 있던 것까지", async () => {
+    const 사용자 = userEvent.setup();
+    overview.mockResolvedValue({
+      ...한눈에,
+      recent: Array.from({ length: 40 }, (_, i) => ({ ...한눈에.recent[i % 10], name: `지난종목${i}` })),
+    });
+    그리기();
+    const 이름들 = () => screen.queryAllByText(/^지난종목\d+$/).map((e) => e.textContent);
+    const 칸 = await screen.findByRole("textbox", { name: "최근 상장에서 이름으로 찾기" });
+    expect(이름들()).toHaveLength(15);
+    await 사용자.type(칸, "종목 3");
+    expect(이름들()).toEqual(["지난종목3", ...Array.from({ length: 10 }, (_, i) => `지난종목${30 + i}`)]);
+    expect(screen.queryByRole("button", { name: /곳 더 보기/ })).toBeNull();
+    await 사용자.clear(칸);
+    await 사용자.type(칸, "없는이름");
+    expect(screen.getByText("‘없는이름’에 맞는 공모주가 최근 40곳에 없어요.")).toBeInTheDocument();
+    await 사용자.click(screen.getByRole("button", { name: "찾는 이름 지우기" }));
+    expect(칸).toHaveValue("");
+    expect(이름들()).toHaveLength(15);
+    expect(screen.getByRole("button", { name: "25곳 더 보기" })).toBeInTheDocument();
+  });
+
+  it("이름은 띄어쓰기·대소문자를 가리지 않고 견준다", () => {
+    expect(이름으로(" ABC 바이오 ")).toBe("abc바이오");
+  });
+
+  // "따블확률점검도 해줘" — 카드의 '따블 이상으로 시작 23%' 가 지난 결과에서 그만큼 맞았나
+  it("따블 확률 점검 — 한 줄로 평균을, 펼치면 구간별로", async () => {
+    const 사용자 = userEvent.setup();
+    overview.mockResolvedValue({
+      ...한눈에,
+      accuracy: { ...한눈에.accuracy, double_check: { n: 60, predicted: 0.23, actual: 0.21, bins: [
+        { from: 0, to: 20, n: 30, predicted: 0.08, actual: 0.07 },
+        { from: 20, to: 40, n: 20, predicted: 0.29, actual: 0.3 },
+        { from: 40, to: 60, n: 10, predicted: 0.5, actual: 0.4 },
+      ] } },
+    });
+    그리기();
+    expect(await screen.findByText(/따블 확률 점검 —/)).toHaveTextContent("따블 확률 점검 — 예측 평균 23% · 실제 따블 21%");
+    expect(screen.queryByRole("table", { name: "따블 확률 점검" })).toBeNull();
+    await 사용자.click(screen.getByRole("button", { name: "따블 확률 점검 구간별로 보기" }));
+    const 행들 = within(screen.getByRole("table", { name: "따블 확률 점검" })).getAllByRole("row").map((r) => r.textContent);
+    expect(행들).toEqual(["예측한 따블 확률곳예측 평균실제 따블", "0~20%30곳8%7%", "20~40%20곳29%30%", "40~60%10곳50%40%"]);
+    expect(screen.getByText(/지난 60곳을 그 전 공모주만으로 맞혔을 때예요/)).toBeInTheDocument();
+    await 사용자.click(screen.getByRole("button", { name: "따블 확률 점검 접기" }));
+    expect(screen.queryByRole("table", { name: "따블 확률 점검" })).toBeNull();
+  });
+
+  it("예전 서버(따블 점검 없음)면 그 줄을 쓰지 않는다", async () => {
+    그리기();
+    expect(await screen.findByRole("heading", { name: /최근 상장/ })).toBeInTheDocument();
+    expect(screen.queryByText(/따블 확률 점검/)).toBeNull();
   });
 });
 

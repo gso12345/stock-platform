@@ -68,13 +68,19 @@ function 어떻게예측하나() {
   );
 }
 
+/** 화면을 열어 둔 동안 다시 묻는 간격(ms) — 서버가 뒤에서 받는 중이면 끝날 때까지 15초마다,
+ *  아니면 10분마다. 서버는 목록을 30분마다 새로 받는데(묻는 때 받는다), 열어 둔 화면이 묻지
+ *  않으면 상장한 날 시초가가 들어와도 새로 열기 전까지 안 보였다 */
+export function 다시묻기간격(data: 공모주한눈에 | undefined): number {
+  return data?.refreshing ? 15_000 : 10 * 60_000;
+}
+
 export default function Ipo() {
   const { data, error, isLoading, refetch } = useQuery({
     queryKey: ["ipo"],
     queryFn: ipoApi.overview,
     staleTime: 5 * 60_000,
-    // 서버가 뒤에서 자료를 받는 중이면 끝날 때까지 가끔 다시 본다
-    refetchInterval: (q) => (q.state.data?.refreshing ? 15_000 : false),
+    refetchInterval: (q) => 다시묻기간격(q.state.data),
   });
   const [계산기값, set계산기값] = useState<공모주직접입력 | null>(null);
   const 계산기자리 = useRef<HTMLDivElement>(null);

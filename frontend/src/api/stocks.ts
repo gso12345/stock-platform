@@ -1160,6 +1160,14 @@ export interface 공모주결과 {
   method?: string;
 }
 
+/** 따블 확률 점검 — 구간(from~to %)마다 곳 수, 예측한 따블 확률의 평균, 실제로 따블이었던 비율 */
+export interface 공모주따블점검 {
+  n: number;
+  bins: { from: number; to: number; n: number; predicted: number; actual: number }[];
+  predicted: number | null;
+  actual: number | null;
+}
+
 /** 청약 전에 본 예측의 성적 — 같은 공모주들을 청약 결과 없이 맞혔을 때 */
 export interface 공모주청약전성적 {
   n: number;
@@ -1195,6 +1203,8 @@ export interface 공모주한눈에 {
     methods?: 공모주방식성적[];
     /** 청약 전에 본 예측(청약경쟁률·균등 없이 맞힌 값)의 성적 — 청약할지 정할 때 믿을 만한 정도. 예전 서버는 없다 */
     pre_sub?: 공모주청약전성적;
+    /** 따블 확률 점검 — 예측한 따블 확률을 구간으로 묶어 실제 따블 비율과 견준 것. 예전 서버는 없다 */
+    double_check?: 공모주따블점검;
   };
   train_since: string;
   n_records: number;
