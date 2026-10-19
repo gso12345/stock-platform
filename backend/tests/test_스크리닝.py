@@ -435,6 +435,119 @@ class Test야후가_답을_못_할_때:
         assert [r["symbol"] for r in yf_service._스크리닝_전체_새로("US")] == ["AAA"]
 
 
+class Test처음_짓는_동안:
+    """배포 직후·처음 여는 시장은 사진이 없다. 시장 전체를 받는 데 0.15 CPU 로 1~3분 걸리는데,
+    예전엔 그동안 요청이 붙잡혀 화면이 빈 채로 기다렸다(사용자: "처음에는 아무것도 안나오던데").
+    이제 뒤에서 짓고, 잠깐만 기다린 뒤 받은 줄부터 돌려준다."""
+
+    @pytest.fixture
+    def 느린야후(self, monkeypatch):
+        import threading
+        풀림 = threading.Event()
+        물음: list = []
+
+        def 한줄(s, m):
+            물음.append(s)
+            if s != "AAA":
+                풀림.wait(5)                 # AAA 만 곧바로, 나머지는 풀어 줄 때까지
+            return {"symbol": s, "market": m, "price": 1.0, "per": {"AAA": 10.0, "BBB": 5.0, "CCC": 20.0}[s]}
+
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA", "BBB", "CCC"])
+        monkeypatch.setattr(yf_service, "_screen_one", 한줄)
+        monkeypatch.setattr(모듈, "SCREEN_FIRST_WAIT", 0.3)
+        흐름물음: list = []
+        monkeypatch.setattr(yf_service, "_연간흐름_받기", lambda s: 흐름물음.append(s) or {})
+        self.흐름물음 = 흐름물음
+        yield 풀림, 물음
+        풀림.set()
+
+    def _다_지을때까지(self):
+        import time
+        for _ in range(100):
+            if yf_service.스크리닝_짓는중("US") is None and 모듈._스크리닝_사진.get("US"):
+                return
+            time.sleep(0.02)
+        raise AssertionError("다 짓지 못했다")
+
+    def test_오래_붙잡지_않고_받은_줄부터_돌려준다(self, 느린야후):
+        import time
+        풀림, _ = 느린야후
+        t = time.perf_counter()
+        줄들 = yf_service.스크리닝_전체("US")
+        assert time.perf_counter() - t < 2, "다 지을 때까지 붙잡았다"
+        assert [r["symbol"] for r in 줄들] == ["AAA"]
+        assert yf_service.스크리닝_짓는중("US") == {"done": 1, "total": 3}
+        풀림.set()
+        self._다_지을때까지()
+        assert [r["symbol"] for r in yf_service.스크리닝_전체("US")] == ["AAA", "BBB", "CCC"]
+        assert yf_service.스크리닝_짓는중("US") is None
+
+    def test_금방_다_지으면_기다린_시간만큼_붙잡지_않는다(self, monkeypatch):
+        import time
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA", "BBB"])
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: {"symbol": s, "price": 1.0})
+        monkeypatch.setattr(모듈, "SCREEN_FIRST_WAIT", 3.0)
+        t = time.perf_counter()
+        assert len(yf_service.스크리닝_전체("US")) == 2
+        assert time.perf_counter() - t < 1, "다 지었는데도 기다리는 시간을 다 채웠다"
+
+    def test_사람이_기다리는_첫_사진에서는_연간_재무를_받지_않는다(self, 느린야후):
+        풀림, _ = 느린야후
+        yf_service.스크리닝_전체("US")
+        풀림.set()
+        self._다_지을때까지()
+        assert self.흐름물음 == [], "시세만 받아도 1~3분인데 연간 재무까지 받았다"
+
+    def test_그새_남이_다_지었으면_또_짓지_않는다(self, monkeypatch):
+        import time
+        물음: list = []
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: 물음.append(s))
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA"])
+        모듈._스크리닝_사진["US"] = ([{"symbol": "AAA", "price": 1.0}], time.time())
+        assert yf_service._스크리닝_뒤에서_새로("US", 처음=True) is False
+        assert 물음 == [] and "US" not in 모듈._스크리닝_새로찍는중
+
+    def test_짓는_동안_또_불러도_한_번만_짓고_기다리지_않는다(self, 느린야후):
+        import time
+        풀림, 물음 = 느린야후
+        yf_service.스크리닝_전체("US")
+        t = time.perf_counter()
+        다시 = yf_service.스크리닝_전체("US")             # 화면이 3초마다·정렬을 바꿀 때 다시 묻는다
+        assert time.perf_counter() - t < 0.1, "짓는 동안 다시 묻는 요청까지 붙잡았다"
+        assert [r["symbol"] for r in 다시] == ["AAA"]
+        풀림.set()
+        self._다_지을때까지()
+        assert sorted(물음) == ["AAA", "BBB", "CCC"]
+
+    def test_화면에_받는_중이라고_알리고_그_답은_남겨_두지_않는다(self, client, 느린야후):
+        풀림, _ = 느린야후
+        몸 = {"market": "US", "sort_by": "per", "sort_order": "asc"}
+        r = client.post("/api/v1/screening/run", json=몸).json()
+        assert [x["symbol"] for x in r["results"]] == ["AAA"]
+        assert r["building"] == {"done": 1, "total": 3} and r["failed"] is False
+        풀림.set()
+        self._다_지을때까지()
+        r = client.post("/api/v1/screening/run", json=몸).json()
+        assert [x["symbol"] for x in r["results"]] == ["BBB", "AAA", "CCC"], "받는 중이던 답을 5분 동안 내놓았다"
+        assert r["building"] is None
+
+    def test_한_줄도_못_받으면_못_받았다고_알리고_잠깐은_다시_묻지_않는다(self, client, monkeypatch):
+        물음: list = []
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA", "BBB"])
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: 물음.append(s))
+        r = client.post("/api/v1/screening/run", json={"market": "US"}).json()
+        assert r["failed"] is True and r["results"] == [] and r["building"] is None
+        assert 모듈._스크리닝_사진.get("US") is None, "빈 사진을 30분 동안 '맞는 종목 없음' 으로 내놓는다"
+        물음.clear()
+        r = client.post("/api/v1/screening/run", json={"market": "US", "sort_by": "per"}).json()
+        assert r["failed"] is True
+        assert 물음 == [], "막힌 야후를 곧바로 다시 두드렸다"
+        monkeypatch.setattr(모듈, "_스크리닝_실패", {"US": 0.0})          # 쉬는 시간이 지났다
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: {"symbol": s, "price": 1.0})
+        r = client.post("/api/v1/screening/run", json={"market": "US", "sort_by": "price"}).json()
+        assert r["failed"] is False and [x["symbol"] for x in r["results"]] == ["AAA", "BBB"]
+
+
 def test_목록에_두번_적힌_종목도_결과엔_한번만(monkeypatch):
     monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA", "BBB", "AAA"])
     불린것 = []

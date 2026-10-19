@@ -337,6 +337,10 @@ export interface 스크리닝응답 {
   total: number;
   /** 국가·섹터·산업 조건에 고를 값 — 그 시장 전체에 실제로 있는 것만 */
   facets?: { country?: string[]; sector?: string[]; industry?: string[] };
+  /** 서버가 그 시장을 처음 받는 중이면 {물어본 종목 수, 전체 종목 수} — results 는 받은 것까지만 */
+  building?: { done: number; total: number } | null;
+  /** 시장 자료가 없는데 야후에서 한 줄도 못 받았다 — '맞는 종목 없음' 이 아니다 */
+  failed?: boolean;
 }
 
 /** 저장해 두는 스크리닝 보기 한 벌 — 서버 PresetSaveRequest 와 같은 모양 */

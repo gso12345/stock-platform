@@ -115,12 +115,23 @@ async def run_screening(request: Request, req: ScreeningRequest):
     if cached := cache.get(ck):
         return cached
     loop = asyncio.get_running_loop()
-    results = await loop.run_in_executor(None, yf_service.screen_stocks, req.market, req.filters)
-    results = 줄세우기(이름찾기(results, req.q), req.sort_by, req.sort_order == "desc")
-    # 국가·섹터·산업 고르기 — 거르기 전 시장 전체에서(이미 받아 둔 사진이라 곧바로다)
+    # 시장 전체는 한 번만 꺼낸다 — 사진이 없으면 짓는 동안 잠깐 기다리는데, 두 번 꺼내면 두 번 기다린다
     전체 = await loop.run_in_executor(None, yf_service.스크리닝_전체, req.market)
-    payload = {"results": results[: req.limit], "total": len(results), "facets": 고를값들(전체)}
-    cache.set(ck, payload, 300)
+    짓는중 = yf_service.스크리닝_짓는중(req.market)
+    results = [r for r in 전체 if yf_service._apply_filters(r, req.filters)]
+    results = 줄세우기(이름찾기(results, req.q), req.sort_by, req.sort_order == "desc")
+    payload = {
+        "results": results[: req.limit], "total": len(results),
+        # 국가·섹터·산업 고르기 — 거르기 전 시장 전체에서
+        "facets": 고를값들(전체),
+        #: 사진이 없어 처음 짓는 중이면 {"done", "total"} — 화면은 받은 줄부터 보여 주고 곧 다시 묻는다
+        "building": 짓는중,
+        #: 사진도 없는데 야후에서 한 줄도 못 받았다 — 화면이 '맞는 종목이 없어요' 와 갈라 알린다
+        "failed": not 전체 and 짓는중 is None and yf_service.스크리닝_못받음(req.market),
+    }
+    # 받는 중이거나 못 받은 답은 남겨 두지 않는다 — 남기면 다 받은 뒤에도 5분 동안 그 답이 나간다
+    if 짓는중 is None and not payload["failed"]:
+        cache.set(ck, payload, 300)
     return payload
 
 

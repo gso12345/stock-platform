@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  ArrowDown, ArrowUp, Columns3, Download, Filter, Layers, Save, Search, SlidersHorizontal, Star, X,
+  AlertTriangle, ArrowDown, ArrowUp, Columns3, Download, Filter, Layers, Save, Search, SlidersHorizontal, Star, X,
 } from "lucide-react";
 import { screeningApi, watchlistApi, stocksApi, type 스크리닝요청, type 스크리닝줄 } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
@@ -121,11 +121,15 @@ export default function Screening() {
        시장을 바꿨을 땐 두지 않는다 — '한국' 을 눌렀는데 미국 종목이 보이면 안 된다 */
     placeholderData: (앞, 앞질의) =>
       (앞질의?.queryKey[1] as 스크리닝요청 | undefined)?.market === 시장 ? 앞 : undefined,
+    /* 서버가 그 시장을 처음 받는 중이면(배포 직후·처음 여는 시장 — 1~3분) 받은 것부터 오고,
+       다 받을 때까지 곧잘 다시 묻는다 */
+    refetchInterval: (q) => (q.state.data?.building ? 3000 : false),
   });
   useEffect(() => set몇줄(30), [요청]);
 
   const 줄들 = 결과.data?.results ?? [];
   const 전체수 = 결과.data?.total ?? 0;
+  const 짓는중 = 결과.data?.building ?? null;
 
   const 보일칸 = useMemo(() => {
     const 켜짐 = new Set(보이는칸);
@@ -315,27 +319,58 @@ export default function Screening() {
       <div className="flex items-center justify-between gap-2 px-1 text-xs text-text-muted min-h-[1.25rem]">
         <span>
           <span className="text-text-secondary font-medium">{정렬글}</span>
-          {결과.data && (
+          {결과.data && !결과.data.failed && (
             <>
               {" · "}
-              {전체수 > 줄들.length
+              {짓는중 ? "시장 전체를 받는 중"
+                : 전체수 > 줄들.length
                 ? <>조건에 맞는 <b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳 중 위 {줄들.length}곳</>
                 : <><b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳</>}
             </>
           )}
         </span>
-        {결과.isFetching && 결과.data && (
+        {결과.isFetching && 결과.data && !짓는중 && (
           <span className="flex items-center gap-1.5" role="status"><InlineSpinner className="w-3 h-3" />불러오는 중</span>
         )}
       </div>
+
+      {/* 서버가 이 시장을 처음 받는 중 — 예전엔 다 받을 때까지(1~3분) 표가 빈 채였다
+          (사용자: "처음에는 아무것도 안나오던데"). 받은 것부터 보이고, 얼마나 받았는지 알린다 */}
+      {짓는중 && (
+        <div role="status" aria-label="시장 전체를 받는 중"
+          className="flex flex-col gap-2 px-3 py-2.5 rounded-xl border border-accent-blue/30 bg-accent-blue/5">
+          <p className="flex items-center gap-2 text-xs text-text-secondary">
+            <InlineSpinner className="w-3 h-3" />
+            <span>
+              처음 한 번은 시장 전체를 받아요(1~3분)
+              {짓는중.total > 0 && <> — <b className="text-text-primary">{짓는중.done}/{짓는중.total}곳</b> 받음</>}
+              . 받은 것부터 보여 드려요
+            </span>
+          </p>
+          {짓는중.total > 0 && (
+            <div className="h-1 rounded-full bg-bg-elevated overflow-hidden">
+              <div className="h-full bg-accent-blue transition-all"
+                style={{ width: `${Math.round((짓는중.done / 짓는중.total) * 100)}%` }} />
+            </div>
+          )}
+        </div>
+      )}
 
       <Card className="p-0 overflow-hidden">
         {결과.isError ? (
           /* 실패와 '결과 0곳' 을 갈라야 한다 — 모르면 조건만 헛되이 풀게 된다 */
           <못불러옴 사유={결과.error} 다시={() => 결과.refetch()} />
-        ) : !결과.data ? (
+        ) : 결과.data?.failed ? (
+          /* 받아 둔 시장 자료도 없는데 야후가 한 줄도 안 줬다 — '맞는 종목이 없어요' 라고 하면
+             조건만 헛되이 풀게 된다 */
+          <빈화면 icon={AlertTriangle} title="야후에서 시세를 받지 못했어요"
+            hint="야후가 잠깐 막혔을 수 있어요. 1~2분 뒤 다시 시도해 보세요."
+            action={{ label: "다시 시도", onClick: () => 결과.refetch() }} />
+        ) : !결과.data || (짓는중 && 줄들.length === 0) ? (
           <div role="status" aria-label="불러오는 중">
-            <p className="px-4 pt-4 text-2xs text-text-muted">처음 한 번은 시장 전체를 훑느라 수십 초 걸릴 수 있어요</p>
+            {!결과.data && (
+              <p className="px-4 pt-4 text-2xs text-text-muted">처음 한 번은 시장 전체를 훑느라 수십 초 걸릴 수 있어요</p>
+            )}
             <ScreeningSkeleton />
           </div>
         ) : 줄들.length === 0 ? (

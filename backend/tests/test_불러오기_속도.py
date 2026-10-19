@@ -1312,6 +1312,9 @@ class Test스크리닝_사진:
 
         monkeypatch.setattr(Y, "스크리닝_종목들", lambda m: ["A", "B", "C"])
         monkeypatch.setattr(Y.yf_service, "_screen_one", 한줄)
+        # 뒤에서 새로 찍을 때 연간 재무도 조금씩 받는다 — 야후에 실제로 물으면 느려서(종목마다 1초 남짓)
+        # 다음 검사까지 그 일이 이어진다
+        monkeypatch.setattr(Y.yf_service, "_연간흐름_받기", lambda s: {})
         yield Y, 불림
         Y.스크리닝_사진_비우기()
 
@@ -1347,6 +1350,8 @@ class Test스크리닝_사진:
         assert len(결과) == 3 and 불림["n"] == 0
 
     def test_사진이_없을_때_여럿이_눌러도_한_번만_찍는다(self, 야후):
+        """짓기 시작한 사람만 잠깐 기다리고(여기선 그 안에 다 짓는다), 나머지는 받은 데까지 곧바로 받는다 —
+        짓는 동안 다시 묻는 요청까지 붙잡으면 받는 동안 표가 굼떠진다"""
         import threading
         Y, 불림 = 야후
         불림["늦음"] = 0.2
@@ -1355,7 +1360,9 @@ class Test스크리닝_사진:
                     for _ in range(4)]
         for t in 스레드들: t.start()
         for t in 스레드들: t.join()
-        assert 불림["n"] == 3 and all(len(r) == 3 for r in 결과들)
+        assert 불림["n"] == 3, "여럿이 눌렀다고 시장 전체를 여러 번 받았다"
+        assert any(len(r) == 3 for r in 결과들), "짓기 시작한 사람이 다 지어질 때까지 기다리지 않았다"
+        assert len(Y.yf_service.screen_stocks("US", {})) == 3 and 불림["n"] == 3
 
     def test_오래된_DB_사진은_안_쓴다(self, 야후):
         from datetime import datetime, timedelta

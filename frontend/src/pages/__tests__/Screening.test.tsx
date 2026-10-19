@@ -421,6 +421,40 @@ describe("표의 칸", () => {
   });
 });
 
+describe("서버가 시장을 처음 받는 중", () => {
+  /* 배포 직후·처음 여는 시장은 서버에 받아 둔 자료가 없다. 다 받는 데 1~3분 — 예전엔 그동안 표가
+     빈 채였다(사용자: "처음에는 아무것도 안나오던데") */
+  it("받은 것부터 보이고 얼마나 받았는지 알리며, 다 받을 때까지 다시 묻는다", async () => {
+    run.mockResolvedValueOnce(응답(기본줄들.slice(0, 1), { building: { done: 120, total: 315 } }));
+    그리기();
+    expect(await screen.findByText("NVIDIA Corporation")).toBeTruthy();
+    expect(screen.getByRole("status", { name: "시장 전체를 받는 중" }).textContent).toContain("120/315곳");
+    expect(screen.getByText(/시장 전체를 받는 중$/)).toBeTruthy();
+    // 3초 뒤 다시 묻는다 — 이번엔 다 받았다
+    expect(await screen.findByText("Xyz Holdings", {}, { timeout: 5000 })).toBeTruthy();
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("status", { name: "시장 전체를 받는 중" })).toBeNull();
+  }, 10000);
+
+  it("아직 하나도 못 받았으면 '맞는 종목이 없어요' 가 아니라 받는 중", async () => {
+    run.mockResolvedValue(응답([], { building: { done: 0, total: 0 } }));
+    그리기();
+    expect(await screen.findByRole("status", { name: "시장 전체를 받는 중" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "불러오는 중" })).toBeTruthy();
+    expect(screen.queryByText("조건에 맞는 종목이 없어요")).toBeNull();
+  });
+
+  it("야후에서 한 줄도 못 받았으면 그렇게 알리고 다시 시도하게 한다", async () => {
+    run.mockResolvedValue(응답([], { failed: true }));
+    그리기();
+    expect(await screen.findByText("야후에서 시세를 받지 못했어요")).toBeTruthy();
+    expect(screen.queryByText("조건에 맞는 종목이 없어요")).toBeNull();
+    run.mockResolvedValue(응답());
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(await screen.findByText("NVIDIA Corporation")).toBeTruthy();
+  });
+});
+
 describe("없음과 실패", () => {
   it("맞는 종목이 없으면 그렇게 말하고, 조건을 걸었으면 지우는 단추를 준다", async () => {
     그리기();

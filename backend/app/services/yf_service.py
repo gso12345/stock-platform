@@ -5,7 +5,7 @@ import os
 import threading
 import time
 from urllib.parse import urlparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 from app.core.cache import cache
 from app.core.utils import safe_float as _safe
@@ -455,6 +455,16 @@ def _일자들(index) -> list:
 _스크리닝_사진: dict[str, tuple[list, float]] = {}
 _스크리닝_잠금들: dict[str, threading.Lock] = {}
 _스크리닝_새로찍는중: set[str] = set()
+_스크리닝_시작잠금 = threading.Lock()
+#: 사진이 아예 없어 처음 짓는 중인 시장 → {"줄들": 받은 줄, "받은": 물어본 수, "전체": 종목 수, "끝": Event}.
+#: 시장 전체를 받는 데 0.15 CPU 로 1~3분 걸린다 — 그동안 받은 줄부터 화면에 보여 준다
+_스크리닝_짓기: dict[str, dict] = {}
+#: 처음 짓다가 한 줄도 못 받은 때(야후가 막혔다). 잠깐 다시 짓지 않는다 — 막힌 곳을 두드리지 않게
+_스크리닝_실패: dict[str, float] = {}
+SCREEN_FAIL_COOLDOWN = 120
+#: 사진이 없을 때 짓기 시작한 요청이 기다려 주는 시간(초). 그 안에 다 못 지으면 받은 줄부터 돌려준다 —
+#  시총 큰 종목부터 묻으므로 5초면 위쪽 수십 곳은 받는다
+SCREEN_FIRST_WAIT = float(os.getenv("SCREEN_FIRST_WAIT_SEC", 5))
 #: 이보다 오래된 DB 사진은 안 쓴다 — 재무는 분기마다, 가격은 매일 바뀐다
 SCREEN_SNAPSHOT_MAX_AGE = 7 * 86400
 
@@ -525,8 +535,13 @@ def _흐름_잇기(market: str, 줄들: list) -> None:
 
 
 def 스크리닝_사진_비우기() -> None:
-    """메모리와 DB 의 사진을 모두 버린다 (검사용)."""
+    """메모리와 DB 의 사진을 모두 버린다 (검사용). 뒤에서 찍던 것이 있으면 끝나기를 잠깐 기다린다 —
+    안 그러면 앞 검사가 시작한 일이 다음 검사의 사진을 덮는다."""
+    끝 = time.time() + 10
+    while _스크리닝_새로찍는중 and time.time() < 끝:
+        time.sleep(0.02)
     _스크리닝_사진.clear()
+    _스크리닝_실패.clear()
     try:
         from app.db.database import SessionLocal
         from app.models.stock import ScreeningSnapshot
@@ -988,11 +1003,26 @@ class YFinanceService:
         # 목록에 같은 종목이 두 번 적힌 곳이 있다(AMZN·NFLX·MRNA…).
         # 그대로 두면 결과에도 두 줄로 나온다.
         symbols = list(dict.fromkeys(스크리닝_종목들(market)))
+        #: 처음 짓는 중이면 받는 대로 여기 쌓는다 — 화면이 다 받기 전에도 받은 줄부터 보여 준다
+        짓기 = _스크리닝_짓기.get(market)
+        if 짓기 is not None:
+            짓기["전체"] = len(symbols)
 
         # 종목별 순차 호출(네트워크 I/O 대기)이 전체 응답 시간을 좌우하므로
         # 스레드풀로 동시에 fetch — yfinance가 스레드 안전한 블로킹 I/O이므로 안전함
+        받은것: dict = {}
         with ThreadPoolExecutor(max_workers=io_worker_count(default=20)) as pool:
-            받은것 = list(pool.map(lambda s: self._screen_one(s, market), symbols))
+            일감 = {pool.submit(self._screen_one, s, market): s for s in symbols}
+            for 끝난 in as_completed(일감):
+                try:
+                    r = 끝난.result()
+                except Exception:
+                    r = None
+                받은것[일감[끝난]] = r
+                if 짓기 is not None:
+                    if r:
+                        짓기["줄들"].append(dict(r))
+                    짓기["받은"] += 1
 
         def 보일이름(s: str) -> str:
             return s.rsplit(".", 1)[0] if s.endswith((".KS", ".KQ")) else s
@@ -1001,11 +1031,15 @@ class YFinanceService:
         #  표에서 사라지고, 야후가 통째로 멈춘 때는 사진이 빈 목록이 되어 화면이 '맞는 종목이 없어요' 가 된다
         지난 = {r.get("symbol"): r for r in (_스크리닝_사진.get(market) or ([], 0.0))[0]}
         줄들 = []
-        for s, r in zip(symbols, 받은것):
-            r = r or 지난.get(보일이름(s))
+        for s in symbols:
+            r = 받은것.get(s) or 지난.get(보일이름(s))
             if r:
                 # 줄은 종목마다 캐시된 것일 수 있다 — 흐름을 붙이기 전에 떼어 낸다(캐시를 건드리지 않게)
                 줄들.append(dict(r))
+        if not 줄들:
+            # 한 줄도 못 받았다(야후가 막혔다). 빈 사진을 30분 동안 '맞는 종목이 없어요' 로 내놓지 않는다
+            _스크리닝_실패[market] = time.time()
+            return 줄들
         _흐름_잇기(market, 줄들)
         if 흐름채우기 and market != "ETF":
             self._흐름_채우기(줄들, 원래이름)
@@ -1056,7 +1090,10 @@ class YFinanceService:
 
         · 마지막 결과(사진)를 들고 있다 — 서버가 깨도 쓸 수 있게 DB 에도.
         · 30분이 지났으면 그 사진으로 곧바로 답하고 새로 찍는 것은 뒤에서.
-        · 사진이 아예 없을 때만 기다린다 — 그때도 여럿이 한 번만 찍는다."""
+        · 사진이 아예 없으면(배포 직후·처음 여는 시장) 뒤에서 짓고 SCREEN_FIRST_WAIT 만 기다린다.
+          그 안에 다 못 지었으면 받은 줄부터 돌려준다 — 화면은 '받는 중' 이라고 알리고 다시 묻는다.
+          예전엔 다 지을 때까지(0.15 CPU 로 1~3분) 요청이 붙잡혀 표가 빈 채로 기다렸다.
+          여럿이 동시에 눌러도 한 번만 짓는다."""
         있음 = _스크리닝_사진.get(market)
         if 있음 is None:
             있음 = _사진_읽기(market)
@@ -1067,30 +1104,61 @@ class YFinanceService:
             if time.time() - 찍은때 > SCREEN_ROW_TTL:
                 self._스크리닝_뒤에서_새로(market)
             return 줄들
-        with _스크리닝_잠금(market):
-            if (다른사람이 := _스크리닝_사진.get(market)) is not None:
-                return 다른사람이[0]          # 기다리는 동안 앞사람이 찍었다
-            return self._스크리닝_전체_새로(market)
+        if self.스크리닝_못받음(market):
+            return []
+        # 사람이 기다리는 첫 사진에서는 연간 흐름을 받지 않는다 — 시세만 받아도 1~3분이다.
+        # 짓기 시작한 요청만 잠깐 기다린다 — 짓는 동안 다시 묻는 요청(화면이 3초마다, 정렬을 바꿀 때)까지
+        # 기다리게 하면 받는 동안 표가 굼떠진다
+        if self._스크리닝_뒤에서_새로(market, 흐름채우기=False, 처음=True):
+            if (짓기 := _스크리닝_짓기.get(market)) is not None:
+                짓기["끝"].wait(SCREEN_FIRST_WAIT)
+        if (다 := _스크리닝_사진.get(market)) is not None:
+            return 다[0]
+        짓기 = _스크리닝_짓기.get(market)
+        return list(짓기["줄들"]) if 짓기 is not None else []
 
-    def _스크리닝_뒤에서_새로(self, market: str) -> None:
-        if market in _스크리닝_새로찍는중:
-            return
-        _스크리닝_새로찍는중.add(market)
+    def 스크리닝_짓는중(self, market: str) -> Optional[dict]:
+        """사진이 없어 처음 짓는 중이면 {"done": 물어본 종목 수, "total": 전체 종목 수}, 아니면 None"""
+        짓기 = _스크리닝_짓기.get(market)
+        if 짓기 is None or _스크리닝_사진.get(market) is not None:
+            return None
+        return {"done": 짓기["받은"], "total": 짓기["전체"]}
+
+    def 스크리닝_못받음(self, market: str) -> bool:
+        """사진도 없는데 방금 지어 보니 한 줄도 못 받았다(야후가 막혔다) — 잠깐은 다시 짓지 않는다"""
+        return (_스크리닝_사진.get(market) is None
+                and time.time() - _스크리닝_실패.get(market, 0.0) < SCREEN_FAIL_COOLDOWN)
+
+    def _스크리닝_뒤에서_새로(self, market: str, 흐름채우기: bool = True, 처음: bool = False) -> bool:
+        """뒤에서 새로 찍기 시작했으면 True. 처음 — 사진이 없어서 짓는 것(그새 남이 다 지었으면 또 짓지 않는다)"""
+        with _스크리닝_시작잠금:          # 보고-넣기 사이에 남이 끼면 시장 전체를 두 번 받는다
+            if market in _스크리닝_새로찍는중 or (처음 and _스크리닝_사진.get(market) is not None):
+                return False
+            _스크리닝_새로찍는중.add(market)
+            if _스크리닝_사진.get(market) is None:
+                _스크리닝_짓기[market] = {"줄들": [], "받은": 0, "전체": 0, "끝": threading.Event()}
+
+        def 끝내기():
+            _스크리닝_새로찍는중.discard(market)
+            if (짓기 := _스크리닝_짓기.pop(market, None)) is not None:
+                짓기["끝"].set()
 
         def 일():
             try:
                 with _스크리닝_잠금(market):
-                    self._스크리닝_전체_새로(market, 흐름채우기=True)
+                    self._스크리닝_전체_새로(market, 흐름채우기=흐름채우기)
             except Exception:
                 pass                      # 못 찍었으면 지난 사진을 계속 쓴다
             finally:
-                _스크리닝_새로찍는중.discard(market)
+                끝내기()
 
         try:
             from app.core.executor import background_executor
             background_executor.submit(일)
         except Exception:
-            _스크리닝_새로찍는중.discard(market)
+            끝내기()
+            return False
+        return True
 
     def _apply_filters(self, stock: dict, filters: dict) -> bool:
         for key, condition in filters.items():
