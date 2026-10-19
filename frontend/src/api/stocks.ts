@@ -183,12 +183,18 @@ export interface QuantCompareItem {
   total_score: number | null;
   grade: string | null;
   factors: QuantFactor[];
+  /** 처음 받는 종목이라 아직 계산 중 — 화면은 칸 자리를 잡아 두고 곧 다시 묻는다 */
+  pending?: boolean;
+  /** 회사 누리집(로고) — 스크리닝이 받아 둔 것. 모르면 없다 */
+  domain?: string;
 }
 
 export interface QuantCompareResult {
   weights: QuantWeights;
   enabled_metrics: QuantEnabledMetrics;
   items: QuantCompareItem[];
+  /** 아직 계산 중인 종목 수 */
+  pending?: number;
 }
 
 export const quantScoreApi = {
@@ -341,6 +347,8 @@ export interface 스크리닝응답 {
   building?: { done: number; total: number } | null;
   /** 시장 자료가 없는데 야후에서 한 줄도 못 받았다 — '맞는 종목 없음' 이 아니다 */
   failed?: boolean;
+  /** 시세가 언제 것인가(유닉스 초) — 서버가 5분마다 묶음 시세로 새로 받는다 */
+  as_of?: number | null;
 }
 
 /** 저장해 두는 스크리닝 보기 한 벌 — 서버 PresetSaveRequest 와 같은 모양 */

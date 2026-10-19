@@ -210,6 +210,16 @@ def test_종목을_받을_때_환율을_물어_바꾸고_하루_기억한다(mon
     assert 물은것.count("TWDUSD=X") == 1, "같은 돈은 한 번만 묻는다"
 
 
+def test_종목마다_받으면_받은_때를_남긴다(monkeypatch):
+    """받은 때(scanned_at)가 없으면 사진이 늘 '6시간 넘게 통째로 안 받은' 것으로 보여 5분마다
+    시장 전체를 종목마다 다시 받는다"""
+    import time
+    물은것: list = []
+    monkeypatch.setattr(모듈.yf, "Ticker", _가짜야후(물은것))
+    줄 = yf_service._screen_one("TSM", "US")
+    assert abs(줄["scanned_at"] - time.time()) < 5
+
+
 def test_환율을_못_받으면_그_종목의_실적만_비운다(monkeypatch):
     물은것: list = []
     monkeypatch.setattr(모듈.yf, "Ticker", _가짜야후(물은것, 환율값=None))
@@ -290,7 +300,8 @@ class Test연간흐름_채우기:
     def test_뒤에서_찍을_때_큰_것부터_조금씩_받고_다음엔_이어_쓴다(self, monkeypatch):
         줄들, 물음 = self._준비(monkeypatch)
         첫 = {r["symbol"]: r for r in yf_service._스크리닝_전체_새로("US", 흐름채우기=True)}
-        assert 물음 == ["AAA", "BBB"], "한 번에 흐름_한번 곳까지, 시가총액이 큰 것부터"
+        # 둘씩 겹쳐 묻는다 — 누가 먼저 물리는지는 정해지지 않는다. 어느 것을 고르는지가 요점이다
+        assert sorted(물음) == ["AAA", "BBB"], "한 번에 흐름_한번 곳까지, 시가총액이 큰 것부터"
         assert 첫["AAA"]["rev_hist"] == [10] and 첫["AAA"]["fin_at"] and "fin_at" not in 첫["CCC"]
         assert "fin_at" not in 줄들["AAA"], "종목마다 캐시된 줄은 건드리지 않는다"
         물음.clear()
@@ -310,7 +321,7 @@ class Test연간흐름_채우기:
                 r["fin_at"] -= 모듈.흐름_수명 + 1
         물음.clear()
         yf_service._스크리닝_전체_새로("US", 흐름채우기=True)
-        assert 물음 == ["AAA", "BBB"], "흐름_수명이 지나면 다시 받는다"
+        assert sorted(물음) == ["AAA", "BBB"], "흐름_수명이 지나면 다시 받는다"
 
     def test_ETF_는_받지_않는다(self, monkeypatch):
         _, 물음 = self._준비(monkeypatch)
@@ -433,6 +444,222 @@ class Test야후가_답을_못_할_때:
         monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA"])
         monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: None)
         assert [r["symbol"] for r in yf_service._스크리닝_전체_새로("US")] == ["AAA"]
+
+
+class Test서버를_붙잡지_않게:
+    """화면이 열자마자 표를 채우게 되자 30분마다 300곳을 종목마다 다시 받는 일이 잦아졌다 —
+    0.15 CPU·512MB 서버의 메모리가 100% 를 찍고 종목상세 요청이 30초를 넘겨 끊겼다(관리자 화면).
+    통째로는 6시간마다, 가격은 5분마다 묶음 시세로."""
+
+    def _사진(self, 받은때_전: float, 찍은때_전: float):
+        import time
+        지금 = time.time()
+        줄 = {"symbol": "AAA", "market": "US", "currency": "USD", "fin_currency": "USD", "price": 100.0,
+              "change_rate": 1.0, "market_cap": 1.0e12, "eps": 5.0, "scanned_at": 지금 - 받은때_전}
+        모듈._스크리닝_사진["US"] = ([줄], 지금 - 찍은때_전)
+
+    def _기다리기(self, 조건):
+        import time
+        for _ in range(100):
+            if 조건():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def test_가격만_지났으면_묶음_시세로_가격만_고친다(self, monkeypatch):
+        물음: list = []
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: 물음.append(s))
+        monkeypatch.setattr(yf_service, "_묶음시세", lambda 줄들: {"AAA": {"price": 110.0, "change_rate": 2.5}})
+        self._사진(받은때_전=3600, 찍은때_전=600)
+        yf_service.스크리닝_전체("US")
+        assert self._기다리기(lambda: 모듈._스크리닝_사진["US"][0][0]["price"] == 110.0), "가격을 새로 받지 않았다"
+        줄 = 모듈._스크리닝_사진["US"][0][0]
+        assert 줄["change_rate"] == 2.5 and 줄["per"] == 22.0, "새 가격으로 PER 도 다시 나눈다"
+        assert 물음 == [], "가격만 지났는데 종목마다 다시 받았다"
+
+    def test_통째로_받은_지_오래면_종목마다_다시_받는다(self, monkeypatch):
+        import time
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA"])
+        monkeypatch.setattr(yf_service, "_screen_one",
+                            lambda s, m: {"symbol": s, "price": 120.0, "scanned_at": time.time()})
+        monkeypatch.setattr(yf_service, "_연간흐름_받기", lambda s: {})
+        monkeypatch.setattr(yf_service, "_묶음시세", lambda 줄들: (_ for _ in ()).throw(AssertionError("묶음 시세로 갔다")))
+        self._사진(받은때_전=7 * 3600, 찍은때_전=600)
+        yf_service.스크리닝_전체("US")
+        assert self._기다리기(lambda: 모듈._스크리닝_사진["US"][0][0]["price"] == 120.0)
+
+    def test_한_종목만_오래됐다고_시장_전체를_다시_받지_않는다(self, monkeypatch):
+        """계속 못 받는 종목(상장폐지 등)은 지난 줄로 남아 받은 때가 오래된 채다 — 그 하나 때문에
+        5분마다 시장 전체를 종목마다 다시 받으면 안 된다"""
+        import time
+        물음: list = []
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: 물음.append(s))
+        monkeypatch.setattr(yf_service, "_묶음시세", lambda 줄들: {})
+        지금 = time.time()
+        모듈._스크리닝_사진["US"] = ([{"symbol": "AAA", "price": 1.0, "scanned_at": 지금 - 60},
+                                    {"symbol": "OLD", "price": 1.0, "scanned_at": 지금 - 8 * 3600}], 지금 - 600)
+        yf_service.스크리닝_전체("US")
+        assert self._기다리기(lambda: "US" not in 모듈._스크리닝_새로찍는중)
+        assert 물음 == []
+
+    def test_받는_스레드는_낮은_우선순위고_다_받으면_메모리를_돌려준다(self, monkeypatch):
+        import os
+        import threading
+        from app.core import memory
+        잰것: list = []
+        정리: list = []
+
+        def 한줄(s, m):
+            잰것.append(os.getpriority(os.PRIO_PROCESS, threading.get_native_id()))
+            return {"symbol": s, "price": 1.0}
+
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA", "BBB"])
+        monkeypatch.setattr(yf_service, "_screen_one", 한줄)
+        monkeypatch.setattr(memory, "trim_native", lambda label="": 정리.append(label))
+        앞 = os.getpriority(os.PRIO_PROCESS, threading.get_native_id())
+        yf_service._스크리닝_전체_새로("US")
+        assert 잰것 and all(n == min(앞 + 10, 19) for n in 잰것), "화면 요청과 똑같이 CPU 를 나눠 가졌다"
+        assert len(정리) == 1 and "스크리닝" in 정리[0], "다 받고도 버퍼를 붙들고 있었다"
+
+    def test_메모리가_빠듯하면_연간_재무도_안_받는다(self, monkeypatch):
+        물음: list = []
+        monkeypatch.setattr(yf_service, "_연간흐름_받기", lambda s: 물음.append(s) or {})
+        monkeypatch.setattr(모듈, "_메모리_빠듯함", lambda: True)
+        줄들 = [{"symbol": "AAA", "market_cap": 1.0}]
+        assert yf_service._흐름_채우기(줄들, {"AAA": "AAA"}) == 0
+        assert 물음 == [] and "fin_at" not in 줄들[0], "못 받은 것을 받은 것으로 치면 일주일 동안 안 받는다"
+
+    def test_답은_1분만_남긴다_가격을_5분마다_새로_받으니까(self, client):
+        self._사진(받은때_전=60, 찍은때_전=60)
+        client.post("/api/v1/screening/run", json={"market": "US", "sort_by": "price"})
+        남은 = [항목 for 항목 in cache.keys_with_ttl()
+                if isinstance(항목, dict) and str(항목.get("key", "")).startswith("screening:US:price")]
+        assert 남은, "답을 남기지 않았다"
+        assert all(0 < float(항목["ttl_remaining"]) <= 60 for 항목 in 남은), 남은
+
+    def test_막_받았으면_아무것도_안_한다(self, monkeypatch):
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: (_ for _ in ()).throw(AssertionError()))
+        monkeypatch.setattr(yf_service, "_묶음시세", lambda 줄들: (_ for _ in ()).throw(AssertionError()))
+        self._사진(받은때_전=60, 찍은때_전=60)
+        yf_service.스크리닝_전체("US")
+        assert "US" not in 모듈._스크리닝_새로찍는중
+
+    def test_묶음_시세는_막_받아_둔_시세를_다시_묻지_않고_국내외를_갈라_묻는다(self, monkeypatch):
+        from app.services import price_fetcher
+        물은해외: list = []
+        물은국내: list = []
+
+        async def 해외(심볼들):
+            물은해외.extend(심볼들)
+            return {s: {"price": 2.0} for s in 심볼들}
+
+        async def 국내(코드들, concurrency=20):
+            물은국내.extend(코드들)
+            return {c: {"price": 70000.0} for c in 코드들}
+
+        monkeypatch.setattr(price_fetcher, "fetch_yf_quotes", 해외)
+        monkeypatch.setattr(price_fetcher, "fetch_naver_prices_light", 국내)
+        cache.set("price:AAA", {"price": 1.0}, 60)
+        try:
+            받음 = yf_service._묶음시세([{"symbol": "AAA", "market": "US"}, {"symbol": "BBB", "market": "US"},
+                                    {"symbol": "005930", "market": "KR"}])
+        finally:
+            cache.delete("price:AAA")
+        assert 받음 == {"AAA": {"price": 1.0}, "BBB": {"price": 2.0}, "005930": {"price": 70000.0}}
+        assert (물은해외, 물은국내) == (["BBB"], ["005930"])
+
+    def test_시장_전체는_한_번에_한_시장만_그리고_넷만_겹쳐_묻는다(self, monkeypatch):
+        import threading
+        import time
+        지금수 = {"n": 0, "최대": 0}
+        잠금 = threading.Lock()
+
+        def 한줄(s, m):
+            with 잠금:
+                지금수["n"] += 1
+                지금수["최대"] = max(지금수["최대"], 지금수["n"])
+            time.sleep(0.03)
+            with 잠금:
+                지금수["n"] -= 1
+            return {"symbol": s.split(".")[0], "price": 1.0}
+
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: [f"{m}{i}" for i in range(12)])
+        monkeypatch.setattr(yf_service, "_screen_one", 한줄)
+        스레드들 = [threading.Thread(target=yf_service._스크리닝_전체_새로, args=(m,)) for m in ("US", "KR", "ETF")]
+        for t in 스레드들: t.start()
+        for t in 스레드들: t.join()
+        assert 지금수["최대"] <= 모듈.SCREEN_SCAN_WORKERS == 4, "시장 셋을 겹쳐 받거나 너무 많이 겹쳐 물었다"
+
+    def test_메모리가_빠듯하면_멈추고_남은_종목은_지난_줄로(self, monkeypatch):
+        import time
+        monkeypatch.setattr(모듈, "SCREEN_SCAN_WORKERS", 1)
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA", "BBB", "CCC"])
+        모듈._스크리닝_사진["US"] = ([{"symbol": s, "price": 1.0} for s in ("AAA", "BBB", "CCC")], time.time())
+        물음: list = []
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: 물음.append(s) or {"symbol": s, "price": 2.0})
+        빠듯 = iter([False, True, True, True])
+        monkeypatch.setattr(모듈, "_메모리_빠듯함", lambda: next(빠듯, True))
+        새 = {r["symbol"]: r["price"] for r in yf_service._스크리닝_전체_새로("US")}
+        assert 물음 == ["AAA"], "메모리가 빠듯한데도 계속 물었다"
+        assert 새 == {"AAA": 2.0, "BBB": 1.0, "CCC": 1.0}, "멈췄다고 종목이 표에서 빠지면 안 된다"
+
+    def test_뒤에서_받는_스레드는_낮은_우선순위다(self):
+        import os
+        import threading
+        if not hasattr(os, "getpriority"):
+            pytest.skip("우선순위를 잴 수 없는 곳")
+        잰것: dict = {}
+
+        def 재기():
+            잰것["앞"] = os.getpriority(os.PRIO_PROCESS, threading.get_native_id())
+            모듈._뒤로_미루기()
+            잰것["뒤"] = os.getpriority(os.PRIO_PROCESS, threading.get_native_id())
+
+        t = threading.Thread(target=재기)
+        t.start(); t.join()
+        assert 잰것["뒤"] == min(잰것["앞"] + 10, 19), "화면 요청보다 CPU 를 먼저 쓴다"
+        assert os.getpriority(os.PRIO_PROCESS, threading.get_native_id()) == 잰것["앞"], "부른 스레드만 낮춘다"
+
+    def test_화면에_시세가_언제_것인지_알린다(self, client, monkeypatch):
+        import time
+        self._사진(받은때_전=60, 찍은때_전=90)
+        r = client.post("/api/v1/screening/run", json={"market": "US"}).json()
+        assert abs(r["as_of"] - (time.time() - 90)) < 5
+
+
+class Test시세_덮기:
+    def _줄(self, **더):
+        return {"symbol": "AAA", "currency": "USD", "fin_currency": "USD", "price": 100.0, "change_rate": 0.5,
+                "volume": 10, "market_cap": 1.0e12, "high_52w": 120.0, "low_52w": 80.0,
+                "pct_from_52w_high": -16.67, "pct_from_52w_low": 25.0, "dividend_rate": 2.0, "dividend_yield": 2.0,
+                "eps": 5.0, "per": 20.0, "forward_eps": 6.0, "forward_per": 16.67, "revenue": 2.5e11,
+                "ps_ratio": 4.0, **더}
+
+    def test_가격에_딸린_칸을_새_가격으로_다시_나눈다(self):
+        줄 = self._줄()
+        모듈._시세_덮기(줄, {"price": 110.0, "change_rate": 1.234, "volume": 99})
+        assert (줄["price"], 줄["change_rate"], 줄["volume"]) == (110.0, 1.23, 99)
+        assert 줄["market_cap"] == pytest.approx(1.1e12), "시가총액이 안 오면 주식 수가 그대로라고 보고 늘린다"
+        assert 줄["pct_from_52w_high"] == pytest.approx(-8.33, abs=0.01)
+        assert 줄["pct_from_52w_low"] == pytest.approx(37.5)
+        assert 줄["dividend_yield"] == pytest.approx(1.82, abs=0.01)
+        assert (줄["per"], 줄["forward_per"]) == (22.0, 18.33)
+        assert 줄["ps_ratio"] == pytest.approx(4.4)
+
+    def test_새_고점이면_고점도_올린다(self):
+        줄 = self._줄()
+        모듈._시세_덮기(줄, {"price": 130.0, "market_cap": 1.3e12})
+        assert (줄["high_52w"], 줄["pct_from_52w_high"], 줄["market_cap"]) == (130.0, 0.0, 1.3e12)
+
+    def test_해외_상장사의_PER_은_다시_나누지_않는다(self):
+        줄 = self._줄(fin_currency="TWD")
+        모듈._시세_덮기(줄, {"price": 110.0})
+        assert (줄["per"], 줄["forward_per"]) == (20.0, 16.67), "장부 돈 EPS 로 나누면 틀린다"
+
+    def test_가격이_없으면_그대로(self):
+        줄 = self._줄()
+        모듈._시세_덮기(줄, {"price": None, "change_rate": 9.9})
+        assert 줄 == self._줄()
 
 
 class Test처음_짓는_동안:
@@ -747,3 +974,11 @@ def test_보기의_칸_이름은_화면의_칸_열쇠_모양만(칸):
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
         라우트.PresetSaveRequest(name="x", market="US", filters={}, sort_by="per", columns=칸)
+
+
+def test_퀀트_로고용_누리집은_받아_둔_사진에서만_찾는다(monkeypatch):
+    import time
+    모듈._스크리닝_사진["US"] = ([{"symbol": "NVDA", "domain": "nvidia.com"}, {"symbol": "XYZ"}], time.time())
+    모듈._스크리닝_사진["KR"] = ([{"symbol": "005930", "domain": "samsung.com"}], time.time())
+    monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: (_ for _ in ()).throw(AssertionError("야후에 물었다")))
+    assert yf_service.누리집들(["NVDA", "XYZ", "005930.KS", "AAPL"]) == {"NVDA": "nvidia.com", "005930.KS": "samsung.com"}

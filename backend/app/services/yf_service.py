@@ -1,5 +1,6 @@
 import yfinance as yf
 import pandas as pd
+import logging
 import math
 import os
 import threading
@@ -9,7 +10,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 from app.core.cache import cache
 from app.core.utils import safe_float as _safe
-from app.core.cpu import cpu_worker_count, io_worker_count
+from app.core.cpu import cpu_worker_count, io_worker_count, 낮은_우선순위
+
+log = logging.getLogger(__name__)
 
 PRICE_TTL  = 120     # 현재가 캐시 120초 (30→120: 외부 API 호출 빈도 75% 감소)
 INDEX_TTL  = 60      # 지수 캐시 60초
@@ -189,6 +192,36 @@ ETF_SYMBOLS = [
 ]
 
 SCREEN_ROW_TTL = 1800  # 스크리닝 종목 한 줄 30분 — 재무값은 하루에 한 번, 시세는 이 정도면 충분
+
+#: 시장 전체를 **종목마다** 새로 받는(재무 + 1년 시세) 간격. 재무는 분기마다, RSI·수익률은 하루 단위로
+#  변한다. 예전엔 30분마다 300곳을 다시 받았는데, 화면이 열자마자 표를 채우게 되자 그 일이 잦아져
+#  0.15 CPU·512MB 서버의 메모리가 100% 를 찍고 종목상세 요청이 30초를 넘겨 끊겼다(관리자 화면 실측)
+SCREEN_FULL_TTL = int(os.getenv("SCREEN_FULL_TTL_SEC", 6 * 3600))
+#: 가격·등락·거래량·시가총액만 **묶음 시세**로 새로 받는 간격 — 요청 몇 번이면 시장 전체가 된다
+SCREEN_PRICE_TTL = int(os.getenv("SCREEN_PRICE_TTL_SEC", 300))
+#: 종목마다 받을 때 동시에 묻는 수. 늘리면 빨라지는 것보다 메모리가 한꺼번에 오르는 쪽이 크다 —
+#  야후 응답을 풀어 담는 동안의 버퍼가 동시에 묻는 수만큼 쌓인다
+SCREEN_SCAN_WORKERS = int(os.getenv("SCREEN_SCAN_WORKERS", 4))
+#: 시장 전체 받기를 멈추는 메모리 비율 — 넘으면 정리해 보고, 그래도 넘으면 남은 종목은 지난 줄로 둔다
+SCREEN_MEMORY_STOP = float(os.getenv("SCREEN_MEMORY_STOP", 0.9))
+
+
+#: 뒤에서 도는 받기 스레드는 낮은 우선순위로(app.core.cpu.낮은_우선순위)
+_뒤로_미루기 = 낮은_우선순위
+
+
+def _메모리_빠듯함() -> bool:
+    """시장 전체를 받다가 멈춰야 하나 — 넘으면 한 번 털어 보고 다시 본다. 잴 수 없으면(로컬) 안 멈춘다"""
+    try:
+        from app.core import memory
+    except Exception:
+        return False
+    비율 = memory.usage_ratio()
+    if 비율 is None or 비율 < SCREEN_MEMORY_STOP:
+        return False
+    memory.trim_if_tight()
+    비율 = memory.usage_ratio()
+    return 비율 is not None and 비율 >= SCREEN_MEMORY_STOP
 
 
 def 스크리닝_종목들(market: str) -> list[str]:
@@ -394,6 +427,11 @@ def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame,
         "rsi": _rsi14(closes),
         "pct_from_52w_high": round((curr / 고점 - 1) * 100, 2) if 고점 else None,
         "pct_from_52w_low": round((curr / 저점 - 1) * 100, 2) if 저점 else None,
+        #: 묶음 시세로 가격만 새로 받을 때 다시 나누려고 남긴다 — 52주 고저·연 배당금·다음 해 예상 EPS
+        "high_52w": round(고점, 4) if 고점 else None,
+        "low_52w": round(저점, 4) if 저점 else None,
+        "dividend_rate": 연배당,
+        "forward_eps": 다음eps,
         # ETF 는 3년 베타(beta3Year)만 준다
         "beta": _safe(info.get("beta") if info.get("beta") is not None else info.get("beta3Year")),
         "return_1m": _몇달전수익률(closes, 1),
@@ -471,6 +509,60 @@ SCREEN_SNAPSHOT_MAX_AGE = 7 * 86400
 
 def _스크리닝_잠금(market: str) -> threading.Lock:
     return _스크리닝_잠금들.setdefault(market, threading.Lock())
+
+
+#: 종목마다 통째로 받는 일은 시장을 가리지 않고 한 번에 하나만 — 미국·국내·ETF 를 겹쳐 받으면
+#  동시에 묻는 수가 세 배가 된다
+_스크리닝_한시장씩 = threading.Semaphore(1)
+
+
+def _마지막_통째(줄들: list) -> float:
+    """사진을 마지막으로 종목마다 통째로 받은 때 — 줄마다 받은 때(scanned_at) 중 가장 늦은 것.
+    가장 이른 것으로 하면 계속 못 받는 종목 하나 때문에 5분마다 시장 전체를 다시 받는다."""
+    return max((float(r.get("scanned_at") or 0) for r in 줄들), default=0.0)
+
+
+def _시세_덮기(줄: dict, q: dict) -> None:
+    """묶음 시세로 가격에 딸린 칸을 고친다. 재무(EPS·배당금·매출)는 그대로 두고 새 가격으로 다시 나눈다."""
+    값 = _safe(q.get("price"))
+    if not 값 or 값 <= 0:
+        return
+    옛값 = _safe(줄.get("price"))
+    줄["price"] = round(값, 2)
+    if (등락 := _safe(q.get("change_rate"))) is not None:
+        줄["change_rate"] = round(등락, 2)
+    if q.get("volume"):
+        줄["volume"] = int(q["volume"])
+    시총 = _safe(q.get("market_cap"))
+    if 시총 and 시총 > 0:
+        줄["market_cap"] = 시총
+    elif 옛값 and 줄.get("market_cap"):
+        줄["market_cap"] = round(줄["market_cap"] * 값 / 옛값)       # 주식 수는 그대로다
+    if (고점 := _safe(줄.get("high_52w"))):
+        고점 = max(고점, 값)
+        줄["high_52w"], 줄["pct_from_52w_high"] = 고점, round((값 / 고점 - 1) * 100, 2)
+    if (저점 := _safe(줄.get("low_52w"))):
+        저점 = min(저점, 값)
+        줄["low_52w"], 줄["pct_from_52w_low"] = 저점, round((값 / 저점 - 1) * 100, 2)
+    if (연배당 := _safe(줄.get("dividend_rate"))) is not None:
+        줄["dividend_yield"] = round(연배당 / 값 * 100, 2)
+    if (매출 := _safe(줄.get("revenue"))) and 매출 > 0 and 줄.get("market_cap"):
+        줄["ps_ratio"] = round(줄["market_cap"] / 매출, 2)
+    # PER 은 EPS 가 시세와 같은 돈일 때만 다시 나눈다 — 해외 상장사의 EPS 는 장부 돈일 수 있다
+    if 줄.get("currency") == 줄.get("fin_currency"):
+        if (eps := _safe(줄.get("eps"))) and eps > 0:
+            줄["per"] = round(값 / eps, 2)
+        if (다음 := _safe(줄.get("forward_eps"))) and 다음 > 0:
+            줄["forward_per"] = round(값 / 다음, 2)
+
+
+def _다_쓴_메모리_돌려주기(까닭: str) -> None:
+    """야후 응답을 풀어 담던 버퍼는 놓아도 OS 로 바로 안 돌아간다 — 큰 일을 끝내면 곧바로 돌려준다"""
+    try:
+        from app.core import memory
+        memory.trim_native(label=까닭)
+    except Exception:
+        pass
 
 
 def _사진_읽기(market: str) -> "tuple[list, float] | None":
@@ -967,6 +1059,8 @@ class YFinanceService:
         except Exception:
             return None
         if row:
+            # 종목마다 받은 때 — 시장 전체를 언제 마지막으로 통째로 받았는지 여기서 안다(DB 사진에도 남는다)
+            row["scanned_at"] = time.time()
             cache.set(ck, row, SCREEN_ROW_TTL)
         return row
 
@@ -1008,21 +1102,35 @@ class YFinanceService:
         if 짓기 is not None:
             짓기["전체"] = len(symbols)
 
-        # 종목별 순차 호출(네트워크 I/O 대기)이 전체 응답 시간을 좌우하므로
-        # 스레드풀로 동시에 fetch — yfinance가 스레드 안전한 블로킹 I/O이므로 안전함
+        # 종목마다 묻는다(네트워크를 기다리는 일이라 몇 개씩 겹쳐서). 다만 겹치는 수만큼 야후 응답을
+        # 풀어 담는 버퍼가 한꺼번에 쌓인다 — 0.15 CPU·512MB 서버라 넷만 겹치고, 한 번에 한 시장만,
+        # 낮은 우선순위로 돈다(화면 요청이 먼저 CPU 를 쓰게). 메모리가 빠듯하면 남은 종목은 지난 줄로 둔다
+        멈춤 = threading.Event()
+
+        def 한종목(s: str):
+            if 멈춤.is_set():
+                return None
+            if _메모리_빠듯함():
+                if not 멈춤.is_set():
+                    log.warning("메모리가 빠듯해 스크리닝 %s 받기를 멈춤 — 남은 종목은 지난 줄로", market)
+                멈춤.set()
+                return None
+            return self._screen_one(s, market)
+
         받은것: dict = {}
-        with ThreadPoolExecutor(max_workers=io_worker_count(default=20)) as pool:
-            일감 = {pool.submit(self._screen_one, s, market): s for s in symbols}
-            for 끝난 in as_completed(일감):
-                try:
-                    r = 끝난.result()
-                except Exception:
-                    r = None
-                받은것[일감[끝난]] = r
-                if 짓기 is not None:
-                    if r:
-                        짓기["줄들"].append(dict(r))
-                    짓기["받은"] += 1
+        with _스크리닝_한시장씩:
+            with ThreadPoolExecutor(max_workers=SCREEN_SCAN_WORKERS, initializer=_뒤로_미루기) as pool:
+                일감 = {pool.submit(한종목, s): s for s in symbols}
+                for 끝난 in as_completed(일감):
+                    try:
+                        r = 끝난.result()
+                    except Exception:
+                        r = None
+                    받은것[일감[끝난]] = r
+                    if 짓기 is not None:
+                        if r:
+                            짓기["줄들"].append(dict(r))
+                        짓기["받은"] += 1
 
         def 보일이름(s: str) -> str:
             return s.rsplit(".", 1)[0] if s.endswith((".KS", ".KQ")) else s
@@ -1045,6 +1153,7 @@ class YFinanceService:
             self._흐름_채우기(줄들, 원래이름)
         _스크리닝_사진[market] = (줄들, time.time())
         _사진_남기기(market, 줄들)
+        _다_쓴_메모리_돌려주기("스크리닝 시장 전체를 받은 뒤")
         return 줄들
 
     def _연간흐름_받기(self, symbol: str) -> "dict | None":
@@ -1064,11 +1173,11 @@ class YFinanceService:
             return 0
 
         def 하나(r):
-            if time.time() - 지금 > 흐름_시간:
-                return None                        # 시간이 다 됐다 — 다음 차례에
+            if time.time() - 지금 > 흐름_시간 or _메모리_빠듯함():
+                return None                        # 시간이 다 됐거나 메모리가 빠듯하다 — 다음 차례에
             return self._연간흐름_받기(원래이름.get(r["symbol"], r["symbol"]))
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=2, initializer=_뒤로_미루기) as pool:
             받은것 = list(pool.map(하나, 고른))
         붙임 = 0
         for r, 흐름 in zip(고른, 받은것):
@@ -1089,7 +1198,9 @@ class YFinanceService:
         여럿이 동시에 누르면 그 일을 각자 했다.
 
         · 마지막 결과(사진)를 들고 있다 — 서버가 깨도 쓸 수 있게 DB 에도.
-        · 30분이 지났으면 그 사진으로 곧바로 답하고 새로 찍는 것은 뒤에서.
+        · 지났으면 그 사진으로 곧바로 답하고 새로 찍는 것은 뒤에서. 두 갈래다 —
+          종목마다 통째로(재무·1년 시세)는 SCREEN_FULL_TTL(6시간)마다, 가격·등락·거래량·시가총액은
+          묶음 시세로 SCREEN_PRICE_TTL(5분)마다. 예전엔 30분마다 통째로 받아 서버가 그 일에 붙잡혔다.
         · 사진이 아예 없으면(배포 직후·처음 여는 시장) 뒤에서 짓고 SCREEN_FIRST_WAIT 만 기다린다.
           그 안에 다 못 지었으면 받은 줄부터 돌려준다 — 화면은 '받는 중' 이라고 알리고 다시 묻는다.
           예전엔 다 지을 때까지(0.15 CPU 로 1~3분) 요청이 붙잡혀 표가 빈 채로 기다렸다.
@@ -1101,8 +1212,11 @@ class YFinanceService:
                 _스크리닝_사진[market] = 있음
         if 있음 is not None:
             줄들, 찍은때 = 있음
-            if time.time() - 찍은때 > SCREEN_ROW_TTL:
+            지금 = time.time()
+            if 지금 - _마지막_통째(줄들) > SCREEN_FULL_TTL:
                 self._스크리닝_뒤에서_새로(market)
+            elif 지금 - 찍은때 > SCREEN_PRICE_TTL:
+                self._스크리닝_뒤에서_새로(market, 시세만=True)
             return 줄들
         if self.스크리닝_못받음(market):
             return []
@@ -1124,13 +1238,40 @@ class YFinanceService:
             return None
         return {"done": 짓기["받은"], "total": 짓기["전체"]}
 
+    def 누리집들(self, 심볼들: list) -> dict:
+        """종목 → 회사 누리집(로고용). 받아 둔 스크리닝 사진에서만 찾는다 — 야후에 새로 묻지 않는다.
+        국내는 '005930' 과 '005930.KS' 를 같은 종목으로 본다."""
+        def 맨이름(s: str) -> str:
+            return s.rsplit(".", 1)[0] if s.endswith((".KS", ".KQ")) else s
+        찾을 = {맨이름(s): s for s in 심볼들}
+        out: dict = {}
+        for market in ("US", "KR", "ETF"):
+            있음 = _스크리닝_사진.get(market)
+            if 있음 is None:
+                있음 = _사진_읽기(market)
+                if 있음 is None:
+                    continue
+                _스크리닝_사진[market] = 있음
+            for r in 있음[0]:
+                원래 = 찾을.get(r.get("symbol") or "")
+                if 원래 and r.get("domain"):
+                    out[원래] = r["domain"]
+        return out
+
+    def 스크리닝_찍은때(self, market: str) -> Optional[float]:
+        """지금 사진의 시세가 언제 것인가(유닉스 초) — 화면이 'N분 전 시세' 로 적는다"""
+        있음 = _스크리닝_사진.get(market)
+        return 있음[1] if 있음 is not None else None
+
     def 스크리닝_못받음(self, market: str) -> bool:
         """사진도 없는데 방금 지어 보니 한 줄도 못 받았다(야후가 막혔다) — 잠깐은 다시 짓지 않는다"""
         return (_스크리닝_사진.get(market) is None
                 and time.time() - _스크리닝_실패.get(market, 0.0) < SCREEN_FAIL_COOLDOWN)
 
-    def _스크리닝_뒤에서_새로(self, market: str, 흐름채우기: bool = True, 처음: bool = False) -> bool:
-        """뒤에서 새로 찍기 시작했으면 True. 처음 — 사진이 없어서 짓는 것(그새 남이 다 지었으면 또 짓지 않는다)"""
+    def _스크리닝_뒤에서_새로(self, market: str, 흐름채우기: bool = True, 처음: bool = False,
+                         시세만: bool = False) -> bool:
+        """뒤에서 새로 찍기 시작했으면 True. 처음 — 사진이 없어서 짓는 것(그새 남이 다 지었으면 또 짓지 않는다).
+        시세만 — 종목마다 받지 않고 묶음 시세로 가격에 딸린 칸만 고친다"""
         with _스크리닝_시작잠금:          # 보고-넣기 사이에 남이 끼면 시장 전체를 두 번 받는다
             if market in _스크리닝_새로찍는중 or (처음 and _스크리닝_사진.get(market) is not None):
                 return False
@@ -1146,7 +1287,10 @@ class YFinanceService:
         def 일():
             try:
                 with _스크리닝_잠금(market):
-                    self._스크리닝_전체_새로(market, 흐름채우기=흐름채우기)
+                    if 시세만:
+                        self._스크리닝_시세_새로(market)
+                    else:
+                        self._스크리닝_전체_새로(market, 흐름채우기=흐름채우기)
             except Exception:
                 pass                      # 못 찍었으면 지난 사진을 계속 쓴다
             finally:
@@ -1159,6 +1303,59 @@ class YFinanceService:
             끝내기()
             return False
         return True
+
+    def _스크리닝_시세_새로(self, market: str) -> list:
+        """가격·등락·거래량·시가총액만 묶음 시세로 받아 사진에 덮는다 — 요청 몇 번이면 시장 전체다.
+        재무·RSI·수익률은 종목마다 받는 쪽(SCREEN_FULL_TTL)에 맡긴다."""
+        있음 = _스크리닝_사진.get(market)
+        if 있음 is None:
+            return []
+        줄들 = [dict(r) for r in 있음[0]]
+        시세 = self._묶음시세(줄들)
+        for r in 줄들:
+            if (q := 시세.get(r.get("symbol"))):
+                _시세_덮기(r, q)
+        _스크리닝_사진[market] = (줄들, time.time())
+        _사진_남기기(market, 줄들)
+        return 줄들
+
+    def _묶음시세(self, 줄들: list) -> dict:
+        """{표의 symbol: 시세}. 해외는 야후 묶음 시세(100곳씩), 국내는 네이버 가격만.
+        막 받아 둔 시세(price:심볼 — 시세 갱신·관심종목 화면이 2분 단위로 채운다)는 다시 묻지 않는다."""
+        import asyncio
+        from app.services.price_fetcher import fetch_yf_quotes, fetch_naver_prices_light
+        out: dict = {}
+        해외: list = []
+        국내: list = []
+        for r in 줄들:
+            s = r.get("symbol")
+            if not s:
+                continue
+            q = cache.get(f"price:{s}")
+            if q and q.get("price"):
+                out[s] = q
+            elif r.get("market") == "KR":
+                국내.append(s)
+            else:
+                해외.append(s)
+
+        async def 받기():
+            for i in range(0, len(해외), 100):
+                try:
+                    out.update(await asyncio.wait_for(fetch_yf_quotes(해외[i:i + 100]), timeout=25))
+                except Exception:
+                    pass
+            if 국내:
+                try:
+                    out.update(await asyncio.wait_for(fetch_naver_prices_light(국내, concurrency=8), timeout=30))
+                except Exception:
+                    pass
+
+        try:
+            asyncio.run(받기())
+        except Exception:
+            pass
+        return out
 
     def _apply_filters(self, stock: dict, filters: dict) -> bool:
         for key, condition in filters.items():

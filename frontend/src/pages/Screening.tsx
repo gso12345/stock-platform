@@ -11,11 +11,11 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Columns3, Download, Filter, Layers, Save, Search, SlidersHorizontal, Star, X,
+  AlertTriangle, Columns3, Download, Filter, Layers, Save, Search, SlidersHorizontal, X,
 } from "lucide-react";
-import { screeningApi, watchlistApi, stocksApi, type 스크리닝요청, type 스크리닝줄 } from "@/api/stocks";
+import { screeningApi, stocksApi, type 스크리닝요청, type 스크리닝줄 } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { Button, Card, InlineSpinner, INPUT_CLASS, Tabs, Toast, cn, 빈화면, 못불러옴 } from "@/components/ui";
 import { 읽을수있는오류 } from "@/utils/errors";
@@ -25,17 +25,24 @@ import type { Market, ScreeningPreset } from "@/types";
 import {
   칸들, 처음칸, 보낼조건, 스크리닝CSV, 조건글, ETF칸, 칸이름,
 } from "@/components/screening/screeningDefs";
-import { 칸값, 회사로고 } from "@/components/screening/ScreeningCells";
+import { 칸값 } from "@/components/screening/ScreeningCells";
 import {
   조건판, 칸판, 묶음판, 저장판, type 기본묶음하나, type 조건모음,
 } from "@/components/screening/ScreeningPanels";
+import {
+  StockTableSkeleton, 받는중띠, 도구단추, 정렬제목, 종목칸,
+  표상자, 표머리, 표머리줄, 표머리칸, 붙박이머리, 표줄, 붙박이칸, 표칸,
+} from "@/components/common/StockTable";
+import { 관심별 } from "@/components/watchlist/WatchlistStar";
+import { timeAgo } from "@/utils/formatters";
 
 // 시험·다른 화면이 이 파일에서 가져다 쓴다
 export { SECTORS, 보낼조건, 스크리닝CSV } from "@/components/screening/screeningDefs";
 
+/* 앱의 다른 화면(대시보드·관심종목·퀀트)과 같은 이름·차례 — 국내·해외 */
 const 시장들 = [
-  { id: "US", label: "미국" },
-  { id: "KR", label: "한국" },
+  { id: "KR", label: "국내" },
+  { id: "US", label: "해외" },
   { id: "ETF", label: "ETF" },
 ];
 
@@ -55,28 +62,6 @@ function 칸읽기(): string[] {
   return 처음칸;
 }
 
-/* 결과 표 자리를 미리 잡아 둔다. 처음 한 번은 시장 전체를 훑느라 수십 초가 걸린다 —
-   동그라미만 돌면 멈춘 줄 안다. */
-function ScreeningSkeleton({ rows = 10 }: { rows?: number }) {
-  return (
-    <div className="flex flex-col gap-3 p-4" aria-hidden>
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 animate-pulse">
-          <div className="h-3 w-4 rounded bg-bg-elevated" />
-          <div className="h-6 w-6 rounded-lg bg-bg-elevated flex-shrink-0" />
-          <div className="flex flex-col gap-1.5">
-            <div className="h-3 w-32 rounded bg-bg-elevated" />
-            <div className="h-2.5 w-12 rounded bg-bg-elevated" />
-          </div>
-          <div className="ml-auto hidden sm:flex gap-6">
-            {Array.from({ length: 6 }).map((__, j) => <div key={j} className="h-3 w-14 rounded bg-bg-elevated" />)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function Screening() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -91,7 +76,6 @@ export default function Screening() {
   const [열린판, set열린판] = useState<판 | null>(null);
   const [보이는칸, set보이는칸] = useState<string[]>(칸읽기);
   const [몇줄, set몇줄] = useState(30);
-  const [별, set별] = useState<Set<string>>(new Set());
   const [알림, set알림] = useState<{ 글: string; 종류: "success" | "error" } | null>(null);
   // Toast 는 onClose 가 바뀌면 머무는 시간을 처음부터 다시 잰다 — 표를 받는 동안 안 닫히지 않게 고정한다
   const 알림닫기 = useCallback(() => set알림(null), []);
@@ -158,19 +142,6 @@ export default function Screening() {
     onError: (e: any) => set알림({ 글: 읽을수있는오류(e?.response?.data?.detail, "지우지 못했어요"), 종류: "error" }),
   });
 
-  const 관심담기 = useMutation({
-    mutationFn: (s: 스크리닝줄) =>
-      watchlistApi.addItem({ symbol: s.symbol, market: s.market, name: s.name ?? s.symbol, watchlist_id: 1 }),
-    onSuccess: (_d, s) => {
-      set별((앞) => new Set([...앞, s.symbol]));
-      set알림({ 글: `${s.name ?? s.symbol} 관심종목에 담았어요`, 종류: "success" });
-    },
-    onError: (err: any) => {
-      if (err?.response?.status === 401) { navigate("/login"); return; }
-      set알림({ 글: 읽을수있는오류(err?.response?.data?.detail, "담지 못했어요"), 종류: "error" });
-    },
-  });
-
   // 줄에 마우스를 올리면 상세 화면 자료를 미리 받는다 — 누르면 곧바로 뜬다
   const 미리받기 = (s: 스크리닝줄) => {
     const 키 = ["stock-detail", s.market as Market, s.symbol];
@@ -220,16 +191,9 @@ export default function Screening() {
   const 흐름칸있음 = 시장 !== "ETF" && 보일칸.some((c) => c.모양 === "흐름" || c.key.endsWith("_cagr_3y"));
 
   const 판단추 = (p: 판, Icon: typeof Layers, 글: string) => (
-    <button type="button" onClick={() => 판열기(p)} aria-expanded={열린판 === p} aria-controls="스크리닝-판"
-      className={cn(
-        "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0",
-        열린판 === p
-          ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
-          : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50",
-      )}>
-      <Icon size={13} />{글}
-    </button>
+    <도구단추 아이콘={Icon} 열림={열린판 === p} controls="스크리닝-판" onClick={() => 판열기(p)}>{글}</도구단추>
   );
+  const 시세때 = 결과.data?.as_of ? timeAgo(new Date(결과.data.as_of * 1000).toISOString()) : "";
 
   return (
     <div className="flex flex-col gap-4">
@@ -261,13 +225,12 @@ export default function Screening() {
           {판단추("조건", SlidersHorizontal, 걸린수 ? `조건 ${걸린수}` : "조건")}
           {판단추("칸", Columns3, `칸 ${보일칸.length}`)}
           {판단추("저장", Save, "보기 저장")}
-          <button type="button" onClick={() => csv내려받기(
+          <도구단추 아이콘={Download} title="CSV 다운로드" disabled={!줄들.length}
+            onClick={() => csv내려받기(
               `screening_${시장}_${new Date().toISOString().slice(0, 10)}.csv`,
-              스크리닝CSV(줄들, new Set(보일칸.map((c) => c.key))))}
-            disabled={!줄들.length} title="CSV 다운로드"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-bg-elevated text-xs font-medium text-text-secondary hover:text-text-primary hover:border-accent-blue/50 transition-colors disabled:opacity-40 flex-shrink-0">
-            <Download size={13} />CSV
-          </button>
+              스크리닝CSV(줄들, new Set(보일칸.map((c) => c.key))))}>
+            CSV
+          </도구단추>
         </div>
       </div>
 
@@ -326,6 +289,8 @@ export default function Screening() {
                 : 전체수 > 줄들.length
                 ? <>조건에 맞는 <b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳 중 위 {줄들.length}곳</>
                 : <><b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳</>}
+              {/* 가격은 서버가 5분마다 묶음 시세로 새로 받는다 — 언제 것인지 밝힌다 */}
+              {시세때 && !짓는중 && <span className="text-text-dim"> · 시세 {시세때}</span>}
             </>
           )}
         </span>
@@ -337,23 +302,11 @@ export default function Screening() {
       {/* 서버가 이 시장을 처음 받는 중 — 예전엔 다 받을 때까지(1~3분) 표가 빈 채였다
           (사용자: "처음에는 아무것도 안나오던데"). 받은 것부터 보이고, 얼마나 받았는지 알린다 */}
       {짓는중 && (
-        <div role="status" aria-label="시장 전체를 받는 중"
-          className="flex flex-col gap-2 px-3 py-2.5 rounded-xl border border-accent-blue/30 bg-accent-blue/5">
-          <p className="flex items-center gap-2 text-xs text-text-secondary">
-            <InlineSpinner className="w-3 h-3" />
-            <span>
-              처음 한 번은 시장 전체를 받아요(1~3분)
-              {짓는중.total > 0 && <> — <b className="text-text-primary">{짓는중.done}/{짓는중.total}곳</b> 받음</>}
-              . 받은 것부터 보여 드려요
-            </span>
-          </p>
-          {짓는중.total > 0 && (
-            <div className="h-1 rounded-full bg-bg-elevated overflow-hidden">
-              <div className="h-full bg-accent-blue transition-all"
-                style={{ width: `${Math.round((짓는중.done / 짓는중.total) * 100)}%` }} />
-            </div>
-          )}
-        </div>
+        <받는중띠 이름="시장 전체를 받는 중" done={짓는중.done} total={짓는중.total || undefined}>
+          처음 한 번은 시장 전체를 받아요(1~3분)
+          {짓는중.total > 0 && <> — <b className="text-text-primary">{짓는중.done}/{짓는중.total}곳</b> 받음</>}
+          . 받은 것부터 보여 드려요
+        </받는중띠>
       )}
 
       <Card className="p-0 overflow-hidden">
@@ -371,34 +324,27 @@ export default function Screening() {
             {!결과.data && (
               <p className="px-4 pt-4 text-2xs text-text-muted">처음 한 번은 시장 전체를 훑느라 수십 초 걸릴 수 있어요</p>
             )}
-            <ScreeningSkeleton />
+            <StockTableSkeleton />
           </div>
         ) : 줄들.length === 0 ? (
           <빈화면 icon={Filter} title="조건에 맞는 종목이 없어요"
             hint={걸린수 || 찾는말 ? "조건의 범위를 넓히거나 하나 빼 보세요." : "잠시 뒤 다시 열어 보세요."}
             action={걸린수 || 찾는말 ? { label: "조건 모두 지우기", onClick: 모두지우기 } : undefined} />
         ) : (
-          <div className={cn("overflow-x-auto lg:overflow-y-auto lg:max-h-[75vh] transition-opacity",
-            결과.isPlaceholderData && "opacity-60")}>
+          <div className={cn(표상자, "transition-opacity", 결과.isPlaceholderData && "opacity-60")}>
             <table className="w-full text-xs">
-              <thead className="sticky top-0 z-20 bg-bg-secondary">
-                <tr className="text-text-muted border-b border-border">
-                  <th scope="col" className="sticky left-0 z-30 bg-bg-secondary text-left font-medium px-3 py-2.5">
-                    종목
-                  </th>
+              <thead className={표머리}>
+                <tr className={표머리줄}>
+                  <th scope="col" className={붙박이머리}>종목</th>
                   {보일칸.map((c) => {
                     const 이름 = 칸이름(c, 시장);
                     const 지금 = 정렬 === c.key;
                     return (
-                      <th key={c.key} scope="col" className="text-right font-medium px-3 py-2.5 whitespace-nowrap"
+                      <th key={c.key} scope="col" className={표머리칸}
                         aria-sort={지금 ? (순서 === "desc" ? "descending" : "ascending") : undefined}>
                         {c.세움 === false ? 이름 : (
-                          <button type="button" onClick={() => 세우기(c.key)} title={용어사전[c.이름]?.뜻}
-                            className={cn("inline-flex items-center gap-0.5 whitespace-nowrap",
-                              지금 ? "text-accent-blue" : "hover:text-text-primary")}>
-                            {이름}
-                            {지금 && (순서 === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
-                          </button>
+                          <정렬제목 이름={이름} 지금={지금} 순서={순서} onClick={() => 세우기(c.key)}
+                            title={용어사전[c.이름]?.뜻} />
                         )}
                       </th>
                     );
@@ -408,37 +354,20 @@ export default function Screening() {
               </thead>
               <tbody>
                 {줄들.slice(0, 몇줄).map((s, i) => {
-                  const 담음 = 별.has(s.symbol);
                   const 이름 = s.name ?? s.symbol;
                   return (
-                    <tr key={`${s.market}:${s.symbol}`} onMouseEnter={() => 미리받기(s)}
-                      className="group/row border-b border-border/30 hover:bg-bg-hover/50 transition-colors">
-                      {/* 붙박이 칸은 바탕이 불투명해야 밀리는 칸이 비치지 않는다 — 줄에 올렸을 때도
-                          나머지 칸(카드 위에 반투명 hover)과 같은 색이 되게 섞어 칠한다 */}
-                      <td className="sticky left-0 z-10 bg-bg-card group-hover/row:bg-[color-mix(in_srgb,var(--bg-hover)_50%,var(--bg-card))] transition-colors px-3 py-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="w-5 flex-shrink-0 text-right text-2xs text-text-dim font-mono">{i + 1}</span>
-                          <회사로고 도메인={s.domain} 이름={이름} />
-                          <Link to={`/stocks/${s.market}/${s.symbol}`} className="min-w-0 flex flex-col group">
-                            <span className="font-semibold text-text-primary truncate max-w-[7.5rem] sm:max-w-[12rem] group-hover:text-accent-blue transition-colors">
-                              {이름}
-                            </span>
-                            <span className="text-2xs text-text-muted font-mono">{s.symbol}</span>
-                          </Link>
-                        </div>
+                    <tr key={`${s.market}:${s.symbol}`} onMouseEnter={() => 미리받기(s)} className={표줄}>
+                      <td className={붙박이칸}>
+                        <종목칸 순위={i + 1} symbol={s.symbol} name={이름} market={s.market} domain={s.domain} />
                       </td>
                       {보일칸.map((c) => (
-                        <td key={c.key} className="px-3 py-2 text-right whitespace-nowrap">
+                        <td key={c.key} className={표칸}>
                           <칸값 칸={c} 줄={s} 이름={`${이름} ${칸이름(c, 시장)}`} />
                         </td>
                       ))}
                       <td className="px-2 py-2">
-                        <button type="button" disabled={담음 || 관심담기.isPending}
-                          onClick={() => { if (!isLoggedIn) { navigate("/login"); return; } 관심담기.mutate(s); }}
-                          aria-label={담음 ? `${이름} 관심종목에 담김` : `${이름} 관심종목에 담기`}
-                          className={cn("p-1 rounded transition-colors", 담음 ? "text-accent-yellow" : "text-text-muted hover:text-accent-yellow")}>
-                          <Star size={13} fill={담음 ? "currentColor" : "none"} />
-                        </button>
+                        <관심별 symbol={s.symbol} market={s.market} name={이름} 로그인함={isLoggedIn}
+                          알리기={(글, 종류) => set알림({ 글, 종류 })} />
                       </td>
                     </tr>
                   );

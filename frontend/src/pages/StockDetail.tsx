@@ -27,6 +27,7 @@ import CommunityTab from "@/components/community/CommunityTab";
 import SupplyDemandTab from "@/components/stock/SupplyDemandTab";
 import RangeBar from "@/components/stock/RangeBar";
 import AlertButton from "@/components/stock/AlertButton";
+import { 관심폴더메뉴 } from "@/components/watchlist/WatchlistStar";
 import { EtfHoldingsTab } from "@/components/stock/EtfHoldingsTab";
 import DailyTab from "@/components/stock/DailyTab";
 import NewsTab from "@/components/stock/NewsTab";
@@ -1116,23 +1117,11 @@ export default function StockDetail() {
             {watchlistMsg && (
               <span className="text-xs text-text-muted animate-fade-in">{watchlistMsg}</span>
             )}
+            {/* 폴더 목록은 스크리닝 표의 별과 같은 부품이다 */}
             {folderMenuOpen && !inWatchlist && (
-              <div className="absolute top-full mt-1 right-0 z-20 w-44 rounded-xl border border-border bg-bg-card shadow-float overflow-hidden">
-                <button
-                  onClick={() => { addMutation.mutate(null); setFolderMenuOpen(false); }}
-                  className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
-                >
-                  기본 (폴더 없음)
-                </button>
-                {(watchlistFolders as any[]).map((f: any) => (
-                  <button
-                    key={f.id}
-                    onClick={() => { addMutation.mutate(f.id); setFolderMenuOpen(false); }}
-                    className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated transition-colors border-t border-border truncate"
-                  >
-                    {f.name}
-                  </button>
-                ))}
+              <div className="absolute top-full mt-1 right-0 z-20">
+                <관심폴더메뉴 폴더들={watchlistFolders}
+                  고르기={(폴더) => { addMutation.mutate(폴더); setFolderMenuOpen(false); }} />
               </div>
             )}
           </div>

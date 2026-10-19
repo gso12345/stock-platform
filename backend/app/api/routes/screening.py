@@ -128,10 +128,13 @@ async def run_screening(request: Request, req: ScreeningRequest):
         "building": 짓는중,
         #: 사진도 없는데 야후에서 한 줄도 못 받았다 — 화면이 '맞는 종목이 없어요' 와 갈라 알린다
         "failed": not 전체 and 짓는중 is None and yf_service.스크리닝_못받음(req.market),
+        #: 시세가 언제 것인가(유닉스 초) — 가격은 5분마다 묶음 시세로 새로 받는다
+        "as_of": yf_service.스크리닝_찍은때(req.market),
     }
-    # 받는 중이거나 못 받은 답은 남겨 두지 않는다 — 남기면 다 받은 뒤에도 5분 동안 그 답이 나간다
+    # 받는 중이거나 못 받은 답은 남겨 두지 않는다 — 남기면 다 받은 뒤에도 그 답이 나간다.
+    # 남겨도 1분만 — 가격을 5분마다 새로 받는데 답을 5분 남기면 10분 전 시세가 나간다
     if 짓는중 is None and not payload["failed"]:
-        cache.set(ck, payload, 300)
+        cache.set(ck, payload, 60)
     return payload
 
 

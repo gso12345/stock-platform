@@ -10,13 +10,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
 
 const 상태 = vi.hoisted(() => ({ 로그인: false }));
 const run = vi.fn();
 const getPresets = vi.fn();
 const savePreset = vi.fn();
 const deletePreset = vi.fn();
+const 관심 = vi.hoisted(() => ({
+  목록: [] as any[],
+  폴더: [] as any[],
+  addItem: null as any,
+  removeItem: null as any,
+}));
 vi.mock("@/api/stocks", async (원본) => ({
   ...(await 원본<any>()),
   screeningApi: {
@@ -25,6 +31,12 @@ vi.mock("@/api/stocks", async (원본) => ({
     savePreset: (...a: any[]) => savePreset(...a),
     deletePreset: (...a: any[]) => deletePreset(...a),
   },
+  watchlistApi: {
+    getItemsWithCachedPrices: () => Promise.resolve(관심.목록),
+    addItem: (...a: any[]) => 관심.addItem(...a),
+    removeItem: (...a: any[]) => 관심.removeItem(...a),
+  },
+  watchlistFolderApi: { getFolders: () => Promise.resolve(관심.폴더) },
 }));
 vi.mock("@/store/authStore", () => ({
   useAuthStore: (sel?: any) => { const s = { isLoggedIn: 상태.로그인 }; return sel ? sel(s) : s; },
@@ -50,7 +62,14 @@ function 응답(results = 기본줄들, o: Record<string, any> = {}) {
 function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}><MemoryRouter><Screening /></MemoryRouter></QueryClientProvider>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={["/screening"]}>
+        <Routes>
+          <Route path="/screening" element={<Screening />} />
+          <Route path="/login" element={<p>로그인 화면</p>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -58,6 +77,10 @@ const 마지막 = () => run.mock.calls[run.mock.calls.length - 1][0];
 
 beforeEach(() => {
   상태.로그인 = false;
+  관심.목록 = [];
+  관심.폴더 = [];
+  관심.addItem = vi.fn(() => Promise.resolve({ id: 99 }));
+  관심.removeItem = vi.fn(() => Promise.resolve({}));
   localStorage.clear();
   run.mockReset();
   run.mockImplementation(() => Promise.resolve(응답()));
@@ -133,7 +156,7 @@ describe("시장", () => {
     그리기();
     await screen.findByText("NVIDIA Corporation");
     run.mockImplementation(() => new Promise(() => {}));
-    fireEvent.click(screen.getByRole("tab", { name: "한국" }));
+    fireEvent.click(screen.getByRole("tab", { name: "국내" }));
     await waitFor(() => expect(마지막().market).toBe("KR"));
     expect(screen.queryByText("NVIDIA Corporation")).toBeNull();
     expect(screen.getByRole("status", { name: "불러오는 중" })).toBeTruthy();
@@ -204,7 +227,7 @@ describe("조건", () => {
   it("한국은 억원으로 적는다", async () => {
     그리기();
     await screen.findByText("NVIDIA Corporation");
-    fireEvent.click(screen.getByRole("tab", { name: "한국" }));
+    fireEvent.click(screen.getByRole("tab", { name: "국내" }));
     조건열기();
     fireEvent.change(screen.getByRole("spinbutton", { name: "시가총액 (억원) 최소" }), { target: { value: "5000" } });
     fireEvent.click(screen.getByRole("button", { name: "적용" }));
@@ -506,6 +529,112 @@ describe("보기 저장", () => {
     expect(screen.getByText(/로그인하면 지금 보기/)).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: /지금 보기 저장/ })).toBeNull();
     expect(getPresets).not.toHaveBeenCalled();
+  });
+});
+
+describe("관심종목 별 — 종목 상세처럼 폴더를 골라 담는다", () => {
+  /* 사용자: "관심종목 어떤 폴더에 담을지 종목상세탭처럼 해줘". 예전엔 누르면 곧바로 기본 목록에
+     담았고, 이미 담긴 종목도 빈 별이라 누르면 '이미 추가된 종목' 오류가 떴다 */
+  const 별 = (이름: RegExp) => screen.getByRole("button", { name: 이름 });
+
+  it("빈 별을 누르면 기본과 내 폴더가 펼쳐지고, 고른 폴더에 담는다", async () => {
+    상태.로그인 = true;
+    관심.폴더 = [{ id: 7, name: "반도체" }, { id: 8, name: "배당" }];
+    그리기();
+    await screen.findByText("Taiwan Semiconductor");
+    fireEvent.click(별(/Taiwan Semiconductor 관심종목에 담기/));
+    const 메뉴 = await screen.findByRole("menu", { name: "담을 폴더" });
+    expect(within(메뉴).getAllByRole("menuitem").map((b) => b.textContent)).toEqual(["기본 관심목록", "반도체", "배당"]);
+    fireEvent.click(within(메뉴).getByRole("menuitem", { name: "반도체" }));
+    await waitFor(() => expect(관심.addItem).toHaveBeenCalled());
+    expect(관심.addItem.mock.calls[0][0]).toMatchObject({ symbol: "TSM", market: "US", name: "Taiwan Semiconductor", folder_id: 7 });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(await screen.findByText(/Taiwan Semiconductor 관심종목에 담았어요/)).toBeTruthy();
+    // 누르자마자 채운다 — 안 눌린 줄 알고 또 누르면 두 줄이 된다
+    expect(별(/Taiwan Semiconductor 관심종목에서 빼기/).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("기본을 고르면 폴더 없이 담는다 — 서버가 '기본 관심목록' 폴더를 만들어 넣는다", async () => {
+    상태.로그인 = true;
+    그리기();
+    await screen.findByText("Xyz Holdings");
+    fireEvent.click(별(/Xyz Holdings 관심종목에 담기/));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "기본 관심목록" }));
+    await waitFor(() => expect(관심.addItem).toHaveBeenCalled());
+    expect(관심.addItem.mock.calls[0][0].folder_id).toBeNull();
+  });
+
+  it("'기본 관심목록' 폴더가 이미 있으면 맨 위에 한 번만 — 같은 곳이 두 번 보이지 않는다", async () => {
+    상태.로그인 = true;
+    관심.폴더 = [{ id: 7, name: "반도체" }, { id: 3, name: "기본 관심목록" }];
+    그리기();
+    await screen.findByText("Xyz Holdings");
+    fireEvent.click(별(/Xyz Holdings 관심종목에 담기/));
+    const 메뉴 = await screen.findByRole("menu", { name: "담을 폴더" });
+    expect(within(메뉴).getAllByRole("menuitem").map((b) => b.textContent)).toEqual(["기본 관심목록", "반도체"]);
+    fireEvent.click(within(메뉴).getByRole("menuitem", { name: "기본 관심목록" }));
+    await waitFor(() => expect(관심.addItem).toHaveBeenCalled());
+    expect(관심.addItem.mock.calls[0][0].folder_id).toBe(3);
+  });
+
+  it("이미 담긴 종목은 채운 별이고, 누르면 뺀다", async () => {
+    상태.로그인 = true;
+    관심.목록 = [{ id: 41, symbol: "NVDA", market: "US", name: "NVIDIA", folder_id: null }];
+    그리기();
+    await screen.findByText("NVIDIA Corporation");
+    const 채운별 = await screen.findByRole("button", { name: /NVIDIA Corporation 관심종목에서 빼기/ });
+    expect(채운별.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(채운별);
+    await waitFor(() => expect(관심.removeItem).toHaveBeenCalledWith(41));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("Esc 나 바깥을 누르면 폴더 목록을 닫는다", async () => {
+    상태.로그인 = true;
+    그리기();
+    await screen.findByText("Xyz Holdings");
+    fireEvent.click(별(/Xyz Holdings 관심종목에 담기/));
+    await screen.findByRole("menu");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(별(/Xyz Holdings 관심종목에 담기/));
+    await screen.findByRole("menu");
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("이미 담겨 있었으면 오류가 아니라 담겼다고 한다", async () => {
+    상태.로그인 = true;
+    관심.addItem = vi.fn(() => Promise.reject({ response: { status: 400, data: { detail: "이미 추가된 종목입니다" } } }));
+    그리기();
+    await screen.findByText("Xyz Holdings");
+    fireEvent.click(별(/Xyz Holdings 관심종목에 담기/));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "기본 관심목록" }));
+    expect(await screen.findByText("이미 담긴 종목이에요")).toBeTruthy();
+  });
+
+  it("로그인하지 않았으면 로그인으로 보낸다", async () => {
+    그리기();
+    await screen.findByText("Xyz Holdings");
+    fireEvent.click(별(/Xyz Holdings 관심종목에 담기/));
+    expect(await screen.findByText("로그인 화면")).toBeTruthy();
+  });
+});
+
+describe("앱의 다른 화면과 같게", () => {
+  it("시장 탭은 국내·해외·ETF — 처음엔 해외", async () => {
+    그리기();
+    await screen.findByText("NVIDIA Corporation");
+    const 탭들 = screen.getAllByRole("tab");
+    expect(탭들.map((t) => t.textContent)).toEqual(["국내", "해외", "ETF"]);
+    expect(screen.getByRole("tab", { name: "해외" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("시세가 언제 것인지 밝힌다 — 서버가 5분마다 묶음 시세로 받는다", async () => {
+    run.mockResolvedValue(응답(기본줄들, { as_of: Date.now() / 1000 - 120 }));
+    그리기();
+    await screen.findByText("NVIDIA Corporation");
+    expect(screen.getByText(/시세 2분 전/)).toBeTruthy();
   });
 });
 

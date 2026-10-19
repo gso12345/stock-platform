@@ -1,10 +1,11 @@
 /**
- * 스크리닝 표의 칸 그림 — 연도별 막대, 회사 로고, ▲▼ 등락, 칸 하나.
+ * 스크리닝 표의 칸 그림 — 연도별 막대, 칸 하나. 로고·▲▼ 등락은 퀀트와 함께 쓴다(common/StockTable).
  */
-import { useState } from "react";
-import { useSettingsStore } from "@/store/settingsStore";
 import { cn } from "@/components/ui";
+import { 등락표시 } from "@/components/common/StockTable";
 import { 칸글, type 칸정의 } from "./screeningDefs";
+
+export { 회사로고, 등락표시 } from "@/components/common/StockTable";
 
 /** 연도별 매출·EPS 막대(참고한 스크리너의 10Y REV·EPS 칸). 야후가 연간 실적을 4년치쯤만 줘서
  *  막대도 그만큼이다. 높이는 그 종목 안에서의 크기 — 종목끼리 견주는 그림이 아니다.
@@ -33,41 +34,6 @@ export function 흐름막대({ 값들, 설명 }: { 값들: (number | null)[]; �
         );
       })}
     </svg>
-  );
-}
-
-/** 회사 로고 — 회사 누리집(서버가 주는 domain)의 아이콘을 구글의 아이콘 창고에서 받는다.
- *  누리집을 모르거나 아이콘을 못 받으면 이름 첫 글자를 둔다(자리가 비면 줄마다 이름이 들쭉날쭉하다) */
-export function 회사로고({ 도메인, 이름 }: { 도메인?: string | null; 이름: string }) {
-  const [안됨, set안됨] = useState(false);
-  const 틀 = "w-6 h-6 rounded-lg flex-shrink-0";
-  if (!도메인 || 안됨) {
-    return (
-      <span aria-hidden className={cn(틀, "bg-bg-elevated border border-border flex items-center justify-center text-2xs font-bold text-text-muted")}>
-        {(이름.trim()[0] ?? "?").toUpperCase()}
-      </span>
-    );
-  }
-  return (
-    <img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(도메인)}&sz=64`}
-      alt="" aria-hidden loading="lazy" decoding="async" width={24} height={24}
-      onError={() => set안됨(true)}
-      className={cn(틀, "bg-white object-contain p-0.5")} />
-  );
-}
-
-/** ▲ 2.49% — 오르면 설정의 오름 색, 내리면 내림 색(ChangeBadge 와 같은 규칙) */
-export function 등락표시({ 값 }: { 값: number }) {
-  const 색표 = useSettingsStore((s) => s.colorScheme);
-  const 색 = 값 > 0 ? (색표 === "red-blue" ? "text-accent-red" : "text-accent-green")
-    : 값 < 0 ? (색표 === "red-blue" ? "text-accent-blue" : "text-accent-red")
-    : "text-text-muted";
-  return (
-    <span className={cn("font-mono num", 색)}>
-      <span aria-hidden>{값 > 0 ? "▲ " : 값 < 0 ? "▼ " : ""}</span>
-      <span className="sr-only">{값 > 0 ? "오름 " : 값 < 0 ? "내림 " : ""}</span>
-      {Math.abs(값).toFixed(2)}%
-    </span>
   );
 }
 

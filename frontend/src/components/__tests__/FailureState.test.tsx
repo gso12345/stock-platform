@@ -105,7 +105,7 @@ describe("실패와 빈 상태를 섞지 않는다", () => {
        ('실행' 단추가 없다) — 받는 동안은 표 자리, 0건이면 0건이라고 말한다 */
     const s = 코드만(소스("pages/Screening.tsx"));
     expect(s).not.toContain("스크리닝을 실행하세요");
-    expect(s).toContain("<ScreeningSkeleton");
+    expect(s).toContain("<StockTableSkeleton");
     expect(s).toContain("조건에 맞는 종목이 없어요");
   });
 
@@ -130,17 +130,18 @@ describe("실패와 빈 상태를 섞지 않는다", () => {
 });
 
 describe("기다리는 자리를 미리 잡는다", () => {
-  const 스켈레톤들: [string, string][] = [
+  /* [쓰는 화면, 부품 이름, 부품이 정의된 파일(화면과 다르면)] — 스크리닝과 퀀트는 같은 표 자리를 함께 쓴다 */
+  const 스켈레톤들: [string, string, string?][] = [
     ["pages/News.tsx", "NewsSkeleton"],
-    ["pages/Screening.tsx", "ScreeningSkeleton"],
+    ["pages/Screening.tsx", "StockTableSkeleton", "components/common/StockTable.tsx"],
+    ["pages/Quant.tsx", "StockTableSkeleton", "components/common/StockTable.tsx"],
     ["pages/Backtest.tsx", "BacktestSkeleton"],
     ["pages/PostDetail.tsx", "PostSkeleton"],
   ];
 
-  it.each(스켈레톤들)("%s 에 %s 이 있다", (rel, 이름) => {
-    const s = 코드만(소스(rel));
-    expect(s).toContain(`function ${이름}`);
-    expect(s).toContain(`<${이름}`);
+  it.each(스켈레톤들)("%s 에 %s 이 있다", (rel, 이름, 정의) => {
+    expect(코드만(소스(정의 ?? rel))).toContain(`function ${이름}`);
+    expect(코드만(소스(rel))).toContain(`<${이름}`);
   });
 
   it("동그라미만 돌리던 자리를 걷어냈다", () => {

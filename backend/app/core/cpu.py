@@ -69,6 +69,20 @@ def io_worker_count(default: int, minimum: int = 8) -> int:
 worker_count = cpu_worker_count
 
 
+def 낮은_우선순위() -> None:
+    """부른 스레드를 낮은 우선순위(nice +10)로 — 뒤에서 도는 받기가 화면 요청보다 CPU 를 먼저 쓰지 않게.
+
+    0.15 CPU 를 모두가 나눠 쓴다. 뒤에서 시장 전체를 받는 스레드가 화면 요청과 똑같이 CPU 를
+    나눠 가지면, 그동안 종목상세 같은 요청이 30초를 넘겨 끊겼다(관리자 화면 실측).
+    리눅스는 스레드마다 nice 를 따로 둔다(올리는 것은 권한 없이 된다). 스레드 풀의 initializer 로 쓴다 —
+    한 번 올린 nice 는 권한 없이 못 내리므로, 뒤에서 도는 일만 하는 스레드에만 쓴다."""
+    try:
+        import threading
+        os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 10)
+    except (AttributeError, OSError):
+        pass
+
+
 def configure_thread_limits() -> None:
     """asyncio 기본 스레드풀과 수치 연산 라이브러리의 스레드 수를 CPU에 맞춘다.
 
