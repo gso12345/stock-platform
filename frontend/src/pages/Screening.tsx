@@ -1,146 +1,75 @@
-import { useState, useRef, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import { screeningApi, watchlistApi, stocksApi } from "@/api/stocks";
-import { useAuthStore } from "@/store/authStore";
+/**
+ * 종목 스크리닝 — 참고한 스크리너처럼(사용자: "스크리닝 사이트 참고해줘" → "일단 할수있는건 다해줘").
+ *
+ *   · 열자마자 시가총액 큰 순으로 보인다. 예전엔 조건을 고르고 '스크리닝 실행' 을 눌러야 표가 채워졌다
+ *   · 칸 제목을 누르면 그 칸으로 세운다 — 한 번 더 누르면 반대로
+ *   · 티커·이름 찾기, 조건 묶음, 조건, 칸 고르기, 보기 저장, CSV
+ *   · 이름 칸에 회사 로고, 매출·EPS 는 연도별 막대
+ *
+ * 세우기는 서버가 한다. 받은 위 100개를 화면에서 다시 세우면 'PER 낮은 순' 이 전체가 아니라
+ * '시총 위 100곳 중 PER 낮은 순' 이 된다.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "react-router-dom";
 import {
-  Card, ChangeBadge, formatNumber, RangeFilter, Button, Badge, 빈화면, 못불러옴,
-} from "@/components/ui";
-import { 읽을수있는오류 } from "@/utils/errors";
-import { csv내려받기, type CSV칸 } from "@/utils/csv";
-import type { Market } from "@/types";
-import {
-  Filter, Save, Trash2, ChevronUp, ChevronDown, ExternalLink,
-  Star, Download, Settings2, Check,
+  ArrowDown, ArrowUp, Columns3, Download, Filter, Layers, Save, Search, SlidersHorizontal, Star, X,
 } from "lucide-react";
+import { screeningApi, watchlistApi, stocksApi, type 스크리닝요청, type 스크리닝줄 } from "@/api/stocks";
+import { useAuthStore } from "@/store/authStore";
+import { Button, Card, InlineSpinner, INPUT_CLASS, Tabs, Toast, cn, 빈화면, 못불러옴 } from "@/components/ui";
+import { 읽을수있는오류 } from "@/utils/errors";
+import { csv내려받기 } from "@/utils/csv";
+import { 용어사전 } from "@/constants/terms";
+import type { Market, ScreeningPreset } from "@/types";
+import {
+  칸들, 처음칸, 보낼조건, 스크리닝CSV, 조건글, ETF칸, 칸이름,
+} from "@/components/screening/screeningDefs";
+import { 칸값, 회사로고 } from "@/components/screening/ScreeningCells";
+import {
+  조건판, 칸판, 묶음판, 저장판, type 기본묶음하나, type 조건모음,
+} from "@/components/screening/ScreeningPanels";
 
-const MARKET_TABS = [
+// 시험·다른 화면이 이 파일에서 가져다 쓴다
+export { SECTORS, 보낼조건, 스크리닝CSV } from "@/components/screening/screeningDefs";
+
+const 시장들 = [
   { id: "US", label: "미국" },
   { id: "KR", label: "한국" },
   { id: "ETF", label: "ETF" },
 ];
 
-const FILTER_TABS = [
-  { id: "basic", label: "기본" },
-  { id: "valuation", label: "밸류에이션" },
-  { id: "technical", label: "기술적" },
-  { id: "growth", label: "성장성" },
-];
+type 판 = "묶음" | "조건" | "칸" | "저장";
 
-const SORT_OPTIONS = [
-  { value: "market_cap", label: "시가총액" },
-  { value: "change_rate", label: "등락률" },
-  { value: "per", label: "PER" },
-  { value: "pbr", label: "PBR" },
-  { value: "roe", label: "ROE" },
-  { value: "eps", label: "EPS" },
-  { value: "debt_ratio", label: "부채비율" },
-  { value: "price", label: "주가" },
-  { value: "volume", label: "거래량" },
-  { value: "dividend_yield", label: "배당수익률" },
-  { value: "return_1y", label: "1년 수익률" },
-];
+/** 고른 칸은 이 브라우저에 남긴다 — 열 때마다 칸을 다시 고르게 하면 칸 고르기를 안 쓰게 된다 */
+const 칸_열쇠 = "screening_cols_v2";
 
-/* 값은 야후가 주는 이름 그대로다 — 서버가 그 글자와 똑같은지로 거른다.
-   예전 목록의 "Financials" 는 야후가 쓰지 않는 이름("Financial Services")
-   이라 금융을 고르면 늘 0개였다. */
-export const SECTORS: { value: string; label: string }[] = [
-  { value: "",                       label: "전체" },
-  { value: "Technology",             label: "기술" },
-  { value: "Healthcare",             label: "헬스케어" },
-  { value: "Financial Services",     label: "금융" },
-  { value: "Consumer Cyclical",      label: "경기소비재" },
-  { value: "Industrials",            label: "산업재" },
-  { value: "Communication Services", label: "통신서비스" },
-  { value: "Consumer Defensive",     label: "필수소비재" },
-  { value: "Energy",                 label: "에너지" },
-  { value: "Basic Materials",        label: "소재" },
-  { value: "Real Estate",            label: "부동산" },
-  { value: "Utilities",              label: "유틸리티" },
-];
-
-/* 시가총액은 '억' 으로 적게 하고 보낼 때 원래 단위로 바꾼다.
-   예전엔 칸 이름만 '(억)' 이고 숫자를 그대로 보내서, 1000 을 적으면
-   '시총 1000원(달러) 이상' — 사실상 아무것도 안 거르는 조건이었다. */
-export function 보낼조건(filters: Record<string, any>): Record<string, any> {
-  const mc = filters.market_cap;
-  if (!mc) return filters;
-  const 바꿈: Record<string, number> = {};
-  if (mc.min != null) 바꿈.min = mc.min * 1e8;
-  if (mc.max != null) 바꿈.max = mc.max * 1e8;
-  return { ...filters, market_cap: 바꿈 };
+function 칸읽기(): string[] {
+  try {
+    const 값 = JSON.parse(localStorage.getItem(칸_열쇠) ?? "null");
+    if (Array.isArray(값)) {
+      const 아는칸 = 칸들.filter((c) => 값.includes(c.key)).map((c) => c.key);
+      if (아는칸.length) return 아는칸;
+    }
+  } catch { /* 사생활 보호 창 등 — 처음 칸으로 */ }
+  return 처음칸;
 }
 
-type ColumnKey =
-  | "price" | "change_rate" | "per" | "pbr" | "roe" | "eps" | "debt_ratio" | "market_cap"
-  | "volume" | "dividend_yield" | "rsi" | "return_1y";
-
-const ALL_COLUMNS: { key: ColumnKey; label: string; 처음보임: boolean }[] = [
-  { key: "price",          label: "현재가",     처음보임: true },
-  { key: "change_rate",    label: "등락률",     처음보임: true },
-  { key: "per",            label: "PER",        처음보임: true },
-  { key: "pbr",            label: "PBR",        처음보임: true },
-  { key: "roe",            label: "ROE",        처음보임: true },
-  { key: "eps",            label: "EPS",        처음보임: true },
-  { key: "debt_ratio",     label: "부채비율",   처음보임: true },
-  { key: "market_cap",     label: "시가총액",   처음보임: true },
-  { key: "volume",         label: "거래량",     처음보임: false },
-  { key: "dividend_yield", label: "배당수익률", 처음보임: false },
-  { key: "rsi",            label: "RSI",        처음보임: false },
-  { key: "return_1y",      label: "1년 수익률", 처음보임: false },
-];
-
-/* 새로 붙인 열은 모양이 단순해서 한 곳에서 그린다 */
-const 단순열: Partial<Record<ColumnKey, (v: number) => string>> = {
-  volume:         (v) => formatNumber(v),
-  dividend_yield: (v) => `${v.toFixed(2)}%`,
-  rsi:            (v) => v.toFixed(0),
-  return_1y:      (v) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`,
-};
-
-/* ── CSV export helper ─────────────────────────────────────
-   칸 감싸기는 utils/csv 가 맡는다. 예전엔 join(",") 만 해서 'Apple Inc., …'
-   같은 이름이 두 칸으로 갈라져 뒤의 숫자가 전부 한 칸씩 밀렸다. */
-export function 스크리닝CSV(rows: any[], visibleCols: Set<ColumnKey>): CSV칸[][] {
-  const 열 = ALL_COLUMNS.filter((c) => visibleCols.has(c.key));
-  return [
-    ["순위", "종목코드", "종목명", "시장", ...열.map((c) => c.label)],
-    ...rows.map((s, i) => [i + 1, s.symbol, s.name ?? "", s.market ?? "", ...열.map((c) => s[c.key])]),
-  ];
-}
-
-function downloadCSV(rows: any[], visibleCols: Set<ColumnKey>) {
-  csv내려받기(`screening_${new Date().toISOString().slice(0, 10)}.csv`, 스크리닝CSV(rows, visibleCols));
-}
-
-/* ── Toast component ───────────────────────────────────────── */
-function Toast({ message, onDone }: { message: string; onDone: () => void }) {
-  useEffect(() => {
-    const t = setTimeout(onDone, 2200);
-    return () => clearTimeout(t);
-  }, [onDone]);
+/* 결과 표 자리를 미리 잡아 둔다. 처음 한 번은 시장 전체를 훑느라 수십 초가 걸린다 —
+   동그라미만 돌면 멈춘 줄 안다. */
+function ScreeningSkeleton({ rows = 10 }: { rows?: number }) {
   return (
-    <div className="fixed bottom-[calc(4.5rem_+_env(safe-area-inset-bottom))] right-4 lg:bottom-6 lg:right-6 z-50 flex items-center gap-2 px-4 py-2.5 bg-accent-green/20 border border-accent-green/40 text-accent-green text-sm font-medium rounded-xl shadow-float animate-fade-in">
-      <Check size={14} />
-      {message}
-    </div>
-  );
-}
-
-/* 결과 표 자리를 미리 잡아 둔다.
-   스크리닝은 몇 초씩 걸리는데 예전에는 동그라미만 돌았다. 표가 뜰 자리를
-   보여 주면 얼마나 나올지 가늠이 되고, 뜰 때 화면이 안 밀린다. */
-function ScreeningSkeleton({ rows = 8 }: { rows?: number }) {
-  return (
-    <div className="flex flex-col gap-2 p-3">
+    <div className="flex flex-col gap-3 p-4" aria-hidden>
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 animate-pulse">
-          <div className="h-4 w-4 rounded bg-bg-elevated flex-shrink-0" />
-          <div className="h-3 w-40 rounded bg-bg-elevated" />
-          <div className="ml-auto flex gap-4">
-            {Array.from({ length: 4 }).map((__, j) => (
-              <div key={j} className="h-3 w-12 rounded bg-bg-elevated" />
-            ))}
+          <div className="h-3 w-4 rounded bg-bg-elevated" />
+          <div className="h-6 w-6 rounded-lg bg-bg-elevated flex-shrink-0" />
+          <div className="flex flex-col gap-1.5">
+            <div className="h-3 w-32 rounded bg-bg-elevated" />
+            <div className="h-2.5 w-12 rounded bg-bg-elevated" />
+          </div>
+          <div className="ml-auto hidden sm:flex gap-6">
+            {Array.from({ length: 6 }).map((__, j) => <div key={j} className="h-3 w-14 rounded bg-bg-elevated" />)}
           </div>
         </div>
       ))}
@@ -151,573 +80,355 @@ function ScreeningSkeleton({ rows = 8 }: { rows?: number }) {
 export default function Screening() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-
-  // 행에 마우스를 올리면 상세 페이지 데이터 선제 prefetch (클릭 시 즉시 표시)
-  const prefetchStock = (stock: any) => {
-    const mkt = stock.market as Market;
-    const sym = stock.symbol;
-    if (qc.getQueryData(["stock-detail", mkt, sym])) return;
-    qc.prefetchQuery({ queryKey: ["stock-detail", mkt, sym], queryFn: () => stocksApi.getDetail(mkt, sym), staleTime: 60_000 });
-  };
   const { isLoggedIn } = useAuthStore();
-  const [market, setMarket] = useState<string>("US");
-  const [filterTab, setFilterTab] = useState("basic");
-  const [filters, setFilters] = useState<Record<string, any>>({});
-  const [sortBy, setSortBy] = useState("market_cap");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [results, setResults] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
-  const [visibleCount, setVisibleCount] = useState(30);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [presetName, setPresetName] = useState("");
-  const [showPresets, setShowPresets] = useState(false);
 
-  // column visibility
-  const [visibleCols, setVisibleCols] = useState<Set<ColumnKey>>(
-    new Set(ALL_COLUMNS.filter((c) => c.처음보임).map((c) => c.key))
-  );
-  const [showColMenu, setShowColMenu] = useState(false);
-  const colMenuRef = useRef<HTMLDivElement>(null);
+  const [시장, set시장] = useState<Market>("US");
+  const [조건, set조건] = useState<조건모음>({});
+  const [정렬, set정렬] = useState("market_cap");
+  const [순서, set순서] = useState<"asc" | "desc">("desc");
+  const [찾기, set찾기] = useState("");
+  const [찾는말, set찾는말] = useState("");
+  const [열린판, set열린판] = useState<판 | null>(null);
+  const [보이는칸, set보이는칸] = useState<string[]>(칸읽기);
+  const [몇줄, set몇줄] = useState(30);
+  const [별, set별] = useState<Set<string>>(new Set());
+  const [알림, set알림] = useState<{ 글: string; 종류: "success" | "error" } | null>(null);
+  // Toast 는 onClose 가 바뀌면 머무는 시간을 처음부터 다시 잰다 — 표를 받는 동안 안 닫히지 않게 고정한다
+  const 알림닫기 = useCallback(() => set알림(null), []);
 
-  // watchlist star states
-  const [starredSymbols, setStarredSymbols] = useState<Set<string>>(new Set());
-  const [toast, setToast] = useState<string | null>(null);
-
-  // close column menu on outside click
+  // 한 글자 칠 때마다 묻지 않는다 — 한글은 조합이 끝나야 뜻이 된다
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
-        setShowColMenu(false);
-      }
-    }
-    if (showColMenu) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showColMenu]);
+    const t = setTimeout(() => set찾는말(찾기.trim()), 300);
+    return () => clearTimeout(t);
+  }, [찾기]);
 
-  const { data: presets } = useQuery({ queryKey: ["screening-presets"], queryFn: screeningApi.getPresets });
+  useEffect(() => {
+    if (!열린판) return;
+    const 키 = (e: KeyboardEvent) => { if (e.key === "Escape") set열린판(null); };
+    window.addEventListener("keydown", 키);
+    return () => window.removeEventListener("keydown", 키);
+  }, [열린판]);
 
-  const runMutation = useMutation({
-    mutationFn: () => screeningApi.run({ market, filters: 보낼조건(filters), sort_by: sortBy, sort_order: sortOrder, limit: 100 }),
-    onSuccess: (data) => { setResults(data.results ?? []); setTotal(data.total ?? 0); setVisibleCount(30); },
-    // 실패는 결과 자리의 '못불러옴' 이 사람 말로 알린다 — 토스트까지 띄우면 같은 말이 두 번이다
+  const 요청: 스크리닝요청 = useMemo(() => ({
+    market: 시장, filters: 보낼조건(조건), sort_by: 정렬, sort_order: 순서, limit: 100, q: 찾는말,
+  }), [시장, 조건, 정렬, 순서, 찾는말]);
+
+  const 결과 = useQuery({
+    queryKey: ["screening", 요청],
+    queryFn: () => screeningApi.run(요청),
+    staleTime: 60_000,
+    /* 같은 시장에서 정렬·조건만 바꿀 땐 받는 동안 앞 결과를 흐리게 둔다(표가 사라졌다 나타나면 어지럽다).
+       시장을 바꿨을 땐 두지 않는다 — '한국' 을 눌렀는데 미국 종목이 보이면 안 된다 */
+    placeholderData: (앞, 앞질의) =>
+      (앞질의?.queryKey[1] as 스크리닝요청 | undefined)?.market === 시장 ? 앞 : undefined,
+  });
+  useEffect(() => set몇줄(30), [요청]);
+
+  const 줄들 = 결과.data?.results ?? [];
+  const 전체수 = 결과.data?.total ?? 0;
+
+  const 보일칸 = useMemo(() => {
+    const 켜짐 = new Set(보이는칸);
+    return 칸들.filter((c) => 켜짐.has(c.key) && (시장 !== "ETF" || ETF칸.has(c.key)));
+  }, [보이는칸, 시장]);
+
+  const { data: 저장들 } = useQuery<ScreeningPreset[]>({
+    queryKey: ["screening-presets"], queryFn: screeningApi.getPresets, enabled: isLoggedIn,
   });
 
-  const savePresetMutation = useMutation({
-    mutationFn: () => screeningApi.savePreset({ name: presetName, market, filters, sort_by: sortBy, sort_order: sortOrder }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["screening-presets"] }); setPresetName(""); },
+  const 저장 = useMutation({
+    mutationFn: (이름: string) => screeningApi.savePreset({
+      name: 이름, market: 시장, filters: 조건, sort_by: 정렬, sort_order: 순서, columns: 보이는칸,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["screening-presets"] });
+      set열린판(null);
+      set알림({ 글: "지금 보기를 저장했어요 — ‘조건 묶음’ 에서 다시 열 수 있어요", 종류: "success" });
+    },
+    onError: (e: any) => set알림({ 글: 읽을수있는오류(e?.response?.data?.detail, "저장하지 못했어요"), 종류: "error" }),
   });
 
-  const deletePresetMutation = useMutation({
+  const 지우기 = useMutation({
     mutationFn: (id: number) => screeningApi.deletePreset(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["screening-presets"] }),
+    onError: (e: any) => set알림({ 글: 읽을수있는오류(e?.response?.data?.detail, "지우지 못했어요"), 종류: "error" }),
   });
 
-  const addToWatchlistMutation = useMutation({
-    mutationFn: (stock: any) =>
-      watchlistApi.addItem({ symbol: stock.symbol, market: stock.market, name: stock.name ?? stock.symbol, watchlist_id: 1 }),
-    onSuccess: (_data, stock: any) => {
-      setStarredSymbols((prev) => new Set([...prev, stock.symbol]));
-      setToast(`${stock.symbol} 관심종목에 추가됨`);
+  const 관심담기 = useMutation({
+    mutationFn: (s: 스크리닝줄) =>
+      watchlistApi.addItem({ symbol: s.symbol, market: s.market, name: s.name ?? s.symbol, watchlist_id: 1 }),
+    onSuccess: (_d, s) => {
+      set별((앞) => new Set([...앞, s.symbol]));
+      set알림({ 글: `${s.name ?? s.symbol} 관심종목에 담았어요`, 종류: "success" });
     },
     onError: (err: any) => {
-      if (err?.response?.status === 401) {
-        setToast("로그인이 필요해요");
-        navigate("/login");
-        return;
-      }
-      setToast(읽을수있는오류(err?.response?.data?.detail, "추가 실패"));
+      if (err?.response?.status === 401) { navigate("/login"); return; }
+      set알림({ 글: 읽을수있는오류(err?.response?.data?.detail, "담지 못했어요"), 종류: "error" });
     },
   });
 
-  const setFilter = (key: string, val: { min?: number; max?: number }) => {
-    if (val.min == null && val.max == null) {
-      const next = { ...filters };
-      delete next[key];
-      setFilters(next);
-    } else {
-      setFilters((p) => ({ ...p, [key]: val }));
-    }
+  // 줄에 마우스를 올리면 상세 화면 자료를 미리 받는다 — 누르면 곧바로 뜬다
+  const 미리받기 = (s: 스크리닝줄) => {
+    const 키 = ["stock-detail", s.market as Market, s.symbol];
+    if (qc.getQueryData(키)) return;
+    qc.prefetchQuery({ queryKey: 키, queryFn: () => stocksApi.getDetail(s.market as Market, s.symbol), staleTime: 60_000 });
   };
 
-  const resetFilters = () => setFilters({});
-  const sector: string = filters.sector?.eq ?? "";
-  const setSector = (v: string) => {
-    const next = { ...filters };
-    if (v) next.sector = { eq: v }; else delete next.sector;
-    setFilters(next);
+  const 칸바꾸기 = (다음: string[]) => {
+    set보이는칸(다음);
+    try { localStorage.setItem(칸_열쇠, JSON.stringify(다음)); } catch { /* 못 남겨도 이번엔 바뀐다 */ }
   };
 
-  const loadPreset = (p: any) => {
-    setMarket(p.market);
-    setFilters(p.filters);
-    setSortBy(p.sort_by);
-    setSortOrder(p.sort_order);
+  const 세우기 = (k: string) => {
+    if (k === 정렬) set순서((o) => (o === "desc" ? "asc" : "desc"));
+    else { set정렬(k); set순서("desc"); }
   };
 
-  const toggleSelect = (sym: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(sym) ? next.delete(sym) : next.add(sym);
-      return next;
-    });
+  const 판열기 = (p: 판) => set열린판((앞) => (앞 === p ? null : p));
+
+  const 묶음고르기 = (p: 기본묶음하나) => {
+    set조건(p.조건);
+    set정렬(p.정렬[0]);
+    set순서(p.정렬[1]);
+    set열린판(null);
   };
 
-  const toggleColumn = (key: ColumnKey) => {
-    setVisibleCols((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
+  const 보기열기 = (p: ScreeningPreset) => {
+    set시장(p.market);
+    set조건((p.filters ?? {}) as 조건모음);
+    set정렬(p.sort_by);
+    set순서(p.sort_order === "asc" ? "asc" : "desc");
+    if (p.columns?.length) 칸바꾸기(칸들.filter((c) => p.columns!.includes(c.key)).map((c) => c.key));
+    set열린판(null);
   };
 
-  /* 섹터는 서버가 거른다. 예전엔 받은 100개 안에서 화면이 걸러서,
-     '기술' 을 고르면 전체 기술주가 아니라 시총 상위 100개 중 기술주만 나왔다 */
-  const sortedResults = results;
-  const activeFilterCount = Object.keys(filters).length;
+  const 조건빼기 = (k: string) => set조건((앞) => {
+    const 다음 = { ...앞 };
+    delete 다음[k];
+    return 다음;
+  });
+
+  const 모두지우기 = () => { set조건({}); set찾기(""); set찾는말(""); };
+
+  const 걸린수 = Object.keys(조건).length;
+  const 정렬칸 = 칸들.find((c) => c.key === 정렬);
+  const 정렬글 = `${정렬칸 ? 칸이름(정렬칸, 시장) : 정렬} ${순서 === "desc" ? "높은" : "낮은"} 순`;
+  const 흐름칸있음 = 시장 !== "ETF" && 보일칸.some((c) => c.모양 === "흐름" || c.key.endsWith("_cagr_3y"));
+
+  const 판단추 = (p: 판, Icon: typeof Layers, 글: string) => (
+    <button type="button" onClick={() => 판열기(p)} aria-expanded={열린판 === p} aria-controls="스크리닝-판"
+      className={cn(
+        "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0",
+        열린판 === p
+          ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
+          : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50",
+      )}>
+      <Icon size={13} />{글}
+    </button>
+  );
 
   return (
-    <div className="flex flex-col gap-5 h-full">
-      {/* ── 페이지 헤더 ──────────────────────────────────────── */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="flex flex-col gap-4">
+      {/* ── 머리 ─────────────────────────────────────────── */}
+      <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">종목 스크리닝</h1>
-          <p className="text-text-muted text-xs mt-0.5">다중 조건으로 유망 종목을 발굴합니다</p>
+          <p className="text-text-muted text-xs mt-0.5">칸 제목을 누르면 그 칸으로 세워요</p>
         </div>
-        <div className="flex items-center gap-2">
-          {activeFilterCount > 0 && (
-            <span className="text-xs px-2 py-1 bg-accent-blue/20 text-accent-blue rounded-full border border-accent-blue/30">
-              {activeFilterCount}개 필터 적용
+        <Tabs tabs={시장들} active={시장} onChange={(id) => set시장(id as Market)} fill={false} ariaLabel="시장" />
+      </div>
+
+      {/* ── 도구 줄 ─────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1 min-w-0">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+          <input type="search" value={찾기} onChange={(e) => set찾기(e.target.value)} maxLength={100}
+            aria-label="티커나 이름으로 찾기" placeholder="티커나 이름 — 쉼표로 여럿 (AAPL, MSFT)"
+            className={cn(INPUT_CLASS, "pl-9 pr-9 [&::-webkit-search-cancel-button]:hidden")} />
+          {찾기 && (
+            <button type="button" onClick={() => { set찾기(""); set찾는말(""); }} aria-label="찾는 말 지우기"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-text-muted hover:text-text-primary">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-3 px-3 sm:mx-0 sm:px-0">
+          {판단추("묶음", Layers, "조건 묶음")}
+          {판단추("조건", SlidersHorizontal, 걸린수 ? `조건 ${걸린수}` : "조건")}
+          {판단추("칸", Columns3, `칸 ${보일칸.length}`)}
+          {판단추("저장", Save, "보기 저장")}
+          <button type="button" onClick={() => csv내려받기(
+              `screening_${시장}_${new Date().toISOString().slice(0, 10)}.csv`,
+              스크리닝CSV(줄들, new Set(보일칸.map((c) => c.key))))}
+            disabled={!줄들.length} title="CSV 다운로드"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-bg-elevated text-xs font-medium text-text-secondary hover:text-text-primary hover:border-accent-blue/50 transition-colors disabled:opacity-40 flex-shrink-0">
+            <Download size={13} />CSV
+          </button>
+        </div>
+      </div>
+
+      {열린판 && (
+        <Card className="p-4">
+          <div id="스크리닝-판">
+            {열린판 === "묶음" && (
+              <묶음판 시장={시장} 지금={{ 조건, 정렬, 순서 }} 고르기={묶음고르기} 로그인함={isLoggedIn}
+                저장들={저장들} 보기열기={보기열기} 보기지우기={(p) => 지우기.mutate(p.id)} />
+            )}
+            {열린판 === "조건" && (
+              <조건판 key={`${시장}:${JSON.stringify(조건)}`} 시장={시장} 조건={조건} 고를값={결과.data?.facets}
+                적용={(다음) => { set조건(다음); set열린판(null); }} />
+            )}
+            {열린판 === "칸" && <칸판 시장={시장} 보이는={보이는칸} 바꾸기={칸바꾸기} />}
+            {열린판 === "저장" && (
+              <저장판 로그인함={isLoggedIn} 저장={(이름) => 저장.mutate(이름)} 저장중={저장.isPending}
+                로그인하기={() => navigate("/login")} />
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* ── 걸린 조건 ─────────────────────────────────────── */}
+      {(걸린수 > 0 || 찾는말) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {찾는말 && (
+            <span className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-accent-blue/10 border border-accent-blue/30 text-2xs text-accent-blue">
+              찾기: {찾는말}
+              <button type="button" onClick={() => { set찾기(""); set찾는말(""); }} aria-label="찾기 빼기"
+                className="p-0.5 rounded-full hover:bg-accent-blue/20"><X size={11} /></button>
             </span>
           )}
-          <Button variant="ghost" size="sm" onClick={resetFilters}>초기화</Button>
-          <Button variant="secondary" size="sm" onClick={() => setShowPresets(!showPresets)}>
-            <Save size={13} className="mr-1.5 inline" />프리셋
-          </Button>
-          <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending} size="md">
-            {runMutation.isPending ? "분석 중..." : "스크리닝 실행"}
-          </Button>
+          {Object.entries(조건).map(([k, v]) => {
+            const 글 = 조건글(k, v, 시장);
+            return (
+              <span key={k} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full bg-accent-blue/10 border border-accent-blue/30 text-2xs text-accent-blue">
+                {글}
+                <button type="button" onClick={() => 조건빼기(k)} aria-label={`${글} 조건 빼기`}
+                  className="p-0.5 rounded-full hover:bg-accent-blue/20"><X size={11} /></button>
+              </span>
+            );
+          })}
+          <Button variant="link" className="text-2xs ml-1" onClick={모두지우기}>모두 지우기</Button>
         </div>
+      )}
+
+      {/* ── 결과 ──────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-2 px-1 text-xs text-text-muted min-h-[1.25rem]">
+        <span>
+          <span className="text-text-secondary font-medium">{정렬글}</span>
+          {결과.data && (
+            <>
+              {" · "}
+              {전체수 > 줄들.length
+                ? <>조건에 맞는 <b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳 중 위 {줄들.length}곳</>
+                : <><b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳</>}
+            </>
+          )}
+        </span>
+        {결과.isFetching && 결과.data && (
+          <span className="flex items-center gap-1.5" role="status"><InlineSpinner className="w-3 h-3" />불러오는 중</span>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4 flex-1 min-h-0">
-        {/* ── 필터 패널 ─────────────────────────────────────── */}
-        <div className="xl:col-span-1 flex flex-col gap-3 overflow-y-auto pr-1">
-          {/* 시장 선택 */}
-          <Card className="p-3">
-            <p className="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wider">시장</p>
-            <div className="flex gap-1">
-              {MARKET_TABS.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setMarket(m.id)}
-                  className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                    market === m.id
-                      ? "bg-accent-blue text-white"
-                      : "bg-bg-primary text-text-muted border border-border hover:text-text-primary"
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          </Card>
-
-          {/* 필터 탭 */}
-          <Card className="p-3">
-            <div className="flex gap-0.5 mb-3 bg-bg-primary border border-border rounded-lg p-0.5">
-              {FILTER_TABS.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setFilterTab(t.id)}
-                  className={`flex-1 py-1 text-xs font-semibold rounded-lg transition-all ${
-                    filterTab === t.id ? "bg-accent-blue text-white" : "text-text-muted hover:text-text-primary"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex flex-col gap-3">
-              {filterTab === "basic" && (
-                <>
-                  <RangeFilter label={market === "KR" ? "시가총액 (억원)" : "시가총액 (억달러)"} filterKey="market_cap" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="주가" filterKey="price" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="거래량" filterKey="volume" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="등락률 (%)" filterKey="change_rate" filters={filters} onChange={setFilter} />
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-semibold text-text-secondary">섹터</label>
-                    <select
-                      value={sector}
-                      onChange={(e) => setSector(e.target.value)}
-                      className="bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
-                    >
-                      {SECTORS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                    </select>
-                  </div>
-                </>
-              )}
-              {filterTab === "valuation" && (
-                <>
-                  <RangeFilter label="PER" filterKey="per" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="Forward PER" filterKey="forward_per" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="PBR" filterKey="pbr" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="PEG 비율" filterKey="peg_ratio" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="EV/EBITDA" filterKey="ev_ebitda" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="P/S (주가매출비)" filterKey="ps_ratio" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="배당수익률 (%)" filterKey="dividend_yield" filters={filters} onChange={setFilter} />
-                </>
-              )}
-              {filterTab === "technical" && (
-                <>
-                  <RangeFilter label="RSI (14)" filterKey="rsi" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="52주 고점 대비 (%)" filterKey="pct_from_52w_high" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="52주 저점 대비 (%)" filterKey="pct_from_52w_low" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="베타" filterKey="beta" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="1개월 수익률 (%)" filterKey="return_1m" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="3개월 수익률 (%)" filterKey="return_3m" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="1년 수익률 (%)" filterKey="return_1y" filters={filters} onChange={setFilter} />
-                </>
-              )}
-              {filterTab === "growth" && (
-                <>
-                  <RangeFilter label="ROE (%)" filterKey="roe" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="ROA (%)" filterKey="roa" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="영업이익률 (%)" filterKey="operating_margin" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="순이익률 (%)" filterKey="profit_margin" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="EPS" filterKey="eps" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="부채비율 (%)" filterKey="debt_ratio" filters={filters} onChange={setFilter} />
-                  <RangeFilter label="유동비율" filterKey="current_ratio" filters={filters} onChange={setFilter} />
-                </>
-              )}
-            </div>
-          </Card>
-
-          {/* 정렬 */}
-          <Card className="p-3">
-            <p className="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wider">정렬</p>
-            <div className="flex flex-col gap-2">
-              <select
-                className="bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-              >
-                {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              <div className="flex gap-1">
-                {(["desc", "asc"] as const).map((o) => (
-                  <button
-                    key={o}
-                    onClick={() => setSortOrder(o)}
-                    className={`flex-1 py-1 text-xs rounded-lg flex items-center justify-center gap-1 transition-all ${
-                      sortOrder === o
-                        ? "bg-accent-blue text-white"
-                        : "bg-bg-primary border border-border text-text-muted"
-                    }`}
-                  >
-                    {o === "desc" ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
-                    {o === "desc" ? "내림차순" : "오름차순"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </Card>
-
-          {/* 프리셋 */}
-          {showPresets && (
-            <Card className="p-3">
-              <p className="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wider">프리셋 저장/불러오기</p>
-              <div className="flex gap-1 mb-2">
-                <input
-                  className="flex-1 bg-bg-primary border border-border rounded-lg px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent-blue"
-                  placeholder="프리셋 이름"
-                  value={presetName}
-                  onChange={(e) => setPresetName(e.target.value)}
-                />
-                <button
-                  onClick={() => presetName && savePresetMutation.mutate()}
-                  className="px-2 py-1 bg-accent-blue text-white text-xs rounded-lg font-medium"
-                >저장</button>
-              </div>
-              <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-                {presets?.map((p: any) => (
-                  <div key={p.id} className="flex items-center gap-1 group">
-                    <button
-                      onClick={() => loadPreset(p)}
-                      className="flex-1 text-left text-xs px-2 py-1.5 bg-bg-primary rounded-lg border border-border hover:border-accent-blue text-text-secondary hover:text-text-primary transition-colors"
-                    >
-                      {p.name}
-                      <span className="text-text-muted ml-1">· {p.market}</span>
-                    </button>
-                    <button aria-label="삭제"
-                      onClick={() => deletePresetMutation.mutate(p.id)}
-                      className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent-red p-1"
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-        </div>
-
-        {/* ── 결과 패널 ─────────────────────────────────────── */}
-        <div className="xl:col-span-3 flex flex-col gap-3">
-          {/* 결과 헤더 */}
-          {results.length > 0 && (
-            <div className="flex items-center justify-between px-1">
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-text-secondary">
-                  <span className="text-text-primary font-semibold">{total}</span>개 발굴
-                  {total > results.length && (
-                    <span className="text-text-muted ml-1">· 위에서 {results.length}개만 보여요</span>
-                  )}
-                </span>
-                {selected.size > 0 && (
-                  <span className="text-xs px-2 py-0.5 bg-accent-blue/20 text-accent-blue rounded-full border border-accent-blue/30">
-                    {selected.size}개 선택됨
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {selected.size > 0 && (
-                  <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>선택 해제</Button>
-                )}
-                {/* Export CSV */}
-                <button
-                  onClick={() => downloadCSV(sortedResults, visibleCols)}
-                  title="CSV 다운로드"
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary bg-bg-elevated border border-border rounded-lg hover:border-accent-blue/50 transition-colors"
-                >
-                  <Download size={13} />
-                  CSV
-                </button>
-                {/* Column visibility toggle */}
-                <div className="relative" ref={colMenuRef}>
-                  <button
-                    onClick={() => setShowColMenu((v) => !v)}
-                    title="컬럼 표시 설정"
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs border rounded-lg transition-colors ${
-                      showColMenu
-                        ? "bg-accent-blue/10 border-accent-blue/50 text-accent-blue"
-                        : "text-text-secondary hover:text-text-primary bg-bg-elevated border-border hover:border-accent-blue/50"
-                    }`}
-                  >
-                    <Settings2 size={13} />
-                    컬럼
-                  </button>
-                  {showColMenu && (
-                    <div className="absolute right-0 top-full mt-1.5 z-30 bg-bg-card border border-border rounded-xl shadow-float p-2 min-w-[140px]">
-                      <p className="text-2xs font-semibold text-text-muted uppercase tracking-wider px-2 pb-1.5">표시 컬럼</p>
-                      {ALL_COLUMNS.map((col) => (
-                        <button
-                          key={col.key}
-                          onClick={() => toggleColumn(col.key)}
-                          className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-bg-hover text-xs text-text-secondary hover:text-text-primary transition-colors"
-                        >
-                          {col.label}
-                          <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
-                            visibleCols.has(col.key)
-                              ? "bg-accent-blue border-accent-blue text-white"
-                              : "border-border"
-                          }`}>
-                            {visibleCols.has(col.key) && <Check size={11} />}
-                          </span>
+      <Card className="p-0 overflow-hidden">
+        {결과.isError ? (
+          /* 실패와 '결과 0곳' 을 갈라야 한다 — 모르면 조건만 헛되이 풀게 된다 */
+          <못불러옴 사유={결과.error} 다시={() => 결과.refetch()} />
+        ) : !결과.data ? (
+          <div role="status" aria-label="불러오는 중">
+            <p className="px-4 pt-4 text-2xs text-text-muted">처음 한 번은 시장 전체를 훑느라 수십 초 걸릴 수 있어요</p>
+            <ScreeningSkeleton />
+          </div>
+        ) : 줄들.length === 0 ? (
+          <빈화면 icon={Filter} title="조건에 맞는 종목이 없어요"
+            hint={걸린수 || 찾는말 ? "조건의 범위를 넓히거나 하나 빼 보세요." : "잠시 뒤 다시 열어 보세요."}
+            action={걸린수 || 찾는말 ? { label: "조건 모두 지우기", onClick: 모두지우기 } : undefined} />
+        ) : (
+          <div className={cn("overflow-x-auto lg:overflow-y-auto lg:max-h-[75vh] transition-opacity",
+            결과.isPlaceholderData && "opacity-60")}>
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 z-20 bg-bg-secondary">
+                <tr className="text-text-muted border-b border-border">
+                  <th scope="col" className="sticky left-0 z-30 bg-bg-secondary text-left font-medium px-3 py-2.5">
+                    종목
+                  </th>
+                  {보일칸.map((c) => {
+                    const 이름 = 칸이름(c, 시장);
+                    const 지금 = 정렬 === c.key;
+                    return (
+                      <th key={c.key} scope="col" className="text-right font-medium px-3 py-2.5 whitespace-nowrap"
+                        aria-sort={지금 ? (순서 === "desc" ? "descending" : "ascending") : undefined}>
+                        {c.세움 === false ? 이름 : (
+                          <button type="button" onClick={() => 세우기(c.key)} title={용어사전[c.이름]?.뜻}
+                            className={cn("inline-flex items-center gap-0.5 whitespace-nowrap",
+                              지금 ? "text-accent-blue" : "hover:text-text-primary")}>
+                            {이름}
+                            {지금 && (순서 === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+                          </button>
+                        )}
+                      </th>
+                    );
+                  })}
+                  <th scope="col" className="px-2 py-2.5 w-8"><span className="sr-only">관심종목</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {줄들.slice(0, 몇줄).map((s, i) => {
+                  const 담음 = 별.has(s.symbol);
+                  const 이름 = s.name ?? s.symbol;
+                  return (
+                    <tr key={`${s.market}:${s.symbol}`} onMouseEnter={() => 미리받기(s)}
+                      className="group/row border-b border-border/30 hover:bg-bg-hover/50 transition-colors">
+                      {/* 붙박이 칸은 바탕이 불투명해야 밀리는 칸이 비치지 않는다 — 줄에 올렸을 때도
+                          나머지 칸(카드 위에 반투명 hover)과 같은 색이 되게 섞어 칠한다 */}
+                      <td className="sticky left-0 z-10 bg-bg-card group-hover/row:bg-[color-mix(in_srgb,var(--bg-hover)_50%,var(--bg-card))] transition-colors px-3 py-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-5 flex-shrink-0 text-right text-2xs text-text-dim font-mono">{i + 1}</span>
+                          <회사로고 도메인={s.domain} 이름={이름} />
+                          <Link to={`/stocks/${s.market}/${s.symbol}`} className="min-w-0 flex flex-col group">
+                            <span className="font-semibold text-text-primary truncate max-w-[7.5rem] sm:max-w-[12rem] group-hover:text-accent-blue transition-colors">
+                              {이름}
+                            </span>
+                            <span className="text-2xs text-text-muted font-mono">{s.symbol}</span>
+                          </Link>
+                        </div>
+                      </td>
+                      {보일칸.map((c) => (
+                        <td key={c.key} className="px-3 py-2 text-right whitespace-nowrap">
+                          <칸값 칸={c} 줄={s} 이름={`${이름} ${칸이름(c, 시장)}`} />
+                        </td>
+                      ))}
+                      <td className="px-2 py-2">
+                        <button type="button" disabled={담음 || 관심담기.isPending}
+                          onClick={() => { if (!isLoggedIn) { navigate("/login"); return; } 관심담기.mutate(s); }}
+                          aria-label={담음 ? `${이름} 관심종목에 담김` : `${이름} 관심종목에 담기`}
+                          className={cn("p-1 rounded transition-colors", 담음 ? "text-accent-yellow" : "text-text-muted hover:text-accent-yellow")}>
+                          <Star size={13} fill={담음 ? "currentColor" : "none"} />
                         </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <Card className="p-0 overflow-hidden flex-1">
-            {runMutation.isPending ? (
-              <ScreeningSkeleton />
-            ) : runMutation.isError ? (
-              /* 실패와 '결과 0건' 을 갈라야 한다. 스크리닝은 조건을 조절해
-                 가며 쓰는 화면이라, 조건이 빡빡한 것인지 서버가 못 답한
-                 것인지 모르면 조건만 계속 헛되이 풀게 된다 */
-              <못불러옴 사유={runMutation.error} 다시={() => runMutation.mutate()} />
-            ) : sortedResults.length === 0 ? (
-              /* 예전에는 '아직 안 돌림' 과 '돌렸는데 0건' 이 같은 문구였다.
-                 실행했는데 "실행하세요" 가 뜨니, 눌린 건지 아닌지조차
-                 알 수 없었다 */
-              runMutation.isSuccess ? (
-                <빈화면
-                  icon={Filter}
-                  title="조건에 맞는 종목이 없어요"
-                  hint="조건이 너무 좁습니다. 값의 범위를 넓히거나 필터를 하나 빼 보세요."
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
-                  <Filter size={32} className="text-text-muted/40" />
-                  <div>
-                    <p className="text-text-secondary font-medium">조건을 설정하고 스크리닝을 실행하세요</p>
-                    <p className="text-text-muted text-xs mt-1">좌측 필터로 다양한 조건을 추가할 수 있습니다</p>
-                  </div>
-                </div>
-              )
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-bg-secondary border-b border-border z-10">
-                    <tr className="text-text-muted text-xs">
-                      <th className="w-8 px-3 py-3"></th>
-                      <th className="text-left px-3 py-3">종목</th>
-                      {visibleCols.has("price")       && <th className="text-right px-3 py-3">현재가</th>}
-                      {visibleCols.has("change_rate") && <th className="text-right px-3 py-3">등락률</th>}
-                      {visibleCols.has("per")         && <th className="text-right px-3 py-3">PER</th>}
-                      {visibleCols.has("pbr")         && <th className="text-right px-3 py-3">PBR</th>}
-                      {visibleCols.has("roe")         && <th className="text-right px-3 py-3">ROE</th>}
-                      {visibleCols.has("eps")         && <th className="text-right px-3 py-3">EPS</th>}
-                      {visibleCols.has("debt_ratio")  && <th className="text-right px-3 py-3">부채비율</th>}
-                      {visibleCols.has("market_cap")  && <th className="text-right px-3 py-3">시가총액</th>}
-                      {ALL_COLUMNS.filter((c) => 단순열[c.key] && visibleCols.has(c.key)).map((c) => (
-                        <th key={c.key} className="text-right px-3 py-3">{c.label}</th>
-                      ))}
-                      <th className="px-3 py-3 w-16"></th>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {sortedResults.slice(0, visibleCount).map((stock: any, i: number) => {
-                      const isSelected = selected.has(stock.symbol);
-                      const isStarred = starredSymbols.has(stock.symbol);
-                      return (
-                        <tr
-                          key={stock.symbol}
-                          onMouseEnter={() => prefetchStock(stock)}
-                          className={`border-b border-border/30 hover:bg-bg-hover/50 transition-colors ${isSelected ? "bg-accent-blue/5" : ""}`}
-                        >
-                          <td className="px-3 py-2.5">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => toggleSelect(stock.symbol)}
-                              className="accent-accent-blue"
-                            />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-text-muted text-xs w-5 text-right">{i + 1}</span>
-                              <div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-mono font-bold text-text-primary">{stock.symbol}</span>
-                                  <Badge variant={stock.market === "KR" ? "blue" : stock.market === "ETF" ? "purple" : "green"}>
-                                    {stock.market}
-                                  </Badge>
-                                </div>
-                                <div className="text-text-muted text-xs truncate max-w-[140px]">{stock.name}</div>
-                              </div>
-                            </div>
-                          </td>
-                          {visibleCols.has("price") && (
-                            <td className="px-3 py-2.5 text-right font-mono text-text-primary">
-                              {stock.market === "KR"
-                                ? `₩${stock.price?.toLocaleString("ko-KR")}`
-                                : `$${stock.price?.toFixed(2)}`}
-                            </td>
-                          )}
-                          {visibleCols.has("change_rate") && (
-                            <td className="px-3 py-2.5 text-right">
-                              <ChangeBadge value={stock.change_rate ?? 0} />
-                            </td>
-                          )}
-                          {visibleCols.has("per") && (
-                            <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
-                              {stock.per?.toFixed(1) ?? "-"}
-                            </td>
-                          )}
-                          {visibleCols.has("pbr") && (
-                            <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
-                              {stock.pbr?.toFixed(2) ?? "-"}
-                            </td>
-                          )}
-                          {visibleCols.has("roe") && (
-                            <td className="px-3 py-2.5 text-right font-mono text-xs">
-                              {stock.roe != null ? (
-                                <span className={stock.roe >= 15 ? "text-accent-green" : stock.roe >= 0 ? "text-text-secondary" : "text-accent-red"}>
-                                  {stock.roe.toFixed(1)}%
-                                </span>
-                              ) : "-"}
-                            </td>
-                          )}
-                          {visibleCols.has("eps") && (
-                            <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
-                              {stock.eps?.toFixed(2) ?? "-"}
-                            </td>
-                          )}
-                          {visibleCols.has("debt_ratio") && (
-                            <td className="px-3 py-2.5 text-right font-mono text-xs">
-                              {stock.debt_ratio != null ? (
-                                <span className={stock.debt_ratio > 200 ? "text-accent-red" : stock.debt_ratio > 100 ? "text-accent-yellow" : "text-accent-green"}>
-                                  {stock.debt_ratio.toFixed(0)}%
-                                </span>
-                              ) : "-"}
-                            </td>
-                          )}
-                          {visibleCols.has("market_cap") && (
-                            <td className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
-                              {formatNumber(stock.market_cap)}
-                            </td>
-                          )}
-                          {ALL_COLUMNS.filter((c) => 단순열[c.key] && visibleCols.has(c.key)).map((c) => (
-                            <td key={c.key} className="px-3 py-2.5 text-right font-mono text-text-secondary text-xs">
-                              {stock[c.key] != null ? 단순열[c.key]!(stock[c.key]) : "-"}
-                            </td>
-                          ))}
-                          {/* Actions */}
-                          <td className="px-3 py-2.5">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => {
-                                  if (!isLoggedIn) { navigate("/login"); return; }
-                                  if (!isStarred) addToWatchlistMutation.mutate(stock);
-                                }}
-                                disabled={isStarred || addToWatchlistMutation.isPending}
-                                title="관심종목 추가"
-                                className={`transition-colors ${
-                                  isStarred
-                                    ? "text-accent-yellow cursor-default"
-                                    : "text-text-muted hover:text-accent-yellow"
-                                }`}
-                              >
-                                <Star size={13} fill={isStarred ? "currentColor" : "none"} />
-                              </button>
-                              <button
-                                onClick={() => navigate(`/stocks/${stock.market}/${stock.symbol}`)}
-                                className="text-text-muted hover:text-accent-blue transition-colors"
-                                title="상세 보기"
-                              >
-                                <ExternalLink size={13} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {sortedResults.length > visibleCount && (
-                  <div className="flex justify-center py-3 border-t border-border/30">
-                    <Button
-                      onClick={() => setVisibleCount((c) => c + 30)}
-                      variant="link" className="text-xs"
-                    >
-                      더 보기 ({sortedResults.length - visibleCount}개 더 있음)
-                    </Button>
-                  </div>
-                )}
+                  );
+                })}
+              </tbody>
+            </table>
+            {줄들.length > 몇줄 && (
+              <div className="flex justify-center py-3 border-t border-border/30">
+                <Button variant="link" className="text-xs" onClick={() => set몇줄((n) => n + 30)}>
+                  더 보기 ({줄들.length - 몇줄}곳 더)
+                </Button>
               </div>
             )}
-          </Card>
-        </div>
-      </div>
+          </div>
+        )}
+      </Card>
 
-      {/* Toast notification */}
-      {toast && <Toast message={toast ?? ""} onDone={() => setToast(null)} />}
+      {흐름칸있음 && (
+        <p className="px-1 text-2xs text-text-muted break-keep">
+          매출·EPS 흐름은 최근 4년 연간 실적, 성장률은 그 3년 연평균이에요. 서버가 조금씩 받아 채워서 아직 빈 종목도 있어요.
+          {시장 === "US" && " 해외 회사의 흐름은 그 회사 장부의 돈 단위예요(TSMC 는 대만 달러)."}
+        </p>
+      )}
+
+      {알림 && <Toast message={알림.글} kind={알림.종류} onClose={알림닫기} />}
     </div>
   );
 }

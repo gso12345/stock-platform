@@ -25,10 +25,11 @@ from app.core.cache import cache
 from app.api.routes import screening as 라우트
 from app.services import yf_service as 모듈
 from app.services.yf_service import (
-    yf_service, 스크리닝줄, 스크리닝_숫자키, 스크리닝_글자키, _rsi14,
+    yf_service, 스크리닝줄, 스크리닝_숫자키, 스크리닝_글자키, _rsi14, 연간흐름, _도메인,
 )
 
-화면 = Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages" / "Screening.tsx"
+#: 화면의 칸·조건·조건 묶음은 이 파일 한 곳에 모여 있다
+화면 = Path(__file__).resolve().parents[2] / "frontend" / "src" / "components" / "screening" / "screeningDefs.ts"
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +37,7 @@ def _캐시_치우기():
     def 치우기():
         for 항목 in cache.keys_with_ttl():
             열쇠 = 항목.get("key") if isinstance(항목, dict) else 항목
-            if isinstance(열쇠, str) and 열쇠.startswith(("screening:", "screen_row:")):
+            if isinstance(열쇠, str) and 열쇠.startswith(("screening:", "screen_row:", "fx:")):
                 cache.delete(열쇠)
         # 시장 전체의 사진도 버린다 — 남아 있으면 앞 검사의 줄로 답한다
         모듈.스크리닝_사진_비우기()
@@ -62,32 +63,274 @@ def _시세(일수=400, 시작가=100.0, 하루=0.001, 끝=pd.Timestamp("2026-09
     "enterpriseToEbitda": 12.0, "priceToSalesTrailing12Months": 4.0, "dividendRate": 2.0,
     "beta": 1.1, "returnOnEquity": 0.2, "returnOnAssets": 0.08, "operatingMargins": 0.3,
     "profitMargins": 0.25, "trailingEps": 5.0, "debtToEquity": 80.0, "currentRatio": 1.4,
+    # 참고한 스크리너의 칸 — 최근 1년 실적·순부채·예상 EPS·국가·산업
+    "totalRevenue": 3.0e11, "netIncomeToCommon": 7.5e10, "freeCashflow": 6.0e10,
+    "totalDebt": 1.0e11, "totalCash": 4.0e10, "forwardEps": 6.0,
+    "country": "United States", "industry": "Semiconductors", "website": "https://www.test.com/",
 }
+
+
+def _연간표(매출=(100.0, 120.0, 150.0, 200.0), eps=(1.0, 1.5, 2.0, 3.0), 앞빈해=False):
+    """야후 income_stmt 모양 — 줄 = 항목, 칸 = 회계연도 끝(최근 것이 왼쪽)"""
+    해들 = [pd.Timestamp(f"{2021 + i}-12-31") for i in range(len(매출))]
+    표 = pd.DataFrame({"Total Revenue": 매출, "Diluted EPS": eps}, index=해들).T
+    if 앞빈해:
+        표[pd.Timestamp("2020-12-31")] = [np.nan, np.nan]
+    return 표[sorted(표.columns, reverse=True)]
 
 
 # ── ① 화면과 서버가 같은 키를 쓰는가 ─────────────────────────────
 
-def test_화면의_조건칸은_전부_서버가_아는_키다():
+def _블록(시작: str, 끝: str = "\n];") -> str:
     src = 화면.read_text(encoding="utf-8")
-    화면키 = set(re.findall(r'filterKey="(\w+)"', src))
+    assert 시작 in src, f"화면 설정에서 {시작} 을 못 찾았다 — 검사가 헛돈다"
+    return src.split(시작, 1)[1].split(끝, 1)[0]
+
+
+def test_화면의_조건칸은_전부_서버가_아는_키다():
+    화면키 = set(re.findall(r'key: "(\w+)"', _블록("export const 조건묶음")))
     assert len(화면키) >= 20, "화면에서 조건칸을 못 찾았다 — 검사가 헛돈다"
     모르는키 = 화면키 - 스크리닝_숫자키
     assert not 모르는키, f"서버가 값을 안 만드는 조건칸: {모르는키} — 걸면 결과가 0개가 된다"
 
 
+def test_화면의_글자_조건도_서버가_아는_키다():
+    글키 = set(re.findall(r'key: "(\w+)"', _블록("export const 글조건")))
+    assert 글키 == 스크리닝_글자키
+
+
 def test_화면의_정렬기준도_전부_서버가_아는_키다():
-    src = 화면.read_text(encoding="utf-8")
-    블록 = src.split("const SORT_OPTIONS", 1)[1].split("];", 1)[0]
-    정렬키 = set(re.findall(r'value: "(\w+)"', 블록))
-    assert 정렬키 and 정렬키 <= 스크리닝_숫자키
+    """칸 제목을 누르면 그 칸으로 세운다 — 세움: false 가 아닌 칸은 서버가 숫자로 세울 수 있어야 한다"""
+    줄들 = [l for l in _블록("export const 칸들").splitlines() if 'key: "' in l]
+    세울칸 = {re.search(r'key: "(\w+)"', l).group(1) for l in 줄들 if "세움: false" not in l}
+    assert len(세울칸) >= 20, "화면에서 칸을 못 찾았다 — 검사가 헛돈다"
+    assert not 세울칸 - 스크리닝_숫자키, f"서버가 못 세우는 칸: {세울칸 - 스크리닝_숫자키} — 누르면 422"
+
+
+def test_조건_묶음과_ETF_칸도_서버가_아는_키다():
+    블록 = _블록("export const 기본묶음")
+    조건키 = set(re.findall(r'(\w+): \{ (?:min|max)', 블록))
+    정렬키 = set(re.findall(r'정렬: \["(\w+)"', 블록))
+    assert len(조건키) >= 5 and not 조건키 - 스크리닝_숫자키
+    assert len(정렬키) >= 5 and not 정렬키 - 스크리닝_숫자키
+    etf = set(re.findall(r'"(\w+)"', _블록("export const ETF칸", "]);")))
+    assert len(etf) >= 8 and not etf - 스크리닝_숫자키
 
 
 # ── ② 키마다 값이 실제로 들어가는가 ─────────────────────────────
 
 def test_정보가_다_있으면_서버가_아는_키마다_값이_있다():
-    줄 = 스크리닝줄("TEST", "US", 꽉찬정보, _시세())
+    줄 = 스크리닝줄("TEST", "US", 꽉찬정보, _시세(), 연간흐름(_연간표()))
     비었음 = {k for k in 스크리닝_숫자키 | 스크리닝_글자키 if 줄.get(k) is None}
     assert not 비었음, f"값을 안 만드는 키: {비었음}"
+
+
+# ── 참고한 스크리너의 칸 (사용자: "스크리닝 사이트 참고해줘" → "일단 할수있는건 다해줘") ──
+
+def test_최근_1년_실적과_순부채와_예상_EPS_성장률():
+    줄 = 스크리닝줄("TEST", "US", 꽉찬정보, _시세())
+    assert (줄["revenue"], 줄["earnings"], 줄["fcf"]) == (3.0e11, 7.5e10, 6.0e10)
+    assert 줄["net_debt"] == pytest.approx(6.0e10), "순부채 = 빚 − 현금"
+    assert 줄["forward_eps_growth"] == pytest.approx(20.0), "다음 해 예상 6 ÷ 최근 5 − 1"
+    assert (줄["country"], 줄["industry"], 줄["domain"]) == ("United States", "Semiconductors", "test.com")
+    assert 줄["fin_currency"] == "USD"
+    현금부자 = 스크리닝줄("TEST", "US", {**꽉찬정보, "totalCash": 2.5e11}, _시세())
+    assert 현금부자["net_debt"] == pytest.approx(-1.5e11), "현금이 더 많으면 마이너스"
+    적자 = 스크리닝줄("TEST", "US", {**꽉찬정보, "trailingEps": -1.0}, _시세())
+    assert 적자["forward_eps_growth"] is None, "최근이 적자면 성장률이 뜻이 없다"
+    모름 = 스크리닝줄("TEST", "US", {"longName": "x"}, _시세())
+    assert all(모름.get(k) is None for k in ("revenue", "earnings", "fcf", "net_debt", "forward_eps_growth")), \
+        "값이 없으면 0 이 아니라 모름"
+    빚만 = 스크리닝줄("TEST", "US", {"longName": "x", "totalDebt": 1.0e9}, _시세())
+    assert 빚만.get("net_debt") is None, "현금을 모르면 순부채도 모른다"
+
+
+def test_ETF_는_순자산과_3년_베타를_쓴다():
+    """야후는 ETF 에 시가총액·베타 대신 순자산(totalAssets)·3년 베타를 준다 — 비우면 크기 순으로 못 세운다"""
+    etf = 스크리닝줄("SPY", "ETF", {"longName": "SPDR", "totalAssets": 5.0e11, "beta3Year": 1.0}, _시세())
+    assert (etf["market_cap"], etf["beta"]) == (5.0e11, 1.0)
+    주식 = 스크리닝줄("AAA", "US", {"longName": "x", "totalAssets": 5.0e11}, _시세())
+    assert 주식.get("market_cap") is None, "주식의 총자산은 시가총액이 아니다"
+    둘다 = 스크리닝줄("QQQ", "ETF", {"longName": "q", "marketCap": 3.0e11, "totalAssets": 2.9e11,
+                                    "beta": 1.2, "beta3Year": 1.1}, _시세())
+    assert (둘다["market_cap"], 둘다["beta"]) == (3.0e11, 1.2), "있으면 원래 값이 먼저"
+
+
+대만정보 = {**꽉찬정보, "financialCurrency": "TWD"}
+
+
+def test_장부_돈이_다른_회사는_최근_1년_실적을_시세_돈으로_바꾼다():
+    """TSMC 는 미국에 상장했지만 장부는 대만 달러다. 그대로 두면 매출 2.9조(대만 달러)가
+    월마트의 6,800억(달러)보다 커서, 매출 순으로 세우면 맨 위에 선다"""
+    대만 = 스크리닝줄("TSM", "US", 대만정보, _시세(), 연간흐름(_연간표()), 환율=0.03)
+    assert (대만["currency"], 대만["fin_currency"]) == ("USD", "TWD")
+    assert 대만["revenue"] == pytest.approx(3.0e11 * 0.03)
+    assert 대만["earnings"] == pytest.approx(7.5e10 * 0.03)
+    assert 대만["fcf"] == pytest.approx(6.0e10 * 0.03)
+    assert 대만["net_debt"] == pytest.approx(6.0e10 * 0.03)
+    assert 대만["rev_hist"] == [100, 120, 150, 200], "4년 흐름은 장부 돈 그대로 — 화면이 TWD 를 붙인다"
+    assert 대만["market_cap"] == 꽉찬정보["marketCap"], "시가총액은 원래 시세 돈이다"
+
+
+def test_환율을_모르면_최근_1년_실적을_비운다():
+    대만 = 스크리닝줄("TSM", "US", 대만정보, _시세())
+    assert all(대만.get(k) is None for k in ("revenue", "earnings", "fcf", "net_debt")), \
+        "대만 달러 그대로 두면 달러 회사들과 섞여 순서가 틀린다 — 모름이 낫다"
+    assert 대만["per"] == 20.0, "다른 칸은 그대로"
+
+
+def test_장부_돈과_시세_돈이_같으면_환율을_쓰지_않는다():
+    줄 = 스크리닝줄("TEST", "US", {**꽉찬정보, "financialCurrency": "USD"}, _시세(), 환율=0.5)
+    assert 줄["revenue"] == 3.0e11
+
+
+def _가짜야후(물은것: list, 환율값=0.031):
+    class 가짜:
+        def __init__(self, s):
+            self.s = s
+            물은것.append(s)
+            self.info = {**대만정보, "longName": s}
+
+        def history(self, **k):
+            if self.s.endswith("=X"):
+                if 환율값 is None:
+                    raise RuntimeError("환율 못 받음")
+                return pd.DataFrame({"Close": [환율값 * 0.9, 환율값]})
+            return _시세(일수=30)
+    return 가짜
+
+
+def test_종목을_받을_때_환율을_물어_바꾸고_하루_기억한다(monkeypatch):
+    물은것: list = []
+    monkeypatch.setattr(모듈.yf, "Ticker", _가짜야후(물은것))
+    가 = yf_service._screen_one("TSM", "US")
+    나 = yf_service._screen_one("UMC", "US")
+    assert 가["revenue"] == pytest.approx(3.0e11 * 0.031), "마지막 종가로 바꾼다"
+    assert 나["revenue"] == pytest.approx(3.0e11 * 0.031)
+    assert 물은것.count("TWDUSD=X") == 1, "같은 돈은 한 번만 묻는다"
+
+
+def test_환율을_못_받으면_그_종목의_실적만_비운다(monkeypatch):
+    물은것: list = []
+    monkeypatch.setattr(모듈.yf, "Ticker", _가짜야후(물은것, 환율값=None))
+    줄 = yf_service._screen_one("TSM", "US")
+    assert 줄 is not None and 줄["price"], "환율 때문에 종목이 통째로 빠지면 안 된다"
+    assert 줄.get("revenue") is None
+    assert cache.get("fx:TWDUSD") is None, "못 받은 것은 기억하지 않는다 — 다음에 다시"
+
+
+def test_같은_돈을_쓰는_종목은_환율을_묻지_않는다(monkeypatch):
+    물은것: list = []
+
+    class 미국(_가짜야후(물은것)):
+        def __init__(self, s):
+            super().__init__(s)
+            self.info = {**꽉찬정보, "financialCurrency": "USD"}
+
+    monkeypatch.setattr(모듈.yf, "Ticker", 미국)
+    줄 = yf_service._screen_one("AAPL", "US")
+    assert 줄["revenue"] == 3.0e11
+    assert not [s for s in 물은것 if s.endswith("=X")]
+
+
+@pytest.mark.parametrize("주소, 도메인", [
+    ("https://www.nvidia.com/", "nvidia.com"),
+    ("http://investor.apple.com/x", "investor.apple.com"),
+    ("www.samsung.com", "samsung.com"),
+    ("", None), (None, None), ("   ", None),
+])
+def test_누리집에서_로고에_쓸_도메인을_뽑는다(주소, 도메인):
+    assert _도메인(주소) == 도메인
+
+
+def test_연간흐름은_오래된_해부터_그리고_3년_성장률():
+    r = 연간흐름(_연간표())
+    assert r["fin_years"] == [2021, 2022, 2023, 2024]
+    assert r["rev_hist"] == [100, 120, 150, 200] and r["eps_hist"] == [1.0, 1.5, 2.0, 3.0]
+    assert r["rev_cagr_3y"] == pytest.approx(26.0, abs=0.1), "(200/100)^(1/3) − 1"
+    assert r["eps_cagr_3y"] == pytest.approx(44.2, abs=0.1), "(3/1)^(1/3) − 1"
+    # 야후가 맨 앞 해를 비워 두면 그 해만 뺀다
+    assert 연간흐름(_연간표(앞빈해=True))["fin_years"] == [2021, 2022, 2023, 2024]
+
+
+def test_연간흐름은_적자나_모자란_해에서는_성장률을_모른다():
+    적자 = 연간흐름(_연간표(eps=(-1.0, 0.5, 1.0, 2.0)))
+    assert 적자["eps_cagr_3y"] is None and 적자["rev_cagr_3y"] is not None
+    짧음 = 연간흐름(_연간표(매출=(100.0, 120.0, 150.0), eps=(1.0, 1.5, 2.0)))
+    assert 짧음["rev_cagr_3y"] is None and 짧음["rev_hist"] == [100, 120, 150]
+    가운데빔 = 연간흐름(_연간표(매출=(100.0, np.nan, 150.0, 200.0)))
+    assert 가운데빔["rev_hist"] == [100, None, 150, 200], "가운데 빈 해는 빼지 않고 비워 둔다"
+    assert 연간흐름(pd.DataFrame()) == {} and 연간흐름(None) == {}
+
+
+class Test연간흐름_채우기:
+    """연간 재무는 분기마다 바뀐다 — 시세처럼 30분마다 다시 묻지 않는다. 사진(DB 에도 남는다)에
+    붙여 두고, 뒤에서 새로 찍을 때만 모자란 종목을 시가총액이 큰 것부터 조금씩 받는다."""
+
+    def _준비(self, monkeypatch, 받기=None):
+        줄들 = {s: {"symbol": s, "price": 1.0, "market_cap": cap}
+                for s, cap in (("AAA", 3e9), ("BBB", 2e9), ("CCC", 1e9))}
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: list(줄들))
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: 줄들[s])
+        물음: list = []
+
+        def 기본받기(s):
+            물음.append(s)
+            return {"fin_years": [2024], "rev_hist": [10], "eps_hist": [1.0],
+                    "rev_cagr_3y": None, "eps_cagr_3y": None}
+        monkeypatch.setattr(yf_service, "_연간흐름_받기", 받기 or 기본받기)
+        monkeypatch.setattr(모듈, "흐름_한번", 2)
+        return 줄들, 물음
+
+    def test_사람이_기다리는_첫_사진에서는_받지_않는다(self, monkeypatch):
+        _, 물음 = self._준비(monkeypatch)
+        yf_service._스크리닝_전체_새로("US")
+        assert 물음 == []
+
+    def test_뒤에서_찍을_때_큰_것부터_조금씩_받고_다음엔_이어_쓴다(self, monkeypatch):
+        줄들, 물음 = self._준비(monkeypatch)
+        첫 = {r["symbol"]: r for r in yf_service._스크리닝_전체_새로("US", 흐름채우기=True)}
+        assert 물음 == ["AAA", "BBB"], "한 번에 흐름_한번 곳까지, 시가총액이 큰 것부터"
+        assert 첫["AAA"]["rev_hist"] == [10] and 첫["AAA"]["fin_at"] and "fin_at" not in 첫["CCC"]
+        assert "fin_at" not in 줄들["AAA"], "종목마다 캐시된 줄은 건드리지 않는다"
+        물음.clear()
+        둘 = {r["symbol"]: r for r in yf_service._스크리닝_전체_새로("US", 흐름채우기=True)}
+        assert 물음 == ["CCC"], "받은 것은 사진에서 이어 쓰고 모자란 것만"
+        assert 둘["AAA"]["rev_hist"] == [10] and 둘["CCC"]["fin_at"]
+
+    def test_오래되면_다시_받고_못_물었으면_받은_것으로_치지_않는다(self, monkeypatch):
+        _, 물음 = self._준비(monkeypatch, 받기=lambda s: None)
+        첫 = yf_service._스크리닝_전체_새로("US", 흐름채우기=True)
+        assert not any(r.get("fin_at") for r in 첫), "못 물었으면 다음 차례에 다시"
+        _, 물음 = self._준비(monkeypatch)
+        yf_service._스크리닝_전체_새로("US", 흐름채우기=True)
+        사진 = 모듈._스크리닝_사진["US"][0]
+        for r in 사진:
+            if r.get("fin_at"):
+                r["fin_at"] -= 모듈.흐름_수명 + 1
+        물음.clear()
+        yf_service._스크리닝_전체_새로("US", 흐름채우기=True)
+        assert 물음 == ["AAA", "BBB"], "흐름_수명이 지나면 다시 받는다"
+
+    def test_ETF_는_받지_않는다(self, monkeypatch):
+        _, 물음 = self._준비(monkeypatch)
+        yf_service._스크리닝_전체_새로("ETF", 흐름채우기=True)
+        assert 물음 == []
+
+    def test_한국_종목은_접미사_붙은_이름으로_묻는다(self, monkeypatch):
+        줄 = {"symbol": "005930", "market": "KR", "price": 1.0, "market_cap": 1e12}
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["005930.KS"])
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: 줄)
+        물음: list = []
+        monkeypatch.setattr(yf_service, "_연간흐름_받기", lambda s: 물음.append(s) or {})
+        yf_service._스크리닝_전체_새로("KR", 흐름채우기=True)
+        assert 물음 == ["005930.KS"]
+
+    def test_시간_상한을_넘기면_나머지는_다음_차례에(self, monkeypatch):
+        _, 물음 = self._준비(monkeypatch)
+        monkeypatch.setattr(모듈, "흐름_시간", -1)
+        결과 = yf_service._스크리닝_전체_새로("US", 흐름채우기=True)
+        assert 물음 == [] and not any(r.get("fin_at") for r in 결과)
 
 
 # ── ③ 값이 맞는가 ───────────────────────────────────────────────
@@ -161,6 +404,37 @@ def test_거르기_최소_최대_같음_그리고_모름은_탈락():
     assert not f({"sector": "Energy"}, {"sector": {"eq": "Technology"}})
 
 
+class Test야후가_답을_못_할_때:
+    """화면이 열자마자 표를 채우므로, 새로 찍다 야후가 잠깐 멈추면 그게 곧 빈 화면이다"""
+
+    def _처음(self, monkeypatch, 종목들):
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: 종목들)
+        monkeypatch.setattr(yf_service, "_screen_one",
+                            lambda s, m: {"symbol": s.split(".")[0], "price": 1.0, "per": 10.0})
+        return yf_service._스크리닝_전체_새로("US")
+
+    def test_못_받은_종목은_지난_사진의_줄로(self, monkeypatch):
+        self._처음(monkeypatch, ["AAA", "BBB", "005930.KS"])
+        monkeypatch.setattr(yf_service, "_screen_one",
+                            lambda s, m: {"symbol": s, "price": 2.0} if s == "AAA" else None)
+        새 = {r["symbol"]: r for r in yf_service._스크리닝_전체_새로("US")}
+        assert set(새) == {"AAA", "BBB", "005930"}, "빼 버리면 30분 동안 표에서 사라진다"
+        assert 새["AAA"]["price"] == 2.0, "받은 것은 새 값"
+        assert 새["BBB"]["per"] == 10.0, "못 받은 것은 지난 값 그대로"
+
+    def test_통째로_멈춰도_사진이_비지_않는다(self, monkeypatch):
+        self._처음(monkeypatch, ["AAA", "BBB"])
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: None)
+        yf_service._스크리닝_전체_새로("US")
+        assert len(yf_service.스크리닝_전체("US")) == 2
+
+    def test_목록에서_빠진_종목은_되살리지_않는다(self, monkeypatch):
+        self._처음(monkeypatch, ["AAA", "BBB"])
+        monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA"])
+        monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: None)
+        assert [r["symbol"] for r in yf_service._스크리닝_전체_새로("US")] == ["AAA"]
+
+
 def test_목록에_두번_적힌_종목도_결과엔_한번만(monkeypatch):
     monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: ["AAA", "BBB", "AAA"])
     불린것 = []
@@ -203,6 +477,13 @@ def test_종목_한줄은_조건이_바뀌어도_다시_묻지_않는다(monkeyp
 
 
 # ── ④ 라우트: 모르는 조건은 422 ────────────────────────────────
+
+def test_스크리닝_요청_상한은_칸_몇_번_눌러_보다_막히지_않을_만큼():
+    """화면이 칸 제목을 누를 때마다·찾는 말이 바뀔 때마다 곧바로 다시 묻는다. 예전 상한(분당 10번)이면
+    칸 몇 개 눌러 보다 '요청이 너무 많아요' 가 뜬다. 그래도 상한 자체는 남긴다 — 0.15 CPU 서버다"""
+    등록 = 라우트.limiter._route_limits.get("app.api.routes.screening.run_screening")
+    assert 등록, "스크리닝에 요청 상한이 없다"
+    assert str(등록[0].limit) == "40 per 1 minute"
 
 @pytest.mark.parametrize("조건", [
     {"foo": {"min": 1}},
@@ -252,3 +533,104 @@ def test_실행하면_새_조건이_끝까지_닿고_섹터도_서버에서_거�
     })
     assert r.status_code == 200, r.text
     assert [x["symbol"] for x in r.json()["results"]] == ["AAA"]
+
+
+def _세종목(monkeypatch):
+    줄들 = {
+        "AAPL": 스크리닝줄("AAPL", "US", {**꽉찬정보, "longName": "Apple Inc.", "country": "United States",
+                                          "industry": "Consumer Electronics", "totalRevenue": 4e11}, _시세()),
+        "BAC": 스크리닝줄("BAC", "US", {**꽉찬정보, "longName": "Bank of America", "sector": "Financial Services",
+                                        "industry": "Banks", "totalRevenue": 1e11}, _시세()),
+        "TSM": 스크리닝줄("TSM", "US", {**꽉찬정보, "longName": "TSMC", "country": "Taiwan",
+                                        "industry": "Semiconductors", "totalRevenue": 9e10}, _시세()),
+    }
+    monkeypatch.setattr(모듈, "스크리닝_종목들", lambda m: list(줄들))
+    monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: 줄들[s])
+    return 줄들
+
+
+@pytest.mark.parametrize("q, 남을것", [
+    ("aapl", ["AAPL"]),
+    ("AAPL, tsm", ["AAPL", "TSM"]),
+    ("bank of", ["BAC"]),                 # 띄어쓰기·대소문자를 가리지 않는다
+    ("  ", ["AAPL", "BAC", "TSM"]),
+    ("없는종목", []),
+])
+def test_티커나_이름으로_찾는다(client, monkeypatch, q, 남을것):
+    _세종목(monkeypatch)
+    r = client.post("/api/v1/screening/run", json={"market": "US", "sort_by": "revenue", "q": q})
+    assert r.status_code == 200, r.text
+    assert [x["symbol"] for x in r.json()["results"]] == 남을것
+    assert r.json()["total"] == len(남을것)
+
+
+def test_국가_섹터_산업_고를값은_거르기_전_시장_전체에서(client, monkeypatch):
+    _세종목(monkeypatch)
+    r = client.post("/api/v1/screening/run", json={"market": "US", "q": "aapl",
+                                                  "filters": {"country": {"eq": "United States"}}})
+    면 = r.json()["facets"]
+    assert 면["country"] == ["Taiwan", "United States"]
+    assert 면["industry"] == ["Banks", "Consumer Electronics", "Semiconductors"]
+    assert 면["sector"] == ["Financial Services", "Technology"]
+
+
+def test_새_칸으로_거르고_세운다(client, monkeypatch):
+    _세종목(monkeypatch)
+    r = client.post("/api/v1/screening/run", json={
+        "market": "US", "sort_by": "revenue", "sort_order": "asc",
+        "filters": {"revenue": {"min": 9.5e10}, "industry": {"eq": "Banks"}},
+    })
+    assert [x["symbol"] for x in r.json()["results"]] == ["BAC"]
+    r = client.post("/api/v1/screening/run", json={"market": "US", "sort_by": "revenue", "sort_order": "asc"})
+    assert [x["symbol"] for x in r.json()["results"]] == ["TSM", "BAC", "AAPL"]
+
+
+class Test보기_저장:
+    """보기 저장 — 조건·정렬에 더해 보이는 칸들도 남긴다"""
+
+    @pytest.fixture
+    def 로그인(self):
+        from app.core.deps import require_user, get_current_user
+        from app.db.database import engine, Base, SessionLocal
+        from app.models.stock import ScreeningPreset
+        # 검사용 sqlite 파일의 옛 표에는 새 칸(columns)이 없다 — 매번 새 표로
+        ScreeningPreset.__table__.drop(bind=engine, checkfirst=True)
+        Base.metadata.create_all(bind=engine)
+
+        class 아무개:
+            id = 876543
+
+        app.dependency_overrides[require_user] = lambda: 아무개()
+        app.dependency_overrides[get_current_user] = lambda: 아무개()
+        yield TestClient(app)
+        app.dependency_overrides.pop(require_user, None)
+        app.dependency_overrides.pop(get_current_user, None)
+        s = SessionLocal()
+        try:
+            s.query(ScreeningPreset).filter(ScreeningPreset.user_id == 아무개.id).delete()
+            s.commit()
+        finally:
+            s.close()
+
+    def test_칸들도_남기고_불러온다(self, 로그인):
+        r = 로그인.post("/api/v1/screening/presets", json={
+            "name": "내 보기", "market": "US", "filters": {"per": {"max": 20}},
+            "sort_by": "revenue", "sort_order": "desc", "columns": ["market_cap", "rev_hist", "per"],
+        })
+        assert r.status_code == 200, r.text
+        보기 = 로그인.get("/api/v1/screening/presets").json()
+        assert [(p["name"], p["columns"], p["sort_by"]) for p in 보기] == [
+            ("내 보기", ["market_cap", "rev_hist", "per"], "revenue")]
+
+    def test_칸_없이_저장해도_된다_예전_보기처럼(self, 로그인):
+        r = 로그인.post("/api/v1/screening/presets", json={
+            "name": "옛 보기", "market": "KR", "filters": {}, "sort_by": "per"})
+        assert r.status_code == 200, r.text
+        assert 로그인.get("/api/v1/screening/presets").json()[0]["columns"] is None
+
+
+@pytest.mark.parametrize("칸", [["Market Cap"], ["per; drop"], [3], ["a" * 41]])
+def test_보기의_칸_이름은_화면의_칸_열쇠_모양만(칸):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        라우트.PresetSaveRequest(name="x", market="US", filters={}, sort_by="per", columns=칸)

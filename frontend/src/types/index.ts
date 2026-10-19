@@ -114,6 +114,8 @@ export interface ScreeningPreset {
   filters: ScreeningFilter;
   sort_by: string;
   sort_order: string;
+  /** 저장할 때 보이던 칸 — 예전 보기에는 없다 */
+  columns?: string[] | null;
 }
 
 export type IndicatorType = "MA" | "RSI" | "MACD" | "BB" | "PRICE" | "VOLUME";

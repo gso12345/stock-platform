@@ -1,8 +1,10 @@
 import yfinance as yf
 import pandas as pd
 import math
+import os
 import threading
 import time
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from app.core.cache import cache
@@ -206,8 +208,81 @@ def 스크리닝_종목들(market: str) -> list[str]:
     "rsi", "pct_from_52w_high", "pct_from_52w_low", "beta",
     "return_1m", "return_3m", "return_1y",
     "roe", "roa", "operating_margin", "profit_margin", "eps", "debt_ratio", "current_ratio",
+    # 참고한 스크리너의 칸(사용자: "스크리닝 사이트 참고해줘") — 최근 1년 실적과 성장
+    "revenue", "earnings", "fcf", "net_debt", "forward_eps_growth",
+    # 연간 재무 흐름에서 낸다(연간흐름) — 받기 전인 종목은 값이 없다
+    "rev_cagr_3y", "eps_cagr_3y",
 })
-스크리닝_글자키 = frozenset({"sector"})
+스크리닝_글자키 = frozenset({"sector", "country", "industry"})
+
+#: 연간 재무 흐름(4년 매출·EPS 막대와 3년 성장률)이 줄에 붙는 칸. fin_at 은 받은 때
+흐름_칸 = ("fin_years", "rev_hist", "eps_hist", "rev_cagr_3y", "eps_cagr_3y", "fin_at")
+#: 연간 재무는 분기마다 바뀐다 — 시세처럼 30분마다 물을 일이 없어 이만큼 둔다(초)
+흐름_수명 = 7 * 86400
+#: 스크리닝을 뒤에서 새로 찍을 때 연간 흐름을 새로 받는 종목 수와 시간 상한(초).
+#: 한꺼번에 수백 곳을 물으면 0.15 CPU 서버가 오래 붙잡힌다 — 찍을 때마다 조금씩 채운다
+흐름_한번 = int(os.getenv("SCREEN_FIN_PER_REFRESH", 60))
+흐름_시간 = float(os.getenv("SCREEN_FIN_BUDGET_SEC", 120))
+
+
+def _도메인(누리집: object) -> Optional[str]:
+    """회사 누리집 주소 → 'nvidia.com'. 화면이 그 주소의 아이콘을 로고로 쓴다"""
+    if not isinstance(누리집, str) or not 누리집.strip():
+        return None
+    주소 = 누리집.strip()
+    if "://" not in 주소:
+        주소 = "http://" + 주소
+    try:
+        이름 = (urlparse(주소).hostname or "").lower()
+    except ValueError:
+        return None
+    if 이름.startswith("www."):
+        이름 = 이름[4:]
+    return 이름 or None
+
+
+def _연평균성장(값들: list) -> Optional[float]:
+    """3년 전 → 마지막 해 연평균 성장률(%). 어느 한쪽이라도 없거나 0 이하면 모른다 —
+    적자에서 흑자로 돌아선 것은 성장률로 말할 수 없다"""
+    if len(값들) < 4:
+        return None
+    처음, 끝 = 값들[-4], 값들[-1]
+    if 처음 is None or 끝 is None or 처음 <= 0 or 끝 <= 0:
+        return None
+    return round(((끝 / 처음) ** (1 / 3) - 1) * 100, 1)
+
+
+def 연간흐름(표) -> dict:
+    """야후 연간 손익계산서(줄 = 항목, 칸 = 회계연도 끝) → {fin_years, rev_hist, eps_hist,
+    rev_cagr_3y, eps_cagr_3y}. 오래된 해부터, 값이 없는 해는 None(막대 자리를 비운다).
+
+    참고한 스크리너는 10년 막대를 그리지만 야후는 연간 손익을 4년치쯤만 준다 — 있는 만큼 그린다.
+    5년 성장률도 그래서 못 낸다."""
+    if 표 is None or getattr(표, "empty", True):
+        return {}
+    해들 = sorted(표.columns, key=lambda c: pd.Timestamp(c))
+
+    def 줄(이름들):
+        for 이름 in 이름들:
+            if 이름 in 표.index:
+                return [_safe(표.at[이름, c]) for c in 해들]
+        return [None] * len(해들)
+
+    매출 = 줄(("Total Revenue", "Operating Revenue"))
+    eps = 줄(("Diluted EPS", "Basic EPS"))
+    # 야후는 맨 앞(가장 오래된) 해를 비워 두기도 한다 — 앞쪽의 빈 해만 뺀다(가운데를 빼면
+    # '3년 전' 이 4년 전이 된다)
+    시작 = next((i for i in range(len(해들)) if 매출[i] is not None or eps[i] is not None), None)
+    if 시작 is None:
+        return {}
+    해들, 매출, eps = 해들[시작:], 매출[시작:], eps[시작:]
+    return {
+        "fin_years": [pd.Timestamp(c).year for c in 해들],
+        "rev_hist": [None if v is None else round(v) for v in 매출],
+        "eps_hist": [None if v is None else round(v, 2) for v in eps],
+        "rev_cagr_3y": _연평균성장(매출),
+        "eps_cagr_3y": _연평균성장(eps),
+    }
 
 
 def _퍼센트(v) -> Optional[float]:
@@ -241,8 +316,11 @@ def _몇달전수익률(closes: pd.Series, 달: int) -> Optional[float]:
     return round((float(closes.iloc[-1]) / float(앞.iloc[-1]) - 1) * 100, 2)
 
 
-def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame) -> Optional[dict]:
-    """야후의 info + 1년 시세 → 스크리닝 표 한 줄. 네트워크 없이 부를 수 있게 떼어 둔다."""
+def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame,
+              연간: Optional[dict] = None, 환율: Optional[float] = None) -> Optional[dict]:
+    """야후의 info + 1년 시세 → 스크리닝 표 한 줄. 네트워크 없이 부를 수 있게 떼어 둔다.
+    연간 — 연간흐름() 의 결과(있으면 4년 매출·EPS 와 3년 성장률이 붙는다).
+    환율 — 장부 돈(financialCurrency)이 시세 돈(currency)과 다른 회사만: 장부 돈 1 = 시세 돈 얼마."""
     closes = hist["Close"].dropna() if hist is not None and "Close" in hist else pd.Series(dtype=float)
     if len(closes):
         curr = float(closes.iloc[-1])
@@ -276,12 +354,25 @@ def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame) ->
         연배당 = _safe(info.get("trailingAnnualDividendRate"))
     배당 = round(연배당 / curr * 100, 2) if 연배당 is not None else _dividend_pct(info.get("yield"))
 
+    빚, 현금 = _safe(info.get("totalDebt")), _safe(info.get("totalCash"))
+    다음eps, 지난eps = _safe(info.get("forwardEps")), _safe(info.get("trailingEps"))
+
     # 한국 종목은 표·상세·관심목록 모두 '005930' 처럼 접미사 없이 쓴다
     보일이름 = symbol
     보일시장 = market
     if symbol.endswith((".KS", ".KQ")):
         보일이름 = symbol.rsplit(".", 1)[0]
         보일시장 = "KR"
+
+    시세돈 = info.get("currency") or ("KRW" if 보일시장 == "KR" else "USD")
+    장부돈 = info.get("financialCurrency") or 시세돈
+    #: 최근 1년 실적(매출·순이익·FCF·순부채)은 시세 돈으로 바꿔 둔다 — 세우고 거르는 값이라
+    #  회사마다 돈이 다르면 토요타(엔)·TSMC(대만 달러)가 '매출 1등' 이 된다.
+    #  환율을 모르면 비운다 — 틀린 순서보다 '모름' 이 낫다
+    비율 = 1.0 if 장부돈 == 시세돈 else _safe(환율)
+
+    def 시세돈으로(v: Optional[float]) -> Optional[float]:
+        return None if v is None or not 비율 else v * 비율
 
     return _clean({
         "symbol": 보일이름,
@@ -291,7 +382,8 @@ def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame) ->
         "price": round(curr, 2),
         "change_rate": round(change_rate, 2) if change_rate is not None else None,
         "volume": volume,
-        "market_cap": info.get("marketCap"),
+        #: ETF 는 야후가 시가총액 대신 순자산(totalAssets)을 준다 — 크기 순으로 세울 수 있게 그걸 쓴다
+        "market_cap": info.get("marketCap") or (info.get("totalAssets") if market == "ETF" else None),
         "per": _safe(info.get("trailingPE")),
         "forward_per": _safe(info.get("forwardPE")),
         "pbr": _safe(info.get("priceToBook")),
@@ -302,7 +394,8 @@ def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame) ->
         "rsi": _rsi14(closes),
         "pct_from_52w_high": round((curr / 고점 - 1) * 100, 2) if 고점 else None,
         "pct_from_52w_low": round((curr / 저점 - 1) * 100, 2) if 저점 else None,
-        "beta": _safe(info.get("beta")),
+        # ETF 는 3년 베타(beta3Year)만 준다
+        "beta": _safe(info.get("beta") if info.get("beta") is not None else info.get("beta3Year")),
         "return_1m": _몇달전수익률(closes, 1),
         "return_3m": _몇달전수익률(closes, 3),
         "return_1y": _몇달전수익률(closes, 12),
@@ -313,7 +406,22 @@ def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame) ->
         "eps": _safe(info.get("trailingEps")),
         "debt_ratio": _safe(info.get("debtToEquity")),
         "current_ratio": _safe(info.get("currentRatio")),
-        "currency": info.get("currency") or ("KRW" if 보일시장 == "KR" else "USD"),
+        "currency": 시세돈,
+        #: 회사가 장부를 쓰는 돈 — 미국 상장이라도 TSMC 처럼 대만 달러로 적는 회사가 있다.
+        #  4년 흐름(rev_hist·eps_hist)은 이 돈 그대로다
+        "fin_currency": 장부돈,
+        "revenue": 시세돈으로(_safe(info.get("totalRevenue"))),
+        "earnings": 시세돈으로(_safe(info.get("netIncomeToCommon"))),
+        "fcf": 시세돈으로(_safe(info.get("freeCashflow"))),
+        #: 순부채 = 빚 − 현금. 마이너스면 빚보다 현금이 많다
+        "net_debt": 시세돈으로(빚 - 현금 if 빚 is not None and 현금 is not None else None),
+        #: 다음 회계연도 예상 EPS ÷ 최근 1년 EPS − 1. 최근이 적자(0 이하)면 성장률이 뜻이 없다
+        "forward_eps_growth": (round((다음eps / 지난eps - 1) * 100, 1)
+                               if 다음eps is not None and 지난eps and 지난eps > 0 else None),
+        "country": info.get("country"),
+        "industry": info.get("industry"),
+        "domain": _도메인(info.get("website")),
+        **(연간 or {}),
     })
 
 
@@ -400,6 +508,20 @@ def _사진_남기기(market: str, 줄들: list) -> None:
             db.close()
     except Exception:
         pass
+
+
+def _흐름_잇기(market: str, 줄들: list) -> None:
+    """지난 사진의 줄에 붙여 둔 연간 흐름을 새 줄로 옮긴다. 시세는 30분마다 새로 받지만
+    연간 재무는 분기마다 바뀌어 흐름_수명 동안 다시 물을 일이 없다 — 사진(DB 에도 남는다)이
+    그 사이 보관함 노릇을 한다."""
+    지난 = (_스크리닝_사진.get(market) or ([], 0.0))[0]
+    있던 = {r.get("symbol"): r for r in 지난 if r.get("fin_at")}
+    for r in 줄들:
+        p = 있던.get(r.get("symbol"))
+        if p and not r.get("fin_at"):
+            for k in 흐름_칸:
+                if k in p:
+                    r[k] = p[k]
 
 
 def 스크리닝_사진_비우기() -> None:
@@ -826,18 +948,43 @@ class YFinanceService:
             #  딱 1y 로 받으면 첫날이 '1년 전 오늘'보다 하루 늦게 잡혀
             #  1년 수익률이 늘 '모름'이 된다 — 그래서 여유를 둔다.
             hist = ticker.history(start=(pd.Timestamp.today() - pd.Timedelta(days=400)).strftime("%Y-%m-%d"))
-            row = 스크리닝줄(symbol, market, info, hist)
+            row = 스크리닝줄(symbol, market, info, hist, 환율=self._장부환율(info))
         except Exception:
             return None
         if row:
             cache.set(ck, row, SCREEN_ROW_TTL)
         return row
 
+    def _장부환율(self, info: dict) -> Optional[float]:
+        """장부 돈이 시세 돈과 다른 회사(TSMC·토요타…)만 '장부 돈 1 = 시세 돈 얼마'. 같으면 묻지 않는다"""
+        장부, 시세 = info.get("financialCurrency"), info.get("currency")
+        if not 장부 or not 시세 or 장부 == 시세:
+            return None
+        return self._환율(장부, 시세)
+
+    def _환율(self, 원래: str, 바꿀: str) -> Optional[float]:
+        """1 원래 = 바꿀 얼마. 하루 한 번만 묻는다 — 같은 돈을 쓰는 종목이 여럿이다"""
+        ck = f"fx:{원래}{바꿀}"
+        if (v := cache.get(ck)) is not None:
+            return v
+        try:
+            종가 = yf.Ticker(f"{원래}{바꿀}=X").history(period="5d")["Close"].dropna()
+            v = _safe(종가.iloc[-1]) if len(종가) else None
+        except Exception:
+            v = None
+        if v is None or v <= 0:
+            return None
+        cache.set(ck, v, 86400)
+        return v
+
     def screen_stocks(self, market: str, filters: dict) -> list:
         return [r for r in self.스크리닝_전체(market) if self._apply_filters(r, filters)]
 
-    def _스크리닝_전체_새로(self, market: str) -> list:
-        """시장 전체를 새로 훑는다. 잠금을 잡은 쪽만 부른다."""
+    def _스크리닝_전체_새로(self, market: str, 흐름채우기: bool = False) -> list:
+        """시장 전체를 새로 훑는다. 잠금을 잡은 쪽만 부른다.
+
+        흐름채우기 — 연간 흐름이 없거나 오래된 종목을 조금(흐름_한번) 새로 받아 붙인다.
+        뒤에서 새로 찍을 때만 한다 — 사진이 아예 없어 사람이 기다리는 때는 시세만 받는다."""
         # 목록에 같은 종목이 두 번 적힌 곳이 있다(AMZN·NFLX·MRNA…).
         # 그대로 두면 결과에도 두 줄로 나온다.
         symbols = list(dict.fromkeys(스크리닝_종목들(market)))
@@ -845,10 +992,59 @@ class YFinanceService:
         # 종목별 순차 호출(네트워크 I/O 대기)이 전체 응답 시간을 좌우하므로
         # 스레드풀로 동시에 fetch — yfinance가 스레드 안전한 블로킹 I/O이므로 안전함
         with ThreadPoolExecutor(max_workers=io_worker_count(default=20)) as pool:
-            줄들 = [r for r in pool.map(lambda s: self._screen_one(s, market), symbols) if r]
+            받은것 = list(pool.map(lambda s: self._screen_one(s, market), symbols))
+
+        def 보일이름(s: str) -> str:
+            return s.rsplit(".", 1)[0] if s.endswith((".KS", ".KQ")) else s
+        원래이름 = {보일이름(s): s for s in symbols}
+        #: 야후가 잠깐 답을 못 한 종목은 지난 사진의 줄을 쓴다. 빼 버리면 다음에 찍을 때(30분)까지
+        #  표에서 사라지고, 야후가 통째로 멈춘 때는 사진이 빈 목록이 되어 화면이 '맞는 종목이 없어요' 가 된다
+        지난 = {r.get("symbol"): r for r in (_스크리닝_사진.get(market) or ([], 0.0))[0]}
+        줄들 = []
+        for s, r in zip(symbols, 받은것):
+            r = r or 지난.get(보일이름(s))
+            if r:
+                # 줄은 종목마다 캐시된 것일 수 있다 — 흐름을 붙이기 전에 떼어 낸다(캐시를 건드리지 않게)
+                줄들.append(dict(r))
+        _흐름_잇기(market, 줄들)
+        if 흐름채우기 and market != "ETF":
+            self._흐름_채우기(줄들, 원래이름)
         _스크리닝_사진[market] = (줄들, time.time())
         _사진_남기기(market, 줄들)
         return 줄들
+
+    def _연간흐름_받기(self, symbol: str) -> "dict | None":
+        """한 종목의 연간 흐름. 못 물었으면 None(다음 차례에 다시), 받았는데 비었으면 {}"""
+        try:
+            return 연간흐름(yf.Ticker(symbol).income_stmt)
+        except Exception:
+            return None
+
+    def _흐름_채우기(self, 줄들: list, 원래이름: dict) -> int:
+        """연간 흐름이 없거나 흐름_수명보다 오래된 종목을 시가총액이 큰 것부터 흐름_한번 곳까지,
+        흐름_시간 안에서 받아 붙인다. 붙인 곳 수를 돌려준다."""
+        지금 = time.time()
+        고른 = sorted((r for r in 줄들 if 지금 - float(r.get("fin_at") or 0) > 흐름_수명),
+                     key=lambda r: -(r.get("market_cap") or 0))[:흐름_한번]
+        if not 고른:
+            return 0
+
+        def 하나(r):
+            if time.time() - 지금 > 흐름_시간:
+                return None                        # 시간이 다 됐다 — 다음 차례에
+            return self._연간흐름_받기(원래이름.get(r["symbol"], r["symbol"]))
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            받은것 = list(pool.map(하나, 고른))
+        붙임 = 0
+        for r, 흐름 in zip(고른, 받은것):
+            if 흐름 is None:
+                continue
+            # 받았는데 비었어도(재무가 없는 종목) 받은 때는 남긴다 — 찍을 때마다 다시 묻지 않게
+            r.update(흐름)
+            r["fin_at"] = 지금
+            붙임 += 1
+        return 붙임
 
     def 스크리닝_전체(self, market: str) -> list:
         """시장 전체의 스크리닝 줄. **조건과 상관없이** 같다 — 조건은 그 뒤에 거른다.
@@ -884,7 +1080,7 @@ class YFinanceService:
         def 일():
             try:
                 with _스크리닝_잠금(market):
-                    self._스크리닝_전체_새로(market)
+                    self._스크리닝_전체_새로(market, 흐름채우기=True)
             except Exception:
                 pass                      # 못 찍었으면 지난 사진을 계속 쓴다
             finally:

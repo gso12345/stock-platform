@@ -289,7 +289,7 @@ export const financialsApi = {
 };
 
 export const screeningApi = {
-  run: (payload: { market: string; filters: ScreeningFilter; sort_by: string; sort_order: string; limit: number }) =>
+  run: (payload: 스크리닝요청): Promise<스크리닝응답> =>
     /* 처음 한 번은 종목 수백 개의 1년 시세를 새로 받아 수십 초가 걸린다
        (그 뒤 30분은 종목별로 기억해 빠르다). 기본 시한이면 서버가 아직
        받는 중인데 화면이 '실패' 를 띄운다 — 백테스트와 같은 무거운상한을 쓴다 */
@@ -305,13 +305,49 @@ export const screeningApi = {
     api.delete(`/screening/presets/${id}`).then((r) => r.data),
 };
 
-/** 저장해 두는 스크리닝 조건 한 벌 — 서버 PresetSaveRequest 와 같은 모양 */
+/** 스크리닝 한 번 — 서버 ScreeningRequest 와 같은 모양 */
+export interface 스크리닝요청 {
+  market: string;
+  filters: ScreeningFilter;
+  sort_by: string;
+  sort_order: string;
+  limit: number;
+  /** 티커·이름으로 찾기 — 'AAPL, MSFT' 처럼 쉼표로 여럿 */
+  q?: string;
+}
+
+/** 스크리닝 표 한 줄 — 서버 스크리닝줄. 숫자 칸은 서버의 스크리닝_숫자키, 글자 칸은 스크리닝_글자키 */
+export interface 스크리닝줄 {
+  symbol: string;
+  name?: string;
+  market: string;
+  /** 시세 돈(주가·시가총액·최근 1년 실적) */
+  currency?: string;
+  /** 회사 장부의 돈 — 4년 흐름(rev_hist·eps_hist)이 이 돈이다 */
+  fin_currency?: string;
+  /** 회사 누리집 주소 — 화면이 로고를 그 아이콘으로 */
+  domain?: string | null;
+  fin_years?: number[];
+  [칸: string]: unknown;
+}
+
+export interface 스크리닝응답 {
+  results: 스크리닝줄[];
+  /** 조건에 맞는 종목 수(results 는 그중 위 limit 개) */
+  total: number;
+  /** 국가·섹터·산업 조건에 고를 값 — 그 시장 전체에 실제로 있는 것만 */
+  facets?: { country?: string[]; sector?: string[]; industry?: string[] };
+}
+
+/** 저장해 두는 스크리닝 보기 한 벌 — 서버 PresetSaveRequest 와 같은 모양 */
 export interface 스크리닝저장 {
   name: string;
   market: string;
   filters: ScreeningFilter;
   sort_by: string;
   sort_order: "asc" | "desc";
+  /** 보이는 칸들 — 없으면 화면의 처음 칸 */
+  columns?: string[];
 }
 
 /** 백테스트 한 번의 조건 — 서버 BacktestRequest 와 같은 모양 */

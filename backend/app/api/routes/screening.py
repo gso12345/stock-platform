@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 import asyncio
+import re
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -43,12 +44,24 @@ def _조건검사(filters: dict) -> dict:
     return filters
 
 
+def _칸검사(columns: Optional[list]) -> Optional[list]:
+    """보기에 남길 칸 이름들 — 영문 소문자·숫자·밑줄만(화면의 칸 열쇠). 모르는 칸은 화면이 무시한다"""
+    if columns is None:
+        return None
+    for c in columns:
+        if not isinstance(c, str) or not re.fullmatch(r"[a-z0-9_]{1,40}", c):
+            raise ValueError("칸 이름이 잘못됐어요")
+    return columns
+
+
 class ScreeningRequest(BaseModel):
     market: str = Field("US", pattern="^(KR|US|ETF)$")
     filters: dict = Field(default={}, max_length=20)
     sort_by: str = Field("market_cap", pattern=_SORT_PATTERN)
     sort_order: str = Field("desc", pattern="^(asc|desc)$")
     limit: int = Field(50, ge=1, le=100)
+    #: 티커·이름으로 찾기 — 'AAPL, MSFT' 처럼 쉼표로 여럿
+    q: str = Field("", max_length=100)
 
     _조건 = field_validator("filters")(classmethod(lambda cls, v: _조건검사(v)))
 
@@ -59,8 +72,30 @@ class PresetSaveRequest(BaseModel):
     filters: dict = Field(default={}, max_length=20)
     sort_by: str = Field(..., pattern=_SORT_PATTERN)
     sort_order: str = Field("desc", pattern="^(asc|desc)$")
+    #: 보기 저장 — 보이는 칸들도 같이 남긴다(예전 보기는 없다 → 화면 기본 칸)
+    columns: Optional[list] = Field(None, max_length=60)
 
     _조건 = field_validator("filters")(classmethod(lambda cls, v: _조건검사(v)))
+    _칸 = field_validator("columns")(classmethod(lambda cls, v: _칸검사(v)))
+
+
+def 이름찾기(줄들: list, q: str) -> list:
+    """티커나 이름에 찾는 말이 든 줄만. 쉼표로 여럿이면 그중 하나라도('AAPL, MSFT').
+    띄어쓰기·대소문자는 가리지 않는다('bank of' → Bank of America)."""
+    말들 = [m for m in (re.sub(r"\s+", "", 조각).lower() for 조각 in re.split(r"[,，]", q or "")) if m]
+    if not 말들:
+        return 줄들
+
+    def 맞나(r: dict) -> bool:
+        글 = (str(r.get("symbol") or "") + "|" + re.sub(r"\s+", "", str(r.get("name") or ""))).lower()
+        return any(m in 글 for m in 말들)
+    return [r for r in 줄들 if 맞나(r)]
+
+
+def 고를값들(줄들: list) -> dict:
+    """국가·섹터·산업 조건에 내놓을 값들 — 그 시장 전체에 실제로 있는 것만, 가나다(ABC)순"""
+    return {k: sorted({r[k] for r in 줄들 if isinstance(r.get(k), str) and r[k]})
+            for k in ("country", "sector", "industry")}
 
 
 def 줄세우기(results: list, sort_by: str, desc: bool) -> list:
@@ -72,15 +107,19 @@ def 줄세우기(results: list, sort_by: str, desc: bool) -> list:
 
 
 @router.post("/run")
-@limiter.limit("10/minute")
+# 화면이 칸 제목을 누를 때마다·찾는 말이 바뀔 때마다 곧바로 다시 묻는다(예전엔 '실행' 단추를 눌러야 했다).
+# 10번이면 칸 몇 개 눌러 보다 막힌다. 한 번은 받아 둔 시장 사진을 거르고 세울 뿐이라 가볍다
+@limiter.limit("40/minute")
 async def run_screening(request: Request, req: ScreeningRequest):
-    ck = f"screening:{req.market}:{req.sort_by}:{req.sort_order}:{sorted(req.filters.items())}"
+    ck = f"screening:{req.market}:{req.sort_by}:{req.sort_order}:{sorted(req.filters.items())}:{req.q}:{req.limit}"
     if cached := cache.get(ck):
         return cached
     loop = asyncio.get_running_loop()
     results = await loop.run_in_executor(None, yf_service.screen_stocks, req.market, req.filters)
-    results = 줄세우기(results, req.sort_by, req.sort_order == "desc")
-    payload = {"results": results[: req.limit], "total": len(results)}
+    results = 줄세우기(이름찾기(results, req.q), req.sort_by, req.sort_order == "desc")
+    # 국가·섹터·산업 고르기 — 거르기 전 시장 전체에서(이미 받아 둔 사진이라 곧바로다)
+    전체 = await loop.run_in_executor(None, yf_service.스크리닝_전체, req.market)
+    payload = {"results": results[: req.limit], "total": len(results), "facets": 고를값들(전체)}
     cache.set(ck, payload, 300)
     return payload
 
@@ -96,7 +135,7 @@ def get_presets(db: Session = Depends(get_db), current_user: Optional[User] = De
 def save_preset(req: PresetSaveRequest, db: Session = Depends(get_db), current_user: User = Depends(require_user)):
     preset = ScreeningPreset(
         name=req.name, market=req.market, filters=req.filters,
-        sort_by=req.sort_by, sort_order=req.sort_order,
+        sort_by=req.sort_by, sort_order=req.sort_order, columns=req.columns,
         user_id=current_user.id,
     )
     db.add(preset)

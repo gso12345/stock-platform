@@ -300,6 +300,8 @@ class ScreeningPreset(Base):
     filters = Column(JSON)
     sort_by = Column(String(50))
     sort_order = Column(String(4), default="desc")
+    #: 보기 저장 — 보이는 칸들. 예전에 저장한 것은 비어 있다(화면 기본 칸)
+    columns = Column(JSON, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

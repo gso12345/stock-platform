@@ -107,6 +107,8 @@ async def lifespan(application: FastAPI):
         _add_col_if_missing("watchlist_items", "position",  "INTEGER DEFAULT 0")
         _add_col_if_missing("watchlist_items", "memo",      "VARCHAR(200)")
         _add_col_if_missing("screening_presets", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
+        # 보기 저장에 칸 목록 — 표는 이미 배포돼 있어 create_all 이 칸을 안 만들어 준다
+        _add_col_if_missing("screening_presets", "columns", "JSON")
         _add_col_if_missing("watchlist_folders", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
         _add_col_if_missing("backtest_results", "user_id", "INTEGER REFERENCES users(id)", "INTEGER")
         _add_col_if_missing("users", "oauth_provider", "VARCHAR(20)")
