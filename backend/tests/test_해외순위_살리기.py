@@ -623,6 +623,24 @@ class Test나스닥_챙기기:
         rs.나스닥_챙기기()
         assert len(물음) == 2, "장이 하나 끝났는데 안 받았다"
 
+    def test_업종_산업_국가는_따로_남기고_몇_곳에만_붙어_왔으면_있던_것을_지킨다(self, 나스닥새로, monkeypatch):
+        """스크리닝의 섹터·산업·국가(나스닥 분류). 몇 곳에만 붙어 왔으면 응답 모양이 바뀐 것이다"""
+        j = _나스닥()
+        for z in j["data"]["rows"]:
+            z.update(sector="Technology", industry="Semiconductors", country="United States")
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(200, j))
+        monkeypatch.setattr(rs, "_나스닥_분류", {})
+        rs.나스닥_챙기기()
+        assert len(rs.나스닥_분류()) == 600 and rs.나스닥_분류()["S1"] == ("Technology", "Semiconductors", "United States")
+        assert rs._분류_db()["S1"] == ("Technology", "Semiconductors", "United States"), "DB 에도 남긴다"
+        j2 = _나스닥()
+        for z in j2["data"]["rows"][:10]:
+            z.update(sector="Energy", industry="Oil", country="United States")
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(200, j2))
+        monkeypatch.setattr(rs, "마친장", lambda *a: (date(2025, 10, 9), T1))
+        rs.나스닥_챙기기()
+        assert len(rs.나스닥_분류()) == 600 and rs.나스닥_분류()["S1"][0] == "Technology"
+
     def test_다시_뜨면_DB_의_주식수부터(self, 나스닥새로, monkeypatch):
         monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(200, _나스닥()))
         rs.나스닥_챙기기()

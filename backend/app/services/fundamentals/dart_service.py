@@ -313,5 +313,65 @@ class DARTService:
         _db_set_disclosures(code6, result)
         return result
 
+    # ── 여러 회사의 주요계정 한꺼번에 (스크리닝) ───────────
+    def get_main_accounts_multi(self, stock_codes: list[str], year: str) -> dict[str, dict]:
+        """여러 회사의 그해 사업보고서 주요계정 → {6자리 코드: {revenue, op_income, net_income,
+        assets, liabilities, equity}}. 다중회사 주요계정(fnlttMultiAcnt)은 한 번에 100곳까지 —
+        국내 상장사 전부가 서른 번 남짓이다. 연결(CFS)이 있으면 연결, 없으면 별도(OFS)."""
+        if not self._configured:
+            return {}
+        corp = {c: self.get_corp_code(c) for c in stock_codes}
+        corp = {c: v for c, v in corp.items() if v}
+        코드들 = list(corp.values())
+        out: dict[str, dict] = {}
+        for i in range(0, len(코드들), 100):
+            d = self._get("fnlttMultiAcnt.json", {
+                "corp_code": ",".join(코드들[i:i + 100]), "bsns_year": year, "reprt_code": "11011"})
+            if d.get("status") != "000":
+                continue
+            out.update(주요계정_읽기(d.get("list") or []))
+        return out
+
+
+def _계정칸(이름: str) -> str | None:
+    """주요계정의 계정 이름 → 칸. 회사마다 조금씩 다르게 적는다 — '수익(매출액)', '당기순이익(손실)'.
+    '법인세차감전 순이익' 은 순이익이 아니다"""
+    이름 = 이름.replace(" ", "")
+    if "매출액" in 이름 or 이름 in ("수익", "영업수익", "매출"):
+        return "revenue"
+    if 이름.startswith("영업이익"):
+        return "op_income"
+    if 이름.startswith("당기순이익"):
+        return "net_income"
+    return {"자산총계": "assets", "부채총계": "liabilities", "자본총계": "equity"}.get(이름)
+
+
+def _금액(v) -> float | None:
+    try:
+        return float(str(v or "").replace(",", "").strip())
+    except ValueError:
+        return None
+
+
+def 주요계정_읽기(줄들: list) -> dict[str, dict]:
+    """fnlttMultiAcnt 의 list → {6자리 코드: {칸: 금액, rev_years, rev_hist}}. 연결(CFS)을 별도(OFS)보다
+    먼저 쓴다. 매출은 사업보고서에 함께 적힌 전기·전전기까지 — 스크리닝의 매출 흐름(오래된 해부터)이다"""
+    모음: dict[str, dict[str, dict]] = {}
+    for z in 줄들:
+        if not isinstance(z, dict):
+            continue
+        code = str(z.get("stock_code") or "").strip()
+        칸 = _계정칸(str(z.get("account_nm") or ""))
+        값 = _금액(z.get("thstrm_amount"))
+        if len(code) != 6 or not 칸 or 값 is None:
+            continue
+        갈래 = 모음.setdefault(code, {}).setdefault(str(z.get("fs_div") or "OFS"), {})
+        갈래[칸] = 값
+        해 = str(z.get("bsns_year") or "").strip()
+        if 칸 == "revenue" and 해.isdigit():
+            갈래["rev_years"] = [int(해) - 2, int(해) - 1, int(해)]
+            갈래["rev_hist"] = [_금액(z.get("bfefrmtrm_amount")), _금액(z.get("frmtrm_amount")), 값]
+    return {code: 갈래.get("CFS") or 갈래.get("OFS") or {} for code, 갈래 in 모음.items()}
+
 
 dart_service = DARTService()

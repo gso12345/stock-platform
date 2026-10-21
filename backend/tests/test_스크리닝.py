@@ -46,6 +46,15 @@ def _캐시_치우기():
     치우기()
 
 
+@pytest.fixture(autouse=True)
+def _기초줄_없이(monkeypatch):
+    """이 파일은 종목별 야후 줄(yf_service 의 시장 사진)이 라우트까지 가는지를 본다. 상장 전 종목의
+    기초 줄(순위 서비스가 받아 둔 시세)은 다른 검사가 캐시에 남긴 것이 섞이지 않게 비운다 —
+    기초 줄과 합치는 것은 test_스크리닝_전종목 이 본다"""
+    from app.services.screening import service
+    monkeypatch.setattr(service, "기초줄", lambda 시장: [])
+
+
 @pytest.fixture
 def client():
     return TestClient(app)
@@ -121,7 +130,8 @@ def test_조건_묶음과_ETF_칸도_서버가_아는_키다():
 
 def test_정보가_다_있으면_서버가_아는_키마다_값이_있다():
     줄 = 스크리닝줄("TEST", "US", 꽉찬정보, _시세(), 연간흐름(_연간표()))
-    비었음 = {k for k in 스크리닝_숫자키 | 스크리닝_글자키 if 줄.get(k) is None}
+    # 거래소는 종목 목록(상장 전 종목의 기초 줄)이 준다 — 야후 줄에는 없다(test_스크리닝_전종목)
+    비었음 = {k for k in 스크리닝_숫자키 | 스크리닝_글자키 - {"exchange"} if 줄.get(k) is None}
     assert not 비었음, f"값을 안 만드는 키: {비었음}"
 
 
@@ -853,9 +863,15 @@ def test_프리셋_저장도_같은_검사를_한다():
 # ── ⑤ 정렬 ────────────────────────────────────────────────────
 
 def test_값_없는_종목은_오름차순이든_내림차순이든_맨_뒤():
-    줄들 = [{"s": "a", "per": 10}, {"s": "b", "per": None}, {"s": "c", "per": 5}, {"s": "d"}]
-    assert [r["s"] for r in 라우트.줄세우기(줄들, "per", False)] == ["c", "a", "b", "d"]
-    assert [r["s"] for r in 라우트.줄세우기(줄들, "per", True)] == ["a", "c", "b", "d"]
+    from app.services.screening.table import 만들기
+    줄들 = [{"symbol": "a", "per": 10, "market_cap": 4}, {"symbol": "b", "per": None, "market_cap": 3},
+            {"symbol": "c", "per": 5, "market_cap": 2}, {"symbol": "d", "market_cap": 1}]
+    표 = 만들기("US", [], 줄들)
+
+    def 차례(내림):
+        return [r["symbol"] for r in 표.결과({}, "", "per", 내림, 0, 10)[0]]
+    assert 차례(False) == ["c", "a", "b", "d"]
+    assert 차례(True) == ["a", "c", "b", "d"]
 
 
 def test_실행하면_새_조건이_끝까지_닿고_섹터도_서버에서_거른다(client, monkeypatch):
@@ -909,9 +925,11 @@ def test_국가_섹터_산업_고를값은_거르기_전_시장_전체에서(cli
     r = client.post("/api/v1/screening/run", json={"market": "US", "q": "aapl",
                                                   "filters": {"country": {"eq": "United States"}}})
     면 = r.json()["facets"]
-    assert 면["country"] == ["Taiwan", "United States"]
+    # 나라·업종은 한글로("국내 해외 모두 한글로") — 산업은 가짓수가 많아 영문 그대로
+    assert 면["country"] == ["대만", "미국"]
     assert 면["industry"] == ["Banks", "Consumer Electronics", "Semiconductors"]
-    assert 면["sector"] == ["Financial Services", "Technology"]
+    assert 면["sector"] == ["금융", "기술"], "야후 'Financial Services' 도 나스닥처럼 '금융'"
+    assert [x["symbol"] for x in r.json()["results"]] == ["AAPL"], "영문으로 저장해 둔 보기('United States')도 맞는다"
 
 
 def test_새_칸으로_거르고_세운다(client, monkeypatch):

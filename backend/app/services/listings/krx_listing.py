@@ -228,3 +228,194 @@ def fetch_listing() -> tuple[list[dict], dict, str]:
                     log.warning(f"KRX 목록 {이름} {ymd}: {len(listing)}개뿐이라 버림")
     log.warning("KRX 직접 조회 실패 — 두 경로 모두 안 됨")
     return [], {}, ""
+
+
+# ── 스크리닝용 일괄 — 전 종목의 지표·업종·기간 수익률을 한 번에 ─────────────────
+#
+# 스크리닝은 종목마다 야후 상세(info)를 받아 PER·배당·업종을 채웠는데, 운영 서버에서는 야후
+# 상세가 막혀 가격만 남았다(사용자: "PER ... 배당 수익률 ... 안나와"). KRX 는 전 종목의 값을
+# 요청 한 번에 준다 — 위의 목록·시세(MDCSTAT01501)와 같은 주소·같은 머리글이다.
+# 요청 이름(bld)과 받는 칸 이름은 pykrx(1.0.45)의 KRX 요청 정의(website/krx/market/core.py)와 같다.
+_BLD_지표 = "dbms/MDC/STAT/standard/MDCSTAT03501"     # [12021] PER/PBR/배당수익률 — 전종목
+_BLD_업종 = "dbms/MDC/STAT/standard/MDCSTAT03901"     # 업종분류현황 — 시장별(STK·KSQ)
+_BLD_등락 = "dbms/MDC/STAT/standard/MDCSTAT01602"     # [12002] 전종목 등락률 — 기간
+
+
+def _값(v) -> float | None:
+    """KRX 숫자 칸 → 수. '-'·빈칸은 **모름**이다 — _num 처럼 0 으로 두면 적자 회사(PER '-')가
+    'PER 0' 이 되어 PER 낮은 순 맨 앞에 깔린다."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).replace(",", "").strip()
+    if not s or s == "-":
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _코드(v) -> str | None:
+    """종목코드 → 6자리(우선주처럼 영문이 섞인 것도 — _row 참고). 쓸 수 없으면 None"""
+    raw = str(v or "").strip().upper()
+    if not raw or not raw.isalnum() or len(raw) > 6:
+        return None
+    return raw.zfill(6)
+
+
+def _묻기(client: httpx.Client, bld: str, **params) -> dict:
+    r = client.post(_LIVE_URL, headers=_HEADERS, timeout=_TIMEOUT, data={"bld": bld, **params})
+    r.raise_for_status()
+    return json.loads(r.text)
+
+
+def fetch_valuation(client: httpx.Client, ymd: str) -> dict[str, dict]:
+    """전 종목 EPS·PER·BPS·PBR·주당배당(DPS)·배당수익률 → {6자리 코드: {...}}"""
+    j = _묻기(client, _BLD_지표, mktId="ALL", trdDd=ymd)
+    out: dict[str, dict] = {}
+    for it in j.get("output") or j.get("OutBlock_1") or []:
+        code = _코드(it.get("ISU_SRT_CD"))
+        if code:
+            out[code] = {"eps": _값(it.get("EPS")), "per": _값(it.get("PER")),
+                         "bps": _값(it.get("BPS")), "pbr": _값(it.get("PBR")),
+                         "dps": _값(it.get("DPS")), "dividend_yield": _값(it.get("DVD_YLD"))}
+    return out
+
+
+def fetch_sectors(client: httpx.Client, ymd: str) -> dict[str, str]:
+    """전 종목 업종(한글, 예: '전기전자') → {6자리 코드: 업종}. 코넥스는 KRX 가 업종을 안 준다"""
+    out: dict[str, str] = {}
+    for 시장 in ("STK", "KSQ"):
+        j = _묻기(client, _BLD_업종, mktId=시장, trdDd=ymd)
+        for it in j.get("block1") or j.get("OutBlock_1") or []:
+            code, 업종 = _코드(it.get("ISU_SRT_CD")), str(it.get("IDX_IND_NM") or "").strip()
+            if code and 업종:
+                out[code] = 업종
+    return out
+
+
+def fetch_returns(client: httpx.Client, 시작: str, 끝: str) -> dict[str, float]:
+    """전 종목의 시작일 → 끝일 등락률(%, 수정주가) → {6자리 코드: 등락률}"""
+    j = _묻기(client, _BLD_등락, mktId="ALL", adjStkPrc=2, strtDd=시작, endDd=끝)
+    out: dict[str, float] = {}
+    for it in j.get("OutBlock_1") or j.get("output") or []:
+        code, 등락 = _코드(it.get("ISU_SRT_CD")), _값(it.get("FLUC_RT"))
+        if code and 등락 is not None:
+            out[code] = 등락
+    return out
+
+
+def _달전(ymd: str, 달: int) -> date:
+    """YYYYMMDD 에서 `달` 개월 전 같은 날(그 달에 없는 날이면 그 달 마지막 날)"""
+    끝 = date(int(ymd[:4]), int(ymd[4:6]), int(ymd[6:]))
+    해, 월 = divmod(끝.year * 12 + 끝.month - 1 - 달, 12)
+    월 += 1
+    for 일 in range(끝.day, 0, -1):
+        try:
+            return date(해, 월, 일)
+        except ValueError:
+            continue
+    return date(해, 월, 1)
+
+
+#: 기간 수익률의 시작일이 휴일이면 KRX 가 빈 표를 준다 — 이만큼 하루씩 앞당겨 다시 묻는다
+_시작일_앞당김 = 5
+
+
+def _장날들(끝: str, 달: int):
+    """`달` 개월 전 그날부터 하루씩 앞당긴 평일들(YYYYMMDD) — 휴일이면 KRX 가 빈 표를 준다"""
+    시작 = _달전(끝, 달)
+    for i in range(_시작일_앞당김):
+        d = 시작 - timedelta(days=i)
+        if d.weekday() < 5:
+            yield d.strftime("%Y%m%d")
+
+
+def _기간등락(client: httpx.Client, 끝: str, 달: int) -> dict[str, float]:
+    for ymd in _장날들(끝, 달):
+        try:
+            값들 = fetch_returns(client, ymd, 끝)
+        except Exception as e:
+            log.debug(f"KRX 기간 등락 {달}개월 {ymd} 실패: {type(e).__name__}: {e}")
+            continue
+        if len(값들) >= MIN_ROWS:
+            return 값들
+    return {}
+
+
+#: EPS 흐름(스크리닝의 4년 막대) — 1·2·3년 전 같은 날의 지표. 그날의 EPS 는 그때의 직전 사업연도 것이다
+_EPS_몇해전 = (3, 2, 1)
+
+
+def 사업연도(ymd: str) -> int:
+    """그날 KRX 지표의 EPS 가 어느 사업연도 것인가 — 사업보고서가 3월 말까지 나오므로 4월부터는 지난해"""
+    해, 달 = int(ymd[:4]), int(ymd[4:6])
+    return 해 - 1 if 달 >= 4 else 해 - 2
+
+
+def _지난_EPS(client: httpx.Client, 끝: str, 몇해: int) -> tuple[dict[str, float], int]:
+    """`몇해` 전 그날(휴일이면 앞당겨)의 전 종목 EPS → ({코드: EPS}, 그 사업연도). 못 받으면 ({}, 0)"""
+    for ymd in _장날들(끝, 12 * 몇해):
+        try:
+            지표 = fetch_valuation(client, ymd)
+        except Exception as e:
+            log.debug(f"KRX 지난 지표 {ymd} 실패: {type(e).__name__}: {e}")
+            continue
+        if len(지표) >= MIN_ROWS:
+            return {c: 줄["eps"] for c, 줄 in 지표.items() if 줄.get("eps") is not None}, 사업연도(ymd)
+    return {}, 0
+
+
+def fetch_screening_bulk() -> tuple[dict[str, dict], str]:
+    """스크리닝 전 종목 칸 — 지표(PER·PBR·EPS·BPS·DPS·배당수익률)·업종·1/3/12개월 수익률·
+    4년 EPS(eps_years·eps_hist — 오래된 해부터).
+
+    반환: ({6자리 코드: {...}}, 기준일 YYYYMMDD). 지표를 못 받으면 ({}, "") — 업종·수익률·지난 EPS 는
+    못 받아도 지표만으로 돌려준다(한 갈래가 막혔다고 전부 버리지 않는다)."""
+    with httpx.Client(follow_redirects=True, verify=SSL) as client:
+        지표: dict[str, dict] = {}
+        기준일 = ""
+        for ymd in _candidate_days(client):
+            try:
+                지표 = fetch_valuation(client, ymd)
+            except Exception as e:
+                log.debug(f"KRX 지표 {ymd} 실패: {type(e).__name__}: {e}")
+                continue
+            if len(지표) >= MIN_ROWS:
+                기준일 = ymd
+                break
+        if not 기준일:
+            log.warning("KRX 지표(PER·PBR·배당) 조회 실패")
+            return {}, ""
+        try:
+            업종 = fetch_sectors(client, 기준일)
+        except Exception as e:
+            log.debug(f"KRX 업종 실패: {type(e).__name__}: {e}")
+            업종 = {}
+        수익률: dict[str, dict] = {}
+        for 키, 달 in (("return_1m", 1), ("return_3m", 3), ("return_1y", 12)):
+            for code, v in _기간등락(client, 기준일, 달).items():
+                수익률.setdefault(code, {})[키] = v
+        eps흐름: dict[str, dict[int, float]] = {}
+        for 몇해 in _EPS_몇해전:
+            지난, 그해 = _지난_EPS(client, 기준일, 몇해)
+            for code, v in 지난.items():
+                eps흐름.setdefault(code, {})[그해] = v
+    올해 = 사업연도(기준일)
+    out: dict[str, dict] = {}
+    for code, 줄 in 지표.items():
+        out[code] = {k: v for k, v in 줄.items() if v is not None}
+        if code in 업종:
+            out[code]["sector"] = 업종[code]
+        out[code].update(수익률.get(code, {}))
+        해마다 = dict(eps흐름.get(code, {}))
+        if 줄.get("eps") is not None:
+            해마다[올해] = 줄["eps"]
+        if len(해마다) >= 2:
+            out[code]["eps_years"] = sorted(해마다)
+            out[code]["eps_hist"] = [해마다[y] for y in out[code]["eps_years"]]
+    log.info(f"KRX 스크리닝 일괄({기준일}) — 지표 {len(지표)} · 업종 {len(업종)} · 수익률 {len(수익률)}"
+             f" · 지난 EPS {len(eps흐름)}")
+    return out, 기준일

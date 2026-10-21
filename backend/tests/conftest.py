@@ -84,3 +84,21 @@ def _빈손표시_치우기():
                 cache.delete(열쇠)
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _스크리닝_원천_끄기():
+    """스크리닝 원천(KRX·SEC·네이버·DART)은 검사에서 받지 않는다 — 바깥에 나가면 느리고, 받은 것이
+    검사용 DB 에 남아 다음 검사의 표에 섞인다. 들고 있는 시장 표도 검사마다 버린다
+    (원천을 보는 검사는 test_스크리닝_전종목 이 가짜 원천으로 직접 켠다)."""
+    try:
+        from app.services.screening import service as S
+    except Exception:
+        yield
+        return
+    원래 = S.원천_받기
+    S.원천_받기 = False
+    S.비우기()
+    yield
+    S.원천_받기 = 원래
+    S.비우기()

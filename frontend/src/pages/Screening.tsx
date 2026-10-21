@@ -7,9 +7,10 @@
  *   · 이름 칸에 회사 로고, 매출·EPS 는 연도별 막대
  *
  * 세우기는 서버가 한다. 받은 위 100개를 화면에서 다시 세우면 'PER 낮은 순' 이 전체가 아니라
- * '시총 위 100곳 중 PER 낮은 순' 이 된다.
+ * '시총 위 100곳 중 PER 낮은 순' 이 된다. 상장된 모든 종목(국내 2천여·미국 6천여 곳)이라
+ * 한 쪽에 쪽크기 만큼씩 서버에서 받아 넘긴다.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -18,6 +19,7 @@ import {
 import { screeningApi, stocksApi, type 스크리닝요청, type 스크리닝줄 } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import { Button, Card, InlineSpinner, INPUT_CLASS, Tabs, Toast, cn, 빈화면, 못불러옴 } from "@/components/ui";
+import Pagination from "@/components/ui/Pagination";
 import { 읽을수있는오류 } from "@/utils/errors";
 import { csv내려받기 } from "@/utils/csv";
 import { 용어사전 } from "@/constants/terms";
@@ -48,6 +50,9 @@ const 시장들 = [
 
 type 판 = "묶음" | "조건" | "칸" | "저장";
 
+/** 한 쪽에 몇 곳 — 서버 limit 상한(100) 안에서, 휴대폰에서도 표가 무겁지 않게 */
+const 쪽크기 = 50;
+
 /** 고른 칸은 이 브라우저에 남긴다 — 열 때마다 칸을 다시 고르게 하면 칸 고르기를 안 쓰게 된다 */
 const 칸_열쇠 = "screening_cols_v2";
 
@@ -75,7 +80,6 @@ export default function Screening() {
   const [찾는말, set찾는말] = useState("");
   const [열린판, set열린판] = useState<판 | null>(null);
   const [보이는칸, set보이는칸] = useState<string[]>(칸읽기);
-  const [몇줄, set몇줄] = useState(30);
   const [알림, set알림] = useState<{ 글: string; 종류: "success" | "error" } | null>(null);
   // Toast 는 onClose 가 바뀌면 머무는 시간을 처음부터 다시 잰다 — 표를 받는 동안 안 닫히지 않게 고정한다
   const 알림닫기 = useCallback(() => set알림(null), []);
@@ -93,9 +97,18 @@ export default function Screening() {
     return () => window.removeEventListener("keydown", 키);
   }, [열린판]);
 
+  /* 시장·조건·정렬·찾기가 바뀌면 첫 쪽부터 — 다른 목록의 3쪽은 뜻이 없다. 쪽을 그 목록의 열쇠와
+     함께 들어, 바뀐 목록으로 앞 목록의 3쪽을 한 번 묻는 일도 없게 한다 */
+  const 목록열쇠 = JSON.stringify([시장, 조건, 정렬, 순서, 찾는말]);
+  const [쪽기억, set쪽기억] = useState({ 열쇠: 목록열쇠, 쪽: 1 });
+  const 쪽 = 쪽기억.열쇠 === 목록열쇠 ? 쪽기억.쪽 : 1;
+  const 표자리 = useRef<HTMLDivElement>(null);
+  const 머리자리 = useRef<HTMLDivElement>(null);
+
   const 요청: 스크리닝요청 = useMemo(() => ({
-    market: 시장, filters: 보낼조건(조건), sort_by: 정렬, sort_order: 순서, limit: 100, q: 찾는말,
-  }), [시장, 조건, 정렬, 순서, 찾는말]);
+    market: 시장, filters: 보낼조건(조건), sort_by: 정렬, sort_order: 순서,
+    limit: 쪽크기, offset: (쪽 - 1) * 쪽크기, q: 찾는말,
+  }), [시장, 조건, 정렬, 순서, 찾는말, 쪽]);
 
   const 결과 = useQuery({
     queryKey: ["screening", 요청],
@@ -109,11 +122,29 @@ export default function Screening() {
        다 받을 때까지 곧잘 다시 묻는다 */
     refetchInterval: (q) => (q.state.data?.building ? 3000 : false),
   });
-  useEffect(() => set몇줄(30), [요청]);
 
   const 줄들 = 결과.data?.results ?? [];
   const 전체수 = 결과.data?.total ?? 0;
   const 짓는중 = 결과.data?.building ?? null;
+  const 쪽수 = Math.max(1, Math.ceil(전체수 / 쪽크기));
+  // 순위·범위는 보이는 줄의 것으로 — 다음 쪽을 받는 동안엔 앞 쪽이 흐리게 남아 있다
+  const 보인앞 = 결과.data?.offset ?? (쪽 - 1) * 쪽크기;
+
+  const 쪽넘기기 = (p: number) => {
+    set쪽기억({ 열쇠: 목록열쇠, 쪽: p });
+    표자리.current?.scrollTo?.({ top: 0 });
+    // 휴대폰은 화면 전체가 밀린다 — 표 아래의 쪽 단추를 눌렀으면 새 쪽의 첫 줄부터 보이게
+    if ((머리자리.current?.getBoundingClientRect().top ?? 0) < 0) 머리자리.current?.scrollIntoView?.({ block: "start" });
+  };
+
+  /* 서버가 표를 새로 만들며 종목이 줄어 이 쪽이 사라졌으면 마지막 쪽으로 — '맞는 종목이 없어요' 가
+     뜨면 조건만 헛되이 풀게 된다 */
+  useEffect(() => {
+    const d = 결과.data;
+    if (d && !결과.isPlaceholderData && !d.results.length && d.total > 0 && 쪽 > 1) {
+      set쪽기억({ 열쇠: 목록열쇠, 쪽: Math.ceil(d.total / 쪽크기) });
+    }
+  }, [결과.data, 결과.isPlaceholderData, 쪽, 목록열쇠]);
 
   const 보일칸 = useMemo(() => {
     const 켜짐 = new Set(보이는칸);
@@ -279,7 +310,7 @@ export default function Screening() {
       )}
 
       {/* ── 결과 ──────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-2 px-1 text-xs text-text-muted min-h-[1.25rem]">
+      <div ref={머리자리} className="flex items-center justify-between gap-2 px-1 text-xs text-text-muted min-h-[1.25rem] scroll-mt-3">
         <span>
           <span className="text-text-secondary font-medium">{정렬글}</span>
           {결과.data && !결과.data.failed && (
@@ -287,7 +318,8 @@ export default function Screening() {
               {" · "}
               {짓는중 ? "시장 전체를 받는 중"
                 : 전체수 > 줄들.length
-                ? <>조건에 맞는 <b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳 중 위 {줄들.length}곳</>
+                ? <>조건에 맞는 <b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳 중{" "}
+                    {(보인앞 + 1).toLocaleString("ko-KR")}~{(보인앞 + 줄들.length).toLocaleString("ko-KR")}위</>
                 : <><b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳</>}
               {/* 가격은 서버가 5분마다 묶음 시세로 새로 받는다 — 언제 것인지 밝힌다 */}
               {시세때 && !짓는중 && <span className="text-text-dim"> · 시세 {시세때}</span>}
@@ -331,57 +363,54 @@ export default function Screening() {
             hint={걸린수 || 찾는말 ? "조건의 범위를 넓히거나 하나 빼 보세요." : "잠시 뒤 다시 열어 보세요."}
             action={걸린수 || 찾는말 ? { label: "조건 모두 지우기", onClick: 모두지우기 } : undefined} />
         ) : (
-          <div className={cn(표상자, "transition-opacity", 결과.isPlaceholderData && "opacity-60")}>
-            <table className="w-full text-xs">
-              <thead className={표머리}>
-                <tr className={표머리줄}>
-                  <th scope="col" className={붙박이머리}>종목</th>
-                  {보일칸.map((c) => {
-                    const 이름 = 칸이름(c, 시장);
-                    const 지금 = 정렬 === c.key;
+          <>
+            <div ref={표자리} className={cn(표상자, "transition-opacity", 결과.isPlaceholderData && "opacity-60")}>
+              <table className="w-full text-xs">
+                <thead className={표머리}>
+                  <tr className={표머리줄}>
+                    <th scope="col" className={붙박이머리}>종목</th>
+                    {보일칸.map((c) => {
+                      const 이름 = 칸이름(c, 시장);
+                      const 지금 = 정렬 === c.key;
+                      return (
+                        <th key={c.key} scope="col" className={표머리칸}
+                          aria-sort={지금 ? (순서 === "desc" ? "descending" : "ascending") : undefined}>
+                          {c.세움 === false ? 이름 : (
+                            <정렬제목 이름={이름} 지금={지금} 순서={순서} onClick={() => 세우기(c.key)}
+                              title={용어사전[c.이름]?.뜻} />
+                          )}
+                        </th>
+                      );
+                    })}
+                    <th scope="col" className="px-2 py-2.5 w-8"><span className="sr-only">관심종목</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {줄들.map((s, i) => {
+                    const 이름 = s.name ?? s.symbol;
                     return (
-                      <th key={c.key} scope="col" className={표머리칸}
-                        aria-sort={지금 ? (순서 === "desc" ? "descending" : "ascending") : undefined}>
-                        {c.세움 === false ? 이름 : (
-                          <정렬제목 이름={이름} 지금={지금} 순서={순서} onClick={() => 세우기(c.key)}
-                            title={용어사전[c.이름]?.뜻} />
-                        )}
-                      </th>
+                      <tr key={`${s.market}:${s.symbol}`} onMouseEnter={() => 미리받기(s)} className={표줄}>
+                        <td className={붙박이칸}>
+                          <종목칸 순위={보인앞 + i + 1} symbol={s.symbol} name={이름} market={s.market} domain={s.domain} />
+                        </td>
+                        {보일칸.map((c) => (
+                          <td key={c.key} className={표칸}>
+                            <칸값 칸={c} 줄={s} 이름={`${이름} ${칸이름(c, 시장)}`} />
+                          </td>
+                        ))}
+                        <td className="px-2 py-2">
+                          <관심별 symbol={s.symbol} market={s.market} name={이름} 로그인함={isLoggedIn}
+                            알리기={(글, 종류) => set알림({ 글, 종류 })} />
+                        </td>
+                      </tr>
                     );
                   })}
-                  <th scope="col" className="px-2 py-2.5 w-8"><span className="sr-only">관심종목</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {줄들.slice(0, 몇줄).map((s, i) => {
-                  const 이름 = s.name ?? s.symbol;
-                  return (
-                    <tr key={`${s.market}:${s.symbol}`} onMouseEnter={() => 미리받기(s)} className={표줄}>
-                      <td className={붙박이칸}>
-                        <종목칸 순위={i + 1} symbol={s.symbol} name={이름} market={s.market} domain={s.domain} />
-                      </td>
-                      {보일칸.map((c) => (
-                        <td key={c.key} className={표칸}>
-                          <칸값 칸={c} 줄={s} 이름={`${이름} ${칸이름(c, 시장)}`} />
-                        </td>
-                      ))}
-                      <td className="px-2 py-2">
-                        <관심별 symbol={s.symbol} market={s.market} name={이름} 로그인함={isLoggedIn}
-                          알리기={(글, 종류) => set알림({ 글, 종류 })} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {줄들.length > 몇줄 && (
-              <div className="flex justify-center py-3 border-t border-border/30">
-                <Button variant="link" className="text-xs" onClick={() => set몇줄((n) => n + 30)}>
-                  더 보기 ({줄들.length - 몇줄}곳 더)
-                </Button>
-              </div>
-            )}
-          </div>
+                </tbody>
+              </table>
+            </div>
+            <Pagination page={Math.min(쪽, 쪽수)} totalPages={쪽수} onChange={쪽넘기기} numbered
+              className="py-3 border-t border-border/30" />
+          </>
         )}
       </Card>
 

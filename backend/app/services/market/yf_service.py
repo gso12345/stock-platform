@@ -246,7 +246,8 @@ def 스크리닝_종목들(market: str) -> list[str]:
     # 연간 재무 흐름에서 낸다(연간흐름) — 받기 전인 종목은 값이 없다
     "rev_cagr_3y", "eps_cagr_3y",
 })
-스크리닝_글자키 = frozenset({"sector", "country", "industry"})
+#: 거래소(코스피·코스닥·코넥스, 나스닥·NYSE …)는 상장된 모든 종목을 담으면서 생긴 칸이다
+스크리닝_글자키 = frozenset({"sector", "country", "industry", "exchange"})
 
 #: 연간 재무 흐름(4년 매출·EPS 막대와 3년 성장률)이 줄에 붙는 칸. fin_at 은 받은 때
 흐름_칸 = ("fin_years", "rev_hist", "eps_hist", "rev_cagr_3y", "eps_cagr_3y", "fin_at")
@@ -514,6 +515,22 @@ def _스크리닝_잠금(market: str) -> threading.Lock:
 #: 종목마다 통째로 받는 일은 시장을 가리지 않고 한 번에 하나만 — 미국·국내·ETF 를 겹쳐 받으면
 #  동시에 묻는 수가 세 배가 된다
 _스크리닝_한시장씩 = threading.Semaphore(1)
+
+
+def _줄_잇기(옛: dict, 새: dict) -> dict:
+    """야후 상세(info)가 막혀 가격만 온 줄이면, 비어 온 칸(None)은 지난 줄의 값을 남긴다.
+
+    운영 서버에서 야후 상세가 막히면 새 줄에는 1년 시세로 낸 값(가격·RSI·수익률 …)만 있고 나머지
+    칸은 None 으로 온다. 예전엔 그 줄로 통째로 덮어서, 6시간마다 멀쩡하던 시가총액·PER·배당·회사명이
+    지워졌다(사용자: "시가총액이 안나옴", "국내주식은 회사명이아닌 코드가 나와").
+    상세가 온 줄(이름이 종목 코드가 아니거나 시가총액이 있다)은 그대로 쓴다 — 적자로 돌아서 PER 이
+    사라진 것까지 지난 값으로 덮으면 안 된다."""
+    if 새.get("name") not in (None, "", 새.get("symbol")) or 새.get("market_cap") is not None:
+        return 새
+    합친 = dict(옛)
+    합친.update({k: v for k, v in 새.items() if v is not None and k != "name"})
+    합친["name"] = 옛.get("name") or 새.get("name")
+    return 합친
 
 
 def _마지막_통째(줄들: list) -> float:
@@ -1171,7 +1188,8 @@ class YFinanceService:
         지난 = {r.get("symbol"): r for r in (_스크리닝_사진.get(market) or ([], 0.0))[0]}
         줄들 = []
         for s in symbols:
-            r = 받은것.get(s) or 지난.get(보일이름(s))
+            새, 옛 = 받은것.get(s), 지난.get(보일이름(s))
+            r = _줄_잇기(옛, 새) if 새 and 옛 else (새 or 옛)
             if r:
                 # 줄은 종목마다 캐시된 것일 수 있다 — 흐름을 붙이기 전에 떼어 낸다(캐시를 건드리지 않게)
                 줄들.append(dict(r))

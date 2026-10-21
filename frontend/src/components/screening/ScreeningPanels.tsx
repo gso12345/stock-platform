@@ -10,7 +10,7 @@ import {
 } from "./screeningDefs";
 
 export type 조건모음 = Record<string, any>;
-export type 고를값들 = { country?: string[]; sector?: string[]; industry?: string[] };
+export type 고를값들 = { exchange?: string[]; country?: string[]; sector?: string[]; industry?: string[] };
 export type 기본묶음하나 = (typeof 기본묶음)[number];
 
 const 시장말: Record<string, string> = { US: "미국", KR: "한국", ETF: "ETF" };
@@ -81,7 +81,7 @@ export function 조건판({ 시장, 조건, 고를값, 적용 }: {
   return (
     <form onSubmit={보내기} className="flex flex-col gap-4" aria-label="조건">
       {글고르기.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {글고르기.map((g) => {
             const 값들 = 고를값?.[g.key] ?? [];
             const 지금 = 글초안[g.key];

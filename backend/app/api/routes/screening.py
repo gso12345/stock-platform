@@ -12,6 +12,7 @@ from app.models.stock import ScreeningPreset
 from app.models.user import User
 from app.core.deps import require_user, get_current_user
 from app.services.market.yf_service import yf_service, 스크리닝_숫자키, 스크리닝_글자키
+from app.services.screening import service as 스크리닝
 from app.core.cache import cache
 
 router = APIRouter(prefix="/screening", tags=["스크리닝"])
@@ -60,6 +61,8 @@ class ScreeningRequest(BaseModel):
     sort_by: str = Field("market_cap", pattern=_SORT_PATTERN)
     sort_order: str = Field("desc", pattern="^(asc|desc)$")
     limit: int = Field(50, ge=1, le=100)
+    #: 몇 번째 줄부터 — 상장된 모든 종목이라 결과가 수천 곳이다. 화면이 한 쪽(50곳)씩 넘긴다
+    offset: int = Field(0, ge=0, le=50000)
     #: 티커·이름으로 찾기 — 'AAPL, MSFT' 처럼 쉼표로 여럿
     q: str = Field("", max_length=100)
 
@@ -79,55 +82,30 @@ class PresetSaveRequest(BaseModel):
     _칸 = field_validator("columns")(classmethod(lambda cls, v: _칸검사(v)))
 
 
-def 이름찾기(줄들: list, q: str) -> list:
-    """티커나 이름에 찾는 말이 든 줄만. 쉼표로 여럿이면 그중 하나라도('AAPL, MSFT').
-    띄어쓰기·대소문자는 가리지 않는다('bank of' → Bank of America)."""
-    말들 = [m for m in (re.sub(r"\s+", "", 조각).lower() for 조각 in re.split(r"[,，]", q or "")) if m]
-    if not 말들:
-        return 줄들
-
-    def 맞나(r: dict) -> bool:
-        글 = (str(r.get("symbol") or "") + "|" + re.sub(r"\s+", "", str(r.get("name") or ""))).lower()
-        return any(m in 글 for m in 말들)
-    return [r for r in 줄들 if 맞나(r)]
-
-
-def 고를값들(줄들: list) -> dict:
-    """국가·섹터·산업 조건에 내놓을 값들 — 그 시장 전체에 실제로 있는 것만, 가나다(ABC)순"""
-    return {k: sorted({r[k] for r in 줄들 if isinstance(r.get(k), str) and r[k]})
-            for k in ("country", "sector", "industry")}
-
-
-def 줄세우기(results: list, sort_by: str, desc: bool) -> list:
-    """값 없는 종목은 오름·내림 어느 쪽이든 **맨 뒤로.** 예전엔 없는 값을 0 으로
-    쳐서, PER 낮은 순으로 세우면 PER 모르는 적자 기업들이 1등부터 깔렸다."""
-    있음 = [r for r in results if r.get(sort_by) is not None]
-    없음 = [r for r in results if r.get(sort_by) is None]
-    return sorted(있음, key=lambda r: r[sort_by], reverse=desc) + 없음
-
-
 @router.post("/run")
 # 화면이 칸 제목을 누를 때마다·찾는 말이 바뀔 때마다 곧바로 다시 묻는다(예전엔 '실행' 단추를 눌러야 했다).
-# 10번이면 칸 몇 개 눌러 보다 막힌다. 한 번은 받아 둔 시장 사진을 거르고 세울 뿐이라 가볍다
+# 10번이면 칸 몇 개 눌러 보다 막힌다. 한 번은 들고 있는 시장 표를 거르고 세울 뿐이라 가볍다
 @limiter.limit("40/minute")
 async def run_screening(request: Request, req: ScreeningRequest):
-    ck = f"screening:{req.market}:{req.sort_by}:{req.sort_order}:{sorted(req.filters.items())}:{req.q}:{req.limit}"
+    ck = (f"screening:{req.market}:{req.sort_by}:{req.sort_order}:{sorted(req.filters.items())}:"
+          f"{req.q}:{req.offset}:{req.limit}")
     if cached := cache.get(ck):
         return cached
     loop = asyncio.get_running_loop()
-    # 시장 전체는 한 번만 꺼낸다 — 사진이 없으면 짓는 동안 잠깐 기다리는데, 두 번 꺼내면 두 번 기다린다
-    전체 = await loop.run_in_executor(None, yf_service.스크리닝_전체, req.market)
-    짓는중 = yf_service.스크리닝_짓는중(req.market)
-    results = [r for r in 전체 if yf_service._apply_filters(r, req.filters)]
-    results = 줄세우기(이름찾기(results, req.q), req.sort_by, req.sort_order == "desc")
+    # 상장된 모든 종목의 표(services/screening) — 표가 없을 때만 그 자리에서 만든다
+    표 = await loop.run_in_executor(None, 스크리닝.표, req.market)
+    # 전 종목 기초 줄이 있으면 종목별 야후 줄을 처음 받는 중이어도 표는 이미 쓸 만하다 —
+    # 그때 '받는 중' 이라고 알리면 화면이 3초마다 다시 묻는다
+    짓는중 = yf_service.스크리닝_짓는중(req.market) if not 표.기초수 else None
+    results, total = 표.결과(req.filters, req.q, req.sort_by, req.sort_order == "desc", req.offset, req.limit)
     payload = {
-        "results": results[: req.limit], "total": len(results),
-        # 국가·섹터·산업 고르기 — 거르기 전 시장 전체에서
-        "facets": 고를값들(전체),
-        #: 사진이 없어 처음 짓는 중이면 {"done", "total"} — 화면은 받은 줄부터 보여 주고 곧 다시 묻는다
+        "results": results, "total": total, "offset": req.offset,
+        # 국가·섹터·산업·거래소 고르기 — 거르기 전 시장 전체에서
+        "facets": 표.고를값들(),
+        #: 표가 비어 종목별 야후 줄을 처음 짓는 중이면 {"done", "total"} — 화면은 받은 줄부터 보여 주고 곧 다시 묻는다
         "building": 짓는중,
-        #: 사진도 없는데 야후에서 한 줄도 못 받았다 — 화면이 '맞는 종목이 없어요' 와 갈라 알린다
-        "failed": not 전체 and 짓는중 is None and yf_service.스크리닝_못받음(req.market),
+        #: 표가 비었는데 야후에서 한 줄도 못 받았다 — 화면이 '맞는 종목이 없어요' 와 갈라 알린다
+        "failed": not len(표) and 짓는중 is None and yf_service.스크리닝_못받음(req.market),
         #: 시세가 언제 것인가(유닉스 초) — 가격은 5분마다 묶음 시세로 새로 받는다
         "as_of": yf_service.스크리닝_찍은때(req.market),
     }

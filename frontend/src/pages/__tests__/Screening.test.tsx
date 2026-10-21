@@ -97,7 +97,7 @@ describe("열자마자", () => {
     그리기();
     expect(await screen.findByText("NVIDIA Corporation")).toBeTruthy();
     expect(run).toHaveBeenCalledTimes(1);
-    expect(마지막()).toEqual({ market: "US", filters: {}, sort_by: "market_cap", sort_order: "desc", limit: 100, q: "" });
+    expect(마지막()).toEqual({ market: "US", filters: {}, sort_by: "market_cap", sort_order: "desc", limit: 50, offset: 0, q: "" });
     expect(screen.queryByRole("button", { name: "스크리닝 실행" })).toBeNull();
     expect(screen.getByText("시가총액 높은 순")).toBeTruthy();
   });
@@ -107,7 +107,7 @@ describe("열자마자", () => {
     그리기();
     await screen.findByText("NVIDIA Corporation");
     expect(screen.getByText("250")).toBeTruthy();
-    expect(screen.getByText(/곳 중 위 3곳/)).toBeTruthy();
+    expect(screen.getByText(/곳 중 1~3위/)).toBeTruthy();
   });
 
   it("서버가 준 결과를 화면이 다시 거르거나 세우지 않는다", async () => {
@@ -430,17 +430,78 @@ describe("표의 칸", () => {
     expect(이름.closest("a")!.getAttribute("href")).toBe("/stocks/US/NVDA");
   });
 
-  it("30곳씩 보이고 '더 보기' 로 더", async () => {
-    run.mockResolvedValue(응답(Array.from({ length: 40 }, (_, i) => 줄({ symbol: `S${i}`, name: `회사${i}` }))));
-    그리기();
-    await screen.findByText("회사0");
-    expect(screen.getAllByRole("row")).toHaveLength(31);
-    fireEvent.click(screen.getByRole("button", { name: "더 보기 (10곳 더)" }));
-    expect(screen.getAllByRole("row")).toHaveLength(41);
-    // 다른 정렬은 다른 목록 — 다시 위에서 30곳부터
-    fireEvent.click(screen.getByRole("button", { name: "PER" }));
-    await waitFor(() => expect(마지막().sort_by).toBe("per"));
-    await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(31));
+  /* "상장된 모든 종목을 대상으로 해줘" — 수천 곳이라 서버에서 한 쪽(50곳)씩 받아 넘긴다 */
+  describe("쪽 넘기기", () => {
+    const 쪽응답 = (req: any) => {
+      const 앞 = req.offset ?? 0;
+      const 수 = Math.max(0, Math.min(50, 120 - 앞));
+      return Promise.resolve(응답(Array.from({ length: 수 }, (_, i) => 줄({ symbol: `S${앞 + i}`, name: `회사${앞 + i}` })),
+        { total: 120, offset: 앞 }));
+    };
+    const 순위들 = () => screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[0].textContent!.match(/^\d+/)?.[0]);
+
+    it("다음 쪽은 서버에 그 자리부터 묻고, 순위는 이어서 센다", async () => {
+      run.mockImplementation(쪽응답);
+      그리기();
+      await screen.findByText("회사0");
+      expect(screen.getAllByRole("row")).toHaveLength(51);
+      expect(screen.getByText(/곳 중 1~50위/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "1" }).getAttribute("aria-current")).toBe("page");
+      fireEvent.click(screen.getByRole("button", { name: "다음 쪽" }));
+      expect(await screen.findByText("회사50")).toBeTruthy();
+      expect(마지막()).toMatchObject({ offset: 50, limit: 50 });
+      expect(순위들()[0]).toBe("51");
+      expect(screen.getByText(/곳 중 51~100위/)).toBeTruthy();
+      // 마지막 쪽은 남은 20곳
+      fireEvent.click(screen.getByRole("button", { name: "3" }));
+      expect(await screen.findByText("회사119")).toBeTruthy();
+      expect(screen.getAllByRole("row")).toHaveLength(21);
+      expect((screen.getByRole("button", { name: "다음 쪽" }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("정렬·조건·찾기·시장을 바꾸면 첫 쪽부터 — 바뀐 목록으로 앞 쪽 자리를 묻지 않는다", async () => {
+      run.mockImplementation(쪽응답);
+      그리기();
+      await screen.findByText("회사0");
+      fireEvent.click(screen.getByRole("button", { name: "2" }));
+      await screen.findByText("회사50");
+      const 앞수 = run.mock.calls.length;
+      fireEvent.click(screen.getByRole("button", { name: "PER" }));
+      await waitFor(() => expect(마지막().sort_by).toBe("per"));
+      const 뒤 = run.mock.calls.slice(앞수).map((c) => c[0]);
+      expect(뒤.every((r) => r.offset === 0), JSON.stringify(뒤)).toBe(true);
+      await screen.findByText("회사0");
+      expect(순위들()[0]).toBe("1");
+      fireEvent.click(screen.getByRole("button", { name: "2" }));
+      await screen.findByText("회사50");
+      fireEvent.change(screen.getByRole("searchbox", { name: "티커나 이름으로 찾기" }), { target: { value: "회사" } });
+      await waitFor(() => expect(마지막()).toMatchObject({ q: "회사", offset: 0 }));
+    });
+
+    it("한 쪽에 다 들어가면 쪽 단추가 없다", async () => {
+      그리기();
+      await screen.findByText("NVIDIA Corporation");
+      expect(screen.queryByRole("button", { name: "다음 쪽" })).toBeNull();
+    });
+
+    it("표가 새로 만들어져 그 쪽이 사라졌으면 마지막 쪽으로 — '맞는 종목이 없어요' 가 아니라", async () => {
+      run.mockImplementation(쪽응답);
+      그리기();
+      await screen.findByText("회사0");
+      // 1쪽을 본 뒤 서버 표가 다시 만들어지며 종목이 60곳으로 줄었다 — 3쪽(100번째부터)은 비어 온다
+      run.mockImplementation((req: any) => {
+        const 앞 = req.offset ?? 0;
+        const 수 = Math.max(0, Math.min(50, 60 - 앞));
+        return Promise.resolve(응답(Array.from({ length: 수 }, (_, i) => 줄({ symbol: `T${앞 + i}`, name: `새회사${앞 + i}` })),
+          { total: 60, offset: 앞 }));
+      });
+      fireEvent.click(screen.getByRole("button", { name: "3" }));
+      await waitFor(() => expect(run.mock.calls.some((c) => c[0].offset === 100)).toBe(true));
+      expect(await screen.findByText("새회사59")).toBeTruthy();
+      expect(마지막()).toMatchObject({ offset: 50 });
+      expect(screen.queryByText("조건에 맞는 종목이 없어요")).toBeNull();
+      expect(screen.getByRole("button", { name: "2" }).getAttribute("aria-current")).toBe("page");
+    });
   });
 });
 

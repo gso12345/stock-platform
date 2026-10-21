@@ -157,7 +157,9 @@ export function 시장조건묶음(시장: string) {
 }
 
 /** 글자 하나로 고르는 조건(서버의 스크리닝_글자키) — 고를 값은 서버가 그 시장에서 모아 준다 */
-export const 글조건: { key: "country" | "sector" | "industry"; 이름: string }[] = [
+export const 글조건: { key: "exchange" | "country" | "sector" | "industry"; 이름: string }[] = [
+  /* 상장된 모든 종목을 담으면서 생긴 조건 — 코스피·코스닥·코넥스, 나스닥·NYSE … */
+  { key: "exchange", 이름: "거래소" },
   { key: "country", 이름: "국가" },
   { key: "sector", 이름: "섹터" },
   { key: "industry", 이름: "산업" },
