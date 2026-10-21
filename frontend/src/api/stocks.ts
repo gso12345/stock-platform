@@ -183,18 +183,12 @@ export interface QuantCompareItem {
   total_score: number | null;
   grade: string | null;
   factors: QuantFactor[];
-  /** 처음 받는 종목이라 아직 계산 중 — 화면은 칸 자리를 잡아 두고 곧 다시 묻는다 */
-  pending?: boolean;
-  /** 회사 누리집(로고) — 스크리닝이 받아 둔 것. 모르면 없다 */
-  domain?: string;
 }
 
 export interface QuantCompareResult {
   weights: QuantWeights;
   enabled_metrics: QuantEnabledMetrics;
   items: QuantCompareItem[];
-  /** 아직 계산 중인 종목 수 */
-  pending?: number;
 }
 
 export const quantScoreApi = {

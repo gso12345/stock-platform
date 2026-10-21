@@ -18,20 +18,36 @@ log = logging.getLogger(__name__)
 뒤 들어온 사람이 종목마다 OHLCV 를 새로 받는 값을 다 치렀다 — 관심종목
 20개면 20번이고, 그게 그대로 '퀀트 탭이 느리다' 였다."""
 QMETRICS_TTL = 1800
+#: 가치 지표나 시세(모멘텀)가 통째로 빈 지표(조회가 시한에 걸렸다)는 이만큼만 둔다 — 30분 동안 그
+#: 회사의 가치·모멘텀 점수가 '—' 로 굳지 않게 곧 다시 받는다(quant_score.지표가_반쪽인가)
+QMETRICS_PARTIAL_TTL = 120
+
+
+def 퀀트지표_담기(ck: str, 지표: dict, 시장: str) -> dict:
+    """새로 모은 지표를 메모리에 담고, 담은 것을 돌려준다(DB 는 quant_store.저장 이 따로 — 반쪽은 거른다).
+
+    반쪽(가치 지표나 시세가 통째로 빈 것)이면 먼저 있던 값으로 빈 칸을 채워 담고, 짧게만 둔다.
+    지난 값을 뒤에서 새로 받다가(또는 같은 종목을 두 요청이 겹쳐 받다가) 한쪽이 시한에 걸리면,
+    멀쩡하던 가치·모멘텀 점수를 그 반쪽이 덮어 '—' 로 만들었다."""
+    from app.services.quant_score import 지표가_반쪽인가
+    if not 지표가_반쪽인가(지표, 시장):
+        cache.set(ck, 지표, QMETRICS_TTL)
+        return 지표
+    있던것 = cache.get_stale(ck)
+    if 있던것:
+        지표 = {**있던것, **{k: v for k, v in 지표.items() if v is not None}}
+    cache.set(ck, 지표, QMETRICS_PARTIAL_TTL)
+    return 지표
+
 
 _퀀트갱신중: set[str] = set()
-
-
-#: 받다 실패한 종목은 이만큼(초) 다시 받지 않는다 — '계산 중' 으로 남겨 두면 화면이 영영 다시 묻는다
-QMETRICS_FAIL_TTL = 600
 
 
 def _퀀트지표_뒤로미루기(sym: str, mkt: str, ck: str) -> None:
     """지난 값으로 먼저 답하고, 새 값은 뒤에서 받아 둔다.
 
     같은 종목을 여러 사람이 동시에 열면 갱신이 겹친다. 한 번에 하나만
-    돌게 표시해 둔다 — 0.15 CPU 에서는 겹치는 것 자체가 비용이다.
-    퀀트 전용 풀(넷만 겹치고 낮은 우선순위)에서 돈다 — app.core.executor.quant_executor"""
+    돌게 표시해 둔다 — 0.15 CPU 에서는 겹치는 것 자체가 비용이다."""
     if ck in _퀀트갱신중:
         return
     _퀀트갱신중.add(ck)
@@ -41,28 +57,20 @@ def _퀀트지표_뒤로미루기(sym: str, mkt: str, ck: str) -> None:
             import asyncio as _a
             from app.services.quant_score import collect_quant_metrics as _c
             m = _a.run(_c(sym, mkt, fetch_ohlcv=True))
-            cache.set(ck, m, QMETRICS_TTL)
-            cache.delete(f"qfail:{ck}")
-            # 서버가 잠들었다 깨도 쓸 수 있게 남겨 둔다(quant_store)
+            퀀트지표_담기(ck, dict(m), mkt)
+            # 서버가 잠들었다 깨도 쓸 수 있게 남겨 둔다(quant_store) — 새로 다 모은 것만
             from app.services.quant_store import 저장
             저장(sym, mkt, dict(m))
         except Exception as e:
-            cache.set(f"qfail:{ck}", True, QMETRICS_FAIL_TTL)
             log.warning("퀀트 지표 배경 갱신 실패 %s %s: %s", mkt, sym, type(e).__name__)
         finally:
             _퀀트갱신중.discard(ck)
 
     try:
-        from app.core.executor import quant_executor
-        quant_executor.submit(_받기)
+        from app.core.executor import background_executor
+        background_executor.submit(_받기)
     except Exception:
         _퀀트갱신중.discard(ck)
-
-
-def _퀀트지표_처음받기(sym: str, mkt: str, ck: str) -> None:
-    """한 번도 받은 적 없는 종목 — 뒤에서 받게 던져 둔다(받는 길은 _퀀트지표_뒤로미루기 와 같다).
-    부르는 쪽은 잠깐만 기다리고, 그때까지 못 받았으면 '계산 중' 으로 답한다."""
-    _퀀트지표_뒤로미루기(sym, mkt, ck)
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session

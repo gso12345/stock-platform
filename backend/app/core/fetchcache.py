@@ -113,7 +113,8 @@ WAIT_SEC = float(os.getenv("FETCH_WAIT_SEC", 4))
 
 
 async def 캐시_우선_비동기(ck: str, 받기, 빈값, miss_ttl: "int | None" = None,
-                           지난값=None, 담기=None, 대기: "float | None" = None):
+                           지난값=None, 담기=None, 대기: "float | None" = None,
+                           겹치면_기다림: float = 0):
     """같은 규칙의 async 판.
 
     `지난값` 은 캐시 밖에 따로 둔 지난 값이다 — 재무제표는 DB 에도 한 벌
@@ -126,6 +127,11 @@ async def 캐시_우선_비동기(ck: str, 받기, 빈값, miss_ttl: "int | None
     돌려주고, 받는 일은 뒤에서 그대로 이어 간다. 재 보니 재무제표
     첫 요청이 18초였다 — 안쪽 timeout 이 30초라 원천이 죽어 있으면
     그만큼 사람을 붙잡고 있었다.
+
+    `겹치면_기다림` 은 남이 이미 받고 있을 때 그것이 담기기를 기다려 주는
+    상한이다. 기본(0)은 기다리지 않고 지난 값(또는 빈값)을 곧바로 준다.
+    빈값을 받으면 안 되는 쪽만 준다 — 퀀트 점수는 종목 상세의 다른 탭이
+    펀더멘털을 받는 사이에 들어오면 빈 펀더멘털로 가치 점수를 비웠다.
 
     shield 로 감싸는 것이 요점이다. 그냥 wait_for 하면 시간이 넘을 때
     작업까지 취소돼서, 애써 받던 것을 버리고 다음 사람이 처음부터
@@ -145,6 +151,15 @@ async def 캐시_우선_비동기(ck: str, 받기, 빈값, miss_ttl: "int | None
     if 받는중인가(ck):
         # 이미 누가 받고 있다. 줄 서서 같은 것을 두 번 받지 않는다 —
         # 종목 상세는 탭 예닐곱 개가 한꺼번에 열리는 화면이다.
+        끝 = time.monotonic() + 겹치면_기다림
+        while time.monotonic() < 끝:
+            await asyncio.sleep(0.1)
+            # 끝났나를 먼저 본다 — 받는 쪽은 담고 나서 표시를 지운다(다른 스레드일 수도 있다)
+            끝남 = not 받는중인가(ck)
+            if (c := cache.get(ck)) is not None:
+                return c
+            if 끝남:
+                break
         return 있는대로
 
     _받는중[ck] = time.time()

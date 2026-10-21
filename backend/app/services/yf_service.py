@@ -647,8 +647,41 @@ def 스크리닝_사진_비우기() -> None:
         pass
 
 
+#: 국내 코드 → 야후 꼬리 표. 종목 목록(ticker_service)이 바뀌면(DB·pykrx 로 새로 읽으면) 다시 만든다
+_국내꼬리표: dict = {"목록": None, "표": {}}
+
+
+def _국내꼬리(code6: str) -> str:
+    """6자리 국내 코드의 야후 꼬리 — 코스닥이면 '.KQ', 그 밖(코스피·목록에 없는 종목)은 '.KS'.
+
+    종목 목록은 'XXXXXX.KQ' 처럼 꼬리째 들고 있는데, 화면 몇 곳(스크리닝 표의 관심종목 담기 등)은
+    꼬리 없이 6자리만 보낸다. 예전엔 그때 늘 '.KS' 를 붙여서, 코스닥 종목은 야후가 빈손을 줬다 —
+    2년 시세·재무제표가 비어 퀀트의 모멘텀·성장 점수가 '—' 였다(사용자: "가치 모멘텀 ... 안나오는
+    회사가 있어"). 목록을 읽는 것뿐이다 — 목록을 새로 받으러 가지 않는다."""
+    try:
+        from app.services import ticker_service as T
+        목록 = T._kr_db or T.KR_TICKERS_BUILTIN
+    except Exception:
+        목록 = None
+    if 목록 is not _국내꼬리표["목록"]:
+        표: dict = {}
+        for r in 목록 or []:
+            이름 = str(r.get("s") or "")
+            코드 = str(r.get("c") or 이름.split(".")[0])
+            if 이름.endswith(".KQ") or str(r.get("x") or "").upper() == "KOSDAQ":
+                표[코드] = ".KQ"
+            elif 이름.endswith(".KS"):
+                표[코드] = ".KS"
+        # 스크리닝 국내 목록 — 종목 목록을 못 읽었을 때도 이것만큼은 맞힌다
+        for 이름 in KOSPI_SYMBOLS + KOSDAQ_SYMBOLS:
+            코드, _, 꼬리 = 이름.partition(".")
+            표.setdefault(코드, f".{꼬리}")
+        _국내꼬리표.update(목록=목록, 표=표)
+    return _국내꼬리표["표"].get(code6, ".KS")
+
+
 def _resolve_kr_symbol(symbol: str, market: str) -> str:
-    """한국 종목코드에 야후파이낸스 접미사 자동 부여"""
+    """한국 종목코드에 야후파이낸스 접미사 자동 부여 — 꼬리가 없으면 종목 목록에서 코스피·코스닥을 찾는다"""
     if "." in symbol:
         return symbol
     #: **지수에는 붙이지 않는다.** 지수 티커는 ^ 로 시작하고 그 자체가
@@ -660,7 +693,7 @@ def _resolve_kr_symbol(symbol: str, market: str) -> str:
         return symbol
     if market == "KQ":
         return f"{symbol}.KQ"
-    return f"{symbol}.KS"
+    return f"{symbol}{_국내꼬리(symbol)}"
 
 
 class YFinanceService:
@@ -1237,26 +1270,6 @@ class YFinanceService:
         if 짓기 is None or _스크리닝_사진.get(market) is not None:
             return None
         return {"done": 짓기["받은"], "total": 짓기["전체"]}
-
-    def 누리집들(self, 심볼들: list) -> dict:
-        """종목 → 회사 누리집(로고용). 받아 둔 스크리닝 사진에서만 찾는다 — 야후에 새로 묻지 않는다.
-        국내는 '005930' 과 '005930.KS' 를 같은 종목으로 본다."""
-        def 맨이름(s: str) -> str:
-            return s.rsplit(".", 1)[0] if s.endswith((".KS", ".KQ")) else s
-        찾을 = {맨이름(s): s for s in 심볼들}
-        out: dict = {}
-        for market in ("US", "KR", "ETF"):
-            있음 = _스크리닝_사진.get(market)
-            if 있음 is None:
-                있음 = _사진_읽기(market)
-                if 있음 is None:
-                    continue
-                _스크리닝_사진[market] = 있음
-            for r in 있음[0]:
-                원래 = 찾을.get(r.get("symbol") or "")
-                if 원래 and r.get("domain"):
-                    out[원래] = r["domain"]
-        return out
 
     def 스크리닝_찍은때(self, market: str) -> Optional[float]:
         """지금 사진의 시세가 언제 것인가(유닉스 초) — 화면이 'N분 전 시세' 로 적는다"""

@@ -4,17 +4,9 @@
 크기가 제한된 풀을 공유한다.
 """
 from concurrent.futures import ThreadPoolExecutor
-from app.core.cpu import cpu_worker_count, io_worker_count, 낮은_우선순위
+from app.core.cpu import cpu_worker_count, io_worker_count
 
 background_executor = ThreadPoolExecutor(max_workers=io_worker_count(default=8), thread_name_prefix="bg-refresh")
-
-# ── 퀀트 지표 받기 ────────────────────────────────────────────
-#
-# 종목 하나에 재무·재무제표·2년 시세를 받는다. 예전엔 요청 안에서 열여섯 개씩 겹쳐 받았는데,
-# 그만큼 야후 응답 버퍼가 한꺼번에 쌓이고 0.15 CPU 를 화면 요청과 똑같이 나눠 가졌다.
-# 넷만 겹치고 낮은 우선순위로 — 공용 배경 풀과도 나눠 둔다(관심종목 서른 개가 한꺼번에 밀려와도
-# 다른 배경 갱신이 굶지 않게).
-quant_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="quant", initializer=낮은_우선순위)
 
 # ── 종목상세의 '요청 안에서 부채살처럼 퍼지는' 조회 ──────────
 #

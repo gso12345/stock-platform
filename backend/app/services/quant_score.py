@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 import bisect
+import math
 import statistics
 
 # 백분위 분포 표본이 이보다 적으면 상대평가를 적용하지 않고 절대평가로 폴백
@@ -270,6 +271,37 @@ _FUND_KEYS = ("per", "forward_per", "pbr", "ev_ebitda", "peg",
               "roe", "roa", "op_margin", "net_margin", "debt_ratio")
 
 
+#: 펀더멘털(PER·PBR·시총)이 있어야 나오는 가치 지표 — 하나도 없으면 펀더멘털 조회가 빈손이었던 것이다.
+#  품질 지표(ROE·마진·부채비율)는 재무제표로도 채워지니 펀더멘털이 빈손이어도 남는다 — 그것으로는 못 가린다
+_VALUE_KEYS = tuple(k for (k, *_rest) in METRIC_DEFS["value"])
+
+
+def 지표가_반쪽인가(metrics: dict | None, market: str = "") -> bool:
+    """가치 지표나 시세(모멘텀)가 통째로 비었나 — 펀더멘털·시세 조회가 시한에 걸리거나 막힌 때다.
+
+    그런 결과를 30분(DB 에는 일주일) 두면 그동안 그 회사의 가치·모멘텀 점수가 '—' 로 나온다
+    (사용자: "가치 모멘텀 ... 안나오는 회사가 있어"). 짧게만 두고 곧 다시 받는다.
+    ETF 는 가치 지표가 원래 없다 — 시세만 본다."""
+    if not metrics:
+        return True
+    시세 = any(str(k).startswith("mom_") for k in metrics)
+    if market == "ETF":
+        return not 시세
+
+    def 값(v) -> bool:
+        # NaN 은 빈 칸이다 — DB 에 남길 때 비워지므로(quant_store._깨끗이) 남길 때와 읽을 때 판정이 갈렸다
+        return v is not None and not (isinstance(v, float) and not math.isfinite(v))
+
+    가치 = any(값(metrics.get(k)) for k in _VALUE_KEYS)
+    return not (시세 and 가치)
+
+
+#: 펀더멘털·재무제표를 기다려 주는 상한(초) — 2년 시세(아래 timeout)와 나란히 받으니 더 늦어지지 않는다.
+#  화면 기본(4초, fetchcache.WAIT_SEC)만 기다리면 야후가 조금만 늦어도, 또 종목 상세의 다른 탭이 같은
+#  펀더멘털을 받는 사이에 들어오면 빈 펀더멘털을 받아 가치·성장 점수가 통째로 비었다
+QUANT_SOURCE_WAIT = 15
+
+
 async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = True) -> dict:
     """퀀트 점수용 원시 지표 수집 — 종목상세 엔드포인트와 percentile 분포 배치 작업이
     동일한 정의를 공유하도록 한곳에 모음. 캐시 우선 조회(fundamentals_service/yf_service)라
@@ -279,11 +311,12 @@ async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = Tr
     from app.services.yf_service import yf_service
 
     loop = asyncio.get_running_loop()
-    tasks = [get_fundamentals(symbol, market), get_financials(symbol, market)]
+    tasks = [get_fundamentals(symbol, market, 기다림=QUANT_SOURCE_WAIT),
+             get_financials(symbol, market, 기다림=QUANT_SOURCE_WAIT)]
     if fetch_ohlcv:
         tasks.append(asyncio.wait_for(
             loop.run_in_executor(None, yf_service.get_ohlcv, symbol, "2y", "1d", market),
-            timeout=15,
+            timeout=QUANT_SOURCE_WAIT,
         ))
     results = await asyncio.gather(*tasks, return_exceptions=True)
     fund = results[0] if not isinstance(results[0], Exception) else None

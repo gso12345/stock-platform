@@ -21,10 +21,11 @@ log = logging.getLogger(__name__)
 최대보관초 = 7 * 86400
 
 
-def 쓸만한가(지표: dict | None) -> bool:
-    """가격까지 다 모은 지표만 남긴다. 가격(모멘텀)이 빠진 것은 가격 조회가
-    시한에 걸린 반쪽짜리다 — 남기면 그 반쪽이 일주일 동안 점수가 된다."""
-    return bool(지표) and any(str(k).startswith("mom_") for k in 지표)
+def 쓸만한가(지표: dict | None, 시장: str = "") -> bool:
+    """다 모은 지표만 남긴다. 가격(모멘텀)이나 가치 지표(펀더멘털)가 통째로 빠진 것은 그 조회가
+    시한에 걸린 반쪽짜리다 — 남기면 그 반쪽이 일주일 동안 점수가 된다(가치·모멘텀이 빈 회사)."""
+    from app.services.quant_score import 지표가_반쪽인가
+    return bool(지표) and not 지표가_반쪽인가(지표, 시장)
 
 
 def _깨끗이(지표: dict) -> dict:
@@ -55,6 +56,9 @@ def 여럿읽기(짝들: list[tuple[str, str]]) -> dict[tuple[str, str], tuple[d
             지난초 = (지금 - 줄.fetched_at).total_seconds()
             if 지난초 > 최대보관초:
                 continue
+            # 예전엔 가격만 있으면 남겼다 — 그때 남은 반쪽(펀더멘털이 빈 것)은 안 쓰고 새로 모은다
+            if not 쓸만한가(줄.data, 줄.market):
+                continue
             나온것[열쇠] = (dict(줄.data), 지난초)
         return 나온것
     except Exception as e:
@@ -66,7 +70,7 @@ def 여럿읽기(짝들: list[tuple[str, str]]) -> dict[tuple[str, str], tuple[d
 
 def 저장(종목: str, 시장: str, 지표: dict) -> None:
     """지표를 남긴다(있으면 고쳐 쓴다). 반쪽짜리는 남기지 않는다."""
-    if not 쓸만한가(지표):
+    if not 쓸만한가(지표, 시장):
         return
     db = SessionLocal()
     try:

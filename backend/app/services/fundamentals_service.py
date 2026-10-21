@@ -113,7 +113,9 @@ async def _fetch_fund(symbol: str, market: str) -> dict:
         except Exception:
             pass
         try:
-            yf_sym = symbol if symbol.endswith((".KS", ".KQ")) else f"{code6}.KS"
+            # 꼬리가 없으면 종목 목록에서 코스피·코스닥을 찾는다 — 늘 .KS 를 붙이면 코스닥은 야후가 빈손이다
+            from app.services.yf_service import _resolve_kr_symbol
+            yf_sym = symbol if symbol.endswith((".KS", ".KQ")) else _resolve_kr_symbol(code6, "KS")
             yf_fund = await asyncio.wait_for(
                 loop.run_in_executor(None, yf_service.get_fundamentals, yf_sym, "KR"),
                 timeout=15,
@@ -247,8 +249,11 @@ async def _yf_financials(symbol: str, market: str) -> dict:
 
 # ── 공개 API: 캐시 계층 통합 ──────────────────────────────────
 
-async def get_fundamentals(symbol: str, market: str) -> dict:
-    """in-memory → DB fresh → DB stale(+bg갱신) → 외부 API fetch"""
+async def get_fundamentals(symbol: str, market: str, 기다림: "float | None" = None) -> dict:
+    """in-memory → DB fresh → DB stale(+bg갱신) → 외부 API fetch
+
+    `기다림` — 아무 데도 없을 때 받아 오기를(남이 받는 중이면 그것을) 기다려 주는 상한(초).
+    기본은 화면 상한(fetchcache.WAIT_SEC)만 기다리고 남이 받는 중이면 곧바로 빈손이다."""
     ck = f"fund:{symbol}"
 
     if fresh := cache.get(ck):
@@ -280,11 +285,11 @@ async def get_fundamentals(symbol: str, market: str) -> dict:
 
     return await 캐시_우선_비동기(
         ck, lambda: _fetch_fund(symbol, market), {},
-        지난값=cache.get_stale(ck), 담기=_담기)
+        지난값=cache.get_stale(ck), 담기=_담기, 대기=기다림, 겹치면_기다림=기다림 or 0)
 
 
-async def get_financials(symbol: str, market: str) -> dict:
-    """in-memory → DB fresh → DB stale(+bg갱신) → 외부 API fetch"""
+async def get_financials(symbol: str, market: str, 기다림: "float | None" = None) -> dict:
+    """in-memory → DB fresh → DB stale(+bg갱신) → 외부 API fetch — `기다림` 은 get_fundamentals 와 같다"""
     ck = f"financials:{symbol}"
 
     if fresh := cache.get(ck):
@@ -313,7 +318,7 @@ async def get_financials(symbol: str, market: str) -> dict:
 
     return await 캐시_우선_비동기(
         ck, _받기, {"annual": [], "quarterly": []},
-        지난값=cache.get_stale(ck), 담기=_담기)
+        지난값=cache.get_stale(ck), 담기=_담기, 대기=기다림, 겹치면_기다림=기다림 or 0)
 
 
 async def _bg_fund(symbol: str, market: str):

@@ -913,7 +913,8 @@ class Test퀀트_지표_남겨두기:
 
     def test_NaN_은_비워서_남긴다(self, 표):
         from app.services import quant_store as Q
-        Q.저장("QT5", "US", {**self.지표, "per": float("nan")})
+        # PBR 도 둔다 — 가치 지표가 NaN 하나뿐이면 반쪽이라 아예 안 남긴다(test_퀀트_빈점수)
+        Q.저장("QT5", "US", {**self.지표, "pbr": 1.1, "per": float("nan")})
         assert Q.여럿읽기([("QT5", "US")])[("QT5", "US")][0]["per"] is None
 
     def test_일주일_넘은_것은_안_쓴다(self, 표):
@@ -996,118 +997,6 @@ class Test퀀트_지표_남겨두기:
                 break
             time.sleep(0.05)
         assert Q.여럿읽기([("QT7", "US")])[("QT7", "US")][0]["per"] == 12.0
-
-
-class Test퀀트_처음_받는_종목:
-    """한 번도 받은 적 없는 종목(재무·2년 시세)은 받는 데 오래 걸린다. 예전엔 서른 종목을 다 받을 때까지
-    표 전체가 빈 채였고, 그동안 열여섯 개씩 겹쳐 받아 서버의 메모리·CPU 를 붙잡았다.
-    받아 둔 것은 곧바로, 처음 받는 것은 뒤에서(넷씩·낮은 우선순위) 받으며 '계산 중' 으로 알린다."""
-
-    지표 = Test퀀트_지표_남겨두기.지표
-
-    @pytest.fixture
-    def 느린손님(self, monkeypatch):
-        import threading
-        from fastapi.testclient import TestClient
-        from app.main import app
-        from app.db.database import SessionLocal, Base, engine
-        from app.models.user import User
-        from app.models.stock import QuantMetricsCache
-        from app.core.security import create_access_token
-        from app.core.cache import cache
-        from app.api.routes.stocks import quant as R
-        Base.metadata.create_all(engine)
-        db = SessionLocal()
-        db.query(QuantMetricsCache).filter(QuantMetricsCache.symbol.like("QP%")).delete(synchronize_session=False)
-        db.commit()
-        me = db.query(User).filter(User.email == "퀀트처음@test").first()
-        if not me:
-            me = User(email="퀀트처음@test", username="퀀트처음", hashed_password="x")
-            db.add(me); db.commit(); db.refresh(me)
-        토큰 = create_access_token({"sub": str(me.id)})
-        db.close()
-        이름들 = ("QP1", "QP2", "QP3")
-        for s in 이름들:
-            cache.delete(f"qmetrics:US:{s}")
-            cache.delete(f"qfail:qmetrics:US:{s}")
-        풀림 = threading.Event()
-        불림 = {"모으기": [], "스레드": []}
-
-        async def 모으기(sym, mkt, fetch_ohlcv=True):
-            import os
-            불림["모으기"].append(sym)
-            불림["스레드"].append(threading.current_thread().name)
-            불림.setdefault("우선순위", []).append(os.getpriority(os.PRIO_PROCESS, threading.get_native_id()))
-            if sym == "QP3":
-                raise RuntimeError("야후가 답을 안 했다")
-            if sym == "QP2":
-                풀림.wait(5)                     # 풀어 줄 때까지 안 끝난다
-            return dict(self.지표)
-
-        monkeypatch.setattr("app.services.quant_score.collect_quant_metrics", 모으기)
-        monkeypatch.setattr(R, "QUANT_FIRST_WAIT", 0.5)
-        yield TestClient(app), {"Authorization": f"Bearer {토큰}"}, 풀림, 불림
-        풀림.set()
-        for s in 이름들:
-            cache.delete(f"qmetrics:US:{s}")
-            cache.delete(f"qfail:qmetrics:US:{s}")
-
-    def _묻기(self, c, H, 이름들):
-        return c.get("/api/v1/stocks/quant-score/compare",
-                     params={"symbols": ",".join(이름들), "markets": ",".join(["US"] * len(이름들))}, headers=H)
-
-    def test_받은_것부터_답하고_못_받은_것은_계산_중(self, 느린손님):
-        import time
-        c, H, 풀림, 불림 = 느린손님
-        t = time.perf_counter()
-        r = self._묻기(c, H, ["QP1", "QP2"]).json()
-        assert time.perf_counter() - t < 3, "다 받을 때까지 붙잡았다"
-        점수 = {i["symbol"]: i for i in r["items"]}
-        assert 점수["QP1"]["total_score"] is not None and not 점수["QP1"].get("pending")
-        assert 점수["QP2"].get("pending") is True and 점수["QP2"]["total_score"] is None
-        assert r["pending"] == 1
-        풀림.set()
-        for _ in range(50):
-            r = self._묻기(c, H, ["QP1", "QP2"]).json()
-            if r["pending"] == 0:
-                break
-            time.sleep(0.1)
-        assert r["pending"] == 0 and all(i["total_score"] is not None for i in r["items"])
-        assert 불림["모으기"].count("QP2") == 1, "계산 중인 종목을 다시 물을 때마다 또 받았다"
-        assert all(n.startswith("quant") for n in 불림["스레드"]), "퀀트 전용 풀에서 받지 않았다"
-        import os
-        import threading
-        앞 = os.getpriority(os.PRIO_PROCESS, threading.get_native_id())
-        assert all(n == min(앞 + 10, 19) for n in 불림["우선순위"]), "화면 요청과 똑같이 CPU 를 나눠 가졌다"
-
-    def test_받다_실패한_종목은_계산_중으로_두지_않고_잠깐은_다시_안_받는다(self, 느린손님):
-        import time
-        c, H, _, 불림 = 느린손님
-        for _ in range(20):
-            r = self._묻기(c, H, ["QP3"]).json()
-            if not r["items"][0].get("pending"):
-                break
-            time.sleep(0.1)
-        assert r["items"][0]["total_score"] is None and not r["items"][0].get("pending")
-        assert r["pending"] == 0, "실패한 종목을 '계산 중' 으로 두면 화면이 영영 다시 묻는다"
-        self._묻기(c, H, ["QP3"])
-        assert 불림["모으기"].count("QP3") == 1, "방금 실패한 종목을 곧바로 또 받았다"
-
-    def test_로고용_누리집을_붙인다(self, 느린손님):
-        import time
-        from app.services import yf_service as Y
-        c, H, _, _ = 느린손님
-        Y._스크리닝_사진["US"] = ([{"symbol": "QP1", "domain": "qp1.com"}], time.time())
-        try:
-            r = self._묻기(c, H, ["QP1"]).json()
-        finally:
-            Y._스크리닝_사진.pop("US", None)
-        assert r["items"][0]["domain"] == "qp1.com"
-
-    def test_계산_중이면_화면이_다시_묻는다_그래서_상한이_넉넉하다(self):
-        from app.api.routes.stocks import quant as R
-        등록 = R.limiter._route_limits.get("app.api.routes.stocks.quant.get_quant_score_compare")
-        assert 등록 and str(등록[0].limit) == "40 per 1 minute"
 
 
 class Test미국_상세_장외시세:

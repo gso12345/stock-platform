@@ -130,11 +130,10 @@ describe("실패와 빈 상태를 섞지 않는다", () => {
 });
 
 describe("기다리는 자리를 미리 잡는다", () => {
-  /* [쓰는 화면, 부품 이름, 부품이 정의된 파일(화면과 다르면)] — 스크리닝과 퀀트는 같은 표 자리를 함께 쓴다 */
+  /* [쓰는 화면, 부품 이름, 부품이 정의된 파일(화면과 다르면)] — 스크리닝은 공용 표 자리를 쓴다 */
   const 스켈레톤들: [string, string, string?][] = [
     ["pages/News.tsx", "NewsSkeleton"],
     ["pages/Screening.tsx", "StockTableSkeleton", "components/common/StockTable.tsx"],
-    ["pages/Quant.tsx", "StockTableSkeleton", "components/common/StockTable.tsx"],
     ["pages/Backtest.tsx", "BacktestSkeleton"],
     ["pages/PostDetail.tsx", "PostSkeleton"],
   ];

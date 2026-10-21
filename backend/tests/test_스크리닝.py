@@ -974,11 +974,3 @@ def test_보기의_칸_이름은_화면의_칸_열쇠_모양만(칸):
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
         라우트.PresetSaveRequest(name="x", market="US", filters={}, sort_by="per", columns=칸)
-
-
-def test_퀀트_로고용_누리집은_받아_둔_사진에서만_찾는다(monkeypatch):
-    import time
-    모듈._스크리닝_사진["US"] = ([{"symbol": "NVDA", "domain": "nvidia.com"}, {"symbol": "XYZ"}], time.time())
-    모듈._스크리닝_사진["KR"] = ([{"symbol": "005930", "domain": "samsung.com"}], time.time())
-    monkeypatch.setattr(yf_service, "_screen_one", lambda s, m: (_ for _ in ()).throw(AssertionError("야후에 물었다")))
-    assert yf_service.누리집들(["NVDA", "XYZ", "005930.KS", "AAPL"]) == {"NVDA": "nvidia.com", "005930.KS": "samsung.com"}

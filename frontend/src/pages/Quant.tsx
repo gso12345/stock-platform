@@ -1,24 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  quantScoreApi, watchlistApi, watchlistFolderApi, portfolioApi,
-  type QuantFactorKey, type QuantCompareResult, type QuantCompareItem,
-} from "@/api/stocks";
+import { quantScoreApi, watchlistApi, watchlistFolderApi, portfolioApi, type QuantFactorKey, type QuantCompareResult } from "@/api/stocks";
 import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSettings";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { useAuthStore } from "@/store/authStore";
-import { Card, Badge, Button, Tabs, UnderlineTabs, InlineSpinner, 용어힌트, 빈화면, 못불러옴, cn } from "@/components/ui";
-import { Award, AlertCircle, Settings2, LogIn, Clock, Wallet, Download } from "lucide-react";
+import { Card, Badge, RowSkeleton, Button, Tabs, UnderlineTabs, ChangeBadge, 용어힌트, 빈화면 } from "@/components/ui";
+import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp, Clock, Wallet, Download } from "lucide-react";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 import { lookupPrice, indexPricesBySymbol } from "@/utils/prices";
+import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 import { 시세갱신주기 } from "@/hooks/useLivePrices";
-import { 가격글 } from "@/components/screening/screeningDefs";
-import {
-  StockTableSkeleton, 받는중띠, 도구단추, 정렬제목, 종목칸, 등락표시, 칸자리,
-  표상자, 표머리, 표머리줄, 표머리칸, 붙박이머리, 표줄, 붙박이칸, 표칸,
-} from "@/components/common/StockTable";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
 import { use관심목록 } from "@/hooks/useWatchlistItems";
 
@@ -159,11 +152,9 @@ export default function Quant() {
 
   const {
     data: compareData,
+    isLoading: scoreLoading,
     isError,
-    error: scoreError,
-    refetch: scoreRefetch,
     isFetching,
-    isPlaceholderData,
   } = useQuery({
     /* 이름표를 **정렬해서** 만든다.
      *
@@ -188,9 +179,6 @@ export default function Quant() {
        비우면 비싼 요청이 끝날 때까지 화면이 빈칸이라, 실제로는 아무것도
        안 느려졌는데 훨씬 느리게 느껴진다. */
     placeholderData: (prev?: QuantCompareResult) => prev,
-    /* 처음 받는 종목은 서버가 뒤에서 계산한다(재무·2년 시세). 받은 것부터 보이고,
-       아직 계산 중인 종목이 있으면 곧 다시 묻는다 — 예전엔 서른 종목을 다 받을 때까지 표가 비었다 */
-    refetchInterval: (q) => ((q.state.data?.pending ?? 0) > 0 ? 3000 : false),
   });
 
   /* 표에 시세를 같이 띄운다. 점수만 보고는 "그래서 지금 얼마인데?" 를
@@ -225,42 +213,20 @@ export default function Quant() {
   const scoreOf = (row: { total_score: number | null; factors: { key: QuantFactorKey; score: number | null }[] }, key: SortKey) =>
     key === "total" ? row.total_score : row.factors.find((f) => f.key === key)?.score ?? null;
 
-  /* 줄은 **고른 목록**으로 곧바로 그린다. 예전엔 점수가 다 와야 줄이 생겨서, 처음 받는 종목이
-     섞이면 표 전체가 빈 채로 기다렸다. 점수는 온 것부터 채우고, 계산 중인 칸은 자리만 잡아 둔다 */
-  const 점수표 = useMemo(() => {
-    const m = new Map<string, QuantCompareItem>();
-    for (const it of compareData?.items ?? []) m.set(`${it.market}:${it.symbol}`, it);
-    return m;
-  }, [compareData]);
   const rows = useMemo(() => {
-    const list = compareItems.map((i) => {
-      const 점수 = 점수표.get(`${i.market}:${i.symbol}`);
-      return {
-        ...i,
-        total_score: 점수?.total_score ?? null,
-        grade: 점수?.grade ?? null,
-        factors: 점수?.factors ?? [],
-        domain: 점수?.domain,
-        /* 아직 안 온 종목도 '계산 중' — 탭을 옮긴 직후(앞 탭의 점수만 있다)도 같다 */
-        계산중: !점수 || !!점수.pending,
-      };
-    });
+    const list = compareData?.items ?? [];
     const dir = sortDir === "desc" ? -1 : 1;
     /* 점수가 없는 종목은 방향과 무관하게 항상 뒤로 보낸다.
        예전에는 null 을 -1 로 바꿔 정렬해서, 오름차순일 때 '점수 없음'이
        맨 위로 올라왔다 — 가장 안 궁금한 줄이 첫 화면을 차지했다 */
-    return list.sort((a, b) => {
+    return [...list].sort((a, b) => {
       const av = scoreOf(a, sortKey), bv = scoreOf(b, sortKey);
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
       if (bv == null) return -1;
       return dir * (av - bv);
     });
-  }, [compareItems, 점수표, sortKey, sortDir]);
-  const 계산중수 = rows.filter((r) => r.계산중).length;
-  /* 띠는 서버가 '계산 중' 이라고 한 때만 — 답이 오기 전(받아 둔 점수면 곧 온다)까지 띄우면 탭을
-     옮길 때마다 깜빡인다. 그동안은 점수 칸 자리만 잡아 둔다 */
-  const 서버계산중 = !isPlaceholderData && (compareData?.pending ?? 0) > 0;
+  }, [compareData, sortKey, sortDir]);
 
   /** 지금 보고 있는 표를 CSV 로 내려받는다.
       비교 결과는 스프레드시트로 옮겨 보는 수요가 크다. 엑셀이 UTF-8 을
@@ -313,32 +279,37 @@ export default function Quant() {
     }
   }, [folders, folderTab]);
 
-  const 갈래들 = Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[];
-  const 정렬글 = `${sortKey === "total" ? "종합점수" : FACTOR_LABEL_KO[sortKey]} ${sortDir === "desc" ? "높은" : "낮은"} 순`;
-  /** 점수 칸 — 계산 중이면 자리만 잡아 둔다 */
-  const 점수칸 = (점수: number | null, 계산중: boolean) =>
-    점수 != null ? 점수.toFixed(1) : 계산중 ? <칸자리 /> : "—";
-  const 정렬표시 = (k: SortKey) =>
-    sortKey === k ? (sortDir === "desc" ? "descending" as const : "ascending" as const) : undefined;
-
   return (
-    <div className="flex flex-col gap-4">
-      {/* ── 머리 — 스크리닝과 같은 모양: 제목은 왼쪽, 시장 탭은 오른쪽 ── */}
-      <div className="flex items-end justify-between flex-wrap gap-3">
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-text-primary">퀀트점수 비교</h1>
+          <h1 className="text-2xl font-bold text-text-primary flex items-center gap-2">
+            <Award size={22} className="text-accent-blue" />
+            퀀트점수 비교
+          </h1>
           <p className="text-text-muted text-xs mt-0.5">
             관심종목들을 같은 기준(가중치·사용 지표)으로 퀀트 점수 비교
           </p>
         </div>
         {isLoggedIn && (
-          <Tabs
-            fill={false}
-            ariaLabel="시장 선택"
-            tabs={MARKET_TABS}
-            active={marketTab}
-            onChange={(id) => { setMarketTab(id); setFolderTab("all"); }}
-          />
+          <div className="flex items-center gap-2 flex-shrink-0">
+          {rows.length > 0 && (
+            <button
+              onClick={downloadCsv}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40 transition-colors whitespace-nowrap"
+            >
+              <Download size={14} className="flex-shrink-0" />CSV
+            </button>
+          )}
+          <button
+            onClick={() => setShowSettings((s) => !s)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors whitespace-nowrap flex-shrink-0 ${
+              showSettings ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-border text-text-muted hover:text-text-primary hover:border-accent-blue/40"
+            }`}
+          >
+            <Settings2 size={14} className="flex-shrink-0" />기준 수정
+          </button>
+          </div>
         )}
       </div>
 
@@ -350,52 +321,45 @@ export default function Quant() {
         </Card>
       ) : (
         <>
-          {/* ── 도구 줄 — 어느 목록을 볼지 + 기준 수정·CSV(스크리닝의 도구 줄과 같은 단추) ── */}
-          <div className="flex flex-col sm:flex-row sm:items-end gap-2">
-            <UnderlineTabs
-              ariaLabel="목록 선택"
-              className="flex-1 min-w-0"
-              active={portfolioTab !== null ? `pf-${portfolioTab}` : String(folderTab)}
-              onChange={(id) => {
-                if (id.startsWith("pf-")) { setPortfolioTab(Number(id.slice(3))); setFolderTab("all"); }
-                else { setFolderTab(id === "all" || id === "recent" ? id : Number(id)); setPortfolioTab(null); }
-              }}
-              tabs={[
-                { id: "all", label: "전체", count: countIn(null) },
-                { id: "recent", label: "최근조회", icon: Clock,
-                  count: recentlyViewed.filter((r) => marketTab === "전체" || r.market === marketTab).length },
-                ...(folders ?? []).map((f: any) => ({ id: String(f.id), label: f.name, count: countIn(f.id) })),
-                ...pfList.map((pf: any) => ({ id: `pf-${pf.id}`, label: pf.name, icon: Wallet })),
-              ]}
-            />
-            <div className="flex gap-1.5 flex-shrink-0">
-              <도구단추 아이콘={Settings2} 열림={showSettings} controls="퀀트-기준"
-                onClick={() => setShowSettings((s) => !s)}>
-                기준 수정
-              </도구단추>
-              <도구단추 아이콘={Download} title="CSV 다운로드" onClick={downloadCsv}
-                disabled={!rows.some((r) => r.total_score != null)}>
-                CSV
-              </도구단추>
-            </div>
-          </div>
-
           {showSettings && (
-            <div id="퀀트-기준">
-              <QuantSettingsPanel
-                weightsDraft={quantSettings.weightsDraft}
-                metricsDraft={quantSettings.metricsDraft}
-                onUpdateWeight={quantSettings.updateWeight}
-                onToggleMetric={quantSettings.toggleMetric}
-                onReset={quantSettings.resetToDefault}
-                onSave={() => quantSettings.save.mutate({ weights: quantSettings.weightsDraft ?? QUANT_DEFAULT_WEIGHTS, metrics: quantSettings.metricsDraft ?? {} })}
-                onClose={() => setShowSettings(false)}
-                isSaving={quantSettings.save.isPending}
-                isLoggedIn={isLoggedIn}
-                saveMsg={quantSettings.saveMsg}
-              />
-            </div>
+            <QuantSettingsPanel
+              weightsDraft={quantSettings.weightsDraft}
+              metricsDraft={quantSettings.metricsDraft}
+              onUpdateWeight={quantSettings.updateWeight}
+              onToggleMetric={quantSettings.toggleMetric}
+              onReset={quantSettings.resetToDefault}
+              onSave={() => quantSettings.save.mutate({ weights: quantSettings.weightsDraft ?? QUANT_DEFAULT_WEIGHTS, metrics: quantSettings.metricsDraft ?? {} })}
+              onClose={() => setShowSettings(false)}
+              isSaving={quantSettings.save.isPending}
+              isLoggedIn={isLoggedIn}
+              saveMsg={quantSettings.saveMsg}
+            />
           )}
+
+          <Tabs
+            fill={false}
+            ariaLabel="시장 선택"
+            className="w-fit"
+            tabs={MARKET_TABS}
+            active={marketTab}
+            onChange={(id) => { setMarketTab(id); setFolderTab("all"); }}
+          />
+
+          <UnderlineTabs
+            ariaLabel="목록 선택"
+            active={portfolioTab !== null ? `pf-${portfolioTab}` : String(folderTab)}
+            onChange={(id) => {
+              if (id.startsWith("pf-")) { setPortfolioTab(Number(id.slice(3))); setFolderTab("all"); }
+              else { setFolderTab(id === "all" || id === "recent" ? id : Number(id)); setPortfolioTab(null); }
+            }}
+            tabs={[
+              { id: "all", label: "전체", count: countIn(null) },
+              { id: "recent", label: "최근조회", icon: Clock,
+                count: recentlyViewed.filter((r) => marketTab === "전체" || r.market === marketTab).length },
+              ...(folders ?? []).map((f: any) => ({ id: String(f.id), label: f.name, count: countIn(f.id) })),
+              ...pfList.map((pf: any) => ({ id: `pf-${pf.id}`, label: pf.name, icon: Wallet })),
+            ]}
+          />
 
           {truncated && (
             <div className="flex items-start gap-2 rounded-xl border border-accent-amber/30 bg-accent-amber/10 px-3 py-2.5">
@@ -407,31 +371,11 @@ export default function Quant() {
             </div>
           )}
 
-          {/* ── 결과 — 스크리닝과 같은 상태 줄 ── */}
-          {compareItems.length > 0 && (
-            <div className="flex items-center justify-between gap-2 px-1 text-xs text-text-muted min-h-[1.25rem]">
-              <span>
-                <span className="text-text-secondary font-medium">{정렬글}</span>
-                {" · "}<b className="text-text-primary">{rows.length}</b>곳
-              </span>
-              {isFetching && !서버계산중 && (
-                <span className="flex items-center gap-1.5" role="status"><InlineSpinner className="w-3 h-3" />불러오는 중</span>
-              )}
-            </div>
-          )}
-
-          {/* 처음 보는 종목은 서버가 재무·2년 시세를 받아 계산한다 — 된 것부터 보이고 얼마나 됐는지 알린다 */}
-          {compareItems.length > 0 && 서버계산중 && !isError && (
-            <받는중띠 이름="퀀트 점수 계산 중" done={rows.length - 계산중수} total={rows.length}>
-              처음 보는 종목은 재무·시세를 받아 점수를 계산해요
-              {" — "}<b className="text-text-primary">{rows.length - 계산중수}/{rows.length}곳</b> 계산됨.
-              {" "}된 것부터 보여 드려요
-            </받는중띠>
-          )}
-
           <Card className="p-0 overflow-hidden">
-            {itemsLoading ? (
-              <StockTableSkeleton rows={5} />
+            {itemsLoading || scoreLoading ? (
+              <div className="p-3">
+                <RowSkeleton rows={5} />
+              </div>
             ) : compareItems.length === 0 ? (
               /* 안내만 하고 끝내면 "그래서 어디로 가라고?" 가 된다.
                  각 경우마다 채우러 갈 곳으로 바로 보낸다 */
@@ -457,21 +401,29 @@ export default function Quant() {
                   action={{ label: "관심종목 담으러 가기", onClick: () => navigate("/watchlist") }}
                 />
               )
-            ) : isError && !compareData ? (
-              /* 실패를 '점수 없음' 과 갈라 알리고 다시 받을 길을 준다(스크리닝과 같은 부품) */
-              <못불러옴 사유={scoreError} 다시={() => scoreRefetch()} />
+            ) : isError ? (
+              <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
+                <AlertCircle size={32} className="text-accent-red/60" />
+                <p className="text-text-secondary text-sm">퀀트 점수를 불러오지 못했어요. 잠시 후 다시 시도해주세요</p>
+              </div>
             ) : (
-              <div key={`${marketTab}-${folderTab}`} className={cn(표상자, "tab-fade")}>
-                <table className="w-full text-xs">
-                  <thead className={표머리}>
-                    <tr className={표머리줄}>
-                      <th scope="col" className={붙박이머리}>종목</th>
-                      <th scope="col" className={표머리칸}>현재가</th>
-                      <th scope="col" className={표머리칸}>오늘</th>
-                      <th scope="col" className={표머리칸} aria-sort={정렬표시("total")}>
-                        <정렬제목 이름="종합점수" 지금={sortKey === "total"} 순서={sortDir} onClick={() => toggleSort("total")} />
+              <div key={`${marketTab}-${folderTab}`} className="overflow-x-auto tab-fade">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-bg-secondary border-b border-border z-10">
+                    <tr className="text-text-muted text-xs">
+                      <th className="text-left px-3 py-3 sticky left-0 bg-bg-secondary z-20">종목</th>
+                      <th className="text-right px-3 py-3 whitespace-nowrap">현재가</th>
+                      <th className="text-right px-3 py-3"
+                          aria-sort={sortKey === "total" ? (sortDir === "desc" ? "descending" : "ascending") : "none"}>
+                        <button
+                          onClick={() => toggleSort("total")}
+                          className={`flex items-center justify-end gap-1 ml-auto whitespace-nowrap ${sortKey === "total" ? "text-accent-blue" : "hover:text-text-primary"}`}
+                        >
+                          종합점수
+                          {sortKey === "total" && (sortDir === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+                        </button>
                       </th>
-                      <th scope="col" className={표머리칸}>
+                      <th className="text-right px-3 py-3 whitespace-nowrap">
                         <div ref={gradeHelpRef} className="flex items-center justify-end gap-1.5 relative whitespace-nowrap">
                           등급
                           <button
@@ -495,12 +447,19 @@ export default function Quant() {
                           )}
                         </div>
                       </th>
-                      {갈래들.map((k) => (
-                        <th key={k} scope="col" className={표머리칸} aria-sort={정렬표시(k)}>
+                      {(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => (
+                        <th key={k} className="text-right px-3 py-3 whitespace-nowrap"
+                            aria-sort={sortKey === k ? (sortDir === "desc" ? "descending" : "ascending") : "none"}>
                           {/* 물음표는 정렬 버튼 밖에 둔다. 안에 넣으면 버튼이 겹쳐
                               설명을 보려다 정렬이 바뀐다 */}
-                          <span className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
-                            <정렬제목 이름={FACTOR_LABEL_KO[k]} 지금={sortKey === k} 순서={sortDir} onClick={() => toggleSort(k)} />
+                          <span className="flex items-center justify-end gap-1 ml-auto whitespace-nowrap">
+                            <button
+                              onClick={() => toggleSort(k)}
+                              className={`flex items-center gap-1 whitespace-nowrap ${sortKey === k ? "text-accent-blue" : "hover:text-text-primary"}`}
+                            >
+                              {FACTOR_LABEL_KO[k]}
+                              {sortKey === k && (sortDir === "desc" ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+                            </button>
                             <용어힌트 이름={FACTOR_LABEL_KO[k]} 글자숨김 />
                           </span>
                         </th>
@@ -508,44 +467,59 @@ export default function Quant() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, i) => {
+                    {rows.map((row) => {
                       const key = `${row.market}:${row.symbol}`;
                       const name = nameMap.get(key) ?? row.symbol;
-                      const pr = lookupPrice(priceMap, row.symbol);
-                      const 통화 = row.market === "KR" ? "KRW" : "USD";
                       const factorScore = (fkey: QuantFactorKey) =>
                         row.factors.find((f) => f.key === fkey)?.score ?? null;
                       return (
-                        <tr key={key} className={표줄}>
-                          <td className={붙박이칸}>
-                            <종목칸 순위={i + 1} symbol={row.symbol} name={name} market={row.market} domain={row.domain}
-                              덧붙임={marketTab === "전체" ? (
+                        <tr
+                          key={key}
+                          tabIndex={0}
+                          onClick={() => navigate(`/stocks/${row.market}/${row.symbol}`)}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/stocks/${row.market}/${row.symbol}`); } }}
+                          className="border-b border-border/30 hover:bg-bg-hover/50 transition-colors cursor-pointer focus:outline-none focus:bg-bg-hover/50"
+                        >
+                          <td className="px-3 py-2.5 sticky left-0 bg-bg-card z-10">
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-text-primary truncate max-w-[160px]">{name}</span>
                                 <Badge variant={row.market === "KR" ? "blue" : row.market === "ETF" ? "purple" : "green"}>
                                   {row.market}
                                 </Badge>
-                              ) : undefined} />
+                              </div>
+                              <span className="text-text-muted text-xs font-mono">{row.symbol}</span>
+                            </div>
                           </td>
-                          <td className={cn(표칸, "font-mono num text-text-primary")}>
-                            {pr?.price != null ? 가격글(Number(pr.price), 통화) : <span className="text-text-dim">—</span>}
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                            {(() => {
+                              const pr = lookupPrice(priceMap, row.symbol);
+                              if (pr?.price == null) return <span className="text-text-dim text-xs">—</span>;
+                              return (
+                                <div className="flex flex-col items-end">
+                                  <span className="font-mono text-xs text-text-primary">
+                                    {row.market === "KR" ? fmtKRWFull(Number(pr.price)) : fmtUSDFull(Number(pr.price))}
+                                  </span>
+                                  {pr.change_rate != null && (
+                                    <ChangeBadge value={Number(pr.change_rate)} className="text-2xs"
+                                      금액={pr.change != null ? Number(pr.change) : null}
+                                      통화={row.market === "KR" ? "KRW" : "USD"} />
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
-                          <td className={표칸}>
-                            {pr?.change_rate != null ? (
-                              <등락표시 값={Number(pr.change_rate)}
-                                금액={pr.change != null ? Number(pr.change) : null}
-                                통화={통화} />
-                            ) : <span className="text-text-dim">—</span>}
+                          <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${scoreColor(row.total_score)}`}>
+                            {row.total_score != null ? row.total_score.toFixed(1) : "—"}
                           </td>
-                          <td className={cn(표칸, "font-mono font-bold", scoreColor(row.total_score))}>
-                            {점수칸(row.total_score, row.계산중)}
+                          <td className={`px-3 py-2.5 text-right font-mono font-bold whitespace-nowrap ${gradeColor(row.grade)}`}>
+                            {row.grade ?? "—"}
                           </td>
-                          <td className={cn(표칸, "font-mono font-bold", gradeColor(row.grade))}>
-                            {row.grade ?? (row.계산중 ? <칸자리 /> : "—")}
-                          </td>
-                          {갈래들.map((k) => {
+                          {(Object.keys(FACTOR_LABEL_KO) as QuantFactorKey[]).map((k) => {
                             const s = factorScore(k);
                             return (
-                              <td key={k} className={cn(표칸, "font-mono", scoreColor(s))}>
-                                {점수칸(s, row.계산중)}
+                              <td key={k} className={`px-3 py-2.5 text-right font-mono text-xs whitespace-nowrap ${scoreColor(s)}`}>
+                                {s != null ? s.toFixed(1) : "—"}
                               </td>
                             );
                           })}
@@ -555,6 +529,9 @@ export default function Quant() {
                   </tbody>
                 </table>
               </div>
+            )}
+            {isFetching && !scoreLoading && (
+              <div className="px-3 py-2 text-xs text-text-muted border-t border-border/30">갱신 중...</div>
             )}
           </Card>
           {!truncated && (

@@ -13,17 +13,10 @@ from ._공용 import (   # noqa: F401  — 쪼개기 전과 같은 이름을 쓴
     QuantScoreWeight, limiter, router_새로, _SYMBOL_PATTERN, _run, _시한내결과,
     get_kr_price, get_us_price,
 )
-from ._공용 import _퀀트지표_처음받기
-import os
-import time
+
+from ._공용 import 퀀트지표_담기
 
 router = router_새로()
-
-#: 한 번도 받은 적 없는 종목(재무·재무제표·2년 시세)을 기다려 주는 시간(초). 그 안에 못 받은 것은
-#  '계산 중' 으로 돌려주고 뒤에서 마저 받는다 — 화면이 곧 다시 묻는다. 예전엔 서른 종목을 다 받을
-#  때까지 표 전체가 빈 채로 기다렸다. 짧게 둔다 — 처음 받는 종목이 하나만 섞여도 이미 계산해 둔
-#  나머지까지 이만큼 늦게 나간다(4초로 뒀다가 화면에서 그렇게 보였다)
-QUANT_FIRST_WAIT = float(os.getenv("QUANT_FIRST_WAIT_SEC", 1))
 
 def _clean_enabled_metrics(raw: dict) -> dict:
     """{factor_key: [metric_key, ...]} — 알 수 없는 factor/metric 키는 제거.
@@ -93,9 +86,7 @@ def save_quant_score_weights(
 
 
 @router.get("/quant-score/compare")
-# 아직 계산 중인 종목이 있으면 화면이 3초마다 다시 묻는다(받아 둔 것을 읽기만 해서 가볍다).
-# 10번이면 서른 종목을 처음 채우는 동안 막힌다
-@limiter.limit("40/minute")
+@limiter.limit("10/minute")
 async def get_quant_score_compare(
     request: Request,
     symbols: str = Query(..., description="쉼표로 구분된 종목코드"),
@@ -119,6 +110,7 @@ async def get_quant_score_compare(
     """관심종목 등 사용자가 직접 고른 소수 종목들의 퀀트 점수를 같은 기준(가중치/사용 지표)으로
     나란히 비교. 전체 시장을 스캔하는 방식과 달리 지정된 종목만 조회하므로
     캐시 여부와 무관하게 항상 최신 점수를 보여줄 수 있다."""
+    from app.services.quant_score import collect_quant_metrics
     from app.services.quant_percentile_service import get_percentile_distributions, get_sector_distribution
 
     sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
@@ -160,7 +152,7 @@ async def get_quant_score_compare(
             dist_cache[mkt] = get_percentile_distributions(mkt)
         return dist_cache[mkt]
 
-    시작 = time.monotonic()
+    sem = asyncio.Semaphore(16)
 
     # 메모리에 지난 값조차 없는 종목은 DB 에 남겨 둔 지표를 한 번에 읽는다
     # (서버가 잠들었다 깨면 메모리가 텅 빈다 — quant_store 참고)
@@ -202,19 +194,16 @@ async def get_quant_score_compare(
                     _퀀트지표_뒤로미루기(sym, mkt, metrics_ck)
                 metrics = dict(남긴것)
             else:
-                # 한 번도 받은 적 없는 종목 — 뒤에서 받게 던져 두고(같은 종목은 한 번만) 잠깐만 기다린다.
-                # 받는 쪽(퀀트 전용 풀)이 메모리에도 DB 에도 남긴다
-                빈점수 = {"symbol": sym, "market": mkt, "total_score": None, "grade": None, "factors": []}
-                if cache.get(f"qfail:{metrics_ck}"):
-                    return 빈점수                    # 방금 받다 실패했다 — 잠깐은 다시 안 묻는다
-                _퀀트지표_처음받기(sym, mkt, metrics_ck)
-                while (받은 := cache.get(metrics_ck)) is None and time.monotonic() - 시작 < QUANT_FIRST_WAIT:
-                    if cache.get(f"qfail:{metrics_ck}"):
-                        return 빈점수
-                    await asyncio.sleep(0.1)
-                if 받은 is None:
-                    return {**빈점수, "pending": True}
-                metrics = dict(받은)
+                async with sem:
+                    try:
+                        새것 = await collect_quant_metrics(sym, mkt, fetch_ohlcv=True)
+                    except Exception:
+                        return {"symbol": sym, "market": mkt, "total_score": None, "grade": None, "factors": []}
+                # 가치 지표나 시세가 통째로 빈 것(시한에 걸렸다)은 짧게만 — 곧 다시 받는다.
+                # 담은 것을 그대로 쓰면 아래 pop 이 담긴 지표에서 업종을 지운다 — 한 벌 떠서 쓴다
+                metrics = dict(퀀트지표_담기(metrics_ck, dict(새것), mkt))
+                # 남겨 둔다 — 응답은 기다리지 않는다(반쪽짜리는 quant_store 가 안 남긴다)
+                asyncio.get_running_loop().run_in_executor(None, quant_store.저장, sym, mkt, dict(새것))
         else:
             metrics = dict(cached_metrics)
         sector = metrics.pop("_sector", None)
@@ -223,20 +212,8 @@ async def get_quant_score_compare(
         return {"symbol": sym, "market": mkt, **result}
 
     items = await asyncio.gather(*[_score_one(s, m) for s, m in zip(sym_list, mkt_list)])
-    # 로고 — 스크리닝이 받아 둔 회사 누리집(새로 묻지 않는다). 모르면 화면이 이름 첫 글자를 둔다
-    try:
-        누리집 = await asyncio.get_running_loop().run_in_executor(None, yf_service.누리집들, sym_list)
-    except Exception:
-        누리집 = {}
-    for i in items:
-        if (d := 누리집.get(i["symbol"])):
-            i["domain"] = d
 
-    return {
-        "weights": weights, "enabled_metrics": enabled_metrics, "items": list(items),
-        #: 아직 계산 중인 종목 수 — 화면은 받은 것부터 보이고, 0 이 될 때까지 곧 다시 묻는다
-        "pending": sum(1 for i in items if i.get("pending")),
-    }
+    return {"weights": weights, "enabled_metrics": enabled_metrics, "items": list(items)}
 
 
 @router.get("/{market}/{symbol}/quant-score")

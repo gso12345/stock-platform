@@ -226,6 +226,64 @@ class Test비동기:
         assert F.빈손인가("시험:가"), "터진 것도 빈손으로 담아 둬야 한다"
 
 
+class Test겹치면_기다림:
+    """빈값을 받으면 안 되는 쪽(퀀트 점수 — 빈 펀더멘털이면 가치가 '—')은 남이 받던 것을 기다린다.
+    기본(0)은 위의 '받는 중에 들어온 요청은 지난 값을 받는다' 그대로다."""
+
+    @staticmethod
+    async def _담기(r):
+        cache.set("시험:가", r, 60)
+
+    def test_남이_받던_것이_담기면_그것을_받는다(self):
+        불린횟수 = {"n": 0}
+
+        async def _받기():
+            불린횟수["n"] += 1
+            await asyncio.sleep(0.3)
+            return {"값": 1}
+
+        async def _둘():
+            첫째 = asyncio.ensure_future(F.캐시_우선_비동기("시험:가", _받기, {}, 담기=self._담기))
+            await asyncio.sleep(0.05)
+            둘째 = await F.캐시_우선_비동기("시험:가", _받기, {"빈값": 1}, 겹치면_기다림=2.0)
+            return await 첫째, 둘째
+
+        첫째, 둘째 = _돌리기(_둘())
+        assert 둘째 == {"값": 1}, "받는 중인 것을 안 기다리고 빈값을 줬다"
+        assert 불린횟수["n"] == 1, "기다리지 않고 또 받으러 갔다"
+
+    def test_남이_못_받고_끝나면_곧바로_돌아온다(self):
+        async def _터짐():
+            await asyncio.sleep(0.2)
+            raise RuntimeError("원천 고장")
+
+        async def _둘():
+            첫째 = asyncio.ensure_future(F.캐시_우선_비동기("시험:가", _터짐, {"빈값": 1}))
+            await asyncio.sleep(0.05)
+            시작 = time.perf_counter()
+            둘째 = await F.캐시_우선_비동기("시험:가", _터짐, {"빈값": 1}, 겹치면_기다림=5.0)
+            return await 첫째, 둘째, time.perf_counter() - 시작
+
+        _첫째, 둘째, 걸림 = _돌리기(_둘())
+        assert 둘째 == {"빈값": 1}
+        assert 걸림 < 1.0, f"남이 못 받고 끝났는데 {걸림:.2f}초를 기다렸다"
+
+    def test_기다림에도_상한이_있다(self):
+        async def _아주느리게():
+            await asyncio.sleep(3)
+            return {"늦음": 1}
+
+        async def _둘():
+            # 첫째는 0.05초 만에 돌아오고 받기는 뒤에서 이어 간다
+            await F.캐시_우선_비동기("시험:가", _아주느리게, {}, 대기=0.05)
+            시작 = time.perf_counter()
+            둘째 = await F.캐시_우선_비동기("시험:가", _아주느리게, {"빈값": 1}, 겹치면_기다림=0.3)
+            return 둘째, time.perf_counter() - 시작
+
+        둘째, 걸림 = _돌리기(_둘())
+        assert 둘째 == {"빈값": 1} and 걸림 < 1.0, f"{걸림:.2f}초를 기다렸다"
+
+
 class Test재무제표에_붙었는가:
     """규칙을 만들어 놓고 안 쓰면 아무 소용이 없다."""
 
