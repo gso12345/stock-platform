@@ -13,7 +13,7 @@ import { render, screen, act, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import path from "path";
-import BootScreen from "../BootScreen";
+import BootScreen from "../layout/BootScreen";
 
 /** 가짜 시계를 n 초 감는다. setInterval 이 0.5초마다 돌므로 넉넉히 흘린다 */
 function 초흘리기(초: number) {

@@ -19,11 +19,11 @@ import { lazy } from "react";
 
 const 받음 = vi.hoisted(() => new Set<string>());
 
-vi.mock("@/components/SearchBar", () => ({ default: () => null }));
-vi.mock("@/components/LoadingProgressOverlay", () => ({ default: () => null }));
+vi.mock("@/components/layout/SearchBar", () => ({ default: () => null }));
+vi.mock("@/components/layout/LoadingProgressOverlay", () => ({ default: () => null }));
 vi.mock("@/components/community/NotificationBell", () => ({ default: () => null }));
-vi.mock("@/components/InstallAppButton", () => ({ default: () => null }));
-vi.mock("@/components/SettingsModal", () => ({ default: () => null }));
+vi.mock("@/components/layout/InstallAppButton", () => ({ default: () => null }));
+vi.mock("@/components/account/SettingsModal", () => ({ default: () => null }));
 vi.mock("@/api/client", async (원본) => ({
   ...(await 원본<any>()),
   default: { get: vi.fn((주소: string) => Promise.resolve({ data: 주소.includes("popups") ? [] : null })) },
@@ -37,7 +37,7 @@ vi.mock("@/utils/한가할때", () => ({
   아껴쓰는중: () => false,
 }));
 
-import Layout from "../Layout";
+import Layout from "../layout/Layout";
 
 const 영영안옴 = lazy(() => new Promise<{ default: () => null }>(() => {}));
 

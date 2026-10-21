@@ -26,7 +26,7 @@ import sys
 import pytest
 
 from app.core import pykrx_light
-from app.services import ticker_service as ts
+from app.services.listings import ticker_service as ts
 
 
 def _새프로세스에서(본문: str) -> str:
@@ -487,7 +487,7 @@ class Test컬럼_길이:
         assert len(시장) <= n, f"'{시장}'({len(시장)}자)가 market 컬럼({n}자)에 안 들어간다"
 
     def test_종목코드와_심볼도_들어간다(self):
-        from app.services import krx_listing as kl
+        from app.services.listings import krx_listing as kl
         lim = self._limits()
         for 코드 in ("005930", "00680K", "0126Z0"):
             r = kl._row(코드, "테스트", "KOSDAQ GLOBAL")
@@ -511,7 +511,7 @@ class Test컬럼_길이:
     def test_실제_KRX_데이터의_모든_값이_컬럼에_맞는다(self):
         """표본이 아니라 실제 전 종목으로 확인한다. 네트워크가 막힌 환경에서는
         건너뛴다 — 그때는 위의 개별 검사들이 대신 지킨다."""
-        from app.services import krx_listing as kl
+        from app.services.listings import krx_listing as kl
         listing, _, 출처 = kl.fetch_listing()
         if not listing:
             pytest.skip("이 환경에서는 KRX 목록을 받아올 수 없다")

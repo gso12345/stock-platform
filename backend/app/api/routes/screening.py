@@ -11,7 +11,7 @@ from app.db.database import get_db
 from app.models.stock import ScreeningPreset
 from app.models.user import User
 from app.core.deps import require_user, get_current_user
-from app.services.yf_service import yf_service, 스크리닝_숫자키, 스크리닝_글자키
+from app.services.market.yf_service import yf_service, 스크리닝_숫자키, 스크리닝_글자키
 from app.core.cache import cache
 
 router = APIRouter(prefix="/screening", tags=["스크리닝"])

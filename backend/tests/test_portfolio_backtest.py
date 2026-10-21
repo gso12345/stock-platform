@@ -14,7 +14,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.services import portfolio_backtest as P
+from app.services.backtest import portfolio_backtest as P
 
 
 def 날들만들기(n: int, 시작=date(2020, 1, 1)) -> list[date]:
@@ -482,7 +482,7 @@ class Test배당_이중계산을_막는다:
 
     def test_시세를_조정_안_된_종가로_받는다(self):
         import inspect
-        from app.services.yf_service import yf_service
+        from app.services.market.yf_service import yf_service
         소스 = inspect.getsource(yf_service.get_ohlcv)
         assert "auto_adjust=False" in 소스, \
             ("시세가 배당 조정 종가로 바뀌었다. 그러면 자산배분 백테스트의 "

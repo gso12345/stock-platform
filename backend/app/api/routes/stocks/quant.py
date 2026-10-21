@@ -3,25 +3,27 @@
 원래 stocks.py 한 파일에 있던 것을 탭 단위로 가른 조각이다.
 공용 폴백·시한 처리는 _공용 에 있다.
 """
-from ._공용 import (   # noqa: F401  — 쪼개기 전과 같은 이름을 쓴다
-    APIRouter, Path, Query, HTTPException, Request, Depends, Literal,
-    asyncio, logging, re, log, QMETRICS_TTL, _퀀트갱신중, _퀀트지표_뒤로미루기, Session,
-    kis_service, finnhub_service, dart_service, yf_service,
-    _resolve_kr_symbol, get_demo_price, get_demo_ohlcv, DEMO_PRICES,
-    get_fdr_price, get_kr_db, compute_quant_score, DEFAULT_WEIGHTS, settings,
-    cache, _safe_float, get_current_user, require_user, get_db,
-    QuantScoreWeight, limiter, router_새로, _SYMBOL_PATTERN, _run, _시한내결과,
-    get_kr_price, get_us_price,
-)
+import asyncio
+import re
+from typing import Literal
 
-from ._공용 import 퀀트지표_담기
+from fastapi import Depends, HTTPException, Path, Query, Request
+from sqlalchemy.orm import Session
+
+from app.core.cache import cache
+from app.core.deps import get_current_user, require_user
+from app.db.database import get_db
+from app.models.stock import QuantScoreWeight
+from app.services.quant.quant_score import compute_quant_score, DEFAULT_WEIGHTS
+
+from ._공용 import _SYMBOL_PATTERN, _퀀트지표_뒤로미루기, limiter, QMETRICS_TTL, router_새로, 퀀트지표_담기
 
 router = router_새로()
 
 def _clean_enabled_metrics(raw: dict) -> dict:
     """{factor_key: [metric_key, ...]} — 알 수 없는 factor/metric 키는 제거.
     유효한 항목이 하나도 없는 factor는 결과에서 제외(= 전체 지표 사용으로 간주)."""
-    from app.services.quant_score import FACTOR_METRIC_KEYS
+    from app.services.quant.quant_score import FACTOR_METRIC_KEYS
     cleaned = {}
     for fkey, allowed_keys in raw.items():
         if fkey not in FACTOR_METRIC_KEYS or not isinstance(allowed_keys, list):
@@ -110,8 +112,8 @@ async def get_quant_score_compare(
     """관심종목 등 사용자가 직접 고른 소수 종목들의 퀀트 점수를 같은 기준(가중치/사용 지표)으로
     나란히 비교. 전체 시장을 스캔하는 방식과 달리 지정된 종목만 조회하므로
     캐시 여부와 무관하게 항상 최신 점수를 보여줄 수 있다."""
-    from app.services.quant_score import collect_quant_metrics
-    from app.services.quant_percentile_service import get_percentile_distributions, get_sector_distribution
+    from app.services.quant.quant_score import collect_quant_metrics
+    from app.services.quant.quant_percentile_service import get_percentile_distributions, get_sector_distribution
 
     sym_list = [s.strip() for s in symbols.split(",") if s.strip()]
     mkt_list = [m.strip().upper() for m in markets.split(",") if m.strip()]
@@ -156,7 +158,7 @@ async def get_quant_score_compare(
 
     # 메모리에 지난 값조차 없는 종목은 DB 에 남겨 둔 지표를 한 번에 읽는다
     # (서버가 잠들었다 깨면 메모리가 텅 빈다 — quant_store 참고)
-    from app.services import quant_store
+    from app.services.quant import quant_store
     빈것 = [(s, m) for s, m in zip(sym_list, mkt_list)
             if cache.get_stale(f"qmetrics:{m}:{s}") is None]
     저장된 = (await asyncio.get_running_loop().run_in_executor(None, quant_store.여럿읽기, 빈것)
@@ -239,8 +241,8 @@ async def get_quant_score(
     metrics_* 쿼리 파라미터가 오면 해당 팩터에서 지정한 지표만 즉시 미리보기로 사용(저장 안 함)
     지표 점수는 같은 시장(KR/US/ETF) 내 백분위 상대평가(분포는 일배치로 미리 캐시되어
     조회 시점에는 이분 탐색만 수행) — 표본이 부족한 지표는 절대평가로 폴백"""
-    from app.services.quant_score import collect_quant_metrics
-    from app.services.quant_percentile_service import get_percentile_distributions, get_sector_distribution
+    from app.services.quant.quant_score import collect_quant_metrics
+    from app.services.quant.quant_percentile_service import get_percentile_distributions, get_sector_distribution
 
     override = {"value": w_value, "quality": w_quality, "momentum": w_momentum, "growth": w_growth, "risk": w_risk}
     saved_row = None

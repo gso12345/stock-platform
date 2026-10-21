@@ -31,7 +31,7 @@ def _해외순위_사진_끄기():
     그것을 캐시에 깐다 — 단독으로는 통과하고 전체로 돌리면 깨진다.
     사진을 보는 검사(test_해외순위_살리기)는 임시 DB 로 직접 켠다."""
     try:
-        from app.services import ranking_service as rs
+        from app.services.market import ranking_service as rs
     except Exception:
         yield
         return
@@ -58,7 +58,7 @@ def _야후_쉼_풀기():
     몇 분 쉬기로 하면, 그 뒤 검사들이 가짜로 바꿔 둔 길까지 건너뛴다."""
     def 풀기():
         try:
-            from app.services import price_fetcher as pf
+            from app.services.market import price_fetcher as pf
             pf._인증_막힌때 = 0.0
             pf._spark_막힌때 = 0.0
             pf._spark_판 = "v7"

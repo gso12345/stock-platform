@@ -9,6 +9,7 @@ import os
 import threading
 import logging
 import httpx
+import pandas as pd
 from app.core.http import SSL
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor as _ThreadPool
@@ -39,42 +40,6 @@ log = logging.getLogger(__name__)
                 되살림_칸=int(os.getenv("RATE_PROBE_SLOTS", 2)))
 
 
-# ── 환율 ──────────────────────────────────────────────────
-def get_exchange_rate() -> dict:
-    ck = "extra:usdkrw"
-    if c := cache.get(ck):
-        return c
-    try:
-        t    = yf.Ticker("USDKRW=X")
-        hist = t.history(period="5d")
-        cls  = hist["Close"].dropna()
-        if len(cls) >= 2:
-            curr = float(cls.iloc[-1])
-            prev = float(cls.iloc[-2])
-            chg  = curr - prev
-            chgr = chg / prev * 100
-        elif len(cls) == 1:
-            curr = float(cls.iloc[-1]); chg = chgr = 0.0
-        else:
-            return _demo_exchange()
-        result = {
-            "symbol": "USDKRW",
-            "name":   "원/달러 환율",
-            "value":  round(curr, 2),
-            "change": round(chg, 2),
-            "change_rate": round(chgr, 4),
-            "unit":   "원",
-        }
-        cache.set(ck, result, 60)
-        return result
-    except Exception:
-        return cache.get_stale(ck) or _demo_exchange()
-
-
-def _demo_exchange() -> dict:
-    return {"symbol":"USDKRW","name":"원/달러 환율","value":1384.50,"change":-2.30,"change_rate":-0.17,"unit":"원","_demo":True}
-
-
 # ── 국내 선물 (KIS API 또는 yfinance 근사) ─────────────────
 async def get_kr_futures() -> list:
     ck = "extra:kr_futures"
@@ -86,7 +51,7 @@ async def get_kr_futures() -> list:
     # KIS API로 선물 조회 시도
     if settings.KIS_APP_KEY:
         try:
-            from app.services.kis_service import kis_service
+            from app.services.market.kis_service import kis_service
             token = await kis_service._get_token()
             if token:
                 import httpx as _httpx
@@ -163,18 +128,10 @@ def _fetch_futures_yf() -> list:
     return results
 
 
-def _demo_futures() -> list:
-    return [
-        {"name":"KOSPI200 선물","symbol":"101V3000","price":373.85,"change":-0.95,"change_rate":-0.25,"unit":"포인트","_demo":True},
-        {"name":"미니코스피200","symbol":"105V3000","price":373.85,"change":-0.95,"change_rate":-0.25,"unit":"포인트","_demo":True},
-    ]
-
-
 # ── 금리 ──────────────────────────────────────────────────
 def _batch_close(symbols: list) -> "pd.DataFrame | None":
     """여러 심볼을 yf.download 1회로 배치 조회 — 순차 N회 → 1회"""
     try:
-        import pandas as pd
         raw = yf.download(symbols, period="5d", progress=False, auto_adjust=True)
         if raw.empty:
             return None
@@ -360,13 +317,6 @@ _네이버_금리후보: list = [
     ("CP금리(91일)",  False, ["CP91", "CP_91", "IRR_CP91"]),
     ("코픽스",        False, ["COFIX", "COFIX_NEW", "IRR_COFIX"]),
 ]
-
-
-# 하위 호환용 래퍼 (scheduler 등에서 직접 호출 시)
-def _fetch_kr_base_cd() -> "tuple[dict | None, dict | None]":
-    rates, cd = _fetch_kr_rates_naver()
-    base = next((r for r in rates if "기준금리" in r["name"]), None)
-    return base, cd
 
 
 def _fetch_bok_rates_ecos() -> "tuple[dict | None, list]":
@@ -668,7 +618,7 @@ _VKOSPI_네이버코드 = ["VKOSPI", "VKOSPI200", "KOSPI200VOL"]
 
 def _fetch_vkospi_naver() -> "dict | None":
     """네이버 모바일 지수 API. 국내 지수 4종이 이미 이 경로로 들어온다."""
-    from app.services.price_fetcher import NAVER_HEADERS
+    from app.services.market.price_fetcher import NAVER_HEADERS
 
     for code in _VKOSPI_네이버코드:
         try:
@@ -758,7 +708,7 @@ def get_vkospi() -> "dict | None":
     return 항목
 
 
-def _환율카드(캐시키: str, 이름: str, 야후심볼: str, 환산=None) -> "dict | None":
+def _환율카드(캐시키: str, 이름: str, 환산=None) -> "dict | None":
     """해외 탭이 이미 받아 둔 환율을 한국 대시보드 카드 모양으로 꺼낸다.
 
     해외 탭이 5분마다 받아 캐시에 넣어 두므로(extra:usdkrw 등) 대개 새로
@@ -858,12 +808,12 @@ def _환율_채워두기() -> None:
 
 def get_jpykrw_100() -> "dict | None":
     """원/100엔. 야후는 1엔당으로 주므로 100을 곱한다."""
-    return _환율카드("extra:jpykrw", "원/100엔", "JPYKRW=X", 엔화_100엔당)
+    return _환율카드("extra:jpykrw", "원/100엔", 엔화_100엔당)
 
 
 def get_eurkrw() -> "dict | None":
     """원/유로. 달러·엔과 달리 단위를 손댈 것이 없다."""
-    return _환율카드("extra:eurkrw", "원/유로", "EURKRW=X")
+    return _환율카드("extra:eurkrw", "원/유로")
 
 
 # ── 왜 안 왔는지 남긴다 ────────────────────────────────────
@@ -1395,11 +1345,3 @@ def get_us_rates() -> list:
     return _캐시_우선("extra:us_rates", _do_fetch_us_rates, [])
 
 
-def _demo_rates() -> list:
-    return [
-        {"name":"한국 기준금리","value":2.75,"change":0.0,"change_rate":0.0,"unit":"%","is_rate":True,"_demo":True},
-        {"name":"CD금리(91일)","value":3.62,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
-        {"name":"국고채 3년","value":3.45,"change":-0.02,"change_rate":-0.02,"unit":"%","is_rate":True,"_demo":True},
-        {"name":"국고채 5년","value":3.61,"change":-0.01,"change_rate":-0.01,"unit":"%","is_rate":True,"_demo":True},
-        {"name":"국고채 10년","value":3.78,"change":0.01,"change_rate":0.01,"unit":"%","is_rate":True,"_demo":True},
-    ]

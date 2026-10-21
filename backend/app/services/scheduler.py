@@ -9,12 +9,11 @@ import os
 import time
 from datetime import datetime
 from app.core.cache import cache
-from app.services.price_fetcher import (
-    fetch_naver_indices, fetch_naver_stocks, fetch_naver_exchange,
-    fetch_naver_prices_light,
+from app.services.market.price_fetcher import (
+    fetch_naver_indices, fetch_naver_stocks, fetch_naver_prices_light,
     fetch_yf_quotes, fetch_yf_quotes_with_fallback, fetch_yf_index_quotes, fetch_pykrx_index,
 )
-from app.services import market_hours, watched
+from app.services.market import market_hours, watched
 from app.core import memory, activity, health
 from app.core.config import settings
 
@@ -93,7 +92,7 @@ def _한번에_하나(함수):
 @_한번에_하나
 async def refresh_kr_indices():
     """네이버 금융으로 국내 지수 갱신"""
-    from app.services.yf_service import yf_service
+    from app.services.market.yf_service import yf_service
     naver_data = await fetch_naver_indices()
     ok = 0
     resolved = set()
@@ -115,7 +114,7 @@ async def refresh_kr_indices():
     # Naver에서 가져오지 못한 지수는 Yahoo Finance async로 보완 (빠름)
     failed = [n for n in KR_INDICES if n not in resolved]
     if failed:
-        from app.services.yf_service import INDEX_SYMBOLS, INDEX_NAMES
+        from app.services.market.yf_service import INDEX_SYMBOLS, INDEX_NAMES
         yf_syms = [INDEX_SYMBOLS.get(n, n) for n in failed]
         try:
             yf_data = await asyncio.wait_for(fetch_yf_quotes(yf_syms), timeout=8)
@@ -173,7 +172,7 @@ async def refresh_kr_indices():
 
     # KIS API 보강
     if settings.KIS_APP_KEY:
-        from app.services.kis_service import kis_service
+        from app.services.market.kis_service import kis_service
         KIS_MAP = {"KOSPI":"0001","KOSDAQ":"1001","KOSPI200":"2001"}
         for name, code in KIS_MAP.items():
             if name in resolved:
@@ -192,7 +191,7 @@ async def refresh_kr_indices():
 
     # 지수마다 따로 남긴다. 묶음 한 줄("3/4개")로는 어느 것이 왜 안 되는지
     # 알 수 없어서 그때 코스닥150 이 0 으로 떠 있는 걸 한참 못 찾았다.
-    from app.services.price_fetcher import _네이버_지수_실패이유
+    from app.services.market.price_fetcher import _네이버_지수_실패이유
     for name in KR_INDICES:
         if name in resolved:
             health.record_ok(f"지수:{name}", None, 원천.get(name, ""))
@@ -303,10 +302,9 @@ async def refresh_us_indices():
 
 async def refresh_us_stocks():
     """YF 배치 fetch(volume/market_cap 포함) → Finnhub으로 인기종목 실시간 보강"""
-    from app.services.finnhub_service import finnhub_service
-    from app.services.yf_service import SP500_SYMBOLS
+    from app.services.market.finnhub_service import finnhub_service
+    from app.services.market.yf_service import SP500_SYMBOLS
     from app.core.config import settings
-    import yfinance as yf
 
     all_syms = list(dict.fromkeys(POPULAR_US + SP500_SYMBOLS))
     BATCH = 100  # YF 요청당 최대 종목 수
@@ -314,7 +312,7 @@ async def refresh_us_stocks():
     # 표에 쌓기 전에 DB 에 남긴 마지막 해외 순위부터 깐다(프로세스당 한 번 —
     # ranking_service.refresh_us_rows 참고)
     try:
-        from app.services.ranking_service import 해외순위_사진_불러오기, 나스닥_챙기기
+        from app.services.market.ranking_service import 해외순위_사진_불러오기, 나스닥_챙기기
         await asyncio.to_thread(해외순위_사진_불러오기)
         await asyncio.to_thread(나스닥_챙기기)
     except Exception as e:
@@ -385,7 +383,7 @@ async def refresh_us_stocks():
     # S&P500 의 가장 새 값인데, 예전에는 표가 만료될 때(15분)까지 순위에
     # 안 들어갔다
     try:
-        from app.services.ranking_service import 미국표_다시쌓기
+        from app.services.market.ranking_service import 미국표_다시쌓기
         미국표_다시쌓기()
     except Exception as e:
         log.debug("미국 순위표 쌓기 실패: %s", type(e).__name__)
@@ -402,7 +400,7 @@ async def _미국순위표_돌리기() -> None:
                            f"({memory.rss_mb() or 0:.0f}MB / {memory.MEMORY_LIMIT_MB}MB)")
         return
     try:
-        from app.services.ranking_service import refresh_us_rows
+        from app.services.market.ranking_service import refresh_us_rows
         await refresh_us_rows()
     except Exception as e:
         log.warning("미국 순위표 갱신 실패: %s", type(e).__name__)
@@ -412,7 +410,7 @@ async def refresh_kr_stocks():
     """네이버 금융으로 국내 종목 갱신"""
     # KIS API 우선
     if settings.KIS_APP_KEY:
-        from app.services.kis_service import kis_service
+        from app.services.market.kis_service import kis_service
         ok_kis = 0
         for code6 in POPULAR_KR_CODES:
             try:
@@ -524,7 +522,7 @@ async def 배당_미리채우기() -> int:
     """
     from app.db.database import SessionLocal
     from app.models.stock import PortfolioItem, WatchlistItem
-    from app.services import dividend_service as DV
+    from app.services.portfolio import dividend_service as DV
     from app.core.fetchcache import 빈손인가
 
     db = SessionLocal()
@@ -681,7 +679,7 @@ async def refresh_exchange():
     """환율 갱신 — 원달러·원유로·원엔 모두 us_rates 배치(yfinance history)로 통일"""
     try:
         loop = asyncio.get_running_loop()
-        from app.services.market_extras import _do_fetch_us_rates
+        from app.services.market.market_extras import _do_fetch_us_rates
         await loop.run_in_executor(None, _do_fetch_us_rates)
         from app.core.cache import cache as _cache
         for ck, sym in [("extra:usdkrw", "USD"), ("extra:eurkrw", "EUR"), ("extra:jpykrw", "JPY")]:
@@ -697,7 +695,7 @@ PREFETCH_INDEX_OHLCV = ["SP500", "NASDAQ", "DOW", "KOSPI", "KOSDAQ"]
 
 async def _prefetch_ohlcv_popular():
     """인기 지수 + 종목 OHLCV 선제 캐싱 (startup 후 백그라운드)"""
-    from app.services.yf_service import yf_service
+    from app.services.market.yf_service import yf_service
     loop = asyncio.get_running_loop()
     ok = 0
 
@@ -756,7 +754,7 @@ async def _prefetch_ohlcv_popular():
 
 async def _prefetch_fundamentals_popular():
     """서버 시작 시 인기 종목 펀더멘털·재무제표 DB 선제 갱신 (DB에 없는 종목만)"""
-    from app.services.fundamentals_service import batch_refresh, get_all_fund_symbols
+    from app.services.fundamentals.fundamentals_service import batch_refresh, get_all_fund_symbols
     popular = [(sym, "US") for sym in POPULAR_US] + [(f"{code}.KS", "KR") for code in POPULAR_KR_CODES]
     cached = set(get_all_fund_symbols())
     missing = [(s, m) for s, m in popular if (s, m) not in cached]
@@ -765,7 +763,7 @@ async def _prefetch_fundamentals_popular():
         await batch_refresh(missing)
 
     # 서버 재시작 직후에도 퀀트 점수 상대평가가 바로 동작하도록 초기 분포 구축
-    from app.services.quant_percentile_service import rebuild_all_distributions
+    from app.services.quant.quant_percentile_service import rebuild_all_distributions
     try:
         await rebuild_all_distributions()
     except Exception as e:
@@ -774,7 +772,7 @@ async def _prefetch_fundamentals_popular():
 
 async def refresh_fundamentals_daily():
     """포트폴리오·관심종목·인기종목 펀더멘털 & 재무제표 일괄 갱신"""
-    from app.services.fundamentals_service import batch_refresh, get_all_fund_symbols
+    from app.services.fundamentals.fundamentals_service import batch_refresh, get_all_fund_symbols
     from app.db.database import SessionLocal
     from app.models.stock import PortfolioItem, WatchlistItem
 
@@ -806,7 +804,7 @@ async def refresh_fundamentals_daily():
     await batch_refresh(list(symbols_set))
 
     # 펀더멘털이 최신화된 직후 — 퀀트 점수 상대평가용 시장별 백분위 분포도 함께 재계산
-    from app.services.quant_percentile_service import rebuild_all_distributions
+    from app.services.quant.quant_percentile_service import rebuild_all_distributions
     try:
         await rebuild_all_distributions()
     except Exception as e:
@@ -830,9 +828,9 @@ async def run_startup_prefetch():
 
     loop = asyncio.get_running_loop()
     from app.services.news_service import get_kr_news, get_us_news
-    from app.services.ranking_service import refresh_kr_rankings_from_naver
-    from app.services.market_extras import get_kr_rates
-    from app.services.ticker_service import init_ticker_db
+    from app.services.market.ranking_service import refresh_kr_rankings_from_naver
+    from app.services.market.market_extras import get_kr_rates
+    from app.services.listings.ticker_service import init_ticker_db
 
     # 차례를 둔다. 예전에는 지수·환율·순위·금리·뉴스 여덟 가지를 한꺼번에
     # 돌렸는데, 0.15 CPU 에서 한꺼번에 돌리면 빨라지는 게 아니라 모두가 같이
@@ -885,7 +883,7 @@ async def run_startup_prefetch():
         # 훑는 양도 줄인다. 시작 직후는 라이브러리를 막 올려 메모리가 가장
         # 높은 때다. 여기서 1500개를 훑을 이유가 없다 — 화면이 비지 않을
         # 만큼만 채우고 나머지는 주기 갱신이 이어서 돈다.
-        from app.services.ranking_service import refresh_us_rows, US_STARTUP_SWEEP
+        from app.services.market.ranking_service import refresh_us_rows, US_STARTUP_SWEEP
         if memory.has_headroom("시작 시 미국 순위표"):
             startup_jobs.append(refresh_us_rows(sweep=US_STARTUP_SWEEP))
     if market_hours.kr_session() != "closed":
@@ -920,7 +918,7 @@ async def 국내금리_갱신() -> None:
     if _국내금리일 is not None and not _국내금리일.done():
         log.warning("국내 금리 갱신이 아직 안 끝나 이번 차례는 건너뜀")
         return
-    from app.services.market_extras import _do_fetch_kr_rates
+    from app.services.market.market_extras import _do_fetch_kr_rates
     _국내금리일 = asyncio.get_running_loop().run_in_executor(None, _do_fetch_kr_rates)
     try:
         await asyncio.wait_for(asyncio.shield(_국내금리일), timeout=국내금리_상한)
@@ -932,7 +930,7 @@ async def 국내금리_갱신() -> None:
 
 async def periodic_refresh():
     """30초마다 국내 지수, 60초마다 미국 지수 + 환율 + 순위, 5분마다 종목 + 뉴스, 24시간마다 펀더멘털 DB 갱신"""
-    from app.services.ranking_service import refresh_kr_rankings_from_naver
+    from app.services.market.ranking_service import refresh_kr_rankings_from_naver
     counter = 0
     _last_fund_refresh = datetime.utcnow()
     # 지난 회차에 쉬고 있었나. 첫 회차는 시작 직후라 이미 프리페치가
@@ -1020,7 +1018,7 @@ async def periodic_refresh():
         # 그 시각에 서버가 자고 있던 날은 통째로 빈다.
         if counter % 90 == 0:
             try:
-                from app.services.portfolio_snapshot import 찍기
+                from app.services.portfolio.portfolio_snapshot import 찍기
                 await asyncio.get_running_loop().run_in_executor(None, 찍기)
             except Exception as e:
                 log.debug("자산 기록 건너뜀: %s", type(e).__name__)
@@ -1040,7 +1038,7 @@ async def periodic_refresh():
         # 2시간이면 서버가 깨어 있는 어느 날이든 몇 번은 돈다.
         if 방금깼나 or counter % 720 == 0:
             try:
-                from app.services.portfolio_snapshot import 메우기
+                from app.services.portfolio.portfolio_snapshot import 메우기
                 await asyncio.get_running_loop().run_in_executor(None, 메우기)
             except Exception as e:
                 log.debug("빈 날 메우기 건너뜀: %s", type(e).__name__)
@@ -1051,7 +1049,7 @@ async def periodic_refresh():
 
         # 미국 환율·금리·국채 (5분)
         if counter % 30 == 0:
-            from app.services.market_extras import get_us_rates
+            from app.services.market.market_extras import get_us_rates
             loop2 = asyncio.get_running_loop()
             await loop2.run_in_executor(None, get_us_rates)
 
@@ -1091,7 +1089,7 @@ async def periodic_refresh():
         # 못 돌았다) 장이 닫혀 있어도 10분마다 이어 훑는다. 30분마다 1,500개씩이면
         # 재시작 뒤 전종목이 차기까지 두 시간이 넘었다.
         미국닫힘 = market_hours.us_session() == "closed"
-        from app.services.ranking_service import 전종목_채움
+        from app.services.market.ranking_service import 전종목_채움
         덜참 = not 전종목_채움()
         if (미국닫힘 and not 덜참 and counter % 180 == 0) or ((not 미국닫힘 or 덜참) and counter % 60 == 30):
             await _미국순위표_돌리기()
@@ -1106,7 +1104,7 @@ async def periodic_refresh():
         # 것도 하지 않는다. 실제로 받아올 때도 httpx 요청 두 번뿐이다.
         if counter % 360 == 0:
             try:
-                from app.services.ticker_service import (
+                from app.services.listings.ticker_service import (
                     refresh_kr_tickers_if_stale, refresh_us_tickers_if_stale,
                 )
                 loop4 = asyncio.get_running_loop()

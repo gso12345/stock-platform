@@ -13,8 +13,8 @@ import time
 from collections import defaultdict
 from fastapi import WebSocket, WebSocketDisconnect
 from app.core.cache import cache
-from app.services.yf_service import INDEX_NAMES
-from app.services import watched
+from app.services.market.yf_service import INDEX_NAMES
+from app.services.market import watched
 
 log = logging.getLogger(__name__)
 

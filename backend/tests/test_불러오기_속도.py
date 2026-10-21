@@ -114,7 +114,7 @@ class Test봉목록_만들기:
 
     @pytest.fixture
     def 야후(self, monkeypatch):
-        from app.services import yf_service as Y
+        from app.services.market import yf_service as Y
         from app.core.cache import cache
         담기 = {}
 
@@ -210,7 +210,7 @@ class _풀린표:
 
 def test_거래량이_실수로_와도_정수로(monkeypatch):
     """야후는 거래량을 실수(1234.0)로 줄 때가 있다 — 화면은 정수를 기대한다."""
-    from app.services import yf_service as Y
+    from app.services.market import yf_service as Y
     표 = Test봉목록_만들기._가격표(줄수=50)
     표["Volume"] = 표["Volume"].astype(float)
     줄들 = Y._봉목록(표, lambda v: round(float(v), 2), Y._일자들(표.index))
@@ -310,7 +310,7 @@ class Test깨어날때:
     def test_미국_금리_배치는_동시에_불러도_한_번만_돈다(self, monkeypatch):
         import threading
         import time
-        from app.services import market_extras as M
+        from app.services.market import market_extras as M
         from app.core.cache import cache
         횟수 = {"n": 0}
 
@@ -330,7 +330,7 @@ class Test깨어날때:
         assert 결과 == [[{"name": "원/달러", "value": 1380.0}]] * 4
 
     def test_끝나면_다음_사람은_새로_받는다(self, monkeypatch):
-        from app.services import market_extras as M
+        from app.services.market import market_extras as M
         횟수 = {"n": 0}
         monkeypatch.setattr(M, "_us_rates_받기", lambda: 횟수.__setitem__("n", 횟수["n"] + 1) or [])
         M._do_fetch_us_rates()
@@ -341,7 +341,9 @@ class Test깨어날때:
     def 기록(self, monkeypatch):
         """시작 프리페치가 부르는 것들을 가짜로 바꾸고 부른 순서를 남긴다."""
         import asyncio
-        from app.services import scheduler as S, ranking_service, news_service, market_extras, ticker_service
+        from app.services import scheduler as S, news_service
+        from app.services.market import ranking_service, market_extras
+        from app.services.listings import ticker_service
         순서: list[str] = []
 
         def 비동기(이름, 걸림=0.0):
@@ -398,7 +400,7 @@ class Test깨어날때:
             await asyncio.sleep(1.0)
             순서.append("순위:끝")
 
-        from app.services import ranking_service
+        from app.services.market import ranking_service
         monkeypatch.setattr(ranking_service, "refresh_kr_rankings_from_naver", 멈춘순위)
         monkeypatch.setattr(S, "STARTUP_FIRST_WAIT", 0.2)
         asyncio.run(S.run_startup_prefetch())
@@ -432,7 +434,7 @@ class Test순위표_읽기는_루프_밖에서:
         import asyncio
         import threading
         from tests.test_parser_release import _표, _가짜클라이언트
-        from app.services import ranking_service as rs
+        from app.services.market import ranking_service as rs
 
         monkeypatch.setattr(rs.httpx, "AsyncClient", lambda *a, **k: _가짜클라이언트(_표(5)))
         읽은스레드 = []
@@ -523,7 +525,7 @@ class Test내자산_뉴스_고르기:
     ]
 
     def test_예전_맞추기와_결과가_같다(self):
-        from app.services import portfolio_news as PN
+        from app.services.portfolio import portfolio_news as PN
         for 말들 in self.말들목록:
             맞나 = PN._맞추개(말들)
             for 제목, 요약 in self.글들:
@@ -532,7 +534,7 @@ class Test내자산_뉴스_고르기:
 
     def test_고를_때_한_번씩_부르던_맞추기를_안_쓴다(self, monkeypatch):
         from app.core.cache import cache
-        from app.services import portfolio_news as PN
+        from app.services.portfolio import portfolio_news as PN
         기사들 = [{"title": f"삼성전자 소식 {i}", "link": f"https://e.com/{i}", "summary": "",
                    "published_ts": 1_700_000_000 + i} for i in range(300)]
         cache.set("news:kr", 기사들, 60)
@@ -606,7 +608,7 @@ class Test관심종목_시세:
 
     @pytest.fixture
     def 가짜네이버(self, monkeypatch):
-        from app.services import price_fetcher as PF
+        from app.services.market import price_fetcher as PF
         from app.core.cache import cache
         불림 = {"light": [], "full": []}
 
@@ -696,7 +698,7 @@ class Test마지막시세:
     def test_받아둔시세가_지난값이_없으면_마지막_가격을_쓴다(self):
         from types import SimpleNamespace as 항목
         from app.core.cache import cache
-        from app.services.cached_prices import 받아둔시세
+        from app.services.market.cached_prices import 받아둔시세
         cache.set("price:777770.KS", {"price": 5000.0, "change_rate": 1.0}, -1)
         cache._stale_drop("price:777770.KS")           # 지난 값까지 밀려난 상태
         try:
@@ -897,7 +899,7 @@ class Test퀀트_지표_남겨두기:
     지표 = {"_sector": "Technology", "per": 12.0, "roe": 15.0, "mom_3m": 4.2, "mom_12m": 10.0, "volatility": 22.0}
 
     def test_남기고_한번에_읽는다(self, 표):
-        from app.services import quant_store as Q
+        from app.services.quant import quant_store as Q
         Q.저장("QT1", "US", self.지표)
         Q.저장("QT2", "KR", {**self.지표, "per": 8.0})
         Q.저장("QT1", "US", {**self.지표, "per": 13.0})          # 고쳐 쓴다(두 줄이 안 된다)
@@ -907,12 +909,12 @@ class Test퀀트_지표_남겨두기:
         assert Q.여럿읽기([("QT2", "US")]) == {}, "다른 시장의 같은 이름을 가져왔다"
 
     def test_반쪽짜리는_안_남긴다(self, 표):
-        from app.services import quant_store as Q
+        from app.services.quant import quant_store as Q
         Q.저장("QT4", "US", {"per": 12.0, "roe": 15.0})          # 가격(모멘텀)이 빠졌다
         assert Q.여럿읽기([("QT4", "US")]) == {}
 
     def test_NaN_은_비워서_남긴다(self, 표):
-        from app.services import quant_store as Q
+        from app.services.quant import quant_store as Q
         # PBR 도 둔다 — 가치 지표가 NaN 하나뿐이면 반쪽이라 아예 안 남긴다(test_퀀트_빈점수)
         Q.저장("QT5", "US", {**self.지표, "pbr": 1.1, "per": float("nan")})
         assert Q.여럿읽기([("QT5", "US")])[("QT5", "US")][0]["per"] is None
@@ -921,7 +923,7 @@ class Test퀀트_지표_남겨두기:
         from datetime import datetime, timedelta
         from app.db.database import SessionLocal
         from app.models.stock import QuantMetricsCache
-        from app.services import quant_store as Q
+        from app.services.quant import quant_store as Q
         Q.저장("QT6", "US", self.지표)
         db = SessionLocal()
         db.query(QuantMetricsCache).filter_by(symbol="QT6").update(
@@ -953,14 +955,14 @@ class Test퀀트_지표_남겨두기:
             불림["모으기"].append(sym)
             return dict(self.지표)
 
-        monkeypatch.setattr("app.services.quant_score.collect_quant_metrics", 모으기)
+        monkeypatch.setattr("app.services.quant.quant_score.collect_quant_metrics", 모으기)
         monkeypatch.setattr(R, "_퀀트지표_뒤로미루기", lambda s, m, ck: 불림["미루기"].append(s))
         yield TestClient(app), {"Authorization": f"Bearer {토큰}"}, 불림
         for s in ("QT1", "QT2", "QT7"):
             cache.delete(f"qmetrics:US:{s}")
 
     def test_남겨둔_것으로_곧바로_답한다(self, 퀀트손님):
-        from app.services import quant_store as Q
+        from app.services.quant import quant_store as Q
         from app.core.cache import cache
         c, H, 불림 = 퀀트손님
         Q.저장("QT1", "US", self.지표)
@@ -975,7 +977,7 @@ class Test퀀트_지표_남겨두기:
         from datetime import datetime, timedelta
         from app.db.database import SessionLocal
         from app.models.stock import QuantMetricsCache
-        from app.services import quant_store as Q
+        from app.services.quant import quant_store as Q
         c, H, 불림 = 퀀트손님
         Q.저장("QT2", "US", self.지표)
         db = SessionLocal()
@@ -988,7 +990,7 @@ class Test퀀트_지표_남겨두기:
 
     def test_처음_모은_것은_남겨_둔다(self, 퀀트손님):
         import time
-        from app.services import quant_store as Q
+        from app.services.quant import quant_store as Q
         c, H, 불림 = 퀀트손님
         c.get("/api/v1/stocks/quant-score/compare", params={"symbols": "QT7", "markets": "US"}, headers=H)
         assert 불림["모으기"] == ["QT7"]
@@ -1010,7 +1012,7 @@ class Test미국_상세_장외시세:
         from app.main import app
         from app.core.cache import cache
         from app.api.routes.stocks import price as P
-        from app.services import market_hours, price_fetcher
+        from app.services.market import market_hours, price_fetcher
         불림 = {"장외": 0}
         세션 = {"v": "regular"}
 
@@ -1064,7 +1066,7 @@ class Test미국_상세_장외시세:
     def test_못_받으면_한동안_다시_안_묻는다(self, 상세, monkeypatch):
         import time
         from app.core.cache import cache
-        from app.services import price_fetcher
+        from app.services.market import price_fetcher
         c, 불림, 세션 = 상세
         세션["v"] = "after"
 
@@ -1300,7 +1302,7 @@ class Test스크리닝_사진:
     def 야후(self, monkeypatch):
         import threading
         import time
-        from app.services import yf_service as Y
+        from app.services.market import yf_service as Y
         Y.스크리닝_사진_비우기()
         불림 = {"n": 0, "늦음": 0.0, "값": 1.0}
         잠금 = threading.Lock()
@@ -1490,7 +1492,7 @@ def test_신호_백테스트_계산은_이벤트_루프_밖에서(monkeypatch):
     from fastapi.testclient import TestClient
     from app.main import app
     from app.api.routes import backtest as R
-    from app.services.backtest_engine import backtest_engine as E
+    from app.services.backtest.backtest_engine import backtest_engine as E
     import pandas as pd
     날 = pd.bdate_range("2023-01-02", periods=300)
     monkeypatch.setattr(R.yf_service, "get_ohlcv", lambda *a, **k: [

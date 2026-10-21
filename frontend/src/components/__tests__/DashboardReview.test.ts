@@ -41,8 +41,8 @@ describe("코스닥150 을 걷어냈다", () => {
   });
 
   it("서버 지수 목록에 없다", () => {
-    for (const f of ["app/services/scheduler.py", "app/services/price_fetcher.py",
-                     "app/services/yf_service.py", "app/api/websocket/price_stream.py"]) {
+    for (const f of ["app/services/scheduler.py", "app/services/market/price_fetcher.py",
+                     "app/services/market/yf_service.py", "app/api/websocket/price_stream.py"]) {
       const s = fs.readFileSync(path.join(백엔드, f), "utf-8");
       expect(s, `${f} 에 남아 있다`).not.toContain("KOSDAQ150");
     }
@@ -50,12 +50,14 @@ describe("코스닥150 을 걷어냈다", () => {
 });
 
 describe("안 되는 지수는 스스로 물러난다", () => {
-  const pf = fs.readFileSync(path.join(백엔드, "app/services/price_fetcher.py"), "utf-8");
+  const pf = fs.readFileSync(path.join(백엔드, "app/services/market/price_fetcher.py"), "utf-8");
 
   it("연속 실패를 세고 쉬게 한다", () => {
     /* 이게 없으면 후보 지수를 넣어 보는 것 자체가 위험한 일이 된다 —
        확인할 방법이 없으면 넣어 볼 수도 없다 */
-    expect(pf).toContain("def 지수_쉬는가");
+    /* 쉬는지 묻는 건 이번회차_지수 안의 골라내기가 한다 — 따로 있던 지수_쉬는가 는
+       아무도 안 불러서 지웠다. 세는 장치(지수쉼표) 자체가 있는지를 본다 */
+    expect(pf).toContain("지수쉼표 = 쉼표(");
     expect(pf).toContain("def 지수_실패기록");
     expect(pf).toContain("def 이번회차_지수");
   });
@@ -83,7 +85,7 @@ describe("안 되는 지수는 스스로 물러난다", () => {
     /* 뉴스·지수·금리가 각자 자기 것을 들고 있으면, 관리자 화면에서
        꺼내 볼 때도 세 벌을 따로 알아야 한다 */
     const ns = fs.readFileSync(path.join(백엔드, "app/services/news_service.py"), "utf-8");
-    const me = fs.readFileSync(path.join(백엔드, "app/services/market_extras.py"), "utf-8");
+    const me = fs.readFileSync(path.join(백엔드, "app/services/market/market_extras.py"), "utf-8");
     for (const s of [pf, ns, me]) {
       expect(s).toContain("from app.core.backoff import 쉼표");
     }
@@ -166,8 +168,8 @@ describe("뉴스는 이미지 있는 기사만", () => {
 });
 
 describe("해외 순위 대상", () => {
-  const rs = fs.readFileSync(path.join(백엔드, "app/services/ranking_service.py"), "utf-8");
-  const ul = fs.readFileSync(path.join(백엔드, "app/services/us_listing.py"), "utf-8");
+  const rs = fs.readFileSync(path.join(백엔드, "app/services/market/ranking_service.py"), "utf-8");
+  const ul = fs.readFileSync(path.join(백엔드, "app/services/listings/us_listing.py"), "utf-8");
 
   it("목록을 못 받으면 거울을 본다", () => {
     /* NASDAQ Trader 가 막히면 순위 대상이 코드에 적어 둔 372개로

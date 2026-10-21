@@ -14,7 +14,7 @@ import gc
 
 import pytest
 
-from app.services import ticker_service as ts
+from app.services.listings import ticker_service as ts
 
 
 @pytest.fixture
@@ -109,7 +109,7 @@ class Test갱신_실패:
         """받아오기가 실패했다고 128개로 떨어지면, 국내에서 겪은 일을
         그대로 반복하는 것이다."""
         전 = list(ts._us_db)
-        monkeypatch.setattr("app.services.us_listing.fetch_listing",
+        monkeypatch.setattr("app.services.listings.us_listing.fetch_listing",
                             lambda: ([], "접속 실패"))
         assert ts._refresh_us_outside() is False
         assert ts._us_db == 전, "받지도 못한 목록으로 기존 것을 덮었다"
@@ -121,7 +121,7 @@ class Test갱신_실패:
         전 = list(큰목록())
         def 폭발():
             raise RuntimeError("무언가 실패")
-        monkeypatch.setattr("app.services.us_listing.fetch_listing", 폭발)
+        monkeypatch.setattr("app.services.listings.us_listing.fetch_listing", 폭발)
         assert ts._refresh_us_outside() is False
         assert ts._us_db == 전, f"{len(전)}개였는데 {len(ts._us_db)}개로 줄었다"
 
@@ -130,7 +130,7 @@ class Test갱신_실패:
         기록 = []
         monkeypatch.setattr(ts.health, "record_fail",
                             lambda 이름, 사유=None, *a, **k: 기록.append((이름, 사유)))
-        monkeypatch.setattr("app.services.us_listing.fetch_listing",
+        monkeypatch.setattr("app.services.listings.us_listing.fetch_listing",
                             lambda: ([], "접속 실패"))
         ts._refresh_us_outside()
         assert 기록, "실패가 건강 기록에 안 남는다"

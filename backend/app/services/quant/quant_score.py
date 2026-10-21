@@ -307,8 +307,8 @@ async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = Tr
     동일한 정의를 공유하도록 한곳에 모음. 캐시 우선 조회(fundamentals_service/yf_service)라
     이미 캐시된 종목이면 추가 외부 호출 없이 즉시 반환된다."""
     import asyncio
-    from app.services.fundamentals_service import get_fundamentals, get_financials
-    from app.services.yf_service import yf_service
+    from app.services.fundamentals.fundamentals_service import get_fundamentals, get_financials
+    from app.services.market.yf_service import yf_service
 
     loop = asyncio.get_running_loop()
     tasks = [get_fundamentals(symbol, market, 기다림=QUANT_SOURCE_WAIT),

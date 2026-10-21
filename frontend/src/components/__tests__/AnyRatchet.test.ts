@@ -21,6 +21,10 @@ const 상한: Record<string, number> = {
   // 여러 화면이 함께 쓰는 자리. 여기 any 하나가 화면 열 곳으로 번진다
   "utils/prices.ts": 0,
   "api/stocks.ts": 2,          // nxt·analyst 는 서버 응답 모양이 아직 안 정해졌다
+  // api/stocks.ts 에서 분야별로 나눈 것들 — 나눌 때 0개였다
+  "api/quant.ts": 0, "api/dashboard.ts": 0, "api/screening.ts": 0, "api/backtest.ts": 0,
+  "api/portfolio.ts": 0, "api/watchlist.ts": 0, "api/community.ts": 0, "api/alerts.ts": 0,
+  "api/ipo.ts": 0,
   // 이번에 훑은 화면들
   "pages/Watchlist.tsx": 1,
   "components/watchlist/WatchlistModals.tsx": 0,

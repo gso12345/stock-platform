@@ -3,16 +3,18 @@
 원래 stocks.py 한 파일에 있던 것을 탭 단위로 가른 조각이다.
 공용 폴백·시한 처리는 _공용 에 있다.
 """
-from ._공용 import (   # noqa: F401  — 쪼개기 전과 같은 이름을 쓴다
-    APIRouter, Path, Query, HTTPException, Request, Depends, Literal,
-    asyncio, logging, re, log, QMETRICS_TTL, _퀀트갱신중, _퀀트지표_뒤로미루기, Session,
-    kis_service, finnhub_service, dart_service, yf_service,
-    _resolve_kr_symbol, get_demo_price, get_demo_ohlcv, DEMO_PRICES,
-    get_fdr_price, get_kr_db, compute_quant_score, DEFAULT_WEIGHTS, settings,
-    cache, _safe_float, get_current_user, require_user, get_db,
-    QuantScoreWeight, limiter, router_새로, _SYMBOL_PATTERN, _run, _시한내결과,
-    get_kr_price, get_us_price,
-)
+import asyncio
+import re
+from typing import Literal
+
+from fastapi import Path, Request
+
+from app.core.cache import cache
+from app.core.utils import safe_float as _safe_float
+from app.services.market.finnhub_service import finnhub_service
+from app.services.market.yf_service import _resolve_kr_symbol, yf_service
+
+from ._공용 import _run, _SYMBOL_PATTERN, _시한내결과, limiter, router_새로
 
 router = router_새로()
 
@@ -20,7 +22,6 @@ router = router_새로()
 @limiter.limit("20/minute")
 async def get_earnings(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """실적발표 일정 및 과거 실적 (yfinance)"""
-    from app.core.cache import cache
     ck = f"earnings:{symbol}"
     if c := cache.get(ck):
         return c
@@ -84,9 +85,8 @@ async def get_analyst(request: Request, market: Literal["KR","US","ETF"], symbol
     """애널리스트 투자의견 — 목표주가, 의견분포, 최근 리포트
     in-memory → DB fresh(24h) → DB stale(30일, +백그라운드 갱신) → 외부 API 순으로 조회.
     DB에 영속 저장해 Render 재시작으로 메모리 캐시가 비워져도 데이터가 사라지지 않게 한다."""
-    from app.core.cache import cache
     from app.models.stock import AnalystCache
-    from app.services.fundamentals_service import _db_get, _db_set
+    from app.services.fundamentals.fundamentals_service import _db_get, _db_set
     ck = f"analyst:v3:{symbol}"
     if c := cache.get(ck):
         return c
@@ -267,7 +267,7 @@ async def get_analyst(request: Request, market: Literal["KR","US","ETF"], symbol
         """네이버 통합(integration) API의 totalInfos에서 목표주가·투자의견 항목을 값의
         패턴으로 탐지해 조회한다 (전용 consensusOpinion/opinion/consensus 엔드포인트는
         더 이상 응답하지 않아 제거됨 — 가격 조회에도 쓰이는 integration 엔드포인트를 재사용)"""
-        import httpx, math, re
+        import httpx, math
         from app.core.http import SSL
         headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/80.0 Mobile Safari/537.36",
@@ -394,7 +394,6 @@ def _fill_analyst_gaps(result: dict, stale: dict | None):
 
 def _enrich_analyst_fallback(result: dict, symbol: str, market: str):
     """price/fund 캐시로 투자의견·목표주가 보완 — 1차 조회가 비어있을 때 모든 시장 공통 폴백"""
-    from app.core.cache import cache
     fund_cached  = cache.get(f"fund:{symbol}") or cache.get_stale(f"fund:{symbol}")
     price_cached = cache.get(f"price:{symbol}") or cache.get_stale(f"price:{symbol}")
     for src in [fund_cached, price_cached]:
@@ -448,7 +447,7 @@ async def get_stock_dividends(
     캐시에 없으면 하루치를 새로 받고, 안 되는 종목은 쉬게 둔다
     (services/dividend_service 의 규칙 그대로).
     """
-    from app.services import dividend_service as DV
+    from app.services.portfolio import dividend_service as DV
 
     정보 = await _run(DV.한종목, symbol, market)
     if not 정보:

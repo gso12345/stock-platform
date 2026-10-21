@@ -17,7 +17,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.services import dividend_service as DV
+from app.services.portfolio import dividend_service as DV
 
 
 def 날(뒤로: int) -> date:

@@ -108,7 +108,7 @@ def 봉들(심볼: str) -> list[dict]:
 @pytest.fixture(autouse=True)
 def _가짜시세(monkeypatch):
     from app.api.routes import backtest as R
-    from app.services import dividend_service as DV
+    from app.services.portfolio import dividend_service as DV
 
     def 시세(symbol, period, interval, market):
         return 봉들(symbol)
@@ -170,7 +170,7 @@ class Test담을_수_있는_자산_수:
 
     def test_요청_상한과_엔진_상한이_같다(self):
         from app.api.routes.backtest import 자산배분요청
-        from app.services.portfolio_backtest import 최대자산
+        from app.services.backtest.portfolio_backtest import 최대자산
         칸 = 자산배분요청.model_fields["assets"]
         위 = next(m for m in 칸.metadata if hasattr(m, "max_length"))
         assert 위.max_length == 최대자산, \
@@ -186,7 +186,7 @@ class Test담을_수_있는_자산_수:
         assert abs(sum(a["weight"] for a in d["assets"]) - 1.0) < 1e-6
 
     def test_상한을_넘기면_조용히_자르지_않고_거절한다(self, client):
-        from app.services.portfolio_backtest import 최대자산
+        from app.services.backtest.portfolio_backtest import 최대자산
         자산 = [{"symbol": f"S{i:02d}", "market": "US", "weight": 1}
                 for i in range(최대자산 + 1)]
         r = client.post("/api/v1/backtest/portfolio", json=몸(assets=자산))
@@ -499,7 +499,7 @@ class Test벤치마크:
         아니므로 오류도 안 나고, 벤치마크 줄만 **조용히** 사라진다.
         (위의 가짜 시세는 이 함수 뒤에 끼어들므로 여기서 따로 본다.)
         """
-        from app.services.yf_service import _resolve_kr_symbol
+        from app.services.market.yf_service import _resolve_kr_symbol
         assert _resolve_kr_symbol("005930", "KS") == "005930.KS"
         assert _resolve_kr_symbol("069500", "KS") == "069500.KS"
         assert _resolve_kr_symbol("^KS11", "KS") == "^KS11", "코스피 지수에 .KS 를 붙였다"
@@ -716,7 +716,7 @@ class Test폭락때_낙폭을_어디서_재나:
     def test_구간_첫날의_하락도_잡는다(self):
         """구간 첫날을 꼭대기로 잡으면 그날의 하락이 통째로 빠진다.
         하루 만에 -20% 가 난 구간이 -0% 로 나온다."""
-        from app.services.portfolio_backtest import _폭락때
+        from app.services.backtest.portfolio_backtest import _폭락때
         #: 직전 100 → 구간 첫날 80 (-20%) → 그대로
         값들 = [100.0] + [80.0] * 10
         날들 = [date(2020, 2, 18)] + [date(2020, 2, 19) + timedelta(days=i)
@@ -728,7 +728,7 @@ class Test폭락때_낙폭을_어디서_재나:
     def test_넣은_돈이_하락을_가리지_않는다(self):
         """평가액 곡선으로 재면 매달 넣는 돈이 곡선을 밀어 올려
         하락을 가린다. 화면의 최대 낙폭과 같은 기준이어야 한다."""
-        from app.services.portfolio_backtest import _폭락때
+        from app.services.backtest.portfolio_backtest import _폭락때
         날들 = [date(2020, 2, 18)] + [date(2020, 2, 19) + timedelta(days=i)
                                       for i in range(10)]
         #: **순곡선은 반토막**이다(1.0 → 0.5)
@@ -748,7 +748,7 @@ class Test폭락때_낙폭을_어디서_재나:
 
     def test_곡선과_날짜_수가_다르면_지어내지_않는다(self):
         """어긋난 곡선으로 재면 엉뚱한 날의 낙폭이 나온다 — 차라리 안 낸다."""
-        from app.services.portfolio_backtest import _폭락때
+        from app.services.backtest.portfolio_backtest import _폭락때
         날들 = [date(2020, 2, 18)] + [date(2020, 2, 19) + timedelta(days=i)
                                       for i in range(10)]
         assert _폭락때(날들, [1.0] * 5) == []
@@ -761,7 +761,7 @@ class Test폭락때_낙폭을_어디서_재나:
         같은 시세를 적립 없이 / 크게 적립하며 두 번 돌린다. 낙폭을
         순곡선에서 재면 둘이 같고, 평가액에서 재면 적립한 쪽이
         훨씬 얕게 나온다."""
-        from app.services.portfolio_backtest import 돌리기
+        from app.services.backtest.portfolio_backtest import 돌리기
 
         #: 코로나 구간에 딱 걸치도록 짧게 만든다
         날들, d = [], date(2020, 1, 2)

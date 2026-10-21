@@ -14,11 +14,11 @@ from app.db.database import get_db
 from app.models.stock import Strategy, BacktestResult
 from app.models.user import User
 from app.core.deps import require_user, get_current_user
-from app.services.backtest_engine import backtest_engine
-from app.services.yf_service import yf_service
+from app.services.backtest.backtest_engine import backtest_engine
+from app.services.market.yf_service import yf_service
 #: 자산 수 상한은 **엔진이 정한다.** 여기서 따로 숫자를 적으면 둘이
 #  갈리는 순간 조용히 잘리거나 쓸데없이 422 가 난다.
-from app.services.portfolio_backtest import 최대자산 as PB_최대자산
+from app.services.backtest.portfolio_backtest import 최대자산 as PB_최대자산
 from app.core.cache import cache
 
 log = logging.getLogger(__name__)
@@ -282,7 +282,7 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
 @limiter.limit("5/minute")
 async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, current_user: Optional[User] = Depends(get_current_user)):
     """전체 종목 유니버스 백테스트"""
-    from app.services.yf_service import SP500_SYMBOLS, KOSPI_SYMBOLS, KOSDAQ_SYMBOLS, ETF_SYMBOLS
+    from app.services.market.yf_service import SP500_SYMBOLS, KOSPI_SYMBOLS, KOSDAQ_SYMBOLS, ETF_SYMBOLS
 
     """캐시 열쇠를 **해시로 줄인다.**
 
@@ -798,7 +798,7 @@ async def _시세모으기(자산들: list, 기간: str, 시작: str, 끝: str,
     둘째로 돌려주는 것은 {심볼: 이은 시작일} 이다. 화면에 띄워야 한다.
     """
     from datetime import date as _date
-    from app.services.portfolio_backtest import 현금류
+    from app.services.backtest.portfolio_backtest import 현금류
 
     loop = asyncio.get_running_loop()
     sem = asyncio.Semaphore(4)
@@ -901,7 +901,7 @@ def _통화맞추기(가격표: dict, 자산들: list, 표시통화: str, 환율
     짰다가 뮤테이션이 살아남는 것으로 확인했다) 두지 않는다.
     길이 하나면 한 군데만 맞으면 된다.
     """
-    from app.services.portfolio_backtest import 현금류
+    from app.services.backtest.portfolio_backtest import 현금류
 
     바뀐것, 뺀것 = {}, []
     for a in 자산들:
@@ -933,8 +933,8 @@ async def _배당표(자산들: list, 시작: str, 끝: str, 표시통화: str, 
     1/1400 크기로 들어가 사실상 없는 것이 된다.
     """
     from datetime import date as _date
-    from app.services import dividend_service as DV
-    from app.services.portfolio_backtest import 현금류
+    from app.services.portfolio import dividend_service as DV
+    from app.services.backtest.portfolio_backtest import 현금류
 
     loop = asyncio.get_running_loop()
     sem = asyncio.Semaphore(4)
@@ -983,7 +983,7 @@ async def _배당표(자산들: list, 시작: str, 끝: str, 표시통화: str, 
 @limiter.limit("10/minute")
 async def run_portfolio_backtest(request: Request, req: 자산배분요청):
     """자산배분 백테스트 실행."""
-    from app.services import portfolio_backtest as PB
+    from app.services.backtest import portfolio_backtest as PB
 
     시작dt = datetime.strptime(req.start_date, "%Y-%m-%d")
     끝dt = datetime.strptime(req.end_date, "%Y-%m-%d")

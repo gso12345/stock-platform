@@ -14,7 +14,7 @@ import os
 import re
 from app.core.backoff import 쉼표
 from app.core.deps import get_current_user, require_user
-from app.services.ticker_service import get_display_name
+from app.services.listings.ticker_service import get_display_name
 from app.core.cache import cache
 
 log = logging.getLogger(__name__)
@@ -241,7 +241,7 @@ def delete_folder(
 
 async def _yf_only(symbols: list[str]) -> dict:
     """가격만 필요한 곳에서 쓰는 래퍼 — 폴백 개수(계측용)는 버린다."""
-    from app.services.price_fetcher import fetch_yf_quotes_with_fallback
+    from app.services.market.price_fetcher import fetch_yf_quotes_with_fallback
     data, _ = await fetch_yf_quotes_with_fallback(symbols)
     return data
 
@@ -303,7 +303,7 @@ async def get_watchlist_prices_batch(
     markets: str = Query(..., max_length=500),
 ):
     """심볼 목록을 받아 캐시 우선 조회, 미캐시 종목은 배치 fetch 후 캐시 저장"""
-    from app.services.price_fetcher import fetch_yf_quotes_with_fallback, fetch_naver_prices_light
+    from app.services.market.price_fetcher import fetch_naver_prices_light
 
     raw_syms = [s.strip() for s in symbols.split(",") if s.strip()]
     raw_mkts = [m.strip() for m in markets.split(",") if m.strip()]
@@ -468,7 +468,7 @@ async def get_watchlist_prices_batch(
 
 async def _batch_fetch_prices(items: list[WatchlistItem]) -> dict[str, dict]:
     """관심종목 리스트를 심볼별 순차 호출 대신 배치 멀티쿼트로 가격 조회 (캐시 우선)"""
-    from app.services.price_fetcher import fetch_yf_quotes_with_fallback, fetch_naver_stocks
+    from app.services.market.price_fetcher import fetch_naver_stocks
 
     results: dict[str, dict] = {}
     uncached_us: list[str] = []
@@ -552,7 +552,7 @@ def get_items(
     줄들 = [_item_to_dict(i) for i in items]
     if not with_prices:
         return 줄들
-    from app.services.cached_prices import 받아둔시세
+    from app.services.market.cached_prices import 받아둔시세
     return {"items": 줄들, "prices": 받아둔시세(items)}
 
 

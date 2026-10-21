@@ -65,10 +65,6 @@ def io_worker_count(default: int, minimum: int = 8) -> int:
     return max(minimum, min(default, round(cpu_quota() * 24) or minimum))
 
 
-# 이전 이름 — CPU 기준으로 쓰던 곳들이 있어 남겨 둔다
-worker_count = cpu_worker_count
-
-
 def 낮은_우선순위() -> None:
     """부른 스레드를 낮은 우선순위(nice +10)로 — 뒤에서 도는 받기가 화면 요청보다 CPU 를 먼저 쓰지 않게.
 

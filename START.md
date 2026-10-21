@@ -1,17 +1,17 @@
 # 실행 방법
 
-## 1. 백엔드
+## 1. 백엔드 (FastAPI)
 
 ### 사전 준비
-- Python 3.12+
-- PostgreSQL 16
-- Redis 7
+- Python 3.11 (`backend/runtime.txt`)
+- DB 는 따로 안 깔아도 된다 — `DATABASE_URL` 을 안 주면 `backend/stockplatform.db`(SQLite)를 쓴다.
+  배포 서버는 Supabase PostgreSQL 을 쓴다(Render 환경변수 `DATABASE_URL`).
 
 ### 환경 설정
 ```bash
 cd backend
 cp .env.example .env
-# .env 파일에 KIS API 키 입력
+# API 키는 없어도 서버는 뜬다 — 키가 없는 원천에서 받는 것만 빠진다(아래 'API 키')
 ```
 
 ### 의존성 설치 및 실행
@@ -25,7 +25,7 @@ uvicorn app.main:app --reload
 
 ---
 
-## 2. 프론트엔드
+## 2. 프론트엔드 (React + Vite)
 
 ### 사전 준비
 - Node.js 20+
@@ -37,28 +37,73 @@ npm install
 npm run dev
 ```
 
-프론트엔드: http://localhost:5173
+프론트엔드: http://localhost:5173 (`/api` 요청은 8000 번 백엔드로 넘어간다 — `vite.config.ts`)
+
+윈도우에서는 `start-dev.bat` 이 둘을 한꺼번에 띄운다(경로는 자기 컴퓨터에 맞게).
 
 ---
 
-## Docker로 한번에 실행 (PostgreSQL + Redis + 백엔드)
+## 3. 시험
 
 ```bash
-# .env 파일 먼저 설정
-cp backend/.env.example backend/.env
-
-docker-compose up -d
+cd backend  && python -m pytest -q
+cd frontend && npm run typecheck && npm test
 ```
 
 ---
 
-## KIS API 키 발급
+## 4. 배포
 
-1. 한국투자증권 계좌 개설
-2. https://apiportal.koreainvestment.com 접속
-3. 앱 등록 → APP KEY / SECRET 발급
-4. backend/.env 에 입력:
-   - KIS_APP_KEY=발급받은키
-   - KIS_APP_SECRET=발급받은시크릿
-   - KIS_ACCOUNT_NO=계좌번호
-   - KIS_IS_REAL=false (모의투자) / true (실거래)
+`main` 에 올리면 자동으로 나간다.
+- 백엔드: Render (`render.yaml`)
+- 화면: Vercel (`vercel.json`)
+
+Render 무료 서버는 15분 동안 아무도 안 오면 잠든다 — `.github/workflows/keep-alive.yml` 이 깨워 둔다.
+
+---
+
+## 5. 폴더
+
+```
+backend/app
+  main.py          앱 시작·라우터 등록
+  api/routes/      주소별 라우트 (종목 상세는 stocks/ 아래 탭별 파일로 나뉘어 있다)
+  api/websocket/   실시간 시세
+  core/            바탕 — 캐시·설정·인증·스레드·메모리·받기 규칙
+  db/  models/     DB 연결과 표
+  services/        하는 일 — 분야별 폴더 (지도는 services/__init__.py)
+    market/          시세·지수·환율·장 시간·순위
+    listings/        상장 종목 목록
+    fundamentals/    펀더멘털·재무제표
+    quant/           퀀트 점수
+    portfolio/       내 자산 — 평가액 기록·보유 뉴스·배당
+    backtest/        백테스트
+    scheduler.py     뒤에서 도는 갱신 / news_service · ipo_service …
+backend/tests      백엔드 시험
+
+frontend/src
+  main.tsx         화면 주소 등록
+  pages/           화면 하나에 파일 하나
+  components/      화면 조각 — 분야별 폴더
+    layout/          틀·검색·로고·시작 화면
+    account/         로그인 단추·설정창·회원 탈퇴
+    ui/  common/     어디서나 쓰는 것
+    stock/ portfolio/ watchlist/ screening/ backtest/ community/ ipo/ admin/ chart/ quant/
+  api/             서버 부르기 — 분야별 파일. 화면은 모두 api/stocks.ts 에서 가져간다
+  hooks/ utils/ store/ types/ constants/
+```
+
+---
+
+## API 키 (backend/.env)
+
+| 키 | 쓰는 곳 | 없으면 |
+|---|---|---|
+| `KIS_APP_KEY` · `KIS_APP_SECRET` · `KIS_ACCOUNT_NO` · `KIS_IS_REAL` | 한국투자증권 — 국내 실시간 시세 | 네이버·야후로 받는다 |
+| `FINNHUB_API_KEY` | 미국 실시간 시세 | 야후로 받는다 |
+| `DART_API_KEY` | 국내 공시·재무제표 | 야후 재무제표로 받는다 |
+| `FMP_API_KEY` | 해외 재무제표 | 야후 재무제표로 받는다 |
+| `ANTHROPIC_API_KEY` | 뉴스 AI 요약 | 요약만 빠진다 |
+
+KIS 키 발급: 한국투자증권 계좌 개설 → https://apiportal.koreainvestment.com → 앱 등록 → APP KEY / SECRET.
+`KIS_IS_REAL=false` 는 모의투자, `true` 는 실거래.

@@ -35,7 +35,7 @@ import asyncio
 import pytest
 
 from app.core.cache import cache  # noqa: E402
-from app.services import ranking_service as R  # noqa: E402
+from app.services.market import ranking_service as R  # noqa: E402
 
 
 def _가짜시세(n: int, 시작: int = 0) -> dict:
@@ -172,7 +172,7 @@ class Test전종목_받아오기:
                         "volume": 10, "market_cap": 1000, "name": s}
                     for s in 묶음 if s in 심볼[:개수]}
 
-        import app.services.price_fetcher as PF
+        import app.services.market.price_fetcher as PF
         monkeypatch.setattr(PF, "fetch_yf_quotes", _받기)
         return 부른묶음
 
@@ -208,7 +208,7 @@ class Test전종목_받아오기:
                         "volume": 1, "market_cap": 1, "name": s}
                     for s in 묶음 if s in 심볼}
 
-        import app.services.price_fetcher as PF
+        import app.services.market.price_fetcher as PF
         monkeypatch.setattr(PF, "fetch_yf_quotes", _받기)
         받은수 = asyncio.run(R.refresh_us_rows())
         assert 받은수 > R.US_MIN_ROWS, "한 묶음 실패에 전부 포기했다"
@@ -230,7 +230,7 @@ class Test전종목_받아오기:
         assert R._us_rows_refreshing is False
 
     def test_터져도_표시를_지운다(self, monkeypatch):
-        import app.services.price_fetcher as PF
+        import app.services.market.price_fetcher as PF
 
         async def _터짐(묶음):
             raise RuntimeError("전부 실패")
@@ -241,7 +241,7 @@ class Test전종목_받아오기:
     def test_장이_닫혔으면_시세를_오래_담는다(self, monkeypatch):
         """종가는 안 변한다. 짧게 잡으면 금방 비어 또 다섯 줄이 된다."""
         self._가짜받기(monkeypatch, 400)
-        from app.services import market_hours
+        from app.services.market import market_hours
         monkeypatch.setattr(market_hours, "us_session", lambda: "closed")
 
         담긴수명 = {}
@@ -294,7 +294,7 @@ class Test범위가_전종목인가:
     """335개는 'S&P500 안에서의 순위' 이지 미국 시장 순위가 아니다."""
 
     def _가짜목록(self, monkeypatch, 개수):
-        import app.services.ticker_service as TS
+        import app.services.listings.ticker_service as TS
         목록 = [{"s": f"T{i:05d}", "n": f"이름{i}", "m": "US"} for i in range(개수)]
         monkeypatch.setattr(TS, "get_us_db", lambda: 목록)
         return 목록
@@ -312,7 +312,7 @@ class Test범위가_전종목인가:
 
     def test_중복이_없다(self, monkeypatch):
         """S&P500 종목은 상장 목록에도 들어 있다. 두 번 받으면 낭비다."""
-        import app.services.ticker_service as TS
+        import app.services.listings.ticker_service as TS
         monkeypatch.setattr(TS, "get_us_db",
                             lambda: [{"s": s, "n": s, "m": "US"} for s in
                                      ["AAPL", "MSFT", "ZZZZ"] + [f"T{i}" for i in range(3000)]])
@@ -322,19 +322,19 @@ class Test범위가_전종목인가:
     def test_목록이_부실해도_예전만큼은_나온다(self, monkeypatch):
         """목록을 못 받아 내장 182개로 떨어진 상태다.
         앞줄(인기+SP500)이 늘 먼저 오므로 예전 335개보다 나쁠 수 없다."""
-        import app.services.ticker_service as TS
+        import app.services.listings.ticker_service as TS
         monkeypatch.setattr(TS, "get_us_db", lambda: [{"s": "AAPL", "n": "애플", "m": "US"}])
         assert len(R.us_universe()) >= 300
 
     def test_목록_읽기가_터져도_돈다(self, monkeypatch):
-        import app.services.ticker_service as TS
+        import app.services.listings.ticker_service as TS
         def _터짐():
             raise RuntimeError("DB 없음")
         monkeypatch.setattr(TS, "get_us_db", _터짐)
         assert len(R.us_universe()) >= 300
 
     def test_ETF_도_후보에_들어간다(self, monkeypatch):
-        import app.services.ticker_service as TS
+        import app.services.listings.ticker_service as TS
         monkeypatch.setattr(TS, "get_us_db", lambda: (
             [{"s": f"T{i}", "n": f"n{i}", "m": "US"} for i in range(3000)]
             + [{"s": "SPY", "n": "SPDR S&P 500", "m": "ETF"}]))
@@ -347,8 +347,8 @@ class Test나눠_훑는가:
     def _준비(self, monkeypatch, 목록수=5000, 훑는양=400):
         """훑는 양을 줄여 검사를 빠르게 한다 — 보려는 것은 '나눠 훑는가'
         이지 1500이라는 숫자가 아니다. 실제 값은 아래에서 따로 본다."""
-        import app.services.ticker_service as TS
-        import app.services.price_fetcher as PF
+        import app.services.listings.ticker_service as TS
+        import app.services.market.price_fetcher as PF
         monkeypatch.setattr(R, "US_SWEEP", 훑는양)
         monkeypatch.setattr(TS, "get_us_db",
                             lambda: [{"s": f"T{i:05d}", "n": f"n{i}", "m": "US"}
@@ -405,7 +405,7 @@ class Test나눠_훑는가:
     def test_요청_한_번에_담는_수가_주소_길이를_넘지_않는다(self, monkeypatch):
         받은 = self._준비(monkeypatch, 5000, 훑는양=400)
         묶음들 = []
-        import app.services.price_fetcher as PF
+        import app.services.market.price_fetcher as PF
 
         async def _엿보기(묶음):
             묶음들.append(len(묶음))
@@ -423,7 +423,7 @@ class Test나눠_훑는가:
         """전종목 한 바퀴가 몇 시간 걸린다. 수명이 짧으면 앞서 받은 것이
         뒤쪽을 받는 사이에 만료돼 순위표가 영원히 안 찬다."""
         self._준비(monkeypatch, 5000, 훑는양=200)
-        from app.services import market_hours
+        from app.services.market import market_hours
         monkeypatch.setattr(market_hours, "us_session", lambda: "closed")
         수명 = {}
         원래 = cache.set
@@ -531,7 +531,7 @@ class Test훑기가_표를_쌓는가:
                         "volume": 10, "market_cap": 1000, "name": s}
                     for s in 묶음 if s in 답할것["현재"]}
 
-        import app.services.price_fetcher as PF
+        import app.services.market.price_fetcher as PF
         monkeypatch.setattr(PF, "fetch_yf_quotes", _받기)
         monkeypatch.setattr(R, "US_MIN_ROWS", 10)
 

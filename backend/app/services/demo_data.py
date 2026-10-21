@@ -2,20 +2,8 @@
 폴백 데모 데이터 (API 키 없을 때 / rate limit 시)
 2026년 5월 기준 근사값
 """
-import math, random
+import random
 
-DEMO_INDICES = {
-    # 국내 (KIS API 없을 때)
-    "KOSPI":     {"index":"KOSPI",    "name":"코스피",           "value":2838.52, "change":-10.34, "change_rate":-0.36},
-    "KOSDAQ":    {"index":"KOSDAQ",   "name":"코스닥",           "value":909.88,  "change":2.41,   "change_rate":0.27},
-    "KOSPI200":  {"index":"KOSPI200", "name":"코스피 200",       "value":373.20,  "change":-1.05,  "change_rate":-0.28},
-    # 해외 (yfinance rate limit 시 — 2026-05-30 실제값 기준)
-    "SP500":     {"index":"SP500",    "name":"S&P 500",          "value":7582.30, "change":24.97,  "change_rate":0.33},
-    "NASDAQ":    {"index":"NASDAQ",   "name":"나스닥 종합",       "value":26994.28,"change":80.99,  "change_rate":0.30},
-    "DOW":       {"index":"DOW",      "name":"다우 산업",         "value":51091.26,"change":422.29, "change_rate":0.83},
-    "SOX":       {"index":"SOX",      "name":"필라델피아 반도체", "value":4921.10, "change":67.44,  "change_rate":1.39},
-    "RUSSELL":   {"index":"RUSSELL",  "name":"러셀 2000",         "value":2110.45, "change":8.32,   "change_rate":0.40},
-}
 
 DEMO_PRICES = {
     # 미국 — 2026-05-30 기준 근사값
@@ -43,16 +31,6 @@ DEMO_PRICES = {
 
 def _jitter(base: float, pct: float = 0.001) -> float:
     return round(base * (1 + random.uniform(-pct, pct)), 2)
-
-
-def get_demo_index(name: str) -> dict | None:
-    d = DEMO_INDICES.get(name)
-    if not d:
-        return None
-    v    = _jitter(d["value"], 0.0005)
-    chg  = _jitter(d["change"], 0.05)
-    chgr = round(chg / (v - chg) * 100, 2) if (v - chg) else d["change_rate"]
-    return {**d, "value": v, "change": chg, "change_rate": chgr}
 
 
 def get_demo_price(symbol: str) -> dict | None:
@@ -93,47 +71,3 @@ def get_demo_ohlcv(symbol: str, period: str = "1y") -> list:
     return result[-n:]
 
 
-def get_demo_rankings_kr(category: str = "시가총액") -> list:
-    items = [
-        {"symbol":"005930.KS","name":"삼성전자","price":57300,"change_rate":0.88,"volume":12340000,"market_cap":342000000000000},
-        {"symbol":"000660.KS","name":"SK하이닉스","price":197000,"change_rate":2.60,"volume":3210000,"market_cap":143200000000000},
-        {"symbol":"035420.KS","name":"NAVER","price":181000,"change_rate":-0.55,"volume":1230000,"market_cap":29600000000000},
-        {"symbol":"005380.KS","name":"현대차","price":238000,"change_rate":-1.04,"volume":890000,"market_cap":50800000000000},
-        {"symbol":"000270.KS","name":"기아","price":124500,"change_rate":0.24,"volume":1450000,"market_cap":49800000000000},
-        {"symbol":"051910.KS","name":"LG화학","price":189500,"change_rate":-0.79,"volume":540000,"market_cap":33700000000000},
-        {"symbol":"066570.KS","name":"LG전자","price":87400,"change_rate":0.58,"volume":780000,"market_cap":14300000000000},
-        {"symbol":"055550.KS","name":"신한지주","price":50800,"change_rate":0.40,"volume":620000,"market_cap":24100000000000},
-        {"symbol":"068270.KS","name":"셀트리온","price":162000,"change_rate":1.25,"volume":890000,"market_cap":21400000000000},
-        {"symbol":"035720.KQ","name":"카카오","price":43600,"change_rate":0.46,"volume":3400000,"market_cap":19300000000000},
-    ]
-    if category == "상승률":   items.sort(key=lambda x: x["change_rate"], reverse=True)
-    elif category == "하락률": items.sort(key=lambda x: x["change_rate"])
-    elif category == "거래량": items.sort(key=lambda x: x["volume"], reverse=True)
-    elif category == "거래대금": items.sort(key=lambda x: x["price"]*x["volume"], reverse=True)
-    for i, r in enumerate(items):
-        r["rank"] = i + 1
-        r["amount"] = r["price"] * r["volume"]
-    return items
-
-
-def get_demo_rankings_us(category: str = "시가총액") -> list:
-    items = [
-        {"symbol":"AAPL", "name":"Apple Inc.",         "price":211.45,"change_rate":0.59,"volume":52341000, "market_cap":3190000000000},
-        {"symbol":"NVDA", "name":"NVIDIA",             "price":134.80,"change_rate":2.44,"volume":285000000,"market_cap":3290000000000},
-        {"symbol":"MSFT", "name":"Microsoft",          "price":457.30,"change_rate":0.46,"volume":18920000, "market_cap":3400000000000},
-        {"symbol":"AMZN", "name":"Amazon",             "price":225.60,"change_rate":1.53,"volume":31240000, "market_cap":2370000000000},
-        {"symbol":"GOOGL","name":"Alphabet",           "price":185.20,"change_rate":0.49,"volume":21340000, "market_cap":2290000000000},
-        {"symbol":"META", "name":"Meta Platforms",     "price":615.30,"change_rate":0.94,"volume":12340000, "market_cap":1560000000000},
-        {"symbol":"TSLA", "name":"Tesla",              "price":248.10,"change_rate":-1.35,"volume":98120000,"market_cap":791000000000},
-        {"symbol":"JPM",  "name":"JPMorgan Chase",     "price":278.30,"change_rate":0.43,"volume":8920000,  "market_cap":793000000000},
-        {"symbol":"V",    "name":"Visa Inc.",          "price":356.90,"change_rate":0.22,"volume":6120000,  "market_cap":726000000000},
-        {"symbol":"AMD",  "name":"AMD",                "price":161.40,"change_rate":2.41,"volume":45230000, "market_cap":261000000000},
-    ]
-    if category == "상승률":   items.sort(key=lambda x: x["change_rate"], reverse=True)
-    elif category == "하락률": items.sort(key=lambda x: x["change_rate"])
-    elif category == "거래량": items.sort(key=lambda x: x["volume"], reverse=True)
-    elif category == "거래대금": items.sort(key=lambda x: x["price"]*x["volume"], reverse=True)
-    for i, r in enumerate(items):
-        r["rank"] = i + 1
-        r["amount"] = r["price"] * r["volume"]
-    return items

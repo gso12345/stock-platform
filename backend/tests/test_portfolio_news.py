@@ -35,7 +35,7 @@ import time
 import pytest
 
 from app.core.cache import cache
-from app.services import portfolio_news as PN
+from app.services.portfolio import portfolio_news as PN
 
 
 @pytest.fixture(autouse=True)

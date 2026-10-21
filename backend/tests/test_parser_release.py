@@ -23,7 +23,7 @@ import gc
 
 import pytest
 
-from app.services import ranking_service as rs
+from app.services.market import ranking_service as rs
 
 
 # ── 네이버 시세표 흉내 ────────────────────────────────────────

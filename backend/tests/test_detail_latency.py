@@ -151,7 +151,7 @@ class Test실제로_불러본다:
             return {"symbol": code6, "price": 72400, "prev_close": 71500,
                     "change_rate": 1.26, "name": "삼성전자", "currency": "KRW"}
 
-        monkeypatch.setattr("app.services.price_fetcher.fetch_naver_stock", _네이버)
+        monkeypatch.setattr("app.services.market.price_fetcher.fetch_naver_stock", _네이버)
         S.cache.delete(f"price:005930")
         S.cache.delete(f"fund:005930")
         return S
@@ -194,7 +194,7 @@ class Test실제로_불러본다:
             return {"symbol": code6, "price": 72400, "eps": 9999,
                     "name": "삼성전자", "currency": "KRW"}
 
-        monkeypatch.setattr("app.services.price_fetcher.fetch_naver_stock", _네이버)
+        monkeypatch.setattr("app.services.market.price_fetcher.fetch_naver_stock", _네이버)
         S.cache.delete("price:005930")
         S.cache.set("fund:005930", {"eps": 1111}, 600)
 

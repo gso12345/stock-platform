@@ -191,7 +191,7 @@ class Test상주_데이터:
 
     def test_실제_건수를_읽는다(self):
         # 고정값을 돌려주면 종목 DB 가 비어도 화면은 정상으로 보인다
-        from app.services import ticker_service as ts
+        from app.services.listings import ticker_service as ts
         원래 = ts._kr_db
         try:
             ts._kr_db = [{"s": f"{i:06d}.KS", "n": "테스트", "x": "KOSPI", "m": "KR", "c": f"{i:06d}"}
@@ -207,7 +207,7 @@ class Test상주_데이터:
         assert b == sorted(b, reverse=True)
 
     def test_종목_DB가_비어도_터지지_않는다(self):
-        from app.services import ticker_service as ts
+        from app.services.listings import ticker_service as ts
         원래 = ts._kr_db
         try:
             ts._kr_db = []

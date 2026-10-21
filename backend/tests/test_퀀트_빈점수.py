@@ -52,8 +52,8 @@ _재무 = [{"year": 2023, "revenue": 100, "net_income": 10, "op_income": 12, "ep
 @pytest.fixture
 def 원천(monkeypatch):
     """펀더멘털·재무제표·2년 시세를 가짜로 준다(늦게 줄 수도 있다). DB 는 건너뛴다."""
-    from app.services import fundamentals_service as FS
-    from app.services.yf_service import yf_service
+    from app.services.fundamentals import fundamentals_service as FS
+    from app.services.market.yf_service import yf_service
     상태 = {"펀더_늦음": 0.0, "재무_늦음": 0.0, "펀더_횟수": 0, "재무_횟수": 0,
             "펀더": dict(_펀더), "시세": list(_시세)}
 
@@ -112,7 +112,7 @@ def 손님(표):
 
 def _남았나(종목: str, 시장: str = "US", 기다림: float = 2.0) -> dict:
     """비교는 응답과 따로(뒤에서) DB 에 남긴다 — 잠깐 기다려 본다"""
-    from app.services import quant_store as Q
+    from app.services.quant import quant_store as Q
     끝 = time.time() + 기다림
     while time.time() < 끝:
         if (읽음 := Q.여럿읽기([(종목, 시장)])):
@@ -127,7 +127,7 @@ class Test펀더멘털을_기다린다:
 
     @pytest.mark.parametrize("원천이름, 지표", [("펀더", "per"), ("재무", "revenue_growth")])
     def test_원천이_화면_대기보다_늦어도_빠지지_않는다(self, 원천, monkeypatch, 원천이름, 지표):
-        from app.services.quant_score import collect_quant_metrics
+        from app.services.quant.quant_score import collect_quant_metrics
         monkeypatch.setattr(F, "WAIT_SEC", 0.2)
         원천[f"{원천이름}_늦음"] = 0.5
         _치우기("QZA")
@@ -137,7 +137,7 @@ class Test펀더멘털을_기다린다:
 
     def test_화면은_그대로_짧게_기다린다(self, 원천, monkeypatch):
         """퀀트만 오래 기다린다 — 종목 상세의 펀더멘털 탭은 예전처럼 곧 돌아오고 받기는 뒤에서 이어 간다."""
-        from app.services import fundamentals_service as FS
+        from app.services.fundamentals import fundamentals_service as FS
         monkeypatch.setattr(F, "WAIT_SEC", 0.2)
         원천["펀더_늦음"] = 0.6
         _치우기("QZB")
@@ -160,8 +160,8 @@ class Test펀더멘털을_기다린다:
     def test_다른_탭이_받는_중이면_그것을_기다린다(self, 원천, 원천이름, 받기, 지표):
         """종목 상세는 탭 예닐곱 개가 한꺼번에 열린다. 펀더멘털 탭이 받는 사이에 퀀트 점수가 오면
         예전엔 기다리지 않고 빈 펀더멘털로 가치를 비웠다."""
-        from app.services import fundamentals_service as FS
-        from app.services.quant_score import collect_quant_metrics
+        from app.services.fundamentals import fundamentals_service as FS
+        from app.services.quant.quant_score import collect_quant_metrics
         원천[f"{원천이름}_늦음"] = 0.5
         _치우기("QZC")
 
@@ -197,7 +197,7 @@ class Test펀더멘털을_기다린다:
 # ── 2) 반쪽 지표를 붙잡지 않는다 ───────────────────────────────
 class Test반쪽_가리기:
     def test_가치와_시세가_다_있어야_다_모은_것(self):
-        from app.services.quant_score import 지표가_반쪽인가 as 반쪽
+        from app.services.quant.quant_score import 지표가_반쪽인가 as 반쪽
         assert 반쪽({}, "US") and 반쪽(None, "US")
         assert 반쪽({"mom_3m": 4.0, "volatility": 20.0, "_sector": "Tech"}, "US"), "시세만 있는 것을 다 모았다고 봤다"
         assert 반쪽({"per": 12.0, "roe": 15.0}, "KR"), "시세가 빈 것을 다 모았다고 봤다"
@@ -209,14 +209,14 @@ class Test반쪽_가리기:
         assert not 반쪽({"pbr": 0.9, "mom_1m": -2.0}, "KR")
 
     def test_ETF_는_시세만_본다(self):
-        from app.services.quant_score import 지표가_반쪽인가 as 반쪽
+        from app.services.quant.quant_score import 지표가_반쪽인가 as 반쪽
         assert not 반쪽({"mom_3m": 4.0, "volatility": 20.0}, "ETF")
         assert 반쪽({"per": 20.0}, "ETF")
 
 
 class Test반쪽은_붙잡지_않는다:
     def test_반쪽은_DB_에_안_남긴다(self, 표):
-        from app.services import quant_store as Q
+        from app.services.quant import quant_store as Q
         Q.저장("QZE", "US", {"mom_3m": 3.0, "volatility": 20.0, "roe": 9.0})    # 가치가 빈 것
         Q.저장("QZE", "KR", {"per": 9.0, "pbr": 1.1})                           # 시세가 빈 것
         Q.저장("QZE", "ETF", {"mom_3m": 3.0, "volatility": 20.0})               # ETF 는 시세면 됐다
@@ -224,7 +224,7 @@ class Test반쪽은_붙잡지_않는다:
 
     def test_가치_지표가_NaN_뿐이면_안_남긴다(self, 표):
         """남길 때 NaN 은 비워진다 — 남겨 두면 읽을 때 가치가 빈 반쪽이 돼 버려진다(남길 때와 판정이 갈린다)."""
-        from app.services import quant_store as Q
+        from app.services.quant import quant_store as Q
         Q.저장("QZL", "US", {"per": float("nan"), "mom_3m": 3.0, "roe": 9.0})
         assert Q.여럿읽기([("QZL", "US")]) == {}
 
@@ -306,23 +306,23 @@ class Test국내_꼬리:
     """꼬리 없는 6자리 코드(스크리닝 표의 관심종목 담기 등이 이렇게 보낸다) — 종목 목록에서 시장을 찾는다."""
 
     def test_코스닥_종목에는_KQ_를_붙인다(self):
-        from app.services.yf_service import _resolve_kr_symbol
+        from app.services.market.yf_service import _resolve_kr_symbol
         assert _resolve_kr_symbol("247540", "KS") == "247540.KQ", "에코프로비엠(코스닥)에 .KS 를 붙였다"
         assert _resolve_kr_symbol("005930", "KS") == "005930.KS"
 
     def test_모르는_코드는_예전처럼_KS(self):
-        from app.services.yf_service import _resolve_kr_symbol
+        from app.services.market.yf_service import _resolve_kr_symbol
         assert _resolve_kr_symbol("999998", "KS") == "999998.KS"
 
     def test_꼬리가_있으면_그대로_둔다(self):
-        from app.services.yf_service import _resolve_kr_symbol
+        from app.services.market.yf_service import _resolve_kr_symbol
         assert _resolve_kr_symbol("247540.KS", "KS") == "247540.KS"
         assert _resolve_kr_symbol("005930.KQ", "KS") == "005930.KQ"
 
     def test_새로_읽은_종목_목록을_따른다(self, monkeypatch):
         """내장 목록에 없는 코스닥 종목 — DB·pykrx 로 읽은 목록이 바뀌면 표도 다시 만든다."""
-        from app.services import ticker_service as T
-        from app.services.yf_service import _resolve_kr_symbol
+        from app.services.listings import ticker_service as T
+        from app.services.market.yf_service import _resolve_kr_symbol
         assert _resolve_kr_symbol("990001", "KS") == "990001.KS"
         monkeypatch.setattr(T, "_kr_db", [
             {"s": "990001.KQ", "n": "가짜코스닥", "x": "KOSDAQ", "m": "KR", "c": "990001"},
@@ -334,8 +334,8 @@ class Test국내_꼬리:
         assert _resolve_kr_symbol("990003", "KS") == "990003.KS"
 
     def test_목록을_못_읽어도_스크리닝_국내_목록은_맞힌다(self, monkeypatch):
-        from app.services import ticker_service as T
-        from app.services.yf_service import _resolve_kr_symbol
+        from app.services.listings import ticker_service as T
+        from app.services.market.yf_service import _resolve_kr_symbol
         monkeypatch.setattr(T, "_kr_db", [])
         monkeypatch.setattr(T, "KR_TICKERS_BUILTIN", [])
         assert _resolve_kr_symbol("247540", "KS") == "247540.KQ"
@@ -344,7 +344,7 @@ class Test국내_꼬리:
     def test_2년_시세를_코스닥_이름으로_받는다(self, monkeypatch):
         """모멘텀은 2년 시세에서 나온다 — 코스닥에 .KS 를 붙이면 야후가 빈손이다."""
         import pandas as pd
-        from app.services import yf_service as Y
+        from app.services.market import yf_service as Y
         받은이름 = []
 
         class 가짜종목:
@@ -363,9 +363,9 @@ class Test국내_꼬리:
         cache.delete("ohlcv:247540.KQ:2y:1d")
 
     def test_펀더멘털도_코스닥_이름으로_받는다(self, monkeypatch):
-        from app.services import fundamentals_service as FS
-        from app.services import price_fetcher as PF
-        from app.services.yf_service import yf_service
+        from app.services.fundamentals import fundamentals_service as FS
+        from app.services.market import price_fetcher as PF
+        from app.services.market.yf_service import yf_service
         받은이름 = []
 
         async def 네이버(_code):

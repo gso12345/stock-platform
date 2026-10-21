@@ -204,7 +204,7 @@ describe("③ 보유 목록은 정의가 한 벌이어야 한다", () => {
     "../../pages/Portfolio.tsx", "../../pages/Watchlist.tsx",
     "../../pages/StockDetail.tsx", "../../pages/FeedWrite.tsx",
     "../../pages/MyPage.tsx", "../../pages/Quant.tsx",
-    "../LoadingProgressOverlay.tsx",
+    "../layout/LoadingProgressOverlay.tsx",
   ];
 
   it("이 이름표에 fetcher 를 직접 적는 곳이 하나도 없다", () => {

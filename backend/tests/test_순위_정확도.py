@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.core.cache import cache
-from app.services import ranking_service as rs
+from app.services.market import ranking_service as rs
 
 뉴욕 = ZoneInfo("America/New_York")
 
@@ -232,13 +232,13 @@ class Test국내_순위_라우트:
     @pytest.fixture
     def D(self, monkeypatch):
         from app.api.routes import dashboard as D
-        from app.services.kis_service import kis_service
+        from app.services.market.kis_service import kis_service
         monkeypatch.setattr(kis_service, "get_top_movers",
                             lambda *a, **k: pytest.fail("KIS 를 불렀다"), raising=False)
         return D
 
     def _장(self, monkeypatch, 상태):
-        monkeypatch.setattr("app.services.market_hours.kr_session", lambda *a, **k: 상태)
+        monkeypatch.setattr("app.services.market.market_hours.kr_session", lambda *a, **k: 상태)
 
     def test_신선한_캐시가_있으면_아무것도_안_부른다(self, D, monkeypatch):
         cache.set("rank:kr:거래대금", [{"symbol": "A"}], 900)
@@ -401,14 +401,14 @@ class Test해외는_한_장끼리만:
 
 class Test야후_체결시각:
     def test_마지막_체결_시각을_받아_온다(self):
-        from app.services import price_fetcher as P
+        from app.services.market import price_fetcher as P
         assert "regularMarketTime" in P._YF_QUOTE_FIELDS
         out = P._parse_yf_quotes([{"symbol": "AAPL", "regularMarketPrice": 230.0,
                                    "regularMarketTime": 1_791_000_000}])
         assert out["AAPL"]["regular_time"] == 1_791_000_000
 
     def test_없으면_0(self):
-        from app.services import price_fetcher as P
+        from app.services.market import price_fetcher as P
         out = P._parse_yf_quotes([{"symbol": "AAPL", "regularMarketPrice": 230.0}])
         assert out["AAPL"]["regular_time"] == 0
 

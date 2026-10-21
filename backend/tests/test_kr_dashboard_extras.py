@@ -22,7 +22,7 @@ pytest.importorskip("yfinance")
 pytest.importorskip("httpx")
 
 from app.core.cache import cache  # noqa: E402
-from app.services import market_extras as M  # noqa: E402
+from app.services.market import market_extras as M  # noqa: E402
 
 
 class Test엔화_단위:

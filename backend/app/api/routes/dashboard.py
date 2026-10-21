@@ -9,12 +9,11 @@ import asyncio
 import logging
 import os
 import time
-from app.services.kis_service import kis_service
-from app.services.finnhub_service import finnhub_service
-from app.services.yf_service import yf_service, INDEX_SYMBOLS, INDEX_NAMES
+from app.services.market.kis_service import kis_service
+from app.services.market.yf_service import yf_service, INDEX_NAMES
 from app.services.news_service import get_kr_news, get_us_news, pick_top_image_first, strip_internal_fields
-from app.services.ranking_service import get_us_rankings
-from app.services.market_extras import get_kr_futures, get_kr_rates, get_us_rates
+from app.services.market.ranking_service import get_us_rankings
+from app.services.market.market_extras import get_kr_futures, get_kr_rates, get_us_rates
 """이름이 겹친다 — 별칭으로 갈라 둔다.
 
 price_fetcher 에도 get_eurkrw 가 있고 그쪽은 **async** 다(해외 탭의
@@ -22,16 +21,16 @@ price_fetcher 에도 get_eurkrw 가 있고 그쪽은 **async** 다(해외 탭의
 이 이름이 덮여서, 국내 카드를 만드는 자리에서 코루틴을 dict 처럼
 다루게 된다 — 'coroutine was never awaited' 와 AttributeError 로
 조용히 실패한다. 실제로 그렇게 한 번 놓쳤다."""
-from app.services.market_extras import (
+from app.services.market.market_extras import (
     get_eurkrw as 카드_원유로,
     get_jpykrw_100 as 카드_원100엔,
     get_vkospi as 카드_vkospi,
 )
-from app.services.price_fetcher import get_usdkrw, get_eurkrw, fetch_pykrx_index_ohlcv
+from app.services.market.price_fetcher import get_usdkrw, get_eurkrw, fetch_pykrx_index_ohlcv
 from app.core.config import settings
 from app.core.cache import cache
 
-from app.services.ranking_service import CATEGORY_PATTERN, US_MIN_ROWS
+from app.services.market.ranking_service import CATEGORY_PATTERN, US_MIN_ROWS
 
 log = logging.getLogger(__name__)
 
@@ -316,7 +315,7 @@ _RANK_상한 = 6
 
 def _뒤에서_국내순위_갱신() -> None:
     """국내 순위를 배경에서 새로 만든다(이미 만드는 중이면 그것에 합류한다)."""
-    from app.services.ranking_service import refresh_kr_rankings_from_naver
+    from app.services.market.ranking_service import refresh_kr_rankings_from_naver
 
     async def 조용히():
         try:
@@ -335,10 +334,10 @@ async def _get_kr_rankings(category: str) -> list:
       · 거래량·거래대금은 KIS 의 **시가총액** 주소로 묻고 있었다(분류와 상관없이).
       · 결과를 담아 두지 않아, 그동안 매 요청이 최대 6초씩 KIS 를 기다렸다.
     그래서 순위를 열 때마다 목록이 들쭉날쭉했고 느렸다. KIS 는 이제 안 쓴다."""
-    from app.services.ranking_service import (
+    from app.services.market.ranking_service import (
         get_kr_rankings, refresh_kr_rankings_from_naver, 국내갱신_막힘,
     )
-    from app.services import market_hours
+    from app.services.market import market_hours
 
     ck = f"rank:kr:{category}"
     cached = cache.get(ck)
@@ -456,7 +455,7 @@ async def _get_us_rankings_cached(category: str) -> list:
         # 겹침 방지는 refresh_us_rows 안에서 한다
         async def _bg_us_refresh():
             try:
-                from app.services.ranking_service import refresh_us_rows
+                from app.services.market.ranking_service import refresh_us_rows
                 await refresh_us_rows()
             except Exception as e:
                 log.warning("미국 순위 배경 갱신 실패: %s", type(e).__name__)
@@ -697,7 +696,7 @@ async def kr_extras():
         환율이름 = {"원/유로", "원/100엔"}
         if not [c for c in 따로 if str(c.get("name")) in 환율이름]:
             from app.core.executor import background_executor
-            from app.services.market_extras import get_us_rates
+            from app.services.market.market_extras import get_us_rates
             background_executor.submit(get_us_rates)
     except Exception as e:
         log.debug("환율 카드 덧붙이기 건너뜀: %s", type(e).__name__)

@@ -121,10 +121,11 @@ export function 받는중띠({ 이름, children, done, total }: {
   return (
     <div role="status" aria-label={이름}
       className="flex flex-col gap-2 px-3 py-2.5 rounded-xl border border-accent-blue/30 bg-accent-blue/5">
-      <p className="flex items-center gap-2 text-xs text-text-secondary">
+      {/* <p> 가 아니라 <div> — 도는 동그라미(InlineSpinner)가 <div> 라 <p> 안에 못 들어간다 */}
+      <div className="flex items-center gap-2 text-xs text-text-secondary">
         <InlineSpinner className="w-3 h-3" />
         <span>{children}</span>
-      </p>
+      </div>
       {비율 != null && (
         <div className="h-1 rounded-full bg-bg-elevated overflow-hidden">
           <div className="h-full bg-accent-blue transition-all" style={{ width: `${비율}%` }} />
@@ -132,11 +133,6 @@ export function 받는중띠({ 이름, children, done, total }: {
       )}
     </div>
   );
-}
-
-/** 아직 안 온 칸 하나 — 숫자 자리를 미리 잡아 둔다 */
-export function 칸자리() {
-  return <span aria-hidden className="inline-block h-3 w-8 rounded bg-bg-elevated animate-pulse align-middle" />;
 }
 
 /* 결과 표 자리를 미리 잡아 둔다. 처음 한 번은 시장 전체를 훑느라 수십 초가 걸린다 —

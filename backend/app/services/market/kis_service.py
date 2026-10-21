@@ -6,7 +6,6 @@
 """
 import httpx
 from app.core.http import SSL
-import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 from app.core.config import settings

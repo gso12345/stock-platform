@@ -108,10 +108,6 @@ def refresh_interval(sessions: list[Session], symbol_count: int = 0) -> int:
     return max(base, round(floor))
 
 
-def is_any_open(now_utc: datetime | None = None) -> bool:
-    return "closed" not in (kr_session(now_utc), us_session(now_utc))
-
-
 def session_label(market: str, now_utc: datetime | None = None) -> str:
     """화면에 그대로 쓰는 한국어 라벨"""
     return {

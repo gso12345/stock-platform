@@ -24,7 +24,7 @@ vi.mock("@/store/authStore", () => ({
 const navigate = vi.fn();
 vi.mock("react-router-dom", async (원본) => ({ ...(await 원본<any>()), useNavigate: () => navigate }));
 
-import 회원탈퇴 from "../AccountWithdraw";
+import 회원탈퇴 from "../account/AccountWithdraw";
 
 function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });

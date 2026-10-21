@@ -25,7 +25,6 @@ import time
 from datetime import datetime, timedelta
 
 from app.core import health
-from app.core.cache import cache
 
 log = logging.getLogger(__name__)
 
@@ -693,7 +692,7 @@ def _load_kr_direct() -> bool:
     이게 1순위인 이유: 메모리를 0MB 쓴다. FinanceDataReader 는 같은 일을
     하면서 약 120MB를 영구히 점유했다(파이썬은 올린 모듈을 못 내려놓는다)."""
     try:
-        from app.services import krx_listing
+        from app.services.listings import krx_listing
         listing, prices, 출처 = krx_listing.fetch_listing()
         if listing:
             _apply(listing, prices, 출처)
@@ -957,7 +956,7 @@ def _refresh_us_outside() -> bool:
     128개로 떨어지는 것보다 낫다."""
     global _us_error
     try:
-        from app.services import us_listing
+        from app.services.listings import us_listing
         rows, 출처 = us_listing.fetch_listing()
         if not rows:
             log.warning(f"미국 종목 목록을 받지 못했습니다 ({출처}) — 지난 목록을 유지합니다")

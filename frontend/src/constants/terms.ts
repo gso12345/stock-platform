@@ -189,8 +189,3 @@ export const 용어사전: Record<string, 용어뜻> = {
     뜻: "공모 물량 가운데 기존 주주가 파는 몫. 이 몫의 돈은 회사가 아니라 판 주주에게 간다.",
   },
 };
-
-/** 이 이름에 설명이 있는가 */
-export function 설명있나(용어: string | undefined | null): boolean {
-  return !!용어 && 용어 in 용어사전;
-}

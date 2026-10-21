@@ -11,7 +11,8 @@ import inspect
 import pytest
 
 from app.api.routes.admin import get_runtime
-from app.services import scheduler, watched
+from app.services import scheduler
+from app.services.market import watched
 
 
 @pytest.fixture

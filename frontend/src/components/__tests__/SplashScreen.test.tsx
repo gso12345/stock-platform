@@ -9,7 +9,7 @@ import { render, act } from "@testing-library/react";
 
 async function 불러오기() {
   vi.resetModules();
-  return await import("../SplashScreen");
+  return await import("../layout/SplashScreen");
 }
 
 function 덮개() {
@@ -61,7 +61,7 @@ describe("설치형 앱 시작 화면", () => {
 
 describe("Layout 이 신호를 보낸다", () => {
   it("앱 틀이 그려질 때 앱준비됨 을 부른다", async () => {
-    const 원문 = (await import("../Layout.tsx?raw")).default as string;
+    const 원문 = (await import("../layout/Layout.tsx?raw")).default as string;
     expect(원문).toMatch(/useEffect\(\(\) => \{ 앱준비됨\(\); \}, \[\]\);/);
   });
 });

@@ -288,7 +288,7 @@ class Test재무제표에_붙었는가:
     """규칙을 만들어 놓고 안 쓰면 아무 소용이 없다."""
 
     def test_같은_종목을_두_번_불러도_원천은_한_번만_본다(self, monkeypatch):
-        import app.services.fundamentals_service as FS
+        import app.services.fundamentals.fundamentals_service as FS
 
         cache.delete("financials:005930")
         F.잊기("financials:005930")
@@ -311,7 +311,7 @@ class Test재무제표에_붙었는가:
             f"빈손인데 {불린횟수['n']}번 받으러 갔다 — 실측 2회째가 2.6초였던 이유다")
 
     def test_펀더멘털도_마찬가지다(self, monkeypatch):
-        import app.services.fundamentals_service as FS
+        import app.services.fundamentals.fundamentals_service as FS
 
         cache.delete("fund:005930")
         F.잊기("fund:005930")

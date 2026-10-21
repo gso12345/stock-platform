@@ -8,7 +8,7 @@
 import pytest
 
 from app.core.backoff import 쉼표
-import app.services.market_extras as M
+import app.services.market.market_extras as M
 
 
 # ── 공용 쉼표 그 자체 ───────────────────────────────────────

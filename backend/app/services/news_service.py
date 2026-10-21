@@ -9,7 +9,7 @@ from app.core.cache import cache
 from app.core.backoff import 쉼표
 from app.core.executor import background_executor
 from app.core import health
-from app.core.cpu import cpu_worker_count, io_worker_count
+from app.core.cpu import cpu_worker_count
 
 _refreshing = {}  # 중복 갱신 방지 플래그
 

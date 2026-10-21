@@ -3,16 +3,18 @@
 원래 stocks.py 한 파일에 있던 것을 탭 단위로 가른 조각이다.
 공용 폴백·시한 처리는 _공용 에 있다.
 """
-from ._공용 import (   # noqa: F401  — 쪼개기 전과 같은 이름을 쓴다
-    APIRouter, Path, Query, HTTPException, Request, Depends, Literal,
-    asyncio, logging, re, log, QMETRICS_TTL, _퀀트갱신중, _퀀트지표_뒤로미루기, Session,
-    kis_service, finnhub_service, dart_service, yf_service,
-    _resolve_kr_symbol, get_demo_price, get_demo_ohlcv, DEMO_PRICES,
-    get_fdr_price, get_kr_db, compute_quant_score, DEFAULT_WEIGHTS, settings,
-    cache, _safe_float, get_current_user, require_user, get_db,
-    QuantScoreWeight, limiter, router_새로, _SYMBOL_PATTERN, _run, _시한내결과,
-    get_kr_price, get_us_price,
-)
+import asyncio
+import re
+from typing import Literal
+
+from fastapi import Path, Request
+
+from app.core.cache import cache
+from app.core.utils import safe_float as _safe_float
+from app.services.fundamentals.dart_service import dart_service
+from app.services.market.yf_service import _resolve_kr_symbol
+
+from ._공용 import _run, _SYMBOL_PATTERN, _시한내결과, limiter, router_새로
 
 router = router_새로()
 
@@ -30,9 +32,8 @@ async def get_metrics_history(request: Request, market: Literal["KR","US","ETF"]
     가장 무거운 호출인데 예전에는 메모리 캐시만 써서, 프로세스가
     재시작되면(무료 플랜에서는 잦다) 그 6번을 처음부터 다시 했다.
     재무제표는 분기에 한 번 바뀌므로 하루 지난 값도 충분히 쓸 만하다."""
-    from app.core.cache import cache
     from app.models.stock import MetricsHistoryCache
-    from app.services.fundamentals_service import _db_get, _db_set
+    from app.services.fundamentals.fundamentals_service import _db_get, _db_set
     ck = f"metrics_hist5:{symbol}"  # v5: DART 첫 연도 성장률 보완
     if c := cache.get(ck):
         return c
@@ -375,9 +376,8 @@ async def get_forecasts(request: Request, market: Literal["KR","US","ETF"], symb
     """컨센서스 추정치 — 연간/분기별 매출·EPS·영업이익·순이익·EBITDA·성장률
     in-memory → DB fresh(24h) → DB stale(30일) → 외부 API 순으로 조회해
     Render 재시작으로 메모리 캐시가 비워져도 데이터가 바로 사라지지 않게 한다."""
-    from app.core.cache import cache
     from app.models.stock import ForecastsCache
-    from app.services.fundamentals_service import _db_get, _db_set
+    from app.services.fundamentals.fundamentals_service import _db_get, _db_set
     ck = f"forecasts:v3:{symbol}"
     if c := cache.get(ck):
         return c

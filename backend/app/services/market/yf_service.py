@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 from app.core.cache import cache
 from app.core.utils import safe_float as _safe
-from app.core.cpu import cpu_worker_count, io_worker_count, 낮은_우선순위
+from app.core.cpu import 낮은_우선순위
 
 log = logging.getLogger(__name__)
 
@@ -659,7 +659,7 @@ def _국내꼬리(code6: str) -> str:
     2년 시세·재무제표가 비어 퀀트의 모멘텀·성장 점수가 '—' 였다(사용자: "가치 모멘텀 ... 안나오는
     회사가 있어"). 목록을 읽는 것뿐이다 — 목록을 새로 받으러 가지 않는다."""
     try:
-        from app.services import ticker_service as T
+        from app.services.listings import ticker_service as T
         목록 = T._kr_db or T.KR_TICKERS_BUILTIN
     except Exception:
         목록 = None
@@ -806,7 +806,6 @@ class YFinanceService:
 
     def _resample_nday(self, hist, n: int, is_kr: bool = False) -> list:
         """1일봉 DataFrame을 N일봉으로 리샘플링"""
-        import pandas as pd
         rule = f"{n}B"  # N 영업일 단위 (Business Day)
         rs = hist.resample(rule).agg({
             "Open":   "first",
@@ -935,7 +934,6 @@ class YFinanceService:
                 return None
             return pct
 
-        roe = info.get("returnOnEquity")
         div = info.get("dividendYield")
 
         # yfinance가 EV/PEG 계열을 직접 제공하지 않는 경우(국내 종목 등)
@@ -1336,7 +1334,7 @@ class YFinanceService:
         """{표의 symbol: 시세}. 해외는 야후 묶음 시세(100곳씩), 국내는 네이버 가격만.
         막 받아 둔 시세(price:심볼 — 시세 갱신·관심종목 화면이 2분 단위로 채운다)는 다시 묻지 않는다."""
         import asyncio
-        from app.services.price_fetcher import fetch_yf_quotes, fetch_naver_prices_light
+        from app.services.market.price_fetcher import fetch_yf_quotes, fetch_naver_prices_light
         out: dict = {}
         해외: list = []
         국내: list = []

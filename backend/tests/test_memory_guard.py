@@ -94,14 +94,14 @@ def test_main_이_맨_앞에서_건다():
 
 # ── 시작 시 훑는 양 ────────────────────────────────────────
 def test_시작할_때는_더_적게_훑는다():
-    from app.services import ranking_service as rs
+    from app.services.market import ranking_service as rs
     assert rs.US_STARTUP_SWEEP < rs.US_SWEEP
 
 
 def test_훑을_양을_인자로_받는다():
     """시작 경로와 주기 경로가 같은 양을 훑으면 나눈 의미가 없다."""
     import inspect
-    from app.services import ranking_service as rs
+    from app.services.market import ranking_service as rs
     assert "sweep" in inspect.signature(rs.refresh_us_rows).parameters
 
 
@@ -119,7 +119,7 @@ def test_묶음마다_여유를_본다():
     """한 번 시작하면 끝까지 가던 것 — 15묶음을 쉬지 않고 돌면 그 사이에
     한도를 넘는다."""
     본문 = open(os.path.join(os.path.dirname(__file__), "..",
-                             "app", "services", "ranking_service.py"), encoding="utf-8").read()
+                             "app", "services", "market", "ranking_service.py"), encoding="utf-8").read()
     몸통 = 본문[본문.index("async def refresh_us_rows"):]
     몸통 = 몸통[:몸통.index("def ", 10)] if "def " in 몸통[10:] else 몸통
     루프 = 몸통[몸통.index("for i in range(0, len(훑을것), US_BATCH):"):]
@@ -130,7 +130,7 @@ def test_묶음마다_여유를_본다():
 def test_멈춘_자리를_커서에_남긴다():
     """멈춘 다음 회차가 처음부터 다시 훑으면 뒤쪽은 영영 안 받는다."""
     본문 = open(os.path.join(os.path.dirname(__file__), "..",
-                             "app", "services", "ranking_service.py"), encoding="utf-8").read()
+                             "app", "services", "market", "ranking_service.py"), encoding="utf-8").read()
     루프 = 본문[본문.index("for i in range(0, len(훑을것), US_BATCH):"):]
     멈추는곳 = 루프[:루프.index("break") + 5]
     assert "_us_cursor" in 멈추는곳
@@ -140,7 +140,7 @@ def test_멈춘_자리를_커서에_남긴다():
 def test_아는_코드로_바로_받는다():
     """이름 대조는 KRX 가 표기를 조금만 바꿔도 못 찾는다.
     코드는 안 바뀌므로 그걸 먼저 건다."""
-    from app.services import price_fetcher as pf
+    from app.services.market import price_fetcher as pf
     assert pf.PYKRX_INDEX_TICKER["KOSPI"] == "1001"
     assert pf.PYKRX_INDEX_TICKER["KOSDAQ"] == "2001"
     assert pf.PYKRX_INDEX_TICKER["KOSPI200"] == "1028"
@@ -149,7 +149,7 @@ def test_아는_코드로_바로_받는다():
 def test_코드가_안_통하면_이름으로_찾는다():
     """없던 실패가 생기면 안 된다 — 예전 길이 그대로 남아 있어야 한다."""
     본문 = open(os.path.join(os.path.dirname(__file__), "..",
-                             "app", "services", "price_fetcher.py"), encoding="utf-8").read()
+                             "app", "services", "market", "price_fetcher.py"), encoding="utf-8").read()
     몸통 = 본문[본문.index("def fetch_pykrx_index"):]
     몸통 = 몸통[:몸통.index("\ndef ", 10)]
     assert "PYKRX_INDEX_TICKER" in 몸통

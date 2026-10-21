@@ -14,7 +14,7 @@ vi.mock("@/api/client", async (원본) => ({
   default: { get: () => 응답() },
 }));
 
-import SocialLoginButtons from "../SocialLoginButtons";
+import SocialLoginButtons from "../account/SocialLoginButtons";
 import { API_BASE } from "@/api/client";
 
 beforeEach(() => { 응답 = () => Promise.resolve({ data: { providers: [] } }); });

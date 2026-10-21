@@ -3,17 +3,20 @@
 원래 stocks.py 한 파일에 있던 것을 탭 단위로 가른 조각이다.
 공용 폴백·시한 처리는 _공용 에 있다.
 """
-from ._공용 import (   # noqa: F401  — 쪼개기 전과 같은 이름을 쓴다
-    APIRouter, Path, Query, HTTPException, Request, Depends, Literal,
-    asyncio, logging, re, log, QMETRICS_TTL, _퀀트갱신중, _퀀트지표_뒤로미루기, Session,
-    kis_service, finnhub_service, dart_service, yf_service,
-    _resolve_kr_symbol, get_demo_price, get_demo_ohlcv, DEMO_PRICES,
-    get_fdr_price, get_kr_db, compute_quant_score, DEFAULT_WEIGHTS, settings,
-    cache, _safe_float, get_current_user, require_user, get_db,
-    QuantScoreWeight, limiter, router_새로, _SYMBOL_PATTERN, _run, _시한내결과,
-    get_kr_price, get_us_price,
-)
+import asyncio
+from typing import Literal
+
+from fastapi import Path, Query, Request
 from fastapi.responses import JSONResponse
+
+from app.core.cache import cache
+from app.core.config import settings
+from app.services.demo_data import get_demo_ohlcv
+from app.services.market.finnhub_service import finnhub_service
+from app.services.market.kis_service import kis_service
+from app.services.market.yf_service import yf_service
+
+from ._공용 import _run, _SYMBOL_PATTERN, get_kr_price, get_us_price, limiter, router_새로
 
 router = router_새로()
 
@@ -177,7 +180,7 @@ async def get_stock_nxt(request: Request, market: Literal["KR","US","ETF"], symb
 @limiter.limit("30/minute")
 async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     if market == "KR":
-        from app.services.price_fetcher import fetch_naver_stock
+        from app.services.market.price_fetcher import fetch_naver_stock
         code6 = symbol.replace(".KS","").replace(".KQ","")
 
         # 신선한 캐시에 open/high/low까지 있으면 Naver 재요청 생략
@@ -286,7 +289,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                 오염된 캐시 탓에 /fundamentals 도 EPS 를 못 주고, 기본정보
                 EPS 가 끝까지 빈다 — 이번 문의의 뿌리 중 하나다."""
                 try:
-                    from app.services.fundamentals_service import get_fundamentals as _정식
+                    from app.services.fundamentals.fundamentals_service import get_fundamentals as _정식
                     await asyncio.wait_for(_정식(symbol, "KR"), timeout=20)
                 except Exception:
                     pass
@@ -295,7 +298,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
 
         return price
     else:
-        from app.services.price_fetcher import fetch_yf_quote_extended
+        from app.services.market.price_fetcher import fetch_yf_quote_extended
 
         # 프리마켓/애프터마켓 시세 — 단건 전용 조회(배치 조회와 분리, 짧게 캐시)
         #
@@ -314,7 +317,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
             ext = cache.get(ext_ck)
             if ext is None:
                 ext = {}
-                from app.services import market_hours
+                from app.services.market import market_hours
                 if market_hours.us_session() in ("pre", "after") and ext_ck not in _장외받는중:
                     _장외받는중.add(ext_ck)
 
@@ -403,7 +406,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                                 # 공유 캐시(fund:*)를 덮으면 /fundamentals 가 그걸 그대로
                                 # 돌려주게 되고, 보완 경로가 영영 안 돈다
                                 try:
-                                    from app.services.fundamentals_service import get_fundamentals as _정식
+                                    from app.services.fundamentals.fundamentals_service import get_fundamentals as _정식
                                     await asyncio.wait_for(_정식(_sym_fund, "US"), timeout=20)
                                 except Exception:
                                     pass
@@ -430,7 +433,7 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
                 # 공유 캐시(fund:*)를 덮으면 /fundamentals 가 그걸 그대로
                 # 돌려주게 되고, 보완 경로가 영영 안 돈다
                 try:
-                    from app.services.fundamentals_service import get_fundamentals as _정식
+                    from app.services.fundamentals.fundamentals_service import get_fundamentals as _정식
                     await asyncio.wait_for(_정식(_sym_f2, "US"), timeout=20)
                 except Exception:
                     pass
@@ -463,12 +466,12 @@ async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], s
 @router.get("/{market}/{symbol}/fundamentals")
 async def get_fundamentals(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """벨류에이션 지표 (PER, PBR, ROE 등) — DB 캐시 우선"""
-    from app.services.fundamentals_service import get_fundamentals as _svc
+    from app.services.fundamentals.fundamentals_service import get_fundamentals as _svc
     return await _svc(symbol, market)
 
 
 @router.get("/{market}/{symbol}/financials")
 async def get_financials(market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
     """재무제표 (손익·현금흐름·재무상태) — DB 캐시 우선"""
-    from app.services.fundamentals_service import get_financials as _svc
+    from app.services.fundamentals.fundamentals_service import get_financials as _svc
     return await _svc(symbol, market)

@@ -50,7 +50,7 @@ def 피드캐시_비우기() -> None:
     except Exception:
         log.exception("피드 캐시 비우기 실패")
 from app.core.security import decode_token
-from app.services.ticker_service import get_kr_db
+from app.services.listings.ticker_service import get_kr_db
 
 log = logging.getLogger(__name__)
 
@@ -809,7 +809,7 @@ def create_post(
             conn.commit()
             row = result.fetchone()
             post_id = row[0]
-    except Exception as e:
+    except Exception:
         # 예전에는 예외 원문을 그대로 돌려줘 테이블·컬럼 구조가 노출됐다.
         # 원인은 서버 로그로 남기고 사용자에게는 상황만 알린다
         log.exception("글 등록 실패 (user=%s, symbol=%s)", uid_val, sym_upper)

@@ -11,8 +11,8 @@ import asyncio
 import re
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from app.services.ticker_service import search_stocks
-from app.services.finnhub_service import finnhub_service
+from app.services.listings.ticker_service import search_stocks
+from app.services.market.finnhub_service import finnhub_service
 from app.core.cache import cache
 from app.core.config import settings
 

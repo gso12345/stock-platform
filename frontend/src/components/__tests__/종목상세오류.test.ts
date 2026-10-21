@@ -89,7 +89,7 @@ describe("환율이 0 으로 와도 ₩0 이 안 된다", () => {
   it("서버가 정말로 0 을 준다 — 그 자리가 아직 있는지 본다", () => {
     /* 이 검사가 깨지면 서버 쪽이 바뀐 것이다. 그때 프론트 가드를
        다시 판단하면 된다 — 지금은 필요하다는 근거로 남겨 둔다 */
-    const py = 읽기("../backend/app/services/price_fetcher.py");
+    const py = 읽기("../backend/app/services/market/price_fetcher.py");
     expect(py).toMatch(/빈값 = \{[^}]*"value": 0/);
   });
 });

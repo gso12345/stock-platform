@@ -14,7 +14,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import Layout원문 from "../../components/Layout.tsx?raw";
+import Layout원문 from "../../components/layout/Layout.tsx?raw";
 import { 더보기_메뉴, 더보기_경로 } from "@/constants/moreNav";
 import { useSettingsStore } from "@/store/settingsStore";
 

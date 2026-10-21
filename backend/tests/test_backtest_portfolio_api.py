@@ -195,7 +195,7 @@ class Test예외_처리기가_스스로_터지지_않는다:
         """위 검사는 이름만 본다. 여기서는 정말로 실패시켜 본다 —
         시세·환율·배당 세 길을 한꺼번에 터뜨린다."""
         from app.api.routes import backtest as R
-        from app.services import dividend_service as DV
+        from app.services.portfolio import dividend_service as DV
 
         def 다터짐(*a, **k):
             raise RuntimeError("전부 안 된다")

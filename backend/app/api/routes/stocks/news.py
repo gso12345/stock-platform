@@ -3,16 +3,18 @@
 원래 stocks.py 한 파일에 있던 것을 탭 단위로 가른 조각이다.
 공용 폴백·시한 처리는 _공용 에 있다.
 """
-from ._공용 import (   # noqa: F401  — 쪼개기 전과 같은 이름을 쓴다
-    APIRouter, Path, Query, HTTPException, Request, Depends, Literal,
-    asyncio, logging, re, log, QMETRICS_TTL, _퀀트갱신중, _퀀트지표_뒤로미루기, Session,
-    kis_service, finnhub_service, dart_service, yf_service,
-    _resolve_kr_symbol, get_demo_price, get_demo_ohlcv, DEMO_PRICES,
-    get_fdr_price, get_kr_db, compute_quant_score, DEFAULT_WEIGHTS, settings,
-    cache, _safe_float, get_current_user, require_user, get_db,
-    QuantScoreWeight, limiter, router_새로, _SYMBOL_PATTERN, _run, _시한내결과,
-    get_kr_price, get_us_price,
-)
+import asyncio
+import re
+from typing import Literal
+
+from fastapi import Path, Query, Request
+
+from app.core.cache import cache
+from app.core.config import settings
+from app.services.fundamentals.dart_service import dart_service
+from app.services.demo_data import DEMO_PRICES
+
+from ._공용 import _run, _SYMBOL_PATTERN, limiter, router_새로
 
 router = router_새로()
 
@@ -148,7 +150,6 @@ async def get_stock_news(
     정렬은 서버가 한다 — 인기도 점수는 내부 계산값이라 응답에 싣지 않는다
     (뉴스 탭·대시보드와 동일한 방식)
     """
-    from app.core.cache import cache
     ck = f"stock_news:{market}:{symbol}"
     if c := cache.get(ck):
         return _sort_and_clean_news(c, sort)

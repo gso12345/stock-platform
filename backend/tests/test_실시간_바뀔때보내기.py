@@ -11,7 +11,7 @@ import pytest
 
 from app.api.websocket import price_stream as P
 from app.core.cache import cache
-from app.services import market_hours as mh
+from app.services.market import market_hours as mh
 
 
 class 가짜소켓:

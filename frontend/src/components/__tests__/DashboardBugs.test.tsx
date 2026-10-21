@@ -27,8 +27,7 @@ const 화면 = 코드만(fs.readFileSync(path.join(뿌리, "pages/Dashboard.tsx"
 
 describe("KRX300 은 어디에도 안 남았다", () => {
   it("화면 어디에도 없다", () => {
-    const 파일들 = ["pages/Dashboard.tsx", "pages/IndexDetail.tsx",
-                    "components/chart/TradingViewChart.tsx"];
+    const 파일들 = ["pages/Dashboard.tsx", "pages/IndexDetail.tsx"];
     for (const f of 파일들) {
       expect(fs.readFileSync(path.join(뿌리, f), "utf-8")).not.toContain("KRX300");
     }

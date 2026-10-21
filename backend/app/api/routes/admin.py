@@ -272,7 +272,7 @@ def _news_status() -> dict:
     같은 캐시를 세 번 읽으면 그만큼 헛일이라 한 번만 읽는다."""
     from app.core.cache import cache
     from app.services import news_service
-    from app.services.market_extras import get_kr_rates
+    from app.services.market.market_extras import get_kr_rates
     kr = cache.get_stale("news:kr") or []
     us = cache.get_stale("news:us") or []
     쉬는곳 = sorted(이름 for 이름, _ in news_service.KR_FEEDS + news_service.US_FEEDS
@@ -311,7 +311,7 @@ def _쉬는금리(지금값: "list | None" = None) -> list:
 
     그래서 지금 실제로 나가는 목록을 먼저 빼고 센다."""
     try:
-        from app.services import market_extras as me
+        from app.services.market import market_extras as me
         나가는것 = {x.get("name") for x in (지금값 or [])}
         쉬는코드 = set(me.금리쉼표.쉬는것들()) | set(me.지표쉼표.쉬는것들())
         못찾은것 = [이름 for 이름, _, 코드들 in me._네이버_금리후보
@@ -338,7 +338,7 @@ def get_rates_diagnosis(_: User = Depends(require_admin)):
       · ECOS 가 계속 빈손이면 BOK_API_KEY 를 봐야 한다. 기본값 'sample'
         은 대부분의 통계가 막혀 있다 — ecos.bok.or.kr 에서 무료로 받는다.
     """
-    from app.services.market_extras import 금리진단, get_kr_rates
+    from app.services.market.market_extras import 금리진단, get_kr_rates
     from app.core.config import settings as _s
     지금값 = get_kr_rates()
     키 = getattr(_s, "BOK_API_KEY", "sample") or "sample"
@@ -374,7 +374,7 @@ def clear_errors(_: User = Depends(require_admin)):
 
 def _쉬는지수() -> list:
     try:
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
         return pf.지수쉼표.쉬는것들()
     except Exception:
         return []
@@ -389,7 +389,9 @@ def get_runtime(_: User = Depends(require_admin)):
     자원을 얼마나 쓰는지 한 화면에서 보이게 한다."""
     from app.core.cache import cache
     from app.core import memory, cpu, activity, health, libmem
-    from app.services import scheduler, watched, market_hours, news_service, ticker_service
+    from app.services import scheduler, news_service
+    from app.services.market import watched, market_hours
+    from app.services.listings import ticker_service
 
     used_mb = memory.rss_mb()
     limit_mb = memory.MEMORY_LIMIT_MB

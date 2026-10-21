@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.quant_score import SECTOR_RELATIVE_METRICS
+from app.services.quant.quant_score import SECTOR_RELATIVE_METRICS
 
 _TS = Path(__file__).resolve().parents[2] / "frontend" / "src" / "constants" / "terms.ts"
 

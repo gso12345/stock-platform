@@ -20,8 +20,8 @@ import pytest
 
 from app.core import health
 from app.core.cache import cache
-from app.services import price_fetcher as pf
-from app.services import ranking_service as rs
+from app.services.market import price_fetcher as pf
+from app.services.market import ranking_service as rs
 
 #: conftest 가 검사마다 '사진 남기기' 를 끈다 — 끄기 전의 진짜를 잡아 둔다
 _진짜_사진_남기기 = rs._순위사진_남기기
@@ -437,7 +437,7 @@ class Test마지막_순위를_남긴다:
                **{f"ZF{i}": 1.0 for i in range(rs.US_MIN_ROWS)}}
         monkeypatch.setattr(rs, "us_universe", lambda: list(새값))
         monkeypatch.setattr(S, "POPULAR_US", list(새값))
-        monkeypatch.setattr("app.services.yf_service.SP500_SYMBOLS", [])
+        monkeypatch.setattr("app.services.market.yf_service.SP500_SYMBOLS", [])
         monkeypatch.setattr(settings, "FINNHUB_API_KEY", "", raising=False)
 
         async def spark뿐(심볼들):         # 시가총액 없이 온다
@@ -714,7 +714,7 @@ class Test나스닥_챙기기:
         monkeypatch.setattr(rs.httpx, "get", lambda url, **k: 물음.append(url) or _나스닥응답(200, _나스닥()))
         monkeypatch.setattr(settings, "FINNHUB_API_KEY", "", raising=False)
         monkeypatch.setattr(S, "POPULAR_US", ["S1", "S2"])
-        monkeypatch.setattr("app.services.yf_service.SP500_SYMBOLS", [])
+        monkeypatch.setattr("app.services.market.yf_service.SP500_SYMBOLS", [])
 
         async def spark뿐(심볼들):
             return {s: {"symbol": s, "name": s, "price": 11.0} for s in 심볼들}

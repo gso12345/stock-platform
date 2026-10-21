@@ -133,48 +133,6 @@ export interface ConditionGroup {
   conditions: Condition[];
 }
 
-export interface Strategy {
-  id: number;
-  name: string;
-  description?: string;
-  version: number;
-  market: Market;
-  entry_conditions: ConditionGroup;
-  exit_conditions: ConditionGroup;
-  stop_loss?: number;
-  take_profit?: number;
-  created_at: string;
-}
-
-export interface BacktestResult {
-  id: number;
-  symbol: string;
-  market: Market;
-  start_date: string;
-  end_date: string;
-  initial_capital: number;
-  total_return: number;
-  annual_return: number;
-  mdd: number;
-  sharpe_ratio: number;
-  win_rate: number;
-  total_trades: number;
-  equity_curve: { date: string; value: number }[];
-  trades: Trade[];
-  created_at: string;
-}
-
-export interface Trade {
-  type: string;
-  entry_date: string;
-  exit_date: string;
-  entry_price: number;
-  exit_price: number;
-  pnl_rate: number;
-  shares: number;
-}
-
-
 /* ── 화면이 실제로 읽는 응답들 ────────────────────────────
  *
  * api/stocks.ts 가 이 자리들을 any 로 두고 있었다. 그 결과 이걸 쓰는

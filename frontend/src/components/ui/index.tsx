@@ -463,27 +463,6 @@ export function Button({
   );
 }
 
-/* ── 범위 필터 입력 ────────────────────────────────────── */
-export function RangeFilter({ label, filterKey, filters, onChange }: {
-  label: string; filterKey: string; filters: Record<string, any>;
-  onChange: (k: string, v: { min?: number; max?: number }) => void;
-}) {
-  const c = filters[filterKey] ?? {};
-  const inp = "w-full bg-bg-primary border border-border rounded-lg px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-accent-blue transition-colors";
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-2xs font-semibold text-text-muted">{label}</label>
-      <div className="flex gap-1.5 items-center">
-        <input type="number" placeholder="최소" className={inp} value={c.min ?? ""}
-          onChange={(e) => onChange(filterKey, { ...c, min: e.target.value !== "" ? +e.target.value : undefined })} />
-        <span className="text-text-dim text-xs">~</span>
-        <input type="number" placeholder="최대" className={inp} value={c.max ?? ""}
-          onChange={(e) => onChange(filterKey, { ...c, max: e.target.value !== "" ? +e.target.value : undefined })} />
-      </div>
-    </div>
-  );
-}
-
 /* ── 용어 힌트 ─────────────────────────────────────────
    PER·ROE·샤프 비율 같은 이름 옆에 물음표를 두고, 누르면 한 줄 설명을 편다.
 
@@ -755,11 +734,6 @@ export function formatNumber(n: number | null | undefined, digits = 0): string {
   if (Math.abs(n) >= 1e8)  return (n / 1e8).toFixed(1) + "억";
   if (Math.abs(n) >= 1e4)  return (n / 1e4).toFixed(1) + "만";
   return n.toLocaleString("ko-KR", { maximumFractionDigits: digits });
-}
-
-export function fmtPct(v: number | null | undefined) {
-  if (v == null) return "—";
-  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
 export { ErrorToast } from "./Toast";

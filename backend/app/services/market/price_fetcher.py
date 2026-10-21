@@ -8,7 +8,6 @@ import httpx
 from app.core.http import SSL
 import asyncio
 import os
-import re
 import time
 import logging
 from app.core.cache import cache
@@ -257,8 +256,6 @@ NAVER_INDEX_CODES = {
     # 빠지면 화면에서도 저절로 빠진다.
     "KOSPI100":  ["KPI100", "KOSPI100", "KOSPI_100"],
 }
-# 예전 이름 — 밖에서 쓰는 곳이 생기면 첫 후보를 돌려준다
-NAVER_INDEX_CODE = {k: v[0] for k, v in NAVER_INDEX_CODES.items()}
 
 #: 네이버에서 왜 못 가져왔는지 — 갱신 쪽에서 관리자 화면에 남길 때 쓴다
 _네이버_지수_실패이유: dict[str, str] = {}
@@ -347,10 +344,6 @@ async def fetch_naver_index(name: str) -> dict | None:
 _지수_연속실패: dict[str, int] = 지수쉼표._연속실패
 _지수_쉼_기준 = 지수쉼표.쉼_기준
 _지수_되살림_주기 = 지수쉼표.되살림_주기
-
-
-def 지수_쉬는가(이름: str) -> bool:
-    return 지수쉼표.쉬는가(이름)
 
 
 def 지수_실패기록(이름: str, 실패했나: bool) -> None:
@@ -942,11 +935,6 @@ async def get_price(symbol: str, ttl: int = 30) -> dict | None:
     return cache.get(ck) or cache.get_stale(ck)
 
 
-async def get_index_price(yf_sym: str, name: str, display: str, ttl: int = 30) -> dict | None:
-    ck = f"idx:{name}"
-    return cache.get(ck) or cache.get_stale(ck)
-
-
 # ── 환율 ───────────────────────────────────────────────────
 #
 # 여기가 한국 대시보드를 통째로 막고 있던 자리다. 서버를 띄워 조각별로
@@ -990,7 +978,7 @@ async def _환율배치_한번만(대기: float) -> None:
     global _fx_배치
     loop = asyncio.get_running_loop()
     if _fx_배치 is None or _fx_배치.done():
-        from app.services.market_extras import _do_fetch_us_rates
+        from app.services.market.market_extras import _do_fetch_us_rates
         _fx_배치 = loop.run_in_executor(None, _do_fetch_us_rates)
     await asyncio.wait_for(asyncio.shield(_fx_배치), 대기)
 
@@ -1042,5 +1030,3 @@ async def get_eurkrw() -> dict:
     return await _get_fx_cached("extra:eurkrw", "EURKRW", "원/유로 환율")
 
 
-async def get_jpykrw() -> dict:
-    return await _get_fx_cached("extra:jpykrw", "JPYKRW", "원/100엔")

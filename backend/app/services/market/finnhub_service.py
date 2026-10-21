@@ -5,7 +5,7 @@ https://finnhub.io — 무료 60 req/min
 import httpx
 from app.core.http import SSL
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from app.core.config import settings
 from app.core.cache import cache
 

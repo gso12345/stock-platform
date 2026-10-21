@@ -59,14 +59,12 @@ backtest_engine.py 는 **한 종목**에 **매매 신호**(RSI < 30 에 사고 �
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date
 from datetime import date as _date
 from typing import Optional
 
 log = logging.getLogger(__name__)
 
-#: 적립·리밸런싱 주기. 화면의 드롭다운과 같은 값이다.
-주기들 = ("none", "monthly", "quarterly", "yearly")
 
 #: 현금처럼 시세가 없는 자산. 값이 안 변하는 것으로 둔다.
 현금류 = {"현금", "CASH", "예금"}

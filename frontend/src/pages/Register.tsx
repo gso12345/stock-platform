@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
-import Logo from "@/components/Logo";
+import Logo from "@/components/layout/Logo";
 import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
-import SocialLoginButtons from "@/components/SocialLoginButtons";
+import SocialLoginButtons from "@/components/account/SocialLoginButtons";
 import type { AxiosError } from "axios";
 
 interface RegisterResponse {

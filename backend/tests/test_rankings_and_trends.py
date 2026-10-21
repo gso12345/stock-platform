@@ -16,7 +16,8 @@ import time
 import pytest
 
 from app.core import trends
-from app.services import ranking_service as rs, scheduler
+from app.services.market import ranking_service as rs
+from app.services import scheduler
 
 
 # ── 1. 순위표 ────────────────────────────────────────────────
@@ -325,7 +326,7 @@ class Test시가총액:
 
     def test_상장주식수를_받아_온다(self):
         """krx_listing 이 주식수를 빼먹으면 계산 자체를 할 수 없다"""
-        from app.services.krx_listing import _price
+        from app.services.listings.krx_listing import _price
         row = {"s": "005930.KS", "n": "삼성전자"}
         out = _price(row, 262_500, shares=5_846_278_608, market_cap=1)
         assert out["shares"] == 5_846_278_608
@@ -343,7 +344,7 @@ class Test검색_트렌드_종목명:
 
     def test_이름_없이_들어와도_서버가_채워_준다(self, monkeypatch):
         monkeypatch.setattr(
-            "app.services.ticker_service.get_kr_db",
+            "app.services.listings.ticker_service.get_kr_db",
             lambda: [{"s": "005930.KS", "c": "005930", "n": "삼성전자", "x": "KOSPI"}])
         trends.track_search("005930", "", "KR")
         assert trends.get_search_trends()[0]["name"] == "삼성전자"
@@ -351,19 +352,19 @@ class Test검색_트렌드_종목명:
     def test_접미사가_붙어_와도_찾는다(self, monkeypatch):
         """화면은 '005930', 종목 목록은 '005930.KS' 를 쓴다"""
         monkeypatch.setattr(
-            "app.services.ticker_service.get_kr_db",
+            "app.services.listings.ticker_service.get_kr_db",
             lambda: [{"s": "005930.KS", "c": "005930", "n": "삼성전자", "x": "KOSPI"}])
         trends.track_search("005930.KS", "", "KR")
         assert trends.get_search_trends()[0]["name"] == "삼성전자"
 
     def test_브라우저가_보낸_이름이_있으면_그걸_쓴다(self, monkeypatch):
-        monkeypatch.setattr("app.services.ticker_service.get_kr_db",
+        monkeypatch.setattr("app.services.listings.ticker_service.get_kr_db",
                             lambda: [{"s": "005930.KS", "c": "005930", "n": "삼성전자"}])
         trends.track_search("005930", "삼성전자(보통주)", "KR")
         assert trends.get_search_trends()[0]["name"] == "삼성전자(보통주)"
 
     def test_모르는_종목이면_코드만_남기고_터지지_않는다(self, monkeypatch):
-        monkeypatch.setattr("app.services.ticker_service.get_kr_db", lambda: [])
+        monkeypatch.setattr("app.services.listings.ticker_service.get_kr_db", lambda: [])
         trends.track_search("999999", "", "KR")
         r = trends.get_search_trends()[0]
         assert r["symbol"] == "999999" and r["name"] == ""
@@ -371,6 +372,6 @@ class Test검색_트렌드_종목명:
     def test_종목_목록을_못_읽어도_화면이_죽지_않는다(self, monkeypatch):
         def 터짐():
             raise RuntimeError("DB 없음")
-        monkeypatch.setattr("app.services.ticker_service.get_kr_db", 터짐)
+        monkeypatch.setattr("app.services.listings.ticker_service.get_kr_db", 터짐)
         trends.track_search("005930", "", "KR")
         assert trends.get_search_trends()[0]["name"] == ""

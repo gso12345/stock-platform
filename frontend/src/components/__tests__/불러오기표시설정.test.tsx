@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import SettingsModal from "../SettingsModal";
+import SettingsModal from "../account/SettingsModal";
 import { useSettingsStore, 정상불러오기표시 } from "@/store/settingsStore";
 
 beforeEach(() => { localStorage.clear(); useSettingsStore.getState().set불러오기표시("보이기"); });

@@ -7,7 +7,7 @@ import {
   calcIchimoku, calcFibonacci, OHLCV,
 } from "./indicators";
 import { 구름시리즈 } from "./CloudSeries";
-import { CANDLE_MAX_PERIOD, type ChartType } from "./candles";
+import type { ChartType } from "./candles";
 import { useSettingsStore, type ColorScheme } from "@/store/settingsStore";
 
 /* ── 내보내기 (StockDetail에서 사용) ────────────────────── */
@@ -22,32 +22,6 @@ export const CANDLE_TYPES = [
 ] as const;
 
 export { CANDLE_GROUPS, CANDLE_MAX_PERIOD } from "./candles";
-
-export const PERIOD_BY_CANDLE: Record<string, { label: string; value: string }[]> = {
-  "1m":  [{ label:"1일",value:"1d" },{ label:"5일",value:"5d" }],
-  "2m":  [{ label:"1일",value:"1d" },{ label:"5일",value:"5d" }],
-  "5m":  [{ label:"5일",value:"5d" },{ label:"1달",value:"1mo" }],
-  "15m": [{ label:"5일",value:"5d" },{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" }],
-  "30m": [{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" },{ label:"6달",value:"6mo" }],
-  "60m": [{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" },{ label:"6달",value:"6mo" },{ label:"1년",value:"1y" }],
-  "90m": [{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" },{ label:"6달",value:"6mo" }],
-  "1d":  [{ label:"1달",value:"1mo" },{ label:"3달",value:"3mo" },{ label:"6달",value:"6mo" },{ label:"1년",value:"1y" },{ label:"2년",value:"2y" },{ label:"3년",value:"3y" },{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
-  "5d":  [{ label:"1년",value:"1y" },{ label:"2년",value:"2y" },{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
-  "1wk": [{ label:"1년",value:"1y" },{ label:"2년",value:"2y" },{ label:"3년",value:"3y" },{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
-  "1mo": [{ label:"2년",value:"2y" },{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
-  "3mo": [{ label:"5년",value:"5y" },{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
-  "1y":  [{ label:"10년",value:"10y" },{ label:"최대",value:"max" }],
-};
-
-
-
-export const MAX_PERIOD_BY_CANDLE = CANDLE_MAX_PERIOD;
-
-export const CANDLE_DEFAULT_PERIOD: Record<string, string> = {
-  "1m":"1d","2m":"1d","5m":"5d","15m":"1mo","30m":"1mo","60m":"3mo","90m":"1mo",
-  "1d":"max","3d":"max","5d":"max","10d":"max","30d":"max","60d":"max",
-  "1wk":"max","1mo":"max","3mo":"max","1y":"max",
-};
 
 /* ── 지표 설정 타입 ─────────────────────────────────────── */
 export interface ChartSettings {

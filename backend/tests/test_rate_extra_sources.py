@@ -18,7 +18,7 @@ import pandas as pd
 
 from app.core import pykrx_light
 from app.core.cache import cache
-import app.services.market_extras as M
+import app.services.market.market_extras as M
 
 
 # pykrx 문서(website/krx/bond/wrap.py)에 적힌 표 그대로

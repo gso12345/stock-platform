@@ -4,11 +4,19 @@
 순위캐시 → 야후, 해외는 Finnhub → 야후)가 여기 있다. 화면 여러 곳이
 같은 폴백을 타야 해서 한곳에 둔다.
 """
-from fastapi import APIRouter, Path, Query, HTTPException, Request, Depends
-from typing import Literal
 import asyncio
 import logging
-import re
+
+from fastapi import APIRouter
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+from app.core.cache import cache
+from app.core.config import settings
+from app.services.market.finnhub_service import finnhub_service
+from app.services.market.kis_service import kis_service
+from app.services.listings.ticker_service import get_fdr_price
+from app.services.market.yf_service import yf_service
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +37,7 @@ def 퀀트지표_담기(ck: str, 지표: dict, 시장: str) -> dict:
     반쪽(가치 지표나 시세가 통째로 빈 것)이면 먼저 있던 값으로 빈 칸을 채워 담고, 짧게만 둔다.
     지난 값을 뒤에서 새로 받다가(또는 같은 종목을 두 요청이 겹쳐 받다가) 한쪽이 시한에 걸리면,
     멀쩡하던 가치·모멘텀 점수를 그 반쪽이 덮어 '—' 로 만들었다."""
-    from app.services.quant_score import 지표가_반쪽인가
+    from app.services.quant.quant_score import 지표가_반쪽인가
     if not 지표가_반쪽인가(지표, 시장):
         cache.set(ck, 지표, QMETRICS_TTL)
         return 지표
@@ -55,11 +63,11 @@ def _퀀트지표_뒤로미루기(sym: str, mkt: str, ck: str) -> None:
     def _받기():
         try:
             import asyncio as _a
-            from app.services.quant_score import collect_quant_metrics as _c
+            from app.services.quant.quant_score import collect_quant_metrics as _c
             m = _a.run(_c(sym, mkt, fetch_ohlcv=True))
             퀀트지표_담기(ck, dict(m), mkt)
             # 서버가 잠들었다 깨도 쓸 수 있게 남겨 둔다(quant_store) — 새로 다 모은 것만
-            from app.services.quant_store import 저장
+            from app.services.quant.quant_store import 저장
             저장(sym, mkt, dict(m))
         except Exception as e:
             log.warning("퀀트 지표 배경 갱신 실패 %s %s: %s", mkt, sym, type(e).__name__)
@@ -71,22 +79,7 @@ def _퀀트지표_뒤로미루기(sym: str, mkt: str, ck: str) -> None:
         background_executor.submit(_받기)
     except Exception:
         _퀀트갱신중.discard(ck)
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-from sqlalchemy.orm import Session
-from app.services.kis_service import kis_service
-from app.services.finnhub_service import finnhub_service
-from app.services.dart_service import dart_service
-from app.services.yf_service import yf_service, _resolve_kr_symbol
-from app.services.demo_data import get_demo_price, get_demo_ohlcv, DEMO_PRICES
-from app.services.ticker_service import get_fdr_price, get_kr_db
-from app.services.quant_score import compute_quant_score, DEFAULT_WEIGHTS
-from app.core.config import settings
-from app.core.cache import cache
-from app.core.utils import safe_float as _safe_float
-from app.core.deps import get_current_user, require_user
-from app.db.database import get_db
-from app.models.stock import QuantScoreWeight
+
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -125,7 +118,7 @@ def _시한내결과(fut, timeout: float):
 # ── 국내 주식 ──────────────────────────────────────────────
 async def get_kr_price(symbol: str) -> dict:
     """KIS → 캐시 → Naver → 순위캐시 → yfinance 순으로 폴백"""
-    from app.services.price_fetcher import fetch_naver_stock
+    from app.services.market.price_fetcher import fetch_naver_stock
     code6 = symbol.replace(".KS","").replace(".KQ","")
     ck = f"price:{symbol}"
 
@@ -192,7 +185,7 @@ async def get_kr_price(symbol: str) -> dict:
 
 async def get_us_price(symbol: str) -> dict:
     """Finnhub → Yahoo Finance → yfinance 순으로 폴백"""
-    from app.services.price_fetcher import fetch_yf_quotes
+    from app.services.market.price_fetcher import fetch_yf_quotes
     ck = f"price:{symbol}"
 
     # 신선한 캐시 (30초 이내)

@@ -118,7 +118,7 @@ class Test보유종목:
         assert 결과[0] == ("T00", 12)
 
     def test_이름이_비어_있으면_종목_목록에서_채운다(self, db, monkeypatch):
-        monkeypatch.setattr("app.services.ticker_service.get_kr_db",
+        monkeypatch.setattr("app.services.listings.ticker_service.get_kr_db",
                             lambda: [{"s": "005930.KS", "c": "005930", "n": "삼성전자"}])
         보유(db, 사람(db, "가"), [("기본", "005930", "KR", "")])
         assert A.get_popular_stocks(basis="portfolio", db=db, _=None)[0]["name"] == "삼성전자"

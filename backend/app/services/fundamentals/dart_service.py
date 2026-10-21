@@ -13,16 +13,10 @@ from app.core.config import settings
 from app.core.cache import cache
 from app.db.database import SessionLocal
 from app.models.stock import DisclosuresCache, DartCorpMapCache
-from app.core.cpu import cpu_worker_count, io_worker_count
+from app.core.cpu import io_worker_count
 
 BASE = "https://opendart.fss.or.kr/api"
 
-REPORT_TYPES = {
-    "11011": "사업보고서 (연간)",
-    "11012": "반기보고서",
-    "11013": "1분기보고서",
-    "11014": "3분기보고서",
-}
 
 # 재무제표 계정과목 코드
 ACCOUNT_CODES = {

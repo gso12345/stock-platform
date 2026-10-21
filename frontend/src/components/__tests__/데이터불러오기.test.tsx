@@ -27,7 +27,7 @@ vi.mock("@/hooks/usePortfolioItems", async () => {
 });
 let 로그인 = false;
 vi.mock("@/store/authStore", () => ({ useAuthStore: () => ({ isLoggedIn: 로그인 }) }));
-vi.mock("../Logo", () => ({ default: () => null }));
+vi.mock("../layout/Logo", () => ({ default: () => null }));
 let 표시설정 = "보이기";
 vi.mock("@/store/settingsStore", () => ({
   useSettingsStore: (sel: any) => sel({ 불러오기표시: 표시설정 }),
@@ -45,7 +45,7 @@ vi.mock("@/utils/한가할때", () => ({
   아껴쓰는중: () => false,
 }));
 
-import 위젯, { 라벨, 묶기, 느림기준초, 띄울때까지ms } from "../LoadingProgressOverlay";
+import 위젯, { 라벨, 묶기, 느림기준초, 띄울때까지ms } from "../layout/LoadingProgressOverlay";
 
 /** 다른 화면이 데이터를 부르는 것처럼 */
 function 다른화면({ 열쇠 }: { 열쇠: unknown[] }) {

@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.ranking_service import ALLOWED_CATEGORIES
+from app.services.market.ranking_service import ALLOWED_CATEGORIES
 
 
 @pytest.fixture(scope="module")
@@ -80,7 +80,7 @@ class Test카테고리_검증:
 
     def test_허용_목록이_실제_구현과_맞는다(self):
         # 목록에서 빠뜨리면 정상 기능이 422 가 된다
-        from app.services.ranking_service import NAVER_SISE_PAGES, DERIVED_CATEGORIES
+        from app.services.market.ranking_service import NAVER_SISE_PAGES, DERIVED_CATEGORIES
         assert set(ALLOWED_CATEGORIES) == set(NAVER_SISE_PAGES) | DERIVED_CATEGORIES
 
 

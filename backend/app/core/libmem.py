@@ -181,14 +181,6 @@ def install() -> bool:
     return True
 
 
-def uninstall():
-    """계측을 끈다 (테스트용)."""
-    global _installed
-    if _installed and _real_import is not None:
-        builtins.__import__ = _real_import
-    _installed = False
-
-
 def reset():
     with _lock:
         _measured.clear()

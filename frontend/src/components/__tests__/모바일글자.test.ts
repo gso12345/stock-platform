@@ -91,8 +91,8 @@ describe("크기표 주석이 실제와 맞는가", () => {
 
 
 describe("글씨 크기 설정이 이름대로 움직이는가", () => {
-  const layout = () => fs.readFileSync(path.join(뿌리, "src/components/Layout.tsx"), "utf-8");
-  const 설정창 = () => fs.readFileSync(path.join(뿌리, "src/components/SettingsModal.tsx"), "utf-8");
+  const layout = () => fs.readFileSync(path.join(뿌리, "src/components/layout/Layout.tsx"), "utf-8");
+  const 설정창 = () => fs.readFileSync(path.join(뿌리, "src/components/account/SettingsModal.tsx"), "utf-8");
   const 스토어 = () => fs.readFileSync(path.join(뿌리, "src/store/settingsStore.ts"), "utf-8");
 
   /** 글씨 크기 칸의 (값, 라벨) 짝.

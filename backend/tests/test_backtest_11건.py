@@ -17,8 +17,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.api.routes import backtest as R
-from app.services.backtest_engine import backtest_engine as E, BacktestEngine
-from app.services.portfolio_backtest import 돌리기
+from app.services.backtest.backtest_engine import backtest_engine as E, BacktestEngine
+from app.services.backtest.portfolio_backtest import 돌리기
 
 
 # ── 자료 만들기 ──────────────────────────────────────────

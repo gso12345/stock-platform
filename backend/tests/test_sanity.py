@@ -214,7 +214,7 @@ class Test값을_고치지_않는가:
 class Test화면에_붙어_있는가:
     def test_환율금리_목록이_검사를_지난다(self):
         import inspect
-        from app.services import market_extras as M
+        from app.services.market import market_extras as M
         본문 = inspect.getsource(M._do_fetch_kr_rates)
         assert "환율금리_확인" in 본문
 
@@ -228,7 +228,7 @@ class Test화면에_붙어_있는가:
         """이상값 확인은 곁들이다. 그것 때문에 금리 목록이나 지수
         갱신이 통째로 실패하면 고친 게 아니라 망가뜨린 것이다."""
         import inspect
-        from app.services import market_extras as M
+        from app.services.market import market_extras as M
         본문 = inspect.getsource(M._do_fetch_kr_rates)
         자리 = 본문[본문.find("환율금리_확인") - 300:본문.find("환율금리_확인") + 300]
         assert "try" in 자리 and "except" in 자리

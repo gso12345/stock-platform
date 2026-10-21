@@ -23,7 +23,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services import ranking_service as rs
+from app.services.market import ranking_service as rs
 
 삼성 = "005930.KS"
 
@@ -70,7 +70,7 @@ def test_주식수를_몰라도_0이_되지_않는다(monkeypatch):
     실시간 시세에는 시총 칸이 없다. 넘겨받은 dict 안에서만 찾으면 0 이
     되고, 0 이면 시가총액 순위에서 통째로 빠진다."""
     monkeypatch.setattr(rs, "상장주식수", lambda s: 0)
-    monkeypatch.setattr("app.services.ticker_service.get_fdr_price",
+    monkeypatch.setattr("app.services.listings.ticker_service.get_fdr_price",
                         lambda s: 목록시세(70_000, 시총=418_000_000_000_000))
 
     결과 = rs._시가총액(삼성, 70_000, 실시간시세(70_000))
@@ -79,7 +79,7 @@ def test_주식수를_몰라도_0이_되지_않는다(monkeypatch):
 
 def test_넘겨받은_것에_시총이_있으면_그걸_먼저_쓴다(monkeypatch):
     monkeypatch.setattr(rs, "상장주식수", lambda s: 0)
-    monkeypatch.setattr("app.services.ticker_service.get_fdr_price",
+    monkeypatch.setattr("app.services.listings.ticker_service.get_fdr_price",
                         lambda s: 목록시세(70_000, 시총=999))
     assert rs._시가총액(삼성, 70_000, 목록시세(70_000, 시총=418)) == 418
 
@@ -87,13 +87,13 @@ def test_넘겨받은_것에_시총이_있으면_그걸_먼저_쓴다(monkeypatc
 def test_아무_데도_없으면_0(monkeypatch):
     """지어내지는 않는다."""
     monkeypatch.setattr(rs, "상장주식수", lambda s: 0)
-    monkeypatch.setattr("app.services.ticker_service.get_fdr_price", lambda s: None)
+    monkeypatch.setattr("app.services.listings.ticker_service.get_fdr_price", lambda s: None)
     assert rs._시가총액(삼성, 70_000, 실시간시세(70_000)) == 0
 
 
 def test_가격이_0이면_계산하지_않는다(monkeypatch):
     monkeypatch.setattr(rs, "상장주식수", lambda s: 5_969_782_550)
-    monkeypatch.setattr("app.services.ticker_service.get_fdr_price", lambda s: None)
+    monkeypatch.setattr("app.services.listings.ticker_service.get_fdr_price", lambda s: None)
     assert rs._시가총액(삼성, 0, 실시간시세(0)) == 0
 
 
@@ -104,7 +104,7 @@ def test_시가총액_1위가_순위표_1위로_나온다(monkeypatch):
     큰것 = {"삼성전자": 418_000_000_000_000, "SK하이닉스": 150_000_000_000_000,
             "작은회사": 5_000_000_000}
     이름으로 = {f"00{i}.KS": n for i, n in enumerate(큰것)}
-    monkeypatch.setattr("app.services.ticker_service.get_fdr_price",
+    monkeypatch.setattr("app.services.listings.ticker_service.get_fdr_price",
                         lambda s: {"market_cap": 큰것[이름으로[s]]} if s in 이름으로 else None)
 
     행 = []
@@ -150,7 +150,7 @@ def test_주식수_컬럼이_모델_소스에_적혀_있다():
 
 def test_저장할_때_주식수를_담는다():
     본문 = open(os.path.join(os.path.dirname(__file__), "..", "app", "services",
-                             "ticker_service.py"), encoding="utf-8").read()
+                             "listings", "ticker_service.py"), encoding="utf-8").read()
     저장 = 본문[본문.index("def _save_kr_to_db"):]
     저장 = 저장[:저장.index("\ndef ", 10)]
     assert '"shares": p.get("shares")' in 저장
@@ -159,7 +159,7 @@ def test_저장할_때_주식수를_담는다():
 def test_읽을_때_주식수를_되살린다():
     """담기만 하고 안 읽으면 아무것도 달라지지 않는다."""
     본문 = open(os.path.join(os.path.dirname(__file__), "..", "app", "services",
-                             "ticker_service.py"), encoding="utf-8").read()
+                             "listings", "ticker_service.py"), encoding="utf-8").read()
     읽기 = 본문[본문.index("def _load_kr_from_db"):]
     읽기 = 읽기[:읽기.index("\ndef ", 10)]
     assert "r.shares" in 읽기

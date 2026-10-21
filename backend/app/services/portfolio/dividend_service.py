@@ -32,7 +32,7 @@
 """
 import logging
 from concurrent.futures import ThreadPoolExecutor as _ThreadPool
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from app.core.backoff import 쉼표
 from app.core.cache import cache

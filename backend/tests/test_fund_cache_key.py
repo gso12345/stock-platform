@@ -26,8 +26,8 @@ import asyncio
 import pytest
 
 from app.core.cache import cache
-from app.services import fundamentals_service as FS
-from app.services.yf_service import yf_service
+from app.services.fundamentals import fundamentals_service as FS
+from app.services.market.yf_service import yf_service
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +69,7 @@ class Test오염이_사라졌다:
         async def _네이버(code6, *a, **kw):
             return 네이버
 
-        monkeypatch.setattr("app.services.price_fetcher.fetch_naver_stock", _네이버)
+        monkeypatch.setattr("app.services.market.price_fetcher.fetch_naver_stock", _네이버)
         monkeypatch.setattr(yf_service, "get_fundamentals", lambda *a, **kw: 야후단독)
         # DB 캐시는 이 테스트의 관심사가 아니다
         monkeypatch.setattr(FS, "_db_get", lambda *a, **kw: None)
@@ -84,7 +84,7 @@ class Test오염이_사라졌다:
         async def _네이버(code6, *a, **kw):
             return {"eps": 5521}
 
-        monkeypatch.setattr("app.services.price_fetcher.fetch_naver_stock", _네이버)
+        monkeypatch.setattr("app.services.market.price_fetcher.fetch_naver_stock", _네이버)
         monkeypatch.setattr(yf_service, "get_fundamentals", lambda *a, **kw: {"roe": 8.0})
         monkeypatch.setattr(FS, "_db_get", lambda *a, **kw: None)
         monkeypatch.setattr(FS, "_db_set", lambda *a, **kw: None)
@@ -99,7 +99,7 @@ class Test오염이_사라졌다:
         async def _네이버(code6, *a, **kw):
             return {"eps": 5521}
 
-        monkeypatch.setattr("app.services.price_fetcher.fetch_naver_stock", _네이버)
+        monkeypatch.setattr("app.services.market.price_fetcher.fetch_naver_stock", _네이버)
         monkeypatch.setattr(yf_service, "get_fundamentals",
                             lambda *a, **kw: {"roe": 8.0, "op_margin": 15.2})
         monkeypatch.setattr(FS, "_db_get", lambda *a, **kw: None)
@@ -115,7 +115,7 @@ class Test오염이_사라졌다:
         async def _네이버(code6, *a, **kw):
             return {"per": 13.1}
 
-        monkeypatch.setattr("app.services.price_fetcher.fetch_naver_stock", _네이버)
+        monkeypatch.setattr("app.services.market.price_fetcher.fetch_naver_stock", _네이버)
         monkeypatch.setattr(yf_service, "get_fundamentals", lambda *a, **kw: {"per": 99.9})
         monkeypatch.setattr(FS, "_db_get", lambda *a, **kw: None)
         monkeypatch.setattr(FS, "_db_set", lambda *a, **kw: None)

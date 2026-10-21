@@ -3,9 +3,9 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
-import Logo from "@/components/Logo";
-import SocialLoginButtons from "@/components/SocialLoginButtons";
-import { 탈퇴완료표시 } from "@/components/AccountWithdraw";
+import Logo from "@/components/layout/Logo";
+import SocialLoginButtons from "@/components/account/SocialLoginButtons";
+import { 탈퇴완료표시 } from "@/components/account/AccountWithdraw";
 import type { AxiosError } from "axios";
 
 interface LoginResponse {

@@ -3,16 +3,11 @@
 원래 stocks.py 한 파일에 있던 것을 탭 단위로 가른 조각이다.
 공용 폴백·시한 처리는 _공용 에 있다.
 """
-from ._공용 import (   # noqa: F401  — 쪼개기 전과 같은 이름을 쓴다
-    APIRouter, Path, Query, HTTPException, Request, Depends, Literal,
-    asyncio, logging, re, log, QMETRICS_TTL, _퀀트갱신중, _퀀트지표_뒤로미루기, Session,
-    kis_service, finnhub_service, dart_service, yf_service,
-    _resolve_kr_symbol, get_demo_price, get_demo_ohlcv, DEMO_PRICES,
-    get_fdr_price, get_kr_db, compute_quant_score, DEFAULT_WEIGHTS, settings,
-    cache, _safe_float, get_current_user, require_user, get_db,
-    QuantScoreWeight, limiter, router_새로, _SYMBOL_PATTERN, _run, _시한내결과,
-    get_kr_price, get_us_price,
-)
+from fastapi import Path, Query, Request
+
+from app.core.cache import cache
+
+from ._공용 import _run, _SYMBOL_PATTERN, limiter, log, router_새로
 
 router = router_새로()
 
@@ -20,7 +15,6 @@ router = router_새로()
 @limiter.limit("10/minute")
 async def get_supply_demand(request: Request, symbol: str = Path(..., pattern=_SYMBOL_PATTERN), days: int = Query(default=30, ge=1, le=365)):
     """수급 데이터 (외국인/기관/개인) — pykrx"""
-    from app.core.cache import cache
     from datetime import datetime, timedelta
     ck = f"supply:{symbol}:{days}"
     if c := cache.get(ck):

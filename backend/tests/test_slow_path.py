@@ -24,7 +24,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.cache import cache
-from app.services import price_fetcher as pf
+from app.services.market import price_fetcher as pf
 from app.services import news_service as ns
 
 
@@ -51,7 +51,7 @@ def _안_끝나는_배치(monkeypatch):
         부른횟수.append(1)
         문.wait(30)
 
-    monkeypatch.setattr("app.services.market_extras._do_fetch_us_rates", 배치)
+    monkeypatch.setattr("app.services.market.market_extras._do_fetch_us_rates", 배치)
     return 문, 부른횟수
 
 
@@ -103,7 +103,7 @@ def test_신선한_값이_있으면_아예_안_받는다(monkeypatch):
     비우기()
     cache.set("extra:usdkrw", {"symbol": "USDKRW", "value": 1380.0}, 300)
     부른횟수 = []
-    monkeypatch.setattr("app.services.market_extras._do_fetch_us_rates",
+    monkeypatch.setattr("app.services.market.market_extras._do_fetch_us_rates",
                         lambda: 부른횟수.append(1))
     assert asyncio.run(pf.get_usdkrw())["value"] == 1380.0
     assert 부른횟수 == []
@@ -114,7 +114,7 @@ def test_빈손이었으면_한동안_다시_안_묻는다(monkeypatch):
     """이게 없으면 요청이 올 때마다 12초짜리 배치를 새로 돌린다."""
     비우기()
     부른횟수 = []
-    monkeypatch.setattr("app.services.market_extras._do_fetch_us_rates",
+    monkeypatch.setattr("app.services.market.market_extras._do_fetch_us_rates",
                         lambda: 부른횟수.append(1))
 
     asyncio.run(pf.get_usdkrw())
@@ -131,7 +131,7 @@ def test_성공하면_실패표시를_남기지_않는다(monkeypatch):
     def 성공배치():
         cache.set("extra:usdkrw", {"symbol": "USDKRW", "value": 1385.0}, 300)
 
-    monkeypatch.setattr("app.services.market_extras._do_fetch_us_rates", 성공배치)
+    monkeypatch.setattr("app.services.market.market_extras._do_fetch_us_rates", 성공배치)
     assert asyncio.run(pf.get_usdkrw())["value"] == 1385.0
     assert not cache.get("extra:usdkrw:miss")
 
@@ -169,7 +169,7 @@ def test_늦게라도_값이_오면_실패표시가_가리지_않는다(monkeypa
     cache.set("extra:usdkrw:miss", True, 60)
     cache.set("extra:usdkrw", {"symbol": "USDKRW", "value": 1400.0}, 300)
     부른횟수 = []
-    monkeypatch.setattr("app.services.market_extras._do_fetch_us_rates",
+    monkeypatch.setattr("app.services.market.market_extras._do_fetch_us_rates",
                         lambda: 부른횟수.append(1))
     assert asyncio.run(pf.get_usdkrw())["value"] == 1400.0
     assert 부른횟수 == []
@@ -193,7 +193,7 @@ def test_동시에_다섯이_들어와도_배치는_한_번만(monkeypatch):
         time.sleep(0.3)
         cache.set("extra:usdkrw", {"symbol": "USDKRW", "value": 1390.0}, 300)
 
-    monkeypatch.setattr("app.services.market_extras._do_fetch_us_rates", 조금느린배치)
+    monkeypatch.setattr("app.services.market.market_extras._do_fetch_us_rates", 조금느린배치)
     monkeypatch.setattr(pf, "FX_WAIT_SEC", 5)
 
     async def 다섯이_동시에():
@@ -246,7 +246,7 @@ def test_이미_돌고_있는_배치는_그대로_이어_쓴다(monkeypatch):
         cache.set("extra:usdkrw", {"symbol": "USDKRW", "value": 1395.0}, 300)
         끝났나.append(1)
 
-    monkeypatch.setattr("app.services.market_extras._do_fetch_us_rates", 배치)
+    monkeypatch.setattr("app.services.market.market_extras._do_fetch_us_rates", 배치)
 
     async def 성급한사람_뒤에_기다리는사람():
         monkeypatch.setattr(pf, "FX_WAIT_SEC", 0.05)

@@ -20,8 +20,8 @@ import { useAuthStore } from "@/store/authStore";
 import { communityApi } from "@/api/stocks";
 import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
-import InstallAppButton from "@/components/InstallAppButton";
-import SettingsModal from "@/components/SettingsModal";
+import InstallAppButton from "@/components/layout/InstallAppButton";
+import SettingsModal from "@/components/account/SettingsModal";
 import { 더보기_메뉴 } from "@/constants/moreNav";
 
 function 줄({ to, onClick, icon: Icon, label, 설명, badge, 위험 }: {

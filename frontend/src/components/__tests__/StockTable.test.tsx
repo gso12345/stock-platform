@@ -50,6 +50,11 @@ describe("받는중띠", () => {
     rerender(<받는중띠 이름="받는 중">받는 중</받는중띠>);
     expect(container.querySelector('[style*="width"]')).toBeNull();
   });
+
+  it("도는 동그라미(<div>)를 <p> 안에 넣지 않는다 — 넣으면 React 가 콘솔에 경고를 띄운다", () => {
+    const { container } = render(<받는중띠 이름="받는 중">받는 중</받는중띠>);
+    expect(container.querySelector("p div")).toBeNull();
+  });
 });
 
 describe("도구단추", () => {

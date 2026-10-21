@@ -115,7 +115,7 @@ class Test오래_걸릴_수_있는_자리에_상한이_있다:
         있었다. 결과를 담아 두지도 않아 매 요청이 최대 6초씩 기다렸다."""
         본문 = inspect.getsource(D._get_kr_rankings)
         assert "kis_service" not in 본문.split('"""')[-1]
-        from app.services.kis_service import kis_service
+        from app.services.market.kis_service import kis_service
         assert not hasattr(kis_service, "get_rankings"), "틀린 주소로 묻던 함수가 남아 있다"
 
 
@@ -215,7 +215,7 @@ class Test화면도_두_번_안_부른다:
 
     def test_getKR_getUS_가_category_를_안_보낸다(self):
         from pathlib import Path
-        소스 = Path(__file__).resolve().parents[2] / "frontend" / "src" / "api" / "stocks.ts"
+        소스 = Path(__file__).resolve().parents[2] / "frontend" / "src" / "api" / "dashboard.ts"
         글 = 소스.read_text(encoding="utf-8")
         시작 = 글.index("getKR:")
         끝 = 글.index("getRankings:")

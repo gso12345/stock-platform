@@ -72,7 +72,8 @@ def 짓기세기(monkeypatch):
 
 def test_실제_호출에서_인증서를_다시_읽지_않는다(짓기세기):
     from app.core.http import SSL  # noqa: F401 — 미리 지어 둔다
-    from app.services import price_fetcher as pf, news_service as ns
+    from app.services.market import price_fetcher as pf
+    from app.services import news_service as ns
     from app.api.routes import search
 
     짓기세기["n"] = 0

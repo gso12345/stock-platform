@@ -23,8 +23,8 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.cache import cache
 from app.api.routes import screening as 라우트
-from app.services import yf_service as 모듈
-from app.services.yf_service import (
+from app.services.market import yf_service as 모듈
+from app.services.market.yf_service import (
     yf_service, 스크리닝줄, 스크리닝_숫자키, 스크리닝_글자키, _rsi14, 연간흐름, _도메인,
 )
 
@@ -372,7 +372,7 @@ def test_52주_고저는_최근_1년_안에서만_본다():
 
 
 def test_RSI는_백테스트_엔진과_같은_값이다():
-    from app.services.backtest_engine import BacktestEngine
+    from app.services.backtest.backtest_engine import BacktestEngine
     rng = np.random.default_rng(3)
     값 = 100 * np.cumprod(1 + rng.normal(0, 0.02, 120))
     날 = pd.bdate_range("2025-01-01", periods=120)
@@ -545,7 +545,7 @@ class Test서버를_붙잡지_않게:
         assert "US" not in 모듈._스크리닝_새로찍는중
 
     def test_묶음_시세는_막_받아_둔_시세를_다시_묻지_않고_국내외를_갈라_묻는다(self, monkeypatch):
-        from app.services import price_fetcher
+        from app.services.market import price_fetcher
         물은해외: list = []
         물은국내: list = []
 

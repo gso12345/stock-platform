@@ -9,7 +9,7 @@ import { Save, Palette, Globe, Lock, FileText, Camera, X } from "lucide-react";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 import { timeAgo } from "@/utils/formatters";
 import { 못불러옴 } from "@/components/ui";
-import 회원탈퇴 from "@/components/AccountWithdraw";
+import 회원탈퇴 from "@/components/account/AccountWithdraw";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
 import { 시세열쇠, 시세대상 } from "@/constants/portfolioQuery";
 

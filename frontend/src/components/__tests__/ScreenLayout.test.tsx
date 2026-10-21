@@ -18,7 +18,7 @@ import StockDetail원문 from "../../pages/StockDetail.tsx?raw";
 import Portfolio원문 from "../../pages/Portfolio.tsx?raw";
 /* 설정 창은 Layout 에서 SettingsModal 로 빠졌다 — 더보기가 화면으로
    나오면서 설정을 여는 자리가 두 곳이 됐기 때문이다 */
-import 설정창원문 from "../SettingsModal.tsx?raw";
+import 설정창원문 from "../account/SettingsModal.tsx?raw";
 
 const KEY = "portfolio_settings";
 

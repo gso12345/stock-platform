@@ -26,7 +26,7 @@ const 뿌리 = path.resolve(__dirname, "../..");
 const 예외 = {
   "components/community/Avatar.tsx":
     "사용자를 구분하는 여덟 색. 토큰(일곱 개)으로 접으면 다른 사람이 같은 색이 된다",
-  "components/SocialLoginButtons.tsx":
+  "components/account/SocialLoginButtons.tsx":
     "구글 버튼의 흰 바탕·검은 글씨는 브랜드 규정이다",
 };
 

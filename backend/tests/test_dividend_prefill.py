@@ -72,7 +72,7 @@ class Test배당_미리채우기:
             받은것.append((sym, mkt))
             return {"symbol": sym}
 
-        import app.services.dividend_service as DV
+        import app.services.portfolio.dividend_service as DV
         monkeypatch.setattr(DV, "한종목", _가짜한종목)
         monkeypatch.setattr(DV.쉼, "쉬는가", lambda ck: False)
         monkeypatch.setattr("app.core.fetchcache.빈손인가", lambda ck: False)
@@ -89,7 +89,7 @@ class Test배당_미리채우기:
         _DB흉내(monkeypatch, 많이)
 
         받은것 = []
-        import app.services.dividend_service as DV
+        import app.services.portfolio.dividend_service as DV
         monkeypatch.setattr(DV, "한종목",
                             lambda s, m, 받아도되나=True: 받은것.append((s, m)) or {"symbol": s})
         monkeypatch.setattr(DV.쉼, "쉬는가", lambda ck: False)
@@ -105,7 +105,7 @@ class Test배당_미리채우기:
         _DB흉내(monkeypatch, [("BAD", "US"), ("GOOD", "US")])
 
         받은것 = []
-        import app.services.dividend_service as DV
+        import app.services.portfolio.dividend_service as DV
         monkeypatch.setattr(DV, "한종목",
                             lambda s, m, 받아도되나=True: 받은것.append((s, m)) or {"symbol": s})
         monkeypatch.setattr(DV.쉼, "쉬는가", lambda ck: ck.endswith(":BAD"))
@@ -121,7 +121,7 @@ class Test배당_미리채우기:
         _DB흉내(monkeypatch, [("NODIV", "US"), ("PAYS", "US")])
 
         받은것 = []
-        import app.services.dividend_service as DV
+        import app.services.portfolio.dividend_service as DV
         monkeypatch.setattr(DV, "한종목",
                             lambda s, m, 받아도되나=True: 받은것.append((s, m)) or {"symbol": s})
         monkeypatch.setattr(DV.쉼, "쉬는가", lambda ck: False)
@@ -135,7 +135,7 @@ class Test배당_미리채우기:
         _DB흉내(monkeypatch, [("005930", "KR")])
         cache.set("div:KR:005930", {"symbol": "005930"}, 300)
 
-        import app.services.dividend_service as DV
+        import app.services.portfolio.dividend_service as DV
         def _못부름(*a, **k):
             raise AssertionError("받을 것이 없는데 바깥을 불렀다")
         monkeypatch.setattr(DV, "한종목", _못부름)
@@ -147,7 +147,7 @@ class Test배당_미리채우기:
         그 뒤 종목들은 영영 안 채워진다."""
         _DB흉내(monkeypatch, [("BOOM", "US"), ("OK", "US")])
 
-        import app.services.dividend_service as DV
+        import app.services.portfolio.dividend_service as DV
         def _한종목(s, m, 받아도되나=True):
             if s == "BOOM":
                 raise RuntimeError("터짐")

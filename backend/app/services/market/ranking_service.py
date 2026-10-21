@@ -13,8 +13,8 @@ from app.core.http import SSL
 import re
 from app.core.cache import cache
 from app.core import memory
-from app.services.ticker_service import get_kr_db, get_fdr_price
-from app.services.yf_service import SP500_SYMBOLS
+from app.services.listings.ticker_service import get_kr_db, get_fdr_price
+from app.services.market.yf_service import SP500_SYMBOLS
 
 log = logging.getLogger(__name__)
 
@@ -62,16 +62,6 @@ DERIVED_CATEGORIES = {"거래대금", "신고가", "신저가"}
 # 500번이면 시세·차트·뉴스 캐시가 전부 밀려난다.
 ALLOWED_CATEGORIES = tuple(NAVER_SISE_PAGES.keys()) + tuple(sorted(DERIVED_CATEGORIES))
 CATEGORY_PATTERN = "^(" + "|".join(ALLOWED_CATEGORIES) + ")$"
-
-
-def _parse_num(s: str) -> float:
-    if not s:
-        return 0.0
-    s = str(s).replace(",", "").replace("%", "").strip()
-    try:
-        return float(s)
-    except Exception:
-        return 0.0
 
 
 def _칸숫자(td) -> "float | None":
@@ -334,7 +324,7 @@ def _시가총액(symbol: str, price: float, p: dict) -> int:
     # 정확하진 않지만, 0 으로 만들어 순위에서 지워 버리는 것보다는 낫다.
     if 받아둔것 := int(p.get("market_cap") or 0):
         return 받아둔것
-    from app.services.ticker_service import get_fdr_price
+    from app.services.listings.ticker_service import get_fdr_price
     return int((get_fdr_price(symbol) or {}).get("market_cap") or 0)
 
 
@@ -463,7 +453,7 @@ def us_universe() -> list[str]:
 
     앞줄 = list(dict.fromkeys(POPULAR_US + 대표ETF + SP500_SYMBOLS))
     try:
-        from app.services.ticker_service import get_us_db
+        from app.services.listings.ticker_service import get_us_db
         전체 = [t["s"] for t in get_us_db() if t.get("s")]
     except Exception as e:
         log.debug("미국 종목 목록을 못 읽음: %s", type(e).__name__)
@@ -608,7 +598,7 @@ def 마친장(now_utc=None) -> "tuple":
     마감(16:00 ET) 뒤 나스닥_마감여유분 이 지나야 그날 장이 '끝난' 것으로 본다.
     휴장일(공휴일)은 모른다 — 그날을 끝난 장으로 볼 뿐, 값은 그 전 장 그대로다."""
     from datetime import datetime as _dt, time as _t, timedelta as _td, timezone as _tz
-    from app.services.market_hours import _et_now
+    from app.services.market.market_hours import _et_now
     et = _et_now(now_utc or _dt.now(_tz.utc))
     날 = et.date()
     if et.weekday() >= 5 or et.time() < _t(16, 나스닥_마감여유분):
@@ -873,8 +863,8 @@ async def refresh_us_rows(sweep: int | None = None) -> int:
     _us_rows_refreshing = True
     try:
         from collections import Counter
-        from app.services.price_fetcher import fetch_yf_quotes
-        from app.services import market_hours, price_fetcher as _pf
+        from app.services.market.price_fetcher import fetch_yf_quotes
+        from app.services.market import market_hours, price_fetcher as _pf
 
         # 표를 쌓기 전에 DB 에 남긴 마지막 순위부터 깐다(프로세스당 한 번).
         # 시가총액을 아는 줄이 먼저 있어야, spark(시가총액 없음)로만 받는
@@ -956,7 +946,7 @@ def _미국_하루시작(t: int) -> int:
     바꾸지 않고 '하루의 시작' 하나와 견준다 — 6천 줄을 매번 변환하면 0.15
     CPU 에서 그것만으로 눈에 띄게 걸린다."""
     from datetime import datetime, timezone
-    from app.services.market_hours import _et_now
+    from app.services.market.market_hours import _et_now
     뉴욕 = _et_now(datetime.fromtimestamp(t, timezone.utc))
     return int(뉴욕.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
 

@@ -698,7 +698,7 @@ def 합치기(기록: dict, 줄들: list) -> dict:
 def _코드붙이기(기록: dict) -> None:
     """상장한 종목에 코드·시장을 붙인다(종목 화면으로 이어 주려고)."""
     try:
-        from app.services.ticker_service import get_kr_db
+        from app.services.listings.ticker_service import get_kr_db
         이름표 = {열쇠(t["n"]): t for t in get_kr_db() if t.get("n") and t.get("c")}
     except Exception:
         return

@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from app.services.portfolio_backtest import 곡선솎기, 날짜맞추기, 곡선칸수
+from app.services.backtest.portfolio_backtest import 곡선솎기, 날짜맞추기, 곡선칸수
 from test_자산배분_설정이_실제로_먹나 import (  # noqa: F401 — 가짜 시세·제한 해제를 그대로 쓴다
     _가짜시세, _횟수제한_지우기, client, 몸,
 )

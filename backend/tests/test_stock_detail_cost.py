@@ -49,7 +49,7 @@ class TestDB캐시:
             assert model is MetricsHistoryCache
             return 저장된 if max_age_h <= 24 else None
 
-        import app.services.fundamentals_service as fs
+        import app.services.fundamentals.fundamentals_service as fs
         monkeypatch.setattr(fs, "_db_get", 가짜_db_get)
 
         def 야후는_부르면_안된다(*a, **k):
@@ -96,7 +96,7 @@ class TestDB캐시:
         cache.clear()
         cache.set("metrics_hist5:005930", {"annual": [{"period": "메모리"}]}, 60)
 
-        import app.services.fundamentals_service as fs
+        import app.services.fundamentals.fundamentals_service as fs
         monkeypatch.setattr(fs, "_db_get",
                             lambda *a, **k: pytest.fail("메모리에 있는데 DB 를 봤다"))
 

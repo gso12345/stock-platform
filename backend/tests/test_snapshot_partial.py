@@ -35,7 +35,7 @@
 """
 import pytest
 
-from app.services import portfolio_snapshot as PS
+from app.services.portfolio import portfolio_snapshot as PS
 
 
 class _항목:

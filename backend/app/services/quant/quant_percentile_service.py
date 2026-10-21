@@ -16,7 +16,7 @@ import logging
 from app.db.database import SessionLocal
 from app.models.stock import QuantPercentileCache
 from app.core.cache import cache as mem_cache
-from app.services.quant_score import METRIC_DEFS, collect_quant_metrics, SECTOR_RELATIVE_METRICS, MIN_SECTOR_SAMPLES
+from app.services.quant.quant_score import METRIC_DEFS, collect_quant_metrics, SECTOR_RELATIVE_METRICS, MIN_SECTOR_SAMPLES
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ async def rebuild_market_distribution(market: str, symbols: list[str]) -> dict:
 
 async def rebuild_all_distributions():
     """KR/US/ETF — DB에 이미 캐시된(=한 번이라도 조회된) 종목들로 분포 재계산"""
-    from app.services.fundamentals_service import get_all_fund_symbols
+    from app.services.fundamentals.fundamentals_service import get_all_fund_symbols
 
     by_market: dict[str, list[str]] = {"KR": [], "US": [], "ETF": []}
     for sym, mkt in get_all_fund_symbols():

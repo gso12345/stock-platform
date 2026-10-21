@@ -29,7 +29,7 @@ import json
 
 import pytest
 
-from app.services.price_fetcher import _fetch_naver_one
+from app.services.market.price_fetcher import _fetch_naver_one
 
 
 class _응답:

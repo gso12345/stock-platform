@@ -120,7 +120,6 @@ def record_sample():
 
 def trend() -> dict:
     """RSS 추이 요약 — 늘고 있나, 멈췄나."""
-    import time as _t
     if len(_samples) < 2:
         return {"samples": len(_samples), "points": [], "per_hour_mb": None, "span_min": 0}
     t0, m0 = _samples[0]
@@ -423,7 +422,7 @@ def data_stores() -> list[dict]:
         })
 
     try:
-        from app.services import ticker_service as ts
+        from app.services.listings import ticker_service as ts
         kr = ts.kr_status()
         add("국내 종목 DB", ts._kr_db, len(ts._kr_db),
             f"KRX 상장 종목 — 출처 {kr['source']}"

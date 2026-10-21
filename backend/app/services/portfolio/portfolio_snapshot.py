@@ -455,7 +455,7 @@ def _봉표(symbol: str, market: str) -> "tuple[list, list] | None":
     yf_service.get_ohlcv 가 캐시를 먼저 본다. 같은 종목을 여러 사람이
     갖고 있어도 조회는 한 번이다."""
     try:
-        from app.services.yf_service import yf_service
+        from app.services.market.yf_service import yf_service
         봉들 = yf_service.get_ohlcv(symbol, "1y", "1d", market or "US")
     except Exception as e:
         log.debug("일봉 조회 실패 %s: %s", symbol, type(e).__name__)

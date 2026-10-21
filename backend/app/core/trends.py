@@ -256,7 +256,7 @@ def 종목명_찾기(symbol: str, market: str) -> str:
     관리자 화면에 '005930' 같은 숫자만 남아 무슨 종목인지 알 수 없다.
     서버는 상장 종목 목록을 이미 들고 있으므로 여기서 채워 준다."""
     try:
-        from app.services.ticker_service import get_kr_db, get_us_db
+        from app.services.listings.ticker_service import get_kr_db, get_us_db
         sym = (symbol or "").strip().upper()
         if not sym:
             return ""

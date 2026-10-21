@@ -12,8 +12,8 @@ from app.db.database import get_db
 from app.models.stock import Portfolio, PortfolioItem
 from app.models.user import User
 from app.core.deps import require_user
-from app.services.ticker_service import get_display_name
-from app.services.cached_prices import 받아둔시세 as _받아둔시세  # noqa: F401 — 예전 이름
+from app.services.listings.ticker_service import get_display_name
+from app.services.market.cached_prices import 받아둔시세 as _받아둔시세  # noqa: F401 — 예전 이름
 
 log = logging.getLogger(__name__)
 
@@ -238,7 +238,7 @@ def 자산흐름(
     """
     from datetime import timedelta as _td
     from app.models.stock import PortfolioSnapshot
-    from app.services import portfolio_snapshot as PS
+    from app.services.portfolio import portfolio_snapshot as PS
 
     if portfolio_id is not None and not _valid_portfolio_id(db, portfolio_id, current_user.id):
         raise HTTPException(status_code=404, detail="포트폴리오를 찾을 수 없습니다")
@@ -309,7 +309,7 @@ def 배당달력(
     처음 몇 번은 목록이 조금씩 길어지는 대신, 화면이 30초를 기다리는
     일이 없다. 아직 못 받은 수는 pending 으로 같이 내보낸다.
     """
-    from app.services import dividend_service as DV
+    from app.services.portfolio import dividend_service as DV
 
     질의 = db.query(PortfolioItem).filter(PortfolioItem.user_id == current_user.id)
     if portfolio_id is not None:
@@ -350,9 +350,9 @@ def 보유뉴스(
     캐시와, 누가 종목 상세를 열어 남긴 종목 뉴스 캐시.
 
     그래서 쓸수록 좋아지고, 아직 기사를 못 찾은 종목은 missing 으로
-    그대로 알려 준다(자세한 것은 services/portfolio_news.py).
+    그대로 알려 준다(자세한 것은 services/portfolio/portfolio_news.py).
     """
-    from app.services import portfolio_news as PN
+    from app.services.portfolio import portfolio_news as PN
 
     질의 = db.query(PortfolioItem).filter(PortfolioItem.user_id == current_user.id)
     if portfolio_id is not None:

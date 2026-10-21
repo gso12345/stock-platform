@@ -12,7 +12,7 @@
 import httpx
 import pytest
 
-from app.services import us_listing as ul
+from app.services.listings import us_listing as ul
 
 
 # ── 실제 파일 모양 ────────────────────────────────────────────

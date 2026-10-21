@@ -22,7 +22,7 @@ import json
 import httpx
 import pytest
 
-from app.services import krx_listing as kl
+from app.services.listings import krx_listing as kl
 
 
 # ── 실제 KRX 응답 모양 (FDR 소스의 필드 이름을 그대로 사용) ──

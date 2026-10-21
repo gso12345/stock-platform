@@ -19,8 +19,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services import market_hours as mh
-from app.services import watched
+from app.services.market import market_hours as mh
+from app.services.market import watched
 from app.services import scheduler
 from app.api.websocket import price_stream
 from app.core.cache import TTLCache
@@ -330,14 +330,14 @@ class Test야후_배치_인증:
         # run_in_executor 에 넘기므로 '호출'이 아니라 '이름'으로 등장한다
         import ast
         import inspect as _i
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
         tree = ast.parse(_i.getsource(pf.fetch_yf_quotes))
         이름들 = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         assert "_fetch_yf_quotes_authed_sync" in 이름들, \
             "인증 세션 경로를 안 쓰면 배치는 계속 빈 응답이다"
 
     def test_인증_배치가_되면_맨몸_호출은_안_한다(self, monkeypatch):
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
         불린것 = []
         monkeypatch.setattr(pf, "_fetch_yf_quotes_authed_sync",
                             lambda syms: (불린것.append("authed"),
@@ -353,7 +353,7 @@ class Test야후_배치_인증:
 
     def test_인증이_안_되면_맨몸으로_넘어간다(self, monkeypatch):
         # yfinance 내부 API에 기대는 코드라 버전이 바뀌면 못 쓸 수 있다
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
         monkeypatch.setattr(pf, "_fetch_yf_quotes_authed_sync", lambda syms: None)
 
         async def 맨몸(syms):
@@ -363,7 +363,7 @@ class Test야후_배치_인증:
         assert out["AAPL"]["price"] == 100.0
 
     def test_다_안_되면_빈_결과를_돌려준다(self, monkeypatch):
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
         monkeypatch.setattr(pf, "_fetch_yf_quotes_authed_sync",
                             lambda syms: (_ for _ in ()).throw(RuntimeError("x")))
 
@@ -376,7 +376,7 @@ class Test야후_배치_인증:
 
     def test_인증_경로가_예외를_밖으로_던지지_않는다(self, monkeypatch):
         """yfinance 내부 구조가 바뀌어도 시세 조회가 통째로 죽으면 안 된다."""
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
         import yfinance.data as ydata
         monkeypatch.setattr(ydata, "YfData",
                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("구조 변경")))
@@ -385,7 +385,7 @@ class Test야후_배치_인증:
     def test_파싱은_한_곳뿐이다(self):
         # 경로가 둘인데 파싱이 둘이면 한쪽만 고치는 실수가 난다
         import inspect as _i
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
         for fn in (pf._fetch_yf_quotes_authed_sync, pf._fetch_yf_quotes_raw):
             assert "regularMarketPrice" not in _i.getsource(fn).replace("_YF_QUOTE_FIELDS", ""), \
                 f"{fn.__name__} 이 응답을 직접 파싱하고 있다"
@@ -394,7 +394,7 @@ class Test야후_배치_인증:
 class Test폴백_비용과_계측:
     def test_단건_폴백_개수를_함께_돌려준다(self, monkeypatch):
         # 배치가 죽었는데 폴백이 받쳐주는 상태를 '정상'과 구분하기 위한 값
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
 
         async def 배치없음(syms):
             return {}
@@ -405,7 +405,7 @@ class Test폴백_비용과_계측:
         assert len(data) == 2 and filled == 2
 
     def test_배치가_되면_폴백은_0이다(self, monkeypatch):
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
 
         async def 배치(syms):
             return {s: {"symbol": s, "price": 1.0} for s in syms}
@@ -416,7 +416,7 @@ class Test폴백_비용과_계측:
     def test_단건_폴백_개수에_상한이_있다(self, monkeypatch):
         """단건은 종목당 요청 하나다. 0.15 CPU 에서 수십 개를 매 주기마다
         돌리면 그것만으로 CPU 를 다 쓴다."""
-        from app.services import price_fetcher as pf
+        from app.services.market import price_fetcher as pf
         부른횟수 = []
 
         async def 배치없음(syms):

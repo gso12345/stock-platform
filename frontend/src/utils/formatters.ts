@@ -91,14 +91,6 @@ export function parseNewsKstDate(published: string): Date | null {
   return null;
 }
 
-/** 뉴스 발행시각(문자열 또는 unix seconds) → 정렬용 ms 타임스탬프. 파싱 불가 시 0(최하위로 정렬) */
-export function newsTimestampMs(published: string | number | null | undefined): number {
-  if (published == null) return 0;
-  if (typeof published === "number") return published * 1000;
-  const date = parseNewsKstDate(published);
-  return date ? date.getTime() : 0;
-}
-
 /** 뉴스 발행시각 → "N분 전"/"N시간 전"/"N일 전" + "YYYY/MM/DD" 결합 표시 */
 export function fmtNewsDateTime(published: string | null | undefined): string {
   if (!published) return "";

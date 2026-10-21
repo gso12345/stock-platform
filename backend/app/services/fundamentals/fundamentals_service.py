@@ -94,11 +94,11 @@ def get_all_fund_symbols() -> list[tuple[str, str]]:
 # ── 외부 API Fetch 로직 ───────────────────────────────────────
 
 async def _fetch_fund(symbol: str, market: str) -> dict:
-    from app.services.yf_service import yf_service
+    from app.services.market.yf_service import yf_service
     loop = asyncio.get_running_loop()
 
     if market == "KR":
-        from app.services.price_fetcher import fetch_naver_stock
+        from app.services.market.price_fetcher import fetch_naver_stock
         code6 = symbol.replace(".KS", "").replace(".KQ", "")
         naver_fund: dict = {}
         try:
@@ -114,7 +114,7 @@ async def _fetch_fund(symbol: str, market: str) -> dict:
             pass
         try:
             # 꼬리가 없으면 종목 목록에서 코스피·코스닥을 찾는다 — 늘 .KS 를 붙이면 코스닥은 야후가 빈손이다
-            from app.services.yf_service import _resolve_kr_symbol
+            from app.services.market.yf_service import _resolve_kr_symbol
             yf_sym = symbol if symbol.endswith((".KS", ".KQ")) else _resolve_kr_symbol(code6, "KS")
             yf_fund = await asyncio.wait_for(
                 loop.run_in_executor(None, yf_service.get_fundamentals, yf_sym, "KR"),
@@ -139,7 +139,7 @@ async def _fetch_fin(symbol: str, market: str) -> dict:
 
     if market == "KR":
         if settings.DART_API_KEY:
-            from app.services.dart_service import dart_service
+            from app.services.fundamentals.dart_service import dart_service
             try:
                 r = await asyncio.wait_for(
                     loop.run_in_executor(None, dart_service.get_financials, symbol), timeout=15
@@ -150,7 +150,7 @@ async def _fetch_fin(symbol: str, market: str) -> dict:
                 pass
     else:
         if settings.FMP_API_KEY:
-            from app.services.fmp_service import fmp_service
+            from app.services.fundamentals.fmp_service import fmp_service
             try:
                 r = await asyncio.wait_for(
                     loop.run_in_executor(None, fmp_service.get_financials, symbol), timeout=15
@@ -165,7 +165,7 @@ async def _fetch_fin(symbol: str, market: str) -> dict:
 
 async def _yf_financials(symbol: str, market: str) -> dict:
     import yfinance as yf
-    from app.services.yf_service import _resolve_kr_symbol
+    from app.services.market.yf_service import _resolve_kr_symbol
     yf_sym = _resolve_kr_symbol(symbol, "KS") if market == "KR" else symbol
 
     def _fetch():

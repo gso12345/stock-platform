@@ -23,7 +23,11 @@ const 코드만 = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 const 타입 = 소스("types/index.ts");
-const api = 소스("api/stocks.ts");
+/* api/stocks.ts 를 분야별 파일로 나눴다(관심종목은 api/watchlist.ts …) — 서버 부르는 쪽 전체를 본다 */
+const api = fs.readdirSync(path.join(뿌리, "api"))
+  .filter((f) => f.endsWith(".ts"))
+  .map((f) => 소스(`api/${f}`))
+  .join("\n");
 
 describe("컨센서스 응답", () => {
   it("배열이 아니라 연간·분기 묶음이다", () => {

@@ -13,7 +13,7 @@
 import pytest
 
 from app.core.cache import cache
-from app.services import market_extras as M
+from app.services.market import market_extras as M
 
 
 class _R:
