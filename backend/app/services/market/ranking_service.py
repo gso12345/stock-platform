@@ -613,13 +613,35 @@ def 나스닥_분류_읽기(j) -> dict:
     return out
 
 
+def 나스닥_상장해_읽기(j) -> dict:
+    """나스닥 종목 목록 응답 → {심볼: 상장한 해}. 스크리닝이 새로 상장한 종목(첫 연간 공시 전이라 재무 칸이 빈다 —
+    스페이스X·SK하이닉스 ADR)을 알린다"""
+    if not isinstance(j, dict):
+        return {}
+    data = j.get("data") or {}
+    줄들 = data.get("rows") or (data.get("table") or {}).get("rows") or []
+    out = {}
+    for z in 줄들:
+        if not isinstance(z, dict):
+            continue
+        sym = str(z.get("symbol") or "").strip().upper().replace("/", "-").replace("^", "-")
+        해 = str(z.get("ipoyear") or "").strip()
+        if sym and len(해) == 4 and 해.isdigit():
+            out[sym] = int(해)
+    return out
+
+
 #: {심볼: (업종, 산업, 국가)} — 나스닥 전종목을 받을 때 채운다. 비었으면 DB 에서 한 번 읽는다
 _나스닥_분류: dict = {}
 _나스닥_분류_읽음 = False
+#: {심볼: 상장한 해} — 분류와 같이 받고 같은 줄에 남긴다
+_나스닥_상장해: dict = {}
+_나스닥_상장해_읽음 = False
 
 
-def _분류_db(쓰기: "dict | None" = None) -> dict:
-    """DB(ranking_snapshots 의 'US_CLS' 줄)에서 읽거나 쓴다. 실패하면 빈 것."""
+def _분류_db(쓰기: "dict | None" = None, 상장해: "dict | None" = None, 칸: str = "classes") -> dict:
+    """DB(ranking_snapshots 의 'US_CLS' 줄)에서 읽거나(칸 — 'classes' 분류, 'ipo_years' 상장한 해) 쓴다.
+    실패하면 빈 것."""
     from datetime import datetime
     from app.db.database import SessionLocal
     from app.models.stock import RankingSnapshot
@@ -627,10 +649,12 @@ def _분류_db(쓰기: "dict | None" = None) -> dict:
     try:
         줄 = db.get(RankingSnapshot, "US_CLS")
         if 쓰기 is None:
-            if 줄 and isinstance(줄.data, dict) and isinstance(줄.data.get("classes"), dict):
-                return {k: tuple(v) for k, v in 줄.data["classes"].items() if isinstance(v, list)}
+            if 줄 and isinstance(줄.data, dict) and isinstance(줄.data.get(칸), dict):
+                if 칸 == "ipo_years":
+                    return {k: int(v) for k, v in 줄.data[칸].items() if isinstance(v, int)}
+                return {k: tuple(v) for k, v in 줄.data[칸].items() if isinstance(v, list)}
             return {}
-        값 = {"classes": {k: list(v) for k, v in 쓰기.items()}, "source": "nasdaq"}
+        값 = {"classes": {k: list(v) for k, v in 쓰기.items()}, "ipo_years": dict(상장해 or {}), "source": "nasdaq"}
         if 줄:
             줄.data, 줄.fetched_at = 값, datetime.utcnow()
         else:
@@ -652,6 +676,15 @@ def 나스닥_분류() -> dict:
         _나스닥_분류_읽음 = True
         _나스닥_분류 = _분류_db()
     return _나스닥_분류
+
+
+def 나스닥_상장해() -> dict:
+    """{심볼: 상장한 해}. 이 프로세스에서 아직 안 받았으면 DB 에 남긴 것을 쓴다."""
+    global _나스닥_상장해, _나스닥_상장해_읽음
+    if not _나스닥_상장해 and not _나스닥_상장해_읽음:
+        _나스닥_상장해_읽음 = True
+        _나스닥_상장해 = _분류_db(칸="ipo_years")
+    return _나스닥_상장해
 
 
 def 마친장(now_utc=None) -> "tuple":
@@ -722,7 +755,7 @@ def 나스닥_챙기기() -> int:
     · 이 프로세스에서 아직 안 받았거나 장이 하나 더 끝났으면 받는다. 못 받으면
       나스닥_실패쉼 동안 다시 묻지 않는다
     순위표를 쌓기 전에 부른다(뒤에서 도는 일이라 받는 동안 기다려도 된다)."""
-    global _주식수, _나스닥_장, _나스닥_줄수, _나스닥_시도때, _주식수_불러옴, _나스닥_분류
+    global _주식수, _나스닥_장, _나스닥_줄수, _나스닥_시도때, _주식수_불러옴, _나스닥_분류, _나스닥_상장해
     from app.core import health
     if not _나스닥_자물쇠.acquire(blocking=False):
         return 0                       # 다른 쪽이 받는 중
@@ -754,12 +787,13 @@ def 나스닥_챙기기() -> int:
             j = r.json()
             줄들 = 나스닥_목록_읽기(j)
             분류 = 나스닥_분류_읽기(j)
+            상장해 = 나스닥_상장해_읽기(j)
         except Exception:
-            줄들, 분류 = [], {}
+            줄들, 분류, 상장해 = [], {}, {}
         r = j = None
         if len(분류) >= 500:
-            _나스닥_분류 = 분류
-            _분류_db(분류)
+            _나스닥_분류, _나스닥_상장해 = 분류, 상장해
+            _분류_db(분류, 상장해)
         if len(줄들) < 500:
             health.record_fail("해외 전종목(나스닥)", f"목록이 비었거나 모양이 바뀜({len(줄들)}종목)")
             return 0

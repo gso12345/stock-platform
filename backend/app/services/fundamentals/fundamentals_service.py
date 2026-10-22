@@ -247,9 +247,140 @@ async def _yf_financials(symbol: str, market: str) -> dict:
         return {"annual": [], "quarterly": []}
 
 
+# ── 스크리닝과 같은 원천으로 빈 것 채우기 ──────────────────────
+# 종목 상세는 종목별 원천(야후·네이버·FMP·DART 단일)만 보고, 스크리닝은 전 종목 일괄 원천(SEC·DART 일괄·KRX·네이버)을
+# 본다. 운영에서는 야후 상세가 막혀, 스크리닝에는 매출·순이익·PER 이 있는 종목이 상세에서는 비었다(사용자: "스크리닝이랑
+# 재무제표가 같이 연동되야하는 거 아니야?"). 종목별 원천이 비운 것만 스크리닝의 것으로 채운다 — 있는 값은 그대로.
+# 캐시에는 넣지 않는다(읽을 때마다 지금의 스크리닝 표로) — 종목별 원천은 다음에 다시 받아 본다.
+
+#: 투자지표 칸 ← 스크리닝 표의 칸
+_표에서 = {
+    "per": "per", "forward_per": "forward_per", "pbr": "pbr", "peg": "peg_ratio", "psr": "ps_ratio",
+    "ev_ebitda": "ev_ebitda", "roe": "roe", "roa": "roa", "op_margin": "operating_margin",
+    "net_margin": "profit_margin", "eps": "eps", "forward_eps": "forward_eps", "dividend_yield": "dividend_yield",
+    "debt_ratio": "debt_ratio", "current_ratio": "current_ratio", "beta": "beta", "week52_high": "high_52w",
+    "week52_low": "low_52w", "market_cap": "market_cap", "sector": "sector", "industry": "industry",
+}
+
+
+def 표로_채운_지표(지표: dict, 줄: dict | None) -> dict:
+    """투자지표의 빈 칸만 스크리닝 표의 한 줄로 채운 새 dict"""
+    if not 줄:
+        return 지표
+    빈것 = {k: 줄[칸] for k, 칸 in _표에서.items() if 지표.get(k) is None and 줄.get(칸) is not None}
+    return {**지표, **빈것} if 빈것 else 지표
+
+
+def 일괄_재무(시장: str, 줄: dict | None) -> dict:
+    """스크리닝의 연간 재무 원천 한 줄(service.재무_원천줄) → 재무제표 탭의 연간 표. 원천에 있는 만큼만 —
+    매출·EPS 는 해마다(미국 네 해·국내 매출 세 해), 순이익·영업이익은 그해와 지난해, 현금흐름·재무상태는 그해만.
+    성장률은 metrics-history 의 _add_growth 와 같은 식"""
+    빈 = {"annual": [], "quarterly": []}
+    if not 줄:
+        return 빈
+    해들 = {int(k.split("@", 1)[1]) for k in 줄 if "@" in k and k.split("@", 1)[1].isdigit()}
+    끝 = int(줄["_끝해"]) if 줄.get("_끝해") else max(해들, default=0)
+    if not 끝:
+        return 빈
+    해들 = sorted(해들 | {끝})
+    순이익칸 = "earnings" if 시장 == "US" else "net_income"
+    rows: list[dict] = []
+    for 해 in 해들:
+        r: dict = {"period": str(해), "revenue": 줄.get(f"rev@{해}"), "eps": 줄.get(f"eps@{해}")}
+        if 해 == 끝:
+            if r["revenue"] is None:
+                r["revenue"] = 줄.get("revenue")
+            r.update(net_income=줄.get(순이익칸), op_income=줄.get("op_income"), total_assets=줄.get("assets"),
+                     total_equity=줄.get("equity"), total_liabilities=줄.get("liabilities"),
+                     operating_cf=줄.get("ocf"))
+            if 줄.get("capex") is not None:
+                r["capex"] = -abs(줄["capex"])                  # 야후·FMP 처럼 나간 돈은 음수
+                if r["operating_cf"] is not None:
+                    r["free_cf"] = r["operating_cf"] - abs(줄["capex"])
+        elif 해 == 끝 - 1:
+            r.update(net_income=줄.get(f"{순이익칸}_prev"), op_income=줄.get("op_income_prev"))
+        매출, 영업, 순, 자본 = r.get("revenue"), r.get("op_income"), r.get("net_income"), r.get("total_equity")
+        if 매출:
+            if 영업 is not None:
+                r["op_margin"] = round(영업 / 매출 * 100, 2)
+            if 순 is not None:
+                r["net_margin"] = round(순 / 매출 * 100, 2)
+        if 자본:
+            if r.get("total_liabilities") is not None:
+                r["debt_ratio"] = round(r["total_liabilities"] / 자본 * 100, 2)
+            if 순 is not None:
+                r["roe"] = round(순 / 자본 * 100, 2)
+        if r.get("total_assets") and 순 is not None:
+            r["roa"] = round(순 / r["total_assets"] * 100, 2)
+        rows.append({k: v for k, v in r.items() if v is not None})
+    for 앞, 뒤 in zip(rows, rows[1:]):
+        if int(뒤["period"]) - int(앞["period"]) != 1:
+            continue                                            # 가운데 해가 비면 두 해 성장이 '전년 대비' 가 된다
+        for 칸, 성장칸 in (("revenue", "revenue_growth"), ("op_income", "op_income_growth"),
+                         ("net_income", "net_income_growth"), ("eps", "eps_growth")):
+            cv, pv = 뒤.get(칸), 앞.get(칸)
+            if cv and pv:
+                뒤[성장칸] = round((cv - pv) / abs(pv) * 100, 2)
+    rows = [r for r in rows if len(r) > 1]
+    출처 = 줄.get("_출처") or ("SEC" if 시장 == "US" else "DART")
+    return {"annual": rows, "quarterly": [], "source": 출처} if rows else 빈
+
+
+async def _스크리닝(fn, *args):
+    """스크리닝 쪽 읽기 — 실패하면 None(상세 화면을 그 때문에 깨지 않는다)"""
+    try:
+        return await _run(fn, *args)
+    except Exception as e:
+        log.debug("스크리닝 원천 읽기 실패: %s", type(e).__name__)
+        return None
+
+
 # ── 공개 API: 캐시 계층 통합 ──────────────────────────────────
 
 async def get_fundamentals(symbol: str, market: str, 기다림: "float | None" = None) -> dict:
+    """투자지표 — 종목별 원천(_투자지표)이 비운 칸은 스크리닝 표의 같은 종목 값으로(표로_채운_지표)"""
+    from app.services.screening import service as 스크리닝
+    지표 = await _투자지표(symbol, market, 기다림)
+    return 표로_채운_지표(지표, await _스크리닝(스크리닝.한종목, market, symbol))
+
+
+async def get_financials(symbol: str, market: str, 기다림: "float | None" = None) -> dict:
+    """재무제표 — 종목별 원천(_재무제표)이 비면 스크리닝과 같은 연간 재무 원천(미국 SEC · 국내 DART → 네이버)으로"""
+    r = await _재무제표(symbol, market, 기다림)
+    if r and (r.get("annual") or r.get("quarterly")):
+        return r
+    from app.services.screening import service as 스크리닝
+    줄 = await _스크리닝(스크리닝.재무_원천줄, market, symbol)
+    일괄 = 일괄_재무(market, 줄)
+    if 일괄["annual"] and market == "US":
+        # 스크리닝처럼 해마다 EPS 도 시세 1주(ADR·B 주)로 — 안 맞추면 TSMC 의 EPS 가 스크리닝(ADR)과 다섯 배 다르다
+        배율 = 시세주_배율(줄, await _스크리닝(스크리닝.한종목, market, symbol))
+        if 배율:
+            for 해 in 일괄["annual"]:
+                if 해.get("eps") is not None:
+                    해["eps"] = round(해["eps"] * 배율, 2)
+    return 일괄 if 일괄["annual"] else r
+
+
+def 시세주_배율(줄: dict | None, 표줄: dict | None) -> float | None:
+    """SEC 의 장부 EPS 를 시세 1주로 맞출 배율 — 스크리닝 표(table._시세주_EPS)와 같은 기준. 해외 상장사(원주 EPS)이거나
+    시세 ÷ EPS 가 시가총액 ÷ 순이익과 EPS_어긋남 배 넘게 다르면(다른 종류 주식) 순이익 × 시세 ÷ 시가총액 ÷ 장부 EPS.
+    맞출 필요가 없거나 알 수 없으면 None"""
+    from app.services.screening.table import EPS_어긋남
+    eps, 순이익 = (줄 or {}).get("eps"), (줄 or {}).get("earnings")
+    가격, 시총 = (표줄 or {}).get("price"), (표줄 or {}).get("market_cap")
+    if not eps or 순이익 is None or not 가격 or not 시총 or 시총 <= 0:
+        return None
+    몫 = 가격 * 순이익 / 시총
+    if not 몫 or (몫 > 0) != (eps > 0):
+        return None
+    견줌 = eps / 몫
+    if not (줄 or {}).get("foreign") and 1 / EPS_어긋남 <= 견줌 <= EPS_어긋남:
+        return None
+    return 몫 / eps
+
+
+async def _투자지표(symbol: str, market: str, 기다림: "float | None" = None) -> dict:
     """in-memory → DB fresh → DB stale(+bg갱신) → 외부 API fetch
 
     `기다림` — 아무 데도 없을 때 받아 오기를(남이 받는 중이면 그것을) 기다려 주는 상한(초).
@@ -288,8 +419,8 @@ async def get_fundamentals(symbol: str, market: str, 기다림: "float | None" =
         지난값=cache.get_stale(ck), 담기=_담기, 대기=기다림, 겹치면_기다림=기다림 or 0)
 
 
-async def get_financials(symbol: str, market: str, 기다림: "float | None" = None) -> dict:
-    """in-memory → DB fresh → DB stale(+bg갱신) → 외부 API fetch — `기다림` 은 get_fundamentals 와 같다"""
+async def _재무제표(symbol: str, market: str, 기다림: "float | None" = None) -> dict:
+    """in-memory → DB fresh → DB stale(+bg갱신) → 외부 API fetch — `기다림` 은 _투자지표 와 같다"""
     ck = f"financials:{symbol}"
 
     if fresh := cache.get(ck):

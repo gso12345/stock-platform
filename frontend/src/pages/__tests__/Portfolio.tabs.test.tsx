@@ -340,8 +340,9 @@ describe("안 연 탭은 서버에 안 물어본다", () => {
     expect(screen.queryByText("종목별")).toBeNull();
 
     await userEvent.click(탭("비중"));
-    expect(await screen.findByText("종목별", {}, { timeout: 8000 })).toBeInTheDocument();
-    expect(screen.getByText("자산유형별")).toBeInTheDocument();
+    /* 기준 칩 — 아주 넓은 화면의 '다른 기준' 칸에도 같은 이름이 있어 단추로 찾는다 */
+    expect(await screen.findByRole("button", { name: "종목별" }, { timeout: 8000 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "자산유형별" })).toBeInTheDocument();
   });
 });
 

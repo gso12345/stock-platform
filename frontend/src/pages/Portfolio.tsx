@@ -30,6 +30,7 @@ import AssetHistory, { 흐름미리받기 } from "@/components/portfolio/AssetHi
 import DividendCalendar, { type 보유몫 } from "@/components/portfolio/DividendCalendar";
 import 자산지도, { type 지도칸 } from "@/components/portfolio/AssetTreemap";
 import 수익기여 from "@/components/portfolio/ProfitContribution";
+import 다른기준비중 from "@/components/portfolio/OtherWeights";
 import 보유뉴스, { 뉴스미리받기 } from "@/components/portfolio/HoldingNews";
 import { use미리보기흐름, use미리보기배당, use미리보기뉴스 } from "@/hooks/usePortfolioPreview";
 import {
@@ -793,6 +794,17 @@ export default function Portfolio() {
     [isLoggedIn, chartMode, portfolioPieData, stockPieData, marketPieData, previewStockPie, previewMarketPie],
   );
 
+  /* 비중 탭의 다른 기준(아주 넓은 화면) — 고른 기준을 뺀 나머지. 포트폴리오별은 전체 보기에서 둘 이상일 때만
+     (위 칩과 같은 조건, 로그인 전 예시에는 포트폴리오가 없다) */
+  const 다른기준들 = useMemo(() => ([
+    { id: "stock" as ChartMode, 제목: "종목별", 덩이들: isLoggedIn ? stockPieData : previewStockPie },
+    { id: "market" as ChartMode, 제목: "자산유형별", 덩이들: isLoggedIn ? marketPieData : previewMarketPie },
+    ...(isLoggedIn && isAllView && portfolios.length > 1
+      ? [{ id: "portfolio" as ChartMode, 제목: "포트폴리오별", 덩이들: portfolioPieData }] : []),
+  ]).filter((g) => g.id !== chartMode),
+  [isLoggedIn, stockPieData, previewStockPie, marketPieData, previewMarketPie, isAllView, portfolios.length,
+   portfolioPieData, chartMode]);
+
   /* 범례용 합계·비율 — 매 렌더마다 reduce를 다시 돌리지 않도록 미리 계산 */
   const pieLegend = useMemo(() => {
     const total = activePieData.reduce((s, e) => s + e.value, 0);
@@ -1395,7 +1407,9 @@ export default function Portfolio() {
           로그인 안 한 미리보기에서는 탭 자체가 없다 — 남의 기록이 아니라
           아무 기록도 없어서, 늘 "아직 없어요" 만 보이게 된다. */}
       {속탭 === "추이" && (isLoggedIn ? items.length > 0 : previewLoaded) && (
-        <>
+        /* 아주 넓은 화면(xl)에서는 그래프 | 수익 기여 두 칸. 한 줄로 쌓으면 PC 에서 수익 기여의 종목 이름과
+           금액이 1,000px 떨어져 놓이고 아래가 통째로 빈다(사용자: "내자산 … PC버전에서도 최적화된 화면") */
+        <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)] xl:items-start">
           {/* 위쪽 포트폴리오 칩을 그래프도 따라간다. 예전에는 보유 목록만
               갈리고 그래프는 늘 전체여서, 포트폴리오를 바꿔도 선이 그대로라
               칩이 안 눌린 것처럼 보였다 */}
@@ -1429,7 +1443,7 @@ export default function Portfolio() {
             <수익기여 항목={allDisplayEnriched} onSelect={(r) =>
               navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`)} />
           </Card>
-        </>
+        </div>
       )}
 
       {/* ── 배당 ── */}
@@ -1493,6 +1507,9 @@ export default function Portfolio() {
               ))}
             </div>
           </div>
+          {/* 아주 넓은 화면(xl)에서는 고른 기준 옆에 다른 기준(다른기준비중) — 칩을 갈아 끼우지 않고 한눈에 */}
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-6">
+          <div className="flex-1 min-w-0">
           {구성모양 === "지도" ? (
             <자산지도
               칸들={지도칸들}
@@ -1567,6 +1584,16 @@ export default function Portfolio() {
           ) : (
             <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">데이터 없음</div>
           )}
+          </div>
+          {다른기준들.length > 0 && (
+            <aside className="hidden xl:flex flex-col gap-3 w-64 shrink-0" aria-label="다른 기준으로 본 비중">
+              {다른기준들.map((g) => (
+                <다른기준비중 key={g.id} 제목={g.제목} 덩이들={g.덩이들} 색들={PIE_COLORS}
+                  onSelect={() => setChartMode(g.id)} />
+              ))}
+            </aside>
+          )}
+          </div>
         </Card>
       )}
 

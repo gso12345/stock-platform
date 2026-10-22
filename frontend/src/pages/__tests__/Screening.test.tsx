@@ -392,10 +392,62 @@ describe("표의 칸", () => {
     expect(막대.getAttribute("aria-label")).toContain("2023 —");
   });
 
-  it("해외 회사의 흐름은 그 회사 장부의 돈으로 적는다", async () => {
+  it("서버가 환율을 몰라 장부 돈 그대로 보낸 흐름은 그 돈으로 적는다", async () => {
     그리기();
     const 막대 = await screen.findByRole("img", { name: /Taiwan Semiconductor 매출 흐름/ });
     expect(막대.getAttribute("aria-label")).toContain("2025 TWD 3.63T");
+    expect(막대.getAttribute("aria-label")).not.toContain("→달러");
+  });
+
+  it("서버가 달러로 바꾼 흐름은 달러로 적고 바꿨다고 적는다 — 사용자: \"스크리닝 TSMC가 대만달러로 나와\"", async () => {
+    run.mockResolvedValue(응답([
+      줄({ symbol: "TSM", name: "Taiwan Semiconductor", fin_currency: "USD", fin_fx: "TWD", eps_basis: "ordinary",
+           fin_years: [2024, 2025], rev_hist: [86.82e9, 108.93e9], eps_hist: [1.36, 1.83] }),
+      /* SEC 가 낸 흐름 — 달러로 바꾸고 ADR 1주로 맞췄다 */
+      줄({ symbol: "ASML", name: "ASML Holding", fin_currency: "USD", fin_fx: "EUR",
+           fin_years: [2025], rev_hist: [35e9], eps_hist: [25.5] }),
+    ]));
+    그리기();
+    const 매출 = await screen.findByRole("img", { name: /Taiwan Semiconductor 매출 흐름/ });
+    expect(매출.getAttribute("aria-label")).toBe(
+      "Taiwan Semiconductor 매출 흐름: 2024 $86.82B · 2025 $108.93B (TWD→달러, 지금 환율)");
+    const eps = screen.getByRole("img", { name: /Taiwan Semiconductor EPS 흐름/ });
+    expect(eps.getAttribute("aria-label")).toBe(
+      "Taiwan Semiconductor EPS 흐름: 2024 1.36 · 2025 1.83 (TWD→달러, 지금 환율 · 원주 1주 기준)");
+    expect(screen.getByRole("img", { name: /ASML Holding EPS 흐름/ }).getAttribute("aria-label")).toBe(
+      "ASML Holding EPS 흐름: 2025 25.50 (EUR→달러, 지금 환율)");
+    expect(screen.getByText(/지금 환율로 달러로 바꾼 값이에요. EPS 가 ADR 1주가 아닌 원주 1주 기준이면/)).toBeTruthy();
+  });
+
+  it("올해 상장한 종목에는 '올해 상장' — 첫 연간 공시 전이라 재무 칸이 비는 까닭(스페이스X)", async () => {
+    const 올해 = new Date().getFullYear();
+    run.mockResolvedValue(응답([
+      줄({ symbol: "SPCX", name: "SpaceX", ipo_year: 올해, market_cap: 2e12 }),
+      줄({ symbol: "OLDI", name: "Old Ipo", ipo_year: 올해 - 1 }),
+      줄({ symbol: "NOIP", name: "No Ipo Year" }),
+    ]));
+    그리기();
+    const 표시 = await screen.findByText("올해 상장");
+    expect(표시.getAttribute("title")).toBe(
+      `${올해}년 상장 — 첫 연간 공시(10-K·20-F) 전이라 매출·이익·PER 같은 재무 지표가 아직 비어 있을 수 있어요`);
+    expect(표시.closest("tr")?.textContent).toContain("SpaceX");
+    expect(screen.getAllByText("올해 상장")).toHaveLength(1);
+  });
+
+  it("달러로 적는 해외 회사도 EPS 가 원주 1주 기준이면 그렇다고만 적는다", async () => {
+    run.mockResolvedValue(응답([줄({ symbol: "SHEL", name: "Shell", eps_basis: "ordinary",
+      fin_years: [2025], rev_hist: [3e11], eps_hist: [2.5] })]));
+    그리기();
+    expect((await screen.findByRole("img", { name: /Shell EPS 흐름/ })).getAttribute("aria-label"))
+      .toBe("Shell EPS 흐름: 2025 2.50 (원주 1주 기준)");
+    expect(screen.getByRole("img", { name: /Shell 매출 흐름/ }).getAttribute("aria-label"))
+      .toBe("Shell 매출 흐름: 2025 $300.00B");
+  });
+
+  it("달러로 바꾼 흐름은 원화 보기에서 원화로 — 예전엔 대만 달러라 그대로 남았다", async () => {
+    const { 원화로 } = await import("@/components/screening/screeningDefs");
+    const 바뀐 = 원화로({ currency: "USD", price: 2, fin_currency: "USD", fin_fx: "TWD", rev_hist: [10, null] }, 1000);
+    expect(바뀐).toMatchObject({ currency: "KRW", fin_currency: "KRW", rev_hist: [10000, null] });
   });
 
   it("흐름을 아직 못 받은 종목은 막대 대신 —", async () => {

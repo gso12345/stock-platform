@@ -183,9 +183,11 @@ export default function 보유뉴스({ portfolioId, 미리보기 }: {
               : "내 종목 기사를 아직 못 찾았어요."}
         </p>
       ) : (
-        <ul>
+        /* 넓은 화면(lg)에서는 두 줄 — 한 줄로 늘이면 기사 제목 한 줄이 1,000px 를 가로질러 눈이 줄을 놓치고,
+           아래로만 길어진다 */
+        <ul className="lg:grid lg:grid-cols-2">
           {기사들.map((item) => (
-            <li key={item.link || item.title} className="border-t border-border/40">
+            <li key={item.link || item.title} className="border-t border-border/40 lg:odd:border-r">
               {/* 주소가 없는 줄(예시)은 링크로 안 만든다 — 눌러도 아무
                   데도 안 가는 링크는 고장으로 보인다 */}
               {(() => {

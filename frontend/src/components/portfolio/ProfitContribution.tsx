@@ -124,7 +124,9 @@ export default function 수익기여({
         </p>
       ) : (
         <>
-          <ul className="flex flex-col gap-2">
+          {/* 넓은 화면(lg)에서는 두 줄 — 한 줄로 늘이면 이름과 금액이 양 끝에 떨어진다. 아주 넓은 화면(xl)에서는
+              그래프 옆 좁은 칸에 앉으므로 다시 한 줄 */}
+          <ul className="flex flex-col gap-2 lg:grid lg:grid-cols-2 lg:gap-x-8 xl:flex">
             {보일줄.map((r) => {
               const 길이 = 기준 > 0 ? (Math.abs(r.기여액) / 기준) * 100 : 0;
               return (

@@ -641,6 +641,20 @@ class Test나스닥_챙기기:
         rs.나스닥_챙기기()
         assert len(rs.나스닥_분류()) == 600 and rs.나스닥_분류()["S1"][0] == "Technology"
 
+    def test_상장한_해도_받아_곧바로_쓴다(self, 나스닥새로, monkeypatch):
+        """서버가 뜨자마자 누가 물어 빈 것을 읽어 둔 뒤에 받아도, 받은 것을 곧바로 쓴다(다시 뜰 때까지 비지 않게)"""
+        j = _나스닥()
+        for z in j["data"]["rows"]:
+            z.update(sector="Technology", industry="Semiconductors", country="United States", ipoyear="2026")
+        monkeypatch.setattr(rs, "_나스닥_분류", {})
+        monkeypatch.setattr(rs, "_나스닥_상장해", {})
+        monkeypatch.setattr(rs, "_나스닥_상장해_읽음", False)
+        assert rs.나스닥_상장해() == {}
+        monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(200, j))
+        rs.나스닥_챙기기()
+        assert len(rs.나스닥_상장해()) == 600 and rs.나스닥_상장해()["S1"] == 2026
+        assert rs._분류_db(칸="ipo_years")["S1"] == 2026, "DB 에도 남긴다"
+
     def test_다시_뜨면_DB_의_주식수부터(self, 나스닥새로, monkeypatch):
         monkeypatch.setattr(rs.httpx, "get", lambda url, **k: _나스닥응답(200, _나스닥()))
         rs.나스닥_챙기기()

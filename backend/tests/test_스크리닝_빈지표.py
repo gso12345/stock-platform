@@ -585,7 +585,8 @@ def _미국표():
     sec = 원천표("us_sec", {"QZQ": {"revenue": 120.0, "earnings": 12.0, "earnings_prev": 10.0, "op_income": 18.0,
                                     "op_income_prev": 12.0, "equity": 60.0, "liabilities": 30.0, "eps": 2.0,
                                     "fin_years": [2024, 2025], "rev_hist": [96, 120], "eps_hist": [1.5, 2.0]}})
-    return 만들기("US", [{"symbol": "QZQ", "price": 40.0, "market_cap": 1200.0, "sector": "Technology"}], [],
+    # 시가총액 240 = 시세 40 × 6주, 순이익 12 ÷ 6주 = EPS 2 — 셋이 서로 맞아야 표가 장부 EPS 를 믿는다(_시세주_EPS)
+    return 만들기("US", [{"symbol": "QZQ", "price": 40.0, "market_cap": 240.0, "sector": "Technology"}], [],
                 {"us_sec": sec})
 
 
@@ -706,10 +707,53 @@ def test_관심종목_표는_스크리닝_표의_줄에서_몇_칸만_받는다(
         assert r.status_code == 200, r.text
         rows = r.json()["rows"]
         assert set(rows) == {"US:QZQ"}, "표에 없는 종목·아직 없는 시장의 표는 빠진다"
-        assert rows["US:QZQ"]["per"] == 20.0 and rows["US:QZQ"]["market_cap"] == 1200
+        assert rows["US:QZQ"]["per"] == 20.0 and rows["US:QZQ"]["market_cap"] == 240
         assert "revenue" not in rows["US:QZQ"] and "_rev_yoy" not in rows["US:QZQ"]
         assert c.post("/api/v1/screening/rows", json={"items": [{"symbol": "A;B", "market": "US"}]}).status_code == 422
         assert c.post("/api/v1/screening/rows", json={"items": [{"symbol": "BTC", "market": "CRYPTO"}]}).status_code == 422
         assert c.post("/api/v1/screening/rows", json={"items": [{"symbol": "A", "market": "US"}] * 201}).status_code == 422
+    finally:
+        S.비우기()
+
+
+def test_관심종목_표_아직_없는_시장이면_짓는중이라_알린다(monkeypatch):
+    """서버가 막 뜨면 표가 없어 줄이 빈다 — building 을 참으로 알려야 화면이 몇 초 뒤 다시 묻는다
+    (예전엔 그 빈 답을 5분 동안 써서 칸이 '—' 였다). 표가 있는 시장에 없는 종목은 짓는 중이 아니다(영영 없다)"""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    맡김: list = []
+    monkeypatch.setattr(S, "_뒤에서_새로", lambda 시장: 맡김.append(시장))
+    monkeypatch.setattr(S, "원천_받기", True)
+    S.비우기()
+    S._표["US"] = _미국표()
+    try:
+        c = TestClient(app)
+        r = c.post("/api/v1/screening/rows", json={"items": [{"symbol": "QZQ", "market": "US"},
+                                                             {"symbol": "NONE", "market": "US"}]}).json()
+        assert r["building"] is False and set(r["rows"]) == {"US:QZQ"}
+        r = c.post("/api/v1/screening/rows", json={"items": [{"symbol": "QZQ", "market": "US"},
+                                                             {"symbol": "005930", "market": "KR"}]}).json()
+        assert r["building"] is True and set(r["rows"]) == {"US:QZQ"}
+        assert 맡김 == ["KR"], "없는 시장의 표는 뒤에서 짓게 맡긴다"
+        assert c.post("/api/v1/screening/rows", json={"items": []}).json() == {"rows": {}, "building": False}
+    finally:
+        S.비우기()
+
+
+def test_관심종목_표_찾는_사이_표가_다_지어져도_짓는중이라_알린다(monkeypatch):
+    """찾기 전에 표가 없었으면 building — 찾은 뒤에 보면 그 사이 다 지어진 표를 보고 '없는 종목' 으로 끝낸다
+    (그 답은 5분 동안 쓰인다)"""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    S.비우기()
+
+    def 찾는사이_다지음(시장, 종목):
+        S._표[시장] = _미국표()
+        return None
+
+    monkeypatch.setattr(S, "한종목", 찾는사이_다지음)
+    try:
+        r = TestClient(app).post("/api/v1/screening/rows", json={"items": [{"symbol": "QZQ", "market": "US"}]}).json()
+        assert r == {"rows": {}, "building": True}
     finally:
         S.비우기()

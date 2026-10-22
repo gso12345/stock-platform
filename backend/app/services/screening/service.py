@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 import time
@@ -23,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from app.core.cache import cache
 from app.core.cpu import 낮은_우선순위
 from app.services.screening import sources, store
-from app.services.screening.table import 만들기, 스크리닝표, 원천표
+from app.services.screening.table import 국내_ADR, 만들기, 스크리닝표, 원천표
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ _남길수, _남길때 = 400, 3600
     "kr_dart": ("KR_DART", 7 * 86400, 6 * 3600, "KR"),
     "us_sec": ("US_SEC", 7 * 86400, 6 * 3600, "US"),
     "us_ko": ("US_KO", 7 * 86400, 12 * 3600, "US"),
+    "us_fx": ("US_FX", 12 * 3600, 3600, "US"),
     "us_px": ("US_PX", 0, 시세_간격, "US"),
 }
 #: 종목마다 조금씩 돌아가며 받는 원천 — 칸 → (시장, 한 번에 몇 곳, 받은 지 이만큼 지난 것부터 다시)
@@ -79,6 +81,7 @@ _시도때: dict[str, float] = {}
 _도는일: set[str] = set()
 _원천판 = [0]
 _원천_읽음 = [False]
+_불러오기잠금 = threading.Lock()
 #: 돌아가며 받는 원천마다 [남긴 뒤 새로 받은 수, 마지막으로 남긴 때]
 _쌓임: dict[str, list] = {}
 
@@ -125,10 +128,11 @@ def 한글이름(sym: str) -> str | None:
 
 def _미국기초() -> list[dict]:
     from app.services.listings.ticker_service import get_us_db
-    from app.services.market.ranking_service import US_ROWS_CK, 나스닥_분류
+    from app.services.market.ranking_service import US_ROWS_CK, 나스닥_분류, 나스닥_상장해
     표 = cache.get(US_ROWS_CK) or cache.get_stale(US_ROWS_CK) or []
     목록 = {t["s"]: t for t in get_us_db() if t.get("s")}
     분류 = 나스닥_분류()
+    상장해 = 나스닥_상장해()
     out = []
     for r in 표:
         sym = r.get("symbol")
@@ -145,7 +149,8 @@ def _미국기초() -> list[dict]:
                     "exchange": (t or {}).get("x"), "price": r.get("price"),
                     "change_rate": r.get("change_rate"), "volume": r.get("volume"),
                     "market_cap": r.get("market_cap") or None, "currency": "USD",
-                    "sector": 업종 or None, "industry": 산업 or None, "country": 나라 or None})
+                    "sector": 업종 or None, "industry": 산업 or None, "country": 나라 or None,
+                    "ipo_year": 상장해.get(sym)})
     return out
 
 
@@ -175,21 +180,25 @@ def _넣기(칸: str, 값: dict, 때: float) -> None:
 
 
 def _원천_불러오기() -> None:
-    """서버가 뜬 뒤 처음 한 번 — DB 에 남겨 둔 원천을 메모리로"""
+    """서버가 뜬 뒤 처음 한 번 — DB 에 남겨 둔 원천을 메모리로. 상태 잠금(_상태잠금)은 쥐지 않는다 — DB 를 읽는 동안
+    한종목(관심종목 표가 이벤트 루프에서 부른다)이 그 잠금을 기다리며 서버를 붙잡지 않게. 같이 부른 쪽은 다 읽을
+    때까지 기다린다(빈 원천으로 표를 짓지 않게)"""
     if _원천_읽음[0]:
         return
-    with _상태잠금:
+    with _불러오기잠금:
         if _원천_읽음[0]:
             return
-        _원천_읽음[0] = True
-        for 칸, (열쇠, *_나머지) in 원천들.items():
-            값, 때 = store.읽기(열쇠)
-            if 값:
-                _넣기(칸, 값, float(값.get("at") or 때))
+        try:
+            for 칸, (열쇠, *_나머지) in 원천들.items():
+                값, 때 = store.읽기(열쇠)
+                if 값:
+                    _넣기(칸, 값, float(값.get("at") or 때))
+        finally:
+            _원천_읽음[0] = True          # 못 읽었어도 한 번만 — 요청마다 DB 를 다시 두드리지 않게
 
 
 def _원천_모음() -> dict:
-    return {k: _원천.get(k) for k in ("kr_krx", "kr_git", "kr_naver", "kr_px", "kr_dart", "us_sec", "us_px")}
+    return {k: _원천.get(k) for k in ("kr_krx", "kr_git", "kr_naver", "kr_px", "kr_dart", "us_sec", "us_px", "us_fx")}
 
 
 def _돌아가며_받기(칸: str) -> dict | None:
@@ -240,6 +249,8 @@ def _받기(칸: str) -> dict | None:
         return sources.미국_SEC()
     if 칸 == "us_ko":
         return sources.미국_한글이름()
+    if 칸 == "us_fx":
+        return sources.환율들()
     return None
 
 
@@ -282,6 +293,20 @@ def _일_맡기기(칸: str) -> None:
         _도는일.discard(칸)
 
 
+_DART_알림 = [False]
+
+
+def _DART_키없음_알리기() -> None:
+    """DART 키가 없으면 국내 재무(DART)를 아예 안 묻는다 — 예전엔 말없이 건너뛰어 관리자 화면(바깥 원천)에도 안
+    보였다(사용자: "국내주식 스크리닝은 안나오는 지표가 너무 많아"). 프로세스마다 한 번만 남긴다"""
+    if _DART_알림[0]:
+        return
+    _DART_알림[0] = True
+    from app.core import health
+    health.record_fail(sources.이름_DART, "DART_API_KEY 가 없어 묻지 않음 — Render 환경변수에 OpenDART 인증키"
+                                        "(opendart.fss.or.kr, 무료)를 넣으면 켜진다. 그동안 국내 매출·이익은 네이버 연간 실적으로 채운다")
+
+
 def _원천_챙기기(시장: str) -> None:
     """그 시장의 원천 중 묵은 것을 뒤에서 새로 받게 맡긴다(한 번에 하나씩 차례로)"""
     if not 원천_받기:
@@ -289,7 +314,10 @@ def _원천_챙기기(시장: str) -> None:
     from app.core.config import settings
     지금 = time.time()
     for 칸, (_열쇠, 간격, 쉼, 그시장) in 원천들.items():
-        if 그시장 != 시장 or (칸 == "kr_dart" and not settings.DART_API_KEY):
+        if 그시장 != 시장:
+            continue
+        if 칸 == "kr_dart" and not settings.DART_API_KEY:
+            _DART_키없음_알리기()
             continue
         if 칸 in _표가_필요 and _표.get(그시장) is None:
             continue
@@ -312,8 +340,21 @@ def _풍부(시장: str) -> tuple[list, tuple]:
     return 풍부, (yf_service.스크리닝_찍은때(시장), len(풍부), _원천판[0])
 
 
+def _원주_줄들() -> dict:
+    """미국 표가 쓰는 국내 원주 줄 — SEC 연간 공시가 아직 없는 국내 회사 ADR(SK하이닉스 SKHY → 000660). 국내 표가
+    아직 없으면 빈 것 — 국내 종목을 누가 보면(스크리닝·관심종목·상세) 국내 표가 생기고, 다음 미국 표부터 채워진다
+    (미국 표를 지으려고 국내 표를 짓지는 않는다 — 0.15 CPU 서버에 일을 더 얹지 않게)"""
+    국내 = _표.get("KR")
+    if 국내 is None:
+        return {}
+    return {adr: 줄 for adr, (코드, _비율) in 국내_ADR.items() if (줄 := 국내.한줄(코드))}
+
+
 def _짓기(시장: str, 풍부: list, 판: tuple) -> 스크리닝표:
-    새것 = 만들기(시장, 기초줄(시장), 풍부, _원천_모음())
+    원천 = _원천_모음()
+    if 시장 == "US":
+        원천["kr_adr"] = _원주_줄들()
+    새것 = 만들기(시장, 기초줄(시장), 풍부, 원천)
     _표[시장], _표판[시장] = 새것, 판
     return 새것
 
@@ -326,6 +367,9 @@ def _뒤에서_새로(시장: str) -> None:
 
     def 일():
         try:
+            # 표() 를 안 거치고 맡겨진 때(한종목 — 관심종목·종목 상세·퀀트)도 DB 에 남긴 원천으로 짓는다. 예전엔
+            # 서버가 막 뜬 뒤 관심종목이 먼저 물으면 SEC·KRX 없이 지어, 스크리닝을 누가 열 때까지 PER·EPS 가 비었다
+            _원천_불러오기()
             풍부, 판 = _풍부(시장)
             with _잠금(시장):
                 _짓기(시장, 풍부, 판)
@@ -333,6 +377,12 @@ def _뒤에서_새로(시장: str) -> None:
             log.warning("스크리닝 %s 표 새로 만들기 실패: %s", 시장, type(e).__name__)
         finally:
             _새로만드는중.discard(시장)
+        # 표가 생겼으니 표의 종목으로 묻는 원천(1년 시세·예상 PER)과 묵은 원천을 맡긴다 — 스크리닝 화면을 아무도
+        # 안 열어도 돌아가며 받기가 멈추지 않게
+        try:
+            _원천_챙기기(시장)
+        except Exception as e:
+            log.warning("스크리닝 %s 원천 맡기기 실패: %s", 시장, type(e).__name__)
 
     try:
         _표일꾼.submit(일)
@@ -357,21 +407,68 @@ def 표(시장: str) -> 스크리닝표:
         _원천_챙기기(시장)
 
 
+#: 시장 → 연간 재무 원천(전 종목 일괄) — 종목 상세 재무제표도 같은 숫자를 쓴다
+_재무원천 = {"US": (("us_sec", "SEC"),), "KR": (("kr_dart", "DART"), ("kr_naver", "네이버"))}
+
+
+def 재무_원천줄(시장: str, 종목: str) -> dict | None:
+    """그 종목의 연간 재무 원천 한 줄(미국 SEC · 국내 DART → 네이버 연간 실적) → {칸: 숫자, '_출처': 원천 이름}. 해마다의
+    값은 'rev@2025' 꼴이고, '_끝해' 는 그해(순이익·현금흐름 따위 해 없는 칸이 그해 것이다 — 그 종목에 그해 매출이
+    없어도. 네이버는 종목마다 제 마지막 해). 종목 상세 재무제표가 종목별 원천(야후·FMP·DART 단일)을 못 받았을 때
+    스크리닝과 같은 숫자로 채운다. 없으면 None"""
+    원들 = _재무원천.get(시장)
+    if not 원들:
+        return None
+    _원천_불러오기()                         # 서버가 막 떠 스크리닝을 아무도 안 열었어도 DB 에 남긴 원천으로
+    코드 = 종목.split(".")[0] if 시장 == "KR" else 종목
+    for 칸, 출처 in 원들:
+        df = _원천.get(칸)
+        if df is None or 코드 not in df.index:
+            continue
+        줄 = {k: float(v) for k, v in df.loc[코드].items() if isinstance(v, (int, float)) and math.isfinite(v)}
+        if 칸 == "kr_naver":
+            # 네이버 줄은 지표(PER·52주)만 있고 연간 실적은 아직 없을 수 있다 — 그러면 재무가 아니다
+            if "fin_year" not in 줄:
+                continue
+            줄["_끝해"] = int(줄.pop("fin_year"))
+        else:
+            해들 = [int(c.split("@", 1)[1]) for c in df.columns if isinstance(c, str) and c.split("@", 1)[-1].isdigit()]
+            if 해들:
+                줄["_끝해"] = max(해들)
+        줄["_출처"] = 출처
+        return 줄
+    return None
+
+
+def 표가_있나(시장: str) -> bool:
+    """그 시장의 표를 들고 있나 — 없으면 뒤에서 짓는 중이다(한종목·표 가 맡긴다)"""
+    return 시장 in _표
+
+
 def 지금_표인가(시장: str, 표: 스크리닝표) -> bool:
     """이 표가 지금의 표이고 뒤에서 새로 만드는 중도 아닌가 — 아니면 이 표로 낸 답은 곧 낡는다(라우트가 안 남긴다)"""
     return _표.get(시장) is 표 and 시장 not in _새로만드는중
 
 
+def _묵었나(시장: str, 표: 스크리닝표) -> bool:
+    """한종목 이 보는 표가 낡았나 — 원천이 새로 왔거나(원천판) 오래됐다(표_수명)"""
+    판 = _표판.get(시장)
+    return (판 is not None and 판[2] != _원천판[0]) or time.time() - 표.만든때 > 표_수명
+
+
 def 한종목(시장: str, 종목: str) -> dict | None:
     """그 종목의 표 한 줄(원천을 합친 값 + 전년 대비 성장률) — 퀀트가 비는 품질·성장 지표를 여기서 채운다.
-    표가 아직 없으면 그 자리에서 만들지 않는다(퀀트 요청을 붙잡지 않게) — 뒤에서 만들게 맡기고 None"""
+    표가 아직 없으면 그 자리에서 만들지 않는다(퀀트 요청을 붙잡지 않게) — 뒤에서 만들게 맡기고 None.
+    표가 낡았으면 있던 줄로 곧바로 답하고 뒤에서 새로 — 스크리닝 화면을 아무도 안 열어도 관심종목·종목 상세가
+    새로 온 원천(SEC·KRX…)을 보게"""
     if 시장 not in ("KR", "US", "ETF"):
         return None
     있음 = _표.get(시장)
-    if 있음 is None:
+    if 있음 is None or _묵었나(시장, 있음):
         if 원천_받기:
             _뒤에서_새로(시장)
-        return None
+        if 있음 is None:
+            return None
     return 있음.한줄(종목.split(".")[0] if 시장 == "KR" else 종목)
 
 

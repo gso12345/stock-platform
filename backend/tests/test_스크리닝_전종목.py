@@ -291,6 +291,115 @@ class Test_SEC:
         from app.services.fundamentals.sec_frames import 받을해
         assert 받을해(date(2026, 10, 21)) == 2025
 
+    def _해외준비(self, monkeypatch):
+        """미국 회사 AAA(1)·BBB(2)·CCC(3)·ZZZ(9), IFRS 대만 달러 TSM(5), IFRS 달러 SHEL(6), 위안 미국 회계기준 BABA(7)"""
+        from app.services.fundamentals import sec_frames as F
+        monkeypatch.setattr(F, "_간격", 0)
+        monkeypatch.setattr(F, "최소회사수", 3)
+        monkeypatch.setattr(F, "최소티커수", 2)
+        물음: list = []
+
+        def 틀(url, params):
+            분류, 개념, 단위, 기간 = url.rsplit("/", 4)[1:]
+            기간 = 기간.removesuffix(".json")
+            해 = int(기간[2:6])
+            if 분류 == "us-gaap" and 단위.startswith("USD"):
+                답 = {"Revenues": [(1, 100.0), (2, 50.0), (9, 1.0)],
+                      "RevenueFromContractWithCustomerIncludingAssessedTax": [(3, 70.0)],
+                      "EarningsPerShareBasicAndDiluted": [(2, 3.0)],
+                      "NetIncomeLoss": [(1, 10.0)],
+                      "CommonStockDividendsPerShareDeclared": [(7, 1.0)],
+                      "Assets": [(1, 500.0)]}.get(개념)
+            elif 분류 == "ifrs-full" and 단위 in ("TWD", "TWD-per-shares"):
+                if 개념 == "EquityAttributableToOwnersOfParent":
+                    assert 기간.endswith("Q4I"), "자본은 그해 말의 값"
+                주당 = 개념 == "DilutedEarningsLossPerShare"
+                답 = None if 주당 != (단위 == "TWD-per-shares") else {      # 주당 값은 '돈-per-shares' 로만 온다
+                    "Revenue": [(5, 1000.0 * (해 - 2021)), (1, 9e9)],
+                    "ProfitLossAttributableToOwnersOfParent": [(5, 400.0)],
+                    "DilutedEarningsLossPerShare": [(5, 10.0 * (해 - 2021))],
+                    "EquityAttributableToOwnersOfParent": [(5, 2000.0)]}.get(개념)
+            elif 분류 == "ifrs-full" and 단위 == "USD":
+                답 = {"ProfitLossAttributableToOwnersOfParent": [(6, 20.0)]}.get(개념)
+            elif 분류 == "us-gaap" and 단위.startswith("CNY"):
+                답 = {"Revenues": [(7, 700.0)], "NetIncomeLoss": [(7, 70.0)]}.get(개념)
+            else:
+                답 = None
+            return {"data": [{"cik": c, "val": v} for c, v in 답]} if 답 else 응답({}, 404)
+
+        답 = {"company_tickers.json": {str(i): {"cik_str": c, "ticker": t} for i, (c, t) in enumerate(
+            [(1, "AAA"), (2, "BBB"), (3, "CCC"), (5, "TSM"), (6, "SHEL"), (7, "BABA"), (9, "ZZZ")])},
+              "/frames/": 틀}
+        monkeypatch.setattr(F.httpx, "Client", lambda **kw: 가짜웹(답, 물음))
+        return F, 물음
+
+    def test_해외_상장사는_IFRS_와_자기_나라_돈의_값을_달러로_바꿔_넣는다(self, monkeypatch):
+        """사용자: "스크리닝 지표가 아예 안나오는 종목이 있어(… SK하이닉스 ADR …)" — 달러로 적은 미국 회계기준만 받아
+        TSMC·셸·알리바바 같은 해외 상장사가 통째로 빠졌다"""
+        F, 물음 = self._해외준비(monkeypatch)
+        줄들, 해 = F.fetch_fundamentals(2025, 환율={"TWD": 0.03, "CNY": 0.14, "JPY": 0.0067})
+        assert 해 == 2025
+        t = 줄들["TSM"]
+        assert (t["revenue"], t["earnings"], t["eps"], t["equity"]) == (120.0, 12.0, 1.2, 60.0)
+        assert t["fin_years"] == [2022, 2023, 2024, 2025] and t["rev_hist"] == [30, 60, 90, 120]
+        assert t["eps_hist"] == [0.3, 0.6, 0.9, 1.2] and t["earnings_prev"] == 12.0
+        assert (t["foreign"], t["fin_fx"]) == (1.0, "TWD")
+        s = 줄들["SHEL"]
+        assert s["earnings"] == 20.0 and s["foreign"] == 1.0 and "fin_fx" not in s, "달러로 적은 IFRS — 매출이 없어도"
+        b = 줄들["BABA"]
+        assert (b["revenue"], b["earnings"], b["dps"]) == (98.0, 9.8, 1.0), "달러로 적은 칸(주당배당)은 그대로"
+        assert (b["foreign"], b["fin_fx"]) == (1.0, "CNY")
+        a = 줄들["AAA"]
+        assert a["revenue"] == 100.0 and "foreign" not in a, "미국 회사의 달러 값은 해외 값이 덮지 않는다"
+        assert a["assets"] == 500.0, "자산(ROA)"
+        assert 줄들["BBB"]["eps"] == 3.0, "기본·희석을 한 개념으로 적는 회사(엑슨모빌)"
+        assert 줄들["CCC"]["revenue"] == 70.0, "판매세를 넣어 적는 매출"
+        주소 = [u for u, _ in 물음]
+        assert not any("/EUR" in u for u in 주소), "환율을 모르는 돈은 묻지도 않는다"
+        엔 = [u for u in 주소 if "/JPY" in u]
+        assert 엔 and all(("Revenue" in u or "ProfitLoss" in u or "NetIncome" in u) for u in 엔), \
+            "엔으로 적은 회사가 없으면 그해 매출·순이익만 묻고 그만"
+
+    def test_환율이_없으면_달러로_적은_IFRS_만(self, monkeypatch):
+        F, 물음 = self._해외준비(monkeypatch)
+        줄들, _ = F.fetch_fundamentals(2025)
+        assert "TSM" not in 줄들 and "BABA" in 줄들 and "revenue" not in 줄들["BABA"]
+        assert 줄들["SHEL"]["foreign"] == 1.0
+
+
+class Test_환율:
+    """해외 회사 장부 돈 → 달러(야후 spark 의 TWDUSD=X …). 운영에서 야후 상세가 막혀도 spark 는 된다"""
+
+    def test_돈마다_마지막_종가(self, monkeypatch):
+        from app.services.market import price_fetcher
+        물음: list = []
+
+        async def 가짜(심볼들, 기간="1y"):
+            물음.append((sorted(심볼들), 기간))
+            return {"TWDUSD=X": [0.031, 0.0312], "EURUSD=X": [1.1], "JPYUSD=X": [], "ZZZ=X": [9.0],
+                    "KRWUSD=X": [0.0]}
+        monkeypatch.setattr(price_fetcher, "fetch_yf_closes", 가짜)
+        r = sources.환율들(("TWD", "EUR", "JPY", "KRW", "USD"))
+        assert r["rows"] == {"TWD": {"usd": 0.0312}, "EUR": {"usd": 1.1}}, "빈 것·0·모르는 종목은 뺀다"
+        assert 물음 == [(["EURUSD=X", "JPYUSD=X", "KRWUSD=X", "TWDUSD=X"], "5d")], "달러는 묻지 않는다"
+
+    def test_못_받으면_None(self, monkeypatch):
+        from app.services.market import price_fetcher
+
+        async def 빈(심볼들, 기간="1y"):
+            return {}
+
+        async def 터짐(심볼들, 기간="1y"):
+            raise RuntimeError("x")
+        monkeypatch.setattr(price_fetcher, "fetch_yf_closes", 빈)
+        assert sources.환율들(("TWD",)) is None
+        monkeypatch.setattr(price_fetcher, "fetch_yf_closes", 터짐)
+        assert sources.환율들(("TWD",)) is None
+        assert sources.환율들(("USD",)) is None, "달러만이면 물을 것이 없다"
+
+    def test_기본으로_묻는_돈에_TSMC_ASML_소니의_돈이_있다(self):
+        assert {"TWD", "EUR", "JPY", "KRW", "CNY"} <= set(sources.장부돈들) and "USD" not in sources.장부돈들
+
 
 class Test_네이버_한글이름:
     def test_목록이_어디에_있든_한글_이름만(self):
@@ -369,10 +478,36 @@ class Test_나스닥_분류:
         from app.services.market import ranking_service as R
         from app.db.database import Base, engine
         Base.metadata.create_all(engine)
-        R._분류_db({"NVDA": ("Technology", "Semiconductors", "United States")})
+        R._분류_db({"NVDA": ("Technology", "Semiconductors", "United States")}, {"SPCX": 2026})
         monkeypatch.setattr(R, "_나스닥_분류", {})
         monkeypatch.setattr(R, "_나스닥_분류_읽음", False)
+        monkeypatch.setattr(R, "_나스닥_상장해", {})
+        monkeypatch.setattr(R, "_나스닥_상장해_읽음", False)
         assert R.나스닥_분류()["NVDA"] == ("Technology", "Semiconductors", "United States")
+        assert R.나스닥_상장해() == {"SPCX": 2026}
+
+    def test_상장한_해를_읽는다(self):
+        """새로 상장한 종목(스페이스X 2026)은 첫 연간 공시 전이라 재무 칸이 빈다 — 화면이 그 까닭을 알린다"""
+        from app.services.market.ranking_service import 나스닥_상장해_읽기
+        j = {"data": {"rows": [{"symbol": "SPCX", "ipoyear": "2026"}, {"symbol": "BRK/B", "ipoyear": "1996"},
+                               {"symbol": "OLD", "ipoyear": ""}, {"symbol": "BAD", "ipoyear": "20x6"}, {"ipoyear": "2020"}]}}
+        assert 나스닥_상장해_읽기(j) == {"SPCX": 2026, "BRK-B": 1996}
+        assert 나스닥_상장해_읽기(None) == {}
+
+    def test_기초_줄과_표에_상장한_해(self, monkeypatch):
+        from app.services.market import ranking_service as R
+        from app.services.listings import ticker_service as T
+        cache.set(R.US_ROWS_CK, [{"symbol": "SPCX", "name": "SpaceX", "price": 161.0, "market_cap": 2e12}], 60)
+        monkeypatch.setattr(T, "_us_db", [{"s": "SPCX", "n": "Space Exploration Technologies", "x": "NASDAQ", "m": "US"}])
+        monkeypatch.setattr(R, "나스닥_분류", lambda: {})
+        monkeypatch.setattr(R, "나스닥_상장해", lambda: {"SPCX": 2026})
+        try:
+            줄 = S.기초줄("US")[0]
+        finally:
+            cache.delete(R.US_ROWS_CK)
+        assert 줄["ipo_year"] == 2026
+        assert 만들기("US", [줄], []).한줄("SPCX")["ipo_year"] == 2026
+        assert "ipo_year" not in 만들기("US", [{"symbol": "AAA", "price": 1.0}], []).한줄("AAA")
 
 
 # ── ② 표 ─────────────────────────────────────────────────────
@@ -479,6 +614,98 @@ class Test표_미국:
         assert "dividend_yield" not in xom, "주당배당 공시가 없으면 0 이 아니라 모름"
         assert "fcf" not in xom and xom["sector"] == "에너지"
 
+    def _EPS표(self, 줄들: dict, 기초: list):
+        return {x["symbol"]: x for x in 만들기("US", 기초, [], {"us_sec": 원천표("us_sec", 줄들)})
+                .결과({}, "", "price", True, 0, 20)[0]}
+
+    def test_EPS_가_없거나_시세_1주의_것이_아니면_순이익과_시가총액으로(self):
+        """사용자: "스크리닝 지표가 아예 안나오는 종목이 있어(알파벳, … 버크셔해서웨이 …)" """
+        r = self._EPS표({
+            # 알파벳 — A·B·C 주마다 따로 적어 SEC frames 에 EPS 가 없다
+            "GOOGL": {"earnings": 1.2e11, "equity": 3.0e11},
+            # 버크셔 B — SEC 의 EPS 는 A 주 1주의 값(4만 달러)이다
+            "BRK-B": {"earnings": 9.0e10, "eps": 41000.0, "fin_years": [2024, 2025], "eps_hist": [30000.0, 41000.0]},
+            # 결산 뒤 10:1 분할 — 장부 EPS 는 나누기 전 1주의 값
+            "SPLT": {"earnings": 3.0e10, "eps": 12.0},
+            # 보통 회사 — 장부 EPS 그대로(시가총액 ÷ 순이익과 조금 달라도)
+            "NORM": {"earnings": 1.0e10, "eps": 2.1},
+            # 적자 해외 회사 — 시가총액을 모른다
+            "ADRX": {"earnings": -5.0e8, "eps": -1.0, "foreign": 1.0, "fin_years": [2025], "eps_hist": [-1.0]},
+        }, [{"symbol": "GOOGL", "price": 250.0, "market_cap": 3.0e12},
+            {"symbol": "BRK-B", "price": 480.0, "market_cap": 1.035e12},
+            {"symbol": "SPLT", "price": 120.0, "market_cap": 3.0e12},
+            {"symbol": "NORM", "price": 40.0, "market_cap": 2.0e11},
+            {"symbol": "ADRX", "price": 5.0}])
+        g = r["GOOGL"]
+        assert (g["eps"], g["per"]) == (10.0, 25.0) and g["pbr"] == 10.0
+        b = r["BRK-B"]
+        assert (b["eps"], b["per"]) == (round(480 * 9.0e10 / 1.035e12, 4), 11.5)
+        assert b["eps_hist"] == [round(30000 * b["eps"] / 41000, 2), b["eps"].__round__(2)], "흐름도 B 주 1주로 맞춘다"
+        assert r["SPLT"]["per"] == 100.0 and r["SPLT"]["eps"] == 1.2, "열 배 어긋난 EPS 는 믿지 않는다"
+        n = r["NORM"]
+        assert (n["eps"], n["per"]) == (2.1, 19.05), "세 배 안쪽이면 장부 EPS 가 맞다"
+        x = r["ADRX"]
+        assert "eps" not in x and "per" not in x, "해외 회사의 원주 1주 EPS 를 ADR 시세로 나누지 않는다"
+        assert x["eps_hist"] == [-1.0] and x["eps_basis"] == "ordinary", "시세 1주로 못 맞춘 흐름은 원주 기준이라고 적는다"
+
+    def test_SEC_에_EPS_칸이_아예_없어도_순이익과_시가총액으로(self):
+        r = self._EPS표({"GOOGL": {"earnings": 1.2e11}}, [{"symbol": "GOOGL", "price": 250.0, "market_cap": 3.0e12}])
+        assert (r["GOOGL"]["eps"], r["GOOGL"]["per"]) == (10.0, 25.0)
+
+    def test_장부_EPS_와_순이익의_부호가_다른_해외_회사는_흐름을_맞추지_않는다(self):
+        """원주 EPS 는 적자(우선주 배당을 뗀 보통주 몫)인데 순이익은 흑자 — 배율이 음수면 흐름의 부호가 뒤집힌다"""
+        r = self._EPS표({"ADRZ": {"earnings": 1.0e9, "eps": -0.5, "foreign": 1.0, "fin_years": [2024, 2025],
+                                  "eps_hist": [0.3, -0.5]}},
+                        [{"symbol": "ADRZ", "price": 10.0, "market_cap": 5.0e9}])
+        z = r["ADRZ"]
+        assert z["eps_hist"] == [0.3, -0.5] and z["eps_basis"] == "ordinary"
+
+    def test_해외_회사는_적자여도_흐름을_시세_1주로(self):
+        r = self._EPS표({"ADRY": {"earnings": -1.0e9, "eps": -0.5, "foreign": 1.0, "fin_fx": "EUR",
+                                  "fin_years": [2024, 2025], "eps_hist": [-0.25, -0.5], "revenue": 4.0e9}},
+                        [{"symbol": "ADRY", "price": 10.0, "market_cap": 5.0e9}])
+        y = r["ADRY"]
+        # 시세 1주의 몫 = −10억 × 10 ÷ 50억 = −2 — 원주 EPS(−0.5)의 네 배
+        assert y["eps"] == -2.0 and "per" not in y and y["eps_hist"] == [-1.0, -2.0]
+        assert (y["fin_fx"], y["fin_currency"]) == ("EUR", "USD") and "eps_basis" not in y
+
+    def test_SEC_공시가_없는_국내_회사_ADR_은_원주_줄로(self):
+        """사용자: "스크리닝 지표가 아예 안나오는 종목이 있어(… SK하이닉스 ADR …)" — 2026년 7월에 상장해 20-F 가 아직
+        없다. ADR 10주 = 원주 1주"""
+        원주 = {"per": 8.5, "pbr": 2.1, "roe": 30.0, "dividend_yield": 0.9, "_ni_yoy": 120.0, "sector": "전기·전자",
+                "revenue": 66e12, "earnings": 20e12, "eps": 28000.0, "forward_eps": 40000.0,
+                "fin_years": [2024, 2025], "rev_hist": [44e12, 66e12], "eps_hist": [20000.0, 28000.0]}
+        fx = 원천표("us_fx", {"KRW": {"usd": 0.0007}})
+        기초 = [{"symbol": "SKHY", "price": 20.0, "market_cap": 2e11},
+                {"symbol": "OTHR", "price": 1.0}]
+        표 = 만들기("US", 기초, [{"symbol": "SKHY", "pbr": 2.5}], {"us_fx": fx, "kr_adr": {"SKHY": 원주, "OTHR": 원주}})
+        s = 표.한줄("SKHY")
+        assert (s["per"], s["roe"], s["dividend_yield"], s["_ni_yoy"]) == (8.5, 30.0, 0.9, 120.0), "비율은 그대로"
+        assert s["pbr"] == 2.5, "있는 값은 덮지 않는다"
+        assert (s["revenue"], s["earnings"]) == (46.2e9, 14e9), "원화 금액은 지금 환율로 달러로"
+        assert (s["eps"], s["forward_eps"]) == (1.96, 2.8), "주당 값은 ADR 1주(원주 0.1주)로"
+        assert s["fin_years"] == [2024, 2025] and s["rev_hist"] == [30_800_000_000, 46_200_000_000]
+        assert s["eps_hist"] == [1.4, 1.96] and (s["fin_currency"], s["fin_fx"]) == ("USD", "KRW")
+        assert s["sector"] == "전기·전자"
+        assert "per" not in 표.한줄("OTHR"), "정해 둔 ADR 만"
+        # 원화 환율을 모르면 비율만
+        s = 만들기("US", 기초, [], {"kr_adr": {"SKHY": 원주}}).한줄("SKHY")
+        assert s["per"] == 8.5 and "revenue" not in s and "eps" not in s and "fin_years" not in s
+
+    def test_국내_표가_있으면_미국_표가_ADR_에_원주_줄을_쓴다(self, 가짜시장):
+        S._표["KR"] = 만들기("KR", [{"symbol": "000660", "price": 200000.0}], [], {
+            "kr_krx": 원천표("kr_krx", {"000660": {"per": 9.0, "eps": 22222.0}})})
+        가짜시장["기초"] = [{"symbol": "SKHY", "price": 15.0}]
+        assert S.표("US").한줄("SKHY")["per"] == 9.0
+        S._표.pop("KR")
+        S._표.pop("US")
+        assert "per" not in S.표("US").한줄("SKHY"), "국내 표가 없으면 비운 채로 — 국내 표를 짓게 하지는 않는다"
+        assert "KR" not in S._표
+
+    def test_ROA_는_SEC_자산으로(self):
+        r = self._EPS표({"AST": {"earnings": 5.0, "assets": 50.0}}, [{"symbol": "AST", "price": 1.0}])
+        assert r["AST"]["roa"] == 10.0
+
     def test_야후_줄이_있으면_그것이_먼저(self):
         r = {x["symbol"]: x for x in self._표([{"symbol": "NVDA", "per": 33.0, "revenue": 1.2e11}])
              .결과({}, "", "price", True, 0, 9)[0]}
@@ -530,7 +757,7 @@ class Test표_흐름:
                     "eps_hist": [1.0, 1.0, 1.0, 1.0]},
             "CCC": {"revenue": 5.0}})
         풍부 = [{"symbol": "BBB", "fin_years": [2023, 2024, 2025], "rev_hist": [1, 2, 3], "eps_hist": [0.1, 0.2, 0.3],
-                 "fin_currency": "TWD"}]
+                 "fin_currency": "USD"}]
         r = {x["symbol"]: x for x in 만들기("US", 기초, 풍부, {"us_sec": sec}).결과({}, "", "market_cap", True, 0, 9)[0]}
         a = r["AAA"]
         assert a["fin_years"] == [2022, 2023, 2024, 2025] and a["rev_hist"] == [20, 40, 80, 160]
@@ -539,8 +766,55 @@ class Test표_흐름:
         assert a["fin_currency"] == "USD"
         b = r["BBB"]
         assert b["fin_years"] == [2023, 2024, 2025] and b["rev_hist"] == [1, 2, 3], "야후 흐름이 있으면 그 한 벌"
-        assert "rev_cagr_3y" not in b and b["fin_currency"] == "TWD", "SEC 의 성장률·돈을 야후 막대에 섞지 않는다"
+        assert "rev_cagr_3y" not in b and b["fin_currency"] == "USD", "SEC 의 성장률을 야후 막대에 섞지 않는다"
         assert "fin_years" not in r["CCC"] and "fin_currency" not in r["CCC"]
+
+    def test_장부_돈이_다른_야후_흐름보다_달러로_바꾼_SEC_흐름이_먼저(self):
+        """TSMC 처럼 야후 흐름이 대만 달러이고 SEC(IFRS — 달러로 바꾸고 ADR 1주로 맞춘 것)에도 있으면 SEC 의 것.
+        야후 흐름은 원주 1주의 EPS 라 ADR 시세와 단위가 다르다"""
+        기초 = [{"symbol": "TSM", "price": 300.0, "market_cap": 1.5e12}]
+        sec = 원천표("us_sec", {"TSM": {"revenue": 120e9, "earnings": 50e9, "eps": 2.0, "foreign": 1.0, "fin_fx": "TWD",
+                                        "fin_years": [2024, 2025], "rev_hist": [90e9, 120e9], "eps_hist": [1.5, 2.0]}})
+        풍부 = [{"symbol": "TSM", "currency": "USD", "fin_currency": "TWD", "fin_years": [2023, 2024, 2025],
+                 "rev_hist": [1, 2, 3], "eps_hist": [40.0, 45.0, 61.0]}]
+        t = 만들기("US", 기초, 풍부, {"us_sec": sec, "us_fx": 원천표("us_fx", {"TWD": {"usd": 0.03}})}).한줄("TSM")
+        assert t["fin_years"] == [2024, 2025] and t["rev_hist"] == [90_000_000_000, 120_000_000_000]
+        # 시세 1주의 몫 = 순이익 × 시세 ÷ 시가총액 = 10 — 원주 1주 EPS(2) 의 다섯 배(ADR 1주 = 원주 5주)
+        assert t["eps"] == 10.0 and t["per"] == 30.0 and t["eps_hist"] == [7.5, 10.0]
+        assert (t["fin_currency"], t["fin_fx"]) == ("USD", "TWD") and "eps_basis" not in t, "시세 1주로 맞췄다"
+
+    def test_장부_돈이_다른_야후_흐름은_지금_환율로_달러로(self):
+        """사용자: "스크리닝 TSMC가 대만달러로 나와" — 4년 흐름이 TSMC 장부의 대만 달러 그대로 나갔다"""
+        기초 = [{"symbol": s, "price": 10.0} for s in ("TSM", "SONY", "AAPL", "UMC")]
+        풍부 = [
+            {"symbol": "TSM", "currency": "USD", "fin_currency": "TWD", "fin_years": [2024, 2025],
+             "rev_hist": [2_894_000_000_000, 3_631_000_000_000], "eps_hist": [45.25, None]},
+            {"symbol": "SONY", "currency": "USD", "fin_currency": "JPY", "fin_years": [2025], "rev_hist": [13e12],
+             "eps_hist": [180.0]},
+            {"symbol": "AAPL", "currency": "USD", "fin_currency": "USD", "fin_years": [2025], "rev_hist": [400e9],
+             "eps_hist": [7.0]},
+            {"symbol": "UMC", "currency": "TWD", "fin_currency": "TWD", "fin_years": [2025], "rev_hist": [2e11],
+             "eps_hist": [3.0]},
+        ]
+        fx = 원천표("us_fx", {"TWD": {"usd": 0.03}, "EUR": {"usd": 1.1}})
+        r = {x["symbol"]: x for x in 만들기("US", 기초, 풍부, {"us_fx": fx}).결과({}, "", "price", True, 0, 9)[0]}
+        t = r["TSM"]
+        assert t["rev_hist"] == [86_820_000_000, 108_930_000_000] and t["eps_hist"] == [1.36, None]
+        assert (t["fin_currency"], t["fin_fx"]) == ("USD", "TWD")
+        assert t["eps_basis"] == "ordinary", "야후의 해마다 EPS 는 원주 1주의 값이라고 적는다"
+        assert r["SONY"]["rev_hist"] == [13e12] and r["SONY"]["fin_currency"] == "JPY", "환율을 모르는 돈은 그대로"
+        assert "eps_basis" not in r["SONY"] and "eps_basis" not in r["AAPL"]
+        assert "fin_fx" not in r["SONY"] and "fin_fx" not in r["AAPL"]
+        assert r["AAPL"]["rev_hist"] == [400e9] and r["AAPL"]["fin_currency"] == "USD"
+        assert r["UMC"]["rev_hist"] == [2e11], "시세 돈이 달러가 아니면 건드리지 않는다"
+        # 환율을 못 받았으면 장부 돈 그대로(예전과 같다)
+        r = {x["symbol"]: x for x in 만들기("US", 기초, 풍부, {}).결과({}, "", "price", True, 0, 9)[0]}
+        assert r["TSM"]["rev_hist"] == [2_894_000_000_000, 3_631_000_000_000] and r["TSM"]["fin_currency"] == "TWD"
+        # 국내 표는 바꾸지 않는다 — 시세 돈을 모르는 줄이어도
+        kr = 만들기("KR", [{"symbol": "005930", "price": 1.0}],
+                  [{"symbol": "005930", "fin_currency": "TWD", "fin_years": [2025],
+                    "rev_hist": [100]}], {"us_fx": fx}).결과({}, "", "price", True, 0, 1)[0][0]
+        assert kr["rev_hist"] == [100] and kr["fin_currency"] == "TWD"
 
     def test_3년_전이나_끝해가_0_이하면_성장률은_모른다(self):
         기초 = [{"symbol": s, "price": 1.0} for s in ("AAA", "BBB", "CCC")]
@@ -568,6 +842,36 @@ class Test표_흐름:
         assert 삼성["eps_cagr_3y"] == round(((5000 / 2000) ** (1 / 3) - 1) * 100, 1)
         assert "rev_cagr_3y" not in 삼성, "3년 전 매출을 모르면 성장률도 모른다"
         assert 삼성["fin_currency"] == "KRW"
+
+    def test_국내는_DART_가_없으면_네이버_연간_실적으로_재무와_흐름(self):
+        """사용자: "국내주식 스크리닝은 안나오는 지표가 너무 많아" — 운영 서버에 DART 키가 없고 KRX 가 로그인을 요구해
+        매출·순이익·영업이익률·매출/EPS 흐름·성장률이 통째로 비었다"""
+        네이버 = 원천표("kr_naver", {"005930": sources.네이버_연간_읽기(_삼성연간) | {"per": 14.0}})
+        기초 = [{"symbol": "005930", "price": 70000.0, "market_cap": 4.0e14}]
+        r = 만들기("KR", 기초, [], {"kr_naver": 네이버}).한줄("005930")
+        assert (r["revenue"], r["earnings"]) == (3_008_709e8, 344_514e8)
+        assert r["operating_margin"] == round(327_260 / 3_008_709 * 100, 2)
+        assert r["profit_margin"] == round(344_514 / 3_008_709 * 100, 2)
+        assert (r["roe"], r["debt_ratio"]) == (8.98, 27.93) and r["ps_ratio"] == round(4.0e14 / 3_008_709e8, 2)
+        assert r["fin_years"] == [2021, 2022, 2023, 2024] and r["eps_hist"] == [5777.0, 8057.0, 2131.0, 4950.0]
+        assert r["rev_cagr_3y"] == round(((3_008_709 / 2_796_048) ** (1 / 3) - 1) * 100, 1)
+        assert r["_ni_yoy"] == round((344_514 - 154_871) / 154_871 * 100, 2) and r["fin_currency"] == "KRW"
+
+    def test_국내는_DART_가_먼저고_네이버는_빈_종목_빈_해만(self):
+        dart = 원천표("kr_dart", {"005930": {"revenue": 300.0, "net_income": 30.0, "net_income_prev": 20.0,
+                                             "op_income": 40.0, "equity": 600.0, "liabilities": 300.0,
+                                             "rev_years": [2022, 2023, 2024], "rev_hist": [200.0, 250.0, 300.0]}})
+        네이버 = 원천표("kr_naver", {
+            "005930": {"revenue": 999.0, "net_income": 99.0, "net_income_prev": 9.0, "roe": 77.0, "debt_ratio": 7.0,
+                       "rev_years": [2021, 2022, 2023, 2024], "rev_hist": [150.0, 999.0, 999.0, 999.0]},
+            "000660": {"revenue": 80.0, "net_income": 8.0, "fin_year": 2024}})
+        기초 = [{"symbol": s, "price": 1.0, "market_cap": 1000.0} for s in ("005930", "000660")]
+        표 = 만들기("KR", 기초, [], {"kr_dart": dart, "kr_naver": 네이버})
+        삼성 = 표.한줄("005930")
+        assert (삼성["revenue"], 삼성["earnings"], 삼성["roe"], 삼성["debt_ratio"]) == (300.0, 30.0, 5.0, 50.0)
+        assert 삼성["rev_hist"] == [150, 200, 250, 300], "DART 에 없는 해(2021)만 네이버로 — 그래서 네 해"
+        assert 삼성["_ni_yoy"] == 50.0, "성장률도 DART 의 그해·지난해"
+        assert 표.한줄("000660")["revenue"] == 80.0, "DART 에 없는 종목은 네이버로"
 
     def test_흐름은_종목마다_값이_있는_마지막_해에서_거슬러_네_해(self):
         krx = 원천표("kr_krx", {"A": {"eps": 5.0, "eps_years": [2019, 2021, 2022, 2023, 2025],
@@ -780,6 +1084,7 @@ def 원천켜기(monkeypatch):
         "미국_SEC": lambda: 부름.append("sec") or {"at": time.time(), "year": 2025, "rows": {"AAA": {
             "eps": 4.0, "fin_years": [2024, 2025], "rev_hist": [10, 20], "eps_hist": [3.0, 4.0]}}},
         "미국_한글이름": lambda: 부름.append("ko") or {"at": time.time(), "rows": {"AAA": "에이"}},
+        "환율들": lambda: 부름.append("fx") or {"at": time.time(), "rows": {"TWD": {"usd": 0.03}}},
     }
     for 이름, f in 가짜.items():
         monkeypatch.setattr(sources, 이름, f)
@@ -816,6 +1121,17 @@ class Test원천:
         assert S._원천["us_ko"] == {"AAA": "에이"}, "서버가 깨도 DB 에서 곧바로"
         assert S._원천["us_sec"].loc["AAA", "eps@2025"] == 4.0, "DB 에서 읽어도 흐름은 해마다 숫자 칸으로"
 
+    def test_환율을_받아_장부_돈이_다른_흐름을_달러로(self, 가짜시장, 원천켜기):
+        가짜시장["기초"] = [{"symbol": "TSM", "price": 10.0}]
+        가짜시장["풍부"] = [{"symbol": "TSM", "price": 10.0, "currency": "USD", "fin_currency": "TWD",
+                          "fin_years": [2025], "rev_hist": [1000]}]
+        S.표("US")
+        _원천_끝까지()
+        assert "fx" in 원천켜기
+        줄 = _새_표("US").한줄("TSM")
+        assert (줄["rev_hist"], 줄["fin_currency"], 줄["fin_fx"]) == ([30], "USD", "TWD")
+        assert store.읽기("US_FX")[0]["rows"]["TWD"]["usd"] == 0.03, "서버가 깨도 DB 에서 곧바로"
+
     def test_받은_지_얼마_안_됐으면_다시_안_받고_못_받았으면_잠깐_쉰다(self, 가짜시장, 원천켜기, monkeypatch):
         S.표("US")
         _원천_끝까지()
@@ -833,12 +1149,21 @@ class Test원천:
         assert 원천켜기.count("sec") == 1, "못 받은 원천을 곧바로 다시 두드렸다"
 
     def test_DART_키가_없으면_묻지_않는다(self, 가짜시장, 원천켜기, monkeypatch):
+        from app.core import health
         from app.core.config import settings
         monkeypatch.setattr(settings, "DART_API_KEY", "")
+        monkeypatch.setattr(S, "_DART_알림", [False])
+        health.reset()
         가짜시장["기초"] = [{"symbol": "AAA", "price": 1.0}]
         S.표("KR")
         _원천_끝까지()
         assert "dart" not in 원천켜기 and "krx" in 원천켜기
+        # 예전엔 말없이 건너뛰어 관리자 화면(바깥 원천)에 안 보였다 — 이제 왜 비는지 적는다(한 번만)
+        줄 = {s["name"]: s for s in health.snapshot()}[sources.이름_DART]
+        assert "DART_API_KEY" in 줄["last_error"] and "네이버 연간 실적" in 줄["last_error"]
+        S.표("KR")
+        _원천_끝까지()
+        assert {s["name"]: s for s in health.snapshot()}[sources.이름_DART]["streak"] == 줄["streak"], "한 번만 남긴다"
 
     def test_예상_PER_은_시가총액_큰_것부터_조금씩_받고_받은_것은_건너뛴다(self, 가짜시장, 원천켜기, monkeypatch):
         monkeypatch.setattr(S, "네이버_한번", 2)
@@ -948,16 +1273,105 @@ def test_원천_함수는_못_받으면_관리자_화면에_실패를_남긴다(
     from app.services.listings import krx_listing
     from app.services.fundamentals import sec_frames
     monkeypatch.setattr(krx_listing, "fetch_screening_bulk", lambda: ({}, ""))
-    monkeypatch.setattr(sec_frames, "fetch_fundamentals", lambda: ({"AAA": {"eps": 1.0}}, 2025))
+    받은환율: list = []
+    monkeypatch.setattr(sources, "환율들", lambda: {"at": 1.0, "rows": {"TWD": {"usd": 0.03}}})
+    monkeypatch.setattr(sec_frames, "fetch_fundamentals",
+                        lambda 환율=None: (받은환율.append(환율), ({"AAA": {"eps": 1.0}}, 2025))[1])
     assert sources.국내_KRX() is None
     assert sources.미국_SEC()["rows"] == {"AAA": {"eps": 1.0}}
+    assert 받은환율 == [{"TWD": 0.03}], "해외 상장사의 재무를 달러로 바꿀 환율을 넘긴다"
+    monkeypatch.setattr(sources, "환율들", lambda: None)
+    assert sources.미국_SEC()["rows"] == {"AAA": {"eps": 1.0}} and 받은환율[-1] == {}, "환율을 못 받아도 미국 회사는"
     이름별 = {s["name"]: s for s in health.snapshot()}
     assert 이름별[sources.이름_KRX]["streak"] >= 1
     assert 이름별[sources.이름_SEC]["streak"] == 0 and 이름별[sources.이름_SEC]["ok"] >= 1
 
 
+class 가짜네이버:
+    """httpx.AsyncClient 대역 — 연간 실적 주소에만 답을 정해 둔다(나머지는 404). 물은 주소는 물음에"""
+
+    def __init__(self, 연간: dict, 물음: list):
+        self.연간, self.물음 = 연간, 물음
+
+    def __call__(self, **kw):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, **kw):
+        self.물음.append(url)
+        for 코드, 답 in self.연간.items():
+            if f"/stock/{코드}/finance/annual" in url:
+                if isinstance(답, Exception):
+                    raise 답
+                return 응답(답)
+        return 응답({}, 404)
+
+
+def _네이버연간(열: list[tuple[str, str]], 행: dict[str, list]) -> dict:
+    """열 — [(key, isConsensus)], 행 — {제목: 열마다 값 글}"""
+    return {"financeInfo": {
+        "trTitleList": [{"key": k, "isConsensus": c, "title": f"{k[:4]}.{k[4:]}."} for k, c in 열],
+        "rowList": [{"title": t, "columns": {k: {"value": v} for (k, _c), v in zip(열, 값들)}} for t, 값들 in 행.items()],
+    }}
+
+
+_삼성연간 = _네이버연간(
+    [("202112", "N"), ("202212", "N"), ("202312", "N"), ("202412", "N"), ("202512", "Y")],
+    {"매출액증가율": ["1.0", "2.0", "3.0", "4.0", "5.0"],          # 비율 행이 먼저 와도 금액 행을 고른다
+     "매출액": ["2,796,048", "3,022,314", "2,589,355", "3,008,709", "3,300,000"],
+     "영업이익": ["516,339", "433,766", "65,670", "327,260", "400,000"],
+     "영업이익률": ["18.47", "14.35", "2.54", "10.88", "12.0"],
+     "당기순이익(지배)": ["1", "1", "1", "1", "1"],                   # 같은 제목('당기순이익')이 있으면 그것
+     "당기순이익": ["399,074", "556,541", "154,871", "344,514", "380,000"],
+     "ROE(지배주주)": ["13.92", "17.07", "4.15", "8.98", "9.5"],
+     "부채비율": ["39.92", "26.41", "25.36", "27.93", "-"],
+     "EPS(원)": ["5,777", "8,057", "2,131", "4,950", "5,500"]})
+
+
+class Test_네이버_연간:
+    def test_해마다_매출_이익_EPS_와_마지막_해_재무(self):
+        r = sources.네이버_연간_읽기(_삼성연간)
+        assert r["rev_years"] == r["eps_years"] == [2021, 2022, 2023, 2024], "추정(2025E)은 뺀다"
+        assert r["rev_hist"] == [2_796_048e8, 3_022_314e8, 2_589_355e8, 3_008_709e8], "억원 → 원"
+        assert r["eps_hist"] == [5777.0, 8057.0, 2131.0, 4950.0]
+        assert (r["fin_year"], r["revenue"], r["op_income"], r["net_income"]) == (2024, 3_008_709e8, 327_260e8, 344_514e8)
+        assert (r["op_income_prev"], r["net_income_prev"]) == (65_670e8, 154_871e8)
+        assert (r["roe"], r["debt_ratio"]) == (8.98, 27.93), "제목 뒤에 단위가 붙어도('ROE(지배주주)')"
+
+    def test_모양이_다르거나_비었으면_빈_것(self):
+        assert sources.네이버_연간_읽기(None) == {} and sources.네이버_연간_읽기({"financeInfo": None}) == {}
+        assert sources.네이버_연간_읽기(_네이버연간([("202412", "Y")], {"매출액": ["1"]})) == {}, "추정뿐"
+        r = sources.네이버_연간_읽기(_네이버연간([("202312", "N"), ("202412", "N")],
+                                                {"매출액": ["-", "N/A"], "EPS": ["100", "-"]}))
+        assert "rev_years" not in r and r["eps_hist"] == [100.0, None] and "fin_year" not in r, "값이 없는 해는 None"
+        r = sources.네이버_연간_읽기(_네이버연간([("202412", "N")], {"매출액": ["100"], "영업이익률": ["9.0"]}))
+        assert r["revenue"] == 100e8 and "op_income" not in r, "영업이익 행이 없으면 비율 행을 금액으로 읽지 않는다"
+
+    def test_종목_응답에_연간_실적을_붙인다(self, monkeypatch):
+        from app.core import health
+        from app.services.market import price_fetcher
+        import httpx as _httpx
+
+        async def 하나(cl, code):
+            return {"per": 12.0, "price": 70000.0}
+        물음: list = []
+        monkeypatch.setattr(price_fetcher, "_fetch_naver_one", 하나)
+        monkeypatch.setattr(_httpx, "AsyncClient", 가짜네이버({"005930": _삼성연간, "000660": RuntimeError("x")}, 물음))
+        줄들 = sources.국내_네이버(["005930", "000660", "035420"])
+        assert 줄들["005930"]["rev_hist"][-1] == 3_008_709e8 and 줄들["005930"]["per"] == 12.0
+        assert 줄들["000660"] == {"per": 12.0, "at": 줄들["000660"]["at"]}, "연간 실적을 못 받아도 지표는"
+        assert sorted(u.split("/stock/")[1].split("/")[0] for u in 물음) == ["000660", "005930", "035420"]
+        assert "연간 실적 1" in {s["name"]: s for s in health.snapshot()}[sources.이름_네이버]["detail"]
+
+
 def test_네이버_종목_응답에서_스크리닝_칸만_담고_52주_고저는_이름을_바꾼다(monkeypatch):
     from app.services.market import price_fetcher
+    import httpx as _httpx
 
     async def 하나(cl, code):
         if code == "BAD":
@@ -965,6 +1379,7 @@ def test_네이버_종목_응답에서_스크리닝_칸만_담고_52주_고저�
         return {"forward_per": 9.5, "forward_eps": 7000.0, "per": None, "price": 70000.0, "name": "삼성전자",
                 "week52_high": 88000.0, "week52_low": 50000.0}
     monkeypatch.setattr(price_fetcher, "_fetch_naver_one", 하나)
+    monkeypatch.setattr(_httpx, "AsyncClient", 가짜네이버({}, []))
     줄들 = sources.국내_네이버(["005930", "BAD"])
     assert set(줄들) == {"005930"}
     줄 = 줄들["005930"]
@@ -1055,6 +1470,131 @@ def test_새로_받은_야후_줄에_빠진_칸은_지난_값으로(monkeypatch)
         assert 새["AAA"].get("per") is None, "상세가 온 줄의 빈 PER 을 지난 값으로 덮었다"
     finally:
         모듈.스크리닝_사진_비우기()
+
+
+def _표_끝까지():
+    """표 일꾼도 하나라 맡긴 차례대로 돈다"""
+    S._표일꾼.submit(lambda: None).result(timeout=10)
+
+
+class Test한종목_원천:
+    """관심종목 PC 표·종목 상세 투자지표·퀀트는 스크리닝 표를 한종목 으로 본다. 서버가 막 뜬 뒤 그쪽이 먼저 물으면
+    DB 에 남긴 원천(SEC·KRX…) 없이 표를 지어, 누가 스크리닝 화면을 열 때까지 PER·EPS 가 비었다(가짜 서버를
+    다시 띄우고 관심종목을 먼저 열었더니 PER 칸이 전부 '—'). 그 표는 원천이 새로 와도 다시 짓지 않았다"""
+
+    def test_한종목이_맡긴_첫_표도_DB_에_남긴_원천으로(self, 가짜시장, 원천켜기):
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 10.0}]
+        assert store.남기기("US_SEC", {"at": time.time(), "year": 2025, "rows": {"AAA": {
+            "eps": 4.0, "fin_years": [2024, 2025], "rev_hist": [10, 20], "eps_hist": [3.0, 4.0]}}})
+        S.비우기()                                    # 서버가 막 떴다 — 메모리에는 아무것도 없다
+        assert S.한종목("US", "AAA") is None           # 표가 없다 — 기다리게 하지 않고 뒤에서 짓게 맡긴다
+        _표_끝까지()
+        줄 = S.한종목("US", "AAA")
+        assert 줄["eps"] == 4.0 and 줄["per"] == 2.5, "DB 에 남긴 SEC 원천 없이 지었다"
+        _원천_끝까지()
+        assert "sec" not in 원천켜기, "DB 에 막 남긴 원천을 또 받았다"
+
+    def test_한종목이_맡긴_표를_지은_뒤_묵은_원천과_표의_종목으로_묻는_원천을_맡긴다(self, 가짜시장, 원천켜기):
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 10.0}]
+        assert S.한종목("US", "AAA") is None
+        _표_끝까지()
+        _원천_끝까지()
+        assert "sec" in 원천켜기 and "ko" in 원천켜기
+        assert ("px", ["AAA"]) in 원천켜기, "표가 생겼으니 1년 시세도 — 스크리닝을 아무도 안 열어도"
+
+    def test_원천이_새로_오면_있던_줄로_답하고_뒤에서_새_표를(self, 가짜시장, 원천켜기):
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 10.0}]
+        assert S.한종목("US", "AAA") is None
+        _표_끝까지()
+        _원천_끝까지()                                 # 가짜 SEC(EPS 4) 가 왔다 — 원천판이 바뀌었다
+        첫 = S._표["US"]
+        assert S.한종목("US", "AAA").get("per") is None, "있던 표로 곧바로 답한다(기다리게 하지 않는다)"
+        _표_끝까지()
+        assert S._표["US"] is not 첫 and S.한종목("US", "AAA")["per"] == 2.5
+
+    def test_오래된_표면_있던_줄로_답하고_뒤에서_새로(self, 가짜시장, monkeypatch):
+        monkeypatch.setattr(S, "원천_받기", True)
+        monkeypatch.setattr(S, "_원천_챙기기", lambda 시장: None)    # 이 검사는 원천과 상관없다
+        S._원천_읽음[0] = True
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 1.0}]
+        S.한종목("US", "AAA")
+        _표_끝까지()
+        첫 = S._표["US"]
+        assert S.한종목("US", "AAA")["price"] == 1.0
+        _표_끝까지()
+        assert S._표["US"] is 첫, "멀쩡한 표를 또 지었다"
+        monkeypatch.setattr(S, "표_수명", -1)
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 5.0}]
+        assert S.한종목("US", "AAA")["price"] == 1.0, "기다리게 하지 않는다"
+        _표_끝까지()
+        assert S._표["US"] is not 첫 and S._표["US"].한줄("AAA")["price"] == 5.0
+
+    def test_검사에서는_낡은_표여도_맡기지_않는다(self, 가짜시장, monkeypatch):
+        맡김: list = []
+        S._표["US"] = 만들기("US", [{"symbol": "AAA", "price": 1.0}], [], {})
+        monkeypatch.setattr(S, "_뒤에서_새로", lambda 시장: 맡김.append(시장))
+        monkeypatch.setattr(S, "표_수명", -1)
+        assert S.한종목("US", "AAA")["price"] == 1.0 and 맡김 == []
+        monkeypatch.setattr(S, "원천_받기", True)
+        assert S.한종목("US", "AAA")["price"] == 1.0 and 맡김 == ["US"]
+
+    def test_DB_를_읽는_동안_상태_잠금을_쥐지_않는다(self, monkeypatch):
+        """관심종목 표(/screening/rows)는 이벤트 루프에서 한종목 을 부른다 — 그 잠금을 기다리면 서버가 통째로 선다"""
+        잠금상태: list = []
+
+        def 읽기(열쇠):
+            잠금상태.append(S._상태잠금.locked())
+            return None, 0.0
+        monkeypatch.setattr(store, "읽기", 읽기)
+        S.비우기()
+        S._원천_불러오기()
+        assert 잠금상태 and not any(잠금상태)
+        assert S._원천_읽음[0] is True
+        잠금상태.clear()
+        S._원천_불러오기()
+        assert 잠금상태 == [], "한 번만 읽는다"
+
+    def test_같이_부르면_다_읽을_때까지_기다린다(self, monkeypatch):
+        """한쪽이 DB 를 읽는 동안 다른 쪽(표 일꾼·종목 상세 재무제표)이 빈 원천으로 표를 짓지 않게"""
+        import threading
+        들어감, 풀어줌 = threading.Event(), threading.Event()
+
+        def 읽기(열쇠):
+            if 열쇠 == "KR_KRX":
+                들어감.set()
+                풀어줌.wait(5)
+                return {"at": 1.0, "rows": {"AAA": {"eps": 1.0}}}, 1.0
+            return None, 0.0
+        monkeypatch.setattr(store, "읽기", 읽기)
+        S.비우기()
+        먼저 = threading.Thread(target=S._원천_불러오기)
+        먼저.start()
+        assert 들어감.wait(5)
+        본것: list = []
+        나중 = threading.Thread(target=lambda: (S._원천_불러오기(), 본것.append(S._원천.get("kr_krx") is not None)))
+        나중.start()
+        나중.join(0.3)
+        try:
+            assert 나중.is_alive(), "다 읽기 전에 빈손으로 돌아갔다"
+        finally:
+            풀어줌.set()
+            먼저.join(5)
+            나중.join(5)
+        assert 본것 == [True]
+
+    def test_원천을_못_넣어도_한_번만_읽는다(self, monkeypatch):
+        """요청마다 DB 를 다시 두드리지 않게"""
+        부름: list = []
+        monkeypatch.setattr(store, "읽기", lambda 열쇠: (부름.append(열쇠), ({"rows": {}}, 1.0))[1])
+
+        def 터짐(*a):
+            raise ValueError("망가진 원천")
+        monkeypatch.setattr(S, "_넣기", 터짐)
+        S.비우기()
+        with pytest.raises(ValueError):
+            S._원천_불러오기()
+        S._원천_불러오기()
+        assert len(부름) == 1 and S._원천_읽음[0] is True
 
 
 # ── ④ 라우트 ──────────────────────────────────────────────────

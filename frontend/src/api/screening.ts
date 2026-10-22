@@ -19,8 +19,8 @@ export const screeningApi = {
     api.delete(`/screening/presets/${id}`).then((r) => r.data),
 
   /** 종목 몇 개의 스크리닝 표 줄 — 관심종목 PC 표가 시가총액·PER·배당·52주 위치·수익률을 붙인다.
-   *  열쇠는 '시장:종목'. 서버 표가 아직 없는 시장의 종목은 빠진다 */
-  rows: (items: { symbol: string; market: string }[]): Promise<{ rows: Record<string, 관심지표> }> =>
+   *  열쇠는 '시장:종목'. 서버 표가 아직 없는 시장의 종목은 빠지고 building 이 참이다(곧 다시 묻는다) */
+  rows: (items: { symbol: string; market: string }[]): Promise<{ rows: Record<string, 관심지표>; building?: boolean }> =>
     api.post("/screening/rows", { items }).then((r) => r.data),
 };
 
@@ -61,6 +61,12 @@ export interface 스크리닝줄 {
   currency?: string;
   /** 회사 장부의 돈 — 4년 흐름(rev_hist·eps_hist)이 이 돈이다 */
   fin_currency?: string;
+  /** 서버가 4년 흐름을 지금 환율로 바꿨으면 원래 장부 돈(TSMC 'TWD') — 그때 fin_currency 는 시세 돈이다 */
+  fin_fx?: string;
+  /** EPS 흐름을 시세 1주(ADR 1주)로 못 맞춰 원주 1주의 값이면 'ordinary' */
+  eps_basis?: "ordinary";
+  /** 상장한 해(나스닥 — 미국만). 올해 상장한 종목은 첫 연간 공시 전이라 재무 칸이 빌 수 있다 */
+  ipo_year?: number;
   /** 회사 누리집 주소 — 화면이 로고를 그 아이콘으로 */
   domain?: string | null;
   fin_years?: number[];

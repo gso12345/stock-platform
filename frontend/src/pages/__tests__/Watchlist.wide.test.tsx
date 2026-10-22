@@ -167,6 +167,52 @@ describe("관심종목 — 넓은 화면", () => {
     await act(async () => { 풀기({ rows: { "KR:005930.KS": { market_cap: 425e12 } } }); });
     await waitFor(() => expect(지표글(줄찾기("삼성전자"))[0]).toBe("425조"));
   });
+
+  it("서버가 표를 짓는 중(building)이면 몇 초 뒤 다시 묻고, 다 지으면 멈춘다", async () => {
+    /* 서버가 막 뜨면 스크리닝 표가 없어 줄이 비어 온다. 예전엔 그 빈 답을 5분(staleTime) 동안 그대로 써서
+       칸이 '—' 로 남았다 */
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let 다지음 = false;
+      상태.답 = () => Promise.resolve(다지음
+        ? { rows: { "KR:005930.KS": { market_cap: 425e12 } }, building: false }
+        : { rows: {}, building: true });
+      그리기();
+      await screen.findByText("엔비디아");
+      await waitFor(() => expect(상태.물음.length).toBeGreaterThan(0));
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+      expect(지표글(줄찾기("삼성전자"))[0]).toBe("—");
+      const 전 = 상태.물음.length;
+      다지음 = true;
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_100); });
+      await waitFor(() => expect(지표글(줄찾기("삼성전자"))[0]).toBe("425조"));
+      expect(상태.물음.length).toBeGreaterThan(전);
+      // 다 지은 답(building 거짓)이 오면 더 묻지 않는다 — 5분 동안은 받아 둔 값
+      const 후 = 상태.물음.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(상태.물음.length).toBe(후);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("서버가 끝내 못 지으면 5분 뒤에는 그만 묻는다 — 열어 둔 화면이 5초마다 영영 묻지 않게", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      상태.답 = () => Promise.resolve({ rows: {}, building: true });
+      그리기();
+      await screen.findByText("엔비디아");
+      await waitFor(() => expect(상태.물음.length).toBeGreaterThan(0));
+      for (let i = 0; i < 70; i++) await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      const 그때 = 상태.물음.length;
+      expect(그때).toBeGreaterThanOrEqual(60);         // 5분 동안은 5초마다
+      expect(그때).toBeLessThanOrEqual(62);            // 처음 열쇠가 자리 잡으며 한두 번 + 60
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(상태.물음.length).toBe(그때);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("간단 줄 — 최근 조회·포트폴리오 탭·미리보기", () => {

@@ -22,6 +22,11 @@ log = logging.getLogger(__name__)
 이름_DART = "스크리닝 · 국내 재무(DART)"
 이름_SEC = "스크리닝 · 미국 재무(SEC)"
 이름_한글 = "스크리닝 · 해외 한글 이름(네이버)"
+이름_환율 = "스크리닝 · 해외 회사 장부 돈 환율(야후 시세)"
+
+#: 미국에 상장한 해외 회사(ADR·20-F)가 장부를 쓰는 돈 — 그 재무를 달러로 바꾼다(TSMC 대만 달러, ASML 유로 …)
+장부돈들 = ("TWD", "EUR", "JPY", "CNY", "KRW", "GBP", "DKK", "CHF", "INR", "BRL", "CAD", "AUD", "HKD", "SEK",
+         "NOK", "MXN", "ILS", "ZAR", "SGD", "IDR", "PHP", "THB", "CLP", "COP", "PEN", "ARS", "TRY", "PLN", "NZD")
 
 
 def _재기(시작: float) -> float:
@@ -76,6 +81,9 @@ def 국내_GitHub() -> dict | None:
     return {"at": time.time(), "ymd": 기준일, "rows": 줄들}
 
 
+NAVER_연간 = "https://m.stock.naver.com/api/stock/{코드}/finance/annual"
+
+
 async def _네이버_여럿(코드들: list[str], 동시: int) -> dict[str, dict]:
     import httpx
     from app.core.http import SSL
@@ -89,6 +97,15 @@ async def _네이버_여럿(코드들: list[str], 동시: int) -> dict[str, dict
                     d = await asyncio.wait_for(_fetch_naver_one(cl, code), timeout=15)
                 except Exception:
                     d = None
+                if d:
+                    # 연간 실적(매출·영업이익·순이익·EPS·ROE·부채비율) — DART 키가 없고 KRX 가 로그인을 요구하는
+                    # 동안 국내 재무 칸은 여기서만 온다. 못 받아도 위의 지표는 쓴다
+                    try:
+                        r = await asyncio.wait_for(cl.get(NAVER_연간.format(코드=code)), timeout=10)
+                        if r.status_code == 200:
+                            d["_연간"] = 네이버_연간_읽기(r.json())
+                    except Exception:
+                        pass
             if d:
                 out[code] = d
         await asyncio.gather(*(하나(c) for c in 코드들))
@@ -97,6 +114,67 @@ async def _네이버_여럿(코드들: list[str], 동시: int) -> dict[str, dict
 
 #: 네이버 종목 응답에서 스크리닝이 쓰는 칸
 _네이버칸 = ("forward_per", "forward_eps", "per", "pbr", "eps", "bps", "dividend_yield")
+
+
+def _네이버수(v) -> float | None:
+    """'3,008,709' · '-1,234' · '12.5' → 수. '-'·'N/A'·빈칸은 None"""
+    글 = str(v if v is not None else "").replace(",", "").strip()
+    try:
+        return float(글)
+    except ValueError:
+        return None
+
+
+def 네이버_연간_읽기(j) -> dict:
+    """네이버 종목 연간 실적(m.stock.naver.com/api/stock/{코드}/finance/annual) → 스크리닝 원천 칸 —
+    rev_years·rev_hist·eps_years·eps_hist(해마다), revenue·op_income·net_income·roe·debt_ratio(마지막 해),
+    op_income_prev·net_income_prev(그 앞 해). 금액은 억원 → 원. 추정(isConsensus 'Y')은 뺀다.
+    응답: financeInfo.trTitleList[{key: '202412', isConsensus: 'N'}] · rowList[{title: '매출액', columns: {key: {value}}}]
+    (검사 환경은 네이버에 못 나가 공개된 설명대로 읽는다 — 모양이 다르면 빈 것)"""
+    info = j.get("financeInfo") if isinstance(j, dict) else None
+    if not isinstance(info, dict):
+        return {}
+    열들 = sorted({(int(k[:4]), k) for t in info.get("trTitleList") or []
+                 if isinstance(t, dict) and str(t.get("isConsensus") or "N").upper() != "Y"
+                 and len(k := str(t.get("key") or "")) >= 4 and k[:4].isdigit()})
+    행: dict[str, dict] = {}
+    for r in info.get("rowList") or []:
+        if isinstance(r, dict) and isinstance(r.get("columns"), dict):
+            행.setdefault(str(r.get("title") or "").strip(), r["columns"])
+    if not 열들 or not 행:
+        return {}
+
+    def 줄(*머리들: str) -> list:
+        """그 제목의 행 — 같은 제목이 없으면 그 머리로 시작하는 행('EPS(원)'·'ROE(지배주주)'). 비율 행('영업이익률'·
+        '매출액증가율')은 금액 행이 아니다 — 해마다 값"""
+        for 머리 in 머리들:
+            후보 = [칸 for 제목, 칸 in 행.items() if 제목 == 머리] or [
+                칸 for 제목, 칸 in 행.items()
+                if 제목.startswith(머리) and not any(글 in 제목[len(머리):] for 글 in ("률", "율"))]
+            if 후보:
+                return [_네이버수((후보[0].get(k) or {}).get("value") if isinstance(후보[0].get(k), dict)
+                                else 후보[0].get(k)) for _y, k in 열들]
+        return [None] * len(열들)
+
+    억 = 1e8
+    해들 = [y for y, _k in 열들]
+    매출 = [None if v is None else v * 억 for v in 줄("매출액", "영업수익", "순영업수익")]
+    영업 = [None if v is None else v * 억 for v in 줄("영업이익")]
+    순익 = [None if v is None else v * 억 for v in 줄("당기순이익", "순이익")]
+    eps, roe, 부채 = 줄("EPS"), 줄("ROE"), 줄("부채비율")
+    있는해 = [i for i in range(len(해들)) if 매출[i] is not None or 순익[i] is not None]
+    out: dict = {}
+    if any(v is not None for v in 매출):
+        out["rev_years"], out["rev_hist"] = 해들, 매출
+    if any(v is not None for v in eps):
+        out["eps_years"], out["eps_hist"] = 해들, eps
+    if 있는해:
+        i = 있는해[-1]
+        out.update(fin_year=해들[i], revenue=매출[i], op_income=영업[i], net_income=순익[i], roe=roe[i],
+                   debt_ratio=부채[i])
+        if i > 0:
+            out.update(op_income_prev=영업[i - 1], net_income_prev=순익[i - 1])
+    return {k: v for k, v in out.items() if v is not None}
 
 
 def 국내_네이버(코드들: list[str], 동시: int = 4) -> dict[str, dict]:
@@ -119,10 +197,12 @@ def 국내_네이버(코드들: list[str], 동시: int = 4) -> dict[str, dict]:
             줄["high_52w"] = d["week52_high"]
         if d.get("week52_low"):
             줄["low_52w"] = d["week52_low"]
+        줄.update(d.get("_연간") or {})
         줄["at"] = 지금
         out[code] = 줄
     if out:
-        health.record_ok(이름_네이버, _재기(시작), f"{len(out)}/{len(코드들)}종목")
+        연간수 = sum(1 for d in 받음.values() if d.get("_연간"))
+        health.record_ok(이름_네이버, _재기(시작), f"{len(out)}/{len(코드들)}종목 · 연간 실적 {연간수}")
     else:
         health.record_fail(이름_네이버, f"{len(코드들)}종목 중 하나도 못 받음")
     return out
@@ -226,19 +306,47 @@ def 국내_DART(코드들: list[str]) -> dict | None:
 
 
 def 미국_SEC() -> dict | None:
-    """미국 상장사 연간 매출·순이익·영업이익·EPS·주당배당·현금흐름·설비투자·자본·부채(SEC frames)"""
+    """미국 상장사 연간 매출·순이익·영업이익·EPS·주당배당·현금흐름·설비투자·자본·부채·자산(SEC frames). 해외
+    상장사(IFRS·자기 나라 돈 — TSMC·ASML·KB금융 …)는 지금 환율로 달러로 바꿔 넣는다 — 환율을 못 받으면 달러로
+    적은 IFRS 회사(셸·HSBC …)만"""
     from app.services.fundamentals import sec_frames
     시작 = time.time()
+    받은환율 = 환율들() or {}
+    달러 = {돈: 줄["usd"] for 돈, 줄 in (받은환율.get("rows") or {}).items()}
     try:
-        줄들, 해 = sec_frames.fetch_fundamentals()
+        줄들, 해 = sec_frames.fetch_fundamentals(환율=달러)
     except Exception as e:
         health.record_fail(이름_SEC, f"{type(e).__name__}")
         return None
     if not 줄들:
         health.record_fail(이름_SEC, "못 받음(SEC 가 막혔거나 응답 모양이 바뀜)")
         return None
-    health.record_ok(이름_SEC, _재기(시작), f"{len(줄들):,}종목 · {해}년")
+    해외 = sum(1 for 줄 in 줄들.values() if 줄.get("foreign"))
+    health.record_ok(이름_SEC, _재기(시작), f"{len(줄들):,}종목(해외 {해외:,}) · {해}년"
+                     + ("" if 달러 else " · 환율을 못 받아 해외 회사는 달러로 적은 곳만"))
     return {"at": time.time(), "year": 해, "rows": 줄들}
+
+
+def 환율들(돈들: tuple[str, ...] = 장부돈들) -> dict | None:
+    """돈 1 = 달러 얼마 → {"at", "rows": {돈: {"usd": 값}}}. 야후 환율 종목(TWDUSD=X …)의 5일 종가 중 마지막(spark —
+    운영에서 야후 상세가 막혀도 되는 길). 받은 것만 — 모르는 돈의 재무는 바꾸지 않는다(틀린 순서보다 '모름' 이 낫다)"""
+    from app.services.market.price_fetcher import fetch_yf_closes
+    심볼 = {f"{d}USD=X": d for d in 돈들 if d != "USD"}
+    if not 심볼:
+        return None
+    시작 = time.time()
+    try:
+        받음 = asyncio.run(fetch_yf_closes(list(심볼), 기간="5d"))
+    except Exception as e:
+        health.record_fail(이름_환율, f"{type(e).__name__}")
+        return None
+    줄들 = {심볼[s]: {"usd": float(v[-1])} for s, v in 받음.items()
+          if s in 심볼 and v and isinstance(v[-1], (int, float)) and v[-1] > 0}
+    if not 줄들:
+        health.record_fail(이름_환율, f"{len(심볼)}개 돈 중 하나도 못 받음(spark 가 막혔거나 쉬는 중)")
+        return None
+    health.record_ok(이름_환율, _재기(시작), f"{len(줄들)}/{len(심볼)}개 돈")
+    return {"at": time.time(), "rows": 줄들}
 
 
 def 미국_한글이름() -> dict | None:

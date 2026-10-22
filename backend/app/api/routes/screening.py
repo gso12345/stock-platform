@@ -100,13 +100,19 @@ class 줄요청(BaseModel):
 @limiter.limit("60/minute")
 async def screening_rows(request: Request, req: 줄요청):
     """종목 몇 개의 스크리닝 표 줄(시가총액·PER·배당·52주 위치·수익률) — 관심종목 PC 표가 쓴다.
-    표가 아직 없으면 그 종목은 빠진다(표는 뒤에서 만든다 — 다음에 물으면 온다)"""
+    표가 아직 없으면 그 종목은 빠지고 building 이 참이다 — 표는 뒤에서 짓고, 화면이 몇 초 뒤 다시 묻는다
+    (예전엔 서버가 막 뜬 뒤 연 사람의 표가 5분 동안 '—' 였다)"""
     out: dict[str, dict] = {}
+    짓는중 = False
     for it in req.items:
+        # 찾기 전에 본다 — 찾은 뒤에 보면 그 사이 표가 다 지어져 '없는 종목' 과 '아직 못 찾은 종목' 이 섞인다
+        있었나 = 스크리닝.표가_있나(it.market)
         줄 = 스크리닝.한종목(it.market, it.symbol)
         if 줄:
             out[f"{it.market}:{it.symbol}"] = {k: 줄[k] for k in 관심칸 if k in 줄}
-    return {"rows": out}
+        elif not 있었나:
+            짓는중 = True
+    return {"rows": out, "building": 짓는중}
 
 
 @router.post("/run")

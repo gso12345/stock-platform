@@ -32,8 +32,8 @@ export interface 칸정의 {
   처음보임: boolean;
   /** 칸 제목을 눌러 세울 수 있나 — 서버가 숫자로 세우는 칸만(흐름·글 칸은 못 세운다) */
   세움?: false;
-  /** 회사 장부의 돈 단위(fin_currency)로 적힌 칸인가 — 4년 흐름 막대. TSMC 는 대만 달러다.
-   *  최근 1년 실적(매출·순이익…)은 서버가 시세 돈(currency)으로 바꿔 보낸다 — 세우고 거르는 값이라 */
+  /** 회사 장부의 돈 단위(fin_currency)로 적힌 칸인가 — 4년 흐름 막대. 서버가 환율을 알면 장부 돈(TSMC 대만 달러)을
+   *  시세 돈(달러)으로 바꿔 보내고 원래 돈을 fin_fx 에 적는다. 최근 1년 실적(매출·순이익…)도 시세 돈이다 */
   장부?: true;
   /** ETF 에서 부르는 이름 — 시가총액 자리에 서버가 순자산을 넣는다 */
   ETF이름?: string;
@@ -307,7 +307,13 @@ export function 칸글(칸: 칸정의, 줄: Record<string, any>): string {
     const 해들: number[] = Array.isArray(줄.fin_years) ? 줄.fin_years : [];
     if (!값들.some((x) => x != null)) return "—";
     const 글 = (x: number | null) => (x == null ? "—" : 칸.key === "eps_hist" ? x.toFixed(2) : 돈글(x, 통화));
-    return 값들.map((x, i) => `${해들[i] ?? ""} ${글(x)}`.trim()).join(" · ");
+    /* 서버가 장부 돈(TSMC 대만 달러)을 지금 환율로 바꿨으면 그렇다고. EPS 를 시세 1주(ADR 1주)로 못 맞췄으면
+       원주 1주의 값이라고(eps_basis) — 맞췄으면 시세와 같은 단위라 따로 적지 않는다 */
+    const 덧말: string[] = [];
+    if (typeof 줄.fin_fx === "string" && 줄.fin_fx) 덧말.push(`${줄.fin_fx}→달러, 지금 환율`);
+    if (칸.key === "eps_hist" && 줄.eps_basis === "ordinary") 덧말.push("원주 1주 기준");
+    const 바꿈 = 덧말.length ? ` (${덧말.join(" · ")})` : "";
+    return 값들.map((x, i) => `${해들[i] ?? ""} ${글(x)}`.trim()).join(" · ") + 바꿈;
   }
   if (칸.모양 === "글") return 글값(칸.key, v);
   if (v == null || typeof v !== "number" || !Number.isFinite(v)) return "—";

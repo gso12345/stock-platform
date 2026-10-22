@@ -48,10 +48,11 @@ class Test두_캐시가_따로_산다:
         assert 'ck = f"fund:' not in 본문
 
     def test_정식_경로는_공유_키를_쓴다(self):
-        """화면이 보는 값이다. 여기까지 바꾸면 아무도 못 읽는다."""
+        """화면이 보는 값이다. 여기까지 바꾸면 아무도 못 읽는다.
+        get_fundamentals 는 캐시 계층(_투자지표)에서 받은 것의 빈 칸만 스크리닝 표로 채운다 — 키는 _투자지표 에 있다"""
         import inspect
-        본문 = inspect.getsource(FS.get_fundamentals)
-        assert 'ck = f"fund:{symbol}"' in 본문
+        assert 'ck = f"fund:{symbol}"' in inspect.getsource(FS._투자지표)
+        assert "_투자지표(symbol, market" in inspect.getsource(FS.get_fundamentals)
 
 
 class Test오염이_사라졌다:

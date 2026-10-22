@@ -30,6 +30,10 @@ import { 시세열쇠 } from "@/constants/portfolioQuery";
 /* 시세를 조회할 수 있는 심볼 형식 — 서버의 검사와 같은 기준.
    '현금'·'금' 같은 자산은 시세가 없으므로 조회 대상이 아니다. */
 const PRICEABLE_SYMBOL = /^[A-Za-z0-9.\-]{1,20}$/;
+/** 서버가 스크리닝 표를 짓는 중일 때 넓은 화면 표의 지표를 다시 묻는 간격(ms) */
+const 지표_다시묻기 = 5_000;
+/** 그렇게 다시 묻는 것은 이만큼까지(5분) — 서버가 표를 끝내 못 지으면 열어 둔 화면이 5초마다 영영 묻는다 */
+const 지표_다시묻기_최대 = 60;
 
 const MARKET_TABS: TabItem[] = [
   { id: "전체", label: "전체" },
@@ -441,7 +445,7 @@ export default function Watchlist() {
   const itemsList = items;
 
   /* 넓은 화면의 표 칸(시가총액·PER·배당·52주 위치·1개월) — 스크리닝 표의 값. 휴대폰에서는 칸이 없으니
-     묻지도 않는다. 같은 종목 목록이면 5분 동안 다시 묻지 않는다 */
+     묻지도 않는다. 같은 종목 목록이면 5분 동안 다시 묻지 않는다(서버가 표를 짓는 중이면 지표_다시묻기 마다) */
   const 넓음 = use넓은화면(1024);
   const 지표열쇠 = useMemo(() => {
     const 보이는: { market: string; symbol: string }[] = [
@@ -457,6 +461,9 @@ export default function Watchlist() {
     })),
     enabled: 넓음 && 지표열쇠.length > 0,
     staleTime: 5 * 60_000,
+    /* 서버가 막 떠 스크리닝 표를 짓는 중이면 몇 초 뒤 다시 — 안 그러면 5분 동안 칸이 '—' 로 남는다 */
+    refetchInterval: (q) =>
+      (q.state.data?.building && q.state.dataUpdateCount < 지표_다시묻기_최대 ? 지표_다시묻기 : false),
   });
   const 지표들 = 지표응답?.rows;
 

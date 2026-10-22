@@ -100,5 +100,18 @@ def _스크리닝_원천_끄기():
     S.원천_받기 = False
     S.비우기()
     yield
+    S.원천_받기 = False
+    _스크리닝_일꾼_비우기(S)
     S.원천_받기 = 원래
     S.비우기()
+
+
+def _스크리닝_일꾼_비우기(S) -> None:
+    """뒤에서 도는 표·원천 일을 끝까지 기다린다 — 표를 지은 뒤 원천을 맡기고(그 원천이 오면 표를 또 짓는다) 미국 표가
+    국내 표를 맡기니(SK하이닉스 ADR) 한 번으로는 안 끝날 수 있다. 안 기다리면 다음 검사 중에 끝나 그 검사의 표·원천에 섞인다"""
+    for _ in range(3):
+        try:
+            S._표일꾼.submit(lambda: None).result(timeout=10)
+            S._원천일꾼.submit(lambda: None).result(timeout=10)
+        except Exception:
+            return

@@ -70,6 +70,13 @@ export default function 재무제표탭({
       return fmtUSD(v);
     };
 
+    /* 차트도 아래 표와 같은 값을 그린다. 표는 지표 이력(야후)에 없는 해를 재무제표 응답(국내 DART·해외 FMP, 둘 다
+       없으면 스크리닝과 같은 공시 일괄 자료)으로 채우는데(getVal), 차트는 지표 이력만 봐서 야후가 막히면 표는 찼는데
+       차트는 '연결 중...' 이거나 빈 그래프였다 */
+    const 차트줄 = (...칸들: string[]): any[] => mhYears
+      .map((y: string) => Object.fromEntries([["period", y], ...칸들.map((k) => [k, getVal(k, y)])]))
+      .filter((r: any) => 칸들.some((k) => r[k] != null));
+
     // 반응형 차트 높이 (모바일 compact, PC 표준)
     const chartH   = isMobile ? 220 : 300;
     const chartHSm = isMobile ? 185 : 240;
@@ -108,6 +115,15 @@ export default function 재무제표탭({
             {showKRW && <span className="text-2xs text-text-muted">(1USD≈{exchangeRate.toLocaleString("ko-KR")}₩)</span>}
           </button>
         </div>
+      )}
+
+      {/* 종목별 원천(야후·FMP·DART 단일)이 비어 서버가 스크리닝과 같은 공시 일괄 자료로 채운 표 — 어디 것인지 밝힌다 */}
+      {financials?.source && (
+        <p className="text-2xs text-text-muted">
+          {financials.source === "네이버"
+            ? "스크리닝과 같은 네이버 증권 연간 실적 · 연간만"
+            : `스크리닝과 같은 ${financials.source === "SEC" ? "미국 SEC" : "DART"} 공시 일괄 자료 · 연간만`}
+        </p>
       )}
 
       {/* ── 손익계산서 ── */}
@@ -300,7 +316,7 @@ export default function 재무제표탭({
               { key:"current_ratio", label:"유동비율",     color:"#10b981", pct:false },
             ];
             const curr = BASIC_METRICS.find(m => m.key === selectedMetric) ?? BASIC_METRICS[0];
-            const chartData = mh.filter((r:any) => r[selectedMetric] != null);
+            const chartData = 차트줄(selectedMetric);
             return (<>
               {/* 지표 선택 버튼 */}
               <div className="flex flex-wrap gap-1">
@@ -361,7 +377,7 @@ export default function 재무제표탭({
             {mhYears.length > 0 && (
               <차트틀 height={chartHSm}>
                 {(R) => (
-                  <R.BarChart data={mh.filter((r:any)=>r.op_margin||r.net_margin)} margin={chartProps.margin}>
+                  <R.BarChart data={차트줄("gross_margin", "op_margin", "net_margin")} margin={chartProps.margin}>
                     <R.CartesianGrid {...chartProps.cartesianGridProps}/>
                     <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                     <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${v}%`}/>
@@ -412,7 +428,7 @@ export default function 재무제표탭({
             {mhYears.length > 0 && (
               <차트틀 height={chartHSm}>
                 {(R) => (
-                  <R.BarChart data={mh.filter((r:any)=>r.debt_ratio||r.current_ratio)} margin={chartProps.margin}>
+                  <R.BarChart data={차트줄("current_ratio", "quick_ratio", "debt_ratio")} margin={chartProps.margin}>
                     <R.CartesianGrid {...chartProps.cartesianGridProps}/>
                     <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                     <R.YAxis yAxisId="ratio" {...chartProps.yAxisProps} tickFormatter={(v:number)=>`${(v*100).toFixed(0)}%`}/>
@@ -445,12 +461,12 @@ export default function 재무제표탭({
           </div>
           <div className="p-4 flex flex-col gap-4">
             {/* 현금흐름 바 차트 */}
-            {mh.some((r:any) => r.operating_cf != null) && (
+            {차트줄("operating_cf").length > 0 && (
               <div>
                 <p className="text-sm text-text-muted font-semibold mb-2">영업 / 투자 / 재무 현금흐름</p>
                 <차트틀 height={chartH}>
                   {(R) => (
-                    <R.BarChart data={mh.filter((r:any)=>r.operating_cf!=null)} margin={chartProps.margin}>
+                    <R.BarChart data={차트줄("operating_cf", "investing_cf", "financing_cf").filter((r:any)=>r.operating_cf!=null)} margin={chartProps.margin}>
                       <R.CartesianGrid {...chartProps.cartesianGridProps}/>
                       <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                       <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>
@@ -465,12 +481,12 @@ export default function 재무제표탭({
               </div>
             )}
             {/* FCF 차트 */}
-            {mh.some((r:any) => r.free_cf != null) && (
+            {차트줄("free_cf").length > 0 && (
               <div>
                 <p className="text-sm text-text-muted font-semibold mb-2">잉여현금흐름 (FCF)</p>
                 <차트틀 height={chartHSm}>
                   {(R) => (
-                    <R.BarChart data={mh.filter((r:any)=>r.free_cf!=null)} margin={chartProps.margin}>
+                    <R.BarChart data={차트줄("free_cf")} margin={chartProps.margin}>
                       <R.CartesianGrid {...chartProps.cartesianGridProps}/>
                       <R.XAxis dataKey="period" {...chartProps.xAxisProps} tickFormatter={(v:string)=>v.slice(0,finPeriod==="quarterly"?7:4)}/>
                       <R.YAxis {...chartProps.yAxisProps} tickFormatter={(v:number)=>{const a=Math.abs(v);return isKR?(a>=1e12?(v/1e12).toFixed(0)+"조":a>=1e8?(v/1e8).toFixed(0)+"억":String(v)):(a>=1e9?(v/1e9).toFixed(0)+"B":a>=1e6?(v/1e6).toFixed(0)+"M":String(v));}}/>

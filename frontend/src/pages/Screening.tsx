@@ -75,6 +75,18 @@ function 칸읽기(): string[] {
   return 처음칸;
 }
 
+/** 올해 상장한 종목 표시 — 첫 연간 공시(10-K·20-F) 전이라 매출·이익·PER 칸이 비는 까닭(사용자: "스크리닝 지표가
+ *  아예 안나오는 종목이 있어(… 스페이스x …)"). 지난해 상장한 종목은 연간 공시가 나와 있어 붙이지 않는다 */
+export function 새상장표({ 상장해, 올해 = new Date().getFullYear() }: { 상장해?: unknown; 올해?: number }) {
+  if (상장해 !== 올해) return null;
+  return (
+    <span className="ml-1 px-1 rounded bg-accent-blue/10 text-accent-blue font-sans text-2xs"
+      title={`${올해}년 상장 — 첫 연간 공시(10-K·20-F) 전이라 매출·이익·PER 같은 재무 지표가 아직 비어 있을 수 있어요`}>
+      올해 상장
+    </span>
+  );
+}
+
 export default function Screening() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -421,7 +433,8 @@ export default function Screening() {
                     return (
                       <tr key={`${s.market}:${s.symbol}`} onMouseEnter={() => 미리받기(s)} className={표줄}>
                         <td className={붙박이칸}>
-                          <종목칸 순위={보인앞 + i + 1} symbol={s.symbol} name={이름} market={s.market} domain={s.domain} />
+                          <종목칸 순위={보인앞 + i + 1} symbol={s.symbol} name={이름} market={s.market} domain={s.domain}
+                            덧붙임={<새상장표 상장해={s.ipo_year} />} />
                         </td>
                         {보일칸.map((c) => (
                           <td key={c.key} className={표칸}>
@@ -447,7 +460,7 @@ export default function Screening() {
       {흐름칸있음 && (
         <p className="px-1 text-2xs text-text-muted break-keep">
           매출·EPS 흐름은 최근 4년 연간 실적, 성장률은 그 3년 연평균이에요. 서버가 조금씩 받아 채워서 아직 빈 종목도 있어요.
-          {시장 === "US" && " 해외 회사의 흐름은 그 회사 장부의 돈 단위예요(TSMC 는 대만 달러)."}
+          {시장 === "US" && " 해외 회사(TSMC 등)의 흐름은 장부의 돈(대만 달러 등)을 지금 환율로 달러로 바꾼 값이에요. EPS 가 ADR 1주가 아닌 원주 1주 기준이면 막대 설명에 적어요."}
         </p>
       )}
 

@@ -40,8 +40,9 @@ const ITEMS = [
   줄(4, 2, "AAPL", "US", "애플", 3, 230),
   줄(5, 2, "MSFT", "US", "마이크로소프트", 1, 420),
 ];
-/* 시험마다 보유를 바꿔 끼운다(아래 mock 이 그릴 때 읽는다) */
+/* 시험마다 보유·포트폴리오를 바꿔 끼운다(아래 mock 이 그릴 때 읽는다) */
 let 보유 = ITEMS;
+let 포트폴리오들 = PORTFOLIOS;
 const PRICES = [
   { symbol: "005930", price: 70_000, change_rate: 0, currency: "KRW" },
   { symbol: "000660", price: 200_000, change_rate: 0, currency: "KRW" },
@@ -52,9 +53,10 @@ const PRICES = [
 
 vi.mock("@/api/stocks", () => ({
   portfolioApi: {
-    getPortfolios: vi.fn(() => Promise.resolve(PORTFOLIOS)),
+    getPortfolios: vi.fn(() => Promise.resolve(포트폴리오들)),
     getItems: vi.fn(() => Promise.resolve(보유)),
     getItemsWithPrices: vi.fn(() => Promise.resolve({ items: 보유, prices: [] })),
+    getHistory: vi.fn(() => Promise.resolve({ points: [], days: 90 })),
     addItem: vi.fn(), updateItem: vi.fn(), deleteItem: vi.fn(),
     createPortfolio: vi.fn(), renamePortfolio: vi.fn(),
     deletePortfolio: vi.fn(), reorderPortfolios: vi.fn(),
@@ -64,6 +66,7 @@ vi.mock("@/api/stocks", () => ({
   dashboardApi: {
     getExchangeRate: vi.fn(() => Promise.resolve({ value: 1400 })),
     getUSRates: vi.fn(() => Promise.resolve([])),
+    getIndexOHLCV: vi.fn(() => Promise.resolve([])),
   },
 }));
 
@@ -90,7 +93,8 @@ function 띄우기() {
 const class들 = (el: Element | null) => new Set((el?.className as string ?? "").split(/\s+/));
 
 describe("내 자산 — PC 배치 (휴대폰 모양은 그대로)", () => {
-  beforeEach(() => { vi.clearAllMocks(); 보유 = ITEMS; });
+  /* 고른 포트폴리오·탭은 이 기기에 남는다 — 비우지 않으면 앞 검사가 고른 포트폴리오로 뒤 검사가 뜬다 */
+  beforeEach(() => { vi.clearAllMocks(); 보유 = ITEMS; 포트폴리오들 = PORTFOLIOS; localStorage.clear(); });
 
   /* 국내 70만+40만+19만 = 129만, 해외 96.6만+58.8만 = 155.4만(1,400원) — 합 284.4만 */
   const 구성읽기 = async () => {
@@ -191,6 +195,69 @@ describe("내 자산 — PC 배치 (휴대폰 모양은 그대로)", () => {
     expect(c.has("flex-col")).toBe(true);            // 휴대폰 — 예전처럼 한 줄
     expect(c.has("lg:grid-cols-2")).toBe(true);
     expect(목록.children.length).toBe(5);
+  });
+
+  it("추이: 아주 넓은 화면(xl)에서는 그래프 | 수익 기여 두 칸 (휴대폰은 위아래 그대로)", async () => {
+    const user = userEvent.setup();
+    띄우기();
+    await user.click(await screen.findByRole("tab", { name: "추이" }));
+    const 기여 = await screen.findByText("수익 기여");
+    const 두칸 = 기여.closest("[class*='xl:grid-cols-']") as HTMLElement;
+    const c = class들(두칸);
+    expect(c.has("flex")).toBe(true);
+    expect(c.has("flex-col")).toBe(true);            // 휴대폰 — 예전처럼 위아래
+    expect(c.has("xl:grid")).toBe(true);
+    expect(c.has("xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]")).toBe(true);
+    // 그래프 카드 · 수익 기여 카드 두 아이 — 하나가 더 끼면 줄이 밀린다
+    await screen.findByText("아직 그릴 기록이 없어요");
+    expect(두칸.children.length).toBe(2);
+    expect(within(두칸.children[0] as HTMLElement).getByText("아직 그릴 기록이 없어요")).toBeTruthy();
+    expect(within(두칸.children[1] as HTMLElement).getByText("수익 기여")).toBeTruthy();
+  });
+
+  it("비중: 아주 넓은 화면(xl)에서는 고른 기준 옆에 다른 기준 — '크게 보기' 로 갈아 끼운다", async () => {
+    const user = userEvent.setup();
+    띄우기();
+    await user.click(await screen.findByRole("tab", { name: "비중" }));
+    await screen.findByText("MSFT");
+    const 옆 = () => screen.getByRole("complementary", { name: "다른 기준으로 본 비중" });
+    const 판들 = () => within(옆()).getAllByRole("region").map((r) => r.getAttribute("aria-label"));
+    // 휴대폰·좁은 PC 에서는 숨기고 xl 에서만
+    expect(class들(옆()).has("hidden")).toBe(true);
+    expect(class들(옆()).has("xl:flex")).toBe(true);
+    // 종목별을 보고 있으니 옆에는 나머지 둘(전체 보기에 포트폴리오가 둘이라 포트폴리오별도)
+    expect(판들()).toEqual(["자산유형별", "포트폴리오별"]);
+    expect(within(옆()).getByRole("img", { name: /^자산유형별/ }).getAttribute("aria-label"))
+      .toBe("자산유형별 해외주식 55%, 국내주식 45%");
+    expect(within(옆()).getByRole("img", { name: /^포트폴리오별/ }).getAttribute("aria-label"))
+      .toBe("포트폴리오별 해외 주식 55%, 국내 연금 45%");
+    await user.click(within(within(옆()).getByRole("region", { name: "자산유형별" }))
+      .getByRole("button", { name: "크게 보기 ›" }));
+    await waitFor(() => expect(판들()).toEqual(["종목별", "포트폴리오별"]));
+    // 위 칩도 따라 바뀐다 — 고른 기준이 정말 바뀌었다
+    expect(screen.getByRole("button", { name: "자산유형별" }).className).toContain("border-accent-blue");
+  });
+
+  it("비중: 한 포트폴리오만 볼 때는 옆에 포트폴리오별이 없다(위 칩과 같은 조건)", async () => {
+    const user = userEvent.setup();
+    띄우기();
+    await user.click(await screen.findByRole("button", { name: /^국내 연금/ }));
+    await user.click(await screen.findByRole("tab", { name: "비중" }));
+    await screen.findAllByText("삼성전자");
+    await waitFor(() => expect(within(screen.getByRole("complementary", { name: "다른 기준으로 본 비중" }))
+      .getAllByRole("region").map((r) => r.getAttribute("aria-label"))).toEqual(["자산유형별"]));
+  });
+
+  it("비중: 포트폴리오가 하나뿐이면 전체 보기에서도 포트폴리오별이 없다 — 100% 한 칸짜리 막대는 말하는 게 없다", async () => {
+    포트폴리오들 = [PORTFOLIOS[0]];
+    보유 = ITEMS.filter((i) => i.portfolioId === 1);
+    const user = userEvent.setup();
+    띄우기();
+    await user.click(await screen.findByRole("tab", { name: "비중" }));
+    await screen.findAllByText("삼성전자");
+    await waitFor(() => expect(within(screen.getByRole("complementary", { name: "다른 기준으로 본 비중" }))
+      .getAllByRole("region").map((r) => r.getAttribute("aria-label"))).toEqual(["자산유형별"]));
+    expect(screen.queryByRole("button", { name: "포트폴리오별" })).toBeNull();   // 위 칩도 없다 — 같은 조건
   });
 
   it("비중: 원그래프는 넓은 화면에서만 크게 (휴대폰 180px 그대로)", async () => {

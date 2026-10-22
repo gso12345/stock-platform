@@ -33,7 +33,7 @@ from app.services.screening.names_ko import 국내업종_어림, 나라_이름, 
          "currency", "fin_currency", "domain")
 목록칸 = ("fin_years", "rev_hist", "eps_hist")
 #: 화면에 정수로 보내는 칸(예전 줄과 같게)
-_정수칸 = frozenset({"volume", "market_cap"})
+_정수칸 = frozenset({"volume", "market_cap", "ipo_year"})
 #: 원천(부채총계 ÷ 자본총계)을 야후 줄보다 먼저 쓰는 칸
 _원천먼저 = frozenset({"debt_ratio"})
 #: 4년 흐름 — 해 수와, 원천에서 낸 흐름의 돈(SEC 는 달러로 적은 값만 받고, DART·KRX 는 원이다)
@@ -42,7 +42,7 @@ _흐름돈 = {"US": "USD", "KR": "KRW"}
 #: 퀀트(성장 점수)가 쓰는 전년 대비 성장률 — 화면에는 안 보내는 안쪽 칸
 성장칸 = ("_rev_yoy", "_ni_yoy", "_op_yoy")
 #: 원천의 순이익·영업이익 칸 이름(지난해 값은 끝에 _prev)
-_재무칸 = {"US": ("us_sec", "earnings", "op_income"), "KR": ("kr_dart", "net_income", "op_income")}
+_재무칸 = {"US": (("us_sec",), "earnings", "op_income"), "KR": (("kr_dart", "kr_naver"), "net_income", "op_income")}
 
 #: 나스닥 업종(영문) → 한글. 야후 업종은 yf_service._SECTOR_KO — 두 갈래가 한 표에 섞여도
 #: 같은 업종은 같은 이름이 되게 맞춘다(안 그러면 고르기 목록에 '금융' 과 '금융서비스' 가 따로 선다)
@@ -119,9 +119,11 @@ _흐름목록 = {
     "us_sec": (("fin_years", "rev_hist", "rev"), ("fin_years", "eps_hist", "eps")),
     "kr_dart": (("rev_years", "rev_hist", "rev"),),
     "kr_krx": (("eps_years", "eps_hist", "eps"),),
+    # 네이버 연간 실적 — DART 키가 없고 KRX 가 로그인을 요구하는 동안 국내 흐름은 여기서 온다
+    "kr_naver": (("rev_years", "rev_hist", "rev"), ("eps_years", "eps_hist", "eps")),
 }
-#: 4년 흐름을 내는 원천 — 시장 → (매출 원천, EPS 원천)
-_흐름원천 = {"US": ("us_sec", "us_sec"), "KR": ("kr_dart", "kr_krx")}
+#: 4년 흐름을 내는 원천 — 시장 → (매출 원천들, EPS 원천들). 앞 원천에 없는 종목·해만 뒤 원천으로
+_흐름원천 = {"US": (("us_sec",), ("us_sec",)), "KR": (("kr_dart", "kr_naver"), ("kr_krx", "kr_naver"))}
 
 
 def 원천표(칸: str, 줄들: dict) -> pd.DataFrame | None:
@@ -155,6 +157,31 @@ def _해마다(df: pd.DataFrame | None, 머리: str, idx: pd.Index) -> dict[int,
             for c in df.columns if isinstance(c, str) and c.startswith(머리 + "@")}
 
 
+def _국내재무(df: pd.DataFrame | None, idx: pd.Index, 시총: pd.Series, 비율칸: bool = False) -> dict:
+    """국내 재무 원천 한 벌(DART · 네이버 연간 실적) → 칸들. 네이버는 ROE·부채비율을 낸 값으로 준다(비율칸)"""
+    if df is None:
+        return {}
+    매출, 순이익, 자본 = _수(df, "revenue", idx), _수(df, "net_income", idx), _수(df, "equity", idx)
+    return {
+        "revenue": 매출, "earnings": 순이익,
+        "operating_margin": _나눔(_수(df, "op_income", idx), 매출, 100),
+        "profit_margin": _나눔(순이익, 매출, 100),
+        "roe": _수(df, "roe", idx) if 비율칸 else _나눔(순이익, 자본, 100),
+        "roa": None if 비율칸 else _나눔(순이익, _수(df, "assets", idx), 100),
+        "debt_ratio": _수(df, "debt_ratio", idx) if 비율칸 else _나눔(_수(df, "liabilities", idx), 자본, 100),
+        "ps_ratio": _나눔(시총, 매출),
+    }
+
+
+def _해마다_합침(원천: dict, 원들: tuple[str, ...], 머리: str, idx: pd.Index) -> dict[int, np.ndarray]:
+    """여러 원천의 해마다 값 — 앞 원천에 없는 종목·해만 뒤 원천으로(DART 에 세 해, 네이버에 네 해면 네 해)"""
+    합: dict[int, np.ndarray] = {}
+    for 원 in 원들:
+        for y, a in _해마다(원천.get(원), 머리, idx).items():
+            합[y] = a if y not in 합 else np.where(np.isnan(합[y]), a, 합[y])
+    return 합
+
+
 def 원천_흐름(시장: str, idx: pd.Index, 원천: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """원천에서 낸 4년 흐름 → (끝해[줄], 매출[줄, 4], EPS[줄, 4]). 네 해는 끝해(그 종목에 값이 있는 마지막
     해)에서 거슬러 이어진 해이고 오래된 해부터, 모르면 NaN. 값이 하나도 없는 종목은 끝해가 NaN
@@ -164,8 +191,8 @@ def 원천_흐름(시장: str, idx: pd.Index, 원천: dict) -> tuple[np.ndarray,
     빈 = (np.full(n, np.nan), np.full((n, 흐름해수), np.nan), np.full((n, 흐름해수), np.nan))
     if 시장 not in _흐름원천:
         return 빈
-    매출원, eps원 = _흐름원천[시장]
-    매출, eps = _해마다(원천.get(매출원), "rev", idx), _해마다(원천.get(eps원), "eps", idx)
+    매출원들, eps원들 = _흐름원천[시장]
+    매출, eps = _해마다_합침(원천, 매출원들, "rev", idx), _해마다_합침(원천, eps원들, "eps", idx)
     if not 매출 and not eps:
         return 빈
     # 앞에 빈 해를 붙여 둔다 — 어느 종목이든 끝해에서 거슬러 네 칸이 늘 들어간다
@@ -218,6 +245,145 @@ def _흐름_엮기(끝: int, r: dict) -> dict:
             "rev_hist": 매출[시작:], "eps_hist": eps[시작:]}
 
 
+def _흐름_달러로(칸들: dict, idx: pd.Index, 환율표: pd.DataFrame | None) -> None:
+    """야후 줄의 4년 흐름이 장부 돈(TSMC 대만 달러)이면 지금 환율로 시세 돈(달러)으로 바꾼다 — 사용자: "스크리닝
+    TSMC가 대만달러로 나와". 해마다 그해 환율이 아니라 지금 환율로 바꾸므로 성장률은 장부 돈의 성장률 그대로다.
+    환율을 모르는 돈은 그대로 둔다(fin_currency 도 장부 돈 그대로 — 화면이 그 돈으로 적는다). 바꾼 줄은 fin_fx 에
+    원래 돈을 남긴다(화면 설명)"""
+    장부 = 칸들.get("fin_currency")
+    if 장부 is None or 환율표 is None or "usd" not in 환율표.columns:
+        return
+    달러 = pd.to_numeric(환율표["usd"], errors="coerce").to_dict()
+    시세 = 칸들.get("currency")
+    시세돈 = 시세.reindex(idx).tolist() if 시세 is not None else [None] * len(idx)
+    바꿈: dict[str, str] = {}
+    for s, 장, 시 in zip(idx, 장부.reindex(idx).tolist(), 시세돈):
+        r = 달러.get(장) if isinstance(장, str) and 장 != "USD" else None
+        if r is None or not (r > 0) or (isinstance(시, str) and 시 != "USD"):
+            continue
+        for 칸, 자리 in (("rev_hist", None), ("eps_hist", 2)):
+            v = _목록(칸들[칸].get(s)) if 칸 in 칸들 else None
+            if v is not None:
+                칸들[칸].at[s] = [None if not isinstance(x, (int, float)) or not math.isfinite(x)
+                                 else (int(round(x * r)) if 자리 is None else round(x * r, 자리)) for x in v]
+                바꿈[s] = 장
+    if 바꿈:
+        칸들["fin_currency"] = 장부.copy()
+        칸들["fin_currency"].loc[list(바꿈)] = "USD"
+        칸들["fin_fx"] = pd.Series(바꿈, dtype=object).reindex(idx)
+        # 야후의 해마다 EPS 는 원주 1주의 값이다(ADR 1주와 다를 수 있다) — 시세 1주로 맞출 근거가 없어 그대로 두고 적는다
+        칸들["eps_basis"] = pd.Series({s: "ordinary" for s in 바꿈}, dtype=object).reindex(idx)
+
+
+def _원천_흐름_설명(칸들: dict, idx: pd.Index, 원천줄: pd.Series, sec: pd.DataFrame | None,
+                 배율: pd.Series | None) -> None:
+    """원천(SEC)의 흐름을 쓰는 줄의 설명 칸 — 해외 상장사의 값을 달러로 바꿨으면 원래 돈(fin_fx), EPS 흐름을 시세
+    1주로 못 맞췄으면(시가총액·순이익을 몰라) 원주 1주 기준(eps_basis). 야후 흐름에서 온 설명은 지운다"""
+    원래돈 = _글자(sec, "fin_fx", idx)
+    외국 = _수(sec, "foreign", idx)
+    if 원래돈 is not None or "fin_fx" in 칸들:
+        있던 = 칸들.get("fin_fx", pd.Series(None, index=idx, dtype=object))
+        새것 = 원래돈 if 원래돈 is not None else pd.Series(None, index=idx, dtype=object)
+        칸들["fin_fx"] = 있던.astype(object).where(~원천줄, 새것)
+    if 외국 is not None or "eps_basis" in 칸들:
+        맞춤 = 배율.notna() if 배율 is not None else pd.Series(False, index=idx)
+        못맞춤 = 원천줄 & (외국.fillna(0) > 0 if 외국 is not None else False) & ~맞춤
+        있던 = 칸들.get("eps_basis", pd.Series(None, index=idx, dtype=object)).astype(object)
+        칸들["eps_basis"] = 있던.where(~원천줄, None).where(~못맞춤, "ordinary")
+
+
+#: 시세 ÷ 장부 EPS 가 시가총액 ÷ 순이익과 이만큼(배) 넘게 어긋나면 그 EPS 는 시세 1주의 것이 아니다
+EPS_어긋남 = 3.0
+
+#: 미국에 상장한 국내 회사 ADR 중 SEC 연간 공시(20-F)가 아직 없는 것 → (국내 종목, ADR 1주가 원주 몇 주인가).
+#: SK하이닉스는 2026년 7월 나스닥에 상장했다(ADR 10주 = 원주 1주) — 첫 20-F 가 나오면 SEC 값이 먼저다
+국내_ADR: dict[str, tuple[str, float]] = {"SKHY": ("000660", 0.1)}
+#: 원주 줄에서 그대로 가져오는 칸 — 비율이라 돈 단위·주식 수와 상관없다
+_원주_비율칸 = ("per", "forward_per", "pbr", "ps_ratio", "peg_ratio", "ev_ebitda", "roe", "roa", "operating_margin",
+            "profit_margin", "dividend_yield", "debt_ratio", "current_ratio", "rev_cagr_3y", "eps_cagr_3y",
+            "forward_eps_growth", "_rev_yoy", "_ni_yoy", "_op_yoy")
+_원주_돈칸 = ("revenue", "earnings", "fcf", "net_debt")
+_원주_주당칸 = ("eps", "forward_eps", "dividend_rate")
+
+
+def _국내원주로(칸들: dict, idx: pd.Index, 원주줄들: dict, 환율표: pd.DataFrame | None) -> None:
+    """국내 회사 ADR(SEC 공시가 아직 없다)의 빈 칸을 국내 원주 줄로 — 사용자: "스크리닝 지표가 아예 안나오는 종목이
+    있어(… SK하이닉스 ADR …)". 비율(PER·PBR·ROE …)은 그대로, 원화 금액은 지금 환율로 달러로, 주당 값은 ADR 1주로.
+    원화 환율을 모르면 비율만"""
+    원화 = None
+    if 환율표 is not None and "usd" in 환율표.columns and "KRW" in 환율표.index:
+        v = pd.to_numeric(환율표["usd"], errors="coerce").get("KRW")
+        원화 = float(v) if v is not None and v == v and v > 0 else None
+
+    def 칸(이름: str, 글: bool = False) -> pd.Series:
+        if 이름 not in 칸들:
+            칸들[이름] = pd.Series(None if 글 else np.nan, index=idx, dtype=object if 글 else float)
+        elif 글:
+            칸들[이름] = 칸들[이름].astype(object)
+        return 칸들[이름]
+
+    def 넣기(이름: str, 값, 글: bool = False) -> None:
+        if 값 is None or (isinstance(값, float) and not math.isfinite(값)):
+            return
+        s = 칸(이름, 글)
+        if pd.isna(s.get(adr)):
+            s.at[adr] = 값
+
+    for adr, 줄 in 원주줄들.items():
+        if adr not in idx or adr not in 국내_ADR or not 줄:
+            continue
+        비율 = 국내_ADR[adr][1]
+        for 이름 in _원주_비율칸:
+            넣기(이름, 줄.get(이름))
+        for 이름 in ("sector", "industry"):
+            넣기(이름, 줄.get(이름), 글=True)
+        if 원화 is None:
+            continue
+        for 이름 in _원주_돈칸:
+            v = 줄.get(이름)
+            넣기(이름, None if v is None else round(v * 원화, 2))
+        for 이름 in _원주_주당칸:
+            v = 줄.get(이름)
+            넣기(이름, None if v is None else round(v * 원화 * 비율, 4))
+        # 흐름 — 야후·SEC 흐름이 없을 때만
+        if _목록(줄.get("fin_years")) and not _목록(칸("fin_years", 글=True).get(adr)) \
+                and not (isinstance(칸들.get("_흐름끝"), pd.Series) and pd.notna(칸들["_흐름끝"].get(adr))):
+            칸("fin_years", 글=True).at[adr] = list(줄["fin_years"])
+            칸("rev_hist", 글=True).at[adr] = [None if x is None else int(round(x * 원화)) for x in 줄.get("rev_hist") or []]
+            칸("eps_hist", 글=True).at[adr] = [None if x is None else round(x * 원화 * 비율, 2)
+                                             for x in 줄.get("eps_hist") or []]
+            칸("fin_currency", 글=True).at[adr] = "USD"
+            칸("fin_fx", 글=True).at[adr] = "KRW"
+
+
+def _시세주_EPS(sec: pd.DataFrame, idx: pd.Index, 가격: pd.Series, 시총: pd.Series,
+               순이익: pd.Series | None, eps: pd.Series | None) -> tuple[pd.Series, pd.Series]:
+    """시세 1주의 EPS 와, 장부 EPS(흐름)를 거기에 맞출 배율 → (EPS, 배율 — 맞출 필요 없으면 NaN).
+
+    장부 EPS 가 시세 1주의 것이 아닌 회사가 있다 — 사용자: "스크리닝 지표가 아예 안나오는 종목이 있어(알파벳, 버크셔 …)"
+      · 알파벳: A·B·C 주마다 따로 적어(SEC frames 에 없다) EPS·PER 이 비었다
+      · 버크셔 B: SEC 의 EPS 는 A 주 1주의 값이라 시세(B 주) ÷ EPS 가 0.01 이 된다
+      · 해외 상장사(TSMC): 장부 EPS 는 원주 1주의 값인데 시세는 ADR(원주 5주) 1주다
+    이런 회사는 순이익 × 시세 ÷ 시가총액(= 시세 1주의 몫)을 쓴다 — PER 은 시가총액 ÷ 순이익과 같아진다.
+    시가총액이 회사 전체의 값이라 주식 종류·ADR 비율과 상관없다"""
+    n = pd.Series(np.nan, index=idx)
+    if 순이익 is None:
+        return (eps if eps is not None else n), n
+    몫 = (가격 * 순이익 / 시총.where(시총 > 0)).round(4)
+    if eps is None:
+        return 몫, n
+    외국 = _수(sec, "foreign", idx)
+    외국 = 외국.fillna(0) > 0 if 외국 is not None else pd.Series(False, index=idx)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        견줌 = eps / 몫
+    # 부호가 다르면(우선주 배당을 떼고 보통주 몫이 적자가 된 회사) 장부 EPS 가 맞다 — 크기만 견준다
+    어긋남 = (견줌 > EPS_어긋남) | ((견줌 > 0) & (견줌 < 1 / EPS_어긋남))
+    믿음 = eps.notna() & ~외국 & ~어긋남.fillna(False)
+    쓸것 = eps.where(믿음, 몫)
+    배율 = (몫 / eps).where(~믿음 & 몫.notna() & eps.notna() & (eps != 0) & (np.sign(몫) == np.sign(eps)))
+    return 쓸것, 배율
+
+
 def 원천에서_낸값(시장: str, idx: pd.Index, 가격: pd.Series, 시총: pd.Series, 원천: dict) -> dict:
     """원천(받은 날 기준)에서 지금 가격으로 다시 낸 칸들 → {칸: Series}"""
     낸: dict[str, pd.Series] = {}
@@ -257,29 +423,27 @@ def 원천에서_낸값(시장: str, idx: pd.Index, 가격: pd.Series, 시총: p
         둠("low_52w", 저점)
         둠("pct_from_52w_high", ((가격 / 고점.where(고점 > 0) - 1) * 100).round(2))
         둠("pct_from_52w_low", ((가격 / 저점.where(저점 > 0) - 1) * 100).round(2))
-        if dart is not None:
-            매출, 순이익 = _수(dart, "revenue", idx), _수(dart, "net_income", idx)
-            자본 = _수(dart, "equity", idx)
-            둠("revenue", 매출)
-            둠("earnings", 순이익)
-            둠("operating_margin", _나눔(_수(dart, "op_income", idx), 매출, 100))
-            둠("profit_margin", _나눔(순이익, 매출, 100))
-            둠("roe", _나눔(순이익, 자본, 100))
-            둠("roa", _나눔(순이익, _수(dart, "assets", idx), 100))
-            둠("debt_ratio", _나눔(_수(dart, "liabilities", idx), 자본, 100))
-            둠("ps_ratio", _나눔(시총, 매출))
+        # 재무 — DART(연결 재무제표) → 네이버 연간 실적(DART 키가 없을 때 국내 재무는 여기서만 온다). 칸마다 한
+        # 원천의 값끼리 낸다(DART 매출 ÷ 네이버 영업이익 처럼 섞지 않는다)
+        재무들 = [_국내재무(dart, idx, 시총), _국내재무(네이버, idx, 시총, 비율칸=True)]
+        for 칸 in ("revenue", "earnings", "operating_margin", "profit_margin", "roe", "roa", "debt_ratio", "ps_ratio"):
+            둠(칸, *(재무.get(칸) for 재무 in 재무들))
     elif 시장 == "US":
         sec = 원천.get("us_sec")
         if sec is not None:
             매출, 순이익 = _수(sec, "revenue", idx), _수(sec, "earnings", idx)
             자본, eps, dps = _수(sec, "equity", idx), _수(sec, "eps", idx), _수(sec, "dps", idx)
+            시세eps, 배율 = _시세주_EPS(sec, idx, 가격, 시총, 순이익, eps)
             둠("revenue", 매출)
             둠("earnings", 순이익)
-            둠("eps", eps)
-            둠("per", _나눔(가격, eps))
+            둠("eps", 시세eps)
+            둠("per", _나눔(가격, 시세eps))
+            if 배율.notna().any():
+                낸["_eps배율"] = 배율
             둠("pbr", _나눔(시총, 자본))
             둠("ps_ratio", _나눔(시총, 매출))
             둠("roe", _나눔(순이익, 자본, 100))
+            둠("roa", _나눔(순이익, _수(sec, "assets", idx), 100))
             둠("operating_margin", _나눔(_수(sec, "op_income", idx), 매출, 100))
             둠("profit_margin", _나눔(순이익, 매출, 100))
             둠("debt_ratio", _나눔(_수(sec, "liabilities", idx), 자본, 100))
@@ -415,12 +579,23 @@ def 만들기(시장: str, 기초: list[dict], 풍부: list[dict], 원천: dict 
     for 칸 in ("price", "change_rate", "volume", "market_cap"):
         칸들[칸] = _먼저(idx, _수(풍, 칸, idx), _수(기, 칸, idx))
     가격, 시총 = 칸들["price"], 칸들["market_cap"]
+    # 상장한 해(나스닥) — 화면이 새로 상장한 종목에 '첫 연간 공시 전' 을 알린다(재무 칸이 비는 까닭)
+    if (상장해 := _수(기, "ipo_year", idx)) is not None and 상장해.notna().any():
+        칸들["ipo_year"] = 상장해
     낸 = 원천에서_낸값(시장, idx, 가격, 시총, 원천)
     # 4년 흐름 — 야후 줄에 흐름이 있으면 그 한 벌, 없으면 원천의 한 벌. 원천의 것은 해마다 숫자 칸으로
     # 들고, 화면에 보낼 줄에서만 목록으로 엮는다(_줄)
     끝해, 흐름매출, 흐름eps = 원천_흐름(시장, idx, 원천)
+    # 장부 EPS 가 시세 1주의 것이 아닌 회사(ADR·다른 종류 주식)는 흐름도 시세 1주로 맞춘다(성장률은 그대로다)
+    배율 = 낸.pop("_eps배율", None)
+    if 배율 is not None:
+        흐름eps = 흐름eps * np.where(np.isfinite(배율.to_numpy(dtype=float)), 배율.to_numpy(dtype=float), 1.0)[:, None]
     야후흐름 = (풍["fin_years"].reindex(idx).map(lambda v: _목록(v) is not None).to_numpy(dtype=bool)
               if "fin_years" in 풍.columns else np.zeros(len(idx), dtype=bool))
+    if 시장 == "US" and "fin_currency" in 풍.columns:
+        # 장부 돈이 달러가 아닌 회사(TSMC)는 원천(SEC — 달러로 바꾸고 ADR 1주로 맞춘 것)의 흐름이 있으면 그것을 쓴다
+        해외야후 = 풍["fin_currency"].reindex(idx).map(lambda v: isinstance(v, str) and v != "USD")
+        야후흐름 &= ~(해외야후.to_numpy(dtype=bool) & ~np.isnan(끝해))
     원천씀 = ~np.isnan(끝해) & ~야후흐름
     if 원천씀.any():
         낸["rev_cagr_3y"] = pd.Series(np.where(원천씀, _연평균(흐름매출), np.nan), index=idx)
@@ -467,13 +642,26 @@ def 만들기(시장: str, 기초: list[dict], 풍부: list[dict], 원천: dict 
     칸들.setdefault("market", pd.Series(시장, index=idx, dtype=object))
     for 칸 in 목록칸:
         if 칸 in 풍.columns:
-            칸들[칸] = 풍[칸].reindex(idx)
-    # 전년 대비 성장률(퀀트) — 매출은 원천의 흐름(마지막 두 해), 순이익·영업이익은 원천의 지난해 값
-    재무원, 순칸, 영칸 = _재무칸.get(시장, (None, None, None))
-    재무 = 원천.get(재무원) if 재무원 else None
+            # 원천의 흐름을 쓰는 줄에는 야후 흐름을 두지 않는다(_줄 이 원천 흐름 위에 덮어쓴다)
+            칸들[칸] = 풍[칸].reindex(idx).where(~pd.Series(원천씀, index=idx), None)
+    if 시장 == "US":
+        _흐름_달러로(칸들, idx, 원천.get("us_fx"))
+    # 전년 대비 성장률(퀀트) — 매출은 원천의 흐름(마지막 두 해), 순이익·영업이익은 원천의 지난해 값. 국내는 DART 에
+    # 없는 종목을 네이버 연간 실적으로(그해·지난해를 한 원천에서 — 원천끼리 섞으면 해가 어긋난다)
+    재무원들, 순칸, 영칸 = _재무칸.get(시장, ((), None, None))
+
+    def 전년(칸: str) -> np.ndarray | None:
+        값 = None
+        for 원 in 재무원들:
+            재무 = 원천.get(원)
+            if 재무 is None:
+                continue
+            v = _전년대비(_수(재무, 칸, idx), _수(재무, f"{칸}_prev", idx))
+            if v is not None:
+                값 = v if 값 is None else np.where(np.isnan(값), v, 값)
+        return 값
     for 칸, 값 in (("_rev_yoy", _전년대비(흐름매출[:, -1], 흐름매출[:, -2])),
-                  ("_ni_yoy", _전년대비(_수(재무, 순칸, idx), _수(재무, f"{순칸}_prev", idx)) if 재무 is not None else None),
-                  ("_op_yoy", _전년대비(_수(재무, 영칸, idx), _수(재무, f"{영칸}_prev", idx)) if 재무 is not None else None)):
+                  ("_ni_yoy", 전년(순칸) if 순칸 else None), ("_op_yoy", 전년(영칸) if 영칸 else None)):
         if 값 is not None and np.isfinite(값).any():
             칸들[칸] = pd.Series(값, index=idx)
     if 원천씀.any():
@@ -482,8 +670,13 @@ def 만들기(시장: str, 기초: list[dict], 풍부: list[dict], 원천: dict 
             칸들[f"_rev{i}"] = pd.Series(np.where(원천씀, 흐름매출[:, i], np.nan), index=idx)
             칸들[f"_eps{i}"] = pd.Series(np.where(원천씀, 흐름eps[:, i], np.nan), index=idx)
         # 흐름의 돈은 그 흐름을 낸 곳의 돈이다(화면이 막대 설명에 쓴다)
+        원천줄 = pd.Series(원천씀, index=idx)
         장부돈 = 칸들.get("fin_currency", pd.Series(None, index=idx, dtype=object))
-        칸들["fin_currency"] = 장부돈.where(~pd.Series(원천씀, index=idx), _흐름돈.get(시장))
+        칸들["fin_currency"] = 장부돈.where(~원천줄, _흐름돈.get(시장))
+        if 시장 == "US":
+            _원천_흐름_설명(칸들, idx, 원천줄, 원천.get("us_sec"), 배율)
+    if 시장 == "US" and 원천.get("kr_adr"):
+        _국내원주로(칸들, idx, 원천["kr_adr"], 원천.get("us_fx"))
 
     df = pd.DataFrame(칸들, index=idx)
     df.index.name = "symbol"

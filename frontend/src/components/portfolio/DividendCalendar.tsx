@@ -603,7 +603,10 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
   }
 
   return 틀(
-    <>
+    /* 넓은 화면(lg)에서는 두 칸 — 왼쪽 한 해(합계·배당률·월별 막대), 오른쪽 고른 달 내역. 한 줄로 쌓으면 PC 에서
+       막대가 화면 폭을 다 쓰고 내역은 그 아래로 밀려, 막대를 누를 때마다 눈이 위아래로 오갔다 */
+    <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:gap-x-6 lg:items-start">
+      <div className="flex flex-col gap-3 min-w-0">
       {/* ── 세전 / 세후 ──
           배당 앱들이 '세금 0% 적용' 같은 칩으로 켜고 끈다. 실제로 통장에
           꽂히는 돈은 세후인데, 어느 쪽을 보고 있는지 안 적으면 두 화면이
@@ -717,9 +720,11 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
                   } : {}),
                 } as React.CSSProperties}
                 title={예상뿐인달 ? `${m}월 — 작년 기준 예상` : undefined}
-                className={`w-full rounded-t-[3px] transition-colors h-[var(--막대)] sm:h-[calc(var(--막대)*1.6)] ${
+                className={`w-full rounded-t-[3px] transition-colors h-[var(--막대)] sm:h-[calc(var(--막대)*1.6)] lg:h-[calc(var(--막대)*2.2)] ${
                   고름 ? "bg-accent-green"
-                       : v > 0 ? (예상뿐인달 ? "bg-accent-green/12 group-hover:bg-accent-green/25"
+                       /* 예상뿐인 달은 점선 테두리도 — 옅은 칠과 흰 빗금만으로는 밝은 화면에서 막대가 안 보여,
+                          '12월 5만' 글자 아래가 비어 고장처럼 보였다 */
+                       : v > 0 ? (예상뿐인달 ? "bg-accent-green/12 group-hover:bg-accent-green/25 border border-dashed border-accent-green/60"
                                              : "bg-accent-green/25 group-hover:bg-accent-green/40")
                                : "bg-bg-elevated"
                 }`}
@@ -732,8 +737,11 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
         })}
       </div>
 
+      </div>
+
       {/* ── 고른 달 내역 ── */}
-      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50">
+      <div className="flex flex-col gap-3 min-w-0 lg:border-l lg:border-border/50 lg:pl-6" data-testid="고른달내역">
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50 lg:pt-0 lg:border-t-0">
         <span className="text-sm font-semibold text-text-primary shrink-0">
           {고른달}월
           {고른달 === 이번달 && (
@@ -995,6 +1003,7 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
           })}
         </ul>
       )}
-    </>,
+      </div>
+    </div>,
   );
 }

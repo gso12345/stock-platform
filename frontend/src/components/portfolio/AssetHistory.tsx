@@ -44,6 +44,7 @@ import { use돈 } from "@/hooks/useMoney";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { 하루수명 } from "@/constants/portfolioQuery";
+import { use넓은화면 } from "@/hooks/useWideScreen";
 import type { OHLCV } from "@/types";
 
 /**
@@ -356,6 +357,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
      내림이었다 — 어느 쪽이 번 것인지 매번 다시 읽어야 한다. */
   const 배색 = useSettingsStore((s) => s.colorScheme);
   const { pnlColor } = usePnlColors(배색);
+  const 넓음 = use넓은화면();
   const 오름 = 오름색(배색);
   const 내림 = 내림색(배색);
 
@@ -554,13 +556,13 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
 
   if (!예시인가 && isError) return 틀(<못불러옴 사유={error} 다시={() => refetch()} compact />);
   if ((!예시인가 && isLoading) || 받는중) {
-    return 틀(<div className="h-[160px] rounded-lg bg-bg-elevated animate-pulse" />);
+    return 틀(<div className="h-[160px] lg:h-[260px] rounded-lg bg-bg-elevated animate-pulse" />);
   }
 
   if (점들.length < 2) {
     /* 점 하나짜리 선은 그리면 고장으로 보인다. 무엇을 기다리는지 말한다 */
     return 틀(
-      <div className="h-[160px] flex flex-col items-center justify-center gap-1 text-center px-4">
+      <div className="h-[160px] lg:h-[260px] flex flex-col items-center justify-center gap-1 text-center px-4">
         <p className="text-sm text-text-secondary">아직 그릴 기록이 없어요</p>
         <p className="text-2xs text-text-dim break-keep">
           {portfolioId
@@ -658,7 +660,8 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
         </div>
       )}
 
-      <차트틀 height={160}>
+      {/* 넓은 화면에서는 높게 — 1,000px 넘게 늘어난 선이 160px 에 눌리면 오르내림이 안 보인다 */}
+      <차트틀 height={넓음 ? 260 : 160}>
         {(R) => (
           <R.AreaChart data={그릴것} margin={{ top: 10, right: 4, bottom: 0, left: 4 }}>
             <defs>
