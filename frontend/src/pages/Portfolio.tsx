@@ -1009,6 +1009,31 @@ export default function Portfolio() {
   /* 숫자만 바뀌면 '전체 합계인 줄' 알고 오해한다. 카드 이름에 무엇의
      합계인지 같이 적는다 — '총 평가금액' vs '채권 평가금액' */
   const 요약범위 = assetFilterTab === "전체" ? "총" : assetFilterTab;
+
+  /* 아주 넓은 화면(xl)의 요약 카드 네 번째 칸 — 구성. 자산유형별 한 줄 막대와 비중 위 세 종목.
+     PC 에서는 요약 카드 옆이 비어 있었고, 구성은 '비중' 탭을 눌러야만 보였다(사용자: "내자산 PC버전에서도
+     최적화된 화면"). 비중 탭처럼 자산유형 탭과 상관없이 전체 보유로 세고, 같은 종목을 여러 포트폴리오에
+     담았으면 한 줄로 합친다. 색은 원그래프와 같은 차례(큰 것부터 PIE_COLORS)다. 비중은 금액이 아니라 안 가린다 */
+  const 구성요약 = useMemo(() => {
+    const 값 = (e: EnrichedItem) => Math.max(0, e.currentValueKRW);
+    const 총 = allDisplayEnriched.reduce((s, e) => s + 값(e), 0);
+    if (!(총 > 0)) return null;
+    const 유형 = new Map<string, number>();
+    const 종목 = new Map<string, { 이름: string; 값: number }>();
+    for (const e of allDisplayEnriched) {
+      const k = resolveAssetClass(e);
+      유형.set(k, (유형.get(k) ?? 0) + 값(e));
+      const 열쇠 = `${e.market}:${e.symbol}`;
+      const 있던 = 종목.get(열쇠);
+      if (있던) 있던.값 += 값(e);
+      else 종목.set(열쇠, { 이름: e.name || e.symbol, 값: 값(e) });
+    }
+    const 큰순 = <T extends { 비중: number }>(줄: T[]) => 줄.filter((u) => u.비중 > 0).sort((a, b) => b.비중 - a.비중);
+    return {
+      유형들: 큰순([...유형].map(([이름, v]) => ({ 이름, 비중: (v / 총) * 100 }))),
+      위: 큰순([...종목].map(([키, s]) => ({ 키, 이름: s.이름, 비중: (s.값 / 총) * 100 }))).slice(0, 3),
+    };
+  }, [allDisplayEnriched]);
   // 로그인/비로그인 모두 현재가를 다 불러오기 전까지 추정치를 보여주지 않음
   // 구성 차트는 자산유형 필터와 무관하게 전체 보유종목 기준으로 항상 표시
   const hasDisplay      = allDisplayEnriched.length > 0 && (isLoggedIn ? !isLoading : previewLoaded);
@@ -1257,7 +1282,8 @@ export default function Portfolio() {
         /* 넓은 화면에서는 세 칸으로 나란히 — 평가금액 | 손익·오늘 | 참고값.
            한 줄로 쌓아 두면 PC 에서는 '평가손익' 이름과 그 금액이 1,200px
            떨어져 양 끝에 놓여, 무엇의 숫자인지 눈으로 이어 읽기 어려웠다. */
-        <Card className={`flex flex-col p-0 overflow-hidden lg:grid lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.9fr)] ${!isLoggedIn ? "opacity-90" : ""}`}>
+        <Card className={`flex flex-col p-0 overflow-hidden lg:grid lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.9fr)] ${
+          구성요약 ? "xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.25fr)]" : ""} ${!isLoggedIn ? "opacity-90" : ""}`}>
           {/* 지금 얼마인가 */}
           <div className="flex flex-col gap-1 px-4 pt-4 pb-3.5 lg:px-6 lg:py-5 lg:justify-center">
             <span className="text-2xs text-text-muted">{요약범위} 평가금액</span>
@@ -1309,6 +1335,38 @@ export default function Portfolio() {
               </div>
             ))}
           </div>
+
+          {/* 구성 — 아주 넓은 화면에서만(위 구성요약 주석) */}
+          {구성요약 && (
+            <div className="hidden xl:flex flex-col justify-center gap-2 px-6 py-4 border-l border-border/50 min-w-0"
+              role="group" aria-label="구성">
+              <span className="text-2xs text-text-muted flex items-center gap-1">
+                <PieIcon size={11} />{assetFilterTab === "전체" ? "구성" : "전체 구성"}
+              </span>
+              <div className="flex h-2 rounded-full overflow-hidden bg-bg-elevated" role="img"
+                aria-label={`자산유형별 ${구성요약.유형들.map((u) => `${u.이름} ${u.비중.toFixed(0)}%`).join(", ")}`}>
+                {구성요약.유형들.map((u, i) => (
+                  <span key={u.이름} style={{ width: `${u.비중}%`, background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-2xs text-text-secondary">
+                {구성요약.유형들.map((u, i) => (
+                  <span key={u.이름} className="flex items-center gap-1 whitespace-nowrap">
+                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                    {u.이름} <b className="font-mono num font-semibold text-text-primary">{u.비중.toFixed(0)}%</b>
+                  </span>
+                ))}
+              </div>
+              <ol className="flex flex-col gap-0.5" aria-label="비중 위 세 종목">
+                {구성요약.위.map((w) => (
+                  <li key={w.키} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate text-text-secondary">{w.이름}</span>
+                    <span className="font-mono num font-semibold text-text-primary">{w.비중.toFixed(1)}%</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
         </Card>
         )
       )}

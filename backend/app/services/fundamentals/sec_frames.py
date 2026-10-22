@@ -52,6 +52,8 @@ _간격 = 0.2
 #: 4년 흐름(막대)을 내는 칸과 해 수 — 그해와 앞의 세 해
 흐름칸 = ("revenue", "eps")
 흐름해수 = 4
+#: 지난해 값도 받는 칸 — 퀀트 성장 점수(순이익·영업이익 전년 대비)
+전해칸 = ("earnings", "op_income")
 #: 그해 값이 이보다 적게 모였으면 아직 공시가 덜 됐다(연초) — 한 해 앞을 쓴다
 최소회사수 = 1500
 #: 티커표가 이보다 작으면 엉뚱한 것을 받은 것이다(실제로는 1만 곳이 넘는다)
@@ -118,8 +120,8 @@ def 흐름_줄(cik: int, 해들: list[int], 흐름: dict[str, dict[int, dict[int
 
 def fetch_fundamentals(해: int | None = None) -> tuple[dict[str, dict], int]:
     """미국 상장사 연간 재무 → ({티커: {revenue, earnings, op_income, eps, dps, ocf, capex, equity,
-    liabilities, fin_years, rev_hist, eps_hist}}, 쓴 해). 못 받으면 ({}, 0). 개념 하나를 못 받아도
-    나머지는 쓴다."""
+    liabilities, fin_years, rev_hist, eps_hist, earnings_prev, op_income_prev}}, 쓴 해). 못 받으면 ({}, 0).
+    개념 하나를 못 받아도 나머지는 쓴다."""
     해 = 해 or 받을해()
     with httpx.Client(follow_redirects=True, verify=SSL) as client:
         try:
@@ -161,12 +163,14 @@ def fetch_fundamentals(해: int | None = None) -> tuple[dict[str, dict], int]:
         for 칸 in 흐름칸:
             for 그해 in 해들[:-1]:
                 흐름[칸][그해] = 한칸(칸, 그해)
+        전해 = {칸: 한칸(칸, 해 - 1) for 칸 in 전해칸}
 
     out: dict[str, dict] = {}
     for cik, 티커들 in 티커.items():
         줄 = {칸: 표[cik] for 칸, 표 in 값들.items() if cik in 표}
         if 줄:
             줄.update(흐름_줄(cik, 해들, 흐름))
+            줄.update({f"{칸}_prev": 표[cik] for 칸, 표 in 전해.items() if cik in 표})
             for t in 티커들:
                 out[t] = 줄
     log.info("SEC 재무(%d년) — 회사 %d곳 · 종목 %d", 해, len({c for 표 in 값들.values() for c in 표}), len(out))

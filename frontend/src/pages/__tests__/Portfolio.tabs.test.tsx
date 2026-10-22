@@ -464,8 +464,9 @@ describe("보유 줄에 붙는 배당 배지", () => {
    *  1024 라 표 보기로 열리는데, 실제 휴대폰에서는 카드 보기다 —
    *  배지는 두 곳 모두에 붙어야 한다. */
   async function 종목줄(이름: string) {
-    const 제목 = (await screen.findAllByText(이름, {}, { timeout: 12_000 }))[0];
-    const 줄 = 제목.closest("tr, .holding-card-lite");
+    /* 요약 카드의 구성 칸(비중 위 세 종목)에도 이름이 있다 — 보유 줄 안의 것만 */
+    const 줄 = (await screen.findAllByText(이름, {}, { timeout: 12_000 }))
+      .map((el) => el.closest("tr, .holding-card-lite")).find(Boolean) ?? null;
     expect(줄, `${이름} 줄을 못 찾았다`).not.toBeNull();
     return 줄 as HTMLElement;
   }

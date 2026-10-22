@@ -325,6 +325,29 @@ export function 칸글(칸: 칸정의, 줄: Record<string, any>): string {
   return String(v);
 }
 
+/* ── 원화 환산 ─────────────────────────────────────────────
+   사용자: "스크리닝에 원화환산기능 넣어줘". 화면에 보이는 돈만 바꾼다 — 세우기·거르기는 서버가 원래 돈(달러)으로
+   한다(같은 돈끼리는 순서가 같다). 환율을 아는 달러만 바꾸고, 다른 돈(대만 달러로 적는 TSMC 의 흐름 따위)은 그대로 둔다. */
+const 원화칸 = new Set<string>([
+  "price", "market_cap", "revenue", "earnings", "fcf", "net_debt", "eps", "forward_eps", "dividend_rate",
+]);
+
+export function 원화로(줄: Record<string, any>, 환율: number): Record<string, any> {
+  if (!(환율 > 0)) return 줄;
+  const 다음: Record<string, any> = { ...줄 };
+  if (줄.currency === "USD") {
+    for (const k of 원화칸) if (typeof 줄[k] === "number") 다음[k] = 줄[k] * 환율;
+    다음.currency = "KRW";
+  }
+  if ((줄.fin_currency ?? 줄.currency) === "USD") {
+    for (const k of ["rev_hist", "eps_hist"]) {
+      if (Array.isArray(줄[k])) 다음[k] = 줄[k].map((x: number | null) => (x == null ? x : x * 환율));
+    }
+    다음.fin_currency = "KRW";
+  }
+  return 다음;
+}
+
 /* ── CSV ──────────────────────────────────────────────────
    칸 감싸기는 utils/csv 가 맡는다. 예전엔 join(",") 만 해서 'Apple Inc., …'
    같은 이름이 두 칸으로 갈라져 뒤의 숫자가 전부 한 칸씩 밀렸다.

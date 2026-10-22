@@ -25,8 +25,9 @@ import { csv내려받기 } from "@/utils/csv";
 import { 용어사전 } from "@/constants/terms";
 import type { Market, ScreeningPreset } from "@/types";
 import {
-  칸들, 처음칸, 보낼조건, 스크리닝CSV, 조건글, ETF칸, 칸이름,
+  칸들, 처음칸, 보낼조건, 스크리닝CSV, 조건글, ETF칸, 칸이름, 원화로,
 } from "@/components/screening/screeningDefs";
+import { useExchangeRateLive } from "@/hooks/useExchangeRate";
 import { 칸값 } from "@/components/screening/ScreeningCells";
 import {
   조건판, 칸판, 묶음판, 저장판, type 기본묶음하나, type 조건모음,
@@ -56,6 +57,13 @@ const 쪽크기 = 50;
 /** 고른 칸은 이 브라우저에 남긴다 — 열 때마다 칸을 다시 고르게 하면 칸 고르기를 안 쓰게 된다 */
 const 칸_열쇠 = "screening_cols_v2";
 
+/** 해외 종목의 돈을 원화로 볼지 — 이 브라우저에 남긴다 */
+const 원화_열쇠 = "screening_krw_v1";
+
+function 원화읽기(): boolean {
+  try { return localStorage.getItem(원화_열쇠) === "1"; } catch { return false; }
+}
+
 function 칸읽기(): string[] {
   try {
     const 값 = JSON.parse(localStorage.getItem(칸_열쇠) ?? "null");
@@ -80,6 +88,8 @@ export default function Screening() {
   const [찾는말, set찾는말] = useState("");
   const [열린판, set열린판] = useState<판 | null>(null);
   const [보이는칸, set보이는칸] = useState<string[]>(칸읽기);
+  const [원화, set원화] = useState<boolean>(원화읽기);
+  const { 환율, 진짜인가: 환율진짜 } = useExchangeRateLive();
   const [알림, set알림] = useState<{ 글: string; 종류: "success" | "error" } | null>(null);
   // Toast 는 onClose 가 바뀌면 머무는 시간을 처음부터 다시 잰다 — 표를 받는 동안 안 닫히지 않게 고정한다
   const 알림닫기 = useCallback(() => set알림(null), []);
@@ -124,6 +134,10 @@ export default function Screening() {
   });
 
   const 줄들 = 결과.data?.results ?? [];
+  // 원화 환산은 보이는 돈만 바꾼다(세우기·거르기는 서버가 원래 돈으로). 국내는 이미 원화
+  const 원화로봄 = 원화 && 시장 !== "KR";
+  const 보일줄들 = useMemo(() => (원화로봄 ? 줄들.map((s) => 원화로(s, 환율) as 스크리닝줄) : 줄들),
+    [줄들, 원화로봄, 환율]);
   const 전체수 = 결과.data?.total ?? 0;
   const 짓는중 = 결과.data?.building ?? null;
   const 쪽수 = Math.max(1, Math.ceil(전체수 / 쪽크기));
@@ -178,6 +192,12 @@ export default function Screening() {
     const 키 = ["stock-detail", s.market as Market, s.symbol];
     if (qc.getQueryData(키)) return;
     qc.prefetchQuery({ queryKey: 키, queryFn: () => stocksApi.getDetail(s.market as Market, s.symbol), staleTime: 60_000 });
+  };
+
+  const 원화바꾸기 = () => {
+    const 다음 = !원화;
+    set원화(다음);
+    try { localStorage.setItem(원화_열쇠, 다음 ? "1" : "0"); } catch { /* 못 남겨도 이번엔 바뀐다 */ }
   };
 
   const 칸바꾸기 = (다음: string[]) => {
@@ -256,6 +276,11 @@ export default function Screening() {
           {판단추("조건", SlidersHorizontal, 걸린수 ? `조건 ${걸린수}` : "조건")}
           {판단추("칸", Columns3, `칸 ${보일칸.length}`)}
           {판단추("저장", Save, "보기 저장")}
+          {시장 !== "KR" && (
+            <도구단추 눌림={원화} onClick={원화바꾸기} title="해외 종목의 돈(가격·시가총액·매출 …)을 원화로 바꿔 보기">
+              ₩ 원화
+            </도구단추>
+          )}
           <도구단추 아이콘={Download} title="CSV 다운로드" disabled={!줄들.length}
             onClick={() => csv내려받기(
               `screening_${시장}_${new Date().toISOString().slice(0, 10)}.csv`,
@@ -323,6 +348,11 @@ export default function Screening() {
                 : <><b className="text-text-primary">{전체수.toLocaleString("ko-KR")}</b>곳</>}
               {/* 가격은 서버가 5분마다 묶음 시세로 새로 받는다 — 언제 것인지 밝힌다 */}
               {시세때 && !짓는중 && <span className="text-text-dim"> · 시세 {시세때}</span>}
+              {원화로봄 && (
+                <span className="text-text-dim">
+                  {" · "}원화 환산 1달러 ≈ {Math.round(환율).toLocaleString("ko-KR")}원{환율진짜 ? "" : "(어림)"}
+                </span>
+              )}
             </>
           )}
         </span>
@@ -386,7 +416,7 @@ export default function Screening() {
                   </tr>
                 </thead>
                 <tbody>
-                  {줄들.map((s, i) => {
+                  {보일줄들.map((s, i) => {
                     const 이름 = s.name ?? s.symbol;
                     return (
                       <tr key={`${s.market}:${s.symbol}`} onMouseEnter={() => 미리받기(s)} className={표줄}>

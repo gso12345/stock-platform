@@ -15,7 +15,10 @@ from app.core import health
 log = logging.getLogger(__name__)
 
 이름_KRX = "스크리닝 · 국내 지표(KRX)"
-이름_네이버 = "스크리닝 · 국내 예상 PER(네이버)"
+이름_깃헙 = "스크리닝 · 국내 산업·수익률(GitHub)"
+이름_네이버 = "스크리닝 · 국내 지표(네이버 종목별)"
+이름_시세 = "스크리닝 · 해외 52주·수익률(야후 1년 시세)"
+이름_국내시세 = "스크리닝 · 국내 1년 수익률·RSI(야후 1년 시세)"
 이름_DART = "스크리닝 · 국내 재무(DART)"
 이름_SEC = "스크리닝 · 미국 재무(SEC)"
 이름_한글 = "스크리닝 · 해외 한글 이름(네이버)"
@@ -25,12 +28,23 @@ def _재기(시작: float) -> float:
     return (time.time() - 시작) * 1000
 
 
+#: KRX 가 지난번에 로그인을 요구했나 — 회원 아이디가 없으면 다시 물어도 같으니 오래 쉰다(service)
+KRX_로그인막힘 = [False]
+
+
 def 국내_KRX() -> dict | None:
-    """전 종목 PER·PBR·EPS·BPS·주당배당·배당수익률·업종·1/3/12개월 수익률(KRX, 요청 다섯 번)"""
+    """전 종목 PER·PBR·EPS·BPS·주당배당·배당수익률·업종·1/3/12개월 수익률(KRX). KRX 는 로그인한 세션에만
+    자료를 준다 — settings.KRX_ID·KRX_PW 가 있으면 로그인해서 받는다"""
+    from app.core.config import settings
     from app.services.listings import krx_listing
     시작 = time.time()
     try:
-        줄들, 기준일 = krx_listing.fetch_screening_bulk()
+        줄들, 기준일 = krx_listing.fetch_screening_bulk(settings.KRX_ID, settings.KRX_PW)
+    except krx_listing.KRX로그인필요:
+        KRX_로그인막힘[0] = True
+        health.record_fail(이름_KRX, "KRX 가 로그인을 요구함 — Render 환경변수 KRX_ID·KRX_PW(KRX 정보데이터시스템 "
+                                   "회원)를 넣으면 켜진다. 그동안은 GitHub·네이버로 채운다")
+        return None
     except Exception as e:
         health.record_fail(이름_KRX, f"{type(e).__name__}")
         return None
@@ -38,7 +52,27 @@ def 국내_KRX() -> dict | None:
         health.record_fail(이름_KRX, "지표를 못 받음(KRX 가 막혔거나 응답 모양이 바뀜)")
         return None
     업종수 = sum(1 for r in 줄들.values() if r.get("sector"))
+    KRX_로그인막힘[0] = False
     health.record_ok(이름_KRX, _재기(시작), f"{len(줄들):,}종목 · 업종 {업종수:,} · {기준일}")
+    return {"at": time.time(), "ymd": 기준일, "rows": 줄들}
+
+
+def 국내_GitHub() -> dict | None:
+    """국내 전 종목 산업(한국표준산업분류)·누리집·1/3개월 수익률 — KRX 에 로그인해 받은 표를 FinanceData 가 날마다
+    GitHub 에 올린다(krx_listing.fetch_github_bulk). KRX 를 못 받는 동안 산업·업종·로고·수익률을 채운다"""
+    from app.services.listings import krx_listing
+    시작 = time.time()
+    try:
+        줄들, 기준일 = krx_listing.fetch_github_bulk()
+    except Exception as e:
+        health.record_fail(이름_깃헙, f"{type(e).__name__}")
+        return None
+    if len(줄들) < 500:
+        health.record_fail(이름_깃헙, f"{len(줄들)}종목뿐(GitHub 에 그날 CSV 가 없거나 모양이 바뀜)")
+        return None
+    산업수 = sum(1 for r in 줄들.values() if r.get("industry"))
+    수익률수 = sum(1 for r in 줄들.values() if r.get("return_1m") is not None)
+    health.record_ok(이름_깃헙, _재기(시작), f"{len(줄들):,}종목 · 산업 {산업수:,} · 수익률 {수익률수:,} · {기준일}")
     return {"at": time.time(), "ymd": 기준일, "rows": 줄들}
 
 
@@ -66,8 +100,9 @@ _네이버칸 = ("forward_per", "forward_eps", "per", "pbr", "eps", "bps", "divi
 
 
 def 국내_네이버(코드들: list[str], 동시: int = 4) -> dict[str, dict]:
-    """종목마다 예상 PER·예상 EPS·52주 고저(+PER·PBR·EPS·BPS·배당 — KRX 가 막혔을 때 대신).
-    {코드: {칸: 값, "at": 받은 때}} — 받은 것만. 종목마다 두 번 묻는 일이라 조금씩만 부른다"""
+    """종목마다 PER·PBR·EPS·BPS·배당수익률·예상 PER·예상 EPS·52주 고저 — KRX 가 로그인을 요구해 막힌 동안
+    국내 지표는 주로 여기서 온다. {코드: {칸: 값, "at": 받은 때}} — 받은 것만. 종목마다 두 번 묻는 일이라
+    service 가 시가총액 큰 것부터 몇십 곳씩 나눠 부른다"""
     if not 코드들:
         return {}
     시작 = time.time()
@@ -91,6 +126,61 @@ def 국내_네이버(코드들: list[str], 동시: int = 4) -> dict[str, dict]:
     else:
         health.record_fail(이름_네이버, f"{len(코드들)}종목 중 하나도 못 받음")
     return out
+
+
+def 시세흐름_지표(종가들: list[float]) -> dict:
+    """일별 종가(오래된 날부터, 1년 남짓) → 52주 고저·1/3/12개월 수익률·RSI(14). 거래일로 센다(21·63·252일)"""
+    if len(종가들) < 15:
+        return {}
+    import pandas as pd
+    from app.services.market.yf_service import _rsi14
+    끝 = 종가들[-1]
+    일년 = 종가들[-252:]
+    out = {"high_52w": round(max(일년), 4), "low_52w": round(min(일년), 4), "rsi": _rsi14(pd.Series(종가들))}
+    for 칸, 날 in (("return_1m", 21), ("return_3m", 63), ("return_1y", 252)):
+        자리 = len(종가들) - 1 - 날
+        if 칸 == "return_1y" and 자리 < 0 and len(종가들) >= 245:
+            자리 = 0                                   # 휴장일만큼 모자란 1년 — 첫날로
+        if 자리 >= 0 and 종가들[자리] > 0:
+            out[칸] = round((끝 / 종가들[자리] - 1) * 100, 2)
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def _시세흐름(심볼들: list[str], 이름: str) -> dict[str, dict]:
+    """야후 종목들의 1년 일별 종가(spark) → {야후 종목: {52주 고저·수익률·RSI, "at"}} — 받은 것만"""
+    if not 심볼들:
+        return {}
+    from app.services.market.price_fetcher import fetch_yf_closes
+    시작 = time.time()
+    try:
+        받음 = asyncio.run(fetch_yf_closes(심볼들))
+    except Exception as e:
+        health.record_fail(이름, f"{type(e).__name__}")
+        return {}
+    지금 = time.time()
+    out = {s: {**지표, "at": 지금} for s, v in 받음.items() if (지표 := 시세흐름_지표(v))}
+    if out:
+        health.record_ok(이름, _재기(시작), f"{len(out)}/{len(심볼들)}종목")
+    else:
+        health.record_fail(이름, f"{len(심볼들)}종목 중 하나도 못 받음(spark 가 막혔거나 쉬는 중)")
+    return out
+
+
+def 미국_시세흐름(심볼들: list[str]) -> dict[str, dict]:
+    """미국 종목들의 1년 시세 → {종목: {52주 고저·수익률·RSI, "at"}}. 주요 500여 곳 밖의 전 종목은 종목별 야후 줄이
+    없어 52주 고점 대비·수익률·RSI 가 비었다 — service 가 시가총액 큰 것부터 나눠 부른다"""
+    return _시세흐름(심볼들, 이름_시세)
+
+
+#: 국내 거래소 → 야후 종목 꼬리. 코넥스는 야후에 없다
+야후꼬리 = {"KOSPI": ".KS", "KOSDAQ": ".KQ"}
+
+
+def 국내_시세흐름(거래소: dict[str, str]) -> dict[str, dict]:
+    """국내 종목들(코드 → KOSPI·KOSDAQ)의 1년 시세(야후 005930.KS·247540.KQ) → {코드: {52주 고저·수익률·RSI, "at"}}.
+    KRX 가 로그인을 요구한 뒤로 1년 수익률·RSI 는 주요 종목(야후 줄)에만 있었다(GitHub 에는 1년 전 표가 없다)"""
+    야후 = {f"{c}{야후꼬리[x]}": c for c, x in 거래소.items() if x in 야후꼬리}
+    return {야후[s]: v for s, v in _시세흐름(list(야후), 이름_국내시세).items() if s in 야후}
 
 
 def DART_해(오늘: date | None = None) -> str:

@@ -4,15 +4,117 @@ import { Trash2, Wallet, Settings2 } from "lucide-react";
 import { normalizeSymbol } from "@/utils/prices";
 import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 import LivePrice from "@/components/ui/LivePrice";
+import { 등락표시 } from "@/components/common/StockTable";
+import { 돈글, 부호글 } from "@/components/screening/screeningDefs";
+import type { 관심지표 } from "@/api/screening";
+
+/* ── 넓은 화면(lg)의 표 ──
+   휴대폰 목록을 PC 에서 그대로 늘리면 이름은 왼쪽 끝, 가격은 오른쪽 끝에 놓이고 그 사이 1,000px 이
+   비었다(사용자: "관심종목 PC버전에서도 최적화된 화면"). 넓은 화면에서는 칸을 나눠 표로 그리고, 빈자리에
+   시가총액·PER·배당·52주 위치·1개월 수익률(스크리닝 표의 값)을 둔다. 휴대폰 모양은 그대로다. */
+export const 관심표칸 =
+  "lg:grid lg:grid-cols-[1rem_minmax(10rem,2.2fr)_minmax(7.5rem,1.3fr)_repeat(5,minmax(4.75rem,1fr))_5.5rem] lg:items-center lg:gap-x-3";
+/** 끌기 손잡이·단추가 없는 줄(최근조회·포트폴리오 탭·미리보기)의 칸 */
+export const 간단표칸 =
+  "lg:grid lg:grid-cols-[minmax(10rem,2.2fr)_minmax(7.5rem,1.3fr)_repeat(5,minmax(4.75rem,1fr))] lg:items-center lg:gap-x-3";
+
+/** 카드 맨 위의 칸 이름 줄 — 넓은 화면에서만. 간단 — 끌기 손잡이·단추 칸이 없는 줄들 위 */
+export function 관심표머리({ 간단 = false }: { 간단?: boolean }) {
+  const 칸 = "text-right";
+  return (
+    <div className={`hidden ${간단 ? 간단표칸 : 관심표칸} px-3 py-2 border-b border-border/50 text-2xs font-medium text-text-muted bg-bg-elevated/40`}
+      aria-hidden>
+      {!간단 && <span />}
+      <span>종목</span>
+      <span className={칸}>현재가</span>
+      <span className={칸}>시가총액</span>
+      <span className={칸}>PER</span>
+      <span className={칸}>배당수익률</span>
+      <span className={칸}>52주 고점 대비</span>
+      <span className={칸}>1개월</span>
+      {!간단 && <span />}
+    </div>
+  );
+}
+
+/** 끌기·밀기 없는 줄(최근조회·포트폴리오 탭·미리보기). 넓은 화면에서는 관심종목 표와 같은 칸이다.
+ *  휴대폰에서는 예전처럼 시장 배지가 맨 앞, 넓은 화면에서는 이름 옆(종목 칸 안) */
+export function 간단관심줄({ market, symbol, name, price, change, change_rate, 시세없음글 = "조회 중", 지표, onNavigate }: {
+  market: string; symbol: string; name: string;
+  price?: number | null; change?: number | null; change_rate?: number | null;
+  /** 시세가 없을 때의 글 — 기다리면 오는지('조회 중'), 원래 없는지('시세 없음') */
+  시세없음글?: string;
+  지표?: 관심지표;
+  onNavigate: () => void;
+}) {
+  const isKR = market === "KR";
+  const hasPrice = price != null && Number(price) > 0;
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className={`flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors ${간단표칸}`}
+      onClick={onNavigate}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
+    >
+      <span className="lg:hidden flex-shrink-0"><MarketBadge market={market} /></span>
+      <div className="flex-1 min-w-0">
+        {/* 이름이 먼저다. 사람은 "삼성전자" 로 찾지 "005930" 으로 찾지 않는다 */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-base font-semibold text-text-primary truncate">{name}</span>
+          <span className="hidden lg:inline-flex flex-shrink-0"><MarketBadge market={market} /></span>
+        </div>
+        <div className="font-mono text-xs text-text-muted">{normalizeSymbol(symbol)}</div>
+      </div>
+      <div className="text-right flex-shrink-0 min-w-[80px]">
+        <div className="text-sm font-mono font-semibold text-text-primary">
+          {hasPrice
+            ? (isKR ? fmtKRWFull(Number(price)) : fmtUSDFull(Number(price)))
+            : <span className="text-text-muted text-xs">{시세없음글}</span>}
+        </div>
+        {hasPrice && change_rate != null && (
+          <ChangeBadge value={Number(change_rate)} className="text-xs"
+            금액={change != null ? Number(change) : null} 통화={isKR ? "KRW" : "USD"} />
+        )}
+      </div>
+      <지표칸들 지표={지표} 국내={isKR} />
+    </div>
+  );
+}
+
+/** 넓은 화면의 지표 칸들 — 값이 없으면(서버 표가 아직 없거나 그 종목을 모르면) — */
+function 지표칸들({ 지표, 국내 }: { 지표?: 관심지표; 국내: boolean }) {
+  const 없음 = <span className="text-text-dim">—</span>;
+  const 수 = (v: number | undefined, 글: (v: number) => string) =>
+    typeof v === "number" && Number.isFinite(v) ? 글(v) : null;
+  const 칸들 = [
+    수(지표?.market_cap, (v) => 돈글(v, 국내 ? "KRW" : (지표?.currency ?? "USD"))),
+    수(지표?.per, (v) => v.toFixed(1)),
+    수(지표?.dividend_yield, (v) => `${v.toFixed(2)}%`),
+    수(지표?.pct_from_52w_high, (v) => 부호글(v, 1)),
+  ];
+  return (
+    <>
+      {칸들.map((글, i) => (
+        <span key={i} className="hidden lg:block text-right font-mono num text-xs text-text-secondary">{글 ?? 없음}</span>
+      ))}
+      <span className="hidden lg:block text-right text-xs">
+        {typeof 지표?.return_1m === "number" && Number.isFinite(지표.return_1m) ? <등락표시 값={지표.return_1m} /> : 없음}
+      </span>
+    </>
+  );
+}
 
 const SWIPE_REVEAL = 210;   // 수정(70) + 보유종목추가(70) + 삭제(70)
 const SWIPE_THRESHOLD = 50;
 
 /* ── 종목 행: 드래그 재정렬 + 왼쪽으로 스와이프 → 수정/삭제 ─── */
-export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavigate, onEdit, onPrefetch, onAddToPortfolio,
+export const ItemRow = memo(function ItemRow({ item, livePrice, 지표, onRemove, onNavigate, onEdit, onPrefetch, onAddToPortfolio,
   isDragging, isDragOver, onDragStart, onDragOver, onDrop,
   onTouchDragStart, onTouchDragMove, onTouchDragEnd }: {
   item: any; livePrice: any;
+  /** 넓은 화면의 표 칸(스크리닝 표의 시가총액·PER …) */
+  지표?: 관심지표;
   onRemove: () => void; onNavigate: () => void; onEdit: () => void;
   onPrefetch?: () => void;
   onAddToPortfolio?: () => void;
@@ -83,7 +185,7 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
 
       {/* 슬라이드 콘텐츠 */}
       <div
-        className="flex items-center gap-2 px-3 py-3 bg-bg-card hover:bg-bg-hover transition-colors"
+        className={`flex items-center gap-2 px-3 py-3 bg-bg-card hover:bg-bg-hover transition-colors ${관심표칸}`}
         style={{ transform: `translateX(${swipeX}px)`, transition: swipeX === 0 || swipeX === -SWIPE_REVEAL ? "transform 0.2s ease" : "none" }}
         onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
         onClick={swipeX !== 0 ? closeSwipe : undefined}
@@ -151,14 +253,18 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
           )}
         </div>
 
-        {/* 포트폴리오 추가 버튼 */}
-        {onAddToPortfolio && (
-          <button onClick={(e) => { e.stopPropagation(); onAddToPortfolio(); }} className="text-text-muted hover:text-accent-green p-1.5 rounded-lg hover:bg-accent-green/10 transition-colors flex-shrink-0" title="포트폴리오에 추가"><Wallet size={14}/></button>
-        )}
-        {/* 편집/삭제 버튼 (데스크탑 hover) */}
-        <div className="hidden md:flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button aria-label="종목 수정" onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1.5 rounded-lg hover:bg-accent-blue/10 transition-colors"><Settings2 size={13}/></button>
-          <button aria-label="종목 삭제" onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1.5 rounded-lg hover:bg-accent-red/10  transition-colors"><Trash2 size={13}/></button>
+        <지표칸들 지표={지표} 국내={isKR} />
+
+        <div className="flex items-center flex-shrink-0 lg:justify-end">
+          {/* 포트폴리오 추가 버튼 */}
+          {onAddToPortfolio && (
+            <button onClick={(e) => { e.stopPropagation(); onAddToPortfolio(); }} className="text-text-muted hover:text-accent-green p-1.5 rounded-lg hover:bg-accent-green/10 transition-colors flex-shrink-0" title="포트폴리오에 추가"><Wallet size={14}/></button>
+          )}
+          {/* 편집/삭제 버튼 (데스크탑 hover) */}
+          <div className="hidden md:flex gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            <button aria-label="종목 수정" onClick={onEdit}   className="text-text-muted hover:text-accent-blue p-1.5 rounded-lg hover:bg-accent-blue/10 transition-colors"><Settings2 size={13}/></button>
+            <button aria-label="종목 삭제" onClick={onRemove} className="text-text-muted hover:text-accent-red  p-1.5 rounded-lg hover:bg-accent-red/10  transition-colors"><Trash2 size={13}/></button>
+          </div>
         </div>
       </div>
     </div>
@@ -174,6 +280,7 @@ export const ItemRow = memo(function ItemRow({ item, livePrice, onRemove, onNavi
   return (
     prev.item === next.item &&
     prev.livePrice === next.livePrice &&
+    prev.지표 === next.지표 &&
     prev.isDragging === next.isDragging &&
     prev.isDragOver === next.isDragOver &&
     !!prev.onAddToPortfolio === !!next.onAddToPortfolio

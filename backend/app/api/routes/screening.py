@@ -82,6 +82,33 @@ class PresetSaveRequest(BaseModel):
     _칸 = field_validator("columns")(classmethod(lambda cls, v: _칸검사(v)))
 
 
+class 종목하나(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9.\-]+$")
+    market: str = Field(..., pattern="^(KR|US|ETF)$")
+
+
+class 줄요청(BaseModel):
+    items: list[종목하나] = Field(..., max_length=200)
+
+
+#: 관심종목 PC 표가 붙이는 칸 — 넓은 화면에서 이름과 가격 사이 빈자리를 채운다
+관심칸 = ("market_cap", "per", "forward_per", "pbr", "dividend_yield", "pct_from_52w_high", "return_1m",
+         "return_1y", "sector", "industry", "currency")
+
+
+@router.post("/rows")
+@limiter.limit("60/minute")
+async def screening_rows(request: Request, req: 줄요청):
+    """종목 몇 개의 스크리닝 표 줄(시가총액·PER·배당·52주 위치·수익률) — 관심종목 PC 표가 쓴다.
+    표가 아직 없으면 그 종목은 빠진다(표는 뒤에서 만든다 — 다음에 물으면 온다)"""
+    out: dict[str, dict] = {}
+    for it in req.items:
+        줄 = 스크리닝.한종목(it.market, it.symbol)
+        if 줄:
+            out[f"{it.market}:{it.symbol}"] = {k: 줄[k] for k in 관심칸 if k in 줄}
+    return {"rows": out}
+
+
 @router.post("/run")
 # 화면이 칸 제목을 누를 때마다·찾는 말이 바뀔 때마다 곧바로 다시 묻는다(예전엔 '실행' 단추를 눌러야 했다).
 # 10번이면 칸 몇 개 눌러 보다 막힌다. 한 번은 들고 있는 시장 표를 거르고 세울 뿐이라 가볍다
@@ -109,9 +136,10 @@ async def run_screening(request: Request, req: ScreeningRequest):
         #: 시세가 언제 것인가(유닉스 초) — 가격은 5분마다 묶음 시세로 새로 받는다
         "as_of": yf_service.스크리닝_찍은때(req.market),
     }
-    # 받는 중이거나 못 받은 답은 남겨 두지 않는다 — 남기면 다 받은 뒤에도 그 답이 나간다.
+    # 받는 중이거나 못 받은 답은 남겨 두지 않는다 — 남기면 다 받은 뒤에도 그 답이 나간다. 원천이 새로 와
+    # 뒤에서 표를 새로 만드는 동안 옛 표로 낸 답도 — 남기면 새 표가 1분 더 늦게(원천이 오고 2분 뒤에야) 보였다.
     # 남겨도 1분만 — 가격을 5분마다 새로 받는데 답을 5분 남기면 10분 전 시세가 나간다
-    if 짓는중 is None and not payload["failed"]:
+    if 짓는중 is None and not payload["failed"] and 스크리닝.지금_표인가(req.market, 표):
         cache.set(ck, payload, 60)
     return payload
 

@@ -274,14 +274,40 @@ _FUND_KEYS = ("per", "forward_per", "pbr", "ev_ebitda", "peg",
 #: 펀더멘털(PER·PBR·시총)이 있어야 나오는 가치 지표 — 하나도 없으면 펀더멘털 조회가 빈손이었던 것이다.
 #  품질 지표(ROE·마진·부채비율)는 재무제표로도 채워지니 펀더멘털이 빈손이어도 남는다 — 그것으로는 못 가린다
 _VALUE_KEYS = tuple(k for (k, *_rest) in METRIC_DEFS["value"])
+#: 품질·성장 지표 — 둘 다 하나도 없으면 재무제표 조회가 빈손이었던 것이다
+_품질성장_KEYS = tuple(k for f in ("quality", "growth") for (k, *_rest) in METRIC_DEFS[f])
+
+#: 스크리닝 표의 칸 → 퀀트 지표. 펀더멘털·재무제표(야후·DART·FMP)가 빈 지표만 채운다 — 운영 서버에서는 야후
+#  상세가 막혀, DART·FMP 가 없거나 시한에 걸리면 품질·성장 점수가 비었다(사용자: "품질, 성장점수가 안나오는
+#  종목이 있어"). 스크리닝 표는 KRX·DART·SEC·네이버를 합친 값이다(services/screening)
+_표에서 = {
+    "per": "per", "forward_per": "forward_per", "pbr": "pbr", "ev_ebitda": "ev_ebitda", "peg": "peg_ratio",
+    "roe": "roe", "roa": "roa", "op_margin": "operating_margin", "net_margin": "profit_margin",
+    "debt_ratio": "debt_ratio",
+    "revenue_growth": "_rev_yoy", "net_income_growth": "_ni_yoy", "op_income_growth": "_op_yoy",
+}
+
+
+def 표로_채우기(metrics: dict, 줄: dict | None) -> dict:
+    """스크리닝 표의 한 줄로 빈 지표만 채운다(있는 값은 그대로). 시세(모멘텀·변동성)는 채우지 않는다 —
+    2년 시세를 못 받은 것은 반쪽으로 남아 곧 다시 받아야 한다"""
+    if not 줄:
+        return metrics
+    for k, 칸 in _표에서.items():
+        if metrics.get(k) is None and 줄.get(칸) is not None:
+            metrics[k] = 줄[칸]
+    if not metrics.get("_sector") and 줄.get("sector"):
+        metrics["_sector"] = 줄["sector"]
+    return metrics
 
 
 def 지표가_반쪽인가(metrics: dict | None, market: str = "") -> bool:
-    """가치 지표나 시세(모멘텀)가 통째로 비었나 — 펀더멘털·시세 조회가 시한에 걸리거나 막힌 때다.
+    """가치 지표나 시세(모멘텀)가, 또는 품질·성장 지표가 통째로 비었나 — 펀더멘털·재무제표·시세 조회가 시한에
+    걸리거나 막힌 때다.
 
-    그런 결과를 30분(DB 에는 일주일) 두면 그동안 그 회사의 가치·모멘텀 점수가 '—' 로 나온다
-    (사용자: "가치 모멘텀 ... 안나오는 회사가 있어"). 짧게만 두고 곧 다시 받는다.
-    ETF 는 가치 지표가 원래 없다 — 시세만 본다."""
+    그런 결과를 30분(DB 에는 일주일) 두면 그동안 그 회사의 가치·모멘텀(사용자: "가치 모멘텀 ... 안나오는 회사가
+    있어"), 품질·성장(사용자: "품질, 성장점수가 안나오는 종목이 있어") 점수가 '—' 로 나온다. 짧게만 두고 곧 다시
+    받는다. ETF 는 가치·품질 지표가 원래 없다 — 시세만 본다."""
     if not metrics:
         return True
     시세 = any(str(k).startswith("mom_") for k in metrics)
@@ -293,7 +319,8 @@ def 지표가_반쪽인가(metrics: dict | None, market: str = "") -> bool:
         return v is not None and not (isinstance(v, float) and not math.isfinite(v))
 
     가치 = any(값(metrics.get(k)) for k in _VALUE_KEYS)
-    return not (시세 and 가치)
+    품질성장 = any(값(metrics.get(k)) for k in _품질성장_KEYS)
+    return not (시세 and 가치 and 품질성장)
 
 
 #: 펀더멘털·재무제표를 기다려 주는 상한(초) — 2년 시세(아래 timeout)와 나란히 받으니 더 늦어지지 않는다.
@@ -380,5 +407,12 @@ async def collect_quant_metrics(symbol: str, market: str, fetch_ohlcv: bool = Tr
             metrics.update(compute_momentum_volatility(closes))
         except Exception:
             pass
+
+    # 펀더멘털·재무제표가 비운 지표는 스크리닝 표(KRX·DART·SEC·네이버를 합친 것)로
+    try:
+        from app.services.screening import service as 스크리닝
+        표로_채우기(metrics, await loop.run_in_executor(None, 스크리닝.한종목, market, symbol))
+    except Exception:
+        pass
 
     return metrics

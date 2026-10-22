@@ -821,6 +821,61 @@ def _parse_yf_spark(j) -> dict[str, dict]:
     return out
 
 
+def 종가들_읽기(j) -> dict[str, list[float]]:
+    """spark 응답 → {종목: 종가들(오래된 날부터)}. _parse_yf_spark 와 같은 두 모양(v7·v8)을 읽는다"""
+    out: dict[str, list[float]] = {}
+    if not isinstance(j, dict):
+        return out
+    if isinstance(j.get("spark"), dict):
+        for item in j["spark"].get("result") or []:
+            if not isinstance(item, dict):
+                continue
+            resp = (item.get("response") or [{}])[0] or {}
+            sym = (resp.get("meta") or {}).get("symbol") or item.get("symbol")
+            닫힘 = ((((resp.get("indicators") or {}).get("quote") or [{}])[0] or {}).get("close") or [])
+            값들 = [float(c) for c in 닫힘 if isinstance(c, (int, float)) and c > 0]
+            if sym and 값들:
+                out[str(sym)] = 값들
+    else:
+        for sym, v in j.items():
+            if isinstance(v, dict):
+                값들 = [float(c) for c in (v.get("close") or []) if isinstance(c, (int, float)) and c > 0]
+                if 값들:
+                    out[str(v.get("symbol") or sym)] = 값들
+    return out
+
+
+async def fetch_yf_closes(symbols: list[str], 기간: str = "1y") -> dict[str, list[float]]:
+    """여러 종목의 일별 종가(spark — crumb 없이 되는 길). 스크리닝이 주요 종목 밖의 전 종목에 52주 고저·
+    기간 수익률·RSI 를 내려고 부른다. spark 가 막혀 쉬는 중이면(_spark_막힌때) 묻지 않는다"""
+    global _spark_막힌때, _spark_판
+    if not symbols or time.time() - _spark_막힌때 < SPARK_REST_SEC:
+        return {}
+    out: dict[str, list[float]] = {}
+    async with httpx.AsyncClient(timeout=20, headers=YF_HEADERS, verify=SSL) as cl:
+        for i in range(0, len(symbols), SPARK_BATCH):
+            묶음 = symbols[i:i + SPARK_BATCH]
+            for 판 in (_spark_판, "v8" if _spark_판 == "v7" else "v7"):
+                try:
+                    r = await cl.get(f"https://{_yf_base()}.finance.yahoo.com/{판}/finance/spark",
+                                     params={"symbols": ",".join(묶음), "range": 기간, "interval": "1d"})
+                except Exception as e:
+                    log.debug("YF spark 종가(%s) 실패: %s", 판, type(e).__name__)
+                    continue
+                if r.status_code in (401, 403, 429):
+                    _spark_막힌때 = time.time()
+                    return out
+                try:
+                    받음 = 종가들_읽기(r.json()) if r.status_code == 200 else {}
+                except ValueError:
+                    받음 = {}
+                if 받음:
+                    _spark_판 = 판
+                    out.update(받음)
+                    break
+    return out
+
+
 async def fetch_yf_quote_extended(symbol: str) -> dict | None:
     """단건 조회 + 프리마켓/애프터마켓 시세(marketState=PRE/POST). 종목 상세 페이지에서만 사용 —
     fields 화이트리스트 검증 실패 위험을 배치 조회(fetch_yf_quotes)와 분리해 격리."""

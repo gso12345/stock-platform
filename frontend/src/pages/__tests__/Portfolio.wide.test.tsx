@@ -15,7 +15,7 @@
  * 1024~1920·390px 화면으로 찍어 확인했다.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -40,6 +40,8 @@ const ITEMS = [
   줄(4, 2, "AAPL", "US", "애플", 3, 230),
   줄(5, 2, "MSFT", "US", "마이크로소프트", 1, 420),
 ];
+/* 시험마다 보유를 바꿔 끼운다(아래 mock 이 그릴 때 읽는다) */
+let 보유 = ITEMS;
 const PRICES = [
   { symbol: "005930", price: 70_000, change_rate: 0, currency: "KRW" },
   { symbol: "000660", price: 200_000, change_rate: 0, currency: "KRW" },
@@ -51,8 +53,8 @@ const PRICES = [
 vi.mock("@/api/stocks", () => ({
   portfolioApi: {
     getPortfolios: vi.fn(() => Promise.resolve(PORTFOLIOS)),
-    getItems: vi.fn(() => Promise.resolve(ITEMS)),
-    getItemsWithPrices: vi.fn(() => Promise.resolve({ items: ITEMS, prices: [] })),
+    getItems: vi.fn(() => Promise.resolve(보유)),
+    getItemsWithPrices: vi.fn(() => Promise.resolve({ items: 보유, prices: [] })),
     addItem: vi.fn(), updateItem: vi.fn(), deleteItem: vi.fn(),
     createPortfolio: vi.fn(), renamePortfolio: vi.fn(),
     deletePortfolio: vi.fn(), reorderPortfolios: vi.fn(),
@@ -88,7 +90,66 @@ function 띄우기() {
 const class들 = (el: Element | null) => new Set((el?.className as string ?? "").split(/\s+/));
 
 describe("내 자산 — PC 배치 (휴대폰 모양은 그대로)", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); 보유 = ITEMS; });
+
+  /* 국내 70만+40만+19만 = 129만, 해외 96.6만+58.8만 = 155.4만(1,400원) — 합 284.4만 */
+  const 구성읽기 = async () => {
+    const 구성 = await screen.findByRole("group", { name: "구성" });
+    return {
+      구성,
+      막대: within(구성).getByRole("img").getAttribute("aria-label"),
+      위: within(within(구성).getByRole("list", { name: "비중 위 세 종목" }))
+        .getAllByRole("listitem").map((li) => li.textContent),
+    };
+  };
+
+  it("요약: 아주 넓은 화면(xl)에서는 네 번째 칸 — 자산유형 막대와 비중 위 세 종목", async () => {
+    띄우기();
+    await waitFor(async () => {
+      const { 막대, 위 } = await 구성읽기();
+      expect(막대).toBe("자산유형별 해외주식 55%, 국내주식 45%");
+      expect(위).toEqual(["애플34.0%", "삼성전자24.6%", "마이크로소프트20.7%"]);
+    });
+    const { 구성 } = await 구성읽기();
+    // 휴대폰·좁은 PC 에서는 숨기고 xl 에서만 — 카드도 그때만 네 칸
+    expect(class들(구성).has("hidden")).toBe(true);
+    expect(class들(구성).has("xl:flex")).toBe(true);
+    expect(class들(구성.parentElement)
+      .has("xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.25fr)]")).toBe(true);
+    expect(within(구성).getByText("구성")).toBeTruthy();
+  });
+
+  it("구성: 같은 종목을 두 포트폴리오에 담았으면 한 줄로 합친다(비중 탭처럼)", async () => {
+    보유 = [...ITEMS, 줄(6, 2, "005930", "KR", "삼성전자", 5, 70_000)];
+    띄우기();
+    // 삼성전자 70만+35만 = 105만 / 합 319.4만 — 애플(96.6만)보다 위
+    await waitFor(async () => expect((await 구성읽기()).위).toEqual(["삼성전자32.9%", "애플30.2%", "마이크로소프트18.4%"]));
+  });
+
+  it("구성: 자산유형 탭을 골라도 전체로 세고, 그렇다고 적는다", async () => {
+    const user = userEvent.setup();
+    띄우기();
+    const { 구성 } = await 구성읽기();
+    const 거르기 = await screen.findByRole("tablist", { name: "자산유형 필터" });
+    await user.click(within(거르기).getByRole("tab", { name: "국내주식" }));
+    await waitFor(() => expect(within(구성).getByText("전체 구성")).toBeTruthy());
+    expect((await 구성읽기()).막대).toBe("자산유형별 해외주식 55%, 국내주식 45%");
+    // 표를 다시 세워도(보유 목록이 새로 만들어져도) 전체로 센다
+    await user.click(screen.getByRole("button", { name: "수익률 기준 정렬" }));
+    await waitFor(async () => expect((await 구성읽기()).막대).toBe("자산유형별 해외주식 55%, 국내주식 45%"));
+  });
+
+  it("구성: 값이 0 인 보유는 빼고, 모두 0 이면 칸도 없다 — 카드는 세 칸 그대로", async () => {
+    보유 = [...ITEMS, { ...줄(6, 1, "CASH", "KR", "예수금", 0, 0), assetClass: "현금" }];
+    const { unmount } = 띄우기();
+    await waitFor(async () => expect((await 구성읽기()).막대).toBe("자산유형별 해외주식 55%, 국내주식 45%"));
+    unmount();
+    보유 = [줄(1, 1, "005930", "KR", "삼성전자", 0, 70_000)];
+    띄우기();
+    await screen.findByText("평가손익");
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByRole("group", { name: "구성" })).toBeNull();
+  });
 
   it("요약: 휴대폰에서는 위아래로 쌓고, PC 에서는 평가금액 | 손익 | 참고값 세 칸", async () => {
     띄우기();
@@ -176,9 +237,11 @@ describe("내 자산 — PC 배치 (휴대폰 모양은 그대로)", () => {
   it("카드로 보기: PC 에서는 두 줄(아주 넓으면 세 줄)로 나란히", async () => {
     const user = userEvent.setup();
     띄우기();
-    await screen.findByText("마이크로소프트");
+    /* 요약 카드의 구성 칸(비중 위 세 종목)에도 이름이 있다 — 보유 목록 쪽 것을 본다 */
+    const 목록쪽 = async () => (await screen.findAllByText("마이크로소프트")).find((el) => !el.closest("[aria-label='구성']"))!;
+    await 목록쪽();
     await user.click(screen.getByTitle("카드로 보기"));
-    const 카드 = await screen.findByText("마이크로소프트");
+    const 카드 = await 목록쪽();
     const 목록 = 카드.closest("[class*='lg:grid-cols-2']");
     const c = class들(목록);
     expect(c.has("flex")).toBe(true);

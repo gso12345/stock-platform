@@ -354,8 +354,9 @@ def _금액(v) -> float | None:
 
 
 def 주요계정_읽기(줄들: list) -> dict[str, dict]:
-    """fnlttMultiAcnt 의 list → {6자리 코드: {칸: 금액, rev_years, rev_hist}}. 연결(CFS)을 별도(OFS)보다
-    먼저 쓴다. 매출은 사업보고서에 함께 적힌 전기·전전기까지 — 스크리닝의 매출 흐름(오래된 해부터)이다"""
+    """fnlttMultiAcnt 의 list → {6자리 코드: {칸: 금액, rev_years, rev_hist, op_income_prev, net_income_prev}}.
+    연결(CFS)을 별도(OFS)보다 먼저 쓴다. 매출은 사업보고서에 함께 적힌 전기·전전기까지 — 스크리닝의 매출 흐름
+    (오래된 해부터)이다. 영업이익·순이익은 전기 값도 — 퀀트의 성장 점수다"""
     모음: dict[str, dict[str, dict]] = {}
     for z in 줄들:
         if not isinstance(z, dict):
@@ -371,6 +372,8 @@ def 주요계정_읽기(줄들: list) -> dict[str, dict]:
         if 칸 == "revenue" and 해.isdigit():
             갈래["rev_years"] = [int(해) - 2, int(해) - 1, int(해)]
             갈래["rev_hist"] = [_금액(z.get("bfefrmtrm_amount")), _금액(z.get("frmtrm_amount")), 값]
+        elif 칸 in ("op_income", "net_income") and (전기 := _금액(z.get("frmtrm_amount"))) is not None:
+            갈래[f"{칸}_prev"] = 전기                       # 퀀트 성장 점수(전년 대비)
     return {code: 갈래.get("CFS") or 갈래.get("OFS") or {} for code, 갈래 in 모음.items()}
 
 

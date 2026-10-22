@@ -158,11 +158,13 @@ export function StockTableSkeleton({ rows = 10 }: { rows?: number }) {
 }
 
 /** 도구 줄 단추 — 판을 여닫는 것(열림 을 준다)과 그냥 누르는 것(CSV 등) */
-export function 도구단추({ 아이콘: Icon, children, 열림, controls, onClick, title, disabled }: {
+export function 도구단추({ 아이콘: Icon, children, 열림, 눌림, controls, onClick, title, disabled }: {
   아이콘?: LucideIcon;
   children: ReactNode;
   /** 판을 여닫는 단추면 지금 열렸는지 — 안 주면 그냥 누르는 단추 */
   열림?: boolean;
+  /** 켜고 끄는 단추면 지금 켜졌는지(원화 환산 따위) */
+  눌림?: boolean;
   controls?: string;
   onClick: () => void;
   title?: string;
@@ -170,10 +172,10 @@ export function 도구단추({ 아이콘: Icon, children, 열림, controls, onCl
 }) {
   return (
     <button type="button" onClick={onClick} title={title} disabled={disabled}
-      aria-expanded={열림} aria-controls={열림 === undefined ? undefined : controls}
+      aria-expanded={열림} aria-controls={열림 === undefined ? undefined : controls} aria-pressed={눌림}
       className={cn(
         "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors flex-shrink-0 disabled:opacity-40",
-        열림
+        열림 || 눌림
           ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
           : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50",
       )}>

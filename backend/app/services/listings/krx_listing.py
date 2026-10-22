@@ -236,6 +236,10 @@ def fetch_listing() -> tuple[list[dict], dict, str]:
 # 상세가 막혀 가격만 남았다(사용자: "PER ... 배당 수익률 ... 안나와"). KRX 는 전 종목의 값을
 # 요청 한 번에 준다 — 위의 목록·시세(MDCSTAT01501)와 같은 주소·같은 머리글이다.
 # 요청 이름(bld)과 받는 칸 이름은 pykrx(1.0.45)의 KRX 요청 정의(website/krx/market/core.py)와 같다.
+#
+# 다만 KRX 는 이제 로그인한 세션에만 자료를 준다 — 로그인 없이 물으면 'LOGOUT' 이라고만 답한다
+# (FinanceData/fdr_krx_data_cache 의 collectors.py 주석). 회원 아이디(settings.KRX_ID·KRX_PW)를 넣으면
+# 로그인해서 받는다. 없으면 GitHub 우회로(fetch_github_bulk)와 네이버 종목별 조회로 채운다.
 _BLD_지표 = "dbms/MDC/STAT/standard/MDCSTAT03501"     # [12021] PER/PBR/배당수익률 — 전종목
 _BLD_업종 = "dbms/MDC/STAT/standard/MDCSTAT03901"     # 업종분류현황 — 시장별(STK·KSQ)
 _BLD_등락 = "dbms/MDC/STAT/standard/MDCSTAT01602"     # [12002] 전종목 등락률 — 기간
@@ -265,8 +269,45 @@ def _코드(v) -> str | None:
     return raw.zfill(6)
 
 
+class KRX로그인필요(RuntimeError):
+    """KRX 가 'LOGOUT' 으로 답했다 — 로그인한 세션에만 자료를 준다"""
+
+
+_INIT_URL = ("https://data.krx.co.kr/comm/bldAttendant/executeForResourceBundle.cmd"
+             "?baseName=krx.mdc.i18n.component&key=B128.bld")
+_LOGIN_PAGE = "https://data.krx.co.kr/contents/MDC/COMS/client/MDCCOMS001.cmd"
+_LOGIN_JSP = "https://data.krx.co.kr/contents/MDC/COMS/client/view/login.jsp?site=mdc"
+_LOGIN_URL = "https://data.krx.co.kr/contents/MDC/COMS/client/MDCCOMS001D1.cmd"
+
+
+def krx_로그인(client: httpx.Client, 아이디: str, 비밀번호: str) -> bool:
+    """KRX 정보데이터시스템 회원 로그인 — 세션 쿠키가 client 에 남는다. 흐름은 FinanceData/fdr_krx_data_cache 의
+    krx_auth.py 와 같다. 같은 아이디로 다른 곳(브라우저)에서 로그인 중이면 KRX 가 CD011 로 답하는데, 그때는
+    그쪽을 끊고 들어간다 — 스크리닝 전용 아이디를 따로 만들어 쓰는 게 좋다"""
+    try:
+        client.get(_INIT_URL, headers=_HEADERS, timeout=_TIMEOUT)
+        if not 아이디 or not 비밀번호:
+            return False
+        client.get(_LOGIN_PAGE, headers=_HEADERS, timeout=_TIMEOUT)
+        머리 = {**_HEADERS, "Referer": _LOGIN_PAGE}
+        client.get(_LOGIN_JSP, headers=머리, timeout=_TIMEOUT)
+        몸 = {"mbrNm": "", "telNo": "", "di": "", "certType": "", "mbrId": 아이디, "pw": 비밀번호}
+        코드 = (client.post(_LOGIN_URL, data=몸, headers=머리, timeout=_TIMEOUT).json() or {}).get("_error_code", "")
+        if 코드 == "CD011":
+            코드 = (client.post(_LOGIN_URL, data={**몸, "skipDup": "Y"}, headers=머리, timeout=_TIMEOUT)
+                  .json() or {}).get("_error_code", "")
+        if 코드 == "CD001":
+            return True
+        log.warning("KRX 로그인 실패(%s)", 코드)
+    except Exception as e:
+        log.warning("KRX 로그인 중 오류: %s", type(e).__name__)
+    return False
+
+
 def _묻기(client: httpx.Client, bld: str, **params) -> dict:
     r = client.post(_LIVE_URL, headers=_HEADERS, timeout=_TIMEOUT, data={"bld": bld, **params})
+    if r.text.lstrip()[:6].upper() == "LOGOUT":
+        raise KRX로그인필요(bld)
     r.raise_for_status()
     return json.loads(r.text)
 
@@ -368,18 +409,23 @@ def _지난_EPS(client: httpx.Client, 끝: str, 몇해: int) -> tuple[dict[str, 
     return {}, 0
 
 
-def fetch_screening_bulk() -> tuple[dict[str, dict], str]:
+def fetch_screening_bulk(아이디: str = "", 비밀번호: str = "") -> tuple[dict[str, dict], str]:
     """스크리닝 전 종목 칸 — 지표(PER·PBR·EPS·BPS·DPS·배당수익률)·업종·1/3/12개월 수익률·
     4년 EPS(eps_years·eps_hist — 오래된 해부터).
 
     반환: ({6자리 코드: {...}}, 기준일 YYYYMMDD). 지표를 못 받으면 ({}, "") — 업종·수익률·지난 EPS 는
-    못 받아도 지표만으로 돌려준다(한 갈래가 막혔다고 전부 버리지 않는다)."""
+    못 받아도 지표만으로 돌려준다(한 갈래가 막혔다고 전부 버리지 않는다). KRX 가 로그인을 요구하면
+    KRX로그인필요 를 던진다 — 부르는 쪽이 관리자 화면에 그렇게 알린다."""
     with httpx.Client(follow_redirects=True, verify=SSL) as client:
+        if 아이디 and 비밀번호:
+            krx_로그인(client, 아이디, 비밀번호)
         지표: dict[str, dict] = {}
         기준일 = ""
         for ymd in _candidate_days(client):
             try:
                 지표 = fetch_valuation(client, ymd)
+            except KRX로그인필요:
+                raise
             except Exception as e:
                 log.debug(f"KRX 지표 {ymd} 실패: {type(e).__name__}: {e}")
                 continue
@@ -418,4 +464,83 @@ def fetch_screening_bulk() -> tuple[dict[str, dict], str]:
             out[code]["eps_hist"] = [해마다[y] for y in out[code]["eps_years"]]
     log.info(f"KRX 스크리닝 일괄({기준일}) — 지표 {len(지표)} · 업종 {len(업종)} · 수익률 {len(수익률)}"
              f" · 지난 EPS {len(eps흐름)}")
+    return out, 기준일
+
+
+# ── GitHub 우회로 — KRX 가 로그인을 요구하는 동안 ─────────────────────────────
+#
+# FinanceData/fdr_krx_data_cache 는 KRX 에 로그인해서 받은 표를 날마다 CSV 로 올린다(평일 장중 10분마다).
+# 이미 종목 목록의 2순위 경로(fetch_csv_cache)로 쓰고 있다. 같은 저장소의 기업 상세(desc)에는 국내 전 종목의
+# 산업(한국표준산업분류, 한국어)·누리집이 있고, 날마다의 목록에는 종가·주식 수가 있다.
+_DESC_URL = ("https://raw.githubusercontent.com/FinanceData/fdr_krx_data_cache"
+             "/refs/heads/master/data/listing/desc/{ymd}.csv")
+#: 그날 CSV 가 없으면(주말·휴일·아직 안 올라옴) 이만큼 거슬러 올라가 본다
+_깃헙_며칠 = 10
+#: 그사이 주식 수가 이보다 크게 바뀐 종목은 분할·감자·증자일 수 있어 수익률을 비운다(수정주가가 아니다)
+_주식수_변화한도 = 0.1
+
+
+def _깃헙_있는날(client: httpx.Client, 틀: str, 끝: date) -> tuple[str, str] | None:
+    """끝날부터 하루씩 거슬러 올라가며 그날 CSV 가 있는 첫 평일 → (YYYYMMDD, 본문). 없으면 None"""
+    for i in range(_깃헙_며칠):
+        d = 끝 - timedelta(days=i)
+        if d.weekday() >= 5:
+            continue
+        try:
+            r = client.get(틀.format(ymd=d.isoformat()), timeout=_TIMEOUT)
+        except Exception as e:
+            log.debug(f"GitHub KRX CSV {d} 실패: {type(e).__name__}")
+            continue
+        if r.status_code == 200 and len(r.text) > 1000:
+            return d.strftime("%Y%m%d"), r.text
+    return None
+
+
+def _종가표(본문: str) -> dict[str, tuple[float, float]]:
+    """날마다의 목록 CSV → {코드: (종가, 주식 수)}"""
+    out: dict[str, tuple[float, float]] = {}
+    for it in csv.DictReader(io.StringIO(본문.lstrip("\ufeff"))):
+        code = _코드(it.get("Code"))
+        종가 = _num(it.get("Close"))
+        if code and 종가 > 0:
+            out[code] = (종가, _num(it.get("Stocks")))
+    return out
+
+
+def fetch_github_bulk(오늘: date | None = None) -> tuple[dict[str, dict], str]:
+    """국내 전 종목의 산업(industry — 한국표준산업분류)·누리집(homepage)과 1·3·12개월 수익률 → ({코드: {...}},
+    기준일 YYYYMMDD). 수익률은 그날과 1·3·12개월 전 종가로 낸다 — 주식 수가 10% 넘게 바뀐 종목은 비운다."""
+    오늘 = 오늘 or date.today()
+    out: dict[str, dict] = {}
+    with httpx.Client(follow_redirects=True, verify=SSL) as client:
+        상세 = _깃헙_있는날(client, _DESC_URL, 오늘)
+        if 상세:
+            for it in csv.DictReader(io.StringIO(상세[1].lstrip("\ufeff"))):
+                code = _코드(it.get("Code"))
+                if not code:
+                    continue
+                줄 = {k: str(it.get(칸) or "").strip() for k, 칸 in (("industry", "Industry"), ("homepage", "HomePage"))}
+                줄 = {k: v for k, v in 줄.items() if v}
+                if 줄:
+                    out[code] = 줄
+        지금 = _깃헙_있는날(client, _CSV_URL, 오늘)
+        if 지금:
+            종가 = _종가표(지금[1])
+            # 우선주(005935 삼성전자우)는 기업 상세에 없다 — 보통주(005930)의 산업·누리집을 쓴다
+            for code in 종가:
+                보통주 = out.get(code[:5] + "0")
+                if code not in out and code[-1] != "0" and 보통주:
+                    out[code] = dict(보통주)
+            for 키, 달 in (("return_1m", 1), ("return_3m", 3), ("return_1y", 12)):
+                전 = _깃헙_있는날(client, _CSV_URL, _달전(지금[0], 달))
+                if not 전:
+                    continue
+                전종가 = _종가표(전[1])
+                for code, (c, n) in 종가.items():
+                    p, pn = 전종가.get(code, (0.0, 0.0))
+                    if not p or (pn and n and abs(n / pn - 1) > _주식수_변화한도):
+                        continue
+                    out.setdefault(code, {})[키] = round((c / p - 1) * 100, 2)
+    기준일 = 지금[0] if 지금 else (상세[0] if 상세 else "")
+    log.info(f"GitHub KRX 일괄({기준일}) — 종목 {len(out)}")
     return out, 기준일

@@ -205,8 +205,12 @@ class Test반쪽_가리기:
         assert 반쪽({"roe": 15.0, "debt_ratio": 80.0, "mom_3m": 4.0}, "US"), "가치 지표 없이 다 모았다고 봤다"
         assert 반쪽({"per": None, "mom_3m": 4.0}, "US"), "빈 칸(None)을 값으로 셌다"
         assert 반쪽({"per": float("nan"), "mom_3m": 4.0}, "US"), "NaN 을 값으로 셌다 — DB 에 남기면 빈 칸이 된다"
-        assert not 반쪽({"per": 12.0, "mom_3m": 4.0}, "US")
-        assert not 반쪽({"pbr": 0.9, "mom_1m": -2.0}, "KR")
+        assert not 반쪽({"per": 12.0, "mom_3m": 4.0, "roe": 15.0}, "US")
+        assert not 반쪽({"pbr": 0.9, "mom_1m": -2.0, "revenue_growth": 8.0}, "KR")
+        # 품질·성장이 다 빈 것 — 재무제표 조회가 빈손이었다. 남기면 일주일 동안 품질·성장 점수가 '—'
+        # (사용자: "품질, 성장점수가 안나오는 종목이 있어")
+        assert 반쪽({"per": 12.0, "mom_3m": 4.0}, "US"), "품질·성장이 빈 것을 다 모았다고 봤다"
+        assert 반쪽({"per": 12.0, "mom_3m": 4.0, "roe": float("nan")}, "KR")
 
     def test_ETF_는_시세만_본다(self):
         from app.services.quant.quant_score import 지표가_반쪽인가 as 반쪽

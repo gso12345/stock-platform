@@ -17,6 +17,7 @@ import { ChangeBadge } from "../ui";
 import Watchlist원문 from "../../pages/Watchlist.tsx?raw";
 import Quant원문 from "../../pages/Quant.tsx?raw";
 import HoldingRow원문 from "../portfolio/HoldingRow.tsx?raw";
+import ItemRow원문 from "../watchlist/ItemRow.tsx?raw";
 
 describe("등락 배지", () => {
   it("금액을 안 주면 예전처럼 % 만 나온다", () => {
@@ -62,7 +63,11 @@ describe("등락 배지", () => {
 
 describe("세 화면이 금액을 넘긴다", () => {
   it("관심종목", () => {
-    expect(Watchlist원문).toMatch(/금액=\{p\.change != null \? Number\(p\.change\) : null\}/);
+    /* 줄은 ItemRow(폴더 목록)와 간단관심줄(최근조회·포트폴리오 탭·미리보기)이 그린다 — 둘 다 금액을 넘기고,
+       화면은 간단관심줄에 시세의 금액을 넘긴다 */
+    expect(ItemRow원문).toMatch(/금액=\{p\.change != null \? Number\(p\.change\) : null\}/);
+    expect(ItemRow원문).toMatch(/금액=\{change != null \? Number\(change\) : null\}/);
+    expect(Watchlist원문).toMatch(/change=\{p\?\.change \?\? null\}/);
   });
 
   it("퀀트", () => {

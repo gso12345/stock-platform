@@ -66,4 +66,16 @@ describe("도구단추", () => {
     expect(screen.getByRole("button").getAttribute("aria-expanded")).toBeNull();
     expect(screen.getByRole("button").getAttribute("aria-controls")).toBeNull();
   });
+
+  it("켜고 끄는 단추는 눌림을 알리고, 켜지면 열린 판 단추처럼 파랗다", () => {
+    const 단추 = () => screen.getByRole("button");
+    const { rerender } = render(<도구단추 onClick={() => {}} 눌림={false}>₩ 원화</도구단추>);
+    expect(단추().getAttribute("aria-pressed")).toBe("false");
+    expect(단추().className).not.toContain("bg-accent-blue/15");
+    rerender(<도구단추 onClick={() => {}} 눌림>₩ 원화</도구단추>);
+    expect(단추().getAttribute("aria-pressed")).toBe("true");
+    expect(단추().className).toContain("bg-accent-blue/15");
+    rerender(<도구단추 onClick={() => {}}>CSV</도구단추>);
+    expect(단추().getAttribute("aria-pressed")).toBeNull();
+  });
 });

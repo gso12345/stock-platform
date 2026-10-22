@@ -23,7 +23,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from app.services.market.yf_service import 스크리닝_숫자키, _SECTOR_KO
+from app.services.market.yf_service import 스크리닝_숫자키, _SECTOR_KO, _도메인
+from app.services.screening.names_ko import 국내업종_어림, 나라_이름, 산업_이름
 
 #: 거르고 세울 수 있는 숫자 칸 + 묶음 시세로 다시 나눌 때 쓰는 칸
 숫자칸 = tuple(sorted(스크리닝_숫자키)) + (
@@ -38,6 +39,10 @@ _원천먼저 = frozenset({"debt_ratio"})
 #: 4년 흐름 — 해 수와, 원천에서 낸 흐름의 돈(SEC 는 달러로 적은 값만 받고, DART·KRX 는 원이다)
 흐름해수 = 4
 _흐름돈 = {"US": "USD", "KR": "KRW"}
+#: 퀀트(성장 점수)가 쓰는 전년 대비 성장률 — 화면에는 안 보내는 안쪽 칸
+성장칸 = ("_rev_yoy", "_ni_yoy", "_op_yoy")
+#: 원천의 순이익·영업이익 칸 이름(지난해 값은 끝에 _prev)
+_재무칸 = {"US": ("us_sec", "earnings", "op_income"), "KR": ("kr_dart", "net_income", "op_income")}
 
 #: 나스닥 업종(영문) → 한글. 야후 업종은 yf_service._SECTOR_KO — 두 갈래가 한 표에 섞여도
 #: 같은 업종은 같은 이름이 되게 맞춘다(안 그러면 고르기 목록에 '금융' 과 '금융서비스' 가 따로 선다)
@@ -49,29 +54,12 @@ _흐름돈 = {"US": "USD", "KR": "KRW"}
 }
 #: 야후 업종 중 나스닥 이름에 맞춰 부르는 것(종목 상세는 yf_service._SECTOR_KO 그대로)
 _야후업종_맞춤 = {"Financial Services": "금융", "Financials": "금융"}
-#: 자주 나오는 나라만 한글로 — 나머지는 영문 그대로
-나라_한글 = {
-    "United States": "미국", "South Korea": "대한민국", "China": "중국", "Hong Kong": "홍콩",
-    "Taiwan": "대만", "Japan": "일본", "United Kingdom": "영국", "Canada": "캐나다",
-    "Germany": "독일", "France": "프랑스", "Netherlands": "네덜란드", "Switzerland": "스위스",
-    "Ireland": "아일랜드", "Israel": "이스라엘", "India": "인도", "Singapore": "싱가포르",
-    "Bermuda": "버뮤다", "Cayman Islands": "케이맨 제도", "Luxembourg": "룩셈부르크",
-    "Brazil": "브라질", "Mexico": "멕시코", "Argentina": "아르헨티나", "Australia": "호주",
-    "Greece": "그리스", "Sweden": "스웨덴", "Denmark": "덴마크", "Norway": "노르웨이",
-    "Spain": "스페인", "Italy": "이탈리아", "Belgium": "벨기에", "Finland": "핀란드",
-}
 
 
 def 업종_한글(업종: object) -> str | None:
     if not isinstance(업종, str) or not 업종.strip():
         return None
     return 나스닥업종_한글.get(업종) or _야후업종_맞춤.get(업종) or _SECTOR_KO.get(업종) or 업종
-
-
-def 나라_이름(나라: object) -> str | None:
-    if not isinstance(나라, str) or not 나라.strip():
-        return None
-    return 나라_한글.get(나라, 나라)
 
 
 def _틀(줄들: list[dict]) -> pd.DataFrame:
@@ -104,11 +92,14 @@ def _먼저(idx: pd.Index, *들: "pd.Series | None", 숫자: bool = True) -> pd.
     return out
 
 
-def _글자(df: pd.DataFrame, 칸: str, idx: pd.Index, 바꿈=None) -> pd.Series | None:
-    if 칸 not in df.columns:
+def _글자(df: pd.DataFrame | None, 칸: str, idx: pd.Index, 바꿈=None) -> pd.Series | None:
+    """글자 칸. 바꿈(번역 따위)은 서로 다른 값마다 한 번만 부른다 — 7천 줄에 업종은 열몇 가지다"""
+    if df is None or 칸 not in df.columns:
         return None
     s = df[칸].reindex(idx)
-    return s.map(바꿈) if 바꿈 else s
+    if not 바꿈:
+        return s
+    return s.map({v: 바꿈(v) for v in s.dropna().unique()})
 
 
 def _나눔(위: pd.Series | None, 아래: pd.Series | None, 곱: float = 1.0, 양수만: bool = True):
@@ -201,6 +192,16 @@ def _연평균(값: np.ndarray) -> np.ndarray:
     return np.where((처음 > 0) & (끝 > 0), r, np.nan)
 
 
+def _전년대비(지금, 전) -> np.ndarray | None:
+    """(지금 − 전) ÷ |전| × 100 — quant_score.collect_quant_metrics 가 재무제표로 내는 성장률과 같은 식"""
+    if 지금 is None or 전 is None:
+        return None
+    지금, 전 = np.asarray(지금, dtype=float), np.asarray(전, dtype=float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        v = np.round((지금 - 전) / np.abs(전) * 100, 2)
+    return np.where(np.isfinite(v) & (전 != 0), v, np.nan)
+
+
 def _흐름_엮기(끝: int, r: dict) -> dict:
     """표의 해마다 숫자 칸(_rev0…_eps3) → {fin_years, rev_hist, eps_hist}. 앞쪽의 빈 해만 뺀다
     (가운데를 빼면 '3년 전' 이 4년 전이 된다 — yf_service.연간흐름 과 같다)"""
@@ -228,13 +229,16 @@ def 원천에서_낸값(시장: str, idx: pd.Index, 가격: pd.Series, 시총: p
 
     if 시장 == "KR":
         krx, 네이버, dart = 원천.get("kr_krx"), 원천.get("kr_naver"), 원천.get("kr_dart")
+        깃헙 = 원천.get("kr_git")
         eps = _먼저(idx, _수(krx, "eps", idx), _수(네이버, "eps", idx))
         bps = _먼저(idx, _수(krx, "bps", idx), _수(네이버, "bps", idx))
         dps = _수(krx, "dps", idx)
         선행eps = _수(네이버, "forward_eps", idx)
+        # DART 의 순이익·자본으로 낸 PER·PBR 은 마지막 갈래 — 비지배지분까지 든 값이라 어림이다
+        순이익d, 자본d = _수(dart, "net_income", idx), _수(dart, "equity", idx)
         둠("eps", eps)
-        둠("per", _나눔(가격, eps), _수(krx, "per", idx), _수(네이버, "per", idx))
-        둠("pbr", _나눔(가격, bps), _수(krx, "pbr", idx), _수(네이버, "pbr", idx))
+        둠("per", _나눔(가격, eps), _수(krx, "per", idx), _수(네이버, "per", idx), _나눔(시총, 순이익d))
+        둠("pbr", _나눔(가격, bps), _수(krx, "pbr", idx), _수(네이버, "pbr", idx), _나눔(시총, 자본d))
         둠("dividend_rate", dps)
         둠("dividend_yield", _나눔(dps, 가격, 100, 양수만=False) if dps is not None else None,
            _수(krx, "dividend_yield", idx), _수(네이버, "dividend_yield", idx))
@@ -242,15 +246,17 @@ def 원천에서_낸값(시장: str, idx: pd.Index, 가격: pd.Series, 시총: p
         둠("forward_per", _나눔(가격, 선행eps), _수(네이버, "forward_per", idx))
         if 선행eps is not None:
             둠("forward_eps_growth", ((선행eps / eps.where(eps > 0) - 1) * 100).round(1))
+        # 1년 시세(야후 .KS·.KQ) — 주요 종목 밖의 1년 수익률·RSI, 네이버가 아직 안 준 52주 고저
+        시세 = 원천.get("kr_px")
         for 칸 in ("return_1m", "return_3m", "return_1y"):
-            둠(칸, _수(krx, 칸, idx))
-        고점, 저점 = _수(네이버, "high_52w", idx), _수(네이버, "low_52w", idx)
+            둠(칸, _수(krx, 칸, idx), _수(깃헙, 칸, idx), _수(시세, 칸, idx))
+        둠("rsi", _수(시세, "rsi", idx))
+        고점 = _먼저(idx, _수(네이버, "high_52w", idx), _수(시세, "high_52w", idx))
+        저점 = _먼저(idx, _수(네이버, "low_52w", idx), _수(시세, "low_52w", idx))
         둠("high_52w", 고점)
         둠("low_52w", 저점)
-        if 고점 is not None:
-            둠("pct_from_52w_high", ((가격 / 고점.where(고점 > 0) - 1) * 100).round(2))
-        if 저점 is not None:
-            둠("pct_from_52w_low", ((가격 / 저점.where(저점 > 0) - 1) * 100).round(2))
+        둠("pct_from_52w_high", ((가격 / 고점.where(고점 > 0) - 1) * 100).round(2))
+        둠("pct_from_52w_low", ((가격 / 저점.where(저점 > 0) - 1) * 100).round(2))
         if dart is not None:
             매출, 순이익 = _수(dart, "revenue", idx), _수(dart, "net_income", idx)
             자본 = _수(dart, "equity", idx)
@@ -283,6 +289,18 @@ def 원천에서_낸값(시장: str, idx: pd.Index, 가격: pd.Series, 시총: p
             현금, 설비 = _수(sec, "ocf", idx), _수(sec, "capex", idx)
             if 현금 is not None and 설비 is not None:
                 둠("fcf", 현금 - 설비)
+        # 1년 시세(야후 spark) — 주요 종목 밖의 52주 고저·수익률·RSI
+        시세 = 원천.get("us_px")
+        if 시세 is not None:
+            고점, 저점 = _수(시세, "high_52w", idx), _수(시세, "low_52w", idx)
+            둠("high_52w", 고점)
+            둠("low_52w", 저점)
+            if 고점 is not None:
+                둠("pct_from_52w_high", ((가격 / 고점.where(고점 > 0) - 1) * 100).round(2))
+            if 저점 is not None:
+                둠("pct_from_52w_low", ((가격 / 저점.where(저점 > 0) - 1) * 100).round(2))
+            for 칸 in ("return_1m", "return_3m", "return_1y", "rsi"):
+                둠(칸, _수(시세, 칸, idx))
     return 낸
 
 
@@ -317,8 +335,8 @@ class 스크리닝표:
             if "eq" in 조건:
                 # 업종·나라는 한글로 바꿔 담는다 — 예전에 영문('Technology')으로 저장해 둔 보기도
                 # 같은 번역을 거쳐 맞춘다(안 그러면 저장한 보기가 조용히 0개가 된다)
-                목표 = 업종_한글(조건["eq"]) if 칸 == "sector" else (
-                    나라_이름(조건["eq"]) if 칸 == "country" else 조건["eq"])
+                바꿈 = {"sector": 업종_한글, "country": 나라_이름, "industry": 산업_이름}.get(칸)
+                목표 = 바꿈(조건["eq"]) if 바꿈 else 조건["eq"]
                 고름 &= (값 == 목표).to_numpy(dtype=bool)
                 continue
             수 = pd.to_numeric(값, errors="coerce").to_numpy(dtype=float)
@@ -336,6 +354,18 @@ class 스크리닝표:
                 맞음 |= 글.str.contains(m, regex=False).to_numpy(dtype=bool)
             고름 &= 맞음
         return 고름
+
+    def 한줄(self, 종목: str) -> dict | None:
+        """한 종목의 줄(화면에 보내는 꼴) + 퀀트가 쓰는 전년 대비 성장률(성장칸). 없으면 None"""
+        if 종목 not in self.df.index:
+            return None
+        r = {"symbol": 종목, **self.df.loc[종목].to_dict()}
+        줄 = _줄(r)
+        for k in 성장칸:
+            v = r.get(k)
+            if isinstance(v, (int, float)) and math.isfinite(v):
+                줄[k] = float(v)
+        return 줄
 
     def 결과(self, filters: dict, q: str, 세울칸: str, 내림: bool, 앞: int, 몇: int) -> tuple[list[dict], int]:
         """거르고 세운 뒤 앞(offset)부터 몇(limit) 줄. 값 없는 종목은 오름·내림 어느 쪽이든 맨 뒤
@@ -403,18 +433,26 @@ def 만들기(시장: str, 기초: list[dict], 풍부: list[dict], 원천: dict 
         if 값.notna().any():
             칸들[칸] = 값
 
+    국내 = 시장 == "KR"
     for 칸 in 글자칸:
         if 칸 == "sector":
-            # 국내는 KRX 업종('전기·전자') 한 갈래만 — 야후 업종('기술')과 갈래가 달라 섞으면 고르기
-            # 목록에 같은 업종이 두 이름으로 나뉜다. KRX 업종을 못 받았을 때만 야후 것
-            krx = 원천.get("kr_krx") if 시장 == "KR" else None
-            krx = _글자(krx, "sector", idx) if krx is not None else None
-            if krx is not None and krx.notna().any():
-                값 = _먼저(idx, krx, 숫자=False)
-            else:
+            # 국내는 KRX 업종('전기·전자') 갈래만 — 야후 업종('기술')과 갈래가 달라 섞으면 고르기 목록에 같은
+            # 업종이 두 이름으로 나뉜다. KRX 가 막히면(로그인) 표준산업분류로 어림한 같은 이름의 업종.
+            # 둘 다 없을 때만 야후 것
+            값 = _먼저(idx, _글자(원천.get("kr_krx"), "sector", idx) if 국내 else None,
+                     _글자(원천.get("kr_git"), "industry", idx, 국내업종_어림) if 국내 else None, 숫자=False)
+            if not 값.notna().any():
                 값 = _먼저(idx, _글자(기, 칸, idx, 업종_한글), _글자(풍, 칸, idx, 업종_한글), 숫자=False)
+        elif 칸 == "industry":
+            # 국내는 표준산업분류(한국어), 미국은 나스닥 분류 → 야후 — 영문은 모두 한국어로
+            값 = _먼저(idx, _글자(원천.get("kr_git"), "industry", idx) if 국내 else None,
+                     _글자(기, 칸, idx, 산업_이름), _글자(풍, 칸, idx, 산업_이름), 숫자=False)
         elif 칸 == "country":
             값 = _먼저(idx, _글자(기, 칸, idx, 나라_이름), _글자(풍, 칸, idx, 나라_이름), 숫자=False)
+        elif 칸 == "domain":
+            # 로고 — 국내는 KRX 기업 상세의 누리집(GitHub)으로 전 종목에
+            값 = _먼저(idx, _글자(기, 칸, idx), _글자(풍, 칸, idx),
+                     _글자(원천.get("kr_git"), "homepage", idx, _도메인) if 국내 else None, 숫자=False)
         elif 칸 == "name_en":
             # 영문 이름은 찾기에만 쓴다 — 야후 줄의 이름은 영문이다('samsung' 으로도 찾게). 야후 상세가
             # 막히면 이름 자리에 종목 코드가 오는데, 그건 영문 이름이 아니다
@@ -430,6 +468,14 @@ def 만들기(시장: str, 기초: list[dict], 풍부: list[dict], 원천: dict 
     for 칸 in 목록칸:
         if 칸 in 풍.columns:
             칸들[칸] = 풍[칸].reindex(idx)
+    # 전년 대비 성장률(퀀트) — 매출은 원천의 흐름(마지막 두 해), 순이익·영업이익은 원천의 지난해 값
+    재무원, 순칸, 영칸 = _재무칸.get(시장, (None, None, None))
+    재무 = 원천.get(재무원) if 재무원 else None
+    for 칸, 값 in (("_rev_yoy", _전년대비(흐름매출[:, -1], 흐름매출[:, -2])),
+                  ("_ni_yoy", _전년대비(_수(재무, 순칸, idx), _수(재무, f"{순칸}_prev", idx)) if 재무 is not None else None),
+                  ("_op_yoy", _전년대비(_수(재무, 영칸, idx), _수(재무, f"{영칸}_prev", idx)) if 재무 is not None else None)):
+        if 값 is not None and np.isfinite(값).any():
+            칸들[칸] = pd.Series(값, index=idx)
     if 원천씀.any():
         칸들["_흐름끝"] = pd.Series(np.where(원천씀, 끝해, np.nan), index=idx)
         for i in range(흐름해수):

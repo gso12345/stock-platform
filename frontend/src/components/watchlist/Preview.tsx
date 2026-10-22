@@ -1,7 +1,6 @@
 import { memo } from "react";
-import { ChangeBadge, MarketBadge } from "@/components/ui";
-import { normalizeSymbol } from "@/utils/prices";
-import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
+import { 간단관심줄 } from "./ItemRow";
+import type { 관심지표 } from "@/api/screening";
 
 /* ── 미리보기 예시 데이터 (비로그인 시 표시) ── */
 export interface PreviewItem {
@@ -37,38 +36,13 @@ export const PREVIEW_WATCHLIST: PreviewItem[] = [
   { id: -14, symbol: "TLT",   market: "ETF", name: "미국 장기국채 ETF",   folderId: -4, price:  88.42, change_rate: -0.28 },
 ];
 
-export const PreviewItemRow = memo(function PreviewItemRow({ item, onNavigate }: { item: PreviewItem; onNavigate: () => void }) {
-  const isKR = item.market === "KR";
-  const hasPrice = item.hasPrice !== false;
+export const PreviewItemRow = memo(function PreviewItemRow({ item, onNavigate, 지표 }: {
+  item: PreviewItem; onNavigate: () => void; 지표?: 관심지표;
+}) {
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
-      onClick={onNavigate}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(); } }}
-    >
-      {/* 마켓 배지 */}
-      <MarketBadge market={item.market} />
-      {/* 종목 정보 */}
-      <div className="flex-1 min-w-0">
-        {/* 이름이 먼저다. 사람은 "삼성전자" 로 찾지 "005930" 으로 찾지 않는다 */}
-        <div className="text-base font-semibold text-text-primary truncate">{item.name}</div>
-        <div className="font-mono text-xs text-text-muted">
-          {normalizeSymbol(item.symbol)}
-        </div>
-      </div>
-      {/* 가격 */}
-      <div className="text-right flex-shrink-0 min-w-[80px]">
-        <div className="text-sm font-mono font-semibold text-text-primary">
-          {hasPrice
-            ? (isKR ? fmtKRWFull(item.price) : fmtUSDFull(item.price))
-            : <span className="text-text-muted text-xs">조회 중</span>}
-        </div>
-        {hasPrice && <ChangeBadge value={item.change_rate} className="text-xs"
-          금액={item.change ?? null} 통화={item.market === "KR" ? "KRW" : "USD"} />}
-      </div>
-    </div>
+    <간단관심줄 market={item.market} symbol={item.symbol} name={item.name}
+      price={item.hasPrice === false ? null : item.price} change={item.change ?? null} change_rate={item.change_rate}
+      지표={지표} onNavigate={onNavigate} />
   );
 });
 

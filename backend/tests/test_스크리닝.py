@@ -925,9 +925,9 @@ def test_국가_섹터_산업_고를값은_거르기_전_시장_전체에서(cli
     r = client.post("/api/v1/screening/run", json={"market": "US", "q": "aapl",
                                                   "filters": {"country": {"eq": "United States"}}})
     면 = r.json()["facets"]
-    # 나라·업종은 한글로("국내 해외 모두 한글로") — 산업은 가짓수가 많아 영문 그대로
+    # 나라·업종·산업 모두 한국어로("국가는 모두 한국어로", "산업도 모두 한국어로 표기해줘")
     assert 면["country"] == ["대만", "미국"]
-    assert 면["industry"] == ["Banks", "Consumer Electronics", "Semiconductors"]
+    assert 면["industry"] == ["반도체", "소비자 가전", "은행"]
     assert 면["sector"] == ["금융", "기술"], "야후 'Financial Services' 도 나스닥처럼 '금융'"
     assert [x["symbol"] for x in r.json()["results"]] == ["AAPL"], "영문으로 저장해 둔 보기('United States')도 맞는다"
 

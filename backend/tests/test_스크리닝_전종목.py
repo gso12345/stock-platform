@@ -232,6 +232,8 @@ class Test_SEC:
                 return {"data": [{"cik": 1, "val": 999.0}, {"cik": 3, "val": 300.0}]}
             if 개념 == "NetIncomeLoss":
                 return {"data": [{"cik": 1, "val": 20.0}]}
+            if 개념 == "OperatingIncomeLoss":
+                return {"data": [{"cik": 1, "val": float(해 - 1994)}]}     # 2024 30 → 2025 31
             if 개념 == "EarningsPerShareDiluted":
                 return {"data": [{"cik": 1, "val": float(해 - 2020)}]}
             if 개념 == "EarningsPerShareBasic":
@@ -253,10 +255,14 @@ class Test_SEC:
         assert 해 == 2025
 
         def 재무(t):
-            return {k: v for k, v in 줄들[t].items() if k not in ("fin_years", "rev_hist", "eps_hist")}
-        assert 재무("AAA") == 재무("AAB") == {"revenue": 100.0, "earnings": 20.0, "equity": 400.0, "eps": 5.0}, \
+            return {k: v for k, v in 줄들[t].items()
+                    if k not in ("fin_years", "rev_hist", "eps_hist") and not k.endswith("_prev")}
+        assert 재무("AAA") == 재무("AAB") == {"revenue": 100.0, "earnings": 20.0, "equity": 400.0, "eps": 5.0,
+                                             "op_income": 31.0}, \
             "Revenues 가 있으면 그것 — 뒤 개념(999)이 덮지 않는다. EPS 는 희석(5)이 기본(99)보다 먼저"
         assert 재무("CCC") == {"revenue": 300.0, "eps": 2.0}, "Revenues 가 없는 회사는 뒤 개념으로"
+        assert 줄들["AAA"]["earnings_prev"] == 20.0 and "earnings_prev" not in 줄들["CCC"], "순이익은 지난해 값도(퀀트 성장)"
+        assert 줄들["AAA"]["op_income_prev"] == 30.0, "영업이익도 지난해 값 — 그해(31)가 아니라 한 해 앞"
 
     def test_매출_EPS_는_앞의_세_해도_받아_4년_흐름으로(self, monkeypatch):
         F, 물음 = self._준비(monkeypatch, {2025: 2, 2024: 1, 2023: 1, 2022: 1})
@@ -467,7 +473,7 @@ class Test표_미국:
         assert (nv["per"], nv["pbr"], nv["ps_ratio"]) == (50.0, 20.0, 20.0)
         assert (nv["roe"], nv["operating_margin"], nv["profit_margin"], nv["debt_ratio"]) == (50.0, 60.0, 50.0, 50.0)
         assert nv["fcf"] == 6.0e10 and nv["dividend_yield"] == 0.04 and nv["eps"] == 2.0
-        assert nv["sector"] == "기술" and nv["country"] == "미국" and nv["industry"] == "Semiconductors"
+        assert nv["sector"] == "기술" and nv["country"] == "미국" and nv["industry"] == "반도체", "산업도 한국어로"
         xom = r["XOM"]
         assert "per" not in xom, "적자면 PER 모름"
         assert "dividend_yield" not in xom, "주당배당 공시가 없으면 0 이 아니라 모름"
@@ -764,6 +770,13 @@ def 원천켜기(monkeypatch):
         "국내_네이버": lambda 코드들: 부름.append(("naver", list(코드들))) or {
             c: {"forward_eps": 3.0, "at": time.time()} for c in 코드들},
         "국내_DART": lambda 코드들: 부름.append("dart") or None,
+        # 새 원천도 가짜로 — 안 바꾸면 검사가 GitHub·야후에 실제로 나간다
+        "국내_GitHub": lambda: 부름.append("git") or {"at": time.time(), "ymd": "20261020",
+                                                    "rows": {"AAA": {"industry": "반도체 제조업", "return_1m": 7.0}}},
+        "미국_시세흐름": lambda 심볼들: 부름.append(("px", list(심볼들))) or {
+            s: {"rsi": 33.0, "high_52w": 20.0, "at": time.time()} for s in 심볼들},
+        "국내_시세흐름": lambda 거래소: 부름.append(("krpx", sorted(거래소))) or {
+            c: {"rsi": 44.0, "return_1y": 12.0, "at": time.time()} for c in 거래소},
         "미국_SEC": lambda: 부름.append("sec") or {"at": time.time(), "year": 2025, "rows": {"AAA": {
             "eps": 4.0, "fin_years": [2024, 2025], "rev_hist": [10, 20], "eps_hist": [3.0, 4.0]}}},
         "미국_한글이름": lambda: 부름.append("ko") or {"at": time.time(), "rows": {"AAA": "에이"}},
@@ -839,7 +852,7 @@ class Test원천:
         S._시도때.pop("kr_naver", None)
         S.표("KR")
         _원천_끝까지()
-        묻은것 = [x[1] for x in 원천켜기 if isinstance(x, tuple)]
+        묻은것 = [x[1] for x in 원천켜기 if isinstance(x, tuple) and x[0] == "naver"]
         assert 묻은것[:2] == [["BBB", "CCC"], ["AAA"]]
         assert _새_표("KR").결과({}, "", "price", True, 0, 9)[0][0].get("forward_eps") == 3.0
 
@@ -860,8 +873,25 @@ class Test원천:
         monkeypatch.setattr(settings, "DART_API_KEY", "x")
         S._원천_챙기기("KR")
         _원천_끝까지()
-        assert 원천켜기 == ["krx"]
-        assert "kr_naver" not in S._시도때 and "kr_dart" not in S._시도때
+        assert 원천켜기 == ["krx", "git"]
+        assert "kr_naver" not in S._시도때 and "kr_dart" not in S._시도때 and "kr_px" not in S._시도때
+        # 미국 1년 시세는 미국 표가 있어야 — 국내 표만 있어도 맡기지 않는다
+        S._표["KR"] = 만들기("KR", [{"symbol": "AAA", "price": 1.0}], [])
+        S._원천_챙기기("US")
+        _원천_끝까지()
+        assert not any(isinstance(x, tuple) and x[0] == "px" for x in 원천켜기) and "us_px" not in S._시도때
+
+    def test_국내_GitHub_과_미국_1년_시세를_받아_표에_넣는다(self, 가짜시장, 원천켜기):
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 10.0, "market_cap": 1.0, "exchange": "KOSDAQ"}]
+        S.표("KR")
+        _원천_끝까지()
+        국내 = _새_표("KR").결과({}, "", "price", True, 0, 1)[0][0]
+        assert "git" in 원천켜기 and (국내["industry"], 국내["return_1m"]) == ("반도체 제조업", 7.0)
+        assert ("krpx", ["AAA"]) in 원천켜기 and (국내["rsi"], 국내["return_1y"]) == (44.0, 12.0), "국내 1년 시세"
+        S.표("US")
+        _원천_끝까지()
+        미국 = _새_표("US").결과({}, "", "price", True, 0, 1)[0][0]
+        assert ("px", ["AAA"]) in 원천켜기 and (미국["rsi"], 미국["pct_from_52w_high"]) == (33.0, -50.0)
 
     def test_메모리가_빠듯하면_원천을_안_받는다(self, 가짜시장, 원천켜기, monkeypatch):
         from app.core import memory
@@ -870,19 +900,22 @@ class Test원천:
         _원천_끝까지()
         assert 원천켜기 == []
 
-    def test_예상_PER_은_조금씩_쌓이니_DB_에는_가끔_남긴다(self, monkeypatch):
-        """60곳씩 10분마다 받는다 — 받을 때마다 2천여 곳을 통째로 DB 에 쓰지 않는다"""
+    def test_돌아가며_받는_원천은_조금씩_쌓이니_DB_에는_가끔_남긴다(self, monkeypatch):
+        """몇백 곳씩 몇 분마다 받는다 — 받을 때마다 수천 곳을 통째로 DB 에 쓰지 않는다"""
         남김: list = []
         monkeypatch.setattr(store, "남기기", lambda 열쇠, 값: 남김.append(열쇠) or True)
-        monkeypatch.setattr(S, "_네이버_쌓임", [S._네이버_남길수 - 1, time.time()])
+        S._쌓임["kr_naver"] = [S._남길수 - 1, time.time()]
         S._남기기("kr_naver", {"rows": {}})
         assert 남김 == []
-        S._네이버_쌓임[0] = S._네이버_남길수
+        S._쌓임["kr_naver"][0] = S._남길수
         S._남기기("kr_naver", {"rows": {}})
-        assert 남김 == ["KR_NAVER"] and S._네이버_쌓임[0] == 0
-        S._네이버_쌓임[:] = [1, time.time() - S._네이버_남길때 - 1]
-        S._남기기("kr_naver", {"rows": {}})
-        assert 남김 == ["KR_NAVER", "KR_NAVER"], "적게 쌓였어도 오래됐으면 남긴다"
+        assert 남김 == ["KR_NAVER"] and S._쌓임["kr_naver"][0] == 0
+        S._쌓임["us_px"] = [1, time.time()]
+        S._남기기("us_px", {"rows": {}})
+        assert 남김 == ["KR_NAVER"], "미국 1년 시세도 조금씩 쌓인다"
+        S._쌓임["us_px"] = [1, time.time() - S._남길때 - 1]
+        S._남기기("us_px", {"rows": {}})
+        assert 남김 == ["KR_NAVER", "US_PX"], "적게 쌓였어도 오래됐으면 남긴다"
         S._남기기("us_sec", {"rows": {}})
         assert 남김[-1] == "US_SEC", "다른 원천은 받을 때마다"
 
@@ -1070,3 +1103,27 @@ class Test라우트:
         S.비우기()
         r = 손님.post("/api/v1/screening/run", json={"market": "US", "sort_by": "per"}).json()
         assert r["building"] == {"done": 3, "total": 545}, "표가 비었으면 그대로 알린다"
+
+    def test_뒤에서_표를_새로_만드는_동안_옛_표로_낸_답은_남기지_않는다(self, 손님, 가짜시장, monkeypatch):
+        """원천이 오면 표를 뒤에서 새로 만들고 그동안은 옛 표로 답한다 — 그 답을 1분 남기면 새 표가 1분 더 늦게
+        보였다(원천이 오고 2분 뒤)"""
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 1.0}]
+        묻기 = lambda: 손님.post("/api/v1/screening/run", json={"market": "US"}).json()["results"][0]["price"]
+        assert 묻기() == 1.0
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 2.0}]
+        맡김: list = []
+        monkeypatch.setattr(S, "_뒤에서_새로", lambda 시장: (맡김.append(시장), S._새로만드는중.add(시장)))
+        S._원천판[0] += 1                                 # 원천이 새로 왔다 — 판이 바뀐다
+        assert 손님.post("/api/v1/screening/run", json={"market": "US", "sort_by": "per"}).json()["results"][0]["price"] == 1.0
+        assert 맡김 == ["US"]
+        # 뒤에서 새 표가 섰다
+        S._표["US"], S._표판["US"] = 만들기("US", 가짜시장["기초"], []), S._풍부("US")[1]
+        S._새로만드는중.discard("US")
+        assert 손님.post("/api/v1/screening/run", json={"market": "US", "sort_by": "per"}).json()["results"][0]["price"] == 2.0, \
+            "옛 표로 낸 답을 남겨 두었다"
+        S._새로만드는중.add("US")
+        try:
+            assert not S.지금_표인가("US", S._표["US"]), "새로 만드는 중이면 지금 표도 곧 낡는다"
+        finally:
+            S._새로만드는중.discard("US")
+        assert S.지금_표인가("US", S._표["US"]) and not S.지금_표인가("US", 만들기("US", [], []))

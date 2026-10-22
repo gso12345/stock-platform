@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     # ── OpenDART (국내 공시/재무제표) ───────────────────
     DART_API_KEY: str = ""
 
+    # ── KRX 정보데이터시스템 회원 (국내 전 종목 PER·PBR·배당·업종) ───
+    # KRX 는 이제 로그인한 세션에만 자료를 준다(안 하면 'LOGOUT'). 넣으면 스크리닝이 로그인해서 받는다
+    KRX_ID: str = ""
+    KRX_PW: str = ""
+
     # ── FMP - Financial Modeling Prep (해외 재무) ───────
     FMP_API_KEY: str = ""
 

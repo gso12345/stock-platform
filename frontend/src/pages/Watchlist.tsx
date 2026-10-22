@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, Link } from "react-router-dom";
-import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi } from "@/api/stocks";
+import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi, screeningApi } from "@/api/stocks";
 import {
-  Card, ChangeBadge, RowSkeleton, InlineSpinner, MarketBadge, ErrorToast,
+  Card, RowSkeleton, InlineSpinner, ErrorToast,
   Tabs, UnderlineTabs, type TabItem, 빈화면, 못불러옴} from "@/components/ui";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { useLivePrices, 시세갱신주기} from "@/hooks/useLivePrices";
@@ -11,14 +11,14 @@ import LiveBadge from "@/components/ui/LiveBadge";
 import { normalizeSymbol, lookupPrice, indexPricesBySymbol } from "@/utils/prices";
 import { use낙관, 목록에서빼기, 목록에서고치기 } from "@/hooks/useOptimistic";
 import { PREVIEW_FOLDERS, PREVIEW_WATCHLIST, PreviewItemRow, type PreviewItem } from "@/components/watchlist/Preview";
-import { ItemRow } from "@/components/watchlist/ItemRow";
+import { ItemRow, 관심표머리, 간단관심줄 } from "@/components/watchlist/ItemRow";
+import { use넓은화면 } from "@/hooks/useWideScreen";
 import {
   AddModal, EditItemModal, DeleteFolderModal, AddToPortfolioModal, FolderManagerModal, FolderNameEdit,
 } from "@/components/watchlist/WatchlistModals";
 import { extractErrorMessage } from "@/utils/errors";
 import { useDragReorder } from "@/hooks/useDragReorder";
 import { 최근조회키, 폴더키, 계좌키, 탭순서읽기, 탭순서쓰기, 탭순서적용, 폴더순서반영 } from "@/utils/tabOrder";
-import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 import { Plus, Pencil, Trash2, Star, Wallet, ChevronDown, ChevronRight, Settings2, LogIn, Clock, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
@@ -440,6 +440,26 @@ export default function Watchlist() {
 
   const itemsList = items;
 
+  /* 넓은 화면의 표 칸(시가총액·PER·배당·52주 위치·1개월) — 스크리닝 표의 값. 휴대폰에서는 칸이 없으니
+     묻지도 않는다. 같은 종목 목록이면 5분 동안 다시 묻지 않는다 */
+  const 넓음 = use넓은화면(1024);
+  const 지표열쇠 = useMemo(() => {
+    const 보이는: { market: string; symbol: string }[] = [
+      ...(isPreview ? PREVIEW_WATCHLIST : itemsList), ...recentStocks, ...pfTabDeduped,
+    ];
+    return [...new Set(보이는.map((i) => `${i.market}:${i.symbol}`))].sort();
+  }, [isPreview, itemsList, recentStocks, pfTabDeduped]);
+  const { data: 지표응답 } = useQuery({
+    queryKey: ["watchlist-metrics", 지표열쇠],
+    queryFn: () => screeningApi.rows(지표열쇠.slice(0, 200).map((k) => {
+      const [market, ...나머지] = k.split(":");
+      return { market, symbol: 나머지.join(":") };
+    })),
+    enabled: 넓음 && 지표열쇠.length > 0,
+    staleTime: 5 * 60_000,
+  });
+  const 지표들 = 지표응답?.rows;
+
   /* 종목 드래그 재정렬 — 공용 훅 (ref 기준으로 순서를 계산해 연속 이벤트에서도 밀리지 않는다) */
   const itemDrag = useDragReorder<WatchlistItem>({
     items: itemsList,
@@ -653,6 +673,7 @@ export default function Watchlist() {
         <ItemRow
           item={item}
           livePrice={lookupPrice(livePrices, item.symbol)}
+          지표={지표들?.[`${item.market}:${item.symbol}`]}
           onRemove={() => removeMutation.mutate(item.id)}
           onNavigate={() => goToStock(item)}
           onEdit={() => setEditingItem(item)}
@@ -823,44 +844,18 @@ export default function Watchlist() {
               action={{ label: "종목 둘러보기", onClick: () => navigate("/") }}
             />
           ) : (
-            recentStocks.map((r) => {
-              const p = lookupPrice(recentPriceMap, r.symbol);
-              const isKRItem = r.market === "KR";
-              const hasPrice = p?.price != null;
-              return (
-                <div
-                  key={`${r.market}-${r.symbol}`}
-                  role="button"
-                  tabIndex={0}
-                  className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
-                  onClick={() => navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`); } }}
-                >
-                  <MarketBadge market={r.market} />
-                  <div className="flex-1 min-w-0">
-                    {/* 이름이 먼저다.
-                        사람은 "삼성전자" 로 종목을 찾지 "005930" 으로 찾지
-                        않는다. 순위·보유종목은 이미 이렇게 그리고 있었는데
-                        여기만 거꾸로였다 — 세 화면이 종목을 서로 다르게
-                        그리던 것 자체가 '통일 안 된 느낌' 의 원인이었다. */}
-                    <div className="text-base font-semibold text-text-primary truncate">{r.name}</div>
-                    <div className="font-mono text-xs text-text-muted">{normalizeSymbol(r.symbol)}</div>
-                  </div>
-                  <div className="text-right flex-shrink-0 min-w-[80px]">
-                    <div className="text-sm font-mono font-semibold text-text-primary">
-                      {hasPrice
-                        ? isKRItem ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))
-                        : <span className="text-text-muted text-xs">조회 중</span>}
-                    </div>
-                    {hasPrice && p.change_rate != null && (
-                      <ChangeBadge value={Number(p.change_rate)} className="text-xs"
-                        금액={p.change != null ? Number(p.change) : null}
-                        통화={isKRItem ? "KRW" : "USD"} />
-                    )}
-                  </div>
-                </div>
-              );
-            })
+            <>
+              <관심표머리 간단 />
+              {recentStocks.map((r) => {
+                const p = lookupPrice(recentPriceMap, r.symbol);
+                return (
+                  <간단관심줄 key={`${r.market}-${r.symbol}`} market={r.market} symbol={r.symbol} name={r.name}
+                    price={p?.price != null ? Number(p.price) : null} change={p?.change ?? null}
+                    change_rate={p?.change_rate ?? null} 지표={지표들?.[`${r.market}:${r.symbol}`]}
+                    onNavigate={() => navigate(`/stocks/${r.market}/${encodeURIComponent(r.symbol)}`)} />
+                );
+              })}
+            </>
           )}
         </Card>
       ) : portfolioTab !== null ? (
@@ -887,51 +882,28 @@ export default function Watchlist() {
               action={{ label: "내 자산에서 추가", onClick: () => navigate("/portfolio") }}
             />
           ) : (
-            pfTabDeduped
-              .filter((i) => marketTab === "전체" || i.market === marketTab)
-              .map((item) => {
-                // 관심종목과 같은 실시간 시세 맵을 본다 — 탭을 누른 순간
-                // 이미 값이 있고, WebSocket 으로 함께 갱신된다
-                const p = lookupPrice(livePrices, item.symbol);
-                const isKRItem = item.market === "KR";
-                const hasPrice = p?.price != null;
-                // 현금·금 처럼 시세가 없는 자산은 영원히 '조회 중'으로 남는다.
-                // 기다리면 나올 것처럼 보이면 안 되므로 구분해서 표시한다
-                const 시세없는자산 = !PRICEABLE_SYMBOL.test(item.symbol);
-                return (
-                  <div
+            <>
+              <관심표머리 간단 />
+              {pfTabDeduped
+                .filter((i) => marketTab === "전체" || i.market === marketTab)
+                .map((item) => {
+                  // 관심종목과 같은 실시간 시세 맵을 본다 — 탭을 누른 순간
+                  // 이미 값이 있고, WebSocket 으로 함께 갱신된다
+                  const p = lookupPrice(livePrices, item.symbol);
+                  // 현금·금 처럼 시세가 없는 자산은 영원히 '조회 중'으로 남는다.
+                  // 기다리면 나올 것처럼 보이면 안 되므로 구분해서 표시한다
+                  const 시세없는자산 = !PRICEABLE_SYMBOL.test(item.symbol);
+                  return (
                     // 같은 종목을 두 번 담을 수 있으므로 id 로 구분한다.
                     // symbol 을 키로 쓰면 중복 시 React 가 한 행만 그린다
-                    key={item.id ?? item.symbol}
-                    role="button"
-                    tabIndex={0}
-                    className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30 bg-bg-card hover:bg-bg-hover cursor-pointer transition-colors"
-                    onClick={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`); } }}
-                  >
-                    <MarketBadge market={item.market} />
-                    <div className="flex-1 min-w-0">
-                      {/* 이름이 먼저 — 위와 같은 규칙 */}
-                      <div className="text-base font-semibold text-text-primary truncate">{item.name}</div>
-                      <div className="font-mono text-xs text-text-muted">{normalizeSymbol(item.symbol)}</div>
-                    </div>
-                    <div className="text-right flex-shrink-0 min-w-[80px]">
-                      <div className="text-sm font-mono font-semibold text-text-primary">
-                        {hasPrice
-                          ? isKRItem ? fmtKRWFull(Number(p.price)) : fmtUSDFull(Number(p.price))
-                          : 시세없는자산
-                            ? <span className="text-text-dim text-xs">시세 없음</span>
-                            : <span className="text-text-muted text-xs">조회 중</span>}
-                      </div>
-                      {hasPrice && p.change_rate != null && (
-                      <ChangeBadge value={Number(p.change_rate)} className="text-xs"
-                        금액={p.change != null ? Number(p.change) : null}
-                        통화={isKRItem ? "KRW" : "USD"} />
-                    )}
-                    </div>
-                  </div>
-                );
-              })
+                    <간단관심줄 key={item.id ?? item.symbol} market={item.market} symbol={item.symbol} name={item.name}
+                      price={p?.price != null ? Number(p.price) : null} change={p?.change ?? null}
+                      change_rate={p?.change_rate ?? null} 시세없음글={시세없는자산 ? "시세 없음" : "조회 중"}
+                      지표={지표들?.[`${item.market}:${item.symbol}`]}
+                      onNavigate={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)} />
+                  );
+                })}
+            </>
           )}
         </Card>
       ) : isPreview ? (() => {
@@ -952,8 +924,10 @@ export default function Watchlist() {
                   <span className="flex-1 text-sm font-semibold text-text-primary">{folder.name}</span>
                   <span className="text-xs text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{shown.filter(i => i.folderId === folder.id).length}</span>
                 </div>
+                <관심표머리 간단 />
                 {shown.filter(i => i.folderId === folder.id).map(item => (
-                  <PreviewItemRow key={item.id} item={item} onNavigate={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)} />
+                  <PreviewItemRow key={item.id} item={item} 지표={지표들?.[`${item.market}:${item.symbol}`]}
+                    onNavigate={() => navigate(`/stocks/${item.market}/${encodeURIComponent(item.symbol)}`)} />
                 ))}
               </Card>
             ))}
@@ -1038,7 +1012,7 @@ export default function Watchlist() {
                         </button>
                       </div>
                     )
-                    : renderItems(folderItems)
+                    : <><관심표머리 />{renderItems(folderItems)}</>
                 )}
               </Card>
             );

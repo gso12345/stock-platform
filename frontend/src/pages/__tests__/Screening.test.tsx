@@ -8,11 +8,13 @@
  *     야후에 없는 이름("Financials")도 있어서 금융은 늘 0개였다
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 
 const 상태 = vi.hoisted(() => ({ 로그인: false }));
+/* 환율 — 시험마다 늦게 오게도 한다 */
+const 환율 = vi.hoisted(() => ({ 받기: (): Promise<unknown> => Promise.resolve({ value: 1400 }) }));
 const run = vi.fn();
 const getPresets = vi.fn();
 const savePreset = vi.fn();
@@ -37,6 +39,7 @@ vi.mock("@/api/stocks", async (원본) => ({
     removeItem: (...a: any[]) => 관심.removeItem(...a),
   },
   watchlistFolderApi: { getFolders: () => Promise.resolve(관심.폴더) },
+  dashboardApi: { getExchangeRate: () => 환율.받기(), getUSRates: () => Promise.resolve([]) },
 }));
 vi.mock("@/store/authStore", () => ({
   useAuthStore: (sel?: any) => { const s = { isLoggedIn: 상태.로그인 }; return sel ? sel(s) : s; },
@@ -82,6 +85,7 @@ beforeEach(() => {
   관심.addItem = vi.fn(() => Promise.resolve({ id: 99 }));
   관심.removeItem = vi.fn(() => Promise.resolve({}));
   localStorage.clear();
+  환율.받기 = () => Promise.resolve({ value: 1400 });
   run.mockReset();
   run.mockImplementation(() => Promise.resolve(응답()));
   getPresets.mockReset();
@@ -696,6 +700,61 @@ describe("앱의 다른 화면과 같게", () => {
     그리기();
     await screen.findByText("NVIDIA Corporation");
     expect(screen.getByText(/시세 2분 전/)).toBeTruthy();
+  });
+});
+
+describe("원화 환산", () => {
+  /* 사용자: "스크리닝에 원화환산기능 넣어줘" */
+  it("해외 종목의 돈을 원화로 바꿔 보고(서버에 다시 묻지 않는다), 다시 열어도 그대로 — 국내 탭엔 단추가 없다", async () => {
+    run.mockResolvedValue(응답([줄({ symbol: "NVDA", name: "엔비디아", price: 10, market_cap: 1e12, revenue: 1e11,
+      fin_years: [2024, 2025], rev_hist: [1e9, 2e9], fin_currency: "USD" })]));
+    const { unmount } = 그리기();
+    await screen.findByText("엔비디아");
+    expect(screen.getByText("$10.00")).toBeTruthy();
+    const 단추 = screen.getByRole("button", { name: "₩ 원화" });
+    expect(단추.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(단추);
+    expect(await screen.findByText("₩14,000")).toBeTruthy();
+    expect(screen.getByText("1,400조")).toBeTruthy();
+    expect(screen.getByText("140조")).toBeTruthy();
+    expect(screen.getByRole("img", { name: /엔비디아 매출 흐름/ }).getAttribute("aria-label")).toContain("2024 1.4조 · 2025 2.8조");
+    expect(screen.getByText(/원화 환산 1달러 ≈ 1,400원/)).toBeTruthy();
+    expect(run).toHaveBeenCalledTimes(1);
+    unmount();
+    그리기();
+    expect(await screen.findByText("₩14,000")).toBeTruthy();
+    const 국내부름 = run.mock.calls.length;
+    fireEvent.click(screen.getByRole("tab", { name: "국내" }));
+    await waitFor(() => expect(마지막().market).toBe("KR"));
+    expect(screen.queryByRole("button", { name: "₩ 원화" })).toBeNull();
+    // 국내 결과가 온 뒤에도 환산 안내는 없다 — 국내는 이미 원화다
+    await waitFor(() => expect(run.mock.calls.length).toBeGreaterThan(국내부름));
+    await screen.findAllByText(/곳/);
+    expect(screen.queryByText(/원화 환산/)).toBeNull();
+  });
+
+  it("환율이 늦게 오면 어림값으로 먼저 바꾸고 '(어림)' 이라 적었다가, 오면 그 값으로 다시 바꾼다", async () => {
+    let 풀기: (v: unknown) => void = () => {};
+    환율.받기 = () => new Promise((r) => { 풀기 = r; });
+    localStorage.setItem("screening_krw_v1", "1");
+    run.mockResolvedValue(응답([줄({ symbol: "NVDA", name: "엔비디아", price: 10 })]));
+    그리기();
+    expect(await screen.findByText("₩13,500")).toBeTruthy();          // DEFAULT_FX 1,350원
+    expect(screen.getByText(/1달러 ≈ 1,350원\(어림\)/)).toBeTruthy();
+    await act(async () => { 풀기({ value: 1400 }); });
+    expect(await screen.findByText("₩14,000")).toBeTruthy();
+    expect(screen.queryByText(/\(어림\)/)).toBeNull();
+  });
+
+  it("달러가 아닌 돈은 바꾸지 않는다", async () => {
+    const { 원화로 } = await import("@/components/screening/screeningDefs");
+    const 대만 = 원화로({ currency: "USD", price: 2, fin_currency: "TWD", rev_hist: [10] }, 1000);
+    expect(대만).toMatchObject({ currency: "KRW", price: 2000, fin_currency: "TWD", rev_hist: [10] });
+    expect(원화로({ currency: "KRW", price: 5 }, 1000)).toMatchObject({ price: 5 });
+    expect(원화로({ currency: "EUR", price: 5, market_cap: 10 }, 1000)).toEqual({ currency: "EUR", price: 5, market_cap: 10 });
+    expect(원화로({ currency: "USD", price: 5 }, 0)).toMatchObject({ currency: "USD", price: 5 });
+    // 흐름의 빈 해는 빈 채로 — 0 으로 바꾸면 막대가 '0원' 으로 선다
+    expect(원화로({ currency: "USD", fin_currency: "USD", rev_hist: [null, 2] }, 1000).rev_hist).toEqual([null, 2000]);
   });
 });
 

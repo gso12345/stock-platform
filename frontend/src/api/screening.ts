@@ -17,7 +17,27 @@ export const screeningApi = {
 
   deletePreset: (id: number) =>
     api.delete(`/screening/presets/${id}`).then((r) => r.data),
+
+  /** 종목 몇 개의 스크리닝 표 줄 — 관심종목 PC 표가 시가총액·PER·배당·52주 위치·수익률을 붙인다.
+   *  열쇠는 '시장:종목'. 서버 표가 아직 없는 시장의 종목은 빠진다 */
+  rows: (items: { symbol: string; market: string }[]): Promise<{ rows: Record<string, 관심지표> }> =>
+    api.post("/screening/rows", { items }).then((r) => r.data),
 };
+
+/** 관심종목 PC 표의 칸 — 서버 관심칸 */
+export interface 관심지표 {
+  market_cap?: number;
+  per?: number;
+  forward_per?: number;
+  pbr?: number;
+  dividend_yield?: number;
+  pct_from_52w_high?: number;
+  return_1m?: number;
+  return_1y?: number;
+  sector?: string;
+  industry?: string;
+  currency?: string;
+}
 
 /** 스크리닝 한 번 — 서버 ScreeningRequest 와 같은 모양 */
 export interface 스크리닝요청 {

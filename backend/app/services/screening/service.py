@@ -31,25 +31,40 @@ log = logging.getLogger(__name__)
 #: 서버가 막 떠 종목 목록을 아직 못 읽었을 때 만든 표면, 읽는 대로 전 종목 표로 바꿔야 한다
 표_수명 = int(os.getenv("SCREEN_TABLE_TTL_SEC", 300))
 기초없는표_수명 = 30
-#: 국내 예상 PER(네이버)은 종목마다 묻는다 — 이만큼씩, 이 간격으로, 받은 지 이만큼 지난 것부터
-네이버_한번 = int(os.getenv("SCREEN_NAVER_PER_RUN", 60))
-네이버_간격 = int(os.getenv("SCREEN_NAVER_EVERY_SEC", 600))
+#: 국내 지표(네이버)는 종목마다 묻는다 — 이만큼씩, 이 간격으로, 받은 지 이만큼 지난 것부터. KRX 가 로그인을
+#: 요구해 막힌 뒤로 국내 PER·PBR·EPS·배당·52주는 주로 여기서 오니, 전 종목(2천7백여 곳)이 한 시간 남짓에 찬다
+네이버_한번 = int(os.getenv("SCREEN_NAVER_PER_RUN", 120))
+네이버_간격 = int(os.getenv("SCREEN_NAVER_EVERY_SEC", 180))
 네이버_수명 = 20 * 3600
-#: 국내 예상 PER 을 DB 에 남기는 때 — 새로 받은 것이 이만큼 쌓였거나 이만큼 지났으면
-_네이버_남길수, _네이버_남길때 = 120, 3600
+#: 1년 시세(야후 spark — 52주 고저·수익률·RSI)는 주요 종목(야후 줄) 밖의 종목만, 시장마다 한 번에 이만큼씩
+시세_한번 = int(os.getenv("SCREEN_PX_PER_RUN", 300))
+시세_간격 = int(os.getenv("SCREEN_PX_EVERY_SEC", 600))
+시세_수명 = 20 * 3600
+#: 돌아가며 받은 것을 DB 에 남기는 때 — 새로 받은 것이 이만큼 쌓였거나 이만큼 지났으면
+_남길수, _남길때 = 400, 3600
 
 #: 원천 → (DB 열쇠, 새로 받는 간격, 못 받았을 때 다시 묻기까지, 시장)
 원천들 = {
     "kr_krx": ("KR_KRX", 12 * 3600, 3600, "KR"),
+    "kr_git": ("KR_GIT", 12 * 3600, 3600, "KR"),
     "kr_naver": ("KR_NAVER", 0, 네이버_간격, "KR"),
+    "kr_px": ("KR_PX", 0, 시세_간격, "KR"),
     "kr_dart": ("KR_DART", 7 * 86400, 6 * 3600, "KR"),
     "us_sec": ("US_SEC", 7 * 86400, 6 * 3600, "US"),
     "us_ko": ("US_KO", 7 * 86400, 12 * 3600, "US"),
+    "us_px": ("US_PX", 0, 시세_간격, "US"),
 }
+#: 종목마다 조금씩 돌아가며 받는 원천 — 칸 → (시장, 한 번에 몇 곳, 받은 지 이만큼 지난 것부터 다시)
+돌아가며 = {"kr_naver": ("KR", "네이버_한번", "네이버_수명"), "kr_px": ("KR", "시세_한번", "시세_수명"),
+           "us_px": ("US", "시세_한번", "시세_수명")}
+#: 1년 시세 원천 — 종목별 야후 줄이 이미 RSI 를 주는 주요 종목은 건너뛴다(그 줄이 52주 고저·수익률도 준다)
+_시세원천 = ("kr_px", "us_px")
+#: KRX 가 로그인을 요구하는데 회원 아이디(KRX_ID)가 없으면 다시 물어도 같다 — 이만큼 쉰다
+KRX_로그인_쉼 = 12 * 3600
 #: 검사에서는 바깥 원천을 받지 않는다(conftest 가 끈다)
 원천_받기 = True
-#: 국내 표의 종목으로 묻는 원천 — 표가 생기기 전에 맡기면 빈손으로 끝나 쉼(10분·6시간)에 걸린다
-_표가_필요 = frozenset({"kr_naver", "kr_dart"})
+#: 표의 종목으로 묻는 원천 — 표가 생기기 전에 맡기면 빈손으로 끝나 쉼(3분·6시간)에 걸린다
+_표가_필요 = frozenset({"kr_naver", "kr_px", "kr_dart", "us_px"})
 
 _표: dict[str, 스크리닝표] = {}
 _표판: dict[str, tuple] = {}
@@ -64,7 +79,8 @@ _시도때: dict[str, float] = {}
 _도는일: set[str] = set()
 _원천판 = [0]
 _원천_읽음 = [False]
-_네이버_쌓임 = [0, 0.0]          # [남긴 뒤 새로 받은 수, 마지막으로 남긴 때]
+#: 돌아가며 받는 원천마다 [남긴 뒤 새로 받은 수, 마지막으로 남긴 때]
+_쌓임: dict[str, list] = {}
 
 _원천일꾼 = ThreadPoolExecutor(max_workers=1, thread_name_prefix="screen-src", initializer=낮은_우선순위)
 _표일꾼 = ThreadPoolExecutor(max_workers=1, thread_name_prefix="screen-table", initializer=낮은_우선순위)
@@ -79,7 +95,7 @@ def 비우기() -> None:
         _원천때.clear()
         _시도때.clear()
         _원천_읽음[0] = False
-        _네이버_쌓임[:] = [0, 0.0]
+        _쌓임.clear()
 
 
 # ── 기초 줄 ────────────────────────────────────────────────
@@ -151,8 +167,8 @@ def _넣기(칸: str, 값: dict, 때: float) -> None:
     if 칸 == "us_ko":
         _원천[칸] = dict(줄들)
     else:
-        if 칸 == "kr_naver":
-            _원천["kr_naver_rows"] = dict(줄들)
+        if 칸 in 돌아가며:
+            _원천[f"{칸}_rows"] = dict(줄들)
         _원천[칸] = 원천표(칸, 줄들)
     _원천때[칸] = 때
     _원천판[0] += 1
@@ -173,31 +189,50 @@ def _원천_불러오기() -> None:
 
 
 def _원천_모음() -> dict:
-    return {k: _원천.get(k) for k in ("kr_krx", "kr_naver", "kr_dart", "us_sec")}
+    return {k: _원천.get(k) for k in ("kr_krx", "kr_git", "kr_naver", "kr_px", "kr_dart", "us_sec", "us_px")}
 
 
-def _네이버_받기() -> dict | None:
-    """국내 표에서 시가총액 큰 것부터, 받은 지 오래된 것 몇 곳의 예상 PER·EPS·52주 고저"""
-    표 = _표.get("KR")
+def _돌아가며_받기(칸: str) -> dict | None:
+    """표에서 시가총액 큰 것부터, 받은 지 오래된 것 몇 곳씩. 1년 시세는 주요 종목(_시세원천)을 건너뛰고, 국내는
+    야후에 있는 코스피·코스닥만(코넥스는 없다)"""
+    시장, 한번, 수명 = 돌아가며[칸]
+    한번, 수명 = globals()[한번], globals()[수명]
+    표 = _표.get(시장)
     if 표 is None or not len(표):
         return None
-    있던 = dict(_원천.get("kr_naver_rows") or {})
+    있던 = dict(_원천.get(f"{칸}_rows") or {})
     지금 = time.time()
+    야후있음 = set()
+    if 칸 in _시세원천 and "rsi" in 표.df.columns:
+        야후있음 = {s for s, v in zip(표.df.index, 표.df["rsi"]) if s not in 있던 and v == v}
+    # 국내 1년 시세는 야후 종목(005930.KS·247540.KQ)으로 묻는다 — 거래소를 모르는 종목·코넥스는 야후에 없다
+    거래소 = (표.df["exchange"].to_dict() if "exchange" in 표.df.columns else {}) if 칸 == "kr_px" else None
     고를 = [c for c in 표.df.index
-            if 지금 - float((있던.get(c) or {}).get("at") or 0) > 네이버_수명][:네이버_한번]
-    받음 = sources.국내_네이버(고를)
+            if c not in 야후있음 and (거래소 is None or 거래소.get(c) in sources.야후꼬리)
+            and 지금 - float((있던.get(c) or {}).get("at") or 0) > 수명][:한번]
+    if not 고를:
+        return None
+    받음 = (sources.국내_네이버(고를) if 칸 == "kr_naver" else
+           sources.국내_시세흐름({c: 거래소[c] for c in 고를}) if 칸 == "kr_px" else sources.미국_시세흐름(고를))
     if not 받음:
         return None
+    # 물었는데 안 온 종목도 받은 때를 남긴다(있던 값은 둔다) — 안 남기면 그 종목은 늘 '오래된 것' 이라 차례마다
+    # 맨 앞에 다시 뽑힌다. 그런 종목(네이버·야후가 모르는 종목)이 한 번에 묻는 수만큼 쌓이면 돌아가며 받기가 멈춘다
+    for c in 고를:
+        if c not in 받음:
+            있던[c] = {**(있던.get(c) or {}), "at": 지금}
     있던.update(받음)
-    _네이버_쌓임[0] += len(받음)
+    _쌓임.setdefault(칸, [0, 0.0])[0] += len(받음)
     return {"at": 지금, "rows": 있던}
 
 
 def _받기(칸: str) -> dict | None:
     if 칸 == "kr_krx":
         return sources.국내_KRX()
-    if 칸 == "kr_naver":
-        return _네이버_받기()
+    if 칸 == "kr_git":
+        return sources.국내_GitHub()
+    if 칸 in 돌아가며:
+        return _돌아가며_받기(칸)
     if 칸 == "kr_dart":
         표 = _표.get("KR")
         return sources.국내_DART(list(표.df.index)) if 표 is not None else None
@@ -209,12 +244,14 @@ def _받기(칸: str) -> dict | None:
 
 
 def _남기기(칸: str, 값: dict) -> None:
+    """돌아가며 받는 원천은 조금씩 쌓이니 가끔만 남긴다 — 받을 때마다 수천 곳을 통째로 DB 에 쓰지 않게"""
     열쇠 = 원천들[칸][0]
-    if 칸 == "kr_naver":
+    if 칸 in 돌아가며:
         지금 = time.time()
-        if _네이버_쌓임[0] < _네이버_남길수 and 지금 - _네이버_쌓임[1] < _네이버_남길때:
+        쌓임 = _쌓임.setdefault(칸, [0, 0.0])
+        if 쌓임[0] < _남길수 and 지금 - 쌓임[1] < _남길때:
             return
-        _네이버_쌓임[:] = [0, 지금]
+        쌓임[:] = [0, 지금]
     store.남기기(열쇠, 값)
 
 
@@ -254,8 +291,10 @@ def _원천_챙기기(시장: str) -> None:
     for 칸, (_열쇠, 간격, 쉼, 그시장) in 원천들.items():
         if 그시장 != 시장 or (칸 == "kr_dart" and not settings.DART_API_KEY):
             continue
-        if 칸 in _표가_필요 and _표.get("KR") is None:
+        if 칸 in _표가_필요 and _표.get(그시장) is None:
             continue
+        if 칸 == "kr_krx" and sources.KRX_로그인막힘[0] and not settings.KRX_ID:
+            쉼 = max(쉼, KRX_로그인_쉼)
         if 지금 - _원천때.get(칸, 0.0) < 간격 or 지금 - _시도때.get(칸, 0.0) < 쉼:
             continue
         _일_맡기기(칸)
@@ -316,6 +355,24 @@ def 표(시장: str) -> 스크리닝표:
         return _표_꺼내기(시장)
     finally:
         _원천_챙기기(시장)
+
+
+def 지금_표인가(시장: str, 표: 스크리닝표) -> bool:
+    """이 표가 지금의 표이고 뒤에서 새로 만드는 중도 아닌가 — 아니면 이 표로 낸 답은 곧 낡는다(라우트가 안 남긴다)"""
+    return _표.get(시장) is 표 and 시장 not in _새로만드는중
+
+
+def 한종목(시장: str, 종목: str) -> dict | None:
+    """그 종목의 표 한 줄(원천을 합친 값 + 전년 대비 성장률) — 퀀트가 비는 품질·성장 지표를 여기서 채운다.
+    표가 아직 없으면 그 자리에서 만들지 않는다(퀀트 요청을 붙잡지 않게) — 뒤에서 만들게 맡기고 None"""
+    if 시장 not in ("KR", "US", "ETF"):
+        return None
+    있음 = _표.get(시장)
+    if 있음 is None:
+        if 원천_받기:
+            _뒤에서_새로(시장)
+        return None
+    return 있음.한줄(종목.split(".")[0] if 시장 == "KR" else 종목)
 
 
 def _표_꺼내기(시장: str) -> 스크리닝표:
