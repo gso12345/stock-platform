@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { stocksApi } from "@/api/stocks";
 import 차트틀, { 그래프미리받기 } from "@/components/chart/ChartFrame";
+import { 가로축, 기준점선, 툴팁 } from "@/utils/chartTheme";
 import { 못불러옴 } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
@@ -248,20 +249,12 @@ export default function PriceTrend({
                 <stop offset="100%" stopColor={선색} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <R.XAxis
-              dataKey="day" tickFormatter={짧은날}
-              tick={{ fill: "var(--text-dim)", fontSize: 10 }}
-              axisLine={false} tickLine={false} minTickGap={24}
-            />
+            <R.XAxis dataKey="day" tickFormatter={짧은날} {...가로축} />
             {/* 세로축은 안 그린다. 좁은 화면에서 '1,234,567원' 눈금이
                 가로폭의 3분의 1을 먹는다. 값은 위 숫자가 이미 말한다 */}
             <R.YAxis hide domain={["dataMin", "dataMax"]} />
             <R.Tooltip
-              contentStyle={{
-                background: "var(--bg-card)", border: "1px solid var(--border-default)",
-                borderRadius: 10, fontSize: 12, color: "var(--text-primary)",
-              }}
-              labelStyle={{ color: "var(--text-muted)" }}
+              {...툴팁}
               /* %만 적으면 그날 얼마였는지가 사라진다. 둘 다 적는다 */
               formatter={(v: number, _n: string, 항: { payload?: 흐름점 }) => [
                 `${퍼센트글(Number(v))} · ${값글(항?.payload?.close ?? 0)}`, "종가",
@@ -273,10 +266,8 @@ export default function PriceTrend({
                 그 사이가 곧 눈금이 된다 */}
             {끝점 && (
               <>
-                <R.ReferenceLine y={끝점.최고} stroke="var(--text-dim)"
-                                 strokeDasharray="2 4" strokeWidth={1} />
-                <R.ReferenceLine y={끝점.최저} stroke="var(--text-dim)"
-                                 strokeDasharray="2 4" strokeWidth={1} />
+                <R.ReferenceLine y={끝점.최고} {...기준점선} />
+                <R.ReferenceLine y={끝점.최저} {...기준점선} />
               </>
             )}
             <R.Area type="monotone" dataKey="수익" name="종가"

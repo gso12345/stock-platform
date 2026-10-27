@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import 차트틀 from "@/components/chart/ChartFrame";
+import { 툴팁 } from "@/utils/chartTheme";
 import { fmtKRWCompact } from "@/utils/formatters";
 import { Link } from "react-router-dom";
 
@@ -150,10 +151,11 @@ export default function PortfolioChart({
                     >
                       {activePieData.map((_, i) => <R.Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                     </R.Pie>
+                    {/* 다른 그래프와 같은 상자 — 예전엔 어두운 색을 박아 두어 밝은 화면에서도 검은 상자가 떴다 */}
                     <R.Tooltip
-                      contentStyle={{ background: "#1e2435", border: "1px solid #2d3655", borderRadius: 8, fontSize: 11, color: "#e2e8f0" }}
-                      itemStyle={{ color: "#e2e8f0" }}
-                      labelStyle={{ color: "#94a3b8", display: "none" }}
+                      {...툴팁}
+                      itemStyle={{ color: "var(--text-primary)" }}
+                      labelStyle={{ ...툴팁.labelStyle, display: "none" }}
                       formatter={(v: any) => [fmtKRWCompact(Number(v)), ""]}
                     />
                   </R.PieChart>

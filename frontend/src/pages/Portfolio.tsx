@@ -13,6 +13,7 @@ import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw, Eye, EyeOff, PieChart as PieIcon, Grid2x2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import 차트틀 from "@/components/chart/ChartFrame";
+import { 툴팁 } from "@/utils/chartTheme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors } from "@/hooks/usePnlColors";
 import { use배당달력 } from "@/hooks/useDividendCalendar";
@@ -1543,12 +1544,9 @@ export default function Portfolio() {
                       ))}
                     </R.Pie>
                     <R.Tooltip
-                      contentStyle={{
-                        background: "var(--bg-card)", border: "1px solid var(--border-default)",
-                        borderRadius: 8, fontSize: 11, color: "var(--text-primary)",
-                      }}
+                      {...툴팁}
                       itemStyle={{ color: "var(--text-primary)" }}
-                      labelStyle={{ color: "var(--text-muted)", display: "none" }}
+                      labelStyle={{ ...툴팁.labelStyle, display: "none" }}
                       formatter={(v: number) => [돈.원줄임(Number(v)), ""]}
                     />
                   </R.PieChart>

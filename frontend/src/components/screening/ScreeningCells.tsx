@@ -20,9 +20,11 @@ export function 흐름막대({ 값들, 설명 }: { 값들: (number | null)[]; �
   const 칸 = W / 값들.length;
   const 굵기 = Math.max(3, Math.min(9, 칸 - 3));
   const 영점 = (위 / 폭) * H;
+  /* 크기는 rem 으로 — 글자와 같은 비율로 커진다(넓은 화면에서 뿌리 글자가 커질 때, 설정의 글씨 크기를 키울 때).
+     px 로 박아 두면 둘레만 커지고 막대는 그대로 작았다. 그림은 viewBox 로 그대로 늘어난다 */
   return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={설명}
-      className="inline-block align-middle overflow-visible">
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={설명}
+      className="inline-block align-middle overflow-visible w-[3.75rem] h-[1.4rem]">
       <title>{설명}</title>
       {값들.map((v, i) => {
         if (v == null || !Number.isFinite(v)) return null;

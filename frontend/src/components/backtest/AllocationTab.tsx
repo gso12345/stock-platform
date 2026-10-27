@@ -14,7 +14,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backtestApi, type 자산배분요청, type 자산배분결과, type 저장된실험,
          type 서버진행 } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
-import { Card, 못불러옴 } from "@/components/ui";
+import { Card, 못불러옴, 빈화면 } from "@/components/ui";
+import { PieChart } from "lucide-react";
 import { 읽을수있는오류, 요청실패말 } from "@/utils/errors";
 import 자산배분설정, { 첫설정, type 설정 } from "./AllocationForm";
 import 자산배분결과화면 from "./AllocationResult";
@@ -263,6 +264,11 @@ export function 실험을설정으로(x: 저장된실험, 지금: 설정): 설�
   };
 }
 
+/** 백테스트 탭들의 배치 — 넓은 화면에서 왼쪽 설정(폭 고정)·오른쪽 결과. 예전엔 자산배분은 반반, 단일 종목은
+ *  3분의 1 이라 탭마다 그래프 폭이 달랐고, 자산배분 결과 그래프가 600px 에 눌렸다. 28rem 은 넓은 화면의 뿌리
+ *  글자(15px)에서 420px — 기간·비용 단추 다섯·여섯 개가 한 줄에 들어가는 폭이다 */
+export const 설정판배치 = "grid grid-cols-1 xl:grid-cols-[28rem_minmax(0,1fr)] gap-4 items-start";
+
 export default function 자산배분탭({ 불러올실험, 불러옴 }: {
   /** 전략 저장소 탭에서 고른 실험. 이 탭 밖에서 고를 수 있어야 해서
    *  위에서 내려 준다 — 같은 목록이 두 곳에 있으니 어느 쪽에서
@@ -342,8 +348,8 @@ export default function 자산배분탭({ 불러올실험, 불러옴 }: {
   }, [불러올실험, 실험들, 불러옴]);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-      <div className="flex flex-col gap-4">
+    <div className={설정판배치}>
+      <div className="flex flex-col gap-4 min-w-0">
         <자산배분설정
           값={설정값}
           바꾸기={set설정값}
@@ -355,21 +361,17 @@ export default function 자산배분탭({ 불러올실험, 불러옴 }: {
         />
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 min-w-0">
         {오류 && (
           <Card className="border-accent-red/40">
             <못불러옴 사유={오류} 다시={() => 돌리기.mutate()} compact />
           </Card>
         )}
         {!오류 && !결과 && !돌리기.isPending && (
-          <Card className="flex flex-col gap-2 py-12 text-center">
-            <span className="text-sm text-text-muted">
-              자산을 고르고 ‘결과 확인’ 을 눌러 보세요
-            </span>
-            <span className="text-2xs text-text-dim break-keep px-4">
-              예: S&P500 ETF 60% · 금 20% · 현금 20% 로 8년, 매달 50만원씩 더 넣고
-              해마다 비중 맞추기
-            </span>
+          /* 다른 메뉴와 같은 빈 화면 — 무엇을 하면 채워지는지 */
+          <Card>
+            <빈화면 icon={PieChart} title="자산을 고르고 ‘결과 확인’ 을 눌러 보세요"
+              hint="예: S&P500 ETF 60% · 금 20% · 현금 20% 로 8년, 매달 50만원씩 더 넣고 해마다 비중 맞추기" />
           </Card>
         )}
         {돌리기.isPending && (

@@ -489,6 +489,22 @@ describe("표의 칸", () => {
     expect(바뀐).toMatchObject({ currency: "KRW", fin_currency: "KRW", rev_hist: [10000, null] });
   });
 
+  it("넓은 화면에서도 다른 메뉴와 같은 비율로 — 표만 따로 키우지 않고, 흐름 막대는 rem 이라 같이 커진다", async () => {
+    /* 사용자: "스크리닝 PC버전에서 축소가 너무 많이돼" → "스크리닝뿐만 아니라 다른 메뉴들도 고려해줘".
+       넓은 화면은 뿌리 글자를 올려(index.css) 모든 메뉴를 같은 비율로 키운다. 표에 lg: 로 따로 크기를 주면
+       스크리닝만 한 눈금 더 커져 메뉴마다 들쭉날쭉해진다 */
+    그리기();
+    const 이름 = await screen.findByText("NVIDIA Corporation");
+    const 표 = 이름.closest("table")!;
+    expect(표.className).toContain("text-xs");
+    expect(표.className, "표만 따로 키웠다").not.toMatch(/\blg:text-/);
+    expect(이름.className).not.toMatch(/\blg:text-/);
+    const 막대 = screen.getByRole("img", { name: /NVIDIA Corporation 매출 흐름/ });
+    expect(막대.getAttribute("class"), "막대 크기를 rem 으로 — px 이면 글자만 커지고 막대는 그대로").toMatch(/w-\[[\d.]+rem\]/);
+    expect(막대.getAttribute("class")).toMatch(/h-\[[\d.]+rem\]/);
+    expect(막대.getAttribute("width"), "크기를 박아 두면 넓은 화면에서도 그 크기").toBeNull();
+  });
+
   it("흐름을 아직 못 받은 종목은 막대 대신 —", async () => {
     그리기();
     await screen.findByText("Xyz Holdings");

@@ -34,7 +34,7 @@ import {
 } from "@/components/screening/ScreeningPanels";
 import {
   StockTableSkeleton, 받는중띠, 도구단추, 정렬제목, 종목칸,
-  표상자, 표머리, 표머리줄, 표머리칸, 붙박이머리, 표줄, 붙박이칸, 표칸,
+  표상자, 표글자, 표머리, 표머리줄, 표머리칸, 붙박이머리, 표줄, 붙박이칸, 표칸,
 } from "@/components/common/StockTable";
 import { 관심별 } from "@/components/watchlist/WatchlistStar";
 import { timeAgo } from "@/utils/formatters";
@@ -407,7 +407,7 @@ export default function Screening() {
         ) : (
           <>
             <div ref={표자리} className={cn(표상자, "transition-opacity", 결과.isPlaceholderData && "opacity-60")}>
-              <table className="w-full text-xs">
+              <table className={cn("w-full", 표글자)}>
                 <thead className={표머리}>
                   <tr className={표머리줄}>
                     <th scope="col" className={붙박이머리}>종목</th>

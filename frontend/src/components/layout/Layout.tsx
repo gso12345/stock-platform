@@ -258,7 +258,9 @@ export default function Layout() {
 
         {/* 콘텐츠 */}
         <main className="flex-1 overflow-y-auto bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
-          <div className="p-3 md:p-5 max-w-[1600px] mx-auto">
+          {/* 최대 폭도 rem — 넓은 화면에서 뿌리 글자가 커지면(index.css) 같이 넓어진다. px 로 두면 글자만 커지고
+              폭은 그대로라 큰 모니터에서 담기는 칸이 오히려 줄었다(14px 기준 1,596px) */}
+          <div className="p-3 md:p-5 max-w-[114rem] mx-auto">
             {/* 화면 코드를 받는 동안 **내용 자리만** 기다린다. 이게 없으면
                 바깥(main.tsx)의 대기 화면까지 올라가, 처음 여는 화면마다
                 머리·하단 탭까지 통째로 사라졌다가 다시 나타났다 */}

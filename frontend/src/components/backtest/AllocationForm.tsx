@@ -191,7 +191,8 @@ export function 못돌리는이유(s: 설정): string | null {
 
 const 통화기호 = { KRW: "₩", USD: "$" } as const;
 
-function 칸제목({ children, 오른쪽 }: { children: React.ReactNode; 오른쪽?: React.ReactNode }) {
+/** 설정 칸의 제목 — 백테스트의 다른 탭(단일 종목·유니버스) 설정도 같은 제목을 쓴다 */
+export function 칸제목({ children, 오른쪽 }: { children: React.ReactNode; 오른쪽?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-base font-semibold text-text-primary">{children}</span>

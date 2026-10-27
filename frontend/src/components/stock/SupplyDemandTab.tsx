@@ -19,7 +19,7 @@ import { useQuery } from "@tanstack/react-query";
 import 차트틀 from "@/components/chart/ChartFrame";
 import { Users } from "lucide-react";
 import { stocksApi } from "@/api/stocks";
-import { 격자, 축, 툴팁, 영점 } from "@/utils/chartTheme";
+import { 격자, 그래프글자, 축, 툴팁, 영점 } from "@/utils/chartTheme";
 
 /* 재무제표 탭과 같은 색 규칙을 쓴다 — 화면마다 외국인 색이 달라지면 안 된다 */
 const 색 = { foreign: "#3b82f6", institution: "#10b981", individual: "#f59e0b" } as const;
@@ -160,7 +160,7 @@ export default function SupplyDemandTab({ symbol, isMobile }: { symbol: string; 
                   {...툴팁}
                   formatter={(v: number, n: string) => [금액(v), 이름[n as keyof typeof 이름] ?? n]}
                 />
-                <R.Legend wrapperStyle={{ fontSize: 11 }}
+                <R.Legend wrapperStyle={{ fontSize: 그래프글자.범례 }}
                         formatter={(n: string) => 이름[n as keyof typeof 이름] ?? n} />
                 {투자자.map((k) => <R.Bar key={k} dataKey={k} fill={색[k]} radius={[2, 2, 0, 0]} />)}
               </R.BarChart>

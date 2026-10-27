@@ -13,6 +13,9 @@ import { cn, InlineSpinner } from "@/components/ui";
 // ── 표의 틀(클래스) — 두 표가 같은 줄 높이·여백·머리 색을 쓴다 ─────────────
 /** 표를 감싸는 상자 — 가로로 밀고, 넓은 화면에서는 머리가 붙어 있게 세로로도 민다 */
 export const 표상자 = "overflow-x-auto lg:overflow-y-auto lg:max-h-[75vh]";
+/** 표 글자 — 스크리닝·백테스트 표가 같은 크기. 넓은 화면에서는 뿌리 글자가 커져(index.css) 다른 메뉴와 같은
+ *  비율로 같이 커진다 — 표만 따로 키우면 메뉴마다 들쭉날쭉해진다 */
+export const 표글자 = "text-xs";
 export const 표머리 = "sticky top-0 z-20 bg-bg-secondary";
 export const 표머리줄 = "text-text-muted border-b border-border";
 export const 표머리칸 = "text-right font-medium px-3 py-2.5 whitespace-nowrap";

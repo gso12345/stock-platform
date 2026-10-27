@@ -127,6 +127,28 @@ html.light {
   html.font-large { font-size: 16px; }
   html.font-xl    { font-size: 18px; }
 
+  /* ── 넓은 화면(PC)에서는 한 눈금씩 크게 ──
+   *
+   * 위 크기는 휴대폰에 맞춘 것이다. 같은 크기를 1,500px 넓이에 깔면 글자·칸·여백이 그대로라
+   * 화면 전체를 줄여 놓은 것처럼 보였다(사용자: "스크리닝 PC버전에서 축소가 너무 많이돼",
+   * "스크리닝뿐만 아니라 다른 메뉴들도 고려해줘"). 화면마다 lg: 를 붙여 키우면 메뉴마다 들쭉날쭉해진다 —
+   * 글자·여백·칸 폭이 모두 rem 이라 뿌리 하나만 올리면 모든 메뉴가 같은 비율로 커진다.
+   *
+   * 1024px(lg, 왼쪽 메뉴가 나오는 폭)부터 +1px, 1536px(2xl — 1920 모니터·125% 배율 노트북)부터 +2px.
+   * 설정의 글씨 크기도 같은 폭으로 따라 올린다 — '크게' 를 고른 사람이 PC 에서 '보통' 보다 작아지면 안 된다 */
+  @media (min-width: 1024px) {
+    html            { font-size: 15px; }
+    html.font-small { font-size: 13px; }
+    html.font-large { font-size: 17px; }
+    html.font-xl    { font-size: 19px; }
+  }
+  @media (min-width: 1536px) {
+    html            { font-size: 16px; }
+    html.font-small { font-size: 14px; }
+    html.font-large { font-size: 18px; }
+    html.font-xl    { font-size: 20px; }
+  }
+
   body {
     background: var(--bg-base);
     color: var(--text-primary);

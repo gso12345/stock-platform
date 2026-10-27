@@ -26,6 +26,8 @@ import { Download } from "lucide-react";
 import { csv내려받기 } from "@/utils/csv";
 import { 결과CSV } from "./결과내보내기";
 import { PIE_COLORS } from "@/constants/pieColors";
+import { use넓은화면 } from "@/hooks/useWideScreen";
+import { 가로축, 그래프높이, 기준점선, 끝값, 달눈금, 툴팁 } from "@/utils/chartTheme";
 
 const 차트틀 = lazy(() => import("@/components/chart/ChartFrame"));
 
@@ -86,7 +88,7 @@ function 돈(v: number | null | undefined, 통화: "KRW" | "USD") {
  *
  *  (폰 390px 에서 '₩181,740,043,506,109,900' 이 칸 밖으로 잘려 나가는
  *   것을 실제로 찍어 보고 고쳤다.) */
-function 칸({ 이름, 값, 색, 밑 }: {
+export function 칸({ 이름, 값, 색, 밑 }: {
   이름: string; 값: React.ReactNode; 색?: string; 밑?: string;
 }) {
   const 길이 = typeof 값 === "string" ? 값.length : 0;
@@ -161,11 +163,16 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
   const 쓸수있나 = 로그가능(합친것);
   /* 못 쓰는데 켜져 있으면 끈다 — 다른 실험을 불러와 값이 0 이 될 수 있다 */
   const 로그켬 = 로그 && 쓸수있나;
+  const 넓음 = use넓은화면();
+  const 높이 = 그래프높이.큰[넓음 ? 1 : 0];
+  /* 세로축 대신 최고·최저 — 내 자산 추이·종목 상세 그래프와 같은 방식 */
+  const 끝점 = useMemo(() => 끝값(합친것.map((x) => x.내것)), [합친것]);
+  const 벤치이름 = r.benchmark?.name ?? "벤치마크";
 
   return (
-    <Card className="p-0 overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-        <span className="text-sm font-semibold text-text-primary">자산 흐름</span>
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-base font-semibold text-text-primary">자산 흐름</span>
         <div className="flex items-center gap-1.5">
           {벤치있음 && (
             <고른칩 작게 고름={벤치보기} onClick={() => set벤치보기((v) => !v)}
@@ -183,51 +190,75 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
           )}
         </div>
       </div>
-      <div className="p-2">
-        <Suspense fallback={<div className="h-[220px] flex items-center justify-center text-xs text-text-dim">그리는 중…</div>}>
-          <차트틀 height={220}>
-            {(R: any) => (
-              <R.AreaChart data={합친것} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-                <defs>
-                  <linearGradient id="bt-alloc" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--accent-blue)" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="var(--accent-blue)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <R.XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={48} />
-                <R.YAxis tick={{ fontSize: 10 }} width={54}
-                         {...축설정(로그켬)}
-                         allowDataOverflow={false}
-                         tickFormatter={(v: number) => 눈금글(v, r.currency)} />
-                <R.Tooltip formatter={(v: number, 이름: string) =>
-                  [돈(v, r.currency), 이름 === "내것" ? "내 조합" : r.benchmark?.name ?? "벤치마크"]} />
-                <R.Area type="monotone" dataKey="내것" name="내것" stroke="var(--accent-blue)"
-                        fill="url(#bt-alloc)" strokeWidth={2} dot={false} isAnimationActive={false} />
-                {벤치있음 && 벤치보기 && (
-                  /* 벤치마크는 **선만** 그린다. 면을 두 개 겹치면 색이
-                     섞여 어느 쪽이 위인지 알 수 없다. 점선이라 흑백으로
-                     인쇄해도, 색을 못 가리는 사람에게도 구분된다. */
-                  <R.Area type="monotone" dataKey="벤치" name="벤치" stroke="var(--accent-purple)"
-                          fill="none" strokeWidth={1.5} strokeDasharray="4 3"
-                          dot={false} connectNulls isAnimationActive={false} />
-                )}
-              </R.AreaChart>
-            )}
-          </차트틀>
-        </Suspense>
-      </div>
+      <Suspense fallback={<div style={{ height: 높이 }} className="rounded-lg bg-bg-elevated animate-pulse" />}>
+        <차트틀 height={높이}>
+          {(R: any) => (
+            <R.AreaChart data={합친것} margin={{ top: 10, right: 4, bottom: 0, left: 4 }}>
+              <defs>
+                <linearGradient id="bt-alloc" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--accent-blue)" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="var(--accent-blue)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <R.XAxis dataKey="date" tickFormatter={달눈금} {...가로축} />
+              {/* 세로축은 안 그린다 — 좁은 화면에서 금액 눈금이 가로폭을 먹는다. 높이는 최고·최저 점선이 말한다 */}
+              <R.YAxis hide {...축설정(로그켬)} domain={축설정(로그켬).domain ?? ["dataMin", "dataMax"]} />
+              <R.Tooltip {...툴팁} formatter={(v: number, 이름: string) =>
+                [돈(v, r.currency), 이름 === "내것" ? "내 조합" : 벤치이름]} />
+              {끝점 && (
+                <>
+                  <R.ReferenceLine y={끝점.최고} {...기준점선} />
+                  <R.ReferenceLine y={끝점.최저} {...기준점선} />
+                </>
+              )}
+              <R.Area type="monotone" dataKey="내것" name="내것" stroke="var(--accent-blue)"
+                      fill="url(#bt-alloc)" strokeWidth={2} dot={false} isAnimationActive={false} />
+              {벤치있음 && 벤치보기 && (
+                /* 벤치마크는 **선만** 그린다. 면을 두 개 겹치면 색이
+                   섞여 어느 쪽이 위인지 알 수 없다. 점선이라 흑백으로
+                   인쇄해도, 색을 못 가리는 사람에게도 구분된다. */
+                <R.Area type="monotone" dataKey="벤치" name="벤치" stroke="var(--accent-purple)"
+                        fill="none" strokeWidth={1.5} strokeDasharray="4 3"
+                        dot={false} connectNulls isAnimationActive={false} />
+              )}
+            </R.AreaChart>
+          )}
+        </차트틀>
+      </Suspense>
+      <그래프범례 끝={끝점 && `최고 ${눈금글(끝점.최고, r.currency)} · 최저 ${눈금글(끝점.최저, r.currency)}`}
+        선들={[{ 이름: "내 조합", 색: "var(--accent-blue)" },
+              ...(벤치있음 && 벤치보기 ? [{ 이름: 벤치이름, 색: "var(--accent-purple)", 점선: true }] : [])]} />
       {로그켬 && (
-        <p className="px-4 pb-3 text-2xs text-text-dim break-keep">
+        <p className="text-2xs text-text-dim break-keep -mt-1">
           로그 축이에요 — 같은 높이가 같은 <b>비율</b>이에요. 1,000만원이 2,000만원이
           되는 것과 1억이 2억이 되는 것이 같은 크기로 보여요.
         </p>
       )}
       {벤치있음 && 벤치보기 && (
-        <p className="px-4 pb-3 text-2xs text-text-dim break-keep">
+        <p className="text-2xs text-text-dim break-keep -mt-1">
           점선이 {r.benchmark!.name}이에요. 같은 기간·같은 납입·같은 비용으로 돌렸어요.
         </p>
       )}
     </Card>
+  );
+}
+
+/** 그래프 아래 한 줄 — 최고·최저와 선마다 무엇인지(내 자산 추이와 같은 모양) */
+export function 그래프범례({ 끝, 선들 }: {
+  끝?: string | null;
+  선들: { 이름: string; 색: string; 점선?: boolean }[];
+}) {
+  return (
+    <div className="flex items-center justify-center gap-3 flex-wrap -mt-1">
+      {끝 && <span className="text-2xs text-text-dim tabular-nums">{끝}</span>}
+      {선들.map((x) => (
+        <span key={x.이름} className="flex items-center gap-1 text-2xs text-text-dim">
+          <span aria-hidden className="w-3 h-0 border-t-2 rounded"
+                style={{ borderColor: x.색, borderTopStyle: x.점선 ? "dashed" : "solid" }} />
+          {x.이름}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -260,11 +291,16 @@ function 낙폭칸({ r }: { r: 자산배분결과 }) {
   }, [r.drawdown, r.benchmark]);
   const 벤치있음 = 합친것.some((x) => x.벤치 != null);
   const 순위 = r.drawdowns ?? [];
+  const 넓음 = use넓은화면();
+  const 높이 = 그래프높이.낮은[넓음 ? 1 : 0];
+  /* 가장 깊었던 곳에 점선 하나 — 0 은 그래프 맨 위다 */
+  const 바닥 = useMemo(() => 끝값(합친것.map((x) => x.내것))?.최저 ?? null, [합친것]);
+  const 벤치이름 = r.benchmark?.name ?? "벤치마크";
 
   return (
     <Card className="p-0 overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-        <span className="text-sm font-semibold text-text-primary">낙폭</span>
+      <div className="px-4 pt-4 pb-2 flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-base font-semibold text-text-primary">낙폭</span>
         {벤치있음 && (
           <고른칩 작게 고름={벤치보기} onClick={() => set벤치보기((v) => !v)}
                   ariaLabel={`${r.benchmark!.name} 같이 보기`}>
@@ -275,22 +311,22 @@ function 낙폭칸({ r }: { r: 자산배분결과 }) {
       {/* 낙폭은 '고점에서 얼마나 내려와 있나' 다. 0 이 맨 위고 아래로
           떨어진다 — 물에 잠긴 깊이처럼 읽힌다. 수익 곡선만 보면 오르는
           그림만 남아서, 중간에 얼마나 오래 잠겨 있었는지가 안 보인다. */}
-      <div className="p-2">
-        <Suspense fallback={<div className="h-[160px] flex items-center justify-center text-xs text-text-dim">그리는 중…</div>}>
-          <차트틀 height={160}>
+      <div className="px-4 pb-4 flex flex-col gap-3">
+        <Suspense fallback={<div style={{ height: 높이 }} className="rounded-lg bg-bg-elevated animate-pulse" />}>
+          <차트틀 height={높이}>
             {(R: any) => (
-              <R.AreaChart data={합친것} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
+              <R.AreaChart data={합친것} margin={{ top: 10, right: 4, bottom: 0, left: 4 }}>
                 <defs>
                   <linearGradient id="bt-dd" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={내림} stopOpacity={0.05} />
                     <stop offset="100%" stopColor={내림} stopOpacity={0.4} />
                   </linearGradient>
                 </defs>
-                <R.XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={48} />
-                <R.YAxis tick={{ fontSize: 10 }} width={42}
-                         tickFormatter={(v: number) => `${Math.round(v)}%`} />
-                <R.Tooltip formatter={(v: number, 이름: string) =>
-                  [`${v}%`, 이름 === "내것" ? "내 조합" : r.benchmark?.name ?? "벤치마크"]} />
+                <R.XAxis dataKey="date" tickFormatter={달눈금} {...가로축} />
+                <R.YAxis hide domain={["dataMin", 0]} />
+                <R.Tooltip {...툴팁} formatter={(v: number, 이름: string) =>
+                  [`${v}%`, 이름 === "내것" ? "내 조합" : 벤치이름]} />
+                {바닥 != null && 바닥 < 0 && <R.ReferenceLine y={바닥} {...기준점선} />}
                 <R.Area type="monotone" dataKey="내것" name="내것" stroke={내림}
                         fill="url(#bt-dd)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                 {벤치있음 && 벤치보기 && (
@@ -302,6 +338,9 @@ function 낙폭칸({ r }: { r: 자산배분결과 }) {
             )}
           </차트틀>
         </Suspense>
+        <그래프범례 끝={바닥 != null && 바닥 < 0 ? `가장 깊었을 때 ${바닥}%` : null}
+          선들={[{ 이름: "내 조합", 색: 내림 },
+                ...(벤치있음 && 벤치보기 ? [{ 이름: 벤치이름, 색: "var(--accent-purple)", 점선: true }] : [])]} />
       </div>
 
       {/* ── 깊은 낙폭 순위 ──
@@ -312,7 +351,7 @@ function 낙폭칸({ r }: { r: 자산배분결과 }) {
       {순위.length > 0 && (
         <div className="border-t border-border">
           <div className="px-4 py-2.5 flex items-baseline justify-between gap-2">
-            <span className="text-sm font-semibold text-text-primary">깊었던 순서</span>
+            <span className="text-base font-semibold text-text-primary">깊었던 순서</span>
             <span className="text-2xs text-text-dim">얼마나 오래 잠겼나까지</span>
           </div>
           <div className="overflow-x-auto">
@@ -650,7 +689,7 @@ function 폭락표({ r }: { r: 자산배분결과 }) {
   return (
     <Card className="p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-border">
-        <span className="text-sm font-semibold text-text-primary">폭락 때 어땠나</span>
+        <span className="text-base font-semibold text-text-primary">폭락 때 어땠나</span>
         {/* '최대 낙폭 -30%' 만으로는 언제 어떤 일로 그랬는지 모른다.
             사람은 '코로나 때' 로 기억하므로, 기억에 걸리는 이름이
             붙어야 수가 읽힌다. */}
@@ -795,22 +834,24 @@ function 담은자산({ r }: { r: 자산배분결과 }) {
   }));
   /* 비중 0 인 자산은 원에 안 그린다 — 빈 조각은 선 하나로 남아 헷갈린다 */
   const 그릴것 = 조각들.filter((x) => x.몫 > 0);
+  const 넓음 = use넓은화면();
+  const 원높이 = 넓음 ? 220 : 180;
   return (
     <Card className="flex flex-col gap-3">
       <span className="text-base font-semibold text-text-primary">담은 자산</span>
       {/* 내 자산 화면과 같은 모양 — 원그래프 옆에 색 점과 비중 */}
       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-center sm:items-start">
-        <div className="flex-shrink-0 w-full sm:w-44" data-testid="담은자산-원">
-          <Suspense fallback={<div className="h-[180px]" />}>
-            <차트틀 height={180}>
+        <div className="flex-shrink-0 w-full sm:w-44 lg:w-56" data-testid="담은자산-원">
+          <Suspense fallback={<div style={{ height: 원높이 }} />}>
+            <차트틀 height={원높이}>
               {(R: any) => (
                 <R.PieChart>
                   <R.Pie data={그릴것} dataKey="몫" nameKey="name"
-                         cx="50%" cy="50%" outerRadius={72} innerRadius={30}
+                         cx="50%" cy="50%" outerRadius={넓음 ? 92 : 72} innerRadius={넓음 ? 40 : 30}
                          isAnimationActive={false}>
                     {그릴것.map((x) => <R.Cell key={x.key} fill={x.색} />)}
                   </R.Pie>
-                  <R.Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, ""]} />
+                  <R.Tooltip {...툴팁} formatter={(v: number) => [`${v.toFixed(1)}%`, ""]} />
                 </R.PieChart>
               )}
             </차트틀>

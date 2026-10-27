@@ -39,6 +39,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueries, type QueryClient } from "@tanstack/react-query";
 import { portfolioApi, dashboardApi, type 자산흐름점 } from "@/api/stocks";
 import 차트틀 from "@/components/chart/ChartFrame";
+import { 가로축, 그래프높이, 기준점선, 툴팁 } from "@/utils/chartTheme";
 import { Card, 못불러옴 } from "@/components/ui";
 import { use돈 } from "@/hooks/useMoney";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -661,7 +662,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
       )}
 
       {/* 넓은 화면에서는 높게 — 1,000px 넘게 늘어난 선이 160px 에 눌리면 오르내림이 안 보인다 */}
-      <차트틀 height={넓음 ? 260 : 160}>
+      <차트틀 height={그래프높이.보통[넓음 ? 1 : 0]}>
         {(R) => (
           <R.AreaChart data={그릴것} margin={{ top: 10, right: 4, bottom: 0, left: 4 }}>
             <defs>
@@ -670,11 +671,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
                 <stop offset="100%" stopColor={선색} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <R.XAxis
-              dataKey="day" tickFormatter={짧은날}
-              tick={{ fill: "var(--text-dim)", fontSize: 10 }}
-              axisLine={false} tickLine={false} minTickGap={24}
-            />
+            <R.XAxis dataKey="day" tickFormatter={짧은날} {...가로축} />
             {/* 세로축은 안 그린다. 좁은 화면에서 '1,234,567원' 눈금이
                 가로폭의 3분의 1을 먹는다. 금액은 위 카드가 이미 말한다 */}
             <R.YAxis hide domain={["dataMin", "dataMax"]} />
@@ -685,11 +682,7 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
                 통째로 찌그러뜨리고 있었다. */}
             <R.YAxis yAxisId="손익축" hide domain={["dataMin", "dataMax"]} />
             <R.Tooltip
-              contentStyle={{
-                background: "var(--bg-card)", border: "1px solid var(--border-default)",
-                borderRadius: 10, fontSize: 12, color: "var(--text-primary)",
-              }}
-              labelStyle={{ color: "var(--text-muted)" }}
+              {...툴팁}
               /* 축은 % 지만 사람이 먼저 보는 것은 '얼마' 다. 내 자산과
                  원금은 % 옆에 금액을 같이 적는다 — 금액이 그래프에서
                  통째로 사라지면 % 만 보고는 규모를 알 수 없다.
@@ -716,10 +709,8 @@ export default function AssetHistory({ 켜짐 = true, 미리보기, 받는중, p
                     때 라벨끼리 겹쳐서 둘 다 못 읽었고, 어디에 붙여도
                     선이나 오른쪽 끝(지금 값)을 가렸다. 줄은 '어디쯤인가'
                     만 보여 주고, 숫자는 그래프 아래 한 줄에 적는다. */}
-                <R.ReferenceLine y={끝점.최고} stroke="var(--text-dim)"
-                                 strokeDasharray="2 4" strokeWidth={1} />
-                <R.ReferenceLine y={끝점.최저} stroke="var(--text-dim)"
-                                 strokeDasharray="2 4" strokeWidth={1} />
+                <R.ReferenceLine y={끝점.최고} {...기준점선} />
+                <R.ReferenceLine y={끝점.최저} {...기준점선} />
               </>
             )}
 

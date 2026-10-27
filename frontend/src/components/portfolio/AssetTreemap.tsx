@@ -25,6 +25,7 @@
 import { useMemo } from "react";
 import { useSettingsStore } from "@/store/settingsStore";
 import 차트틀 from "@/components/chart/ChartFrame";
+import { 툴팁 } from "@/utils/chartTheme";
 import { fmtKRWCompact } from "@/utils/formatters";
 import { 가린글 } from "@/hooks/useMoney";
 import { 등락색, 삼색 } from "@/hooks/usePnlColors";
@@ -224,11 +225,7 @@ export default function 자산지도({
             content={<한칸 onSelect={onSelect} />}
           >
             <R.Tooltip
-              contentStyle={{
-                background: "var(--bg-card)", border: "1px solid var(--border-default)",
-                borderRadius: 10, fontSize: 12, color: "var(--text-primary)",
-              }}
-              labelStyle={{ color: "var(--text-muted)" }}
+              {...툴팁}
               formatter={(v: number, _n: string, 칸: { payload?: 지도칸 }) => {
                 const p = 칸?.payload;
                 const 금액 = 가림 ? 가린글 : fmtKRWCompact(Number(v));
