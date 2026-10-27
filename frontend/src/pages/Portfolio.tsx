@@ -1513,6 +1513,8 @@ export default function Portfolio() {
           {구성모양 === "지도" ? (
             <자산지도
               칸들={지도칸들}
+              /* 넓은 화면에서는 높게 — 220px 에 종목이 스무 개쯤이면 칸이 작아져 이름이 빠진다 */
+              height={넓은화면 ? 340 : 220}
               가림={금액가리기}
               onSelect={(이름) => {
                 /* 지도 칸은 이름만 안다. 종목별일 때만 종목으로 보낸다 —
@@ -1565,8 +1567,13 @@ export default function Portfolio() {
                       <div key={entry.name} className="flex items-center gap-2 py-1">
                         <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                           style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                        <span className="flex-1 text-xs text-text-secondary truncate min-w-0">{entry.name}</span>
-                        <div className="flex-shrink-0 w-16 h-1.5 bg-bg-elevated rounded-full overflow-hidden hidden sm:block">
+                        {/* 이름이 먼저다 — PC 의 두 줄 범례에서는 작은 막대(원그래프와 같은 말)를 빼고 그 자리를 이름에
+                            준다. 예전엔 1024~1280px 에서 이름 칸이 50px 로 눌려 'TIG…' 처럼 안 보였다
+                            (사용자: "내 자산 비중에 PC로하면 종목명이 안떠") */}
+                        <span className="flex-1 text-xs text-text-secondary truncate min-w-[4.5rem]" title={entry.name}>
+                          {entry.name}
+                        </span>
+                        <div className="flex-shrink-0 w-16 h-1.5 bg-bg-elevated rounded-full overflow-hidden hidden sm:block lg:hidden 2xl:block">
                           <div className="h-full rounded-full transition-all duration-700"
                             style={{ width: `${Math.min(100, pct)}%`, background: PIE_COLORS[i % PIE_COLORS.length] }} />
                         </div>

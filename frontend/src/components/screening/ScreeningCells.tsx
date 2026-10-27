@@ -46,6 +46,7 @@ export function 칸값({ 칸, 줄, 이름 }: { 칸: 칸정의; 줄: Record<strin
   if (칸.모양 === "등락" && typeof v === "number" && Number.isFinite(v)) return <등락표시 값={v} />;
   const 글 = 칸글(칸, 줄);
   if (글 === "—") return <span className="text-text-dim">—</span>;
+  if (글 === "적자") return <span className="text-text-dim" title="이익이 0 밑이라 PER 을 셀 수 없다">적자</span>;
   if (칸.모양 === "글") {
     return <span className="block max-w-[10rem] truncate text-text-secondary" title={글}>{글}</span>;
   }

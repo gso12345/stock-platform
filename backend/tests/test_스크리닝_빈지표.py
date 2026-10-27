@@ -708,10 +708,46 @@ def test_관심종목_표는_스크리닝_표의_줄에서_몇_칸만_받는다(
         rows = r.json()["rows"]
         assert set(rows) == {"US:QZQ"}, "표에 없는 종목·아직 없는 시장의 표는 빠진다"
         assert rows["US:QZQ"]["per"] == 20.0 and rows["US:QZQ"]["market_cap"] == 240
+        assert (rows["US:QZQ"]["eps"], rows["US:QZQ"]["earnings"]) == (2.0, 12.0), "PER 이 비면 적자인지 가르려고"
         assert "revenue" not in rows["US:QZQ"] and "_rev_yoy" not in rows["US:QZQ"]
-        assert c.post("/api/v1/screening/rows", json={"items": [{"symbol": "A;B", "market": "US"}]}).status_code == 422
-        assert c.post("/api/v1/screening/rows", json={"items": [{"symbol": "BTC", "market": "CRYPTO"}]}).status_code == 422
         assert c.post("/api/v1/screening/rows", json={"items": [{"symbol": "A", "market": "US"}] * 201}).status_code == 422
+    finally:
+        S.비우기()
+
+
+def test_관심종목_표_현금_같은_자산이_섞여도_나머지는_답한다():
+    """관심종목 화면은 포트폴리오 탭의 보유도 같이 묻는다 — '현금'(포트폴리오가 받는 한글 종목) 하나 때문에 요청
+    전체가 422 로 실패해 표의 지표 칸이 통째로 '—' 였다(사용자: "관심종목에 기타데이터가 안나와")"""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    S._표["US"] = _미국표()
+    try:
+        c = TestClient(app)
+        r = c.post("/api/v1/screening/rows", json={"items": [
+            {"symbol": "현금", "market": "KR"}, {"symbol": "QZQ", "market": "US"}, {"symbol": "A;B", "market": "US"},
+            {"symbol": "BTC", "market": "CRYPTO"}, {"symbol": "골드바(1kg)", "market": "KR"}]})
+        assert r.status_code == 200, r.text
+        assert set(r.json()["rows"]) == {"US:QZQ"} and r.json()["building"] is False, \
+            "표에 없는 꼴은 건너뛴다 — 짓는 중이라고 하지도 않는다(영영 없다)"
+    finally:
+        S.비우기()
+
+
+def test_관심종목_표_기초_줄_없이_지은_반쪽_표면_짓는중이라_알린다(monkeypatch):
+    """서버가 막 떠 전 종목 목록을 못 읽은 채 야후 줄(주요 종목)만으로 지은 표 — 없는 종목은 '영영 없다' 가 아니라
+    '아직' 이다. 짓는 중이라고 해야 화면이 곧 다시 묻는다(안 그러면 5분 동안 '—')"""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    monkeypatch.setattr(S, "_뒤에서_새로", lambda 시장: None)
+    S._표["US"] = 만들기("US", [], [{"symbol": "QZQ", "price": 40.0}])
+    S._표["ETF"] = 만들기("ETF", [], [{"symbol": "SPY", "price": 600.0}])
+    try:
+        c = TestClient(app)
+        r = c.post("/api/v1/screening/rows", json={"items": [{"symbol": "QZQ", "market": "US"},
+                                                             {"symbol": "NVDA", "market": "US"}]}).json()
+        assert set(r["rows"]) == {"US:QZQ"} and r["building"] is True
+        r = c.post("/api/v1/screening/rows", json={"items": [{"symbol": "QQQ", "market": "ETF"}]}).json()
+        assert r == {"rows": {}, "building": False}, "ETF 표는 늘 기초 줄 없이 짓는다 — 반쪽이 아니다"
     finally:
         S.비우기()
 

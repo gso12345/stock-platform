@@ -298,6 +298,12 @@ export function 수글(v: number): string {
   return v.toLocaleString("ko-KR");
 }
 
+const 음수 = (x: unknown) => typeof x === "number" && Number.isFinite(x) && x < 0;
+
+/** 이익이 0 밑이라 PER 이 없는 줄인가 — 스크리닝 표·관심종목이 '—'(모름) 대신 '적자' 로 적는다 */
+export const 적자인가 = (줄: { eps?: unknown; earnings?: unknown } | undefined) =>
+  !!줄 && (음수(줄.eps) || 음수(줄.earnings));
+
 /** 칸 하나의 글자(등락·흐름처럼 따로 그리는 칸은 이 글자를 설명·CSV 에 쓴다) */
 export function 칸글(칸: 칸정의, 줄: Record<string, any>): string {
   const v = 줄[칸.key];
@@ -312,11 +318,18 @@ export function 칸글(칸: 칸정의, 줄: Record<string, any>): string {
     const 덧말: string[] = [];
     if (typeof 줄.fin_fx === "string" && 줄.fin_fx) 덧말.push(`${줄.fin_fx}→달러, 지금 환율`);
     if (칸.key === "eps_hist" && 줄.eps_basis === "ordinary") 덧말.push("원주 1주 기준");
+    /* EPS 를 주식 종류별로만 공시하는 회사(알파벳 A·B·C) — 서버가 해마다 순이익 ÷ 지금 주식 수로 어림했다 */
+    if (칸.key === "eps_hist" && 줄.eps_basis === "implied") 덧말.push("순이익 ÷ 지금 주식 수로 어림");
     const 바꿈 = 덧말.length ? ` (${덧말.join(" · ")})` : "";
     return 값들.map((x, i) => `${해들[i] ?? ""} ${글(x)}`.trim()).join(" · ") + 바꿈;
   }
   if (칸.모양 === "글") return 글값(칸.key, v);
-  if (v == null || typeof v !== "number" || !Number.isFinite(v)) return "—";
+  if (v == null || typeof v !== "number" || !Number.isFinite(v)) {
+    /* 적자면 PER 이 없다 — '—'(모름)과 갈라 적는다. 인텔처럼 적자인 회사가 '지표가 안 나오는 종목' 으로 보였다 */
+    if (칸.key === "per" && 적자인가(줄)) return "적자";
+    if (칸.key === "forward_per" && 음수(줄.forward_eps)) return "적자";
+    return "—";
+  }
   switch (칸.모양) {
     case "돈": return 돈글(v, 통화);
     case "가격": return 가격글(v, 통화);

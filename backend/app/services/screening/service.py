@@ -56,6 +56,9 @@ _남길수, _남길때 = 400, 3600
     "us_fx": ("US_FX", 12 * 3600, 3600, "US"),
     "us_px": ("US_PX", 0, 시세_간격, "US"),
 }
+#: 받는 법이 바뀌면 판을 올리는 원천 — 통째로 받는 것은 DB 에 남은 판, 돌아가며 받는 것은 줄마다의 판('v')을 본다
+_원천판들 = {"us_sec": sources.SEC_판}
+_줄판들 = {"kr_naver": sources.네이버_판}
 #: 종목마다 조금씩 돌아가며 받는 원천 — 칸 → (시장, 한 번에 몇 곳, 받은 지 이만큼 지난 것부터 다시)
 돌아가며 = {"kr_naver": ("KR", "네이버_한번", "네이버_수명"), "kr_px": ("KR", "시세_한번", "시세_수명"),
            "us_px": ("US", "시세_한번", "시세_수명")}
@@ -193,6 +196,9 @@ def _원천_불러오기() -> None:
                 값, 때 = store.읽기(열쇠)
                 if 값:
                     _넣기(칸, 값, float(값.get("at") or 때))
+                    # 옛 받는 법으로 받은 것 — 쓰기는 하되 곧바로 새로 받는다(안 그러면 간격(SEC 7일)만큼 기다린다)
+                    if 칸 in _원천판들 and 값.get("v") != _원천판들[칸]:
+                        _원천때[칸] = 0.0
         finally:
             _원천_읽음[0] = True          # 못 읽었어도 한 번만 — 요청마다 DB 를 다시 두드리지 않게
 
@@ -216,9 +222,12 @@ def _돌아가며_받기(칸: str) -> dict | None:
         야후있음 = {s for s, v in zip(표.df.index, 표.df["rsi"]) if s not in 있던 and v == v}
     # 국내 1년 시세는 야후 종목(005930.KS·247540.KQ)으로 묻는다 — 거래소를 모르는 종목·코넥스는 야후에 없다
     거래소 = (표.df["exchange"].to_dict() if "exchange" in 표.df.columns else {}) if 칸 == "kr_px" else None
+    판 = _줄판들.get(칸)
+    # 받은 지 오래된 것 — 또는 옛 받는 법으로 받은 줄(판이 다르다: 네이버 연간 실적이 없는 줄)
     고를 = [c for c in 표.df.index
             if c not in 야후있음 and (거래소 is None or 거래소.get(c) in sources.야후꼬리)
-            and 지금 - float((있던.get(c) or {}).get("at") or 0) > 수명][:한번]
+            and (지금 - float((있던.get(c) or {}).get("at") or 0) > 수명
+                 or (판 is not None and (있던.get(c) or {}).get("v") != 판))][:한번]
     if not 고를:
         return None
     받음 = (sources.국내_네이버(고를) if 칸 == "kr_naver" else
@@ -229,7 +238,10 @@ def _돌아가며_받기(칸: str) -> dict | None:
     # 맨 앞에 다시 뽑힌다. 그런 종목(네이버·야후가 모르는 종목)이 한 번에 묻는 수만큼 쌓이면 돌아가며 받기가 멈춘다
     for c in 고를:
         if c not in 받음:
-            있던[c] = {**(있던.get(c) or {}), "at": 지금}
+            # 판도 남긴다 — 안 남기면 옛 판 줄로 남아 차례마다 맨 앞에 다시 뽑힌다(멈춤)
+            있던[c] = {**(있던.get(c) or {}), "at": 지금, **({"v": 판} if 판 is not None else {})}
+        elif 판 is not None:
+            받음[c] = {**받음[c], "v": 판}
     있던.update(받음)
     _쌓임.setdefault(칸, [0, 0.0])[0] += len(받음)
     return {"at": 지금, "rows": 있던}
@@ -291,6 +303,20 @@ def _일_맡기기(칸: str) -> None:
         _원천일꾼.submit(일)
     except Exception:
         _도는일.discard(칸)
+
+
+def 원천_돌리기() -> None:
+    """스케줄러가 1분마다 — 사람이 스크리닝을 안 열어도 원천(국내 연간 실적·1년 시세·SEC …)이 돌아가며 찬다.
+    예전엔 스크리닝·관심종목을 열 때만 돌아, 서버가 깨어 있어도 국내 연간 실적이 몇 시간째 그대로였다(사용자:
+    "국내주식 스크리닝에 안나오는 지표가 있어"). 표가 없으면 뒤에서 짓는다 — DB 에 남긴 원천을 읽고 지은 뒤 원천을 맡긴다"""
+    if not 원천_받기:
+        return
+    from app.core import memory
+    for 시장 in ("KR", "US"):
+        if 시장 in _표:
+            _원천_챙기기(시장)
+        elif memory.has_headroom(f"스크리닝 표({시장}) 미리 짓기"):
+            _뒤에서_새로(시장)              # 기다리는 사람이 없다 — 메모리가 빠듯하면 사람이 열 때 짓는다
 
 
 _DART_알림 = [False]
@@ -443,6 +469,13 @@ def 재무_원천줄(시장: str, 종목: str) -> dict | None:
 def 표가_있나(시장: str) -> bool:
     """그 시장의 표를 들고 있나 — 없으면 뒤에서 짓는 중이다(한종목·표 가 맡긴다)"""
     return 시장 in _표
+
+
+def 표가_반쪽(시장: str) -> bool:
+    """그 시장의 표가 기초 줄(전 종목 목록) 없이 지은 것인가 — 서버가 막 떠 목록을 아직 못 읽었을 때. 곧 다시 짓는다.
+    ETF 표는 늘 기초 줄이 없다(야후 줄만) — 반쪽이 아니다"""
+    표 = _표.get(시장)
+    return 표 is not None and 시장 != "ETF" and not 표.기초수
 
 
 def 지금_표인가(시장: str, 표: 스크리닝표) -> bool:

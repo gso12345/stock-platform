@@ -154,7 +154,10 @@ function 한칸(props: 칸그리기) {
         fill={칸색(등락률, 배색)}
         stroke="var(--bg-card)" strokeWidth={2}
         rx={4}
-      />
+      >
+        {/* 작아서 글자를 못 넣은 칸도 마우스를 올리면 이름이 뜬다 */}
+        <title>{name}</title>
+      </rect>
       {글자넣기 && (
         <text
           x={x + width / 2} y={등락넣기 ? y + height / 2 - 5 : y + height / 2}

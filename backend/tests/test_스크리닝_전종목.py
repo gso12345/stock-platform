@@ -256,7 +256,7 @@ class Test_SEC:
 
         def 재무(t):
             return {k: v for k, v in 줄들[t].items()
-                    if k not in ("fin_years", "rev_hist", "eps_hist") and not k.endswith("_prev")}
+                    if k not in ("fin_years", "rev_hist", "eps_hist", "ni_hist") and not k.endswith("_prev")}
         assert 재무("AAA") == 재무("AAB") == {"revenue": 100.0, "earnings": 20.0, "equity": 400.0, "eps": 5.0,
                                              "op_income": 31.0}, \
             "Revenues 가 있으면 그것 — 뒤 개념(999)이 덮지 않는다. EPS 는 희석(5)이 기본(99)보다 먼저"
@@ -271,6 +271,8 @@ class Test_SEC:
         assert a["fin_years"] == [2022, 2023, 2024, 2025]
         assert a["rev_hist"] == [100, 100, 100, 100], "해마다 앞 개념(Revenues)이 이긴다"
         assert a["eps_hist"] == [2.0, 3.0, 4.0, 5.0]
+        assert a["ni_hist"] == [20, 20, 20, 20], "순이익도 해마다 — EPS 를 주식 종류별로만 적는 회사의 어림용"
+        assert "ni_hist" not in 줄들["CCC"], "순이익이 한 해도 없으면 안 싣는다"
         # CCC 는 매출이 네 해 모두 뒤 개념(300)으로 있고, EPS 는 2024 년부터
         assert 줄들["CCC"]["rev_hist"] == [300] * 4 and 줄들["CCC"]["eps_hist"] == [None, None, 1.0, 2.0]
         # BBB 는 2025 년 매출만 — 앞쪽의 빈 해는 뺀다
@@ -702,6 +704,75 @@ class Test표_미국:
         assert "per" not in S.표("US").한줄("SKHY"), "국내 표가 없으면 비운 채로 — 국내 표를 짓게 하지는 않는다"
         assert "KR" not in S._표
 
+    def test_SEC_에_없는_주식_종류는_같은_회사의_다른_종류_줄로(self):
+        """사용자: "스크리닝에 지표가 안나오는 종목이 있어(알파벳C, … 버크셔해서웨이A …)" — 회사 값은 같고 주당 값은
+        시세 1주로 맞춘다. 이름만 같은 남남(티커 줄기가 다르다)은 잇지 않는다"""
+        sec = 원천표("us_sec", {
+            "BRK-A": {"revenue": 3.7e11, "earnings": 8.9e10, "equity": 6.5e11, "eps": 61910.0},
+            "GOOGL": {"revenue": 4.0e11, "earnings": 1.2e11, "equity": 3.5e11, "fin_years": [2024, 2025],
+                      "rev_hist": [3.5e11, 4.0e11], "ni_hist": [1.0e11, 1.2e11]},
+            "FOX": {"revenue": 1.6e10, "earnings": 2.2e9},
+            "BAC": {"revenue": 1.0e11, "earnings": 2.7e10}})
+        기초 = [
+            {"symbol": "BRK-A", "name_en": "Berkshire Hathaway Inc. Class A", "price": 720000.0, "market_cap": 1.035e12},
+            {"symbol": "BRK-B", "name_en": "Berkshire Hathaway Inc. Class B", "price": 480.0, "market_cap": 1.035e12},
+            {"symbol": "GOOGL", "name_en": "Alphabet Inc. Class A Common Stock", "price": 250.0, "market_cap": 3.0e12},
+            {"symbol": "GOOG", "name_en": "Alphabet Inc. Class C Capital Stock", "price": 252.0, "market_cap": 3.0e12},
+            {"symbol": "HATH", "name_en": "Berkshire Hathaway Inc.", "price": 5.0, "market_cap": 1e9},
+            {"symbol": "FOX", "name_en": "Fox Corporation Class B Common Stock", "price": 55.0, "market_cap": 2.5e10},
+            {"symbol": "BAC", "name_en": "Bank of America Corporation Common Stock", "price": 50.0, "market_cap": 3.8e11},
+            {"symbol": "BAC-PL", "name_en": "Bank of America Corporation Depositary Shares, each representing a 1/1,000th "
+             "interest in a share of 5.875% Non-Cumulative Preferred Stock, Series L", "price": 25.0, "market_cap": 1e9}]
+        # 기초 줄이 없는 종목(야후 줄만) — 야후의 이름으로 회사를 맞춘다
+        야후 = [{"symbol": "FOXA", "name": "Fox Corporation Class A Common Stock", "price": 60.0, "market_cap": 2.5e10}]
+        r = {x["symbol"]: x for x in 만들기("US", 기초, 야후, {"us_sec": sec}).결과({}, "", "price", True, 0, 19)[0]}
+        b = r["BRK-B"]
+        assert b["revenue"] == 3.7e11 and b["pbr"] == round(1.035e12 / 6.5e11, 2)
+        assert (b["eps"], b["per"]) == (round(480 * 8.9e10 / 1.035e12, 4), 11.63), "A 주 EPS 는 B 주 1주로"
+        assert r["BRK-A"]["per"] == 11.63 and r["BRK-A"]["eps"] == 61910.0
+        g = r["GOOG"]
+        assert g["revenue"] == 4.0e11 and (g["eps"], g["per"]) == (10.08, 25.0)
+        assert g["fin_years"] == [2024, 2025] and g["rev_hist"] == [3.5e11, 4.0e11]
+        assert "revenue" not in r["HATH"], "이름만 같고 티커 줄기가 다르면 남남이다"
+        assert r["FOXA"]["revenue"] == 1.6e10
+        assert "revenue" not in r["BAC-PL"] and "per" not in r["BAC-PL"], "우선주는 보통주의 재무를 받지 않는다"
+
+    def test_EPS_흐름이_없는_회사는_해마다_순이익을_지금_주식_수로_어림한다(self):
+        """알파벳 — EPS 를 주식 종류별로만 적어 SEC frames 에 EPS 흐름이 없다. 마지막 해는 표의 EPS 와 같다"""
+        sec = 원천표("us_sec", {
+            "GOOGL": {"earnings": 1.2e11, "fin_years": [2023, 2024, 2025], "rev_hist": [3.0e11, 3.5e11, 4.0e11],
+                      "ni_hist": [0.75e11, 1.0e11, 1.2e11]},
+            "NRM": {"earnings": 1e9, "eps": 2.0, "fin_years": [2025], "rev_hist": [5e9], "eps_hist": [2.0],
+                    "ni_hist": [1e9]},
+            "NOMC": {"earnings": 1e9, "fin_years": [2025], "rev_hist": [5e9], "ni_hist": [1e9]},
+            "YAH": {"earnings": 2e9, "fin_years": [2025], "rev_hist": [6e9], "ni_hist": [2e9]}})
+        기초 = [{"symbol": "GOOGL", "price": 250.0, "market_cap": 3.0e12},
+                {"symbol": "NRM", "price": 40.0, "market_cap": 2e10},
+                {"symbol": "NOCAP", "price": 10.0},
+                {"symbol": "NOMC", "price": 10.0},
+                {"symbol": "YAH", "price": 10.0, "market_cap": 4e10}]
+        야후 = [{"symbol": "YAH", "fin_currency": "USD", "fin_years": [2024, 2025], "rev_hist": [5e9, 6e9],
+                 "eps_hist": [0.4, 0.5]}]
+        r = {x["symbol"]: x for x in 만들기("US", 기초, 야후, {"us_sec": sec}).결과({}, "", "price", True, 0, 9)[0]}
+        g = r["GOOGL"]
+        # 지금 주식 수 = 3조 ÷ 250 = 120억 주
+        assert g["eps_hist"] == [6.25, 8.33, 10.0] and g["eps"] == 10.0 and g["eps_basis"] == "implied"
+        assert "eps_cagr_3y" not in g, "세 해뿐이면 3년 성장률은 모른다"
+        assert r["NRM"]["eps_hist"] == [2.0] and "eps_basis" not in r["NRM"], "장부 EPS 흐름이 있으면 그것"
+        assert "eps_hist" not in r["NOCAP"], "SEC 에 없는 종목은 흐름도 없다"
+        assert "eps_basis" not in r["NOMC"], "주식 수(시가총액)를 모르면 어림하지 않는다"
+        assert r["YAH"]["eps_hist"] == [0.4, 0.5] and "eps_basis" not in r["YAH"], "야후 흐름을 쓰는 줄은 어림이 아니다"
+
+    def test_회사이름과_형제_티커(self):
+        from app.services.screening.table import _회사이름, _형제티커인가
+        assert _회사이름("Alphabet Inc. Class C Capital Stock") == _회사이름("Alphabet Inc.") == "alphabet"
+        assert _회사이름("Berkshire Hathaway Inc. Class B Common Stock") == "berkshire hathaway"
+        assert _회사이름("HSBC Holdings plc American Depositary Shares") == "hsbc holdings"
+        assert _회사이름(None) is None and _회사이름("  ") is None
+        assert _형제티커인가("BRK-A", "BRK-B") and _형제티커인가("GOOG", "GOOGL") and _형제티커인가("LBRDA", "LBRDK")
+        assert _형제티커인가("FOX", "FOXA") and _형제티커인가("HEI", "HEI-A") and _형제티커인가("Z", "ZG")
+        assert not _형제티커인가("HATH", "BRK-B") and not _형제티커인가("AB", "CD") and not _형제티커인가("BAC", "BRK-B")
+
     def test_ROA_는_SEC_자산으로(self):
         r = self._EPS표({"AST": {"earnings": 5.0, "assets": 50.0}}, [{"symbol": "AST", "price": 1.0}])
         assert r["AST"]["roa"] == 10.0
@@ -1081,7 +1152,7 @@ def 원천켜기(monkeypatch):
             s: {"rsi": 33.0, "high_52w": 20.0, "at": time.time()} for s in 심볼들},
         "국내_시세흐름": lambda 거래소: 부름.append(("krpx", sorted(거래소))) or {
             c: {"rsi": 44.0, "return_1y": 12.0, "at": time.time()} for c in 거래소},
-        "미국_SEC": lambda: 부름.append("sec") or {"at": time.time(), "year": 2025, "rows": {"AAA": {
+        "미국_SEC": lambda: 부름.append("sec") or {"at": time.time(), "year": 2025, "v": sources.SEC_판, "rows": {"AAA": {
             "eps": 4.0, "fin_years": [2024, 2025], "rev_hist": [10, 20], "eps_hist": [3.0, 4.0]}}},
         "미국_한글이름": lambda: 부름.append("ko") or {"at": time.time(), "rows": {"AAA": "에이"}},
         "환율들": lambda: 부름.append("fx") or {"at": time.time(), "rows": {"TWD": {"usd": 0.03}}},
@@ -1278,7 +1349,9 @@ def test_원천_함수는_못_받으면_관리자_화면에_실패를_남긴다(
     monkeypatch.setattr(sec_frames, "fetch_fundamentals",
                         lambda 환율=None: (받은환율.append(환율), ({"AAA": {"eps": 1.0}}, 2025))[1])
     assert sources.국내_KRX() is None
-    assert sources.미국_SEC()["rows"] == {"AAA": {"eps": 1.0}}
+    받은 = sources.미국_SEC()
+    assert 받은["rows"] == {"AAA": {"eps": 1.0}}
+    assert 받은["v"] == sources.SEC_판, "받는 법의 판을 남긴다 — 옛 판으로 남은 것은 서버가 곧바로 새로 받는다"
     assert 받은환율 == [{"TWD": 0.03}], "해외 상장사의 재무를 달러로 바꿀 환율을 넘긴다"
     monkeypatch.setattr(sources, "환율들", lambda: None)
     assert sources.미국_SEC()["rows"] == {"AAA": {"eps": 1.0}} and 받은환율[-1] == {}, "환율을 못 받아도 미국 회사는"
@@ -1364,7 +1437,7 @@ class Test_네이버_연간:
         monkeypatch.setattr(_httpx, "AsyncClient", 가짜네이버({"005930": _삼성연간, "000660": RuntimeError("x")}, 물음))
         줄들 = sources.국내_네이버(["005930", "000660", "035420"])
         assert 줄들["005930"]["rev_hist"][-1] == 3_008_709e8 and 줄들["005930"]["per"] == 12.0
-        assert 줄들["000660"] == {"per": 12.0, "at": 줄들["000660"]["at"]}, "연간 실적을 못 받아도 지표는"
+        assert 줄들["000660"] == {"per": 12.0, "at": 줄들["000660"]["at"], "v": sources.네이버_판}, "연간 실적을 못 받아도 지표는"
         assert sorted(u.split("/stock/")[1].split("/")[0] for u in 물음) == ["000660", "005930", "035420"]
         assert "연간 실적 1" in {s["name"]: s for s in health.snapshot()}[sources.이름_네이버]["detail"]
 
@@ -1383,7 +1456,7 @@ def test_네이버_종목_응답에서_스크리닝_칸만_담고_52주_고저�
     줄들 = sources.국내_네이버(["005930", "BAD"])
     assert set(줄들) == {"005930"}
     줄 = 줄들["005930"]
-    assert 줄.pop("at") > 0
+    assert 줄.pop("at") > 0 and 줄.pop("v") == sources.네이버_판
     assert 줄 == {"forward_per": 9.5, "forward_eps": 7000.0, "high_52w": 88000.0, "low_52w": 50000.0}
 
 
@@ -1484,7 +1557,7 @@ class Test한종목_원천:
 
     def test_한종목이_맡긴_첫_표도_DB_에_남긴_원천으로(self, 가짜시장, 원천켜기):
         가짜시장["기초"] = [{"symbol": "AAA", "price": 10.0}]
-        assert store.남기기("US_SEC", {"at": time.time(), "year": 2025, "rows": {"AAA": {
+        assert store.남기기("US_SEC", {"at": time.time(), "year": 2025, "v": sources.SEC_판, "rows": {"AAA": {
             "eps": 4.0, "fin_years": [2024, 2025], "rev_hist": [10, 20], "eps_hist": [3.0, 4.0]}}})
         S.비우기()                                    # 서버가 막 떴다 — 메모리에는 아무것도 없다
         assert S.한종목("US", "AAA") is None           # 표가 없다 — 기다리게 하지 않고 뒤에서 짓게 맡긴다
@@ -1493,6 +1566,75 @@ class Test한종목_원천:
         assert 줄["eps"] == 4.0 and 줄["per"] == 2.5, "DB 에 남긴 SEC 원천 없이 지었다"
         _원천_끝까지()
         assert "sec" not in 원천켜기, "DB 에 막 남긴 원천을 또 받았다"
+
+    def test_옛_받는_법으로_남긴_SEC_는_쓰되_곧바로_새로_받는다(self, 가짜시장, 원천켜기):
+        """배포 뒤 최대 7일 동안 새 받는 법(해외 상장사·대체 태그)이 안 들어오던 것 — 판이 다르면 곧바로"""
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 10.0}]
+        assert store.남기기("US_SEC", {"at": time.time(), "year": 2025, "rows": {"AAA": {"eps": 5.0}}})
+        S.비우기()
+        첫 = S.표("US")
+        assert 첫.한줄("AAA")["per"] == 2.0, "새로 받기 전에도 남긴 것을 쓴다"
+        _원천_끝까지()
+        assert 원천켜기.count("sec") == 1
+        assert store.읽기("US_SEC")[0]["v"] == sources.SEC_판 and _새_표("US").한줄("AAA")["per"] == 2.5
+
+    def test_네이버_옛_판_줄은_받은_지_얼마_안_됐어도_먼저_다시_받는다(self, 가짜시장, 원천켜기, monkeypatch):
+        """연간 실적이 붙기 전(옛 판)에 받은 줄 — 20시간을 기다리지 않는다. 판을 남기니 다음 차례엔 건너뛴다"""
+        monkeypatch.setattr(S, "네이버_한번", 5)
+        가짜시장["기초"] = [{"symbol": s, "price": 1.0, "market_cap": c} for s, c in (("AAA", 3.0), ("BBB", 2.0), ("CCC", 1.0))]
+        S.표("KR")
+        지금 = time.time()
+        S._원천["kr_naver_rows"] = {"AAA": {"per": 9.0, "at": 지금},                       # 옛 판(연간 실적 없음)
+                                   "BBB": {"per": 8.0, "at": 지금, "v": sources.네이버_판},  # 새 판 — 건너뛴다
+                                   "CCC": {"per": 7.0, "at": 지금 - S.네이버_수명 - 1, "v": sources.네이버_판}}
+        assert S._돌아가며_받기("kr_naver")["rows"]["AAA"]["v"] == sources.네이버_판
+        assert [x[1] for x in 원천켜기 if isinstance(x, tuple) and x[0] == "naver"][-1] == ["AAA", "CCC"]
+
+    def test_네이버가_답하지_않은_종목도_판을_남겨_차례가_멈추지_않는다(self, 가짜시장, 원천켜기, monkeypatch):
+        가짜시장["기초"] = [{"symbol": "AAA", "price": 1.0, "market_cap": 1.0}]
+        S.표("KR")
+        monkeypatch.setattr(sources, "국내_네이버", lambda 코드들: {"ZZZ": {"per": 1.0, "at": time.time()}})
+        줄 = S._돌아가며_받기("kr_naver")["rows"]["AAA"]
+        assert 줄["v"] == sources.네이버_판 and 줄["at"] > 0
+
+    def test_스케줄러가_원천을_돌린다_표가_없으면_짓고(self, 가짜시장, 원천켜기, monkeypatch):
+        """사람이 스크리닝을 안 열어도 — 예전엔 스크리닝·관심종목을 열 때만 원천이 돌았다"""
+        import ast
+        import inspect
+        import textwrap
+        from app.services import scheduler
+        나무 = ast.parse(textwrap.dedent(inspect.getsource(scheduler.periodic_refresh)))
+        갈래 = [n for n in ast.walk(나무) if isinstance(n, ast.If) and "counter" in ast.unparse(n.test)
+              and "원천_돌리기" in ast.unparse(n)]
+        assert len(갈래) == 1, "스케줄러가 스크리닝 원천을 돌리지 않는다"
+        조건 = compile(ast.Expression(갈래[0].test), "<스케줄러>", "eval")
+        횟수 = sum(bool(eval(조건, {"counter": c})) for c in range(361, 721))   # 뜬 뒤 둘째 한 시간(루프는 10초마다)
+        assert 횟수, "스케줄러가 스크리닝 원천을 한 번도 안 맡긴다"
+        # 네이버 쉬는 때(3분)를 넘기자마자 맡기게 — 3분마다 부르면 몇 초만 어긋나도 한 차례를 건너뛴다
+        assert 30 <= 3600 / 횟수 <= S.네이버_간격 / 3
+        첫 = min(c for c in range(1, 361) if eval(조건, {"counter": c}))
+        assert 첫 * 10 >= 300, "서버가 막 뜬 뒤 5분은 비켜 둔다 — 깨운 사람의 첫 화면과 표 짓기가 부딪치지 않게"
+        assert "run_in_executor" in ast.unparse(갈래[0]), "받기(표 짓기)가 루프를 막지 않게 일꾼 스레드에서"
+        쉼 = next(n for n in ast.walk(나무) if isinstance(n, ast.If) and "seconds_since_last_request" in ast.unparse(n.test))
+        assert 갈래[0].lineno > 쉼.lineno, "아무도 안 쓰는 동안(쉬는 중)에는 돌리지 않는다"
+        맡김: list = []
+        monkeypatch.setattr(S, "_뒤에서_새로", lambda 시장: 맡김.append(("짓기", 시장)))
+        monkeypatch.setattr(S, "_원천_챙기기", lambda 시장: 맡김.append(("원천", 시장)))
+        S.원천_돌리기()
+        assert 맡김 == [("짓기", "KR"), ("짓기", "US")]
+        S._표["KR"] = 만들기("KR", [{"symbol": "AAA", "price": 1.0}], [])
+        맡김.clear()
+        S.원천_돌리기()
+        assert 맡김 == [("원천", "KR"), ("짓기", "US")]
+        from app.core import memory
+        monkeypatch.setattr(memory, "has_headroom", lambda 이름: False)
+        맡김.clear()
+        S.원천_돌리기()
+        assert 맡김 == [("원천", "KR")], "기다리는 사람이 없는 표는 메모리가 빠듯하면 짓지 않는다(원천 맡기기는 제 가드가 있다)"
+        monkeypatch.setattr(S, "원천_받기", False)
+        맡김.clear()
+        S.원천_돌리기()
+        assert 맡김 == [], "검사에서는 돌리지 않는다"
 
     def test_한종목이_맡긴_표를_지은_뒤_묵은_원천과_표의_종목으로_묻는_원천을_맡긴다(self, 가짜시장, 원천켜기):
         가짜시장["기초"] = [{"symbol": "AAA", "price": 10.0}]

@@ -78,7 +78,7 @@ describe("배당 — 넓은 화면(lg)에서는 왼쪽 한 해 | 오른쪽 고�
     const 왼쪽 = 두칸.children[0] as HTMLElement;
     expect(왼쪽).not.toBe(오른쪽);
     // 한 해 합계·세금 칩·열두 달 막대는 왼쪽
-    expect(within(왼쪽).getByText("올해 받은 배당")).toBeTruthy();
+    expect(within(왼쪽).getByText("올해 예상 배당")).toBeTruthy();
     expect(within(왼쪽).getByRole("group", { name: "세금 적용" })).toBeTruthy();
     expect(within(왼쪽).getAllByRole("button", { name: /^\d+월 / })).toHaveLength(12);
     // 고른 달(처음엔 이번 달) 머리와 종목은 오른쪽

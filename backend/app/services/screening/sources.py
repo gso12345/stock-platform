@@ -24,6 +24,12 @@ log = logging.getLogger(__name__)
 이름_한글 = "스크리닝 · 해외 한글 이름(네이버)"
 이름_환율 = "스크리닝 · 해외 회사 장부 돈 환율(야후 시세)"
 
+#: 받는 법이 바뀐 원천의 판 — DB 에 남은 옛 판은 곧바로 새로 받는다(service). 예전엔 SEC 를 받은 지 7일이 안 됐으면
+#: 새 받는 법(해외 상장사·대체 태그·해마다 순이익)이 배포 뒤 최대 7일 동안 안 들어왔다
+SEC_판 = 2
+#: 네이버 종목 줄의 판 — 연간 실적(매출·이익·흐름)이 붙은 줄. 옛 판 줄은 받은 지 20시간이 안 됐어도 먼저 다시 받는다
+네이버_판 = 2
+
 #: 미국에 상장한 해외 회사(ADR·20-F)가 장부를 쓰는 돈 — 그 재무를 달러로 바꾼다(TSMC 대만 달러, ASML 유로 …)
 장부돈들 = ("TWD", "EUR", "JPY", "CNY", "KRW", "GBP", "DKK", "CHF", "INR", "BRL", "CAD", "AUD", "HKD", "SEK",
          "NOK", "MXN", "ILS", "ZAR", "SGD", "IDR", "PHP", "THB", "CLP", "COP", "PEN", "ARS", "TRY", "PLN", "NZD")
@@ -198,7 +204,7 @@ def 국내_네이버(코드들: list[str], 동시: int = 4) -> dict[str, dict]:
         if d.get("week52_low"):
             줄["low_52w"] = d["week52_low"]
         줄.update(d.get("_연간") or {})
-        줄["at"] = 지금
+        줄["at"], 줄["v"] = 지금, 네이버_판
         out[code] = 줄
     if out:
         연간수 = sum(1 for d in 받음.values() if d.get("_연간"))
@@ -324,7 +330,7 @@ def 미국_SEC() -> dict | None:
     해외 = sum(1 for 줄 in 줄들.values() if 줄.get("foreign"))
     health.record_ok(이름_SEC, _재기(시작), f"{len(줄들):,}종목(해외 {해외:,}) · {해}년"
                      + ("" if 달러 else " · 환율을 못 받아 해외 회사는 달러로 적은 곳만"))
-    return {"at": time.time(), "year": 해, "rows": 줄들}
+    return {"at": time.time(), "year": 해, "rows": 줄들, "v": SEC_판}
 
 
 def 환율들(돈들: tuple[str, ...] = 장부돈들) -> dict | None:

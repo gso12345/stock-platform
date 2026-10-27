@@ -5,7 +5,7 @@ import { normalizeSymbol } from "@/utils/prices";
 import { fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
 import LivePrice from "@/components/ui/LivePrice";
 import { 등락표시 } from "@/components/common/StockTable";
-import { 돈글, 부호글 } from "@/components/screening/screeningDefs";
+import { 돈글, 부호글, 적자인가 } from "@/components/screening/screeningDefs";
 import type { 관심지표 } from "@/api/screening";
 
 /* ── 넓은 화면(lg)의 표 ──
@@ -87,9 +87,11 @@ function 지표칸들({ 지표, 국내 }: { 지표?: 관심지표; 국내: boole
   const 없음 = <span className="text-text-dim">—</span>;
   const 수 = (v: number | undefined, 글: (v: number) => string) =>
     typeof v === "number" && Number.isFinite(v) ? 글(v) : null;
+  /* 적자면 PER 이 없다 — 스크리닝 표처럼 '—'(모름)과 갈라 적는다 */
+  const 적자 = <span className="text-text-dim" title="이익이 0 밑이라 PER 을 셀 수 없다">적자</span>;
   const 칸들 = [
     수(지표?.market_cap, (v) => 돈글(v, 국내 ? "KRW" : (지표?.currency ?? "USD"))),
-    수(지표?.per, (v) => v.toFixed(1)),
+    수(지표?.per, (v) => v.toFixed(1)) ?? (적자인가(지표) ? 적자 : null),
     수(지표?.dividend_yield, (v) => `${v.toFixed(2)}%`),
     수(지표?.pct_from_52w_high, (v) => 부호글(v, 1)),
   ];

@@ -37,6 +37,9 @@ export interface 관심지표 {
   sector?: string;
   industry?: string;
   currency?: string;
+  /** PER 이 빈 까닭을 가르려고 — 적자면 '적자' 로 적는다 */
+  eps?: number;
+  earnings?: number;
 }
 
 /** 스크리닝 한 번 — 서버 ScreeningRequest 와 같은 모양 */

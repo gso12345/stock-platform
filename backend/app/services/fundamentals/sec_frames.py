@@ -80,7 +80,9 @@ IFRS돈 = ("USD", "EUR", "JPY", "TWD", "KRW", "GBP", "CNY", "DKK", "CHF", "INR",
 #: 주당 값 칸 — 단위가 '돈-per-shares'
 주당칸 = frozenset({"eps", "dps"})
 #: 4년 흐름(막대)을 내는 칸과 해 수 — 그해와 앞의 세 해
-흐름칸 = ("revenue", "eps")
+#: 순이익도 해마다 받는다 — EPS 를 주식 종류별로만 적는 회사(알파벳 A·B·C)는 EPS 흐름이 없어서, 표가 해마다 순이익
+#: ÷ 지금 주식 수로 어림한다(table)
+흐름칸 = ("revenue", "eps", "earnings")
 흐름해수 = 4
 #: 지난해 값도 받는 칸 — 퀀트 성장 점수(순이익·영업이익 전년 대비)
 전해칸 = ("earnings", "op_income")
@@ -136,16 +138,20 @@ def 받을해(오늘: date | None = None) -> int:
 
 
 def 흐름_줄(cik: int, 해들: list[int], 흐름: dict[str, dict[int, dict[int, float]]]) -> dict:
-    """한 회사의 4년 흐름 → {fin_years, rev_hist, eps_hist}. 오래된 해부터, 값이 없는 해는 None.
+    """한 회사의 4년 흐름 → {fin_years, rev_hist, eps_hist, ni_hist}. 오래된 해부터, 값이 없는 해는 None.
     앞쪽의 빈 해만 뺀다 — 가운데를 빼면 '3년 전' 이 4년 전이 된다(yf_service.연간흐름 과 같다)"""
     매출 = [흐름["revenue"].get(y, {}).get(cik) for y in 해들]
     eps = [흐름["eps"].get(y, {}).get(cik) for y in 해들]
+    순익 = [흐름.get("earnings", {}).get(y, {}).get(cik) for y in 해들]
     시작 = next((i for i in range(len(해들)) if 매출[i] is not None or eps[i] is not None), None)
     if 시작 is None:
         return {}
-    return {"fin_years": 해들[시작:],
-            "rev_hist": [None if v is None else round(v) for v in 매출[시작:]],
-            "eps_hist": [None if v is None else round(v, 2) for v in eps[시작:]]}
+    out = {"fin_years": 해들[시작:],
+           "rev_hist": [None if v is None else round(v) for v in 매출[시작:]],
+           "eps_hist": [None if v is None else round(v, 2) for v in eps[시작:]]}
+    if any(v is not None for v in 순익[시작:]):
+        out["ni_hist"] = [None if v is None else round(v) for v in 순익[시작:]]
+    return out
 
 
 def fetch_fundamentals(해: int | None = None, 환율: dict[str, float] | None = None) -> tuple[dict[str, dict], int]:

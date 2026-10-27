@@ -309,6 +309,13 @@ describe("지도에 넘기는 것", () => {
     expect(container.querySelector("text")!.getAttribute("fill")).toBe("var(--text-primary)");
   });
 
+  it("작아서 글자를 못 넣은 칸도 마우스를 올리면 이름이 뜬다 — PC 에서 종목이 많으면 이름 없는 칸이 생긴다", () => {
+    그리기([칸()]);
+    const { container } = 한칸그리기({ width: 20, height: 14, name: "TIGER 미국나스닥100" });
+    expect(container.querySelector("text")).toBeNull();
+    expect(container.querySelector("rect > title")?.textContent).toBe("TIGER 미국나스닥100");
+  });
+
   it("시세 없는 칸은 회색 바탕에 검은 글씨다", () => {
     그리기([칸()]);
     const { container } = 한칸그리기({ 등락률: null, 배색: "green-red" });

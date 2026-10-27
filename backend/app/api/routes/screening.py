@@ -82,9 +82,16 @@ class PresetSaveRequest(BaseModel):
     _칸 = field_validator("columns")(classmethod(lambda cls, v: _칸검사(v)))
 
 
+#: 표에서 찾을 수 있는 종목 꼴 — 시세 있는 종목만
+_종목꼴 = re.compile(r"^[A-Za-z0-9.\-]{1,20}$")
+
+
 class 종목하나(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9.\-]+$")
-    market: str = Field(..., pattern="^(KR|US|ETF)$")
+    #: 꼴은 여기서 막지 않는다 — 관심종목 화면은 포트폴리오 탭의 보유도 같이 묻는데 거기엔 '현금' 같은 자산이
+    #: 있다. 하나 때문에 요청 전체가 422 로 실패해 표의 지표 칸이 통째로 '—' 였다(사용자: "관심종목에 기타데이터가
+    #: 안나와"). 표에서 못 찾을 꼴은 screening_rows 가 건너뛴다
+    symbol: str = Field(..., min_length=1, max_length=40)
+    market: str = Field(..., max_length=10)
 
 
 class 줄요청(BaseModel):
@@ -92,8 +99,9 @@ class 줄요청(BaseModel):
 
 
 #: 관심종목 PC 표가 붙이는 칸 — 넓은 화면에서 이름과 가격 사이 빈자리를 채운다
+#: EPS·순이익은 PER 이 빈 까닭을 가르려고 — 적자면 화면이 '—'(모름) 대신 '적자' 로 적는다(스크리닝 표와 같게)
 관심칸 = ("market_cap", "per", "forward_per", "pbr", "dividend_yield", "pct_from_52w_high", "return_1m",
-         "return_1y", "sector", "industry", "currency")
+         "return_1y", "sector", "industry", "currency", "eps", "earnings")
 
 
 @router.post("/rows")
@@ -105,8 +113,11 @@ async def screening_rows(request: Request, req: 줄요청):
     out: dict[str, dict] = {}
     짓는중 = False
     for it in req.items:
-        # 찾기 전에 본다 — 찾은 뒤에 보면 그 사이 표가 다 지어져 '없는 종목' 과 '아직 못 찾은 종목' 이 섞인다
-        있었나 = 스크리닝.표가_있나(it.market)
+        if it.market not in ("KR", "US", "ETF") or not _종목꼴.match(it.symbol):
+            continue                       # 현금·금 같은 자산 — 표에 없다(요청 전체를 실패시키지 않는다)
+        # 찾기 전에 본다 — 찾은 뒤에 보면 그 사이 표가 다 지어져 '없는 종목' 과 '아직 못 찾은 종목' 이 섞인다.
+        # 기초 줄(전 종목 목록) 없이 지은 반쪽 표도 짓는 중으로 친다 — 곧 전 종목 표로 바뀐다
+        있었나 = 스크리닝.표가_있나(it.market) and not 스크리닝.표가_반쪽(it.market)
         줄 = 스크리닝.한종목(it.market, it.symbol)
         if 줄:
             out[f"{it.market}:{it.symbol}"] = {k: 줄[k] for k in 관심칸 if k in 줄}

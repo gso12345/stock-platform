@@ -35,6 +35,8 @@ const 상태 = vi.hoisted(() => ({
   물음: [] as { symbol: string; market: string }[][],
   /** 지표 답을 늦게 주고 싶을 때 — 없으면 곧바로 */
   답: null as null | (() => Promise<unknown>),
+  /** 포트폴리오 보유 — 관심종목 화면의 포트폴리오 탭이 같이 쓴다 */
+  보유: [] as Record<string, unknown>[],
 }));
 
 vi.mock("@/api/stocks", async (원본가져오기) => {
@@ -60,7 +62,7 @@ vi.mock("@/api/stocks", async (원본가져오기) => {
     portfolioApi: {
       ...원본.portfolioApi,
       getPortfolios: vi.fn(() => Promise.resolve([])),
-      getItemsWithPrices: vi.fn(() => Promise.resolve({ items: [], prices: [] })),
+      getItemsWithPrices: vi.fn(() => Promise.resolve({ items: 상태.보유, prices: [] })),
     },
     dashboardApi: { ...원본.dashboardApi, getExchangeRate: vi.fn(() => Promise.resolve({ value: 1300 })) },
     screeningApi: {
@@ -106,6 +108,7 @@ beforeEach(() => {
   localStorage.clear();
   상태.물음 = [];
   상태.답 = null;
+  상태.보유 = [];
 });
 
 describe("관심종목 — 휴대폰", () => {
@@ -141,6 +144,38 @@ describe("관심종목 — 넓은 화면", () => {
     await waitFor(() => expect(지표글(줄찾기("삼성전자"))).toEqual(["425조", "12.3", "2.10%", "-8.3%", "▲ 오름 3.50%"]));
     // 서버 표가 모르는 종목은 칸마다 '—'
     expect(지표글(줄찾기("엔비디아"))).toEqual(["—", "—", "—", "—", "—"]);
+  });
+
+  it("적자라 PER 이 없는 종목은 '—'(모름) 대신 '적자' — 스크리닝 표와 같게(인텔처럼)", async () => {
+    상태.답 = () => Promise.resolve({ rows: {
+      "KR:005930.KS": { market_cap: 425e12, earnings: -1e12 },
+      "US:NVDA": { market_cap: 4.4e12, eps: 0 },
+    } });
+    그리기();
+    await screen.findByText("엔비디아");
+    await waitFor(() => expect(지표글(줄찾기("삼성전자"))[1]).toBe("적자"));
+    expect(줄찾기("삼성전자").querySelector("[title*='PER 을 셀 수 없다']")).toBeTruthy();
+    expect(지표글(줄찾기("엔비디아"))[1]).toBe("—");   // EPS 0 은 적자가 아니다 — 모름
+  });
+
+  it("포트폴리오의 현금·금 같은 자산은 묻지 않는다 — 하나 때문에 예전엔 요청 전체가 실패해 칸이 다 '—' 였다", async () => {
+    상태.보유 = [
+      { id: 11, portfolioId: 1, symbol: "현금", market: "KR", name: "원화 현금", shares: 1, avgPrice: 1e6,
+        currency: "KRW", assetClass: "현금" },
+      { id: 12, portfolioId: 1, symbol: "000660", market: "KR", name: "SK하이닉스", shares: 3, avgPrice: 2e5,
+        currency: "KRW" },
+      /* 꼴은 티커 같아도 주식 시장이 아닌 자산 */
+      { id: 13, portfolioId: 1, symbol: "GOLD", market: "GOLD", name: "금 현물", shares: 1, avgPrice: 1.5e5,
+        currency: "KRW", assetClass: "금" },
+    ];
+    그리기();
+    await screen.findByText("엔비디아");
+    await waitFor(() => expect(상태.물음.flat().some((i) => i.symbol === "000660")).toBe(true));
+    expect(상태.물음.flat().map((i) => i.symbol)).not.toContain("현금");
+    expect(상태.물음.flat().map((i) => i.symbol)).not.toContain("GOLD");
+    // 시세 있는 것은 그대로 묻는다
+    expect(상태.물음[상태.물음.length - 1].map((i) => `${i.market}:${i.symbol}`).sort())
+      .toEqual(["KR:000660", "KR:005930.KS", "US:NVDA"]);
   });
 
   it("칸 이름 줄 — 넓은 화면에서만, 줄과 같은 칸", async () => {

@@ -1047,6 +1047,17 @@ async def periodic_refresh():
         if counter % 18 == 0:
             await 국내금리_갱신()
 
+        # 스크리닝 원천 (1분, 환율과 반 박자 비켜) — 사람이 스크리닝을 안 열어도 국내 연간 실적·1년 시세·SEC 가
+        # 돌아가며 찬다. 맡기기만 하고 받기는 낮은 우선순위 일꾼이 한다(screening.service). 원천마다 쉬는 때(네이버
+        # 3분 …)는 맡기는 쪽이 따로 본다 — 3분마다 부르면 몇 초만 어긋나도 한 차례를 건너뛰어 6분이 된다.
+        # 서버가 막 뜬 뒤 5분은 비켜 둔다 — 서버를 깨운 사람의 첫 화면과 표 짓기(0.15 CPU 로 몇 초)가 부딪치지 않게
+        if counter % 6 == 3 and counter >= 30:
+            try:
+                from app.services.screening import service as 스크리닝
+                await asyncio.get_running_loop().run_in_executor(None, 스크리닝.원천_돌리기)
+            except Exception as e:
+                log.debug("스크리닝 원천 맡기기 건너뜀: %s", type(e).__name__)
+
         # 미국 환율·금리·국채 (5분)
         if counter % 30 == 0:
             from app.services.market.market_extras import get_us_rates

@@ -527,8 +527,8 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
   );
   const 아직 = 받은것?.pending ?? 0;
 
-  /* 확정과 예상을 갈라서 센다. 둘을 더해 '연간 배당금' 이라고 적으면
-     절반이 작년 값인 숫자를 확정처럼 보여 주는 셈이다 */
+  /* 확정과 예상을 갈라서 센다. 큰 숫자는 둘을 더한 한 해 전체라 '올해 예상 배당' 이라 부르고, 그 밑에 받은 몫과
+     예상 몫을 갈라 적는다 — 더한 값을 '받은 배당' 처럼 적으면 절반이 작년 값인 숫자를 확정처럼 보여 주는 셈이다 */
   const { 확정: 월별확정, 예상: 월별예상 } =
     useMemo(() => 달마다갈라(줄들, 환율, 세후로), [줄들, 환율, 세후로]);
   const 월별 = useMemo(() => 월별확정.map((v, i) => v + 월별예상[i]), [월별확정, 월별예상]);
@@ -636,7 +636,7 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 -mt-1">
         <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-1 min-w-0">
           <span className="text-2xs text-text-dim whitespace-nowrap flex items-center gap-1">
-            올해 받은 배당
+            올해 예상 배당
             {/* 아직 못 받은 종목이 있으면 이 숫자는 **부분합**이다.
                 그걸 안 밝히면 사람은 이 값을 전체로 믿는다 — 실제로
                 '전체가 포트폴리오 하나보다 작다' 는 제보가 그래서 나왔다.
@@ -645,21 +645,25 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
               <span className="text-accent-yellow font-medium">· {아직}개 빠짐</span>
             )}
           </span>
+          {/* 1~12월 한 해 전체 — 이미 받은 달 + 남은 달 예상(사용자: "올해받은배당을 올해예상배당으로 바꾸고 1~12월까지
+              한해 받을 배당을 모두 반영해줘"). 막대 열두 칸의 합과 같고, 배당률 둘도 이 값으로 낸다 */}
           <span className={`text-xl sm:text-lg leading-tight font-mono font-bold num truncate ${
             아직 > 0 ? "text-text-secondary" : "text-text-primary"
-          }`}>
-            {돈.원(한해확정)}
+          }`} data-testid="한해배당">
+            {돈.원(한해)}
             {아직 > 0 && <span className="text-sm text-text-dim">＋</span>}
           </span>
-          {/* ── 예상은 따로 적는다 ──
+          {/* ── 받은 것과 예상은 갈라 적는다 ──
               "작년이랑 올해는 배당금이 다르잖아" — 맞는 말이다. 아직
               안 온 달은 작년 값에 올해 흐름을 얹은 **예상**이지 확정이
-              아니다. 한 숫자로 더해 놓으면 절반이 예상인 값을 확정처럼
-              보여 주는 셈이다 */}
+              아니다. 한 숫자 아래에 무엇이 확정이고 무엇이 예상인지 적는다 */}
+          {/* 자르지 않고 묶음마다 줄을 바꾼다 — PC 두 칸 배치(1280px)에서 '남은 달 예상' 금액이 '…' 로 가려졌다 */}
           {한해예상 > 0 && (
-            <span className="text-2xs text-text-dim truncate" data-testid="예상배당">
-              남은 달 예상 {돈.원(한해예상)}
-              <span className="opacity-70"> · 작년 기준</span>
+            <span className="text-2xs text-text-dim leading-snug" data-testid="예상배당">
+              <span className="whitespace-nowrap">받은 {돈.원(한해확정)}</span>
+              {" · "}
+              <span className="whitespace-nowrap">남은 달 예상 {돈.원(한해예상)}</span>
+              <span className="opacity-70 whitespace-nowrap"> · 작년 기준</span>
             </span>
           )}
         </div>

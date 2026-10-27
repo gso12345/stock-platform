@@ -451,7 +451,11 @@ export default function Watchlist() {
     const 보이는: { market: string; symbol: string }[] = [
       ...(isPreview ? PREVIEW_WATCHLIST : itemsList), ...recentStocks, ...pfTabDeduped,
     ];
-    return [...new Set(보이는.map((i) => `${i.market}:${i.symbol}`))].sort();
+    /* 시세 있는 종목만 — 포트폴리오 탭의 '현금'·금 같은 자산까지 물으면 서버가 예전엔 요청 전체를 거절해(422)
+       표의 지표 칸이 통째로 '—' 였다(사용자: "관심종목에 기타데이터가 안나와") */
+    return [...new Set(보이는
+      .filter((i) => PRICEABLE_SYMBOL.test(i.symbol) && ["KR", "US", "ETF"].includes(i.market))
+      .map((i) => `${i.market}:${i.symbol}`))].sort();
   }, [isPreview, itemsList, recentStocks, pfTabDeduped]);
   const { data: 지표응답 } = useQuery({
     queryKey: ["watchlist-metrics", 지표열쇠],

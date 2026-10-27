@@ -260,6 +260,21 @@ describe("내 자산 — PC 배치 (휴대폰 모양은 그대로)", () => {
     expect(screen.queryByRole("button", { name: "포트폴리오별" })).toBeNull();   // 위 칩도 없다 — 같은 조건
   });
 
+  it("비중: PC 두 줄 범례에서는 작은 막대를 빼 이름에 자리를 준다 — 1024~1280px 에서 이름이 'TIG…' 로 눌렸다", async () => {
+    const user = userEvent.setup();
+    띄우기();
+    await user.click(await screen.findByRole("tab", { name: "비중" }));
+    const 이름 = await screen.findByText("MSFT");
+    const c = class들(이름);
+    expect(c.has("truncate")).toBe(true);
+    expect(c.has("min-w-[4.5rem]")).toBe(true);
+    expect(이름.getAttribute("title")).toBe("MSFT");
+    const 막대 = 이름.nextElementSibling as HTMLElement;
+    const m = class들(막대);
+    expect(m.has("hidden") && m.has("sm:block")).toBe(true);        // 태블릿은 예전처럼
+    expect(m.has("lg:hidden") && m.has("2xl:block")).toBe(true);   // PC 두 줄일 때는 빼고, 아주 넓으면 다시
+  });
+
   it("비중: 원그래프는 넓은 화면에서만 크게 (휴대폰 180px 그대로)", async () => {
     const user = userEvent.setup();
     const 그래프높이 = async () => {
@@ -287,6 +302,18 @@ describe("내 자산 — PC 배치 (휴대폰 모양은 그대로)", () => {
       }));
     });
     afterEach(() => vi.unstubAllGlobals());
+
+    it("지도도 높게(340px) — 220px 에 종목이 많으면 칸이 작아져 이름이 빠진다", async () => {
+      const user = userEvent.setup();
+      띄우기();
+      await user.click(await screen.findByRole("tab", { name: "비중" }));
+      await user.click(await screen.findByRole("button", { name: "지도로 보기" }));
+      await waitFor(() => {
+        const 틀 = document.querySelector(
+          "[aria-label='그래프 불러오는 중'], .recharts-responsive-container") as HTMLElement | null;
+        expect(틀?.style.height).toBe("340px");
+      });
+    });
 
     it("원그래프가 250px 로 커진다", async () => {
       const user = userEvent.setup();

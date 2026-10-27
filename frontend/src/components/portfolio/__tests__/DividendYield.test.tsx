@@ -295,12 +295,12 @@ describe("배당률 두 가지", () => {
   /* 원화 1000원 × 100주 × 3·6·9·12월 = 한 해 400,000원 */
   const 보유 = { [배당키("KR", "005930")]: { 수량: 100, 원가: 5_000_000, 평가: 6_000_000 } };
 
-  it("올해 받은 배당·투자 배당률·시가 배당률 세 칸이 다 나온다", async () => {
+  it("올해 예상 배당·투자 배당률·시가 배당률 세 칸이 다 나온다", async () => {
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({
       items: [원화줄()], pending: 0,
     });
     그리기({ 보유 });
-    expect(await screen.findByText("올해 받은 배당")).toBeInTheDocument();
+    expect(await screen.findByText("올해 예상 배당")).toBeInTheDocument();
     expect(screen.getByText("투자 배당률")).toBeInTheDocument();
     expect(screen.getByText("시가 배당률")).toBeInTheDocument();
   });
@@ -310,10 +310,10 @@ describe("배당률 두 가지", () => {
       items: [원화줄()], pending: 0,
     });
     그리기({ 보유 });
-    await screen.findByText("올해 받은 배당");
+    await screen.findByText("올해 예상 배당");
 
     // 한 해 400,000원
-    expect(요약칸("올해 받은 배당").getByText("₩400,000")).toBeInTheDocument();
+    expect(요약칸("올해 예상 배당").getByText("₩400,000")).toBeInTheDocument();
     // 400,000 ÷ 5,000,000 = 8.00%
     expect(요약칸("투자 배당률").getByText("8.00%")).toBeInTheDocument();
     // 400,000 ÷ 6,000,000 = 6.67%
@@ -328,7 +328,7 @@ describe("배당률 두 가지", () => {
       items: [원화줄()], pending: 0,
     });
     그리기();                       // 보유를 안 넘긴다(전체 보기)
-    await screen.findByText("올해 받은 배당");
+    await screen.findByText("올해 예상 배당");
 
     for (const 라벨 of ["투자 배당률", "시가 배당률"]) {
       const 칸 = 요약칸(라벨);
@@ -336,7 +336,7 @@ describe("배당률 두 가지", () => {
       expect(칸.queryByText(/%/), `${라벨}에 퍼센트가 찍혔다`).not.toBeInTheDocument();
     }
     // 배당금 자체는 그대로 나온다 — 분모만 모르는 것이다
-    expect(요약칸("올해 받은 배당").getByText("₩400,000")).toBeInTheDocument();
+    expect(요약칸("올해 예상 배당").getByText("₩400,000")).toBeInTheDocument();
   });
 
   it("화면이 보고 있는 수량으로 배당률을 센다 — 전량으로 세면 두 배가 찍힌다", async () => {
@@ -345,9 +345,9 @@ describe("배당률 두 가지", () => {
       items: [원화줄({ shares: 200 })], pending: 0,
     });
     그리기({ 보유 });
-    await screen.findByText("올해 받은 배당");
+    await screen.findByText("올해 예상 배당");
 
-    expect(요약칸("올해 받은 배당").getByText("₩400,000")).toBeInTheDocument();
+    expect(요약칸("올해 예상 배당").getByText("₩400,000")).toBeInTheDocument();
     expect(요약칸("투자 배당률").getByText("8.00%")).toBeInTheDocument();
     // 전량(200주) 기준이면 800,000원 / 16.00% 가 된다
     expect(screen.queryByText("₩800,000")).not.toBeInTheDocument();
@@ -364,7 +364,7 @@ describe("세전 · 세후 토글", () => {
       items: [원화줄()], pending: 0,
     });
     그리기({ 보유 });
-    await screen.findByText("올해 받은 배당");
+    await screen.findByText("올해 예상 배당");
     expect(screen.getByText("한 해 예상")).toBeInTheDocument();
     expect(screen.queryByText(/2,000만원/)).not.toBeInTheDocument();
   });
@@ -374,15 +374,15 @@ describe("세전 · 세후 토글", () => {
       items: [원화줄()], pending: 0,
     });
     그리기({ 보유 });
-    await screen.findByText("올해 받은 배당");
-    expect(요약칸("올해 받은 배당").getByText("₩400,000")).toBeInTheDocument();
+    await screen.findByText("올해 예상 배당");
+    expect(요약칸("올해 예상 배당").getByText("₩400,000")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "세후" }));
 
     // 400,000 × (1 − 0.154) = 338,400
     expect(await screen.findByText("₩338,400")).toBeInTheDocument();
-    expect(요약칸("올해 받은 배당").getByText("₩338,400")).toBeInTheDocument();
-    expect(요약칸("올해 받은 배당").queryByText("₩400,000")).not.toBeInTheDocument();
+    expect(요약칸("올해 예상 배당").getByText("₩338,400")).toBeInTheDocument();
+    expect(요약칸("올해 예상 배당").queryByText("₩400,000")).not.toBeInTheDocument();
 
     /* 배당률도 같이 줄어야 한다 — 분자만 세후로 바꾸고 배당률을 세전
        금액으로 두면 두 숫자가 서로 안 맞는다 */
@@ -402,7 +402,7 @@ describe("세전 · 세후 토글", () => {
       items: [원화줄()], pending: 0,
     });
     그리기({ 보유 });
-    await screen.findByText("올해 받은 배당");
+    await screen.findByText("올해 예상 배당");
 
     await userEvent.click(screen.getByRole("button", { name: "세후" }));
     expect(await screen.findByText("₩338,400")).toBeInTheDocument();
@@ -423,13 +423,13 @@ describe("세전 · 세후 토글", () => {
       [배당키("KR", "005930")]: { 수량: 100, 원가: 5_000_000, 평가: 6_000_000 },
       [배당키("US", "SCHD")]: { 수량: 200, 원가: 5_000_000, 평가: 6_000_000 },
     } });
-    await screen.findByText("올해 받은 배당");
-    expect(요약칸("올해 받은 배당").getByText("₩240,000")).toBeInTheDocument();
+    await screen.findByText("올해 예상 배당");
+    expect(요약칸("올해 예상 배당").getByText("₩240,000")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "세후" }));
 
     expect(await screen.findByText("₩203,600")).toBeInTheDocument();
-    expect(요약칸("올해 받은 배당").getByText("₩203,600")).toBeInTheDocument();
+    expect(요약칸("올해 예상 배당").getByText("₩203,600")).toBeInTheDocument();
     // 목록 전체에 한 세율만 먹였을 때 나오는 값들
     expect(screen.queryByText("₩203,040")).not.toBeInTheDocument();  // 둘 다 국내 15.4%
     expect(screen.queryByText("₩204,000")).not.toBeInTheDocument();  // 둘 다 해외 15%

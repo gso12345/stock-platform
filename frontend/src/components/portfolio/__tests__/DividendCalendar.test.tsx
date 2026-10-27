@@ -66,7 +66,7 @@ async function 종목별로() {
   /* 값이 도착하기 전에는 칩이 없다. 기다리지 않고 queryByRole 로
      보면 늘 null 이라 클릭이 통째로 빠진다 — 검사는 조용히 날짜별
      화면을 보게 되고, 무엇이 틀렸는지 알기 어렵다 */
-  await screen.findByText("올해 받은 배당", {}, { timeout: 4000 });
+  await screen.findByText("올해 예상 배당", {}, { timeout: 4000 });
   const 칩 = screen.queryByRole("button", { name: "종목별" });
   if (칩) await userEvent.click(칩);
 }
@@ -306,15 +306,20 @@ describe("월별 막대", () => {
       pending: 0,
     });
     그리기();
-    /* 올해 확정 둘 = 72,200. 나머지 둘은 작년 기준이라 예상이다 */
-    expect(await screen.findByText("₩72,200")).toBeInTheDocument();
-    expect(screen.getByTestId("예상배당")).toHaveTextContent("₩72,200");
+    /* 한 해(1~12월) = 받은 둘 72,200 + 작년 기준으로 남은 둘 72,200 = 144,400 — 큰 숫자는 한 해 전체이고
+       (사용자: "올해받은배당을 올해예상배당으로 바꾸고 1~12월까지 한해 받을 배당을 모두 반영해줘"),
+       그 아래에 무엇이 받은 것이고 무엇이 예상인지 갈라 적는다 */
+    expect(await screen.findByTestId("한해배당")).toHaveTextContent("₩144,400");
+    expect(screen.getByTestId("예상배당")).toHaveTextContent("받은 ₩72,200 · 남은 달 예상 ₩72,200");
     expect(screen.getByTestId("예상배당")).toHaveTextContent("작년 기준");
+    /* 자르지 않고 묶음마다 줄을 바꾼다 — PC 두 칸 배치(1280px)에서 '남은 달 예상' 금액이 '…' 로 가려졌다 */
+    expect(screen.getByTestId("예상배당").className).not.toContain("truncate");
+    expect(screen.getByText("남은 달 예상 ₩72,200").className).toContain("whitespace-nowrap");
   });
 
-  it("확정이 없으면 올해 받은 배당은 0이다", async () => {
-    /* 연초에는 이 값이 작을 수밖에 없다. 작년 값을 얹어 크게 보이게
-       하는 것이 바로 없애 달라고 하신 그것이다 */
+  it("아직 받은 것이 없어도 한 해 예상은 남은 달로 — 받은 것은 0이라고 적는다", async () => {
+    /* 연초에는 받은 것이 작을 수밖에 없다. 한 해 예상(큰 숫자)과 받은 것(아래 줄)을 갈라 적어
+       작년 값이 확정처럼 보이지 않게 한다 */
     const 올해 = new Date().getFullYear();
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({
       items: [줄({
@@ -324,8 +329,8 @@ describe("월별 막대", () => {
       pending: 0,
     });
     그리기();
-    await screen.findByText("올해 받은 배당");
-    expect(screen.getByTestId("예상배당")).toHaveTextContent("₩36,100");
+    expect(await screen.findByTestId("한해배당")).toHaveTextContent("₩36,100");
+    expect(screen.getByTestId("예상배당")).toHaveTextContent("받은 ₩0 · 남은 달 예상 ₩36,100");
   });
 
   it("열두 달을 다 그린다 — 빈 달도", async () => {
@@ -610,7 +615,7 @@ describe("좁은 화면과 넓은 화면", () => {
     expect(지난것).toHaveLength(1);
   });
 
-  it("올해 받은 배당이 좁은 화면에서 한 줄을 다 쓴다", async () => {
+  it("올해 예상 배당이 좁은 화면에서 한 줄을 다 쓴다", async () => {
     /* 세 칸을 나란히 두면 휴대폰 폭에서 '1,234,567원' 이 잘려
        '1,234,5…' 가 된다 — 제일 먼저 보고 싶은 숫자가 못 읽힌다 */
     const c = await 그려보기();
@@ -689,7 +694,7 @@ describe("올해확정칸인가", () => {
 
   it("평균으로 메운 칸도 확정이 아니다", () => {
     /* year 가 없는 칸은 여러 해 평균이라 작년이 섞여 있다. 이걸
-       확정으로 세면 '올해 받은 배당' 에 작년 값이 다시 들어온다 */
+       확정으로 세면 '받은' 칸에 작년 값이 다시 들어온다 */
     expect(올해확정칸인가(칸({ year: null, actual: false }), 3)).toBe(false);
   });
 
@@ -764,7 +769,7 @@ describe("몇 년 것인지 제대로 적는다", () => {
     await 종목별로();
     await 자세히();
     // 뼈대가 아니라 실제 내용이 뜰 때까지 기다린다
-    await screen.findByText("올해 받은 배당");
+    await screen.findByText("올해 예상 배당");
     await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${딴달}월`) }));
     expect(await screen.findByText("올해 확정")).toBeInTheDocument();
     expect(screen.queryByText("작년 기준")).toBeNull();
@@ -817,7 +822,7 @@ describe("주배당은 날짜별로 다 적는다", () => {
        그날 합계까지 낸다. 사진 속 배당 앱과 같은 모양이다. */
     vi.mocked(portfolioApi.getDividends).mockResolvedValue({ items: [주배당줄()], pending: 0 });
     그리기();
-    await screen.findByText("올해 받은 배당");
+    await screen.findByText("올해 예상 배당");
     await userEvent.click(await screen.findByRole("button", { name: "날짜별" }));
     const 달 = String(이번달).padStart(2, "0");
     for (const d of [6, 13, 20, 27]) {
@@ -840,7 +845,7 @@ describe("주배당은 날짜별로 다 적는다", () => {
       items: [주배당줄({ upcoming: [{ date: 이번달날(28), amount: 0.063 }] })], pending: 0,
     });
     그리기();
-    await screen.findByText("올해 받은 배당");
+    await screen.findByText("올해 예상 배당");
     await userEvent.click(await screen.findByRole("button", { name: "날짜별" }));
     expect(screen.getByText("예상")).toBeInTheDocument();
   });
@@ -904,7 +909,7 @@ describe("입금일을 같이 적는다", () => {
       pending: 0,
     });
     그리기();
-    await screen.findByText("올해 받은 배당");
+    await screen.findByText("올해 예상 배당");
     /* 기준일과 같은 날이면 줄에 입금일을 따로 안 적는다.
        여기도 날짜가 붙은 쪽만 본다 — 왼쪽 칸의 "입금 D-n" 은 다른 것이고,
        그것까지 걸면 오늘이 며칠이냐에 따라 검사가 흔들린다. */

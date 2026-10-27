@@ -444,6 +444,45 @@ describe("표의 칸", () => {
       .toBe("Shell 매출 흐름: 2025 $300.00B");
   });
 
+  it("EPS 를 주식 종류별로만 내는 회사(알파벳)는 순이익으로 어림한 흐름이라고 적는다", async () => {
+    run.mockResolvedValue(응답([줄({ symbol: "GOOG", name: "Alphabet Inc. Class C", eps_basis: "implied",
+      fin_years: [2024, 2025], rev_hist: [350e9, 400e9], eps_hist: [8.13, 10.5] })]));
+    그리기();
+    expect((await screen.findByRole("img", { name: /Alphabet Inc. Class C EPS 흐름/ })).getAttribute("aria-label"))
+      .toBe("Alphabet Inc. Class C EPS 흐름: 2024 8.13 · 2025 10.50 (순이익 ÷ 지금 주식 수로 어림)");
+    expect(screen.getByRole("img", { name: /Alphabet Inc. Class C 매출 흐름/ }).getAttribute("aria-label"))
+      .not.toContain("어림");
+  });
+
+  it("적자라 PER 이 없는 칸은 '—'(모름) 대신 '적자' — 사용자: \"스크리닝에 지표가 안나오는 종목이 있어(… 인텔 …)\"", async () => {
+    run.mockResolvedValue(응답([
+      줄({ symbol: "INTC", name: "Intel Corporation", earnings: -18.7e9, eps: -4.38, forward_eps: 1.2, forward_per: 25.1 }),
+      줄({ symbol: "LOSE", name: "Loses Next Year", earnings: 5e9, eps: 1.1, forward_eps: -0.5 }),
+      줄({ symbol: "EPSO", name: "Eps Only Negative", eps: -0.2 }),
+      줄({ symbol: "ERNO", name: "Earnings Only Negative", earnings: -3e8 }),
+      줄({ symbol: "ZERO", name: "Zero Earnings", earnings: 0, eps: 0, forward_eps: 0 }),
+      줄({ symbol: "NONE", name: "No Numbers" }),
+    ]));
+    그리기();
+    await screen.findByText("Intel Corporation");
+    const 제목들 = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    const 칸 = (이름: string, 제목: string) =>
+      screen.getByText(이름).closest("tr")!.querySelectorAll("td")[제목들.indexOf(제목)];
+    expect(칸("Intel Corporation", "PER").textContent).toBe("적자");
+    expect(칸("Intel Corporation", "PER").querySelector("span")?.getAttribute("title")).toContain("PER 을 셀 수 없다");
+    expect(칸("Intel Corporation", "예상 PER").textContent).toBe("25.10");
+    expect(칸("Intel Corporation", "매출(1년)").textContent).toBe("—");
+    expect(칸("Intel Corporation", "예상 EPS 성장률").textContent, "PER 칸 밖은 적자여도 '—'(모름)").toBe("—");
+    expect(칸("Earnings Only Negative", "PER").textContent).toBe("적자");
+    expect(칸("Loses Next Year", "PER").textContent).toBe("—");
+    expect(칸("Loses Next Year", "예상 PER").textContent).toBe("적자");
+    expect(칸("Eps Only Negative", "PER").textContent).toBe("적자");
+    expect(칸("Zero Earnings", "PER").textContent).toBe("—");
+    expect(칸("Zero Earnings", "예상 PER").textContent).toBe("—");
+    expect(칸("No Numbers", "PER").textContent).toBe("—");
+    expect(칸("No Numbers", "예상 PER").textContent).toBe("—");
+  });
+
   it("달러로 바꾼 흐름은 원화 보기에서 원화로 — 예전엔 대만 달러라 그대로 남았다", async () => {
     const { 원화로 } = await import("@/components/screening/screeningDefs");
     const 바뀐 = 원화로({ currency: "USD", price: 2, fin_currency: "USD", fin_fx: "TWD", rev_hist: [10, null] }, 1000);
