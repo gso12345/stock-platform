@@ -25,6 +25,8 @@ import numpy as np
 import pandas as pd
 
 from app.services.listings.us_listing import _버릴이름인가
+from app.services.market import foreign_cap
+from app.services.market.foreign_cap import 국내_ADR
 from app.services.market.yf_service import 스크리닝_숫자키, _SECTOR_KO, _도메인
 from app.services.screening.names_ko import 국내업종_어림, 나라_이름, 산업_이름
 
@@ -355,9 +357,7 @@ def _형제_SEC(sec: pd.DataFrame, 기: pd.DataFrame, 풍: pd.DataFrame, idx: pd
     덧.index = list(별칭)
     return pd.concat([sec, 덧])
 
-#: 미국에 상장한 국내 회사 ADR 중 SEC 연간 공시(20-F)가 아직 없는 것 → (국내 종목, ADR 1주가 원주 몇 주인가).
-#: SK하이닉스는 2026년 7월 나스닥에 상장했다(ADR 10주 = 원주 1주) — 첫 20-F 가 나오면 SEC 값이 먼저다
-국내_ADR: dict[str, tuple[str, float]] = {"SKHY": ("000660", 0.1)}
+#: 국내 회사 ADR 목록(국내_ADR — SK하이닉스 SKHY → 000660)은 foreign_cap 에 있다(대시보드 해외 순위도 쓴다)
 #: 원주 줄에서 그대로 가져오는 칸 — 비율이라 돈 단위·주식 수와 상관없다
 _원주_비율칸 = ("per", "forward_per", "pbr", "ps_ratio", "peg_ratio", "ev_ebitda", "roe", "roa", "operating_margin",
             "profit_margin", "dividend_yield", "debt_ratio", "current_ratio", "rev_cagr_3y", "eps_cagr_3y",
@@ -442,6 +442,57 @@ def _시세주_EPS(sec: pd.DataFrame, idx: pd.Index, 가격: pd.Series, 시총: 
     쓸것 = eps.where(믿음, 몫)
     배율 = (몫 / eps).where(~믿음 & 몫.notna() & eps.notna() & (eps != 0) & (np.sign(몫) == np.sign(eps)))
     return 쓸것, 배율
+
+
+def _시총_달러로(idx: pd.Index, 가격: pd.Series, 시총: pd.Series, 풍: pd.DataFrame, 기: pd.DataFrame,
+              원천: dict) -> tuple[pd.Series, dict[str, str]]:
+    """미국 표 — 해외 회사의 시가총액이 그 나라 돈으로 온 것을 달러로(foreign_cap.고르기). 사용자: "대시보드 순위표에
+    SK하이닉스 TSMC 해외 시총이 달러랑 안맞아" — 스크리닝도 같은 값을 써서 TSMC 가 8경 원, SK하이닉스 ADR 이 123경
+    원으로 1·2위에 섰다. PER·PBR·PSR 을 내기 전에 고친다(그 값들이 시가총액으로 나뉜다). → (시가총액, {고친 종목:
+    까닭 — 바꾼 돈('TWD'), '닻'(주식 수 × 시세를 썼다), '모름'(비웠다)})
+
+    보는 줄    장부 돈이 달러가 아닌 곳 + 미국 회사가 아닌데(나스닥 분류) 상한을 넘는 곳(장부 돈을 모르는 장외 ADR —
+               야후 상세가 막힌 도쿄일렉트론 따위. 바꿀 길이 없으면 비운다). 미국 회사는 보지 않는다 — 엔비디아가
+               커져도 비우지 않게
+    장부 돈    SEC(20-F 의 원래 돈) → 국내 ADR(원) → 야후 줄(financialCurrency — 야후가 알려 준 때만)
+    닻         나스닥 목록의 주식 수 × 시세 → 국내 ADR 은 원주 주식 수 ÷ ADR 비율 × 시세
+    매출·순이익  SEC(달러로 바꾼 값) → 야후 줄(시세 돈으로 바꾼 값)
+    상한       미국 회사(나스닥 분류 — 모르면 장부 돈이 달러인 곳) 중 세 번째로 큰 시가총액의 두 배"""
+    sec = 원천.get("us_sec")
+    장부돈 = _먼저(idx, _글자(sec, "fin_fx", idx), pd.Series({s: "KRW" for s in 국내_ADR}, dtype=object),
+                 _글자(풍, "fin_currency", idx), 숫자=False)
+    외국돈 = 장부돈.map(lambda v: isinstance(v, str) and v != "USD").to_numpy(dtype=bool)
+    나라 = _먼저(idx, _글자(기, "country", idx), _글자(풍, "country", idx), 숫자=False)
+    미국 = (나라 == "United States").to_numpy(dtype=bool)
+    상한값 = foreign_cap.상한(시총[미국 if 미국.any() else ~외국돈].tolist())
+    # 크기로 가리는 것은 나라를 알 때만 — 나스닥 분류를 못 받아 나라가 다 비면 엔비디아·알파벳도 '미국 회사가 아닌
+    # 곳' 이 되어 비워진다
+    큼 = (시총 > 상한값).to_numpy(dtype=bool) if 상한값 and 미국.any() else np.zeros(len(idx), dtype=bool)
+    볼것 = 외국돈 | (큼 & ~미국)
+    if not 볼것.any():
+        return 시총, {}
+    환율표 = 원천.get("us_fx")
+    달러 = (pd.to_numeric(환율표["usd"], errors="coerce").to_dict()
+            if 환율표 is not None and "usd" in 환율표.columns else {})
+    매출 = _먼저(idx, _수(sec, "revenue", idx), _수(풍, "revenue", idx))
+    순이익 = _먼저(idx, _수(sec, "earnings", idx), _수(풍, "earnings", idx))
+    주식수, 원주 = 원천.get("us_shares") or {}, 원천.get("kr_adr") or {}
+    고친, 까닭 = 시총.copy(), {}
+    for s in idx[볼것]:
+        받은, p, 돈 = 시총.at[s], 가격.at[s], 장부돈.at[s]
+        닻 = None
+        if p == p and p > 0:
+            if 주식수.get(s):
+                닻 = 주식수[s] * p
+            elif s in 국내_ADR and (줄 := 원주.get(s)) and 줄.get("price") and 줄.get("market_cap"):
+                닻 = 줄["market_cap"] / 줄["price"] / 국내_ADR[s][1] * p
+        값 = foreign_cap.고르기(받은, 달러.get(돈), 닻, 매출.at[s], 순이익.at[s], 상한값)
+        새값 = np.nan if 값 is None else 값
+        if not (새값 == 받은 or (새값 != 새값 and 받은 != 받은)):
+            고친.at[s] = 새값
+            # 모름 — 상한을 넘는데 바꿀 환율·닻이 없다(빈칸으로 둔다)
+            까닭[s] = "모름" if 값 is None else "닻" if 닻 is not None and 새값 == 닻 else 돈
+    return 고친, 까닭
 
 
 def 원천에서_낸값(시장: str, idx: pd.Index, 가격: pd.Series, 시총: pd.Series, 원천: dict) -> dict:
@@ -531,10 +582,13 @@ def 원천에서_낸값(시장: str, idx: pd.Index, 가격: pd.Series, 시총: p
 class 스크리닝표:
     """한 시장의 전 종목 표. 만든 뒤에는 바꾸지 않는다 — 새로 만들어 갈아 끼운다"""
 
-    def __init__(self, df: pd.DataFrame, 기초수: int = 0, 만든때: float | None = None):
+    def __init__(self, df: pd.DataFrame, 기초수: int = 0, 만든때: float | None = None,
+                 시총바꿈: dict[str, str] | None = None):
         self.df = df
         self.기초수 = 기초수
         self.만든때 = 만든때 or time.time()
+        #: 시가총액을 달러로 바로잡은 해외 회사 → 까닭(바꾼 돈 또는 '닻') — 대시보드 해외 순위가 같은 값을 쓴다
+        self.시총바꿈 = dict(시총바꿈 or {})
         self._고를값 = None
 
     def __len__(self) -> int:
@@ -641,6 +695,10 @@ def 만들기(시장: str, 기초: list[dict], 풍부: list[dict], 원천: dict 
     for 칸 in ("price", "change_rate", "volume", "market_cap"):
         칸들[칸] = _먼저(idx, _수(풍, 칸, idx), _수(기, 칸, idx))
     가격, 시총 = 칸들["price"], 칸들["market_cap"]
+    시총바꿈: dict[str, str] = {}
+    if 시장 == "US":
+        시총, 시총바꿈 = _시총_달러로(idx, 가격, 시총, 풍, 기, 원천)
+        칸들["market_cap"] = 시총
     # 상장한 해(나스닥) — 화면이 새로 상장한 종목에 '첫 연간 공시 전' 을 알린다(재무 칸이 비는 까닭)
     if (상장해 := _수(기, "ipo_year", idx)) is not None and 상장해.notna().any():
         칸들["ipo_year"] = 상장해
@@ -678,6 +736,12 @@ def 만들기(시장: str, 기초: list[dict], 풍부: list[dict], 원천: dict 
         값 = _먼저(idx, 낸.get(칸), 풍값) if 칸 in _원천먼저 else _먼저(idx, 풍값, 낸.get(칸))
         if 값.notna().any():
             칸들[칸] = 값
+    if 시총바꿈 and "revenue" in 칸들:
+        # 야후 줄의 P/S 는 그 나라 돈 시가총액을 달러 매출로 나눈 것이다(묶음 시세로 다시 나눌 때) — 고친 줄은 다시.
+        # 매출을 모르면 그대로(그때는 묶음 시세가 다시 나누지 않았다 — 야후가 낸 P/S 다)
+        다시 = _나눔(시총, 칸들["revenue"])
+        그대로 = ~idx.isin(list(시총바꿈)) | 다시.isna().to_numpy()
+        칸들["ps_ratio"] = 칸들.get("ps_ratio", pd.Series(np.nan, index=idx)).where(그대로, 다시)
 
     국내 = 시장 == "KR"
     for 칸 in 글자칸:
@@ -764,4 +828,4 @@ def 만들기(시장: str, 기초: list[dict], 풍부: list[dict], 원천: dict 
     # 기본 차례 — 시가총액 큰 것부터(같은 값끼리 세울 때 이 차례를 지킨다)
     if "market_cap" in df.columns:
         df = df.iloc[np.argsort(-df["market_cap"].fillna(-np.inf).to_numpy(), kind="stable")]
-    return 스크리닝표(df, 기초수=len(기))
+    return 스크리닝표(df, 기초수=len(기), 시총바꿈=시총바꿈)

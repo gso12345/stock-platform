@@ -274,6 +274,13 @@ export function 순위기준값(category: string, r: 순위행, isKR: boolean): 
   return "";
 }
 
+/** 순위 줄의 종목 코드 — 국내는 꼬리(.KS·.KQ)를 뗀 6자리. 스크리닝·관심종목이 쓰는 꼴과 같아야 종목 상세가
+ *  같은 자료를 본다 — 꼬리가 붙은 주소로 열면 상세가 따로 받아 둔 지표(캐시)를 써서, 같은 회사인데 대시보드에서
+ *  연 상세에만 지표가 비는 일이 있었다(사용자: "메뉴마다 연동좀해줘") */
+export function 순위코드(symbol: string, isKR: boolean): string {
+  return isKR ? symbol.replace(/\.(KS|KQ)$/, "") : symbol;
+}
+
 /** 언제의 순위인가 — 오늘이면 'HH:MM', 다른 날이면 'M/D HH:MM'(한국 시각).
  *  모르면 빈 문자열(그때는 아무것도 안 적는다).
  *
@@ -374,14 +381,16 @@ const RankingPanel = memo(function RankingPanel({
           {shown.map((r, i) => (
             <button
               key={r.symbol ?? i}
-              onClick={() => navigate(`/stocks/${isKR ? "KR" : "US"}/${encodeURIComponent(r.symbol)}`)}
+              onClick={() => navigate(`/stocks/${isKR ? "KR" : "US"}/${encodeURIComponent(순위코드(r.symbol, isKR))}`)}
               className="flex items-center gap-2.5 px-3 py-2 border-b border-border/30 hover:bg-bg-hover transition-colors text-left last:border-b-0"
             >
               <span className="w-5 text-2xs font-mono text-text-dim flex-shrink-0">{r.rank ?? i + 1}</span>
               <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold text-text-primary truncate">{r.name}</div>
+                <div className="text-xs font-semibold text-text-primary truncate" title={r.name_ko ? r.name : undefined}>
+                  {r.name_ko || r.name}
+                </div>
                 <div className="text-xs text-text-muted font-mono truncate">
-                  {r.symbol}
+                  {순위코드(r.symbol, isKR)}
                   {순위기준값(category, r, isKR) && <span className="text-text-secondary"> · {순위기준값(category, r, isKR)}</span>}
                 </div>
               </div>

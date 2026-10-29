@@ -188,6 +188,8 @@ export interface 순위행 extends StockPrice {
   roe?: number | null;
   /** 언제의 값인가(유닉스 초). 국내는 받은 시각, 해외는 정규장 마지막 체결 시각 */
   as_of?: number;
+  /** 해외 종목의 한글 이름 — 스크리닝·관심종목과 같은 이름(엔비디아·TSMC). 모르면 없다(name 은 영문) */
+  name_ko?: string;
 }
 
 /** 대시보드 한 탭 전체 */

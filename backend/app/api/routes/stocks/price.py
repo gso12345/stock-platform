@@ -179,6 +179,67 @@ async def get_stock_nxt(request: Request, market: Literal["KR","US","ETF"], symb
 @router.get("/{market}/{symbol}/detail")
 @limiter.limit("30/minute")
 async def get_stock_detail(request: Request, market: Literal["KR","US","ETF"], symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
+    return 표로_채운_상세(market, symbol, await _상세(market, symbol))
+
+
+#: 종목 상세 칸 → 스크리닝 표 칸. 상세의 원천(네이버·Finnhub·야후 캐시)이 비운 칸만 표의 값으로 채운다.
+#: 시가총액은 따로 — 표의 주식 수 × 지금 시세로 낸다(표의 시가총액은 표를 지은 때의 시세다)
+_상세_표칸 = {
+    "per": "per", "pbr": "pbr", "eps": "eps", "forward_per": "forward_per",
+    "forward_eps": "forward_eps", "psr": "ps_ratio", "peg": "peg_ratio", "ev_ebitda": "ev_ebitda",
+    "roe": "roe", "roa": "roa", "op_margin": "operating_margin", "net_margin": "profit_margin",
+    "debt_ratio": "debt_ratio", "current_ratio": "current_ratio", "dividend_yield": "dividend_yield",
+    "week52_high": "high_52w", "week52_low": "low_52w", "beta": "beta",
+}
+#: 0 이 '모른다' 인 칸(PER 0 · 52주 고점 0 인 회사는 없다). 배당수익률·ROE 의 0 은 값이다
+_상세_0은모름 = frozenset({"per", "pbr", "psr", "week52_high", "week52_low"})
+#: 이름표는 표의 것을 쓴다 — 같은 회사가 스크리닝에선 '반도체', 상세에선 영문 'Semiconductors' 로 갈렸다
+_상세_이름칸 = ("sector", "industry")
+
+
+def 표로_채운_상세(market: str, symbol: str, d: dict) -> dict:
+    """종목 상세의 빈 칸을 스크리닝 표의 그 종목 줄로 — 사용자: "메뉴마다 연동좀해줘 같은회사 같은지표 데이터여도
+    어떤 메뉴에는 나오는데 어떤 메뉴에는 아예 안나와". 상세는 자기 원천만 봐서, 그게 막히면 스크리닝·관심종목에 다
+    있는 시가총액·52주·배당수익률·업종이 상세에서만 비었다.
+      · 숫자는 빈 칸만 채운다(상세의 원천이 준 값이 먼저다)
+      · 시가총액은 표와 3배 넘게 어긋나면 표의 주식 수 × 지금 시세 — 야후가 TSMC 를 대만 달러로 주는 따위(표가 달러로
+        바로잡는다, foreign_cap)와 단위가 다른 원천을 걸러 메뉴끼리 같은 값이 되게
+      · 업종·산업은 표의 이름(한글)
+    표가 아직 없으면 그대로 — 한종목 이 뒤에서 짓게 맡긴다. 받은 dict 는 캐시에 담긴 것일 수 있어 새로 만든다"""
+    if not isinstance(d, dict) or not d.get("price") or market not in ("KR", "US"):
+        return d
+    try:
+        from app.services.screening.service import 한종목
+        줄 = 한종목(market, symbol)
+    except Exception:
+        줄 = None
+    if not 줄:
+        return d
+    out = dict(d)
+    for 상세칸, 표칸 in _상세_표칸.items():
+        v = 줄.get(표칸)
+        지금 = out.get(상세칸)
+        if v is not None and (지금 is None or 지금 == "" or (상세칸 in _상세_0은모름 and not 지금)):
+            out[상세칸] = v
+    for 칸 in _상세_이름칸:
+        if 줄.get(칸):
+            out[칸] = 줄[칸]
+    from app.services.market.foreign_cap import 닻_배
+    표시총, 표가격, 가격 = 줄.get("market_cap"), 줄.get("price"), out.get("price")
+    if 표시총 and 표가격 and 가격:
+        표값 = 표시총 / 표가격 * 가격
+        지금 = out.get("market_cap")
+        if not 지금 or max(지금 / 표값, 표값 / 지금) > 닻_배:
+            out["market_cap"] = round(표값)
+    elif market == "US":
+        # 표가 비운 해외 회사(그 나라 돈으로 온 것을 바꿀 환율·닻이 없었다) — 상세도 같은 값을 띄우지 않는다
+        from app.services.screening.service import 해외시총_주식수
+        if 해외시총_주식수().get(symbol) == 0.0:
+            out["market_cap"] = None
+    return out
+
+
+async def _상세(market: str, symbol: str) -> dict:
     if market == "KR":
         from app.services.market.price_fetcher import fetch_naver_stock
         code6 = symbol.replace(".KS","").replace(".KQ","")

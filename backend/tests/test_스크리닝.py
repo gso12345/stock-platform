@@ -143,7 +143,9 @@ def test_최근_1년_실적과_순부채와_예상_EPS_성장률():
     assert 줄["net_debt"] == pytest.approx(6.0e10), "순부채 = 빚 − 현금"
     assert 줄["forward_eps_growth"] == pytest.approx(20.0), "다음 해 예상 6 ÷ 최근 5 − 1"
     assert (줄["country"], 줄["industry"], 줄["domain"]) == ("United States", "Semiconductors", "test.com")
-    assert 줄["fin_currency"] == "USD"
+    assert 스크리닝줄("TEST", "US", {**꽉찬정보, "financialCurrency": "USD"}, _시세())["fin_currency"] == "USD"
+    # 야후가 장부 돈을 안 알려 주면 모른다 — 시세 돈('USD')으로 짐작하면 막힌 회차가 받아 둔 'TWD' 를 덮는다
+    assert 줄.get("fin_currency") is None
     현금부자 = 스크리닝줄("TEST", "US", {**꽉찬정보, "totalCash": 2.5e11}, _시세())
     assert 현금부자["net_debt"] == pytest.approx(-1.5e11), "현금이 더 많으면 마이너스"
     적자 = 스크리닝줄("TEST", "US", {**꽉찬정보, "trailingEps": -1.0}, _시세())

@@ -86,13 +86,19 @@ log = logging.getLogger(__name__)
 
 
 def _야후심볼(symbol: str, market: str) -> str:
-    """국내 종목은 야후에서 접미사가 필요하다."""
+    """국내 종목은 야후에서 접미사가 필요하다. 꼬리 없는 6자리(스크리닝 표에서 담은 종목)는 종목 목록으로
+    코스피·코스닥을 가린다 — 예전엔 늘 '.KS' 를 붙여 코스닥 종목은 야후가 빈손을 줬다. 스크리닝·관심종목엔
+    배당수익률이 나오는데 내 자산 배당에만 그 종목이 비었다(사용자: "같은회사 같은지표 데이터여도 어떤 메뉴에는
+    나오는데 어떤 메뉴에는 아예 안나와")"""
     s = (symbol or "").upper()
     if market != "KR":
         return s
     if s.endswith(".KS") or s.endswith(".KQ"):
         return s
-    return f"{s}.KS" if s.isdigit() else s
+    if not s.isdigit():
+        return s
+    from app.services.market.yf_service import _국내꼬리
+    return f"{s}{_국내꼬리(s)}"
 
 
 def _주기(날들: list) -> "str | None":

@@ -256,8 +256,10 @@ export default function Layout() {
         {/* 팝업 배너 */}
         <PopupBanners />
 
-        {/* 콘텐츠 */}
-        <main className="flex-1 overflow-y-auto bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
+        {/* 콘텐츠 — relative·overflow-x-hidden: 화면 안의 absolute(자리 잡은 조상이 없는 것)가 본문 밖으로 새어
+            문서를 넓히지 못하게 가둔다. 휴대폰은 문서가 넓어지면 판을 키우고, 아래 탭(fixed)이 그 큰 판의 바닥에
+            붙어 화면 밖으로 사라졌다(스크리닝의 화면 읽기용 글자가 그랬다 — StockTable 표상자) */}
+        <main className="relative flex-1 overflow-y-auto overflow-x-hidden bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
           {/* 최대 폭도 rem — 넓은 화면에서 뿌리 글자가 커지면(index.css) 같이 넓어진다. px 로 두면 글자만 커지고
               폭은 그대로라 큰 모니터에서 담기는 칸이 오히려 줄었다(14px 기준 1,596px) */}
           <div className="p-3 md:p-5 max-w-[114rem] mx-auto">

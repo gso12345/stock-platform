@@ -379,10 +379,44 @@ def _원주_줄들() -> dict:
 def _짓기(시장: str, 풍부: list, 판: tuple) -> 스크리닝표:
     원천 = _원천_모음()
     if 시장 == "US":
+        from app.services.market.ranking_service import 나스닥_주식수
         원천["kr_adr"] = _원주_줄들()
+        원천["us_shares"] = 나스닥_주식수()          # 해외 회사 시가총액의 닻(table._시총_달러로)
     새것 = 만들기(시장, 기초줄(시장), 풍부, 원천)
     _표[시장], _표판[시장] = 새것, 판
+    if 시장 == "US":
+        _시총바꿈_남기기(새것)
     return 새것
+
+
+이름_시총 = "스크리닝 · 해외 회사 시가총액(나라 돈 → 달러)"
+
+
+def _시총바꿈_남기기(표: 스크리닝표) -> None:
+    """관리자 화면(바깥 원천)에 어느 해외 회사의 시가총액을 고쳤는지 — 야후가 어느 회사를 그 나라 돈으로 주는지는
+    운영에서만 보인다(검사 환경은 바깥에 못 나간다)"""
+    from app.core import health
+    바꿈 = 표.시총바꿈
+    글 = " · ".join(f"{s}({까닭})" for s, 까닭 in list(바꿈.items())[:12])
+    health.record_ok(이름_시총, None, f"{len(바꿈)}곳 고침 — {글}" + (" …" if len(바꿈) > 12 else "")
+                     if 바꿈 else "고친 곳 없음(모두 달러로 옴)")
+
+
+def 해외시총_주식수() -> dict[str, float]:
+    """미국 표가 시가총액을 바로잡은 해외 회사 → 주식 수(바로잡은 시가총액 ÷ 시세 — 비운 곳은 0). 대시보드 해외
+    순위가 지금 시세에 곱해 같은 값을 쓴다. 표가 없으면 빈 것"""
+    표 = _표.get("US")
+    if 표 is None or not 표.시총바꿈:
+        return {}
+    df, out = 표.df, {}
+    for s in 표.시총바꿈:
+        if s not in df.index or "market_cap" not in df.columns:
+            continue
+        시총, 가격 = df.at[s, "market_cap"], df.at[s, "price"]
+        if not (가격 == 가격 and 가격 > 0):
+            continue
+        out[s] = float(시총) / float(가격) if 시총 == 시총 and 시총 > 0 else 0.0
+    return out
 
 
 def _뒤에서_새로(시장: str) -> None:

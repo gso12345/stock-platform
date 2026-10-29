@@ -536,6 +536,11 @@ def _주식수로_시총(sym: str, 가격) -> float:
     return n * 가격 if n and 가격 else 0
 
 
+def 나스닥_주식수() -> dict:
+    """{심볼: 주식 수(나스닥 목록의 시가총액 ÷ 가격)} — 스크리닝이 해외 회사 시가총액의 닻으로 쓴다(못 받았으면 빈 것)"""
+    return _주식수
+
+
 def 전종목_채움() -> bool:
     """순위표가 전종목을 담았나 — 나스닥 전종목을 넣었거나 훑기가 한 바퀴를 돌았다.
 
@@ -1207,6 +1212,42 @@ def 해외순위_사진_불러오기() -> bool:
     return True
 
 
+def _해외시총_바로(rows: list[dict]) -> list[dict]:
+    """해외 회사(ADR)의 시가총액을 달러로 — 야후가 그 나라 돈으로 준 값(TSMC 대만 달러·SK하이닉스 ADR 원)을
+    가린다(foreign_cap; 사용자: "대시보드 순위표에 SK하이닉스 TSMC 해외 시총이 달러랑 안맞아").
+      · 스크리닝 표가 바로잡은 종목 — 그 표의 주식 수 × 지금 시세(스크리닝과 같은 값. 표가 비운 곳은 뺀다)
+      · 아니면 미국 회사가 아닌 곳(나스닥 분류의 나라 · 국내 ADR)과 상한을 넘는 곳 — 나스닥 주식 수(닻)·미국 회사
+        크기(상한)로 가린다(표는 매출·환율도 보지만 여기는 그것을 모른다)
+    받은 줄은 그대로 둔다(스크리닝 기초 줄도 이 표를 읽는다) — 고친 줄만 새로 만든다"""
+    from app.services.market import foreign_cap
+    try:
+        from app.services.screening.service import 해외시총_주식수
+        표주식수 = 해외시총_주식수()
+    except Exception as e:
+        log.debug("스크리닝 표의 해외 시가총액을 못 읽음: %s", type(e).__name__)
+        표주식수 = {}
+    분류 = 나스닥_분류()
+
+    def 나라(sym) -> str:
+        return (분류.get(sym) or ("", "", ""))[2] or ""
+
+    # 상한은 미국 회사로만 — 분류를 못 받았으면 크기로는 가리지 않는다(미국 회사를 해외로 잘못 보고 비울 수 있다)
+    상한값 = foreign_cap.상한(r.get("market_cap") for r in rows
+                          if 나라(r.get("symbol")) == "United States") if 분류 else None
+    out = []
+    for r in rows:
+        sym, 값, 가격 = r.get("symbol"), r.get("market_cap"), r.get("price")
+        새값 = 값
+        if sym in 표주식수 and 가격:
+            새값 = 표주식수[sym] * 가격
+        elif 값 and 가격 and (sym in foreign_cap.국내_ADR or 나라(sym) != "United States" and (
+                나라(sym) or 상한값 is not None and 값 > 상한값)):
+            n = _주식수.get(sym)
+            새값 = foreign_cap.고르기(값, 닻=n * 가격 if n else None, 상한값=상한값) or 0
+        out.append(r if 새값 == 값 else {**r, "market_cap": 새값})
+    return out
+
+
 def _sort_us(rows: list[dict], category: str, 장거름: bool = True) -> list[dict]:
     """미국 순위 하나. 장거름=False 면 이미 한 장으로 거른 줄을 받은 것이다
     (_미국순위_모두_담기 가 일곱 가지를 만들며 한 번만 거른다)."""
@@ -1237,16 +1278,23 @@ def _sort_us(rows: list[dict], category: str, 장거름: bool = True) -> list[di
 
         그것들을 그냥 두면 '거래량 순위인데 거래량을 모르는 종목이 43위에
         앉아 있는' 것과 같은 표가 된다. 국내 순위는 진작 이렇게 하고 있다."""
-        sortable = [r for r in sortable if (r.get("market_cap") or 0) > 0]
+        sortable = [r for r in _해외시총_바로(sortable) if (r.get("market_cap") or 0) > 0]
         sortable.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
     # 번호는 복사본에 매긴다 — 표의 줄에 매기면 분류마다 서로 덮어쓴다.
     # 복사는 내보낼 100줄만(6천 줄을 다 복사할 이유가 없다)
+    try:
+        from app.services.screening.service import 한글이름
+    except Exception:
+        한글이름 = None
     위 = []
     for i, r in enumerate(sortable[:100]):
         줄 = dict(r, rank=i + 1)
         # 언제 장의 값인가 — 화면이 'M/D HH:MM 기준' 으로 보여 준다
         if r.get("regular_time"):
             줄["as_of"] = r["regular_time"]
+        # 스크리닝·관심종목과 같은 한글 이름(엔비디아·TSMC) — 이름(name)은 영문 그대로 둔다(스크리닝 찾기가 쓴다)
+        if 한글이름 and (이름 := 한글이름(r.get("symbol") or "")):
+            줄["name_ko"] = 이름
         위.append(줄)
     return 위
 

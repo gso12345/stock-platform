@@ -399,11 +399,13 @@ def 스크리닝줄(symbol: str, market: str, info: dict, hist: pd.DataFrame,
         보일시장 = "KR"
 
     시세돈 = info.get("currency") or ("KRW" if 보일시장 == "KR" else "USD")
-    장부돈 = info.get("financialCurrency") or 시세돈
+    #: 장부 돈은 야후가 알려 준 때만 — 상세(info)가 막혀 모르는데 시세 돈('USD')으로 적으면, 받아 둔 'JPY'·'TWD' 를
+    #  막힌 회차가 'USD' 로 덮고(_줄_잇기 는 빈 칸만 남긴다) 해외 회사가 달러 장부로 보인다(table._시총_달러로)
+    장부돈 = info.get("financialCurrency")
     #: 최근 1년 실적(매출·순이익·FCF·순부채)은 시세 돈으로 바꿔 둔다 — 세우고 거르는 값이라
     #  회사마다 돈이 다르면 토요타(엔)·TSMC(대만 달러)가 '매출 1등' 이 된다.
     #  환율을 모르면 비운다 — 틀린 순서보다 '모름' 이 낫다
-    비율 = 1.0 if 장부돈 == 시세돈 else _safe(환율)
+    비율 = 1.0 if 장부돈 in (None, 시세돈) else _safe(환율)
 
     def 시세돈으로(v: Optional[float]) -> Optional[float]:
         return None if v is None or not 비율 else v * 비율

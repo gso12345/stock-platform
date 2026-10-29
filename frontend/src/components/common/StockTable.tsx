@@ -11,8 +11,11 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { cn, InlineSpinner } from "@/components/ui";
 
 // ── 표의 틀(클래스) — 두 표가 같은 줄 높이·여백·머리 색을 쓴다 ─────────────
-/** 표를 감싸는 상자 — 가로로 밀고, 넓은 화면에서는 머리가 붙어 있게 세로로도 민다 */
-export const 표상자 = "overflow-x-auto lg:overflow-y-auto lg:max-h-[75vh]";
+/** 표를 감싸는 상자 — 가로로 밀고, 넓은 화면에서는 머리가 붙어 있게 세로로도 민다.
+ *  relative 여야 한다 — 등락 칸의 화면 읽기용 글자(sr-only, absolute)는 가장 가까운 '자리 잡은' 조상 안에만
+ *  갇힌다. 상자가 static 이면 그 글자들이 상자를 빠져나가 문서를 2,500px 로 넓혔고, 휴대폰은 판을 4배로
+ *  키워 아래 메뉴가 화면 밖으로 밀렸다(사용자: "종목스크리닝을 누르면 모바일 기준 아래메뉴가 안보여") */
+export const 표상자 = "relative overflow-x-auto lg:overflow-y-auto lg:max-h-[75vh]";
 /** 표 글자 — 스크리닝·백테스트 표가 같은 크기. 넓은 화면에서는 뿌리 글자가 커져(index.css) 다른 메뉴와 같은
  *  비율로 같이 커진다 — 표만 따로 키우면 메뉴마다 들쭉날쭉해진다 */
 export const 표글자 = "text-xs";
