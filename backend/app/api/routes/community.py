@@ -753,17 +753,26 @@ def _notify(db: Session, *, user_id: int, actor_id: int, kind: str,
             ).first()
             if dup:
                 return
-        db.add(Notification(
+        새것 = Notification(
             user_id=user_id, actor_id=actor_id, kind=kind,
             post_id=post_id, comment_id=comment_id,
             preview=(preview or "")[:_NOTI_PREVIEW_MAX] or None,
-        ))
+        )
+        db.add(새것)
         db.commit()
     except Exception:
         try:
             db.rollback()
         except Exception:
             pass
+        return
+    # 커밋한 뒤에 — 켜 둔 기기가 있으면 휴대폰으로도(뒤에서 보낸다. 실패해도 알림은 남아 있다)
+    try:
+        새id = 새것.id
+    except Exception:
+        return
+    from app.services import push_service
+    push_service.알림_보내기([새id])
 
 
 # ── 게시글 작성 ────────────────────────────────────────────────

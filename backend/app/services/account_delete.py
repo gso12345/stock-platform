@@ -44,11 +44,13 @@ from app.models.user import User
     "watchlists",
     "portfolio_items",          # portfolios 를 가리킨다
     "portfolio_snapshots",
+    "portfolio_trades",         # 사고판 기록 — 보유·포트폴리오를 안 가리킨다(외래키 없음)
     "portfolios",
     "backtest_results",         # strategies 를 가리킨다
     "strategies",
     "screening_presets",
     "price_alerts",
+    "push_subscriptions",       # 휴대폰 알림 — 남기면 탈퇴한 사람 기기로 알림이 간다
     "quant_score_weights",
     "portfolio_experiments",
 ]

@@ -142,6 +142,49 @@ export interface 보유뉴스응답 {
   missing: { symbol: string; market: string; name: string }[];
 }
 
+/** 사고판 기록 한 줄 — 가격·수수료는 그 종목의 돈(원·달러), 실현 손익은 원 */
+export interface 매매기록 {
+  id: number;
+  portfolioId: number | null;
+  itemId: number | null;
+  symbol: string;
+  market: string;
+  name: string;
+  currency: "KRW" | "USD";
+  side: "buy" | "sell";
+  shares: number;
+  price: number;
+  fx: number | null;
+  fee: number;
+  /** 판 줄 — 그때 평단·매수 환율 */
+  avgCost: number | null;
+  avgFx: number | null;
+  /** 판 줄 — 실현 손익(원). 산 줄은 null */
+  realized: number | null;
+  tradeDate: string;
+  note: string | null;
+  /** 양도세를 내는 해외주식인가(미국 주식·미국 상장 ETF) */
+  overseas: boolean;
+}
+
+/** 그해 실현 손익과 해외주식 양도세 어림(원) — 한 사람의 한 해 전체(포트폴리오를 안 가린다) */
+export interface 매매요약 {
+  realized: number;
+  domestic: number;
+  overseas: number;
+  deduction: number;
+  taxable: number;
+  tax: number;
+  rate: number;
+}
+
+export interface 매매응답 {
+  year: number;
+  years: number[];
+  items: 매매기록[];
+  summary: 매매요약;
+}
+
 export const portfolioApi = {
   getPortfolios: () =>
     api.get("/portfolio/portfolios").then((r) => r.data),
@@ -227,6 +270,24 @@ export const portfolioApi = {
 
   deleteItem: (id: number) =>
     api.delete(`/portfolio/items/${id}`).then((r) => r.data),
+
+  /** 더 사기·팔기 — 보유 수량·평단을 고치고 사고판 기록을 남긴다. 다 팔면 item 이 null(보유가 지워졌다) */
+  trade: (itemId: number, payload: {
+    side: "buy" | "sell"; shares: number; price: number;
+    fx?: number | null; fee?: number; trade_date?: string; note?: string | null;
+  }) =>
+    api.post<{ trade: 매매기록; item: unknown | null }>(`/portfolio/items/${itemId}/trade`, payload)
+      .then((r) => r.data),
+
+  /** 그해 사고판 기록과 실현 손익·해외주식 양도세 어림 */
+  getTrades: (year?: number, portfolioId?: number) =>
+    api.get<매매응답>("/portfolio/trades", {
+      params: { ...(year ? { year } : {}), ...(portfolioId ? { portfolio_id: portfolioId } : {}) },
+    }).then((r) => r.data),
+
+  /** 기록만 지운다 — 보유 수량은 그대로 */
+  deleteTrade: (id: number) =>
+    api.delete(`/portfolio/trades/${id}`).then((r) => r.data),
 
   /* 자산배분 백테스트는 아래 backtestApi 쪽에 있다 */
   getPublicPortfolios: (userId: number) =>

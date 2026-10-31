@@ -990,9 +990,12 @@ class Test청약전_정확도:
             return {"ok": True, "ratio": 1.2 if 대상.get("sub_ratio") is not None else 1.0}
         monkeypatch.setattr(S.모델, "예측", 예측)
         검증 = S.걸어가며_검증(self._기록(), 최근=20)
-        # 늘 1.2 로 봤는데 1.5 로 시작 — 보정 = log(1.25)/2, 청약 전 1.0 × 1.118 = 11,180원 → +34%
-        assert 검증["method"]["key"].endswith("_fix")
-        assert 검증["pre_sub"]["median_abs_diff_pct"] == 34, 검증["pre_sub"]
+        # 늘 1.2 로 봤는데 1.5 로 시작 — 치우침이 한결같아 직전 8곳 오차를 모두 반영하는 넓은 보정이
+        # 딱 맞는다. 보정 = log(1.25), 청약 전 1.0 × 1.25 = 12,500원 → +20%.
+        # (청약 전 예측의 오차로 보정했다면 log(1.5) 라 0% 가 됐을 것이다)
+        assert 검증["method"]["key"] == "base_wide"
+        assert 검증["pre_sub"]["median_abs_diff_pct"] == 20, 검증["pre_sub"]
+
 
     def test_한눈에도_실린다(self):
         값, _ = S._한눈에값(_만든기록(n=120), S.오늘())
@@ -1087,8 +1090,9 @@ class Test방식:
 
     @staticmethod
     def _나쁨(n):
-        """'유통물량 등' 넷 — 고르기 시험에서 늘 크게 빗나가게"""
-        return {k: [9.0] * n for k, *_ in S.방식들 if k.endswith("_x")}
+        """기본 넷(base·fast·base_fix·fast_fix) 밖의 방식 — '유통물량 등' 넷, 넓게 보는 보정, 여러 방식의
+        평균 — 고르기 시험에서 늘 크게 빗나가게"""
+        return {k: [9.0] * n for k, *_ in S.방식들 if k not in ("base", "fast", "base_fix", "fast_fix")}
 
     def test_보정은_그날_전_직전_세_곳의_오차_절반(self):
         d = date(2025, 3, 10)
@@ -1140,7 +1144,7 @@ class Test방식:
             검증 = S.걸어가며_검증(_국면기록(씨앗=씨앗), 최근=60)
             방식 = {m["key"]: m for m in 검증["methods"]}
             assert set(방식) == {"base", "fast", "base_fix", "fast_fix",
-                                 "base_x", "fast_x", "base_fix_x", "fast_fix_x"}
+                                 "base_x", "fast_x", "base_fix_x", "fast_fix_x", "base_wide", "avg"}
             assert 검증["median_abs_diff_pct"] <= 방식["base"]["median_abs_diff_pct"], 씨앗
             고른.append(검증["hit_rate"]); 기본.append(방식["base"]["hit_rate"])
         assert sum(고른) > sum(기본) + 0.3, (고른, 기본)
@@ -1495,3 +1499,146 @@ class TestAPI:
     ])
     def test_잘못_넣으면_422(self, client, 몸):
         assert client.post("/api/v1/ipo/predict", json=몸).status_code == 422
+
+
+# ── 새 후보 방식 둘 ─────────────────────────────────────────────
+class Test새_방식:
+    """넓게 보는 보정·여러 방식의 평균 — 지난번에 제안한 후보 둘(사용자: "할 수 있는 것은 모두 해줘").
+
+    다른 방식과 똑같이 걸어가며 맞혀 보고, 직전 40곳에서 가장 잘 맞았을 때만 쓰인다."""
+
+    @staticmethod
+    def _걸음(쌍들, 기준일=date(2025, 3, 10)):
+        """[(며칠 전, 실제 y)] → 예측이 늘 0 인 걸음(오차 = 실제 y)"""
+        열들 = {(b, x) for _, _, b, _, x in S.방식들}
+        return [({}, 기준일 - timedelta(days=전), y, {열: 0.0 for 열 in 열들}) for 전, y in 쌍들]
+
+    def test_넓게_보는_보정은_직전_8곳_오차를_모두(self):
+        d = date(2025, 3, 10)
+        걸음 = self._걸음([(90 - 9 * k, 0.03 * k) for k in range(10)])     # 90일 안 열 곳, 오래된 것부터
+        직전8 = [0.03 * k for k in range(2, 10)]
+        assert S._보정값(걸음, [0.0] * 10, d, *S.넓은보정) == pytest.approx(sum(직전8) / 8)
+        # 기본 보정(직전 3곳의 절반)과는 다르다
+        assert S._보정값(걸음, [0.0] * 10, d) == pytest.approx(0.5 * sum(0.03 * k for k in (7, 8, 9)) / 3)
+        # 한도는 같다 — 하나가 크게 튀어도 1.5배까지만 옮긴다
+        크게 = self._걸음([(90 - 9 * k, 0.1 * k) for k in range(10)])
+        assert S._보정값(크게, [0.0] * 10, d, *S.넓은보정) == pytest.approx(math.log(1.5))
+        # 90일보다 오래된 상장은 안 쓴다
+        assert S._보정값(self._걸음([(120, 0.3), (100, 0.3)]), [0.0] * 2, d, *S.넓은보정) == 0.0
+
+    def test_방식_목록에_둘이_들고_이름이_있다(self):
+        이름 = {k: n for k, n, *_ in S.방식들}
+        assert 이름["base_wide"] == "기본 + 넓게 보는 보정" and 이름["avg"] == "여러 방식의 평균"
+        assert S.넓은보정 == (8, 1.0) and S._보정_최대곳 == 8
+        assert [k for k, *_ in S._평균_구성()] == [k for k, *_ in S.방식들 if k != "avg"]
+
+    def test_평균은_같은_줄의_나머지_방식을_평균한다(self):
+        d0 = date(2025, 3, 10)
+        예측 = {(None, False): 0.1, (3, False): 0.3, (None, True): 0.1, (3, True): 0.3}
+        전 = {(None, False): 0.0, (3, False): None, (None, True): 0.0, (3, True): None}
+        걸음 = [({}, d0 + timedelta(days=i), 0.2, 예측, 전, {}) for i in range(5)]
+        값 = S._방식별(걸음)
+        for j in range(5):
+            나머지 = [값[k][j] for k, *_ in S._평균_구성()]
+            assert 값["avg"][j] == pytest.approx(sum(나머지) / len(나머지))
+        # 청약 전에 못 맞힌 방식(빠른 분위기 쪽 넷)은 빼고 평균한다
+        전값 = S._방식별(걸음, 4)
+        for j in range(5):
+            있음 = [전값[k][j] for k, *_ in S._평균_구성() if 전값[k][j] is not None]
+            assert len(있음) == 5 and 전값["avg"][j] == pytest.approx(sum(있음) / len(있음))
+        # 모두 못 맞혔으면 평균도 없다
+        못함 = [(r, d, y, p, {k: None for k in 전}, {}) for r, d, y, p, _, _ in 걸음]
+        assert S._방식별(못함, 4)["avg"] == [None] * 5
+
+    def test_방식마다_반대로_빗나가는_세상에서는_평균을_고른다(self):
+        """기본 쪽과 빠른 쪽이 줄마다 반대로 빗나간다 — 하나를 고르면 늘 0.3 씩 틀리고, 평균은 거의 맞는다"""
+        d0 = date(2025, 1, 1)
+        걸음 = []
+        for i in range(30):
+            s = 1 if i % 2 else -1
+            예측 = {(None, False): 0.3 * s, (None, True): 0.3 * s, (3, False): -0.3 * s, (3, True): -0.3 * s}
+            걸음.append(({}, d0 + timedelta(days=3 * i), 0.0, 예측, 예측, {}))
+        assert S._고르기(걸음, S._방식별(걸음), d0 + timedelta(days=100)) == "avg"
+
+    def test_한결같이_빗나가는_세상에서는_넓은_보정을_고른다(self):
+        """늘 0.3 낮게 본다 — 직전 8곳 오차를 모두 따라가면 딱 맞고, 반만 따라가면 반이 남는다"""
+        d0 = date(2025, 1, 1)
+        예측 = {(None, False): 0.0, (None, True): 0.0, (3, False): 0.0, (3, True): 0.0}
+        걸음 = [({}, d0 + timedelta(days=3 * i), 0.3, 예측, 예측, {}) for i in range(30)]
+        assert S._고르기(걸음, S._방식별(걸음), d0 + timedelta(days=100)) == "base_wide"
+
+    def test_평균을_고르면_구성마다_그날_보정이_담긴다(self, monkeypatch):
+        기록 = _국면기록(씨앗=2)
+        monkeypatch.setattr(S, "_고르기", lambda 걸음, 방식값, 기준일: "avg")
+        검증, 지금 = S._검증(기록, 60, S.오늘())
+        assert 지금["key"] == "avg" and 지금["name"] == "여러 방식의 평균"
+        assert (지금["반감"], 지금["상세"]) == (None, False) and len(지금["구성"]) == 9
+        걸음 = S._걸음(기록, 60 + S.고르기_곳 + S._보정_최대곳)
+        for (b, x, c), (_, _, b2, f, x2) in zip(지금["구성"], S._평균_구성()):
+            기대 = S._보정값(걸음, [e[3][(b2, x2)] for e in 걸음], S.오늘(), *f) if f else 0.0
+            assert (b, x) == (b2, x2) and c == pytest.approx(기대)
+        assert any(c for *_, c in 지금["구성"]), "이 세상에서는 요즘 오차를 보정하는 구성이 있다"
+        assert 지금["보정"] == pytest.approx(sum(c for *_, c in 지금["구성"]) / 9)
+        assert 검증["method"]["key"] == "avg"
+
+    def test_한_방식을_고르면_구성은_그것_하나(self, monkeypatch):
+        기록 = _국면기록(씨앗=2)
+        monkeypatch.setattr(S, "_고르기", lambda 걸음, 방식값, 기준일: "base_wide")
+        _, 지금 = S._검증(기록, 60, S.오늘())
+        assert len(지금["구성"]) == 1 and 지금["구성"][0][:2] == (None, False)
+        걸음 = S._걸음(기록, 60 + S.고르기_곳 + S._보정_최대곳)
+        assert 지금["보정"] == pytest.approx(
+            S._보정값(걸음, [e[3][(None, False)] for e in 걸음], S.오늘(), *S.넓은보정))
+
+    def test_평균으로_다가오는_공모주를_맞힌다(self):
+        기록 = _국면기록(씨앗=2)
+        구성 = [(b, x, 0.05 * i) for i, (_, _, b, _, x) in enumerate(S._평균_구성())]
+        지금 = {"key": "avg", "name": "여러 방식의 평균", "반감": None, "상세": False,
+                "보정": sum(c for *_, c in 구성) / len(구성), "구성": 구성}
+        모델들 = S._모델들(기록, 지금)
+        assert set(모델들) == {(None, False), (3, False), (None, True), (3, True)}
+        p = S._방식대로(모델들, _대상(), S.오늘(), 지금)
+        아래, 위 = math.log(0.6), math.log(4.0)
+        로그들 = [min(max(math.log(S.모델(기록, b, x).예측(_대상(), S.오늘())["ratio"]) + c, 아래), 위)
+                 for b, x, c in 구성]
+        기대 = math.exp(sum(로그들) / len(로그들))
+        assert p["ratio"] == pytest.approx(기대, abs=1e-4)
+        assert p["price"] == S.가격으로(10_000, 기대)
+        assert p["return_pct"] == pytest.approx((p["ratio"] - 1) * 100, abs=0.1)
+        assert p["method"] == {"key": "avg", "name": "여러 방식의 평균"}
+        assert p["parts"]["correction_pct"] == round((math.exp(지금["보정"]) - 1) * 100)
+        # 범위·비슷했던 공모주는 기본 모델 것 그대로 — 실제로 시작한 값들이다
+        기본 = S.모델(기록).예측(_대상(), S.오늘())
+        assert p["range"] == 기본["range"] and p["neighbors"] == 기본["neighbors"]
+
+    def test_평균의_구성도_첫날_범위로_자른다(self):
+        """한 구성이 크게 보정돼 400% 를 넘으면 그 구성은 400% 로 — 걸어가며 맞힐 때(_방식별)와 같게"""
+        기록 = _국면기록(씨앗=2)
+        구성 = [(b, x, 3.0 if i == 0 else 0.0) for i, (_, _, b, _, x) in enumerate(S._평균_구성())]
+        지금 = {"key": "avg", "name": "여러 방식의 평균", "반감": None, "상세": False,
+                "보정": 3.0 / len(구성), "구성": 구성}
+        p = S._방식대로(S._모델들(기록, 지금), _대상(), S.오늘(), 지금)
+        로그들 = [min(max(math.log(S.모델(기록, b, x).예측(_대상(), S.오늘())["ratio"]) + c, math.log(0.6)),
+                      math.log(4.0)) for b, x, c in 구성]
+        assert 로그들[0] == pytest.approx(math.log(4.0))
+        assert p["ratio"] == pytest.approx(math.exp(sum(로그들) / len(로그들)), abs=1e-4)
+
+    def test_걸어가며_맞힐_때_가장_멀리_보는_보정만큼_앞에서_시작한다(self, monkeypatch):
+        """직전 8곳을 보는 보정이 첫 줄들에서 3곳만 보면, 그 방식만 손해를 보고 덜 골라진다"""
+        받은 = []
+        원래 = S._걸음
+        monkeypatch.setattr(S, "_걸음", lambda 기록, 곳: 받은.append(곳) or 원래(기록, 곳))
+        S._검증(_국면기록(씨앗=2), 60, S.오늘())
+        assert 받은 == [60 + S.고르기_곳 + 8]
+
+    def test_평균도_스팩은_기본_그대로(self):
+        기록 = _만든기록()
+        for i in range(10):
+            기록[f"S{i}"] = {**_대상(name=f"가나{i}호스팩", kind="spac", offer_price=2000,
+                                    inst_ratio=100 + 50 * i, lockup_pct=2 * i, sub_ratio=200 + 100 * i),
+                            "list_date": (date(2024, 1, 5) + timedelta(days=9 * i)).isoformat(),
+                            "open_price": 2000 + 30 * i}
+        구성 = [(b, x, 0.1) for _, _, b, _, x in S._평균_구성()]
+        지금 = {"key": "avg", "name": "여러 방식의 평균", "반감": None, "상세": False, "보정": 0.1, "구성": 구성}
+        스팩 = _대상(name="한화제30호스팩", kind="spac", offer_price=2000)
+        assert S._방식대로(S._모델들(기록, 지금), 스팩, 오늘, 지금) == S.예측하기(기록, 스팩, 오늘)

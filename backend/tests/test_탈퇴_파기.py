@@ -13,10 +13,15 @@ from app.main import app
 from app.db.database import Base, engine, SessionLocal
 from app.models.user import User
 from app.models import stock as S
+from app.models.push import PushSubscription
 
 
 모델들 = (S.BacktestResult, S.Strategy, S.PriceAlert, S.ScreeningPreset, S.QuantScoreWeight,
-          S.PortfolioSnapshot, S.WatchlistFolder, S.PortfolioExperiment)
+          S.PortfolioSnapshot, S.WatchlistFolder, S.PortfolioExperiment,
+          # 휴대폰 알림 — 남으면 탈퇴한 사람의 기기로 알림이 간다
+          PushSubscription,
+          # 사고판 기록 — 보유를 다 팔아 지워져도 남는 표라 따로 지워야 한다
+          S.PortfolioTrade)
 
 
 def _그사람것_치우기(s, uid):
@@ -51,6 +56,10 @@ def 준비():
         S.WatchlistFolder(name="f", user_id=uid),
         S.PortfolioExperiment(user_id=uid, name="e", initial_amount=1, start_date="2020-01-01",
                               end_date="2021-01-01", assets=[]),
+        PushSubscription(user_id=uid, endpoint=f"https://fcm.googleapis.com/fcm/send/del-{uid}",
+                         p256dh="p" * 87, auth="a" * 22),
+        S.PortfolioTrade(user_id=uid, symbol="AAPL", market="US", side="sell", shares=1, price=1,
+                         trade_date="2026-01-02", realized=1),
     ])
     s.commit()
     관리자id = 관리자.id

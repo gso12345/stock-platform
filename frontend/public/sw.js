@@ -66,3 +66,45 @@ self.addEventListener("fetch", (event) => {
   }
   // 그 밖(같은 출처의 아이콘·manifest 등)은 손대지 않는다
 });
+
+// ── 웹 푸시 — 앱이 닫혀 있어도 알림을 띄운다 ──────────────────
+// 서버(app/services/push_service.py)가 {title, body, url, tag} 를 암호화해 보낸다.
+// 브라우저가 풀어서 여기로 넘긴다. 알림을 띄우지 않으면 브라우저가 구독을 끊는다
+// (userVisibleOnly) — 내용을 못 읽어도 무언가는 띄운다.
+self.addEventListener("push", (event) => {
+  let 내용 = {};
+  try {
+    내용 = event.data ? event.data.json() : {};
+  } catch (e) {
+    내용 = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(내용.title || "새 알림", {
+      body: 내용.body || "",
+      icon: "/pwa-192.png",
+      badge: "/pwa-192.png",
+      // 같은 tag 는 한 칸으로 — 가격 알림이 여러 번 와도 알림판이 그 종목 하나로 뒤덮이지 않게
+      tag: 내용.tag || undefined,
+      renotify: Boolean(내용.tag),
+      data: { url: 내용.url || "/notifications" },
+    })
+  );
+});
+
+// 알림을 누르면 — 열려 있는 앱 창이 있으면 그 창을 그 화면으로, 없으면 새로 연다
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const 갈곳 = new URL((event.notification.data && event.notification.data.url) || "/notifications",
+                      self.location.origin).href;
+  event.waitUntil((async () => {
+    const 창들 = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const 창 of 창들) {
+      if (new URL(창.url).origin === self.location.origin) {
+        await 창.focus();
+        if ("navigate" in 창) await 창.navigate(갈곳);
+        return;
+      }
+    }
+    await self.clients.openWindow(갈곳);
+  })());
+});

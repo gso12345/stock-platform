@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, ForeignKey, Text, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.database import Base
@@ -119,6 +119,43 @@ class PortfolioItem(Base):
     created_at          = Column(DateTime(timezone=True), server_default=func.now())
     updated_at          = Column(DateTime(timezone=True), onupdate=func.now())
     portfolio           = relationship("Portfolio", back_populates="items")
+
+
+class PortfolioTrade(Base):
+    """사고판 기록 — 사용자: "할 수 있는 것은 모두 해줘"(매매 기록·실현 손익·해외주식 양도세).
+
+    보유(portfolio_items)는 '지금 몇 주를 평단 얼마에' 만 들고 있다. 그래서 일부를 팔면 수량을 손으로
+    고쳐야 했고, 판 이익은 어디에도 안 남았다 — 해외주식 양도세를 가늠할 길이 없었다.
+
+    · 판 줄에는 그때의 평단·매수 환율과 실현 손익(원)을 같이 남긴다. 나중에 보유를 고치거나 지워도
+      그해의 실현 손익이 바뀌지 않게 — 그날 판 값은 그날 정해진다.
+    · 보유·포트폴리오를 지워도 기록은 남는다(외래키를 안 건다). 판 뒤 보유가 0 이 되면 보유는
+      지워지지만, 그해 세금을 셀 때는 그 줄이 있어야 한다.
+    """
+    __tablename__ = "portfolio_trades"
+    __table_args__ = (
+        Index("ix_portfolio_trades_user_date", "user_id", "trade_date"),
+    )
+
+    id           = Column(Integer, primary_key=True, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    portfolio_id = Column(Integer, nullable=True)
+    item_id      = Column(Integer, nullable=True)
+    symbol       = Column(String(20), nullable=False)
+    market       = Column(String(10), nullable=False)
+    name         = Column(String(100))
+    currency     = Column(String(3), nullable=False, default="KRW")
+    side         = Column(String(4), nullable=False)          # buy | sell
+    shares       = Column(Float, nullable=False)
+    price        = Column(Float, nullable=False)              # 주당, 종목의 돈(원·달러)
+    fx           = Column(Float, nullable=True)               # 그날 환율(원/달러) — 원화면 비운다
+    fee          = Column(Float, nullable=False, default=0)   # 수수료·세금, 종목의 돈
+    avg_cost     = Column(Float, nullable=True)               # 판 줄 — 그때 평단(종목의 돈)
+    avg_fx       = Column(Float, nullable=True)               # 판 줄 — 산 때 환율(평균)
+    realized     = Column(Float, nullable=True)               # 판 줄 — 실현 손익(원)
+    trade_date   = Column(String(10), nullable=False)
+    note         = Column(String(200), nullable=True)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class FundamentalsCache(Base):

@@ -166,6 +166,43 @@ describe("빠른 목표 — 한 번 눌러서 건다", () => {
   });
 });
 
+describe("앱을 닫아도 받으려면 — 휴대폰 알림", () => {
+  /* 알림은 앱 안의 종에 쌓인다. 걸어 놓고 앱을 닫는 사람에게는 휴대폰 알림을 켜야 온다는 것을
+     건 그 자리에서 알려 준다 */
+  it("휴대폰 알림이 꺼져 있으면 켜는 곳으로 가는 길을 보인다", async () => {
+    vi.mocked(alertsApi.createAlert).mockResolvedValue(줄({ id: 5, target: 83_265 }));
+    그리기();
+    await userEvent.click(screen.getByRole("button", { name: /가격 알림/ }));
+    expect(screen.queryByRole("link", { name: /휴대폰 알림을 켜 주세요/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "+5%" }));
+    await userEvent.click(screen.getByRole("button", { name: "걸기" }));
+    const 길 = await screen.findByRole("link", { name: /휴대폰 알림을 켜 주세요/ });
+    expect(길).toHaveAttribute("href", "/notifications");
+  });
+
+  it("이미 켜져 있으면 안 보인다", async () => {
+    (window as any).PushManager = function () {};
+    (window as any).Notification = { permission: "granted" };
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {
+      ready: Promise.resolve({ pushManager: { getSubscription: () => Promise.resolve({ endpoint: "x" }) } }),
+    } });
+    try {
+      vi.mocked(alertsApi.createAlert).mockResolvedValue(줄({ id: 5, target: 83_265 }));
+      그리기();
+      await userEvent.click(screen.getByRole("button", { name: /가격 알림/ }));
+      await userEvent.click(screen.getByRole("button", { name: "+5%" }));
+      await userEvent.click(screen.getByRole("button", { name: "걸기" }));
+      await screen.findByText("알림을 걸었어요");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(screen.queryByRole("link", { name: /휴대폰 알림을 켜 주세요/ })).toBeNull();
+    } finally {
+      delete (window as any).PushManager;
+      delete (window as any).Notification;
+      delete (navigator as any).serviceWorker;
+    }
+  });
+});
+
 describe("고치기 — 지우고 다시 걸지 않는다", () => {
   beforeEach(() => {
     vi.mocked(alertsApi.getAlerts).mockResolvedValue({ items: [줄({ id: 1, target: 79_000 })], limit: 30 });

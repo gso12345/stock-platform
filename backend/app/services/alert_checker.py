@@ -7,6 +7,7 @@
   · 켜져 있는 알림만 훑는다. 한 번 울린 것은 스스로 꺼진다.
   · 캐시에 값이 없는 종목은 그냥 넘어간다. 그 종목을 받아 오는 것은
     이 함수가 할 일이 아니다 — 다음 회차에 시세가 들어오면 그때 본다.
+    받아 오는 것은 scheduler.알림종목_시세_받기 다(켜진_알림종목 을 1분마다 받는다).
 
 울릴 때는 새 알림 파이프라인을 안 만들고 기존 notifications 표에
 kind="price_alert" 로 한 줄 넣는다. 종·읽지않음·목록이 이미 다 돌아간다.
@@ -56,6 +57,7 @@ def 확인하기() -> int:
 
     db = SessionLocal()
     울린수 = 0
+    새것들: list = []
     try:
         켜진것 = (db.query(PriceAlert)
                   .filter(PriceAlert.is_active.is_(True))
@@ -71,13 +73,15 @@ def 확인하기() -> int:
             if not _닿았나(a.direction, a.target, 지금):
                 continue
 
-            db.add(Notification(
+            울림 = Notification(
                 user_id=a.user_id,
                 actor_id=None,                # 사람이 한 일이 아니다
                 kind="price_alert",
                 symbol=a.symbol, market=a.market,
                 preview=_문구(a.name or a.symbol, a.direction, a.target, 지금, a.market)[:100],
-            ))
+            )
+            db.add(울림)
+            새것들.append(울림)
             """한 번 울리면 스스로 끈다.
 
             8만원을 넘나드는 동안 계속 울리면 알림 화면이 그 종목 하나로
@@ -89,8 +93,13 @@ def 확인하기() -> int:
             울린수 += 1
 
         if 울린수:
+            db.flush()
+            새id = [n.id for n in 새것들]
             db.commit()
             log.info("가격 알림 %d건 울림", 울린수)
+            # 앱을 닫고 기다리는 사람에게는 휴대폰으로 — 뒤에서 보낸다(이 함수는 기다리지 않는다)
+            from app.services import push_service
+            push_service.알림_보내기(새id)
         return 울린수
     except Exception as e:
         try:
@@ -104,6 +113,35 @@ def 확인하기() -> int:
         except Exception:
             pass
         return 0
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+def 켜진_알림종목() -> list[tuple[str, str]]:
+    """켜져 있는 알림이 걸린 (종목, 시장) — 겹치지 않게.
+
+    확인하기() 는 캐시만 읽으므로, 이 종목들의 시세는 누군가 받아 줘야 한다
+    (scheduler.알림종목_시세_받기). 어떤 예외도 안 내보낸다 — 못 읽으면 빈 목록."""
+    try:
+        from app.db.database import SessionLocal
+        from app.models.stock import PriceAlert
+    except Exception as e:
+        log.debug("알림 종목 읽기 건너뜀: %s", type(e).__name__)
+        return []
+
+    db = SessionLocal()
+    try:
+        쌍 = (db.query(PriceAlert.symbol, PriceAlert.market)
+              .filter(PriceAlert.is_active.is_(True))
+              .distinct()
+              .limit(한회차_최대).all())
+        return [(s, m) for s, m in 쌍]
+    except Exception as e:
+        log.debug("알림 종목 읽기 실패: %s", type(e).__name__)
+        return []
     finally:
         try:
             db.close()

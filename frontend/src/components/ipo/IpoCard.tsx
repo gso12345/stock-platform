@@ -14,6 +14,7 @@ import IpoPrediction from "./IpoPrediction";
 import { 원, 경쟁률글, 확약글, 주글, 억원글, 날짜글, 남은날 } from "./ipoFormat";
 import { 증권사들 } from "./ipoBrokers";
 import { 청약표 } from "./ipoSchedule";
+import { 공모주일정단추 } from "./IpoCalendar";
 
 const 단계색: Record<string, "default" | "blue" | "green" | "yellow" | "purple"> = {
   "수요예측 전": "default",
@@ -84,7 +85,7 @@ export default function IpoCard({ 공모주: g, 바꿔보기, 청약전, 폭 }: 
             {g.kind === "reit" && <Badge variant="purple">리츠</Badge>}
             {g.market && <Badge>{g.market}</Badge>}
           </div>
-          <p className="text-xs text-text-secondary num mt-1">{일정글(g)}</p>
+          <p className="text-xs text-text-secondary num mt-1">{일정글(g)} <공모주일정단추 공모주={g} /></p>
           {주관사.length > 0 && <p className="text-2xs text-text-dim mt-0.5 truncate">주관사 {주관사.join(" · ")}</p>}
         </div>
         {청약배지

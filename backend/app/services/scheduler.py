@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from app.core.cache import cache
@@ -439,49 +440,6 @@ async def refresh_kr_stocks():
     return ok
 
 
-async def refresh_held_symbols():
-    """포트폴리오·관심종목으로 등록된 모든 보유종목 시세 선제 캐싱.
-    POPULAR_US/POPULAR_KR_CODES 목록 밖의 종목(특히 비인기 코스피/코스닥 종목)은
-    이 함수 없이는 페이지 진입 시 캐시 미스로 매번 외부 API를 직접 호출해야 했다."""
-    from app.db.database import SessionLocal
-    from app.models.stock import PortfolioItem, WatchlistItem
-
-    db = SessionLocal()
-    try:
-        rows = set(db.query(PortfolioItem.symbol, PortfolioItem.market).all())
-        rows |= set(db.query(WatchlistItem.symbol, WatchlistItem.market).all())
-    finally:
-        db.close()
-
-    kr_codes = {sym.replace(".KS", "").replace(".KQ", "") for sym, mkt in rows if mkt == "KR"}
-    us_syms = {sym for sym, mkt in rows if mkt != "KR"}
-
-    if kr_codes:
-        naver_data = await fetch_naver_stocks(list(kr_codes))
-        for code6, q in naver_data.items():
-            cache.set(f"price:{code6}", q, 360)
-            cache.set(f"price:{code6}.KS", q, 360)
-            cache.set(f"price:{code6}.KQ", q, 360)
-        log.info(f"보유 국내종목 시세 선제 캐싱: {len(naver_data)}/{len(kr_codes)}개")
-
-    if us_syms:
-        us_list = list(us_syms)
-        BATCH = 100
-        ok = 0
-        for i in range(0, len(us_list), BATCH):
-            batch = us_list[i:i + BATCH]
-            try:
-                data = await fetch_yf_quotes(batch)
-                for sym, q in data.items():
-                    if q.get("price"):
-                        cache.set(f"price:{sym}", q, 120)
-                        ok += 1
-            except Exception:
-                pass
-            await asyncio.sleep(0.3)
-        log.info(f"보유 미국/ETF 종목 시세 선제 캐싱: {ok}/{len(us_list)}개")
-
-
 #: 배당 미리 채우기 — 한 회차에 몇 종목까지.
 #
 #  0.15 CPU 서버다. 전 사용자 보유 종목이 수백 개일 수 있는데 한 번에
@@ -504,8 +462,8 @@ async def 배당_미리채우기() -> int:
     (실측). 그리고 그건 첫 사람 한 명이 아니라, 캐시가 24시간마다 비므로
     **날마다 처음 여는 사람**이 문다.
 
-    시세는 이미 이렇게 미리 받고 있다(refresh_held_symbols). 배당도 같게
-    맞춘다. 배당은 하루 단위로 바뀌는 값이라 미리 받아 두기에 딱 맞는
+    시세도 한때 이렇게 미리 받았다(refresh_held_symbols — 지금은 보는 종목·알림 종목만
+    받는다). 배당은 하루 단위로 바뀌는 값이라 미리 받아 두기에 딱 맞는
     종류다 — 미리 받아도 낡지 않는다.
 
     ── 조심한 것 ───────────────────────────────────────────
@@ -575,6 +533,22 @@ async def 배당_미리채우기() -> int:
 _WATCH_TTL_MULTIPLIER = 3   # TTL = 주기 × 3 (한두 번 실패해도 만료되지 않게)
 
 
+def _국내시세_담기(code6: str, q: dict, ttl: int) -> None:
+    """가격만 새로 받았으므로 기존 값(시가총액·PER 등) 위에 덮어쓴다 — 꼬리 없는 것·.KS·.KQ 셋 다"""
+    for key in (code6, f"{code6}.KS", f"{code6}.KQ"):
+        prev = cache.get_stale(f"price:{key}") or {}
+        cache.set(f"price:{key}", {**prev, **q, "symbol": prev.get("symbol") or q["symbol"]}, ttl)
+
+
+def _해외시세_담기(sym: str, q: dict, ttl: int) -> bool:
+    """빈 칸(None)으로 알던 값을 지우지 않는다. 가격이 없으면 안 담고 False"""
+    if not q.get("price"):
+        return False
+    prev = cache.get_stale(f"price:{sym}") or {}
+    cache.set(f"price:{sym}", {**prev, **{k: v for k, v in q.items() if v is not None}}, ttl)
+    return True
+
+
 async def _refresh_watched_once() -> tuple[int, int]:
     """보고 있는 종목을 한 번 갱신하고 (성공, 시도) 를 돌려준다"""
     pairs = watched.snapshot()
@@ -602,10 +576,7 @@ async def _refresh_watched_once() -> tuple[int, int]:
             else:
                 health.record_fail("네이버 시세", f"{len(kr_codes)}종목 모두 실패")
             for code6, q in data.items():
-                # 가격만 새로 받았으므로 기존 값(시가총액·PER 등) 위에 덮어쓴다
-                for key in (code6, f"{code6}.KS", f"{code6}.KQ"):
-                    prev = cache.get_stale(f"price:{key}") or {}
-                    cache.set(f"price:{key}", {**prev, **q, "symbol": prev.get("symbol") or q["symbol"]}, ttl)
+                _국내시세_담기(code6, q, ttl)
                 ok += 1
             if len(data) < len(kr_codes):
                 log.warning(f"실시간 국내 시세 일부 실패: {len(data)}/{len(kr_codes)}")
@@ -637,16 +608,128 @@ async def _refresh_watched_once() -> tuple[int, int]:
                 # 예전에는 여기서 조용히 넘어가 몇 시간 된 값이 계속 나갔다
                 log.warning(f"실시간 해외 시세 응답 없음 ({len(us_syms)}종목) — 배치·단건 모두 실패")
             for sym, q in data.items():
-                if not q.get("price"):
-                    continue
-                prev = cache.get_stale(f"price:{sym}") or {}
-                cache.set(f"price:{sym}", {**prev, **{k: v for k, v in q.items() if v is not None}}, ttl)
-                ok += 1
+                if _해외시세_담기(sym, q, ttl):
+                    ok += 1
         except Exception as e:
             health.record_fail("야후 시세", f"{type(e).__name__}: {e}")
             log.warning(f"실시간 해외 시세 갱신 실패: {type(e).__name__}: {e}")
 
     return ok, len(kr_codes) + len(us_syms)
+
+
+# ── 가격 알림 종목 ─────────────────────────────────────────
+#
+# 알림 확인(alert_checker.확인하기)은 이미 받아 둔 price 캐시만 읽는다. 그런데 시세를 새로
+# 받는 종목은 국내 인기 10종목·미국 S&P500·지금 누가 화면에 띄운 종목뿐이었다(보유·관심
+# 종목을 돌며 받던 refresh_held_symbols 는 진작 뺐다). 그래서 에코프로에 알림을 걸고 앱을
+# 닫으면, 아무도 그 종목을 안 보는 동안 값이 멈춰 알림이 영영 안 울렸다.
+#
+# 켜진 알림이 걸린 종목만 1분마다 받는다. 다른 루프가 그사이 받은 종목은 건너뛰고,
+# 장이 닫힌 시장은 값이 안 변하므로 받지 않는다.
+
+#: 알림 확인 간격(초). 주기 갱신 루프 안에 있을 때는 그 루프가 작업을 차례로 기다려 한 바퀴가
+#  몇 분까지 늘어, '30초' 가 이름뿐이었다 — 따로 돈다.
+알림_확인_간격 = 30
+#: 알림 종목 시세를 다시 받는 간격(초). 이보다 최근에 누가(보는 종목 루프 등) 받은 값이면 그대로 쓴다.
+알림시세_간격 = 60
+#: 한 차례에 받는 최대 종목 수(시장마다). 국내는 종목당 1요청이다 — 초당 상한(MAX_REQ_PER_SEC=8)이면
+#  60초에 480건인데 보는 종목 루프와 나눠 쓰므로 절반 아래로. 넘치면 가장 오래 묵은 것부터 받는다.
+알림시세_한번에 = 200
+
+#: 국내 종목 코드 — 6자리(새 코드는 영문이 섞인다: 0091C0 등), 꼬리(.KS·.KQ)는 있어도 없어도
+_국내코드 = re.compile(r"^[0-9][0-9A-Z]{5}(\.K[SQ])?$")
+
+
+def _알림_받을종목(쌍, 국내장: bool, 미국장: bool, 나이=None) -> tuple[list[str], list[str]]:
+    """켜진 알림의 (종목, 시장) 중 지금 받을 것 — (국내 6자리 코드들, 해외 기호들).
+
+    국내 상장 ETF 는 시장이 'ETF' 로 와도 코드가 6자리라 국내로 받는다(야후에 물으면 없는 기호다)."""
+    나이 = 나이 or cache.age
+    국내: dict[str, float] = {}
+    해외: dict[str, float] = {}
+    for sym, mkt in 쌍:
+        sym = (sym or "").strip().upper()
+        if not sym:
+            continue
+        if mkt == "KR" or _국내코드.match(sym):
+            if not 국내장:
+                continue
+            code6 = sym.split(".")[0]
+            나이들 = [나이(f"price:{k}") for k in (code6, f"{code6}.KS", f"{code6}.KQ")]
+            묵음 = min((n for n in 나이들 if n is not None), default=None)
+            칸, 이름 = 국내, code6
+        else:
+            if not 미국장:
+                continue
+            묵음 = 나이(f"price:{sym}")
+            칸, 이름 = 해외, sym
+        if 묵음 is not None and 묵음 < 알림시세_간격 - 5:
+            continue                      # 1분 안에 누가 받았다 — 그 값으로 확인한다
+        칸[이름] = float("inf") if 묵음 is None else 묵음
+
+    def 오래된것부터(칸: dict[str, float]) -> list[str]:
+        return [k for k, _ in sorted(칸.items(), key=lambda kv: -kv[1])][:알림시세_한번에]
+    return 오래된것부터(국내), 오래된것부터(해외)
+
+
+async def 알림종목_시세_받기() -> tuple[int, int]:
+    """켜진 알림이 걸린 종목 중 시세가 묵은 것을 받는다. (받은 수, 받으려던 수) 를 돌려준다."""
+    국내장 = market_hours.kr_session() != "closed"
+    미국장 = market_hours.us_session() != "closed"
+    if not (국내장 or 미국장):
+        return 0, 0
+    from app.services.alert_checker import 켜진_알림종목
+    쌍 = await asyncio.to_thread(켜진_알림종목)
+    if not 쌍:
+        return 0, 0
+    kr_codes, us_syms = _알림_받을종목(쌍, 국내장, 미국장)
+    if not (kr_codes or us_syms):
+        return 0, 0
+
+    ttl = 알림시세_간격 * _WATCH_TTL_MULTIPLIER
+    ok = 0
+    _t = time.monotonic()
+    try:
+        if kr_codes:
+            for code6, q in (await fetch_naver_prices_light(kr_codes)).items():
+                _국내시세_담기(code6, q, ttl)
+                ok += 1
+        if us_syms:
+            data, _ = await fetch_yf_quotes_with_fallback(us_syms)
+            for sym, q in data.items():
+                if _해외시세_담기(sym, q, ttl):
+                    ok += 1
+    except Exception as e:
+        health.record_fail("가격 알림 시세", f"{type(e).__name__}: {e}")
+        log.warning("가격 알림 종목 시세 실패: %s", type(e).__name__)
+        return ok, len(kr_codes) + len(us_syms)
+
+    받으려던 = len(kr_codes) + len(us_syms)
+    if ok:
+        health.record_ok("가격 알림 시세", (time.monotonic() - _t) * 1000, f"{ok}/{받으려던}종목")
+    else:
+        health.record_fail("가격 알림 시세", f"{받으려던}종목 모두 실패")
+    return ok, 받으려던
+
+
+async def 가격알림_루프():
+    """알림 종목 시세를 받고 → 걸어 둔 알림을 확인한다. 벽시계로 간격을 맞춘다(작업 시간이 쌓이지 않게).
+
+    서버가 막 떴을 때는 한 간격 쉬고 시작한다 — 깨운 사람의 첫 화면과 부딪치지 않게."""
+    log.info("가격 알림 루프 시작")
+    await asyncio.sleep(알림_확인_간격)
+    while True:
+        시작 = time.monotonic()
+        try:
+            await 알림종목_시세_받기()
+        except Exception as e:
+            log.warning("가격 알림 종목 시세 건너뜀: %s", type(e).__name__)
+        try:
+            from app.services.alert_checker import 확인하기
+            await asyncio.get_running_loop().run_in_executor(None, 확인하기)
+        except Exception as e:
+            log.debug("가격 알림 확인 건너뜀: %s", type(e).__name__)
+        await asyncio.sleep(max(1.0, 알림_확인_간격 - (time.monotonic() - 시작)))
 
 
 async def refresh_watched_loop():
@@ -998,17 +1081,16 @@ async def periodic_refresh():
         if 방금깼나 or counter % 6 == 0:
             await refresh_exchange()
 
-        # 걸어 둔 가격 알림 (30초)
-        #
-        # 자주 봐야 뜻이 있는 일이다 — "8만원 되면 알려줘" 인데 5분 뒤에
-        # 알려 주면 이미 지나간 뒤다. 대신 값이 거의 안 든다: 새로
-        # 조회하지 않고 이미 받아 둔 시세 캐시만 읽는다.
-        if counter % 3 == 0:
+        # 걸어 둔 가격 알림은 가격알림_루프 가 따로 30초마다 본다 — 이 루프는 작업을 차례로
+        # 기다려 한 바퀴가 몇 분까지 늘어난다. "8만원 되면 알려줘" 를 5분 뒤에 알려 주면 이미 지나간 뒤다.
+
+        # 공모주 청약 아침 알림 (1분마다 살핀다 — 평일 8:40~10:00 에 하루 한 번만 보낸다)
+        if counter % 6 == 1:
             try:
-                from app.services.alert_checker import 확인하기
-                await asyncio.get_running_loop().run_in_executor(None, 확인하기)
+                from app.services import push_service
+                await asyncio.get_running_loop().run_in_executor(None, push_service.아침_챙기기)
             except Exception as e:
-                log.debug("가격 알림 확인 건너뜀: %s", type(e).__name__)
+                log.debug("공모주 아침 알림 건너뜀: %s", type(e).__name__)
 
         # 내 자산 하루치 기록 (15분)
         #
@@ -1201,4 +1283,5 @@ def start_background_tasks(app=None):
     _spawn(run_startup_prefetch(), "startup-prefetch")
     _spawn(periodic_refresh(), "periodic-refresh")
     _spawn(refresh_watched_loop(), "watched-prices")
-    log.info("스케줄러 시작됨 — 백그라운드 루프 3개")
+    _spawn(가격알림_루프(), "price-alerts")
+    log.info("스케줄러 시작됨 — 백그라운드 루프 4개")

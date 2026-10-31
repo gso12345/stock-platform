@@ -44,6 +44,9 @@ lxml==5.3.0
 # 서명 검증 라이브러리는 "해당 없음" 을 근거로 낡은 채 두지 않는다.
 # encode/decode 시그니처는 2.x 내내 그대로다.
 PyJWT==2.13.0
+# 웹 푸시의 메시지 암호화(RFC 8291)·VAPID 서명(ES256) — app/core/webpush.py.
+# pywebpush 는 끌고 오는 http-ece 에 휠이 없어(소스 빌드) 안 쓴다. 이건 abi3 휠이 있다.
+cryptography==50.0.2
 finance-datareader==0.9.202
 pykrx==1.0.45
 # 같은 이유로 고정한다. 0.x 로 열어 뒀는데 지금 최신은 1.6.0 이다 —

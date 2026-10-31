@@ -71,6 +71,11 @@ const DIVIDENDS = {
 const getHistory      = vi.fn(() => Promise.resolve({ points: [], days: 90 }));
 const getDividends    = vi.fn(() => Promise.resolve(DIVIDENDS));
 const getHoldingNews  = vi.fn(() => Promise.resolve({ items: [], covered: [], missing: [] }));
+const getTrades = vi.fn((..._a: unknown[]) => Promise.resolve({
+  year: 2026, years: [2026], items: [],
+  summary: { realized: 0, domestic: 0, overseas: 0, deduction: 2_500_000, taxable: 0, tax: 0, rate: 0.22 },
+}));
+const trade = vi.fn((..._a: unknown[]) => Promise.resolve({ trade: {}, item: null }));
 
 /* 시세 응답을 검사가 붙잡고 있다가 원할 때 놓아 준다.
    '배당은 시세가 온 뒤에 부른다' 는 순서를 보려면, 시세가 아직 안 온
@@ -113,6 +118,9 @@ vi.mock("@/api/stocks", () => ({
     getDividends:   (...a: unknown[]) => getDividends(...(a as [])),
     getHoldingNews: (...a: unknown[]) => getHoldingNews(...(a as [])),
     addItem: vi.fn(), updateItem: vi.fn(), deleteItem: vi.fn(),
+    getTrades: (...a: unknown[]) => getTrades(...(a as [])),
+    trade: (...a: unknown[]) => trade(...(a as [])),
+    deleteTrade: vi.fn(),
     createPortfolio: vi.fn(), renamePortfolio: vi.fn(),
     deletePortfolio: vi.fn(), reorderPortfolios: vi.fn(),
   },
@@ -143,6 +151,9 @@ vi.mock("@/hooks/useWebSocket", () => ({
 import Portfolio from "../Portfolio";
 import { 투자배당률, type 배당몫 } from "@/components/portfolio/HoldingRow";
 import type { EnrichedItem } from "@/types/portfolio";
+
+/** 맨 아래 '팔기' — 위의 '팔기' 는 팔기·더 사기 고르는 칸이다 */
+const 저장단추 = () => { const 다 = screen.getAllByRole("button", { name: "팔기" }); return 다[다.length - 1]; };
 
 function 그리기(설정: { gcTime?: number } = {}) {
   /* gcTime 0 은 이 파일의 기본이다 — 검사끼리 캐시가 새지 않게.
@@ -587,3 +598,62 @@ describe("탭을 누르기 전에 미리 받아 둔다", () => {
     expect(getHoldingNews).not.toHaveBeenCalled();
   }, 20_000);
 });
+
+
+describe("매매 — 사고판 기록·실현 손익·해외주식 양도세", () => {
+  it("'매매' 탭을 눌러야 그때 기록을 부른다", async () => {
+    그리기();
+    await 준비();
+    expect(getTrades).not.toHaveBeenCalled();
+    await userEvent.click(탭("매매"));
+    expect(await screen.findByText("해외주식 양도세 어림")).toBeInTheDocument();
+    expect(getTrades).toHaveBeenCalledTimes(1);
+  });
+
+  it("보유 줄마다 사고팔기 단추 — 누르면 그 종목의 창이 열리고 팔면 서버로 간다", async () => {
+    그리기();
+    await 준비();
+    await userEvent.click(screen.getAllByRole("button", { name: "삼성전자 사고팔기" })[0]);
+    const 창 = await screen.findByRole("heading", { name: "삼성전자 사고팔기" });
+    expect(창).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: "수량" }), "10");
+    expect(screen.getByText(/실현 손익/)).toBeInTheDocument();
+    // 위의 '팔기' 는 고르는 칸, 맨 아래가 저장 단추다
+    await userEvent.click(저장단추());
+    await waitFor(() => expect(trade).toHaveBeenCalledWith(1, expect.objectContaining({ side: "sell", shares: 10, fx: null })));
+  });
+
+  it("현금에는 사고팔기 단추가 없다 — 사고팔 종목이 아니다", async () => {
+    const { portfolioApi } = await import("@/api/stocks");
+    const 현금 = { id: 9, portfolioId: 1, portfolioName: "기본", symbol: "현금", market: "KR", name: "원화 현금",
+      shares: 1, avgPrice: 1_000_000, currency: "KRW", inputExchangeRate: null, purchaseDate: null, note: null,
+      assetClass: "현금" };
+    vi.mocked(portfolioApi.getItemsWithPrices).mockResolvedValue({ items: [...ITEMS, 현금], prices: [] } as any);
+    vi.mocked(portfolioApi.getItems).mockResolvedValue([...ITEMS, 현금] as any);
+    try {
+      그리기();
+      await 준비();
+      expect((await screen.findAllByText("원화 현금")).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole("button", { name: "삼성전자 사고팔기" }).length).toBeGreaterThan(0);
+      expect(screen.queryByRole("button", { name: "원화 현금 사고팔기" })).toBeNull();
+      // 카드로 봐도 같다(휴대폰은 카드가 기본이다)
+      await userEvent.click(screen.getByTitle("카드로 보기"));
+      expect(screen.getAllByRole("button", { name: "삼성전자 사고팔기" }).length).toBeGreaterThan(0);
+      expect(screen.queryByRole("button", { name: "원화 현금 사고팔기" })).toBeNull();
+    } finally {
+      vi.mocked(portfolioApi.getItemsWithPrices).mockResolvedValue({ items: ITEMS, prices: [] } as any);
+      vi.mocked(portfolioApi.getItems).mockResolvedValue(ITEMS as any);
+    }
+  });
+
+  it("로그인 전 예시에는 사고팔기 단추가 없고, 매매 탭은 무엇을 하는지 말한다", async () => {
+    로그인했나 = false;
+    그리기();
+    await screen.findByRole("tab", { name: "자산" }, { timeout: 8000 });
+    expect(screen.queryByRole("button", { name: /사고팔기/ })).toBeNull();
+    await userEvent.click(탭("매매"));
+    expect(screen.getByText("사고판 기록과 해외주식 양도세 어림")).toBeInTheDocument();
+    expect(getTrades).not.toHaveBeenCalled();
+  });
+});
+

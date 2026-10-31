@@ -9,7 +9,8 @@ from typing import Optional
 import logging
 
 from app.db.database import get_db
-from app.models.stock import Portfolio, PortfolioItem
+from app.models.stock import Portfolio, PortfolioItem, PortfolioTrade
+from app.services.portfolio import trades as 매매
 from app.models.user import User
 from app.core.deps import require_user
 from app.services.listings.ticker_service import get_display_name
@@ -494,6 +495,121 @@ def update_item(
     item.asset_class = req.asset_class
     db.commit()
     return _to_dict(item)
+
+
+# ── 사고판 기록 ─────────────────────────────────────────────────
+class 매매요청(BaseModel):
+    """보유 하나를 더 사거나 판다. 가격·수수료는 그 종목의 돈(원·달러), 환율은 원/달러"""
+    side: str = Field(..., pattern="^(buy|sell)$")
+    shares: float = Field(..., gt=0)
+    price: float = Field(..., ge=0)
+    fx: Optional[float] = Field(None, gt=0, lt=100_000)
+    fee: float = Field(0, ge=0)
+    trade_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    note: Optional[str] = Field(None, max_length=200)
+
+
+def _매매줄(t: PortfolioTrade) -> dict:
+    return {
+        "id": t.id, "portfolioId": t.portfolio_id, "itemId": t.item_id,
+        "symbol": t.symbol, "market": t.market, "name": t.name or t.symbol, "currency": t.currency,
+        "side": t.side, "shares": t.shares, "price": t.price, "fx": t.fx, "fee": t.fee or 0,
+        "avgCost": t.avg_cost, "avgFx": t.avg_fx, "realized": t.realized,
+        "tradeDate": t.trade_date, "note": t.note,
+        "overseas": 매매.해외인가(t.symbol, t.market),
+    }
+
+
+@router.post("/items/{item_id}/trade", status_code=201)
+def trade_item(
+    req: 매매요청,
+    item_id: int = Path(..., ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """더 사기·팔기 — 보유 수량·평단을 고치고, 사고판 기록을 남긴다. 다 팔면 보유는 지운다(기록은 남는다)."""
+    item = (
+        db.query(PortfolioItem)
+        .filter(PortfolioItem.id == item_id, PortfolioItem.user_id == current_user.id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다")
+    if item.currency == "USD" and not req.fx:
+        raise HTTPException(status_code=422, detail="달러 종목은 환율을 넣어 주세요")
+    날 = req.trade_date or datetime.now().strftime("%Y-%m-%d")
+    fx = req.fx if item.currency == "USD" else None
+    try:
+        if req.side == "sell":
+            값 = 매매.매도(item.shares, item.avg_price, item.input_exchange_rate, item.currency,
+                         req.shares, req.price, fx, req.fee)
+        else:
+            값 = 매매.매수(item.shares, item.avg_price, item.input_exchange_rate, item.currency,
+                         req.shares, req.price, fx, req.fee)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    기록 = PortfolioTrade(
+        user_id=current_user.id, portfolio_id=item.portfolio_id, item_id=item.id,
+        symbol=item.symbol, market=item.market,
+        name=get_display_name(item.symbol, item.market, item.name or item.symbol),
+        currency=item.currency, side=req.side, shares=req.shares, price=req.price, fx=fx, fee=req.fee,
+        trade_date=날, note=req.note,
+    )
+    남음 = True
+    if req.side == "sell":
+        기록.avg_cost, 기록.avg_fx, 기록.realized = 값["avg_cost"], 값["avg_fx"], 값["realized"]
+        if 값["남은수"] <= 0:
+            db.delete(item)
+            남음 = False
+        else:
+            item.shares = 값["남은수"]
+    else:
+        item.shares, item.avg_price = 값["shares"], 값["avg_price"]
+        if item.currency == "USD":
+            item.input_exchange_rate = 값["input_exchange_rate"]
+    db.add(기록)
+    db.commit()
+    db.refresh(기록)
+    return {"trade": _매매줄(기록), "item": _to_dict(item) if 남음 else None}
+
+
+@router.get("/trades")
+def list_trades(
+    year: Optional[int] = Query(None, ge=1990, le=2200),
+    portfolio_id: Optional[int] = Query(None, ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """그해 사고판 기록과 실현 손익·해외주식 양도세 어림. 해를 안 주면 올해.
+
+    years — 기록이 있는 해들(고르는 칸). 양도세는 사람마다(계좌·포트폴리오를 가리지 않고) 한 해를 합쳐
+    내므로, summary 의 세금은 포트폴리오를 골라도 **그 사람 전체**로 센다."""
+    해 = year or datetime.now().year
+    q = db.query(PortfolioTrade).filter(PortfolioTrade.user_id == current_user.id)
+    해들 = sorted({int(d[:4]) for (d,) in q.with_entities(PortfolioTrade.trade_date).all() if d}, reverse=True)
+    그해 = q.filter(PortfolioTrade.trade_date >= f"{해}-01-01", PortfolioTrade.trade_date <= f"{해}-12-31")
+    전체줄 = 그해.order_by(PortfolioTrade.trade_date.desc(), PortfolioTrade.id.desc()).all()
+    보일줄 = [t for t in 전체줄 if portfolio_id is None or t.portfolio_id == portfolio_id]
+    판것 = [{"symbol": t.symbol, "market": t.market, "realized": t.realized} for t in 전체줄 if t.side == "sell"]
+    return {"year": 해, "years": 해들 or [해], "items": [_매매줄(t) for t in 보일줄],
+            "summary": 매매.한해_요약(판것)}
+
+
+@router.delete("/trades/{trade_id}")
+def delete_trade(
+    trade_id: int = Path(..., ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """기록만 지운다 — 보유 수량은 그대로다(잘못 넣은 기록을 지울 때. 수량은 종목 고치기로)"""
+    n = (db.query(PortfolioTrade)
+         .filter(PortfolioTrade.id == trade_id, PortfolioTrade.user_id == current_user.id)
+         .delete(synchronize_session=False))
+    db.commit()
+    if not n:
+        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다")
+    return {"message": "삭제 완료"}
 
 
 @router.get("/public/{user_id}")

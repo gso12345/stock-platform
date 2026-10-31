@@ -21,16 +21,18 @@ from app.api.routes import community
 from app.api.routes import clienterr
 from app.api.routes import alerts
 from app.api.routes import ipo as ipo_routes
+from app.api.routes import push as push_routes
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
     AnalystCache, ForecastsCache, DisclosuresCache, DartCorpMapCache,
     QuantScoreWeight, QuantPercentileCache, KrTicker, UsTicker,
-    MetricsHistoryCache, PriceAlert, PortfolioSnapshot,
+    MetricsHistoryCache, PriceAlert, PortfolioSnapshot, PortfolioTrade,
 )
 from app.models.community import StockPost, StockPostLike, StockComment, StockCommentLike, UserProfile, UserFollow, StockPostPollVote, SitePopup, Report  # noqa: F401
 from app.models.admin_log import AdminLog  # noqa: F401  — 관리자 행위 기록 테이블 생성 보장
 from app.models.usage import UsageCounter  # noqa: F401  — 검색·기능별 사용 통계 테이블 생성 보장
+from app.models.push import PushSubscription, PushKey  # noqa: F401  — 웹 푸시 구독·열쇠 테이블 생성 보장
 from app.api.websocket.price_stream import stream_prices, stream_indices, MAX_STREAM_SYMBOLS
 from app.services.scheduler import start_background_tasks
 
@@ -685,6 +687,8 @@ app.include_router(clienterr.router,    prefix="/api/v1")
 app.include_router(alerts.router,       prefix="/api/v1")
 # 공모주 — 상장일 시초가 예측
 app.include_router(ipo_routes.router,   prefix="/api/v1")
+# 웹 푸시 — 앱을 닫아도 알림이 휴대폰에
+app.include_router(push_routes.router,  prefix="/api/v1")
 
 
 @app.websocket("/ws/indices")

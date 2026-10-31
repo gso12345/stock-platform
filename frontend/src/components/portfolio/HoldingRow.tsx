@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { MarketBadge, ChangeBadge } from "@/components/ui";
-import { Pencil, Trash2, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { Pencil, Trash2, ChevronDown, ChevronUp, ChevronsUpDown, ArrowLeftRight } from "lucide-react";
 /* 현재가는 가리지 않으므로 원본 포맷터를 그대로 쓴다 — 남들도 다 아는
    값이고, 여기까지 가리면 목록이 읽을 수 없게만 되고 지켜지는 건 없다 */
 import { fmtNative, fmtKRWFull, fmtUSDFull } from "@/utils/formatters";
@@ -90,6 +90,8 @@ export interface HoldingRowProps {
   onNavigate: (item: EnrichedItem) => void;
   onEdit: (item: EnrichedItem) => void;
   onDelete: (item: EnrichedItem) => void;
+  /** 팔기·더 사기 — 주면 단추가 생긴다(현금 같은 것은 안 준다) */
+  onTrade?: (item: EnrichedItem) => void;
   onPrefetch: (item: EnrichedItem) => void;
 }
 
@@ -97,7 +99,7 @@ export const fmtShares = (n: number) => (n % 1 === 0 ? n.toLocaleString() : n.to
 
 export const HoldingCard = memo(function HoldingCard({
   item, hasPrice, pnlClass, showAsNative, exchangeRate, isAllView, isLoggedIn, 배당,
-  onNavigate, onEdit, onDelete, onPrefetch,
+  onNavigate, onEdit, onDelete, onTrade, onPrefetch,
 }: HoldingRowProps) {
   const { isForexItem, nativeAvgPrice, nativeValue, nativePnl } = item;
   const 돈 = use돈();
@@ -202,6 +204,12 @@ export const HoldingCard = memo(function HoldingCard({
       {/* 수정·삭제는 맨 아래로. 위에 두면 종목명 옆의 시세 자리를 뺏는다 */}
       {isLoggedIn && (
         <div className="flex items-center gap-1 justify-end -mt-1" onClick={(e) => e.stopPropagation()}>
+          {onTrade && (
+            <button onClick={() => onTrade(item)} aria-label={`${item.name || item.symbol} 사고팔기`}
+              className="p-1.5 rounded-lg text-text-dim hover:text-accent-green hover:bg-accent-green/10 transition-colors" title="사고팔기">
+              <ArrowLeftRight size={13} />
+            </button>
+          )}
           <button onClick={() => onEdit(item)} aria-label={`${item.name || item.symbol} 수정`}
             className="p-1.5 rounded-lg text-text-dim hover:text-accent-blue hover:bg-accent-blue/10 transition-colors" title="수정">
             <Pencil size={13} />
@@ -218,7 +226,7 @@ export const HoldingCard = memo(function HoldingCard({
 
 export const HoldingTableRow = memo(function HoldingTableRow({
   item, hasPrice, pnlClass, showAsNative, exchangeRate, isAllView, isLoggedIn, 배당,
-  onNavigate, onEdit, onDelete, onPrefetch,
+  onNavigate, onEdit, onDelete, onTrade, onPrefetch,
 }: HoldingRowProps) {
   const { isForexItem, nativeAvgPrice, nativeValue, nativePnl } = item;
   const 돈 = use돈();
@@ -301,6 +309,12 @@ export const HoldingTableRow = memo(function HoldingTableRow({
       <td className="px-3 py-2.5 whitespace-nowrap">
         {isLoggedIn && (
           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+            {onTrade && (
+              <button onClick={() => onTrade(item)} aria-label={`${item.name || item.symbol} 사고팔기`}
+                className="p-1.5 rounded-lg text-accent-green bg-accent-green/15 hover:bg-accent-green/25 transition-colors" title="사고팔기">
+                <ArrowLeftRight size={13} />
+              </button>
+            )}
             <button onClick={() => onEdit(item)}
               className="p-1.5 rounded-lg text-accent-blue bg-accent-blue/15 hover:bg-accent-blue/25 transition-colors" title="수정">
               <Pencil size={13} />

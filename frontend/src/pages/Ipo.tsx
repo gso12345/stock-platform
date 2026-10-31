@@ -11,7 +11,7 @@
  * 넓은 화면에서는 계산기를 오른쪽에 붙여 두고(따라 내려온다), 좁은 화면에서는
  * 목록 아래로 내린다. 카드의 '이 숫자로 직접 바꿔 보기' 를 누르면 그리로 간다.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Rocket, RefreshCw } from "lucide-react";
 import { Card, RowSkeleton, 못불러옴, 빈화면 } from "@/components/ui";
@@ -20,9 +20,11 @@ import IpoCard from "@/components/ipo/IpoCard";
 import IpoCalculator from "@/components/ipo/IpoCalculator";
 import IpoRecent from "@/components/ipo/IpoRecent";
 import IpoBrokerFilter from "@/components/ipo/IpoBrokerFilter";
+import { 공모주구독단추 } from "@/components/ipo/IpoCalendar";
 import { 청약일순 } from "@/components/ipo/ipoSchedule";
 import { 증권사들, 내증권사공모주 } from "@/components/ipo/ipoBrokers";
 import { useSettingsStore } from "@/store/settingsStore";
+import { 푸시설정맞추기 } from "@/hooks/useWebPush";
 
 /** '2026-10-09T14:30:12+09:00' → '10.9 14:30' (서버가 한국 시각으로 준다) */
 function 기준시각(iso: string | null): string | null {
@@ -55,7 +57,7 @@ function 어떻게예측하나() {
           <li>2023년 6월 26일 이후 상장한 공모주만 써요. 이날부터 상장 첫날 가격이 공모가의 60%~400% 안에서 움직여요(그 전에는 시초가가 2배에서 막혀 있었어요).</li>
           <li>기관경쟁률·의무보유확약·청약경쟁률, 공모가가 희망밴드 어디쯤에서 정해졌는지, 공모금액, 최근 공모주 분위기가 가까운 과거 공모주 8곳을 찾아요.</li>
           <li>그 공모주들이 실제로 시작한 가격과, 같은 항목으로 세운 통계 모델의 값을 가운데로 맞춰 예상 시초가를 내요. 범위는 그 공모주들 가운데 절반이 시작한 구간이에요.</li>
-          <li>공모주 시장 분위기는 몇 달 사이에도 확 바뀌어요. 그래서 분위기를 직전 10곳 평균으로 보는지 요즘 상장한 곳일수록 크게 보는지, 직전 3곳이 예측보다 높게(낮게) 시작했으면 그 차이의 절반만큼 올려(내려) 잡는 ‘최근 오차 보정’을 쓰는지, 상장일 유통물량·균등 배정 수량·구주매출 비중까지 견주는지를 엮은 여덟 방식을 모두 지난 공모주에 맞혀 봐요. 그중 직전 40곳에서 가장 잘 맞아 온 방식으로 예측해요.</li>
+          <li>공모주 시장 분위기는 몇 달 사이에도 확 바뀌어요. 그래서 분위기를 직전 10곳 평균으로 보는지 요즘 상장한 곳일수록 크게 보는지, 직전 3곳이 예측보다 높게(낮게) 시작했으면 그 차이의 절반만큼 올려(내려) 잡는 ‘최근 오차 보정’을 쓰는지, 상장일 유통물량·균등 배정 수량·구주매출 비중까지 견주는지를 엮은 여덟 방식에, 직전 8곳의 차이를 모두 반영하는 ‘넓게 보는 보정’과 나머지 방식들의 예측을 평균하는 ‘여러 방식의 평균’까지 열 방식을 모두 지난 공모주에 맞혀 봐요. 그중 직전 40곳에서 가장 잘 맞아 온 방식으로 예측해요.</li>
           <li>‘최근 상장’의 맞힘(✓)은 실제 시초가가 예측가에서 얼마나 벗어났는지(%)로 재요. 수익률 %p로 재면 많이 오른 공모주일수록 차이가 커 보여요 — +270%와 +300%는 30%p 차이지만 값으로는 8% 차이예요.</li>
           <li>스팩·리츠는 성격이 달라 저희끼리만 견줘요.</li>
           <li>유통물량·균등 배정 수량은 공모주 상세 페이지에서 읽혔을 때만 견줘요. 상장일 장 분위기와 장 시작 전 주문은 넣지 못했어요.</li>
@@ -86,6 +88,13 @@ export default function Ipo() {
   const 계산기자리 = useRef<HTMLDivElement>(null);
   const 고른증권사 = useSettingsStore((s) => s.내증권사);
   const 비우기 = useSettingsStore((s) => s.set내증권사);
+  // 휴대폰 알림을 켜 둔 기기면, 고른 증권사를 서버에도 알린다 — 청약 아침 알림이 그 증권사 것만 오게.
+  // 처음 열 때는 안 부른다(바뀐 때만)
+  const 처음 = useRef(true);
+  useEffect(() => {
+    if (처음.current) { 처음.current = false; return; }
+    void 푸시설정맞추기(고른증권사);
+  }, [고른증권사]);
   const 바꿔보기 = (v: 공모주직접입력) => {
     set계산기값({ ...v });
     계산기자리.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
@@ -120,11 +129,14 @@ export default function Ipo() {
                     {고른증권사.length ? `${보일것.length} / ${다가옴.length}` : 다가옴.length}
                   </span>
                 </h2>
-                {시각 && (
-                  <span className="text-2xs text-text-dim">
-                    {시각} 기준{data.refreshing ? " · 새로 받는 중" : ""}
-                  </span>
-                )}
+                <div className="flex items-baseline gap-3 shrink-0">
+                  {시각 && (
+                    <span className="text-2xs text-text-dim">
+                      {시각} 기준{data.refreshing ? " · 새로 받는 중" : ""}
+                    </span>
+                  )}
+                  <공모주구독단추 증권사={고른증권사} />
+                </div>
               </div>
               <IpoBrokerFilter 주관사칸들={다가옴.map((g) => g.underwriter)} 보이는수={보일것.length} 모름수={모름수} />
               {보일것.length ? (

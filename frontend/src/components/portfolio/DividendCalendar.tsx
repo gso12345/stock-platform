@@ -26,7 +26,8 @@
  *      날짜를 모른다 — 지어내지 않는다.
  */
 import { useMemo, useState } from "react";
-import { CalendarDays, ChevronDown } from "lucide-react";
+import { CalendarDays, CalendarPlus, ChevronDown } from "lucide-react";
+import { ics만들기, ics받기, type 일정 } from "@/utils/캘린더";
 import { type 배당줄 } from "@/api/stocks";
 import { use배당달력 } from "@/hooks/useDividendCalendar";
 import { Card, 못불러옴 } from "@/components/ui";
@@ -474,6 +475,68 @@ export function 원본돈(v: number, currency?: string): string {
   return `$${v.toFixed(자리)}`;
 }
 
+/** 오늘(이 기기 날짜) 'YYYY-MM-DD' */
+function 오늘글(오늘: Date): string {
+  const 두 = (n: number) => String(n).padStart(2, "0");
+  return `${오늘.getFullYear()}-${두(오늘.getMonth() + 1)}-${두(오늘.getDate())}`;
+}
+
+/** 캘린더에 넣을 배당 일정 — **공시된 날짜만**(기준일·입금일). 지난 주기로 미뤄 본 날짜는 '10월 초' 처럼
+ *  뭉개서 보여 주는 값이라 캘린더에 하루로 박으면 확정처럼 보인다 — 빼고 몇 곳인지 센다 */
+export function 배당일정들(줄들: 배당줄[], 오늘: Date = new Date()): { 일정들: 일정[]; 빠진수: number } {
+  const 오늘날 = 오늘글(오늘);
+  const 일정들: 일정[] = [];
+  let 빠진수 = 0;
+  for (const r of 줄들) {
+    const 돈 = r.expected != null && r.expected > 0
+      ? `받을 돈(세전) 약 ${r.currency === "USD" ? `$${r.expected.toFixed(2)}` : `${Math.round(r.expected).toLocaleString("ko-KR")}원`}`
+      : null;
+    const 열쇠 = `div-${r.market}-${r.symbol}`.replace(/[^A-Za-z0-9.-]/g, "");
+    let 넣음 = false;
+    if (r.confirmed && r.date >= 오늘날) {
+      일정들.push({ 제목: `[배당 기준일] ${r.name}`, 시작: r.date, 고유: `${열쇠}-${r.date}-rec`,
+        설명: ["그날까지 갖고 있어야 이번 배당을 받아요.", 돈].filter(Boolean).join("\n") });
+      넣음 = true;
+    }
+    if (r.pay_date && r.pay_date >= 오늘날) {
+      일정들.push({ 제목: `[배당 입금] ${r.name}`, 시작: r.pay_date, 고유: `${열쇠}-${r.pay_date}-pay`,
+        설명: 돈 ?? undefined });
+      넣음 = true;
+    }
+    if (!넣음 && !r.confirmed && r.date >= 오늘날) 빠진수 += 1;
+  }
+  일정들.sort((a, b) => a.시작.localeCompare(b.시작));
+  return { 일정들, 빠진수 };
+}
+
+/** 배당 일정을 캘린더 파일로 — 배당 달력 머리에 붙는다 */
+function 배당캘린더단추({ 줄들, 이름 }: { 줄들: 배당줄[]; 이름?: string }) {
+  const [알림, set알림] = useState<string | null>(null);
+  const { 일정들, 빠진수 } = useMemo(() => 배당일정들(줄들), [줄들]);
+  const 받기 = () => {
+    if (!일정들.length) {
+      set알림(빠진수 ? `공시된 배당 날짜가 아직 없어요(예상 날짜 ${빠진수}곳은 공시되면 넣을 수 있어요)` : "앞으로 남은 배당 날짜가 없어요");
+      return;
+    }
+    ics받기("dividends.ics", ics만들기(일정들, 이름 ? `배당 · ${이름}` : "배당 일정"));
+    set알림(`${일정들.length}개 일정을 받았어요${빠진수 ? ` · 예상 날짜 ${빠진수}곳은 공시되면 다시 받으세요` : ""}`);
+  };
+  return (
+    <span className="relative inline-flex">
+      <button type="button" onClick={받기} title="공시된 기준일·입금일을 캘린더 파일로 받아요(아이폰·삼성·아웃룩)"
+        className="inline-flex items-center gap-0.5 text-2xs font-semibold text-text-muted hover:text-accent-green">
+        <CalendarPlus size={11} />캘린더
+      </button>
+      {알림 && (
+        <span role="status" className="absolute right-0 top-full mt-1 z-10 w-60 rounded-lg border border-border bg-bg-elevated px-2.5 py-1.5 text-2xs text-text-secondary shadow-float break-keep"
+          onClick={() => set알림(null)}>
+          {알림}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function DividendCalendar({ portfolioId, 이름, 보유, 미리보기 }: {
   /** 지금 보고 있는 포트폴리오. 없으면(전체 보기) 가진 것 전부 */
   portfolioId?: number;
@@ -579,9 +642,11 @@ export default function DividendCalendar({ portfolioId, 이름, 보유, 미리�
         {/* 탭을 바꾸면 목록도 바뀐다. 무엇의 배당인지 안 적으면
             '왜 아까랑 다르지' 가 된다 */}
         {이름 && <span className="text-2xs text-text-dim truncate">{이름}</span>}
-        {아직 > 0 && (
-          <span className="text-2xs text-text-dim ml-auto shrink-0">{아직}개 확인 중</span>
-        )}
+        <span className="ml-auto shrink-0 flex items-center gap-2">
+          {아직 > 0 && <span className="text-2xs text-text-dim">{아직}개 확인 중</span>}
+          {/* 예시(로그인 전)에는 안 붙인다 — 내 종목이 아니다 */}
+          {!미리보기 && 줄들.length > 0 && <배당캘린더단추 줄들={줄들} 이름={이름} />}
+        </span>
       </div>
       {속}
     </Card>

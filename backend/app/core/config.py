@@ -105,3 +105,10 @@ if settings.SECRET_KEY == _PLACEHOLDER:
         log.error("[보안] %s", _SECRET_KEY_안내)
     else:
         log.warning("SECRET_KEY가 기본값입니다. 개발 환경이므로 DATABASE_URL로부터 임시 키를 만듭니다.")
+
+
+def 앱주소() -> str:
+    """사람이 여는 화면의 주소(https) — FRONTEND_URL 은 CORS 용으로 여럿을 쉼표로 잇는다(로컬·배포).
+    캘린더 일정의 '예측 보러 가기'·웹 푸시의 연락처처럼 바깥에 적는 곳은 배포 주소 하나여야 한다."""
+    후보 = [u.strip() for u in (settings.FRONTEND_URL or "").split(",") if u.strip()]
+    return next((u for u in 후보 if u.startswith("https://")), 후보[0] if 후보 else "").rstrip("/")

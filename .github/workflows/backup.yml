@@ -1,0 +1,66 @@
+## 하루 한 번 DB 를 통째로 받아 암호화해 둔다 — GitHub 아티팩트(30일 보관).
+##
+## 회원·내 자산·관심종목·글·사고판 기록이 Supabase 무료 DB 에 있다. 무료 요금제는 백업을 내려받을 수
+## 없어서, 실수 한 번·사고 한 번이면 되돌릴 길이 없었다.
+##
+## 켜는 법 — 저장소 Settings › Secrets and variables › Actions › New repository secret 에 둘을 넣는다:
+##   DATABASE_URL       Render 의 DATABASE_URL 과 같은 값. Supabase 는 'Session pooler'(포트 5432) 주소를
+##                      쓴다 — 'Transaction pooler'(6543)로는 pg_dump 가 안 된다
+##   BACKUP_PASSPHRASE  백업 파일을 여는 암호(길게). 잃어버리면 백업도 못 연다 — 따로 적어 두세요
+## 둘 중 하나라도 없으면 안내만 남기고 끝난다(실패로 띄우지 않는다). 넣은 뒤 Actions › DB 백업 ›
+## Run workflow 로 바로 한 번 돌려 볼 수 있다.
+##
+## 저장소가 공개라 아티팩트는 누구나 받을 수 있다 — 그래서 반드시 암호화한다(gpg AES256).
+## 받는 일은 .github/scripts/db_backup.sh — 받은 뒤 실제로 풀어 끝까지 읽히는지까지 본다.
+##
+## 되살리기
+##   1) Actions › DB 백업 › 실행 하나 › Artifacts 에서 db-backup-… 을 받아 푼다(zip)
+##   2) gpg -d db.sql.gz.gpg | gunzip | psql "<되살릴 DB 주소>"
+name: DB 백업
+
+on:
+  schedule:
+    - cron: '23 18 * * *'      # 한국 시각 새벽 3:23 — 쓰는 사람이 거의 없을 때
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: 백업
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: 비밀값 확인
+        id: check
+        run: |
+          if [ -z "$DATABASE_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::notice title=DB 백업을 건너뜀::저장소 비밀값 DATABASE_URL 과 BACKUP_PASSPHRASE 를 넣으면 하루 한 번 백업해요(backup.yml 맨 위 설명)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.enabled == 'true'
+
+      - name: 받기·암호화·확인
+        if: steps.check.outputs.enabled == 'true'
+        run: bash .github/scripts/db_backup.sh db.sql.gz.gpg
+
+      - uses: actions/upload-artifact@v4
+        if: steps.check.outputs.enabled == 'true'
+        with:
+          name: db-backup-${{ github.run_number }}
+          path: db.sql.gz.gpg
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 0       # 이미 압축·암호화돼 있다

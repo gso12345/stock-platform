@@ -32,11 +32,12 @@
  * 준 결과는 캐시에 직접 넣는다.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, BellRing, Check, Pencil, Trash2, X } from "lucide-react";
 import { alertsApi, type 가격알림 } from "@/api/stocks";
 import { 사람말로 } from "@/api/queryError";
+import { use휴대폰알림켜짐 } from "@/hooks/useWebPush";
 
 /** 알림 목록은 종목마다 따로 안 받는다 — 이 열쇠 하나를 온 화면이 같이 쓴다 */
 export const 알림열쇠 = ["price-alerts", "all"] as const;
@@ -76,6 +77,7 @@ export default function AlertButton({
   const [방향, set방향] = useState<"above" | "below">("above");
   const [목표, set목표] = useState("");
   const [말, set말] = useState("");
+  const 휴대폰켜짐 = use휴대폰알림켜짐(열림);
   /** 지금 고치고 있는 알림 id. null 이면 아무것도 안 고치는 중 */
   const [고치는것, set고치는것] = useState<number | null>(null);
   const [고친값, set고친값] = useState("");
@@ -391,6 +393,12 @@ export default function AlertButton({
           </div>
 
           {말 && <p className="px-3 py-2 text-2xs text-text-muted border-t border-border">{말}</p>}
+          {/* 알림은 앱 안의 종에 쌓인다. 앱을 닫고 기다리려면 휴대폰 알림을 켜야 한다 — 건 그 자리에서 알려 준다 */}
+          {말 === "알림을 걸었어요" && 휴대폰켜짐 === false && (
+            <Link to="/notifications" className="block px-3 pb-2 text-2xs font-semibold text-accent-blue hover:underline">
+              앱을 닫아도 받으려면 휴대폰 알림을 켜 주세요 ›
+            </Link>
+          )}
         </div>
       )}
     </div>

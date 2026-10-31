@@ -2,12 +2,12 @@
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel, Field, model_validator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from app.services import ipo_service
+from app.services import ipo_calendar, ipo_service
 
 router = APIRouter(prefix="/ipo", tags=["공모주"])
 limiter = Limiter(key_func=get_remote_address)
@@ -21,6 +21,26 @@ async def ipo_overview():
     뒤에서 새로 받기 시작하고(refreshing), 이번 응답은 가진 것으로 한다."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, ipo_service.한눈에)
+
+
+@router.get("/calendar.ics")
+@limiter.limit("60/minute")
+async def ipo_calendar_ics(
+    request: Request,
+    name: Optional[str] = Query(None, max_length=100, description="이 공모주 일정만"),
+    brokers: Optional[str] = Query(None, max_length=300, description="쉼표로 이은 증권사 — 그 증권사가 주관하는 공모주만"),
+):
+    """청약·상장 일정을 iCalendar 로 — 캘린더 앱이 구독(webcal)하거나 한 곳만 받아 넣는다.
+
+    로그인 없이 받는다. 캘린더 앱은 우리 로그인을 들고 오지 못하고, 공모주 일정은 누구나 보는 자료다."""
+    증권사 = [b.strip() for b in (brokers or "").split(",") if b.strip()][:20]
+    loop = asyncio.get_running_loop()
+    글 = await loop.run_in_executor(None, ipo_calendar.달력, name, 증권사)
+    return Response(글, media_type="text/calendar; charset=utf-8", headers={
+        # 한 곳만 받을 때는 파일로(휴대폰은 '캘린더에 추가' 를 띄운다), 구독은 그대로 읽게
+        "Content-Disposition": f'{"attachment" if name else "inline"}; filename="ipo.ics"',
+        "Cache-Control": "public, max-age=1800",
+    })
 
 
 class 직접예측(BaseModel):

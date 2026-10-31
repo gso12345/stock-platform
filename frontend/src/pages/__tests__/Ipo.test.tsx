@@ -341,7 +341,9 @@ describe("공모주 — 최근 상장", () => {
     await 사용자.click(screen.getByRole("button", { name: "접기" }));
     expect(screen.queryByRole("table")).toBeNull();
     // '어떻게 예측하나요?' 에도 같은 이야기를 적는다
-    expect(screen.getByText(/여덟 방식을 모두 지난 공모주에 맞혀 봐요/)).toHaveTextContent("직전 40곳에서 가장 잘 맞아 온 방식");
+    expect(screen.getByText(/열 방식을 모두 지난 공모주에 맞혀 봐요/)).toHaveTextContent("직전 40곳에서 가장 잘 맞아 온 방식");
+    expect(screen.getByText(/열 방식을 모두/)).toHaveTextContent("넓게 보는 보정");
+    expect(screen.getByText(/열 방식을 모두/)).toHaveTextContent("여러 방식의 평균");
   });
 
   it("바로 전 서버(방식 정보 없음)면 방식 줄 없이 그린다", async () => {
@@ -475,6 +477,16 @@ describe("공모주 — 증권사로 거르기", () => {
     await 사용자.click(screen.getByRole("button", { name: "삼성증권 0곳" }));
     expect(보이는곳()).toHaveLength(4);
     expect(screen.queryByRole("button", { name: "삼성증권 0곳" })).toBeNull();
+  });
+
+  it("캘린더 구독도 고른 증권사의 공모주만 — 화면에서 거른 그대로", async () => {
+    const 사용자 = userEvent.setup();
+    overview.mockResolvedValue(여럿);
+    그리기();
+    await 사용자.click(await screen.findByRole("button", { name: "KB증권 2곳" }));
+    await 사용자.click(screen.getByRole("button", { name: /내 캘린더로/ }));
+    const 주소 = screen.getByRole("link", { name: /아이폰·맥 캘린더로 구독/ }).getAttribute("href")!;
+    expect(new URL(주소.replace("webcal://", "https://")).searchParams.get("brokers")).toBe("KB증권");
   });
 });
 

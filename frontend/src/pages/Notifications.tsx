@@ -13,6 +13,7 @@ import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import NotificationList, { 모두읽음, 읽은것빼기, type NotificationItem } from "@/components/community/NotificationList";
 import NotificationSettings from "@/components/community/NotificationSettings";
+import PushSettings from "@/components/community/PushSettings";
 import MyPriceAlerts from "@/components/community/MyPriceAlerts";
 import { use확인 } from "@/hooks/useDialogs";
 import { 빈화면, 못불러옴, RowSkeleton} from "@/components/ui";
@@ -160,6 +161,8 @@ export default function Notifications() {
       </div>
 
       <NotificationSettings open={showSettings} onToggle={() => setShowSettings((v) => !v)} />
+      {/* 무엇을 받을지 바로 다음 — 어디로 받을지(앱을 닫아도 휴대폰으로) */}
+      <PushSettings />
       {/* '어떤 알림을 받을까' 바로 다음에 오는 질문이 '지금 무엇을
           기다리고 있나' 다. 지금까지 그 답은 종목 상세의 종 안에만
           있어서, 알림을 건 종목을 이미 알고 있어야 볼 수 있었다 */}

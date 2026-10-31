@@ -38,6 +38,8 @@ import {
   PortfolioModal, ConfirmDeleteModal, PortfolioPill,
   PortfolioFilterDropdown, AddPortfolioButton, PortfolioManagerModal,
 } from "@/components/portfolio/PortfolioModals";
+import TradeModal from "@/components/portfolio/TradeModal";
+import TradeHistory from "@/components/portfolio/TradeHistory";
 import { SortHead, HoldingCard, HoldingTableRow, type SortField, type 배당몫 } from "@/components/portfolio/HoldingRow";
 
 
@@ -113,7 +115,7 @@ const ASSET_FILTER_TABS: { id: AssetClass | "전체"; label: string }[] = [
  * 총 평가금액은 탭 위에 남긴다 — 어느 탭에 있든 '지금 얼마인가' 는
  * 늘 보여야 한다. 참고한 자산 앱들도 그 배치다.
  */
-type 자산탭 = "자산" | "추이" | "배당" | "비중" | "뉴스";
+type 자산탭 = "자산" | "추이" | "배당" | "비중" | "뉴스" | "매매";
 
 /** 화면 안 탭 다섯.
  *
@@ -127,7 +129,8 @@ type 자산탭 = "자산" | "추이" | "배당" | "비중" | "뉴스";
  *  그래서 다섯 탭을 다 열고, 로그인 전에는 예시로 채운다. 예시는
  *  서버를 안 부르고(constants/portfolioPreview) 탭마다 '예시' 라고
  *  적는다. */
-const 모든탭: 자산탭[] = ["자산", "추이", "배당", "비중", "뉴스"];
+/* '매매' — 사고판 기록·실현 손익·해외주식 양도세 어림. 맨 뒤에 둔다(매일 보는 것이 아니다) */
+const 모든탭: 자산탭[] = ["자산", "추이", "배당", "비중", "뉴스", "매매"];
 
 
 /* ── Main Page ──────────────────────────────────────────── */
@@ -140,6 +143,8 @@ export default function Portfolio() {
   const [modalOpen,       setModalOpen]       = useState(false);
   const [editItem,        setEditItem]        = useState<PortfolioItem | undefined>(undefined);
   const [deleteTarget,    setDeleteTarget]    = useState<PortfolioItem | null>(null);
+  /** 사고팔기 창을 연 보유 */
+  const [tradeTarget,     setTradeTarget]     = useState<EnrichedItem | null>(null);
   const [chartMode,       setChartMode]       = useState<ChartMode>("stock");
   const [modalError,      setModalError]      = useState<string | null>(null);
   const [viewMode,        setViewMode]        = useState<"table" | "card">(
@@ -869,6 +874,7 @@ export default function Portfolio() {
   }, [navigate]);
   const handleRowEdit   = useCallback((item: EnrichedItem) => openEditModal(item), [openEditModal]);
   const handleRowDelete = useCallback((item: EnrichedItem) => setDeleteTarget(item), []);
+  const handleRowTrade  = useCallback((item: EnrichedItem) => setTradeTarget(item), []);
   const handleConfirmDelete = () => {
     if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
   };
@@ -1466,6 +1472,11 @@ export default function Portfolio() {
         />
       )}
 
+      {/* ── 매매 ── 사고판 기록·실현 손익·해외주식 양도세 어림 */}
+      {속탭 === "매매" && (
+        <TradeHistory 로그인={isLoggedIn} portfolioId={isAllView ? undefined : (selectedPortfolioId ?? undefined)} />
+      )}
+
       {/* ── 비중 ── */}
       {속탭 === "비중" && ((isLoggedIn && items.length > 0 && isLoading) || (!isLoggedIn && !previewLoaded)) && (
         <Card className="flex items-center justify-center h-[180px] text-text-muted text-sm">
@@ -1779,6 +1790,7 @@ export default function Portfolio() {
                   onNavigate={handleRowNavigate}
                   onEdit={handleRowEdit}
                   onDelete={handleRowDelete}
+                  onTrade={item.assetClass === "현금" ? undefined : handleRowTrade}
                   onPrefetch={prefetchStock}
                 />
               ))}
@@ -1817,6 +1829,7 @@ export default function Portfolio() {
                     onNavigate={handleRowNavigate}
                     onEdit={handleRowEdit}
                     onDelete={handleRowDelete}
+                    onTrade={item.assetClass === "현금" ? undefined : handleRowTrade}
                     onPrefetch={prefetchStock}
                   />
                 ))}
@@ -1860,6 +1873,11 @@ export default function Portfolio() {
           isSaving={addMutation.isPending || editMutation.isPending}
           saveError={modalError}
         />
+      )}
+
+      {/* ── 사고팔기 ── */}
+      {isLoggedIn && tradeTarget && (
+        <TradeModal item={tradeTarget} exchangeRate={exchangeRate} onClose={() => setTradeTarget(null)} />
       )}
 
       {/* ── 종목 삭제 확인 모달 ── */}
