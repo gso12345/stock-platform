@@ -187,12 +187,23 @@ describe("메뉴", () => {
     expect(navigate).toHaveBeenCalledWith("/login");
   });
 
-  it("로그인 안 했으면 알림·내 프로필·로그아웃은 안 보인다", async () => {
+  // "로그인 안한상태에서도 메뉴를 모두 나오도록 해줘" — 숨기면 무엇이 있는지 알 수 없다
+  it("로그인 안 했어도 알림·내 프로필 메뉴가 보이고 로그인하면 된다고 말한다 — 로그아웃만 없다", async () => {
     로그인함 = false;
     그리기();
     await screen.findByRole("link", { name: /스크리닝/ });
-    expect(screen.queryByRole("link", { name: /알림/ })).toBeNull();
-    expect(screen.queryByRole("link", { name: /내 프로필/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /알림/ })).toHaveAttribute("href", "/notifications");
+    expect(screen.getByRole("link", { name: /알림/ })).toHaveTextContent("로그인하면 댓글·좋아요·팔로우 알림을 받아요");
+    expect(screen.getByRole("link", { name: /내 프로필/ })).toHaveAttribute("href", "/mypage");
+    expect(screen.getByRole("link", { name: /내 프로필/ })).toHaveTextContent("로그인하면 내 글·자산 공개 설정");
+    for (const m of 더보기_메뉴) expect(screen.getByRole("link", { name: new RegExp(m.label) })).toHaveAttribute("href", m.to);
     expect(screen.queryByRole("button", { name: /로그아웃/ })).toBeNull();
+  });
+
+  it("로그인했으면 알림·내 프로필 설명은 그대로", async () => {
+    그리기();
+    expect(await screen.findByRole("link", { name: /알림/ })).toHaveTextContent("댓글·좋아요·팔로우");
+    expect(screen.getByRole("link", { name: /알림/ })).not.toHaveTextContent("로그인하면");
+    expect(screen.getByRole("link", { name: /내 프로필/ })).not.toHaveTextContent("로그인하면");
   });
 });

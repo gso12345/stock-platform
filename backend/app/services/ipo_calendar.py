@@ -48,6 +48,27 @@ def 증권사들(주관사: "str | None") -> list[str]:
     return out
 
 
+#: 알림 받을 증권사를 고르는 칸에 실을 기간 — 지난 이만큼(다가오는 것 포함) 공모주를 주관한 증권사
+증권사목록_햇수 = 3
+
+
+def 증권사_목록(기록: dict, 기준일: date) -> list[dict]:
+    """공모주를 주관한 증권사 — 많이 맡은 순(같으면 이름 순). [{name, count}]
+
+    알림 설정의 '어떤 증권사 공모주만 알려 줄까' 칩이 쓴다(사용자: "알림설정에서 그냥 어떤 증권사만
+    알림이 오게할지 설정할 수 있도록 해줘"). 지금 다가오는 공모주에 없는 증권사도 고를 수 있어야 한다 —
+    청약 계좌가 있는 증권사는 공모주가 잡히기 전에 미리 고른다. 그래서 지난 3년을 본다."""
+    시작 = 기준일 - timedelta(days=365 * 증권사목록_햇수)
+    수: dict[str, int] = {}
+    for r in 기록.values():
+        날짜들 = [d for k in ("list_date", "sub_end", "sub_start", "forecast_date") if (d := ipo_service._d(r.get(k)))]
+        if not 날짜들 or max(날짜들) < 시작:
+            continue
+        for 이름 in 증권사들(r.get("underwriter")):
+            수[이름] = 수.get(이름, 0) + 1
+    return [{"name": 이름, "count": n} for 이름, n in sorted(수.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
 # ── iCalendar 글 ──────────────────────────────────────────────
 def _글(s: str) -> str:
     """TEXT 값 — 역빗금·쌍반점·쉼표·줄바꿈을 막는다(RFC 5545 3.3.11)"""

@@ -5,7 +5,8 @@ import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/st
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
-import { Save, Palette, Globe, Lock, FileText, Camera, X } from "lucide-react";
+import { Save, Palette, Globe, Lock, FileText, Camera, X, User } from "lucide-react";
+import 로그인필요 from "@/components/account/LoginRequired";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
 import { timeAgo } from "@/utils/formatters";
 import { 못불러옴 } from "@/components/ui";
@@ -27,10 +28,6 @@ export default function MyPage() {
   const { isLoggedIn, username, userId } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
-
-  useEffect(() => {
-    if (!isLoggedIn) navigate("/login");
-  }, [isLoggedIn, navigate]);
 
   const { data: profile, isLoading, isError: 못받음, error: 실패사유, refetch: 다시받기 } = useQuery({
     queryKey: ["myProfile"],
@@ -237,7 +234,8 @@ export default function MyPage() {
     },
   });
 
-  if (!isLoggedIn) return null;
+  /* 로그인 전에도 '내 프로필' 메뉴가 보인다 — 예전처럼 곧바로 로그인 화면으로 튕기지 않고 여기서 말한다 */
+  if (!isLoggedIn) return <로그인필요 icon={User} 글="내 프로필을 보려면 로그인이 필요합니다" />;
 
   const displayName = nickname.trim() || username || "?";
   const colorCls = AVATAR_COLORS_DISPLAY[avatarColor % AVATAR_COLORS_DISPLAY.length];

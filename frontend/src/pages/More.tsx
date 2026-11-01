@@ -140,13 +140,15 @@ export default function More() {
 
       {/* ── 메뉴 ─────────────────────────────────── */}
       <div className="bg-bg-card border border-border rounded-2xl overflow-hidden divide-y divide-border-subtle">
-        {isLoggedIn && (
-          <줄 to="/notifications" icon={Bell} label="알림" 설명="댓글·좋아요·팔로우" badge={notiBadge} />
-        )}
+        {/* 로그인 전에도 메뉴는 모두 보인다(사용자: "로그인 안한상태에서도 메뉴를 모두 나오도록 해줘") —
+            숨기면 이 앱에 무엇이 있는지 알 수 없다. 누르면 그 화면이 로그인하라고 말한다 */}
+        <줄 to="/notifications" icon={Bell} label="알림"
+          설명={isLoggedIn ? "댓글·좋아요·팔로우" : "로그인하면 댓글·좋아요·팔로우 알림을 받아요"} badge={notiBadge} />
         {더보기_메뉴.map((m) => (
           <줄 key={m.to} to={m.to} icon={m.icon} label={m.label} 설명={m.설명} />
         ))}
-        {isLoggedIn && <줄 to="/mypage" icon={User} label="내 프로필" 설명="내 글·자산 공개 설정" />}
+        <줄 to="/mypage" icon={User} label="내 프로필"
+          설명={isLoggedIn ? "내 글·자산 공개 설정" : "로그인하면 내 글·자산 공개 설정"} />
         {isAdmin && <줄 to="/admin" icon={ShieldCheck} label="관리자" 설명="공지·팝업·사용자 관리" />}
       </div>
 

@@ -42,6 +42,62 @@ class Test증권사_이름:
         assert C.증권사들(칸) == 기대
 
 
+class Test증권사_목록:
+    """알림 설정의 '알림 받을 증권사' 칩 — 지난 3년 공모주를 주관한 증권사, 많이 맡은 순"""
+
+    def test_많이_맡은_순_같으면_이름순_옛_이름과_함께_주관도_센다(self):
+        기록 = {
+            1: _공모주(underwriter="미래에셋대우(대표),키움증권"),
+            2: _공모주(underwriter="미래에셋증권"),
+            3: _공모주(underwriter="KB증권 외 1"),
+            4: _공모주(underwriter="키움증권"),
+            5: _공모주(underwriter="미래에셋증권, 미래에셋대우"),     # 한 공모주에 같은 증권사는 한 번
+        }
+        assert C.증권사_목록(기록, date(2026, 10, 31)) == [
+            {"name": "미래에셋증권", "count": 3}, {"name": "키움증권", "count": 2}, {"name": "KB증권", "count": 1}]
+
+    def test_같은_수면_이름순_들어온_차례가_아니라(self):
+        기록 = {1: _공모주(underwriter="한화투자증권"), 2: _공모주(underwriter="대신증권"), 3: _공모주(underwriter="교보증권")}
+        assert [b["name"] for b in C.증권사_목록(기록, date(2026, 10, 31))] == ["교보증권", "대신증권", "한화투자증권"]
+
+    def test_청약은_3년_전이어도_상장이_그_안이면_든다(self):
+        """가장 늦은 날로 본다 — 청약일만 보면 막 상장한 곳이 빠진다"""
+        기록 = {1: _공모주(underwriter="걸친증권", sub_start="2023-10-25", sub_end="2023-10-26", list_date="2023-11-02")}
+        assert C.증권사_목록(기록, date(2026, 10, 31)) == [{"name": "걸친증권", "count": 1}]
+
+    def test_지난_3년만_다가오는_것과_날짜_하나만_있는_것도(self):
+        기준 = date(2026, 10, 31)
+        기록 = {
+            "오래됨": _공모주(underwriter="옛증권", sub_start="2023-10-01", sub_end="2023-10-02", list_date="2023-10-10"),
+            "경계": _공모주(underwriter="경계증권", sub_start=None, sub_end=None, list_date="2023-11-01"),
+            "다가옴": _공모주(underwriter="새증권", sub_start="2026-12-01", sub_end="2026-12-02", list_date=None),
+            "수요예측만": {"name": "수요예측만", "forecast_date": "2026-11-20", "underwriter": "예측증권"},
+            "날짜없음": {"name": "날짜없음", "underwriter": "날짜없는증권"},
+            "주관사없음": _공모주(underwriter=None),
+        }
+        이름들 = [b["name"] for b in C.증권사_목록(기록, 기준)]
+        assert sorted(이름들) == sorted(["경계증권", "새증권", "예측증권"])
+        assert C.증권사목록_햇수 == 3
+        # 3년 전 그날(1,095일 전)은 들고, 그 하루 전은 뺀다
+        assert [b["name"] for b in C.증권사_목록({1: _공모주(underwriter="가", sub_start=None, sub_end=None,
+                                                              list_date="2023-11-01")}, 기준)] == ["가"]
+        assert C.증권사_목록({1: _공모주(underwriter="가", sub_start=None, sub_end=None,
+                                          list_date="2023-10-31")}, 기준) == []
+
+    def test_로그인_없이_받고_브라우저가_한_시간_들고_있는다(self, monkeypatch):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        monkeypatch.setattr(ipo_service, "기록들", lambda: {
+            1: _공모주(underwriter="KB증권"), 2: _공모주(underwriter="KB증권,삼성증권"),
+            # 오늘(2026-10-31)에서 3년이 넘은 것 — 빠져야 한다(오늘을 제대로 넘기는지)
+            3: _공모주(underwriter="옛증권", sub_start="2022-01-03", sub_end="2022-01-04", list_date="2022-01-12")})
+        monkeypatch.setattr(ipo_service, "오늘", lambda: date(2026, 10, 31))
+        r = TestClient(app).get("/api/v1/ipo/brokers")
+        assert r.status_code == 200
+        assert r.json() == {"brokers": [{"name": "KB증권", "count": 2}, {"name": "삼성증권", "count": 1}]}
+        assert r.headers["cache-control"] == "public, max-age=3600"
+
+
 class Test글:
     def test_쉼표_쌍반점_역빗금_줄바꿈을_막는다(self):
         assert C._글("26,000원; a\\b\n둘째\r\n셋째") == "26\\,000원\\; a\\\\b\\n둘째\\n셋째"

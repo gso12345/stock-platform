@@ -98,7 +98,16 @@ export default function NotificationBell() {
     return () => { document.body.style.overflow = prev; };
   }, [open, isNarrow]);
 
-  if (!isLoggedIn) return null;
+  /* 로그인 전에도 종은 보인다(사용자: "로그인 안한상태에서도 메뉴를 모두 나오도록 해줘") — 묻는 것도,
+     펼칠 목록도 없으니 알림 화면으로 바로 보낸다. 거기서 로그인하라고 말한다 */
+  if (!isLoggedIn) {
+    return (
+      <Link to="/notifications" aria-label="알림" title="알림 — 로그인하면 볼 수 있어요"
+        className="relative p-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-all">
+        <Bell size={14} />
+      </Link>
+    );
+  }
 
   const count = unread?.count ?? 0;
   const badge = unread?.capped ? "99+" : String(count);

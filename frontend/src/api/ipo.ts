@@ -158,7 +158,14 @@ export interface 공모주직접입력 {
   kind?: "normal" | "spac" | "reit";
 }
 
+/** 공모주를 주관한 증권사(지난 3년, 많이 맡은 순) — 알림 받을 증권사를 고르는 칸 */
+export interface 주관증권사 {
+  name: string;
+  count: number;
+}
+
 export const ipoApi = {
   overview: () => api.get<공모주한눈에>("/ipo").then((r) => r.data),
+  brokers: () => api.get<{ brokers: 주관증권사[] }>("/ipo/brokers").then((r) => r.data.brokers),
   predict: (body: 공모주직접입력) => api.post<공모주예측>("/ipo/predict", body).then((r) => r.data),
 };

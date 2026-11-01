@@ -41,6 +41,20 @@ export function 증권사별수(주관사칸들: (string | null | undefined)[]):
   return [...수.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko"));
 }
 
+/** 서버 목록을 못 받았을 때 알림 설정에 늘어놓는 증권사 — 공모주를 자주 주관하는 곳(지금 이름) */
+export const 자주주관하는증권사 = [
+  "한국투자증권", "NH투자증권", "미래에셋증권", "KB증권", "삼성증권", "신한투자증권", "대신증권", "하나증권",
+  "키움증권", "유안타증권", "교보증권", "신영증권", "IBK투자증권", "한화투자증권", "현대차증권", "SK증권",
+  "유진투자증권",
+];
+
+/** 알림 설정에 늘어놓을 증권사 칩 — 서버 목록(많이 맡은 순, 없으면 자주 주관하는 곳) 뒤에, 거기 없는데
+ *  골라 둔 증권사를 붙인다(그래야 뺄 수 있다). 같은 이름은 한 번만 */
+export function 알림증권사칩(서버목록: string[] | null | undefined, 고른: string[]): string[] {
+  const 바탕 = 서버목록?.length ? 서버목록 : 자주주관하는증권사;
+  return [...new Set([...바탕, ...고른])];
+}
+
 /** 고른 증권사 가운데 하나라도 주관하나. 아무것도 안 골랐으면 모두 보인다 */
 export function 내증권사공모주(주관사: string | null | undefined, 고른: string[]): boolean {
   if (!고른.length) return true;

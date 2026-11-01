@@ -16,6 +16,7 @@ import { 화면미리받기 } from "@/routes/pages";
 import { 앱준비됨 } from "@/components/layout/SplashScreen";
 import { 한가할때, 아껴쓰는중 } from "@/utils/한가할때";
 import { 원하는방향, 지켜보기 as 방향지켜보기 } from "@/utils/화면방향";
+import { use증권사알림맞추기 } from "@/hooks/useWebPush";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/api/client";
 
@@ -123,6 +124,9 @@ export default function Layout() {
   useEffect(() => 방향지켜보기(), []);
   useEffect(() => { void 원하는방향(orientation); }, [orientation]);
 
+  /* 고른 증권사(공모주 메뉴·알림 설정)가 바뀌면 휴대폰 알림 구독에도 — 어디서 바꿨든 여기 한 곳에서 */
+  use증권사알림맞추기();
+
   /* 하단 탭의 "더보기"는 /more 화면이지만, 거기 든 메뉴 중 하나를 보고
      있을 때도 탭이 켜져 있어야 한다 — 안 그러면 관심종목을 보는 중에는
      다섯 탭 중 아무것도 안 켜져, 지금 어디인지 알 수 없다 */
@@ -166,13 +170,12 @@ export default function Layout() {
           ))}
         </nav>
         <div className="px-3 pb-2 flex flex-col gap-0.5">
-          {isLoggedIn && (
-            <NavLink to="/mypage"
-              className={({ isActive }) => navItemCls(isActive)}
-            >
-              <User size={14} className="flex-shrink-0" />내 프로필
-            </NavLink>
-          )}
+          {/* 로그인 전에도 보인다 — 누르면 내 프로필 화면이 로그인하라고 말한다 */}
+          <NavLink to="/mypage"
+            className={({ isActive }) => navItemCls(isActive)}
+          >
+            <User size={14} className="flex-shrink-0" />내 프로필
+          </NavLink>
           <InstallAppButton className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150" />
           <button
             onClick={() => setSettingsOpen(true)}
@@ -227,13 +230,17 @@ export default function Layout() {
                 </button>
               </div>
             ) : (
-              <Link
-                to="/login"
-                className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-all whitespace-nowrap"
-              >
-                <LogIn size={13} />
-                <span className="text-xs">로그인</span>
-              </Link>
+              <div className="flex items-center gap-1.5">
+                {/* 로그인 전에도 종은 보인다 — PC 는 여기가 알림으로 가는 유일한 입구다 */}
+                <NotificationBell />
+                <Link
+                  to="/login"
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-all whitespace-nowrap"
+                >
+                  <LogIn size={13} />
+                  <span className="text-xs">로그인</span>
+                </Link>
+              </div>
             )}
             <button
               onClick={() => setTheme(isLight ? "dark" : "light")}

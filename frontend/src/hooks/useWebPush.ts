@@ -12,7 +12,7 @@
  *   막힘     알림 허락을 거절했다 — 브라우저(휴대폰) 설정에서 풀어야 한다
  *   꺼짐 · 켜짐
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { pushApi } from "@/api/stocks";
 import { useSettingsStore } from "@/store/settingsStore";
 
@@ -77,6 +77,21 @@ export async function 푸시설정맞추기(증권사: string[]): Promise<void> 
   } catch {
     /* 다음에 켜고 끌 때 다시 맞춘다 */
   }
+}
+
+/** 고른 증권사가 바뀌면(공모주 메뉴의 '내 증권사' 든 알림 설정이든) 이 기기의 휴대폰 알림에도 알린다.
+ *  앱 틀(Layout)이 한 번 건다 — 어디서 바꿨든 한 곳에서 맞춘다(예전에는 공모주 화면만 알려서, 다른 데서
+ *  바꾸면 서버는 옛 증권사로 보냈다). 처음 열 때는 안 부른다. 칩을 잇달아 누르면 마지막 것만 보낸다 */
+export function use증권사알림맞추기(기다림 = 600): void {
+  const 내증권사 = useSettingsStore((s) => s.내증권사);
+  // 연 그때의 목록 — 그대로면 보낼 것이 없다. 고르면 저장소가 늘 새 목록을 만들므로, 한 번이라도
+  // 바꾼 뒤에는(처음과 같은 증권사로 되돌려도) 보낸다
+  const 처음값 = useRef(내증권사);
+  useEffect(() => {
+    if (처음값.current === 내증권사) return;
+    const 시계 = setTimeout(() => void 푸시설정맞추기(내증권사), 기다림);
+    return () => clearTimeout(시계);
+  }, [내증권사, 기다림]);
 }
 
 export function useWebPush() {

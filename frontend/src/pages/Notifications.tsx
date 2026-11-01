@@ -7,8 +7,9 @@
  */
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams, Link, useNavigate } from "react-router-dom";
-import { Bell, CheckCheck, LogIn, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { Bell, CheckCheck, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import 로그인필요 from "@/components/account/LoginRequired";
 import { communityApi } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
 import NotificationList, { 모두읽음, 읽은것빼기, type NotificationItem } from "@/components/community/NotificationList";
@@ -101,18 +102,7 @@ export default function Notifications() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["notiPage"] }); setPage(1); },
   });
 
-  if (!isLoggedIn) {
-    return (
-      <div className="max-w-2xl mx-auto py-16 text-center">
-        <Bell size={28} className="mx-auto mb-3 text-text-dim opacity-50" />
-        <p className="text-sm text-text-muted mb-4">알림을 보려면 로그인이 필요합니다</p>
-        <Link to="/login"
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all">
-          <LogIn size={13} /> 로그인
-        </Link>
-      </div>
-    );
-  }
+  if (!isLoggedIn) return <로그인필요 icon={Bell} 글="알림을 보려면 로그인이 필요합니다" />;
 
   const items: NotificationItem[] = data?.items ?? [];
   const count = unread?.count ?? 0;

@@ -11,7 +11,7 @@
  * 넓은 화면에서는 계산기를 오른쪽에 붙여 두고(따라 내려온다), 좁은 화면에서는
  * 목록 아래로 내린다. 카드의 '이 숫자로 직접 바꿔 보기' 를 누르면 그리로 간다.
  */
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Rocket, RefreshCw } from "lucide-react";
 import { Card, RowSkeleton, 못불러옴, 빈화면 } from "@/components/ui";
@@ -24,7 +24,6 @@ import { 공모주구독단추 } from "@/components/ipo/IpoCalendar";
 import { 청약일순 } from "@/components/ipo/ipoSchedule";
 import { 증권사들, 내증권사공모주 } from "@/components/ipo/ipoBrokers";
 import { useSettingsStore } from "@/store/settingsStore";
-import { 푸시설정맞추기 } from "@/hooks/useWebPush";
 
 /** '2026-10-09T14:30:12+09:00' → '10.9 14:30' (서버가 한국 시각으로 준다) */
 function 기준시각(iso: string | null): string | null {
@@ -89,13 +88,8 @@ export default function Ipo() {
   const 고른증권사 = useSettingsStore((s) => s.내증권사);
   const 내것만켬 = useSettingsStore((s) => s.공모주내것만);
   const set내것만 = useSettingsStore((s) => s.set공모주내것만);
-  // 휴대폰 알림을 켜 둔 기기면, 고른 증권사를 서버에도 알린다 — 청약 아침 알림이 그 증권사 것만 오게.
-  // 처음 열 때는 안 부른다(바뀐 때만)
-  const 처음 = useRef(true);
-  useEffect(() => {
-    if (처음.current) { 처음.current = false; return; }
-    void 푸시설정맞추기(고른증권사);
-  }, [고른증권사]);
+  // 고른 증권사를 휴대폰 알림 구독에 알리는 일은 앱 틀(Layout 의 use증권사알림맞추기)이 한 곳에서 한다 —
+  // 알림 설정에서 바꿔도 같이 맞춰지게
   const 바꿔보기 = (v: 공모주직접입력) => {
     set계산기값({ ...v });
     계산기자리.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });

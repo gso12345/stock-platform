@@ -23,6 +23,18 @@ async def ipo_overview():
     return await loop.run_in_executor(None, ipo_service.한눈에)
 
 
+@router.get("/brokers")
+async def ipo_brokers(response: Response):
+    """공모주를 주관한 증권사(지난 3년, 많이 맡은 순) — 알림 받을 증권사를 고르는 칸이 쓴다.
+
+    로그인 없이 받는다(누구나 보는 자료다). 하루에 몇 곳 바뀌는 정도라 브라우저가 한 시간 들고 있게 한다."""
+    loop = asyncio.get_running_loop()
+    목록 = await loop.run_in_executor(
+        None, lambda: ipo_calendar.증권사_목록(ipo_service.기록들(), ipo_service.오늘()))
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return {"brokers": 목록}
+
+
 @router.get("/calendar.ics")
 @limiter.limit("60/minute")
 async def ipo_calendar_ics(
