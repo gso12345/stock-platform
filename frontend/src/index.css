@@ -331,10 +331,12 @@ html.light {
   .holding-card-lite { content-visibility: auto; contain-intrinsic-size: auto 176px; }
 
   /* ── 앱 실행 인트로(스플래시) ───────────────────────── */
+  /* 빛은 가운데에 둔다 — 움직임의 transform 이 자리 잡는 translate(-50%) 를 덮어써, 빛이 오른쪽 아래로
+     비켜 있었다 */
   .splash-glow { animation: splashGlowPulse 2.4s ease-in-out infinite; }
   @keyframes splashGlowPulse {
-    0%, 100% { opacity: 0.45; transform: scale(1); }
-    50%      { opacity: 0.9;  transform: scale(1.15); }
+    0%, 100% { opacity: 0.45; transform: translate(-50%, -50%) scale(1); }
+    50%      { opacity: 0.9;  transform: translate(-50%, -50%) scale(1.15); }
   }
 
   .splash-logo { animation: splashLogoIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -367,4 +369,11 @@ html.light {
     0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
     40%           { opacity: 1;    transform: scale(1.2); }
   }
+
+  /* 아이폰 — 운영체제가 먼저 띄운 시작 그림(public/splash — 끝 모습)을 움직임 없이 이어받는다(SplashScreen).
+     빛은 쉬는 밝기로. 로고·글자는 relative 로 빛 위에 둔다 — 움직임이 남기던 transform 이 없으면 빛(absolute)
+     아래에 깔린다. 불러오는 점은 그대로 움직인다(그림은 그 첫 모습이다) */
+  .splash-still .splash-glow { animation: none; opacity: 0.45; }
+  .splash-still :is(.splash-logo, .splash-bar, .splash-dot, .splash-text) { animation: none; }
+  .splash-still :is(.splash-logo, .splash-text) { position: relative; }
 }

@@ -7,6 +7,7 @@ import { useAuthStore } from "@/store/authStore";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
+import { Modal } from "@/components/ui";
 import { timeAgo } from "@/utils/formatters";
 import { 시세갱신주기 } from "@/hooks/useLivePrices";
 import { 공개시세열쇠, 시세대상 } from "@/constants/portfolioQuery";
@@ -367,13 +368,8 @@ export default function UserProfile() {
 
       {/* 팔로워/팔로잉 모달 */}
       {followModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setFollowModal(null);
-          }}
-        >
-          <div className="w-full max-w-sm bg-bg-card border border-border rounded-2xl shadow-modal overflow-hidden">
+        // 공용 창 — 휴대폰에서는 아래에서 올라오는 시트, PC 는 가운데 창
+        <Modal maxWidth="max-w-sm" backdropOpacity={70} onClose={() => setFollowModal(null)}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h3 className="text-sm font-bold text-text-primary">
                 {followModal === "followers" ? "팔로워" : "팔로잉"}
@@ -421,8 +417,7 @@ export default function UserProfile() {
                 })
               )}
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

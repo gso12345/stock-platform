@@ -27,5 +27,47 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "내 자산",
+      "short_name": "내 자산",
+      "description": "보유 종목과 수익률",
+      "url": "/portfolio",
+      "icons": [
+        { "src": "/shortcuts/portfolio.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+        { "src": "/shortcuts/portfolio-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
+      ]
+    },
+    {
+      "name": "관심종목",
+      "short_name": "관심종목",
+      "description": "지켜보는 종목 시세",
+      "url": "/watchlist",
+      "icons": [
+        { "src": "/shortcuts/watchlist.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+        { "src": "/shortcuts/watchlist-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
+      ]
+    },
+    {
+      "name": "공모주 일정",
+      "short_name": "공모주",
+      "description": "청약·상장 일정과 시초가 예측",
+      "url": "/ipo",
+      "icons": [
+        { "src": "/shortcuts/ipo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+        { "src": "/shortcuts/ipo-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
+      ]
+    },
+    {
+      "name": "알림",
+      "short_name": "알림",
+      "description": "받은 알림과 알림 설정",
+      "url": "/notifications",
+      "icons": [
+        { "src": "/shortcuts/notifications.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+        { "src": "/shortcuts/notifications-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
+      ]
+    }
   ]
 }

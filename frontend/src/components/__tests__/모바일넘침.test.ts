@@ -21,7 +21,8 @@ describe("화면 밖으로 새는 absolute 를 가둔다", () => {
 
   it("본문(main)도 relative·overflow-x-hidden — 다른 화면에서 새어도 아래 탭이 밀리지 않게", () => {
     const 원문 = readFileSync(resolve(__dirname, "../layout/Layout.tsx"), "utf-8");
-    const 본문 = 원문.match(/<main className="([^"]+)"/)?.[1].split(/\s+/) ?? [];
+    const 본문 = 원문.match(/<main\b[^>]*?className="([^"]+)"/)?.[1].split(/\s+/) ?? [];
+    expect(본문.length).toBeGreaterThan(0);
     expect(본문).toContain("relative");
     expect(본문).toContain("overflow-x-hidden");
     expect(본문).toContain("overflow-y-auto");

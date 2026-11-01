@@ -54,7 +54,8 @@ function 그리기(주소 = "/", 화면 = <div>내용</div>) {
 
 beforeEach(() => {
   useAuthStore.setState({ token: null, userId: null, username: null, isLoggedIn: false, isAdmin: false });
-  useSettingsStore.getState().set내증권사([]);
+  useSettingsStore.getState().set알림증권사([]);
+  useSettingsStore.getState().set공모주증권사([]);
 });
 
 describe("로그인 전 — 메뉴를 숨기지 않는다", () => {
@@ -105,11 +106,13 @@ describe("앱 틀 — 고른 증권사를 휴대폰 알림 구독에", () => {
     delete (navigator as any).serviceWorker;
   });
 
-  it("어느 화면에 있든 증권사를 바꾸면 켜 둔 기기의 구독에 알린다 — 처음 열 때는 안 부른다", async () => {
+  it("어느 화면에 있든 알림 받을 증권사를 바꾸면 켜 둔 기기의 구독에 알린다 — 처음 열 때와 목록 거르기는 안 부른다", async () => {
     그리기();
     await new Promise((r) => setTimeout(r, 50));
+    act(() => useSettingsStore.getState().set공모주증권사(["삼성증권"]));     // 공모주 메뉴의 목록 거르기
+    await new Promise((r) => setTimeout(r, 800));
     expect(pushApi.subscribe).not.toHaveBeenCalled();
-    act(() => useSettingsStore.getState().set내증권사(["KB증권"]));
+    act(() => useSettingsStore.getState().set알림증권사(["KB증권"]));
     await waitFor(() => expect(pushApi.subscribe).toHaveBeenCalledWith(
       expect.anything(), expect.objectContaining({ brokers: ["KB증권"] })), { timeout: 3000 });
   });

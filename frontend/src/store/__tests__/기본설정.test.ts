@@ -17,7 +17,7 @@ describe("기본 설정", () => {
     expect(s.colorScheme).toBe("red-blue");
     expect(s.불러오기표시).toBe("실패만");
     //: 나머지는 그대로
-    expect([s.fontSize, s.orientation, s.금액가리기, s.공모주내것만]).toEqual(["normal", "system", false, false]);
+    expect([s.fontSize, s.orientation, s.금액가리기, s.공모주증권사, s.알림증권사]).toEqual(["normal", "system", false, [], []]);
   });
 
   it("이미 고른 사람의 값은 바꾸지 않는다", async () => {
@@ -34,35 +34,68 @@ describe("기본 설정", () => {
   });
 
   // "공모주 일정 증권사별로 설정해서 볼수 있게" — 고른 증권사는 다음에 열어도 그대로
-  it("고른 증권사는 남고, 이상한 값은 버린다", async () => {
+  it("공모주 목록 증권사·알림 증권사 — 둘 다 남고, 이상한 값은 버린다", async () => {
     let s = await 새로불러오기();
-    expect(s.내증권사).toEqual([]);
-    s.토글내증권사("KB증권");
-    s.토글내증권사("삼성증권");
+    expect([s.공모주증권사, s.알림증권사]).toEqual([[], []]);
+    s.토글공모주증권사("KB증권");
+    s.토글공모주증권사("삼성증권");
+    s.토글알림증권사("키움증권");
     s = await 새로불러오기();
-    expect(s.내증권사).toEqual(["KB증권", "삼성증권"]);
-    s.토글내증권사("KB증권");
-    expect((await 새로불러오기()).내증권사).toEqual(["삼성증권"]);
-    localStorage.setItem("portfolio_settings", JSON.stringify({
-      내증권사: ["KB증권", 3, "", "KB증권", "가".repeat(31), null, " 대신증권 "],
-    }));
-    expect((await 새로불러오기()).내증권사).toEqual(["KB증권", "대신증권"]);
-    localStorage.setItem("portfolio_settings", JSON.stringify({ 내증권사: "KB증권" }));
-    expect((await 새로불러오기()).내증권사).toEqual([]);
+    expect(s.공모주증권사).toEqual(["KB증권", "삼성증권"]);
+    expect(s.알림증권사).toEqual(["키움증권"]);
+    s.토글공모주증권사("KB증권");
+    s.토글알림증권사("키움증권");
+    s = await 새로불러오기();
+    expect([s.공모주증권사, s.알림증권사]).toEqual([["삼성증권"], []]);
+    const 이상한것 = ["KB증권", 3, "", "KB증권", "가".repeat(31), null, " 대신증권 "];
+    localStorage.setItem("portfolio_settings", JSON.stringify({ 공모주증권사: 이상한것, 알림증권사: 이상한것 }));
+    s = await 새로불러오기();
+    expect([s.공모주증권사, s.알림증권사]).toEqual([["KB증권", "대신증권"], ["KB증권", "대신증권"]]);
+    localStorage.setItem("portfolio_settings", JSON.stringify({ 공모주증권사: "KB증권", 알림증권사: "KB증권" }));
+    s = await 새로불러오기();
+    expect([s.공모주증권사, s.알림증권사]).toEqual([[], []]);
   });
 
-  // 고른 증권사는 알림·캘린더용, 목록을 그 증권사 것만 볼지는 따로 — 기본은 모두 보기
-  it("공모주 목록 거르기는 처음엔 꺼짐 — 켠 것은 남고, true 가 아닌 값은 꺼짐으로 읽는다", async () => {
+  // "공모주메뉴에서 … 선택하는 건 그냥 선택한 공모주일정을 보고 싶을 뿐 … 내 증권사라는 것이 아니" — 따로 둔다
+  it("하나를 바꿔도 다른 하나는 그대로", async () => {
+    const s = await 새로불러오기();
+    s.set공모주증권사(["KB증권"]);
+    s.set알림증권사(["삼성증권"]);
+    s.토글공모주증권사("키움증권");
+    expect((await 새로불러오기()).알림증권사).toEqual(["삼성증권"]);
+    s.토글알림증권사("대신증권");
+    expect((await 새로불러오기()).공모주증권사).toEqual(["KB증권", "키움증권"]);
+  });
+
+  it("예전의 '내증권사' 하나는 둘 다로 옮긴다 — 보던 목록도 받던 알림도 그대로, 다음 저장 때 옛 칸은 빠진다", async () => {
+    localStorage.setItem("portfolio_settings", JSON.stringify({ 내증권사: ["KB증권", "키움증권"], 공모주내것만: true, theme: "dark" }));
     let s = await 새로불러오기();
-    expect(s.공모주내것만).toBe(false);
-    s.set공모주내것만(true);
+    expect(s.공모주증권사).toEqual(["KB증권", "키움증권"]);
+    expect(s.알림증권사).toEqual(["KB증권", "키움증권"]);
+    expect("내증권사" in s || "공모주내것만" in s).toBe(false);
+    s.set공모주증권사([]);                                  // 목록만 풀었다
+    const 저장된것 = JSON.parse(localStorage.getItem("portfolio_settings")!);
+    expect(저장된것).not.toHaveProperty("내증권사");
+    expect(저장된것).not.toHaveProperty("공모주내것만");
     s = await 새로불러오기();
-    expect(s.공모주내것만).toBe(true);
-    s.set공모주내것만(false);
-    expect((await 새로불러오기()).공모주내것만).toBe(false);
-    localStorage.setItem("portfolio_settings", JSON.stringify({ 공모주내것만: "true", 내증권사: ["KB증권"] }));
-    s = await 새로불러오기();
-    expect([s.공모주내것만, s.내증권사]).toEqual([false, ["KB증권"]]);
+    expect([s.공모주증권사, s.알림증권사, s.theme]).toEqual([[], ["KB증권", "키움증권"], "dark"]);
+  });
+
+  it("통째로 넣을 때도 다듬는다 — 앞뒤 빈칸·같은 이름·빈 이름(다시 열기 전, 지금 화면에서도)", async () => {
+    vi.resetModules();
+    const { useSettingsStore } = await import("@/store/settingsStore");
+    useSettingsStore.getState().set공모주증권사([" KB증권 ", "KB증권", ""]);
+    useSettingsStore.getState().set알림증권사(["삼성증권", " 삼성증권", "가".repeat(31)]);
+    expect(useSettingsStore.getState().공모주증권사).toEqual(["KB증권"]);
+    expect(useSettingsStore.getState().알림증권사).toEqual(["삼성증권"]);
+    const 다시 = await 새로불러오기();
+    expect([다시.공모주증권사, 다시.알림증권사]).toEqual([["KB증권"], ["삼성증권"]]);
+  });
+
+  it("새 칸이 있으면 옛 '내증권사' 는 안 본다", async () => {
+    localStorage.setItem("portfolio_settings", JSON.stringify({ 내증권사: ["KB증권"], 공모주증권사: [], 알림증권사: ["삼성증권"] }));
+    const s = await 새로불러오기();
+    expect([s.공모주증권사, s.알림증권사]).toEqual([[], ["삼성증권"]]);
   });
 
   it("저장값에 칸이 빠져 있으면 새 기본값으로 채운다", async () => {

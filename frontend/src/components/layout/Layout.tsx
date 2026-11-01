@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Award, ShieldCheck, Megaphone, User, Rss, Rocket } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Award, ShieldCheck, Megaphone, User, Rss, Rocket, RefreshCw, WifiOff } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
@@ -11,13 +11,18 @@ import LoadingProgressOverlay from "@/components/layout/LoadingProgressOverlay";
 import NotificationBell from "@/components/community/NotificationBell";
 import SettingsModal from "@/components/account/SettingsModal";
 import { 더보기_경로, 내자산_경로 } from "@/constants/moreNav";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { 화면미리받기 } from "@/routes/pages";
 import { 앱준비됨 } from "@/components/layout/SplashScreen";
 import { 한가할때, 아껴쓰는중 } from "@/utils/한가할때";
 import { 원하는방향, 지켜보기 as 방향지켜보기 } from "@/utils/화면방향";
 import { use증권사알림맞추기 } from "@/hooks/useWebPush";
-import { useQuery } from "@tanstack/react-query";
+import { use스크롤기억, 맨위로 } from "@/hooks/useScrollMemory";
+import { use당겨서새로고침 } from "@/hooks/usePullToRefresh";
+import { use화면넘김 } from "@/hooks/usePageTransition";
+import { use인터넷 } from "@/hooks/useOnline";
+import { 지금화면자료 } from "@/utils/지금화면자료";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/api/client";
 
 const NAV = [
@@ -124,8 +129,26 @@ export default function Layout() {
   useEffect(() => 방향지켜보기(), []);
   useEffect(() => { void 원하는방향(orientation); }, [orientation]);
 
-  /* 고른 증권사(공모주 메뉴·알림 설정)가 바뀌면 휴대폰 알림 구독에도 — 어디서 바꿨든 여기 한 곳에서 */
+  /* 알림 받을 증권사(알림 화면에서 고른다)가 바뀌면 휴대폰 알림 구독에도 — 여기 한 곳에서 */
   use증권사알림맞추기();
+
+  /* 본문 스크롤 — 새 화면은 맨 위에서, 뒤로 가면 보던 자리로(hooks/useScrollMemory) */
+  const 본문 = useRef<HTMLElement>(null);
+  use스크롤기억(본문);
+
+  /* 당겨서 새로고침 — 본문 맨 위에서 당기면 지금 화면이 쓰는 자료를 다시 받는다(hooks/usePullToRefresh).
+     다음 화면을 위해 미리 받아 두기만 하는 자료는 빼고(utils/지금화면자료) */
+  const qc = useQueryClient();
+  const 당김표시 = useRef<HTMLDivElement>(null);
+  const 새로받는중 = use당겨서새로고침(본문, 당김표시,
+    () => qc.refetchQueries({ type: "active", predicate: 지금화면자료 }));
+
+  /* 화면 넘김 — 들어갈 땐 오른쪽에서, 뒤로는 왼쪽에서, 탭끼리는 살짝(hooks/usePageTransition) */
+  const 화면틀 = useRef<HTMLDivElement>(null);
+  use화면넘김(화면틀);
+
+  /* 인터넷이 끊기면 띠를 보인다 — 서비스워커가 마지막 화면 틀로 열어 준다(public/sw.js) */
+  const 이어짐 = use인터넷();
 
   /* 하단 탭의 "더보기"는 /more 화면이지만, 거기 든 메뉴 중 하나를 보고
      있을 때도 탭이 켜져 있어야 한다 — 안 그러면 관심종목을 보는 중에는
@@ -140,7 +163,8 @@ export default function Layout() {
                : "text-text-muted hover:text-text-secondary hover:bg-bg-elevated"}`;
 
   return (
-    <div className="flex h-screen bg-bg-base overflow-hidden">
+    <div className="flex h-screen bg-bg-base overflow-hidden"
+      style={{ paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}>
 
       {/* ── 진입 시 데이터 로딩 진행률 ────────────────────── */}
       <LoadingProgressOverlay />
@@ -200,8 +224,10 @@ export default function Layout() {
       {/* ── 메인 영역 ──────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
-        {/* 헤더 */}
-        <header className="flex-shrink-0 flex items-center px-3 md:px-6 gap-3 bg-bg-primary border-b border-border" style={{ height: "52px" }}>
+        {/* 헤더 — 아이폰 홈 화면 앱은 상태바를 투명하게 둬서(index.html 의 black-translucent) 화면이 시계·노치
+            밑까지 올라온다. 그만큼(safe-area-inset-top) 띄우지 않으면 검색창이 시계와 겹쳤다. 다른 기기는 0 */}
+        <header className="flex-shrink-0 flex items-center px-3 md:px-6 gap-3 bg-bg-primary border-b border-border"
+          style={{ height: "calc(52px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <SearchBar />
           <div className="flex-1" />
           <div className="flex items-center gap-2 text-2xs text-text-dim">
@@ -252,6 +278,14 @@ export default function Layout() {
           </div>
         </header>
 
+        {!이어짐 && (
+          <div role="status"
+            className="flex-shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-accent-yellow/15 text-accent-yellow border-b border-accent-yellow/20">
+            <WifiOff size={13} className="shrink-0" />
+            인터넷이 끊겼어요 — 보던 화면은 그대로 두고, 이어지면 새로 받아요
+          </div>
+        )}
+
         {/* 공지사항 배너 */}
         <AnnouncementBanner />
         {/* 팝업 배너 */}
@@ -260,10 +294,16 @@ export default function Layout() {
         {/* 콘텐츠 — relative·overflow-x-hidden: 화면 안의 absolute(자리 잡은 조상이 없는 것)가 본문 밖으로 새어
             문서를 넓히지 못하게 가둔다. 휴대폰은 문서가 넓어지면 판을 키우고, 아래 탭(fixed)이 그 큰 판의 바닥에
             붙어 화면 밖으로 사라졌다(스크리닝의 화면 읽기용 글자가 그랬다 — StockTable 표상자) */}
-        <main className="relative flex-1 overflow-y-auto overflow-x-hidden bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
+        <main ref={본문} className="relative flex-1 overflow-y-auto overflow-x-hidden overscroll-y-none bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
           {/* 최대 폭도 rem — 넓은 화면에서 뿌리 글자가 커지면(index.css) 같이 넓어진다. px 로 두면 글자만 커지고
               폭은 그대로라 큰 모니터에서 담기는 칸이 오히려 줄었다(14px 기준 1,596px) */}
-          <div className="p-3 md:p-5 max-w-[114rem] mx-auto">
+          {/* 당겨서 새로고침 표시 — 위에 숨어 있다가 당기는 만큼 내려온다(움직임은 훅이 직접 준다) */}
+          <div ref={당김표시} aria-hidden
+            className="pointer-events-none absolute left-1/2 top-0 z-20 w-9 h-9 -translate-x-1/2 -translate-y-11 opacity-0 rounded-full bg-bg-card border border-border shadow-float flex items-center justify-center text-accent-blue">
+            <RefreshCw size={16} className={새로받는중 ? "animate-spin" : ""} />
+          </div>
+          {새로받는중 && <span role="status" className="sr-only">새로 받는 중</span>}
+          <div ref={화면틀} className="p-3 md:p-5 max-w-[114rem] mx-auto">
             {/* 화면 코드를 받는 동안 **내용 자리만** 기다린다. 이게 없으면
                 바깥(main.tsx)의 대기 화면까지 올라가, 처음 여는 화면마다
                 머리·하단 탭까지 통째로 사라졌다가 다시 나타났다 */}
@@ -277,10 +317,15 @@ export default function Layout() {
       {/* ── 모바일 하단 탭바 ─────────────────────────────── */}
       <nav
         className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch bg-bg-card border-t border-border"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{ paddingBottom: "env(safe-area-inset-bottom)", paddingLeft: "env(safe-area-inset-left)",
+                 paddingRight: "env(safe-area-inset-right)" }}
       >
         {BOTTOM_NAV.map(({ to, icon: Icon, label, end }) => (
-          <NavLink key={to} to={to} end={end} {...미리받기(to)} className="flex-1 active:scale-95 transition-transform">
+          <NavLink key={to} to={to} end={end} {...미리받기(to)} className="flex-1 active:scale-95 transition-transform"
+            onClick={(e) => {
+              // 지금 보는 탭을 다시 누르면 맨 위로(앱들의 기본 동작) — 같은 주소로 다시 가지 않는다
+              if (location.pathname === to) { e.preventDefault(); 맨위로(본문.current); }
+            }}>
             {({ isActive }) => {
               /* 관심종목은 "내 자산" 화면의 형제 탭이라, 거기 있을 때도
                  "내 자산" 에 불이 켜져야 한다. 안 그러면 화면 위 탭은
@@ -298,7 +343,8 @@ export default function Layout() {
             }}
           </NavLink>
         ))}
-        <NavLink to="/more" className="flex-1 active:scale-95 transition-transform">
+        <NavLink to="/more" className="flex-1 active:scale-95 transition-transform"
+          onClick={(e) => { if (location.pathname === "/more") { e.preventDefault(); 맨위로(본문.current); } }}>
           <div className={`relative flex flex-col items-center justify-center gap-0.5 h-14 text-2xs font-medium transition-colors duration-200 ${
             isMoreActive ? "text-accent-blue" : "text-text-muted"}`}>
             {isMoreActive && <span className="absolute top-1.5 w-1 h-1 rounded-full bg-accent-blue fade-in" />}

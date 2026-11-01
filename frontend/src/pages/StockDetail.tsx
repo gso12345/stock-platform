@@ -1539,7 +1539,8 @@ export default function StockDetail() {
 
       {/* 전체보기 모달 */}
       {fullscreen && ohlcv?.length && (
-        <div className="fixed inset-0 z-50 bg-bg-base flex flex-col modal-backdrop">
+        <div className="fixed inset-0 z-50 bg-bg-base flex flex-col modal-backdrop"
+          style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {/* 모달 헤더 */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg-card flex-shrink-0">
             <div className="flex items-center gap-3 flex-wrap">

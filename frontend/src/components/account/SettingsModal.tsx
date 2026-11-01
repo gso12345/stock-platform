@@ -9,6 +9,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { ColorScheme, FontSize, Theme, Orientation } from "@/store/settingsStore";
 import { NotificationToggles } from "@/components/community/NotificationSettings";
+import { Modal } from "@/components/ui";
 import { 원하는방향, 지원 as 방향고정지원, use고정상태, 방향안내 } from "@/utils/화면방향";
 
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
@@ -22,11 +23,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   // 고정할 수 없는 기기(아이폰·PC)에서는 골라 둔 값이 있어도 시스템설정으로 보인다 — 실제로 그렇게 돈다
   const 보이는방향: Orientation = 방향지원 === "된다" ? orientation : "system";
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-sm max-h-[85vh] flex flex-col bg-bg-card border border-border rounded-2xl shadow-modal overflow-hidden modal-pop">
+    // 공용 창 — 휴대폰에서는 아래에서 올라오는 시트(끌어내려 닫기), PC 는 가운데 창
+    <Modal maxWidth="max-w-sm" backdropOpacity={70} onClose={onClose} className="max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <h3 className="text-sm font-bold text-text-primary">설정</h3>
           <button onClick={onClose} aria-label="닫기" className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">
@@ -245,7 +243,6 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             확인
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

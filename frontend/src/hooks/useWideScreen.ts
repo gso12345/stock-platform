@@ -33,3 +33,33 @@ export function use넓은화면(최소폭 = 1024): boolean {
   }, [질의]);
   return 넓음;
 }
+
+/**
+ * 휴대폰 폭인가(기본 639px 이하 — Tailwind 의 sm 아래). 가운데 창을 아래 시트로 바꿀 때 쓴다(ui 의 Modal).
+ *
+ * 위와 달리 matchMedia 가 없으면 '아니다' 로 본다 — 그런 곳(검사 환경)에서는 예전 가운데 창 그대로 그린다.
+ */
+export function use좁은화면(최대폭 = 639): boolean {
+  const 질의 = `(max-width: ${최대폭}px)`;
+  const [좁음, set좁음] = useState<boolean>(() => {
+    try {
+      return typeof window !== "undefined" && !!window.matchMedia?.(질의)?.matches;
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    let mq: MediaQueryList | undefined;
+    try {
+      mq = window.matchMedia?.(질의);
+    } catch {
+      mq = undefined;
+    }
+    if (!mq) return;
+    const 바뀜 = (e: MediaQueryListEvent) => set좁음(e.matches);
+    set좁음(mq.matches);
+    mq.addEventListener?.("change", 바뀜);
+    return () => mq?.removeEventListener?.("change", 바뀜);
+  }, [질의]);
+  return 좁음;
+}

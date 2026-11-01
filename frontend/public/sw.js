@@ -1,6 +1,10 @@
 // 설치형 PWA 요건(installability) 충족 + 빌드 산출물(해시 파일명) 캐싱
 // HTML/API 등 변할 수 있는 요청은 항상 네트워크에서 최신 데이터를 가져옴
 const STATIC_CACHE = "static-v1";
+// 마지막으로 받은 화면 틀(HTML) — 인터넷이 끊겼을 때 이것으로 연다. 예전에는 화면 틀을 늘 네트워크에서만
+// 받아서, 지하철 등에서 앱을 열면 브라우저 오류 화면이 떴다(사용자: "실제 앱같이 느껴졌으면" — 6번)
+const SHELL_CACHE = "shell-v1";
+const 화면틀 = "/__shell";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -11,7 +15,7 @@ self.addEventListener("activate", (event) => {
     Promise.all([
       self.clients.claim(),
       caches.keys().then((keys) =>
-        Promise.all(keys.filter((k) => k !== STATIC_CACHE).map((k) => caches.delete(k)))
+        Promise.all(keys.filter((k) => k !== STATIC_CACHE && k !== SHELL_CACHE).map((k) => caches.delete(k)))
       ),
       // 화면(HTML) 요청을 서비스워커가 깨어나는 동안 미리 보내 둔다.
       // 없으면 '서비스워커 깨우기 → 그다음에 요청' 이 차례로 붙는다
@@ -57,11 +61,25 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 화면(HTML) — 미리 보내 둔 응답이 있으면 그것을, 없으면 네트워크에서.
-  // 늘 최신을 받는다(캐시하지 않는다)
+  // 화면(HTML) — 미리 보내 둔 응답이 있으면 그것을, 없으면 네트워크에서. 늘 최신을 받는다.
+  // 받은 것은 한 벌 들고 있다가, 네트워크가 안 되면(인터넷이 끊김) 그것으로 연다 — 주소마다 같은 화면
+  // 틀(SPA)이라 한 벌이면 된다. 화면이 쓰는 JS·CSS 는 위에서 이미 들고 있다(한 번이라도 열었던 화면)
   if (req.mode === "navigate") {
     event.respondWith(
-      (async () => (await event.preloadResponse) || fetch(req))()
+      (async () => {
+        try {
+          const res = (await event.preloadResponse) || (await fetch(req));
+          if (res && res.ok && (res.headers.get("content-type") || "").includes("text/html")) {
+            const 사본 = res.clone();
+            event.waitUntil(caches.open(SHELL_CACHE).then((c) => c.put(화면틀, 사본)));
+          }
+          return res;
+        } catch (e) {
+          const 들고있던 = await (await caches.open(SHELL_CACHE)).match(화면틀);
+          if (들고있던) return 들고있던;
+          throw e;
+        }
+      })()
     );
   }
   // 그 밖(같은 출처의 아이콘·manifest 등)은 손대지 않는다

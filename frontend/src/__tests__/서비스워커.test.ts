@@ -26,17 +26,19 @@ function 띄우기() {
     skipWaiting: vi.fn(),
     addEventListener: (이름: string, f: 처리기) => { 처리기들[이름] = f; },
   };
+  const 열쇠 = (r: Request | string) => (typeof r === "string" ? r : r.url);
   const 가짜caches = {
-    keys: vi.fn(() => Promise.resolve(["static-v1", "옛것"])),
-    delete: vi.fn(() => Promise.resolve(true)),
+    keys: vi.fn(() => Promise.resolve(["static-v1", "shell-v1", "옛것"])),
+    delete: vi.fn((_이름: string) => Promise.resolve(true)),
     open: vi.fn(() => Promise.resolve({
-      match: (r: Request) => Promise.resolve(담긴것.get(r.url)),
-      put: (r: Request, res: Response) => { 담긴것.set(r.url, res); return Promise.resolve(); },
+      match: (r: Request | string) => Promise.resolve(담긴것.get(열쇠(r))),
+      put: (r: Request | string, res: Response) => { 담긴것.set(열쇠(r), res); return Promise.resolve(); },
     })),
   };
   const 가짜fetch = vi.fn((r: Request) => Promise.resolve(new Response("네트워크", {
     headers: { "content-type": r.url.endsWith(".js") ? "text/javascript" : "text/html" },
   })));
+  const 기다림들: Promise<unknown>[] = [];
   new Function("self", "caches", "fetch", 원문)(가짜self, 가짜caches, 가짜fetch);
 
   function 요청(url: string, 덧: { method?: string; mode?: string; preload?: Response | null } = {}) {
@@ -46,10 +48,12 @@ function 띄우기() {
       request,
       preloadResponse: Promise.resolve(덧.preload ?? undefined),
       respondWith: (p: Promise<Response>) => { 응답 = p; },
+      waitUntil: (p: Promise<unknown>) => { 기다림들.push(p); },
     });
     return 응답 as Promise<Response> | null;
   }
-  return { 처리기들, 요청, 가짜fetch, 담긴것, 미리켜기 };
+  const 다끝남 = () => Promise.all(기다림들);
+  return { 처리기들, 요청, 가짜fetch, 담긴것, 미리켜기, 가짜caches, 다끝남 };
 }
 
 let sw: ReturnType<typeof 띄우기>;
@@ -86,6 +90,45 @@ describe("화면(HTML)", () => {
   it("없으면 네트워크에서", async () => {
     const 응답 = await sw.요청("https://app.example/portfolio", { mode: "navigate", preload: null });
     expect(await 응답!.text()).toBe("네트워크");
+  });
+});
+
+// "실제 앱같이 느껴졌으면" — 6번: 인터넷이 끊겨도 앱이 열린다
+describe("인터넷이 끊겼을 때", () => {
+  it("받은 화면 틀은 한 벌 들고 있다가, 끊기면(네트워크 실패) 그것으로 연다 — 주소가 달라도", async () => {
+    await sw.요청("https://app.example/portfolio", { mode: "navigate", preload: null });
+    await sw.다끝남();
+    expect(sw.담긴것.has("/__shell")).toBe(true);
+    sw.가짜fetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const 응답 = await sw.요청("https://app.example/ipo", { mode: "navigate", preload: null });
+    expect(await 응답!.text()).toBe("네트워크");
+  });
+
+  it("들고 있는 화면 틀이 없으면 원래 오류 그대로", async () => {
+    sw.가짜fetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(sw.요청("https://app.example/", { mode: "navigate", preload: null })).rejects.toThrow("Failed to fetch");
+  });
+
+  it("실패 응답·HTML 이 아닌 응답은 화면 틀로 들고 있지 않는다", async () => {
+    sw.가짜fetch.mockResolvedValueOnce(new Response("없음", { status: 404, headers: { "content-type": "text/html" } }));
+    await sw.요청("https://app.example/x", { mode: "navigate", preload: null });
+    sw.가짜fetch.mockResolvedValueOnce(new Response("{}", { headers: { "content-type": "application/json" } }));
+    await sw.요청("https://app.example/y", { mode: "navigate", preload: null });
+    await sw.다끝남();
+    expect(sw.담긴것.has("/__shell")).toBe(false);
+  });
+
+  it("미리 보낸 응답도 화면 틀로 들고 있는다", async () => {
+    await sw.요청("https://app.example/", { mode: "navigate", preload: new Response("미리", { headers: { "content-type": "text/html" } }) });
+    await sw.다끝남();
+    expect(await sw.담긴것.get("/__shell")!.text()).toBe("미리");
+  });
+
+  it("켜질 때 옛 캐시만 지우고 화면 틀·빌드 파일은 남긴다", async () => {
+    const 기다림: Promise<unknown>[] = [];
+    sw.처리기들.activate({ waitUntil: (p: Promise<unknown>) => 기다림.push(p) });
+    await Promise.all(기다림);
+    expect(sw.가짜caches.delete.mock.calls.map((c) => c[0])).toEqual(["옛것"]);
   });
 });
 

@@ -71,7 +71,8 @@ beforeEach(() => {
   vi.mocked(pushApi.key).mockResolvedValue(서버키);
   vi.mocked(pushApi.subscribe).mockResolvedValue({ ok: true, ipo: true, brokers: [] });
   vi.mocked(pushApi.unsubscribe).mockResolvedValue({ ok: true });
-  useSettingsStore.getState().set내증권사(["키움증권"]);
+  useSettingsStore.getState().set알림증권사(["키움증권"]);
+  useSettingsStore.getState().set공모주증권사([]);
   localStorage.removeItem("push_ipo");
 });
 afterEach(() => {
@@ -253,8 +254,8 @@ describe("고른 증권사를 서버 구독에 맞추기(앱 틀이 건다)", ()
     renderHook(() => use증권사알림맞추기(30));
     await new Promise((r) => setTimeout(r, 60));
     expect(pushApi.subscribe).not.toHaveBeenCalled();
-    act(() => useSettingsStore.getState().토글내증권사("KB증권"));
-    act(() => useSettingsStore.getState().토글내증권사("삼성증권"));
+    act(() => useSettingsStore.getState().토글알림증권사("KB증권"));
+    act(() => useSettingsStore.getState().토글알림증권사("삼성증권"));
     await waitFor(() => expect(pushApi.subscribe).toHaveBeenCalledTimes(1));
     expect(pushApi.subscribe).toHaveBeenCalledWith(expect.anything(), { ipo: true, brokers: ["키움증권", "KB증권", "삼성증권"] });
     await new Promise((r) => setTimeout(r, 60));
@@ -266,17 +267,28 @@ describe("고른 증권사를 서버 구독에 맞추기(앱 틀이 건다)", ()
     허락 = "granted";
     지금구독 = 구독();
     renderHook(() => use증권사알림맞추기(20));
-    act(() => useSettingsStore.getState().토글내증권사("KB증권"));
+    act(() => useSettingsStore.getState().토글알림증권사("KB증권"));
     await waitFor(() => expect(pushApi.subscribe).toHaveBeenCalledTimes(1));
-    act(() => useSettingsStore.getState().토글내증권사("KB증권"));       // 처음(키움증권만)으로
+    act(() => useSettingsStore.getState().토글알림증권사("KB증권"));       // 처음(키움증권만)으로
     await waitFor(() => expect(pushApi.subscribe).toHaveBeenCalledTimes(2));
     expect(pushApi.subscribe).toHaveBeenLastCalledWith(expect.anything(), { ipo: true, brokers: ["키움증권"] });
+  });
+
+  it("공모주 메뉴에서 목록을 거르는 증권사를 바꿔도 알림 구독은 그대로", async () => {
+    브라우저();
+    허락 = "granted";
+    지금구독 = 구독();
+    renderHook(() => use증권사알림맞추기(10));
+    act(() => useSettingsStore.getState().set공모주증권사(["KB증권"]));
+    act(() => useSettingsStore.getState().토글공모주증권사("삼성증권"));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(pushApi.subscribe).not.toHaveBeenCalled();
   });
 
   it("알림을 안 켠 기기는 서버에 안 알린다", async () => {
     브라우저();
     renderHook(() => use증권사알림맞추기(10));
-    act(() => useSettingsStore.getState().set내증권사(["KB증권"]));
+    act(() => useSettingsStore.getState().set알림증권사(["KB증권"]));
     await new Promise((r) => setTimeout(r, 60));
     expect(pushApi.subscribe).not.toHaveBeenCalled();
   });
@@ -286,7 +298,7 @@ describe("고른 증권사를 서버 구독에 맞추기(앱 틀이 건다)", ()
     허락 = "granted";
     지금구독 = 구독();
     const { unmount } = renderHook(() => use증권사알림맞추기(30));
-    act(() => useSettingsStore.getState().set내증권사(["KB증권"]));
+    act(() => useSettingsStore.getState().set알림증권사(["KB증권"]));
     unmount();
     await new Promise((r) => setTimeout(r, 80));
     expect(pushApi.subscribe).not.toHaveBeenCalled();

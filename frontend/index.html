@@ -66,6 +66,37 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="StockPlatform" />
 
+    <!-- ── 아이폰 시작 화면 ──────────────────────────────────
+         홈 화면 앱을 누르면 앱이 뜨기 전까지 이 그림을 띄운다(없으면 빈 화면이었다). 기기마다 화면 크기가
+         정확히 맞는 그림만 쓰므로 기종별로 둔다. 그림과 아래 묶음은 scripts/make-app-images.mjs 가 만든다 —
+         손으로 고치지 말고 그 파일의 기기 목록을 고친 뒤 다시 돌린다. -->
+    <!-- 시작화면:시작 -->
+    <!-- 16 Pro Max · 17 Pro Max -->
+    <link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1320x2868.png" />
+    <!-- Air -->
+    <link rel="apple-touch-startup-image" media="(device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1260x2736.png" />
+    <!-- 16 Pro · 17 · 17 Pro -->
+    <link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1206x2622.png" />
+    <!-- 14 Pro Max · 15 Plus · 15 Pro Max · 16 Plus -->
+    <link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1290x2796.png" />
+    <!-- 14 Pro · 15 · 15 Pro · 16 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1179x2556.png" />
+    <!-- 12 Pro Max · 13 Pro Max · 14 Plus -->
+    <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1284x2778.png" />
+    <!-- 12 · 12 Pro · 13 · 13 Pro · 14 · 16e -->
+    <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1170x2532.png" />
+    <!-- X · XS · 11 Pro · 12 mini · 13 mini -->
+    <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1125x2436.png" />
+    <!-- XS Max · 11 Pro Max -->
+    <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1242x2688.png" />
+    <!-- XR · 11 -->
+    <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/splash/iphone-828x1792.png" />
+    <!-- 6s Plus · 7 Plus · 8 Plus -->
+    <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/splash/iphone-1242x2208.png" />
+    <!-- 6s · 7 · 8 · SE(2·3세대) -->
+    <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="/splash/iphone-750x1334.png" />
+    <!-- 시작화면:끝 -->
+
     <!-- ── 폰트 ──────────────────────────────────────────────
          숫자에만 쓰는 고정폭 글꼴이다. 그런데 <link rel="stylesheet">
          는 **첫 픽셀을 막는다** — 브라우저는 이 CSS 를 다 받기 전까지

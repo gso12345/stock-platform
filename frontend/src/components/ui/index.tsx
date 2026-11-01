@@ -7,6 +7,8 @@ import { 용어사전 } from "@/constants/terms";
 import type { LucideIcon } from "lucide-react";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { 사람말로 } from "@/api/queryError";
+import { use좁은화면 } from "@/hooks/useWideScreen";
+import { use끌어닫기, use자판높이 } from "@/hooks/useSheet";
 
 export function cn(...i: ClassValue[]) { return twMerge(clsx(i)); }
 
@@ -123,7 +125,10 @@ export function RowSkeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
-/* ── 모달 (백드롭 + 패널 공용 마크업) ──────────────────── */
+/* ── 모달 (백드롭 + 패널 공용 마크업) ──────────────────────
+   휴대폰(639px 이하)에서는 아래에서 올라오는 시트로 — 손잡이를 끌어내리면 닫히고, 자판이 올라오면 그 위로
+   올라간다(hooks/useSheet). 예전에는 휴대폰에서도 화면 가운데 떴다(사용자: "실제 앱같이 느껴졌으면" — 8번).
+   PC 는 그대로 가운데(또는 위) 창이다. */
 export function Modal({ children, maxWidth = "max-w-md", align = "center", padTop = "pt-16", backdropOpacity = 60, onClose, className }: {
   children: React.ReactNode;
   maxWidth?: string;
@@ -133,6 +138,36 @@ export function Modal({ children, maxWidth = "max-w-md", align = "center", padTo
   onClose?: () => void;
   className?: string;
 }) {
+  const 휴대폰 = use좁은화면();
+  const 자판 = use자판높이(휴대폰);
+  const { 판, 손잡이 } = use끌어닫기(onClose);
+  if (휴대폰) {
+    return (
+      <div
+        className={cn(
+          "fixed inset-0 z-50 flex flex-col justify-end backdrop-blur-sm modal-backdrop",
+          backdropOpacity === 70 ? "bg-black/70" : "bg-black/60",
+        )}
+        onClick={onClose ? (e) => { if (e.target === e.currentTarget) onClose(); } : undefined}
+      >
+        <div ref={판} data-sheet=""
+          className={cn("w-full bg-bg-card border-t border-border rounded-t-2xl shadow-modal overflow-hidden sheet-up flex flex-col", className)}
+          style={{
+            // 위는 조금 남겨 뒤 화면이 보이게(시트라는 걸 안다). 자판이 올라오면 그만큼 올라가고 줄어든다
+            maxHeight: `calc(100dvh - 2.5rem - env(safe-area-inset-top) - ${자판}px)`,
+            marginBottom: 자판 || undefined,
+            paddingBottom: 자판 ? undefined : "env(safe-area-inset-bottom)",
+          }}>
+          {/* 손잡이 — 아래에서 올라온 시트라는 걸 알려 주고, 끌어내리면 닫힌다 */}
+          <div {...손잡이} aria-hidden
+            className={cn("shrink-0 flex justify-center pt-2.5 pb-1.5", onClose && "cursor-grab touch-none")}>
+            <span className="w-9 h-1 rounded-full bg-border" />
+          </div>
+          <div className="min-h-0 flex-1 flex flex-col overflow-y-auto overscroll-contain">{children}</div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className={cn(

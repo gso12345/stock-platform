@@ -46,6 +46,7 @@ vi.mock("@/utils/한가할때", () => ({
 }));
 
 import 위젯, { 라벨, 묶기, 느림기준초, 띄울때까지ms } from "../layout/LoadingProgressOverlay";
+import { 미리받는열쇠 } from "@/constants/미리받기열쇠";
 
 /** 다른 화면이 데이터를 부르는 것처럼 */
 function 다른화면({ 열쇠 }: { 열쇠: unknown[] }) {
@@ -225,6 +226,16 @@ describe("설정 → 불러오기 표시", () => {
     그리기();
     await waitFor(() => expect(대기["news-us"]).toBeDefined());
     expect(Object.keys(부른수).sort()).toEqual(["kr", "news-kr", "news-us", "us"]);
+  });
+});
+
+describe("미리 받는 열쇠", () => {
+  it("한곳(constants/미리받기열쇠)의 열쇠로 받는다 — 당겨서 새로고침이 이것만 지켜보는 자료를 거르려면 같아야 한다", async () => {
+    그리기();
+    await waitFor(() => expect(대기["news-us"]).toBeDefined());
+    for (const 열쇠 of Object.values(미리받는열쇠)) {
+      expect(qc.getQueryCache().find({ queryKey: 열쇠, exact: true }), JSON.stringify(열쇠)).toBeDefined();
+    }
   });
 });
 

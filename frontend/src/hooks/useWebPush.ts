@@ -79,19 +79,19 @@ export async function 푸시설정맞추기(증권사: string[]): Promise<void> 
   }
 }
 
-/** 고른 증권사가 바뀌면(공모주 메뉴의 '내 증권사' 든 알림 설정이든) 이 기기의 휴대폰 알림에도 알린다.
- *  앱 틀(Layout)이 한 번 건다 — 어디서 바꿨든 한 곳에서 맞춘다(예전에는 공모주 화면만 알려서, 다른 데서
- *  바꾸면 서버는 옛 증권사로 보냈다). 처음 열 때는 안 부른다. 칩을 잇달아 누르면 마지막 것만 보낸다 */
+/** 알림 받을 증권사(알림 화면에서 고른다)가 바뀌면 이 기기의 휴대폰 알림 구독에도 알린다.
+ *  앱 틀(Layout)이 한 번 건다 — 어디서 바꿨든 한 곳에서 맞춘다. 처음 열 때는 안 부른다. 칩을 잇달아 누르면
+ *  마지막 것만 보낸다. 공모주 메뉴의 증권사 칩(목록 거르기)은 여기에 안 닿는다 — 따로인 설정이다 */
 export function use증권사알림맞추기(기다림 = 600): void {
-  const 내증권사 = useSettingsStore((s) => s.내증권사);
+  const 알림증권사 = useSettingsStore((s) => s.알림증권사);
   // 연 그때의 목록 — 그대로면 보낼 것이 없다. 고르면 저장소가 늘 새 목록을 만들므로, 한 번이라도
   // 바꾼 뒤에는(처음과 같은 증권사로 되돌려도) 보낸다
-  const 처음값 = useRef(내증권사);
+  const 처음값 = useRef(알림증권사);
   useEffect(() => {
-    if (처음값.current === 내증권사) return;
-    const 시계 = setTimeout(() => void 푸시설정맞추기(내증권사), 기다림);
+    if (처음값.current === 알림증권사) return;
+    const 시계 = setTimeout(() => void 푸시설정맞추기(알림증권사), 기다림);
     return () => clearTimeout(시계);
-  }, [내증권사, 기다림]);
+  }, [알림증권사, 기다림]);
 }
 
 export function useWebPush() {
@@ -99,7 +99,7 @@ export function useWebPush() {
   const [처리중, set처리중] = useState(false);
   const [오류, set오류] = useState<string | null>(null);
   const [공모주, set공모주] = useState(공모주알림켜짐);
-  const 내증권사 = useSettingsStore((s) => s.내증권사);
+  const 알림증권사 = useSettingsStore((s) => s.알림증권사);
 
   useEffect(() => {
     let 살아있음 = true;
@@ -138,7 +138,7 @@ export function useWebPush() {
         구독 = null;
       }
       구독 = 구독 ?? await 워커.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: 열쇠 });
-      await pushApi.subscribe(구독.toJSON(), { ipo: 공모주, brokers: 내증권사 });
+      await pushApi.subscribe(구독.toJSON(), { ipo: 공모주, brokers: 알림증권사 });
       set상태("켜짐");
       return true;
     } catch {
@@ -147,7 +147,7 @@ export function useWebPush() {
     } finally {
       set처리중(false);
     }
-  }, [공모주, 내증권사]);
+  }, [공모주, 알림증권사]);
 
   const 끄기 = useCallback(async () => {
     set처리중(true);
@@ -177,11 +177,11 @@ export function useWebPush() {
     // 구독이 있을 때만 서버에 — 꺼진 기기는 구독이 없으니 묻기만 하고 끝난다
     try {
       const 구독 = 지원하나() ? await (await 준비된워커(2000))?.pushManager.getSubscription() : null;
-      if (구독) await pushApi.subscribe(구독.toJSON(), { ipo: 켬, brokers: 내증권사 });
+      if (구독) await pushApi.subscribe(구독.toJSON(), { ipo: 켬, brokers: 알림증권사 });
     } catch {
       set오류("설정을 저장하지 못했어요.");
     }
-  }, [내증권사]);
+  }, [알림증권사]);
 
   const 시험 = useCallback(async () => {
     set오류(null);

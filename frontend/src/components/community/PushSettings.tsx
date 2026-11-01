@@ -6,8 +6,9 @@
  * 단추만 회색으로 두면 고장 난 줄 안다.
  *
  * 공모주 청약 알림을 받을 증권사도 여기서 바로 고른다(사용자: "알림설정에서 그냥 어떤 증권사만 알림이
- * 오게할지 설정할 수 있도록 해줘"). 예전에는 공모주 메뉴의 증권사 칩으로만 고를 수 있었다. 고른 값은
- * 그 칩('내 증권사')과 같은 설정이고, 서버 구독에는 앱 틀이 한 곳에서 알린다(use증권사알림맞추기).
+ * 오게할지 설정할 수 있도록 해줘"). 공모주 메뉴의 증권사 칩(목록 거르기)과는 따로다 — 목록을 보려고 고른
+ * 증권사가 알림 증권사로 바뀌면 안 된다(사용자: "공모주메뉴에서 … 선택하는 건 그냥 선택한 공모주일정을
+ * 보고 싶을 뿐 … 내 증권사라는 것이 아니"). 서버 구독에는 앱 틀이 한 곳에서 알린다(use증권사알림맞추기).
  */
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -24,10 +25,10 @@ const 단추 = "px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors d
 export const 처음보일증권사 = 10;
 
 /** 공모주 청약 알림을 받을 증권사 — 안 고르면 모든 공모주 */
-function 알림증권사() {
-  const 고른 = useSettingsStore((s) => s.내증권사);
-  const 토글 = useSettingsStore((s) => s.토글내증권사);
-  const 비우기 = useSettingsStore((s) => s.set내증권사);
+function 알림증권사고르기() {
+  const 고른 = useSettingsStore((s) => s.알림증권사);
+  const 토글 = useSettingsStore((s) => s.토글알림증권사);
+  const 비우기 = useSettingsStore((s) => s.set알림증권사);
   const [다보기, set다보기] = useState(false);
   const { data: 목록, isLoading, isError } = useQuery({
     queryKey: ["ipo-brokers"],
@@ -64,7 +65,7 @@ function 알림증권사() {
         )}
       </div>
       <p className="text-2xs text-text-dim break-keep">
-        안 고르면 모든 공모주를 알려 드려요. 공모주 메뉴의 '내 증권사' 와 같은 설정이에요.
+        안 고르면 모든 공모주를 알려 드려요. 공모주 메뉴에서 목록을 거르는 증권사와는 따로예요.
         {isError && " 증권사 목록을 받지 못해 자주 주관하는 곳만 보여요."}
       </p>
     </div>
@@ -73,7 +74,7 @@ function 알림증권사() {
 
 export default function PushSettings() {
   const { 상태, 처리중, 오류, 공모주, 켜기, 끄기, 공모주바꾸기, 시험 } = useWebPush();
-  const 내증권사 = useSettingsStore((s) => s.내증권사);
+  const 알림증권사 = useSettingsStore((s) => s.알림증권사);
   const [시험결과, set시험결과] = useState<string | null>(null);
 
   const 안내: Record<string, string> = {
@@ -119,11 +120,11 @@ export default function PushSettings() {
             <span className="break-keep">
               공모주 청약 첫날·마지막 날 아침 8:30~9:00 에 알림
               <span className="block text-2xs text-text-dim">
-                {내증권사.length ? `고른 증권사 ${내증권사.length}곳이 주관하는 공모주만` : "모든 공모주 — 아래에서 증권사를 고르면 그 증권사 것만"}
+                {알림증권사.length ? `고른 증권사 ${알림증권사.length}곳이 주관하는 공모주만` : "모든 공모주 — 아래에서 증권사를 고르면 그 증권사 것만"}
               </span>
             </span>
           </label>
-          {공모주 && <알림증권사 />}
+          {공모주 && <알림증권사고르기 />}
           <div className="flex items-center gap-2">
             <button type="button"
               onClick={async () => set시험결과((await 시험()) ? "보냈어요 — 몇 초 안에 휴대폰에 떠요" : null)}

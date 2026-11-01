@@ -3,7 +3,8 @@
  * 단추만 회색으로 두면 고장 난 줄 안다.
  *
  * 공모주 청약 알림을 받을 증권사도 여기서 바로 고른다(사용자: "알림설정에서 그냥 어떤 증권사만 알림이
- * 오게할지 설정할 수 있도록 해줘") — 공모주 메뉴의 '내 증권사' 와 같은 설정이다.
+ * 오게할지 설정할 수 있도록 해줘"). 공모주 메뉴의 증권사 칩(목록 거르기)과는 따로다 — "공모주메뉴에서 …
+ * 선택하는 건 그냥 선택한 공모주일정을 보고 싶을 뿐 … 내 증권사라는 것이 아니"
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within, waitFor } from "@testing-library/react";
@@ -36,7 +37,8 @@ const 칩이름들 = () => within(칩칸()).queryAllByRole("button").map((b) => 
 beforeEach(() => {
   vi.clearAllMocks();
   Object.assign(훅, { 상태: "꺼짐", 처리중: false, 오류: null, 공모주: true });
-  useSettingsStore.getState().set내증권사([]);
+  useSettingsStore.getState().set알림증권사([]);
+  useSettingsStore.getState().set공모주증권사([]);
   증권사목록.mockResolvedValue(열두곳.map((name, i) => ({ name, count: 30 - i })));
 });
 
@@ -72,7 +74,7 @@ describe("휴대폰 알림 칸", () => {
   it("켜져 있으면 끄기·시험 알림·공모주 아침 알림", async () => {
     훅.상태 = "켜짐";
     훅.시험.mockResolvedValue(true);
-    useSettingsStore.getState().set내증권사(["키움증권", "KB증권"]);
+    useSettingsStore.getState().set알림증권사(["키움증권", "KB증권"]);
     그리기();
     expect(screen.getByText("이 기기에서 받는 중")).toBeInTheDocument();
     expect(screen.getByText("고른 증권사 2곳이 주관하는 공모주만")).toBeInTheDocument();
@@ -100,21 +102,23 @@ describe("휴대폰 알림 칸", () => {
 describe("알림 받을 증권사 — 알림 설정에서 바로 고른다", () => {
   beforeEach(() => { 훅.상태 = "켜짐"; });
 
-  it("많이 맡은 순으로 열 곳, 나머지는 '더 보기' — 누르면 고르고 다시 누르면 뺀다(공모주 메뉴와 같은 설정)", async () => {
+  it("많이 맡은 순으로 열 곳, 나머지는 '더 보기' — 누르면 고르고 다시 누르면 뺀다(공모주 메뉴 거르기는 안 바뀐다)", async () => {
+    useSettingsStore.getState().set공모주증권사(["삼성증권"]);
     그리기();
     await waitFor(() => expect(칩이름들()).toEqual(열두곳.slice(0, 처음보일증권사)));
     expect(처음보일증권사).toBe(10);
     expect(within(칩칸()).getByRole("button", { name: "+2곳 더 보기" })).toBeInTheDocument();
     await userEvent.click(within(칩칸()).getByRole("button", { name: "KB증권" }));
-    expect(useSettingsStore.getState().내증권사).toEqual(["KB증권"]);
+    expect(useSettingsStore.getState().알림증권사).toEqual(["KB증권"]);
     expect(within(칩칸()).getByRole("button", { name: "KB증권" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("고른 증권사 1곳이 주관하는 공모주만")).toBeInTheDocument();
     await userEvent.click(within(칩칸()).getByRole("button", { name: "KB증권" }));
-    expect(useSettingsStore.getState().내증권사).toEqual([]);
+    expect(useSettingsStore.getState().알림증권사).toEqual([]);
+    expect(useSettingsStore.getState().공모주증권사).toEqual(["삼성증권"]);   // 목록 거르기는 따로
   });
 
   it("'더 보기' 를 누르면 모두, 골라 둔 것은 접혀 있어도 보이고 목록에 없는 것도 붙어 뺄 수 있다", async () => {
-    useSettingsStore.getState().set내증권사(["신영증권", "상상인증권"]);
+    useSettingsStore.getState().set알림증권사(["신영증권", "상상인증권"]);
     그리기();
     await waitFor(() => expect(칩이름들()).toEqual([...열두곳.slice(0, 처음보일증권사), "신영증권", "상상인증권"]));
     expect(within(칩칸()).getByRole("button", { name: "+1곳 더 보기" })).toBeInTheDocument();   // 교보증권만 남았다
@@ -122,24 +126,24 @@ describe("알림 받을 증권사 — 알림 설정에서 바로 고른다", () 
     expect(칩이름들()).toEqual([...열두곳, "상상인증권"]);
     expect(within(칩칸()).queryByRole("button", { name: /더 보기/ })).toBeNull();
     await userEvent.click(within(칩칸()).getByRole("button", { name: "상상인증권" }));
-    expect(useSettingsStore.getState().내증권사).toEqual(["신영증권"]);
+    expect(useSettingsStore.getState().알림증권사).toEqual(["신영증권"]);
   });
 
   it("'모두 풀기' 는 골랐을 때만 — 누르면 모든 공모주", async () => {
     그리기();
     await waitFor(() => expect(칩이름들().length).toBe(처음보일증권사));
     expect(screen.queryByRole("button", { name: "모두 풀기" })).toBeNull();
-    useSettingsStore.getState().set내증권사(["KB증권", "삼성증권"]);
+    useSettingsStore.getState().set알림증권사(["KB증권", "삼성증권"]);
     await userEvent.click(await screen.findByRole("button", { name: "모두 풀기" }));
-    expect(useSettingsStore.getState().내증권사).toEqual([]);
-    expect(screen.getByText(/안 고르면 모든 공모주를 알려 드려요. 공모주 메뉴의 '내 증권사' 와 같은 설정이에요./))
+    expect(useSettingsStore.getState().알림증권사).toEqual([]);
+    expect(screen.getByText(/안 고르면 모든 공모주를 알려 드려요. 공모주 메뉴에서 목록을 거르는 증권사와는 따로예요./))
       .toBeInTheDocument();
   });
 
   it("받는 동안에는 골라 둔 것만 — 자주 주관하는 곳을 깔았다가 칩이 자리를 옮기지 않게", async () => {
     let 끝내기: (v: unknown) => void = () => {};
     증권사목록.mockReturnValue(new Promise((r) => { 끝내기 = r; }));
-    useSettingsStore.getState().set내증권사(["KB증권"]);
+    useSettingsStore.getState().set알림증권사(["KB증권"]);
     그리기();
     expect(칩이름들()).toEqual(["KB증권"]);
     expect(within(칩칸()).queryByRole("button", { name: /더 보기/ })).toBeNull();

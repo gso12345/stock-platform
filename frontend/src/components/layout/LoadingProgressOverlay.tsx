@@ -7,6 +7,7 @@ import { dashboardApi } from "@/api/stocks";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
 import { use관심목록 } from "@/hooks/useWatchlistItems";
 import { 한가할때 } from "@/utils/한가할때";
+import { 미리받는열쇠 } from "@/constants/미리받기열쇠";
 import Logo from "./Logo";
 
 /**
@@ -115,10 +116,11 @@ export default function LoadingProgressOverlay() {
      화면은 어차피 자기 데이터를 곧바로 직접 묻는다. */
   const [미리받기, set미리받기] = useState(false);
   useEffect(() => 한가할때(() => set미리받기(true), 2_500), []);
-  useQuery({ queryKey: ["dashboard-kr", "시가총액"], queryFn: () => dashboardApi.getKR(), staleTime: 60_000, enabled: 미리받기 });
-  useQuery({ queryKey: ["dashboard-us", "시가총액"], queryFn: () => dashboardApi.getUS(), staleTime: 60_000, enabled: 미리받기 });
-  useQuery({ queryKey: ["news", "kr", "latest"], queryFn: () => dashboardApi.getNews("kr", "latest"), staleTime: 300_000, enabled: 미리받기 });
-  useQuery({ queryKey: ["news", "us", "latest"], queryFn: () => dashboardApi.getNews("us", "latest"), staleTime: 300_000, enabled: 미리받기 });
+  /* 열쇠는 한곳(constants/미리받기열쇠)에 — 당겨서 새로고침이 이것만 지켜보는 자료는 다시 묻지 않는다 */
+  useQuery({ queryKey: 미리받는열쇠.국내대시보드, queryFn: () => dashboardApi.getKR(), staleTime: 60_000, enabled: 미리받기 });
+  useQuery({ queryKey: 미리받는열쇠.해외대시보드, queryFn: () => dashboardApi.getUS(), staleTime: 60_000, enabled: 미리받기 });
+  useQuery({ queryKey: 미리받는열쇠.국내뉴스, queryFn: () => dashboardApi.getNews("kr", "latest"), staleTime: 300_000, enabled: 미리받기 });
+  useQuery({ queryKey: 미리받는열쇠.해외뉴스, queryFn: () => dashboardApi.getNews("us", "latest"), staleTime: 300_000, enabled: 미리받기 });
   /* 같은 이름표에 fetcher 가 둘이면 먼저 붙은 쪽이 이긴다 — 보유목록은
      use보유목록 한 벌만 쓴다(hooks/usePortfolioItems). */
   use보유목록(isLoggedIn && 미리받기);

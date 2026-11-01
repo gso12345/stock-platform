@@ -7,6 +7,13 @@ function isStandaloneMode() {
   );
 }
 
+/** 아이폰 홈 화면 앱은 운영체제가 시작 그림(public/splash — 이 화면이 다 움직인 뒤의 모습)을 먼저 띄운다.
+ *  이어받는 이 화면이 처음부터 다시 움직이면 로고·글자가 사라졌다 나타나 깜빡인다 — 그래서 아이폰에서는
+ *  움직임 없이 끝 모습으로 이어받는다(index.css 의 splash-still). navigator.standalone 은 아이폰·아이패드에만 있다 */
+function 운영체제가_띄움() {
+  return (window.navigator as any).standalone === true;
+}
+
 /** 앱 틀이 그려졌다는 신호를 아무도 안 보내도 이만큼 지나면 걷는다 */
 const 최대_MS = 1_500;
 const FADE_MS = 200;
@@ -53,7 +60,7 @@ export default function SplashScreen() {
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 bg-bg-base"
+      className={`fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 bg-bg-base ${운영체제가_띄움() ? "splash-still" : ""}`}
       style={{
         opacity: stage === "fading" ? 0 : 1,
         pointerEvents: stage === "fading" ? "none" : "auto",

@@ -24,7 +24,7 @@
  *
  * 저장 쪽은 예전 사고를 하나 더 못 박는다 — 설정을 자리 인자로 저장하던
  * 시절, 설정을 하나 늘릴 때마다 다른 설정이 조용히 초기화됐다. 금액가리기를
- * 켤 때 색상 테마·글자 크기·테마·방향·내 증권사가 같이 살아남는지 본다.
+ * 켤 때 색상 테마·글자 크기·테마·방향·증권사 설정이 같이 살아남는지 본다.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, renderHook, act, cleanup, within } from "@testing-library/react";
@@ -47,8 +47,8 @@ const 기본값과_전부_다른_설정: 저장값 = {
   orientation: "landscape",    // 기본 system
   금액가리기: true,             // 기본 false
   불러오기표시: "끄기",         // 기본 보이기
-  내증권사: ["KB증권"],         // 기본 []
-  공모주내것만: true,           // 기본 false
+  공모주증권사: ["KB증권"],     // 기본 []
+  알림증권사: ["삼성증권"],     // 기본 []
 };
 
 const 저장된것 = (): any => JSON.parse(localStorage.getItem(열쇠) ?? "null");
@@ -230,8 +230,8 @@ describe("settingsStore 금액가리기", () => {
     s.setTheme("light");
     s.setOrientation("landscape");
     s.set불러오기표시("끄기");
-    s.set내증권사(["KB증권"]);
-    s.set공모주내것만(true);
+    s.set공모주증권사(["KB증권"]);
+    s.set알림증권사(["삼성증권"]);
     useSettingsStore.getState().set금액가리기(true);
 
     expect(저장된것()).toEqual(기본값과_전부_다른_설정);
@@ -244,8 +244,8 @@ describe("settingsStore 금액가리기", () => {
     s.setTheme("light");
     s.setOrientation("landscape");
     s.set불러오기표시("끄기");
-    s.set내증권사(["KB증권"]);
-    s.set공모주내것만(true);
+    s.set공모주증권사(["KB증권"]);
+    s.set알림증권사(["삼성증권"]);
     useSettingsStore.getState().set금액가리기(false);
 
     act(() => { useSettingsStore.getState().토글금액가리기(); });
@@ -281,8 +281,8 @@ describe("settingsStore 금액가리기", () => {
       expect(s.fontSize).toBe("xl");
       expect(s.theme).toBe("light");
       expect(s.orientation).toBe("landscape");
-      expect(s.내증권사).toEqual(["KB증권"]);
-      expect(s.공모주내것만).toBe(true);
+      expect(s.공모주증권사).toEqual(["KB증권"]);
+      expect(s.알림증권사).toEqual(["삼성증권"]);
     });
   });
 
