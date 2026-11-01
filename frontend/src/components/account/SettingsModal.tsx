@@ -6,15 +6,21 @@
  */
 import { Sun, Moon, Monitor, X, RectangleHorizontal, RectangleVertical, Smartphone, Eye, EyeOff } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
-import { useSettingsStore, 화면모양_목록 } from "@/store/settingsStore";
-import type { ColorScheme, FontSize, Theme, Orientation, 화면모양 } from "@/store/settingsStore";
+import { useSettingsStore } from "@/store/settingsStore";
+import type { ColorScheme, FontSize, Theme, Orientation } from "@/store/settingsStore";
 import { NotificationToggles } from "@/components/community/NotificationSettings";
+import { 원하는방향, 지원 as 방향고정지원, use고정상태, 방향안내 } from "@/utils/화면방향";
 
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const { colorScheme, setColorScheme, fontSize, setFontSize, theme, setTheme, orientation, setOrientation,
-          화면모양, set화면모양, 금액가리기, set금액가리기,
+          금액가리기, set금액가리기,
           불러오기표시, set불러오기표시 } = useSettingsStore();
+  const 고정상태 = use고정상태((s) => s.상태);
+  const 전체화면으로고정 = use고정상태((s) => s.전체화면);
+  const 방향지원 = 방향고정지원();
+  // 고정할 수 없는 기기(아이폰·PC)에서는 골라 둔 값이 있어도 시스템설정으로 보인다 — 실제로 그렇게 돈다
+  const 보이는방향: Orientation = 방향지원 === "된다" ? orientation : "system";
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm modal-backdrop"
@@ -54,36 +60,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          {/* 화면 모양 —
-              내 자산·종목상세를 어떤 배치로 볼지. 무엇이 나은지는 사람마다
-              갈려서 하나로 정하지 않고 고르게 뒀다. */}
-          <div>
-            <p className="text-xs font-semibold text-text-muted mb-2">화면 모양</p>
-            <div className="flex flex-col gap-1.5">
-              {화면모양_목록.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => set화면모양(opt.value as 화면모양)}
-                  aria-pressed={화면모양 === opt.value}
-                  className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
-                    화면모양 === opt.value
-                      ? "border-accent-blue bg-accent-blue/10"
-                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    화면모양 === opt.value ? "bg-accent-blue" : "bg-bg-elevated border border-border"}`} />
-                  <span className="flex flex-col min-w-0">
-                    <span className="text-xs font-semibold text-text-primary">{opt.label}</span>
-                    <span className="text-2xs text-text-muted break-keep">{opt.desc}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            <p className="text-2xs text-text-dim mt-1.5 break-keep">
-              내 자산과 종목상세에 적용됩니다.
-            </p>
-          </div>
+          {/* 화면 모양('기본' · '앱처럼') 고르기는 없앴다 — 늘 '앱처럼'(큰 가격 → 차트 → 통계).
+              사용자: "설정에서 앱처럼을 기본으로 해주고 기본설정은 완전히 없애줘" */}
 
           {/* 등락 색상 */}
           <div>
@@ -143,44 +121,44 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          {/* 화면 방향 */}
+          {/* 화면 방향 — 어디서 되고 어디서 안 되는지(안드로이드는 전체 화면에서만, 아이폰은 안 됨)는
+              utils/화면방향 맨 위 설명. 예전에는 안 되는 곳에서도 눌리기만 하고 아무 말이 없었다 */}
           <div>
             <p className="text-xs font-semibold text-text-muted mb-2">화면 방향</p>
-            <p className="text-2xs text-text-dim mb-2">설치된 앱(PWA) 등 일부 환경에서만 적용돼요</p>
             <div className="flex gap-2">
               {([
                 { value: "landscape", label: "가로",     icon: RectangleHorizontal },
                 { value: "portrait",  label: "세로",     icon: RectangleVertical   },
                 { value: "system",    label: "시스템설정", icon: Smartphone          },
-              ] as const).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => {
-                    setOrientation(opt.value as Orientation);
-                    /* 화면 회전 고정 API는 사용자 클릭(transient activation) 직후
-                       동기적으로 호출해야 동작하는 브라우저가 있어 useEffect가 아닌
-                       클릭 핸들러에서 직접 호출 */
-                    const so = screen.orientation as (ScreenOrientation & { lock?: (o: string) => Promise<void> }) | undefined;
-                    if (!so) return;
-                    /* lock()/unlock()은 풀스크린/PWA가 아닌 일반 브라우저 탭에서
-                       Promise reject가 아니라 동기적으로 예외를 던지는 환경이 있어
-                       try/catch로 감싸야 함 (안 그러면 앱 전체가 흰/검은 화면으로 죽음) */
-                    try {
-                      if (opt.value === "system") so.unlock?.();
-                      else so.lock?.(opt.value)?.catch(() => {});
-                    } catch {}
-                  }}
-                  className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
-                    orientation === opt.value
-                      ? "border-accent-blue bg-accent-blue/10"
-                      : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
-                  }`}
-                >
-                  <opt.icon size={16} className="text-text-primary" />
-                  <span className="text-2xs text-text-muted whitespace-nowrap">{opt.label}</span>
-                </button>
-              ))}
+              ] as const).map((opt) => {
+                const 고름 = 보이는방향 === opt.value;
+                const 못고름 = opt.value !== "system" && 방향지원 !== "된다";
+                return (
+                  <button
+                    key={opt.value}
+                    disabled={못고름}
+                    aria-pressed={고름}
+                    onClick={() => {
+                      setOrientation(opt.value as Orientation);
+                      /* 누른 그 손으로 건다 — 안드로이드는 전체 화면에 들어가야 고정되는데, 전체 화면은
+                         사람이 누른 그때만 들어갈 수 있다. 같은 것을 다시 눌러도(못 걸었을 때) 다시 건다 */
+                      void 원하는방향(opt.value as Orientation);
+                    }}
+                    className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
+                      고름 ? "border-accent-blue bg-accent-blue/10"
+                        : 못고름 ? "border-border opacity-40 cursor-not-allowed"
+                        : "border-border hover:border-accent-blue/40 hover:bg-bg-elevated"
+                    }`}
+                  >
+                    <opt.icon size={16} className="text-text-primary" />
+                    <span className="text-2xs text-text-muted whitespace-nowrap">{opt.label}</span>
+                  </button>
+                );
+              })}
             </div>
+            <p role="status" className="text-2xs text-text-dim mt-1.5 break-keep">
+              {방향안내(방향지원, orientation, 고정상태, 전체화면으로고정)}
+            </p>
           </div>
 
           {/* 금액 가리기 —

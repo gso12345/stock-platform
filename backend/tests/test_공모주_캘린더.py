@@ -97,7 +97,11 @@ class Test만들기:
         assert "DTSTART;VALUE=DATE:20261103\r\nDTEND;VALUE=DATE:20261105\r\n" in 글
         assert "SUMMARY:[상장] 에이비씨바이오\r\n" in 글
         assert "DTSTART;VALUE=DATE:20261112\r\nDTEND;VALUE=DATE:20261113\r\n" in 글
-        assert 글.count("BEGIN:VEVENT") == 2 and 글.count("TRIGGER:PT9H") == 2
+        assert 글.count("BEGIN:VEVENT") == 2
+        # 알람 — 청약은 8:30(휴대폰 알림과 같은 때), 상장은 9:00(장이 열리는 때)
+        청약, 상장 = 글.split("BEGIN:VEVENT")[1:]
+        assert 청약.count("TRIGGER:") == 1 and "TRIGGER:PT8H30M\r\n" in 청약
+        assert 상장.count("TRIGGER:") == 1 and "TRIGGER:PT9H\r\n" in 상장
         # 하루 종일 일정이 그날 시간을 '바쁨' 으로 막지 않게
         assert 글.count("TRANSP:TRANSPARENT") == 2
 

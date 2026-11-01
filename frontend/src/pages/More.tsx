@@ -156,7 +156,7 @@ export default function More() {
           iconSize={18}
           className="w-full flex items-center gap-3.5 px-4 py-3.5 text-left text-sm font-semibold text-text-primary hover:bg-bg-elevated transition-colors"
         />
-        <줄 onClick={() => set설정열림(true)} icon={Settings} label="설정" 설명="테마·화면 모양·글씨 크기·알림" />
+        <줄 onClick={() => set설정열림(true)} icon={Settings} label="설정" 설명="테마·글씨 크기·화면 방향·알림" />
         {isLoggedIn && (
           <줄 onClick={() => { logout(); navigate("/login"); }} icon={LogOut} label="로그아웃" 위험 />
         )}

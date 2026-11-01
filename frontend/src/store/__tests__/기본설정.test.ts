@@ -17,7 +17,7 @@ describe("기본 설정", () => {
     expect(s.colorScheme).toBe("red-blue");
     expect(s.불러오기표시).toBe("실패만");
     //: 나머지는 그대로
-    expect([s.fontSize, s.orientation, s.화면모양, s.금액가리기]).toEqual(["normal", "system", "app", false]);
+    expect([s.fontSize, s.orientation, s.금액가리기, s.공모주내것만]).toEqual(["normal", "system", false, false]);
   });
 
   it("이미 고른 사람의 값은 바꾸지 않는다", async () => {
@@ -49,6 +49,20 @@ describe("기본 설정", () => {
     expect((await 새로불러오기()).내증권사).toEqual(["KB증권", "대신증권"]);
     localStorage.setItem("portfolio_settings", JSON.stringify({ 내증권사: "KB증권" }));
     expect((await 새로불러오기()).내증권사).toEqual([]);
+  });
+
+  // 고른 증권사는 알림·캘린더용, 목록을 그 증권사 것만 볼지는 따로 — 기본은 모두 보기
+  it("공모주 목록 거르기는 처음엔 꺼짐 — 켠 것은 남고, true 가 아닌 값은 꺼짐으로 읽는다", async () => {
+    let s = await 새로불러오기();
+    expect(s.공모주내것만).toBe(false);
+    s.set공모주내것만(true);
+    s = await 새로불러오기();
+    expect(s.공모주내것만).toBe(true);
+    s.set공모주내것만(false);
+    expect((await 새로불러오기()).공모주내것만).toBe(false);
+    localStorage.setItem("portfolio_settings", JSON.stringify({ 공모주내것만: "true", 내증권사: ["KB증권"] }));
+    s = await 새로불러오기();
+    expect([s.공모주내것만, s.내증권사]).toEqual([false, ["KB증권"]]);
   });
 
   it("저장값에 칸이 빠져 있으면 새 기본값으로 채운다", async () => {

@@ -50,6 +50,27 @@ describe("공모주 일정 구독", () => {
     const 주소 = screen.getByRole("link", { name: /아이폰·맥/ }).getAttribute("href")!;
     expect(주소).toMatch(/\/api\/v1\/ipo\/calendar\.ics$/);
     expect(screen.getByText(/증권사를 고르면 그 증권사 공모주만/)).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "캘린더에 넣을 공모주" })).toBeNull();
+  });
+
+  // "선택한 증권사만 알림을 오게 하면서 모든 증권사 청약일정을 확인할 수는 없어" — 캘린더도 모두로 걸 수 있게
+  it("증권사를 골랐어도 '모든 공모주' 로 바꿔 걸 수 있다 — 기본은 고른 증권사 것만", async () => {
+    render(<공모주구독단추 증권사={["키움증권"]} />);
+    await userEvent.click(screen.getByRole("button", { name: /내 캘린더로/ }));
+    const 브로커 = () => new URL(screen.getByRole("link", { name: /아이폰·맥/ }).getAttribute("href")!
+      .replace("webcal://", "https://")).searchParams.get("brokers");
+    const 칸 = screen.getByRole("group", { name: "캘린더에 넣을 공모주" });
+    expect(within(칸).getByRole("button", { name: "고른 증권사 것만" })).toHaveAttribute("aria-pressed", "true");
+    expect(브로커()).toBe("키움증권");
+    await userEvent.click(within(칸).getByRole("button", { name: "모든 공모주" }));
+    expect(within(칸).getByRole("button", { name: "모든 공모주" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(칸).getByRole("button", { name: "고른 증권사 것만" })).toHaveAttribute("aria-pressed", "false");
+    expect(브로커()).toBeNull();
+    expect(screen.getByText(/모든 증권사의 공모주를 넣어요/)).toBeInTheDocument();
+    expect(new URL(screen.getByRole("link", { name: /구글 캘린더로 구독/ }).getAttribute("href")!)
+      .searchParams.get("cid")).toMatch(/\/api\/v1\/ipo\/calendar\.ics$/);
+    await userEvent.click(within(칸).getByRole("button", { name: "고른 증권사 것만" }));
+    expect(브로커()).toBe("키움증권");
   });
 
   it("주소 복사 — 복사했다고 알려 준다", async () => {
@@ -100,5 +121,27 @@ describe("이 공모주를 캘린더에", () => {
   it("카드의 일정 줄 옆에 붙는다", () => {
     render(<MemoryRouter><IpoCard 공모주={공모주()} /></MemoryRouter>);
     expect(screen.getByRole("button", { name: "에이비씨바이오 일정을 캘린더에 넣기" })).toBeInTheDocument();
+  });
+});
+
+describe("카드 — 내 증권사 표시", () => {
+  it("고른 증권사가 주관하면 '내 증권사' 를 붙이고 주관사 줄에서 그 이름만 칠한다", () => {
+    render(<MemoryRouter><IpoCard 공모주={공모주()} 내증권사={["키움증권", "KB증권"]} /></MemoryRouter>);
+    expect(screen.getByText("내 증권사")).toBeInTheDocument();
+    const 줄 = screen.getByText(/^주관사/);
+    expect(줄).toHaveTextContent("주관사 미래에셋증권 · 키움증권");
+    expect(within(줄).getByText("키움증권").tagName).toBe("B");
+    expect(within(줄).getByText("키움증권")).toHaveClass("text-accent-blue");
+    expect(within(줄).queryByText("미래에셋증권")).toBeNull();          // 칠하지 않은 이름은 따로 감싸지 않는다
+  });
+
+  it("고른 증권사가 주관하지 않거나 아무것도 안 골랐으면 표시가 없다", () => {
+    const { unmount } = render(<MemoryRouter><IpoCard 공모주={공모주()} 내증권사={["KB증권"]} /></MemoryRouter>);
+    expect(screen.queryByText("내 증권사")).toBeNull();
+    expect(screen.getByText("주관사 미래에셋증권 · 키움증권")).toBeInTheDocument();
+    unmount();
+    render(<MemoryRouter><IpoCard 공모주={공모주()} /></MemoryRouter>);
+    expect(screen.queryByText("내 증권사")).toBeNull();
+    expect(screen.getByText("주관사 미래에셋증권 · 키움증권")).toBeInTheDocument();
   });
 });

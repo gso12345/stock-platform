@@ -106,6 +106,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-10-14T03:00:00Z"));
   useSettingsStore.getState().setColorScheme("red-blue");
   useSettingsStore.getState().set내증권사([]);
+  useSettingsStore.getState().set공모주내것만(false);
   overview.mockReset();
   predict.mockReset();
   overview.mockResolvedValue(한눈에);
@@ -448,38 +449,88 @@ describe("공모주 — 증권사로 거르기", () => {
     expect(screen.getByText("주관사 미래에셋증권 · KB증권")).toBeInTheDocument();
   });
 
-  it("고르면 그 증권사 공모주만 보이고, 고른 것은 설정에 남는다", async () => {
+  // "선택한 증권사만 알림을 오게 하면서 모든 증권사 청약일정을 확인할 수는 없어" — 고르기(알림·캘린더)와
+  // 목록 거르기를 나눴다. 예전에는 고르면 목록까지 걸러져 다른 증권사 일정이 안 보였다
+  it("골라도 목록은 모두 — 내 증권사 공모주에 표시하고, '내 증권사 것만 보기' 를 눌러야 거른다", async () => {
     const 사용자 = userEvent.setup();
     overview.mockResolvedValue(여럿);
     그리기();
     await 사용자.click(await screen.findByRole("button", { name: "KB증권 2곳" }));
     expect(screen.getByRole("button", { name: "KB증권 2곳" })).toHaveAttribute("aria-pressed", "true");
+    expect(보이는곳()).toHaveLength(4);
+    expect(머리()).toHaveTextContent(/^다가오는 공모주 4$/);
+    expect(screen.getAllByText("내 증권사")).toHaveLength(2);
+    expect(screen.getByText(/내 증권사 공모주 2곳에 표시했어요/))
+      .toHaveTextContent("휴대폰 알림·캘린더 구독은 고른 증권사 것만 받아요");
+    expect(JSON.parse(localStorage.getItem("portfolio_settings")!).내증권사).toEqual(["KB증권"]);
+
+    await 사용자.click(screen.getByRole("button", { name: "내 증권사 것만 보기" }));
     expect(보이는곳()).toEqual(["가나바이오", "다라테크"]);
     expect(머리()).toHaveTextContent("다가오는 공모주 2 / 4");
     expect(screen.getByText(/고른 증권사 1곳이 주관하는 공모주 2곳만 보여요/))
       .toHaveTextContent("주관사가 아직 안 나온 1곳은 빠졌어요");
-    expect(JSON.parse(localStorage.getItem("portfolio_settings")!).내증권사).toEqual(["KB증권"]);
+    expect(JSON.parse(localStorage.getItem("portfolio_settings")!).공모주내것만).toBe(true);
     await 사용자.click(screen.getByRole("button", { name: "신한투자증권 1곳" }));
     expect(보이는곳()).toEqual(["가나바이오", "다라테크", "마바로보"]);
+
     await 사용자.click(screen.getByRole("button", { name: "모두 보기" }));
     expect(보이는곳()).toHaveLength(4);
-    expect(useSettingsStore.getState().내증권사).toEqual([]);
+    // '모두 보기' 는 목록만 푼다 — 고른 증권사(휴대폰 알림·캘린더)는 그대로
+    expect(useSettingsStore.getState().내증권사).toEqual(["KB증권", "신한투자증권"]);
+    expect(useSettingsStore.getState().공모주내것만).toBe(false);
+    expect(screen.getByRole("button", { name: "내 증권사 것만 보기" })).toBeInTheDocument();
   });
 
-  it("골라 둔 증권사로 열자마자 거르고, 지금 목록에 없는 증권사도 칩으로 남겨 뺄 수 있다", async () => {
+  it("주관사를 모르는 곳이 없으면 '빠졌어요' 를 붙이지 않는다", async () => {
+    useSettingsStore.getState().set내증권사(["KB증권"]);
+    useSettingsStore.getState().set공모주내것만(true);
+    overview.mockResolvedValue({ ...여럿, upcoming: 여럿.upcoming.filter((g) => g.underwriter) });
+    그리기();
+    const 안내 = await screen.findByText(/고른 증권사 1곳이 주관하는 공모주 2곳만 보여요/);
+    expect(안내).not.toHaveTextContent("빠졌어요");
+  });
+
+  it("아무것도 안 골랐으면 '내 증권사 것만' 을 켜 둬도 거르지 않는다", async () => {
+    useSettingsStore.getState().set공모주내것만(true);
+    overview.mockResolvedValue(여럿);
+    그리기();
+    expect(await screen.findByText("가나바이오")).toBeInTheDocument();
+    expect(보이는곳()).toHaveLength(4);
+    expect(머리()).toHaveTextContent(/^다가오는 공모주 4$/);
+    expect(screen.getByText(/청약할 증권사를 고르면 휴대폰 알림·캘린더 구독은 그 증권사 공모주만/)).toBeInTheDocument();
+    expect(screen.queryByText("내 증권사")).toBeNull();
+  });
+
+  it("'내 증권사 것만' 으로 열면 바로 거르고, 하나도 없으면 모두 보기로 풀 수 있다 — 고른 증권사는 그대로", async () => {
     const 사용자 = userEvent.setup();
     useSettingsStore.getState().set내증권사(["삼성증권"]);
+    useSettingsStore.getState().set공모주내것만(true);
     overview.mockResolvedValue(여럿);
     그리기();
     expect(await screen.findByText("고른 증권사가 주관하는 공모주가 지금은 없어요")).toBeInTheDocument();
     expect(보이는곳()).toEqual([]);
     expect(머리()).toHaveTextContent("다가오는 공모주 0 / 4");
-    await 사용자.click(screen.getByRole("button", { name: "삼성증권 0곳" }));
+    const 빈카드 = screen.getByText("고른 증권사가 주관하는 공모주가 지금은 없어요").closest("div.bg-bg-card") as HTMLElement;
+    await 사용자.click(within(빈카드).getByRole("button", { name: "모두 보기" }));
     expect(보이는곳()).toHaveLength(4);
-    expect(screen.queryByRole("button", { name: "삼성증권 0곳" })).toBeNull();
+    expect(useSettingsStore.getState().내증권사).toEqual(["삼성증권"]);
+    expect(useSettingsStore.getState().공모주내것만).toBe(false);
   });
 
-  it("캘린더 구독도 고른 증권사의 공모주만 — 화면에서 거른 그대로", async () => {
+  it("지금 목록에 없는 증권사도 골라 둔 것이면 칩으로 남겨 뺄 수 있다", async () => {
+    const 사용자 = userEvent.setup();
+    useSettingsStore.getState().set내증권사(["삼성증권"]);
+    overview.mockResolvedValue(여럿);
+    그리기();
+    expect(await screen.findByRole("button", { name: "삼성증권 0곳" })).toHaveAttribute("aria-pressed", "true");
+    expect(보이는곳()).toHaveLength(4);
+    expect(screen.getByText(/내 증권사 공모주 0곳에 표시했어요/)).toBeInTheDocument();
+    await 사용자.click(screen.getByRole("button", { name: "삼성증권 0곳" }));
+    expect(screen.queryByRole("button", { name: "삼성증권 0곳" })).toBeNull();
+    expect(useSettingsStore.getState().내증권사).toEqual([]);
+  });
+
+  it("캘린더 구독은 고른 증권사의 공모주만(기본) — 목록을 모두 보고 있어도", async () => {
     const 사용자 = userEvent.setup();
     overview.mockResolvedValue(여럿);
     그리기();

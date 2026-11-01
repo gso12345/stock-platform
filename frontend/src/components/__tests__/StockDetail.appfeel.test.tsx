@@ -1,9 +1,9 @@
 /**
  * 종목상세 '앱처럼' 모양 — "앱느낌이 너무 안 나는 것 같아"
  *
- * 지금은 화면 모양을 셋 중에 고를 수 있다(기본/간단히/앱처럼). 이 파일은
- * 그중 '앱처럼' 가지가 무너지지 않게 지킨다. 셋이 서로 다른지는
- * ScreenLayout 테스트가 본다.
+ * 화면 모양은 셋(기본/간단히/앱처럼)에서 고르다가, 지금은 '앱처럼' 하나만 남았다
+ * (사용자: "앱처럼을 기본으로 해주고 기본설정은 완전히 없애줘" — ScreenLayout 테스트).
+ * 이 파일은 그 모양이 무너지지 않게 지킨다.
  *
  * 휴대폰 폭으로 띄워 보니 시세 지표 열 개가 굵은 칸선이 그어진 격자로
  * 펼쳐져 화면의 절반을 먹었다. 스프레드시트처럼 보였고, 정작 종목상세에
@@ -29,19 +29,19 @@ describe("시세 지표", () => {
 
     // 자리만 옮기고 안 그리면 지표가 통째로 사라진 것이다
     const 구역 = StockDetail원문.slice(통계, 통계 + 2000);
-    expect(구역).toMatch(/화면모양 === "app" && mainTab === "chart" && d && \(/);
+    expect(구역).toMatch(/\{mainTab === "chart" && d && \(/);
     /* 상세가 오기 전에도 이 자리가 보여야 한다. 예전에는 d 가 올
        때까지 통계 묶음이 통째로 없어서, 아래에 숫자가 더 온다는 것을
        알 방법이 없었다 — 처음 온 사람에게는 '이 화면은 원래 이게
        전부' 로 보인다 */
-    expect(구역).toMatch(/화면모양 === "app" && mainTab === "chart" && !d && loadingDetail && \(/);
+    expect(구역).toMatch(/\{mainTab === "chart" && !d && loadingDetail && \(/);
   });
 
-  it("'앱처럼' 에서는 가격을 카드에 가두지 않는다", () => {
+  it("가격을 카드에 가두지 않는다", () => {
     /* 제목 밑에 큰 숫자가 바로 오는 것이 앱의 모양이다. 테두리를 두르면
-       한 덩어리로 안 읽힌다. 다른 모양에서는 테두리를 그대로 둔다 */
-    expect(StockDetail원문).toMatch(
-      /화면모양 === "app" \? "overflow-hidden"\s*\n?\s*: "rounded-xl border border-border bg-bg-card overflow-hidden"/);
+       한 덩어리로 안 읽힌다 */
+    expect(StockDetail원문).toMatch(/\{d \? \(\s*\n\s*<div className="overflow-hidden">\s*\n\s*\{\/\* 현재가 \+ 등락 \*\/\}/);
+    expect(StockDetail원문).toMatch(/"font-mono font-bold text-text-primary num text-\[2\.125rem\] leading-none"/);
   });
 
   it("칸선을 긋지 않는다", () => {

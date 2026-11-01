@@ -24,7 +24,7 @@
  *
  * 저장 쪽은 예전 사고를 하나 더 못 박는다 — 설정을 자리 인자로 저장하던
  * 시절, 설정을 하나 늘릴 때마다 다른 설정이 조용히 초기화됐다. 금액가리기를
- * 켤 때 색상 테마·글자 크기·테마·방향·화면모양이 같이 살아남는지 본다.
+ * 켤 때 색상 테마·글자 크기·테마·방향·내 증권사가 같이 살아남는지 본다.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, renderHook, act, cleanup, within } from "@testing-library/react";
@@ -45,10 +45,10 @@ const 기본값과_전부_다른_설정: 저장값 = {
   fontSize: "xl",              // 기본 normal
   theme: "light",              // 기본 dark
   orientation: "landscape",    // 기본 system
-  화면모양: "classic",          // 기본 app
   금액가리기: true,             // 기본 false
   불러오기표시: "끄기",         // 기본 보이기
   내증권사: ["KB증권"],         // 기본 []
+  공모주내것만: true,           // 기본 false
 };
 
 const 저장된것 = (): any => JSON.parse(localStorage.getItem(열쇠) ?? "null");
@@ -229,9 +229,9 @@ describe("settingsStore 금액가리기", () => {
     s.setFontSize("xl");
     s.setTheme("light");
     s.setOrientation("landscape");
-    s.set화면모양("classic");
     s.set불러오기표시("끄기");
     s.set내증권사(["KB증권"]);
+    s.set공모주내것만(true);
     useSettingsStore.getState().set금액가리기(true);
 
     expect(저장된것()).toEqual(기본값과_전부_다른_설정);
@@ -243,9 +243,9 @@ describe("settingsStore 금액가리기", () => {
     s.setFontSize("xl");
     s.setTheme("light");
     s.setOrientation("landscape");
-    s.set화면모양("classic");
     s.set불러오기표시("끄기");
     s.set내증권사(["KB증권"]);
+    s.set공모주내것만(true);
     useSettingsStore.getState().set금액가리기(false);
 
     act(() => { useSettingsStore.getState().토글금액가리기(); });
@@ -281,7 +281,8 @@ describe("settingsStore 금액가리기", () => {
       expect(s.fontSize).toBe("xl");
       expect(s.theme).toBe("light");
       expect(s.orientation).toBe("landscape");
-      expect(s.화면모양).toBe("classic");
+      expect(s.내증권사).toEqual(["KB증권"]);
+      expect(s.공모주내것만).toBe(true);
     });
   });
 
@@ -301,7 +302,7 @@ describe("settingsStore 금액가리기", () => {
     localStorage.setItem(열쇠, JSON.stringify({ ...기본값과_전부_다른_설정, 금액가리기: 값 }));
     const s = await 다시읽기();
     expect(s.금액가리기).toBe(false);
-    expect(s.화면모양).toBe("classic");   // 나머지는 그대로 살아 있다
+    expect(s.orientation).toBe("landscape");   // 나머지는 그대로 살아 있다
   });
 
   it("망가진 저장값에도 터지지 않고 꺼진 채로 시작한다", async () => {

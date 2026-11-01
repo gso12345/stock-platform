@@ -5,7 +5,7 @@
  * 안 되면 왜 안 되는지(무엇이 나오면 되는지)를 그 자리에 적는다 — 빈칸으로
  * 두면 고장 난 줄 안다.
  */
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { SlidersHorizontal } from "lucide-react";
 import { Card, Badge, 용어힌트 } from "@/components/ui";
@@ -55,13 +55,16 @@ export function 입력값으로(g: 다가오는공모주): 공모주직접입력
   };
 }
 
-export default function IpoCard({ 공모주: g, 바꿔보기, 청약전, 폭 }: {
+export default function IpoCard({ 공모주: g, 바꿔보기, 청약전, 폭, 내증권사 = [] }: {
   공모주: 다가오는공모주;
   /** 이 공모주 숫자로 계산기를 채운다(청약경쟁률을 미리 짐작해 보는 등) */
   바꿔보기?: (v: 공모주직접입력) => void;
   /** 청약 전에 본 예측의 지난 성적과 맞힘 폭(%) — 청약 전 카드에 붙인다 */
   청약전?: 공모주청약전성적;
   폭?: number;
+  /** 고른 증권사 — 그 증권사가 주관하면 '내 증권사' 를 붙이고 주관사 줄에서 그 이름을 칠한다.
+   *  목록이 모든 공모주를 보일 때 내가 청약할 수 있는 곳을 한눈에 */
+  내증권사?: string[];
 }) {
   const 상장까지 = 남은날(g.list_date);
   const 날표 = 상장까지 == null ? "" : 상장까지 > 0 ? ` D-${상장까지}` : 상장까지 === 0 ? " 오늘" : "";
@@ -73,6 +76,7 @@ export default function IpoCard({ 공모주: g, 바꿔보기, 청약전, 폭 }: 
     : "—";
   const 넣을값 = 입력값으로(g);
   const 주관사 = 증권사들(g.underwriter);
+  const 내것 = 주관사.filter((x) => 내증권사.includes(x));
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
@@ -84,9 +88,22 @@ export default function IpoCard({ 공모주: g, 바꿔보기, 청약전, 폭 }: 
             {g.kind === "spac" && <Badge variant="purple">스팩</Badge>}
             {g.kind === "reit" && <Badge variant="purple">리츠</Badge>}
             {g.market && <Badge>{g.market}</Badge>}
+            {내것.length > 0 && <Badge variant="blue">내 증권사</Badge>}
           </div>
           <p className="text-xs text-text-secondary num mt-1">{일정글(g)} <공모주일정단추 공모주={g} /></p>
-          {주관사.length > 0 && <p className="text-2xs text-text-dim mt-0.5 truncate">주관사 {주관사.join(" · ")}</p>}
+          {주관사.length > 0 && (
+            <p className="text-2xs text-text-dim mt-0.5 truncate">
+              주관사{" "}
+              {내것.length
+                ? 주관사.map((x, i) => (
+                    <Fragment key={x}>
+                      {i > 0 && " · "}
+                      {내것.includes(x) ? <b className="font-semibold text-accent-blue">{x}</b> : x}
+                    </Fragment>
+                  ))
+                : 주관사.join(" · ")}
+            </p>
+          )}
         </div>
         {청약배지
           ? <Badge variant={청약배지.급함 ? "red" : "yellow"}>{청약배지.글}</Badge>

@@ -713,9 +713,14 @@ async def 알림종목_시세_받기() -> tuple[int, int]:
 
 
 async def 가격알림_루프():
-    """알림 종목 시세를 받고 → 걸어 둔 알림을 확인한다. 벽시계로 간격을 맞춘다(작업 시간이 쌓이지 않게).
+    """알림 종목 시세를 받고 → 걸어 둔 알림을 확인하고 → 공모주 청약 아침 알림 때인지 본다.
+    벽시계로 간격을 맞춘다(작업 시간이 쌓이지 않게).
 
-    서버가 막 떴을 때는 한 간격 쉬고 시작한다 — 깨운 사람의 첫 화면과 부딪치지 않게."""
+    서버가 막 떴을 때는 한 간격 쉬고 시작한다 — 깨운 사람의 첫 화면과 부딪치지 않게.
+
+    공모주 아침 알림(평일 8:30~9:00 에 한 번)이 여기 있는 까닭 — 예전에는 주기 갱신(periodic_refresh)
+    안에 있었는데, 그 루프는 사람이 10분 동안 안 쓰면 통째로 쉰다. 아무도 앱을 안 여는 이른 아침에는
+    서버가 깨어 있어도 알림이 안 나갔다. 이 루프는 쉬지 않는다(앱을 닫고 기다리는 알림이 할 일이다)."""
     log.info("가격 알림 루프 시작")
     await asyncio.sleep(알림_확인_간격)
     while True:
@@ -729,6 +734,11 @@ async def 가격알림_루프():
             await asyncio.get_running_loop().run_in_executor(None, 확인하기)
         except Exception as e:
             log.debug("가격 알림 확인 건너뜀: %s", type(e).__name__)
+        try:
+            from app.services import push_service
+            await asyncio.get_running_loop().run_in_executor(None, push_service.아침_챙기기)
+        except Exception as e:
+            log.debug("공모주 아침 알림 건너뜀: %s", type(e).__name__)
         await asyncio.sleep(max(1.0, 알림_확인_간격 - (time.monotonic() - 시작)))
 
 
@@ -1083,14 +1093,8 @@ async def periodic_refresh():
 
         # 걸어 둔 가격 알림은 가격알림_루프 가 따로 30초마다 본다 — 이 루프는 작업을 차례로
         # 기다려 한 바퀴가 몇 분까지 늘어난다. "8만원 되면 알려줘" 를 5분 뒤에 알려 주면 이미 지나간 뒤다.
-
-        # 공모주 청약 아침 알림 (1분마다 살핀다 — 평일 8:40~10:00 에 하루 한 번만 보낸다)
-        if counter % 6 == 1:
-            try:
-                from app.services import push_service
-                await asyncio.get_running_loop().run_in_executor(None, push_service.아침_챙기기)
-            except Exception as e:
-                log.debug("공모주 아침 알림 건너뜀: %s", type(e).__name__)
+        # 공모주 청약 아침 알림도 거기서 본다 — 이 루프는 위의 가드에서 쉬므로, 아무도 앱을 안 여는
+        # 이른 아침(8:30~9:00)에는 여기 두면 안 나간다.
 
         # 내 자산 하루치 기록 (15분)
         #

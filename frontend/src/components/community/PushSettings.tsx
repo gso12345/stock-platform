@@ -58,7 +58,7 @@ export default function PushSettings() {
             <input type="checkbox" checked={공모주} onChange={(e) => void 공모주바꾸기(e.target.checked)}
               className="mt-0.5 accent-accent-blue" />
             <span className="break-keep">
-              공모주 청약 첫날·마지막 날 아침에 알림
+              공모주 청약 첫날·마지막 날 아침 8:30~9:00 에 알림
               <span className="block text-2xs text-text-dim">
                 {내증권사.length ? `고른 증권사(${내증권사.join(" · ")})가 주관하는 공모주만` : "모든 공모주 — 공모주 메뉴에서 증권사를 고르면 그 증권사 것만"}
               </span>

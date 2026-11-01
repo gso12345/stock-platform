@@ -112,7 +112,8 @@ def _uid(r: dict, 무엇: str) -> str:
 
 def _일정(r: dict, 무엇: str, 시작: date, 끝: date, 찍은때: str) -> list[str]:
     """하루 종일 일정 하나. 끝(DTEND)은 그다음 날이다(RFC 5545 — 끝은 안 들어간다).
-    알람은 첫날 아침 9시 — 청약은 10시에 열리고, 상장일은 9시에 장이 열린다."""
+    알람은 첫날 아침 — 청약은 8시 30분(휴대폰 알림과 같은 때, 청약은 10시에 열린다), 상장일은
+    9시(장이 열리는 때)."""
     return [
         "BEGIN:VEVENT",
         f"UID:{_uid(r, 무엇)}",
@@ -125,7 +126,7 @@ def _일정(r: dict, 무엇: str, 시작: date, 끝: date, 찍은때: str) -> li
         "BEGIN:VALARM",
         "ACTION:DISPLAY",
         f"DESCRIPTION:{_글(f'{무엇} — ' + (r.get('name') or '공모주'))}",
-        "TRIGGER:PT9H",
+        "TRIGGER:PT8H30M" if 무엇 == "청약" else "TRIGGER:PT9H",
         "END:VALARM",
         "END:VEVENT",
     ]

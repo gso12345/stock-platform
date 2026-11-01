@@ -87,7 +87,8 @@ export default function Ipo() {
   const [계산기값, set계산기값] = useState<공모주직접입력 | null>(null);
   const 계산기자리 = useRef<HTMLDivElement>(null);
   const 고른증권사 = useSettingsStore((s) => s.내증권사);
-  const 비우기 = useSettingsStore((s) => s.set내증권사);
+  const 내것만켬 = useSettingsStore((s) => s.공모주내것만);
+  const set내것만 = useSettingsStore((s) => s.set공모주내것만);
   // 휴대폰 알림을 켜 둔 기기면, 고른 증권사를 서버에도 알린다 — 청약 아침 알림이 그 증권사 것만 오게.
   // 처음 열 때는 안 부른다(바뀐 때만)
   const 처음 = useRef(true);
@@ -102,7 +103,10 @@ export default function Ipo() {
   const 시각 = 기준시각(data?.as_of ?? null);
   // 청약일이 빠른 순서(청약일이 아직 없는 것은 뒤로)
   const 다가옴 = 청약일순(data?.upcoming ?? []);
-  const 보일것 = 다가옴.filter((g) => 내증권사공모주(g.underwriter, 고른증권사));
+  // 고른 증권사는 알림·캘린더용이다. 목록은 '내 증권사 것만 보기' 를 켰을 때만 거른다
+  const 내것 = 고른증권사.length ? 다가옴.filter((g) => 내증권사공모주(g.underwriter, 고른증권사)) : [];
+  const 거름 = 내것만켬 && 고른증권사.length > 0;
+  const 보일것 = 거름 ? 내것 : 다가옴;
   const 모름수 = 고른증권사.length ? 다가옴.filter((g) => !증권사들(g.underwriter).length).length : 0;
 
   return (
@@ -126,7 +130,7 @@ export default function Ipo() {
                 <h2 id="ipo-다가오는" className="text-sm font-bold text-text-primary">
                   다가오는 공모주{" "}
                   <span className="text-text-muted font-semibold">
-                    {고른증권사.length ? `${보일것.length} / ${다가옴.length}` : 다가옴.length}
+                    {거름 ? `${보일것.length} / ${다가옴.length}` : 다가옴.length}
                   </span>
                 </h2>
                 <div className="flex items-baseline gap-3 shrink-0">
@@ -138,17 +142,17 @@ export default function Ipo() {
                   <공모주구독단추 증권사={고른증권사} />
                 </div>
               </div>
-              <IpoBrokerFilter 주관사칸들={다가옴.map((g) => g.underwriter)} 보이는수={보일것.length} 모름수={모름수} />
+              <IpoBrokerFilter 주관사칸들={다가옴.map((g) => g.underwriter)} 내것수={내것.length} 모름수={모름수} />
               {보일것.length ? (
                 보일것.map((g) => (
                   <IpoCard key={`${g.name}-${g.forecast_date ?? g.sub_start ?? ""}`} 공모주={g} 바꿔보기={바꿔보기}
-                    청약전={data.accuracy.pre_sub} 폭={data.accuracy.hit_band_pct} />
+                    청약전={data.accuracy.pre_sub} 폭={data.accuracy.hit_band_pct} 내증권사={고른증권사} />
                 ))
               ) : 다가옴.length ? (
                 <Card>
                   <빈화면 compact icon={Rocket} title="고른 증권사가 주관하는 공모주가 지금은 없어요"
                     hint={`${고른증권사.join(" · ")} — 다른 증권사 공모주 ${다가옴.length}곳은 모두 보기로 볼 수 있어요.`}
-                    action={{ label: "모두 보기", onClick: () => 비우기([]) }} />
+                    action={{ label: "모두 보기", onClick: () => set내것만(false) }} />
                 </Card>
               ) : (
                 <Card>

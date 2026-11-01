@@ -2,14 +2,15 @@
  * 공모주 일정을 내 캘린더로.
  *
  *   · 구독 — 한 번 걸어 두면 새 공모주의 청약일·상장일이 캘린더에 저절로 생긴다(앱을 안 열어도).
- *     고른 증권사가 있으면 그 증권사가 주관하는 공모주만 — 청약은 계좌가 있는 증권사로만 한다.
+ *     고른 증권사가 있으면 그 증권사가 주관하는 공모주만(청약은 계좌가 있는 증권사로만 한다) —
+ *     '모든 공모주' 로 바꿔 걸 수도 있다.
  *   · 한 곳만 — 카드마다 그 공모주의 청약·상장을 구글 캘린더나 캘린더 파일로.
  *
  * 아이폰·맥은 webcal:// 을 누르면 '구독' 을 띄우고, 구글은 '주소로 추가' 를 띄운다.
  */
 import { useState } from "react";
 import { CalendarPlus, Check, Copy } from "lucide-react";
-import { 시트 } from "@/components/ui";
+import { 시트, 고른칩 } from "@/components/ui";
 import type { 다가오는공모주 } from "@/api/stocks";
 import { 공모주캘린더주소, 구글구독주소, 구글일정주소, webcal주소 } from "@/utils/캘린더";
 import { 날짜글 } from "./ipoFormat";
@@ -17,11 +18,15 @@ import { 증권사들 } from "./ipoBrokers";
 
 const 줄단추 = "flex items-center justify-between gap-3 px-4 py-3 text-sm text-text-primary hover:bg-bg-elevated transition-colors";
 
-/** 공모주 일정 구독 — 다가오는 공모주 머리에 붙는다 */
+/** 공모주 일정 구독 — 다가오는 공모주 머리에 붙는다.
+ *  증권사를 골랐으면 '고른 증권사 것만'(기본)과 '모든 공모주' 가운데 고른다 — 캘린더로도 다른 증권사
+ *  청약 일정까지 보고 싶을 수 있다(알림은 내 증권사 것만 받더라도) */
 export function 공모주구독단추({ 증권사 }: { 증권사: string[] }) {
   const [열림, set열림] = useState(false);
   const [복사함, set복사함] = useState(false);
-  const 주소 = 공모주캘린더주소({ 증권사 });
+  const [모두, set모두] = useState(false);
+  const 고른것만 = 증권사.length > 0 && !모두;
+  const 주소 = 공모주캘린더주소({ 증권사: 고른것만 ? 증권사 : [] });
   const 복사 = async () => {
     try {
       await navigator.clipboard.writeText(주소);
@@ -41,10 +46,18 @@ export function 공모주구독단추({ 증권사 }: { 증권사: string[] }) {
         <div className="flex flex-col">
           <p className="px-4 pt-3 pb-2 text-xs text-text-secondary leading-relaxed break-keep">
             한 번 걸어 두면 새 공모주의 <b className="text-text-primary">청약일·상장일</b>이 캘린더에 저절로 생겨요.
-            {증권사.length
+            {고른것만
               ? <> 고른 증권사(<b className="text-text-primary">{증권사.join(" · ")}</b>)가 주관하는 공모주만 넣어요.</>
-              : <> 증권사를 고르면 그 증권사 공모주만 넣을 수 있어요.</>}
+              : 증권사.length
+                ? <> 모든 증권사의 공모주를 넣어요.</>
+                : <> 증권사를 고르면 그 증권사 공모주만 넣을 수 있어요.</>}
           </p>
+          {증권사.length > 0 && (
+            <div role="group" aria-label="캘린더에 넣을 공모주" className="flex gap-1.5 px-4 pb-2">
+              <고른칩 작게 고름={고른것만} onClick={() => set모두(false)}>고른 증권사 것만</고른칩>
+              <고른칩 작게 고름={!고른것만} onClick={() => set모두(true)}>모든 공모주</고른칩>
+            </div>
+          )}
           <a href={webcal주소(주소)} className={줄단추}>
             <span>아이폰·맥 캘린더로 구독</span><CalendarPlus size={16} className="text-text-muted" />
           </a>
@@ -97,7 +110,7 @@ export function 공모주일정단추({ 공모주: g }: { 공모주: 다가오�
             <CalendarPlus size={16} className="text-text-muted shrink-0" />
           </a>
           <p className="px-4 pt-1 text-2xs text-text-dim break-keep">
-            청약 첫날과 상장일 아침 9시에 알려 줘요(캘린더 파일). 일정이 바뀌면 다시 받으면 고쳐져요.
+            청약 첫날 아침 8시 30분, 상장일 아침 9시에 알려 줘요(캘린더 파일). 일정이 바뀌면 다시 받으면 고쳐져요.
           </p>
         </div>
       </시트>

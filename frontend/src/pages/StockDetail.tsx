@@ -72,9 +72,9 @@ const 유효 = (v: unknown): number | null =>
 type 지표칸 = { label: string; v: string | null; color?: string; 받는중?: boolean };
 
 /** 값 대신 자리만 잡아 두는 띠 — 아직 오는 중이라는 뜻 */
-function 오는중띠({ 넓게 }: { 넓게?: boolean }) {
+function 오는중띠() {
   return (
-    <span className={`inline-block ${넓게 ? "h-4 w-16" : "h-3 w-12"} rounded bg-bg-elevated animate-pulse`}
+    <span className="inline-block h-4 w-16 rounded bg-bg-elevated animate-pulse"
           role="status" aria-label="불러오는 중" />
   );
 }
@@ -1000,7 +1000,7 @@ export default function StockDetail() {
   }, [보유목록, sym, m]);
 
   const isUp = (d?.change_rate ?? 0) >= 0;
-  const { colorScheme, 화면모양 } = useSettingsStore();
+  const { colorScheme } = useSettingsStore();
   const upColor   = colorScheme === "red-blue" ? "text-accent-red"  : "text-accent-green";
   const downColor = colorScheme === "red-blue" ? "text-accent-blue" : "text-accent-red";
 
@@ -1172,14 +1172,10 @@ export default function StockDetail() {
           정작 차트는 화면을 한 장 넘겨야 나왔다. 카드 테두리를 없애 제목과
           한 덩어리로 만들고, 지표는 차트 아래로 내렸다. */}
       {d ? (
-        <div className={화면모양 === "app" ? "overflow-hidden"
-                                          : "rounded-xl border border-border bg-bg-card overflow-hidden"}>
+        <div className="overflow-hidden">
           {/* 현재가 + 등락 */}
-          <div className={화면모양 === "app"
-            ? "px-1 pb-3 flex items-center gap-3 flex-wrap"
-            : "px-4 py-3 flex items-center gap-4 flex-wrap border-b border-border"}>
-            <span className={`font-mono font-bold text-text-primary num ${
-              화면모양 === "app" ? "text-[2.125rem] leading-none" : "text-3xl"}`}>{priceStr}</span>
+          <div className="px-1 pb-3 flex items-center gap-3 flex-wrap">
+            <span className="font-mono font-bold text-text-primary num text-[2.125rem] leading-none">{priceStr}</span>
             <div className="flex items-center gap-1.5">
               {isUp ? <TrendingUp size={13} className={upColor}/> : <TrendingDown size={13} className={downColor}/>}
               {d.change != null && d.change !== 0 && (
@@ -1238,27 +1234,9 @@ export default function StockDetail() {
             </div>
           </div>
 
-          {/* 시세 지표 — 어디에 어떻게 둘지가 화면 모양마다 다르다.
-              app 은 차트 아래 '통계' 로 내려가므로 여기서는 안 그린다. */}
-          {/* '기본' 은 지표를 한 번에 다 편다.
-              접었다 폈다 하게 뒀더니, 볼 때마다 더보기를 눌러야 해서
-              오히려 번거로웠다. 숫자를 한눈에 보려고 이 모양을 고른
-              사람에게 한 번 더 누르게 할 이유가 없다.
-              칸선은 긋지 않는다 — 선을 그으면 표로 읽힌다. */}
-          {화면모양 === "classic" && (
-            <div className="px-3 py-2.5 grid grid-cols-4 gap-x-2 gap-y-2.5">
-              {priceItems.map((item) => (
-                <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-2xs text-text-dim whitespace-nowrap">{item.label}</span>
-                  {item.받는중 ? <오는중띠 /> : (
-                    <span className={`text-sm font-mono font-semibold num truncate ${item.color ?? "text-text-secondary"}`}>
-                      {item.v ?? "—"}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+          {/* 시세 지표는 여기 두지 않는다 — 차트 아래 '통계' 로 내려갔다(가격 → 차트 → 통계).
+              예전에는 '기본' 화면 모양을 고르면 여기에 지표를 한 번에 폈는데, 그 모양은 없앴다
+              (사용자: "앱처럼을 기본으로 해주고 기본설정은 완전히 없애줘"). */}
 
           {/* 투자의견 요약 행 (US 종목, 데이터 있을 때만) */}
           {!isKR && (() => {
@@ -1510,7 +1488,7 @@ export default function StockDetail() {
           동그라미를 돌리고 있어서, 아래에 숫자가 더 온다는 것을 알
           방법이 없었다 — 처음 온 사람에게는 '이 화면은 원래 이게
           전부' 로 보인다. 자리를 미리 잡아 두면 뜰 때 화면도 안 밀린다. */}
-      {화면모양 === "app" && mainTab === "chart" && !d && loadingDetail && (
+      {mainTab === "chart" && !d && loadingDetail && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2 px-1">
             <h2 className="text-base font-bold text-text-primary">통계</h2>
@@ -1528,7 +1506,7 @@ export default function StockDetail() {
         </div>
       )}
 
-      {화면모양 === "app" && mainTab === "chart" && d && (
+      {mainTab === "chart" && d && (
         <div className="flex flex-col gap-2">
           <h2 className="text-base font-bold text-text-primary px-1">통계</h2>
           {/* 52주 밴드에서 지금이 어디쯤인가.
@@ -1548,7 +1526,7 @@ export default function StockDetail() {
             {priceItems.map((item) => (
               <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
                 <span className="text-xs text-text-dim whitespace-nowrap">{item.label}</span>
-                {item.받는중 ? <오는중띠 넓게 /> : (
+                {item.받는중 ? <오는중띠 /> : (
                   <span className={`text-base font-mono font-semibold num truncate ${item.color ?? "text-text-primary"}`}>
                     {item.v ?? "—"}
                   </span>

@@ -55,7 +55,7 @@ describe("휴대폰 알림 칸", () => {
     render(<PushSettings />);
     expect(screen.getByText("이 기기에서 받는 중")).toBeInTheDocument();
     expect(screen.getByText("고른 증권사(키움증권 · KB증권)가 주관하는 공모주만")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("checkbox", { name: /공모주 청약 첫날·마지막 날 아침에 알림/ }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /공모주 청약 첫날·마지막 날 아침 8:30~9:00 에 알림/ }));
     expect(훅.공모주바꾸기).toHaveBeenCalledWith(false);
     await userEvent.click(screen.getByRole("button", { name: "시험 알림 보내기" }));
     expect(await screen.findByRole("status")).toHaveTextContent("보냈어요");

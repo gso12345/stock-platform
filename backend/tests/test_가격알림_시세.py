@@ -252,7 +252,8 @@ class Test알림이_정말_울린다:
 
 # ── 루프 ──────────────────────────────────────────────────────
 class Test루프:
-    def test_받고_나서_확인한다_터져도_멈추지_않는다(self, monkeypatch):
+    def test_받고_확인하고_아침_알림_때를_본다_터져도_멈추지_않는다(self, monkeypatch):
+        from app.services import push_service as P
         순서 = []
         쉰횟수 = []
 
@@ -266,6 +267,12 @@ class Test루프:
             순서.append("확인")
             return 0
 
+        def 아침():
+            순서.append("아침")
+            if 순서.count("아침") == 1:
+                raise RuntimeError("아침 알림도 터질 수 있다")
+            return 0
+
         async def 쉬기(초):
             쉰횟수.append(초)
             if len(쉰횟수) >= 3:          # 처음 한 번 + 두 차례 돌고 멈춘다
@@ -273,10 +280,14 @@ class Test루프:
 
         monkeypatch.setattr(S, "알림종목_시세_받기", 받기)
         monkeypatch.setattr(A, "확인하기", 확인)
+        monkeypatch.setattr(P, "아침_챙기기", 아침)
         monkeypatch.setattr(S.asyncio, "sleep", 쉬기)
+        # 아무도 안 쓰는 중이어도 돈다 — 앱을 닫고 기다리는 알림이 이 루프의 일이다
+        monkeypatch.setattr(S.activity, "seconds_since_last_request", lambda: 10 ** 6)
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(S.가격알림_루프())
-        assert 순서 == ["받기", "확인", "받기", "확인"], "받기가 터져도 확인은 해야 하고, 루프는 계속 돈다"
+        assert 순서 == ["받기", "확인", "아침", "받기", "확인", "아침"], \
+            "받기가 터져도 확인·아침 알림은 해야 하고, 아침 알림이 터져도 루프는 계속 돈다"
         assert 쉰횟수[0] == S.알림_확인_간격, "막 떴을 때는 한 간격 쉬고 시작한다"
         assert all(0 < s <= S.알림_확인_간격 for s in 쉰횟수[1:])
 
@@ -285,10 +296,14 @@ class Test루프:
         assert "가격알림_루프()" in 코드
 
     def test_주기_갱신_루프에서는_빠졌다(self):
-        """두 군데서 보면 같은 알림을 두 번 확인한다 — 한 번 울리면 꺼지니 해는 없지만 일이 두 배다"""
+        """두 군데서 보면 같은 알림을 두 번 확인한다 — 한 번 울리면 꺼지니 해는 없지만 일이 두 배다.
+        공모주 아침 알림도 빠졌다 — 주기 갱신은 사람이 10분 안 쓰면 쉬어서, 아무도 앱을 안 여는
+        이른 아침(8:30~9:00)에 거기 두면 안 나갔다"""
         트리 = ast.parse(textwrap.dedent(inspect.getsource(S.periodic_refresh)))
         이름들 = {n.id for n in ast.walk(트리) if isinstance(n, ast.Name)}
+        속성들 = {n.attr for n in ast.walk(트리) if isinstance(n, ast.Attribute)}
         assert "확인하기" not in 이름들
+        assert "아침_챙기기" not in 속성들 | 이름들
 
     def test_안_쓰던_보유종목_갱신은_지웠다(self):
         assert not hasattr(S, "refresh_held_symbols")

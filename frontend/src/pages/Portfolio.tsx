@@ -10,7 +10,7 @@ import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
 import { Card, RowSkeleton, Tabs, UnderlineTabs, ChangeBadge, 못불러옴} from "@/components/ui";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
-import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, TrendingDown, Percent, Settings2, RefreshCw, Eye, EyeOff, PieChart as PieIcon, Grid2x2 } from "lucide-react";
+import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, Settings2, RefreshCw, Eye, EyeOff, PieChart as PieIcon, Grid2x2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import 차트틀 from "@/components/chart/ChartFrame";
 import { 툴팁 } from "@/utils/chartTheme";
@@ -161,7 +161,7 @@ export default function Portfolio() {
   const 넓은화면 = use넓은화면();
 
   const { isLoggedIn } = useAuthStore();
-  const { colorScheme, 화면모양, 금액가리기, 토글금액가리기 } = useSettingsStore();
+  const { colorScheme, 금액가리기, 토글금액가리기 } = useSettingsStore();
   const 돈 = use돈();
 
   // 행에 마우스를 올리면 상세 페이지 데이터 선제 prefetch (클릭 시 즉시 표시)
@@ -1135,9 +1135,8 @@ export default function Portfolio() {
           예전에는 두 줄이었다. 상단바·탭·미리보기 배너까지 더하면 요약이
           나오기 전에 다섯 줄을 지나야 했고, 휴대폰에서는 그것만으로 화면
           절반이었다. 제목은 줄바꿈되지 않게 고정하고 버튼만 줄인다. */}
-      <div className={화면모양 === "classic"
-        ? "flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-        : "flex items-center justify-between gap-2"}>
+      {/* flex-wrap — 큰 글씨 등으로 버튼이 한 줄에 못 들어가면 버튼만 아래 줄로 내려간다(제목이 찌그러지지 않게) */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="min-w-0 flex items-baseline gap-2">
           <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">내 자산</h1>
           <p className="text-text-muted text-xs truncate">
@@ -1211,16 +1210,6 @@ export default function Portfolio() {
       {/* 로그인 상태에서는 현재가를 다 불러오기 전까지 매입가 기반 추정치를 보여주지 않고 로딩 표시만 함 */}
       {/* 로딩 뼈대 — 실제로 그려질 모양과 같아야 값이 도착할 때 안 튄다 */}
       {((isLoggedIn && items.length > 0 && pricesLoading) || (!isLoggedIn && !previewLoaded)) && (
-        화면모양 === "classic" ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {["총 평가금액", "총 매입금액", "평가손익", "수익률"].map((label) => (
-            <Card key={label} className="flex flex-col gap-1">
-              <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{label}</span>
-              <div className="h-4 w-20 rounded bg-bg-elevated animate-pulse mt-0.5" />
-            </Card>
-          ))}
-        </div>
-      ) : (
         /* 뼈대는 실제로 그려질 모양과 같아야 한다. 예전에는 여기가 카드
            넷이었는데 본체는 카드 하나라, 값이 도착할 때 화면이 크게 튀었다 */
         <Card className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-10 lg:px-6 lg:py-5">
@@ -1248,45 +1237,9 @@ export default function Portfolio() {
             ))}
           </div>
         </Card>
-        )
       )}
 
       {((isLoggedIn && items.length > 0 && !pricesLoading) || (!isLoggedIn && previewLoaded)) && (
-        화면모양 === "classic" ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: `${요약범위} 평가금액`, value: 돈.원(displaySummary.totalValue), color: "text-text-primary", icon: Landmark, tint: "" },
-            { label: `${요약범위} 매입금액`, value: 돈.원(displaySummary.totalCost),  color: "text-text-primary", icon: Receipt,  tint: "" },
-            { label: "평가손익",   value: 돈.원부호(displaySummary.totalPnl),  color: pnlColor(displaySummary.totalPnl),
-              icon: displaySummary.totalPnl >= 0 ? TrendingUp : TrendingDown,
-              tint: displaySummary.totalPnl >= 0 ? "bg-accent-red/5 border-accent-red/20" : "bg-accent-blue/5 border-accent-blue/20" },
-            { label: "수익률",     value: `${displaySummary.totalRate >= 0 ? "+" : ""}${displaySummary.totalRate.toFixed(2)}%`, color: pnlColor(displaySummary.totalRate),
-              icon: Percent,
-              tint: displaySummary.totalRate >= 0 ? "bg-accent-red/5 border-accent-red/20" : "bg-accent-blue/5 border-accent-blue/20" },
-          ].map((c) => (
-            <Card key={c.label} className={`flex flex-col gap-1 ${c.tint} ${!isLoggedIn ? "opacity-80" : ""}`}>
-              <div className="flex items-center gap-1.5">
-                <c.icon size={13} className={c.color === "text-text-primary" ? "text-text-dim" : c.color} />
-                <span className="text-2xs text-text-muted font-semibold uppercase tracking-wide">{c.label}</span>
-              </div>
-              <span className={`text-lg font-mono font-bold ${c.color}`}>{c.value}</span>
-              {c.label.endsWith("평가금액") && (
-                <span className="text-2xs text-text-dim">환율 {Math.round(exchangeRate).toLocaleString("ko-KR")}원</span>
-              )}
-              {c.label === "평가손익" && (
-                <span className={`text-2xs font-mono ${pnlColor(displaySummary.totalDailyChangeKRW)}`}>
-                  오늘 {돈.원부호(displaySummary.totalDailyChangeKRW)}
-                </span>
-              )}
-              {c.label === "수익률" && (
-                <span className={`text-2xs font-mono ${pnlColor(displaySummary.totalDailyChangeRate)}`}>
-                  오늘 {displaySummary.totalDailyChangeRate >= 0 ? "+" : ""}{displaySummary.totalDailyChangeRate.toFixed(2)}%
-                </span>
-              )}
-            </Card>
-          ))}
-        </div>
-        ) : (
         /* 요약은 카드 하나로 모은다.
            예전에는 같은 크기 카드 넷이 2×2 로 놓여, 휴대폰에서 화면 3분의 1을
            쓰면서도 무엇이 제일 중요한지 알 수 없었다. 여기 들어와서 제일 먼저
@@ -1387,7 +1340,6 @@ export default function Portfolio() {
             </div>
           )}
         </Card>
-        )
       )}
 
       {/* ── 내 자산 안 탭 ──

@@ -587,20 +587,35 @@ class Test공모주_아침:
         monkeypatch.setattr(D, "SessionLocal", lambda: pytest.fail("청약이 없는데 DB 를 봤다"))
         assert P.공모주_아침(date(2026, 11, 20)) == 0
 
-    def test_평일_아침_그_사이에_하루_한_번(self, monkeypatch):
+    def test_평일_8시30분부터_9시_전까지_하루_한_번(self, monkeypatch):
         보냄 = []
         monkeypatch.setattr(P, "공모주_아침", lambda d: 보냄.append(d) or 1)
         monkeypatch.setattr(P, "_아침_보낸날", None)
         한국 = lambda *a: datetime(*a, tzinfo=timezone.utc) - __import__("datetime").timedelta(hours=9)
-        assert P.아침_챙기기(한국(2026, 11, 3, 8, 39)) == 0           # 이르다
-        assert P.아침_챙기기(한국(2026, 11, 3, 8, 40)) == 1
-        assert P.아침_챙기기(한국(2026, 11, 3, 9, 0)) == 0            # 오늘 이미
-        assert P.아침_챙기기(한국(2026, 11, 3, 10, 0)) == 0
-        assert P.아침_챙기기(한국(2026, 11, 4, 9, 59)) == 1           # 다음 날
-        assert P.아침_챙기기(한국(2026, 11, 7, 9, 0)) == 0            # 토요일
-        assert 보냄 == [date(2026, 11, 3), date(2026, 11, 4)]
+        assert P.아침_챙기기(한국(2026, 11, 3, 8, 29)) == 0           # 이르다
+        assert P.아침_챙기기(한국(2026, 11, 3, 8, 30)) == 1           # 화요일 8:30
+        assert P.아침_챙기기(한국(2026, 11, 3, 8, 45)) == 0           # 오늘 이미
+        assert P.아침_챙기기(한국(2026, 11, 4, 9, 0)) == 0            # 9시부터는 안 보낸다(서버가 자다 깬 날)
+        assert P.아침_챙기기(한국(2026, 11, 5, 8, 59)) == 1           # 그 다음 날, 끝나기 직전
+        assert P.아침_챙기기(한국(2026, 11, 7, 8, 40)) == 0           # 토요일
+        assert P.아침_챙기기(한국(2026, 11, 8, 8, 40)) == 0           # 일요일
+        assert 보냄 == [date(2026, 11, 3), date(2026, 11, 5)]
 
-    def test_주기_갱신이_아침_알림을_살핀다(self):
+    def test_가격_알림_루프가_아침_알림을_살핀다(self):
+        """주기 갱신(periodic_refresh)은 사람이 10분 안 쓰면 쉰다 — 아무도 안 쓰는 이른 아침에 거기 두면
+        알림이 안 나갔다. 쉬지 않는 가격 알림 루프가 30초마다 본다"""
         import inspect
         from app.services import scheduler as S
-        assert "push_service.아침_챙기기" in inspect.getsource(S.periodic_refresh)
+        assert "push_service.아침_챙기기" in inspect.getsource(S.가격알림_루프)
+        assert S.알림_확인_간격 <= 60, "8:30~9:00 의 30분 안에 넉넉히 여러 번 봐야 한다"
+
+    def test_청약_마감_오후_4시까지_들고_있다(self, 메모리DB, 푸시서버, monkeypatch):
+        """휴대폰이 꺼져 있어도 푸시 서버가 이만큼 들고 있다가 켜지면 준다 — 8:30 에 보내면 4시까지"""
+        from app.services import ipo_service
+        받은, _ = 푸시서버
+        monkeypatch.setattr(ipo_service, "기록들", lambda: self.기록)
+        d = 기기()
+        P.구독하기(메모리DB(), _사람(메모리DB), d.endpoint, d.p256dh, d.auth_글)
+        assert P.공모주_아침(date(2026, 11, 3)) == 1
+        assert 받은[0].headers["TTL"] == str(7 * 3600 + 30 * 60)
+        assert 받은[0].headers["Urgency"] == "normal"

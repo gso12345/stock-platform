@@ -175,7 +175,8 @@ describe("메뉴", () => {
     const u = userEvent.setup();
     그리기();
     await u.click(await screen.findByRole("button", { name: /설정/ }));
-    expect(await screen.findByText("화면 모양")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설정" })).toBeInTheDocument();
+    expect(screen.getByText("화면 방향")).toBeInTheDocument();
   });
 
   it("로그아웃이 실제로 로그아웃시키고 로그인 화면으로 보낸다", async () => {

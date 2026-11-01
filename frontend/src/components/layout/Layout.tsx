@@ -15,6 +15,7 @@ import { useState, useEffect, Suspense } from "react";
 import { 화면미리받기 } from "@/routes/pages";
 import { 앱준비됨 } from "@/components/layout/SplashScreen";
 import { 한가할때, 아껴쓰는중 } from "@/utils/한가할때";
+import { 원하는방향, 지켜보기 as 방향지켜보기 } from "@/utils/화면방향";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/api/client";
 
@@ -116,18 +117,11 @@ export default function Layout() {
     else if (fontSize === "xl") html.classList.add("font-xl");
   }, [fontSize]);
 
-  /* 화면 방향 고정 적용 (설치된 PWA 등 지원 환경에서만 동작)
-     일반 브라우저 탭(풀스크린/PWA 아님)에서는 lock()/unlock()이 Promise reject가 아니라
-     동기적으로 예외를 던질 수 있어 try/catch 필수 — 안 그러면 페이지 첫 진입 시
-     이 effect가 매번 실행되며 앱 전체가 흰/검은 화면으로 죽음 */
-  useEffect(() => {
-    try {
-      const so = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-      if (!so) return;
-      if (orientation === "system") so.unlock?.();
-      else so.lock?.(orientation)?.catch(() => {});
-    } catch {}
-  }, [orientation]);
+  /* 화면 방향 고정 — 안드로이드는 전체 화면에서만 받아 주고, 전체 화면은 사람이 누른 그때만 들어갈 수
+     있다. 그래서 설정이 바뀔 때(설정 창을 누른 그 손으로) 걸고, 앱을 새로 열었거나 전체 화면이
+     풀렸으면 다음에 화면을 누를 때 다시 건다(utils/화면방향 맨 위 설명) */
+  useEffect(() => 방향지켜보기(), []);
+  useEffect(() => { void 원하는방향(orientation); }, [orientation]);
 
   /* 하단 탭의 "더보기"는 /more 화면이지만, 거기 든 메뉴 중 하나를 보고
      있을 때도 탭이 켜져 있어야 한다 — 안 그러면 관심종목을 보는 중에는

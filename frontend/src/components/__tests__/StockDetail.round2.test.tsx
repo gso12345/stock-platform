@@ -200,7 +200,7 @@ describe("모양을 앱에 맞춘다", () => {
   });
 
   it("토글이 눌린 상태를 알려 준다", () => {
-    /* 원화환산 토글은 화면모양별로 세 군데 있다. 하나만 보면 나머지를
+    /* 원화환산 토글은 종목상세 여러 조각에 걸쳐 세 군데 있다. 하나만 보면 나머지를
        지워도 통과한다 — 개수로 못 박는다 */
     expect((코드.match(/aria-pressed=\{showKRW\}/g) ?? []).length).toBe(3);
     expect(코드).toMatch(/aria-pressed=\{logScale\}/);
