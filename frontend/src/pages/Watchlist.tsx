@@ -4,7 +4,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi, screeningApi } from "@/api/stocks";
 import {
   Card, RowSkeleton, InlineSpinner, ErrorToast,
-  Tabs, UnderlineTabs, type TabItem, 빈화면, 못불러옴, 칩탭모양, 칩줄모양} from "@/components/ui";
+  Tabs, UnderlineTabs, type TabItem, 빈화면, 못불러옴, 칩탭모양, 칩줄모양, 칩자리표시} from "@/components/ui";
 import { use끝흐림 } from "@/hooks/useEdgeFade";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { useLivePrices, 시세갱신주기} from "@/hooks/useLivePrices";
@@ -78,7 +78,7 @@ export default function Watchlist() {
   );
 
   // 포트폴리오 목록 (탭 표시용)
-  const { data: pfList = [] } = useQuery<PortfolioMeta[]>({
+  const { data: pfList = [], isLoading: 계좌받는중 } = useQuery<PortfolioMeta[]>({
     queryKey: ["portfolios"],
     queryFn: portfolioApi.getPortfolios,
     enabled: isLoggedIn,
@@ -119,7 +119,7 @@ export default function Watchlist() {
   const [livePrices, setLivePrices] = useState<Record<string, 시세행>>({});
   const [addError, setAddError]     = useState("");
 
-  const { data: folders = [] } = useQuery({
+  const { data: folders = [], isLoading: 폴더받는중 } = useQuery({
     queryKey: ["watchlist-folders"],
     queryFn: watchlistFolderApi.getFolders,
     // 폴더 구조는 자주 바뀌지 않으므로 5분 캐시 — mutation onSuccess에서 invalidate함
@@ -828,6 +828,8 @@ export default function Watchlist() {
                 </button>
               );
             })}
+            {/* 폴더·계좌 이름을 처음 받는 중이면 그 자리 — 받기 전에는 '전체' 하나만 덩그러니 있었다 */}
+            {!isPreview && (폴더받는중 || 계좌받는중) && <칩자리표시 />}
           </div>
           {/* 탭 관리 — 칩 줄 끝, 넘겨도 늘 보이게 줄 밖에 둔다 */}
           <button

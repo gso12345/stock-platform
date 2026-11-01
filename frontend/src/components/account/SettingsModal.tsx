@@ -24,7 +24,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const 보이는방향: Orientation = 방향지원 === "된다" ? orientation : "system";
   return (
     // 공용 창 — 휴대폰에서는 아래에서 올라오는 시트(끌어내려 닫기), PC 는 가운데 창
-    <Modal maxWidth="max-w-sm" backdropOpacity={70} onClose={onClose} className="max-h-[85vh] flex flex-col">
+    <Modal 시트 maxWidth="max-w-sm" backdropOpacity={70} onClose={onClose} className="max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <h3 className="text-sm font-bold text-text-primary">설정</h3>
           <button onClick={onClose} aria-label="닫기" className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">

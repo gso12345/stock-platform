@@ -6,7 +6,7 @@ import { Modal } from "@/components/ui";
 function IOSInstallGuide({ onClose }: { onClose: () => void }) {
   return (
     // 공용 창 — 휴대폰에서는 아래에서 올라오는 시트, PC 는 가운데 창
-    <Modal maxWidth="max-w-sm" backdropOpacity={70} onClose={onClose}>
+    <Modal 시트 maxWidth="max-w-sm" backdropOpacity={70} onClose={onClose}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h3 className="text-sm font-bold text-text-primary">앱으로 설치하기</h3>
           <button aria-label="닫기" onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated">

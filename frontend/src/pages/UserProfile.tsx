@@ -369,7 +369,7 @@ export default function UserProfile() {
       {/* 팔로워/팔로잉 모달 */}
       {followModal && (
         // 공용 창 — 휴대폰에서는 아래에서 올라오는 시트, PC 는 가운데 창
-        <Modal maxWidth="max-w-sm" backdropOpacity={70} onClose={() => setFollowModal(null)}>
+        <Modal 시트 maxWidth="max-w-sm" backdropOpacity={70} onClose={() => setFollowModal(null)}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h3 className="text-sm font-bold text-text-primary">
                 {followModal === "followers" ? "팔로워" : "팔로잉"}

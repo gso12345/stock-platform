@@ -1,8 +1,9 @@
 /**
  * 가운데 창 → 휴대폰에서는 아래 시트 — "실제 앱같이 느껴졌으면" 8번.
  *
- * 휴대폰(639px 이하)에서는 창이 아래에서 올라오고, 손잡이를 끌어내리면 닫히고, 화면 자판이 올라오면 그 위로
- * 올라간다. PC 는 예전 가운데 창 그대로.
+ * 시트를 켠 창(설정·앱 설치 안내·팔로워·좋아요 목록)은 휴대폰(639px 이하)에서 아래에서 올라오고, 손잡이를
+ * 끌어내리면 닫히고, 화면 자판이 올라오면 그 위로 올라간다. 켜지 않은 창(종목 추가·삭제 확인 등)과 PC 는
+ * 가운데 팝업 — "종목추가, 삭제할때 밑에서 올라오는 건 좀 불편해 팝업이 나을 거 같아".
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
@@ -78,7 +79,7 @@ describe("닫을까 — 끌어내린 거리와 빠르기", () => {
 
 describe("휴대폰 — 아래 시트", () => {
   it("아래에서 올라오는 시트와 손잡이 — 가운데 창 모양이 아니다", () => {
-    render(<Modal onClose={() => {}} maxWidth="max-w-sm"><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={() => {}} maxWidth="max-w-sm"><p>내용</p></Modal>);
     expect(시트()).toBeInTheDocument();
     expect(시트().className).toContain("sheet-up");
     expect(시트().className).toContain("rounded-t-2xl");
@@ -94,7 +95,7 @@ describe("휴대폰 — 아래 시트", () => {
 
   it("뒤를 누르면 닫고, 시트 안을 누르면 닫지 않는다", () => {
     const 닫기 = vi.fn();
-    render(<Modal onClose={닫기}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={닫기}><p>내용</p></Modal>);
     fireEvent.click(screen.getByText("내용"));
     expect(닫기).not.toHaveBeenCalled();
     fireEvent.click(뒤판());
@@ -102,15 +103,15 @@ describe("휴대폰 — 아래 시트", () => {
   });
 
   it("뒤판의 짙기를 고를 수 있다", () => {
-    const { unmount } = render(<Modal onClose={() => {}} backdropOpacity={70}><p>내용</p></Modal>);
+    const { unmount } = render(<Modal 시트 onClose={() => {}} backdropOpacity={70}><p>내용</p></Modal>);
     expect(뒤판().className).toContain("bg-black/70");
     unmount();
-    render(<Modal onClose={() => {}}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={() => {}}><p>내용</p></Modal>);
     expect(뒤판().className).toContain("bg-black/60");
   });
 
   it("끄는 동안 손가락을 따라 내려온다 — 올라오던 효과는 멈춘다", () => {
-    render(<Modal onClose={() => {}}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={() => {}}><p>내용</p></Modal>);
     fireEvent.pointerDown(손잡이(), { clientY: 100, pointerId: 1 });
     expect(시트().style.animation).toBe("none");
     fireEvent.pointerMove(손잡이(), { clientY: 160, pointerId: 1 });
@@ -123,7 +124,7 @@ describe("휴대폰 — 아래 시트", () => {
   it("멀리 끌어 놓으면 내려가고, 다 내려간 뒤에 닫는다", () => {
     시계();
     const 닫기 = vi.fn();
-    render(<Modal onClose={닫기}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={닫기}><p>내용</p></Modal>);
     끌기(닫는거리 + 10, 2000);
     expect(시트().style.transform).toBe("translateY(100%)");
     expect(시트().style.transition).toBe(`transform ${내려가는시간}ms ease`);
@@ -136,7 +137,7 @@ describe("휴대폰 — 아래 시트", () => {
   it("짧게 빠르게 쓸어도 닫는다", () => {
     시계();
     const 닫기 = vi.fn();
-    render(<Modal onClose={닫기}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={닫기}><p>내용</p></Modal>);
     끌기(40, 50);
     act(() => { vi.advanceTimersByTime(내려가는시간); });
     expect(닫기).toHaveBeenCalledTimes(1);
@@ -145,7 +146,7 @@ describe("휴대폰 — 아래 시트", () => {
   it("짧게 천천히 끌다 놓으면 제자리로 돌아간다", () => {
     시계();
     const 닫기 = vi.fn();
-    render(<Modal onClose={닫기}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={닫기}><p>내용</p></Modal>);
     끌기(40, 1000);
     expect(시트().style.transform).toBe("");
     expect(시트().style.transition).toBe(`transform ${내려가는시간}ms ease`);
@@ -158,7 +159,7 @@ describe("휴대폰 — 아래 시트", () => {
   it("손을 놓치면(pointercancel) 제자리로 — 그 뒤 움직임·뗌은 무시한다", () => {
     시계();
     const 닫기 = vi.fn();
-    render(<Modal onClose={닫기}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={닫기}><p>내용</p></Modal>);
     fireEvent.pointerDown(손잡이(), { clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(손잡이(), { clientY: 300, pointerId: 1 });
     fireEvent.pointerCancel(손잡이(), { pointerId: 1 });
@@ -173,7 +174,7 @@ describe("휴대폰 — 아래 시트", () => {
   it("누르지 않고 움직이거나 떼기만 하면 아무 일 없다", () => {
     시계();
     const 닫기 = vi.fn();
-    render(<Modal onClose={닫기}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={닫기}><p>내용</p></Modal>);
     fireEvent.pointerMove(손잡이(), { clientY: 400, pointerId: 1 });
     expect(시트().style.transform).toBe("");
     fireEvent.pointerUp(손잡이(), { clientY: 400, pointerId: 1 });
@@ -182,7 +183,7 @@ describe("휴대폰 — 아래 시트", () => {
   });
 
   it("손가락을 붙잡아 손잡이 밖으로 나가도 계속 끌린다", () => {
-    render(<Modal onClose={() => {}}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={() => {}}><p>내용</p></Modal>);
     const 붙잡기 = vi.fn();
     (손잡이() as any).setPointerCapture = 붙잡기;
     fireEvent.pointerDown(손잡이(), { clientY: 100, pointerId: 7 });
@@ -190,7 +191,7 @@ describe("휴대폰 — 아래 시트", () => {
   });
 
   it("닫을 수 없는 창은 손잡이가 끌리지 않고 뒤를 눌러도 그대로", () => {
-    render(<Modal><p>내용</p></Modal>);
+    render(<Modal 시트><p>내용</p></Modal>);
     expect(손잡이().className).not.toContain("touch-none");
     fireEvent.pointerDown(손잡이(), { clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(손잡이(), { clientY: 400, pointerId: 1 });
@@ -201,7 +202,7 @@ describe("휴대폰 — 아래 시트", () => {
 
   it("자판이 올라오면 그만큼 올라가고, 내려가면 돌아온다", () => {
     판 = new 보이는판();
-    render(<Modal onClose={() => {}}><input aria-label="이름" /></Modal>);
+    render(<Modal 시트 onClose={() => {}}><input aria-label="이름" /></Modal>);
     expect(시트().style.marginBottom).toBe("");
     expect(시트().style.maxHeight).toContain("100dvh");
     act(() => {
@@ -231,20 +232,20 @@ describe("휴대폰 — 아래 시트", () => {
   it("자판이 이미 올라와 있을 때 열어도 그 위에 뜬다", () => {
     판 = new 보이는판();
     판.height = 544;
-    render(<Modal onClose={() => {}}><input aria-label="이름" /></Modal>);
+    render(<Modal 시트 onClose={() => {}}><input aria-label="이름" /></Modal>);
     expect(시트().style.marginBottom).toBe("300px");
   });
 
   it("창이 닫히면 자판을 더 지켜보지 않는다", () => {
     판 = new 보이는판();
     const 빼기 = vi.spyOn(판, "removeEventListener");
-    const { unmount } = render(<Modal onClose={() => {}}><p>내용</p></Modal>);
+    const { unmount } = render(<Modal 시트 onClose={() => {}}><p>내용</p></Modal>);
     unmount();
     expect(빼기.mock.calls.map((c) => c[0]).sort()).toEqual(["resize", "scroll"]);
   });
 
   it("자판 높이를 잴 수 없는 브라우저에서도 그대로 뜬다", () => {
-    render(<Modal onClose={() => {}}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={() => {}}><p>내용</p></Modal>);
     expect(시트()).toBeInTheDocument();
     expect(시트().style.marginBottom).toBe("");
   });
@@ -255,7 +256,7 @@ describe("PC·태블릿 — 예전 가운데 창 그대로", () => {
     폭 = 1280;
     판 = new 보이는판();
     const 듣기 = vi.spyOn(판, "addEventListener");
-    render(<Modal onClose={() => {}} maxWidth="max-w-sm"><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={() => {}} maxWidth="max-w-sm"><p>내용</p></Modal>);
     expect(시트()).toBeNull();
     const 창 = document.querySelector(".modal-pop") as HTMLElement;
     expect(창.className).toContain("max-w-sm");
@@ -266,20 +267,40 @@ describe("PC·태블릿 — 예전 가운데 창 그대로", () => {
 
   it("위에 붙이는 창도 그대로", () => {
     폭 = 1280;
-    render(<Modal onClose={() => {}} align="start" padTop="pt-24"><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={() => {}} align="start" padTop="pt-24"><p>내용</p></Modal>);
     expect(뒤판().className).toContain("items-start");
     expect(뒤판().className).toContain("pt-24");
   });
 
   it("태블릿(640px)도 가운데 창 — 시트는 639px 까지", () => {
     폭 = 640;
-    render(<Modal onClose={() => {}}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={() => {}}><p>내용</p></Modal>);
     expect(시트()).toBeNull();
   });
 
   it("639px 은 시트", () => {
     폭 = 639;
-    render(<Modal onClose={() => {}}><p>내용</p></Modal>);
+    render(<Modal 시트 onClose={() => {}}><p>내용</p></Modal>);
     expect(시트()).toBeInTheDocument();
   });
 });
+
+describe("시트를 켜지 않은 창 — 휴대폰에서도 가운데 팝업", () => {
+  it("종목 추가·삭제 확인처럼 입력하거나 확인하는 창은 팝업이다", () => {
+    폭 = 390;
+    render(<Modal onClose={() => {}} maxWidth="max-w-sm"><p>내용</p></Modal>);
+    expect(시트()).toBeNull();
+    const 창 = document.querySelector(".modal-pop") as HTMLElement;
+    expect(창.className).toContain("max-w-sm");
+    expect(뒤판().className).toContain("items-center");
+  });
+
+  it("팝업은 자판 높이를 재지 않는다", () => {
+    폭 = 390;
+    판 = new 보이는판();
+    const 듣기 = vi.spyOn(판, "addEventListener");
+    render(<Modal onClose={() => {}}><p>내용</p></Modal>);
+    expect(듣기).not.toHaveBeenCalled();
+  });
+});
+

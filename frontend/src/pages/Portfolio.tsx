@@ -8,7 +8,7 @@ import { use저장된값, use저장된Set } from "@/hooks/useSaved";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
-import { Card, RowSkeleton, Tabs, UnderlineTabs, ChangeBadge, 못불러옴, 칩탭모양, 칩줄모양 } from "@/components/ui";
+import { Card, RowSkeleton, Tabs, UnderlineTabs, ChangeBadge, 못불러옴, 칩탭모양, 칩줄모양, 칩자리표시 } from "@/components/ui";
 import { use끝흐림 } from "@/hooks/useEdgeFade";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, Settings2, RefreshCw, Eye, EyeOff, PieChart as PieIcon, Grid2x2 } from "lucide-react";
@@ -208,7 +208,7 @@ export default function Portfolio() {
     });
   };
 
-  const { data: portfolios = [] } = useQuery<PortfolioMeta[]>({
+  const { data: portfolios = [], isLoading: 포트폴리오받는중 } = useQuery<PortfolioMeta[]>({
     queryKey: ["portfolios"],
     queryFn:  portfolioApi.getPortfolios,
     enabled:  isLoggedIn,
@@ -1121,7 +1121,10 @@ export default function Portfolio() {
               ))}
             </>
           )}
-          {isLoggedIn && portfolios.length === 0 && (
+          {/* 처음 받는 중이면 이름 자리를 둔다 — 예전에는 받기 전에 '+ 포트폴리오' 가 떠, 계좌가 없는 줄 알았다.
+              한 번 받은 이름은 오래 남겨 두어(api/queryPersist 의 이름목록최대나이) 다음부터는 곧바로 보인다 */}
+          {isLoggedIn && portfolios.length === 0 && 포트폴리오받는중 && <칩자리표시 />}
+          {isLoggedIn && portfolios.length === 0 && !포트폴리오받는중 && (
             <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
           )}
         </div>

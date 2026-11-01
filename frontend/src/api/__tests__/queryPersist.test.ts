@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import {
   담을만한가, 골라담기, 되살릴것, 되살리기, 저장하기, 붙이기,
-  최대나이, 최대바이트, 항목최대바이트, 남길것들, 사람칸_모두지우기,
+  최대나이, 최대바이트, 항목최대바이트, 남길것들, 사람칸_모두지우기, 이름목록최대나이, 남길나이,
 } from "@/api/queryPersist";
 
 const 지금 = 1_800_000_000_000;
@@ -293,6 +293,40 @@ describe("사람 칸 — 로그인한 그 사람의 목록만", () => {
     expect(localStorage.getItem("qcache_v1")).not.toContain("portfolio-items-all");
     expect(localStorage.getItem("qcache_v1:u7")).toContain("portfolio-items-all");
     expect(localStorage.getItem("qcache_v1:u7")).not.toContain("dashboard-kr");
+  });
+
+  it("계좌·폴더 이름 목록은 한 달까지 남겨 되살린다 — 오랜만에 열어도 이름부터 보이게", () => {
+    /* 여섯 시간이 지나면 다 버렸더니, 오랜만에 내 자산을 열면 계좌 이름 대신 '+ 포트폴리오' 만 떴다 */
+    expect(이름목록최대나이).toBe(30 * 24 * 60 * 60 * 1000);
+    expect(남길나이(["portfolios"])).toBe(이름목록최대나이);
+    expect(남길나이(["watchlist-folders"])).toBe(이름목록최대나이);
+    expect(남길나이(["portfolio-items-all"])).toBe(최대나이);
+    expect(남길나이("portfolios")).toBe(최대나이);
+    expect(남길나이(null)).toBe(최대나이);                      // 이름표가 이상해도 터지지 않는다
+    로그인(7);
+    const 열흘전 = 지금 - 10 * 24 * 60 * 60 * 1000;
+    const 앞 = 새캐시();
+    앞.setQueryData(["portfolios"], [{ id: 1, name: "KB" }], { updatedAt: 열흘전 });
+    앞.setQueryData(["watchlist-folders"], [{ id: 3, name: "반도체" }], { updatedAt: 열흘전 });
+    앞.setQueryData(["portfolio-items-all"], [{ symbol: "005930" }], { updatedAt: 열흘전 });
+    저장하기(앞, 지금);
+    const 뒤 = 새캐시();
+    되살리기(뒤, 지금);
+    expect(뒤.getQueryData(["portfolios"])).toEqual([{ id: 1, name: "KB" }]);
+    expect(뒤.getQueryData(["watchlist-folders"])).toEqual([{ id: 3, name: "반도체" }]);
+    expect(뒤.getQueryData(["portfolio-items-all"])).toBeUndefined();   // 종목·숫자는 여섯 시간 그대로
+    // 되살린 것은 받은 지 오래라 곧바로 새로 받는다
+    expect(뒤.getQueryState(["portfolios"])!.dataUpdatedAt).toBe(열흘전);
+  });
+
+  it("이름 목록도 한 달이 지나면 버린다", () => {
+    로그인(7);
+    const 앞 = 새캐시();
+    앞.setQueryData(["portfolios"], [{ id: 1, name: "KB" }], { updatedAt: 지금 - 이름목록최대나이 - 1 });
+    저장하기(앞, 지금);
+    expect(localStorage.getItem("qcache_v1:u7")).toBeNull();
+    expect(되살릴것([{ k: ["portfolios"], d: [1], t: 지금 - 이름목록최대나이 - 1 }], 지금, () => true)).toHaveLength(0);
+    expect(되살릴것([{ k: ["portfolios"], d: [1], t: 지금 - 이름목록최대나이 + 1 }], 지금, () => true)).toHaveLength(1);
   });
 
   it("다시 열면 그 사람 것만 되살린다", () => {

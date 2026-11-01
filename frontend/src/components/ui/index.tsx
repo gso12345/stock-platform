@@ -127,10 +127,12 @@ export function RowSkeleton({ rows = 4 }: { rows?: number }) {
 }
 
 /* ── 모달 (백드롭 + 패널 공용 마크업) ──────────────────────
-   휴대폰(639px 이하)에서는 아래에서 올라오는 시트로 — 손잡이를 끌어내리면 닫히고, 자판이 올라오면 그 위로
-   올라간다(hooks/useSheet). 예전에는 휴대폰에서도 화면 가운데 떴다(사용자: "실제 앱같이 느껴졌으면" — 8번).
-   PC 는 그대로 가운데(또는 위) 창이다. */
-export function Modal({ children, maxWidth = "max-w-md", align = "center", padTop = "pt-16", backdropOpacity = 60, onClose, className }: {
+   기본은 가운데(또는 위) 팝업이다. 시트 를 켠 창만 휴대폰(639px 이하)에서 아래에서 올라오는 시트로 — 손잡이를
+   끌어내리면 닫히고, 자판이 올라오면 그 위로 올라간다(hooks/useSheet).
+   예전에는 휴대폰에서 모든 창을 시트로 바꿨는데, 종목 추가·삭제 확인처럼 입력하거나 확인하는 창은 오히려 불편했다
+   (사용자: "종목추가, 삭제할때 밑에서 올라오는 건 좀 불편해 팝업이 나을 거 같아"). 그래서 보고 고르는 창
+   (설정·앱 설치 안내·팔로워·좋아요 목록)만 시트를 켠다. PC 는 늘 팝업이다. */
+export function Modal({ children, maxWidth = "max-w-md", align = "center", padTop = "pt-16", backdropOpacity = 60, onClose, className, 시트 = false }: {
   children: React.ReactNode;
   maxWidth?: string;
   align?: "start" | "center";
@@ -138,11 +140,14 @@ export function Modal({ children, maxWidth = "max-w-md", align = "center", padTo
   backdropOpacity?: 60 | 70;
   onClose?: () => void;
   className?: string;
+  /** 휴대폰에서 아래 시트로 띄운다 — 보고 고르는 창만 켠다(위 설명) */
+  시트?: boolean;
 }) {
   const 휴대폰 = use좁은화면();
-  const 자판 = use자판높이(휴대폰);
+  const 시트로 = 시트 && 휴대폰;
+  const 자판 = use자판높이(시트로);
   const { 판, 손잡이 } = use끌어닫기(onClose);
-  if (휴대폰) {
+  if (시트로) {
     return (
       <div
         className={cn(
@@ -448,6 +453,19 @@ export function 칩탭모양(켜짐: boolean): string {
     "flex items-center gap-1 flex-shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
     켜짐 ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
          : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50",
+  );
+}
+
+/** 칩 이름을 아직 모를 때(처음 받는 중) 그 자리 — '+ 포트폴리오' 처럼 없는 것으로 보이지 않게 회색 칩을 둔다 */
+export function 칩자리표시({ 개수 = 3 }: { 개수?: number }) {
+  return (
+    <>
+      {Array.from({ length: 개수 }, (_, i) => (
+        <span key={i} aria-hidden data-chip-skeleton=""
+          className="h-7 w-14 flex-shrink-0 rounded-lg border border-border bg-bg-elevated animate-pulse" />
+      ))}
+      <span className="sr-only">불러오는 중</span>
+    </>
   );
 }
 

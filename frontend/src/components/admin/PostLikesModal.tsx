@@ -27,7 +27,7 @@ export default function PostLikesModal({
   const items: any[] = data?.items ?? [];
 
   return (
-    <Modal maxWidth="max-w-sm" onClose={onClose}>
+    <Modal 시트 maxWidth="max-w-sm" onClose={onClose}>
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border">
         <div className="min-w-0">
           <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">

@@ -25,9 +25,10 @@ vi.mock("react-router-dom", async () => {
   return { ...실제, useNavigate: () => vi.fn() };
 });
 
+const 인증 = vi.hoisted(() => ({ 로그인: true }));
 vi.mock("@/store/authStore", () => ({
   useAuthStore: (sel?: any) => {
-    const s = { isLoggedIn: true, userId: 7, username: "나" };
+    const s = { isLoggedIn: 인증.로그인, userId: 7, username: "나" };
     return sel ? sel(s) : s;
   },
 }));
@@ -80,7 +81,7 @@ function 탭줄() {
     .map((el) => el.getAttribute("data-tab-key")!);
 }
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => { localStorage.clear(); 인증.로그인 = true; });
 
 describe("탭 줄이 한 목록이다", () => {
   it("최근조회·폴더·내계좌가 모두 같은 목록에 선다", async () => {
@@ -200,6 +201,34 @@ describe("관심종목 머리 — 내 자산과 같은 단계(디자인 1·2번)
     그리기();
     const 제목 = await screen.findByRole("heading", { level: 1, name: "관심종목" });
     expect(제목.className).toBe("sr-only");
+  });
+});
+
+describe("관심종목 — 폴더·계좌 이름을 받는 동안", () => {
+  it("회색 칩 자리를 둔다 — '전체' 하나만 덩그러니 있지 않게", async () => {
+    const { watchlistFolderApi } = await import("@/api/stocks");
+    vi.mocked(watchlistFolderApi.getFolders).mockImplementationOnce(() => new Promise(() => {}));
+    그리기();
+    await screen.findByRole("button", { name: /^전체/ });
+    expect(document.querySelectorAll("[data-chip-skeleton]").length).toBe(3);
+    // 계좌는 먼저 왔어도 폴더를 아직 받는 중이면 자리를 둔다
+    await screen.findByRole("button", { name: /연금저축/ });
+    expect(document.querySelectorAll("[data-chip-skeleton]").length).toBe(3);
+  });
+
+  it("로그인 전 미리보기에는 자리표시가 없다 — 보여 줄 내 폴더가 없다", async () => {
+    인증.로그인 = false;
+    const { watchlistFolderApi } = await import("@/api/stocks");
+    vi.mocked(watchlistFolderApi.getFolders).mockImplementationOnce(() => new Promise(() => {}));
+    그리기();
+    await screen.findByRole("button", { name: /^전체/ });
+    expect(document.querySelectorAll("[data-chip-skeleton]").length).toBe(0);
+  });
+
+  it("다 받으면 자리표시는 걷힌다", async () => {
+    그리기();
+    await waitFor(() => expect(탭줄().length).toBe(4));
+    expect(document.querySelectorAll("[data-chip-skeleton]").length).toBe(0);
   });
 });
 

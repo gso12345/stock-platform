@@ -36,6 +36,21 @@ const 열쇠 = "qcache_v1";
 /** 이보다 오래된 것은 안 되살린다 */
 export const 최대나이 = 6 * 60 * 60 * 1000;
 
+/**
+ * 이름 목록(포트폴리오·관심종목 폴더)은 오래 둔다.
+ *
+ * 여섯 시간이 지나면 다 버렸더니, 오랜만에 앱을 열면 내 자산에 계좌 이름 대신 '+ 포트폴리오' 만 뜨고 서버가
+ * 깰 때까지 기다렸다(사용자: "정보 불러올 때 계좌별 폴더별 이름은 나오게 해줘"). 이름은 잘 안 바뀌고, 되살린
+ * 것은 받은 지 오래라 곧바로 새로 받는다 — 그동안 이름이 먼저 보인다.
+ */
+export const 이름목록최대나이 = 30 * 24 * 60 * 60 * 1000;
+const 이름목록들 = ["portfolios", "watchlist-folders"];
+
+/** 이 조회를 남겨 둘 수 있는 나이 */
+export function 남길나이(key: unknown): number {
+  return Array.isArray(key) && 이름목록들.includes(key[0] as string) ? 이름목록최대나이 : 최대나이;
+}
+
 /** 통째로 이 크기를 넘으면 안 담는다. localStorage 는 보통 5MB 다 */
 export const 최대바이트 = 1_000_000;
 
@@ -147,7 +162,7 @@ export function 골라담기(
     if (!허용(q.queryKey)) continue;
     if (q.state.status !== "success" || q.state.data == null) continue;
     const t = q.state.dataUpdatedAt ?? 0;
-    if (!t || 지금 - t > 최대나이) continue;
+    if (!t || 지금 - t > 남길나이(q.queryKey)) continue;
     let 크기: number;
     let 한줄: 담긴것;
     try {
@@ -175,7 +190,7 @@ export function 되살릴것(
     return (
       Array.isArray(o.k) && 허용(o.k) &&
       o.d != null &&
-      typeof o.t === "number" && o.t > 0 && 지금 - o.t <= 최대나이
+      typeof o.t === "number" && o.t > 0 && 지금 - o.t <= 남길나이(o.k)
     );
   });
 }
