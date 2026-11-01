@@ -102,3 +102,64 @@ describe("내 자산 — 자산 추가 버튼 노출 규칙", () => {
     expect(await screen.findByRole("button", { name: /자산 추가/ })).toBeInTheDocument();
   });
 });
+
+describe("내 자산 머리 — 같은 일을 하는 단추를 하나로(디자인 1·2번)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    try { localStorage.clear(); } catch { /* 무시 */ }
+  });
+
+  it("포트폴리오는 칩, 끝에 '관리' 하나 — '포트폴리오 선택' 이 따로 없다", async () => {
+    renderPage();
+    const 칩 = await screen.findByRole("button", { name: /기본 포트폴리오/ });
+    const 관리 = screen.getByRole("button", { name: "포트폴리오 관리" });
+    expect(관리.textContent).toBe("관리");
+    // 관리는 칩 줄 바로 옆(넘겨도 늘 보이게 줄 밖) — 칩 줄은 옆으로 넘기는 칩들이다
+    const 칩줄 = 관리.previousElementSibling as HTMLElement;
+    expect(칩줄.contains(칩)).toBe(true);
+    expect(칩줄.className).toMatch(/overflow-x-auto/);
+    expect(칩.className).toMatch(/rounded-lg/);
+    expect(칩.className).not.toMatch(/border-b-2/);
+    expect(screen.queryByRole("button", { name: /포트폴리오 선택/ })).toBeNull();
+  });
+
+  it("'전체' 칩은 개수를 괄호 없이 — 고르면 눌린 상태가 바뀐다", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const 전체 = await screen.findByRole("button", { name: /^전체/ });
+    expect(전체.getAttribute("aria-pressed")).toBe("true");
+    await user.click(screen.getByRole("button", { name: /기본 포트폴리오/ }));
+    expect(전체.getAttribute("aria-pressed")).toBe("false");
+    expect(전체.textContent).not.toMatch(/\(/);
+  });
+
+  it("큰 '내 자산' 제목은 화면 읽기용으로만 — 탭·아래 메뉴와 같은 말이 세 번 보이지 않게", async () => {
+    renderPage();
+    const 제목 = await screen.findByRole("heading", { level: 1, name: "내 자산" });
+    expect(제목.className).toBe("sr-only");
+  });
+
+  it("관리 창에서 전체에 넣을 포트폴리오를 고른다", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "포트폴리오 관리" }));
+    const 체크 = await screen.findByRole("checkbox", { name: "KB — 전체에 넣기" });
+    expect((체크 as HTMLInputElement).checked).toBe(true);
+    await user.click(체크);
+    expect((screen.getByRole("checkbox", { name: "KB — 전체에 넣기" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("관리에서 뺀 포트폴리오는 '전체' 칩 개수에서 빠지고, 뺀 것이 있다고 알린다", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const 전체 = await screen.findByRole("button", { name: /^전체/ });
+    await waitFor(() => expect(전체.textContent).toBe("전체1"));
+    expect(전체.getAttribute("title")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "포트폴리오 관리" }));
+    await user.click(await screen.findByRole("checkbox", { name: "기본 포트폴리오 — 전체에 넣기" }));
+    const 바뀐전체 = screen.getByRole("button", { name: /^전체/ });
+    expect(바뀐전체.textContent).toBe("전체0· 1/2곳");
+    expect(바뀐전체.getAttribute("title")).toBe("포트폴리오 2곳 중 1곳을 합쳐 보여요 — 관리에서 바꿔요");
+  });
+});
+

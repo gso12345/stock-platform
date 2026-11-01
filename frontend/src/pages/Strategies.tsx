@@ -93,18 +93,23 @@ export default function Strategies() {
   const 보일실험 = 종류 === "신호" ? [] : all실험;
   const 보일개수 = filteredStrategies.length + 보일실험.length;
 
+  /* 하나도 없을 때 — 아래 빈 화면이 '첫 전략 만들기' 를 내민다. 머리의 '새 전략 만들기' 와 0 만 셋 늘어선 통계까지
+     두면 같은 단추가 두 번, 의미 없는 0 이 세 번 보였다 */
+  const 비었음 = isLoggedIn && !isLoading && !못받음 && totalCount === 0;
+
   return (
     <div className="flex flex-col gap-6">
       {/* ── 페이지 헤더 ──────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">전략 저장소</h1>
-          <p className="text-text-muted text-xs mt-0.5">저장된 전략을 관리하고 백테스트에 로드합니다</p>
         </div>
-        <Button onClick={() => navigate("/backtest")}>
-          <Plus size={14} className="inline mr-1.5" />
-          새 전략 만들기
-        </Button>
+        {!비었음 && (
+          <Button onClick={() => navigate("/backtest")}>
+            <Plus size={14} className="inline mr-1.5" />
+            새 전략 만들기
+          </Button>
+        )}
       </div>
 
       {/* ── 비로그인 안내 ──────────────────────────────────────── */}
@@ -127,6 +132,7 @@ export default function Strategies() {
       {isLoggedIn && (
         <>
           {/* ── 통계 카드 ──────────────────────────────────────── */}
+          {!비었음 && (
           <div className="grid grid-cols-3 gap-3">
             {/* KR/US 개수 대신 **종류별**로 센다. 시장은 카드마다 배지로
                 이미 보이는데, 자산배분이 섞이면서 '내가 무엇을 몇 개
@@ -144,6 +150,7 @@ export default function Strategies() {
               <div className="text-2xl font-bold font-mono text-accent-purple">{배분수}</div>
             </Card>
           </div>
+          )}
 
           {/* ── 시장 필터 탭 ───────────────────────────────────── */}
           {totalCount > 0 && (

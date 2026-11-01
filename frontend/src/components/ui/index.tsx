@@ -9,6 +9,7 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 import { 사람말로 } from "@/api/queryError";
 import { use좁은화면 } from "@/hooks/useWideScreen";
 import { use끌어닫기, use자판높이 } from "@/hooks/useSheet";
+import { use끝흐림 } from "@/hooks/useEdgeFade";
 
 export function cn(...i: ClassValue[]) { return twMerge(clsx(i)); }
 
@@ -403,9 +404,11 @@ export function Tabs({
   );
 }
 
-/** 밑줄형 탭 — 같은 종류의 목록을 나눠 볼 때 (폴더, 포트폴리오)
+/** 밑줄형 탭 — 화면을 크게 나눌 때(내 자산 | 관심종목).
  *
- * 개수가 많아 가로로 넘칠 수 있으므로 스크롤을 전제로 한다. */
+ * 상자·배경 없이 글자와 밑줄만 둔다. 그 아래에서 같은 목록을 나눠 보는 것(폴더·포트폴리오)은 칩 탭
+ * (ChipTabs)이라 한 단계 아래로 구분된다. 예전에는 둘이 똑같은 상자 탭이라 위아래 두 줄 중 어느 쪽이 큰
+ * 구분인지 안 보였다(사용자: "내 자산에 여기도 같은게 있으니 보기 안좋아"). 넘치면 옆으로 넘기고 끝을 흐린다. */
 export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel }: {
   tabs: TabItem[];
   active: string;
@@ -413,23 +416,64 @@ export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel }: 
   className?: string;
   ariaLabel?: string;
 }) {
+  const [줄, 흐림] = use끝흐림<HTMLDivElement>();
   return (
-    <div role="tablist" aria-label={ariaLabel}
-      className={cn("flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide", className)}>
+    <div ref={줄} role="tablist" aria-label={ariaLabel}
+      className={cn("flex gap-5 border-b border-border overflow-x-auto scrollbar-hide", 흐림, className)}>
       {tabs.map((t) => {
         const on = active === t.id;
         const Icon = t.icon;
         return (
-          <button key={t.id} role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+          <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(t.id)}
             className={cn(
-              "flex items-center gap-1 flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all",
-              on ? "border-accent-blue text-accent-blue bg-accent-blue/5"
-                 : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated",
+              "flex items-center gap-1.5 flex-shrink-0 whitespace-nowrap pt-1 pb-2.5 text-md font-bold border-b-2 -mb-px transition-colors",
+              on ? "border-accent-blue text-text-primary"
+                 : "border-transparent text-text-muted hover:text-text-secondary",
             )}
           >
-            {Icon && <Icon size={13} className="flex-shrink-0" />}
+            {Icon && <Icon size={16} className={cn("flex-shrink-0", on && "text-accent-blue")} />}
             {t.label}
             {t.count != null && <span className="text-2xs opacity-70">{t.count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 칩 모양 탭 하나의 모양 — 공모주 증권사 칩(고른칩)과 같다. 끌어서 순서를 바꾸는 줄(관심종목 폴더·내 자산
+ *  포트폴리오)은 단추를 직접 그리므로 모양만 따로 내 준다 */
+export function 칩탭모양(켜짐: boolean): string {
+  return cn(
+    "flex items-center gap-1 flex-shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors",
+    켜짐 ? "bg-accent-blue/15 border-accent-blue text-accent-blue"
+         : "bg-bg-elevated border-border text-text-secondary hover:text-text-primary hover:border-accent-blue/50",
+  );
+}
+
+/** 칩 탭 줄 — 많으면 옆으로 넘긴다(끝 흐림은 use끝흐림 으로 따로 붙인다) */
+export const 칩줄모양 = "flex items-center gap-1.5 overflow-x-auto scrollbar-hide";
+
+/** 칩 모양 탭 — 같은 목록을 나눠 볼 때(관심종목 폴더·퀀트 목록). 위의 밑줄 탭(화면 나누기)보다 한 단계 아래 */
+export function ChipTabs({ tabs, active, onChange, className, ariaLabel }: {
+  tabs: TabItem[];
+  active: string;
+  onChange: (id: string) => void;
+  className?: string;
+  ariaLabel?: string;
+}) {
+  const [줄, 흐림] = use끝흐림<HTMLDivElement>();
+  return (
+    <div ref={줄} role="tablist" aria-label={ariaLabel} className={cn(칩줄모양, 흐림, className)}>
+      {tabs.map((t) => {
+        const on = active === t.id;
+        const Icon = t.icon;
+        return (
+          <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+            className={칩탭모양(on)}>
+            {Icon && <Icon size={13} className="flex-shrink-0" />}
+            {t.label}
+            {t.count != null && <span className="num text-2xs opacity-70">{t.count}</span>}
           </button>
         );
       })}

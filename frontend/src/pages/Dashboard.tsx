@@ -777,7 +777,6 @@ export default function Dashboard() {
             맨 아래에 있어서 제목을 대신하지 못한다. */}
         <div>
           <h1 className="text-2xl font-bold text-text-primary">대시보드</h1>
-          <p className="text-text-muted text-xs mt-0.5">지수 클릭 → 상세 차트 · 종목 클릭 → 종목 상세</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">

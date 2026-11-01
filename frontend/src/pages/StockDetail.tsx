@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo , lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { use끝흐림 } from "@/hooks/useEdgeFade";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -97,6 +98,11 @@ function 탭기다리기() {
 
 export default function StockDetail() {
   const { market, symbol: rawSymbol } = useParams<{ market: string; symbol: string }>();
+  /* 옆으로 넘치는 줄 — 더 있는 쪽 끝을 흐린다(hooks/useEdgeFade). 탭이 화면 끝에서 뚝 잘려 옆에 더 있는지
+     몰랐다 */
+  const [배지줄, 배지줄흐림] = use끝흐림<HTMLDivElement>();
+  const [탭줄, 탭줄흐림] = use끝흐림<HTMLDivElement>();
+  const [재무탭줄, 재무탭줄흐림] = use끝흐림<HTMLDivElement>();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -1132,7 +1138,7 @@ export default function StockDetail() {
             안 줄어드는데(flex-shrink-0), 위쪽에 min-w-0 이 없으면 그 폭이
             그대로 헤더를 밀어내 버튼이 화면 밖으로 나가고 가로 스크롤이
             생겼다. 줄을 따로 내어 화면 폭을 다 쓰고, 넘치면 가로로 민다. */}
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
+        <div ref={배지줄} className={`flex items-center gap-2 overflow-x-auto scrollbar-hide ${배지줄흐림}`}>
           <span className="text-base font-mono text-text-muted flex-shrink-0">{sym.replace(".KS","").replace(".KQ","")}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded border font-bold flex-shrink-0 whitespace-nowrap ${
             isETF ? "border-accent-purple/50 text-accent-purple bg-accent-purple/10"
@@ -1299,8 +1305,8 @@ export default function StockDetail() {
       {/* 탭 네비게이션 */}
       <div className="flex flex-col gap-2">
         {/* 메인 탭 — 한 줄 + 가로 스크롤 */}
-        <div role="tablist" aria-label="종목 정보"
-             className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
+        <div ref={탭줄} role="tablist" aria-label="종목 정보"
+             className={`flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide ${탭줄흐림}`}>
           {탭목록.map(({ id, Icon, label }, i) => (
             <button key={id} role="tab" aria-selected={mainTab === id}
               /* 숫자키 단축키와 같은 순서다 — 눌러 보기 전에 알 수 있게 적어 둔다 */
@@ -1329,8 +1335,8 @@ export default function StockDetail() {
             다만 공용 Tabs 가 주던 것(역할·선택 상태)은 손으로 붙여 둔다 —
             화면 읽어주는 기능이 "탭 목록, 3/7 선택됨" 으로 읽는다. */}
         {mainTab==="financial" && (
-          <div role="tablist" aria-label="재무제표 항목"
-               className="flex gap-1 overflow-x-auto scrollbar-hide">
+          <div ref={재무탭줄} role="tablist" aria-label="재무제표 항목"
+               className={`flex gap-1 overflow-x-auto scrollbar-hide ${재무탭줄흐림}`}>
             {([
               { value:"basic",         label:"기본 지표" },
               { value:"income",        label:"손익계산서" },

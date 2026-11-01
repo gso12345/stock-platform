@@ -1,5 +1,5 @@
 /**
- * 회원 탈퇴 — 마이페이지 맨 아래.
+ * 회원 탈퇴 — 마이페이지 맨 아래, 작은 글씨 하나(누르면 열린다).
  *
  * 탈퇴하면 **계정만 닫힌다.** 데이터는 지우지 않고 남긴다(서버 routes/auth.py
  * withdraw 참고). 그래도 다시 로그인할 수 없게 되는 일이라 두 번 막는다.
@@ -59,6 +59,22 @@ export default function 회원탈퇴() {
   const 누를수있음 = 문구.trim() === 탈퇴확인문구 && (소셜 || 비밀번호.length > 0)
     && !!나 && !탈퇴.isPending;
 
+  /* 닫혀 있을 때는 맨 아래 작은 글씨 하나. 예전에는 '회원 탈퇴' 가 제목 달린 카드로 내 프로필에 크게 자리를
+     잡았다 — 되돌릴 수 없는 일인데 눈에 띄는 자리에 있었다. 누르면 아래 카드가 열린다 */
+  if (!열림) {
+    return (
+      <div className="flex justify-center pt-2">
+        <button
+          type="button"
+          onClick={() => set열림(true)}
+          className="text-2xs text-text-dim hover:text-accent-red hover:underline underline-offset-2 transition-colors"
+        >
+          회원 탈퇴
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-bg-card border border-border rounded-2xl p-5 flex flex-col gap-3">
       <div className="flex items-center gap-2">
@@ -66,15 +82,6 @@ export default function 회원탈퇴() {
         <h2 className="text-sm font-bold text-text-primary">회원 탈퇴</h2>
       </div>
 
-      {!열림 ? (
-        <button
-          type="button"
-          onClick={() => set열림(true)}
-          className="self-start text-xs text-text-muted hover:text-accent-red underline underline-offset-2"
-        >
-          탈퇴하기
-        </button>
-      ) : (
         <div className="flex flex-col gap-3">
           <div className="text-xs text-text-secondary leading-relaxed break-keep">
             탈퇴하면 <b className="text-accent-red">이 계정으로 다시 로그인할 수 없어요.</b>
@@ -133,7 +140,6 @@ export default function 회원탈퇴() {
             </button>
           </div>
         </div>
-      )}
     </div>
   );
 }

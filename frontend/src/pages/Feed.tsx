@@ -507,9 +507,6 @@ export default function Feed() {
             <Rss size={16} className="text-accent-blue" />
             <h1 className="text-xl font-bold text-text-primary">커뮤니티 피드</h1>
           </div>
-          <p className="text-xs text-text-dim mt-0.5">
-            전체 종목의 최신 의견을 한 곳에서 확인하세요
-          </p>
         </div>
         <button
           onClick={() => refetch()}

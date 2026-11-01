@@ -8,7 +8,8 @@ import { use저장된값, use저장된Set } from "@/hooks/useSaved";
 import { stocksApi, portfolioApi, watchlistApi } from "@/api/stocks";
 import { useLivePrices } from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
-import { Card, RowSkeleton, Tabs, UnderlineTabs, ChangeBadge, 못불러옴} from "@/components/ui";
+import { Card, RowSkeleton, Tabs, UnderlineTabs, ChangeBadge, 못불러옴, 칩탭모양, 칩줄모양 } from "@/components/ui";
+import { use끝흐림 } from "@/hooks/useEdgeFade";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { Plus, Wallet, LogIn, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, Table2, DollarSign, Landmark, Receipt, TrendingUp, Settings2, RefreshCw, Eye, EyeOff, PieChart as PieIcon, Grid2x2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
@@ -36,7 +37,7 @@ import 보유뉴스, { 뉴스미리받기 } from "@/components/portfolio/Holding
 import { use미리보기흐름, use미리보기배당, use미리보기뉴스 } from "@/hooks/usePortfolioPreview";
 import {
   PortfolioModal, ConfirmDeleteModal, PortfolioPill,
-  PortfolioFilterDropdown, AddPortfolioButton, PortfolioManagerModal,
+  AddPortfolioButton, PortfolioManagerModal,
 } from "@/components/portfolio/PortfolioModals";
 import TradeModal from "@/components/portfolio/TradeModal";
 import TradeHistory from "@/components/portfolio/TradeHistory";
@@ -196,6 +197,9 @@ export default function Portfolio() {
   /* 전체 보기(포트폴리오 모아보기)에서 제외할 포트폴리오 — 비어있으면 전부 포함 */
   const [excludedPortfolioIds, setExcludedPortfolioIds] =
     use저장된Set<number>("전체보기제외");
+  const [포트폴리오줄, 포트폴리오줄흐림] = use끝흐림<HTMLDivElement>();   // 포트폴리오 칩 줄 — 넘치면 끝을 흐린다
+  const [유형줄, 유형줄흐림] = use끝흐림<HTMLDivElement>();             // 자산유형 칩 줄
+  const [비중탭줄, 비중탭줄흐림] = use끝흐림<HTMLDivElement>();         // 비중 탭 머리
   const toggleExcludedPortfolio = (id: number) => {
     setExcludedPortfolioIds((prev) => {
       const next = new Set(prev);
@@ -223,7 +227,11 @@ export default function Portfolio() {
   const isAllView = selectedPortfolioId === "all";
   /* count 가 하나라도 비면 합계 전체가 NaN 이 되어 탭에 '전체 (NaN)' 이
      찍힌다. 숫자 하나가 없는 것과 화면에 NaN 이 뜨는 것은 다른 일이다 */
-  const totalItemCount = portfolios.reduce((s, p) => s + (p.count ?? 0), 0);
+  /* '전체' 칩의 개수 — 관리에서 뺀 포트폴리오는 셈하지 않는다. 예전에는 빼도 모두 센 수가 남아, 칩은 9인데
+     목록은 7개였다. 뺀 것이 있으면 칩이 그렇다고 알린다(예전에는 '포트폴리오 선택(3/4)' 단추가 따로 알렸다) */
+  const 넣은포트폴리오 = portfolios.filter((p) => !excludedPortfolioIds.has(p.id));
+  const totalItemCount = 넣은포트폴리오.reduce((s, p) => s + (p.count ?? 0), 0);
+  const 뺀수 = portfolios.length - 넣은포트폴리오.length;
 
   const createPortfolioMutation = useMutation({
     mutationFn: (name: string) => portfolioApi.createPortfolio(name),
@@ -1068,21 +1076,31 @@ export default function Portfolio() {
         onChange={handleTabChange}
       />
 
-      {/* ── 포트폴리오 선택 탭 ── */}
-      {isLoggedIn && (
-        <div className="flex items-center border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
-          {portfolios.length > 0 && (
+      {/* ── 포트폴리오 칩 ──
+          위의 화면 탭(내 자산 | 관심종목)과 같은 상자 탭이라 두 줄이 똑같아 보였다 — 칩으로 한 단계 내린다
+          (관심종목 폴더·공모주 증권사 칩과 같은 모양). 끝의 '관리' 하나가 예전의 '포트폴리오 선택'(전체에 넣을
+          것 고르기)과 '포트폴리오 관리'(이름·순서·추가·삭제)를 함께 맡는다. 로그인 전에도 같은 모양으로 둔다 —
+          관리를 누르면 로그인으로 보낸다 */}
+      <div className="flex items-center gap-2">
+        <div ref={포트폴리오줄} className={`${칩줄모양} flex-1 min-w-0 ${포트폴리오줄흐림}`}>
+          {!isLoggedIn && (
+            <span className={칩탭모양(true)}>
+              전체 <span className="num text-2xs opacity-70">{displayEnriched.length}</span>
+            </span>
+          )}
+          {isLoggedIn && portfolios.length > 0 && (
             <>
               <button
                 onClick={() => setSelectedPortfolioId("all")}
-                className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all flex-shrink-0 whitespace-nowrap ${
-                  isAllView
-                    ? "border-accent-blue text-accent-blue bg-accent-blue/5"
-                    : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-                }`}
+                aria-pressed={isAllView}
+                title={뺀수 > 0 ? `포트폴리오 ${portfolios.length}곳 중 ${넣은포트폴리오.length}곳을 합쳐 보여요 — 관리에서 바꿔요` : undefined}
+                className={칩탭모양(isAllView)}
               >
                 <span>전체</span>
-                <span className="text-xs opacity-60">({totalItemCount})</span>
+                <span className="num text-2xs opacity-70">{totalItemCount}</span>
+                {뺀수 > 0 && (
+                  <span className="text-2xs opacity-70">· {넣은포트폴리오.length}/{portfolios.length}곳</span>
+                )}
               </button>
               {(localPortfolioOrder ?? portfolios).map((pf) => (
                 <PortfolioPill
@@ -1103,11 +1121,21 @@ export default function Portfolio() {
               ))}
             </>
           )}
-          {portfolios.length === 0 && (
+          {isLoggedIn && portfolios.length === 0 && (
             <AddPortfolioButton onAdd={(name) => createPortfolioMutation.mutate(name)} />
           )}
         </div>
-      )}
+        {(isLoggedIn ? portfolios.length > 0 : true) && (
+          <button
+            onClick={() => isLoggedIn ? setShowPortfolioManager(true) : navigate("/login")}
+            aria-label="포트폴리오 관리"
+            className={`${칩탭모양(false)} border-dashed text-text-muted`}
+            title={isLoggedIn ? "포트폴리오 추가·이름·순서, 전체에 넣을 것 고르기" : "로그인하면 포트폴리오를 만들 수 있어요"}
+          >
+            <Settings2 size={13} />관리
+          </button>
+        )}
+      </div>
 
       {/* ── 로그인 배너 (미리보기 모드) ── */}
       {!isLoggedIn && (
@@ -1136,11 +1164,12 @@ export default function Portfolio() {
           나오기 전에 다섯 줄을 지나야 했고, 휴대폰에서는 그것만으로 화면
           절반이었다. 제목은 줄바꿈되지 않게 고정하고 버튼만 줄인다. */}
       {/* flex-wrap — 큰 글씨 등으로 버튼이 한 줄에 못 들어가면 버튼만 아래 줄로 내려간다(제목이 찌그러지지 않게) */}
+      {/* 큰 '내 자산' 제목은 두지 않는다 — 아래 탭·위 탭·제목으로 같은 말이 세 번 나왔다. 화면 읽기용으로만 */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="min-w-0 flex items-baseline gap-2">
-          <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">내 자산</h1>
+        <div className="min-w-0">
+          <h1 className="sr-only">내 자산</h1>
           <p className="text-text-muted text-xs truncate">
-            {isLoggedIn && itemsLoading ? "불러오는 중" : `${displayEnriched.length}개`}
+            {isLoggedIn && itemsLoading ? "불러오는 중" : `${displayEnriched.length}개 종목`}
           </p>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1168,26 +1197,6 @@ export default function Portfolio() {
           >
             <RefreshCw size={13} />
           </button>
-          {isAllView && portfolios.length > 1 && (
-            <PortfolioFilterDropdown
-              portfolios={portfolios}
-              excludedIds={excludedPortfolioIds}
-              onToggle={toggleExcludedPortfolio}
-            />
-          )}
-          {/* 관심종목의 "폴더 관리 / 종목 추가"와 같은 위치·형태로 맞춘다.
-              로그인 전에도 버튼을 숨기지 않는다 — 버튼이 아예 없으면 이
-              화면으로 무엇을 할 수 있는지 알 수가 없다. 누르면 로그인으로
-              보내서, 왜 로그인이 필요한지가 그 자리에서 드러나게 한다. */}
-          {(isLoggedIn ? portfolios.length > 0 : true) && (
-            <button
-              onClick={() => isLoggedIn ? setShowPortfolioManager(true) : navigate("/login")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all whitespace-nowrap"
-              title={isLoggedIn ? "포트폴리오 추가/편집" : "로그인하면 포트폴리오를 만들 수 있어요"}
-            >
-              <Settings2 size={13} /><span className="hidden sm:inline">포트폴리오 관리</span>
-            </button>
-          )}
           {/* "전체"는 여러 포트폴리오를 모아 보는 화면이라 어디에 담을지가 모호하다.
               종목 추가는 특정 포트폴리오를 고른 상태에서만 노출한다 */}
           {(!isLoggedIn || !isAllView) && (
@@ -1438,7 +1447,7 @@ export default function Portfolio() {
       {속탭 === "비중" && hasDisplay && (
         <Card className="flex flex-col gap-3">
           <div className="flex items-center justify-between border-b border-border -mx-4 px-4 pb-0 gap-2">
-            <div className="flex overflow-x-auto scrollbar-hide">
+            <div ref={비중탭줄} className={`flex overflow-x-auto scrollbar-hide ${비중탭줄흐림}`}>
               {([
                 { id: "stock",  label: "종목별" },
                 { id: "market", label: "자산유형별" },
@@ -1648,7 +1657,7 @@ export default function Portfolio() {
 
         {/* ── 자산유형 필터 탭 ── */}
         {((isLoggedIn && items.length > 0) || !isLoggedIn) && (
-          <div className="px-3 pt-2.5 pb-1 overflow-x-auto scrollbar-hide">
+          <div ref={유형줄} className={`px-3 pt-2.5 pb-1 overflow-x-auto scrollbar-hide ${유형줄흐림}`}>
             <Tabs
               ariaLabel="자산유형 필터"
               fill={false}
@@ -1873,6 +1882,8 @@ export default function Portfolio() {
           onDelete={(pf) => { setDeletePortfolioTarget(pf); setShowPortfolioManager(false); }}
           onReorder={(order) => reorderPortfoliosMutation.mutate(order)}
           onAdd={(name) => createPortfolioMutation.mutate(name)}
+          excludedIds={excludedPortfolioIds}
+          onToggleInclude={toggleExcludedPortfolio}
         />
       )}
 

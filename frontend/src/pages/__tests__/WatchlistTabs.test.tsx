@@ -175,3 +175,31 @@ describe("옮긴 직후", () => {
     expect(Watchlist원문).toMatch(/폴더순서반영/);
   });
 });
+
+describe("관심종목 머리 — 내 자산과 같은 단계(디자인 1·2번)", () => {
+  it("폴더는 칩이고, 끝에 '관리'(탭 관리) — 넘겨도 늘 보이게 칩 줄 밖에", async () => {
+    그리기();
+    await waitFor(() => expect(탭줄().length).toBe(4));
+    const 관리 = screen.getByRole("button", { name: "탭 관리" });
+    expect(관리.textContent).toBe("관리");
+    const 칩줄 = 관리.previousElementSibling as HTMLElement;
+    expect(칩줄.className).toMatch(/overflow-x-auto/);
+    expect(칩줄.querySelectorAll("[data-tab-key]").length).toBe(4);
+    const 폴더칩 = 칩줄.querySelector("[data-tab-key]") as HTMLElement;
+    expect(폴더칩.className).toMatch(/rounded-lg/);
+    expect(폴더칩.className).not.toMatch(/border-b-2/);
+  });
+
+  it("'전체' 칩이 눌린 상태를 알린다", async () => {
+    그리기();
+    const 전체 = await screen.findByRole("button", { name: /^전체/ });
+    expect(전체.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("큰 '관심종목' 제목은 화면 읽기용으로만 — 바로 위 탭과 같은 말이라", async () => {
+    그리기();
+    const 제목 = await screen.findByRole("heading", { level: 1, name: "관심종목" });
+    expect(제목.className).toBe("sr-only");
+  });
+});
+

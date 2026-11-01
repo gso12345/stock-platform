@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { use끝흐림 } from "@/hooks/useEdgeFade";
 import {
   AlertTriangle, Columns3, Download, Filter, Layers, Save, Search, SlidersHorizontal, X,
 } from "lucide-react";
@@ -89,6 +90,7 @@ export function 새상장표({ 상장해, 올해 = new Date().getFullYear() }: {
 
 export default function Screening() {
   const qc = useQueryClient();
+  const [도구줄, 도구줄흐림] = use끝흐림<HTMLDivElement>();   // 도구 단추 줄 — 넘치면 더 있는 쪽 끝을 흐린다
   const navigate = useNavigate();
   const { isLoggedIn } = useAuthStore();
 
@@ -264,7 +266,6 @@ export default function Screening() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">종목 스크리닝</h1>
-          <p className="text-text-muted text-xs mt-0.5">칸 제목을 누르면 그 칸으로 세워요</p>
         </div>
         <Tabs tabs={시장들} active={시장} onChange={(id) => set시장(id as Market)} fill={false} ariaLabel="시장" />
       </div>
@@ -283,7 +284,7 @@ export default function Screening() {
             </button>
           )}
         </div>
-        <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-3 px-3 sm:mx-0 sm:px-0">
+        <div ref={도구줄} className={`flex gap-1.5 overflow-x-auto scrollbar-hide -mx-3 px-3 sm:mx-0 sm:px-0 ${도구줄흐림}`}>
           {판단추("묶음", Layers, "조건 묶음")}
           {판단추("조건", SlidersHorizontal, 걸린수 ? `조건 ${걸린수}` : "조건")}
           {판단추("칸", Columns3, `칸 ${보일칸.length}`)}

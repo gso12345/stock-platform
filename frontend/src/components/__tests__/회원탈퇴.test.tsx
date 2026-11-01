@@ -30,6 +30,8 @@ function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(<QueryClientProvider client={qc}><MemoryRouter><회원탈퇴 /></MemoryRouter></QueryClientProvider>);
 }
+/** 닫혀 있을 때는 맨 아래 작은 글씨 하나 — 누르면 열린다 */
+const 열기 = () => fireEvent.click(screen.getByRole("button", { name: "회원 탈퇴" }));
 const 단추 = () => { const 다 = screen.getAllByRole("button", { name: "탈퇴하기" }); return 다[다.length - 1] as HTMLButtonElement; };
 
 beforeEach(() => {
@@ -40,10 +42,22 @@ beforeEach(() => {
 });
 
 describe("회원 탈퇴", () => {
+  it("열기 전에는 맨 아래 작은 글씨 하나뿐 — 큰 카드·제목 없이", () => {
+    /* 되돌릴 수 없는 일인데 내 프로필에 제목 달린 카드로 크게 자리를 잡고 있었다(디자인 7번) */
+    그리기();
+    const 여는것 = screen.getByRole("button", { name: "회원 탈퇴" });
+    expect(여는것.className).toMatch(/text-2xs/);
+    expect(screen.queryByRole("heading", { name: "회원 탈퇴" })).toBeNull();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    열기();
+    expect(screen.getByRole("heading", { name: "회원 탈퇴" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "회원 탈퇴" })).toBeNull();
+  });
+
   it("열기 전에는 단추 하나뿐, 열면 무엇이 막히고 무엇이 남는지 먼저 알려 준다", async () => {
     그리기();
     expect(screen.queryByText(/다시 로그인할 수 없어요/)).toBeNull();
-    fireEvent.click(단추());
+    열기();
     expect(await screen.findByText(/다시 로그인할 수 없어요/)).toBeTruthy();
     expect(screen.getByText(/기록은 지워지지 않고 남아요/)).toBeTruthy();
     expect(screen.getByText(/비공개로 바뀌어요/)).toBeTruthy();
@@ -53,7 +67,7 @@ describe("회원 탈퇴", () => {
 
   it("확인 문구와 비밀번호가 다 있어야 단추가 켜진다", async () => {
     그리기();
-    fireEvent.click(단추());
+    열기();
     const 비번 = await screen.findByLabelText("비밀번호");
     const 문구 = screen.getByPlaceholderText("탈퇴합니다");
     expect(단추().disabled).toBe(true);
@@ -69,7 +83,7 @@ describe("회원 탈퇴", () => {
 
   it("탈퇴하면 서버에 보내고, 로그아웃한 뒤 로그인 화면에 '완료' 를 남긴다", async () => {
     그리기();
-    fireEvent.click(단추());
+    열기();
     fireEvent.change(await screen.findByLabelText("비밀번호"), { target: { value: "pw" } });
     fireEvent.change(screen.getByPlaceholderText("탈퇴합니다"), { target: { value: "탈퇴합니다" } });
     fireEvent.click(단추());
@@ -82,7 +96,7 @@ describe("회원 탈퇴", () => {
   it("소셜 계정은 비밀번호를 묻지 않고 보내지도 않는다", async () => {
     나 = { id: 2, username: "k", oauth_provider: "kakao" };
     그리기();
-    fireEvent.click(단추());
+    열기();
     await screen.findByText(/다시 로그인할 수 없어요/);
     await waitFor(() => expect(screen.queryByLabelText("비밀번호")).toBeNull());
     fireEvent.change(screen.getByPlaceholderText("탈퇴합니다"), { target: { value: "탈퇴합니다" } });
@@ -95,7 +109,7 @@ describe("회원 탈퇴", () => {
   it("서버가 거절하면 이유를 보여 주고 로그아웃하지 않는다", async () => {
     지우기결과 = () => Promise.reject({ response: { status: 400, data: { detail: "비밀번호가 맞지 않습니다" } } });
     그리기();
-    fireEvent.click(단추());
+    열기();
     fireEvent.change(await screen.findByLabelText("비밀번호"), { target: { value: "x" } });
     fireEvent.change(screen.getByPlaceholderText("탈퇴합니다"), { target: { value: "탈퇴합니다" } });
     fireEvent.click(단추());

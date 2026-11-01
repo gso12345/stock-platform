@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
+import { BackButton } from "@/components/ui/BackButton";
 import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
 import Logo from "@/components/layout/Logo";
@@ -79,14 +80,11 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-base px-4">
+      {/* 뒤로 — 글자 없이 화살표만, 화면 왼쪽 위 구석에(앱들처럼). 예전에는 가운데 묶음 위에 "← 뒤로가기"
+          글자가 떠 있었다. 아이폰 홈 화면 앱은 시계 밑까지 그려지므로 그만큼 내린다 */}
+      <BackButton className="fixed z-10 ml-0"
+        style={{ top: "calc(0.5rem + env(safe-area-inset-top))", left: "calc(0.5rem + env(safe-area-inset-left))" }} />
       <div className="w-full max-w-sm">
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors mb-4"
-        >
-          <ArrowLeft size={14} />뒤로가기
-        </button>
         {/* 로고 */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
           <Logo size={36} />

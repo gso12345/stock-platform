@@ -136,7 +136,6 @@ export default function News() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">뉴스</h1>
-          <p className="text-text-muted text-xs mt-0.5 truncate">국내·미국 증시 주요 뉴스</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
           <Tabs

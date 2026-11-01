@@ -6,7 +6,7 @@ import { useQuantSettings, QUANT_DEFAULT_WEIGHTS } from "@/hooks/useQuantSetting
 import { getRecentlyViewed, type RecentStock } from "@/utils/recentlyViewed";
 import QuantSettingsPanel from "@/components/quant/QuantSettingsPanel";
 import { useAuthStore } from "@/store/authStore";
-import { Card, Badge, RowSkeleton, Button, Tabs, UnderlineTabs, ChangeBadge, 용어힌트, 빈화면 } from "@/components/ui";
+import { Card, Badge, RowSkeleton, Button, Tabs, ChipTabs, ChangeBadge, 용어힌트, 빈화면 } from "@/components/ui";
 import { Award, AlertCircle, Settings2, LogIn, ArrowDown, ArrowUp, Clock, Wallet, Download } from "lucide-react";
 import { GRADE_BANDS, gradeColor, scoreColor } from "@/utils/quant";
 import { lookupPrice, indexPricesBySymbol } from "@/utils/prices";
@@ -287,9 +287,7 @@ export default function Quant() {
             <Award size={22} className="text-accent-blue" />
             퀀트점수 비교
           </h1>
-          <p className="text-text-muted text-xs mt-0.5">
-            관심종목들을 같은 기준(가중치·사용 지표)으로 퀀트 점수 비교
-          </p>
+          <p className="text-text-muted text-xs mt-0.5">관심종목을 같은 기준으로 비교해요</p>
         </div>
         {isLoggedIn && (
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -345,7 +343,8 @@ export default function Quant() {
             onChange={(id) => { setMarketTab(id); setFolderTab("all"); }}
           />
 
-          <UnderlineTabs
+          {/* 폴더·포트폴리오는 칩 — 바로 위 시장 탭과 같은 모양이 겹쳐 쌓이지 않게(공모주 증권사 칩과 같은 모양) */}
+          <ChipTabs
             ariaLabel="목록 선택"
             active={portfolioTab !== null ? `pf-${portfolioTab}` : String(folderTab)}
             onChange={(id) => {

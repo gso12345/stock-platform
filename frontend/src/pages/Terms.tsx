@@ -1,5 +1,4 @@
-import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { BackButton } from "@/components/ui/BackButton";
 
 const SECTIONS = [
   {
@@ -49,18 +48,11 @@ const SECTIONS = [
 ];
 
 export default function Terms() {
-  const navigate = useNavigate();
-
   return (
     <div className="min-h-screen bg-bg-base px-4 py-8">
       <div className="max-w-2xl mx-auto">
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors mb-6"
-        >
-          <ArrowLeft size={14} />뒤로가기
-        </button>
+        {/* 뒤로 — 글자 없이 화살표만(로그인과 같은 공용 단추) */}
+        <BackButton className="mb-2" />
 
         <div className="bg-bg-card border border-border rounded-2xl p-6 md:p-8">
           <h1 className="text-xl font-bold text-text-primary mb-1">이용약관</h1>

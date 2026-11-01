@@ -17,7 +17,7 @@ import { 앱준비됨 } from "@/components/layout/SplashScreen";
 import { 한가할때, 아껴쓰는중 } from "@/utils/한가할때";
 import { 원하는방향, 지켜보기 as 방향지켜보기 } from "@/utils/화면방향";
 import { use증권사알림맞추기 } from "@/hooks/useWebPush";
-import { use스크롤기억, 맨위로 } from "@/hooks/useScrollMemory";
+import { 맨위로 } from "@/utils/맨위로";
 import { use당겨서새로고침 } from "@/hooks/usePullToRefresh";
 import { use화면넘김 } from "@/hooks/usePageTransition";
 import { use인터넷 } from "@/hooks/useOnline";
@@ -132,9 +132,9 @@ export default function Layout() {
   /* 알림 받을 증권사(알림 화면에서 고른다)가 바뀌면 휴대폰 알림 구독에도 — 여기 한 곳에서 */
   use증권사알림맞추기();
 
-  /* 본문 스크롤 — 새 화면은 맨 위에서, 뒤로 가면 보던 자리로(hooks/useScrollMemory) */
+  /* 본문(스크롤하는 곳) — 당겨서 새로고침·탭 다시 누르기가 쓴다. 화면을 옮길 때 스크롤 자리는 건드리지 않는다
+     (맨 위에서 열고 뒤로 가면 보던 자리로 가게 해 봤다가, 사용자가 원래대로 돌려 달라고 했다) */
   const 본문 = useRef<HTMLElement>(null);
-  use스크롤기억(본문);
 
   /* 당겨서 새로고침 — 본문 맨 위에서 당기면 지금 화면이 쓰는 자료를 다시 받는다(hooks/usePullToRefresh).
      다음 화면을 위해 미리 받아 두기만 하는 자료는 빼고(utils/지금화면자료) */

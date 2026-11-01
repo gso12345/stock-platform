@@ -10,6 +10,7 @@
  */
 import { Link } from "react-router-dom";
 import { 고른칩 } from "@/components/ui";
+import { use끝흐림 } from "@/hooks/useEdgeFade";
 import { useSettingsStore } from "@/store/settingsStore";
 import { 증권사별수 } from "./ipoBrokers";
 
@@ -21,6 +22,7 @@ export default function IpoBrokerFilter({ 주관사칸들, 보이는수, 모름�
   /** 주관사를 아직 몰라 거르면 빠지는 곳 수 */
   모름수: number;
 }) {
+  const [칩줄, 칩줄흐림] = use끝흐림<HTMLDivElement>();   // 휴대폰에서 옆으로 넘기는 칩 줄 — 더 있는 쪽 끝을 흐린다
   const 고른 = useSettingsStore((s) => s.공모주증권사);
   const 토글 = useSettingsStore((s) => s.토글공모주증권사);
   const 비우기 = useSettingsStore((s) => s.set공모주증권사);
@@ -31,7 +33,8 @@ export default function IpoBrokerFilter({ 주관사칸들, 보이는수, 모름�
   if (!칩들.length) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      <div role="group" aria-label="증권사로 거르기" className="flex gap-1.5 overflow-x-auto sm:flex-wrap pb-0.5">
+      <div ref={칩줄} role="group" aria-label="증권사로 거르기"
+        className={`flex gap-1.5 overflow-x-auto sm:flex-wrap pb-0.5 ${칩줄흐림}`}>
         {칩들.map(([이름, n]) => (
           <고른칩 key={이름} 작게 고름={고른.includes(이름)} onClick={() => 토글(이름)} ariaLabel={`${이름} ${n}곳`}>
             {이름} <span className="num opacity-70">{n}</span>

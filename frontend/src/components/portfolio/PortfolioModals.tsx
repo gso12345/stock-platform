@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Modal, INPUT_CLASS, InlineSpinner } from "@/components/ui";
+import { Modal, INPUT_CLASS, InlineSpinner, 칩탭모양 } from "@/components/ui";
 import { Plus, Pencil, Trash2, X, Search, ArrowLeft, Check, AlertTriangle } from "lucide-react";
 import { stocksApi } from "@/api/stocks";
 import { useStockSearch, type SearchResult } from "@/hooks/useStockSearch";
@@ -426,65 +426,12 @@ export function PortfolioPill({
       onTouchEnd={onTouchEnd}
       title={draggable ? "길게 눌러서 드래그하면 포트폴리오 순서를 바꿀 수 있어요" : undefined}
       style={{ touchAction: isDragging ? "none" : "auto" }}
-      className={`group flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 -mb-px cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
-        active
-          ? "border-accent-blue text-accent-blue bg-accent-blue/5"
-          : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-      } ${isDragging ? "opacity-40" : ""} ${isDropTarget ? "ring-1 ring-accent-blue ring-inset" : ""}`}
+      /* 칩 모양 — 위의 화면 탭(내 자산 | 관심종목)보다 한 단계 아래(관심종목 폴더·공모주 증권사 칩과 같은 모양) */
+      className={`group cursor-pointer ${칩탭모양(active)} ${isDragging ? "opacity-40" : ""} ${isDropTarget ? "ring-1 ring-accent-blue ring-inset" : ""}`}
     >
       <span>{portfolio.name}</span>
-      <span className="text-xs opacity-60">({portfolio.count ?? 0})</span>
+      <span className="num text-2xs opacity-70">{portfolio.count ?? 0}</span>
     </button>
-  );
-}
-
-/* ── 전체 보기에서 포함/제외할 포트폴리오 선택 (포트폴리오 모아보기) ── */
-export function PortfolioFilterDropdown({ portfolios, excludedIds, onToggle }: {
-  portfolios: PortfolioMeta[]; excludedIds: Set<number>; onToggle: (id: number) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
-  const includedCount = portfolios.length - excludedIds.size;
-
-  return (
-    <div ref={ref} className="relative flex-shrink-0">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 text-xs font-semibold transition-colors whitespace-nowrap"
-        title="전체 보기에 포함할 포트폴리오 선택"
-      >
-        <Check size={13} /> 포트폴리오 선택 ({includedCount}/{portfolios.length})
-      </button>
-      {open && (
-        <div className="absolute z-30 top-full mt-1 left-0 w-56 max-h-64 overflow-y-auto bg-bg-card border border-border rounded-xl shadow-modal p-1.5 flex flex-col gap-0.5">
-          {portfolios.map((pf) => {
-            const checked = !excludedIds.has(pf.id);
-            return (
-              <label key={pf.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-bg-elevated cursor-pointer text-xs">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => onToggle(pf.id)}
-                  className="accent-accent-blue"
-                />
-                <span className="flex-1 truncate text-text-primary">{pf.name}</span>
-                <span className="text-text-dim">({pf.count})</span>
-              </label>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -538,7 +485,7 @@ export function AddPortfolioButton({ onAdd }: { onAdd: (name: string) => void })
 
 /* ── 포트폴리오 관리 팝업 ── */
 export function PortfolioManagerModal({
-  portfolios, onClose, onRename, onDelete, onReorder, onAdd,
+  portfolios, onClose, onRename, onDelete, onReorder, onAdd, excludedIds, onToggleInclude,
 }: {
   portfolios: PortfolioMeta[];
   onClose: () => void;
@@ -546,6 +493,10 @@ export function PortfolioManagerModal({
   onDelete: (pf: PortfolioMeta) => void;
   onReorder: (order: number[]) => void;
   onAdd: (name: string) => void;
+  /** '전체' 에서 빼 둔 포트폴리오 — 예전에는 내 자산 머리의 '포트폴리오 선택(n/n)' 이 따로 맡았다.
+   *  같은 포트폴리오를 고르는 단추가 셋(탭·선택·관리)이라 이 창 하나로 모았다 */
+  excludedIds?: Set<number>;
+  onToggleInclude?: (id: number) => void;
 }) {
   const [local, setLocal] = useState(portfolios);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -553,6 +504,8 @@ export function PortfolioManagerModal({
   const [addingNew, setAddingNew] = useState(false);
   const [newName, setNewName] = useState("");
   useEffect(() => { setLocal(portfolios); }, [portfolios]);
+  /* 둘 이상일 때만 고른다 — 하나뿐이면 '전체' 가 곧 그것이다 */
+  const 고르기 = !!excludedIds && !!onToggleInclude && portfolios.length > 1;
 
   const commitRename = (id: number) => {
     const trimmed = editName.trim();
@@ -576,6 +529,11 @@ export function PortfolioManagerModal({
         <h3 className="text-sm font-bold text-text-primary">포트폴리오 관리</h3>
         <button aria-label="닫기" onClick={onClose}><X size={14} className="text-text-muted hover:text-text-primary" /></button>
       </div>
+      {고르기 && (
+        <p className="px-4 pt-3 text-2xs text-text-muted break-keep">
+          체크한 포트폴리오만 &lsquo;전체&rsquo;에 합쳐 보여요.
+        </p>
+      )}
       <ReorderableList
         items={local}
         onReorder={handleReorder}
@@ -585,6 +543,17 @@ export function PortfolioManagerModal({
         {(pf: any, { handle }) => (
           <div className="flex items-center gap-3 px-4 py-4 border-b border-border/40 select-none">
             {handle}
+            {고르기 && (
+              <input
+                type="checkbox"
+                draggable={false}
+                checked={!excludedIds!.has(pf.id)}
+                onChange={() => onToggleInclude!(pf.id)}
+                aria-label={`${pf.name} — 전체에 넣기`}
+                title="전체에 넣기"
+                className="w-4 h-4 flex-shrink-0 accent-accent-blue cursor-pointer"
+              />
+            )}
             {editingId === pf.id ? (
               <input
                 draggable={false}

@@ -275,6 +275,21 @@ html.light {
   }
 }
 
+/* 옆으로 넘치는 줄 — 더 있는 쪽 끝을 흐리게(hooks/useEdgeFade). 예전에는 화면 끝에서 뚝 잘려 옆에 더 있는지
+   몰랐다. 줄이 스크롤하는 동안 클래스가 바뀐다 — 끝까지 가면 그쪽은 또렷해진다 */
+.fade-edge-right {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+}
+.fade-edge-left {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 2rem), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 2rem), transparent);
+}
+.fade-edge-both {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 2rem, #000 calc(100% - 2rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 2rem, #000 calc(100% - 2rem), transparent);
+}
+
 @layer components {
   .glass {
     background: rgba(30, 34, 53, 0.6);

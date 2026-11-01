@@ -4,7 +4,8 @@ import { useNavigate, Link } from "react-router-dom";
 import { watchlistApi, watchlistFolderApi, stocksApi, portfolioApi, screeningApi } from "@/api/stocks";
 import {
   Card, RowSkeleton, InlineSpinner, ErrorToast,
-  Tabs, UnderlineTabs, type TabItem, 빈화면, 못불러옴} from "@/components/ui";
+  Tabs, UnderlineTabs, type TabItem, 빈화면, 못불러옴, 칩탭모양, 칩줄모양} from "@/components/ui";
+import { use끝흐림 } from "@/hooks/useEdgeFade";
 import { ASSET_PAGE_TABS } from "@/constants/tabs";
 import { useLivePrices, 시세갱신주기} from "@/hooks/useLivePrices";
 import LiveBadge from "@/components/ui/LiveBadge";
@@ -53,6 +54,7 @@ export default function Watchlist() {
   const isPreview = !isLoggedIn;
   const [marketTab, setMarketTab]   = useState("전체");
   const [folderTab, setFolderTab]   = useState<number | "all" | "recent">("all"); // 관심종목 폴더 탭
+  const [폴더줄, 폴더줄흐림] = use끝흐림<HTMLDivElement>();                       // 폴더 칩 줄 — 넘치면 끝을 흐린다
   const [portfolioTab, setPortfolioTab] = useState<number | null>(null); // 포트폴리오 탭 (폴더 탭과 상호배타)
   const [showFolderManager, setShowFolderManager] = useState(false);
   const [recentStocks, setRecentStocks] = useState<RecentStock[]>([]);
@@ -729,12 +731,12 @@ export default function Watchlist() {
         </div>
       )}
 
-      {/* 헤더 */}
-      {/* 좁은 화면에서는 제목과 버튼을 세로로 쌓는다 (내 자산과 동일) */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {/* 헤더 — 큰 제목은 두지 않는다. 바로 위 탭이 이미 '관심종목' 이라, 같은 말이 아래 탭·위 탭·제목으로 세 번
+          나왔다(내 자산과 같게). 개수·시세 상태와 단추만 한 줄에 */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="min-w-0">
-          <h1 className="text-xl font-bold text-text-primary whitespace-nowrap">관심종목</h1>
-          <p className="text-text-muted text-xs mt-0.5 truncate flex items-center gap-2">
+          <h1 className="sr-only">관심종목</h1>
+          <p className="text-text-muted text-xs truncate flex items-center gap-2">
             <span className="truncate">
               {isPreview ? `${PREVIEW_WATCHLIST.length}개 예시 종목` : `${itemsList.length}개 종목`}
             </span>
@@ -744,7 +746,7 @@ export default function Watchlist() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => { qc.invalidateQueries({ queryKey: ["watchlist-items"] }); qc.invalidateQueries({ queryKey: ["watchlist-prices"] }); qc.invalidateQueries({ queryKey: ["watchlist-folders"] }); }}
             className="p-2 rounded-lg border border-border text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
@@ -754,27 +756,17 @@ export default function Watchlist() {
           </button>
           {/* 로그인 전에도 버튼을 숨기지 않는다 — 버튼이 아예 없으면 이
               화면으로 무엇을 할 수 있는지 알 수가 없다. 누르면 로그인으로
-              보내서, 왜 로그인이 필요한지가 그 자리에서 드러나게 한다. */}
-          {(
-            <>
-              <button
-                onClick={() => isLoggedIn ? setShowFolderManager(true) : navigate("/login")}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-muted hover:text-accent-blue hover:border-accent-blue/40 transition-all"
-                title={isLoggedIn ? "폴더 추가/편집, 탭 순서 바꾸기" : "로그인하면 폴더를 만들 수 있어요"}
-              >
-                <Settings2 size={13} />탭 관리
-              </button>
-              <button
-                onClick={() => isLoggedIn
-                  ? openAddModal(typeof folderTab === "number" ? folderTab : null)
-                  : navigate("/login")}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all"
-                title={isLoggedIn ? undefined : "로그인하면 관심종목을 담을 수 있어요"}
-              >
-                <Plus size={13} />종목 추가
-              </button>
-            </>
-          )}
+              보내서, 왜 로그인이 필요한지가 그 자리에서 드러나게 한다.
+              탭 관리는 폴더 칩 줄 끝으로 옮겼다 — 고치는 것 바로 옆에 */}
+          <button
+            onClick={() => isLoggedIn
+              ? openAddModal(typeof folderTab === "number" ? folderTab : null)
+              : navigate("/login")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 transition-all whitespace-nowrap"
+            title={isLoggedIn ? undefined : "로그인하면 관심종목을 담을 수 있어요"}
+          >
+            <Plus size={13} />종목 추가
+          </button>
         </div>
       </div>
 
@@ -788,17 +780,18 @@ export default function Watchlist() {
         onChange={(id) => { setMarketTab(id); setFolderTab("all"); }}
       />
 
-      {/* 폴더 탭 — 로그인 여부와 상관없이 한 벌로 그린다 */}
+      {/* 폴더 탭 — 로그인 여부와 상관없이 한 벌로 그린다. 칩 모양이라 위의 시장 탭·화면 탭과 겹쳐 보이지
+          않는다(공모주 증권사 칩과 같은 모양). 많으면 옆으로 넘기고 더 있는 쪽 끝을 흐린다 */}
       {(() => {
-        const tabBtnCls = (active: boolean) =>
-          `flex-shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold border-b-2 -mb-px transition-all ${
-            active ? "border-accent-blue text-accent-blue bg-accent-blue/5" : "border-transparent text-text-muted hover:text-text-primary hover:bg-bg-elevated"
-          }`;
+        const tabBtnCls = (active: boolean) => 칩탭모양(active);
         return (
-          <div className="flex border-b border-border bg-bg-card rounded-t-xl overflow-x-auto scrollbar-hide">
+          <div className="flex items-center gap-2">
+          <div ref={폴더줄} className={`${칩줄모양} flex-1 min-w-0 ${폴더줄흐림}`}>
             {/* "전체"는 목록 그 자체라 맨 앞에 고정한다 */}
-            <button onClick={() => { setFolderTab("all"); setPortfolioTab(null); }} className={tabBtnCls(folderTab === "all" && portfolioTab === null)}>
-              전체 <span className="text-2xs opacity-70">{isPreview ? PREVIEW_WATCHLIST.length : itemsList.length}</span>
+            <button onClick={() => { setFolderTab("all"); setPortfolioTab(null); }}
+              aria-pressed={folderTab === "all" && portfolioTab === null}
+              className={tabBtnCls(folderTab === "all" && portfolioTab === null)}>
+              전체 <span className="num text-2xs opacity-70">{isPreview ? PREVIEW_WATCHLIST.length : itemsList.length}</span>
             </button>
             {정렬된탭.map((탭) => {
               const 켜짐 =
@@ -819,9 +812,10 @@ export default function Watchlist() {
                   onTouchMove={탭터치이동}
                   onTouchEnd={탭터치끝}
                   onClick={() => 탭누름(탭)}
+                  aria-pressed={켜짐}
                   title="길게 눌러서 드래그하면 탭 순서를 바꿀 수 있어요"
                   style={{ touchAction: 끌리는중 ? "none" : "auto" }}
-                  className={`cursor-grab active:cursor-grabbing ${tabBtnCls(켜짐)} flex items-center gap-1 ${
+                  className={`cursor-grab active:cursor-grabbing ${tabBtnCls(켜짐)} ${
                     끌리는중 ? "opacity-40" : ""
                   } ${탭드래그.dropId === 탭.key ? "ring-1 ring-accent-blue ring-inset" : ""}`}
                 >
@@ -829,11 +823,21 @@ export default function Watchlist() {
                   {탭.종류 === "portfolio" && <Wallet size={11} />}
                   {탭.이름}
                   {탭.종류 === "folder" && (
-                    <span className="text-2xs opacity-70">{folderCounts.get(탭.id!) ?? 0}</span>
+                    <span className="num text-2xs opacity-70">{folderCounts.get(탭.id!) ?? 0}</span>
                   )}
                 </button>
               );
             })}
+          </div>
+          {/* 탭 관리 — 칩 줄 끝, 넘겨도 늘 보이게 줄 밖에 둔다 */}
+          <button
+            onClick={() => isLoggedIn ? setShowFolderManager(true) : navigate("/login")}
+            aria-label="탭 관리"
+            className={`${칩탭모양(false)} border-dashed text-text-muted`}
+            title={isLoggedIn ? "폴더 추가/편집, 탭 순서 바꾸기" : "로그인하면 폴더를 만들 수 있어요"}
+          >
+            <Settings2 size={13} />관리
+          </button>
           </div>
         );
       })()}

@@ -1,7 +1,7 @@
 /**
  * 앱 틀(Layout)이 "실제 앱같이" 를 잇는가 — 1·4·5·6·7번이 앱 틀에서 실제로 붙어 있는지.
  *
- * 하나하나의 동작은 hooks/__tests__ 가 본다(스크롤 기억·당겨서 새로고침·화면 넘김). 여기서는 앱 틀이
+ * 하나하나의 동작은 hooks/__tests__ 가 본다(당겨서 새로고침·화면 넘김). 여기서는 앱 틀이
  *   · 아이폰 시계·노치만큼 머리를 띄우는지(1번)
  *   · 본문을 당기면 떠 있는 자료를 다시 받는지(4번)
  *   · 보고 있는 하단 탭을 다시 누르면 맨 위로 가고 주소는 그대로인지(5번)
@@ -128,15 +128,19 @@ describe("5번 — 보고 있는 하단 탭을 다시 누르면", () => {
   });
 });
 
-describe("2번 — 다른 화면으로 옮기면", () => {
-  it("본문을 맨 위에서 보여 준다(앞 화면에서 내려 둔 자리를 물려받지 않는다)", () => {
+describe("2번은 되돌렸다 — 화면을 옮겨도 본문 스크롤은 건드리지 않는다", () => {
+  it("다른 탭으로 옮겨도 본문 자리를 바꾸지 않는다(사용자가 원래대로 돌려 달라고 했다)", () => {
     const { 본문 } = 그리기("/feed");
     let 자리 = 0;
-    Object.defineProperty(본문, "scrollTop", { configurable: true, get: () => 자리, set: (v: number) => { 자리 = v; } });
+    let 쓴횟수 = 0;
+    Object.defineProperty(본문, "scrollTop", {
+      configurable: true, get: () => 자리, set: (v: number) => { 자리 = v; 쓴횟수 += 1; },
+    });
     자리 = 800;
     fireEvent.click(하단탭().getByRole("link", { name: "뉴스" }));
     expect(screen.getByText("뉴스 내용")).toBeInTheDocument();
-    expect(자리).toBe(0);
+    expect(쓴횟수).toBe(0);
+    expect(자리).toBe(800);
   });
 });
 
