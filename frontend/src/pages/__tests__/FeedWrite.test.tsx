@@ -13,7 +13,7 @@
  *   4) 태그를 붙이면 실제로 서버로 넘어간다 — 칸만 있고 안 실리면 헛것이다
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -219,5 +219,46 @@ describe("나가기", () => {
     await u.click(screen.getByRole("button", { name: "뒤로" }));
     await u.click(screen.getByRole("button", { name: "나가기" }));
     expect(navigate).toHaveBeenCalledWith("/feed");
+  });
+});
+
+
+describe("앱의 글쓰기 화면처럼(피드 12번)", () => {
+  /* 상자 안 서식 대신 아바타 옆 큰 입력칸, 종목은 칩, 사진·투표·태그 단추는 화면 아래에 붙는다 */
+  it("도구줄은 화면 아래에 붙는다(휴대폰 — 아래 탭은 숨겼다)", () => {
+    그리기(<FeedWrite />);
+    const 줄 = screen.getByRole("button", { name: /사진 첨부/ }).parentElement!.parentElement as HTMLElement;
+    expect(줄.className).toContain("fixed");
+    expect(줄.style.bottom).toBe("0px");
+  });
+
+  it("도구줄의 '태그' 는 늘 보이는 태그칸으로 데려간다", async () => {
+    const u = userEvent.setup();
+    그리기(<FeedWrite />);
+    await u.click(screen.getByRole("button", { name: "태그" }));
+    expect(screen.getByLabelText(/태그/)).toHaveFocus();
+  });
+
+  it("고른 종목은 이름 칩이 되고, 지우면 다시 검색칸", async () => {
+    const u = userEvent.setup();
+    그리기(<FeedWrite />);
+    await u.type(screen.getByPlaceholderText(/종목 검색/), "삼성");
+    await u.click(await screen.findByRole("button", { name: /005930/ }));
+    expect(screen.getByText("삼성전자")).toBeInTheDocument();
+    expect(screen.getByText("KR 005930")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/종목 검색/)).toBeNull();
+    // 고르면 바로 내용을 쓰게 — 커서가 내용칸으로 간다
+    expect(screen.getByLabelText(/^내용$/)).toHaveFocus();
+    await u.click(screen.getByRole("button", { name: "종목 지우기" }));
+    expect(screen.getByPlaceholderText(/종목 검색/)).toBeInTheDocument();
+  });
+
+  it("글자 수를 보여 주고, 거의 다 차면(90% 넘게) 빨갛게", async () => {
+    그리기(<FeedWrite />);
+    expect(screen.getByText("0/2000").className).not.toContain("text-accent-red");
+    fireEvent.change(screen.getByLabelText(/^내용$/), { target: { value: "가".repeat(1800) } });
+    expect(screen.getByText("1800/2000").className).not.toContain("text-accent-red");
+    fireEvent.change(screen.getByLabelText(/^내용$/), { target: { value: "가".repeat(1801) } });
+    expect(screen.getByText("1801/2000").className).toContain("text-accent-red");
   });
 });

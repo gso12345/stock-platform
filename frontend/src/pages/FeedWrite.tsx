@@ -7,13 +7,17 @@
  * # 버튼 뒤에 숨어 있어서 있는 줄도 모르는 사람이 많았다.
  *
  * 그래서 화면을 따로 냈다. 여기서는 종목검색·제목·내용·태그가 처음부터
- * 다 보이고, 사진과 투표는 툴바에서 켠다. 쓰던 기능은 그대로다.
+ * 다 보이고, 사진과 투표는 도구줄에서 켠다.
+ *
+ * 앱의 글쓰기 화면처럼 다시 짰다(사용자가 고른 12번) — 상자 안 서식(종목·제목·내용·태그 칸이 위에서부터
+ * 늘어선 것) 대신, 아바타 옆에 종목 칩과 큰 입력칸이 먼저 오고, 사진·투표·태그 단추는 화면 아래(자판 위)에
+ * 붙는다. 쓰는 동안 아래 탭은 숨긴다(Layout).
  */
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
-  Hash, BarChart2, X, Image as ImageIcon, Send, ArrowLeft, Loader2, FileText} from "lucide-react";
+  Hash, BarChart2, X, Image as ImageIcon, Send, ArrowLeft, Loader2, FileText, Search} from "lucide-react";
 import { communityApi, portfolioApi, watchlistApi, dashboardApi } from "@/api/stocks";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/store/authStore";
@@ -25,10 +29,12 @@ import { useMyProfile } from "@/hooks/useMyProfile";
 import Avatar from "@/components/community/Avatar";
 import { BODY_MAX, TITLE_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { use확인 } from "@/hooks/useDialogs";
-import { Button } from "@/components/ui";
+import { Button, 고른칩, cn } from "@/components/ui";
 import { use임시저장, use임시본알림, 임시저장지우기 } from "@/hooks/useDraft";
 import { use보유목록 } from "@/hooks/usePortfolioItems";
 import { 시세열쇠, 시세대상 } from "@/constants/portfolioQuery";
+import { use넓은화면 } from "@/hooks/useWideScreen";
+import { use자판높이 } from "@/hooks/useSheet";
 
 /** 브라우저에 담아 두는 자리 이름 */
 const 임시본열쇠 = "feed-write-draft";
@@ -42,6 +48,10 @@ export default function FeedWrite() {
   const qc = useQueryClient();
   const [mode, setMode] = useState<"stock" | "portfolio">("stock");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+  /* 도구줄 자리 — 휴대폰은 화면 아래(자판이 올라오면 자판 바로 위), PC 는 글 끝에 붙어 따라 내려온다 */
+  const 넓음 = use넓은화면();
+  const 자판 = use자판높이(!넓음);
 
   // stock mode
   const [searchQ, setSearchQ] = useState("");
@@ -208,7 +218,7 @@ export default function FeedWrite() {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 400)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 480)}px`;
   };
 
   const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -346,27 +356,36 @@ export default function FeedWrite() {
     });
   };
 
+  const 쓰기바꾸기 = (m: "stock" | "portfolio") => {
+    if (m === mode) return;
+    setMode(m); setBody(""); setSelectedStock(null);
+  };
+
   const canSubmit = mode === "stock" ? !!(selectedStock && body.trim()) : pfItems.length > 0;
+  const 도구단추 = (켜짐: boolean) => cn(
+    "flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold transition-colors",
+    켜짐 ? "text-accent-blue bg-accent-blue/10" : "text-text-muted hover:text-text-primary hover:bg-bg-elevated",
+  );
 
   return (
     <>
-    <div className="max-w-2xl mx-auto flex flex-col gap-4">
-      {/* 헤더 — 나가기 / 제목 / 등록 */}
-      <div className="flex items-center gap-2">
+    <div className="max-w-2xl mx-auto flex flex-col">
+      {/* 머리 — 나가기 / 글쓰기 / 등록. 스크롤해도 위에 붙어 있다 */}
+      <div className="sticky top-0 z-20 -mx-3 md:mx-0 px-3 md:px-0 h-12 flex items-center gap-2 bg-bg-primary/95 backdrop-blur-md border-b border-border">
         <button
           onClick={나가기}
           aria-label="뒤로"
           className="p-1.5 -ml-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
         >
-          <ArrowLeft size={16} />
+          <ArrowLeft size={20} />
         </button>
-        <h1 className="text-lg font-bold text-text-primary flex-1">글쓰기</h1>
+        <h1 className="text-base font-bold text-text-primary flex-1">글쓰기</h1>
         <button
           onClick={handleSubmit}
           disabled={!canSubmit || submitting}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent-blue text-white text-xs font-semibold hover:bg-accent-blue/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-accent-blue text-white text-sm font-semibold hover:bg-accent-blue/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
-          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+          {submitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
           {submitting ? "등록 중..." : "등록"}
         </button>
       </div>
@@ -375,7 +394,7 @@ export default function FeedWrite() {
           곧바로 채워 넣지 않는 이유 — 새 글을 쓰려고 들어왔는데 예전 글이
           들어가 있으면 그것대로 당황스럽다. 고르게 한다. */}
       {임시본 && (
-        <div className="flex items-center gap-2 rounded-xl border border-accent-blue/40 bg-accent-blue/10 px-3 py-2.5">
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-accent-blue/40 bg-accent-blue/10 px-3 py-2.5">
           <FileText size={14} className="text-accent-blue flex-shrink-0" />
           <p className="flex-1 text-xs text-text-secondary break-keep">
             쓰다 만 글이 있습니다
@@ -388,139 +407,123 @@ export default function FeedWrite() {
         </div>
       )}
 
-      <div className="bg-bg-card border border-border rounded-2xl overflow-hidden">
-        {/* 모드 탭 */}
-        <div className="flex border-b border-border px-3 pt-2 pb-0">
-          <button
-            onClick={() => { setMode("stock"); setBody(""); setSelectedStock(null); }}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all ${
-              mode === "stock" ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
-            }`}
-          >
-            <Hash size={11} />종목 의견
-          </button>
-          <button
-            onClick={() => { setMode("portfolio"); setBody(""); setSelectedStock(null); }}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 -mb-px transition-all ${
-              mode === "portfolio" ? "border-accent-blue text-accent-blue" : "border-transparent text-text-muted hover:text-text-primary"
-            }`}
-          >
-            <BarChart2 size={11} />포트폴리오 공유
-          </button>
-        </div>
+      {/* 무엇을 쓸까 */}
+      <div className="flex gap-1.5 pt-3">
+        <고른칩 고름={mode === "stock"} onClick={() => 쓰기바꾸기("stock")} 작게 className="flex items-center gap-1">
+          <Hash size={11} />종목 의견
+        </고른칩>
+        <고른칩 고름={포트폴리오모드} onClick={() => 쓰기바꾸기("portfolio")} 작게 className="flex items-center gap-1">
+          <BarChart2 size={11} />포트폴리오 공유
+        </고른칩>
+      </div>
 
-        <div className="p-4 flex flex-col gap-3.5">
-          {/* 종목 검색 */}
+      {/* 아바타 옆에 — 종목, 제목, 큰 내용칸 */}
+      <div className="flex gap-3 pt-4">
+        <div className="shrink-0">
+          <Avatar username={myName} colorIndex={myAvatarColor} avatarUrl={myAvatarUrl} size="lg" />
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col gap-2.5">
+          <span className="text-sm font-semibold text-text-primary leading-10 -mb-1.5">{myName}</span>
+
+          {/* 종목 — 고르면 칩이 된다 */}
           {mode === "stock" && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-2xs font-semibold text-text-muted">종목</label>
-              <div className="relative" ref={searchRef}>
-                {selectedStock ? (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent-blue/15 border border-accent-blue/30 text-xs font-semibold text-accent-blue">
-                      <span className="text-text-dim">[{selectedStock.market}]</span>
-                      {selectedStock.symbol}
-                      {selectedStock.name && selectedStock.name !== selectedStock.symbol && (
-                        <span className="text-accent-blue/70 font-normal">{selectedStock.name}</span>
-                      )}
-                      <button onClick={() => setSelectedStock(null)} aria-label="종목 지우기" className="ml-0.5 hover:text-accent-red transition-colors">
-                        <X size={11} />
-                      </button>
-                    </span>
-                    <span className="text-xs text-text-dim">에 대한 의견</span>
-                  </div>
-                ) : (
-                  <>
+            <div className="relative" ref={searchRef}>
+              {selectedStock ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full bg-accent-blue/15 text-sm font-semibold text-accent-blue">
+                    {selectedStock.name || selectedStock.symbol}
+                    <span className="text-2xs font-normal text-accent-blue/70">{selectedStock.market} {selectedStock.symbol}</span>
+                    <button onClick={() => setSelectedStock(null)} aria-label="종목 지우기"
+                      className="p-0.5 rounded-full hover:bg-accent-blue/20 transition-colors">
+                      <X size={13} />
+                    </button>
+                  </span>
+                  <span className="text-xs text-text-dim">에 대한 의견</span>
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
                     <input
                       autoFocus
                       value={searchQ}
                       onChange={(e) => setSearchQ(e.target.value)}
+                      aria-label="종목"
                       placeholder="종목 검색 (예: 삼성전자, AAPL)"
-                      className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+                      className="w-full pl-8 pr-3 py-2 bg-bg-elevated border border-border rounded-full text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
                     />
-                    {(searchResults.length > 0 || searching) && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-bg-card border border-border rounded-xl shadow-float z-20 overflow-hidden">
-                        {searching && searchResults.length === 0 && <div className="px-3 py-2 text-xs text-text-dim">검색 중...</div>}
-                        {searchResults.map((r: any, i: number) => (
-                          <button
-                            key={i}
-                            onClick={() => {
-                              setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol });
-                              setSearchQ("");
-                              setSearchResults([]);
-                              setCustomTags(prev => prev.find(t => t.symbol === r.symbol && t.market === r.market) ? prev : [{ symbol: r.symbol, market: r.market, name: r.name }, ...prev]);
-                            }}
-                            className="w-full text-left px-3 py-2 hover:bg-bg-elevated transition-colors flex items-center gap-2"
-                          >
-                            <span className="text-2xs font-bold text-text-dim w-8">{r.market}</span>
-                            <span className="text-sm font-semibold text-text-primary">{r.symbol}</span>
-                            <span className="text-xs text-text-dim truncate flex-1">{r.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+                  </div>
+                  {(searchResults.length > 0 || searching) && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-bg-card border border-border rounded-xl shadow-float z-20 overflow-hidden">
+                      {searching && searchResults.length === 0 && <div className="px-3 py-2 text-xs text-text-dim">검색 중...</div>}
+                      {searchResults.map((r: any, i: number) => (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            setSelectedStock({ symbol: r.symbol, market: r.market, name: r.name || r.symbol });
+                            setSearchQ("");
+                            setSearchResults([]);
+                            setCustomTags(prev => prev.find(t => t.symbol === r.symbol && t.market === r.market) ? prev : [{ symbol: r.symbol, market: r.market, name: r.name }, ...prev]);
+                            textareaRef.current?.focus();
+                          }}
+                          className="w-full text-left px-3 py-2.5 hover:bg-bg-elevated transition-colors flex items-center gap-2"
+                        >
+                          <span className="text-2xs font-bold text-text-dim w-8">{r.market}</span>
+                          <span className="text-sm font-semibold text-text-primary">{r.symbol}</span>
+                          <span className="text-xs text-text-dim truncate flex-1">{r.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 
           {/* 포트폴리오 선택 */}
           {포트폴리오모드 && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-2xs font-semibold text-text-muted">포트폴리오</label>
-              {loadingPf ? (
-                <p className="text-xs text-text-dim">포트폴리오 불러오는 중</p>
-              ) : (portfoliosData as any[]).length === 0 ? (
-                <p className="text-xs text-text-dim">등록된 포트폴리오가 없습니다</p>
-              ) : (
-                <select
-                  value={selectedPfId ?? ""}
-                  onChange={(e) => { const val = e.target.value; setSelectedPfId(val === "" ? null : Number(val)); }}
-                  className="px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
-                >
-                  <option value="">전체 포트폴리오</option>
-                  {(portfoliosData as any[]).map((pf: any) => (
-                    <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
-                  ))}
-                </select>
-              )}
-            </div>
+            loadingPf ? (
+              <p className="text-xs text-text-dim">포트폴리오 불러오는 중</p>
+            ) : (portfoliosData as any[]).length === 0 ? (
+              <p className="text-xs text-text-dim">등록된 포트폴리오가 없습니다</p>
+            ) : (
+              <select
+                aria-label="포트폴리오"
+                value={selectedPfId ?? ""}
+                onChange={(e) => { const val = e.target.value; setSelectedPfId(val === "" ? null : Number(val)); }}
+                className="self-start px-3 py-2 bg-bg-elevated border border-border rounded-full text-sm text-text-primary focus:outline-none focus:border-accent-blue/50"
+              >
+                <option value="">전체 포트폴리오</option>
+                {(portfoliosData as any[]).map((pf: any) => (
+                  <option key={pf.id} value={pf.id}>{pf.name} ({pf.count}개 종목)</option>
+                ))}
+              </select>
+            )
           )}
 
-          {/* 제목 */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="글제목" className="text-2xs font-semibold text-text-muted">제목 (선택)</label>
-            <input
-              id="글제목"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="제목을 입력하세요"
-              maxLength={TITLE_MAX}
-              className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm font-semibold text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
-            />
-          </div>
+          {/* 제목 — 선택. 칸 테두리 없이 글자만 */}
+          <label htmlFor="글제목" className="sr-only">제목 (선택)</label>
+          <input
+            id="글제목"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="제목 (선택)"
+            maxLength={TITLE_MAX}
+            className="w-full bg-transparent text-base font-semibold text-text-primary placeholder:text-text-dim focus:outline-none"
+          />
 
-          {/* 내용 */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="글내용" className="text-2xs font-semibold text-text-muted">내용</label>
-            <div className="flex gap-3">
-              <div className="mt-0.5 shrink-0">
-                <Avatar username={myName} colorIndex={myAvatarColor} avatarUrl={myAvatarUrl} size="base" />
-              </div>
-              <textarea
-                id="글내용"
-                ref={textareaRef}
-                value={body}
-                onChange={(e) => { setBody(e.target.value); autoResize(); }}
-                placeholder={포트폴리오모드 ? "포트폴리오에 대한 설명을 입력하세요... (선택사항)" : "의견을 입력하세요..."}
-                maxLength={BODY_MAX}
-                className="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none focus:border-accent-blue/50 leading-relaxed"
-                style={{ minHeight: "8rem" }}
-              />
-            </div>
-            <span className="text-2xs text-text-dim self-end">{body.length}/{BODY_MAX}</span>
-          </div>
+          {/* 내용 — 크게 */}
+          <label htmlFor="글내용" className="sr-only">내용</label>
+          <textarea
+            id="글내용"
+            ref={textareaRef}
+            value={body}
+            onChange={(e) => { setBody(e.target.value); autoResize(); }}
+            placeholder={포트폴리오모드 ? "포트폴리오를 소개해 주세요 (선택)" : "이 종목, 어떻게 보세요?"}
+            maxLength={BODY_MAX}
+            className="w-full bg-transparent text-md text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
+            style={{ minHeight: "9rem" }}
+          />
 
           {/* 포트폴리오 차트 미리보기 */}
           {포트폴리오모드 && pfForChart.length > 0 && (
@@ -542,57 +545,11 @@ export default function FeedWrite() {
             </div>
           )}
 
-          {/* 태그칸 — 예전에는 # 버튼 뒤에 숨어 있어서 아무도 못 찾았다 */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="태그검색" className="text-2xs font-semibold text-text-muted">
-              태그 <span className="font-normal text-text-dim">(최대 5개 · 다른 사람이 종목으로 이 글을 찾습니다)</span>
-            </label>
-            {customTags.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {customTags.map((t) => (
-                  <span key={`${t.market}:${t.symbol}`} className="flex items-center gap-1 text-2xs px-2 py-1 rounded-lg bg-accent-blue/15 text-accent-blue">
-                    #{t.market === "KR" && t.name ? t.name : t.symbol}
-                    <button onClick={() => setCustomTags((prev) => prev.filter((x) => x.symbol !== t.symbol))} aria-label={`${t.symbol} 태그 빼기`}>
-                      <X size={11} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            {customTags.length < 5 ? (
-              <div className="relative">
-                <input
-                  id="태그검색"
-                  value={tagQuery}
-                  onChange={(e) => handleTagSearch(e.target.value)}
-                  placeholder="종목명 또는 심볼 검색..."
-                  className="w-full px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
-                />
-                {tagResults.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-float max-h-36 overflow-y-auto">
-                    {tagResults.map((r: any, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => addCustomTag({ symbol: r.symbol, market: r.market, name: r.name })}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-bg-elevated transition-colors text-left"
-                      >
-                        <span className="font-semibold text-text-primary">{r.symbol}</span>
-                        <span className="text-text-dim">{r.name || r.market}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-2xs text-text-dim">태그는 5개까지 붙일 수 있습니다</p>
-            )}
-          </div>
-
           {/* 사진 미리보기 */}
           {image && (
             <div className="relative w-full">
-              <img src={image} alt="미리보기" className="w-full max-h-60 object-cover rounded-xl" />
-              <button onClick={() => setImage("")} aria-label="사진 빼기" className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors">
+              <img src={image} alt="미리보기" className="w-full max-h-72 object-cover rounded-xl border border-border/60" />
+              <button onClick={() => setImage("")} aria-label="사진 빼기" className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors">
                 <X size={13} />
               </button>
             </div>
@@ -602,7 +559,7 @@ export default function FeedWrite() {
           {showPoll && (
             <div className="bg-bg-elevated rounded-xl p-3 flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-text-primary">투표 만들기</span>
+                <span className="text-xs font-semibold text-text-primary">투표</span>
                 <button onClick={() => setShowPoll(false)} aria-label="투표 빼기" className="text-text-dim hover:text-accent-red transition-colors"><X size={13} /></button>
               </div>
               <input
@@ -634,28 +591,79 @@ export default function FeedWrite() {
             </div>
           )}
 
-          {error && <p className="text-xs text-accent-red">{error}</p>}
-
-          {/* 툴바 */}
-          <div className="flex items-center gap-1 pt-1 border-t border-border/50">
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              title="사진 첨부"
-              aria-label="사진 첨부"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-2xs font-semibold transition-all ${image ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
-            >
-              <ImageIcon size={14} />사진
-            </button>
-            <button
-              onClick={() => setShowPoll((v) => !v)}
-              title="투표 만들기"
-              aria-label="투표 만들기"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-2xs font-semibold transition-all ${showPoll ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}
-            >
-              <BarChart2 size={14} />투표
-            </button>
+          {/* 태그 — 예전에는 # 버튼 뒤에 숨어 있어서 아무도 못 찾았다. 그래서 칸은 늘 보이고, 아래 도구줄의
+              '태그' 는 이 칸으로 데려다 준다 */}
+          <div className="flex flex-col gap-1.5 pt-1">
+            {customTags.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {customTags.map((t) => (
+                  <span key={`${t.market}:${t.symbol}`} className="flex items-center gap-1 text-xs pl-2 pr-1 py-0.5 rounded-full bg-accent-blue/15 text-accent-blue font-semibold">
+                    #{t.market === "KR" && t.name ? t.name : t.symbol}
+                    <button onClick={() => setCustomTags((prev) => prev.filter((x) => x.symbol !== t.symbol))} aria-label={`${t.symbol} 태그 빼기`}
+                      className="p-0.5 rounded-full hover:bg-accent-blue/20">
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {customTags.length < 5 ? (
+              <div className="relative">
+                <label htmlFor="태그검색" className="sr-only">태그</label>
+                <input
+                  id="태그검색"
+                  ref={tagInputRef}
+                  value={tagQuery}
+                  onChange={(e) => handleTagSearch(e.target.value)}
+                  placeholder="# 종목 태그 추가 (최대 5개)"
+                  className="w-full bg-transparent py-1 text-sm text-text-primary placeholder:text-text-dim focus:outline-none border-b border-dashed border-border focus:border-accent-blue/50"
+                />
+                {tagResults.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-bg-card border border-border rounded-xl shadow-float max-h-36 overflow-y-auto">
+                    {tagResults.map((r: any, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => addCustomTag({ symbol: r.symbol, market: r.market, name: r.name })}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-bg-elevated transition-colors text-left"
+                      >
+                        <span className="font-semibold text-text-primary">{r.symbol}</span>
+                        <span className="text-text-dim">{r.name || r.market}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-2xs text-text-dim">태그는 5개까지 붙일 수 있습니다</p>
+            )}
           </div>
+
+          {error && <p role="alert" className="text-xs text-accent-red">{error}</p>}
+        </div>
+      </div>
+
+      {/* 휴대폰 — 도구줄(fixed)에 가리지 않게 글 아래를 그만큼 비운다 */}
+      {!넓음 && <div aria-hidden className="h-20" />}
+
+      {/* 도구줄 — 아래에 붙는다. 휴대폰은 화면 맨 아래(자판이 올라오면 자판 바로 위), PC 는 글 끝에 */}
+      <div
+        className={cn("z-30 bg-bg-card/95 backdrop-blur-md border-t border-border",
+          넓음 ? "sticky bottom-0 mt-4" : "fixed inset-x-0")}
+        style={넓음 ? undefined : { bottom: 자판, paddingBottom: 자판 > 0 ? undefined : "env(safe-area-inset-bottom)" }}>
+        <div className="max-w-2xl mx-auto px-3 md:px-1 py-1.5 flex items-center gap-1">
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImagePick} />
+          <button onClick={() => fileInputRef.current?.click()} title="사진 첨부" aria-label="사진 첨부" className={도구단추(!!image)}>
+            <ImageIcon size={16} />사진
+          </button>
+          <button onClick={() => setShowPoll((v) => !v)} title="투표 만들기" aria-label="투표 만들기" className={도구단추(showPoll)}>
+            <BarChart2 size={16} />투표
+          </button>
+          <button onClick={() => tagInputRef.current?.focus()} title="종목 태그" className={도구단추(customTags.length > 0)}>
+            <Hash size={16} />태그
+          </button>
+          <span className={cn("ml-auto pr-1 text-2xs num", body.length > BODY_MAX * 0.9 ? "text-accent-red" : "text-text-dim")}>
+            {body.length}/{BODY_MAX}
+          </span>
         </div>
       </div>
     </div>

@@ -145,11 +145,12 @@ describe("어긋났을 때 스스로 돌아온다", () => {
       </QueryClientProvider>,
     );
 
-    const 하트 = await screen.findByRole("button", { name: /^5$/ }, { timeout: 4000 });
+    /* 하트 단추는 아이콘과 숫자만 보인다 — 이름은 '좋아요 5' 로 읽힌다 */
+    const 하트 = await screen.findByRole("button", { name: "좋아요 5" }, { timeout: 4000 });
     await u.click(하트);
 
     // 서버가 알려준 4로 맞춰져야 한다 (낙관적으로 올린 6이 아니라)
-    await waitFor(() => expect(screen.getByRole("button", { name: /^4$/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "좋아요 4" })).toBeInTheDocument());
   });
 
   it("서버가 '눌렸다' 고 하면 그대로 둔다", async () => {
@@ -160,7 +161,7 @@ describe("어긋났을 때 스스로 돌아온다", () => {
         <MemoryRouter><Feed /></MemoryRouter>
       </QueryClientProvider>,
     );
-    await u.click(await screen.findByRole("button", { name: /^5$/ }, { timeout: 4000 }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /^6$/ })).toBeInTheDocument());
+    await u.click(await screen.findByRole("button", { name: "좋아요 5" }, { timeout: 4000 }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "좋아요 6" })).toBeInTheDocument());
   });
 });

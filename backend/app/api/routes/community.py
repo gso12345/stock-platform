@@ -2,7 +2,7 @@ import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from sqlalchemy.orm import Session, selectinload, defer
-from sqlalchemy import func, text
+from sqlalchemy import case, exists, func, select, text
 from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, field_validator, model_validator, Field, ConfigDict
 from slowapi import Limiter
@@ -133,21 +133,47 @@ def _validate_uploaded_image(value: str, field: str = "이미지") -> str:
         raise HTTPException(422, "지원하지 않는 이미지 형식입니다 (JPEG, PNG, GIF, WebP만 허용)")
     return value
 
-_kr_name_cache: dict[str, str] = {}
+#: (상장 목록의 id, 코드 → 이름) — 목록을 새로 받으면(다른 리스트가 되면) 다시 만든다
+_kr_이름표: tuple[int, dict[str, str]] | None = None
+
 
 def _kr_name(symbol: str) -> str | None:
-    if symbol in _kr_name_cache:
-        return _kr_name_cache[symbol]
+    """국내 종목코드 → 이름.
+
+    상장 목록은 '005930.KS' 처럼 시장 꼬리를 붙여 두고 코드는 따로(c) 둔다. 예전에는 꼬리 붙은 것과만
+    견줘서, 글에 저장된 '005930' 으로는 한 번도 못 찾았다 — 태그 이름도 늘 비어 코드로 나갔다.
+    글 스무 개마다 2,900줄을 훑지 않게 코드 → 이름 표를 한 번 만들어 둔다."""
+    global _kr_이름표
+    코드 = (symbol or "").split(".")[0]
+    if not 코드:
+        return None
     try:
-        for t in get_kr_db():
-            if t.get("s") == symbol or t.get("symbol") == symbol:
-                name = t.get("n") or t.get("name")
-                if name:
-                    _kr_name_cache[symbol] = name
-                    return name
+        목록 = get_kr_db()
+        if _kr_이름표 is None or _kr_이름표[0] != id(목록):
+            표: dict[str, str] = {}
+            for t in 목록:
+                c = t.get("c") or (t.get("s") or t.get("symbol") or "").split(".")[0]
+                n = t.get("n") or t.get("name")
+                if c and n:
+                    표.setdefault(c, n)
+            _kr_이름표 = (id(목록), 표)
+        return _kr_이름표[1].get(코드)
     except Exception:
-        pass
-    return None
+        return None
+
+def _종목이름(symbol: str, market: str) -> str | None:
+    """글 머리에 코드 대신 보여 줄 이름 — 국내는 상장 목록, 해외는 한글 이름.
+
+    피드 카드가 'KR 005930' 처럼 코드만 보여 줘서, 무슨 종목 글인지 알려면
+    코드를 외우고 있어야 했다. 이름을 모르면 None — 화면이 코드를 쓴다."""
+    if market == "KR" or symbol.isdigit():      # 국내 ETF 도 숫자 코드다
+        return _kr_name(symbol)
+    try:
+        from app.services.screening.service import 한글이름
+        return 한글이름(symbol)
+    except Exception:
+        return None
+
 
 def _enrich_tags(tags: list) -> list:
     result = []
@@ -361,6 +387,51 @@ def _liked_comment_ids(db: Session, uid: Optional[int], comment_ids: list) -> se
     return {r[0] for r in rows}
 
 
+def _숫자와_내좋아요(db: Session, uid: int, post_ids: list) -> dict[int, tuple[int, int, bool]]:
+    """글마다 (좋아요 수, 댓글 수, 내가 눌렀나) — 한 번의 질의로.
+
+    '내가 눌렀나' 만 묻던 자리에 숫자 둘을 같이 싣는다. 댓글 수는 _댓글수 와
+    같은 조건(지운 것·가린 것 빼고)으로 센다 — 목록과 글 상세의 숫자가 달라지면
+    안 된다."""
+    if not post_ids:
+        return {}
+    댓글수 = (select(func.count(StockComment.id))
+              .where(StockComment.post_id == StockPost.id,
+                     StockComment.is_deleted.isnot(True),
+                     StockComment.is_blinded.isnot(True))
+              .correlate(StockPost)
+              .scalar_subquery())
+    내가눌렀나 = (exists().where(StockPostLike.post_id == StockPost.id,
+                               StockPostLike.user_id == uid)
+                  .correlate(StockPost))
+    행 = (db.query(StockPost.id, StockPost.like_count, 댓글수, 내가눌렀나)
+            .filter(StockPost.id.in_(post_ids))
+            .all())
+    return {r[0]: (r[1] or 0, r[2] or 0, bool(r[3])) for r in 행}
+
+
+def _투표집계(db: Session, uid: int, 투표글: list) -> tuple[dict[int, dict[int, int]], dict[int, int]]:
+    """({글: {항목: 표 수}}, {글: 내가 고른 항목}) — 한 번의 질의로.
+
+    '내가 어디에 투표했나' 만 묻던 자리에 항목별 표 수를 같이 싣는다."""
+    if not 투표글:
+        return {}, {}
+    표: dict[int, dict[int, int]] = {}
+    내투표: dict[int, int] = {}
+    for 글, 항목, 수, 내것 in (
+        db.query(StockPostPollVote.post_id, StockPostPollVote.option_index,
+                 func.count(StockPostPollVote.id),
+                 func.sum(case((StockPostPollVote.user_id == uid, 1), else_=0)))
+          .filter(StockPostPollVote.post_id.in_(투표글))
+          .group_by(StockPostPollVote.post_id, StockPostPollVote.option_index)
+          .all()
+    ):
+        표.setdefault(글, {})[항목] = 수
+        if 내것:
+            내투표[글] = 항목
+    return 표, 내투표
+
+
 def _개인화(db: Session, uid: Optional[int], 공통: dict) -> dict:
     """캐시에서 꺼낸 공통 목록에 '나에게만 해당하는 것'을 덧칠한다.
 
@@ -368,7 +439,14 @@ def _개인화(db: Session, uid: Optional[int], 공통: dict) -> dict:
     그 사람을 팔로우 중인지, 어느 항목에 투표했는지. 나머지는 누가 보든
     같으므로 캐시에서 그대로 쓴다.
 
-    비로그인이면 덧칠할 것이 없어 DB 를 아예 보지 않는다."""
+    숫자(좋아요·댓글·투표 수)는 여기서 새로 센다. 캐시는 15분을 사는데 숫자가
+    바뀔 때는 캐시를 버리지 않는다. 그래서 좋아요를 누르고 목록을 새로 받으면
+    하트는 빨간데 숫자는 누르기 전 값(0이면 '좋아요' 글자)으로 돌아갔고, 투표는
+    내가 고른 칸이 0% 로 보였다. '내가 눌렀나·어디 투표했나' 를 묻던 질의에
+    숫자를 같이 실어서, DB 왕복 횟수는 예전과 같다.
+
+    비로그인이면 덧칠할 것이 없어 DB 를 아예 보지 않는다 — 누를 수 없으니
+    숫자가 조금 늦어도 '눌렀는데 되돌아가는' 일은 없다."""
     items = 공통.get("items") or []
     if not uid or not items:
         return 공통
@@ -376,7 +454,7 @@ def _개인화(db: Session, uid: Optional[int], 공통: dict) -> dict:
     post_ids = [it["id"] for it in items]
     user_ids = {it.get("user_id") for it in items if it.get("user_id")}
 
-    liked = _liked_post_ids(db, uid, post_ids)
+    숫자 = _숫자와_내좋아요(db, uid, post_ids)
     following: set = set()
     others = [u for u in user_ids if u != uid]
     if others:
@@ -385,23 +463,25 @@ def _개인화(db: Session, uid: Optional[int], 공통: dict) -> dict:
                 UserFollow.follower_id == uid, UserFollow.following_id.in_(others)
             ).all()
         }
-    # 내가 투표한 것 — 투표가 붙은 글에만 해당한다
-    투표글 = [it["id"] for it in items if it.get("poll")]
-    내투표: dict = {}
-    if 투표글:
-        for v in db.query(StockPostPollVote).filter(
-            StockPostPollVote.post_id.in_(투표글), StockPostPollVote.user_id == uid
-        ).all():
-            내투표[v.post_id] = v.option_index
+    # 투표가 붙은 글에만 묻는다
+    표, 내투표 = _투표집계(db, uid, [it["id"] for it in items if it.get("poll")])
 
     새items = []
     for it in items:
         새 = {**it,
-              "liked":        it["id"] in liked,
+              "liked":        False,
               "is_mine":      it.get("user_id") == uid,
               "is_following": it.get("user_id") in following}
-        if it.get("poll") and it["id"] in 내투표:
-            새["poll"] = {**it["poll"], "my_vote": 내투표[it["id"]]}
+        # 캐시에 담긴 뒤 지워진 글이면 행이 없다 — 숫자는 캐시 값 그대로 둔다
+        if it["id"] in 숫자:
+            새["like_count"], 새["comment_count"], 새["liked"] = 숫자[it["id"]]
+        if it.get("poll"):
+            칸들 = 표.get(it["id"], {})
+            새["poll"] = {**it["poll"],
+                          "counts":  [칸들.get(i, 0) for i in range(len(it["poll"].get("options") or []))],
+                          # _ser_post 와 같이 — 총계는 모든 표(범위를 벗어난 옛 표 포함)
+                          "total":   sum(칸들.values()),
+                          "my_vote": 내투표.get(it["id"])}
         새items.append(새)
     return {**공통, "items": 새items}
 
@@ -454,6 +534,7 @@ def _ser_post(post: StockPost, uid: Optional[int], db: Session,
         "id":            post.id,
         "symbol":        post.symbol,
         "market":        post.market,
+        "name":          _종목이름(post.symbol, post.market),
         "user_id":       post.user_id,
         "username":      display_name(post.user, profile),
         "avatar_color":  profile.avatar_color if profile else 0,

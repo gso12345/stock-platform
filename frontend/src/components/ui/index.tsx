@@ -413,23 +413,31 @@ export function Tabs({
  *
  * 상자·배경 없이 글자와 밑줄만 둔다. 그 아래에서 같은 목록을 나눠 보는 것(폴더·포트폴리오)은 칩 탭
  * (ChipTabs)이라 한 단계 아래로 구분된다. 예전에는 둘이 똑같은 상자 탭이라 위아래 두 줄 중 어느 쪽이 큰
- * 구분인지 안 보였다(사용자: "내 자산에 여기도 같은게 있으니 보기 안좋아"). 넘치면 옆으로 넘기고 끝을 흐린다. */
-export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel }: {
+ * 구분인지 안 보였다(사용자: "내 자산에 여기도 같은게 있으니 보기 안좋아"). 넘치면 옆으로 넘기고 끝을 흐린다.
+ *
+ * 끝 — 같은 줄 오른쪽 끝에 붙일 단추(피드의 검색·글쓰기). 탭과 한 줄에 두고 밑줄도 함께 긋는다 — 단추 줄을
+ * 따로 두면 위쪽이 한 줄 더 늘어난다. */
+export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel, onHover, 끝 }: {
   tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
   className?: string;
   ariaLabel?: string;
+  /** 마우스를 올렸을 때(미리 받기용) */
+  onHover?: (id: string) => void;
+  끝?: React.ReactNode;
 }) {
   const [줄, 흐림] = use끝흐림<HTMLDivElement>();
-  return (
+  const 탭줄 = (
     <div ref={줄} role="tablist" aria-label={ariaLabel}
-      className={cn("flex gap-5 border-b border-border overflow-x-auto scrollbar-hide", 흐림, className)}>
+      className={cn("flex gap-5 overflow-x-auto scrollbar-hide", 흐림,
+        끝 ? "flex-1 min-w-0" : cn("border-b border-border", className))}>
       {tabs.map((t) => {
         const on = active === t.id;
         const Icon = t.icon;
         return (
           <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+            onMouseEnter={onHover ? () => onHover(t.id) : undefined}
             className={cn(
               "flex items-center gap-1.5 flex-shrink-0 whitespace-nowrap pt-1 pb-2.5 text-md font-bold border-b-2 -mb-px transition-colors",
               on ? "border-accent-blue text-text-primary"
@@ -442,6 +450,14 @@ export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel }: 
           </button>
         );
       })}
+    </div>
+  );
+  if (!끝) return 탭줄;
+  /* 밑줄은 바깥 줄이 긋는다 — 탭과 끝 단추가 한 줄 위에 선다. items-end: 탭 밑줄이 그 선에 붙는다 */
+  return (
+    <div className={cn("flex items-end gap-1 border-b border-border", className)}>
+      {탭줄}
+      <div className="flex items-center gap-0.5 flex-shrink-0 pb-1">{끝}</div>
     </div>
   );
 }
@@ -473,12 +489,14 @@ export function 칩자리표시({ 개수 = 3 }: { 개수?: number }) {
 export const 칩줄모양 = "flex items-center gap-1.5 overflow-x-auto scrollbar-hide";
 
 /** 칩 모양 탭 — 같은 목록을 나눠 볼 때(관심종목 폴더·퀀트 목록). 위의 밑줄 탭(화면 나누기)보다 한 단계 아래 */
-export function ChipTabs({ tabs, active, onChange, className, ariaLabel }: {
+export function ChipTabs({ tabs, active, onChange, className, ariaLabel, onHover }: {
   tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
   className?: string;
   ariaLabel?: string;
+  /** 마우스를 올렸을 때(미리 받기용) */
+  onHover?: (id: string) => void;
 }) {
   const [줄, 흐림] = use끝흐림<HTMLDivElement>();
   return (
@@ -488,6 +506,7 @@ export function ChipTabs({ tabs, active, onChange, className, ariaLabel }: {
         const Icon = t.icon;
         return (
           <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+            onMouseEnter={onHover ? () => onHover(t.id) : undefined}
             className={칩탭모양(on)}>
             {Icon && <Icon size={13} className="flex-shrink-0" />}
             {t.label}

@@ -1,20 +1,39 @@
+/**
+ * 글 상세.
+ *
+ * 피드를 앱처럼 다시 짜면서(사용자: "피드탭 디자인, 사용자편의성 개선하고 싶어 앱느낌 나도록") 함께 맞췄다 —
+ *   · 위 띠의 '005930' 칩이 작성자 밑 종목과 겹쳐서 뺐다. 위 띠는 ← 와 ⋯ 만(수정·삭제·링크 복사·신고)
+ *   · 종목은 코드 대신 이름(종목칩), 사진은 누르면 크게(사진보기), 공유는 휴대폰 공유 창(utils/공유)
+ *   · 깃발 아이콘·댓글마다 붙은 '신고' 글자·'수정 삭제' 글자는 ⋯ 메뉴로(글메뉴)
+ *   · 댓글 입력칸을 화면 아래에 붙였다(사용자가 고른 11번). 예전에는 댓글 목록 위에 있어 댓글을 읽다가 쓰려면
+ *     다시 올라가야 했고, 댓글 창(아래에서 올라오는 것)은 입력칸이 아래라 둘이 달랐다. 휴대폰은 아래 탭 바로
+ *     위, 자판이 올라오면 자판 바로 위. 입력칸 옆 내 아바타도 닉네임·색·사진으로(예전에는 아이디 첫 글자 'P')
+ */
 import { useState, useRef, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Heart, MessageSquare, Share2, Send, Trash2, Eye, PenLine, Pencil, X,
-  Hash, BarChart2, Image as ImageIcon, Flag,
+  ArrowLeft, Heart, MessageCircle, Share2, Send, Trash2, Eye, PenLine, Pencil, X,
+  Hash, BarChart2, Image as ImageIcon, Flag, Link2,
 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
 import api from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
 import AvatarComponent from "@/components/community/Avatar";
+import 글메뉴, { type 메뉴항목 } from "@/components/community/글메뉴";
+import 종목칩 from "@/components/community/종목칩";
+import 사진보기 from "@/components/community/사진보기";
+import 신고창, { 신고보내기 } from "@/components/community/신고창";
 import { BODY_MAX, TITLE_MAX, COMMENT_MAX, POLL_QUESTION_MAX, POLL_OPTION_MAX } from "@/constants/community";
 import { use확인, use알림 } from "@/hooks/useDialogs";
-import { Button, 못불러옴} from "@/components/ui";
+import { useMyProfile } from "@/hooks/useMyProfile";
+import { use넓은화면 } from "@/hooks/useWideScreen";
+import { use자판높이 } from "@/hooks/useSheet";
+import { Button, 못불러옴, cn } from "@/components/ui";
 import { timeAgo } from "@/utils/formatters";
 import { use좋아요 } from "@/hooks/useLike";
+import { 글공유, 글주소, 링크복사, 공유알림 } from "@/utils/공유";
 
 async function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -41,59 +60,22 @@ async function compressImage(file: File): Promise<string> {
   });
 }
 
-const REPORT_REASONS = ["스팸·광고", "욕설·혐오 표현", "허위 정보", "성적·불법 콘텐츠", "개인정보 침해", "기타"];
-
-function ReportForm({ onSubmit, onCancel, submitting }: {
-  onSubmit: (reason: string) => void;
-  onCancel: () => void;
-  submitting: boolean;
-}) {
-  const [selected, setSelected] = useState("");
-  const [custom, setCustom] = useState("");
-  const finalReason = selected === "기타" ? custom.trim() : selected;
-
-  return (
-    <div className="flex flex-col gap-2 mt-1.5 p-2.5 bg-bg-elevated rounded-xl border border-border/50">
-      <div className="flex flex-wrap gap-1.5">
-        {REPORT_REASONS.map(r => (
-          <button key={r} onClick={() => setSelected(r)}
-            className={`text-xs px-2.5 py-1 rounded-full border transition-all ${
-              selected === r
-                ? "bg-accent-red/15 text-accent-red border-accent-red/40 font-semibold"
-                : "border-border text-text-muted hover:border-accent-red/40 hover:text-accent-red"
-            }`}>
-            {r}
-          </button>
-        ))}
-      </div>
-      {selected === "기타" && (
-        <input value={custom} onChange={e => setCustom(e.target.value)}
-          placeholder="신고 사유를 직접 입력하세요" maxLength={200} autoFocus
-          className="w-full bg-bg-card border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-red/50" />
-      )}
-      <div className="flex gap-1.5 justify-end">
-        <button onClick={onCancel}
-          className="text-xs px-2.5 py-1 text-text-dim hover:text-text-primary border border-border rounded-lg">취소</button>
-        <button onClick={() => onSubmit(finalReason)} disabled={!finalReason || submitting}
-          className="text-xs px-2.5 py-1 bg-accent-red/90 text-white rounded-lg disabled:opacity-40">
-          {submitting ? "..." : "신고"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-const MARKET_BADGE: Record<string, string> = {
-  KR:  "border-accent-blue/40 text-accent-blue bg-accent-blue/10",
-  US:  "border-accent-green/40 text-accent-green bg-accent-green/10",
-  ETF: "border-accent-purple/40 text-accent-purple bg-accent-purple/10",
-};
-
-
 interface Comment {
   id: number; parent_id: number | null; user_id: number; username: string;
   avatar_color: number; avatar_url?: string | null; content: string;
   like_count: number; liked: boolean; created_at: string; is_mine: boolean; replies: Comment[];
+}
+
+/** 서버가 답하기 전에 얹어 두는 내 댓글의 모습 — 닉네임·색·사진으로(로그인 아이디가 아니라) */
+type 내모습 = { displayName: string; avatarColor: number; avatarUrl: string | null };
+
+/** 댓글·답글 하나의 ⋯ 메뉴 — 내 것이면 수정·삭제, 남의 것이면(로그인했을 때) 신고 */
+function 댓글메뉴항목(내것: boolean, 로그인: boolean, 고치기: () => void, 지우기: () => void, 신고: () => void): 메뉴항목[] {
+  if (내것) return [
+    { 이름: "수정", 아이콘: Pencil, 누르면: 고치기 },
+    { 이름: "삭제", 아이콘: Trash2, 위험: true, 누르면: 지우기 },
+  ];
+  return 로그인 ? [{ 이름: "신고", 아이콘: Flag, 위험: true, 누르면: 신고 }] : [];
 }
 
 function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
@@ -107,21 +89,7 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
-  const [showReport, setShowReport] = useState(false);
-  const [submittingReport, setSubmittingReport] = useState(false);
-
-  const handleReport = async (reason: string) => {
-    if (!reason || submittingReport) return;
-    setSubmittingReport(true);
-    try {
-      await communityApi.reportComment(reply.id, reason);
-      setShowReport(false);
-      보이기("신고가 접수되었습니다", "success");
-    } catch (e: any) {
-      보이기(e?.response?.status === 409
-        ? "이미 신고한 댓글입니다" : "신고하지 못했습니다", "error");
-    } finally { setSubmittingReport(false); }
-  };
+  const [신고중, set신고중] = useState(false);
 
   const handleDelete = () => 묻기({
     title: "답글을 삭제할까요?",
@@ -153,23 +121,29 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
     } catch {} finally { setSaving(false); }
   };
 
+  const 내것 = uid != null && reply.user_id === uid;
   return (
     <>
     <div className="flex gap-2">
       <AvatarComponent username={reply.username} colorIndex={reply.avatar_color} avatarUrl={reply.avatar_url}
-        userId={reply.user_id} isMine={uid != null && reply.user_id === uid} size="sm" />
+        userId={reply.user_id} isMine={내것} size="sm" />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-          <Link to={uid != null && reply.user_id === uid ? "/mypage" : `/profile/${reply.user_id}`}
-            className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors">
+        <div className="flex items-center gap-1.5 mb-0.5 min-w-0">
+          <Link to={내것 ? "/mypage" : `/profile/${reply.user_id}`}
+            className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors truncate">
             {reply.username}
           </Link>
-          <span className="text-2xs text-text-dim">·</span>
-          <span className="text-2xs text-text-dim">{timeAgo(reply.created_at)}</span>
+          <span className="text-2xs text-text-dim flex-shrink-0">· {timeAgo(reply.created_at)}</span>
+          {!isEditing && (
+            <span className="ml-auto">
+              <글메뉴 이름="답글 메뉴" 크기={14}
+                항목들={댓글메뉴항목(reply.is_mine, isLoggedIn, startEdit, handleDelete, () => set신고중(true))} />
+            </span>
+          )}
         </div>
         {isEditing ? (
           <div className="flex flex-col gap-1.5 mt-1">
-            <textarea autoFocus value={editText} rows={2}
+            <textarea autoFocus value={editText} rows={2} aria-label="답글 고치기"
               onChange={e => setEditText(e.target.value)}
               className="w-full bg-bg-elevated border border-accent-blue/50 rounded-xl px-3 py-2 text-sm text-text-secondary focus:outline-none resize-none" />
             <div className="flex gap-2">
@@ -182,42 +156,28 @@ function ReplyItem({ reply, uid, isLoggedIn, queryKey }: {
           <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">{reply.content}</p>
         )}
         {!isEditing && (
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-3 mt-1.5">
-              <button onClick={handleLike}
-                className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-                <Heart size={11} className={liked ? "fill-accent-red" : ""} />
-                {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
-              </button>
-              {reply.is_mine ? (<>
-                <button onClick={startEdit} className="text-xs text-text-dim hover:text-accent-blue transition-colors">수정</button>
-                <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
-              </>) : isLoggedIn && (
-                <button onClick={() => setShowReport(v => !v)}
-                  className={`flex items-center gap-0.5 text-xs transition-colors ${showReport ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-                  <Flag size={9} />신고
-                </button>
-              )}
-            </div>
-            {showReport && (
-              <ReportForm
-                onSubmit={handleReport}
-                onCancel={() => setShowReport(false)}
-                submitting={submittingReport}
-              />
-            )}
+          <div className="flex items-center gap-3 mt-1.5">
+            <button onClick={handleLike} aria-pressed={liked} aria-label={likeCount > 0 ? `좋아요 ${likeCount}` : "좋아요"}
+              className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
+              <Heart size={11} className={liked ? "fill-accent-red" : ""} />
+              {likeCount > 0 && <span className={liked ? "font-semibold" : ""}>{likeCount}</span>}
+            </button>
           </div>
         )}
       </div>
     </div>
+    {신고중 && (
+      <신고창 무엇="댓글" 대상={reply.content?.slice(0, 60)} 닫기={() => set신고중(false)}
+        보내기={(사유) => 신고보내기(() => communityApi.reportComment(reply.id, 사유), "댓글", 보이기)} />
+    )}
     {확인화면}
     {알림화면}
     </>
   );
 }
 
-function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }: {
-  comment: Comment; postId: number; uid?: number; isLoggedIn: boolean; queryKey: any[]; myUsername?: string | null;
+function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, 나 }: {
+  comment: Comment; postId: number; uid?: number; isLoggedIn: boolean; queryKey: any[]; 나: 내모습;
 }) {
   const { 묻기, 화면: 확인화면 } = use확인();
   const { 보이기, 화면: 알림화면 } = use알림();
@@ -230,21 +190,7 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
-  const [showReport, setShowReport] = useState(false);
-  const [submittingReport, setSubmittingReport] = useState(false);
-
-  const handleReport = async (reason: string) => {
-    if (!reason || submittingReport) return;
-    setSubmittingReport(true);
-    try {
-      await communityApi.reportComment(comment.id, reason);
-      setShowReport(false);
-      보이기("신고가 접수되었습니다", "success");
-    } catch (e: any) {
-      보이기(e?.response?.status === 409
-        ? "이미 신고한 댓글입니다" : "신고하지 못했습니다", "error");
-    } finally { setSubmittingReport(false); }
-  };
+  const [신고중, set신고중] = useState(false);
 
   const handleDelete = () => 묻기({
     title: "댓글을 삭제할까요?",
@@ -284,7 +230,7 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
       (prev ?? []).map(c => c.id === comment.id
         ? { ...c, replies: [...c.replies, {
             id: tempId, post_id: postId, parent_id: comment.id,
-            user_id: uid ?? 0, username: myUsername ?? "나", avatar_color: 0,
+            user_id: uid ?? 0, username: 나.displayName, avatar_color: 나.avatarColor, avatar_url: 나.avatarUrl,
             content: txt, like_count: 0, liked: false, is_mine: true,
             created_at: new Date().toISOString(), replies: [],
           }] }
@@ -308,23 +254,29 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
     }
   };
 
+  const 내것 = uid != null && comment.user_id === uid;
   return (
     <>
     <div className="flex gap-3">
       <AvatarComponent username={comment.username} colorIndex={comment.avatar_color} avatarUrl={comment.avatar_url}
-        userId={comment.user_id} isMine={uid != null && comment.user_id === uid} />
+        userId={comment.user_id} isMine={내것} />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-          <Link to={uid != null && comment.user_id === uid ? "/mypage" : `/profile/${comment.user_id}`}
-            className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors">
+        <div className="flex items-center gap-1.5 mb-0.5 min-w-0">
+          <Link to={내것 ? "/mypage" : `/profile/${comment.user_id}`}
+            className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors truncate">
             {comment.username}
           </Link>
-          <span className="text-2xs text-text-dim">·</span>
-          <span className="text-2xs text-text-dim">{timeAgo(comment.created_at)}</span>
+          <span className="text-2xs text-text-dim flex-shrink-0">· {timeAgo(comment.created_at)}</span>
+          {!isEditing && (
+            <span className="ml-auto">
+              <글메뉴 이름="댓글 메뉴" 크기={16}
+                항목들={댓글메뉴항목(comment.is_mine, isLoggedIn, startEdit, handleDelete, () => set신고중(true))} />
+            </span>
+          )}
         </div>
         {isEditing ? (
           <div className="flex flex-col gap-1.5 mt-1 mb-2">
-            <textarea autoFocus value={editText} rows={3}
+            <textarea autoFocus value={editText} rows={3} aria-label="댓글 고치기"
               onChange={e => setEditText(e.target.value)}
               className="w-full bg-bg-elevated border border-accent-blue/50 rounded-xl px-3 py-2 text-sm text-text-secondary focus:outline-none resize-none" />
             <div className="flex gap-2">
@@ -334,43 +286,25 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
             </div>
           </div>
         ) : (
-          <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words mb-2">{comment.content}</p>
+          <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words mb-1.5">{comment.content}</p>
         )}
         {!isEditing && (
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-4">
-              <button onClick={handleLike}
-                className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-                <Heart size={11} className={liked ? "fill-accent-red" : ""} />
-                {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
-              </button>
-              {isLoggedIn && (
-                <button onClick={() => setShowReply(v => !v)}
-                  className="text-xs text-text-dim hover:text-accent-blue transition-colors">답글</button>
-              )}
-              {comment.is_mine ? (<>
-                <button onClick={startEdit} className="text-xs text-text-dim hover:text-accent-blue transition-colors">수정</button>
-                <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">삭제</button>
-              </>) : isLoggedIn && (
-                <button onClick={() => setShowReport(v => !v)}
-                  className={`flex items-center gap-0.5 text-xs transition-colors ${showReport ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
-                  <Flag size={11} />신고
-                </button>
-              )}
-            </div>
-            {showReport && (
-              <ReportForm
-                onSubmit={handleReport}
-                onCancel={() => setShowReport(false)}
-                submitting={submittingReport}
-              />
+          <div className="flex items-center gap-4">
+            <button onClick={handleLike} aria-pressed={liked} aria-label={likeCount > 0 ? `좋아요 ${likeCount}` : "좋아요"}
+              className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}>
+              <Heart size={11} className={liked ? "fill-accent-red" : ""} />
+              {likeCount > 0 && <span className={liked ? "font-semibold" : ""}>{likeCount}</span>}
+            </button>
+            {isLoggedIn && (
+              <button onClick={() => setShowReply(v => !v)}
+                className="text-xs text-text-dim hover:text-accent-blue transition-colors">답글</button>
             )}
           </div>
         )}
         {showReply && (
           <div className="mt-2 flex items-end gap-2">
             <div className="flex-1 flex items-end gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2 focus-within:border-accent-blue/50 transition-colors">
-              <textarea autoFocus value={replyText} rows={1}
+              <textarea autoFocus value={replyText} rows={1} aria-label="답글 쓰기"
                 onChange={e => {
                   setReplyText(e.target.value);
                   e.target.style.height = "auto";
@@ -379,7 +313,7 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
                 onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), submitReply())}
                 placeholder="답글을 입력하세요..." maxLength={COMMENT_MAX}
                 className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
-              <button onClick={submitReply} disabled={submitting}
+              <button onClick={submitReply} disabled={submitting} aria-label="답글 올리기"
                 className="shrink-0 mb-0.5 transition-all active:scale-90">
                 {replyText.trim()
                   ? <Send size={14} className={`text-accent-blue ${submitting ? "opacity-40" : ""}`} />
@@ -398,6 +332,10 @@ function CommentItem({ comment, postId, uid, isLoggedIn, queryKey, myUsername }:
         )}
       </div>
     </div>
+    {신고중 && (
+      <신고창 무엇="댓글" 대상={comment.content?.slice(0, 60)} 닫기={() => set신고중(false)}
+        보내기={(사유) => 신고보내기(() => communityApi.reportComment(comment.id, 사유), "댓글", 보이기)} />
+    )}
     {확인화면}
     {알림화면}
     </>
@@ -441,16 +379,20 @@ export default function PostDetail() {
   const { postId } = useParams<{ postId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { isLoggedIn, userId, username: myUsername } = useAuthStore();
+  const { isLoggedIn, userId } = useAuthStore();
+  const 나 = useMyProfile();
   const uid = userId ?? undefined;
+  /* 댓글 입력칸 자리 — 휴대폰은 화면 아래(아래 탭 바로 위, 자판이 올라오면 자판 바로 위), PC 는 본문 끝에 붙어
+     따라 내려온다(sticky) */
+  const 넓음 = use넓은화면();
+  const 자판 = use자판높이(!넓음);
 
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [following, setFollowing] = useState<boolean | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
-  const [showPostReport, setShowPostReport] = useState(false);
-  const [submittingPostReport, setSubmittingPostReport] = useState(false);
+  const [신고중, set신고중] = useState(false);
+  const [크게볼사진, set크게볼사진] = useState<string | null>(null);
 
   const autoResize = useCallback((el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -533,21 +475,13 @@ export default function PostDetail() {
 
   const handleShare = async () => {
     if (!activePost) return;
-    const url = `${window.location.origin}/post/${activePost.id}`;
-    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+    const 알림 = 공유알림(await 글공유(글주소(activePost.id), activePost.title || undefined));
+    if (알림) 보이기(알림.글, 알림.종류);
   };
-
-  const handlePostReport = async (reason: string) => {
-    if (!reason || submittingPostReport || !activePost) return;
-    setSubmittingPostReport(true);
-    try {
-      await communityApi.reportPost(activePost.id, reason);
-      setShowPostReport(false);
-      보이기("신고가 접수되었습니다", "success");
-    } catch (e: any) {
-      보이기(e?.response?.status === 409
-        ? "이미 신고한 게시글입니다" : "신고하지 못했습니다", "error");
-    } finally { setSubmittingPostReport(false); }
+  const handleCopy = async () => {
+    if (!activePost) return;
+    const 알림 = 공유알림(await 링크복사(글주소(activePost.id)));
+    if (알림) 보이기(알림.글, 알림.종류);
   };
 
   const [isEditing, setIsEditing] = useState(false);
@@ -655,7 +589,7 @@ export default function PostDetail() {
     qc.setQueryData<Comment[]>(commentsKey, (prev) => [
       ...(prev ?? []),
       { id: tempId, post_id: activePost.id, parent_id: null, user_id: uid ?? 0,
-        username: myUsername ?? "나", avatar_color: 0, content: txt, like_count: 0,
+        username: 나.displayName, avatar_color: 나.avatarColor, avatar_url: 나.avatarUrl, content: txt, like_count: 0,
         liked: false, is_mine: true, created_at: new Date().toISOString(), replies: [] },
     ]);
     setLocalPost((p: any) => ({ ...(p ?? activePost), comment_count: (activePost.comment_count ?? 0) + 1 }));
@@ -694,72 +628,61 @@ export default function PostDetail() {
   }
 
   const isFollowing = following ?? activePost.is_following ?? false;
-  const badgeCls = MARKET_BADGE[activePost.market] ?? MARKET_BADGE.KR;
+  const 포트폴리오글 = (activePost.portfolio?.length ?? 0) > 0;
+  const 글메뉴항목: 메뉴항목[] = [
+    ...(activePost.is_mine ? [{ 이름: "수정", 아이콘: Pencil, 누르면: startEdit }] : []),
+    { 이름: "링크 복사", 아이콘: Link2, 누르면: handleCopy },
+    ...(activePost.is_mine
+      ? [{ 이름: "삭제", 아이콘: Trash2, 위험: true, 누르면: handleDelete }]
+      : isLoggedIn ? [{ 이름: "신고", 아이콘: Flag, 위험: true, 누르면: () => set신고중(true) }] : []),
+  ];
 
   return (
     <>
     <div className="min-h-screen flex flex-col">
-      {/* 상단 헤더 */}
+      {/* 상단 헤더 — ← 와 ⋯ 만 */}
       <div className="sticky top-0 z-20 bg-bg-card/90 backdrop-blur-md border-b border-border">
         <div className="max-w-2xl mx-auto px-3 sm:px-4 h-12 flex items-center gap-2">
           <button aria-label="뒤로" onClick={() => navigate(-1)}
             className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors -ml-1">
-            <ArrowLeft size={16} />
+            <ArrowLeft size={20} />
           </button>
           <span className="text-sm font-semibold text-text-primary truncate flex-1">게시글</span>
-          <Link to={`/stocks/${activePost.market}/${activePost.symbol}`}
-            className={`text-xs font-bold px-2 py-0.5 rounded border ${badgeCls}`}>
-            {activePost.symbol}
-          </Link>
+          <글메뉴 항목들={글메뉴항목} 이름="글 메뉴" 크기={20} className="mr-0.5" />
         </div>
       </div>
 
-      {/* 본문 */}
-      <div className="flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))]">
+      {/* 본문 — 아래에 댓글 입력칸이 붙어 있으니 그만큼 비워 둔다 */}
+      <div className="flex-1 pb-6">
         <div className="max-w-2xl mx-auto px-3 sm:px-4 py-4 sm:py-6 flex flex-col gap-5">
 
-          {/* 작성자 + 액션 */}
+          {/* 작성자 · 종목 · 팔로우 */}
           <div className="flex items-start gap-3">
             <AvatarComponent username={activePost.username} colorIndex={activePost.avatar_color}
               avatarUrl={activePost.avatar_url} userId={activePost.user_id} isMine={activePost.is_mine} size="lg" />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
                 <Link to={activePost.is_mine ? "/mypage" : `/profile/${activePost.user_id}`}
-                  className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors">
+                  className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors truncate">
                   {activePost.username}
                 </Link>
-                <span className="text-2xs text-text-dim">{timeAgo(activePost.created_at)}</span>
-                {!activePost.is_mine && isLoggedIn && (
-                  <button onClick={handleFollow}
-                    className={`ml-auto text-xs px-2.5 py-1 rounded-lg border font-semibold transition-all ${
-                      isFollowing
-                        ? "bg-bg-elevated border-border text-text-muted hover:border-accent-red/50 hover:text-accent-red"
-                        : "bg-accent-blue/10 border-accent-blue/30 text-accent-blue hover:bg-accent-blue hover:text-white"
-                    }`}>
-                    {isFollowing ? "팔로잉" : "팔로우"}
-                  </button>
-                )}
+                <span className="text-2xs text-text-dim flex-shrink-0">{timeAgo(activePost.created_at)}</span>
               </div>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <Link to={`/stocks/${activePost.market}/${activePost.symbol}`}
-                  className={`text-2xs font-bold px-1.5 py-0.5 rounded border ${badgeCls}`}>
-                  {activePost.market}
-                </Link>
-                <Link to={`/stocks/${activePost.market}/${activePost.symbol}`}
-                  className="text-xs font-semibold text-accent-blue hover:underline">
-                  {activePost.symbol}
-                </Link>
+              <div className="mt-1">
+                {포트폴리오글
+                  ? <span className="px-2 py-0.5 rounded-lg text-xs font-semibold bg-bg-elevated text-text-secondary">포트폴리오</span>
+                  : <종목칩 symbol={activePost.symbol} market={activePost.market} name={activePost.name} />}
               </div>
             </div>
-            {activePost.is_mine && (
-              <div className="flex items-center gap-1">
-                <button onClick={startEdit} aria-label="게시글 수정" title="수정" className="p-1.5 text-text-dim hover:text-accent-blue transition-colors rounded-lg hover:bg-bg-elevated">
-                  <Pencil size={14} />
-                </button>
-                <button onClick={handleDelete} aria-label="게시글 삭제" title="삭제" className="p-1.5 text-text-dim hover:text-accent-red transition-colors rounded-lg hover:bg-bg-elevated">
-                  <Trash2 size={14} />
-                </button>
-              </div>
+            {!activePost.is_mine && isLoggedIn && (
+              <button onClick={handleFollow}
+                className={`flex-shrink-0 text-xs px-3 py-1.5 rounded-full border font-semibold transition-all ${
+                  isFollowing
+                    ? "bg-bg-elevated border-border text-text-muted hover:border-accent-red/50 hover:text-accent-red"
+                    : "bg-accent-blue/10 border-accent-blue/30 text-accent-blue hover:bg-accent-blue hover:text-white"
+                }`}>
+                {isFollowing ? "팔로잉" : "팔로우"}
+              </button>
             )}
           </div>
 
@@ -774,11 +697,11 @@ export default function PostDetail() {
                   e.target.value = "";
                 }} />
               {/* 제목 + 본문 */}
-              <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
+              <input value={editTitle} onChange={e => setEditTitle(e.target.value)} aria-label="제목 고치기"
                 placeholder="제목 (선택사항)" maxLength={TITLE_MAX}
                 className="w-full bg-transparent border-none text-sm font-semibold text-text-primary placeholder:text-text-dim focus:outline-none" />
               <div className="h-px bg-border/50" />
-              <textarea ref={editBodyRef} value={editBody}
+              <textarea ref={editBodyRef} value={editBody} aria-label="내용 고치기"
                 onChange={e => { setEditBody(e.target.value); const el = e.target; el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; }}
                 placeholder="의견을 입력하세요..." maxLength={BODY_MAX}
                 className="w-full bg-transparent border-none text-sm text-text-primary placeholder:text-text-dim resize-none focus:outline-none leading-relaxed"
@@ -873,17 +796,17 @@ export default function PostDetail() {
               {/* 툴바 */}
               <div className="flex items-center justify-between pt-1 border-t border-border/50">
                 <div className="flex items-center gap-1">
-                  <button onClick={() => editFileInputRef.current?.click()} title="사진 첨부"
+                  <button onClick={() => editFileInputRef.current?.click()} title="사진 첨부" aria-label="사진 첨부"
                     className={`p-1.5 rounded-lg transition-all ${editImage ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}>
                     <ImageIcon size={14} />
                   </button>
                   {!activePost.poll && (
-                    <button onClick={() => setEditShowPoll(v => !v)} title="투표 만들기"
+                    <button onClick={() => setEditShowPoll(v => !v)} title="투표 만들기" aria-label="투표 만들기"
                       className={`p-1.5 rounded-lg transition-all ${editShowPoll ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}>
                       <BarChart2 size={14} />
                     </button>
                   )}
-                  <button onClick={() => setEditShowTagSearch(v => !v)} title="종목 태그"
+                  <button onClick={() => setEditShowTagSearch(v => !v)} title="종목 태그" aria-label="종목 태그"
                     className={`p-1.5 rounded-lg transition-all ${(editShowTagSearch || editTags.length > 0) ? "text-accent-blue bg-accent-blue/10" : "text-text-dim hover:text-text-primary hover:bg-bg-elevated"}`}>
                     <Hash size={14} />
                   </button>
@@ -901,25 +824,24 @@ export default function PostDetail() {
             </div>
           ) : (
             <>
-          {/* 제목 */}
           {activePost.title && (
             <h1 className="text-lg sm:text-xl font-bold text-text-primary leading-snug">{activePost.title}</h1>
           )}
 
-          {/* 본문 */}
           {activePost.body && (
             <p className="text-sm sm:text-base text-text-secondary leading-relaxed whitespace-pre-wrap break-words">
               {activePost.body}
             </p>
           )}
 
-          {/* 이미지 */}
+          {/* 사진 — 누르면 크게 */}
           {activePost.image && (
-            <img src={activePost.image} alt="첨부 이미지"
-              className="w-full max-h-96 object-cover rounded-2xl" />
+            <button type="button" aria-label="사진 크게 보기" onClick={() => set크게볼사진(activePost.image)}
+              className="block w-full overflow-hidden rounded-2xl border border-border/60">
+              <img src={activePost.image} alt="첨부 사진" className="w-full max-h-96 object-cover" />
+            </button>
           )}
 
-          {/* 투표 */}
           {activePost.poll && (
             <div className="bg-bg-elevated rounded-2xl p-4 space-y-3">
               <p className="text-sm font-semibold text-text-primary">{activePost.poll.question}</p>
@@ -951,7 +873,6 @@ export default function PostDetail() {
             </div>
           )}
 
-          {/* 종목 태그 */}
           {activePost.tags?.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {activePost.tags.map((t: any) => (
@@ -963,58 +884,35 @@ export default function PostDetail() {
             </div>
           )}
 
-          {/* 포트폴리오 */}
-          {activePost.portfolio?.length > 0 && (
-            <PortfolioSnapshot items={activePost.portfolio} />
-          )}
+          {포트폴리오글 && <PortfolioSnapshot items={activePost.portfolio} />}
             </>
           )}
 
-          {/* 액션 바 */}
-          <div className="flex flex-col gap-2 py-3 border-t border-border/50">
-            <div className="flex items-center gap-1">
-              <button onClick={handleLike}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all active:scale-95 ${
-                  activePost.liked ? "text-accent-red bg-accent-red/10" : "text-text-dim hover:text-accent-red hover:bg-accent-red/5"
-                }`}>
-                <Heart size={16} className={activePost.liked ? "fill-accent-red" : ""} />
-                <span>{activePost.like_count > 0 ? activePost.like_count : "좋아요"}</span>
-              </button>
-              <button onClick={() => commentInputRef.current?.focus()}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-text-dim hover:text-accent-blue hover:bg-accent-blue/5 transition-all">
-                <MessageSquare size={16} />
-                <span>{activePost.comment_count > 0 ? activePost.comment_count : "댓글"}</span>
-              </button>
-              {(activePost.view_count ?? 0) > 0 && (
-                <span className="flex items-center gap-1.5 px-3 py-2 text-sm text-text-dim">
-                  <Eye size={16} />
-                  <span>{activePost.view_count}</span>
-                </span>
-              )}
-              <div className="flex items-center gap-1 ml-auto">
-                {!activePost.is_mine && isLoggedIn && (
-                  <button onClick={() => setShowPostReport(v => !v)}
-                    aria-label={showPostReport ? "신고 창 닫기" : "이 글 신고하기"}
-                    aria-expanded={showPostReport}
-                    className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
-                      showPostReport ? "text-accent-red bg-accent-red/10" : "text-text-dim hover:text-accent-red hover:bg-accent-red/5"
-                    }`}>
-                    <Flag size={14} />
-                  </button>
-                )}
-                <button onClick={handleShare}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all">
-                  <Share2 size={14} />
-                  <span>{copied ? "복사됨!" : "공유"}</span>
-                </button>
-              </div>
-            </div>
-            {showPostReport && (
-              <ReportForm
-                onSubmit={handlePostReport}
-                onCancel={() => setShowPostReport(false)}
-                submitting={submittingPostReport}
-              />
+          {/* 액션 바 — 아이콘과 숫자만. 신고는 ⋯ 메뉴로 옮겼다 */}
+          <div className="flex items-center gap-1 py-2 border-t border-border/50">
+            <button onClick={handleLike} aria-pressed={activePost.liked}
+              aria-label={activePost.like_count > 0 ? `좋아요 ${activePost.like_count}` : "좋아요"}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all active:scale-95 ${
+                activePost.liked ? "text-accent-red bg-accent-red/10" : "text-text-dim hover:text-accent-red hover:bg-accent-red/5"
+              }`}>
+              <Heart size={17} className={activePost.liked ? "fill-accent-red" : ""} />
+              {activePost.like_count > 0 && <span className="num">{activePost.like_count}</span>}
+            </button>
+            <button onClick={() => commentInputRef.current?.focus()}
+              aria-label={(activePost.comment_count ?? 0) > 0 ? `댓글 ${activePost.comment_count}` : "댓글"}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-text-dim hover:text-accent-blue hover:bg-accent-blue/5 transition-all">
+              <MessageCircle size={17} />
+              {(activePost.comment_count ?? 0) > 0 && <span className="num">{activePost.comment_count}</span>}
+            </button>
+            <button onClick={handleShare} aria-label="공유"
+              className="flex items-center justify-center px-3 py-2 rounded-xl text-sm text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all">
+              <Share2 size={17} />
+            </button>
+            {(activePost.view_count ?? 0) > 0 && (
+              <span className="ml-auto flex items-center gap-1 pr-1 text-xs text-text-dim" aria-label={`조회 ${activePost.view_count}`}>
+                <Eye size={14} />
+                <span className="num">{activePost.view_count}</span>
+              </span>
             )}
           </div>
 
@@ -1026,7 +924,7 @@ export default function PostDetail() {
               </p>
               <div className="flex items-center gap-0.5 bg-bg-elevated rounded-lg p-0.5">
                 {(["latest", "popular"] as const).map(s => (
-                  <button key={s} onClick={() => setCommentSort(s)}
+                  <button key={s} onClick={() => setCommentSort(s)} aria-pressed={commentSort === s}
                     className={`text-2xs px-2.5 py-1 rounded-lg transition-all font-medium ${
                       commentSort === s ? "bg-bg-card text-text-primary shadow-card" : "text-text-dim hover:text-text-secondary"
                     }`}>
@@ -1036,36 +934,6 @@ export default function PostDetail() {
               </div>
             </div>
 
-            {/* 댓글 입력 pill — 댓글 숫자 바로 아래 */}
-            {isLoggedIn ? (
-              <div className="flex items-end gap-2.5">
-                <div className="w-6 h-6 rounded-full bg-accent-blue/20 border border-accent-blue/30 flex items-center justify-center text-xs font-bold text-accent-blue shrink-0">
-                  {(myUsername ?? "?")[0]?.toUpperCase()}
-                </div>
-                <div className="flex-1 flex items-end gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2 focus-within:border-accent-blue/50 transition-colors">
-                  <textarea ref={commentInputRef} value={commentText}
-                    rows={1}
-                    onChange={e => { setCommentText(e.target.value); autoResize(e.target); }}
-                    onKeyDown={e => (e.ctrlKey || e.metaKey) && e.key === "Enter" && (e.preventDefault(), submitComment())}
-                    placeholder="댓글을 입력하세요..."
-                    maxLength={BODY_MAX}
-                    className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
-                  <button onClick={submitComment} disabled={submittingComment}
-                    className="shrink-0 mb-0.5 transition-all active:scale-90">
-                    {commentText.trim()
-                      ? <Send size={16} className={`text-accent-blue ${submittingComment ? "opacity-40" : ""}`} />
-                      : <PenLine size={16} className="text-text-dim" />}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => navigate("/login")}
-                className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors">
-                <PenLine size={13} className="text-text-dim shrink-0" />
-                <span className="text-sm text-text-dim">로그인 후 댓글 작성</span>
-              </button>
-            )}
-
             {commentsLoading ? (
               <div className="flex justify-center py-6">
                 <div className="w-5 h-5 rounded-full border-2 border-accent-blue border-t-transparent animate-spin" />
@@ -1073,7 +941,7 @@ export default function PostDetail() {
             ) : comments.length > 0 ? (
               comments.map(c => (
                 <CommentItem key={c.id} comment={c} postId={activePost.id} uid={uid}
-                  isLoggedIn={isLoggedIn} queryKey={commentsKey} myUsername={myUsername} />
+                  isLoggedIn={isLoggedIn} queryKey={commentsKey} 나={나} />
               ))
             ) : (
               <p className="text-sm text-text-dim text-center py-6">첫 댓글을 남겨보세요</p>
@@ -1081,7 +949,49 @@ export default function PostDetail() {
           </div>
         </div>
       </div>
+
+      {/* 댓글 입력칸 — 화면 아래에 붙는다 */}
+      <div data-comment-bar=""
+        className={cn("z-30 bg-bg-card/95 backdrop-blur-md border-t border-border",
+          넓음 ? "sticky bottom-0" : "fixed inset-x-0")}
+        style={넓음 ? undefined : { bottom: 자판 > 0 ? 자판 : "calc(3.5rem + env(safe-area-inset-bottom))" }}>
+        <div className="max-w-2xl mx-auto px-3 sm:px-4 py-2.5">
+          {isLoggedIn ? (
+            <div className="flex items-end gap-2.5">
+              <div className="pb-0.5">
+                <AvatarComponent username={나.displayName} colorIndex={나.avatarColor} avatarUrl={나.avatarUrl} size="md" />
+              </div>
+              <div className="flex-1 flex items-end gap-2 bg-bg-elevated border border-border rounded-[22px] px-3.5 py-2 focus-within:border-accent-blue/50 transition-colors">
+                <textarea ref={commentInputRef} value={commentText} aria-label="댓글 쓰기"
+                  rows={1}
+                  onChange={e => { setCommentText(e.target.value); autoResize(e.target); }}
+                  onKeyDown={e => (e.ctrlKey || e.metaKey) && e.key === "Enter" && (e.preventDefault(), submitComment())}
+                  placeholder="댓글을 입력하세요..."
+                  maxLength={BODY_MAX}
+                  className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
+                <button onClick={submitComment} disabled={submittingComment || !commentText.trim()} aria-label="댓글 올리기"
+                  className="shrink-0 mb-0.5 transition-all active:scale-90 disabled:opacity-40">
+                  <Send size={16} className={commentText.trim() ? "text-accent-blue" : "text-text-dim"} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => navigate("/login")}
+              className="w-full flex items-center gap-3 bg-bg-elevated border border-border rounded-[22px] px-4 py-2.5 hover:border-accent-blue/40 transition-colors">
+              <PenLine size={13} className="text-text-dim shrink-0" />
+              <span className="text-sm text-text-dim">로그인 후 댓글 작성</span>
+            </button>
+          )}
+        </div>
+      </div>
+      {/* 휴대폰 — 입력칸(fixed)에 가리지 않게 마지막 댓글 아래를 그만큼 비운다 */}
+      {!넓음 && <div aria-hidden className="h-16" />}
     </div>
+    {신고중 && (
+      <신고창 무엇="글" 대상={(activePost.title || activePost.body || "").slice(0, 60)} 닫기={() => set신고중(false)}
+        보내기={(사유) => 신고보내기(() => communityApi.reportPost(activePost.id, 사유), "글", 보이기)} />
+    )}
+    {크게볼사진 && <사진보기 주소={크게볼사진} 닫기={() => set크게볼사진(null)} />}
     {확인화면}
     {알림화면}
     </>

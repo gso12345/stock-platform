@@ -333,6 +333,11 @@ html.light {
   .list-item-in { animation: listItemIn 0.2s ease both; }
   @keyframes listItemIn { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
+  /* ── 좋아요 하트가 톡 튄다(피드) — 움직임 줄이기를 켠 사람에게는 끈다 ── */
+  .heart-pop { animation: heartPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes heartPop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .heart-pop { animation: none; } }
+
   /* ── 긴 목록 최적화 ─────────────────────────────────
      화면 밖으로 벗어난 항목은 브라우저가 스타일·레이아웃·그리기를 건너뛴다.
      목록 내부 스크롤로 바꾸는 가상화 라이브러리와 달리 화면 구성이 그대로라

@@ -47,6 +47,7 @@ function 그리기(주소 = "/feed") {
           <Route path="/" element={<Layout />}>
             <Route index element={<내용 이름="대시보드" />} />
             <Route path="feed" element={<내용 이름="피드" />} />
+            <Route path="feed/write" element={<내용 이름="글쓰기" />} />
             <Route path="news" element={<내용 이름="뉴스" />} />
             <Route path="more" element={<내용 이름="더보기" />} />
           </Route>
@@ -208,5 +209,23 @@ describe("7번 — 화면 넘김", () => {
     expect(animate).toHaveBeenCalledTimes(1);
     expect(animate.mock.contexts[0]).toBe(screen.getByTestId("내용").parentElement);
     expect(animate.mock.calls[0][1]).toMatchObject({ duration: 180 });
+  });
+});
+
+
+describe("글을 쓰는 동안은 아래 탭을 숨긴다(피드 12번)", () => {
+  /* 앱의 글쓰기 화면처럼 화면을 다 쓰고, 그 자리에 사진·투표·태그 도구줄이 붙는다(FeedWrite) */
+  it("글쓰기 화면에는 아래 탭이 없고, 탭 자리만큼 비워 두지도 않는다", () => {
+    const { 본문 } = 그리기("/feed/write");
+    expect(screen.getByTestId("내용").textContent).toBe("글쓰기 내용");
+    expect(document.querySelector("nav.fixed")).toBeNull();
+    expect(본문.style.paddingBottom).toBe("0px");
+  });
+
+  it("다른 화면(피드 목록)에는 그대로 있다 — 탭 자리도 비워 둔다", () => {
+    const { 본문 } = 그리기("/feed");
+    expect(document.querySelector("nav.fixed")).not.toBeNull();
+    expect(본문.className).toContain("pb-[calc(3.5rem_+_env(safe-area-inset-bottom))]");
+    expect(본문.style.paddingBottom).toBe("");
   });
 });

@@ -78,8 +78,9 @@ class Test좋아요_조회:
 
     # 피드는 공통 부분을 캐시하면서 좋아요 조회가 _개인화 로 한 겹 내려갔다.
     # 성질은 그대로 — 여전히 좁은 헬퍼로만 묻는다 — 이므로 위임을 따라간다.
+    # (_개인화 는 '내가 눌렀나' 에 숫자를 같이 실어 묻는다 — _숫자와_내좋아요)
     @pytest.mark.parametrize("함수명, 헬퍼, 경유", [
-        ("get_feed",       "_liked_post_ids",    "_개인화"),
+        ("get_feed",       "_숫자와_내좋아요",   "_개인화"),
         ("list_posts",     "_liked_post_ids",    None),
         ("get_post",       "_liked_post_ids",    None),
         ("list_comments",  "_liked_comment_ids", None),

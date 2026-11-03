@@ -173,11 +173,11 @@ describe("쓰는 곳", () => {
     const fs = await import("fs");
     const path = await import("path");
     const 뿌리 = path.resolve(__dirname, "../..");
-    for (const rel of ["pages/PostDetail.tsx", "components/community/PostDetailModal.tsx"]) {
+    /* 글 상세는 댓글·답글 두 부품, 댓글 창은 댓글·답글을 한 부품(CommentItem 이 답글도 그린다)으로 쓴다 */
+    for (const [rel, 곳] of [["pages/PostDetail.tsx", 2], ["components/community/PostDetailModal.tsx", 1]] as const) {
       const s = fs.readFileSync(path.join(뿌리, rel), "utf-8");
       expect(s).toContain('from "@/hooks/useLike"');
-      /* 한 파일에 댓글·답글 두 곳 */
-      expect(s.split("use좋아요(").length - 1).toBe(2);
+      expect(s.split("use좋아요(").length - 1).toBe(곳);
       expect(s).not.toContain("setLikeCount");
     }
   });
@@ -204,8 +204,11 @@ describe("모달의 공유 주소", () => {
     const 시작 = 코드만.indexOf("const handleShare");
     expect(시작).toBeGreaterThan(-1);
     const 몸통 = 코드만.slice(시작, 코드만.indexOf("};", 시작));
-    expect(몸통).toContain("/post/${post.id}");
+    /* 주소는 공용 도구(utils/공유 의 글주소)가 만든다 — 그 도구가 /post/{id} 를 주는지도 본다 */
+    expect(몸통).toContain("글주소(post.id)");
     expect(몸통).not.toContain("post.symbol");
+    const { 글주소 } = await import("@/utils/공유");
+    expect(글주소(7)).toBe(`${window.location.origin}/post/7`);
   });
 });
 

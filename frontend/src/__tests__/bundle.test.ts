@@ -128,9 +128,17 @@ describe("소스 쪽 약속", () => {
   });
 
   it("피드가 포트폴리오 그림을 정적으로 걸지 않는다", () => {
-    const s = readFileSync(join(process.cwd(), "src/pages/Feed.tsx"), "utf8");
-    expect(s).not.toMatch(/^import PortfolioSnapshot from/m);
-    expect(s).toMatch(/lazy\(\(\) => import\(.*PortfolioSnapshot/);
+    /* 피드 목록은 이제 원 그래프 대신 색 띠(포트폴리오띠)를 그린다 — 띠는 차트 묶음 없이 그린다.
+       원 그래프는 댓글 창(PostDetailModal)에서만 나오고, 거기서도 PortfolioSnapshot 이 차트를 따로 받는다 */
+    const 피드 = readFileSync(join(process.cwd(), "src/pages/Feed.tsx"), "utf8");
+    const 띠 = readFileSync(join(process.cwd(), "src/components/community/포트폴리오띠.tsx"), "utf8");
+    const 그림 = readFileSync(join(process.cwd(), "src/components/portfolio/PortfolioSnapshot.tsx"), "utf8");
+    for (const s of [피드, 띠]) {
+      expect(s).not.toMatch(/^import PortfolioSnapshot from/m);
+      expect(s).not.toMatch(/^import .*PortfolioChart/m);
+      expect(s).not.toMatch(/from "recharts"/);
+    }
+    expect(그림).toMatch(/lazy\(\(\) => import\("\.\/PortfolioChart"\)\)/);
   });
 
   it("preload 를 손대서 해결한 척하지 않는다", () => {

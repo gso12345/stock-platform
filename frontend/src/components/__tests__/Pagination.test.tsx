@@ -21,9 +21,9 @@ import ModalFooter from "@/components/ui/ModalFooter";
 const 뿌리 = path.resolve(__dirname, "../..");
 const 읽기 = (rel: string) => fs.readFileSync(path.join(뿌리, rel), "utf-8");
 
-/** 이 다섯 화면이 쪽 넘기기를 갖고 있었다 */
+/** 이 화면들이 쪽 넘기기를 갖고 있었다. 피드는 빠졌다 — 앱처럼 끝에 닿으면 다음 글이 저절로 붙는다
+ *  (사용자가 고른 10번. 쪽 번호가 남아 있지 않은 것은 Feed.앱처럼 검사가 본다) */
 const 넘기는화면 = [
-  "pages/Feed.tsx",
   "components/community/CommunityTab.tsx",
   "components/admin/ReportsTab.tsx",
   "components/admin/UsersTab.tsx",
@@ -139,7 +139,7 @@ describe("모달 바닥", () => {
 
 
 describe("화면들이 정말 쓴다", () => {
-  it("다섯 화면 모두 공용 쪽 넘기기를 쓴다", () => {
+  it("쪽 넘기기가 남은 화면은 모두 공용 부품을 쓴다", () => {
     for (const f of 넘기는화면) {
       expect(읽기(f), `${f} 가 공용 부품을 안 쓴다`).toContain("<Pagination");
     }

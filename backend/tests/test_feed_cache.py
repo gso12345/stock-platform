@@ -28,104 +28,188 @@ def _캐시비우기():
     cache.clear()
 
 
-class 가짜쿼리:
-    def __init__(self, 결과, 기록):
-        self._결과, self._기록 = 결과, 기록
+@pytest.fixture
+def 진짜DB(tmp_path):
+    """작은 진짜 DB 와, 덧칠하는 동안 나간 SQL 을 세는 기록.
 
-    def filter(self, *a, **k):
-        return self
+    예전에는 가짜 DB 가 '처음 묻는 대상' 으로 결과를 골라 줬다. 그러면 질의
+    모양을 바꾸는 순간(좋아요 여부에 숫자를 같이 싣는 등) 검사가 엉뚱한 결과를
+    받고 헛돈다. 진짜 테이블에 넣고 진짜로 묻는다.
 
-    def all(self):
-        self._기록.append("쿼리")
-        return self._결과
+    글 1 (글쓴이 100) — 좋아요 2 (7·9), 댓글 2 + 지운 것 1 + 가린 것 1
+    글 2 (글쓴이 200) — 투표: 7→1, 8→0, 9→1
+    팔로우 — 7 이 100 을"""
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import sessionmaker
+    from app.db.database import Base
+    from app.models.community import (StockPost, StockPostLike, StockComment, StockCommentLike,
+                                      StockPostPollVote, UserFollow)
+    엔진 = create_engine(f"sqlite:///{tmp_path}/t.db")
+    Base.metadata.create_all(엔진, tables=[m.__table__ for m in (
+        StockPost, StockPostLike, StockComment, StockCommentLike, StockPostPollVote, UserFollow)])
+    db = sessionmaker(bind=엔진)()
+    db.add_all([
+        StockPost(id=1, symbol="005930", market="KR", user_id=100, content="{}", like_count=2),
+        StockPost(id=2, symbol="SCHD", market="US", user_id=200, content="{}", like_count=0),
+        StockPostLike(post_id=1, user_id=7), StockPostLike(post_id=1, user_id=9),
+        StockComment(post_id=1, user_id=7, content="a"), StockComment(post_id=1, user_id=8, content="b"),
+        StockComment(post_id=1, user_id=9, content="지움", is_deleted=True),
+        StockComment(post_id=1, user_id=9, content="가림", is_blinded=True),
+        StockPostPollVote(post_id=2, user_id=7, option_index=1),
+        StockPostPollVote(post_id=2, user_id=8, option_index=0),
+        StockPostPollVote(post_id=2, user_id=9, option_index=1),
+        UserFollow(follower_id=7, following_id=100),
+    ])
+    db.commit()
+    왕복: list[str] = []
+    event.listen(엔진, "before_cursor_execute", lambda _c, _cur, sql, *a: 왕복.append(sql))
+    try:
+        yield db, 왕복
+    finally:
+        db.close()
 
 
-class 가짜DB:
-    """DB 왕복 횟수를 센다."""
-    def __init__(self, 좋아요=(), 팔로우=(), 투표=()):
-        self.기록 = []
-        self._map = {"like": 좋아요, "follow": 팔로우, "vote": 투표}
-
-    def query(self, *entities):
-        from app.models.community import StockPostLike, UserFollow, StockPostPollVote
-        e = entities[0]
-        키 = ("like" if getattr(e, "class_", None) is StockPostLike or e is StockPostLike
-              else "follow" if getattr(e, "class_", None) is UserFollow or e is UserFollow
-              else "vote")
-        return 가짜쿼리(self._map[키], self.기록)
-
-
-def _공통(포함투표=False):
-    """캐시에 담기는 '누가 보든 같은' 모양 — 개인 항목은 전부 비어 있다"""
-    글 = {
-        "id": 1, "user_id": 100, "symbol": "005930", "content": "삼성전자 좋다",
-        "liked": False, "is_mine": False, "is_following": False,
-    }
+def _공통(포함투표=True, 지운글=False):
+    """캐시에 담기는 '누가 보든 같은' 모양 — 개인 항목은 비어 있고, 숫자는 캐시에 담을 때의
+    (이제는 묵은) 값이다: 좋아요·댓글 0, 투표 0표"""
+    글들 = [{"id": 1, "user_id": 100, "symbol": "005930", "like_count": 0, "comment_count": 0,
+             "liked": False, "is_mine": False, "is_following": False}]
     if 포함투표:
-        글["poll"] = {"question": "살까?", "options": ["산다", "판다"],
-                      "counts": [3, 1], "my_vote": None}
-    return {"total": 1, "page": 1, "items": [글]}
+        글들.append({"id": 2, "user_id": 200, "symbol": "SCHD", "like_count": 0, "comment_count": 0,
+                     "liked": False, "is_mine": False, "is_following": False,
+                     "poll": {"question": "뭐 살까?", "options": ["SCHD", "JEPI", "O"],
+                              "counts": [0, 0, 0], "total": 0, "my_vote": None}})
+    if 지운글:
+        글들.append({"id": 99, "user_id": 300, "symbol": "TSLA", "like_count": 5, "comment_count": 4,
+                     "liked": False, "is_mine": False, "is_following": False})
+    return {"total": len(글들), "page": 1, "items": 글들}
+
+
+def _글(결과, id_):
+    return next(it for it in 결과["items"] if it["id"] == id_)
 
 
 class Test개인화:
-    def test_비로그인이면_DB를_보지_않는다(self):
-        """읽기만 하는 방문자에게 왕복을 쓸 이유가 없다."""
-        db = 가짜DB()
+    def test_비로그인이면_DB를_보지_않는다(self, 진짜DB):
+        """읽기만 하는 방문자에게 왕복을 쓸 이유가 없다 — 누를 수 없으니 숫자가
+        조금 늦어도 '눌렀는데 되돌아가는' 일도 없다."""
+        db, 왕복 = 진짜DB
         결과 = community._개인화(db, None, _공통())
-        assert db.기록 == [], f"비로그인인데 DB 를 {len(db.기록)}번 봤다"
-        assert 결과["items"][0]["liked"] is False
+        assert 왕복 == [], f"비로그인인데 DB 를 {len(왕복)}번 봤다"
+        assert _글(결과, 1)["liked"] is False
+        assert _글(결과, 1)["like_count"] == 0          # 캐시 값 그대로
 
-    def test_내가_누른_좋아요만_내_것으로_표시된다(self):
+    def test_내가_누른_좋아요만_내_것으로_표시된다(self, 진짜DB):
         """캐시된 공통 목록을 여러 사람이 함께 쓴다. 여기가 틀리면
         남이 누른 좋아요가 내 화면에 켜져 보인다 — 가장 위험한 사고다."""
-        db = 가짜DB(좋아요=[(1,)])
-        결과 = community._개인화(db, 7, _공통())
-        assert 결과["items"][0]["liked"] is True
+        db, _ = 진짜DB
+        assert _글(community._개인화(db, 7, _공통()), 1)["liked"] is True
+        assert _글(community._개인화(db, 8, _공통()), 1)["liked"] is False    # 8 은 안 눌렀다
+        assert _글(community._개인화(db, 7, _공통()), 2)["liked"] is False    # 7 도 글 2 는 안 눌렀다
 
-        db2 = 가짜DB(좋아요=[])          # 나는 안 눌렀다
-        결과2 = community._개인화(db2, 8, _공통())
-        assert 결과2["items"][0]["liked"] is False
+    def test_숫자를_새로_센다(self, 진짜DB):
+        """좋아요를 누르고 목록을 새로 받으면 하트는 빨간데 숫자는 캐시에 담길 때 값(0 →
+        '좋아요' 글자)이었다. 캐시는 15분을 사는데 숫자가 바뀔 때는 버리지 않기 때문이다."""
+        db, _ = 진짜DB
+        글1 = _글(community._개인화(db, 7, _공통()), 1)
+        assert 글1["like_count"] == 2
+        # 지운 댓글·가린 댓글은 세지 않는다 — 글 상세의 숫자(_댓글수)와 같아야 한다
+        assert 글1["comment_count"] == 2
 
-    def test_내_글인지_구분한다(self):
-        assert community._개인화(가짜DB(), 100, _공통())["items"][0]["is_mine"] is True
-        assert community._개인화(가짜DB(), 7,   _공통())["items"][0]["is_mine"] is False
+    def test_투표_수와_내_투표를_새로_센다(self, 진짜DB):
+        """내가 고른 칸이 0% 로 보이던 것 — 내 표는 새로 읽고 집계는 캐시 값이었다."""
+        db, _ = 진짜DB
+        투표 = _글(community._개인화(db, 7, _공통()), 2)["poll"]
+        assert 투표["counts"] == [1, 2, 0]
+        assert 투표["total"] == 3
+        assert 투표["my_vote"] == 1
+        assert _글(community._개인화(db, 8, _공통()), 2)["poll"]["my_vote"] == 0
+        assert _글(community._개인화(db, 10, _공통()), 2)["poll"]["my_vote"] is None   # 안 했다
+        assert 투표["question"] == "뭐 살까?" and 투표["options"] == ["SCHD", "JEPI", "O"]
 
-    def test_팔로우_여부를_표시한다(self):
+    def test_내_글인지_구분한다(self, 진짜DB):
+        db, _ = 진짜DB
+        assert _글(community._개인화(db, 100, _공통()), 1)["is_mine"] is True
+        assert _글(community._개인화(db, 7, _공통()), 1)["is_mine"] is False
+
+    def test_팔로우_여부를_표시한다(self, 진짜DB):
         """좋아요와 같은 자리다 — 안 하는 사람도 '팔로우 중'으로 보이면
         캐시를 나눠 쓰다 남의 관계가 내 화면에 뜬 것이다."""
-        db = 가짜DB(팔로우=[(100,)])
-        assert community._개인화(db, 7, _공통())["items"][0]["is_following"] is True
+        db, _ = 진짜DB
+        assert _글(community._개인화(db, 7, _공통()), 1)["is_following"] is True
+        assert _글(community._개인화(db, 8, _공통()), 1)["is_following"] is False
 
-        db2 = 가짜DB(팔로우=[])           # 나는 이 사람을 팔로우하지 않는다
-        assert community._개인화(db2, 8, _공통())["items"][0]["is_following"] is False
+    def test_숫자를_실어도_왕복은_늘지_않는다(self, 진짜DB):
+        """예전에도 세 번이었다(내 좋아요·팔로우·내 투표). 숫자는 그 질의에 실어 보낸다 —
+        DB 가 원격이라 왕복 하나가 곧 지연이다."""
+        db, 왕복 = 진짜DB
+        community._개인화(db, 7, _공통())
+        assert len(왕복) == 3, 왕복
 
-    def test_내_글은_팔로우_대상으로_묻지_않는다(self):
-        """자기 자신을 팔로우하는지 물어볼 이유가 없다 — 왕복 낭비다."""
-        db = 가짜DB()
-        community._개인화(db, 100, _공통())     # 글쓴이가 나
-        assert len(db.기록) == 1, f"좋아요 조회 1번이면 충분한데 {db.기록}"
-
-    def test_내가_투표한_항목을_표시한다(self):
-        class 투표:
-            post_id, option_index = 1, 1
-        db = 가짜DB(투표=[투표()])
-        결과 = community._개인화(db, 7, _공통(포함투표=True))
-        assert 결과["items"][0]["poll"]["my_vote"] == 1
-        # 집계는 공통 값이 그대로 살아 있어야 한다
-        assert 결과["items"][0]["poll"]["counts"] == [3, 1]
-
-    def test_투표가_없는_글이면_투표를_묻지_않는다(self):
-        db = 가짜DB()
+    def test_투표가_없는_글이면_투표를_묻지_않는다(self, 진짜DB):
+        db, 왕복 = 진짜DB
         community._개인화(db, 7, _공통(포함투표=False))
-        # 좋아요·팔로우만 (투표 쿼리 없음)
-        assert len(db.기록) <= 2, f"불필요한 왕복: {db.기록}"
+        assert len(왕복) == 2, f"좋아요·숫자 하나, 팔로우 하나면 된다: {왕복}"
 
-    def test_캐시된_원본을_건드리지_않는다(self):
+    def test_내_글은_팔로우_대상으로_묻지_않는다(self, 진짜DB):
+        """자기 자신을 팔로우하는지 물어볼 이유가 없다 — 왕복 낭비다."""
+        db, 왕복 = 진짜DB
+        community._개인화(db, 100, _공통(포함투표=False))     # 글쓴이가 나
+        assert len(왕복) == 1, f"좋아요·숫자 조회 1번이면 충분한데 {왕복}"
+
+    def test_캐시에_담긴_뒤_지워진_글도_넘어간다(self, 진짜DB):
+        """목록이 캐시된 뒤 지워진 글은 DB 에 행이 없다. 거기서 터지면 피드가 통째로 죽는다."""
+        db, _ = 진짜DB
+        글 = _글(community._개인화(db, 7, _공통(지운글=True)), 99)
+        assert 글["liked"] is False
+        assert (글["like_count"], 글["comment_count"]) == (5, 4)      # 캐시 값 그대로
+
+    def test_캐시된_원본을_건드리지_않는다(self, 진짜DB):
         """같은 공통 목록을 여러 사람이 나눠 쓴다. 덧칠하면서 원본을
         고치면 다음 사람이 내 좋아요를 보게 된다."""
+        db, _ = 진짜DB
         원본 = _공통()
-        community._개인화(가짜DB(좋아요=[(1,)]), 7, 원본)
-        assert 원본["items"][0]["liked"] is False, "캐시 원본이 오염됐다"
+        community._개인화(db, 7, 원본)
+        assert _글(원본, 1)["liked"] is False, "캐시 원본이 오염됐다"
+        assert _글(원본, 1)["like_count"] == 0
+        assert _글(원본, 2)["poll"] == {"question": "뭐 살까?", "options": ["SCHD", "JEPI", "O"],
+                                       "counts": [0, 0, 0], "total": 0, "my_vote": None}
+
+
+class Test종목이름:
+    """피드 카드가 'KR 005930' 처럼 코드만 보여 줬다 — 이름을 같이 보낸다."""
+
+    @pytest.fixture(autouse=True)
+    def _이름표(self, monkeypatch):
+        monkeypatch.setattr(community, "_kr_name", lambda s: {"005930": "삼성전자", "069500": "KODEX 200"}.get(s))
+        from app.services.screening import service
+        monkeypatch.setattr(service, "한글이름", lambda s: {"NVDA": "엔비디아"}.get(s))
+
+    def test_국내는_상장_목록에서(self):
+        assert community._종목이름("005930", "KR") == "삼성전자"
+
+    def test_국내_ETF도_숫자_코드로_찾는다(self):
+        """시장이 'ETF' 인 글도 국내 ETF 면 코드가 숫자다."""
+        assert community._종목이름("069500", "ETF") == "KODEX 200"
+
+    def test_해외는_한글_이름(self):
+        assert community._종목이름("NVDA", "US") == "엔비디아"
+
+    def test_모르면_비운다(self):
+        """이름이 없으면 화면이 코드를 쓴다 — 엉뚱한 이름보다 낫다."""
+        assert community._종목이름("ZZZZ", "US") is None
+        assert community._종목이름("999999", "KR") is None
+
+    def test_해외_이름표가_터져도_비운다(self, monkeypatch):
+        from app.services.screening import service
+        def 터짐(_):
+            raise RuntimeError("원천 없음")
+        monkeypatch.setattr(service, "한글이름", 터짐)
+        assert community._종목이름("NVDA", "US") is None
+
+    def test_글에_이름이_실린다(self):
+        본문 = inspect.getsource(community._ser_post)
+        assert '"name":          _종목이름(post.symbol, post.market)' in 본문
 
 
 def _캐시키_대입문() -> str:
@@ -246,3 +330,53 @@ class Test개인화_비용:
         본문 = inspect.getsource(community._개인화)
         assert "if not uid" in 본문 or "if uid is None" in 본문, (
             "비로그인일 때 일찍 빠져나가지 않는다")
+
+
+class Test국내이름찾기:
+    """상장 목록은 '005930.KS' 처럼 꼬리를 붙여 두고 코드는 따로(c) 둔다. 예전 _kr_name 은 꼬리 붙은 것과만
+    견줘서 글에 저장된 '005930' 으로는 한 번도 못 찾았다 — 태그 이름도 늘 비었다."""
+
+    @pytest.fixture(autouse=True)
+    def _목록(self, monkeypatch):
+        목록 = [
+            {"s": "005930.KS", "n": "삼성전자", "x": "KOSPI", "m": "KR", "c": "005930"},
+            {"s": "035720.KQ", "n": "카카오"},                     # 코드 칸이 없으면 꼬리를 떼서 쓴다
+            {"symbol": "069500", "name": "KODEX 200"},             # 옛 모양
+            {"s": "000000.KS", "n": ""},                           # 이름 없는 줄은 건너뛰고
+            {"s": "000000.KQ", "n": "이름 있는 줄"},               # 같은 코드의 이름 있는 줄을 쓴다
+        ]
+        monkeypatch.setattr(community, "get_kr_db", lambda: 목록)
+        monkeypatch.setattr(community, "_kr_이름표", None)
+        return 목록
+
+    def test_꼬리_없는_코드로_찾는다(self):
+        assert community._kr_name("005930") == "삼성전자"
+        assert community._kr_name("035720") == "카카오"
+        assert community._kr_name("069500") == "KODEX 200"
+
+    def test_꼬리_붙은_코드로_물어도_찾는다(self):
+        assert community._kr_name("005930.KS") == "삼성전자"
+
+    def test_모르면_비운다(self):
+        assert community._kr_name("999999") is None
+        assert community._kr_name("") is None
+
+    def test_이름_없는_줄은_건너뛴다(self):
+        """빈 이름이 먼저 자리를 차지하면, 뒤에 이름이 있어도 늘 빈 이름이 나간다"""
+        assert community._kr_name("000000") == "이름 있는 줄"
+
+    def test_목록을_새로_받으면_표도_새로_만든다(self, monkeypatch):
+        assert community._kr_name("005930") == "삼성전자"
+        monkeypatch.setattr(community, "get_kr_db", lambda: [{"s": "005930.KS", "n": "삼성전자(새)", "c": "005930"}])
+        assert community._kr_name("005930") == "삼성전자(새)"
+
+    def test_목록이_터져도_비운다(self, monkeypatch):
+        def 터짐():
+            raise RuntimeError("목록 없음")
+        monkeypatch.setattr(community, "get_kr_db", 터짐)
+        assert community._kr_name("005930") is None
+
+    def test_태그에도_이름이_붙는다(self):
+        """태그 이름을 비워 둔 옛 글도 이름으로 보인다"""
+        assert community._enrich_tags([{"symbol": "005930", "market": "KR"}]) == [
+            {"symbol": "005930", "market": "KR", "name": "삼성전자"}]

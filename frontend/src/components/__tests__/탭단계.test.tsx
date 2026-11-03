@@ -104,3 +104,46 @@ describe("넘치면 더 있는 쪽 끝을 흐린다", () => {
     expect(반(줄)).toContain("fade-edge-right");
   });
 });
+
+describe("탭 줄 끝의 단추(피드 1번) — 위쪽 줄을 하나 줄인다", () => {
+  /* 피드는 '전체 | 팔로잉' 오른쪽 끝에 검색(PC 는 글쓰기도)을 붙인다. 단추 줄을 따로 두면 위쪽이 한 줄 늘어난다 */
+  it("끝 단추는 탭과 한 줄에 서고, 밑줄은 바깥 줄이 한 번만 긋는다", () => {
+    const { container } = render(
+      <UnderlineTabs tabs={탭들} active="all" onChange={() => {}} ariaLabel="피드 종류"
+        끝={<button type="button">검색</button>} className="mt-1" />);
+    const 줄 = screen.getByRole("tablist", { name: "피드 종류" });
+    const 바깥 = container.firstElementChild as HTMLElement;
+    expect(바깥).not.toBe(줄);
+    expect(바깥.contains(screen.getByRole("button", { name: "검색" }))).toBe(true);
+    expect(반(바깥)).toEqual(expect.arrayContaining(["border-b", "border-border", "mt-1"]));
+    // 탭 줄은 밑줄을 또 긋지 않는다(두 줄이 겹치지 않게) — 남는 폭을 차지한다
+    expect(반(줄)).not.toContain("border-b");
+    expect(반(줄)).toEqual(expect.arrayContaining(["flex-1", "min-w-0"]));
+    // 끝 단추는 탭 목록(tablist) 밖이다 — 화면 읽기가 탭으로 읽지 않게
+    expect(줄.contains(screen.getByRole("button", { name: "검색" }))).toBe(false);
+  });
+
+  it("끝이 없으면 예전 그대로 — 탭 줄이 밑줄을 긋고 바깥 줄이 없다", () => {
+    const { container } = render(<UnderlineTabs tabs={탭들} active="all" onChange={() => {}} ariaLabel="자산 화면" className="mt-1" />);
+    const 줄 = screen.getByRole("tablist", { name: "자산 화면" });
+    expect(container.firstElementChild).toBe(줄);
+    expect(반(줄)).toEqual(expect.arrayContaining(["border-b", "mt-1"]));
+  });
+});
+
+describe("마우스를 올리면 미리 받을 수 있게 알린다(피드가 다음 목록을 미리 받는다)", () => {
+  it("화면 탭·칩 탭 모두 — 안 주면 아무 일도 없다", () => {
+    const 올림 = vi.fn();
+    const { unmount } = render(<>
+      <UnderlineTabs tabs={탭들} active="all" onChange={() => {}} ariaLabel="위" onHover={올림} />
+      <ChipTabs tabs={[{ id: "US", label: "해외" }]} active="ALL" onChange={() => {}} ariaLabel="아래" onHover={올림} />
+    </>);
+    fireEvent.mouseEnter(screen.getByRole("tab", { name: /신한/ }));
+    expect(올림).toHaveBeenLastCalledWith("sh");
+    fireEvent.mouseEnter(screen.getByRole("tab", { name: "해외" }));
+    expect(올림).toHaveBeenLastCalledWith("US");
+    unmount();
+    render(<ChipTabs tabs={[{ id: "US", label: "해외" }]} active="ALL" onChange={() => {}} />);
+    expect(() => fireEvent.mouseEnter(screen.getByRole("tab", { name: "해외" }))).not.toThrow();
+  });
+});

@@ -46,6 +46,9 @@ const BOTTOM_NAV = [
   { to: "/news",      icon: Newspaper,       label: "뉴스"     },
 ];
 
+/** 아래 탭을 숨기는 화면 — 글쓰기처럼 화면을 통째로 쓰는 곳 */
+const 아래탭숨길곳 = ["/feed/write"];
+
 /** 메뉴에 손을 대는 순간(마우스를 올리거나 손가락이 닿거나 초점이 오면)
  *  그 화면 코드를 미리 받는다 — 누르고 떼기까지의 0.1~0.3초 동안 받아 둔다 */
 function 미리받기(주소: string) {
@@ -156,6 +159,10 @@ export default function Layout() {
   const isMoreActive = 더보기_경로.some(
     (경로) => location.pathname === 경로 || location.pathname.startsWith(경로 + "/")
   );
+
+  /* 글을 쓰는 동안은 아래 탭을 숨긴다 — 앱의 글쓰기 화면처럼 화면을 다 쓰고, 그 자리에 사진·투표·태그
+     도구줄이 붙는다(FeedWrite). 잘못 눌러 쓰던 글을 두고 다른 탭으로 가는 일도 막는다 */
+  const 아래탭숨김 = 아래탭숨길곳.includes(location.pathname);
 
   const navItemCls = (isActive: boolean) =>
     `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
@@ -294,7 +301,9 @@ export default function Layout() {
         {/* 콘텐츠 — relative·overflow-x-hidden: 화면 안의 absolute(자리 잡은 조상이 없는 것)가 본문 밖으로 새어
             문서를 넓히지 못하게 가둔다. 휴대폰은 문서가 넓어지면 판을 키우고, 아래 탭(fixed)이 그 큰 판의 바닥에
             붙어 화면 밖으로 사라졌다(스크리닝의 화면 읽기용 글자가 그랬다 — StockTable 표상자) */}
-        <main ref={본문} className="relative flex-1 overflow-y-auto overflow-x-hidden overscroll-y-none bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0">
+        {/* 아래 탭을 숨긴 화면(글쓰기)은 탭 자리만큼 비워 둘 이유가 없다 — 그 자리에 도구줄이 붙는다 */}
+        <main ref={본문} className="relative flex-1 overflow-y-auto overflow-x-hidden overscroll-y-none bg-bg-primary pb-[calc(3.5rem_+_env(safe-area-inset-bottom))] lg:pb-0"
+          style={아래탭숨김 ? { paddingBottom: 0 } : undefined}>
           {/* 최대 폭도 rem — 넓은 화면에서 뿌리 글자가 커지면(index.css) 같이 넓어진다. px 로 두면 글자만 커지고
               폭은 그대로라 큰 모니터에서 담기는 칸이 오히려 줄었다(14px 기준 1,596px) */}
           {/* 당겨서 새로고침 표시 — 위에 숨어 있다가 당기는 만큼 내려온다(움직임은 훅이 직접 준다) */}
@@ -315,7 +324,7 @@ export default function Layout() {
       </div>
 
       {/* ── 모바일 하단 탭바 ─────────────────────────────── */}
-      <nav
+      {!아래탭숨김 && <nav
         className="lg:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch bg-bg-card border-t border-border"
         style={{ paddingBottom: "env(safe-area-inset-bottom)", paddingLeft: "env(safe-area-inset-left)",
                  paddingRight: "env(safe-area-inset-right)" }}
@@ -352,7 +361,7 @@ export default function Layout() {
             더보기
           </div>
         </NavLink>
-      </nav>
+      </nav>}
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </div>

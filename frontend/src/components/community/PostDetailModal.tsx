@@ -1,26 +1,47 @@
+/**
+ * 댓글 창 — 피드에서 '댓글' 을 누르면 아래에서 올라온다(PC 는 가운데). 보던 자리를 잃지 않는다.
+ *
+ * 피드를 앱처럼 다시 짜면서 글 상세(PostDetail)와 같은 모양으로 맞췄다 —
+ *   · 종목은 코드 대신 이름(종목칩), 아바타는 사진까지(공용 Avatar)
+ *   · 삭제·신고·링크 복사는 ⋯ 메뉴 하나로(글메뉴). 댓글도 같다
+ *   · 공유는 휴대폰 공유 창(utils/공유), 사진은 누르면 크게(사진보기)
+ *   · 댓글 입력칸 옆 내 아바타는 닉네임·색·사진으로(예전에는 로그인 아이디 첫 글자 'P')
+ */
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, Heart, MessageSquare, Share2, Send, Trash2, Eye } from "lucide-react";
+import { X, Heart, MessageCircle, Share2, Send, Eye, Trash2, Flag, Link2 } from "lucide-react";
 import { communityApi } from "@/api/stocks";
+import { API_BASE } from "@/api/client";
 import { useAuthStore } from "@/store/authStore";
 import { useNavigate, Link } from "react-router-dom";
 import PortfolioSnapshot from "@/components/portfolio/PortfolioSnapshot";
+import Avatar from "@/components/community/Avatar";
+import 글메뉴, { type 메뉴항목 } from "@/components/community/글메뉴";
+import 종목칩 from "@/components/community/종목칩";
+import 사진보기 from "@/components/community/사진보기";
+import 신고창, { 신고보내기 } from "@/components/community/신고창";
 import { COMMENT_MAX } from "@/constants/community";
 import { use확인, use알림 } from "@/hooks/useDialogs";
+import { useMyProfile } from "@/hooks/useMyProfile";
 import { timeAgo } from "@/utils/formatters";
 import { use좋아요 } from "@/hooks/useLike";
+import { 글공유, 글주소, 링크복사, 공유알림 } from "@/utils/공유";
+import { cn } from "@/components/ui";
 
 // ── 공용 타입 ─────────────────────────────────────────────────────
 export interface ModalPost {
   id: number;
   symbol: string;
   market: string;
+  name?: string | null;
   user_id: number;
   username: string;
   avatar_color: number;
+  avatar_url?: string | null;
   title: string;
   body: string;
   image: string;
+  has_image?: boolean;
   poll: {
     question: string;
     options: string[];
@@ -28,7 +49,7 @@ export interface ModalPost {
     total: number;
     my_vote: number | null;
   } | null;
-  tags: { symbol: string; market: string }[];
+  tags: { symbol: string; market: string; name?: string }[];
   portfolio?: { symbol: string; market: string; name: string; shares: number; avg_price: number; currency?: string; input_exchange_rate?: number | null }[] | null;
   like_count: number;
   comment_count: number;
@@ -44,6 +65,7 @@ interface Comment {
   user_id: number;
   username: string;
   avatar_color: number;
+  avatar_url?: string | null;
   content: string;
   like_count: number;
   liked: boolean;
@@ -57,106 +79,21 @@ export interface PostDetailModalProps {
   onClose: () => void;
   onLikeToggled?: (postId: number, liked: boolean, likeCount: number) => void;
   onVoteUpdated?: (postId: number, counts: number[], total: number, myVote: number) => void;
+  /** 댓글 수(답글 포함)가 바뀌면 — 목록의 숫자를 맞춘다 */
+  onCommentCount?: (postId: number, count: number) => void;
   onDeleted?: (postId: number) => void;
 }
 
-// ── 유틸 ──────────────────────────────────────────────────────────
-const AVATAR_COLORS = [
-  "bg-accent-blue/20 text-accent-blue border-accent-blue/30",
-  "bg-accent-purple/20 text-accent-purple border-accent-purple/30",
-  "bg-accent-green/20 text-accent-green border-accent-green/30",
-  "bg-accent-yellow/20 text-accent-yellow border-accent-yellow/30",
-  "bg-accent-red/20 text-accent-red border-accent-red/30",
-  "bg-accent-cyan/20 text-accent-cyan border-accent-cyan/30",
-  "bg-accent-purple/20 text-accent-purple border-accent-purple/30",
-  "bg-accent-orange/20 text-accent-orange border-accent-orange/30",
-];
-
-
-function Avatar({
-  username, colorIndex, userId, isMine, onNavigate,
-}: {
-  username: string; colorIndex: number; userId?: number; isMine?: boolean; onNavigate?: () => void;
-}) {
-  const cls = AVATAR_COLORS[colorIndex % AVATAR_COLORS.length];
-  const inner = (
-    <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-bold text-sm shrink-0 ${cls}`}>
-      {username[0]?.toUpperCase()}
-    </div>
-  );
-  if (userId == null) return inner;
-  return (
-    <Link to={isMine ? "/mypage" : `/profile/${userId}`} onClick={onNavigate}>
-      {inner}
-    </Link>
-  );
+/** 댓글 수 — 서버의 comment_count 처럼 답글까지 센다 */
+export function 댓글모두(목록: { replies?: unknown[] }[] | undefined): number {
+  return (목록 ?? []).reduce((n, c) => n + 1 + (c.replies?.length ?? 0), 0);
 }
 
-// ── 대댓글 아이템 ─────────────────────────────────────────────────
-function ReplyItem({ reply, postId, uid }: { reply: Comment; postId: number; uid?: number }) {
-  const { 묻기, 화면: 확인화면 } = use확인();
-  const { 보이기, 화면: 알림화면 } = use알림();
-  const qc = useQueryClient();
-  const { 눌림: liked, 수: likeCount, 누르기: handleLike } = use좋아요(
-    reply.liked, reply.like_count, () => communityApi.toggleCommentLike(reply.id));
-
-  const handleDelete = () => 묻기({
-    title: "답글을 삭제할까요?",
-    message: "지운 답글은 되돌릴 수 없습니다.",
-    대상: reply.content?.slice(0, 40),
-    onConfirm: async () => {
-      try {
-        await communityApi.deleteComment(reply.id);
-        qc.invalidateQueries({ queryKey: ["modal-comments", postId] });
-      } catch { 보이기("삭제하지 못했습니다", "error"); }
-    },
-  });
-
-  return (
-    <>
-    <div className="flex gap-2">
-      <Avatar username={reply.username} colorIndex={reply.avatar_color} userId={reply.user_id} isMine={uid != null && reply.user_id === uid} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <Link
-            to={uid != null && reply.user_id === uid ? "/mypage" : `/profile/${reply.user_id}`}
-            className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
-          >
-            {reply.username}
-          </Link>
-          <span className="text-2xs text-text-dim">·</span>
-          <span className="text-2xs text-text-dim">{timeAgo(reply.created_at)}</span>
-        </div>
-        <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">
-          {reply.content}
-        </p>
-        <div className="flex items-center gap-3 mt-1">
-          <button
-            onClick={handleLike}
-            className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}
-          >
-            <Heart size={11} className={liked ? "fill-accent-red" : ""} />
-            {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
-          </button>
-          {reply.is_mine && (
-            <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">
-              삭제
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-    {확인화면}
-    {알림화면}
-    </>
-  );
-}
-
-// ── 댓글 아이템 ───────────────────────────────────────────────────
+// ── 댓글·답글 하나 ────────────────────────────────────────────────
 function CommentItem({
-  comment, postId, uid, isLoggedIn, onReplyAdded,
+  comment, postId, uid, isLoggedIn, onReplyAdded, 답글 = false,
 }: {
-  comment: Comment; postId: number; uid?: number; isLoggedIn: boolean; onReplyAdded: () => void;
+  comment: Comment; postId: number; uid?: number; isLoggedIn: boolean; onReplyAdded: () => void; 답글?: boolean;
 }) {
   const { 묻기, 화면: 확인화면 } = use확인();
   const { 보이기, 화면: 알림화면 } = use알림();
@@ -166,10 +103,12 @@ function CommentItem({
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [신고중, set신고중] = useState(false);
+  const 내것 = uid != null && comment.user_id === uid;
 
   const handleDelete = () => 묻기({
-    title: "댓글을 삭제할까요?",
-    message: "지운 댓글은 되돌릴 수 없습니다. 달린 답글도 함께 사라집니다.",
+    title: 답글 ? "답글을 삭제할까요?" : "댓글을 삭제할까요?",
+    message: 답글 ? "지운 답글은 되돌릴 수 없습니다." : "지운 댓글은 되돌릴 수 없습니다. 달린 답글도 함께 사라집니다.",
     대상: comment.content?.slice(0, 40),
     onConfirm: async () => {
       try {
@@ -193,40 +132,38 @@ function CommentItem({
     }
   };
 
+  const 메뉴: 메뉴항목[] = comment.is_mine
+    ? [{ 이름: "삭제", 아이콘: Trash2, 위험: true, 누르면: handleDelete }]
+    : isLoggedIn ? [{ 이름: "신고", 아이콘: Flag, 위험: true, 누르면: () => set신고중(true) }] : [];
+
   return (
     <>
-    <div className="flex gap-2.5">
-      <Avatar username={comment.username} colorIndex={comment.avatar_color} userId={comment.user_id} isMine={uid != null && comment.user_id === uid} />
+    <div className={cn("flex", 답글 ? "gap-2" : "gap-2.5")}>
+      <Avatar username={comment.username} colorIndex={comment.avatar_color} avatarUrl={comment.avatar_url}
+        userId={comment.user_id} isMine={내것} size={답글 ? "sm" : "md"} />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <Link
-            to={uid != null && comment.user_id === uid ? "/mypage" : `/profile/${comment.user_id}`}
-            className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors"
-          >
+        <div className="flex items-center gap-1.5 mb-0.5 min-w-0">
+          <Link to={내것 ? "/mypage" : `/profile/${comment.user_id}`}
+            className="text-xs font-semibold text-text-primary hover:text-accent-blue transition-colors truncate">
             {comment.username}
           </Link>
-          <span className="text-2xs text-text-dim">·</span>
-          <span className="text-2xs text-text-dim">{timeAgo(comment.created_at)}</span>
+          <span className="text-2xs text-text-dim flex-shrink-0">· {timeAgo(comment.created_at)}</span>
+          <span className="ml-auto"><글메뉴 항목들={메뉴} 이름={답글 ? "답글 메뉴" : "댓글 메뉴"} 크기={14} /></span>
         </div>
-        <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words mb-1.5">
+        <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap break-words">
           {comment.content}
         </p>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleLike}
-            className={`flex items-center gap-1 text-xs transition-all active:scale-90 ${liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}
-          >
+        <div className="flex items-center gap-3 mt-1">
+          <button onClick={handleLike} aria-pressed={liked}
+            aria-label={likeCount > 0 ? `좋아요 ${likeCount}` : "좋아요"}
+            className={cn("flex items-center gap-1 text-xs transition-all active:scale-90",
+              liked ? "text-accent-red" : "text-text-dim hover:text-accent-red")}>
             <Heart size={11} className={liked ? "fill-accent-red" : ""} />
-            {likeCount > 0 ? <span className={liked ? "font-semibold" : ""}>{likeCount}</span> : <span className="opacity-50">좋아요</span>}
+            {likeCount > 0 && <span className={liked ? "font-semibold" : ""}>{likeCount}</span>}
           </button>
-          {isLoggedIn && (
+          {!답글 && isLoggedIn && (
             <button onClick={() => setShowReply((v) => !v)} className="text-xs text-text-dim hover:text-accent-blue transition-colors">
               답글
-            </button>
-          )}
-          {comment.is_mine && (
-            <button onClick={handleDelete} className="text-xs text-text-dim hover:text-accent-red transition-colors">
-              삭제
             </button>
           )}
         </div>
@@ -255,12 +192,17 @@ function CommentItem({
         {comment.replies.length > 0 && (
           <div className="mt-2 flex flex-col gap-3 pl-3 border-l-2 border-border/50">
             {comment.replies.map((r) => (
-              <ReplyItem key={r.id} reply={r} postId={postId} uid={uid} />
+              <CommentItem key={r.id} comment={r} postId={postId} uid={uid} isLoggedIn={isLoggedIn}
+                onReplyAdded={onReplyAdded} 답글 />
             ))}
           </div>
         )}
       </div>
     </div>
+    {신고중 && (
+      <신고창 무엇="댓글" 대상={comment.content?.slice(0, 60)} 닫기={() => set신고중(false)}
+        보내기={(사유) => 신고보내기(() => communityApi.reportComment(comment.id, 사유), "댓글", 보이기)} />
+    )}
     {확인화면}
     {알림화면}
     </>
@@ -269,18 +211,20 @@ function CommentItem({
 
 // ── 메인 모달 ─────────────────────────────────────────────────────
 export default function PostDetailModal({
-  post: initialPost, onClose, onLikeToggled, onVoteUpdated, onDeleted,
+  post: initialPost, onClose, onLikeToggled, onVoteUpdated, onCommentCount, onDeleted,
 }: PostDetailModalProps) {
   const { 묻기, 화면: 확인화면 } = use확인();
   const { 보이기, 화면: 알림화면 } = use알림();
-  const { isLoggedIn, userId, username: myUsername } = useAuthStore();
+  const { isLoggedIn, userId } = useAuthStore();
+  const 나 = useMyProfile();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
   const [post, setPost] = useState(initialPost);
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [신고중, set신고중] = useState(false);
+  const [크게볼사진, set크게볼사진] = useState<string | null>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
   const uid = userId ?? undefined;
 
@@ -290,18 +234,27 @@ export default function PostDetailModal({
     return () => { document.body.style.overflow = ""; };
   }, []);
 
-  // Escape 키로 닫기
+  // Escape 키로 닫기 — 사진을 크게 보는 중이면 사진만 닫는다(사진보기가 따로 듣는다)
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape" && !크게볼사진) onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [onClose, 크게볼사진]);
 
   const { data: comments, isLoading: commentsLoading, refetch: refetchComments } = useQuery<Comment[]>({
     queryKey: ["modal-comments", post.id],
     queryFn: () => communityApi.getComments(post.id),
     staleTime: 30_000,
   });
+
+  /* 댓글을 달거나 지우면 목록의 댓글 수도 맞춘다 — 창을 닫고 돌아갔는데 숫자가 그대로면 안 달린 줄 안다.
+     수가 바뀔 때마다 알린다. 처음 받은 수가 목록과 같으면 바뀐 것이 없어 알리지 않는다(그 수로 시작했으니).
+     '처음 수와 다를 때만' 으로 막으면, 달았다(2→3) 지웠을 때(3→2) 목록이 3 에 머문다 */
+  const 댓글수 = comments ? 댓글모두(comments) : post.comment_count;
+  useEffect(() => {
+    if (comments) onCommentCount?.(post.id, 댓글수);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [댓글수]);
 
   const handleLike = async () => {
     if (!isLoggedIn) { navigate("/login"); return; }
@@ -332,16 +285,14 @@ export default function PostDetailModal({
     } catch {}
   };
 
+  /* 글 주소여야 한다 — 종목 게시판(/stocks/…)으로 보내면 받은 사람은 어떤 글 이야기인지 모른다 */
   const handleShare = async () => {
-    /* 글 주소여야 한다. 여기 있던 `/stocks/{시장}/{종목}` 은 그 종목의
-       게시판으로 갈 뿐이라, 링크를 받은 사람은 어떤 글 이야기인지
-       알 수 없었다. 글 상세 화면은 처음부터 `/post/{id}` 를 준다 */
-    const url = `${window.location.origin}/post/${post.id}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {}
+    const 알림 = 공유알림(await 글공유(글주소(post.id), post.title || undefined));
+    if (알림) 보이기(알림.글, 알림.종류);
+  };
+  const handleCopy = async () => {
+    const 알림 = 공유알림(await 링크복사(글주소(post.id)));
+    if (알림) 보이기(알림.글, 알림.종류);
   };
 
   const handleDelete = () => 묻기({
@@ -363,9 +314,10 @@ export default function PostDetailModal({
     setSubmittingComment(true);
     setCommentText("");
     const tempId = -Date.now();
+    // 서버가 답하기 전에 먼저 얹는다 — 내 닉네임·색·사진으로(아이디 첫 글자가 아니라)
     const tempComment = {
       id: tempId, post_id: post.id, user_id: uid ?? 0,
-      username: myUsername ?? "나", avatar_color: 0,
+      username: 나.displayName, avatar_color: 나.avatarColor, avatar_url: 나.avatarUrl,
       content: txt, like_count: 0, liked: false, is_mine: true,
       created_at: new Date().toISOString(), replies: [],
     };
@@ -383,7 +335,16 @@ export default function PostDetailModal({
     }
   };
 
-  const commentCount = comments?.length ?? post.comment_count;
+  const 포트폴리오글 = !!(post.portfolio && post.portfolio.length > 0);
+  /* 피드 목록에서 넘어온 글은 사진을 빼고 '있다' 는 표시만 들고 있다 — 예전에는 그래서 댓글 창에 사진이
+     안 나왔다. 목록 카드처럼 사진 주소로 받는다 */
+  const 사진 = post.image || (post.has_image ? `${API_BASE}/community/posts/${post.id}/image` : "");
+  const 메뉴: 메뉴항목[] = [
+    { 이름: "링크 복사", 아이콘: Link2, 누르면: handleCopy },
+    ...(post.is_mine
+      ? [{ 이름: "삭제", 아이콘: Trash2, 위험: true, 누르면: handleDelete }]
+      : isLoggedIn ? [{ 이름: "신고", 아이콘: Flag, 위험: true, 누르면: () => set신고중(true) }] : []),
+  ];
 
   return (
     <>
@@ -396,62 +357,34 @@ export default function PostDetailModal({
 
       {/* 모달 패널 */}
       <div
+        role="dialog" aria-modal="true" aria-label="댓글"
         className="relative z-10 w-full sm:max-w-2xl max-h-[92dvh] sm:max-h-[85dvh] bg-bg-card border border-border rounded-t-3xl sm:rounded-3xl flex flex-col shadow-modal animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-          <div className="flex items-center gap-3">
-            <Avatar
-              username={post.username}
-              colorIndex={post.avatar_color}
-              userId={post.user_id}
-              isMine={post.is_mine}
-              onNavigate={onClose}
-            />
-            <div>
+        <div className="flex items-center justify-between gap-2 px-5 py-3.5 border-b border-border shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <Avatar username={post.username} colorIndex={post.avatar_color} avatarUrl={post.avatar_url}
+              userId={post.user_id} isMine={post.is_mine} size="lg" />
+            <div className="min-w-0">
               <Link
                 to={post.is_mine ? "/mypage" : `/profile/${post.user_id}`}
                 onClick={onClose}
-                className="text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors"
+                className="block text-sm font-semibold text-text-primary hover:text-accent-blue transition-colors truncate"
               >
                 {post.username}
               </Link>
               <p className="text-2xs text-text-dim">{timeAgo(post.created_at)}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {!(post.portfolio && post.portfolio.length > 0) && (
-              <>
-                <span className={`text-2xs font-bold px-2 py-0.5 rounded border ${
-                  post.market === "KR" ? "bg-accent-blue/15 text-accent-blue border-accent-blue/20" :
-                  post.market === "US" ? "bg-accent-green/15 text-accent-green border-accent-green/20" :
-                  "bg-accent-purple/15 text-accent-purple border-accent-purple/20"
-                }`}>{post.market}</span>
-                <Link
-                  to={`/stocks/${post.market}/${post.symbol}`}
-                  onClick={onClose}
-                  className="text-2xs font-semibold text-accent-blue hover:underline"
-                >
-                  {post.symbol}
-                </Link>
-              </>
-            )}
-            {post.is_mine && (
-              <button
-                onClick={handleDelete}
-                className="p-2 rounded-xl text-text-dim hover:text-accent-red hover:bg-accent-red/10 transition-all"
-                aria-label="게시글 삭제"
-                title="삭제"
-              >
-                <Trash2 size={14} />
-              </button>
-            )}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {!포트폴리오글 && <종목칩 symbol={post.symbol} market={post.market} name={post.name} onClick={onClose} />}
+            <글메뉴 항목들={메뉴} 이름="글 메뉴" />
             <button
               onClick={onClose}
               aria-label="닫기"
               title="닫기"
-              className="p-2 rounded-xl text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all"
+              className="p-2 -mr-2 rounded-xl text-text-dim hover:text-text-primary hover:bg-bg-elevated transition-all"
             >
               <X size={16} />
             </button>
@@ -460,7 +393,6 @@ export default function PostDetailModal({
 
         {/* 스크롤 가능 본문 */}
         <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 flex flex-col gap-4 min-h-0">
-          {/* 게시글 내용 */}
           <div>
             {post.title && (
               <p className="text-base font-bold text-text-primary mb-2">{post.title}</p>
@@ -470,12 +402,13 @@ export default function PostDetailModal({
             </p>
           </div>
 
-          {post.portfolio && post.portfolio.length > 0 && (
-            <PortfolioSnapshot items={post.portfolio} />
-          )}
+          {포트폴리오글 && <PortfolioSnapshot items={post.portfolio!} />}
 
-          {post.image && (
-            <img src={post.image} alt="첨부 이미지" className="w-full rounded-xl object-cover max-h-72" />
+          {사진 && (
+            <button type="button" aria-label="사진 크게 보기" onClick={() => set크게볼사진(사진)}
+              className="block w-full overflow-hidden rounded-xl border border-border/60">
+              <img src={사진} alt="첨부 사진" className="w-full object-cover max-h-72" />
+            </button>
           )}
 
           {post.poll && (
@@ -489,7 +422,7 @@ export default function PostDetailModal({
                   <button
                     key={i}
                     onClick={() => !voted && handleVote(i)}
-                    disabled={voted || !isLoggedIn}
+                    disabled={voted}
                     className={`relative w-full text-left px-3 py-2 rounded-lg border text-xs overflow-hidden transition-all ${
                       isChosen ? "border-accent-blue/50" : "border-border hover:border-accent-blue/30"
                     }`}
@@ -507,55 +440,53 @@ export default function PostDetailModal({
                   </button>
                 );
               })}
-              <p className="text-2xs text-text-dim text-right">총 {post.poll.total}표</p>
+              <p className="text-2xs text-text-dim text-right">{post.poll.total}명 투표</p>
             </div>
           )}
 
           {post.tags && post.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {post.tags.map((t) => (
                 <Link
-                  key={t.symbol}
+                  key={`${t.market}-${t.symbol}`}
                   to={`/stocks/${t.market}/${t.symbol}`}
                   onClick={onClose}
-                  className="text-2xs font-semibold px-1.5 py-0.5 rounded bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 transition-colors"
+                  className="text-xs font-semibold text-accent-blue hover:underline"
                 >
-                  #{(t as any).market === "KR" && (t as any).name ? (t as any).name : t.symbol}
+                  #{t.market === "KR" && t.name ? t.name : t.symbol}
                 </Link>
               ))}
             </div>
           )}
 
-          {/* 액션 바 */}
-          <div className="flex items-center gap-4 py-2 border-t border-b border-border/50">
-            <button
-              onClick={handleLike}
-              className={`flex items-center gap-1.5 text-sm transition-all active:scale-90 ${post.liked ? "text-accent-red" : "text-text-dim hover:text-accent-red"}`}
-            >
-              <Heart size={14} className={post.liked ? "fill-accent-red" : ""} />
-              <span className={post.liked ? "font-semibold" : ""}>{post.like_count > 0 ? post.like_count : "좋아요"}</span>
+          {/* 액션 바 — 아이콘과 숫자만 */}
+          <div className="flex items-center gap-1 -ml-2 py-1 border-t border-b border-border/50">
+            <button onClick={handleLike} aria-pressed={post.liked}
+              aria-label={post.like_count > 0 ? `좋아요 ${post.like_count}` : "좋아요"}
+              className={cn("flex items-center gap-1.5 min-h-[40px] px-2 rounded-full text-sm transition-all active:scale-90",
+                post.liked ? "text-accent-red" : "text-text-muted hover:text-accent-red")}>
+              <Heart size={17} className={post.liked ? "fill-accent-red" : ""} />
+              {post.like_count > 0 && <span className="num font-medium">{post.like_count}</span>}
             </button>
 
-            <button
-              onClick={() => commentInputRef.current?.focus()}
-              className="flex items-center gap-1.5 text-sm text-text-dim hover:text-accent-blue transition-colors"
-            >
-              <MessageSquare size={14} />
-              <span>{commentCount > 0 ? `댓글 ${commentCount}` : "댓글"}</span>
+            <button onClick={() => commentInputRef.current?.focus()}
+              aria-label={댓글수 > 0 ? `댓글 ${댓글수}` : "댓글"}
+              className="flex items-center gap-1.5 min-h-[40px] px-2 rounded-full text-sm text-text-muted hover:text-accent-blue transition-colors">
+              <MessageCircle size={17} />
+              {댓글수 > 0 && <span className="num font-medium">{댓글수}</span>}
             </button>
 
-            <span className="flex items-center gap-1 text-sm text-text-dim">
-              <Eye size={13} />
-              <span>{post.view_count ?? 0}</span>
-            </span>
-
-            <button
-              onClick={handleShare}
-              className="flex items-center gap-1.5 text-sm text-text-dim hover:text-text-primary transition-colors ml-auto"
-            >
-              <Share2 size={14} />
-              <span>{copied ? "복사됨!" : "공유"}</span>
+            <button onClick={handleShare} aria-label="공유"
+              className="flex items-center justify-center min-h-[40px] min-w-[40px] px-2 rounded-full text-text-muted hover:text-text-primary transition-colors">
+              <Share2 size={17} />
             </button>
+
+            {(post.view_count ?? 0) > 0 && (
+              <span className="ml-auto flex items-center gap-1 text-xs text-text-dim" aria-label={`조회 ${post.view_count}`}>
+                <Eye size={13} />
+                <span className="num">{post.view_count}</span>
+              </span>
+            )}
           </div>
 
           {/* 댓글 목록 */}
@@ -581,25 +512,28 @@ export default function PostDetailModal({
           </div>
         </div>
 
-        {/* 댓글 입력 */}
-        <div className="shrink-0 px-5 py-3 border-t border-border pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        {/* 댓글 입력 — 내 아바타와 함께 */}
+        <div className="shrink-0 px-4 py-3 border-t border-border pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           {isLoggedIn ? (
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <Avatar username={나.displayName} colorIndex={나.avatarColor} avatarUrl={나.avatarUrl} size="md" />
               <input
                 ref={commentInputRef}
+                aria-label="댓글 쓰기"
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submitComment()}
                 placeholder="댓글을 입력하세요..."
                 maxLength={COMMENT_MAX}
-                className="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-xl text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
+                className="flex-1 min-w-0 px-3.5 py-2 bg-bg-elevated border border-border rounded-full text-sm text-text-primary placeholder:text-text-dim focus:outline-none focus:border-accent-blue/50"
               />
               <button
                 onClick={submitComment}
+                aria-label="댓글 올리기"
                 disabled={!commentText.trim() || submittingComment}
-                className="px-4 py-2 bg-accent-blue text-white text-sm rounded-xl disabled:opacity-40 hover:bg-accent-blue/90 transition-colors"
+                className="p-2.5 bg-accent-blue text-white rounded-full disabled:opacity-40 hover:bg-accent-blue/90 transition-colors"
               >
-                {submittingComment ? "..." : <Send size={14} />}
+                <Send size={16} />
               </button>
             </div>
           ) : (
@@ -613,6 +547,11 @@ export default function PostDetailModal({
         </div>
       </div>
     </div>
+    {신고중 && (
+      <신고창 무엇="글" 대상={(post.title || post.body || "").slice(0, 60)} 닫기={() => set신고중(false)}
+        보내기={(사유) => 신고보내기(() => communityApi.reportPost(post.id, 사유), "글", 보이기)} />
+    )}
+    {크게볼사진 && <사진보기 주소={크게볼사진} 닫기={() => set크게볼사진(null)} />}
     {확인화면}
     {알림화면}
     </>
