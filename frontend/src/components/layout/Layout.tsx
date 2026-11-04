@@ -5,6 +5,7 @@ import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
+import { 테마적용 } from "@/utils/테마";
 import SearchBar from "@/components/layout/SearchBar";
 import InstallAppButton from "@/components/layout/InstallAppButton";
 import LoadingProgressOverlay from "@/components/layout/LoadingProgressOverlay";
@@ -112,10 +113,10 @@ export default function Layout() {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  useEffect(() => {
-    document.documentElement.classList.toggle("light", isLight);
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", isLight ? "#f0f4f8" : "#0b0e17");
-  }, [isLight]);
+  /* 앱이 고른 밝기를 브라우저에도 알린다 — 클래스·색 모드(color-scheme)·상태 표시줄 색을 한꺼번에. 색 모드를
+     기기 설정에 맡겨 두었더니 브라우저 부품과 '웹사이트 어둡게' 덧칠이 기기 설정을 따라, 같은 다크모드인데 색이
+     달랐다(utils/테마.ts) */
+  useEffect(() => { 테마적용(isLight); }, [isLight]);
 
   /* 글씨 크기 클래스 적용 */
   useEffect(() => {

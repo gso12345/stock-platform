@@ -70,6 +70,13 @@ html.light {
   --accent-focus: #2563eb;
 }
 
+/* ── 브라우저가 그리는 것도 앱 설정을 따른다 ──
+   스크롤바·고르기 목록·날짜 달력·체크박스·자동 채움은 브라우저가 그리고, 그 색은 이 값이 정한다. 비워 두면
+   기기 설정을 따라 '앱은 다크인데 달력은 하얀' 화면이 됐다. 라이트는 'only' 를 붙인다 — 그래야 크롬 '웹사이트
+   어둡게'·삼성 인터넷 다크 모드가 앱 라이트 위에 제 다크 처리를 덧칠하지 않는다(utils/테마.ts). */
+html { color-scheme: dark; }
+html.light { color-scheme: only light; }
+
 @layer base {
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 

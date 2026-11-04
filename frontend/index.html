@@ -2,9 +2,16 @@
 <html lang="ko" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <!-- 브라우저에 알리는 색 모드·휴대폰 상태 표시줄 색. 기본은 다크이고, 아래 스크립트가 앱 설정대로 바꾼다.
+         'dark light'(둘 다 된다)로 두면 브라우저가 기기 설정을 보고 골라서, 앱 설정과 따로 놀았다 —
+         브라우저 부품(달력·고르기 목록)의 색, 크롬 '웹사이트 어둡게' 의 덧칠이 기기 설정을 따랐다(utils/테마.ts). -->
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0f1117" />
     <!-- 기본 테마가 '시스템' 이다. 화면을 그리기 전에 라이트로 바꿔 두지 않으면
          라이트 모드 기기에서 앱이 뜨는 순간 다크로 번쩍한다(Layout 이 붙기 전).
-         Layout.tsx 와 같은 규칙: 저장값 → 옛 'theme' 키 → 기기 설정 -->
+         Layout.tsx 와 같은 규칙: 저장값 → 옛 'theme' 키 → 기기 설정.
+         칠하는 것도 utils/테마.ts 의 테마적용 과 같다 — 클래스·색 모드·상태 표시줄 색을 한꺼번에(여기서는 그 파일을
+         못 불러 같은 일을 다시 적었다. 둘이 같은지는 utils/__tests__/테마.test.ts 가 돌려 본다) -->
     <script>
       (function () {
         try {
@@ -16,7 +23,13 @@
           }
           var light = t === "light" || (t === "system" && window.matchMedia &&
                       window.matchMedia("(prefers-color-scheme: light)").matches);
-          if (light) document.documentElement.classList.add("light");
+          var html = document.documentElement;
+          html.classList.toggle("light", !!light);
+          html.classList.toggle("dark", !light);
+          var cs = document.querySelector('meta[name="color-scheme"]');
+          if (cs) cs.setAttribute("content", light ? "only light" : "dark");
+          var tc = document.querySelector('meta[name="theme-color"]');
+          if (tc) tc.setAttribute("content", light ? "#f8fafc" : "#0f1117");
         } catch (e) {}
       })();
     </script>
@@ -59,8 +72,6 @@
 
     <!-- ── PWA(앱 설치) ───────────────────────────────────── -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#0b0e17" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

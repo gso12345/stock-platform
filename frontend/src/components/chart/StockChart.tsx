@@ -9,6 +9,7 @@ import {
 import { 구름시리즈 } from "./CloudSeries";
 import type { ChartType } from "./candles";
 import { useSettingsStore, type ColorScheme } from "@/store/settingsStore";
+import { use밝은테마 } from "@/hooks/use밝은테마";
 
 /* ── 내보내기 (StockDetail에서 사용) ────────────────────── */
 export const CANDLE_TYPES = [
@@ -93,8 +94,9 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function getThemeColors(colorScheme: ColorScheme) {
-  const isLight = typeof document !== "undefined" && document.documentElement.classList.contains("light");
+/** 밝음 — 지금 화면이 라이트인가(use밝은테마). 예전엔 여기서 클래스를 한 번 읽어, 차트가 떠 있는 동안 테마가 바뀌면
+ *  옛 색이 남았다 */
+export function getThemeColors(colorScheme: ColorScheme, isLight: boolean) {
   // 상승/하락 색상 — 설정의 색상 테마(빨강/파랑 vs 초록/빨강)를 차트에도 동일하게 적용
   const up   = colorScheme === "red-blue" ? "#ef4444" : "#10b981";
   const down = colorScheme === "red-blue" ? "#3b82f6" : "#ef4444";
@@ -430,6 +432,8 @@ export function 봉읽기(
 /* ── 메인 컴포넌트 ──────────────────────────────────────── */
 export default function StockChart({ data, height = 400, isKR = false, chartType = "candle", logScale = false }: Props) {
   const { colorScheme } = useSettingsStore();
+  /* 테마가 바뀌면 차트를 새 색으로 다시 그린다 — 예전엔 만들 때 한 번만 읽어, 떠 있는 동안 바뀌면 옛 색이 남았다 */
+  const 밝음 = use밝은테마();
   const mainRef = useRef<HTMLDivElement>(null);
   const rsiRef  = useRef<HTMLDivElement>(null);
   const macdRef = useRef<HTMLDivElement>(null);
@@ -534,7 +538,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
   /* ── 차트 전체 재생성 ─────────────────────────────────── */
   useEffect(() => {
     if (!mainRef.current || !data.length) return;
-    const C = getThemeColors(colorScheme);
+    const C = getThemeColors(colorScheme, 밝음);
     const ohlcv = preprocessData(data);
     ohlcvRef.current = ohlcv;
     const s = settingsRef.current;
@@ -996,7 +1000,7 @@ export default function StockChart({ data, height = 400, isKR = false, chartType
       subRefs.current.forEach(c => { try { c.remove(); } catch {} });
       subRefs.current.clear();
     };
-  }, [data, chartType, isKR, colorScheme, indicatorToggles]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, chartType, isKR, colorScheme, indicatorToggles, 밝음]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* 높이만 바뀌면 기존 차트를 그대로 두고 크기만 바꾼다.
      부수고 다시 만들면 보고 있던 확대·스크롤 위치까지 초기화된다. */
