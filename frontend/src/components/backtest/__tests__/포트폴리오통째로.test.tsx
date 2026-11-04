@@ -163,6 +163,8 @@ describe("단추가 보이고, 누르면 비중 그대로 들어온다", () => {
        그대로 담아 놓고 비중이 안 먹는, 화면에는 75/25 로 적혀 있는데
        결과는 50/50 인 상태가 된다. 오류도 안 나고 표시도 없다. */
     const { 지금값 } = 그리기();
+    // 배분 기준은 '고급 설정' 안에 접혀 있다
+    await userEvent.click(screen.getByRole("button", { name: /고급 설정/ }));
     await userEvent.click(screen.getByLabelText("배분 기준"));
     await userEvent.selectOptions(screen.getByLabelText("배분 기준"), "equal");
     await waitFor(() => expect(지금값().equal_weight).toBe(true));

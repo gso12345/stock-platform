@@ -338,10 +338,11 @@ export default function Strategies() {
 
                     {/* Footer / Actions */}
                     <div className="px-4 pb-4 pt-2 flex gap-2 border-t border-border/60 mt-1">
+                      {/* 이 전략을 실어 보낸다 — 예전엔 백테스트 첫 화면만 열려, 무엇을 누른 것인지 사라졌다 */}
                       <Button
                         size="sm"
                         className="flex-1"
-                        onClick={() => navigate("/backtest")}
+                        onClick={() => navigate(`/backtest?strategy=${s.id}`)}
                       >
                         <BarChart2 size={13} className="inline mr-1" />
                         백테스트 실행

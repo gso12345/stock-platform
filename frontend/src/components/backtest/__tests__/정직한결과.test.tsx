@@ -11,7 +11,7 @@
  *   ③ 샤프가 **무위험 몇 %를 뺀** 수라는 사실
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useSearchParams } from "react-router-dom";
@@ -71,6 +71,10 @@ async function 단일돌리기(결과 = 단일) {
   상태.단일결과 = 결과;
   그리기();
   await userEvent.click(screen.getByRole("tab", { name: "단일 종목" }));
+  /* 기간은 오늘에서 거슬러 잡는 것이 기본이라, 검사는 날짜를 못 박아 둔다 — 안 그러면 오늘이 며칠이냐에 따라
+     '늦게 시작했다' 가 뜨고 안 뜬다 */
+  fireEvent.change(screen.getByLabelText("시작일"), { target: { value: "2020-01-01" } });
+  fireEvent.change(screen.getByLabelText("종료일"), { target: { value: "2024-12-31" } });
   await userEvent.click(screen.getByRole("button", { name: /백테스트 실행/ }));
   return await screen.findByText("총 수익률");
 }
@@ -96,7 +100,7 @@ describe("유니버스는 생존 편향을 말한다", () => {
                 + "결과가 좋게 나옵니다.",
     };
     그리기();
-    await userEvent.click(screen.getByRole("tab", { name: "유니버스 전체" }));
+    await userEvent.click(screen.getByRole("tab", { name: "유니버스" }));
     await userEvent.click(screen.getByRole("button", { name: /유니버스 백테스트/ }));
     expect(await screen.findByText(/상장폐지/),
       "생존 편향을 한 글자도 안 알린다").toBeInTheDocument();
@@ -108,7 +112,7 @@ describe("유니버스는 생존 편향을 말한다", () => {
       universe: "SP500", total_symbols: 316, tested: 300, results: [],
     };
     그리기();
-    await userEvent.click(screen.getByRole("tab", { name: "유니버스 전체" }));
+    await userEvent.click(screen.getByRole("tab", { name: "유니버스" }));
     await userEvent.click(screen.getByRole("button", { name: /유니버스 백테스트/ }));
     await screen.findByText(/종목 분석 완료/);
     expect(screen.queryByText(/상장폐지/)).toBeNull();
@@ -118,7 +122,7 @@ describe("유니버스는 생존 편향을 말한다", () => {
     /* 실제로는 손으로 고른 316개다. 지수 이름을 쓰면 사람은 그 지수
        전부를 잰 줄 안다. */
     그리기();
-    await userEvent.click(screen.getByRole("tab", { name: "유니버스 전체" }));
+    await userEvent.click(screen.getByRole("tab", { name: "유니버스" }));
     expect(screen.queryByText(/S&P 500/),
       "손으로 고른 목록에 지수 이름을 붙였다").toBeNull();
     //: 목록이 셋(미국·KOSPI·KOSDAQ)이라 여러 개가 나온다
@@ -185,7 +189,7 @@ describe("무엇을 가정하고 잰 수인지 적는다", () => {
   });
 
   it("요청한 대로 쟀으면 괜히 안 적는다", async () => {
-    await 단일돌리기();          // 기본 시작일이 2020-01-01 이고 결과는 01-02
+    await 단일돌리기();          // 시작일 2020-01-01 로 요청했고 결과는 01-02
     expect(screen.queryByText(/시세가 그 전에는 없음/)).toBeNull();
   });
 });

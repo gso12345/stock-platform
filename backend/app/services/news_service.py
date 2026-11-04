@@ -681,6 +681,34 @@ def strip_internal_fields(articles: list[dict]) -> list[dict]:
 _strip_ts = strip_internal_fields
 
 
+def 같은기사빼기(articles: list[dict]) -> list[dict]:
+    """같은 기사는 처음 것 하나만 남긴다(순서는 그대로 — 부르는 쪽이 최신순으로 줘서 최신 것이 남는다).
+
+    국내·미국을 오가면 뉴스가 섞이던 오류의 뿌리다. 피드 한 곳이 같은 기사를 두 번 싣는 일이 있는데(분류마다
+    한 번씩, 또는 주소 꼬리만 바꿔서) 새로 받은 기사끼리는 안 걸렀다 — 지난 기사와 새 기사 사이만 걸렀다.
+    화면은 기사 주소를 이름표(key)로 쓰는데, 이름표가 겹치면 목록을 바꿀 때 앞 목록의 기사가 지워지지 않고
+    남았다(미국 증시 뉴스 맨 위에 국내 기사 둘이 두 번씩). 같은 기사가 두 번이면 인기순 점수도 부풀었다 —
+    제목 낱말이 두 번 세어져 그 기사가 맨 위로 올라갔다.
+
+    같은 기사 — 주소가 같거나, 같은 언론사의 같은 제목. 언론사가 다르면 제목이 같아도 남긴다(통신사 기사를
+    여러 곳이 받아 쓴 것은 출처가 다른 기사다)."""
+    본주소: set[str] = set()
+    본제목: set[tuple[str, str]] = set()
+    남길것: list[dict] = []
+    for a in articles or []:
+        주소 = (a.get("link") or "").strip()
+        제목 = (a.get("title") or "").strip()
+        출처제목 = ((a.get("source") or "").strip(), 제목) if 제목 else None
+        if (주소 and 주소 in 본주소) or (출처제목 and 출처제목 in 본제목):
+            continue
+        if 주소:
+            본주소.add(주소)
+        if 출처제목:
+            본제목.add(출처제목)
+        남길것.append(a)
+    return 남길것
+
+
 def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: int) -> list[dict]:
     # 배포 직후처럼 캐시가 비어 있으면 목록이 한두 언론사로만 채워져 보인다.
     # 나눠 가져오도록 설정했더라도(NEWS_FEED_BATCH) 이때 한 번은 넓게 가져온다.
@@ -697,6 +725,10 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
             # 49곳을 처음부터 다시 훑는다(실측 2.8초/요청, 응답은 빈 배열)
             cache.set(f"{ck}:miss", True, NEWS_MISS_TTL)
         return _strip_ts(stale) if stale else []
+    # 새로 받은 기사끼리도 같은 것을 뺀다 — 최신 것이 남게 먼저 시간순으로. 점수를 매기기 전에 빼야 같은
+    # 기사가 제목 낱말을 두 번 세어 인기순 맨 위로 올라가지 않는다(같은기사빼기 참고)
+    all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
+    all_news = 같은기사빼기(all_news)
     _add_trending_score(all_news)
 
     # 일부 언론사 피드가 이번 회차에 타임아웃/실패해도 그 언론사의 최근 기사가
@@ -715,6 +747,8 @@ def _do_refresh_news(ck: str, feeds: list, limit_per_source: int, total_limit: i
 
     # 실제 발행 시각(_ts) 기준 정렬 — 언론사별 상한 없이 순수 시간순으로 정렬
     all_news.sort(key=lambda x: x.get("_ts", 0), reverse=True)
+    # 지난 기사와 새 기사 사이 — 주소는 위에서 걸렀고, 주소 꼬리만 다른 같은 언론사·같은 제목을 여기서 뺀다
+    all_news = 같은기사빼기(all_news)
     result = all_news[:total_limit]
     cache.set(ck, result, 300)
     _refreshing.pop(ck, None)

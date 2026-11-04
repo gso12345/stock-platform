@@ -24,6 +24,7 @@ import { portfolioApi, type 보유뉴스응답, type 보유뉴스항목 } from "
 import { Card, 못불러옴 } from "@/components/ui";
 import { safeExternalUrl } from "@/utils/url";
 import { fmtNewsDateTime } from "@/utils/formatters";
+import { 같은기사빼기, 기사열쇠 } from "@/utils/뉴스";
 import { 하루수명, 재촉주기 } from "@/constants/portfolioQuery";
 
 /** 한글이 한 글자라도 있나 — 자모까지 본다(ㄱ~ㅎ, 가~힣) */
@@ -106,7 +107,8 @@ export default function 보유뉴스({ portfolioId, 미리보기 }: {
      사람에게는 절반이 그냥 지나가는 줄이었고, 반대로 원문을 보려는
      사람은 한국 기사 사이에서 영어 기사를 찾아야 했다. */
   const [칸, set칸] = useState<뉴스칸>("전체");
-  const 전체기사 = data?.items ?? [];
+  /* 같은 기사가 두 번 오면 하나만 — 겹친 이름표(key)가 칩을 바꿀 때 앞 목록의 기사를 화면에 남긴다(utils/뉴스) */
+  const 전체기사 = useMemo(() => 같은기사빼기(data?.items), [data?.items]);
   const 칸별수 = useMemo(() => ({
     전체: 전체기사.length,
     국내: 전체기사.filter((it) => 한국기사인가(it)).length,
@@ -187,7 +189,7 @@ export default function 보유뉴스({ portfolioId, 미리보기 }: {
            아래로만 길어진다 */
         <ul className="lg:grid lg:grid-cols-2">
           {기사들.map((item) => (
-            <li key={item.link || item.title} className="border-t border-border/40 lg:odd:border-r">
+            <li key={기사열쇠(item)} className="border-t border-border/40 lg:odd:border-r">
               {/* 주소가 없는 줄(예시)은 링크로 안 만든다 — 눌러도 아무
                   데도 안 가는 링크는 고장으로 보인다 */}
               {(() => {

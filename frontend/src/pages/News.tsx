@@ -1,4 +1,4 @@
-import { useState, memo } from "react";
+import { useState, useMemo, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Newspaper, RefreshCw } from "lucide-react";
 import { dashboardApi } from "@/api/stocks";
@@ -6,6 +6,7 @@ import { 빌때재촉 } from "@/utils/refetch";
 import type { 뉴스항목 } from "@/types";
 import { Card, Tabs, 빈화면, 못불러옴 } from "@/components/ui";
 import { fmtNewsDateTime } from "@/utils/formatters";
+import { 같은기사빼기, 기사열쇠 } from "@/utils/뉴스";
 
 type MarketTab = "kr" | "us";
 type SortTab = "latest" | "popular";
@@ -118,8 +119,9 @@ export default function News() {
     refetchIntervalInBackground: false,
   });
 
-  // 정렬·이미지 필터는 모두 서버가 처리한다 (인기도 산식을 노출하지 않기 위해)
-  const sorted = news ?? [];
+  // 정렬·이미지 필터는 모두 서버가 처리한다 (인기도 산식을 노출하지 않기 위해).
+  // 같은 기사가 두 번 오면 하나만 — 겹친 이름표(key)가 국내·미국을 오갈 때 앞 목록의 기사를 화면에 남겼다(utils/뉴스)
+  const sorted = useMemo(() => 같은기사빼기(news), [news]);
 
   const shown = sorted.slice(0, shownCount);
   const remaining = sorted.length - shown.length;
@@ -198,8 +200,8 @@ export default function News() {
         ) : sorted.length > 0 ? (
           <>
             <ul>
-              {shown.map((item: any, i: number) => (
-                <NewsItem key={item.link || i} item={item} />
+              {shown.map((item: any) => (
+                <NewsItem key={기사열쇠(item)} item={item} />
               ))}
             </ul>
             {remaining > 0 && (

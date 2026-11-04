@@ -12,7 +12,7 @@
  *      사실이 보여야 한다. 조용히 빼면 사용자는 다 담은 줄 안다.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -115,6 +115,11 @@ async function 검색해서담기(이름: string) {
   await userEvent.click(screen.getByLabelText(`${이름} 담기`));
 }
 
+/** 자주 안 바꾸는 여덟 칸은 '고급 설정' 안에 접혀 있다(사용자가 고른 5번) — 열고 본다 */
+async function 고급열기() {
+  await userEvent.click(screen.getByRole("button", { name: /고급 설정/ }));
+}
+
 beforeEach(() => {
   돌린것.length = 0; 저장한것.length = 0; vi.clearAllMocks();
   상태.로그인함 = true; 상태.실험들 = [];
@@ -123,12 +128,14 @@ beforeEach(() => {
 });
 
 describe("사진의 항목이 다 있다", () => {
-  it("여섯 가지가 화면에 있다", () => {
+  it("여섯 가지가 화면에 있다 — 토탈 리턴은 고급 설정 안에", async () => {
     그리기();
     for (const 이름 of ["테스트 기간", "테스트 금액", "테스트 자산",
                         "추가 납입 금액", "리밸런싱 주기"]) {
       expect(screen.getByText(이름), `${이름} 이 없다`).toBeInTheDocument();
     }
+    expect(screen.queryByText(/토탈 리턴/), "자주 안 바꾸는 칸이 펼쳐져 있다").toBeNull();
+    await 고급열기();
     expect(screen.getByText(/토탈 리턴/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /결과 확인/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^저장/ })).toBeInTheDocument();
@@ -174,6 +181,15 @@ describe("사진의 항목이 다 있다", () => {
     expect(안고름.className, "안 고른 칩까지 강조색이다").not.toMatch(/border-accent-blue(?!\/)/);
   });
 
+  it("날짜를 손으로 고치면 칩이 풀린다 — 고른 기간과 날짜가 어긋난 채 칩이 눌려 있지 않게", async () => {
+    그리기();
+    expect(screen.getByLabelText("10년").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.change(screen.getByLabelText("시작일"), { target: { value: "2019-03-01" } });
+    for (const 년 of [1, 3, 5, 10, 20, 30]) {
+      expect(screen.getByLabelText(`${년}년`).getAttribute("aria-pressed"), `${년}년이 아직 눌려 있다`).toBe("false");
+    }
+  });
+
   it("빠른 기간에 1·3·5·10년이 있다", () => {
     for (const 년 of [1, 3, 5, 10]) expect(빠른기간).toContain(년);
   });
@@ -196,8 +212,9 @@ describe("사진의 항목이 다 있다", () => {
 });
 
 describe("사진에 있던 나머지 항목", () => {
-  it("여덟 가지 고르기 칸이 다 있다", () => {
+  it("여덟 가지 고르기 칸이 다 있다", async () => {
     그리기();
+    await 고급열기();
     for (const 이름 of ["리밸런싱 주기", "리밸런싱 날짜",
                         "벤치 마크", "거래비용", "배분 기준"]) {
       expect(screen.getByLabelText(이름), `${이름} 칸이 없다`).toBeInTheDocument();
@@ -206,10 +223,11 @@ describe("사진에 있던 나머지 항목", () => {
     expect(screen.getByLabelText("통화")).toBeInTheDocument();
   });
 
-  it("리밸런싱 날짜가 1~28일만 준다", () => {
+  it("리밸런싱 날짜가 1~28일만 준다", async () => {
     /* 29~31 은 없는 달이 있다. '31일' 을 고르면 2월이 통째로 빠지는데
        그게 화면에는 안 보인다 — 애초에 못 고르게 한다. */
     그리기();
+    await 고급열기();
     const 날 = screen.getByLabelText("리밸런싱 날짜") as HTMLSelectElement;
     const 값들 = [...날.options].map((o) => Number(o.value));
     expect(값들[0]).toBe(1);
@@ -222,6 +240,7 @@ describe("사진에 있던 나머지 항목", () => {
        목록에만 두면 자기 수수료가 없는 사람은 비슷한 값을 고르게
        되고, 그건 틀린 값으로 계산하는 것이다. */
     그리기();
+    await 고급열기();
     const 비용 = screen.getByLabelText("거래비용") as HTMLInputElement;
     expect(비용.tagName, "아직 드롭다운이다 — 직접 못 친다").toBe("INPUT");
     expect(비용.value, "기본이 0 이 아니다").toBe("");
@@ -229,8 +248,10 @@ describe("사진에 있던 나머지 항목", () => {
     expect(비용.value).toBe("0.037");
   });
 
-  it("흔한 수수료는 버튼으로 한 번에", async () => {
+  it("흔한 수수료는 버튼으로 한 번에 — '반영 안 함' 은 칩에 '없음' 으로(잘리지 않게)", async () => {
     그리기();
+    await 고급열기();
+    expect(screen.getByLabelText("거래비용 반영 안 함").textContent).toBe("없음");
     const 비용 = screen.getByLabelText("거래비용") as HTMLInputElement;
     await userEvent.click(screen.getByLabelText("거래비용 0.1%"));
     expect(비용.value).toBe("0.1");
@@ -238,8 +259,9 @@ describe("사진에 있던 나머지 항목", () => {
     expect(비용.value).toBe("");
   });
 
-  it("벤치마크를 고를 수 있다", () => {
+  it("벤치마크를 고를 수 있다", async () => {
     그리기();
+    await 고급열기();
     /* '데이터 기준(일/월)' 칸이 여기 같이 있었다. 없앴다 — 월로
        바꿔도 기다리는 시간은 거의 그대로인데(받는 자료가 같다)
        답은 2.7% 달라지고 낙폭은 늘 작게 나왔다. */
@@ -265,11 +287,12 @@ describe("사진에 있던 나머지 항목", () => {
     expect(보낼것(첫설정()).benchmark).toBe("spy");
   });
 
-  it("코스피와 코스피200 은 다른 것이다", () => {
+  it("코스피와 코스피200 은 다른 것이다", async () => {
     /* 앞은 지수 자체(^KS11)라 배당이 없고, 뒤는 그 지수를 따르는
        ETF(069500)라 배당이 있다. 같은 것으로 묶으면 배당만큼 차이나는
        결과를 같은 이름으로 보게 된다. */
     그리기();
+    await 고급열기();
     const 벤치 = screen.getByLabelText("벤치 마크") as HTMLSelectElement;
     const 글 = [...벤치.options].map((o) => o.textContent);
     expect(글).toContain("코스피");
@@ -589,7 +612,8 @@ describe("결과 — 넣은 돈과 번 돈을 섞지 않는다", () => {
       final_value: 98_000_000, total_return: 58.1, twr_annual: 9.2,
       irr_annual: 9.0, mdd: 22.4, volatility: 11.1, sharpe: 0.8, curve: [],
     } } as any} />);
-    expect(screen.getByText(/주식 60 · 채권 40 와 견주기/)).toBeInTheDocument();
+    /* 조사는 이름의 받침에 맞춘다 — '40' 은 '사십' 이라 '과' */
+    expect(screen.getByText(/주식 60 · 채권 40과 견주기/)).toBeInTheDocument();
     expect(screen.getByText("9.2%")).toBeInTheDocument();
     /* 견주는 칸의 금액은 줄여서 적는다 — 세 칸을 390px 에 나누면
        20자리가 잘리고, 잘린 돈은 억인지 조인지 알 수 없다.
@@ -615,7 +639,7 @@ describe("결과 — 넣은 돈과 번 돈을 섞지 않는다", () => {
     /* '-18.2%' 는 견주기 칸과 아래 '위험' 칸 두 군데에 나온다.
        화면 전체에서 찾으면 둘 다 걸리므로 견주기 칸 안에서만 찾는다. */
     const 견주기칸 = () => {
-      const 머리 = screen.getByText(/와 견주기/);
+      const 머리 = screen.getByText(/S&P500과 견주기/);
       return within(머리.closest("div")!.parentElement!);
     };
 
@@ -917,6 +941,8 @@ describe("계산하는 동안 진행률을 보여 준다", () => {
     await userEvent.click(screen.getByLabelText("1000만원"));
     await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
     await waitFor(() => expect(돌린것.length).toBe(1));
+    // 결과가 나오면 설정이 한 줄로 접힌다 — 펼치고 다시 돌린다
+    await userEvent.click(await screen.findByRole("button", { name: "설정 바꾸기" }));
     await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
     await waitFor(() => expect(돌린것.length).toBe(2));
     expect(돌린것[0].progress_key, "두 번 돌렸는데 열쇠가 같다")
@@ -958,19 +984,18 @@ describe("계산하는 동안 진행률을 보여 준다", () => {
   });
 });
 
-describe("폰에서 날짜 두 개가 다 보인다", () => {
-  it("좁은 화면에서는 세로로 쌓는다", () => {
-    /* 날짜 칸 두 개를 폰에서 나란히 두면 하나가 150px 도 안 된다.
-       거기에 브라우저가 붙이는 달력 단추까지 들어가는데, 그 단추
-       크기도 날짜 글자 모양도 기기·언어마다 다르다 — 한국어는
-       '2026. 09. 18.' 이라 영어보다 훨씬 넓다.
-
-       jsdom 에는 배치가 없어서 폭을 잴 수 없다. 그래서 **규칙**을
-       본다: 좁을 때 한 칸, 넓어지면 두 칸. */
+describe("기간 — 칩이 먼저, 날짜 두 칸은 한 줄", () => {
+  it("칩 줄이 날짜보다 위에 있고, 날짜 둘은 한 줄에 나란히", () => {
+    /* 예전엔 날짜 두 칸을 폰에서 세로로 쌓고 칩을 그 아래에 둬서 기간 하나에 세 줄을 썼다 — 제일 많이 누르는
+       칩이 맨 아래였다(사용자가 고른 6번). 날짜 칸 하나는 폰(390)에서 160px 남짓 — 한국어 날짜와 달력 단추가
+       들어가는 폭인지는 실제 폰 크기로 찍어 확인했다. jsdom 에는 배치가 없어 여기서는 **순서와 규칙**을 본다. */
     그리기();
-    const 칸 = screen.getByLabelText("시작일").closest("div")!.parentElement!;
-    expect(칸.className, "폰에서도 두 칸으로 나눠 놨다").toMatch(/grid-cols-1/);
-    expect(칸.className, "넓은 화면에서 두 칸으로 안 벌어진다").toMatch(/sm:grid-cols-2/);
+    const 칩 = screen.getByLabelText("3년");
+    const 시작 = screen.getByLabelText("시작일");
+    expect(칩.compareDocumentPosition(시작) & Node.DOCUMENT_POSITION_FOLLOWING, "칩이 날짜보다 아래에 있다").toBeTruthy();
+    const 칸 = 시작.closest("div")!.parentElement!;
+    expect(칸.className, "날짜 두 칸이 한 줄이 아니다").toMatch(/(^|\s)grid-cols-2/);
+    expect(칸.contains(screen.getByLabelText("종료일"))).toBe(true);
   });
 });
 
@@ -1089,7 +1114,7 @@ describe("저장했다는 것을 알려 준다", () => {
     await 저장까지();
     const 알림 = await screen.findByText(/저장했어요/);
     expect(알림).toBeInTheDocument();
-    expect(알림.textContent, "어디로 갔는지 안 알려 준다").toMatch(/전략 저장소/);
+    expect(알림.textContent, "어디로 갔는지 안 알려 준다").toMatch(/불러오기/);
   }, 20000);
 
   it("설정을 고치면 그 표시를 내린다", async () => {
@@ -1115,6 +1140,7 @@ describe("가정을 감추지 않는다", () => {
 
   it("무위험수익률과 현금 이자를 칠 수 있다", async () => {
     그리기();
+    await 고급열기();
     for (const 이름 of ["현금 이자", "무위험수익률"]) {
       expect(screen.getByLabelText(이름), `${이름} 칸이 없다`).toBeInTheDocument();
     }

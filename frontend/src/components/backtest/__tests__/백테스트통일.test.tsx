@@ -78,6 +78,7 @@ beforeEach(() => {
   상태.로그인함 = true; 상태.전략들 = []; 상태.단일결과 = null;
   useSettingsStore.getState().setColorScheme("red-blue");
 });
+afterEach(() => vi.unstubAllGlobals());
 
 describe("선 그래프는 공통 모양을 쓴다", () => {
   const 뿌리 = path.resolve(__dirname, "../../..");
@@ -116,13 +117,14 @@ describe("선 그래프는 공통 모양을 쓴다", () => {
 });
 
 describe("단일 종목 설정 — 자산배분과 같은 틀", () => {
-  it("'신규 테스트' 한 장에 칸 제목이 있다", async () => {
+  it("한 장의 카드에 칸 제목이 있다 — '신규 테스트' 제목 줄은 없다", async () => {
     그리기();
     await userEvent.click(screen.getByRole("tab", { name: "단일 종목" }));
-    expect(screen.getByRole("heading", { name: "신규 테스트" })).toBeInTheDocument();
-    for (const 제목 of ["테스트 종목", "테스트 기간", "자금 · 매매", "진입 · 청산 조건"]) {
+    expect(screen.queryByRole("heading", { name: "신규 테스트" }), "탭 줄이 이미 말하는 제목이 남아 있다").toBeNull();
+    for (const 제목 of ["테스트 종목", "테스트 기간", "초기 자본", "진입 · 청산 조건"]) {
       expect(screen.getByText(제목)).toBeInTheDocument();
     }
+    expect(screen.getByRole("button", { name: /고급 설정/ })).toBeInTheDocument();
   });
 
   it("기간 단추는 오늘에서 거슬러 잰다", async () => {
@@ -134,13 +136,26 @@ describe("단일 종목 설정 — 자산배분과 같은 틀", () => {
     expect(screen.getByLabelText("종료일"), "끝이 오늘이 아니다").toHaveValue(end_date);
   });
 
-  it("탭 설명이 탭마다 다르다 — 처음 열리는 자산배분에는 진입·청산 조건이 없다", async () => {
+  it("위쪽은 밑줄 탭 셋 — 큰 제목·설명 줄 없이, 제목은 읽어 주는 사람에게만", async () => {
     그리기();
-    expect(screen.queryByText(/진입·청산 조건을/)).toBeNull();
-    expect(screen.getByText(/비중대로 담아/)).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["자산배분", "단일 종목", "유니버스"]);
+    const 제목 = screen.getByRole("heading", { level: 1, name: "백테스트" });
+    expect(제목.className).toContain("sr-only");
+    // 탭과 내용이 이어져 있다(탭 줄의 이름표 ↔ 내용 칸)
+    const 패널 = screen.getByRole("tabpanel");
+    expect(패널.getAttribute("aria-labelledby")).toBe("bt-tab-alloc");
+    expect(document.getElementById("bt-tab-alloc")!.getAttribute("aria-controls")).toBe(패널.id);
     await userEvent.click(screen.getByRole("tab", { name: "단일 종목" }));
-    expect(screen.getByText(/한 종목의 과거 시세로 검증해요/)).toBeInTheDocument();
-    expect(screen.queryByText(/비중대로 담아/)).toBeNull();
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe("bt-tab-single");
+  });
+
+  it("빈 화면이 탭마다 할 일을 말한다 — 자산배분에는 진입·청산 조건이 없다", async () => {
+    그리기();
+    expect(screen.getByText(/자산을 고르고 ‘결과 확인’/)).toBeInTheDocument();
+    expect(screen.queryByText(/조건을 정하고/)).toBeNull();
+    await userEvent.click(screen.getByRole("tab", { name: "단일 종목" }));
+    expect(screen.getByText(/종목과 조건을 정하고 ‘백테스트 실행’/)).toBeInTheDocument();
+    expect(screen.queryByText(/자산을 고르고/)).toBeNull();
   });
 
   it("저장은 이름을 묻고, 적은 이름으로 저장한다", async () => {
@@ -148,7 +163,7 @@ describe("단일 종목 설정 — 자산배분과 같은 틀", () => {
     await userEvent.click(screen.getByRole("tab", { name: "단일 종목" }));
     await userEvent.click(screen.getByRole("button", { name: "저장" }));
     const 이름 = screen.getByLabelText("이름");
-    expect(이름).toHaveValue("AAPL 전략");
+    expect(이름, "코드 대신 종목 이름으로 미리 채운다").toHaveValue("Apple 전략");
     await userEvent.clear(이름);
     await userEvent.type(이름, "이평 돌파{Enter}");
     expect(backtestApi.saveStrategy).toHaveBeenCalledWith(expect.objectContaining({ name: "이평 돌파", market: "US" }));
@@ -172,11 +187,13 @@ describe("성과 칸의 색은 설정의 오름·내림 색만", () => {
     await userEvent.click(screen.getByRole("button", { name: /백테스트 실행/ }));
     return await screen.findByText("성과");
   }
-  const 값칸 = (이름: string) => screen.getByText(이름).parentElement!.querySelector("span.font-mono") as HTMLElement;
+  /** 성과 카드 안의 숫자 칸 — '최대 낙폭' 은 아래 '그냥 들고 있었으면' 에도 있어 성과 카드 안에서만 찾는다 */
+  const 값칸 = (이름: string) => within(screen.getByText("성과").closest(".bg-bg-card") as HTMLElement)
+    .getByText(이름).parentElement!.querySelector("span.font-mono") as HTMLElement;
 
   it("낙폭은 내림 색, 승률·샤프·PF 는 색을 안 칠한다", async () => {
     await 돌리기();
-    expect(값칸("MDD").className).toContain("text-accent-blue");          // 빨강-파랑: 내림은 파랑
+    expect(값칸("최대 낙폭").className).toContain("text-accent-blue");          // 빨강-파랑: 내림은 파랑
     for (const 이름 of ["승률", "샤프 비율", "수익비율 (PF)"]) {
       expect(값칸(이름).className, `${이름} 에 좋고 나쁨 색을 박았다`).not.toMatch(/accent-(green|red)/);
     }
@@ -192,36 +209,30 @@ describe("성과 칸의 색은 설정의 오름·내림 색만", () => {
   });
 });
 
-describe("전략 저장소 — 설정 칸 없이, 누르면 단일 종목에서", () => {
-  it("저장소 탭에는 설정 칸과 실행 단추가 없다", async () => {
+describe("저장한 전략 — 불러오기에서 고르면 단일 종목에서", () => {
+  it("전략을 고르면 단일 종목 탭이 열리고 그 시장과 조건이 들어와 있다", async () => {
     상태.전략들 = [전략];
     그리기();
-    await userEvent.click(screen.getByRole("tab", { name: "전략 저장소" }));
-    expect(await screen.findByText(전략.name)).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "신규 테스트" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /유니버스 백테스트/ }), "저장한 것을 보러 왔는데 실행 단추가 떠 있다").toBeNull();
-  });
-
-  it("전략을 누르면 단일 종목 탭이 열리고 그 시장과 조건이 들어와 있다", async () => {
-    상태.전략들 = [전략];
-    그리기();
-    await userEvent.click(screen.getByRole("tab", { name: "전략 저장소" }));
+    await userEvent.click(screen.getByRole("button", { name: "불러오기" }));
+    await userEvent.click(within(screen.getByRole("tablist", { name: "불러올 것" })).getByRole("tab", { name: /매매 전략/ }));
     await userEvent.click(await screen.findByRole("button", { name: "RSI 반등 전략 열기" }));
     expect(screen.getByRole("tab", { name: "단일 종목" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("button", { name: "KR" }).getAttribute("aria-pressed"), "전략의 시장(국내)이 안 되살아났다").toBe("true");
+    /* 전략에는 종목이 저장되지 않는다 — 국내 전략인데 지금 종목이 미국이면 국내 대표 종목으로 바꿔 넣는다
+       (미국 종목에 국내 전략을 돌리면 안 맞는다) */
+    expect(screen.getByRole("button", { name: /테스트 종목 삼성전자/ }), "전략의 시장(국내)이 안 되살아났다").toBeInTheDocument();
     expect(screen.getByDisplayValue("30")).toBeInTheDocument();   // 진입 RSI < 30
   });
 
-  it("전략을 지울 수 있다 — 묻고 나서", async () => {
+  it("메뉴의 전략 저장소에서 '백테스트 실행' 으로 오면(주소의 전략 번호) 그 전략을 연다", async () => {
     상태.전략들 = [전략];
-    그리기();
-    await userEvent.click(screen.getByRole("tab", { name: "전략 저장소" }));
-    await userEvent.click(await screen.findByRole("button", { name: "RSI 반등 지우기" }));
-    expect(screen.getByRole("tab", { name: "전략 저장소" }).getAttribute("aria-selected"),
-      "지우기를 누르니 전략이 열렸다(누름이 카드로 번졌다)").toBe("true");
-    expect(backtestApi.deleteStrategy).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "지우기" }));
-    expect(backtestApi.deleteStrategy).toHaveBeenCalledWith(5);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={["/backtest?strategy=5"]}>
+        <QueryClientProvider client={qc}><Backtest /></QueryClientProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByRole("tab", { name: "단일 종목" }).getAttribute("aria-selected")).toBe("true"));
+    expect(screen.getByDisplayValue("30")).toBeInTheDocument();
   });
 });
 
@@ -258,15 +269,18 @@ describe("배치와 표도 같은 틀", () => {
   it("자산배분·단일 종목 탭이 같은 배치(왼쪽 설정 폭 고정 · 오른쪽 결과)를 쓴다", async () => {
     그리기();
     const 판 = (h: HTMLElement) => h.closest("div.grid") as HTMLElement;
-    expect(판(screen.getByRole("heading", { name: "신규 테스트" })).className).toBe(설정판배치);
+    expect(판(screen.getByRole("button", { name: /결과 확인/ })).className).toContain(설정판배치);
     await userEvent.click(screen.getByRole("tab", { name: "단일 종목" }));
-    expect(판(screen.getByRole("heading", { name: "신규 테스트" })).className,
-      "단일 종목만 다른 배치다 — 탭마다 그래프 폭이 달라진다").toBe(설정판배치);
+    expect(판(screen.getByRole("button", { name: /백테스트 실행/ })).className,
+      "단일 종목만 다른 배치다 — 탭마다 그래프 폭이 달라진다").toContain(설정판배치);
     /* 설정은 폭을 정해 두고 나머지를 결과에 — 반반이면 자산배분 결과 그래프가 600px 에 눌렸다 */
     expect(설정판배치).toContain("xl:grid-cols-[28rem_minmax(0,1fr)]");
   });
 
-  it("거래 내역 표는 스크리닝 표와 같은 머리·글자", async () => {
+  it("거래 내역 표는 스크리닝 표와 같은 머리·글자(표가 들어가는 폭에서)", async () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      matches: q === "(min-width: 768px)", media: q, addEventListener() {}, removeEventListener() {},
+    }));
     상태.단일결과 = { ...단일, trades: [{ type: "청산", entry_date: "2020-03-02", exit_date: "2020-03-09",
       entry_price: 100, exit_price: 101, pnl_rate: 1, net_pnl_rate: 1, shares: 95 }] };
     그리기();

@@ -175,6 +175,18 @@ describe("누르면 그 자산배분이 열린다", () => {
 });
 
 
+describe("매매 전략의 '백테스트 실행' 은 그 전략을 연다", () => {
+  it("전략 번호를 주소에 실어 보낸다", async () => {
+    /* 예전엔 navigate("/backtest") 뿐이라 백테스트 첫 화면(자산배분)만 열렸다 — 무엇을 누른 것인지 사라졌다 */
+    상태.전략들 = [전략];
+    그리기();
+    await screen.findByText("RSI 반등");
+    await userEvent.click(screen.getByRole("button", { name: /백테스트 실행/ }));
+    expect(상태.간곳).toEqual(["/backtest?strategy=5"]);
+  });
+});
+
+
 describe("아무것도 없을 때", () => {
   it("두 종류를 다 말해 준다", async () => {
     그리기();

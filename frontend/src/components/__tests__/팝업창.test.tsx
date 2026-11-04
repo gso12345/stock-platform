@@ -46,8 +46,9 @@ describe("휴대폰에서도 가운데 팝업", () => {
   });
 });
 
-describe("시트를 켜는 곳은 보고 고르는 창 넷뿐", () => {
-  it("설정·앱 설치 안내·팔로워·좋아요 목록", () => {
+describe("시트를 켜는 곳은 보고 고르는 창 다섯뿐", () => {
+  /* 백테스트의 '불러오기'(저장한 실험·전략을 골라 연다)도 보고 고르는 창이라 시트다 — 입력·확인 창이 아니다 */
+  it("설정·앱 설치 안내·팔로워·좋아요 목록·백테스트 불러오기", () => {
     const 켠곳 = 파일들(뿌리)
       .filter((p) => /<Modal\s+시트(?=[\s>])/.test(readFileSync(p, "utf-8")))
       .map((p) => relative(뿌리, p).replace(/\\/g, "/"))
@@ -55,6 +56,7 @@ describe("시트를 켜는 곳은 보고 고르는 창 넷뿐", () => {
     expect(켠곳).toEqual([
       "components/account/SettingsModal.tsx",
       "components/admin/PostLikesModal.tsx",
+      "components/backtest/불러오기창.tsx",
       "components/layout/InstallAppButton.tsx",
       "pages/UserProfile.tsx",
     ]);

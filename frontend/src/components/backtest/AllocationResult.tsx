@@ -17,12 +17,13 @@
  * 그 차이가 통째로 사라진다.
  */
 import { Fragment, lazy, Suspense, useMemo, useState } from "react";
-import { Card, Tabs, 고른칩 } from "@/components/ui";
+import { Card, ChipTabs, 고른칩 } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { 짧은돈 } from "@/utils/formatters";
 import type { 자산배분결과 } from "@/api/stocks";
-import { Download } from "lucide-react";
+import { Download, Share2 } from "lucide-react";
+import { 과와 } from "@/utils/조사";
 import { csv내려받기 } from "@/utils/csv";
 import { 결과CSV } from "./결과내보내기";
 import { PIE_COLORS } from "@/constants/pieColors";
@@ -881,7 +882,11 @@ function 담은자산({ r }: { r: 자산배분결과 }) {
   );
 }
 
-export default function 자산배분결과화면({ r }: { r: 자산배분결과 }) {
+export default function 자산배분결과화면({ r, 공유하기 }: {
+  r: 자산배분결과;
+  /** 결과 머리의 공유 단추 — 설정을 주소에 실어 보낸다(있을 때만 그린다) */
+  공유하기?: () => void;
+}) {
   const 벌었나 = (r.profit ?? 0) >= 0;
   const 적립했나 = r.contributed > 0 && r.curve.length > 0;
   /* 오름·내림 색은 **설정으로 갈린다.** 초록/빨강 쓰는 사람과 빨강/파랑
@@ -926,29 +931,34 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
           **경고는 탭 밖에 둔다.** 자산 하나를 빼고 계산한 사실이 탭
           안에 숨으면, 그 탭을 안 연 사람은 덜 담긴 결과를 온전한 것으로
           읽는다 — 백테스트에서 가장 나쁜 실패다. */}
-      {/* 엑셀에서 더 보고 싶은 사람을 위해. 화면의 숫자를 그대로 옮긴다 */}
-      <div className="flex justify-end -mb-2">
-        <button
-          type="button"
+      {/* 결과 보기를 상자 탭이 아니라 칩으로 — 페이지 위의 밑줄 탭(자산배분·단일 종목·유니버스)보다 한 단계
+          아래라는 것이 보이게(사용자가 고른 10번). 'CSV로 내보내기' 큰 단추는 오른쪽 끝의 작은 아이콘으로 */}
+      <div className="flex items-center gap-1">
+        <ChipTabs
+          ariaLabel="결과 보기"
+          idPrefix="결과"
+          className="flex-1 min-w-0"
+          tabs={[{ id: "수익", label: "수익률" }, { id: "낙폭", label: "낙폭" },
+                 { id: "지표", label: "지표" }, { id: "세부", label: "세부" }]}
+          active={보기}
+          onChange={set보기}
+        />
+        {공유하기 && (
+          <button type="button" aria-label="결과 공유" onClick={공유하기}
+            className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors flex-shrink-0">
+            <Share2 size={16} />
+          </button>
+        )}
+        {/* 엑셀에서 더 보고 싶은 사람을 위해. 화면의 숫자를 그대로 옮긴다 */}
+        <button type="button" aria-label="CSV로 내보내기" title="CSV로 내보내기"
           onClick={() => csv내려받기(`자산배분_${r.start_date}_${r.end_date}.csv`, 결과CSV(r))}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary bg-bg-elevated border border-border rounded-lg hover:border-accent-blue/50 transition-colors"
-        >
-          <Download size={13} />
-          CSV로 내보내기
+          className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors flex-shrink-0">
+          <Download size={16} />
         </button>
       </div>
 
-      <Tabs
-        ariaLabel="결과 보기"
-        idPrefix="결과"
-        tabs={[{ id: "수익", label: "수익률" }, { id: "낙폭", label: "낙폭" },
-               { id: "지표", label: "지표" }, { id: "세부", label: "세부" }]}
-        active={보기}
-        onChange={set보기}
-      />
-
-      <div role="tabpanel" id="결과-panel-수익" aria-labelledby="결과-tab-수익"
-           hidden={보기 !== "수익"} className="flex flex-col gap-4">
+      {/* 탭 내용은 한 칸 — 고른 탭의 것만 그린다(칩이 이 칸을 가리킨다) */}
+      <div role="tabpanel" id="결과-panel" aria-labelledby={`결과-tab-${보기}`} className="flex flex-col gap-4">
         {보기 === "수익" && (<>
       {/* ── 넣은 돈 → 최종 ── 맨 위에 둔다 ── */}
       <Card className="flex flex-col gap-3">
@@ -985,7 +995,8 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
         <Card className="flex flex-col gap-3">
           <div className="flex items-baseline justify-between gap-2 flex-wrap">
             <span className="text-base font-semibold text-text-primary">
-              {r.benchmark.name} 와 견주기
+              {/* 조사는 이름의 받침에 맞춘다 — 'S&P500 와' 처럼 박아 두면 절반은 틀린다(사용자가 고른 9번) */}
+              {과와(r.benchmark.name)} 견주기
             </span>
             {/* 같은 기간·같은 납입·같은 비용으로 돌린 것이라고 말해 준다.
                 조건이 다르면 견줄 수 없는 수인데, 그걸 모르면 그냥 믿는다 */}
@@ -1102,26 +1113,12 @@ export default function 자산배분결과화면({ r }: { r: 자산배분결과 
       {/* ── 해마다 (벤치마크가 있으면 해별로 나란히) ── */}
       {r.yearly.length > 0 && <해마다칸 r={r} />}
         </>)}
-      </div>
-
-      <div role="tabpanel" id="결과-panel-낙폭" aria-labelledby="결과-tab-낙폭"
-           hidden={보기 !== "낙폭"} className="flex flex-col gap-4">
         {보기 === "낙폭" && (<>
           {(r.drawdown?.length ?? 0) > 1 && <낙폭칸 r={r} />}
           <폭락표 r={r} />
         </>)}
-      </div>
-
-      <div role="tabpanel" id="결과-panel-지표" aria-labelledby="결과-tab-지표"
-           hidden={보기 !== "지표"} className="flex flex-col gap-4">
         {보기 === "지표" && <요약표 r={r} />}
-      </div>
-
-      <div role="tabpanel" id="결과-panel-세부" aria-labelledby="결과-tab-세부"
-           hidden={보기 !== "세부"} className="flex flex-col gap-4">
-        {보기 === "세부" && (<>
-          <담은자산 r={r} />
-        </>)}
+        {보기 === "세부" && <담은자산 r={r} />}
       </div>
 
       {/* ── 무엇을 넣고 무엇을 뺐는지 ── **탭 밖에 둔다** ──

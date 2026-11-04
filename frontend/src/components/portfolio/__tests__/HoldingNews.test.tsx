@@ -119,6 +119,21 @@ describe("화면", () => {
     expect(screen.queryByText(/아직 못 찾았어요/)).not.toBeInTheDocument();
   });
 
+  it("같은 기사가 두 번 와도 한 번만 — 칩을 오가도 앞 목록의 기사가 안 남는다", async () => {
+    /* 겹친 기사는 이름표(key)가 겹쳐, 목록을 바꿀 때 앞 목록의 것이 화면에 남았다(뉴스 탭의 '국내·미국
+       섞임' 과 같은 고장 — utils/뉴스) */
+    그리기([기사({ lang: "ko", title: "삼성전자 실적 발표" }), 기사({ lang: "ko", title: "삼성전자 실적 발표" }),
+            기사({ lang: "en", title: "Nvidia tops estimates", link: "https://n/2" })]);
+    expect(screen.getAllByText("삼성전자 실적 발표")).toHaveLength(1);
+    expect(screen.getByText("2건")).toBeInTheDocument();
+    for (let 번 = 0; 번 < 2; 번++) {
+      await userEvent.click(screen.getByRole("button", { name: /해외 기사/ }));
+      expect(screen.queryByText("삼성전자 실적 발표"), "해외 칸에 한국 기사가 남았다").not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /한국 기사/ }));
+      expect(screen.getAllByText("삼성전자 실적 발표")).toHaveLength(1);
+    }
+  });
+
   it("서버를 부르는 쪽에서도 칸이 서버 요청을 새로 만들지 않는다", () => {
     /* 거르는 일은 화면에서 한다. 칩마다 왕복을 하나씩 태우면
        0.15 CPU 서버에서 그 자체가 부담이다 */

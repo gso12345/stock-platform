@@ -417,7 +417,7 @@ export function Tabs({
  *
  * 끝 — 같은 줄 오른쪽 끝에 붙일 단추(피드의 검색·글쓰기). 탭과 한 줄에 두고 밑줄도 함께 긋는다 — 단추 줄을
  * 따로 두면 위쪽이 한 줄 더 늘어난다. */
-export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel, onHover, 끝 }: {
+export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel, onHover, 끝, idPrefix }: {
   tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
@@ -426,6 +426,8 @@ export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel, on
   /** 마우스를 올렸을 때(미리 받기용) */
   onHover?: (id: string) => void;
   끝?: React.ReactNode;
+  /** 탭과 내용(role="tabpanel")을 잇는 이름표의 앞머리 — Tabs 와 같다. 주는 곳만 켠다 */
+  idPrefix?: string;
 }) {
   const [줄, 흐림] = use끝흐림<HTMLDivElement>();
   const 탭줄 = (
@@ -437,6 +439,8 @@ export function UnderlineTabs({ tabs, active, onChange, className, ariaLabel, on
         const Icon = t.icon;
         return (
           <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+            id={idPrefix ? `${idPrefix}-tab-${t.id}` : undefined}
+            aria-controls={idPrefix ? `${idPrefix}-panel` : undefined}
             onMouseEnter={onHover ? () => onHover(t.id) : undefined}
             className={cn(
               "flex items-center gap-1.5 flex-shrink-0 whitespace-nowrap pt-1 pb-2.5 text-md font-bold border-b-2 -mb-px transition-colors",
@@ -489,7 +493,7 @@ export function 칩자리표시({ 개수 = 3 }: { 개수?: number }) {
 export const 칩줄모양 = "flex items-center gap-1.5 overflow-x-auto scrollbar-hide";
 
 /** 칩 모양 탭 — 같은 목록을 나눠 볼 때(관심종목 폴더·퀀트 목록). 위의 밑줄 탭(화면 나누기)보다 한 단계 아래 */
-export function ChipTabs({ tabs, active, onChange, className, ariaLabel, onHover }: {
+export function ChipTabs({ tabs, active, onChange, className, ariaLabel, onHover, idPrefix }: {
   tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
@@ -497,6 +501,8 @@ export function ChipTabs({ tabs, active, onChange, className, ariaLabel, onHover
   ariaLabel?: string;
   /** 마우스를 올렸을 때(미리 받기용) */
   onHover?: (id: string) => void;
+  /** 탭과 내용(role="tabpanel")을 잇는 이름표의 앞머리 — Tabs 와 같다. 주는 곳만 켠다 */
+  idPrefix?: string;
 }) {
   const [줄, 흐림] = use끝흐림<HTMLDivElement>();
   return (
@@ -506,6 +512,8 @@ export function ChipTabs({ tabs, active, onChange, className, ariaLabel, onHover
         const Icon = t.icon;
         return (
           <button key={t.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+            id={idPrefix ? `${idPrefix}-tab-${t.id}` : undefined}
+            aria-controls={idPrefix ? `${idPrefix}-panel` : undefined}
             onMouseEnter={onHover ? () => onHover(t.id) : undefined}
             className={칩탭모양(on)}>
             {Icon && <Icon size={13} className="flex-shrink-0" />}

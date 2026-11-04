@@ -10,6 +10,7 @@ import { useIndicesStream } from "@/hooks/useWebSocket";
 import { isUsdKrwRow } from "@/hooks/useExchangeRate";
 import { use고른열 } from "@/hooks/useBalancedColumns";
 import { safeExternalUrl } from "@/utils/url";
+import { 같은기사빼기, 기사열쇠 } from "@/utils/뉴스";
 import { TrendingUp, TrendingDown, Newspaper, Globe, Flag, ExternalLink, ChevronRight, RefreshCw, Trophy } from "lucide-react";
 import { fmtNewsDateTime, fmtKRWFull, fmtUSDFull, fmtKRW, fmtUSD, fmtVolume } from "@/utils/formatters";
 import { 한가할때, 아껴쓰는중 } from "@/utils/한가할때";
@@ -188,9 +189,10 @@ const NewsPanel = memo(function NewsPanel({
     set사진없음((이전) => (이전.has(키) ? 이전 : new Set(이전).add(키)));
   }, []);
 
-  // 정렬은 서버가 처리한다 — 인기도 점수는 내부 계산값이라 응답에 실리지 않는다
+  // 정렬은 서버가 처리한다 — 인기도 점수는 내부 계산값이라 응답에 실리지 않는다.
+  // 같은 기사가 두 번 오면 하나만 — 겹친 이름표(key)가 국내·해외를 오갈 때 앞 목록의 기사를 남겼다(utils/뉴스)
   const sorted = useMemo(
-    () => (news ?? []).filter((a: any) => a?.image && !사진없음.has(a.link || a.title)),
+    () => 같은기사빼기(news).filter((a: any) => a?.image && !사진없음.has(a.link || a.title)),
     [news, 사진없음],
   );
 
@@ -219,8 +221,8 @@ const NewsPanel = memo(function NewsPanel({
           </button>
         ))}
       </div>
-      {shown.map((item: any, i: number) => (
-        <a key={item.link || i} href={safeExternalUrl(item.link)} target="_blank" rel="noopener noreferrer nofollow"
+      {shown.map((item: any) => (
+        <a key={기사열쇠(item)} href={safeExternalUrl(item.link)} target="_blank" rel="noopener noreferrer nofollow"
           className="flex items-start gap-2.5 py-2.5 px-1 border-b border-border/40 hover:bg-bg-hover transition-colors group">
           <뉴스썸네일 src={safeExternalUrl(item.image)}
             onFail={() => 사진깨짐(item.link || item.title)} />

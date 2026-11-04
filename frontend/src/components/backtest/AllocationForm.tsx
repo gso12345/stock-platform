@@ -25,6 +25,12 @@ import { 시세수명, 재촉주기, 재촉_횟수 } from "@/constants/portfolio
 import { use확인 } from "@/hooks/useDialogs";
 import { indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import { 평가금액원화, 비중매기기 } from "@/utils/holdings";
+import { 기간칸, 금액칸, 고급설정, 실행줄 } from "./설정부품";
+/* 다른 탭(단일 종목·유니버스)과 같이 쓰는 것은 따로 뺐다 — 예전 이름으로 부르는 곳을 위해 그대로 내보낸다 */
+export { 빠른기간, 기간에서날짜, 금액값들, 읽는금액 } from "./설정값";
+export { 칸제목 } from "./설정부품";
+import { 칸제목 } from "./설정부품";
+import { 기간에서날짜 } from "./설정값";
 
 /* 기간 슬라이더를 없애면서 최소년·최대년도 같이 지웠다.
    날짜를 직접 치므로 햇수 상한이라는 것이 아예 없다 — 1980년이든
@@ -62,59 +68,9 @@ export const 벤치마크표: { value: 벤치마크키; label: string }[] = [
  *  그건 틀린 값으로 계산하는 것이다. */
 export const 비용표 = [0, 0.015, 0.05, 0.1, 0.25];
 
-/** 기간 빠른 선택. 버튼 하나로 날짜 두 개가 채워진다. */
-export const 빠른기간 = [1, 3, 5, 10, 20, 30];
-
 /** 리밸런싱 날짜. 29~31 은 없는 달이 있어 28 까지만 준다 —
  *  '31일' 을 고르면 2월이 통째로 빠지는데 그게 화면에는 안 보인다. */
 export const 날짜들 = Array.from({ length: 28 }, (_, i) => i + 1);
-
-/** 금액을 사람이 읽는 말로. 사진의 '1만 달러' 자리.
- *
- *  0 이 몇 개인지 세게 하면 안 된다. 10000000 과 100000000 은 눈으로
- *  가르기 어렵고, 한 자리 틀리면 결과가 열 배로 달라진다. */
-export function 읽는금액(v: number, 통화: "KRW" | "USD"): string {
-  if (!v || !Number.isFinite(v)) return "";
-  if (통화 === "USD") {
-    if (v >= 1e8) return `${+(v / 1e8).toFixed(1)}억 달러`;
-    if (v >= 1e4) return `${+(v / 1e4).toFixed(v % 1e4 ? 1 : 0)}만 달러`;
-    if (v >= 1e3) return `${+(v / 1e3).toFixed(v % 1e3 ? 1 : 0)}천 달러`;
-    return `${v.toLocaleString("ko-KR")} 달러`;
-  }
-  if (v >= 1e12) return `${+(v / 1e12).toFixed(1)}조원`;
-  if (v >= 1e8) return `${+(v / 1e8).toFixed(v % 1e8 ? 1 : 0)}억원`;
-  if (v >= 1e4) return `${+(v / 1e4).toFixed(v % 1e4 ? 1 : 0)}만원`;
-  return `${v.toLocaleString("ko-KR")}원`;
-}
-
-/** 금액 빠른 선택. 누르면 그 금액으로 **바로 정해진다**(더하지 않는다).
- *
- *  더하기로 두면 1,000만원을 넣으려고 여러 번 눌러야 하고, 한 번 더
- *  누르면 2,000만원이 되어 되돌리려면 지우고 다시 시작해야 한다.
- *  시험해 볼 금액은 보통 몇 개로 정해져 있으니 한 번에 정하는 편이 낫다.
- *
- *  통화마다 자릿수가 다르다 — 원화에 500달러는 아무 쓸모가 없다. */
-export function 금액값들(통화: "KRW" | "USD"): number[] {
-  return 통화 === "USD"
-    ? [1_000, 5_000, 10_000, 100_000]
-    : [1_000_000, 5_000_000, 10_000_000, 100_000_000];
-}
-
-/**
- * 햇수를 날짜 두 개로 바꾼다.
- *
- * '오늘' 을 인자로 받는다. 안에서 new Date() 를 부르면 검사가 오늘이
- * 며칠이냐에 따라 흔들린다 — 이 저장소에서 이미 그렇게 깨진 검사를
- * 한 번 고쳤다.
- */
-export function 기간에서날짜(년: number, 오늘 = new Date()) {
-  const 끝 = new Date(오늘);
-  const 시작 = new Date(오늘);
-  시작.setFullYear(시작.getFullYear() - 년);
-  const 적기 = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return { start_date: 적기(시작), end_date: 적기(끝) };
-}
 
 export interface 설정 {
   years: number;
@@ -190,16 +146,6 @@ export function 못돌리는이유(s: 설정): string | null {
 }
 
 const 통화기호 = { KRW: "₩", USD: "$" } as const;
-
-/** 설정 칸의 제목 — 백테스트의 다른 탭(단일 종목·유니버스) 설정도 같은 제목을 쓴다 */
-export function 칸제목({ children, 오른쪽 }: { children: React.ReactNode; 오른쪽?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-base font-semibold text-text-primary">{children}</span>
-      {오른쪽}
-    </div>
-  );
-}
 
 /** 이름표가 붙은 고르기 칸.
  *
@@ -964,68 +910,25 @@ export default function 자산배분설정({
     [값.assets],
   );
 
-  const 기간바꾸기 = (년: number) =>
-    바꾸기({ ...값, years: 년, ...기간에서날짜(년) });
+  /** 고급 설정 중 기본값(첫설정)에서 바꾼 수 — 접혀 있어도 제목 옆에 보인다 */
+  const 기본 = 첫설정();
+  const 바꾼수 = [
+    값.rebalance_day !== 기본.rebalance_day, 값.benchmark !== 기본.benchmark, 값.cost_rate !== 기본.cost_rate,
+    값.equal_weight !== 기본.equal_weight, 값.cash_rate !== 기본.cash_rate, 값.risk_free_rate !== 기본.risk_free_rate,
+    값.extended !== 기본.extended, 값.total_return !== 기본.total_return,
+  ].filter(Boolean).length;
 
   return (
+    /* '신규 테스트' 제목과 밑줄을 뺐다 — 위의 탭 줄이 이미 무엇을 하는 화면인지 말한다(사용자가 고른 1번) */
     <Card className="flex flex-col gap-5">
-      <h2 className="text-xl font-bold text-text-primary">신규 테스트</h2>
-      <div className="h-px bg-border -mx-4" />
+      {/* ── 테스트 기간 ── 칩이 먼저, 날짜 두 칸은 한 줄에(설정부품.기간칸). 날짜를 손으로 고치면 칩이 풀린다 */}
+      <기간칸 시작={값.start_date} 끝={값.end_date} 고른년={값.years || null}
+        바꾸기={({ 시작, 끝, 년 }) => 바꾸기({ ...값, start_date: 시작, end_date: 끝, years: 년 ?? 0 })} />
 
-      {/* ── 테스트 기간 ──
-          날짜는 **늘 직접 입력**이다. 예전에는 슬라이더가 기본이고
-          체크박스를 켜야 날짜가 나왔는데, 슬라이더로는 '2020년 3월부터'
-          같은 것을 아예 못 고른다. 흔한 기간은 아래 버튼으로 한 번에
-          채우면 되니, 굳이 둘 중 하나를 고르게 할 이유가 없다. */}
-      <div className="flex flex-col gap-3">
-        <칸제목>테스트 기간</칸제목>
-
-        {/* 좁은 화면에서는 **세로로 쌓는다.**
-
-            날짜 칸 두 개를 폰에서 나란히 두면 하나가 150px 도 안 된다.
-            거기에 브라우저가 붙이는 달력 단추까지 들어가는데, 그 단추
-            크기도 날짜 글자 모양도 기기·언어마다 다르다 — 한국어는
-            '2026. 09. 18.' 이라 영어보다 훨씬 넓다. 크롬으로 재면
-            멀쩡한데 실제 폰에서는 잘린다.
-
-            픽셀을 맞춰 가며 아슬아슬하게 두느니 칸을 통째로 넓힌다.
-            세로로 쌓으면 기기가 무엇이든 잘릴 일이 없다. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1 min-w-0">
-            <label htmlFor="bt-start" className="text-xs text-text-muted">시작일</label>
-            <input id="bt-start" type="date"
-              className="w-full min-w-0 bg-bg-primary border border-border rounded-lg px-2 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
-              value={값.start_date}
-              onChange={(e) => 바꾸기({ ...값, start_date: e.target.value })} />
-          </div>
-          <div className="flex flex-col gap-1 min-w-0">
-            <label htmlFor="bt-end" className="text-xs text-text-muted">종료일</label>
-            <input id="bt-end" type="date"
-              className="w-full min-w-0 bg-bg-primary border border-border rounded-lg px-2 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
-              value={값.end_date}
-              onChange={(e) => 바꾸기({ ...값, end_date: e.target.value })} />
-          </div>
-        </div>
-
-        <div className="flex gap-2 flex-wrap">
-          {빠른기간.map((년) => (
-            <고른칩 key={년} 고름={값.years === 년} ariaLabel={`${년}년`}
-                    최소너비="3.5rem" className="flex-1"
-                    onClick={() => 기간바꾸기(년)}>{년}년</고른칩>
-          ))}
-        </div>
-      </div>
-
-      {/* ── 테스트 금액 ── */}
-      <div className="flex flex-col gap-3">
-        <칸제목>테스트 금액</칸제목>
-        <div className="flex gap-3">
-          {/* **알약 모양이 아니라 칸 모양으로 둔다.**
-              rounded-full 은 이 앱에서 '고른 칩' 의 모양이라, 통화가
-              누르는 칸이 아니라 '지금 원화입니다' 라는 표시처럼 보였다.
-              옆의 금액 칸과 같은 rounded-xl 로 맞춘다 — 나란히 있는
-              둘이 같은 모양이면 둘 다 고치는 칸으로 읽힌다.
-              펼침 화살표는 index.css 가 모든 고르기 칸에 그려 준다. */}
+      {/* ── 테스트 금액 ── 통화는 알약이 아니라 금액 칸과 같은 칸 모양(둘 다 고치는 칸으로 읽히게) */}
+      <금액칸 제목="테스트 금액" 이름="테스트 금액" 값={값.initial_amount} 통화={값.currency}
+        바꾸기={(v) => 바꾸기({ ...값, initial_amount: v })}
+        앞={(
           <select
             aria-label="통화"
             className="bg-bg-elevated border border-border rounded-xl px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent-blue"
@@ -1035,45 +938,7 @@ export default function 자산배분설정({
             <option value="KRW">KRW</option>
             <option value="USD">USD</option>
           </select>
-          <div className="flex-1 flex items-center gap-2 bg-bg-elevated border border-border rounded-xl px-3 min-w-0">
-            <span className="text-sm text-text-muted flex-shrink-0">{통화기호[값.currency]}</span>
-            <input
-              type="number" min={0} inputMode="numeric"
-              aria-label="테스트 금액"
-              placeholder="금액 입력"
-              className="flex-1 min-w-0 bg-transparent py-2 text-sm text-text-primary focus:outline-none"
-              value={값.initial_amount}
-              onChange={(e) => 바꾸기({ ...값, initial_amount: e.target.value === "" ? "" : Number(e.target.value) })}
-            />
-            {/* 0 이 몇 개인지 세게 하면 안 된다. 1000만과 1억은 눈으로
-                가르기 어렵고, 한 자리 틀리면 결과가 열 배로 달라진다 */}
-            {!!Number(값.initial_amount) && (
-              <span className="text-sm font-semibold text-accent-blue flex-shrink-0">
-                {읽는금액(Number(값.initial_amount), 값.currency)}
-              </span>
-            )}
-          </div>
-        </div>
-        {/* 누르면 그 금액으로 **바로 정해진다**. 더하기로 두면
-            1,000만원을 넣으려고 여러 번 눌러야 하고, 한 번 더 누르면
-            2,000만원이 되어 지우고 다시 시작해야 한다. */}
-        <div className="flex gap-2 flex-wrap">
-          {금액값들(값.currency).map((v) => (
-            <고른칩 key={v} 고름={Number(값.initial_amount) === v}
-                    ariaLabel={읽는금액(v, 값.currency)}
-                    최소너비="4.5rem" className="flex-1"
-                    onClick={() => 바꾸기({ ...값, initial_amount: v })}
-            >{읽는금액(v, 값.currency)}</고른칩>
-          ))}
-          {!!Number(값.initial_amount) && (
-            <button
-              aria-label="금액 지우기"
-              className="px-3 py-2 rounded-lg text-xs text-text-dim hover:text-accent-red"
-              onClick={() => 바꾸기({ ...값, initial_amount: "" })}
-            >지우기</button>
-          )}
-        </div>
-      </div>
+        )} />
 
       {/* ── 테스트 자산 ── */}
       <div className="flex flex-col gap-3">
@@ -1218,74 +1083,63 @@ export default function 자산배분설정({
         </div>
       </div>
 
-      {/* ── 리밸런싱 ── 주기와 날짜를 나란히 ── */}
+      {/* ── 리밸런싱 ── 주기만 앞에 둔다. 날짜(며칠에 할까)는 고급 설정으로 */}
       <div className="flex flex-col gap-3">
         <칸제목>리밸런싱</칸제목>
-        <div className="grid grid-cols-2 gap-3">
-          <고르기 이름="리밸런싱 주기" 값={값.rebalance_period}
-                  바꾸기={(v) => 바꾸기({ ...값, rebalance_period: v as 주기 })}
-                  것들={주기표} />
-          {/* 달의 며칠에 할까. 월급날에 맞춰 넣는 사람이 많다.
-              주기가 '없음' 이면 적립에만 쓰이므로 그때도 열어 둔다 */}
+        <고르기 이름="리밸런싱 주기" 값={값.rebalance_period}
+                바꾸기={(v) => 바꾸기({ ...값, rebalance_period: v as 주기 })}
+                것들={주기표} />
+      </div>
+
+      {/* ── 고급 설정 ── 자주 안 바꾸는 여덟 칸(사용자가 고른 5번). 예전엔 전부 펼쳐져 있어 설정이 폰 화면
+          세 장이었다. 기본값에서 바꾼 것이 있으면 접혀 있어도 '· n개 바꿈' 이 보인다 */}
+      <고급설정 바꾼수={바꾼수}>
+        <div className="flex flex-col gap-2">
+          {/* 달의 며칠에 할까. 월급날에 맞춰 넣는 사람이 많다. 주기가 '없음' 이면 적립에만 쓰이므로 그때도 열어 둔다 */}
           <고르기 이름="리밸런싱 날짜" 값={String(값.rebalance_day)}
                   바꾸기={(v) => 바꾸기({ ...값, rebalance_day: Number(v) })}
                   것들={날짜들.map((d) => ({ value: String(d), label: `${d}일` }))} />
-        </div>
-        <p className="text-2xs text-text-dim break-keep">
-          고른 날이 휴장이면 그 뒤 첫 거래일에 해요. 날짜를 딱 맞춰 찾으면
-          그 달이 통째로 빠져요.
-        </p>
-      </div>
-
-      {/* ── 벤치마크 ── */}
-      <div className="flex flex-col gap-3">
-        <칸제목>재는 방법</칸제목>
-        {/* '일/월 데이터' 고르기가 여기 있었다. 없앴다 —
-            월로 바꿔도 기다리는 시간은 거의 그대로인데(받는 자료가
-            같다. 야후에서 일봉을 받아 뒤에 솎는 것이라 왕복이 안 준다)
-            **답은 달라졌다.** 실측으로 최종금액이 2.7% 어긋나고,
-            최대 낙폭은 달 안에서 떨어졌다 돌아온 것을 못 봐서 늘
-            작게 나왔다. 0.13초 아끼자고 치를 값이 아니다. */}
-        <div className="grid grid-cols-1 gap-3">
-          <고르기 이름="벤치 마크" 값={값.benchmark}
-                  바꾸기={(v) => 바꾸기({ ...값, benchmark: v as 벤치마크키 })}
-                  것들={벤치마크표} />
-        </div>
-      </div>
-
-      {/* ── 거래비용 · 배분 기준 ── */}
-      <div className="flex flex-col gap-3">
-        <칸제목>거래비용 · 배분</칸제목>
-        <div className="grid grid-cols-2 gap-3">
-          {/* 증권사마다 수수료가 제각각이라 목록으로는 다 못 담는다.
-              목록에만 두면 자기 수수료가 없는 사람은 비슷한 값을 고르게
-              되고, 그건 틀린 값으로 계산하는 것이다 — 직접 친다. */}
-          <퍼센트칸 id="bt-cost" 이름="거래비용" 값={값.cost_rate}
-                    바꾸기={(v) => 바꾸기({ ...값, cost_rate: v })} />
-          <고르기 이름="배분 기준" 값={값.equal_weight ? "equal" : "custom"}
-                  바꾸기={(v) => 바꾸기({ ...값, equal_weight: v === "equal" })}
-                  것들={[{ value: "custom", label: "직접 지정" },
-                          { value: "equal", label: "동일 비중" }]} />
+          <p className="text-2xs text-text-dim break-keep">
+            고른 날이 휴장이면 그 뒤 첫 거래일에 해요. 날짜를 딱 맞춰 찾으면
+            그 달이 통째로 빠져요.
+          </p>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          {비용표.map((c) => (
-            <고른칩 key={c} 고름={값.cost_rate === c}
-                    ariaLabel={c === 0 ? "거래비용 반영 안 함" : `거래비용 ${c}%`}
-                    최소너비="4rem" className="flex-1"
-                    onClick={() => 바꾸기({ ...값, cost_rate: c })}
-            >{c === 0 ? "반영 안 함" : `${c}%`}</고른칩>
-          ))}
+        {/* '일/월 데이터' 고르기가 여기 있었다. 없앴다 — 월로 바꿔도 기다리는 시간은 거의 그대로인데 **답은
+            달라졌다**(최종금액 2.7% 어긋남, 낙폭은 늘 작게). 0.13초 아끼자고 치를 값이 아니다. */}
+        <고르기 이름="벤치 마크" 값={값.benchmark}
+                바꾸기={(v) => 바꾸기({ ...값, benchmark: v as 벤치마크키 })}
+                것들={벤치마크표} />
+
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            {/* 증권사마다 수수료가 제각각이라 목록으로는 다 못 담는다 — 직접 친다 */}
+            <퍼센트칸 id="bt-cost" 이름="거래비용" 값={값.cost_rate}
+                      바꾸기={(v) => 바꾸기({ ...값, cost_rate: v })} />
+            <고르기 이름="배분 기준" 값={값.equal_weight ? "equal" : "custom"}
+                    바꾸기={(v) => 바꾸기({ ...값, equal_weight: v === "equal" })}
+                    것들={[{ value: "custom", label: "직접 지정" },
+                            { value: "equal", label: "동일 비중" }]} />
+          </div>
+          {/* '반영 안 함' 은 좁은 칩 안에서 잘렸다(사용자가 고른 9번) — 보이는 글자는 '없음', 읽어 주는 이름은 그대로 */}
+          <div className="flex gap-2 flex-wrap">
+            {비용표.map((c) => (
+              <고른칩 key={c} 고름={값.cost_rate === c}
+                      ariaLabel={c === 0 ? "거래비용 반영 안 함" : `거래비용 ${c}%`}
+                      최소너비="3.5rem" className="flex-1"
+                      onClick={() => 바꾸기({ ...값, cost_rate: c })}
+              >{c === 0 ? "없음" : `${c}%`}</고른칩>
+            ))}
+          </div>
+          {값.equal_weight && 값.assets.length > 1 && (
+            <p className="text-2xs text-text-dim break-keep">
+              위에 적은 비중을 무시하고 {값.assets.length}개로 똑같이 나눠요.
+            </p>
+          )}
         </div>
 
-        {/* ── 현금 이자 · 무위험수익률 ──
-            둘 다 **말없이 0 으로 가정하던 것**이다.
-            · 현금 이자 0 은 현금 몫이 30년 내내 안 불어난다는 뜻이라,
-              현금을 담을수록 실제보다 나쁘게 나왔다.
-            · 무위험 0 은 금리 5% 인 해에 연 5% 를 번 전략의 초과수익이
-              0 인데도 샤프가 0.5 로 나온다는 뜻이다.
-            기본값은 그대로 0 이지만, 고를 수 있게 하고 결과에 무엇을
-            가정했는지 적는다. */}
+        {/* ── 현금 이자 · 무위험수익률 ── 둘 다 **말없이 0 으로 가정하던 것**이다. 기본값은 그대로 0 이지만
+            고를 수 있게 하고 결과에 무엇을 가정했는지 적는다. */}
         <div className="grid grid-cols-2 gap-3">
           <퍼센트칸 id="bt-cash" 이름="현금 이자" 값={값.cash_rate} 최대={20}
                     설명="예금·MMF 에 두면 받는 연 이율"
@@ -1294,56 +1148,69 @@ export default function 자산배분설정({
                     설명="샤프를 잴 때 빼는 연 이율"
                     바꾸기={(v) => 바꾸기({ ...값, risk_free_rate: v })} />
         </div>
-        {값.equal_weight && 값.assets.length > 1 && (
-          <p className="text-2xs text-text-dim break-keep">
-            위에 적은 비중을 무시하고 {값.assets.length}개로 똑같이 나눠요.
-          </p>
-        )}
-      </div>
 
-      {/* ── 확장 ETF 가격 ── */}
-      <label className="flex items-start gap-2 text-sm text-text-secondary cursor-pointer">
-        {/* 설명이 label 안에 같이 있어서 읽어 주는 이름이 통째로
-            길어진다. 고르는 것이 무엇인지만 남기도록 따로 붙인다 */}
-        <input
-          type="checkbox" className="accent-accent-blue w-4 h-4 mt-0.5 flex-shrink-0"
-          aria-label="확장된 ETF 가격 사용"
-          checked={값.extended}
-          onChange={(e) => 바꾸기({ ...값, extended: e.target.checked })}
-        />
-        <span className="flex flex-col gap-0.5">
-          확장된 ETF 가격 사용
-          {/* 공짜가 아니다 — 지수에는 배당도 운용보수도 없다.
-              켜기 전에 알고 켜야 한다 */}
-          <span className="text-2xs text-text-dim break-keep">
-            ETF가 생기기 전 구간을 그 ETF가 따라가는 지수로 이어요.
-            SPY를 1980년까지 볼 수 있지만, 이은 구간은 <b>배당과 운용보수가
-            빠진 지수</b>예요.
+        {/* ── 확장 ETF 가격 ── 설명이 label 안에 같이 있으면 읽어 주는 이름이 길어진다 — 따로 붙인다 */}
+        <label className="flex items-start gap-2 text-sm text-text-secondary cursor-pointer">
+          <input
+            type="checkbox" className="accent-accent-blue w-4 h-4 mt-0.5 flex-shrink-0"
+            aria-label="확장된 ETF 가격 사용"
+            checked={값.extended}
+            onChange={(e) => 바꾸기({ ...값, extended: e.target.checked })}
+          />
+          <span className="flex flex-col gap-0.5">
+            확장된 ETF 가격 사용
+            {/* 공짜가 아니다 — 지수에는 배당도 운용보수도 없다. 켜기 전에 알고 켜야 한다 */}
+            <span className="text-2xs text-text-dim break-keep">
+              ETF가 생기기 전 구간을 그 ETF가 따라가는 지수로 이어요.
+              SPY를 1980년까지 볼 수 있지만, 이은 구간은 <b>배당과 운용보수가
+              빠진 지수</b>예요.
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
 
-      {/* ── 토탈 리턴 ── */}
-      <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-        <input
-          type="checkbox" className="accent-accent-yellow w-4 h-4"
-          checked={값.total_return}
-          onChange={(e) => 바꾸기({ ...값, total_return: e.target.checked })}
+        {/* ── 토탈 리턴 ── */}
+        <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
+          <input
+            type="checkbox" className="accent-accent-yellow w-4 h-4"
+            checked={값.total_return}
+            onChange={(e) => 바꾸기({ ...값, total_return: e.target.checked })}
+          />
+          토탈 리턴(배당 포함) 반영
+        </label>
+      </고급설정>
+
+      {/* 저장할 때 **이름을 묻는다.** 자동 이름만 쓰면 비슷한 실험이 전부 같은 줄이 된다 */}
+      {이름창 && 저장하기 && (
+        <NameDialog
+          title="이 설정을 저장할까요?"
+          설명="‘불러오기’ 에서 언제든 다시 열 수 있어요."
+          첫값={첫이름(값.assets)}
+          진행중={저장중}
+          onConfirm={(이름) => { 저장하기(이름); set이름창(false); }}
+          onClose={() => set이름창(false)}
         />
-        토탈 리턴(배당 포함) 반영
-      </label>
-
-      {/* 못 돌리는 이유를 **말로** 적는다. 버튼만 회색이면 무엇이
-          모자란지 모른 채 화면을 뒤지게 된다 */}
-      {못하는이유 && (
-        <p className="text-xs text-text-dim -mt-2">{못하는이유}</p>
       )}
 
-      <div className="flex gap-3">
-        {/* 로그인 전에도 **버튼은 보여 준다.**
-            아예 안 그리면 '저장이 어디 있지' 가 되고, 사용자는 기능이
-            고장 난 것으로 읽는다. 눌러 보면 왜 안 되는지 알 수 있어야
-            한다(아래 안내가 뜬다). */}
+      {/* 담아 둔 자산을 갈아 끼우기 전에 묻는 창 */}
+      {확인창}
+
+      {/* 저장·결과 확인 — 화면 아래에 붙는다(사용자가 고른 4번). 못 돌리는 이유를 **말로** 단추 바로 위에 적는다 —
+          버튼만 회색이면 무엇이 모자란지 모른 채 화면을 뒤지게 된다 */}
+      <실행줄 이유={못하는이유} 알림={
+        로그인안내 && !저장하기 ? (
+          <p className="text-xs text-accent-yellow/90 break-keep">
+            실험을 저장하려면 로그인이 필요해요. 결과 확인은 로그인 없이도 돼요.
+          </p>
+        ) : 저장됨 ? (
+          /* 저장했다는 말을 **반드시** 한다 — 목록이 이 화면에 없어서, 이 한 줄이 없으면 저장이 됐는지 알 방법이
+             없다. 어디로 갔는지도 같이 적어야 찾으러 갈 수 있다. */
+          <p className="text-xs text-accent-green break-keep flex items-center gap-1.5">
+            <Check size={14} className="flex-shrink-0" />
+            저장했어요. ‘불러오기’ 에서 다시 열 수 있어요.
+          </p>
+        ) : null
+      }>
+        {/* 로그인 전에도 **버튼은 보여 준다.** 아예 안 그리면 '저장이 어디 있지' 가 된다 */}
         <Button variant="secondary" className="flex-1 py-3"
                 onClick={저장하기 ? () => set이름창(true) : () => set로그인안내(true)}
                 disabled={!!못하는이유 || 저장중}>
@@ -1352,41 +1219,7 @@ export default function 자산배분설정({
         <Button className="flex-1 py-3" onClick={돌리기} disabled={!!못하는이유 || 도는중}>
           {도는중 ? "계산 중…" : "결과 확인"}
         </Button>
-      </div>
-
-      {/* 저장할 때 **이름을 묻는다.** 자동 이름만 쓰면 비슷한 실험이
-          전부 같은 줄이 되어, 목록에서 어느 것이 무엇인지 열어 봐야
-          알 수 있다. */}
-      {이름창 && 저장하기 && (
-        <NameDialog
-          title="이 설정을 저장할까요?"
-          설명="전략 저장소에서 언제든 다시 열 수 있어요."
-          첫값={첫이름(값.assets)}
-          진행중={저장중}
-          onConfirm={(이름) => { 저장하기(이름); set이름창(false); }}
-          onClose={() => set이름창(false)}
-        />
-      )}
-
-      {로그인안내 && !저장하기 && (
-        <p className="text-xs text-accent-yellow/90 -mt-2 break-keep">
-          실험을 저장하려면 로그인이 필요해요. 결과 확인은 로그인 없이도 돼요.
-        </p>
-      )}
-
-      {/* 담아 둔 자산을 갈아 끼우기 전에 묻는 창 */}
-      {확인창}
-
-      {/* 저장했다는 말을 **반드시** 한다.
-          목록을 이 화면에서 없앴으므로, 이 한 줄이 없으면 저장이 됐는지
-          알 방법이 아예 없다 — 버튼만 눌리고 화면은 그대로다.
-          어디로 갔는지도 같이 적어야 찾으러 갈 수 있다. */}
-      {저장됨 && (
-        <p className="text-xs text-accent-green -mt-2 break-keep flex items-center gap-1.5">
-          <Check size={14} className="flex-shrink-0" />
-          저장했어요. ‘전략 저장소’ 탭에서 다시 열 수 있어요.
-        </p>
-      )}
+      </실행줄>
     </Card>
   );
 }

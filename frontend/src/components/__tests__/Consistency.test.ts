@@ -126,7 +126,16 @@ describe("페이지 머리 줄이 폰에서 안 무너지는가", () => {
     return 나온것;
   }
 
-  it.each(["pages/Backtest.tsx", "pages/Dashboard.tsx"])(
+  it("백테스트는 제목 줄 없이 밑줄 탭으로 연다 — 제목은 읽어 주는 사람에게만", () => {
+    /* 큰 제목·설명 줄을 뺐다(사용자가 고른 1번). 제목 줄이 없으니 '세로로 쪼개질' 일도 없다 — 대신 화면을 소리로
+       듣는 사람에게는 제목이 있어야 해서 sr-only 로 남긴다(피드·내 자산과 같다). */
+    const s = 읽기("pages/Backtest.tsx");
+    expect(s).toMatch(/<h1 className="sr-only">백테스트<\/h1>/);
+    expect(s).toMatch(/<UnderlineTabs/);
+    expect(제목줄들(s), "보이는 제목 줄이 되살아났다").toEqual([]);
+  });
+
+  it.each(["pages/Dashboard.tsx"])(
     "%s 의 머리 줄이 접힌다", (f) => {
       const 줄들 = 제목줄들(읽기(f));
       expect(줄들.length, `${f} 에 제목 머리 줄을 못 찾았다`).toBeGreaterThan(0);
@@ -154,6 +163,9 @@ describe("백테스트 화면의 통일", () => {
     "components/backtest/AllocationForm.tsx",
     "components/backtest/AllocationResult.tsx",
     "components/backtest/AllocationTab.tsx",
+    "components/backtest/설정부품.tsx",
+    "components/backtest/불러오기창.tsx",
+    "components/backtest/종목고르기.tsx",
   ];
 
   it("말줄임표를 한 가지로 쓴다", () => {
@@ -199,7 +211,8 @@ describe("백테스트 화면의 통일", () => {
     /* 공용 확인 창 · 버튼이 '확인/취소' 로 바뀌는 방식 · 확인 없음 —
        세 가지가 섞여 있었다. 되돌릴 수 없는 일에는 **무엇이 지워지는지
        이름을 보여 주는** 공용 창이 맞다. */
-    for (const f of ["pages/Strategies.tsx", "pages/Backtest.tsx"]) {
+    /* 백테스트 안의 지우기는 '불러오기' 창으로 옮겨 갔다(사용자가 고른 2번) */
+    for (const f of ["pages/Strategies.tsx", "components/backtest/불러오기창.tsx"]) {
       expect(읽기(f), `${f} 가 공용 확인 창을 안 쓴다`).toMatch(/ConfirmDialog/);
       expect(읽기(f), `${f} 에 2단계 삭제가 남아 있다`).not.toMatch(/pendingDeleteId/);
     }
@@ -215,6 +228,9 @@ describe("백테스트 화면의 단추", () => {
     "components/backtest/AllocationForm.tsx",
     "components/backtest/AllocationTab.tsx",
     "components/backtest/ConditionBuilder.tsx",
+    "components/backtest/설정부품.tsx",
+    "components/backtest/불러오기창.tsx",
+    "components/backtest/종목고르기.tsx",
   ];
 
   it("고르기 칩을 손으로 안 만든다", () => {

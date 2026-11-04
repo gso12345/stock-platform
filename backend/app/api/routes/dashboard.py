@@ -11,7 +11,7 @@ import os
 import time
 from app.services.market.kis_service import kis_service
 from app.services.market.yf_service import yf_service, INDEX_NAMES
-from app.services.news_service import get_kr_news, get_us_news, pick_top_image_first, strip_internal_fields
+from app.services.news_service import get_kr_news, get_us_news, pick_top_image_first, strip_internal_fields, 같은기사빼기
 from app.services.market.ranking_service import get_us_rankings
 from app.services.market.market_extras import get_kr_futures, get_kr_rates, get_us_rates
 """이름이 겹친다 — 별칭으로 갈라 둔다.
@@ -512,7 +512,9 @@ async def _news_tab(market: str, sort: str, images_only: bool) -> list:
         except Exception:
             cached = cache.get_stale(ck) or []
 
-    articles = list(cached or [])
+    # 같은 기사는 하나만 — 담아 둔 목록은 이제 걸러서 담지만, 걸러 담기 전의 것이 남아 있을 수 있다.
+    # 겹친 기사는 화면에서 국내·미국을 오갈 때 앞 목록의 기사를 남겼다(news_service.같은기사빼기)
+    articles = 같은기사빼기(list(cached or []))
     if images_only:
         """사진 있는 기사만 남긴다. 부탁받은 그대로다.
 
