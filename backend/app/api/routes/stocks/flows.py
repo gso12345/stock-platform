@@ -3,9 +3,12 @@
 원래 stocks.py 한 파일에 있던 것을 탭 단위로 가른 조각이다.
 공용 폴백·시한 처리는 _공용 에 있다.
 """
+import asyncio
+
 from fastapi import Path, Query, Request
 
 from app.core.cache import cache
+from app.services.listings.krx_listing import KRX로그인필요
 
 from ._공용 import _run, _SYMBOL_PATTERN, limiter, log, router_새로
 
@@ -50,19 +53,20 @@ async def get_supply_demand(request: Request, symbol: str = Path(..., pattern=_S
 @router.get("/ETF/{symbol}/holdings")
 @limiter.limit("10/minute")
 async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SYMBOL_PATTERN)):
-    """ETF 보유비중 — yfinance funds_data (상위 25종목 + 섹터 비중)"""
+    """ETF 보유비중 — 국내는 네이버(못 받으면 KRX), 미국은 야후·네이버 해외를 함께 묻는다.
+    왜 이렇게 바뀌었는지는 services/market/etf_holdings.py 머리말에 있다(KRX 로그인·영문 섞인 국내 코드·
+    운영 서버에서 막힌 야후 상세)."""
+    from app.services.market import etf_holdings as 보유
+
     ck = f"etf_holdings:{symbol}"
     if c := cache.get(ck):
         return c
 
     def _fetch():
+        """미국 ETF — yfinance funds_data(상위 종목 + 섹터 비중). 국내 ETF 는 여기로 오지 않는다"""
         try:
             import yfinance as yf
-            # 숫자로만 이루어진 심볼 → 한국 ETF (예: 069500 → 069500.KS)
-            yf_symbol = symbol
-            if symbol.replace("-", "").isdigit():
-                yf_symbol = symbol + ".KS"
-            ticker = yf.Ticker(yf_symbol)
+            ticker = yf.Ticker(symbol)
             result: dict = {"holdings": [], "sector_weights": []}
 
             def _to_pct(v) -> float:
@@ -123,12 +127,17 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
                 except Exception:
                     pass
 
+            if result["holdings"] or result["sector_weights"]:
+                result["source"] = "야후 파이낸스"
             return result
         except Exception:
             return {"holdings": [], "sector_weights": []}
 
     def _fetch_kr_holdings() -> dict:
-        """국내 ETF 구성종목 — KRX 에 직접 묻는다.
+        """국내 ETF 구성종목 — KRX 에 직접 묻는다. 네이버가 못 줄 때만 온다.
+
+        KRX 는 이제 로그인한 세션에만 자료를 준다 — 로그인 없이 물으면 'LOGOUT' 으로 답한다(krx_listing.
+        KRX로그인필요). 그 답을 알아보고 바로 그만둔다. 다시 열릴 수도 있어 길은 남겨 둔다.
 
         처음에는 pykrx 를 썼는데 응답을 못 읽고 죽었다:
             UnicodeDecodeError: 'utf-8' codec can't decode byte 0xea ...
@@ -147,8 +156,9 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
         import httpx
         from app.core.http import SSL
 
-        code = symbol.replace(".KS", "").replace(".KQ", "")
-        if not code.isdigit():
+        # 영문이 섞인 새 코드(0193W0)도 국내다 — 숫자만 보면 놓친다
+        code = 보유.국내코드(symbol)
+        if not code:
             return {"holdings": [], "sector_weights": []}
 
         URL = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
@@ -160,6 +170,8 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
         def _행들(payload: dict, client: httpx.Client) -> list[dict]:
             """KRX 는 결과 배열의 이름이 화면마다 다르다(output/block1/OutBlock_1)."""
             r = client.post(URL, headers=HEADERS, data=payload, timeout=10)
+            if r.text.lstrip()[:6].upper() == "LOGOUT":
+                raise KRX로그인필요(payload.get("bld", ""))
             r.raise_for_status()
             j = r.json()
             for k in ("output", "block1", "OutBlock_1"):
@@ -215,7 +227,8 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
                     continue          # 현금·원화예금 등
                 구성코드 = str(it.get("COMPST_ISU_CD") or "").strip()
                 rows.append({
-                    "symbol": 구성코드 if 구성코드.isdigit() else "",
+                    # 눌러서 갈 곳은 라우트 끝의 보유.잇기 가 우리 종목 DB 로 가린다(해외 구성종목은 ISIN 이 온다)
+                    "symbol": 구성코드,
                     # 이름을 KRX 가 같이 준다 — 종목마다 따로 물을 필요가 없다
                     "name": str(it.get("COMPST_ISU_NM") or 구성코드).strip(),
                     "pct": 비중,
@@ -223,8 +236,12 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
                 })
             rows.sort(key=lambda x: x["pct"], reverse=True)
             log.info("ETF 구성종목 %s: %d개", code, len(rows))
-            return {"holdings": rows[:25], "sector_weights": []}
+            return {"holdings": rows[:25], "sector_weights": [], "source": "한국거래소"}
 
+        except KRX로그인필요:
+            log.warning("ETF 구성종목 조회 실패 %s: KRX 가 로그인을 요구한다(LOGOUT)", code)
+            return {"holdings": [], "sector_weights": [],
+                    "reason": "한국거래소는 로그인해야 구성내역을 줍니다"}
         except Exception as e:
             # 조용히 빈 값을 주면 화면에는 '데이터가 없습니다' 만 뜨고
             # 무엇이 잘못됐는지 알 길이 없다
@@ -233,22 +250,35 @@ async def get_etf_holdings(request: Request, symbol: str = Path(..., pattern=_SY
                     "reason": "한국거래소에서 자료를 받지 못했습니다"}
 
     빈결과 = {"holdings": [], "sector_weights": []}
-    """야후가 늦으면 15초에서 잘린다. 예전에는 그 자리에서 예외가 그대로
-       올라가 500 이 났고, 화면에는 '불러올 수 없습니다' 가 떴다 — 사실은
-       '아직 못 받았다' 인데. 국내 폴백까지 붙으면서 시간이 더 늘었으므로
-       각 단계를 따로 감싸고, 늦으면 빈 결과로 넘어간다."""
-    try:
-        result = await _run(_fetch)
-    except Exception:
-        result = dict(빈결과)
 
-    # 국내 ETF 는 야후가 비워서 보내는 일이 잦다 — 그때만 KRX 를 본다
-    if not result.get("holdings") and symbol.replace(".KS", "").replace(".KQ", "").isdigit():
+    async def _받기(fn) -> dict:
+        """야후가 늦으면 15초에서 잘린다. 예전에는 그 자리에서 예외가 그대로
+           올라가 500 이 났고, 화면에는 '불러올 수 없습니다' 가 떴다 — 사실은
+           '아직 못 받았다' 인데. 그래서 단계마다 따로 감싸고, 늦거나 터지면
+           빈 결과로 넘어간다."""
         try:
-            result = await _run(_fetch_kr_holdings)
+            return await _run(fn)
         except Exception:
-            result = dict(빈결과)
+            return dict(빈결과)
 
+    코드 = 보유.국내코드(symbol)
+    if 코드:
+        # 국내 — 네이버가 먼저(로그인이 필요 없다). 못 받으면 KRX. 둘 다 못 받으면 네이버의 이유를 보인다
+        result = await _받기(lambda: 보유.네이버_국내(코드))
+        if not result.get("holdings"):
+            krx = await _받기(_fetch_kr_holdings)
+            if krx.get("holdings"):
+                result = krx
+    else:
+        # 미국 — 야후와 네이버를 함께 묻는다(운영 서버에서는 야후 상세가 막혀 있다). 야후가 주면 야후
+        # (형식을 확인한 원천이고 섹터 비중도 준다), 아니면 네이버
+        야후, 네이버 = await asyncio.gather(_받기(_fetch), _받기(lambda: 보유.네이버_해외(symbol)))
+        result = 야후 if 야후.get("holdings") else {**네이버, "sector_weights": 야후.get("sector_weights") or []}
+        if not (result.get("holdings") or result.get("sector_weights")) and not result.get("reason"):
+            result["reason"] = "구성종목을 받지 못했습니다"
+
+    result["holdings"] = 보유.잇기(result.get("holdings") or [])
+    result.setdefault("sector_weights", [])
     # 데이터가 있으면 1시간, 없으면 5분 캐시 (재시도 빠르게)
     cache.set(ck, result, 3600 if (result["holdings"] or result["sector_weights"]) else 300)
     return result

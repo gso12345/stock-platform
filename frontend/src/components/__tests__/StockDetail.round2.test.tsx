@@ -153,7 +153,9 @@ describe("끊겨 있던 길을 잇는다", () => {
   });
 
   it("ETF 구성종목에서 그 종목으로 넘어갈 수 있다", () => {
-    expect(코드).toMatch(/onClick=\{h\.symbol \? \(\) => 종목으로\(h\.symbol\)/);
+    /* 줄 전체(h)를 넘긴다 — 갈 시장(h.market)을 서버가 알려 준다. 눌러서 어디로 가는지는
+       stock/__tests__/EtfHoldingsTab.test.tsx 가 실제로 눌러 본다 */
+    expect(코드).toMatch(/onClick=\{h\.symbol \? \(\) => 종목으로\(h\)/);
     // 심볼 없는 항목(현금 등)까지 눌리게 하면 안 된다
     expect(코드).toMatch(/h\.symbol \? "cursor-pointer/);
   });

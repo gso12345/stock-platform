@@ -4,6 +4,26 @@ import type { Market, StockPrice, StockDetail, OHLCV, StockFundamentals, 뉴스�
 import type { QuantEnabledMetrics, QuantScoreResult, QuantWeights } from "./quant";
 import type { 배당월칸 } from "./portfolio";
 
+/** ETF 구성종목 하나. market 은 눌렀을 때 갈 시장 — 서버가 우리 종목 DB 로 가려 준다(국내 ETF 도 미국
+ *  주식을 담는다). 갈 곳을 모르면(현금·외국 거래소) symbol 이 비고 market 이 null 이다.
+ *  예전 응답(캐시)에는 market 이 없을 수 있다 */
+export interface ETF구성종목 {
+  symbol: string;
+  name: string;
+  pct: number;
+  value: number;
+  market?: "KR" | "US" | null;
+}
+
+/** ETF 보유비중. 못 받았으면 holdings·sector_weights 가 비고 reason(사람이 읽는 한 문장)이 온다 */
+export interface EtfHoldings {
+  holdings: ETF구성종목[];
+  sector_weights: { sector: string; pct: number }[];
+  /** 어디서 받았나 — 네이버 증권·야후 파이낸스·한국거래소 */
+  source?: string;
+  reason?: string;
+}
+
 /** 투자자별 수급 하루치. 값은 순매수 '거래대금'(원)이고 음수면 순매도다. */
 export interface 수급행 {
   date: string;          // "2026-08-07"
@@ -84,7 +104,7 @@ export const stocksApi = {
     api.get<any>(`/stocks/${market}/${encodeURIComponent(symbol)}/analyst`).then((r) => r.data),
 
   getEtfHoldings: (symbol: string) =>
-    api.get<{ holdings: { symbol: string; name: string; pct: number; value: number }[]; sector_weights: { sector: string; pct: number }[] }>(`/stocks/ETF/${encodeURIComponent(symbol)}/holdings`).then((r) => r.data),
+    api.get<EtfHoldings>(`/stocks/ETF/${encodeURIComponent(symbol)}/holdings`).then((r) => r.data),
 
   getQuantScore: (
     market: string, symbol: string,

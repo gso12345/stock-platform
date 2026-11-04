@@ -8,10 +8,14 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart2, FileText } from "lucide-react";
 import api from "@/api/client";
-import { stocksApi } from "@/api/stocks";
+import { stocksApi, type ETF구성종목 } from "@/api/stocks";
 import { safeExternalUrl } from "@/utils/url";
 import { fmtDate } from "@/utils/formatters";
 import type { Market } from "@/types";
+
+/** 국내 종목 코드 — 6자리이고 숫자로 시작한다. 새로 상장하는 종목은 영문이 섞인다(0193W0·00680K).
+ *  예전에는 숫자만 국내로 봐서, 이런 국내 ETF 가 비면 '구성종목이 공개되지 않습니다' 라고 잘못 말했다 */
+export const 국내코드꼴 = /^\d[0-9A-Z]{5}(\.(KS|KQ))?$/i;
 
 /* ── ETF 보유비중 탭 ──────────────────────────────────────── */
 const SECTOR_KO: Record<string, string> = {
@@ -30,10 +34,11 @@ const SECTOR_KO: Record<string, string> = {
 
 export function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Market }) {
   const navigate = useNavigate();
-  /* 구성종목이 어느 시장인지는 응답에 없다. ETF 가 국내면 구성종목도 국내다
-     — 해외 ETF 의 구성종목은 미국 주식으로 본다 */
-  const 종목으로 = (s: string) =>
-    navigate(`/stocks/${market === "KR" ? "KR" : "US"}/${encodeURIComponent(s)}`);
+  /* 구성종목이 어느 시장인지는 서버가 알려 준다(market). 예전에는 ETF 의 시장으로 짐작했는데, 국내 ETF 도
+     미국 주식을 담아서(TIGER 미국S&P500) /stocks/KR/NVDA 같은 없는 화면이 열렸다. market 이 없는 예전
+     응답(캐시)만 예전처럼 짐작한다 */
+  const 종목으로 = (h: ETF구성종목) =>
+    navigate(`/stocks/${h.market ?? (market === "KR" ? "KR" : "US")}/${encodeURIComponent(h.symbol)}`);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["etf_holdings", symbol],
@@ -58,7 +63,7 @@ export function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Mar
   const holdings = data?.holdings ?? [];
   const sectors = data?.sector_weights ?? [];
 
-  const isKrEtf = symbol.replace("-","").match(/^\d+$/);
+  const isKrEtf = 국내코드꼴.test(symbol);
   if (!holdings.length && !sectors.length) return (
     <div className="rounded-xl border border-border bg-bg-card flex flex-col items-center justify-center py-20 gap-4">
       <BarChart2 size={40} className="text-text-muted/30" />
@@ -66,15 +71,15 @@ export function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Mar
         <p className="text-text-muted text-base">보유비중 데이터가 없습니다</p>
         <p className="text-2xs text-text-dim mt-2">
           {isKrEtf
-            ? "국내 ETF 구성종목은 한국거래소에서 가져옵니다"
-            : "이 종목은 구성종목이 공개되지 않습니다"}
+            ? "국내 ETF 구성종목은 네이버 증권에서 가져옵니다"
+            : "구성종목을 공개하지 않는 ETF 이거나 아직 받지 못했습니다"}
         </p>
         {/* 왜 비었는지 서버가 알려 주면 보여 준다.
             단 서버가 주는 것은 사람이 읽는 한 문장이다 — 예외 이름이나
             스택 같은 내부 사정은 로그에만 남긴다. 화면에 그대로 뿌리면
             쓰는 사람에게는 뜻이 없고, 서버 안쪽 구조만 드러난다. */}
-        {(data as any)?.reason && (
-          <p className="text-2xs text-text-dim/70 mt-1">{(data as any).reason}</p>
+        {data?.reason && (
+          <p className="text-2xs text-text-dim/70 mt-1">{data.reason}</p>
         )}
       </div>
     </div>
@@ -89,7 +94,10 @@ export function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Mar
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <span className="text-base font-semibold text-text-primary">상위 보유종목</span>
-            <span className="text-xs text-text-muted">{holdings.length}종목</span>
+            {/* 출처도 같이 — 네이버는 상위 10종목만 준다 */}
+            <span className="text-xs text-text-muted">
+              {holdings.length}종목{data?.source && ` · ${data.source}`}
+            </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -107,7 +115,7 @@ export function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Mar
                      그 종목으로 넘어간다 — 여기만 막다른 길이었다.
                      심볼이 없는 항목(현금·기타)은 그대로 둔다 */
                   <tr key={i}
-                      onClick={h.symbol ? () => 종목으로(h.symbol) : undefined}
+                      onClick={h.symbol ? () => 종목으로(h) : undefined}
                       className={`border-b border-border/30 transition-colors ${
                         h.symbol ? "cursor-pointer hover:bg-bg-hover" : ""}`}>
                     <td className="px-4 py-2.5 text-text-muted font-mono text-xs">{i + 1}</td>

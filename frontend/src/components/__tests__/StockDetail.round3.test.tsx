@@ -289,8 +289,10 @@ describe("헤더 배지는 이름·버튼 줄 아래 한 줄로", () => {
     /* 서버가 이유를 주면 그대로 보여 준다. 로그를 뒤지지 않고도
        원인을 말할 수 있어야 고칠 수 있다 — 실제로 보유비중이 안 나올 때
        이게 없어서 원인을 좁히는 데 여러 번 오갔다 */
-    expect(코드).toMatch(/\(data as any\)\?\.reason && \(/);
-    expect(코드).toMatch(/\{\(data as any\)\.reason\}/);
+    /* 응답 꼴(EtfHoldings)에 reason 이 들어가서 as any 를 거치지 않는다 — 실제로 그려지는지는
+       stock/__tests__/EtfHoldingsTab.test.tsx 가 본다 */
+    expect(코드).toMatch(/data\?\.reason && \(/);
+    expect(코드).toMatch(/\{data\.reason\}/);
   });
 
   it("접히지 않고 가로로 민다", () => {
