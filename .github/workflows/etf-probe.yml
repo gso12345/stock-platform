@@ -1,0 +1,100 @@
+## 임시 — ETF 구성 원천이 실제로 무엇을 주는지 본다. 개발 환경은 네이버·운영 서버에 못 나가서
+## GitHub 일꾼에서 읽기만 한다(GET). 확인이 끝나면 이 파일을 지운다. main 에는 올리지 않는다.
+name: ETF 구성 살펴보기(임시)
+
+on:
+  push:
+    branches: [claude/initial-load-performance-2RJGW]
+    paths: [".github/workflows/etf-probe.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 네이버·운영 서버 응답 모양
+        run: |
+          cat > probe.py <<'PY'
+          import json, time, urllib.request, urllib.error
+
+          UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+
+
+          def get(url, ref=None, timeout=25):
+              h = {"User-Agent": UA, "Accept": "application/json, text/plain, */*"}
+              if ref:
+                  h["Referer"] = ref
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+                      return r.status, r.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode("utf-8", "replace")[:300]
+              except Exception as e:
+                  return None, f"{type(e).__name__}: {e}"
+
+
+          def shape(x, d=0):
+              if d > 4:
+                  return "..."
+              if isinstance(x, dict):
+                  return {k: shape(v, d + 1) for k, v in list(x.items())[:40]}
+              if isinstance(x, list):
+                  return [f"len={len(x)}", shape(x[0], d + 1)] if x else ["len=0"]
+              if isinstance(x, str):
+                  return "str:" + x[:30]
+              return f"{type(x).__name__}:{x}"
+
+
+          def show(label, url, ref=None, raw=1200):
+              s, body = get(url, ref)
+              print(f"\n=== {label} [{s}] {url}")
+              try:
+                  j = json.loads(body)
+              except Exception:
+                  print("  (JSON 아님) " + body[:300].replace("\n", " "))
+                  return None
+              print("  모양: " + json.dumps(shape(j), ensure_ascii=False)[:1800])
+              if raw:
+                  print("  원문: " + json.dumps(j, ensure_ascii=False)[:raw])
+              return j
+
+
+          print("##### 1) 운영 서버 — /stocks/ETF/{sym}/holdings")
+          운영 = "https://stock-platform-ksmu.onrender.com/api/v1/stocks/ETF/{}/holdings"
+          for i, sym in enumerate(["SPY", "QQQ", "SCHD", "ARKK", "TLT", "069500", "360750", "122630", "459580"]):
+              if i:
+                  time.sleep(7)
+              s, body = get(운영.format(sym), timeout=80)
+              try:
+                  j = json.loads(body)
+                  h = j.get("holdings") or []
+                  print(f"운영 {sym} [{s}] holdings={len(h)} sectors={len(j.get('sector_weights') or [])} "
+                        f"source={j.get('source')!r} reason={j.get('reason')!r} 앞={json.dumps(h[:2], ensure_ascii=False)[:300]}")
+              except Exception:
+                  print(f"운영 {sym} [{s}] {body[:200]}")
+
+          print("\n##### 2) 네이버 국내 etfAnalysis")
+          for code in ["069500", "360750", "122630", "114800", "459580", "132030", "148070"]:
+              j = show(f"etfAnalysis {code}", f"https://m.stock.naver.com/api/stock/{code}/etfAnalysis", "https://m.stock.naver.com/", raw=0)
+              if isinstance(j, dict):
+                  top = j.get("etfTop10MajorConstituentAssets")
+                  print("  top10 앞 3: " + json.dumps(top[:3] if isinstance(top, list) else top, ensure_ascii=False)[:700])
+
+          print("\n##### 3) 네이버 국내 ETFComponent")
+          for code in ["069500", "360750", "459580", "132030"]:
+              show(f"ETFComponent {code}", f"https://stock.naver.com/api/domestic/detail/{code}/ETFComponent?startIdx=0&pageSize=5", "https://stock.naver.com/")
+
+          print("\n##### 4) 네이버 해외 composition")
+          for code in ["SPY", "QQQ.O", "QQQ", "SCHD", "ARKK", "ARKK.K", "TLT.O", "GLD", "SOXL"]:
+              show(f"composition {code}", f"https://stock.naver.com/api/stockSecurity/etfs/v2/foreign/{code}/composition", "https://stock.naver.com/", raw=1500)
+
+          print("\n##### 5) 네이버 자동완성 — 미국 티커의 reutersCode")
+          for q in ["SPY", "QQQ", "ARKK", "SCHD", "TLT", "GLD"]:
+              s, body = get(f"https://ac.stock.naver.com/ac?q={q}&target=stock", "https://stock.naver.com/")
+              print(f"\n=== 자동완성 {q} [{s}] " + body[:600].replace("\n", " "))
+          PY
+          python3 probe.py
