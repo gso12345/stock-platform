@@ -19,9 +19,24 @@
   · 미국: 라우트가 야후와 네이버 해외 ETF 구성(stock.naver.com/api/stockSecurity/etfs/v2/foreign/{코드}/
     composition)을 함께 묻고, 야후가 주면 야후(섹터 비중까지 준다), 아니면 네이버를 쓴다.
 
-네이버 해외 구성 응답의 칸 이름은 여기서 확인할 수 없었다(검사 환경은 바깥에 못 나간다 — naver_world 와 같은
-사정). 그래서 'holdings' 목록을 찾아 이름·비중 칸을 넉넉한 후보 이름으로 읽되, 비중이 말이 안 되면(합이 100%
-를 넘는다) 버린다 — 틀린 숫자를 보여 주느니 비운다. 못 읽으면 칸 이름을 로그에 남겨 다음에 고칠 수 있게 한다.
+그래도 비던 것 — 사용자가 같은 말을 다시 했다. 이 검사 환경은 바깥에 못 나가서, GitHub 일꾼에서 운영 서버와
+네이버에 실제로 물어 봤다(2026-11-05).
+  · 국내 해외주식·채권·현금성 ETF(TIGER 미국S&P500 360750, KODEX CD금리액티브 459580, KODEX 골드선물 132030,
+    국고채10년 148070) — etfAnalysis 상위 10종목의 비중이 전부 '-' 로 온다. 비중이 없는 줄을 버리니 다 비었다.
+    → 같은 네이버의 전체 구성 stock.naver.com/api/domestic/detail/{코드}/ETFComponent 를 먼저 본다. 비중
+      (weight '7.66'), 한글 이름(componentName '엔비디아'), 국내 코드(componentItemCode) 또는 해외 코드
+      (componentReutersCode 'NVDA.O'), ISIN, 평가액, 전체 개수(componentCount), 기준일이 다 온다.
+      비중 큰 순으로 온다. 상위 10종목은 이것을 못 받을 때만.
+  · 미국 뉴욕아카 ETF 일부(SCHD, ARKK) — 네이버 코드가 'SCHD.K'·'ARKK.K' 다. 꼬리 없이(SPY·GLD)나 '.O'
+    (나스닥: QQQ.O·TLT.O)만 물어서 404 였다. 거래소 이름으로는 못 가른다(네이버는 둘 다 '아멕스').
+    → 네이버 자동완성(ac.stock.naver.com/ac)이 종목마다 네이버 코드(reutersCode)를 알려 준다 — 그것부터 묻는다.
+  · 미국 ETF 구성종목의 티커가 비어 있었다 — 응답의 티커는 줄마다 meta.itemCode('AAPL.O')에 있다. 그래서 눌러도
+    종목으로 가지 않았다.
+
+해외 구성 응답 모양(확인한 것): {"holdings": {"baseDate", "holdings": [{"rank", "name", "weight": "7.6986",
+"amount", "shares", "price": {...}, "meta": {"itemCode": "AAPL.O", ...} | null}]}, "exposures": {...}}.
+그래도 칸 이름을 넉넉한 후보로 읽는 것은 그대로 둔다 — 비중이 말이 안 되면(합이 100% 를 넘는다) 버리고, 못 읽으면
+칸 이름을 로그에 남긴다.
 """
 from __future__ import annotations
 
@@ -37,14 +52,23 @@ from app.core.http import SSL
 log = logging.getLogger(__name__)
 
 국내주소 = "https://m.stock.naver.com/api/stock/{코드}/etfAnalysis"
+국내전체주소 = "https://stock.naver.com/api/domestic/detail/{코드}/ETFComponent"
 해외주소 = "https://stock.naver.com/api/stockSecurity/etfs/v2/foreign/{코드}/composition"
+자동완성주소 = "https://ac.stock.naver.com/ac"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 _국내머리 = {"User-Agent": _UA, "Referer": "https://m.stock.naver.com/",
             "Accept": "application/json, text/plain, */*"}
+#: stock.naver.com 쪽(국내 전체 구성·해외 구성·자동완성)
 _해외머리 = {"User-Agent": _UA, "Referer": "https://stock.naver.com/",
             "Accept": "application/json, text/plain, */*"}
-#: 한 번 묻는 시한(초). 라우트의 _run 이 15초에서 자르므로, 해외 후보 두 번을 묻고도 그 안에 끝나게
-시한 = 6
+#: 한 번 묻는 시한(초). 라우트의 _run 이 15초에서 자르므로, 네이버가 평소처럼 빠르면(0.1~0.3초) 몇 번을 물어도
+#  그 안에 끝난다. 자동완성은 덤이라 더 짧게
+시한 = 5
+자동완성시한 = 3
+#: 국내 전체 구성에서 받는 줄 수 — 비중 큰 순으로 온다. S&P500 은 504줄이라 다 받지 않는다
+전체구성쪽 = 50
+#: 화면에 보이는 구성종목 수(야후·KRX 도 25)
+보일수 = 25
 
 #: 국내 종목 코드 — 6자리, 숫자로 시작한다. 영문이 섞일 수 있다(0193W0·00680K). 미국 티커는 숫자로 시작하지 않는다
 _국내꼴 = re.compile(r"^[0-9][0-9A-Z]{5}$")
@@ -104,22 +128,93 @@ def 국내_구성_읽기(j, 자기코드: str = "") -> list[dict]:
     return rows
 
 
+def 금액값(v) -> float:
+    """'1517716000' → 1517716000.0. 못 읽으면 0 — 평가액은 덤이다"""
+    f = 비중값(v)
+    return f if f is not None else 0.0
+
+
+def 국내_전체구성_읽기(j, 자기코드: str = "") -> list[dict]:
+    """ETFComponent 응답(구성종목 목록) → 구성종목(비중 큰 순).
+
+    · 국내 종목·ETF 는 componentItemCode('005930'), 해외 종목은 componentReutersCode('NVDA.O')가 코드다.
+      둘 다 없는 것(원화현금·스왑·선물·채권)은 이름과 비중만 — 눌러서 갈 곳이 없다
+    · 국내 상장(주식·ETF)은 ISIN 이 KR7 로 시작한다. 우리 종목 DB 에는 ETF 가 없어서, KODEX 레버리지가 담은
+      'KODEX 200' 같은 것은 DB 로 가리면 못 누른다 — 원천이 국내 상장이라고 알려 주면 국내로 단다
+    · 비중이 0 이하(매도한 선물·빈 칸)와 ETF 자신은 뺀다"""
+    rows: list[dict] = []
+    for it in j if isinstance(j, list) else []:
+        if not isinstance(it, dict):
+            continue
+        비중 = 비중값(it.get("weight"))
+        이름 = str(it.get("componentName") or "").strip()
+        국내 = str(it.get("componentItemCode") or "").strip().upper()
+        해외 = str(it.get("componentReutersCode") or "").strip().upper()
+        if 비중 is None or 비중 <= 0 or not 이름 or (국내 and 국내 == 자기코드):
+            continue
+        r = {"symbol": 국내 or 해외, "name": 이름, "pct": 비중, "value": 금액값(it.get("evalAmount"))}
+        if 국내 and str(it.get("componentIsinCode") or "").strip().upper().startswith("KR7"):
+            r["market"] = "KR"
+        rows.append(r)
+    rows.sort(key=lambda r: r["pct"], reverse=True)
+    return rows
+
+
+def 전체구성_덧(j) -> dict:
+    """전체 구성 개수(componentCount '504')와 기준일(referenceDate '2026-11-05') — 줄마다 같은 값이 온다"""
+    첫 = j[0] if isinstance(j, list) and j and isinstance(j[0], dict) else {}
+    덧: dict = {}
+    수 = 비중값(첫.get("componentCount"))
+    if 수 is not None and 수 >= 1 and 수 == int(수):
+        덧["total"] = int(수)
+    날 = str(첫.get("referenceDate") or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", 날):
+        덧["as_of"] = 날
+    return 덧
+
+
 def 네이버_국내(코드: str, client: httpx.Client | None = None) -> dict:
-    """국내 ETF 구성 상위 10종목 → {"holdings", "sector_weights", "source" | "reason"}"""
+    """국내 ETF 구성 → {"holdings", "sector_weights", "source", "total"?, "as_of"?} | 빈 것 + "reason".
+
+    전체 구성(ETFComponent)을 먼저 — 비중이 다 있다. 못 받거나 비면 상위 10종목(etfAnalysis). 해외주식·채권
+    ETF 는 상위 10종목의 비중이 '-' 라 전체 구성이 아니면 비어 버린다(머리말).
+
+    둘 다 비면 이유를 가른다 — 전체 구성이 '없다' 고 답했으면 '공개된 것이 없다', 묻지도 못했으면 '받지 못했다'"""
+    전체실패 = False
+    rows: list[dict] = []
     try:
         with _클라이언트(client) as c:
-            r = c.get(국내주소.format(코드=코드), headers=_국내머리, timeout=시한)
-            r.raise_for_status()
-            rows = 국내_구성_읽기(r.json(), 코드)
+            try:
+                r = c.get(국내전체주소.format(코드=코드), params={"startIdx": 0, "pageSize": 전체구성쪽},
+                          headers=_해외머리, timeout=시한)
+                r.raise_for_status()
+                j = r.json()
+                rows = 국내_전체구성_읽기(j, 코드)
+                if rows:
+                    log.info("네이버 국내 ETF 전체 구성 %s: %d개", 코드, len(rows))
+                    return {"holdings": rows[:보일수], "sector_weights": [], "source": "네이버 증권",
+                            **전체구성_덧(j)}
+                log.info("네이버 국내 ETF 전체 구성 없음 %s — 상위 10종목을 본다", 코드)
+            except Exception as e:
+                # 예외 이름은 로그에만 — 화면에는 사람이 읽는 한 문장만 간다
+                전체실패 = True
+                log.warning("네이버 국내 ETF 전체 구성 실패 %s: %s", 코드, type(e).__name__)
+            try:
+                r = c.get(국내주소.format(코드=코드), headers=_국내머리, timeout=시한)
+                r.raise_for_status()
+                rows = 국내_구성_읽기(r.json(), 코드)
+            except Exception as e:
+                log.warning("네이버 국내 ETF 구성 실패 %s: %s", 코드, type(e).__name__)
     except Exception as e:
-        # 예외 이름은 로그에만 — 화면에는 사람이 읽는 한 문장만 간다
+        전체실패 = True
         log.warning("네이버 국내 ETF 구성 실패 %s: %s", 코드, type(e).__name__)
+    if rows:
+        log.info("네이버 국내 ETF 구성 %s: %d개", 코드, len(rows))
+        return {"holdings": rows, "sector_weights": [], "source": "네이버 증권"}
+    if 전체실패:
         return _빈것("네이버 증권에서 구성종목을 받지 못했습니다")
-    if not rows:
-        log.info("네이버 국내 ETF 구성 없음 %s", 코드)
-        return _빈것("네이버 증권에 공개된 구성종목이 없습니다")
-    log.info("네이버 국내 ETF 구성 %s: %d개", 코드, len(rows))
-    return {"holdings": rows, "sector_weights": [], "source": "네이버 증권"}
+    log.info("네이버 국내 ETF 구성 없음 %s", 코드)
+    return _빈것("네이버 증권에 공개된 구성종목이 없습니다")
 
 
 # ── 해외 — 네이버 해외 ETF 구성 ───────────────────────────────────
@@ -131,6 +226,10 @@ _비중칸 = ("weight", "etfWeight", "holdingWeight", "weightRatio", "holdingRat
           "assetRatio", "holdingPercent", "percent", "pct", "proportion")
 #: 이름에 'weight' 가 들어도 비중이 아닌 칸 — 등락률·가격 따위
 _비중아님 = re.compile(r"fluctuat|change|return|price|rate", re.I)
+#: 구성 비중 합이 이보다 크면 엉뚱한 칸을 읽은 것으로 보고 버린다. 100% 가 아니다 — 레버리지 ETF 는 비중 합이
+#  100% 를 넘는다(SOXL 3배: 상위 10줄 합 306%, 2026-11 실제 응답). 가격(수백 달러)·금액·주식 수를 비중으로
+#  잘못 읽으면 합이 수천을 넘는다
+비중합상한 = 400.5
 
 
 def _첫글(it: dict, 칸들) -> str:
@@ -192,6 +291,9 @@ def 해외_구성_읽기(j) -> list[dict]:
     for it in 목록:
         이름 = _첫글(it, _이름칸)
         코드 = _첫글(it, _코드칸).upper()
+        if not 코드 and isinstance(it.get("meta"), dict):
+            # 네이버는 티커를 줄마다 meta.itemCode('AAPL.O')에 둔다 — 채권·현금 줄은 meta 가 null
+            코드 = str(it["meta"].get("itemCode") or "").strip().upper()
         비중 = _비중(it)
         if 비중 is None or 비중 <= 0 or not (이름 or 코드):
             continue
@@ -205,20 +307,58 @@ def 해외_구성_읽기(j) -> list[dict]:
         for r in rows:
             r["pct"] *= 100
         합 *= 100
-    if 합 > 100.5:
+    if 합 > 비중합상한:
         log.warning("네이버 해외 ETF 구성 — 비중 합 %.1f%% 라 버린다(칸: %s)", 합, sorted(목록[0])[:20])
         return []
     rows.sort(key=lambda r: r["pct"], reverse=True)
     return rows[:25]
 
 
-def 해외코드후보(symbol: str, 거래소: str = "") -> list[str]:
-    """야후 꼴 티커 → 네이버 해외 코드 후보. 나스닥 상장은 '.O' 가 붙고(QQQ.O, NVDA.O), 뉴욕·아카 상장은
-    안 붙는다(VOO). 거래소를 모르면 둘 다 — 붙지 않은 것부터"""
+def 해외_기준일(j) -> str | None:
+    """해외 구성의 기준일 — {"holdings": {"baseDate": "2026-10-31", ...}}. 구성은 달마다 올라온다"""
+    안 = j.get("holdings") if isinstance(j, dict) else None
+    날 = str(안.get("baseDate") or "").strip() if isinstance(안, dict) else ""
+    return 날 if re.fullmatch(r"\d{4}-\d{2}-\d{2}", 날) else None
+
+
+def 해외코드후보(symbol: str, 거래소: str = "", 네이버코드: str | None = None) -> list[str]:
+    """야후 꼴 티커 → 네이버 해외 코드 후보(앞에서부터 묻는다).
+
+    네이버 자동완성이 알려 준 코드가 있으면 그것부터. 없으면 꼴로 짐작한다 — 나스닥 상장은 '.O'(QQQ.O),
+    뉴욕·아카 상장은 꼬리가 없거나(SPY·GLD) '.K'(SCHD.K·ARKK.K). 나스닥이면 '.O' 부터, 아니면 꼬리 없는 것부터"""
     s = (symbol or "").strip().upper().replace("-", ".")
     if not s:
         return []
-    return [f"{s}.O", s] if (거래소 or "").upper() == "NASDAQ" else [s, f"{s}.O"]
+    짐작 = [f"{s}.O", s, f"{s}.K"] if (거래소 or "").upper() == "NASDAQ" else [s, f"{s}.K", f"{s}.O"]
+    return list(dict.fromkeys([네이버코드, *짐작] if 네이버코드 else 짐작))
+
+
+_네이버코드꼴 = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,19}$")
+
+
+def 자동완성코드(symbol: str, client: httpx.Client) -> str | None:
+    """네이버 자동완성으로 미국 티커의 네이버 코드(reutersCode)를 묻는다 — SCHD → 'SCHD.K', QQQ → 'QQQ.O'.
+    같은 티커·미국 종목만 믿는다(QQQ 를 물으면 QQQX·QQQA 도 온다). 못 받으면 None — 꼴로 짐작한다"""
+    s = (symbol or "").strip().upper()
+    if not s:
+        return None
+    try:
+        r = client.get(자동완성주소, params={"q": s, "target": "stock"}, headers=_해외머리, timeout=자동완성시한)
+        if r.status_code != 200:
+            return None
+        목록 = r.json().get("items")
+    except Exception as e:
+        log.info("네이버 자동완성 실패 %s: %s", s, type(e).__name__)
+        return None
+    같은것 = {s, s.replace("-", ".")}
+    for it in 목록 if isinstance(목록, list) else []:
+        if not isinstance(it, dict) or str(it.get("nationCode") or "").upper() != "USA":
+            continue
+        if str(it.get("code") or "").strip().upper() in 같은것:
+            코드 = str(it.get("reutersCode") or "").strip()
+            if _네이버코드꼴.match(코드):
+                return 코드
+    return None
 
 
 def _거래소(symbol: str) -> str:
@@ -231,21 +371,24 @@ def _거래소(symbol: str) -> str:
 
 
 def 네이버_해외(symbol: str, client: httpx.Client | None = None) -> dict:
-    """미국 ETF 구성 → {"holdings", "sector_weights", "source" | "reason"}"""
+    """미국 ETF 구성 → {"holdings", "sector_weights", "source", "as_of"?} | 빈 것 + "reason".
+    네이버 코드는 자동완성에 먼저 묻고, 못 받으면 꼴로 짐작한 후보를 차례로(해외코드후보)"""
     try:
         with _클라이언트(client) as c:
-            for 코드 in 해외코드후보(symbol, _거래소(symbol)):
+            for 코드 in 해외코드후보(symbol, _거래소(symbol), 자동완성코드(symbol, c)):
                 try:
                     r = c.get(해외주소.format(코드=코드), headers=_해외머리, timeout=시한)
                     if r.status_code != 200:
                         continue
-                    rows = 해외_구성_읽기(r.json())
+                    j = r.json()
+                    rows = 해외_구성_읽기(j)
                 except Exception as e:
                     log.warning("네이버 해외 ETF 구성 실패 %s: %s", 코드, type(e).__name__)
                     continue
                 if rows:
                     log.info("네이버 해외 ETF 구성 %s: %d개", 코드, len(rows))
-                    return {"holdings": rows, "sector_weights": [], "source": "네이버 증권"}
+                    덧 = {"as_of": 날} if (날 := 해외_기준일(j)) else {}
+                    return {"holdings": rows, "sector_weights": [], "source": "네이버 증권", **덧}
     except Exception as e:
         log.warning("네이버 해외 ETF 구성 실패 %s: %s", symbol, type(e).__name__)
     return _빈것("구성종목을 받지 못했습니다")
@@ -279,13 +422,15 @@ def 잇기(rows: list[dict], 아는것: tuple[set[str], set[str]] | None = None)
         국내 DB 를 아직 못 읽었으면(내장 목록뿐) 꼴만 믿는다 — 그때 DB 로 가리면 삼성전자 말고는 다 못 누른다
       · 우리 미국 DB 에 있으면 미국 — 거래소 꼬리가 붙은 코드(NVDA.O)는 떼어 보고, BRK.B 는 BRK-B 로도 본다.
         미국 DB 를 아직 못 읽었으면(내장 목록뿐) 꼬리 없는 티커 꼴만 믿는다
+      · 원천이 국내 상장이라고 알려 준 것(국내 전체 구성의 ISIN 이 KR7 — 국내_전체구성_읽기 가 market 'KR' 을
+        단다)은 국내 — 우리 국내 DB 에는 ETF 가 없어서, 레버리지 ETF 가 담은 'KODEX 200' 을 DB 로 가리면 못 누른다
       · 그 밖(현금·외국 거래소·ISIN)은 누를 수 없게 비운다"""
     국내, 미국 = 아는것 if 아는것 is not None else _아는종목()
     국내를다앎, 미국을다앎 = len(국내) >= 국내DB최소, len(미국) >= 미국DB최소
     for r in rows:
         원래 = str(r.get("symbol") or "").strip().upper()
         sym, 시장 = "", None
-        if (k := 국내코드(원래)) and (k in 국내 or not 국내를다앎):
+        if (k := 국내코드(원래)) and (k in 국내 or not 국내를다앎 or r.get("market") == "KR"):
             sym, 시장 = k, "KR"
         else:
             for 후보 in dict.fromkeys((원래, 원래.replace(".", "-"), 원래.split(".")[0])):

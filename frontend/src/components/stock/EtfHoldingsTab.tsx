@@ -17,6 +17,13 @@ import type { Market } from "@/types";
  *  예전에는 숫자만 국내로 봐서, 이런 국내 ETF 가 비면 '구성종목이 공개되지 않습니다' 라고 잘못 말했다 */
 export const 국내코드꼴 = /^\d[0-9A-Z]{5}(\.(KS|KQ))?$/i;
 
+/** '2026-10-31' → '10.31' (올해가 아니면 '25.10.31'). 꼴이 다르면 그대로 */
+export function 기준일(날: string, 오늘 = new Date()): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(날);
+  if (!m) return 날;
+  return Number(m[1]) === 오늘.getFullYear() ? `${m[2]}.${m[3]}` : `${m[1].slice(2)}.${m[2]}.${m[3]}`;
+}
+
 /* ── ETF 보유비중 탭 ──────────────────────────────────────── */
 const SECTOR_KO: Record<string, string> = {
   technology: "기술",
@@ -94,9 +101,14 @@ export function EtfHoldingsTab({ symbol, market }: { symbol: string; market: Mar
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <span className="text-base font-semibold text-text-primary">상위 보유종목</span>
-            {/* 출처도 같이 — 네이버는 상위 10종목만 준다 */}
-            <span className="text-xs text-text-muted">
-              {holdings.length}종목{data?.source && ` · ${data.source}`}
+            {/* 출처·기준일도 같이. 전체가 더 많으면(S&P500 은 504개) 비중 큰 것만 보인다고 알린다 —
+                '25종목' 만 적으면 ETF 가 25종목만 담은 줄 안다 */}
+            <span className="text-xs text-text-muted text-right">
+              {data?.total && data.total > holdings.length
+                ? `전체 ${data.total.toLocaleString("ko-KR")}개 중 ${holdings.length}개`
+                : `${holdings.length}종목`}
+              {data?.source && ` · ${data.source}`}
+              {data?.as_of && ` · ${기준일(data.as_of)} 기준`}
             </span>
           </div>
           <div className="overflow-x-auto">

@@ -22,7 +22,7 @@ vi.mock("@/api/stocks", () => ({
   },
 }));
 
-import { EtfHoldingsTab, 국내코드꼴 } from "@/components/stock/EtfHoldingsTab";
+import { EtfHoldingsTab, 국내코드꼴, 기준일 } from "@/components/stock/EtfHoldingsTab";
 import { stocksApi } from "@/api/stocks";
 
 function 지금주소() {
@@ -106,6 +106,19 @@ describe("출처와 빈 이유", () => {
     expect(await screen.findByText("3종목 · 네이버 증권")).toBeInTheDocument();
   });
 
+  it("전체가 더 많으면 '전체 N개 중' 과 기준일 — '3종목' 만 적으면 ETF 가 3종목만 담은 줄 안다", async () => {
+    const 올해 = new Date().getFullYear();
+    상태.응답 = { ...국내ETF응답, total: 504, as_of: `${올해}-10-31` };
+    그리기("360750", "KR");
+    expect(await screen.findByText("전체 504개 중 3개 · 네이버 증권 · 10.31 기준")).toBeInTheDocument();
+  });
+
+  it("전체 개수가 보이는 것보다 많지 않으면 종목 수만", async () => {
+    상태.응답 = { ...국내ETF응답, total: 3 };
+    그리기("069500", "KR");
+    expect(await screen.findByText("3종목 · 네이버 증권")).toBeInTheDocument();
+  });
+
   it("출처가 없으면 종목 수만", async () => {
     상태.응답 = { holdings: [{ symbol: "AAPL", name: "Apple", pct: 7, value: 0, market: "US" }], sector_weights: [] };
     그리기("QQQ", "ETF");
@@ -140,6 +153,18 @@ describe("출처와 빈 이유", () => {
     그리기("XLK", "ETF");
     expect(await screen.findByText("기술")).toBeInTheDocument();
     expect(screen.getByText("51.2%")).toBeInTheDocument();
+  });
+});
+
+describe("기준일", () => {
+  const 오늘 = new Date(2026, 10, 5);
+  it("올해면 월.일, 아니면 해까지", () => {
+    expect(기준일("2026-10-31", 오늘)).toBe("10.31");
+    expect(기준일("2025-12-31", 오늘)).toBe("25.12.31");
+  });
+  it("꼴이 다르면 그대로", () => {
+    expect(기준일("10월 말", 오늘)).toBe("10월 말");
+    expect(기준일("2026-1-5", 오늘)).toBe("2026-1-5");
   });
 });
 
