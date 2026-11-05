@@ -1,5 +1,5 @@
 ## 임시 — ETF 구성 원천이 실제로 무엇을 주는지 본다. 개발 환경은 네이버·운영 서버에 못 나가서
-## GitHub 일꾼에서 읽기만 한다(GET). 2회차: 고친 etf_holdings.py 를 그대로 실제 네이버에 돌려 본다. 확인이 끝나면 지운다.
+## GitHub 일꾼에서 읽기만 한다(GET). 3회차: 고친 etf_holdings.py(레버리지 비중 합 상한 포함) 를 그대로 실제 네이버에 돌려 본다. 확인이 끝나면 지운다.
 name: ETF 구성 살펴보기(임시)
 
 on:
@@ -250,6 +250,10 @@ jobs:
                     "assetRatio", "holdingPercent", "percent", "pct", "proportion")
           #: 이름에 'weight' 가 들어도 비중이 아닌 칸 — 등락률·가격 따위
           _비중아님 = re.compile(r"fluctuat|change|return|price|rate", re.I)
+          #: 구성 비중 합이 이보다 크면 엉뚱한 칸을 읽은 것으로 보고 버린다. 100% 가 아니다 — 레버리지 ETF 는 비중 합이
+          #  100% 를 넘는다(SOXL 3배: 상위 10줄 합 306%, 2026-11 실제 응답). 가격(수백 달러)·금액·주식 수를 비중으로
+          #  잘못 읽으면 합이 수천을 넘는다
+          비중합상한 = 400.5
           
           
           def _첫글(it: dict, 칸들) -> str:
@@ -327,7 +331,7 @@ jobs:
                   for r in rows:
                       r["pct"] *= 100
                   합 *= 100
-              if 합 > 100.5:
+              if 합 > 비중합상한:
                   log.warning("네이버 해외 ETF 구성 — 비중 합 %.1f%% 라 버린다(칸: %s)", 합, sorted(목록[0])[:20])
                   return []
               rows.sort(key=lambda r: r["pct"], reverse=True)
@@ -478,7 +482,7 @@ jobs:
                     f"total={out.get('total')} as_of={out.get('as_of')} 앞={줄(rows)}")
           
           print("\n##### 미국 — 네이버_해외(새 코드)")
-          for sym in ["SPY", "QQQ", "SCHD", "ARKK", "TLT", "GLD", "SOXL", "VOO", "JEPI", "JEPQ", "IWM", "VTI", "DIA", "XLK", "TQQQ", "IBIT", "SMH", "BND", "SCHG", "VNQ"]:
+          for sym in ["SPY", "QQQ", "SCHD", "ARKK", "TLT", "GLD", "SOXL", "VOO", "JEPI", "JEPQ", "IWM", "VTI", "DIA", "XLK", "TQQQ", "IBIT", "SMH", "BND", "SCHG", "VNQ", "SOXS", "SQQQ", "UPRO", "TSLL"]:
               t = time.time()
               with 보유._클라이언트(None) as c:
                   코드 = 보유.자동완성코드(sym, c)
