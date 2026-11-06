@@ -137,3 +137,47 @@ describe("멀쩡하면 아무 말도 안 한다", () => {
     expect(screen.queryByText(/그 앞은 못 쟀어요/)).toBeNull();
   });
 });
+
+
+describe("주말·휴장일·오늘 끝은 짧아진 것이 아니다", () => {
+  /* 요청한 시작일이 토요일이면 자료는 월요일부터고, 끝을 오늘로 잡으면 어제(마지막 거래일)까지다. 그때마다 담은 자산을
+     전부 범인으로 몰면 거짓 경고다 — 경고가 흔해지면 정작 진짜 경고를 안 읽는다(실제로 토요일 시작으로 돌려 보고 찾았다) */
+  const 모두같이 = (첫: string, 끝: string) => ({
+    AAA: { first: 첫, last: 끝 }, SPY: { first: 첫, last: 끝 },
+  });
+
+  it("시작일이 토요일이라 월요일부터 쟀으면 말하지 않는다", () => {
+    그리기({ requested_start: "2016-11-05", start_date: "2016-11-07",
+             requested_end: "2021-12-30", asset_range: 모두같이("2016-11-07", "2021-12-30") });
+    expect(screen.queryByText(/못 쟀어요/)).toBeNull();
+  });
+
+  it("끝을 오늘로 잡아 어제까지 쟀으면 말하지 않는다", () => {
+    그리기({ start_date: "2016-01-04", requested_start: "2016-01-04",
+             end_date: "2026-11-05", requested_end: "2026-11-06",
+             asset_range: 모두같이("2016-01-04", "2026-11-05") });
+    expect(screen.queryByText(/못 쟀어요/)).toBeNull();
+  });
+
+  it("긴 연휴(열흘까지)도 봐준다", () => {
+    그리기({ requested_start: "2025-10-01", start_date: "2025-10-11",
+             end_date: "2026-01-02", requested_end: "2026-01-12",
+             asset_range: 모두같이("2025-10-11", "2026-01-02") });
+    expect(screen.queryByText(/못 쟀어요/)).toBeNull();
+  });
+
+  it("열흘을 넘으면 말한다 — 앞", () => {
+    그리기({ requested_start: "2025-10-01", start_date: "2025-10-12",
+             requested_end: "2021-12-30", asset_range: { AAA: { first: "2025-10-01", last: "2021-12-30" },
+                                                         SPY: { first: "2025-10-12", last: "2021-12-30" } } });
+    expect(screen.getByText(/그 앞은 못 쟀어요/)).toBeInTheDocument();
+  });
+
+  it("열흘을 넘으면 말한다 — 뒤", () => {
+    그리기({ start_date: "2016-01-04", requested_start: "2016-01-04",
+             end_date: "2026-01-01", requested_end: "2026-01-12",
+             asset_range: { AAA: { first: "2016-01-04", last: "2026-01-12" },
+                            SPY: { first: "2016-01-04", last: "2026-01-01" } } });
+    expect(screen.getByText(/그 뒤는 못 쟀어요/)).toBeInTheDocument();
+  });
+});

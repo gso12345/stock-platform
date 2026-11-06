@@ -2,7 +2,7 @@
  * 이름 뒤 '과/와' — 'S&P500 와 견주기' 처럼 박아 둔 조사가 절반은 틀렸다(사용자가 고른 9번).
  */
 import { describe, it, expect } from "vitest";
-import { 받침있나, 과와 } from "@/utils/조사";
+import { 받침있나, 과와, 은는, 이에요 } from "@/utils/조사";
 import { 벤치마크표 } from "@/components/backtest/AllocationForm";
 
 describe("과와", () => {
@@ -40,5 +40,24 @@ describe("과와", () => {
     for (const { label } of 벤치마크표.filter((b) => b.value !== "none")) {
       expect(과와(label)).toMatch(new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\&]/g, "\\$&")}(과|와)$`));
     }
+  });
+});
+
+describe("은는 · 이에요", () => {
+  it.each([
+    ["코스피", "코스피는", "코스피예요"],
+    ["S&P500", "S&P500은", "S&P500이에요"],       // 오백
+    ["나스닥100", "나스닥100은", "나스닥100이에요"],
+    ["SPY", "SPY는", "SPY예요"],                    // 와이
+    ["IBM", "IBM은", "IBM이에요"],                  // 엠
+    ["금", "금은", "금이에요"],
+    ["주식 60 · 채권 40", "주식 60 · 채권 40은", "주식 60 · 채권 40이에요"],
+  ])("%s → %s · %s", (이름, 은는기대, 이에요기대) => {
+    expect(은는(이름)).toBe(은는기대);
+    expect(이에요(이름)).toBe(이에요기대);
+  });
+  it("빈 말도 안전하다", () => {
+    expect(은는("")).toBe("는");
+    expect(이에요("")).toBe("예요");
   });
 });

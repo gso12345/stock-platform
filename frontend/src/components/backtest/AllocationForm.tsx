@@ -309,6 +309,29 @@ export const 대표자산: {
 
 export const 종류들: 자산종류[] = ["주식", "채권", "대체"];
 
+/** 대표 조합 — 빈 화면에서 한 번에 담는다. 처음 온 사람이 '무엇을 몇 % 담지' 에서 멈추지 않게(앱처럼 바로 시작).
+ *
+ *  주식 60·채권 40 과 올웨더는 **벤치마크와 같은 구성**이다(서버 routes/backtest.py 의 벤치마크표). 같은 이름이
+ *  자리마다 다른 비중이면 '올웨더와 견주기' 에서 올웨더끼리 다른 결과가 나온다. 자산은 모두 대표자산에 있는 것만
+ *  쓴다 — 이름·시장을 거기서 가져와야 화면마다 같은 이름으로 보인다. */
+export const 대표조합: { 이름: string; 설명: string; 자산들: [string, number][] }[] = [
+  { 이름: "주식 60 · 채권 40", 설명: "S&P 500 60 · 종합채권 40", 자산들: [["SPY", 60], ["AGG", 40]] },
+  /* 설명은 폰 반 칸(약 165px)에 들어가게 — '주식 30 · 국채 55 · 금·원자재 15' 는 잘렸다 */
+  { 이름: "올웨더", 설명: "주식·국채·금·원자재",
+    자산들: [["SPY", 30], ["TLT", 40], ["IEF", 15], ["GLD", 7.5], ["DBC", 7.5]] },
+  { 이름: "영구 포트폴리오", 설명: "주식·장기국채·금·현금 25씩", 자산들: [["VTI", 25], ["TLT", 25], ["GLD", 25], ["현금", 25]] },
+  { 이름: "국내 반반", 설명: "KODEX 200 · 국고채 10년", 자산들: [["069500.KS", 50], ["148070.KS", 50]] },
+];
+
+/** 대표 조합을 배분자산으로 — 이름·시장은 대표자산에서(현금은 '+ 현금' 단추와 같은 모양) */
+export function 조합을자산으로(자산들: [string, number][]): 배분자산[] {
+  return 자산들.map(([symbol, weight]) => {
+    if (symbol === "현금") return { symbol, market: "KR", name: "현금", weight };
+    const x = 대표자산.find((a) => a.symbol === symbol);
+    return { symbol, market: x?.market ?? "US", name: x?.name ?? symbol, weight };
+  });
+}
+
 /** 이미 담은 것인가 — 같은 것을 두 번 담으면 비중만 헷갈린다 */
 export function 담았나(assets: 배분자산[], symbol: string): boolean {
   return assets.some((a) => a.symbol === symbol);
@@ -1011,6 +1034,23 @@ export default function 자산배분설정({
           </p>
         )}
 
+        {/* ── 대표 조합 ── 빈 화면에서만. 하나씩 고르는 길(아래 '자산 추가')은 그대로 둔다 */}
+        {값.assets.length === 0 && !검색열림 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-2xs text-text-muted px-1">대표 조합으로 바로 시작</span>
+            <div className="grid grid-cols-2 gap-2">
+              {대표조합.map((p) => (
+                <button key={p.이름} type="button" aria-label={`${p.이름} 담기`}
+                  onClick={() => 바꾸기({ ...값, assets: 조합을자산으로(p.자산들), equal_weight: false })}
+                  className="text-left px-3 py-2.5 rounded-xl border border-border bg-bg-elevated hover:border-accent-blue/50 active:scale-[0.98] transition min-w-0">
+                  <span className="block text-sm font-medium text-text-primary truncate">{p.이름}</span>
+                  <span className="block text-2xs text-text-dim truncate">{p.설명}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {검색열림 ? (
           <자산고르기
             담은것={값.assets}
@@ -1046,12 +1086,16 @@ export default function 자산배분설정({
             }}
           />
         ) : (
+          /* '+' 하나만 있으면 무엇을 하는 상자인지 눌러 봐야 안다 — 글자를 붙이고, 빈 화면이면 어디서 고르는지도 */
           <button
             onClick={() => set검색열림(true)}
             aria-label="자산 추가"
-            className="w-full py-6 rounded-xl border border-dashed border-border text-text-muted hover:text-text-primary hover:border-accent-blue/50 flex items-center justify-center"
+            className="w-full py-4 rounded-xl border border-dashed border-border text-text-muted hover:text-text-primary hover:border-accent-blue/50 flex flex-col items-center justify-center gap-0.5"
           >
-            <Plus size={22} />
+            <span className="flex items-center gap-1.5 text-sm font-medium"><Plus size={16} />자산 추가</span>
+            {값.assets.length === 0 && (
+              <span className="text-2xs text-text-dim">종류별 대표 · 내 자산 · 관심종목 · 검색</span>
+            )}
           </button>
         )}
       </div>

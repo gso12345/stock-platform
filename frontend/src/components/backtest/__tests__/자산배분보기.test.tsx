@@ -10,7 +10,7 @@
  *   ④ 오름·내림 색이 **설정을 따른다**
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const 설정 = vi.hoisted(() => ({ colorScheme: "green-red" as "green-red" | "red-blue" }));
@@ -95,7 +95,7 @@ function 그리기(덮을것: Record<string, unknown> = {}) {
   return render(<자산배분결과화면 r={{ ...기본, ...덮을것 } as never} />);
 }
 
-/** 결과가 넷(수익률·낙폭·지표·세부)으로 갈렸다. 카드가 계속 늘어
+/** 결과가 넷(요약·낙폭·기간별·자산)으로 갈렸다 — 단일 종목 결과와 같은 순서. 카드가 계속 늘어
  *  폰에서 한참 스크롤해야 무엇이 있는지 알 수 있었기 때문이다.
  *  검사도 그 탭을 열고 봐야 한다. */
 async function 탭열기(이름: string) {
@@ -322,9 +322,10 @@ describe("오름·내림 색이 설정을 따른다", () => {
       .toMatch(/text-accent-blue/);
   });
 
-  it("해마다 막대도 설정 색을 쓴다", () => {
+  it("해마다 막대도 설정 색을 쓴다", async () => {
     설정.colorScheme = "red-blue";
     const { container } = 그리기();
+    await 탭열기("기간별");
     /* 모양(h-full·inset-y-1…)이 아니라 **색을 칠한 요소**로 고른다.
        클래스로 집으면 막대 모양을 바꿀 때마다 이 검사가 조용히 0 개를
        고르고 통과한다 — 실제로 0 을 고른 채로 깨졌다. */
@@ -347,30 +348,35 @@ describe("오름·내림 색이 설정을 따른다", () => {
 
 describe("결과를 넷으로 나눠 본다", () => {
   /* 카드가 계속 늘어 폰에서 한참 스크롤해야 무엇이 있는지 알 수 있었다.
-     수익률로 시작하는 것은 사람이 제일 먼저 묻는 것이 '얼마나 벌었나'
-     이기 때문이다. */
+     요약으로 시작하는 것은 사람이 제일 먼저 묻는 것이 '얼마나 벌었나'
+     이기 때문이다. 단일 종목 결과와 **같은 순서**(요약·낙폭·기간별 + 그 화면만의 하나) —
+     메뉴마다 탭 이름이 다르면 같은 것을 두 번 배운다 */
 
-  it("네 탭이 있고 수익률로 시작한다", () => {
+  it("네 탭이 있고 요약으로 시작한다", () => {
     그리기();
-    for (const 이름 of ["수익률", "낙폭", "지표", "세부"]) {
-      expect(screen.getByRole("tab", { name: 이름 }), `${이름} 탭이 없다`).toBeInTheDocument();
-    }
-    expect(screen.getByRole("tab", { name: "수익률" }).getAttribute("aria-selected")).toBe("true");
+    const 탭들 = screen.getAllByRole("tab").map((t) => t.textContent);
+    expect(탭들).toEqual(["요약", "낙폭", "기간별", "자산"]);
+    expect(screen.getByRole("tab", { name: "요약" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("탭을 옮기면 내용이 바뀐다", async () => {
     그리기();
     expect(screen.getByText("자산 흐름")).toBeInTheDocument();
-    await 탭열기("지표");
+    expect(screen.getByText("성과")).toBeInTheDocument();
+    await 탭열기("기간별");
     expect(screen.queryByText("자산 흐름")).toBeNull();
-    expect(screen.getByText("주요 지표")).toBeInTheDocument();
+    expect(screen.queryByText("성과")).toBeNull();
+    expect(screen.getByText("해마다")).toBeInTheDocument();
+    await 탭열기("자산");
+    expect(screen.queryByText("해마다")).toBeNull();
+    expect(screen.getByText("담은 자산")).toBeInTheDocument();
   });
 
   it("빼고 계산한 것은 **탭 밖**에서 늘 보인다", async () => {
     /* 자산 하나를 빼고 계산한 사실이 탭 안에 숨으면, 그 탭을 안 연
        사람은 덜 담긴 결과를 온전한 것으로 읽는다. */
     그리기({ skipped: ["TLT"] });
-    for (const 탭 of ["수익률", "낙폭", "지표", "세부"]) {
+    for (const 탭 of ["요약", "낙폭", "기간별", "자산"]) {
       await 탭열기(탭);
       expect(screen.getByText(/일부 자산을 빼고 계산했어요/),
         `${탭} 탭에서 경고가 사라진다`).toBeInTheDocument();
@@ -380,7 +386,7 @@ describe("결과를 넷으로 나눠 본다", () => {
   it("수수료를 안 넣었다는 것도 탭 밖에서 늘 보인다", async () => {
     /* 이건 각주가 아니라 **보고 있는 숫자의 조건**이다 */
     그리기();
-    for (const 탭 of ["수익률", "낙폭", "지표", "세부"]) {
+    for (const 탭 of ["요약", "낙폭", "기간별", "자산"]) {
       await 탭열기(탭);
       expect(screen.getByText(/수수료·세금·슬리피지는 반영하지 않았어요/),
         `${탭} 탭에서 수수료 안내가 사라진다`).toBeInTheDocument();
@@ -390,44 +396,62 @@ describe("결과를 넷으로 나눠 본다", () => {
 
 
 describe("주요 지표", () => {
+  /* 예전엔 '지표' 칩의 카드였다. 이제 요약 탭의 견주기 카드 안 — 벤치마크가 있으면 견주기 넷을 먼저 보이고
+     나머지는 '지표 모두 보기' 로 편다(앱처럼 처음엔 요점만). 성과 카드에도 같은 숫자(소티노·오른 달)가 있어
+     **모든 지표 칸 안에서만** 본다 */
+  const 모든지표칸 = () => screen.getByTestId("모든지표");
+
   it("사진에 있던 것들을 다 적는다", async () => {
     그리기({ benchmark: 벤치 });
-    await 탭열기("지표");
+    await userEvent.click(screen.getByRole("button", { name: /지표 모두 보기/ }));
     for (const 이름 of ["기간 수익률", "연환산 (TWR)", "이번 달", "올해",
                         "월 최고", "월 최저", "오른 달", "연 변동성",
                         "최대 낙폭", "낙폭 바닥", "샤프", "소티노",
                         "최근 1년", "최근 3년", "1년 표준편차"]) {
-      expect(screen.getByText(이름), `${이름} 이 없다`).toBeInTheDocument();
+      expect(within(모든지표칸()).getByText(이름), `${이름} 이 없다`).toBeInTheDocument();
     }
+  });
+
+  it("벤치마크가 있으면 처음엔 접혀 있고, 펴고 접을 수 있다", async () => {
+    그리기({ benchmark: 벤치 });
+    const 단추 = screen.getByRole("button", { name: /지표 모두 보기/ });
+    expect(단추.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("모든 지표")).toBeNull();
+    await userEvent.click(단추);
+    expect(screen.getByText("모든 지표")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /접기/ }).getAttribute("aria-expanded")).toBe("true");
+    await userEvent.click(screen.getByRole("button", { name: /접기/ }));
+    expect(screen.queryByText("모든 지표")).toBeNull();
   });
 
   it("내 것과 벤치마크를 나란히 적는다", async () => {
     그리기({ benchmark: 벤치 });
-    await 탭열기("지표");
-    expect(screen.getByText("1.31")).toBeInTheDocument();   // 내 소티노
-    expect(screen.getByText("0.95")).toBeInTheDocument();   // 벤치 소티노
+    await userEvent.click(screen.getByRole("button", { name: /지표 모두 보기/ }));
+    expect(within(모든지표칸()).getByText("1.31")).toBeInTheDocument();   // 내 소티노
+    expect(within(모든지표칸()).getByText("0.95")).toBeInTheDocument();   // 벤치 소티노
   });
 
   it("오른 달을 '몇 달 중 몇 달' 로 적는다", async () => {
-    /* 연 수익률만 보면 한 해 안의 출렁임이 통째로 사라진다 */
+    /* 연 수익률만 보면 한 해 안의 출렁임이 통째로 사라진다. 벤치마크가 없으면 펼 것 없이 바로 보인다 */
     그리기();
-    await 탭열기("지표");
-    expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    expect(within(모든지표칸()).getByText("1 / 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /지표 모두 보기/ }), "견줄 것이 없는데 접어 둔다").toBeNull();
+    //: 카드 제목이 '주요 지표' 인데 바로 아래 '모든 지표' 를 또 적으면 제목이 둘이다
+    expect(screen.getByText("주요 지표")).toBeInTheDocument();
+    expect(screen.queryByText("모든 지표")).toBeNull();
   });
 
   it("잴 자료가 없으면 '—' 를 적고, 그 뜻을 말해 준다", async () => {
     /* 3개월치를 '1년 수익률' 이라 적으면 안 된다 */
     그리기();
-    await 탭열기("지표");
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    expect(within(모든지표칸()).getAllByText("—").length).toBeGreaterThan(0);
     expect(screen.getByText(/없는 수를 지어내지 않아요/)).toBeInTheDocument();
   });
 
   it("벤치마크가 없으면 그 칸을 '—' 로 둔다", async () => {
     그리기();
-    await 탭열기("지표");
     //: 벤치마크 이름 자리에도 '—' 가 들어간다
-    expect(screen.getAllByText("—").length).toBeGreaterThan(3);
+    expect(within(모든지표칸()).getAllByText("—").length).toBeGreaterThan(3);
   });
 });
 
@@ -484,7 +508,7 @@ describe("담은 자산", () => {
     /* 결과만 보고 있으면 무슨 조합이었는지 잊는다 — 특히 저장해 둔
        실험을 나중에 열었을 때 그렇다. */
     그리기();
-    await 탭열기("세부");
+    await 탭열기("자산");
     expect(screen.getByText("S&P 500")).toBeInTheDocument();
     expect(screen.getByText("60.0%")).toBeInTheDocument();
     expect(screen.getByText("40.0%")).toBeInTheDocument();
@@ -493,7 +517,7 @@ describe("담은 자산", () => {
   it("내 자산 화면처럼 원그래프와 같은 색 점으로 보여 준다", async () => {
     const { PIE_COLORS } = await import("@/constants/pieColors");
     그리기();
-    await 탭열기("세부");
+    await 탭열기("자산");
     expect(screen.getByTestId("담은자산-원")).toBeInTheDocument();
     /* 줄마다 붙은 색 점이 원그래프 조각 색과 같은 차례여야 어느 조각이
        어느 자산인지 읽힌다 */
@@ -509,7 +533,7 @@ describe("담은 자산", () => {
   it("실제로 계산에 쓴 비중이라고 말해 준다", async () => {
     /* '동일 비중' 을 골랐으면 내가 적은 수와 다를 수 있다 */
     그리기();
-    await 탭열기("세부");
+    await 탭열기("자산");
     expect(screen.getByText(/계산에 실제로 쓴 비중/)).toBeInTheDocument();
   });
 });

@@ -607,8 +607,10 @@ describe("자산배분 — 결과에서 저장, 펼치고 접기", () => {
     expect(목록.getByText("재투자(토탈 리턴)")).toBeInTheDocument();
   });
 
-  it("달마다 표가 수익률 칩에 있다", async () => {
+  it("달마다 표가 기간별 칩에 있다(단일 종목 결과와 같은 자리)", async () => {
     await 배분돌리기();
+    expect(screen.queryByRole("table", { name: /달마다 수익률/ }), "요약에 달마다 표가 있다").toBeNull();
+    await userEvent.click(screen.getByRole("tab", { name: "기간별" }));
     expect(screen.getByRole("table", { name: /달마다 수익률/ })).toBeInTheDocument();
   });
 

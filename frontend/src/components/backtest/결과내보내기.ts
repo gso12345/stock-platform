@@ -10,6 +10,7 @@
  */
 import type { 자산배분결과, 단일결과 } from "@/api/stocks";
 import type { CSV칸 } from "@/utils/csv";
+import { 자산이름, 롤링합치기 } from "./배분분석";
 
 export function 결과CSV(r: 자산배분결과): CSV칸[][] {
   const b = r.benchmark;
@@ -30,6 +31,7 @@ export function 결과CSV(r: 자산배분결과): CSV칸[][] {
     ["샤프", r.sharpe, b?.sharpe],
     ["소티노", r.sortino, b?.sortino],
     ["배당 합", r.dividends],
+    ["현금 이자 합", r.cash_interest],
     ["수수료 합", r.costs],
   ];
   for (const [이름, 내것, 벤치] of 요약) 줄들.push(b ? [이름, 내것, 벤치] : [이름, 내것]);
@@ -43,6 +45,25 @@ export function 결과CSV(r: 자산배분결과): CSV칸[][] {
               합 > 0 ? Math.round((Number(a.weight) || 0) / 합 * 10000) / 100 : null]);
   }
 
+  /* 자산마다 — 화면의 '자산' 탭과 같은 수. 번 돈(배당 포함)을 다 더하고 수수료를 빼면 요약의 수익이다 */
+  if (r.asset_stats?.length) {
+    빈줄();
+    줄들.push(["[자산마다]", "비중(%)", "번 돈(배당 포함)", "받은 배당",
+              "따로 들고 있었으면 수익률(%)", "연환산(%)", "변동성(%)", "최대 낙폭(%)"]);
+    for (const x of r.asset_stats) {
+      줄들.push([자산이름(r, x.symbol), Math.round(x.weight * 10000) / 100, x.contribution, x.dividends,
+                x.total_return, x.cagr, x.volatility, x.mdd == null ? null : -x.mdd]);
+    }
+  }
+
+  /* 상관 — 달마다 수익률로 잰 표 그대로(빈칸은 한쪽이 안 움직여 못 잰 것) */
+  const c = r.correlation;
+  if (c?.symbols.length) {
+    빈줄();
+    줄들.push([`[상관 — 달마다 ${c.months}개월]`, ...c.symbols.map((s) => 자산이름(r, s))]);
+    c.symbols.forEach((s, i) => 줄들.push([자산이름(r, s), ...c.matrix[i]]));
+  }
+
   빈줄();
   줄들.push(b ? ["[해마다 수익률(%)]", "내 조합", b.name] : ["[해마다 수익률(%)]", "내 조합"]);
   const 벤치해 = new Map((b?.yearly ?? []).map((y) => [y.year, y.return]));
@@ -51,6 +72,18 @@ export function 결과CSV(r: 자산배분결과): CSV칸[][] {
   빈줄();
   줄들.push(["[달마다 수익률(%)]", "내 조합"]);
   for (const m of r.monthly) 줄들.push([m.month, m.return]);
+
+  /* 언제 샀느냐에 따라 — 기간마다 요약 한 줄, 그 아래 달마다(그 달까지 N년 들고 있었으면 연 몇 %) */
+  for (const 내것 of r.rolling ?? []) {
+    const 벤치것 = b?.rolling?.find((x) => x.years === 내것.years);
+    빈줄();
+    줄들.push([`[${내것.years}년 들고 있었으면 — 연 수익률(%)]`, "내 조합", ...(벤치것 ? [b!.name] : [])]);
+    줄들.push(["플러스였던 경우(%)", 내것.positive_ratio, ...(벤치것 ? [벤치것.positive_ratio] : [])]);
+    줄들.push(["중간값", 내것.median, ...(벤치것 ? [벤치것.median] : [])]);
+    줄들.push(["가장 좋았을 때", 내것.best, ...(벤치것 ? [벤치것.best] : [])]);
+    줄들.push(["가장 나빴을 때", 내것.worst, ...(벤치것 ? [벤치것.worst] : [])]);
+    for (const x of 롤링합치기(내것, 벤치것)) 줄들.push(벤치것 ? [x.month, x.내것, x.벤치] : [x.month, x.내것]);
+  }
 
   빈줄();
   줄들.push(b ? ["[평가액 — 그래프용으로 솎은 점]", "내 조합", b.name]

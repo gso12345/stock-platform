@@ -572,6 +572,150 @@ def _해마다(날들: list[date], 값들: list[float],
     return 나온것
 
 
+# ═══════════════════════════════════════════════════════════════
+# 자산마다 따로 — 사용자: "백테스팅 자산배분 더 상세하게 분석해주고"
+#
+# 조합 하나의 성적만 보면 **누가 벌고 누가 깎았는지**가 안 보인다. 60/40 이
+# 연 8% 를 냈어도 주식이 12%, 채권이 2% 였는지, 둘 다 8% 였는지는 전혀 다른
+# 이야기다. 그리고 자산배분의 핵심인 '나눠 담으면 덜 흔들린다' 는 자산끼리
+# **얼마나 같이 움직였나**(상관)를 봐야 읽힌다.
+# ═══════════════════════════════════════════════════════════════
+
+def 자산지수(날들: list[date], 가격: dict[date, float],
+             배당표: Optional[dict[date, float]] = None) -> list[float]:
+    """그 자산 하나만 1원어치 사서 들고 있었으면 — 1.0 에서 시작하는 값.
+
+    배당이 있으면 그날 재투자한다(조합을 굴릴 때와 같은 규칙). 가격이 0 이하인
+    날은 앞의 값을 그대로 둔다 — 0 으로 나누면 곡선이 통째로 무너진다."""
+    if not 날들:
+        return []
+    값 = [1.0]
+    for i in range(1, len(날들)):
+        앞 = 가격.get(날들[i - 1], 0.0)
+        지금 = 가격.get(날들[i], 0.0)
+        배당 = (배당표 or {}).get(날들[i], 0.0) or 0.0
+        값.append(값[-1] * (지금 + 배당) / 앞 if 앞 > 0 and 지금 > 0 else 값[-1])
+    return 값
+
+
+def _자산성적(날들: list[date], 지수: list[float], 해수: float) -> dict:
+    """자산 하나의 기간 수익률·연환산·연 변동성·최대 낙폭(모두 %).
+
+    연으로 늘리는 수는 조합과 같은 방식으로 **자료에서 센다**(몇 칸이 1년인가).
+    1년이 안 되면 연환산은 없다 — 짧은 성적을 연으로 부풀리지 않는다."""
+    if len(지수) < 2 or 지수[0] <= 0:
+        return {"total_return": None, "cagr": None, "volatility": None, "mdd": None}
+    전체 = 지수[-1] / 지수[0]
+    일간 = [지수[i] / 지수[i - 1] - 1 for i in range(1, len(지수)) if 지수[i - 1] > 0]
+    변동성 = None
+    if len(일간) > 2 and 해수 > 0:
+        표준 = _표준편차(일간)
+        if 표준 is not None:
+            변동성 = round(표준 * ((len(일간) / 해수) ** 0.5) * 100, 2)
+    return {
+        "total_return": round((전체 - 1) * 100, 2),
+        "cagr": round((전체 ** (1 / 해수) - 1) * 100, 2) if 해수 >= 1.0 and 전체 > 0 else None,
+        "volatility": 변동성,
+        "mdd": round(_mdd(지수), 2),
+    }
+
+
+def 달말값(날들: list[date], 값들: list[float]) -> list[tuple[str, float]]:
+    """달마다 **마지막 날**의 값 — [("2020-03", 1.23), ...]. 날짜 순이다."""
+    나온것: list[tuple[str, float]] = []
+    for d, v in zip(날들, 값들):
+        달 = f"{d.year:04d}-{d.month:02d}"
+        if 나온것 and 나온것[-1][0] == 달:
+            나온것[-1] = (달, v)
+        else:
+            나온것.append((달, v))
+    return 나온것
+
+
+#: 상관을 재려면 달이 이만큼은 있어야 한다 — 몇 달치 상관은 우연이 크다
+상관최소달 = 12
+
+
+def _피어슨(가: list[float], 나: list[float]) -> Optional[float]:
+    if len(가) != len(나) or len(가) < 3:
+        return None
+    평가, 평나 = sum(가) / len(가), sum(나) / len(나)
+    공 = sum((x - 평가) * (y - 평나) for x, y in zip(가, 나))
+    분가 = sum((x - 평가) ** 2 for x in 가) ** 0.5
+    분나 = sum((y - 평나) ** 2 for y in 나) ** 0.5
+    if 분가 == 0 or 분나 == 0:
+        return None            # 한쪽이 안 움직였다 — 상관이라는 말이 성립하지 않는다
+    return max(-1.0, min(1.0, 공 / (분가 * 분나)))
+
+
+def 상관표(날들: list[date], 지수들: dict[str, list[float]]) -> Optional[dict]:
+    """자산끼리 **달마다 수익률**의 상관 — 1 이면 똑같이, 0 이면 따로, -1 이면 거꾸로 움직였다.
+
+    날마다가 아니라 달마다로 잰다. 시장이 다르면(한국·미국) 같은 날의 움직임이
+    하루 어긋나 날마다 상관이 실제보다 낮게 나온다. 자산이 둘 이상이고 달이
+    상관최소달 이상일 때만 낸다."""
+    심볼들 = list(지수들)
+    if len(심볼들) < 2:
+        return None
+    달수익: dict[str, list[float]] = {}
+    for s in 심볼들:
+        값 = [v for _, v in 달말값(날들, 지수들[s])]
+        달수익[s] = [값[i] / 값[i - 1] - 1 if 값[i - 1] > 0 else 0.0 for i in range(1, len(값))]
+    달수 = min(len(v) for v in 달수익.values())
+    if 달수 < 상관최소달:
+        return None
+    표 = [[1.0 if i == j else None for j in range(len(심볼들))] for i in range(len(심볼들))]
+    for i in range(len(심볼들)):
+        for j in range(i + 1, len(심볼들)):
+            r = _피어슨(달수익[심볼들[i]][-달수:], 달수익[심볼들[j]][-달수:])
+            #: + 0.0 — 따로 움직인 두 자산이 '-0.0' 으로 나가지 않게
+            표[i][j] = 표[j][i] = None if r is None else round(r, 2) + 0.0
+    return {"symbols": 심볼들, "matrix": 표, "months": 달수}
+
+
+#: 몇 년씩 들고 있었다고 볼까
+롤링해들 = (1, 3, 5)
+
+
+def 롤링(날들: list[date], 순곡선: list[float]) -> list[dict]:
+    """**아무 달에나 사서 N년 들고 있었으면** 연 몇 %였나 — 그 모든 경우.
+
+    총 수익률·연환산은 '이 기간 처음에 사서 끝에 판' 한 번의 성적이다. 언제
+    샀느냐에 따라 같은 조합도 전혀 다른 경험이 된다. 달마다 시작점을 옮겨 가며
+    N년씩 잰 값을 모두 모으면 최고·최저·가운데와 '플러스였던 비율' 이 나온다.
+
+    납입을 지운 곡선(순곡선)에서 잰다 — 넣은 돈이 수익으로 둔갑하지 않게.
+    기간이 N년보다 짧으면 그 N 은 내지 않는다."""
+    if len(날들) != len(순곡선):
+        return []
+    달값 = 달말값(날들, 순곡선)
+    나온것 = []
+    for 해 in 롤링해들:
+        칸 = 해 * 12
+        줄: list[dict] = []
+        for i in range(칸, len(달값)):
+            앞, 지금 = 달값[i - 칸][1], 달값[i][1]
+            if 앞 <= 0 or 지금 <= 0:
+                continue
+            줄.append({"month": 달값[i][0], "return": round(((지금 / 앞) ** (1 / 해) - 1) * 100, 2)})
+        if not 줄:
+            continue
+        값들 = sorted(x["return"] for x in 줄)
+        n = len(값들)
+        가운데 = 값들[n // 2] if n % 2 else (값들[n // 2 - 1] + 값들[n // 2]) / 2
+        나온것.append({
+            "years": 해,
+            "series": 줄,
+            "best": 값들[-1],
+            "worst": 값들[0],
+            "median": round(가운데, 2),
+            #: 플러스로 끝난 경우가 몇 % 였나 — '언제 사도 N년 들고 있으면' 의 답
+            "positive_ratio": round(sum(1 for v in 값들 if v > 0) / n * 100, 1),
+            "count": n,
+        })
+    return 나온것
+
+
 def 돌리기(
     가격표: dict[str, dict[date, float]],
     자산들: list[dict],
@@ -688,15 +832,35 @@ def 돌리기(
     납입기록: dict[date, float] = {첫날: 초기금액}
     현금흐름: list[tuple[date, float]] = [(첫날, 초기금액)]
     배당합 = 0.0
+    """자산마다 **누가 벌었나**를 센다(자산별 기여).
+
+    평가액이 바뀌는 길은 넷뿐이다 — 값이 오르내림(가격 손익), 배당, 현금 이자,
+    수수료(빠짐). 넣은 돈은 수익이 아니고, 리밸런싱은 판 만큼 사는 것이라 수수료
+    말고는 평가액이 안 바뀐다. 그래서
+        수익 = Σ 가격 손익 + Σ 배당 + 이자 − 수수료
+    가 늘 맞는다(시험이 지킨다). 가격 손익은 **그 전날 들고 있던 주식 수**로 잰다 —
+    리밸런싱으로 수가 바뀐 날의 움직임을 바뀐 뒤의 수로 재면 남의 몫을 가져온다."""
+    가격손익: dict[str, float] = {s: 0.0 for s in 보유}
+    받은배당: dict[str, float] = {s: 0.0 for s in 보유}
+    이자합 = 0.0
+    #: 그날까지 넣은 돈 — 그래프에 '넣은 돈' 선으로 그린다
+    누적납입 = 초기금액
 
     for 칸, d in enumerate(날들):
+        if 칸 > 0:
+            전날 = 날들[칸 - 1]
+            for s, 주 in 보유.items():
+                가격손익[s] += 주 * (가격표[s][d] - 가격표[s][전날])
+
         # ── 현금 이자 ──
         # 지난 날 수만큼 붙인다. 거래일 사이가 사흘(주말)이면 사흘치다.
         # 날 수로 세야 휴장이 많은 해에도 이자가 안 새어 나간다.
         if 현금이자 > 0 and 현금몫 > 0 and 칸 > 0:
             지난날 = (d - 날들[칸 - 1]).days
             if 지난날 > 0:
+                늘기전 = 현금몫
                 현금몫 *= (1 + 현금이자) ** (지난날 / 365.25)
+                이자합 += 현금몫 - 늘기전
 
         # ── 배당 재투자 ──
         # 그날 배당이 있으면 받은 돈으로 같은 종목을 더 산다.
@@ -711,6 +875,7 @@ def 돌리기(
                 if 값 > 0 and 받은돈 > 0:
                     보유[심볼] += 받은돈 / 값
                     배당합 += 받은돈
+                    받은배당[심볼] += 받은돈
 
         평가 = 현금몫 + sum(보유[s] * 가격표[s][d] for s in 보유)
 
@@ -729,6 +894,7 @@ def 돌리기(
             평가 += 적립금액 - 적립금액 * 비용률 * (1 - 현금비중)
             납입기록[d] = 납입기록.get(d, 0) + 적립금액
             현금흐름.append((d, 적립금액))
+            누적납입 += 적립금액
 
         # ── 리밸런싱 ──
         # 비중이 틀어진 만큼 팔고 사서 목표로 되돌린다.
@@ -763,7 +929,8 @@ def 돌리기(
                 값 = 가격표[a["symbol"]][d]
                 보유[a["symbol"]] = 몫 / 값 if 값 > 0 else 0.0
 
-        곡선.append({"date": d.isoformat(), "value": round(float(평가), 2)})
+        곡선.append({"date": d.isoformat(), "value": round(float(평가), 2),
+                     "invested": round(float(누적납입), 2)})
         값들.append(float(평가))
 
     총납입 = sum(납입기록.values())
@@ -875,6 +1042,35 @@ def 돌리기(
     def _수(v, 자리=2):
         return None if v is None else round(float(v), 자리)
 
+    # ── 자산마다 ──
+    #: 위험자산은 1원어치를 따로 들고 있었으면(배당 재투자) 어땠나, 현금은 이자로 불었으면
+    지수들 = {s: 자산지수(날들, 가격표[s], (배당 or {}).get(s)) for s in 보유}
+    현금들 = [a for a in 쓸자산 if a["symbol"] in 현금류]
+    현금합비중 = sum(a["weight"] for a in 현금들)
+    자산별 = []
+    for a in 쓸자산:
+        s = a["symbol"]
+        if s in 현금류:
+            """현금은 시세가 없다 — 성적은 이자율로, 번 돈은 이자다. 현금 칸이 여럿이면
+            이자를 비중대로 나눈다(합은 그대로)."""
+            불어남 = (1 + 현금이자) ** 해수 if 해수 > 0 else 1.0
+            자산별.append({
+                "symbol": s, "weight": round(a["weight"], 6),
+                "contribution": _수(이자합 * (a["weight"] / 현금합비중 if 현금합비중 > 0 else 0)),
+                "dividends": None,
+                "total_return": round((불어남 - 1) * 100, 2),
+                "cagr": round(현금이자 * 100, 2) if 해수 >= 1.0 else None,
+                "volatility": 0.0, "mdd": 0.0,
+            })
+            continue
+        자산별.append({
+            "symbol": s, "weight": round(a["weight"], 6),
+            #: 그 자산이 조합 안에서 번 돈 — 가격 손익 + 받은 배당(수수료는 따로 적는다)
+            "contribution": _수(가격손익.get(s, 0.0) + 받은배당.get(s, 0.0)),
+            "dividends": _수(받은배당.get(s, 0.0)) if 배당 else None,
+            **_자산성적(날들, 지수들[s], 해수),
+        })
+
     return {
         "start_date": 날들[0].isoformat(),
         "end_date": 날들[-1].isoformat(),
@@ -948,4 +1144,13 @@ def 돌리기(
         "cost_rate": 비용률 if 비용률 > 0 else None,
         "yearly": _해마다(날들, 값들, 납입기록),
         "curve": 곡선,
+        #: 자산마다 — 비중·번 돈(기여)·따로 들고 있었으면의 성적.
+        #  기여를 다 더하고 수수료를 빼면 profit 이 된다
+        "asset_stats": 자산별,
+        #: 현금에 붙은 이자 합(현금이 없거나 이자 0 이면 0)
+        "cash_interest": _수(이자합),
+        #: 자산끼리 달마다 수익률의 상관. 위험자산이 둘 이상일 때만
+        "correlation": 상관표(날들, 지수들),
+        #: 아무 달에나 사서 1·3·5년 들고 있었으면 — 연 % 의 모든 경우
+        "rolling": 롤링(날들, 순곡선),
     }

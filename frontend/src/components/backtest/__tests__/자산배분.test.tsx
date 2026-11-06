@@ -525,19 +525,27 @@ describe("기간에서날짜", () => {
 });
 
 describe("결과 — 넣은 돈과 번 돈을 섞지 않는다", () => {
-  it("총 납입금이 화면에 있다", () => {
+  it("넣은 돈이 최종 평가액 바로 아래에 있다", () => {
+    /* 사람이 제일 먼저 보는 자리에 '내가 넣은 돈' 이 있어야 뒤의 수를 제대로 읽는다 —
+       최종 평가액만 크게 있고 넣은 돈이 다른 카드에 있으면 번 돈으로 착각한다 */
     render(<자산배분결과화면 r={결과흉내 as any} />);
-    expect(screen.getByText("총 납입금")).toBeInTheDocument();
-    expect(screen.getByText("₩62,000,000")).toBeInTheDocument();
+    const 최종 = screen.getByText("₩123,712,056");
+    const 넣은 = screen.getByText("₩62,000,000");
+    expect(screen.getByText("넣은 돈")).toBeInTheDocument();
+    expect(최종.compareDocumentPosition(넣은) & Node.DOCUMENT_POSITION_FOLLOWING,
+      "넣은 돈이 최종 평가액보다 위에 있다").toBeTruthy();
+    expect(최종.parentElement, "넣은 돈이 최종 평가액과 다른 칸에 있다").toBe(넣은.parentElement!.parentElement);
   });
 
   it("연환산을 두 가지로 보여 준다", () => {
     /* 하나만 보여 주면 적립식의 핵심인 그 차이가 통째로 사라진다 */
     render(<자산배분결과화면 r={결과흉내 as any} />);
-    expect(screen.getByText(/전략 성적/)).toBeInTheDocument();
-    expect(screen.getByText(/내 수익률/)).toBeInTheDocument();
-    expect(screen.getByText("13.51%")).toBeInTheDocument();
-    expect(screen.getByText("13.45%")).toBeInTheDocument();
+    //: 아래 '모든 지표' 표에도 연환산이 있어 **성과 카드 안에서** 본다
+    const 성과 = within(screen.getByText("성과").parentElement!.parentElement!);
+    expect(성과.getByText("연환산 (TWR)")).toBeInTheDocument();
+    expect(성과.getByText("내 수익률 (IRR)")).toBeInTheDocument();
+    expect(성과.getByText("+13.51%")).toBeInTheDocument();
+    expect(성과.getByText("+13.45%")).toBeInTheDocument();
   });
 
   it("못 잰 값은 '—' 로 적는다", () => {
@@ -558,14 +566,16 @@ describe("결과 — 넣은 돈과 번 돈을 섞지 않는다", () => {
     const 칸 = screen.getByText(`₩${큰수.toLocaleString("ko-KR")}`);
     expect(칸, "수가 잘렸다 — 자릿수가 사라지면 금액을 못 읽는다").toBeInTheDocument();
     expect(칸.className, "긴 수인데 큰 글자 그대로라 칸 밖으로 나간다")
-      .not.toMatch(/text-lg/);
+      .not.toMatch(/text-2xl/);
+    expect(칸.className, "끝을 잘라 버린다").not.toMatch(/truncate/);
+    expect(칸.className, "그래도 넘치면 줄을 바꿔야 한다").toMatch(/break-all/);
   });
 
   it("짧은 금액은 큰 글자 그대로 둔다", () => {
     /* 위 검사의 짝이다. 길이와 상관없이 늘 줄이면 보통 경우가
        공연히 작아진다 — 줄이는 것은 길 때만이어야 한다. */
     render(<자산배분결과화면 r={결과흉내 as any} />);
-    expect(screen.getByText("₩62,000,000").className).toMatch(/text-lg/);
+    expect(screen.getByText("₩123,712,056").className).toMatch(/text-2xl/);
   });
 
   it("세로축 눈금이 통화를 본다", () => {
@@ -614,7 +624,8 @@ describe("결과 — 넣은 돈과 번 돈을 섞지 않는다", () => {
     } } as any} />);
     /* 조사는 이름의 받침에 맞춘다 — '40' 은 '사십' 이라 '과' */
     expect(screen.getByText(/주식 60 · 채권 40과 견주기/)).toBeInTheDocument();
-    expect(screen.getByText("9.2%")).toBeInTheDocument();
+    //: 소수 자리를 늘 같게 — '9.2%' 옆에 '13.51%' 가 오면 자릿수가 어긋난다
+    expect(screen.getByText("9.20%")).toBeInTheDocument();
     /* 견주는 칸의 금액은 줄여서 적는다 — 세 칸을 390px 에 나누면
        20자리가 잘리고, 잘린 돈은 억인지 조인지 알 수 없다.
        정확한 금액은 바로 위 칸에 온전히 있다. */
@@ -698,7 +709,7 @@ describe("실제로 돈다", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
     await waitFor(() => expect(runPortfolio).toHaveBeenCalled());
-    expect(await screen.findByText("총 납입금")).toBeInTheDocument();
+    expect(await screen.findByText("최종 평가액")).toBeInTheDocument();
 
     const 보낸것 = 돌린것[0];
     expect(보낸것.assets).toHaveLength(1);
@@ -1015,11 +1026,54 @@ describe("진행률이 실제로 계산 중에 뜬다", () => {
 
     const 막대 = await screen.findByRole("progressbar");
     expect(막대, "계산 중인데 진행률이 안 보인다").toBeInTheDocument();
-    expect(screen.queryByText("총 납입금"), "아직 안 끝났는데 결과가 보인다").toBeNull();
+    expect(screen.queryByText("최종 평가액"), "아직 안 끝났는데 결과가 보인다").toBeNull();
 
     await act(async () => { 응답보내기(결과흉내); });
-    expect(await screen.findByText("총 납입금")).toBeInTheDocument();
+    expect(await screen.findByText("최종 평가액")).toBeInTheDocument();
     expect(screen.queryByRole("progressbar"), "끝났는데 막대가 남아 있다").toBeNull();
+  }, 20000);
+});
+
+describe("대표 조합으로 바로 시작(빈 화면)", () => {
+  /* 처음 온 사람은 '무엇을 몇 % 담지' 에서 멈춘다. 흔한 조합 넷을 한 번에 담게 한다 */
+  it("누르면 비중까지 담기고, 담은 뒤에는 대표 조합 칸이 사라진다", async () => {
+    그리기();
+    expect(screen.getByText("대표 조합으로 바로 시작")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "올웨더 담기" }));
+    const 비중들 = screen.getAllByLabelText(/비중 \(%\)/).map((x) => (x as HTMLInputElement).value);
+    expect(비중들).toEqual(["30", "40", "15", "7.5", "7.5"]);
+    expect(screen.getByLabelText("미국 장기국채 비중 (%)")).toBeInTheDocument();
+    expect(screen.queryByText("대표 조합으로 바로 시작")).toBeNull();
+    expect(screen.queryByRole("button", { name: "올웨더 담기" })).toBeNull();
+  }, 20000);
+
+  it("'동일 비중' 이 켜져 있었으면 끈다 — 켜 두면 담은 비중이 안 먹는다", async () => {
+    그리기();
+    await 고급열기();
+    await userEvent.selectOptions(screen.getByLabelText("배분 기준"), "equal");
+    await userEvent.click(screen.getByRole("button", { name: "영구 포트폴리오 담기" }));
+    expect((screen.getByLabelText("배분 기준") as HTMLSelectElement).value).toBe("custom");
+    expect(screen.getByLabelText("현금 비중 (%)")).toHaveValue(25);
+  }, 20000);
+
+  it("돌리면 그 구성 그대로 서버에 간다", async () => {
+    그리기();
+    await userEvent.click(screen.getByRole("button", { name: "주식 60 · 채권 40 담기" }));
+    await userEvent.click(screen.getByLabelText("1000만원"));
+    await userEvent.click(screen.getByRole("button", { name: /결과 확인/ }));
+    await waitFor(() => expect(runPortfolio).toHaveBeenCalled());
+    expect(돌린것[0].assets).toEqual([
+      { symbol: "SPY", market: "US", name: "S&P 500", weight: 60 },
+      { symbol: "AGG", market: "US", name: "미국 종합채권", weight: 40 },
+    ]);
+  }, 20000);
+
+  it("'+' 상자에 무엇을 하는지 적는다 — 빈 화면이면 어디서 고르는지도", async () => {
+    그리기();
+    const 단추 = screen.getByRole("button", { name: "자산 추가" });
+    expect(단추.textContent).toBe("자산 추가종류별 대표 · 내 자산 · 관심종목 · 검색");
+    await 검색해서담기("Apple");
+    expect(screen.getByRole("button", { name: "자산 추가" }).textContent, "담은 뒤에도 긴 안내가 남는다").toBe("자산 추가");
   }, 20000);
 });
 
@@ -1166,6 +1220,20 @@ describe("가정을 감추지 않는다", () => {
   it("현금 이자를 넣었으면 그 값을 적는다", () => {
     render(<자산배분결과화면 r={{ ...결과흉내, cash_rate: 3 } as never} />);
     expect(document.body.textContent).toMatch(/현금 이자 연 3%/);
+    expect(document.body.textContent).not.toMatch(/현금은 이자 없음/);
+  });
+
+  it("현금으로 받은 이자는 금액으로 적는다", () => {
+    /* 연 3% 만 적으면 실제로 얼마를 받았는지 모른다 — 현금 비중이 작으면 거의 없다 */
+    render(<자산배분결과화면 r={{ ...결과흉내, cash_rate: 3, cash_interest: 1_234_567 } as never} />);
+    const 이름 = screen.getByText("현금 이자");
+    expect(이름.parentElement!.textContent).toBe("현금 이자₩1,234,567연 3%");
+  });
+
+  it("현금을 안 담았으면 이자 칸을 안 그린다", () => {
+    /* 이자율만 넣고 현금을 안 담으면 받은 이자는 0 이다 — '₩0' 칸은 군더더기다 */
+    render(<자산배분결과화면 r={{ ...결과흉내, cash_rate: 3, cash_interest: 0 } as never} />);
+    expect(screen.queryByText("현금 이자")).toBeNull();
   });
 
   it("저장한 실험에서 두 설정을 되살린다", () => {

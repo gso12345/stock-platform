@@ -211,9 +211,48 @@ export interface 서버진행 {
   percent: number;
 }
 
+/** 자산 하나 — 조합 안에서 번 돈(기여)과, 그 자산만 따로 들고 있었으면의 성적(서버 asset_stats).
+ *  기여를 다 더하고 수수료를 빼면 profit 이 된다 */
+export interface 자산성적 {
+  symbol: string;
+  /** 계산에 쓴 비중(0~1) */
+  weight: number;
+  /** 조합 안에서 번 돈 — 가격 손익 + 받은 배당(현금은 이자) */
+  contribution: number | null;
+  /** 받은 배당. 배당을 안 받고 돌렸으면 null */
+  dividends: number | null;
+  total_return: number | null;
+  /** 1년이 안 되면 null */
+  cagr: number | null;
+  volatility: number | null;
+  /** 최대 낙폭 — **양수** %(조합의 mdd 와 같은 꼴) */
+  mdd: number | null;
+}
+
+/** 자산끼리 달마다 수익률의 상관. matrix[i][j] 가 symbols[i]·symbols[j] 의 상관(-1~1, 못 재면 null) */
+export interface 상관표 {
+  symbols: string[];
+  matrix: (number | null)[][];
+  months: number;
+}
+
+/** 아무 달에나 사서 N년 들고 있었으면 연 몇 %였나 — 그 모든 경우와 요약 */
+export interface 롤링수익 {
+  years: number;
+  series: { month: string; return: number }[];
+  best: number;
+  worst: number;
+  median: number;
+  /** 플러스로 끝난 경우의 비율(%) */
+  positive_ratio: number;
+  count: number;
+}
+
 export interface 벤치마크결과 {
   key: string;
   name: string;
+  /** 같은 기간을 1·3·5년씩 잰 것 — 내 것과 나란히 그린다 */
+  rolling?: 롤링수익[];
   contributed: number;
   final_value: number;
   total_return: number | null;
@@ -274,9 +313,18 @@ export interface 자산배분결과 {
   sharpe: number | null;
   dividends: number | null;
   yearly: { year: number; return: number }[];
-  curve: { date: string; value: number }[];
+  /** invested — 그날까지 넣은 돈(예전 응답에는 없다) */
+  curve: { date: string; value: number; invested?: number }[];
   currency: "KRW" | "USD";
   assets: 배분자산[];
+  /** 자산마다(예전 응답·저장한 공유 주소로 연 옛 결과에는 없다) */
+  asset_stats?: 자산성적[];
+  /** 현금에 붙은 이자 합 */
+  cash_interest?: number | null;
+  /** 위험자산이 둘 이상이고 달이 넉넉할 때만 */
+  correlation?: 상관표 | null;
+  /** 1·3·5년 — 기간이 짧으면 그 해는 없다 */
+  rolling?: 롤링수익[];
   /** 시세를 못 받아 뺀 자산 — 조용히 빼면 사용자가 다 담은 줄 안다 */
   skipped: string[];
   /** 환율을 못 맞춰 뺀 자산 */

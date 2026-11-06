@@ -20,14 +20,12 @@ import { usePnlColors } from "@/hooks/usePnlColors";
 import { use넓은화면 } from "@/hooks/useWideScreen";
 import { 표머리, 표머리줄, 표머리칸, 표줄, 표칸, 표글자 } from "@/components/common/StockTable";
 import type { 단일결과 } from "@/api/stocks";
-import { 낙폭칸, 해마다칸, 눈금글, 그래프범례 } from "./AllocationResult";
+import { 낙폭칸, 해마다칸, 눈금글 } from "./AllocationResult";
 import { 달마다표, 거래분석칸 } from "./분석부품";
+import { 숫자, 큰지표, 작은지표, 머리단추, 그래프범례 } from "./결과부품";
 
-/** 못 잰 값(null)은 '—' — 0 으로 그리면 '승률 0%' 가 '다 졌다' 로 읽힌다 */
-export function 숫자(v: number | null | undefined, 자리 = 1, 앞 = "", 뒤 = ""): React.ReactNode {
-  if (v == null || !Number.isFinite(v)) return <span className="text-text-dim">—</span>;
-  return `${앞}${v.toFixed(자리)}${뒤}`;
-}
+/* 결과 부품은 자산배분과 같이 쓰려고 결과부품.tsx 로 옮겼다 — 예전 이름으로 부르던 곳을 위해 그대로 내보낸다 */
+export { 숫자, 머리단추 };
 
 /** 요청한 날보다 **의미 있게 늦게** 시작했나 — 주말·연휴로 하루이틀 밀린 것은 말하지 않는다(일주일 넘을 때만) */
 export function 많이늦게시작(요청: string, 실제?: string | null): boolean {
@@ -36,41 +34,9 @@ export function 많이늦게시작(요청: string, 실제?: string | null): bool
   return Number.isFinite(밀린날) && 밀린날 > 7;
 }
 
-/** 결과의 큰 숫자 — 사람이 제일 먼저 묻는 셋(얼마 벌었나·얼마나 아팠나·몇 번 이겼나) */
-function 큰지표({ 이름, 값, 색, 밑 }: { 이름: string; 값: React.ReactNode; 색?: string; 밑?: string }) {
-  return (
-    <div className="flex flex-col gap-0.5 min-w-0">
-      <span className="text-xs text-text-muted">{이름}</span>
-      <span className={cn("text-xl font-bold font-mono tabular-nums truncate", 색 ?? "text-text-primary")}>{값}</span>
-      {밑 && <span className="text-2xs text-text-dim break-keep">{밑}</span>}
-    </div>
-  );
-}
-
-/** 나머지 숫자 — 작게, 한 줄에 둘·셋 */
-function 작은지표({ 이름, 값, 색, 밑 }: { 이름: string; 값: React.ReactNode; 색?: string; 밑?: string }) {
-  return (
-    <div className="flex flex-col gap-0.5 min-w-0">
-      <span className="text-2xs text-text-muted">{이름}</span>
-      <span className={cn("text-sm font-semibold font-mono tabular-nums", 색 ?? "text-text-primary")}>{값}</span>
-      {밑 && <span className="text-2xs text-text-dim break-keep">{밑}</span>}
-    </div>
-  );
-}
-
 /** '2020-03-02' → '20.03.02' — 거래 카드 한 줄에 날짜 둘이 들어가게 */
 function 짧은날(d: string | null | undefined): string {
   return d && d.length >= 10 ? `${d.slice(2, 4)}.${d.slice(5, 7)}.${d.slice(8, 10)}` : (d ?? "");
-}
-
-/** 결과 머리의 작은 아이콘 단추 — 저장·공유·CSV */
-export function 머리단추({ 이름, 누르기, children }: { 이름: string; 누르기: () => void; children: React.ReactNode }) {
-  return (
-    <button type="button" aria-label={이름} title={이름} onClick={누르기}
-      className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors flex-shrink-0">
-      {children}
-    </button>
-  );
 }
 
 const 결과칩 = [

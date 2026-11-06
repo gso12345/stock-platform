@@ -23,3 +23,13 @@ export function 받침있나(말: string): boolean {
 export function 과와(말: string): string {
   return `${말}${받침있나(말) ? "과" : "와"}`;
 }
+
+/** '코스피는' · 'S&P500은' */
+export function 은는(말: string): string {
+  return `${말}${받침있나(말) ? "은" : "는"}`;
+}
+
+/** '코스피예요' · 'S&P500이에요' — '코스피이에요' 처럼 박아 두면 받침 없는 이름에서 틀린다 */
+export function 이에요(말: string): string {
+  return `${말}${받침있나(말) ? "이에요" : "예요"}`;
+}

@@ -1297,6 +1297,8 @@ async def _자산배분_본문(req, PB, 기간, 열쇠, 고른벤치, _통화, �
                                 #  2008년·2022년 같은 하락장에서 어땠는지도
                                 #  여기서만 보인다.
                                 "yearly",
+                                #: 아무 때나 사서 N년 — 내 조합의 것과 나란히 그린다
+                                "rolling",
                                 "contributed", "curve", "drawdown")}}
         except Exception as e:
             #: 벤치마크를 못 받았다고 내 결과까지 버리면 안 된다.

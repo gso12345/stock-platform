@@ -410,7 +410,7 @@ describe("10) 자산배분 결과 머리", () => {
   it("결과 보기는 칩, CSV·공유는 작은 아이콘", () => {
     const 공유 = vi.fn();
     render(<자산배분결과화면 r={배분결과 as never} 공유하기={공유} />);
-    const 칩 = screen.getByRole("tab", { name: "수익률" });
+    const 칩 = screen.getByRole("tab", { name: "요약" });
     expect(칩.className, "상자 탭(파랗게 채운) 그대로다").not.toMatch(/bg-accent-blue text-white/);
     expect(칩.className).toMatch(/rounded-lg border/);
     expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(칩.id);

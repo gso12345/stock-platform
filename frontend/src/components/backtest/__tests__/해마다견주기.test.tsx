@@ -20,7 +20,7 @@
  *      통째로 밀려 엉뚱한 해와 견주게 된다.
  */
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 vi.mock("@/store/settingsStore", () => ({
   useSettingsStore: (sel: any) => sel({ colorScheme: "green-up" }),
@@ -61,8 +61,15 @@ const 벤치 = {
   curve: [{ date: "2016-01-04", value: 10_000_000 }],
 };
 
+/** 해마다 칸은 '기간별' 탭에 있다(요약·낙폭·기간별·자산 — 단일 종목 결과와 같은 순서) */
+function 기간별로(r: unknown) {
+  const 결과 = render(<자산배분결과화면 r={r as never} />);
+  fireEvent.click(screen.getByRole("tab", { name: "기간별" }));
+  return 결과;
+}
+
 function 그리기(b: any = null) {
-  return render(<자산배분결과화면 r={{ ...바탕, benchmark: b } as never} />);
+  return 기간별로({ ...바탕, benchmark: b });
 }
 
 /** '해마다' 칸 **안에서만** 찾는다.
@@ -126,9 +133,10 @@ describe("벤치마크가 있으면 해별로 나란히 보여 준다", () => {
   it("내 수익률과 벤치마크 수익률이 둘 다 보인다", () => {
     그리기(벤치);
     //: 해마다 **그 줄 안에** 내 값과 벤치마크 값이 나란히 있어야 한다
-    expect(해줄(2019).textContent).toBe("2019+22.1%+16.8%");
-    expect(해줄(2020).textContent).toBe("2020-5%-37%");
-    expect(해줄(2021).textContent).toBe("2021+8.4%+10.1%");
+    //: 소수 둘째 자리까지 늘 같게 — 서버의 -37.0 을 '-37%' 로 적으면 옆 줄의 '+16.8%' 와 자릿수가 어긋난다
+    expect(해줄(2019).textContent).toBe("2019+22.10%+16.80%");
+    expect(해줄(2020).textContent).toBe("2020-5.00%-37.00%");
+    expect(해줄(2021).textContent).toBe("2021+8.40%+10.10%");
   });
 
   it("어느 줄이 무엇인지 적는다", () => {
@@ -240,10 +248,10 @@ describe("막대와 점이 **같은 자** 위에 있다", () => {
   it("값이 다 0 이어도 0 으로 안 나눈다", () => {
     /* 0 으로 나누면 NaN 이 되고, width:NaN% 는 브라우저가 무시해서
        막대가 통째로 사라진다 — 자료가 없는 것처럼 보인다. */
-    render(<자산배분결과화면 r={{
+    기간별로({
       ...바탕, benchmark: null,
       yearly: [{ year: 2019, return: 0 }, { year: 2020, return: 0 }],
-    } as never} />);
+    });
     const 너비 = 막대너비들();
     //: **막대가 그려지기는 했는지** 먼저 본다 — 없으면 아래 for 가
     //  한 번도 안 돌아 검사가 그냥 통과한다
@@ -261,15 +269,15 @@ describe("해로 짝짓는다 — 차례로 짝짓지 않는다", () => {
     그리기({ ...벤치, yearly: [{ year: 2019, return: 16.8 },
                                { year: 2021, return: 10.1 }] });
     //: **그 해 줄 안에** 그 해의 값이 있어야 한다
-    expect(within(해줄(2019)).getByText("+16.8%")).toBeInTheDocument();
-    expect(within(해줄(2021)).getByText("+10.1%")).toBeInTheDocument();
+    expect(within(해줄(2019)).getByText("+16.80%")).toBeInTheDocument();
+    expect(within(해줄(2021)).getByText("+10.10%")).toBeInTheDocument();
     /* 2020 은 벤치마크에 없다. 차례로 짝지으면 여기에 2021 의 10.1 이
        밀려 들어온다 — 둘 다 맞는 수인데 비교만 틀리는, 제일 알아채기
        어려운 모양이다. */
-    expect(within(해줄(2020)).queryByText("+10.1%"),
+    expect(within(해줄(2020)).queryByText("+10.10%"),
       "2020 줄에 2021 의 값이 밀려 들어왔다").toBeNull();
     expect(해줄(2020).textContent, "2020 에 없는 벤치마크 값이 생겼다")
-      .toBe("2020-5%");
+      .toBe("2020-5.00%");
   });
 
   it("겹치는 해만 세어 '몇 해 중' 을 말한다", () => {

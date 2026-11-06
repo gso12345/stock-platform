@@ -22,11 +22,13 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { 짧은돈 } from "@/utils/formatters";
 import type { 자산배분결과, 낙폭점, 낙폭구간 } from "@/api/stocks";
-import { Bookmark, Download, Share2 } from "lucide-react";
-import { 과와 } from "@/utils/조사";
+import { Bookmark, ChevronDown, Download, Share2 } from "lucide-react";
+import { 과와, 은는, 이에요 } from "@/utils/조사";
 import { csv내려받기 } from "@/utils/csv";
 import { 결과CSV } from "./결과내보내기";
 import { 달마다표 } from "./분석부품";
+import { 큰지표, 작은지표, 머리단추, 그래프범례 } from "./결과부품";
+import { 자산마다칸, 상관칸, 롤링칸 } from "./배분분석";
 import { PIE_COLORS } from "@/constants/pieColors";
 import { use넓은화면 } from "@/hooks/useWideScreen";
 import { 가로축, 그래프높이, 기준점선, 끝값, 달눈금, 툴팁 } from "@/utils/chartTheme";
@@ -66,10 +68,18 @@ export function 눈금글(v: number, 통화: "KRW" | "USD"): string {
  *
  *  서버는 잴 수 없는 것을 null 로 준다(1년 미만의 연환산 등).
  *  물음표 접근자만 쓰면 'undefined%' 가 찍힌다 — 이 저장소에서
- *  이미 같은 것을 한 번 고쳤다. */
+ *  이미 같은 것을 한 번 고쳤다.
+ *
+ *  소수 자리는 **늘 같게** 적는다. 끝의 0 을 떼면 같은 줄에 '+7.94% · +8.1% · -20%' 가 나란히 서고, 견주는 칸에서는
+ *  '-20%' 옆에 '-25.7%' 가 와서 자릿수가 어긋난다(화면을 찍어 보고 찾았다). */
 function 수(v: number | null | undefined, 자리 = 2, 앞 = "", 뒤 = "") {
   if (v == null || !Number.isFinite(v)) return "—";
-  return `${앞}${v.toLocaleString("ko-KR", { maximumFractionDigits: 자리 })}${뒤}`;
+  return `${앞}${v.toLocaleString("ko-KR", { minimumFractionDigits: 자리, maximumFractionDigits: 자리 })}${뒤}`;
+}
+
+/** 최대 낙폭 — 서버는 양수로 준다. 0 이면 빼기를 안 붙인다('-0.0%' 는 빠진 것처럼 읽힌다) */
+function 낙폭수(v: number | null | undefined) {
+  return 수(v, 1, v ? "-" : "", "%");
 }
 
 function 돈(v: number | null | undefined, 통화: "KRW" | "USD") {
@@ -77,33 +87,6 @@ function 돈(v: number | null | undefined, 통화: "KRW" | "USD") {
   const 기호 = 통화 === "KRW" ? "₩" : "$";
   return `${기호}${Math.round(v).toLocaleString("ko-KR")}`;
 }
-
-/** 긴 수는 글자를 줄여서 넣는다 — 자르지 않는다.
- *
- *  돈은 자릿수가 곧 뜻이다. `truncate` 로 '₩181,740,043,5…' 처럼
- *  끝을 잘라 버리면 읽는 사람이 억인지 조인지 알 수 없다. 폰에서는
- *  마우스를 올릴 수도 없어 잘린 뒤를 볼 방법이 아예 없다.
- *
- *  '1,817억' 식으로 줄이는 방법도 있지만, 그러면 이 저장소에 이미
- *  다섯 군데 흩어져 있는 억/조 규칙이 여섯 번째로 늘어난다. 여기서는
- *  수를 그대로 두고 글자만 줄인다.
- *
- *  (폰 390px 에서 '₩181,740,043,506,109,900' 이 칸 밖으로 잘려 나가는
- *   것을 실제로 찍어 보고 고쳤다.) */
-export function 칸({ 이름, 값, 색, 밑 }: {
-  이름: string; 값: React.ReactNode; 색?: string; 밑?: string;
-}) {
-  const 길이 = typeof 값 === "string" ? 값.length : 0;
-  const 크기 = 길이 > 17 ? "text-xs" : 길이 > 13 ? "text-sm" : "text-lg";
-  return (
-    <div className="flex flex-col gap-0.5 p-3 rounded-xl border border-border bg-bg-elevated min-w-0">
-      <span className="text-2xs text-text-muted font-medium">{이름}</span>
-      <span className={`${크기} font-mono font-bold tabular-nums ${색 ?? "text-text-primary"}`}>{값}</span>
-      {밑 && <span className="text-2xs text-text-dim break-keep">{밑}</span>}
-    </div>
-  );
-}
-
 
 /* ═══════════════════════════════════════════════════════════
    자산 흐름 — 로그 축과 벤치마크 겹치기
@@ -119,13 +102,17 @@ export function 칸({ 이름, 값, 색, 밑 }: {
  *  내 곡선의 날짜를 기준으로 삼고, 벤치마크는 그 날에 있는 값만 얹는다.
  *  없는 날은 비워 둔다(recharts 가 알아서 잇는다). */
 export function 맞춰합치기(
-  내것: { date: string; value: number }[],
+  내것: { date: string; value: number; invested?: number }[],
   벤치?: { date: string; value: number }[],
-): { date: string; 내것: number; 벤치?: number }[] {
+): { date: string; 내것: number; 벤치?: number; 넣은?: number }[] {
   const 표 = new Map((벤치 ?? []).map((x) => [x.date, x.value]));
   return 내것.map((x) => {
     const b = 표.get(x.date);
-    return b == null ? { date: x.date, 내것: x.value } : { date: x.date, 내것: x.value, 벤치: b };
+    const 칸: { date: string; 내것: number; 벤치?: number; 넣은?: number } =
+      b == null ? { date: x.date, 내것: x.value } : { date: x.date, 내것: x.value, 벤치: b };
+    /* 그날까지 넣은 돈 — 평가액이 이 선 위면 번 것이다(예전 응답에는 없다) */
+    if (x.invested != null) 칸.넣은 = x.invested;
+    return 칸;
   });
 }
 
@@ -162,6 +149,8 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
     [r.curve, r.benchmark],
   );
   const 벤치있음 = !!r.benchmark && 합친것.some((x) => x.벤치 != null);
+  /* 넣은 돈 선 — 평가액이 이 선보다 위면 번 것이다. 단일 종목 그래프의 '초기자본' 선과 같은 자리 */
+  const 넣은있음 = 합친것.some((x) => x.넣은 != null);
   const 쓸수있나 = 로그가능(합친것);
   /* 못 쓰는데 켜져 있으면 끈다 — 다른 실험을 불러와 값이 0 이 될 수 있다 */
   const 로그켬 = 로그 && 쓸수있나;
@@ -206,7 +195,7 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
               {/* 세로축은 안 그린다 — 좁은 화면에서 금액 눈금이 가로폭을 먹는다. 높이는 최고·최저 점선이 말한다 */}
               <R.YAxis hide {...축설정(로그켬)} domain={축설정(로그켬).domain ?? ["dataMin", "dataMax"]} />
               <R.Tooltip {...툴팁} formatter={(v: number, 이름: string) =>
-                [돈(v, r.currency), 이름 === "내것" ? "내 조합" : 벤치이름]} />
+                [돈(v, r.currency), 이름 === "내것" ? "내 조합" : 이름 === "넣은" ? "넣은 돈" : 벤치이름]} />
               {끝점 && (
                 <>
                   <R.ReferenceLine y={끝점.최고} {...기준점선} />
@@ -215,6 +204,12 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
               )}
               <R.Area type="monotone" dataKey="내것" name="내것" stroke="var(--accent-blue)"
                       fill="url(#bt-alloc)" strokeWidth={2} dot={false} isAnimationActive={false} />
+              {넣은있음 && (
+                /* 계단 — 넣은 돈은 넣는 날에만 한 번에 는다. **Area(채움 없음)** 로 그린다 — AreaChart 는 그 안의 Line 을
+                   아예 안 그린다(범례에만 있고 선이 없는 것을 화면을 찍어 보고 찾았다) */
+                <R.Area type="stepAfter" dataKey="넣은" name="넣은" stroke="var(--text-muted)" strokeWidth={1.5}
+                        fill="none" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+              )}
               {벤치있음 && 벤치보기 && (
                 /* 벤치마크는 **선만** 그린다. 면을 두 개 겹치면 색이
                    섞여 어느 쪽이 위인지 알 수 없다. 점선이라 흑백으로
@@ -229,7 +224,8 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
       </Suspense>
       <그래프범례 끝={끝점 && `최고 ${눈금글(끝점.최고, r.currency)} · 최저 ${눈금글(끝점.최저, r.currency)}`}
         선들={[{ 이름: "내 조합", 색: "var(--accent-blue)" },
-              ...(벤치있음 && 벤치보기 ? [{ 이름: 벤치이름, 색: "var(--accent-purple)", 점선: true }] : [])]} />
+              ...(벤치있음 && 벤치보기 ? [{ 이름: 벤치이름, 색: "var(--accent-purple)", 점선: true }] : []),
+              ...(넣은있음 ? [{ 이름: "넣은 돈", 색: "var(--text-muted)", 점선: true }] : [])]} />
       {로그켬 && (
         <p className="text-2xs text-text-dim break-keep -mt-1">
           로그 축이에요 — 같은 높이가 같은 <b>비율</b>이에요. 1,000만원이 2,000만원이
@@ -238,31 +234,13 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
       )}
       {벤치있음 && 벤치보기 && (
         <p className="text-2xs text-text-dim break-keep -mt-1">
-          점선이 {r.benchmark!.name}이에요. 같은 기간·같은 납입·같은 비용으로 돌렸어요.
+          점선이 {이에요(r.benchmark!.name)}. 같은 기간·같은 납입·같은 비용으로 돌렸어요.
         </p>
       )}
     </Card>
   );
 }
 
-/** 그래프 아래 한 줄 — 최고·최저와 선마다 무엇인지(내 자산 추이와 같은 모양) */
-export function 그래프범례({ 끝, 선들 }: {
-  끝?: string | null;
-  선들: { 이름: string; 색: string; 점선?: boolean }[];
-}) {
-  return (
-    <div className="flex items-center justify-center gap-3 flex-wrap -mt-1">
-      {끝 && <span className="text-2xs text-text-dim tabular-nums">{끝}</span>}
-      {선들.map((x) => (
-        <span key={x.이름} className="flex items-center gap-1 text-2xs text-text-dim">
-          <span aria-hidden className="w-3 h-0 border-t-2 rounded"
-                style={{ borderColor: x.색, borderTopStyle: x.점선 ? "dashed" : "solid" }} />
-          {x.이름}
-        </span>
-      ))}
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════════════════════════
    낙폭 — 그래프와 순위
@@ -278,6 +256,13 @@ export function 걸린기간(날: number | null | undefined): string {
   const 남은달 = 달 % 12;
   return 남은달 ? `${해}년 ${남은달}개월` : `${해}년`;
 }
+
+/** 해마다 % — 늘 소수 둘째 자리, 플러스면 '+'. 반올림해서 0 이면 '-0.00%'·'+0.00%' 가 아니라 '0.00%' */
+export const 해글 = (v: number) => {
+  const 글 = v.toFixed(2);
+  if (Number(글) === 0) return "0.00%";
+  return `${v > 0 ? "+" : ""}${글}%`;
+};
 
 /** 낙폭 % 를 늘 소수 둘째 자리로 — 서버의 -34.0 은 그대로 적으면 '-34%' 가 되어 바로 아래 '-5.23%' 와 자릿수가 어긋난다 */
 export const 낙폭글 = (v: number) => `${v.toFixed(2)}%`;
@@ -601,13 +586,14 @@ export function 해마다칸({ r, 내이름 = "내 조합", 설명 }: {
                 )}
               </div>
 
-              <div className="w-14 flex-shrink-0 flex flex-col gap-0.5 text-right">
+              {/* 소수 둘째 자리까지 **늘 같게** — 서버의 23.0 을 그대로 적으면 '+23%' 가 '+3.62%' 와 나란히 선다 */}
+              <div className="w-16 flex-shrink-0 flex flex-col gap-0.5 text-right">
                 <span className={`text-xs font-mono tabular-nums ${pnlColor(y.return)}`}>
-                  {y.return >= 0 ? "+" : ""}{y.return}%
+                  {해글(y.return)}
                 </span>
                 {벤 != null && (
                   <span className="text-2xs font-mono tabular-nums text-text-dim">
-                    {벤 >= 0 ? "+" : ""}{벤}%
+                    {해글(벤)}
                   </span>
                 )}
               </div>
@@ -620,7 +606,7 @@ export function 해마다칸({ r, 내이름 = "내 조합", 설명 }: {
           이 표를 읽기 전에 알아야 한다. */}
       {견줄수있나 && b?.index_only && (
         <p className="text-2xs text-text-dim break-keep">
-          {b.name}는 지수라 배당이 빠져 있어요. 배당까지 받은 내 조합과는
+          {은는(b.name)} 지수라 배당이 빠져 있어요. 배당까지 받은 내 조합과는
           그만큼 기준이 달라요.
         </p>
       )}
@@ -628,19 +614,156 @@ export function 해마다칸({ r, 내이름 = "내 조합", 설명 }: {
   );
 }
 
-function 요약표({ r }: { r: 자산배분결과 }) {
+/** ── 성과 ── 단일 종목 결과와 같은 모양(큰 숫자 셋 + 작은 숫자 줄). 예전엔 카드 셋(넣은 돈→최종·연환산·위험)에
+ *  숫자마다 테두리 상자를 둘러 다른 메뉴와 모양이 달랐다(사용자: "디자인도 다른메뉴를 기준으로 통일시켜줘").
+ *
+ *  **넣은 돈은 최종 평가액 바로 아래** — 이 화면의 한 가지 원칙(맨 위 주석)을 그대로 지킨다. */
+export function 성과칸({ r }: { r: 자산배분결과 }) {
+  const 배색 = useSettingsStore((s) => s.colorScheme);
+  const { pnlColor, gain, loss } = usePnlColors(배색);
+  const 벌었나 = (r.profit ?? 0) >= 0;
+  const 번색 = 벌었나 ? gain : loss;
+  const 적립했나 = r.contributed > 0 && (r.curve[0]?.invested ?? r.contributed) < r.contributed;
+  const 최종 = 돈(r.final_value, r.currency);
+  return (
+    <Card className="flex flex-col gap-4">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <span className="text-base font-semibold text-text-primary">성과</span>
+        <span className="text-2xs text-text-dim num">{r.start_date} ~ {r.end_date} · {r.years}년</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-xs text-text-muted">최종 평가액</span>
+          <span className="text-2xs text-text-dim">{r.currency} 기준</span>
+        </div>
+        <span className={`${최종.length > 15 ? "text-lg" : "text-2xl"} font-bold font-mono tabular-nums text-text-primary break-all`}>
+          {최종}
+        </span>
+        <span className="text-xs text-text-muted">
+          넣은 돈 <span className="font-mono tabular-nums text-text-secondary">{돈(r.contributed, r.currency)}</span>
+          {적립했나 && <span className="text-text-dim"> (초기 금액 + 추가 납입 전부)</span>}
+        </span>
+        {/* flex-wrap 이 없으면 금액이 길 때 옆의 퍼센트가 화면 밖으로 밀려 나간다 */}
+        <span className={`flex items-baseline gap-1.5 flex-wrap text-sm font-semibold font-mono tabular-nums ${번색}`}>
+          <span className="font-sans font-normal text-xs text-text-muted">수익</span>
+          {(r.profit ?? 0) < 0 ? "-" : 벌었나 ? "+" : ""}{돈(r.profit == null ? null : Math.abs(r.profit), r.currency)}
+          <span>({수(r.total_return, 2, 벌었나 ? "+" : "", "%")})</span>
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-3 pt-3 border-t border-border">
+        <큰지표 이름="연환산 (TWR)" 값={수(r.twr_annual, 2, (r.twr_annual ?? 0) > 0 ? "+" : "", "%")}
+          색={r.twr_annual == null ? undefined : pnlColor(r.twr_annual)} />
+        <큰지표 이름="내 수익률 (IRR)" 값={수(r.irr_annual, 2, (r.irr_annual ?? 0) > 0 ? "+" : "", "%")}
+          색={r.irr_annual == null ? undefined : pnlColor(r.irr_annual)} />
+        <큰지표 이름="최대 낙폭" 값={낙폭수(r.mdd)} 색={r.mdd ? loss : undefined}
+          밑={r.mdd_date ? `바닥 ${r.mdd_date}` : undefined} />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 pt-3 border-t border-border">
+        <작은지표 이름="연 변동성" 값={수(r.volatility, 1, "", "%")} />
+        {/* 샤프는 '무위험으로 그냥 둬도 얻었을 것' 을 뺀 수다. 무엇을 뺐는지 안 적으면 자기 기준으로 읽는다 */}
+        <작은지표 이름="샤프 비율" 값={수(r.sharpe, 2)} 밑={`무위험 ${r.risk_free_rate ?? 0}% 기준`} />
+        <작은지표 이름="소티노" 값={수(r.sortino, 2)} 밑="내려간 흔들림만" />
+        {/* 오른 달이 몇 달 중 몇 달인가 — 연 수익률만 보면 한 해 안의 출렁임이 사라진다 */}
+        <작은지표 이름="오른 달" 값={r.total_months ? `${r.positive_months} / ${r.total_months}` : "—"} />
+        {r.dividends != null && <작은지표 이름="배당 재투자" 값={돈(r.dividends, r.currency)} />}
+        {/* 현금을 담아 이자를 받았을 때만 — 이자율은 아래 가정 줄에 늘 적는다 */}
+        {(r.cash_interest ?? 0) > 0 && (
+          <작은지표 이름="현금 이자" 값={돈(r.cash_interest, r.currency)} 밑={`연 ${r.cash_rate}%`} />
+        )}
+      </div>
+      {/* **무엇을 가정하고 잰 수인가**를 적는다 — 가정을 감추는 것이 가정 자체보다 나쁘다 */}
+      <p className="text-2xs text-text-dim break-keep">
+        수익률은 <b>넣은 돈 전부</b>를 기준으로 잰 값이에요. 초기 금액만으로 재면 매달 넣은 돈이 수익으로 둔갑해요.
+        TWR 은 넣은 때의 영향을 지운 값(다른 조합과 견줄 때), IRR 은 늦게 넣은 돈이 덜 굴렀다는 게 반영된 값이에요.
+        낙폭은 넣은 돈을 뺀 기준이에요 · {(r.cash_rate ?? 0) > 0 ? `현금 이자 연 ${r.cash_rate}%` : "현금은 이자 없음"}.
+      </p>
+      {r.twr_annual == null && (
+        <p className="text-2xs text-text-dim break-keep -mt-2">
+          1년이 안 되는 기간은 연으로 늘리지 않아요. 짧은 성적을 연으로 부풀리면 터무니없는 수가 나와요.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/** ── 견주기 + 모든 지표 ── 예전엔 '견주기' 카드(요약 칩)와 '주요 지표' 카드(지표 칩)가 따로였다. 한 카드에 두고,
+ *  견주기 넷을 먼저 · 나머지는 '지표 모두 보기' 로 편다(앱처럼 — 처음엔 요점만).
+ *
+ *  색이 두 가지 뜻이라 **두 칸으로 나눈다** — 견주기 줄은 '내 쪽이 나으면 오름 색'(차이로), 모든 지표 줄은
+ *  '플러스면 오름 색'(값으로). 한 표에서 섞으면 같은 빨강이 두 뜻이 된다. */
+export function 지표칸({ r }: { r: 자산배분결과 }) {
+  const 배색 = useSettingsStore((s) => s.colorScheme);
+  const { pnlColor } = usePnlColors(배색);
+  const [다보기, set다보기] = useState(false);
+  const b = r.benchmark;
+  return (
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <span className="text-base font-semibold text-text-primary">
+          {/* 조사는 이름의 받침에 맞춘다 — 'S&P500 와' 처럼 박아 두면 절반은 틀린다 */}
+          {b ? `${과와(b.name)} 견주기` : "주요 지표"}
+        </span>
+        {/* 같은 기간·같은 납입·같은 비용으로 돌린 것이라고 말해 준다 */}
+        {b && <span className="text-2xs text-text-dim">같은 기간 · 같은 납입</span>}
+      </div>
+      {b && (
+        <div className="grid grid-cols-[1fr_1fr_1fr] gap-x-2 gap-y-1.5 items-baseline">
+          <span className="text-2xs text-text-dim" />
+          <span className="text-2xs text-text-muted font-medium text-right">내 조합</span>
+          <span className="text-2xs text-text-dim text-right truncate">{b.name}</span>
+          {([
+            /* 견주는 칸에서는 금액을 **줄여서** 적는다 — 세 칸을 390px 에 나누면 20자리 수가 잘린다 */
+            ["최종 평가액", 눈금글(r.final_value, r.currency), 눈금글(b.final_value, r.currency),
+             (r.final_value ?? 0) - (b.final_value ?? 0)],
+            ["연환산 (TWR)", 수(r.twr_annual, 2, "", "%"), 수(b.twr_annual, 2, "", "%"),
+             (r.twr_annual ?? 0) - (b.twr_annual ?? 0)],
+            /* 낙폭만 작을수록 좋다 — 부호를 뒤집어야 '내가 나음' 이 맞는다 */
+            ["최대 낙폭", 낙폭수(r.mdd), 낙폭수(b.mdd), (b.mdd ?? 0) - (r.mdd ?? 0)],
+            ["샤프", 수(r.sharpe, 2), 수(b.sharpe, 2), (r.sharpe ?? 0) - (b.sharpe ?? 0)],
+          ] as [string, string, string, number][]).map(([이름, 내것, 벤것, 차]) => (
+            <Fragment key={이름}>
+              <span className="text-xs text-text-muted">{이름}</span>
+              <span className={`text-xs font-mono tabular-nums text-right font-semibold truncate ${pnlColor(차)}`}>{내것}</span>
+              <span className="text-xs font-mono tabular-nums text-right text-text-dim truncate">{벤것}</span>
+            </Fragment>
+          ))}
+        </div>
+      )}
+      {b && (
+        <p className="text-2xs text-text-dim break-keep">
+          내 숫자가 오름 색이면 그 항목은 내 조합이 나아요. 낙폭은 작은 쪽이 나은 거예요.
+        </p>
+      )}
+      {/* 지수는 **배당이 없다** — 토탈 리턴으로 잰 내 조합과 견주면 지수가 실제보다 나빠 보인다. 감추지 않고 적는다 */}
+      {b?.index_only && r.dividends != null && (
+        <p className="text-2xs text-accent-yellow/90 break-keep">
+          {은는(b.name)} ETF 가 아니라 <b>지수</b>예요 — 배당이 안 들어 있어서 실제로 그 지수를 담았을 때보다 낮게 나와요.
+        </p>
+      )}
+      {/* 견줄 것이 없으면 접을 것도 없다 — 제목(주요 지표) 바로 아래 표만 */}
+      {(다보기 || !b) && <모든지표 r={r} 머리={!!b} />}
+      {b && (
+        <button type="button" onClick={() => set다보기((v) => !v)} aria-expanded={다보기}
+          className="self-center inline-flex items-center gap-1 text-xs text-accent-blue py-1">
+          {다보기 ? "접기" : "지표 모두 보기"}
+          <ChevronDown size={14} className={`transition-transform ${다보기 ? "rotate-180" : ""}`} />
+        </button>
+      )}
+    </Card>
+  );
+}
+
+/** 모든 지표 — 예전 '주요 지표' 칩의 표 그대로. 색은 **값으로**(플러스면 오름 색).
+ *  머리: 견주기 넷 아래에 펼 때만 줄을 긋고 '모든 지표' 라고 적는다(벤치마크가 없으면 카드 제목이 곧 이 표의 제목) */
+function 모든지표({ r, 머리 }: { r: 자산배분결과; 머리: boolean }) {
   const 배색 = useSettingsStore((s) => s.colorScheme);
   const { pnlColor, loss } = usePnlColors(배색);
   const b = r.benchmark;
   const 퍼 = (v: number | null | undefined) => 수(v, 2, "", "%");
 
   return (
-    <Card className="flex flex-col gap-3">
-      <div className="flex items-baseline justify-between gap-2 flex-wrap">
-        <span className="text-base font-semibold text-text-primary">주요 지표</span>
-        <span className="text-2xs text-text-dim">{r.start_date} ~ {r.end_date}</span>
-      </div>
-
+    <div data-testid="모든지표" className={`flex flex-col gap-3 ${머리 ? "pt-3 border-t border-border" : ""}`}>
+      {머리 && <span className="text-xs font-semibold text-text-secondary">모든 지표</span>}
       <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-2 items-baseline">
         <span className="text-2xs text-text-dim" />
         <span className="text-2xs text-text-muted font-medium text-right">내 조합</span>
@@ -664,14 +787,15 @@ function 요약표({ r }: { r: 자산배분결과 }) {
                 색={pnlColor(r.worst_month ?? 0)} />
         {/* 오른 달이 몇 달 중 몇 달인가 — 연 수익률만 보면 한 해 안의
             출렁임이 통째로 사라진다. */}
+        {/* 예전 응답(공유 주소로 연 옛 결과)에는 달 수가 없다 — 'undefined / undefined' 를 찍지 않는다 */}
         <비교줄 이름="오른 달"
-                내것={`${r.positive_months} / ${r.total_months}`}
+                내것={r.total_months ? `${r.positive_months} / ${r.total_months}` : "—"}
                 벤것={b?.total_months ? `${b.positive_months} / ${b.total_months}` : undefined} />
 
         <div className="col-span-3 h-px bg-border my-0.5" />
 
         <비교줄 이름="연 변동성" 내것={퍼(r.volatility)} 벤것={퍼(b?.volatility)} />
-        <비교줄 이름="최대 낙폭" 내것={수(r.mdd, 1, "-", "%")} 벤것={수(b?.mdd, 1, "-", "%")}
+        <비교줄 이름="최대 낙폭" 내것={낙폭수(r.mdd)} 벤것={낙폭수(b?.mdd)}
                 색={loss} />
         {/* 같은 -30% 라도 2008년이었는지 작년이었는지에 따라 읽는 뜻이
             전혀 다르다. */}
@@ -699,7 +823,7 @@ function 요약표({ r }: { r: 자산배분결과 }) {
       <p className="text-2xs text-text-dim break-keep">
         '—' 는 잴 자료가 없다는 뜻이에요 — 없는 수를 지어내지 않아요.
       </p>
-    </Card>
+    </div>
   );
 }
 
@@ -806,6 +930,15 @@ function 폭락표({ r }: { r: 자산배분결과 }) {
  *
  *  끝을 앞당긴 자산도 같은 식으로 본다(상장폐지·거래정지).
  */
+/** 이만큼은 '짧아졌다' 고 안 본다.
+ *
+ *  요청한 시작일이 주말·휴장일이면 자료는 다음 거래일부터고, 끝을 오늘로 잡으면 자료는 마지막 거래일까지다.
+ *  그때마다 '모든 자산의 시세가 11-07부터라 못 쟀어요 — 빼거나 확장을 켜세요' 라고 하면 **거짓 경고**다(담은 자산을
+ *  전부 범인으로 몬다. 실제로 토요일을 시작일로 돌려 보고 찾았다). 추석·설 연휴는 7일까지 쉬므로 열흘을 둔다 —
+ *  10년을 재다가 열흘이 빠지는 것은 결과를 바꾸지 않는다. */
+export const 봐줄날 = 10;
+const 날차이 = (가: string, 나: string) => Math.abs(Date.parse(나) - Date.parse(가)) / 86_400_000;
+
 function 기간이짧아진이유({ r }: { r: 자산배분결과 }) {
   const 범위 = r.asset_range;
   if (!범위) return null;
@@ -821,8 +954,10 @@ function 기간이짧아진이유({ r }: { r: 자산배분결과 }) {
 
   //: 요청보다 늦게 시작했나 / 일찍 끝났나
   const 늦게시작 = r.requested_start && r.start_date > r.requested_start
+    && 날차이(r.requested_start, r.start_date) > 봐줄날
     ? 걸린것("first", r.start_date) : [];
   const 일찍끝남 = r.requested_end && r.end_date < r.requested_end
+    && 날차이(r.end_date, r.requested_end) > 봐줄날
     ? 걸린것("last", r.end_date) : [];
 
   if (!늦게시작.length && !일찍끝남.length) return null;
@@ -915,20 +1050,9 @@ export default function 자산배분결과화면({ r, 공유하기, 저장하기
    *  결과가 나와 설정이 접히면 저장할 길이 안 보였다(사용자: "결과나오면 저장을 어떻게해") */
   저장하기?: () => void;
 }) {
-  const 벌었나 = (r.profit ?? 0) >= 0;
-  const 적립했나 = r.contributed > 0 && r.curve.length > 0;
-  /* 오름·내림 색은 **설정으로 갈린다.** 초록/빨강 쓰는 사람과 빨강/파랑
-     쓰는 사람이 있고, 한국·중국 쪽은 오름이 빨강인 것이 익숙하다.
-     이 화면은 그 설정을 안 보고 text-accent-green/red 를 손으로 박아
-     놔서, '빨강-파랑' 으로 바꿔 둔 사람에게는 이 화면만 거꾸로 보였다 —
-     같은 앱 안에서 빨강이 한 화면에서는 오름이고 다른 화면에서는
-     내림이면 숫자를 잘못 읽는다. */
-  const 배색 = useSettingsStore((s) => s.colorScheme);
-  const { pnlColor, gain, loss } = usePnlColors(배색);
-  const 번색 = 벌었나 ? gain : loss;
-  /* 결과를 넷으로 나눠 본다. 수익률로 시작하는 것은 사람이 제일 먼저
-     묻는 것이 '얼마나 벌었나' 이기 때문이다. */
-  const [보기, set보기] = useState("수익");
+  /* 결과를 넷으로 나눠 본다 — 단일 종목 결과와 **같은 순서**(요약·낙폭·기간별 + 그 화면만의 하나).
+     예전엔 수익률·낙폭·지표·세부였고, '수익률' 칩 하나에 카드가 일곱 개라 폰에서 2,300px 을 내려야 했다 */
+  const [보기, set보기] = useState("요약");
 
   return (
     <div className="flex flex-col gap-4">
@@ -951,210 +1075,50 @@ export default function 자산배분결과화면({ r, 공유하기, 저장하기
         </Card>
       )}
 
-      {/* ── 탭 ──
-          카드가 계속 늘어 폰에서 한참 스크롤해야 무엇이 있는지 안다.
-          넷으로 나눈다 — 수익률(얼마나 벌었나) · 낙폭(얼마나 아팠나) ·
-          지표(견주기) · 세부(무엇을 담고 무엇을 가정했나).
-
-          **경고는 탭 밖에 둔다.** 자산 하나를 빼고 계산한 사실이 탭
-          안에 숨으면, 그 탭을 안 연 사람은 덜 담긴 결과를 온전한 것으로
-          읽는다 — 백테스트에서 가장 나쁜 실패다. */}
-      {/* 결과 보기를 상자 탭이 아니라 칩으로 — 페이지 위의 밑줄 탭(자산배분·단일 종목·유니버스)보다 한 단계
-          아래라는 것이 보이게(사용자가 고른 10번). 'CSV로 내보내기' 큰 단추는 오른쪽 끝의 작은 아이콘으로 */}
+      {/* ── 탭 ── 요약(얼마나 벌었나) · 낙폭(얼마나 아팠나) · 기간별(언제 벌고 잃었나) · 자산(누가 벌었나·같이
+          움직였나). **경고는 탭 밖에 둔다** — 자산 하나를 빼고 계산한 사실이 탭 안에 숨으면, 그 탭을 안 연 사람은
+          덜 담긴 결과를 온전한 것으로 읽는다. 칩 줄 오른쪽 끝에 저장·공유·CSV(단일 종목 결과와 같은 자리) */}
       <div className="flex items-center gap-1">
         <ChipTabs
           ariaLabel="결과 보기"
           idPrefix="결과"
           className="flex-1 min-w-0"
-          tabs={[{ id: "수익", label: "수익률" }, { id: "낙폭", label: "낙폭" },
-                 { id: "지표", label: "지표" }, { id: "세부", label: "세부" }]}
+          tabs={[{ id: "요약", label: "요약" }, { id: "낙폭", label: "낙폭" },
+                 { id: "기간별", label: "기간별" }, { id: "자산", label: "자산" }]}
           active={보기}
           onChange={set보기}
         />
-        {저장하기 && (
-          <button type="button" aria-label="결과 저장" title="결과 저장" onClick={저장하기}
-            className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors flex-shrink-0">
-            <Bookmark size={16} />
-          </button>
-        )}
-        {공유하기 && (
-          <button type="button" aria-label="결과 공유" onClick={공유하기}
-            className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors flex-shrink-0">
-            <Share2 size={16} />
-          </button>
-        )}
+        {저장하기 && <머리단추 이름="결과 저장" 누르기={저장하기}><Bookmark size={16} /></머리단추>}
+        {공유하기 && <머리단추 이름="결과 공유" 누르기={공유하기}><Share2 size={16} /></머리단추>}
         {/* 엑셀에서 더 보고 싶은 사람을 위해. 화면의 숫자를 그대로 옮긴다 */}
-        <button type="button" aria-label="CSV로 내보내기" title="CSV로 내보내기"
-          onClick={() => csv내려받기(`자산배분_${r.start_date}_${r.end_date}.csv`, 결과CSV(r))}
-          className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors flex-shrink-0">
+        <머리단추 이름="CSV로 내보내기"
+          누르기={() => csv내려받기(`자산배분_${r.start_date}_${r.end_date}.csv`, 결과CSV(r))}>
           <Download size={16} />
-        </button>
+        </머리단추>
       </div>
 
       {/* 탭 내용은 한 칸 — 고른 탭의 것만 그린다(칩이 이 칸을 가리킨다) */}
       <div role="tabpanel" id="결과-panel" aria-labelledby={`결과-tab-${보기}`} className="flex flex-col gap-4">
-        {보기 === "수익" && (<>
-      {/* ── 넣은 돈 → 최종 ── 맨 위에 둔다 ── */}
-      <Card className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between gap-2 flex-wrap">
-          <span className="text-sm text-text-muted">
-            {r.start_date} ~ {r.end_date} · {r.years}년
-          </span>
-          <span className="text-2xs text-text-dim">{r.currency} 기준</span>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <칸 이름="총 납입금" 값={돈(r.contributed, r.currency)}
-             밑={적립했나 ? "초기 금액 + 추가 납입 전부" : undefined} />
-          <칸 이름="최종 평가액" 값={돈(r.final_value, r.currency)} />
-        </div>
-        {/* flex-wrap 이 없으면 금액이 길 때 옆의 퍼센트가 화면 밖으로
-            밀려 나간다 — 수익률은 금액만큼 중요한 수라 사라지면 안 된다 */}
-        <div className="flex items-baseline gap-2 px-1 flex-wrap">
-          <span className="text-sm text-text-muted">수익</span>
-          <span className={`${(돈(r.profit, r.currency).length > 15 ? "text-base" : "text-2xl")} font-mono font-bold tabular-nums ${번색}`}>
-            {벌었나 ? "+" : ""}{돈(r.profit, r.currency)}
-          </span>
-          <span className={`text-sm font-mono ${번색}`}>
-            ({수(r.total_return, 2, 벌었나 ? "+" : "", "%")})
-          </span>
-        </div>
-        <p className="text-2xs text-text-dim break-keep px-1">
-          수익률은 <b>넣은 돈 전부</b>를 기준으로 잰 값이에요. 초기 금액만으로 재면
-          매달 넣은 돈이 수익으로 둔갑해요.
-        </p>
-      </Card>
-
-      {/* ── 벤치마크 ── 수익률만으로는 잘한 것인지 알 수 없다 ── */}
-      {r.benchmark && (
-        <Card className="flex flex-col gap-3">
-          <div className="flex items-baseline justify-between gap-2 flex-wrap">
-            <span className="text-base font-semibold text-text-primary">
-              {/* 조사는 이름의 받침에 맞춘다 — 'S&P500 와' 처럼 박아 두면 절반은 틀린다(사용자가 고른 9번) */}
-              {과와(r.benchmark.name)} 견주기
-            </span>
-            {/* 같은 기간·같은 납입·같은 비용으로 돌린 것이라고 말해 준다.
-                조건이 다르면 견줄 수 없는 수인데, 그걸 모르면 그냥 믿는다 */}
-            <span className="text-2xs text-text-dim">같은 기간 · 같은 납입</span>
-          </div>
-          {/* 칸에 이름을 붙인다. 숫자 둘만 나란히 두면 어느 쪽이 내
-              것인지 알 수 없고, 색이 어느 쪽 이야기인지도 모호해진다.
-              색은 **내 값**에 칠한다 — 오름 색이면 내 쪽이 나은 것이다.
-              (색 이름은 글로 적지 않는다. 설정에서 초록-빨강과 빨강-파랑을
-               고를 수 있어서, '초록이면 좋다' 는 설명이 절반의 사람에게는
-               거짓이 된다.) */}
-          <div className="grid grid-cols-[1fr_1fr_1fr] gap-x-2 gap-y-1.5 items-baseline">
-            <span className="text-2xs text-text-dim" />
-            <span className="text-2xs text-text-muted font-medium text-right">내 조합</span>
-            <span className="text-2xs text-text-dim text-right truncate">{r.benchmark.name}</span>
-
-            {([
-              /* 견주는 칸에서는 금액을 **줄여서** 적는다.
-                 세 칸을 390px 에 나누면 20자리 수가 잘리는데, 돈이
-                 잘리면 억인지 조인지 알 수 없다. 여기서 필요한 것은
-                 '어느 쪽이 큰가' 이고, 정확한 금액은 바로 위 칸에
-                 온전히 적혀 있다. */
-              ["최종 평가액", 눈금글(r.final_value, r.currency),
-               눈금글(r.benchmark.final_value, r.currency),
-               (r.final_value ?? 0) - (r.benchmark.final_value ?? 0)],
-              ["연환산 (TWR)", 수(r.twr_annual, 2, "", "%"), 수(r.benchmark.twr_annual, 2, "", "%"),
-               (r.twr_annual ?? 0) - (r.benchmark.twr_annual ?? 0)],
-              ["최대 낙폭", 수(r.mdd, 1, "-", "%"), 수(r.benchmark.mdd, 1, "-", "%"),
-               /* 낙폭만 작을수록 좋다 — 부호를 뒤집어야 '내가 나음' 이 맞는다.
-                  안 뒤집으면 **더 크게 물린 쪽**이 초록으로 칠해져서,
-                  위험한 조합을 좋은 것으로 읽게 된다. */
-               (r.benchmark.mdd ?? 0) - (r.mdd ?? 0)],
-            ] as [string, string, string, number][]).map(([이름, 내것, 벤것, 차]) => (
-              <Fragment key={이름}>
-                <span className="text-xs text-text-muted">{이름}</span>
-                <span className={`text-xs font-mono tabular-nums text-right font-semibold truncate ${pnlColor(차)}`}>
-                  {내것}
-                </span>
-                <span className="text-xs font-mono tabular-nums text-right text-text-dim truncate">
-                  {벤것}
-                </span>
-              </Fragment>
-            ))}
-          </div>
-          {/* 색으로 좋고 나쁨을 말하는 문구는 없앴다 — 설정에 따라
-              오름 색이 초록일 수도 빨강일 수도 있다. 대신 색만으로는
-              알 수 없는 것(낙폭은 작을수록 좋다)만 남긴다. */}
-          <p className="text-2xs text-text-dim break-keep">
-            낙폭은 작은 쪽이 나은 거예요.
-          </p>
-          {/* 지수는 **배당이 없다.** 내 조합은 토탈 리턴으로 쟀는데
-              견주는 쪽만 배당을 못 받으면, 지수가 실제보다 나빠 보인다 —
-              방향만 반대일 뿐 '벤치마크만 배당을 못 받던' 그 문제와
-              같은 종류다. 감추지 않고 적는다. */}
-          {/* dividends 가 있다는 것이 곧 '토탈 리턴으로 쟀다' 는 뜻이다 —
-              서버가 배당표를 넘겼을 때만 이 값이 채워진다. 굳이 칸을
-              하나 더 만들면 둘이 어긋날 자리가 생긴다. */}
-          {r.benchmark.index_only && r.dividends != null && (
-            <p className="text-2xs text-accent-yellow/90 break-keep">
-              코스피는 ETF 가 아니라 <b>지수</b>예요 — 배당이 안 들어 있어서
-              실제로 그 지수를 담았을 때보다 낮게 나와요.
-            </p>
-          )}
-        </Card>
-      )}
-
-      {/* ── 연환산 두 가지 ── */}
-      <Card className="flex flex-col gap-3">
-        <span className="text-base font-semibold text-text-primary">연환산 수익률</span>
-        <div className="grid grid-cols-2 gap-3">
-          <칸 이름="전략 성적 (TWR)" 값={수(r.twr_annual, 2, "", "%")}
-             색={pnlColor(r.twr_annual ?? 0)}
-             밑="넣은 시점의 영향을 지운 값. 다른 전략과 비교할 때 써요" />
-          <칸 이름="내 수익률 (IRR)" 값={수(r.irr_annual, 2, "", "%")}
-             색={pnlColor(r.irr_annual ?? 0)}
-             밑="늦게 넣은 돈은 덜 굴렀다는 게 반영된 값" />
-        </div>
-        {r.twr_annual == null && (
-          <p className="text-2xs text-text-dim break-keep">
-            1년이 안 되는 기간은 연으로 늘리지 않아요. 짧은 성적을 연으로 부풀리면
-            터무니없는 수가 나와요.
-          </p>
-        )}
-      </Card>
-
-      {/* ── 위험 ── */}
-      <Card className="flex flex-col gap-3">
-        <span className="text-base font-semibold text-text-primary">위험</span>
-        <div className="grid grid-cols-3 gap-3">
-          <칸 이름="최대 낙폭" 값={수(r.mdd, 1, "-", "%")} 색={loss} />
-          <칸 이름="연 변동성" 값={수(r.volatility, 1, "", "%")} />
-          <칸 이름="샤프 비율" 값={수(r.sharpe, 2)} />
-        </div>
-        {r.dividends != null && (
-          <p className="text-2xs text-text-dim">
-            배당 재투자 {돈(r.dividends, r.currency)} 포함
-          </p>
-        )}
-        {/* **무엇을 가정하고 잰 수인가**를 적는다.
-            · 낙폭은 넣은 돈을 지운 곡선에서 잰다 — 안 그러면 적립할수록
-              낙폭이 작아 보인다(실측 37.7% → 32.8%)
-            · 샤프는 무위험수익률을 뺀 초과수익이다. 무엇을 뺐는지 안
-              적으면 사람이 자기 기준으로 읽는다
-            가정을 감추는 것이 가정 자체보다 나쁘다. */}
-        <p className="text-2xs text-text-dim break-keep">
-          낙폭은 넣은 돈을 뺀 기준 · 샤프는 무위험 {r.risk_free_rate ?? 0}% 기준
-          {(r.cash_rate ?? 0) > 0
-            ? ` · 현금 이자 연 ${r.cash_rate}%`
-            : " · 현금은 이자 없음"}
-        </p>
-      </Card>
-      {/* ── 자산 흐름 ── */}
-      {r.curve.length > 1 && <자산흐름 r={r} />}
-      {/* ── 해마다 (벤치마크가 있으면 해별로 나란히) ── */}
-      {r.yearly.length > 0 && <해마다칸 r={r} />}
-      {/* ── 달마다 ── 연 수익률만 보면 한 해 안의 출렁임이 사라진다(사용자: "백테스팅 결과를 더 상세분석할 수 있도록") */}
-      {(r.monthly?.length ?? 0) > 0 && <달마다표 monthly={r.monthly} yearly={r.yearly} />}
+        {보기 === "요약" && (<>
+          <성과칸 r={r} />
+          <지표칸 r={r} />
+          {r.curve.length > 1 && <자산흐름 r={r} />}
         </>)}
         {보기 === "낙폭" && (<>
           {(r.drawdown?.length ?? 0) > 1 && <낙폭칸 r={r} />}
           <폭락표 r={r} />
         </>)}
-        {보기 === "지표" && <요약표 r={r} />}
-        {보기 === "세부" && <담은자산 r={r} />}
+        {보기 === "기간별" && (<>
+          {/* 해마다(벤치마크가 있으면 해별로 나란히) · 달마다 · 언제 샀느냐에 따라 */}
+          {r.yearly.length > 0 && <해마다칸 r={r} />}
+          {(r.monthly?.length ?? 0) > 0 && <달마다표 monthly={r.monthly} yearly={r.yearly} />}
+          <롤링칸 r={r} />
+        </>)}
+        {보기 === "자산" && (<>
+          {/* 자산마다(비중·성적·번 돈) — 예전 응답(공유 주소로 연 옛 결과)에는 없으니 그때는 비중 원만 */}
+          {(r.asset_stats?.length ?? 0) > 0 ? <자산마다칸 r={r} /> : <담은자산 r={r} />}
+          <상관칸 r={r} />
+        </>)}
       </div>
 
       {/* ── 무엇을 넣고 무엇을 뺐는지 ── **탭 밖에 둔다** ──
@@ -1183,7 +1147,7 @@ export default function 자산배분결과화면({ r, 공유하기, 저장하기
             조용히 이으면 사용자는 1980년치 SPY 자료가 있는 줄 안다 */}
         {Object.keys(r.extended_from ?? {}).length > 0 && (
           <p className="text-2xs text-accent-yellow/90 break-keep">
-            {Object.entries(r.extended_from).map(([s, d]) => `${s}는 ${d}`).join(", ")}부터
+            {Object.entries(r.extended_from).map(([s, d]) => `${은는(s)} ${d}`).join(", ")}부터
             지수로 이었어요. 그 구간은 <b>배당과 운용보수가 빠진 지수</b>라
             실제 ETF와 조금 달라요.
           </p>
