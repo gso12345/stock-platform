@@ -85,7 +85,7 @@ describe("선 그래프는 공통 모양을 쓴다", () => {
   const 읽기 = (f: string) => fs.readFileSync(path.join(뿌리, f), "utf-8");
 
   it.each([
-    "pages/Backtest.tsx", "components/backtest/AllocationResult.tsx",
+    "components/backtest/단일결과화면.tsx", "components/backtest/AllocationResult.tsx",
     "components/portfolio/AssetHistory.tsx", "components/stock/PriceTrend.tsx",
   ])("%s — 가로축·툴팁을 공통 값으로(chartTheme)", (f) => {
     const 글 = 읽기(f);
@@ -97,7 +97,7 @@ describe("선 그래프는 공통 모양을 쓴다", () => {
   });
 
   it("백테스트 그래프 높이를 숫자로 못 박지 않는다 — 넓은 화면에서 커진다", () => {
-    for (const f of ["pages/Backtest.tsx", "components/backtest/AllocationResult.tsx"]) {
+    for (const f of ["components/backtest/단일결과화면.tsx", "components/backtest/AllocationResult.tsx"]) {
       expect(읽기(f), `${f}: 높이를 숫자로 못 박았다(넓은 화면에서도 그 크기)`).not.toMatch(/<차트틀 height=\{\d+\}/);
     }
     const [폰, 넓은] = 그래프높이.큰;
@@ -286,6 +286,7 @@ describe("배치와 표도 같은 틀", () => {
     그리기();
     await userEvent.click(screen.getByRole("tab", { name: "단일 종목" }));
     await userEvent.click(screen.getByRole("button", { name: /백테스트 실행/ }));
+    await userEvent.click(await screen.findByRole("tab", { name: "거래" }));   // 거래 내역은 '거래' 칩 안
     const 표 = (await screen.findByText("진입일")).closest("table")!;
     expect(표.className).toContain(표글자);
     expect(표.querySelector("thead")!.className).toBe(표머리);

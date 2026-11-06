@@ -134,7 +134,9 @@ describe("기다리는 자리를 미리 잡는다", () => {
   const 스켈레톤들: [string, string, string?][] = [
     ["pages/News.tsx", "NewsSkeleton"],
     ["pages/Screening.tsx", "StockTableSkeleton", "components/common/StockTable.tsx"],
-    ["pages/Backtest.tsx", "BacktestSkeleton"],
+    /* 백테스트는 뼈대 대신 진행 막대 — 서버가 적어 주는 실제 진행을 %로(사용자: "단일종목 유니버스도 %로
+       진행률 확인할 수 있게 해줘"). 기다리는 자리를 잡는다는 뜻은 같다 */
+    ["pages/Backtest.tsx", "진행막대", "components/backtest/진행막대.tsx"],
     ["pages/PostDetail.tsx", "PostSkeleton"],
   ];
 

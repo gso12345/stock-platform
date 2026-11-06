@@ -84,7 +84,7 @@ describe("recharts 를 정적으로 끌어오지 않는다", () => {
        "pages/StockDetail.tsx" 만 보던 것을 실제로 그리는 자리로 고친다 —
        파일이 어디냐가 아니라 차트틀을 쓰느냐가 이 검사의 뜻이다. */
     for (const f of ["components/stock/FinancialTab.tsx",
-                     "components/stock/AnalystTab.tsx", "pages/Backtest.tsx",
+                     "components/stock/AnalystTab.tsx", "components/backtest/단일결과화면.tsx",
                      "components/stock/SupplyDemandTab.tsx"]) {
       const s = fs.readFileSync(path.join(뿌리, f), "utf-8");
       /* 쓰기만 하고 import 를 안 하면 빌드가 깨진다. 둘 다 본다 —

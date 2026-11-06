@@ -384,13 +384,15 @@ describe("11·12) 단일 종목 결과", () => {
     그리기();
     await 단일탭();
     await userEvent.click(실행단추());
-    await screen.findByText("거래 내역");
+    await userEvent.click(await screen.findByRole("tab", { name: "거래" }));   // 거래 내역은 '거래' 칩 안
+    /* 거래 분석 칸(가장 큰 이익·손실)에도 같은 날짜·손익이 나오므로 거래 내역 카드 안에서 본다 */
+    const 내역 = within((await screen.findByText("거래 내역")).closest(".bg-bg-card") as HTMLElement);
     expect(document.querySelector("table"), "폰에서 일곱 칸 표가 그대로다").toBeNull();
-    expect(screen.getByText("22.03.02 → 22.03.09")).toBeInTheDocument();
-    expect(screen.getByText("100 → 101 · 95주")).toBeInTheDocument();
+    expect(내역.getByText("22.03.02 → 22.03.09")).toBeInTheDocument();
+    expect(내역.getByText("100 → 101 · 95주")).toBeInTheDocument();
     // 수수료를 넣었으면 뺀 것도 같은 줄에
-    expect(screen.getByText("수수료 뺀 것")).toBeInTheDocument();
-    expect(screen.getByText("+0.80%")).toBeInTheDocument();
+    expect(내역.getByText("수수료 뺀 것")).toBeInTheDocument();
+    expect(내역.getByText("+0.80%")).toBeInTheDocument();
   });
 
   it("넓은 화면에서는 표", async () => {
@@ -398,6 +400,7 @@ describe("11·12) 단일 종목 결과", () => {
     그리기();
     await 단일탭();
     await userEvent.click(실행단추());
+    await userEvent.click(await screen.findByRole("tab", { name: "거래" }));
     expect((await screen.findByText("진입일")).closest("table")).not.toBeNull();
   });
 });

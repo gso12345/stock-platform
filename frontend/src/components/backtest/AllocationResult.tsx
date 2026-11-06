@@ -21,11 +21,12 @@ import { Card, ChipTabs, 고른칩 } from "@/components/ui";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { 짧은돈 } from "@/utils/formatters";
-import type { 자산배분결과 } from "@/api/stocks";
-import { Download, Share2 } from "lucide-react";
+import type { 자산배분결과, 낙폭점, 낙폭구간 } from "@/api/stocks";
+import { Bookmark, Download, Share2 } from "lucide-react";
 import { 과와 } from "@/utils/조사";
 import { csv내려받기 } from "@/utils/csv";
 import { 결과CSV } from "./결과내보내기";
+import { 달마다표 } from "./분석부품";
 import { PIE_COLORS } from "@/constants/pieColors";
 import { use넓은화면 } from "@/hooks/useWideScreen";
 import { 가로축, 그래프높이, 기준점선, 끝값, 달눈금, 툴팁 } from "@/utils/chartTheme";
@@ -278,7 +279,19 @@ export function 걸린기간(날: number | null | undefined): string {
   return 남은달 ? `${해}년 ${남은달}개월` : `${해}년`;
 }
 
-function 낙폭칸({ r }: { r: 자산배분결과 }) {
+/** 낙폭 % 를 늘 소수 둘째 자리로 — 서버의 -34.0 은 그대로 적으면 '-34%' 가 되어 바로 아래 '-5.23%' 와 자릿수가 어긋난다 */
+export const 낙폭글 = (v: number) => `${v.toFixed(2)}%`;
+
+/** 낙폭 그래프·깊었던 순서에 필요한 것 — 자산배분 결과도, 단일 종목 결과(서버 _신호분석)도 이 모양이다 */
+export interface 낙폭자료 {
+  drawdown?: 낙폭점[];
+  drawdowns?: 낙폭구간[];
+  benchmark?: { name: string; drawdown?: 낙폭점[] } | null;
+}
+
+/** 낙폭 — 그래프와 깊었던 순서. 단일 종목도 같은 부품을 쓴다(사용자: "백테스팅 결과를 더 상세분석할 수 있도록").
+ *  내이름은 자산배분이면 '내 조합', 단일 종목이면 '내 전략' */
+export function 낙폭칸({ r, 내이름 = "내 조합" }: { r: 낙폭자료; 내이름?: string }) {
   const 배색 = useSettingsStore((s) => s.colorScheme);
   const 내림 = 내림색(배색);
   const [벤치보기, set벤치보기] = useState(true);
@@ -326,7 +339,7 @@ function 낙폭칸({ r }: { r: 자산배분결과 }) {
                 <R.XAxis dataKey="date" tickFormatter={달눈금} {...가로축} />
                 <R.YAxis hide domain={["dataMin", 0]} />
                 <R.Tooltip {...툴팁} formatter={(v: number, 이름: string) =>
-                  [`${v}%`, 이름 === "내것" ? "내 조합" : 벤치이름]} />
+                  [낙폭글(v), 이름 === "내것" ? 내이름 : 벤치이름]} />
                 {바닥 != null && 바닥 < 0 && <R.ReferenceLine y={바닥} {...기준점선} />}
                 <R.Area type="monotone" dataKey="내것" name="내것" stroke={내림}
                         fill="url(#bt-dd)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
@@ -339,8 +352,8 @@ function 낙폭칸({ r }: { r: 자산배분결과 }) {
             )}
           </차트틀>
         </Suspense>
-        <그래프범례 끝={바닥 != null && 바닥 < 0 ? `가장 깊었을 때 ${바닥}%` : null}
-          선들={[{ 이름: "내 조합", 색: 내림 },
+        <그래프범례 끝={바닥 != null && 바닥 < 0 ? `가장 깊었을 때 ${낙폭글(바닥)}` : null}
+          선들={[{ 이름: 내이름, 색: 내림 },
                 ...(벤치있음 && 벤치보기 ? [{ 이름: 벤치이름, 색: "var(--accent-purple)", 점선: true }] : [])]} />
       </div>
 
@@ -375,7 +388,7 @@ function 낙폭칸({ r }: { r: 자산배분결과 }) {
                 {순위.map((d) => (
                   <tr key={d.start} className="border-b border-border/30">
                     <td className="px-3 py-2 text-right font-mono font-semibold whitespace-nowrap"
-                        style={{ color: 내림 }}>{d.depth}%</td>
+                        style={{ color: 내림 }}>{낙폭글(d.depth)}</td>
                     <td className="px-3 py-2 text-right text-text-secondary whitespace-nowrap">
                       {걸린기간(d.underwater_days)}
                       {!d.end && <span className="text-accent-yellow"> +</span>}
@@ -463,7 +476,19 @@ function 비교줄({ 이름, 내것, 벤것, 색 }: {
  *  -37% 가 같은 길이로 그려져, 눈으로 보는 것과 숫자가 서로 다른 말을
  *  한다. 그래서 둘을 통틀어 제일 큰 값에 맞춘다.
  */
-function 해마다칸({ r }: { r: 자산배분결과 }) {
+/** 해마다 막대에 필요한 것 — 자산배분 결과도, 단일 종목 결과(서버 _신호분석)도 이 모양이다 */
+export interface 해마다자료 {
+  yearly: { year: number; return: number }[];
+  benchmark?: { name: string; yearly?: { year: number; return: number }[]; index_only?: boolean } | null;
+}
+
+export function 해마다칸({ r, 내이름 = "내 조합", 설명 }: {
+  r: 해마다자료;
+  /** 자산배분이면 '내 조합', 단일 종목이면 '내 전략' */
+  내이름?: string;
+  /** 막대 위의 설명 — 기본은 자산배분(넣은 돈을 빼고 잰다) */
+  설명?: string;
+}) {
   const 배색 = useSettingsStore((s) => s.colorScheme);
   const { pnlColor } = usePnlColors(배색);
   const b = r.benchmark;
@@ -512,15 +537,15 @@ function 해마다칸({ r }: { r: 자산배분결과 }) {
              않는다** — 지난 성적이 앞으로를 뜻하지 않는데, 'X 를
              이겼어요' 는 그렇게 읽힌다. 센 것만 적는다. */
           <span className="text-2xs text-text-muted">
-            {이긴해.잰해}년 중 {이긴해.이김}년은 내 조합이 더 높았어요
+            {이긴해.잰해}년 중 {이긴해.이김}년은 {내이름}이 더 높았어요
           </span>
         )}
       </div>
 
       <p className="text-2xs text-text-dim break-keep -mt-2">
-        그해에 넣은 돈은 빼고 잰 값이에요 — 안 빼면 매달 넣는 사람은 어떤 해든
-        플러스가 나와요. 가운데 선이 0%예요.
-        {견줄수있나 && " 점이 막대 끝보다 안쪽이면 그해는 내 조합이 더 높았어요."}
+        {설명 ?? "그해에 넣은 돈은 빼고 잰 값이에요 — 안 빼면 매달 넣는 사람은 어떤 해든 플러스가 나와요."}
+        {" 가운데 선이 0%예요."}
+        {견줄수있나 && ` 점이 막대 끝보다 안쪽이면 그해는 ${내이름}이 더 높았어요.`}
       </p>
 
       {/* 막대와 점이 뭘 뜻하는지 — 안 적으면 보고 추측하게 되고,
@@ -529,7 +554,7 @@ function 해마다칸({ r }: { r: 자산배분결과 }) {
         <div className="flex items-center gap-3 text-2xs text-text-dim -mt-1 flex-wrap">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-2 rounded-sm bg-text-muted opacity-60" />
-            내 조합
+            {내이름}
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-text-primary ring-2 ring-bg-card" />
@@ -882,10 +907,13 @@ function 담은자산({ r }: { r: 자산배분결과 }) {
   );
 }
 
-export default function 자산배분결과화면({ r, 공유하기 }: {
+export default function 자산배분결과화면({ r, 공유하기, 저장하기 }: {
   r: 자산배분결과;
   /** 결과 머리의 공유 단추 — 설정을 주소에 실어 보낸다(있을 때만 그린다) */
   공유하기?: () => void;
+  /** 결과 머리의 저장 단추 — 이름을 묻는 창은 부르는 쪽(자산배분탭)이 연다. 예전엔 저장이 설정 칸에만 있어서
+   *  결과가 나와 설정이 접히면 저장할 길이 안 보였다(사용자: "결과나오면 저장을 어떻게해") */
+  저장하기?: () => void;
 }) {
   const 벌었나 = (r.profit ?? 0) >= 0;
   const 적립했나 = r.contributed > 0 && r.curve.length > 0;
@@ -943,6 +971,12 @@ export default function 자산배분결과화면({ r, 공유하기 }: {
           active={보기}
           onChange={set보기}
         />
+        {저장하기 && (
+          <button type="button" aria-label="결과 저장" title="결과 저장" onClick={저장하기}
+            className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors flex-shrink-0">
+            <Bookmark size={16} />
+          </button>
+        )}
         {공유하기 && (
           <button type="button" aria-label="결과 공유" onClick={공유하기}
             className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors flex-shrink-0">
@@ -1112,6 +1146,8 @@ export default function 자산배분결과화면({ r, 공유하기 }: {
       {r.curve.length > 1 && <자산흐름 r={r} />}
       {/* ── 해마다 (벤치마크가 있으면 해별로 나란히) ── */}
       {r.yearly.length > 0 && <해마다칸 r={r} />}
+      {/* ── 달마다 ── 연 수익률만 보면 한 해 안의 출렁임이 사라진다(사용자: "백테스팅 결과를 더 상세분석할 수 있도록") */}
+      {(r.monthly?.length ?? 0) > 0 && <달마다표 monthly={r.monthly} yearly={r.yearly} />}
         </>)}
         {보기 === "낙폭" && (<>
           {(r.drawdown?.length ?? 0) > 1 && <낙폭칸 r={r} />}

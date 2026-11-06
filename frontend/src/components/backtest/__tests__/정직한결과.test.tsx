@@ -11,7 +11,7 @@
  *   ③ 샤프가 **무위험 몇 %를 뺀** 수라는 사실
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useSearchParams } from "react-router-dom";
@@ -95,9 +95,9 @@ describe("유니버스는 생존 편향을 말한다", () => {
   it("결과 위에 경고가 뜬다", async () => {
     상태.유니버스결과 = {
       universe: "SP500", total_symbols: 316, tested: 300, results: [],
-      생존편향: "종목 316개는 **오늘** 기준 목록이에요. 그동안 상장폐지되거나 "
+      생존편향: "종목 316개는 오늘 기준 목록이에요. 그동안 상장폐지되거나 "
                 + "밀려난 회사는 처음부터 빠져 있어서, 실제로 그때 돌렸을 때보다 "
-                + "결과가 좋게 나옵니다.",
+                + "결과가 좋게 나와요.",
     };
     그리기();
     await userEvent.click(screen.getByRole("tab", { name: "유니버스" }));
@@ -138,16 +138,20 @@ describe("수수료를 뺀 손익을 같이 보여 준다", () => {
 
   it("수수료를 넣었으면 거래마다 순손익 칸이 있다", async () => {
     await 단일돌리기();
-    expect(screen.getByText("수수료 뺀 것"),
+    await userEvent.click(screen.getByRole("tab", { name: "거래" }));   // 거래 내역은 '거래' 칩 안
+    /* 거래 분석 칸(가장 큰 이익·손실)에도 같은 손익이 나오므로 거래 내역 카드 안에서 본다 */
+    const 내역 = within(screen.getByText("거래 내역").closest(".bg-bg-card") as HTMLElement);
+    expect(내역.getByText("수수료 뺀 것"),
       "가격 손익만 보여 준다 — 수수료를 내면 손해인 거래가 '이긴 거래' 로 보인다")
       .toBeInTheDocument();
     //: +0.1% 로 이겼는데 수수료를 빼면 -0.4% 다
-    expect(screen.getByText("-0.40%")).toBeInTheDocument();
+    expect(내역.getByText("-0.40%")).toBeInTheDocument();
   });
 
   it("두 칸이 왜 다른지 적어 준다", async () => {
     /* 안 적으면 '숫자가 안 맞는다' 로 읽힌다 */
     await 단일돌리기();
+    await userEvent.click(screen.getByRole("tab", { name: "거래" }));
     expect(screen.getByText(/값이 움직인 폭/)).toBeInTheDocument();
   });
 
@@ -155,6 +159,7 @@ describe("수수료를 뺀 손익을 같이 보여 준다", () => {
     /* 늘 그리면 똑같은 수가 두 번 적힌다 */
     await 단일돌리기({ ...단일, cost_rate: 0, costs: 0,
                        trades: [거래({ net_pnl_rate: 0.1 })] });
+    await userEvent.click(screen.getByRole("tab", { name: "거래" }));
     expect(screen.queryByText("수수료 뺀 것")).toBeNull();
   });
 

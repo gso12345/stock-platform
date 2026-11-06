@@ -169,16 +169,77 @@ export function 실행줄({ 이유, 알림, children }: {
 
 /** 결과가 나온 뒤의 설정 — 한 줄 요약과 '설정 바꾸기'. 설정과 결과가 위아래로 놓이는 폭에서만 쓴다
  *  (넓은 화면은 설정이 왼쪽에 그대로 있다). 예전엔 결과가 화면 세 장짜리 설정 밑에 붙어 있었다. */
-export function 설정요약({ 줄, 펼치기 }: { 줄: [string, string?]; 펼치기: () => void }) {
+/** 펼친 설정의 한 줄 — 이름표와 값 */
+export interface 설정항목 { 이름: string; 값: React.ReactNode }
+
+/**
+ * 결과가 나와 한 줄로 접힌 설정 — 누르면 **이 결과를 낸 설정**이 펼쳐진다.
+ *
+ * 사용자: "백테스팅 결과 나오면 1줄로 접히는데 펼칠수도 있도록 해줘(결과와 설정을 같이 볼 수도 있게)". 예전 한 줄에는
+ * '설정 바꾸기' 하나뿐이라, 무슨 조건으로 돌렸는지 보려면 편집 칸(화면 세 장)을 통째로 열어야 했고 다시 접는 길도
+ * 없었다. 이제
+ *   · 요약 줄을 누르면 읽기만 하는 설정 목록이 펼쳐지고(조건은 글로), 다시 누르면 접힌다 — 결과는 바로 아래 그대로
+ *   · '설정 바꾸기' 는 예전처럼 편집 칸을 연다
+ * 목록은 '지금 칸에 적힌 것' 이 아니라 **결과를 낸 것**이다 — 고치다 만 값이 결과의 설정처럼 보이면 안 된다.
+ */
+export function 설정요약({ 줄, 펼치기, 항목들 }: {
+  줄: [string, string?];
+  /** '설정 바꾸기' — 편집 칸을 연다 */
+  펼치기: () => void;
+  /** 펼쳤을 때 보일 설정. 없으면 예전처럼 한 줄과 '설정 바꾸기' 만 */
+  항목들?: 설정항목[];
+}) {
+  const [펼침, set펼침] = useState(false);
+  const 목록id = useId();
+  const 글 = (
+    <div className="min-w-0 flex-1">
+      <p className="text-sm font-semibold text-text-primary truncate">{줄[0]}</p>
+      {줄[1] && <p className="text-xs text-text-muted truncate">{줄[1]}</p>}
+    </div>
+  );
   return (
-    <Card className="flex items-center gap-3 py-3">
-      <SlidersHorizontal size={16} className="text-text-muted flex-shrink-0" aria-hidden />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-text-primary truncate">{줄[0]}</p>
-        {줄[1] && <p className="text-xs text-text-muted truncate">{줄[1]}</p>}
+    <Card className="flex flex-col py-0">
+      <div className="flex items-center gap-3 py-3">
+        {항목들?.length ? (
+          <button type="button" onClick={() => set펼침((v) => !v)} aria-expanded={펼침} aria-controls={목록id}
+            className="flex items-center gap-3 min-w-0 flex-1 text-left -my-1 py-1 rounded-lg">
+            <SlidersHorizontal size={16} className="text-text-muted flex-shrink-0" aria-hidden />
+            {글}
+            <ChevronDown size={16} aria-hidden
+              className={cn("text-text-muted flex-shrink-0 transition-transform", 펼침 && "rotate-180")} />
+            <span className="sr-only">{펼침 ? "설정 접기" : "설정 펼치기"}</span>
+          </button>
+        ) : (
+          <>
+            <SlidersHorizontal size={16} className="text-text-muted flex-shrink-0" aria-hidden />
+            {글}
+          </>
+        )}
+        <Button variant="secondary" size="sm" onClick={펼치기} className="flex-shrink-0">설정 바꾸기</Button>
       </div>
-      <Button variant="secondary" size="sm" onClick={펼치기} className="flex-shrink-0">설정 바꾸기</Button>
+      {펼침 && !!항목들?.length && (
+        <dl id={목록id} className="border-t border-border py-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+          {항목들.map((x) => (
+            <div key={x.이름} className="contents">
+              <dt className="text-xs text-text-muted whitespace-nowrap">{x.이름}</dt>
+              <dd className="text-xs text-text-primary break-keep min-w-0">{x.값}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </Card>
+  );
+}
+
+/** 편집 칸을 연 채로 결과가 있을 때 맨 위에 붙는 줄 — 다시 한 줄로 접는다(예전엔 접는 길이 없었다) */
+export function 설정접기줄({ 접기 }: { 접기: () => void }) {
+  return (
+    <button type="button" onClick={접기}
+      className="self-end -mb-2 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-text-muted
+                 hover:text-text-primary hover:bg-bg-elevated transition-colors">
+      설정 접기
+      <ChevronDown size={14} aria-hidden className="rotate-180" />
+    </button>
   );
 }
 

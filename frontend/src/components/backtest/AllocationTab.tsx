@@ -11,20 +11,20 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backtestApi, type 자산배분요청, type 자산배분결과, type 저장된실험,
-         type 서버진행 } from "@/api/stocks";
+import { backtestApi, type 자산배분요청, type 자산배분결과, type 저장된실험 } from "@/api/stocks";
 import { useAuthStore } from "@/store/authStore";
-import { Card, 못불러옴, 빈화면, cn } from "@/components/ui";
+import { Card, NameDialog, 못불러옴, 빈화면, cn } from "@/components/ui";
 import { PieChart } from "lucide-react";
 import { 읽을수있는오류, 요청실패말 } from "@/utils/errors";
 import { use넓은화면 } from "@/hooks/useWideScreen";
 import { use알림 } from "@/hooks/useDialogs";
 import { 글공유, 공유알림 } from "@/utils/공유";
-import 자산배분설정, { 첫설정, 못돌리는이유, 주기표, type 설정 } from "./AllocationForm";
+import 자산배분설정, { 첫설정, 못돌리는이유, 주기표, 벤치마크표, type 설정 } from "./AllocationForm";
 import 자산배분결과화면 from "./AllocationResult";
-import { 설정요약, use결과로, 기간말, 부드럽게가기 } from "./설정부품";
+import { 설정요약, 설정접기줄, use결과로, 기간말, 부드럽게가기, type 설정항목 } from "./설정부품";
 import { 읽는금액 } from "./설정값";
 import { 공유주소 } from "./결과공유";
+import { 진행막대, 서버아래말, 새열쇠, 깨우는초 } from "./진행막대";
 
 /** 화면의 설정을 서버가 받는 모양으로. */
 export function 보낼것(s: 설정): 자산배분요청 {
@@ -54,22 +54,8 @@ export function 보낼것(s: 설정): 자산배분요청 {
   };
 }
 
-/** 이번 계산에 붙일 진행 열쇠.
- *
- *  서버가 진행 상황을 이 열쇠 아래에 적어 둔다. 남이 맞혀 봐야 나오는
- *  것은 '시세 3/8' 뿐이라(무엇을 담았는지도, 결과도 없다) 비밀일 필요는
- *  없지만, 남의 것과 겹치면 서로의 진행바가 뒤섞이므로 충분히 길게
- *  만든다.
- *
- *  crypto.randomUUID 가 없는 환경(옛 브라우저·jsdom 일부)도 있어
- *  없으면 손으로 만든다 — 열쇠가 없다고 계산이 막히면 안 된다. */
-export function 새열쇠(): string {
-  try {
-    const c = globalThis.crypto;
-    if (c?.randomUUID) return c.randomUUID().replace(/-/g, "");
-  } catch { /* 아래로 */ }
-  return `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
-}
+/* 진행 열쇠·어림 비율·걸린 시간 말은 세 탭(자산배분·단일 종목·유니버스)이 같이 쓴다 — 진행막대.tsx 로 옮겼다 */
+export { 새열쇠, 어림비율, 지난말 } from "./진행막대";
 
 /** 이 설정이면 얼마나 걸릴까 — **초** 단위 어림.
  *
@@ -97,33 +83,8 @@ export function 예상초(s: 설정, 깨우기 = false): number {
   /* 자던 서버를 깨우는 몫. 실측으로 20~50초라 가운데쯤을 잡는다 —
      적게 잡으면 또 막대가 일찍 끝에 붙고, 많이 잡으면 빠른 경우에
      막대가 기어간다. */
-  if (깨우기) 초 += 25;
+  if (깨우기) 초 += 깨우는초;
   return Math.max(초, 1.5);
-}
-
-/** 서버가 안 알려 줄 때 쓰는 비율 — **절대 멈추지 않는다.**
- *
- *  예전에는 `min(지난초/예상, 0.92)` 였다. 어림을 넘기는 순간 92% 에
- *  박혀서, 30초를 더 기다리는 동안 막대가 한 픽셀도 안 움직였다.
- *  멈춘 막대는 아무것도 없는 것보다 나쁘다 — 사용자는 화면이 죽은 줄
- *  알고 새로고침하고, 그러면 처음부터 다시 시작한다.
- *
- *  어림까지는 그대로 가고, 그 뒤로는 **남은 거리의 일부씩** 줄여 간다.
- *  99% 에 점점 가까워지되 절대 닿지 않는다 — 늘 움직이고, 끝났다고
- *  거짓말하지도 않는다. */
-export function 어림비율(지난초: number, 예상: number): number {
-  if (예상 <= 0) return 0;
-  /* 어림까지 가도 **70% 까지만** 간다.
-     어림은 어차피 어림이라 90% 를 찍어 놓으면, 조금만 더 걸려도 곧장
-     끝에 붙어 또 멈춘 것처럼 보인다. 못 미더운 수일수록 겸손해야 한다. */
-  if (지난초 <= 예상) return (지난초 / 예상) * 0.7;
-  /* 넘긴 뒤로는 **30초마다 남은 거리의 절반**씩 간다.
-     예상에 비례해 줄이면 어림이 짧을 때(자산 하나에 4초) 30초 만에
-     99% 에 붙어 다시 멈춘 것처럼 보인다 — 실제 시간으로 잡아야
-     사람이 보는 속도가 설정과 무관하게 일정하다.
-     몇 분을 기다려도 눈에 띄게 움직이고, 99% 를 넘지는 않는다. */
-  const 반감기 = 30;
-  return 0.7 + 0.29 * (1 - Math.pow(0.5, (지난초 - 예상) / 반감기));
 }
 
 /** 어디쯤인지 말로. 퍼센트만 있으면 무엇을 기다리는지 모른다. */
@@ -132,13 +93,6 @@ export function 단계글(비율: number, s: 설정): string {
   if (비율 < 0.7) return s.total_return ? "배당 기록을 받는 중…" : "시세를 정리하는 중…";
   if (비율 < 0.88) return "굴려 보는 중…";
   return s.benchmark !== "none" ? "견줄 상대를 돌리는 중…" : "마무리하는 중…";
-}
-
-/** 걸린 시간을 사람이 읽는 말로 — '95초' 보다 '1분 35초' 가 읽힌다 */
-export function 지난말(초: number): string {
-  const s = Math.floor(초);
-  if (s < 60) return `${s}초`;
-  return `${Math.floor(s / 60)}분 ${String(s % 60).padStart(2, "0")}초`;
 }
 
 /**
@@ -164,80 +118,11 @@ export function 진행바({ 설정: s, 열쇠, 깨우기 }: {
   /** 첫 요청인가 — 자던 서버를 깨우는 시간을 어림에 얹는다 */
   깨우기?: boolean;
 }) {
-  const [지난초, set지난초] = useState(0);
-  const [서버, set서버] = useState<서버진행 | null>(null);
-  const 예상 = 예상초(s, 깨우기);
-
-  useEffect(() => {
-    const 시작 = Date.now();
-    const t = setInterval(() => set지난초((Date.now() - 시작) / 1000), 100);
-    return () => clearInterval(t);
-  }, []);
-
-  /* 서버에 물어본다. 0.8초마다 — 더 자주 물으면 0.15 CPU 서버에
-     부담이고, 더 뜸하면 막대가 뚝뚝 끊겨 보인다. */
-  useEffect(() => {
-    if (!열쇠) return;
-    let 살아있나 = true;
-    const 물어보기 = async () => {
-      const x = await backtestApi.getPortfolioProgress(열쇠);
-      if (살아있나 && x) set서버(x);
-    };
-    물어보기();
-    const t = setInterval(물어보기, 800);
-    return () => { 살아있나 = false; clearInterval(t); };
-  }, [열쇠]);
-
-  /* 서버 값이 있으면 그것을 쓴다. 다만 **뒤로는 안 간다** — 어림이
-     앞서 있었는데 서버 값이 낮게 오면 막대가 되돌아가고, 되돌아가는
-     막대는 고장으로 읽힌다. */
-  const 어림 = 어림비율(지난초, 예상);
-  const 비율 = 서버 ? Math.max(서버.percent / 100, 어림 * 0.5) : 어림;
-  const 퍼센트 = Math.min(Math.round(비율 * 100), 99);
-  const 오래걸림 = 지난초 > 예상 * 2 + 5;
-
   return (
-    <Card className="flex flex-col gap-3 py-10">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm text-text-muted">
-          {서버?.글 ? `${서버.글}…` : 단계글(비율, s)}
-        </span>
-        <span className="text-sm font-mono font-bold tabular-nums text-accent-blue">
-          {퍼센트}%
-        </span>
-      </div>
-      <div className="h-2 rounded-full bg-bg-elevated overflow-hidden">
-        <div
-          role="progressbar"
-          aria-label="계산 진행률"
-          aria-valuenow={퍼센트}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className="h-full bg-accent-blue rounded-full transition-[width] duration-300 ease-out"
-          style={{ width: `${퍼센트}%` }}
-        />
-      </div>
-      {/* 걸린 시간은 **어림이 아니라 진짜 수**다. 퍼센트가 못 미더울
-          때도 이건 '살아 있다' 는 증거가 된다. */}
-      <div className="flex items-baseline justify-between gap-2 flex-wrap">
-        <span className="text-2xs text-text-dim break-keep">
-          {서버
-            ? (서버.total > 1
-                ? `${서버.단계} ${서버.done}/${서버.total}`
-                : `${서버.단계} 하는 중`)
-            : `자산 ${s.assets.length}개${s.benchmark !== "none" ? " · 벤치마크까지" : ""} 계산하고 있어요.`}
-        </span>
-        <span className="text-2xs text-text-dim font-mono tabular-nums">
-          {지난말(지난초)} 지남
-        </span>
-      </div>
-      {오래걸림 && (
-        <span className="text-2xs text-accent-yellow/90 break-keep">
-          서버가 쉬고 있었나 봐요. 첫 요청은 30초 넘게 걸릴 수 있어요 —
-          창을 닫지 마시고 조금만 더 기다려 주세요.
-        </span>
-      )}
-    </Card>
+    <진행막대 열쇠={열쇠} 예상={예상초(s, 깨우기)} 물어보기={backtestApi.getPortfolioProgress}
+      어림글={(비율) => 단계글(비율, s)}
+      아래글={(서버) => 서버 ? 서버아래말(서버)
+        : `자산 ${s.assets.length}개${s.benchmark !== "none" ? " · 벤치마크까지" : ""} 계산하고 있어요.`} />
   );
 }
 
@@ -283,6 +168,23 @@ export function 배분요약(s: 설정): [string, string] {
   const 둘째 = [기간말(s.start_date, s.end_date), 읽는금액(Number(s.initial_amount), s.currency), 리밸]
     .filter(Boolean).join(" · ");
   return [첫줄 || "자산 없음", 둘째];
+}
+
+/** 펼친 요약의 목록 — 결과를 낸 설정을 한눈에(사용자: "결과와 설정을 같이 볼 수도 있게") */
+export function 배분항목(s: 설정): 설정항목[] {
+  const 주기말 = (v: string) => 주기표.find((p) => p.value === v)?.label ?? v;
+  return [
+    { 이름: "자산", 값: s.assets.map((a) => `${a.name || a.symbol}${s.equal_weight ? "" : ` ${+Number(a.weight).toFixed(1)}%`}`).join(" · ")
+      + (s.equal_weight ? " (똑같이 나눔)" : "") },
+    { 이름: "기간", 값: `${s.start_date.replace(/-/g, ".")} ~ ${s.end_date.replace(/-/g, ".")}` },
+    { 이름: "처음 넣은 돈", 값: 읽는금액(Number(s.initial_amount), s.currency) },
+    { 이름: "적립", 값: s.contribution_period === "none" ? "안 함"
+      : `${주기말(s.contribution_period)} ${읽는금액(Number(s.contribution_amount), s.currency)}` },
+    { 이름: "리밸런싱", 값: s.rebalance_period === "none" ? "안 함" : 주기말(s.rebalance_period) },
+    { 이름: "배당", 값: s.total_return ? "재투자(토탈 리턴)" : "안 받음" },
+    { 이름: "거래비용", 값: s.cost_rate ? `${s.cost_rate}%` : "없음" },
+    { 이름: "견줄 상대", 값: 벤치마크표.find((b) => b.value === s.benchmark)?.label ?? "없음" },
+  ];
 }
 
 /** 백테스트 탭들의 배치 — 넓은 화면에서 왼쪽 설정(폭 고정)·오른쪽 결과. 예전엔 자산배분은 반반, 단일 종목은
@@ -358,17 +260,25 @@ export default function 자산배분탭({ 불러올실험, 고른실험, 불러�
   /** '결과 확인' — 돌리고, 진행 막대가 있는 곳으로 데려간다(폰에서는 설정 세 장 밑이었다) */
   const 확인누름 = () => { 돌리기.mutate(); 결과로(); };
 
+  /** 결과 머리의 '결과 저장' 으로 연 이름 창 */
+  const [결과저장창, set결과저장창] = useState(false);
   const 저장 = useMutation({
-    mutationFn: (이름: string) => backtestApi.saveExperiment({
-      ...보낼것(설정값), name: 이름,
+    mutationFn: ({ 이름, s }: { 이름: string; s: 설정; 결과에서?: boolean }) => backtestApi.saveExperiment({
+      ...보낼것(s), name: 이름,
     }),
-    onSuccess: () => {
+    onSuccess: (_d, { 결과에서 }) => {
       qc.invalidateQueries({ queryKey: ["backtest-experiments"] });
-      set저장됨(true);
       set오류(null);
+      set결과저장창(false);
+      /* 결과 머리에서 저장한 것은 **결과를 낸 설정**이다 — 설정 칸의 초록 줄('저장했어요')을 켜면 지금 고치는
+         칸이 저장된 것처럼 읽힌다. 그 칸은 접혀 있기도 해서 알림으로 말한다 */
+      if (결과에서) 보이기("저장했어요. ‘불러오기’ 에서 열면 같은 설정이 들어와요", "success");
+      else set저장됨(true);
     },
-    onError: (e: any) => set오류(읽을수있는오류(
-      e?.response?.data?.detail, "저장에 실패했어요")),
+    onError: (e: any) => {
+      set결과저장창(false);
+      set오류(읽을수있는오류(e?.response?.data?.detail, "저장에 실패했어요"));
+    },
   });
 
   /* 설정을 고치면 초록 줄을 내린다. 안 내리면 '저장했어요' 가 그대로
@@ -416,18 +326,21 @@ export default function 자산배분탭({ 불러올실험, 고른실험, 불러�
     <div ref={판} className={cn(설정판배치, "scroll-mt-3")}>
       <div className="flex flex-col gap-4 min-w-0">
         {접힘 ? (
-          <설정요약 줄={배분요약(돌린설정.current ?? 설정값)} 펼치기={() => set접음(false)} />
-        ) : (
+          <설정요약 줄={배분요약(돌린설정.current ?? 설정값)} 펼치기={() => set접음(false)}
+            항목들={배분항목(돌린설정.current ?? 설정값)} />
+        ) : (<>
+          {/* 결과가 있는데 편집 칸을 연 채면 다시 한 줄로 접는 길 */}
+          {!!결과 && !나란히 && !돌리기.isPending && <설정접기줄 접기={() => set접음(true)} />}
           <자산배분설정
             값={설정값}
             바꾸기={set설정값}
             돌리기={확인누름}
             도는중={돌리기.isPending}
-            저장하기={isLoggedIn ? (이름: string) => 저장.mutate(이름) : undefined}
+            저장하기={isLoggedIn ? (이름: string) => 저장.mutate({ 이름, s: 설정값 }) : undefined}
             저장중={저장.isPending}
             저장됨={저장됨}
           />
-        )}
+        </>)}
       </div>
 
       <div ref={결과자리} className="flex flex-col gap-4 min-w-0 scroll-mt-3">
@@ -446,8 +359,20 @@ export default function 자산배분탭({ 불러올실험, 고른실험, 불러�
         {돌리기.isPending && (
           <진행바 설정={설정값} 열쇠={진행열쇠} 깨우기={처음인가} />
         )}
-        {결과 && !돌리기.isPending && <자산배분결과화면 r={결과} 공유하기={공유하기} />}
+        {결과 && !돌리기.isPending && (
+          <자산배분결과화면 r={결과} 공유하기={공유하기}
+            저장하기={() => isLoggedIn ? set결과저장창(true)
+              : 보이기("결과를 저장하려면 로그인이 필요해요. 백테스트는 로그인 없이도 돼요", "info")} />
+        )}
       </div>
+      {결과저장창 && 돌린설정.current && (
+        <NameDialog title="이 결과를 저장할까요?"
+          설명="이 결과를 낸 자산·비중·기간·적립·리밸런싱을 저장해요. ‘불러오기’ 에서 열면 같은 설정이 들어와요."
+          첫값={배분요약(돌린설정.current)[0]}
+          진행중={저장.isPending}
+          onConfirm={(이름) => 저장.mutate({ 이름, s: 돌린설정.current!, 결과에서: true })}
+          onClose={() => set결과저장창(false)} />
+      )}
       {알림창}
     </div>
   );

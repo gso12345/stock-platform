@@ -16,6 +16,19 @@ import { useAuthStore } from "@/store/authStore";
 import { Modal, ChipTabs, Badge, ConfirmDialog, 지움단추, 빈화면 } from "@/components/ui";
 import { 읽을수있는오류 } from "@/utils/errors";
 import { 주기표 } from "./AllocationForm";
+import { 돌린설정읽기 } from "./분석";
+import { 기간말 } from "./설정부품";
+import { 읽는금액 } from "./설정값";
+
+const 유니버스말: Record<string, string> = { SP500: "미국 대형주", KOSPI: "KOSPI 대형주", KOSDAQ: "KOSDAQ", ETF: "글로벌 ETF" };
+
+/** 저장한 전략의 '돌린 설정' 한 줄 — '삼성전자 · 5년 · 1000만원'. 예전에 저장한 것(조건만)은 빈 글 */
+export function 돌린말(x: unknown): string {
+  const s = 돌린설정읽기(x);
+  if (!s) return "";
+  const 머리 = s.kind === "single" ? (s.name ?? s.symbol ?? "") : `${유니버스말[s.universe ?? ""] ?? s.universe} 상위 ${s.top_n}개`;
+  return [머리, 기간말(s.start_date, s.end_date), 읽는금액(s.capital, "KRW")].join(" · ");
+}
 
 export type 불러올칸 = "실험" | "전략";
 
@@ -120,6 +133,10 @@ export default function 불러오기창({ 처음칸, 닫기, 실험열기, 전�
                       <div className="min-w-0 flex-1 flex flex-col gap-1">
                         <span className="text-sm font-semibold text-text-primary truncate">{s.name}</span>
                         <span className="text-2xs text-text-muted num">v{s.version} · {s.market} · {s.created_at?.slice(0, 10)}</span>
+                        {/* 결과 화면에서 저장한 것은 무엇으로 돌렸는지까지 — 열면 그 백테스트가 그대로 열린다 */}
+                        {돌린말(s.run_settings) && (
+                          <span className="text-2xs text-text-secondary truncate">{돌린말(s.run_settings)}</span>
+                        )}
                         <span className="flex gap-1 flex-wrap">
                           {s.stop_loss && <Badge variant="red">손절 {s.stop_loss}%</Badge>}
                           {s.take_profit && <Badge variant="green">익절 {s.take_profit}%</Badge>}

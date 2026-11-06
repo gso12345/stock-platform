@@ -85,6 +85,9 @@ class BacktestRequest(BaseModel):
     #  **가정**이고, 그 가정도 응답에 적어 내보낸다.
     risk_free_rate: float = Field(0, ge=0, le=20)
     strategy_id: Optional[int] = None
+    #: 진행 상황을 적어 둘 열쇠 — 자산배분(/portfolio)과 같은 '열쇠 + 물어보기'(아래 진행 상황 참고).
+    #  사용자: "단일종목 유니버스도 %로 진행률 확인할 수 있게 해줘". 안 보내도 계산은 그대로 돈다.
+    progress_key: Optional[str] = Field(None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
     @field_validator("start_date", "end_date")
     @classmethod
@@ -115,11 +118,17 @@ class UniverseBacktestRequest(BaseModel):
     cost_rate: float = Field(0, ge=0, le=5)
     rank_by: str = Field("total_return", pattern="^(total_return|annual_return|mdd|sharpe_ratio|win_rate|profit_factor)$")
     top_n: int = Field(20, ge=1, le=50)
+    #: 진행 상황을 적어 둘 열쇠(/run 과 같다). 종목 몇 개 중 몇 개를 돌렸는지 적는다
+    progress_key: Optional[str] = Field(None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
     @field_validator("start_date", "end_date")
     @classmethod
     def validate_date(cls, v: str) -> str:
         return _parse_date(v)
+
+
+#: 저장한 전략에 같이 담는 '돌린 설정'(종목·기간·자본…)의 크기 상한(JSON 글자 수). 화면이 만드는 것은 몇백 자다
+돌린설정최대 = 4000
 
 
 class StrategySaveRequest(BaseModel):
@@ -130,11 +139,27 @@ class StrategySaveRequest(BaseModel):
     exit_conditions: dict
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+    #: 이 전략을 **무엇으로 돌려 봤나** — 종목(또는 유니버스)·기간·자본·투자비중·거래비용.
+    #
+    #  사용자: "결과나오면 저장을 어떻게해". 예전 저장은 진입·청산 조건만 담아서, 불러오면 종목·기간·자본이 빠진
+    #  채로 열려 같은 결과를 다시 볼 수 없었다. 화면이 넣는 그대로 담고, 불러올 때 화면이 다시 가려 읽는다
+    #  (결과공유 의 공유읽기 와 같은 검사). 서버는 크기만 막는다.
+    run_settings: Optional[dict] = None
+
+    @field_validator("run_settings")
+    @classmethod
+    def _돌린설정크기(cls, v: Optional[dict]) -> Optional[dict]:
+        import json as _json
+        if v is not None and len(_json.dumps(v, ensure_ascii=False, default=str)) > 돌린설정최대:
+            raise ValueError("저장할 설정이 너무 커요")
+        return v
 
 
 def _신호_백테스트_계산(req: "BacktestRequest", 데운것: list) -> dict:
     """전략 한 번 + '그냥 들고 있기' 한 번. CPU 만 쓰는 일이라 스레드에서 돈다
     (run_backtest 참고)."""
+    열쇠 = getattr(req, "progress_key", None)
+    _진행쓰기(열쇠, "계산", 0, 1, "전략을 돌리는 중", **_신호진행)
     # 백테스트 실행
     result = backtest_engine.run(
         ohlcv=데운것,
@@ -162,6 +187,7 @@ def _신호_백테스트_계산(req: "BacktestRequest", 데운것: list) -> dict
     (자산배분 쪽은 지수와 견주지만, 신호 백테스트는 '이 종목을 그냥
      들고 있기' 가 훨씬 정직한 상대다 — 종목을 고른 것까지 성과로
      치면 전략이 한 일을 알 수 없다.)"""
+    _진행쓰기(열쇠, "견주기", 0, 1, "그냥 들고 있기와 견주는 중", **_신호진행)
     사고버티기 = None
     try:
         묻지도않고삼 = {"logic": "AND", "conditions": [
@@ -177,11 +203,74 @@ def _신호_백테스트_계산(req: "BacktestRequest", 데운것: list) -> dict
         if 기준:
             사고버티기 = {k: 기준.get(k) for k in
                           ("total_return", "annual_return", "mdd", "sharpe_ratio")}
+            사고버티기["curve"] = _날짜맞춘곡선(result.get("equity_curve") or [], 기준.get("equity_curve") or [])
     except Exception as e:
         #: 견주는 것은 덤이다. 덤 때문에 본래 답까지 버리면 안 된다.
         log.info("사고버티기 계산 실패: %s", type(e).__name__)
     result["buy_and_hold"] = 사고버티기
+    try:
+        result["analysis"] = _신호분석(result.get("equity_curve") or [],
+                                       (사고버티기 or {}).get("curve"), req.initial_capital)
+    except Exception as e:
+        #: 상세 분석도 덤이다 — 못 내도 본래 결과는 그대로 보낸다
+        log.info("상세 분석 실패: %s", type(e).__name__)
+    _진행쓰기(열쇠, "견주기", 1, 1, "다 됐어요", **_신호진행)
     return result
+
+
+def _신호분석(곡선: list, 기준곡선: Optional[list], 자본: float) -> dict:
+    """결과를 더 쪼개 보는 수 — 낙폭 흐름·깊었던 낙폭 순위·해마다·달마다(사용자: "백테스팅 결과를 더
+    상세분석할 수 있도록").
+
+    자산배분과 **같은 함수**로 잰다(portfolio_backtest). 낙폭·해마다의 정의를 두 군데 두면 같은 화면의 두 탭이
+    다른 숫자를 말한다. 신호 백테스트는 넣는 돈이 처음 한 번뿐이라 '납입' 은 첫날의 초기 자본 하나다 — 그래서
+    첫해는 초기 자본에서 잰다(_해마다 의 첫해 규칙과 같다).
+
+    '그냥 들고 있기' 도 같은 것을 재서 낙폭·해마다를 나란히 그린다(값이 없는 날은 빼고 잰다)."""
+    from datetime import date as _date
+    from app.services.backtest.portfolio_backtest import _낙폭곡선, _낙폭순위, _달마다, _해마다
+
+    def _잴것(날들: list, 값들: list) -> dict:
+        납입 = {날들[0]: float(자본)}
+        return {"drawdown": _낙폭곡선(날들, 값들), "drawdowns": _낙폭순위(날들, 값들),
+                "yearly": _해마다(날들, 값들, 납입),
+                "monthly": [{"month": m, "return": v} for m, v in _달마다(날들, 값들, 납입)]}
+
+    날들 = [_date.fromisoformat(x["date"]) for x in 곡선]
+    값들 = [float(x["value"]) for x in 곡선]
+    if len(날들) < 2:
+        return {}
+    나온것 = _잴것(날들, 값들)
+    짝 = [(d, float(v)) for d, v in zip(날들, 기준곡선 or []) if v is not None]
+    if len(짝) >= 2:
+        기준 = _잴것([d for d, _ in 짝], [v for _, v in 짝])
+        나온것["buy_and_hold"] = {"drawdown": 기준["drawdown"], "yearly": 기준["yearly"]}
+    return 나온것
+
+
+def _날짜맞춘곡선(내것: list, 저것: list) -> list:
+    """'그냥 들고 있기' 의 평가액을 **내 전략 곡선의 날짜마다** 하나씩 — 값만(날짜는 내 곡선 것을 쓴다).
+
+    화면이 수익 곡선·낙폭·해마다를 내 전략과 나란히 그리려고 쓴다(사용자: "백테스팅 결과를 더 상세분석할 수
+    있도록"). 날짜를 같이 실으면 응답이 곱절이 된다 — 같은 시세·같은 시작일이라 날짜가 같으므로 값만 보낸다.
+    날짜로 짝짓는 것은 혹시 하루라도 어긋나면 그 뒤가 통째로 밀려 엉뚱한 날과 견주기 때문이다(빈 날은 None)."""
+    표 = {x.get("date"): x.get("value") for x in 저것}
+    return [None if (v := 표.get(x.get("date"))) is None else round(float(v)) for x in 내것]
+
+
+def _종목이름들(심볼들: list[str], 시장: str) -> dict[str, str]:
+    """유니버스 결과 줄에 붙일 이름 — 'AIG' 만 보고는 무슨 회사인지 모른다. 이미 읽어 둔 종목 DB 에서만
+    찾는다(여기서 새로 받지 않는다 — get_kr_db() 는 비어 있으면 바깥에서 받아 온다). 못 찾으면 코드 그대로."""
+    try:
+        from app.services.listings import ticker_service as ts
+        if 시장 == "KR":
+            표 = {str(r.get("c") or "").upper(): r.get("n") for r in (ts._kr_db or ts.KR_TICKERS_BUILTIN)}
+            return {s: 표.get(s.split(".")[0].upper()) or s for s in 심볼들}
+        표 = {str(r.get("s") or "").upper(): r.get("n") for r in ts.get_us_db()}
+        #: 한국어 별칭(애플·엔비디아…)이 있으면 그걸로 — 앱의 다른 화면과 같은 이름
+        return {s: ts.get_display_name(s, "US", 표.get(s.upper()) or s) for s in 심볼들}
+    except Exception:
+        return {s: s for s in 심볼들}
 
 
 @router.post("/run")
@@ -218,6 +307,7 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
     났는지 구분할 수가 없다.
 
     자산배분 쪽에서 이미 같은 것을 고쳤다 — 여기만 남아 있었다."""
+    _진행쓰기(req.progress_key, "시세", 0, 1, f"{req.symbol} 시세를 받는 중", **_신호진행)
     try:
         ohlcv = await loop.run_in_executor(
             None, yf_service.get_ohlcv, req.symbol, period, "1d", mkt)
@@ -226,6 +316,7 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
         raise HTTPException(
             status_code=400,
             detail="시세를 받지 못했어요. 종목 코드를 확인해 주세요")
+    _진행쓰기(req.progress_key, "시세", 1, 1, "시세 받음", **_신호진행)
     """**지표를 데울 구간을 앞에 붙여 준다.**
 
     예전에는 요청한 기간으로 딱 잘라서 엔진에 줬다. 엔진은 받은
@@ -295,7 +386,9 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
     듣고, 길이만 사라진다. (열쇠끼리 겹칠 일은 사실상 없고, 겹쳐도
     남의 자료가 새는 것이 아니라 같은 조건의 결과가 나온다.)"""
     import hashlib, json as _json
-    _재료 = _json.dumps(req.model_dump(), sort_keys=True, default=str, ensure_ascii=False)
+    #: 진행 열쇠는 **열쇠에서 뺀다** — 돌릴 때마다 새로 만드는 수라, 넣으면 같은 조건도 늘 다른 열쇠가 되어
+    #  캐시가 한 번도 안 듣는다
+    _재료 = _json.dumps(req.model_dump(exclude={"progress_key"}), sort_keys=True, default=str, ensure_ascii=False)
     ck = f"universe_bt:{hashlib.sha1(_재료.encode()).hexdigest()}"
     if cached := cache.get(ck):
         return cached
@@ -312,9 +405,15 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
         "ETF": ETF_SYMBOLS,
         "CUSTOM": req.custom_symbols,
     }
-    symbols = universe_map.get(req.universe, SP500_SYMBOLS)
+    #: 같은 종목을 두 번 돌리지 않는다 — 손으로 고른 목록에 겹친 것이 있었다(SP500 에 AMZN·NFLX 등 다섯).
+    #  겹치면 결과 순위에 같은 종목이 두 줄로 나오고, '316개' 라는 개수도 실제(311)보다 부풀었다
+    symbols = list(dict.fromkeys(universe_map.get(req.universe, SP500_SYMBOLS) or []))
     if not symbols:
         raise HTTPException(status_code=400, detail="종목 목록이 비어있습니다")
+    열쇠 = req.progress_key
+    _진행쓰기(열쇠, "종목", 0, len(symbols), "종목 목록을 준비하는 중", **_유니버스진행)
+    #: 몇 개를 끝냈나 — run_one 들은 이벤트 루프 한 줄에서 번갈아 돌아서 그냥 더해도 엇갈리지 않는다
+    끝낸수 = [0]
 
     #: 기간과 워밍업은 /run 과 똑같은 규칙이다. 두 탭이 같은 전략을
     #  다른 구간으로 재면 나란히 놓고 볼 수가 없다.
@@ -365,6 +464,10 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
                 }
             except Exception:
                 return None
+            finally:
+                #: 받았든 못 받았든 한 종목은 끝났다 — 못 받은 것을 안 세면 막대가 끝에 못 닿는다
+                끝낸수[0] += 1
+                _진행쓰기(열쇠, "종목", 끝낸수[0], len(symbols), f"{symbol} 돌리는 중", **_유니버스진행)
 
     raw = await asyncio.gather(*[run_one(s) for s in symbols])
     results = [r for r in raw if r is not None and r.get("total_trades", 0) > 0]
@@ -402,16 +505,24 @@ async def run_universe_backtest(request: Request, req: UniverseBacktestRequest, 
     조용히 두면 사용자는 이 결과를 실제 성적으로 읽는다.
 
     'SP500' 이라는 이름도 정직하지 않아 개수를 같이 보낸다. 진짜
-    S&P 500 이 아니라 손으로 고른 316개다."""
+    S&P 500 이 아니라 손으로 고른 311개다(겹친 다섯을 빼고)."""
+    윗줄 = results[:req.top_n]
+    이름들 = _종목이름들([r["symbol"] for r in 윗줄], req.market)
+    for r in 윗줄:
+        r["name"] = 이름들.get(r["symbol"]) or r["symbol"]
     payload = {
         "universe": req.universe,
         "total_symbols": len(symbols),
         "tested": len(results),
-        "results": results[:req.top_n],
+        "results": 윗줄,
+        #: 돌린 **모든** 종목의 총수익률 — 상위 N개만으로는 '이 전략이 대체로 통하나' 를 알 수 없다.
+        #  화면이 분포(몇 %가 플러스인가·가운데값)를 그린다. 수만 보내 가볍다(300개 남짓)
+        "all_returns": [round(float(r["total_return"]), 1) for r in results if r.get("total_return") is not None],
         "생존편향": (
-            f"종목 {len(symbols)}개는 **오늘** 기준 목록이에요. "
+            # 화면은 이 글을 그대로 적는다 — 마크다운(**…**)을 넣으면 별표가 그대로 보인다
+            f"종목 {len(symbols)}개는 오늘 기준 목록이에요. "
             "그동안 상장폐지되거나 밀려난 회사는 처음부터 빠져 있어서, "
-            "실제로 그때 돌렸을 때보다 결과가 좋게 나옵니다."
+            "실제로 그때 돌렸을 때보다 결과가 좋게 나와요."
         ),
     }
     cache.set(ck, payload, 300)
@@ -492,6 +603,7 @@ def save_strategy(req: StrategySaveRequest, db: Session = Depends(get_db), curre
         exit_conditions=req.exit_conditions,
         stop_loss=req.stop_loss,
         take_profit=req.take_profit,
+        run_settings=req.run_settings,
         user_id=current_user.id,
     )
     db.add(strategy)
@@ -517,6 +629,9 @@ def update_strategy(strategy_id: int, req: StrategySaveRequest, db: Session = De
     strategy.exit_conditions = req.exit_conditions
     strategy.stop_loss = req.stop_loss
     strategy.take_profit = req.take_profit
+    #: 돌린 설정을 안 보내는 옛 화면이 고치면 지우지 않는다 — 보낸 것만 바꾼다
+    if req.run_settings is not None:
+        strategy.run_settings = req.run_settings
     strategy.version += 1
     db.commit()
     db.refresh(strategy)
@@ -694,19 +809,27 @@ class 실험저장요청(자산배분요청):
 #  시세 받기가 제일 크고, 엔진이 도는 것은 순식간이다.
 _진행무게 = {"시세": 0.40, "환율": 0.05, "배당": 0.30, "계산": 0.05, "벤치마크": 0.20}
 _진행순서 = ["시세", "환율", "배당", "계산", "벤치마크"]
+#: 단일 종목(/run) — 시세 받기가 대부분이고, 전략·'그냥 들고 있기' 계산은 순식간이다
+_신호진행 = {"무게": {"시세": 0.70, "계산": 0.20, "견주기": 0.10}, "순서": ["시세", "계산", "견주기"]}
+#: 유니버스(/universe) — 종목마다 시세를 받아 돌리는 것이 한 칸이다. '종목 37/311' 로 읽힌다
+_유니버스진행 = {"무게": {"종목": 1.0}, "순서": ["종목"]}
 
 
 def _진행쓰기(열쇠: Optional[str], 단계: str, 된것: int = 1, 전체: int = 1,
-              글: str = "") -> None:
+              글: str = "", 무게: Optional[dict] = None, 순서: Optional[list] = None) -> None:
     """지금 무슨 단계의 몇 분의 몇인지 적어 둔다.
 
     앞 단계들의 몫을 다 더하고, 지금 단계는 된 만큼만 더한다. 그래서
     퍼센트가 **뒤로 가지 않는다** — 뒤로 가는 막대는 고장으로 읽힌다.
+
+    무게·순서는 백테스트 종류마다 다르다(자산배분이 기본, 단일 종목은 _신호진행, 유니버스는 _유니버스진행).
     """
     if not 열쇠:
         return
-    앞 = sum(_진행무게[s] for s in _진행순서[:_진행순서.index(단계)])
-    몫 = _진행무게[단계] * (된것 / 전체 if 전체 > 0 else 1)
+    무게 = 무게 or _진행무게
+    순서 = 순서 or _진행순서
+    앞 = sum(무게[s] for s in 순서[:순서.index(단계)])
+    몫 = 무게[단계] * (된것 / 전체 if 전체 > 0 else 1)
     try:
         cache.set(f"진행:{열쇠}", {
             "단계": 단계,
@@ -1237,6 +1360,8 @@ async def _자산배분_본문(req, PB, 기간, 열쇠, 고른벤치, _통화, �
 #  어느 경로에도 안 걸려 404 가 난다 — 라우트 목록에는 멀쩡히 보이는데
 #  부르면 없다고 하는, 눈으로는 못 찾는 모양이다(실제로 그렇게 짰다가
 #  라우트 맞춰 보기로 확인했다).
+#: 단일 종목·유니버스도 같은 열쇠 자리를 쓴다 — 이름에 portfolio 가 붙은 옛 주소는 그대로 둔다(옛 화면이 부른다)
+@router.get("/progress/{key}")
 @router.get("/portfolio/progress/{key}")
 async def 진행보기(key: str):
     """지금 서버가 어디까지 했나.

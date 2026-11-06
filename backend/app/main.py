@@ -312,6 +312,9 @@ async def lifespan(application: FastAPI):
             # 이 열이 생기기 전에 메운 줄은 0 으로 들어오는데,
             # portfolio_snapshot._내가_메운것() 이 made_at 으로 가려낸다.
             ("portfolio_snapshots", "backfilled", "INTEGER NOT NULL DEFAULT 0"),
+            # 저장한 전략에 '무엇으로 돌려 봤나'(종목·기간·자본…)를 같이 담는다 — 결과 화면에서 저장하고 다시
+            # 열면 같은 백테스트가 열리게. 옛 전략은 비어 있고, 그때는 조건만 되살린다(models.stock.Strategy)
+            ("strategies", "run_settings", "TEXT" if _is_sqlite else "JSON"),
         ]
         try:
             from sqlalchemy import inspect as _sa_inspect

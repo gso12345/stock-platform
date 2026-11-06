@@ -54,6 +54,10 @@ class Strategy(Base):
     exit_conditions = Column(JSON)
     stop_loss = Column(Float)
     take_profit = Column(Float)
+    #: 이 전략을 무엇으로 돌려 봤나 — 종목(또는 유니버스)·기간·자본·투자비중·거래비용(routes/backtest 의
+    #  StrategySaveRequest.run_settings). 결과 화면에서 저장하면 같이 담겨, 불러오면 그 백테스트가 그대로 열린다.
+    #  예전에 저장한 전략에는 없다(None) — 그때는 조건만 되살린다
+    run_settings = Column(JSON, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

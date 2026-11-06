@@ -85,6 +85,24 @@ function findIndicator(value: string) {
   return INDICATOR_OPTIONS_FLAT.find((i) => i.value === value);
 }
 
+/** 조건 하나를 한 줄 글로 — 'MA 이동평균(20) ↑ 돌파 EMA 지수이평', 'RSI (14) > 70'.
+ *
+ *  결과를 보다가 '무슨 조건으로 돌렸더라' 를 설정 칸을 다시 펼치지 않고 읽게 한다(사용자: "결과와 설정을 같이 볼
+ *  수도 있게"). 편집 칸과 **같은 이름표**를 쓴다 — 두 군데 말이 다르면 같은 조건인지 알아보기 어렵다. */
+export function 조건글(c: Condition): string {
+  const 지표 = findIndicator(c.indicator);
+  const 이름 = `${지표?.label ?? c.indicator}${지표?.hasPeriod && c.period ? `(${c.period})` : ""}`;
+  const 연산 = CROSS_OPERATORS.find((o) => o.value === c.operator)?.label ?? c.operator;
+  const 값 = typeof c.value === "string" ? (findIndicator(c.value)?.label ?? c.value) : String(c.value);
+  return `${이름} ${연산} ${값}`;
+}
+
+/** 조건 묶음을 한 줄로 — 둘 이상이면 AND 는 '그리고', OR 는 '또는' 으로 잇는다. 없으면 '없음' */
+export function 조건묶음글(g: ConditionGroup): string {
+  if (!g.conditions.length) return "없음";
+  return g.conditions.map(조건글).join(g.logic === "AND" ? " 그리고 " : " 또는 ");
+}
+
 interface Props {
   label: string;
   color?: "blue" | "red";

@@ -24,6 +24,9 @@ export interface 백테스트요청 {
    *  자산배분(자산배분요청)과 같은 단위로 맞춘다. */
   cost_rate?: number;
   strategy_id?: number | null;
+  /** 진행 상황을 적어 둘 열쇠 — 자산배분과 같은 '열쇠 + 물어보기'(getProgress). 사용자: "단일종목 유니버스도
+   *  %로 진행률 확인할 수 있게 해줘" */
+  progress_key?: string;
 }
 
 /** 여러 종목을 한꺼번에 돌릴 때 — 서버 UniverseBacktestRequest */
@@ -32,6 +35,121 @@ export interface 전종목백테스트요청 extends Omit<백테스트요청, "s
   custom_symbols?: string[];
   rank_by?: string;
   top_n?: number;
+}
+
+/** 거래 한 건 — 엔진의 _trade */
+export interface 거래 {
+  type: string;
+  entry_date: string;
+  exit_date: string;
+  entry_price: number;
+  exit_price: number;
+  /** 값이 움직인 폭(%) — 수수료 전 */
+  pnl_rate: number;
+  /** 수수료까지 뺀 실제 손익(%) — 승률·손익비는 이 수로 센다 */
+  net_pnl_rate?: number;
+  shares: number;
+}
+
+/** 낙폭 흐름의 한 점 — dd 는 고점 대비 %(0 이 고점, 음수가 내려온 정도) */
+export interface 낙폭점 { date: string; dd: number }
+/** 깊었던 낙폭 하나 — 언제 시작해 언제 바닥이고 언제 되찾았나(아직이면 end 가 null) */
+export interface 낙폭구간 {
+  start: string; trough: string; end: string | null; depth: number;
+  underwater_days: number; to_trough_days?: number; recovery_days?: number | null;
+}
+
+/** 단일 종목 결과를 더 쪼갠 것 — 서버가 자산배분과 같은 함수로 잰다(routes/backtest._신호분석) */
+export interface 신호분석 {
+  drawdown: 낙폭점[];
+  drawdowns: 낙폭구간[];
+  yearly: { year: number; return: number }[];
+  monthly: { month: string; return: number }[];
+  /** '그냥 들고 있기' 의 같은 수 — 나란히 그린다 */
+  buy_and_hold?: { drawdown: 낙폭점[]; yearly: { year: number; return: number }[] };
+}
+
+/** 단일 종목 백테스트 결과 — 서버는 **못 잰 값을 null** 로 준다(0 이 아니다) */
+export interface 단일결과 {
+  id?: number;
+  start_date?: string;
+  end_date?: string;
+  total_return: number | null;
+  annual_return: number | null;
+  mdd: number | null;
+  sharpe_ratio: number | null;
+  win_rate: number | null;
+  total_trades: number;
+  years?: number | null;
+  avg_profit?: number | null;
+  avg_loss?: number | null;
+  profit_factor?: number | null;
+  costs?: number | null;
+  cost_rate?: number | null;
+  risk_free_rate?: number | null;
+  equity_curve: { date: string; value: number }[];
+  trades: 거래[];
+  buy_and_hold?: {
+    total_return: number | null; annual_return: number | null; mdd: number | null; sharpe_ratio: number | null;
+    /** 내 전략 곡선 날짜마다 값 하나(없는 날 null) */
+    curve?: (number | null)[];
+  } | null;
+  analysis?: 신호분석;
+}
+
+/** 유니버스 결과 한 줄 */
+export interface 유니버스줄 {
+  symbol: string;
+  name?: string;
+  market: string;
+  total_return: number | null;
+  annual_return: number | null;
+  mdd: number | null;
+  sharpe_ratio: number | null;
+  win_rate: number | null;
+  total_trades: number;
+  profit_factor: number | null;
+}
+
+export interface 유니버스결과 {
+  universe: string;
+  total_symbols: number;
+  tested: number;
+  results: 유니버스줄[];
+  /** 돌린 **모든** 종목의 총수익률 — 상위 N개만으로는 '대체로 통하나' 를 모른다 */
+  all_returns?: number[];
+  생존편향?: string;
+}
+
+/** 저장한 전략에 같이 담는 '돌린 설정' — 불러오면 그 백테스트가 그대로 열린다. 화면이 넣고 화면이 가려 읽는다
+ *  (결과공유 의 공유읽기 와 같은 검사 — 돌린설정읽기) */
+export interface 돌린설정저장 {
+  kind: "single" | "universe";
+  start_date: string;
+  end_date: string;
+  capital: number;
+  position_size: number;
+  cost_rate: number;
+  symbol?: string;
+  market?: string;
+  name?: string;
+  universe?: string;
+  rank_by?: string;
+  top_n?: number;
+}
+
+/** 저장한 매매 전략 — 목록에서 온 것 */
+export interface 저장한전략 {
+  id: number;
+  name: string;
+  market: string;
+  entry_conditions: ConditionGroup;
+  exit_conditions: ConditionGroup;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  /** 예전에 저장한 전략에는 없다 — 그때는 조건만 되살린다 */
+  run_settings?: unknown;
+  created_at?: string | null;
 }
 
 /** 자산배분에 담는 자산 한 칸. weight 는 60 으로 줘도 0.6 으로 줘도 된다 —
@@ -269,6 +387,8 @@ export interface 전략저장 {
   exit_conditions: ConditionGroup;
   stop_loss?: number | null;
   take_profit?: number | null;
+  /** 무엇으로 돌려 봤나 — 결과 화면에서 저장하면 같이 담는다 */
+  run_settings?: 돌린설정저장;
 }
 
 export const backtestApi = {
@@ -278,12 +398,19 @@ export const backtestApi = {
    *  서버를 깨우는 데만 20~50초가 들고, 거기에 계산이 더해지기
    *  때문이다. 끊기면 화면에는 '서버에 연결하지 못했습니다' 로 뜨는데,
    *  그때 서버는 멀쩡히 계산 중이다(client.ts 의 무거운상한 참고). */
-  run: (payload: 백테스트요청) =>
-    api.post("/backtest/run", payload, { timeout: 무거운상한 }).then((r) => r.data),
+  run: (payload: 백테스트요청): Promise<단일결과> =>
+    api.post<단일결과>("/backtest/run", payload, { timeout: 무거운상한 }).then((r) => r.data),
 
-  runUniverse: (payload: 전종목백테스트요청) =>
-    api.post("/backtest/universe", payload, { timeout: 무거운상한 })
+  runUniverse: (payload: 전종목백테스트요청): Promise<유니버스결과> =>
+    api.post<유니버스결과>("/backtest/universe", payload, { timeout: 무거운상한 })
       .then((r) => r.data),
+
+  /** 단일 종목·유니버스·자산배분 공용 — 서버가 지금 어디까지 했나(getPortfolioProgress 와 같은 자리를 본다).
+   *  진행 표시는 덤이라 못 받으면 null — 여기서 throw 하면 진행바 하나 때문에 화면이 '실패' 로 바뀐다 */
+  getProgress: (key: string): Promise<서버진행 | null> =>
+    api.get<서버진행 | Record<string, never>>(`/backtest/progress/${encodeURIComponent(key)}`)
+      .then((r) => ("percent" in r.data ? (r.data as 서버진행) : null))
+      .catch(() => null),
 
   /** 자산배분 백테스트 — 여러 자산을 비중대로 담아 적립·리밸런싱하며 굴린다.
    *
@@ -319,8 +446,8 @@ export const backtestApi = {
   getResult: (id: number) =>
     api.get(`/backtest/results/${id}`).then((r) => r.data),
 
-  getStrategies: () =>
-    api.get("/backtest/strategies").then((r) => r.data),
+  getStrategies: (): Promise<저장한전략[]> =>
+    api.get<저장한전략[]>("/backtest/strategies").then((r) => r.data),
 
   saveStrategy: (payload: 전략저장) =>
     api.post("/backtest/strategies", payload).then((r) => r.data),
