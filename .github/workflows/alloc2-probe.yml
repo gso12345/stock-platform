@@ -1,0 +1,55 @@
+## 임시 — 배포 뒤 화면(Vercel)에 상관 표·주황 실선이 올라갔는지 본다. 읽기만. 확인이 끝나면 지운다.
+name: 자산배분 화면 배포 확인(임시)
+
+on:
+  push:
+    branches: [claude/initial-load-performance-2RJGW]
+    paths: [".github/workflows/alloc2-probe.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 화면 — 새 묶음(배포가 끝날 때까지 기다리며)
+        run: |
+          cat > web.py <<'PY'
+          import re, time, urllib.request
+          WEB = "https://stock-platform-one.vercel.app"
+          H = {"User-Agent": "stock-platform-probe"}
+
+          def 글(주소):
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(주소, headers=H), timeout=60) as r:
+                      return r.status, r.read().decode("utf-8", "replace")
+              except Exception as e:
+                  return None, f"{type(e).__name__}: {e}"
+
+          찾을것 = ["자산끼리 상관 표", "내 조합 최고", "가장 따로 움직인 짝", "깊었던 순서"]
+          for 번 in range(40):
+              s, 첫 = 글(WEB + "/")
+              입구 = re.findall(r'assets/index-[A-Za-z0-9_-]+\.js', 첫 or "")
+              겉 = re.findall(r'assets/index-[A-Za-z0-9_-]+\.css', 첫 or "")
+              if 입구:
+                  _, 본 = 글(WEB + "/" + 입구[0])
+                  조각 = sorted(set(re.findall(r'AllocationTab-[A-Za-z0-9_-]+\.js', 본 or "")))
+                  _, 씨 = 글(WEB + "/" + 겉[0]) if 겉 else (None, "")
+                  색 = bool(re.search(r"--chart-bench:\s*#ea580c", 씨 or ""))
+                  if 조각:
+                      _, 배 = 글(WEB + "/assets/" + 조각[0])
+                      있나 = {k: (k in 배) for k in 찾을것}
+                      print(f"{번}: {입구[0]} → {조각[0]} {있나} | --chart-bench {색}")
+                      if all(있나.values()) and 색:
+                          print("새 화면 확인")
+                          break
+              else:
+                  print(번, "입구를 못 찾음", s)
+              time.sleep(20)
+          else:
+              raise SystemExit("새 화면이 안 올라왔다")
+          PY
+          python3 -u web.py
