@@ -16,9 +16,9 @@ import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { use넓은화면 } from "@/hooks/useWideScreen";
 import { 짧은돈 } from "@/utils/formatters";
 import { PIE_COLORS } from "@/constants/pieColors";
-import { 가로축, 그래프높이, 달눈금, 영점, 툴팁 } from "@/utils/chartTheme";
+import { 가로축, 그래프높이, 달눈금, 영점, 견줌색 } from "@/utils/chartTheme";
 import type { 자산배분결과, 롤링수익 } from "@/api/stocks";
-import { 숫자, 작은지표, 그래프범례 } from "./결과부품";
+import { 숫자, 작은지표, 그래프범례, 견줌툴팁 } from "./결과부품";
 import { 과와, 받침있나 } from "@/utils/조사";
 
 const 차트틀 = lazy(() => import("@/components/chart/ChartFrame"));
@@ -209,57 +209,111 @@ export function 상관짝들(r: Pick<자산배분결과, "assets" | "correlation
   return 짝들.sort((a, b) => a.값 - b.값);
 }
 
-const 처음보일짝 = 6;
+/** 표의 칸 머리 — 심볼(국내 코드의 .KS·.KQ 는 뗀다). 이름은 줄 머리에 온전히 적는다 — 칸 머리에 '미국 장기국채' 를
+ *  넣으면 넷만 담아도 폰 폭을 넘는다 */
+export function 짧은심볼(심볼: string): string {
+  return 심볼.replace(/\.(KS|KQ)$/i, "");
+}
+
+/** 상관 칸의 바탕 — **같이(+)는 파랑, 거꾸로(−)는 주황, 0 근처는 회색**. 진하기는 크기(|r|).
+ *
+ *  갈래가 둘인 값이라 서로 반대로 읽히는 찬색·더운색 한 쌍에 가운데는 회색이다(색이 없는 칸 = '아무것도 아님').
+ *  오름·내림 색(빨강·파랑·초록)을 쓰면 '벌었다·잃었다' 로 읽혀서 피한다. 색은 거들 뿐 — 칸마다 숫자가 있다 */
+export function 상관바탕(v: number | null | undefined): string | undefined {
+  if (v == null || !Number.isFinite(v)) return undefined;
+  const 크기 = Math.min(1, Math.abs(v));
+  if (크기 < 0.05) return undefined;
+  return `rgba(${v > 0 ? "59,130,246" : "234,88,12"},${(0.12 + 0.5 * 크기).toFixed(2)})`;
+}
+
+/** 칸 숫자 — 소수 둘째 자리(0 은 부호 없이) */
+const 상관글 = (v: number) => (Math.abs(v) < 0.005 ? "0.00" : v.toFixed(2));
 
 export function 상관칸({ r }: { r: 자산배분결과 }) {
-  const [다보기, set다보기] = useState(false);
   const 짝들 = useMemo(() => 상관짝들(r), [r]);
-  if (!r.correlation || !짝들.length) return null;
+  const c = r.correlation;
+  if (!c || !짝들.length) return null;
   const 평균 = 짝들.reduce((a, x) => a + x.값, 0) / 짝들.length;
-  const 보일것 = 다보기 ? 짝들 : 짝들.slice(0, 처음보일짝);
+  const 이름 = (s: string) => 자산이름(r, s);
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <span className="text-base font-semibold text-text-primary">얼마나 같이 움직였나</span>
-        <span className="text-2xs text-text-dim">달마다 · {r.correlation.months}개월</span>
+        <span className="text-2xs text-text-dim">달마다 수익률 · {c.months}개월</span>
       </div>
       <p className="text-xs text-text-secondary break-keep -mt-1">
-        {짝들.length > 1 ? "평균 " : ""}상관 <b className="font-mono">{평균.toFixed(2)}</b> —{" "}
+        {짝들.length > 1 ? "평균 " : ""}상관 <b className="font-mono">{상관글(평균)}</b> —{" "}
         {평균 < 0.3 ? "따로 움직여서 나눠 담은 효과가 컸어요." : 평균 < 0.7 ? "어느 정도 같이 움직였어요." : "거의 같이 움직여서 나눠 담은 효과가 작았어요."}
       </p>
-      <ul className="flex flex-col gap-2.5">
-        {보일것.map((x) => (
-          <li key={`${x.가}-${x.나}`} className="flex flex-col gap-1">
-            <div className="flex items-baseline justify-between gap-2 min-w-0">
-              <span className="text-xs text-text-primary truncate min-w-0">{x.가} · {x.나}</span>
-              <span className="text-xs font-mono tabular-nums text-text-secondary flex-shrink-0"
-                    aria-label={`${과와(x.가)} ${x.나} 상관 ${x.값.toFixed(2)}`}>
-                {x.값 > 0 ? "+" : ""}{x.값.toFixed(2)} <span className="text-text-dim">{상관말(x.값)}</span>
-              </span>
-            </div>
-            {/* -1 ~ 1 자 — 가운데가 0. 왼쪽(거꾸로)일수록 나눠 담은 효과가 크다 */}
-            <div className="relative h-1.5 rounded-full bg-bg-elevated">
-              <div className="absolute inset-y-0 left-1/2 w-px bg-border" />
-              <div className="absolute top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent-blue ring-2 ring-bg-card"
-                   style={{ left: `${(x.값 + 1) * 50}%` }} />
-            </div>
-          </li>
-        ))}
-      </ul>
-      {짝들.length > 처음보일짝 && (
-        <button type="button" onClick={() => set다보기((v) => !v)}
-          className="self-start text-xs text-accent-blue">
-          {다보기 ? "접기" : `${짝들.length}쌍 모두 보기`}
-        </button>
-      )}
-      <div className="flex justify-between text-2xs text-text-dim -mt-1">
-        <span>-1 거꾸로</span><span>0 따로</span><span>+1 같이</span>
+
+      {/* ── 자산 × 자산 표 ── 대각선은 자기 자신(늘 1). 폰에서 넘치면 옆으로 밀고, 줄 머리(이름)는 붙어 있는다 */}
+      <div className="overflow-x-auto -mx-1 px-1">
+        <table className="w-full text-xs border-separate" style={{ borderSpacing: 3 }} aria-label="자산끼리 상관 표">
+          <thead>
+            <tr>
+              <th className="sticky left-0 z-10 bg-bg-card" aria-hidden />
+              {c.symbols.map((s) => (
+                <th key={s} scope="col" title={이름(s)}
+                    className="px-1 pb-1 text-2xs font-medium text-text-muted text-center min-w-[3rem] whitespace-nowrap">
+                  {짧은심볼(s)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {c.symbols.map((s, i) => (
+              <tr key={s}>
+                <th scope="row" className="sticky left-0 z-10 bg-bg-card pr-2 text-left font-normal">
+                  <span className="block text-xs text-text-primary truncate max-w-[7rem]">{이름(s)}</span>
+                  {이름(s) !== 짧은심볼(s) && <span className="block text-2xs text-text-dim">{짧은심볼(s)}</span>}
+                </th>
+                {c.symbols.map((t, j) => {
+                  const v = c.matrix[i]?.[j];
+                  if (i === j) {
+                    return <td key={t} className="h-10 min-w-[3rem] rounded-lg bg-bg-elevated text-center font-mono tabular-nums text-text-dim">1.00</td>;
+                  }
+                  const 말 = v == null ? "못 잼" : `${상관글(v)} ${상관말(v)}`;
+                  return (
+                    <td key={t} title={`${이름(s)} · ${이름(t)} ${말}`}
+                        aria-label={`${과와(이름(s))} ${이름(t)} 상관 ${말}`}
+                        className="h-10 min-w-[3rem] rounded-lg bg-bg-elevated text-center font-mono tabular-nums text-text-primary"
+                        style={{ background: 상관바탕(v) }}>
+                      {v == null ? <span className="text-text-dim">—</span> : 상관글(v)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      {/* 색 척도 — 무엇이 진한지 말해 둔다(색만으로 읽게 하지 않는다) */}
+      <div className="flex flex-col gap-1">
+        <div className="h-1.5 rounded-full" aria-hidden
+             style={{ background: "linear-gradient(to right, rgba(234,88,12,0.62), rgba(148,163,184,0.15) 50%, rgba(59,130,246,0.62))" }} />
+        <div className="flex justify-between text-2xs text-text-dim">
+          <span>-1 거꾸로</span><span>0 따로</span><span>+1 같이</span>
+        </div>
+      </div>
+
+      {/* 짝이 여럿이면 끝의 둘을 한 줄로 — 표를 다 읽지 않아도 '가장 따로·가장 같이' 가 보이게 */}
+      {짝들.length > 2 && (
+        <p className="text-2xs text-text-muted break-keep -mt-1">
+          가장 따로 움직인 짝 <b className="text-text-secondary">{짝들[0].가} · {짝들[0].나}</b>
+          <span className="font-mono"> ({상관글(짝들[0].값)})</span>
+          {" · "}가장 같이 <b className="text-text-secondary">{짝들[짝들.length - 1].가} · {짝들[짝들.length - 1].나}</b>
+          <span className="font-mono"> ({상관글(짝들[짝들.length - 1].값)})</span>
+        </p>
+      )}
     </Card>
   );
 }
 
 /* ═════════════════════════ 롤링 ═════════════════════════ */
+
+/** 롤링 값 — '연 +6.20%' */
+const 연글 = (v: number) => `연 ${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
 
 /** 내 것과 벤치마크의 N년 줄을 달로 맞춰 한 배열로 — 칸 번호로 짝지으면 시작 달이 다를 때 어긋난다 */
 export function 롤링합치기(내것: 롤링수익 | undefined, 벤치?: 롤링수익): { month: string; 내것: number; 벤치?: number }[] {
@@ -325,16 +379,18 @@ export function 롤링칸({ r }: { r: 자산배분결과 }) {
                                  margin={{ top: 10, right: 4, bottom: 0, left: 4 }}>
                   <R.XAxis dataKey="date" tickFormatter={달눈금} {...가로축} />
                   <R.YAxis hide domain={["dataMin", "dataMax"]} />
-                  <R.Tooltip {...툴팁} labelFormatter={(d: string) => `${달눈금(d)}까지 ${해}년`}
-                    formatter={(v: number, 이름: string) => [`연 ${v > 0 ? "+" : ""}${v}%`,
-                      이름 === "내것" ? "내 조합" : (r.benchmark?.name ?? "벤치마크")]} />
+                  <R.Tooltip content={<견줌툴팁 날글={(d) => `${달눈금(d)}까지 ${해}년`}
+                    줄들={[{ 키: "내것", 이름: "내 조합", 색: 견줌색.내것, 글: 연글 },
+                           ...(벤치있음 && 벤치보기 ? [{ 키: "벤치", 이름: r.benchmark?.name ?? "벤치마크", 색: 견줌색.견줄것, 글: 연글 }] : [])]}
+                    차이={벤치있음 && 벤치보기 ? { 가: "내것", 나: "벤치", 색: pnlColor,
+                                                   글: (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%p` } : undefined} />} />
                   {/* 0 은 **실선** — 벤치마크가 점선이라 0 까지 점선이면 어느 것이 0 인지 헷갈린다 */}
                   <R.ReferenceLine y={0} {...영점} strokeWidth={1} ifOverflow="extendDomain" />
-                  <R.Line type="monotone" dataKey="내것" name="내것" stroke="var(--accent-blue)" strokeWidth={2}
+                  <R.Line type="monotone" dataKey="내것" name="내것" stroke={견줌색.내것} strokeWidth={2}
                           dot={false} isAnimationActive={false} />
                   {벤치있음 && 벤치보기 && (
-                    <R.Line type="monotone" dataKey="벤치" name="벤치" stroke="var(--accent-purple)" strokeWidth={1.5}
-                            strokeDasharray="4 3" dot={false} connectNulls isAnimationActive={false} />
+                    <R.Line type="monotone" dataKey="벤치" name="벤치" stroke={견줌색.견줄것} strokeWidth={2}
+                            dot={false} connectNulls isAnimationActive={false} />
                   )}
                 </R.ComposedChart>
               )}
@@ -342,8 +398,8 @@ export function 롤링칸({ r }: { r: 자산배분결과 }) {
           </Suspense>
         )}
         {합친것.length > 1 && (
-          <그래프범례 선들={[{ 이름: "내 조합", 색: "var(--accent-blue)" },
-                            ...(벤치있음 && 벤치보기 ? [{ 이름: r.benchmark!.name, 색: "var(--accent-purple)", 점선: true }] : [])]} />
+          <그래프범례 선들={[{ 이름: "내 조합", 색: 견줌색.내것 },
+                            ...(벤치있음 && 벤치보기 ? [{ 이름: r.benchmark!.name, 색: 견줌색.견줄것 }] : [])]} />
         )}
         <p className="text-2xs text-text-dim break-keep">
           가로축은 판 달 — 그 달까지 {해}년 들고 있었으면 연 몇 %였는지예요. 가로 실선이 0%예요. 넣은 돈은 빼고 쟀어요.

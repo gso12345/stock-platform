@@ -93,7 +93,15 @@ describe("선 그래프는 공통 모양을 쓴다", () => {
     expect(가로축들.length).toBeGreaterThan(0);
     for (const x of 가로축들) expect(x, `${f}: 가로축을 손으로 적었다`).toContain("{...가로축}");
     const 툴팁들 = 글.match(/<R\.Tooltip[\s\S]*?\/>/g) ?? [];
-    for (const t of 툴팁들) expect(t, `${f}: 툴팁 상자를 손으로 적었다`).toContain("{...툴팁}");
+    /* 공통 상자({...툴팁}) 아니면 공통 견주기 툴팁(결과부품 견줌툴팁 — 같은 상자 값을 쓴다) */
+    for (const t of 툴팁들) {
+      expect(t.includes("{...툴팁}") || t.includes("content={<견줌툴팁"), `${f}: 툴팁 상자를 손으로 적었다`).toBe(true);
+    }
+  });
+
+  it("견줌툴팁 상자는 공통 툴팁과 같은 값을 쓴다", () => {
+    expect(읽기("components/backtest/결과부품.tsx")).toMatch(/style=\{툴팁상자\}/);
+    expect(읽기("utils/chartTheme.ts")).toMatch(/export const 툴팁상자 = 툴팁\.contentStyle;/);
   });
 
   it("백테스트 그래프 높이를 숫자로 못 박지 않는다 — 넓은 화면에서 커진다", () => {

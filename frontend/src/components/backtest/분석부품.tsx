@@ -14,10 +14,10 @@ import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { use넓은화면 } from "@/hooks/useWideScreen";
 import type { 거래 } from "@/api/stocks";
 import { 거래분석, 순손익, type 분포칸 } from "./분석";
+import { 짧은날 } from "./결과부품";
 
 const 부호 = (v: number, 자리 = 1) => `${v > 0 ? "+" : ""}${v.toFixed(자리)}`;
-/** '2022-03-02' → '22.03.02' */
-const 짧은날 = (d: string) => (d.length >= 10 ? `${d.slice(2, 4)}.${d.slice(5, 7)}.${d.slice(8, 10)}` : d);
+
 
 /* ═════════════════════════ 분포 막대 ═════════════════════════ */
 

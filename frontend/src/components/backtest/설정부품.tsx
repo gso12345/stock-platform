@@ -13,6 +13,7 @@ import { useCallback, useId, useRef, useState } from "react";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { Button, Card, 고른칩, cn } from "@/components/ui";
 import { 빠른기간, 기간에서날짜, 금액값들, 읽는금액 } from "./설정값";
+import { 짧은날 } from "./결과부품";
 
 /** 설정 칸의 제목 — 백테스트의 다른 탭(단일 종목·유니버스) 설정도 같은 제목을 쓴다 */
 export function 칸제목({ children, 오른쪽 }: { children: React.ReactNode; 오른쪽?: React.ReactNode }) {
@@ -30,8 +31,9 @@ export function 기간말(시작: string, 끝: string, 오늘 = new Date()): str
     const d = 기간에서날짜(년, 오늘);
     if (d.start_date === 시작 && d.end_date === 끝) return `${년}년`;
   }
-  const 점 = (x: string) => x.replace(/-/g, ".");
-  return `${점(시작)} ~ ${점(끝)}`;
+  /* 날짜는 '16.11.05' 로 — 접힌 요약 한 줄에서 '2016.11.05 ~ 2026.11.05' 가 금액까지 밀어내 '100…' 으로 잘렸다
+     (찍어 보고 찾았다). 펼치면 온전한 날짜가 있다 */
+  return `${짧은날(시작)} ~ ${짧은날(끝)}`;
 }
 
 const 날짜칸모양 =
@@ -194,7 +196,8 @@ export function 설정요약({ 줄, 펼치기, 항목들 }: {
   const 글 = (
     <div className="min-w-0 flex-1">
       <p className="text-sm font-semibold text-text-primary truncate">{줄[0]}</p>
-      {줄[1] && <p className="text-xs text-text-muted truncate">{줄[1]}</p>}
+      {/* 둘째 줄(기간·금액·적립·리밸런싱)은 두 줄까지 — 한 줄로 자르면 폰에서 금액부터 잘렸다 */}
+      {줄[1] && <p className="text-xs text-text-muted line-clamp-2 break-keep">{줄[1]}</p>}
     </div>
   );
   return (

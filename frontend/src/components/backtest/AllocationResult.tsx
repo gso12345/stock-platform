@@ -22,16 +22,16 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors, 오름색, 내림색 } from "@/hooks/usePnlColors";
 import { 짧은돈 } from "@/utils/formatters";
 import type { 자산배분결과, 낙폭점, 낙폭구간 } from "@/api/stocks";
-import { Bookmark, ChevronDown, Download, Share2 } from "lucide-react";
-import { 과와, 은는, 이에요 } from "@/utils/조사";
+import { AlertTriangle, Bookmark, ChevronDown, Download, Info, Share2 } from "lucide-react";
+import { 과와, 은는 } from "@/utils/조사";
 import { csv내려받기 } from "@/utils/csv";
 import { 결과CSV } from "./결과내보내기";
 import { 달마다표 } from "./분석부품";
-import { 큰지표, 작은지표, 머리단추, 그래프범례 } from "./결과부품";
+import { 큰지표, 작은지표, 머리단추, 그래프범례, 견줌툴팁, 짧은날 } from "./결과부품";
 import { 자산마다칸, 상관칸, 롤링칸 } from "./배분분석";
 import { PIE_COLORS } from "@/constants/pieColors";
 import { use넓은화면 } from "@/hooks/useWideScreen";
-import { 가로축, 그래프높이, 기준점선, 끝값, 달눈금, 툴팁 } from "@/utils/chartTheme";
+import { 가로축, 그래프높이, 기준점선, 끝값, 달눈금, 툴팁, 견줌색 } from "@/utils/chartTheme";
 
 const 차트틀 = lazy(() => import("@/components/chart/ChartFrame"));
 
@@ -159,6 +159,13 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
   /* 세로축 대신 최고·최저 — 내 자산 추이·종목 상세 그래프와 같은 방식 */
   const 끝점 = useMemo(() => 끝값(합친것.map((x) => x.내것)), [합친것]);
   const 벤치이름 = r.benchmark?.name ?? "벤치마크";
+  const 배색 = useSettingsStore((s) => s.colorScheme);
+  const { pnlColor } = usePnlColors(배색);
+  const 벤치그림 = 벤치있음 && 벤치보기;
+  /* 선 끝 — 점을 찍고 범례에 값을 적는다. 벤치마크는 마지막 날이 비어 있을 수 있어(휴장일이 다르다) 값이 있는 마지막 날 */
+  const 마지막 = 합친것[합친것.length - 1];
+  const 벤치마지막 = useMemo(() => [...합친것].reverse().find((x) => x.벤치 != null), [합친것]);
+  const 줄여 = (v: number | null | undefined) => (v == null ? null : 눈금글(v, r.currency));
 
   return (
     <Card className="flex flex-col gap-3">
@@ -194,15 +201,20 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
               <R.XAxis dataKey="date" tickFormatter={달눈금} {...가로축} />
               {/* 세로축은 안 그린다 — 좁은 화면에서 금액 눈금이 가로폭을 먹는다. 높이는 최고·최저 점선이 말한다 */}
               <R.YAxis hide {...축설정(로그켬)} domain={축설정(로그켬).domain ?? ["dataMin", "dataMax"]} />
-              <R.Tooltip {...툴팁} formatter={(v: number, 이름: string) =>
-                [돈(v, r.currency), 이름 === "내것" ? "내 조합" : 이름 === "넣은" ? "넣은 돈" : 벤치이름]} />
+              {/* 툴팁 — 날마다 두 선의 값과 **차이**(내 조합 − 벤치마크). 견줄 때 묻는 것은 '얼마나 앞섰나' 다 */}
+              <R.Tooltip content={<견줌툴팁 날글={(d) => d.replace(/-/g, ".")}
+                줄들={[{ 키: "내것", 이름: "내 조합", 색: 견줌색.내것, 글: (v) => 돈(v, r.currency) },
+                       ...(벤치그림 ? [{ 키: "벤치", 이름: 벤치이름, 색: 견줌색.견줄것, 글: (v: number) => 돈(v, r.currency) }] : []),
+                       ...(넣은있음 ? [{ 키: "넣은", 이름: "넣은 돈", 색: "var(--text-muted)", 점선: true, 글: (v: number) => 돈(v, r.currency) }] : [])]}
+                차이={벤치그림 ? { 가: "내것", 나: "벤치", 색: pnlColor,
+                                   글: (v) => `${v > 0 ? "+" : v < 0 ? "-" : ""}${돈(Math.abs(v), r.currency)}` } : undefined} />} />
               {끝점 && (
                 <>
                   <R.ReferenceLine y={끝점.최고} {...기준점선} />
                   <R.ReferenceLine y={끝점.최저} {...기준점선} />
                 </>
               )}
-              <R.Area type="monotone" dataKey="내것" name="내것" stroke="var(--accent-blue)"
+              <R.Area type="monotone" dataKey="내것" name="내것" stroke={견줌색.내것}
                       fill="url(#bt-alloc)" strokeWidth={2} dot={false} isAnimationActive={false} />
               {넣은있음 && (
                 /* 계단 — 넣은 돈은 넣는 날에만 한 번에 는다. **Area(채움 없음)** 로 그린다 — AreaChart 는 그 안의 Line 을
@@ -210,31 +222,42 @@ function 자산흐름({ r }: { r: 자산배분결과 }) {
                 <R.Area type="stepAfter" dataKey="넣은" name="넣은" stroke="var(--text-muted)" strokeWidth={1.5}
                         fill="none" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
               )}
-              {벤치있음 && 벤치보기 && (
-                /* 벤치마크는 **선만** 그린다. 면을 두 개 겹치면 색이
-                   섞여 어느 쪽이 위인지 알 수 없다. 점선이라 흑백으로
-                   인쇄해도, 색을 못 가리는 사람에게도 구분된다. */
-                <R.Area type="monotone" dataKey="벤치" name="벤치" stroke="var(--accent-purple)"
-                        fill="none" strokeWidth={1.5} strokeDasharray="4 3"
-                        dot={false} connectNulls isAnimationActive={false} />
+              {벤치그림 && (
+                /* 벤치마크는 **선만** 그린다 — 면을 두 개 겹치면 색이 섞여 어느 쪽이 위인지 알 수 없다. 내 것과 **같은
+                   굵기의 실선**이다(견줌색). 예전엔 보라 점선이었는데, 보라는 파랑과 색맹에게 같은 색이라 점선 모양만이
+                   둘을 갈랐고 점선은 '예상선' 처럼 읽혔다 */
+                <R.Area type="monotone" dataKey="벤치" name="벤치" stroke={견줌색.견줄것}
+                        fill="none" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
               )}
+              {/* 선 끝의 점 — 마지막에 누가 위인지 한눈에(범례의 끝 값과 짝) */}
+              {마지막 && <R.ReferenceDot x={마지막.date} y={마지막.내것} r={4} fill={견줌색.내것}
+                                       stroke="var(--bg-card)" strokeWidth={2} />}
+              {벤치그림 && 벤치마지막 && <R.ReferenceDot x={벤치마지막.date} y={벤치마지막.벤치} r={4}
+                                                        fill={견줌색.견줄것} stroke="var(--bg-card)" strokeWidth={2} />}
             </R.AreaChart>
           )}
         </차트틀>
       </Suspense>
-      <그래프범례 끝={끝점 && `최고 ${눈금글(끝점.최고, r.currency)} · 최저 ${눈금글(끝점.최저, r.currency)}`}
-        선들={[{ 이름: "내 조합", 색: "var(--accent-blue)" },
-              ...(벤치있음 && 벤치보기 ? [{ 이름: 벤치이름, 색: "var(--accent-purple)", 점선: true }] : []),
-              ...(넣은있음 ? [{ 이름: "넣은 돈", 색: "var(--text-muted)", 점선: true }] : [])]} />
+      {/* 범례에 선마다 **끝 값** — 툴팁을 안 열어도 '마지막에 얼마였나' 를 나란히 본다 */}
+      <그래프범례
+        선들={[{ 이름: "내 조합", 색: 견줌색.내것, 값: 줄여(마지막?.내것) },
+              ...(벤치그림 ? [{ 이름: 벤치이름, 색: 견줌색.견줄것, 값: 줄여(벤치마지막?.벤치) }] : []),
+              ...(넣은있음 ? [{ 이름: "넣은 돈", 색: "var(--text-muted)", 점선: true, 값: 줄여(마지막?.넣은) }] : [])]} />
+      {끝점 && (
+        <p className="text-2xs text-text-dim text-center tabular-nums -mt-2">
+          {/* 점선 두 줄은 내 조합의 최고·최저다 — 벤치마크가 그 위로 올라가도 헷갈리지 않게 이름을 붙인다 */}
+          내 조합 최고 {눈금글(끝점.최고, r.currency)} · 최저 {눈금글(끝점.최저, r.currency)}
+        </p>
+      )}
       {로그켬 && (
         <p className="text-2xs text-text-dim break-keep -mt-1">
           로그 축이에요 — 같은 높이가 같은 <b>비율</b>이에요. 1,000만원이 2,000만원이
           되는 것과 1억이 2억이 되는 것이 같은 크기로 보여요.
         </p>
       )}
-      {벤치있음 && 벤치보기 && (
+      {벤치그림 && (
         <p className="text-2xs text-text-dim break-keep -mt-1">
-          점선이 {이에요(r.benchmark!.name)}. 같은 기간·같은 납입·같은 비용으로 돌렸어요.
+          {r.benchmark!.name} 선은 같은 기간·같은 납입·같은 비용으로 돌린 거예요. 그래프를 누르면 그날의 차이가 나와요.
         </p>
       )}
     </Card>
@@ -279,6 +302,7 @@ export interface 낙폭자료 {
 export function 낙폭칸({ r, 내이름 = "내 조합" }: { r: 낙폭자료; 내이름?: string }) {
   const 배색 = useSettingsStore((s) => s.colorScheme);
   const 내림 = 내림색(배색);
+  const { pnlColor } = usePnlColors(배색);
   const [벤치보기, set벤치보기] = useState(true);
 
   const 합친것 = useMemo(() => {
@@ -295,6 +319,7 @@ export function 낙폭칸({ r, 내이름 = "내 조합" }: { r: 낙폭자료; �
   /* 가장 깊었던 곳에 점선 하나 — 0 은 그래프 맨 위다 */
   const 바닥 = useMemo(() => 끝값(합친것.map((x) => x.내것))?.최저 ?? null, [합친것]);
   const 벤치이름 = r.benchmark?.name ?? "벤치마크";
+  const 벤치그림 = 벤치있음 && 벤치보기;
 
   return (
     <Card className="p-0 overflow-hidden">
@@ -316,30 +341,36 @@ export function 낙폭칸({ r, 내이름 = "내 조합" }: { r: 낙폭자료; �
             {(R: any) => (
               <R.AreaChart data={합친것} margin={{ top: 10, right: 4, bottom: 0, left: 4 }}>
                 <defs>
+                  {/* 내 것은 **파랑**(견줌색) — 다른 견주는 그래프와 같은 색. 내림 색을 쓰면 초록-빨강 설정에서 빨강이 되는데,
+                      빨강과 견줄 것의 주황은 거의 같은 색이라(ΔE 3.4) 두 선을 못 가른다. 낙폭이라는 것은 0 아래로 내려가는
+                      모양이 이미 말한다 */}
                   <linearGradient id="bt-dd" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={내림} stopOpacity={0.05} />
-                    <stop offset="100%" stopColor={내림} stopOpacity={0.4} />
+                    <stop offset="0%" stopColor={견줌색.내것} stopOpacity={0.05} />
+                    <stop offset="100%" stopColor={견줌색.내것} stopOpacity={0.35} />
                   </linearGradient>
                 </defs>
                 <R.XAxis dataKey="date" tickFormatter={달눈금} {...가로축} />
                 <R.YAxis hide domain={["dataMin", 0]} />
-                <R.Tooltip {...툴팁} formatter={(v: number, 이름: string) =>
-                  [낙폭글(v), 이름 === "내것" ? 내이름 : 벤치이름]} />
+                {/* 차이 = 내 낙폭 − 견줄 것의 낙폭. 플러스면 내 쪽이 덜 빠졌다(오름 색) */}
+                <R.Tooltip content={<견줌툴팁 날글={(d) => d.replace(/-/g, ".")}
+                  줄들={[{ 키: "내것", 이름: 내이름, 색: 견줌색.내것, 글: 낙폭글 },
+                         ...(벤치그림 ? [{ 키: "벤치", 이름: 벤치이름, 색: 견줌색.견줄것, 글: 낙폭글 }] : [])]}
+                  차이={벤치그림 ? { 가: "내것", 나: "벤치", 색: pnlColor,
+                                     글: (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%p` } : undefined} />} />
                 {바닥 != null && 바닥 < 0 && <R.ReferenceLine y={바닥} {...기준점선} />}
-                <R.Area type="monotone" dataKey="내것" name="내것" stroke={내림}
-                        fill="url(#bt-dd)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                {벤치있음 && 벤치보기 && (
-                  <R.Area type="monotone" dataKey="벤치" name="벤치" stroke="var(--accent-purple)"
-                          fill="none" strokeWidth={1.5} strokeDasharray="4 3"
-                          dot={false} connectNulls isAnimationActive={false} />
+                <R.Area type="monotone" dataKey="내것" name="내것" stroke={견줌색.내것}
+                        fill="url(#bt-dd)" strokeWidth={2} dot={false} isAnimationActive={false} />
+                {벤치그림 && (
+                  <R.Area type="monotone" dataKey="벤치" name="벤치" stroke={견줌색.견줄것}
+                          fill="none" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
                 )}
               </R.AreaChart>
             )}
           </차트틀>
         </Suspense>
         <그래프범례 끝={바닥 != null && 바닥 < 0 ? `가장 깊었을 때 ${낙폭글(바닥)}` : null}
-          선들={[{ 이름: 내이름, 색: 내림 },
-                ...(벤치있음 && 벤치보기 ? [{ 이름: 벤치이름, 색: "var(--accent-purple)", 점선: true }] : [])]} />
+          선들={[{ 이름: 내이름, 색: 견줌색.내것 },
+                ...(벤치그림 ? [{ 이름: 벤치이름, 색: 견줌색.견줄것 }] : [])]} />
       </div>
 
       {/* ── 깊은 낙폭 순위 ──
@@ -353,45 +384,28 @@ export function 낙폭칸({ r, 내이름 = "내 조합" }: { r: 낙폭자료; �
             <span className="text-base font-semibold text-text-primary">깊었던 순서</span>
             <span className="text-2xs text-text-dim">얼마나 오래 잠겼나까지</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-bg-secondary border-y border-border">
-                {/* 폰에서는 표가 옆으로 밀린다. 제일 중요한 두 수 —
-                    **얼마나 깊었나**와 **얼마나 오래 잠겼나** — 를 앞에
-                    둬서 밀지 않고도 보이게 한다. 날짜 셋은 뒤로 보낸다.
-                    (처음에는 날짜를 앞에 뒀는데, 폰으로 찍어 보니 정작
-                     잠긴 기간이 화면 밖이었다.) */}
-                <tr className="text-text-muted">
-                  <th className="text-right px-3 py-2 whitespace-nowrap">낙폭</th>
-                  <th className="text-right px-3 py-2 whitespace-nowrap">잠긴 기간</th>
-                  <th className="text-left px-3 py-2 whitespace-nowrap">고점</th>
-                  <th className="text-left px-3 py-2 whitespace-nowrap">바닥</th>
-                  <th className="text-left px-3 py-2 whitespace-nowrap">회복</th>
-                </tr>
-              </thead>
-              <tbody>
-                {순위.map((d) => (
-                  <tr key={d.start} className="border-b border-border/30">
-                    <td className="px-3 py-2 text-right font-mono font-semibold whitespace-nowrap"
-                        style={{ color: 내림 }}>{낙폭글(d.depth)}</td>
-                    <td className="px-3 py-2 text-right text-text-secondary whitespace-nowrap">
-                      {걸린기간(d.underwater_days)}
-                      {!d.end && <span className="text-accent-yellow"> +</span>}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-text-secondary whitespace-nowrap">{d.start}</td>
-                    <td className="px-3 py-2 font-mono text-text-secondary whitespace-nowrap">{d.trough}</td>
-                    {/* 아직 못 되찾았으면 **그렇다고 적는다.** 마지막
-                        날짜를 넣으면 회복한 것처럼 읽힌다. */}
-                    <td className="px-3 py-2 font-mono whitespace-nowrap">
-                      {d.end
-                        ? <span className="text-text-secondary">{d.end}</span>
-                        : <span className="text-accent-yellow">아직</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {/* ── 줄마다 두 줄 ── 위: **얼마나 깊었나 · 얼마나 오래 잠겼나**(제일 중요한 둘), 아래: 고점 → 바닥 → 회복.
+              예전엔 다섯 칸 표라 폰(390px)에서 회복 날짜가 화면 밖으로 밀렸다(찍어 보고 찾았다). 날짜는 '24.07.29' 로 줄인다 */}
+          <ul className="border-t border-border divide-y divide-border/40" aria-label="깊었던 순서">
+            {순위.map((d) => (
+              <li key={d.start} className="px-4 py-2.5 flex flex-col gap-0.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm font-mono font-semibold tabular-nums" style={{ color: 내림 }}>{낙폭글(d.depth)}</span>
+                  <span className="text-xs text-text-secondary whitespace-nowrap">
+                    <span>{걸린기간(d.underwater_days)}</span>
+                    {!d.end && <span className="text-accent-yellow"> +</span>}
+                    <span className="text-text-dim"> 잠김</span>
+                  </span>
+                </div>
+                <div className="text-2xs text-text-dim font-mono tabular-nums flex flex-wrap gap-x-1.5">
+                  <span>고점 {짧은날(d.start)}</span><span aria-hidden>→</span>
+                  <span>바닥 {짧은날(d.trough)}</span><span aria-hidden>→</span>
+                  {/* 아직 못 되찾았으면 **그렇다고 적는다.** 마지막 날짜를 넣으면 회복한 것처럼 읽힌다 */}
+                  <span>회복 {d.end ? 짧은날(d.end) : <span className="text-accent-yellow font-sans">아직</span>}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
           {순위.some((d) => !d.end) && (
             <p className="px-4 py-2.5 text-2xs text-text-dim break-keep">
               '아직' 은 마지막 날까지 고점을 못 되찾았다는 뜻이에요. 잠긴 기간 뒤의
@@ -848,50 +862,46 @@ function 폭락표({ r }: { r: 자산배분결과 }) {
           제일 많이 빠졌을 때(최대 낙폭)예요.
         </p>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead className="bg-bg-secondary border-b border-border">
-            <tr className="text-text-muted">
-              <th className="text-left px-3 py-2 whitespace-nowrap">언제</th>
-              <th className="text-right px-3 py-2 whitespace-nowrap">내 조합</th>
-              <th className="text-right px-3 py-2 whitespace-nowrap truncate">
-                {r.benchmark?.name ?? "—"}
-              </th>
-              <th className="text-left px-3 py-2 whitespace-nowrap">기간</th>
-            </tr>
-          </thead>
-          <tbody>
-            {것들.map((x) => {
-              const 벤 = 벤치.get(x.key);
-              return (
-                <tr key={x.key} className="border-b border-border/30">
-                  <td className="px-3 py-2 text-text-primary whitespace-nowrap">
+      {/* 세 칸 — 언제(이름 아래 기간) · 내 조합 · 벤치마크. 예전엔 기간이 넷째 칸이라 폰에서 화면 밖으로 잘렸다 */}
+      <table className="w-full text-xs">
+        <thead className="bg-bg-secondary border-b border-border">
+          <tr className="text-text-muted">
+            <th className="text-left px-3 py-2 font-medium">언제</th>
+            <th className="text-right px-3 py-2 font-medium whitespace-nowrap">내 조합</th>
+            <th className="text-right px-3 py-2 font-medium max-w-[6rem] truncate">{r.benchmark?.name ?? "—"}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {것들.map((x) => {
+            const 벤 = 벤치.get(x.key);
+            return (
+              <tr key={x.key} className="border-b border-border/30 last:border-b-0">
+                <td className="px-3 py-2">
+                  <span className="block text-text-primary">
                     {x.name}
-                    {/* 일부만 겹쳤으면 그렇다고 적는다 — 2020-02-19 부터라고
-                        적어 놓고 3월 2일부터 쟀으면 그 차이가 곧 결과의
-                        차이다. */}
-                    {x.partial && (
-                      <span className="text-accent-yellow text-2xs ml-1">일부</span>
-                    )}
-                  </td>
-                  <td className={`px-3 py-2 text-right font-mono font-semibold whitespace-nowrap ${loss}`}>
-                    {x.mdd}%
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-text-dim whitespace-nowrap">
-                    {벤 == null ? "—" : `${벤.mdd}%`}
-                  </td>
-                  <td className="px-3 py-2 text-text-dim whitespace-nowrap">
-                    {x.partial ? `${x.measured_start} ~ ${x.measured_end}` : `${x.start} ~ ${x.end}`}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                    {/* 일부만 겹쳤으면 그렇다고 적는다 — 2020-02-19 부터라고 적어 놓고 3월 2일부터 쟀으면 그 차이가 곧
+                        결과의 차이다 */}
+                    {x.partial && <span className="text-accent-yellow text-2xs ml-1">일부</span>}
+                  </span>
+                  <span className="block text-2xs text-text-dim font-mono tabular-nums">
+                    {x.partial ? `${짧은날(x.measured_start)} ~ ${짧은날(x.measured_end)}` : `${짧은날(x.start)} ~ ${짧은날(x.end)}`}
+                  </span>
+                </td>
+                {/* 소수 둘째 자리로 맞춘다 — 서버의 -12.7 을 그대로 적으면 옆 줄의 -14.69% 와 자릿수가 어긋난다 */}
+                <td className={`px-3 py-2 text-right font-mono font-semibold tabular-nums whitespace-nowrap ${loss}`}>
+                  {낙폭글(x.mdd)}
+                </td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums text-text-dim whitespace-nowrap">
+                  {벤 == null ? "—" : 낙폭글(벤.mdd)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
       {것들.some((x) => x.partial) && (
         <p className="px-4 py-2.5 text-2xs text-text-dim break-keep">
-          '일부' 는 그 구간에 자료가 일부만 걸쳤다는 뜻이에요 — 옆에 적힌 기간이
+          '일부' 는 그 구간에 자료가 일부만 걸쳤다는 뜻이에요 — 이름 아래 적힌 기간이
           실제로 잰 구간이에요.
         </p>
       )}
@@ -939,9 +949,10 @@ function 폭락표({ r }: { r: 자산배분결과 }) {
 export const 봐줄날 = 10;
 const 날차이 = (가: string, 나: string) => Math.abs(Date.parse(나) - Date.parse(가)) / 86_400_000;
 
-function 기간이짧아진이유({ r }: { r: 자산배분결과 }) {
+/** 시작을 늦춘·끝을 앞당긴 자산의 이름들 — 없으면 둘 다 빈 목록(경고 상자를 그릴지도 이걸로 본다) */
+export function 짧아진자산(r: 자산배분결과): { 늦게시작: string[]; 일찍끝남: string[] } {
   const 범위 = r.asset_range;
-  if (!범위) return null;
+  if (!범위) return { 늦게시작: [], 일찍끝남: [] };
 
   const 이름 = (심볼: string) =>
     (r.assets ?? []).find((a) => a.symbol === 심볼)?.name || 심볼;
@@ -960,13 +971,32 @@ function 기간이짧아진이유({ r }: { r: 자산배분결과 }) {
     && 날차이(r.end_date, r.requested_end) > 봐줄날
     ? 걸린것("last", r.end_date) : [];
 
+  return { 늦게시작, 일찍끝남 };
+}
+
+/** 결과 아래 안내 한 칸 — 경고면 노란 상자와 느낌표, 아니면 흐린 상자와 i */
+function 안내상자({ 경고 = false, children }: { 경고?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={`flex items-start gap-2 rounded-xl px-3 py-2.5 ${경고
+      ? "bg-accent-yellow/10 border border-accent-yellow/25" : "bg-bg-elevated/60"}`}
+         role={경고 ? "note" : undefined}>
+      {경고
+        ? <AlertTriangle size={14} aria-hidden className="text-accent-yellow flex-shrink-0 mt-0.5" />
+        : <Info size={14} aria-hidden className="text-text-dim flex-shrink-0 mt-0.5" />}
+      <div className="flex-1 min-w-0 flex flex-col gap-1">{children}</div>
+    </div>
+  );
+}
+
+function 기간이짧아진이유({ r }: { r: 자산배분결과 }) {
+  const { 늦게시작, 일찍끝남 } = 짧아진자산(r);
   if (!늦게시작.length && !일찍끝남.length) return null;
 
   return (
-    <p className="text-xs text-accent-yellow/90 break-keep">
+    <p className="text-xs text-text-secondary break-keep">
       {늦게시작.length > 0 && (
         <>
-          <b>{늦게시작.join(" · ")}</b>의 시세가 {r.start_date}부터라
+          <b className="text-text-primary">{늦게시작.join(" · ")}</b>의 시세가 {r.start_date}부터라
           그 앞은 못 쟀어요{r.requested_start && ` (${r.requested_start}부터 요청)`}.
           {" "}그 자산을 빼거나, ETF라면 ‘확장’을 켜면 더 길게 잴 수 있어요.
         </>
@@ -974,7 +1004,7 @@ function 기간이짧아진이유({ r }: { r: 자산배분결과 }) {
       {늦게시작.length > 0 && 일찍끝남.length > 0 && <br />}
       {일찍끝남.length > 0 && (
         <>
-          <b>{일찍끝남.join(" · ")}</b>의 시세가 {r.end_date}까지라
+          <b className="text-text-primary">{일찍끝남.join(" · ")}</b>의 시세가 {r.end_date}까지라
           그 뒤는 못 쟀어요{r.requested_end && ` (${r.requested_end}까지 요청)`}.
         </>
       )}
@@ -1053,6 +1083,9 @@ export default function 자산배분결과화면({ r, 공유하기, 저장하기
   /* 결과를 넷으로 나눠 본다 — 단일 종목 결과와 **같은 순서**(요약·낙폭·기간별 + 그 화면만의 하나).
      예전엔 수익률·낙폭·지표·세부였고, '수익률' 칩 하나에 카드가 일곱 개라 폰에서 2,300px 을 내려야 했다 */
   const [보기, set보기] = useState("요약");
+  const 짧은 = 짧아진자산(r);
+  const 짧아짐 = 짧은.늦게시작.length > 0 || 짧은.일찍끝남.length > 0;
+  const 이음 = Object.keys(r.extended_from ?? {}).length > 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -1129,29 +1162,36 @@ export default function 자산배분결과화면({ r, 공유하기, 저장하기
           작게 나온 것도 마찬가지다.
 
           탭으로 나눈 것은 카드가 많아서지, 감추려는 것이 아니다. */}
-      <div className="flex flex-col gap-1.5 px-1">
-        <기간이짧아진이유 r={r} />
-
-        {r.costs_included ? (
-          <p className="text-2xs text-text-dim break-keep">
-            거래비용 {r.cost_rate != null ? `${+(r.cost_rate * 100).toFixed(3)}%` : ""} 반영 —
-            모두 {돈(r.costs, r.currency)}를 수수료로 냈어요. 살 때도 팔 때도 매겼어요.
-          </p>
-        ) : (
-          <p className="text-2xs text-text-dim break-keep">
-            수수료·세금·슬리피지는 반영하지 않았어요. 실제 성과는 이보다 조금 낮아요 —
-            설정에서 거래비용을 고르면 넣어 드려요.
-          </p>
+      {/* 경고(노란 상자 + 느낌표)와 참고(흐린 상자 + i). 예전엔 노란 글자만 덩그러니 있어 결과의 일부인지 안내인지
+          갈리지 않았다. 색만으로 말하지 않는다 — 아이콘이 같이 있다 */}
+      <div className="flex flex-col gap-2">
+        {(짧아짐 || 이음) && (
+          <안내상자 경고>
+            <기간이짧아진이유 r={r} />
+            {/* 지수로 이은 구간이 있으면 **반드시** 말한다.
+                조용히 이으면 사용자는 1980년치 SPY 자료가 있는 줄 안다 */}
+            {이음 && (
+              <p className="text-xs text-text-secondary break-keep">
+                {Object.entries(r.extended_from).map(([s, d]) => `${은는(s)} ${d}`).join(", ")}부터
+                지수로 이었어요. 그 구간은 <b className="text-text-primary">배당과 운용보수가 빠진 지수</b>라
+                실제 ETF와 조금 달라요.
+              </p>
+            )}
+          </안내상자>
         )}
-        {/* 지수로 이은 구간이 있으면 **반드시** 말한다.
-            조용히 이으면 사용자는 1980년치 SPY 자료가 있는 줄 안다 */}
-        {Object.keys(r.extended_from ?? {}).length > 0 && (
-          <p className="text-2xs text-accent-yellow/90 break-keep">
-            {Object.entries(r.extended_from).map(([s, d]) => `${은는(s)} ${d}`).join(", ")}부터
-            지수로 이었어요. 그 구간은 <b>배당과 운용보수가 빠진 지수</b>라
-            실제 ETF와 조금 달라요.
-          </p>
-        )}
+        <안내상자>
+          {r.costs_included ? (
+            <p className="text-2xs text-text-dim break-keep">
+              거래비용 {r.cost_rate != null ? `${+(r.cost_rate * 100).toFixed(3)}%` : ""} 반영 —
+              모두 {돈(r.costs, r.currency)}를 수수료로 냈어요. 살 때도 팔 때도 매겼어요.
+            </p>
+          ) : (
+            <p className="text-2xs text-text-dim break-keep">
+              수수료·세금·슬리피지는 반영하지 않았어요. 실제 성과는 이보다 조금 낮아요 —
+              설정에서 거래비용을 고르면 넣어 드려요.
+            </p>
+          )}
+        </안내상자>
       </div>
     </div>
   );

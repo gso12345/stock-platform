@@ -431,7 +431,8 @@ describe("3) 결과 화면에서 저장", () => {
     그리기();
     await userEvent.click(screen.getByRole("button", { name: "불러오기" }));
     await userEvent.click(within(screen.getByRole("tablist", { name: "불러올 것" })).getByRole("tab", { name: /매매 전략/ }));
-    expect(await screen.findByText("삼성전자 · 2021.01.04 ~ 2023.12.29 · 500만원")).toBeInTheDocument();
+    //: 날짜는 짧게(21.01.04) — 한 줄 요약에서 긴 날짜가 금액을 밀어냈다
+    expect(await screen.findByText("삼성전자 · 21.01.04 ~ 23.12.29 · 500만원")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "삼성 이평 전략 열기" }));
     await waitFor(() => expect(상태.돌린것).toHaveLength(1));
     expect(상태.돌린것[0]).toMatchObject({ symbol: "005930", market: "KR", start_date: "2021-01-04", end_date: "2023-12-29",
@@ -456,7 +457,7 @@ describe("3) 결과 화면에서 저장", () => {
   it("돌린말 — 예전 전략(조건만)은 빈 글", () => {
     expect(돌린말(undefined)).toBe("");
     expect(돌린말({ kind: "universe", universe: "SP500", top_n: 10, start_date: "2021-01-04", end_date: "2023-12-29",
-      capital: 10_000_000, position_size: 95, cost_rate: 0 })).toBe("미국 대형주 상위 10개 · 2021.01.04 ~ 2023.12.29 · 1000만원");
+      capital: 10_000_000, position_size: 95, cost_rate: 0 })).toBe("미국 대형주 상위 10개 · 21.01.04 ~ 23.12.29 · 1000만원");
   });
 });
 

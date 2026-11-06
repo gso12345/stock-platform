@@ -253,10 +253,12 @@ describe("벤치마크 겹치기", () => {
     expect(screen.getByLabelText("주식 60 · 채권 40 같이 보기")).toBeInTheDocument();
   });
 
-  it("무엇이 점선인지 말해 준다", () => {
-    /* 두 선을 그려 놓고 어느 쪽이 무엇인지 안 적으면 못 읽는다 */
+  it("무엇이 벤치마크 선인지·어떻게 돌렸는지 말해 준다", () => {
+    /* 두 선을 그려 놓고 어느 쪽이 무엇인지 안 적으면 못 읽는다. 이제 둘 다 실선이라 '점선이 …' 라고 하지 않는다 —
+       범례(색 줄)와 이름으로 가른다 */
     그리기({ benchmark: 벤치 });
-    expect(screen.getByText(/점선이 주식 60 · 채권 40이에요/)).toBeInTheDocument();
+    expect(screen.getByText(/주식 60 · 채권 40 선은 같은 기간·같은 납입·같은 비용으로 돌린 거예요/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/점선이 주식/);
   });
 
   it("색 이름으로 좋고 나쁨을 말하지 않는다", async () => {
@@ -273,7 +275,7 @@ describe("벤치마크 겹치기", () => {
   it("끄면 설명도 같이 사라진다", async () => {
     그리기({ benchmark: 벤치 });
     await userEvent.click(screen.getAllByLabelText("주식 60 · 채권 40 같이 보기")[0]);
-    expect(screen.queryByText(/점선이 주식 60 · 채권 40이에요/)).toBeNull();
+    expect(screen.queryByText(/주식 60 · 채권 40 선은/)).toBeNull();
   });
 
   it("벤치마크가 없으면 단추를 안 그린다", () => {
@@ -465,13 +467,14 @@ describe("폭락 때 어땠나", () => {
     그리기();
     await 탭열기("낙폭");
     expect(screen.getByText("코로나")).toBeInTheDocument();
-    expect(screen.getByText("-34.1%")).toBeInTheDocument();
+    //: 소수 둘째 자리로 맞춘다 — 서버의 -34.1 을 그대로 적으면 옆 줄과 자릿수가 어긋난다
+    expect(screen.getByText("-34.10%")).toBeInTheDocument();
   });
 
   it("벤치마크 낙폭과 나란히 놓는다", async () => {
     그리기({ benchmark: 벤치 });
     await 탭열기("낙폭");
-    expect(screen.getByText("-19.7%")).toBeInTheDocument();
+    expect(screen.getByText("-19.70%")).toBeInTheDocument();
   });
 
   it("구간을 통째로 지나고 난 수익률은 안 적는다 — 낙폭만", async () => {
@@ -479,8 +482,9 @@ describe("폭락 때 어땠나", () => {
     그리기({ crises: [{ ...기본.crises[0], return: -28.4 }] });
     await 탭열기("낙폭");
     const 코로나줄 = screen.getByText("코로나").closest("tr")!;
-    expect(코로나줄.textContent).not.toMatch(/-28\.4%/);
-    expect(코로나줄.querySelectorAll("td")).toHaveLength(4);
+    expect(코로나줄.textContent).not.toMatch(/-28\.40?%/);
+    //: 세 칸 — 언제(이름 아래 기간) · 내 조합 · 벤치마크
+    expect(코로나줄.querySelectorAll("td")).toHaveLength(3);
   });
 
   it("일부만 겹친 구간은 그렇다고 적고 **실제로 잰 기간**을 보여 준다", async () => {
@@ -489,7 +493,7 @@ describe("폭락 때 어땠나", () => {
     그리기();
     await 탭열기("낙폭");
     expect(screen.getByText("일부")).toBeInTheDocument();
-    expect(screen.getByText(/2008-06-02 ~ 2009-03-09/)).toBeInTheDocument();
+    expect(screen.getByText("08.06.02 ~ 09.03.09")).toBeInTheDocument();
     expect(screen.getByText(/자료가 일부만 걸쳤다는 뜻/)).toBeInTheDocument();
   });
 
@@ -550,7 +554,9 @@ describe("폭락 때 — 벤치마크와 짝짓기", () => {
     await 탭열기("낙폭");
     const 코로나줄 = screen.getByText("코로나").closest("tr")!;
     expect(코로나줄.textContent, "코로나 줄에 금융위기 수가 밀려 들어왔다")
-      .not.toMatch(/-12\.3%/);
+      .not.toMatch(/-12\.30?%/);
+    //: 짝짓는 줄이 정말 있는지 — 금융위기 줄에는 그 수가 있어야 한다(없으면 위 검사가 그냥 통과한다)
+    expect(screen.getByText("미국 금융위기").closest("tr")!.textContent).toMatch(/-12\.30%/);
   });
 });
 

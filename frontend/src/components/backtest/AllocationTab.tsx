@@ -165,7 +165,10 @@ export function 배분요약(s: 설정): [string, string] {
   const 첫줄 = 담은것.join(" · ") + (s.assets.length > 3 ? ` 외 ${s.assets.length - 3}개` : "");
   const 리밸 = s.rebalance_period === "none" ? null
     : `리밸런싱 ${주기표.find((p) => p.value === s.rebalance_period)?.label}`;
-  const 둘째 = [기간말(s.start_date, s.end_date), 읽는금액(Number(s.initial_amount), s.currency), 리밸]
+  /* 적립도 적는다 — 자산배분에서 '매달 얼마씩' 은 처음 금액만큼 결과를 바꾼다 */
+  const 적립 = s.contribution_period === "none" || !Number(s.contribution_amount) ? null
+    : `${주기표.find((p) => p.value === s.contribution_period)?.label} ${읽는금액(Number(s.contribution_amount), s.currency)}`;
+  const 둘째 = [기간말(s.start_date, s.end_date), 읽는금액(Number(s.initial_amount), s.currency), 적립, 리밸]
     .filter(Boolean).join(" · ");
   return [첫줄 || "자산 없음", 둘째];
 }

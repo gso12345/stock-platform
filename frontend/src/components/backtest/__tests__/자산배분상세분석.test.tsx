@@ -20,7 +20,7 @@ vi.mock("@/store/settingsStore", async (원래) => {
 });
 
 import 자산배분결과화면, { 맞춰합치기 } from "../AllocationResult";
-import { 짧은금액, 자산이름, 상관말, 상관짝들, 롤링합치기, 롤링칸 } from "../배분분석";
+import { 짧은금액, 자산이름, 상관말, 상관짝들, 롤링합치기, 롤링칸, 상관바탕, 짧은심볼 } from "../배분분석";
 import { 결과CSV } from "../결과내보내기";
 import { 대표조합, 조합을자산으로, 대표자산 } from "../AllocationForm";
 import { PIE_COLORS } from "@/constants/pieColors";
@@ -447,31 +447,111 @@ describe("상관 — 얼마나 같이 움직였나", () => {
     그리기();
     await 탭열기("자산");
     const 칸 = 카드("얼마나 같이 움직였나");
-    expect(칸.textContent).toContain("달마다 · 119개월");
+    expect(칸.textContent).toContain("달마다 수익률 · 119개월");
     expect(칸.textContent).toContain("상관 -0.25 — 따로 움직여서 나눠 담은 효과가 컸어요.");
     expect(칸.textContent).not.toContain("평균");
-    const 값 = within(칸).getByLabelText("S&P 500과 미국 장기국채 상관 -0.25");
-    expect(값.textContent).toBe("-0.25 따로");
   });
 
-  it("점은 -1~1 자 위에 — 0 이 가운데", async () => {
+  it("자산 × 자산 **표** 로 — 칸 머리는 심볼, 줄 머리는 이름, 대각선은 1.00", async () => {
+    /* 사용자: "자산별 상관관계 표로 나타내줘" */
     그리기();
     await 탭열기("자산");
-    const 줄 = within(카드("얼마나 같이 움직였나")).getByText("S&P 500 · 미국 장기국채").closest("li")!;
-    expect(parseFloat(줄.querySelector<HTMLElement>('[style*="left"]')!.style.left)).toBeCloseTo(37.5, 5);
+    const 표 = screen.getByRole("table", { name: "자산끼리 상관 표" });
+    //: 모서리 빈칸은 읽어 줄 것이 없어 숨긴다(aria-hidden) — 칸 머리는 심볼 둘
+    expect(within(표).getAllByRole("columnheader").map((x) => x.textContent)).toEqual(["SPY", "TLT"]);
+    const 줄머리 = within(표).getAllByRole("rowheader");
+    expect(줄머리.map((x) => x.textContent)).toEqual(["S&P 500SPY", "미국 장기국채TLT"]);
+    const 줄 = (i: number) => [...표.querySelectorAll("tbody tr")[i].querySelectorAll("td")].map((x) => x.textContent);
+    expect(줄(0)).toEqual(["1.00", "-0.25"]);
+    expect(줄(1)).toEqual(["-0.25", "1.00"]);
+    //: 칸마다 읽어 주는 이름 — 조사는 받침에 맞춘다
+    expect(within(표).getByLabelText("S&P 500과 미국 장기국채 상관 -0.25 따로").textContent).toBe("-0.25");
+    expect(within(표).getByLabelText("미국 장기국채와 S&P 500 상관 -0.25 따로").textContent).toBe("-0.25");
+    //: 현금은 표에 없다(서버가 위험자산끼리만 준다)
+    expect(within(표).queryByText("현금")).toBeNull();
   });
 
-  it("짝이 많으면 여섯만 먼저, '모두 보기' 로 편다", async () => {
+  it("칸 색 — 같이(+)는 파랑, 거꾸로(-)는 주황, 0 근처는 회색, 진하기는 크기", async () => {
+    expect(상관바탕(1)).toBe("rgba(59,130,246,0.62)");
+    expect(상관바탕(0.5)).toBe("rgba(59,130,246,0.37)");
+    expect(상관바탕(-1)).toBe("rgba(234,88,12,0.62)");
+    expect(상관바탕(-0.25)).toBe("rgba(234,88,12,0.24)");      // 0.12 + 0.5 × 0.25
+    expect(상관바탕(0.04), "0 근처에 색을 칠하면 '아무것도 아님' 이 안 읽힌다").toBeUndefined();
+    expect(상관바탕(-0.049)).toBeUndefined();
+    expect(상관바탕(0.05)).toBe("rgba(59,130,246,0.14)");      // 0.12 + 0.025 (소수 둘째 자리)
+    expect(상관바탕(null)).toBeUndefined();
+    expect(상관바탕(1.4), "1 을 넘는 값도 진하기는 1 까지").toBe("rgba(59,130,246,0.62)");
+    그리기();
+    await 탭열기("자산");
+    const 칸 = screen.getByLabelText("S&P 500과 미국 장기국채 상관 -0.25 따로");
+    expect(칸.style.background).toBe("rgba(234, 88, 12, 0.24)");
+  });
+
+  it("칸 머리 심볼은 국내 코드의 .KS·.KQ 를 뗀다 — 이름과 같으면 줄 머리에 두 번 안 적는다", () => {
+    expect(짧은심볼("069500.KS")).toBe("069500");
+    expect(짧은심볼("035720.kq")).toBe("035720");
+    expect(짧은심볼("SPY")).toBe("SPY");
+    expect(짧은심볼("BRK.B")).toBe("BRK.B");
+    render(<자산배분결과화면 r={{ ...기본, assets: [{ symbol: "069500.KS", market: "KR", name: "KODEX 200", weight: 1 },
+                                                    { symbol: "GLD", market: "US", name: "", weight: 1 }],
+                                   correlation: { symbols: ["069500.KS", "GLD"], matrix: [[1, 0.1], [0.1, 1]], months: 24 } } as never} />);
+    return 탭열기("자산").then(() => {
+      const 표 = screen.getByRole("table", { name: "자산끼리 상관 표" });
+      expect(within(표).getAllByRole("columnheader").map((x) => x.textContent)).toEqual(["069500", "GLD"]);
+      expect(within(표).getAllByRole("rowheader").map((x) => x.textContent)).toEqual(["KODEX 200069500", "GLD"]);
+    });
+  });
+
+  it("자산이 다섯이면 5×5 — 못 잰 칸은 '—', 가장 따로·같이 한 줄", async () => {
     그리기(다섯);
     await 탭열기("자산");
-    const 칸 = () => 카드("얼마나 같이 움직였나");
-    expect(칸().querySelectorAll("li")).toHaveLength(6);
+    const 칸 = 카드("얼마나 같이 움직였나");
+    const 표 = within(칸).getByRole("table", { name: "자산끼리 상관 표" });
+    expect(표.querySelectorAll("tbody tr")).toHaveLength(5);
+    expect(표.querySelectorAll("tbody td")).toHaveLength(25);
     //: (-0.5 - 0.1 + 0.05 + 0.1 + 0.2 + 0.3 + 0.4 + 0.6 + 0.9) / 9 = 0.2167
-    expect(칸().textContent).toContain("평균 상관 0.22 — 따로 움직여서 나눠 담은 효과가 컸어요.");
-    await userEvent.click(screen.getByRole("button", { name: "9쌍 모두 보기" }));
-    expect(칸().querySelectorAll("li")).toHaveLength(9);
-    await userEvent.click(screen.getByRole("button", { name: "접기" }));
-    expect(칸().querySelectorAll("li")).toHaveLength(6);
+    expect(칸.textContent).toContain("평균 상관 0.22 — 따로 움직여서 나눠 담은 효과가 컸어요.");
+    expect(within(표).getAllByText("—")).toHaveLength(2);        // B·C 짝(양쪽)
+    expect(within(표).getByLabelText("B자산과 C자산 상관 못 잼").textContent).toBe("—");
+    expect(칸.textContent).toContain("가장 따로 움직인 짝 A자산 · D자산 (-0.50) · 가장 같이 A자산 · B자산 (0.90)");
+  });
+
+  it("대각선(자기 자신)은 흐린 1.00 — 색도, 읽어 주는 이름도 없다", async () => {
+    그리기();
+    await 탭열기("자산");
+    const 표 = screen.getByRole("table", { name: "자산끼리 상관 표" });
+    const 대각 = 표.querySelectorAll("tbody tr")[0].querySelectorAll("td")[0] as HTMLElement;
+    expect(대각.textContent).toBe("1.00");
+    expect(대각.getAttribute("aria-label")).toBeNull();
+    expect(대각.className).toContain("text-text-dim");
+    expect(대각.style.background).toBe("");
+  });
+
+  it("아주 작은 음수는 '-0.00' 이 아니라 '0.00'", async () => {
+    그리기({ correlation: { symbols: ["SPY", "TLT"], matrix: [[1, -0.004], [-0.004, 1]], months: 24 } });
+    await 탭열기("자산");
+    expect(screen.getAllByLabelText(/상관 0.00 따로/).map((x) => x.textContent)).toEqual(["0.00", "0.00"]);
+    expect(document.body.textContent).not.toMatch(/-0\.00/);
+  });
+
+  it("짝이 딱 셋이면 '가장 따로·같이' 를 적는다", async () => {
+    그리기({ assets: 다섯.assets.slice(0, 3),
+             correlation: { symbols: ["A", "B", "C"], months: 24, matrix: [[1, 0.2, 0.4], [0.2, 1, -0.1], [0.4, -0.1, 1]] } });
+    await 탭열기("자산");
+    expect(카드("얼마나 같이 움직였나").textContent).toContain("가장 따로 움직인 짝 B자산 · C자산 (-0.10) · 가장 같이 A자산 · C자산 (0.40)");
+  });
+
+  it("짝이 하나뿐이면 '가장 따로·같이' 줄을 안 적는다(같은 짝을 두 번 말하게 된다)", async () => {
+    그리기();
+    await 탭열기("자산");
+    expect(카드("얼마나 같이 움직였나").textContent).not.toContain("가장 따로");
+  });
+
+  it("짝이 둘이어도 안 적는다 — 셋부터", async () => {
+    그리기({ assets: 다섯.assets.slice(0, 3),
+             correlation: { symbols: ["A", "B", "C"], months: 24, matrix: [[1, 0.2, 0.4], [0.2, 1, null], [0.4, null, 1]] } });
+    await 탭열기("자산");
+    expect(카드("얼마나 같이 움직였나").textContent).not.toContain("가장 따로");
   });
 
   it("어느 정도 같이 움직였으면 그렇게 말한다(0.3 이상 0.7 미만)", async () => {
@@ -490,13 +570,14 @@ describe("상관 — 얼마나 같이 움직였나", () => {
     그리기({ correlation: { symbols: ["SPY", "TLT"], matrix: [[1, 0.85], [0.85, 1]], months: 24 } });
     await 탭열기("자산");
     expect(카드("얼마나 같이 움직였나").textContent).toContain("거의 같이 움직여서 나눠 담은 효과가 작았어요.");
-    expect(screen.getByLabelText(/상관 0.85/).textContent).toBe("+0.85 거의 같이");
+    expect(screen.getAllByLabelText(/상관 0.85 거의 같이/).map((x) => x.textContent)).toEqual(["0.85", "0.85"]);
   });
 
   it("0 에는 부호를 안 붙인다", async () => {
     그리기({ correlation: { symbols: ["SPY", "TLT"], matrix: [[1, 0], [0, 1]], months: 24 } });
     await 탭열기("자산");
-    expect(screen.getByLabelText(/상관 0.00/).textContent).toBe("0.00 따로");
+    expect(screen.getAllByLabelText(/상관 0.00 따로/).map((x) => x.textContent)).toEqual(["0.00", "0.00"]);
+    expect(screen.getAllByLabelText(/상관 0.00 따로/)[0].style.background, "0 에 색을 칠했다").toBe("");
   });
 
   it("상관표가 없거나 짝이 다 못 잰 것이면 카드를 안 그린다", async () => {
@@ -645,6 +726,17 @@ describe("자산 흐름 — 넣은 돈 선", () => {
 
   it("예전 응답(넣은 돈 없음)은 그 칸을 안 만든다", () => {
     expect(맞춰합치기([{ date: "2020-01-02", value: 1 }])).toEqual([{ date: "2020-01-02", 내것: 1 }]);
+  });
+
+  it("최고·최저는 누구의 것인지 적는다 — 벤치마크가 그 위로 올라가도 헷갈리지 않게", () => {
+    그리기();
+    expect(within(카드("자산 흐름")).getByText(/^내 조합 최고 1.2억 · 최저 1000만$/)).toBeInTheDocument();
+  });
+
+  it("범례에 선마다 끝 값", () => {
+    그리기();
+    const 범례 = within(카드("자산 흐름")).getByText("넣은 돈").parentElement!;
+    expect([...범례.children].map((x) => x.textContent)).toEqual(["내 조합1.2억", "넣은 돈7000만"]);
   });
 
   it("범례에 '넣은 돈' — 있을 때만", () => {

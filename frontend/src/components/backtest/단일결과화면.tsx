@@ -14,7 +14,7 @@ import { Fragment, useMemo, useState } from "react";
 import { Bookmark, Download, Share2 } from "lucide-react";
 import { Card, ChangeBadge, ChipTabs, formatNumber, 고른칩, cn } from "@/components/ui";
 import 차트틀 from "@/components/chart/ChartFrame";
-import { 가로축, 그래프높이, 기준점선, 끝값, 달눈금, 툴팁 } from "@/utils/chartTheme";
+import { 가로축, 그래프높이, 기준점선, 끝값, 달눈금, 견줌색 } from "@/utils/chartTheme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePnlColors } from "@/hooks/usePnlColors";
 import { use넓은화면 } from "@/hooks/useWideScreen";
@@ -22,7 +22,7 @@ import { 표머리, 표머리줄, 표머리칸, 표줄, 표칸, 표글자 } from
 import type { 단일결과 } from "@/api/stocks";
 import { 낙폭칸, 해마다칸, 눈금글 } from "./AllocationResult";
 import { 달마다표, 거래분석칸 } from "./분석부품";
-import { 숫자, 큰지표, 작은지표, 머리단추, 그래프범례 } from "./결과부품";
+import { 숫자, 큰지표, 작은지표, 머리단추, 그래프범례, 견줌툴팁 } from "./결과부품";
 
 /* 결과 부품은 자산배분과 같이 쓰려고 결과부품.tsx 로 옮겼다 — 예전 이름으로 부르던 곳을 위해 그대로 내보낸다 */
 export { 숫자, 머리단추 };
@@ -73,6 +73,8 @@ export default function 단일결과화면({ r, 돌린자본, 요청시작, 공�
   }), [r.equity_curve, bh]);
   const 들고있음 = 곡선.some((x) => "들고" in x);
   const 곡선끝 = 끝값(곡선.map((x) => x.value));
+  /* 선 끝 — 점을 찍고 범례에 끝 값을 적는다 */
+  const 곡선마지막 = 곡선[곡선.length - 1] as { date: string; value: number; 들고?: number } | undefined;
 
   /* 낙폭·해마다 부품은 자산배분의 것 — 견줄 상대를 '그냥 들고 있기' 로 넣는다 */
   const 분석표 = useMemo(() => 분석 ? {
@@ -159,7 +161,7 @@ export default function 단일결과화면({ r, 돌린자본, 요청시작, 공�
             </Card>
           )}
 
-          {/* ── 수익 곡선 ── 다른 메뉴 그래프와 같은 모양. '들고 있기' 를 점선으로 같이(칩으로 끈다) */}
+          {/* ── 수익 곡선 ── 다른 메뉴 그래프와 같은 모양. '들고 있기' 를 같은 굵기의 주황 실선으로 같이(칩으로 끈다) */}
           <Card className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <span className="text-base font-semibold text-text-primary">수익 곡선</span>
@@ -183,8 +185,11 @@ export default function 단일결과화면({ r, 돌린자본, 요청시작, 공�
                   </defs>
                   <R.XAxis dataKey="date" tickFormatter={달눈금} {...가로축} />
                   <R.YAxis hide domain={["dataMin", "dataMax"]} />
-                  <R.Tooltip {...툴팁} formatter={(v: number, 이름: string) =>
-                    [formatNumber(v) + "원", 이름 === "들고" ? "들고 있기" : "내 전략"]} />
+                  <R.Tooltip content={<견줌툴팁 날글={(d) => d.replace(/-/g, ".")}
+                    줄들={[{ 키: "value", 이름: "내 전략", 색: 견줌색.내것, 글: (v) => `${formatNumber(v)}원` },
+                           ...(들고있음 && 들고보기 ? [{ 키: "들고", 이름: "들고 있기", 색: 견줌색.견줄것, 글: (v: number) => `${formatNumber(v)}원` }] : [])]}
+                    차이={들고있음 && 들고보기 ? { 가: "value", 나: "들고", 색: pnlColor,
+                                                   글: (v) => `${v > 0 ? "+" : ""}${formatNumber(Math.round(v))}원` } : undefined} />} />
                   {곡선끝 && (
                     <>
                       <R.ReferenceLine y={곡선끝.최고} {...기준점선} />
@@ -193,19 +198,33 @@ export default function 단일결과화면({ r, 돌린자본, 요청시작, 공�
                   )}
                   {/* 시작 금액 — 이 선보다 위면 번 것이다. 범위 밖이어도 보이게 축을 늘린다 */}
                   <R.ReferenceLine y={돌린자본} stroke="var(--text-muted)" strokeDasharray="4 4" ifOverflow="extendDomain" />
-                  <R.Area type="monotone" dataKey="value" name="value" stroke="var(--accent-blue)" fill="url(#grad)"
+                  <R.Area type="monotone" dataKey="value" name="value" stroke={견줌색.내것} fill="url(#grad)"
                           strokeWidth={2} dot={false} isAnimationActive={false} />
                   {들고있음 && 들고보기 && (
-                    <R.Line type="monotone" dataKey="들고" name="들고" stroke="var(--accent-purple)" strokeWidth={1.5}
-                            strokeDasharray="4 3" dot={false} connectNulls isAnimationActive={false} />
+                    <R.Line type="monotone" dataKey="들고" name="들고" stroke={견줌색.견줄것} strokeWidth={2}
+                            dot={false} connectNulls isAnimationActive={false} />
+                  )}
+                  {/* 선 끝의 점 — 마지막에 누가 위인지(범례의 끝 값과 짝) */}
+                  {곡선마지막 && <R.ReferenceDot x={곡선마지막.date} y={곡선마지막.value} r={4} fill={견줌색.내것}
+                                               stroke="var(--bg-card)" strokeWidth={2} />}
+                  {들고있음 && 들고보기 && 곡선마지막?.들고 != null && (
+                    <R.ReferenceDot x={곡선마지막.date} y={곡선마지막.들고} r={4} fill={견줌색.견줄것}
+                                    stroke="var(--bg-card)" strokeWidth={2} />
                   )}
                 </R.ComposedChart>
               )}
             </차트틀>
-            <그래프범례 끝={곡선끝 && `최고 ${눈금글(곡선끝.최고, "KRW")} · 최저 ${눈금글(곡선끝.최저, "KRW")}`}
-              선들={[{ 이름: "내 전략", 색: "var(--accent-blue)" },
-                    ...(들고있음 && 들고보기 ? [{ 이름: "들고 있기", 색: "var(--accent-purple)", 점선: true }] : []),
-                    { 이름: "초기자본", 색: "var(--text-muted)", 점선: true }]} />
+            {/* 범례에 선마다 끝 값 — 툴팁을 안 열어도 마지막에 얼마였나를 나란히 */}
+            <그래프범례
+              선들={[{ 이름: "내 전략", 색: 견줌색.내것, 값: 곡선마지막 ? 눈금글(곡선마지막.value, "KRW") : null },
+                    ...(들고있음 && 들고보기 ? [{ 이름: "들고 있기", 색: 견줌색.견줄것,
+                                                  값: 곡선마지막?.들고 != null ? 눈금글(곡선마지막.들고, "KRW") : null }] : []),
+                    { 이름: "초기자본", 색: "var(--text-muted)", 점선: true, 값: 눈금글(돌린자본, "KRW") }]} />
+            {곡선끝 && (
+              <p className="text-2xs text-text-dim text-center tabular-nums -mt-2">
+                내 전략 최고 {눈금글(곡선끝.최고, "KRW")} · 최저 {눈금글(곡선끝.최저, "KRW")}
+              </p>
+            )}
           </Card>
         </>)}
 
