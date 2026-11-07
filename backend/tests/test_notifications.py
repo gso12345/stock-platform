@@ -103,10 +103,11 @@ class Test알림_설정:
         notify(db, kind="post_like", post_id=10)
         assert len(db.added) == 1
 
-    def test_설정_항목이_화면과_같은_다섯_가지다(self):
+    def test_설정_항목이_화면과_같은_여섯_가지다(self):
+        # dm(1:1 메시지)은 알림 목록에 안 쌓이고 휴대폰 알림만 — 그래도 끌 수 있어야 한다
         from app.api.routes.community import NotificationSettingsIn
         assert set(C._NOTI_KINDS) == set(NotificationSettingsIn.model_fields)
-        assert set(C._NOTI_KINDS) == {"comment", "reply", "post_like", "comment_like", "follow"}
+        assert set(C._NOTI_KINDS) == {"comment", "reply", "post_like", "comment_like", "follow", "dm"}
 
     def test_설정_기본값은_모두_켜짐이다(self):
         from app.api.routes.community import NotificationSettingsIn

@@ -44,6 +44,12 @@ def test_길이_제한이_서버와_같다(화면, 이름, 서버값):
     )
 
 
+def test_메시지_길이가_서버와_같다(화면):
+    """화면이 1,000자 넘게 받으면 보내기를 눌렀을 때야 거부된다 — 쓴 글이 왜 안 가는지 모른다"""
+    from app.api.routes import dm as D
+    assert 화면.get("DM_MAX") == D.메시지_최대
+
+
 def test_투표_보기_개수가_서버와_같다(화면):
     from app.api.routes.community import PollIn
     한도 = PollIn.model_fields["options"].metadata

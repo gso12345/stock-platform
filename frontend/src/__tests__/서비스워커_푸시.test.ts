@@ -88,3 +88,33 @@ describe("알림을 누르면", () => {
     expect(sw.새창).toHaveBeenLastCalledWith("https://app.example/notifications");
   });
 });
+
+describe("1:1 메시지 푸시", () => {
+  it("알림을 띄우고, 열린 앱 창들에도 알린다 — 화면이 바로 다시 묻게", async () => {
+    const 창 = { url: "https://app.example/messages/12", postMessage: vi.fn() };
+    const 다른창 = { url: "https://app.example/feed", postMessage: vi.fn() };
+    sw = 띄우기([창, 다른창]);
+    await sw.보내기("push", 푸시({ title: "개미왕님의 메시지", body: "안녕", url: "/messages/12", tag: "dm-12" }));
+    expect(sw.띄움).toHaveBeenCalledTimes(1);
+    expect(sw.띄움.mock.calls[0][1]).toMatchObject({ tag: "dm-12", renotify: true, data: { url: "/messages/12" } });
+    expect(창.postMessage).toHaveBeenCalledWith({ type: "dm", tag: "dm-12" });
+    expect(다른창.postMessage).toHaveBeenCalledWith({ type: "dm", tag: "dm-12" });
+  });
+
+  it("메시지가 아닌 푸시는 창에 알리지 않는다", async () => {
+    const 창 = { url: "https://app.example/", postMessage: vi.fn() };
+    sw = 띄우기([창]);
+    await sw.보내기("push", 푸시({ title: "가격 알림", tag: "price-005930" }));
+    await sw.보내기("push", 푸시({ title: "x", tag: "dm-abc" }));
+    await sw.보내기("push", 푸시({ title: "x" }));
+    expect(창.postMessage).not.toHaveBeenCalled();
+    expect(sw.띄움).toHaveBeenCalledTimes(3);
+  });
+
+  it("창에 못 알려도 알림은 이미 떴다 — 터지지 않는다", async () => {
+    const 창 = { url: "https://app.example/", postMessage: vi.fn(() => { throw new Error("닫힘"); }) };
+    sw = 띄우기([창]);
+    await sw.보내기("push", 푸시({ title: "x", tag: "dm-3" }));
+    expect(sw.띄움).toHaveBeenCalledTimes(1);
+  });
+});

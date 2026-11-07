@@ -18,3 +18,5 @@ export const POLL_OPTION_MIN_COUNT = 2;
 export const POLL_OPTION_MAX_COUNT = 4;
 /** 직접 붙이는 종목 태그 개수 (포트폴리오 공유는 보유 종목만큼 자동으로 붙는다) */
 export const CUSTOM_TAG_MAX = 5;
+/** 1:1 메시지 한 번에 보낼 수 있는 글자 수 — 서버(routes/dm.py 메시지_최대)와 같아야 한다 */
+export const DM_MAX = 1000;

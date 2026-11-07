@@ -14,7 +14,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Star, User, Bell, Settings, LogOut, LogIn, ShieldCheck, ChevronRight, Pencil,
+  Star, User, Bell, Settings, LogOut, LogIn, ShieldCheck, ChevronRight, Pencil, MessageCircle,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { communityApi } from "@/api/stocks";
@@ -23,6 +23,7 @@ import Avatar from "@/components/community/Avatar";
 import InstallAppButton from "@/components/layout/InstallAppButton";
 import SettingsModal from "@/components/account/SettingsModal";
 import { 더보기_메뉴 } from "@/constants/moreNav";
+import { use안읽은메시지, 배지글 } from "@/components/dm/메시지아이콘";
 
 function 줄({ to, onClick, icon: Icon, label, 설명, badge, 위험 }: {
   to?: string; onClick?: () => void; icon: typeof Star; label: string;
@@ -65,6 +66,9 @@ export default function More() {
     staleTime: 30_000,
   });
   const notiBadge = !notiUnread?.count ? null : notiUnread.capped ? "99+" : String(notiUnread.count);
+  /* 머리의 메시지 아이콘과 같은 서랍 — 요청이 새로 안 나간다 */
+  const { data: dmUnread } = use안읽은메시지();
+  const dmBadge = isLoggedIn ? 배지글(dmUnread) : null;
 
   const { data: 공개프로필 } = useQuery({
     queryKey: ["userPublicProfile", userId],
@@ -144,6 +148,8 @@ export default function More() {
             숨기면 이 앱에 무엇이 있는지 알 수 없다. 누르면 그 화면이 로그인하라고 말한다 */}
         <줄 to="/notifications" icon={Bell} label="알림"
           설명={isLoggedIn ? "댓글·좋아요·팔로우" : "로그인하면 댓글·좋아요·팔로우 알림을 받아요"} badge={notiBadge} />
+        <줄 to="/messages" icon={MessageCircle} label="메시지"
+          설명={isLoggedIn ? "1:1 대화" : "로그인하면 다른 사람과 1:1 로 대화할 수 있어요"} badge={dmBadge} />
         {더보기_메뉴.map((m) => (
           <줄 key={m.to} to={m.to} icon={m.icon} label={m.label} 설명={m.설명} />
         ))}

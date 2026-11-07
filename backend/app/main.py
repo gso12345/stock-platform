@@ -22,6 +22,7 @@ from app.api.routes import clienterr
 from app.api.routes import alerts
 from app.api.routes import ipo as ipo_routes
 from app.api.routes import push as push_routes
+from app.api.routes import dm as dm_routes
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
@@ -244,7 +245,8 @@ async def lifespan(application: FastAPI):
                     conn.rollback()
 
         # 커뮤니티 테이블이 없으면 재생성 (이전 배포에서 create_all이 실패했을 경우 대비)
-        community_tables = {"stock_posts", "stock_post_likes", "stock_comments", "stock_comment_likes", "user_profiles", "user_follows", "stock_post_poll_votes", "site_popups", "reports"}
+        community_tables = {"stock_posts", "stock_post_likes", "stock_comments", "stock_comment_likes", "user_profiles", "user_follows", "stock_post_poll_votes", "site_popups", "reports",
+                            "user_blocks", "dm_threads", "dm_messages"}
         if not community_tables.issubset(set(tables)):
             try:
                 Base.metadata.create_all(bind=engine)
@@ -315,6 +317,8 @@ async def lifespan(application: FastAPI):
             # 저장한 전략에 '무엇으로 돌려 봤나'(종목·기간·자본…)를 같이 담는다 — 결과 화면에서 저장하고 다시
             # 열면 같은 백테스트가 열리게. 옛 전략은 비어 있고, 그때는 조건만 되살린다(models.stock.Strategy)
             ("strategies", "run_settings", "TEXT" if _is_sqlite else "JSON"),
+            # 1:1 대화의 메시지 신고(routes/dm.py). dm_messages 는 create_all 이 먼저 만든다
+            ("reports", "message_id", "INTEGER" if _is_sqlite else "INTEGER REFERENCES dm_messages(id)"),
         ]
         try:
             from sqlalchemy import inspect as _sa_inspect
@@ -684,6 +688,7 @@ app.include_router(watchlist.router,  prefix="/api/v1")
 app.include_router(portfolio.router, prefix="/api/v1")
 app.include_router(admin_routes.router, prefix="/api/v1")
 app.include_router(community.router,    prefix="/api/v1")
+app.include_router(dm_routes.router,    prefix="/api/v1")
 # 브라우저에서 터진 것을 받는 자리. 사용자가 제보자 역할을 안 해도 되게 한다.
 app.include_router(clienterr.router,    prefix="/api/v1")
 # 가격 알림 — "삼성전자 8만원 되면 알려줘"

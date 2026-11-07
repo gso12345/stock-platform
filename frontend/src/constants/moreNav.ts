@@ -43,10 +43,16 @@ export const 더보기_메뉴: 더보기메뉴[] = [
 export const 내자산_경로 = ["/portfolio", "/watchlist"];
 
 /** 하단 탭의 "더보기" 를 켤지 판단할 경로들. 화면 자체(/more)와, 더보기 화면이 따로 그리는
- *  것들(내 프로필·알림 — 로그인 전에도 보이고, 누르면 그 화면이 로그인하라고 말한다)까지 */
+ *  것들(내 프로필·알림·메시지 — 로그인 전에도 보이고, 누르면 그 화면이 로그인하라고 말한다)까지 */
 export const 더보기_경로 = [
   "/more",
   ...더보기_메뉴.map((m) => m.to),
   "/mypage",
   "/notifications",
+  "/messages",
 ];
+
+/** 대화방(/messages/12)은 아래 탭을 숨긴다 — 그 자리에 입력칸이 붙는다(글쓰기 화면과 같은 까닭) */
+export function 대화방인가(주소: string): boolean {
+  return /^\/messages\/[^/]+\/?$/.test(주소);
+}

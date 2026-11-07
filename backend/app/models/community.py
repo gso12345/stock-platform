@@ -171,6 +171,62 @@ class SitePopup(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class UserBlock(Base):
+    """차단 — 차단한 사람과 차단당한 사람 사이에는 메시지가 오가지 않는다(어느 쪽에서도).
+
+    차단당한 사람에게는 '차단당했다' 고 알리지 않는다 — '메시지를 보낼 수 없어요' 로만 보인다.
+    알리면 다른 계정으로 다시 찾아오게 만든다."""
+    __tablename__ = "user_blocks"
+    __table_args__ = (UniqueConstraint("blocker_id", "blocked_id"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    blocker_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    blocked_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DmThread(Base):
+    """1:1 대화방 — 사용자: "상대방이랑 채팅도 할 수 있도록 해줘".
+
+    두 사람에 방은 하나다. user_a_id < user_b_id 로 줄 세워 한 줄만 둔다 — (나, 너)·(너, 나) 가 따로 생기면 같은 대화가
+    둘로 갈린다.
+
+    사람마다 따로 둘 것이 셋이라 a_·b_ 짝으로 둔다:
+      read_id     어디까지 읽었나(그 번호 이하는 읽음) — 안 읽은 수·상대의 '읽음' 표시
+      cleared_id  '나가기' 한 곳 — 그 번호 이하는 내 화면에 안 나온다. 새 메시지가 오면 방이 다시 보인다
+    last_message_id 는 외래키를 걸지 않는다 — 메시지와 서로 가리키면 지우는 순서가 꼬인다(탈퇴 정리)."""
+    __tablename__ = "dm_threads"
+    __table_args__ = (UniqueConstraint("user_a_id", "user_b_id"),)
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_a_id       = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_b_id       = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    last_message_id = Column(Integer, nullable=True)
+    last_message_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    a_read_id       = Column(Integer, nullable=False, default=0, server_default="0")
+    b_read_id       = Column(Integer, nullable=False, default=0, server_default="0")
+    a_cleared_id    = Column(Integer, nullable=False, default=0, server_default="0")
+    b_cleared_id    = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DmMessage(Base):
+    """대화방의 메시지 한 줄. 번호(id)가 곧 차례다 — 읽음·나가기·불러오기가 모두 번호로 잰다.
+
+    지우기(보낸 사람)와 가리기(신고 처리)는 줄을 남겨 둔다 — 지운 자리를 '삭제된 메시지예요' 로 보여야 대화의
+    앞뒤가 맞고, 신고된 메시지는 처리를 취소할 수 있어야 한다."""
+    __tablename__ = "dm_messages"
+    __table_args__ = (Index("ix_dm_messages_thread_id_id", "thread_id", "id"),)
+
+    id         = Column(Integer, primary_key=True, index=True)
+    thread_id  = Column(Integer, ForeignKey("dm_threads.id"), nullable=False, index=True)
+    sender_id  = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    body       = Column(Text, nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False, server_default="false")
+    is_blinded = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Report(Base):
     __tablename__ = "reports"
 
@@ -178,6 +234,8 @@ class Report(Base):
     reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     post_id     = Column(Integer, ForeignKey("stock_posts.id"), nullable=True, index=True)
     comment_id  = Column(Integer, ForeignKey("stock_comments.id"), nullable=True, index=True)
+    #: 1:1 대화의 메시지 신고 — 받은 사람만 신고할 수 있다(routes/dm.py)
+    message_id  = Column(Integer, ForeignKey("dm_messages.id"), nullable=True, index=True)
     reason      = Column(String(200), nullable=False)
     status      = Column(String(20), default="pending")  # pending, resolved, dismissed
     #: 처리할 때 **무엇을 했나** — blind / delete / dismiss. '처리 취소' 가 이걸 보고

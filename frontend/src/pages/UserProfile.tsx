@@ -1,9 +1,12 @@
 import { useState, useMemo, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, MessageCircle, Ban, UserX } from "lucide-react";
 import { communityApi, portfolioApi, dashboardApi, watchlistApi } from "@/api/stocks";
+import { dmApi, dm열쇠 } from "@/api/dm";
 import { useAuthStore } from "@/store/authStore";
+import 글메뉴 from "@/components/community/글메뉴";
+import { use확인, use알림 } from "@/hooks/useDialogs";
 import { usePricesStream } from "@/hooks/useWebSocket";
 import { mergeEffectivePrices, indexPricesBySymbol, lookupPrice } from "@/utils/prices";
 import PortfolioChart from "@/components/portfolio/PortfolioChart";
@@ -40,6 +43,9 @@ export default function UserProfile() {
   const qc = useQueryClient();
   const { isLoggedIn } = useAuthStore();
   const [followModal, setFollowModal] = useState<FollowModalType>(null);
+  const [대화여는중, set대화여는중] = useState(false);
+  const { 묻기: 확인묻기, 화면: 확인화면 } = use확인();
+  const { 보이기, 화면: 알림화면 } = use알림();
 
   const { data: profile, isLoading, isError, isFetching } = useQuery({
     queryKey: ["userPublicProfile", userId],
@@ -237,6 +243,57 @@ export default function UserProfile() {
     followMutation.mutate();
   };
 
+  /* 메시지 — 이 사람과의 대화방으로(없으면 서버가 만든다). 사용자: "상대방이랑 채팅도 할 수 있도록 해줘" */
+  const 메시지열기 = async () => {
+    if (!isLoggedIn) {
+      navigate("/login");
+      return;
+    }
+    set대화여는중(true);
+    try {
+      const { id } = await dmApi.openThread(userId);
+      navigate(`/messages/${id}`);
+    } catch (e: any) {
+      const 코드 = e?.response?.status;
+      보이기(코드 === 403 ? "커뮤니티 이용이 제한된 계정은 메시지를 보낼 수 없어요"
+        : 코드 === 429 ? "대화를 너무 자주 열고 있어요. 잠시 뒤 다시 해 주세요"
+        : "대화를 열지 못했어요", "error");
+    } finally {
+      set대화여는중(false);
+    }
+  };
+
+  /* 차단 — 서로 메시지를 못 보낸다. 상대에게는 알리지 않는다 */
+  const 차단바뀜 = () => {
+    qc.invalidateQueries({ queryKey: ["userPublicProfile", userId] });
+    qc.invalidateQueries({ queryKey: dm열쇠.차단 });
+    qc.invalidateQueries({ queryKey: ["dmThread"] });
+  };
+  const 차단하기 = () => 확인묻기({
+    title: `${displayName}님을 차단할까요?`,
+    message: "차단하면 서로 메시지를 보낼 수 없어요. 상대에게는 알리지 않아요. "
+      + "메시지 목록의 '차단한 사람' 에서 풀 수 있어요.",
+    확인글: "차단",
+    onConfirm: async () => {
+      try {
+        await dmApi.block(userId);
+        차단바뀜();
+        보이기("차단했어요", "success");
+      } catch {
+        보이기("차단하지 못했어요", "error");
+      }
+    },
+  });
+  const 차단풀기 = async () => {
+    try {
+      await dmApi.unblock(userId);
+      차단바뀜();
+      보이기("차단을 풀었어요", "success");
+    } catch {
+      보이기("차단을 풀지 못했어요", "error");
+    }
+  };
+
   const modalUsers: FollowUser[] =
     followModal === "followers" ? (followersData ?? []) : (followingData ?? []);
 
@@ -270,17 +327,33 @@ export default function UserProfile() {
                   프로필 편집
                 </Link>
               ) : (
-                <button
-                  onClick={handleFollowClick}
-                  disabled={followMutation.isPending}
-                  className={`px-4 py-1.5 text-sm font-semibold rounded-xl transition-all disabled:opacity-50 ${
-                    isFollowing
-                      ? "border border-border text-text-secondary hover:border-accent-red/50 hover:text-accent-red"
-                      : "bg-accent-blue text-white hover:bg-accent-blue/90"
-                  }`}
-                >
-                  {isFollowing ? "팔로잉" : "팔로우"}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleFollowClick}
+                    disabled={followMutation.isPending}
+                    className={`px-4 py-1.5 text-sm font-semibold rounded-xl transition-all disabled:opacity-50 ${
+                      isFollowing
+                        ? "border border-border text-text-secondary hover:border-accent-red/50 hover:text-accent-red"
+                        : "bg-accent-blue text-white hover:bg-accent-blue/90"
+                    }`}
+                  >
+                    {isFollowing ? "팔로잉" : "팔로우"}
+                  </button>
+                  <button
+                    onClick={() => void 메시지열기()}
+                    disabled={대화여는중}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm font-semibold rounded-xl border border-border text-text-secondary hover:border-accent-blue/50 hover:text-accent-blue transition-all disabled:opacity-50"
+                  >
+                    <MessageCircle size={14} />
+                    메시지
+                  </button>
+                  {isLoggedIn && (
+                    <글메뉴 이름="사용자 메뉴" 크기={20} className="ml-0.5"
+                      항목들={[profile.i_blocked
+                        ? { 이름: "차단 풀기", 아이콘: UserX, 누르면: () => void 차단풀기() }
+                        : { 이름: "차단하기", 아이콘: Ban, 위험: true, 누르면: 차단하기 }]} />
+                  )}
+                </div>
               )}
             </div>
 
@@ -419,6 +492,8 @@ export default function UserProfile() {
             </div>
         </Modal>
       )}
+      {확인화면}
+      {알림화면}
     </div>
   );
 }

@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, type QueryClient } from "@tanstack/react-query";
-import { RefreshCw, MessageSquare, Flag, AlertCircle, ExternalLink } from "lucide-react";
+import { RefreshCw, MessageSquare, MessageCircle, Flag, AlertCircle, ExternalLink } from "lucide-react";
 import { Tabs, RowSkeleton, 못불러옴 } from "@/components/ui";
 import { use확인, use알림 } from "@/hooks/useDialogs";
 import { 사람말로 } from "@/api/queryError";
@@ -49,7 +49,7 @@ export function ReportsTab({ qc }: { qc: QueryClient }) {
     title: "신고된 글을 삭제할까요?",
     message: "글이 목록에서 사라집니다. 가리기만 하려면 블라인드를 쓰세요 — 블라인드는 되돌릴 수 있고, "
       + "잘못 지웠어도 '처리됨' 에서 '처리 취소' 로 되살릴 수 있어요.",
-    대상: (r.post_title || r.post_preview || r.comment_preview || "(내용 없음)").slice(0, 40),
+    대상: (r.post_title || r.post_preview || r.comment_preview || r.message_preview || "(내용 없음)").slice(0, 40),
     확인글: "삭제",
     onConfirm: () => act(adminApi.deleteReportContent, r.id),
   });
@@ -66,7 +66,7 @@ export function ReportsTab({ qc }: { qc: QueryClient }) {
     message: `${되돌림설명[r.action] ?? "무엇을 처리했는지 기록이 없어 글은 그대로 두고"} 신고는 '대기' 로 돌아갑니다.`
       + (r.action === "blind" || r.action === "delete"
         ? " 같은 글이 다른 신고로도 처리돼 있으면 글은 그대로 둡니다." : ""),
-    대상: (r.post_title || r.post_body || r.comment_preview || "(내용 없음)").slice(0, 40),
+    대상: (r.post_title || r.post_body || r.comment_preview || r.message_preview || "(내용 없음)").slice(0, 40),
     확인글: "처리 취소",
     onConfirm: () => act(async (id) => {
       const 결과 = await adminApi.reopenReport(id);
@@ -117,6 +117,9 @@ export function ReportsTab({ qc }: { qc: QueryClient }) {
           {reports.map((r: any) => {
             const isPending = r.status === "pending";
             const isActing  = actingId === r.id;
+            /* 1:1 메시지 신고 — 지우지 않고 블라인드로 가린다(서버가 삭제를 거절한다: 메시지의 삭제 표시는
+               보낸 사람이 지운 것과 같은 칸이라, 처리 취소 때 보낸 사람이 지운 것까지 되살아난다) */
+            const 메시지신고 = !!r.message_id && !r.post_id && !r.comment_id;
             return (
               <div key={r.id}
                 className={`rounded-xl border bg-bg-card overflow-hidden transition-opacity ${
@@ -183,6 +186,26 @@ export function ReportsTab({ qc }: { qc: QueryClient }) {
                       <p className="text-xs text-text-secondary leading-relaxed line-clamp-2">{r.comment_preview || "—"}</p>
                     </div>
                   )}
+                  {r.message_id && (
+                    <div className="rounded-lg bg-bg-elevated border border-border/50 p-3 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <MessageCircle size={11} className="text-text-muted shrink-0" />
+                        <span className="text-xs text-text-muted">1:1 메시지 #{r.message_id}</span>
+                        {r.message_author && (
+                          <span className="text-xs font-semibold text-text-secondary">· @{r.message_author}</span>
+                        )}
+                        {(r.message_is_blinded || r.message_is_deleted) && (
+                          <span className="ml-auto text-2xs text-text-dim shrink-0">
+                            {r.message_is_blinded ? "블라인드됨" : "보낸 사람이 지움"}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-text-secondary leading-relaxed line-clamp-3 whitespace-pre-wrap break-words">
+                        {r.message_preview || "—"}
+                      </p>
+                      <p className="text-2xs text-text-dim">대화의 다른 메시지는 보이지 않아요 — 신고된 이 메시지만</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* 액션 버튼 */}
@@ -192,10 +215,12 @@ export function ReportsTab({ qc }: { qc: QueryClient }) {
                       className="flex-1 py-3 text-xs font-semibold text-accent-yellow hover:bg-accent-yellow/8 active:bg-accent-yellow/15 transition-colors disabled:opacity-40">
                       {isActing ? "처리 중..." : "블라인드"}
                     </button>
-                    <button onClick={() => 지우기(r)} disabled={isActing}
-                      className="flex-1 py-3 text-xs font-semibold text-accent-red hover:bg-accent-red/8 active:bg-accent-red/15 transition-colors disabled:opacity-40">
-                      {isActing ? "처리 중..." : "콘텐츠 삭제"}
-                    </button>
+                    {!메시지신고 && (
+                      <button onClick={() => 지우기(r)} disabled={isActing}
+                        className="flex-1 py-3 text-xs font-semibold text-accent-red hover:bg-accent-red/8 active:bg-accent-red/15 transition-colors disabled:opacity-40">
+                        {isActing ? "처리 중..." : "콘텐츠 삭제"}
+                      </button>
+                    )}
                     <button onClick={() => act(adminApi.dismissReport, r.id)} disabled={isActing}
                       className="flex-1 py-3 text-xs font-semibold text-text-muted hover:text-text-primary hover:bg-bg-elevated active:bg-bg-hover transition-colors disabled:opacity-40">
                       {isActing ? "처리 중..." : "기각"}

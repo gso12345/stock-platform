@@ -8,11 +8,16 @@
 import { useState } from "react";
 import { Modal } from "@/components/ui";
 import ModalFooter from "@/components/ui/ModalFooter";
+/** 신고하는 것 — 1:1 메시지도 같은 창을 쓴다(받은 메시지만 신고할 수 있다) */
+export type 신고대상 = "글" | "댓글" | "메시지";
+
+/** '이 ○○을/를' — 셋뿐이라 표로 둔다('이 메시지을' 이 되지 않게). 조사 도구를 끌어오면 피드가 처음 받는 JS 가 는다 */
+const 무엇을: Record<신고대상, string> = { 글: "글을", 댓글: "댓글을", 메시지: "메시지를" };
 
 export const 신고사유들 = ["스팸·광고", "욕설·혐오 표현", "허위 정보", "성적·불법 콘텐츠", "개인정보 침해", "기타"];
 
 export default function 신고창({ 무엇, 대상, 보내기, 닫기 }: {
-  무엇: "글" | "댓글";
+  무엇: 신고대상;
   /** 무엇을 신고하는지 한 줄 — 옆 글을 잘못 누른 것을 알아챌 수 있게 */
   대상?: string;
   /** 보낸다. true 면 창을 닫는다(이미 신고한 것도 닫는다 — 더 할 일이 없다), false 면 그대로 둔다 */
@@ -37,7 +42,7 @@ export default function 신고창({ 무엇, 대상, 보내기, 닫기 }: {
   return (
     <Modal onClose={보내는중 ? undefined : 닫기} maxWidth="max-w-sm">
       <div className="p-5 flex flex-col gap-3">
-        <h2 className="text-base font-bold text-text-primary">이 {무엇}을 신고할까요?</h2>
+        <h2 className="text-base font-bold text-text-primary">이 {무엇을[무엇]} 신고할까요?</h2>
         {대상 && (
           <p className="text-xs text-text-muted bg-bg-elevated rounded-lg px-3 py-2 line-clamp-2 break-words">{대상}</p>
         )}
@@ -68,7 +73,7 @@ export default function 신고창({ 무엇, 대상, 보내기, 닫기 }: {
 /** 서버 답을 알림 한 줄로 — 409 는 이미 신고한 것. 보낸 결과(창을 닫을지)와 함께 */
 export async function 신고보내기(
   보내기: () => Promise<unknown>,
-  무엇: "글" | "댓글",
+  무엇: 신고대상,
   알리기: (글: string, 종류: "success" | "error") => void,
 ): Promise<boolean> {
   try {
@@ -77,7 +82,8 @@ export async function 신고보내기(
     return true;
   } catch (e: any) {
     if (e?.response?.status === 409) {
-      알리기(무엇 === "글" ? "이미 신고한 게시글입니다" : "이미 신고한 댓글입니다", "error");
+      알리기(무엇 === "글" ? "이미 신고한 게시글입니다" : 무엇 === "댓글" ? "이미 신고한 댓글입니다"
+        : "이미 신고한 메시지예요", "error");
       return true;
     }
     알리기("신고하지 못했습니다", "error");

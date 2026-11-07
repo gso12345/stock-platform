@@ -220,6 +220,54 @@ def 알림_보내기(알림_id들: list) -> None:
         log.debug("알림 푸시 맡기기 실패: %s", type(e).__name__)
 
 
+def 메시지_내용(db, m, t) -> dict:
+    """1:1 메시지 한 줄 → 푸시. 방마다 한 칸(tag) — 연달아 와도 알림판이 그 대화 하나로 묶인다(새 것이 오면 다시 울린다)"""
+    from app.models.community import UserProfile
+    from app.models.user import User
+    별명 = db.query(UserProfile.nickname).filter(UserProfile.user_id == m.sender_id).scalar()
+    이름 = 별명 or db.query(User.username).filter(User.id == m.sender_id).scalar() or "누군가"
+    return {"title": f"{이름}님의 메시지", "body": " ".join((m.body or "").split())[:100],
+            "url": f"/messages/{t.id}", "tag": f"dm-{t.id}"}
+
+
+def _메시지_보내기(메시지_id: int) -> int:
+    from app.db.database import SessionLocal
+    from app.models.community import DmMessage, DmThread, UserProfile
+    from app.models.push import PushSubscription
+    db = SessionLocal()
+    try:
+        m = db.query(DmMessage).filter(DmMessage.id == 메시지_id).first()
+        t = db.query(DmThread).filter(DmThread.id == m.thread_id).first() if m else None
+        if not m or not t or m.is_deleted:
+            return 0
+        받는이 = t.user_b_id if m.sender_id == t.user_a_id else t.user_a_id
+        #: 알림 설정에서 '메시지' 를 끈 사람에게는 안 보낸다(앱 안의 안 읽은 수는 그대로 센다)
+        끈것 = db.query(UserProfile.noti_disabled).filter(UserProfile.user_id == 받는이).scalar() or ""
+        if "dm" in {k.strip() for k in 끈것.split(",")}:
+            return 0
+        구독들 = db.query(PushSubscription).filter(PushSubscription.user_id == 받는이).all()
+        return 기기들에(db, 구독들, 메시지_내용(db, m, t), "dm") if 구독들 else 0
+    except Exception as e:
+        log.warning("메시지 푸시 실패: %s", type(e).__name__)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return 0
+    finally:
+        db.close()
+
+
+def 메시지_알리기(메시지_id: int) -> None:
+    """방금 보낸 메시지를 받는 사람 기기로 — 뒤에서. 어떤 예외도 안 내보낸다"""
+    if not 메시지_id:
+        return
+    try:
+        _일꾼.submit(_메시지_보내기, 메시지_id)
+    except Exception as e:
+        log.debug("메시지 푸시 맡기기 실패: %s", type(e).__name__)
+
+
 def 시험_보내기(db, user_id: int) -> dict:
     """'시험 알림 보내기' — 지금 이 사람의 기기 모두에. {devices, sent}"""
     from app.models.push import PushSubscription

@@ -1256,7 +1256,7 @@ def list_reports(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    from app.models.community import Report, StockPost, StockComment
+    from app.models.community import Report, StockPost, StockComment, DmMessage
     q = db.query(Report).options(selectinload(Report.reporter))
     if status != "all":
         q = q.filter(Report.status == status)
@@ -1266,9 +1266,11 @@ def list_reports(
     # 배치 조회로 N+1 제거
     post_ids    = list({r.post_id    for r in reports if r.post_id})
     comment_ids = list({r.comment_id for r in reports if r.comment_id})
+    message_ids = list({r.message_id for r in reports if getattr(r, "message_id", None)})
 
     posts_map: dict = {}
     comments_map: dict = {}
+    messages_map: dict = {}
     author_ids: set = set()
 
     if post_ids:
@@ -1279,6 +1281,11 @@ def list_reports(
         for c in db.query(StockComment).filter(StockComment.id.in_(comment_ids)).all():
             comments_map[c.id] = c
             author_ids.add(c.user_id)
+    #: 1:1 메시지 — 신고된 **그 메시지만** 본다(대화의 다른 메시지는 안 싣는다)
+    if message_ids:
+        for m in db.query(DmMessage).filter(DmMessage.id.in_(message_ids)).all():
+            messages_map[m.id] = m
+            author_ids.add(m.sender_id)
 
     users_map: dict = {}
     if author_ids:
@@ -1291,6 +1298,8 @@ def list_reports(
         comment_preview = comment_author = None
         post_is_blinded = comment_is_blinded = False
         post_is_deleted = comment_is_deleted = False
+        message_preview = message_author = None
+        message_is_blinded = message_is_deleted = False
 
         if r.post_id and r.post_id in posts_map:
             post = posts_map[r.post_id]
@@ -1313,6 +1322,14 @@ def list_reports(
             author = users_map.get(comment.user_id)
             comment_author = author.username if author else "—"
 
+        if getattr(r, "message_id", None) and r.message_id in messages_map:
+            msg = messages_map[r.message_id]
+            message_is_blinded = bool(msg.is_blinded)
+            message_is_deleted = bool(msg.is_deleted)
+            message_preview = str(msg.body or "")[:300]
+            author = users_map.get(msg.sender_id)
+            message_author = author.username if author else "—"
+
         result.append({
             "id":                 r.id,
             "reporter_id":        r.reporter_id,
@@ -1328,6 +1345,11 @@ def list_reports(
             "comment_is_blinded": comment_is_blinded,
             "post_is_deleted":    post_is_deleted,
             "comment_is_deleted": comment_is_deleted,
+            "message_id":         getattr(r, "message_id", None),
+            "message_preview":    message_preview,
+            "message_author":     message_author,
+            "message_is_blinded": message_is_blinded,
+            "message_is_deleted": message_is_deleted,
             "reason":             r.reason,
             "status":             r.status,
             #: 처리할 때 무엇을 했나 — 화면이 '처리 취소' 확인 문구를 고른다
@@ -1339,7 +1361,7 @@ def list_reports(
 
 @router.patch("/reports/{report_id}/blind")
 def blind_content(report_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
-    """신고된 게시글 또는 댓글을 블라인드 처리"""
+    """신고된 게시글·댓글·메시지를 블라인드 처리"""
     from app.models.community import Report, StockPost, StockComment
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
@@ -1352,17 +1374,19 @@ def blind_content(report_id: int, db: Session = Depends(get_db), current: User =
         comment = db.query(StockComment).filter(StockComment.id == report.comment_id).first()
         if comment:
             comment.is_blinded = True
+    msg = _신고메시지(db, report)
+    if msg:
+        msg.is_blinded = True
     report.status = "resolved"
     report.action = "blind"
     db.commit()
-    관리기록(db, current, "report.blind", "report", report_id,
-             f"글 {report.post_id} · 댓글 {report.comment_id}")
+    관리기록(db, current, "report.blind", "report", report_id, _대상글(report))
     return {"message": "블라인드 처리 완료", "report_id": report_id}
 
 
 @router.patch("/reports/{report_id}/unblind")
 def unblind_content(report_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
-    """블라인드 처리된 게시글 또는 댓글을 복구"""
+    """블라인드 처리된 게시글·댓글·메시지를 복구"""
     from app.models.community import Report, StockPost, StockComment
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
@@ -1375,11 +1399,13 @@ def unblind_content(report_id: int, db: Session = Depends(get_db), current: User
         comment = db.query(StockComment).filter(StockComment.id == report.comment_id).first()
         if comment:
             comment.is_blinded = False
+    msg = _신고메시지(db, report)
+    if msg:
+        msg.is_blinded = False
     report.status = "dismissed"
     report.action = "dismiss"
     db.commit()
-    관리기록(db, current, "report.unblind", "report", report_id,
-             f"글 {report.post_id} · 댓글 {report.comment_id}")
+    관리기록(db, current, "report.unblind", "report", report_id, _대상글(report))
     return {"message": "블라인드 복구 완료", "report_id": report_id}
 
 
@@ -1399,11 +1425,16 @@ def dismiss_report(report_id: int, db: Session = Depends(get_db), current: User 
 
 @router.delete("/reports/{report_id}/content", status_code=204)
 def delete_reported_content(report_id: int, db: Session = Depends(get_db), current: User = Depends(require_admin)):
-    """신고된 게시글 또는 댓글을 삭제 처리"""
+    """신고된 게시글·댓글을 삭제 처리.
+
+    1:1 메시지는 지우지 않는다 — 블라인드로 가린다. 메시지의 '삭제' 표시는 보낸 사람이 스스로 지운 것과 같은 칸이라,
+    관리자가 지운 뒤 '처리 취소' 하면 보낸 사람이 지운 메시지까지 되살아난다. 가리면 두 사람 모두에게 안 보이니 할 일은 같다."""
     from app.models.community import Report, StockPost, StockComment
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(404, "신고를 찾을 수 없습니다")
+    if getattr(report, "message_id", None) and not report.post_id and not report.comment_id:
+        raise HTTPException(400, "메시지는 블라인드로 가려 주세요")
     if report.post_id:
         post = db.query(StockPost).filter(StockPost.id == report.post_id).first()
         if post:
@@ -1415,8 +1446,21 @@ def delete_reported_content(report_id: int, db: Session = Depends(get_db), curre
     report.status = "resolved"
     report.action = "delete"
     db.commit()
-    관리기록(db, current, "report.delete_content", "report", report_id,
-             f"글 {report.post_id} · 댓글 {report.comment_id}")
+    관리기록(db, current, "report.delete_content", "report", report_id, _대상글(report))
+
+
+def _신고메시지(db: Session, report):
+    """신고가 가리키는 1:1 메시지(없으면 None)"""
+    if not getattr(report, "message_id", None):
+        return None
+    from app.models.community import DmMessage
+    return db.query(DmMessage).filter(DmMessage.id == report.message_id).first()
+
+
+def _대상글(report) -> str:
+    """관리 기록에 남길 대상 — 메시지 신고면 메시지 번호까지"""
+    글 = f"글 {report.post_id} · 댓글 {report.comment_id}"
+    return 글 + (f" · 메시지 {report.message_id}" if getattr(report, "message_id", None) else "")
 
 
 #: 관리 기록의 이름 → 신고 처리 종류. action 칸이 생기기 전에 처리한 신고를 위해
@@ -1459,6 +1503,8 @@ def _상태로본처리(db: Session, report) -> str | None:
         대상들.append(db.query(StockPost).filter(StockPost.id == report.post_id).first())
     if report.comment_id:
         대상들.append(db.query(StockComment).filter(StockComment.id == report.comment_id).first())
+    #: 메시지는 넣지 않는다 — 메시지 신고는 처음부터 action 을 남기고(이 길로 안 온다), 메시지의 삭제 표시는
+    #  보낸 사람이 지운 것이라 '신고로 지웠다' 는 짐작이 틀린다
     대상들 = [x for x in 대상들 if x is not None]
     if any(x.is_deleted for x in 대상들):
         return "delete"
@@ -1479,7 +1525,7 @@ def reopen_report(report_id: int, db: Session = Depends(get_db), current: User =
         그 신고는 여전히 처리된 상태다
       · 무엇을 했는지 기록이 없는 옛 신고는 글의 상태로 짐작한다
         (_상태로본처리 — 숨김 삭제는 신고 처리로만 생긴다)"""
-    from app.models.community import Report, StockPost, StockComment
+    from app.models.community import Report, StockPost, StockComment, DmMessage
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(404, "신고를 찾을 수 없습니다")
@@ -1492,7 +1538,10 @@ def reopen_report(report_id: int, db: Session = Depends(get_db), current: User =
     칸 = {"blind": "is_blinded", "delete": "is_deleted"}.get(한것 or "")
     if 칸:
         for 종류, 모델, 번호, 열 in (("글", StockPost, report.post_id, Report.post_id),
-                                    ("댓글", StockComment, report.comment_id, Report.comment_id)):
+                                    ("댓글", StockComment, report.comment_id, Report.comment_id),
+                                    # 메시지는 블라인드만 되돌린다 — '삭제' 로는 처리되지 않는다(delete_reported_content 가
+                                    # 거절). 메시지의 삭제 표시는 보낸 사람이 스스로 지운 것이라 여기서 되살리면 안 된다
+                                    ("메시지", DmMessage, getattr(report, "message_id", None), Report.message_id)):
             if not 번호:
                 continue
             대상 = db.query(모델).filter(모델.id == 번호).first()

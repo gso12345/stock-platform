@@ -793,8 +793,9 @@ _NOTI_PREVIEW_MAX = 100
 # 같은 사람이 같은 대상에 몇 번을 눌러도 알림은 한 번만 남기는 종류
 _NOTI_ONCE_KINDS = frozenset({"post_like", "comment_like", "follow"})
 
-# 사용자가 켜고 끌 수 있는 알림 종류 — 화면의 설정 항목과 1:1로 대응한다
-_NOTI_KINDS = ("comment", "reply", "post_like", "comment_like", "follow")
+# 사용자가 켜고 끌 수 있는 알림 종류 — 화면의 설정 항목과 1:1로 대응한다.
+# dm(1:1 메시지)은 알림 목록에 쌓이지 않고 휴대폰 알림만 간다 — 끄면 그것만 안 온다(push_service._메시지_보내기)
+_NOTI_KINDS = ("comment", "reply", "post_like", "comment_like", "follow", "dm")
 
 
 def _disabled_kinds(db: Session, user_id: int) -> frozenset:
@@ -1653,12 +1654,15 @@ def get_user_public_profile(
             (SELECT COUNT(*) FROM user_follows WHERE following_id = :uid) AS follower_count,
             (SELECT COUNT(*) FROM user_follows WHERE follower_id  = :uid) AS following_count,
             (SELECT COUNT(*) FROM stock_posts  WHERE user_id = :uid AND is_deleted IS NOT TRUE AND is_blinded IS NOT TRUE) AS post_count,
-            (SELECT 1 FROM user_follows WHERE follower_id = :me AND following_id = :uid LIMIT 1) AS is_following
+            (SELECT 1 FROM user_follows WHERE follower_id = :me AND following_id = :uid LIMIT 1) AS is_following,
+            (SELECT 1 FROM user_blocks  WHERE blocker_id  = :me AND blocked_id   = :uid LIMIT 1) AS i_blocked
     """), {"uid": user_id, "me": me_id}).fetchone()
     follower_count  = stat_row[0] or 0
     following_count = stat_row[1] or 0
     post_count      = stat_row[2] or 0
     is_following    = bool(stat_row[3]) if current_user else False
+    #: 내가 이 사람을 막았나 — 프로필의 '차단 풀기'. 상대가 나를 막았는지는 알리지 않는다
+    i_blocked       = bool(stat_row[4]) if current_user else False
     is_me = current_user.id == user_id if current_user else False
     return {
         "user_id":        user.id,
@@ -1671,6 +1675,7 @@ def get_user_public_profile(
         "following_count": following_count,
         "post_count":     post_count,
         "is_following":   is_following,
+        "i_blocked":      i_blocked,
         "is_me":          is_me,
     }
 
@@ -1789,6 +1794,7 @@ class NotificationSettingsIn(BaseModel):
     post_like:    bool = True
     comment_like: bool = True
     follow:       bool = True
+    dm:           bool = True
 
 
 @router.get("/notifications/settings")

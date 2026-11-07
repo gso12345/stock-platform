@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Award, ShieldCheck, Megaphone, User, Rss, Rocket, RefreshCw, WifiOff } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Award, ShieldCheck, Megaphone, User, Rss, Rocket, RefreshCw, WifiOff, MessageCircle } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
@@ -11,8 +11,8 @@ import InstallAppButton from "@/components/layout/InstallAppButton";
 import LoadingProgressOverlay from "@/components/layout/LoadingProgressOverlay";
 import NotificationBell from "@/components/community/NotificationBell";
 import SettingsModal from "@/components/account/SettingsModal";
-import { 더보기_경로, 내자산_경로 } from "@/constants/moreNav";
-import { useState, useEffect, useRef, Suspense } from "react";
+import { 더보기_경로, 내자산_경로, 대화방인가 } from "@/constants/moreNav";
+import { useState, useEffect, useRef, Suspense, lazy } from "react";
 import { 화면미리받기 } from "@/routes/pages";
 import { 앱준비됨 } from "@/components/layout/SplashScreen";
 import { 한가할때, 아껴쓰는중 } from "@/utils/한가할때";
@@ -55,6 +55,19 @@ const 아래탭숨길곳 = ["/feed/write"];
 function 미리받기(주소: string) {
   const 받기 = () => 화면미리받기(주소);
   return { onPointerEnter: 받기, onPointerDown: 받기, onFocus: 받기 };
+}
+
+/* 머리의 메시지 아이콘(안 읽은 수·푸시 듣기·메시지 API)은 따로 받는다 — 모든 화면이 처음에 반드시 받는 앱 틀을
+   키우지 않게(src/__tests__/bundle.test.ts 의 첫 진입 한도). 받는 동안은 배지 없는 같은 아이콘을 그려 자리가
+   흔들리지 않는다. 배지는 어차피 서버에 묻고 나서야 뜬다 */
+const 메시지아이콘 = lazy(() => import("@/components/dm/메시지아이콘"));
+function 메시지아이콘자리() {
+  return (
+    <Link to="/messages" aria-label="메시지"
+      className="relative p-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-all">
+      <MessageCircle size={14} />
+    </Link>
+  );
 }
 
 /** 화면 코드를 받는 동안 내용 자리에 두는 자리표시 */
@@ -163,7 +176,7 @@ export default function Layout() {
 
   /* 글을 쓰는 동안은 아래 탭을 숨긴다 — 앱의 글쓰기 화면처럼 화면을 다 쓰고, 그 자리에 사진·투표·태그
      도구줄이 붙는다(FeedWrite). 잘못 눌러 쓰던 글을 두고 다른 탭으로 가는 일도 막는다 */
-  const 아래탭숨김 = 아래탭숨길곳.includes(location.pathname);
+  const 아래탭숨김 = 아래탭숨길곳.includes(location.pathname) || 대화방인가(location.pathname);
 
   const navItemCls = (isActive: boolean) =>
     `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
@@ -247,6 +260,7 @@ export default function Layout() {
                 <Link to="/mypage" className="hidden sm:block text-text-muted text-xs font-medium truncate max-w-[120px] hover:text-accent-blue transition-colors" title={username ?? ""}>
                   {username}
                 </Link>
+                <Suspense fallback={<메시지아이콘자리 />}><메시지아이콘 /></Suspense>
                 <NotificationBell />
                 {isAdmin && (
                   <Link to="/admin" className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-accent-blue/40 hover:bg-accent-blue/10 text-accent-blue transition-all" title="관리자 페이지">
@@ -265,7 +279,8 @@ export default function Layout() {
               </div>
             ) : (
               <div className="flex items-center gap-1.5">
-                {/* 로그인 전에도 종은 보인다 — PC 는 여기가 알림으로 가는 유일한 입구다 */}
+                {/* 로그인 전에도 종·메시지는 보인다 — PC 는 여기가 알림·메시지로 가는 유일한 입구다 */}
+                <Suspense fallback={<메시지아이콘자리 />}><메시지아이콘 /></Suspense>
                 <NotificationBell />
                 <Link
                   to="/login"

@@ -619,3 +619,108 @@ class Test공모주_아침:
         assert P.공모주_아침(date(2026, 11, 3)) == 1
         assert 받은[0].headers["TTL"] == str(7 * 3600 + 30 * 60)
         assert 받은[0].headers["Urgency"] == "normal"
+
+
+# ── 1:1 메시지 ────────────────────────────────────────────────
+class Test메시지:
+    """보낸 메시지는 받는 사람 기기로 — 앱을 닫아 둔 사람이 놓치지 않게(routes/dm.py)"""
+
+    def _방과_메시지(self, 세션, 보낸이, 받는이, 글="  내일\n  만나요 ", 지움=False):
+        from app.models.community import DmMessage, DmThread
+        db = 세션()
+        가, 나 = sorted((보낸이, 받는이))
+        t = DmThread(user_a_id=가, user_b_id=나)
+        db.add(t); db.commit()
+        m = DmMessage(thread_id=t.id, sender_id=보낸이, body=글, is_deleted=지움)
+        db.add(m); db.commit()
+        ids = t.id, m.id
+        db.close()
+        return ids
+
+    def _끄기(self, 세션, uid, 끈것):
+        from app.models.community import UserProfile
+        db = 세션()
+        p = db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+        if p is None:
+            p = UserProfile(user_id=uid)
+            db.add(p)
+        p.noti_disabled = 끈것
+        db.commit(); db.close()
+
+    def _둘(self, 세션):
+        보낸이, 받는이 = _사람(세션, "ant_sender", 별명="개미왕"), _사람(세션, "ant_recv")
+        보낸폰 = 기기("https://fcm.googleapis.com/fcm/send/sender")
+        받는폰 = 기기("https://fcm.googleapis.com/fcm/send/recv")
+        db = 세션()
+        P.구독하기(db, 보낸이, 보낸폰.endpoint, 보낸폰.p256dh, 보낸폰.auth_글)
+        P.구독하기(db, 받는이, 받는폰.endpoint, 받는폰.p256dh, 받는폰.auth_글)
+        db.close()
+        return 보낸이, 받는이, 받는폰
+
+    def test_받는_사람_기기에만_보낸_사람_별명으로_그_대화로(self, 메모리DB, 푸시서버, 바로):
+        받은, _ = 푸시서버
+        보낸이, 받는이, 받는폰 = self._둘(메모리DB)
+        방, 번호 = self._방과_메시지(메모리DB, 보낸이, 받는이)
+        P.메시지_알리기(번호)
+        assert [str(r.url) for r in 받은] == [받는폰.endpoint], "보낸 사람 기기에도 갔거나 받는 사람에게 안 갔다"
+        assert json.loads(받는폰.풀기(받은[0].content)) == {
+            "title": "개미왕님의 메시지", "body": "내일 만나요",
+            "url": f"/messages/{방}", "tag": f"dm-{방}",
+        }
+        assert 받은[0].headers["TTL"] == str(24 * 3600) and 받은[0].headers["Urgency"] == "normal"
+
+    def test_별명이_없으면_아이디로_긴_글은_100자까지(self, 메모리DB, 푸시서버, 바로):
+        받은, _ = 푸시서버
+        보낸이, 받는이 = _사람(메모리DB, "plainid"), _사람(메모리DB, "recv2")
+        d = 기기()
+        P.구독하기(메모리DB(), 받는이, d.endpoint, d.p256dh, d.auth_글)
+        _, 번호 = self._방과_메시지(메모리DB, 보낸이, 받는이, 글="가" * 150)
+        P.메시지_알리기(번호)
+        내용 = json.loads(d.풀기(받은[0].content))
+        assert 내용["title"] == "plainid님의 메시지" and 내용["body"] == "가" * 100
+
+    def test_메시지_알림을_끈_사람에게는_안_보낸다(self, 메모리DB, 푸시서버, 바로):
+        받은, _ = 푸시서버
+        보낸이, 받는이, _ = self._둘(메모리DB)
+        self._끄기(메모리DB, 받는이, "follow, dm")
+        _, 번호 = self._방과_메시지(메모리DB, 보낸이, 받는이)
+        assert P._메시지_보내기(번호) == 0 and 받은 == []
+
+    @pytest.mark.parametrize("끈것", [None, "", "follow", "dm_x,comment", "adm"])
+    def test_다른_것을_끈_사람에게는_보낸다(self, 메모리DB, 푸시서버, 바로, 끈것):
+        받은, _ = 푸시서버
+        보낸이, 받는이, _ = self._둘(메모리DB)
+        self._끄기(메모리DB, 받는이, 끈것)
+        _, 번호 = self._방과_메시지(메모리DB, 보낸이, 받는이)
+        assert P._메시지_보내기(번호) == 1 and len(받은) == 1
+
+    def test_보내기_전에_지운_메시지는_안_보낸다(self, 메모리DB, 푸시서버, 바로):
+        받은, _ = 푸시서버
+        보낸이, 받는이, _ = self._둘(메모리DB)
+        _, 번호 = self._방과_메시지(메모리DB, 보낸이, 받는이, 지움=True)
+        assert P._메시지_보내기(번호) == 0 and 받은 == []
+
+    def test_없는_메시지와_기기_없는_사람은_조용히(self, 메모리DB, 푸시서버, 바로):
+        받은, _ = 푸시서버
+        assert P._메시지_보내기(99999) == 0
+        보낸이, 받는이 = _사람(메모리DB, "s3"), _사람(메모리DB, "r3")
+        _, 번호 = self._방과_메시지(메모리DB, 보낸이, 받는이)
+        assert P._메시지_보내기(번호) == 0 and 받은 == []
+
+    def test_뒤에서_보내고_예외를_안_낸다(self, monkeypatch):
+        부름 = []
+        class 기록:
+            def submit(self, *a):
+                부름.append(a)
+        monkeypatch.setattr(P, "_일꾼", 기록())
+        P.메시지_알리기(0)
+        P.메시지_알리기(None)
+        assert 부름 == []
+        P.메시지_알리기(7)
+        assert 부름 == [(P._메시지_보내기, 7)]
+
+        class 닫힘:
+            def submit(self, *a):
+                raise RuntimeError("cannot schedule new futures after shutdown")
+        monkeypatch.setattr(P, "_일꾼", 닫힘())
+        P.메시지_알리기(7)

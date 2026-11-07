@@ -35,6 +35,8 @@ from app.models.user import User
     ("reports", "reporter_id"),
     ("notifications", "user_id"),
     ("notifications", "actor_id"),
+    ("user_blocks", "blocker_id"),
+    ("user_blocks", "blocked_id"),
 ]
 
 #: 나머지 개인 데이터. **가리키는 쪽이 먼저** 온다.
@@ -105,6 +107,14 @@ def 회원지우기(db: Session, user: User) -> dict:
     _지우기(db, "DELETE FROM notifications WHERE post_id IN :p", 지운수, "notifications", p=내글)
     _지우기(db, "DELETE FROM reports WHERE post_id IN :p", 지운수, "reports", p=내글)
 
+    # ── 2-1. 1:1 대화 — 한쪽이 없는 방은 뜻이 없다. 방·그 안의 메시지(상대가 보낸 것 포함)·그 메시지의 신고 ──
+    #: 가리키는 쪽이 먼저 — 신고 → 메시지 → 방. 방의 last_message_id 는 외래키가 아니라 순서를 안 탄다
+    내방 = "SELECT id FROM dm_threads WHERE user_a_id = :uid OR user_b_id = :uid"
+    _지우기(db, f"DELETE FROM reports WHERE message_id IN (SELECT id FROM dm_messages WHERE thread_id IN ({내방}))",
+           지운수, "reports", uid=uid)
+    _지우기(db, f"DELETE FROM dm_messages WHERE thread_id IN ({내방})", 지운수, "dm_messages", uid=uid)
+    _지우기(db, "DELETE FROM dm_threads WHERE user_a_id = :uid OR user_b_id = :uid", 지운수, "dm_threads", uid=uid)
+
     # ── 3. 내가 남에게 한 것 ──
     for 표, 칸 in 내가한것:
         _지우기(db, f"DELETE FROM {표} WHERE {칸} = :uid", 지운수, 표, uid=uid)
@@ -136,4 +146,6 @@ def 회원지우기(db: Session, user: User) -> dict:
 #  모은 것이라, 목록에서 빼면 여기서도 빠진다.
 치우는_칸 = set(내가한것) | {(표, "user_id") for 표 in 개인표} | {
     ("stock_comments", "user_id"), ("stock_posts", "user_id"),
+    #: 1:1 대화 — 방째로 지운다(2-1)
+    ("dm_threads", "user_a_id"), ("dm_threads", "user_b_id"), ("dm_messages", "sender_id"),
 }

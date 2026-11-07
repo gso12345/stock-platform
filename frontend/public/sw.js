@@ -96,8 +96,8 @@ self.addEventListener("push", (event) => {
   } catch (e) {
     내용 = { body: event.data ? event.data.text() : "" };
   }
-  event.waitUntil(
-    self.registration.showNotification(내용.title || "새 알림", {
+  event.waitUntil((async () => {
+    await self.registration.showNotification(내용.title || "새 알림", {
       body: 내용.body || "",
       icon: "/pwa-192.png",
       badge: "/pwa-192.png",
@@ -105,8 +105,18 @@ self.addEventListener("push", (event) => {
       tag: 내용.tag || undefined,
       renotify: Boolean(내용.tag),
       data: { url: 내용.url || "/notifications" },
-    })
-  );
+    });
+    // 1:1 메시지(tag 'dm-방번호')면 열려 있는 앱 창에도 알린다 — 화면이 다음 묻기를 기다리지 않고 바로
+    // 새 메시지를 받는다(hooks/useDmPush). 알림은 위에서 그대로 띄운다 — 안 띄우면 브라우저가 구독을 끊는다
+    if (/^dm-\d+$/.test(String(내용.tag || ""))) {
+      try {
+        const 창들 = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+        for (const 창 of 창들) 창.postMessage({ type: "dm", tag: 내용.tag });
+      } catch (e) {
+        // 창에 못 알려도 알림은 이미 떴다 — 화면은 다음 묻기 때 받는다
+      }
+    }
+  })());
 });
 
 // 알림을 누르면 — 열려 있는 앱 창이 있으면 그 창을 그 화면으로, 없으면 새로 연다

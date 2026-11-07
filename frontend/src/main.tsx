@@ -45,6 +45,8 @@ const More = lazy(화면들.More);
 const UserProfile = lazy(화면들.UserProfile);
 const PostDetail = lazy(화면들.PostDetail);
 const Notifications = lazy(화면들.Notifications);
+const Messages = lazy(화면들.Messages);
+const ChatRoom = lazy(화면들.ChatRoom);
 
 // queryClient 는 api/queryClient 로 옮겼다 — 로그인·로그아웃 때
 // 화면 밖(authStore)에서도 비울 수 있어야 하기 때문이다
@@ -146,6 +148,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <Route path="profile/:userId" element={<UserProfile />} />
               <Route path="post/:postId" element={<PostDetail />} />
               <Route path="notifications" element={<Notifications />} />
+              <Route path="messages" element={<Messages />} />
+              <Route path="messages/:threadId" element={<ChatRoom />} />
               <Route path="more" element={<More />} />
             </Route>
           </Routes>

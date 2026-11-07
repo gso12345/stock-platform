@@ -31,6 +31,8 @@ export const 화면들 = {
   UserProfile:   () => import("../pages/UserProfile"),
   PostDetail:    () => import("../pages/PostDetail"),
   Notifications: () => import("../pages/Notifications"),
+  Messages:      () => import("../pages/Messages"),
+  ChatRoom:      () => import("../pages/ChatRoom"),
 } as const;
 
 /** 메뉴 주소 → 그 화면. 메뉴에 있는 것만 적는다 */
@@ -48,6 +50,7 @@ const 주소별: Record<string, keyof typeof 화면들> = {
   "/more": "More",
   "/mypage": "MyPage",
   "/notifications": "Notifications",
+  "/messages": "Messages",
 };
 
 /** 그 주소의 화면 코드를 미리 받아 둔다. 실패해도 조용히 — 옮길 때 다시 받는다 */
