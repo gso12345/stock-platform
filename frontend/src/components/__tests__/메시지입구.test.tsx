@@ -201,6 +201,13 @@ describe("머리 정리 — 메시지·알림만(사용자: \"위에 메시지 �
     expect(screen.getByText("로그인 화면")).toBeInTheDocument();
   });
 
+  it("PC 왼쪽 메뉴에 주가예측 — 퀀트 다음(사용자: \"주가예측 메뉴도 만들어줘\")", () => {
+    틀그리기("/");
+    const 메뉴들 = within(왼쪽메뉴()).getAllByRole("link").map((a) => a.textContent?.trim());
+    expect(within(왼쪽메뉴()).getByRole("link", { name: /주가예측/ })).toHaveAttribute("href", "/predict");
+    expect(메뉴들.indexOf("주가예측")).toBe(메뉴들.indexOf("퀀트") + 1);
+  });
+
   it("관리자가 아니면 왼쪽 메뉴에도 관리자가 없고, 로그인 전이면 로그아웃이 없다", () => {
     useAuthStore.setState({ token: "t", userId: 7, username: "gso", isLoggedIn: true, isAdmin: false });
     const { unmount } = 틀그리기("/");

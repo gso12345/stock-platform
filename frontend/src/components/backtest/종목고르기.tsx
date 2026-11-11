@@ -24,14 +24,17 @@ export function 시장으로(m: string | undefined): Market {
   return m === "KR" || m === "ETF" ? m : "US";
 }
 
-export default function 종목고르기({ 고른것, 고르기 }: { 고른것: 고른종목; 고르기: (x: 고른종목) => void }) {
+/** 이름표 — 화면 읽기용 단추 이름의 앞머리. 백테스트는 '테스트 종목', 주가예측은 '예측할 종목' */
+export default function 종목고르기({ 고른것, 고르기, 이름표 = "테스트 종목" }: {
+  고른것: 고른종목; 고르기: (x: 고른종목) => void; 이름표?: string;
+}) {
   const { query, setQuery, results, searching } = useStockSearch();
   const [찾기, set찾기] = useState(false);
   const 닫기 = () => { set찾기(false); setQuery(""); };
 
   if (!찾기) {
     return (
-      <button type="button" onClick={() => set찾기(true)} aria-label={`테스트 종목 ${고른것.name} 바꾸기`}
+      <button type="button" onClick={() => set찾기(true)} aria-label={`${이름표} ${고른것.name} 바꾸기`}
         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-border bg-bg-elevated text-left hover:border-accent-blue/50 transition-colors">
         <MarketBadge market={고른것.market} />
         <span className="min-w-0 flex-1">

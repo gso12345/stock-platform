@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Award, ShieldCheck, Megaphone, User, Rss, Rocket, RefreshCw, WifiOff, MessageCircle } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, TrendingUp, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Award, ShieldCheck, Megaphone, User, Rss, Rocket, RefreshCw, WifiOff, MessageCircle } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
@@ -31,6 +31,7 @@ const NAV = [
   { to: "/",          icon: LayoutDashboard, label: "대시보드",  end: true },
   { to: "/portfolio", icon: Wallet,           label: "내 자산"  },
   { to: "/quant",     icon: Award,            label: "퀀트"     },
+  { to: "/predict",   icon: TrendingUp,       label: "주가예측" },
   { to: "/screening", icon: Search,           label: "스크리닝" },
   { to: "/ipo",       icon: Rocket,           label: "공모주"   },
   { to: "/backtest",  icon: LineChart,        label: "백테스트" },

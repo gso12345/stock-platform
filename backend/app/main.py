@@ -23,6 +23,7 @@ from app.api.routes import alerts
 from app.api.routes import ipo as ipo_routes
 from app.api.routes import push as push_routes
 from app.api.routes import dm as dm_routes
+from app.api.routes import predict as predict_routes
 from app.models.user import User  # noqa: F401  — Base.metadata가 users 테이블을 인식하도록
 from app.models.stock import (  # noqa: F401  — 테이블 생성 보장
     Portfolio, PortfolioItem, FundamentalsCache, FinancialsCache,
@@ -689,6 +690,7 @@ app.include_router(portfolio.router, prefix="/api/v1")
 app.include_router(admin_routes.router, prefix="/api/v1")
 app.include_router(community.router,    prefix="/api/v1")
 app.include_router(dm_routes.router,    prefix="/api/v1")
+app.include_router(predict_routes.router, prefix="/api/v1")
 # 브라우저에서 터진 것을 받는 자리. 사용자가 제보자 역할을 안 해도 되게 한다.
 app.include_router(clienterr.router,    prefix="/api/v1")
 # 가격 알림 — "삼성전자 8만원 되면 알려줘"

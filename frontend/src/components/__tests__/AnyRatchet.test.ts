@@ -35,6 +35,8 @@ const 상한: Record<string, number> = {
   "components/portfolio/DividendCalendar.tsx": 0,
   "components/stock/AlertButton.tsx": 0,
   "components/stock/DailyTab.tsx": 0,
+  // 주가예측(사용자: "주가예측 메뉴도 만들어줘")
+  "pages/Predict.tsx": 0, "api/predict.ts": 0, "utils/주가예측.ts": 0,
 };
 
 /** 주석 안의 any 는 세지 않는다 — 왜 없앴는지 적어 두는 것까지 막을 이유가 없다 */

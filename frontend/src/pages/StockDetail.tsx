@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo , lazy, Suspense } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { use끝흐림 } from "@/hooks/useEdgeFade";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/authStore";
@@ -14,7 +14,7 @@ import {
   ArrowLeft, Star, TrendingUp, TrendingDown, BarChart2, DollarSign,
   RefreshCw, CandlestickChart, LineChart, AreaChart,
   Newspaper, Users, Maximize2, X, List, MessageSquare,
-  Gauge, Settings2, HelpCircle, Wallet, Share2, Check,
+  Gauge, Settings2, HelpCircle, Wallet, Share2, Check, ChevronRight,
 } from "lucide-react";
 import type { Market, OHLCV } from "@/types";
 import { CANDLE_GROUPS, CANDLE_MAX_PERIOD, type ChartType } from "@/components/chart/candles";
@@ -1374,6 +1374,15 @@ export default function StockDetail() {
         <PriceTrend market={m} symbol={sym} 통화={isKR ? "KRW" : "USD"}
                     height={차트높이}
                     자세히={() => set자세한차트(true)} />
+      )}
+      {mainTab==="chart" && (
+        /* 주가예측으로 — 이 종목의 앞날 범위·오를 확률(사용자: "주가예측 메뉴도 만들어줘"). 종목·이름을 주소로 넘긴다 */
+        <Link to={`/predict?${new URLSearchParams({ m, s: sym, n: d?.name || sym })}`}
+          className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-border bg-bg-card text-sm text-text-secondary hover:border-accent-blue/50 hover:text-accent-blue transition-colors">
+          <TrendingUp size={14} className="text-accent-blue shrink-0" />
+          <span className="flex-1 min-w-0 truncate">주가예측 — 앞으로 있을 만한 범위와 오를 확률</span>
+          <ChevronRight size={14} className="text-text-dim shrink-0" />
+        </Link>
       )}
       {mainTab==="chart" && 자세한차트 && (
         <div className="rounded-xl overflow-hidden border border-border bg-bg-card">

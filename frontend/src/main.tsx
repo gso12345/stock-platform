@@ -32,6 +32,7 @@ const Strategies = lazy(화면들.Strategies);
 const Portfolio = lazy(화면들.Portfolio);
 const News = lazy(화면들.News);
 const Quant = lazy(화면들.Quant);
+const Predict = lazy(화면들.Predict);
 const Login = lazy(화면들.Login);
 const Register = lazy(화면들.Register);
 const OAuthCallback = lazy(화면들.OAuthCallback);
@@ -141,6 +142,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
               <Route path="portfolio" element={<Portfolio />} />
               <Route path="news" element={<News />} />
               <Route path="quant" element={<Quant />} />
+              <Route path="predict" element={<Predict />} />
               <Route path="admin" element={<Admin />} />
               <Route path="mypage" element={<MyPage />} />
               <Route path="feed" element={<Feed />} />
