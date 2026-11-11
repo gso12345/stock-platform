@@ -130,6 +130,23 @@ describe("대화방에서는 아래 탭을 숨긴다 — 그 자리에 입력칸
     expect(screen.getByText("대화방")).toBeInTheDocument();
     expect(아래탭()).toBeNull();
   });
+
+  it("휴대폰 대화방은 앱 머리(검색·종)도 숨기고 노치 자리만 띄운다 — PC 는 그대로, 목록에서도 그대로", () => {
+    // 노치 높이(env(safe-area-inset-top))는 jsdom 이 버려서 원문에서 본다 — 노치여백.test
+    const 노치자리 = (틀: HTMLElement) => [...틀.querySelectorAll<HTMLElement>("[data-notch-space]")];
+    const { container, unmount } = 틀그리기("/messages/12");
+    const 머리 = container.querySelector("header")!;
+    expect(머리).toHaveClass("hidden", "lg:flex");
+    expect(머리).not.toHaveClass("flex");
+    const [자리] = 노치자리(container);
+    expect(자리).toHaveClass("lg:hidden", "bg-bg-card");
+    unmount();
+
+    const 목록 = 틀그리기("/messages");
+    expect(목록.container.querySelector("header")).toHaveClass("flex");
+    expect(목록.container.querySelector("header")).not.toHaveClass("hidden");
+    expect(노치자리(목록.container)).toHaveLength(0);
+  });
 });
 
 describe("더보기의 '메시지' 줄", () => {
@@ -169,18 +186,15 @@ describe("머리 정리 — 메시지·알림만(사용자: \"위에 메시지 �
     expect(within(screen.getByRole("banner")).getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "/login");
   });
 
-  it("PC 왼쪽 메뉴 아래로 옮겼다 — 관리자(관리자만)·화면 모드·로그아웃", async () => {
+  it("PC 왼쪽 메뉴 아래로 옮겼다 — 관리자(관리자만)·로그아웃. 다크 모드는 설정 창에만", async () => {
     useAuthStore.setState({ token: "t", userId: 7, username: "gso", isLoggedIn: true, isAdmin: true });
     useSettingsStore.getState().setTheme("dark");
     틀그리기("/");
     const 메뉴 = 왼쪽메뉴();
     expect(within(메뉴).getByRole("link", { name: /관리자/ })).toHaveAttribute("href", "/admin");
-
-    // 지금 어두우면 '라이트 모드' — 누르면 밝아지고 글이 바뀐다
-    await userEvent.click(within(메뉴).getByRole("button", { name: /라이트 모드/ }));
-    expect(useSettingsStore.getState().theme).toBe("light");
-    await userEvent.click(within(메뉴).getByRole("button", { name: /다크 모드/ }));
-    expect(useSettingsStore.getState().theme).toBe("dark");
+    expect(within(메뉴).getByRole("button", { name: /설정/ })).toBeInTheDocument();
+    // 사용자: "다크모드 설정에 있잖아 그냥 없애줘"
+    expect(within(메뉴).queryByRole("button", { name: /다크 모드|라이트 모드/ })).toBeNull();
 
     await userEvent.click(within(메뉴).getByRole("button", { name: /로그아웃/ }));
     expect(useAuthStore.getState().isLoggedIn).toBe(false);

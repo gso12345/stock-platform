@@ -47,6 +47,8 @@ export interface 메시지묶음 {
   items: 메시지[];
   has_more: boolean;
   other_read_id: number;
+  /** 물은 그때 내가 어디까지 읽었나 — 처음 열 때 '여기부터 안 읽은 메시지' 줄을 긋는다(읽음을 보내기 전 값) */
+  my_read_id?: number;
 }
 
 export interface 안읽음 { count: number; capped: boolean }

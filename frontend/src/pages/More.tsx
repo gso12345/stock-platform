@@ -14,7 +14,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Star, User, Bell, Settings, LogOut, LogIn, ShieldCheck, ChevronRight, Pencil, MessageCircle, Moon,
+  Star, User, Bell, Settings, LogOut, LogIn, ShieldCheck, ChevronRight, Pencil, MessageCircle,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { communityApi } from "@/api/stocks";
@@ -24,7 +24,6 @@ import InstallAppButton from "@/components/layout/InstallAppButton";
 import SettingsModal from "@/components/account/SettingsModal";
 import { 더보기_메뉴 } from "@/constants/moreNav";
 import { use안읽은메시지, 배지글 } from "@/components/dm/메시지아이콘";
-import { use밝은화면 } from "@/hooks/useThemeMode";
 
 function 줄({ to, onClick, icon: Icon, label, 설명, badge, 위험 }: {
   to?: string; onClick?: () => void; icon: typeof Star; label: string;
@@ -58,7 +57,6 @@ export default function More() {
   const navigate = useNavigate();
   const [설정열림, set설정열림] = useState(false);
   const { displayName, avatarColor, avatarUrl, userId } = useMyProfile();
-  const { 밝음, 바꾸기: 화면모드바꾸기 } = use밝은화면();
 
   /* Layout 의 종·마이페이지와 같은 질의 키 → 요청이 새로 안 나간다 */
   const { data: notiUnread } = useQuery({
@@ -167,21 +165,8 @@ export default function More() {
           className="w-full flex items-center gap-3.5 px-4 py-3.5 text-left text-sm font-semibold text-text-primary hover:bg-bg-elevated transition-colors"
         />
         <줄 onClick={() => set설정열림(true)} icon={Settings} label="설정" 설명="테마·글씨 크기·화면 방향·알림" />
-        {/* 머리에 있던 해·달 단추를 여기로 옮겼다(사용자: "위에 메시지 알림 로그아웃 다크모드 등 너무 많은데
-            정리해줘") — 한 번에 켜고 끈다. '시스템' 이었어도 지금 보이는 것의 반대로 못 박는다(hooks/useThemeMode) */}
-        <button type="button" role="switch" aria-checked={!밝음} aria-label="다크 모드" onClick={화면모드바꾸기}
-          className="w-full flex items-center gap-3.5 px-4 py-3.5 text-left hover:bg-bg-elevated active:bg-bg-elevated transition-colors">
-          <Moon size={16} className="text-text-muted shrink-0" />
-          <span className="flex-1 min-w-0 flex flex-col">
-            <span className="text-sm font-semibold text-text-primary">다크 모드</span>
-            <span className="text-2xs text-text-dim truncate">{밝음 ? "지금은 밝은 화면" : "지금은 어두운 화면"}</span>
-          </span>
-          <span aria-hidden className={`relative w-10 h-6 shrink-0 rounded-full transition-colors ${
-            밝음 ? "bg-bg-elevated border border-border" : "bg-accent-blue"}`}>
-            <span className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white shadow transition-all ${
-              밝음 ? "left-1" : "left-[1.25rem]"}`} />
-          </span>
-        </button>
+        {/* 다크 모드는 설정 창에서만 바꾼다 — 여기 따로 두었던 스위치는 없앴다(사용자: "다크모드 설정에 있잖아 그냥
+            없애줘") */}
         {isLoggedIn && (
           <줄 onClick={() => { logout(); navigate("/login"); }} icon={LogOut} label="로그아웃" 위험 />
         )}

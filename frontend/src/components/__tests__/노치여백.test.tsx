@@ -35,6 +35,12 @@ describe("그만큼 띄운다", () => {
     expect(머리).toContain(위);
   });
 
+  it("휴대폰 대화방은 머리를 숨기니 노치 자리를 빈 띠가 대신 띄운다", () => {
+    const 띠 = 틀.slice(틀.indexOf("data-notch-space"), 틀.indexOf("<header"));
+    expect(띠).toContain('style={{ height: "env(safe-area-inset-top)" }}');
+    expect(띠).toContain("lg:hidden");
+  });
+
   it("가로로 눕히면 노치가 옆으로 — 앱 틀과 하단 탭이 옆도 띄운다", () => {
     const 바깥 = 틀.slice(틀.indexOf("return ("), 틀.indexOf("<LoadingProgressOverlay"));
     expect(바깥).toContain('paddingLeft: "env(safe-area-inset-left)"');

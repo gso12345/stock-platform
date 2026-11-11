@@ -187,6 +187,25 @@ def test_방에는_상대와_보낼_수_있는지가_실려_온다(client, 사�
     assert d["my_read_id"] == 0 and d["other_read_id"] == 0
 
 
+def test_팔로워_팔로잉_목록에_사진_주소가_실린다(client, 사람들):
+    """메시지의 '새 메시지' 창이 이 목록에서 보낼 사람을 고른다 — 사진이 있으면 글·댓글과 같은 주소, 없으면 null"""
+    가, 나, 다 = 사람들["가"], 사람들["나"], 사람들["다"]
+    s = SessionLocal()
+    try:
+        s.query(C.UserProfile).filter(C.UserProfile.user_id == 가).update({"avatar_url": "data:image/jpeg;base64,AAAA"})
+        s.add_all([C.UserFollow(follower_id=나, following_id=가), C.UserFollow(follower_id=가, following_id=다)])
+        s.commit()
+    finally:
+        s.close()
+    for 주소 in (f"/users/{나}/following", f"/users/{다}/followers"):
+        목록 = client.get(API + 주소).json()
+        assert [p["user_id"] for p in 목록] == [가] and 목록[0]["nickname"] == "개미왕"
+        assert 목록[0]["avatar_url"].startswith(f"/community/users/{가}/avatar?v="), 목록
+    # 프로필 줄이 없는 사람(나) — 사진도 이름도 비어 온다
+    assert client.get(API + f"/users/{가}/followers").json() == [
+        {"user_id": 나, "username": "dm_na_x", "nickname": None, "avatar_color": 0, "avatar_url": None}]
+
+
 # ── 메시지 ────────────────────────────────────────────────────
 def test_보내면_상대_목록에_안_읽음으로_나온다(client, 사람들, 알림):
     가, 나 = 사람들["가"], 사람들["나"]
@@ -218,6 +237,55 @@ def test_시각에는_시간대가_붙는다(client, 사람들):
         assert 시각.endswith("+00:00"), 시각
     시각차 = abs((datetime.fromisoformat(보낸["created_at"]) - datetime.now(timezone.utc)).total_seconds())
     assert 시각차 < 120, "UTC 로 넣지 않았다"
+
+
+def _쌓기(방, 보낸이, 글들) -> list:
+    """요청 제한(분당 30)을 피해 바로 넣는다 — 번호들을 돌려준다"""
+    s = SessionLocal()
+    try:
+        줄들 = [C.DmMessage(thread_id=방, sender_id=보낸이, body=글) for 글 in 글들]
+        s.add_all(줄들)
+        s.flush()
+        t = s.query(C.DmThread).filter(C.DmThread.id == 방).one()
+        t.last_message_id = 줄들[-1].id
+        t.last_message_at = datetime.now(timezone.utc)
+        s.commit()
+        return [m.id for m in 줄들]
+    finally:
+        s.close()
+
+
+def test_처음_열면_안_읽은_것을_모두_담고_그때의_내_읽음을_준다(client, 사람들):
+    """화면이 '여기부터 안 읽은 메시지' 줄을 긋는다 — 30개만 주면 그보다 많이 쌓였을 때 안 읽은 첫 줄이 빠졌다"""
+    가, 나 = 사람들["가"], 사람들["나"]
+    방 = _열기(client, 가, 나)
+    앞 = _쌓기(방, 가, [f"앞 {i}" for i in range(10)])
+    client.post(API + f"/dm/threads/{방}/read", json={"last_id": 앞[-1]}, headers=_토큰(나))
+    뒤 = _쌓기(방, 가, [f"뒤 {i}" for i in range(40)])
+
+    처음 = client.get(API + f"/dm/threads/{방}/messages", headers=_토큰(나)).json()
+    assert 처음["my_read_id"] == 앞[-1], "읽음을 보내기 전의 내 읽음 — 줄을 그을 자리"
+    assert len(처음["items"]) == 45 and 처음["has_more"] is True        # 안 읽은 40 + 앞의 5
+    assert [m["body"] for m in 처음["items"][:6]] == ["앞 5", "앞 6", "앞 7", "앞 8", "앞 9", "뒤 0"]
+
+    # 안 읽은 것이 적으면 늘 30개 — 보낸 쪽(가)은 안 읽은 것이 없다
+    가쪽 = client.get(API + f"/dm/threads/{방}/messages", headers=_토큰(가)).json()
+    assert len(가쪽["items"]) == 30 and 가쪽["my_read_id"] == 0
+    # 일부러 적게 달라고 해도 안 읽은 것은 다 담는다. 이전 것(before_id)·다음 것(after_id)은 그대로
+    assert len(client.get(API + f"/dm/threads/{방}/messages", params={"limit": 3}, headers=_토큰(나)).json()["items"]) == 45
+    for 앞번호 in (앞[-1], 뒤[-1]):        # 안 읽은 것 사이에서 '이전 것' 을 받아도 달라는 만큼만
+        assert len(client.get(API + f"/dm/threads/{방}/messages", params={"before_id": 앞번호, "limit": 3},
+                              headers=_토큰(나)).json()["items"]) == 3
+    assert client.get(API + f"/dm/threads/{방}/messages", params={"after_id": 0},
+                      headers=_토큰(나)).json()["my_read_id"] == 앞[-1]
+
+
+def test_내가_보낸_것은_안_읽은_수에_안_든다_처음_열기에서도(client, 사람들):
+    가, 나 = 사람들["가"], 사람들["나"]
+    방 = _열기(client, 가, 나)
+    _쌓기(방, 나, [f"내 말 {i}" for i in range(60)])
+    처음 = client.get(API + f"/dm/threads/{방}/messages", headers=_토큰(나)).json()
+    assert len(처음["items"]) == 30, "내가 보낸 것까지 안 읽은 것으로 세어 많이 받았다"
 
 
 def test_답장하면_그_앞의_것은_읽은_것이다(client, 사람들):
@@ -350,9 +418,10 @@ def test_안_읽은_수는_99까지만_센다(client, 사람들):
     나머지 = client.get(API + f"/dm/threads/{방}/messages",
                      params={"after_id": 다음["items"][-1]["id"]}, headers=_토큰(나)).json()
     assert [m["body"] for m in 나머지["items"]] == ["100", "101", "102", "103", "104"] and 나머지["has_more"] is False
-    # 처음 열 때는 최근 30개, 너무 많이 달라고 하면 거절
+    # 처음 열 때는 안 읽은 것을 다 담되 100개까지(안 읽은 105개 — 한도에 걸린다), 너무 많이 달라고 하면 거절
     처음 = client.get(API + f"/dm/threads/{방}/messages", headers=_토큰(나)).json()
-    assert len(처음["items"]) == 30 and 처음["items"][-1]["body"] == "104" and 처음["has_more"] is True
+    assert len(처음["items"]) == 100 and 처음["items"][-1]["body"] == "104" and 처음["has_more"] is True
+    assert 처음["my_read_id"] == 0
     assert client.get(API + f"/dm/threads/{방}/messages", params={"limit": 101}, headers=_토큰(나)).status_code == 422
 
 

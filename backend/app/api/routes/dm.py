@@ -290,8 +290,13 @@ def list_messages(
 ):
     """오래된 → 새 차례로. after_id 는 '그 다음 것' (몇 초마다 묻는 데 쓴다), before_id 는 '그 앞 것'(이전 메시지).
 
-    나가기 한 곳(cleared) 앞은 안 준다 — 내 화면에서는 지운 것이다."""
+    나가기 한 곳(cleared) 앞은 안 준다 — 내 화면에서는 지운 것이다.
+
+    처음 열 때(둘 다 없을 때)는 안 읽은 것을 모두 담는다(최대 100) — 화면이 '여기부터 안 읽은 메시지' 줄을 긋고 거기서
+    시작한다. 30개만 주면 그보다 많이 쌓였을 때 안 읽은 첫 줄이 빠져, 줄이 엉뚱한 곳에 그어졌다.
+    my_read_id 는 이 요청 때의 내 읽음 — 화면이 읽음을 보내기 전에 받아 두어야 줄을 그을 수 있다"""
     t = _내방(db, thread_id, current.id)
+    내읽음 = _읽은(t, current.id)
     q = db.query(DmMessage).filter(DmMessage.thread_id == t.id, DmMessage.id > _지운(t, current.id))
     if after_id is not None:
         줄들 = q.filter(DmMessage.id > after_id).order_by(DmMessage.id.asc()).limit(불러오기_최대 + 1).all()
@@ -300,6 +305,11 @@ def list_messages(
     else:
         if before_id is not None:
             q = q.filter(DmMessage.id < before_id)
+        else:
+            안읽은 = q.filter(DmMessage.id > 내읽음, DmMessage.sender_id != current.id).count()
+            if 안읽은:
+                # 안 읽은 것 + 그 앞의 다섯 줄(무슨 이야기 끝에 왔는지) — 안 읽은 것이 없으면 달라는 만큼만
+                limit = min(max(limit, 안읽은 + 5), 불러오기_최대)
         줄들 = q.order_by(DmMessage.id.desc()).limit(limit + 1).all()
         더 = len(줄들) > limit
         줄들 = list(reversed(줄들[:limit]))
@@ -307,6 +317,7 @@ def list_messages(
         "items": [_메시지(m, current.id) for m in 줄들],
         "has_more": 더,
         "other_read_id": _읽은(t, _상대(t, current.id)),
+        "my_read_id": 내읽음,
     }
 
 

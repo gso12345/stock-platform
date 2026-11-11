@@ -1754,6 +1754,8 @@ def get_followers(user_id: int = Path(...), db: Session = Depends(get_db)):
             "username":     users[uid].username,
             "nickname":     profiles[uid].nickname if uid in profiles else None,
             "avatar_color": profiles[uid].avatar_color if uid in profiles else 0,
+            # 사진 주소 — 메시지의 '새 메시지' 창이 같은 목록에서 사진을 그린다(글·댓글과 같은 주소)
+            "avatar_url":   _사진주소(profiles.get(uid)),
         }
         for uid in follower_ids if uid in users
     ]
@@ -1772,6 +1774,7 @@ def get_following(user_id: int = Path(...), db: Session = Depends(get_db)):
             "username":     users[uid].username,
             "nickname":     profiles[uid].nickname if uid in profiles else None,
             "avatar_color": profiles[uid].avatar_color if uid in profiles else 0,
+            "avatar_url":   _사진주소(profiles.get(uid)),
         }
         for uid in following_ids if uid in users
     ]

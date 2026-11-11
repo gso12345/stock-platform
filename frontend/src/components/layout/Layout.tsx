@@ -1,5 +1,5 @@
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Search, LineChart, BookMarked, Sun, Moon, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Award, ShieldCheck, Megaphone, User, Rss, Rocket, RefreshCw, WifiOff, MessageCircle } from "lucide-react";
+import { LayoutDashboard, Search, LineChart, BookMarked, MoreHorizontal, X, LogOut, LogIn, Wallet, Settings, Newspaper, Award, ShieldCheck, Megaphone, User, Rss, Rocket, RefreshCw, WifiOff, MessageCircle } from "lucide-react";
 import { safeExternalUrl } from "@/utils/url";
 import Logo from "./Logo";
 import { useWSStore } from "@/store/wsStore";
@@ -93,8 +93,8 @@ export default function Layout() {
   const location = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  /* 밝은 화면인가 — '시스템' 이면 기기를 따른다(hooks/useThemeMode, 더보기의 다크 모드 스위치와 같은 셈) */
-  const { 밝음: isLight, 바꾸기: 화면모드바꾸기 } = use밝은화면();
+  /* 밝은 화면인가 — '시스템' 이면 기기를 따른다(hooks/useThemeMode). 바꾸는 곳은 설정 창 한 곳 */
+  const isLight = use밝은화면();
 
   const handleLogout = () => {
     logout();
@@ -164,7 +164,8 @@ export default function Layout() {
 
   /* 글을 쓰는 동안은 아래 탭을 숨긴다 — 앱의 글쓰기 화면처럼 화면을 다 쓰고, 그 자리에 사진·투표·태그
      도구줄이 붙는다(FeedWrite). 잘못 눌러 쓰던 글을 두고 다른 탭으로 가는 일도 막는다 */
-  const 아래탭숨김 = 아래탭숨길곳.includes(location.pathname) || 대화방인가(location.pathname);
+  const 대화방 = 대화방인가(location.pathname);
+  const 아래탭숨김 = 아래탭숨길곳.includes(location.pathname) || 대화방;
 
   const navItemCls = (isActive: boolean) =>
     `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
@@ -202,8 +203,9 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        {/* 머리에 있던 관리자·화면 모드·로그아웃은 여기로 옮겼다(사용자: "위에 메시지 알림 로그아웃 다크모드 등 너무
-            많은데 정리해줘") — 머리에는 메시지·알림만 남는다. 휴대폰은 더보기 화면에 같은 것이 있다 */}
+        {/* 머리에 있던 관리자·로그아웃은 여기로 옮겼다(사용자: "위에 메시지 알림 로그아웃 다크모드 등 너무 많은데
+            정리해줘") — 머리에는 메시지·알림만 남는다. 휴대폰은 더보기 화면에 같은 것이 있다. 다크 모드는 설정 창에서만
+            바꾼다(사용자: "다크모드 설정에 있잖아 그냥 없애줘") */}
         <div className="px-3 pb-2 flex flex-col gap-0.5">
           {/* 로그인 전에도 보인다 — 누르면 내 프로필 화면이 로그인하라고 말한다 */}
           <NavLink to="/mypage"
@@ -222,13 +224,6 @@ export default function Layout() {
             className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
           >
             <Settings size={14} className="flex-shrink-0" />설정
-          </button>
-          <button
-            onClick={화면모드바꾸기}
-            className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
-          >
-            {isLight ? <Moon size={14} className="flex-shrink-0" /> : <Sun size={14} className="flex-shrink-0" />}
-            {isLight ? "다크 모드" : "라이트 모드"}
           </button>
           {isLoggedIn && (
             <button
@@ -257,7 +252,13 @@ export default function Layout() {
 
         {/* 헤더 — 아이폰 홈 화면 앱은 상태바를 투명하게 둬서(index.html 의 black-translucent) 화면이 시계·노치
             밑까지 올라온다. 그만큼(safe-area-inset-top) 띄우지 않으면 검색창이 시계와 겹쳤다. 다른 기기는 0 */}
-        <header className="flex-shrink-0 flex items-center px-3 md:px-6 gap-3 bg-bg-primary border-b border-border"
+        {/* 휴대폰 대화방은 이 머리를 숨기고 대화방의 위 띠(← · 상대 · ⋯) 하나만 둔다 — 검색·종 띠 아래에 대화 띠가
+            또 쌓여, 자판이 올라오면 대화가 보이는 칸이 손가락 두어 마디만 남았다(사용자: "메시지 개선할 거 있으면
+            개선해줘"). 노치 자리는 아래 빈 띠가 대신 띄운다. PC 는 그대로 */}
+        {대화방 && (
+          <div aria-hidden data-notch-space="" className="lg:hidden flex-shrink-0 bg-bg-card" style={{ height: "env(safe-area-inset-top)" }} />
+        )}
+        <header className={`${대화방 ? "hidden lg:flex" : "flex"} flex-shrink-0 items-center px-3 md:px-6 gap-3 bg-bg-primary border-b border-border`}
           style={{ height: "calc(52px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <SearchBar />
           <div className="flex-1" />

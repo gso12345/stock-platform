@@ -9,7 +9,7 @@
  *   · 막힌 방은 입력칸 대신 까닭을, 내가 막았으면 '차단 풀기' 를
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within, act, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, within, act, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
@@ -68,6 +68,7 @@ const 입력칸 = () => screen.getByRole("textbox", { name: "메시지 쓰기" }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();      // 쓰던 글(utils/대화초안)이 다음 시험으로 넘어가지 않게 — 로그인 정보보다 먼저
   useAuthStore.setState({ token: "t", userId: 1, username: "me", isLoggedIn: true, isAdmin: false });
   처음목록 = [
     메(10, false, "안녕하세요", 때(5, 21, 0)),
@@ -613,6 +614,268 @@ describe("말풍선 할 일", () => {
     await userEvent.click(screen.getByRole("radio", { name: "스팸·광고" }));
     await userEvent.click(끝(screen.getAllByRole("button", { name: "신고" })));
     expect(await screen.findByText("이미 신고한 메시지예요")).toBeInTheDocument();
+  });
+});
+
+/* ── 다듬은 것(사용자: "메시지 개선할 거 있으면 개선해줘") ───────────────────────── */
+
+/** 본문(main)의 크기와 '여기부터 안 읽은 메시지' 줄·위 띠의 자리를 정한다 — jsdom 은 모두 0 이라 */
+function 자리흉내(본문: HTMLElement, { 전체 = 3000, 보이는 = 600, 줄위 = 1000, 머리 = 48 } = {}) {
+  Object.defineProperty(본문, "scrollHeight", { configurable: true, value: 전체 });
+  Object.defineProperty(본문, "clientHeight", { configurable: true, value: 보이는 });
+  const 원래자리 = HTMLElement.prototype.getBoundingClientRect;
+  const 원래높이 = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+  const 자리 = (top: number) => ({ top, bottom: top + 20, left: 0, right: 0, width: 0, height: 20, x: 0, y: top, toJSON() {} }) as DOMRect;
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    if (this.hasAttribute("data-dm-unread-line")) return 자리(줄위 - 본문.scrollTop);
+    if (this === 본문) return 자리(0);
+    return 원래자리.call(this);
+  };
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true, get(this: HTMLElement) { return this.hasAttribute("data-dm-header") ? 머리 : 0; },
+  });
+  return () => {
+    HTMLElement.prototype.getBoundingClientRect = 원래자리;
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", 원래높이);
+  };
+}
+
+describe("'여기부터 안 읽은 메시지' — 안 읽은 첫 메시지부터 보인다", () => {
+  beforeEach(() => {
+    처음목록 = [
+      메(10, false, "어제 얘기", 때(5, 21, 0)),
+      메(11, true, "응 그래", 때(5, 21, 5)),
+      메(12, false, "오늘 장 봤어?", 때(6, 9, 0)),
+      메(13, false, "많이 올랐네", 때(6, 9, 1)),
+    ];
+    api.getMessages.mockImplementation(async (_방, 물음 = {}) => {
+      if (물음.after_id != null || 물음.before_id != null) return { items: [], has_more: false, other_read_id: 11 };
+      return { items: 처음목록, has_more: false, other_read_id: 11, my_read_id: 11 };
+    });
+  });
+
+  it("읽은 것과 안 읽은 것 사이에 줄 — 안 읽은 것이 한 화면을 넘으면 줄을 위 띠 바로 아래에, '맨 아래로' 도 띄운다", async () => {
+    const { container } = 그리기();
+    const 본문 = container.querySelector("main")!;
+    const 되돌리기 = 자리흉내(본문);
+    try {
+      await screen.findByText("오늘 장 봤어?");
+      const 줄 = container.querySelector("[data-dm-unread-line]")!;
+      expect(줄).toHaveTextContent("여기부터 안 읽은 메시지");
+      // 차례 — 줄은 읽은 마지막(11) 뒤, 안 읽은 첫 것(12)과 그 날짜 줄 앞
+      const 로그 = screen.getByRole("log");
+      const 글들 = [...로그.children].map((x) => x.textContent ?? "");
+      const 줄자리 = 글들.findIndex((t) => t.includes("여기부터 안 읽은 메시지"));
+      expect(글들[줄자리 - 1]).toContain("응 그래");
+      expect(글들[줄자리 + 1]).toBe("2026년 11월 6일 금요일");
+      expect(글들[줄자리 + 2]).toContain("오늘 장 봤어?");
+      // 줄 1000 − 위 띠 48 − 8 = 944. 아래로 2,400 까지 갈 수 있으니 줄을 위에 둔다
+      expect(본문.scrollTop).toBe(944);
+      expect(screen.getByRole("button", { name: "맨 아래로" })).toBeInTheDocument();
+      // 읽음은 그대로 보낸다 — 줄은 열 때의 '내가 읽은 곳' 으로 그었다
+      await waitFor(() => expect(api.markRead).toHaveBeenCalledWith(7, 13));
+      expect(container.querySelector("[data-dm-unread-line]")).not.toBeNull();
+    } finally {
+      되돌리기();
+    }
+  });
+
+  it("안 읽은 것이 한 화면에 들어가면 바닥으로 — 줄도 같이 보인다", async () => {
+    const { container } = 그리기();
+    const 본문 = container.querySelector("main")!;
+    const 되돌리기 = 자리흉내(본문, { 줄위: 2500 });    // 2500 − 56 = 2444 — 바닥(2,400)보다 아래라 다 보인다
+    const 내림 = vi.fn();
+    (본문 as any).scrollTo = 내림;
+    try {
+      await screen.findByText("오늘 장 봤어?");
+      expect(container.querySelector("[data-dm-unread-line]")).not.toBeNull();
+      expect(내림).toHaveBeenCalledWith({ top: 3000, behavior: "auto" });
+      expect(screen.queryByRole("button", { name: "맨 아래로" })).toBeNull();
+    } finally {
+      되돌리기();
+    }
+  });
+
+  it("다 읽었으면 줄이 없고, 방에 있는 동안 새로 온 것에도 긋지 않는다", async () => {
+    vi.useFakeTimers();
+    api.getMessages.mockImplementation(async (_방, 물음 = {}) => {
+      if (물음.after_id === 13) return { items: [메(14, false, "방금 온 것", 때(6, 9, 5))], has_more: false, other_read_id: 11 };
+      if (물음.after_id != null || 물음.before_id != null) return { items: [], has_more: false, other_read_id: 11 };
+      return { items: 처음목록, has_more: false, other_read_id: 11, my_read_id: 13 };
+    });
+    const { container } = 그리기();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("많이 올랐네")).toBeInTheDocument();
+    expect(container.querySelector("[data-dm-unread-line]")).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(묻기간격.처음); });
+    expect(screen.getByText("방금 온 것")).toBeInTheDocument();
+    expect(container.querySelector("[data-dm-unread-line]")).toBeNull();
+  });
+
+  it("대화 전부가 안 읽은 것이면(처음 받은 메시지) 줄을 긋지 않는다", async () => {
+    처음목록 = [메(1, false, "처음 뵙겠습니다", 때(6, 9, 0)), 메(2, false, "질문 있어요", 때(6, 9, 0))];
+    api.getMessages.mockResolvedValue({ items: 처음목록, has_more: false, other_read_id: 0, my_read_id: 0 });
+    const { container } = 그리기();
+    await screen.findByText("질문 있어요");
+    expect(container.querySelector("[data-dm-unread-line]")).toBeNull();
+  });
+});
+
+describe("'전송됨' — 대화 끝의 내 메시지를 상대가 아직 안 읽었으면", () => {
+  it("끝의 내 것 아래 '전송됨', 상대가 읽으면 '읽음' 으로 바뀐다", async () => {
+    vi.useFakeTimers();
+    그리기();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    // 상대는 11번까지 읽었다 — 11 아래 '읽음', 끝(12) 아래 '전송됨'
+    expect(말풍선("내일 봬요").closest("[data-dm-message]")).toHaveTextContent("전송됨");
+    expect(말풍선("반가워요").closest("[data-dm-message]")).not.toHaveTextContent("전송됨");
+    expect(screen.getAllByText("전송됨")).toHaveLength(1);
+    상대읽음 = 12;
+    await act(async () => { await vi.advanceTimersByTimeAsync(묻기간격.처음); });
+    expect(screen.queryByText("전송됨")).toBeNull();
+    expect(말풍선("내일 봬요").closest("[data-dm-message]")).toHaveTextContent("읽음");
+  });
+
+  it("끝이 상대 것이면 없다", async () => {
+    처음목록 = [메(11, true, "반가워요", 때(6, 9, 30)), 메(12, false, "저도요", 때(6, 9, 31))];
+    상대읽음 = 0;
+    그리기();
+    await screen.findByText("저도요");
+    expect(screen.queryByText("전송됨")).toBeNull();
+  });
+});
+
+describe("'맨 아래로' — 한 화면 넘게 올라가 있으면", () => {
+  it("위로 올리면 뜨고, 누르면 바닥으로 가며 사라진다. 아래로 내려가는 동안에는 새로 뜨지 않는다", async () => {
+    const { container } = 그리기();
+    await screen.findByText("안녕하세요");
+    const 본문 = container.querySelector("main")!;
+    Object.defineProperty(본문, "scrollHeight", { configurable: true, value: 3000 });
+    Object.defineProperty(본문, "clientHeight", { configurable: true, value: 600 });
+    const 내림 = vi.fn();
+    (본문 as any).scrollTo = 내림;
+    const 굴리기 = (위치: number) => { 본문.scrollTop = 위치; fireEvent.scroll(본문); };
+    const 단추 = () => screen.queryByRole("button", { name: "맨 아래로" });
+
+    굴리기(2400);                 // 바닥
+    굴리기(1900);                 // 한 화면(600) 안 — 아직
+    expect(단추()).toBeNull();
+    굴리기(1500);                 // 900 위 — 뜬다
+    expect(단추()).toBeInTheDocument();
+    굴리기(1700);                 // 내려가는 중이어도 아직 멀면 그대로
+    expect(단추()).toBeInTheDocument();
+
+    await userEvent.click(단추()!);
+    expect(내림).toHaveBeenCalledWith({ top: 3000, behavior: "smooth" });
+    expect(단추()).toBeNull();
+    굴리기(1750);                 // 부드럽게 내려가는 도중(아직 650 위) — 멀어도 다시 뜨지 않는다
+    expect(단추()).toBeNull();
+    굴리기(1500);                 // 다시 올리면 뜬다
+    expect(단추()).toBeInTheDocument();
+  });
+
+  it("새 메시지가 왔으면 '새 메시지' 가 대신한다", async () => {
+    const sw = Object.assign(new EventTarget(), { getRegistration: async () => undefined });
+    (navigator as any).serviceWorker = sw;
+    const { container } = 그리기();
+    await screen.findByText("안녕하세요");
+    const 본문 = container.querySelector("main")!;
+    Object.defineProperty(본문, "scrollHeight", { configurable: true, value: 3000 });
+    Object.defineProperty(본문, "clientHeight", { configurable: true, value: 600 });
+    본문.scrollTop = 2400; fireEvent.scroll(본문);
+    본문.scrollTop = 100; fireEvent.scroll(본문);
+    expect(screen.getByRole("button", { name: "맨 아래로" })).toBeInTheDocument();
+    api.getMessages.mockImplementation(async (_방, 물음 = {}) => (물음.after_id === 12
+      ? { items: [메(13, false, "아래에 온 것", 때(6, 10, 0))], has_more: false, other_read_id: 12 }
+      : { items: [], has_more: false, other_read_id: 12 }));
+    await act(async () => { sw.dispatchEvent(new MessageEvent("message", { data: { type: "dm", tag: "dm-7" } })); });
+    await screen.findByText("아래에 온 것");
+    expect(screen.getByRole("button", { name: "새 메시지" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "맨 아래로" })).toBeNull();
+  });
+});
+
+describe("쓰던 글 — 방을 나갔다 와도 입력칸에 그대로", () => {
+  it("쓰다가 나가면 다음에 열 때 채워져 있고, 보내면 지워진다", async () => {
+    api.send.mockResolvedValue(메(13, true, "쓰다 만 글\n둘째 줄", 때(6, 10, 5)));
+    const 첫 = 그리기();
+    await screen.findByText("안녕하세요");
+    await userEvent.type(입력칸(), "쓰다 만 글{Enter}둘째 줄");
+    첫.unmount();
+
+    그리기();
+    await screen.findByText("안녕하세요");
+    expect(입력칸()).toHaveValue("쓰다 만 글\n둘째 줄");
+    fireEvent.keyDown(입력칸(), { key: "Enter", ctrlKey: true });
+    expect(api.send).toHaveBeenCalledWith(7, "쓰다 만 글\n둘째 줄");
+    await waitFor(() => expect(입력칸()).toHaveValue(""));
+    cleanup();
+
+    그리기();
+    await screen.findByText("안녕하세요");
+    expect(입력칸()).toHaveValue("");
+  });
+
+  it("여러 줄 글로 열면 입력칸도 그만큼 높다(보내서 비면 한 줄로)", async () => {
+    const 원래 = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
+      configurable: true, get(this: HTMLTextAreaElement) { return 20 * (this.value.split("\n").length); },
+    });
+    try {
+      localStorage.setItem("qcache_v1:u1:dm-draft:7", "하나\n둘\n셋");
+      api.send.mockResolvedValue(메(13, true, "하나\n둘\n셋", 때(6, 10, 5)));
+      그리기();
+      await screen.findByText("안녕하세요");
+      expect(입력칸()).toHaveValue("하나\n둘\n셋");
+      expect(입력칸().style.height).toBe("60px");
+      fireEvent.keyDown(입력칸(), { key: "Enter", ctrlKey: true });
+      await waitFor(() => expect(입력칸().style.height).toBe("20px"));
+    } finally {
+      delete (HTMLTextAreaElement.prototype as any).scrollHeight;
+      if (원래) Object.defineProperty(HTMLElement.prototype, "scrollHeight", 원래);
+    }
+  });
+
+  it("방마다 따로, 사람마다 따로 — 다른 사람으로 로그인하면 남의 쓰던 글이 안 보인다", async () => {
+    const 첫 = 그리기();
+    await screen.findByText("안녕하세요");
+    await userEvent.type(입력칸(), "7번 방에 쓰던 글");
+    첫.unmount();
+
+    const 둘 = 그리기("/messages/8");
+    await screen.findByText("안녕하세요");
+    expect(입력칸()).toHaveValue("");
+    둘.unmount();
+
+    useAuthStore.setState({ token: "t2", userId: 2, username: "other", isLoggedIn: true, isAdmin: false });
+    그리기();
+    await screen.findByText("안녕하세요");
+    expect(입력칸()).toHaveValue("");
+  });
+
+  it("방을 나가면 그 방에 쓰던 글도 지운다", async () => {
+    api.leave.mockResolvedValue(undefined);
+    그리기();
+    await screen.findByText("안녕하세요");
+    await userEvent.type(입력칸(), "보내지 않을 글");
+    await userEvent.click(screen.getByRole("button", { name: "대화방 메뉴" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "대화방 나가기" }));
+    await userEvent.click(screen.getByRole("button", { name: "나가기" }));
+    expect(await screen.findByText("메시지 목록 화면")).toBeInTheDocument();
+    cleanup();
+    그리기();
+    await screen.findByText("안녕하세요");
+    expect(입력칸()).toHaveValue("");
+  });
+});
+
+describe("휴대폰 — 위 띠가 화면 끝까지(앱 머리는 숨긴다)", () => {
+  it("앱 틀의 안쪽 여백만큼 바깥으로 넓혀 위 띠·입력칸이 끝에 닿는다", async () => {
+    const { container } = 그리기();
+    await screen.findByText("안녕하세요");
+    const 뿌리 = screen.getByRole("log").closest(".min-h-screen")!;
+    expect(뿌리).toHaveClass("-mx-3", "-my-3", "md:-mx-5", "md:-my-5");
+    expect(container.querySelector("[data-dm-header]")).toHaveClass("sticky", "top-0");
   });
 });
 

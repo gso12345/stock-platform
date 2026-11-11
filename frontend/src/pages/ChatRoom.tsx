@@ -12,6 +12,14 @@
  *   · 바닥에 붙어 있으면 새 메시지를 따라 내려가고, 위로 올려 보던 중이면 '새 메시지 ↓' 만 띄운다
  *   · 맨 위로 올리면 이전 메시지를 더 받고, 보던 자리를 지킨다
  *   · 말풍선을 누르면 복사 · 삭제(내 것) · 신고(받은 것). 위 ⋯ 에 프로필 · 차단 · 나가기
+ *
+ * 다듬은 것(사용자: "메시지 개선할 거 있으면 개선해줘") —
+ *   · 안 읽은 것이 있으면 '여기부터 안 읽은 메시지' 줄을 긋고, 안 읽은 것이 한 화면을 넘으면 그 줄부터 보인다
+ *     (전에는 바닥으로만 가서, 안 읽은 서른 개 중 끝의 몇 개만 보고 앞의 것을 지나쳤다)
+ *   · 대화 끝의 내 메시지를 상대가 아직 안 읽었으면 '전송됨'
+ *   · 한 화면 넘게 위로 올라가 있으면 오른쪽 아래에 '맨 아래로' 동그라미
+ *   · 쓰던 글은 방마다 남는다 — 뒤로 갔다 와도 입력칸에 그대로(utils/대화초안)
+ *   · 휴대폰은 앱 머리(검색·종)를 숨기고 이 방의 위 띠 하나만 — 두 띠가 쌓여 대화 칸이 좁았다(Layout)
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -32,8 +40,9 @@ import { use자판높이 } from "@/hooks/useSheet";
 import { use메시지푸시, 대화알림닫기 } from "@/hooks/useDmPush";
 import { 빈화면, 못불러옴, cn } from "@/components/ui";
 import {
-  대화줄들, 메시지합치기, 바뀐것있나, 말풍선시각, type 대화줄, type 표시메시지,
+  대화줄들, 메시지합치기, 바뀐것있나, 말풍선시각, 안읽은첫번호, type 대화줄, type 표시메시지,
 } from "@/utils/대화시각";
+import { 초안읽기, 초안쓰기 } from "@/utils/대화초안";
 
 /** 새 메시지를 묻는 간격 — 오가는 중이면 자주, 조용하면 차츰 늘린다. 실패하면 더 늘린다 */
 export const 묻기간격 = { 처음: 3_000, 최대: 10_000, 실패최대: 30_000 } as const;
@@ -42,7 +51,8 @@ export const 다시받기간격 = 30_000;
 /** 바닥에서 이만큼 안이면 '바닥에 붙어 있다' — 새 메시지가 오면 따라 내려간다 */
 const 바닥여유 = 80;
 
-type 그림할일 = { 종류: "바닥" } | { 종류: "추가" } | { 종류: "보정"; 높이: number; 위치: number };
+/** 그린 직후 스크롤 — 처음(안 읽은 줄 또는 바닥) · 바닥 · 새 것 붙임 · 이전 것을 위에 붙인 뒤 보던 자리 */
+type 그림할일 = { 종류: "처음" } | { 종류: "바닥" } | { 종류: "추가" } | { 종류: "보정"; 높이: number; 위치: number };
 
 export default function ChatRoom() {
   const { threadId } = useParams<{ threadId: string }>();
@@ -93,10 +103,15 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
   const [처음오류, set처음오류] = useState<unknown>(null);
   const [다시시도, set다시시도] = useState(0);
   const [이전받는중, set이전받는중] = useState(false);
-  const [입력, set입력] = useState("");
+  /** 쓰던 글 — 이 방에 남겨 둔 것으로 시작한다 */
+  const [입력, set입력] = useState(() => 초안읽기(방번호));
   const [고른것, set고른것] = useState<string | null>(null);
   const [신고할, set신고할] = useState<표시메시지 | null>(null);
   const [새것있음, set새것있음] = useState(false);
+  /** 방을 열 때 안 읽은 첫 메시지 — 그 앞에 줄을 긋는다. 방에 있는 동안은 그대로 둔다 */
+  const [안읽은첫, set안읽은첫] = useState<number | null>(null);
+  /** 바닥에서 한 화면 넘게 올라가 있다 — '맨 아래로' 를 띄운다 */
+  const [멀리, set멀리] = useState(false);
 
   const 틀 = useRef<HTMLDivElement>(null);
   const 입력칸 = useRef<HTMLTextAreaElement>(null);
@@ -128,14 +143,22 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
     }
     바닥붙음.current = true;
     set새것있음(false);
+    set멀리(false);
   }, [스크롤러]);
 
+  /* 스크롤할 때마다 — 바닥에 붙었나, 한 화면 넘게 올라갔나. '맨 아래로' 는 위로 올릴 때만 새로 띄운다 —
+     눌러서 부드럽게 내려가는 동안 아직 멀다며 다시 떴다 사라지지 않게 */
+  const 앞스크롤 = useRef(0);
   useEffect(() => {
     const el = 스크롤러();
     if (!el) return;
     const 볼때 = () => {
-      바닥붙음.current = el.scrollHeight - el.scrollTop - el.clientHeight < 바닥여유;
+      const 남은 = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const 올림 = el.scrollTop < 앞스크롤.current;
+      앞스크롤.current = el.scrollTop;
+      바닥붙음.current = 남은 < 바닥여유;
       if (바닥붙음.current) set새것있음(false);
+      set멀리((v) => 남은 > el.clientHeight && (v || 올림));
     };
     el.addEventListener("scroll", 볼때, { passive: true });
     return () => el.removeEventListener("scroll", 볼때);
@@ -154,14 +177,30 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
     if (el) el.scrollTop += 차이;
   }, [자판, 스크롤러]);
 
-  /* 그린 직후 — 처음이면 바닥으로, 이전 것을 위에 붙였으면 보던 자리 그대로, 새 것이 왔으면 따라가거나 알리기 */
+  /* 그린 직후 — 처음이면 안 읽은 줄이나 바닥으로, 이전 것을 위에 붙였으면 보던 자리 그대로, 새 것이 왔으면
+     따라가거나 알리기 */
   useLayoutEffect(() => {
     const 이번 = 할일.current;
     할일.current = null;
     if (!이번) return;
     const el = 스크롤러();
     if (!el) return;
-    if (이번.종류 === "바닥") 바닥으로(false);
+    if (이번.종류 === "처음") {
+      /* 안 읽은 것이 한 화면을 넘으면 '여기부터 안 읽은 메시지' 줄을 위 띠 바로 아래에 둔다 — 바닥으로 가면
+         끝의 몇 개만 보고 앞의 것을 지나친다. 한 화면에 다 들어가면 바닥으로(줄도 같이 보인다) */
+      const 줄 = 틀.current?.querySelector<HTMLElement>("[data-dm-unread-line]");
+      const 머리 = 틀.current?.querySelector<HTMLElement>("[data-dm-header]")?.offsetHeight ?? 0;
+      const 자리 = 줄 ? el.scrollTop + 줄.getBoundingClientRect().top - el.getBoundingClientRect().top - 머리 - 8 : 0;
+      if (줄 && 자리 < el.scrollHeight - el.clientHeight) {
+        el.scrollTop = Math.max(0, 자리);
+        const 남은 = el.scrollHeight - el.scrollTop - el.clientHeight;
+        바닥붙음.current = 남은 < 바닥여유;
+        set멀리(남은 > el.clientHeight);
+      } else {
+        바닥으로(false);
+      }
+    }
+    else if (이번.종류 === "바닥") 바닥으로(false);
     else if (이번.종류 === "보정") el.scrollTop = 이번.위치 + (el.scrollHeight - 이번.높이);
     else if (바닥붙음.current) 바닥으로(true);
     else set새것있음(true);
@@ -174,10 +213,12 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
     set처음("받는중");
     dmApi.getMessages(방번호).then((r) => {
       if (끝) return;
-      할일.current = { 종류: "바닥" };
+      할일.current = { 종류: "처음" };
       set메시지들(r.items);
       set더있음(r.has_more);
       set상대읽음(r.other_read_id);
+      // 서버는 안 읽은 것을 다 담아 준다(그 앞 다섯 줄과 함께) — 읽음을 보내기 전의 '내가 읽은 곳' 으로 줄을 정한다
+      set안읽은첫(안읽은첫번호(r.items, r.my_read_id));
       마지막번호.current = r.items.length ? r.items[r.items.length - 1].id : 0;
       마지막전체.current = Date.now();
       set처음("됨");
@@ -350,8 +391,12 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   };
 
-  /* 보내고 입력칸을 비우면 높이도 한 줄로 — 여러 줄을 쓰다 보내면 큰 칸이 그대로 남았다 */
-  useLayoutEffect(() => { if (!입력) 크기맞추기(입력칸.current); }, [입력]);
+  /* 입력이 바뀌면 높이를 맞춘다 — 보내서 비면 한 줄로(여러 줄을 쓰다 보내면 큰 칸이 그대로 남았다), 남겨 둔
+     여러 줄 글로 열면 그만큼. 입력칸이 새로 생길 때도(차단을 풀었다 등) */
+  useLayoutEffect(() => { 크기맞추기(입력칸.current); }, [입력, 방?.can_send]);
+
+  /* 쓰던 글을 방마다 남긴다 — 보내서 비거나 다 지우면 지운다(utils/대화초안) */
+  useEffect(() => { 초안쓰기(방번호, 입력); }, [방번호, 입력]);
 
   const 입력보내기 = () => {
     if (!입력.trim()) return;
@@ -445,6 +490,7 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
     onConfirm: async () => {
       try {
         await dmApi.leave(방번호);
+        초안쓰기(방번호, "");   // 나간 방에 쓰던 글은 남길 곳이 없다
         qc.invalidateQueries({ queryKey: dm열쇠.목록 });
         qc.invalidateQueries({ queryKey: dm열쇠.안읽음 });
         navigate("/messages", { replace: true });
@@ -468,7 +514,8 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
     else navigate("/messages");
   };
 
-  const 줄들 = useMemo(() => 대화줄들(메시지들, 상대읽음), [메시지들, 상대읽음]);
+  const 줄들 = useMemo(() => 대화줄들(메시지들, 상대읽음, { 안읽은첫, 앞에더있음: 더있음 }),
+    [메시지들, 상대읽음, 안읽은첫, 더있음]);
   const 막힘글 = !방 || 방.can_send ? null
     : 방.i_blocked ? "차단한 상대예요. 차단을 풀면 다시 메시지를 주고받을 수 있어요."
     : !방.other.active ? "탈퇴했거나 이용이 멈춘 사용자라 메시지를 보낼 수 없어요."
@@ -498,9 +545,11 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
       {/* 스크롤 고정(overflow-anchor)을 끈다 — 크롬은 내용이 바뀌면 보이던 말풍선을 제자리에 두려고 스크롤을 옮긴다.
           말풍선의 할 일 줄을 펼치면 아래로 붙은 대화가 위로 밀리고, 크롬이 그만큼 스크롤을 올려 펼친 줄이 입력칸
           뒤로 숨었다(브라우저에서 재 보고 알았다). 자리는 이 화면이 직접 잡는다(바닥 따라가기·이전 메시지 보정) */}
-      <div ref={틀} className="min-h-screen flex flex-col [overflow-anchor:none]">
+      {/* 앱 틀의 안쪽 여백(p-3·md:p-5)을 걷어 위 띠와 입력칸이 화면 끝까지 닿는다 — 휴대폰은 앱 머리를 숨기고 이
+          띠가 맨 위에 붙는다(Layout). PC 는 입력칸이 본문 바닥에 붙는다(전에는 여백만큼 떠 있었다) */}
+      <div ref={틀} className="min-h-screen flex flex-col [overflow-anchor:none] -mx-3 -my-3 md:-mx-5 md:-my-5">
         {/* 위 띠 — ← · 상대 · ⋯ */}
-        <div className="sticky top-0 z-20 bg-bg-card/90 backdrop-blur-md border-b border-border">
+        <div data-dm-header="" className="sticky top-0 z-20 bg-bg-card/90 backdrop-blur-md border-b border-border">
           <div className="max-w-2xl mx-auto px-3 sm:px-4 h-12 flex items-center gap-2">
             <button type="button" aria-label="뒤로" onClick={뒤로}
               className="p-1.5 -ml-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors">
@@ -555,6 +604,12 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
                   <div key={줄.key} className="flex justify-center my-3">
                     <span className="px-3 py-1 rounded-full bg-bg-elevated text-2xs text-text-muted">{줄.글}</span>
                   </div>
+                ) : 줄.종류 === "안읽음" ? (
+                  <div key={줄.key} data-dm-unread-line="" className="flex items-center gap-2 my-3 px-1">
+                    <span aria-hidden className="flex-1 h-px bg-accent-blue/30" />
+                    <span className="text-2xs font-semibold text-accent-blue">여기부터 안 읽은 메시지</span>
+                    <span aria-hidden className="flex-1 h-px bg-accent-blue/30" />
+                  </div>
                 ) : (
                   <말풍선 key={줄.key} 줄={줄} 상대={상대} 열림={고른것 === 줄.key}
                     누름={() => set고른것((k) => (k === 줄.key ? null : 줄.key))}>
@@ -591,10 +646,16 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
             paddingBottom: 자판 > 0 ? undefined : "env(safe-area-inset-bottom)",
           }}>
           <div className="relative max-w-2xl mx-auto px-3 sm:px-4 py-2.5">
-            {새것있음 && (
+            {새것있음 ? (
               <button type="button" onClick={() => 바닥으로(true)}
                 className="absolute -top-11 left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-1.5 rounded-full bg-accent-blue text-white text-xs font-semibold shadow-float">
                 새 메시지 <ArrowDown size={13} />
+              </button>
+            ) : 멀리 && (
+              /* 한 화면 넘게 올라가 있으면 — 엄지로 한 번에 바닥까지(새 것이 오면 위의 '새 메시지' 가 대신한다) */
+              <button type="button" aria-label="맨 아래로" onClick={() => 바닥으로(true)}
+                className="absolute -top-12 right-3 sm:right-4 w-9 h-9 flex items-center justify-center rounded-full bg-bg-card border border-border text-text-secondary shadow-float hover:text-accent-blue transition-colors">
+                <ArrowDown size={16} />
               </button>
             )}
             {입력막힘 ? (
@@ -612,7 +673,7 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
                 <textarea ref={입력칸} value={입력} rows={1} aria-label="메시지 쓰기"
                   placeholder="메시지 보내기" maxLength={DM_MAX}
                   enterKeyHint={넓음 ? "send" : "enter"}
-                  onChange={(e) => { set입력(e.target.value); 크기맞추기(e.target); }}
+                  onChange={(e) => set입력(e.target.value)}
                   onKeyDown={키}
                   className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-dim focus:outline-none resize-none overflow-hidden leading-relaxed min-h-[20px]" />
                 {/* 누를 때 입력칸에서 초점을 빼앗지 않는다 — 휴대폰 자판이 닫혔다 열리며 화면이 튄다 */}
@@ -655,7 +716,7 @@ function 말풍선({ 줄, 상대, 열림, 누름, children }: {
   누름: () => void;
   children: React.ReactNode;
 }) {
-  const { m, 묶음첫, 묶음끝, 읽음 } = 줄;
+  const { m, 묶음첫, 묶음끝, 읽음, 전송됨 } = 줄;
   const 할일줄 = useRef<HTMLDivElement>(null);
   /* 펼친 할 일 줄이 입력칸 뒤에 숨으면 그만큼 올린다 — 맨 아래 말풍선을 누르면 줄이 입력칸 뒤에 생겼다.
      scrollIntoView 는 입력칸(화면에 고정)을 모르고, scroll-margin 을 줘도 크롬은 '이미 화면 안' 이라며 움직이지
@@ -704,6 +765,7 @@ function 말풍선({ 줄, 상대, 열림, 누름, children }: {
         )}
       </div>
       {읽음 && <span className="mt-0.5 mr-1 text-2xs font-semibold text-accent-blue">읽음</span>}
+      {전송됨 && <span className="mt-0.5 mr-1 text-2xs text-text-dim">전송됨</span>}
       {열림 && (
         <div ref={할일줄} role="group" aria-label="메시지 할 일"
           className={cn("mt-1.5 flex flex-wrap gap-1.5", m.mine ? "justify-end" : "justify-start pl-9")}>
