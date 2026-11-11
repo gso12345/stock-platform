@@ -1,0 +1,102 @@
+name: 배포 확인(임시) — 기술적 분석 예측
+on:
+  push:
+    branches: [claude/initial-load-performance-2RJGW]
+    paths: [".github/workflows/probe-tech.yml"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: 운영 화면·서버를 읽기만 해서 확인
+        shell: python
+        run: |
+          import json, re, time, urllib.request, urllib.parse, urllib.error
+          WEB = "https://stock-platform-one.vercel.app"
+          API = "https://stock-platform-ksmu.onrender.com/api/v1"
+
+          def get(u, t=120):
+              p = urllib.parse.urlsplit(u)
+              u = urllib.parse.urlunsplit(p._replace(path=urllib.parse.quote(p.path)))
+              r = urllib.request.Request(u, headers={"User-Agent": "deploy-probe"})
+              try:
+                  with urllib.request.urlopen(r, timeout=t) as res:
+                      return res.status, res.read()
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read()
+
+          # ── 1) 화면(Vercel) — 기술적 분석 카드가 실렸나 ──
+          표식 = {"기술 카드": "기술적 분석 예측", "범위 검증 제목": "출렁임 범위는 얼마나 맞았나", "3개월까지만": "3개월 뒤까지만",
+                  "2년 가까이": "2년 가까이", "주황 점": "주황 점은 기술적 분석의 예상 주가", "5영업일 이상": "영업일 이상 떨어진"}
+          for 번 in range(24):
+              _, html = get(WEB + "/predict")
+              html = html.decode("utf-8", "replace")
+              entry = [x for x in set(re.findall(r'/assets/[^"\'\s]+?\.js', html)) if "/index-" in x]
+              글 = {}
+              for x in entry:
+                  글[x] = get(WEB + x)[1].decode("utf-8", "replace")
+                  for y in set(re.findall(r'assets/[^"\'`\s)]+?\.js', 글[x])):
+                      y = "/" + y
+                      if y not in 글 and "Predict-" in y:
+                          s, b = get(WEB + y)
+                          글[y] = b.decode("utf-8", "replace") if s == 200 else ""
+              결과 = {이름: any(k in s for n, s in 글.items() if "Predict-" in n) for 이름, k in 표식.items()}
+              print(f"[화면 {번}] 파일 {len(글)}개 {결과}", flush=True)
+              if all(결과.values()):
+                  break
+              time.sleep(30)
+
+          # ── 2) 서버(Render) — 새 코드가 떴나(technical 이 실린다) ──
+          for 번 in range(40):
+              s, b = get(f"{API}/predict/KR/005930")
+              새것 = s == 200 and b'"technical"' in b
+              print(f"[서버 {번}] KR/005930 → {s} technical={'있음' if 새것 else '없음'}", flush=True)
+              if 새것:
+                  break
+              time.sleep(30)
+
+          def 퍼(a, b):
+              return f"{(a / b - 1) * 100:+.1f}%"
+          값들 = {}
+          for 시장, 종목 in (("KR", "005930"), ("US", "AAPL"), ("KR", "000660"), ("US", "NVDA"), ("KR", "035420"), ("US", "TSLA")):
+              시작 = time.time()
+              s, b = get(f"{API}/predict/{시장}/{종목}")
+              걸림 = time.time() - 시작
+              if s != 200:
+                  print(시장, 종목, s, b[:200]); continue
+              d = json.loads(b)
+              값들[(시장, 종목)] = d["price"]
+              t = d.get("technical")
+              print(f"== {d['name']}({종목}) {s} {걸림:.1f}초 · {d['as_of']} 종가 {d['price']} {d['currency']} · 일봉 {d['days_used']}일", flush=True)
+              if not t:
+                  print("   기술: 없음(None)"); continue
+              쓴 = [i["key"] for i in t["indicators"] if i["used"]]
+              print(f"   기술: 시장 {t['market']} · 지표 {len(쓴)}/{len(t['indicators'])} 사용 · 뺀 것 {[i['key'] for i in t['indicators'] if not i['used']]}")
+              범위날 = {h["days"]: h["date"] for h in d["horizons"]}
+              for h in t["horizons"]:
+                  c = h["check"] or {}
+                  K = h["neighbor_count"]
+                  print(f"   {h['label']:>3} {h['date']}{'' if 범위날.get(h['days']) == h['date'] else ' (범위 예측과 날짜 다름!)'} "
+                        f"[{h['method_label']}] 예상 {h['predicted']} ({퍼(h['predicted'], d['price'])}) 절반 {h['range']} "
+                        f"오름 {round(h['up'] * K)}/{K} ↑10% {round(h['up10'] * K)} ↓10% {round(h['down10'] * K)}", flush=True)
+                  if c:
+                      print(f"       검증 {c['n']}번 {c['from']}~{c['to']} 절반안 {c['in50']:.0%} · gain {c['gain']:+.1%} t {c['t']} → "
+                            f"{'초록(확실히 나음)' if c['beats_flat'] else '노랑(참고만)'} · "
+                            + " / ".join(f"{m['label']} {m['mae']:.1%}" + (f" 방향 {m['direction']:.0%}" if m['direction'] is not None else "") for m in c["methods"]))
+                  print(f"       비슷했던 때 {[(n['date'], n['change']) for n in h['neighbors'][:3]]} …")
+          # 두 번째는 담아 둔 것 — 빨라야 한다
+          시작 = time.time(); s, _ = get(f"{API}/predict/KR/005930"); print(f"다시 물음 {s} {time.time() - 시작:.2f}초")
+          # 없는 종목 — 야후가 '자료 없음' → 404(예전 503)
+          for 시장, 종목 in (("US", "ZZZQQX"), ("KR", "999990")):
+              s, b = get(f"{API}/predict/{시장}/{종목}")
+              print("없는 종목", 시장, 종목, s, b[:160].decode("utf-8", "replace"))
+          # 일봉 받기를 바꿨다(raise_errors) — 10일봉 차트는 야후로만 받는다. 마지막 종가가 예측의 종가와 같고(실제 시세),
+          # 두 번 물어 같아야 한다(데모는 무작위라 다르다)
+          for 시장, 종목 in (("KR", "005930"), ("US", "AAPL")):
+              s1, b1 = get(f"{API}/stocks/{시장}/{종목}/ohlcv?period=5y&interval=10d")
+              s2, b2 = get(f"{API}/stocks/{시장}/{종목}/ohlcv?period=5y&interval=10d")
+              봉 = json.loads(b1) if s1 == 200 else []
+              print(f"10일봉 {시장}/{종목} {s1} {len(봉)}개 · 마지막 {봉[-1]['date'] if 봉 else None} 종가 {봉[-1]['close'] if 봉 else None} "
+                    f"· 예측 종가 {값들.get((시장, 종목))} · 두 번 같음 {b1 == b2}")
