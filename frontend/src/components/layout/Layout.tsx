@@ -19,6 +19,7 @@ import { 한가할때, 아껴쓰는중 } from "@/utils/한가할때";
 import { 원하는방향, 지켜보기 as 방향지켜보기 } from "@/utils/화면방향";
 import { use증권사알림맞추기 } from "@/hooks/useWebPush";
 import { 맨위로 } from "@/utils/맨위로";
+import { use밝은화면 } from "@/hooks/useThemeMode";
 import { use당겨서새로고침 } from "@/hooks/usePullToRefresh";
 import { use화면넘김 } from "@/hooks/usePageTransition";
 import { use인터넷 } from "@/hooks/useOnline";
@@ -84,21 +85,16 @@ function 화면기다리기() {
 export default function Layout() {
   const wsStatus = useWSStore((s) => s.indicesStatus);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const username = useAuthStore((s) => s.username);
   const isAdmin = useAuthStore((s) => s.isAdmin);
   const logout = useAuthStore((s) => s.logout);
   const fontSize = useSettingsStore((s) => s.fontSize);
-  const theme = useSettingsStore((s) => s.theme);
-  const setTheme = useSettingsStore((s) => s.setTheme);
   const orientation = useSettingsStore((s) => s.orientation);
   const navigate = useNavigate();
   const location = useLocation();
-  const [systemPrefersLight, setSystemPrefersLight] = useState(
-    () => window.matchMedia?.("(prefers-color-scheme: light)").matches ?? false
-  );
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const isLight = theme === "system" ? systemPrefersLight : theme === "light";
+  /* 밝은 화면인가 — '시스템' 이면 기기를 따른다(hooks/useThemeMode, 더보기의 다크 모드 스위치와 같은 셈) */
+  const { 밝음: isLight, 바꾸기: 화면모드바꾸기 } = use밝은화면();
 
   const handleLogout = () => {
     logout();
@@ -116,14 +112,6 @@ export default function Layout() {
   useEffect(() => {
     if (아껴쓰는중()) return;
     return 한가할때(() => BOTTOM_NAV.forEach(({ to }) => 화면미리받기(to)), 5_000);
-  }, []);
-
-  /* 시스템 다크/라이트 모드 변경 감지 */
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: light)");
-    const handler = (e: MediaQueryListEvent) => setSystemPrefersLight(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
   }, []);
 
   /* 앱이 고른 밝기를 브라우저에도 알린다 — 클래스·색 모드(color-scheme)·상태 표시줄 색을 한꺼번에. 색 모드를
@@ -214,6 +202,8 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+        {/* 머리에 있던 관리자·화면 모드·로그아웃은 여기로 옮겼다(사용자: "위에 메시지 알림 로그아웃 다크모드 등 너무
+            많은데 정리해줘") — 머리에는 메시지·알림만 남는다. 휴대폰은 더보기 화면에 같은 것이 있다 */}
         <div className="px-3 pb-2 flex flex-col gap-0.5">
           {/* 로그인 전에도 보인다 — 누르면 내 프로필 화면이 로그인하라고 말한다 */}
           <NavLink to="/mypage"
@@ -221,6 +211,11 @@ export default function Layout() {
           >
             <User size={14} className="flex-shrink-0" />내 프로필
           </NavLink>
+          {isAdmin && (
+            <NavLink to="/admin" className={({ isActive }) => navItemCls(isActive)}>
+              <ShieldCheck size={14} className="flex-shrink-0" />관리자
+            </NavLink>
+          )}
           <InstallAppButton className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150" />
           <button
             onClick={() => setSettingsOpen(true)}
@@ -228,6 +223,21 @@ export default function Layout() {
           >
             <Settings size={14} className="flex-shrink-0" />설정
           </button>
+          <button
+            onClick={화면모드바꾸기}
+            className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-text-secondary hover:bg-bg-elevated transition-all duration-150"
+          >
+            {isLight ? <Moon size={14} className="flex-shrink-0" /> : <Sun size={14} className="flex-shrink-0" />}
+            {isLight ? "다크 모드" : "라이트 모드"}
+          </button>
+          {isLoggedIn && (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-text-muted hover:text-accent-red hover:bg-bg-elevated transition-all duration-150"
+            >
+              <LogOut size={14} className="flex-shrink-0" />로그아웃
+            </button>
+          )}
         </div>
         <div className="px-5 py-3 border-t border-border-subtle">
           <div className="flex items-center gap-2">
@@ -255,33 +265,13 @@ export default function Layout() {
             <span className="font-mono hidden lg:block">
               {new Date().toLocaleDateString("ko-KR", { year:"numeric", month:"long", day:"numeric", weekday:"short" })}
             </span>
-            {isLoggedIn ? (
-              <div className="flex items-center gap-1.5">
-                <Link to="/mypage" className="hidden sm:block text-text-muted text-xs font-medium truncate max-w-[120px] hover:text-accent-blue transition-colors" title={username ?? ""}>
-                  {username}
-                </Link>
-                <Suspense fallback={<메시지아이콘자리 />}><메시지아이콘 /></Suspense>
-                <NotificationBell />
-                {isAdmin && (
-                  <Link to="/admin" className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-accent-blue/40 hover:bg-accent-blue/10 text-accent-blue transition-all" title="관리자 페이지">
-                    <ShieldCheck size={13} />
-                    <span className="hidden sm:block text-xs">관리자</span>
-                  </Link>
-                )}
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-red transition-all"
-                  title="로그아웃"
-                >
-                  <LogOut size={13} />
-                  <span className="hidden sm:block text-xs">로그아웃</span>
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                {/* 로그인 전에도 종·메시지는 보인다 — PC 는 여기가 알림·메시지로 가는 유일한 입구다 */}
-                <Suspense fallback={<메시지아이콘자리 />}><메시지아이콘 /></Suspense>
-                <NotificationBell />
+            {/* 머리에는 메시지·알림만 — 아이디·관리자·로그아웃·해와 달 단추가 검색창 옆에 다닥다닥 붙어 있었다(사용자:
+                "위에 메시지 알림 로그아웃 다크모드 등 너무 많은데 정리해줘"). 그것들은 PC 는 왼쪽 메뉴 아래, 휴대폰은
+                더보기에 있다. 로그인 전에도 메시지·종은 보인다 — PC 는 여기가 알림·메시지로 가는 유일한 입구다 */}
+            <div className="flex items-center gap-1.5">
+              <Suspense fallback={<메시지아이콘자리 />}><메시지아이콘 /></Suspense>
+              <NotificationBell />
+              {!isLoggedIn && (
                 <Link
                   to="/login"
                   className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-accent-blue transition-all whitespace-nowrap"
@@ -289,15 +279,8 @@ export default function Layout() {
                   <LogIn size={13} />
                   <span className="text-xs">로그인</span>
                 </Link>
-              </div>
-            )}
-            <button
-              onClick={() => setTheme(isLight ? "dark" : "light")}
-              className="p-1.5 rounded-lg border border-border hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-all"
-              title={isLight ? "다크 모드" : "라이트 모드"}
-            >
-              {isLight ? <Moon size={14} /> : <Sun size={14} />}
-            </button>
+              )}
+            </div>
           </div>
         </header>
 

@@ -53,6 +53,7 @@ vi.mock("@/api/stocks", async (원본가져오기) => ({
 }));
 
 import More from "../More";
+import { useSettingsStore } from "@/store/settingsStore";
 
 function 그리기() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -205,5 +206,39 @@ describe("메뉴", () => {
     expect(await screen.findByRole("link", { name: /알림/ })).toHaveTextContent("댓글·좋아요·팔로우");
     expect(screen.getByRole("link", { name: /알림/ })).not.toHaveTextContent("로그인하면");
     expect(screen.getByRole("link", { name: /내 프로필/ })).not.toHaveTextContent("로그인하면");
+  });
+});
+
+describe("다크 모드 — 머리의 해·달 단추를 여기로(사용자: \"위에 메시지 알림 로그아웃 다크모드 등 너무 많은데 정리해줘\")", () => {
+  it("스위치로 켜고 끈다 — 지금 화면을 적어 준다", async () => {
+    useSettingsStore.getState().setTheme("light");
+    그리기();
+    const 스위치 = screen.getByRole("switch", { name: "다크 모드" });
+    expect(스위치).toHaveAttribute("aria-checked", "false");
+    expect(스위치).toHaveTextContent("지금은 밝은 화면");
+    await userEvent.click(스위치);
+    expect(useSettingsStore.getState().theme).toBe("dark");
+    expect(스위치).toHaveAttribute("aria-checked", "true");
+    expect(스위치).toHaveTextContent("지금은 어두운 화면");
+    await userEvent.click(스위치);
+    expect(useSettingsStore.getState().theme).toBe("light");
+  });
+
+  it("'시스템' 이면 기기 설정대로 보이고, 누르면 지금의 반대로 못 박는다", async () => {
+    const 원래 = window.matchMedia;
+    window.matchMedia = ((q: string) => ({
+      matches: q.includes("prefers-color-scheme: light"), media: q, onchange: null,
+      addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
+    })) as any;
+    try {
+      useSettingsStore.getState().setTheme("system");
+      그리기();
+      const 스위치 = screen.getByRole("switch", { name: "다크 모드" });
+      expect(스위치).toHaveAttribute("aria-checked", "false");      // 기기가 밝음
+      await userEvent.click(스위치);
+      expect(useSettingsStore.getState().theme).toBe("dark");
+    } finally {
+      window.matchMedia = 원래;
+    }
   });
 });

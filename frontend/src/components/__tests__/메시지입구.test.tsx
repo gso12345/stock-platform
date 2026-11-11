@@ -4,7 +4,8 @@
  * 앱 틀(Layout)을 실제로 그린다(로그인전메뉴.test.tsx 와 같은 방식).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 
@@ -29,6 +30,7 @@ import 메시지아이콘, { 배지글 } from "@/components/dm/메시지아이�
 import { 대화방인가, 더보기_경로 } from "@/constants/moreNav";
 import { dmApi } from "@/api/dm";
 import { useAuthStore } from "@/store/authStore";
+import { useSettingsStore } from "@/store/settingsStore";
 
 const api = vi.mocked(dmApi);
 
@@ -43,6 +45,8 @@ function 틀그리기(주소: string) {
             <Route path="messages" element={<div>메시지 목록</div>} />
             <Route path="messages/:threadId" element={<div>대화방</div>} />
             <Route path="more" element={<More />} />
+            <Route path="login" element={<div>로그인 화면</div>} />
+            <Route path="admin" element={<div>관리자 화면</div>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -135,5 +139,62 @@ describe("더보기의 '메시지' 줄", () => {
     const 줄 = (await screen.findAllByRole("link", { name: /메시지/ })).find((a) => a.textContent?.includes("1:1 대화"))!;
     expect(줄).toHaveAttribute("href", "/messages");
     await waitFor(() => expect(줄).toHaveTextContent("2"));
+  });
+});
+
+describe("머리 정리 — 메시지·알림만(사용자: \"위에 메시지 알림 로그아웃 다크모드 등 너무 많은데 정리해줘\")", () => {
+  /** 머리(header)에 있는 누를 것들의 이름 */
+  const 머리것들 = () => {
+    const 머리 = screen.getByRole("banner");
+    return [...within(머리).queryAllByRole("link"), ...within(머리).queryAllByRole("button")]
+      .map((e) => e.getAttribute("aria-label") || e.textContent?.trim() || "").sort();
+  };
+  const 왼쪽메뉴 = () => screen.getByRole("complementary");
+
+  it("로그인했으면 머리에는 메시지·알림 둘뿐 — 아이디·관리자·로그아웃·해와 달이 없다", async () => {
+    useAuthStore.setState({ token: "t", userId: 7, username: "gso", isLoggedIn: true, isAdmin: true });
+    틀그리기("/");
+    await waitFor(() => expect(api.unreadCount).toHaveBeenCalled());
+    expect(머리것들()).toEqual(["메시지", "알림"]);
+    const 머리 = screen.getByRole("banner");
+    for (const 없을것 of [/로그아웃/, /관리자/, /다크 모드/, /라이트 모드/, /gso/]) {
+      expect(within(머리).queryByText(없을것)).toBeNull();
+    }
+  });
+
+  it("로그인 전이면 메시지·알림·로그인", () => {
+    useAuthStore.setState({ token: null, userId: null, username: null, isLoggedIn: false, isAdmin: false });
+    틀그리기("/");
+    expect(머리것들()).toEqual(["로그인", "메시지", "알림"]);
+    expect(within(screen.getByRole("banner")).getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "/login");
+  });
+
+  it("PC 왼쪽 메뉴 아래로 옮겼다 — 관리자(관리자만)·화면 모드·로그아웃", async () => {
+    useAuthStore.setState({ token: "t", userId: 7, username: "gso", isLoggedIn: true, isAdmin: true });
+    useSettingsStore.getState().setTheme("dark");
+    틀그리기("/");
+    const 메뉴 = 왼쪽메뉴();
+    expect(within(메뉴).getByRole("link", { name: /관리자/ })).toHaveAttribute("href", "/admin");
+
+    // 지금 어두우면 '라이트 모드' — 누르면 밝아지고 글이 바뀐다
+    await userEvent.click(within(메뉴).getByRole("button", { name: /라이트 모드/ }));
+    expect(useSettingsStore.getState().theme).toBe("light");
+    await userEvent.click(within(메뉴).getByRole("button", { name: /다크 모드/ }));
+    expect(useSettingsStore.getState().theme).toBe("dark");
+
+    await userEvent.click(within(메뉴).getByRole("button", { name: /로그아웃/ }));
+    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    expect(screen.getByText("로그인 화면")).toBeInTheDocument();
+  });
+
+  it("관리자가 아니면 왼쪽 메뉴에도 관리자가 없고, 로그인 전이면 로그아웃이 없다", () => {
+    useAuthStore.setState({ token: "t", userId: 7, username: "gso", isLoggedIn: true, isAdmin: false });
+    const { unmount } = 틀그리기("/");
+    expect(within(왼쪽메뉴()).queryByRole("link", { name: /관리자/ })).toBeNull();
+    expect(within(왼쪽메뉴()).getByRole("button", { name: /로그아웃/ })).toBeInTheDocument();
+    unmount();
+    useAuthStore.setState({ token: null, userId: null, username: null, isLoggedIn: false, isAdmin: false });
+    틀그리기("/");
+    expect(within(왼쪽메뉴()).queryByRole("button", { name: /로그아웃/ })).toBeNull();
   });
 });

@@ -141,6 +141,19 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
     return () => el.removeEventListener("scroll", 볼때);
   }, [스크롤러]);
 
+  /* 자판이 올라오면(휴대폰) 대화도 그만큼 올린다(사용자: "메시지를 입력할 때 키보드에 가려서 화면이 안보여").
+     입력칸만 자판 위로 올라가고 대화는 제자리라, 마지막 메시지들이 자판 뒤에 숨었다. 아래 여백을 자판만큼 늘리고
+     (아래 '자판 자리') 늘어난 만큼 내려서, 보던 아래쪽 — 대개 마지막 메시지 — 이 입력칸 바로 위에 그대로 보이게
+     한다. 자판이 내려가면 거꾸로. 아이폰이 화면을 밀어 올리면(offsetTop) 자판 높이가 그만큼 작게 재여 같이 맞는다 */
+  const 앞자판 = useRef(0);
+  useLayoutEffect(() => {
+    const 차이 = 자판 - 앞자판.current;
+    앞자판.current = 자판;
+    if (!차이) return;
+    const el = 스크롤러();
+    if (el) el.scrollTop += 차이;
+  }, [자판, 스크롤러]);
+
   /* 그린 직후 — 처음이면 바닥으로, 이전 것을 위에 붙였으면 보던 자리 그대로, 새 것이 왔으면 따라가거나 알리기 */
   useLayoutEffect(() => {
     const 이번 = 할일.current;
@@ -617,8 +630,11 @@ function 대화방화면({ 방번호 }: { 방번호: number }) {
             )}
           </div>
         </div>
-        {/* 휴대폰 — 입력칸(fixed)에 마지막 메시지가 가리지 않게 */}
-        {!넓음 && <div aria-hidden className="h-16" />}
+        {/* 휴대폰 — 입력칸(fixed)에 마지막 메시지가 가리지 않게. 자판이 올라오면 그 높이만큼 더(자판 자리) */}
+        {!넓음 && (
+          <div aria-hidden data-dm-bottom-space="" className="h-16"
+            style={자판 > 0 ? { height: `calc(4rem + ${자판}px)` } : undefined} />
+        )}
       </div>
 
       {신고할 && (

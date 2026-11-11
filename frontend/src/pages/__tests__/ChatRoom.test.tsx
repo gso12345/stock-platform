@@ -412,6 +412,100 @@ describe("새 것 묻기", () => {
   });
 });
 
+describe("휴대폰 자판(키보드)", () => {
+  /** 아래 여백의 높이 — 'calc(4rem + Npx)'. jsdom 은 calc 안의 차례를 바꿔 적어서 차례 없이 견준다 */
+  const 여백높이 = (el: HTMLElement) => {
+    const m = /^calc\((.+)\)$/.exec(el.style.height);
+    return m ? m[1].split(" + ").sort().join(" + ") : el.style.height;
+  };
+
+  /** visualViewport 흉내 — 자판이 올라오면 보이는 높이가 그만큼 준다(아이폰·안드로이드 크롬 모두 이렇게 알린다) */
+  function 자판흉내() {
+    let 보이는높이 = 664;
+    let 위로밀림 = 0;
+    const vv = new EventTarget();
+    Object.defineProperty(vv, "height", { configurable: true, get: () => 보이는높이 });
+    Object.defineProperty(vv, "offsetTop", { configurable: true, get: () => 위로밀림 });
+    const 원래vv = (window as any).visualViewport;
+    const 원래높이 = window.innerHeight;
+    (window as any).visualViewport = vv;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 664 });
+    return {
+      올리기: async (높이: number, 밀림 = 0) => {
+        await act(async () => { 보이는높이 = 664 - 높이; 위로밀림 = 밀림; vv.dispatchEvent(new Event("resize")); });
+      },
+      되돌리기: () => {
+        (window as any).visualViewport = 원래vv;
+        Object.defineProperty(window, "innerHeight", { configurable: true, value: 원래높이 });
+      },
+    };
+  }
+
+  it("자판이 올라오면 아래 여백을 늘리고 그만큼 내려, 보던 아래쪽(마지막 메시지)이 입력칸 위에 그대로 보인다", async () => {
+    const 자판 = 자판흉내();
+    try {
+      const { container } = 그리기();
+      await screen.findByText("안녕하세요");
+      const 본문 = container.querySelector("main")!;
+      const 여백 = container.querySelector("[data-dm-bottom-space]") as HTMLElement;
+      const 입력칸자리 = container.querySelector("[data-dm-composer]") as HTMLElement;
+      본문.scrollTop = 500;
+      expect(여백.style.height).toBe("");
+
+      await 자판.올리기(300);
+      expect(입력칸자리.style.bottom).toBe("300px");                  // 입력칸은 자판 위로
+      expect(여백높이(여백)).toBe("300px + 4rem");                    // 대화 아래에 자판 자리
+      expect(본문.scrollTop).toBe(800);                               // 그만큼 내려 보던 아래쪽이 그대로
+
+      // 자판 위에 추천 단어 줄이 붙어 높아지면 그 차이만큼만 더
+      await 자판.올리기(340);
+      expect(본문.scrollTop).toBe(840);
+
+      // 내려가면 거꾸로
+      await 자판.올리기(0);
+      expect(여백.style.height).toBe("");
+      expect(입력칸자리.style.bottom).toBe("0px");
+      expect(본문.scrollTop).toBe(500);
+    } finally {
+      자판.되돌리기();
+    }
+  });
+
+  it("아이폰이 화면을 밀어 올려 일부만 가리면 가린 만큼만", async () => {
+    const 자판 = 자판흉내();
+    try {
+      const { container } = 그리기();
+      await screen.findByText("안녕하세요");
+      const 본문 = container.querySelector("main")!;
+      본문.scrollTop = 500;
+      await 자판.올리기(300, 120);                                    // 300 중 120 은 화면을 밀어 올려 피했다
+      expect(여백높이(container.querySelector("[data-dm-bottom-space]") as HTMLElement)).toBe("180px + 4rem");
+      expect(본문.scrollTop).toBe(680);
+    } finally {
+      자판.되돌리기();
+    }
+  });
+
+  it("PC(넓은 화면)는 자판을 안 잰다 — 여백 칸도 없다", async () => {
+    window.matchMedia = ((q: string) => ({
+      matches: q.includes("min-width"), media: q, onchange: null, addListener() {}, removeListener() {},
+      addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
+    })) as any;
+    const 자판 = 자판흉내();
+    try {
+      const { container } = 그리기();
+      await screen.findByText("안녕하세요");
+      const 본문 = container.querySelector("main")!;
+      본문.scrollTop = 500;
+      await 자판.올리기(300);
+      expect(container.querySelector("[data-dm-bottom-space]")).toBeNull();
+      expect(본문.scrollTop).toBe(500);
+    } finally {
+      자판.되돌리기();
+    }
+  });
+});
+
 describe("이전 메시지", () => {
   it("맨 위의 '이전 메시지 보기' — 첫 번호 앞의 것을 받아 위에 붙인다", async () => {
     처음더있음 = true;
