@@ -1,0 +1,83 @@
+name: 배포 확인(임시) — 메시지 다듬기
+on:
+  push:
+    branches: [claude/initial-load-performance-2RJGW]
+    paths: [".github/workflows/probe-msg.yml"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: 운영 화면·서버를 읽기만 해서 확인
+        shell: python
+        run: |
+          import json, re, time, urllib.request, urllib.parse
+          WEB = "https://stock-platform-one.vercel.app"
+          API = "https://stock-platform-ksmu.onrender.com/api/v1"
+
+          def get(u, t=60):
+              p = urllib.parse.urlsplit(u)
+              u = urllib.parse.urlunsplit(p._replace(path=urllib.parse.quote(p.path)))
+              r = urllib.request.Request(u, headers={"User-Agent": "deploy-probe"})
+              with urllib.request.urlopen(r, timeout=t) as res:
+                  return res.status, res.read()
+
+          # ── 1) 화면(Vercel) — 새 빌드의 표식이 실렸나. 배포가 끝날 때까지 기다린다 ──
+          있어야 = ["data-notch-space", "data-dm-unread-line", "data-dm-header", "dm-draft",
+                    "여기부터 안 읽은 메시지", "쓰던 글", "맨 아래로", "메시지를 보낼 사람"]
+          없어야 = ["지금은 밝은 화면", "지금은 어두운 화면"]
+          for 번 in range(20):
+              _, html = get(WEB + "/messages")
+              html = html.decode("utf-8", "replace")
+              이름들 = set(re.findall(r'/assets/[^"\'\s]+?\.js', html))
+              entry = [x for x in 이름들 if "/index-" in x]
+              글 = {}
+              for x in entry:
+                  글[x] = get(WEB + x)[1].decode("utf-8", "replace")
+                  for y in set(re.findall(r'assets/[^"\'`\s)]+?\.js', 글[x])):
+                      y = "/" + y
+                      if y not in 글:
+                          try:
+                              글[y] = get(WEB + y)[1].decode("utf-8", "replace")
+                          except Exception as e:
+                              글[y] = ""
+              어디 = {k: sorted(n.split("/")[-1] for n, s in 글.items() if k in s) for k in 있어야 + 없어야}
+              모자람 = [k for k in 있어야 if not 어디[k]]
+              print(f"[화면 {번}] 파일 {len(글)}개, 없는 표식: {모자람}")
+              if not 모자람:
+                  for k in 있어야 + 없어야:
+                      print(f"   {k} → {어디[k]}")
+                  break
+              time.sleep(30)
+
+          # ── 2) 서버(Render) — 팔로워·팔로잉 목록에 avatar_url 이 실리나(새 서버만 싣는다) ──
+          for 번 in range(8):
+              try:
+                  s, b = get(API.replace("/api/v1", "") + "/health", 90)
+                  print("health", s, b[:60]); break
+              except Exception as e:
+                  print("health 기다림", e); time.sleep(20)
+          표본 = None
+          for uid in range(1, 61):
+              for kind in ("following", "followers"):
+                  try:
+                      s, b = get(f"{API}/community/users/{uid}/{kind}", 30)
+                      d = json.loads(b)
+                  except Exception:
+                      continue
+                  if isinstance(d, list) and d:
+                      표본 = (uid, kind); break
+              if 표본:
+                  break
+          print("팔로우 관계가 있는 사용자:", 표본)
+          if 표본:
+              for 번 in range(24):
+                  d = json.loads(get(f"{API}/community/users/{표본[0]}/{표본[1]}", 30)[1])
+                  열쇠 = sorted(d[0].keys())
+                  print(f"[서버 {번}] 칸: {열쇠}")
+                  if "avatar_url" in 열쇠:
+                      print("   → 새 서버가 떠 있다")
+                      break
+                  time.sleep(30)
