@@ -9,6 +9,10 @@
  *   · 근거 셋 — 지금과 같은 상태였던 날들 뒤에 이 종목이 오른 비율(지난 자료 그대로 센 것)
  *   · 증권사 목표가 — 이 셈과는 따로인 사람들의 의견
  * 종목·기간은 주소에 남는다(?m=KR&s=005930&n=삼성전자&h=21) — 종목 상세에서 바로 오고, 뒤로 가도 그대로다.
+ *
+ * 맨 위 카드는 기술적 분석 예측(components/predict/기술예측) — 사용자: "기술적분석을 바탕으로 주가를 공모가처럼
+ * 예측해줘". 공모주처럼 예상 주가 하나를 내되, 지난 3년 '지금 가격 그대로' 보다 확실히 나았는지 판정을 붙인다.
+ * 그 아래 범위 카드는 '출렁임으로 본 범위' — 두 셈은 따로다(기술적 예상은 그래프에 주황 점으로).
  */
 import { useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -20,6 +24,7 @@ import { predictApi, type 예측기간, type 주가예측 } from "@/api/predict"
 import { stocksApi } from "@/api/stocks";
 import 종목고르기, { 기본종목, 시장으로, type 고른종목 } from "@/components/backtest/종목고르기";
 import 차트틀, { 그래프미리받기 } from "@/components/chart/ChartFrame";
+import 기술예측 from "@/components/predict/기술예측";
 import { Card, ChipTabs, MarketBadge, 못불러옴, cn } from "@/components/ui";
 import { use넓은화면 } from "@/hooks/useWideScreen";
 import { usePnlColors } from "@/hooks/usePnlColors";
@@ -122,7 +127,7 @@ export default function Predict() {
           주가예측
         </h1>
         <p className="text-text-muted text-xs mt-0.5 break-keep">
-          지난 주가의 움직임으로 앞으로 있을 만한 범위와 확률을 셈해요. 투자 권유가 아니에요
+          기술적 지표로 예상 주가를, 지난 주가의 출렁임으로 있을 만한 범위와 확률을 셈해요. 투자 권유가 아니에요
         </p>
       </div>
 
@@ -161,24 +166,29 @@ export default function Predict() {
       ) : 질의.isError || !예측 || !고른 ? (
         <Card><못불러옴 사유={질의.error} 다시={() => 질의.refetch()} compact /></Card>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] items-start">
-          <div className="flex flex-col gap-4 min-w-0">
-            <요약 예측={예측} 기간={고른} />
-            <Card className="flex flex-col gap-2">
-              <예측그래프 예측={예측} 일수={일수} 높이={넓음 ? 그래프높이.큰[1] : 그래프높이.큰[0]} />
-              <p className="text-2xs text-text-dim break-keep">
-                진한 띠는 50%, 옅은 띠는 80% 범위예요. 점선은 가운데 값. 날짜는 주말만 뺀 어림이에요
-              </p>
-            </Card>
-            {/* PC 는 그래프 아래 빈자리에, 휴대폰은 맨 아래에(확률·검증보다 먼저 나오면 본론을 가린다) */}
-            <div className="hidden lg:block"><설명 예측={예측} /></div>
-          </div>
-          <div className="flex flex-col gap-4 min-w-0">
-            <확률들 예측={예측} 기간={고른} />
-            <검증 기간={고른} />
-            <근거들 예측={예측} 기간={고른} />
-            <목표가 예측={예측} 자료={애널.data} />
-            <div className="lg:hidden"><설명 예측={예측} /></div>
+        <div className="flex flex-col gap-2.5">
+          <종목줄 예측={예측} />
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] items-start">
+            <div className="flex flex-col gap-4 min-w-0">
+              <기술예측 예측={예측} 일수={일수} 기간바꾸기={(d) => 바꾸기({ 일수: d })} />
+              <요약 예측={예측} 기간={고른} />
+              <Card className="flex flex-col gap-2">
+                <예측그래프 예측={예측} 일수={일수} 높이={넓음 ? 그래프높이.큰[1] : 그래프높이.큰[0]} />
+                <p className="text-2xs text-text-dim break-keep">
+                  진한 띠는 50%, 옅은 띠는 80% 범위예요. 점선은 가운데 값
+                  {예측.technical?.horizons.some((x) => x.days === 일수) && ", 주황 점은 기술적 분석의 예상 주가"}.
+                  날짜는 주말만 뺀 어림이에요
+                </p>
+              </Card>
+            </div>
+            {/* 설명은 오른쪽 칸 끝 하나 — 휴대폰은 맨 아래(본론을 가리지 않게), PC 는 짧은 오른쪽 칸을 채운다 */}
+            <div className="flex flex-col gap-4 min-w-0">
+              <확률들 예측={예측} 기간={고른} />
+              <검증 기간={고른} />
+              <근거들 예측={예측} 기간={고른} />
+              <목표가 예측={예측} 자료={애널.data} />
+              <설명 예측={예측} />
+            </div>
           </div>
         </div>
       )}
@@ -186,19 +196,28 @@ export default function Predict() {
   );
 }
 
-/** 위 큰 카드 — 80% 범위를 크게, 가운데 값과 오를 확률은 그 아래 */
+/** 고른 종목과 마지막 종가 — 아래 카드가 모두 이 종가에서 셈한 것 */
+function 종목줄({ 예측 }: { 예측: 주가예측 }) {
+  return (
+    <div className="flex items-center gap-2 min-w-0 px-1">
+      <MarketBadge market={예측.market} />
+      <Link to={`/stocks/${예측.market}/${encodeURIComponent(예측.symbol)}`}
+        className="text-base font-semibold text-text-primary truncate hover:text-accent-blue">{예측.name}</Link>
+      <span className="ml-auto shrink-0 text-xs text-text-muted num">
+        {날짜글(예측.as_of)} 종가 {fmtNative(예측.market, 예측.currency, 예측.price)}
+      </span>
+    </div>
+  );
+}
+
+/** 출렁임으로 본 범위 — 80% 범위를 크게, 가운데 값과 오를 확률은 그 아래 */
 function 요약({ 예측, 기간 }: { 예측: 주가예측; 기간: 예측기간 }) {
   const 돈 = (v: number) => fmtNative(예측.market, 예측.currency, v);
   const 자리 = 막대자리(기간, 예측.price);
   const 색 = usePnlColors(useSettingsStore((s) => s.colorScheme));
   return (
     <Card className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 min-w-0">
-        <MarketBadge market={예측.market} />
-        <Link to={`/stocks/${예측.market}/${encodeURIComponent(예측.symbol)}`}
-          className="text-sm font-semibold text-text-primary truncate hover:text-accent-blue">{예측.name}</Link>
-        <span className="ml-auto shrink-0 text-2xs text-text-dim">{날짜글(예측.as_of)} 종가 {돈(예측.price)}</span>
-      </div>
+      <h2 className="text-sm font-semibold text-text-primary">출렁임으로 본 범위</h2>
       <div>
         <p className="text-xs text-text-muted">{기간.label} 뒤 · {날짜글(기간.date)} 무렵 · 80% 확률로</p>
         <p className="mt-0.5 text-2xl font-bold text-text-primary num break-keep" data-testid="예측범위">
@@ -248,13 +267,19 @@ function 예측그래프({ 예측, 일수, 높이 }: { 예측: 주가예측; 일
               labelFormatter={(d: string) => 날짜글(String(d))}
               formatter={(v: number | [number, number], 이름: string) => {
                 const 글 = Array.isArray(v) ? `${돈(v[0])} ~ ${돈(v[1])}` : 돈(v);
-                const 이름표: Record<string, string> = { 종가: "종가", 가운데: "가운데 값", 범위80: "80% 범위", 범위50: "50% 범위" };
+                const 이름표: Record<string, string> = {
+                  종가: "종가", 가운데: "가운데 값", 범위80: "80% 범위", 범위50: "50% 범위", 기술: "기술적 분석 예상",
+                };
                 return [글, 이름표[이름] ?? 이름];
               }} />
             <R.Area dataKey="범위80" stroke="none" fill="var(--accent-blue)" fillOpacity={0.14} isAnimationActive={false} connectNulls />
             <R.Area dataKey="범위50" stroke="none" fill="var(--accent-blue)" fillOpacity={0.26} isAnimationActive={false} connectNulls />
             <R.Line dataKey="종가" stroke="var(--text-secondary)" strokeWidth={1.6} dot={false} isAnimationActive={false} />
             <R.Line dataKey="가운데" stroke="var(--accent-blue)" strokeWidth={1.6} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+            {/* 기술적 분석의 예상 주가 — 그 기간의 마지막 날에만 값이 있어 점 하나 */}
+            <R.Line dataKey="기술" stroke="none" isAnimationActive={false}
+              dot={{ r: 4.5, fill: "var(--chart-bench)", stroke: "var(--bg-card)", strokeWidth: 1.5 }}
+              activeDot={{ r: 5.5, fill: "var(--chart-bench)", stroke: "var(--bg-card)", strokeWidth: 1.5 }} />
             <R.ReferenceLine x={예측.as_of} stroke="var(--text-dim)" strokeDasharray="2 4"
               label={{ value: "오늘", position: "insideTopRight", fill: "var(--text-dim)", fontSize: "0.72rem" }} />
           </R.ComposedChart>
@@ -290,7 +315,7 @@ function 확률들({ 예측, 기간 }: { 예측: 주가예측; 기간: 예측기
   );
 }
 
-/** 이 방식이 이 종목에서 지난 3년 동안 얼마나 맞았나 */
+/** 출렁임으로 본 범위가 이 종목에서 지난 3년 동안 얼마나 맞았나 */
 function 검증({ 기간 }: { 기간: 예측기간 }) {
   const 검 = 기간.check;
   if (!검) {
@@ -305,7 +330,7 @@ function 검증({ 기간 }: { 기간: 예측기간 }) {
   const 맞힌 = Math.round(검.in80 * 검.n);
   return (
     <Card className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold text-text-primary">이 방식은 얼마나 맞았나</h2>
+      <h2 className="text-sm font-semibold text-text-primary">출렁임 범위는 얼마나 맞았나</h2>
       <p className="text-xs text-text-muted break-keep">
         {년월글(검.from)}부터 매주, 그날까지의 시세만으로 {기간.label} 뒤를 예측해 봤어요
       </p>
@@ -377,6 +402,9 @@ function 목표가({ 예측, 자료 }: { 예측: 주가예측; 자료?: 목표�
 /** 어떻게 셈했나 — 접어 둔다 */
 function 설명({ 예측 }: { 예측: 주가예측 }) {
   const m = 예측.method;
+  const 기 = 예측.technical;
+  const 묶음제목 = "mt-2.5 text-xs font-semibold text-text-primary";
+  const 목록 = "mt-1 flex flex-col gap-1.5 text-xs text-text-secondary break-keep list-disc pl-4";
   return (
     <details className="group rounded-2xl border border-border bg-bg-card px-4 py-3">
       <summary className="flex items-center gap-2 cursor-pointer list-none text-sm font-semibold text-text-primary">
@@ -384,7 +412,22 @@ function 설명({ 예측 }: { 예측: 주가예측 }) {
         어떻게 셈했나요
         <ChevronDown size={14} className="ml-auto text-text-dim transition-transform group-open:rotate-180" />
       </summary>
-      <ul className="mt-2.5 flex flex-col gap-1.5 text-xs text-text-secondary break-keep list-disc pl-4">
+      {기 && (
+        <>
+          <p className={묶음제목}>기술적 분석 예측</p>
+          <ul className={목록}>
+            <li>지표 — 이동평균선 이격도·RSI·MACD·볼린저밴드·거래량·1년 흐름·52주 고점·변동성
+              {기.market ? `, 그리고 ${기.market}의 흐름` : ""}으로 지금을 그려요. 모두 그날까지의 시세로만 셈해요</li>
+            <li>예상 — 이 종목의 지난날 가운데 지표가 가장 비슷했던 {기.neighbors_k}번(서로 {기.min_gap_days}영업일 이상 떨어진
+              날)이 그 뒤 움직인 가운데 값, 같은 지표로 세운 회귀식, 그 둘의 가운데 — 셋 가운데 지난 3년 가장 덜 틀린 것을 써요</li>
+            <li>판정 — 지난 3년 매주, 그날 결과가 이미 나와 있던 날들로만 배워 맞혀 봤어요. '지금 가격 그대로' 라고 찍기보다
+              우연으로 보기 어려울 만큼 덜 틀렸을 때만 초록으로 보여요</li>
+            <li>짧은 앞날을 보는 도구라 3개월 뒤까지만 셈해요</li>
+          </ul>
+        </>
+      )}
+      <p className={묶음제목}>출렁임으로 본 범위</p>
+      <ul className={목록}>
         <li>출렁임 — 최근 하루하루의 움직임에 무게를 더 둬서 재요(지금 연 {(예측.volatility.now * 100).toFixed(0)}%).
           먼 앞날일수록 지난 3년 평균(연 {(예측.volatility.long * 100).toFixed(0)}%)으로 돌아간다고 봐요 — 반감기 {m.half_life_days}영업일</li>
         <li>가운데 — 주식의 장기 평균(연 {(m.prior_return * 100).toFixed(0)}%)에서 시작해 이 종목의 지난 3년 수익률을 믿을 만한
@@ -392,8 +435,10 @@ function 설명({ 예측 }: { 예측: 주가예측 }) {
         <li>꼬리 — 하루 움직임의 치우침과 두꺼운 꼬리를 범위에 반영했어요</li>
         <li>검증 — 지난 3년 동안 {m.check_step_days}영업일마다 그날까지의 시세만으로 같은 셈을 해, 실제 주가가 범위 안에 든
           비율을 셌어요</li>
-        <li>회사 소식·실적·시장 전체의 큰 사건은 셈에 들어가지 않아요. 투자 판단은 스스로 해 주세요</li>
       </ul>
+      <p className="mt-2.5 text-xs text-text-muted break-keep">
+        회사 소식·실적·처음 겪는 큰 사건은 두 셈 모두에 들어가지 않아요. 투자 판단은 스스로 해 주세요
+      </p>
     </details>
   );
 }

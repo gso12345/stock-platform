@@ -17,7 +17,7 @@ from slowapi.util import get_remote_address
 from app.api.routes.stocks._공용 import _SYMBOL_PATTERN
 from app.core.cache import cache
 from app.services.market.yf_service import yf_service
-from app.services.predict import forecast
+from app.services.predict import forecast, technical
 
 router = APIRouter(prefix="/predict", tags=["주가예측"])
 limiter = Limiter(key_func=get_remote_address)
@@ -27,6 +27,8 @@ log = logging.getLogger(__name__)
 보관초 = 3600
 #: 받는 일봉 — 검증(지난 3년 매주)과 1년 뒤 예측까지 하려면 5년은 있어야 한다
 받을기간 = "5y"
+#: 기술적 분석의 '시장 흐름' — 국내는 코스피, 해외는 S&P 500(공모주 예측의 '최근 공모주 분위기' 자리)
+시장지수 = {"KR": ("^KS11", "코스피"), "US": ("^GSPC", "S&P 500")}
 
 
 def _이름(symbol: str, market: str) -> str:
@@ -61,7 +63,27 @@ def _셈(market: str, symbol: str) -> dict:
             detail=f"상장한 지 얼마 안 됐거나 거래가 적어 예측할 시세가 모자라요(1년 남짓 필요 — 지금 {len(날들)}일)")
     결과.update(symbol=symbol, market=market, name=_이름(symbol, 시장),
               currency="KRW" if 시장 == "KR" else "USD")
+    결과["technical"] = _기술(봉들, 날들, 종가, 시장)
     return 결과
+
+
+def _기술(봉들: list, 날들: list[str], 종가, 시장: str):
+    """기술적 분석 예측 — 못 셈해도(지수를 못 받았다 · 셈이 터졌다) 위의 범위 예측은 그대로 내보낸다"""
+    지수기호, 지수이름 = 시장지수[시장]
+    지수 = None
+    try:
+        지수날들, 지수종가 = forecast.종가정리(yf_service.get_ohlcv(지수기호, 받을기간, "1d", 시장))
+        지수 = technical.지수맞추기(날들, 지수날들, 지수종가)
+    except Exception as e:
+        log.info("주가예측 시장 지수 실패 %s %s", 지수기호, type(e).__name__)
+    try:
+        기술 = technical.예측(날들, 종가, technical.거래량맞추기(봉들, 날들), 지수, 정수=시장 == "KR")
+    except Exception:
+        log.exception("기술적 분석 예측 실패")
+        return None
+    if 기술 is not None:
+        기술["market"] = 지수이름 if any(i["used"] and i["key"].startswith("mkt_") for i in 기술["indicators"]) else None
+    return 기술
 
 
 @router.get("/{market}/{symbol}")
@@ -71,7 +93,8 @@ async def predict(
     market: Literal["KR", "US", "ETF"],
     symbol: str = Path(..., pattern=_SYMBOL_PATTERN),
 ):
-    """앞으로의 주가 범위(1주·1개월·3개월·6개월·1년)·오를 확률·같은 방식의 지난 3년 검증·근거 셋"""
+    """앞으로의 주가 범위(1주·1개월·3개월·6개월·1년)·오를 확률·같은 방식의 지난 3년 검증·근거 셋,
+    그리고 기술적 분석 예측(technical — 1주·1개월·3개월, 공모주 예측처럼)"""
     열쇠 = f"predict:v1:{market}:{symbol.upper()}"
     if (있던것 := cache.get(열쇠)) is not None:
         return 있던것

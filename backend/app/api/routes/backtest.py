@@ -316,6 +316,9 @@ async def run_backtest(request: Request, req: BacktestRequest, db: Session = Dep
         raise HTTPException(
             status_code=400,
             detail="시세를 받지 못했어요. 종목 코드를 확인해 주세요")
+    if not ohlcv:
+        # 없는 종목 — 야후가 '자료 없음' 이라 답하면 빈 목록이 온다(예전에는 예외라 위에서 같은 말을 했다)
+        raise HTTPException(status_code=400, detail="시세를 받지 못했어요. 종목 코드를 확인해 주세요")
     _진행쓰기(req.progress_key, "시세", 1, 1, "시세 받음", **_신호진행)
     """**지표를 데울 구간을 앞에 붙여 준다.**
 

@@ -5,7 +5,7 @@
  * 맞았는지, 좁았는지(실제로 더 크게 움직였는지), 넉넉했는지를 한 줄로 말하고, 겹치지 않는 기간이 적으면 참고만 하라고
  * 덧붙인다(1년 뒤 예측은 3년을 매주 셈해도 서로 겹쳐 실제로는 세 번쯤 본 셈이다).
  */
-import type { 근거비율, 예측검증, 예측근거, 예측분위, 주가예측 } from "@/api/predict";
+import type { 근거비율, 기술검증, 예측검증, 예측근거, 예측분위, 주가예측 } from "@/api/predict";
 import type { Market } from "@/types";
 
 export const 예측기간들 = [
@@ -108,6 +108,8 @@ export interface 그래프줄 {
   가운데?: number;
   범위80?: [number, number];
   범위50?: [number, number];
+  /** 기술적 분석의 예상 주가 — 그 기간의 마지막 날에만 점 하나 */
+  기술?: number;
 }
 
 /** 지난 종가 + 앞날 범위. 오늘(마지막 종가)에서 범위가 시작해 선과 부채꼴이 이어진다 */
@@ -122,6 +124,8 @@ export function 그래프자료(p: 주가예측, 일수: 예측일수): 그래�
   for (const q of p.path.slice(0, 일수)) {
     줄들.push({ date: q.date, 가운데: q.q50, 범위80: [q.q10, q.q90], 범위50: [q.q25, q.q75] });
   }
+  const 기술 = p.technical?.horizons.find((h) => h.days === 일수);
+  if (기술 && 줄들.length) 줄들[줄들.length - 1].기술 = 기술.predicted;
   return 줄들;
 }
 
@@ -144,3 +148,48 @@ export const 자주보는종목: { symbol: string; market: Market; name: string 
   { symbol: "NVDA", market: "US", name: "엔비디아" },
   { symbol: "TSLA", market: "US", name: "테슬라" },
 ];
+
+/** "2024-03-14" → "2024년 3월 14일" */
+export function 년월일글(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return y && m && d ? `${y}년 ${Number(m)}월 ${Number(d)}일` : iso;
+}
+
+/** 기술적 지표의 지금 값을 사람이 읽는 글로 — 이격도·수익은 %, 비율은 배, RSI 는 그대로 */
+export function 지표값글(key: string, v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  switch (key) {
+    case "rsi": return v.toFixed(0);
+    case "bb": return v.toFixed(2);
+    case "vol":
+    case "volume": return `${Math.exp(v).toFixed(2)}배`;
+    case "macd": {
+      const 수 = Math.abs(v * 100).toFixed(2);
+      return Number(수) === 0 ? "0%" : `${v > 0 ? "+" : "−"}${수}%`;
+    }
+    default: return 변화글(Math.exp(v), 1);
+  }
+}
+
+/** 기술적 분석의 지난 성적을 한 줄로 — '그대로(지금 가격)' 보다 확실히 나았을 때만 믿을 만하다고.
+ *  덜 틀렸어도 우연으로 볼 만하면(서버의 beats_flat 이 아니면) 그렇다고, 더 틀렸으면 더 틀렸다고 말한다 */
+export function 기술판정(검: 기술검증 | null | undefined): { 말: string; 믿음: boolean } {
+  if (!검) return { 말: "지난 성적을 셀 만큼 시세가 없어요 — 참고만 하세요", 믿음: false };
+  const 앞 = "지난 3년 '지금 가격 그대로'라고 찍기보다";
+  const 퍼 = Math.round(검.gain * 100);
+  if (검.beats_flat) return { 말: `${앞} ${퍼 >= 1 ? `${퍼}%` : "조금"} 덜 틀렸어요`, 믿음: true };
+  if (퍼 >= 1) return { 말: `${앞} ${퍼}% 덜 틀렸지만 우연일 수 있어요 — 참고만 하세요`, 믿음: false };
+  if (퍼 <= -1) return { 말: `${앞} ${-퍼}% 더 틀렸어요 — 참고만 하세요`, 믿음: false };
+  return { 말: "지난 3년 '지금 가격 그대로'라고 찍은 것과 거의 같았어요 — 참고만 하세요", 믿음: false };
+}
+
+/** 기술적 예측 막대의 자리(0~100) — 비슷했던 때의 가운데 절반 · 예상 · 지금. 양 끝에 조금 여백 */
+export function 기술막대자리(범위: [number, number], 예상: number, 지금: number) {
+  const 낮 = Math.min(범위[0], 예상, 지금);
+  const 높 = Math.max(범위[1], 예상, 지금);
+  const 여백 = (높 - 낮) * 0.12 || 1;
+  const a = 낮 - 여백;
+  const b = 높 + 여백;
+  const 자리 = (x: number) => ((x - a) / (b - a)) * 100;
+  return { 절반: [자리(범위[0]), 자리(범위[1])], 예상: 자리(예상), 지금: 자리(지금) };
+}

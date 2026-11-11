@@ -5,14 +5,32 @@ import math
 import os
 import threading
 import time
+import warnings
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
+from yfinance.exceptions import YFTickerMissingError
 from app.core.cache import cache
 from app.core.utils import safe_float as _safe
 from app.core.cpu import 낮은_우선순위
 
 log = logging.getLogger(__name__)
+
+# 일봉은 history(raise_errors=True) 로 받는다(아래 _야후일봉). yfinance 는 이 인자 대신 전역 설정
+# (yf.config.debug.hide_exceptions)을 끄라고 경고하지만, 전역을 끄면 앱의 다른 야후 호출이 모두 예외를 던지게 된다.
+# 이 호출만 바꾸고 그 경고는 숨긴다. 인자가 없어지면 tests/test_기술적예측.py 가 알린다
+warnings.filterwarnings("ignore", message="'raise_errors' deprecated", category=DeprecationWarning)
+
+
+def _야후일봉(symbol: str, **받을것) -> "pd.DataFrame | None":
+    """야후 일봉 표 — 없는 종목(야후가 '자료 없음' 이라 답했다)은 None, 받다가 실패(네트워크·야후 장애)는 예외 그대로.
+
+    yfinance 는 기본으로 둘 다 빈 표를 주고 로그만 남긴다. 그러면 부른 쪽이 둘을 가르지 못한다 — 주가예측이 없는
+    종목에 '잠시 뒤 다시 해 주세요' 라고 하거나, 거꾸로 잠깐의 실패를 '없는 종목' 이라며 다시 시도를 내밀지 않는다"""
+    try:
+        return yf.Ticker(symbol).history(**받을것, raise_errors=True)
+    except YFTickerMissingError:            # 자료 없음(YFPricesMissingError) · 시간대 없음(YFTzMissingError)
+        return None
 
 PRICE_TTL  = 120     # 현재가 캐시 120초 (30→120: 외부 API 호출 빈도 75% 감소)
 INDEX_TTL  = 60      # 지수 캐시 60초
@@ -849,8 +867,12 @@ class YFinanceService:
         is_kr = market == "KR"
         if interval in NDAY_MAP:
             n = NDAY_MAP[interval]
-            hist = yf.Ticker(symbol).history(period="max", interval="1d", auto_adjust=False)
+            hist = _야후일봉(symbol, period="max", interval="1d", auto_adjust=False)
+            if hist is None:
+                return []
             hist = hist.dropna(subset=["Close"])
+            if hist.empty:
+                return []
             if hist.index.tz is not None:
                 hist.index = hist.index.tz_convert("Asia/Seoul").tz_localize(None) if is_kr else hist.index.tz_localize(None)
             result = self._resample_nday(hist, n, is_kr=is_kr)
@@ -862,8 +884,14 @@ class YFinanceService:
         # 실제 종가(auto_adjust=False) 사용 — 배당 조정 종가와의 불일치 방지
         # (yfinance 기본값 auto_adjust=True는 배당을 반영해 과거 종가를 깎아내려
         #  실제 거래된 가격과 달라짐 — 오래된 데이터일수록 오차가 커짐)
-        hist = yf.Ticker(symbol).history(period=yf_period, interval=interval, auto_adjust=False)
+        hist = _야후일봉(symbol, period=yf_period, interval=interval, auto_adjust=False)
+        # 없는 종목은 빈 목록 — 예전에는 빈 표의 시간대(tz)를 읽다 터져, 부른 쪽이 이를 '받다가 실패' 로 읽었다
+        # (주가예측이 없는 종목에 '잠시 뒤 다시 해 주세요' 503 을 냈다). 받다가 실패는 지금도 예외다
+        if hist is None:
+            return []
         hist = hist.dropna(subset=["Close"])
+        if hist.empty:
+            return []
         # 타임존 제거
         if hist.index.tz is not None:
             hist.index = hist.index.tz_convert("Asia/Seoul").tz_localize(None) if is_kr else hist.index.tz_localize(None)

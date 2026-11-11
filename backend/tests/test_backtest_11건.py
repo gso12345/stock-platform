@@ -1146,3 +1146,11 @@ class Test진행:
     def test_요청에_진행_열쇠를_받는다(self):
         assert "progress_key" in R.자산배분요청.model_fields, \
             "화면이 열쇠를 보낼 곳이 없다 — 서버가 진행을 적어 둘 데가 없다"
+
+
+def test_없는_종목은_종목_코드를_확인하라고(client, monkeypatch):
+    """야후가 '자료 없음' 이라 답하면 시세가 빈 목록으로 온다(services/market/yf_service._야후일봉) — 예전처럼(그때는
+    예외였다) '데이터가 부족합니다' 가 아니라 종목 코드를 확인하라고 말한다"""
+    monkeypatch.setattr(R.yf_service, "get_ohlcv", lambda *a: [])
+    r = client.post("/api/v1/backtest/run", json=_몸(date(2020, 1, 1), date(2023, 1, 1), symbol="ZZQX9"))
+    assert r.status_code == 400 and r.json()["detail"] == "시세를 받지 못했어요. 종목 코드를 확인해 주세요"

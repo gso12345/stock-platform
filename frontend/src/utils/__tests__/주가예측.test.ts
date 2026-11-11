@@ -5,9 +5,9 @@
 import { describe, it, expect } from "vitest";
 import {
   확률글, 변화글, 날짜글, 년월글, 눈금글, 검증평, 근거이름, 근거상태, 근거값, 근거비율글, 그래프자료, 막대자리,
-  기간인가, 예측기간들, 지난날수,
+  기간인가, 예측기간들, 지난날수, 년월일글, 지표값글, 기술판정, 기술막대자리,
 } from "@/utils/주가예측";
-import type { 예측근거, 예측검증, 주가예측 } from "@/api/predict";
+import type { 예측근거, 예측검증, 주가예측, 기술검증, 기술예측기간 } from "@/api/predict";
 
 const 검 = (덧: Partial<예측검증> = {}): 예측검증 => ({
   n: 150, in80: 0.79, in50: 0.5, above80: 0.1, below80: 0.11, periods: 36, from: "2023-08-24", to: "2026-11-10", ...덧,
@@ -134,6 +134,98 @@ describe("그래프 자료", () => {
   it("앞날이 길면 지난 흐름도 길게", () => {
     expect(그래프자료(예측(), 5)).toHaveLength(40 + 5);
     expect(그래프자료(예측(), 252)).toHaveLength(260 + 252);
+  });
+
+  it("기술적 분석의 예상 주가는 고른 기간의 마지막 날에 점 하나 — 그 기간이 없으면(6개월·1년) 없다", () => {
+    const 기술기간 = (days: number, predicted: number): 기술예측기간 => ({
+      days, label: "", date: "", method: "knn", method_label: "", predicted, knn: predicted, ridge: predicted,
+      range: [predicted, predicted], up: 0.5, up10: 0, down10: 0, neighbor_count: 15, neighbors: [], check: null,
+    });
+    const p: 주가예측 = {
+      ...예측(),
+      technical: { horizons: [기술기간(5, 361), 기술기간(21, 371)], indicators: [], market: null, neighbors_k: 15, min_gap_days: 5 },
+    };
+    const 줄 = 그래프자료(p, 21);
+    expect(줄[줄.length - 1]).toMatchObject({ date: "f021", 기술: 371 });
+    expect(줄.filter((x) => x.기술 !== undefined)).toHaveLength(1);
+    const 주 = 그래프자료(p, 5);
+    expect(주[주.length - 1].기술).toBe(361);
+    expect(그래프자료(p, 126).some((x) => x.기술 !== undefined)).toBe(false);
+    expect(그래프자료(예측(), 21).some((x) => x.기술 !== undefined)).toBe(false);
+    expect(그래프자료({ ...예측(), technical: null }, 21).some((x) => x.기술 !== undefined)).toBe(false);
+  });
+});
+
+describe("기술적 분석 글귀", () => {
+  const 성적 = (덧: Partial<기술검증> = {}): 기술검증 => ({
+    n: 150, from: "2023-08-24", to: "2026-10-12", periods: 36, in50: 0.5, best: "knn", gain: 0.081, t: 1.9, beats_flat: true,
+    methods: [], ...덧,
+  });
+
+  it("날짜 — 해·월·일", () => {
+    expect(년월일글("2024-03-14")).toBe("2024년 3월 14일");
+    expect(년월일글("2024-03")).toBe("2024-03");
+  });
+
+  it("지표 값 — RSI 는 정수, %B 는 소수 둘, 변동성·거래량은 배, MACD 는 가격 대비 %, 나머지(로그 비율)는 %", () => {
+    expect(지표값글("rsi", 61.6)).toBe("62");
+    expect(지표값글("bb", 0.8234)).toBe("0.82");
+    expect(지표값글("vol", Math.log(1.25))).toBe("1.25배");
+    expect(지표값글("volume", Math.log(0.8))).toBe("0.80배");
+    expect(지표값글("macd", 0.00234)).toBe("+0.23%");
+    expect(지표값글("macd", -0.0123)).toBe("−1.23%");
+    expect(지표값글("macd", 0.00001)).toBe("0%");
+    expect(지표값글("gap200", Math.log(1.09))).toBe("+9.0%");
+    expect(지표값글("high52", Math.log(0.85))).toBe("−15%");
+    expect(지표값글("mkt_ret21", 0)).toBe("0%");
+    expect(지표값글("rsi", null)).toBe("—");
+    expect(지표값글("gap20", undefined)).toBe("—");
+    expect(지표값글("gap20", Number.NaN)).toBe("—");
+    expect(지표값글("rsi", Number.POSITIVE_INFINITY)).toBe("—");
+  });
+
+  it("판정 — '그대로' 보다 확실히 나았을 때만 믿음(초록), 몇 % 덜 틀렸는지", () => {
+    expect(기술판정(성적())).toEqual({ 말: "지난 3년 '지금 가격 그대로'라고 찍기보다 8% 덜 틀렸어요", 믿음: true });
+    expect(기술판정(성적({ gain: 0.004 }))).toEqual({ 말: "지난 3년 '지금 가격 그대로'라고 찍기보다 조금 덜 틀렸어요", 믿음: true });
+    expect(기술판정(성적({ gain: 0.01 })).말).toBe("지난 3년 '지금 가격 그대로'라고 찍기보다 1% 덜 틀렸어요");
+  });
+
+  it("판정 — 확실하지 않으면 참고만: 덜 틀렸어도 우연일 수 있다고, 더 틀렸으면 더 틀렸다고, 비슷하면 비슷했다고", () => {
+    const 아님 = { beats_flat: false, t: 0.6 };
+    expect(기술판정(성적({ ...아님, gain: 0.024 }))).toEqual({
+      말: "지난 3년 '지금 가격 그대로'라고 찍기보다 2% 덜 틀렸지만 우연일 수 있어요 — 참고만 하세요", 믿음: false,
+    });
+    expect(기술판정(성적({ ...아님, gain: 0.01 })).말).toBe("지난 3년 '지금 가격 그대로'라고 찍기보다 1% 덜 틀렸지만 우연일 수 있어요 — 참고만 하세요");
+    expect(기술판정(성적({ ...아님, gain: -0.034 }))).toEqual({
+      말: "지난 3년 '지금 가격 그대로'라고 찍기보다 3% 더 틀렸어요 — 참고만 하세요", 믿음: false,
+    });
+    expect(기술판정(성적({ ...아님, gain: -0.01 })).말).toBe("지난 3년 '지금 가격 그대로'라고 찍기보다 1% 더 틀렸어요 — 참고만 하세요");
+    for (const gain of [0.004, 0, -0.004]) {
+      expect(기술판정(성적({ ...아님, gain }))).toEqual({
+        말: "지난 3년 '지금 가격 그대로'라고 찍은 것과 거의 같았어요 — 참고만 하세요", 믿음: false,
+      });
+    }
+    expect(기술판정(null)).toEqual({ 말: "지난 성적을 셀 만큼 시세가 없어요 — 참고만 하세요", 믿음: false });
+    expect(기술판정(undefined).믿음).toBe(false);
+  });
+
+  it("막대 — 절반 범위·예상·지금이 모두 안에, 양 끝에 폭의 12% 여백", () => {
+    const 자리 = 기술막대자리([95, 110], 103, 100);
+    // 낮 95 · 높 110 · 여백 1.8 → 93.2 ~ 111.8
+    expect(자리.절반[0]).toBeCloseTo(((95 - 93.2) / 18.6) * 100, 6);
+    expect(자리.절반[1]).toBeCloseTo(((110 - 93.2) / 18.6) * 100, 6);
+    expect(자리.예상).toBeCloseTo(((103 - 93.2) / 18.6) * 100, 6);
+    expect(자리.지금).toBeCloseTo(((100 - 93.2) / 18.6) * 100, 6);
+    // 예상·지금이 절반 범위 밖이어도 막대 안에
+    const 밖 = 기술막대자리([95, 110], 120, 80);
+    expect(밖.지금).toBeCloseTo((4.8 / 49.6) * 100, 6);
+    expect(밖.예상).toBeCloseTo((44.8 / 49.6) * 100, 6);
+    expect(밖.절반[0]).toBeGreaterThan(밖.지금);
+    expect(밖.절반[1]).toBeLessThan(밖.예상);
+    // 모두 한 점이어도 0 으로 나누지 않는다
+    const 점 = 기술막대자리([100, 100], 100, 100);
+    expect(점.예상).toBeCloseTo(50, 6);
+    expect(점.절반).toEqual([점.예상, 점.예상]);
   });
 });
 

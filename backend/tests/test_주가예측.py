@@ -328,7 +328,7 @@ def test_해외_종목을_예측한다(client, 시세):
     r = client.get(f"{API}/US/AAPL")
     assert r.status_code == 200, r.text
     d = r.json()
-    assert 부름 == [("AAPL", "5y", "1d", "US")]
+    assert 부름 == [("AAPL", "5y", "1d", "US"), ("^GSPC", "5y", "1d", "US")]     # 종목, 그리고 기술적 분석의 시장 흐름
     assert d["symbol"] == "AAPL" and d["market"] == "US" and d["currency"] == "USD" and d["name"]
     assert [h["label"] for h in d["horizons"]] == ["1주", "1개월", "3개월", "6개월", "1년"]
     assert len(d["path"]) == 252 and len(d["history"]) == 260
@@ -341,7 +341,7 @@ def test_국내_종목은_원화_정수로(client, 시세):
     부름, 상자 = 시세
     상자["봉들"] = _봉들(_걸음(씨=8, 시작=71200))
     d = client.get(f"{API}/KR/005930").json()
-    assert 부름 == [("005930", "5y", "1d", "KR")]
+    assert 부름 == [("005930", "5y", "1d", "KR"), ("^KS11", "5y", "1d", "KR")]
     assert d["currency"] == "KRW" and isinstance(d["price"], int)
     assert all(isinstance(h[k], int) for h in d["horizons"] for k in ("q10", "q50", "q90"))
     assert all(isinstance(p["q50"], int) for p in d["path"])
@@ -350,7 +350,7 @@ def test_국내_종목은_원화_정수로(client, 시세):
 def test_ETF_는_해외_시세로(client, 시세):
     부름, _ = 시세
     assert client.get(f"{API}/ETF/SPY").status_code == 200
-    assert 부름 == [("SPY", "5y", "1d", "US")]
+    assert 부름 == [("SPY", "5y", "1d", "US"), ("^GSPC", "5y", "1d", "US")]
 
 
 def test_시세가_없으면_데모로_채우지_않고_404(client, 시세, monkeypatch):
@@ -380,7 +380,7 @@ def test_한_시간_들고_있는다(client, 시세):
     부름, _ = 시세
     가 = client.get(f"{API}/US/AAPL").json()
     나 = client.get(f"{API}/US/aapl").json()            # 대소문자만 다른 같은 종목
-    assert 부름 == [("AAPL", "5y", "1d", "US")] and 가 == 나
+    assert 부름 == [("AAPL", "5y", "1d", "US"), ("^GSPC", "5y", "1d", "US")] and 가 == 나
     assert cache.get("predict:v1:US:AAPL") is not None
     # 실패는 들고 있지 않는다
     _, 상자 = 시세
