@@ -11,13 +11,16 @@
   · 둘의 가운데
   · 지금 가격 그대로 — 견줄 바탕
 지난 3년 동안 매주, **그날 결과가 이미 나와 있던 날들만으로** 배워 그날을 맞혀 보고(앞날을 보지 않는다), 기술적 방식
-셋 가운데 평균 오차가 가장 작았던 것으로 예상 주가를 낸다(공모주의 '가장 잘 맞아 온 방식'). 그리고 그 방식이
-'그대로' 보다 확실히 나았는지를 판정해 함께 내보낸다 — 아니면 화면이 '참고만' 이라고 말한다.
+셋 가운데 평균 오차가 가장 작았던 것을 기술적 신호로 고른다(공모주의 '가장 잘 맞아 온 방식').
 
-확실히 나았나 — 날마다의 오차 차이(그대로 - 그 방식)의 평균을, 겹치지 않는 표본 수(셈한 번수 × 5 ÷ h)로 본
-표준오차로 나눈 값이 1 이상. 넷 가운데 가장 잘 맞은 것을 고르면 운으로 고르는 몫이 있어서, 무작위 걸음(맞힐 것이
-없는 주가) 24벌에서 '그대로보다 덜 틀렸다' 만으로는 1개월 8%·3개월 17% 를 잘못 골랐다. 이 판정으로는 0%·4%.
-평균으로 되돌아가는 규칙이 숨은 주가는 1주 79%·1개월 67% 를 알아본다(3개월은 겹치지 않는 표본이 적어 17%).
+실제 시세로 잰 것(국내 40·해외 39종목, 2016~2026년 일봉 — 과거 기준일 4,586번에 앱과 똑같이 그날까지의 5년만
+넣어 예측하고 그 뒤 실제와 견주었다. 종목 절반으로 정하고 나머지 절반으로 확인):
+  · 기술적 신호를 그대로 예상으로 쓰면 '지금 가격 그대로' 보다 1주 1.5%·1개월 5%·3개월 11% 더 틀렸다. 방향 맞힘은 50%
+  · 지난 3년에 '그대로' 보다 확실히 나았던(판정값 1 이상) 때도 그 뒤로는 더 틀렸다 — 그래서 '확실히 낫다' 는 판정은 없앴다
+  · 그래서 신호를 얼마나 반영할지(0·¼·½·¾·1)를 지난 3년 평균 오차로 고른다 — 더 틀리는 몫이 0.3%·1%·4% 로 줄었다.
+    절반 남짓은 0 이 골라진다(예상 주가가 지금 가격)
+  · 50% 범위는 지난 3년 예상 오차의 22~78% 자리(3개월은 20.5~79.5%)를 예상에 더한다. 비슷했던 때 15번의 가운데 절반은
+    실제로 35~43% 만 들었고, 이렇게 하니 50~53% 가 들었다
 
 기술적 분석은 짧은 앞날을 보는 도구라 3개월 뒤까지만 셈한다. 같은 종목의 지난날만 견주므로, 그 종목이 겪어 보지 못한
 일(처음 겪는 큰 사건)은 모른다. 지표는 모두 그날까지의 시세로만 셈한다.
@@ -41,6 +44,14 @@ from app.services.predict import forecast as F
 최소학습 = 200
 #: 지표가 이만큼 넘게 비어 있으면(거래량을 안 주는 종목 · 시장 시세를 못 받았을 때) 그 지표는 빼고 셈한다
 빈칸한도 = 0.2
+#: 기술적 신호를 얼마나 반영할까 — 지난 3년 평균 오차가 가장 작은 것(같으면 큰 쪽)
+반영들 = (0.0, 0.25, 0.5, 0.75, 1.0)
+#: 50% 범위 — 지난 3년 예상 오차의 이 자리부터 (1 − 이 자리)까지를 예상에 더한다. 25~75% 로 두면 실제로 46%·46%·43% 만
+#: 들었다(오차가 흔들려서). 이 자리로 넓히니 51%·51%·50%(종목 절반으로 정하고 나머지 절반에서 53%·52%·50%).
+#: 그날의 출렁임으로 나눠 맞추는 것도 견주었는데, 같은 50% 에서 범위가 더 넓고 위 끝이 크게 튀어 버렸다
+범위자리 = {5: 0.22, 21: 0.22, 63: 0.205}
+#: 범위를 셀 지난 오차가 이보다 적으면 비슷했던 때 15번의 가운데 절반을 쓴다
+범위최소 = 20
 
 지표이름: dict[str, str] = {
     "gap200": "200일선 이격도",
@@ -57,11 +68,9 @@ from app.services.predict import forecast as F
     "mkt_ret21": "시장 최근 1개월",
 }
 방식이름: dict[str, str] = {"knn": "비슷했던 때", "ridge": "회귀", "mid": "둘의 가운데", "flat": "지금 가격 그대로"}
-#: 견주는 차례 — 예상 주가는 기술적 방식(뒤의 셋) 가운데서 고르고, 같은 성적이면 앞의 것
+#: 견주는 차례 — 기술적 신호는 기술적 방식(뒤의 셋) 가운데서 고르고, 같은 성적이면 앞의 것
 방식차례 = ("flat", "knn", "ridge", "mid")
 기술방식 = ("knn", "ridge", "mid")
-#: 그대로보다 확실히 나았다고 볼 문턱 — 오차 차이의 평균 ÷ 표준오차(겹치지 않는 표본 수로)
-믿을문턱 = 1.0
 
 
 def 거래량맞추기(봉들: Optional[list], 날들: list[str]) -> np.ndarray:
@@ -160,33 +169,41 @@ def 쓸지표(표: dict[str, np.ndarray]) -> list[str]:
 
 
 def _이웃(Z: np.ndarray, z: np.ndarray, 자리: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """가까운 차례로, 서로 이웃간격 이상 떨어진 날만 이웃수만큼 — (뽑은 줄 번호, 거리)"""
+    """가까운 차례로, 서로 이웃간격 이상 떨어진 날만 이웃수만큼 — (뽑은 줄 번호, 거리).
+
+    고른 날의 앞뒤 (이웃간격 − 1)일을 막아 두고 막히지 않은 날만 고른다. 고른 날 모두와 하나하나 견주던 것과 같은
+    답인데, 그 견주기가 셈 전체의 40% 를 먹었다(지표가 비슷한 날은 붙어 있어 막힌 후보를 많이 훑는다)"""
     d = np.sqrt(((Z - z) ** 2).sum(axis=1))
+    막힘 = np.zeros(int(자리.max()) + 이웃간격 + 1 if len(자리) else 1, dtype=bool)
     뽑은: list[int] = []
     for i in np.argsort(d, kind="stable"):
-        if all(abs(int(자리[i]) - int(자리[j])) >= 이웃간격 for j in 뽑은):
-            뽑은.append(int(i))
-            if len(뽑은) == 이웃수:
-                break
+        p = int(자리[i])
+        if 막힘[p]:
+            continue
+        뽑은.append(int(i))
+        if len(뽑은) == 이웃수:
+            break
+        막힘[max(0, p - 이웃간격 + 1): p + 이웃간격] = True
     return np.array(뽑은, dtype=int), d
 
 
 def _셈(X: np.ndarray, y: np.ndarray, 학습: np.ndarray, x: np.ndarray) -> dict:
     """학습한 날들(지표 X·결과 y)로 지표 x 인 날을 맞힌다 — 비슷했던 때·회귀·둘의 가운데"""
     Xl, yl = X[학습], y[학습]
-    μ, σ = Xl.mean(axis=0), Xl.std(axis=0)
+    가운데뺀 = Xl - Xl.mean(axis=0)
+    μ, σ = Xl.mean(axis=0), np.sqrt((가운데뺀 ** 2).mean(axis=0))
     σ = np.where(σ > 1e-12, σ, 1.0)
-    Z, z = (Xl - μ) / σ, (x - μ) / σ
+    Z, z = 가운데뺀 / σ, (x - μ) / σ
     뽑은, 거리 = _이웃(Z, z, 학습)
     yn = yl[뽑은]
-    knn = float(np.median(yn))
+    q25, knn, q75 = (float(v) for v in np.quantile(yn, (0.25, 0.5, 0.75)))   # 한 번에 — 셋을 따로 부르면 그만큼 느리다
     평균 = float(yl.mean())
     β = np.linalg.solve(Z.T @ Z + len(Z) * np.eye(Z.shape[1]), Z.T @ (yl - 평균))   # 릿지 — 하루 하나만큼 줄인다
     ridge = 평균 + float(z @ β)
     return {
         "knn": knn, "ridge": ridge, "mid": (knn + ridge) / 2, "flat": 0.0,
         "이웃": 학습[뽑은], "이웃수익": yn, "이웃거리": 거리[뽑은],
-        "q25": float(np.quantile(yn, 0.25)), "q75": float(np.quantile(yn, 0.75)),
+        "q25": q25, "q75": q75,
     }
 
 
@@ -199,16 +216,24 @@ def _오르내림(yn: np.ndarray) -> dict:
     }
 
 
-def _검증(X, y, 쓸날, 날들: list[str], h: int) -> Optional[dict]:
-    """지난 3년 매주, 그날 결과가 나와 있던 날들만으로 배워 그날을 맞혀 본다 — 방식마다 평균 오차·방향 맞힘"""
+def _평균오차(실제: np.ndarray, 예상: np.ndarray) -> float:
+    """가격으로 본 평균 오차 — 실제 +5%, 예상 +2% 면 3%"""
+    return float(np.mean(np.abs(np.exp(실제) - np.exp(예상))))
+
+
+def _검증(X, y, 쓸날, 날들: list[str], h: int) -> Optional[tuple[dict, np.ndarray]]:
+    """지난 3년 매주, 그날 결과가 나와 있던 날들만으로 배워 그날을 맞혀 본다.
+
+    방식마다 평균 오차·방향 맞힘을 세고, 가장 덜 틀린 기술적 방식(신호)과 그 신호를 얼마나 반영할지(반영들 가운데
+    평균 오차가 가장 작은 것)를 고른다. 50% 범위가 실제로 맞았는지도 센다 — 날마다 **그날까지 결과가 나와 있던 날들의
+    오차만으로** 범위를 그어(앞날을 보지 않게) 실제가 그 안에 들었나.
+    (검증 결과, 반영한 예상의 오차들(로그)) — 셀 날이 없으면 None"""
     n = len(y)
     끝 = n - 1 - h
     시작 = max(F.검증시작, n - 1 - F.창 - h)
     if 끝 < 시작:
         return None
-    오차 = {k: [] for k in 방식차례}
-    방향 = {k: [] for k in 방식차례 if k != "flat"}
-    안50: list[bool] = []
+    예상 = {k: [] for k in 방식차례}
     본날: list[int] = []
     for t in np.arange(끝, 시작 - 1, -F.검증간격)[::-1]:
         if not 쓸날[t]:
@@ -217,40 +242,53 @@ def _검증(X, y, 쓸날, 날들: list[str], h: int) -> Optional[dict]:
         if len(학습) < 최소학습:
             continue
         셈 = _셈(X, y, 학습, X[t])
-        실제 = float(y[t])
         for k in 방식차례:
-            오차[k].append(abs(math.exp(실제) - math.exp(셈[k])))
-            if k != "flat" and 셈[k] != 0:
-                방향[k].append((셈[k] > 0) == (실제 > 0))
-        안50.append(셈["q25"] <= 실제 <= 셈["q75"])
+            예상[k].append(셈[k])
         본날.append(int(t))
     if not 본날:
         return None
-    성적 = {k: float(np.mean(v)) for k, v in 오차.items()}
+    날 = np.array(본날)
+    실제 = y[날]
+    예상 = {k: np.array(v) for k, v in 예상.items()}
+    성적 = {k: _평균오차(실제, v) for k, v in 예상.items()}
+    방향 = {k: (v[v != 0] > 0) == (실제[v != 0] > 0) for k, v in 예상.items() if k != "flat"}
     best = min(기술방식, key=lambda k: (round(성적[k], 12), 기술방식.index(k)))
-    차이 = np.array(오차["flat"]) - np.array(오차[best])                # + 면 그 방식이 덜 틀렸다
-    표본 = max(2.0, len(차이) * F.검증간격 / h)
-    흩어짐 = float(np.std(차이, ddof=1)) if len(차이) > 1 else 0.0
-    t값 = float(np.mean(차이)) / (흩어짐 / math.sqrt(표본)) if 흩어짐 > 0 else 0.0
+    반영 = min(반영들, key=lambda w: (round(_평균오차(실제, w * 예상[best]), 12), -w))
+    쓴 = 반영 * 예상[best]
+    쓴오차 = _평균오차(실제, 쓴)
+    # 50% 범위가 실제로 맞았나 — 날마다 그날까지 결과가 나온 앞날들의 오차로만 범위를 긋는다
+    e = 실제 - 쓴
+    자리 = 범위자리.get(h, 0.25)
+    든: list[bool] = []
+    for i, t in enumerate(본날):
+        알던 = e[: i][날[: i] + h <= t]
+        if len(알던) < 범위최소:
+            continue
+        아래, 위 = np.quantile(알던, (자리, 1 - 자리))
+        든.append(bool(쓴[i] + 아래 <= 실제[i] <= 쓴[i] + 위))
     return {
         "n": len(본날), "from": 날들[본날[0]], "to": 날들[본날[-1] + h],
         "periods": int(max(1, (본날[-1] + h - 본날[0]) // h)),
-        "in50": round(float(np.mean(안50)), 4),
+        #: 50% 범위에 실제로 든 비율 — 그날까지 알던 오차로 그은 범위로(셀 날이 모자라면 없다)
+        "in50": round(float(np.mean(든)), 4) if 든 else None,
         "best": best,
-        #: 그대로보다 덜 틀린 비율(음수면 더 틀렸다) · 확실히 나았나
-        "gain": round(1 - 성적[best] / 성적["flat"], 4) if 성적["flat"] > 0 else 0.0,
-        "t": round(t값, 2),
-        "beats_flat": bool(t값 >= 믿을문턱 and 성적[best] < 성적["flat"]),
+        #: 신호를 반영한 비율 — 0 이면 예상 주가가 지금 가격
+        "weight": 반영,
+        #: 반영한 예상이 '그대로' 보다 덜 틀린 비율(반영 0 도 고를 수 있으니 0 아래로 내려가지 않는다)
+        "gain": round(1 - 쓴오차 / 성적["flat"], 4) if 성적["flat"] > 0 else 0.0,
+        "mae_used": round(쓴오차, 4),
+        "direction_used": round(float(np.mean(방향[best])), 4) if 반영 > 0 and len(방향[best]) else None,
         "methods": [{"key": k, "label": 방식이름[k], "mae": round(성적[k], 4),
-                     "direction": round(float(np.mean(방향[k])), 4) if k in 방향 and 방향[k] else None}
+                     "direction": round(float(np.mean(방향[k])), 4) if k in 방향 and len(방향[k]) else None}
                     for k in 방식차례],
-    }
+    }, e
 
 
 def 예측(날들: list[str], 종가: np.ndarray, 거래량: Optional[np.ndarray] = None,
        지수: Optional[np.ndarray] = None, 정수: bool = False, 미래날: Optional[list[str]] = None) -> Optional[dict]:
-    """1주·1개월·3개월 뒤 — 예상 주가(가장 잘 맞아 온 방식) · 비슷했던 때의 가운데 절반 · 오른 비율 · 지난 3년 맞힘.
-    지표가 자리 잡고 배울 날이 모자라면(일봉 2년 가까이 안 되면) None. 오늘 비어 있는 지표는 빼고(used=False) 셈한다"""
+    """1주·1개월·3개월 뒤 — 기술적 신호(가장 잘 맞아 온 방식)와 그것을 반영한 예상 주가 · 50% 범위 · 비슷했던 때 ·
+    지난 3년 맞힘. 지표가 자리 잡고 배울 날이 모자라면(일봉 2년 가까이 안 되면) None.
+    오늘 비어 있는 지표는 빼고(used=False) 셈한다"""
     C = np.asarray(종가, dtype=float)
     n = len(C)
     if n < 252 + 최소학습 + 기간들[0][0]:
@@ -278,17 +316,32 @@ def 예측(날들: list[str], 종가: np.ndarray, 거래량: Optional[np.ndarray
         if len(학습) < 최소학습:
             continue
         셈 = _셈(X, y, 학습, X[-1])
-        검 = _검증(X, y, 쓸날, 날들, h)
+        검증 = _검증(X, y, 쓸날, 날들, h)
+        검, e = 검증 if 검증 else (None, np.zeros(0))
         방식 = 검["best"] if 검 else "mid"
+        반영 = 검["weight"] if 검 else 0.0               # 지난 성적을 셀 수 없으면 신호를 쓰지 않는다(지금 가격)
+        쓴 = 반영 * 셈[방식]
+        if len(e) >= 범위최소:
+            자리 = 범위자리.get(h, 0.25)
+            아래, 위 = np.quantile(e, (자리, 1 - 자리))
+            범위 = [값(P0 * math.exp(쓴 + 아래)), 값(P0 * math.exp(쓴 + 위))]
+            범위종류 = "errors"
+        else:
+            범위 = [값(P0 * math.exp(셈["q25"])), 값(P0 * math.exp(셈["q75"]))]
+            범위종류 = "neighbors"
         yn = 셈["이웃수익"]
         보일 = np.argsort(셈["이웃거리"], kind="stable")[:보일이웃]
         rsi, gap = 표["rsi"], 표["gap200"]
         기간별.append({
             "days": h, "label": 이름, "date": 미래날[h - 1],
             "method": 방식, "method_label": 방식이름[방식],
-            "predicted": 값(P0 * math.exp(셈[방식])),
+            #: 기술적 신호만 본 값(고른 방식 그대로)과, 지난 3년 성적만큼 반영한 예상 주가
+            "signal": 값(P0 * math.exp(셈[방식])),
+            "weight": 반영,
+            "predicted": 값(P0 * math.exp(쓴)),
             "knn": 값(P0 * math.exp(셈["knn"])), "ridge": 값(P0 * math.exp(셈["ridge"])),
-            "range": [값(P0 * math.exp(셈["q25"])), 값(P0 * math.exp(셈["q75"]))],
+            #: errors — 지난 예상 오차로 그은 50% 범위 · neighbors — 비슷했던 때 15번의 가운데 절반(오차가 모자랄 때)
+            "range": 범위, "range_kind": 범위종류,
             **_오르내림(yn),
             "neighbor_count": int(len(yn)),
             "neighbors": [{

@@ -61,15 +61,17 @@ export interface 기술검증 {
   from: string;
   to: string;
   periods: number;
-  /** 비슷했던 때의 가운데 절반 범위에 실제로 든 비율 */
-  in50: number;
-  /** 지난 3년 가장 잘 맞아 온 기술적 방식 */
+  /** 50% 범위에 실제로 든 비율 — 날마다 그날까지 알던 오차로 그은 범위로. 셀 날이 모자라면 null */
+  in50: number | null;
+  /** 지난 3년 가장 잘 맞아 온 기술적 방식(기술적 신호) */
   best: 기술방식;
-  /** 그대로보다 덜 틀린 비율(음수면 더 틀렸다) */
+  /** 신호를 반영한 비율(0·0.25·0.5·0.75·1) — 지난 3년 평균 오차가 가장 작은 것. 0 이면 예상 주가가 지금 가격 */
+  weight: number;
+  /** 반영한 예상이 '그대로' 보다 덜 틀린 비율(0 이상 — 반영 0 도 고를 수 있어서) */
   gain: number;
-  t: number;
-  /** 그대로보다 확실히 나았나 */
-  beats_flat: boolean;
+  /** 반영한 예상의 평균 오차 · 방향 맞힘(반영 0 이면 null) */
+  mae_used: number;
+  direction_used: number | null;
   methods: 기술방식성적[];
 }
 
@@ -88,12 +90,17 @@ export interface 기술예측기간 {
   date: string;
   method: 기술방식;
   method_label: string;
-  /** 예상 주가 — 가장 잘 맞아 온 방식 */
+  /** 기술적 신호만 본 값 — 가장 잘 맞아 온 방식 그대로 */
+  signal: number;
+  /** 신호를 반영한 비율 — check.weight 와 같다(지난 성적이 없으면 0) */
+  weight: number;
+  /** 예상 주가 — 지금 가격 × (신호 ÷ 지금 가격)^반영 */
   predicted: number;
   knn: number;
   ridge: number;
-  /** 비슷했던 때의 가운데 절반 */
+  /** 50% 범위 — errors: 지난 3년 예상 오차로 그은 것 · neighbors: 비슷했던 때 15번의 가운데 절반(오차가 모자랄 때) */
   range: [number, number];
+  range_kind: "errors" | "neighbors";
   up: number;
   up10: number;
   down10: number;

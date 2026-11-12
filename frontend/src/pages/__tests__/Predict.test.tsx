@@ -5,8 +5,8 @@
  *   · 종목·기간은 주소에 — 종목 상세에서 바로 오고, 기간을 바꿔도 다시 묻지 않는다
  *   · 범위를 크게, 가운데 값은 작게. 확률·지난 검증·근거·목표가
  *   · 없는 종목·자료가 모자란 종목은 까닭을 말하고 '다시 시도' 를 내밀지 않는다
- *   · 맨 위는 기술적 분석 예측(사용자: "기술적분석을 바탕으로 주가를 공모가처럼 예측해줘") — 예상 주가와 그 판정,
- *     비슷했던 때, 지난 3년 성적. 3개월 뒤까지만 — 6개월·1년이면 짧은 기간으로 옮길 단추
+ *   · 맨 위는 기술적 분석 예측(사용자: "기술적분석을 바탕으로 주가를 공모가처럼 예측해줘") — 신호를 지난 성적만큼
+ *     반영한 예상 주가, 50% 범위, 비슷했던 때, 지난 3년 성적. 3개월 뒤까지만 — 6개월·1년이면 짧은 기간으로 옮길 단추
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within, cleanup } from "@testing-library/react";
@@ -55,7 +55,8 @@ const 기간 = (days: number, label: string, date: string, 덧: Partial<예측�
 });
 
 const 기술검증값 = (덧: Partial<기술검증> = {}): 기술검증 => ({
-  n: 150, from: "2023-08-24", to: "2026-10-12", periods: 36, in50: 0.47, best: "knn", gain: 0.081, t: 1.9, beats_flat: true,
+  n: 150, from: "2023-08-24", to: "2026-10-12", periods: 36, in50: 0.51, best: "knn",
+  weight: 1, gain: 0.081, mae_used: 0.0562, direction_used: 0.58,
   methods: [
     { key: "flat", label: "지금 가격 그대로", mae: 0.0612, direction: null },
     { key: "knn", label: "비슷했던 때", mae: 0.0562, direction: 0.58 },
@@ -67,7 +68,8 @@ const 기술검증값 = (덧: Partial<기술검증> = {}): 기술검증 => ({
 
 const 기술기간 = (days: number, label: string, date: string, 덧: Partial<기술예측기간> = {}): 기술예측기간 => ({
   days, label, date, method: "knn", method_label: "비슷했던 때",
-  predicted: 73500, knn: 73500, ridge: 72100, range: [69800, 76900],
+  signal: 73500, weight: 1, predicted: 73500, knn: 73500, ridge: 72100,
+  range: [69800, 76900], range_kind: "errors",
   up: 0.6, up10: 0.133, down10: 0.067, neighbor_count: 15,
   neighbors: [
     { date: "2024-03-14", change: 0.052, rsi: 61.4, gap200: 0.083 },
@@ -79,11 +81,18 @@ const 기술기간 = (days: number, label: string, date: string, 덧: Partial<�
 
 const 기술가짜 = (덧: Partial<기술예측> = {}): 기술예측 => ({
   horizons: [
-    기술기간(5, "1주", "2026-11-17", { predicted: 71900, range: [70100, 72800], check: 기술검증값({ gain: 0.024, t: 0.7, beats_flat: false }) }),
+    // 1주 — 신호(₩72,600)를 50% 반영
+    기술기간(5, "1주", "2026-11-17", {
+      signal: 72600, weight: 0.5, predicted: 71900, range: [70100, 72800],
+      check: 기술검증값({ weight: 0.5, gain: 0.024, mae_used: 0.0597, in50: 0.49 }),
+    }),
+    // 1개월 — 신호를 그대로(100%)
     기술기간(21, "1개월", "2026-12-09"),
+    // 3개월 — 반영 0: 지금 가격이 예상(신호는 회귀 ₩69,000)
     기술기간(63, "3개월", "2027-02-08", {
-      method: "ridge", method_label: "회귀", predicted: 69000, knn: 70500, ridge: 69000,
-      check: 기술검증값({ best: "ridge", gain: -0.034, t: -0.5, beats_flat: false }),
+      method: "ridge", method_label: "회귀", signal: 69000, weight: 0, predicted: 71200, knn: 70500, ridge: 69000,
+      range: [61000, 80500],
+      check: 기술검증값({ best: "ridge", weight: 0, gain: 0, mae_used: 0.0612, direction_used: null, in50: 0.47 }),
     }),
   ],
   indicators: [
@@ -319,21 +328,26 @@ describe("확률 · 지난 검증 · 근거 · 목표가", () => {
   });
 });
 
-describe("기술적 분석 예측 — 공모주처럼 예상 주가 하나와 그 판정", () => {
+describe("기술적 분석 예측 — 공모주처럼 예상 주가 하나, 지난 성적만큼만 반영", () => {
   const 카드 = () => screen.getByRole("region", { name: "기술적 분석 예측" });
   const 머리 = () => screen.getByRole("heading", { name: "기술적 분석 예측" }).parentElement!;
 
-  it("맨 위에 예상 주가를 크게 — 쓴 방식, 판정, 비슷했던 때의 가운데 절반, 몇 번 올랐나", async () => {
+  it("맨 위에 예상 주가 — 반영 비율과 지난 성적, 여러 종목 시험 결과, 50% 범위, 비슷했던 때 몇 번 올랐나", async () => {
     그리기();
     expect(await screen.findByTestId("기술예상")).toHaveTextContent("₩73,500+3.2%");
+    // 늘 '참고만' 크기 — 여러 종목 10년 시험에서 기술적 예상은 '그대로' 를 이기지 못했다
+    expect(screen.getByTestId("기술예상")).toHaveClass("text-xl", "font-semibold", "text-text-primary");
+    expect(screen.getByTestId("기술예상")).not.toHaveClass("text-2xl");
+    expect(카드()).toHaveTextContent("1개월 뒤 · 12월 9일 무렵 · 예상 주가 · 참고만");
     expect(머리()).toHaveTextContent("기술적 분석 예측비슷했던 때");
-    expect(카드()).toHaveTextContent("1개월 뒤 · 12월 9일 무렵 · 예상 주가");
-    expect(within(카드()).getByText("지난 3년 '지금 가격 그대로'라고 찍기보다 8% 덜 틀렸어요")).toHaveClass("text-accent-green");
-    expect(카드()).toHaveTextContent("지금과 지표가 비슷했던 때 15번 가운데 절반이 ₩69,800 ~ ₩76,900 사이였어요 · 지금 ₩71,200");
-    expect(카드()).toHaveTextContent("9번 올랐어요(60%) · 10% 넘게 오른 때 2번 · 10% 넘게 내린 때 1번");
-    const 막대 = within(카드()).getByRole("img", {
-      name: "비슷했던 때의 가운데 절반 ₩69,800부터 ₩76,900, 예상 ₩73,500, 지금 ₩71,200",
-    });
+    expect(screen.getByTestId("기술반영")).toHaveTextContent("기술적 신호를 100% 반영했어요 — 지난 3년 '그대로'보다 8% 덜 틀렸어요");
+    expect(within(카드()).queryByText(/기술적 신호만 보면/)).toBeNull();                 // 다 반영했으면 신호와 예상이 같다
+    expect(within(카드()).getByText("여러 종목을 10년 동안 시험해 보면 기술적 예상은 '그대로'를 이기지 못했어요 — 참고만 하세요"))
+      .toHaveClass("text-accent-yellow");
+    expect(카드()).not.toHaveTextContent("덜 틀렸어요 — 참고만");                      // '확실히 낫다'(초록) 판정은 없다
+    expect(카드()).toHaveTextContent("지난 3년 예상 오차로 본 50% 범위 ₩69,800 ~ ₩76,900 · 지금 ₩71,200");
+    expect(카드()).toHaveTextContent("지표가 비슷했던 때 15번 가운데 9번 올랐어요(60%) · 10% 넘게 오른 때 2번 · 10% 넘게 내린 때 1번");
+    const 막대 = within(카드()).getByRole("img", { name: "50% 범위 ₩69,800부터 ₩76,900, 예상 ₩73,500, 지금 ₩71,200" });
     // 띠 · 예상(세로 줄) · 지금(삼각)이 제자리에
     const 자리 = 기술막대자리([69800, 76900], 73500, 71200);
     const [띠, 예상줄, 지금] = Array.from(막대.children) as HTMLElement[];
@@ -347,7 +361,7 @@ describe("기술적 분석 예측 — 공모주처럼 예상 주가 하나와 �
     expect(screen.getByRole("heading", { name: "출렁임으로 본 범위" })).toBeInTheDocument();
   });
 
-  it("지난 3년 맞혀 본 성적 — 방식마다 평균 오차·방향 맞힘, 예상에 쓴 방식 표시", async () => {
+  it("지난 3년 맞혀 본 성적 — 방식마다 평균 오차·방향 맞힘, 예상에 쓴 것, 50% 범위에 든 비율", async () => {
     그리기();
     await screen.findByTestId("기술예상");
     expect(카드()).toHaveTextContent("지난 3년 매주, 그날까지의 시세만으로 1개월 뒤를 맞혀 봤어요(150번)");
@@ -360,21 +374,47 @@ describe("기술적 분석 예측 — 공모주처럼 예상 주가 하나와 �
     ]);
     expect(줄들[2]).toHaveClass("font-semibold");
     expect(줄들[3]).not.toHaveClass("font-semibold");
-    expect(카드()).toHaveTextContent("실제 주가가 비슷했던 때의 가운데 절반 범위에 든 비율 47%(맞다면 50% 언저리)");
+    expect(카드()).toHaveTextContent("실제 주가가 50% 범위에 든 비율 51% — 날마다 그날까지 알던 오차로 그은 범위로(맞다면 50% 언저리)");
   });
 
-  it("기간을 바꾸면 그 기간의 예상 — 확실히 낫지 않으면 노랗게 '참고만'(우연일 수 있다 · 더 틀렸다)", async () => {
+  it("신호를 반만 반영하면 — 신호만 본 값, '← 신호', 따로 한 줄 '50% 반영 ← 예상에 씀'", async () => {
     그리기();
     await screen.findByTestId("기술예상");
     await userEvent.click(screen.getByRole("tab", { name: "1주 뒤" }));
     expect(screen.getByTestId("기술예상")).toHaveTextContent("₩71,900+1.0%");
-    expect(within(카드()).getByText("지난 3년 '지금 가격 그대로'라고 찍기보다 2% 덜 틀렸지만 우연일 수 있어요 — 참고만 하세요"))
-      .toHaveClass("text-accent-yellow");
+    expect(카드()).toHaveTextContent("1주 뒤 · 11월 17일 무렵 · 예상 주가 · 참고만");
+    expect(screen.getByTestId("기술반영")).toHaveTextContent("기술적 신호를 50% 반영했어요 — 지난 3년 '그대로'보다 2% 덜 틀렸어요");
+    expect(카드()).toHaveTextContent("기술적 신호만 보면 ₩72,600(+2.0%) · 비슷했던 때");
+    const 줄들 = within(카드()).getAllByRole("row");
+    expect(줄들.slice(1).map((r) => r.textContent)).toEqual([
+      "지금 가격 그대로6.1%—",
+      "비슷했던 때← 신호5.6%58%",
+      "회귀6.0%55%",
+      "둘의 가운데5.7%57%",
+      "비슷했던 때 50% 반영← 예상에 씀6.0%58%",
+    ]);
+    expect(줄들[5]).toHaveClass("font-semibold");
+    expect(줄들[2]).not.toHaveClass("font-semibold");
+    expect(카드()).toHaveTextContent("50% 범위에 든 비율 49%");
+  });
+
+  it("반영 0 이면 지금 가격이 예상 — '그대로 ← 예상에 씀', 신호는 따로", async () => {
+    그리기();
+    await screen.findByTestId("기술예상");
     await userEvent.click(screen.getByRole("tab", { name: "3개월 뒤" }));
-    expect(screen.getByTestId("기술예상")).toHaveTextContent("₩69,000−3.1%");
+    expect(screen.getByTestId("기술예상")).toHaveTextContent("₩71,2000%");
     expect(머리()).toHaveTextContent("기술적 분석 예측회귀");
-    expect(within(카드()).getByText("지난 3년 '지금 가격 그대로'라고 찍기보다 3% 더 틀렸어요 — 참고만 하세요"))
-      .toHaveClass("text-accent-yellow");
+    expect(screen.getByTestId("기술반영"))
+      .toHaveTextContent("지난 3년 이 종목에서 기술적 신호가 '그대로'보다 못 맞혀, 지금 가격을 예상으로 써요");
+    expect(카드()).toHaveTextContent("기술적 신호만 보면 ₩69,000(−3.1%) · 회귀");
+    const 줄들 = within(카드()).getAllByRole("row");
+    expect(줄들.slice(1).map((r) => r.textContent)).toEqual([
+      "지금 가격 그대로← 예상에 씀6.1%—",
+      "비슷했던 때5.6%58%",
+      "회귀← 신호6.0%55%",
+      "둘의 가운데5.7%57%",
+    ]);
+    expect(줄들[1]).toHaveClass("font-semibold");
     expect(api.get).toHaveBeenCalledTimes(1);
   });
 
@@ -387,7 +427,7 @@ describe("기술적 분석 예측 — 공모주처럼 예상 주가 하나와 �
     await userEvent.click(within(카드()).getByRole("button", { name: "3개월 뒤 보기" }));
     expect(주소().get("h")).toBe("63");
     expect(screen.getByRole("tab", { name: "3개월 뒤" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("기술예상")).toHaveTextContent("₩69,000");
+    expect(screen.getByTestId("기술예상")).toHaveTextContent("₩71,200");
     await userEvent.click(screen.getByRole("tab", { name: "1년 뒤" }));
     await userEvent.click(within(카드()).getByRole("button", { name: "1주 뒤 보기" }));
     expect(주소().get("h")).toBe("5");
@@ -407,12 +447,17 @@ describe("기술적 분석 예측 — 공모주처럼 예상 주가 하나와 �
     그리기();
     await screen.findByTestId("기술예상");
     expect(within(카드()).getByText("비슷했던 때 2번 보기")).toBeInTheDocument();
+    expect(within(카드()).getByText("지표가 오늘과 가까운 차례예요")).toBeInTheDocument();
     const 때 = within(카드()).getByRole("list", { name: "비슷했던 때" });
     expect(within(때).getAllByRole("listitem").map((x) => x.textContent)).toEqual([
       "2024년 3월 14일RSI 61 · 200일선 +8.3%1개월 뒤 +5.2%",
       "2023년 9월 1일200일선 −2.0%1개월 뒤 −3.1%",
     ]);
-    const 칸들 = within(within(카드()).getByRole("list", { name: "지금 기술적 지표" })).getAllByRole("listitem");
+    const 지표목록 = within(카드()).getByRole("list", { name: "지금 기술적 지표" });
+    // 휴대폰은 한 줄에 하나(이름이 잘리지 않게), 넓으면 두 칸
+    expect(지표목록).toHaveClass("grid-cols-1", "sm:grid-cols-2");
+    const 칸들 = within(지표목록).getAllByRole("listitem");
+    expect(칸들[0].firstElementChild).not.toHaveClass("truncate");
     expect(칸들.map((x) => x.textContent)).toEqual(["200일선 이격도+9.0%", "RSI(14일)55", "거래량(1주 ÷ 3개월)—"]);
     expect(칸들[2]).toHaveClass("opacity-50");
     expect(칸들[0]).not.toHaveClass("opacity-50");
@@ -426,12 +471,28 @@ describe("기술적 분석 예측 — 공모주처럼 예상 주가 하나와 �
     expect(카드()).toHaveTextContent("시장 지수를 받지 못해 시장 흐름은 빼고 셈했어요");
   });
 
-  it("지난 성적이 없으면 표 없이 '참고만'", async () => {
+  it("지난 성적이 없으면 표 없이 — 지금 가격을 예상으로 쓴다고", async () => {
     api.get.mockResolvedValue(가짜({ technical: 기술가짜({ horizons: 기술가짜().horizons.map((h) => ({ ...h, check: null })) }) }));
     그리기();
     await screen.findByTestId("기술예상");
-    expect(within(카드()).getByText("지난 성적을 셀 만큼 시세가 없어요 — 참고만 하세요")).toHaveClass("text-accent-yellow");
+    expect(screen.getByTestId("기술반영")).toHaveTextContent("지난 성적을 셀 만큼 시세가 없어 지금 가격을 예상으로 써요");
     expect(within(카드()).queryByRole("table")).toBeNull();
+    expect(카드()).toHaveTextContent("여러 종목을 10년 동안 시험해 보면");
+  });
+
+  it("지난 오차가 모자라면 범위는 비슷했던 때의 가운데 절반 — 적중률 줄은 없다", async () => {
+    api.get.mockResolvedValue(가짜({
+      technical: 기술가짜({
+        horizons: 기술가짜().horizons.map((h) => ({ ...h, range_kind: "neighbors" as const, check: h.check && { ...h.check, in50: null } })),
+      }),
+    }));
+    그리기();
+    await screen.findByTestId("기술예상");
+    expect(카드()).toHaveTextContent("지금과 지표가 비슷했던 때 15번 가운데 절반이 ₩69,800 ~ ₩76,900 사이였어요");
+    expect(within(카드()).getByRole("img", { name: "비슷했던 때의 가운데 절반 ₩69,800부터 ₩76,900, 예상 ₩73,500, 지금 ₩71,200" }))
+      .toBeInTheDocument();
+    expect(카드()).not.toHaveTextContent("50% 범위에 든 비율");
+    expect(카드()).not.toHaveTextContent("예상 오차로 본 50% 범위");
   });
 
   it("기술적 분석을 셈하지 못했으면(시세가 2년이 안 되면) 그렇다고 — 출렁임 범위는 그대로", async () => {

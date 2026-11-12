@@ -183,29 +183,36 @@ def test_오른_비율과_10퍼센트는_가격으로_센다():
     assert T._오르내림(yn) == {"up": round(2 / 6, 4), "up10": round(1 / 6, 4), "down10": round(1 / 6, 4)}
 
 
-def test_되돌림이_숨은_주가는_알아본다():
-    """20일선에서 멀어지면 돌아오는 주가 — 1주·1개월 예측이 '그대로' 보다 확실히 낫다고 대개 알아본다"""
-    알아봄 = {"1주": 0, "1개월": 0}
+def test_되돌림이_숨은_주가는_신호를_반영한다():
+    """20일선에서 멀어지면 돌아오는 주가 — 기술적 신호가 '그대로' 보다 덜 틀려, 신호를 반영한 예상을 낸다"""
+    반영 = []
     for 씨 in range(1, 7):
         결과 = T.예측(_날들(1260), _되돌림(씨=씨))
-        for 이름 in 알아봄:
-            검 = _기간(결과, 이름)["check"]
-            알아봄[이름] += 검["beats_flat"]
-            assert 검["gain"] > 0, (씨, 이름, 검)
-    assert 알아봄["1주"] >= 4 and 알아봄["1개월"] >= 3, 알아봄
-
-
-def test_맞힐_것이_없는_주가에서는_확실히_낫다고_말하지_않는다():
-    잘못 = 그대로가_나았던 = 0
-    for 씨 in range(1, 9):
-        for h in T.예측(_날들(1260), _무작위(씨=씨))["horizons"]:
+        for 이름 in ("1주", "1개월"):
+            h = _기간(결과, 이름)
             검 = h["check"]
-            잘못 += 검["beats_flat"]
-            # 예상은 언제나 기술적 방식 셋 가운데서 — '그대로' 가 가장 덜 틀렸어도(무작위 걸음에서는 흔하다) 그것을 내지 않는다
+            assert 검["weight"] > 0 and 검["gain"] > 0, (씨, 이름, 검)
+            assert h["predicted"] != round(float(_되돌림(씨=씨)[-1]), 2)           # 지금 가격이 아니다
+            반영.append(검["weight"])
+    assert min(반영) >= 0.5 and np.mean(반영) >= 0.8, 반영                  # 실제로는 0.75~1(평균 0.96)
+
+
+def test_맞힐_것이_없는_주가에서는_신호를_거의_쓰지_않는다():
+    """무작위 걸음 — 맞힐 것이 없어 신호를 조금만 반영하고, 여럿은 반영 0(예상 주가가 지금 가격)을 고른다.
+    (지난 3년의 우연으로 반영을 고르는 몫이 있다 — 24번 가운데 0 이 42%, 평균 0.34. 되돌림 주가는 0.75~1)
+    실제 79종목 10년 시세에서는 55~62% 가 0 이었다"""
+    반영 = []
+    for 씨 in range(1, 9):
+        C = _무작위(씨=씨)
+        for h in T.예측(_날들(1260), C)["horizons"]:
+            검 = h["check"]
+            # 신호는 언제나 기술적 방식 셋 가운데서 — '그대로' 가 가장 덜 틀렸어도 그것을 신호로 내지 않는다
             assert h["method"] == 검["best"] in T.기술방식
-            그대로가_나았던 += 검["gain"] < 0
-    assert 잘못 <= 1, 잘못
-    assert 그대로가_나았던 > 0                                          # 위의 확인이 헛돌지 않게
+            assert 검["weight"] in T.반영들 and 검["gain"] >= 0          # 반영 0 도 고를 수 있어 '그대로' 보다 더 틀리지 않는다
+            if 검["weight"] == 0:
+                assert h["predicted"] == round(float(C[-1]), 2) and 검["direction_used"] is None
+            반영.append(검["weight"])
+    assert np.mean(np.array(반영) == 0) >= 1 / 3 and np.mean(반영) <= 0.5, 반영
 
 
 def test_예상은_가장_잘_맞아_온_기술적_방식으로():
@@ -227,12 +234,16 @@ def test_예상은_가장_잘_맞아_온_기술적_방식으로():
         assert 검["best"] == min(("knn", "ridge", "mid"), key=lambda k: 성적[k]) == h["method"]
         assert h["method_label"] == T.방식이름[h["method"]]
         if h["method"] in ("knn", "ridge"):
-            assert h["predicted"] == h[h["method"]]
+            assert h["signal"] == h[h["method"]]
         else:
-            assert h["predicted"] == pytest.approx(math.sqrt(h["knn"] * h["ridge"]), rel=1e-3)
+            assert h["signal"] == pytest.approx(math.sqrt(h["knn"] * h["ridge"]), rel=1e-3)
+        # 예상 = 지금 가격 × (신호 ÷ 지금 가격)^반영
+        assert 검["weight"] in T.반영들 and h["weight"] == 검["weight"]
+        assert h["predicted"] == pytest.approx(P0 * (h["signal"] / P0) ** 검["weight"], rel=1e-3)
         # 서버는 반올림 전 오차로 셈한다 — 넷째 자리로 반올림된 오차로 견주니 그만큼 넉넉히
-        assert 검["gain"] == pytest.approx(1 - 성적[검["best"]] / 성적["flat"], abs=3e-3)
-        assert h["range"][0] <= h["range"][1]
+        assert 검["gain"] >= 0 and 검["gain"] == pytest.approx(1 - 검["mae_used"] / 성적["flat"], abs=3e-3)
+        assert 검["mae_used"] <= min(성적.values()) + 1e-4                   # 반영 1 과 0(그대로)도 후보라 그 어느 것보다 덜 틀린다
+        assert h["range_kind"] == "errors" and h["range"][0] < h["range"][1]
         assert 0 <= h["down10"] <= 1 - h["up"] and 0 <= h["up10"] <= h["up"] <= 1
         assert h["neighbor_count"] == T.이웃수 and abs(h["up"] * T.이웃수 - round(h["up"] * T.이웃수)) < 1e-3
         assert len(h["neighbors"]) == T.보일이웃
@@ -245,10 +256,10 @@ def test_지난_맞힘을_한_줄씩_다시_세어_본다():
     날들 = _날들(len(C))
     n, h = len(C), 21
     결과 = T.예측(날들, C)
-    검 = _기간(결과, "1개월")["check"]
-    오차 = {k: [] for k in T.방식차례}
-    맞음 = {k: [] for k in T.기술방식}
-    안50 = []
+    기간 = _기간(결과, "1개월")
+    검 = 기간["check"]
+    예상 = {k: [] for k in T.방식차례}
+    실제들 = []
     T_ = list(range(n - 1 - h, max(F.검증시작, n - 1 - F.창 - h) - 1, -5))[::-1]
     본 = []
     for t in T_:
@@ -265,25 +276,49 @@ def test_지난_맞힘을_한_줄씩_다시_세어_본다():
         if len(학습) < T.최소학습:
             continue
         셈 = T._셈(X, y, 학습, X[t])
-        실제 = math.log(C[t + h] / C[t])
         for k in T.방식차례:
-            오차[k].append(abs(math.exp(실제) - math.exp(셈[k])))
-        for k in T.기술방식:
-            맞음[k].append((셈[k] > 0) == (실제 > 0))
-        안50.append(셈["q25"] <= 실제 <= 셈["q75"])
+            예상[k].append(셈[k])
+        실제들.append(math.log(C[t + h] / C[t]))
         본.append(t)
+    실제 = np.array(실제들)
+    예상 = {k: np.array(v) for k, v in 예상.items()}
+    오차 = {k: np.abs(np.exp(실제) - np.exp(v)) for k, v in 예상.items()}
     assert 검["n"] == len(본) and 검["from"] == 날들[본[0]] and 검["to"] == 날들[본[-1] + h]
     assert 검["periods"] == (본[-1] + h - 본[0]) // h                   # 겹치지 않는 기간 수
-    assert 검["in50"] == round(float(np.mean(안50)), 4)
     for m in 검["methods"]:
-        assert m["mae"] == round(float(np.mean(오차[m["key"]])), 4)
+        assert m["mae"] == round(float(오차[m["key"]].mean()), 4)
         if m["key"] != "flat":
-            assert m["direction"] == round(float(np.mean(맞음[m["key"]])), 4)
-    # 확실히 나았나 — 오차 차이의 평균 ÷ (흩어짐 ÷ √겹치지 않는 표본 수)
-    차이 = np.array(오차["flat"]) - np.array(오차[검["best"]])
-    표본 = max(2.0, len(차이) * 5 / h)
-    t값 = 차이.mean() / (차이.std(ddof=1) / math.sqrt(표본))
-    assert 검["t"] == round(t값, 2) and 검["beats_flat"] == (t값 >= 1.0)
+            v = 예상[m["key"]]
+            assert m["direction"] == round(float(np.mean((v[v != 0] > 0) == (실제[v != 0] > 0))), 4)
+    # 신호를 얼마나 반영하나 — 0·¼·½·¾·1 가운데 지난 평균 오차가 가장 작은 것(같으면 큰 쪽)
+    best = 검["best"]
+    반영오차 = {w: float(np.mean(np.abs(np.exp(실제) - np.exp(w * 예상[best])))) for w in (0.0, 0.25, 0.5, 0.75, 1.0)}
+    w = min(반영오차, key=lambda w: (round(반영오차[w], 12), -w))
+    assert 검["weight"] == w and 검["mae_used"] == round(반영오차[w], 4)
+    assert 검["gain"] == round(1 - 반영오차[w] / float(오차["flat"].mean()), 4)
+    # 50% 범위가 맞았나 — 날마다 그날까지 결과가 나온 앞날들의 오차(20개 넘게 있을 때)로 그은 범위에 실제가 들었나
+    쓴 = w * 예상[best]
+    e = 실제 - 쓴
+    자리 = T.범위자리[h]
+    든 = []
+    for i, t in enumerate(본):
+        알던 = [e[j] for j in range(i) if 본[j] + h <= t]
+        if len(알던) >= T.범위최소:
+            lo, hi = np.quantile(알던, (자리, 1 - 자리))
+            든.append(쓴[i] + lo <= 실제[i] <= 쓴[i] + hi)
+    assert len(든) > 20 and 검["in50"] == round(float(np.mean(든)), 4)
+    # 오늘 — 신호 · 반영한 예상 · 모든 지난 오차로 그은 50% 범위
+    표 = T.지표표(C)
+    X = np.column_stack([표[k] for k in T.쓸지표(표)])
+    쓸날 = np.all(np.isfinite(X), axis=1)
+    y = np.full(n, np.nan)
+    y[: n - h] = np.log(C[h:] / C[: n - h])
+    오늘 = T._셈(X, y, np.flatnonzero(쓸날[: n - h]), X[-1])[best]
+    lo, hi = np.quantile(e, (자리, 1 - 자리))
+    P0 = float(C[-1])
+    assert 기간["signal"] == round(P0 * math.exp(오늘), 2) and 기간["predicted"] == round(P0 * math.exp(w * 오늘), 2)
+    assert 기간["range_kind"] == "errors"
+    assert 기간["range"] == [round(P0 * math.exp(w * 오늘 + lo), 2), round(P0 * math.exp(w * 오늘 + hi), 2)]
 
 
 def test_비슷했던_때는_결과가_나온_날뿐이고_날짜를_보여_준다():
@@ -312,6 +347,27 @@ def test_비슷했던_때는_결과가_나온_날뿐이고_날짜를_보여_준�
         변화 = C[셈["이웃"] + d] / C[셈["이웃"]] - 1
         assert (h["up"], h["up10"], h["down10"]) == (
             round(float(np.mean(변화 > 0)), 4), round(float(np.mean(변화 > 0.1)), 4), round(float(np.mean(변화 < -0.1)), 4))
+
+
+def test_지난_오차가_모자라면_비슷했던_때의_가운데_절반_성적이_없으면_지금_가격():
+    짧은 = T.예측(_날들(480), _무작위(480))
+    주 = _기간(짧은, "1주")
+    assert 0 < 주["check"]["n"] < T.범위최소                                  # 지난 오차가 몇 개뿐
+    assert 주["range_kind"] == "neighbors" and 주["check"]["in50"] is None
+    C = _무작위(460)
+    없음 = _기간(T.예측(_날들(460), C), "1주")
+    assert 없음["check"] is None and 없음["weight"] == 0 and 없음["range_kind"] == "neighbors"
+    assert 없음["method"] == "mid" and 없음["predicted"] == round(float(C[-1]), 2)          # 신호를 쓰지 않는다(지금 가격)
+    assert 없음["signal"] == pytest.approx(math.sqrt(없음["knn"] * 없음["ridge"]), rel=1e-3)
+    assert all(h["range_kind"] == "errors" for h in T.예측(_날들(1260), _무작위())["horizons"])
+    중간 = _기간(T.예측(_날들(532), _무작위(532)), "1주")                       # 지난 오차 10여 개 — 아직 모자라다
+    assert 10 < 중간["check"]["n"] < T.범위최소 and 중간["range_kind"] == "neighbors"
+
+
+def test_범위_자리와_반영_후보는_실제_시세로_맞춘_값():
+    """79종목 10년 시세로 맞춘 값(technical.py 머리글 · 범위자리 주석) — 바꾸려면 다시 재 보고 바꾼다"""
+    assert T.범위자리 == {5: 0.22, 21: 0.22, 63: 0.205}
+    assert T.반영들 == (0.0, 0.25, 0.5, 0.75, 1.0) and T.범위최소 == 20
 
 
 def test_오늘_빈_지표는_빼고_셈한다():

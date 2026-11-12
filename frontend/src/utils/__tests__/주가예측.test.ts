@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   확률글, 변화글, 날짜글, 년월글, 눈금글, 검증평, 근거이름, 근거상태, 근거값, 근거비율글, 그래프자료, 막대자리,
-  기간인가, 예측기간들, 지난날수, 년월일글, 지표값글, 기술판정, 기술막대자리,
+  기간인가, 예측기간들, 지난날수, 년월일글, 지표값글, 기술반영글, 기술시험글, 기술막대자리,
 } from "@/utils/주가예측";
 import type { 예측근거, 예측검증, 주가예측, 기술검증, 기술예측기간 } from "@/api/predict";
 
@@ -138,8 +138,9 @@ describe("그래프 자료", () => {
 
   it("기술적 분석의 예상 주가는 고른 기간의 마지막 날에 점 하나 — 그 기간이 없으면(6개월·1년) 없다", () => {
     const 기술기간 = (days: number, predicted: number): 기술예측기간 => ({
-      days, label: "", date: "", method: "knn", method_label: "", predicted, knn: predicted, ridge: predicted,
-      range: [predicted, predicted], up: 0.5, up10: 0, down10: 0, neighbor_count: 15, neighbors: [], check: null,
+      days, label: "", date: "", method: "knn", method_label: "", signal: predicted + 5, weight: 0.5, predicted,
+      knn: predicted, ridge: predicted, range: [predicted, predicted], range_kind: "errors",
+      up: 0.5, up10: 0, down10: 0, neighbor_count: 15, neighbors: [], check: null,
     });
     const p: 주가예측 = {
       ...예측(),
@@ -158,8 +159,8 @@ describe("그래프 자료", () => {
 
 describe("기술적 분석 글귀", () => {
   const 성적 = (덧: Partial<기술검증> = {}): 기술검증 => ({
-    n: 150, from: "2023-08-24", to: "2026-10-12", periods: 36, in50: 0.5, best: "knn", gain: 0.081, t: 1.9, beats_flat: true,
-    methods: [], ...덧,
+    n: 150, from: "2023-08-24", to: "2026-10-12", periods: 36, in50: 0.5, best: "knn",
+    weight: 0.5, gain: 0.081, mae_used: 0.05, direction_used: 0.55, methods: [], ...덧,
   });
 
   it("날짜 — 해·월·일", () => {
@@ -184,29 +185,19 @@ describe("기술적 분석 글귀", () => {
     expect(지표값글("rsi", Number.POSITIVE_INFINITY)).toBe("—");
   });
 
-  it("판정 — '그대로' 보다 확실히 나았을 때만 믿음(초록), 몇 % 덜 틀렸는지", () => {
-    expect(기술판정(성적())).toEqual({ 말: "지난 3년 '지금 가격 그대로'라고 찍기보다 8% 덜 틀렸어요", 믿음: true });
-    expect(기술판정(성적({ gain: 0.004 }))).toEqual({ 말: "지난 3년 '지금 가격 그대로'라고 찍기보다 조금 덜 틀렸어요", 믿음: true });
-    expect(기술판정(성적({ gain: 0.01 })).말).toBe("지난 3년 '지금 가격 그대로'라고 찍기보다 1% 덜 틀렸어요");
+  it("반영 — 신호를 몇 % 반영했나, 지난 3년 '그대로' 보다 몇 % 덜 틀렸나(1% 아래면 거의 같았다고)", () => {
+    expect(기술반영글(성적())).toBe("기술적 신호를 50% 반영했어요 — 지난 3년 '그대로'보다 8% 덜 틀렸어요");
+    expect(기술반영글(성적({ weight: 1, gain: 0.01 }))).toBe("기술적 신호를 100% 반영했어요 — 지난 3년 '그대로'보다 1% 덜 틀렸어요");
+    expect(기술반영글(성적({ weight: 0.25, gain: 0.004 }))).toBe("기술적 신호를 25% 반영했어요 — 지난 3년 '그대로'와 거의 같았어요");
+    expect(기술반영글(성적({ weight: 0.75, gain: 0 }))).toBe("기술적 신호를 75% 반영했어요 — 지난 3년 '그대로'와 거의 같았어요");
   });
 
-  it("판정 — 확실하지 않으면 참고만: 덜 틀렸어도 우연일 수 있다고, 더 틀렸으면 더 틀렸다고, 비슷하면 비슷했다고", () => {
-    const 아님 = { beats_flat: false, t: 0.6 };
-    expect(기술판정(성적({ ...아님, gain: 0.024 }))).toEqual({
-      말: "지난 3년 '지금 가격 그대로'라고 찍기보다 2% 덜 틀렸지만 우연일 수 있어요 — 참고만 하세요", 믿음: false,
-    });
-    expect(기술판정(성적({ ...아님, gain: 0.01 })).말).toBe("지난 3년 '지금 가격 그대로'라고 찍기보다 1% 덜 틀렸지만 우연일 수 있어요 — 참고만 하세요");
-    expect(기술판정(성적({ ...아님, gain: -0.034 }))).toEqual({
-      말: "지난 3년 '지금 가격 그대로'라고 찍기보다 3% 더 틀렸어요 — 참고만 하세요", 믿음: false,
-    });
-    expect(기술판정(성적({ ...아님, gain: -0.01 })).말).toBe("지난 3년 '지금 가격 그대로'라고 찍기보다 1% 더 틀렸어요 — 참고만 하세요");
-    for (const gain of [0.004, 0, -0.004]) {
-      expect(기술판정(성적({ ...아님, gain }))).toEqual({
-        말: "지난 3년 '지금 가격 그대로'라고 찍은 것과 거의 같았어요 — 참고만 하세요", 믿음: false,
-      });
-    }
-    expect(기술판정(null)).toEqual({ 말: "지난 성적을 셀 만큼 시세가 없어요 — 참고만 하세요", 믿음: false });
-    expect(기술판정(undefined).믿음).toBe(false);
+  it("반영 0 이면 지금 가격을 예상으로 — 지난 성적이 없어도 그렇다고, '확실히 낫다' 는 말은 없다", () => {
+    expect(기술반영글(성적({ weight: 0, gain: 0 }))).toBe("지난 3년 이 종목에서 기술적 신호가 '그대로'보다 못 맞혀, 지금 가격을 예상으로 써요");
+    expect(기술반영글(성적({ weight: 0, gain: 0.3 }))).toBe("지난 3년 이 종목에서 기술적 신호가 '그대로'보다 못 맞혀, 지금 가격을 예상으로 써요");
+    expect(기술반영글(null)).toBe("지난 성적을 셀 만큼 시세가 없어 지금 가격을 예상으로 써요");
+    expect(기술반영글(undefined)).toBe("지난 성적을 셀 만큼 시세가 없어 지금 가격을 예상으로 써요");
+    expect(기술시험글).toBe("여러 종목을 10년 동안 시험해 보면 기술적 예상은 '그대로'를 이기지 못했어요 — 참고만 하세요");
   });
 
   it("막대 — 절반 범위·예상·지금이 모두 안에, 양 끝에 폭의 12% 여백", () => {
