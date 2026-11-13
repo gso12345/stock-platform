@@ -1,0 +1,107 @@
+name: 배포 확인(임시) — 가치 위치 · 공모주 적중률 갱신
+on:
+  push:
+    branches: [claude/initial-load-performance-2RJGW]
+    paths: [".github/workflows/probe-val.yml"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 운영 화면·서버를 읽기만 해서 확인
+        shell: python
+        run: |
+          import json, re, time, urllib.request, urllib.parse, urllib.error
+          WEB = "https://stock-platform-one.vercel.app"
+          API = "https://stock-platform-ksmu.onrender.com/api/v1"
+
+          def get(u, t=120):
+              p = urllib.parse.urlsplit(u)
+              u = urllib.parse.urlunsplit(p._replace(path=urllib.parse.quote(p.path)))
+              r = urllib.request.Request(u, headers={"User-Agent": "deploy-probe"})
+              try:
+                  with urllib.request.urlopen(r, timeout=t) as res:
+                      return res.status, res.read()
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read()
+              except Exception as e:
+                  return 0, repr(e).encode()
+
+          표식 = {"카드 제목": "가치 위치", "쌌던 날": "지금보다 쌌던 날", "예측 아님": "싸 보인다고 오르고",
+                  "주소": "/valuation", "셈법": "그날 알려진 최근 1년 순이익"}
+          for 번 in range(40):
+              _, html = get(WEB + "/predict")
+              html = html.decode("utf-8", "replace")
+              entry = [x for x in set(re.findall(r'/assets/[^"\'\s]+?\.js', html)) if "/index-" in x]
+              글 = {}
+              for x in entry:
+                  글[x] = get(WEB + x)[1].decode("utf-8", "replace")
+                  for y in set(re.findall(r'assets/[^"\'`\s)]+?\.js', 글[x])):
+                      y = "/" + y
+                      if y not in 글 and "Predict-" in y:
+                          s, b = get(WEB + y)
+                          글[y] = b.decode("utf-8", "replace") if s == 200 else ""
+              결과 = {이름: any(k in s for n, s in 글.items() if "Predict-" in n) for 이름, k in 표식.items()}
+              print(f"[화면 {번}] 파일 {len(글)}개 {결과}", flush=True)
+              if all(결과.values()):
+                  break
+              time.sleep(30)
+
+          for 번 in range(60):
+              s, b = get(f"{API}/predict/KR/005930/valuation")
+              print(f"[서버 {번}] KR/005930/valuation → {s} {b[:80]!r}", flush=True)
+              if s == 200 and b'"per"' in b:
+                  break
+              time.sleep(30)
+
+          for 시장, 종목 in (("KR", "005930"), ("KR", "000660"), ("KR", "035420"), ("KR", "005380"), ("KR", "247540"),
+                             ("US", "AAPL"), ("US", "NVDA"), ("US", "MSFT"), ("US", "TSLA"), ("US", "TSM")):
+              get(f"{API}/predict/{시장}/{종목}")                          # 화면처럼 예측을 먼저(일봉을 받아 둔다)
+              시작 = time.time()
+              s, b = get(f"{API}/predict/{시장}/{종목}/valuation")
+              걸림 = time.time() - 시작
+              if s != 200:
+                  print(f"== {시장} {종목} {s} {b[:200]!r}", flush=True); continue
+              d = json.loads(b)
+              print(f"== {시장} {종목} {s} {걸림:.1f}초 · 기준 {d.get('as_of')}", flush=True)
+              for 칸 in ("per", "pbr"):
+                  x = d[칸]
+                  if x.get("why"):
+                      print(f"   {칸} 공식 {x.get('now')} · 셀 수 없음 {x['why']} {x.get('days', '')}", flush=True)
+                  else:
+                      print(f"   {칸} 공식 {x.get('now')} · 쌌던 날 {x['below']:.0%} · 가운데 대비 {x['vs_median']} · "
+                            f"가장 쌈 {x['cheapest']} · 가장 비쌈 {x['priciest']} · {x['from']}부터 {x['days']}일 · "
+                            f"뺀 동안 {x['excluded']} · 쓴 실적 {x['basis']}", flush=True)
+          시작 = time.time(); s, _ = get(f"{API}/predict/KR/005930/valuation"); print(f"다시 물음 {s} {time.time() - 시작:.2f}초")
+          s, b = get(f"{API}/predict/ETF/SPY/valuation"); print("ETF", s, b[:120].decode("utf-8", "replace"))
+
+          # 공모주 — 적중률이 언제의 자료로 셈되어 있나, 새로 받으면 바뀌나
+          def 공모주(이름):
+              s, b = get(f"{API}/ipo", 180)
+              if s != 200:
+                  print(f"[공모주 {이름}] {s} {b[:200]!r}", flush=True); return None
+              d = json.loads(b)
+              a = d.get("accuracy") or {}
+              최근 = d.get("recent") or []
+              print(f"[공모주 {이름}] 자료 받은 때 {d.get('as_of')} · 새로 받는 중 {d.get('refreshing')} · 결과 있는 공모주 {d.get('n_results')}곳", flush=True)
+              print(f"   적중률(±{a.get('hit_band_pct')}% 안) {a.get('hit_rate')} · 가운데 차이 {a.get('median_abs_diff_pct')}% · "
+                    f"방향 {a.get('direction_hit')} · {a.get('n')}곳 · 방식 {((a.get('method') or {}).get('name'))} · "
+                    f"청약 전 {((a.get('pre_sub') or {}).get('hit_rate'))}({((a.get('pre_sub') or {}).get('n'))}곳)", flush=True)
+              for r in 최근[:6]:
+                  print(f"   최근 {r.get('list_date')} {r.get('name')} 공모 {r.get('offer_price')} 예측 {r.get('pred_price')} "
+                        f"실제 {r.get('open_price')} 차이 {r.get('diff_pct')}% {'맞힘' if r.get('hit') else '빗나감'}", flush=True)
+              if 최근:
+                  print(f"   가장 오래된 줄 {최근[-1].get('list_date')} {최근[-1].get('name')}", flush=True)
+              다가옴 = [(u.get('name'), u.get('stage'), u.get('list_date')) for u in d.get('upcoming') or []]
+              print(f"   다가오는 공모주 {len(다가옴)}곳 {다가옴[:6]}", flush=True)
+              return d
+          처음 = 공모주("처음")
+          if 처음 and 처음.get("refreshing"):
+              for 번 in range(24):
+                  time.sleep(15)
+                  s, b = get(f"{API}/ipo", 180)
+                  if s == 200 and not json.loads(b).get("refreshing"):
+                      break
+              공모주("새로 받은 뒤")
