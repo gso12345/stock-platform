@@ -7,6 +7,7 @@
  *   · 없는 종목·자료가 모자란 종목은 까닭을 말하고 '다시 시도' 를 내밀지 않는다
  *   · 맨 위는 기술적 분석 예측(사용자: "기술적분석을 바탕으로 주가를 공모가처럼 예측해줘") — 신호를 지난 성적만큼
  *     반영한 예상 주가, 50% 범위, 비슷했던 때, 지난 3년 성적. 3개월 뒤까지만 — 6개월·1년이면 짧은 기간으로 옮길 단추
+ *   · 가치 위치(사용자: "바로 할 수 있는 것 해줘") — 공식 PER·PBR 과, 지금이 지난날 가운데 어디쯤인지. 예측이 아니라고
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within, cleanup } from "@testing-library/react";
@@ -14,7 +15,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 
-vi.mock("@/api/predict", () => ({ predictApi: { get: vi.fn() } }));
+vi.mock("@/api/predict", () => ({ predictApi: { get: vi.fn(), valuation: vi.fn() } }));
 vi.mock("@/api/stocks", async (원본) => ({
   ...(await 원본<typeof import("@/api/stocks")>()),
   stocksApi: { getAnalyst: vi.fn() },
@@ -35,7 +36,9 @@ vi.mock("@/hooks/useStockSearch", async () => {
 });
 
 import Predict from "@/pages/Predict";
-import { predictApi, type 주가예측, type 예측기간, type 기술예측, type 기술예측기간, type 기술검증 } from "@/api/predict";
+import {
+  predictApi, type 주가예측, type 예측기간, type 기술예측, type 기술예측기간, type 기술검증, type 가치위치, type 가치자리,
+} from "@/api/predict";
 import { stocksApi } from "@/api/stocks";
 import { 더보기_메뉴, 더보기_경로 } from "@/constants/moreNav";
 import { 화면들 } from "@/routes/pages";
@@ -128,6 +131,21 @@ function 가짜(덧: Partial<주가예측> = {}): 주가예측 {
   };
 }
 
+const 가치자리값 = (덧: Partial<Extract<가치자리, { why: null }>> = {}): 가치자리 => ({
+  now: 9.33, why: null, below: 0.2312, vs_median: 0.85,
+  cheapest: { date: "2024-11-14", vs_now: 0.7 }, priciest: { date: "2023-07-03", vs_now: 1.6 },
+  from: "2023-03-31", days: 902, excluded: [], basis: { kind: "ttm", end: "2026-06-30" },
+  ...덧,
+});
+
+const 가치가짜 = (덧: Partial<가치위치> = {}): 가치위치 => ({
+  symbol: "005930", market: "KR", as_of: "2026-11-10",
+  per: 가치자리값(),
+  pbr: 가치자리값({ now: 2.42, below: 0.8, vs_median: 1.31, cheapest: { date: "2024-01-23", vs_now: 0.62 },
+    priciest: { date: "2026-10-30", vs_now: 1.05 }, basis: { kind: "quarter", end: "2026-06-30" } }),
+  ...덧,
+});
+
 function 주소보기() {
   const l = useLocation();
   return <p data-testid="주소">{l.pathname}{l.search}</p>;
@@ -158,6 +176,7 @@ beforeEach(() => {
         horizons: 가짜().horizons.map((h) => ({ ...h, q10: 180.12, q25: 190, q50: 203.4, q75: 215, q90: 230.45 })) })
     : 가짜({ symbol, market })));
   증권.getAnalyst.mockResolvedValue({ price_targets: { mean: 85000, high: 110000, low: 62000 } });
+  api.valuation.mockImplementation(async (market, symbol) => 가치가짜({ market, symbol }));
 });
 
 describe("종목과 기간", () => {
@@ -545,6 +564,123 @@ describe("못 셈했을 때", () => {
     api.get.mockImplementation(() => new Promise(() => {}));
     그리기();
     expect(screen.getByLabelText("예측을 셈하는 중")).toHaveAttribute("aria-busy", "true");
+  });
+});
+
+describe("가치 위치 — 지금 PER·PBR 이 지난날 가운데 어디쯤인지(예측 아님)", () => {
+  const 카드 = () => screen.getByRole("region", { name: "가치 위치" });
+
+  it("예측이 온 뒤 묻고 — 공식 PER·PBR, 지난날 가운데 지금보다 쌌던 날, 가운데 값과 견줌, 가장 쌌던·비쌌던 날, 쓴 실적", async () => {
+    그리기();
+    const per = await screen.findByTestId("가치-per");
+    expect(api.valuation).toHaveBeenCalledWith("KR", "005930");
+    expect(api.valuation).toHaveBeenCalledTimes(1);
+    expect(per).toHaveTextContent("PER (주가 ÷ 순이익)9.3배");
+    expect(per).toHaveTextContent("지난 3년 7개월 동안 지금보다 쌌던 날 23%");
+    expect(per).toHaveTextContent("지난날의 가운데 값보다 15% 낮아요");
+    expect(per).toHaveTextContent("가장 쌌던 날 2024년 11월 14일 · 지금보다 30% 낮았어요");
+    expect(per).toHaveTextContent("가장 비쌌던 날 2023년 7월 3일 · 지금보다 60% 높았어요");
+    expect(per).toHaveTextContent("지금은 2026년 6월까지 4분기 순이익으로 셈했어요");
+    expect(per).not.toHaveTextContent("뺐어요");
+    const 막대 = within(per).getByRole("img");
+    expect(막대).toHaveAccessibleName("PER 위치 — 왼쪽 끝이 지난 3년 7개월 가운데 가장 쌌던 날, 오른쪽 끝이 가장 비쌌던 날. 지금보다 쌌던 날 23%");
+    expect(parseFloat(within(막대).getByText("▼").style.left)).toBeCloseTo(23.12, 6);
+    const pbr = screen.getByTestId("가치-pbr");
+    expect(pbr).toHaveTextContent("PBR (주가 ÷ 순자산)2.42배");
+    expect(pbr).toHaveTextContent("지금보다 쌌던 날 80%");
+    expect(pbr).toHaveTextContent("지난날의 가운데 값보다 31% 높아요");
+    expect(pbr).toHaveTextContent("지금은 2026년 6월 말 순자산으로 셈했어요");
+    expect(카드()).toHaveTextContent("예측이 아니에요 — 싸 보인다고 오르고, 비싸 보인다고 내리는 것은 아니에요");
+    // 근거 카드 뒤, 증권사 목표가 앞
+    expect(screen.getByRole("heading", { name: "근거" }).compareDocumentPosition(카드()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(카드().compareDocumentPosition(screen.getByText("증권사 목표가")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("끝이면 가장 싸다·비싸다고 — 삼각은 막대 안에 들인다, 기간을 바꿔도 다시 묻지 않는다", async () => {
+    api.valuation.mockResolvedValue(가치가짜({
+      per: 가치자리값({ below: 0, vs_median: 0.5 }), pbr: 가치자리값({ now: 0.6, below: 1, vs_median: 2.4 }),
+    }));
+    그리기();
+    const per = await screen.findByTestId("가치-per");
+    expect(per).toHaveTextContent("지난 3년 7개월 동안 지금이 가장 싸요");
+    expect(within(per).getByText("▼")).toHaveStyle({ left: "1.5%" });
+    const pbr = screen.getByTestId("가치-pbr");
+    expect(pbr).toHaveTextContent("지금이 가장 비싸요");
+    expect(pbr).toHaveTextContent("지난날의 가운데 값의 2.4배예요");
+    expect(within(pbr).getByText("▼")).toHaveStyle({ left: "98.5%" });
+    await userEvent.click(screen.getByRole("tab", { name: "1년 뒤" }));
+    expect(screen.getByTestId("가치-per")).toBeInTheDocument();
+    expect(api.valuation).toHaveBeenCalledTimes(1);
+  });
+
+  it("셀 수 없으면 까닭을 — 지금 적자면 PER 은 까닭만(공식 값도 없으면 —), PBR 은 그대로", async () => {
+    api.valuation.mockResolvedValue(가치가짜({ per: { now: null, why: "loss" } }));
+    그리기();
+    const per = await screen.findByTestId("가치-per");
+    expect(per).toHaveTextContent("PER (주가 ÷ 순이익)—");
+    expect(per).toHaveTextContent("최근 1년 순이익이 적자라 위치를 셀 수 없어요");
+    expect(within(per).queryByRole("img")).toBeNull();
+    expect(screen.getByTestId("가치-pbr")).toHaveTextContent("지금보다 쌌던 날 80%");
+  });
+
+  it.each([
+    ["deficit", "순자산이 0 이하(자본잠식)라 위치를 셀 수 없어요"],
+    ["short", "실적을 안 날이 1년이 안 돼 위치를 셀 수 없어요"],
+    ["nodata", "실적 자료를 받지 못해 위치를 셀 수 없어요"],
+  ] as const)("까닭 %s", async (까닭, 글) => {
+    api.valuation.mockResolvedValue(가치가짜({ pbr: { now: 3.1, why: 까닭 } }));
+    그리기();
+    const pbr = await screen.findByTestId("가치-pbr");
+    expect(pbr).toHaveTextContent(글);
+    expect(pbr).toHaveTextContent("3.10배");
+  });
+
+  it("적자·자본잠식이라 뺀 동안을 알려 준다 — 연간 실적이면 결산이라고", async () => {
+    api.valuation.mockResolvedValue(가치가짜({
+      per: 가치자리값({ excluded: [{ from: "2024-04-01", to: "2025-03-28" }], basis: { kind: "annual", end: "2025-12-31" } }),
+    }));
+    그리기();
+    expect(await screen.findByTestId("가치-per")).toHaveTextContent(
+      "지금은 2025년 12월 결산 연간 순이익으로 셈했어요 · 적자였던 2024년 4월 ~ 2025년 3월은 뺐어요");
+  });
+
+  it("묻는 동안은 자리만, 못 받으면 카드 안에서 다시", async () => {
+    api.valuation.mockImplementation(() => new Promise(() => {}));
+    그리기();
+    expect(await screen.findByLabelText("가치 위치를 셈하는 중")).toHaveAttribute("aria-busy", "true");
+    cleanup();
+    api.valuation.mockRejectedValueOnce({ response: { status: 500 } }).mockResolvedValue(가치가짜());
+    그리기();
+    await userEvent.click(await within(await screen.findByRole("region", { name: "가치 위치" })).findByRole("button", { name: /다시 시도/ }));
+    expect(await screen.findByTestId("가치-per")).toHaveTextContent("지금보다 쌌던 날 23%");
+  });
+
+  it("ETF 는 묻지 않고 카드도 설명도 없다", async () => {
+    api.get.mockResolvedValue(가짜({ symbol: "SPY", market: "ETF", name: "SPDR S&P 500" }));
+    그리기("/predict?m=ETF&s=SPY&n=SPY");
+    await screen.findByTestId("예측범위");
+    expect(screen.queryByRole("region", { name: "가치 위치" })).toBeNull();
+    expect(api.valuation).not.toHaveBeenCalled();
+    expect(within(screen.getByText("어떻게 셈했나요").closest("details")!).queryByText("가치 위치")).toBeNull();
+  });
+
+  it("예측할 수 없는 종목이면 묻지 않는다", async () => {
+    api.get.mockRejectedValue({ response: { status: 404, data: { detail: "이 종목의 시세를 찾지 못했어요" } } });
+    그리기();
+    await screen.findByText("이 종목은 예측할 수 없어요");
+    expect(api.valuation).not.toHaveBeenCalled();
+  });
+
+  it("어떻게 셈했나 — 가치 위치 셈법(주식 수를 쓰지 않음 · 4분기 합 · 알려진 날 · 적자는 뺌 · 공식 값)", async () => {
+    그리기();
+    await screen.findByTestId("예측범위");
+    const 설명 = screen.getByText("어떻게 셈했나요").closest("details")!;
+    expect(within(설명).getByText("가치 위치")).toBeInTheDocument();
+    expect(설명).toHaveTextContent("날마다 '주가 ÷ 그날 알려진 최근 1년 순이익'(PBR은 '÷ 순자산')을 세어");
+    expect(설명).toHaveTextContent("주식 수는 쓰지 않아서 자사주 소각·증자로 주식 수가 바뀐 만큼은 어긋나요");
+    expect(설명).toHaveTextContent("분기가 끝나고 45일(연간은 90일) 뒤부터 알았다고 봐요");
+    expect(설명).toHaveTextContent("적자·자본잠식이던 날은 PER·PBR의 뜻이 없어 뺐어요");
+    expect(설명).toHaveTextContent("카드의 PER·PBR 숫자는 종목 정보와 같은 공식 값이에요");
   });
 });
 

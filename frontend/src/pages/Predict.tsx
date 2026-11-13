@@ -7,6 +7,7 @@
  *   · 오를 확률 · 10% 넘게 오르내릴 확률
  *   · 이 방식이 이 종목에서 지난 3년 동안 얼마나 맞았나 — 같은 셈을 매주 해 본 적중률
  *   · 근거 셋 — 지금과 같은 상태였던 날들 뒤에 이 종목이 오른 비율(지난 자료 그대로 센 것)
+ *   · 가치 위치 — 지금 PER·PBR 이 이 종목의 지난날 가운데 어디쯤인지(예측 아님 — components/predict/가치위치)
  *   · 증권사 목표가 — 이 셈과는 따로인 사람들의 의견
  * 종목·기간은 주소에 남는다(?m=KR&s=005930&n=삼성전자&h=21) — 종목 상세에서 바로 오고, 뒤로 가도 그대로다.
  *
@@ -25,6 +26,7 @@ import { stocksApi } from "@/api/stocks";
 import 종목고르기, { 기본종목, 시장으로, type 고른종목 } from "@/components/backtest/종목고르기";
 import 차트틀, { 그래프미리받기 } from "@/components/chart/ChartFrame";
 import 기술예측 from "@/components/predict/기술예측";
+import 가치위치 from "@/components/predict/가치위치";
 import { Card, ChipTabs, MarketBadge, 못불러옴, cn } from "@/components/ui";
 import { use넓은화면 } from "@/hooks/useWideScreen";
 import { usePnlColors } from "@/hooks/usePnlColors";
@@ -186,6 +188,7 @@ export default function Predict() {
               <확률들 예측={예측} 기간={고른} />
               <검증 기간={고른} />
               <근거들 예측={예측} 기간={고른} />
+              <가치위치 예측={예측} />
               <목표가 예측={예측} 자료={애널.data} />
               <설명 예측={예측} />
             </div>
@@ -428,6 +431,19 @@ function 설명({ 예측 }: { 예측: 주가예측 }) {
               '그대로'보다 1주 1.5% · 1개월 5% · 3개월 11% 더 틀렸고, 반영을 고르니 0.3% · 1% · 4%로 줄었어요. 50% 범위에는
               실제로 50~52%가 들었어요</li>
             <li>짧은 앞날을 보는 도구라 3개월 뒤까지만 셈해요</li>
+          </ul>
+        </>
+      )}
+      {예측.market !== "ETF" && (
+        <>
+          <p className={묶음제목}>가치 위치</p>
+          <ul className={목록}>
+            <li>날마다 '주가 ÷ 그날 알려진 최근 1년 순이익'(PBR은 '÷ 순자산')을 세어, 지금이 지난날(최대 5년) 가운데
+              어디쯤인지 봐요. 주식 수는 쓰지 않아서 자사주 소각·증자로 주식 수가 바뀐 만큼은 어긋나요</li>
+            <li>최근 1년 순이익은 분기 실적이 넷 이어 있으면 그 합, 아니면 연간 실적이에요. 실적은 분기가 끝나고 45일(연간은
+              90일) 뒤부터 알았다고 봐요 — 그날 몰랐던 실적으로 셈하지 않으려고요</li>
+            <li>적자·자본잠식이던 날은 PER·PBR의 뜻이 없어 뺐어요</li>
+            <li>카드의 PER·PBR 숫자는 종목 정보와 같은 공식 값이에요. 위치 셈과 쓴 실적이 조금 다를 수 있어요</li>
           </ul>
         </>
       )}

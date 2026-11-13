@@ -141,7 +141,50 @@ export interface 주가예측 {
   technical?: 기술예측 | null;
 }
 
+/** 가치 위치를 셀 수 없는 까닭 — loss: 지금 최근 1년 순이익이 적자 · deficit: 순자산이 0 이하 · short: 실적을 안 날이
+ *  1년이 안 됨 · nodata: 실적을 못 받음 */
+export type 가치까닭 = "loss" | "deficit" | "short" | "nodata";
+
+/** 가장 쌌던·비쌌던 날 — vs_now 는 그날 비율 ÷ 지금 비율 */
+export interface 가치날 { date: string; vs_now: number }
+
+export type 가치자리 = {
+  /** 종목 정보와 같은 공식 값(PER·PBR) — 없거나 0 이하면 null */
+  now: number | null;
+} & (
+  | {
+      why: null;
+      /** 지난날 가운데 지금보다 쌌던(비율이 낮았던) 날의 비율 */
+      below: number;
+      /** 지금 ÷ 지난날의 가운데 값 */
+      vs_median: number;
+      cheapest: 가치날;
+      priciest: 가치날;
+      /** 실적을 안 첫날 — 여기서 지금까지를 본다(최대 5년) */
+      from: string;
+      /** 견준 지난날 수 — 적자·자본잠식이던 날을 뺀 */
+      days: number;
+      /** 적자(PER)·자본잠식(PBR)이라 뺀 동안 */
+      excluded: { from: string; to: string }[];
+      /** 지금 쓴 실적 — ttm: 최근 4분기 합 · annual: 연간 · quarter: 분기 끝 순자산 */
+      basis: { kind: "ttm" | "annual" | "quarter"; end: string };
+    }
+  | { why: 가치까닭; days?: number }
+);
+
+/** 가치 위치 — 지금 PER·PBR 이 이 종목의 지난날 가운데 어디쯤인지(backend/app/services/predict/valuation.py).
+ *  날마다 '주가 ÷ 그날 알려진 최근 1년 순이익(순자산)' 으로 센다. 예측이 아니다 */
+export interface 가치위치 {
+  symbol: string;
+  market: Market;
+  as_of: string | null;
+  per: 가치자리;
+  pbr: 가치자리;
+}
+
 export const predictApi = {
   get: (market: Market, symbol: string) =>
     api.get<주가예측>(`/predict/${market}/${encodeURIComponent(symbol)}`).then((r) => r.data),
+  valuation: (market: Market, symbol: string) =>
+    api.get<가치위치>(`/predict/${market}/${encodeURIComponent(symbol)}/valuation`).then((r) => r.data),
 };

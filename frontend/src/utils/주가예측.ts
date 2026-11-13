@@ -5,7 +5,7 @@
  * 맞았는지, 좁았는지(실제로 더 크게 움직였는지), 넉넉했는지를 한 줄로 말하고, 겹치지 않는 기간이 적으면 참고만 하라고
  * 덧붙인다(1년 뒤 예측은 3년을 매주 셈해도 서로 겹쳐 실제로는 세 번쯤 본 셈이다).
  */
-import type { 근거비율, 기술검증, 예측검증, 예측근거, 예측분위, 주가예측 } from "@/api/predict";
+import type { 가치까닭, 가치날, 근거비율, 기술검증, 예측검증, 예측근거, 예측분위, 주가예측 } from "@/api/predict";
 import type { Market } from "@/types";
 
 export const 예측기간들 = [
@@ -193,4 +193,75 @@ export function 기술막대자리(범위: [number, number], 예상: number, 지
   const b = 높 + 여백;
   const 자리 = (x: number) => ((x - a) / (b - a)) * 100;
   return { 절반: [자리(범위[0]), 자리(범위[1])], 예상: 자리(예상), 지금: 자리(지금) };
+}
+
+/* ── 가치 위치(지금 PER·PBR 이 지난날 가운데 어디쯤인지 — components/predict/가치위치) ── */
+
+/** 본 기간의 길이 — "2023-03-31" ~ "2026-11-11" → "3년 7개월" */
+export function 기간길이글(시작: string, 끝: string): string {
+  const [y1, m1, d1] = 시작.split("-").map(Number);
+  const [y2, m2, d2] = 끝.split("-").map(Number);
+  if (![y1, m1, d1, y2, m2, d2].every(Number.isFinite)) return "";
+  const 달 = Math.max(0, (y2 - y1) * 12 + (m2 - m1) - (d2 < d1 ? 1 : 0));
+  const 해 = Math.floor(달 / 12);
+  const 남 = 달 % 12;
+  if (해 && 남) return `${해}년 ${남}개월`;
+  return 해 ? `${해}년` : `${Math.max(남, 1)}개월`;
+}
+
+/** 공식 PER·PBR — 종목 상세 재무 탭처럼 PER 은 소수 한 자리, PBR 은 두 자리 */
+export function 배수글(칸: "per" | "pbr", v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return `${v.toFixed(칸 === "per" ? 1 : 2)}배`;
+}
+
+/** 지금이 지난날 가운데 어디쯤인지 — 지금보다 쌌던 날의 비율. 끝이면 그렇게 말한다 */
+export function 쌌던날글(below: number): string {
+  if (below <= 0) return "지금이 가장 싸요";
+  if (below >= 1) return "지금이 가장 비싸요";
+  return `지금보다 쌌던 날 ${확률글(below)}`;
+}
+
+/** 지금 ÷ 지난날의 가운데 값 — "가운데 값보다 15% 낮아요". 두 배가 넘으면 배로 */
+export function 가운데견줌글(vs: number): string {
+  if (!Number.isFinite(vs)) return "";
+  if (vs >= 2) return `지난날의 가운데 값의 ${vs.toFixed(1)}배예요`;
+  const 퍼 = Math.round((vs - 1) * 100);
+  if (퍼 === 0) return "지난날의 가운데 값과 거의 같아요";
+  return `지난날의 가운데 값보다 ${Math.abs(퍼)}% ${퍼 > 0 ? "높아요" : "낮아요"}`;
+}
+
+/** 가장 쌌던·비쌌던 날과 그때의 비율 — "2024년 11월 14일 · 지금보다 30% 낮았어요" */
+export function 끝날견줌글(x: 가치날): string {
+  const 퍼 = Math.round((x.vs_now - 1) * 100);
+  const 견줌 = x.vs_now >= 2 ? `지금의 ${x.vs_now.toFixed(1)}배였어요`
+    : 퍼 === 0 ? "지금과 거의 같았어요"
+    : `지금보다 ${Math.abs(퍼)}% ${퍼 > 0 ? "높았어요" : "낮았어요"}`;
+  return `${년월일글(x.date)} · ${견줌}`;
+}
+
+/** 지금 쓴 실적 — "2026년 6월까지 4분기 순이익" · "2025년 12월 결산 연간 순이익" · "2026년 6월 말 순자산" */
+export function 가치기준글(칸: "per" | "pbr", 기준: { kind: "ttm" | "annual" | "quarter"; end: string }): string {
+  const 때 = 년월글(기준.end);
+  if (칸 === "pbr") return `${때} 말 순자산`;
+  return 기준.kind === "ttm" ? `${때}까지 4분기 순이익` : `${때} 결산 연간 순이익`;
+}
+
+/** 위치를 셀 수 없는 까닭 */
+export function 가치까닭글(why: 가치까닭): string {
+  switch (why) {
+    case "loss": return "최근 1년 순이익이 적자라 위치를 셀 수 없어요";
+    case "deficit": return "순자산이 0 이하(자본잠식)라 위치를 셀 수 없어요";
+    case "short": return "실적을 안 날이 1년이 안 돼 위치를 셀 수 없어요";
+    default: return "실적 자료를 받지 못해 위치를 셀 수 없어요";
+  }
+}
+
+/** 적자·자본잠식이라 뺀 동안 — "적자였던 2024년 4월 ~ 2025년 3월은 뺐어요". 없으면 null */
+export function 뺀동안글(칸: "per" | "pbr", 동안들: { from: string; to: string }[]): string | null {
+  if (!동안들.length) return null;
+  const 글 = 동안들
+    .map((x) => (년월글(x.from) === 년월글(x.to) ? 년월글(x.from) : `${년월글(x.from)} ~ ${년월글(x.to)}`))
+    .join(", ");
+  return `${칸 === "per" ? "적자였던" : "자본잠식이었던"} ${글}은 뺐어요`;
 }
