@@ -1,0 +1,71 @@
+name: 자료 확인(임시) — 공모주 예측이 안 되는 까닭
+on:
+  push:
+    branches: [claude/initial-load-performance-2RJGW]
+    paths: [".github/workflows/probe-ipo.yml"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 운영 서버와 자료 원천을 읽기만 해서 확인
+        shell: python
+        run: |
+          import json, re, time, urllib.request, urllib.error
+          API = "https://stock-platform-ksmu.onrender.com/api/v1"
+
+          def get(u, t=180, 머리=None):
+              r = urllib.request.Request(u, headers=머리 or {"User-Agent": "deploy-probe"})
+              try:
+                  with urllib.request.urlopen(r, timeout=t) as res:
+                      return res.status, res.read()
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read()
+              except Exception as e:
+                  return 0, repr(e).encode()
+
+          s, b = get(f"{API}/ipo")
+          d = json.loads(b)
+          if d.get("refreshing"):
+              for _ in range(20):
+                  time.sleep(15)
+                  s, b = get(f"{API}/ipo")
+                  d = json.loads(b)
+                  if not d.get("refreshing"):
+                      break
+          print("자료 받은 때", d.get("as_of"), "· 새로 받는 중", d.get("refreshing"))
+          print("목록 상태", json.dumps(d.get("source"), ensure_ascii=False))
+          칸 = ("kind", "market", "forecast_date", "band_low", "band_high", "offer_price", "offer_amount", "inst_ratio",
+                "lockup_pct", "sub_start", "sub_end", "sub_ratio", "list_date", "underwriter", "float_pct",
+                "equal_shares", "old_pct", "code")
+          못한 = []
+          for u in d.get("upcoming") or []:
+              p = u.get("prediction") or {}
+              상태 = f"예측 {p.get('price')}원({p.get('return_pct')}%)" if p.get("ok") else f"예측 안 됨 — {p.get('reason')}"
+              print(f"== {u.get('name')} [{u.get('stage')}] {상태}")
+              print("   " + " · ".join(f"{k}={u.get(k)}" for k in 칸))
+              if not p.get("ok"):
+                  못한.append(u.get("name"))
+          print("예측 안 된 것:", 못한)
+
+          # 자료 원천(38커뮤니케이션) 수요예측결과·수요예측일정·청약일정 첫 쪽에서 그 종목들의 줄을 그대로 본다
+          머리 = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                  "Accept-Language": "ko-KR,ko;q=0.9", "Referer": "https://www.38.co.kr/"}
+          for 이름, 경로 in (("수요예측결과", "/html/fund/index.htm?o=r1"), ("수요예측일정", "/html/fund/index.htm?o=r"),
+                            ("청약일정", "/html/fund/index.htm?o=k")):
+              s, b = get("https://www.38.co.kr" + 경로, 60, 머리)
+              글 = b.decode("cp949", "replace")
+              print(f"\n#### 38 {이름} {s} {len(글)}자")
+              줄들 = re.findall(r"<tr[^>]*>(.*?)</tr>", 글, flags=re.S | re.I)
+              머리글 = None
+              for 줄 in 줄들:
+                  칸들 = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", c)).strip() for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", 줄, flags=re.S | re.I)]
+                  if not 칸들:
+                      continue
+                  if any("종목명" in c or "기업명" in c for c in 칸들) and 머리글 is None and len(칸들) >= 4:
+                      머리글 = 칸들
+                      print("   머리글", 칸들)
+                  if any(n and n.split("(")[0].strip() and n.split("(")[0].strip() in " ".join(칸들) for n in 못한):
+                      print("   줄", 칸들)
