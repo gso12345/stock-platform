@@ -329,13 +329,25 @@ def 읽기_수요예측(html: str) -> "tuple[list[dict], str]":
         이름 = z["이름"][0]
         if not 이름 or 이름 in ("기업명", "종목명"):
             continue
+        기관 = _경쟁률(z["기관"][0])
         out.append({
             "name": 이름, **_상세주소(z["이름"][1]),
             **_일정칸(z),
-            "inst_ratio": _경쟁률(z["기관"][0]),
-            "lockup_pct": _퍼센트(z["확약"][0]),
+            "inst_ratio": 기관,
+            "lockup_pct": _확약(z["확약"][0], 기관),
         })
     return out, 이유 if not out else ""
+
+
+def _확약(글, 기관: "float | None") -> "float | None":
+    """의무보유확약 — 원천은 확약이 하나도 없으면(0%) 목록에 '-' 로 적는다. 엠비디(2026-11)가 목록은 '-', 상세
+    페이지는 '의무보유확약 0.00%'(15일·1개월·3개월 확약 모두 0)였다. 그래서 기관경쟁률이 나왔는데 확약 칸이 '-'·빈칸이면
+    0%. 경쟁률도 없으면 아직 결과 전이라 모른다(None). 예전에는 '-' 를 늘 '모름' 으로 읽어, 확약 0% 공모주가 청약
+    날까지 예측이 없었다(사용자: "공모청약날인데도 공모가예측이 안되는 종목이 있어")"""
+    v = _퍼센트(글)
+    if v is None and 기관 is not None and str(글 or "").strip() in ("-", "—", "–", ""):
+        return 0.0
+    return v
 
 
 def _일정칸(z: dict) -> dict:
@@ -609,7 +621,8 @@ def _상세받을것(기록: dict, 지금: float) -> list:
     끝이다. 새 규칙보다 한참 앞 것은 받지 않는다."""
     out = []
     for k, r in 기록.items():
-        if not r.get("no") or not _상세볼때(r):
+        # 일정표에서 빠진 것(철회·연기 — _빠진것_표시)은 상장 전이어도 다시 받지 않는다
+        if not r.get("no") or not _상세볼때(r) or r.get("gone"):
             continue
         if r.get("detail_ver") == 상세판 and (
                 r.get("detail_done") or 지금 - float(r.get("detail_at") or 0) < 상세_갱신간격):
@@ -683,17 +696,59 @@ def _상세진단글(진단: dict, 기록: dict) -> str:
 
 # ── 기록 합치기 ────────────────────────────────────────────
 def 합치기(기록: dict, 줄들: list) -> dict:
-    """줄마다 그 종목 기록에 덮어쓴다 — 값이 있는 칸만(없는 칸이 알던 값을 지우지 않게)."""
+    """줄마다 그 종목 기록에 덮어쓴다 — 값이 있는 칸만(없는 칸이 알던 값을 지우지 않게). 원천 목록에 다시 보이면
+    '일정표에서 빠짐' 표시(gone — _빠진것_표시)를 뗀다."""
     for r in 줄들:
         k = 열쇠(r.get("name"))
         if not k:
             continue
         옛 = dict(기록.get(k) or {"name": r["name"], "kind": 종류(r["name"])})
+        옛.pop("gone", None)
         for f, v in r.items():
             if v is not None and v != "":
                 옛[f] = v
         기록[k] = 옛
     return 기록
+
+
+#: 원천의 일정표와 그 표의 날짜 칸 — 상장 전 공모주가 여기서 빠지면 공모를 철회했거나 미룬 것이다(_빠진것_표시)
+_일정목록 = {"수요예측일정": "forecast_date", "청약": "sub_start"}
+#: 한 일정표에서 받은 범위 안의 공모주가 이만큼 넘게 빠졌으면 철회가 아니라 표를 잘못 읽은 것으로 본다(그 표는 안 쓴다)
+빠짐_한도 = 1 / 3
+
+
+def _본것(목록: str, 줄들: list) -> "tuple[set, date | None]":
+    """일정표 한 번 받은 것 → (본 종목 열쇠들, 받은 줄들의 가장 이른 날짜). 원천 목록은 최근 날짜부터라, 그 날짜
+    뒤의 공모주는 아직 일정표에 있다면 이번에 받은 쪽들 안에 있어야 한다."""
+    날짜들 = [d for r in 줄들 if (d := _d(r.get(_일정목록[목록])))]
+    return {열쇠(r.get("name")) for r in 줄들}, (min(날짜들) if 날짜들 else None)
+
+
+def _빠진것_표시(기록: dict, 본것: dict) -> list:
+    """본것: 일정표 → _본것. 상장 전인데, 그 종목의 날짜가 받은 범위 안인 일정표 모두에서 빠졌으면 gone(빠진 날)을
+    단다 — 원천은 철회·연기한 공모주를 일정표에서 지운다. 씨앤엠·제이앤티지가 2026-11-11 수요예측 뒤 상장을 철회했는데
+    받아 둔 일정(청약 11/12~13)이 남아, 공모주 메뉴에 '확정 공모가가 나오면 예측해요' 로 청약 날까지 떠 있었고 청약 아침
+    알림·달력에도 남았다. 다시 보이면 합치기가 뗀다. 범위 안의 3분의 1 넘게 빠진 표는 잘못 읽은 것으로 보고 안 쓴다.
+    새로 단 공모주 이름들"""
+    def 범위안(r: dict, 칸: str, 처음: date) -> bool:
+        return not r.get("open_price") and bool((d := _d(r.get(칸))) and d >= 처음)
+
+    믿을표 = {}
+    for 목록, (열쇠들, 처음) in 본것.items():
+        if not 열쇠들 or 처음 is None:
+            continue
+        안 = [k for k, r in 기록.items() if not r.get("gone") and 범위안(r, _일정목록[목록], 처음)]
+        if 안 and sum(k not in 열쇠들 for k in 안) <= 빠짐_한도 * len(안):
+            믿을표[목록] = (열쇠들, 처음)
+    새로 = []
+    for k, r in list(기록.items()):
+        if r.get("gone") or r.get("open_price"):
+            continue
+        볼 = [열쇠들 for 목록, (열쇠들, 처음) in 믿을표.items() if 범위안(r, _일정목록[목록], 처음)]
+        if 볼 and all(k not in 열쇠들 for 열쇠들 in 볼):
+            기록[k] = {**r, "gone": 오늘().isoformat()}      # 새 dict — 받기 전 기록(_기록)과 나눠 쓰는 줄을 고치지 않게
+            새로.append(r.get("name"))
+    return 새로
 
 
 def _코드붙이기(기록: dict) -> None:
@@ -784,11 +839,15 @@ def 새로받기(쪽수: "int | None" = None) -> dict:
     _시도때 = time.time()
     기록 = dict(기록들())
     상태 = {}
+    본것: dict = {}
     for 목록 in _목록경로:
         마침 = bool((_상태.get(목록) or {}).get("backfilled"))
         이번쪽수 = 쪽수 if 쪽수 is not None else (평소_쪽수 if 마침 else 거슬러_쪽수)
         줄들, 이유 = _목록받기(목록, 이번쪽수)
         합치기(기록, 줄들)
+        # 일정표에서 본 것만 적어 두고, 빠짐 표시는 네 목록을 다 합친 뒤에 단다(_빠진것_표시)
+        if 목록 in _일정목록 and 줄들:
+            본것[목록] = _본것(목록, 줄들)
         상태[목록] = {"rows": len(줄들), "reason": 이유, "at": time.time(),
                      "backfilled": 마침 or (bool(줄들) and 이번쪽수 >= 거슬러_쪽수)}
         if 줄들:
@@ -796,6 +855,8 @@ def 새로받기(쪽수: "int | None" = None) -> dict:
         else:
             health.record_fail(_건강이름[목록], 이유 or "빈손")
     _코드붙이기(기록)
+    if 빠진 := _빠진것_표시(기록, 본것):
+        log.info("공모주 일정표에서 빠짐(철회·연기): %s", ", ".join(map(str, 빠진)))
     받은것 = any(s["rows"] for s in 상태.values())
     if 받은것:
         _db_쓰기(기록, 상태)
@@ -1116,8 +1177,10 @@ def _예측(m: "모델", 대상: dict, 기준일: date) -> dict:
     공모가 = 대상.get("offer_price")
     if not 공모가 or 공모가 <= 0:
         return {"ok": False, "reason": "확정 공모가가 나오면 예측해요"}
-    if 대상.get("inst_ratio") is None or 대상.get("lockup_pct") is None:
-        return {"ok": False, "reason": "수요예측 결과(기관경쟁률·확약)가 나오면 예측해요"}
+    # 확약은 없어도 맞힌다 — 견줄 항목에서 빠질 뿐이다(missing 에 '의무보유확약'). 예전에는 확약이 없으면 막아,
+    # 확정 공모가·기관경쟁률이 다 나온 공모주가 청약 날에도 예측이 없었다(_확약)
+    if 대상.get("inst_ratio") is None:
+        return {"ok": False, "reason": "수요예측 결과(기관경쟁률)가 나오면 예측해요"}
     그룹 = 대상.get("kind") or 종류(대상.get("name"))
     F, Y, 날, 표 = m.배열(그룹)
     n = bisect.bisect_left(날, 기준일.toordinal())       # 상장일 순이라 '그날 전' 은 앞쪽 n 줄
@@ -1466,10 +1529,10 @@ def 단계(r: dict, 기준일: date) -> str:
 
 
 def _다가오는(기록: dict, 기준일: date) -> list:
-    """아직 시초가가 없는 최근·앞으로의 공모주."""
+    """아직 시초가가 없는 최근·앞으로의 공모주. 원천 일정표에서 빠진 것(철회·연기 — gone)은 뺀다."""
     out = []
     for r in 기록.values():
-        if r.get("open_price"):
+        if r.get("open_price") or r.get("gone"):
             continue
         날짜들 = [d for k in ("list_date", "sub_end", "sub_start", "forecast_date") if (d := _d(r.get(k)))]
         if not 날짜들 or max(날짜들) < 기준일 - timedelta(days=7):

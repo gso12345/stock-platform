@@ -193,6 +193,23 @@ describe("공모주 — 다가오는 공모주", () => {
     const 청약끝 = screen.getByText("에이비씨바이오").closest("div.bg-bg-card") as HTMLElement;
     expect(청약전).toHaveTextContent("청약경쟁률 없이 계산했어요");
     expect(청약끝).not.toHaveTextContent("청약경쟁률 없이 계산했어요");
+    expect(청약전).not.toHaveTextContent("의무보유확약이 아직 안 나와"), "확약은 있는데 없다고 했다";
+  });
+
+  it("확약이 없어도 예측하고, 빼고 계산했다고 알린다 — 그 카드에만", async () => {
+    /* 사용자: "공모청약날인데도 공모가예측이 안되는 종목이 있어" — 서버가 확약 없이도 맞히게 했다 */
+    overview.mockResolvedValueOnce({
+      ...한눈에,
+      upcoming: [{ ...한눈에.upcoming[2], name: "확약없는테크", lockup_pct: null,
+                   prediction: { ...예측결과, missing: ["청약경쟁률", "의무보유확약"], used: ["기관경쟁률"] } },
+                 한눈에.upcoming[0]],
+    });
+    그리기();
+    const 없음 = (await screen.findByText("확약없는테크")).closest("div.bg-bg-card") as HTMLElement;
+    const 있음 = screen.getByText("에이비씨바이오").closest("div.bg-bg-card") as HTMLElement;
+    expect(없음).toHaveTextContent("의무보유확약이 아직 안 나와 빼고 계산했어요");
+    expect(within(없음).getByTestId("예상시초가")).toBeInTheDocument();
+    expect(있음).not.toHaveTextContent("의무보유확약이 아직 안 나와");
   });
 
   it("오르내림 색은 설정을 따른다", async () => {

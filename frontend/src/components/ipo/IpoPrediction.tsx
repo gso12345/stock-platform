@@ -86,6 +86,8 @@ export default function IpoPrediction({ 예측, className, 덧단추, 공모가,
   }
   const { range: 범위 } = 예측;
   const 청약없음 = 예측.missing.includes("청약경쟁률");
+  // 확약이 없어도 맞힌다(서버 ipo_service._예측) — 견준 항목에서 빠졌다고 알린다
+  const 확약없음 = 예측.missing.includes("의무보유확약");
   const 보정 = 예측.parts.correction_pct ?? 0;
   // 금액으로 — 퍼센트만으로는 '그래서 얼마' 가 안 보인다
   const 차익 = 공모가 && 공모가 > 0 ? 예측.price - 공모가 : null;
@@ -141,6 +143,9 @@ export default function IpoPrediction({ 예측, className, 덧단추, 공모가,
             <> 이렇게 청약 전에 맞힌 지난 {청약전.n}곳은 ±{폭}% 안에 <b className="text-text-primary num">{확률글(청약전.hit_rate)}</b>였어요.</>
           )}
         </p>
+      )}
+      {확약없음 && (
+        <p className="text-2xs text-text-muted break-keep">의무보유확약이 아직 안 나와 빼고 계산했어요.</p>
       )}
 
       <div className="flex items-center justify-between gap-2 flex-wrap">

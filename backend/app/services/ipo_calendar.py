@@ -154,10 +154,13 @@ def _일정(r: dict, 무엇: str, 시작: date, 끝: date, 찍은때: str) -> li
 
 
 def 고르기(기록: dict, 기준일: date, 이름: "str | None" = None, 증권사: "list[str] | tuple" = ()) -> list[dict]:
-    """캘린더에 실을 공모주 — 청약일이나 상장일이 있고, 지난 일정은 60일까지만(이름을 콕 집으면 날짜는 안 본다)"""
+    """캘린더에 실을 공모주 — 청약일이나 상장일이 있고, 지난 일정은 60일까지만(이름을 콕 집으면 날짜는 안 본다).
+    원천 일정표에서 빠진 것(철회·연기 — ipo_service._빠진것_표시)은 뺀다 — 달력을 다시 받으면 그 일정이 지워진다"""
     고른 = set(증권사)
     out = []
     for r in 기록.values():
+        if r.get("gone"):
+            continue
         if 이름 and r.get("name") != 이름:
             continue
         if 고른 and not (set(증권사들(r.get("underwriter"))) & 고른):

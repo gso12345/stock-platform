@@ -216,6 +216,24 @@ class Test표를_머리글로_읽는다:
             assert r["inst_ratio"] == pytest.approx(1523.45) and r["lockup_pct"] == pytest.approx(38.2)
         assert "offer_price" not in r and "band_low" not in r, "표에 없는 칸까지 실었다"
 
+    def test_확약이_줄표면_기관경쟁률이_나왔을_때_0퍼센트(self):
+        """원천은 확약 0% 를 목록에 '-' 로 적는다 — 엠비디(2026-11)가 목록은 '-', 상세 페이지는 '의무보유확약 0.00%'.
+        기관경쟁률도 아직 없으면 결과 전이라 모른다"""
+        html = _수요예측쪽(
+            [_이름("엠비디", 2321), "2026.11.02", "9,600~11,700", "7,000", "14,000", "187.10", "-", "하나증권"],
+            [_이름("결과전", 2322), "2026.11.20", "9,000~11,000", "-", "-", "-", "-", "증권"],
+            [_이름("빈칸", 2323), "2026.11.02", "9,000~11,000", "10,000", "12,000", "300.5", "", "증권"],
+            [_이름("확약있음", 2324), "2026.11.02", "9,000~11,000", "10,000", "12,000", "300.5", "12.5%", "증권"],
+        ).decode("cp949")
+        r = {x["name"]: x for x in S.읽기_수요예측(html)[0]}
+        assert r["엠비디"]["inst_ratio"] == pytest.approx(187.1) and r["엠비디"]["lockup_pct"] == 0.0
+        assert r["엠비디"]["offer_price"] == 7000
+        assert r["결과전"]["inst_ratio"] is None and r["결과전"]["lockup_pct"] is None
+        assert r["빈칸"]["lockup_pct"] == 0.0 and r["확약있음"]["lockup_pct"] == pytest.approx(12.5)
+        assert S._확약("—", 10.0) == 0.0 and S._확약("–", 10.0) == 0.0 and S._확약(None, 10.0) == 0.0
+        assert S._확약("모름", 10.0) is None, "숫자도 줄표도 아닌 글은 0 으로 만들지 않는다"
+        assert S._확약("0.00%", None) == 0.0, "확약 0% 는 경쟁률과 상관없이 값이다"
+
     def test_머리글이_바뀌면_지금_머리글을_이유로_남긴다(self):
         html = _쪽("수요예측결과", ["회사", "날짜", "가격대", "가격", "금액", "비율", "약속", "증권사"],
                    [["가", "2025.01.01", "1~2", "2", "3", "4:1", "5%", "증권"]]).decode("cp949")
@@ -658,6 +676,107 @@ class Test세_목록을_합친다:
         assert 기록["가"]["inst_ratio"] == 900.0
 
 
+# ── 일정표에서 빠진 공모주 ──────────────────────────────────
+일정_머리 = ["종목명", "수요예측일", "희망공모가(원)", "확정공모가", "공모금액(백만)", "주간사"]
+
+
+def _일정쪽(*이름날):
+    """수요예측일정 한 쪽 — (이름, 수요예측일)"""
+    return _쪽("수요예측일정", 일정_머리, [[_이름(n, 3000 + i), d, "10,000~12,000", "", "20,000", "증권"]
+                                     for i, (n, d) in enumerate(이름날)])
+
+
+def _청약쪽(*이름날):
+    """청약일정 한 쪽 — (이름, 청약 시작일)"""
+    return _쪽("청약일정", 청약_머리, [[_이름(n, 3000 + i), f"{d}~{d[5:]}", "", "10,000~12,000", "", "증권", ""]
+                                   for i, (n, d) in enumerate(이름날)])
+
+
+class Test일정표에서_빠지면:
+    """사용자: "공모청약날인데도 공모가예측이 안되는 종목이 있어" — 씨앤엠·제이앤티지는 2026-11-11 수요예측 뒤 상장을
+    철회했다. 원천은 일정표에서 지웠는데 받아 둔 일정(청약 11/12~13)이 남아 '확정 공모가가 나오면 예측해요' 로 청약
+    날까지 떠 있었고, 청약 아침 알림·달력에도 남았다"""
+    일정 = [("가나", "2026.11.03"), ("씨앤엠", "2026.11.03"), ("다라", "2026.11.10"), ("마바", "2026.11.16")]
+    청약 = [("가나", "2026.11.12"), ("씨앤엠", "2026.11.12"), ("다라", "2026.11.19")]
+
+    def _받기(self, monkeypatch, 일정, 청약):
+        _가짜원천(monkeypatch, {("수요예측일정", 1): _일정쪽(*일정), ("청약", 1): _청약쪽(*청약)})
+        S.새로받기(쪽수=1)
+        return S.기록들()
+
+    def test_두_일정표_모두에서_빠지면_철회로_보고_어디에도_안_보인다(self, monkeypatch):
+        from app.services import ipo_calendar, push_service
+        self._받기(monkeypatch, self.일정, self.청약)
+        assert not any(r.get("gone") for r in S.기록들().values())
+        기록 = self._받기(monkeypatch, [x for x in self.일정 if x[0] != "씨앤엠"], [x for x in self.청약 if x[0] != "씨앤엠"])
+        assert 기록[S.열쇠("씨앤엠")]["gone"] == S.오늘().isoformat()
+        assert [k for k, r in 기록.items() if r.get("gone")] == [S.열쇠("씨앤엠")]
+        그날 = date(2026, 11, 12)
+        assert "씨앤엠" not in [r["name"] for r in S._다가오는(기록, 그날)]
+        assert "가나" in [r["name"] for r in S._다가오는(기록, 그날)]
+        assert [r["name"] for r in push_service.오늘_청약(기록, 그날)] == ["가나"], "철회한 공모주를 청약하라고 알렸다"
+        assert "씨앤엠" not in [r["name"] for r in ipo_calendar.고르기(기록, 그날)]
+        assert "씨앤엠" not in [r["name"] for r in ipo_calendar.고르기(기록, 그날, 이름="씨앤엠")]
+        다시볼때 = time.time() + 2 * S.상세_갱신간격                              # 상장 전 것을 다시 받을 때
+        assert S.열쇠("가나") in S._상세받을것(기록, 다시볼때)
+        assert S.열쇠("씨앤엠") not in S._상세받을것(기록, 다시볼때), "철회한 것의 상세를 계속 받는다"
+
+    def test_다시_보이면_표시를_뗀다(self, monkeypatch):
+        self._받기(monkeypatch, self.일정, self.청약)
+        self._받기(monkeypatch, [x for x in self.일정 if x[0] != "씨앤엠"], [x for x in self.청약 if x[0] != "씨앤엠"])
+        기록 = self._받기(monkeypatch, self.일정, [("씨앤엠", "2026.12.01"), *self.청약[:1]])   # 미뤘다가 다시 잡았다
+        assert "gone" not in 기록[S.열쇠("씨앤엠")] and 기록[S.열쇠("씨앤엠")]["sub_start"] == "2026-12-01"
+
+    def test_한_일정표에만_있어도_빠진_것이_아니다(self, monkeypatch):
+        self._받기(monkeypatch, self.일정, self.청약)
+        기록 = self._받기(monkeypatch, self.일정, [x for x in self.청약 if x[0] != "씨앤엠"])
+        assert not 기록[S.열쇠("씨앤엠")].get("gone")
+
+    def test_받은_범위보다_앞의_것과_상장한_것은_보지_않는다(self, monkeypatch):
+        self._받기(monkeypatch, [("옛날", "2026.09.01"), *self.일정], [("옛날", "2026.09.10"), *self.청약])
+        S._기록[S.열쇠("가나")]["open_price"] = 15000                    # 상장했다 — 일정표에서 빠지는 게 맞다
+        기록 = self._받기(monkeypatch, [x for x in self.일정 if x[0] != "가나"], [x for x in self.청약 if x[0] != "가나"])
+        assert not 기록[S.열쇠("옛날")].get("gone"), "받은 쪽들보다 앞 날짜인 것을 빠졌다고 봤다"
+        assert not 기록[S.열쇠("가나")].get("gone"), "상장한 것을 빠졌다고 봤다"
+
+    def test_상장해서_목록에서_빠진_것은_잘못_읽었나를_셀_때_넣지_않는다(self, monkeypatch):
+        일곱 = [(n, f"2026.11.0{i + 1}") for i, n in enumerate("가나다라마바사")]
+        self._받기(monkeypatch, 일곱, [(n, "2026.11.2" + d[-1]) for n, d in 일곱])
+        for n in "나다라":
+            S._기록[S.열쇠(n)]["open_price"] = 15000
+        남은 = [x for x in 일곱 if x[0] not in "나다라마"]                 # 나다라는 상장해 목록에서 빠졌고, 마는 철회
+        기록 = self._받기(monkeypatch, 남은, [(n, "2026.11.2" + d[-1]) for n, d in 남은])
+        assert [r["name"] for r in 기록.values() if r.get("gone")] == ["마"], "상장한 것까지 세어 표를 안 믿었다"
+
+    def test_많이_빠졌으면_표를_잘못_읽은_것으로_보고_아무것도_안_단다(self, monkeypatch):
+        """범위 안의 3분의 1 넘게 빠지면 철회가 아니라 표가 바뀐 것이다 — 다가오는 공모주가 통째로 사라지면 안 된다"""
+        self._받기(monkeypatch, self.일정, self.청약)
+        기록 = self._받기(monkeypatch, [("마바", "2026.11.16"), ("새것", "2026.11.03")],
+                          [("새것", "2026.11.12")])
+        assert not any(r.get("gone") for r in 기록.values())
+
+    def test_전에_빠진_것은_새_철회를_가리지_않는다(self, monkeypatch):
+        """빠진 것이 쌓여도 — 이미 빠짐 표시가 붙은 것은 '표를 잘못 읽었나' 를 셀 때 넣지 않는다"""
+        여섯 = [(f"공모{i}", "2026.11.0" + str(i + 1)) for i in range(6)]
+        청약 = [(n, "2026.11.2" + d[-1]) for n, d in 여섯]
+        self._받기(monkeypatch, 여섯, 청약)
+        남은 = lambda 빼기: ([x for x in 여섯 if x[0] not in 빼기], [x for x in 청약 if x[0] not in 빼기])  # noqa: E731
+        기록 = self._받기(monkeypatch, *남은({"공모2", "공모3"}))                 # 둘이 철회(6곳 중 2곳)
+        assert sorted(r["name"] for r in 기록.values() if r.get("gone")) == ["공모2", "공모3"]
+        기록 = self._받기(monkeypatch, *남은({"공모2", "공모3", "공모4"}))         # 하나 더
+        assert sorted(r["name"] for r in 기록.values() if r.get("gone")) == ["공모2", "공모3", "공모4"]
+        # 가장 앞 날짜의 것이 빠지면 받은 쪽들 밖으로 밀려난 것과 가를 수 없다 — 빠졌다고 하지 않는다
+        기록 = self._받기(monkeypatch, *남은({"공모0", "공모2", "공모3", "공모4"}))
+        assert not 기록[S.열쇠("공모0")].get("gone")
+
+    def test_받기_전_기록은_고치지_않는다(self, monkeypatch):
+        """빠짐 표시는 새로 받은 기록에만 — 받기 전 기록(_기록)과 나눠 쓰는 줄을 그 자리에서 고치지 않는다"""
+        self._받기(monkeypatch, self.일정, self.청약)
+        전 = S._기록[S.열쇠("씨앤엠")]
+        self._받기(monkeypatch, [x for x in self.일정 if x[0] != "씨앤엠"], [x for x in self.청약 if x[0] != "씨앤엠"])
+        assert "gone" not in 전 and S._기록[S.열쇠("씨앤엠")]["gone"]
+
+
 # ── 저장 ────────────────────────────────────────────────────
 class Test다시_떠도_남는다:
     def test_DB_에_남기고_다시_읽는다(self, tmp_path, monkeypatch):
@@ -816,7 +935,19 @@ class Test예측:
 
     def test_수요예측_전에는_예측하지_않는다(self):
         p = S.예측하기(_만든기록(), _대상(inst_ratio=None), 오늘)
-        assert not p["ok"] and "수요예측" in p["reason"]
+        assert p == {"ok": False, "reason": "수요예측 결과(기관경쟁률)가 나오면 예측해요"}
+        assert S.예측하기(_만든기록(), _대상(offer_price=None), 오늘) == {
+            "ok": False, "reason": "확정 공모가가 나오면 예측해요"}
+
+    def test_확약이_없어도_기관경쟁률이_있으면_맞히고_빠졌다고_말한다(self):
+        """사용자: "공모청약날인데도 공모가예측이 안되는 종목이 있어. 확정공모가가 정해졌는데 왜 예측을 안하는거야" —
+        확약이 없으면 예측을 막았었다. 견줄 항목에서 빠질 뿐이다"""
+        p = S.예측하기(_만든기록(), _대상(lockup_pct=None), 오늘)
+        assert p["ok"] and "의무보유확약" in p["missing"] and "의무보유확약" not in p["used"]
+        assert "기관경쟁률" in p["used"]
+        # 확약 0% 는 값이다 — 견준다
+        p0 = S.예측하기(_만든기록(), _대상(lockup_pct=0.0), 오늘)
+        assert p0["ok"] and "의무보유확약" in p0["used"]
 
     def test_새_규칙_전_상장은_쓰지_않는다(self):
         """2023-06-26 전에는 시초가가 공모가의 2배에서 막혀 있었다"""
@@ -883,6 +1014,14 @@ class Test시간순_검증:
         가운데["open_price"] = 39_000 if 가운데["open_price"] < 20_000 else 6_000
         뒤 = {r["name"]: r["pred_ratio"] for r in S.걸어가며_검증(기록, 최근=30)["rows"]}
         assert 앞[가운데["name"]] == 뒤[가운데["name"]], "맞힐 대상의 실제 시초가가 예측에 들어갔다"
+
+    def test_확약이_빈_지난_공모주도_맞혀_본다(self):
+        """예전에는 확약이 비면 예측이 막혀 그 공모주가 정확도에서 빠졌다(확약 0% 를 '-' 로 적은 약한 공모주들)"""
+        기록 = _만든기록()
+        빈 = sorted(기록.values(), key=lambda r: r["list_date"])[-3]
+        빈["lockup_pct"] = None
+        이름들 = [r["name"] for r in S.걸어가며_검증(기록, 최근=10)["rows"]]
+        assert 빈["name"] in 이름들 and len(이름들) == 10
 
     def test_맞힌_뒤의_결과가_예측을_바꾸지_않는다(self):
         기록 = _만든기록()

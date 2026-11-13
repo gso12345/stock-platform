@@ -286,10 +286,13 @@ _아침_보낸날: "date | None" = None
 
 
 def 오늘_청약(기록: dict, 오늘: date) -> list:
-    """오늘 청약을 시작하거나 마감하는 공모주 — 청약 첫날·마지막 날 모두 챙긴다"""
+    """오늘 청약을 시작하거나 마감하는 공모주 — 청약 첫날·마지막 날 모두 챙긴다. 원천 일정표에서 빠진 것(철회·연기 —
+    ipo_service._빠진것_표시)은 뺀다 — 철회한 공모주를 청약하라고 알리면 안 된다"""
     from app.services import ipo_service
     out = []
     for r in 기록.values():
+        if r.get("gone"):
+            continue
         시작 = ipo_service._d(r.get("sub_start"))
         끝 = ipo_service._d(r.get("sub_end")) or 시작
         if 시작 and (시작 == 오늘 or 끝 == 오늘):
