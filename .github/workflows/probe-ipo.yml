@@ -13,53 +13,37 @@ jobs:
       - name: 자료 원천(38커뮤니케이션)을 읽기만 해서 확인
         shell: python
         run: |
-          import re, urllib.request, urllib.error, ssl, time
+          import re, urllib.request, urllib.error, urllib.parse, time
           머리 = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-                  "Accept-Language": "ko-KR,ko;q=0.9", "Referer": "https://www.38.co.kr/"}
+                  "Accept-Language": "ko-KR,ko;q=0.9", "Referer": "http://www.38.co.kr/"}
           def get(u, t=40):
               r = urllib.request.Request(u, headers=머리)
               try:
                   with urllib.request.urlopen(r, timeout=t) as res:
-                      return res.status, res.read(), ""
-              except urllib.error.HTTPError as e:
-                  return e.code, e.read(), "HTTPError"
+                      return res.status, res.read().decode("cp949", "replace")
               except Exception as e:
-                  return 0, b"", repr(e)[:300]
-          바탕 = None
-          for b in ("https://www.38.co.kr", "http://www.38.co.kr"):
-              s, 본, 오류 = get(b + "/html/fund/index.htm?o=r1")
-              print("시도", b, s, len(본), 오류, flush=True)
-              if s == 200:
-                  바탕 = b
-                  break
-          if not 바탕:
-              raise SystemExit("38 에 닿지 못함")
-          찾을 = ("엠비디", "씨앤엠", "제이앤티지")
-          상세 = {}
+                  return 0, repr(e)[:200]
+          B = "http://www.38.co.kr"
+          찾을 = ("씨앤엠", "제이앤티지", "철회", "연기")
           for 이름, 경로 in (("수요예측결과", "/html/fund/index.htm?o=r1"), ("수요예측일정", "/html/fund/index.htm?o=r"),
                             ("청약일정", "/html/fund/index.htm?o=k")):
-              for 쪽 in (1, 2):
-                  s, b, 오류 = get(f"{바탕}{경로}&page={쪽}")
-                  글 = b.decode("cp949", "replace")
-                  print(f"\n#### {이름} {쪽}쪽 {s} {len(글)}자 {오류}", flush=True)
-                  for 줄 in re.findall(r"<tr[^>]*>(.*?)</tr>", 글, flags=re.S | re.I):
-                      칸들 = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", c)).replace("&nbsp;", " ").strip()
-                              for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", 줄, flags=re.S | re.I)]
-                      if not 칸들 or len(칸들) > 12:
-                          continue
-                      if any(("기업명" in c or "종목명" in c) for c in 칸들[:2]):
-                          print("   머리글", 칸들, flush=True)
-                      if any(n in 칸들[0] for n in 찾을):
-                          print("   줄", 칸들, flush=True)
-                          if m := re.search(r"o=v&(?:amp;)?no=(\d+)", 줄):
-                              상세[칸들[0]] = m.group(1)
+              for 쪽 in (1, 2, 3):
+                  s, 글 = get(f"{B}{경로}&page={쪽}")
+                  평 = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", 글)).replace("&nbsp;", " ")
+                  print(f"#### {이름} {쪽}쪽 {s} {len(평)}자", flush=True)
+                  for 말 in 찾을:
+                      for m in list(re.finditer(말, 평))[:3]:
+                          print(f"   [{말}] …{평[max(0, m.start() - 60): m.start() + 80]}…", flush=True)
+                  # 이 쪽에 든 날짜 범위(일정·예측일) — 11월 초 일정이 이 쪽들에 들 만한지
+                  날 = sorted(set(re.findall(r"2026\.1[01]\.\d{2}", 평)))
+                  print(f"   날짜 {날[:3]} … {날[-3:]}", flush=True)
                   time.sleep(0.5)
-          print("\n상세 번호", 상세, flush=True)
-          for 이름, no in 상세.items():
-              s, b, 오류 = get(f"{바탕}/html/fund/?o=v&no={no}&l=&page=1")
-              글 = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", b.decode("cp949", "replace"))).replace("&nbsp;", " ")
-              print(f"\n#### 상세 {이름} no={no} {s} {len(글)}자 {오류}", flush=True)
-              for 말 in ("확정공모가", "공모가", "희망공모가", "기관경쟁률", "경쟁률", "의무보유", "확약", "청약일", "상장일", "수요예측"):
-                  for m in list(re.finditer(말, 글))[:2]:
-                      print(f"   [{말}] …{글[max(0, m.start() - 20): m.start() + 90]}…", flush=True)
-              time.sleep(0.5)
+          # 상세 번호를 몰라도 — 38 의 공모주 검색(이름)으로 찾아 본다
+          for 이름 in ("씨앤엠", "제이앤티지"):
+              for 주소 in (f"{B}/html/fund/index.htm?o=k&search={urllib.parse.quote(이름.encode('cp949'))}",):
+                  s, 글 = get(주소)
+                  평 = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", 글)).replace("&nbsp;", " ")
+                  print(f"#### 검색 {이름} {s} {len(평)}자", flush=True)
+                  for m in list(re.finditer(이름, 평))[:3]:
+                      print(f"   …{평[max(0, m.start() - 60): m.start() + 120]}…", flush=True)
+          import urllib.parse
