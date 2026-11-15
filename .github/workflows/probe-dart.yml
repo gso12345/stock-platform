@@ -1,0 +1,36 @@
+name: 자료 확인(임시) — 운영 서버의 공시(DART) 쓰임
+on:
+  push:
+    branches: [claude/initial-load-performance-2RJGW]
+    paths: [".github/workflows/probe-dart.yml"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 운영 서버를 읽기만 해서 확인
+        shell: python
+        run: |
+          import json, time, urllib.request, urllib.error
+          API = "https://stock-platform-ksmu.onrender.com/api/v1"
+          def get(u, t=90):
+              r = urllib.request.Request(u, headers={"User-Agent": "deploy-probe"})
+              try:
+                  with urllib.request.urlopen(r, timeout=t) as res:
+                      return res.status, res.read()
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read()
+              except Exception as e:
+                  return 0, repr(e).encode()
+          for 종목 in ("005930", "000660"):
+              s, b = get(f"{API}/stocks/KR/{종목}/disclosures")
+              try:
+                  d = json.loads(b)
+              except Exception:
+                  d = None
+              print(f"== 공시 {종목} {s} 몇 건 {len(d) if isinstance(d, list) else '-'}", flush=True)
+              if isinstance(d, list) and d:
+                  print("   첫 건", json.dumps(d[0], ensure_ascii=False)[:300], flush=True)
+                  print("   열쇠", sorted(d[0]), flush=True)
